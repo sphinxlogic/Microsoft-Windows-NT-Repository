@@ -1,0 +1,1648 @@
+Newsgroups: comp.sources.misc
+From: torsten@diku.dk (Torsten Poulin Nielsen)
+Subject: v41i085:  p2latex - Pascal to LaTeX v1.0, Part03/03
+Message-ID: <1994Jan10.035631.13918@sparky.sterling.com>
+X-Md4-Signature: 95fd2f203dc2de43c37278652d4a6a25
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 10 Jan 1994 03:56:31 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: torsten@diku.dk (Torsten Poulin Nielsen)
+Posting-number: Volume 41, Issue 85
+Archive-name: p2latex/part03
+Environment: UNIX, AmigaDOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile.unix alloca.c fancyheadings.doc fancyheadings.sty
+#   getopt.h getopt1.c main.c p2latex.l
+# Wrapped by kent@sparky on Sun Jan  9 21:45:40 1994
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 3)."'
+if test -f 'Makefile.unix' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.unix'\"
+else
+  echo shar: Extracting \"'Makefile.unix'\" \(730 characters\)
+  sed "s/^X//" >'Makefile.unix' <<'END_OF_FILE'
+X#
+X#	Simple Unix Makefile for p2latex
+X#	Torsten Poulin <torsten@diku.dk>
+X#
+X
+XSHELL		= /bin/sh
+XPRG		= p2latex
+X
+XLEX		= flex
+XLEXOPTS 	= -i -8
+X#		      ^ so we can handle 8-bit char sets
+X
+XROFF		= groff
+XROFFOPTS	= -Tlatin1
+X
+XCC		= gcc
+XCCFLAGS		= -O2
+X
+XOBJ		= alloca.o p2latex.o main.o getopt.o getopt1.o \
+X		  version.o allocate.o 
+X
+X
+X$(PRG): $(OBJ)
+X	$(CC) -o $(PRG) $(OBJ)
+X
+X.c.o:
+X	$(CC) $(CCFLAGS) -c $<
+X
+X.l.c:
+X	$(LEX) $(LEXOPTS) $<
+X	mv lex.yy.c $*.c
+X
+Xmanual: p2latex.1
+X	$(ROFF) $(ROFFOPTS) -man p2latex.1 > p2latex.0
+X
+Xclean:
+X	-rm -f $(OBJ)
+X    
+Xalloca.o: alloca.c 
+Xp2latex.c: p2latex.l
+Xp2latex.o: p2latex.c
+Xmain.o: main.c getopt.h 
+Xgetopt.o: getopt.c getopt.h 
+Xgetopt1.o: getopt1.c getopt.h 
+Xversion.o: version.c 
+Xallocate.o: allocate.c 
+END_OF_FILE
+  if test 730 -ne `wc -c <'Makefile.unix'`; then
+    echo shar: \"'Makefile.unix'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile.unix'
+fi
+if test -f 'alloca.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'alloca.c'\"
+else
+  echo shar: Extracting \"'alloca.c'\" \(5233 characters\)
+  sed "s/^X//" >'alloca.c' <<'END_OF_FILE'
+X/*
+X	alloca -- (mostly) portable public-domain implementation -- D A Gwyn
+X
+X	last edit:	86/05/30	rms
+X	   include config.h, since on VMS it renames some symbols.
+X	   Use xmalloc instead of malloc.
+X
+X	This implementation of the PWB library alloca() function,
+X	which is used to allocate space off the run-time stack so
+X	that it is automatically reclaimed upon procedure exit, 
+X	was inspired by discussions with J. Q. Johnson of Cornell.
+X
+X	It should work under any C implementation that uses an
+X	actual procedure stack (as opposed to a linked list of
+X	frames).  There are some preprocessor constants that can
+X	be defined when compiling for your specific system, for
+X	improved efficiency; however, the defaults should be okay.
+X
+X	The general concept of this implementation is to keep
+X	track of all alloca()-allocated blocks, and reclaim any
+X	that are found to be deeper in the stack than the current
+X	invocation.  This heuristic does not reclaim storage as
+X	soon as it becomes invalid, but it will do so eventually.
+X
+X	As a special case, alloca(0) reclaims storage without
+X	allocating any.  It is a good idea to use alloca(0) in
+X	your main control loop, etc. to force garbage collection.
+X*/
+X#ifndef lint
+Xstatic char	SCCSid[] = "@(#)alloca.c	1.1";	/* for the "what" utility */
+X#endif
+X
+X#ifdef emacs
+X#include "config.h"
+X#ifdef static
+X/* actually, only want this if static is defined as ""
+X   -- this is for usg, in which emacs must undefine static
+X   in order to make unexec workable
+X   */
+X#ifndef STACK_DIRECTION
+Xyou
+Xlose
+X-- must know STACK_DIRECTION at compile-time
+X#endif /* STACK_DIRECTION undefined */
+X#endif /* static */
+X#endif /* emacs */
+X
+X#ifdef __STDC__
+Xtypedef void	*pointer;		/* generic pointer type */
+X#else
+Xtypedef char	*pointer;		/* generic pointer type */
+X#endif
+X
+X#define	NULL	0			/* null pointer constant */
+X
+Xextern void	free();
+Xextern pointer	xmalloc();
+X
+X/*
+X	Define STACK_DIRECTION if you know the direction of stack
+X	growth for your system; otherwise it will be automatically
+X	deduced at run-time.
+X
+X	STACK_DIRECTION > 0 => grows toward higher addresses
+X	STACK_DIRECTION < 0 => grows toward lower addresses
+X	STACK_DIRECTION = 0 => direction of growth unknown
+X*/
+X
+X#ifndef STACK_DIRECTION
+X#define	STACK_DIRECTION	0		/* direction unknown */
+X#endif
+X
+X#if STACK_DIRECTION != 0
+X
+X#define	STACK_DIR	STACK_DIRECTION	/* known at compile-time */
+X
+X#else	/* STACK_DIRECTION == 0; need run-time code */
+X
+Xstatic int	stack_dir;		/* 1 or -1 once known */
+X#define	STACK_DIR	stack_dir
+X
+Xstatic void
+Xfind_stack_direction (/* void */)
+X{
+X  static char	*addr = NULL;	/* address of first
+X				   `dummy', once known */
+X  auto char	dummy;		/* to get stack address */
+X
+X  if (addr == NULL)
+X    {				/* initial entry */
+X      addr = &dummy;
+X
+X      find_stack_direction ();	/* recurse once */
+X    }
+X  else				/* second entry */
+X    if (&dummy > addr)
+X      stack_dir = 1;		/* stack grew upward */
+X    else
+X      stack_dir = -1;		/* stack grew downward */
+X}
+X
+X#endif	/* STACK_DIRECTION == 0 */
+X
+X/*
+X	An "alloca header" is used to:
+X	(a) chain together all alloca()ed blocks;
+X	(b) keep track of stack depth.
+X
+X	It is very important that sizeof(header) agree with malloc()
+X	alignment chunk size.  The following default should work okay.
+X*/
+X
+X#ifndef	ALIGN_SIZE
+X#define	ALIGN_SIZE	sizeof(double)
+X#endif
+X
+Xtypedef union hdr
+X{
+X  char	align[ALIGN_SIZE];	/* to force sizeof(header) */
+X  struct
+X    {
+X      union hdr *next;		/* for chaining headers */
+X      char *deep;		/* for stack depth measure */
+X    } h;
+X} header;
+X
+X/*
+X	alloca( size ) returns a pointer to at least `size' bytes of
+X	storage which will be automatically reclaimed upon exit from
+X	the procedure that called alloca().  Originally, this space
+X	was supposed to be taken from the current stack frame of the
+X	caller, but that method cannot be made to work for some
+X	implementations of C, for example under Gould's UTX/32.
+X*/
+X
+Xstatic header *last_alloca_header = NULL; /* -> last alloca header */
+X
+Xpointer
+Xalloca (size)			/* returns pointer to storage */
+X     unsigned	size;		/* # bytes to allocate */
+X{
+X  auto char	probe;		/* probes stack depth: */
+X  register char	*depth = &probe;
+X
+X#if STACK_DIRECTION == 0
+X  if (STACK_DIR == 0)		/* unknown growth direction */
+X    find_stack_direction ();
+X#endif
+X
+X				/* Reclaim garbage, defined as all alloca()ed storage that
+X				   was allocated from deeper in the stack than currently. */
+X
+X  {
+X    register header	*hp;	/* traverses linked list */
+X
+X    for (hp = last_alloca_header; hp != NULL;)
+X      if ((STACK_DIR > 0 && hp->h.deep > depth)
+X	  || (STACK_DIR < 0 && hp->h.deep < depth))
+X	{
+X	  register header	*np = hp->h.next;
+X
+X	  free ((pointer) hp);	/* collect garbage */
+X
+X	  hp = np;		/* -> next header */
+X	}
+X      else
+X	break;			/* rest are not deeper */
+X
+X    last_alloca_header = hp;	/* -> last valid storage */
+X  }
+X
+X  if (size == 0)
+X    return NULL;		/* no allocation required */
+X
+X  /* Allocate combined header + user data storage. */
+X
+X  {
+X    register pointer	new = xmalloc (sizeof (header) + size);
+X    /* address of header */
+X
+X    ((header *)new)->h.next = last_alloca_header;
+X    ((header *)new)->h.deep = depth;
+X
+X    last_alloca_header = (header *)new;
+X
+X    /* User storage begins just after header. */
+X
+X    return (pointer)((char *)new + sizeof(header));
+X  }
+X}
+X
+END_OF_FILE
+  if test 5233 -ne `wc -c <'alloca.c'`; then
+    echo shar: \"'alloca.c'\" unpacked with wrong size!
+  fi
+  # end of 'alloca.c'
+fi
+if test -f 'fancyheadings.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fancyheadings.doc'\"
+else
+  echo shar: Extracting \"'fancyheadings.doc'\" \(9284 characters\)
+  sed "s/^X//" >'fancyheadings.doc' <<'END_OF_FILE'
+XReturn-Path: piet@cs.ruu.nl
+XReceived: from unido.informatik.uni-dortmund.de
+X	by gorbi.informatik.uni-dortmund.de id AA04891; Mon, 7 Oct 91 11:35:20 +0100
+XReceived: from ruuinf.cs.ruu.nl 
+X	by unido.informatik.uni-dortmund.de with SMTP (5.65+/UNIDO-2.0.4.d)
+X	via EUnet for gorbi.informatik.uni-dortmund.de
+X	id AA12353; Mon, 7 Oct 91 11:31:05 +0100
+XReceived: from gnu.cs.ruu.nl by ruuinf.cs.ruu.nl with SMTP
+X	(5.61+/IDA-1.2.8) id AA25657; Mon, 7 Oct 91 12:15:53 +0100
+XReceived: by alchemy.cs.ruu.nl
+X	(15.11/15.6) id AA20318; Mon, 7 Oct 91 11:34:15 -0100
+XDate: Mon, 7 Oct 91 11:34:15 -0100
+XFrom: Piet van Oostrum <piet@cs.ruu.nl>
+XMessage-Id: <9110071034.AA20318@alchemy.cs.ruu.nl>
+XTo: heitkoet (Joerg Heitkoetter)
+XSubject: Re: Fancy Latex Headers - Please Help
+XNewsgroups: comp.text.tex
+XIn-Reply-To: <3853@laura.UUCP>
+XOrganization: Dept of Computer Science, Utrecht University, The Netherlands
+XCc: 
+X
+XHere is the (new) doc file for fancyheadings.sty:
+X
+XHere is a documentstylestyle option that allows you to customize your
+Xpage headers and footers in an easy way. It combines features that were
+Xseparately available in other pagestyles, without introducing much
+Xcomplexity. You can define:
+X    - three-part headers and footers
+X    - rules in header and footer
+X    - headers and footers wider than \textwidth
+X    - multiline headers and footers
+X    - separate headers and footers for even and odd pages
+X    - separate headers and footers for chapter pages
+X
+XTo use this pagestyle, you must include the ``fancyheadings'' style
+Xoption in your \documentstyle, and issue the \pagestyle{fancy} command.
+XThe \pagestyle{fancy} command should be issued after any changes made to
+X\textwidth.
+X
+XThe page layout will be as follows:
+X
+X		LHEAD          CHEAD          RHEAD
+X		----------------------------------- (rule)
+X
+X			     page body
+X
+X
+X		----------------------------------- (rule)
+X		LFOOT	       CFOOT	      RFOOT
+X
+XThe L-fields will be leftadjusted, the C-fields centered and the
+XR-fields rightadjusted.
+XEach of the six fields and the two rules can be defined separately.
+X
+XSimple use:
+X
+XThe header and footer fields can be defined by commands \lhead{LHEAD}
+Xand so on for the other fields. If the field depends on something in the
+Xdocument (e.g. section titles) you must in general use the \markboth and
+X\markright commands, otherwise a title may end on the wrong page. You
+Xcan do this e.g. by redefining the commands \chaptermark, \sectionmark
+Xand so on (see example below). The defaults for these marks are as in
+Xthe standard pagestyles. The marks can be put into a header or footer
+Xfield by referencing \leftmark and \rightmark.
+X
+XRules in header and footer
+X
+XThe thickness of the rules below the header and above the footer can be
+Xchanged by redefining the length parameters \headrulewidth (default
+X0.4pt) and \footrulewidth (default 0). These may be redefined by the
+X\setlength command. A thickness of 0pt makes the rule invisible.
+XIf you want to make more complicated changes, you have to redefine the
+Xcommands \headrule and/or \footrule.
+X
+XHeaders and footers wider than \textwidth
+X
+XThe headers and footers are set in a box of width \headwidth. The
+Xdefault for this is the value of \textwidth. You can make it wider (or
+Xsmaller) by redefining \headwidth with the \setlength or \addtolength
+Xcommand. The headers and footers will stick out the page on the same
+Xside as the marginal notes. For example to include the marginal notes,
+Xadd both \marginparsep and \marginparwidth to \headwidth (see also the
+Xexample below).
+X
+XMultiline headers and footers
+X
+XEach of the six fields is set in an appropriate parbox, so you can put a
+Xmultiline part in it with the \\ command. It is also possible to put
+Xextra space in it with the \vspace command. Note that if you do this you
+Xwill probably have to increase the \headheight or \footskip lengths.
+X
+XSeparate headers and footers for even and odd pages
+X
+XIf you want the headers and footers to be different on even- and
+Xodd-numbered pages in the ``twoside'' style, the field-defining macros
+Xcan be given an optional argument, to be used on the even-numbered
+Xpages, like \lhead[EVEN-LHEAD]{ODD-LHEAD}.
+X
+XSeparate headers and footers for chapter pages
+X
+XLaTeX gives a \thispagestyle{plain} command for the first page of the
+Xdocument, the first page of each chapter and a couple of other pages. It
+Xmight be incompatible with your pagestyle. In this case you can use a
+Xslightly different version of the pagestyle, called \pagestyle{fancyplain}. 
+XThis pagestyle redefines the pagestyle ``plain'' to also use pagestyle
+X``fancy'' with the following modifications:
+X    - the thicknesses of the rules is defined by \plainheadrulewidth and
+X      \plainfootrulewidth (both default 0).
+X    - the 6 fields may be defined separately for the plain pages by
+X      giving them the value \fancyplain{PLAIN-VALUE}{NORMAL-VALUE}. This
+X      construct may be used in both the optional argument and the normal
+X      argument. Thus \lhead[\fancyplain{F1}{F2}]{\fancyplain{F3}{F4}}
+X      specifies the LHEAD value in a two-sided document:
+X	F1 on an even-numbered ``plain'' page
+X	F2 on an even-numbered normal page
+X	F3 on an odd-numbered ``plain'' page
+X	F4 on an odd-numbered normal page.
+X
+XDefaults:
+X
+X\headrulewidth 	      0.4pt
+X\footrulewidth		0pt
+X\plainheadrulewidth	0pt
+X\plainfootrulewidth	0pt
+X
+X\lhead[\fancyplain{}{\sl\rightmark}]{\fancyplain{}{\sl\leftmark}}
+X%  i.e. empty on ``plain'' pages \rightmark on even, \leftmark on odd pages
+X\chead{}
+X\rhead[\fancyplain{}{\sl\leftmark}]{\fancyplain{}{\sl\rightmark}}
+X%  i.e. empty on ``plain'' pages \leftmark on even, \rightmark on odd pages
+X\lfoot{}
+X\cfoot{\rm\thepage} % page number
+X\rfoot{}
+X
+XExamples:
+X
+XTo put two lines containing the section title and the subsection title
+Xin the righthandside corner, use:
+X
+X\documentstyle[fancyheadings]{article}
+X\pagestyle{fancy}
+X\renewcommand{\sectionmark}[1]{\markboth{#1}{}}
+X\renewcommand{\subsectionmark}[1]{\markright{#1}}
+X\rfoot{\leftmark\\\rightmark}
+X
+XThe following definitions give an approximation of the style used in the
+XLaTeX book:
+X
+X\documentstyle[fancyheadings]{book}
+X\pagestyle{fancyplain}
+X\addtolength{\headwidth}{\marginparsep}
+X\addtolength{\headwidth}{\marginparwidth}
+X\renewcommand{\chaptermark}[1]{\markboth{#1}{#1}} % remember chapter title
+X\renewcommand{\sectionmark}[1]{\markright{\thesection\ #1}}
+X                                                % section number and title
+X\lhead[\fancyplain{}{\bf\thepage}]{\fancyplain{}{\bf\rightmark}}
+X\rhead[\fancyplain{}{\bf\leftmark}]{\fancyplain{}{\bf\thepage}}
+X\cfoot{}
+X
+XUsing section titles etc. in the headers and/or footers:
+X
+XYou can't just change the header and/or footer fields in the middle of some
+Xtext (e.g. after a section header). This is because TeX may have processed
+Xa bit more text before deciding to make up the page. It may have passed a
+Xsection beginning, causing the wrong title on the page.  TeX has a
+Xmechanism called 'marks' to solve this problem.  There is in LaTeX a
+X\leftmark and a \rightmark. Usually \leftmark is a chapter title and
+X\rightmark is a section title. To set the marks there are two commands:
+X\markboth{L}{R} sets the \leftmark to L and the rightmark to R, and
+X\rightmark{R} sets only the rightmark to R.
+XThe default definitions of \section etc. do this already for you.
+X
+XAn example follows:
+X
+X	left page						right page
+X	---------						----------
+X
+X2	     CHAPTER 1. Introduction | 1.2 Some section                        3
+X------------------------------------ | -----------------------------------------
+X                                     |
+XText                                 | more text
+XText                                 | more text
+XText                                 | more text
+X                                     |
+X                                     |
+X                                     |
+X
+XThis can be easily done with fancyheadings as follows:
+X
+X\pagestyle{fancy}
+X\setlength{\headrulewidth}{1pt}
+X\lhead[\rm\thepage]{\sl\rightmark}
+X\rhead[\sl\leftmark]{\rm\thepage}
+X
+XThis specifies that on even pages (the [] parts) the leftheadpart is page
+Xnumber and rightheadpart is \leftmark, which is the chapter title (because that
+Xis given as the left argument of \markboth (see page 162 of the LaTeX book)
+X
+XOn odd pages (the parts between {}) the leftheadpart is \rightmark (which
+Xis the last section title because that is given as argument to \markright
+X(see the same page), and the rightheadpart is the page no.
+X
+XNow suppose you don't want the section number and you want the section
+Xtitle in upper case:
+XYou add the following to your preamble:
+X
+X\renewcommand{\sectionmark}[1]{\markright{\uppercase{#1}}}
+X
+XOr if you don't want the chapter number but only the chapter title (not in
+Xuppercase):
+X
+X\renewcommand{\chaptermark}[1]{\markboth{#1}{ }}
+X
+XNote: the parameter in both cases is the (section|chapter) title.
+X
+XKNOWN PROBLEMS:
+X
+XSometimes you will get a warning message from LaTeX concerning ``overfull
+Xvbox during output''. In this case you have to increase the \headheight or
+X\footskip lengths or both (with \addtolength or \setlength).
+X-- 
+XPiet* van Oostrum, Dept of Computer Science, Utrecht University,
+XPadualaan 14, P.O. Box 80.089, 3508 TB Utrecht, The Netherlands.
+XTelephone: +31 30 531806   Uucp:   uunet!mcsun!ruuinf!piet
+XTelefax:   +31 30 513791   Internet:  piet@cs.ruu.nl   (*`Pete')
+END_OF_FILE
+  if test 9284 -ne `wc -c <'fancyheadings.doc'`; then
+    echo shar: \"'fancyheadings.doc'\" unpacked with wrong size!
+  fi
+  # end of 'fancyheadings.doc'
+fi
+if test -f 'fancyheadings.sty' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fancyheadings.sty'\"
+else
+  echo shar: Extracting \"'fancyheadings.sty'\" \(3778 characters\)
+  sed "s/^X//" >'fancyheadings.sty' <<'END_OF_FILE'
+X% fancyheadings.sty version 1.0
+X% Fancy headers and footers.
+X% Piet van Oostrum, Dept of Computer Science, University of Utrecht
+X% Padualaan 14, P.O. Box 80.089, 3508 TB Utrecht, The Netherlands
+X% Telephone: +31-30-531806. piet@cs.ruu.nl (mcvax!hp4nl!ruuinf!piet)
+X% March, 1989.
+X
+X\def\lhead{\@ifnextchar[{\@xlhead}{\@ylhead}}
+X\def\@xlhead[#1]#2{\gdef\@elhead{#1}\gdef\@olhead{#2}}
+X\def\@ylhead#1{\gdef\@elhead{#1}\gdef\@olhead{#1}}
+X
+X\def\chead{\@ifnextchar[{\@xchead}{\@ychead}}
+X\def\@xchead[#1]#2{\gdef\@echead{#1}\gdef\@ochead{#2}}
+X\def\@ychead#1{\gdef\@echead{#1}\gdef\@ochead{#1}}
+X
+X\def\rhead{\@ifnextchar[{\@xrhead}{\@yrhead}}
+X\def\@xrhead[#1]#2{\gdef\@erhead{#1}\gdef\@orhead{#2}}
+X\def\@yrhead#1{\gdef\@erhead{#1}\gdef\@orhead{#1}}
+X
+X\def\lfoot{\@ifnextchar[{\@xlfoot}{\@ylfoot}}
+X\def\@xlfoot[#1]#2{\gdef\@elfoot{#1}\gdef\@olfoot{#2}}
+X\def\@ylfoot#1{\gdef\@elfoot{#1}\gdef\@olfoot{#1}}
+X
+X\def\cfoot{\@ifnextchar[{\@xcfoot}{\@ycfoot}}
+X\def\@xcfoot[#1]#2{\gdef\@ecfoot{#1}\gdef\@ocfoot{#2}}
+X\def\@ycfoot#1{\gdef\@ecfoot{#1}\gdef\@ocfoot{#1}}
+X
+X\def\rfoot{\@ifnextchar[{\@xrfoot}{\@yrfoot}}
+X\def\@xrfoot[#1]#2{\gdef\@erfoot{#1}\gdef\@orfoot{#2}}
+X\def\@yrfoot#1{\gdef\@erfoot{#1}\gdef\@orfoot{#1}}
+X
+X\newdimen\headrulewidth
+X\newdimen\footrulewidth
+X\newdimen\plainheadrulewidth
+X\newdimen\plainfootrulewidth
+X\newdimen\headwidth
+X\newif\if@fancyplain \@fancyplainfalse
+X\def\fancyplain#1#2{\if@fancyplain#1\else#2\fi}
+X
+X% Initialization of the head and foot text.
+X
+X\headrulewidth 0.4pt
+X\footrulewidth\z@
+X\plainheadrulewidth\z@
+X\plainfootrulewidth\z@
+X
+X\lhead[\fancyplain{}{\sl\rightmark}]{\fancyplain{}{\sl\leftmark}}
+X%  i.e. empty on ``plain'' pages \rightmark on even, \leftmark on odd pages
+X\chead{}
+X\rhead[\fancyplain{}{\sl\leftmark}]{\fancyplain{}{\sl\rightmark}}
+X%  i.e. empty on ``plain'' pages \leftmark on even, \rightmark on odd pages
+X\lfoot{}
+X\cfoot{\rm\thepage} % page number
+X\rfoot{}
+X
+X% Put together a header or footer given the left, center and
+X% right text, fillers at left and right and a rule.
+X% The \lap commands put the text into an hbox of zero size,
+X% so overlapping text does not generate an errormessage.
+X
+X\def\@fancyhead#1#2#3#4#5{#1\hbox to\headwidth{\vbox{\hbox
+X{\rlap{\parbox[b]{\headwidth}{\raggedright#2\strut}}\hfill
+X\parbox[b]{\headwidth}{\centering#3\strut}\hfill
+X\llap{\parbox[b]{\headwidth}{\raggedleft#4\strut}}}\headrule}}#5}
+X
+X
+X\def\@fancyfoot#1#2#3#4#5{#1\hbox to\headwidth{\vbox{\footrule
+X\hbox{\rlap{\parbox[t]{\headwidth}{\raggedright#2\strut}}\hfill
+X\parbox[t]{\headwidth}{\centering#3\strut}\hfill
+X\llap{\parbox[t]{\headwidth}{\raggedleft#4\strut}}}}}#5}
+X
+X\def\headrule{{\if@fancyplain\headrulewidth\plainheadrulewidth\fi
+X\hrule\@height\headrulewidth\@width\headwidth \vskip-\headrulewidth}}
+X
+X\def\footrule{{\if@fancyplain\footrulewidth\plainfootrulewidth\fi
+X\vskip-0.3\normalbaselineskip\vskip-\footrulewidth
+X\hrule\@width\headwidth\@height\footrulewidth\vskip0.3\normalbaselineskip}}
+X
+X\def\ps@fancy{
+X\let\@mkboth\markboth
+X\@ifundefined{chapter}{\def\sectionmark##1{\markboth
+X{\uppercase{\ifnum \c@secnumdepth>\z@
+X \thesection\hskip 1em\relax \fi ##1}}{}}
+X\def\subsectionmark##1{\markright {\ifnum \c@secnumdepth >\@ne
+X \thesubsection\hskip 1em\relax \fi ##1}}}
+X{\def\chaptermark##1{\markboth {\uppercase{\ifnum \c@secnumdepth>\m@ne
+X \@chapapp\ \thechapter. \ \fi ##1}}{}}
+X\def\sectionmark##1{\markright{\uppercase{\ifnum \c@secnumdepth >\z@
+X \thesection. \ \fi ##1}}}}
+X\def\@oddhead{\@fancyhead\relax\@olhead\@ochead\@orhead\hss}
+X\def\@oddfoot{\@fancyfoot\relax\@olfoot\@ocfoot\@orfoot\hss}
+X\def\@evenhead{\@fancyhead\hss\@elhead\@echead\@erhead\relax}
+X\def\@evenfoot{\@fancyfoot\hss\@elfoot\@ecfoot\@erfoot\relax}
+X\headwidth\textwidth}
+X\def\ps@fancyplain{\ps@fancy \let\ps@plain\ps@plain@fancy}
+X\def\ps@plain@fancy{\@fancyplaintrue\ps@fancy}
+END_OF_FILE
+  if test 3778 -ne `wc -c <'fancyheadings.sty'`; then
+    echo shar: \"'fancyheadings.sty'\" unpacked with wrong size!
+  fi
+  # end of 'fancyheadings.sty'
+fi
+if test -f 'getopt.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getopt.h'\"
+else
+  echo shar: Extracting \"'getopt.h'\" \(3754 characters\)
+  sed "s/^X//" >'getopt.h' <<'END_OF_FILE'
+X/* Declarations for getopt.
+X   Copyright (C) 1989, 1990, 1991, 1992 Free Software Foundation, Inc.
+X
+X   This program is free software; you can redistribute it and/or modify
+X   it under the terms of the GNU General Public License as published by
+X   the Free Software Foundation; either version 2, or (at your option)
+X   any later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU General Public License
+X   along with this program; if not, write to the Free Software
+X   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+X
+X#ifndef _GETOPT_H_
+X#define _GETOPT_H_
+X
+X/* For communication from `getopt' to the caller.
+X   When `getopt' finds an option that takes an argument,
+X   the argument value is returned here.
+X   Also, when `ordering' is RETURN_IN_ORDER,
+X   each non-option ARGV-element is returned here.  */
+X
+Xextern char *optarg;
+X
+X/* Index in ARGV of the next element to be scanned.
+X   This is used for communication to and from the caller
+X   and for communication between successive calls to `getopt'.
+X
+X   On entry to `getopt', zero means this is the first call; initialize.
+X
+X   When `getopt' returns EOF, this is the index of the first of the
+X   non-option elements that the caller should itself scan.
+X
+X   Otherwise, `optind' communicates from one call to the next
+X   how much of ARGV has been scanned so far.  */
+X
+Xextern int optind;
+X
+X/* Callers store zero here to inhibit the error message `getopt' prints
+X   for unrecognized options.  */
+X
+Xextern int opterr;
+X
+X/* Describe the long-named options requested by the application.
+X   The LONG_OPTIONS argument to getopt_long or getopt_long_only is a vector
+X   of `struct option' terminated by an element containing a name which is
+X   zero.
+X
+X   The field `has_arg' is:
+X   no_argument		(or 0) if the option does not take an argument,
+X   required_argument	(or 1) if the option requires an argument,
+X   optional_argument 	(or 2) if the option takes an optional argument.
+X
+X   If the field `flag' is not NULL, it points to a variable that is set
+X   to the value given in the field `val' when the option is found, but
+X   left unchanged if the option is not found.
+X
+X   To have a long-named option do something other than set an `int' to
+X   a compiled-in constant, such as set a value from `optarg', set the
+X   option's `flag' field to zero and its `val' field to a nonzero
+X   value (the equivalent single-letter option character, if there is
+X   one).  For long options that have a zero `flag' field, `getopt'
+X   returns the contents of the `val' field.  */
+X
+Xstruct option
+X{
+X#ifdef	__STDC__
+X  const char *name;
+X#else
+X  char *name;
+X#endif
+X  enum
+X    {
+X      no_argument,
+X      required_argument,
+X      optional_argument
+X    } has_arg;
+X  int *flag;
+X  int val;
+X};
+X
+X#ifdef __STDC__
+Xextern int getopt (int argc, char *const *argv, const char *shortopts);
+Xextern int getopt_long (int argc, char *const *argv, const char *shortopts,
+X		        const struct option *longopts, int *longind);
+Xextern int getopt_long_only (int argc, char *const *argv,
+X			     const char *shortopts,
+X		             const struct option *longopts, int *longind);
+X
+X/* Internal only.  Users should not call this directly.  */
+Xextern int _getopt_internal (int argc, char *const *argv,
+X			     const char *shortopts,
+X		             const struct option *longopts, int *longind,
+X			     int long_only);
+X#else /* not __STDC__ */
+Xextern int getopt ();
+Xextern int getopt_long ();
+Xextern int getopt_long_only ();
+X
+Xextern int _getopt_internal ();
+X#endif /* not __STDC__ */
+X
+X#endif /* _GETOPT_H_ */
+END_OF_FILE
+  if test 3754 -ne `wc -c <'getopt.h'`; then
+    echo shar: \"'getopt.h'\" unpacked with wrong size!
+  fi
+  # end of 'getopt.h'
+fi
+if test -f 'getopt1.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getopt1.c'\"
+else
+  echo shar: Extracting \"'getopt1.c'\" \(3530 characters\)
+  sed "s/^X//" >'getopt1.c' <<'END_OF_FILE'
+X/* Getopt for GNU.
+X   Copyright (C) 1987, 88, 89, 90, 91, 1992 Free Software Foundation, Inc.
+X
+X   This program is free software; you can redistribute it and/or modify
+X   it under the terms of the GNU General Public License as published by
+X   the Free Software Foundation; either version 2, or (at your option)
+X   any later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU General Public License
+X   along with this program; if not, write to the Free Software
+X   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+X
+X#ifdef	LIBC
+X/* For when compiled as part of the GNU C library.  */
+X#include <ansidecl.h>
+X#endif
+X
+X#include "getopt.h"
+X
+X#ifndef __STDC__
+X#define const
+X#endif
+X
+X#if defined(STDC_HEADERS) || defined(__GNU_LIBRARY__) || defined (LIBC)
+X#include <stdlib.h>
+X#else /* STDC_HEADERS or __GNU_LIBRARY__ */
+Xchar *getenv ();
+X#endif /* STDC_HEADERS or __GNU_LIBRARY__ */
+X
+X#if !defined (NULL)
+X#define NULL 0
+X#endif
+X
+Xint
+Xgetopt_long (argc, argv, options, long_options, opt_index)
+X     int argc;
+X     char *const *argv;
+X     const char *options;
+X     const struct option *long_options;
+X     int *opt_index;
+X{
+X  return _getopt_internal (argc, argv, options, long_options, opt_index, 0);
+X}
+X
+X/* Like getopt_long, but '-' as well as '--' can indicate a long option.
+X   If an option that starts with '-' (not '--') doesn't match a long option,
+X   but does match a short option, it is parsed as a short option
+X   instead. */
+X
+Xint 
+Xgetopt_long_only (argc, argv, options, long_options, opt_index)
+X     int argc;
+X     char *const *argv;
+X     const char *options;
+X     const struct option *long_options;
+X     int *opt_index;
+X{
+X  return _getopt_internal (argc, argv, options, long_options, opt_index, 1);
+X}
+X
+X#ifdef TEST
+X
+X#include <stdio.h>
+X
+Xint
+Xmain (argc, argv)
+X     int argc;
+X     char **argv;
+X{
+X  int c;
+X  int digit_optind = 0;
+X
+X  while (1)
+X    {
+X      int this_option_optind = optind ? optind : 1;
+X      int option_index = 0;
+X      static struct option long_options[] =
+X      {
+X	{"add", 1, 0, 0},
+X	{"append", 0, 0, 0},
+X	{"delete", 1, 0, 0},
+X	{"verbose", 0, 0, 0},
+X	{"create", 0, 0, 0},
+X	{"file", 1, 0, 0},
+X	{0, 0, 0, 0}
+X      };
+X
+X      c = getopt_long (argc, argv, "abc:d:0123456789",
+X		       long_options, &option_index);
+X      if (c == EOF)
+X	break;
+X
+X      switch (c)
+X	{
+X	case 0:
+X	  printf ("option %s", long_options[option_index].name);
+X	  if (optarg)
+X	    printf (" with arg %s", optarg);
+X	  printf ("\n");
+X	  break;
+X
+X	case '0':
+X	case '1':
+X	case '2':
+X	case '3':
+X	case '4':
+X	case '5':
+X	case '6':
+X	case '7':
+X	case '8':
+X	case '9':
+X	  if (digit_optind != 0 && digit_optind != this_option_optind)
+X	    printf ("digits occur in two different argv-elements.\n");
+X	  digit_optind = this_option_optind;
+X	  printf ("option %c\n", c);
+X	  break;
+X
+X	case 'a':
+X	  printf ("option a\n");
+X	  break;
+X
+X	case 'b':
+X	  printf ("option b\n");
+X	  break;
+X
+X	case 'c':
+X	  printf ("option c with value `%s'\n", optarg);
+X	  break;
+X
+X	case 'd':
+X	  printf ("option d with value `%s'\n", optarg);
+X	  break;
+X
+X	case '?':
+X	  break;
+X
+X	default:
+X	  printf ("?? getopt returned character code 0%o ??\n", c);
+X	}
+X    }
+X
+X  if (optind < argc)
+X    {
+X      printf ("non-option ARGV-elements: ");
+X      while (optind < argc)
+X	printf ("%s ", argv[optind++]);
+X      printf ("\n");
+X    }
+X
+X  exit (0);
+X}
+X
+X#endif /* TEST */
+END_OF_FILE
+  if test 3530 -ne `wc -c <'getopt1.c'`; then
+    echo shar: \"'getopt1.c'\" unpacked with wrong size!
+  fi
+  # end of 'getopt1.c'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+  echo shar: Extracting \"'main.c'\" \(9897 characters\)
+  sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/*
+X *  p2LaTeX: Produce prettyprinted LaTeX files from Pascal sources.
+X *  Copyright (C) 1993 Torsten Poulin
+X *    Note: This program is derived from work done by others.
+X *
+X *  This program is free software; you can redistribute it and/or modify
+X *  it under the terms of the GNU General Public License as published by
+X *  the Free Software Foundation; either version 2, or (at your option)
+X *  any later version.
+X *
+X *  This program is distributed in the hope that it will be useful,
+X *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *  GNU General Public License for more details.
+X *
+X *  You should have received a copy of the GNU General Public License
+X *  along with this program; if not, write to the Free Software
+X *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *  Torsten Poulin 
+X *  Banebrinken 99, 2, 77
+X *  DK-2400 Copenhagen NV
+X *  DENMARK
+X *
+X *  e-mail: torsten@diku.dk
+X *  --------------------------------------------------------------------
+X *  p2latex is derived from the code for the program C++2LaTeX 2.0 which
+X *  produces prettyprinted LaTeX files from C++ or C sources.
+X *
+X *  C++2LaTeX 2.0 is copyright (C) 1991 Joerg Heitkoetter
+X *
+X *     Systems Analysis Research Group
+X *     University of Dortmund
+X *     (heitkoet@gorbi.informatik.uni-dortmund.de).
+X *
+X *  The original C++2LaTeX is copyright (C) 1990 Norbert Kiesel
+X *
+X *      Norbert Kiesel
+X *      RWTH Aachen / Institut f. Informatik III
+X *      Ahornstr. 55
+X *      D-5100 Aachen
+X *      West Germany
+X *
+X *      Phone:  +49 241 80-7266
+X *      EUNET:  norbert@rwthi3.uucp
+X *      USENET: ...!mcvax!unido!rwthi3!norbert
+X *      X.400:  norbert@rwthi3.informatik.rwth-aachen.de
+X *  --------------------------------------------------------------------
+X * p2latex main.c revision history.
+X * $Log:	main.c,v $
+X * Revision 1.5  93/12/20  14:25:10  Torsten
+X * Changed the error messages to comply with the manual page.
+X * 
+X * Revision 1.4  93/12/09  12:14:50  Torsten
+X * Moved the #include lines to get rid of a warning when using gcc.
+X * Blanks are now printed with \verb*+ + inside strings.
+X * The copyleft comment now refers to version 2 of the GPL.
+X * The usage() function changed a bit to display more POSIX.2
+X * compliant options ('--' instead of '+').
+X * 
+X * Revision 1.3  93/11/06  14:41:41  Torsten
+X * Added a few lines to the comment at the top of the program
+X * giving credit to the authors of C++2LaTeX.
+X * Program name isn't hard-wired anymore.
+X * ANSIfied the code a bit.
+X * 
+X * Revision 1.2  93/10/30  11:59:51  Torsten
+X * Corrected the usage "page".
+X * Changed "+piped" to "+pipe".
+X * 
+X * Revision 1.1  93/10/15  23:42:27  Torsten
+X * Initial revision
+X * 
+X */
+X
+X#include <stdio.h>
+X#include "getopt.h"
+X#include <string.h>
+X#include <fcntl.h>
+X#include <ctype.h>
+X#include <time.h>
+X
+Xstatic char RCSid[] = "$Id: main.c,v 1.5 93/12/20 14:25:10 Torsten Rel $";
+X
+Xextern insidestring;
+Xextern int tabtoend, tabtotab, complete_file, piped;
+Xextern int aligntoright, header, fancysymbols;
+Xextern char *font_size, *indentation, *comment_font, *header_font;
+Xextern char *string_font, *keyword_font, *ident_font;
+X
+X/* Prototypes for functions defined in main.c */
+Xvoid substitute(char *input);
+Xvoid indent(char *blanks);
+Xint main(int argc, char **argv);
+Xvoid usage(char *name);
+X
+Xvoid substitute(char *input)
+X{
+X  while (*input) {
+X    switch (*input) {
+X    case '_':
+X    case '&':
+X    case '#':
+X    case '$':
+X    case '%':
+X    case '{':
+X    case '}':
+X      printf("\\%c", *input);
+X      break;
+X    case '+':
+X    case '=':
+X    case '<':
+X    case '>':
+X      printf("$%c$", *input);
+X      break;
+X    case '*':
+X      printf("$\\ast$");
+X      break;
+X    case '|':
+X      printf("$\\mid$");
+X      break;
+X    case '\\':
+X      printf("$\\backslash$");
+X      break;
+X    case '^':
+X      printf("$\\wedge$");
+X      break;
+X    case '~':
+X      printf("$\\sim$");
+X      break;
+X    case ' ':
+X      if (insidestring)
+X	printf("\\verb*+ +");
+X      else
+X	printf(" ");
+X      break;
+X    default:
+X      printf("%c", *input);
+X      break;
+X    }
+X    input++;
+X  }
+X}
+X
+Xvoid indent(char *blanks)
+X{
+X  int i;
+X
+X  i = 0;
+X  while (*blanks) {
+X    if (*blanks == ' ') {
+X      i++;
+X    }
+X    else {			/* *blanks == '\t' */
+X      while (++i % tabtotab) ;
+X    }
+X    blanks++;
+X  }
+X  printf("\\hspace*{%d\\indentation}", i);
+X}
+X
+Xextern char *version_string;
+X
+Xstatic struct option opts[] =
+X{
+X  {"complete-file", 0, 0, 'c'},
+X  {"fancy", 0, 0, 'f'},
+X  {"font-size", 1, 0, 's'},
+X  {"indentation", 1, 0, 'i'},
+X  {"header", 0, 0, 'h'},
+X  {"pipe", 0, 0, 'p'},
+X  {"no-alignment", 0, 0, 'n'},
+X  {"output", 1, 0, 'o'},
+X  {"tabstop", 1, 0, 'T'},
+X  {"end-comment", 1, 0, 'e'},
+X  {"comment-font", 1, 0, 'C'},
+X  {"string-font", 1, 0, 'S'},
+X  {"identifier-font", 1, 0, 'I'},
+X  {"keyword-font", 1, 0, 'K'},
+X  {"header-font", 1, 0, 'H'},
+X  {"version", 0, 0, 'V'},
+X  {0, 0, 0, 0}
+X};
+X
+Xchar *program_name;
+X
+Xmain(int argc, char **argv)
+X{
+X  int c;
+X  int index;
+X  int i;
+X  int has_filename;
+X  char *input_name;
+X  char *output_name;
+X  long now;
+X  char *today;
+X  char *malloc();
+X
+X  input_name = "Standard Input";
+X  output_name = 0;
+X
+X  now = time(0);
+X  today = ctime(&now);
+X
+X  program_name = argv[0];
+X
+X  if (argc == 1)
+X    usage(program_name);
+X
+X  while ((c = getopt_long(argc, argv,
+X			  "cfpno:s:i:e:hT:C:H:S:I:K:V", opts, &index))
+X	 != EOF) {
+X    if (c == 0) {
+X      /* Long option */
+X      c = opts[index].val;
+X    }
+X    switch (c) {
+X    case 'c':
+X      complete_file = 1;
+X      break;
+X    case 'f':
+X      fancysymbols = 1;
+X      break;
+X    case 'o':
+X      if (piped) {
+X	fprintf(stderr,
+X		"%s: Can't use {-p,--pipe} and {-o,--output} together\n",
+X		program_name);
+X	exit(5);
+X      }
+X      output_name = optarg;
+X      break;
+X    case 'n':
+X      aligntoright = 0;
+X      break;
+X    case 's':
+X      font_size = optarg;
+X      break;
+X    case 'i':
+X      indentation = optarg;
+X      break;
+X    case 'e':
+X      tabtoend = atoi(optarg);
+X      break;
+X    case 'T':
+X      tabtotab = atoi(optarg);
+X      break;
+X    case 'p':
+X      if (output_name != 0) {
+X	fprintf(stderr,
+X		"%s: Can't use {-p,--pipe} and {-o,--output} together\n",
+X		program_name);
+X	exit(5);
+X      }
+X      piped = 1;
+X      break;
+X    case 'h':
+X      header = 1;
+X      complete_file = 1;	/* header implies complete-file */
+X      break;
+X    case 'C':
+X      comment_font = optarg;
+X      break;
+X    case 'H':
+X      header_font = optarg;
+X      break;
+X    case 'S':
+X      string_font = optarg;
+X      break;
+X    case 'I':
+X      ident_font = optarg;
+X      break;
+X    case 'K':
+X      keyword_font = optarg;
+X      break;
+X    case 'V':
+X      fprintf(stderr, "%s\n", version_string);
+X      break;
+X    default:
+X      usage(program_name);
+X    }
+X  }
+X  has_filename = (argc - optind == 1);
+X  if (has_filename) {
+X    /* last argument is input file name */
+X    input_name = argv[optind];
+X    if (freopen(input_name, "r", stdin) == NULL) {
+X      fprintf(stderr, "%s: Can't open `%s' for reading\n",
+X	      program_name, input_name);
+X      exit(2);
+X    }
+X  }
+X  if ((output_name == 0) && !piped) {
+X    char *tmp;
+X
+X    if (has_filename) {
+X      tmp = strrchr(input_name, '/');
+X      if (tmp == 0) {
+X	/* plain filename */
+X	tmp = input_name;
+X      }
+X      else {
+X	tmp++;
+X      }
+X    }
+X    else {
+X      tmp = program_name;
+X    }
+X
+X    output_name = malloc(strlen(tmp) + 4);
+X
+X    if (output_name == 0) {
+X      fprintf(stderr, "%s: Virtual memory exhausted\n", program_name);
+X      exit(3);
+X    }
+X    strcpy(output_name, tmp);
+X    strcat(output_name, ".tex");
+X  }
+X  if (!piped) {
+X    if (freopen(output_name, "w", stdout) == NULL) {
+X      fprintf(stderr, "%s: Can't open `%s' for writing\n",
+X	      program_name, output_name);
+X      exit(3);
+X    }
+X  }
+X  printf("\
+X%%\n\
+X%% This file was automatically produced at %.24s by\n\
+X%% %s", today, program_name);
+X  for (i = 1; i < argc; i++) {
+X    printf(" %s", argv[i]);
+X  }
+X  if (!has_filename) {
+X    printf(" (from Standard Input)");
+X  }
+X  printf("\n%%\n");
+X  if (complete_file) {
+X    if (header) {
+X      if (strcmp(font_size, "10") == 0) {
+X	printf("\\documentstyle[fancyheadings]{article}\n");
+X      } else {
+X	printf("\\documentstyle[%spt,fancyheadings]{article}\n",
+X	       font_size);
+X      }
+X    }
+X    else {
+X      if (strcmp(font_size, "10") == 0) {
+X	printf("\\documentstyle{article}\n");
+X      }
+X      else {
+X	printf("\\documentstyle[%spt]{article}\n", font_size);
+X      }
+X    }
+X
+X    printf("\\setlength{\\textwidth}{16cm}\n");
+X    printf("\\setlength{\\textheight}{23cm}\n");
+X    printf("\\setlength{\\hoffset}{-2cm}\n");
+X    printf("\\setlength{\\voffset}{-2cm}\n");
+X
+X    if (header) {
+X      printf("\\lhead{\\%s ", header_font);
+X      substitute(input_name);
+X      printf("}");
+X      printf("\\rhead{\\rm\\thepage}\n");
+X      printf("\\cfoot{}\n");
+X      printf("\\addtolength{\\headheight}{14pt}\n");
+X      printf("\\pagestyle{fancy}\n");
+X    }
+X    printf("\\begin{document}\n");
+X  }
+X
+X  printf("\\expandafter\\ifx\\csname indentation\\endcsname\\relax%\n");
+X  printf("\\newlength{\\indentation}\\fi\n");
+X  printf("\\setlength{\\indentation}{%s}\n", indentation);
+X
+X  printf("\\begin{flushleft}\n");
+X  yylex();
+X  printf("\\end{flushleft}\n");
+X
+X  if (complete_file) {
+X    printf("\\end{document}\n");
+X  }
+X  exit(0);
+X}
+X
+Xvoid usage(char *name)
+X{
+X  fprintf(stderr, "%s\n", version_string);
+X  fprintf(stderr, "\
+XUsage: %s [options] [file]\n\n\
+XShort options:\n\
+X	[-c]			[-e distance]\n\
+X	[-f]			[-h]\n\
+X	[-i length]		[-n]\n\
+X	[-o file]		[-p]\n\
+X	[-s fontsize]		[-C font]\n\
+X	[-H font]		[-I font]\n\
+X	[-K font]		[-S font]\n\
+X	[-T tabulatorwidth]	[-V]\n\
+X\n\
+XLong options:\n\
+X	[--complete-file]	[--end-comment distance]\n\
+X	[--fancy]		[--header]\n\
+X	[--indentation length]	[--no-alignment]\n\
+X	[--output file]		[--pipe]\n\
+X	[--font-size size]	[--comment-font font]\n\
+X	[--header-font font]	[--identifier-font font]\n\
+X	[--keyword-font font]	[--string-font font]\n\
+X	[--tabstop width]	[--version]\n", name);
+X  exit(1);
+X}
+END_OF_FILE
+  if test 9897 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+  fi
+  # end of 'main.c'
+fi
+if test -f 'p2latex.l' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'p2latex.l'\"
+else
+  echo shar: Extracting \"'p2latex.l'\" \(7390 characters\)
+  sed "s/^X//" >'p2latex.l' <<'END_OF_FILE'
+X/*
+X *  p2LaTeX: Produce prettyprinted LaTeX files from Pascal sources.
+X *  Copyright (C) 1993 Torsten Poulin
+X *    Note: This program is derived from work done by others (see below).
+X *
+X *  This program is free software; you can redistribute it and/or modify
+X *  it under the terms of the GNU General Public License as published by
+X *  the Free Software Foundation; either version 2, or (at your option)
+X *  any later version.
+X *
+X *  This program is distributed in the hope that it will be useful,
+X *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *  GNU General Public License for more details.
+X *
+X *  You should have received a copy of the GNU General Public License
+X *  along with this program; if not, write to the Free Software
+X *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *  Torsten Poulin 
+X *  Banebrinken 99, 2, 77
+X *  DK-2400 Copenhagen NV
+X *  DENMARK
+X *
+X *  e-mail: torsten@diku.dk
+X *  --------------------------------------------------------------------
+X *  p2latex is derived from the code for the program C++2LaTeX 2.0 which
+X *  produces prettyprinted LaTeX files from C++ or C sources.
+X *
+X *  C++2LaTeX 2.0 is copyright (C) 1991 Joerg Heitkoetter
+X *
+X *     Systems Analysis Research Group
+X *     University of Dortmund
+X *     (heitkoet@gorbi.informatik.uni-dortmund.de).
+X *
+X *  The original C++2LaTeX is copyright (C) 1990 Norbert Kiesel
+X *
+X *      Norbert Kiesel
+X *      RWTH Aachen / Institut f. Informatik III
+X *      Ahornstr. 55
+X *      D-5100 Aachen
+X *      West Germany
+X *
+X *      Phone:  +49 241 80-7266
+X *      EUNET:  norbert@rwthi3.uucp
+X *      USENET: ...!mcvax!unido!rwthi3!norbert
+X *      X.400:  norbert@rwthi3.informatik.rwth-aachen.de
+X *  --------------------------------------------------------------------
+X * p2latex p2main.l revision history.
+X * $Log:	p2latex.l,v $
+X * Revision 1.3  93/12/09  01:20:12  Torsten
+X * Now sets the insidestring flag when inside a string.
+X * Corrected the indentation of comments preceded only by white-space.
+X * The copyleft comment now refers to version 2 of the GPL.
+X * 
+X * Revision 1.2  93/11/06  14:43:51  Torsten
+X * Added a few lines to the comment at the top of the program
+X * giving credit to the authors of C++2LaTeX.
+X * Minus now emits -- (a TeX number-range dash) when not in
+X * a comment or a string.
+X * Strings are now printed using \frenchspacing to suppress
+X * extra space after punctuation. 
+X * 
+X * Revision 1.1  93/10/15  23:41:49  Torsten
+X * Initial revision
+X *
+X */
+X
+X%x STRING BCOMMENT
+X
+X%{
+X#define KEY		printf ("{\\%s %s}", keyword_font, yytext)
+X#define FANCYKEY(x)	fancysymbols ? printf(x) : KEY
+X#define SYM(x)		printf ("$\\%s$", x)
+X#define FANCY(x,y)	printf ("%s", fancysymbols ? x : y)
+X#define OUT(x)		printf ("%s", x)
+X#define ETAB		printf ("\\hspace*{%d\\indentation}", tabtoend)
+X#define CTAB		printf ("\\hspace*{%d\\indentation}", tabtocomment)
+X#define FONT(x)		printf ("{\\%s ",x)
+X#define SUB(x)		substitute(x)
+X#define IDENTIFIER	printf ("{\\%s %s\\/}", ident_font, yytext)
+X#define IND		indent(yytext)
+X#define INIT		BEGIN (INITIAL);
+X
+X#include <stdio.h>
+X
+Xstatic char RCSid[] = "$Id: p2latex.l,v 1.3 93/12/09 01:20:12 Torsten Rel $";
+X
+Xstatic void nindent(char *, int);
+Xint insidestring	= 0;
+X
+Xint complete_file	= 0;
+Xint header		= 0;
+Xint tabtotab		= 8;
+Xint piped		= 0;
+Xint fancysymbols	= 0;
+X
+Xint aligntoright	= 1;		/* align comments to the right */
+Xint tabtoend		= 2;		/* distance between end and comment */
+Xint tabtocomment	= 4;		/* distance between statement and comment*/
+X
+Xchar *font_size		= "10";
+Xchar *indentation	= "0.5em";
+Xchar *comment_font	= "it";
+Xchar *ident_font	= "it";
+Xchar *keyword_font	= "bf";
+Xchar *header_font	= "sl";
+Xchar *string_font	= "tt";
+X
+X#ifdef __STDC__
+Xvoid substitute(const char *);
+Xvoid indent(const char *);
+Xvoid newpage(int);
+Xvoid usage(const char *);
+X#else
+Xvoid substitute();
+Xvoid indent();
+Xvoid newpage();
+Xvoid usage();
+X#endif
+X%}
+X
+X%%
+X
+X			INIT;
+X
+X"array"			|
+X"begin"			|
+X"case"			|
+X"const"			|
+X"div"			|
+X"do"			|
+X"downto"		|
+X"else"			|
+X"end"			|
+X"file"			|
+X"for"			|
+X"function"		|
+X"goto"			|
+X"if"			|
+X"in"			|
+X"label"			|
+X"mod"			|
+X"nil"			|
+X"of"			|
+X"packed"		|
+X"procedure"		|
+X"program"		|
+X"record"		|
+X"repeat"		|
+X"set"			|
+X"then"			|
+X"to"			|
+X"type"			|
+X"until"			|
+X"var"			|
+X"while"			|
+X"with"			KEY;
+X"and"			FANCYKEY("$\\wedge$");
+X"not"			FANCYKEY("$\\neg$");
+X"or"			FANCYKEY("$\\vee");
+X"<="			FANCY ("$\\leq$", "$<$=");
+X">="			FANCY ("$\\geq$", "$>$=");
+X"<>"			FANCY ("$\\neq$", "$<>$");
+X"*"			SYM ("ast");
+X"^"			SYM ("uparrow");
+X"/"			OUT ("$/$");
+X"<"			OUT ("$<$");
+X">"			OUT ("$>$");
+X"-"			OUT ("--");
+X"("			|
+X")"			|
+X":"			|
+X"="			|
+X","			|
+X"."			|
+X";"			|
+X"+"			|
+X"["			|
+X"]"			ECHO;
+X
+X[a-z_][a-z_0-9]*		IDENTIFIER;
+X
+X /* Comments mini scanner */
+X /* 1. Comment after 'end;', 'end.', or 'end'  */
+X"end"[;\.]?[ \t]*"(*"		{ BEGIN (BCOMMENT);
+X				{ int i;
+X				  printf("{\\%s ", keyword_font);
+X				  for (i = 0; i < 3; i++)
+X				    printf("%c", yytext[i]);
+X				  printf("}");
+X				  if (yytext[i] == ';' || yytext[i] == '.')
+X				    printf("%c", yytext[i]); }
+X                                ETAB;
+X                                OUT ("($\\ast$");
+X                                FONT (comment_font); }
+X"end"[;\.]?[ \t]*"{"		{ BEGIN (BCOMMENT);
+X				{ int i;
+X				  printf("{\\%s ", keyword_font);
+X				  for (i = 0; i < 3; i++)
+X				    printf("%c", yytext[i]);
+X				  printf("}");
+X				  if (yytext[i] == ';' || yytext[i] == '.')
+X				    printf("%c", yytext[i]); }
+X                                ETAB;
+X                                OUT ("\\{");
+X                                FONT (comment_font); }
+X
+X /* 2. Comments at the beginning of a line */
+X^[ \t]*"(*"		      { BEGIN (BCOMMENT);
+X				nindent(yytext, yyleng - 2);
+X                                OUT ("($\\ast$");
+X				FONT (comment_font); }
+X^[ \t]*"{"		      { BEGIN (BCOMMENT);
+X				nindent(yytext, yyleng - 1);
+X				OUT ("\\{");
+X				FONT (comment_font); }
+X
+X /* 3. Other comments, aligned to right side of paper */
+X"(*"			      { BEGIN (BCOMMENT);
+X                                if (aligntoright) {
+X					OUT ("\\hfill");
+X				} else {
+X					CTAB;
+X				}
+X                                OUT ("($\\ast$");
+X				FONT (comment_font); }
+X"{"			      { BEGIN (BCOMMENT);
+X                                if (aligntoright) {
+X					OUT ("\\hfill");
+X				} else {
+X					CTAB;
+X				}
+X                                OUT ("\\{");
+X				FONT (comment_font); }
+X
+X
+X<BCOMMENT>"*)"		      { INIT; OUT ("}$\\ast$)"); }
+X<BCOMMENT>"}"		      { INIT; OUT ("}\\}"); }
+X<BCOMMENT>"\n"			OUT ("\\mbox{}\\\\\n");
+X<BCOMMENT>[ \t]+		IND;
+X<BCOMMENT>.			SUB (yytext);
+X
+XL?\' 		              { BEGIN (STRING);
+X				FONT (string_font);
+X				OUT ("\\frenchspacing{");
+X				OUT ("\'");
+X				insidestring = 1; }
+X<STRING>\'		      { INIT;
+X				OUT ("\'}}");
+X				insidestring = 0; }
+X<STRING>"\n"			OUT ("\\mbox{}\\\\\n");
+X<STRING>^[ \t]+			IND;
+X<STRING>.			SUB (yytext);
+X
+X([0-9]*\.[0-9]+)		|
+X([0-9]+\.[0-9]*)		|
+X([0-9]*\.?[0-9]+e[+-]?[0-9]+)	|
+X([0-9]+\.?[0-9]*e[+-]?[0-9]+)	ECHO;
+X
+X[0-9]+				ECHO;
+X
+X^[ \t]+				IND;
+X[ \t]+				ECHO;
+X"\f"[\n]?			OUT ("\\newpage\n");
+X"\n"				OUT ("\\mbox{}\\\\\n");
+X
+X%%
+X
+Xstatic void nindent(char *blanks, int n)
+X{
+X  int i, bl;
+X
+X  for (i = bl = 0; i < n; i++) {
+X    if (*blanks == ' ') {
+X      bl++;
+X    }
+X    else {			/* *blanks == '\t' */
+X      while (++bl % tabtotab) ;
+X    }
+X    blanks++;
+X  }
+X  printf("\\hspace*{%d\\indentation}", bl);
+X}
+END_OF_FILE
+  if test 7390 -ne `wc -c <'p2latex.l'`; then
+    echo shar: \"'p2latex.l'\" unpacked with wrong size!
+  fi
+  # end of 'p2latex.l'
+fi
+echo shar: End of archive 3 \(of 3\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

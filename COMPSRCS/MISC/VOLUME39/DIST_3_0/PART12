@@ -1,0 +1,1922 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v39i016:  dist-3.0 - Configure script generator and related tools, Part12/28
+Message-ID: <1993Aug19.131218.5355@sparky.sterling.com>
+X-Md4-Signature: 86636887355af05f49e7b6ecc3364a01
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Thu, 19 Aug 1993 13:12:18 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 39, Issue 16
+Archive-name: dist-3.0/part12
+Environment: UNIX, Perl, RCS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  mcon/U/Getfile.U mcon/U/Guess.U mcon/U/Head.U mcon/U/Loc.U
+#   mcon/U/ccflags.U mcon/U/d_NOFILE.U mcon/U/i_sysioctl.U
+#   mcon/U/locdist.U mcon/makegloss.SH mcon/pl/xwant.pl
+# Wrapped by ram@soft208 on Wed Aug 18 14:42:20 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 28)."'
+if test -f 'mcon/U/Getfile.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/Getfile.U'\"
+else
+  echo shar: Extracting \"'mcon/U/Getfile.U'\" \(5238 characters\)
+  sed "s/^X//" >'mcon/U/Getfile.U' <<'END_OF_FILE'
+X?RCS: $Id: Getfile.U,v 3.0 1993/08/18 12:04:56 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: Getfile.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:04:56  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?X: 
+X?X: This unit produces a bit of shell code that must be dotted in in order
+X?X: to get a file name and make some sanity checks. Optionally, a ~name
+X?X: expansion is performed.
+X?X:	
+X?X: To use this unit, $rp and $dflt must hold the question and the
+X?X: default answer, which will be passed as-is to the myread script.
+X?X: The $fn variable must hold the file type (f or d, for file/directory).
+X?X:
+X?X: If is is followed by a ~, then ~name substitution will occur. Upon return,
+X?X: $ans is set with the filename value. If a / is specified, then only a full
+X?X: path name is accepted (but ~ substitution occurs before, if needed). The
+X?X:	expanded path name is returned in that case/
+X?X:
+X?X: If a + is specified, the existence checks are skipped. This usually means
+X?X: the file/directory is under the full control of the program.
+X?X:
+X?X: If the 'n' (none) type is used, then the user may answer none.
+X?X: The 'e' (expand) switch may be used to bypass d_portable, expansing ~name.
+X?X:
+X?X: If the 'l' (locate) type is used, then it must end with a ':' and then a
+X?X:	file name. If the answer is a directory, the file name will be appended
+X?X: before testing for file existence. This is useful in locate-style
+X?X: questions like "where is the active file?". In that case, one should
+X?X: use:
+X?X:
+X?X:   dflt='~news/lib'
+X?X:   fn='l~:active'
+X?X:   rp='Where is the active file?'
+X?X:   . ./getfile
+X?X:   active="$ans"
+X?X: 
+X?X: If the answer to the question is 'none', then the existence checks are
+X?X:	skipped and the empty string is returned.
+X?X:
+X?MAKE:Getfile: d_portable Myread Filexp
+X?MAKE:	-pick add $@ %<
+X?V:ansexp:fn
+X?T:tilde type what orig_rp orig_dflt fullpath already redo skip none_ok \
+X	value exp_file
+X: now set up to get a file name
+Xcat <<'EOSC' >getfile
+Xtilde=''
+Xfullpath=''
+Xalready=''
+Xskip=''
+Xnone_ok=''
+Xexp_file=''
+Xorig_rp="$rp"
+Xorig_dflt="$dflt"
+X
+Xcase "$fn" in
+X*~*) tilde=true;;
+Xesac
+Xcase "$fn" in
+X*/*) fullpath=true;;
+Xesac
+Xcase "$fn" in
+X*+*) skip=true;;
+Xesac
+Xcase "$fn" in
+X*n*) none_ok=true;;
+Xesac
+Xcase "$fn" in
+X*e*) exp_file=true;;
+Xesac
+X
+Xcase "$fn" in
+X*f*) type='File';;
+X*d*) type='Directory';;
+X*l*) type='Locate'; fn=`expr $fn : '.*:\(.*\)'`;;
+Xesac
+X
+Xwhat="$type"
+Xcase "$what" in
+XLocate) what='File';;
+Xesac
+X
+Xcase "$exp_file" in
+X'')
+X	case "$d_portable" in
+X	"$define") ;;
+X	*) exp_file=true;;
+X	esac
+X	;;
+Xesac
+X
+Xwhile test "$type"; do
+X	redo=''
+X	rp="$orig_rp"
+X	dflt="$orig_dflt"
+X	case "$tilde" in
+X	true) rp="$rp (~name ok)";;
+X	esac
+X	. ./myread
+X	case "$ans" in
+X	none)
+X		value=''
+X		ansexp=''
+X		case "$none_ok" in
+X		true) type='';;
+X		esac
+X		;;
+X	*)
+X		case "$tilde" in
+X		'') value="$ans"
+X		    ansexp="$ans";;
+X		*)
+X			value=`./filexp $ans`
+X			case $? in
+X			0)
+X				if test "$ans" != "$value"; then
+X					echo "(That is $value on this particular system.)"
+X				fi
+X				;;
+X			*) value="$ans";;
+X			esac
+X			ansexp="$value"
+X			case "$exp_file" in
+X			'') value="$ans";;
+X			esac
+X			;;
+X		esac
+X		case "$fullpath" in
+X		true)
+X?X: Perform all the checks on ansexp and not value since when d_portable
+X?X: is defined, the original un-expanded answer which is stored in value
+X?X: would lead to "non-existent" error messages whilst ansexp has been
+X?X: properly expanded. -- Fixed by Jan.Djarv@sa.erisoft.se (Jan Djarv)
+X?X: Always expand ~user if '/' was requested 
+X			case "$ansexp" in
+X			/*) value="$ansexp" ;;
+X			*)
+X				redo=true
+X				case "$already" in
+X				true)
+X				echo "I shall only accept a full path name, as in /bin/ls." >&4
+X				echo "Use a ! shell escape if you wish to check pathnames." >&4
+X					;;
+X				*)
+X				echo "Please give a full path name, starting with slash." >&4
+X					case "$tilde" in
+X					true)
+X				echo "Note that using ~name is ok provided it expands well." >&4
+X						already=true
+X						;;
+X					esac
+X				esac
+X				;;
+X			esac
+X			;;
+X		esac
+X		case "$redo" in
+X		'')
+X			case "$type" in
+X			File)
+X				if test -f "$ansexp"; then
+X					type=''
+X				elif test -r "$ansexp" || (test -h "$ansexp") >/dev/null 2>&1
+X				then
+X					echo "($value is not a plain file, but that's ok.)"
+X					type=''
+X				fi
+X				;;
+X			Directory)
+X				if test -d "$ansexp"; then
+X					type=''
+X				fi
+X				;;
+X			Locate)
+X				if test -d "$value"; then
+X					echo "(Looking for $fn in directory $value.)"
+X					value="$value/$fn"
+X				fi
+X				if test -f "$value"; then
+X					type=''
+X				fi
+X				;;
+X			esac
+X
+X			case "$skip" in
+X			true) type='';
+X			esac
+X
+X			case "$type" in
+X			'') ;;
+X			*)
+X				if test "$fastread" = yes; then
+X					dflt=y
+X				else
+X					dflt=n
+X				fi
+X				rp="$what $value doesn't exist.  Use that name anyway?"
+X				. ./myread
+X				dflt=''
+X				case "$ans" in
+X				y*) type='';;
+X				*) echo " ";;
+X				esac
+X				;;
+X			esac
+X			;;
+X		esac
+X		;;
+X	esac
+Xdone
+Xans="$value"
+Xrp="$orig_rp"
+Xdflt="$orig_dflt"
+XEOSC
+X
+END_OF_FILE
+  if test 5238 -ne `wc -c <'mcon/U/Getfile.U'`; then
+    echo shar: \"'mcon/U/Getfile.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/Getfile.U'
+fi
+if test -f 'mcon/U/Guess.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/Guess.U'\"
+else
+  echo shar: Extracting \"'mcon/U/Guess.U'\" \(4185 characters\)
+  sed "s/^X//" >'mcon/U/Guess.U' <<'END_OF_FILE'
+X?RCS: $Id: Guess.U,v 3.0 1993/08/18 12:04:57 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: Guess.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:04:57  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?X: 
+X?X: This unit hazards some guesses as to what the general nature of the system
+X?X: is.  The information it collects here is used primarily to establish default
+X?X: answers to other questions.
+X?X: 
+X?MAKE:Guess d_eunice d_xenix d_bsd: cat test echo n c contains rm Loc eunicefix
+X?MAKE:	-pick add $@ %<
+X?S:d_eunice:
+X?S:	This variable conditionally defines the symbols EUNICE and VAX, which
+X?S:	alerts the C program that it must deal with ideosyncracies of VMS.
+X?S:.
+X?S:d_xenix:
+X?S:	This variable conditionally defines the symbol XENIX, which alerts
+X?S:	the C program that it runs under Xenix.
+X?S:.
+X?S:d_bsd:
+X?S:	This symbol conditionally defines the symbol BSD when running on a
+X?S:	BSD system.
+X?S:.
+X?C:EUNICE:
+X?C:	This symbol, if defined, indicates that the program is being compiled
+X?C:	under the EUNICE package under VMS.  The program will need to handle
+X?C:	things like files that don't go away the first time you unlink them,
+X?C:	due to version numbering.  It will also need to compensate for lack
+X?C:	of a respectable link() command.
+X?C:.
+X?C:VMS:
+X?C:	This symbol, if defined, indicates that the program is running under
+X?C:	VMS.  It is currently only set in conjunction with the EUNICE symbol.
+X?C:.
+X?C:XENIX:
+X?C:	This symbol, if defined, indicates thet the program is running under
+X?C:	Xenix (at least 3.0 ?).
+X?C:.
+X?C:BSD:
+X?C:	This symbol, if defined, indicates that the program is running under
+X?C:	a BSD system.
+X?C:.
+X?H:#$d_eunice EUNICE		/**/
+X?H:#$d_eunice VMS		/**/
+X?H:#$d_xenix XENIX		/**/
+X?H:#$d_bsd BSD		/**/
+X?H:.
+X?T:xxx
+X: make some quick guesses about what we are up against
+Xecho " "
+X$echo $n "Hmm...  $c"
+X?X:
+X?X: Do not use 'usrinc', or we get a circular dependency. because
+X?X: usrinc is defined in model.U, which relies on us...
+X?X:
+X$cat /usr/include/signal.h /usr/include/sys/signal.h >foo 2>/dev/null
+Xif test `echo abc | tr a-z A-Z` = Abc ; then
+X	xxx=`./loc addbib blurfl $pth`
+X	if $test -f $xxx; then
+X	echo "Looks kind of like a USG system with BSD features, but we'll see..."
+X		echo exit 0 >bsd
+X		echo exit 0 >usg
+X		echo exit 1 >v7
+X	else
+X		if $contains SIGTSTP foo >/dev/null 2>&1 ; then
+X			echo "Looks kind of like an extended USG system, but we'll see..."
+X		else
+X			echo "Looks kind of like a USG system, but we'll see..."
+X		fi
+X		echo exit 1 >bsd
+X		echo exit 0 >usg
+X		echo exit 1 >v7
+X	fi
+X	d_bsd="$undef"
+Xelif $contains SIGTSTP foo >/dev/null 2>&1 ; then
+X	echo "Looks kind of like a BSD system, but we'll see..."
+X	d_bsd="$define"
+X	echo exit 0 >bsd
+X	echo exit 1 >usg
+X	echo exit 1 >v7
+Xelse
+X	echo "Looks kind of like a Version 7 system, but we'll see..."
+X	d_bsd="$undef"
+X	echo exit 1 >bsd
+X	echo exit 1 >usg
+X	echo exit 0 >v7
+Xfi
+Xcase "$eunicefix" in
+X*unixtovms*)
+X	$cat <<'EOI'
+XThere is, however, a strange, musty smell in the air that reminds me of
+Xsomething...hmm...yes...I've got it...there's a VMS nearby, or I'm a Blit.
+XEOI
+X	echo "exit 0" >eunice
+X	d_eunice="$define"
+X: it so happens the Eunice I know will not run shell scripts in Unix format
+X	;;
+X*)
+X	echo " "
+X	echo "Congratulations.  You aren't running Eunice."
+X	d_eunice="$undef"
+X	echo "exit 1" >eunice
+X	;;
+Xesac
+Xif test -f /xenix; then
+X	echo "Actually, this looks more like a XENIX system..."
+X	echo "exit 0" >xenix
+X	d_xenix="$define"
+Xelse
+X	echo " "
+X	echo "It's not Xenix..."
+X	echo "exit 1" >xenix
+X	d_xenix="$undef"
+Xfi
+Xchmod +x xenix
+X$eunicefix xenix
+Xif test -f /venix; then
+X	echo "Actually, this looks more like a VENIX system..."
+X	echo "exit 0" >venix
+Xelse
+X	echo " "
+X	if xenix; then
+X		: null
+X	else
+X		echo "Nor is it Venix..."
+X	fi
+X	echo "exit 1" >venix
+Xfi
+Xchmod +x bsd usg v7 eunice venix
+X$eunicefix bsd usg v7 eunice venix
+X$rm -f foo
+X
+END_OF_FILE
+  if test 4185 -ne `wc -c <'mcon/U/Guess.U'`; then
+    echo shar: \"'mcon/U/Guess.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/Guess.U'
+fi
+if test -f 'mcon/U/Head.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/Head.U'\"
+else
+  echo shar: Extracting \"'mcon/U/Head.U'\" \(4830 characters\)
+  sed "s/^X//" >'mcon/U/Head.U' <<'END_OF_FILE'
+X?RCS: $Id: Head.U,v 3.0 1993/08/18 12:04:58 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: Head.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:04:58  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?X: 
+X?X: This is the very first unit in the Configure script.  It is mostly just
+X?X: things to keep people from getting into a tizzy right off the bat.
+X?X: 
+X?MAKE:Head:
+X?MAKE:	-pick wipe $@ %<
+X?V:PATH
+X?T:argv Id
+X#! /bin/sh
+X#
+X# If these # comments don't work, trim them. Don't worry about any other
+X# shell scripts, Configure will trim # comments from them for you.
+X#
+X# (If you are trying to port this package to a machine without sh,
+X# I would suggest you have a look at the prototypical config_h.SH file
+X# and edit it to reflect your system. Some packages may include samples
+X# of config.h for certain machines, so you might look for one of those.)
+X#
+X?X:
+X?X: NOTE THAT A CONFIGURE SCRIPT IS IN THE PUBLIC DOMAIN (whether or not
+X?X: the software which uses it is in the public domain).
+X?X:
+X# Yes, you may rip this off to use in other distribution packages. This
+X# script belongs to the public domain and cannot be copyrighted.
+X#
+X?X:
+X?X: WE ASK YOU NOT TO REMOVE OR ALTER THE FOLLOWING PARAGRAPH, PLEASE:
+X?X:
+X# (Note: this Configure script was generated automatically. Rather than
+X# working with this copy of Configure, you may wish to get metaconfig.
+X# The dist-3.0 package (which contains metaconfig) was posted in
+X# comp.sources.misc so you may fetch it yourself from your nearest
+X# archive site. Check with Archie if you don't know where that can be.)
+X#
+X?X:
+X?X: NOTA BENE:
+X?X: If you develop you own version of metaconfig based on this work,
+X?X: you have to add some comments telling that the script was generated
+X?X: by your version, not mine: It credits your work.
+X?X:
+X
+X# $Id: Head.U,v 3.0 1993/08/18 12:04:58 ram Exp $
+X#
+X# Generated on <DATE> [metaconfig <VERSION> PL<PATCHLEVEL>]
+X
+Xcat >/tmp/c1$$ <<EOF
+XARGGGHHHH!!!!!
+X
+XSCO csh still thinks true is false.  Write to SCO today and tell them that next
+Xyear Configure ought to "rm /bin/csh" unless they fix their blasted shell. :-)
+X
+X(Actually, Configure ought to just patch csh in place.  Hmm.  Hmmmmm.  All
+Xwe'd have to do is go in and swap the && and || tokens, wherever they are.)
+X
+X[End of diatribe. We now return you to your regularly scheduled programming...]
+XEOF
+Xcat >/tmp/c2$$ <<EOF
+X
+XOOPS!  You naughty creature!  You didn't run Configure with sh!
+XI will attempt to remedy the situation by running sh for you...
+XEOF
+X
+Xtrue || cat /tmp/c1$$ /tmp/c2$$
+Xtrue || exec sh $0 $argv:q
+X
+X(exit $?0) || cat /tmp/c2$$
+X(exit $?0) || exec sh $0 $argv:q
+Xrm -f /tmp/c1$$ /tmp/c2$$
+X
+X?X:
+X?X: There are two schools of thoughts here. Some people correctly argue that
+X?X: the user has a better chance than we do of setting a reasonable PATH and
+X?X: others argue that Configure is the best place there is to set up a suitable
+X?X: PATH. Well, here we try to compromize by keeping the user's PATH and
+X?X: appending some directories which are known to work on some machine or the
+X?X: other. The rationale behind this being that a novice user might not have a
+X?X: proper environment variable set, and some directories like /etc (where
+X?X: chown is located on some BSD systems) may be missing--RAM.
+X?X:
+X: Sanity checks
+XPATH=".:$PATH:/bin:/usr/bin:/usr/local/bin:/usr/ucb:/usr/local:/usr/lbin"
+XPATH=$PATH:'/usr/5bin:/etc:/usr/gnu/bin:/usr/new:/usr/new/bin:/usr/nbin'
+XPATH=$PATH:'/sys5.3/bin:/sys5.3/usr/bin:/bsd4.3/bin:/bsd4.3/usr/ucb'
+XPATH=$PATH:'/bsd4.3/usr/bin:/usr/bsd:/bsd43/bin:/usr/ccs/bin'
+XPATH=$PATH:'/etc:/usr/lib:/usr/ucblib:/lib:/usr/ccs/lib'
+Xexport PATH
+X
+Xif test ! -t 0; then
+X	echo "Say 'sh Configure', not 'sh <Configure'"
+X	exit 1
+Xfi
+X
+X: On HP-UX, large Configure scripts may exercise a bug in /bin/sh
+Xif test -f /hp-ux -a -x /bin/ksh; then
+X	if (alias -x) >/dev/null 2>&1; then
+X		: already under /bin/ksh
+X	else
+X		cat <<'EOM'
+X(Feeding myself to ksh to avoid nasty sh bug in "here document" expansion.)
+XEOM
+X		exec /bin/ksh $0 "$@"
+X	fi
+Xelse
+X	: Warn them if they use ksh on other systems
+X?X:
+X?X: Use (alias -x) and not (alias) since zsh and bash recognize the alias
+X?X: builtin but not the -x option which is typically ksh...
+X?X:
+X	(alias -x) >/dev/null 2>&1 && \
+X		cat <<'EOM'
+X(I see you are using the Korn shell.  Some ksh's blow up on Configure,
+Xespecially on exotic machines.  If yours does, try the Bourne shell instead.)
+XEOM
+Xfi
+X
+X: Configure runs within the UU subdirectory
+Xtest -d UU || mkdir UU
+Xcd UU && rm -f *
+X
+END_OF_FILE
+  if test 4830 -ne `wc -c <'mcon/U/Head.U'`; then
+    echo shar: \"'mcon/U/Head.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/Head.U'
+fi
+if test -f 'mcon/U/Loc.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/Loc.U'\"
+else
+  echo shar: Extracting \"'mcon/U/Loc.U'\" \(5207 characters\)
+  sed "s/^X//" >'mcon/U/Loc.U' <<'END_OF_FILE'
+X?RCS: $Id: Loc.U,v 3.0 1993/08/18 12:05:05 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: Loc.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:05:05  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?X: 
+X?X: This unit produces a shell script "loc" which can be used to find out
+X?X: where in a list of directories something is.  It then uses loc to
+X?X: determine the location of commonly used programs.  It leaves loc sitting
+X?X: around for other Configure units to use, but arranges for its demise
+X?X: at the end of Configure.
+X?X: 
+X?X: To add a new program to find, add it both to the ?MAKE: line and to either
+X?X: the loclist or trylist variable.
+X?X: 
+X?X: I put startsh at the end of the dependency list, in order to avoid the
+X?X: loading of the spitshell unit before the instructions.
+X?X:
+X?MAKE:Loc Mcc awk bash bison cat chgrp chmod chown compress cp cpio cpp csh \
+X	date echo egrep emacs expr flex gcc grep inews ksh less line lint ln lp \
+X	lpr ls mail mailx make mkdir more mv nroff perl pg pmake pr rm rmail sed \
+X	sendmail sh shar sleep smail sort submit tail tar tbl test touch tr \
+X	troff uname uniq uuname vi zcat: eunicefix n c Instruct Myread startsh
+X?MAKE:	-pick weed $@ %<
+X?LINT:describe Loc Mcc awk bash bison cat chgrp chmod chown compress cp cpio \
+X	cpp csh date echo egrep emacs expr flex gcc grep inews ksh less line lint \
+X	ln lp lpr ls mail mailx make mkdir more mv nroff perl pg pmake pr rm \
+X	rmail sed sendmail sh shar sleep smail sort submit tail tar tbl test \
+X	touch tr troff uname uniq uuname vi zcat
+X?V::pth loclist trylist
+X?T:thing xxx dir file say
+X: find out where common programs are
+Xecho " "
+Xecho "Locating common programs..." >&4
+Xcat <<EOSC >loc
+X$startsh
+Xcase \$# in
+X0) exit 1;;
+Xesac
+Xthing=\$1
+Xshift
+Xdflt=\$1
+Xshift
+Xfor dir in \$*; do
+X	case "\$thing" in
+X	.)
+X	if test -d \$dir/\$thing; then
+X		echo \$dir
+X		exit 0
+X	fi
+X	;;
+X	*)
+X	if test -f \$dir/\$thing; then
+X		echo \$dir/\$thing
+X		exit 0
+X	elif test -f \$dir/\$thing.exe; then
+X		: on Eunice apparently
+X		echo \$dir/\$thing
+X		exit 0
+X	fi
+X	;;
+X	esac
+Xdone
+Xecho \$dflt
+Xexit 1
+XEOSC
+Xchmod +x loc
+X$eunicefix loc
+Xloclist="
+X?awk:awk
+X?cat:cat
+X?chgrp:chgrp
+X?chmod:chmod
+X?chown:chown
+X?cp:cp
+X?echo:echo
+X?expr:expr
+X?grep:grep
+X?ln:ln
+X?ls:ls
+X?make:make
+X?mkdir:mkdir
+X?mv:mv
+X?rm:rm
+X?sed:sed
+X?sleep:sleep
+X?sort:sort
+X?tail:tail
+X?touch:touch
+X?tr:tr
+X?uniq:uniq
+X"
+Xtrylist="
+X?Mcc:Mcc
+X?bash:bash
+X?bison:bison
+X?compress:compress
+X?cpio:cpio
+X?cpp:cpp
+X?csh:csh
+X?date:date
+X?egrep:egrep
+X?emacs:emacs
+X?flex:flex
+X?gcc:gcc
+X?inews:inews
+X?ksh:ksh
+X?less:less
+X?line:line
+X?lint:lint
+X?lp:lp
+X?lpr:lpr
+X?mail:mail
+X?mailx:mailx
+X?more:more
+X?nroff:nroff
+X?perl:perl
+X?pg:pg
+X?pmake:pmake
+X?pr:pr
+X?rmail:rmail
+X?sendmail:sendmail
+X?sh:sh
+X?shar:shar
+X?smail:smail
+X?submit:submit
+X?tar:tar
+X?tbl:tbl
+X?test:test
+X?troff:troff
+X?uname:uname
+X?uuname:uuname
+X?vi:vi
+X?zcat:zcat
+X"
+X?LINT:set Loc Mcc awk bash bison cat chgrp chmod chown compress cp cpio cpp \
+X	csh date echo egrep emacs expr flex gcc grep inews ksh less line lint ln \
+X	lp lpr ls mail mailx make mkdir more mv nroff perl pg pmake pr rm rmail \
+X	sed sendmail sh shar sleep smail sort submit tail tar tbl test touch tr \
+X	troff uname uniq uuname vi zcat
+Xpth=`echo $PATH | sed -e 's/:/ /g'`
+Xpth="$pth /lib /usr/lib"
+Xfor file in $loclist; do
+X	xxx=`./loc $file $file $pth`
+X	eval $file=$xxx
+X	eval _$file=$xxx
+X	case "$xxx" in
+X	/*)
+X		echo $file is in $xxx.
+X		;;
+X	*)
+X		echo "I don't know where $file is.  I hope it's in everyone's PATH."
+X		;;
+X	esac
+Xdone
+Xecho " "
+Xecho "Don't worry if any of the following aren't found..."
+Xsay=offhand
+Xfor file in $trylist; do
+X	xxx=`./loc $file $file $pth`
+X	eval $file=$xxx
+X	eval _$file=$xxx
+X	case "$xxx" in
+X	/*)
+X		echo $file is in $xxx.
+X		;;
+X	*)
+X		echo "I don't see $file out there, $say."
+X		say=either
+X		;;
+X	esac
+Xdone
+Xcase "$egrep" in
+Xegrep)
+X	echo "Substituting grep for egrep."
+X	egrep=$grep
+X	;;
+Xesac
+Xcase "$test" in
+Xtest)
+X	echo "Hopefully test is built into your sh."
+X	;;
+X/bin/test)
+X	if sh -c "PATH= test true" >/dev/null 2>&1; then
+X		echo "Using the test built into your sh."
+X		test=test
+X	fi
+X	;;
+X*)
+X	test=test
+X	;;
+Xesac
+X?LINT:change n c
+Xcase "$echo" in
+Xecho)
+X	echo "Hopefully echo is built into your sh."
+X	;;
+X*)
+X	echo " "
+Xecho "Checking compatibility between $echo and builtin echo (if any)..." >&4
+X	$echo $n "hi there$c" >foo1
+X	echo $n "hi there$c" >foo2
+X	if cmp foo1 foo2 >/dev/null 2>&1; then
+X		echo "They are compatible.  In fact, they may be identical."
+X	else
+X		case "$n" in
+X		'-n') n='' c='\c';;
+X		*) n='-n' c='';;
+X		esac
+X		cat <<FOO
+XThey are not compatible!  You are probably running ksh on a non-USG system.
+XI'll have to use $echo instead of the builtin, since Bourne shell doesn't
+Xhave echo built in and we may have to run some Bourne shell scripts.  That
+Xmeans I'll have to use '$n$c' to suppress newlines now.  Life is ridiculous.
+X
+XFOO
+X		$echo $n "The star should be here-->$c"
+X		$echo "*"
+X	fi
+X	$rm -f foo1 foo2
+X	;;
+Xesac
+X
+END_OF_FILE
+  if test 5207 -ne `wc -c <'mcon/U/Loc.U'`; then
+    echo shar: \"'mcon/U/Loc.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/Loc.U'
+fi
+if test -f 'mcon/U/ccflags.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/ccflags.U'\"
+else
+  echo shar: Extracting \"'mcon/U/ccflags.U'\" \(4893 characters\)
+  sed "s/^X//" >'mcon/U/ccflags.U' <<'END_OF_FILE'
+X?RCS: $Id: ccflags.U,v 3.0 1993/08/18 12:05:31 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: ccflags.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:05:31  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:ccflags ldflags lkflags cppflags optimize: test cat Myread Guess \
+X	Oldconfig +cc mips_type +usrinc package contains
+X?MAKE:	-pick add $@ %<
+X?S:ccflags:
+X?S:	This variable contains any additional C compiler flags desired by
+X?S:	the user.  It is up to the Makefile to use this.
+X?S:.
+X?S:cppflags:
+X?S:	This variable holds the flags that will be passed to the C pre-
+X?S:	processor. It is up to the Makefile to use it.
+X?S:.
+X?S:optimize:
+X?S:	This variable contains any optimizer/debugger flag that should be used.
+X?S:	It is up to the Makefile to use it.
+X?S:.
+X?S:ldflags:
+X?S:	This variable contains any additional C loader flags desired by
+X?S:	the user.  It is up to the Makefile to use this.
+X?S:.
+X?S:lkflags:
+X?S:	This variable contains any additional C partial linker flags desired by
+X?S:	the user.  It is up to the Makefile to use this.
+X?S:.
+X?T:inctest thisincl xxx flag inclwanted tans
+X?INIT:: no include file wanted by default
+X?INIT:inclwanted=''
+X?INIT:
+X: determine optimize, if desired, or use for debug flag also
+Xcase "$optimize" in
+X' ') dflt="none";;
+X'') dflt="-O";;
+X*) dflt="$optimize";;
+Xesac
+X$cat <<EOH
+X
+XSome C compilers have problems with their optimizers, by default, $package
+Xcompiles with the -O flag to use the optimizer.  Alternately, you might want
+Xto use the symbolic debugger, which uses the -g flag (on traditional Unix
+Xsystems).  Either flag can be specified here.  To use neither flag, specify
+Xthe word "none".
+X
+XEOH
+Xrp="What optimizer/debugger flag should be used?"
+X. ./myread
+Xoptimize="$ans"
+Xcase "$optimize" in
+X'none') optimize=" ";;
+Xesac
+X
+Xcase "$ccflags" in
+X'')	case "$cc" in
+X	*gcc*) dflt='-fpcc-struct-return';;
+X	*) dflt='';;
+X	esac
+X	case "$optimize" in
+X	*-g*) dflt="$dflt -DDEBUG";;
+X	esac
+X?X: check for POSIXized ISC
+X	case "$cc" in
+X	*gcc*)	if test -d /etc/conf/kconfig.d &&
+X		  $contains _POSIX_VERSION $usrinc/sys/unistd.h >/dev/null 2>&1
+X		then
+X			dflt="$dflt -posix"
+X		fi
+X		;;
+X	esac
+X	;;
+X*) dflt="$ccflags" ;;
+Xesac
+X
+X?X: In USG mode, a MIPS system may need some BSD includes
+Xcase "$mips_type" in
+X*BSD*) ;;
+X'') ;;
+X*) inclwanted="$inclwanted $usrinc/bsd";;
+Xesac
+Xfor thisincl in $inclwanted; do
+X	if $test -d $thisincl; then
+X		if $test x$thisincl != x$usrinc; then
+X			case "$dflt" in
+X			*$thisincl*);;
+X			*) dflt="$dflt -I$thisincl";;
+X			esac
+X		fi
+X	fi
+Xdone
+X
+X?X: Include test function (header, symbol)
+Xinctest='if $contains $2 $usrinc/$1 >/dev/null 2>&1; then
+X	xxx=true;
+Xelif $contains $2 $usrinc/sys/$1 >/dev/null 2>&1; then
+X	xxx=true;
+Xelse
+X	xxx=false;
+Xfi;
+Xif $xxx; then
+X	case "$dflt" in
+X	*$2*);;
+X	*) dflt="$dflt -D$2";;
+X	esac;
+Xfi'
+X
+X?X: SCO unix uses NO_PROTOTYPE instead of _NO_PROTO
+Xset signal.h LANGUAGE_C; eval $inctest
+Xset signal.h NO_PROTOTYPE; eval $inctest
+Xset signal.h _NO_PROTO; eval $inctest
+X
+Xcase "$dflt" in
+X'') dflt=none;;
+Xesac
+X$cat <<EOH
+X
+XYour C compiler may want other flags.  For this question you should include
+X-I/whatever and -DWHATEVER flags and any other flags used by the C compiler,
+Xbut you should NOT include libraries or ld flags like -lwhatever.  To use no
+Xflags, specify the word "none".
+X
+XEOH
+X?X: strip leading space
+Xset X $dflt
+Xshift
+Xdflt=${1+"$@"}
+Xrp="Any additional cc flags?"
+X. ./myread
+Xtans="$ans"
+Xcase "$tans" in
+Xnone) tans='';
+Xesac
+Xccflags="$tans"
+X
+X: the following weeds options from ccflags that are of no interest to cpp
+Xcppflags="$ccflags"
+Xcase "$cc" in
+X*gcc*) cppflags="$cppflags -D__GNUC__";;
+Xesac
+Xcase "$mips_type" in
+X'');;
+X*BSD*) cppflags="$cppflags -DSYSTYPE_BSD43";;
+Xesac
+Xcase "$cppflags" in
+X'');;
+X*)  set X $cppflags
+X	cppflags=''
+X	for flag
+X	do
+X		case $flag in
+X		-D*|-I*|-traditional|-ansi|-nostdinc) cppflags="$cppflags $flag";;
+X		esac
+X	done
+X	case "$cppflags" in
+X	*-*)  echo "(C preprocessor flags: $cppflags)";;
+X	esac
+X	;;
+Xesac
+X
+X: flags used in final linking phase
+Xcase "$ldflags" in
+X'') if venix; then
+X		dflt='-i -z'
+X	else
+X		dflt='none'
+X	fi
+X	;;
+X*) dflt="$ldflags";;
+Xesac
+Xecho " "
+Xrp="Any additional ld flags (NOT including libraries)?"
+X. ./myread
+Xtans="$ans"
+Xcase "$tans" in
+Xnone) tans='';
+Xesac
+Xldflags="$tans"
+Xrmlist="$rmlist pdp11"
+X
+X@if lkflags
+X: partial linking may need other flags
+Xcase "$lkflags" in
+X'') case "$ldflags" in
+X	'') dflt='none';;
+X	*) dflt="$ldflags";;
+X	esac;;
+X*) dflt="$lkflags";;
+Xesac
+Xecho " "
+Xrp="Partial linking flags to be used (NOT including -r)?"
+X. ./myread
+Xtans="$ans"
+Xcase "$tans" in
+Xnone) tans='';
+Xesac
+Xlkflags="$tans"
+X
+X@end
+END_OF_FILE
+  if test 4893 -ne `wc -c <'mcon/U/ccflags.U'`; then
+    echo shar: \"'mcon/U/ccflags.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/ccflags.U'
+fi
+if test -f 'mcon/U/d_NOFILE.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/d_NOFILE.U'\"
+else
+  echo shar: Extracting \"'mcon/U/d_NOFILE.U'\" \(4810 characters\)
+  sed "s/^X//" >'mcon/U/d_NOFILE.U' <<'END_OF_FILE'
+X?RCS: $Id: d_NOFILE.U,v 3.0 1993/08/18 12:05:39 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: d_NOFILE.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:05:39  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:nofile d_gettblsz tablesize: Myread Guess libc cat +cc +ccflags +libs \
+X	test rm Csym
+X?MAKE:	-pick add $@ %<
+X?S:nofile:
+X?S:	This variable contains the number of file descriptors available to the
+X?S:	process.
+X?S:.
+X?S:d_gettblsz:
+X?S:	This variable conditionally handles remapping of the getdtablesize()
+X?S:	subroutine to ulimit(4,0), or the NOFILE manifest constant.
+X?S:.
+X?S:tablesize:
+X?S:	This variable contains either the 'NOFILE' constant or 'ulimit(4, 0L)'
+X?S:	and is used as the remapped value for the getdtablesize() macro.
+X?S:.
+X?C:getdtablesize:
+X?C:	This catches use of the getdtablesize() subroutine, and remaps it
+X?C:	to either ulimit(4,0) or NOFILE, if getdtablesize() isn't available.
+X?C:.
+X?C:VAL_NOFILE:
+X?C:	This symbol contains the number of file descriptors available to the
+X?C:	process, as determined at configuration time. Unless a static constant
+X?C:	is needed, you should rely on getdtablesize() to obtain that number.
+X?C:.
+X?H:#$d_gettblsz getdtablesize() $tablesize	/**/
+X?H:#define VAL_NOFILE $nofile	/* Number of file descriptors */
+X?H:.
+X?T:d_ulimit4 val
+X: see if getdtablesize exists
+Xecho " "
+X?X: Revert logical value (d_gettblsz is undef iff getdtablesize is present)
+Xcase "$d_gettblsz" in
+X$define) d_gettblsz="$undef";;
+X$undef) d_gettblsz="$define";;
+Xesac
+Xif set getdtablesize val -f d_gettblsz; eval $csym; $val; then
+X	echo 'getdtablesize() found.' >&4
+X	d_gettblsz="$undef"
+X	tablesize=''
+X@if VAL_NOFILE || nofile
+X	$cat >nofile.c <<'EOCP'
+X#include <stdio.h>
+Xmain()
+X{
+X	printf("%d\n", getdtablesize());
+X}
+XEOCP
+X	nofile=''
+X	if $cc $ccflags nofile.c -o nofile $libs >/dev/null 2>&1; then
+X		nofile=`./nofile 2>/dev/null`
+X	fi
+X	if $test "$nofile"; then
+X		echo "(You have $nofile file descriptors available per process.)"
+X	else
+X		nofile='20'
+X		if ./bsd; then
+X			nofile='64'
+X		fi
+X	echo "(Hmm... Let's say you have $nofile file descriptors available.)"
+X	fi
+X@end
+Xelse
+X	echo 'getdtablesize() NOT found...' >&4
+X	if set ulimit val -f; eval $csym; $val; then
+X		echo 'Maybe ulimit(4,0) will work...'
+X		$cat >nofile.c <<'EOCP'
+X#include <stdio.h>
+X#ifdef GETPARAM_H
+X#include <sys/param.h>
+X#endif
+Xmain()
+X{
+X	printf("%d %d\n",
+X#ifdef NOFILE
+X		NOFILE,
+X#else
+X		0,
+X#endif
+X		ulimit(4,0));
+X		exit(0);
+X}
+XEOCP
+X		if $cc $ccflags -DGETPARAM_H nofile.c -o nofile $libs >/dev/null 2>&1 \
+X			|| $cc $ccflags nofile.c -o nofile $libs >/dev/null 2>&1 ; then
+X			set `./nofile`
+X			d_gettblsz=$1
+X			d_ulimit4=$2
+X			if $test "$d_ulimit4" -lt 0; then
+X				echo "Your ulimit() call doesn't tell me what I want to know."
+X				echo "We'll just use NOFILE in this case."
+X				nofile=$d_gettblsz
+X				d_gettblsz="$define"
+X				tablesize='NOFILE'
+X			else
+X				if $test "$d_gettblsz" -gt 0; then
+X				echo "Your system defines NOFILE to be $d_gettblsz, and" >&4
+X				else
+X				echo "I had trouble getting NOFILE from your system, but" >&4
+X				fi
+Xecho "ulimit returns $d_ulimit4 as the number of available file descriptors." >&4
+X				dflt='y';
+X				echo " "
+X	rp='Should I use ulimit to get the number of available file descriptors?'
+X				. ./myread
+X				case "$ans" in
+X				y*)
+X					nofile=$d_ulimit4
+X					d_gettblsz="$define"
+X					tablesize='ulimit(4, 0L)'
+X					echo "Using ulimit(4,0)."
+X					;;
+X				*)
+X					nofile=$d_gettblsz
+X					d_gettblsz="$define"
+X					tablesize='NOFILE'
+X					echo "Using NOFILE."
+X					;;
+X				esac
+X			fi
+X		else
+X			echo "Strange, I couldn't get my test program to compile."
+X			echo "We'll just use NOFILE in this case."
+X			d_gettblsz="$define"
+X			tablesize='NOFILE'
+X			nofile=''
+X		fi
+X	else
+X		echo 'Using NOFILE instead.'
+X		d_gettblsz="$define"
+X		tablesize='NOFILE'
+X		nofile=''
+X	fi
+Xfi
+X@if VAL_NOFILE || nofile
+Xcase "$nofile" in
+X'')
+X	$cat >nofile.c <<'EOCP'
+X#include <stdio.h>
+X#ifdef GETPARAM_H
+X#include <sys/param.h>
+X#endif
+Xmain()
+X{
+X	printf("%d\n",
+X#ifdef NOFILE
+X		NOFILE,
+X#else
+X		0,
+X#endif
+X		);
+X		exit(0);
+X}
+XEOCP
+X	if $cc $ccflags -DGETPARAM_H nofile.c -o nofile $libs >/dev/null 2>&1 \
+X		|| $cc $ccflags nofile.c -o nofile $libs >/dev/null 2>&1 ; then
+X		nofile=`./nofile 2>/dev/null`
+X	fi
+X	if $test "$nofile"; then
+X		echo "(You have $nofile file descriptors available per process.)"
+X	else
+X		nofile='20'
+X		if ./bsd; then
+X			nofile='64'
+X		fi
+X	echo "(Hmm... Let's say you have $nofile file descriptors available.)"
+X	fi
+X	;;
+Xesac
+X@end
+X$rm -f nofile*
+X
+END_OF_FILE
+  if test 4810 -ne `wc -c <'mcon/U/d_NOFILE.U'`; then
+    echo shar: \"'mcon/U/d_NOFILE.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/d_NOFILE.U'
+fi
+if test -f 'mcon/U/i_sysioctl.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/i_sysioctl.U'\"
+else
+  echo shar: Extracting \"'mcon/U/i_sysioctl.U'\" \(4919 characters\)
+  sed "s/^X//" >'mcon/U/i_sysioctl.U' <<'END_OF_FILE'
+X?RCS: $Id: i_sysioctl.U,v 3.0 1993/08/18 12:08:32 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: i_sysioctl.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:08:32  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:i_sysioctl i_bsdioctl i_syssockio d_voidtty: test contains cat \
+X	i_termio i_termios i_sgtty Setvar Findhdr
+X?MAKE:	-pick add $@ %<
+X?S:i_sysioctl:
+X?S:	This variable conditionally defines the I_SYS_IOCTL symbol, which
+X?S:	indicates to the C program that <sys/ioctl.h> exists and should
+X?S:	be included.
+X?S:.
+X?S:i_bsdioctl:
+X?S:	This variable conditionally defines the I_SYS_BSDIOCTL symbol, which
+X?S:	indicates to the C program that <sys/bsdioctl.h> exists and should
+X?S:	be included.
+X?S:.
+X?S:i_syssockio:
+X?S:	This variable conditionally defines I_SYS_SOCKIO to indicate to the
+X?S:	C program that socket ioctl codes may be found in <sys/sockio.h>
+X?S:	instead of <sys/ioctl.h>.
+X?S:.
+X?S:d_voidtty:
+X?S:	This variable conditionally defines USE_IOCNOTTY to indicate that the
+X?S:	ioctl() call with TIOCNOTTY should be used to void tty association.
+X?S:	Otherwise (on USG probably), it is enough to close the standard file
+X?S:	decriptors and do a setpgrp().
+X?S:.
+X?C:I_SYS_IOCTL (I_SYSIOCTL):
+X?C:	This symbol, if defined, indicates that <sys/ioctl.h> exists and should
+X?C:	be included. Otherwise, include <sgtty.h> or <termio.h>.
+X?C:.
+X?C:I_SYS_BSDIOCTL (I_BSDIOCTL):
+X?C:	This symbol, if defined, indicates that <sys/bsdioctl.h> exists and should
+X?C:	be included. Otherwise, try <sys/ioctl.h>. This is primarly intended for
+X?C:	definitions of sockets options, like SIOCATMARK.
+X?C:.
+X?C:I_SYS_SOCKIO (I_SYSSOCKIO):
+X?C:	This symbol, if defined, indicates the <sys/sockio.h> should be included
+X?C:	to get socket ioctl options, like SIOCATMARK.
+X?C:.
+X?C:USE_TIOCNOTTY (VOIDTTY):
+X?C:	This symbol, if defined indicate to the C program that the ioctl()
+X?C:	call with TIOCNOTTY should be used to void tty association.
+X?C:	Otherwise (on USG probably), it is enough to close the standard file
+X?C:	decriptors and do a setpgrp().
+X?C:.
+X?H:#$i_sysioctl	I_SYS_IOCTL		/**/
+X?H:#$i_bsdioctl	I_SYS_BSDIOCTL		/**/
+X?H:#$i_syssockio I_SYS_SOCKIO	/**/
+X?H:#$d_voidtty USE_TIOCNOTTY	/**/
+X?H:.
+X?T:xxx
+X: see if ioctl defs are in sgtty/termio or sys/ioctl
+Xecho " "
+Xif $test `./findhdr sys/ioctl.h`; then
+X	val="$define"
+X	echo "<sys/ioctl.h> found." >&4
+Xelse
+X	val="$undef"
+X	$test $i_termio = "$define" && xxx="termio.h"
+X	$test $i_termios = "$define" && xxx="termios.h"
+X	$test $i_sgtty = "$define" && xxx="sgtty.h"
+Xecho "No <sys/ioctl.h> found, assuming ioctl args are defined in <$xxx>." >&4
+Xfi
+X?LINT:set i_sysioctl
+Xset i_sysioctl
+Xeval $setvar
+X
+X@if I_BSDIOCTL || i_bsdioctl
+X?X:
+X?X:	The only machine I know where this inclusion was necessary is a
+X?X:	BULL DPX 5000 (a French machine).
+X?X:
+X: see if socket ioctl defs are in sys/bsdioctl or sys/ioctl
+Xecho " "
+Xif $test `./findhdr sys/bsdioctl.h`; then
+X	if $contains SIOCATMARK `./findhdr sys/bsdioctl.h` >/dev/null 2>&1; then
+X		val="$define"
+X		echo "You have socket ioctls defined in <sys/bsdioctl.h>." >&4
+X	else
+X		val="$undef"
+X		echo "No socket ioctls found in <sys/bsdioctl.h>." >&4
+X	fi
+Xelse
+X	val="$undef"
+X	echo "<sys/bsdioctl.h> not found, but that's ok." >&4
+Xfi
+X?LINT:set i_bsdioctl
+Xset i_bsdioctl
+Xeval $setvar
+X
+X@end
+X@if I_SYSSOCKIO || i_syssockio
+X: see if socket ioctl defs are in sys/sockio.h
+Xecho " "
+Xif $test `./findhdr sys/sockio.h`; then
+X	if $contains SIOCATMARK `./findhdr sys/sockio.h` >/dev/null 2>&1; then
+X		val="$define"
+X		echo "You have socket ioctls defined in <sys/sockio.h>." >&4
+X	else
+X		val="$undef"
+X		echo "No socket ioctls found in <sys/sockio.h>." >&4
+X	fi
+Xelse
+X	val="$undef"
+X@if I_BSDIOCTL
+X	case "$i_bsdioctl" in
+X	"$define") $cat <<EOM
+X<sys/sockio.h> not found, using ioctls from <sys/bsdioctl.h>.
+XEOM
+X	;;
+X	*) $cat <<EOM
+X<sys/sockio.h> not found, assuming socket ioctls are in <sys/ioctl.h>.
+XEOM
+X	;;
+X	esac
+X@else
+X	$cat <<EOM
+X<sys/sockio.h> not found, assuming socket ioctls are in <sys/ioctl.h>.
+XEOM
+X@end
+Xfi
+X?LINT:set i_syssockio
+Xset i_syssockio
+Xeval $setvar
+X
+X@end
+X@if VOIDTTY || d_voidtty
+X: check how to void tty association
+Xecho " "
+Xcase "$i_sysioctl" in
+X"$define") xxx=`./findhdr sys/ioctl.h`;;
+X?X: $xxx was set during the determination of i_sysioctl
+X*) xxx=`./findhdr $xxx`;;
+Xesac
+Xif $contains TIOCNOTTY $xxx >/dev/null 2>&1; then
+X	val="$define"
+X	echo "TIOCNOTTY found in $xxx." >&4
+X	echo "Using ioctl() call on /dev/tty to void tty association." >&4
+Xelse
+X	val="$undef"
+X	echo "Closing standard file descriptors should void tty association." >&4
+Xfi
+X?LINT:set d_voidtty
+Xset d_voidtty
+Xeval $setvar
+X
+X@end
+END_OF_FILE
+  if test 4919 -ne `wc -c <'mcon/U/i_sysioctl.U'`; then
+    echo shar: \"'mcon/U/i_sysioctl.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/i_sysioctl.U'
+fi
+if test -f 'mcon/U/locdist.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/locdist.U'\"
+else
+  echo shar: Extracting \"'mcon/U/locdist.U'\" \(4712 characters\)
+  sed "s/^X//" >'mcon/U/locdist.U' <<'END_OF_FILE'
+X?RCS: $Id: locdist.U,v 3.0 1993/08/18 12:09:06 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: locdist.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:09:06  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:locdist orgdist citydist statedist cntrydist contdist: test \
+X	newslibexp cat Myread Oldconfig
+X?MAKE:	-pick add $@ %<
+X?S:locdist:
+X?S:	This variable contains the eventual value of the LOCDIST symbol,
+X?S:	which is the local organization's distribution name for news.
+X?S:.
+X?S:orgdist:
+X?S:	This variable contains the eventual value of the ORGDIST symbol,
+X?S:	which is the organization's distribution name for news.
+X?S:.
+X?S:citydist:
+X?S:	This variable contains the eventual value of the CITYDIST symbol,
+X?S:	which is the city's distribution name for news.
+X?S:.
+X?S:statedist:
+X?S:	This variable contains the eventual value of the STATEDIST symbol,
+X?S:	which is the state's or province's distribution name for news.
+X?S:.
+X?S:cntrydist:
+X?S:	This variable contains the eventual value of the CNTRYDIST symbol,
+X?S:	which is the country's distribution name for news.
+X?S:.
+X?S:contdist:
+X?S:	This variable contains the eventual value of the CONTDIST symbol,
+X?S:	which is the continent's distribution name for news.
+X?S:.
+X?C:LOCDIST:
+X?C:	This symbol contains the distribution name for the news system that
+X?C:	restricts article distribution to the local organization.
+X?C:.
+X?C:ORGDIST:
+X?C:	This symbol contains the distribution name for the news system that
+X?C:	restricts article distribution to the organization.
+X?C:.
+X?C:CITYDIST:
+X?C:	This symbol contains the distribution name for the news system that
+X?C:	restricts article distribution to the city.
+X?C:.
+X?C:STATEDIST:
+X?C:	This symbol contains the distribution name for the news system that
+X?C:	restricts article distribution to the state or province.
+X?C:.
+X?C:CNTRYDIST:
+X?C:	This symbol contains the distribution name for the news system that
+X?C:	restricts article distribution to the country.
+X?C:.
+X?C:CONTDIST:
+X?C:	This symbol contains the distribution name for the news system that
+X?C:	restricts article distribution to the continent.
+X?C:.
+X?H:#define LOCDIST "$locdist"		/**/
+X?H:#define ORGDIST "$orgdist"		/**/
+X?H:#define CITYDIST "$citydist"		/**/
+X?H:#define STATEDIST "$statedist"		/**/
+X?H:#define CNTRYDIST "$cntrydist"		/**/
+X?H:#define CONTDIST "$contdist"		/**/
+X?H:.
+X: get the local distributions
+X$cat <<'EOH'
+X 
+XDistribution groups are the things you use on the Distribution line to limit
+Xwhere an article will go to.  You are likely to be a member of several
+Xdistribution groups, such as organization, city, state, province, country,
+Xcontinent, etc.  For example, Los Angeles has the distribution code "la",
+XNew Jersey has the code "nj", and Europe has the code "eunet".
+X
+XThe categories you will be asked are: 
+X
+Xlocal organization	(Could be just one machine or a cluster or an office)
+Xorganization		att, dec, kgb, ...
+Xcity			la, ny, mosc, ...
+Xstate/province		ca, nj, bc, ...
+Xcountry			usa, can, rok, whatever
+Xcontinent		na (North America), asia, etc.
+X
+XEOH
+Xif $test -f $newslibexp/distributions; then
+X	case "$silent" in
+X	true) ;;
+X	*)	dflt='Hit return to continue'
+X		rp=''
+X		. ./myread
+X		;;
+X	esac
+X	echo "Here is your distributions file:" >&4
+X	echo " " >&4
+X	$cat >&4 $newslibexp/distributions
+X	echo " " >&4
+Xfi
+Xecho "Use 'none' for any distributions you don't have."
+Xecho " "
+Xcase "$locdist" in
+X'') dflt="none";;
+X*)  dflt="$locdist";;
+Xesac
+Xrp="What is the distribution code for your local organization?"
+X. ./myread
+Xlocdist="$ans"
+Xcase "$orgdist" in
+X'') dflt="none";;
+X*)  dflt="$orgdist";;
+Xesac
+Xrp="What is the distribution code for your organization?"
+X. ./myread
+Xorgdist="$ans"
+Xcase "$citydist" in
+X'') dflt="none";;
+X*)  dflt="$citydist";;
+Xesac
+Xrp="What is the distribution code for your city?"
+X. ./myread
+Xcitydist="$ans"
+Xcase "$statedist" in
+X'') dflt="none";;
+X*)  dflt="$statedist";;
+Xesac
+Xrp="What is the distribution code for your state/province?"
+X. ./myread
+Xstatedist="$ans"
+Xcase "$cntrydist" in
+X'') dflt="none";;
+X*)  dflt="$cntrydist";;
+Xesac
+Xrp="What is the distribution code for your country?"
+X. ./myread
+Xcntrydist="$ans"
+Xcase "$contdist" in
+X'') dflt="none";;
+X*)  dflt="$contdist";;
+Xesac
+Xrp="What is the distribution code for your continent?"
+X. ./myread
+Xcontdist="$ans"
+X$cat <<'EOM'
+X  
+XIf you have any other distribution groups you will need to edit Pnews
+Xand newsetup to add them.
+XEOM
+X
+END_OF_FILE
+  if test 4712 -ne `wc -c <'mcon/U/locdist.U'`; then
+    echo shar: \"'mcon/U/locdist.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/locdist.U'
+fi
+if test -f 'mcon/makegloss.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/makegloss.SH'\"
+else
+  echo shar: Extracting \"'mcon/makegloss.SH'\" \(5163 characters\)
+  sed "s/^X//" >'mcon/makegloss.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting mcon/makegloss (with variable substitutions)"
+X$spitshell >makegloss <<!GROK!THIS!
+X$startperl
+X	eval "exec perl -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X!GROK!THIS!
+X$spitshell >>makegloss <<'!NO!SUBS!'
+X# $Id: makegloss.SH,v 3.0 1993/08/18 12:10:12 ram Exp $
+X#
+X#  Copyright (c) 1991-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic Licence,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic Licence; a copy of which may be found at the root
+X#  of the source tree for dist 3.0.
+X#
+X# Original Author: Larry Wall <lwall@netlabs.com>
+X#
+X# $Log: makegloss.SH,v $
+X# Revision 3.0  1993/08/18  12:10:12  ram
+X# Baseline for dist 3.0 netwide release.
+X#
+X
+Xopen(G,">Glossary") || die "Can't create Glossary.\n";
+Xprint G
+X'[This Glossary is automatically generated from the Unit files.  Do not edit
+Xthis file or your changes will be lost.  Edit the appropriate Unit instead.]
+X
+XThis file contains a listing of all the C preprocessor symbols and shell
+Xvariables whose value can be determined by a Configure script.  For the
+Xmost part, any symbol in UPPERCASE is a C preprocessor symbol, and
+Xwill be defined in config.h.  Symbols in lowercase are shell variables,
+Xand are defined in config.sh.
+X
+XIf you write your shell scripts and C programs in terms of these symbols,
+Xmetaconfig can automatically build you a Configure script that will determine
+Xthe value of those symbols.  See the README file for a description of how
+Xto use metaconfig.
+X
+XIn the following listing, the Unit: line indicates the name of the unit
+Xwhere this symbol is defined, and the Wants: line indicates what other
+Xsymbols must be determined in order to figure out the value of this one.
+XIf there is an "(Also defines ...)" entry, it indicates what other symbols
+Xare defined by the Unit other than the one corresponding to the unit name.
+X
+XVariable of the form d_* either have the value "define" or "/*define", and
+Xcontrol whether some C preprocessor symbol gets defined or not.
+X
+X';
+X
+X@ARGV = <U/*.U>;
+Xwhile (<>) {
+X	if (/^\?[\w\-]+:/) { 	# We may have found a control line
+X		# Long lines may be escaped with a final backslash
+X		$_ .= &complete_line if s/\\\s*$//;
+X	}
+X	if (/^\?MAKE:.*:/) {
+X		($unit,$also,$wants) = /^\?MAKE:\s*(\w+)\s*(.*):\s*(.*)/;
+X		@Wants = split(/ /,$wants);
+X		$wants = '';
+X		$option = '';
+X		foreach (@Wants) {
+X			if (s/^\+//) {
+X				$option .= "$_ ";
+X			} else {
+X				$wants .= "$_ ";
+X			}
+X		}
+X		chop($option);
+X		chop($wants);
+X		$head = '';
+X		$_ = "Unit: $unit";
+X		$_ .= " (Also defines $also)" if $also;
+X		$head .= do format($_);
+X		if ($wants) {
+X			$_ = "Wants: $wants";
+X			$head .= do format($_);
+X		}
+X		if ($option) {
+X			$_ = "Optional: $option";
+X			$head .= do format($_);
+X		}
+X		$head .= "\n";
+X	}
+X
+X	# Example of expression matched by the following pattern:
+X	#   ?C:symbol ~ alias (obsolete list):
+X	# The main symbol (optionally aliased) can be followed by a list of
+X	# obsolete symbols (the list is space separated).
+X
+X	if (s/^\?[CS]:(\w+)(\s*~\s*\S+)?\s*(\(.*\))?:s*$/$1:\n/) {
+X		$sym = $1;
+X		$obsoleted = $3;
+X		push(@syms, $sym);
+X		$header{$sym} .= $head;
+X		if ($obsoleted =~ s/^\((.*)\)$/$1/) {
+X			@obsoleted = split(' ', $obsoleted);
+X			foreach $obs (@obsoleted) {
+X				push(@syms, $obs);
+X				$header{$obs} = "\tObsoleted by $sym.\n\n";
+X			}
+X		}
+X	}
+X	elsif (s/^\?[CS]://) {		# Must be inside definition
+X		if (/^\.$/) {			# Closing line
+X			$def{$sym} .= "\n";
+X			$sym = '';
+X		}
+X		else {
+X			s/^(\t|  ? ? ? ? ? ? ?)//;
+X			$def{$sym} .= "\t" . $_;
+X		}
+X	}
+X}
+X
+Xforeach $sym (sort @syms) {
+X	print G "$sym:\n";
+X	print G $header{$sym};
+X	print G $def{$sym};
+X}
+Xclose G;
+X
+X# Format $_ to fit in 80 columns (70 + size of tabs)
+X# Long lines are split, and the all but the first are indented
+X# by two leading spaces. The whole thing is then indented by
+X# one tab.
+Xsub format {
+X	local($tmp);
+X	local($head) = '';
+X	local($_) = shift(@_);
+X	while (length($_) > 70) {
+X		$tmp = substr($_,0,70);
+X		$tmp =~ s/^(.*) .*/$1/;
+X		$head .= "\t$tmp\n";
+X		$_ = ' ' . substr($_,length($tmp),9999);
+X	}
+X	$head .= "\t$_\n";
+X}
+X
+X# The first line was escaped with a final \ character. Every following line
+X# is to be appended to it (until we found a real \n not escaped). Note that
+X# the leading spaces of the continuation line are removed, so any space should
+X# be added before the former \ if needed.
+Xsub complete_line {
+X	local($_);
+X	local($read) = '';		# Concatenation of all the continuation lines found
+X	while (<>) {
+X		s/^\s+//;				# Remove leading spaces
+X		if (s/\\\s*$//) {		# Still followed by a continuation line
+X			$read .= $_;	
+X		} else {				# We've reached the end of the continuation
+X			return $read . $_;
+X		}
+X	}
+X}
+X
+X!NO!SUBS!
+Xchmod 755 makegloss
+X$eunicefix makegloss
+END_OF_FILE
+  if test 5163 -ne `wc -c <'mcon/makegloss.SH'`; then
+    echo shar: \"'mcon/makegloss.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'mcon/makegloss.SH'
+  # end of 'mcon/makegloss.SH'
+fi
+if test -f 'mcon/pl/xwant.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/pl/xwant.pl'\"
+else
+  echo shar: Extracting \"'mcon/pl/xwant.pl'\" \(4720 characters\)
+  sed "s/^X//" >'mcon/pl/xwant.pl' <<'END_OF_FILE'
+X;# $Id: xwant.pl,v 3.0 1993/08/18 12:10:32 ram Exp $
+X;#
+X;#  Copyright (c) 1991-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic Licence,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic Licence; a copy of which may be found at the root
+X;#  of the source tree for dist 3.0.
+X;#
+X;# $Log: xwant.pl,v $
+X;# Revision 3.0  1993/08/18  12:10:32  ram
+X;# Baseline for dist 3.0 netwide release.
+X;#
+X;# 
+X;# These two arrays record the file names of the files which may (or may not)
+X;# contain shell or C symbols known by metaconfig.
+X;#  @SHlist records the .SH files
+X;#  @clist records the C-like files (i.e. .[chyl])
+X;#
+X# Parse files and build cross references
+Xsub build_xref {
+X	print "Building cross-reference files...\n" unless $opt_s;
+X	unless (-f $NEWMANI) {
+X		&manifake;
+X		die "No $NEWMANI--don't know who to scan.\n" unless -f $NEWMANI;
+X	}
+X
+X	open(FUI, "|sort | uniq >I.fui") || die "Can't create I.fui.\n";
+X	open(UIF, "|sort | uniq >I.uif") || die "Can't create I.uif.\n";
+X
+X	local($search);							# Where to-be-evaled script is held
+X	local($_) = ' ' x 50000 if $opt_m;		# Pre-extend pattern search space
+X	local(%visited);						# Records visited files
+X	local(%lastfound);						# Where last occurence of key was
+X
+X	# Map shell symbol names to units by reverse engineering the @Master array
+X	# which records all the known shell symbols and the units where they
+X	# are defined.
+X	foreach $init (@Master) {
+X		$init =~ /^\?(.*):(.*)=''/ && ($shwanted{"\$$2"} = $1);
+X	}
+X
+X	# Now we are a little clever, and build a loop to eval so that we don't
+X	# have to recompile our patterns on every file.  We also use "study" since
+X	# we are searching the same string for many different things.  Hauls!
+X
+X	if (@clist) {
+X		print "    Scanning .[chyl] files for symbols...\n" unless $opt_s;
+X		$search = ' ' x (40 * (@cmaster + @ocmaster));	# Pre-extend
+X		$search = "while (<>) {study;\n";				# Init loop over ARGV
+X		foreach $key (keys(cmaster)) {
+X			$search .= "\$cmaster{'$key'} .= \"\$ARGV#\" if /\\b$key\\b/;\n";
+X		}
+X		foreach $key (grep(!/^\$/, keys %Obsolete)) {
+X			$search .= "&ofound('$key') if /\\b$key\\b/;\n";
+X		}
+X		$search .= "}\n";			# terminate loop
+X		print $search if $opt_d;
+X		@ARGV = @clist;
+X		# Swallow each file as a whole, if memory is available
+X		undef $/ if $opt_m;
+X		eval $search;
+X		eval '';
+X		$/ = "\n";
+X		while (($key,$value) = each(cmaster)) {
+X			next if $value eq '';
+X			foreach $file (sort(split(/#/, $value))) {
+X				next if $file eq '';
+X				# %cwanted may contain value separated by \n -- take last one
+X				@sym = split(/\n/, $cwanted{$key});
+X				$sym = pop(@sym);
+X				$shell = "\$$sym";
+X				print FUI
+X					pack("A35", $file),
+X					pack("A20", "$shwanted{$shell}.U"),
+X					$key, "\n";
+X				print UIF
+X					pack("A20", "$shwanted{$shell}.U"),
+X					pack("A25", $key),
+X					$file, "\n";
+X			}
+X		}
+X	}
+X
+X	undef @clist;
+X	undef %cwanted;
+X	undef %cmaster;		# We're not building Configure, we may delete this
+X	%visited = ();
+X	%lastfound = ();
+X
+X	if (@SHlist) {
+X		print "    Scanning .SH files for symbols...\n" unless $opt_s;
+X		$search = ' ' x (40 * (@shmaster + @oshmaster));	# Pre-extend
+X		$search = "while (<>) {study;\n";
+X		# All the keys already have a leading '$'
+X		foreach $key (keys(shmaster)) {
+X			$search .= "\$shmaster{'$key'} .= \"\$ARGV#\" if /\\$key\\b/;\n";
+X		}
+X		foreach $key (grep (/^\$/, keys %Obsolete)) {
+X			$search .= "&ofound('$key') if /\\$key\\b/;\n";
+X		}
+X		$search .= "}\n";
+X		print $search if $opt_d;
+X		@ARGV = @SHlist;
+X		# Swallow each file as a whole, if memory is available
+X		undef $/ if $opt_m;
+X		eval $search;
+X		eval '';
+X		$/ = "\n";
+X		while (($key,$value) = each(shmaster)) {
+X			next if $value eq '';
+X			foreach $file (sort(split(/#/, $value))) {
+X				next if $file eq '';
+X				print FUI
+X					pack("A35", $file),
+X					pack("A20", "$shwanted{$key}.U"),
+X					$key, "\n";
+X				print UIF
+X					pack("A20", "$shwanted{$key}.U"),
+X					pack("A25", $key),
+X					$file, "\n";
+X			}
+X		}
+X	}
+X
+X	close FUI;
+X	close UIF;
+X
+X	# If obsolete symbols where found, write an Obsolete file which lists where
+X	# each of them appear and the new symbol to be used. Also write Obsol_h.U
+X	# and Obsol_sh.U in .MT for later perusal.
+X
+X	&dump_obsolete;						# Dump obsolete symbols if any
+X
+X	# Clean-up memory by freeing useless data structures
+X	undef @SHlist;
+X	undef %shmaster;
+X}
+X
+X# This routine records matches of obsolete keys (C or shell)
+Xsub ofound {
+X	local($key) = @_;
+X	local($_) = $Obsolete{$key};		# Value of new symbol
+X	$ofound{"$ARGV $key $_"}++;			# Record obsolete match
+X	$cmaster{$_} .= "$ARGV#" unless /^\$/;	# A C hit
+X	$shmaster{$_} .= "$ARGV#" if /^\$/;		# Or a shell one
+X}
+X
+END_OF_FILE
+  if test 4720 -ne `wc -c <'mcon/pl/xwant.pl'`; then
+    echo shar: \"'mcon/pl/xwant.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/pl/xwant.pl'
+fi
+echo shar: End of archive 12 \(of 28\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 28 archives.
+    echo "Please run PACKNOTES through sh, read REAMDE and then type Configure."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

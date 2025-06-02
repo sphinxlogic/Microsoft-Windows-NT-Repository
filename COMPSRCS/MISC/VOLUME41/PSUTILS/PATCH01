@@ -1,0 +1,2765 @@
+Newsgroups: comp.sources.misc
+From: angus@harlequin.co.uk (Angus Duggan)
+Subject: v41i029:  psutils - Postscript document manipulation tools, Patch01
+Message-ID: <1993Dec4.180102.18886@sparky.sterling.com>
+X-Md4-Signature: 80a21b8422ef14a0f9bc74c106081bac
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 4 Dec 1993 18:01:02 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: angus@harlequin.co.uk (Angus Duggan)
+Posting-number: Volume 41, Issue 29
+Archive-name: psutils/patch01
+Environment: UNIX, VMS, msdos
+Patch-To: psutils: Volume 39, Issue 93-96
+
+This patch takes PSUtils to patchlevel 13. The main features of this patch
+are:
+
+Patchlevel 13 contains two new scripts for resource management, a program for
+page resizing, and fixes to the Makefile, page labels, and output chaining.
+
+* Epsffit can output to a file as well as standard output.
+* extractres takes resources out of PostScript files and saves them
+* includeres puts resources from a resource library into PostScript files.
+* maketext script is now used to do substitutions in Perl scripts and man pages
+* page labels in psnup and pstops are now show where pages came from.
+* page labels in psbook and psselect fixed.
+* prologues fixed to be extractable and re-usable
+* Makefile doesn't use SUFFIXES any more
+* pstops and psnup output can now be chained through each other.
+* psresize alters the paper size used by a document
+* patchlevel.h shortened to patchlev.h as a concession to MSDOS
+* psnup now has -n nup form for compatibility with other n-up programs
+
+a.
+--
+Angus Duggan, Harlequin Ltd., Barrington Hall,	| INET: angus@harlequin.co.uk
+Barrington, Cambridge CB2 5RG, U.K.		| PHONE: +44(0)223 872522
+
+diff -cr +new-file psutils-dist/LICENSE psutils-next/LICENSE
+*** psutils-dist/LICENSE	Mon Nov 29 10:34:21 1993
+--- psutils-next/LICENSE	Mon Nov 29 18:50:38 1993
+***************
+*** 4,17 ****
+  The constituent files of this package listed below are copyright (C) 1991,
+  1992, 1993 Angus J. C. Duggan.
+  
+! LICENSE         Makefile        Manifest        README          epsffit.c
+! epsffit.man     fixfmps.man     fixfmps.pl      fixmacps.man    fixmacps.pl
+! fixpsditps.man  fixpsditps.pl   fixpspps.man    fixpspps.pl     fixtpps.man
+! fixtpps.pl      fixwfwps.man    fixwfwps.pl     fixwpps.man     fixwpps.pl
+! fixwwps.man     fixwwps.pl      getafm.man      patchlevel.h    psbook.c
+! psbook.man      psnup.c         psnup.man       psselect.c      psselect.man
+! psspec.c        psspec.h        pstops.c        pstops.man      psutil.c
+! psutil.h        showchar
+  
+  They may be copied and used for any purpose (including distribution as part of
+  a for-profit product), provided:
+--- 4,19 ----
+  The constituent files of this package listed below are copyright (C) 1991,
+  1992, 1993 Angus J. C. Duggan.
+  
+! LICENSE		Makefile	Manifest	README		epsffit.c
+! epsffit.man	extractres.man	extractres.pl	fixdlsrps.man	fixdlsrps.pl
+! fixfmps.man	fixfmps.pl	fixmacps.man	fixmacps.pl	fixpsditps.man
+! fixpsditps.pl	fixpspps.man	fixpspps.pl	fixtpps.man	fixtpps.pl
+! fixwfwps.man	fixwfwps.pl	fixwpps.man	fixwpps.pl	fixwwps.man
+! fixwwps.pl	getafm.man	includeres.man	includeres.pl	maketext
+! patchlev.h	psbook.c	psbook.man	psnup.c		psnup.man
+! psresize.c	psresize.man	psselect.c	psselect.man	psspec.c
+! psspec.h	pstops.c	pstops.man	psutil.c	psutil.h
+! showchar
+  
+  They may be copied and used for any purpose (including distribution as part of
+  a for-profit product), provided:
+***************
+*** 37,40 ****
+  The included files, md68_0.ps and md71_0.ps (and their uuencoded forms) are
+  (to the best of my knowledge) copyright Apple Computer, Inc.
+  
+!                                                                 AJCD 7/6/93
+--- 39,42 ----
+  The included files, md68_0.ps and md71_0.ps (and their uuencoded forms) are
+  (to the best of my knowledge) copyright Apple Computer, Inc.
+  
+!                                                                 AJCD 29/11/93
+diff -cr +new-file psutils-dist/Makefile psutils-next/Makefile
+*** psutils-dist/Makefile	Mon Nov 29 10:34:22 1993
+--- psutils-next/Makefile	Mon Nov 29 17:38:33 1993
+***************
+*** 1,4 ****
+--- 1,9 ----
+  # Makefile for PS utilities
++ # updated AJCD 23/9/93
++ #
++ # This Makefile is rather revolting; unfortunately, there are so many
++ # incompatible makes around that putting all of the non-standard targets
++ # explicitly seems to be the only way of ensuring portability.
+  
+  BINMODE=0755
+  MANMODE=0644
+***************
+*** 5,22 ****
+  CHMOD=chmod
+  INSTALL=install -c -m $(BINMODE)
+  INSTALLMAN=install -c -m $(MANMODE)
+  BINDIR=/usr/local/bin
+  SCRIPTDIR=$(BINDIR)
+  MANDIR=/usr/local/share/man/man1
+  MANEXT=1
+  PAPER=a4
+! INCLUDEDIR=/usr/local/share/tex/dvips
+  PERL=/usr/local/bin/perl
+  
+  # CFLAGS variable controls compilation. Add following flags if necessary:
+  #	-DVMS	if compiling under VMS
+  #	-DMSDOS	if compiling under MSDOS
+! CFLAGS=-g -DPAPER=\"$(PAPER)\"
+  
+  # epsffit fits an epsf file to a given bounding box
+  # psbook rearranges pages into signatures
+--- 10,28 ----
+  CHMOD=chmod
+  INSTALL=install -c -m $(BINMODE)
+  INSTALLMAN=install -c -m $(MANMODE)
++ 
+  BINDIR=/usr/local/bin
+  SCRIPTDIR=$(BINDIR)
+  MANDIR=/usr/local/share/man/man1
+  MANEXT=1
+  PAPER=a4
+! INCLUDEDIR=/usr/local/share/psutils
+  PERL=/usr/local/bin/perl
+  
+  # CFLAGS variable controls compilation. Add following flags if necessary:
+  #	-DVMS	if compiling under VMS
+  #	-DMSDOS	if compiling under MSDOS
+! CFLAGS=-DPAPER=\"$(PAPER)\"
+  
+  # epsffit fits an epsf file to a given bounding box
+  # psbook rearranges pages into signatures
+***************
+*** 23,124 ****
+  # psselect selects page ranges
+  # pstops performs general page rearrangement and merging
+  # psnup puts multiple logical pages on one physical page
+  
+! # definitions for Unix
+  exe =
+  obj = .o
+! BIN = psbook psselect pstops epsffit psnup
+  SHELLSCRIPTS = getafm
+  PERLSCRIPTS = fixfmps fixmacps fixpsditps fixpspps fixtpps fixwfwps fixwpps \
+!               fixwwps
+  INCLUDES = md68_0.ps md71_0.ps
+  MANPAGES = psbook.$(MANEXT) psselect.$(MANEXT) pstops.$(MANEXT) \
+!            epsffit.$(MANEXT) psnup.$(MANEXT) getafm.$(MANEXT) \
+!            fixfmps.$(MANEXT) fixmacps.$(MANEXT) fixpsditps.$(MANEXT) \
+!            fixpspps.$(MANEXT) fixtpps.$(MANEXT) fixwfwps.$(MANEXT) \
+!            fixwpps.$(MANEXT) fixwwps.$(MANEXT)
+  RM = rm -f
+  
+  # Definitions for MSDOS
+  #exe = .exe
+  #obj = .obj
+! #BIN = psbook$(exe) psselect$(exe) pstops$(exe) epsffit$(exe) psnup$(exe)
+  #PERLSCRIPTS =
+  #INCLUDES =
+  #MANPAGES =
+  #RM = del
+  
+! .SUFFIXES: .man .$(MANEXT)
+  
+! .man.$(MANEXT):
+! 	R=`sed -n "s/.*RELEASE *//p" patchlevel.h`; \
+! 	P=`sed -n "s/.*PATCHLEVEL *//p" patchlevel.h`; \
+! 	M=`echo $(MANPAGES) | sed -e "s/\.$(MANEXT)/($(MANEXT)),/g" -e "s/, *$$//"`; \
+! 	sed -e "s/@PL@/$$P/" -e "s/@REL@/$$R/" -e "s/@MAN@/$$M/" \
+! 	    -e "s/@PAPER@/$(PAPER)/" $< >$@
+  
+! all: $(BIN) $(PERLSCRIPTS) $(MANPAGES)
+  
+  epsffit$(exe): epsffit.c
+  	$(CC) $(CFLAGS) -o epsffit$(exe) epsffit.c
+  
+  psnup$(exe): psnup$(obj) psutil$(obj) psspec$(obj)
+  	$(CC) $(CFLAGS) -o psnup$(exe) psutil$(obj) psspec$(obj) psnup$(obj)
+  
+  psbook$(exe): psbook$(obj) psutil$(obj)
+  	$(CC) $(CFLAGS) -o psbook$(exe) psutil$(obj) psbook$(obj)
+  
+! psselect$(exe): psselect$(obj) psutil$(obj)
+! 	$(CC) $(CFLAGS) -o psselect$(exe) psutil$(obj) psselect$(obj)
+  
+! pstops$(exe): pstops$(obj) psutil$(obj) psspec$(obj)
+! 	$(CC) $(CFLAGS) -o pstops$(exe) psutil$(obj) psspec$(obj) pstops$(obj)
+  
+! psnup$(obj): psutil.h patchlevel.h psspec.h psnup.c
+  
+! psbook$(obj): psutil.h patchlevel.h psbook.c
+  
+! pstops$(obj): psutil.h patchlevel.h psspec.h pstops.c
+  
+! psselect$(obj): psutil.h patchlevel.h psselect.c
+  
+! psutil$(obj): psutil.h patchlevel.h psutil.c
+  
+! psspec$(obj): psutil.h patchlevel.h psspec.h psspec.c
+  
+  fixfmps: fixfmps.pl
+! 	sed -e "s%@PERL@%$(PERL)%" $? >$@; \
+  	$(CHMOD) $(BINMODE) $@
+  
+  fixmacps: fixmacps.pl
+! 	sed -e "s%@PERL@%$(PERL)%" \
+! 	    -e "s%@INCLUDE@%$(INCLUDEDIR)%" $? >$@; \
+  	$(CHMOD) $(BINMODE) $@
+  
+  fixpsditps: fixpsditps.pl
+! 	sed -e "s%@PERL@%$(PERL)%" $? >$@; \
+  	$(CHMOD) $(BINMODE) $@
+  
+  fixpspps: fixpspps.pl
+! 	sed -e "s%@PERL@%$(PERL)%" $? >$@; \
+  	$(CHMOD) $(BINMODE) $@
+  
+  fixtpps: fixtpps.pl
+! 	sed -e "s%@PERL@%$(PERL)%" $? >$@; \
+  	$(CHMOD) $(BINMODE) $@
+  
+  fixwfwps: fixwfwps.pl
+! 	sed -e "s%@PERL@%$(PERL)%" $? >$@; \
+  	$(CHMOD) $(BINMODE) $@
+  
+  fixwpps: fixwpps.pl
+! 	sed -e "s%@PERL@%$(PERL)%" $? >$@; \
+  	$(CHMOD) $(BINMODE) $@
+  
+  fixwwps: fixwwps.pl
+! 	sed -e "s%@PERL@%$(PERL)%" $? >$@; \
+  	$(CHMOD) $(BINMODE) $@
+  
+  clean:
+  	$(RM) *$(obj)
+  
+--- 29,197 ----
+  # psselect selects page ranges
+  # pstops performs general page rearrangement and merging
+  # psnup puts multiple logical pages on one physical page
++ # psresize scales and moves pages to fit on different paper sizes
++ 
++ # Do NOT leave "obj" undefined in the definitions below, or "make clean" will
++ # remove ALL of the files.
+  
+! # definitions for Unix:
+  exe =
+  obj = .o
+! BIN = psbook psselect pstops epsffit psnup psresize
+  SHELLSCRIPTS = getafm
+  PERLSCRIPTS = fixfmps fixmacps fixpsditps fixpspps fixtpps fixwfwps fixwpps \
+!               fixwwps fixdlsrps extractres includeres
+  INCLUDES = md68_0.ps md71_0.ps
+  MANPAGES = psbook.$(MANEXT) psselect.$(MANEXT) pstops.$(MANEXT) \
+! 	   epsffit.$(MANEXT) psnup.$(MANEXT) psresize.$(MANEXT) \
+! 	   getafm.$(MANEXT) fixdlsrps.$(MANEXT) fixfmps.$(MANEXT) \
+! 	   fixmacps.$(MANEXT) fixpsditps.$(MANEXT) fixpspps.$(MANEXT) \
+! 	   fixtpps.$(MANEXT) fixwfwps.$(MANEXT) fixwpps.$(MANEXT) \
+! 	   fixwwps.$(MANEXT) extractres.$(MANEXT) includeres.$(MANEXT)
+  RM = rm -f
+  
+  # Definitions for MSDOS
+  #exe = .exe
+  #obj = .obj
+! #BIN = psbook$(exe) psselect$(exe) pstops$(exe) epsffit$(exe) psnup$(exe) \
+! #      psresize$(exe)
+  #PERLSCRIPTS =
+  #INCLUDES =
+  #MANPAGES =
+  #RM = del
+  
+! all: $(BIN) $(PERLSCRIPTS) $(MANPAGES)
+  
+! psutil$(obj): psutil.h patchlev.h psutil.c
+  
+! psspec$(obj): psutil.h patchlev.h psspec.h psspec.c
+  
+  epsffit$(exe): epsffit.c
+  	$(CC) $(CFLAGS) -o epsffit$(exe) epsffit.c
+  
++ epsffit.$(MANEXT): epsffit.man
++ 	./maketext MAN="$(MANPAGES)" $? > $@
++ 
+  psnup$(exe): psnup$(obj) psutil$(obj) psspec$(obj)
+  	$(CC) $(CFLAGS) -o psnup$(exe) psutil$(obj) psspec$(obj) psnup$(obj)
+  
++ psnup$(obj): psutil.h patchlev.h psspec.h psnup.c
++ 
++ psnup.$(MANEXT): psnup.man
++ 	./maketext MAN="$(MANPAGES)" PAPER=$(PAPER) $? > $@
++ 
++ psresize$(exe): psresize$(obj) psutil$(obj) psspec$(obj)
++ 	$(CC) $(CFLAGS) -o psresize$(exe) psutil$(obj) psspec$(obj) psresize$(obj)
++ 
++ psresize$(obj): psutil.h patchlev.h psspec.h psresize.c
++ 
++ psresize.$(MANEXT): psresize.man
++ 	./maketext MAN="$(MANPAGES)" PAPER=$(PAPER) $? > $@
++ 
+  psbook$(exe): psbook$(obj) psutil$(obj)
+  	$(CC) $(CFLAGS) -o psbook$(exe) psutil$(obj) psbook$(obj)
+  
+! psbook$(obj): psutil.h patchlev.h psbook.c
+  
+! psbook.$(MANEXT): psbook.man
+! 	./maketext "MAN=$(MANPAGES)" $? > $@
+  
+! psselect$(exe): psselect$(obj) psutil$(obj)
+! 	$(CC) $(CFLAGS) -o psselect$(exe) psutil$(obj) psselect$(obj)
+  
+! psselect$(obj): psutil.h patchlev.h psselect.c
+  
+! psselect.$(MANEXT): psselect.man
+! 	./maketext "MAN=$(MANPAGES)" $? > $@
+  
+! pstops$(exe): pstops$(obj) psutil$(obj) psspec$(obj)
+! 	$(CC) $(CFLAGS) -o pstops$(exe) psutil$(obj) psspec$(obj) pstops$(obj)
+  
+! pstops$(obj): psutil.h patchlev.h psspec.h pstops.c
+  
+! pstops.$(MANEXT): pstops.man
+! 	./maketext "MAN=$(MANPAGES)" PAPER=$(PAPER) $? > $@
+  
+  fixfmps: fixfmps.pl
+! 	./maketext PERL=$(PERL) $? >$@;
+  	$(CHMOD) $(BINMODE) $@
+  
++ fixfmps.$(MANEXT): fixfmps.man
++ 	./maketext "MAN=$(MANPAGES)" $? > $@
++ 
+  fixmacps: fixmacps.pl
+! 	./maketext PERL=$(PERL) INCLUDE=$(INCLUDEDIR) $? >$@;
+  	$(CHMOD) $(BINMODE) $@
+  
++ fixmacps.$(MANEXT): fixmacps.man
++ 	./maketext "MAN=$(MANPAGES)" INCLUDE=$(INCLUDEDIR) $? > $@
++ 
+  fixpsditps: fixpsditps.pl
+! 	./maketext PERL=$(PERL) $? >$@;
+  	$(CHMOD) $(BINMODE) $@
+  
++ fixpsditps.$(MANEXT): fixpsditps.man
++ 	./maketext "MAN=$(MANPAGES)" $? > $@
++ 
+  fixpspps: fixpspps.pl
+! 	./maketext PERL=$(PERL) $? >$@;
+  	$(CHMOD) $(BINMODE) $@
+  
++ fixpspps.$(MANEXT): fixpspps.man
++ 	./maketext "MAN=$(MANPAGES)" $? > $@
++ 
+  fixtpps: fixtpps.pl
+! 	./maketext PERL=$(PERL) $? >$@;
+  	$(CHMOD) $(BINMODE) $@
+  
++ fixtpps.$(MANEXT): fixtpps.man
++ 	./maketext "MAN=$(MANPAGES)" $? > $@
++ 
+  fixwfwps: fixwfwps.pl
+! 	./maketext PERL=$(PERL) $? >$@;
+  	$(CHMOD) $(BINMODE) $@
+  
++ fixwfwps.$(MANEXT): fixwfwps.man
++ 	./maketext "MAN=$(MANPAGES)" $? > $@
++ 
+  fixwpps: fixwpps.pl
+! 	./maketext PERL=$(PERL) $? >$@;
+  	$(CHMOD) $(BINMODE) $@
+  
++ fixwpps.$(MANEXT): fixwpps.man
++ 	./maketext "MAN=$(MANPAGES)" $? > $@
++ 
+  fixwwps: fixwwps.pl
+! 	./maketext PERL=$(PERL) $? >$@;
+! 	$(CHMOD) $(BINMODE) $@
+! 
+! fixwwps.$(MANEXT): fixwwps.man
+! 	./maketext "MAN=$(MANPAGES)" $? > $@
+! 
+! fixdlsrps: fixdlsrps.pl
+! 	./maketext PERL=$(PERL) $? >$@;
+  	$(CHMOD) $(BINMODE) $@
+  
++ fixdlsrps.$(MANEXT): fixdlsrps.man
++ 	./maketext "MAN=$(MANPAGES)" $? > $@
++ 
++ extractres: extractres.pl
++ 	./maketext PERL=$(PERL) $? >$@;
++ 	$(CHMOD) $(BINMODE) $@
++ 
++ extractres.$(MANEXT): extractres.man
++ 	./maketext "MAN=$(MANPAGES)" $? > $@
++ 
++ includeres: includeres.pl
++ 	./maketext PERL=$(PERL) INCLUDE=$(INCLUDEDIR) $? >$@;
++ 	$(CHMOD) $(BINMODE) $@
++ 
++ includeres.$(MANEXT): includeres.man
++ 	./maketext "MAN=$(MANPAGES)" INCLUDE=$(INCLUDEDIR) $? > $@
++ 
++ getafm.$(MANEXT): getafm.man
++ 	./maketext "MAN=$(MANPAGES)" $? > $@
++ 
+  clean:
+  	$(RM) *$(obj)
+  
+***************
+*** 150,153 ****
+  		echo Installing manual page for $$i; \
+  		$(INSTALLMAN) $$i $(MANDIR)/$$i; \
+  	done
+- 
+--- 223,225 ----
+diff -cr +new-file psutils-dist/Manifest psutils-next/Manifest
+*** psutils-dist/Manifest	Mon Nov 29 10:34:24 1993
+--- psutils-next/Manifest	Mon Nov 29 18:47:08 1993
+***************
+*** 1,12 ****
+--- 1,17 ----
+  LICENSE
+  Makefile
+  Manifest
++ maketext
+  README
+  descrip.mms
+  epsffit.c
+  epsffit.man
++ extractres.man
++ extractres.pl
+  fixfmps.man
+  fixfmps.pl
++ fixdlsrps.man
++ fixdlsrps.pl
+  fixmacps.man
+  fixmacps.pl
+  fixpsditps.man
+***************
+*** 23,35 ****
+  fixwwps.pl
+  getafm
+  getafm.man
+  md68_0.uue
+  md71_0.uue
+! patchlevel.h
+  psbook.c
+  psbook.man
+  psnup.c
+  psnup.man
+  psselect.c
+  psselect.man
+  psspec.c
+--- 28,44 ----
+  fixwwps.pl
+  getafm
+  getafm.man
++ includeres.man
++ includeres.pl
+  md68_0.uue
+  md71_0.uue
+! patchlev.h
+  psbook.c
+  psbook.man
+  psnup.c
+  psnup.man
++ psresize.c
++ psresize.man
+  psselect.c
+  psselect.man
+  psspec.c
+diff -cr +new-file psutils-dist/README psutils-next/README
+*** psutils-dist/README	Mon Nov 29 10:34:24 1993
+--- psutils-next/README	Mon Nov 29 20:54:17 1993
+***************
+*** 1,4 ****
+! PostScript Utilities	        Angus Duggan		        7 June 1993
+  
+  This shar file contains some utilities for manipulating PostScript documents.
+  Page selection and rearrangement are supported, including arrangement into
+--- 1,4 ----
+! PostScript Utilities	        Angus Duggan		       29 November 1993
+  
+  This shar file contains some utilities for manipulating PostScript documents.
+  Page selection and rearrangement are supported, including arrangement into
+***************
+*** 15,61 ****
+  FILES
+  
+  The files contained are:
+! -rw-r--r--  1 ajcd         1945 Jun  7 15:40 LICENSE
+! -rw-r--r--  1 ajcd         3367 Jun  7 11:30 Makefile
+! -rw-r--r--  1 ajcd          432 Jun  7 11:33 Manifest
+! -rw-r--r--  1 ajcd         6295 Jun  7 15:40 README
+! -rw-r--r--  1 ajcd         1864 Jun  5 16:31 descrip.mms
+! -rw-r--r--  1 ajcd         4431 Jun  5 11:05 epsffit.c
+! -rw-r--r--  1 ajcd         1045 Jun  7 11:01 epsffit.man
+! -rw-r--r--  1 ajcd          538 Apr  9 22:33 fixfmps.man
+! -rw-r--r--  1 ajcd          419 Apr  9 17:14 fixfmps.pl
+! -rw-r--r--  1 ajcd          559 Apr  9 22:35 fixmacps.man
+! -rw-r--r--  1 ajcd         1751 Jun  7 11:30 fixmacps.pl
+! -rw-r--r--  1 ajcd          564 Apr  9 22:35 fixpsditps.man
+! -rw-r--r--  1 ajcd          596 Apr  9 17:15 fixpsditps.pl
+! -rw-r--r--  1 ajcd          533 Apr  9 22:35 fixpspps.man
+! -rw-r--r--  1 ajcd         1236 Apr  9 17:15 fixpspps.pl
+! -rw-r--r--  1 ajcd          551 Apr  9 22:32 fixtpps.man
+! -rw-r--r--  1 ajcd          602 Apr  9 22:31 fixtpps.pl
+! -rw-r--r--  1 ajcd          556 Apr  9 22:36 fixwfwps.man
+! -rw-r--r--  1 ajcd          318 Apr  9 17:15 fixwfwps.pl
+! -rw-r--r--  1 ajcd          544 Apr  9 22:36 fixwpps.man
+! -rw-r--r--  1 ajcd          669 May  5 13:54 fixwpps.pl
+! -rw-r--r--  1 ajcd          542 Apr 22 12:38 fixwwps.man
+! -rw-r--r--  1 ajcd          364 Apr 22 12:37 fixwwps.pl
+! -rwxr-xr-x  1 ajcd         6124 Jun  7 15:25 getafm
+! -rw-r--r--  1 ajcd          702 Jun  7 15:38 getafm.man
+! -rw-r--r--  1 ajcd        42798 May  6 09:16 md68_0.uue
+! -rw-r--r--  1 ajcd        48726 May  6 09:16 md71_0.uue
+! -rw-r--r--  1 ajcd           40 Apr  9 21:03 patchlevel.h
+! -rw-r--r--  1 ajcd         2155 Jun  4 15:23 psbook.c
+! -rw-r--r--  1 ajcd         1059 Mar 31 15:33 psbook.man
+! -rw-r--r--  1 ajcd         6967 Jun  7 10:29 psnup.c
+! -rw-r--r--  1 ajcd         2578 Jun  7 11:28 psnup.man
+! -rw-r--r--  1 ajcd         5298 Jun  4 15:24 psselect.c
+! -rw-r--r--  1 ajcd         1893 Mar 31 15:33 psselect.man
+! -rw-r--r--  1 ajcd         6682 Jun  5 16:49 psspec.c
+! -rw-r--r--  1 ajcd          604 Jun  5 13:38 psspec.h
+! -rw-r--r--  1 ajcd         4215 Jun  5 13:04 pstops.c
+! -rw-r--r--  1 ajcd         3512 Jun  7 10:43 pstops.man
+! -rw-r--r--  1 ajcd         8195 Jun  5 16:43 psutil.c
+! -rw-r--r--  1 ajcd          988 Jun  5 14:48 psutil.h
+! -rwxr-xr-x  1 ajcd         2552 Feb 10 12:47 showchar
+  
+  PROGRAMS
+  
+--- 15,70 ----
+  FILES
+  
+  The files contained are:
+! -rw-r--r--  1 angus        1919 Nov 29 18:50 LICENSE
+! -rw-r--r--  1 angus        6003 Nov 29 17:38 Makefile
+! -rw-r--r--  1 angus         559 Nov 29 18:47 Manifest
+! -rw-r--r--  1 angus        8354 Nov 29 20:52 README
+! -rw-r--r--  1 angus        2083 Nov 29 20:44 descrip.mms
+! -rw-r--r--  1 angus        5013 Nov 29 17:02 epsffit.c
+! -rw-r--r--  1 angus        1210 Nov 27 14:28 epsffit.man
+! -rw-r--r--  1 angus        1159 Nov 27 14:28 extractres.man
+! -rw-r--r--  1 angus        2687 Nov 19 22:14 extractres.pl
+! -rw-r--r--  1 angus         507 Nov 27 14:28 fixdlsrps.man
+! -rw-r--r--  1 angus        1220 Nov 20 00:30 fixdlsrps.pl
+! -rw-r--r--  1 angus         473 Nov 27 14:28 fixfmps.man
+! -rw-r--r--  1 angus         431 Oct 27 18:07 fixfmps.pl
+! -rw-r--r--  1 angus         587 Nov 27 14:28 fixmacps.man
+! -rw-r--r--  1 angus        2043 Oct 27 18:07 fixmacps.pl
+! -rw-r--r--  1 angus         502 Nov 27 14:28 fixpsditps.man
+! -rw-r--r--  1 angus         596 Oct 27 18:07 fixpsditps.pl
+! -rw-r--r--  1 angus         469 Nov 27 14:28 fixpspps.man
+! -rw-r--r--  1 angus        1236 Oct 27 18:07 fixpspps.pl
+! -rw-r--r--  1 angus         499 Nov 27 14:28 fixtpps.man
+! -rw-r--r--  1 angus         602 Oct 27 18:07 fixtpps.pl
+! -rw-r--r--  1 angus         493 Nov 27 14:28 fixwfwps.man
+! -rw-r--r--  1 angus         794 Nov  9 22:57 fixwfwps.pl
+! -rw-r--r--  1 angus         479 Nov 27 14:28 fixwpps.man
+! -rw-r--r--  1 angus         669 Oct 27 18:07 fixwpps.pl
+! -rw-r--r--  1 angus         477 Nov 27 14:29 fixwwps.man
+! -rw-r--r--  1 angus         364 Oct 27 18:07 fixwwps.pl
+! -rw-r--r--  1 angus        6124 Oct 27 18:08 getafm
+! -rw-r--r--  1 angus         711 Nov 27 14:29 getafm.man
+! -rw-r--r--  1 angus        1035 Nov 27 14:29 includeres.man
+! -rw-r--r--  1 angus        1392 Nov 19 21:10 includeres.pl
+! -rwxr-xr-x  1 angus         901 Nov 29 17:02 maketext
+! -rw-r--r--  1 angus       30969 Oct 27 18:08 md68_0.ps
+! -rw-r--r--  1 angus       35273 Oct 27 18:08 md71_0.ps
+! -rw-r--r--  1 angus          40 Oct 27 18:09 patchlev.h
+! -rw-r--r--  1 angus        2168 Nov 29 17:02 psbook.c
+! -rw-r--r--  1 angus        1084 Nov 27 14:29 psbook.man
+! -rw-r--r--  1 angus        8793 Nov 29 17:23 psnup.c
+! -rw-r--r--  1 angus        3565 Nov 29 20:52 psnup.man
+! -rw-r--r--  1 angus        4808 Nov 29 20:19 psresize.c
+! -rw-r--r--  1 angus        1585 Nov 29 20:28 psresize.man
+! -rw-r--r--  1 angus        5310 Nov 29 17:03 psselect.c
+! -rw-r--r--  1 angus        1920 Nov 27 14:29 psselect.man
+! -rw-r--r--  1 angus        7393 Nov 29 20:18 psspec.c
+! -rw-r--r--  1 angus         602 Oct 27 18:09 psspec.h
+! -rw-r--r--  1 angus        4386 Nov 29 17:03 pstops.c
+! -rw-r--r--  1 angus        3895 Nov 27 14:09 pstops.man
+! -rw-r--r--  1 angus        9697 Nov 29 19:39 psutil.c
+! -rw-r--r--  1 angus        1071 Nov 27 13:19 psutil.h
+! -rw-r--r--  1 angus        2567 Oct 27 18:09 showchar
+  
+  PROGRAMS
+  
+***************
+*** 63,68 ****
+--- 72,78 ----
+  psselect        selects pages and page ranges
+  pstops          performs general page rearrangement and selection
+  psnup           put multiple pages per physical sheet of paper
++ psresize        alter document paper size
+  epsffit         fits an EPSF file to a given bounding box
+  
+  psselect in modeled after Chris Torek's dviselect program, and pstops is
+***************
+*** 73,78 ****
+--- 83,89 ----
+  
+  getafm   (sh)   outputs PostScript to retrieve AFM file from printer
+  showchar (sh)   outputs PostScript to draw a character with metric info
++ fixdlsrps (perl) filter to fix DviLaser/PS output so that PSUtils works
+  fixfmps  (perl) filter to fix framemaker documents so that psselect etc. work
+  fixmacps (perl) filter to fix Macintosh documents with saner version of md
+  fixpsditps (perl) filter to fix Transcript psdit documents to work with PSUtils
+***************
+*** 81,92 ****
+  fixwfwps (perl) filter to fix Word for Windows documents for PSUtils
+  fixwpps  (perl) filter to fix WordPerfect documents for PSUtils
+  fixwwps  (perl) filter to fix Windows Write documents for PSUtils
+  
+  INSTALLATION
+  
+! UUdecode md71_0.uue and md68_0.uue (if supplied encoded), edit Makefile to put
+! in required paths and CFLAGS (-DSYSV for System V machines, -DMSDOS for
+! Messy-DOS, -DVMS for VMS), "make", and "make install".
+  
+  BUGS
+  
+--- 92,107 ----
+  fixwfwps (perl) filter to fix Word for Windows documents for PSUtils
+  fixwpps  (perl) filter to fix WordPerfect documents for PSUtils
+  fixwwps  (perl) filter to fix Windows Write documents for PSUtils
++ extractres (perl) filter to extract resources from PostScript files
++ includeres (perl) filter to include resources into PostScript files
+  
+  INSTALLATION
+  
+! UUdecode md71_0.uue and md68_0.uue (if supplied encoded). Edit Makefile to put
+! in required paths for BINDIR, SCRIPTDIR, MANDIR, INCLUDEDIR, an PERL. Alter
+! values of MANEXT to put the manual pages in a different section if desired,
+! change PAPER to set the default paper size, and CFLAGS (-DSYSV for System V
+! machines, -DMSDOS for Messy-DOS, -DVMS for VMS). "make", and "make install".
+  
+  BUGS
+  
+***************
+*** 94,100 ****
+  conform. Utilities need an extra save/restore around whole document on a
+  SPARCPrinter with NeWSPrint 1.0, because of bugs in the xnews server.
+  
+! Bug fixes and suggestions to ajcd@dcs.ed.ac.uk
+  
+  NOTE
+  
+--- 109,115 ----
+  conform. Utilities need an extra save/restore around whole document on a
+  SPARCPrinter with NeWSPrint 1.0, because of bugs in the xnews server.
+  
+! Bug fixes and suggestions to angus@harlequin.co.uk
+  
+  NOTE
+  
+***************
+*** 122,127 ****
+--- 137,143 ----
+          Matthew Stier           Matthew.Stier@East.Sun.com
+          Gerry Pratt             cca13@seq1.kl.ac.uk
+          Robert Joop             rj@rainbow.in-berlin.de
++ 	Johan Vromans		jv@mh.nl
+  
+  (Apologies to anyone who I have left out.)
+  
+***************
+*** 136,138 ****
+--- 152,176 ----
+  * Epsffit can input broken %%BoundingBox comments which use real numbers.
+  * Should work on MSDOS and VMS machines as well as Unix.
+  * Accept more DSC compliant documents (Page labels are better supported).
++ 
++ Patchlevel 12 was a bug-fix release.
++ 
++ * Long standing fixmacps bug fixed.
++ * fixwfwps fixes WFW EPSF files as well as DSC files.
++ * md71_0.ps and md68_0.ps files were automatically uudecoded.
++ 
++ Patchlevel 13 contained two new scripts for resource management, and fixes to
++ the Makefile, page labels, and output chaining.
++ 
++ * Epsffit can output to a file as well as standard output.
++ * extractres takes resources out of PostScript files and saves them
++ * includeres puts resources from a resource library into PostScript files.
++ * maketext script is now used to do substitutions in Perl scripts and man pages
++ * page labels in psnup and pstops are now show where pages came from.
++ * page labels in psbook and psselect fixed.
++ * prologues fixed to be extractable and re-usable
++ * Makefile doesn't use SUFFIXES any more
++ * pstops and psnup output can now be chained through each other.
++ * psresize alters the paper size used by a document
++ * patchlevel.h shortened to patchlev.h as a concession to MSDOS
++ * psnup now has -n nup form for compatibility with other n-up programs
+diff -cr +new-file psutils-dist/descrip.mms psutils-next/descrip.mms
+*** psutils-dist/descrip.mms	Mon Nov 29 10:34:25 1993
+--- psutils-next/descrip.mms	Mon Nov 29 20:44:00 1993
+***************
+*** 23,29 ****
+  # pstops performs general page rearrangement and merging
+  # psnup puts multiple logical pages on one physical page
+  
+! all : psbook$(exe), psselect$(exe), pstops$(exe), epsffit$(exe), psnup$(exe)
+          @ write sys$output "PSUTILS build complete"
+  
+  epsffit$(exe) : epsffit$(obj)$(options_file)
+--- 23,29 ----
+  # pstops performs general page rearrangement and merging
+  # psnup puts multiple logical pages on one physical page
+  
+! all : psbook$(exe), psselect$(exe), pstops$(exe), epsffit$(exe), psnup$(exe), psresize$(exe)
+          @ write sys$output "PSUTILS build complete"
+  
+  epsffit$(exe) : epsffit$(obj)$(options_file)
+***************
+*** 32,37 ****
+--- 32,40 ----
+  psnup$(exe) :   psnup$(obj), psutil$(obj), psspec$(obj)
+          $(LINK)$(LFLAGS) psnup$(obj),psutil$(obj),psspec$(obj)$(linkopt)
+  
++ psresize$(exe) :   psresize$(obj), psutil$(obj), psspec$(obj)
++         $(LINK)$(LFLAGS) psresize$(obj),psutil$(obj),psspec$(obj)$(linkopt)
++ 
+  psbook$(exe) :  psbook$(obj), psutil$(obj)$(options_file)
+          $(LINK)$(LFLAGS) psbook$(obj),psutil$(obj)$(linkopt)
+  
+***************
+*** 41,60 ****
+  pstops$(exe) :  pstops$(obj), psutil$(obj), psspec$(obj)
+          $(LINK)$(LFLAGS) pstops$(obj),psutil$(obj),psspec$(obj)$(linkopt)
+  
+! psnup$(obj)  : psnup.c, psutil.h patchlevel.h psspec.h
+  
+! psbook$(obj) : psbook.c, psutil.h patchlevel.h
+  
+! pstops$(obj) : pstops.c, psutil.h patchlevel.h psspec.h
+  
+! psutil$(obj) : psutil.c, psutil.h patchlevel.h
+  
+! psselect$(obj) : psselect.c, psutil.h patchlevel.h
+  
+! psspec$(obj) : psspec.c, psutil.h patchlevel.h psspec.h
+  
+  clean :
+!         delete/log *$(obj);*,psnup$(exe);*,psbook$(exe);*,-
+                  psselect$(exe);*,pstops$(exe);*,epsffit$(exe);*
+  
+  
+--- 44,65 ----
+  pstops$(exe) :  pstops$(obj), psutil$(obj), psspec$(obj)
+          $(LINK)$(LFLAGS) pstops$(obj),psutil$(obj),psspec$(obj)$(linkopt)
+  
+! psnup$(obj)  : psnup.c, psutil.h patchlev.h psspec.h
+! 
+! psresize$(obj)  : psresize.c, psutil.h patchlev.h psspec.h
+  
+! psbook$(obj) : psbook.c, psutil.h patchlev.h
+  
+! pstops$(obj) : pstops.c, psutil.h patchlev.h psspec.h
+  
+! psutil$(obj) : psutil.c, psutil.h patchlev.h
+  
+! psselect$(obj) : psselect.c, psutil.h patchlev.h
+  
+! psspec$(obj) : psspec.c, psutil.h patchlev.h psspec.h
+  
+  clean :
+!         delete/log *$(obj);*,psnup$(exe);*,psresize$(exe);*,psbook$(exe);*,-
+                  psselect$(exe);*,pstops$(exe);*,epsffit$(exe);*
+  
+  
+diff -cr +new-file psutils-dist/epsffit.c psutils-next/epsffit.c
+*** psutils-dist/epsffit.c	Mon Nov 29 10:34:39 1993
+--- psutils-next/epsffit.c	Mon Nov 29 17:02:05 1993
+***************
+*** 2,8 ****
+   * AJCD 6 Dec 90
+   * fit epsf file into constrained size
+   * Usage:
+!  *       epsffit [-c] [-r] [-a] [-s] llx lly urx ury [file]
+   *               -c centres the image in the bounding box given
+   *               -r rotates the image by 90 degrees anti-clockwise
+   *               -a alters the aspect ratio to fit the bounding box
+--- 2,8 ----
+   * AJCD 6 Dec 90
+   * fit epsf file into constrained size
+   * Usage:
+!  *       epsffit [-c] [-r] [-a] [-s] llx lly urx ury [infile [outfile]]
+   *               -c centres the image in the bounding box given
+   *               -r rotates the image by 90 degrees anti-clockwise
+   *               -a alters the aspect ratio to fit the bounding box
+***************
+*** 16,22 ****
+  
+  #include <stdio.h>
+  #include <ctype.h>
+! #include "patchlevel.h"
+  
+  #define min(x,y) ((x) > (y) ? (y) : (x))
+  #define max(x,y) ((x) > (y) ? (x) : (y))
+--- 16,22 ----
+  
+  #include <stdio.h>
+  #include <ctype.h>
+! #include "patchlev.h"
+  
+  #define min(x,y) ((x) > (y) ? (y) : (x))
+  #define max(x,y) ((x) > (y) ? (x) : (y))
+***************
+*** 26,32 ****
+  void usage()
+  {
+     fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+!    fprintf(stderr, "Usage: %s [-c] [-r] [-a] [-s] llx lly urx ury [file]\n",
+  	   prog);
+     exit(1);
+  }
+--- 26,32 ----
+  void usage()
+  {
+     fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+!    fprintf(stderr, "Usage: %s [-c] [-r] [-a] [-s] llx lly urx ury [infile [outfile]]\n",
+  	   prog);
+     exit(1);
+  }
+***************
+*** 41,46 ****
+--- 41,47 ----
+     int showpage = 0, centre = 0, rotate = 0, aspect = 0, maximise = 0;
+     char buf[BUFSIZ];
+     FILE *input = stdin;
++    FILE *output = stdout;
+  
+     prog = *argv++; argc--;
+  
+***************
+*** 58,64 ****
+        argv++;
+     }
+  
+!    if (argc < 4) usage();
+     fllx = atoi(argv[0]);
+     flly = atoi(argv[1]);
+     furx = atoi(argv[2]);
+--- 59,65 ----
+        argv++;
+     }
+  
+!    if (argc < 4 || argc > 6) usage();
+     fllx = atoi(argv[0]);
+     flly = atoi(argv[1]);
+     furx = atoi(argv[2]);
+***************
+*** 65,75 ****
+     fury = atoi(argv[3]);
+  
+     if (argc > 4) {
+!       if(!(input = fopen(argv[4],"r"))) {
+! 	 fprintf(stderr, "%s: Cannot open %s\n", prog, argv[4]);
+  	 exit(1);
+        }
+     }
+  
+     while (fgets(buf, BUFSIZ, input)) {
+        if (buf[0] == '%' && (buf[1] == '%' || buf[1] == '!')) {
+--- 66,82 ----
+     fury = atoi(argv[3]);
+  
+     if (argc > 4) {
+!       if(!(input = fopen(argv[4], "r"))) {
+! 	 fprintf(stderr, "%s: can't open input file %s\n", prog, argv[4]);
+  	 exit(1);
+        }
+     }
++    if (argc > 5) {
++       if(!(output = fopen(argv[5], "w"))) {
++ 	 fprintf(stderr, "%s: can't open output file %s\n", prog, argv[5]);
++ 	 exit(1);
++       }
++    }
+  
+     while (fgets(buf, BUFSIZ, input)) {
+        if (buf[0] == '%' && (buf[1] == '%' || buf[1] == '!')) {
+***************
+*** 87,93 ****
+  	 } else if (!strncmp(buf, "%%EndComments", 13)) {
+  	    strcpy(buf, "\n"); /* don't repeat %%EndComments */
+  	    break;
+! 	 } else fputs(buf,stdout);
+        } else break;
+     }
+  
+--- 94,100 ----
+  	 } else if (!strncmp(buf, "%%EndComments", 13)) {
+  	    strcpy(buf, "\n"); /* don't repeat %%EndComments */
+  	    break;
+! 	 } else fputs(buf, output);
+        } else break;
+     }
+  
+***************
+*** 127,133 ****
+  	    yoffset += (fheight - height)/2;
+  	 }
+        }
+!       printf("%%%%BoundingBox: %d %d %d %d\n", (int)xoffset, (int)yoffset,
+  	     (int)(xoffset+(rotate ? height : width)),
+  	     (int)(yoffset+(rotate ? width : height)));
+        if (rotate) {  /* compensate for original image shift */
+--- 134,141 ----
+  	    yoffset += (fheight - height)/2;
+  	 }
+        }
+!       fprintf(output, 
+! 	      "%%%%BoundingBox: %d %d %d %d\n", (int)xoffset, (int)yoffset,
+  	     (int)(xoffset+(rotate ? height : width)),
+  	     (int)(yoffset+(rotate ? width : height)));
+        if (rotate) {  /* compensate for original image shift */
+***************
+*** 137,162 ****
+  	 xoffset -= llx * xscale;
+  	 yoffset -= lly * yscale;
+        }
+!       puts("%%EndComments");
+        if (showpage)
+! 	 puts("save /showpage{}def /copypage{}def /erasepage{}def");
+        else
+! 	 puts("%%BeginProcSet: epsffit 1 0");
+!       puts("gsave");
+!       printf("%.3lf %.3lf translate\n", xoffset, yoffset);
+        if (rotate)
+! 	 puts("90 rotate");
+!       printf("%.3lf %.3lf scale\n", xscale, yscale);
+        if (!showpage)
+! 	 puts("%%EndProcSet");
+     }
+     do {
+!       fputs(buf,stdout);
+     } while (fgets(buf, BUFSIZ, input));
+     if (bbfound) {
+!       puts("grestore");
+        if (showpage)
+! 	 puts("restore showpage"); /* just in case */
+     } else {
+        fprintf(stderr, "%s: no %%%%BoundingBox:\n", prog);
+        exit(1);
+--- 145,170 ----
+  	 xoffset -= llx * xscale;
+  	 yoffset -= lly * yscale;
+        }
+!       fputs("%%EndComments\n", output);
+        if (showpage)
+! 	 fputs("save /showpage{}def /copypage{}def /erasepage{}def\n", output);
+        else
+! 	 fputs("%%BeginProcSet: epsffit 1 0\n", output);
+!       fputs("gsave\n", output);
+!       fprintf(output, "%.3lf %.3lf translate\n", xoffset, yoffset);
+        if (rotate)
+! 	 fputs("90 rotate\n", output);
+!       fprintf(output, "%.3lf %.3lf scale\n", xscale, yscale);
+        if (!showpage)
+! 	 fputs("%%EndProcSet\n", output);
+     }
+     do {
+!       fputs(buf, output);
+     } while (fgets(buf, BUFSIZ, input));
+     if (bbfound) {
+!       fputs("grestore\n", output);
+        if (showpage)
+! 	 fputs("restore showpage\n", output); /* just in case */
+     } else {
+        fprintf(stderr, "%s: no %%%%BoundingBox:\n", prog);
+        exit(1);
+diff -cr +new-file psutils-dist/epsffit.man psutils-next/epsffit.man
+*** psutils-dist/epsffit.man	Mon Nov 29 10:34:25 1993
+--- psutils-next/epsffit.man	Sat Nov 27 14:28:24 1993
+***************
+*** 1,4 ****
+! .TH EPSFFIT 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  epsffit \- fit encapsulated PostScript file (EPSF) into constrained size
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH EPSFFIT 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  epsffit \- fit encapsulated PostScript file (EPSF) into constrained size
+  .SH SYNOPSIS
+***************
+*** 16,23 ****
+  ]
+  .I "llx lly urx ury"
+  [
+! .B file
+! ]
+  .SH DESCRIPTION
+  .I Epsffit
+  fits an EPSF file (encapsulated PostScript) to a given bounding box.
+--- 16,25 ----
+  ]
+  .I "llx lly urx ury"
+  [
+! .B infile
+! [
+! .B outfile
+! ] ]
+  .SH DESCRIPTION
+  .I Epsffit
+  fits an EPSF file (encapsulated PostScript) to a given bounding box.
+***************
+*** 24,32 ****
+  The coordinates of the box are given by \fB(llx,lly)\fR for the lower
+  left, and \fB(urx,ury)\fR for the upper right, in PostScript units (points).
+  .PP
+! If no file is specified,
+  .I epsffit
+! uses the standard input. Output is always to the standard output.
+  .SH OPTIONS
+  .IP \fB\-c\fP 1i
+  Center the image in the given bounding box.
+--- 26,34 ----
+  The coordinates of the box are given by \fB(llx,lly)\fR for the lower
+  left, and \fB(urx,ury)\fR for the upper right, in PostScript units (points).
+  .PP
+! If no input or output files are specified,
+  .I epsffit
+! read from the standard input and writes to the standard output.
+  .SH OPTIONS
+  .IP \fB\-c\fP 1i
+  Center the image in the given bounding box.
+diff -cr +new-file psutils-dist/extractres.man psutils-next/extractres.man
+*** psutils-dist/extractres.man
+--- psutils-next/extractres.man	Sat Nov 27 14:28:29 1993
+***************
+*** 0 ****
+--- 1,47 ----
++ .TH EXTRACTRES 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
++ .SH NAME
++ extractres \- filter to extract resources from a PostScript document
++ .SH SYNOPSIS
++ .B extractres 
++ [
++ .B \-m
++ ] < 
++ .I document.ps
++ >
++ .I output.ps
++ .SH DESCRIPTION
++ .I Extractres
++ extracts resources (fonts, procsets, patterns, files, etc) appearing in a
++ PostScript document, and puts appropriate
++ .I %%IncludeResource
++ comments in the document prologue. The extracted resources are written to
++ files with the same name as the resource, and an appropriate extension. The
++ pipeline
++ .sp
++ .ce
++ extractres file.ps | includeres >out.ps
++ .sp
++ will move all resources appearing in a document to the document prologue,
++ removing redundant copies. The output file can then be put through page
++ re-arrangement filters such as
++ .I psnup
++ or 
++ .I pstops
++ safely.
++ .PP
++ The
++ .B \-m
++ option combines the resources of the same name into one file; this must be
++ used for some programs which download fonts a bit at a time.
++ .SH AUTHOR
++ Angus Duggan
++ .SH "SEE ALSO"
++ @MAN@
++ .SH TRADEMARKS
++ .B PostScript
++ is a trademark of Adobe Systems Incorporated.
++ .SH BUGS
++ .I extractres
++ does not alter the
++ .I %%DocumentSuppliedResources
++ comments.
+diff -cr +new-file psutils-dist/extractres.pl psutils-next/extractres.pl
+*** psutils-dist/extractres.pl
+--- psutils-next/extractres.pl	Fri Nov 19 22:14:33 1993
+***************
+*** 0 ****
+--- 1,97 ----
++ #!@PERL@
++ # extractres: extract resources from PostScript file
++ #
++ 
++ # feed this into perl
++ eval 'exec perl -S $0 "$@"'
++    if $running_under_some_shell;
++ 
++ $prog = ($0 =~ s=.*/==);
++ 
++ %resources = ();		# list of resources included
++ %merge = ();			# list of resources extracted this time
++ %extn = ("font", ".pfa", "file", ".ps", "procset", ".ps", # resource extns
++ 	 "pattern", ".pat", "form", ".frm", "encoding", ".enc");
++ %type = ("%%BeginFile:", "file", "%%BeginProcSet:", "procset",
++ 	 "%%BeginFont:", "font"); # resource types
++ 
++ while (@ARGV) {
++    $_ = shift;
++    if (/^-m(erge)?$/) { $merge = 1; }
++    elsif (/^-/) {
++       print STDERR "Usage: $prog [-merge] [file]\n";
++       exit 1;
++    } else {
++       unshift(@ARGV, $_);
++       last;
++    }
++ }
++ 
++ if (defined($ENV{TMPDIR})) {	# set body file name
++    $body = "$ENV{TMPDIR}/body$$.ps";
++ } else {
++    $body = "body$$.ps";
++ }
++ 
++ open(BODY, $body) && die "Temporary file $body already exists";
++ open(BODY, ">$body") || die "Can't write file $body";
++ 
++ sub filename {			# make filename for resource in @_
++    local($name);
++    foreach (@_) {		# sanitise name
++       s/[!()\$\#*&\\\|\`\'\"\~\{\}\[\]\<\>\?]//g;
++       $name .= $_;
++    }
++    $name =~ s@.*/@@;		# drop directories
++    die "Filename not found for resource ", join(" ", @_), "\n"
++       if $name =~ /^$/;
++    $name;
++ }
++ 
++ $output = STDOUT;		# start writing header out
++ while (<>) {
++    if (/^%%BeginResource:/ || /^%%BeginFont:/ || /^%%BeginProcSet:/) {
++       local($comment, @res) = split(/\s+/); # look at resource type
++       local($type) = defined($type{$comment}) ? $type{$comment} : shift(@res);
++       local($name) = &filename(@res, $extn{$type}); # make file name
++       $saveout = $output;
++       if (!$resources{$name}) {
++ 	 print "%%IncludeResource: $type ", join(" ", @res), "\n";
++ 	 if (!open(RES, $name)) {
++ 	    open(RES, ">$name") || die "Can't write file $name";
++ 	    $resources{$name} = $name;
++ 	    $merge{$name} = $merge;
++ 	    $output = RES;
++ 	 } else {		# resource already exists
++ 	    close(RES);
++ 	    undef $output;
++ 	 }
++       } elsif ($merge{$name}) {
++ 	 open(RES, ">>$name") || die "Can't append to file $name";
++ 	 $output = RES;
++       } else {			# resource already included
++ 	 undef $output;
++       }
++    } elsif (/^%%EndResource/ || /^%%EndFont/ || /^%%EndProcSet/) {
++       if (defined $output) {
++ 	 print $output $_;
++ 	 close($output);
++       }
++       $output = $saveout;
++       next;
++    } elsif ((/^%%EndProlog/ || /^%%BeginSetup/ || /^%%Page:/)) {
++       $output = BODY;
++    }
++    print $output $_
++       if defined $output;
++ }
++ 
++ close(BODY);			# close body output file
++ 
++ open(BODY, $body);		# reopen body for input
++ while (<BODY>) {		# print it all
++    print $_;
++ }
++ close(BODY);
++ 
++ unlink($body);			# dispose of body file
+diff -cr +new-file psutils-dist/fixdlsrps.man psutils-next/fixdlsrps.man
+*** psutils-dist/fixdlsrps.man
+--- psutils-next/fixdlsrps.man	Sat Nov 27 14:28:33 1993
+***************
+*** 0 ****
+--- 1,24 ----
++ .TH FIXDLSRPS 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
++ .SH NAME
++ fixdlsrps \- filter to fix DviLaser/PS documents to work with PSUtils
++ .SH SYNOPSIS
++ .B fixdlsrps 
++ < 
++ .I dvilaser.ps
++ >
++ .I Fixed.ps
++ .SH DESCRIPTION
++ .I Fixdlsrps
++ is a 
++ .I perl 
++ filter which "fixes" PostScript generated from the DviLaser/PS driver so
++ that it works correctly with Angus Duggan's
++ .B psutils
++ package.
++ .SH AUTHOR
++ Angus Duggan
++ .SH "SEE ALSO"
++ @MAN@
++ .SH TRADEMARKS
++ .B PostScript
++ is a trademark of Adobe Systems Incorporated.
+diff -cr +new-file psutils-dist/fixdlsrps.pl psutils-next/fixdlsrps.pl
+*** psutils-dist/fixdlsrps.pl
+--- psutils-next/fixdlsrps.pl	Sat Nov 20 00:30:00 1993
+***************
+*** 0 ****
+--- 1,48 ----
++ #!@PERL@
++ # fixdlsrps: fix DviLaser/PS document to work with PSUtils
++ 
++ # feed this into perl
++ eval 'exec perl -S $0 "$@"'
++    if $running_under_some_shell;
++ 
++ $nesting = 0;
++ $page = 1;
++ $infont = 0;
++ 
++ @fonts = ();
++ 
++ while (<>) {
++    if (/^XP/) {
++       print $_;
++       $infont++;
++       push(@fonts, $_);
++       $infont-- if /PXL.*RP/;
++    } elsif ($infont) {
++       print $_;
++       push(@fonts, $_);
++       $infont-- if /PXL.*RP/;
++    } elsif (/^%%EndProlog/ && !$nesting) {
++       print "\$DviLaser begin/GlobalMode{}bdef/LocalMode{}bdef\
++ /RES{/Resolution xdef/PxlResolution xdef\
++   /RasterScaleFactor PxlResolution Resolution div def\
++   InitialMatrix setmatrix 72.0 Resolution div dup scale}bdef\
++ /DoInitialScaling{}bdef end\n";
++       print "\$DviLaser begin /XP {} def /RP {} def end\n";
++       print $_;
++    } elsif (/^%%BeginPageSetup/ && !$nesting) {
++       print "%%Page: $page $page\n";
++       $page++;
++       print $_;
++    } elsif (/^%%EndPageSetup/ && !$nesting) {
++       print @fonts;
++       print $_;
++    } elsif (/^%%BeginDocument/ || /^%%BeginBinary/) {
++       print $_;
++       $nesting++;
++    } elsif (/^%%EndDocument/ || /^%%EndBinary/) {
++       print $_;
++       $nesting--;
++    } elsif (!/^%%PageBoundingBox:/) {
++       print $_;
++    }
++ }
+diff -cr +new-file psutils-dist/fixfmps.man psutils-next/fixfmps.man
+*** psutils-dist/fixfmps.man	Mon Nov 29 10:34:25 1993
+--- psutils-next/fixfmps.man	Sat Nov 27 14:28:36 1993
+***************
+*** 1,4 ****
+! .TH FIXFMPS 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  fixfmps \- filter to fix Framemaker documents so PSUtils work
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH FIXFMPS 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  fixfmps \- filter to fix Framemaker documents so PSUtils work
+  .SH SYNOPSIS
+diff -cr +new-file psutils-dist/fixfmps.pl psutils-next/fixfmps.pl
+*** psutils-dist/fixfmps.pl	Mon Nov 29 10:34:26 1993
+--- psutils-next/fixfmps.pl	Wed Oct 27 18:07:31 1993
+***************
+*** 1,5 ****
+  #!@PERL@
+! # fixfmps: get conforming PostScript out of FrameMaker file
+  # move all FMDEFINEFONTs to start of pages
+  
+  # feed this into perl
+--- 1,5 ----
+  #!@PERL@
+! # fixfmps: get conforming PostScript out of FrameMaker version 2 file
+  # move all FMDEFINEFONTs to start of pages
+  
+  # feed this into perl
+***************
+*** 11,17 ****
+  while (<>) {
+     if (/^([0-9]+) [0-9]+ .* FMDEFINEFONT$/) {
+        $fonts{$1} = $_;
+!    } elsif (/^[0-9]+ [0-9]+ [0-9]+ FMBEGINPAGE$/) {
+        print $_, join('',values(%fonts));
+     } else {
+        print $_;
+--- 11,17 ----
+  while (<>) {
+     if (/^([0-9]+) [0-9]+ .* FMDEFINEFONT$/) {
+        $fonts{$1} = $_;
+!    } elsif (/^[0-9.]+ [0-9.]+ [0-9]+ FMBEGINPAGE$/) {
+        print $_, join('',values(%fonts));
+     } else {
+        print $_;
+diff -cr +new-file psutils-dist/fixmacps.man psutils-next/fixmacps.man
+*** psutils-dist/fixmacps.man	Mon Nov 29 10:34:27 1993
+--- psutils-next/fixmacps.man	Sat Nov 27 14:28:40 1993
+***************
+*** 1,4 ****
+! .TH FIXMACPS 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  fixmacps \- filter to fix Macintosh documents with saner version of md
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH FIXMACPS 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  fixmacps \- filter to fix Macintosh documents with saner version of md
+  .SH SYNOPSIS
+***************
+*** 15,20 ****
+--- 15,23 ----
+  that it works correctly with Angus Duggan's
+  .B psutils
+  package.
++ .SH FILES
++ @INCLUDE@/md68_0.ps, @INCLUDE@/md71_0.ps - sanitised versions of the md
++ prologue.
+  .SH AUTHOR
+  Angus Duggan
+  .SH "SEE ALSO"
+diff -cr +new-file psutils-dist/fixmacps.pl psutils-next/fixmacps.pl
+*** psutils-dist/fixmacps.pl	Mon Nov 29 10:34:27 1993
+--- psutils-next/fixmacps.pl	Wed Oct 27 18:07:36 1993
+***************
+*** 27,34 ****
+        if (! $line) {
+  	 print;
+        }
+!    } elsif (/^%%BeginProcSet: "?\(AppleDict md\)"? ([0-9]+) ([0-9]+)$/) {
+!       local($mdv, $mdr) = ($1, $2);
+        if (open(SANE, "<$dir/$prefix${mdv}_$mdr.ps") ||
+  	  open(SANE, "<$dir/$default")) {
+  	 $sane = <SANE>;
+--- 27,34 ----
+        if (! $line) {
+  	 print;
+        }
+!    } elsif (/^%%(Begin|Include)ProcSet: "?\(AppleDict md\)"? ([0-9]+) ([0-9]+)$/) {
+!       local($inc, $mdv, $mdr) = ($1, $2, $3);
+        if (open(SANE, "<$dir/$prefix${mdv}_$mdr.ps") ||
+  	  open(SANE, "<$dir/$default")) {
+  	 $sane = <SANE>;
+***************
+*** 35,41 ****
+  	 local($snv, $snr) =
+  	    $sane =~ /^%%BeginProcSet: \(AppleDict md\) ([0-9]+) ([0-9]+)$/;
+  	 if ($mdv == $snv && $mdr == $snr) {
+! 	    $ignore = 1;
+  	 } else {
+  	    print STDERR "Unrecognised AppleDict version $mdv $mdr\n";
+  	    print "%!\n" if !$line;
+--- 35,52 ----
+  	 local($snv, $snr) =
+  	    $sane =~ /^%%BeginProcSet: \(AppleDict md\) ([0-9]+) ([0-9]+)$/;
+  	 if ($mdv == $snv && $mdr == $snr) {
+! 	     if ( $inc eq "Include" ) {
+! 		 print STDERR "Inserting ProcSet \"(AppleDict md)\" $snv $snr\n";
+! 		 print $sane;
+! 		 while(<SANE>) {
+! 		     print;
+! 		 }
+! 		 close(SANE);
+! 	     }
+! 	     else {
+! 		 print STDERR "Substituting ProcSet \"(AppleDict md)\" $snv $snr\n";
+! 		 $ignore = 1;
+! 	     }
+  	 } else {
+  	    print STDERR "Unrecognised AppleDict version $mdv $mdr\n";
+  	    print "%!\n" if !$line;
+diff -cr +new-file psutils-dist/fixpsditps.man psutils-next/fixpsditps.man
+*** psutils-dist/fixpsditps.man	Mon Nov 29 10:34:28 1993
+--- psutils-next/fixpsditps.man	Sat Nov 27 14:28:44 1993
+***************
+*** 1,4 ****
+! .TH FIXPSDITPS 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  fixpsditps \- filter to fix Transcript psdit documents so PSUtils work
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH FIXPSDITPS 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  fixpsditps \- filter to fix Transcript psdit documents so PSUtils work
+  .SH SYNOPSIS
+diff -cr +new-file psutils-dist/fixpspps.man psutils-next/fixpspps.man
+*** psutils-dist/fixpspps.man	Mon Nov 29 10:34:29 1993
+--- psutils-next/fixpspps.man	Sat Nov 27 14:28:47 1993
+***************
+*** 1,4 ****
+! .TH FIXPSPPS 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  fixpspps \- filter to fix PSPrint PostScript so PSUtils work
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH FIXPSPPS 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  fixpspps \- filter to fix PSPrint PostScript so PSUtils work
+  .SH SYNOPSIS
+diff -cr +new-file psutils-dist/fixtpps.man psutils-next/fixtpps.man
+*** psutils-dist/fixtpps.man	Mon Nov 29 10:34:29 1993
+--- psutils-next/fixtpps.man	Sat Nov 27 14:28:51 1993
+***************
+*** 1,4 ****
+! .TH FIXTPPS 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  fixtpps \- filter to fix Tpscript documents to work with PSUtils
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH FIXTPPS 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  fixtpps \- filter to fix Tpscript documents to work with PSUtils
+  .SH SYNOPSIS
+diff -cr +new-file psutils-dist/fixwfwps.man psutils-next/fixwfwps.man
+*** psutils-dist/fixwfwps.man	Mon Nov 29 10:34:30 1993
+--- psutils-next/fixwfwps.man	Sat Nov 27 14:28:55 1993
+***************
+*** 1,4 ****
+! .TH FIXWFWPS 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  fixwfwps \- filter to fix Word for Windows documents so PSUtils work
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH FIXWFWPS 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  fixwfwps \- filter to fix Word for Windows documents so PSUtils work
+  .SH SYNOPSIS
+diff -cr +new-file psutils-dist/fixwfwps.pl psutils-next/fixwfwps.pl
+*** psutils-dist/fixwfwps.pl	Mon Nov 29 10:34:31 1993
+--- psutils-next/fixwfwps.pl	Tue Nov  9 22:57:05 1993
+***************
+*** 5,22 ****
+  eval 'exec perl -S $0 "$@"'
+     if $running_under_some_shell;
+  
+  while (<>) {
+!    tr/\000-\011\013-\037//d;
+!    s!/SVDoc\s+save\s+def!!g;
+!    s!SVDoc\s+restore!!g;
+!    if (/^(%!PS-Adobe-\d*\.\d*) EPSF-/) {
+!       print "$1\n";
+!       $wfwepsf = 1;
+!    } elsif (/^SS\s*$/ && $wfwepsf) {
+!       print "%%Page: $wfwepsf $wfwepsf\n";
+!       $wfwepsf++;
+!       print $_;
+!    } elsif (! /^%%BoundingBox/) {
+!       print $_;
+     }
+  }
+--- 5,33 ----
+  eval 'exec perl -S $0 "$@"'
+     if $running_under_some_shell;
+  
++ $nesting = 0;
+  while (<>) {
+!    tr/\000-\010\012-\014\016-\037//d;
+!    foreach (grep($_ ne "", split("\015"))) {
+!       s!/SVDoc\s+save\s+def!!g;
+!       s!SVDoc\s+restore!!g;
+!       if (/^(%!PS-Adobe-\d*\.\d*) EPSF-/ && !$nesting) {
+! 	 print "$1\n";
+! 	 $wfwepsf = 1;
+!       } elsif (/^SS\s*$/ && $wfwepsf) {
+! 	 print "%%Page: $wfwepsf $wfwepsf\n";
+! 	 $wfwepsf++;
+! 	 print "$_\n";
+!       } elsif (/^%MSEPS Preamble/) {
+! 	 print "%%BeginDocument: (Included EPSF)\n";
+! 	 print "$_\n";
+! 	 $nesting++;
+!       } elsif (/^%MSEPS Trailer/) {
+! 	 $nesting--;
+! 	 print "$_\n";
+! 	 print "%%EndDocument\n";
+!       } elsif (! /^%%BoundingBox/) {
+! 	 print "$_\n";
+!       }
+     }
+  }
+diff -cr +new-file psutils-dist/fixwpps.man psutils-next/fixwpps.man
+*** psutils-dist/fixwpps.man	Mon Nov 29 10:34:31 1993
+--- psutils-next/fixwpps.man	Sat Nov 27 14:28:59 1993
+***************
+*** 1,4 ****
+! .TH FIXWPPS 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  fixwpps \- filter to fix WP documents so PSUtils work
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH FIXWPPS 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  fixwpps \- filter to fix WP documents so PSUtils work
+  .SH SYNOPSIS
+diff -cr +new-file psutils-dist/fixwwps.man psutils-next/fixwwps.man
+*** psutils-dist/fixwwps.man	Mon Nov 29 10:34:32 1993
+--- psutils-next/fixwwps.man	Sat Nov 27 14:29:03 1993
+***************
+*** 1,4 ****
+! .TH FIXWWPS 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  fixwwps \- filter to fix Windows Write documents so PSUtils work
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH FIXWWPS 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  fixwwps \- filter to fix Windows Write documents so PSUtils work
+  .SH SYNOPSIS
+diff -cr +new-file psutils-dist/getafm.man psutils-next/getafm.man
+*** psutils-dist/getafm.man	Mon Nov 29 10:34:33 1993
+--- psutils-next/getafm.man	Sat Nov 27 14:29:07 1993
+***************
+*** 1,4 ****
+! .TH GETAFM 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  getafm \- create an AFM file for a PostScript font.
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH GETAFM 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  getafm \- create an AFM file for a PostScript font.
+  .SH SYNOPSIS
+***************
+*** 5,11 ****
+  .B getafm 
+  .I FontName
+  >
+! .I fontname.afm
+  .SH DESCRIPTION
+  .I Getafm
+  generates a PostScript file which prints an AFM file for a font to the
+--- 5,11 ----
+  .B getafm 
+  .I FontName
+  >
+! .I output.ps
+  .SH DESCRIPTION
+  .I Getafm
+  generates a PostScript file which prints an AFM file for a font to the
+diff -cr +new-file psutils-dist/includeres.man psutils-next/includeres.man
+*** psutils-dist/includeres.man
+--- psutils-next/includeres.man	Sat Nov 27 14:29:11 1993
+***************
+*** 0 ****
+--- 1,42 ----
++ .TH INCLUDERES 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
++ .SH NAME
++ includeres \- filter to include resources in a PostScript document
++ .SH SYNOPSIS
++ .B includeres 
++ < 
++ .I document.ps
++ >
++ .I output.ps
++ .SH DESCRIPTION
++ .I Includeres
++ includes resources (fonts, procsets, patterns, files, etc) in place of
++ .I %%IncludeResource
++ comments in a PostScript document. The resources are searched for in the
++ current directory and the system default directory under the resource name,
++ and with an appropriate extension.
++ The pipeline
++ .sp
++ .ce
++ extractres file.ps | includeres >out.ps
++ .sp
++ will move all resources appearing in a document to the document prologue,
++ removing redundant copies. The output file can then be put through page
++ re-arrangement filters such as
++ .I psnup
++ or 
++ .I pstops
++ safely.
++ .SH FILES
++ @INCLUDE@ - system resource directory.
++ .SH AUTHOR
++ Angus Duggan
++ .SH "SEE ALSO"
++ @MAN@
++ .SH TRADEMARKS
++ .B PostScript
++ is a trademark of Adobe Systems Incorporated.
++ .SH BUGS
++ .I includeres
++ does not alter the
++ .I %%DocumentNeededResources
++ comments.
+diff -cr +new-file psutils-dist/includeres.pl psutils-next/includeres.pl
+*** psutils-dist/includeres.pl
+--- psutils-next/includeres.pl	Fri Nov 19 21:10:43 1993
+***************
+*** 0 ****
+--- 1,47 ----
++ #!@PERL@
++ # includeres: include resources in PostScript file
++ #
++ 
++ # feed this into perl
++ eval 'exec perl -S $0 "$@"'
++    if $running_under_some_shell;
++ 
++ $prog = ($0 =~ s=.*/==);
++ 
++ %extn = ("font", ".pfa", "file", ".ps", "procset", ".ps", # resource extns
++ 	 "pattern", ".pat", "form", ".frm", "encoding", ".enc");
++ %type = ("%%BeginFile:", "file", "%%BeginProcSet:", "procset",
++ 	 "%%BeginFont:", "font"); # resource types
++ 
++ sub filename {			# make filename for resource in @_
++    local($name);
++    foreach (@_) {		# sanitise name
++       s/[!()\$\#*&\\\|\`\'\"\~\{\}\[\]\<\>\?]//g;
++       $name .= $_;
++    }
++    $name =~ s@.*/@@;		# drop directories
++    die "Filename not found for resource ", join(" ", @_), "\n"
++       if $name =~ /^$/;
++    $name;
++ }
++ 
++ while (<>) {
++    if (/^%%IncludeResource:/ || /^%%IncludeFont:/ || /^%%IncludeProcSet:/) {
++       local($comment, @res) = split(/\s+/);
++       local($type) = defined($type{$comment}) ? $type{$comment} : shift(@res);
++       local($name) = &filename(@res);
++       local($inc) = "@INCLUDE@"; # system include directory
++       if (open(RES, $name) || open(RES, "$name$extn{$type}") ||
++ 	  open(RES, "$inc/$name") || open(RES, "$inc/$name$extn{$type}")) {
++ 	 while (<RES>) {
++ 	    print $_;
++ 	 }
++ 	 close(RES);
++       } else {
++ 	 print "%%IncludeResource: ", join(" ", $type, @res), "\n";
++ 	 print STDERR "Resource $name not found\n";
++       }
++    } else {
++       print $_;
++    }
++ }
+diff -cr +new-file psutils-dist/maketext psutils-next/maketext
+*** psutils-dist/maketext
+--- psutils-next/maketext	Mon Nov 29 17:02:24 1993
+***************
+*** 0 ****
+--- 1,32 ----
++ 
++ eval '(exit $?0)' && eval 'exec perl -S $0 ${1+"$@"}'
++    & eval 'exec perl -S $0 $argv:q'
++    if 0;
++ 
++ # maketext: perl filter to substitute names in scripts and man pages.
++ 
++ %change = ();			# names -> substitutions
++ 
++ # get release and patchlevel for all scripts
++ open(H, "patchlev.h") || die "can't open patchlev.h";
++ while(<H>) {
++    $change{$1} = $2 if /^\#define\s*(\S*)\s*(\S*)/;
++ }
++ close(H);
++ 
++ foreach (@ARGV) {
++    if (/MAN=(.*)/) {		# name.ext name.ext -> name(ext), name(ext)
++       local(@man) = split(' ', $1);
++       $change{MAN} = join(", ", grep(s/\.(.)/($1)/, @man));
++    } elsif (/(.*)=(.*)/) {	# substitute name for value
++       $change{$1} = $2;
++    } else {			# open file and substitute
++       local(@change) = keys %change;
++       open(FILE, $_) || die "can't open $_";
++       while ($line = <FILE>) {
++ 	 grep($line =~ s/@$_@/$change{$_}/g, @change);
++ 	 print $line;
++       }
++       close(FILE);
++    }
++ }
+diff -cr +new-file psutils-dist/md68_0.ps psutils-next/md68_0.ps
+*** psutils-dist/md68_0.ps	Mon Nov 29 10:34:44 1993
+--- psutils-next/md68_0.ps	Wed Oct 27 18:08:15 1993
+***************
+*** 81,88 ****
+  2t astore pop/pnsh xdf/pnsv xdf gw
+  /sfl fg 5 get 0 ne def array astore exch setdash setlinejoin setlinecap
+  setlinewidth setgray moveto}bdf
+! /fc{save vmstatus exch sub 50000 lt
+! {(%%[|0|]%%)=print flush}if pop restore}bdf
+  /tc{32768 div add 3 1 roll 32768 div add 2t astore pop}bdf
+  /3a [0 0 0] def
+  /2t 2 array def
+--- 81,87 ----
+  2t astore pop/pnsh xdf/pnsv xdf gw
+  /sfl fg 5 get 0 ne def array astore exch setdash setlinejoin setlinecap
+  setlinewidth setgray moveto}bdf
+! /fc{}bdf
+  /tc{32768 div add 3 1 roll 32768 div add 2t astore pop}bdf
+  /3a [0 0 0] def
+  /2t 2 array def
+diff -cr +new-file psutils-dist/md71_0.ps psutils-next/md71_0.ps
+*** psutils-dist/md71_0.ps	Mon Nov 29 10:34:46 1993
+--- psutils-next/md71_0.ps	Wed Oct 27 18:08:47 1993
+***************
+*** 84,91 ****
+  astore pop 2t astore pop/pnsh xdf/pnsv xdf gw
+  /sfl fg 5 get 0 ne def array astore exch setdash setlinejoin setlinecap 
+  setlinewidth 4colors{mysetcmykcolor}{setrgbcolor}ifelse moveto}bdf
+! /fc{save vmstatus exch sub 50000 lt
+! {(%%[|0|]%%)=print flush}if pop restore}bdf
+  /tc{32768 div add 3 1 roll 32768 div add 2t astore pop}bdf
+  /3a [0 0 0] def
+  /2t 2 array def
+--- 84,90 ----
+  astore pop 2t astore pop/pnsh xdf/pnsv xdf gw
+  /sfl fg 5 get 0 ne def array astore exch setdash setlinejoin setlinecap 
+  setlinewidth 4colors{mysetcmykcolor}{setrgbcolor}ifelse moveto}bdf
+! /fc{}bdf
+  /tc{32768 div add 3 1 roll 32768 div add 2t astore pop}bdf
+  /3a [0 0 0] def
+  /2t 2 array def
+diff -cr +new-file psutils-dist/patchlev.h psutils-next/patchlev.h
+*** psutils-dist/patchlev.h
+--- psutils-next/patchlev.h	Wed Oct 27 18:09:11 1993
+***************
+*** 0 ****
+--- 1,2 ----
++ #define RELEASE 1
++ #define PATCHLEVEL 13
+diff -cr +new-file psutils-dist/patchlevel.h psutils-next/patchlevel.h
+*** psutils-dist/patchlevel.h	Mon Nov 29 10:34:33 1993
+--- psutils-next/patchlevel.h
+***************
+*** 1,2 ****
+- #define RELEASE 1
+- #define PATCHLEVEL 12
+--- 0 ----
+diff -cr +new-file psutils-dist/psbook.c psutils-next/psbook.c
+*** psutils-dist/psbook.c	Mon Nov 29 10:34:34 1993
+--- psutils-next/psbook.c	Mon Nov 29 17:02:42 1993
+***************
+*** 7,13 ****
+   */
+  
+  #include "psutil.h"
+! #include "patchlevel.h"
+  
+  void usage()
+  {
+--- 7,13 ----
+   */
+  
+  #include "psutil.h"
+! #include "patchlev.h"
+  
+  void usage()
+  {
+***************
+*** 72,78 ****
+  
+     /* rearrange pages */
+     writeheader(maxpage);
+!    writeprolog("");
+     for (currentpg = 0; currentpg < maxpage; currentpg++) {
+        int actualpg = currentpg - currentpg%signature;
+        switch(currentpg%4) {
+--- 72,79 ----
+  
+     /* rearrange pages */
+     writeheader(maxpage);
+!    writeprolog();
+!    writesetup();
+     for (currentpg = 0; currentpg < maxpage; currentpg++) {
+        int actualpg = currentpg - currentpg%signature;
+        switch(currentpg%4) {
+diff -cr +new-file psutils-dist/psbook.man psutils-next/psbook.man
+*** psutils-dist/psbook.man	Mon Nov 29 10:34:34 1993
+--- psutils-next/psbook.man	Sat Nov 27 14:29:17 1993
+***************
+*** 1,4 ****
+! .TH PSBOOK 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  psbook \- rearrange pages in PostScript file into signatures
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH PSBOOK 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  psbook \- rearrange pages in PostScript file into signatures
+  .SH SYNOPSIS
+diff -cr +new-file psutils-dist/psnup.c psutils-next/psnup.c
+*** psutils-dist/psnup.c	Mon Nov 29 10:34:40 1993
+--- psutils-next/psnup.c	Mon Nov 29 17:23:21 1993
+***************
+*** 4,10 ****
+   *
+   * Usage:
+   *      psnup [-q] [-w<dim>] [-h<dim>] [-ppaper] [-b<dim>] [-m<dim>]
+!  *            [-l] [-c] [-f] [-sscale] [-d] [-nup] [in [out]]
+   *              -w<dim> sets the paper width
+   *              -h<dim> sets the paper height
+   *              -ppaper sets the paper size (width and height) by name
+--- 4,10 ----
+   *
+   * Usage:
+   *      psnup [-q] [-w<dim>] [-h<dim>] [-ppaper] [-b<dim>] [-m<dim>]
+!  *            [-l] [-c] [-f] [-sscale] [-d<wid>] [-nup] [in [out]]
+   *              -w<dim> sets the paper width
+   *              -h<dim> sets the paper height
+   *              -ppaper sets the paper size (width and height) by name
+***************
+*** 15,26 ****
+   *              -r      used if pages are in seascape orientation (rot right)
+   * 		-c	for column-major layout
+   *		-f	for flipped (wider than tall) pages
+!  * 		-d	to draw the page boundaries
+   */
+  
+  #include "psutil.h"
+  #include "psspec.h"
+! #include "patchlevel.h"
+  
+  void usage()
+  {
+--- 15,26 ----
+   *              -r      used if pages are in seascape orientation (rot right)
+   * 		-c	for column-major layout
+   *		-f	for flipped (wider than tall) pages
+!  * 		-d<wid>	to draw the page boundaries
+   */
+  
+  #include "psutil.h"
+  #include "psspec.h"
+! #include "patchlev.h"
+  
+  void usage()
+  {
+diff -cr +new-file psutils-dist/psnup.man psutils-next/psnup.man
+*** psutils-dist/psnup.man	Mon Nov 29 10:34:35 1993
+--- psutils-next/psnup.man	Mon Nov 29 20:52:03 1993
+***************
+*** 1,4 ****
+! .TH PSNUP 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  psnup \- multiple pages per sheet
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH PSNUP 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  psnup \- multiple pages per sheet
+  .SH SYNOPSIS
+***************
+*** 110,116 ****
+  tries to optimise the layout so that the minimum amount of space is wasted. If
+  .I psnup
+  cannot find a layout within its tolerance limit, it will abort with an error
+! message.
+  .PP
+  .I Psnup
+  normally prints the page numbers of the pages re-arranged; the
+--- 110,118 ----
+  tries to optimise the layout so that the minimum amount of space is wasted. If
+  .I psnup
+  cannot find a layout within its tolerance limit, it will abort with an error
+! message. The alternative form
+! .I \i \fInup\fR
+! can also be used, for compatibility with other n-up programs.
+  .PP
+  .I Psnup
+  normally prints the page numbers of the pages re-arranged; the
+diff -cr +new-file psutils-dist/psresize.c psutils-next/psresize.c
+*** psutils-dist/psresize.c
+--- psutils-next/psresize.c	Mon Nov 29 20:19:18 1993
+***************
+*** 0 ****
+--- 1,183 ----
++ /* psresize.c
++  * AJCD 29/11/93
++  * alter pagesize of document
++  *
++  * Usage:
++  *      psresize [-q] [-w<dim>] [-h<dim>] [-ppaper] [-W<dim>] [-H<dim>]
++  *            [-Ppaper] [in [out]]
++  *              -w<dim> sets the output paper width
++  *              -h<dim> sets the output paper height
++  *              -ppaper sets the output paper size (width and height) by name
++  *              -W<dim> sets the input paper width
++  *              -H<dim> sets the input paper height
++  *              -Ppaper sets the input paper size (width and height) by name
++  */
++ 
++ #include "psutil.h"
++ #include "psspec.h"
++ #include "patchlev.h"
++ 
++ void usage()
++ {
++    fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
++    fprintf(stderr, "Usage: %s [-q] [-wwidth] [-hheight] [-ppaper] [-Wwidth] [-Hheight] [-Ppaper] [infile [outfile]]\n",
++ 	   prog);
++    fflush(stderr);
++    exit(1);
++ }
++ 
++ void argerror()
++ {
++    fprintf(stderr, "%s: bad dimension\n", prog);
++    fflush(stderr);
++    exit(1);
++ }
++ 
++ #define min(x,y) ((x) > (y) ? (y) : (x))
++ #define max(x,y) ((x) > (y) ? (x) : (y))
++ 
++ main(argc, argv)
++      int argc;
++      char *argv[];
++ {
++    double scale, rscale;			/* page scale */
++    double waste, rwaste;			/* amount wasted */
++    double vshift, hshift;			/* page centring shifts */
++    int rotate;
++    double inwidth = -1;
++    double inheight = -1;
++    struct papersize *paper;
++    struct pagespec *specs;
++ 
++ #ifdef PAPER
++    if (paper = findpaper(PAPER)) {
++       inwidth = width = (double)paper->width;
++       inheight = height = (double)paper->height;
++    }
++ #endif
++ 
++    vshift = hshift = 0;
++    rotate = 0;
++ 
++    infile = stdin;
++    outfile = stdout;
++    verbose = 1;
++    for (prog = *argv++; --argc; argv++) {
++       if (argv[0][0] == '-') {
++ 	 switch (argv[0][1]) {
++ 	 case 'q':	/* quiet */
++ 	    verbose = 0;
++ 	    break;
++ 	 case 'w':	/* page width */
++ 	    width = singledimen(*argv+2);
++ 	    break;
++ 	 case 'h':	/* page height */
++ 	    height = singledimen(*argv+2);
++ 	    break;
++ 	 case 'p':	/* paper type */
++ 	    if (paper = findpaper(*argv+2)) {
++ 	       width = (double)paper->width;
++ 	       height = (double)paper->height;
++ 	    } else {
++ 	       fprintf(stderr, "%s: paper size '%s' not recognised\n",
++ 		       prog, *argv+2);
++ 	       fflush(stderr);
++ 	       exit(1);
++ 	    }
++ 	    break;
++ 	 case 'W':	/* input page width */
++ 	    inwidth = singledimen(*argv+2);
++ 	    break;
++ 	 case 'H':	/* input page height */
++ 	    inheight = singledimen(*argv+2);
++ 	    break;
++ 	 case 'P':	/* input paper type */
++ 	    if (paper = findpaper(*argv+2)) {
++ 	       inwidth = (double)paper->width;
++ 	       inheight = (double)paper->height;
++ 	    } else {
++ 	       fprintf(stderr, "%s: paper size '%s' not recognised\n",
++ 		       prog, *argv+2);
++ 	       fflush(stderr);
++ 	       exit(1);
++ 	    }
++ 	    break;
++ 	 case 'v':	/* version */
++ 	 default:
++ 	    usage();
++ 	 }
++       } else if (infile == stdin) {
++ 	 if ((infile = fopen(*argv, "r")) == NULL) {
++ 	    fprintf(stderr, "%s: can't open input file %s\n", prog, *argv);
++ 	    fflush(stderr);
++ 	    exit(1);
++ 	 }
++       } else if (outfile == stdout) {
++ 	 if ((outfile = fopen(*argv, "w")) == NULL) {
++ 	    fprintf(stderr, "%s: can't open output file %s\n", prog, *argv);
++ 	    fflush(stderr);
++ 	    exit(1);
++ 	 }
++       } else usage();
++    }
++    if ((infile=seekable(infile))==NULL) {
++       fprintf(stderr, "%s: can't seek input\n", prog);
++       fflush(stderr);
++       exit(1);
++    }
++ 
++    if (width <= 0 || height <= 0) {
++       fprintf(stderr, "%s: output page width and height must be set\n", prog);
++       fflush(stderr);
++       exit(1);
++    }
++ 
++    if (inwidth <= 0 || inheight <= 0) {
++       fprintf(stderr, "%s: input page width and height must be set\n", prog);
++       fflush(stderr);
++       exit(1);
++    }
++ 
++    /* try normal orientation first */
++    scale = min(width/inwidth, height/inheight);
++    waste = (width-scale*inwidth)*(width-scale*inwidth) +
++       (height-scale*inheight)*(height-scale*inheight);
++    hshift = (width - inwidth*scale)/2;
++    vshift = (height - inheight*scale)/2;
++ 
++    /* try rotated orientation */
++    rscale = min(height/inwidth, width/inheight);
++    rwaste = (height-scale*inwidth)*(height-scale*inwidth) +
++       (width-scale*inheight)*(width-scale*inheight);
++    if (rwaste < waste) {
++       double tmp = width;
++       scale = rscale;
++       hshift = (width + inheight*scale)/2;
++       vshift = (height - inwidth*scale)/2;
++       rotate = 1;
++       width = height;
++       height = tmp;
++    }
++ 
++    width /= scale;
++    height /= scale;
++ 
++    /* now construct specification list and run page rearrangement procedure */
++    specs = newspec();
++ 
++    if (rotate) {
++       specs->rotate = 90;
++       specs->flags |= ROTATE;
++    }
++    specs->pageno = 0;
++    specs->scale = scale;
++    specs->flags |= SCALE;
++    specs->xoff = hshift;
++    specs->yoff = vshift;
++    specs->flags |= OFFSET;
++       
++    pstops(1, 1, 0, specs, 0.0);		/* do page rearrangement */
++ 
++    exit(0);
++ }
++ 
+diff -cr +new-file psutils-dist/psresize.man psutils-next/psresize.man
+*** psutils-dist/psresize.man
+--- psutils-next/psresize.man	Mon Nov 29 20:28:44 1993
+***************
+*** 0 ****
+--- 1,81 ----
++ .TH PSRESIZE 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
++ .SH NAME
++ psresize \- multiple pages per sheet
++ .SH SYNOPSIS
++ .B psresize
++ [
++ .B \-w\fIwidth\fR
++ ] [
++ .B \-h\fIheight\fR
++ ] [
++ .B \-p\fIpaper\fR
++ ] [
++ .B \-W\fIwidth\fR
++ ] [
++ .B \-H\fIheight\fR
++ ] [
++ .B \-P\fIpaper\fR
++ ] [
++ .B \-q
++ ] [
++ .I infile
++ [
++ .I outfile
++ ] ]
++ .SH DESCRIPTION
++ .I Psresize
++ rescales and centres a document on a different size of paper.
++ The input PostScript file should follow the Adobe Document Structuring
++ Conventions.
++ .PP
++ The
++ .I \-w
++ option gives the output paper width, and the
++ .I \-h
++ option gives the output paper height, normally specified in
++ .B "cm"
++ or
++ .B "in"
++ to convert 
++ PostScript's points (1/72 of an inch)
++ to centimeters or inches.
++ The 
++ .I \-p
++ option can be used as an alternative, to set the output paper size to
++ .B a3, a4, a5, b5, letter, legal, tabloid, statement, executive, folio, quarto
++ or
++ .B 10x14.
++ The default output paper size is
++ .B @PAPER@.
++ .PP
++ The
++ .I \-W
++ option gives the input paper width, and the
++ .I \-H
++ option gives the input paper height.
++ The 
++ .I \-P
++ option can be used as an alternative, to set the input paper size.
++ The default input paper size is
++ .B @PAPER@.
++ .PP
++ .I Psresize
++ normally prints the page numbers of the pages output; the
++ .I \-q
++ option suppresses this.
++ .SH EXAMPLES
++ The following command can be used to convert a document on A4 size paper to
++ letter size paper:
++ .sp
++ psresize -PA4 -pletter in.ps out.ps
++ .sp
++ .SH AUTHOR
++ Angus Duggan
++ .SH "SEE ALSO"
++ @MAN@
++ .SH TRADEMARKS
++ .B PostScript
++ is a trademark of Adobe Systems Incorporated.
++ .SH BUGS
++ .I Psresize
++ does not accept all DSC comments.
+diff -cr +new-file psutils-dist/psselect.c psutils-next/psselect.c
+*** psutils-dist/psselect.c	Mon Nov 29 10:34:41 1993
+--- psutils-next/psselect.c	Mon Nov 29 17:03:13 1993
+***************
+*** 7,13 ****
+   */
+  
+  #include "psutil.h"
+! #include "patchlevel.h"
+  
+  void usage()
+  {
+--- 7,13 ----
+   */
+  
+  #include "psutil.h"
+! #include "patchlev.h"
+  
+  void usage()
+  {
+***************
+*** 167,173 ****
+     for (pass = 0; pass < 2; pass++) {
+        if (pass) {                           /* write header on second pass */
+  	 writeheader(maxpage);
+! 	 writeprolog("");
+        }
+        if (pagerange) {
+  	 range *r;
+--- 167,174 ----
+     for (pass = 0; pass < 2; pass++) {
+        if (pass) {                           /* write header on second pass */
+  	 writeheader(maxpage);
+! 	 writeprolog();
+! 	 writesetup();
+        }
+        if (pagerange) {
+  	 range *r;
+diff -cr +new-file psutils-dist/psselect.man psutils-next/psselect.man
+*** psutils-dist/psselect.man	Mon Nov 29 10:34:35 1993
+--- psutils-next/psselect.man	Sat Nov 27 14:29:29 1993
+***************
+*** 1,4 ****
+! .TH PSSELECT 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  psselect \- select pages from a PostScript file
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH PSSELECT 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  psselect \- select pages from a PostScript file
+  .SH SYNOPSIS
+diff -cr +new-file psutils-dist/psspec.c psutils-next/psspec.c
+*** psutils-dist/psspec.c	Mon Nov 29 10:34:41 1993
+--- psutils-next/psspec.c	Mon Nov 29 20:18:09 1993
+***************
+*** 5,11 ****
+  
+  #include "psutil.h"
+  #include "psspec.h"
+! #include "patchlevel.h"
+  
+  double width = -1;
+  double height = -1;
+--- 5,11 ----
+  
+  #include "psutil.h"
+  #include "psspec.h"
+! #include "patchlev.h"
+  
+  double width = -1;
+  double height = -1;
+***************
+*** 99,104 ****
+--- 99,144 ----
+     return (num);
+  }
+  
++ static char *prologue[] = { /* PStoPS procset */
++ #ifndef SHOWPAGE_LOAD
++    "userdict begin",
++    "[/showpage/erasepage/copypage]{dup where{pop dup load",	/* prevent */
++    " type/operatortype eq{1 array cvx dup 0 3 index cvx put",	/* binding */
++    " bind def}{pop}ifelse}{pop}ifelse}forall",			/* in prolog */
++ #else
++    "[/showpage/copypage/erasepage]{dup 10 string cvs dup",
++    " length 6 add string dup 0 (PStoPS) putinterval dup",
++    " 6 4 -1 roll putinterval 2 copy cvn dup where",
++    " {pop pop pop}{exch load def}ifelse cvx cvn 1 array cvx",
++    " dup 0 4 -1 roll put def}forall",
++ #endif
++    "[/letter/legal/executivepage/a4/a4small/b5/com10envelope",	/* nullify */
++    " /monarchenvelope/c5envelope/dlenvelope/lettersmall/note",	/* paper */
++    " /folio/quarto/a5]{dup where{dup wcheck{exch{}put}",	/* operators */
++    " {pop{}def}ifelse}{pop}ifelse}forall",
++    "/PStoPSmatrix matrix currentmatrix def",
++    "/PStoPSxform matrix def/PStoPSclip{clippath}def",
++    "/defaultmatrix{PStoPSmatrix exch PStoPSxform exch concatmatrix}bind def",
++    "/initmatrix{matrix defaultmatrix setmatrix}bind def",
++    "/initclip[{matrix currentmatrix PStoPSmatrix setmatrix",
++    " [{currentpoint}stopped{$error/newerror false put{newpath}}",
++    " {/newpath cvx 3 1 roll/moveto cvx 4 array astore cvx}ifelse]",
++    " {[/newpath cvx{/moveto cvx}{/lineto cvx}",
++    " {/curveto cvx}{/closepath cvx}pathforall]cvx exch pop}",
++    " stopped{$error/errorname get/invalidaccess eq{cleartomark",
++    " $error/newerror false put cvx exec}{stop}ifelse}if}bind aload pop",
++    " /initclip dup load dup type dup/operatortype eq{pop exch pop}",
++    " {dup/arraytype eq exch/packedarraytype eq or",
++    "  {dup xcheck{exch pop aload pop}{pop cvx}ifelse}",
++    "  {pop cvx}ifelse}ifelse",
++    " {newpath PStoPSclip clip newpath exec setmatrix} bind aload pop]cvx def",
++    "/initgraphics{initmatrix newpath initclip 1 setlinewidth",
++    " 0 setlinecap 0 setlinejoin []0 setdash 0 setgray",
++    " 10 setmiterlimit}bind def",
++    "end",
++    NULL
++    };
++ 
+  void pstops(modulo, pps, nobind, specs, draw)
+       int modulo, pps, nobind;
+       double draw;
+***************
+*** 106,111 ****
+--- 146,152 ----
+  {
+     int thispg, maxpage;
+     int pageindex = 0;
++    char **pro;
+  
+     scanpages();
+  
+***************
+*** 113,175 ****
+  
+     /* rearrange pages: doesn't cope properly with loaded definitions */
+     writeheader((maxpage/modulo)*pps);
+-    writestring("%%BeginProcSet: pstops");
+-    if (width > 0 && height > 0)
+-       writestring("-clip");
+-    if (nobind)
+-       writestring("-nobind");
+- #ifdef SHOWPAGE_LOAD
+-    writestring("-spload");
+- #endif
+-    writestring(" 1 0\n");
+  #ifndef SHOWPAGE_LOAD
+!    writestring("[/showpage/erasepage/copypage]{dup where{pop dup load\n");
+!    writestring(" type/operatortype eq{1 array cvx dup 0 3 index cvx put\n");
+!    writestring(" bind def}{pop}ifelse}{pop}ifelse}forall\n");
+  #else
+!    writestring("[/showpage/copypage/erasepage]{dup 10 string cvs dup\n");
+!    writestring(" length 6 add string dup 0 (pstops) putinterval dup\n");
+!    writestring(" 6 4 -1 roll putinterval 2 copy cvn dup where\n");
+!    writestring(" {pop pop pop}{exch load def}ifelse cvx cvn 1 array cvx\n");
+!    writestring(" dup 0 4 -1 roll put def}forall\n");
+  #endif
+!    writestring("[/letter/legal/executivepage/a4/a4small/b5/com10envelope\n");
+!    writestring(" /monarchenvelope/c5envelope/dlenvelope/lettersmall/note\n");
+!    writestring(" /folio/quarto/a5]{dup where{dup wcheck{exch{}put}\n");
+!    writestring(" {pop{}def}ifelse}{pop}ifelse}forall\n");
+!    writestring("/lcvx{dup load dup type dup/operatortype eq{pop exch pop}\n");
+!    writestring(" {/arraytype eq{dup xcheck{exch pop aload pop}\n");
+!    writestring(" {pop cvx}ifelse}{pop cvx}ifelse}ifelse}bind def\n");
+!    writestring("/pstopsmatrix matrix currentmatrix def\n");
+!    writestring("/pstopsxform matrix def\n");
+!    writestring("/defaultmatrix{pstopsmatrix exch pstopsxform exch concatmatrix}bind def\n");
+!    writestring("/initmatrix{matrix defaultmatrix setmatrix}bind def\n");
+!    writestring("/pathtoproc{[{currentpoint}stopped{$error/newerror false\n");
+!    writestring(" put{newpath}}{/newpath cvx 3 1 roll/moveto cvx 4 array\n");
+!    writestring(" astore cvx}ifelse]{[/newpath cvx{/moveto cvx}{/lineto cvx}\n");
+!    writestring(" {/curveto cvx}{/closepath cvx}pathforall]cvx exch pop}\n");
+!    writestring(" stopped{$error/errorname get/invalidaccess eq{cleartomark\n");
+!    writestring(" $error/newerror false put cvx exec}{stop}ifelse}if}def\n");
+!    if (width > 0 && height > 0) {
+!       char buffer[BUFSIZ];
+!       writestring("/initclip[/matrix lcvx/currentmatrix lcvx/pstopsmatrix cvx/setmatrix lcvx\n");
+!       writestring(" /pathtoproc lcvx/initclip lcvx/newpath lcvx\n");
+!       writestring(" 0 0 /moveto lcvx");
+!       sprintf(buffer,
+! 	      " %lf 0/rlineto lcvx\n 0 %lf/rlineto lcvx -%lf 0/rlineto lcvx\n",
+! 	      width, height, width);
+!       writestring(buffer);
+!       writestring(" /closepath lcvx/clip lcvx\n");
+!       writestring(" /newpath lcvx/exec lcvx/setmatrix lcvx]cvx def\n");
+     }
+-    writestring("/initgraphics{initmatrix newpath initclip 1 setlinewidth\n");
+-    writestring(" 0 setlinecap 0 setlinejoin []0 setdash 0 setgray\n");
+-    writestring(" 10 setmiterlimit}bind def\n");
+     if (nobind) /* desperation measures */
+        writestring("/bind{}def\n");
+     writestring("%%EndProcSet\n");
+     /* save transformation from original to current matrix */
+!    writeprolog("/pstopsxform pstopsmatrix matrix currentmatrix matrix invertmatrix matrix concatmatrix matrix invertmatrix store\n");
+     for (thispg = 0; thispg < maxpage; thispg += modulo) {
+        int add_last = 0;
+        struct pagespec *ps;
+--- 154,181 ----
+  
+     /* rearrange pages: doesn't cope properly with loaded definitions */
+     writeheader((maxpage/modulo)*pps);
+  #ifndef SHOWPAGE_LOAD
+!    writestring("%%BeginProcSet: PStoPS");
+  #else
+!    writestring("%%BeginProcSet: PStoPS-spload");
+  #endif
+!    if (nobind)
+!       writestring("-nobind");
+!    writestring(" 1 13\n");
+!    for (pro = prologue; *pro; pro++) {
+!       writestring(*pro);
+!       writestring("\n");
+     }
+     if (nobind) /* desperation measures */
+        writestring("/bind{}def\n");
+     writestring("%%EndProcSet\n");
+     /* save transformation from original to current matrix */
+!    if (writepartprolog()) {
+!       writestring("userdict/PStoPSxform PStoPSmatrix matrix currentmatrix\n");
+!       writestring(" matrix invertmatrix matrix concatmatrix\n");
+!       writestring(" matrix invertmatrix put\n");
+!    }
+!    writesetup();
+     for (thispg = 0; thispg < maxpage; thispg += modulo) {
+        int add_last = 0;
+        struct pagespec *ps;
+***************
+*** 182,194 ****
+  	    actualpg = thispg+ps->pageno;
+  	 if (actualpg < pages)
+  	    seekpage(actualpg);
+! 	 if (!add_last) {
+! 	    writepageheader("pstops", ++pageindex);
+  	 }
+! 	 writestring("/pstopssaved save def\n");
+  	 if (ps->flags & GSAVE) {
+  	    char buffer[BUFSIZ];
+! 	    writestring("pstopsmatrix setmatrix\n");
+  	    if (ps->flags & OFFSET) {
+  	       sprintf(buffer, "%lf %lf translate\n", ps->xoff, ps->yoff);
+  	       writestring(buffer);
+--- 188,213 ----
+  	    actualpg = thispg+ps->pageno;
+  	 if (actualpg < pages)
+  	    seekpage(actualpg);
+! 	 if (!add_last) {	/* page label contains original pages */
+! 	    struct pagespec *np = ps;
+! 	    char *eob = pagelabel;
+! 	    char sep = '(';
+! 	    do {
+! 	       *eob++ = sep;
+! 	       if (np->reversed)
+! 		  sprintf(eob, "%d", maxpage-thispg-modulo+np->pageno);
+! 	       else
+! 		  sprintf(eob, "%d", thispg+np->pageno);
+! 	       eob = eob + strlen(eob);
+! 	       sep = ',';
+! 	    } while ((np->flags & ADD_NEXT) && (np = np->next));
+! 	    strcpy(eob, ")");
+! 	    writepageheader(pagelabel, ++pageindex);
+  	 }
+! 	 writestring("userdict/PStoPSsaved save put\n");
+  	 if (ps->flags & GSAVE) {
+  	    char buffer[BUFSIZ];
+! 	    writestring("PStoPSmatrix setmatrix\n");
+  	    if (ps->flags & OFFSET) {
+  	       sprintf(buffer, "%lf %lf translate\n", ps->xoff, ps->yoff);
+  	       writestring(buffer);
+***************
+*** 201,228 ****
+  	       sprintf(buffer, "%lf dup scale\n", ps->scale);
+  	       writestring(buffer);
+  	    }
+  	    if (width > 0 && height > 0) {
+! 	       writestring("/pstopsmatrix matrix currentmatrix def\n");
+! 	       writestring("initclip\n");
+  	       if (draw > 0) {
+  		  sprintf(buffer, "gsave clippath 0 setgray %lf setlinewidth stroke grestore\n", draw);
+  		  writestring(buffer);
+  	       }
+  	    }
+- 	    writestring("pstopsxform concat\n");
+  	 }
+  	 if (add_next) {
+  #ifndef SHOWPAGE_LOAD
+  	    writestring("/showpage{}def/copypage{}def/erasepage{}def\n");
+  #else
+! 	    writestring("/pstopsshowpage{}def/pstopscopypage{}def/pstopserasepage{}def\n");
+  #endif
+  	 }
+! 	 if (actualpg < pages)
+  	    writepagebody(actualpg);
+! 	 else
+  	    writestring("showpage\n");
+! 	 writestring("pstopssaved restore\n");
+  	 add_last = add_next;
+        }
+     }
+--- 220,253 ----
+  	       sprintf(buffer, "%lf dup scale\n", ps->scale);
+  	       writestring(buffer);
+  	    }
++ 	    writestring("userdict/PStoPSmatrix matrix currentmatrix put\n");
+  	    if (width > 0 && height > 0) {
+! 	       char buffer[BUFSIZ];
+! 	       writestring("userdict/PStoPSclip{0 0 moveto\n");
+! 	       sprintf(buffer, " %lf 0 rlineto 0 %lf rlineto -%lf 0 rlineto\n",
+! 		       width, height, width);
+! 	       writestring(buffer);
+! 	       writestring(" closepath}put initclip\n");
+  	       if (draw > 0) {
+  		  sprintf(buffer, "gsave clippath 0 setgray %lf setlinewidth stroke grestore\n", draw);
+  		  writestring(buffer);
+  	       }
+  	    }
+  	 }
+  	 if (add_next) {
+  #ifndef SHOWPAGE_LOAD
+  	    writestring("/showpage{}def/copypage{}def/erasepage{}def\n");
+  #else
+! 	    writestring("/PStoPSshowpage{}store/PStoPScopypage{}store/PStoPSerasepage{}store\n");
+  #endif
+  	 }
+! 	 if (actualpg < pages) {
+! 	    writepagesetup();
+! 	    writestring("PStoPSxform concat\n");
+  	    writepagebody(actualpg);
+! 	 } else
+  	    writestring("showpage\n");
+! 	 writestring("PStoPSsaved restore\n");
+  	 add_last = add_next;
+        }
+     }
+diff -cr +new-file psutils-dist/pstops.c psutils-next/pstops.c
+*** psutils-dist/pstops.c	Mon Nov 29 10:34:42 1993
+--- psutils-next/pstops.c	Mon Nov 29 17:03:47 1993
+***************
+*** 8,14 ****
+  
+  #include "psutil.h"
+  #include "psspec.h"
+! #include "patchlevel.h"
+  
+  void usage()
+  {
+--- 8,14 ----
+  
+  #include "psutil.h"
+  #include "psspec.h"
+! #include "patchlev.h"
+  
+  void usage()
+  {
+diff -cr +new-file psutils-dist/pstops.man psutils-next/pstops.man
+*** psutils-dist/pstops.man	Mon Nov 29 10:34:37 1993
+--- psutils-next/pstops.man	Sat Nov 27 14:09:59 1993
+***************
+*** 1,4 ****
+! .TH PSTOPS 1 "PSUtils Release @REL@ Patchlevel @PL@"
+  .SH NAME
+  pstops \- shuffle pages in a PostScript file
+  .SH SYNOPSIS
+--- 1,4 ----
+! .TH PSTOPS 1 "PSUtils Release @RELEASE@ Patchlevel @PATCHLEVEL@"
+  .SH NAME
+  pstops \- shuffle pages in a PostScript file
+  .SH SYNOPSIS
+diff -cr +new-file psutils-dist/psutil.c psutils-next/psutil.c
+*** psutils-dist/psutil.c	Mon Nov 29 10:34:42 1993
+--- psutils-next/psutil.c	Mon Nov 29 19:39:51 1993
+***************
+*** 13,19 ****
+   */
+  #define LOCAL
+  #include "psutil.h"
+! #include "patchlevel.h"
+  
+  #ifdef VMS
+  #include <file.h>
+--- 13,19 ----
+   */
+  #define LOCAL
+  #include "psutil.h"
+! #include "patchlev.h"
+  
+  #ifdef VMS
+  #include <file.h>
+***************
+*** 31,36 ****
+--- 31,38 ----
+  static long pagescmt = 0;
+  static long headerpos = 0;
+  static long endsetup = 0;
++ static long beginprocset = 0;		/* start of pstops procset */
++ static long endprocset = 0;
+  static int outputpage = 0;
+  static int maxpages = 100;
+  static long *pageptr;
+***************
+*** 119,124 ****
+--- 121,127 ----
+  #endif
+  }
+  
++ 
+  /* copy input file from current position upto new position to output file */
+  static int fcopy(upto)
+       long upto;
+***************
+*** 176,181 ****
+--- 179,190 ----
+  	       nesting--;
+  	    else if (nesting == 0 && iscomment(comment, "EndSetup"))
+  	       endsetup = record;
++ 	    else if (nesting == 0 &&
++ 		       iscomment(comment, "BeginProcSet: PStoPS"))
++ 	       beginprocset = record;
++ 	    else if (beginprocset && !endprocset &&
++ 		     iscomment(comment, "EndProcSet"))
++ 	       endprocset = ftell(infile);
+  	    else if (nesting == 0 && iscomment(comment, "Trailer")) {
+  	       fseek(infile, record, 0);
+  	       break;
+***************
+*** 217,222 ****
+--- 226,232 ----
+        } else
+  	 for (end = start; !isspace(*end); end++);
+        strncpy(pagelabel, start, end-start);
++       pagelabel[end-start] = '\0';
+        pageno = atoi(end);
+     } else {
+        fprintf(stderr, "%s: I/O error seeking page %d\n", prog, p);
+***************
+*** 234,239 ****
+--- 244,250 ----
+     bytes += strlen(s);
+  }
+  
++ /* write page comment */
+  void writepageheader(label, page)
+       char *label;
+       int page;
+***************
+*** 246,251 ****
+--- 257,288 ----
+     writestring(buffer);
+  }
+  
++ /* search for page setup */
++ void writepagesetup()
++ {
++    char buffer[BUFSIZ];
++    if (beginprocset) {
++       for (;;) {
++ 	 if (fgets(buffer, BUFSIZ, infile) == NULL) {
++ 	    fprintf(stderr, "%s: I/O error reading page setup %d\n", prog,
++ 		    outputpage);
++ 	    fflush(stderr);
++ 	    exit(1);
++ 	 }
++ 	 if (!strncmp(buffer, "PStoPSxform", 11))
++ 	    break;
++ 	 if (fputs(buffer, outfile) == EOF) {
++ 	    fprintf(stderr, "%s: I/O error writing page setup %d\n", prog,
++ 		    outputpage);
++ 	    fflush(stderr);
++ 	    exit(1);
++ 	 }
++ 	 bytes += strlen(buffer);
++       }
++    }
++ }
++ 
++ /* write the body of a page */
+  void writepagebody(p)
+       int p;
+  {
+***************
+*** 256,261 ****
+--- 293,299 ----
+     }
+  }
+  
++ /* write a whole page */
+  void writepage(p)
+       int p;
+  {
+***************
+*** 264,269 ****
+--- 302,308 ----
+     writepagebody(p);
+  }
+  
++ /* write from start of file to end of header comments */
+  void writeheader(p)
+       int p;
+  {
+***************
+*** 284,292 ****
+     }
+  }
+  
+  
+! void writeprolog(setup)
+!      char *setup;
+  {
+     if (!fcopy(endsetup)) {
+        fprintf(stderr, "%s: I/O error in prologue\n", prog);
+--- 323,344 ----
+     }
+  }
+  
++ /* write prologue to end of setup section excluding PStoPS procset */
++ int writepartprolog()
++ {
++    if (beginprocset && !fcopy(beginprocset)) {
++       fprintf(stderr, "%s: I/O error in prologue\n", prog);
++       fflush(stderr);
++       exit(1);
++    }
++    if (endprocset)
++       fseek(infile, endprocset, 0);
++    writeprolog();
++    return !beginprocset;
++ }
+  
+! /* write prologue up to end of setup section */
+! void writeprolog()
+  {
+     if (!fcopy(endsetup)) {
+        fprintf(stderr, "%s: I/O error in prologue\n", prog);
+***************
+*** 293,299 ****
+        fflush(stderr);
+        exit(1);
+     }
+!    writestring(setup);
+     if (!fcopy(pageptr[0])) {
+        fprintf(stderr, "%s: I/O error in prologue\n", prog);
+        fflush(stderr);
+--- 345,355 ----
+        fflush(stderr);
+        exit(1);
+     }
+! }
+! 
+! /* write from end of setup to start of pages */
+! void writesetup()
+! {
+     if (!fcopy(pageptr[0])) {
+        fprintf(stderr, "%s: I/O error in prologue\n", prog);
+        fflush(stderr);
+***************
+*** 331,337 ****
+     pos += len;
+  }
+  
+! 
+  void writeemptypage()
+  {
+     if (verbose)
+--- 387,393 ----
+     pos += len;
+  }
+  
+! /* write a page with nothing on it */
+  void writeemptypage()
+  {
+     if (verbose)
+diff -cr +new-file psutils-dist/psutil.h psutils-next/psutil.h
+*** psutils-dist/psutil.h	Mon Nov 29 10:34:37 1993
+--- psutils-next/psutil.h	Sat Nov 27 13:19:14 1993
+***************
+*** 32,40 ****
+--- 32,43 ----
+  LOCAL void writepage();
+  LOCAL void seekpage();
+  LOCAL void writepageheader();
++ LOCAL void writepagesetup();
+  LOCAL void writepagebody();
+  LOCAL void writeheader();
++ LOCAL int writepartprolog();
+  LOCAL void writeprolog();
++ LOCAL void writesetup();
+  LOCAL void writetrailer();
+  LOCAL void writeemptypage();
+  LOCAL void scanpages();
+
+exit 0 # Just in case...

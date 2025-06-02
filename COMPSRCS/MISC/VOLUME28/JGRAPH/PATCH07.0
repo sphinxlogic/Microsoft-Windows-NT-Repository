@@ -1,0 +1,1908 @@
+Newsgroups: comp.sources.misc
+From: jsp@Princeton.EDU (James Plank)
+Subject:  v28i006:  jgraph - A filter for plotting postscript graphs, Patch07.0
+Message-ID: <1992Feb2.032802.24980@sparky.imd.sterling.com>
+X-Md4-Signature: f251e9b0a816e62bec19961e454241f4
+Date: Sun, 2 Feb 1992 03:28:02 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jsp@Princeton.EDU (James Plank)
+Posting-number: Volume 28, Issue 6
+Archive-name: jgraph/patch07.0
+Environment: UNIX, VMS, postscript
+Patch-To: jgraph: Volume 16, Issue 20
+
+Jgraph Patch 7.0: Thu Jan 23 11:19:37 EST 1992
+
+This patch adds a few things and fixes a few things.  
+
+First, it uses a different algorithm for calculating bounding boxes, 
+so that now it attempts to get all of the axes (including the labels)
+and all of the legend into the bounding box.  The X and Y commands are
+a bit different as well -- they should work more consistently now -- 
+read the man page for the changes.  This means that graphs might look
+different in LaTeX or other systems.  Hopefully they'll work more
+consistently and correctly.
+
+Second, arrows going into circluar marks now only go to the edge of the
+circle and not to the center of the mark.  I'd like to fix this for all
+marks, but I don't really have the time.  Maybe later if there's interest.
+
+The following commands have been added:
+
+bezier/nobezier (in curves) -- lets you plot bezier curves.  See the 
+  man page.
+copygraph -- Copies the last graph -- this should take the place of
+  inherit_axes.  Also, inherit_axes/copygraph have been updated so
+  they'll work across multiple pages.
+copycurve -- Makes a new curve and copies all the attributes from the
+   previous curve.
+copystring -- Same thing only for strings.
+newline -- An abbreviation for "newcurve marktype none linetype solid"
+text as a marktype.  Now you can plot labels like points.  See the
+  man page.
+
+I believe that's it.  As always, if you find bugs, please send me email.
+
+I'm including the README for jgraph below for those not familiar with it,
+and the patch from version 6.2:
+
+
+$Revision: 7.0 $
+
+Jgraph takes the description of a graph or graphs in the standard
+input, and produces a postscript file on the standard output.  Jgraph
+is ideal for plotting any mixture of scatter point graphs, line
+graphs, and/or bar graphs, and embedding the output into LaTeX, or
+any other text processing system which can read postscript.
+
+The graph description language is simple enough to get nice looking
+graphs with a minimum of effort, yet powerful enough to give the user
+the flexibility to tailor the appearance of the graph to his or her
+individual preferences.  This includes plotting multiple graphs and
+laying them out separately on the page (or pages). 
+
+The program is written in C, and shouldn't take anything too fancy
+or machine-dependent.  It has been tested on DECstations, 
+sun3's, and sparc's (and is being used on many other types
+of machines).
+
+There is a makefile, a man page (in jgraph.1), source code, and 
+example graphs.
+
+Jgraph is available via anonymous ftp to princeton.edu, in the
+file jgraph.Z.  This file is a compressed shell bundle file.
+
+There is also a mailing list in which I inform users directly 
+about bug fixes.  This is for those who don't read comp.sources.misc,
+or those who would like to hear about minor bug fixes which I
+haven't posted as a patch to comp.sources.misc.
+
+Please send me comments and/or bug reports.
+
+Author: Jim Plank
+Email:  jsp@princeton.edu
+USmail:	Department of Computer Science
+	Princeton University
+	35 Olden St.
+	Princeton, NJ 08544-2087
+
+
+Here's the patch from version 6.2
+
+*** ../work//README	Thu Jan 23 11:14:16 1992
+--- README	Thu Jan 23 11:12:33 1992
+***************
+*** 1,4 ****
+! $Revision: 6.2 $
+  
+  Jgraph takes the description of a graph or graphs in the standard
+  input, and produces a postscript file on the standard output.  Jgraph
+--- 1,4 ----
+! $Revision: 7.0 $
+  
+  Jgraph takes the description of a graph or graphs in the standard
+  input, and produces a postscript file on the standard output.  Jgraph
+*** ../work//draw.c	Thu Jan 23 11:14:20 1992
+--- draw.c	Thu Jan 23 11:12:27 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/draw.c,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:32 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/draw.c,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:09:46 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 130,136 ****
+  Graph g;
+  {
+    Point p;
+!   int i;
+     float this_x, this_y, last_x, last_y;
+  
+    printf("gsave %f setgray\n", c->gray);
+--- 130,136 ----
+  Graph g;
+  {
+    Point p;
+!   int i, j;
+     float this_x, this_y, last_x, last_y;
+  
+    printf("gsave %f setgray\n", c->gray);
+***************
+*** 137,174 ****
+    if (c->clip) set_clip(g);
+    comment("Drawing Curve");
+    if (c->linetype != '0') {
+!     i = 0;
+!     for (p = first(c->pts);
+!          p != nil(c->pts);
+!          p = next(p)) {
+!       if (i == 0) {
+!         start_line(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis), c);
+!       } else {
+!         cont_line(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis));
+!       } 
+!       if (i == 100) {
+!         end_line();
+!         p = prev(p);
+!         i = 0;
+!       } else i++;
+      }
+-     if (i != 0) end_line();
+    }
+    comment("Drawing Curve points");
+    for (p = first(c->pts);
+         p != nil(c->pts);
+         p = next(p)) {
+      this_x = ctop(p->x, g->x_axis);
+      this_y = ctop(p->y, g->y_axis);
+!     draw_mark(this_x, this_y, c, g);
+      if (p != first(c->pts)) {
+!       if (c->rarrows) 
+!         draw_arrow(this_x, this_y, last_x, last_y, c);
+!       if (c->larrows) 
+!         draw_arrow(last_x, last_y, this_x, this_y, c);
+      }
+      last_x = this_x;  
+      last_y = this_y;  
+    }
+    printf("     grestore\n");
+  }
+--- 137,203 ----
+    if (c->clip) set_clip(g);
+    comment("Drawing Curve");
+    if (c->linetype != '0') {
+!     if (c->bezier) {
+!       i = 0;
+!       j = 0;
+!       for (p = first(c->pts); p != nil(c->pts); p = next(p)) {
+!         if (j == 0 && i == 0) {
+!           start_line(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis), c);
+!           j++;
+!         } else if (i != 0) {
+!           bezier_control(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis));
+!         } else {
+!           bezier_end(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis));
+!           j++;
+!         }
+!         if (j == 30 && i == 0) {
+!           end_line();
+!           p = prev(p);
+!           j = 0;
+!           i = 0;
+!         } else i = (i + 1) % 3;
+!       }
+!       if (j != 0) end_line();
+!     } else {
+!       i = 0;
+!       for (p = first(c->pts);
+!            p != nil(c->pts);
+!            p = next(p)) {
+!         if (i == 0) {
+!           start_line(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis), c);
+!         } else {
+!           cont_line(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis));
+!         } 
+!         if (i == 100) {
+!           end_line();
+!           p = prev(p);
+!           i = 0;
+!         } else i++;
+!       }
+!       if (i != 0) end_line();
+      }
+    }
+    comment("Drawing Curve points");
++   i = 0;
+    for (p = first(c->pts);
+         p != nil(c->pts);
+         p = next(p)) {
+      this_x = ctop(p->x, g->x_axis);
+      this_y = ctop(p->y, g->y_axis);
+!     if (!c->bezier || i == 0) draw_mark(this_x, this_y, c, g);
+      if (p != first(c->pts)) {
+!       if (c->rarrows) {
+!         if (!c->bezier || i == 0) 
+!           draw_arrow(this_x, this_y, last_x, last_y, c);
+!       }
+!       if (c->larrows) {
+!         if (!c->bezier || i == 1) 
+!           draw_arrow(last_x, last_y, this_x, this_y, c);
+!       }
+      }
+      last_x = this_x;  
+      last_y = this_y;  
++     i = (i + 1) % 3;
+    }
+    printf("     grestore\n");
+  }
+***************
+*** 233,238 ****
+--- 262,273 ----
+                cont_poly(g->y_axis->draw_at, y+ms1);
+                end_poly(c->fill);
+                break;
++     case 'l': c->lmark->x += x;
++               c->lmark->y += y;
++               draw_label(c->lmark);
++               c->lmark->x -= x;
++               c->lmark->y -= y;
++               break;
+      default: error_header(); 
+               fprintf(stderr, "Unknown mark: %c\n", c->marktype);
+               break;
+***************
+*** 244,253 ****
+--- 279,309 ----
+  Curve c;
+  {
+    float dx, dy;
++   float ms1, ms0;
++   float theta, ct, st;
+    
++   
++   if (c->marktype == 'o') {
++     dx = x1 - x2;
++     dy = y1 - y2;
++     if (dx == 0.0 && dy == 0.0) return;
++ 
++     ms0 = c->marksize[0] / 2.0;
++     if (dx == 0.0) theta = asin(1.0); else theta = atan(dy/dx);
++     if (theta < 0.0) theta = -theta;
++     ct = cos(theta)*ms0;
++     st = sin(theta)*ms0;
++     x1 = x1 + ct*(dx > 0.0 ? -1.0 : 1.0);
++     y1 = y1 + st*(dy > 0.0 ? -1.0 : 1.0);
++ 
++     if ( ((x1 - x2 > 0) != (dx > 0)) || 
++          ((y1 - y2 > 0) != (dy > 0)) ) return;
++   }
++ 
+    dx = x1 - x2;
+    dy = y1 - y2;
+    if (dx == 0.0 && dy == 0.0) return;
++ 
+    printf("gsave %f %f translate %f %f atan rotate\n", x1, y1, dy, dx);
+    start_poly(0.0, 0.0);
+    cont_poly(-(c->asize[0]), (c->asize[1]));
+***************
+*** 262,267 ****
+--- 318,324 ----
+    Curve c;
+    Legend l;
+    float x, y;
++   char tmpmktype;
+  
+    l = g->legend;
+    comment("Drawing legend");
+***************
+*** 277,284 ****
+--- 334,344 ----
+            cont_line(x+l->linelength, y);
+            end_line();
+          }
++         tmpmktype = c->marktype;
++         c->marktype = 'n';
+          if (c->larrows) draw_arrow(x, y, x+l->linelength, y, c);
+          if (c->rarrows) draw_arrow(x+l->linelength, y, x, y, c);
++         c->marktype = tmpmktype;
+          x = c->l->x - l->midspace - l->linelength / 2.0;
+        } else x = c->l->x - l->midspace;
+        if (c->marktype == 'X' || c->marktype == 'Y') {
+***************
+*** 351,357 ****
+  {
+    printf("%%!PS-Adobe-2.0 EPSF-1.2\n");
+    printf("%%%%Pages: 0\n");
+!   printf("%%%%BoundingBox: %f %f %f %f\n", gs->bb[0], gs->bb[1], gs->bb[2], gs->bb[3]);
+    printf("%%%%EndComments\n");
+    printf("/$F2psDict 32 dict def $F2psDict begin\t$F2psDict /mtrx matrix put\n");
+    printf("/DrawEllipse {\t/endangle exch def\t/startangle exch def");
+--- 411,418 ----
+  {
+    printf("%%!PS-Adobe-2.0 EPSF-1.2\n");
+    printf("%%%%Pages: 0\n");
+!   printf("%%%%BoundingBox: %f %f %f %f\n", gs->bb[0], gs->bb[1], 
+!           gs->bb[2], gs->bb[3]);
+    printf("%%%%EndComments\n");
+    printf("/$F2psDict 32 dict def $F2psDict begin\t$F2psDict /mtrx matrix put\n");
+    printf("/DrawEllipse {\t/endangle exch def\t/startangle exch def");
+***************
+*** 367,373 ****
+    if (pp)
+      printf("%f %f translate\n",
+        ((8.5 * FCPI) - (gs->bb[2] - gs->bb[0])) / 2.0,     
+!       (gs->bb[3] > (3*FCPI)) ? ((11*FCPI) - gs->bb[3]) / 2 : (3.5*FCPI));
+    printf("1 setlinecap 1 setlinejoin\n");
+    printf("0.700 setlinewidth\n");
+  }
+--- 428,434 ----
+    if (pp)
+      printf("%f %f translate\n",
+        ((8.5 * FCPI) - (gs->bb[2] - gs->bb[0])) / 2.0,     
+!       (gs->bb[3] > (3*FCPI)) ? ((11*FCPI) - gs->bb[3]) / 2 : (5.5*FCPI));
+    printf("1 setlinecap 1 setlinejoin\n");
+    printf("0.700 setlinewidth\n");
+  }
+*** ../work//edit.c	Thu Jan 23 11:14:21 1992
+--- edit.c	Thu Jan 23 11:12:27 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/edit.c,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:33 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/edit.c,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:09:47 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 55,61 ****
+    }
+  }
+  
+! copy_label(l1, l2) /* Copies label l1 to l2 */
+  Label l1, l2;
+  {
+    l1->label = l2->label;
+--- 55,100 ----
+    }
+  }
+  
+! copy_curve(c1, c2) /* Copies curve c2 to c1 */
+! Curve c1, c2;
+! {
+!   Flist f, newf;
+!   Point p, newp;
+! 
+!   copy_label(c1->l, c2->l);
+!   copy_label(c1->lmark, c2->lmark);
+!   c1->l->label = CNULL;
+!   c1->clip = c2->clip;
+!   c1->gray = c2->gray;
+!   for (f = first(c2->gen_linetype); 
+!        f != nil(c2->gen_linetype); 
+!        f = next(f)) {
+!     newf = (Flist) get_node(c1->gen_linetype);
+!     newf->f = f->f;
+!     insert(newf, c1->gen_linetype);
+!   }
+!   c1->marktype = c2->marktype;
+!   c1->linetype = c2->linetype;
+!   c1->linethick = c2->linethick;
+!   c1->marksize[0] = c2->marksize[0];
+!   c1->marksize[1] = c2->marksize[1];
+!   for (p = first(c2->general_marks); 
+!        p != nil(c2->general_marks); 
+!        p = next(p)) {
+!     newp = (Point) get_node(c1->general_marks);
+!     newp->x = p->x;
+!     newp->y = p->y;
+!     insert(newp, c1->general_marks);
+!   }
+!   c1->fill = c2->fill;
+!   c1->rarrows = c2->rarrows;
+!   c1->larrows = c2->larrows;
+!   c1->asize[0] = c2->asize[0];
+!   c1->asize[1] = c2->asize[1];
+!   c1->bezier = c2->bezier;
+! }
+! 
+! copy_label(l1, l2) /* Copies label l2 to l1 */
+  Label l1, l2;
+  {
+    l1->label = l2->label;
+***************
+*** 100,122 ****
+    a1->is_x = a2->is_x;
+  }
+  
+! inherit_axes(g, gs)
+  Graph g;
+  Graphs gs;
+  {
+!   if (prev(g) == nil(gs->g)) {
+!     error_header(); 
+!     fprintf(stderr, "First graph cannot inherit axes\n");
+!     exit(1);
+    }
+!   copy_axis(g->x_axis, prev(g)->x_axis);
+!   copy_axis(g->y_axis, prev(g)->y_axis);
+!   g->x_translate = prev(g)->x_translate;
+!   g->y_translate = prev(g)->y_translate;
+!   g->clip = prev(g)->clip;
+!   g->border = prev(g)->border;
+  }
+  
+  edit_curve(c, g)
+  Curve c;
+  Graph g;
+--- 139,239 ----
+    a1->is_x = a2->is_x;
+  }
+  
+! Curve do_copy_curve(g, gs, all_gs)
+  Graph g;
+  Graphs gs;
++ Graphs all_gs;
+  {
+!   Curve lastc, newc;
+!   Graph oldg;
+!   Graphs oldgs;
+! 
+!   oldg = g;
+!   oldgs = gs;
+! 
+!   while(gs != nil(all_gs)) {
+!     if (gs != oldgs) g = last(gs->g);
+!     while(g != nil(gs->g)) {
+!       if (first(g->curves) == nil(g->curves)) g = prev(g);
+!       else {
+!         lastc = last(g->curves);
+!         if (first(oldg->curves) == nil(oldg->curves))
+!           newc = new_curve(oldg->curves, 0);
+!         else newc = new_curve(oldg->curves, last(oldg->curves)->num + 1);
+!         copy_curve(newc, lastc);
+!         return newc;
+!       }
+!     }
+!     gs = prev(gs);
+    }
+!   
+!   error_header(); 
+!   fprintf(stderr, "Cannot perform copycurve on first curve\n");
+!   exit(1);
+!   return newc; /* To shut lint up */
+  }
+  
++ Label do_copy_string(g, gs, all_gs)
++ Graph g;
++ Graphs gs;
++ Graphs all_gs;
++ {
++   String lastl, newl;
++   Graph oldg;
++   Graphs oldgs;
++ 
++   oldg = g;
++   oldgs = gs;
++ 
++   while(gs != nil(all_gs)) {
++     if (gs != oldgs) g = last(gs->g);
++     while(g != nil(gs->g)) {
++       if (first(g->strings) == nil(g->strings)) g = prev(g);
++       else {
++         lastl = last(g->strings);
++         if (first(oldg->strings) == nil(oldg->strings))
++           newl = new_string(oldg->strings, 0);
++         else newl = new_string(oldg->strings, last(oldg->strings)->num + 1);
++         copy_label(newl->s, lastl->s);
++         return newl->s;
++       }
++     }
++     gs = prev(gs);
++   }
++   
++   error_header(); 
++   fprintf(stderr, "Cannot perform copystring on first curve\n");
++   exit(1);
++   return newl->s; /* To shut lint up */
++ }
++ 
++ inherit_axes(g, gs, all_gs)
++ Graph g;
++ Graphs gs;
++ Graphs all_gs;
++ {
++   Graph lastg;
++ 
++   lastg = prev(g);
++   while(lastg == nil(gs->g)) {
++     if (prev(gs) == nil(all_gs)) {
++       error_header(); 
++       fprintf(stderr, "First graph cannot inherit axes\n");
++       exit(1);
++     } else {
++       gs = prev(gs);
++       lastg = last(gs->g);
++     }
++   }
++ 
++   copy_axis(g->x_axis, lastg->x_axis);
++   copy_axis(g->y_axis, lastg->y_axis);
++   g->x_translate = lastg->x_translate;
++   g->y_translate = lastg->y_translate;
++   g->clip = lastg->clip;
++   g->border = lastg->border;
++ }
++ 
+  edit_curve(c, g)
+  Curve c;
+  Graph g;
+***************
+*** 151,156 ****
+--- 268,274 ----
+          }
+          /*insert(p, c->pts, 0); insert only takes 2 arguments -hdd */
+  	insert(p, c->pts);
++         c->npts++;
+        }
+        rejecttoken();
+      } else if (strcmp(inp_str, "label") == 0) {
+***************
+*** 183,192 ****
+        if (i == NMARKTYPES) {
+          error_header(); fprintf(stderr, "Bad mark: %s\n", inp_str);
+          fprintf(stderr, "             Valid marks are:");
+!         for (i = 0; i < NMARKTYPES; i++) fprintf(stderr, " %s", MARKTYPESTRS[i]);
+          fprintf(stderr, "\n");
+          exit(1);
+!       } else c->marktype = MARKTYPES[i];
+      } else if (strcmp(inp_str, "glines") == 0) {
+        while (getfloat(&f)) {
+          fl = (Flist) get_node (c->gen_linetype);
+--- 301,315 ----
+        if (i == NMARKTYPES) {
+          error_header(); fprintf(stderr, "Bad mark: %s\n", inp_str);
+          fprintf(stderr, "             Valid marks are:");
+!         for (i = 0; i < NMARKTYPES; i++) {
+!           fprintf(stderr, " %s", MARKTYPESTRS[i]);
+!         }
+          fprintf(stderr, "\n");
+          exit(1);
+!       } else {
+!         c->marktype = MARKTYPES[i];
+!         if (c->marktype == 'l') edit_label(c->lmark);
+!       }
+      } else if (strcmp(inp_str, "glines") == 0) {
+        while (getfloat(&f)) {
+          fl = (Flist) get_node (c->gen_linetype);
+***************
+*** 225,230 ****
+--- 348,357 ----
+        c->rarrows = 1;
+      } else if (strcmp(inp_str, "norarrows") == 0) {
+        c->rarrows = 0;
++     } else if (strcmp(inp_str, "bezier") == 0) {
++       c->bezier = 1;
++     } else if (strcmp(inp_str, "nobezier") == 0) {
++       c->bezier = 0;
+      } else if (strcmp(inp_str, "asize") == 0) {
+        if (!getfloat(&f)) rejecttoken(); 
+        else {
+***************
+*** 364,369 ****
+--- 491,500 ----
+        a->draw_hash_labels = 0;
+      } else if (strcmp(inp_str, "draw_hash_labels") == 0) {
+        a->draw_hash_labels = 1;
++     } else if (strcmp(inp_str, "no_draw_axis_line") == 0) {
++       a->draw_axis_line = 0;
++     } else if (strcmp(inp_str, "draw_axis_line") == 0) {
++       a->draw_axis_line = 1;
+      } else if (strcmp(inp_str, "no_draw_axis") == 0) {
+        a->draw_axis_line = 0;
+      } else if (strcmp(inp_str, "draw_axis") == 0) {
+***************
+*** 423,431 ****
+    }
+  }
+  
+! edit_graph(g, gs)
+  Graph g;
+  Graphs gs;
+  {
+    char inp_str[80];
+    int num;
+--- 554,563 ----
+    }
+  }
+  
+! edit_graph(g, gs, all_gs)
+  Graph g;
+  Graphs gs;
++ Graphs all_gs;
+  {
+    char inp_str[80];
+    int num;
+***************
+*** 447,452 ****
+--- 579,590 ----
+        if (first(g->curves) == nil(g->curves))
+          edit_curve(new_curve(g->curves, 0), g);
+        else edit_curve(new_curve(g->curves, last(g->curves)->num + 1), g);
++     } else if (strcmp(inp_str, "copycurve") == 0) {
++       edit_curve(do_copy_curve(g, gs, all_gs), g);
++     } else if (strcmp(inp_str, "newline") == 0) {
++       if (first(g->curves) == nil(g->curves))
++         edit_curve(new_line(g->curves, 0), g);
++       else edit_curve(new_line(g->curves, last(g->curves)->num + 1), g);
+      } else if (strcmp(inp_str, "title") == 0) {
+        edit_label(g->title);
+      } else if (strcmp(inp_str, "legend") == 0) {
+***************
+*** 467,474 ****
+          s = new_string(g->strings, 0);
+        else s = new_string(g->strings, last(g->strings)->num + 1);
+        edit_label(s->s);
+      } else if (strcmp(inp_str, "inherit_axes") == 0) {
+!       inherit_axes(g, gs);
+      } else if (strcmp(inp_str, "Y") == 0) {
+        if (!getfloat(&f)) rejecttoken(); else gs->height = f;
+      } else if (strcmp(inp_str, "X") == 0) {
+--- 605,614 ----
+          s = new_string(g->strings, 0);
+        else s = new_string(g->strings, last(g->strings)->num + 1);
+        edit_label(s->s);
++     } else if (strcmp(inp_str, "copystring") == 0) {
++       edit_label(do_copy_string(g, gs, all_gs));
+      } else if (strcmp(inp_str, "inherit_axes") == 0) {
+!       inherit_axes(g, gs, all_gs);
+      } else if (strcmp(inp_str, "Y") == 0) {
+        if (!getfloat(&f)) rejecttoken(); else gs->height = f;
+      } else if (strcmp(inp_str, "X") == 0) {
+***************
+*** 492,497 ****
+--- 632,638 ----
+  Graphs gs;
+  {
+    Graphs the_g;
++   Graph g;
+    char inp_str[80];
+    float f;
+    int num, i;
+***************
+*** 503,513 ****
+          error_header(); fprintf(stderr, "\"graph\" not followed by number\n");
+          exit(1);
+        }
+!       edit_graph(get_graph(the_g->g, num), the_g);
+      } else if (strcmp(inp_str, "newgraph") == 0) {
+        if (first(the_g->g) == nil(the_g->g))
+!         edit_graph(new_graph(the_g->g, 0), the_g);
+!       else edit_graph(new_graph(the_g->g, last(the_g->g)->num + 1), the_g);
+      } else if (strcmp(inp_str, "Y") == 0) {
+        if (!getfloat(&f)) rejecttoken(); else the_g->height = f;
+      } else if (strcmp(inp_str, "X") == 0) {
+--- 644,660 ----
+          error_header(); fprintf(stderr, "\"graph\" not followed by number\n");
+          exit(1);
+        }
+!       edit_graph(get_graph(the_g->g, num), the_g, gs);
+      } else if (strcmp(inp_str, "newgraph") == 0) {
+        if (first(the_g->g) == nil(the_g->g))
+!         edit_graph(new_graph(the_g->g, 0), the_g, gs);
+!       else edit_graph(new_graph(the_g->g, last(the_g->g)->num + 1), the_g, gs);
+!     } else if (strcmp(inp_str, "copygraph") == 0) {
+!       if (first(the_g->g) == nil(the_g->g))
+!         g = new_graph(the_g->g, 0);
+!       else g = new_graph(the_g->g, last(the_g->g)->num + 1);
+!       inherit_axes(g, the_g, gs);
+!       edit_graph(g, the_g, gs);
+      } else if (strcmp(inp_str, "Y") == 0) {
+        if (!getfloat(&f)) rejecttoken(); else the_g->height = f;
+      } else if (strcmp(inp_str, "X") == 0) {
+*** ../work//jgraph.1	Thu Jan 23 11:14:26 1992
+--- jgraph.1	Thu Jan 23 11:12:32 1992
+***************
+*** 200,220 ****
+  where n=0 if this is the first graph, otherwise n=m+1, where m is the
+  largest number of any graph so far.
+  .TP
+! \fBX \|[\fIfloat\fB\|]\fR
+! .br
+! .ns
+  .TP
+- \fBY \|[\fIfloat\fB\|]\fR
+- Postscript files to be embedded in LaTeX
+- must contain a line specifying their height and width.  Usually,
+- \fBjgraph \fR
+- will automatically create one for the user, however, the user
+- may specify the height and width in inches using 
+- \fBY\fR
+- and
+- \fBX\fR
+- respectively.
+- .TP
+  .B newpage
+  This command is for plotting graphs on multiple pages.  After a 
+  \fBnewpage,\fR
+--- 200,221 ----
+  where n=0 if this is the first graph, otherwise n=m+1, where m is the
+  largest number of any graph so far.
+  .TP
+! .B copygraph
+! This creates a new graph, and copies all the attributes from the
+! previous graph's x and y axes, as well as the x_translate and 
+! y_translate values, and the clipping. 
+! (Actually, this is a little bit of a lie, as it does not copy the
+! values of the 
+! \fB\fIhash_at\fB, \fImhash_at\fB,\fR
+! and 
+! \fB\fI\fIhash_label\fB\fR 
+! attributes). 
+! The previous graph is defined to be the graph with the largest number 
+! less than the currrent graph's number.  If the current 
+! graph has the smallest number, then it will take the last graph from 
+! the previous page of graphs.  If there is no previous page, then an 
+! error will be flagged.
+  .TP
+  .B newpage
+  This command is for plotting graphs on multiple pages.  After a 
+  \fBnewpage,\fR
+***************
+*** 232,249 ****
+  \fB\-P\fR
+  option is not specified.
+  .TP
+  \fBbbox \fIfloat\fB \fIfloat\fB \fIfloat\fB \fIfloat\fB\fR
+! Jgraph calculates a bounding box for the graph and
+! includes it in the header of the postscript output.
+! For the purposed of LaTeX, this is usually ok, as LaTeX doesn't
+! clip outside of the bounding box.  Unfortunately, other programs
+! do clip, and sometimes jgraph doesn't calculate the bounding box
+! too well (text especially screws things up).  This command lets
+! the user add his/her own bounding box.  The units of this are
+  final postscript units.  It's probably best to use the -p option
+  to see what the bounding box is that jgraph produces, and then
+  alter that accordingly with
+! \fBbbox\fR.
+  .PD
+  .RE
+  .LP
+--- 233,281 ----
+  \fB\-P\fR
+  option is not specified.
+  .TP
++ \fBX \|[\fIfloat\fB\|]\fR
++ .br
++ .ns
++ .TP
++ \fBY \|[\fIfloat\fB\|]\fR
++ Postscript files to be embedded in LaTeX contain a ``bounding box''
++ which defines the area which LaTeX will allocate for the postscript.
++ Other programs use this bounding box as well, sometimes using it
++ to define where to clip the postscript image.
++ \fBJgraph \fR
++ uses the axis lines and labels, and the title to generate its 
++ bounding box.  Most of the time that's good enough to work in 
++ LaTeX.  The 
++ \fBY\fR
++ and
++ \fBX\fR
++ commands say to make the height and width of the bounding box at least
++ \fBY\fR
++ and
++ \fBX\fR
++ inches, respectively.  If you still need further control over the
++ bounding box, try the
++ \fBbbox\fR
++ command.  If there's more than one page in the jgraph file, 
++ \fBY,\fR
++ \fBX\fR
++ and
++ \fBbbox\fR
++ values can be given for each graph.  I'm not sure if that really
++ means anything though.
++ .TP
+  \fBbbox \fIfloat\fB \fIfloat\fB \fIfloat\fB \fIfloat\fB\fR
+! If the 
+! \fBY\fR
+! and
+! \fBX\fR
+! commands aren't enough to help you define a good bounding box, this
+! command lets you explicitly enter one which will go directly into the 
+! jgraph output.  Its units are the 
+  final postscript units.  It's probably best to use the -p option
+  to see what the bounding box is that jgraph produces, and then
+  alter that accordingly with
+! \fBbbox.\fR
+  .PD
+  .RE
+  .LP
+***************
+*** 279,284 ****
+--- 311,329 ----
+  \fBgraph\fR
+  do.
+  .TP
++ \fBnewline\fR  
++ This is an abbreviation for:
++ .PP
++ .nf
++ 	  newcurve marktype none linetype solid
++ .fi
++ .PP
++ .TP
++ \fBcopycurve\fR  
++ This starts editing a new curve of the graph, and copies all its 
++ values from last curve in this graph.  If this graph currently has
++ no curves, then it searches backwards from the previous graph.
++ .TP
+  \fBtitle\fR   
+  This edits the title of the graph (see LABEL EDITING
+  COMMANDS).  The title is given a default location centered beneath
+***************
+*** 296,306 ****
+  graph as well as curves.
+  .TP
+  \fBstring \|{\fIinteger\fB\|}\fR   
+! This is to 
+  \fBnewstring\fR
+  as
+  \fBcurve\fR
+! is to
+  \fBnewcurve.\fR
+  .TP
+  \fBborder\fR
+--- 341,360 ----
+  graph as well as curves.
+  .TP
+  \fBstring \|{\fIinteger\fB\|}\fR   
+! .br
+! .ns
+! .TP
+! \fBcopystring\fR
+! \fBString\fR
+! and
+! \fBcopystring\fR
+! are to 
+  \fBnewstring\fR
+  as
+  \fBcurve\fR
+! and
+! \fBcopycurve\fR
+! are to
+  \fBnewcurve.\fR
+  .TP
+  \fBborder\fR
+***************
+*** 324,345 ****
+  specifies that all curves in the graph will be clipped -- that is,
+  no points outside of the of axes will be plotted.  Clipping can also be
+  specified on a per-curve basis.  The default is
+! \fBnoclip\fR.
+  .TP
+  \fBinherit_axes\fR   
+! This lets the user ``inherit'' the values of the last
+! graph's axes.  It copies all the attributes of the previous graph's x
+! and y axes, as well as the x_translate and y_translate values, and the
+! clipping. 
+! (Actually, this is a little bit of a lie, as it does not copy the
+! values of the 
+! \fB\fIhash_at\fB, \fImhash_at\fB,\fR
+! and 
+! \fB\fI\fIhash_label\fB\fR 
+! attributes). 
+! The previous graph is the graph with the largest number greater than
+! the currrent graph's number.  If the current graph has the smallest
+! number, then this command will flag an error.
+  .TP
+  \fBx_translate \|[\fIfloat\fB\|]\fR   
+  By default, graphs are drawn centered at the
+--- 378,394 ----
+  specifies that all curves in the graph will be clipped -- that is,
+  no points outside of the of axes will be plotted.  Clipping can also be
+  specified on a per-curve basis.  The default is
+! \fBnoclip.\fR
+  .TP
+  \fBinherit_axes\fR   
+! This is an old command which is kept for backward compatibility.
+! \fBCopycurve.\fR
+! is equivalent to:
+! .PP
+! .nf
+! 	  newgraph inherit_axes
+! .fi
+! .PP
+  .TP
+  \fBx_translate \|[\fIfloat\fB\|]\fR   
+  By default, graphs are drawn centered at the
+***************
+*** 493,499 ****
+  Do not draw the axis, the hash marks or any labels.  This
+  is useful for plotting points with no axes, and for overlaying graphs
+  on top of one another with no clashes.  This is equivalent to
+! \fBno_draw_axis_line,\fR
+  \fBno_draw_axis_label,\fR
+  \fBno_draw_hash_marks,\fR
+  and
+--- 542,548 ----
+  Do not draw the axis, the hash marks or any labels.  This
+  is useful for plotting points with no axes, and for overlaying graphs
+  on top of one another with no clashes.  This is equivalent to
+! \fBno_draw_axis,\fR
+  \fBno_draw_axis_label,\fR
+  \fBno_draw_hash_marks,\fR
+  and
+***************
+*** 505,511 ****
+  Default = 
+  \fBdraw. This is\fR
+  equivalent to 
+! \fBdraw_axis_line,\fR
+  \fBdraw_axis_label,\fR
+  \fBdraw_hash_marks,\fR
+  and 
+--- 554,560 ----
+  Default = 
+  \fBdraw. This is\fR
+  equivalent to 
+! \fBdraw_axis,\fR
+  \fBdraw_axis_label,\fR
+  \fBdraw_hash_marks,\fR
+  and 
+***************
+*** 519,525 ****
+  \fBGrid_lines\fR
+  specifies to plot a grid line at each (major and minor) hash
+  mark on this axis.  The default is 
+! \fBno_grid_lines\fR.
+  .PD
+  .RE
+  .LP
+--- 568,574 ----
+  \fBGrid_lines\fR
+  specifies to plot a grid line at each (major and minor) hash
+  mark on this axis.  The default is 
+! \fBno_grid_lines.\fR
+  .PD
+  .RE
+  .LP
+***************
+*** 540,553 ****
+  point.  This command stops reading points when a non-float is given.
+  .TP
+  \fBmarktype\fR   
+! This sets the kind of mark that is plotted for this
+! curve.  Valid marks are: ``circle'', ``box'', ``diamond'', ``triangle'', ``x'',
+! ``cross'', ``ellipse'', ``xbar'', ``ybar'', ``general'', and ``none''.  Most of these are
+! self-explanatory, except for the last three.  ``Xbar'' makes the curve
+! into a bar graph with the bars going to the x axis.  ``Ybar'' has the bars
+! going to the y axis.  ``General'' lets the user define the marks using the
+  \fBgmarks\fR
+! command defined below.  ``None'' means that no mark will be
+  plotted (this is useful for drawing lines).  By default, a new mark
+  is chosen for each curve.
+  .TP
+--- 589,614 ----
+  point.  This command stops reading points when a non-float is given.
+  .TP
+  \fBmarktype\fR   
+! This sets the kind of mark that is plotted for this curve.  Valid
+! marks are: ``circle'', ``box'', ``diamond'', ``triangle'', ``x'',
+! ``cross'', ``ellipse'', ``xbar'', ``ybar'', ``general'', ``text'' and
+! ``none''.  Most of these are self-explanatory, except for the last
+! five:  
+!   ``Xbar'' makes the curve into a bar graph with the bars going
+! to the x axis.  ``Ybar'' has the bars going to the y axis. 
+!   ``General'' lets the user define the marks using the 
+  \fBgmarks\fR
+! command defined below.  
+!   ``Text'' lets the user plot text instead of a mark.  The text is 
+! editted as a label (see LABEL EDITING COMMANDS) immediately following
+! the ``text'' command.  The x and y fields of the label have special
+! meanings here:  They define where the label is to be printed in relation
+! to the curve points.  For example, if they are both 0, the label will
+! be printed directly on the curve points.  If x is 1.0 and y is -1.0, then
+! the label will be printed one unit to the right and one unit below the
+! curve points.  Default label values are 0 for x and y, and center 
+! justification.
+!   ``None'' means that no mark will be
+  plotted (this is useful for drawing lines).  By default, a new mark
+  is chosen for each curve.
+  .TP
+***************
+*** 606,612 ****
+  \fBLarrows\fR 
+  specifies to draw an arrow at the beginning of every line segment.
+  The size of the arrows can be changed by using
+! \fBasize\fR.
+  The 
+  \fBfill\fR
+  token controls the filling of the head of the arrows.
+--- 667,673 ----
+  \fBLarrows\fR 
+  specifies to draw an arrow at the beginning of every line segment.
+  The size of the arrows can be changed by using
+! \fBasize.\fR
+  The 
+  \fBfill\fR
+  token controls the filling of the head of the arrows.
+***************
+*** 614,619 ****
+--- 675,683 ----
+  \fBnolarrows\fR
+  and
+  \fBnorarrows\fR.
++   Arrows always go exactly to the point specified, with the exception 
++ of when the marktype is ``circle''.  In this case, the arrow goes to
++ the edge of the circle.
+  .TP
+  \fBasize \|[\fIfloat\fB\|] \|[\fIfloat\fB\|]\fR   
+  This sets the size of the arrows.  The first 
+***************
+*** 647,652 ****
+--- 711,736 ----
+  This defines the line thickness (in
+  absolute postscript units) of the connecting line.  Default = 1.0.
+  .TP
++ \fBbezier\fR
++ .br
++ .ns
++ .TP
++ \fBnobezier\fR
++ .br
++ .ns
++ \fBBezier\fR
++ specifies to use the curve's points to define successive bezier curves.
++ The first point is the starting point.  The next two are control points
++ for the bezier curve and the next point is the ending point.  If there
++ is another bezier, this ending point is also the beginning point of the 
++ next curve.  The next two points are again control points, and the next
++ point is the ending point.  Thus, a bezier must have a total of (3n + 1)
++ points, where n is at least 1.
++   In bezier curves, marks and arrows only apply to every third point.
++ \fNobezier\fR
++ is the default.
++ 
++ .TP
+  \fBclip\fR
+  This specifies that this curve will be clipped -- that is,
+  no points outside of the of axes will be plotted.  
+***************
+*** 1030,1046 ****
+  should be able to draw any kind of scatter/line/bar graph that
+  a user desires.  To embellish the graph with extra text, axes, lines,
+  etc., it is helpful to use 
+! \fBnewgraph\fR
+! and 
+! \fBinherit_axes.\fR
+  The following example graphs show how this can be done.  All graphs are
+! in the directory HOMEDIRECTORY/graphs.
+  .sp
+  - sin.jgr shows how a sin function can be plotted using a simple c
+  program to produce the sin wave.  Moreover, this file shows a use of
+! \fBnewgraph\fR
+! and
+! \fBinherit_axes\fR
+  to plot an extra x and y axis at the 0 point.
+  .sp
+  - sin1.jgr is a further extension of sin.jgr only with one x and y
+--- 1114,1126 ----
+  should be able to draw any kind of scatter/line/bar graph that
+  a user desires.  To embellish the graph with extra text, axes, lines,
+  etc., it is helpful to use 
+! \fBcopygraph.\fR
+  The following example graphs show how this can be done.  All graphs are
+! in the directory ~plank/src/jgraph/graphs.
+  .sp
+  - sin.jgr shows how a sin function can be plotted using a simple c
+  program to produce the sin wave.  Moreover, this file shows a use of
+! \fBcopygraph\fR
+  to plot an extra x and y axis at the 0 point.
+  .sp
+  - sin1.jgr is a further extension of sin.jgr only with one x and y
+***************
+*** 1105,1108 ****
+  .sp
+  There may well be loads of other bugs.  Send to jsp@princeton.edu.
+  .sp
+! This is $Revision: 6.2 $.
+--- 1185,1188 ----
+  .sp
+  There may well be loads of other bugs.  Send to jsp@princeton.edu.
+  .sp
+! This is $Revision: 7.0 $.
+*** ../work//jgraph.c	Thu Jan 23 11:14:27 1992
+--- jgraph.c	Thu Jan 23 11:12:28 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.c,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:38 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.c,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:09:52 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 14,25 ****
+  
+  #include "jgraph.h"
+  
+! int NMARKTYPES = 11;
+  int NORMALMARKTYPES = 6;
+  
+  char *MARKTYPESTRS[] = { "circle", "box", "diamond", "triangle", "x", "cross", 
+!                          "ellipse", "general", "xbar", "ybar", "none" };
+! char MARKTYPES[] = { 'o', 'b', 'd', 't', 'x', 'c', 'e', 'g', 'X', 'Y', 'n' };
+  
+  Label new_label()
+  {
+--- 14,26 ----
+  
+  #include "jgraph.h"
+  
+! int NMARKTYPES = 12;
+  int NORMALMARKTYPES = 6;
+  
+  char *MARKTYPESTRS[] = { "circle", "box", "diamond", "triangle", "x", "cross", 
+!                          "ellipse", "general", "xbar", "ybar", "none", "text"};
+! char MARKTYPES[] = {     'o',      'b',   'd',       't',        'x', 'c', 
+! 			 'e',       'g',       'X',    'Y',    'n',    'l' };
+  
+  Label new_label()
+  {
+***************
+*** 42,56 ****
+  int num;
+  {
+    Curve new_c;
+-   int i;
+  
+    new_c = (Curve) get_node(c);
+    new_c->num = num;
+    new_c->l = new_label();
+    new_c->clip = 0;
+    new_c->gray = 0.0;
+    
+    new_c->pts = (Point) make_list(sizeof(struct point));
+    new_c->gen_linetype = (Flist) make_list(sizeof(struct flist));
+    new_c->marktype = MARKTYPES[num % NORMALMARKTYPES];
+    new_c->linetype = '0';
+--- 43,60 ----
+  int num;
+  {
+    Curve new_c;
+  
+    new_c = (Curve) get_node(c);
+    new_c->num = num;
+    new_c->l = new_label();
++   new_c->lmark = new_label();
++   new_c->lmark->hj = 'c';
++   new_c->lmark->vj = 'c';
+    new_c->clip = 0;
+    new_c->gray = 0.0;
+    
+    new_c->pts = (Point) make_list(sizeof(struct point));
++   new_c->npts = 0;
+    new_c->gen_linetype = (Flist) make_list(sizeof(struct flist));
+    new_c->marktype = MARKTYPES[num % NORMALMARKTYPES];
+    new_c->linetype = '0';
+***************
+*** 58,73 ****
+    new_c->marksize[0] = FSIG;
+    new_c->marksize[1] = FSIG;
+    new_c->general_marks = (Point) make_list(sizeof(struct point));
+-   i = num / NORMALMARKTYPES;
+    new_c->fill = 0.0;
+    new_c->rarrows = 0;
+    new_c->larrows = 0;
+    new_c->asize[0] = FSIG;
+    new_c->asize[1] = FSIG;
+    prio_insert(new_c, c, 0);
+    return new_c;
+  }
+  
+  Curve get_curve(c, num)
+  Curve c;
+  int num;
+--- 62,89 ----
+    new_c->marksize[0] = FSIG;
+    new_c->marksize[1] = FSIG;
+    new_c->general_marks = (Point) make_list(sizeof(struct point));
+    new_c->fill = 0.0;
+    new_c->rarrows = 0;
+    new_c->larrows = 0;
+    new_c->asize[0] = FSIG;
+    new_c->asize[1] = FSIG;
++   new_c->bezier = 0;
+    prio_insert(new_c, c, 0);
+    return new_c;
+  }
+  
++ Curve new_line(c, num)
++ Curve c;
++ int num;
++ {
++   Curve new_c;
++   new_c = new_curve(c, num);
++   new_c->linetype = 's';
++   new_c->marktype = 'n';
++   return new_c;
++ }
++ 
++ 
+  Curve get_curve(c, num)
+  Curve c;
+  int num;
+***************
+*** 205,211 ****
+  
+    g = (Graph) get_node(gs);
+    g->num = num;
+!   g->minval = 0.0;		/* added -hdd */
+    g->x_axis = new_axis(1);
+    g->y_axis = new_axis(0);
+    g->x_translate = 0.0;
+--- 221,230 ----
+  
+    g = (Graph) get_node(gs);
+    g->num = num;
+!   g->xminval = 0.0;
+!   g->yminval = 0.0;
+!   g->xmaxval = 0.0;
+!   g->ymaxval = 0.0;
+    g->x_axis = new_axis(1);
+    g->y_axis = new_axis(0);
+    g->x_translate = 0.0;
+***************
+*** 268,273 ****
+--- 287,293 ----
+    process_graphs(gs);
+    if (show) show_graphs(gs); else draw_graphs(gs, pp);
+    exit(0);
++   return 0;
+  }
+  
+  
+*** ../work//jgraph.h	Thu Jan 23 11:14:28 1992
+--- jgraph.h	Thu Jan 23 11:12:28 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.h,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:40 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.h,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:09:54 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 50,56 ****
+--- 50,58 ----
+    struct curve *blink;
+    int num;
+    Label l;
++   Label lmark;
+    Point pts;
++   int npts;
+    Point general_marks;
+    float marksize[2];
+    float fill;
+***************
+*** 61,66 ****
+--- 63,69 ----
+    char linetype;
+    int rarrows;
+    int larrows;
++   int bezier;
+    float asize[2];
+    int clip;
+  } *Curve;
+***************
+*** 143,149 ****
+    struct graph *flink;
+    struct graph *blink;
+    int num;
+!   float minval;
+    float x_translate;
+    float y_translate;
+    Axis x_axis;
+--- 146,155 ----
+    struct graph *flink;
+    struct graph *blink;
+    int num;
+!   float xminval;
+!   float yminval;
+!   float xmaxval;
+!   float ymaxval;
+    float x_translate;
+    float y_translate;
+    Axis x_axis;
+***************
+*** 176,181 ****
+--- 182,188 ----
+  
+  /* Stuff defined in jgraph.c */
+  
++ extern Curve new_line();
+  extern Curve new_curve();
+  extern Curve get_curve();
+  extern Graph new_graph();
+*** ../work//list.c	Thu Jan 23 11:14:29 1992
+--- list.c	Thu Jan 23 11:12:29 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.c,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:41 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.c,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:09:55 $
+   * $Author: jsp $
+   */
+  
+*** ../work//list.h	Thu Jan 23 11:14:29 1992
+--- list.h	Thu Jan 23 11:12:29 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.h,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:42 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.h,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:09:55 $
+   * $Author: jsp $
+   */
+  
+*** ../work//printline.c	Thu Jan 23 11:14:31 1992
+--- printline.c	Thu Jan 23 11:12:29 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/printline.c,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:44 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/printline.c,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:09:57 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 42,47 ****
+--- 42,59 ----
+    setlinewidth(1.0);
+    setlinestyle('s', (Flist) 0);
+  
++ }
++ 
++ bezier_control(x1, y1)
++ float x1, y1;
++ {
++   printf("  %f %f ", x1, y1);
++ }
++ 
++ bezier_end(x1, y1)
++ float x1, y1;
++ {
++   printf("  %f %f curveto\n", x1, y1);
+  }
+  
+  
+*** ../work//prio_list.c	Thu Jan 23 11:14:32 1992
+--- prio_list.c	Thu Jan 23 11:12:29 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.c,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:45 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.c,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:09:58 $
+   * $Author: jsp $
+   */
+  
+*** ../work//prio_list.h	Thu Jan 23 11:14:32 1992
+--- prio_list.h	Thu Jan 23 11:12:30 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.h,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:46 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.h,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:10:00 $
+   * $Author: jsp $
+   */
+  
+*** ../work//process.c	Thu Jan 23 11:14:33 1992
+--- process.c	Thu Jan 23 11:12:30 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/process.c,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:47 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/process.c,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:10:01 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 20,40 ****
+  Graph g;
+  {
+  
+    if (g->title->x == FSIG) g->title->x = g->x_axis->psize / 2.0;
+      else g->title->x = ctop(g->title->x, g->x_axis);
+!   g->minval = 0.0;
+!   if (g->x_axis->draw_axis_label) 
+!     g->minval = MIN(g->minval, g->x_axis->label->y - 
+!                     g->x_axis->label->fontsize);
+!   if (g->x_axis->draw_hash_labels)
+!     g->minval = MIN(g->minval, g->x_axis->draw_hash_labels_at
+!                    - g->x_axis->hl->fontsize);
+!   if (g->x_axis->draw_hash_marks)
+!     g->minval = MIN(g->minval, g->x_axis->draw_hash_marks_at - HASH_SIZE);
+!   g->minval -= 10.0;
+!   if (g->title->y == FSIG) {
+!     g->title->y = g->minval;
+!   } else g->title->y = ctop(g->title->y, g->y_axis);
+  }
+  
+  process_legend(g)
+--- 20,46 ----
+  Graph g;
+  {
+  
++   float ytitleloc;
++ 
+    if (g->title->x == FSIG) g->title->x = g->x_axis->psize / 2.0;
+      else g->title->x = ctop(g->title->x, g->x_axis);
+!   if (g->title->y != FSIG) g->title->y = ctop(g->title->y, g->y_axis);
+!   else {
+!     ytitleloc = 0.0;
+!     if (g->x_axis->draw_axis_label) 
+!       ytitleloc = MIN(ytitleloc, g->x_axis->label->y - 
+!                       g->x_axis->label->fontsize);
+!     if (g->x_axis->draw_hash_labels)
+!       ytitleloc = MIN(ytitleloc, g->x_axis->draw_hash_labels_at
+!                      - g->x_axis->hl->fontsize);
+!     if (g->x_axis->draw_hash_marks)
+!       ytitleloc = MIN(ytitleloc, g->x_axis->draw_hash_marks_at - HASH_SIZE);
+!     
+!     if (g->title->y == FSIG) g->title->y = ytitleloc - 10.0;
+!       else g->title->y = ctop(g->title->y, g->y_axis);
+!   
+!     g->title->y = ytitleloc - 10.0;
+!   }
+  }
+  
+  process_legend(g)
+***************
+*** 437,442 ****
+--- 443,455 ----
+  Curve c;
+  Graph g;
+  {
++   if (c->bezier && (c->npts < 4 || (c->npts % 3 != 1))) {
++     error_header();
++     fprintf(stderr, "  Graph %d Curve %d:\n", g->num, c->num);
++     fprintf(stderr, "  Curve has %d points\n", c->npts);
++     fprintf(stderr, "  Bezier must have 3n + 1 points (n > 0)\n");
++     exit(1);
++   }
+    c->marksize[0] = (c->marksize[0] == FSIG) ? 
+                     4.0 : disttop(c->marksize[0], g->x_axis);
+    c->marksize[1] = (c->marksize[1] == FSIG) ? 
+***************
+*** 444,450 ****
+    c->asize[0] = (c->asize[0] == FSIG) ? 
+                     6.0 : disttop(c->asize[0], g->x_axis);
+    c->asize[1] = (c->asize[1] == FSIG) ? 
+!                    2.0 : disttop(c->asize[1], g->y_axis);
+  }
+  
+  process_curves(g)
+--- 457,465 ----
+    c->asize[0] = (c->asize[0] == FSIG) ? 
+                     6.0 : disttop(c->asize[0], g->x_axis);
+    c->asize[1] = (c->asize[1] == FSIG) ? 
+!                    2.0 : disttop(c->asize[1], g->y_axis) / 2.0;
+!   c->lmark->x = disttop(c->lmark->x, g->x_axis);
+!   c->lmark->y = disttop(c->lmark->y, g->y_axis);
+  }
+  
+  process_curves(g)
+***************
+*** 456,461 ****
+--- 471,590 ----
+    }
+  }
+   
++ process_extrema(g)  /* This finds all the minval/maxvals for bbox calc */
++ Graph g;
++ {
++   Curve c;
++   float y, x;
++ 
++   g->xminval = 0.0;
++   g->yminval = 0.0;
++   g->xmaxval = g->x_axis->psize;
++   g->ymaxval = g->y_axis->psize;
++   
++   if (g->x_axis->draw_axis_label) {
++     g->yminval = MIN(g->yminval, g->x_axis->label->y - 
++                     g->x_axis->label->fontsize);
++     g->ymaxval = MAX(g->ymaxval, g->x_axis->label->y + 
++                     g->x_axis->label->fontsize);
++   }
++   if (g->y_axis->draw_axis_label) {
++     g->xminval = MIN(g->xminval, g->y_axis->label->y - 
++                     g->y_axis->label->fontsize);
++     g->xmaxval = MAX(g->xmaxval, g->y_axis->label->y + 
++                     g->y_axis->label->fontsize);
++   }
++ 
++   if (g->x_axis->draw_hash_labels) {
++     g->yminval = MIN(g->yminval, g->x_axis->draw_hash_labels_at
++                    - g->x_axis->hl->fontsize);
++     g->ymaxval = MAX(g->ymaxval, g->x_axis->draw_hash_labels_at
++                    + g->x_axis->hl->fontsize);
++   }
++   if (g->y_axis->draw_hash_labels) {
++     g->xminval = MIN(g->xminval, g->y_axis->draw_hash_labels_at
++                    - g->y_axis->hl->fontsize);
++     g->xmaxval = MAX(g->xmaxval, g->y_axis->draw_hash_labels_at
++                    + g->y_axis->hl->fontsize);
++   }
++ 
++   if (g->x_axis->draw_hash_marks) {
++       g->yminval = MIN(g->yminval, g->x_axis->draw_hash_marks_at - HASH_SIZE);
++       g->ymaxval = MAX(g->ymaxval, g->x_axis->draw_hash_marks_at + HASH_SIZE);
++   }
++   if (g->y_axis->draw_hash_marks) {
++       g->xminval = MIN(g->xminval, g->y_axis->draw_hash_marks_at - HASH_SIZE);
++       g->xmaxval = MAX(g->xmaxval, g->y_axis->draw_hash_marks_at + HASH_SIZE);
++   }
++     
++   if (g->title->label != CNULL) {
++       g->yminval = MIN(g->yminval, g->title->y - g->title->fontsize);
++       g->ymaxval = MAX(g->ymaxval, g->title->y + g->title->fontsize);
++   }    
++   if (g->legend->type != 'n') {
++     for (c = first(g->curves); c != nil(g->curves); c = next(c)) {
++       if (c->l->label != CNULL) {
++         y = c->l->y - (c->l->fontsize / 2.0 * FCPI / FPPI);
++         g->yminval = MIN(g->yminval, y);
++         g->ymaxval = MAX(g->ymaxval, y);
++         if (g->legend->anylines) {
++           if (c->linetype != '0' && g->legend->linelength != 0) {
++             x = c->l->x - g->legend->midspace - g->legend->linelength;
++             g->xminval = MIN(g->xminval, x);
++             g->xmaxval = MAX(g->xmaxval, x+ g->legend->linelength);
++           }
++           x = c->l->x - g->legend->midspace - g->legend->linelength / 2.0;
++         } else x = c->l->x - g->legend->midspace;
++         if (c->marktype != 'n') {
++           g->yminval = MIN(g->yminval, y - abs(c->marksize[1])/2.0);
++           g->ymaxval = MAX(g->ymaxval, y + abs(c->marksize[1])/2.0);
++           g->xminval = MIN(g->xminval, x - abs(c->marksize[0])/2.0);
++           g->xmaxval = MAX(g->xmaxval, x + abs(c->marksize[0])/2.0);
++         }
++         process_label_extrema(c->l, g);
++       }
++     }
++   }
++ }
++ 
++ process_label_extrema(l, g)
++ Label l;
++ Graph g;
++ {
++   float len;
++   float height;
++ 
++   len = l->fontsize * FCPI / FPPI * strlen(l->label) * 0.8;
++   height = l->fontsize * FCPI / FPPI;
++   if (l->rotate == 0.0 || l->rotate == 180.0 || l->rotate == -180.0) {
++     if (l->hj == 'l') {
++       g->xminval = MIN(g->xminval, l->x);
++       g->xmaxval = MAX(g->xmaxval, l->x + len);
++     } else if (l->hj == 'c') {
++       g->xminval = MIN(g->xminval, l->x - len/2.0);
++       g->xmaxval = MAX(g->xmaxval, l->x + len/2.0);
++     } else if (l->hj == 'r') {
++       g->xminval = MIN(g->xminval, l->x - len);
++       g->xmaxval = MAX(g->xmaxval, l->x);
++     }
++     if (l->vj == 'b') {
++       g->yminval = MIN(g->yminval, l->y);
++       g->ymaxval = MAX(g->ymaxval, l->y + height);
++     } else if (l->vj == 'c') {
++       g->yminval = MIN(g->yminval, l->y - height/2.0);
++       g->ymaxval = MAX(g->ymaxval, l->y + height/2.0);
++     } else if (l->vj == 't') {
++       g->yminval = MIN(g->yminval, l->y - height);
++       g->ymaxval = MAX(g->ymaxval, l->y);
++     }
++   } else {         /* This is wrong -- I'm just estimating on the high side */
++     g->yminval = MIN(g->yminval, l->y - len);
++     g->ymaxval = MAX(g->ymaxval, l->y + len);
++     g->xminval = MIN(g->xminval, l->x - len);
++     g->xmaxval = MAX(g->xmaxval, l->x + len);
++   }
++ }
++ 
+  process_graph(g)
+  Graph g;
+  {
+***************
+*** 469,474 ****
+--- 598,604 ----
+    process_legend(g);
+    process_strings(g);
+    process_title(g);
++   process_extrema(g);
+  }
+  
+  process_graphs(gs)
+***************
+*** 476,510 ****
+  {
+    Graphs the_g;
+    Graph g;
+!   float tmp_x, x, max_y, min_y;
+    int do_bb, i;
+  
+    for (the_g = first(gs); the_g != nil(gs); the_g = next(the_g)) {
+      for (g = first(the_g->g); g != nil(the_g->g); g = next(g)) process_graph(g);
+!     x = 0.0;
+      max_y = 0.0;
+      min_y = 0.0;
+      for (g = first(the_g->g); g != nil(the_g->g); g = next(g)) {
+!       tmp_x = ABS(g->x_translate) * 2.0 + g->x_axis->psize;
+!       x = MAX(x, tmp_x);
+!       max_y = MAX(max_y, g->y_translate + g->y_axis->psize);
+!       if (g->y_translate > 0.0)
+!         min_y = MIN(min_y, g->y_translate + g->minval);
+!       else
+!         min_y = MIN(min_y, g->minval);
+      }
+!     if (the_g->height <= 0.00) 
+!       the_g->height = max_y - min_y; 
+!     else 
+        the_g->height *= FCPI;
+!     if (the_g->width <= 0.00) the_g->width = x; else the_g->width *= FCPI;
+      do_bb = 1;
+      for (i = 0; i < 4; i++) do_bb = (do_bb && the_g->bb[i] == FSIG);
+      if (do_bb) {
+!       the_g->bb[0] = 0.0;
+        the_g->bb[1] = min_y;
+!       the_g->bb[2] = the_g->width;
+!       the_g->bb[3] = the_g->height + min_y;
+      } 
+    }
+  }
+--- 606,658 ----
+  {
+    Graphs the_g;
+    Graph g;
+!   float diff, max_y, min_y, max_x, min_x;
+    int do_bb, i;
+  
+    for (the_g = first(gs); the_g != nil(gs); the_g = next(the_g)) {
+      for (g = first(the_g->g); g != nil(the_g->g); g = next(g)) process_graph(g);
+!     max_x = 0.0;
+!     min_x = 0.0;
+      max_y = 0.0;
+      min_y = 0.0;
+      for (g = first(the_g->g); g != nil(the_g->g); g = next(g)) {
+!       max_y = MAX(max_y, g->y_translate + g->ymaxval);
+!       min_y = MIN(min_y, g->y_translate + g->yminval);
+!       max_x = MAX(max_x, g->x_translate + g->xmaxval);
+!       min_x = MIN(min_x, g->x_translate + g->xminval);
+      }
+!     if (the_g->height >= 0.00) {
+        the_g->height *= FCPI;
+!       if (the_g->height > max_y - min_y) {
+!         diff = (the_g->height - max_y + min_y) / 2.0;
+!         max_y += diff;
+!         min_y -= diff;
+!       } else {
+!         the_g->height = max_y - min_y;
+!       }
+!     } else {
+!       the_g->height = max_y - min_y;
+!     }
+!     if (the_g->width >= 0.00) {
+!       the_g->width *= FCPI;
+!       if (the_g->width > max_x - min_x) {
+!         diff = (the_g->width - max_x + min_x) / 2.0;
+!         max_x += diff;
+!         min_x -= diff;
+!       } else {
+!         the_g->width = max_x - min_x;
+!       }
+!     } else {
+!       the_g->width = max_x - min_x;
+!     }
+! 
+      do_bb = 1;
+      for (i = 0; i < 4; i++) do_bb = (do_bb && the_g->bb[i] == FSIG);
+      if (do_bb) {
+!       the_g->bb[0] = min_x;
+        the_g->bb[1] = min_y;
+!       the_g->bb[2] = max_x;
+!       the_g->bb[3] = max_y;
+      } 
+    }
+  }
+*** ../work//show.c	Thu Jan 23 11:14:34 1992
+--- show.c	Thu Jan 23 11:12:31 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/show.c,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:49 $
+   * $Author: jsp $
+   */ 
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/show.c,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:10:04 $
+   * $Author: jsp $
+   */ 
+  
+***************
+*** 61,66 ****
+--- 61,83 ----
+    return;
+  }
+  
++ show_lmark(l, nsp, g)
++ Label l;
++ int nsp;
++ Graph g;
++ {
++   char txt[300];
++   old_unprintable_text(l->label, txt);
++   spaces(nsp); printf(": %s\n", txt);
++   spaces(nsp); printf("x %f ", ptodist(l->x, g->x_axis));
++                printf("y %f\n", ptodist(l->y, g->y_axis));
++   spaces(nsp); printf("hj%c vj%c ", l->hj, l->vj);
++                printf("rotate %f\n", l->rotate);
++   spaces(nsp); printf("font %s ", l->font);
++                printf("fontsize %f\n", l->fontsize);
++   return;
++ }
++ 
+  show_curve(c, nsp, g)
+  Curve c;
+  int nsp;
+***************
+*** 88,93 ****
+--- 105,114 ----
+      fprintf(stderr, "Unknown mark type %c\n", c->marktype);
+      exit(1);
+    } else printf("%s ", MARKTYPESTRS[i]);
++   if (c->marktype == 'l') {
++     show_lmark(c->lmark, nsp+2, g);
++     spaces(nsp);
++   }
+    printf("marksize %f %f ", ptodist(c->marksize[0], g->x_axis), 
+                              ptodist(c->marksize[1], g->y_axis));
+    printf("fill %f\n", c->fill);
+***************
+*** 130,137 ****
+    if(!c->clip) printf("no"); printf("clip ");
+    if(!c->rarrows) printf("no"); printf("rarrows ");
+    if(!c->larrows) printf("no"); printf("larrows ");
+    printf("asize %f %f\n", ptodist(c->asize[0], g->x_axis), 
+!                           ptodist(c->asize[1], g->y_axis));
+  }
+  
+  show_axis(a, nsp, g)
+--- 151,159 ----
+    if(!c->clip) printf("no"); printf("clip ");
+    if(!c->rarrows) printf("no"); printf("rarrows ");
+    if(!c->larrows) printf("no"); printf("larrows ");
++   if(!c->bezier) printf("no"); printf("bezier ");
+    printf("asize %f %f\n", ptodist(c->asize[0], g->x_axis), 
+!                           ptodist(c->asize[1], g->y_axis) * 2.0);
+  }
+  
+  show_axis(a, nsp, g)
+*** ../work//token.c	Thu Jan 23 11:14:44 1992
+--- token.c	Thu Jan 23 11:12:32 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/token.c,v $
+!  * $Revision: 6.2 $
+!  * $Date: 91/11/01 11:46:50 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/token.c,v $
+!  * $Revision: 7.0 $
+!  * $Date: 92/01/23 11:10:05 $
+   * $Author: jsp $
+   */
+  
+exit 0 # Just in case...

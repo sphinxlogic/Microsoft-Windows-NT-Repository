@@ -1,0 +1,1699 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Subject: v16i121: xephem - astronomical ephemeris program., Part10/24
+Message-ID: <1992Mar6.135424.2409@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i112-xephem@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 13:54:24 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 16, Issue 121
+Archive-name: xephem/part10
+
+# this is part.10 (part 10 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file skydome.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 10; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping skydome.c'
+else
+echo 'x - continuing file skydome.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'skydome.c' &&
+X	    XFillArc (dsp, win, sd_bgc, 1, 1, nx-2, ny-2, 0, 360*64);
+X	    XDrawArc (dsp, win, sd_fgc, 0, 0, nx-1, ny-1, 0, 360*64);
+X	}
+X
+X	/* display each point */
+X	for (i = 0; i < npoints; i++)
+X	    if (propts & (1<<points[i].p))
+X		sky_dome(dsp, win, sd_fgc, i, nx, ny);
+}
+X
+/* draw points[i] on screen of size [nx,ny]. */
+static
+sky_dome (dsp, win, gc, i, nx, ny)
+Display *dsp;
+Window win;
+GC gc;
+int i;		/* points[] index */
+int nx, ny;	/* size of drawing area, in pixels */
+{
+X	int sx, sy;
+X	double az = points[i].az;
+X	double r = 1.0 - points[i].alt/(PI/2);
+X
+X	points[i].sx = sx = nx/2*(1.0 - r*sin(az));
+X	points[i].sy = sy = ny/2*(1.0 - r*cos(az));
+X
+X	if (bigdots) {
+X	    XDrawPoint (dsp, win, gc, sx, sy);
+X	    XDrawPoint (dsp, win, gc, sx+1, sy);
+X	    XDrawPoint (dsp, win, gc, sx, sy+1);
+X	    XDrawPoint (dsp, win, gc, sx+1, sy+1);
+X	} else
+X	    XDrawPoint (dsp, win, gc, sx, sy);
+}
+SHAR_EOF
+echo 'File skydome.c is complete' &&
+chmod 0644 skydome.c ||
+echo 'restore of skydome.c failed'
+Wc_c="`wc -c < 'skydome.c'`"
+test 15221 -eq "$Wc_c" ||
+	echo 'skydome.c: original size 15221, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= solarsys.c ==============
+if test -f 'solarsys.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping solarsys.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting solarsys.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'solarsys.c' &&
+/* code to manage the stuff on the solar system display.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/Frame.h>
+#include <Xm/DrawingA.h>
+#include <Xm/LabelG.h>
+#include <Xm/PushBG.h>
+#include <Xm/ToggleBG.h>
+#include <Xm/Text.h>
+#include <Xm/Scale.h>
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+X
+extern Now *mm_get_now();
+extern Widget toplevel_w;
+#define	XtD	XtDisplay(toplevel_w)
+X
+static Widget ssform_w;		/* main solar system form dialog */
+static Widget hr_w, hlng_w, hlat_w; /* scales for heliocentric R, long, lat */
+static Widget ssda_w;		/* solar system drawring area */
+static Widget picked_name_w;	/* display name of object if picked */
+static Widget objs_w[NOBJ];     /* object selection toggle buttons */
+X
+#define	TRAILS	1
+#define	BIGDOTS	2
+#define	NR	15
+#define	NC	36
+X
+static int trails;
+static int bigdots = 1;
+X
+/* use this string to make a label gadget appear empty.
+X * using "" seems to act like unmanaging it altogether!
+X */
+static char no_name[] = " ";
+X
+static unsigned int propts;	/* mask of (1<<p) for object on */
+X
+/* heliocentric coordinates, and enough info to locate it on screen */
+typedef struct {
+X    double x, y, z;	/* helio cartesian coords */
+X    int p;		/* object code */
+X    int sx, sy;		/* screen (window) coords */
+} HLoc;
+X
+static HLoc *points;	/* malloc'd set of points on screen now */
+static int npoints;	/* number of points */
+X
+static char *onames[NOBJ] = {
+X    /* NB: these must correspond to the astro/morobj defines */
+X    "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
+X    "Uranus", "Neptune", "Pluto", "Sun",
+X    "Earth",	/* NB: earth for MOON */
+X    "X", "Y"
+};
+X
+X
+/* called when the solar system view is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+ss_manage ()
+{
+X	if (!ssform_w) {
+X	    void ss_activate_cb();
+X	    void ss_close_cb();
+X	    void ss_help_cb();
+X	    void ss_changed_cb();
+X	    void ss_da_exp_cb();
+X	    void ss_propts_cb();
+X	    void ss_toggle_cb();
+X	    Widget close_w;
+X	    Widget trails_w;
+X	    Widget toggle_w;
+X	    Widget w, pw, frame_w;
+X	    Widget help_w;
+X	    Widget big_w;
+X	    XmString str;
+X	    Arg args[20];
+X	    int n;
+X	    int i, p;
+X
+X	    /* create form */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNheight, NR*char_height()); n++;
+X	    XtSetArg (args[n], XmNwidth, NC*char_width()); n++;
+X	    XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	    XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	    XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	    ssform_w = XmCreateFormDialog (toplevel_w, "SolarSystem", args, n);
+X
+X	    /* set some stuff in the parent DialogShell.
+X	     * setting XmNdialogTitle in the Form didn't work..
+X	     */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtitle, "xephem Solar System"); n++;
+X	    XtSetValues (XtParent(ssform_w), args, n);
+X
+X	    /* make the "close" push button */
+X
+X	    str = XmStringCreate("Close", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    close_w = XmCreatePushButtonGadget (ssform_w, "SSClose", args, n);
+X	    XtAddCallback (close_w, XmNactivateCallback, ss_close_cb, 0);
+X	    XtManageChild (close_w);
+X	    XmStringFree (str);
+X
+X	    /* make the "help" push button */
+X
+X	    str = XmStringCreate("Help", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    help_w = XmCreatePushButtonGadget (ssform_w, "SSHelp", args, n);
+X	    XtAddCallback (help_w, XmNactivateCallback, ss_help_cb, 0);
+X	    XtManageChild (help_w);
+X	    XmStringFree (str);
+X
+X	    /* "toggle on/off" push button */
+X
+X	    str = XmStringCreate("Toggle On/off", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 35); n++;
+X	    toggle_w = XmCreatePushButtonGadget (ssform_w, "SSToggle", args, n);
+X	    XtAddCallback (toggle_w, XmNactivateCallback, ss_toggle_cb, 0);
+X	    XtManageChild (toggle_w);
+X	    XmStringFree (str);
+X
+X	    /* make the "big dots" toggle button */
+X
+X	    str = XmStringCreate("Big dots", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNset, bigdots); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, close_w); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    big_w = XmCreateToggleButtonGadget(ssform_w, "SSBigDots",
+X								    args, n);
+X	    XmStringFree (str);
+X	    XtManageChild (big_w);
+X	    XtAddCallback(big_w, XmNvalueChangedCallback, ss_activate_cb,
+X								    BIGDOTS);
+X
+X	    /* make the "leave trail" toggle button */
+X
+X	    str = XmStringCreate("Leave trails", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, close_w); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    trails_w = XmCreateToggleButtonGadget(ssform_w, "SSTrails",
+X								    args, n);
+X	    XmStringFree (str);
+X	    XtManageChild (trails_w);
+X	    XtAddCallback(trails_w, XmNvalueChangedCallback, ss_activate_cb,
+X									TRAILS);
+X
+X	    /* make the object selection buttons */
+X
+X	    for (i = 0, p = nxtbody(-1); p != -1; i++, p = nxtbody(p)) {
+X		char buf[3];
+X		strncpy (buf, onames[p], 2);
+X		buf[2] = '\0';
+X		str = XmStringCreate (buf, XmSTRING_DEFAULT_CHARSET);
+X		n = 0;
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		/* always turn on Earth (alias MOON) */
+X		XtSetArg (args[n], XmNset,
+X			(p == MOON) || (propts & (1<<p)) ? True : False); n++;
+X		XtSetArg (args[n], XmNindicatorOn, False); n++;
+X		XtSetArg (args[n], XmNshadowThickness, 2); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X		XtSetArg (args[n], XmNbottomWidget, big_w); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, i*100/NOBJ); n++;
+X		pw = XmCreateToggleButtonGadget (ssform_w, "SSPropts", args, n);
+X		XtAddCallback(pw, XmNvalueChangedCallback, ss_propts_cb, p);
+X		XtManageChild (pw);
+X		objs_w[p] = pw;
+X		XmStringFree (str);
+X	    }
+X
+X	    /* make the picked object label */
+X
+X	    str = XmStringCreate(no_name, XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, pw); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    picked_name_w = XmCreateLabelGadget (ssform_w, "SSPickedName",
+X								    args, n);
+X	    XtManageChild (picked_name_w);
+X	    XmStringFree (str);
+X
+X	    /* make the three scales on the edges */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, picked_name_w); n++;
+X	    XtSetArg (args[n], XmNmaximum, 359); n++;
+X	    XtSetArg (args[n], XmNminimum, 0); n++;
+X	    XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	    XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_RIGHT); n++;
+X	    XtSetArg (args[n], XmNshowValue, True); n++;
+X	    XtSetArg (args[n], XmNvalue, 0); n++;
+X	    hlng_w = XmCreateScale (ssform_w, "HLongScale", args, n);
+X	    XtAddCallback (hlng_w, XmNvalueChangedCallback, ss_changed_cb, 0);
+X	    XtManageChild (hlng_w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, hlng_w); n++;
+X	    XtSetArg (args[n], XmNdecimalPoints, 1); n++;
+X	    XtSetArg (args[n], XmNmaximum, 100); n++;
+X	    XtSetArg (args[n], XmNminimum, 0); n++;
+X	    XtSetArg (args[n], XmNvalue, 50); n++;
+X	    XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	    XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_TOP); n++;
+X	    /* XtSetArg (args[n], XmNshowValue, True); n++; */
+X	    hr_w = XmCreateScale (ssform_w, "SSScale", args, n);
+X	    XtAddCallback (hr_w, XmNvalueChangedCallback, ss_changed_cb, 0);
+X	    XtManageChild (hr_w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, hlng_w); n++;
+X	    XtSetArg (args[n], XmNmaximum, 90); n++;
+X	    XtSetArg (args[n], XmNminimum, -90); n++;
+X	    XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	    XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_TOP); n++;
+X	    XtSetArg (args[n], XmNshowValue, True); n++;
+X	    XtSetArg (args[n], XmNvalue, 90); n++;
+X	    hlat_w = XmCreateScale (ssform_w, "HLatScale", args, n);
+X	    XtAddCallback (hlat_w, XmNvalueChangedCallback, ss_changed_cb, 0);
+X	    XtManageChild (hlat_w);
+X
+X	    /* make a frame for the drawing area */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, hlng_w); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNleftWidget, hr_w); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNrightWidget, hlat_w); n++;
+X	    XtSetArg (args[n], XmNshadowType, XmSHADOW_ETCHED_OUT); n++;
+X	    frame_w = XmCreateFrame (ssform_w, "SolarFrame", args, n);
+X	    XtManageChild (frame_w);
+X
+X	    /* make a drawing area for drawing the solar system */
+X
+X	    n = 0;
+X	    ssda_w = XmCreateDrawingArea (frame_w, "SolarMap", args, n);
+X	    XtAddCallback (ssda_w, XmNexposeCallback, ss_da_exp_cb, 0);
+X	    XtAddCallback (ssda_w, XmNresizeCallback, ss_da_exp_cb, 0);
+X	    XtAddCallback (ssda_w, XmNinputCallback, ss_da_exp_cb, 0);
+X	    XtManageChild (ssda_w);
+X	}
+X	
+X	if (XtIsManaged(ssform_w))
+X	    XtUnmanageChild (ssform_w);
+X	else {
+X	    XtManageChild (ssform_w);
+X	    ss_update (mm_get_now(), 1);
+X	}
+}
+X
+ss_set_objs_on(mask)
+int mask;
+{
+X	propts = mask;
+}
+X
+ss_ison()
+{
+X	return (ssform_w && XtIsManaged(ssform_w));
+}
+X
+/* called when we are to update our view.
+X * don't bother if we are unmanaged unless trails is on - in that case,
+X * compute the new locations but don't display them.
+X */
+ss_update (np, how_much)
+Now *np;
+int how_much;
+{
+X	double as = how_much ? 0.0 : 3600.0;
+X	Sky sky;
+X	HLoc *lp;
+X	int up;
+X	int p;
+X
+X	up = ssform_w && XtIsManaged(ssform_w);
+X	if (!up && !trails)
+X	    return;
+X
+X	if (!trails) {
+X	    if (points)
+X		XtFree ((char*)points);
+X	    points = 0;
+X	    npoints = 0;
+X	}
+X
+X	/* always make one entry for the sun */
+X	if (npoints == 0) {
+X	    points = (HLoc *) XtMalloc (sizeof(HLoc));
+X	    points->x = 0.0;
+X	    points->y = 0.0;
+X	    points->z = 0.0;
+X	    points->p = SUN;
+X	    npoints = 1;
+X	}
+X
+X	/* tag earth's data (from SUN object) as object MOON */
+X	for (p = nxtbody(-1); p != -1; p = nxtbody(p)) {
+X	    double sd;
+X	    if (p==MOON || ((p==OBJX || p==OBJY) && !obj_ison(p)))
+X		continue;
+X	    (void) body_cir (p, as, np, &sky);
+X	    if (sky.s_hlong == NOHELIO)
+X		continue;
+X	    npoints++;
+X	    points = (HLoc *) XtRealloc ((char *)points, npoints*sizeof(HLoc));
+X	    lp = &points[npoints-1];
+X	    sd = (p == SUN) ? sky.s_edist : sky.s_sdist;
+X	    lp->x = sd*cos(sky.s_hlat)*cos(sky.s_hlong);
+X	    lp->y = sd*cos(sky.s_hlat)*sin(sky.s_hlong);
+X	    lp->z = sd*sin(sky.s_hlat);
+X	    lp->p = p == SUN ? MOON : p;
+X	}
+X
+X	if (up)
+X	    ss_all(!trails);
+X	    
+}
+X
+/* callback from the toggle buttons
+X */
+void
+ss_activate_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int what = (int) client;
+X
+X	switch (what) {
+X	case TRAILS:
+X	    trails = XmToggleButtonGadgetGetState(w);
+X	    break;
+X	case BIGDOTS:
+X	    bigdots = XmToggleButtonGadgetGetState(w);
+X	    ss_all (1);
+X	    break;
+X	default:
+X	    printf ("unknown toggle button\n");
+X	    break;
+X	}
+}
+X
+/* callback from the toggle on/off button
+X */
+void
+ss_toggle_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int p;
+X
+X	for (p = nxtbody(-1); p != -1; p = nxtbody(p)) {
+X	    int s = XmToggleButtonGadgetGetState(objs_w[p]);
+X	    if (s) propts &= ~(1<<p);
+X	    else   propts |= 1<<p;
+X	    XmToggleButtonGadgetSetState(objs_w[p], !s, False /*don't invoke*/);
+X	}
+X	ss_all (1);
+X		
+}
+X
+/* callback from the toggle buttons for each object.
+X * set the onoff flag in the points array for the planet whose code is in
+X * client, then redraw.
+X */
+void
+ss_propts_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int p = (int) client;
+X
+X	if (XmToggleButtonGadgetGetState(w))	propts |= 1<<p;
+X	else        				propts &= ~(1<<p);
+X	ss_all (1);
+}
+X
+/* callback when any of the scales change value.
+X */
+void
+ss_changed_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	/*
+X	XmScaleCallbackStruct *s = (XmScaleCallbackStruct *) call;
+X	*/
+X
+X	if (w != hr_w && w != hlng_w && w != hlat_w) {
+X	    printf ("Unknown scaled callback\n");
+X	    return;
+X	}
+X
+X	ss_all(1);
+}
+X
+/* callback from the Close button.
+X */
+void
+ss_close_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XtUnmanageChild (ssform_w);
+}
+X
+/* callback from the Help button.
+X */
+void
+ss_help_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	static char *msg[] = {
+"This displays the solar system. The sun is always at the center. The left",
+"slider controls your distance from the sun - further up is closer. The",
+"bottom slider controls your heliocentric longitude. The right slider controls",
+"your heliocentric latitude - your angle above the ecliptic."
+};
+X
+X	hlp_dialog ("Solar System View", msg, sizeof(msg)/sizeof(msg[0]));
+}
+X
+/* expose (or reconfig) of solar system drawing area.
+X * redraw the scene to the (new?) size.
+X * also, input callback when picking a dot for identification.
+X */
+static void
+ss_da_exp_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X
+X	switch (c->reason) {
+X	case XmCR_RESIZE:
+X	    /* seems we can get one resize before the first expose.
+X	     * hence, we don't have a good window to use yet. just let it
+X	     * go; we'll get the expose soon.
+X	     */
+X	    if (!XtWindow(w))
+X		return;
+X	    break;
+X	case XmCR_EXPOSE: {
+X	    XExposeEvent *e = &c->event->xexpose;
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	case XmCR_INPUT:
+X	    ss_identify (c->event);
+X	    return;
+X	default:
+X	    printf ("Unexpected ssda_w event. type=%d\n", c->reason);
+X	    return;
+X	}
+X
+X	ss_update (mm_get_now(), 1);
+}
+X
+/* a dot has been picked: find what it is and report it. */
+static
+ss_identify (ev)
+XXEvent *ev;
+{
+#define	PICKRANGE	36	/* sqr of dist allowed from pointer */
+X	int x, y, mind, mini;
+X	int i;
+X	char *name;
+X
+X	switch (ev->type) {
+X	case ButtonPress:
+X	    x = ((XButtonPressedEvent *)ev)->x;
+X	    y = ((XButtonPressedEvent *)ev)->y;
+X	    mini = -1;
+X	    for (i = 0; i < npoints; i++) {
+X	        if (propts & (1<<points[i].p)) {
+X		    int d = (x-points[i].sx)*(x-points[i].sx) +
+X					    (y-points[i].sy)*(y-points[i].sy);
+X		    if (mini < 0 || d < mind) {
+X			mini = i;
+X			mind = d;
+X		    }
+X		}
+X	    }
+X	    if (mini >= 0 && mind <= PICKRANGE) {
+X		extern char *obj_getname();
+X		int p = points[mini].p;
+X		if (p >= MERCURY && p <= MOON)
+X		    name = onames[p];
+X		else if (p == OBJX || p == OBJY)
+X		    name = obj_getname(p);
+X		else
+X		    name = "?";
+X	    } else
+X		name = no_name;
+X	    f_string (picked_name_w, name);
+X	    break;
+X	}
+}
+X
+/* draw everything in the points array from the current vantage to the
+X * current screen size.
+X */
+static
+ss_all(preclr)
+int preclr;
+{
+X	static GC ss_fgc;
+X	unsigned int nx, ny;
+X	Window root;
+X	int x, y;
+X	unsigned int bw, d;
+X	Display *dsp = XtDisplay(ssda_w);
+X	Window win = XtWindow(ssda_w);
+X	int i;
+X
+X	if (!ss_fgc) {
+X	    XGCValues gcv;
+X	    unsigned int gcm;
+X	    gcm = GCForeground;
+X	    get_something (ssda_w, XmNforeground, (char *)&gcv.foreground);
+X	    ss_fgc = XCreateGC (dsp, win, gcm, &gcv);
+X	}
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+X
+X	if (preclr) {
+X	    XClearWindow (dsp, win);
+X	    /* make a cross for the sun */
+X	    if (propts & (1<<SUN)) {
+X		XDrawLine (dsp, win, ss_fgc, nx/2, ny/2-2, nx/2, ny/2+2);
+X		XDrawLine (dsp, win, ss_fgc, nx/2-2, ny/2, nx/2+2, ny/2);
+X	    }
+X	}
+X
+X	/* display each point */
+X	for (i = 0; i < npoints; i++)
+X	    if (propts & (1<<points[i].p))
+X		solar_system(dsp, win, ss_fgc, i, nx, ny);
+}
+X
+/* draw points[i] on screen of size [nx,ny]. */
+static
+solar_system(dsp, win, gc, i, nx, ny)
+Display *dsp;
+Window win;
+GC gc;
+int i;		/* points[] index */
+int nx, ny;	/* size of drawing area, in pixels */
+{
+X	int sv;		/* ScaleValue tmp */
+X	double scale;
+X	double elt;	/* heliocentric lat of eye, rads */
+X	double elg;	/* heliocentric lng of eye, rads */
+X	double x, y, z;	/* progressive transform values... */
+X	double xp, yp, zp;
+X	double xpp, ypp;
+X	double tmp;
+X	int sx, sy;
+X
+X	XmScaleGetValue (hr_w, &sv);
+X	scale = 3. * pow (50./3., sv/100.); /* 3 to 50x, geometricly */
+X	XmScaleGetValue (hlat_w, &sv);
+X	elt = degrad(sv);
+X	XmScaleGetValue (hlng_w, &sv);
+X	elg = degrad(sv);
+X
+X	/* initial loc of points[i] */
+X	x = points[i].x;
+X	y = points[i].y;
+X	z = points[i].z;
+X
+X	/* rotate by -elg about z axis to get to -yz plane.
+X	 * once we rotate up about x to the z axis (next step) that will put
+X	 * +x to the right and +y up.
+X	 */
+X	tmp = -elg;
+X	xp = x*cos(tmp) - y*sin(tmp);
+X	yp = x*sin(tmp) + y*cos(tmp);
+X	zp = z;
+X
+X	/* rotate by -(PI/2-elt) about x axis to get to z axis */
+X	tmp = -(PI/2-elt);
+X	xpp = xp;
+X	ypp = yp*cos(tmp) - zp*sin(tmp);
+X	/* NOT USED: zpp = yp*sin(tmp) + zp*cos(tmp); */
+X
+X	/* now, straight ortho projection */
+X	sx = nx/2 + xpp*scale;
+X	sy = ny/2 - ypp*scale;
+X
+X	if (bigdots) {
+X	    XDrawPoint (dsp, win, gc, sx, sy);
+X	    XDrawPoint (dsp, win, gc, sx+1, sy);
+X	    XDrawPoint (dsp, win, gc, sx, sy+1);
+X	    XDrawPoint (dsp, win, gc, sx+1, sy+1);
+X	} else
+X	    XDrawPoint (dsp, win, gc, sx, sy);
+X
+X	points[i].sx = sx;
+X	points[i].sy = sy;
+}
+SHAR_EOF
+chmod 0644 solarsys.c ||
+echo 'restore of solarsys.c failed'
+Wc_c="`wc -c < 'solarsys.c'`"
+test 18782 -eq "$Wc_c" ||
+	echo 'solarsys.c: original size 18782, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= srch.c ==============
+if test -f 'srch.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping srch.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting srch.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'srch.c' &&
+/* this file contains functions to support iterative xephem searches.
+X * we support several kinds of searching and solving algorithms.
+X * values used in the evaluations come from the field logging flog.c system.
+X * the expressions being evaluated are compiled and executed from compiler.c.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/Frame.h>
+#include <Xm/LabelG.h>
+#include <Xm/PushBG.h>
+#include <Xm/RowColumn.h>
+#include <Xm/SeparatoG.h>
+#include <Xm/SelectioB.h>
+#include <Xm/ToggleBG.h>
+#include <Xm/Text.h>
+#include "fieldmap.h"
+/* N.B. if you need circum.h for something, beware of the height #define - it
+X * interferes with the height member of the XResizeRequestEvent structure.
+X */
+X
+extern Widget toplevel_w;
+#define	XtD	XtDisplay(toplevel_w)
+X
+/* locations of each field.
+X * these are in terms of a 1-based row/col on a 24x80 alpha screen, for
+X * historical reasons.
+X */
+#define	NR		13
+#define	NC		35
+X
+#define	R_ON		1
+#define	C_ON		1
+#define	R_GOALBOX	1
+#define	C_GOALBOX	20
+X
+#define	R_SEP1		4
+X
+#define	R_ACCULABEL	5
+#define	C_ACCULABEL	1
+#define	R_ACCU		5
+#define	C_ACCU		25
+X
+#define	R_SEP2		6
+X
+#define	R_FIELDS	7
+#define	C_FIELDS	1
+#define	R_COMPILE	7
+#define	C_COMPILE	26
+#define	R_FUNC		8
+#define	C_FUNC		1
+#define	R_ERRS		9
+#define	C_ERRS		1
+#define	R_USE		10
+#define	R_VALUE		11
+#define	C_VALUE		17
+X
+#define	R_SEP3		12
+X
+#define	R_HELP		13
+#define	R_CLOSE		13
+X
+/* the widgets we need direct access to */
+static Widget srchform_w;
+static Widget help_w;
+static Widget acc_w;
+static Widget field_w;
+static Widget func_w;	/* contains the search function [to be] compiled */
+static Widget err_w;
+static Widget valu_w;	/* used to display most recent calulated value */
+static Widget use_w;	/* use to select srch value for use in plotting */
+static Widget on_w;	/* whether searching is active comes directly from this
+X			 * widget's XmToggleButtonGadgetGetState()
+X			 */
+X
+static int srch_minmax(), srch_solve0(), srch_binary();
+X
+static int (*srch_f)();		/* 0 or pointer to one of the search functions*/
+static int srch_tmscalled;	/* number of iterations so far */
+static double tmlimit = 1./60.;	/* search accuracy, in hrs; def is one minute */
+X
+static int srch_selecting;	/* whether our value is currently selectable */
+X
+/* called when the search menu is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+srch_manage ()
+{
+X	if (!srchform_w) {
+X	    void srch_help_cb();
+X	    void srch_goal_cb();
+X	    void srch_compile_cb();
+X	    void srch_on_off_cb();
+X	    void srch_close_cb();
+X	    void srch_acc_cb();
+X	    void srch_use_cb();
+X	    void srch_fields_cb();
+X	    XmString str;
+X	    Widget w, rb_w;
+X	    Arg args[20];
+X	    int x, y;
+X	    int i, n;
+X
+X	    /* get location of our main app menu and place nearby */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNx, &x); n++;
+X	    XtSetArg (args[n], XmNy, &y); n++;
+X	    XtGetValues (toplevel_w, args, n);
+X
+X	    /* create and set size of form to hold NR and NC */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNfractionBase, 1000); n++;
+X	    XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	    XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	    XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	    srchform_w = XmCreateFormDialog (toplevel_w, "Srch", args, n);
+X
+X	    /* set some stuff in the parent DialogShell.
+X	     * setting XmNdialogTitle in the Form didn't work..
+X	     */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtitle, "xephem Search Control"); n++;
+X	    XtSetValues (XtParent(srchform_w), args, n);
+X
+X	    /* first separator */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_SEP1)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	    (void) XtCreateManagedWidget ("SrchSep1",
+X				    xmSeparatorGadgetClass, srchform_w, args, n);
+X
+X	    /* searching on/off toggle button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_ON)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, c2xpos(C_ON)); n++;
+X	    on_w = XmCreateToggleButtonGadget (srchform_w, "On", args, n);
+X	    XtAddCallback (on_w, XmNvalueChangedCallback, srch_on_off_cb, 0);
+X	    XtManageChild (on_w);
+X
+X	    /* create goal radio box and its toggle buttons in a frame */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_GOALBOX)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, c2xpos(C_GOALBOX)); n++;
+X	    w = XmCreateFrame (srchform_w, "SrchGoalRadioBoxFrame", args, n);
+X	    XtManageChild (w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	    rb_w = XmCreateRadioBox (w, "SrchGoalRadioBox", args, n);
+X	    XtManageChild (rb_w);
+X
+X	    n = 0;
+X	    /* XtSetArg (args[n], XmNset, True); n++; NO DEFAULT */
+X	    str = XmStringCreate("Find Extreme", XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButtonGadget (rb_w, "SrchExtreme", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, srch_goal_cb,
+X							(int)srch_minmax);
+X	    XtManageChild (w);
+X	    XmStringFree(str);
+X
+X	    n = 0;
+X	    str = XmStringCreate("Find 0", XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButtonGadget (rb_w, "Srch0", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, srch_goal_cb,	
+X							(int)srch_solve0);
+X	    XtManageChild (w);
+X	    XmStringFree(str);
+X
+X	    n = 0;
+X	    str = XmStringCreate("Binary", XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButtonGadget (rb_w, "SrchBinary", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, srch_goal_cb,
+X							(int)srch_binary);
+X	    XtManageChild (w);
+X	    XmStringFree(str);
+X
+X	    /* center separator */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_SEP2)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	    (void) XtCreateManagedWidget ("SrchSep2",
+X				xmSeparatorGadgetClass, srchform_w, args, n);
+X
+X	    /* Accuracy label and its push button */
+X
+X	    n = 0;
+X	    str = XmStringCreate("Accuracy:", XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_ACCULABEL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, c2xpos(C_ACCULABEL)); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateLabelGadget (srchform_w, "SrchAccL", args, n);
+X	    XmStringFree (str);
+X	    XtManageChild (w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_ACCU)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, c2xpos(C_ACCU)); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X	    acc_w = XmCreatePushButtonGadget (srchform_w, "SrchAcc", args, n);
+X	    XtAddCallback (acc_w, XmNactivateCallback, srch_acc_cb, 0);
+X	    f_time (acc_w, tmlimit);
+X	    XtManageChild (acc_w);
+X
+X	    /* bottom separator */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_SEP3)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	    (void) XtCreateManagedWidget ("SrchSep3",
+X				    xmSeparatorGadgetClass, srchform_w, args, n);
+X
+X	    /* use fields button */
+X
+X	    n = 0;
+X	    str = XmStringCreate("Enable field buttons",
+X						    XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_FIELDS)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, c2xpos(C_FIELDS)); n++;
+X	    field_w = XmCreateToggleButtonGadget (srchform_w,
+X							"SrchField", args, n);
+X	    XtAddCallback (field_w, XmNvalueChangedCallback, srch_fields_cb, 0);
+X	    XtManageChild (field_w);
+X	    XmStringFree(str);
+X
+X	    /* COMPILE push button */
+X
+X	    n = 0;
+X	    str = XmStringCreate ("Compile", XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_COMPILE)); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNshowAsDefault, True); n++;
+X	    w = XmCreatePushButtonGadget (srchform_w, "SrchCompile", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, srch_compile_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X	    set_something (srchform_w, XmNdefaultButton, w);
+X
+X	    /* function text */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_FUNC)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 50); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 950); n++;
+X	    func_w = XmCreateText (srchform_w, "SrchFunction", args, n);
+X	    XtManageChild (func_w);
+X	    XmTextSetString (func_w, "");
+X
+X	    /* compiler message label */
+X
+X	    str = XmStringCreate ("", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_ERRS)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    err_w = XmCreateLabelGadget (srchform_w, "SrchErrsL", args, n);
+X	    XtManageChild (err_w);
+X	    XmStringFree (str);
+X
+X	    /* button to select using for plotting. 
+X	     * ONLY MANAGED WHEN WE ARE TOLD TO SELECT FOR PLOTTING.
+X	     */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_USE)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    use_w = XmCreatePushButtonGadget (srchform_w, "SrchUse",
+X								    args, n);
+X	    XtAddCallback (use_w, XmNactivateCallback, srch_use_cb, 0);
+X	    set_xmstring (use_w, XmNlabelString, "Use for plotting");
+X
+X	    /* current search function evaluation labels */
+X
+X	    str = XmStringCreate ("Current value: ", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_VALUE)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateLabelGadget (srchform_w, "SrchValuL", args, n);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    str = XmStringCreate ("", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_VALUE)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, c2xpos(C_VALUE)); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    valu_w = XmCreateLabelGadget (srchform_w, "SrchValu", args, n);
+X	    XtManageChild (valu_w);
+X	    XmStringFree (str);
+X
+X	    /* make the HELP control */
+X
+X	    str = XmStringCreate("Help", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_HELP)); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 1000); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    help_w = XmCreatePushButtonGadget(srchform_w, "SrchHelp", args, n);
+X	    XmStringFree (str);
+X	    XtManageChild (help_w);
+X	    XtAddCallback(help_w, XmNactivateCallback, srch_help_cb, 0);
+X
+X	    /* make the CLOSE control */
+X
+X	    str = XmStringCreate("Close", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CLOSE)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 0); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreatePushButtonGadget(srchform_w, "SrchClose", args,n);
+X	    XmStringFree (str);
+X	    XtManageChild (w);
+X	    XtAddCallback(w, XmNactivateCallback, srch_close_cb, 0);
+X	}
+X	
+X	if (XtIsManaged(srchform_w))
+X	    XtUnmanageChild (srchform_w);
+X	else {
+X	    XtManageChild (srchform_w);
+X	    srch_set_buttons(srch_selecting);
+X	}
+}
+X
+/* called by other menus as they want to hear from our buttons or not.
+X * the "on"s and "off"s stack - only really redo the buttons if it's the
+X * first on or the last off.
+X */
+srch_selection_mode (whether)
+int whether;	/* whether setting up for plotting or for not plotting */
+{
+X	srch_selecting += whether ? 1 : -1;
+X
+X	if (srchform_w && XtIsManaged(srchform_w))
+X	    if (whether && srch_selecting == 1     /* first one to want on */
+X		|| !whether && srch_selecting == 0 /* last one to want off */)
+X		srch_set_buttons (whether);
+}
+X
+/* go through all the buttons pickable for plotting and set whether they
+X * should appear to look like buttons.
+X */
+static
+srch_set_buttons (whether)
+int whether;	/* whether setting up for plotting or for not plotting */
+{
+X	if (whether)
+X	    XtManageChild (use_w);
+X	else
+X	    XtUnmanageChild (use_w);
+}
+X
+/* called when other modules, such as data or riset menu, have a button pushed
+X * and we have asked (by enabling field buttons) that they inform us that
+X * that button is to be included in the search function.
+X * other modules that use buttons, such as plotting and listing, might ask
+X * too so it might not really be us that wants to use it.
+X */
+srch_selection (fp)
+FieldMap *fp;
+{
+X	int ins;
+X
+X	if (!srchform_w
+X		|| !XtIsManaged(srchform_w)
+X		|| !XmToggleButtonGadgetGetState(field_w))
+X	    return;
+X
+X	ins = XmTextGetInsertionPosition (func_w);
+X	XmTextReplace (func_w, /* from */ ins, /* to */ ins, fp->name);
+X
+X	/* move the focus right back to the search menu so the insertion point
+X	 * remains visible.
+X	 */
+X	XSetInputFocus (XtDisplay(srchform_w), XtWindow(srchform_w),
+X						RevertToParent, CurrentTime);
+}
+X
+/* if searching is in effect call the search type function.
+X * it might modify *tmincp according to where it next wants to eval.
+X * (remember tminc is in hours, not days).
+X * if searching ends for any reason it is also turned off.
+X * flog the new value.
+X * if we are not searching but are plotting or listing we still execute the
+X *   search function (if it is ok) and flog and display it.
+X * return 0 if caller can continue or -1 if it is time to stop.
+X */
+srch_eval(mjd, tmincp)
+double mjd;
+double *tmincp;
+{
+X	int s;
+X
+X	if (prog_isgood() && (srch_ison() || plot_ison() || listing_ison())) {
+X	    char errbuf[128];
+X	    double v;
+X	    s = execute_expr (&v, errbuf);
+X	    if (s == 0) {
+X		f_double (valu_w, "%g", v);
+X		if (srch_ison()) {
+X		    s = (*srch_f)(mjd, v, tmincp);
+X		    srch_tmscalled++;
+X		}
+X	    } else {
+X		char srchmsg[256];
+X		sprintf (srchmsg, "Search evaluation error: %s", errbuf);
+X		f_msg (srchmsg, 0);
+X	    }
+X	} else
+X	    s = 0;
+X
+X	if (s < 0)
+X	    XmToggleButtonGadgetSetState(on_w, False, /*invoke cb*/True);
+X
+X	return (s);
+}
+X
+/* return 0 if searching in presently off, else something else.  */
+srch_ison()
+{
+X	return (on_w && XmToggleButtonGadgetGetState(on_w));
+}
+X
+/* callback from the "use" button.
+X * if plotting or listing has put us in selecting mode, we look like a button
+X * and we should inform them we have been picked.
+X * otherwise, we do nothing (we didn't look like a button anyway).
+X */
+static void
+srch_use_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	static char msg[] =
+X	    "You must first successfully compile a search\nfunction before value may be selected.";
+X	static FieldMap vfm = {
+X	    mkid (R_VALUE, 1),
+X	    PLT,
+X	    0,
+X	    0,
+X	    "SrchValue",
+X	    0
+X	};
+X
+X	if (srch_selecting) {
+X	    if (prog_isgood()) {
+X		vfm.w = valu_w;
+X		plt_selection (&vfm);
+X		lst_selection (&vfm);
+X	    } else
+X		f_msg (msg, 1);
+X	}
+}
+X
+/* callback from the compile button.
+X */
+static void
+srch_compile_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	char *newexp;
+X	char errbuf[256];
+X
+X	newexp = XmTextGetString (func_w);
+X	if (compile_expr (newexp, errbuf) < 0) {
+X	    set_xmstring (err_w, XmNlabelString, errbuf);
+X	} else {
+X	    set_xmstring (err_w, XmNlabelString, "<no compile errors>");
+X	}
+X	XtFree (newexp);
+X
+X	/* as a courtesy, turn off searching if it's currently active */
+X	if (XmToggleButtonGadgetGetState(on_w))
+X	    XmToggleButtonGadgetSetState(on_w, False, True/*invoke cb*/);
+}
+X
+/* callback from the help button.
+X */
+static void
+srch_help_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+static char *help_msg[] = {
+"This menu controls the automatic searching facility. You define an arithmetic",
+"or boolean function, using most of the fields xephem displays, then xephem",
+"will automatically evaluate the function and adjust the time on each",
+"iteration to search for the goal.",
+"",
+"To perform a search:",
+"   enter a function,",
+"   compile it,",
+"   select a goal,",
+"   set the desired accuracy,",
+"   enable searching,",
+"   perform the search by stepping xephem."
+};
+X
+X	hlp_dialog ("Search", help_msg, sizeof(help_msg)/sizeof(help_msg[0]));
+}
+X
+/* callback from the "field enable" push button.
+X * inform the other menues whether we are setting up for them to tell us
+X * what fields to plot.
+X */
+static void
+srch_fields_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int whether = XmToggleButtonGadgetGetState(w);;
+X
+X	dm_selection_mode(whether);
+X	mm_selection_mode(whether);
+X	rm_selection_mode(whether);
+X	sm_selection_mode(whether);
+X	jm_selection_mode(whether);
+}
+X
+/* callback from the Close button.
+X */
+static void
+srch_close_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XtUnmanageChild (srchform_w);
+}
+X
+/* user typed OK to the accuracy prompt. get his new value and use it */
+static void
+srch_acc_ok_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int hrs, mins, secs;
+X	char *text;
+X	
+X	f_dec_sexsign (tmlimit, &hrs, &mins, &secs);
+X	get_xmstring(w, XmNtextString, &text);
+X	f_sscansex (text, &hrs, &mins, &secs);
+X	XtFree (text);
+X	sex_dec (hrs, mins, secs, &tmlimit);
+X	f_time (acc_w, tmlimit);
+X	XtDestroyWidget (w);
+}
+X
+/* callback from the accuracy-change-request pushbutton.
+X * put up a prompt dialog to ask for a new value.
+X */
+static void
+srch_acc_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	Widget w, dw;
+X	XmString str;
+X	Arg args[20];
+X	int n;
+X	
+X	str = XmStringCreate ("search accuracy (h:m:s):",
+X						    XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg(args[n], XmNselectionLabelString, str);  n++;
+X	dw = XmCreatePromptDialog(toplevel_w, "xephem Accuracy", args, n);
+X	w = XmSelectionBoxGetChild (dw, XmDIALOG_HELP_BUTTON);
+X	XtUnmanageChild (w);
+X	XmStringFree (str);
+X	XtAddCallback (dw, XmNokCallback, srch_acc_ok_cb, 0);
+X	XtManageChild (dw);
+X	w = XmSelectionBoxGetChild (dw, XmDIALOG_TEXT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT); /* yes, twice!! */
+}
+X
+/* callback from the search goal selection radio buttons.
+X * same callback used for all of them.
+X * client is pointer to desired search function.
+X */
+static void
+srch_goal_cb(w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int (*sfp)()= (int (*)())client;
+X
+X	if (XmToggleButtonGadgetGetState(w)) {
+X	    /* better turn off searching if changing the search function! */
+X	    if (srch_f != sfp && srch_ison())
+X		XmToggleButtonGadgetSetState(on_w, False, True /* invoke cb */);
+X	    srch_f = sfp;
+X	}
+}
+X
+/* callback from the on/off toggle button activate.
+X */
+static void
+srch_on_off_cb(w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	static char *msg =
+X	    "You must first successfully compile a search function and\n select a goal algorithm before searching may be enabled.";
+X
+X	if (XmToggleButtonGadgetGetState(w)) {
+X	    /* insure there is a valid function and goal algorithm selected
+X	     * if turning searching on.
+X	     */
+X	    if (!prog_isgood()) {
+X		XmToggleButtonGadgetSetState(on_w, False, True/* invoke cb */);
+X		f_msg (msg, 1);
+X		 
+X	    } else if (srch_f == 0) {
+X		XmToggleButtonGadgetSetState(on_w, False, True/* invoke cb */);
+X		f_msg (msg, 1);
+X	    } else {
+X		srch_tmscalled = 0;
+X		/* turning on searhing so as a courtesy turn off the
+X		 * field selection mechanism if it's on now.
+X		 */
+X		if (XmToggleButtonGadgetGetState(field_w))
+X		    XmToggleButtonGadgetSetState(field_w, False, True);
+X	    }
+X	}
+}
+X
+/* use successive paraboloidal fits to find when expression is at a
+X * local minimum or maximum.
+X */
+static
+srch_minmax(mjd, v, tmincp)
+double mjd;
+double v;
+double *tmincp;
+{
+X	static double base;		/* for better stability */
+X	static double x_1, x_2, x_3;	/* keep in increasing order */
+X	static double y_1, y_2, y_3;
+X	double xm, a, b;
+X
+X	if (srch_tmscalled == 0) {
+X	    base = mjd;
+X	    x_1 = 0.0;
+X	    y_1 = v;
+X	    return (0);
+X	}
+X	mjd -= base;
+X	if (srch_tmscalled == 1) {
+X	    /* put in one of first two slots */
+X	    if (mjd < x_1) {
+X	        x_2 = x_1;  y_2 = y_1;
+X		x_1 = mjd; y_1 = v;
+X	    } else {
+X		x_2 = mjd; y_2 = v;
+X	    }
+X	    return (0);
+X	}
+X	if (srch_tmscalled == 2 || fabs(mjd - x_1) < fabs(mjd - x_3)) {
+X	    /* closer to x_1 so discard x_3.
+X	     * or if it's our third value we know to "discard" x_3.
+X	     */
+X	    if (mjd > x_2) {
+X		x_3 = mjd; y_3 = v;
+X	    } else {
+X		x_3 = x_2;  y_3 = y_2;
+X		if (mjd > x_1) {
+X		    x_2 = mjd; y_2 = v;
+X		} else {
+X		    x_2 = x_1;  y_2 = y_1;
+X		    x_1 = mjd; y_1 = v;
+X		}
+X	    }
+X	    if (srch_tmscalled == 2)
+X		return (0);
+X	} else {
+X	    /* closer to x_3 so discard x_1 */
+X	    if (mjd < x_2) {
+X		x_1 = mjd;  y_1 = v;
+X	    } else {
+X		x_1 =  x_2;  y_1 = y_2;
+X		if (mjd < x_3) {
+X		    x_2 = mjd; y_2 = v;
+X		} else {
+X		    x_2 =  x_3; y_2 = y_3;
+X		    x_3 = mjd; y_3 = v;
+X		}
+X	    }
+X	}
+X
+#ifdef TRACEMM
+X	{ char buf[NC];
+X	  sprintf (buf, "x_1=%g y_1=%g x_2=%g y_2=%g x_3=%g y_3=%g",
+X						x_1, y_1, x_2, y_2, x_3, y_3);
+X	  f_msg (buf, 0);
+X	}
+#endif
+X	a = y_1*(x_2-x_3) - y_2*(x_1-x_3) + y_3*(x_1-x_2);
+X	if (fabs(a) < 1e-10) {
+X	    /* near-0 zero denominator, ie, curve is pretty flat here,
+X	     * so assume we are done enough.
+X	     * signal this by forcing a 0 tminc.
+X	     */
+X	    *tmincp = 0.0;
+X	    return (-1);
+X	}
+X	b = (x_1*x_1)*(y_2-y_3) - (x_2*x_2)*(y_1-y_3) + (x_3*x_3)*(y_1-y_2);
+X	xm = -b/(2.0*a);
+X	*tmincp = (xm - mjd)*24.0;
+X	return (fabs (*tmincp) < tmlimit ? -1 : 0);
+}
+X
+/* use secant method to solve for time when expression passes through 0.
+X */
+static
+srch_solve0(mjd, v, tmincp)
+double mjd;
+double v;
+double *tmincp;
+{
+X	static double x0, x_1;	/* x(n-1) and x(n) */
+X	static double y_0, y_1;	/* y(n-1) and y(n) */
+X	double x_2;		/* x(n+1) */
+X	double df;		/* y(n) - y(n-1) */
+X
+X	switch (srch_tmscalled) {
+X	case 0: x0 = mjd; y_0 = v; return(0);
+X	case 1: x_1 = mjd; y_1 = v; break;
+X	default: x0 = x_1; y_0 = y_1; x_1 = mjd; y_1 = v; break;
+X	}
+X
+X	df = y_1 - y_0;
+X	if (fabs(df) < 1e-10) {
+X	    /* near-0 zero denominator, ie, curve is pretty flat here,
+X	     * so assume we are done enough.
+X	     * signal this by forcing a 0 tminc.
+X	     */
+X	    *tmincp = 0.0;
+X	    return (-1);
+X	}
+X	x_2 = x_1 - y_1*(x_1-x0)/df;
+X	*tmincp = (x_2 - mjd)*24.0;
+X	return (fabs (*tmincp) < tmlimit ? -1 : 0);
+}
+X
+/* binary search for time when expression changes from its initial state.
+X * if the change is outside the initial tminc range, then keep searching in that
+X *    direction by tminc first before starting to divide down.
+X */
+static
+srch_binary(mjd, v, tmincp)
+double mjd;
+double v;
+double *tmincp;
+{
+X	static double lb, ub;		/* lower and upper bound */
+X	static int initial_state;
+X	int this_state = v >= 0.5;
+X
+#define	FLUNDEF	-9e10
+X
+X	if (srch_tmscalled == 0) {
+X	    if (*tmincp >= 0.0) {
+X		/* going forwards in time so first mjd is lb and no ub yet */
+X		lb = mjd;
+X		ub = FLUNDEF;
+X	    } else {
+X		/* going backwards in time so first mjd is ub and no lb yet */
+X		ub = mjd;
+X		lb = FLUNDEF;
+X	    }
+X	    initial_state = this_state;
+X	    return (0);
+X	}
+X
+X	if (ub != FLUNDEF && lb != FLUNDEF) {
+X	    if (this_state == initial_state)
+X		lb = mjd;
+X	    else
+X		ub = mjd;
+X	    *tmincp = ((lb + ub)/2.0 - mjd)*24.0;
+#ifdef TRACEBIN
+X	    { char buf[NC];
+X	      sprintf (buf, "lb=%g ub=%g tminc=%g mjd=%g is=%d ts=%d",
+X			    lb, ub, *tmincp, mjd, initial_state, this_state);
+X	      f_msg (buf, 0);
+X	    }
+#endif
+X	    /* signal to stop if asking for time change less than TMLIMIT */
+X	    return (fabs (*tmincp) < tmlimit ? -1 : 0);
+X	} else if (this_state != initial_state) {
+X	    /* gone past; turn around half way */
+X	    if (*tmincp >= 0.0)
+X		ub = mjd;
+X	    else
+X		lb = mjd;
+X	    *tmincp /= -2.0;
+X	    return (0);
+X	} else {
+X	    /* just keep going, looking for first state change but we keep
+X	     * learning the lower (or upper, if going backwards) bound.
+X	     */
+X	    if (*tmincp >= 0.0)
+X		lb = mjd;
+X	    else
+X		ub = mjd;
+X	    return (0);
+X	}
+}
+SHAR_EOF
+chmod 0644 srch.c ||
+echo 'restore of srch.c failed'
+Wc_c="`wc -c < 'srch.c'`"
+test 26324 -eq "$Wc_c" ||
+	echo 'srch.c: original size 26324, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= sun.c ==============
+if test -f 'sun.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping sun.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting sun.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'sun.c' &&
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+X
+/* given the modified JD, mjd, return the true geocentric ecliptic longitude
+X *   of the sun for the mean equinox of the date, *lsn, in radians, and the
+X *   sun-earth distance, *rsn, in AU. (the true ecliptic latitude is never more
+X *   than 1.2 arc seconds and so may be taken to be a constant 0.)
+X * if the APPARENT ecliptic longitude is required, correct the longitude for
+X *   nutation to the true equinox of date and for aberration (light travel time,
+X *   approximately  -9.27e7/186000/(3600*24*365)*2*pi = -9.93e-5 radians).
+X */
+sunpos (mjd, lsn, rsn)
+double mjd;
+double *lsn, *rsn;
+{
+X	double t, t2;
+X	double ls, ms;    /* mean longitude and mean anomoay */
+X	double s, nu, ea; /* eccentricity, true anomaly, eccentric anomaly */
+X	double a, b, a1, b1, c1, d1, e1, h1, dl, dr;
+X
+X	t = mjd/36525.;
+X	t2 = t*t;
+X	a = 100.0021359*t;
+X	b = 360.*(a-(long)a);
+X	ls = 279.69668+.0003025*t2+b;
+X	a = 99.99736042000039*t;
+X	b = 360*(a-(long)a);
+X	ms = 358.47583-(.00015+.0000033*t)*t2+b;
+X	s = .016751-.0000418*t-1.26e-07*t2;
+X	anomaly (degrad(ms), s, &nu, &ea);
+X	a = 62.55209472000015*t;
+X	b = 360*(a-(long)a);
+X	a1 = degrad(153.23+b);
+X	a = 125.1041894*t;
+X	b = 360*(a-(long)a);
+X	b1 = degrad(216.57+b);
+X	a = 91.56766028*t;
+SHAR_EOF
+true || echo 'restore of sun.c failed'
+fi
+echo 'End of  part 10'
+echo 'File sun.c is continued in part 11'
+echo 11 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

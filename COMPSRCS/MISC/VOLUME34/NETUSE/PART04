@@ -1,0 +1,1619 @@
+Newsgroups: comp.sources.misc
+From: amber@engin.umich.edu (Lee Liming)
+Subject: v34i102:  netuse - A Network Host Usage Monitoring System, Part04/06
+Message-ID: <1993Jan11.023756.25510@sparky.imd.sterling.com>
+X-Md4-Signature: e0dcd4684308d55878127b720773193e
+Date: Mon, 11 Jan 1993 02:37:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: amber@engin.umich.edu (Lee Liming)
+Posting-number: Volume 34, Issue 102
+Archive-name: netuse/part04
+Environment: UNIX, MS-DOS, OS/2, INET, MSC
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  netuse/clients/netuseadmin.c netuse/daemons/caenlab.c
+#   netuse/daemons/getload.c netuse/lib/netuse.h netuse/lib/parser.c
+#   netuse/lib/protocol.h
+# Wrapped by kent@sparky on Sun Jan 10 20:28:36 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 6)."'
+if test -f 'netuse/clients/netuseadmin.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/clients/netuseadmin.c'\"
+else
+  echo shar: Extracting \"'netuse/clients/netuseadmin.c'\" \(6994 characters\)
+  sed "s/^X//" >'netuse/clients/netuseadmin.c' <<'END_OF_FILE'
+X/******************************************************************************
+X NETUSEADMIN.C - NETUSE Network Monitoring System Administrative Client
+X
+X This program provides a user interface to the remote NETUSE server, allowing
+X various opertaions to be made on the host database.
+X
+X Lee Liming, The Computer Aided Engineering Network
+X The University of Michigan
+X
+X Copyright (C) 1990, 1991, 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+X
+X#include <stdio.h>
+X#include <netuse.h>
+X#include <parser.h>
+X
+X
+X#ifdef __STDC__
+Xint get_command(char *buf)
+X#else
+Xint get_command(buf)
+Xchar *buf;
+X#endif
+X{
+X     printf("\nnetuseadmin> ");
+X     gets(buf);
+X     return(0);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid display_help(void)
+X#else
+Xvoid display_help()
+X#endif
+X{
+X     printf("\nCommands:\n\n");
+X     printf("add       <vendor> <hostname> <model>  Add a new host to the database.\n");
+X     printf("delete    <hostname>           Delete a host from the database.\n");
+X     printf("list      [<vendor>]           List all hosts (or hosts from a given vendor)\n");
+X     printf("reload                         Load hosts from NETUSE hostfile.\n");
+X     printf("savestate                      Store host list in NETUSE hostfile.\n");
+X     printf("use       <filename>           Read additional commands from a file.\n");
+X     printf("\n?,help                         Display this help text.\n");
+X     printf("exit,quit                      Exit the program.\n");
+X     printf("\nVendor designations are currently 'dec', 'sun', 'apollo', 'hp', and 'ibm'.\n");
+X     printf("Hostnames may be either internet hostnames or IP addresses in standard format.\n");
+X     printf("All commands and arguments EXCEPT hostnames are case-insensitive.\n");
+X}
+X
+X
+X#ifdef __STDC__
+Xint execute_command(char *cstr)
+X#else
+Xint execute_command(cstr)
+Xchar *cstr;
+X#endif
+X{
+X     char command[128],buf[256];
+X     int mtype,modtype,mode,rv;
+X     FILE *inf;
+X
+X     strcpy(buf,cstr);
+X     stoupper(strip(strip_leading(buf)));
+X     if (!strlen(buf)) return(0);
+X     if (!strcmp(textparam(buf,0,command),"QUIT") || !strcmp(command,"EXIT"))
+X          return(1);
+X     if (!strcmp(command,"?") || !strcmp(command,"HELP")) {
+X          display_help();
+X          return(0);
+X     }
+X     if (!strcmp(command,"SAVESTATE")) {
+X          if (!netuseSaveState()) printf("Host database has been stored.\n");
+X          else printf("An error occurred while storing the database.\n");
+X          return(0);
+X     }
+X     if (!strcmp(command,"RELOAD")) {
+X          if (!netuseLoadHosts()) printf("Host database has been reloaded.\n");
+X          else printf("An error occurred while loading the database.\n");
+X          return(0);
+X     }
+X     if (!strcmp(command,"DELETE")) {
+X          if (!strlen(textparam(cstr,1,command))) {
+X               printf("Missing hostname.  Use ? to view the command list.\n");
+X               return(0);
+X          }
+X          if (!netuseDelName(command)) printf("Delete command successful.\n");
+X          else printf("An error occurred during the delete operation.\n");
+X          return(0);
+X     }
+X     if (!strcmp(command,"ADD")) {
+X          if (!strlen(textparam(cstr,1,command))) {
+X               printf("Missing vendor type.  Use ? to view the command list.\n");
+X               return(0);
+X          }
+X          if (!(mtype=netStrToMach(command))) {
+X               printf("Invalid vendor type.  Vendors are DEC, IBM, Apollo, HP, and Sun.\n");
+X               return(0);
+X          }
+X          if (!strlen(textparam(cstr,3,command))) {
+X               printf("Missing model type.  Use ? to view the command list.\n");
+X               return(0);
+X          }
+X          if (!(modtype=netStrToModel(command))) {
+X               printf("Invalid model type.\n");
+X               return(0);
+X          }
+X          if (!strlen(textparam(cstr,2,command))) {
+X               printf("Missing hostname.  Use ? to view the command list.\n");
+X               return(0);
+X          }
+X          if (!(rv=netuseAddName(command,mtype,modtype))) 
+X               printf("Add command successful.\n");
+X          else printf("Error %d occurred during the add operation.\n",rv);
+X          return(0);
+X     }
+X     if (!strcmp(command,"USE")) {
+X          if (!strlen(textparam(cstr,1,command))) {
+X               printf("Missing filename.  Use ? to view the command list.\n");
+X               return(0);
+X          }
+X          if ((inf=fopen(command,"r"))==NULL) {
+X               printf("Unable to open %s for input.  USE command aborted...\n");
+X               return(0);
+X          }
+X          printf("\n");
+X          mtype=0;
+X          while (fgets(buf,sizeof(buf),inf) && !mtype) {
+X               buf[strlen(buf)-1]='\0';
+X               if (!strlen(buf) || (buf[0]=='#')) continue;
+X               printf("Executing: \"%s\"...\n",buf);
+X               mtype=execute_command(buf);
+X          }
+X          close(inf);
+X          return(0);
+X     }
+X     if (!strcmp(command,"LIST")) {
+X          mtype=0; mode=MODE_ALL;
+X          if (strlen(textparam(cstr,1,command))) {
+X               if (!(mtype=netStrToMach(command))) {
+X                    printf("Valid vendor types are DEC, IBM, Apollo, HP, and Sun.\n");
+X                    return(0);
+X               }
+X          }
+X          if (netuseGetList(mtype,0,mode)) {
+X               printf("Unable to display host list.\n");
+X               return(0);
+X          }
+X          return(0);
+X     }
+X     printf("\nType \"?\" or \"help\" to receive a list of valid commands.\n");
+X     return(0);
+X}
+X
+X
+X#ifdef __STDC__
+Xmain(int argc,char *argv[])
+X#else
+Xmain(argc,argv)
+Xint argc;
+Xchar *argv[];
+X#endif
+X{
+X     char command[256];
+X     int done;
+X
+X     printf("\nNETUSE Administration Command Interpretor\n");
+X     netSetup();
+X     do {
+X          get_command(command);
+X          if (!feof(stdin)) done=execute_command(command);
+X     } while (!done && !feof(stdin));
+X     putchar('\n');
+X     netShutdown();
+X}
+END_OF_FILE
+  if test 6994 -ne `wc -c <'netuse/clients/netuseadmin.c'`; then
+    echo shar: \"'netuse/clients/netuseadmin.c'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/clients/netuseadmin.c'
+fi
+if test -f 'netuse/daemons/caenlab.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/daemons/caenlab.c'\"
+else
+  echo shar: Extracting \"'netuse/daemons/caenlab.c'\" \(6849 characters\)
+  sed "s/^X//" >'netuse/daemons/caenlab.c' <<'END_OF_FILE'
+X/******************************************************************************
+X CAENLAB.C - CAEN-specific heuristics for telling netused whether to run or 
+X             to quit.
+X
+X At CAEN, we have a file called /etc/hostconfig on all non-Apollo
+X workstations.  If this file contains a line of the form "CLASS=LAB" in it, it
+X means that the machine is in a public CAEN lab.  Apollos have a config file
+X of a more complex format with similar information in it.
+X
+X We only run netused on lab machines, so this module contains code to tell
+X netused whether it's supposed to run or not on this workstation.
+X
+X To enable this code, the macro USE_CAENLAB must be defined in 
+X ../lib/config.h.
+X
+X Lee Liming and Michael Neil, The Computer Aided Engineering Network
+X The University of Michigan
+X
+X Copyright (C) 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <string.h>
+X#include "../lib/parser.h"
+X#include "caenlab.h"
+X
+X
+X#define CONFIGFILE     "/sys/node_data/etc/config"
+X#define HOSTCONFIGFILE "/etc/hostconfig"
+X
+X
+X#ifdef __STDC__
+Xchar *getfield(char *buf,int start,int stop,char *field)
+X#else
+Xchar *getfield(buf,start,stop,field)
+Xchar *buf;
+Xint start,stop;
+Xchar *field;
+X#endif
+X{
+X     --start;
+X     --stop;
+X     if (strlen(buf)<(start+1)) field[0]='\0';
+X     else {
+X          strncpy(field,buf+start,(stop-start+1));
+X          field[stop-start+1]='\0';
+X     }
+X     strip(field);
+X     return(field);
+X}
+X
+X
+X#ifdef __STDC__
+Xchar *pwGetField(char *pwline,int n,char *buf)
+X#else
+Xchar *pwGetField(pwline,n,buf)
+Xchar *pwline;
+Xint n;
+Xchar *buf;
+X#endif
+X{
+X     int i;
+X     char *p,*q;
+X
+X     p=pwline;
+X     for (i=0; (i<n) && (*p!='\0'); p++) 
+X          if (*p==':') i++;
+X     for (q=buf; (*p!=':') && (*p!='\0'); )
+X          *(q++)=(*(p++));
+X     *q='\0';
+X     return(buf);
+X}
+X
+X
+Xchar *stolower(in)
+Xchar *in;
+X{
+X     char *p;
+X
+X     for (p=in; *p!='\0'; p++)
+X          if (isupper(*p)) *p=tolower(*p);
+X}
+X
+X
+X#ifdef __STDC__
+Xint apolloShouldRun(void)
+X#else
+Xint apolloShouldRun()
+X#endif
+X{
+X     struct stat buf;
+X     int nameStart,nameEnd;
+X     int restStart,restEnd;
+X     int gotem,searchfield,print,theanswer;
+X     char name[20],rest[25];
+X     char inbuf[512],temp[256],*p,hostname[128];
+X     FILE *inf;
+X     
+X     theanswer=0;
+X     gethostname(hostname,sizeof(hostname));
+X     if ((p=strchr(hostname,'.'))!=NULL) *p='\0';
+X     if (stat(CONFIGFILE,&buf)) {
+X#ifdef TESTING
+X          printf("Apollo config file does not exist!\n");
+X#else
+X          logit("Apollo config file does not exist!");
+X#endif
+X          exit(1);
+X     }
+X     if ((inf=fopen(CONFIGFILE,"r"))==NULL) {
+X#ifdef TESTING
+X          printf("Unable to open the Apollo config file.\n");
+X#else
+X          logit("Unable to open the Apollo config file.");
+X#endif
+X          exit(1);
+X     }
+X     gotem=0;
+X     while (fgets(inbuf,sizeof(inbuf),inf)!=NULL) {
+X          if (!strlen(inbuf)) continue;
+X          inbuf[strlen(inbuf)]='\0';
+X          if (gotem<2) {
+X               if (!strncmp(inbuf,"#|<var> NODENAME",16)) {
+X                    nameStart=atoi(textparam(inbuf,2,temp));
+X                    nameEnd=atoi(textparam(inbuf,3,temp));
+X                    ++gotem;
+X               }
+X               if (!strncmp(inbuf,"#|<var> RESTRICTION",19)) {
+X                    restStart=atoi(textparam(inbuf,2,temp));
+X                    restEnd=atoi(textparam(inbuf,3,temp));
+X                    ++gotem;
+X               }
+X          }
+X          else {
+X               if ((inbuf[0]=='#') || !strlen(inbuf)) continue;
+X               print=0;
+X               getfield(inbuf,nameStart,nameEnd,name);
+X               for (p=name; (*p!='\0') && (*p=='/'); p++)
+X                    ;
+X               strcpy(name,p);
+X               stolower(name);
+X               getfield(inbuf,restStart,restEnd,rest);
+X               if (!strcmp(hostname,name) && !strcmp(rest,"L")) theanswer=1;
+X          }
+X     }
+X     if (gotem<2) {
+X#ifdef TESTING
+X          printf("Error in Apollo config file.\n");
+X#else
+X          logit("Error in Apollo config file.");
+X#endif
+X          exit(1);
+X     }
+X     fclose(inf);
+X     return(theanswer);
+X}
+X
+X
+X#ifdef __STDC__
+Xint hostconfigShouldRun(void)
+X#else
+Xint hostconfigShouldRun()
+X#endif
+X{
+X     char inbuf[132],*p,temp[132];
+X     FILE *inf;
+X     int theanswer,i;
+X     struct stat buf;
+X     
+X     theanswer=0;
+X     if (stat(HOSTCONFIGFILE,&buf)) {
+X#ifdef TESTING
+X          printf("hostconfig file does not exist!\n");
+X#else
+X          logit("hostconfig file does not exist!");
+X#endif
+X          exit(1);
+X     }
+X     if ((inf=fopen(HOSTCONFIGFILE,"r"))==NULL) {
+X#ifdef TESTING
+X          printf("Unable to open the hostconfig file.\n");
+X#else
+X          logit("Unable to open the hostconfig file.");
+X#endif
+X          exit(1);
+X     }
+X     while (fgets(inbuf,sizeof(inbuf),inf)!=NULL) {
+X          if (!strlen(inbuf)) continue;
+X          inbuf[strlen(inbuf)-1]='\0';
+X          if (!(p=strchr(inbuf,'='))) continue;
+X          *p='\0'; ++p;
+X          strip(strip_leading(inbuf));
+X          strip(strip_leading(p));
+X#ifdef TESTING
+X          printf("inbuf=\"%s\", p=\"%s\".\n",inbuf,p);
+X#endif
+X          if (!strcmp(inbuf,"CLASS")) {
+X               for (i=0; strlen(pwGetField(p,i,temp)) && !theanswer; i++)
+X                    if (!strcmp(temp,"LAB")) theanswer=1;
+X               break;
+X          }
+X     }
+X     fclose(inf);
+X     return(theanswer);
+X}
+X
+X
+X#ifdef __STDC__
+Xint netusedShouldRun(void)
+X#else
+Xint netusedShouldRun()
+X#endif
+X{
+X#ifdef apollo
+X     return(apolloShouldRun());
+X#else
+X     return(hostconfigShouldRun());
+X#endif
+X}
+X
+X
+X#ifdef TESTING
+X
+X/* Test program for verifying functionality */
+X
+Xmain()
+X{
+X     printf("netusedShouldRun() returns %d.\n",netusedShouldRun());
+X}
+X
+X
+X#endif
+END_OF_FILE
+  if test 6849 -ne `wc -c <'netuse/daemons/caenlab.c'`; then
+    echo shar: \"'netuse/daemons/caenlab.c'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/daemons/caenlab.c'
+fi
+if test -f 'netuse/daemons/getload.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/daemons/getload.c'\"
+else
+  echo shar: Extracting \"'netuse/daemons/getload.c'\" \(8710 characters\)
+  sed "s/^X//" >'netuse/daemons/getload.c' <<'END_OF_FILE'
+X/******************************************************************************
+X This code gets the load average for a DEC or SUN.  (See below for extensions 
+X to other platforms.)
+X 
+X define mips for DEC
+X define sun for sun. (the sun needs libkvm.a linked in)
+X define testing for complilable program
+X 
+X Hacked up by: Mike Neil on Oct 11, 1990.
+X
+X Copyright (C) 1990, 1991, 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+X
+X
+X#if (defined(mips ) || defined(hpux))
+X
+X/*
+X * This code gets the load average for a DEC running Ultrix
+X *
+X * Hacked up by: Mike Neil from the xload sources.
+X */
+X
+X
+X#include <stdio.h>
+X#include <nlist.h>
+X
+X
+Xextern long lseek();
+Xextern void exit();
+X
+Xstatic struct nlist namelist[] = {	    
+X#ifdef hpux
+X    {"avenrun"},
+X#else
+X    {"_avenrun"},
+X#endif
+X    {0}
+X};
+X
+Xlong loadavg_seek;
+X
+X#ifdef __STDC__
+Xvoid InitGetLoad(void)
+X#else
+Xvoid InitGetLoad()
+X#endif
+X{
+X	extern void nlist();
+X
+X#ifdef hpux
+X	nlist( "/hp-ux", namelist);
+X#else
+X	nlist( "/vmunix", namelist);
+X#endif
+X	if (namelist[0].n_type == 0 || namelist[0].n_value == 0) {
+X    /* error getting name index */
+X  	exit(-1);
+X	}
+X	loadavg_seek = namelist[0].n_value;
+X
+X}
+X
+X#ifdef __STDC__
+Xdouble GetLoadPoint(double *l1,double *l2,double *l3)
+X#else
+Xdouble GetLoadPoint(l1,l2,l3)
+Xdouble *l1,*l2,*l3;
+X#endif
+X{
+X	static kmem;
+X
+X	kmem = open("/dev/kmem", 000		);
+X	if (kmem < 0)
+X	{
+X	  /* Error opening /dev/kmem */
+X	}
+X	
+X	(void) lseek(kmem, loadavg_seek, 0);
+X	{
+X#ifdef hpux
+X		read(kmem, (char *)l1, sizeof(double));
+X		read(kmem, (char *)l2, sizeof(double));
+X		read(kmem, (char *)l3, sizeof(double));
+X#else
+X		int temp;
+X		(void) read(kmem, (char *)&temp, sizeof(int));
+X		*l1 = 	(((double)(temp))/(1<<	8));
+X		(void) read(kmem, (char *)&temp, sizeof(int));
+X		*l2 = 	(((double)(temp))/(1<<	8));
+X		(void) read(kmem, (char *)&temp, sizeof(int));
+X		*l3 = 	(((double)(temp))/(1<<	8));
+X#endif
+X	}
+X  close(kmem);	
+X	
+X	return(*l1);
+X}
+X#endif
+X
+X
+X#ifdef sun
+X/*
+X * This code gets the load average for a SUN running 4.x.x
+X *
+X * Hacked up by: Mike Neil from the w sources.
+X */
+X
+X#include <stdio.h>
+X#include <nlist.h>
+X#include <sys/stat.h>
+X#include <sys/proc.h>
+X#include <kvm.h>
+X#include <fcntl.h>
+X
+X
+Xlong	avenrun[3];
+Xkvm_t	*kd;			/* kernel descriptor for Kernel VM calls */
+Xchar	*prog;			/* pointer to invocation name */
+X
+Xstruct	nlist nl[] = {
+X	{ "_avenrun" },
+X#define	X_AVENRUN	0
+X	{ "" },
+X};
+X
+X
+X/*
+X * readsym: get the value of a symbol from the namelist.
+X * exit if error.
+X */
+Xreadsym(n, b, s)
+Xint n;
+Xchar *b;
+Xint s;
+X{
+X	if (nl[n].n_type == 0) {
+X		fprintf(stderr, "%s: '%s' not in namelist\n",
+X		    prog, nl[n].n_name);
+X		return(-1);
+X	}
+X	if (kvm_read(kd, nl[n].n_value, b, s) != s) {
+X		fprintf(stderr, "%s: kernel read error\n", prog);
+X		return(-1);
+X	}
+X}
+X
+X#ifdef __STDC__
+Xvoid InitGetLoad(void)
+X#else
+Xvoid InitGetLoad()
+X#endif
+X{
+X	/*Just a stub */
+X}
+X
+X#ifdef __STDC__
+Xdouble GetLoadPoint(double *l1,double *l2,double *l3)
+X#else
+Xdouble GetLoadPoint(l1,l2,l3)
+Xdouble *l1,*l2,*l3;
+X#endif
+X{
+X	double loadavg;
+X
+X			if ((kd = kvm_open(NULL, NULL, NULL, O_RDONLY, prog)) == NULL) {
+X				return(-1);
+X			}
+X			if (kvm_nlist(kd, nl) != 0) {
+X				fprintf(stderr, "%s: symbols missing from namelist\n", prog);
+X				return(-1);
+X			}
+X	
+X			readsym(X_AVENRUN, avenrun, sizeof(avenrun));
+X			
+X			*l1 = (double)avenrun[0]/FSCALE;
+X			*l2 = (double)avenrun[1]/FSCALE;
+X			*l3 = (double)avenrun[2]/FSCALE;
+X
+X                        kvm_close(kd);
+X			return(*l1);
+X}
+X#endif
+X
+X#ifdef _AIX
+X
+X/*
+X * This version of this module (getload.c) is specifically for the IBM
+X * RS/6000 AIX 3.1 platform.
+X *
+X *  Charley Kline, University of Illinois Computing Services
+X *  c-kline@uiuc.edu
+X *
+X * Modified for use with 1, 5, and 15 minute averages by Michael Neil and
+X * Lee Liming.
+X */
+X
+X
+X#include <stdio.h>
+X#include <sys/sysinfo.h>
+X#include <sys/types.h>
+X#include <unistd.h>
+X#include <fcntl.h>
+X#include <math.h>
+X#include <nlist.h>
+X
+X
+Xstruct nlist kernelnames[] = {{"sysinfo", 0, 0, 0, 0, 0},{NULL, 0, 0, 0, 0, 0}};
+X
+X
+X#ifdef __STDC__
+Xvoid InitGetLoad(void)
+X#else
+Xvoid InitGetLoad()
+X#endif
+X{
+X	/*Just a stub */
+X}
+X
+X
+X#ifdef __STDC__
+Xdouble GetLoadPoint(double *l1,double *l2,double *l3)
+X#else
+Xdouble GetLoadPoint(l1,l2,l3)
+Xdouble *l1,*l2,*l3;
+X#endif
+X{
+X    static double avenrun=0.0,avenrun5=0.0,avenrun15=0.0;
+X    double loadav;
+X    struct sysinfo si;
+X    static int rq_old = 0, ro_old = 0;
+X    static initted = 0;
+X    static int fd;
+X    double multiplier;
+X    double t;
+X
+X    /*
+X    ** Do stuff we only need to do once per invocation, like opening
+X    ** the kmem file and fetching the parts of the symbol table.
+X    */
+X		if (!initted) {
+X				initted = 1;
+X				knlist(kernelnames, 1, sizeof (struct nlist));
+X				fd = open("/dev/kmem", O_RDONLY);
+X				if (fd < 0) {
+X						perror("kmem");
+X						exit(1);
+X				}
+X		}
+X		
+X		/*
+X    ** Get the system info structure from the running kernel.
+X    */
+X    lseek(fd, kernelnames[0].n_value, SEEK_SET);
+X    read(fd, &si, sizeof (struct sysinfo));
+X
+X    /*
+X    ** AIX doesn't keep the load average variables in the kernel; all
+X    ** we can get is the current number of runnable processes by
+X    ** observing the difference between the runque and runocc values
+X    ** in sysinfo, and dividing. Having done this, however, we can apply
+X    ** a TENEX-style exponential time-average to it by computing an
+X    ** averaging multiplier based on the sampling interval. This is then
+X    ** used to factor in the current number of runnable processes to our
+X    ** running load average. The result "looks right" when observed in
+X    ** conjunction with the process table and user activity.
+X    **
+X    ** We subtract one from the number of running processes given us by
+X    ** the kernel because for some reason AIX always calls one of the
+X    ** kprocs "runnable" even though it uses very little CPU. Subtracting
+X    ** this out gives a load average near zero when the machine is mostly
+X    ** idle, which is more familiar to those of us who are used to
+X    ** bsd-style load averages.                   /cvk
+X    */
+X    
+X    t = (double)(si.runocc - ro_old);
+X    loadav = (double)(si.runque - rq_old) / t - 1.0;
+X    rq_old = si.runque;
+X    ro_old = si.runocc;
+X    multiplier = exp(-t/60.);
+X    avenrun = multiplier * avenrun + (1.0 - multiplier) * loadav;
+X
+X    multiplier = exp(-t/300.);
+X    avenrun5 = multiplier * avenrun5 + (1.0 - multiplier) * loadav;
+X
+X    multiplier = exp(-t/900.);
+X    avenrun15 = multiplier * avenrun15 + (1.0 - multiplier) * loadav;
+X    
+X/*
+X    printf("%d %d %f %f %f %f %f\n", si.runque, si.runocc, t, loadav, avenrun,
+X    avenrun5, avenrun15);
+X*/
+X    *l1=avenrun; *l2=avenrun5; *l3=avenrun15;
+X    return(*l1);
+X    }
+X
+X/*
+Xvoid main()
+X{
+X		int	i;
+X		
+X		for (i = 0; i < 10; i++) {
+X				GetLoadPoint();
+X				sleep(10);
+X		}
+X}
+X*/
+X
+X#endif
+X
+X
+X#ifdef apollo
+X
+X/* 
+X  This code hacked up by Lee Liming, 10/11/91, from the Apollo uptime sources.
+X*/
+X
+X#include <stdio.h>
+X#include <sys/time.h>
+X
+X
+Xtypedef long proc1_$loadav_t[3];
+X
+Xvoid proc1_$get_loadav();
+X
+X
+X#ifdef __STDC__
+Xvoid InitGetLoad(void)
+X#else
+Xvoid InitGetLoad()
+X#endif
+X{
+X}
+X
+X
+X#ifdef __STDC__
+Xdouble GetLoadPoint(double *l1,double *l2,double *l3)
+X#else
+Xdouble GetLoadPoint(l1,l2,l3)
+Xdouble *l1,*l2,*l3;
+X#endif
+X{
+X     proc1_$loadav_t avenrun;
+X     int i;
+X
+X     proc1_$get_loadav(avenrun);
+X     *l1=avenrun[0]/65536.;
+X     *l2=avenrun[1]/65536.;
+X     *l3=avenrun[2]/65536.;
+X     return(*l1);
+X}
+X
+X#endif /* apollo */
+X
+X
+X#ifdef testing
+Xmain()
+X{
+X     double l1,l2,l3,rv;
+X
+X     printf("Starting...\n"); fflush(stdout);
+X     InitGetLoad();
+X     printf("Between...\n"); fflush(stdout);
+X     rv=GetLoadPoint(&l1,&l2,&l3);
+X     printf("rv=%0.2lf l1=%0.2lf l2=%0.2lf l3=%0.2lf\n",rv,l1,l2,l3);
+X}
+X#endif
+END_OF_FILE
+  if test 8710 -ne `wc -c <'netuse/daemons/getload.c'`; then
+    echo shar: \"'netuse/daemons/getload.c'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/daemons/getload.c'
+fi
+if test -f 'netuse/lib/netuse.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/lib/netuse.h'\"
+else
+  echo shar: Extracting \"'netuse/lib/netuse.h'\" \(5782 characters\)
+  sed "s/^X//" >'netuse/lib/netuse.h' <<'END_OF_FILE'
+X/******************************************************************************
+X NETUSE.H - NETUSE Client Library header file
+X
+X This header file defines the functions and data types provided by the NETUSE
+X client library.  This is the header file which should be used when linking
+X with the libNetuse.a library to create a NETUSE client.
+X
+X Lee Liming and Michael Neil, The Computer Aided Engineering Network
+X The University of Michigan
+X
+X Copyright (C) 1990, 1991, 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+X
+X#ifndef _NETUSE_INCLUDED_
+X#define _NETUSE_INCLUDED_
+X
+X#include <sys/types.h>
+X#include "config.h"
+X
+X
+X#ifndef _PROTOCOL_INCLUDED_
+X
+X/* Machine/vendor types */
+X
+X#define MACH_DEC           1                                   /* DECstation */
+X#define MACH_SUN           2                                          /* Sun */
+X#define MACH_IBM_RS6000    3                                  /* IBM RS/6000 */
+X#define MACH_APOLLO        4                                       /* Apollo */
+X#define MACH_HP            5                                       /* HP9000 */
+X
+X#define MODEL_DS3100       1                          /* Machine model types */
+X#define MODEL_DS5000200    2
+X#define MODEL_DS5000120    3
+X#define MODEL_SUN4         4
+X#define MODEL_SUN4_65      5
+X#define MODEL_SUN4_50      6
+X#define MODEL_RS320        7
+X#define MODEL_RS520        8
+X#define MODEL_RS530        9
+X#define MODEL_RS540       10
+X#define MODEL_RS730       11
+X#define MODEL_RS930       12
+X#define MODEL_AP3000      13
+X#define MODEL_AP3500      14
+X#define MODEL_AP4000      15
+X#define MODEL_AP4500      16
+X#define MODEL_AP5500      17
+X#define MODEL_AP10010     18
+X#define MODEL_AP10020     19
+X#define MODEL_HP425E      20
+X#define MODEL_HP425T      21
+X#define MODEL_HP9000720   22
+X#define MODEL_SUN3        23
+X#define MODEL_AP2500      24
+X#define MODEL_DS5000133   25
+X#define MODEL_HP9000705   26
+X#define MODEL_HP9000710   27
+X#define MODEL_HP9000730   28
+X#define MODEL_HP9000750   29
+X#define MODEL_RS220       30
+X#define MODEL_RS320H      31
+X#define MODEL_RS340       32
+X#define MODEL_RS350       33
+X#define MODEL_RS530H      34
+X#define MODEL_RS550       35
+X#define MODEL_RS560       36
+X#define MODEL_RS950       37
+X
+X/* Modes for netuseGetList() */
+X
+X#define MODE_DISP       0x00        /* Normal listing (limited # of machines */
+X#define MODE_ALL        0x01     /* List ALL hosts (even ones that are down) */
+X#define MODE_DOWN       0x02                /* List only hosts that are down */
+X#define MODE_MASK       0x03                      /* Mask for all list modes */
+X#define MODE_MODELS     0x04 /* List model types instead of last report time */
+X#define MODE_NET        0x80                /* Network listing mode (add \r) */
+X
+X#define RV_OK              0     /* Protocol response: All's well            */
+X#define RV_ACK             1     /* Protocol response: Report acknowledged   */
+X#define RV_NACK            2     /* Protocol response: Report not ack'ed     */
+X#define RV_TIMEOUT         3     /* Protocol response: Timeout               */
+X#define RV_NOMATCH         4     /* Protocol response: Nothing matched       */
+X#define RV_NOFILE          5     /* Protocol response: Unable to access file */
+X
+X#define RV_nOK             0     /* Network response: All's well             */
+X#define RV_nTIMEOUT       -1     /* Network response: Timeout                */
+X#define RV_nBADSEND       -2     /* Network response: Unable to send packet  */
+X#define RV_nBADRECV       -3     /* Network response: Unable to receive      */
+X
+X#endif   /* !defined(_PROTOCOL_INCLUDED_) */
+X
+X
+X#ifdef __STDC__
+X
+Xint     netuseGetList(u_char machine,u_char model,int mode);
+Xu_long  netGetAddress(char *buf);
+Xchar   *netGetHostname(u_long ipaddr,char *buf);
+Xchar   *netGetMachType(u_char mtype,char *mtname);
+Xu_char  netStrToMach(char *mtname);
+Xchar   *netGetModelType(u_char mtype,char *mtname);
+Xu_char  netStrToModel(char *mtname);
+Xchar   *netuseFind(char *name,double l1,double l2,double l3,int users,
+X                   int console,int tmp,u_char machine,u_char model);
+Xint     netuseAddName(char *name,u_char type,u_char model);
+Xint     netuseAddIP(u_long ip_addr,u_short type);
+Xint     netuseDelName(char *name);
+Xint     netuseSaveState(void);
+Xint     netuseLoadHosts(void);
+X
+X#else
+X
+Xint     netuseGetList();
+Xu_long  netGetAddress();
+Xchar   *netGetHostname();
+Xchar   *netGetMachType();
+Xu_char  netStrToMach();
+Xchar   *netGetModelType();
+Xu_char  netStrToModel();
+Xchar   *netuseFind();
+Xint     netuseAddName();
+Xint     netuseAddIP();
+Xint     netuseDelName();
+Xint     netuseSaveState();
+Xint     netuseLoadHosts();
+X
+X#endif
+X
+X#endif  /* _NETUSE_INCLUDED_ */
+END_OF_FILE
+  if test 5782 -ne `wc -c <'netuse/lib/netuse.h'`; then
+    echo shar: \"'netuse/lib/netuse.h'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/lib/netuse.h'
+fi
+if test -f 'netuse/lib/parser.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/lib/parser.c'\"
+else
+  echo shar: Extracting \"'netuse/lib/parser.c'\" \(9550 characters\)
+  sed "s/^X//" >'netuse/lib/parser.c' <<'END_OF_FILE'
+X/******************************************************************************
+X PARSER.C - String parsing functions
+X
+X (c) 1990, 1991, 1992, R. Lee Liming, Jr.
+X USED WITH PERMISSION OF THE AUTHOR
+X ALL RIGHTS RESERVED
+X
+X This file provides basic string manipulation functions for general-purpose
+X parsing.
+X
+X strip() removes trailing spaces from a string.
+X strip_leading() removes leading spaces from a string.
+X scrunch() removes all spaces from a string.
+X stoupper() converts an entire string to uppercase.
+X spicture() puts a string into a fixed-size text field.
+X whitespace() returns true if it's argument is a whitespace character,
+X   false otherwise.
+X textparam() extracts the nth token (separated by whitespace, starting at 0)
+X   from its first argument.
+X limits() parses a number range string and returns the start and end values.
+X strstr() returns a pointer to a substring within another string.
+X******************************************************************************/
+X
+X#include <ctype.h>
+X#include <stdio.h>
+X#include <string.h>
+X#include <strings.h>
+X
+X#include "parser.h"
+X
+X
+X/*****************************************************************************
+X char *strip(str)
+X
+X This function removes trailing spaces from the string passed to it, and
+X returns a pointer to its argument.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xchar *strip(char *s)
+X#else
+Xchar *strip(s)
+Xchar *s;
+X#endif
+X{
+X     char *p;
+X
+X     for (p=s+strlen(s)-1; (p>=s) && (*p==' '); p--)
+X          *p='\0';
+X     return(s);
+X}
+X
+X
+X/*****************************************************************************
+X char *strip_leading(str)
+X
+X This function removes leading spaces from the string passed to it, and
+X returns a pointer to its argument.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xchar *strip_leading(char *s)
+X#else
+Xchar *strip_leading(s)
+Xchar *s;
+X#endif
+X{
+X     char *p;
+X
+X     for (p=s; (*p!='\0') && (*p==' '); p++)
+X          ;
+X     strcpy(s,p);
+X     return(s);
+X}
+X
+X
+X/*****************************************************************************
+X char *scrunch(char *str)
+X
+X This function removes ALL spaces from a string, including internal spaces.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xchar *scrunch(char *str)
+X#else
+Xchar *scrunch(str)
+Xchar *str;
+X#endif
+X{
+X     char *p,*q;
+X
+X     for (p=str; (*p!='\0'); p++)
+X          if (*p==' ') {
+X               for (q=p; (*q==' '); q++)
+X                    ;
+X               strcpy(p,q);
+X          }
+X     return(str);
+X}
+X
+X
+X/*****************************************************************************
+X char *stoupper(char *str)
+X
+X This function converts the string passed to it to uppercase, and returns a
+X pointer to it.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xchar *stoupper(char *s)
+X#else
+Xchar *stoupper(s)
+Xchar *s;
+X#endif
+X{
+X     char *p;
+X
+X     for (p=s; *p!='\0'; p++) if (islower(*p)) *p=toupper(*p);
+X     return(s);
+X}
+X
+X
+X/*****************************************************************************
+X char *spicture(char *str,int n,char *temp)
+X
+X This function left-justifies a string in a fixed-size text field of size n.
+X The string is padded or truncated as necessary.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xchar *spicture(char *str,int n,char *temp)
+X#else
+Xchar *spicture(str,n,temp)
+Xchar *str;
+Xint n;
+Xchar *temp;
+X#endif
+X{
+X     char *p,*q;
+X     int i;
+X
+X     for (p=str,q=temp,i=0; i<n; i++)
+X          if ((p==NULL) || (*p=='\0')) *(q++)=' ';
+X          else *(q++)=(*(p++));
+X     *q='\0';
+X     return(temp);
+X}
+X
+X
+X/*****************************************************************************
+X int whitespace(ch)
+X
+X This function returns true if its argument is a whitespace character (or
+X comma), false otherwise.  Used for separating tokens in a string.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xint whitespace(char ch)
+X#else
+Xint whitespace(ch)
+Xchar ch;
+X#endif
+X{
+X     switch (ch) {
+X          case ' ':
+X          case '\t':
+X          case ',':
+X               return(1);
+X          default:
+X               return(0);
+X     }
+X}
+X
+X
+X/*****************************************************************************
+X char *textparam(str,n,buf)
+X
+X This is an interesting function, which breaks the first string up into
+X tokens (separated by whitespace(), defined above), and returns the nth one
+X in the third parameter.  n starts at 0 (zero) for the first token on the
+X line.  The function returns a pointer to the extracted token.  Yeah, it's
+X got a lot of +'s and ='s, but it seems to work...  ;-)
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xchar *textparam(char *s,int n,char t[])
+X#else
+Xchar *textparam(s,n,t)
+Xchar *s;
+Xint n;
+Xchar t[];
+X#endif
+X{
+X     int i;
+X     char *p;
+X
+X     for (p=s; (*p!='\0') && whitespace(*p); p++)
+X          ;
+X     for (i=0; (i<n) && (*p!='\0'); i++) {
+X          if (*p=='"') {
+X               for (p++; (*p!='\0') && (*p!='"'); p++)
+X                    if ((*p=='\\') && (*(p+1)!='\0')) p++;
+X               if (*p=='"') p++;
+X          }
+X          else for ( ; (*p!='\0') && !whitespace(*p); p++)
+X                    ;
+X          for ( ; (*p!='\0') && whitespace(*p); p++)
+X               ;
+X     }
+X     if (*p=='"') {
+X          for (i=0,p++; (*p!='\0') && (*p!='"'); p++,i++)
+X               if ((*p=='\\') && (*(p+1)!='\0')) t[i]=(*(++p));
+X               else t[i]=(*p);
+X     }
+X     else for (i=0; (*p!='\0') && !whitespace(*p); p++,i++)
+X               t[i]=(*p);
+X     t[i]='\0';
+X     return(t);
+X}
+X
+X
+X/*****************************************************************************
+X char *encapsulate(char *str,char *buf)
+X
+X The encapsulate() function encapsulates a string into a format that can be
+X quoted and then successfully parsed by the textparam() function.  It escapes
+X all double quotes with a backslash, and doubles all backslashes in the
+X original string.  The breakout() function is used to break the string out
+X of this encapsulation.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xchar *encapsulate(char *str,char *buf)
+X#else
+Xchar *encapsulate(str,buf)
+Xchar *str;
+Xchar *buf;
+X#endif
+X{
+X     char *p,*q;
+X
+X     for (p=str,q=buf; *p!='\0'; p++) {
+X          switch (*p) {
+X               case '"':
+X                    *(q++)='\\';
+X                    *(q++)='"';
+X                    break;
+X               case '\\':
+X                    *(q++)='\\';
+X                    *(q++)='\\';
+X                    break;
+X               default:
+X                    *(q++)=(*p);
+X                    break;
+X          }
+X     }
+X     *q='\0';
+X     return(buf);
+X}
+X
+X
+X/*****************************************************************************
+X char *breakout(char *str,char *buf)
+X
+X The breakout() function is used to break the string out of an encapsulated
+X string format made using the encapsulate() function.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xchar *breakout(char *str,char *buf)
+X#else
+Xchar *breakout(str,buf)
+Xchar *str;
+Xchar *buf;
+X#endif
+X{
+X     char *p,*q;
+X
+X     for (p=str,q=buf; *p!='\0'; p++) {
+X          switch (*p) {
+X               case '\\':
+X                    *(q++)=(*(++p));
+X                    break;
+X               default:
+X                    *(q++)=(*p);
+X                    break;
+X          }
+X     }
+X     *q='\0';
+X     return(buf);
+X}
+X
+X
+X/*****************************************************************************
+X int limits(char *rstr,int *start,int *stop)
+X
+X The limits function parses a range string of the form "<num> [ - <num> ]"
+X into a start and stop value.  If the range syntax is legal, the return
+X value is zero.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xint limits(char *rstr,int *start,int *stop)
+X#else
+Xint limits(rstr,start,stop)
+Xchar *rstr;
+Xint *start,*stop;
+X#endif
+X{
+X     char *p,temp[10];
+X     int i;
+X
+X     strip(strip_leading(rstr));
+X     if (!strlen(rstr)) return(-1);
+X     for (p=rstr,i=0; (*p>='0') && (*p<='9'); p++,i++)
+X          temp[i]=(*p);
+X     temp[i]='\0';
+X     if ((*p!='\0') && (*p!='-') && (*p!=' ')) return(-1);
+X     (*stop)=(*start)=atoi(temp);
+X     if (*p=='\0') return(0);
+X     strcpy(temp,++p);
+X     strip_leading(temp);
+X     if (temp[0]=='-') {
+X          strcpy(temp,temp+1);
+X          strip_leading(temp);
+X     }
+X     for (p=temp,i=0; (*p>='0') && (*p<='9'); p++,i++)
+X          ;
+X     if (*p!='\0') return(-2);
+X     *stop=atoi(temp);
+X     return(0);
+X}
+X
+X
+X/*****************************************************************************
+X char *strstr(source,target)
+X
+X This function searches for the first occurence of the target string in the
+X source string, and returns a pointer to it within the source string.  The
+X function returns NULL if no match is found.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xchar *strstr(char *p,char s[])
+X#else
+Xchar *strstr(p,s)
+Xchar *p,s[];
+X#endif
+X{
+X     char *idx,*tmp;
+X     int i,found=0;
+X
+X     if (!strlen(p)) return(NULL);
+X     while (!found) {
+X          if ((tmp=idx=index(p,s[0]))==0) break;
+X          else {
+X               for (i=0; (s[i]!='\0') && (*idx==s[i]); idx++,i++)
+X                    ;
+X               if (s[i]=='\0') found=1;
+X               else p=(++tmp);
+X          }
+X     }
+X     if (!found) return(NULL);
+X     else return(tmp);
+X}
+END_OF_FILE
+  if test 9550 -ne `wc -c <'netuse/lib/parser.c'`; then
+    echo shar: \"'netuse/lib/parser.c'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/lib/parser.c'
+fi
+if test -f 'netuse/lib/protocol.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/lib/protocol.h'\"
+else
+  echo shar: Extracting \"'netuse/lib/protocol.h'\" \(7650 characters\)
+  sed "s/^X//" >'netuse/lib/protocol.h' <<'END_OF_FILE'
+X/******************************************************************************
+X PROTOCOL.H - NETUSE Protocol Definition
+X
+X This header file defines the NETUSE protocol, used for communication with
+X the NETUSE server (netuse).  All clients, including the netused daemon, use
+X this protocol to send and receive information to/from the server.
+X
+X Lee Liming and Michael Neil, The Computer Aided Engineering Network
+X The University of Michigan
+X
+X Copyright (C) 1990, 1991, 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+X
+X#ifndef _PROTOCOL_INCLUDED_
+X#define _PROTOCOL_INCLUDED_
+X
+X#include <sys/types.h>
+X#include "config.h"
+X
+X
+X#define SEND_RETRIES       2   /* Send tries before conceding a send failure */
+X#define REQ_RETRIES        2     /* Request tries before conceding a failure */
+X#define TIMEOUT            5    /* Time between request and response timeout */
+X
+X#define OP_NOP             0                      /* NETUSE protocol opcodes */
+X#define OP_STATUS          1                        /* netused status report */
+X#define OP_QUERY           2               /* Request a host of a given type */
+X#define OP_GETLIST         3                 /* Request the entire host list */
+X#define OP_DISPLIST        4              /* Request a host list for display */
+X#define OP_GETDOWN         5         /* Request list of hosts which are down */
+X#define OP_ADDHOST         6                   /* Add a host to the database */
+X#define OP_DELHOST         7              /* Remove a host from the database */
+X#define OP_SAVESTATE       8          /* Store the database in a static file */
+X#define OP_LOADHOSTS       9     /* Re-read the static file to get host list */
+X#define OP_TEXTSTATUS     10              /* netused report on users & class */
+X#define OP_TEXTSTATUS2    11      /* netused report (cont.) on users & class */
+X#define OP_GETMLIST       12     /* Request the entire host list with models */
+X#define OP_DISPMLIST      13  /* Request a host list for display with models */
+X#define OP_GETMDOWN       14       /* Request models of hosts which are down */
+X
+X#define RV_OK              0     /* Protocol response: All's well            */
+X#define RV_ACK             1     /* Protocol response: Report acknowledged   */
+X#define RV_NACK            2     /* Protocol response: Report not ack'ed     */
+X#define RV_TIMEOUT         3     /* Protocol response: Timeout               */
+X#define RV_NOMATCH         4     /* Protocol response: Nothing matched       */
+X#define RV_NOFILE          5     /* Protocol response: Unable to access file */
+X
+X#define RV_nOK             0     /* Network response: All's well             */
+X#define RV_nTIMEOUT       -1     /* Network response: Timeout                */
+X#define RV_nBADSEND       -2     /* Network response: Unable to send packet  */
+X#define RV_nBADRECV       -3     /* Network response: Unable to receive      */
+X
+X#define MODE_DISP       0x00        /* Normal listing (limited # of machines */
+X#define MODE_ALL        0x01     /* List ALL hosts (even ones that are down) */
+X#define MODE_DOWN       0x02                /* List only hosts that are down */
+X#define MODE_MASK       0x03                      /* Mask for all list modes */
+X#define MODE_MODELS     0x04 /* List model types instead of last report time */
+X#define MODE_NET        0x80                /* Network listing mode (add \r) */
+X
+X#define MACH_DEC           1                                /* Machine types */
+X#define MACH_SUN           2
+X#define MACH_IBM_RS6000    3
+X#define MACH_APOLLO        4
+X#define MACH_HP            5
+X
+X#define MODEL_DS3100       1                          /* Machine model types */
+X#define MODEL_DS5000200    2
+X#define MODEL_DS5000120    3
+X#define MODEL_SUN4         4
+X#define MODEL_SUN4_65      5
+X#define MODEL_SUN4_50      6
+X#define MODEL_RS320        7
+X#define MODEL_RS520        8
+X#define MODEL_RS530        9
+X#define MODEL_RS540       10
+X#define MODEL_RS730       11
+X#define MODEL_RS930       12
+X#define MODEL_AP3000      13
+X#define MODEL_AP3500      14
+X#define MODEL_AP4000      15
+X#define MODEL_AP4500      16
+X#define MODEL_AP5500      17
+X#define MODEL_AP10010     18
+X#define MODEL_AP10020     19
+X#define MODEL_HP425E      20
+X#define MODEL_HP425T      21
+X#define MODEL_HP9000720   22
+X#define MODEL_SUN3        23
+X#define MODEL_AP2500      24
+X#define MODEL_DS5000133   25
+X#define MODEL_HP9000705   26
+X#define MODEL_HP9000710   27
+X#define MODEL_HP9000730   28
+X#define MODEL_HP9000750   29
+X#define MODEL_RS220       30
+X#define MODEL_RS320H      31
+X#define MODEL_RS340       32
+X#define MODEL_RS350       33
+X#define MODEL_RS530H      34
+X#define MODEL_RS550       35
+X#define MODEL_RS560       36
+X#define MODEL_RS950       37
+X
+X#ifdef mips
+X#define MACHINETYPE MACH_DEC                  /* Program is running on a DEC */
+X#endif
+X
+X#ifdef hpux
+X#define MACHINETYPE MACH_HP                   /* Program is running on an HP */
+X#endif
+X
+X#ifdef sun
+X#define MACHINETYPE MACH_SUN                  /* Program is running on a Sun */
+X#endif
+X
+X#ifdef _IBMR2
+X#define MACHINETYPE MACH_IBM_RS6000      /* Program is running on an RS/6000 */
+X#endif
+X
+X#ifdef apollo
+X#define MACHINETYPE MACH_APOLLO           /* Program is running on an Apollo */
+X#endif
+X
+X
+Xtypedef struct _userec {
+X             u_char  chksum;               /* Checksum (for error detection) */
+X             u_char  opcode;                                /* Packet opcode */
+X             u_char  retcode;                    /* Return code from request */
+X             u_char  ack;                            /* Acknowedgement field */
+X             u_short load1,load2,load3;                     /* Load averages */
+X             u_short users;                      /* Number of login sessions */
+X             u_long  tmp;                              /* Free space in /tmp */
+X             u_short console;         /* Number of login sessions on display */
+X             u_short uid;                   /* User ID (for making requests) */
+X             u_short filler1;
+X             u_char  machine;                             /* Type of machine */
+X             u_char  model;                                 /* Machine model */
+X        } USEREC;                             /* A NETUSE packet as a struct */
+X
+X#define ipaddr tmp                                   /* Packet field aliases */
+X#define portno load1
+X
+Xtypedef u_char PACKET[sizeof(USEREC)];  /* Used for treating packet as array */
+X
+X#define PACKET_SIZE     sizeof(PACKET)           /* Size (bytes) of a packet */
+X
+X
+X#endif   /* _PROTOCOL_INCLUDED_ */
+END_OF_FILE
+  if test 7650 -ne `wc -c <'netuse/lib/protocol.h'`; then
+    echo shar: \"'netuse/lib/protocol.h'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/lib/protocol.h'
+fi
+echo shar: End of archive 4 \(of 6\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

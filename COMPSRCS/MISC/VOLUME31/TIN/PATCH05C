@@ -1,0 +1,2276 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Subject:  v31i082:  tin - threaded full screen newsreader v1.1, Patch05c/7
+Message-ID: <1992Aug16.012519.12579@sparky.imd.sterling.com>
+X-Md4-Signature: bb8ea06dc421b2edb2b1f04b7845baed
+Date: Sun, 16 Aug 1992 01:25:19 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Posting-number: Volume 31, Issue 82
+Archive-name: tin/patch05c
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Patch-To: tin: Volume 31, Issue 1-15
+
+#!/bin/sh
+# this is patch-1.15.shar.03 (part 3 of tin-1.15)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file tin-1.15.patch continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping tin-1.15.patch'
+else
+echo 'x - continuing file tin-1.15.patch'
+sed 's/^X//' << 'SHAR_EOF' >> 'tin-1.15.patch' &&
+X  extern int real_umask;
+X  extern int reread_active_file;
+! extern int save_archive_name;
+X  extern int save_news;
+- extern int save_num;
+X  extern int show_author;
+X  extern int show_description;
+! extern int show_only_unread;
+! extern int sort_art_type;
+X  extern int space_mode;
+X  extern int spooldir_is_active;
+X  extern int start_editor_offset;
+X  extern int start_line_offset;
+X  extern int system_status;
+- extern int thread_arts;
+X  extern int tin_gid;
+X  extern int tin_uid;
+X  extern int top;
+X  extern int top_base;
+X  extern int unlink_article;
+--- 571,590 ----
+X  extern int real_uid;
+X  extern int real_umask;
+X  extern int reread_active_file;
+! extern int reread_active_file_secs;
+X  extern int save_news;
+X  extern int show_author;
+X  extern int show_description;
+! extern int show_last_line_prev_page;
+! extern int show_only_unread_groups;
+X  extern int space_mode;
+X  extern int spooldir_is_active;
+X  extern int start_editor_offset;
+X  extern int start_line_offset;
+X  extern int system_status;
+X  extern int tin_gid;
+X  extern int tin_uid;
++ extern int tab_after_X_selection;
+X  extern int top;
+X  extern int top_base;
+X  extern int unlink_article;
+***************
+*** 563,569 ****
+X  extern int update_fork;
+X  extern int check_any_unread;
+X  extern int start_any_unread;
+- extern int notify_new_groups;
+X  extern int xindex_supported;
+X  extern int xuser_supported;
+X  extern int xspooldir_supported;
+--- 593,598 ----
+***************
+*** 573,581 ****
+--- 602,612 ----
+X  extern struct passwd *myentry;
+X  extern struct article_t *arts;
+X  extern struct group_t *active;
++ extern struct active_size_t *active_size;
+X  extern struct kill_t *killf;
+X  extern struct posted_t *posted;
+X  extern struct save_t *save;
++ extern struct spooldir_t *spooldirs;
+X  extern struct screen_t *screen;
+X  
+X  #ifdef POSIX_JOB_CONTROL
+diff -rcs ../1.14/feed.c ./feed.c
+*** ../1.14/feed.c	Tue Aug 11 21:23:04 1992
+--- ./feed.c	Fri Jul 24 18:59:53 1992
+***************
+*** 3,9 ****
+X   *  Module    : feed.c
+X   *  Author    : I.Lea
+X   *  Created   : 31-08-91
+!  *  Updated   : 18-06-92
+X   *  Notes     : provides same interface to mail,pipe,print and save commands
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : feed.c
+X   *  Author    : I.Lea
+X   *  Created   : 31-08-91
+!  *  Updated   : 23-07-92
+X   *  Notes     : provides same interface to mail,pipe,print and save commands
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 73,86 ****
+X  	 */
+X  	if (num_of_tagged_arts) {
+X  		ch_default = 'T';
+! 	} else if (num_of_hot_arts) {
+X  		ch_default = 'h';
+X  	} else if (num_of_responses (b)) {
+X  		ch_default = 't';
+X  	}
+X  
+! 	if ((save_archive_name == FALSE || arts[respnum].archive == (char *) 0) ||
+! 		(save_archive_name == TRUE && function != FEED_SAVE) ||
+X  		ch_default == 'T') {
+X  		do {
+X  			sprintf (msg, "%s%s%c", prompt, txt_art_thread_regex_tag, ch_default);
+--- 73,88 ----
+X  	 */
+X  	if (num_of_tagged_arts) {
+X  		ch_default = 'T';
+! 	} else if (num_of_hot_arts && default_auto_save == FALSE) {
+X  		ch_default = 'h';
+X  	} else if (num_of_responses (b)) {
+X  		ch_default = 't';
++ 	} else {
++ 		ch_default = 'a';
+X  	}
+X  
+! 	if ((default_auto_save == FALSE || arts[respnum].archive == (char *) 0) ||
+! 		(default_auto_save == TRUE && function != FEED_SAVE) ||
+X  		ch_default == 'T') {
+X  		do {
+X  			sprintf (msg, "%s%s%c", prompt, txt_art_thread_regex_tag, ch_default);
+***************
+*** 88,95 ****
+X  			MoveCursor (LINES, (int) strlen (msg)-1);
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (ch != ESC && ch != 'a' && ch != 't' && ch != 'T' && 
+! 			ch != 'h' && ch != 'p' && ch != 'q');
+X  	} else {
+X  		filename[0] = '\0';
+X  		ch = ch_default;
+--- 90,96 ----
+X  			MoveCursor (LINES, (int) strlen (msg)-1);
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (! strchr ("ahpqtT\033", ch));
+X  	} else {
+X  		filename[0] = '\0';
+X  		ch = ch_default;
+***************
+*** 194,200 ****
+X  			break;
+X  		case FEED_SAVE:		/* ask user for filename */
+X  			free_save_array ();
+! 			if ((save_archive_name == FALSE || arts[respnum].archive == (char *) 0)) {
+X  				sprintf (msg, txt_save_filename, default_save_file);
+X  				if (! prompt_string (msg, filename)) {
+X  					clear_message ();
+--- 195,201 ----
+X  			break;
+X  		case FEED_SAVE:		/* ask user for filename */
+X  			free_save_array ();
+! 			if ((default_auto_save == FALSE || arts[respnum].archive == (char *) 0)) {
+X  				sprintf (msg, txt_save_filename, default_save_file);
+X  				if (! prompt_string (msg, filename)) {
+X  					clear_message ();
+***************
+*** 244,251 ****
+X  						MoveCursor (LINES, (int) strlen (msg)-1);
+X  						if ((proc_ch = (char) ReadCh ()) == CR)
+X  							proc_ch = proc_ch_default;
+! 					} while (proc_ch != 'n' && proc_ch != 's' &&
+! 						 proc_ch != 'u' && proc_ch != 'U');
+X  				}
+X  			}
+X  			clear_message ();
+--- 245,255 ----
+X  						MoveCursor (LINES, (int) strlen (msg)-1);
+X  						if ((proc_ch = (char) ReadCh ()) == CR)
+X  							proc_ch = proc_ch_default;
+! 					} while (! strchr ("nqsuU\033", proc_ch));
+! 					if (proc_ch == 'q' || proc_ch == ESC) {	/* exit */
+! 						clear_message ();
+! 						return;
+! 					}
+X  				}
+X  			}
+X  			clear_message ();
+***************
+*** 472,479 ****
+--- 476,492 ----
+X  			break;
+X  	}
+X  
++ if (debug == 2) {
++ 	printf ("REDRAW=[%d]  ", redraw_screen);
++ 	fflush (stdout);
++ }
+X  	redraw_screen = mail_check ();	/* in case of sending to oneself */
+X  
++ if (debug == 2) {
++ 	printf ("REDRAW=[%d]", redraw_screen);
++ 	fflush (stdout);
++ 	sleep (2);
++ }
+X  	switch (function) {
+X  		case FEED_PIPE:
+X  			pclose (fp);		
+***************
+*** 499,504 ****
+--- 512,519 ----
+X  	if (level == PAGE_LEVEL) {
+X  		if (ch != 'a') {
+X  			note_page = art_open (arts[respnum].artnum, group_path);
++ 		} else if (force_screen_redraw) {
++ 			redraw_screen = TRUE;
+X  		}
+X  		note_end = orig_note_end;
+X  		note_page = orig_note_page;
+diff -rcs ../1.14/getline.c ./getline.c
+*** ../1.14/getline.c	Tue Aug 11 21:23:04 1992
+--- ./getline.c	Mon Jul 20 12:51:09 1992
+***************
+*** 3,9 ****
+X   *  Module    : getline.c
+X   *  Author    : Chris Thewalt & Iain Lea 
+X   *  Created   : 09-11-91
+!  *  Updated   : 29-03-92
+X   *  Notes     : emacs style line editing input package.  
+X   *  Copyright : (c) Copyright 1991-92 by Chris Thewalt & Iain Lea
+X   *              Permission to use, copy, modify, and distribute this
+--- 3,9 ----
+X   *  Module    : getline.c
+X   *  Author    : Chris Thewalt & Iain Lea 
+X   *  Created   : 09-11-91
+!  *  Updated   : 25-06-92
+X   *  Notes     : emacs style line editing input package.  
+X   *  Copyright : (c) Copyright 1991-92 by Chris Thewalt & Iain Lea
+X   *              Permission to use, copy, modify, and distribute this
+***************
+*** 140,151 ****
+X  			switch (c) {
+X  				case ESC: 			/* abort */
+X  					return (char *) 0;
+- 					break;
+X  				case '\n': 			/* newline */
+X  				case '\r':
+X  					gl_newline ();
+X  					return gl_buf;
+- 					break;
+X  				case CTRL_A:
+X  					gl_fixup (-1, 0);
+X  					break;
+--- 140,149 ----
+diff -rcs ../1.14/group.c ./group.c
+*** ../1.14/group.c	Tue Aug 11 21:23:06 1992
+--- ./group.c	Fri Aug  7 13:28:43 1992
+***************
+*** 3,9 ****
+X   *  Module    : group.c
+X   *  Author    : I.Lea & R.Skrenta
+X   *  Created   : 01-04-91
+!  *  Updated   : 20-06-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : group.c
+X   *  Author    : I.Lea & R.Skrenta
+X   *  Created   : 01-04-91
+!  *  Updated   : 07-08-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 30,40 ****
+X  static int len_subj;
+X  static char *spaces = "XXXX";
+X  
+! static int bld_sline();
+! static int draw_sline();
+X  
+X  #ifndef ART_ADJUST	/* what we do here is bizarre */
+! #define ART_ADJUST(n)	(show_only_unread \
+X  				? ((n) > 1 ? (n) : 0) \
+X  				: ((n) > 0 ? (n) - 1 : 0))
+X  #endif
+--- 30,40 ----
+X  static int len_subj;
+X  static char *spaces = "XXXX";
+X  
+! static int bld_sline ();
+! static int draw_sline ();
+X  
+X  #ifndef ART_ADJUST	/* what we do here is bizarre */
+! #define ART_ADJUST(n)	(active[my_group[cur_groupnum]].attribute.show_only_unread \
+X  				? ((n) > 1 ? (n) : 0) \
+X  				: ((n) > 0 ? (n) - 1 : 0))
+X  #endif
+***************
+*** 54,60 ****
+X  	char *p;
+X  	int ch;
+X  	int dummy = 0;
+! 	int flag, i, n;
+X  	int kill_state;
+X  	int old_top = 0;
+X  	int posted;
+--- 54,61 ----
+X  	char *p;
+X  	int ch;
+X  	int dummy = 0;
+! 	int flag, i;
+! 	int n = -1;
+X  	int kill_state;
+X  	int old_top = 0;
+X  	int posted;
+***************
+*** 64,73 ****
+X  	int xflag = 0;
+X   	struct art_stat_t sbuf;
+X  
+! 	active[my_group[cur_groupnum]].attribute.read = TRUE;
+X  
+X  	glob_group = group;
+X  	sav_groupnum = cur_groupnum;
+X  	
+X  	strcpy (group_path, group);			/* turn comp.unix.amiga into */
+X  	for (p = group_path; *p; p++)		/* comp/unix/amiga */
+--- 65,76 ----
+X  	int xflag = 0;
+X   	struct art_stat_t sbuf;
+X  
+! 	show_author = active[my_group[cur_groupnum]].attribute.show_author;
+! 	active[my_group[cur_groupnum]].attribute.read_during_session = TRUE;
+X  
+X  	glob_group = group;
+X  	sav_groupnum = cur_groupnum;
++ 	num_of_tagged_arts = 0;
+X  	
+X  	strcpy (group_path, group);			/* turn comp.unix.amiga into */
+X  	for (p = group_path; *p; p++)		/* comp/unix/amiga */
+***************
+*** 96,103 ****
+X  		index_point = 0;
+X  	}
+X  	
+X  	clear_note_area ();
+- 
+X  	show_group_page (group);
+X  
+X  	while (TRUE) {
+--- 99,106 ----
+X  		index_point = 0;
+X  	}
+X  	
++ 	set_subj_from_size (COLS);
+X  	clear_note_area ();
+X  	show_group_page (group);
+X  
+X  	while (TRUE) {
+***************
+*** 216,241 ****
+X  				show_group_page (group);
+X  				break;
+X  
+! 			case '\t':
+X   				space_mode = TRUE;
+! 
+! 				if (index_point < 0
+! 				|| (n=next_unread((int) base[index_point]))<0) {
+! 					for (i = cur_groupnum+1 ; i < group_top ; i++)
+! 						if (unread[i] > 0)
+X  							break;
+! 					if (i >= group_top)
+X  						goto group_done;
+! 
+X  					cur_groupnum = i;
+X  					index_point = -3;
+X  					goto group_done;
+X  				}
+! 				index_point = show_page(n, &dummy, group, group_path);
+! 				if (index_point < 0)
+X  					goto group_done;
+X  				clear_note_area ();
+! 				show_group_page(group);
+X  				break;
+X  	
+X  			case ' ':		/* page down */
+--- 219,251 ----
+X  				show_group_page (group);
+X  				break;
+X  
+! 			case '\t':	/* goto next unread article/group */
+! tab_pressed:			
+X   				space_mode = TRUE;
+! 				if (index_point < 0) {
+! 					n == -1;
+! 				} else {
+! 					n = next_unread ((int) base[index_point]);
+! 				}	
+! 				if (index_point < 0 || n < 0) {
+! 					for (i = cur_groupnum+1 ; i < group_top ; i++) {
+! 						if (active[my_group[i]].unread > 0) {
+X  							break;
+! 						}
+! 					}		
+! 					if (i >= group_top) {
+X  						goto group_done;
+! 					}
+X  					cur_groupnum = i;
+X  					index_point = -3;
+X  					goto group_done;
+X  				}
+! 				index_point = show_page (n, &dummy, group, group_path);
+! 				if (index_point < 0) {
+X  					goto group_done;
++ 				}	
+X  				clear_note_area ();
+! 				show_group_page (group);
+X  				break;
+X  	
+X  			case ' ':		/* page down */
+***************
+*** 288,296 ****
+X  				n = (int) base[index_point];
+X  				old_artnum = arts[n].artnum;
+X  				if (kill_art_menu (group, (int) base[index_point])) {
+! 					kill_any_articles (group);
+X  					make_threads (FALSE);
+! 					find_base (show_only_unread);
+X  					index_point = find_new_pos (old_top, old_artnum, index_point);
+X  				}
+X  				show_group_page (group);
+--- 298,306 ----
+X  				n = (int) base[index_point];
+X  				old_artnum = arts[n].artnum;
+X  				if (kill_art_menu (group, (int) base[index_point])) {
+! 					kill_any_articles (my_group[cur_groupnum]);
+X  					make_threads (FALSE);
+! 					find_base (my_group[cur_groupnum]);
+X  					index_point = find_new_pos (old_top, old_artnum, index_point);
+X  				}
+X  				show_group_page (group);
+***************
+*** 331,341 ****
+X  					erase_subject_arrow();
+X  #endif					
+X  					index_point++;
+! 					show_group_page(group);
+X  				} else {
+! 					erase_subject_arrow();
+X  					index_point++;
+! 					draw_subject_arrow();
+X  				}
+X  				break;
+X  
+--- 341,351 ----
+X  					erase_subject_arrow();
+X  #endif					
+X  					index_point++;
+! 					show_group_page (group);
+X  				} else {
+! 					erase_subject_arrow ();
+X  					index_point++;
+! 					draw_subject_arrow ();
+X  				}
+X  				break;
+X  
+***************
+*** 421,427 ****
+X  
+X  				i = (ch == 'a');
+X  
+! 				n = search_author(show_only_unread, (int) base[index_point], i);
+X  				if (n < 0)
+X  					break;
+X  
+--- 431,437 ----
+X  
+X  				i = (ch == 'a');
+X  
+! 				n = search_author (my_group[cur_groupnum], (int) base[index_point], i);
+X  				if (n < 0)
+X  					break;
+X  
+***************
+*** 443,456 ****
+X  				break;
+X  				
+X  			case 'c':	/* catchup - mark all articles as read */
+! 			    if (!confirm_action || prompt_yn (LINES, txt_mark_all_read, 'y')) {
+X  					for (n = 0; n < top; n++) {
+X  						arts[n].unread = ART_READ;
+X  					}
+! 					if (cur_groupnum + 1 < group_top) {
+! 						cur_groupnum++;
+! 					}
+! 					goto group_done;
+X  			    }
+X  			    break;
+X  
+--- 453,471 ----
+X  				break;
+X  				
+X  			case 'c':	/* catchup - mark all articles as read */
+! 			case 'C':	/* catchup - and goto next unread group */
+! 			    if (! confirm_action || prompt_yn (LINES, txt_mark_all_read, 'y')) {
+X  					for (n = 0; n < top; n++) {
+X  						arts[n].unread = ART_READ;
+X  					}
+! 					if (ch == 'c') {
+! 						if (cur_groupnum + 1 < group_top) {
+! 							cur_groupnum++;
+! 						}
+! 						goto group_done;
+! 					} else {
+! 						goto tab_pressed;
+! 					}	
+X  			    }
+X  			    break;
+X  
+***************
+*** 484,497 ****
+X  					break;
+X  				}
+X  				for (i = (int) base[index_point]; i >= 0; i = arts[i].thread) {
+! 					arts[i].unread = ART_READ;
+! 				}	
+! 				bld_sline(index_point);
+! 				draw_sline(index_point, FALSE);
+! 				if (index_point + 1 < top_base)
+! 					goto group_down;
+! 				draw_subject_arrow();
+! 				info_message(txt_end_of_arts);
+X  				break;
+X  
+X  			case 'l':	/* list articles within current thread */
+--- 499,537 ----
+X  					break;
+X  				}
+X  				for (i = (int) base[index_point]; i >= 0; i = arts[i].thread) {
+! 					if (arts[i].unread != ART_READ) {
+! 						arts[i].unread = ART_READ;
+! 						if (arts[i].hot) {
+! 							if (num_of_hot_arts) {
+! 								num_of_hot_arts--;
+! 							}
+! 						}
+! 					}
+! 				}
+! 				show_group_title (TRUE);	
+! 				bld_sline (index_point);
+! 				draw_sline (index_point, FALSE);
+! 
+! 				n = next_unread (next_response ((int) base[index_point]));
+! 				if (n < 0) {
+! 					draw_subject_arrow ();
+! 					info_message (txt_no_next_unread_art);
+! 					break;
+! 				}
+! 
+! 				if ((n = which_thread (n)) < 0) {
+! 					error_message ("Internal error: K which_thread < 0", "");
+! 					break;
+! 				}
+! 
+! 				if (n < first_subj_on_screen || n >= last_subj_on_screen) {
+! 					index_point = n;
+! 					show_group_page (group);
+! 				} else {
+! 					erase_subject_arrow ();
+! 					index_point = n;
+! 					draw_subject_arrow ();
+! 				}
+X  				break;
+X  
+X  			case 'l':	/* list articles within current thread */
+***************
+*** 528,547 ****
+X  					n = (int) base[index_point];
+X  					old_artnum = arts[n].artnum;
+X  				}
+! 				n = sort_art_type;
+X  				kill_state = change_rcfile (group, TRUE);
+! 				if (kill_state == NO_KILLING && n != sort_art_type) {
+X  					make_threads (TRUE);
+! 					find_base (show_only_unread);
+X  				}
+X  				index_point = find_new_pos (old_top, old_artnum, index_point);
+X  				show_group_page (group);
+X  			    break;
+X  
+! 			case 'n':	/* next group */
+! 				clear_message();
+X  				if (cur_groupnum + 1 >= group_top)
+! 					info_message(txt_no_more_groups);
+X  				else {
+X  					cur_groupnum++;
+X  					index_point = -3;
+--- 568,588 ----
+X  					n = (int) base[index_point];
+X  					old_artnum = arts[n].artnum;
+X  				}
+! 				n = default_sort_art_type;
+X  				kill_state = change_rcfile (group, TRUE);
+! 				if (kill_state == NO_KILLING && n != default_sort_art_type) {
+X  					make_threads (TRUE);
+! 					find_base (my_group[cur_groupnum]);
+X  				}
++ 				set_subj_from_size (COLS);
+X  				index_point = find_new_pos (old_top, old_artnum, index_point);
+X  				show_group_page (group);
+X  			    break;
+X  
+! 			case 'n':	/* goto next group */
+! 				clear_message ();
+X  				if (cur_groupnum + 1 >= group_top)
+! 					info_message (txt_no_more_groups);
+X  				else {
+X  					cur_groupnum++;
+X  					index_point = -3;
+***************
+*** 550,556 ****
+X  				}
+X  				break;
+X  
+! 			case 'N':	/* go to next unread article */
+X  				if (index_point < 0) {
+X  					info_message(txt_no_next_unread_art);
+X  					break;
+--- 591,597 ----
+X  				}
+X  				break;
+X  
+! 			case 'N':	/* goto next unread article */
+X  				if (index_point < 0) {
+X  					info_message(txt_no_next_unread_art);
+X  					break;
+***************
+*** 627,643 ****
+X  	 			 */
+X   				i = -1;
+X   				if (index_point >= 0) {
+!  					if (show_only_unread || new_responses(index_point))
+X   						i = base[index_point];
+!  					else if ((n = prev_unread(base[index_point])) >= 0)
+X   						i = n;
+!  					else if ((n = next_unread(base[index_point])) >= 0)
+X   						i = n;
+X   				}
+!  				show_only_unread = (show_only_unread ? FALSE : TRUE);
+!  				auto_select_articles (group);
+!  				find_base (show_only_unread);
+!  				if (i >= 0 && (n = which_thread(i)) >= 0)
+X   					index_point = n;
+X   				else if (top_base > 0)
+X   					index_point = top_base - 1;
+--- 668,687 ----
+X  	 			 */
+X   				i = -1;
+X   				if (index_point >= 0) {
+!  					if (active[my_group[cur_groupnum]].attribute.show_only_unread || 
+!  					    new_responses (index_point)) {
+X   						i = base[index_point];
+!  					} else if ((n = prev_unread (base[index_point])) >= 0) {
+X   						i = n;
+!  					} else if ((n = next_unread (base[index_point])) >= 0) {
+X   						i = n;
++  					}	
+X   				}
+!  				active[my_group[cur_groupnum]].attribute.show_only_unread = 
+!  					!active[my_group[cur_groupnum]].attribute.show_only_unread;
+!  				auto_select_articles (my_group[cur_groupnum]);
+!  				find_base (my_group[cur_groupnum]);
+!  				if (i >= 0 && (n = which_thread (i)) >= 0)
+X   					index_point = n;
+X   				else if (top_base > 0)
+X   					index_point = top_base - 1;
+***************
+*** 671,679 ****
+X  
+X  			case 'u':	/* unthread/thread articles */
+X   				if (index_point >= 0) {
+! 					thread_arts = !thread_arts;
+X  					make_threads (TRUE);
+! 					find_base (show_only_unread);
+X  					show_group_page (group);
+X  				}
+X  				break;
+--- 715,724 ----
+X  
+X  			case 'u':	/* unthread/thread articles */
+X   				if (index_point >= 0) {
+! 					active[my_group[cur_groupnum]].attribute.thread_arts = 
+! 						!active[my_group[cur_groupnum]].attribute.thread_arts;
+X  					make_threads (TRUE);
+! 					find_base (my_group[cur_groupnum]);
+X  					show_group_page (group);
+X  				}
+X  				break;
+***************
+*** 681,687 ****
+X  			case 'U':	/* untag all articles */
+X   				if (index_point >= 0) {
+X  					untag_all_articles ();
+! 					update_group_page (group);
+X  				}
+X  				break;
+X  
+--- 726,732 ----
+X  			case 'U':	/* untag all articles */
+X   				if (index_point >= 0) {
+X  					untag_all_articles ();
+! 					update_group_page ();
+X  				}
+X  				break;
+X  
+***************
+*** 720,725 ****
+--- 765,775 ----
+X  				}
+X  				n = 0;
+X  				for (i = (int) base[index_point] ; i != -1 ; i = arts[i].thread) {
++ 					if (arts[i].unread == ART_READ) {
++ 						if (arts[i].hot && num_of_hot_arts) {
++ 							num_of_hot_arts++;
++ 						}
++ 					}
+X  					arts[i].unread = ART_UNREAD;
+X  					++n;
+X  					if (ch == 'z')
+***************
+*** 726,731 ****
+--- 776,782 ----
+X  						break;
+X  				}
+X  				assert (n > 0);
++ 				show_group_title (TRUE);
+X  				bld_sline(index_point);
+X  				draw_sline(index_point, FALSE);
+X  				draw_subject_arrow();
+***************
+*** 769,775 ****
+X  			case '@':	/* reverse selections */
+X  				for (i=0; i<top; ++i)
+X  					arts[i].hot = (arts[i].hot ? 0 : 1);
+! 				update_group_page (group);
+X  				break;
+X  
+X    			case '~':	/* undo selections */
+--- 820,826 ----
+X  			case '@':	/* reverse selections */
+X  				for (i=0; i<top; ++i)
+X  					arts[i].hot = (arts[i].hot ? 0 : 1);
+! 				update_group_page ();
+X  				break;
+X  
+X    			case '~':	/* undo selections */
+***************
+*** 778,784 ****
+X   					arts[i].zombie = 0;
+X   				}
+X   				xflag = 0;
+!   				update_group_page(group);
+X    				break;
+X    
+X   			case '=':	/* select matching patterns */
+--- 829,835 ----
+X   					arts[i].zombie = 0;
+X   				}
+X   				xflag = 0;
+!   				update_group_page ();
+X    				break;
+X    
+X   			case '=':	/* select matching patterns */
+***************
+*** 814,820 ****
+X   					++flag;
+X   				}
+X   				if (flag)
+!  					update_group_page (group);
+X   				break;
+X  
+X  			case ';':	/* make all unread hot if 1 is hot */
+--- 865,871 ----
+X   					++flag;
+X   				}
+X   				if (flag)
+!  					update_group_page ();
+X   				break;
+X  
+X  			case ';':	/* make all unread hot if 1 is hot */
+***************
+*** 843,850 ****
+X  					}
+X  				}
+X  
+! 				if (show_only_unread) {
+! 					find_base (show_only_unread);
+X  				}
+X  
+X  				xflag = 1;
+--- 894,901 ----
+X  					}
+X  				}
+X  
+! 				if (active[my_group[cur_groupnum]].attribute.show_only_unread) {
+! 					find_base (my_group[cur_groupnum]);
+X  				}
+X  
+X  				xflag = 1;
+***************
+*** 854,865 ****
+X  				break;
+X  
+X  			case '+':	/* perform auto-selection on group */
+! 				if (auto_select_articles (group) == 0)
+! 					break;
+! 				update_group_page (group);
+X  				break;
+X  
+! 			X_undo:
+X  				for (i=0; i<top; ++i) {
+X  					if (arts[i].unread == ART_READ
+X  					    && arts[i].zombie == 1) {
+--- 905,916 ----
+X  				break;
+X  
+X  			case '+':	/* perform auto-selection on group */
+! 				if (auto_select_articles (my_group[cur_groupnum])) {
+! 					update_group_page ();
+! 				}
+X  				break;
+X  
+! X_undo:
+X  				for (i=0; i<top; ++i) {
+X  					if (arts[i].unread == ART_READ
+X  					    && arts[i].zombie == 1) {
+***************
+*** 868,875 ****
+X  					}
+X  				}
+X  
+! 				if (show_only_unread) {
+! 					find_base (show_only_unread);
+X  				}
+X  
+X  				xflag = 0;
+--- 919,926 ----
+X  					}
+X  				}
+X  
+! 				if (active[my_group[cur_groupnum]].attribute.show_only_unread) {
+! 					find_base (my_group[cur_groupnum]);
+X  				}
+X  
+X  				xflag = 0;
+***************
+*** 916,922 ****
+X  		}
+X  	}
+X  	
+! 	unread[groupnum] = sum;
+X  }
+X  
+X  
+--- 967,973 ----
+X  		}
+X  	}
+X  	
+! 	active[my_group[groupnum]].unread = sum;
+X  }
+X  
+X  
+***************
+*** 925,932 ****
+X  {
+X  #ifndef INDEX_DAEMON
+X  
+! 	char buf[LEN];
+! 	int i, art_cnt = 0;
+X  
+X  	set_signals_group ();
+X  	
+--- 976,982 ----
+X  {
+X  #ifndef INDEX_DAEMON
+X  
+! 	int i;
+X  
+X  	set_signals_group ();
+X  	
+***************
+*** 937,962 ****
+X  	CleartoEOLN ();
+X  #endif
+X  
+! 	if (show_only_unread) {
+! 		for (i = 0 ; i < top_base ; i++) {
+! 			art_cnt += new_responses (i);
+! 		}	
+! 	} else {
+! 		for (i = 0 ; i < top ; i++) {
+! 			if (! IGNORE_ART(i)) {
+! 				++art_cnt;
+! 			}
+! 		}		
+! 	}
+! 
+! 	if (active[my_group[cur_groupnum]].attribute.thread && thread_arts) {
+! 		sprintf (buf, "%s (%dT %dA %dK %dH)", group, top_base, art_cnt,
+! 			num_of_killed_arts, num_of_hot_arts);
+! 	} else {
+! 		sprintf (buf, "%s (%dU %dK %dH)", group, art_cnt, 
+! 			num_of_killed_arts, num_of_hot_arts);
+! 	}
+! 	show_title (buf);
+X  
+X  #ifndef USE_CLEARSCREEN
+X  	MoveCursor (1, 0);
+--- 987,993 ----
+X  	CleartoEOLN ();
+X  #endif
+X  
+! 	show_group_title (FALSE);
+X  
+X  #ifndef USE_CLEARSCREEN
+X  	MoveCursor (1, 0);
+***************
+*** 1025,1050 ****
+X  }
+X  
+X  
+! void update_group_page(group)
+! char *group;
+X  {
+X  #ifndef INDEX_DAEMON
+X  	register int i;
+X  
+X  	for (i = first_subj_on_screen; i < last_subj_on_screen; ++i) {
+! 		bld_sline(i);
+! 		draw_sline(i, FALSE);
+X  	}
+X  
+X  	if (top_base <= 0)
+X  		return;
+X  
+! 	draw_subject_arrow();
+X  #endif /* INDEX_DAEMON */
+X  }
+X  
+X  
+! void draw_subject_arrow()
+X  {
+X  	MoveCursor (INDEX2LNUM(index_point), 0);
+X  
+--- 1056,1080 ----
+X  }
+X  
+X  
+! void update_group_page ()
+X  {
+X  #ifndef INDEX_DAEMON
+X  	register int i;
+X  
+X  	for (i = first_subj_on_screen; i < last_subj_on_screen; ++i) {
+! 		bld_sline (i);
+! 		draw_sline (i, FALSE);
+X  	}
+X  
+X  	if (top_base <= 0)
+X  		return;
+X  
+! 	draw_subject_arrow ();
+X  #endif /* INDEX_DAEMON */
+X  }
+X  
+X  
+! void draw_subject_arrow ()
+X  {
+X  	MoveCursor (INDEX2LNUM(index_point), 0);
+X  
+***************
+*** 1059,1065 ****
+X  	MoveCursor (LINES, 0);
+X  }
+X  
+! void erase_subject_arrow()
+X  {
+X  	MoveCursor (INDEX2LNUM(index_point), 0);
+X  
+--- 1089,1095 ----
+X  	MoveCursor (LINES, 0);
+X  }
+X  
+! void erase_subject_arrow ()
+X  {
+X  	MoveCursor (INDEX2LNUM(index_point), 0);
+X  
+***************
+*** 1183,1189 ****
+X  void set_subj_from_size (num_cols)
+X  	int num_cols;
+X  {
+! 	int size = 0;
+X  	
+X  	if (show_author == SHOW_FROM_BOTH) {
+X  		max_subj = (num_cols / 2) - 2;
+--- 1213,1221 ----
+X  void set_subj_from_size (num_cols)
+X  	int num_cols;
+X  {
+! 	int i, size = 0;
+! 	
+! 	i = my_group[cur_groupnum];
+X  	
+X  	if (show_author == SHOW_FROM_BOTH) {
+X  		max_subj = (num_cols / 2) - 2;
+***************
+*** 1214,1219 ****
+--- 1246,1278 ----
+X  
+X  void toggle_subject_from ()
+X  {
++ 	int i;
++ int tmp;
++ 	
++ 	i = my_group[cur_groupnum];
++ 
++ tmp = show_author;
++ 	
++ 	if (active[i].attribute.show_author != SHOW_FROM_NONE) {
++ 		if (show_author != SHOW_FROM_NONE) {
++ 			show_author = SHOW_FROM_NONE;
++ 		} else {
++ 			show_author = active[i].attribute.show_author;
++ 		}
++ 	} else {
++ 		if (show_author + 1 > SHOW_FROM_BOTH) {
++ 			show_author = SHOW_FROM_NONE;
++ 		} else {
++ 			show_author++;
++ 		}
++ 	}
++ 
++ if (debug == 2) {
++ sprintf (msg, "Show before=[%d]  after=[%d]", tmp, show_author);
++ error_message (msg, "");
++ }
++ 
++ #if 0
+X  	if (default_show_author != SHOW_FROM_NONE) {
+X  		if (show_author != SHOW_FROM_NONE) {
+X  			show_author = SHOW_FROM_NONE;
+***************
+*** 1227,1232 ****
+--- 1286,1293 ----
+X  			show_author++;
+X  		}
+X  	}
++ #endif
++ 
+X  	set_subj_from_size (COLS);
+X  }
+X  
+***************
+*** 1235,1241 ****
+X   *
+X   * WARNING: the routine is tightly coupled with draw_sline() in the sense
+X   * that draw_sline() expects bld_sline() to place the article mark
+!  * (READ_ART_MARK, HOT_ART_MARK, etc) at MARK_OFFSET in the screen[].col.
+X   * So, if you change the format used in this routine, be sure to check
+X   * that the value of MARK_OFFSET is still correct. 
+X   * Yes, this is somewhat kludgy.
+--- 1296,1302 ----
+X   *
+X   * WARNING: the routine is tightly coupled with draw_sline() in the sense
+X   * that draw_sline() expects bld_sline() to place the article mark
+!  * (read_art_makr, hot_art_mark, etc) at MARK_OFFSET in the screen[].col.
+X   * So, if you change the format used in this routine, be sure to check
+X   * that the value of MARK_OFFSET is still correct. 
+X   * Yes, this is somewhat kludgy.
+***************
+*** 1256,1262 ****
+X  	respnum = (int) base[i];
+X  	
+X  	stat_thread(i, &sbuf);
+! 	if (show_only_unread)
+X  		n = sbuf.unread + sbuf.seen;
+X  	else
+X  		n = sbuf.total;
+--- 1317,1323 ----
+X  	respnum = (int) base[i];
+X  	
+X  	stat_thread(i, &sbuf);
+! 	if (active[my_group[cur_groupnum]].attribute.show_only_unread)
+X  		n = sbuf.unread + sbuf.seen;
+X  	else
+X  		n = sbuf.total;
+***************
+*** 1328,1334 ****
+X  	/* it is somewhat less efficient to go back and redo that art mark
+X  	 * if hot, but it is quite readable as to what is happening 
+X  	 */
+! 	if (screen[j].col[k] == HOT_ART_MARK) {
+X  		MoveCursor (INDEX2LNUM(i), k);
+X  		ToggleInverse ();
+X  		fputc (screen[j].col[k], stdout);
+--- 1389,1395 ----
+X  	/* it is somewhat less efficient to go back and redo that art mark
+X  	 * if hot, but it is quite readable as to what is happening 
+X  	 */
+! 	if (screen[j].col[k] == hot_art_mark) {
+X  		MoveCursor (INDEX2LNUM(i), k);
+X  		ToggleInverse ();
+X  		fputc (screen[j].col[k], stdout);
+***************
+*** 1339,1342 ****
+--- 1400,1444 ----
+X  	
+X  #endif /* INDEX_DAEMON */
+X  	return(0);
++ }
++ 
++ 
++ void show_group_title (clear_title)
++ 	int clear_title;
++ {
++ #ifndef INDEX_DAEMON
++ 
++ 	char buf[PATH_LEN];
++ 	register int i, art_cnt = 0;
++ 	
++ 	if (active[my_group[cur_groupnum]].attribute.show_only_unread) {
++ 		for (i = 0 ; i < top_base ; i++) {
++ 			art_cnt += new_responses (i);
++ 		}	
++ 	} else {
++ 		for (i = 0 ; i < top ; i++) {
++ 			if (! IGNORE_ART(i)) {
++ 				++art_cnt;
++ 			}
++ 		}		
++ 	}
++ 
++ 	if (active[my_group[cur_groupnum]].attribute.thread_arts && default_thread_arts) {
++ 		sprintf (buf, "%s (%dT %dA %dK %dH)", 
++ 			active[my_group[cur_groupnum]].name, top_base, 
++ 			art_cnt, num_of_killed_arts, num_of_hot_arts);
++ 	} else {
++ 		sprintf (buf, "%s (%dU %dK %dH)", 
++ 			active[my_group[cur_groupnum]].name,
++ 			art_cnt, num_of_killed_arts, num_of_hot_arts);
++ 	}
++ 
++ 	if (clear_title) {
++ 		MoveCursor (0, 0);
++ 		CleartoEOLN ();
++ 	}
++ 	
++ 	show_title (buf);
++ 
++ #endif /* INDEX_DAEMON */
+X  }
+Files ../1.14/hashstr.c and ./hashstr.c are identical
+diff -rcs ../1.14/help.c ./help.c
+*** ../1.14/help.c	Tue Aug 11 21:23:07 1992
+--- ./help.c	Sun Jul 26 15:12:00 1992
+***************
+*** 3,9 ****
+X   *  Module    : help.c
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 20-06-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : help.c
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 26-07-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 35,40 ****
+--- 35,41 ----
+X  	txt_help_M,
+X  	txt_help_n,
+X  	txt_help_g_q,
++ 	txt_help_g_r,
+X  	txt_help_s,
+X  	txt_help_S,
+X  	txt_help_v,
+***************
+*** 79,84 ****
+--- 80,86 ----
+X  	txt_help_b,
+X  	txt_help_bug_report,
+X  	txt_help_c,
++ 	txt_help_cC,
+X  	txt_help_d,
+X  	txt_help_g,
+X  	txt_help_h,
+***************
+*** 195,200 ****
+--- 197,209 ----
+X  	(char *) 0
+X  };
+X  
++ static char *info_title;
++ static char **info_help;
++ static int cur_page;
++ static int group_len = 0;
++ static int info_type;
++ static int max_page;
++ static int pos_help;
+X  
+X  void show_info_page (type, help, title)
+X  	int type; 
+***************
+*** 201,219 ****
+X  	char *help[];
+X  	char *title;
+X  {
+- 	char buf[LEN];
+X  	char ch;
+X  	int i, len;
+- 	int group_len = 0;
+X  	int old_page = 0;
+- 	int cur_page = 1;
+- 	int max_page = 1;
+- 	int pos_help = 0;
+X  
+X  	if (NOTESLINES <= 0) {
+X  		return;
+X  	}
+X  
+X  	/*
+X  	 *  find how many elements in array
+X  	 */
+--- 210,233 ----
+X  	char *help[];
+X  	char *title;
+X  {
+X  	char ch;
+X  	int i, len;
+X  	int old_page = 0;
+X  
+X  	if (NOTESLINES <= 0) {
+X  		return;
+X  	}
+X  
++ 	set_signals_help ();
++ 
++ 	cur_page = 1;
++ 	max_page = 1;
++ 	pos_help = 0;
++ 	
++ 	info_help = help;
++ 	info_type = type;
++ 	info_title = title;
++ 	
+X  	/*
+X  	 *  find how many elements in array
+X  	 */
+***************
+*** 237,264 ****
+X  
+X  	while (1) {
+X  		if (cur_page != old_page) {
+! 			ClearScreen ();
+! 			sprintf (buf, title, cur_page, max_page);
+! 			center_line (0, TRUE, buf);
+! 			MoveCursor (INDEX_TOP, 0);
+! 
+! 			if (type == HELP_INFO) { 
+! 				for (i=pos_help ; i < (pos_help + NOTESLINES) && help[i] ; i++) {
+! 					fputs (help[i], stdout);
+! 				}
+! 			} else {
+! 				for (i=pos_help ; i < (pos_help + NOTESLINES) && posted[i].date[0] ; i++) {
+! 					sprintf (msg, "%8s  %c  %-*s  %s",
+! 						posted[i].date, posted[i].action,  
+! 						group_len, posted[i].group, posted[i].subj);
+! 						msg[COLS-2] = '\0';
+! 					printf ("%s\r\n", msg);
+! 				}
+! 			}
+! 		}
+! 
+! 		if (cur_page != old_page) {
+! 			center_line (LINES, FALSE, txt_hit_space_for_more);
+X  		}
+X  
+X  		old_page = cur_page;
+--- 251,257 ----
+X  
+X  	while (1) {
+X  		if (cur_page != old_page) {
+! 			display_info_page ();
+X  		}
+X  
+X  		old_page = cur_page;
+***************
+*** 269,324 ****
+X  				switch (get_arrow_key ()) {
+X  					case KEYMAP_UP:
+X  					case KEYMAP_PAGE_UP:
+! 						if (cur_page > 1) {
+! 							cur_page--;
+! 							pos_help = (cur_page-1)*NOTESLINES;
+! 						}
+X  						break;
+X  
+X  					case KEYMAP_DOWN:
+X  					case KEYMAP_PAGE_DOWN:
+! 						if (cur_page < max_page) {
+! 							pos_help = cur_page*NOTESLINES;
+! 							cur_page++;
+! 						}
+X  						break;
+X  
+X  					case KEYMAP_HOME:
+! 						if (cur_page != 1) {
+! 							cur_page = 1;
+! 							pos_help = 0;
+! 						}
+X  						break;
+X  					
+X  					case KEYMAP_END:
+! 						if (cur_page != max_page) {
+! 							cur_page = max_page;
+! 							pos_help = (max_page-1) * NOTESLINES;
+! 						}
+X  						break;
+X  				}
+X  				break;
+X  
+X  			case ctrl('D'):			/* page down */
+X  			case ' ':
+X  			case 'j':
+X  				if (cur_page < max_page) {
+X  					pos_help = cur_page*NOTESLINES;
+X  					cur_page++;
+! 				}
+X  				break;
+X  			
+X  			case ctrl('U'):			/* page up */
+X  			case 'b':
+X  			case 'k':
+X  				if (cur_page > 1) {
+X  					cur_page--;
+X  					pos_help = (cur_page-1)*NOTESLINES;
+! 				}
+X  				break;
+X  
+X  			case ctrl('R'):			/* Home */
+X  			case 'g':
+X  				if (cur_page != 1) {
+X  					cur_page = 1;
+X  					pos_help = 0;
+--- 262,316 ----
+X  				switch (get_arrow_key ()) {
+X  					case KEYMAP_UP:
+X  					case KEYMAP_PAGE_UP:
+! 						goto help_page_up;
+X  						break;
+X  
+X  					case KEYMAP_DOWN:
+X  					case KEYMAP_PAGE_DOWN:
+! 						goto help_page_down;
+X  						break;
+X  
+X  					case KEYMAP_HOME:
+! 						goto help_home;
+X  						break;
+X  					
+X  					case KEYMAP_END:
+! 						goto help_end;
+X  						break;
+X  				}
+X  				break;
+X  
+X  			case ctrl('D'):			/* page down */
++ 			case ctrl('F'):			/* vi style */
+X  			case ' ':
+X  			case 'j':
++ help_page_down:
+X  				if (cur_page < max_page) {
+X  					pos_help = cur_page*NOTESLINES;
+X  					cur_page++;
+! 				} else {
+! 					pos_help = 0;
+! 					cur_page = 1;
+! 				}				
+X  				break;
+X  			
+X  			case ctrl('U'):			/* page up */
++ 			case ctrl('B'):			/* vi style */
+X  			case 'b':
+X  			case 'k':
++ help_page_up:
+X  				if (cur_page > 1) {
+X  					cur_page--;
+X  					pos_help = (cur_page-1)*NOTESLINES;
+! 				} else {
+! 					pos_help = (max_page-1) * NOTESLINES;
+! 					cur_page = max_page;
+! 				}				
+X  				break;
+X  
+X  			case ctrl('R'):			/* Home */
+X  			case 'g':
++ help_home:
+X  				if (cur_page != 1) {
+X  					cur_page = 1;
+X  					pos_help = 0;
+***************
+*** 327,332 ****
+--- 319,325 ----
+X  
+X  			case '$':				/* End */
+X  			case 'G':
++ help_end:
+X  				if (cur_page != max_page) {
+X  					cur_page = max_page;
+X  					pos_help = (max_page-1) * NOTESLINES;
+***************
+*** 340,343 ****
+--- 333,364 ----
+X  				return;
+X  		}	
+X  	}
++ }
++ 
++ 
++ void display_info_page ()
++ {
++ 	char buf[PATH_LEN];
++ 	int i;
++ 	
++ 	ClearScreen ();
++ 	sprintf (buf, info_title, cur_page, max_page);
++ 	center_line (0, TRUE, buf);
++ 	MoveCursor (INDEX_TOP, 0);
++ 
++ 	if (info_type == HELP_INFO) { 
++ 		for (i=pos_help ; i < (pos_help + NOTESLINES) && info_help[i] ; i++) {
++ 			fputs (info_help[i], stdout);
++ 		}
++ 	} else {
++ 		for (i=pos_help ; i < (pos_help + NOTESLINES) && posted[i].date[0] ; i++) {
++ 			sprintf (buf, "%8s  %c  %-*s  %s",
++ 				posted[i].date, posted[i].action,  
++ 				group_len, posted[i].group, posted[i].subj);
++ 				buf[COLS-2] = '\0';
++ 			printf ("%s\r\n", buf);
++ 		}
++ 	}
++ 
++ 	center_line (LINES, FALSE, txt_hit_space_for_more);
+X  }
+diff -rcs ../1.14/inews.c ./inews.c
+*** ../1.14/inews.c	Tue Aug 11 21:23:07 1992
+--- ./inews.c	Mon Jul 27 06:55:29 1992
+***************
+*** 3,9 ****
+X   *  Module    : inews.c
+X   *  Author    : I.Lea
+X   *  Created   : 17-03-92
+!  *  Updated   : 20-06-92
+X   *  Notes     : NNTP builtin version of inews
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : inews.c
+X   *  Author    : I.Lea
+X   *  Created   : 17-03-92
+!  *  Updated   : 02-07-92
+X   *  Notes     : NNTP builtin version of inews
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 14,20 ****
+X  
+X  #include	"tin.h"
+X  
+! #if defined(BSD) || defined(RS6000)
+X  #	ifdef apollo
+X  #		include	</bsd4.3/usr/include/netdb.h>
+X  #	else
+--- 14,20 ----
+X  
+X  #include	"tin.h"
+X  
+! #if defined(BSD) || defined(RS6000) || defined(sinix)
+X  #	ifdef apollo
+X  #		include	</bsd4.3/usr/include/netdb.h>
+X  #	else
+***************
+*** 63,69 ****
+X  	 * Send Path: and From: article headers
+X  	 */
+X  #ifdef NNTP_INEWS_GATEWAY
+! 	sprintf (line, "Path: %s", userid);
+X  #else
+X  	sprintf (line, "Path: %s!%s", host_name, userid);
+X  #endif	
+--- 63,73 ----
+X  	 * Send Path: and From: article headers
+X  	 */
+X  #ifdef NNTP_INEWS_GATEWAY
+! 	if (*(NNTP_INEWS_GATEWAY)) {
+! 		sprintf (line, "Path: %s", userid);
+! 	} else {	
+! 		sprintf (line, "Path: %s!%s", host_name, userid);
+! 	}
+X  #else
+X  	sprintf (line, "Path: %s!%s", host_name, userid);
+X  #endif	
+***************
+*** 110,158 ****
+X  #ifndef INDEX_DAEMON
+X  
+X  	char host[PATH_LEN];
+! 
+! #ifdef NNTP_INEWS_GATEWAY	
+X  	FILE *fp;
+X  
+X  	host_name[0] = '\0';
+X  
+! 	/*
+! 	 * If 1st letter is '/' read gateway name from specified file
+! 	 */
+! 	if (*(NNTP_INEWS_GATEWAY) == '/') {
+! 		if ((fp = fopen (NNTP_INEWS_GATEWAY, "r")) != (FILE *) 0) {
+! 			if (fgets (host, sizeof (host), fp) != (char *) 0) {
+! 				my_strncpy (host_name, host, strlen (host)-1);
+! 			}	
+! 			fclose (fp);
+X  		}
+! 		if (! host_name[0]) {
+! 			strcpy(host_name, "PROBLEM_WITH_INEWS_GATEWAY_FILE");
+! 		}
+! 	} else {
+! 		strcpy (host_name, NNTP_INEWS_GATEWAY);
+! 	}	
+! #else
+! #	if defined(BSD) || defined(sinix) || defined(RS6000) || defined(HPUX)
+! 	{
+! 		struct hostent *host_entry;
+! 
+! 		gethostname (host, sizeof (host)); 
+! 		host_entry = gethostbyname (host);
+! 		my_strncpy (host, host_entry->h_name, sizeof (host)); 
+! 	}	
+! #	else	
+! 	{
+! 		struct utsname uts_name;
+X  
+! 		uname (&uts_name);
+! 		my_strncpy (host, uts_name.nodename, sizeof (host));
+X  	}
+- #	endif
+- 
+- 	strcpy (host_name, host);
+- #endif
+- 
+X  #endif /* INDEX_DAEMON */
+X  }
+X  
+--- 114,168 ----
+X  #ifndef INDEX_DAEMON
+X  
+X  	char host[PATH_LEN];
+! 	char nntp_inews_gateway[PATH_LEN];
+X  	FILE *fp;
+X  
+X  	host_name[0] = '\0';
++ 	nntp_inews_gateway[0] = '\0';
++ 	
++ #ifdef NNTP_INEWS_GATEWAY
++ 	if (*(NNTP_INEWS_GATEWAY)) {
++ 		strcpy (nntp_inews_gateway, NNTP_INEWS_GATEWAY);
++ 	}
++ #endif
++ 	
++ 	if (nntp_inews_gateway[0]) {
++ 		/*
++ 		 * If 1st letter is '/' read gateway name from specified file
++ 		 */
++ 		if (nntp_inews_gateway[0] == '/') {
++ 			if ((fp = fopen (nntp_inews_gateway, "r")) != (FILE *) 0) {
++ 				if (fgets (host, sizeof (host), fp) != (char *) 0) {
++ 					my_strncpy (host_name, host, strlen (host)-1);
++ 				}	
++ 				fclose (fp);
++ 			}
++ 			if (! host_name[0]) {
++ 				strcpy(host_name, "PROBLEM_WITH_INEWS_GATEWAY_FILE");
++ 			}
++ 		} else {
++ 			strcpy (host_name, nntp_inews_gateway);
++ 		}	
++ 	} else {
++ #		if defined(BSD) || defined(sinix) || defined(RS6000) || defined(HPUX)
++ 		{
++ 			struct hostent *host_entry;
++ 
++ 			gethostname (host, sizeof (host)); 
++ 			host_entry = gethostbyname (host);
++ 			my_strncpy (host, host_entry->h_name, sizeof (host)); 
++ 		}	
++ #		else	
++ 		{
++ 			struct utsname uts_name;
+X  
+! 			uname (&uts_name);
+! 			my_strncpy (host, uts_name.nodename, sizeof (host));
+X  		}
+! #		endif
+X  
+! 		strcpy (host_name, host);
+X  	}
+X  #endif /* INDEX_DAEMON */
+X  }
+X  
+***************
+*** 165,185 ****
+X  {
+X  #ifndef INDEX_DAEMON
+X  
+! 	char domain[256];
+X  	char full_name[128];
+! 	char host_name[256];
+X  	char *ptr;
+- #ifdef NNTP_INEWS_DOMAIN
+X  	FILE *fp;
+- #endif
+X  	
+X  	domain[0] = '\0';
+! 	
+X  	if ((ptr = (char *) getenv ("NAME")) != (char *) 0) {
+X  		my_strncpy (full_name, ptr, sizeof (full_name));
+X  	} else {	
+X  		my_strncpy (full_name, myentry->pw_gecos, sizeof (full_name));
+! 		if ((ptr = (char *) strchr (full_name, ','))) {
+X  			*ptr = '\0';			
+X  		}
+X  	}
+--- 175,202 ----
+X  {
+X  #ifndef INDEX_DAEMON
+X  
+! 	char domain[PATH_LEN];
+X  	char full_name[128];
+! 	char host_name[PATH_LEN];
+! 	char nntp_inews_domain[PATH_LEN];
+X  	char *ptr;
+X  	FILE *fp;
+X  	
+X  	domain[0] = '\0';
+! 	nntp_inews_domain[0] = '\0';
+! 
+! #ifdef NNTP_INEWS_DOMAIN
+! 	if (*(NNTP_INEWS_DOMAIN)) {
+! 		strcpy (nntp_inews_domain, NNTP_INEWS_DOMAIN);
+! 	}
+! #endif
+! 		
+X  	if ((ptr = (char *) getenv ("NAME")) != (char *) 0) {
+X  		my_strncpy (full_name, ptr, sizeof (full_name));
+X  	} else {	
+X  		my_strncpy (full_name, myentry->pw_gecos, sizeof (full_name));
+! 		ptr = (char *) strchr (full_name, ',');
+! 		if (ptr != (char *) 0) {
+X  			*ptr = '\0';			
+X  		}
+X  	}
+***************
+*** 186,220 ****
+X  
+X  	get_host_name (host_name);
+X  
+! #ifdef NNTP_INEWS_DOMAIN
+! 	/*
+! 	 * If 1st letter is '/' read domain name from specified file
+! 	 */
+! 	if (*(NNTP_INEWS_DOMAIN) == '/') {
+! 		if ((fp = fopen (NNTP_INEWS_DOMAIN, "r")) != (FILE *) 0) {
+! 			if (fgets (domain, sizeof (domain), fp) != (char *) 0) {
+! 				if (ptr = (char *) strchr (domain, '\n')) {
+! 					*ptr = '\0';
+X  				}
+X  			}
+! 			fclose (fp);
+! 		}
+! 		if (! domain[0]) {
+! 			strcpy (domain, "PROBLEM_WITH_INEWS_DOMAIN_FILE");
+X  		}
+- 	} else {
+- 		my_strncpy (domain, NNTP_INEWS_DOMAIN, sizeof (domain));
+- 	}
+X  	
+! 	if (domain[0] == '.') {
+! 		sprintf (from_name, "%s@%s%s (%s)",
+! 			userid, host_name, domain, full_name);
+X  	} else {	
+! 		sprintf (from_name, "%s@%s (%s)", userid, domain, full_name);
+! 	}		
+! #else	
+! 	sprintf (from_name, "%s@%s (%s)", userid, host_name, full_name);
+! #endif
+X  
+X  	if (debug == 2) {
+X  		error_message ("FROM: %s", from_name);
+--- 203,241 ----
+X  
+X  	get_host_name (host_name);
+X  
+! 	if (nntp_inews_domain[0]) {
+! 		/*
+! 		 * If 1st letter is '/' read domain name from specified file
+! 		 */
+! 		if (nntp_inews_domain[0] == '/') {
+! 			if ((fp = fopen (nntp_inews_domain, "r")) != (FILE *) 0) {
+! 				if (fgets (domain, sizeof (domain), fp) != (char *) 0) {
+! 					if (ptr = (char *) strchr (domain, '\n')) {
+! 						*ptr = '\0';
+! 					}
+X  				}
++ 				fclose (fp);
+X  			}
+! 			if (! domain[0]) {
+! 				strcpy (domain, "PROBLEM_WITH_INEWS_DOMAIN_FILE");
+! 			}
+! 		} else {
+! 			my_strncpy (domain, nntp_inews_domain, sizeof (domain));
+X  		}
+X  	
+! 		if (domain[0] == '.') {
+! 			sprintf (from_name, "%s@%s%s (%s)",
+! 				userid, host_name, domain, full_name);
+! 		} else {	
+! 			sprintf (from_name, "%s@%s (%s)", userid, domain, full_name);
+! 		}		
+X  	} else {	
+! 		if (host_name[0] == '%') {
+! 			sprintf (from_name, "%s%s (%s)", userid, host_name, full_name);
+! 		} else {
+! 			sprintf (from_name, "%s@%s (%s)", userid, host_name, full_name);
+! 		}
+! 	}
+X  
+X  	if (debug == 2) {
+X  		error_message ("FROM: %s", from_name);
+diff -rcs ../1.14/init.c ./init.c
+*** ../1.14/init.c	Tue Aug 11 21:23:08 1992
+--- ./init.c	Fri Aug  7 11:46:11 1992
+***************
+*** 3,9 ****
+X   *  Module    : init.c
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 20-06-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : init.c
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 07-08-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 14,83 ****
+X  
+X  #include	"tin.h"
+X  
+- char rcdir[PATH_LEN];
+- char rcfile[PATH_LEN];
+- char indexdir[PATH_LEN];
+- char killfile[PATH_LEN];
+- char postfile[PATH_LEN];
+- char unthreadfile[PATH_LEN];
+- char cvers[LEN];
+- char nntp_server[LEN];
+X  char active_file[PATH_LEN];
+! char newsgroups_file[PATH_LEN];
+! char subscriptions_file[PATH_LEN];
+! char homedir[PATH_LEN];
+! char userid[LEN];
+! char delgroups[LEN];
+! char default_maildir[PATH_LEN];			/* mailbox dir where = saves are stored */
+! char newsrc[PATH_LEN];
+! char newnewsrc[PATH_LEN];
+! char add_addr[LEN];			/* address to add to rR reply to author with mail */
+! char bug_addr[LEN];			/* address to add send bug reports to */
+! char txt_help_bug_report[LEN];	/* address to add send bug reports to */
+! char reply_to[LEN];			/* Reply-To: address */
+! char my_org[LEN];			/* Organization: */
+! char my_distribution[LEN];		/* Distribution: */
+X  char default_select_pattern[LEN];
+X  char default_sigfile[PATH_LEN];
+X  char default_signature[PATH_LEN];
+X  char default_shell_command[LEN];	/* offers user default choice */
+! char killsubj[LEN];			/* contains Subject:'s not to be shown */
+! char killfrom[LEN];			/* conatins From:'s not to be shown */
+! char page_header[LEN];		/* page header of pgm name and version */
+! char default_savedir[PATH_LEN];			/* directory to save articles to */
+! char spooldir[PATH_LEN];		/* directory where news is */
+! char spooldir_alias[PATH_LEN];		/* alias of spooldir being used */
+X  char mail_news_user[LEN];	/* mail new news to this user address */
+! char mailer[PATH_LEN];			/* mail program */
+! char mailbox[PATH_LEN];			/* system mailbox for each user */
+! char printer[LEN];			/* printer program specified from tinrc */
+! char cmd_line_printer[LEN];	/* printer program specified on cmd line */
+! char article[PATH_LEN];			/* ~/.article file */
+! char dead_article[PATH_LEN];	/* ~/dead.article file */
+! char progname[PATH_LEN];		/* program name */
+X  char redirect_output[LEN];	/* /dev/null or nothing if -D option */
+X  
+X  int xindex_supported = FALSE;
+X  int xuser_supported = FALSE;
+X  int xspooldir_supported = FALSE;
+! int NOTESLINES;						/* set in set_win_size () */
+! int RIGHT_POS;						/* set in set_win_size () */
+! int MORE_POS;						/* set in set_win_size () */
+X  int confirm_action;
+X  int max_subj = 0;
+X  int max_from = 0;
+! int max_active;
+! int num_active;						/* one past top of active */
+! int group_top;						/* one past top of my_group */
+! int groupname_len = 0;					/* one past top of my_group */
+! int catchup = FALSE;				/* mark all arts read in all subscribed groups */
+! int update_fork = FALSE;			/* update index files by forked tin -u */
+! int verbose = FALSE;				/* update index files only mode */
+! int start_line_offset;				/* used by invoke_editor for line no. */
+! int inn_nntp_server = FALSE;			/* read news via INN NNTP */
+! int read_news_via_nntp = FALSE;		/* read news locally or via NNTP */
+! int local_index;					/* do private indexing? */
+! int max_art;
+X  int real_gid;
+X  int real_uid;
+X  int real_umask;
+--- 14,86 ----
+X  
+X  #include	"tin.h"
+X  
+X  char active_file[PATH_LEN];
+! char attributes_file[PATH_LEN];
+! char add_addr[LEN];		/* address to add to rR reply to author with mail */
+! char article[PATH_LEN];		/* ~/.article file */
+! char bug_addr[LEN];		/* address to add send bug reports to */
+! char cmd_line_printer[LEN];	/* printer program specified on cmd line */
+! char cvers[LEN];
+! char dead_article[PATH_LEN];	/* ~/dead.article file */
+! char default_maildir[PATH_LEN];	/* mailbox dir where = saves are stored */
+X  char default_select_pattern[LEN];
+X  char default_sigfile[PATH_LEN];
+X  char default_signature[PATH_LEN];
+X  char default_shell_command[LEN];	/* offers user default choice */
+! char default_savedir[PATH_LEN];		/* directory to save articles to */
+! char default_select_pattern[LEN];
+! char delgroups[LEN];
+! char homedir[PATH_LEN];
+! char indexdir[PATH_LEN];
+! char killfile[PATH_LEN];
+! char killsubj[LEN];		/* contains Subject:'s not to be shown */
+! char killfrom[LEN];		/* contains From:'s not to be shown */
+! char lock_file[PATH_LEN];	/* conatins name of index lock file */
+X  char mail_news_user[LEN];	/* mail new news to this user address */
+! char mailbox[PATH_LEN];		/* system mailbox for each user */
+! char mailer[PATH_LEN];		/* mail program */
+! char my_org[LEN];		/* Organization: */
+! char my_distribution[LEN];	/* Distribution: */
+! char newsgroups_file[PATH_LEN];
+! char newsrc[PATH_LEN];
+! char newnewsrc[PATH_LEN];
+! char page_header[LEN];		/* page header of pgm name and version */
+! char postfile[PATH_LEN];
+! char printer[LEN];		/* printer program specified from tinrc */
+! char progname[PATH_LEN];	/* program name */
+! char quote_chars[PATH_LEN];	/* quote chars for posting/mails ": " */
+! char rcdir[PATH_LEN];
+! char rcfile[PATH_LEN];
+X  char redirect_output[LEN];	/* /dev/null or nothing if -D option */
++ char reply_to[LEN];		/* Reply-To: address */
++ char spooldir[PATH_LEN];	/* directory where news is */
++ char spooldir_alias[PATH_LEN];	/* alias of spooldir being used */
++ char subscriptions_file[PATH_LEN];
++ char txt_help_bug_report[LEN];	/* address to add send bug reports to */
++ char userid[PATH_LEN];
+X  
++ 
++ int unread_art_mark;
++ int hot_art_mark;
++ int return_art_mark;
+X  int xindex_supported = FALSE;
+X  int xuser_supported = FALSE;
+X  int xspooldir_supported = FALSE;
+! int NOTESLINES;			/* set in set_win_size () */
+! int RIGHT_POS;			/* set in set_win_size () */
+! int MORE_POS;			/* set in set_win_size () */
+X  int confirm_action;
+X  int max_subj = 0;
+X  int max_from = 0;
+! int group_top;			/* one past top of my_group */
+! int groupname_len = 0;		/* one past top of my_group */
+! int catchup = FALSE;		/* mark all arts read in all subscribed groups */
+! int update_fork = FALSE;	/* update index files by forked tin -u */
+! int verbose = FALSE;		/* update index files only mode */
+! int start_line_offset;		/* used by invoke_editor for line no. */
+! int inn_nntp_server = FALSE;	/* read news via INN NNTP */
+! int read_news_via_nntp = FALSE;	/* read news locally or via NNTP */
+! int local_index;		/* do private indexing? */
+X  int real_gid;
+X  int real_uid;
+X  int real_umask;
+***************
+*** 88,102 ****
+X  int top = 0;
+X  int top_base;
+X  int check_any_unread = FALSE;
+- int notify_new_groups = FALSE;
+X  int start_any_unread = FALSE;
+X  
+X  int catchup_read_groups;	/* ask if read groups are to be marked read */
+! int cmd_line;				/* batch / interactive mode */
+! int created_rcdir;			/* checks if first time tin is started */
+X  int default_printer;		/* set to false if user give a printer with -p switch */
+X  int default_show_author;	/* show_author value from 'M' menu in tinrc */
+X  int draw_arrow_mark;		/* draw -> or highlighted bar */
+X  int full_page_scroll;		/* page half/full screen of articles/groups */
+X  int killed_articles;		/* killed / auto-selected hot articles */
+X  int mark_saved_read;		/* mark saved article/thread as read */
+--- 91,111 ----
+X  int top = 0;
+X  int top_base;
+X  int check_any_unread = FALSE;
+X  int start_any_unread = FALSE;
+X  
+X  int catchup_read_groups;	/* ask if read groups are to be marked read */
+! int cmd_line;			/* batch / interactive mode */
+! int check_for_new_newsgroups;	/* don't check for new newsgroups */
+! int created_rcdir;		/* checks if first time tin is started */
+! int default_auto_save;		/* save thread with name from Archive-name: field */
+! int default_batch_save;		/* save arts if -M/-S command line switch specified */
+X  int default_printer;		/* set to false if user give a printer with -p switch */
+X  int default_show_author;	/* show_author value from 'M' menu in tinrc */
++ int default_show_only_unread;	/* show only new/unread arts or all arts */
++ int default_sort_art_type;	/* sort arts[] array by subject,from or date field */
++ int default_thread_arts;	/* thread/unthread articles for viewing */
+X  int draw_arrow_mark;		/* draw -> or highlighted bar */
++ int force_screen_redraw;	/* force screen redraw after external (shell) commands */
+X  int full_page_scroll;		/* page half/full screen of articles/groups */
+X  int killed_articles;		/* killed / auto-selected hot articles */
+X  int mark_saved_read;		/* mark saved article/thread as read */
+***************
+*** 105,127 ****
+X  int num_of_tagged_arts;
+X  int process_id;
+X  int pos_first_unread;		/* position cursor at first/last unread article */
+! int post_proc_type;			/* type of post processing to be performed */
+! int print_header;			/* print all of mail header or just Subject: & From lines */
+! int save_archive_name;		/* save thread with name from Archive-name: field */
+! int mail_news;				/* mail all arts to specified user */
+! int save_news;				/* save all arts to savedir structure */
+! int show_author;			/* show Subject & From or only Subject in group menu */
+! int show_only_unread;		/* show only new/unread arts or all arts */
+! int spooldir_is_active;			/* set TRUE if current spooldir is active news feed */
+! int sort_art_type;			/* sort arts[] array by subject,from or date field */
+! int thread_arts;			/* thread/unthread articles for viewing */
+X  int system_status;
+X  
+- #ifdef INDEX_DAEMON
+- int update = TRUE;					/* update index files only mode */
+- #else
+- int update = FALSE;					/* update index files only mode */
+- #endif
+X  
+X  struct passwd *myentry;
+X  
+--- 114,132 ----
+X  int num_of_tagged_arts;
+X  int process_id;
+X  int pos_first_unread;		/* position cursor at first/last unread article */
+! int default_post_proc_type;		/* type of post processing to be performed */
+! int print_header;		/* print all of mail header or just Subject: & From lines */
+! int reread_active_file_secs;	/* reread active file interval in seconds */
+! int mail_news;			/* mail all arts to specified user */
+! int save_news;			/* save all arts to savedir structure */
+! int show_author;
+! int show_last_line_prev_page;	/* set TRUE to see last line of prev page (ala nn) */
+! int show_only_unread_groups;	/* set TRUE to see only subscribed groups with new news */
+! int spooldir_is_active;		/* set TRUE if current spooldir is active news feed */
+X  int system_status;
++ int tab_after_X_selection;	/* set TRUE if you want auto TAB after X */
++ int update;			/* update index files only mode */
+X  
+X  
+X  struct passwd *myentry;
+X  
+***************
+*** 181,186 ****
+--- 186,194 ----
+X  		strcpy (homedir, myentry->pw_dir);
+X  	}
+X  
++ 	unread_art_mark = UNREAD_ART_MARK;
++ 	hot_art_mark = HOT_ART_MARK;
++ 	return_art_mark = RETURN_ART_MARK;
+X  	catchup_read_groups = FALSE;
+X  	confirm_action = TRUE;
+X  	created_rcdir = FALSE;
+***************
+*** 190,196 ****
+--- 198,207 ----
+X  #else
+X  	draw_arrow_mark = FALSE;
+X  #endif
++ 	default_auto_save = TRUE;
++ 	default_batch_save = FALSE;
+X  	default_move_group = 0;
++ 	default_post_proc_type = POST_PROC_NONE;
+X  #ifdef BSD
+X  	default_printer = TRUE;
+X  #else	
+***************
+*** 197,202 ****
+--- 208,217 ----
+X  	default_printer = FALSE;
+X  #endif
+X  	default_show_author = SHOW_FROM_NAME;
++ 	default_show_only_unread = FALSE;
++ 	default_sort_art_type = SORT_BY_DATE_ASCEND;
++ 	default_thread_arts = TRUE;
++ 	force_screen_redraw = FALSE;
+X  	full_page_scroll = TRUE;
+X  	killed_articles = FALSE;
+X  	mark_saved_read = TRUE;
+***************
+*** 203,218 ****
+X  	num_of_hot_arts = 0;
+X  	num_of_killed_arts = 0;
+X  	num_of_tagged_arts = 0;
+- 	post_proc_type = POST_PROC_NONE;
+X  	pos_first_unread = TRUE;
+X  	print_header = FALSE;
+! 	save_archive_name = TRUE;
+X  	save_news = FALSE;
+! 	show_only_unread = FALSE;
+X  	show_description = TRUE;
+! 	sort_art_type = SORT_BY_DATE_ASCEND;
+X  	start_editor_offset = TRUE;
+! 	thread_arts = TRUE;
+X  	
+X  	killsubj[0] = '\0';
+X  	killfrom[0] = '\0';
+--- 218,241 ----
+X  	num_of_hot_arts = 0;
+X  	num_of_killed_arts = 0;
+X  	num_of_tagged_arts = 0;
+X  	pos_first_unread = TRUE;
+X  	print_header = FALSE;
+! 	reread_active_file_secs = 0;
+X  	save_news = FALSE;
+! 	show_last_line_prev_page = FALSE;
+X  	show_description = TRUE;
+! 	show_only_unread_groups = FALSE;
+X  	start_editor_offset = TRUE;
+! 	tab_after_X_selection = FALSE;
+! #ifdef INDEX_DAEMON
+! 	check_for_new_newsgroups = FALSE;
+! 	update = TRUE;
+! #else
+! 	check_for_new_newsgroups = TRUE;
+! 	update = FALSE;
+! #endif
+! 
+! 	newsrc[0] = '\0';
+X  	
+X  	killsubj[0] = '\0';
+X  	killfrom[0] = '\0';
+***************
+*** 231,237 ****
+X  	default_save_file[0] = '\0';
+X  	default_select_pattern[0] = '\0';
+X  	default_shell_command[0] = '\0';
+- 	nntp_server[0] = '\0';
+X  	proc_ch_default = 'n';
+X  
+X  	/*
+--- 254,259 ----
+***************
+*** 243,248 ****
+--- 265,271 ----
+X  	set_tindir ();	
+X  
+X  	sprintf (active_file, "%s/active", LIBDIR);
++ 	sprintf (attributes_file, "%s/attributes", rcdir);
+X  	sprintf (article, "%s/.article", homedir);
+X  	sprintf (dead_article, "%s/dead.article", homedir);
+X  	sprintf (delgroups, "%s/.delgroups", homedir);
+***************
+*** 256,291 ****
+X  
+X  	strcpy (mailer, get_val ("MAILER", DEFAULT_MAILER));
+X  	strcpy (printer, DEFAULT_PRINTER);
+X  	strcpy (spooldir, SPOOLDIR);
+X  	strcpy (bug_addr, BUG_REPORT_ADDRESS);
+X  	strcpy (redirect_output, "> /dev/null 2>&1");
+X  
+X  #ifdef INDEX_DAEMON
+! 	/*
+! 	 * Check for lock file to stop multiple copies of tind running and
+! 	 * if it does not exist create it so this is the only copy running
+! 	 */
+! 	if (stat (LOCK_FILE, &sb) == 0) {
+! 		if ((fp = fopen (LOCK_FILE, "r")) != (FILE *) 0) {
+! 			fgets (nam, sizeof (nam), fp);
+! 			fclose (fp);
+! 			fprintf(stderr, "%s: Already started pid=[%d] on %s", 
+! 				progname, atoi(nam), nam+8);
+! 			exit (1);
+! 		}
+! 	} else {
+! 		{
+! 			long epoch;
+! 			
+! 			if ((fp = fopen (LOCK_FILE, "w")) != (FILE *) 0) {
+! 				time (&epoch);
+! 				fprintf (fp, "%6d  %s", process_id, ctime (&epoch));
+! 				fclose (fp);
+! 				chmod (LOCK_FILE, 0600);
+! 			}
+! 		}	
+! 	}
+! 	 
+X  	strcpy (newsrc, active_file);	/* so that all groups are indexed */
+X  	sprintf (indexdir, "%s/.index", spooldir);
+X  
+--- 279,291 ----
+X  
+X  	strcpy (mailer, get_val ("MAILER", DEFAULT_MAILER));
+X  	strcpy (printer, DEFAULT_PRINTER);
++ 	strcpy (quote_chars, DEFAULT_COMMENT);
+X  	strcpy (spooldir, SPOOLDIR);
+X  	strcpy (bug_addr, BUG_REPORT_ADDRESS);
+X  	strcpy (redirect_output, "> /dev/null 2>&1");
+X  
+X  #ifdef INDEX_DAEMON
+! 	strcpy (lock_file, LOCK_FILE);	
+X  	strcpy (newsrc, active_file);	/* so that all groups are indexed */
+X  	sprintf (indexdir, "%s/.index", spooldir);
+X  
+***************
+*** 293,298 ****
+--- 293,304 ----
+X  		mkdir (indexdir, 0777);
+X  	}
+X  #else
++ #	ifdef LONG_FILENAMES
++ 		sprintf (lock_file, "/tmp/tin.%s.LCK", userid);	
++ #	else
++ 		sprintf (lock_file, "/tmp/%s.LCK", userid);	
++ #endif
++ 
+X  	if (stat (rcdir, &sb) == -1) {
+X  		created_rcdir = TRUE;
+X  		mkdir (rcdir, 0755);
+***************
+*** 313,328 ****
+X  			fclose (fp);
+X  		}
+X  	}
+- 	if (stat (unthreadfile, &sb) == -1) {
+- 		if ((fp = fopen (unthreadfile, "w")) != NULL) {
+- 			fclose (fp);
+- 		}
+- 	}
+X  
+X  	read_rcfile ();
+X  
+- 	show_author = default_show_author;
+- 
+X  #endif /* INDEX_DAEMON */	
+X  
+X  	if (stat (active_file, &sb) >= 0)
+--- 319,327 ----
+***************
+*** 520,529 ****
+X  		sprintf (rcfile,   "%s/%s", rcdir, RCFILE);
+X  		sprintf (killfile, "%s/%s", rcdir, KILLFILE);
+X  		sprintf (postfile, "%s/%s", rcdir, POSTFILE);
+! 		sprintf (unthreadfile, "%s/%s", rcdir, UNTHREADFILE);
+! 		sprintf (newsrc, "%s/.newsrc", homedir);
+! 		sprintf (newnewsrc, "%s/.newnewsrc", homedir);
+! 
+X  		spooldir_is_active = TRUE;
+X  		reread_active_file = TRUE;
+X  	}
+--- 519,528 ----
+X  		sprintf (rcfile,   "%s/%s", rcdir, RCFILE);
+X  		sprintf (killfile, "%s/%s", rcdir, KILLFILE);
+X  		sprintf (postfile, "%s/%s", rcdir, POSTFILE);
+! 		if (newsrc[0] == '\0') {
+! 			sprintf (newsrc, "%s/.newsrc", homedir);
+! 			sprintf (newnewsrc, "%s/.newnewsrc", homedir);
+! 		}	
+X  		spooldir_is_active = TRUE;
+X  		reread_active_file = TRUE;
+X  	}
+***************
+*** 550,552 ****
+--- 549,552 ----
+X  	
+X  	return (created);
+X  }
++ 
+Files ../1.14/kill and ./kill are identical
+diff -rcs ../1.14/kill.c ./kill.c
+*** ../1.14/kill.c	Tue Aug 11 21:23:09 1992
+--- ./kill.c	Wed Aug  5 06:58:05 1992
+***************
+*** 3,9 ****
+X   *  Module    : kill.c
+X   *  Author    : I.Lea & J.Robinson
+X   *  Created   : 01-04-91
+!  *  Updated   : 20-06-92
+X   *  Notes     : kill & auto select (hot) articles
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea & Jim Robinson
+X   *              You may  freely  copy or  redistribute  this software,
+SHAR_EOF
+true || echo 'restore of tin-1.15.patch failed'
+fi
+echo 'End of tin-1.15 part 3'
+echo 'File tin-1.15.patch is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+
+--
+NAME   Iain Lea 
+EMAIL  iain%anl433.uucp@Germany.EU.net
+SNAIL  Siemens AG, ANL A433SZ, Gruendlacher Str. 248, 8510 Fuerth, Germany.
+PHONE  +49-911-3089-407 (work) +49-911-331963 (home) +49-911-3089-290 (FAX)  
+exit 0 # Just in case...

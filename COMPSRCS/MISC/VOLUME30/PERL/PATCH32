@@ -1,0 +1,1844 @@
+Newsgroups: comp.sources.misc
+From: lwall@netlabs.com (Larry Wall)
+Subject:  v30i043:  perl - The perl programming language, Patch32
+Message-ID: <1992Jun11.180910.1586@sparky.imd.sterling.com>
+X-Md4-Signature: 900872f2ef4fa2bfde2abdf13c1965c7
+Date: Thu, 11 Jun 1992 18:09:10 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lwall@netlabs.com (Larry Wall)
+Posting-number: Volume 30, Issue 43
+Archive-name: perl/patch32
+Environment: UNIX, MS-DOS, OS2
+Patch-To: perl: Volume 18, Issue 19-54
+
+System: perl version 4.0
+Patch #: 32
+Priority: highish
+Subject: patch #20, continued
+
+Description:
+	See patch #20.
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your perl source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		*** DO NOTHING--INSTALL ALL PATCHES UP THROUGH #33 FIRST ***
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+	Larry Wall
+	lwall@netlabs.com
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+	Subject: Command
+	@SH mailpatch PATH perl 4.0 LIST
+		   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+
+Index: patchlevel.h
+Prereq: 31
+1c1
+< #define PATCHLEVEL 31
+---
+> #define PATCHLEVEL 32
+
+Index: str.h
+*** str.h.old	Mon Jun  8 17:51:58 1992
+--- str.h	Mon Jun  8 17:51:59 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: str.h,v $$Revision: 4.0.1.3 $$Date: 91/11/05 18:41:47 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: str.h,v $$Revision: 4.0.1.4 $$Date: 92/06/08 15:41:45 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,15 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	str.h,v $
++  * Revision 4.0.1.4  92/06/08  15:41:45  lwall
++  * patch20: fixed confusion between a *var's real name and its effective name
++  * patch20: removed implicit int declarations on functions
++  * 
+   * Revision 4.0.1.3  91/11/05  18:41:47  lwall
+   * patch11: random cleanup
+   * patch11: solitary subroutine references no longer trigger typo warnings
+***************
+*** 26,37 ****
+      STRLEN	str_len;	/* allocated size */
+      union {
+  	double	str_nval;	/* numeric value, if any */
+- 	STAB	*str_stab;	/* magic stab for magic "key" string */
+  	long	str_useful;	/* is this search optimization effective? */
+  	ARG	*str_args;	/* list of args for interpreted string */
+  	HASH	*str_hash;	/* string represents an assoc array (stab?) */
+  	ARRAY	*str_array;	/* string represents an array */
+  	CMD	*str_cmd;	/* command for this source line */
+      } str_u;
+      STRLEN	str_cur;	/* length of str_ptr as a C string */
+      STR		*str_magic;	/* while free, link to next free str */
+--- 30,44 ----
+      STRLEN	str_len;	/* allocated size */
+      union {
+  	double	str_nval;	/* numeric value, if any */
+  	long	str_useful;	/* is this search optimization effective? */
+  	ARG	*str_args;	/* list of args for interpreted string */
+  	HASH	*str_hash;	/* string represents an assoc array (stab?) */
+  	ARRAY	*str_array;	/* string represents an array */
+  	CMD	*str_cmd;	/* command for this source line */
++ 	struct {
++ 	    STAB *stb_stab;	/* magic stab for magic "key" string */
++ 	    HASH *stb_stash;	/* which symbol table this stab is in */
++ 	} stb_u;
+      } str_u;
+      STRLEN	str_cur;	/* length of str_ptr as a C string */
+      STR		*str_magic;	/* while free, link to next free str */
+***************
+*** 51,62 ****
+      STRLEN	str_len;	/* allocated size */
+      union {
+  	double	str_nval;	/* numeric value, if any */
+- 	STAB	*str_stab;	/* magic stab for magic "key" string */
+  	long	str_useful;	/* is this search optimization effective? */
+  	ARG	*str_args;	/* list of args for interpreted string */
+  	HASH	*str_hash;	/* string represents an assoc array (stab?) */
+  	ARRAY	*str_array;	/* string represents an array */
+  	CMD	*str_cmd;	/* command for this source line */
+      } str_u;
+      STRLEN	str_cur;	/* length of str_ptr as a C string */
+      STR		*str_magic;	/* while free, link to next free str */
+--- 58,72 ----
+      STRLEN	str_len;	/* allocated size */
+      union {
+  	double	str_nval;	/* numeric value, if any */
+  	long	str_useful;	/* is this search optimization effective? */
+  	ARG	*str_args;	/* list of args for interpreted string */
+  	HASH	*str_hash;	/* string represents an assoc array (stab?) */
+  	ARRAY	*str_array;	/* string represents an array */
+  	CMD	*str_cmd;	/* command for this source line */
++ 	struct {
++ 	    STAB *stb_stab;	/* magic stab for magic "key" string */
++ 	    HASH *stb_stash;	/* which symbol table this stab is in */
++ 	} stb_u;
+      } str_u;
+      STRLEN	str_cur;	/* length of str_ptr as a C string */
+      STR		*str_magic;	/* while free, link to next free str */
+***************
+*** 71,76 ****
+--- 81,89 ----
+  #endif
+  };
+  
++ #define str_stab stb_u.stb_stab
++ #define str_stash stb_u.stb_stash
++ 
+  /* some extra info tacked to some lvalue strings */
+  
+  struct lstring {
+***************
+*** 139,144 ****
+--- 152,168 ----
+  int str_eq();
+  void str_magic();
+  void str_insert();
++ void str_numset();
++ void str_sset();
++ void str_nset();
++ void str_set();
++ void str_chop();
++ void str_cat();
++ void str_scat();
++ void str_ncat();
++ void str_reset();
++ void str_taintproper();
++ void str_taintenv();
+  STRLEN str_len();
+  
+  #define MULTI	(3)
+
+Index: lib/termcap.pl
+Prereq: 4.0
+*** lib/termcap.pl.old	Mon Jun  8 17:49:16 1992
+--- lib/termcap.pl	Mon Jun  8 17:49:17 1992
+***************
+*** 1,4 ****
+! ;# $Header: termcap.pl,v 4.0 91/03/20 01:26:33 lwall Locked $
+  ;#
+  ;# Usage:
+  ;#	require 'ioctl.pl';
+--- 1,4 ----
+! ;# $RCSfile: termcap.pl,v $$Revision: 4.0.1.1 $$Date: 92/06/08 13:49:17 $
+  ;#
+  ;# Usage:
+  ;#	require 'ioctl.pl';
+***************
+*** 21,27 ****
+      $TERMCAP = $ENV{'TERMCAP'};
+      $TERMCAP = '/etc/termcap' unless $TERMCAP;
+      if ($TERMCAP !~ m:^/:) {
+! 	if (index($TERMCAP,"|$TERM|") < $[) {
+  	    $TERMCAP = '/etc/termcap';
+  	}
+      }
+--- 21,27 ----
+      $TERMCAP = $ENV{'TERMCAP'};
+      $TERMCAP = '/etc/termcap' unless $TERMCAP;
+      if ($TERMCAP !~ m:^/:) {
+! 	if ($TERMCAP !~ /(^|\|)$TERM[:\|]/) {
+  	    $TERMCAP = '/etc/termcap';
+  	}
+      }
+***************
+*** 33,39 ****
+  	    while (<TERMCAP>) {
+  		next if /^#/;
+  		next if /^\t/;
+! 		if (/\\|$TERM[:\\|]/) {
+  		    chop;
+  		    while (chop eq '\\\\') {
+  			\$_ .= <TERMCAP>;
+--- 33,39 ----
+  	    while (<TERMCAP>) {
+  		next if /^#/;
+  		next if /^\t/;
+! 		if (/(^|\\|)$TERM[:\\|]/) {
+  		    chop;
+  		    while (chop eq '\\\\') {
+  			\$_ .= <TERMCAP>;
+
+Index: os2/tests.dif
+*** os2/tests.dif.old	Mon Jun  8 17:50:18 1992
+--- os2/tests.dif	Mon Jun  8 17:50:19 1992
+***************
+*** 0 ****
+--- 1,589 ----
++ diff -cbBwr perl-4.019/t/base/term.t new/t/base/term.t
++ *** perl-4.019/t/base/term.t	Wed Mar 20 08:47:14 1991
++ --- new/t/base/term.t	Sun Jun 16 20:39:50 1991
++ ***************
++ *** 29,35 ****
++ 
++   # check <> pseudoliteral
++ 
++ ! open(try, "/dev/null") || (die "Can't open /dev/null.");
++   if (<try> eq '') {
++       print "ok 5\n";
++   }
++ --- 29,35 ----
++ 
++   # check <> pseudoliteral
++ 
++ ! open(try, "nul") || (die "Can't open /dev/null.");
++   if (<try> eq '') {
++       print "ok 5\n";
++   }
++ diff -cbBwr perl-4.019/t/cmd/while.t new/t/cmd/while.t
++ *** perl-4.019/t/cmd/while.t	Wed Mar 20 08:46:28 1991
++ --- new/t/cmd/while.t	Sun Jun 16 20:52:36 1991
++ ***************
++ *** 90,96 ****
++   if (!eof || $bad) {print "not ok 8\n";} else {print "ok 8\n";}
++   if (!$badcont) {print "ok 9\n";} else {print "not ok 9\n";}
++ 
++ ! `/bin/rm -f Cmd.while.tmp`;
++ 
++   #$x = 0;
++   #while (1) {
++ --- 90,97 ----
++   if (!eof || $bad) {print "not ok 8\n";} else {print "ok 8\n";}
++   if (!$badcont) {print "ok 9\n";} else {print "not ok 9\n";}
++ 
++ ! close(fh);
++ ! `del Cmd.while.tmp`;
++ 
++   #$x = 0;
++   #while (1) {
++ diff -cbBwr perl-4.019/t/comp/cpp.t new/t/comp/cpp.t
++ *** perl-4.019/t/comp/cpp.t	Wed Mar 20 08:48:44 1991
++ --- new/t/comp/cpp.t	Sun Jun 16 20:54:00 1991
++ ***************
++ *** 32,39 ****
++   print TRY '#define OK "ok 3\n"' . "\n";
++   close TRY;
++ 
++ ! $pwd=`pwd`;
++   $pwd =~ s/\n//;
++ ! $x = `./perl -P Comp.cpp.tmp`;
++   print $x;
++   unlink "Comp.cpp.tmp", "Comp.cpp.inc";
++ --- 32,39 ----
++   print TRY '#define OK "ok 3\n"' . "\n";
++   close TRY;
++ 
++ ! $pwd=`cd`;
++   $pwd =~ s/\n//;
++ ! $x = `perl -P Comp.cpp.tmp`;
++   print $x;
++   unlink "Comp.cpp.tmp", "Comp.cpp.inc";
++ diff -cbBwr perl-4.019/t/comp/script.t new/t/comp/script.t
++ *** perl-4.019/t/comp/script.t	Wed Mar 20 08:48:50 1991
++ --- new/t/comp/script.t	Sun Jun 16 21:05:02 1991
++ ***************
++ *** 4,10 ****
++ 
++   print "1..3\n";
++ 
++ ! $x = `./perl -e 'print "ok\n";'`;
++ 
++   if ($x eq "ok\n") {print "ok 1\n";} else {print "not ok 1\n";}
++ 
++ --- 4,10 ----
++ 
++   print "1..3\n";
++ 
++ ! $x = `perl -e "print \\\"ok\\n\\\";"`;
++ 
++   if ($x eq "ok\n") {print "ok 1\n";} else {print "not ok 1\n";}
++ 
++ ***************
++ *** 12,23 ****
++   print try 'print "ok\n";'; print try "\n";
++   close try;
++ 
++ ! $x = `./perl Comp.script`;
++ 
++   if ($x eq "ok\n") {print "ok 2\n";} else {print "not ok 2\n";}
++ 
++ ! $x = `./perl <Comp.script`;
++ 
++   if ($x eq "ok\n") {print "ok 3\n";} else {print "not ok 3\n";}
++ 
++ ! `/bin/rm -f Comp.script`;
++ --- 12,23 ----
++   print try 'print "ok\n";'; print try "\n";
++   close try;
++ 
++ ! $x = `perl Comp.script`;
++ 
++   if ($x eq "ok\n") {print "ok 2\n";} else {print "not ok 2\n";}
++ 
++ ! $x = `perl <Comp.script`;
++ 
++   if ($x eq "ok\n") {print "ok 3\n";} else {print "not ok 3\n";}
++ 
++ ! `del Comp.script`;
++ diff -cbBwr perl-4.019/t/io/argv.t new/t/io/argv.t
++ *** perl-4.019/t/io/argv.t	Wed Mar 20 08:48:38 1991
++ --- new/t/io/argv.t	Sun Jun 16 21:14:14 1991
++ ***************
++ *** 8,26 ****
++   print try "a line\n";
++   close try;
++ 
++ ! $x = `./perl -e 'while (<>) {print \$.,\$_;}' Io.argv.tmp Io.argv.tmp`;
++ 
++   if ($x eq "1a line\n2a line\n") {print "ok 1\n";} else {print "not ok 1\n";}
++ 
++ ! $x = `echo foo|./perl -e 'while (<>) {print $_;}' Io.argv.tmp -`;
++ 
++   if ($x eq "a line\nfoo\n") {print "ok 2\n";} else {print "not ok 2\n";}
++ 
++ ! $x = `echo foo|./perl -e 'while (<>) {print $_;}'`;
++ 
++   if ($x eq "foo\n") {print "ok 3\n";} else {print "not ok 3 :$x:\n";}
++ 
++ ! @ARGV = ('Io.argv.tmp', 'Io.argv.tmp', '/dev/null', 'Io.argv.tmp');
++   while (<>) {
++       $y .= $. . $_;
++       if (eof()) {
++ --- 8,26 ----
++   print try "a line\n";
++   close try;
++ 
++ ! $x = `perl -e "while (<>) {print \$.,\$_;}" Io.argv.tmp Io.argv.tmp`;
++ 
++   if ($x eq "1a line\n2a line\n") {print "ok 1\n";} else {print "not ok 1\n";}
++ 
++ ! $x = `echo foo | perl -e "while (<>) {print $_;}" Io.argv.tmp -`;
++ 
++   if ($x eq "a line\nfoo\n") {print "ok 2\n";} else {print "not ok 2\n";}
++ 
++ ! $x = `echo foo | perl -e "while (<>) {print $_;}"`;
++ 
++   if ($x eq "foo\n") {print "ok 3\n";} else {print "not ok 3 :$x:\n";}
++ 
++ ! @ARGV = ('Io.argv.tmp', 'Io.argv.tmp', 'nul', 'Io.argv.tmp');
++   while (<>) {
++       $y .= $. . $_;
++       if (eof()) {
++ ***************
++ *** 33,36 ****
++   else
++       {print "not ok 5\n";}
++ 
++ ! `/bin/rm -f Io.argv.tmp`;
++ --- 33,36 ----
++   else
++       {print "not ok 5\n";}
++ 
++ ! `del Io.argv.tmp`;
++ diff -cbBwr perl-4.019/t/io/pipe.t new/t/io/pipe.t
++ *** perl-4.019/t/io/pipe.t	Wed Mar 20 08:48:38 1991
++ --- new/t/io/pipe.t	Sun Jun 16 21:25:14 1991
++ ***************
++ *** 5,11 ****
++   $| = 1;
++   print "1..8\n";
++ 
++ ! open(PIPE, "|-") || (exec 'tr', '[A-Z]', '[a-z]');
++   print PIPE "OK 1\n";
++   print PIPE "ok 2\n";
++   close PIPE;
++ --- 5,11 ----
++   $| = 1;
++   print "1..8\n";
++ 
++ ! open(PIPE, "|-") || (exec 'tr.exe', '[A-Z]', '[a-z]');
++   print PIPE "OK 1\n";
++   print PIPE "ok 2\n";
++   close PIPE;
++ ***************
++ *** 18,24 ****
++   }
++   else {
++       print STDOUT "not ok 3\n";
++ !     exec 'echo', 'not ok 4';
++   }
++ 
++   pipe(READER,WRITER) || die "Can't open pipe";
++ --- 18,24 ----
++   }
++   else {
++       print STDOUT "not ok 3\n";
++ !     exec 'perlglob', 'not ok 4';
++   }
++ 
++   pipe(READER,WRITER) || die "Can't open pipe";
++ diff -cbBwr perl-4.019/t/op/exec.t new/t/op/exec.t
++ *** perl-4.019/t/op/exec.t	Wed Mar 20 08:48:46 1991
++ --- new/t/op/exec.t	Sun Jun 16 21:39:32 1991
++ ***************
++ *** 7,21 ****
++ 
++   print "not ok 1\n" if system "echo ok \\1";	# shell interpreted
++   print "not ok 2\n" if system "echo ok 2";	# split and directly called
++ ! print "not ok 3\n" if system "echo", "ok", "3"; # directly called
++ 
++ ! if (system "true") {print "not ok 4\n";} else {print "ok 4\n";}
++ 
++ ! if ((system "/bin/sh -c 'exit 1'") != 256) { print "not "; }
++   print "ok 5\n";
++ 
++ ! if ((system "lskdfj") == 255 << 8) {print "ok 6\n";} else {print "not ok 6\n";}
++ 
++   unless (exec "lskdjfalksdjfdjfkls") {print "ok 7\n";} else {print "not ok 7\n";}
++ 
++ ! exec "echo","ok","8";
++ --- 7,21 ----
++ 
++   print "not ok 1\n" if system "echo ok \\1";	# shell interpreted
++   print "not ok 2\n" if system "echo ok 2";	# split and directly called
++ ! print "not ok 3\n" if system "perlglob", "ok", "3", "\n"; # directly called
++ 
++ ! if (system "expr 1 >nul") {print "not ok 4\n";} else {print "ok 4\n";}
++ 
++ ! if ((system "sh -c \"exit 1\"") != 1) { print "not "; }
++   print "ok 5\n";
++ 
++ ! if ((system "lskdfj") == 1) {print "ok 6\n";} else {print "not ok 6\n";}
++ 
++   unless (exec "lskdjfalksdjfdjfkls") {print "ok 7\n";} else {print "not ok 7\n";}
++ 
++ ! exec "perlglob","ok","8";
++ diff -cbBwr perl-4.019/t/op/glob.t new/t/op/glob.t
++ *** perl-4.019/t/op/glob.t	Wed Mar 20 08:48:54 1991
++ --- new/t/op/glob.t	Sun Jun 16 21:43:26 1991
++ ***************
++ *** 7,13 ****
++   @ops = <op/*>;
++   $list = join(' ',@ops);
++ 
++ ! chop($otherway = `echo op/*`);
++ 
++   print $list eq $otherway ? "ok 1\n" : "not ok 1\n$list\n$otherway\n";
++ 
++ --- 7,13 ----
++   @ops = <op/*>;
++   $list = join(' ',@ops);
++ 
++ ! chop($otherway = `perlglob op/*`);
++ 
++   print $list eq $otherway ? "ok 1\n" : "not ok 1\n$list\n$otherway\n";
++ 
++ diff -cbBwr perl-4.019/t/op/goto.t new/t/op/goto.t
++ *** perl-4.019/t/op/goto.t	Wed Mar 20 08:48:46 1991
++ --- new/t/op/goto.t	Sun Jun 16 21:50:54 1991
++ ***************
++ *** 29,34 ****
++   print "#2\t:$foo: == 4\n";
++   if ($foo == 4) {print "ok 2\n";} else {print "not ok 2\n";}
++ 
++ ! $x = `./perl -e 'goto foo;' 2>&1`;
++   print "#3\t/label/ in :$x";
++   if ($x =~ /label/) {print "ok 3\n";} else {print "not ok 3\n";}
++ --- 29,34 ----
++   print "#2\t:$foo: == 4\n";
++   if ($foo == 4) {print "ok 2\n";} else {print "not ok 2\n";}
++ 
++ ! $x = `perl -e "goto foo;" 2>&1`;
++   print "#3\t/label/ in :$x";
++   if ($x =~ /label/) {print "ok 3\n";} else {print "not ok 3\n";}
++ diff -cbBwr perl-4.019/t/op/magic.t new/t/op/magic.t
++ *** perl-4.019/t/op/magic.t	Wed Mar 20 08:48:36 1991
++ --- new/t/op/magic.t	Sun Jun 16 21:56:14 1991
++ ***************
++ *** 7,13 ****
++   print "1..5\n";
++ 
++   eval '$ENV{"foo"} = "hi there";';	# check that ENV is inited inside eval
++ ! if (`echo \$foo` eq "hi there\n") {print "ok 1\n";} else {print "not ok 1\n";}
++ 
++   unlink 'ajslkdfpqjsjfk';
++   $! = 0;
++ --- 7,13 ----
++   print "1..5\n";
++ 
++   eval '$ENV{"foo"} = "hi there";';	# check that ENV is inited inside eval
++ ! if (`echo %foo%` eq "hi there\n") {print "ok 1\n";} else {print "not ok 1\n";}
++ 
++   unlink 'ajslkdfpqjsjfk';
++   $! = 0;
++ ***************
++ *** 17,30 ****
++   # the next tests are embedded inside system simply because sh spits out
++   # a newline onto stderr when a child process kills itself with SIGINT.
++ 
++ ! system './perl',
++   '-e', '$| = 1;		# command buffering',
++ 
++ ! '-e', '$SIG{"INT"} = "ok3"; kill 2,$$;',
++ ! '-e', '$SIG{"INT"} = "IGNORE"; kill 2,$$; print "ok 4\n";',
++ ! '-e', '$SIG{"INT"} = "DEFAULT"; kill 2,$$; print "not ok\n";',
++ 
++ ! '-e', 'sub ok3 { print "ok 3\n" if pop(@_) eq "INT"; }';
++ 
++   @val1 = @ENV{keys(%ENV)};	# can we slice ENV?
++   @val2 = values(%ENV);
++ --- 17,30 ----
++   # the next tests are embedded inside system simply because sh spits out
++   # a newline onto stderr when a child process kills itself with SIGINT.
++ 
++ ! system 'perl',
++   '-e', '$| = 1;		# command buffering',
++ 
++ ! '-e', '$SIG{"TERM"} = "ok3"; kill 0,$$;',
++ ! '-e', '$SIG{"TERM"} = "IGNORE"; kill 0,$$; print "ok 4\n";',
++ ! '-e', '$SIG{"TERM"} = "DEFAULT"; kill 0,$$; print "not ok\n";',
++ 
++ ! '-e', 'sub ok3 { print "ok 3\n" if pop(@_) eq "TERM"; }';
++ 
++   @val1 = @ENV{keys(%ENV)};	# can we slice ENV?
++   @val2 = values(%ENV);
++ diff -cbBwr perl-4.019/t/op/mkdir.t new/t/op/mkdir.t
++ *** perl-4.019/t/op/mkdir.t	Wed Mar 20 08:48:54 1991
++ --- new/t/op/mkdir.t	Sun Jun 16 22:00:06 1991
++ ***************
++ *** 4,14 ****
++ 
++   print "1..7\n";
++ 
++ ! `rm -rf blurfl`;
++ 
++   print (mkdir('blurfl',0777) ? "ok 1\n" : "not ok 1\n");
++   print (mkdir('blurfl',0777) ? "not ok 2\n" : "ok 2\n");
++ ! print ($! =~ /exist/ ? "ok 3\n" : "not ok 3\n");
++   print (-d 'blurfl' ? "ok 4\n" : "not ok 4\n");
++   print (rmdir('blurfl') ? "ok 5\n" : "not ok 5\n");
++   print (rmdir('blurfl') ? "not ok 6\n" : "ok 6\n");
++ --- 4,14 ----
++ 
++   print "1..7\n";
++ 
++ ! `rm -r blurfl`;
++ 
++   print (mkdir('blurfl',0777) ? "ok 1\n" : "not ok 1\n");
++   print (mkdir('blurfl',0777) ? "not ok 2\n" : "ok 2\n");
++ ! print ($! =~ /denied/ ? "ok 3\n" : "not ok 3\n");
++   print (-d 'blurfl' ? "ok 4\n" : "not ok 4\n");
++   print (rmdir('blurfl') ? "ok 5\n" : "not ok 5\n");
++   print (rmdir('blurfl') ? "not ok 6\n" : "ok 6\n");
++ diff -cbBwr perl-4.019/t/op/split.t new/t/op/split.t
++ *** perl-4.019/t/op/split.t	Wed Mar 20 08:48:24 1991
++ --- new/t/op/split.t	Sun Jun 16 22:04:02 1991
++ ***************
++ *** 47,53 ****
++   print $_ eq '1:2:3:4:5:6:::' ? "ok 10\n" : "not ok 10 $_\n";
++ 
++   # Does assignment to a list imply split to one more field than that?
++ ! $foo = `./perl -D1024 -e '(\$a,\$b) = split;' 2>&1`;
++   print $foo =~ /DEBUGGING/ || $foo =~ /num\(3\)/ ? "ok 11\n" : "not ok 11\n";
++ 
++   # Can we say how many fields to split to when assigning to a list?
++ --- 47,53 ----
++   print $_ eq '1:2:3:4:5:6:::' ? "ok 10\n" : "not ok 10 $_\n";
++ 
++   # Does assignment to a list imply split to one more field than that?
++ ! $foo = `perl -D1024 -e "(\$a,\$b) = split;" 2>&1`;
++   print $foo =~ /DEBUGGING/ || $foo =~ /num\(3\)/ ? "ok 11\n" : "not ok 11\n";
++ 
++   # Can we say how many fields to split to when assigning to a list?
++ diff -cbBwr perl-4.019/t/op/stat.t new/t/op/stat.t
++ *** perl-4.019/t/op/stat.t	Fri Nov 22 22:04:46 1991
++ --- new/t/op/stat.t	Fri Nov 22 22:16:40 1991
++ ***************
++ *** 4,12 ****
++ 
++   print "1..56\n";
++ 
++ ! chop($cwd = `pwd`);
++ 
++ ! $DEV = `ls -l /dev`;
++ 
++   unlink "Op.stat.tmp";
++   open(FOO, ">Op.stat.tmp");
++ --- 4,12 ----
++ 
++   print "1..56\n";
++ 
++ ! chop($cwd = `cd`);
++ 
++ ! $DEV = `ls -l`;
++ 
++   unlink "Op.stat.tmp";
++   open(FOO, ">Op.stat.tmp");
++ ***************
++ *** 23,29 ****
++ 
++   sleep 2;
++ 
++ ! `rm -f Op.stat.tmp2; ln Op.stat.tmp Op.stat.tmp2; chmod 644 Op.stat.tmp`;
++ 
++   ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
++       $blksize,$blocks) = stat('Op.stat.tmp');
++ --- 23,29 ----
++ 
++   sleep 2;
++ 
++ ! `del Op.stat.tmp2; ln Op.stat.tmp Op.stat.tmp2; chmod 644 Op.stat.tmp 2>nul`;
++ 
++   ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
++       $blksize,$blocks) = stat('Op.stat.tmp');
++ ***************
++ *** 73,80 ****
++   if (-d '.') {print "ok 23\n";} else {print "not ok 23\n";}
++   if (! -f '.') {print "ok 24\n";} else {print "not ok 24\n";}
++ 
++ ! if (`ls -l perl` =~ /^l.*->/) {
++ !     if (-l 'perl') {print "ok 25\n";} else {print "not ok 25\n";}
++   }
++   else {
++       print "ok 25\n";
++ --- 73,80 ----
++   if (-d '.') {print "ok 23\n";} else {print "not ok 23\n";}
++   if (! -f '.') {print "ok 24\n";} else {print "not ok 24\n";}
++ 
++ ! if (`ls -l perl.exe` =~ /^l.*->/) {
++ !     if (-l 'perl.exe') {print "ok 25\n";} else {print "not ok 25\n";}
++   }
++   else {
++       print "ok 25\n";
++ ***************
++ *** 83,89 ****
++   if (-o 'Op.stat.tmp') {print "ok 26\n";} else {print "not ok 26\n";}
++ 
++   if (-e 'Op.stat.tmp') {print "ok 27\n";} else {print "not ok 27\n";}
++ ! `rm -f Op.stat.tmp Op.stat.tmp2`;
++   if (! -e 'Op.stat.tmp') {print "ok 28\n";} else {print "not ok 28\n";}
++ 
++   if ($DEV !~ /\nc.* (\S+)\n/)
++ --- 83,89 ----
++   if (-o 'Op.stat.tmp') {print "ok 26\n";} else {print "not ok 26\n";}
++ 
++   if (-e 'Op.stat.tmp') {print "ok 27\n";} else {print "not ok 27\n";}
++ ! `del Op.stat.tmp Op.stat.tmp2 2>nul`;
++   if (! -e 'Op.stat.tmp') {print "ok 28\n";} else {print "not ok 28\n";}
++ 
++   if ($DEV !~ /\nc.* (\S+)\n/)
++ ***************
++ *** 113,119 ****
++   $cnt = $uid = 0;
++ 
++   die "Can't run op/stat.t test 35 without pwd working" unless $cwd;
++ ! chdir '/usr/bin' || die "Can't cd to /usr/bin";
++   while (defined($_ = <*>)) {
++       $cnt++;
++       $uid++ if -u;
++ --- 113,119 ----
++   $cnt = $uid = 0;
++ 
++   die "Can't run op/stat.t test 35 without pwd working" unless $cwd;
++ ! chdir '../os2' || die "Can't cd to ../os2";
++   while (defined($_ = <*>)) {
++       $cnt++;
++       $uid++ if -u;
++ ***************
++ *** 124,138 ****
++   # I suppose this is going to fail somewhere...
++   if ($uid > 0 && $uid < $cnt) {print "ok 35\n";} else {print "not ok 35\n";}
++ 
++ ! unless (open(tty,"/dev/tty")) {
++ !     print STDERR "Can't open /dev/tty--run t/TEST outside of make.\n";
++   }
++   if (-t tty) {print "ok 36\n";} else {print "not ok 36\n";}
++   if (-c tty) {print "ok 37\n";} else {print "not ok 37\n";}
++   close(tty);
++   if (! -t tty) {print "ok 38\n";} else {print "not ok 38\n";}
++ ! open(null,"/dev/null");
++ ! if (! -t null || -e '/xenix') {print "ok 39\n";} else {print "not ok 39\n";}
++   close(null);
++   if (-t) {print "ok 40\n";} else {print "not ok 40\n";}
++ 
++ --- 124,138 ----
++   # I suppose this is going to fail somewhere...
++   if ($uid > 0 && $uid < $cnt) {print "ok 35\n";} else {print "not ok 35\n";}
++ 
++ ! unless (open(tty,"con")) {
++ !     print STDERR "Can't open con--run t/TEST outside of make.\n";
++   }
++   if (-t tty) {print "ok 36\n";} else {print "not ok 36\n";}
++   if (-c tty) {print "ok 37\n";} else {print "not ok 37\n";}
++   close(tty);
++   if (! -t tty) {print "ok 38\n";} else {print "not ok 38\n";}
++ ! open(null,"nul");
++ ! if (! -t null || -e 'c:/os2krnl') {print "ok 39\n";} else {print "not ok 39\n";}
++   close(null);
++   if (-t) {print "ok 40\n";} else {print "not ok 40\n";}
++ 
++ ***************
++ *** 141,148 ****
++   if (-T 'op/stat.t') {print "ok 41\n";} else {print "not ok 41\n";}
++   if (! -B 'op/stat.t') {print "ok 42\n";} else {print "not ok 42\n";}
++ 
++ ! if (-B './perl') {print "ok 43\n";} else {print "not ok 43\n";}
++ ! if (! -T './perl') {print "ok 44\n";} else {print "not ok 44\n";}
++ 
++   open(FOO,'op/stat.t');
++   eval { -T FOO; };
++ --- 141,148 ----
++   if (-T 'op/stat.t') {print "ok 41\n";} else {print "not ok 41\n";}
++   if (! -B 'op/stat.t') {print "ok 42\n";} else {print "not ok 42\n";}
++ 
++ ! if (-B 'perl.exe') {print "ok 43\n";} else {print "not ok 43\n";}
++ ! if (! -T 'perl.exe') {print "ok 44\n";} else {print "not ok 44\n";}
++ 
++   open(FOO,'op/stat.t');
++   eval { -T FOO; };
++ ***************
++ *** 172,176 ****
++   }
++   close(FOO);
++ 
++ ! if (-T '/dev/null') {print "ok 55\n";} else {print "not ok 55\n";}
++ ! if (-B '/dev/null') {print "ok 56\n";} else {print "not ok 56\n";}
++ --- 172,176 ----
++   }
++   close(FOO);
++ 
++ ! if (-T 'nul') {print "ok 55\n";} else {print "not ok 55\n";}
++ ! if (-B 'nul') {print "ok 56\n";} else {print "not ok 56\n";}
++ diff -cbBwr perl-4.019/t/TEST new/t/TEST
++ *** perl-4.019/t/TEST	Tue Jun 11 23:32:06 1991
++ --- new/t/TEST	Sun Jun 16 20:47:38 1991
++ ***************
++ *** 16,22 ****
++ 
++   if ($ARGV[0] eq '') {
++       @ARGV = split(/[ \n]/,
++ !       `echo base/*.t comp/*.t cmd/*.t io/*.t; echo op/*.t lib/*.t`);
++   }
++ 
++   open(CONFIG,"../config.sh");
++ --- 16,22 ----
++ 
++   if ($ARGV[0] eq '') {
++       @ARGV = split(/[ \n]/,
++ !       `ls base/*.t comp/*.t cmd/*.t io/*.t op/*.t lib/*.t`);
++   }
++ 
++   open(CONFIG,"../config.sh");
++ ***************
++ *** 35,41 ****
++       chop($te);
++       print "$te" . '.' x (15 - length($te));
++       if ($sharpbang) {
++ ! 	open(results,"./$test|") || (print "can't run.\n");
++       } else {
++   	open(script,"$test") || die "Can't run $test.\n";
++   	$_ = <script>;
++ --- 35,41 ----
++       chop($te);
++       print "$te" . '.' x (15 - length($te));
++       if ($sharpbang) {
++ ! 	open(results,"$test|") || (print "can't run.\n");
++       } else {
++   	open(script,"$test") || die "Can't run $test.\n";
++   	$_ = <script>;
++ ***************
++ *** 45,51 ****
++   	} else {
++   	    $switch = '';
++   	}
++ ! 	open(results,"./perl$switch $test|") || (print "can't run.\n");
++       }
++       $ok = 0;
++       $next = 0;
++ --- 45,51 ----
++   	} else {
++   	    $switch = '';
++   	}
++ ! 	open(results,"perl$switch $test|") || (print "can't run.\n");
++       }
++       $ok = 0;
++       $next = 0;
++ 
+
+Index: lib/timelocal.pl
+*** lib/timelocal.pl.old	Mon Jun  8 17:49:19 1992
+--- lib/timelocal.pl	Mon Jun  8 17:49:19 1992
+***************
+*** 1,7 ****
+  ;# timelocal.pl
+  ;#
+  ;# Usage:
+! ;#	$time = timelocal($sec,$min,$hours,$mday,$mon,$year,$junk,$junk,$isdst);
+  ;#	$time = timegm($sec,$min,$hours,$mday,$mon,$year);
+  
+  ;# These routines are quite efficient and yet are always guaranteed to agree
+--- 1,7 ----
+  ;# timelocal.pl
+  ;#
+  ;# Usage:
+! ;#	$time = timelocal($sec,$min,$hours,$mday,$mon,$year);
+  ;#	$time = timegm($sec,$min,$hours,$mday,$mon,$year);
+  
+  ;# These routines are quite efficient and yet are always guaranteed to agree
+***************
+*** 24,29 ****
+--- 24,30 ----
+  CONFIG: {
+      package timelocal;
+      
++     local($[) = 0;
+      @epoch = localtime(0);
+      $tzmin = $epoch[2] * 60 + $epoch[1];	# minutes east of GMT
+      if ($tzmin > 0) {
+***************
+*** 40,45 ****
+--- 41,47 ----
+  sub timegm {
+      package timelocal;
+  
++     local($[) = 0;
+      $ym = pack(C2, @_[5,4]);
+      $cheat = $cheat{$ym} || &cheat;
+      $cheat + $_[0] * $SEC + $_[1] * $MIN + $_[2] * $HR + ($_[3]-1) * $DAYS;
+***************
+*** 48,57 ****
+  sub timelocal {
+      package timelocal;
+  
+!     $ym = pack(C2, @_[5,4]);
+!     $cheat = $cheat{$ym} || &cheat;
+!     $cheat + $_[0] * $SEC + $_[1] * $MIN + $_[2] * $HR + ($_[3]-1) * $DAYS
+! 	+ $tzmin * $MIN - 60 * 60 * ($_[8] != 0);
+  }
+  
+  package timelocal;
+--- 50,60 ----
+  sub timelocal {
+      package timelocal;
+  
+!     local($[) = 0;
+!     $time = &main'timegm + $tzmin*$MIN;
+!     @test = localtime($time);
+!     $time -= $HR if $test[2] != $_[2];
+!     $time;
+  }
+  
+  package timelocal;
+***************
+*** 59,72 ****
+  sub cheat {
+      $year = $_[5];
+      $month = $_[4];
+      $guess = $^T;
+      @g = gmtime($guess);
+      while ($diff = $year - $g[5]) {
+! 	$guess += $diff * (364 * $DAYS);
+  	@g = gmtime($guess);
+      }
+      while ($diff = $month - $g[4]) {
+! 	$guess += $diff * (28 * $DAYS);
+  	@g = gmtime($guess);
+      }
+      $g[3]--;
+--- 62,76 ----
+  sub cheat {
+      $year = $_[5];
+      $month = $_[4];
++     die "Month out of range 0..11 in ctime.pl\n" if $month > 11;
+      $guess = $^T;
+      @g = gmtime($guess);
+      while ($diff = $year - $g[5]) {
+! 	$guess += $diff * (363 * $DAYS);
+  	@g = gmtime($guess);
+      }
+      while ($diff = $month - $g[4]) {
+! 	$guess += $diff * (27 * $DAYS);
+  	@g = gmtime($guess);
+      }
+      $g[3]--;
+
+Index: hints/titan.sh
+*** hints/titan.sh.old	Mon Jun  8 17:48:23 1992
+--- hints/titan.sh	Mon Jun  8 17:48:23 1992
+***************
+*** 0 ****
+--- 1,40 ----
++ # Hints file (perl 4.019) for Kubota Pacific's Titan 3000 Series Machines.
++ # Created by: JT McDuffie (jt@kpc.com)  26 DEC 1991
++ bin='/usr/local/bin'
++ installbin='/usr/local/bin'
++ alignbytes="8"
++ byteorder="4321"
++ cppstdin='/lib/cpp'
++ cppminus=''
++ castflags='0'
++ gid_type='ushort'
++ groupstype='unsigned short'
++ intsize='4'
++ libc='/lib/libc.a'
++ nm_opts='-eh'
++ mallocptrtype='void'
++ mansrc='/usr/man/man1'
++ installmansrc='/usr/man/man1'
++ manext='1'
++ models='none'
++ optimize='-O'
++ ccflags="$ccflags -I/usr/include/net -DDEBUGGING"
++ cppflags="$cppflags -I/usr/include/net -DDEBUGGING"
++ cc='cc'
++ libs='-lnsl -ldbm -lPW -lmalloc -lm'
++ libswanted='net socket nsl nm ndir ndbm dbm PW malloc m x posix '
++ scriptdir='/usr/local/bin'
++ installscr='/usr/local/bin'
++ stdchar='unsigned char'
++ uidtype='ushort'
++ usrinclude='/usr/include'
++ voidhave='7'
++ w_localtim='1'
++ w_s_timevl='1'
++ w_s_tm='1'
++ privlib='/usr/local/lib/perl'
++ installprivlib='/usr/local/lib/perl'
++ inclwanted='/usr/include /usr/include/net '
++ libpth=' /usr/lib /usr/local/lib /lib'
++ eoPATH='/bin /usr/bin /usr/ucb /usr/local /usr/local/bin /usr/lbin /etc /usr/lib /lib /usr/local/lib '
++ pth=' . /bin /usr/bin /usr/ucb /usr/local/bin /usr/X11/bin /usr/lbin /etc /usr/lib /lib /usr/local/lib '
+
+Index: atarist/usub/usersub.c
+*** atarist/usub/usersub.c.old	Mon Jun  8 17:45:37 1992
+--- atarist/usub/usersub.c	Mon Jun  8 17:45:37 1992
+***************
+*** 0 ****
+--- 1,27 ----
++ /* $RCSfile: usersub.c,v $$Revision: 4.0.1.1 $$Date: 92/06/08 11:54:52 $
++  *
++  * $Log:	usersub.c,v $
++  * Revision 4.0.1.1  92/06/08  11:54:52  lwall
++  * Initial revision
++  * 
++  * Revision 4.0.1.1  91/11/05  19:07:24  lwall
++  * patch11: there are now subroutines for calling back from C into Perl
++  * 
++  * Revision 4.0  91/03/20  01:56:34  lwall
++  * 4.0 baseline.
++  * 
++  * Revision 3.0.1.1  90/08/09  04:06:10  lwall
++  * patch19: Initial revision
++  * 
++  */
++ 
++ #include "EXTERN.h"
++ #include "perl.h"
++ 
++ int
++ userinit()
++ {
++     install_null();	/* install device /dev/null or NUL: */
++     init_curses();
++     return 0;
++ }
+
+Index: usersub.c
+*** usersub.c.old	Mon Jun  8 17:52:23 1992
+--- usersub.c	Mon Jun  8 17:52:23 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: usersub.c,v $$Revision: 4.0.1.1 $$Date: 91/11/11 16:47:17 $
+   *
+   *  This file contains stubs for routines that the user may define to
+   *  set up glue routines for C libraries or to decrypt encrypted scripts
+--- 1,4 ----
+! /* $RCSfile: usersub.c,v $$Revision: 4.0.1.2 $$Date: 92/06/08 16:04:24 $
+   *
+   *  This file contains stubs for routines that the user may define to
+   *  set up glue routines for C libraries or to decrypt encrypted scripts
+***************
+*** 5,10 ****
+--- 5,13 ----
+   *  for execution.
+   *
+   * $Log:	usersub.c,v $
++  * Revision 4.0.1.2  92/06/08  16:04:24  lwall
++  * patch20: removed implicit int declarations on functions
++  * 
+   * Revision 4.0.1.1  91/11/11  16:47:17  lwall
+   * patch19: deleted some unused functions from usersub.c
+   * 
+***************
+*** 16,21 ****
+--- 19,25 ----
+  #include "EXTERN.h"
+  #include "perl.h"
+  
++ int
+  userinit()
+  {
+      return 0;
+***************
+*** 46,51 ****
+--- 50,56 ----
+  #define	CRYPT_MAGIC_1	0xfb
+  #define	CRYPT_MAGIC_2	0xf1
+  
++ void
+  cryptfilter( fil )
+  FILE *	fil;
+  {
+***************
+*** 113,118 ****
+--- 118,124 ----
+      return fdopen(p[0], "r");
+  }
+  
++ void
+  cryptswitch()
+  {
+      int ch;
+
+Index: hints/utekv.sh
+*** hints/utekv.sh.old	Mon Jun  8 17:48:31 1992
+--- hints/utekv.sh	Mon Jun  8 17:48:31 1992
+***************
+*** 0 ****
+--- 1,18 ----
++ # XD88/10 UTekV hints by Kaveh Ghazi (ghazi@caip.rutgers.edu)  2/11/92
++ 
++ # The -DUTekV is needed because the greenhills compiler does not have any
++ # UTekV specific definitions and we need one in perl.h
++ ccflags="$ccflags -X18 -DJMPCLOBBER -DUTekV"
++ 
++ usemymalloc='y'
++ 
++ # /usr/include/rpcsvc is for finding dbm.h
++ inclwanted="$inclwanted /usr/include/rpcsvc"
++ 
++ # dont use the wrapper, use the real thing.
++ cppstdin=/lib/cpp
++ 
++ echo " "
++ echo "NOTE: You may have to take out makefile dependencies on the files in"
++ echo "/usr/include (i.e. /usr/include/ctype.h) or the make will fail.  A"
++ echo "simple 'grep -v /usr/include/ makefile' should suffice."
+
+Index: util.c
+*** util.c.old	Mon Jun  8 17:52:33 1992
+--- util.c	Mon Jun  8 17:52:34 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: util.c,v $$Revision: 4.0.1.4 $$Date: 91/11/11 16:48:54 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: util.c,v $$Revision: 4.0.1.5 $$Date: 92/06/08 16:08:37 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,18 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	util.c,v $
++  * Revision 4.0.1.5  92/06/08  16:08:37  lwall
++  * patch20: removed implicit int declarations on functions
++  * patch20: Perl now distinguishes overlapped copies from non-overlapped
++  * patch20: fixed confusion between a *var's real name and its effective name
++  * patch20: bcopy() and memcpy() now tested for overlap safety
++  * patch20: added Atari ST portability
++  * 
+   * Revision 4.0.1.4  91/11/11  16:48:54  lwall
+   * patch19: study was busted by 4.018
+   * patch19: added little-endian pack/unpack options
+***************
+*** 96,111 ****
+  #endif
+      ptr = malloc(size?size:1);	/* malloc(0) is NASTY on our system */
+  #ifdef DEBUGGING
+! #  ifndef I286
+      if (debug & 128)
+! 	fprintf(stderr,"0x%x: (%05d) malloc %d bytes\n",ptr,an++,size);
+  #  else
+      if (debug & 128)
+! 	fprintf(stderr,"0x%lx: (%05d) malloc %d bytes\n",ptr,an++,size);
+  #  endif
+  #endif
+      if (ptr != Nullch)
+  	return ptr;
+      else {
+  	fputs(nomem,stderr) FLUSH;
+  	exit(1);
+--- 103,120 ----
+  #endif
+      ptr = malloc(size?size:1);	/* malloc(0) is NASTY on our system */
+  #ifdef DEBUGGING
+! #  if !(defined(I286) || defined(atarist))
+      if (debug & 128)
+! 	fprintf(stderr,"0x%x: (%05d) malloc %ld bytes\n",ptr,an++,(long)size);
+  #  else
+      if (debug & 128)
+! 	fprintf(stderr,"0x%lx: (%05d) malloc %ld bytes\n",ptr,an++,(long)size);
+  #  endif
+  #endif
+      if (ptr != Nullch)
+  	return ptr;
++     else if (nomemok)
++ 	return Nullch;
+      else {
+  	fputs(nomem,stderr) FLUSH;
+  	exit(1);
+***************
+*** 146,165 ****
+  #endif
+      ptr = realloc(where,size?size:1);	/* realloc(0) is NASTY on our system */
+  #ifdef DEBUGGING
+! #  ifndef I286
+      if (debug & 128) {
+  	fprintf(stderr,"0x%x: (%05d) rfree\n",where,an++);
+! 	fprintf(stderr,"0x%x: (%05d) realloc %d bytes\n",ptr,an++,size);
+      }
+  #  else
+      if (debug & 128) {
+  	fprintf(stderr,"0x%lx: (%05d) rfree\n",where,an++);
+! 	fprintf(stderr,"0x%lx: (%05d) realloc %d bytes\n",ptr,an++,size);
+      }
+  #  endif
+  #endif
+      if (ptr != Nullch)
+  	return ptr;
+      else {
+  	fputs(nomem,stderr) FLUSH;
+  	exit(1);
+--- 155,176 ----
+  #endif
+      ptr = realloc(where,size?size:1);	/* realloc(0) is NASTY on our system */
+  #ifdef DEBUGGING
+! #  if !(defined(I286) || defined(atarist))
+      if (debug & 128) {
+  	fprintf(stderr,"0x%x: (%05d) rfree\n",where,an++);
+! 	fprintf(stderr,"0x%x: (%05d) realloc %ld bytes\n",ptr,an++,(long)size);
+      }
+  #  else
+      if (debug & 128) {
+  	fprintf(stderr,"0x%lx: (%05d) rfree\n",where,an++);
+! 	fprintf(stderr,"0x%lx: (%05d) realloc %ld bytes\n",ptr,an++,(long)size);
+      }
+  #  endif
+  #endif
+      if (ptr != Nullch)
+  	return ptr;
++     else if (nomemok)
++ 	return Nullch;
+      else {
+  	fputs(nomem,stderr) FLUSH;
+  	exit(1);
+***************
+*** 177,183 ****
+  char *where;
+  {
+  #ifdef DEBUGGING
+! #  ifndef I286
+      if (debug & 128)
+  	fprintf(stderr,"0x%x: (%05d) free\n",where,an++);
+  #  else
+--- 188,194 ----
+  char *where;
+  {
+  #ifdef DEBUGGING
+! #  if !(defined(I286) || defined(atarist))
+      if (debug & 128)
+  	fprintf(stderr,"0x%x: (%05d) free\n",where,an++);
+  #  else
+***************
+*** 233,238 ****
+--- 244,250 ----
+      safefree(where);
+  }
+  
++ static void
+  xstat()
+  {
+      register int i;
+***************
+*** 820,826 ****
+      register char *newaddr;
+  
+      New(903,newaddr,len+1,char);
+!     (void)bcopy(str,newaddr,len);	/* might not be null terminated */
+      newaddr[len] = '\0';		/* is now */
+      return newaddr;
+  }
+--- 832,838 ----
+      register char *newaddr;
+  
+      New(903,newaddr,len+1,char);
+!     Copy(str,newaddr,len,char);		/* might not be null terminated */
+      newaddr[len] = '\0';		/* is now */
+      return newaddr;
+  }
+***************
+*** 844,849 ****
+--- 856,862 ----
+  
+  #ifndef I_VARARGS
+  /*VARARGS1*/
++ char *
+  mess(pat,a1,a2,a3,a4)
+  char *pat;
+  long a1, a2, a3, a4;
+***************
+*** 873,879 ****
+  	    stab_io(last_in_stab) &&
+  	    stab_io(last_in_stab)->lines ) {
+  	    (void)sprintf(s,", <%s> line %ld",
+! 	      last_in_stab == argvstab ? "" : stab_name(last_in_stab),
+  	      (long)stab_io(last_in_stab)->lines);
+  	    s += strlen(s);
+  	}
+--- 886,892 ----
+  	    stab_io(last_in_stab) &&
+  	    stab_io(last_in_stab)->lines ) {
+  	    (void)sprintf(s,", <%s> line %ld",
+! 	      last_in_stab == argvstab ? "" : stab_ename(last_in_stab),
+  	      (long)stab_io(last_in_stab)->lines);
+  	    s += strlen(s);
+  	}
+***************
+*** 888,894 ****
+  }
+  
+  /*VARARGS1*/
+! fatal(pat,a1,a2,a3,a4)
+  char *pat;
+  long a1, a2, a3, a4;
+  {
+--- 901,907 ----
+  }
+  
+  /*VARARGS1*/
+! void fatal(pat,a1,a2,a3,a4)
+  char *pat;
+  long a1, a2, a3, a4;
+  {
+***************
+*** 932,938 ****
+  }
+  
+  /*VARARGS1*/
+! warn(pat,a1,a2,a3,a4)
+  char *pat;
+  long a1, a2, a3, a4;
+  {
+--- 945,951 ----
+  }
+  
+  /*VARARGS1*/
+! void warn(pat,a1,a2,a3,a4)
+  char *pat;
+  long a1, a2, a3, a4;
+  {
+***************
+*** 1009,1015 ****
+  }
+  
+  /*VARARGS0*/
+! fatal(va_alist)
+  va_dcl
+  {
+      va_list args;
+--- 1022,1028 ----
+  }
+  
+  /*VARARGS0*/
+! void fatal(va_alist)
+  va_dcl
+  {
+      va_list args;
+***************
+*** 1059,1065 ****
+  }
+  
+  /*VARARGS0*/
+! warn(va_alist)
+  va_dcl
+  {
+      va_list args;
+--- 1072,1078 ----
+  }
+  
+  /*VARARGS0*/
+! void warn(va_alist)
+  va_dcl
+  {
+      va_list args;
+***************
+*** 1085,1091 ****
+  #endif
+  
+  void
+! setenv(nam,val)
+  char *nam, *val;
+  {
+      register int i=envix(nam);		/* where does it go? */
+--- 1098,1104 ----
+  #endif
+  
+  void
+! my_setenv(nam,val)
+  char *nam, *val;
+  {
+      register int i=envix(nam);		/* where does it go? */
+***************
+*** 1144,1149 ****
+--- 1157,1163 ----
+  }
+  
+  #ifdef EUNICE
++ int
+  unlnk(f)	/* unlink all versions of a file */
+  char *f;
+  {
+***************
+*** 1154,1163 ****
+  }
+  #endif
+  
+! #ifndef HAS_MEMCPY
+! #ifndef HAS_BCOPY
+  char *
+! bcopy(from,to,len)
+  register char *from;
+  register char *to;
+  register int len;
+--- 1168,1176 ----
+  }
+  #endif
+  
+! #if !defined(HAS_BCOPY) || !defined(SAFE_BCOPY)
+  char *
+! my_bcopy(from,to,len)
+  register char *from;
+  register char *to;
+  register int len;
+***************
+*** 1164,1178 ****
+  {
+      char *retval = to;
+  
+!     while (len--)
+! 	*to++ = *from++;
+      return retval;
+  }
+  #endif
+  
+! #ifndef HAS_BZERO
+  char *
+! bzero(loc,len)
+  register char *loc;
+  register int len;
+  {
+--- 1177,1199 ----
+  {
+      char *retval = to;
+  
+!     if (from - to >= 0) {
+! 	while (len--)
+! 	    *to++ = *from++;
+!     }
+!     else {
+! 	to += len;
+! 	from += len;
+! 	while (len--)
+! 	    --*to = --*from;
+!     }
+      return retval;
+  }
+  #endif
+  
+! #if !defined(HAS_BZERO) && !defined(HAS_MEMSET)
+  char *
+! my_bzero(loc,len)
+  register char *loc;
+  register int len;
+  {
+***************
+*** 1183,1190 ****
+      return retval;
+  }
+  #endif
+- #endif
+  
+  #ifdef I_VARARGS
+  #ifndef HAS_VPRINTF
+  
+--- 1204,1227 ----
+      return retval;
+  }
+  #endif
+  
++ #ifndef HAS_MEMCMP
++ int
++ my_memcmp(s1,s2,len)
++ register unsigned char *s1;
++ register unsigned char *s2;
++ register int len;
++ {
++     register int tmp;
++ 
++     while (len--) {
++ 	if (tmp = *s1++ - *s2++)
++ 	    return tmp;
++     }
++     return 0;
++ }
++ #endif /* HAS_MEMCMP */
++ 
+  #ifdef I_VARARGS
+  #ifndef HAS_VPRINTF
+  
+***************
+*** 1372,1378 ****
+  VTOH(vtohl,long)
+  #endif
+  
+! #ifndef MSDOS
+  FILE *
+  mypopen(cmd,mode)
+  char	*cmd;
+--- 1409,1415 ----
+  VTOH(vtohl,long)
+  #endif
+  
+! #ifndef DOSISH
+  FILE *
+  mypopen(cmd,mode)
+  char	*cmd;
+***************
+*** 1446,1453 ****
+      forkprocess = pid;
+      return fdopen(p[this], mode);
+  }
+! #endif /* !MSDOS */
+  
+  #ifdef NOTDEF
+  dumpfds(s)
+  char *s;
+--- 1483,1502 ----
+      forkprocess = pid;
+      return fdopen(p[this], mode);
+  }
+! #else
+! #ifdef atarist
+! FILE *popen();
+! FILE *
+! mypopen(cmd,mode)
+! char	*cmd;
+! char	*mode;
+! {
+!     return popen(cmd, mode);
+! }
+! #endif
+  
++ #endif /* !DOSISH */
++ 
+  #ifdef NOTDEF
+  dumpfds(s)
+  char *s;
+***************
+*** 1488,1494 ****
+  }
+  #endif
+  
+! #ifndef MSDOS
+  int
+  mypclose(ptr)
+  FILE *ptr;
+--- 1537,1543 ----
+  }
+  #endif
+  
+! #ifndef DOSISH
+  int
+  mypclose(ptr)
+  FILE *ptr;
+***************
+*** 1506,1511 ****
+--- 1555,1563 ----
+      pid = (int)str->str_u.str_useful;
+      astore(fdpid,fileno(ptr),Nullstr);
+      fclose(ptr);
++ #ifdef UTS
++     if(kill(pid, 0) < 0) { return(pid); }   /* HOM 12/23/91 */
++ #endif
+      hstat = signal(SIGHUP, SIG_IGN);
+      istat = signal(SIGINT, SIG_IGN);
+      qstat = signal(SIGQUIT, SIG_IGN);
+***************
+*** 1551,1557 ****
+  	hiterinit(pidstatus);
+  	if (entry = hiternext(pidstatus)) {
+  	    pid = atoi(hiterkey(entry,statusp));
+! 	    str = hiterval(entry);
+  	    *statusp = (int)str->str_u.str_useful;
+  	    sprintf(spid, "%d", pid);
+  	    hdelete(pidstatus,spid,strlen(spid));
+--- 1603,1609 ----
+  	hiterinit(pidstatus);
+  	if (entry = hiternext(pidstatus)) {
+  	    pid = atoi(hiterkey(entry,statusp));
+! 	    str = hiterval(pidstatus,entry);
+  	    *statusp = (int)str->str_u.str_useful;
+  	    sprintf(spid, "%d", pid);
+  	    hdelete(pidstatus,spid,strlen(spid));
+***************
+*** 1570,1576 ****
+--- 1622,1630 ----
+  #endif
+  #endif
+  }
++ #endif /* !DOSISH */
+  
++ void
+  /*SUPPRESS 590*/
+  pidgone(pid,status)
+  int pid;
+***************
+*** 1587,1609 ****
+  #endif
+      return;
+  }
+- #endif /* !MSDOS */
+  
+! #ifndef HAS_MEMCMP
+! memcmp(s1,s2,len)
+! register unsigned char *s1;
+! register unsigned char *s2;
+! register int len;
+  {
+!     register int tmp;
+! 
+!     while (len--) {
+! 	if (tmp = *s1++ - *s2++)
+! 	    return tmp;
+!     }
+!     return 0;
+  }
+! #endif /* HAS_MEMCMP */
+  
+  void
+  repeatcpy(to,from,len,count)
+--- 1641,1656 ----
+  #endif
+      return;
+  }
+  
+! #ifdef atarist
+! int pclose();
+! int
+! mypclose(ptr)
+! FILE *ptr;
+  {
+!     return pclose(ptr);
+  }
+! #endif
+  
+  void
+  repeatcpy(to,from,len,count)
+
+Index: util.h
+*** util.h.old	Mon Jun  8 17:52:38 1992
+--- util.h	Mon Jun  8 17:52:39 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: util.h,v $$Revision: 4.0.1.2 $$Date: 91/11/05 19:18:40 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: util.h,v $$Revision: 4.0.1.3 $$Date: 92/06/08 16:09:20 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,14 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	util.h,v $
++  * Revision 4.0.1.3  92/06/08  16:09:20  lwall
++  * patch20: bcopy() and memcpy() now tested for overlap safety
++  * 
+   * Revision 4.0.1.2  91/11/05  19:18:40  lwall
+   * patch11: safe malloc code now integrated into Perl's malloc when possible
+   * 
+***************
+*** 30,36 ****
+  char	*screaminstr();
+  void	fbmcompile();
+  char	*savestr();
+! void	setenv();
+  int	envix();
+  void	growstr();
+  char	*ninstr();
+--- 33,39 ----
+  char	*screaminstr();
+  void	fbmcompile();
+  char	*savestr();
+! void	my_setenv();
+  int	envix();
+  void	growstr();
+  char	*ninstr();
+***************
+*** 38,50 ****
+  char	*nsavestr();
+  FILE	*mypopen();
+  int	mypclose();
+! #ifndef HAS_MEMCPY
+! #ifndef HAS_BCOPY
+! char	*bcopy();
+  #endif
+! #ifndef HAS_BZERO
+! char	*bzero();
+  #endif
+  #endif
+  unsigned long scanoct();
+  unsigned long scanhex();
+--- 41,54 ----
+  char	*nsavestr();
+  FILE	*mypopen();
+  int	mypclose();
+! #if !defined(HAS_BCOPY) || !defined(SAFE_BCOPY)
+! char	*my_bcopy();
+  #endif
+! #if !defined(HAS_BZERO) && !defined(HAS_MEMSET)
+! char	*my_bzero();
+  #endif
++ #ifndef HAS_MEMCMP
++ int	my_memcmp();
+  #endif
+  unsigned long scanoct();
+  unsigned long scanhex();
+
+Index: hints/uts.sh
+*** hints/uts.sh.old	Mon Jun  8 17:48:33 1992
+--- hints/uts.sh	Mon Jun  8 17:48:34 1992
+***************
+*** 1,2 ****
+  ccflags="$ccflags -DCRIPPLED_CC"
+! d_lstat=$define
+--- 1,2 ----
+  ccflags="$ccflags -DCRIPPLED_CC"
+! d_lstat=define
+
+Index: x2p/walk.c
+*** x2p/walk.c.old	Mon Jun  8 17:53:03 1992
+--- x2p/walk.c	Mon Jun  8 17:53:03 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: walk.c,v $$Revision: 4.0.1.2 $$Date: 91/11/05 19:25:09 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: walk.c,v $$Revision: 4.0.1.3 $$Date: 92/06/08 17:33:46 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,17 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	walk.c,v $
++  * Revision 4.0.1.3  92/06/08  17:33:46  lwall
++  * patch20: in a2p, simplified the filehandle model
++  * patch20: in a2p, made RS="" translate to $/ = "\n\n"
++  * patch20: in a2p, do {...} while ... was missing some reconstruction code
++  * patch20: in a2p, getline should allow variable to be array element
++  * 
+   * Revision 4.0.1.2  91/11/05  19:25:09  lwall
+   * patch11: in a2p, split on whitespace produced extra null field
+   * 
+***************
+*** 211,221 ****
+  	    str_cat(str,"\n\
+  sub Pick {\n\
+      local($mode,$name,$pipe) = @_;\n\
+!     $fh = $opened{$name};\n\
+!     if (!$fh) {\n\
+! 	$fh = $opened{$name} = 'fh_' . ($nextfh++ + 0);\n\
+! 	open($fh,$mode.$name.$pipe);\n\
+!     }\n\
+  }\n\
+  ");
+  	}
+--- 217,224 ----
+  	    str_cat(str,"\n\
+  sub Pick {\n\
+      local($mode,$name,$pipe) = @_;\n\
+!     $fh = $name;\n\
+!     open($name,$mode.$name.$pipe) unless $opened{$name}++;\n\
+  }\n\
+  ");
+  	}
+***************
+*** 468,473 ****
+--- 471,478 ----
+  	str_scat(str,fstr=walk(1,level,ops[node+3].ival,&numarg,prec));
+  	str_free(fstr);
+  	numeric |= numarg;
++ 	if (strEQ(str->str_ptr,"$/ = ''"))
++ 	    str_set(str, "$/ = \"\\n\\n\"");
+  	break;
+      case OADD:
+  	prec = P_ADD;
+***************
+*** 570,579 ****
+  	if (useval)
+  	    str_cat(str,"(");
+  	if (len > 0) {
+- 	    str_cat(str,"$");
+  	    str_scat(str,fstr=walk(1,level,ops[node+1].ival,&numarg,P_MIN));
+  	    if (!*fstr->str_ptr) {
+! 		str_cat(str,"_");
+  		len = 2;		/* a legal fiction */
+  	    }
+  	    str_free(fstr);
+--- 575,583 ----
+  	if (useval)
+  	    str_cat(str,"(");
+  	if (len > 0) {
+  	    str_scat(str,fstr=walk(1,level,ops[node+1].ival,&numarg,P_MIN));
+  	    if (!*fstr->str_ptr) {
+! 		str_cat(str,"$_");
+  		len = 2;		/* a legal fiction */
+  	    }
+  	    str_free(fstr);
+***************
+*** 1137,1144 ****
+  	    str_cat(str,tokenbuf);
+  	}
+  	else {
+! 	    sprintf(tokenbuf,"$fh = delete $opened{%s} && close($fh)",
+! 	       tmpstr->str_ptr);
+  	    str_free(tmpstr);
+  	    str_set(str,tokenbuf);
+  	}
+--- 1141,1148 ----
+  	    str_cat(str,tokenbuf);
+  	}
+  	else {
+! 	    sprintf(tokenbuf,"delete $opened{%s} && close(%s)",
+! 	       tmpstr->str_ptr, tmpstr->str_ptr);
+  	    str_free(tmpstr);
+  	    str_set(str,tokenbuf);
+  	}
+***************
+*** 1414,1419 ****
+--- 1418,1435 ----
+  	str_cat(str,") ");
+  	str_scat(str,fstr=walk(0,level,ops[node+2].ival,&numarg,P_MIN));
+  	str_free(fstr);
++ 	break;
++     case ODO:
++ 	str = str_new(0);
++ 	str_set(str,"do ");
++ 	str_scat(str,fstr=walk(1,level,ops[node+1].ival,&numarg,P_MIN));
++ 	str_free(fstr);
++ 	if (str->str_ptr[str->str_cur - 1] == '\n')
++ 	    --str->str_cur;;
++ 	str_cat(str," while (");
++ 	str_scat(str,fstr=walk(0,level,ops[node+2].ival,&numarg,P_MIN));
++ 	str_free(fstr);
++ 	str_cat(str,");");
+  	break;
+      case OFOR:
+  	str = str_new(0);
+
+Index: eg/who
+*** eg/who.old	Mon Jun  8 17:47:11 1992
+--- eg/who	Mon Jun  8 17:47:12 1992
+***************
+*** 5,11 ****
+  while (read(UTMP,$utmp,36)) {
+      ($line,$name,$host,$time) = unpack('A8A8A16l',$utmp);
+      if ($name) {
+! 	$host = "($host)" if $host;
+  	($sec,$min,$hour,$mday,$mon) = localtime($time);
+  	printf "%-9s%-8s%s %2d %02d:%02d   %s\n",
+  	  $name,$line,$mo[$mon],$mday,$hour,$min,$host;
+--- 5,11 ----
+  while (read(UTMP,$utmp,36)) {
+      ($line,$name,$host,$time) = unpack('A8A8A16l',$utmp);
+      if ($name) {
+! 	$host = "($host)" if ord($host);
+  	($sec,$min,$hour,$mday,$mon) = localtime($time);
+  	printf "%-9s%-8s%s %2d %02d:%02d   %s\n",
+  	  $name,$line,$mo[$mon],$mday,$hour,$min,$host;
+
+*** End of Patch 32 ***
+exit 0 # Just in case...

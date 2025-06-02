@@ -1,0 +1,1684 @@
+Newsgroups: comp.sources.x
+From: duane@blacks.jpl.nasa.gov (Duane Clark)
+Subject: v19i080:  Jetedit - A Motif text editor, Part01/04
+Message-ID: <csx-v19i080=Jetedit.094255@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 4bf0f03fa252c0feb4ba97ade0169b5c
+Date: Thu, 8 Apr 1993 14:44:18 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: duane@blacks.jpl.nasa.gov (Duane Clark)
+Posting-number: Volume 19, Issue 80
+Archive-name: Jetedit/part01
+Environment: X11, OSF/Motif
+
+Jetedit is a Motif programmer's editor, although it can be used for
+general purpose editing.  It has a Mac like interface, along with features
+useful to C programming such as:
+    -Multiple undos
+    -Line number indicator
+    -Goto line number
+    -Find and Replace
+    -Tabbing in and out a block of text
+    -Automatic C syntax sensitive indenting, which can be easily configured
+    to suit the style you want, or disabled.
+    -A clipboard with the ability to cut and paste between editors, even if
+    they are running on different hosts.
+
+All of the configuration options are set through dialogs. In addition, they
+can be set to your desired defaults through resources in your .Xdefaults file.
+See the man page. Two fairly complete man pages are supplied; a plain text
+version - jetedit.txt and a formatted version - jetedit.man.uu. You will need
+to uudecode the second.
+
+I have been using this editor exclusively for about three years.  It has been
+compiled on an HP9000/300, SUN and Decstation 5000, and under IRIX 4.0.2 and
+AIX3.2 (whatever those are), but it should work on any UNIX machine with
+X Windows (the file functions use UNIX calls, these would have to be modified
+for other machines).
+
+This is freeware.  See copyright.h.
+
+Authors:
+      Duane Clark - duane@blacks.jpl.nasa.gov (Jet Propulsion Labs)
+
+      Jim Campbell - jec@milne.boeing.com - contributed regular expression
+      text searches.
+
+      David W. Sanderson - dws@ssec.wisc.edu - improved the formatting of
+      the man page.
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 4)."
+# Contents:  Imakefile Jetedit README copyright.h
+#   jetedit.txt makefile patchlevel.h xme.c xme.h
+#   xmefile.c
+# Wrapped by duane@blacks.jpl.nasa.gov on Sat Apr  3 20:04:06 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Imakefile'\"
+else
+echo shar: Extracting \"'Imakefile'\" \(946 characters\)
+sed "s/^X//" >'Imakefile' <<'END_OF_FILE'
+X#
+X# If your XMLIB is defined in your Imake.tmpl comment out the
+X# following line
+X#
+XXMLIB	       =  -lXm
+X# for initiall development
+X#CC = gcc
+X#CDEBUGFLAGS = -g
+X#
+X#
+XINCLUDES      = -I$(TOP)/lib -I$(TOP)
+X
+X# 
+X#	Comment out the following line if you want to set menu
+X#	and dialog resources through resource files (see the
+X#	included resource file: Jetedit). In this case, be sure
+X#	to install the resource file:
+X#	   /usr/lib/X11/app-defaults/Jetedit.
+X#	Otherwise, such things as menu accelerators will be
+X#	hardcoded.
+X#
+X#DEFINES       = -DHARDCODE
+X
+XHDRS	      = xme.h
+XLOCAL_LIBRARIES = $(XMLIB) \
+X		$(XTOOLLIB) \
+X		$(XLIB)
+X#If you get an unresolved external, uncomment the following line.
+X#SYS_LIBRARIES = -lPW
+XOBJS	      = xme.o \
+X		xmedialg.o \
+X		xmefile.o \
+X		xmemenu.o \
+X		xmemisc.o \
+X		xmepref.o \
+X		xmespec.o
+XSRCS	      = xme.c \
+X		xmedialg.c \
+X		xmefile.c \
+X		xmemenu.c \
+X		xmemisc.c \
+X		xmepref.c \
+X		xmespec.c
+X
+XComplexProgramTarget(jetedit)
+END_OF_FILE
+if test 946 -ne `wc -c <'Imakefile'`; then
+    echo shar: \"'Imakefile'\" unpacked with wrong size!
+fi
+# end of 'Imakefile'
+fi
+if test -f 'Jetedit' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Jetedit'\"
+else
+echo shar: Extracting \"'Jetedit'\" \(2358 characters\)
+sed "s/^X//" >'Jetedit' <<'END_OF_FILE'
+X! This is a sample file of resources for jetedit, however
+X! Jetedit will work just fine without any resources.
+X
+X! This file would normally be put in the 
+X! /usr/lib/X11/app-defaults directory, or the resources
+X! copied into your ~/.Xdefaults file.
+X
+X!jetedit*font:				courR12
+X!jetedit*infoFile:			/update.txt
+Xjetedit*background:			DarkTurquoise
+Xjetedit*unselectColor:			Grey70
+X
+X!******************************************
+X! The following resources will be used if the HARDCODE
+X! flag was NOT used during compiling. This would allow
+X! individual users to customize the settings.
+X
+X! If the HARDCODE flag is used during compile, only a
+X! single font can be used for everything including the
+X! main window, menus, and dialogs. The font is selected
+X! with the font resource (above).
+X! If the HARDCODE flag is not used, font controls only
+X! the main text window. Everything else uses the
+X! fontlist resource, and the individual components can
+X! be given different fonts if desired.
+X
+X!jetedit*fontList:			courR18
+X
+X! The autoUnmanage resources determine whether the Find
+X! and GoTo dialogs will automatically go away when the
+X! OK buttons are clicked. If set to False, the dialogs
+X! will remain up until the Done or Cancel buttons are
+X! clicked.
+X
+Xjetedit*Find.autoUnmanage:		False
+Xjetedit*GoTo.autoUnmanage:		False
+X
+X!These resources set the Menu accelerators.
+X
+Xjetedit*Open.acceleratorText:		Ext+O
+Xjetedit*Open.accelerator:		Meta<Key>O:
+Xjetedit*New.acceleratorText:		Ext+N
+Xjetedit*New.accelerator:		Meta<Key>N:
+Xjetedit*Save.acceleratorText:		Ext+S
+Xjetedit*Save.accelerator:		Meta<Key>S:
+Xjetedit*Exit.acceleratorText:		Ext+Q
+Xjetedit*Exit.accelerator:		Meta<Key>Q:
+X
+Xjetedit*Undo.acceleratorText:		Ext+Z
+Xjetedit*Undo.accelerator:		Meta<Key>Z:
+Xjetedit*Cut.acceleratorText:		Ext+X
+Xjetedit*Cut.accelerator:		Meta<Key>X:
+Xjetedit*Copy.acceleratorText:		Ext+C
+Xjetedit*Copy.accelerator:		Meta<Key>C:
+Xjetedit*Paste.acceleratorText:		Ext+V
+Xjetedit*Paste.accelerator:		Meta<Key>V:
+Xjetedit*Clear.acceleratorText:		Del
+X!The text widget already knows to use the Del key.
+X
+Xjetedit*Find.acceleratorText:		Ext+F
+Xjetedit*Find.accelerator:		Meta<Key>F:
+Xjetedit*FindA.acceleratorText:		Ext+A
+Xjetedit*FindA.accelerator:		Meta<Key>A:
+Xjetedit*Replace.acceleratorText:	Ext+R
+Xjetedit*Replace.accelerator:		Meta<Key>R:
+Xjetedit*GoTo.acceleratorText:		Ext+G
+Xjetedit*GoTo.accelerator:		Meta<Key>G:
+END_OF_FILE
+if test 2358 -ne `wc -c <'Jetedit'`; then
+    echo shar: \"'Jetedit'\" unpacked with wrong size!
+fi
+chmod +x 'Jetedit'
+# end of 'Jetedit'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(2739 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+X4/3/93
+XThis is version 1.2 of Jetedit. I continue to get a slow trickle of email
+Xfrom users of the original, so I thought I would post this one. This will
+Xlikely be the final version, as I have little time to spend on it.
+X
+XDisclaimer: This program gets it's name from my working at the Jet
+XPropulsion Labs, but it was written on my own time (so don't worry too
+Xmuch about your taxes being wasted).
+X
+XChanges from 1.0:
+X-A bug was fixed that caused a core dump on some systems when the first
+X line ended in a ';'.
+X-Some minor changes were added to the line number indication to hopefully
+X make it indicate correctly in all situations.
+X-The Find and Goto dialogs can be set (through resources) to remain up until
+X until explicitly commanded to unmap by clicking Done.
+X-The ability to perform searches optionally using regular expressions was 
+X added. On some machines, this might also make text searches significantly
+X faster. Select Help from the Find dialog for a quick reference to regular
+X expressions.
+X-In the spirit of X, the setting of all menu and dialog resources through a
+X resource file is now actually possible (see the makefile - I personally prefer
+X to hardcode some of them). A sample resource file is included.
+X  
+XJetedit is a Motif programmer's editor, although it can be used for
+Xgeneral purpose editing.  It has a Mac like interface, along with features
+Xuseful to C programming such as:
+X    -Multiple undos
+X    -Line number indicator
+X    -Goto line number
+X    -Find and Replace
+X    -Tabbing in and out a block of text
+X    -Automatic C syntax sensitive indenting, which can be easily configured
+X    to suit the style you want, or disabled.
+X    -A clipboard with the ability to cut and paste between editors, even if
+X    they are running on different hosts.
+X
+XAll of the configuration options are set through dialogs. In addition, they
+Xcan be set to your desired defaults through resources in your .Xdefaults file.
+XSee the man page. Two fairly complete man pages are supplied; a plain text
+Xversion - jetedit.txt and a formatted version - jetedit.man.uu. You will need
+Xto uudecode the second.
+X
+XI have been using this editor exclusively for about three years.  It has been
+Xcompiled on an HP9000/300, SUN and Decstation 5000, and under IRIX 4.0.2 and
+XAIX3.2 (whatever those are), but it should work on any UNIX machine with
+XX Windows (the file functions use UNIX calls, these would have to be modified
+Xfor other machines).
+X
+XThis is freeware.  See copyright.h.
+X
+XAuthors:
+X      Duane Clark - duane@blacks.jpl.nasa.gov (Jet Propulsion Labs)
+X
+X      Jim Campbell - jec@milne.boeing.com - contributed regular expression
+X      text searches.
+X
+X      David W. Sanderson - dws@ssec.wisc.edu - improved the formatting of
+X      the man page.
+END_OF_FILE
+if test 2739 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+chmod +x 'README'
+# end of 'README'
+fi
+if test -f 'copyright.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'copyright.h'\"
+else
+echo shar: Extracting \"'copyright.h'\" \(1379 characters\)
+sed "s/^X//" >'copyright.h' <<'END_OF_FILE'
+X/*
+X**  Author:    Duane Clark, Jet Propulsion Labs, Pasadena CA
+X**                (duane@blacks.jpl.nasa.gov)
+X**  Copyright (c) 1993 by Duane Clark
+X**  
+X** This program originated as "xmeditor", although the resemblance
+X** would be hard to see at this point. xmeditor includes the additional
+X** copyrights:
+X**	(c) Copyright 1989 by Open Software Foundation, Inc.
+X**		All Rights Reserved.
+X**	(c) Copyright 1989 by Hewlett-Packard Company.
+X**
+X** Permission to use, copy, modify, and distribute this software
+X** and its documentation for any purpose is hereby granted without fee,
+X** provided that the above copyright notice appear in all copies and
+X** that both that copyright notice and this permission notice appear
+X** in supporting documentation.  The author makes no representations
+X** about the suitability of this software for any purpose.  It is
+X** provided "as is" without express or implied warranty.
+X**
+X** THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+X** INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN
+X** NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+X** CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+X** OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X** OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE
+X** USE OR PERFORMANCE OF THIS SOFTWARE.
+X**
+X*/
+END_OF_FILE
+if test 1379 -ne `wc -c <'copyright.h'`; then
+    echo shar: \"'copyright.h'\" unpacked with wrong size!
+fi
+chmod +x 'copyright.h'
+# end of 'copyright.h'
+fi
+if test -f 'jetedit.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jetedit.txt'\"
+else
+echo shar: Extracting \"'jetedit.txt'\" \(11162 characters\)
+sed "s/^X//" >'jetedit.txt' <<'END_OF_FILE'
+X JETEDIT(1X)                                                     JETEDIT(1X)
+X
+X NAME
+X      jetedit - a ``C'' programmer's point and click editor.
+X
+X SYNTAX
+X      jetedit [filename]
+X
+X DESCRIPTION
+X      Jetedit is intended to be a programmer's editor, but is usable for
+X      general purpose editing. It has a Mac like interface with the <Extend
+X      char> key replacing the Mac <command> key, and duplicates the common
+X      Mac editing commands. Other features it has:
+X
+X      +    Find and Replace
+X
+X      +    Goto line number
+X
+X      +    Tabbing in and out a block of text
+X
+X      +    Undo edits
+X
+X      +    Automatic C syntax sensitive indenting, which can be easily
+X           configured to suit the style you are used to.
+X
+X OPTIONS
+X      Jetedit recognizes all the normal X Windows options such as font and
+X      geometry. The only additional option it recognizes is a filename.
+X
+X HOW IT WORKS
+X      The most important feature is that edits can be undone. This is hard
+X      coded to remember the previous 20 edits, using a circular buffer.
+X      Select Undo from the Edit menu or type <Ext>Z.  Note that some editing
+X      functions, such as tabbing a block of text, are remembered as multiple
+X      edits, so you may need to undo multiple times to completely undo.
+X
+X      With the exception of undo, all the editing functions work just like a
+X      Mac. This includes the existence of a clipboard. Text cut or copied to
+X      the clipboard can not only be pasted between editors running on the
+X      same host, but because of X Windows can also be pasted to an editor
+X      running on a different host (the XmClipboard is used).
+X
+X      For non Mac users, a brief explanation:
+X
+X      +    Holding down the left mouse button and dragging the mouse will
+X           select a block of text.  For large blocks of text, click the
+X           mouse at the beginning (or end) of the desired block of text,
+X           move to the other end of the text, and hold down <Shift> while
+X           clicking the mouse.  The ends of the selected block can be
+X           altered by <Shift> clicking again or dragging the mouse while
+X           holding down the button.
+X
+X      +    Copy (from the Edit menu) will copy the selected block of text to
+X           a ``clipboard'' in memory.  Note that the ``Ext+C'' next to
+X           ``Copy'' in the menu means that copying can also be done by
+X           holding down the <Ext> key and typing <C>.  On some keyboards,
+X           <Ext> may be have some other label such as <Alt>.
+X
+X      +    Cut will copy the text to the clipboard, and then delete it from
+X           your document.
+X
+X      +    Clear (or the <Del> or <Backspace> key) will delete the text from
+X           the document without altering the clipboard.
+X
+X      +    Paste will insert a copy of the text from the clipboard to the
+X           current insertion point.
+X
+X      +    If a block of text is selected, and then you type a character or
+X           paste from the clipboard, the selected block is overwritten.  The
+X           contents of the clipboard are not altered.
+X           
+X      Another method available for copying text is to click the mouse at the
+X      point where you want the text to be inserted, to put the insertion
+X      point there.  Then go to the the text to be copied and press the
+X      center mouse button while dragging the mouse.  As you drag the mouse,
+X      the selected text will be underlined.  When the mouse button is
+X      released, the selected text will be copied to the previously set
+X      insertion point. Holding down <CTRL> while dragging will result in the
+X      selected text being deleted after it is copied.
+X
+X      An entire block of text can be tabbed in or out by selecting the block
+X      with the mouse, then typing <Tab> or shift<Tab>.
+X
+X      Ext<Home> will take you to the beginning of the file. Shift<Home> will
+X      take you to the end of the file.
+X
+X      Selecting Open from the File menu will pop up a File Selection dialog
+X      box.  The dialog allows traversal up and down through the directory
+X      structure using the mouse. Double clicking (clicking the left mouse
+X      button twice rapidly) on a directory name in the Files area will move
+X      you down into that directory. Double clicking on ``..'' will move you
+X      up one directory. Double clicking on a filename will open that file.
+X      Adding something like ``*.c'' in the File Filter window will cause the
+X      dialog to only display *.c files, for example.
+X
+X      A number of features intended for programmers are included, and can be
+X      easily varied to suit the format style you are used to. They are
+X      controlled by resources that can be set in your .Xdefaults file or
+X      with a dialog.  Selecting Preferences from the Edit menu will pop up a
+X      dialog to allow you to set the preferences. Then clicking the Help
+X      button will pop up another dialog which will tell you exactly what
+X      resources to use for the selected preferences.
+X
+X      Three indenting modes are available.  Smart indenting will indent a
+X      new line to the level of the previous line.  Syntax sensitive
+X      indenting attempts to make intelligent decisions about indenting and
+X      outdenting according to the rules of C syntax, and according to a
+X      number of selectable preferences for indenting style. You can also
+X      choose no automatic indenting if desired.
+X
+X X DEFAULTS
+X      The following resources can be put in your ~/.Xdefaults or
+X      usr/lib/X11/app-defaults/Jetedit file.  Reasonable defaults are
+X      supplied if no resources are specified.
+X
+X      background
+X           I find that an overall background of ``Gray90'' is much easier on
+X           the eyes than ``White''.
+X
+X      blinkRate
+X           Motif 1.0 text widgets have problems with the blinking cursor.
+X           Setting this resource to ``0'' will stop the blinking and the
+X           problem.
+X
+X      find_case.set
+X           Setting this to True will set the default for text searches to
+X           ignore text case.
+X
+X      fontList
+X           It is best to select a fixed width font. Also, the Motif 1.0 text
+X           widget has problems with some fonts when dragging the mouse to
+X           select text.  The default is ``Fixed''.  Another good one if you
+X           have it is ``lutRS12''.
+X
+X      infoFile
+X           Specifying a filename with a complete path will cause that file
+X           to be read into jetedit if no filename is specified on the
+X           command line.  This might be useful for informing users globally
+X           of updates.
+X
+X      regular_exp.set
+X           Setting this to True will set the default for text searches to
+X           use regular expressions.
+X
+X      start_at_top.set
+X           Setting this to True will set the default for text searches to
+X           begin at the top of the file.
+X
+X      unselectColor
+X           This determines the color used to indicate the unselected state
+X           of the brackets in the preferences dialogs. A good color is
+X           ``Gray70''.  It defaults to ``White''.
+X
+X      The following resources are easiest to determine by selecting
+X      Preferences from the Edit menu and using the Help dialog to determine
+X      the correct values to use.
+X
+X      indent
+X           Regular, smart, or C syntax sensitive indenting.
+X
+X      leadingTabs
+X           A boolean determining whether to use spaces or tabs for leading
+X           tabs. Leading tabs are tabs which are typed before any non-
+X           whitespace on a line.
+X
+X      trailingTabs
+X           All other tabs are trailing tabs.
+X
+X      spaces
+X           Determines how many spaces to insert when a tab is typed if
+X           either leadingTabs or trailingTabs is False.
+X
+X      openBrace
+X           Determines how to indent opening braces.
+X
+X      closeBrace
+X           Determines how to indent closing braces.
+X
+X      indentCase
+X           A boolean which determines whether to indent case statements from
+X           the level of the switch statement.
+X
+X TRANSLATIONS
+X      Jetedit defines the following translations for the main editing
+X      window.
+X
+X           <Key>Return:         NewLine()
+X           Shift<Key>Home:      ToBottom()
+X           Meta<Key>Home:       ToTop()
+X           Shift<Key>Tab:       OutdentText()
+X           <Key>Tab:            IndentText()
+X           :<Key>braceright:    RightBrace()
+X           :<Key>braceleft:     LeftBrace()
+X
+X ACTION ROUTINES
+X      Jetedit defines the following action routines.
+X
+X      NewLine()
+X           When in smart or syntax indenting mode, determines the number of
+X           tabs or spaces to insert and inserts them.
+X
+X      ToBottom()
+X           Moves the cursor to the bottom of the file.
+X
+X      ToTop()
+X           Moves the cursor to the top of the file.
+X
+X      IndentText()
+X           If a block of text is selected, indents each line in the block
+X           one tab stop. Else inserts one tab stop at current cursor
+X           position.
+X
+X      OutdentText()
+X           If a block of text is selected, outdents each line in the block
+X           one tab stop. Else deletes one tab stop at current cursor
+X           position.
+X
+X      RightBrace()
+X           Inserts a right brace, outdenting if appropriate for the selected
+X           editing style.
+X
+X      LeftBrace()
+X           Inserts a left brace, outdenting if appropriate for the selected
+X           editing style.
+X
+X      CutItem()
+X           Copies the selected block of text to the clipboard, then deletes
+X           it from the text window.
+X
+X      CopyItem()
+X           Copies the selected block of text to the clipboard.
+X
+X      PasteItem()
+X           Overwrites the selected block of text with the contents of the
+X           clipboard.
+X
+X BUGS
+X      The Motif 1.0 text widget has a number of minor bugs, most of which
+X      have been corrected in Motif 1.1.
+X
+X      Bugs which have been corrected in Motif 1.1:
+X
+X      +    The blinking cursor sometimes becomes erratic or disappears. This
+X           is best corrected by disabling blinking. See the X DEFAULTS
+X           section above.
+X
+X      +    I did not implement page up and down by clicking in the scroll
+X           bar paging area. Motif 1.1 has this support built in.
+X
+X      +    On some servers, when dragging the mouse to select a block of
+X           text, the first caracter you thought you were selecting gets
+X           missed. No, you aren't losing eye hand coordination.
+X
+X      +    Typing a menu accelerator while in one of the menu dialogs can
+X           cause fatal crashes.  In over two years use with Motif 1.0, this
+X           is the only known fatal error, and is fixed in Motif1.1.
+X
+X      Bugs which exist in Motif 1.1:
+X
+X      +    When in wordwrap mode, editing becomes rather sluggish with files
+X           of even a few thousand bytes.
+X
+X COPYRIGHTS
+X      (c) Copyright 1993 by Duane Clark.
+X
+X      See the jetedit source file copyright.h for a full copyright notice.
+X
+X AUTHORS
+X      Duane Clark - duane@blacks.jpl.nasa.gov
+X
+X      Jim Campbell - jec@milne.boeing.com - contributed regular expression
+X      text searches.
+X
+X      David W. Sanderson - dws@ssec.wisc.edu - did significant work to
+X      improve the formatting of the man page.
+X
+X
+END_OF_FILE
+if test 11162 -ne `wc -c <'jetedit.txt'`; then
+    echo shar: \"'jetedit.txt'\" unpacked with wrong size!
+fi
+chmod +x 'jetedit.txt'
+# end of 'jetedit.txt'
+fi
+if test -f 'makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile'\"
+else
+echo shar: Extracting \"'makefile'\" \(934 characters\)
+sed "s/^X//" >'makefile' <<'END_OF_FILE'
+X#	Makefile for Motif jetedit program on an HP9000.  
+X#	Hack away - there's nothing special here. On a Sun or
+X#	other BSD Unix machine, minor changes to the flags will
+X#	probably be required.
+X
+X#	Use this line for Motif1.0
+X#CFLAGS = -O -DMotif1.0
+X#	Use this line for Motif1.1 or later
+XCFLAGS = -O -I/usr/include/Motif1.1 -I/usr/include/X11R4
+X
+X#	Comment out the following line if you want to set menu
+X#	and dialog resources through resource files (see the
+X#	included resource file: Jetedit). In this case, be sure
+X#	to install the resource file:
+X#	   /usr/lib/X11/app-defaults/Jetedit.
+XDEFINES = -DHARDCODE
+X
+XOBJECTS = xme.o xmedialg.o xmefile.o xmemenu.o xmemisc.o xmepref.o xmespec.o
+X
+X#LIBS = -Wl,-a,archive -lXm -lXt -lX11 -lPW
+XLIBS = -lXm -lXt -lX11 -lPW
+X#Note: The XmFileSelectionBox requires the libPW.a
+X
+Xjetedit: $(OBJECTS) $(TXT_OBJECT)
+X	cc $(CFLAGS) -o $@ $< $(OBJECTS) $(LIBS)
+X	
+X$(OBJECTS): xme.h
+X	cc -c $(CFLAGS) $(DEFINES) $<
+END_OF_FILE
+if test 934 -ne `wc -c <'makefile'`; then
+    echo shar: \"'makefile'\" unpacked with wrong size!
+fi
+# end of 'makefile'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(21 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define PATCHLEVEL 0
+END_OF_FILE
+if test 21 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'xme.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xme.c'\"
+else
+echo shar: Extracting \"'xme.c'\" \(13572 characters\)
+sed "s/^X//" >'xme.c' <<'END_OF_FILE'
+X/**---------------------------------------------------------------------
+X***     
+X***	file:           xme.c
+X***
+X***	project:	jetedit
+X***	requires:       xmedialg.c, xmefile.c, xmemenu.c, xmemisc.c,
+X***			 xmepref.c, xmespec.c,  xme.h
+X***
+X***
+X***-------------------------------------------------------------------*/
+X
+X#define MAIN
+X#include <locale.h>
+X#include "xme.h"
+X
+X/* infoFile is a default file read in with the latest update info */
+X#define XmNinfoFile	"infoFile"	/* resource name */
+X#define XmCInfoFile	"InfoFile"	/* resource class */
+X
+X/* indent determines the indenting style: regular, smart, or syntax sensitive */
+X#define XmNindent	"indent"
+X#define XmCIndent	"Indent"
+X#define XmRIndent	"Indent"
+X
+X/* leadingTabs determines whether to use spaces or tabs for leading tabs */
+X#define XmNleadingTabs	"leadingTabs"
+X#define XmCLeadingTabs	"LeadingTabs"
+X
+X/* trailingTabs determines whether to use spaces or tabs for trailing tabs */
+X#define XmNtrailingTabs	"trailingTabs"
+X#define XmCTrailingTabs	"TrailingTabs"
+X
+X/* spaces determines the number of spaces to use for tabs, if spaces are selected */
+X#define XmNspaces	"spaces"
+X#define XmCSpaces	"Spaces"
+X
+X/* unselectColor determines the unselected color of buttons in the preferences dialog */
+X#define XmNunselectColor "unselectColor"
+X#define XmCUnselectColor "UnselectColor"
+X
+X/* openBrace determines where to locate an opening brace */
+X#define XmNopenBrace	"openBrace"
+X#define XmCOpenBrace	"OpenBrace"
+X
+X/* closeBrace determines where to locate a closing brace */
+X#define XmNcloseBrace	"closeBrace"
+X#define XmCCloseBrace	"CloseBrace"
+X
+X/* indentCase determines whether to indent case statements */
+X#define XmNindentCase	"indentCase"
+X#define XmCIndentCase	"IndentCase"
+X
+Xtypedef struct {
+X    char	*info;
+X    XFontStruct	*font;
+X    int		indent;
+X    Boolean	leading;
+X    Boolean	trailing;
+X    int		spaces;
+X    Pixel	unselect;
+X    int		opening;
+X    int		closing;
+X    Boolean	incase;
+X} AppData, *AppDataPtr;
+X
+Xstatic XtResource resources[] = {
+X    {
+X        XmNinfoFile,
+X        XmCInfoFile,
+X        XmRString,
+X        sizeof (char *),
+X        XtOffset (AppDataPtr, info),
+X        XmRString,
+X        ""
+X    },
+X    {
+X        XmNfont,
+X        XmCFont,
+X        XmRFontStruct,
+X        sizeof (XFontStruct *),
+X        XtOffset (AppDataPtr, font),
+X        XmRString,
+X        "Fixed"
+X    },
+X    {
+X        XmNindent,
+X        XmCIndent,
+X        XmRIndent,
+X        sizeof (int),
+X        XtOffset (AppDataPtr, indent),
+X        XmRString,
+X        "syntax"
+X    },
+X    {
+X        XmNleadingTabs,
+X        XmCLeadingTabs,
+X        XmRBoolean,
+X        sizeof (Boolean),
+X        XtOffset (AppDataPtr, leading),
+X        XmRString,
+X        "False"
+X    },
+X    {
+X        XmNtrailingTabs,
+X        XmCTrailingTabs,
+X        XmRBoolean,
+X        sizeof (Boolean),
+X        XtOffset (AppDataPtr, trailing),
+X        XmRString,
+X        "True"
+X    },
+X    {
+X        XmNspaces,
+X        XmCSpaces,
+X        XmRInt,
+X        sizeof (int),
+X        XtOffset (AppDataPtr, spaces),
+X        XmRString,
+X        "4"
+X    },
+X    {
+X        XmNunselectColor,
+X        XmCUnselectColor,
+X        XmRPixel,
+X        sizeof (Pixel),
+X        XtOffset (AppDataPtr, unselect),
+X        XmRString,
+X        "White"
+X    },
+X    {
+X        XmNopenBrace,
+X        XmCOpenBrace,
+X        XmRInt,
+X        sizeof (int),
+X        XtOffset (AppDataPtr, opening),
+X        XmRString,
+X        "2"
+X    },
+X    {
+X        XmNcloseBrace,
+X        XmCCloseBrace,
+X        XmRInt,
+X        sizeof (int),
+X        XtOffset (AppDataPtr, closing),
+X        XmRString,
+X        "0"
+X    },
+X    {
+X        XmNindentCase,
+X        XmCIndentCase,
+X        XmRBoolean,
+X        sizeof (Boolean),
+X        XtOffset (AppDataPtr, incase),
+X        XmRString,
+X        "False"
+X    }
+X};
+X
+X/*-------------------------------------------------------------
+X**      Action table list for jetedit.
+X*/
+Xstatic XtActionsRec actionTable[] = {
+X        {"NewLine", NewLine},
+X        {"ToBottom", ToBottom},
+X        {"ToTop", ToTop},
+X        {"IndentText", IndentText},
+X        {"OutdentText", OutdentText},
+X        {"RightBrace", RightBrace},
+X        {"LeftBrace", LeftBrace},
+X        {"CutItem", CutItem},
+X        {"CopyItem", CopyItem},
+X        {"PasteItem", PasteItem}
+X};
+X
+X/*-------------------------------------------------------------
+X**      main
+X*/
+Xvoid main (argc,argv)
+Xunsigned int    argc;
+Xchar            **argv;
+X{
+X    XFontStruct	*font;
+X    Widget	app_shell;	/*  ApplicationShell    */
+X    Widget	menu_bar;	/*  RowColumn           */
+X    Widget	form; 		/*  Form                */
+X    Widget	message_form;
+X    Arg		al[10];		/*  arg list            */
+X    Cardinal	ac;		/*  arg count           */
+X    register int i;		/*  counter             */
+X    AppData	app_data;
+X    struct stat	statbuf;	/* Information on a file. */
+X    int		tfd;
+X    
+X    
+X    the_string = NULL;
+X    file_saved = True;	/* indicates that the present file is saved */
+X    no_undo = True;	/* don't store changes in undo buffer	    */
+X    oldfile = NULL;	/* string containing file name 		    */
+X    charset = (XmStringCharSet) XmSTRING_DEFAULT_CHARSET;
+X        
+X    /*      Initialize toolkit and open display.
+X    */
+X    
+X    app_shell = XtInitialize ("main", "Jetedit", NULL, NULL, &argc, argv);
+X    
+X    theDisp	= XtDisplay(app_shell);
+X    theScreen	= DefaultScreen(theDisp);
+X    theCmap	= DefaultColormap(theDisp, theScreen);
+X    theGC	= DefaultGC(theDisp,theScreen);
+X    fcol	= BlackPixel(theDisp,theScreen);
+X    bcol	= WhitePixel(theDisp,theScreen);
+X    theVisual	= DefaultVisual(theDisp,theScreen);
+X    theDepth	= DefaultDepth(theDisp,theScreen);
+X    
+X    XtAddConverter(XmRString, XmRIndent, CvtStringToIndent, NULL, 0);
+X
+X    XtGetApplicationResources (app_shell, &app_data, resources,
+X    	XtNumber (resources), NULL, 0);
+X    fontlist		= XmFontListCreate (app_data.font, charset);
+X    the_font		= *(app_data.font);
+X    indent_style	= app_data.indent;
+X    leading_tabs	= app_data.leading;
+X    trailing_tabs	= app_data.trailing;
+X    tab_spaces		= app_data.spaces;
+X    gcol 		= app_data.unselect;
+X    open_brace		= app_data.opening;
+X    close_brace		= app_data.closing;
+X    indent_case		= app_data.incase;
+X    
+X    XtAddActions (actionTable, XtNumber(actionTable));
+X    
+X    /*      Create MainWindow.
+X    */
+X    ac = 0;
+X    XtSetArg (al[ac], XmNdefaultFontList, fontlist);  ac++;
+X    XtSetArg (al[ac], XmNshadowThickness, 0);  ac++;
+X    MainW = XmCreateMainWindow (app_shell, "MainW", al, ac);
+X    XtManageChild (MainW);
+X
+X
+X    /*      Create MenuBar in MainWindow.
+X    */
+X    menu_bar = CreateMenuBar (MainW);
+X    XtManageChild (menu_bar);
+X
+X    /*      Create dialogs which are children of the menu bar.
+X    */
+X    CreateMenuDialogs (menu_bar);
+X
+X    /*      Create message window in MainWindow.
+X    */
+X    ac=0;
+X    message_form = XmCreateForm(MainW, "message_form", al, ac);
+X    XtManageChild(message_form);
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNalignment, XmALIGNMENT_BEGINNING);  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR(" Editing:", charset));  ac++;
+X    message = XmCreateLabel (message_form, "message", al, ac);
+X    XtManageChild (message);
+X
+X    lines = 1;
+X    ac = 0;
+X    XtSetArg (al[ac], XmNrightAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNalignment, XmALIGNMENT_END);  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR(" Line:    1", charset));  ac++;
+X    line = XmCreateLabel (message_form, "message", al, ac);
+X    XtManageChild (line);
+X
+X    XmMainWindowSetAreas (MainW, menu_bar, message_form, NULL, NULL, NULL);
+X    
+X    /*      Create Text.
+X    */
+X    CreateText ();
+X    XtManageChild (text);
+X    OpenUndoBuffer();
+X    XmAddTabGroup(text);
+X
+X    XtSetSensitive(text, False);
+X
+X    /*      Realize toplevel widgets.
+X    */
+X    XtRealizeWidget (app_shell);
+X    
+X    XmFileSelectionDoSearch(open_dialog, NULL);
+X    
+X    thefile = NULL;	/* string containing file name 		    */
+X    if (argc>1)
+X        thefile = argv[1];
+X    else thefile = app_data.info;
+X    if (strlen(thefile)) {
+X        /* Open file, print error if it does not exist. */
+X        if ((tfd = open(thefile, O_RDONLY)) == -1)  
+X            fprintf(stderr,"Unable to open %s\n", thefile);
+X        else {
+X            if (stat(thefile, &statbuf) == 0) {
+X                file_mode = statbuf.st_mode;
+X                if (S_ISREG(file_mode)) {
+X                    OpenFile(tfd);
+X                    /* close up the file */
+X                    if (close(tfd) != NULL) 
+X                        strcat (message_string, 
+X                        "  \7Warning: unable to close file.");
+X                }
+X            }
+X        }
+X    }
+X    
+X    /*      Process events.
+X    */
+X    XtMainLoop ();
+X}
+X
+X
+X/*-------------------------------------------------------------
+X**      CvtStringToIndent
+X*/
+Xvoid CvtStringToIndent(args, nargs, fromVal, toVal)
+XXrmValuePtr	args, fromVal, toVal;
+Xint		*nargs;
+X{
+X    char *inString;
+X    static int  outVal;
+X    
+X    inString = (char *)fromVal->addr;
+X    toVal->size = sizeof(indent_style);
+X    
+X    outVal = SYNTAX;
+X    if (!strncmp(inString, "regular", 7))
+X        outVal = NONE;
+X    else if (!strncmp(inString, "smart", 5))
+X        outVal = SMART;
+X    else if (!strncmp(inString, "syntax", 6))
+X        outVal = SYNTAX;
+X    else
+X        XtStringConversionWarning(inString, "Indent");
+X    
+X    toVal->addr = (caddr_t) &outVal;
+X}
+X
+X
+X/*-------------------------------------------------------------
+X**      ToBottom - an action routine to move the cursor to the
+X**		bottom of the file. 
+X*/
+Xvoid ToBottom()
+X{
+X    char *file_string;
+X    XmTextPosition cursorPos;
+X    Arg al[1];
+X    
+X    /* get the text string */
+X    file_string = (char *)XmTextGetString(text);
+X    cursorPos = strlen(file_string);
+X    /* Motif1.1 does not work changing the cursor to the position
+X    following the last character in the file, even though this is
+X    a valid cursor position. Motif1.0 worked correctly. */
+X    MoveTo(cursorPos);
+X    XtFree (file_string);
+X}
+X    
+X/*-------------------------------------------------------------
+X**      ToTop
+X*/
+Xvoid ToTop()
+X{
+X    Arg al[1];
+X    
+X    MoveTo((XmTextPosition)0);
+X}
+X    
+X/*-------------------------------------------------------------
+X**      
+X*/
+Xvoid MotionCB (w, client_data, call_data)
+XWidget	w;
+Xcaddr_t	client_data;
+Xcaddr_t	call_data;
+X{
+X    Arg		al[10];
+X    Cardinal	ac;
+X    int		i,j,k,l,newlines;
+X    char 	*file_string;
+X    char	line_string[15];
+X    XmTextPosition cursorPos;		/* text cursor position    */
+X    XmTextVerifyCallbackStruct *cb = (XmTextVerifyCallbackStruct *) call_data;
+X    Widget	scroll_bar;
+X    
+X    file_string = (char *)XmTextGetString(text);
+X    cursorPos = cb->newInsert;
+X    
+X    newlines = 1;
+X    for (j=0; j<cursorPos; j++)
+X        if(file_string[j] == '\n')
+X            newlines++;
+X    
+X    if (lines != newlines) {
+X        lines = newlines;
+X        /* update the line number message */
+X        sprintf (line_string, " Line:  %4d", lines);
+X        XtSetArg(al[0], XmNlabelString, 
+X            XmStringCreateLtoR(line_string, charset));
+X        XtSetValues(line, al, 1);
+X    }
+X    XtFree (file_string);
+X}
+X    
+X/*--------------------------------------------------------------
+X**	Translation table for the main text widget.
+X**	Names of keys are found by running xmodmap -pk
+X**	Note that Motif1.1 redefines the Home key to move the cursor
+X**	to the beginning of the line, and the key cannot be redefined.
+X**	Therefore, we are using Meta Home to perform this function.
+X*/
+Xstatic char defaultTranslations[] =
+X    "<Key>Return:	NewLine()	\n\
+X    Shift<Key>Home:	ToBottom()	\n\
+X    Meta<Key>Home:	ToTop()		\n\
+X    Shift<Key>Tab:	OutdentText()	\n\
+X    <Key>Tab:		IndentText()	\n\
+X    :<Key>braceright:	RightBrace()	\n\
+X    :<Key>braceleft:	LeftBrace()";
+X
+X/*--------------------------------------------------------------
+X**      CreateText
+X**              Create text widget.
+X*/
+Xvoid CreateText()
+X{
+X    Arg    al[10];
+X    int    ac;
+X    XtTranslations trans_table;
+X
+X    ac = 0;
+X    XtSetArg (al[ac], XmNrows, 40);  ac++;
+X    XtSetArg (al[ac], XmNcolumns, 80);  ac++;
+X    XtSetArg (al[ac], XmNresizeWidth, False);  ac++;
+X    XtSetArg (al[ac], XmNresizeHeight, False);  ac++;
+X    XtSetArg (al[ac], XmNscrollVertical, True);  ac++;
+X    XtSetArg (al[ac], XmNscrollHorizontal, True);  ac++;
+X    XtSetArg (al[ac], XmNeditMode, XmMULTI_LINE_EDIT);  ac++;
+X    XtSetArg (al[ac], XmNwordWrap, False);  ac++;
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X    
+X    text = XmCreateScrolledText (MainW, "text", al, ac);
+X    XtAddCallback(text, XmNmodifyVerifyCallback, UndoStoreCB, NULL);
+X    XtAddCallback(text, XmNmotionVerifyCallback, MotionCB, NULL);
+X     
+X    /* modify the functions of some of the keyboards keys with
+X        functions from the Action table. */
+X    trans_table = XtParseTranslationTable(defaultTranslations);
+X    XtOverrideTranslations (text, trans_table);
+X    
+X    no_undo = False;
+X}
+X
+X    
+X/*--------------------------------------------------------------
+X**      WordWrap
+X**              Enable or disable word wrap
+X*/
+Xvoid WordWrap(WrapOn)
+XBoolean  WrapOn;
+X{
+X    Arg    al[10];
+X    int    ac;
+X    
+X    ac = 0;
+X    if (WrapOn) {
+X    	XtSetArg (al[ac], XmNscrollHorizontal, False);  ac++;
+X        XtSetArg (al[ac], XmNwordWrap, True);  ac++;
+X    }
+X    else {
+X    	XtSetArg (al[ac], XmNscrollHorizontal, True);  ac++;
+X        XtSetArg (al[ac], XmNwordWrap, False);  ac++;
+X    }
+X    XtSetValues (text, al, ac);
+X    
+X    no_undo = False;
+X}
+END_OF_FILE
+if test 13572 -ne `wc -c <'xme.c'`; then
+    echo shar: \"'xme.c'\" unpacked with wrong size!
+fi
+chmod +x 'xme.c'
+# end of 'xme.c'
+fi
+if test -f 'xme.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xme.h'\"
+else
+echo shar: Extracting \"'xme.h'\" \(5700 characters\)
+sed "s/^X//" >'xme.h' <<'END_OF_FILE'
+X/**---------------------------------------------------------------------
+X***	
+X***	file:		xme.h
+X***
+X***	project:	Motif Widgets text editor
+X***
+X/*-------------------------------------------------------------
+X**	Include Files
+X*/
+X
+X#include "copyright.h"
+X#include <stdio.h>
+X#include <string.h>
+X#include <fcntl.h>
+X#include <errno.h>
+X#include <sys/stat.h>
+X#include <sys/unistd.h>
+X#include <X11/Xos.h>
+X#include <X11/Xatom.h>
+X#include <X11/Intrinsic.h>
+X#include <X11/Shell.h>
+X
+X#include <Xm/Xm.h>
+X#include <Xm/BulletinB.h>
+X#include <Xm/CascadeB.h>
+X#include <Xm/CascadeBG.h>
+X#include <Xm/CutPaste.h>
+X#include <Xm/DialogS.h>
+X#include <Xm/DrawingA.h>
+X#include <Xm/FileSB.h>
+X#include <Xm/Form.h>
+X#include <Xm/Label.h>
+X#include <Xm/LabelG.h>
+X#include <Xm/MainW.h>
+X#include <Xm/MessageB.h>
+X#include <Xm/PushB.h>
+X#include <Xm/PushBG.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/SelectioB.h>
+X#include <Xm/Separator.h>
+X#include <Xm/Text.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/ToggleBG.h>
+X
+X
+X/*-------------------------------------------------------------
+X**	Global Constants
+X*/
+X
+X#define MAXLENGTH 	30	/* Max length of find and replace strings */
+X#define NONE		0
+X#define SMART		1
+X#define SYNTAX		2
+X#define MAX_TAB_SPACES	8
+X
+X#ifndef GID_NO_CHANGE		/* HPUX defines these already */
+X#define GID_NO_CHANGE	-1
+X#define UID_NO_CHANGE	-1
+X#endif
+X
+X#ifdef MAIN
+X#define WHERE
+X#else
+X#define WHERE extern
+X#endif
+X
+XWHERE Widget CreateSpecialWarningDialog();
+XWHERE Widget CreateSpecialFindDialog();
+XWHERE Widget CreateSpecialHelpDialog();
+XWHERE Widget CreatePreferencesDialog();
+XWHERE Widget CreateMenuBar ();
+XWHERE XImage *CreateDefaultImage();
+XWHERE void   CvtStringToIndent();
+XWHERE void   NewLine ();
+XWHERE void   IndentText ();
+XWHERE void   OutdentText ();
+XWHERE void   RightBrace ();
+XWHERE void   LeftBrace ();
+XWHERE void   CreateText ();
+XWHERE void   CloseUndoBuffer();
+XWHERE void   CloseUndoBuffer();
+XWHERE void   UndoStoreCB ();
+XWHERE void   ToBottom();
+XWHERE void   ToTop();
+XWHERE void   CutItem();
+XWHERE void   CopyItem();
+XWHERE void   PasteItem();
+XWHERE void   MoveTo();
+X
+X/** The main windows **/
+XWHERE Widget MainW;			/* MainWindow          			*/
+XWHERE Widget text;			/* multi-line text widget		*/
+XWHERE Widget message;			/* message bar in main window		*/
+XWHERE Widget line;			/* line number message in main window	*/
+X/** The menu widgets **/
+XWHERE Widget save_button;
+XWHERE Widget undo_button;
+XWHERE Widget separator;
+XWHERE Widget cut_button;		/* clipboard cut button 		*/
+XWHERE Widget copy_button;		/* clipboard copy button 		*/
+XWHERE Widget paste_button;		/* clipboard paste button 		*/
+XWHERE Widget clear_button;		/* clipboard clear button 		*/
+XWHERE Widget find_button;		/* go to line button 			*/
+XWHERE Widget findA_button;		/* find again string button 		*/
+XWHERE Widget replace_button;
+XWHERE Widget goto_button;		/* find string button 			*/
+X/** The dialogs **/
+XWHERE Widget open_dialog;		/* file selection dialog 		*/
+XWHERE Widget open_warning;		/* save changes warning dialog		*/
+XWHERE Widget new_dialog;		/* file name prompt dialog 		*/
+XWHERE Widget new_warning;		/* save changes warning dialog		*/
+XWHERE Widget file_exists_dialog;	/* save duplicate file warning dialog	*/
+XWHERE Widget save_as_dialog;		/* save as prompt dialog	 	*/
+XWHERE Widget exists_as_dialog;		/* saveas duplicate file warning dialog	*/
+XWHERE Widget file_mode_dialog;		/* no write permission dialog		*/
+XWHERE Widget refused_dialog;		/* file access denied dialog		*/
+XWHERE Widget close_warning;		/* save changes warning dialog		*/
+XWHERE Widget exit_warning;		/* save changes warning dialog		*/
+XWHERE Widget prefer_dialog;		/* preferences dialog			*/
+XWHERE Widget help_dialog;		/* help for preferences dialog		*/
+XWHERE Widget help_text;			/* help text for preferences dialog	*/
+XWHERE Widget find_dialog;		/* find string dialog		 	*/
+XWHERE Widget find_help_dialog;		/* help for find dialog		 	*/
+XWHERE Widget find_help_text;		/* help text for find dialog		*/
+XWHERE Widget replace_pb;		/* the Replace pushbutton		*/
+XWHERE Widget replaceAll_pb;		/* the Replace All pushbutton		*/
+XWHERE Widget wrap_button;		/* word wrap button			*/
+XWHERE Widget goto_dialog;		/* go to line number dialog	 	*/
+X
+X/* variables for the X environment */
+XWHERE XmStringCharSet	charset;
+XWHERE XmFontList	fontlist;
+XWHERE XFontStruct	the_font;
+XWHERE int		theScreen, dispcells;
+XWHERE Colormap		theCmap;
+XWHERE GC		theGC;
+XWHERE Pixel		fcol,bcol,gcol;
+XWHERE Visual		*theVisual;
+XWHERE Display		*theDisp;
+XWHERE unsigned int  	theDepth;	/* screen depth 			*/
+X
+X/* unix variables */
+XWHERE ushort	file_mode;		/* Storage for file mode information.	*/
+XWHERE uid_t	file_user;
+XWHERE gid_t	file_group;
+X
+X/* variables used in editing */
+XWHERE Boolean	file_saved;		/* indicates the present file is saved	*/
+XWHERE Boolean	no_undo;		/* don't store changes in undo buffer	*/
+XWHERE char	*thefile;		/* string containing file name		*/
+XWHERE char	*oldfile;		/* string containing file name		*/
+XWHERE int	start_pos, end_pos;	/* start, end position of last action	*/
+XWHERE char	*the_string;		/* global string for find again routine	*/
+XWHERE char	message_string[80];	/* Editing: message  			*/
+XWHERE int	lines;			/* line number of insert cursor 	*/
+XWHERE char	Error[128];		/* I don't remember where this is needed*/
+X
+X/* variables for indenting styles */
+XWHERE int	indent_style;		/* regular, smart, or syntax indenting	*/
+XWHERE Boolean	leading_tabs;		/* use tabs or spaces for leading tabs	*/
+XWHERE Boolean	trailing_tabs;		/* use tabs or spaces for trailing tabs */
+XWHERE int	tab_spaces;		/* number of spaces to use for tabs 	*/
+XWHERE int	open_brace;		/* where to locate opening brace 	*/
+XWHERE int	close_brace;		/* where to locate closing brace 	*/
+XWHERE Boolean	indent_case;		/* indent case statements 		*/
+END_OF_FILE
+if test 5700 -ne `wc -c <'xme.h'`; then
+    echo shar: \"'xme.h'\" unpacked with wrong size!
+fi
+chmod +x 'xme.h'
+# end of 'xme.h'
+fi
+if test -f 'xmefile.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xmefile.c'\"
+else
+echo shar: Extracting \"'xmefile.c'\" \(10252 characters\)
+sed "s/^X//" >'xmefile.c' <<'END_OF_FILE'
+X/**---------------------------------------------------------------------
+X***     
+X***	file:		xmefile.c
+X***	main:		xme.c
+X***
+X***	project:	Motif Widgets text editor
+X***
+X*** 			(c) Copyright 1989 by Open Software Foundation, Inc.
+X*** 				All Rights Reserved.
+X***
+X*** 			(c) Copyright 1989 by Hewlett-Packard Company.
+X***
+X***
+X***-------------------------------------------------------------------*/
+X
+X#include "xme.h"
+X
+X
+X
+X/*-------------------------------------------------------------
+X**      OpenFile
+X**              Open the present file.  Returns true if file 
+X**  exists and open is sucessful.
+X*/
+XBoolean OpenFile(tfd)
+Xint	tfd;		/* Temporary file descriptor */
+X{
+X    struct stat statbuf;	/* Information on a file. */
+X    int		file_length;	/* Length of file.        */
+X    char	*file_string;	/* Contents of file.      */
+X    char	line_string[15];
+X    int		i;
+X    Arg		al[1];
+X    mode_t	mode_mask;
+X 
+X    sprintf (message_string, " Opened:  %s", thefile);
+X    
+X    if (stat(thefile, &statbuf) != 0) {
+X        strcat (message_string, 
+X            "  File status problem.");
+X        return(False);
+X    }
+X    file_length = statbuf.st_size;
+X    file_mode = statbuf.st_mode;
+X    file_user = statbuf.st_uid;
+X    file_group = statbuf.st_gid;
+X
+X    /* read the file string */
+X    file_string = XtMalloc((unsigned)(file_length+1));
+X    read(tfd, file_string, file_length);
+X    file_string[file_length] = '\0';
+X
+X    /* add the file string to the text widget */
+X    no_undo = True;
+X    XmTextSetString(text, file_string);
+X    no_undo = False;    
+X    file_saved = True; /* intialize to True */
+X    XtFree (file_string);
+X    
+X    lines = 1;
+X    sprintf (line_string, " Line:  %4d", lines);
+X    XtSetArg(al[0], XmNlabelString, 
+X        XmStringCreateLtoR(line_string, charset));
+X    XtSetValues(line, al, 1);
+X         
+X    /* make appropriate item sensitive */
+X    XtSetSensitive(text, True);
+X    XtSetSensitive(cut_button, True);
+X    XtSetSensitive(copy_button, True);
+X    XtSetSensitive(paste_button, True);
+X    XtSetSensitive(clear_button, True);
+X    XtSetSensitive(find_button, True);
+X    XtSetSensitive(goto_button, True);
+X    InitUndoBuffer();
+X    
+X    /* Check for write permission.	*/
+X    if (access (thefile, W_OK))
+X        XtManageChild (file_mode_dialog);
+X    
+X    XtSetArg(al[0], XmNlabelString, 
+X        XmStringCreateLtoR(message_string, charset));
+X    XtSetValues(message, al, 1);
+X    
+X    return(True);
+X}
+X
+X
+X
+X/*-------------------------------------------------------------
+X**	SaveFile
+X**		Save the present file.
+X*/
+XBoolean SaveFile()
+X{
+X    struct stat statbuf;		/* Information on a file. */
+X    char    *file_string = NULL;	/* Contents of file.		*/
+X    int     tfd;			/* Temporary file descriptor.	*/
+X    char    *tempname;			/* Temporary file name.		*/
+X    char    pathname[60];
+X    Arg     al[1];
+X    unsigned int theLength;
+X    
+X    sprintf (message_string, " Saved:  %s", thefile);
+X    
+X    /* Check if file already exists and if we have write permission.  If 
+X        no write permission, attempt to chmod. If this fails, give up. */
+X    if (!access (thefile, F_OK)) {	/* Check if file exists.	*/
+X        if (access (thefile, W_OK)) {	/* Check for write permission.	*/
+X            chmod (thefile, file_mode | S_IWUSR);
+X            if (access (thefile, W_OK))
+X                XtManageChild (refused_dialog);
+X        }
+X        if (access (thefile, W_OK)) return (False);
+X    }
+X    
+X    /* Create a temporary file name by changing /users/user/file_name
+X       to /users/user/xmeditXXXXXX. The result is in pathname. */
+X    strcpy (pathname, thefile);
+X    if ((tempname = strrchr (pathname, '/')) == NULL)
+X        tempname = pathname;
+X    else tempname = (char *)((long)tempname + 1);
+X    strcpy(tempname, mktemp("xmeditXXXXXX"));
+X    
+X    if ((tfd = open(pathname, O_WRONLY | O_CREAT, file_mode)) == -1) {
+X        strcat (message_string, 
+X            "   \7Warning: unable to open temp file, text not saved.");
+X        XtSetArg(al[0], XmNlabelString, 
+X            XmStringCreateLtoR(message_string, charset));
+X        XtSetValues(message, al, 1);
+X        return(False);;
+X    }
+X    
+X    /* get the text string */
+X    file_string = XmTextGetString(text);
+X    if (file_string[theLength=strlen(file_string)-1] != '\n') {
+X        file_string = XtRealloc (file_string, theLength+2);
+X        file_string[theLength+1] = '\n';
+X        file_string[theLength+2] = '\0';
+X    }
+X
+X    /* write to a temp file */
+X    write(tfd, file_string, strlen(file_string));
+X
+X    /* close the temp file */
+X    if (close(tfd) != NULL) 
+X        strcat (message_string, "   \7Warning: unable to close file.");
+X    chmod (pathname, file_mode);
+X    chown (pathname, file_user, file_group);
+X
+X    XtFree(file_string); /* free the text string */
+X
+X    /* move the pathname to the saved file */
+X    if (rename(pathname, thefile) == 0) {
+X        file_saved = True;
+X    } else {
+X        strcat (message_string, "   \7Warning: unable to save file.");
+X        XtSetArg(al[0], XmNlabelString, 
+X            XmStringCreateLtoR(message_string, charset));
+X        XtSetValues(message, al, 1);
+X        return(False);
+X    }
+X           
+X    XtSetArg(al[0], XmNlabelString, 
+X        XmStringCreateLtoR(message_string, charset));
+X    XtSetValues(message, al, 1);
+X    XtSetSensitive(save_button, False);
+X    
+X    return(True);
+X}
+X
+X
+X
+X/*-------------------------------------------------------------
+X**      CloseFile
+X**              Close the present file.
+X*/
+Xvoid CloseFile()
+X{
+X    no_undo = True;
+X    XmTextSetString(text, "");
+X    no_undo = False;
+X
+X    file_saved = True; /* reinitialize file_saved flag */
+X
+X    /* free the file name */
+X    thefile = NULL;
+X
+X    /* set text to insensitive */
+X    XtSetSensitive(text, False);
+X}
+X
+X
+X
+X/*-------------------------------------------------------------
+X**      CopyItemToClipboard
+X**              Copy the present item to the clipboard.
+X**		USED ONLY in X11R3
+X*/
+Xvoid CopyItemToClipboard(thetime)
+XTime	thetime;
+X{
+X    char	*selected_string;	/* text selection    */
+X    long 	item_id = 0;		/* clipboard item id */
+X    int		data_id = 0;		/* clipboard data id */
+X    int		status = 0;		/* clipboard status  */
+X    XmString	clip_label;
+X
+X    selected_string = XmTextGetSelection (text);
+X    if ((selected_string != NULL) && strlen(selected_string)) {
+X        fprintf(stderr, "Copying text");
+X        clip_label = XmStringCreateLtoR ("XM_EDITOR", charset);
+X        /* start copy to clipboard, and continue till
+X           a sucessful start copy is made */
+X        status = 0;
+X        while (status != ClipboardSuccess)
+X            status = XmClipboardStartCopy (XtDisplay(text), XtWindow(text),
+X                                        clip_label, thetime,
+X                                        text, NULL, &item_id);
+X
+X        /* move the data to the clipboard, and
+X           continue till a sucessful copy is made */
+X        status = 0;
+X        while (status != ClipboardSuccess)
+X            status = XmClipboardCopy (XtDisplay(text), XtWindow(text),
+X                                      item_id, "STRING", selected_string,
+X                                      (long)strlen(selected_string)+1, (int)0,
+X                                      &data_id);
+X
+X        /* end the copy to the clipboard and continue till
+X           a sucessful end copy is made */
+X        status = 0;
+X        while (status != ClipboardSuccess)
+X            status = XmClipboardEndCopy (XtDisplay(text), XtWindow(text),
+X                                         item_id);
+X
+X        /* allow pasting when an item is sucessfully copied to the clipboard */
+X        XtSetSensitive(paste_button, True);
+X
+X   }
+X
+X}
+X
+X
+X
+X/*-------------------------------------------------------------
+X**      DeletePrimarySelection
+X**              Deletes the primary selection.
+X**		USED ONLY in X11R3
+X*/
+Xvoid DeletePrimarySelection()
+X{
+X   XClientMessageEvent cm;
+X   
+X   /* send a client message to the text widget
+X      to delete the current selection */
+X   cm.type = ClientMessage;
+X   cm.display = XtDisplay(text);
+X   cm.message_type = XmInternAtom(XtDisplay(text), "KILL_SELECTION", FALSE);
+X   cm.window = XtWindow(text);
+X   cm.format = 32;
+X   cm.data.l[0] = XA_PRIMARY;
+X   XSendEvent(XtDisplay(text), cm.window, TRUE, NoEventMask, &cm);
+X}
+X
+X
+X/*-------------------------------------------------------------
+X**      PasteItemFromClipboard
+X**              paste item from the clipboard to the current cursor location
+X**		USED ONLY in X11R3
+X*/
+Xvoid PasteItemFromClipboard()
+X{
+X    char *selected_string;	/* containts of selection  */
+X    int  status = 0;		/* clipboard status        */
+X    char *buffer;		/* temporary text buffer   */
+X    unsigned long  length;	/* length of buffer        */
+X    unsigned long  outlength = 0;	/* length of bytes copied  */
+X    int  private_id = 0;	/* id of item on clipboard */
+X    XmTextPosition cursorPos;	/* text cursor position    */
+X    Cardinal ac;		/* arg count               */
+X    Arg  al[10];		/* arg list                */
+X
+X    selected_string = XmTextGetSelection (text);
+X    if ((selected_string != NULL) && strlen(selected_string)) 
+X        DeletePrimarySelection();
+X
+X    /* find the length of the paste item, continue till the length is found */
+X    while (status != ClipboardSuccess) {
+X        status = XmClipboardInquireLength(XtDisplay(text), XtWindow(text),
+X                "STRING", &length);
+X        if (status == ClipboardNoData) {
+X            length = 0;
+X            break;
+X        }
+X    }
+X                        
+X    if (length == 0) {
+X        fprintf(stderr, "\7Warning: paste failed, no items to paste.\n"); 
+X        return;
+X    }
+X
+X    /* malloc to necessary space */
+X    buffer = XtMalloc(length);
+X
+X    status = XmClipboardRetrieve (XtDisplay(text), XtWindow(text), "STRING",
+X                                 buffer, length, &outlength, &private_id);
+X                        
+X    /* Dialogs need to be added to indicate errors in pasting */
+X    if (status != ClipboardSuccess) {
+X        fprintf(stderr, "\7Warning: paste failed, status = %d\n", status);        
+X        XtFree (buffer);
+X        return;
+X    }
+X
+X    /* get cursor position for pasting */
+X    XtSetArg(al[0], XmNcursorPosition, &cursorPos);
+X    XtGetValues(text, al, 1);
+X                        
+X    /* add new text */
+X    XmTextReplace(text, cursorPos, cursorPos, buffer);
+X    XtFree (buffer);
+X}
+X
+END_OF_FILE
+if test 10252 -ne `wc -c <'xmefile.c'`; then
+    echo shar: \"'xmefile.c'\" unpacked with wrong size!
+fi
+chmod +x 'xmefile.c'
+# end of 'xmefile.c'
+fi
+echo shar: End of archive 1 \(of 4\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

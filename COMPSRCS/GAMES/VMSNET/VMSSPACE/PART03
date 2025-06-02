@@ -1,0 +1,1121 @@
+Path: uunet!mcsun!chsun!pega!dr_who
+From: dr_who@pegasus.ch (Sysop of PEGASUS)
+Newsgroups: vmsnet.sources.games
+Subject: SPCEMP.C   Part 03/06
+Message-ID: <1993Jun7.093129.124@pegasus.ch>
+Date: 7 Jun 93 09:31:29 +0200
+Organization: Pegasus BBS, Switzerland
+Lines: 1111
+Xref: uunet vmsnet.sources.games:736
+
+----> START OF PART 3 <----
+
+/********************************************************************/
+buyitem(long n)
+{
+unsigned long price;
+unsigned long amount;
+unsigned long maxval;
+unsigned long ellig;
+char ostring[80];
+char astring[80];
+
+	switch(n) {
+		case 1: printf("Soldier troop\n");
+			price=price_soldiers;
+			break;
+		case 2: printf("Pilot\n");
+			price=price_pilots;
+			break;
+		case 3: printf("Intelligence agent\n");
+			price=price_agents;
+			break;
+		case 4: printf("X-Wing Fighter craft\n");
+			price=price_fighters;
+			break;
+		case 5: printf("Y-Wing Fighter craft\n");
+			price=price_ywings;
+			break;
+		case 6: printf("Heavy cruiser\n");
+			price=price_cruisers;
+			break;
+		case 7: printf("Imperial Starfighter\n");
+			price=price_starfighters;
+			break;
+		case 8: printf("Death Star\n");
+			price=price_deathstars;
+			break;
+		case 10: printf("Carrier\n");
+			price=price_carriers;
+			break;
+		case 11: printf("MK IV freighter\n");
+			price=price_freighters;
+			break;
+		case 12: printf("Defense station\n");
+			price=price_defense;
+			break;
+		case 13: printf("Missile Defense Station\n");
+			price=price_missiledefense;
+			break;
+		case 15: printf("Generic planet\n");
+			price=20000+(500*(player[pn].orep+player[pn].foodp+player[pn].defensep));
+			if ((player[pn].credits/price)>50)
+				price=player[pn].credits/50;
+			break;
+		case 16: printf("Governing planet\n");
+			price=20000+(500*(player[pn].orep+player[pn].foodp+player[pn].defensep));
+			price=price+(price/2);
+			break;
+	}
+
+	if(price>player[pn].credits) {
+		printf("\nYou don't have enough credits to buy even one!\n");
+		return;
+	}
+
+        do
+         {
+	  printf("\n");
+	  maxval=(player[pn].credits/price);
+	  if(n==1) {
+		ellig = (((((unsigned long)player[pn].population) * 1000000)/5) - (player[pn].soldiers*100));
+		printf("\nThere are currently %ld eligible men in your population, so you\n",ellig);
+		ellig = ellig / 100;
+		printf("may draft up to %ld troops.\n",ellig);
+		if(ellig<maxval) maxval=ellig;
+	  }
+	  printf("Buy how many? Max %ld. [0] ",maxval);
+	  gets(ostring);
+	  if(ostring[0]==0) return;
+	  sscanf(ostring,"%ld",&amount);
+	  if(strlen(ostring)<1) 
+            amount=0;
+	  if(amount<0) 
+	    printf("Use the sellmenu if you have anything to give..");
+	  if((amount*price)>player[pn].credits) 
+            {
+	    sprintf(ostring,"Sorry, the most you can afford is %ld.",(player[pn].credits/price));
+	    printf(ostring);
+	    }
+	 }
+	while((amount<0)||((amount*price)>player[pn].credits));
+	if ((amount>ellig) && (n==1)) 
+	  printf("Sorry, there aren't that many elligible men.\n");
+	player[pn].credits=player[pn].credits-(price*amount);
+
+	switch(n) {
+		case 1: player[pn].soldiers=player[pn].soldiers+amount;
+			break;
+		case 2: player[pn].pilots=player[pn].pilots+amount;
+			break;
+		case 3: player[pn].agents=player[pn].agents+amount;
+			break;
+		case 4: player[pn].fighters=player[pn].fighters+amount;
+			break;
+		case 5: player[pn].ywings=player[pn].ywings+amount;
+			break;
+		case 6: player[pn].cruisers=player[pn].cruisers+amount;
+			break;
+		case 7: player[pn].starfighters=player[pn].starfighters+amount;
+			break;
+		case 8: player[pn].deathstars=player[pn].deathstars+amount;
+			break;
+		case 10: player[pn].carriers=player[pn].carriers+amount;
+			break;
+		case 11: player[pn].freighters=player[pn].freighters+amount;
+			break;
+		case 12: player[pn].defense=player[pn].defense+amount;
+			break;
+		case 13: player[pn].missiledefense=player[pn].missiledefense+amount;
+			break;
+		case 15: giveplanets(amount);
+			break;
+		case 16: player[pn].governp=player[pn].governp+amount;
+			break;
+	}
+}
+
+
+/********************************************************************/
+giveplanets(unsigned long amount)
+{
+char ostring[80];
+char astring[80];
+unsigned long amt;
+long p_i;
+
+	p_i = (int)amount;
+	if(p_i>100) p_i = 100;
+	if(p_i<0) p_i = 100;
+	pop_increase = pop_increase + p_i;
+
+	while(amount!=0) 
+		{
+		do
+		 {
+		  printf("\nYou can take %ld more planets.",amount);
+		  printf("\n[A]gricultural, [O]re mining, [D]efense, [T]rade or touris[M] ? ");
+		  gets(ostring);
+		  ostring[0]=toupper(ostring[0]);
+		 }
+		while((ostring[0]!='A')&&(ostring[0]!='O')&&(ostring[0]!='D')&&(ostring[0]!='T')&&(ostring[0]!='M'));
+		do
+		 {
+		printf("\nHow many of these planets do you want? ");
+		gets(astring);
+		sscanf(astring,"%ld",&amt);
+		if(amt>amount) 
+			printf("You can only get %ld more!\n",amount);
+		 }
+                while(amt>amount);
+		amount=amount-amt;
+		switch(ostring[0]) 
+		{
+			case 'A': player[pn].foodp=player[pn].foodp+amt; break;
+			case 'O': player[pn].orep=player[pn].orep+amt; break;
+			case 'D': player[pn].defensep=player[pn].defensep+amt; break;
+			case 'T': player[pn].tradep=player[pn].tradep+amt; break;
+			case 'M': player[pn].tourismp=player[pn].tourismp+amt; break;
+		}
+	} /* amount!=0 */
+}
+
+/********************************************************************/
+missile_stage()
+{
+char ostring[80],xstring[80];
+long chance;
+long z;
+long spysend;
+long cov_type=0;
+long cmod,cmod2;
+long pvalue=20000+(500*(player[pn].orep+player[pn].foodp+player[pn].defensep+player[pn].tradep+player[pn].tourismp));
+
+long price2=pvalue*3+300000;
+long price3=pvalue*18+4000000;
+long price4=pvalue*20+5000000;
+long price5=pvalue*20+6000000;
+long price6=pvalue*25+5000000;
+long price7=pvalue*5+500000;
+long price8=pvalue*6+600000;
+
+
+
+if(player[pn].agents<1) 
+  return;
+
+
+if(sol_work==1) 
+	{
+	printf("\nYour agency refuses to work since you didn't pay the\n");
+	printf("enough.\n");
+	return;
+	}
+
+	do
+	 {
+	  cls();
+	  printf("\n\nMission types:             (what does it ?)             COST:\n");
+	  printf("----------------------------------------------------------------------\n");
+	  printf("1. Missile : Anti-Matter Warhead                    [  %-9ld cr ]\n",price2);
+	  printf("2. Missiles: Thermo-Nuclear Warheads                [  %-9ld cr ]\n",price3);
+	  printf("3. Missiles: Chemical Warheads                      [  %-9ld cr ]\n",price4);
+	  printf("4. Missiles: Conventional Warheads                  [  %-9ld cr ]\n",price5);
+	  printf("5. Missiles: Anti-Matter Warheads                   [  %-9ld cr ]\n\n",price6);
+
+	  printf("8. Military traitor                                 [  %-9ld cr ]\n",price7);
+	  printf("9. Goverment traitor                                [  %-9ld cr ]\n",price8);
+	  printf("----------------------------------------------------------------------\n");
+	  printf("\n[Availble Money: %ld cr.] Choice: ",player[pn].credits);
+	  gets(ostring);
+	  sscanf(ostring,"%d",&cov_type);
+
+	  switch(cov_type) 
+	  {
+		case 1: if (player[pn].credits<(price2))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			 else
+			  {
+			  if(getplayer()==TRUE)
+				{
+				rocket_use=FALSE;
+				player[pn].credits=player[pn].credits-(price2);
+				put_datas(pn);
+				if (player[epn].governp>0)
+				{
+					player[epn].governp=player[epn].governp-1;
+					printf("You were successful\n");
+					printf("Enemy lost 1 Government Planet !\n\n");
+					news(102,"");
+					player_msg(102,"");
+					put_datas(epn);
+				}
+				else
+				{
+					printf("Your Enemy did not even have one !\n");
+					printf("And you lost %ld Cr.\n",price2);
+					printf("Next time I would send a spy first !\n");
+				}
+				}
+			  else
+				printf("Action aborted !\n"); 
+			 }
+			break;
+		case 2: if (player[pn].credits<(price3))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			else
+			{
+			if(getplayer()==TRUE)
+				{
+				rocket_use=FALSE;
+				player[pn].credits=player[pn].credits-(price3);
+				missile_pic();
+				printf("\nYour missiles are heading to %s's planets ...\n",player[epn].player);
+				sleep(1);
+				if((player[epn].missiledefense+(40*player[epn].defensep))>9000)
+					chance=9000;
+				else
+					chance=player[epn].missiledefense+(4*player[epn].defensep);
+				if(rnd(10000)>chance)
+					{
+					printf("\nYour missiles are throu the defense shield ...\n");
+					sleep(1);
+					printf("\nImpact .... bouuummmm ...\n\n");
+					rocket_use=FALSE;
+					player[pn].score_modifier=player[pn].score_modifier+1000;
+					player[pn].morale++;
+					put_datas(pn);
+					
+					player[epn].harmony=player[epn].harmony-15;
+					if (player[epn].harmony>-5)
+						player[epn].harmony=player[epn].harmony-5;
+					if (player[epn].population>6)
+						player[epn].population=player[epn].population-(player[epn].population/3);
+					if (player[epn].cruisers>0)
+						player[epn].pilots=player[epn].pilots/3;
+					player[epn].score_modifier=player[epn].score_modifier-5000;
+					player[epn].morale--;
+					player[epn].health=player[epn].health-3;
+					player[epn].health_radioactivity= -1;
+					printf("You were successful !!!!\n\n");
+					printf("Enemy lost:     30 %% of his citizen,\n");
+					printf("            and 30 %% of his civil pilots\n");
+					printf("ENEMY GETS SEVERE HEALTH PROBLEMS WITHIN HIS POPULATION\n");
+					news(103,"");
+					player_msg(103,"");
+					put_datas(epn);
+					}
+				else
+					{
+					printf("\nYour missiles were demolished by the enemies defense system ...\n\n");
+					news(153,"");
+					player_msg(153,"");
+					}
+			  	}
+			else
+				printf("Action aborted !\n"); 
+			  }
+			break;
+		case 3: if (player[pn].credits<(price4))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			else
+			{
+			if(getplayer()==TRUE)
+				{
+				rocket_use=FALSE;
+				player[pn].credits=player[pn].credits-(price4);
+				missile_pic();
+				printf("\nYour missiles are heading to %s's planets ...\n",player[epn].player);
+				sleep(1);
+				if((player[epn].missiledefense+(40*player[epn].defensep))>9000)
+					chance=9000;
+				else
+					chance=player[epn].missiledefense+(4*player[epn].defensep);
+				if(rnd(10000)>chance)
+					{
+					printf("\nYour missiles are throu the defense shield ...\n");
+					sleep(1);
+					printf("\nImpact .... bouuummmm ...\n\n");
+					rocket_use=FALSE;
+					player[pn].score_modifier=player[pn].score_modifier+1000;
+					player[pn].morale++;
+					put_datas(pn);
+
+					player[epn].foodp=0;
+					player[epn].food=0;
+					player[epn].harmony=player[epn].harmony-5;
+
+					player[epn].score_modifier=player[epn].score_modifier-5000;
+					player[epn].morale--;
+					printf("You were successful !!!!\n\n");
+					printf("Enemy lost all foodproctuction units and food in stock,\n\n");
+					news(104,"");
+					player_msg(104,"");
+					put_datas(epn);
+					}
+				else
+					{
+					printf("\nYour missiles were demolished by the enemies defense system ...\n\n");
+					news(154,"");
+					player_msg(154,"");
+					}
+			  	}
+			else
+				printf("Action aborted !\n"); 
+			  }
+			break;
+		case 4: if (player[pn].credits<(price5))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			else
+			{
+			if(getplayer()==TRUE)
+				{
+				rocket_use=FALSE;
+				player[pn].credits=player[pn].credits-(price5);
+				missile_pic();
+				printf("\nYour missiles are heading to %s's planets ...\n",player[epn].player);
+				sleep(1);
+				if((player[epn].missiledefense+(40*player[epn].defensep))>9000)
+					chance=9000;
+				else
+					chance=player[epn].missiledefense+(4*player[epn].defensep);
+				if(rnd(10000)>chance)
+					{
+					printf("\nYour missiles are throu the defense shield ...\n");
+					sleep(1);
+					printf("\nImpact .... bouuummmm ...\n\n");
+					rocket_use=FALSE;
+					player[pn].score_modifier=player[pn].score_modifier+1000;
+					player[pn].morale++;
+					put_datas(pn);
+					if (player[epn].soldiers>0)
+						player[epn].soldiers=player[epn].soldiers/2;
+					if (player[epn].fighters>0)
+						player[epn].fighters=player[epn].fighters/2;
+					if (player[epn].cruisers>0)
+						player[epn].cruisers=player[epn].cruisers/2;
+					if (player[epn].ywings>0)
+						player[epn].ywings=player[epn].ywings/2;
+					if (player[epn].carriers>0)
+						player[epn].carriers=player[epn].carriers/2;
+					if (player[epn].missiledefense>0)
+						player[epn].missiledefense=player[epn].missiledefense/2;
+					if (player[epn].starfighters>0)
+						player[epn].starfighters=player[epn].starfighters/2;
+					if (player[epn].deathstars>0)
+						player[epn].deathstars=player[epn].deathstars/2;
+					player[epn].score_modifier=player[epn].score_modifier-5000;
+					player[epn].morale--;
+					printf("You were successful !!!!\n\n");
+					printf("Enemy lost [%-6ld] Soldiers,\n",player[epn].soldiers);
+					printf("           [%-6ld] X-wing Fighters,\n",player[epn].fighters);
+					printf("           [%-6ld] Y-wing Fighters,\n",player[epn].ywings);
+					printf("           [%-6ld] Heavy Cruisers,\n",player[epn].cruisers);
+					printf("           [%-6ld] Imperial Starfighters,\n",player[epn].starfighters);
+					printf("           [%-6ld] Carriers,\n",player[epn].carriers);
+					printf("           [%-6ld] MissileDefense-Stations,\n",player[epn].missiledefense);
+					printf("           [%-6ld] Death Stars !\n\n",player[epn].deathstars);
+					news(105,"");
+					player_msg(105,"");
+					put_datas(epn);
+					}
+				else
+					{
+					printf("\nYour missiles were demolished by the enemies defense system ...\n\n");
+					news(155,"");
+					player_msg(155,"");
+					}
+			  	}
+			else
+				printf("Action aborted !\n"); 
+			  }
+			break;
+		case 5: if (player[pn].credits<(price6))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			else
+			{
+			if(getplayer()==TRUE)
+				{
+				rocket_use=FALSE;
+				player[pn].credits=player[pn].credits-(price6);
+				missile_pic();
+				printf("\nYour missiles are heading to %s's planets ...\n",player[epn].player);
+				sleep(1);
+				if((player[epn].missiledefense+(40*player[epn].defensep))>9000)
+					chance=9000;
+				else
+					chance=player[epn].missiledefense+(4*player[epn].defensep);
+				if(rnd(10000)>chance)
+					{
+					printf("\nYour missiles are throu the defense shield ...\n");
+					sleep(1);
+					printf("\nImpact .... bouuummmm ...\n\n");
+					rocket_use=FALSE;
+					player[pn].score_modifier=player[pn].score_modifier+1000;
+					player[pn].morale++;
+					put_datas(pn);
+					if (player[epn].governp>0)
+						player[epn].governp=player[epn].governp/2;
+					player[epn].score_modifier=player[epn].score_modifier-5000;
+					player[epn].harmony=player[epn].harmony-5;
+					player[epn].morale--;
+					printf("You were successful !!!!\n\n");
+					printf("Enemy lost [%-6ld] Governing planets.\n\n",player[epn].governp/2);
+					news(106,"");
+					player_msg(106,"");
+					put_datas(epn);
+					}
+				else
+					{
+					printf("\nYour missiles were demolished by the enemies defense system ...\n\n");
+					news(156,"");
+					player_msg(156,"");
+					}
+			  	}
+			else
+				printf("Action aborted !\n"); 
+			  }
+			break;
+		case 8: if (player[pn].credits<(price7))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			 else
+			  {
+			  if(getplayer()==TRUE)
+				{
+				rocket_use=FALSE;
+				player[pn].credits=player[pn].credits-(price7);
+				put_datas(pn);
+				player[epn].morale=player[epn].morale-2;
+				printf("You were successful\n");
+				printf("Enemy lost 2 Moral Points !\n\n");
+				news(108,"");
+				player_msg(108,"");
+				put_datas(epn);
+				}
+			else
+				printf("Action aborted !\n"); 
+			  }
+			break;
+		case 9: if (player[pn].credits<(price8))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			 else
+			  {
+			  if(getplayer()==TRUE)
+				{
+				rocket_use=FALSE;
+				player[pn].credits=player[pn].credits-price8;
+				put_datas(pn);
+				player[epn].harmony=player[epn].harmony-2;
+				printf("You were successful\n");
+				printf("Enemy lost 2 Harmony Points !\n\n");
+				news(109,"");
+				player_msg(109,"");
+				put_datas(epn);
+				}
+			else
+				printf("Action aborted !\n"); 
+			  }
+			break;
+
+		default: 
+			break;
+	  }
+	 }
+	while((cov_type<0)||(cov_type>6));
+
+
+}
+
+/********************************************************************/
+missile_pic()
+{
+if (player[pn].terminal>0)
+	{
+	printf("    .\n");
+	printf("             .                                          .\n");
+	printf("    .   .                  /\\\n");
+	printf("                          /  \\                    .\n");
+	printf("                         | S  |\n");
+	printf("        .                |  P |            .\n");
+	printf("                .        | A  |\n");
+	printf("                         |  C |         .\n");
+	printf("                         | E  |                        .\n");
+	printf(" .                       |----|\n");
+	printf("                         |    |      .            .\n");
+	printf("            .            | R  |\n");
+	printf("                         |  O |\n");
+	printf("                        /| C  |\\\n");
+	printf("                       | |  K | |\n");
+	printf("                       | | E  | |          .\n");
+	printf("         .             | |  T | |              .\n");
+	printf("                       |_| __ |_|\n");
+	printf("_____________________ /_/__/\\__\\_\\ _____________________\n");
+	press_return();
+	}
+}
+
+/********************************************************************/
+spying_stage()
+{
+char ostring[80],xstring[80];
+char string[40];
+long chance;
+long z;
+long cov_type=0;
+long cmod,cmod2;
+long pvalue=20000+(500*(player[pn].orep+player[pn].foodp+player[pn].defensep+player[pn].tradep+player[pn].tourismp));
+unsigned long offense=0;
+unsigned long defense=0;
+unsigned long chances=0;
+
+long spysend;
+long y_send=0;
+long s_send=0;
+long pos_result=0;
+long stolen=0;
+
+long price2=pvalue*3;
+long price5=player[pn].ywings*100;
+long price6=player[pn].freighters*100+5000;
+long price7=pvalue*4;
+long price8=20000;
+
+
+if(player[pn].agents<1) 
+  return;
+
+
+if(sol_work==1) 
+	{
+	printf("\nYour agency refuses to work since you didn't pay them\n");
+	printf("enough.\n");
+	return;
+	}
+
+	do
+	 {
+	  cls();
+	  printf("\n\nMission types:                                          COST:\n");
+	  printf("----------------------------------------------------------------------\n");
+	  printf("1. Covert Mission: Spy on Military and/or Government[  THAT'S FREE ]\n");
+	  printf("2. Covert Mission: Spy on the Army strength         [ %9ld cr ]\n\n",price2);
+	  if(player[pn].tech_level>4)
+	  	printf("5. Pirating: Steal enemy's Y-Wing starfighters      [ %9ld cr ]\n",price5);
+	  printf("6. Pirating: Steal enemy's Mk-Freighters            [ %9ld cr ]\n\n",price6);
+/*	  printf("7. Pirating: Attack enemy's TradePlanets            [ %9ld cr ]\n",price7);
+*/
+	  printf("8. Show own Army strength (offense and defense)     [ %9ld cr ]\n",price8);
+	  printf("9. Secret Public Poll under your people             [  THAT'S FREE ]\n");
+	  printf("----------------------------------------------------------------------\n");
+	  printf("\n[Availble Money: %ld cr.] Choice: ",player[pn].credits);
+	  gets(ostring);
+	  sscanf(ostring,"%d",&cov_type);
+
+	  switch(cov_type) 
+	  {
+		case 1: covert_stage();
+			break;
+		case 2: if (player[pn].credits<(price2))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			 else
+			  {
+			  if(getplayer()!=FALSE) 
+				{
+				player[pn].credits=player[pn].credits-price2;
+				put_datas(pn);
+				rocket_use=FALSE;
+
+				do {
+				  printf("Send how many agents? (max of %ld) ",player[pn].agents);
+				  gets(ostring);
+				  sscanf(ostring,"%ld",&spysend);
+				   } while(spysend>player[pn].agents);
+				
+				if(spysend==0) spysend=player[pn].agents;
+				if(spysend*race[player[pn].race].perception>player[epn].agents*race[player[epn].race].perception)
+					{
+					printf("\n Mission accomplished ... \n\n");
+					chances=get_missiledefense(epn);
+					printf("\nMissile defense is at   : %d%% (90 %% maximum)\n",chances);
+					printf("That means that you have a chance of %d%% to hit your enemy with a missile.\n\n",100-chances);
+
+					offense = get_offense(epn);
+					defense = get_defense(epn);
+
+					printf("Your enemys army offensive strength : %d points\n",offense);
+					printf("Your enemys army defensive strength : %d points\n\n",defense);
+					printf("By the way, your enemy is a(n) %s.\n\n\n",race[player[epn].race].name);
+					}
+				else
+					{
+					printf("\n\nYou were caught!  The %ld spies you sent were executed!\n",spysend);
+					printf("Next time try to send more spies, than your enemy has.\n");
+					player[pn].agents=player[pn].agents-spysend;
+					put_datas(pn);
+
+					news((5),"");
+					player_msg((5),"");
+
+					}
+				press_return();
+				}
+			  }
+			break;
+		case 5: if ((player[pn].credits<price5)||(player[pn].tech_level<=4))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			 else
+			  {
+			  if(getplayer()!=FALSE) 
+				{
+				player[pn].credits=player[pn].credits-price5;
+				put_datas(pn);
+				rocket_use=FALSE;
+
+				do {
+				  printf("Send how many agents? (max of %ld) ",player[pn].agents);
+				  gets(ostring);
+				  sscanf(ostring,"%ld",&spysend);
+				   } while(spysend>player[pn].agents);
+				do {
+				  printf("Send how many soldiers ? (max of %ld) ",player[pn].soldiers);
+				  gets(ostring);
+				  sscanf(ostring,"%ld",&s_send);
+				   } while(s_send>player[pn].soldiers);
+				do {
+				  printf("Send how many Y Wing Starfighters ? (max of %ld) ",player[pn].ywings);
+				  gets(ostring);
+				  sscanf(ostring,"%ld",&y_send);
+				   } while(y_send>player[pn].ywings);
+
+				/** 1 ship won if sent 2 pilots and 1 ywing **/
+
+				pos_result=y_send;
+				if(pos_result>s_send/2) pos_result=s_send/2;
+
+				if(spysend==0) spysend=player[pn].agents;
+				if(s_send==0) s_send=player[pn].soldiers;
+				if(y_send==0) y_send=player[pn].ywings;
+
+				if(spysend*race[player[pn].race].perception>player[epn].agents*race[player[epn].race].perception)
+					{
+					printf("\n\n Mission accomplished ... \n\n");
+					if(player[epn].ywings==0)
+						{
+						stolen=0;
+						printf("The enemy had NO Y-Wing Fighters.\n",player[epn].ywings);
+						}
+					if(((player[epn].ywings/10)<pos_result)&&(player[epn].ywings>0))
+						{
+						stolen=player[epn].ywings/10;
+						printf("The enemy had only %ld Y-Wing Fighters.\n",player[epn].ywings);
+						}
+					if((player[epn].ywings>pos_result)&&(player[epn].ywings>0))
+						{
+						stolen=pos_result;
+						stolen=stolen/10;
+						}
+					if(stolen>0)
+						{
+						printf("You steal %ld Y-Wing Fighters...\n\n",stolen);
+						printf("They cost you %ld credits each. (Mission cost/ships stolen)\n\n",price5/stolen);
+						if((price5/(stolen+1)>price_ywings)&&(stolen>0))
+							{
+							printf("Hmmm ... wasn't so good ... a new one costs only %ld credits.\n",price_ywings);
+							printf("But anyway, furthermore your enemy has now less !!!\n\n");
+							}
+						player[pn].ywings=player[pn].ywings+stolen;
+						player[epn].morale=player[epn].morale+1;
+						player[pn].score_modifier=player[pn].score_modifier+80;
+						put_datas(pn);
+
+						player[epn].ywings=player[epn].ywings-stolen;
+						player[epn].harmony=player[epn].harmony-1;
+						player[epn].score_modifier=player[epn].score_modifier-50;
+						put_datas(epn);
+
+						sprintf(string,"%ld",stolen);
+						news(45,string);
+						player_msg(45,string);
+
+						}
+					}
+				else
+					{
+					printf("\n\nYou were caught bye %s ! \n\n",player[epn].player);
+					printf("The %ld spies and %ld soldiers you sent were executed!\n",spysend,s_send);
+					printf("Your enemy took the %ld Y-Wing Starfighters sent by you ... \n\n",y_send);
+					printf("Next time try to send more spies, than your enemy has.\n");
+					player[pn].agents=player[pn].agents-spysend;
+					player[pn].ywings=player[pn].ywings-y_send;
+					player[pn].soldiers=player[pn].soldiers-s_send;
+					player[pn].morale=player[pn].morale-1;
+					player[pn].harmony=player[pn].harmony-1;
+					player[pn].score_modifier=player[pn].score_modifier-50;
+					put_datas(pn);
+
+					player[epn].morale=player[epn].morale+1;
+					player[epn].ywings=player[epn].ywings+y_send;
+					player[epn].score_modifier=player[epn].score_modifier+80;
+					put_datas(epn);
+
+					news(40,"");
+					player_msg(40,"");
+
+					}
+				press_return();
+				}
+			  }
+			break;
+		case 6: if (player[pn].credits<(price6))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			 else
+			  {
+			  if(getplayer()!=FALSE) 
+				{
+				player[pn].credits=player[pn].credits-price6;
+				put_datas(pn);
+				rocket_use=FALSE;
+
+				do {
+				  printf("Send how many agents? (max of %ld) ",player[pn].agents);
+				  gets(ostring);
+				  sscanf(ostring,"%ld",&spysend);
+				   } while(spysend>player[pn].agents);
+				do {
+				  printf("Send how many soldiers ? (max of %ld) ",player[pn].soldiers);
+				  gets(ostring);
+				  sscanf(ostring,"%ld",&s_send);
+				   } while(s_send>player[pn].soldiers);
+				do {
+				  printf("Send how many Y Wing Starfighters ? (max of %ld) ",player[pn].ywings);
+				  gets(ostring);
+				  sscanf(ostring,"%ld",&y_send);
+				   } while(y_send>player[pn].ywings);
+
+				/** 1 ship won if sent 2 pilots and 1 ywing **/
+
+				pos_result=y_send;
+				if(pos_result>s_send/2) pos_result=s_send/2;
+
+				if(spysend==0) spysend=player[pn].agents;
+				if(s_send==0) s_send=player[pn].soldiers;
+				if(y_send==0) y_send=player[pn].ywings;
+
+				if(spysend*race[player[pn].race].perception>player[epn].agents*race[player[epn].race].perception)
+					{
+					printf("\n\n Mission accomplished ... \n\n");
+					if(player[epn].freighters==0)
+						{
+						stolen=0;
+						printf("The enemy had NO Freighters.\n",player[epn].freighters);
+						}
+					if((player[epn].freighters<pos_result)&&(player[epn].freighters>0))
+						{
+						stolen=player[epn].freighters;
+						printf("The enemy had only %ld Freighters.\n",player[epn].freighters);
+						}
+					if((player[epn].freighters>pos_result)&&(player[epn].freighters>0))
+						stolen=pos_result;
+					if(stolen>0)
+						{
+						printf("You steal %ld Freighters...\n\n",stolen);
+						printf("They cost you %ld credits each. (Mission cost/ships stolen)\n\n",price5/stolen);
+						if((price5/stolen>price_freighters)&&(stolen>0))
+							{
+							printf("Hmmm ... wasn't so good ... a new one costs only %ld credits.\n",price_freighters);
+							printf("But anyway, furthermore your enemy has now less !!!\n\n");
+							}
+						player[pn].freighters=player[pn].freighters+stolen;
+						player[pn].score_modifier=player[pn].score_modifier+80;
+						put_datas(pn);
+
+						player[epn].freighters=player[epn].freighters-stolen;
+						player[epn].harmony=player[epn].harmony-1;
+						player[epn].score_modifier=player[epn].score_modifier-50;
+						put_datas(epn);
+
+						sprintf(string,"%ld",stolen);
+						news(46,string);
+						player_msg(46,string);
+
+						}
+					}
+
+				else
+					{
+					printf("\n\nYou were caught bye %s ! \n\n",player[epn].player);
+					printf("The %ld spies and %ld soldiers you sent were executed!\n",spysend,s_send);
+					printf("Your enemy took the %ld Y-Wing Starfighters sent by you ... \n\n",y_send);
+					printf("Next time try to send more spies, than your enemy has.\n");
+					player[pn].agents=player[pn].agents-spysend;
+					player[pn].ywings=player[pn].ywings-y_send;
+					player[pn].soldiers=player[pn].soldiers-s_send;
+					player[pn].morale=player[pn].morale-1;
+					player[pn].harmony=player[pn].harmony-1;
+					player[pn].score_modifier=player[pn].score_modifier-50;
+					put_datas(pn);
+
+					player[epn].morale=player[epn].morale+1;
+					player[epn].ywings=player[epn].ywings+y_send;
+					player[epn].score_modifier=player[epn].score_modifier+80;
+					put_datas(epn);
+
+					news(41,"");
+					player_msg(41,"");
+
+					}
+				press_return();
+				}
+			  }
+			break;
+		case 7: printf("\nNOT YET INCLUDED ...\n\n");
+			break;
+		case 8: if (player[pn].credits<(price8))
+				{
+				printf("Not enough money\n");
+				cov_type=255;
+				}
+			 else
+			  {
+			  player[pn].credits=player[pn].credits-price8;
+			  put_datas(pn);
+			  printf("\n\n Getting Information : \n");
+			  printf("-----------------------\n");
+
+			  chances=get_missiledefense(pn);
+			  printf("\nMissile defense is at   : %d%% (90 %% maximum)\n",chances);
+			  printf("That means the enemy has a chance of %d%% to hit you with a missile.\n\n",100-chances);
+
+			  offense = get_offense(pn);
+			  defense = get_defense(pn);
+
+			  printf("Your army offensive strength : %d points\n",offense);
+			  printf("Your army defensive strength : %d points\n\n\n",defense);
+			  press_return();
+			  }
+			break;
+		case 9: printf("\n\nPublic Poll:\n");
+			printf("------------\n");
+			printf("Public harmony       : %s (%-2d)\n",harmony_level(2,player[pn].harmony),player[pn].harmony);
+			printf("Soldiers morale      : %s (%-2d)\n",harmony_level(1,player[pn].morale),player[pn].morale);
+			printf("Technologie Level    : %s (%-2d)\n",harmony_level(4,player[pn].tech_level),player[pn].tech_level);
+			printf("Populations health   : %s (%-2d)\n\n",harmony_level(3,player[pn].health),player[pn].health);
+			press_return();
+			break;
+		default: 
+			break;
+	  }
+	 } while((cov_type<0)||(cov_type>9));
+}
+
+/********************************************************************/
+covert_stage()
+{
+char ostring[80],xstring[80];
+long chance;
+long z;
+long spysend;
+long cov_type;
+long cmod,cmod2;
+
+if(player[pn].agents<1) 
+  return;
+
+printf("\nConduct covert activities? [y/N] ");
+gets(ostring);
+ostring[0]=toupper(ostring[0]);
+if(ostring[0]!='Y') 
+	return;
+
+if(sol_work==1) 
+	{
+	printf("\nYour covert agency refuses to work since you didn't pay the\n");
+	printf("enough.\n");
+	return;
+	}
+if(getplayer()!=FALSE) 
+	{
+	rocket_use=FALSE;
+	chance=50;
+	if(player[epn].agents>player[pn].agents) 
+		{
+		cmod2 = (( (player[pn].agents+1)/(player[epn].agents+1)  )*100.0);
+		chance = chance - cmod2;
+		} 
+	else 
+		{
+		cmod2 = (( (player[epn].agents+1)/(player[pn].agents+1)  )*100.0);
+		chance = chance + cmod2;
+		}
+	if(chance<20) chance=20;
+	if(chance>80) chance=80;
+
+	do
+	 { 
+	  printf("\n\nMission types: \n");
+	  printf("1. Spy on military\n");
+	  printf("2. Spy on government\n");
+	  printf("3. Spy on military & government\n\n");
+	  printf("Choice: ");
+	  gets(ostring);
+	  sscanf(ostring,"%d",&cov_type);
+         }
+	while((cov_type>3)||(cov_type<1));
+
+	switch(cov_type) 
+	{
+		case 1: cmod = -5; 
+			break;
+		case 2: cmod = 0; 
+			break;
+		case 3: cmod = -40; 
+			break;
+	}
+
+	chance = chance + cmod;
+
+	printf("\nYou have a base %d%% chance of success with %s.\n",chance,player[epn].player);
+	printf("For every additional agent you send, your chance increases 1% to a maximum\n");
+	printf("of 90%.\n\n");
+	agget: 
+	do
+	 {
+	  printf("Send how many agents? (max of %ld) ",player[pn].agents);
+	  gets(ostring);
+	  sscanf(ostring,"%d",&spysend);
+	 }
+	while(spysend>player[pn].agents);
+	if(spysend<1)
+		{
+		covert_stage(); 
+		return;
+		}
+	chance = chance + spysend;
+	if(chance>90) 
+		chance=90;
+
+	if( (rnd(100)) < chance ) 
+		{
+		printf("\n\nMission accomplished!\n");
+		spy_show(cov_type);
+		player[pn].score_modifier = player[pn].score_modifier + 10;
+		} 
+	else 
+		{
+		printf("\n\nYou were caught!  All the spies you sent were executed!\n");
+		player[pn].agents = player[pn].agents - spysend;
+		player[pn].harmony = player[pn].harmony - 1;
+		news((5),"");
+		player_msg((5),"");
+		player[pn].score_modifier = player[pn].score_modifier - 5;
+		}
+
+	}
+
+}
+
+
+/********************************************************************/
+spy_show(long type)
+{
+char ostring[80];
+char s[100];
+
+printf("\n%s:\n",player[epn].player);
+
+if(type==1) 
+	{
+	printf("[Troops=%ld] [Fighters=%ld]\n",player[epn].soldiers,player[epn].fighters);
+	printf("[Def. Stations=%ld] [Heavy Cruisers=%ld]\n",player[epn].defense,player[epn].cruisers);
+	printf("[Carriers=%ld]",player[epn].carriers);
+	printf("\nTheir army exhibits %s morale.\n\n",harmony_level(1,player[epn].morale));
+	}
+
+if(type==2) 
+	{
+	printf("Treasury:     %ld Credits/%ld on a bank account\n",player[epn].credits,player[epn].acredits);
+	printf("Population:   %d Million (%s)\n",player[epn].population,harmony_level(2,player[epn].harmony));
+	printf("Food:         %ld Kilotons\n",player[epn].food);
+	printf("Agents:       %ld\n",player[epn].agents);
+	printf("[Agricultural=%ld] [Mining=%ld] [Trade=%ld] [Tourism=%ld]\n",player[epn].foodp,player[epn].orep,player[epn].tradep,player[epn].tourismp);
+	printf("[Defense=%ld] [Governing=%ld]\n",player[epn].defensep,player[epn].governp);
+	}
+if(type==3) 
+	show_stats(epn);
+
+printf("\n");
+
+}
+
+/********************************************************************/
+ask_battle()
+{
+char ostring[80]="N";
+
+if((player[pn].protection>0)&&(player[pn].soldiers>0))
+	{
+	printf("\nDo you wish to do battle today (doing so voids your protection)? [y/N] ");
+	gets(ostring);
+	}
+if((player[pn].protection==0)&&(player[pn].soldiers>0))
+	{
+	printf("\nDo you wish to do battle today? [Y/n] ");
+	gets(ostring);
+	}
+
+ostring[0]=toupper(ostring[0]);
+
+if(player[pn].protection>0) 
+	{
+	if(ostring[0]!='Y') 
+		printf("\n");
+	else 
+		{
+		printf("\n");
+		battle_stage();
+		}
+	} 
+else 
+	if(ostring[0]!='N') 
+		battle_stage();
+
+}
+
+----> END OF PART 3 <----
+-- 
+      Internet: Dr_who@pegasus.ch         __
+      Phone   : ++41-71-71 70 42         ///
+      FAX     : ++41-71-71 27 87    __  ///    "I'M THE DOCTORE BECAUSE 
+                                    \\\///      IT'S FUN FUN FUN ! "
+     BBS Phone: ++41-71-71 55 77     \XX/       - TOM BAKER 
+      X.25    : +228 4752 1 2574        

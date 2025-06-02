@@ -1,0 +1,1839 @@
+Newsgroups: comp.sources.misc
+From: prslnk!buhrt@iuvax.cs.indiana.edu (Jeff Buhrt)
+Subject:  v30i021:  sc - The SC Spreadsheet, Patch04b/2
+Message-ID: <1992May24.043856.23893@sparky.imd.sterling.com>
+X-Md4-Signature: cb39943d64c124c3cee8d440da2893b1
+Date: Sun, 24 May 1992 04:38:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: prslnk!buhrt@iuvax.cs.indiana.edu (Jeff Buhrt)
+Posting-number: Volume 30, Issue 21
+Archive-name: sc/patch04b
+Environment: UNIX, VMS, MS-DOS
+Patch-To: sc: Volume 20, Issue 35-41
+
+*** ../619/interp.c	Mon Mar 16 10:09:40 1992
+--- interp.c	Fri May  8 12:31:27 1992
+***************
+*** 7,13 ****
+   *
+   *              More mods Robert Bond, 12/86
+   *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+!  *		$Revision: 6.19 $
+   */
+  
+  #define DEBUGDTS 1		/* REMOVE ME */
+--- 7,13 ----
+   *
+   *              More mods Robert Bond, 12/86
+   *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+!  *		$Revision: 6.21 $
+   */
+  
+  #define DEBUGDTS 1		/* REMOVE ME */
+***************
+*** 53,66 ****
+  #endif
+  
+  #ifdef SIGVOID
+!     void quit();
+  #else
+!     int quit();
+  #endif
+  
+- /* Suffixes for engineering notation THA 9/19/88 */
+- extern char engmult[];
+- 
+  /* Use this structure to save the the last 'g' command */
+  struct go_save {
+  	int g_type;
+--- 53,63 ----
+  #endif
+  
+  #ifdef SIGVOID
+!     void doquit();
+  #else
+!     int doquit();
+  #endif
+  
+  /* Use this structure to save the the last 'g' command */
+  struct go_save {
+  	int g_type;
+***************
+*** 113,119 ****
+--- 110,118 ----
+  double	rint();
+  int	cellerror = CELLOK;	/* is there an error in this cell */
+  
++ #ifndef PI
+  #define PI (double)3.14159265358979323846
++ #endif
+  #define dtr(x) ((x)*(PI/(double)180.0))
+  #define rtd(x) ((x)*(180.0/(double)PI))
+  
+***************
+*** 189,195 ****
+      }
+  
+      if (p && p->label) {
+! 	pr = xmalloc((unsigned)(strlen(p->label)+1));
+  	(void) strcpy(pr, p->label);
+  	if (p->cellerror)
+  		cellerror = CELLINVALID;
+--- 188,194 ----
+      }
+  
+      if (p && p->label) {
+! 	pr = scxmalloc((unsigned)(strlen(p->label)+1));
+  	(void) strcpy(pr, p->label);
+  	if (p->cellerror)
+  		cellerror = CELLINVALID;
+***************
+*** 293,299 ****
+  	}
+  	if ( p && p->flags&is_valid)
+  	    ret = p->v;
+! 	xfree(s);
+      }
+      return ret;
+  }
+--- 292,298 ----
+  	}
+  	if ( p && p->flags&is_valid)
+  	    ret = p->v;
+! 	scxfree(s);
+      }
+      return ret;
+  }
+***************
+*** 598,604 ****
+  	return((double)0);
+  
+      (void)strtof(s, &v);
+!     xfree(s);
+      return(v);
+  }
+  
+--- 597,603 ----
+  	return((double)0);
+  
+      (void)strtof(s, &v);
+!     scxfree(s);
+      return(v);
+  }
+  
+***************
+*** 619,628 ****
+  	v = 0.0;
+  
+      if (s1)
+!     	xfree(s1);
+  
+      if (s2)
+!     	xfree(s2);
+  
+      return(v);
+  }
+--- 618,627 ----
+  	v = 0.0;
+  
+      if (s1)
+!     	scxfree(s1);
+  
+      if (s2)
+!     	scxfree(s2);
+  
+      return(v);
+  }
+***************
+*** 630,637 ****
+  
+  /*
+   * Given a string representing a column name and a value which is a column
+!  * number, return a pointer to the selected cell's entry, if any, else 0.  Use
+!  * only the integer part of the column number.  Always free the string.
+   */
+  
+  struct ent *
+--- 629,636 ----
+  
+  /*
+   * Given a string representing a column name and a value which is a column
+!  * number, return a pointer to the selected cell's entry, if any, else NULL.
+!  * Use only the integer part of the column number.  Always free the string.
+   */
+  
+  struct ent *
+***************
+*** 655,664 ****
+       && (col < maxcols))			/* in range */
+      {
+  	p = *ATBL(tbl, row, col);
+! 	if (p->cellerror)
+  		cellerror = CELLINVALID;
+      }
+!     xfree (colstr);
+      return (p);
+  }
+  
+--- 654,663 ----
+       && (col < maxcols))			/* in range */
+      {
+  	p = *ATBL(tbl, row, col);
+! 	if ((p != NULL) && p->cellerror)
+  		cellerror = CELLINVALID;
+      }
+!     scxfree (colstr);
+      return (p);
+  }
+  
+***************
+*** 897,902 ****
+--- 896,902 ----
+  	case NVAL:      return (donval(seval(e->e.o.left),eval(e->e.o.right)));
+  	case MYROW:	return ((double) gmyrow);
+  	case MYCOL:	return ((double) gmycol);
++ 	case NUMITER:	return ((double) repct);
+  	default:	error ("Illegal numeric expression");
+  			exprerr = 1;
+      }
+***************
+*** 955,961 ****
+  
+  /* 
+   * Rules for string functions:
+!  * Take string arguments which they xfree.
+   * All returned strings are assumed to be xalloced.
+   */
+  
+--- 955,961 ----
+  
+  /* 
+   * Rules for string functions:
+!  * Take string arguments which they scxfree.
+   * All returned strings are assumed to be xalloced.
+   */
+  
+***************
+*** 970,982 ****
+  	return((char *)0);
+      arg1 = s1 ? s1 : "";
+      arg2 = s2 ? s2 : "";
+!     p = xmalloc((unsigned)(strlen(arg1)+strlen(arg2)+1));
+      (void) strcpy(p, arg1);
+      (void) strcat(p, arg2);
+      if (s1)
+!         xfree(s1);
+      if (s2)
+!         xfree(s2);
+      return(p);
+  }
+  
+--- 970,982 ----
+  	return((char *)0);
+      arg1 = s1 ? s1 : "";
+      arg2 = s2 ? s2 : "";
+!     p = scxmalloc((unsigned)(strlen(arg1)+strlen(arg2)+1));
+      (void) strcpy(p, arg1);
+      (void) strcat(p, arg2);
+      if (s1)
+!         scxfree(s1);
+      if (s2)
+!         scxfree(s2);
+      return(p);
+  }
+  
+***************
+*** 989,995 ****
+  
+      tp = ctime(&tloc);
+      tp[24] = '\0';
+!     p = xmalloc((unsigned)25);
+      (void) strcpy(p, tp);
+      return(p);
+  }
+--- 989,995 ----
+  
+      tp = ctime(&tloc);
+      tp[24] = '\0';
+!     p = scxmalloc((unsigned)25);
+      (void) strcpy(p, tp);
+      return(p);
+  }
+***************
+*** 1006,1014 ****
+      if (!fmtstr)
+  	return((char *)0);
+      (void) sprintf(buff, fmtstr, v);
+!     p = xmalloc((unsigned)(strlen(buff)+1));
+      (void) strcpy(p, buff);
+!     xfree(fmtstr);
+      return(p);
+  }
+  
+--- 1006,1014 ----
+      if (!fmtstr)
+  	return((char *)0);
+      (void) sprintf(buff, fmtstr, v);
+!     p = scxmalloc((unsigned)(strlen(buff)+1));
+      (void) strcpy(p, buff);
+!     scxfree(fmtstr);
+      return(p);
+  }
+  
+***************
+*** 1032,1039 ****
+      error("Warning: External functions unavailable on VMS");
+      cellerror = CELLERROR;	/* not sure if this should be a cellerror */
+      if (command)
+! 	xfree(command);
+!     return (strcpy (xmalloc((unsigned) 1), "\0"));
+  }
+  
+  #else /* VMS */
+--- 1032,1039 ----
+      error("Warning: External functions unavailable on VMS");
+      cellerror = CELLERROR;	/* not sure if this should be a cellerror */
+      if (command)
+! 	scxfree(command);
+!     return (strcpy (scxmalloc((unsigned) 1), "\0"));
+  }
+  
+  #else /* VMS */
+***************
+*** 1053,1069 ****
+  		((prevstr == NULL) || (*prevstr == '\0')) ?
+  			"null" : "previous");
+  
+! 	if (command) xfree (command);
+      } else {
+  	if ((! command) || (! *command)) {
+  	    error ("Warning: external function given null command name");
+  	    cellerror = CELLERROR;
+! 	    if (command) xfree (command);
+  	} else {
+  	    FILE *pp;
+  
+  	    (void) sprintf (buff, "%s %g", command, value); /* build cmd line */
+! 	    xfree (command);
+  
+  	    error ("Running external function...");
+  	    (void) refresh();
+--- 1053,1069 ----
+  		((prevstr == NULL) || (*prevstr == '\0')) ?
+  			"null" : "previous");
+  
+! 	if (command) scxfree (command);
+      } else {
+  	if ((! command) || (! *command)) {
+  	    error ("Warning: external function given null command name");
+  	    cellerror = CELLERROR;
+! 	    if (command) scxfree (command);
+  	} else {
+  	    FILE *pp;
+  
+  	    (void) sprintf (buff, "%s %g", command, value); /* build cmd line */
+! 	    scxfree (command);
+  
+  	    error ("Running external function...");
+  	    (void) refresh();
+***************
+*** 1086,1092 ****
+  
+  		    if (strlen(buff) + 1 > prevlen)
+  		    {	prevlen = strlen(buff) + 40;
+! 			prevstr = xrealloc(prevstr, prevlen);
+  		    }
+  		    (void) strcpy (prevstr, buff);
+  			 /* save alloc'd copy */
+--- 1086,1092 ----
+  
+  		    if (strlen(buff) + 1 > prevlen)
+  		    {	prevlen = strlen(buff) + 40;
+! 			prevstr = scxrealloc(prevstr, prevlen);
+  		    }
+  		    (void) strcpy (prevstr, buff);
+  			 /* save alloc'd copy */
+***************
+*** 1097,1105 ****
+  	} /* else */
+      } /* else */
+      if (prevstr)
+! 	return (strcpy (xmalloc ((unsigned) (strlen (prevstr) + 1)), prevstr));
+      else
+! 	return (strcpy(xmalloc((unsigned)1), ""));
+  }
+  
+  #endif /* VMS */
+--- 1097,1105 ----
+  	} /* else */
+      } /* else */
+      if (prevstr)
+! 	return (strcpy (scxmalloc ((unsigned) (strlen (prevstr) + 1)), prevstr));
+      else
+! 	return (strcpy(scxmalloc((unsigned)1), ""));
+  }
+  
+  #endif /* VMS */
+***************
+*** 1121,1127 ****
+      char *llabel;
+  
+      llabel = (ep = getent (colstr, rowdoub)) ? (ep -> label) : "";
+!     return (strcpy (xmalloc ((unsigned) (strlen (llabel) + 1)), llabel));
+  }
+  
+  
+--- 1121,1127 ----
+      char *llabel;
+  
+      llabel = (ep = getent (colstr, rowdoub)) ? (ep -> label) : "";
+!     return (strcpy (scxmalloc ((unsigned) (strlen (llabel) + 1)), llabel));
+  }
+  
+  
+***************
+*** 1145,1161 ****
+  	v2 =  strlen (s) - 1;		/* to end   */
+  
+      if (v1 < 0 || v1 > v2) {		/* out of range, return null string */
+! 	xfree(s);
+! 	p = xmalloc((unsigned)1);
+  	p[0] = '\0';
+  	return(p);
+      }
+!     s2 = p = xmalloc((unsigned)(v2-v1+2));
+      s1 = &s[v1];
+      for(; v1 <= v2; s1++, s2++, v1++)
+  	*s2 = *s1;
+      *s2 = '\0';
+!     xfree(s);
+      return(p);
+  }
+  
+--- 1145,1161 ----
+  	v2 =  strlen (s) - 1;		/* to end   */
+  
+      if (v1 < 0 || v1 > v2) {		/* out of range, return null string */
+! 	scxfree(s);
+! 	p = scxmalloc((unsigned)1);
+  	p[0] = '\0';
+  	return(p);
+      }
+!     s2 = p = scxmalloc((unsigned)(v2-v1+2));
+      s1 = &s[v1];
+      for(; v1 <= v2; s1++, s2++, v1++)
+  	*s2 = *s1;
+      *s2 = '\0';
+!     scxfree(s);
+      return(p);
+  }
+  
+***************
+*** 1233,1239 ****
+  
+      if (se == (struct enode *)0) return (char *)0;
+      switch (se->op) {
+! 	case O_SCONST: p = xmalloc((unsigned)(strlen(se->e.s)+1));
+  		     (void) strcpy(p, se->e.s);
+  		     return(p);
+  	case O_VAR:    {
+--- 1233,1239 ----
+  
+      if (se == (struct enode *)0) return (char *)0;
+      switch (se->op) {
+! 	case O_SCONST: p = scxmalloc((unsigned)(strlen(se->e.s)+1));
+  		     (void) strcpy(p, se->e.s);
+  		     return(p);
+  	case O_VAR:    {
+***************
+*** 1242,1248 ****
+  
+  			if (!ep->label)
+  			    return((char *)0);
+! 			p = xmalloc((unsigned)(strlen(ep->label)+1));
+  			(void) strcpy(p, ep->label);
+  			return(p);
+  		     }
+--- 1242,1248 ----
+  
+  			if (!ep->label)
+  			    return((char *)0);
+! 			p = scxmalloc((unsigned)(strlen(ep->label)+1));
+  			(void) strcpy(p, ep->label);
+  			return(p);
+  		     }
+***************
+*** 1273,1280 ****
+  	case SUBSTR: return(dosubstr(seval(se->e.o.left),
+  			    (int)eval(se->e.o.right->e.o.left) - 1,
+  			    (int)eval(se->e.o.right->e.o.right) - 1));
+! 	case COLTOA: return(strcpy(xmalloc((unsigned)10),
+! 				   coltoa(eval(se->e.o.right)+1)));
+  	default:
+  		     error ("Illegal string expression");
+  		     exprerr = 1;
+--- 1273,1280 ----
+  	case SUBSTR: return(dosubstr(seval(se->e.o.left),
+  			    (int)eval(se->e.o.right->e.o.left) - 1,
+  			    (int)eval(se->e.o.right->e.o.right) - 1));
+! 	case COLTOA: return(strcpy(scxmalloc((unsigned)10),
+! 				   coltoa((int)eval(se->e.o.right)+1)));
+  	default:
+  		     error ("Illegal string expression");
+  		     exprerr = 1;
+***************
+*** 1293,1298 ****
+--- 1293,1300 ----
+   */
+  
+  int propagation = 10;	/* max number of times to try calculation */
++ int repct = 1;		/* Make repct a global variable so that the 
++ 				function @numiter can access it */
+  
+  void
+  setiterations(i)
+***************
+*** 1307,1314 ****
+  
+  void
+  EvalAll () {
+!      int lastcnt, repct = 1;
+    
+       (void) signal(SIGFPE, eval_fpe);
+  
+       while ((lastcnt = RealEvalAll()) && (++repct <= propagation));
+--- 1309,1317 ----
+  
+  void
+  EvalAll () {
+!      int lastcnt;
+    
++      repct = 1;
+       (void) signal(SIGFPE, eval_fpe);
+  
+       while ((lastcnt = RealEvalAll()) && (++repct <= propagation));
+***************
+*** 1315,1321 ****
+       if((propagation>1)&& (lastcnt >0 ))
+   	    error("Still changing after %d iterations",propagation-1);
+  
+!     (void) signal(SIGFPE, quit);
+  }
+  
+  /*
+--- 1318,1324 ----
+       if((propagation>1)&& (lastcnt >0 ))
+   	    error("Still changing after %d iterations",propagation-1);
+  
+!     (void) signal(SIGFPE, doquit);
+  }
+  
+  /*
+***************
+*** 1369,1375 ****
+  		changed++;
+  	    }
+  	    if(p->label)
+! 		xfree(p->label);
+  	    p->label = v;
+  	} else {
+  	    double v;
+--- 1372,1378 ----
+  		changed++;
+  	    }
+  	    if(p->label)
+! 		scxfree(p->label);
+  	    p->label = v;
+  	} else {
+  	    double v;
+***************
+*** 1403,1409 ****
+  	freeenodes = p->e.o.left;
+      }
+      else
+! 	p = (struct enode *) xmalloc ((unsigned)sizeof (struct enode));
+      p->op = op;
+      p->e.o.left = a1;
+      p->e.o.right = a2;
+--- 1406,1412 ----
+  	freeenodes = p->e.o.left;
+      }
+      else
+! 	p = (struct enode *) scxmalloc ((unsigned)sizeof (struct enode));
+      p->op = op;
+      p->e.o.left = a1;
+      p->e.o.right = a2;
+***************
+*** 1421,1427 ****
+  	freeenodes = p->e.o.left;
+      }
+      else
+! 	p = (struct enode *) xmalloc ((unsigned)sizeof (struct enode));
+      p->op = op;
+      p->e.v = a1;
+      return p;
+--- 1424,1430 ----
+  	freeenodes = p->e.o.left;
+      }
+      else
+! 	p = (struct enode *) scxmalloc ((unsigned)sizeof (struct enode));
+      p->op = op;
+      p->e.v = a1;
+      return p;
+***************
+*** 1438,1444 ****
+  	freeenodes = p->e.o.left;
+      }
+      else
+! 	p = (struct enode *) xmalloc ((unsigned)sizeof (struct enode));
+      p->op = op;
+      p->e.r = a1;
+      return p;
+--- 1441,1447 ----
+  	freeenodes = p->e.o.left;
+      }
+      else
+! 	p = (struct enode *) scxmalloc ((unsigned)sizeof (struct enode));
+      p->op = op;
+      p->e.r = a1;
+      return p;
+***************
+*** 1455,1461 ****
+  	freeenodes = p->e.o.left;
+      }
+      else
+! 	p = (struct enode *) xmalloc ((unsigned)sizeof (struct enode));
+      p->op = op;
+      p->e.k = a1;
+      return p;
+--- 1458,1464 ----
+  	freeenodes = p->e.o.left;
+      }
+      else
+! 	p = (struct enode *) scxmalloc ((unsigned)sizeof (struct enode));
+      p->op = op;
+      p->e.k = a1;
+      return p;
+***************
+*** 1472,1478 ****
+  	freeenodes = p->e.o.left;
+      }
+      else
+! 	p = (struct enode *) xmalloc ((unsigned)sizeof(struct enode));
+      p->op = O_SCONST;
+      p->e.s = s;
+      return(p);
+--- 1475,1481 ----
+  	freeenodes = p->e.o.left;
+      }
+      else
+! 	p = (struct enode *) scxmalloc ((unsigned)sizeof(struct enode));
+      p->op = O_SCONST;
+      p->e.s = s;
+      return(p);
+***************
+*** 1564,1570 ****
+  g_free()
+  {
+      switch (gs.g_type) {
+!     case G_STR: xfree(gs.g_s); break;
+      default: break;
+      }
+      gs.g_type = G_NONE;
+--- 1567,1573 ----
+  g_free()
+  {
+      switch (gs.g_type) {
+!     case G_STR: scxfree(gs.g_s); break;
+      default: break;
+      }
+      gs.g_type = G_NONE;
+***************
+*** 1675,1681 ****
+  
+  #if defined(RE_COMP)
+      if ((tmp = re_comp(s)) != (char *)0) {
+! 	xfree(s);
+  	error(tmp);
+  	return;
+      }
+--- 1678,1684 ----
+  
+  #if defined(RE_COMP)
+      if ((tmp = re_comp(s)) != (char *)0) {
+! 	scxfree(s);
+  	error(tmp);
+  	return;
+      }
+***************
+*** 1682,1688 ****
+  #endif
+  #if defined(REGCMP)
+      if ((tmp = regcmp(s, (char *)0)) == (char *)0) {
+! 	xfree(s);
+  	cellerror = CELLERROR;
+  	error("Invalid search string");
+  	return;
+--- 1685,1691 ----
+  #endif
+  #if defined(REGCMP)
+      if ((tmp = regcmp(s, (char *)0)) == (char *)0) {
+! 	scxfree(s);
+  	cellerror = CELLERROR;
+  	error("Invalid search string");
+  	return;
+***************
+*** 1870,1876 ****
+  		FullUpdate++;
+  		v->cellerror = cellerror;
+  	}
+! 	(void) signal(SIGFPE, quit);
+  	if (exprerr) {
+  	    efree(e);
+  	    return;
+--- 1873,1879 ----
+  		FullUpdate++;
+  		v->cellerror = cellerror;
+  	}
+! 	(void) signal(SIGFPE, doquit);
+  	if (exprerr) {
+  	    efree(e);
+  	    return;
+***************
+*** 1931,1937 ****
+  	FullUpdate++;
+  	v->cellerror = cellerror;
+      }
+!     (void) signal(SIGFPE, quit);
+      if (exprerr) {
+  	efree(se);
+  	return;
+--- 1934,1940 ----
+  	FullUpdate++;
+  	v->cellerror = cellerror;
+      }
+!     (void) signal(SIGFPE, doquit);
+      if (exprerr) {
+  	efree(se);
+  	return;
+***************
+*** 1939,1945 ****
+      if (constant(se)) {
+  	label(v, p, flushdir);
+  	if (p)
+! 	    xfree(p);
+  	efree(se);
+  	if (v->flags & is_strexpr) {
+              efree(v->expr);
+--- 1942,1948 ----
+      if (constant(se)) {
+  	label(v, p, flushdir);
+  	if (p)
+! 	    scxfree(p);
+  	efree(se);
+  	if (v->flags & is_strexpr) {
+              efree(v->expr);
+***************
+*** 1992,2001 ****
+  		continue;
+  	    }
+  	    if (n->format)
+! 		xfree(n->format);
+  	    n->format = 0;
+  	    if (s && *s != '\0')
+! 		n->format = strcpy(xmalloc((unsigned)(strlen(s)+1)), s);
+  	    n->flags |= is_changed;
+         }
+  }
+--- 1995,2004 ----
+  		continue;
+  	    }
+  	    if (n->format)
+! 		scxfree(n->format);
+  	    n->format = 0;
+  	    if (s && *s != '\0')
+! 		n->format = strcpy(scxmalloc((unsigned)(strlen(s)+1)), s);
+  	    n->flags |= is_changed;
+         }
+  }
+***************
+*** 2034,2040 ****
+  	}
+      }
+      FullUpdate++;
+!     col_hidden[arg] = 1;
+  }
+  
+  void
+--- 2037,2043 ----
+  	}
+      }
+      FullUpdate++;
+!     col_hidden[arg] = TRUE;
+  }
+  
+  void
+***************
+*** 2049,2055 ****
+  	efree(v->expr);
+      v->expr = (struct enode *)0;
+      if (v->format)
+! 	xfree(v->format);
+      v->format = (char *)0;
+      v->flags |= (is_changed);
+      v->flags &=  (is_valid);
+--- 2052,2058 ----
+  	efree(v->expr);
+      v->expr = (struct enode *)0;
+      if (v->format)
+! 	scxfree(v->format);
+      v->format = (char *)0;
+      v->flags |= (is_changed);
+      v->flags &=  (is_valid);
+***************
+*** 2079,2084 ****
+--- 2082,2088 ----
+  	     && e -> op != NOW
+  	     && e -> op != MYROW
+  	     && e -> op != MYCOL
++ 	     && e -> op != NUMITER
+  	)
+      );
+  }
+***************
+*** 2094,2100 ****
+  	    efree(e->e.o.right);
+  	}
+  	if (e->op == O_SCONST && e->e.s)
+! 	    xfree(e->e.s);
+  	e->e.o.left = freeenodes;
+  	freeenodes = e;
+      }
+--- 2098,2104 ----
+  	    efree(e->e.o.right);
+  	}
+  	if (e->op == O_SCONST && e->e.s)
+! 	    scxfree(e->e.s);
+  	e->e.o.left = freeenodes;
+  	freeenodes = e;
+      }
+***************
+*** 2115,2123 ****
+  		v = tv, flushdir = -1;
+  	    else flushdir = -1;
+  	}
+! 	if (v->label) xfree((char *)(v->label));
+  	if (s && s[0]) {
+! 	    v->label = xmalloc ((unsigned)(strlen(s)+1));
+  	    (void) strcpy (v->label, s);
+  	} else
+  	    v->label = (char *)0;
+--- 2119,2127 ----
+  		v = tv, flushdir = -1;
+  	    else flushdir = -1;
+  	}
+! 	if (v->label) scxfree((char *)(v->label));
+  	if (s && s[0]) {
+! 	    v->label = scxmalloc ((unsigned)(strlen(s)+1));
+  	    (void) strcpy (v->label, s);
+  	} else
+  	    v->label = (char *)0;
+***************
+*** 2288,2293 ****
+--- 2292,2300 ----
+  			linelim--;
+  			break;
+  	case COLTOA:	one_arg( "@coltoa(", e); break;
++ 	case NUMITER:	for ( s = "@numiter"; line[linelim++] = *s++;);
++                         linelim--;
++                         break;
+  	default:	decompile (e->e.o.left, mypriority);
+  			line[linelim++] = e->op;
+  			decompile (e->e.o.right, mypriority+1);
+*** ../619/lex.c	Mon Mar 16 10:09:42 1992
+--- lex.c	Fri May  8 12:31:28 1992
+***************
+*** 7,13 ****
+   *
+   *              More mods Robert Bond, 12/86
+   *		More mods by Alan Silverstein, 3/88, see list of changes.
+!  *		$Revision: 6.19 $
+   *
+   */
+  
+--- 7,13 ----
+   *
+   *              More mods Robert Bond, 12/86
+   *		More mods by Alan Silverstein, 3/88, see list of changes.
+!  *		$Revision: 6.21 $
+   *
+   */
+  
+***************
+*** 216,222 ****
+          ptr = p+1;	/* "string" or "string\"quoted\"" */
+          while(*ptr && ((*ptr != '"') || (*(ptr-1) == '\\')))
+  		ptr++;
+!         ptr = xmalloc((unsigned)(ptr-p));
+  	yylval.sval = ptr;
+  	p += 1;
+  	while (*p && ((*p != '"') || (*(p-1) == '\\')))
+--- 216,222 ----
+          ptr = p+1;	/* "string" or "string\"quoted\"" */
+          while(*ptr && ((*ptr != '"') || (*(ptr-1) == '\\')))
+  		ptr++;
+!         ptr = scxmalloc((unsigned)(ptr-p));
+  	yylval.sval = ptr;
+  	p += 1;
+  	while (*p && ((*p != '"') || (*(p-1) == '\\')))
+***************
+*** 411,416 ****
+--- 411,417 ----
+      km[1].k_str = tgetstr("kr", &p); km[1].k_val = ctl('f');
+      km[2].k_str = tgetstr("ku", &p); km[2].k_val = ctl('p');
+      km[3].k_str = tgetstr("kd", &p); km[3].k_val = ctl('n');
++ 
+      ktmp = tgetstr("ks",&p);
+      if (ktmp)  {
+  	(void) strcpy(ks_buf, ktmp);
+***************
+*** 597,602 ****
+--- 598,615 ----
+  #ifdef KEY_HOME
+      case KEY_HOME:	break;
+  #endif
++ #ifdef KEY_DC
++     case KEY_DC:    c = 'x'; break;
++ #endif
++ #ifdef KEY_FIND
++     case KEY_FIND:  c = 'g'; break;
++ #endif
++ #ifdef KEY_HELP
++     case KEY_HELP:  c = '?'; break;
++ #endif
++ #ifdef KEY_SELECT
++     case KEY_SELECT:c = 'm'; break;
++ #endif
+  #ifdef KEY_C1
+  /* This stuff works for a wyse wy75 in ANSI mode under 5.3.  Good luck. */
+  /* It is supposed to map the curses keypad back to the numeric equiv. */
+***************
+*** 613,619 ****
+      case KEY_C3:    c = '.'; break;
+      case KEY_ENTER: c = ctl('m'); break;
+  #endif
+!     default:   c = toascii(c); 
+      break;
+      }
+      return (c);
+--- 626,632 ----
+      case KEY_C3:    c = '.'; break;
+      case KEY_ENTER: c = ctl('m'); break;
+  #endif
+!     default:        c = toascii(c); 
+      break;
+      }
+      return (c);
+*** ../619/psc.c	Mon Mar 16 10:09:42 1992
+--- psc.c	Fri May  8 12:31:29 1992
+***************
+*** 17,23 ****
+   *  Author: Robert Bond
+   *  Adjustments: Jeff Buhrt and Eric Putz
+   */
+! char *rev = "$Revision: 6.19 $";
+  
+  #include <ctype.h>
+  #include <stdio.h>
+--- 17,23 ----
+   *  Author: Robert Bond
+   *  Adjustments: Jeff Buhrt and Eric Putz
+   */
+! char *rev = "$Revision: 6.21 $";
+  
+  #include <ctype.h>
+  #include <stdio.h>
+*** ../619/range.c	Mon Mar 16 10:09:43 1992
+--- range.c	Fri May  8 12:31:29 1992
+***************
+*** 4,10 ****
+   *
+   *              Robert Bond, 4/87
+   *
+!  *		$Revision: 6.19 $
+   */
+  
+  #include <sys/types.h>
+--- 4,10 ----
+   *
+   *              Robert Bond, 4/87
+   *
+!  *		$Revision: 6.21 $
+   */
+  
+  #include <sys/types.h>
+***************
+*** 59,71 ****
+  
+      if (find_range(name, strlen(name), (struct ent *)0, (struct ent *)0)) {
+  	error("Error: range name already defined");
+! 	xfree(name);
+  	return;
+      }
+  
+      if (strlen(name) <= 2) {
+  	error("Invalid range name - too short");
+! 	xfree(name);
+  	return;
+      }
+  
+--- 59,71 ----
+  
+      if (find_range(name, strlen(name), (struct ent *)0, (struct ent *)0)) {
+  	error("Error: range name already defined");
+! 	scxfree(name);
+  	return;
+      }
+  
+      if (strlen(name) <= 2) {
+  	error("Invalid range name - too short");
+! 	scxfree(name);
+  	return;
+      }
+  
+***************
+*** 73,79 ****
+  	if (!((isalpha(*p) && (len<=2)) ||
+  	    ((isdigit(*p) || isalpha(*p) || (*p == '_')) && (len>2)))) {
+  	    error("Invalid range name - illegal combination");
+! 	    xfree(name);
+  	    return;
+  	}
+   
+--- 73,79 ----
+  	if (!((isalpha(*p) && (len<=2)) ||
+  	    ((isdigit(*p) || isalpha(*p) || (*p == '_')) && (len>2)))) {
+  	    error("Invalid range name - illegal combination");
+! 	    scxfree(name);
+  	    return;
+  	}
+   
+***************
+*** 83,89 ****
+  		label(rcp, name, 0);
+      }
+  
+!     r = (struct range *)xmalloc((unsigned)sizeof(struct range));
+      r->r_name = name;
+      r->r_left = left;
+      r->r_right = right;
+--- 83,89 ----
+  		label(rcp, name, 0);
+      }
+  
+!     r = (struct range *)scxmalloc((unsigned)sizeof(struct range));
+      r->r_name = name;
+      r->r_left = left;
+      r->r_right = right;
+***************
+*** 119,126 ****
+          r->r_prev->r_next = r->r_next;
+      else
+  	rng_base = r->r_next;
+!     xfree((char *)(r->r_name));
+!     xfree((char *)r);
+  }
+  
+  void
+--- 119,126 ----
+          r->r_prev->r_next = r->r_next;
+      else
+  	rng_base = r->r_next;
+!     scxfree((char *)(r->r_name));
+!     scxfree((char *)r);
+  }
+  
+  void
+***************
+*** 134,141 ****
+  
+      while (r) {
+  	nextr = r->r_next;
+! 	xfree((char *)(r->r_name));
+! 	xfree((char *)r);
+  	r = nextr;
+      }
+  }
+--- 134,141 ----
+  
+      while (r) {
+  	nextr = r->r_next;
+! 	scxfree((char *)(r->r_name));
+! 	scxfree((char *)r);
+  	r = nextr;
+      }
+  }
+*** ../619/sc.c	Mon Mar 16 10:09:44 1992
+--- sc.c	Fri May  8 12:31:31 1992
+***************
+*** 8,14 ****
+   *              More mods Robert Bond, 12/86
+   *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+   *		Currently supported by sequent!sawmill!buhrt (Jeff Buhrt)
+!  *		$Revision: 6.19 $
+   *
+   */
+  
+--- 8,14 ----
+   *              More mods Robert Bond, 12/86
+   *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+   *		Currently supported by sequent!sawmill!buhrt (Jeff Buhrt)
+!  *		$Revision: 6.21 $
+   *
+   */
+  
+***************
+*** 126,132 ****
+  		freeents = freeents->next;
+  	}
+  	else
+! 		*pp = (struct ent *) xmalloc((unsigned)sizeof(struct ent));
+  	if (row>maxrow) maxrow = row;
+  	if (col>maxcol) maxcol = col;
+  	(*pp)->label = (char *)0;
+--- 126,132 ----
+  		freeents = freeents->next;
+  	}
+  	else
+! 		*pp = (struct ent *) scxmalloc((unsigned)sizeof(struct ent));
+  	if (row>maxrow) maxrow = row;
+  	if (col>maxcol) maxcol = col;
+  	(*pp)->label = (char *)0;
+***************
+*** 224,231 ****
+  	argc--;
+      	switch (argv[0][1]) {
+  	    case 'x':
+! #if defined(VMS) || defined(MSDOS)
+! 		    (void) fprintf(stderr, "Crypt not available for VMS or MS-DOS\n");
+  		    exit(1);
+  #else 
+  		    Crypt = 1;
+--- 224,231 ----
+  	argc--;
+      	switch (argv[0][1]) {
+  	    case 'x':
+! #if defined(VMS) || defined(MSDOS) || !defined(CRYPT_PATH)
+! 		    (void) fprintf(stderr, "Crypt not available\n");
+  		    exit(1);
+  #else 
+  		    Crypt = 1;
+***************
+*** 343,349 ****
+  #if	pyr
+  	   if ( iscntrl(c) || (c >= 011 && c <= 015) )	/* iscntrl broken in OSx4.1 */
+  #else
+! 	   if ( iscntrl(c) || (c == 020 ) )	/* iscntrl broken in OSx4.1 */
+  #endif
+  	    switch (c) {
+  #ifdef SIGTSTP
+--- 343,349 ----
+  #if	pyr
+  	   if ( iscntrl(c) || (c >= 011 && c <= 015) )	/* iscntrl broken in OSx4.1 */
+  #else
+! 	   if (isascii(c) && (iscntrl(c) || (c == 020)) )	/* iscntrl broken in OSx4.1 */
+  #endif
+  	    switch (c) {
+  #ifdef SIGTSTP
+***************
+*** 509,516 ****
+--- 509,521 ----
+  		    break;	/* ignore flow control */
+  
+  		case ctl('t'):
++ #if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+  		    error(
+  "Toggle: a:auto,c:cell,e:ext funcs,n:numeric,t:top,x:encrypt,$:pre-scale,<MORE>");
++ #else 				/* no encryption available */
++ 		    error(
++ "Toggle: a:auto,c:cell,e:ext funcs,n:numeric,t:top,$:pre-scale,<MORE>");
++ #endif
+  		    (void) refresh();
+  
+  		    switch (nmgetch()) {
+***************
+*** 536,543 ****
+--- 541,552 ----
+  				    showcell ? "en" : "dis");
+  			    break;
+  			case 'x': case 'X':
++ #if defined(VMS) || defined(MSDOS) || !defined(CRYPT_PATH)
++ 			    error ("Encryption not available.");
++ #else 
+  			    Crypt = (! Crypt);
+  			    error ("Encryption %sabled.", Crypt? "en" : "dis");
++ #endif
+  			    break;
+  			case 'l': case 'L':
+  			    autolabel = (! autolabel);
+***************
+*** 609,620 ****
+  			static	unsigned	templen = 0;
+  			int templim;
+  
+! 			/* xrealloc will xmalloc if needed */
+  			if (strlen(line)+1 > templen)
+  			{	templen = strlen(line)+40;
+  
+! 				temp = xrealloc(temp, templen);
+! 				temp1= xrealloc(temp1, templen);
+  			}
+  			strcpy(temp, line);
+  			templim = linelim;
+--- 618,629 ----
+  			static	unsigned	templen = 0;
+  			int templim;
+  
+! 			/* scxrealloc will scxmalloc if needed */
+  			if (strlen(line)+1 > templen)
+  			{	templen = strlen(line)+40;
+  
+! 				temp = scxrealloc(temp, templen);
+! 				temp1= scxrealloc(temp1, templen);
+  			}
+  			strcpy(temp, line);
+  			templim = linelim;
+***************
+*** 641,647 ****
+  		    break;
+  
+  	    } /* End of the control char switch stmt */
+! 	else if (isdigit(c) && ((numeric && edistate >= 0) ||
+  			(!numeric && (linelim < 0 || edistate >= 0)))) {
+  	    /* we got a leading number */
+  	    if (edistate != 0) {
+--- 650,656 ----
+  		    break;
+  
+  	    } /* End of the control char switch stmt */
+! 	else if (isascii(c) && isdigit(c) && ((numeric && edistate >= 0) ||
+  			(!numeric && (linelim < 0 || edistate >= 0)))) {
+  	    /* we got a leading number */
+  	    if (edistate != 0) {
+***************
+*** 1121,1137 ****
+  		    break;
+  		case 'W':
+  		    (void) sprintf (line, "write [\"dest\" range] \"");
+  		    linelim = strlen (line);
+  		    insert_mode();
+  		    break;
+  		case 'S':	/* set options */
+  		    (void) sprintf (line, "set ");
+! 		    error("Options:byrows,bycols,iterations=n,tblstyle=(0|tbl|latex|slatex|tex),<MORE>");
+  		    linelim = strlen (line);
+  		    insert_mode();
+  		    break;
+  		case 'T':	/* tbl output */
+  		    (void) sprintf (line, "tbl [\"dest\" range] \"");
+  		    linelim = strlen (line);
+  		    insert_mode();
+  		    break;
+--- 1130,1158 ----
+  		    break;
+  		case 'W':
+  		    (void) sprintf (line, "write [\"dest\" range] \"");
++ 		    if (*curfile)
++                        error ("Default file is \"%s.asc\"",curfile);
+  		    linelim = strlen (line);
+  		    insert_mode();
+  		    break;
+  		case 'S':	/* set options */
+  		    (void) sprintf (line, "set ");
+! 		    error("Options:byrows,bycols,iterations=n,tblstyle=(0|tbl|latex|slatex|tex|frame),<MORE>");
+  		    linelim = strlen (line);
+  		    insert_mode();
+  		    break;
+  		case 'T':	/* tbl output */
+  		    (void) sprintf (line, "tbl [\"dest\" range] \"");
++ 		    if (*curfile && tbl_style == 0)
++                        error ("Default file is \"%s.cln\"",curfile);
++                     else if (*curfile && tbl_style == TBL)
++                        error ("Default file is \"%s.tbl\"",curfile);
++                     else if (*curfile && tbl_style == LATEX)
++                        error ("Default file is \"%s.lat\"",curfile);
++                     else if (*curfile && tbl_style == SLATEX)
++                        error ("Default file is \"%s.stx\"",curfile);
++                     else if (*curfile && tbl_style == TEX)
++                        error ("Default file is \"%s.tex\"",curfile);
+  		    linelim = strlen (line);
+  		    insert_mode();
+  		    break;
+***************
+*** 1293,1299 ****
+  signals()
+  {
+  #ifdef SIGVOID
+!     void quit();
+      void time_out();
+      void dump_me();
+  #ifdef	SIGWINCH
+--- 1314,1320 ----
+  signals()
+  {
+  #ifdef SIGVOID
+!     void doquit();
+      void time_out();
+      void dump_me();
+  #ifdef	SIGWINCH
+***************
+*** 1300,1306 ****
+      void winchg();
+  #endif
+  #else
+!     int quit();
+      int time_out();
+      int dump_me();
+  #ifdef	SIGWINCH
+--- 1321,1327 ----
+      void winchg();
+  #endif
+  #else
+!     int doquit();
+      int time_out();
+      int dump_me();
+  #ifdef	SIGWINCH
+***************
+*** 1311,1322 ****
+      (void) signal(SIGINT, SIG_IGN);
+  #if !defined(MSDOS)
+      (void) signal(SIGQUIT, dump_me);
+!     (void) signal(SIGPIPE, quit);
+      (void) signal(SIGALRM, time_out);
+!     (void) signal(SIGBUS, quit);
+  #endif
+!     (void) signal(SIGTERM, quit);
+!     (void) signal(SIGFPE, quit);
+  #ifdef	SIGWINCH
+      (void) signal(SIGWINCH, winchg);
+  #endif
+--- 1332,1343 ----
+      (void) signal(SIGINT, SIG_IGN);
+  #if !defined(MSDOS)
+      (void) signal(SIGQUIT, dump_me);
+!     (void) signal(SIGPIPE, doquit);
+      (void) signal(SIGALRM, time_out);
+!     (void) signal(SIGBUS, doquit);
+  #endif
+!     (void) signal(SIGTERM, doquit);
+!     (void) signal(SIGFPE, doquit);
+  #ifdef	SIGWINCH
+      (void) signal(SIGWINCH, winchg);
+  #endif
+***************
+*** 1339,1345 ****
+  #else
+  int
+  #endif
+! quit()
+  {
+      diesave();
+      stopdisp();
+--- 1360,1366 ----
+  #else
+  int
+  #endif
+! doquit()
+  {
+      diesave();
+      stopdisp();
+*** ../619/sc.h	Mon Mar 16 10:09:44 1992
+--- sc.h	Fri May  8 12:31:32 1992
+***************
+*** 6,12 ****
+   *			University of Maryland
+   *		R. Bond  12/86
+   *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+!  *		$Revision: 6.19 $
+   *
+   */
+  
+--- 6,12 ----
+   *			University of Maryland
+   *		R. Bond  12/86
+   *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+!  *		$Revision: 6.21 $
+   *
+   */
+  
+***************
+*** 129,134 ****
+--- 129,135 ----
+  struct enode {
+      int op;
+      union {
++ 	int gram_match;         /* some compilers (hp9000ipc) need this */
+  	double k;		/* constant # */
+  	struct ent_ptr v;	/* ref. another cell */
+  	struct range_s r;	/* op is on a range */
+***************
+*** 205,210 ****
+--- 206,212 ----
+  #define UPPER OP_BASE + 55
+  #define LOWER OP_BASE + 56
+  #define CAPITAL OP_BASE + 57
++ #define NUMITER	OP_BASE + 58
+  
+  /* flag values */
+  #define is_valid     0001
+***************
+*** 233,238 ****
+--- 235,241 ----
+  #define	LATEX	2		/* 'LaTeX' */
+  #define	TEX	3		/* 'TeX' */
+  #define	SLATEX	4		/* 'SLaTeX' (Scandinavian LaTeX) */
++ #define	FRAME	5		/* tblprint style output for FrameMaker */
+  
+  /* Types for etype() */
+  #define NUM	1
+***************
+*** 269,278 ****
+  extern	char *coltoa();
+  extern	char *findhome();
+  extern	char *r_name();
+  extern	char *strrchr();
+  extern	char *v_name();
+- extern	char *xmalloc();
+- extern	char *xrealloc();
+  extern	int any_locked_cells();
+  extern	int are_ranges();
+  extern	int atocol();
+--- 272,281 ----
+  extern	char *coltoa();
+  extern	char *findhome();
+  extern	char *r_name();
++ extern	char *scxmalloc();
++ extern	char *scxrealloc();
+  extern	char *strrchr();
+  extern	char *v_name();
+  extern	int any_locked_cells();
+  extern	int are_ranges();
+  extern	int atocol();
+***************
+*** 357,362 ****
+--- 360,366 ----
+  extern	void readfile();
+  extern	void resetkbd();
+  extern	void rowshow_op();
++ extern	void scxfree();
+  extern	void setauto();
+  extern	void setiterations();
+  extern	void setorder();
+***************
+*** 376,382 ****
+  extern	void write_fd();
+  extern	void write_line();
+  extern	void write_range();
+- extern	void xfree();
+  extern	void yyerror();
+  #ifdef DOBACKUPS
+  extern	int backup_file();
+--- 380,385 ----
+***************
+*** 383,393 ****
+--- 386,399 ----
+  #endif
+  
+  extern	int modflg;
++ #if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+  extern	int Crypt;
++ #endif
+  extern	char *mdir;
+  extern	double prescale;
+  extern	int extfunc;
+  extern	int propagation;
++ extern	int repct;
+  extern	int calc_order;
+  extern	int autocalc;
+  extern	int autolabel;
+***************
+*** 415,418 ****
+--- 421,426 ----
+  #if defined(BSD42) || defined(BSD43) && !defined(ultrix)
+  #define	memcpy(dest, source, len)	bcopy(source, dest, (unsigned int)len);
+  #define	memset(dest, zero, len)		bzero((dest), (unsigned int)(len));
++ #else
++ #include <memory.h>
+  #endif
+*** ../619/screen.c	Mon Mar 16 10:09:45 1992
+--- screen.c	Fri May  8 12:31:33 1992
+***************
+*** 8,14 ****
+   *              More mods Robert Bond, 12/86
+   *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+   *		Currently supported by sequent!sawmill!buhrt (Jeff Buhrt)
+!  *		$Revision: 6.19 $
+   *
+   */
+  
+--- 8,14 ----
+   *              More mods Robert Bond, 12/86
+   *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+   *		Currently supported by sequent!sawmill!buhrt (Jeff Buhrt)
+!  *		$Revision: 6.21 $
+   *
+   */
+  
+***************
+*** 543,550 ****
+      initkbd();
+      scrollok(stdscr, 1);
+  
+! #ifndef IDLOKBAD
+! # ifdef SYSV3
+      /*
+       * turn hardware insert/delete on, if possible.
+       * turn on scrolling for systems with SYSVr3.{1,2} (SYSVr3.0 has this set
+--- 543,550 ----
+      initkbd();
+      scrollok(stdscr, 1);
+  
+! #if defined(SYSV3) && !defined(NOIDLOK)
+! # ifndef IDLOKBAD
+      /*
+       * turn hardware insert/delete on, if possible.
+       * turn on scrolling for systems with SYSVr3.{1,2} (SYSVr3.0 has this set
+***************
+*** 551,558 ****
+       * as the default)
+       */
+       idlok(stdscr,TRUE);
+! # endif
+! #else	/*
+  	 * This seems to fix (with an empty spreadsheet):
+  	 *	a) Redrawing the bottom half of the screen when you
+  	 *		move between row 9 <-> 10
+--- 551,557 ----
+       * as the default)
+       */
+       idlok(stdscr,TRUE);
+! # else	/*
+  	 * This seems to fix (with an empty spreadsheet):
+  	 *	a) Redrawing the bottom half of the screen when you
+  	 *		move between row 9 <-> 10
+***************
+*** 566,571 ****
+--- 565,571 ----
+  	 *	 noticing the rows become 2, 3, 40, 41, 42... (etc).
+  	 */
+       idlok(stdscr,FALSE);
++ # endif
+  #endif
+  
+      FullUpdate++;
+*** ../619/version.c	Mon Mar 16 10:09:45 1992
+--- version.c	Fri May  8 12:31:33 1992
+***************
+*** 4,7 ****
+   * The part after the first colon, except the last char, appears on the screen.
+   */
+  
+! char *rev = "$Revision: 6.19 $";
+--- 4,7 ----
+   * The part after the first colon, except the last char, appears on the screen.
+   */
+  
+! char *rev = "$Revision: 6.21 $";
+*** ../619/vi.c	Mon Mar 16 10:09:46 1992
+--- vi.c	Fri May  8 12:31:34 1992
+***************
+*** 1,7 ****
+  /*	SC	A Spreadsheet Calculator
+   *
+   *	One line vi emulation
+!  *	$Revision: 6.19 $
+   */
+  
+  #include <sys/types.h>
+--- 1,7 ----
+  /*	SC	A Spreadsheet Calculator
+   *
+   *	One line vi emulation
+!  *	$Revision: 6.21 $
+   */
+  
+  #include <sys/types.h>
+***************
+*** 104,109 ****
+--- 104,110 ----
+  	case 'R':	replace_mode();			break;
+  	case 'X':	u_save(c); back_space();	break;
+  	case 'a':	u_save(c); append_line();	break;
++ 	case 'A':	u_save(c);last_col();append_line();	break;
+  	case 'b':	linelim = back_word();		break;
+  	case 'c':	u_save(c); change_cmd();	break;
+  	case 'd':	u_save(c); delete_cmd();	break;
+***************
+*** 251,257 ****
+      if (strlen(line)+1 > undolen)
+      {	undolen = strlen(line)+40;
+  
+! 	undo_line = xrealloc(undo_line, undolen);
+      }
+      (void) strcpy(undo_line, line);
+  
+--- 252,258 ----
+      if (strlen(line)+1 > undolen)
+      {	undolen = strlen(line)+40;
+  
+! 	undo_line = scxrealloc(undo_line, undolen);
+      }
+      (void) strcpy(undo_line, line);
+  
+***************
+*** 278,284 ****
+  
+      if (strlen(line)+1 > templen)
+      {	templen = strlen(line)+40;
+! 	tempc = xrealloc(tempc, templen);
+      }
+  
+      strcpy(tempc, line);
+--- 279,285 ----
+  
+      if (strlen(line)+1 > templen)
+      {	templen = strlen(line)+40;
+! 	tempc = scxrealloc(tempc, templen);
+      }
+  
+      strcpy(tempc, line);
+***************
+*** 595,601 ****
+  
+      if (history[lasthist].len < strlen(line)+1)
+      {	history[lasthist].len = strlen(line)+40;
+! 	history[lasthist].histline = xrealloc(history[lasthist].histline,
+  					      history[lasthist].len);
+      }
+      (void) strcpy(history[lasthist].histline, line);
+--- 596,602 ----
+  
+      if (history[lasthist].len < strlen(line)+1)
+      {	history[lasthist].len = strlen(line)+40;
+! 	history[lasthist].histline = scxrealloc(history[lasthist].histline,
+  					      history[lasthist].len);
+      }
+      (void) strcpy(history[lasthist].histline, line);
+***************
+*** 636,642 ****
+  
+      if (strlen(line)+1 > lastsrchlen)
+      {	lastsrchlen = strlen(line)+40;
+! 	last_search = xrealloc(last_search, lastsrchlen);
+      }
+      (void)strcpy(last_search, line+1);
+      search_again();
+--- 637,643 ----
+  
+      if (strlen(line)+1 > lastsrchlen)
+      {	lastsrchlen = strlen(line)+40;
+! 	last_search = scxrealloc(last_search, lastsrchlen);
+      }
+      (void)strcpy(last_search, line+1);
+      search_again();
+*** ../619/vmtbl.c	Mon Mar 16 10:09:47 1992
+--- vmtbl.c	Fri May  8 12:31:35 1992
+***************
+*** 8,14 ****
+   *              More mods Robert Bond, 12/86
+   *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+   *		Currently supported by sequent!sawmill!buhrt (Jeff Buhrt)
+!  *		$Revision: 6.19 $
+   *
+   */
+  #ifdef PSC
+--- 8,14 ----
+   *              More mods Robert Bond, 12/86
+   *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+   *		Currently supported by sequent!sawmill!buhrt (Jeff Buhrt)
+!  *		$Revision: 6.21 $
+   *
+   */
+  #ifdef PSC
+***************
+*** 54,62 ****
+  }
+  #endif /* !PSC */
+  	
+! /* xrealloc will just xmalloc if oldptr is == NULL */
+  #define GROWALLOC(newptr, oldptr, nelem, type, msg) \
+! 	newptr = (type *)xrealloc((char *)oldptr, \
+  					 (unsigned)(nelem*sizeof(type))); \
+  	if (newptr == (type *)NULL) \
+  	{   error(msg); \
+--- 54,62 ----
+  }
+  #endif /* !PSC */
+  	
+! /* scxrealloc will just scxmalloc if oldptr is == NULL */
+  #define GROWALLOC(newptr, oldptr, nelem, type, msg) \
+! 	newptr = (type *)scxrealloc((char *)oldptr, \
+  					 (unsigned)(nelem*sizeof(type))); \
+  	if (newptr == (type *)NULL) \
+  	{   error(msg); \
+***************
+*** 177,183 ****
+  		/* [re]alloc the space for each row */
+  		for (i = 0; i < maxrows; i++)
+  		{
+! 		    if ((tbl[i] = (struct ent **)xrealloc((char *)tbl[i],
+  			(unsigned)(newcols * sizeof(struct ent **)))) == (struct ent **)0)
+  			{	error(nowider);
+  				return(FALSE);
+--- 177,183 ----
+  		/* [re]alloc the space for each row */
+  		for (i = 0; i < maxrows; i++)
+  		{
+! 		    if ((tbl[i] = (struct ent **)scxrealloc((char *)tbl[i],
+  			(unsigned)(newcols * sizeof(struct ent **)))) == (struct ent **)0)
+  			{	error(nowider);
+  				return(FALSE);
+***************
+*** 195,201 ****
+  
+  	/* fill in the bottom of the table */
+  	for (; i < newrows; i++)
+! 	{	if ((tbl[i] = (struct ent **)xmalloc((unsigned)(newcols *
+  				sizeof(struct ent **)))) == (struct ent **)0)
+  		{	error(nowider);
+  			return(FALSE);
+--- 195,201 ----
+  
+  	/* fill in the bottom of the table */
+  	for (; i < newrows; i++)
+! 	{	if ((tbl[i] = (struct ent **)scxmalloc((unsigned)(newcols *
+  				sizeof(struct ent **)))) == (struct ent **)0)
+  		{	error(nowider);
+  			return(FALSE);
+*** ../619/xmalloc.c	Mon Mar 16 10:09:47 1992
+--- xmalloc.c	Fri May  8 12:31:35 1992
+***************
+*** 1,6 ****
+  /*
+   * A safer saner malloc, for careless programmers
+!  * $Revision: 6.19 $
+   */
+  
+  #include <stdio.h>
+--- 1,6 ----
+  /*
+   * A safer saner malloc, for careless programmers
+!  * $Revision: 6.21 $
+   */
+  
+  #include <stdio.h>
+***************
+*** 17,32 ****
+  extern void exit();
+  #endif
+  
+! #define	MAGIC	(double)1234567890.1234456789
+  
+  char *
+! xmalloc(n)
+  unsigned n;
+  {
+  	register char *ptr;
+  
+  	if ((ptr = malloc(n + sizeof(double))) == NULL)
+! 		fatal("xmalloc: no memory");
+  	*((double *) ptr) = MAGIC;		/* magic number */
+  	return(ptr + sizeof(double));
+  }
+--- 17,32 ----
+  extern void exit();
+  #endif
+  
+! #define	MAGIC	(double)1234567890.12344
+  
+  char *
+! scxmalloc(n)
+  unsigned n;
+  {
+  	register char *ptr;
+  
+  	if ((ptr = malloc(n + sizeof(double))) == NULL)
+! 		fatal("scxmalloc: no memory");
+  	*((double *) ptr) = MAGIC;		/* magic number */
+  	return(ptr + sizeof(double));
+  }
+***************
+*** 33,64 ****
+  
+  /* we make sure realloc will do a malloc if needed */
+  char *
+! xrealloc(ptr, n)
+  char	*ptr;
+  unsigned n;
+  {
+  	if (ptr == NULL)
+! 		return(xmalloc(n));
+  
+  	ptr -= sizeof(double);
+  	if (*((double *) ptr) != MAGIC)
+! 		fatal("xrealloc: storage not xmalloc'ed");
+  
+  	if ((ptr = realloc(ptr, n + sizeof(double))) == NULL)
+! 		fatal("xmalloc: no memory");
+  	*((double *) ptr) = MAGIC;		/* magic number */
+  	return(ptr + sizeof(double));
+  }
+  
+  void
+! xfree(p)
+  char *p;
+  {
+  	if (p == NULL)
+! 		fatal("xfree: NULL");
+  	p -= sizeof(double);
+  	if (*((double *) p) != MAGIC)
+! 		fatal("xfree: storage not malloc'ed");
+  	free(p);
+  }
+  
+--- 33,64 ----
+  
+  /* we make sure realloc will do a malloc if needed */
+  char *
+! scxrealloc(ptr, n)
+  char	*ptr;
+  unsigned n;
+  {
+  	if (ptr == NULL)
+! 		return(scxmalloc(n));
+  
+  	ptr -= sizeof(double);
+  	if (*((double *) ptr) != MAGIC)
+! 		fatal("scxrealloc: storage not scxmalloc'ed");
+  
+  	if ((ptr = realloc(ptr, n + sizeof(double))) == NULL)
+! 		fatal("scxmalloc: no memory");
+  	*((double *) ptr) = MAGIC;		/* magic number */
+  	return(ptr + sizeof(double));
+  }
+  
+  void
+! scxfree(p)
+  char *p;
+  {
+  	if (p == NULL)
+! 		fatal("scxfree: NULL");
+  	p -= sizeof(double);
+  	if (*((double *) p) != MAGIC)
+! 		fatal("scxfree: storage not malloc'ed");
+  	free(p);
+  }
+  
+
+exit 0 # Just in case...

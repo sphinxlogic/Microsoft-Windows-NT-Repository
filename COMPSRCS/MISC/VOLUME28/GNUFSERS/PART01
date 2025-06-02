@@ -1,0 +1,1358 @@
+Newsgroups: comp.sources.misc
+From: edsall@iastate.edu (David M Edsall)
+Subject:  v28i076:  gnufusers - a program to keep an eye on people, Part01/01
+Message-ID: <1992Feb26.065949.27943@sparky.imd.sterling.com>
+X-Md4-Signature: d0a3c919912977de1d050a9c72c53e9a
+Date: Wed, 26 Feb 1992 06:59:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: edsall@iastate.edu (David M Edsall)
+Posting-number: Volume 28, Issue 76
+Archive-name: gnufusers/part01
+Environment: UNIX, ANSI-C, cursesX
+
+This is an variation on the program fusers that I posted to alt.sources last
+month. In the past month, our Computation Center installed a new version of
+finger ( gnu-finger ) which is designed to work in a distributed computing
+environment similar to MIT's Project Athena. Needless to say, this required 
+the program fusers to be changed to accomodate this. This program in no way 
+is associated with GNU programs.
+
+This is a variation on the program susers posted to alt.sources by Yufan Hu 
+( yufan@cs.keele.ac.uk ). Susers used the program rusers which I had never 
+heard of nor had a copy of anywhere.  So, I decided to rewrite it using 
+gnu-finger(1), which parts of the world seem to have a copy of, even me :). 
+I also changed the program so that it wrote multiple pages rather than just 
+one page allowing the user to leaf through a list of users.
+
+    Changes:
+
+Parts of this program and some of my own included routines are written in 
+ANSI C, requiring the use of an ANSI compiler such as gcc or changing of 
+the program, namely function declarations.
+
+This program uses cursesX, rather than curses. Since this was my
+second attempt at writing a curses based program, I'm not too sure
+what the differences are. I was told by another user that if you change all 
+references to cursesX to curses that it works okay.
+
+    Bugs:
+    -----
+
+It didn't seem to like my xterm until I reset TERM to vt100 or
+vt200. Go figure.
+
+You can only specify either a user on a machine running gnu-finger(1) or a
+user not running gnu-finger(1) on the command line and not a mixture. If 
+someone wishes to modify this code so that both can be used,please let me 
+know if you do so.
+
+    dave
+------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Makefile gnufusers.1 gnufusers.c option.c option.h
+#   print_errors.c print_errors.h
+# Wrapped by kent@sparky on Wed Feb 26 00:48:58 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(465 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X
+XCC=gcc
+XCFLAGS=  -g
+XLDFLAGS= -g
+XLIBS   = -lcursesX
+XDESTBIN= /home/edsall/bin
+XMAN    = 1
+X
+XSRCS   = gnufusers.c option.c print_errors.c
+XOBJS   = gnufusers.o option.o print_errors.o
+X
+Xall:	gnufusers
+X
+Xgnufusers:	${OBJS}
+X	gcc -o gnufusers ${LDFLAGS} ${OBJS} ${LIBS}
+X
+X${OBJS}: option.h print_errors.h
+X
+Xinstall:	gnufusers
+X	install -s gnufusers ${DESTBIN}
+X	cp gnufusers.1 /home/edsall/man/man${MAN}/gnufusers.${MAN}
+X
+Xclean:
+X	rm -f gnufusers *.o core a.out make.log lint.out
+END_OF_FILE
+  if test 465 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'gnufusers.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnufusers.1'\"
+else
+  echo shar: Extracting \"'gnufusers.1'\" \(4312 characters\)
+  sed "s/^X//" >'gnufusers.1' <<'END_OF_FILE'
+X.TH GNUFUSERS 1 "18 February 1992"
+X
+X.SH NAME
+Xgnufusers \- watch people login and out
+X.SH SYNOPSIS
+X.B gnufusers [ -g -i seconds -I minutes -f file users...]
+X.SH DESCRIPTION
+X.I Gnufusers
+Xis a screen based utility that displays
+X.IR gnu-finger (1)
+Xinformation using the
+X.IR curses (3)
+Xpackage.
+X.PP
+XEach column displays, in order, the user name, the host and the tty the user
+Xcurrently logged in, the user's login time, and the
+Xidle time (if any) in minutes. "Active users", users with idle time less
+Xthan a user specified time ( -I option ) or 3 minutes by default, 
+Xare displayed in reverse video.
+X.PP
+X.I Gnufusers
+Xcollects information at a user specified interval ( -i option ) 
+Xor every 20 seconds by default using 
+X.IR finger (1).
+XIt also checks your mail box for new mails.
+X.PP
+X.I Gnufusers
+Xeither watchs those people you specified in your 
+X.IR $HOME/.fusers
+Xfile, users specified in a file given on the command line with the -f
+Xoption or a list of users optionally specified on the command line itself.
+XIf the -g option is specified along with the list of user names on the 
+Xcommand line, then 
+X.I gnufusers 
+Xassumes that the person is on a machine running
+X.IR gnu-finger(1). 
+XIf the -g option is not included, then 
+X.I gnufusers 
+Xassumes that the user is on a machine which is not running 
+X.IR gnu-finger(1).
+X
+X.SH FILE FORMAT
+X
+XEach line in the file indicates a user to be watched. A user is represented as
+X.I user-name@host
+Xfor a user on a remote host
+Xor
+X.I user-name
+Xfor a user on the local host.
+XIf
+X.I user-name
+Xis
+X.I all
+Xthen all the users on
+X.I host
+Xwill be watched.
+X.I #
+Xcan be used to delimit comments in the file. If the user is on a machine 
+Xrunning
+X.IR gnu-finger(1)
+Xthen you must place a
+X.I g 
+Xin the first column of that line followed by a 
+Xspace and then the user name. If the user is not on a machine running
+X.IR gnu-finger(1)
+Xthen the username must be preceeded by at least two spaces.
+XThe following is an example of a typical file format
+X
+X.S
+X
+X # People to spy on                                                     
+X   bob@foo.com                                                         
+X g bonnie@gnubar.edu                      
+X g all@gnuhack.gov                                                       
+X   jane@see.dick.run.edu                                                   
+X
+X                          
+X                        
+X                    
+X                                         
+X                          
+X
+X.I Gnufusers
+Xcan watch people on any machine which can be reached by
+X.IR gnu-finger(1).
+X
+X.SH OPTIONS
+X
+X-g   specifies that a user listed on the command line is 
+X     on a machine running 
+X.I gnu-finger(1)
+X
+X-i   specifies the interval between updates
+X
+X-I   specifies how long a user must be idle before being    
+X     considered inactive
+X 
+X-f   specifies an alternative file to 
+X.I   $HOME/.fusers
+X
+X.SH EXAMPLES
+X
+XThe following example will get the list of users from the file
+X.I $HOME/.fusers
+Xand update the pages every 30 seconds, considering an inactive
+Xuser to be one who has been idle for three minutes
+X
+X
+Xgnufusers
+X
+X
+X
+XIn this example the list of users is in the file local.fusers in 
+Xthe user's current working directory. The update has been set for 
+Xone and a half minutes and the idle limit set for 2 minutes
+X
+X
+Xgnufusers -f local.fusers -i 90 -I 2 
+X
+X
+X
+XIn this example, the user has specified the name's to keep track of
+Xon the command line, assuming default values for the update interval 
+Xand the idle limit. This assumes that the user is on a machine which
+Xis not running gnu-finger(1).
+X
+X
+Xgnufusers all@myhost worf@grep.unix.com
+X
+X
+X
+X                         
+X                          
+X                              
+X                                     
+X                                      
+X                                   
+X                           
+X
+XIn this example, the user has specified the name's to keep track of
+Xon the command line, assuming default values for the update interval 
+Xand the idle limit. This assumes that the user is on a machine which
+Xis running gnu-finger(1).
+X
+X
+Xgnufusers -g all@myhost worf@grep.unix.com
+X
+X
+X
+X
+X.SH "FILES"
+X$HOME/.fusers
+X
+X.SH "AUTHOR"
+X
+XDavid M. Edsall ( edsall@iastate.edu )
+X
+X( based on the program 
+X.I susers
+Xdeveloped by Yufan Hu (yufan@cs.keele.ac.uk) )
+X
+X.SH "SEE ALSO"
+Xgnu-finger(1), w(1), curses(3x), intro(3cur)
+END_OF_FILE
+  if test 4312 -ne `wc -c <'gnufusers.1'`; then
+    echo shar: \"'gnufusers.1'\" unpacked with wrong size!
+  fi
+  # end of 'gnufusers.1'
+fi
+if test -f 'gnufusers.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnufusers.c'\"
+else
+  echo shar: Extracting \"'gnufusers.c'\" \(16008 characters\)
+  sed "s/^X//" >'gnufusers.c' <<'END_OF_FILE'
+X/* fusers.c
+X * Author: Dave Edsall ( edsall@iastate.edu )
+X * ( based on the program susers developed by 
+X * Yufan Hu ( yufan@cs.keele.ac.uk )  )
+X * Date: 18 February 1992
+X */
+X
+X#include	<stdio.h>
+X#include	<sys/time.h>
+X#include	<signal.h>
+X#include	<cursesX.h>
+X#include	<sys/types.h>
+X#include	<sys/stat.h>
+X#include	<utmp.h>
+X#include 	<ctype.h>
+X#include	<sys/socket.h>
+X#include	<netdb.h>
+X#include        <math.h>
+X#include        "print_errors.h"
+X#include        "option.h"
+X/* utmp sizes */
+X#define		NMAX		sizeof(utmp.ut_name)
+X#define		LMAX		sizeof(utmp.ut_line)
+X
+X/* width of 1 display column */
+X#define		COL_WIDTH	40
+X
+X/* update interval in seconds */
+Xint		INTERVAL = 30;
+X
+X/* Minutes the user is considerred to be no idle and
+X * Marked with reverse video */
+X
+Xint	 IDLEMIN = 3;
+X
+X/* x/60 rounded */
+X#define		DIV60(t)	((t+30)/60)
+X
+X/* number of COL_WIDTH columns on screen */
+Xint		ncols;
+X
+Xtime_t		pclock;
+X
+X/* set if terminal inserts blanks when standout mode is used */
+Xint		sg;
+X
+X/* one line of utmp information */
+Xstruct utmp	utmp;
+X
+X/* copy of argv[0] for error messages */
+Xchar		*self;
+X
+X/* standout mode disabled if set */
+Xint		video_flag = 0;
+X
+X/* debug messages printed if set */
+Xint		debug_flag = 0;
+X
+X/* interrupt handler */
+Xint		quit();
+Xchar localhost[256];
+X
+X
+X/* Windows for paging of finger informations */
+XWINDOW *win[20];
+X
+X
+XFILE *popen();
+Xchar *strchr();
+Xchar *strtok();
+Xchar *getenv();
+Xint check_mail();
+X
+Xstruct user_str {
+X	char name[10];      /* finger information */
+X	char tty[4];
+X	char on[12];
+X	char idle[6];
+X	char gidle[8];
+X};
+X
+X#define MAXWATCH	256
+X#define WATCHFILE	"/.fusers"
+X
+Xstruct watch {
+X	char name[11];     /* user name and */
+X	char host[256];    /* host to watch for them on */
+X        int gflag;         /* flags the program that the user is on a system
+X                              which uses gnu finger */
+X} watched[MAXWATCH];
+X
+X
+X
+X
+X
+X
+X
+X
+X
+Xstruct user_str *ubreak(ustr,gflag)
+X
+X
+X/*
+X   ubreak():
+X      effect: copy finger information into temporary storage
+X      returns: structure containing finger info
+X      modifies: nothing 
+X*/
+X
+X
+Xchar *ustr; 
+Xint gflag;
+X{
+X
+X
+X	static struct user_str usrbuf;
+X	strncpy(usrbuf.name,ustr,9);           /* name */
+X        usrbuf.name[9] = '\0';
+X        usrbuf.idle[0] = '\0';
+X        usrbuf.gidle[0] = '\0';
+X        if ( gflag == 1 )
+X	   strncpy(usrbuf.tty,ustr + 43,3 );        /* tty */
+X        else
+X	   strncpy(usrbuf.tty,ustr + 30,3 );        /* tty */
+X        usrbuf.tty[3] = '\0';
+X        if ( gflag == 1 ) {
+X/*
+X	   strncat(usrbuf.gidle,ustr + 35,7); 
+X*/
+X   /* Idle Time */
+X           usrbuf.gidle[0] = ustr[35];
+X           usrbuf.gidle[1] = ustr[36];
+X           usrbuf.gidle[2] = ustr[37];
+X           usrbuf.gidle[3] = ustr[38];
+X           usrbuf.gidle[4] = ustr[39];
+X           usrbuf.gidle[5] = ustr[40];
+X           usrbuf.gidle[6] = ustr[41];
+X           usrbuf.gidle[7] = '\0';
+X        }
+X        else {
+X           strncat(usrbuf.idle,ustr + 34,5); 
+X        }
+X        if ( gflag == 1 ) 
+X           strncpy(usrbuf.on, "           ",11);
+X        else
+X	   strncpy(usrbuf.on, ustr+39, 11);       /* On Since */
+X        usrbuf.on[11] = '\0';
+X	return &usrbuf;	
+X}
+X
+X
+X
+X
+X
+X
+X/* 
+X * Input has the following format:
+X * It consists of list of users to be watched.
+X * each entry is of
+X *	user@host   #comments
+X * or
+X *	# comments
+X */
+X
+X
+X
+X
+X
+X
+X
+X
+Xinit_watched(int argc, char **argv)
+X
+X
+X/*
+X   init_watched:
+X      effect: copy in user name and host to watch[i] for later use 
+X      returns: nothing
+X      modifies: structure watched[i]
+X*/
+X
+X
+X
+X{
+X	FILE *wf;
+X	char fname[128];
+X        char *home;
+X        char wherefrom;
+X	int index = 0;
+X        int argindex = option_past_index();
+X	struct hostent *hostp;
+X	gethostname(localhost, 256);
+X
+X        /* check for users listed on command line or an alternative */
+X        /* file for .fusers. If neither are present, try to open .fusers */
+X
+X
+X
+X        if ( argindex != argc ) {
+X            wherefrom = 'c';
+X        }
+X        else if ( option_present('f') ) {
+X            strcpy(fname,option_value('f'));
+X            wf = fopen(fname,"r");
+X	    if(!wf)  {
+X		fprintf(stderr,"Cannot open file %s\n",fname);
+X		exit(1);
+X	    }
+X            wherefrom = 'f';
+X        }
+X	else {
+X	    home = getenv("HOME");
+X	    if(!home) {
+X		fprintf(stderr,"Unable to locate home directory\n");
+X		exit(1);
+X	    }
+X	    strcpy(fname,home);
+X            strcat(fname, WATCHFILE);
+X            wf = fopen(fname,"r");
+X	    if(!wf)  {
+X		fprintf(stderr,"No .fusers file\n");
+X		exit(1);
+X	    }
+X            wherefrom = 'f';
+X        }
+X
+X
+X        /* get user information, parse it and store it */
+X
+X
+X
+X        if ( wherefrom == 'c' ) {
+X           if ( argindex != argc ) {
+X              strcpy(fname,"  ");
+X              strcat(fname,argv[argindex++]);
+X           }
+X           else
+X              strcpy(fname,"\0");
+X        }
+X        else if ( wherefrom = 'f' ) {
+X           if (!feof(wf)) {
+X              fname[0] = 0;
+X              home = fgets(fname, 127, wf);
+X	    }
+X           else
+X              strcpy(fname,"\0");
+X        }
+X	while( strcmp(fname,"\0") != 0 ) {
+X	     if(fname[0] != '#') {                     /* comment */
+X                if ( fname[0] == 'g' || option_present('g') ) 
+X                   watched[index].gflag = 1;
+X                else
+X                   watched[index].gflag = 0;
+X		home = strtok(fname+2, " \n");
+X		if(home && index < MAXWATCH){
+X			char *host = strchr(home,'@');
+X			if(host){
+X				 *host++ = 0; 
+X				 hostp = gethostbyname(host); 
+X				 if(!hostp) continue; 
+X				strcpy(watched[index].name,home);
+X				strcpy(watched[index].host, host);
+X			} else {
+X				strcpy(watched[index].name,home);
+X				strcpy(watched[index].host,localhost);
+X				host = localhost;
+X			}
+X                        strcat(watched[index].host,"\0");
+X			index++;
+X			home = strtok(NULL," \t\n;,.");
+X		}
+X             }
+X             if ( wherefrom == 'c' ) {
+X                if ( argindex != argc ) {
+X                   strcpy(fname,"  ");
+X                   strcat(fname,argv[argindex++]);
+X                }
+X                else
+X                   strcpy(fname,"\0");
+X             }
+X             else if ( wherefrom = 'f' ) {
+X                if (!feof(wf))  {
+X                   fname[0] = 0;
+X                   home = fgets(fname, 127, wf);
+X                }
+X                else
+X                   strcpy(fname,"\0");
+X             }
+X	}
+X	watched[index].name[0] = 0;
+X	if ( wherefrom == 'f' )
+X           fclose(wf);
+X}
+X
+Xmain(int argc, char **argv)
+X
+X
+X/*
+X   fusers:
+X      effect: print and update a list of users to be watched
+X      returns: nothing
+X      modfies: nothing
+X*/
+X
+X
+X{
+X	FILE *fusers;
+X	char where[128];
+X	struct user_str *ubuf;
+X	struct watch *wbuf;
+X        char *name1,*name2;
+X        char *mail_box = getenv("MAIL");
+X	char *newmail;
+X	
+X	int		i,index,iwin=0,lastwin=0;
+X	int		line, col;
+X        int		finline;
+X        int		c;	
+X        int             skip;
+X        char		hs[2],m10s[2],m1s[2];
+X        int       	hour,min10,min1;
+X	struct tm	*tm;
+X
+X
+X        /* get command line options, if any and user info */
+X
+X
+X        program_usage_init(argv[0],"[-g -i seconds -I minutes -f file users...]");
+X        if (!option_initialize(argc,argv,"g","iIf"))
+X           exit(1);
+X        if ( option_present('i') )
+X            INTERVAL = atoi(option_value('i'));
+X        if ( option_present('I') )
+X            IDLEMIN = atoi(option_value('I'));
+X	init_watched(argc,argv);
+X	if(watched[0].name[0] == 0) {
+X		fprintf(stderr,"No one to be watched\n");
+X		exit(1);
+X	}
+X	(void) signal(SIGINT, quit);
+X	(void) signal(SIGHUP, quit);
+X	so_chk();
+X	fclose(stderr);
+X
+X        /* initialize curses */
+X
+X
+X	initscr();
+X        nodelay(stdscr,1); 
+X        nonl();
+X        cbreak();
+X	noecho(); 
+X        for ( i=0; i<=19 ; i++ )
+X          win[i] = newwin(LINES-3,COLS,2,0);
+X	ncols = (COLS / COL_WIDTH) - 1; 
+X	newmail = " "; 
+X
+X
+X
+X
+X        /* for each listed user
+X           (1) finger the host
+X           (2) look for the user
+X               (a) if user is on, write info to a page ( window )
+X               (b) if user is "all", write info for all users on that host */
+X
+X
+X
+X       
+X	while (1) {
+X           iwin = 0;
+X           mvwprintw(win[iwin],0,col*COL_WIDTH," Name      Host:tty  On Since   Idle ");
+X           mvwprintw(win[iwin],1,col*COL_WIDTH,"-------------------------------------");   
+X           mvwprintw(win[iwin],LINES-4,col*COL_WIDTH,"-------------------------------------"); 
+X	   line = 2;
+X           col = 0;
+X	   for(index=0; index < MAXWATCH && watched[index].name[0]; index++){
+X              char cmdline[4096]; 
+X              cmdline[0]='\0';
+X              if ( watched[index].gflag == 1)
+X                 strcat(cmdline,"finger .local@");
+X              else
+X                 strcat(cmdline,"finger @");
+X	      strcat(cmdline,watched[index].host);
+X	      strcat(cmdline," ");
+X	      strcat(cmdline,"|sort"); 
+X              fusers = popen(cmdline,"r");
+X	      if(!fusers) {
+X	         sleep(INTERVAL);
+X	         continue;
+X	      }
+X              else {
+X                 skip = 2;
+X                 finline = 1;
+X                 while(fgets(where, 128, fusers) != NULL){ 
+X                    if ( finline <= skip ) {
+X                       finline++;
+X                       continue;
+X                    }
+X	            if (line == LINES-4) {
+X	               if (col == ncols) {
+X                          col = -1;
+X                          iwin++;
+X                          if ( iwin > 19 ) break;
+X                       }
+X	               line = 2;
+X	               col++;
+X                       mvwprintw(win[iwin],0,col*COL_WIDTH," Name      Host:tty  On Since   Idle ");
+X                       mvwprintw(win[iwin],1,col*COL_WIDTH,"-------------------------------------");   
+X                       mvwprintw(win[iwin],LINES-4,col*COL_WIDTH,"-------------------------------------"); 
+X                    } 
+X	            ubuf = ubreak(where,watched[index].gflag);
+X                    name1 = ubuf->name;
+X                    name2 = watched[index].name;
+X                    if ( watched[index].gflag == 1 ) {
+X                    hs[0] = ubuf->gidle[2];
+X                    hs[1] = '\0';
+X                    m10s[0] = ubuf->gidle[4];
+X                    m10s[1] = '\0';
+X                    m1s[0] = ubuf->gidle[5];
+X                    m1s[1] = '\0';
+X                    if ( isspace(ubuf->gidle[2]) || isdigit(ubuf->gidle[2]) )
+X                       if ( isspace(ubuf->gidle[2])  )
+X                           hour = 0;
+X                       else if ( isdigit(ubuf->gidle[2]) )
+X/*
+X                          hour = atoi(ubuf->gidle[2]);
+X*/
+X                          hour = atoi(hs);
+X                       else
+X                           hour = 1 ;
+X                    if ( isspace(ubuf->gidle[4]) || isdigit(ubuf->gidle[4]) ) 
+X                       if ( isspace(ubuf->gidle[4])  )
+X                           min10 = 0;
+X                       else if ( isdigit(ubuf->gidle[4]) )
+X/*
+X                           min10 = atoi(ubuf->gidle[4]);
+X*/
+X                           min10 = atoi(m10s);
+X                       else
+X                           min10 = 1 ;
+X                    if ( isspace(ubuf->gidle[5])  || isdigit(ubuf->gidle[5]) ) 
+X                       if ( isspace(ubuf->gidle[5])  )
+X                           min1 = 0;
+X                       else if ( isdigit(ubuf->gidle[5]) )
+X                           min1 = atoi(m1s);
+X                       else
+X                           min1 = 1 ;
+X                    if ((strncmp(name1,name2,strlen(name2)) == 0)
+X                    || (strncmp("all",name2,strlen(name2)) == 0)) {
+X    	               if ( ( hour == 0 ) && ( min10 == 0 ) && ( min1 <= IDLEMIN ) )
+X	                  i = 1;
+X	               else
+X 	                  i = 0; 
+X	               if(i) wstandout(win[iwin]); 
+X mvwprintw(win[iwin],line, col*COL_WIDTH, "%8.8s %6.6s:%-3.3s %9.9s %7.7s",ubuf->name,watched[index].host,ubuf->tty,ubuf->on,ubuf->gidle);
+X
+X	               if(i) wstandend(win[iwin]); 
+X	               line++;
+X                    }
+X                    }
+X                    else if ( watched[index].gflag == 0 ) {
+X                    if ((strncmp(name1,name2,strlen(name2)) == 0)
+X                    || (strncmp("all",name2,strlen(name2)) == 0)) {
+X                    if(ubuf->idle[2] == ' ' && atoi(ubuf->idle+3) <= IDLEMIN)
+X	                  i = 1;
+X	               else
+X 	                  i = 0; 
+X	               if(i) wstandout(win[iwin]); 
+X mvwprintw(win[iwin],line, col*COL_WIDTH, "%8.8s %6.6s:%-3.3s %9.9s   %5.5s",ubuf->name,watched[index].host,ubuf->tty,ubuf->on,ubuf->idle);
+X	               if(i) wstandend(win[iwin]); 
+X	               line++;
+X                    }
+X	            }
+X                 }
+X              }
+X	      pclose(fusers);  
+X           }
+X
+X
+X
+X
+X           /* print out the windows, starting with page one, and 
+X              allow the user to page through them. Also check for
+X              mail and display the time   */
+X
+X
+X
+X
+X
+X           standout();
+X           mvprintw(0,COLS-7,"Page %d",lastwin+1);
+X           standend();
+X           overwrite(win[lastwin],stdscr);
+X           refresh();
+X	   for(i = INTERVAL; i >= 0; i--){
+X  	      switch(check_mail(mail_box)){
+X	         case 1: newmail = " You have new mail"; break;
+X	         case -1: newmail ="                  "; break;
+X	         default: newmail = 0; break;
+X	      }
+X	      if(newmail) mvprintw(0, 20, "%s", newmail);
+X	      standout();
+X	      (void) time(&pclock);
+X	      tm = localtime(&pclock);
+X	      mvprintw(0, 0, "%.19s", asctime(tm));
+X	      standend();
+X              refresh();
+X              if ( iwin > 0 ) {
+X                 standout();
+X                 if ( 0 == lastwin  ) 
+X                    mvprintw(LINES-1,0,"Next Page (>)                     Enter CTRL-C to quit");
+X                 else if ( (0 < lastwin) && (lastwin < iwin) ) 
+X                    mvprintw(LINES-1,0,"Next Page (>)  Prev Page (<)      Enter CTRL-C to quit");
+X                 else if ( lastwin == iwin )
+X                    mvprintw(LINES-1,0,"Prev Page (<)                     Enter CTRL-C to quit");
+X                 standend();
+X                 refresh();
+X                 c = getch();
+X                 if ( c != ERR ) {
+X                    if ((c == '<') && ( lastwin > 0 ) ) 
+X                       overwrite(win[--lastwin],stdscr);
+X                    else if ( (c == '>') && ( lastwin < iwin ) ) 
+X                       overwrite(win[++lastwin],stdscr);
+X                    else 
+X                       overwrite(win[lastwin],stdscr);
+X                 }
+X              }
+X              standout();
+X              mvprintw(0,COLS-7,"Page %d",lastwin+1);
+X              standend();
+X              refresh();
+X              sleep(1);
+X	      /* sleep(1); */
+X	   }
+X	}
+X}
+X
+X/*
+X * quit -- cleanup after interrupt
+X *
+X *	parameters:
+X *		none
+X *	returns:
+X *		none
+X *	side effects:
+X *		none
+X *	deficiencies:
+X */
+Xquit()
+X{
+X
+X	(void) signal(SIGINT, SIG_IGN);
+X        erase();
+X        refresh();
+X	endwin();
+X	exit(0);
+X}
+X
+X/*
+X * so_chk -- check whether terminal inserts blanks with standout mode
+X *
+X *	parameters:
+X *		none
+X *	returns:
+X *		none
+X *	side effects:
+X *		sets global variable sg
+X *	deficiencies:
+X */
+Xso_chk()
+X{
+X	char	tbuf[1024];
+X	int	ret_value;
+X
+X	char	*getenv();
+X
+X	if ((ret_value = tgetent(tbuf, getenv("TERM"))) != 1) {
+X		if (ret_value == 0)	/* no entry */
+X			sg = 0;
+X		else {
+X			fprintf(stderr, "%s: so_chk: can't open /etc/termcap\n", self);
+X			exit(1);
+X		}
+X		return;
+X	}
+X	if ((sg = tgetnum("sg")) == -1)
+X		sg = 0;
+X	return;
+X}
+X
+Xint check_mail(mail_box)
+Xchar *mail_box;
+X{
+X        static struct stat last_stat;
+X        static int first = 1;
+X        struct stat sbuf, *statp;
+X
+X        if(first){
+X                if(stat(mail_box, &last_stat) < 0) return 0;
+X                first = 0;
+X                statp = &last_stat;
+X                if(statp->st_blocks) return 1;
+X        } else {
+X                if(stat(mail_box, &sbuf) < 0) return 0;
+X                statp = &sbuf;
+X        }
+X        if(statp->st_blocks){
+X                if(statp->st_mtime > last_stat.st_mtime){
+X                        bcopy(statp, &last_stat, sizeof(struct stat));
+X                        return 1;
+X                }
+X        } else return -1;
+X}
+X
+END_OF_FILE
+  if test 16008 -ne `wc -c <'gnufusers.c'`; then
+    echo shar: \"'gnufusers.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnufusers.c'
+fi
+if test -f 'option.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'option.c'\"
+else
+  echo shar: Extracting \"'option.c'\" \(5269 characters\)
+  sed "s/^X//" >'option.c' <<'END_OF_FILE'
+Xstatic char rcs[] = "@(#)$Id: option.c,v 1.1 92/02/01 20:20:26 edsall Exp $";
+X
+X/* option.c
+X * Author: Dave Edsall ( edsall@iastate.edu )
+X * Date: 9 December 1991
+X */
+X
+X/* option - defines a data structure containing allowed command line options 
+X * that the user passes, any associated arguments and whether the option 
+X * and its associated arguments appeared on the command line
+X *
+X *    The following operations are defined on this structure:
+X *
+X *  option_initialize - stores the allowed options in the structure,
+X *                      reads the actual options from the command line,
+X *                      determines if the are valid, and records their
+X *                      presence and any associated arguments in the
+X *                      structure
+X *
+X *  option_present    - determines if the option was present on the command
+X *                      line
+X *
+X *  option_value      - gets the argument for an option which requires one
+X *                      from the data structure
+X *
+X *  option_past_index - gets the index pointing to the first non-optional
+X *                      parameter on the command line
+X *
+X *
+X */
+X
+X#define TRUE 1
+X#define FALSE 0
+X#include <stdio.h>
+X#include "print_errors.h"
+X
+X   extern int getopt(int argc, char **argv, char *optstring);
+X   extern int optind;
+X   extern char *optarg;
+X
+X   typedef int boolean;
+X
+X   static struct
+X   { char optchar[52];       /* allowed options */
+X     char *optarg[52];       /* possible argument associated with the option */
+X     boolean present[52];    /* true if the option was on the command line */
+X     boolean requiresarg[52];/* true if the option has an argument */
+X     int optindex;           /* index to the first non-optional command line */
+X                             /* parameter */
+X     int numopts;            /* number of allowed options */
+X   } options;
+X
+X   static i = 0;
+X
+X
+Xint option_initialize(int argc, char ** argv, char *noargs, char *argopts)
+X     /* requires: argv has at least argc elements */
+X     /* modifies: stderr */
+X     /* effect: process the options in argv according to the information in
+X	noargs and argopts.  If noargs is "rg" and argopts is "xy"
+X	then the following calls are legal
+X		prog -r -g -x arg1 -y arg2
+X		prog -rgx arg1 -y arg2
+X		prog -x arg1 -yarg2 -r          <- no g option in this line
+X		prog -gr
+X		prog -y arg2 -x arg1
+X		prog -rgyarg2 -- -z             <- -z not considered an option
+X        If the options in argv are not legal, then issue an error message
+X	describing at least the first error on the command line to stderr
+X	and return false (0); otherwise return true.
+X       */
+X{
+X
+X
+X    int ii,c;
+X    char *temp,temp2,goplist[105];
+X    boolean found=FALSE;
+X    
+X
+X
+X    /* set up the list of allowed arguments in the format needed by getopt */
+X    /* and record them in the data structure */
+X
+X    temp = goplist;
+X    while ( *noargs != '\0' ) {
+X      *(temp++) = *noargs;
+X      options.optchar[i] = *(noargs++);
+X      options.requiresarg[i++] = FALSE;
+X    }
+X    while ( *argopts != '\0' ) {
+X      *(temp++) = *argopts;
+X      options.optchar[i] = *(argopts++);
+X      options.requiresarg[i++] = TRUE;
+X      *(temp++) = ':';
+X    }
+X    *temp = '\0';
+X    i--;
+X    options.numopts=i;
+X
+X    /* get the next command line option */
+X    /* determine if it is allowed */
+X    /* get any required arguments */
+X    /* record that it was present */
+X    
+X    while ((c = getopt(argc, argv, goplist)) != EOF) {
+X       found = FALSE;
+X       for ( ii = 0 ; ii <= i ; ii++ ) { 
+X          if ( options.optchar[ii] == c ) {
+X             options.present[ii] = TRUE;
+X             if ( options.requiresarg[ii] == TRUE ) {
+X                if ( ( strlen(optarg) != 0 ) && ( optarg[0] != '-' ) )
+X                   options.optarg[ii] = optarg;
+X                else 
+X                   usage();
+X	     }
+X             found = TRUE;
+X             break;
+X	  }
+X       }
+X       if ( !found ) 
+X          usage();
+X    }
+X 
+X    options.optindex = optind;
+X    return 1;        
+X
+X}
+X
+Xint option_present(char option)
+X     /* requires: option was one of the characters in the argument noargs
+X	given to option_initialize */
+X     /* effect: return 0 if option was not in the options remembered  by
+X	option_initialize, 1 if it was there */
+X{
+X
+X  int ii;
+X  boolean found = FALSE;
+X
+X  for ( ii = 0 ; ii <= options.numopts ; ii++ ) {
+X     if ( options.optchar[ii] == option ) {
+X        return (int) options.present[ii];
+X        found = TRUE; 
+X        break;
+X     }
+X  }
+X  
+X  if ( !found ) 
+X     usage();
+X  
+X  return 0;
+X
+X}
+X
+Xchar * option_value(char option)
+X     /* requires: option was one of the characters in the argument argopts
+X	given to option_initialize */
+X     /* effect: Return the string argument given on the command line
+X	with option */
+X{
+X
+X  int ii;
+X  boolean found = FALSE;
+X
+X  for ( ii = 0 ; ii <= options.numopts ; ii++ ) {
+X     if ( options.optchar[ii] == option ) {
+X        if ( options.requiresarg[ii] ) {
+X           return options.optarg[ii];
+X           found = TRUE; 
+X           break;
+X	}
+X        else
+X           usage();
+X     }
+X  }
+X  
+X  if ( !found ) 
+X     usage();
+X  
+X  return 0;
+X
+X   
+X}
+X
+Xint option_past_index()
+X     /* effect: return the index into the original argv containing the first
+X	(i.e., lowest numbered) non-optional parameter */
+X{
+X  return options.optindex;
+X}
+X
+X
+X
+X
+X
+X
+X
+X
+X
+END_OF_FILE
+  if test 5269 -ne `wc -c <'option.c'`; then
+    echo shar: \"'option.c'\" unpacked with wrong size!
+  fi
+  # end of 'option.c'
+fi
+if test -f 'option.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'option.h'\"
+else
+  echo shar: Extracting \"'option.h'\" \(261 characters\)
+  sed "s/^X//" >'option.h' <<'END_OF_FILE'
+X
+X/* option.h
+X * Author: Dave Edsall ( edsall@iastate.edu )
+X * Date: 9 December 1991
+X */
+X
+Xint option_initialize(int argc, char ** argv, char *noargs, char *argopts);
+Xint option_present(char option);
+Xchar * option_value(char option);
+Xint option_past_index();
+X
+X
+X
+X
+END_OF_FILE
+  if test 261 -ne `wc -c <'option.h'`; then
+    echo shar: \"'option.h'\" unpacked with wrong size!
+  fi
+  # end of 'option.h'
+fi
+if test -f 'print_errors.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'print_errors.c'\"
+else
+  echo shar: Extracting \"'print_errors.c'\" \(3256 characters\)
+  sed "s/^X//" >'print_errors.c' <<'END_OF_FILE'
+X/* print_errors.c
+X * Author: Dave Edsall ( edsall@iastate.edu )
+X * Date: 9 December 1991
+X */
+X
+X
+X/* print_errors -- routines to print error messages with name of the program
+X *
+X * SYNOPSIS: All output is to standard error
+X *     program_usage_init(argv[0], "options arguments");
+X *     sys_warning("can't open file %s, continuing", f);
+X *     sys_err("can't open file %s", f);
+X *     warning("This is your %drd warning", 3);
+X *     error("you blew it");
+X *     usage();
+X */
+X
+X#include "stdio.h"
+X#include <stdarg.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+Xstatic char * Name = NULL;
+Xstatic char * Usage = "USAGE NOT DEFINED";
+X
+Xvoid program_usage_init(char *name, char *usage_mesg)
+X     /* effect: initialize the error printing system */
+X{
+X  char * lastslash = strrchr(name, '/');
+X  Name = (lastslash != NULL) ? lastslash+1 : name;
+X  Usage = usage_mesg;
+X}
+X
+Xstatic void print_name(void)
+X     /* effect: if Name is defined, print it, a colon, and a space */
+X{
+X  if (Name) {
+X    fprintf(stderr, "%s: ", Name);
+X  }
+X}
+X
+Xstatic void warn_head(void)
+X     /* effect: if Name is defined, print it, and "Warning: " */
+X{
+X  print_name();
+X  fprintf(stderr, "Warning: ");
+X}
+X
+Xstatic void error_head(void)
+X     /* effect: if Name is defined, print it, and "ERROR: " */
+X{
+X  print_name();
+X  fprintf(stderr, "ERROR: ");
+X}
+X
+Xvoid warning(const char *fmt, ...)
+X     /* effect: print Name (if defined), "Warning: ",
+X	then a message controlled by fmt and the other args,
+X	then a newline on standard error output.
+X      */
+X{
+X  va_list args;
+X
+X  va_start(args, fmt);
+X  warn_head();
+X  vfprintf(stderr, fmt, args);
+X  fprintf(stderr, "\n");
+X  va_end(args);
+X}
+X
+X
+Xvoid error(const char *fmt, ...)
+X     /* effect: print Name (if defined), "Warning: ",
+X	then a message controlled by fmt and the other args,
+X	then a newline on standard error output.
+X      */
+X{
+X  va_list args;
+X
+X  va_start(args, fmt);
+X  error_head();
+X  vfprintf(stderr, fmt, args);
+X  fprintf(stderr, "\n");
+X  va_end(args);
+X
+X  exit(1);
+X}
+X
+X
+Xvoid usage()
+X     /* effect: print usage message on standard error output, and exit(1)
+X      */
+X{
+X  fprintf(stderr, "Usage: %s %s\n", Name, Usage);
+X  exit(1);
+X}
+X
+X#include <errno.h>
+X
+Xextern int sys_nerr;
+Xextern char * sys_errlist[];
+Xextern int errno;
+X
+X
+Xvoid sys_err(const char *fmt, ...)
+X     /* requires: 0 <= errno && errno < sys_nerr */
+X     /* effect: print Name (if defined), "ERROR: ", msg, a colon, a space,
+X        the standard Unix system error message, and a newline
+X        on standard error output, then exit(1).
+X      */
+X{
+X  va_list args;
+X
+X  va_start(args, fmt);
+X  error_head();
+X  vfprintf(stderr, fmt, args);
+X  if (0 <= errno && errno < sys_nerr) {
+X    fprintf(stderr, ": %s", sys_errlist[errno]);
+X  }
+X  fprintf(stderr, "\n");
+X  va_end(args);
+X  exit(1);
+X}
+X
+X
+Xvoid sys_warning(const char *fmt, ...)
+X     /* requires: 0 <= errno && errno < sys_nerr */
+X     /* effect: print Name (if defined), "Warning: ", msg, a colon,
+X        a space, then the standard Unix system error message, and a newline
+X        on standard error output, then exit(1).
+X      */
+X{
+X  va_list args;
+X
+X  va_start(args, fmt);
+X  warn_head();
+X  vfprintf(stderr, fmt, args);
+X  if (0 <= errno && errno < sys_nerr) {
+X    fprintf(stderr, ": %s", sys_errlist[errno]);
+X  }
+X  fprintf(stderr, "\n");
+X  va_end(args);
+X}
+X
+X
+X
+X
+X
+END_OF_FILE
+  if test 3256 -ne `wc -c <'print_errors.c'`; then
+    echo shar: \"'print_errors.c'\" unpacked with wrong size!
+  fi
+  # end of 'print_errors.c'
+fi
+if test -f 'print_errors.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'print_errors.h'\"
+else
+  echo shar: Extracting \"'print_errors.h'\" \(1314 characters\)
+  sed "s/^X//" >'print_errors.h' <<'END_OF_FILE'
+X/* print_errors.h
+X * Author: Dave Edsall ( edsall@iastate.edu )
+X * Date: 9 December 1991
+X */
+X
+Xextern void program_usage_init(char *name, char *usage_mesg);
+X     /* effect: initialize the error printing system */
+X
+Xextern void warning(const char *fmt, ...);
+X     /* effect: print Name (if defined), "Warning: ",
+X	then a message controlled by fmt and the other args,
+X	then a newline on standard error output.
+X      */
+X
+X
+Xextern void error(const char *fmt, ...);
+X     /* effect: print Name (if defined), "Warning: ",
+X	then a message controlled by fmt and the other args,
+X	then a newline on standard error output.
+X      */
+X
+Xextern void usage();
+X     /* effect: print usage message on standard error output, and exit(1)
+X      */
+X
+Xextern void sys_err(const char *fmt, ...);
+X     /* requires: 0 <= errno && errno < sys_nerr */
+X     /* effect: print Name (if defined), "ERROR: ", msg, a colon, a space,
+X        the standard Unix system error message, and a newline
+X        on standard error output, then exit(1).
+X      */
+X
+Xextern void sys_warning(const char *fmt, ...);
+X     /* requires: 0 <= errno && errno < sys_nerr */
+X     /* effect: print Name (if defined), "Warning: ", msg, a colon,
+X        a space, then the standard Unix system error message, and a newline
+X        on standard error output, then exit(1).
+X      */
+X
+END_OF_FILE
+  if test 1314 -ne `wc -c <'print_errors.h'`; then
+    echo shar: \"'print_errors.h'\" unpacked with wrong size!
+  fi
+  # end of 'print_errors.h'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1424 @@
+Newsgroups: comp.sources.misc
+From: info-zip@cs.ucla.edu (Info-Zip)
+Subject:  v29i035:  unzip - Info-ZIP's portable UnZip v4.2, Part05/12
+Message-ID: <1992Apr3.063155.28823@sparky.imd.sterling.com>
+X-Md4-Signature: dc9885c504e2284d5361dd5d2bd0bffa
+Date: Fri, 3 Apr 1992 06:31:55 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: info-zip@cs.ucla.edu (Info-Zip)
+Posting-number: Volume 29, Issue 35
+Archive-name: unzip/part05
+Environment: Unix, VMS, OS/2, MS-DOS, Amiga, Macintosh
+Supersedes: unzip, Volume 19, Issues 96-101
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  VMS/VMS.notes VMS/bilf/bilf.c extract.c
+# Wrapped by kent@sparky on Mon Mar 30 01:45:53 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 12)."'
+if test -f 'VMS/VMS.notes' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/VMS.notes'\"
+else
+  echo shar: Extracting \"'VMS/VMS.notes'\" \(13423 characters\)
+  sed "s/^X//" >'VMS/VMS.notes' <<'END_OF_FILE'
+X                     VMS Notes for UnZip 4.2
+X                        28 February 1992
+X
+X
+XThe various VMS tweaks to UnZip 4.2 and ZipInfo 0.96 were tested on a 
+XVAX 8600 running VMS 5.2 (and, later, VMS 5.4) and VAX C 3.0.  Older 
+Xversions were also tested on a VAX 11/785.
+X
+XTo build UnZip (and its trusty sidekick, ZipInfo), just run the included 
+Xcommand file MAKE_UNZIPINFO.COM (i.e., "@make_unzipinfo").  By default, 
+Xthis creates shareable-image executables, which are smaller and (sup-
+Xposedly) load faster than the normal type.  They also (supposedly) will 
+Xbe better able to take advantage of any bug fixes or new capabilities 
+Xthat DEC might introduce, since the library code isn't built into the 
+Xexecutable.  The shared executable is about a quarter the size of the 
+Xordinary type in the case of UnZip.
+X
+X[Btw, the VMS make utility "MMS" seems not to be compatible enough with
+XUnix make to use the same makefile.  Antonio Querubin, Jr., sent along an 
+XMMS makefile, subsequently modified by Igor Mandrichenko.  Read the
+Xcomments at the top of DESCRIP.MMS for more info.]
+X
+XUnZip is written to return the standard PK-type return codes (or error
+Xcodes, or exit codes, or whatever you want to call them).  Unfortunately,
+XVMS insists on interpreting the codes in its own lovable way, and this
+Xresults in endearing commentary such as "access violation, error mask =
+X0005, PC = 00003afc" (or something like that) when you run UnZip with no
+Xarguments.  To avoid this I've added a special VMS_return() function which
+Xeither ignores the error codes (and exits with normal status) or interprets
+Xthem, prints a semi-informative message (enclosed in square [] brackets), 
+Xand then exits with a normal error status.  I personally can't stand the 
+Xlatter behavior, so by default the error codes are simply ignored.  Tastes
+Xvary, however, and some people may actually like semi-informative messages.
+XIf you happen to be one of those people, you may enable the messages by 
+Xrecompiling misc.c with RETURN_CODES defined.  (This adds a block or two
+Xto the executable size, though.)  The syntax is as follows:
+X	cc /def=(RETURN_CODES) misc
+X
+XTo use UnZip in the normal way, define a symbol "unzip" as follows:
+X	unzip :== "$diskname:[directory]unzip.exe"
+X(substitute for "diskname" and "directory" as appropriate, and DON'T FORGET
+XTHE `$'!  It won't work if you omit that.)  In general it's wise to stick 
+Xsuch assignments in your LOGIN.COM file and THEN forget about them.  It is 
+Xno longer necessary to worry about the record type of the zipfile...er, 
+Xwell, most of the time, anyway (see the Kermit section below).
+X
+XHaving done all this you are ready to roll.  Use the unzip command in
+Xthe usual way; as with the Unix, OS/2 and MS-DOS versions, this one uses 
+X'-' as a switch character.  If nothing much happens when you do a directory
+Xlisting, for example, you're probably trying to specify a filename which
+Xhas uppercase letters in it...VMS thoughtfully converts everything on the
+Xcommand line to lowercase, so even if you type:
+X	unzip -v zipfile Makefile
+Xwhat you get is:
+X	unzip -v zipfile makefile
+Xwhich, in my example here, doesn't match the contents of the zipfile.
+XThis is relatively easy to circumvent, by enclosing the filespec(s) in 
+Xquotes:
+X	unzip -tq unzip401 "Makefile" "VMS*" *.c *.h
+X[This example also demonstrates the use of wildcards, which act like Unix
+Xwildcards, not VMS ones.   In other words, "VMS*" matches files VMSNOTES,
+XVMS_MAKE.COM, and VMSSHARE.OPT, whereas the normal VMS behavior would be
+Xto match only the first file (since the others have extensions--ordinarily,
+Xyou would be required to specify "VMS*.*").]
+X
+XNote that created files get whatever default permissions you've set, but 
+Xcreated directories additionally inherit the (possibly more restrictive) 
+Xpermissions of the parent directory.  And, of course, things probably won't 
+Xwork too well if you don't have permission to write to whatever directory 
+Xinto which you're trying to extract things.  (That made sense; read it 
+Xagain if you don't believe me.)
+X
+XZipInfo, by the way, is an amusing little utility which tells you all sorts
+Xof amazingly useless information about zipfiles.  Occasionally it's useful
+Xto debug a problem with a corrupted zipfile (for example, we used it to 
+Xfind a bug in PAK-created zipfiles, versions 2.5 and earlier).  Feel free
+Xto blow it away if you don't need it.  It's about 30 blocks on my system,
+Xand I find I actually prefer its listing format to that of UnZip now (hardly
+Xsurprising, since I wrote it :-) ).  I also find it useful to use "ii" 
+Xrather than "zipinfo" as the symbol for zipinfo, since it's easier to type 
+Xthan either "zipinfo" or "unzip -v", and it echoes the common Unix alias 
+X"ll" for the similar style of directory listings.  Oh, and the reason it's 
+Xstill got a beta version number is that I haven't finished it yet--it would 
+Xbe better with an automatic paging function, for example.  Oh well.
+X
+XRANDOM OTHER NOTES:  (1) Igor Mandrichenko (leader of our fearless Russian 
+Xcontingent) rewrote major portions of the VMS file-handling code, with
+Xthe result that UnZip is much smarter now about VMS file formats.  He
+Xmade a corresponding set of changes to Zip, but those are not yet avail-
+Xable.  When they are, however, UnZip will be able handle them.  In the
+Xmeantime, the notes at the end of this file from Hugh Schmidt and Mike
+XFreeman give hints on how to save VMS attributes using Zip 1.0.  These
+Xnotes refer to UnZip 4.1, but they should still hold for this version.
+X(2) Zip 1.0 cannot handle any zipfile that isn't in stream-LF format, so 
+Xyou may need to use Rahul Dhesi's BILF utility which is included with 
+XUnZip.  It may also be necessary for certain other special occasions, like 
+Xwhen you've forgotten to set the correct Kermit parameters while uploading
+Xa zipfile (see Hugh Schmidt's note below for comments about Kermit, too).
+X
+XGreg Roelofs,
+X not really involved with VMS UnZip anymore, but updating this file one
+X last time since it's mine. :-)
+X
+X====================
+X
+XFrom INFO-ZIP Digest (Wed, 6 Nov 1991), Volume 91, Issue 290
+X
+X                VMS attributes and PKZIP compatibility
+X                  VMS attributes restored! (2 msgs)
+X
+X------------------------------
+X
+XDate: Tue, 5 Nov 91 15:31 CDT
+XFrom: Hugh Schmidt <HUGH@macc.wisc.edu>
+XSubject: VMS attributes and PKZIP compatibility
+XMessage-ID: <21110515313938@vms.macc.wisc.edu>
+X
+X           ******************************************************
+X(1)        *** Retaining VMS attributes - a proposed strategy ***
+X           ******************************************************
+X
+XThis is a proposed strategy for recovering VMS file attributes after
+Xzip/unzip:
+X
+Xa) capture VMS file attributes: VMS ANALYZE/RMS/FDL/OUTPUT=fdlfile vmsfile.ext
+Xb) compress files on VMS......: ZIP zipfile vmsfile.ext, fdlfile.fdl
+Xc) uncompress files on VMS....: UNZIP zipfile vmsfile.ext, fdlfile.fdl
+Xd) recover VMS file attributes: CONVERT/FDL=fdlfile.fdl vmsfile.ext vmsfile.ext
+X
+XThe wrinkle is that UNZIP creates files which are unreadable by CONVERT
+Xdespite a concerted effort to accomodate VMS file management system:
+X
+Xfile_io.c, line 178: ...creat(filename,0, "rat=cr", "rfm=streamlf")
+X
+XThese files are unCONVERTABLE because they appear to VMS to contain
+Xrecords with 512+ bytes.  Poring over VMS manuals (Programming V-6A, VAX
+XC RTL Reference Manual) doesn't readily suggest better alternatives.
+XExperimentation with "rat=fix", etc. may help suppress the spurious
+Xblock-end delimeters.
+X
+X          ****************************************************
+X(2)       *** VMS ZIP and PKZIP compatibility using KERMIT ***
+X          ****************************************************
+X
+XMany use Procomm's kermit to transfer zipped files between PC and VMS
+XVAX.  The following VMS kermit settings make VMS-ZIP compatible with
+XPKZIP:
+X
+X                                             VMS kermit      Procomm kermit
+X                                           ---------------   --------------
+XUploading PKZIPped file to be UNZIPped:    set fi ty fixed    set fi ty bi
+XDownloading ZIPped file to be PKUNZIPped:  set fi ty block    set fi ty bi
+X
+X"Block I/O lets you bypass the VMS RMS record-processing capabilities
+Xentirely", (Guide to VMS file applications, Section 8.5).  The kermit
+Xguys must have known this!
+X
+X         ************************************************
+X(3)      *** Making ZIP files compatible with VMS RMS ***
+X         ************************************************
+X
+XIt looks like a crummy patch, but to make VMS RMS happy, I inserted the
+Xfollowing near line 570 in the putend() section of zipfile.c:
+X
+X#ifdef VMS
+X fprintf(f,"\n")
+X#endif
+X
+XIt's probably of no consequence, but it satisfies VMS ANALYZE.
+X
+X------------------------------
+X
+XDate: Tue, 5 Nov 91 19:40 CDT
+XFrom: Hugh Schmidt <HUGH@macc.wisc.edu>
+XSubject: VMS attributes restored!
+XMessage-ID: <21110519403912@vms.macc.wisc.edu>
+X
+X           ************************************************************
+X           ***   Aha!  It works!  VMS attributes can be restored! *****
+X           ***                                                      ***
+X           *** Change FAB$C_STMLF to FAB$C_FIX in file_io.c         ***
+X           *** ANALYZE => .FDL | CONVERT => original VMS attributes ***
+X           ************************************************************
+X
+X(1) Change line 147 in file_io.c and dropping lines 148-149:
+X
+X    fileblk.fab$b_rfm = FAB$C_STMLF;    /* stream-LF record format */
+X    fileblk.fab$b_rat = FAB$M_CR;       /* carriage-return carriage ctrl */
+X    /*                      ^^^^ *NOT* V_CR!!!     */
+X
+X=>
+X
+X    fileblk.fab$b_rfm = FAB$C_FIX;    /* fixed record format */
+X
+X(2) Use VMS ANALYZE to store the VMS attributes for the original file
+X    into a file descripion language file.  Save the .FDL file with the
+X    original file.
+X
+X(3) Apply the original attributes to the UNZIPped file using VMS CREATE
+X    and the description file (test.fdl).
+X
+XIn the following example, the original attributes of a SPSSX system
+Xformat file were restored.  Later, SPSSX successfully read the UNZIPped/
+XCONVERTed file.
+X
+X!******** Procedure (or method for you ai'ers)
+X!********
+X!******** Create an .FDL file using ANALYZE
+X
+X$ analyze/rms/fdl/out=test test.spssxsav;1
+X
+X!******** ZIP the file and its description file
+X
+X$ zip test test.spssxsav;1 test.fdl;1
+Xadding test.spssxsav (imploded 62%)
+Xadding test.fdl (imploded 90%)
+X
+X!******** When the ZIPPED file is needed, UNZIP it and its description file
+X
+X$ unzip test
+X  Exploding: test.spssxsav
+X  Exploding: test.fdl
+X
+X!******** To restore the original attributes, apply the description file to
+X!********  the UNZIPped file using VMS CONVERT
+X
+X$ convert/fdl=test  test.spssxsav;2 test.spssxsav;3
+X
+X! ******* The following show that the VMS attributes are restored.
+X
+X$ analyze/rms/check test.spssxsav;1
+X
+X	File Spec: PROJDISK5:[322042.CORE]TEST.SPSSXSAV;1
+X	File Organization: sequential
+X	Record Format: fixed
+X	Record Attributes:
+X	Maximum Record Size: 4
+X	Longest Record: 4
+X
+XThe analysis uncovered NO errors.
+X
+X$ analyze/rms/check test.spssxsav;2
+X	File Spec: PROJDISK5:[322042.CORE]TEST.SPSSXSAV;2
+X	File Organization: sequential
+X	Record Format: undefined
+X	Record Attributes:
+X	Maximum Record Size: 0
+X	Longest Record: 512
+XThe analysis uncovered NO errors.
+X
+X$ analyze/rms/check test.spssxsav;3
+X	File Spec: PROJDISK5:[322042.CORE]TEST.SPSSXSAV;3
+X	File Organization: sequential
+X	Record Format: fixed
+X	Record Attributes:
+X	Maximum Record Size: 4
+X	Longest Record: 4
+X
+XThank you all for your help and comments.  It was very reasurring to
+Xknow that I was on the right track.  This is a humble contribution
+Xcompared to the great efforts of others in the ZIP project.
+X
+X------------------------------
+X
+XDate: Wed, 6 Nov 91 12:49:33 EST
+XFrom: Mike Freeman <freeman@watsun.cc.columbia.edu>
+XSubject: Re: VMS attributes restored!
+XMessage-ID: <CMM.0.90.0.689449773.freeman@watsun.cc.columbia.edu>
+X
+XHello, all.
+X
+XHUGH@macc.wisc.edu has come up with a commendable method for saving/
+Xrestoring record attributes in Vax/VMS files when ZIPping/UNZIPping.
+XThere are a couple of potential problems in his specific implementation,
+Xhowever:
+X
+X(a) It would be better to leave the output file(s) in STREAM_LF format
+X    and use Joe Meadows' FILE utility to put them in fixed-record
+X    format if CONVERT has trouble reading them.
+X
+X    Outputting a text file as fixed-record format could be a pain, and
+X    one would have to use FILE anyway.
+X
+X    (Incidentally, I ZIPped up a text file, UNZIPped it and used Hugh's
+X    method to restore the attributes.  CONVERT had no trouble with the
+X    STREAM_LF format -- it's only a problem with binary files and, as I
+X    say, Joe Meadows' FILE will fix this.)
+X
+X(b) Even if ANALYZE/RMS complains, I do not think one ought to put the
+X    "\n" in as Hugh advocates.  This contradicts the ZIP philosophy of
+X    byte-for-byte storage/retrieval.
+X
+X    As Mr. Roelofs has said, there is nothing wrong with the ZIP file;
+X    it's just that ANALYZE/RMS expects STREAM_LF files to end in an
+X    <LF>.
+X
+XAnyway, I was able to use Hugh's method without modifying ZIP 1.0.  We
+Xreally ought to get the word out about FILE, though -- it's very handy.
+X
+XMike Freeman, K7UIJ     |       Internet: freeman@watsun.cc.columbia.edu
+X301 N.E. 107th Street   |       GEnie: M.FREEMAN11
+XVancouvEr, WA 98685 USA |       Confidence is the feeling you have
+XTelephone (206)574-8221 |       before you understand the situation.
+X
+X------------------------------
+X
+END_OF_FILE
+  if test 13423 -ne `wc -c <'VMS/VMS.notes'`; then
+    echo shar: \"'VMS/VMS.notes'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/VMS.notes'
+fi
+if test -f 'VMS/bilf/bilf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/bilf/bilf.c'\"
+else
+  echo shar: Extracting \"'VMS/bilf/bilf.c'\" \(6109 characters\)
+  sed "s/^X//" >'VMS/bilf/bilf.c' <<'END_OF_FILE'
+X/*
+XThis program performs conversion of files between stream-LF format
+X(as used by zoo) and fixed-length record binary format (used for Kermit
+Xtransfers of zoo archives).
+X
+XThis program is:
+X   (C) Copyright 1987 Rahul Dhesi.
+X   All Rights Reserved.
+X
+XPermission is hereby granted to copy and modify this for any purpose,
+Xwhether commercial or noncommercial, provided only that the above
+Xcopyright notice and this paragraph be preserved and included
+Xin all copies.
+X
+X                                 -- Rahul Dhesi 1987/07/25
+X*/
+X
+X#include <stdio.h>
+X#include <ssdef.h>
+X#define STAT_NORM SS$_NORMAL
+X#define STAT_ABORT SS$_ABORT
+X
+Xchar *strrchr();
+Xchar *strdup ();
+X
+Xmain (argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X   char *inname;
+X   char *outname;
+X   char *option;
+X   int status;
+X
+X   if (argc < 3 || argc > 4) {
+X      printf ("BILF version 1.00 for VAX/VMS by Rahul Dhesi (1987/07/25)\n\n");
+X      printf ("(C) Copyright 1987 Rahul Dhesi,  All Rights Reserved\n");
+X      printf ("Permission to use and distribute is granted provided this copyright\n"); 
+X      printf ("notice is preserved and included in all copies.\n\n");
+X      printf ("Usage:  BILF {lb} infile [ outfile ]\n\n");
+X      printf ("Choose one character from within braces.  If outfile is not supplied\n");
+X      printf ("it has the same name as infile but a higher version number.\n");
+X      printf ("Options are:\n\n");
+X      printf ("l:  Write output file in stream-LF format.  This is the format that\n");
+X      printf ("    zoo expects all zoo archives to be in.  If a zoo archive was\n");
+X      printf ("    uploaded to a VAX/VMS system, it will need to be converted to\n");
+X      printf ("    stream-LF format before manipulating with zoo.\n\n");
+X      printf ("b:  Write output file in fixed-length 512-byte binary record format.  Before\n");
+X      printf ("    a zoo archive can be downloaded from a VAX/VMS system to a\n");
+X      printf ("    microcomputer using VAX/VMS Kermit, it must be converted to\n");
+X      printf ("    this binary format.  Failure to do so will result in a corrupted\n");
+X      printf ("    download.\n");
+X      exit (STAT_NORM);
+X   }
+X
+X   inname = argv[2];
+X   option = argv[1];
+X
+X   if (argc == 3) {                    /* use same filename for output */
+X      char *p;
+X      outname = strdup (inname);
+X      p = strrchr (outname, ';');      /* strip trailing version field */
+X      if (p != NULL)
+X         *p = '\0';
+X   } else
+X      outname = argv[3];
+X
+X   if (*option == 'l')
+X      status = cvtstream (outname, inname);
+X   else if (*option == 'b')
+X      status = cvtbin (outname, inname);
+X   else
+X      prterror ('f', "Option %s is invalid\n", option);
+X   if (status == -1)
+X      prterror ('w', "An error occurred -- output file may be corrupted\n");
+X   exit (STAT_NORM);
+X}
+X
+X#define  MYBUFSIZ    8192
+X
+X/* writes input file to output file in stream format */
+Xint cvtstream (outname, inname)
+Xchar *outname, *inname;
+X{
+X   FILE *infile, *outfile;
+X   char buffer[MYBUFSIZ];
+X   int count;
+X
+X   infile = fopen (inname, "r");
+X   if (infile == NULL)
+X      prterror ('f', "Could not open input file %s\n", inname);
+X   outfile = fopen (outname, "w");
+X   if (outfile == NULL)
+X      prterror ('f', "Could not open output file %s\n", outname);
+X
+X   while ((count = fread (buffer, 1, sizeof (buffer), infile)) > 0)
+X      count = fwrite (buffer, 1, count, outfile);
+X
+X   close (infile); close (outfile);
+X   if (count == -1)
+X      return (-1);
+X   else
+X      return (0);
+X}
+X
+X/*
+XVMS C doesn't have strdup().
+X*/
+Xchar *strdup (str)
+Xchar *str;
+X{
+X   char *malloc();
+X   char *newstr = malloc (strlen (str) + 1);
+X   if (newstr != NULL) {
+X      strcpy (newstr, str);
+X      return (newstr);
+X   } else
+X      return ((char *) NULL);
+X}
+X
+X/* BLKSIZ must correspond to block size specified below in creat() */
+X#define BLKSIZ 512
+X
+X/*
+XWrites input file to output in fixed-length BLKSIZ-byte record format.
+X*/
+X
+X#if 1
+X#include <file.h>
+X#else
+X#include <fcntl.h>
+X#endif
+X
+Xint convert ();
+X
+Xint cvtbin (outname, inname)
+Xchar *outname, *inname;
+X{
+X   int status, inhan, outhan;
+X   inhan = open (inname, O_RDONLY);
+X   if (inhan == -1)
+X      prterror ('f', "Could not open input file %s\n", inname);
+X   outhan = creat (outname, 0, "rfm=fix", "mrs=512");
+X   if (outhan == -1)
+X      prterror ('f', "Could not open output file %s\n", outname);
+X   status = convert (outhan, inhan);
+X   close (inhan);
+X   close (outhan);
+X   return (status);
+X}
+X
+X/*
+XFunction convert() reads from inhan and writes to outhan, always
+Xwriting in BLKSIZ-byte blocks, padding with nulls if necessary
+X*/
+X
+Xint convert (outhan, inhan)
+Xint inhan, outhan;
+X{
+X   char junk[BLKSIZ];
+X   int count;
+X   int done = 0;
+X   do {
+X      count = vmsread (inhan, junk, BLKSIZ);
+X      if (count <= 0)
+X         break;
+X      if (count < BLKSIZ) {
+X         int i;
+X         for (i = count; i < BLKSIZ; i++)
+X            junk[i] = 0;
+X         done++;
+X      }
+X      count = write (outhan, junk, BLKSIZ);
+X      if (count == -1)
+X         break;
+X   } while (!done);
+X   if (count == -1)
+X      return (-1);
+X   else
+X      return (0);
+X}
+X
+X/**** Function vmsread() does a standard read() but gets around bugs
+Xin the read() function of VAX/VMS C which make it unable to always
+Xread the entire amount requested in a single read() call.
+X*/
+Xint vmsread (han, buf, amount)
+Xint han;
+Xchar *buf;
+Xint amount;
+X{
+X   int count;
+X   int thiscount;
+X   count = 0;
+X   while (count != -1 && count < amount) {
+X      thiscount = read (han, &buf[count], amount - count);
+X      if (thiscount == 0)
+X         thiscount = read (han, &buf[count], amount - count);
+X      if (thiscount == 0)
+X          break;
+X      if (thiscount == -1)
+X         count = -1;
+X      else
+X         count += thiscount;
+X   }
+X   return (count);
+X}
+X
+Xprterror (level, msg1, msg2)
+Xchar level;
+Xchar *msg1, *msg2;
+X{
+X   if (level == 'e' || level == 'w' || level == 'f')
+X      printf ("BILF: ");
+X
+X   switch (level) {
+X      case 'e': printf ("ERROR: ");    break;
+X      case 'w': printf ("WARNING: ");  break;
+X      case 'f': printf ("FATAL: ");    break;
+X      default:  prterror ('f', "Internal error in prterror()\n");
+X   }
+X
+X   printf (msg1, msg2);
+X   if (level == 'f')
+X      exit (STAT_ABORT);
+X}
+END_OF_FILE
+  if test 6109 -ne `wc -c <'VMS/bilf/bilf.c'`; then
+    echo shar: \"'VMS/bilf/bilf.c'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/bilf/bilf.c'
+fi
+if test -f 'extract.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extract.c'\"
+else
+  echo shar: Extracting \"'extract.c'\" \(31421 characters\)
+  sed "s/^X//" >'extract.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  extract.c
+X
+X  This file contains the high-level routines ("driver routines") for extrac-
+X  ting and testing zipfile members.  It calls the low-level routines in files
+X  inflate.c, unimplod.c, unreduce.c and unshrink.c.
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X#include "unzip.h"
+X
+X
+X/************************************/
+X/*  Extract Local Prototypes, etc.  */
+X/************************************/
+X
+Xstatic int store_info __((void));
+Xstatic int extract_or_test_member __((void));
+X#ifdef CRYPT
+X   static int decrypt_member __((void));
+X#endif
+X
+Xstatic char *VersionMsg =
+X  " skipping: %-22s  need %s compat. v%u.%u (can do v%u.%u)\n";
+Xstatic char *ComprMsg =
+X  " skipping: %-22s  compression method %d\n";
+Xstatic char *FilNamMsg =
+X  "%s:  bad filename length (%s)\n";
+Xstatic char *ExtFieldMsg =
+X  "%s:  bad extra field length (%s)\n";
+Xstatic char *OffsetMsg =
+X  "file #%d:  bad zipfile offset (%s)\n";
+X
+X
+X
+X
+X
+X/**************************************/
+X/*  Function extract_or_test_files()  */
+X/**************************************/
+X
+Xint extract_or_test_files()    /* return PK-type error code */
+X{
+X    char **fnamev;
+X    byte *cd_inptr;
+X    int cd_incnt, error, error_in_archive=0;
+X    int renamed, query, len, filnum=(-1), blknum=0;
+X    UWORD i, j, members_remaining, num_skipped=0, num_bad_pwd=0;
+X    longint cd_bufstart, bufstart, inbuf_offset, request;
+X    min_info info[DIR_BLKSIZ];
+X
+X
+X/*---------------------------------------------------------------------------
+X    The basic idea of this function is as follows.  Since the central di-
+X    rectory lies at the end of the zipfile and the member files lie at the
+X    beginning or middle or wherever, it is not very desirable to simply
+X    read a central directory entry, jump to the member and extract it, and
+X    then jump back to the central directory.  In the case of a large zipfile
+X    this would lead to a whole lot of disk-grinding, especially if each mem-
+X    ber file is small.  Instead, we read from the central directory the per-
+X    tinent information for a block of files, then go extract/test the whole
+X    block.  Thus this routine contains two small(er) loops within a very
+X    large outer loop:  the first of the small ones reads a block of files
+X    from the central directory; the second extracts or tests each file; and
+X    the outer one loops over blocks.  There's some file-pointer positioning
+X    stuff in between, but that's about it.  Btw, it's because of this jump-
+X    ing around that we can afford to be lenient if an error occurs in one of
+X    the member files:  we should still be able to go find the other members,
+X    since we know the offset of each from the beginning of the zipfile.
+X
+X    Begin main loop over blocks of member files.  We know the entire central
+X    directory is on this disk:  we would not have any of this information un-
+X    less the end-of-central-directory record was on this disk, and we would
+X    not have gotten to this routine unless this is also the disk on which
+X    the central directory starts.  In practice, this had better be the ONLY
+X    disk in the archive, but maybe someday we'll add multi-disk support.
+X  ---------------------------------------------------------------------------*/
+X
+X    pInfo = info;
+X    members_remaining = ecrec.total_entries_central_dir;
+X
+X    while (members_remaining) {
+X        j = 0;
+X
+X        /*
+X         * Loop through files in central directory, storing offsets, file
+X         * attributes, and case-conversion flags until block size is reached.
+X         */
+X
+X        while (members_remaining && (j < DIR_BLKSIZ)) {
+X            --members_remaining;
+X            pInfo = &info[j];
+X
+X            if (readbuf(sig, 4) <= 0) {
+X                error_in_archive = 51;  /* 51:  unexpected EOF */
+X                members_remaining = 0;  /* ...so no more left to do */
+X                break;
+X            }
+X            if (strncmp(sig, central_hdr_sig, 4)) {  /* just to make sure */
+X                fprintf(stderr, CentSigMsg, j);  /* sig not found */
+X                fprintf(stderr, ReportMsg);   /* check binary transfers */
+X                error_in_archive = 3;   /* 3:  error in zipfile */
+X                members_remaining = 0;  /* ...so no more left to do */
+X                break;
+X            }
+X            /* process_cdir_file_hdr() sets pInfo->hostnum, pInfo->lcflag */
+X            if ((error = process_cdir_file_hdr()) != 0) {
+X                error_in_archive = error;   /* only 51 (EOF) defined */
+X                members_remaining = 0;  /* ...so no more left to do */
+X                break;
+X            }
+X            if ((error = do_string(crec.filename_length, FILENAME)) != 0) {
+X                if (error > error_in_archive)
+X                    error_in_archive = error;
+X                if (error > 1) {  /* fatal:  no more left to do */
+X                    fprintf(stderr, FilNamMsg, filename, "central");
+X                    members_remaining = 0;
+X                    break;
+X                }
+X            }
+X            if ((error = do_string(crec.extra_field_length, EXTRA_FIELD)) != 0)
+X            {
+X                if (error > error_in_archive)
+X                    error_in_archive = error;
+X                if (error > 1) {  /* fatal */
+X                    fprintf(stderr, ExtFieldMsg, filename, "central");
+X                    members_remaining = 0;
+X                    break;
+X                }
+X            }
+X            if ((error = do_string(crec.file_comment_length, SKIP)) != 0) {
+X                if (error > error_in_archive)
+X                    error_in_archive = error;
+X                if (error > 1) {  /* fatal */
+X                    fprintf(stderr, "\n%s:  bad file comment length\n",
+X                            filename);
+X                    members_remaining = 0;
+X                    break;
+X                }
+X            }
+X            if (process_all_files) {
+X                if (store_info())
+X                    ++num_skipped;
+X                else
+X                    ++j;  /* file is OK: save info[] and continue with next */
+X            } else {
+X                fnamev = fnv;   /* don't destroy permanent filename pointer */
+X                for (--fnamev; *++fnamev;)
+X                    if (match(filename, *fnamev)) {
+X                        if (store_info())
+X                            ++num_skipped;
+X                        else
+X                            ++j;   /* file is OK */
+X                        break;  /* found match for filename, so stop looping */
+X                    } /* end if (match), for-loop (fnamev) */
+X            } /* end if (process_all_files) */
+X
+X        } /* end while-loop (adding files to current block) */
+X
+X        /* save position in central directory so can come back later */
+X        cd_bufstart = cur_zipfile_bufstart;
+X        cd_inptr = inptr;
+X        cd_incnt = incnt;
+X
+X    /*-----------------------------------------------------------------------
+X        Second loop:  process files in current block, extracting or testing
+X        each one.
+X      -----------------------------------------------------------------------*/
+X
+X        for (i = 0; i < j; ++i) {
+X            filnum = i + blknum*DIR_BLKSIZ;
+X            pInfo = &info[i];
+X            /*
+X             * if the target position is not within the current input buffer
+X             * (either haven't yet read far enough, or (maybe) skipping back-
+X             * ward) skip to the target position and reset readbuf().
+X             */
+X            /* LSEEK(pInfo->offset):  */
+X            request = pInfo->offset + extra_bytes;
+X            inbuf_offset = request % INBUFSIZ;
+X            bufstart = request - inbuf_offset;
+X
+X            if (request < 0) {
+X                fprintf(stderr, SeekMsg, ReportMsg);
+X                error_in_archive = 3;       /* 3:  severe error in zipfile, */
+X                continue;                   /*  but can still go on */
+X            } else if (bufstart != cur_zipfile_bufstart) {
+X                cur_zipfile_bufstart = lseek(zipfd, bufstart, SEEK_SET);
+X                if ((incnt = read(zipfd,(char *)inbuf,INBUFSIZ)) <= 0) {
+X                    fprintf(stderr, OffsetMsg, filnum, "lseek");
+X                    error_in_archive = 3;   /* 3:  error in zipfile, but */
+X                    continue;               /*  can still do next file   */
+X                }
+X                inptr = inbuf + inbuf_offset;
+X                incnt -= inbuf_offset;
+X            } else {
+X                incnt += (inptr-inbuf) - inbuf_offset;
+X                inptr = inbuf + inbuf_offset;
+X            }
+X
+X            /* should be in proper position now, so check for sig */
+X            if (readbuf(sig, 4) <= 0) {  /* bad offset */
+X                fprintf(stderr, OffsetMsg, filnum, "EOF");
+X                error_in_archive = 3;    /* 3:  error in zipfile */
+X                continue;       /* but can still try next one */
+X            }
+X            if (strncmp(sig, local_hdr_sig, 4)) {
+X                fprintf(stderr, OffsetMsg, filnum,
+X                        "can't find local header sig");   /* bad offset */
+X                error_in_archive = 3;
+X                continue;
+X            }
+X            if ((error = process_local_file_hdr()) != 0) {
+X                fprintf(stderr, "\nfile #%d:  bad local header\n", filnum);
+X                error_in_archive = error;       /* only 51 (EOF) defined */
+X                continue;       /* can still try next one */
+X            }
+X            if ((error = do_string(lrec.filename_length, FILENAME)) != 0) {
+X                if (error > error_in_archive)
+X                    error_in_archive = error;
+X                if (error > 1) {
+X                    fprintf(stderr, FilNamMsg, filename, "local");
+X                    continue;   /* go on to next one */
+X                }
+X            }
+X            if ((error = do_string(lrec.extra_field_length, EXTRA_FIELD)) != 0)
+X            {
+X                if (error > error_in_archive)
+X                    error_in_archive = error;
+X                if (error > 1) {
+X                    fprintf(stderr, ExtFieldMsg, filename, "local");
+X                    continue;   /* go on */
+X                }
+X            }
+X
+X            /*
+X             * just about to extract file:  if extracting to disk, check if
+X             * already exists, and if so, take appropriate action according to
+X             * fflag/uflag/overwrite_all/etc. (we couldn't do this in upper
+X             * loop because we don't store the possibly renamed filename[] in
+X             * info[])
+X             */
+X            if (!tflag && !cflag) {
+X                renamed = FALSE;   /* user hasn't renamed output file yet */
+Xstartover:
+X                query = FALSE;
+X                /* mapname can create dirs if not freshening or if renamed */
+X                if ((error = mapname(!fflag || renamed)) > 1) {    /* skip */
+X                    if ((error > 2) && (error_in_archive < 2))
+X                        error_in_archive = 2;   /* (weak) error in zipfile */
+X                    continue;   /* go on to next file */
+X                }
+X
+X                switch (check_for_newer(filename)) {
+X                    case DOES_NOT_EXIST:
+X                        if (fflag && !renamed)  /* don't skip if just renamed */
+X                            continue;   /* freshen (no new files):  skip */
+X                        break;
+X                    case EXISTS_AND_OLDER:
+X                        if (overwrite_none)
+X                            continue;   /* never overwrite:  skip file */
+X                        if (!overwrite_all && !force_flag)
+X                            query = TRUE;
+X                        break;
+X                    case EXISTS_AND_NEWER:             /* (or equal) */
+X                        if (overwrite_none || (uflag && !renamed))
+X                            continue;  /* skip if update/freshen & orig name */
+X                        if (!overwrite_all && !force_flag)
+X                            query = TRUE;
+X                        break;
+X                }
+X#ifndef VMS     /* VMS creates higher version number instead of overwriting
+X                 * (will have to modify for VMS-style names with specific
+X                 *  version numbers:  just check V_flag?  don't use stat?) */
+X                if (query) {
+X                    fprintf(stderr,
+X                      "replace %s? [y]es, [n]o, [A]ll, [N]one, [r]ename: ",
+X                      filename);
+X                    FFLUSH   /* for Amiga and Mac MPW */
+X                    fgets(answerbuf, 9, stdin);
+X                    switch (*answerbuf) {
+X                        case 'A':   /* dangerous option:  force caps */
+X                            overwrite_all = TRUE;
+X                            overwrite_none = FALSE;  /* just to make sure */
+X                            break;
+X                        case 'r':
+X                        case 'R':
+X                            do {
+X                                fprintf(stderr, "new name: ");
+X                                FFLUSH   /* for AMIGA and Mac MPW */
+X                                fgets(filename, FILNAMSIZ, stdin);
+X                                /* usually get \n here: better check for it */
+X                                len = strlen(filename);
+X                                if (filename[len-1] == '\n')
+X                                    filename[--len] = 0;
+X                            } while (len == 0);
+X                            renamed = TRUE;
+X                            goto startover;   /* sorry for a goto */
+X                        /*  break;   (never reached--dpk) */
+X                        case 'y':
+X                        case 'Y':
+X                            break;
+X                        case 'N':
+X                            overwrite_none = TRUE;
+X                            overwrite_all = FALSE;  /* make sure */
+X                            force_flag = FALSE;     /* ditto */
+X                            /* FALL THROUGH, skip */
+X                        case 'n':
+X                        default:
+X                            continue;   /* skip file */
+X                    } /* end switch (*answerbuf) */
+X                } /* end if (query) */
+X#endif /* !VMS */
+X            } /* end if (extracting to disk) */
+X
+X#ifdef CRYPT
+X            if (pInfo->encrypted && ((error = decrypt_member()) != 0)) {
+X                fprintf(stderr, " skipping: %-22s  incorrect password\n",
+X                  filename);
+X                ++num_bad_pwd;
+X            /*  if (error > error_in_archive)   >>until fix up error return<<
+X                    error_in_archive = error;    unable to test file... */
+X                continue;   /* go on to next file */
+X                /* GRR:  add loop here (2 or 3 times) for bad passwords */
+X            }
+X#endif /* CRYPT */
+X            disk_full = 0;
+X            if ((error = extract_or_test_member()) != 0) {
+X                if (error > error_in_archive)
+X                    error_in_archive = error;       /* ...and keep going */
+X                if (disk_full > 1)
+X                    return error_in_archive;        /* (unless disk full) */
+X            }
+X        } /* end for-loop (i:  files in current block) */
+X
+X
+X        /*
+X         * Jump back to where we were in the central directory, then go and do
+X         * the next batch of files.
+X         */
+X
+X        cur_zipfile_bufstart = lseek(zipfd, cd_bufstart, SEEK_SET);
+X        read(zipfd, (char *)inbuf, INBUFSIZ);  /* were there b4 ==> no error */
+X        inptr = cd_inptr;
+X        incnt = cd_incnt;
+X        ++blknum;
+X
+X#ifdef TEST
+X        printf("\ncd_bufstart = %ld (%.8lXh)\n", cd_bufstart, cd_bufstart);
+X        printf("cur_zipfile_bufstart = %ld (%.8lXh)\n", cur_zipfile_bufstart,
+X          cur_zipfile_bufstart);
+X        printf("inptr-inbuf = %d\n", inptr-inbuf);
+X        printf("incnt = %d\n\n", incnt);
+X#endif
+X
+X    } /* end while-loop (blocks of files in central directory) */
+X
+X/*---------------------------------------------------------------------------
+X    Double-check that we're back at the end-of-central-directory record, and
+X    print quick summary of results, if we were just testing the archive.  We
+X    send the summary to stdout so that people doing the testing in the back-
+X    ground and redirecting to a file can just do a "tail" on the output file.
+X  ---------------------------------------------------------------------------*/
+X
+X    readbuf(sig, 4);
+X    if (strncmp(sig, end_central_sig, 4)) {     /* just to make sure again */
+X        fprintf(stderr, EndSigMsg);  /* didn't find end-of-central-dir sig */
+X        fprintf(stderr, ReportMsg);  /* check binary transfers */
+X        if (!error_in_archive)       /* don't overwrite stronger error */
+X            error_in_archive = 1;    /* 1:  warning error */
+X    }
+X    if (tflag && (quietflg == 1)) {
+X        int num=filnum+1 - num_bad_pwd;
+X
+X        if (error_in_archive)
+X            printf("At least one error was detected in %s.\n", zipfn);
+X        else if (num == 0)
+X            printf("Caution:  zero files tested in %s.\n", zipfn);
+X        else if (process_all_files && (num_skipped+num_bad_pwd == 0))
+X            printf("No errors detected in %s.\n", zipfn);
+X        else
+X            printf("No errors detected in %s for the %d file%s tested.\n",
+X              zipfn, num, (num==1)? "":"s");
+X        if (num_skipped > 0)
+X            printf("%d file%s skipped because of unsupported compression or\
+X encoding.\n",
+X              num_skipped, (num_skipped==1)? "":"s");
+X#ifdef CRYPT
+X        if (num_bad_pwd > 0)
+X            printf("%d file%s skipped because of incorrect password.\n",
+X              num_bad_pwd, (num_bad_pwd==1)? "":"s");
+X#endif /* CRYPT */
+X    }
+X    if ((num_skipped > 0) && !error_in_archive)   /* files not tested or  */
+X        error_in_archive = 1;                     /*  extracted:  warning */
+X#ifdef CRYPT
+X    if ((num_bad_pwd > 0) && !error_in_archive)   /* files not tested or  */
+X        error_in_archive = 1;                     /*  extracted:  warning */
+X#endif /* CRYPT */
+X
+X    return (error_in_archive);
+X
+X} /* end function extract_or_test_files() */
+X
+X
+X
+X
+X
+X/***************************/
+X/*  Function store_info()  */
+X/***************************/
+X
+Xstatic int store_info()   /* return 1 if skipping, 0 if OK */
+X{
+X    ULONG tmp;
+X
+X#ifdef INFLATE
+X#  define UNKN_COMPR \
+X   (crec.compression_method>IMPLODED && crec.compression_method!=DEFLATED)
+X#else
+X#  define UNKN_COMPR   (crec.compression_method>IMPLODED)
+X#endif
+X
+X
+X/*---------------------------------------------------------------------------
+X    Check central directory info for version/compatibility requirements.
+X  ---------------------------------------------------------------------------*/
+X
+X    pInfo->encrypted = crec.general_purpose_bit_flag & 1;    /* bit field */
+X    pInfo->ExtLocHdr = (crec.general_purpose_bit_flag & 8) == 8;  /* bit */
+X    pInfo->text = crec.internal_file_attributes & 1;         /* bit field */
+X/*  pInfo->crc = crec.crc32;  (no longer used) */
+X
+X    if (crec.version_needed_to_extract[1] == VMS_) {
+X        if (crec.version_needed_to_extract[0] > VMS_VERSION) {
+X            fprintf(stderr, VersionMsg, filename, "VMS",
+X              crec.version_needed_to_extract[0] / 10,
+X              crec.version_needed_to_extract[0] % 10,
+X              VMS_VERSION / 10, VMS_VERSION % 10);
+X            return 1;
+X        }
+X#ifndef VMS   /* won't be able to use extra field, but still have data */
+X        else if (!tflag && !force_flag) {  /* if forcing, extract regardless */
+X            fprintf(stderr,
+X              "\n%s:  stored in VMS format.  Extract anyway? (y/n) ",
+X              filename);
+X            FFLUSH   /* for Amiga and Mac MPW */
+X            fgets(answerbuf, 9, stdin);
+X            if ((*answerbuf != 'y') && (*answerbuf != 'Y'))
+X                return 1;
+X        }
+X#endif /* !VMS */
+X    /* usual file type:  don't need VMS to extract */
+X    } else if (crec.version_needed_to_extract[0] > UNZIP_VERSION) {
+X        fprintf(stderr, VersionMsg, filename, "PK",
+X          crec.version_needed_to_extract[0] / 10,
+X          crec.version_needed_to_extract[0] % 10,
+X          UNZIP_VERSION / 10, UNZIP_VERSION % 10);
+X        return 1;
+X    }
+X
+X    if UNKN_COMPR {
+X        fprintf(stderr, ComprMsg, filename, crec.compression_method);
+X        return 1;
+X    }
+X#ifndef CRYPT
+X    if (pInfo->encrypted) {
+X        fprintf(stderr, " skipping: %-22s  encrypted (not supported)\n",
+X          filename);
+X        return 1;
+X    }
+X#endif /* !CRYPT */
+X
+X/*---------------------------------------------------------------------------
+X    Store some central-directory information (encryption, file attributes,
+X    offsets) for later use.
+X  ---------------------------------------------------------------------------*/
+X
+X    tmp = crec.external_file_attributes;
+X
+X    pInfo->dos_attr = 32;   /* set archive bit:  file is not backed up */
+X    switch (pInfo->hostnum) {
+X        case UNIX_:
+X        case VMS_:
+X            pInfo->unix_attr = tmp >> 16;
+X            break;
+X        case DOS_OS2_FAT_:
+X        case OS2_HPFS_:
+X            pInfo->dos_attr = (unsigned) tmp;
+X            tmp = (!(tmp & 1)) << 1;   /* read-only bit */
+X            pInfo->unix_attr = 0444 | (tmp<<6) | (tmp<<3) | tmp;
+X#ifdef UNIX
+X            umask( (int)(tmp=umask(0)) );
+X            pInfo->unix_attr &= ~tmp;
+X#endif
+X            break;
+X        case MAC_:
+X            tmp &= 1;   /* read-only bit */
+X            pInfo->unix_attr = tmp;
+X            break;
+X        default:
+X            pInfo->unix_attr = 0666;
+X            break;
+X    } /* end switch (host-OS-created-by) */
+X
+X    pInfo->offset = (longint) crec.relative_offset_local_header;
+X    return 0;
+X
+X} /* end function store_info() */
+X
+X
+X
+X
+X
+X/***************************************/
+X/*  Function extract_or_test_member()  */
+X/***************************************/
+X
+Xstatic int extract_or_test_member()    /* return PK-type error code */
+X{
+X#ifdef S_IFLNK
+X    int symlnk=FALSE;
+X#endif /* S_IFLNK */
+X    int error=0;
+X    UWORD b;
+X
+X
+X
+X/*---------------------------------------------------------------------------
+X    Initialize variables, buffers, etc.
+X  ---------------------------------------------------------------------------*/
+X
+X    bits_left = 0;
+X    bitbuf = 0L;
+X    outpos = 0L;
+X    outcnt = 0;
+X    outptr = outbuf;
+X    zipeof = 0;
+X    crc32val = 0xFFFFFFFFL;
+X
+X#ifdef S_IFLNK
+X    if ((pInfo->unix_attr & S_IFMT) == S_IFLNK  &&  (pInfo->hostnum == UNIX_)
+X        && !tflag && !cflag)
+X        symlnk = TRUE;
+X#endif /* S_IFLNK */
+X
+X    memset(outbuf, 0, OUTBUFSIZ);
+X#ifndef DOS_OS2
+X    if (aflag)                  /* if we have a scratchpad, clear it out */
+X        memset(outout, 0, OUTBUFSIZ);
+X#endif /* !DOS_OS2 */
+X
+X    if (tflag) {
+X        if (!quietflg) {
+X            fprintf(stdout, "  Testing: %-22s ", filename);
+X            fflush(stdout);
+X        }
+X    } else {
+X        if (cflag) {            /* output to stdout (copy of it) */
+X#if defined(MACOS) || defined(AMIGA)
+X            outfd = 1;
+X#else /* !(MACOS || AMIGA) */
+X            outfd = dup(1);     /* GRR: change this to #define for Mac/Amiga */
+X#endif /* ?(MACOS || AMIGA) */
+X#ifdef DOS_OS2
+X            if (!aflag)
+X                setmode(outfd, O_BINARY);
+X#endif /* DOS_OS2 */
+X#ifdef VMS
+X            if (create_output_file())   /* VMS version required for stdout! */
+X                return 50;      /* 50:  disk full (?) */
+X#endif
+X        } else
+X#ifdef S_IFLNK
+X        if (!symlnk)    /* symlink() takes care of file creation */
+X#endif /* !S_IFLNK */
+X        {
+X            if (create_output_file())
+X                return 50;      /* 50:  disk full (?) */
+X        }
+X    } /* endif (!tflag) */
+X
+X/*---------------------------------------------------------------------------
+X    Unpack the file.
+X  ---------------------------------------------------------------------------*/
+X
+X    switch (lrec.compression_method) {
+X
+X    case STORED:
+X        if (!tflag && QCOND) {
+X            fprintf(stdout, " Extracting: %-22s ", filename);
+X            if (cflag)
+X                fprintf(stdout, "\n");
+X            fflush(stdout);
+X        }
+X#ifdef S_IFLNK
+X        /*
+X         * If file came from Unix and is a symbolic link and we are extracting
+X         * to disk, allocate a storage area, put the data in it, and create the
+X         * link.  Since we know it's a symbolic link to start with, shouldn't
+X         * have to worry about overflowing unsigned ints with unsigned longs.
+X         * (This doesn't do anything for compressed symlinks, but that can be
+X         * added later...it also doesn't set the time or permissions of the
+X         * link, but does anyone really care?)
+X         */
+X        if (symlnk) {
+X#if defined(MTS) || defined(MACOS)
+X            fprintf(stdout, "\n  warning:  symbolic link ignored\n");
+X            error = 1;          /* 1:  warning error */
+X#else /* !(MTS || MACOS) */
+X            char *orig = (char *)malloc((unsigned)lrec.uncompressed_size+1);
+X            char *p = orig;
+X
+X            while (ReadByte(&b))
+X                *p++ = b;
+X            *p = 0;   /* terminate string */
+X            UpdateCRC((unsigned char *)orig, p-orig);
+X            if (symlink(orig, filename))
+X                if ((errno == EEXIST) && overwrite_all) {  /* OK to overwrite */
+X                    unlink(filename);
+X                    if (symlink(orig, filename))
+X                        perror("symlink error");
+X                } else
+X                    perror("symlink error");
+X            free(orig);
+X#endif /* ?(MTS || MACOS) */
+X        } else
+X#endif /* S_IFLNK */
+X        while (ReadByte(&b) && !disk_full)
+X            OUTB(b)
+X        break;
+X
+X    case SHRUNK:
+X        if (!tflag && QCOND) {
+X            fprintf(stdout, "UnShrinking: %-22s ", filename);
+X            if (cflag)
+X                fprintf(stdout, "\n");
+X            fflush(stdout);
+X        }
+X#ifdef S_IFLNK   /* !!! This code needs to be added to unShrink, etc. !!! */
+X        if (symlnk) {
+X            fprintf(stdout, "\n  warning:  symbolic link ignored\n");
+X            error = 1;          /* 1:  warning error */
+X        }
+X#endif /* S_IFLNK */
+X        unShrink();
+X        break;
+X
+X    case REDUCED1:
+X    case REDUCED2:
+X    case REDUCED3:
+X    case REDUCED4:
+X        if (!tflag && QCOND) {
+X            fprintf(stdout, "  Expanding: %-22s ", filename);
+X            if (cflag)
+X                fprintf(stdout, "\n");
+X            fflush(stdout);
+X        }
+X#ifdef S_IFLNK   /* !!! This code needs to be added to unShrink, etc. !!! */
+X        if (symlnk) {
+X            fprintf(stdout, "\n  warning:  symbolic link ignored\n");
+X            error = 1;          /* 1:  warning error */
+X        }
+X#endif /* S_IFLNK */
+X        unReduce();
+X        break;
+X
+X    case IMPLODED:
+X        if (!tflag && QCOND) {
+X            fprintf(stdout, "  Exploding: %-22s ", filename);
+X            if (cflag)
+X                fprintf(stdout, "\n");
+X            fflush(stdout);
+X        }
+X#ifdef S_IFLNK   /* !!! This code needs to be added to unShrink, etc. !!! */
+X        if (symlnk) {
+X            fprintf(stdout, "\n  warning:  symbolic link ignored\n");
+X            error = 1;          /* 1:  warning error */
+X        }
+X#endif /* S_IFLNK */
+X        unImplode();
+X        break;
+X
+X#ifdef INFLATE
+X    case DEFLATED:
+X        if (!tflag && QCOND) {
+X            fprintf(stdout, "  Deflating: %-22s ", filename);
+X            if (cflag)
+X                fprintf(stdout, "\n");
+X            fflush(stdout);
+X        }
+X#ifdef S_IFLNK   /* !!! This code needs to be added to unShrink, etc. !!! */
+X        if (symlnk) {
+X            fprintf(stdout, "\n  warning:  symbolic link ignored\n");
+X            error = 1;          /* 1:  warning error */
+X        }
+X#endif /* S_IFLNK */
+X        inflate();
+X        break;
+X#endif /* INFLATE */
+X
+X    default:   /* should never get to this point */
+X        fprintf(stderr, "%s:  unknown compression method\n", filename);
+X        /* close and delete file before return? */
+X        return 1;               /* 1:  warning error */
+X
+X    } /* end switch (compression method) */
+X
+X    if (disk_full) {            /* set by FlushOutput()/OUTB() macro */
+X        if (disk_full > 1)
+X            return 50;          /* 50:  disk full */
+X        error = 1;              /* 1:  warning error */
+X    }
+X
+X/*---------------------------------------------------------------------------
+X    Write the last partial buffer, if any; set the file date and time; and
+X    close the file (not necessarily in that order).  Then make sure CRC came
+X    out OK and print result.  [Note:  crc32val must be logical-ANDed with
+X    32 bits of 1's, or else machines whose longs are bigger than 32 bits will
+X    report bad CRCs (because of the upper bits being filled with 1's instead
+X    of 0's).]
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef S_IFLNK
+X    if (!symlnk) {
+X#endif /* S_IFLNK */
+X    if (!disk_full && FlushOutput())
+X        if (disk_full > 1)
+X            return 50;          /* 50:  disk full */
+X        else {                  /* disk_full == 1 */
+X            fprintf(stderr, "%s:  probably corrupt\n", filename);
+X            error = 1;          /* 1:  warning error */
+X        }
+X
+X    if (!tflag)
+X#ifdef VMS
+X        CloseOutputFile();
+X#else /* !VMS */
+X#ifdef MTS                      /* MTS can't set file time */
+X        close(outfd);
+X#else /* !MTS */
+X        set_file_time_and_close();
+X#endif /* ?MTS */
+X#endif /* ?VMS */
+X
+X#ifdef S_IFLNK
+X    } /* endif (!symlnk) */
+X#endif /* S_IFLNK */
+X
+X    if ((crc32val = ((~crc32val) & 0xFFFFFFFFL)) != lrec.crc32) {
+X        /* if quietflg is set, we haven't output the filename yet:  do it */
+X        if (quietflg)
+X            printf("%-22s: ", filename);
+X        fprintf(stdout, " Bad CRC %08lx  (should be %08lx)\n", crc32val,
+X                lrec.crc32);
+X        error = 1;              /* 1:  warning error */
+X    } else if (tflag) {
+X        if (!quietflg)
+X            fprintf(stdout, " OK\n");
+X    } else {
+X        if (QCOND && !error)
+X            fprintf(stdout, "\n");
+X    }
+X
+X    return error;
+X
+X}       /* end function extract_or_test_member() */
+X
+X
+X
+X
+X
+X#ifdef CRYPT
+X
+X/*******************************/
+X/*  Function decrypt_member()  */
+X/*******************************/
+X
+Xstatic int decrypt_member()   /* return 10 if out of memory or can't get */
+X{                             /*  tty; -1 if bad password; 0 if checks out */
+X    UWORD b, c;
+X    byte *p;
+X    int n, t;
+X
+X    /* set keys */
+X    if (key == NULL && ((key = malloc(PWLEN+1)) == NULL ||
+X         getp("Enter password: ", key, PWLEN+1) == NULL))
+X        return 10;        /* what to return here? */
+X    init_keys(key);
+X
+X    /* decrypt current buffer contents, set flag to re-read if necessary */
+X    for (n = incnt > csize ? (int)csize : incnt, p = inptr; n--; p++)
+X        *p = DECRYPT(*p);
+X
+X    /* decrypt header */
+X    for (c = 0; c < 10; c++)
+X        ReadByte(&b);
+X    ReadByte(&c);
+X    ReadByte(&b);
+X#ifdef CRYPT_DEBUG
+X    printf("   lrec.crc = %08lx   crec.crc = [ ? ]   pInfo->ExtLocHdr = %s\n",
+X      lrec.crc32, /* pInfo->crc, */ pInfo->ExtLocHdr? "true":"false");
+X    printf("   incnt = %d   unzip offset into zipfile = %ld\n", incnt,
+X      cur_zipfile_bufstart+(inptr-inbuf));
+X    printf("   (c | (b<<8)) = %04x   (crc >> 16) = %04x   lrec.time = %04x\n",
+X      (UWORD)(c | (b<<8)), (UWORD)(lrec.crc32 >> 16), lrec.last_mod_file_time);
+X#endif /* CRYPT_DEBUG */
+X    /* same test as in zipbare() in crypt.c */
+X    if ((UWORD)(c | (b<<8)) != (pInfo->ExtLocHdr? lrec.last_mod_file_time :
+X        (UWORD)(lrec.crc32 >> 16)))
+X        return -1;
+X    return 0;
+X}
+X
+X#endif /* CRYPT */
+END_OF_FILE
+  if test 31421 -ne `wc -c <'extract.c'`; then
+    echo shar: \"'extract.c'\" unpacked with wrong size!
+  fi
+  # end of 'extract.c'
+fi
+echo shar: End of archive 5 \(of 12\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

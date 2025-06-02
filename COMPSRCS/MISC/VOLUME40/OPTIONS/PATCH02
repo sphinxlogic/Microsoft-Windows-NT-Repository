@@ -1,0 +1,441 @@
+Newsgroups: comp.sources.misc
+From: brad@amber.ssd.csd.harris.com (Brad Appleton)
+Subject: v40i157:  options - C++ library for parsing Unix-style command-lines, Patch02
+Message-ID: <1993Nov24.165117.3187@sparky.sterling.com>
+X-Md4-Signature: aa8e249ab66b16e302a0f8bc92dce3ce
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: brad@travis.csd.harris.com
+Organization: Harris Computer Systems
+Date: Wed, 24 Nov 1993 16:51:17 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: brad@amber.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 40, Issue 157
+Archive-name: options/patch02
+Environment: C++
+Patch-To: options: Volume 31, Issue 45-46
+
+This is patch-level 2 of "Options", a C++ library for parsing
+Unix-style command-line options. Options understands options and
+gnu-long-options and the parsing behavior is somewhat configurable.
+
+ To apply this patch:
+ --------------------
+   0) save this article to a file in your "Options" source directory
+
+   1) "cd" to your Options source directory
+
+   2) Remove all lines in the sharfile (the file you saved in #0)
+      that precede the line that starts with "#! /bin/sh".
+
+   3) Run the command "sh sharfile" (or whatever you named your sharfile).
+      This will create a file named "PATCH02" in your current directory
+
+   4) Run "patch -p0 < PATCH02"
+
+
+ Changes in this release:
+ ------------------------
+ - Added "hidden" options
+ - Fixed a few portability problems
+
+For those of you who are unfamiliar with "Options", the following
+is an excerpt from the README file. You can send e-mail to me at
+brad@ssd.csd.harris.com if you want the complete C++ source.
+
+ ------------------------------------------------------------------------------
+
+ You "declare" your options by declaring an array of strings like so:
+
+        const char * optv[] = {
+            "c:count <number>",
+            "s?str   <string>",
+            "x|xmode",
+            NULL
+        } ;
+  
+ Note the character (one of ':', '?', '|', '*', or '+') between the short
+ and long name of the option. It specifies the option type:
+
+        '|' -- indicates that the option takes NO argument;
+        '?' -- indicates that the option takes an OPTIONAL argument;
+        ':' -- indicates that the option takes a REQUIRED argument;
+        '*' -- indicates that the option takes 0 or more arguments;
+        '+' -- indicates that the option takes 1 or more arguments;
+
+ Using the above example, optv[] now corresponds to the following:
+
+        progname [-c <number>] [-s [<string>]] [-x]
+
+ Using long-options, optv corresponds to the following ("-" or "+" may
+ be used instead of "--" as the prefix):
+  
+        progname [--count <number>] [--str [<string>]] [--xmode]
+
+ Now you can iterate over your options like so:
+
+      #include <stdlib.h>
+      #include <options.h>
+
+      main(int argc, char *argv[]) {
+         Options  opts(*argv, optv);
+         OptArgvIter  iter(--argc, ++argv);
+         const char *optarg, *str = NULL;
+         int  errors = 0, xflag = 0, count = 1;
+      
+         while( char optchar = opts(iter, optarg) ) {
+            switch (optchar) {
+            case 's' :
+               str = optarg; break;
+            case 'x' :
+               ++xflag; break;
+            case 'c' :
+               if (optarg == NULL)  ++errors;
+               else  count = (int) atol(optarg);
+               break;
+            default :  ++errors; break;
+            } //switch
+         }
+         ...  // process the rest of the arguments in "iter"
+      }
+
+ ______________________ "And miles to go before I sleep." ______________________
+  Brad Appleton, Senior Software Engineer    Harris Computer Systems Division
+    E-mail: brad@ssd.csd.harris.com          2101 W. Cypress Creek Rd., M/S 161 
+    Phone : (305) 973-5190                   Fort Lauderdale, FL  USA  33309
+ ~~~~~~~~~~~~~~~~~~~ Disclaimer: I said it, not my employer! ~~~~~~~~~~~~~~~~~~~
+----------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  PATCH02
+# Wrapped by brad@amber on Fri Nov  5 15:22:33 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'PATCH02' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PATCH02'\"
+else
+echo shar: Extracting \"'PATCH02'\" \(9589 characters\)
+sed "s/^X//" >'PATCH02' <<'END_OF_FILE'
+X*** README.OLD	Fri Nov 05 15:22:02 1993
+X--- README	Sat Oct 30 17:11:07 1993
+X***************
+X*** 141,152 ****
+X  
+X   PATCHLEVEL
+X   ==========
+X!  The is release 1 of Options at patchlevel 1.
+X  
+X  
+X   HISTORY
+X   =======
+X- 
+X   07/21/92		Brad Appleton		<brad@ssd.csd.harris.com>
+X   -----------------------------------------------------------------------------
+X   First release.
+X--- 141,151 ----
+X  
+X   PATCHLEVEL
+X   ==========
+X!  The is release 1 of Options at patchlevel 2.
+X  
+X  
+X   HISTORY
+X   =======
+X   07/21/92		Brad Appleton		<brad@ssd.csd.harris.com>
+X   -----------------------------------------------------------------------------
+X   First release.
+X***************
+X*** 155,157 ****
+X--- 154,160 ----
+X   -----------------------------------------------------------------------------
+X   - Made some changes for compiling with g++
+X   - Added OptIstreamIter class
+X+ 
+X+  10/08/93		Brad Appleton		<brad@ssd.csd.harris.com>
+X+  -----------------------------------------------------------------------------
+X+  - Added "hidden" options
+X*** options.3.OLD	Fri Nov 05 15:22:04 1993
+X--- options.3	Sat Oct 30 16:52:10 1993
+X***************
+X*** 305,310 ****
+X--- 305,321 ----
+X  
+X  .SS Exceptions to the Above:
+X  .PP
+X+ If the first character of the string is `\-', then the rest of the
+X+ string must correspond to the above format, and the option is
+X+ considered to be a "hidden" option. This means it will be parsed
+X+ when actually matching options from the command line, but it will
+X+ \fInot\fP show-up if a usage message is printed using the \f4usage()\fP
+X+ member function. Such an example might be \f4"-h|hidden"\fP. If
+X+ you want to use an "dummy" options (options that are not parsed,
+X+ but that to show up in the usage message), you can specify them
+X+ along with any positional parameters to the \f4usage()\fP member
+X+ function.
+X+ 
+X  If the second character of the string is \f4'\\0'\fP then it is assumed
+X  that there is no corresponding long-option and that the option
+X  takes no argument (hence \f4"f"\fP, and \f4"f| "\fP are equivalent).
+X*** options.C.OLD	Fri Nov 05 15:22:07 1993
+X--- options.C	Thu Nov 04 11:52:37 1993
+X***************
+X*** 6,11 ****
+X--- 6,14 ----
+X  //
+X  //    03/23/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X  //    - Added OptIstreamIter class
+X+ //
+X+ //    10/08/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Added "hidden" options
+X  // ^^**************************************************************************
+X  
+X  #include <stdlib.h>
+X***************
+X*** 19,25 ****
+X     void  exit(int);
+X  }
+X  
+X! static const char ident[] = "@(#)Options  1.00" ;
+X  
+X     // I need a portable version of "tolower" that does NOT modify
+X     // non-uppercase characters.
+X--- 22,28 ----
+X     void  exit(int);
+X  }
+X  
+X! static const char ident[] = "@(#)Options  1.02" ;
+X  
+X     // I need a portable version of "tolower" that does NOT modify
+X     // non-uppercase characters.
+X***************
+X*** 169,174 ****
+X--- 172,181 ----
+X  
+X  // ******************************************************************* Options
+X  
+X+    // See if an opt-spec is a Hidden option
+X+ inline static int
+X+ isHiddenOpt(const char * optspec) { return  (*optspec == '-'); }
+X+ 
+X  // ---------------------------------------------------------------------------
+X  // ^FUNCTION: verify - verify the syntax of each option-spec
+X  //
+X***************
+X*** 205,224 ****
+X     int errors = 0;
+X     if ((optv == NULL) || (! *optv))  return;
+X  
+X!    for (; *optv ; optv++) {
+X!       char *p;
+X!       if (! **optv) {
+X!          cerr << name << ": invalid option spec \"" << *optv << "\"." << endl ;
+X!           cerr << "\tmust be at least 1 character long." << endl ;
+X           ++errors;
+X!       }
+X!       if ((**optv) && ((*optv)[1]) &&
+X!           ((p = strchr("|?:*+", (*optv)[1])) == NULL)) {
+X!          cerr << name << ": invalid option spec \"" << *optv << "\"." << endl ;
+X           cerr << "\t2nd character must be in the set \"|?:*+\"." << endl ;
+X           ++errors;
+X        }
+X!    }/*for*/
+X  
+X     if (errors)  exit(127);
+X  }
+X--- 212,230 ----
+X     int errors = 0;
+X     if ((optv == NULL) || (! *optv))  return;
+X  
+X!    const char * cp = *optv;
+X!    while (cp = *(optv++)) {
+X!       if (isHiddenOpt(cp))  ++cp;
+X!       if (! *cp) {
+X!          cerr << name << ": invalid option spec \"" << cp << "\"." << endl ;
+X!          cerr << "\tmust be at least 1 character long." << endl ;
+X           ++errors;
+X!       } else if (cp[1] && (strchr("|?:*+", cp[1]) == NULL)) {
+X!          cerr << name << ": invalid option spec \"" << cp << "\"." << endl ;
+X           cerr << "\t2nd character must be in the set \"|?:*+\"." << endl ;
+X           ++errors;
+X        }
+X!    }/*while*/
+X  
+X     if (errors)  exit(127);
+X  }
+X***************
+X*** 379,392 ****
+X  {
+X     if ((optv == NULL) || (! *optv))  return  NULL;
+X  
+X!    for (; *optv ; ++optv) {
+X!      char optchar = OptChar(*optv);
+X!      if (isNullOpt(optchar))  continue;
+X!      if (opt == optchar) {
+X!         return *optv;
+X!      } else if (ignore_case && (TOLOWER(opt) == TOLOWER(optchar))) {
+X!         return *optv;
+X!      }
+X     }
+X  
+X     return  NULL;  // not found
+X--- 385,399 ----
+X  {
+X     if ((optv == NULL) || (! *optv))  return  NULL;
+X  
+X!    for (const char * optspec = *optv; optspec ; optspec =  *(++optv)) {
+X!       if (isHiddenOpt(optspec))  ++optspec;
+X!       char optchar = OptChar(optspec);
+X!       if (isNullOpt(optchar))  continue;
+X!       if (opt == optchar) {
+X!          return optspec;
+X!       } else if (ignore_case && (TOLOWER(opt) == TOLOWER(optchar))) {
+X!          return optspec;
+X!       }
+X     }
+X  
+X     return  NULL;  // not found
+X***************
+X*** 445,462 ****
+X     ambiguous = 0;
+X     if ((optv == NULL) || (! *optv))  return  NULL;
+X  
+X!    for (; *optv ; ++optv) {
+X!       const char * longopt = LongOpt(*optv) ;
+X        if (longopt == NULL)  continue;
+X        result = kwdmatch(longopt, opt, len);
+X        if (result == EXACT_MATCH) {
+X!          return  *optv;
+X        } else if (result == PARTIAL_MATCH) {
+X           if (matched) {
+X              ++ambiguous;
+X              return  NULL;
+X           } else {
+X!             matched = *optv;
+X           }
+X        }
+X     }/*for*/
+X--- 452,470 ----
+X     ambiguous = 0;
+X     if ((optv == NULL) || (! *optv))  return  NULL;
+X  
+X!    for (const char * optspec = *optv; optspec ; optspec =  *(++optv)) {
+X!       if (isHiddenOpt(optspec))  ++optspec;
+X!       const char * longopt = LongOpt(optspec);
+X        if (longopt == NULL)  continue;
+X        result = kwdmatch(longopt, opt, len);
+X        if (result == EXACT_MATCH) {
+X!          return  optspec;
+X        } else if (result == PARTIAL_MATCH) {
+X           if (matched) {
+X              ++ambiguous;
+X              return  NULL;
+X           } else {
+X!             matched = optspec;
+X           }
+X        }
+X     }/*for*/
+X***************
+X*** 717,722 ****
+X--- 725,731 ----
+X  Options::fmt_opt(const char * optspec, char * buf) const
+X  {
+X     static  char default_value[] = "<value>";
+X+    if (isHiddenOpt(optspec))  return (unsigned)(*buf = '\0');
+X     char optchar = OptChar(optspec);
+X     const char * longopt = LongOpt(optspec);
+X     char * p = buf ;
+X***************
+X*** 843,848 ****
+X--- 852,858 ----
+X           len = strlen(positionals);
+X           ++nloop;  // terminate this loop
+X        } else {
+X+          if (isHiddenOpt(*optv))  continue;
+X           len = fmt_opt(*optv, buf);
+X        }
+X  
+X*** options.h.OLD	Fri Nov 05 15:22:10 1993
+X--- options.h	Sat Oct 30 16:57:09 1993
+X***************
+X*** 240,245 ****
+X--- 240,255 ----
+X  //
+X  //   EXCEPTIONS TO THE ABOVE:
+X  //   ------------------------ 
+X+ //   If the 1st character of the string is '-', then the rest of the
+X+ //   string must correspond to the above format, and the option is
+X+ //   considered to be a hidden-option. This means it will be parsed
+X+ //   when actually matching options from the command-line, but will
+X+ //   NOT show-up if a usage message is printed using the usage() member
+X+ //   function. Such an example might be "-h|hidden". If you want to
+X+ //   use any "dummy" options (options that are not parsed, but that
+X+ //   to show up in the usage message), you can specify them along with
+X+ //   any positional parameters to the usage() member function.
+X+ //
+X  //   If the 2nd character of the string is '\0' then it is assumed
+X  //   that there is no corresponding long-option and that the option
+X  //   takes no argument (hence "f", and "f| " are equivalent).
+X*** testopts.C.OLD	Fri Nov 05 15:22:13 1993
+X--- testopts.C	Sat Oct 30 16:47:40 1993
+X***************
+X*** 19,24 ****
+X--- 19,25 ----
+X     "s?str <string>",
+X     "x",
+X     " |hello",
+X+    "-h|hidden",
+X     NULL
+X  } ;
+X  
+X***************
+X*** 51,57 ****
+X     int  optchar;
+X     const char * optarg;
+X     const char * str = "default_string";
+X!    int  count = 0, xflag = 0, hello = 0;
+X     int  errors = 0;
+X     int  ngroups = 0;
+X  
+X--- 52,58 ----
+X     int  optchar;
+X     const char * optarg;
+X     const char * str = "default_string";
+X!    int  count = 0, xflag = 0, hello = 0, hidden = 0;
+X     int  errors = 0;
+X     int  ngroups = 0;
+X  
+X***************
+X*** 70,75 ****
+X--- 71,78 ----
+X  
+X        case 'g' : ++ngroups; break;
+X  
+X+       case 'h' : ++hidden; break;
+X+ 
+X        case 's' : str = optarg; break;
+X  
+X        case 'x' : ++xflag; break;
+X***************
+X*** 105,110 ****
+X--- 108,114 ----
+X     cout << "xflag=" << ((xflag) ? "ON"  : "OFF") << '\n'
+X          << "hello=" << ((hello) ? "YES" : "NO") << '\n'
+X          << "count=" << count << '\n'
+X+         << "hidden=" << ((hidden) ? "ON"  : "OFF") << '\n'
+X          << "string=\"" << ((str) ? str : "No value given!") << "\"" << '\n'
+X          << "ngroups=" << ngroups << endl ;
+X  
+END_OF_FILE
+if test 9589 -ne `wc -c <'PATCH02'`; then
+    echo shar: \"'PATCH02'\" unpacked with wrong size!
+fi
+# end of 'PATCH02'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

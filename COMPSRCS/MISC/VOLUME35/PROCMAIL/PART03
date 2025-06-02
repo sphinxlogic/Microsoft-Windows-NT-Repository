@@ -1,0 +1,1312 @@
+Newsgroups: comp.sources.misc
+From: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Subject: v35i024:  procmail - mail processing package v2.80, Part03/11
+Message-ID: <1993Feb5.020259.16360@sparky.imd.sterling.com>
+X-Md4-Signature: b3223736cdd692ddc6d3fcc1758c122a
+Date: Fri, 5 Feb 1993 02:02:59 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Posting-number: Volume 35, Issue 24
+Archive-name: procmail/part03
+Environment: sendmail, smail, MMDF, mailsurr, UNIX, POSIX
+Supersedes: procmail: Volume 31, Issue 40-44
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 11)."
+# Contents:  procmail280/Makefile.1 procmail280/README
+#   procmail280/mailinglist/bin/createlist
+#   procmail280/mailinglist/etc/rc.init
+#   procmail280/mailinglist/etc/rc.request procmail280/src/Makefile.0
+#   procmail280/src/fields.c procmail280/src/header.h
+#   procmail280/src/robust.c
+# Wrapped by berg@hathi on Thu Feb  4 15:27:58 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'procmail280/Makefile.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail280/Makefile.1'\"
+else
+echo shar: Extracting \"'procmail280/Makefile.1'\" \(4219 characters\)
+sed "s/^X//" >'procmail280/Makefile.1' <<'END_OF_FILE'
+X#$Id: Makefile.1,v 1.9 1993/01/26 14:49:37 berg Exp $
+X
+XHIDEMAKE=$(MAKE)
+X
+Xall: bins mans recommend
+X
+Xmake:
+X	@$(SHELL) -c "exit 0"
+X
+Xbins: config.check src/Makefile
+X	cd src; $(MAKE) $(NBINS) multigram
+X
+Xmans: config.check man/Makefile
+X	cd man; $(MAKE) $(NMANS)
+X
+Xautoconf.h: src/Makefile src/autoconf
+X	cd src; $(MAKE) ../$@
+X
+Xprocmail: config.check src/Makefile man/Makefile
+X	cd src; $(MAKE) ../new/$@ ../new/mailstat
+X	cd man; $(MAKE) ../new/$@.1 ../new/$@rc.5 ../new/$@ex.5
+X
+Xmailstat: procmail
+X
+Xformail lockfile: config.check src/Makefile man/Makefile
+X	cd src; $(MAKE) ../new/$@
+X	cd man; $(MAKE) ../new/$@.1
+X
+Xmultigram: config.check src/Makefile man/Makefile
+X	cd src; $(MAKE) $@
+X
+Xconfig.check: config.h
+X	@echo Housekeeping file >$@
+X	@-if $(FGREP) -n -e '`' config.h $(DEVNULL) | $(FGREP) -v EOFName ; \
+X	 then \
+X	 echo;echo '	^^^^^^^^^^^^^^^^^^^^ WARNING ^^^^^^^^^^^^^^^^^^^^^';\
+X	      echo '	* Having backquotes in there could be unhealthy! *';\
+X	 echo;fi;exit 0
+X
+Xrecommend: src/Makefile
+X	@cd src; $(MAKE) $@ >$(DEVNULL)
+X	@echo ----------------------------------------------------------------\
+X---------------
+X	@if $(FGREP) CF_no_procmail_yet autoconf.h >$(DEVNULL); \
+X	 then echo If you are a system administrator you should consider \
+Xintegrating procmail; echo into the mail-delivery system -- for advanced \
+Xfunctionality AND SECURITY --.; echo For more information about this topic \
+Xyou should look in the examples/advanced; echo file.; elif \
+X	 cat /usr/lib/sendmail.cf /etc/sendmail.cf 2>$(DEVNULL) | \
+X	 grep 'Mlocal.*procmail.*F=[a-zA-Z]*u' >$(DEVNULL) ; then \
+X	 echo The recommendation for the sendmail.cf entry of procmail has \
+Xchanged.; echo I suggest you remove the '`u'"'"-flag 'like in:'; echo ; \
+X	  sed -n 's/.*\(Mlocal.*procmail.*F=[a-zA-Z]*\)u/\1/p' `if test -f \
+X	 /etc/sendmail.cf; then echo /etc/sendmail.cf; else \
+X	 echo /usr/lib/sendmail.cf; fi`; fi
+X	@echo
+X	@echo "Also, HIGHLY RECOMMENDED (type 'make suid' to execute it):"
+X	@echo
+X	@src/$@ $(BINDIR)/procmail $(BINDIR)/lockfile >suid.sh
+X	@src/$@ $(BINDIR)/procmail $(BINDIR)/lockfile
+X	@echo ----------------------------------------------------------------\
+X---------------
+X
+Xsuid.sh: recommend
+X
+Xsuid: suid.sh install.bin
+X	@cat $@.sh
+X	@$(SHELL) ./$@.sh
+X	@cd $(BINDIR); echo Installed in $(BINDIR); ls -l $(BINSS)
+X
+X$(MANS): mans
+X
+X$(BINS): bins
+X
+Xinstall.man: $(MANS)
+X	@echo Housekeeping file >install.man
+X	@-mkdir $(MANDIR) 2>$(DEVNULL); exit 0
+X	@-mkdir $(MAN1DIR) 2>$(DEVNULL); exit 0
+X	@-mkdir $(MAN5DIR) 2>$(DEVNULL); exit 0
+X	@chmod 0644 $(MANS)
+X	@for a in $(MANS1S); \
+X	  do $(INSTALL) new/$$a.1 $(MAN1DIR)/$$a.$(MAN1SUFFIX); done
+X	@for a in $(MANS5S); \
+X	  do $(INSTALL) new/$$a.5 $(MAN5DIR)/$$a.$(MAN5SUFFIX); done
+X
+Xinstall.bin: $(BINS)
+X	@-mkdir $(BINDIR) 2>$(DEVNULL); exit 0
+X	@chmod 0755 $(BINS)
+X	@echo Housekeeping file >install.bin
+X	$(INSTALL) $(BINS) $(BINDIR)
+X
+Xinstall: install.man install.bin
+X	@echo
+X	@cd $(BINDIR); echo Installed in $(BINDIR); ls -l $(BINSS)
+X	@cd $(MAN1DIR); echo Installed in $(MAN1DIR); ls -l $(MANS1)
+X	@cd $(MAN5DIR); echo Installed in $(MAN5DIR); ls -l $(MANS5)
+X	@$(MAKE) recommend
+X
+Xnew:
+X	@-mkdir $@ 2>$(DEVNULL); exit 0
+X
+Xdeinstall:
+X	@echo ----------------------------- Deinstalling the procmail package.
+X	@$(RM) install.man install.bin
+X	@echo ----------------------------- Checking if everything was removed:
+X	@-cd $(BINDIR); $(RM) $(BINSS); ls -l $(BINSS); exit 0
+X	@-cd $(MAN1DIR); $(RM) $(MANS1); ls -l $(MANS1); exit 0
+X	@-cd $(MAN5DIR); $(RM) $(MANS5); ls -l $(MANS5); exit 0
+X	@echo ----------------------------- Ready.
+X
+Xclean: new
+X	-for a in $(SUBDIRS); do cd $$a; $(MAKE) $@; cd ..; done; exit 0
+X	$(RM) $(MANS) $(BINS) libcheck install.man install.bin suid.sh \
+X	 _Makefile core
+X
+Xrealclean: clean _init
+X	-rmdir new; exit 0
+X	$(RM) config.check
+X	-for a in $(SUBDIRS); do $(MV) $$a/Makefile.init $$a/Makefile; done; \
+X	 exit 0
+X
+Xveryclean: realclean
+X
+X_init:
+X	sed -e '/^# Makefile.1 - mark/,$$ d' <Makefile >_Makefile
+X	cat Makefile.0 >>_Makefile
+X	$(MV) _Makefile Makefile
+X	$(RM) Makefile.0
+X
+Xman/Makefile: man/Makefile.0
+X
+Xsrc/Makefile: src/Makefile.0
+X
+Xman/Makefile src/Makefile: Makefile
+X	$(MAKE) _init; $(HIDEMAKE) init
+X
+XMakefile: Makefile.1 initmake
+X
+Xinit makefiles Makefiles makefile: man/Makefile src/Makefile
+END_OF_FILE
+if test 4219 -ne `wc -c <'procmail280/Makefile.1'`; then
+    echo shar: \"'procmail280/Makefile.1'\" unpacked with wrong size!
+fi
+# end of 'procmail280/Makefile.1'
+fi
+if test -f 'procmail280/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail280/README'\"
+else
+echo shar: Extracting \"'procmail280/README'\" \(4757 characters\)
+sed "s/^X//" >'procmail280/README' <<'END_OF_FILE'
+XFor installation instructions see the INSTALL file.
+X----------------------
+XProcmail & formail mail processing package.
+XCopyright (c) 1990-1993, S.R. van den Berg, The Netherlands.
+X
+XSome legal stuff:
+X
+XUse this software package at your own risk.  The programmer cannot
+Xbe held liable for any incurred damages, directly or indirectly due to
+Xthe use or inability to use this software.
+X
+XYou are encouraged to distribute this package freely.  This package is
+Xhowever not to be sold (minor transfer costs excepted) or included in
+Xany commercially sold software package (if you want to do this anyway,
+Xcontact me (address below), and we'll work something out).
+X
+XIf you distribute it, please leave the package intact.	You are allowed to
+Xtake parts from this distribution and distribute these separately as long
+Xas you retain the copyright messages.  If you redistribute any part of this
+Xpackage in a modified form, be sure to mark the parts you changed.
+XIf you have some important changes that might be useful to the rest of the
+Xworld, contact me instead.
+X
+X-------------------------- SYSTEM REQUIREMENTS -------------------------------
+X
+XAny *NIX-alike system.
+X
+XSendmail, smail, MMDF, mailsurr or compatible mailers (in effect any mailer
+Xthat can process RFC-822 compliant mails).
+X
+XThe most important system calls that need to be supported (among others):
+Xdup(),wait(),getpwnam(),fork(),pipe()
+X
+XFor a more complete list of all library references see "src/includes.h"
+X
+X------------------------------ DESCRIPTION -----------------------------------
+X
+XThe procmail mail processing program. (v2.80 1993/02/04)
+X
+XCan be used to create mail-servers, mailing lists, sort your incoming mail
+Xinto separate folders/files (real convenient when subscribing to one or more
+Xmailing lists or for prioritising your mail), preprocess your mail, start
+Xany programs upon mail arrival (e.g. to generate different chimes on your
+Xworkstation for different types of mail) or selectively forward certain
+Xincoming mail automatically to someone.
+X
+XThe accompanying formail program enables you to generate autoreplies, split up
+Xdigests/mailboxes into the original messages, do some very simple
+Xheader-munging/extraction, or force mail into mail-format (with leading From
+Xline).
+X
+X----------------------
+X
+XI made the utmost effort to make procmail as robust as any program can be
+X(every conceivable system error is caught *and* handled).
+X
+XProcmail was designed to deliver the mail under the worst conditions
+X(file system full, out of swap space, process table full, file table full,
+Xmissing support files, unavailable executables; it all doesn't matter).
+XShould (in the unlikely event) procmail be unable to deliver your mail
+Xsomewhere, the mail will bounce back to the sender or reenter the mailqueue
+X(your choice).
+X
+XFor a more extensive list of features see the FEATURES file.
+X
+X----------------------
+X
+XHowever, as with any program, bugs cannot be completely ruled out.
+XI tested the program extensively, and believe it should be relatively
+Xbug free (no known bug at the time).  Should, however, anyone find any
+Xbugs (highly unlikely :-), I would be pleased (well, sort of :-) to hear
+Xabout it.  Please send me the patches or bug report.
+XI'll look at them and will try to fix it in a future release.
+X(BTW, if you should find any spelling or grammar errors in these files,
+Xdon't hesitate to point them out to me; I like correct English just as much
+Xas you do).
+X
+X----------------------
+X
+XI would like to take the opportunity to express my gratitude in particular
+Xto three powerusers of the procmail-package.  Without their constant feedback
+Xv2.80 would not have looked the same:
+X
+X	David W. Tamkin		An excellent proofreader and betatester
+X	 <dattier@gagme.chi.il.us>
+X	Josh Laff		For stresstesting procmail (and me :-)
+X	 <smiley@uiuc.edu>
+X	Dan Jacobson		For his many useful suggestions
+X	 <Dan_Jacobson@ATT.COM>
+X
+X----------------------
+X
+XPlease note that this program essentially is supposed to be static, that
+Xmeans no extra features (honouring the VNIX spirit) are supposed to be
+Xadded (though any useful suggestions will be appreciated and evaluated if
+Xtime permits).
+X
+XCheers,
+X       Stephen R. van den Berg	at RWTH-Aachen, Germany.
+X
+XInternet E-mail:		berg@pool.informatik.rwth-aachen.de
+X				berg@physik.tu-muenchen.de
+X
+XSnail-Mail:	P.O.Box 21074
+X		6369 ZG Simpelveld
+X		The Netherlands
+X
+X----------------------
+XA recent version can be picked up at various comp.sources.misc archives.
+XThe latest version can be obtained directly from the ftp-archive at:
+X
+X	ftp.informatik.rwth-aachen.de (137.226.112.172)
+X
+X	as zipped tar file:		pub/unix/procmail.tar.zip	~128KB
+X	as compressed tar file:		pub/unix/procmail.tar.Z		~192KB
+X	in compressed shar format:	pub/unix/procmail.??.Z	      11 parts
+X----------------------
+END_OF_FILE
+if test 4757 -ne `wc -c <'procmail280/README'`; then
+    echo shar: \"'procmail280/README'\" unpacked with wrong size!
+fi
+# end of 'procmail280/README'
+fi
+if test -f 'procmail280/mailinglist/bin/createlist' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail280/mailinglist/bin/createlist'\"
+else
+echo shar: Extracting \"'procmail280/mailinglist/bin/createlist'\" \(3755 characters\)
+sed "s/^X//" >'procmail280/mailinglist/bin/createlist' <<'END_OF_FILE'
+X#!/bin/sh
+X: &&O= || exec /bin/sh $0 $argv:q # we're in a csh, feed myself to sh
+X#########################################################################
+X#	createlist	To create mailinglists				#
+X#									#
+X#	Created by S.R. van den Berg, The Netherlands			#
+X#########################################################################
+X#$Id: createlist,v 1.12 1993/01/28 15:18:25 berg Exp $
+X
+Xdefaults=.etc
+X
+Xtest=test		# /bin/test
+Xln=ln			# /bin/ln
+Xtouch=touch		# /bin/touch
+Xmkdir=mkdir		# /bin/mkdir
+Xsed=sed			# /bin/sed
+Xpwd=pwd			# /bin/pwd
+Xcat=cat			# /bin/cat
+Xrm=rm			# /bin/rm
+Xcp=cp			# /bin/cp
+Xls=ls			# /bin/ls
+Xchmod=chmod		# /bin/chmod
+Xecho=echo		# /bin/echo
+Xgrep=grep		# /bin/grep
+Xlockfile=lockfile	# /usr/local/bin/lockfile
+X
+XDEVNULL=/dev/null
+XEX_USAGE=64
+XEX_UNAVAILABLE=69
+X
+X( lockfile ) 2>$DEVNULL
+Xif $test $? != 64
+Xthen
+X  echo "Where is \"lockfile\"? It should be installed in your PATH" 1>&2
+X  exit $EX_UNAVAILABLE
+Xfi
+X
+Xif $test ! -d $defaults
+Xthen
+X  if $test -d list
+X  then cd ./list
+X  else cd ..
+X     $test -d $defaults || cd ..
+X  fi
+Xfi
+Xif $test ! -d $defaults
+Xthen
+X  echo "createlist: You should be near the main list directory to do this" 1>&2
+X  exit $EX_USAGE
+Xfi
+X
+Xif $test ! -x .bin/procmail
+Xthen
+X  OIFS="$IFS"
+X  IFS=:"$IFS"
+X  procmail=""
+X
+X  for a in $PATH
+X  do $test -z "$procmail" -a -x "$a"/procmail && procmail=$a/procmail
+X  done
+X
+X  IFS="$OIFS"
+X  if $test -z "$procmail"
+X  then
+X     echo "Where is \"procmail\"?" 1>&2
+X     echo "The symbolic link .bin/procmail must point to it" 1>&2
+X     exit $EX_UNAVAILABLE
+X  fi
+X  $rm -f .bin/procmail
+X  $ln -s $procmail .bin/procmail 2>/dev/null ||
+X  $ln $procmail .bin/procmail 2>/dev/null ||
+X   ( $cat >.bin/procmail <<HERE
+X#! /bin/sh
+X:
+Xexec $procmail "\$@"
+XHERE
+X     $chmod 0755 .bin/procmail
+X   )
+Xfi
+X
+Xdomain=`$sed -n -e 's/^[^#]*domain= *\([^	 ]*\).*$/\1/p' \
+X $defaults/rc.init`
+X
+Xif $test .$domain = .INSERT.YOUR.MAIL.DOMAIN.HERE
+Xthen
+X  echo "I refuse to do anything useful until you have edited the" 1>&2
+X  echo "rc.init file.  \`domain' must be set to some sane value." 1>&2
+X  exit $EX_USAGE
+Xfi
+X
+Xif $test $# != 1 -a $# != 2
+Xthen echo "Usage: createlist listname [maintainer]" 1>&2; exit $EX_USAGE
+Xfi
+X
+Xlist="$1"
+Xmaintainer="$2"
+X
+Xcase "$list" in
+X  "*[/	 ]*") echo "createlist: Suspicious listname specified" 1>&2
+X     exit $EX_USAGE;;
+X  *[@!]*) echo "createlist: Specify listname without domain name appended" \
+X     1>&2; exit $EX_USAGE;;
+Xesac
+X
+Xumask `$sed -n -e 's/^[^#]*UMASK=[^0-9]*\([0-9]*\).*$/\1/p' \
+X $defaults/rc.init`
+X
+Xif $mkdir "$list" 2>$DEVNULL
+Xthen
+X:
+Xelse echo "createlist: \"$list\" already exists" 1>&2; exit $EX_USAGE
+Xfi
+Xcd "$list"
+Xfor a in rc.submit rc.init rc.request help.txt subscribe.txt reject
+Xdo
+X  $cat $DEVNULL >>../$defaults/$a		# to make sure it exists
+X  $ln ../$defaults/$a $a
+Xdone
+X
+X$mkdir archive
+X$mkdir archive/latest
+X
+X$sed -e "/^maintainer/ s/=/=	$maintainer/" <../$defaults/rc.custom \
+X >rc.custom
+Xecho "(Only addresses below this line can be automatically removed)" >>dist
+X
+X$chmod ugo+x .
+X$chmod ugo+r dist
+Xcd ..
+X
+Xecho 1>&2
+Xecho "Installed the following files (mostly hardlinked):" 1>&2
+Xecho 1>&2
+X$ls -ld $list $list/* $list/*/* 1>&2
+Xecho 1>&2
+X
+Xlistuser=`$ls -ld $defaults | ( read a b user d; echo $user )`
+X
+XTMPF=.uniq.$$
+X
+Xlistdir=$HOME
+X
+Xtrap "$rm -f $TMPF" 1 2 3 15
+X
+X$touch $TMPF
+Xtest -f $HOME/$TMPF || listdir=`$pwd`
+X
+X$rm -f $TMPF
+Xtrap 1 2 3 15
+X
+Xflist=$listdir/.bin/flist
+X
+Xecho "Now make the following entries in your /usr/lib/aliases file:" 1>&2
+Xecho \#########################################################################
+Xecho "$list: \"|IFS=' ';exec $flist $list\""
+Xecho "$list-request: \"|IFS=' ';exec $flist $list-request\""
+Xecho "$list-dist: :include:$listdir/$list/dist"
+Xecho \#########################################################################
+END_OF_FILE
+if test 3755 -ne `wc -c <'procmail280/mailinglist/bin/createlist'`; then
+    echo shar: \"'procmail280/mailinglist/bin/createlist'\" unpacked with wrong size!
+fi
+chmod +x 'procmail280/mailinglist/bin/createlist'
+# end of 'procmail280/mailinglist/bin/createlist'
+fi
+if test -f 'procmail280/mailinglist/etc/rc.init' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail280/mailinglist/etc/rc.init'\"
+else
+echo shar: Extracting \"'procmail280/mailinglist/etc/rc.init'\" \(4829 characters\)
+sed "s/^X//" >'procmail280/mailinglist/etc/rc.init' <<'END_OF_FILE'
+X#
+X# IMPORTANT variables to check/change:	PATH domain listmaster
+X#
+X
+X# BEFORE editing this file or any rc.* file in the .etc directory
+X# you should create the .etc/rc.lock file.  As long as this file
+X# exists, mail delivery to any list will stall (fmail checks this file).
+X
+X# ENVIRONMENT:
+X# list		contains the submitting address of the list (sans domain)
+X# domain	should contain the domain for the list, so that $list@$domain
+X#		can be used to submit to the list
+X# maintainer	should contain the fully qualified address of the maintainer
+X#		of $list;  maintainter can be left empty
+X# listmaster	should contain the fully qualified address of the supervising
+X#		list maintainer;  listmaster can be left empty
+X# X_ENVELOPE_TO contains the address that the incoming mail was addressed to
+X
+X# FILES:
+X# log		optional logfile (uncomment the LOGFILE assignment to enable
+X#		it)
+X# dist		the subscriber list, one address per line
+X# reject	list of people you definitely do want to subscribe
+X# request	all the messages to request that could not be handled
+X#		automatically (only if maintainer is empty)
+X# help.txt	file sent to help requests
+X# subscribe.txt file sent to new subscribers
+X# bounces	directory containing the bounce history files
+X# rc.submit	rcfile used when distributing submissions
+X# rc.request	rcfile used when processing requests
+X# rc.custom	rcfile that contains all the customisations per list
+X
+X#$Id: rc.init,v 1.6 1993/01/27 20:33:00 berg Exp $
+X
+XPATH=.:../.bin:/bin:/usr/bin:/usr/local/bin	# setup a decent path
+XSHELL=/bin/sh				# to prevent surprises
+X
+Xdefaults=.etc
+X
+XLOCKTIMEOUT=3660			# set these values this high (1 hour)
+XTIMEOUT=3600				# to give sendmail the time to
+X					# resolve big aliases
+X
+X###############################################################################
+X# You have to setup the following two assignments, make sure that the address
+X# mentioned in listmaster is *not* the address this script runs under;	if
+X# you would end up doing that, then assign listmaster to ""
+X# The same applies to the maintainer addresses used for every list, if you
+X# would like to alias them back to this script or to the respective -request
+X# addresses, then assign maintainer to "" instead.
+X#
+X# The mail-domain you have to insert below, must be the fully qualified
+X# mail-domain for this list;  e.g. if the preferred mail address for this
+X# account would be:  list@somemachine.somewhere.universe
+X# Then you should assign the following:
+X#		   domain=somemachine.somewhere.universe
+X###############################################################################
+X
+Xdomain=INSERT.YOUR.MAIL.DOMAIN.HERE	# the common domain for all the lists
+Xlistmaster=
+X
+X#UMASK=077				# group can not touch the files
+X UMASK=027				# group can read
+X#UMASK=007				# group can write as well
+X
+Xdefaults=.etc				# the name of the defaults directory
+X#LOGFILE=../$defaults/log		# uncomment in case of emergency
+X#VERBOSE=yes				# uncomment in case of real emergency
+X
+X	# The following should catch all the unwanted mailer-daemons bouncing
+X	# mail to us unexpectedly.
+X
+XFROM_MAILER_DAEMON='^(Precedence:.*junk|'\
+X'(((Resent-)?(From|Sender)|X-Envelope-From):|From )'\
+X'(.*[^.a-z])?('\
+X'Post(ma(st(er)?|n)|office)|Mailer|daemon|mmdf|root|uucp|serv(ices?|er)'\
+X')([^.a-z]|$))'
+X
+XRC_INIT					# clear this one from the environment
+X					# so that we include this file only
+X					# once
+X
+Xlistaddr=$list@$domain
+Xlistreq=$list-request@$domain
+Xlistdist=$list-dist@$domain
+X
+XsendmailOPT="-oem -odb -oi -f$listreq"
+X########################
+X# sendmail options used:
+X#
+X# -t	scan the header of the mail for recipients
+X# -f	specify the sender envelope address (requires T entry in sendmail.cf)
+X# -oi	do not regard a single dot on an otherwise empty line as EOF
+X# -om	include myself in any alias expansions
+X# -odb	background deliverymode command returns immediately
+X# -oem	mail back error messages
+X# -oep	print error messages
+X########################
+X
+Xsize_limit	=	524288		# sanity cutoff value for submissions
+Xarchive_hist	=	2		# number of messages left archived
+Xarchive_log	=	log		# log file for archive retrievals
+Xmaxhist		=	8		# bounce history limit
+Xminbounce	=	3		# no. of bounces before removal
+Xcutoff_bounce	=	256		# lines to keep in bounce processing
+Xmatch_threshold =	30730		# for close matches to the list
+Xoff_threshold	=	24476		# for loosely finding your name
+X
+Xreject_threshold=      $match_threshold # to determine if you may subscribe
+Xsubmit_threshold=      $match_threshold # to determine if you may submit
+Xforeign_submit	=	yes
+X#foreign_submit				# uncomment this line if you
+X					# *don't* want to allow
+X					# non-subscribers to submit
+X
+XX_COMMAND	=	X-Command
+XX_COMMAND_PASSWORD =	password	# put the global password for
+X					# X-Command mails here
+X				# this password can of course be changed/
+X				# customised in the per list rc.custom file
+X
+XRC_CUSTOM=rc.custom
+END_OF_FILE
+if test 4829 -ne `wc -c <'procmail280/mailinglist/etc/rc.init'`; then
+    echo shar: \"'procmail280/mailinglist/etc/rc.init'\" unpacked with wrong size!
+fi
+# end of 'procmail280/mailinglist/etc/rc.init'
+fi
+if test -f 'procmail280/mailinglist/etc/rc.request' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail280/mailinglist/etc/rc.request'\"
+else
+echo shar: Extracting \"'procmail280/mailinglist/etc/rc.request'\" \(4215 characters\)
+sed "s/^X//" >'procmail280/mailinglist/etc/rc.request' <<'END_OF_FILE'
+X# BEFORE editing this file, you should make sure that it is not linked to
+X# the master version (../.listadmin/listrc.sub) anymore (i.e. make a copy).
+X# If the mailinglist is not in active use yet, or if you want to take the
+X# chance, you can write out this file without locking.	To do it properly
+X# you should create the ../.listadmin/the_lists.lock file with lockfile(1)
+X# shortly before writing out the new version of this file (remove the lockfile
+X# afterwards of course)
+X
+X#$Id: rc.request,v 1.7 1993/02/02 15:26:57 berg Exp $
+X
+XINCLUDERC=$RC_INIT
+XINCLUDERC=$RC_CUSTOM
+X
+XLOCKFILE=tmp.lock	# for reusing tmp.(request|from)
+X			# also makes sure that the load doesn't go sky-high
+X			# when a lot of mail arrives concurrently
+X
+X#
+X# We now check:
+X#	If the length is roughly within bounds.
+X#	That it is not a reply or something.
+X#	That we didn't send it ourselves.
+X#	That it wasn't sent by a daemon of some kind.
+X#
+X# If everything matches, we extract the sender address into tmp.from
+X#
+X
+X:4whc
+X< 8192
+X$!^(X-(Loop: $listaddr|Diagnostic:)|$X_COMMAND)
+X!^Subject:(.*[^a-z])?(Re:|erro|problem|((can)?not|.*n't)([^a-z]|$))
+X!^FROM_DAEMON
+X| formail -rt -xTo: >tmp.from
+X
+X#
+X# Store the whole mail in tmp.request, for later reference.
+X#
+X
+X	:Ac
+X	| cat >tmp.request
+X
+X#
+X# Is it an archival retrieval command?
+X#
+X
+X	:1A
+X	^Subject:[	 ]*archive([^a-z-]|$)
+X	| arch_retrieve
+X
+X#
+X# Is it an unsubscription request?
+X#
+X
+X	:1BHA:dist.lock
+X	^((Subject:)?[	 ]*(remove|unsub)|(.*[^a-z])?(unsubscri.*|\
+X			       (remove .* from|take .* off) .* list)([^a-z]|$))
+X	| unsubscribe | $SENDMAIL $sendmailOPT `cat tmp.from`
+X
+X#
+X# Is it a subscription request?	 Yes, well, then check if the person
+X# subscribing isn't on the reject list.	 If not, then let's see if he might
+X# already be on the mailinglist.  If not, add him.
+X#
+X
+X	:3BHA:dist.lock
+X	^((Subject:)?[	 ]*(add|sub.*[@!])|(.*[^a-z])?(subscri.*|\
+X				      (add .* to|put .* on) .* list)([^a-z]|$))
+X	!?multigram -b1 -l$reject_threshold reject
+X	!?multigram -b1 -l$reject_threshold dist
+X	| subscribe | $SENDMAIL $sendmailOPT -t
+X
+X	:1A
+X	^Subject:(.*[^a-z.])?(help|info((rm)?ation)?)([^a-z]|$)
+X	| (formail -i"From: $listreq" -rtA"X-Loop: $listaddr"; \
+X	   cat help.txt) | $SENDMAIL $sendmailOPT -t
+X
+X#
+X# Could it be a bounce message from a daemon?  Hand it down to procbounce
+X# which will evaluate it.
+X#
+X
+X:3wc
+X!^Subject:(.*[^a-z])?Re:
+X$!^(X-(Loop: $listaddr|Diagnostic:)|$X_COMMAND)
+X^FROM_DAEMON
+X| sed -e $cutoff_bounce',$ d' >tmp.request
+X
+X	:Ahfw
+X	| procbounce
+X
+X#
+X# Or is it a remote X-Command from our maintainer?
+X#
+X
+X:2wf:dist.lock
+X$^$X_COMMAND:.*$maintainer.*$X_COMMAND_PASSWORD
+X$!^X-Loop: $listaddr
+X| x_command `formail -x$X_COMMAND:`
+X
+XLOCKFILE				# we don't need the lockfile anymore
+X
+XLOGFILE=log				# log -request arrivals
+X
+X#
+X# Anything not taken care of yet will be served to the maintainer of the list.
+X#
+X# To make it easier on him, we include a small hint about what might be the
+X# problem (by adding X-Diagnostic: fields to the header).
+X#
+X
+X:wfh
+X!< $size_limit
+X| formail -A "X-Diagnostic: Submission size exceeds $size_limit bytes"
+X
+X:wfh
+X^FROM_DAEMON
+X| formail -A "X-Diagnostic: Mail coming from a daemon, ignored"
+X
+X:BH wfh
+X$^X-Loop: $listaddr
+X| formail -A "X-Diagnostic: Possible loopback problem"
+X
+X:ch
+X!^X-(Diagnostic|Processed):
+X/dev/null
+X
+X	:1A wfh
+X	$^$X_COMMAND:
+X	| formail -A "X-Diagnostic: Suspicious $X_COMMAND format"
+X
+X	:1A BH wfh
+X	?multigram -b1 -l$reject_threshold reject
+X	| formail -A "X-Diagnostic: Found on the reject list" \
+X	   -A "X-Diagnostic: `multigram -b1 -l$reject_threshold reject`"
+X
+X	:2A BH wfh
+X	^((Subject:)?[	 ]*(add|sub.*[@!])|(.*[^a-z])?(subscri.*|\
+X				      (add .* to|put .* on) .* list)([^a-z]|$))
+X	?multigram -b1 -l$reject_threshold dist
+X	| formail -A "X-Diagnostic: Already on the subscriber list" \
+X	   -A "X-Diagnostic: `multigram -b1 -l$reject_threshold dist`"
+X
+X:0fh
+X| formail -A"X-Envelope-To: $X_ENVELOPE_TO"
+X
+X#
+X# If this list does not have a maintainer e-mail address, drop things in
+X# the file request.
+X#
+X
+X::
+X?test -z "$maintainer"
+Xrequest
+X
+X:0w
+X| formail -R"From X-Envelope-From:" -iReturn-Receipt-To: \
+X   | $SENDMAIL $sendmailOPT -oep $maintainer
+X
+X:0wfh
+X| formail -A"X-Diagnostic: Maintainer $maintainer could not be reached"
+X
+XHOST=continue_with_../.etc/rc.post
+END_OF_FILE
+if test 4215 -ne `wc -c <'procmail280/mailinglist/etc/rc.request'`; then
+    echo shar: \"'procmail280/mailinglist/etc/rc.request'\" unpacked with wrong size!
+fi
+# end of 'procmail280/mailinglist/etc/rc.request'
+fi
+if test -f 'procmail280/src/Makefile.0' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail280/src/Makefile.0'\"
+else
+echo shar: Extracting \"'procmail280/src/Makefile.0'\" \(4358 characters\)
+sed "s/^X//" >'procmail280/src/Makefile.0' <<'END_OF_FILE'
+X
+X#$Id: Makefile.0,v 1.8 1992/11/12 11:38:12 berg Exp $
+X
+XPM_OBJ=cstdio.$(O) common.$(O) exopen.$(O) goodies.$(O) locking.$(O) \
+X mailfold.$(O) misc.$(O) pipes.$(O) regexp.$(O) robust.$(O) sublib.$(O)
+XLF_OBJ=exopen.$(O) sublib.$(O)
+XFM_OBJ=common.$(O) fields.$(O) formisc.$(O) sublib.$(O) ecommon.$(O)
+X
+Xall:	$(BINSS)
+X
+Xmake:
+X	@$(SHELL) -c "exit 0"			# fake target
+X
+Xprocmail: procmail.$(O) $(PM_OBJ)
+X	$(CC) $(CFLAGS) $@.$(O) $(PM_OBJ) -o $@ $(LDFLAGS)
+X
+Xlockfile: lockfile.$(O) $(LF_OBJ)
+X	$(CC) $(CFLAGS) $@.$(O) $(LF_OBJ) -o $@ $(LDFLAGS)
+X
+Xformail: formail.$(O) $(FM_OBJ)
+X	$(CC) $(CFLAGS) $@.$(O) $(FM_OBJ) -o $@ $(LDFLAGS)
+X
+Xmailstat: ../examples/mailstat
+X	cp ../examples/$@ .
+X	chmod 0755 $@
+X
+Xmultigram: multigram.$(O) sublib.$(O) ecommon.$(O)
+X	$(CC) $(CFLAGS) $@.$(O) sublib.$(O) ecommon.$(O) -o $@ $(LDFLAGS)
+X
+X../new:
+X	@-mkdir $@ 2>$(DEVNULL); exit 0
+X
+X_autotst: _autotst.$(O)
+X	$(CC) $(CFLAGS) $@.$(O) -o $@ $(LDFLAGS)
+X
+X# to fully support "make -n"
+XHIDEMAKE = $(MAKE)
+X
+X../autoconf.h: autoconf Makefile
+X	$(SHELL) ./autoconf $(SHELL) "$(RM)" "$(MV)" $(USRINCLUDE) \
+X	 $(DEVNULL) "$(FGREP)" "$(HIDEMAKE)" $(O) $@
+X
+Xautoconf.h: ../autoconf.h
+X
+Xcommon.$(O): ../autoconf.h ../config.h includes.h procmail.h sublib.h robust.h
+Xcommon.$(O): shell.h misc.h common.h
+X
+Xcstdio.$(O): ../autoconf.h ../config.h includes.h procmail.h robust.h cstdio.h
+Xcstdio.$(O):  misc.h
+X
+Xecommon.$(O): ../autoconf.h ../config.h includes.h ecommon.h
+X
+Xexopen.$(O): ../autoconf.h ../config.h includes.h procmail.h robust.h misc.h
+Xexopen.$(O): exopen.h
+X
+Xfields.$(O): ../autoconf.h ../config.h includes.h formail.h sublib.h shell.h
+Xfields.$(O): common.h fields.h ecommon.h formisc.h
+X
+Xformail.$(O): ../autoconf.h ../config.h includes.h formail.h sublib.h shell.h
+Xformail.$(O): common.h fields.h ecommon.h formisc.h header.h
+X
+Xformisc.$(O): ../autoconf.h ../config.h includes.h formail.h sublib.h shell.h
+Xformisc.$(O): common.h ecommon.h formisc.h
+X
+Xgoodies.$(O): ../autoconf.h ../config.h includes.h procmail.h sublib.h robust.h
+Xgoodies.$(O): shell.h misc.h pipes.h common.h cstdio.h goodies.h
+X
+Xlockfile.$(O): ../autoconf.h ../config.h includes.h sublib.h exopen.h robust.h
+Xlockfile.$(O): misc.h
+X
+Xlocking.$(O): ../autoconf.h ../config.h includes.h procmail.h robust.h shell.h
+Xlocking.$(O): misc.h exopen.h locking.h
+X
+Xmailfold.$(O): ../autoconf.h ../config.h includes.h procmail.h sublib.h
+Xmailfold.$(O): robust.h shell.h misc.h pipes.h common.h exopen.h locking.h
+Xmailfold.$(O): mailfold.h network.h
+X
+Xmanconf.$(O): ../patchlevel.h ../autoconf.h ../config.h includes.h procmail.h
+X
+Xmisc.$(O): ../autoconf.h ../config.h includes.h procmail.h sublib.h robust.h
+Xmisc.$(O): shell.h misc.h pipes.h common.h cstdio.h exopen.h regexp.h goodies.h
+Xmisc.$(O): locking.h mailfold.h
+X
+Xmultigram.$(O): ../autoconf.h ../config.h includes.h sublib.h shell.h ecommon.h
+X
+Xpipes.$(O): ../autoconf.h ../config.h includes.h procmail.h robust.h shell.h
+Xpipes.$(O): misc.h pipes.h common.h cstdio.h goodies.h mailfold.h
+X
+Xprocmail.$(O): ../patchlevel.h ../autoconf.h ../config.h includes.h procmail.h
+Xprocmail.$(O): sublib.h robust.h shell.h misc.h pipes.h common.h cstdio.h
+Xprocmail.$(O): exopen.h goodies.h locking.h mailfold.h
+X
+Xregexp.$(O): ../autoconf.h ../config.h includes.h procmail.h robust.h shell.h
+Xregexp.$(O): regexp.h
+X
+Xrobust.$(O): ../autoconf.h ../config.h includes.h procmail.h robust.h shell.h
+Xrobust.$(O): misc.h mailfold.h shell.h
+X
+Xsublib.$(O): ../autoconf.h ../config.h includes.h sublib.h shell.h
+X
+Xrecommend.$(O): ../autoconf.h ../config.h includes.h
+X	@$(CC) -c $(CFLAGS) $*.c
+X
+X.c.$(O):
+X	$(CC) -c $(CFLAGS) $<
+X
+Xrecommend: recommend.$(O) sublib.$(O)
+X	@$(CC) $(CFLAGS) $@.$(O) sublib.$(O) -o $@ $(LDFLAGS)
+X
+X../man/man.sed: manconf.c ../autoconf.h ../config.h includes.h procmail.h
+X../man/man.sed: ../patchlevel.h
+X	$(CC) $(CFLAGS) -o _autotst manconf.c $(LDFLAGS)
+X	./_autotst >$@
+X	$(RM) _autotst
+X
+Xclean:
+X	$(RM) procmail.$(O) $(PM_OBJ) lockfile.$(O) $(LF_OBJ) formail.$O \
+X	 $(FM_OBJ) multigram.$(O) $(BINSS) multigram ../autoconf.h _autotst* \
+X	 lookfor _locktst* grepfor recommend recommend.$(O) manconf _Makefile \
+X	 lock.log core
+X
+XMakefile: ../Makefile Makefile.0
+X	@echo "You have made changes to the master Makefile, in order for"
+X	@echo "these changes to show through, you will have to do first:"
+X	@echo "$(MAKE) makefiles"
+X
+Xmakefiles Makefiles makefile:
+X	cd ..; $(MAKE) makefiles
+X
+Xinit:
+X	cd ..; $(MAKE) $@
+END_OF_FILE
+if test 4358 -ne `wc -c <'procmail280/src/Makefile.0'`; then
+    echo shar: \"'procmail280/src/Makefile.0'\" unpacked with wrong size!
+fi
+# end of 'procmail280/src/Makefile.0'
+fi
+if test -f 'procmail280/src/fields.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail280/src/fields.c'\"
+else
+echo shar: Extracting \"'procmail280/src/fields.c'\" \(3427 characters\)
+sed "s/^X//" >'procmail280/src/fields.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	Routines to deal with the header-field objects in formail	*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	#include "README"						*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic /*const*/char rcsid[]=
+X "$Id: fields.c,v 1.9 1992/11/12 11:38:21 berg Exp $";
+X#endif
+X#include "includes.h"
+X#include "formail.h"
+X#include "sublib.h"
+X#include "shell.h"
+X#include "common.h"
+X#include "fields.h"
+X#include "ecommon.h"
+X#include "formisc.h"
+X
+Xstruct field*findf(p,hdr)const struct field*const p,*hdr;
+X{ size_t i;char*chp;		/* find a field in the linked list of fields */
+X  for(i=p->id_len,chp=(char*)p->fld_text;hdr;hdr=hdr->fld_next)
+X     if(i==hdr->id_len&&!strnIcmp(chp,hdr->fld_text,i))	 /* case insensitive */
+X	return(struct field*)hdr;
+X  return(struct field*)0;
+X}
+X
+Xstruct field**addfield(pointer,text,totlen)register struct field**pointer;
+X const char*const text;const size_t totlen;    /* add field to a linked list */
+X{ register struct field*p;
+X  while(*pointer)			      /* skip to the end of the list */
+X     pointer= &(*pointer)->fld_next;
+X  (*pointer=p=malloc(FLD_HEADSIZ+totlen))->fld_next=0;	 /* create the field */
+X  p->id_len=breakfield(text,totlen);		  /* and copy field contents */
+X  tmemmove(p->fld_text,text,p->tot_len=totlen);return pointer;
+X}
+X
+Xvoid concatenate(fldp)struct field*const fldp;
+X{ register char*p;register size_t l;	    /* concatenate a continued field */
+X  l=fldp->tot_len;p=fldp->fld_text;
+X  while(l--)
+X     if(*p++=='\n'&&l)	     /* by substituting all newlines except the last */
+X	p[-1]=' ';
+X}
+X
+Xvoid renfield(pointer,oldl,newname,newl)struct field**const pointer;
+X const size_t oldl,newl;const char*const newname;	    /* rename fields */
+X{ struct field*p;size_t i;char*chp;
+X  i=(p= *pointer)->tot_len-oldl;	      /* length of what we will keep */
+X  *pointer=p=realloc(p,FLD_HEADSIZ+(p->tot_len=i+newl));chp=p->fld_text;
+X  tmemmove(chp+newl,chp+oldl,i);tmemmove(chp,newname,newl);   /* shove, copy */
+X}
+X
+Xvoid clearfield(pointer)register struct field**pointer;	 /* delete the whole */
+X{ register struct field*p,*q;			    /* linked list of fields */
+X  for(p= *pointer,*pointer=0;p;p=q)
+X     q=p->fld_next,free(p);
+X}
+X
+Xvoid flushfield(pointer)register struct field**pointer;	 /* delete and print */
+X{ register struct field*p,*q;				   /* them as you go */
+X  for(p= *pointer,*pointer=0;p;p=q)
+X     q=p->fld_next,lputssn(p->fld_text,p->tot_len),free(p);
+X}
+X
+Xvoid dispfield(p)register const struct field*p;
+X{ for(;p;p=p->fld_next)			     /* print list non-destructively */
+X     if(p->id_len<p->tot_len-1)			 /* any contents to display? */
+X	lputssn(p->fld_text,p->tot_len);
+X}
+X
+Xreadhead P((void))  /* try and append one valid field to rdheader from stdin */
+X{ getline();
+X  if(!eqFrom_(buf))				    /* it's not a From_ line */
+X   { if(!breakfield(buf,buffilled))	   /* not the start of a valid field */
+X	return 0;
+X     for(;;getline())		      /* get the rest of the continued field */
+X      { switch(buflast)			     /* will this line be continued? */
+X	 { case ' ':case '\t':continue;			  /* yep, it sure is */
+X	 }
+X	break;
+X      }
+X   }
+X  else if(rdheader)
+X     return 0;				       /* the From_ line was a fake! */
+X  addbuf();return 1;		  /* phew, got the field, add it to rdheader */
+X}
+X
+Xvoid addbuf P((void))
+X{ addfield(&rdheader,buf,buffilled);buffilled=0;
+X}
+END_OF_FILE
+if test 3427 -ne `wc -c <'procmail280/src/fields.c'`; then
+    echo shar: \"'procmail280/src/fields.c'\" unpacked with wrong size!
+fi
+# end of 'procmail280/src/fields.c'
+fi
+if test -f 'procmail280/src/header.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail280/src/header.h'\"
+else
+echo shar: Extracting \"'procmail280/src/header.h'\" \(3778 characters\)
+sed "s/^X//" >'procmail280/src/header.h' <<'END_OF_FILE'
+X/************************************************************************
+X *									*
+X *	Known fields when formail is splitting messages (the first	*
+X *	"-m nnn" fields encountered should be among them or one of	*
+X *	the special From_, Article_ or X- fields).			*
+X *									*
+X *	If you need to add one (be sure to update "cdigest" below as	*
+X *	well!), drop me a mail, I might be interested in including	*
+X *	it in the next release.						*
+X *									*
+X ************************************************************************/
+X/*$Id: header.h,v 1.12 1993/01/26 14:49:52 berg Exp $*/
+X
+Xstatic const char
+X returnpath[]=		"Return-Path:",				  /* RFC 822 */
+X received[]=		"Received:",				/* ditto ... */
+X replyto[]=		"Reply-To:",
+X Fromm[]=		"From:",
+X sender[]=		"Sender:",
+X res_replyto[]=		"Resent-Reply-To:",
+X res_from[]=		"Resent-From:",
+X res_sender[]=		"Resent-Sender:",
+X date[]=		"Date:",
+X res_date[]=		"Resent-Date:",
+X to[]=			"To:",
+X res_to[]=		"Resent-To:",
+X cc[]=			"Cc:",
+X res_cc[]=		"Resent-Cc:",
+X bcc[]=			"Bcc:",
+X res_bcc[]=		"Resent-Bcc:",
+X messageid[]=		"Message-ID:",
+X res_messageid[]=	"Resent-Message-ID:",
+X inreplyto[]=		"In-Reply-To:",
+X references[]=		"References:",
+X keywords[]=		"Keywords:",
+X subject[]=		"Subject:",
+X scomments[]=		"Comments:",
+X ncrypted[]=		"Encrypted:",
+X errorsto[]=		"Errors-To:",		       /* sendmail extension */
+X retreceiptto[]=	"Return-Receipt-To:",			/* ditto ... */
+X precedence[]=		"Precedence:",
+X fullname[]=		"Full-Name:",
+X postddate[]=		"Posted-Date:",
+X recvddate[]=		"Received-Date:",
+X mssage[]=		"Message:",
+X text[]=		"Text:",
+X via[]=			"Via:",
+X priority[]=		"Priority:",			    /* ELM extension */
+X fcc[]=			"Fcc:",				   /* Mush extension */
+X article[]=		"Article:",			 /* USENET extension */
+X path[]=		"Path:",				/* ditto ... */
+X summary[]=		"Summary:",
+X organisation[]=	"Organisation:",
+X aorganization[]=	"Organization:",
+X newsgroups[]=		"Newsgroups:",
+X followupto[]=		"Followup-To:",
+X approved[]=		"Approved:",
+X lines[]=		"Lines:",
+X expires[]=		"Expires:",
+X control[]=		"Control:",
+X distribution[]=	"Distribution:",
+X xref[]=		"Xref:",
+X originator[]=		"Originator:",
+X nntppostinghost[]=	"Nntp-Posting-Host:",
+X title[]=		"Title:",	      /* antiquated USENET extension */
+X aRticleid[]=		"Article-I.D.:",			/* ditto ... */
+X posted[]=		"Posted:",
+X cnttype[]=		"Content-Type:",	       /* Internet extension */
+X encoding[]=		"Encoding:",				/* ditto ... */
+X mimeversion[]=		"MIME-Version:",		   /* MIME extension */
+X cnttransferenc[]=	"Content-Transfer-Encoding:",		/* ditto ... */
+X cntid[]=		"Content-ID:",
+X cntdescription[]=	"Content-Description:",
+X transportoptions[]=	"Transport-Options:",	    /* SysV mailer extension */
+X defltoptions[]=	"Default-Options:",
+X cntlength[]=		"Content-Length:",
+X status[]=		"Status:";			 /* mailer extension */
+X
+Xstatic const struct {const char*hedr;int lnr;}cdigest[]=
+X{ bsl(returnpath),bsl(received),bsl(replyto),bsl(Fromm),bsl(sender),
+X  bsl(res_replyto),bsl(res_from),bsl(res_sender),bsl(date),bsl(res_date),
+X  bsl(to),bsl(res_to),bsl(cc),bsl(res_cc),bsl(bcc),bsl(res_bcc),bsl(messageid),
+X  bsl(res_messageid),bsl(inreplyto),bsl(references),bsl(keywords),bsl(subject),
+X  bsl(scomments),bsl(ncrypted),bsl(errorsto),bsl(retreceiptto),
+X  bsl(precedence),bsl(fullname),bsl(postddate),bsl(recvddate),bsl(mssage),
+X  bsl(text),bsl(via),bsl(priority),bsl(fcc),bsl(article),bsl(path),
+X  bsl(summary),bsl(organisation),bsl(aorganization),bsl(newsgroups),
+X  bsl(followupto),bsl(approved),bsl(lines),bsl(expires),bsl(control),
+X  bsl(distribution),bsl(xref),bsl(originator),bsl(nntppostinghost),bsl(title),
+X  bsl(aRticleid),bsl(posted),bsl(cnttype),bsl(encoding),bsl(mimeversion),
+X  bsl(cnttransferenc),bsl(cntid),bsl(cntdescription),bsl(transportoptions),
+X  bsl(defltoptions),bsl(cntlength),bsl(status)
+X};
+END_OF_FILE
+if test 3778 -ne `wc -c <'procmail280/src/header.h'`; then
+    echo shar: \"'procmail280/src/header.h'\" unpacked with wrong size!
+fi
+# end of 'procmail280/src/header.h'
+fi
+if test -f 'procmail280/src/robust.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail280/src/robust.c'\"
+else
+echo shar: Extracting \"'procmail280/src/robust.c'\" \(4031 characters\)
+sed "s/^X//" >'procmail280/src/robust.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	The fault-tolerant system-interface				*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	#include "README"						*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic /*const*/char rcsid[]=
+X "$Id: robust.c,v 1.9 1993/01/19 11:55:25 berg Exp $";
+X#endif
+X#include "procmail.h"
+X#include "robust.h"
+X#include "misc.h"
+X#include "mailfold.h"
+X
+X#define nomemretry	noresretry
+X#define noforkretry	noresretry
+X		       /* set nextexit to prevent elog() from using malloc() */
+Xstatic void nomemerr P((void))
+X{ nextexit=2;nlog("Out of memory\n");
+X  if(buf2)
+X   { buf[linebuf-1]=buf2[linebuf-1]='\0';elog("buffer 0:");logqnl(buf);
+X     elog("buffer 1:");logqnl(buf2);
+X   }
+X  if(retval!=EX_TEMPFAIL)
+X     retval=EX_OSERR;
+X  terminate();
+X}
+X
+Xvoid*tmalloc(len)const size_t len;    /* this malloc can survive a temporary */
+X{ void*p;int i;				    /* "out of swap space" condition */
+X  lcking|=lck_ALLOCLIB;
+X  if(p=malloc(len))
+X     goto ret;
+X  lcking|=lck_MEMORY;
+X  if(p=malloc(1))
+X     free(p);			   /* works on some systems with latent free */
+X  for(i=nomemretry;i<0||i--;)
+X   { suspend();		     /* problems?  don't panic, wait a few secs till */
+X     if(p=malloc(len))	     /* some other process has paniced (and died 8-) */
+Xret:  { lcking&=~(lck_MEMORY|lck_ALLOCLIB);return p;
+X      }
+X   }
+X  nomemerr();
+X}
+X
+Xvoid*trealloc(old,len)void*const old;const size_t len;
+X{ void*p;int i;
+X  lcking|=lck_ALLOCLIB;
+X  if(p=realloc(old,len))
+X     goto ret;				    /* for comment see tmalloc above */
+X  lcking|=lck_MEMORY;
+X  if(p=malloc(1))
+X    free(p);
+X  for(i=nomemretry;i<0||i--;)
+X   { suspend();
+X     if(p=realloc(old,len))
+Xret:  { lcking&=~(lck_MEMORY|lck_ALLOCLIB);return p;
+X      }
+X   }
+X  nomemerr();
+X}
+X
+Xvoid tfree(p)void*const p;
+X{ lcking|=lck_ALLOCLIB;free(p);lcking&=~lck_ALLOCLIB;
+X}
+X
+X#include "shell.h"
+X
+Xpid_t sfork P((void))			/* this fork can survive a temporary */
+X{ pid_t i;int r;			   /* "process table full" condition */
+X  elog("");r=noforkretry;			  /* flush log, just in case */
+X  while((i=fork())==-1)
+X   { lcking|=lck_FORK;
+X     if(!(r<0||r--))
+X	break;
+X     suspend();
+X   }
+X  lcking&=~lck_FORK;return i;
+X}
+X
+Xvoid openlog(file)const char*file;
+X{ int i;
+X  if(!*file)						   /* empty LOGFILE? */
+X     file=devnull;				 /* substitute the bitbucket */
+X  if(0>(i=opena(file)))
+X     writeerr(file);			      /* error, keep the old LOGFILE */
+X  else
+X     rclose(STDERR),rdup(i),rclose(i),logopened=1;
+X}
+X
+Xopena(a)const char*const a;
+X{ if(asgnlastf)
+X     asgnlastf=0,lastfolder=cstr(lastfolder,a);
+X  yell("Opening",a);
+X#ifdef O_CREAT
+X  return ropen(a,O_WRONLY|O_APPEND|O_CREAT,NORMperm);
+X#else
+X  ;{ int fd;
+X     return(fd=ropen(a,O_WRONLY,0))<0?creat(a,NORMperm):fd;
+X   }
+X#endif
+X}
+X
+Xropen(name,mode,mask)const char*const name;const int mode;const mode_t mask;
+X{ int i,r;					       /* a SysV secure open */
+X  for(r=noresretry,lcking|=lck_FILDES;0>(i=open(name,mode,mask));)
+X     if(errno!=EINTR&&!(errno==ENFILE&&(r<0||r--)))
+X	break;		 /* survives a temporary "file table full" condition */
+X  lcking&=~lck_FILDES;return i;
+X}
+X
+Xrpipe(fd)int fd[2];
+X{ int i,r;					  /* catch "file table full" */
+X  for(r=noresretry,lcking|=lck_FILDES;0>(i=pipe(fd));)
+X     if(!(errno==ENFILE&&(r<0||r--)))
+X      { *fd=fd[1]= -1;break;
+X      }
+X  lcking&=~lck_FILDES;return i;
+X}
+X
+Xrdup(p)const int p;
+X{ int i,r;					  /* catch "file table full" */
+X  for(r=noresretry,lcking|=lck_FILDES;0>(i=dup(p));)
+X     if(!(errno==ENFILE&&(r<0||r--)))
+X	break;
+X  lcking&=~lck_FILDES;return i;
+X}
+X
+Xrclose(fd)const int fd;		      /* a SysV secure close (signal immune) */
+X{ int i;
+X  while((i=close(fd))&&errno==EINTR);
+X  return i;
+X}
+X
+Xrread(fd,a,len)const int fd,len;void*const a;	       /* a SysV secure read */
+X{ int i;
+X  while(0>(i=read(fd,a,(size_t)len))&&errno==EINTR);
+X  return i;
+X}
+X
+Xrwrite(fd,a,len)const int fd,len;const void*const a;  /* a SysV secure write */
+X{ int i;
+X  while(0>(i=write(fd,a,(size_t)len))&&errno==EINTR);
+X  return i;
+X}
+END_OF_FILE
+if test 4031 -ne `wc -c <'procmail280/src/robust.c'`; then
+    echo shar: \"'procmail280/src/robust.c'\" unpacked with wrong size!
+fi
+# end of 'procmail280/src/robust.c'
+fi
+echo shar: End of archive 3 \(of 11\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Sincerely,                                  berg@pool.informatik.rwth-aachen.de
+           Stephen R. van den Berg (AKA BuGless).    berg@physik.tu-muenchen.de
+
+"Be spontaneous!"
+
+exit 0 # Just in case...

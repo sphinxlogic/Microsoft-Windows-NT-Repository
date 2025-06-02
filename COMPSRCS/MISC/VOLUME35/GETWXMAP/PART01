@@ -1,0 +1,607 @@
+Newsgroups: comp.sources.misc
+From: rodmur@ecst.csuchico.edu (Dale Harris)
+Subject: v35i115:  getwxmap - Retrieve and display Weather satellite maps, Part01/01
+Message-ID: <1993Mar4.184751.3604@sparky.imd.sterling.com>
+X-Md4-Signature: f34160d08405c4f3ad44b1fc9f7a8acd
+Date: Thu, 4 Mar 1993 18:47:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: rodmur@ecst.csuchico.edu (Dale Harris)
+Posting-number: Volume 35, Issue 115
+Archive-name: getwxmap/part01
+Environment: X11, UNIX, xv
+Supersedes: getwxmap: Volume 34, Issue 120
+
+Getwxmap retrieves the most recent satellite weather maps from vmd.cso.uiuc.edu
+and then displays them.  This is version 2.3.1.  The previous version was 
+written in ANSI C, but I had some problems with this new version when I 
+tried to keep it in ANSI C, so we are back to good old fashion C.  
+
+Thanx to all with suggestions, I implementated everything I felt was 
+neccessary and I added a few things of my own, so a new version.  (Yes,
+Virginia, this gets the SA.GIF map, too).  Send suggestions/comments to 
+Dale A. Harris (rodmur@ecst.csuchico.edu).
+----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  getwxmap-2.3.1 getwxmap-2.3.1/Makefile
+#   getwxmap-2.3.1/README getwxmap-2.3.1/getwxmap.1
+#   getwxmap-2.3.1/getwxmap.c getwxmap-2.3.1/getwxmap.h
+# Wrapped by kent@sparky on Thu Mar  4 12:44:25 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test ! -d 'getwxmap-2.3.1' ; then
+    echo shar: Creating directory \"'getwxmap-2.3.1'\"
+    mkdir 'getwxmap-2.3.1'
+fi
+if test -f 'getwxmap-2.3.1/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getwxmap-2.3.1/Makefile'\"
+else
+  echo shar: Extracting \"'getwxmap-2.3.1/Makefile'\" \(871 characters\)
+  sed "s/^X//" >'getwxmap-2.3.1/Makefile' <<'END_OF_FILE'
+X#
+X# Makefile for getwxmap.c ver 2.3.1
+X# Copyright (C) February 10, 1993 by Dale A. Harris
+X#                                {rodmur@ecst.csuchico.edu}
+X#
+X#CC=gcc
+XCC=cc
+X
+X#
+X# I know in a previous version I had this compiling in ANSI C
+X#  I ran into some problems doing that with gethostbyname()
+X#   that I couldn't explain, other than it was something the ANSI
+X#    flag was causing in the system header file, so we are back to 
+X#     good old fashioned C.
+X#
+X
+X#CFLAGS= -g  # for debugging 
+X#CFLAGS=-O #most machines in this world
+X#CFLAGS=-O2  #for gcc
+XCFLAGS= +O3 # with cc on HP9000/7xx-series running HPUX 8.*
+X
+X#Setting a domain is no longer neccessary
+XDEFINES= -DSYSV 
+X
+X#If you need any libs
+X#LIBS= -lmalloc #for HPUX if you like
+XLIBS= -lmalloc
+X
+Xgetwxmap: getwxmap.c
+X	$(CC) $(CFLAGS) -o getwxmap $(DEFINES) getwxmap.c $(LIBS)
+X
+Xclean:
+X	rm -f getwxmap.o getwxmap core *.GIF
+END_OF_FILE
+  if test 871 -ne `wc -c <'getwxmap-2.3.1/Makefile'`; then
+    echo shar: \"'getwxmap-2.3.1/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'getwxmap-2.3.1/Makefile'
+fi
+if test -f 'getwxmap-2.3.1/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getwxmap-2.3.1/README'\"
+else
+  echo shar: Extracting \"'getwxmap-2.3.1/README'\" \(251 characters\)
+  sed "s/^X//" >'getwxmap-2.3.1/README' <<'END_OF_FILE'
+XCheck out the Makefile, if your on a SYSV machine you might want to
+X-DSYSV, check out the #define fields also in getwxmap.h
+X
+XIf you find any bugs or have any suggestions e-mail:
+Xrodmur@ecst.csuchico.edu
+X
+XThanx!
+X
+XDale Harris {rodmur@ecst.csuchico.edu}
+END_OF_FILE
+  if test 251 -ne `wc -c <'getwxmap-2.3.1/README'`; then
+    echo shar: \"'getwxmap-2.3.1/README'\" unpacked with wrong size!
+  fi
+  # end of 'getwxmap-2.3.1/README'
+fi
+if test -f 'getwxmap-2.3.1/getwxmap.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getwxmap-2.3.1/getwxmap.1'\"
+else
+  echo shar: Extracting \"'getwxmap-2.3.1/getwxmap.1'\" \(1300 characters\)
+  sed "s/^X//" >'getwxmap-2.3.1/getwxmap.1' <<'END_OF_FILE'
+X.TH GETWXMAP 1 "30 November 1992"
+X.SH NAME
+Xgetwxmap \- retrieve weather maps and display on X11 displays
+X.SH SYNOPSIS
+X.B getwxmap
+X.RB [ " \-DRdfbsrvu#x [xv options]" ]
+X.SH DESCRIPTION
+X.B getwxmap
+Xretrieves the most recent of any of the various weather maps at
+Xvmd.cso.uiuc.edu and displays them using xv.  
+X.SH OPTIONS
+X.TP
+X.B \-D
+Xdon't display file (implies -R).
+X.TP
+X.B \-R
+Xdon't remove file when program finishes.
+X.TP
+X.B \-d
+Xdebugging (implies -f).
+X.TP
+X.B \-f
+Xecho name of files successfully retrieved to standard output
+X.TP
+X.B \-s
+Xretrieves the current Surface Anaylsis Map (this usually gets
+Xmade a little before 15 minutes after the hour, so WXMAP
+Xdoesn't grab it until 15 minutes or later after the hour).
+X.TP
+X.B \-r
+Xretrieves the most recent Infra Red Light Map.
+X.TP
+X.B \-m
+Xretrieves ALL the most recent MOS gifs.
+X.TP
+X.B \-v
+Xretrieves the most recent Visible Light Map.
+X.TP
+X.B \-u#
+Xretrieves the most recent Upper Air maps at a (# * 100hPa) intervals
+X(# = 2,3,5,7,8 for 200hPa, 300hPa, 500hPa, 700hPa, 800hPa respectively).
+X.TP
+X.B \-x [xv options]
+XMust be last argument.  All arguments following -x are passed
+Xas command line arguments to xv.  Use this to get a background. (Implies
+X-R)
+X.SH SEE ALSO
+X.BR xv (1V),
+X.SH AUTHOR
+XThis program is written by Dale A. Harris (rodmur@ecst.csuchico.edu).
+END_OF_FILE
+  if test 1300 -ne `wc -c <'getwxmap-2.3.1/getwxmap.1'`; then
+    echo shar: \"'getwxmap-2.3.1/getwxmap.1'\" unpacked with wrong size!
+  fi
+  # end of 'getwxmap-2.3.1/getwxmap.1'
+fi
+if test -f 'getwxmap-2.3.1/getwxmap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getwxmap-2.3.1/getwxmap.c'\"
+else
+  echo shar: Extracting \"'getwxmap-2.3.1/getwxmap.c'\" \(9018 characters\)
+  sed "s/^X//" >'getwxmap-2.3.1/getwxmap.c' <<'END_OF_FILE'
+X/*
+X   Copyright (C) 1993  Dale A. Harris, read getwxmap.h for additional
+X   information
+X*/
+X
+X/*
+XModified 1/27/93 C. Paul Ferroni (cpferron@cs.hh.ab.com):
+X1) added -x option to pass options to xv
+X2) added -f option to return ONLY file name(s)
+X3) modified (slightly) to compile with standard Sun "cc"
+X4) modified to get SA.GIF for surface map (instead of SAmmddhh.GIF)
+X      per changes made 2/3/93 to vmd.cso.uiuc.edu information.
+X
+XModified 2/10/93 d.a.h
+X1) Added gethostname and gethostbyname to automatically get domain name
+X2) Using access() to get file existance info so non-existant files won't go
+X    to xv
+X3) Moved header info to getwxmap.h
+X4) Rid of background (-b) option, -x makes it obsolete
+X
+X2/12/93 - added -m option for mos*.gif maps (d.a.h)
+X2/19/93 - added files variable - dah
+X
+X*/
+X
+X#include "getwxmap.h"
+X
+X
+Xmain (argc, argv)
+X     int argc;
+X     char **argv;
+X
+X{
+X  time_t seconds_off;
+X  int files = 0;
+X  struct tm *tp, *otp, *tptmp, *thetime ();
+X  char *mnthday, *gmt, *wgifs, *dispstr, *command, *filename, *uhour;
+X  char *tmp_char1, *tmp_char2;
+X  char *my_host, *xvargs;	/* hostname and xv arguments */
+X  register short surface = 0, visible = 0, infrared = 0, nodis = 0, norm = 0,
+X    debug = 0, upair = 0, keymap = 0, echoname = 0, mos = 0, i, j;
+X  short hpa[UMAPNO];
+X  struct hostent *my_site;	/* to get the site name */
+X  FILE *tosite;
+X  void usage ();
+X
+X  hpa[0] = 2;
+X  hpa[1] = 3;
+X  hpa[2] = 5;
+X  hpa[3] = 7;
+X  hpa[4] = 8;
+X
+X  mnthday = (char *) calloc (5, sizeof (char));
+X  gmt = (char *) calloc (7, sizeof (char));
+X  wgifs = (char *) calloc (400, sizeof (char));
+X  dispstr = (char *) calloc (150, sizeof (char));
+X  uhour = (char *) calloc (3, sizeof (char));
+X  command = (char *) calloc (30, sizeof (char));
+X  my_host = (char *) calloc (MAXHOSTNAMELEN + 1, sizeof (char));
+X  xvargs = (char *) calloc (200, sizeof (char));
+X
+X  if (argc == 1)
+X    {
+X      fprintf (stderr, "%s: Pick an option\n", argv[0]);
+X      usage ();
+X      exit (1);
+X    }
+X  for (i = 1; i < argc; ++i)
+X    for (j = (argv[i][0] == '-') ? 1 : 0; j < strlen (argv[i]); ++j)
+X      switch (argv[i][j])
+X	{
+X	case 's':
+X	  ++surface;
+X	  break;
+X	case 'r':
+X	  ++infrared;
+X	  break;
+X	case 'v':
+X	  ++visible;
+X	  break;
+X	case 'u':
+X	  switch (argv[i][++j] & 15)
+X	    {
+X	    case 2:
+X	      upair |= 1;
+X	      break;
+X	    case 3:
+X	      upair |= 2;
+X	      break;
+X	    case 5:
+X	      upair |= 4;
+X	      break;
+X	    case 7:
+X	      upair |= 8;
+X	      break;
+X	    case 8:
+X	      upair |= 16;
+X	      break;
+X	    default:
+X	      fprintf (stderr, "%s: Unavailable map: %i\n", argv[0], argv[i][j] & 15);
+X	      exit (1);
+X	    }
+X	  break;
+X	case 'D':
+X	  ++nodis;
+X	  break;
+X	case 'R':
+X	  ++norm;
+X	  break;
+X	case 'd':
+X	  ++debug;
+X	  break;
+X	case 'k':
+X	  ++keymap;
+X	  break;
+X	case 'm':
+X	  ++mos;
+X	  break;
+X	case 'f':
+X	  ++echoname;
+X	  break;
+X	case 'x':		/* grab the rest into xvargs and run... */
+X	  while (i < argc - 1)
+X	    {
+X	      strcat (xvargs, argv[++i]);
+X	      strcat (xvargs, " ");
+X	    }
+X	  j = strlen (argv[i]);	/* to break from j loop */
+X	  ++norm;
+X	  break;
+X	default:
+X	  fprintf (stderr, "%s: Bad Option: %c\n", argv[0], argv[i][j]);
+X	  usage ();
+X	  exit (1);
+X	}
+X  if (strlen (xvargs) == 0)
+X    strcat (xvargs, " ");	/* empty string */
+X
+X  /* getting the time */
+X  otp = tp = thetime ((time_t) 0, tp, argv[0]);
+X  strftime (gmt, SMAX, "%m%d%H", tp);
+X
+X  if (surface)
+X    strcat (wgifs, " SA.GIF ");
+X  tmp_char1 = (char *) strdup (wgifs);
+X  if (tp->tm_min >= SMAPMINMADE)
+X    sprintf (wgifs, "%s SA%s.GIF ", tmp_char1, gmt);
+X  else
+X    {
+X      fprintf (stderr, "%s: SA%s.GIF not made until %d past the hour, getting last hours map.\n", argv[0], gmt, SMAPMINMADE);
+X      /* Take off an hour's worth of seconds if before the quarter hour */
+X      tp = thetime ((time_t) 3600, tp, argv[0]);
+X      strftime (gmt, SMAX, "%m%d%H", tp);
+X      sprintf (wgifs, "%s SA%s.GIF ", tmp_char1, gmt);
+X      tptmp = tp;
+X      tp = otp;
+X      free (tptmp);
+X    }
+X  free (tmp_char1);
+X  if (infrared)
+X    strcat (wgifs, " CIR.GIF ");
+X  if (visible)
+X    strcat (wgifs, " CVIS.GIF ");
+X  if (mos)
+X    strcat (wgifs, " MOS06.GIF MOS09.GIF MOS12.GIF MOS15.GIF MOS18.GIF MOS21.GIF MOS24.GIF MOS27.GIF MOS30.GIF MOS33.GIF MOS36.GIF MOS39.GIF MOS42.GIF MOS45.GIF MOS48.GIF MOS51.GIF MOS54.GIF MOS57.GIF MOS60.GIF ");
+X  if (upair)
+X    /*
+XThe GMT hours of 3 to 15 was my best guess when the upperair maps
+Xget made, but on occasion it appears to be differant, so all I can
+Xsay is best of luck!
+X*/
+X    {
+X      if (tp->tm_hour < UMAPHOURMADE)
+X	{
+X	  /* if at 0 to 2 GMT take off the (hour + 1) times an hours worth of seconds */
+X	  seconds_off = (tp->tm_hour + 1) * 3600;
+X	  tp = thetime (seconds_off, tp, argv[0]);
+X	  strftime (mnthday, SMAX, "%m%d", tp);
+X	  tptmp = tp;
+X	  tp = otp;
+X	  free (tptmp);
+X	}
+X      else
+X	strftime (mnthday, SMAX, "%m%d", tp);
+X
+X      for (i = 0; i <= (UMAPNO - 1); ++i)
+X	{
+X	  if (upair & 1)
+X	    {
+X
+X	      /* attach proper hour onto the end of u*.gifs */
+X	      strcpy (uhour, ((tp->tm_hour >= UMAPHOURMADE)
+X		     && (tp->tm_hour < (UMAPHOURMADE + 12))) ? "00" : "12");
+X
+X	      /* if it is the hours that the u*.gifs are made and if not 5 past the
+X	  hour, then don't get them */
+X
+X	      if (((tp->tm_hour == UMAPHOURMADE)
+X		   || (tp->tm_hour == (UMAPHOURMADE + 12)))
+X		  && (tp->tm_min < UMAPMINMADE))
+X		fprintf (stderr, "%s: wait until %d after the hour for U%d%s%s.GIF\n", argv[0], UMAPMINMADE, hpa[i], mnthday, uhour);
+X	      else
+X		{
+X		  tmp_char1 = (char *) strdup (wgifs);
+X		  sprintf (wgifs, " %s U%d%s%s.GIF ", tmp_char1, hpa[i], mnthday, uhour);
+X		  free (tmp_char1);
+X		}
+X	    }
+X	  upair >>= 1;
+X	}
+X    }
+X  if (keymap)
+X    {
+X      strcat (wgifs, " WXKEY.GIF ");
+X    }
+X
+X  /* getting site info */
+X  if (gethostname (my_host, (size_t) MAXHOSTNAMELEN + 1) == -1)
+X    {
+X      perror (argv[0]);
+X      exit (1);
+X    }
+X
+X  if ((my_site = gethostbyname (my_host)) == (struct hostent *) NULL)
+X    {
+X      perror (argv[0]);
+X      exit (1);
+X    }
+X
+X  /* Using ftp to grab the files */
+X
+X  if (strlen (wgifs) != 0)
+X    {
+X      if (debug)
+X	sprintf (command, "ftp -i -n -v %s", SITE);
+X      else
+X	sprintf (command, "ftp -i -n %s", SITE);
+X
+X      if ((tosite = (FILE *) popen (command, "w")) == (FILE *) NULL)
+X	{
+X	  perror (argv[0]);
+X	  exit (1);
+X	}
+X      fprintf (tosite, "user anonymous %s@%s\n", getlogin (), my_site->h_name);
+X      fputs ("bin\n", tosite);
+X      if (debug)
+X	fputs ("hash\n", tosite);
+X      fprintf (tosite, "cd %s\n", DIR);
+X      fprintf (tosite, "mget %s\n", wgifs);
+X      fputs ("quit\n", tosite);
+X      pclose (tosite);
+X
+X      tmp_char1 = (char *) strdup (wgifs);
+X      free (wgifs);
+X      wgifs = (char *) calloc (400, sizeof (char));
+X      filename = strtok (tmp_char1, " ");
+X      while (filename != (char *) NULL)
+X	{
+X	  if (access (filename, F_OK) == -1)
+X	    /* check to see if file exists */
+X	    fprintf (stderr, "%s: %s doesn't exist\n", argv[0], filename);
+X	  else
+X	    {
+X	      tmp_char2 = (char *) strdup (wgifs);
+X	      sprintf (wgifs, "%s %s ", tmp_char2, filename);
+X	      free (tmp_char2);
+X	      files++;
+X	      if (echoname || debug)
+X		puts (filename);
+X	    }
+X	  filename = strtok ((char *) NULL, " ");
+X	}
+X      free (tmp_char1);
+X
+X      if (!files)
+X	{
+X	  fprintf (stderr, "%s: No files received.  Bummer!\n", argv[0]);
+X	  exit (1);
+X	}
+X      if (!nodis)
+X	{
+X	  sprintf (dispstr, "%s %s %s", DISP, xvargs, wgifs);
+X	  system (dispstr);
+X	}
+X
+X      if (!norm && !nodis)
+X	{
+X	  filename = strtok (wgifs, " ");
+X	  while (filename != (char *) NULL)
+X	    {
+X	      /* no use checking what unlink returns because I don't care */
+X	      unlink (filename);
+X	      filename = strtok ((char *) NULL, " ");
+X	    }
+X	}
+X    }
+X  exit (0);
+X}
+X
+Xstruct tm *
+Xthetime (s_off, tp, name)
+X     time_t s_off;
+X     struct tm *tp;
+X     char *name;
+X
+X{
+X  time_t datime;
+X
+X  if ((datime = time ((time_t *) NULL)) == (time_t) - 1)
+X    {
+X      perror (name);
+X      exit (1);
+X    }
+X  datime -= s_off;
+X  if ((tp = gmtime (&datime)) == (struct tm *) NULL)
+X    {
+X      perror (name);
+X      exit (1);
+X    }
+X  return (tp);
+X}
+X
+Xvoid
+Xusage ()
+X{
+X  fputs ("Usage: getwxmap [ -RDdfsrmvku#x [xv options] ]\n", stderr);
+X  fputs ("-D if you don't want the files displayed (implies -R)\n", stderr);
+X  fputs ("-R if you don't want the files removed after displaying\n", stderr);
+X  fputs ("-d for debugging (implies -f)\n", stderr);
+X  fputs ("-f echos names of successfully retrieved files to standard out\n", stderr);
+X  fputs ("-s For the Surface Anaylsis map\n", stderr);
+X  fputs ("-r for the Infra Red Light Map\n", stderr);
+X  fputs ("-m for ALL the MOS gifs\n", stderr);
+X  fputs ("-v for Visible Light Map\n", stderr);
+X  fputs ("-k for the WX key map (note: this picture doesn't change)\n", stderr);
+X  fputs ("-u# for the Upper Air maps at a # * 100 hPa itervals\n", stderr);
+X  fputs ("(# = 2,3,5,7,8 for 200hPa, 300hPa, 500hPa, 700hPa, 800hPa respectively)\n", stderr);
+X  fputs ("-x [xv options]  Pass ALL arguments that follow to XV as command line\n", stderr);
+X  fputs ("options.  This option MUST come last.  Use this to get a background. (implies -R)\n", stderr);
+X  return;
+X}
+END_OF_FILE
+  if test 9018 -ne `wc -c <'getwxmap-2.3.1/getwxmap.c'`; then
+    echo shar: \"'getwxmap-2.3.1/getwxmap.c'\" unpacked with wrong size!
+  fi
+  # end of 'getwxmap-2.3.1/getwxmap.c'
+fi
+if test -f 'getwxmap-2.3.1/getwxmap.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getwxmap-2.3.1/getwxmap.h'\"
+else
+  echo shar: Extracting \"'getwxmap-2.3.1/getwxmap.h'\" \(2446 characters\)
+  sed "s/^X//" >'getwxmap-2.3.1/getwxmap.h' <<'END_OF_FILE'
+X/*
+X @(#) getwxmap 2.3.1, February 19, 1993
+X
+X Copyright (C) 1993, Dale A. Harris (rodmur@ecst.csuchico.edu)
+X
+X This program may be freely re-distributed at no charge provided that
+X that all headers are left intact.  Modified copies must preserve this notice.
+X It is requested that any useful changes you make be sent to the author.
+X
+X GETWXMAP:
+X Is a C program that was converted from a shell script I wrote to retrieve the
+X most recent of any  the various weather maps at vmd.cso.uiuc.edu and display
+X them using  some utility similar to xv (xv is a multi-purpose GIF, JPEG,
+X etc.,  displayer for X-windows, written by John Bradley
+X (bradley@cis.upenn.edu))
+X
+X Much thanks to Charlie Kline (cvk@uiuc.edu), and all the others I may
+X  not know about, for their work on publicly available satellite weather
+X  images
+X
+X Thanks a bunch to all with bug reports and fixes.
+X
+X Special Thanks to Emma Pease <emma@Russell.Stanford.EDU> for the man page!
+X
+X USAGE: getwxmap [ -DRdbsrmvkfu#x [xv options]  ]
+X   -D if you don't want the files displayed (implies -R)
+X   -R  if you don't want the files removed after displaying
+X   -d for debugging (implies -f)
+X   -s    Retrieves the current Surface Anaylsis Map (this usually gets
+X           made a little before 15 minutes after the hour, so WXMAP
+X           doesn't grab it until 15 minutes or later after the hour)
+X   -r    Retrieves the most recent Infra Red Light Map
+X   -m    Retrieves ALL of the most recent MOS gifs
+X   -v    Retrieves the most recent Visible Light Map
+X   -k    Retrieves the most WX keymap (note: this picture doesn't change)
+X   -u#  Retrieves the most recent Upper Air maps at a # * 100hPa itervals
+X   (# = 2,3,5,7,8 for 200hPa, 300hPa, 500hPa, 700hPa, 800hPa respectively)
+X   -f    echo names of files successfully recieved to standard output
+X   -x [xv options]  Pass ALL arguments that follow to XV as command line
+X            options.  This option MUST come last.  Use this to get a
+X	    background. (implies -R)
+X
+X*/
+X
+X#include <stdio.h>
+X#include <time.h>
+X#include <stdlib.h>
+X#ifdef SYSV
+X#include <malloc.h>
+X#endif
+X#include <string.h>
+X#include <unistd.h>
+X#include <sys/param.h>
+X#include <netdb.h>
+X
+X#define SMAX 7
+X#define SITE "vmd.cso.uiuc.edu"
+X#define DIR "wx"
+X#define DISP "xv"
+X#define UMAPNO 5		/* number of umaps */
+X#define UMAPHOURMADE 3
+X#define UMAPMINMADE  5		/* minutes past the hour that the U*.GIF's made */
+X#define SMAPMINMADE 15		/* Minutes past the hour that SA*.GIF made */
+END_OF_FILE
+  if test 2446 -ne `wc -c <'getwxmap-2.3.1/getwxmap.h'`; then
+    echo shar: \"'getwxmap-2.3.1/getwxmap.h'\" unpacked with wrong size!
+  fi
+  # end of 'getwxmap-2.3.1/getwxmap.h'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,324 @@
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: wjames@Jupiter.SAIC.Com (Bill James x6167)
+Newsgroups: comp.sources.x
+Subject: v16i041: engarde - an X/MOTIF strategy game, Part02/02
+Message-ID: <1992Feb5.145740.20795@msi.com>
+Date: 5 Feb 92 14:57:40 GMT
+References: <csx-16i040-engarde@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 311
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Bill James x6167 <wjames@Jupiter.SAIC.Com>
+Posting-number: Volume 16, Issue 41
+Archive-name: engarde/part02
+
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 2 (of 2)."
+# Contents:  Makefile board.h engarde.RULES patchlevel.h sun40add.c
+#   xboard.h
+# Wrapped by dcmartin@fascet on Fri Jan 24 08:36:43 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(550 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+XINCDIR = -I/usr/include/X11/Motif1.0
+XLIBS = -lXm -lXt -lX11 
+XLIBDIR = -L/usr/lib/X11/Motif1.0 -L/usr/lib
+XCFLAGS = -D_NO_PROTO $(INCDIR) -O
+XLFLAGS = -s
+X
+X# Use this for SunOs 4.0x, if the MOTIF libraries were compiled with 4.1x
+XTOBJS = engarde.o board.o xboard.o menus.o sun40add.o
+X
+X# Use this for SunOs 4.1x 
+X# TOBJS = engarde.o board.o xboard.o menus.o 
+X
+X
+Xengarde: $(TOBJS)
+X	cc -o engarde $(LFLAGS) $(LIBDIR) $(TOBJS) $(LIBS)
+X
+Xboard.o: board.h xboard.h
+Xxboard.o: board.h xboard.h menus.h
+Xengarde.o: board.h xboard.h bitmaps.h help.h
+Xmenus.o: menus.h
+END_OF_FILE
+if test 550 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'board.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'board.h'\"
+else
+echo shar: Extracting \"'board.h'\" \(750 characters\)
+sed "s/^X//" >'board.h' <<'END_OF_FILE'
+X#define POSITIVE	1
+X#define NEGATIVE	-1
+X#define UNCHARGED	0
+X#define BOARD_WIDTH	6
+X#define BOARD_HEIGHT	6
+X#define PIECE_BLACK	1
+X#define PIECE_WHITE	0
+X#define PIECE_ROUND	0
+X#define PIECE_SQUARE	1
+X#define NPIECES		6
+X
+X#define MIN2(x,y)	(((x)<(y))? (x):(y))
+X
+Xstruct _PieceType {
+X   int color;
+X   int type;
+X};
+Xtypedef struct _PieceType PieceType;
+X
+Xstruct _SideType {
+X   PieceType *p[6];
+X};
+Xtypedef struct _SideType SideType;
+X
+Xvoid FlipPiece();
+X
+Xstruct _BoardType {
+X   char **magnets;
+X   PieceType ***pieces;
+X   int height, width;
+X};
+Xtypedef struct _BoardType BoardType;
+X
+Xvoid Magnetize();
+Xvoid KillBoard();
+Xvoid InitBoard();
+XPieceType * GetPiece();
+Xint GetPolarity();
+Xint MovePiece();
+Xvoid BoardShuffle();
+Xint SumSet();
+Xint CheckWinner();
+Xvoid Randomize();
+END_OF_FILE
+if test 750 -ne `wc -c <'board.h'`; then
+    echo shar: \"'board.h'\" unpacked with wrong size!
+fi
+# end of 'board.h'
+fi
+if test -f 'engarde.RULES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'engarde.RULES'\"
+else
+echo shar: Extracting \"'engarde.RULES'\" \(3657 characters\)
+sed "s/^X//" >'engarde.RULES' <<'END_OF_FILE'
+X
+X                             ENGARDE v1.0
+X--------------------------------------------------------------------------
+X      A game written for X11R4 with OSF/MOTIF widgets by Bill James.
+X--------------------------------------------------------------------------
+X
+XOBJECT:
+X
+XTo have 4 pieces in a row, column, diagonal that are all of one player's 
+Xcolor, that player is to be considered the winner.
+X
+X
+XDESIGNATIONS:
+X
+X -  The center set of squares is know as the "grid".
+X -  The single columns to the right and left of the grid are
+X      called "side-bars", possible preceded by a "left" or "right".
+X -  The squares and circles are called "pieces", with the unfilled
+X      piece being "white", and the filled piece being "black".
+X
+X
+XCHARACTERISTICS OF THE BOARD:
+X
+X    Each piece is to be considered a magnet with one pole painted 
+Xwhite, and the other painted black.  A piece is considered to be
+Xwhite if the white side is face up, else it is black.  On circular 
+Xpieces the positive side is painted white, while on the squares it 
+Xis the negative side.  The grid is also merely a set of magnetized 
+Xsquares, with either the positive or negative side facing upwards.
+XThe grid also contains spaces that are not magnets at all, but are 
+Xmerely null spots, and do not affect the pieces at all.  
+X
+XExamples:
+XSample Grid :
+X    
+X   + + - + O -     + = positive grid face up
+X   - - + - + -     - = negative grid face up
+X   O - + - - +     O = null grid space
+X   + + - + + -
+X   - + + O - -
+X   - - - - + +
+X
+XEvery new game, the board shuffles it's magnets to form a new
+Xgrid.
+X
+XWhen a player moves a piece onto the grid, the magnetic interactions
+Xcause the piece to show the color painted on the magnet side with
+Xthe same polarity as the grid place.  e.g. when a piece moves on
+Xa positive grid place, the positive side of the magnet is repulsed, 
+Xand is therefore face up.
+X
+X  Before Move          After Move Piece is:
+X   Piece is:      When moved onto grid with magnet:
+X--------------------------------------------------
+X| Shape | Color ||| Positive | Negative |  Null  |
+X--------------------------------------------------
+X|  SQU  |  Wh   |||    Bl    |    Wh    |   Wh   |   
+X|  SQU  |  Bl   |||    Bl    |    Wh    |   Bl   |
+X|  CIR  |  Wh   |||    Wh    |    Bl    |   Wh   |
+X|  CIR  |  Bl   |||    Wh    |    Bl    |   Bl   |
+X--------------------------------------------------
+X
+XRULES OF MOVEMENT:
+X
+XThe arrows to either side of the message box designate whose turn it is.
+XThis player has the following options:
+X
+X1.  The player may take a piece from his side-bar and place it
+X    on any space on the center grid where there is no other piece.
+X
+X2.  The player may move any piece that is currently on the grid
+X    EXCEPT the last piece moved to another spot guided by these rules:
+X    2a.  Piece cannot move to occupied place.
+X    2b.  Piece may only move in one direction.
+X    2c.  Piece cannot move more than 2 spaces in a single direction,
+X           either Up, Down, Left, Right, or the Diagonals.
+X    2d.  Piece may only be moved 2 spaces in a direction if the first
+X           space in that direction is occupied (it jumps the first piece).
+X    2e.  Piece may not be placed back onto side-bar.
+X    
+X
+XSTRATEGY HINTS:
+X
+X - Try to save a piece on your side-bar, being able to place it anywhere
+X      on the grid may save your neck.
+X
+X - Try to keep track of what polarity the grid locations are as you find
+X      them out, they won't change until the next game.
+X
+X - Don't forget about the null spaces.  If a piece keeps the same color
+X      when it moves, a null space is always a possibility.
+X
+X----------------------------------------------------------------------------
+END_OF_FILE
+if test 3657 -ne `wc -c <'engarde.RULES'`; then
+    echo shar: \"'engarde.RULES'\" unpacked with wrong size!
+fi
+# end of 'engarde.RULES'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(25 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define PATCHLEVEL	"1.0"
+END_OF_FILE
+if test 25 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'sun40add.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sun40add.c'\"
+else
+echo shar: Extracting \"'sun40add.c'\" \(470 characters\)
+sed "s/^X//" >'sun40add.c' <<'END_OF_FILE'
+X/*********************************************************************
+X                                Engarde
+X                           File: sun40add.c
+X
+X  This file is needed by SunOs 4.0x in order to compile correctly with
+X  MOTIF libraries compiled with SunOs 4.1x .  Do not add this unless
+X  necessary.
+X
+X  Version 1:  1/9/92  (Bill James)
+X*********************************************************************/
+Xchar tolower(c)
+Xchar c;
+X{
+X   return(c - 'A' + 'a');
+X}
+END_OF_FILE
+if test 470 -ne `wc -c <'sun40add.c'`; then
+    echo shar: \"'sun40add.c'\" unpacked with wrong size!
+fi
+# end of 'sun40add.c'
+fi
+if test -f 'xboard.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xboard.h'\"
+else
+echo shar: Extracting \"'xboard.h'\" \(1062 characters\)
+sed "s/^X//" >'xboard.h' <<'END_OF_FILE'
+X#define DRAWLEFTSIDE	10
+X#define DRAWRIGHTSIDE	11
+X#define STR_BAD_MOVE	"Cannot move there."
+X#define STR_BAD_SELECT  "Space is Empty."
+X#define STR_RIGHT_WIN	"The Right Side WINS!!"
+X#define STR_LEFT_WIN	"The Left Side WINS!!"
+X#define STR_MOVE_LAST	"Cannot move piece last moved by other player."
+X#define STR_SIDE_MOVE   "Cannot move piece back on side bars."
+X#define STR_WRONG_SIDE  "Cannot move piece from other player's side bar."
+X#define STR_FAR_MOVE    "Cannot move piece that far."
+X#define STR_MUST_JUMP   "Cannot move piece 2 spaces without a jump."
+X#define STR_SAME_DIR    "Must move piece 1 or 2 in same direction."
+X
+X#define ABS(x)	(((x)<0)? (-1*(x)):(x))
+X#define SGN(x)	(((x)<0)? -1:(((x) == 0)? 0:1))
+X
+Xstruct _Pt {
+X  int x;
+X  int y;
+X};
+Xtypedef struct _Pt Pt;
+X
+Xvoid DrawGame();
+Xvoid DrawRect();
+Xvoid DrawSpace();
+Xvoid GetXVals();
+Xvoid ResizeGame();
+Xvoid DrawPiece();
+Xvoid ButtonPress1();
+Xvoid MvPiece();
+XPieceType * DGetPiece();
+Xint CheckMove();
+Xvoid ResetBoard();
+Xvoid ChangeTurn();
+Xvoid ShowHelp();
+Xvoid CloseHelp();
+Xvoid ShowAbout();
+Xvoid CloseAbout();
+END_OF_FILE
+if test 1062 -ne `wc -c <'xboard.h'`; then
+    echo shar: \"'xboard.h'\" unpacked with wrong size!
+fi
+# end of 'xboard.h'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

@@ -1,0 +1,1607 @@
+Newsgroups: comp.sources.misc
+From: tcamp@acpub.duke.edu (Ted A. Campbell)
+Subject:  v33i045:  bwbasic - Bywater BASIC interpreter version 1.10, Part09/11
+Message-ID: <1992Nov5.040809.20194@sparky.imd.sterling.com>
+X-Md4-Signature: c2855db5f8ffff4b47cc48b8dcefa9e2
+Date: Thu, 5 Nov 1992 04:08:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tcamp@acpub.duke.edu (Ted A. Campbell)
+Posting-number: Volume 33, Issue 45
+Archive-name: bwbasic/part09
+Environment: ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwb_cmd.c
+# Wrapped by kent@sparky on Wed Nov  4 21:34:28 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 11)."'
+if test -f 'bwb_cmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwb_cmd.c'\"
+else
+  echo shar: Extracting \"'bwb_cmd.c'\" \(35201 characters\)
+  sed "s/^X//" >'bwb_cmd.c' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwb_cmd.c       Miscellaneous Commands
+X                        for Bywater BASIC Interpreter
+X
+X                        Commands:       RUN
+X                                        LET
+X                                        LOAD
+X                                        MERGE
+X                                        CHAIN
+X                                        NEW
+X                                        RENUM
+X                                        SAVE
+X                                        LIST
+X                                        GOTO
+X                                        GOSUB
+X                                        RETURN
+X                                        ON
+X                                        STOP
+X                                        END
+X                                        SYSTEM
+X                                        TRON
+X                                        TROFF
+X                                        DELETE
+X                                        RANDOMIZE
+X					ENVIRON
+X                                        CMDS            (*debugging)
+X
+X                        Copyright (c) 1992, Ted A. Campbell
+X
+X                        Bywater Software
+X                        P. O. Box 4023
+X                        Duke Station
+X                        Durham, NC  27706
+X
+X                        email: tcamp@acpub.duke.edu
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international copyrights are claimed by the
+X        author. The author grants permission to use this code
+X        and software based on it under the following conditions:
+X        (a) in general, the code and software based upon it may be
+X        used by individuals and by non-profit organizations; (b) it
+X        may also be utilized by governmental agencies in any country,
+X        with the exception of military agencies; (c) the code and/or
+X        software based upon it may not be sold for a profit without
+X        an explicit and specific permission from the author, except
+X        that a minimal fee may be charged for media on which it is
+X        copied, and for copying and handling; (d) the code must be
+X        distributed in the form in which it has been released by the
+X        author; and (e) the code and software based upon it may not
+X        be used for illegal activities.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <math.h>
+X#include <string.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+Xstruct gsse *bwb_gss;			/* GOSUB stack */
+Xint bwb_gssc = 0;			/* GOSUB stack counter */
+Xint err_gosubn = 0;			/* line number for error GOSUB */
+X
+Xextern struct bwb_line *bwb_xnew( struct bwb_line *l );
+Xextern struct bwb_line *bwb_onerror( struct bwb_line *l );
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_null()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_null( struct bwb_line *l )
+X   {
+X   #if  INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_null(): NULL function: argc = %d", l->argc );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       bwb_rem()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_rem( struct bwb_line *l )
+X   {
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_rem(): REM command" );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   l->position = strlen( l->buffer ) - 1;
+X
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_run()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_run( struct bwb_line *l )
+X   {
+X   struct bwb_line *current, *x;
+X   int go_lnumber;                /* line number to go to */
+X   register int n;                /* counter */
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   struct exp_ese *e;
+X   FILE *input;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_run(): entered function. buffer <%s> pos <%d>",
+X      l->buffer, l->position );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* see if there is an element */
+X
+X   current = NULL;
+X   adv_ws( l->buffer, &( l->position ) );
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_run(): check buffer <%s> pos <%d> char <0x%x>",
+X      l->buffer, l->position, l->buffer[ l->position ] );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X   switch ( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_run(): no argument; begin at start.next" );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X         current = bwb_start.next;
+X         e = NULL;
+X         break;
+X      default:
+X         e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X         break;
+X      }
+X
+X   /* check its type: if it is a string, open the file and execute it */
+X
+X   if (( e != NULL ) && ( e->type == STRING ))
+X      {
+X      bwb_new( l );				/* clear memory */
+X      str_btoc( tbuf, exp_getsval( e ) );	/* get string in tbuf */
+X      if ( ( input = fopen( tbuf, "r" )) == NULL )	/* open file */
+X         {
+X         sprintf( bwb_ebuf, err_openfile, tbuf );
+X         bwb_error( bwb_ebuf );
+X         }
+X      bwb_fload( input );		/* load program */
+X      bwb_run( &bwb_start );		/* and call bwb_run() recursively */
+X      }
+X
+X   /* else if it is a line number, execute the progrm in memory
+X      at that line number */
+X 
+X   else
+X      {
+X
+X      if ( current == NULL )
+X         {
+X
+X         if ( e != NULL )
+X            {
+X            go_lnumber = exp_getival( e );
+X            }
+X
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_run(): element detected <%s>, lnumber <%d>",
+X            tbuf, go_lnumber );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         for ( x = bwb_start.next; x != &bwb_end; x = x->next )
+X            {
+X            if ( x->number == go_lnumber )
+X               {
+X               current = x;
+X               }
+X            }
+X         }
+X
+X      if ( current == NULL )
+X         {
+X         sprintf( bwb_ebuf, err_lnnotfound, go_lnumber );
+X         bwb_error( bwb_ebuf );
+X         return &bwb_end;
+X         }
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_run(): ready to call do-while loop at line %d",
+X         current->number );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      current->position = 0;
+X
+X      while ( current != &bwb_end )
+X         {
+X         current = bwb_xline( current );
+X         }
+X
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_run(): function complete." );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   return &bwb_end;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_let()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_let( struct bwb_line *l )
+X   {
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_let(): pos <%d> line <%s>",
+X      l->position, l->buffer );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* Call the expression interpreter to evaluate the assignment */
+X
+X   bwb_exp( l->buffer, TRUE, &( l->position ) );
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_chain()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			CHAIN command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_chain( struct bwb_line *l )
+X   {
+X   struct bwb_line *current;
+X
+X   /* deallocate all variables except common ones */
+X
+X   var_delcvars();
+X
+X   /* remove old program from memory */
+X
+X   bwb_xnew( l );
+X
+X   /* call xload function to load new program in memory */
+X
+X   bwb_xload( l );
+X
+X   /* process other arguments */
+X
+X   /*** TEMP -- WORKPOINT ***/
+X
+X   /* run the newly loaded program */
+X
+X   current = bwb_start.next;
+X
+X   current->position = 0;
+X
+X   while ( current != &bwb_end )
+X      {
+X      current = bwb_xline( current );
+X      }
+X
+X   /* return */
+X
+X   return &bwb_end;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_merge()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			MERGE command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_merge( struct bwb_line *l )
+X   {
+X
+X   /* call xload function to merge program in memory */
+X
+X   bwb_xload( l );
+X
+X   return l;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_load()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			LOAD command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_load( struct bwb_line *l )
+X   {
+X
+X   /* clear current contents */
+X
+X   bwb_new( l );
+X
+X   /* call xload function to load program in memory */
+X
+X   bwb_xload( l );
+X
+X   return l;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xload()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			LOAD command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_xload( struct bwb_line *l )
+X   {
+X   FILE *loadfile;
+X   char filename[ MAXARGSIZE ];
+X
+X   /* Get an argument for filename */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         bwb_error( err_nofn );
+X         l->next->position = 0;
+X         return l->next;
+X      default:
+X         break;
+X      }
+X
+X   bwb_const( l->buffer, filename, &( l->position ) );
+X   if ( ( loadfile = fopen( filename, "r" )) == NULL )
+X      {
+X      sprintf( bwb_ebuf, err_openfile, filename );
+X      bwb_error( bwb_ebuf );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   bwb_fload( loadfile );
+X
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_new()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			NEW command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_new( struct bwb_line *l )
+X   {
+X
+X   /* clear program in memory */
+X
+X   bwb_xnew( l );
+X
+X   /* clear all variables */
+X
+X   bwb_clear( l );
+X
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xnew()
+X
+X        DESCRIPTION:	Clears the program in memory, but does not
+X			deallocate all variables.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_xnew( struct bwb_line *l )
+X   {
+X   struct bwb_line *current, *previous;
+X   int wait;
+X
+X   wait = TRUE;
+X   for ( current = bwb_start.next; current != &bwb_end; current = current->next )
+X      {
+X      if ( wait != TRUE )
+X         {
+X         free( previous );
+X         }
+X      wait = FALSE;
+X      previous = current;
+X      }
+X
+X   bwb_start.next = &bwb_end;
+X
+X   l->next->position = 0;
+X
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_renum()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+X#ifdef ALLOW_RENUM
+Xstruct bwb_line *
+Xbwb_renum( struct bwb_line *l )
+X   {
+X   struct bwb_line *current, *x;
+X   register int c, o;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* set c to initial number */
+X
+X   c = 10;
+X
+X   /* set all reset flags to FALSE */
+X
+X   for ( x = bwb_start.next; x != &bwb_end; x = x->next )
+X      {
+X      x->reset = FALSE;
+X      }
+X
+X   /* cycle through each line */
+X
+X   for ( current = bwb_start.next; current != &bwb_end; current = current->next )
+X      {
+X      o = current->number;
+X      current->number = c;
+X
+X      /* run back through and change any GOTO statements
+X         or GOSUB statements depending on this line */
+X
+X      for ( x = bwb_start.next; x != &bwb_end; x = x->next )
+X         {
+X
+X         if ( ( x->vector == bwb_goto ) || ( x->vector == bwb_gosub ))
+X            {
+X            if ( atoi( x->argv[ 0 ] ) == o )
+X               {
+X
+X               if ( x->reset == FALSE )
+X                  {
+X
+X                  #if INTENSIVE_DEBUG
+X                  sprintf( bwb_ebuf,
+X                     "in bwb_renum(): renumbering line %d, new argument is %d",
+X                     x->number, c );
+X                  bwb_debug( bwb_ebuf );
+X                  #endif
+X
+X                  free( x->argv[ 0 ] );
+X                  sprintf( tbuf, "%d", c );
+X                  if ( ( x->argv[ 0 ] = calloc( 1, strlen( tbuf ) + 1 )) == NULL )
+X                     {
+X                     bwb_error( err_getmem );
+X                     l->next->position = 0;
+X                     return l->next;
+X                     }
+X                  strcpy( x->argv[ 0 ], tbuf );
+X                  x->reset = TRUE;
+X                  }
+X               }
+X            }
+X
+X         }
+X
+X      c += 10;
+X      }
+X
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X#endif
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_save()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_save( struct bwb_line *l )
+X   {
+X   FILE *outfile;
+X   static char filename[ MAXARGSIZE ];
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_save(): entered function." );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* Get an argument for filename */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         bwb_error( err_nofn );
+X         l->next->position = 0;
+X         return l->next;
+X      default:
+X         break;
+X      }
+X
+X   bwb_const( l->buffer, filename, &( l->position ) );
+X   if ( ( outfile = fopen( filename, "w" )) == NULL )
+X      {
+X      sprintf( bwb_ebuf, err_openfile, filename );
+X      bwb_error( bwb_ebuf );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   bwb_xlist( l, outfile );
+X   fclose( outfile );
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_list()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_list( struct bwb_line *l )
+X   {
+X   bwb_xlist( l, stdout );
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xlist()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_xlist( struct bwb_line *l, FILE *file )
+X   {
+X   struct bwb_line *start, *end, *current;
+X   register int n;
+X   static int s, e;
+X   int f, r;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   start = bwb_start.next;
+X   end = &bwb_end;
+X
+X   r = bwb_numseq( &( l->buffer[ l->position ] ), &s, &e );
+X
+X   if (( r == FALSE ) || ( s == 0 ))
+X      {
+X      s = bwb_start.next->number;
+X      }
+X
+X   if ( e == 0 )
+X      {
+X      e = s;
+X      }
+X
+X   if ( r == FALSE )
+X      {
+X      for ( current = bwb_start.next; current != &bwb_end; current = current->next )
+X         {
+X         if ( current->next == &bwb_end )
+X            {
+X            e = current->number;
+X            }
+X         }
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_list(): LBUFFER sequence is %d-%d", s, e );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* Now try to find the actual lines in memory */
+X
+X   f = FALSE;
+X
+X   for ( current = bwb_start.next; current != &bwb_end; current = current->next )
+X      {
+X      if ( current != l )
+X         {
+X         current->position = 0;
+X         adv_element( current->buffer, &( current->position ), tbuf );
+X         if ( atoi( tbuf ) == s )
+X            {
+X            f = TRUE;
+X	    start = current;
+X
+X            #if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_list(): start line number is <%d>",
+X               s );
+X            bwb_debug( bwb_ebuf );
+X            #endif
+X
+X            }
+X         }
+X      }
+X
+X   /* check and see if a line number was found */
+X
+X   if ( f == FALSE )
+X      {
+X      sprintf( bwb_ebuf, err_lnnotfound, s );
+X      bwb_error( bwb_ebuf );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   if ( e > s )
+X      {
+X      for ( current = bwb_start.next; current != &bwb_end; current = current->next )
+X         {
+X         if ( current != l )
+X            {
+X            current->position = 0;
+X            adv_element( current->buffer, &( current->position ), tbuf );
+X            if ( atoi( tbuf ) == e )
+X               {
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in bwb_list(): end line number is <%d>",
+X                  e );
+X               bwb_debug( bwb_ebuf );
+X               #endif
+X
+X               end = current->next;
+X               }
+X            }
+X         }
+X      }
+X   else
+X      {
+X      end = start;
+X      }
+X
+X   /* previous should now be set to the line previous to the
+X      first in the omission list */
+X
+X   /* now go through and list appropriate lines */
+X
+X   if ( start == end )
+X      {
+X      fprintf( file, "%s\n", start->buffer );
+X      }
+X   else
+X      {
+X      current = start;
+X      while ( current != end )
+X         {
+X         fprintf( file, "%s\n", current->buffer );
+X         current = current->next;
+X         }
+X      }
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_goto
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_goto( struct bwb_line *l )
+X   {
+X   struct bwb_line *x;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* Check for argument */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         bwb_error( err_noln );
+X         l->next->position = 0;
+X         return l->next;
+X      default:
+X         break;
+X      }
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X
+X   for ( x = &bwb_start; x != &bwb_end; x = x->next )
+X      {
+X      if ( x->number == atoi( tbuf ) )
+X         {
+X         x->position = 0;
+X         return x;
+X         }
+X      }
+X
+X   sprintf( bwb_ebuf, err_lnnotfound, atoi( tbuf ) );
+X   bwb_error( bwb_ebuf );
+X
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_gosub()
+X
+X	DESCRIPTION:    This function implements the BASIC GOSUB
+X			command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_gosub( struct bwb_line *l )
+X   {
+X   struct bwb_line *x, *nl;
+X   int save_pos;
+X   register int c;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X   char btbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* Check for argument */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         sprintf( bwb_ebuf, err_noln );
+X         bwb_error( bwb_ebuf );
+X         l->next->position = 0;
+X         return l->next;
+X      default:
+X         break;
+X      }
+X
+X   /* get the target line number in tbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf );
+X
+X   for ( x = &bwb_start; x != &bwb_end; x = x->next )
+X      {
+X
+X      if ( x != l )
+X         {
+X         x->position = 0;
+X         }
+X
+X      /* try to get line number in tbuf */
+X
+X      adv_element( x->buffer, &( x->position ), btbuf );
+X
+X      if ( is_numconst( btbuf ) == TRUE )
+X         {
+X         if ( atoi( btbuf ) == atoi( atbuf ) )
+X            {
+X	    save_pos = l->position;
+X
+X	    #if  INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in bwb_gosub() at line <%d> gssc <%d>\n",
+X               l->number, bwb_gssc );
+X            bwb_debug( bwb_ebuf );
+X            bwb_debug( "Press RETURN: " );
+X            getchar();
+X            #endif
+X
+X            /* increment the GOSUB stack counter */
+X
+X            ++bwb_gssc;
+X
+X            x->cmdnum = -1;
+X            x->marked = FALSE;
+X            x->position = 0;
+X
+X            do
+X               {
+X               bwb_gss[ bwb_gssc ].position = 0;
+X
+X	       /* execute the line */
+X
+X	       nl = bwb_xline( x );
+X
+X	       /* check for RETURN in the line */
+X
+X	       if ( x->cmdnum == getcmdnum( "RETURN" ) )
+X		  {
+X		  l->position = save_pos;
+X		  #if  INTENSIVE_DEBUG
+X		  sprintf( bwb_ebuf, "in bwb_gosub(): return to line <%d>, position <%d>, gssc <%d>",
+X		     l->number, l->position, bwb_gssc );
+X		  bwb_debug( bwb_ebuf );
+X		  #endif
+X		  l->next->position = 0;
+X		  return l->next; 	/* but why shouldn't we continue processing */
+X		  }			/* this line? */
+X					/* answer: bwb_xline() will continue */
+X	       x = nl;
+X
+X	       }
+X
+X	    while ( TRUE );
+X
+X            }
+X         }
+X      }
+X
+X   sprintf( bwb_ebuf, err_lnnotfound, atoi( atbuf ) );
+X   bwb_error( bwb_ebuf );
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_return()
+X
+X	DESCRIPTION:    This function implements the BASIC RETURN
+X			command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_return( struct bwb_line *l )
+X   {
+X
+X   #if  INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_return() at line <%d> bwb_gssc <%d>, cmdnum <%d>",
+X      l->number, bwb_gssc, l->cmdnum );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   if ( bwb_gssc < 1 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_return(): bwb_gssc <%d>", bwb_gssc );
+X      #else
+X      sprintf( bwb_ebuf, ERR_RETNOGOSUB );
+X      #endif
+X      bwb_error( bwb_ebuf );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   --bwb_gssc;
+X
+X   #if  INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_return() at line <%d>: gss level <%d>",
+X      l->number, bwb_gssc );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   l->cmdnum = getcmdnum( "RETURN" );
+X   l->marked = FALSE;
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_on
+X
+X        DESCRIPTION:    This function implements the BASIC ON...
+X                        GOTO or ON...GOSUB statements.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_on( struct bwb_line *l )
+X   {
+X   struct bwb_line *x;
+X   char varname[ MAXVARNAMESIZE + 1 ];
+X   static int p;
+X   struct exp_ese *rvar;
+X   int v;
+X   int loop;
+X   int num_lines;
+X   int command;
+X   int lines[ MAX_GOLINES ];
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   char sbuf[ 7 ];
+X
+X   /* Check for argument */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         sprintf( bwb_ebuf, err_incomplete );
+X         bwb_error( bwb_ebuf );
+X         l->next->position = 0;
+X         return l->next;
+X      default:
+X         break;
+X      }
+X
+X   /* get the variable name or numerical constant */
+X
+X   adv_element( l->buffer, &( l->position ), varname );
+X
+X   /* check for ON ERROR statement */
+X
+X   strncpy( sbuf, varname, 6 );
+X   bwb_strtoupper( sbuf );
+X   if ( strcmp( sbuf, "ERROR" ) == 0 )
+X      {
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_on(): detected ON ERROR" );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X      return bwb_onerror( l );
+X      }
+X
+X   /* evaluate the variable name or constant */
+X
+X   p = 0;
+X   rvar = bwb_exp( varname, FALSE, &p );
+X   v = exp_getival( rvar );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_on(): value is <%d>", v );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* Get GOTO or GOSUB statements */
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   bwb_strtoupper( tbuf );
+X   if ( strncmp( tbuf, "GOTO", (size_t) 4 ) == 0 )
+X      {
+X      command = getcmdnum( "GOTO" );
+X      }
+X   else if ( strncmp( tbuf, "GOSUB", (size_t) 5 ) == 0 )
+X      {
+X      command = getcmdnum( "GOSUB" );
+X      }
+X   else
+X      {
+X      sprintf( bwb_ebuf, ERR_ONNOGOTO );
+X      bwb_error( bwb_ebuf );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   num_lines = 0;
+X
+X   loop = TRUE;
+X   while( loop == TRUE )
+X      {
+X
+X      /* read a line number */
+X
+X      inp_adv( l->buffer, &( l->position ) );
+X      adv_element( l->buffer, &( l->position ), tbuf );
+X
+X      lines[ num_lines ] = atoi( tbuf );
+X
+X      ++num_lines;
+X
+X      if ( num_lines >= MAX_GOLINES )
+X         {
+X         loop = FALSE;
+X         }
+X
+X      /* check for end of line */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      switch( l->buffer[ l->position ] )
+X         {
+X         case '\0':
+X         case '\n':
+X         case '\r':
+X         case ':':
+X            loop = FALSE;
+X            break;
+X         }
+X
+X      }
+X
+X   /* Be sure value is in range */
+X
+X   if ( ( v < 1 ) || ( v > num_lines ))
+X      {
+X      sprintf( bwb_ebuf, err_valoorange );
+X      bwb_error( bwb_ebuf );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   if ( command == getcmdnum( "GOTO" ))
+X      {
+X      sprintf( tbuf, "GOTO %d", lines[ v - 1 ] );
+X      return cnd_xpline( l, tbuf );
+X      }
+X   else if ( command == getcmdnum( "GOSUB" ))
+X      {
+X      sprintf( tbuf, "GOSUB %d", lines[ v - 1 ] );
+X      return cnd_xpline( l, tbuf );
+X      }
+X   else
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_on(): invalid value for command." );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_onerror()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X        		ON ERROR GOSUB command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_onerror( struct bwb_line *l )
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_onerror(): entered function" );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* get the GOSUB STATEMENT */
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X
+X   /* check for GOSUB statement */
+X
+X   bwb_strtoupper( tbuf );
+X   if ( strcmp( tbuf, "GOSUB" ) != 0 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_onerror(): GOSUB statement missing" );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return l;
+X      }
+X
+X   /* get the GOSUB line number */
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   err_gosubn = atoi( tbuf );
+X
+X   return l;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_stop()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_stop( struct bwb_line *l )
+X   {
+X   return bwb_xend( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xend()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_xend( struct bwb_line *l )
+X   {
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_xend(): entered funtion" );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   break_handler();
+X
+X   return &bwb_end;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_system()
+X
+X        DESCRIPTION:
+X
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_system( struct bwb_line *l )
+X   {
+X   fprintf( stdout, "\n" );
+X
+X   #if INTENSIVE_DEBUG
+X   bwb_debug( "in bwb_system(): ready to exit" );
+X   #endif
+X
+X   exit( 0 );
+X   return &bwb_end;                 /* to make LINT happy */
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_tron()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_tron( struct bwb_line *l )
+X   {
+X   bwb_trace = TRUE;
+X   fprintf( stdout, "Trace is ON\n" );
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_troff()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_troff( struct bwb_line *l )
+X   {
+X   bwb_trace = FALSE;
+X   fprintf( stdout, "Trace is OFF\n" );
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X
+X        FUNCTION:       bwb_delete()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+X
+Xbwb_delete( struct bwb_line *l )
+X   {
+X   struct bwb_line *start, *end, *current, *previous, *p;
+X   register int n;
+X   static int s, e;
+X   int f;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   previous = &bwb_start;
+X   start = bwb_start.next;
+X   end = &bwb_end;
+X
+X   bwb_numseq( &( l->buffer[ l->position ] ), &s, &e );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_delete(): LBUFFER sequence is %d-%d", s, e );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* Now try to find the actual lines in memory */
+X
+X   previous = p = &bwb_start;
+X   f = FALSE;
+X
+X   for ( current = bwb_start.next; current != &bwb_end; current = current->next )
+X      {
+X      if ( current != l )
+X         {
+X         current->position = 0;
+X         adv_element( current->buffer, &( current->position ), tbuf );
+X         if ( atoi( tbuf ) == s )
+X            {
+X            f = TRUE;
+X            previous = p;
+X            start = current;
+X
+X            #if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_delete(): start line number is <%d>",
+X               s );
+X            bwb_debug( bwb_ebuf );
+X            #endif
+X
+X            }
+X         }
+X      p = current;
+X      }
+X
+X   /* check and see if a line number was found */
+X
+X   if ( f == FALSE )
+X      {
+X      sprintf( bwb_ebuf, err_lnnotfound, s );
+X      bwb_error( bwb_ebuf );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   if ( e > s )
+X      {
+X      for ( current = bwb_start.next; current != &bwb_end; current = current->next )
+X         {
+X         if ( current != l )
+X            {
+X            current->position = 0;
+X            adv_element( current->buffer, &( current->position ), tbuf );
+X            if ( atoi( tbuf ) == e )
+X               {
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in bwb_delete(): end line number is <%d>",
+X                  e );
+X               bwb_debug( bwb_ebuf );
+X               #endif
+X
+X               end = current->next;
+X               }
+X            }
+X         }
+X      }
+X   else
+X      {
+X      end = start;
+X      }
+X
+X   /* previous should now be set to the line previous to the
+X      first in the omission list */
+X
+X   /* now go through and delete appropriate lines */
+X
+X   current = start;
+X   while ( current != end )
+X      {
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_delete(): deleting line %d",
+X         current->number );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* free line memory */
+X
+X      bwb_freeline( current );
+X
+X      /* recycle */
+X
+X      current = current->next;
+X      }
+X
+X   /* reset link */
+X
+X   previous->next = current;
+X
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_randomize()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_randomize( struct bwb_line *l )
+X   {
+X   register unsigned n;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* Check for argument */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         n = (unsigned) 1;
+X         break;
+X      default:
+X         n = (unsigned) 0;
+X         break;
+X      }
+X
+X   /* get the argument in tbuf */
+X
+X   if ( n == (unsigned) 0 )
+X      {
+X      adv_element( l->buffer, &( l->position ), tbuf );
+X      n = (unsigned) atoi( tbuf );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_randomize(): argument is <%d>", n );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   srand( n );
+X
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_environ()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			ENVIRON command.  
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_environ( struct bwb_line *l )
+X   {
+X   static char tbuf[ MAXSTRINGSIZE + 1 ];
+X   char tmp[ MAXSTRINGSIZE + 1 ];
+X   register int h, i;
+X   int pos;
+X   struct exp_ese *e;
+X
+X   /* find the equals sign */
+X
+X   for ( i = 0; ( l->buffer[ l->position ] != '=' ) && ( l->buffer[ l->position ] != '\0' ); ++i )
+X      {
+X      tbuf[ i ] = l->buffer[ l->position ];
+X      tbuf[ i + 1 ] = '\0';
+X      ++( l->position );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_environ(): variable string is <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* get the value string to be assigned */
+X
+X   pos = 0;
+X   e = bwb_exp( tbuf, FALSE, &pos );
+X   str_btoc( tbuf, exp_getsval( e ) );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_environ(): variable string resolves to <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* find the equals sign */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] != '=' )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_environ(): failed to find equal sign" );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return l;
+X      }
+X   ++( l->position );
+X
+X   /* get the value string to be assigned */
+X
+X   e = bwb_exp( l->buffer, FALSE, &( l->position ));
+X   str_btoc( tmp, exp_getsval( e ) );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_environ(): value string resolves to <%s>", tmp );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* construct string */
+X
+X   strcat( tbuf, "=" );
+X   strcat( tbuf, tmp );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_environ(): assignment string is <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* now assign value to variable */
+X
+X   if ( putenv( tbuf ) == -1 )
+X      {
+X      bwb_error( err_opsys );
+X      return l;
+X      }
+X
+X   /* return */ 
+X
+X   return l;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_cmds()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+X#if PERMANENT_DEBUG
+Xstruct bwb_line *
+Xbwb_cmds( struct bwb_line *l )
+X   {
+X   register int n;
+X
+X   fprintf( stdout, "BWBASIC COMMANDS AVAILABLE: \n" );
+X
+X   /* run through the command table and print comand names */
+X
+X   for ( n = 0; n < COMMANDS; ++n )
+X      {
+X      fprintf( stdout, "%s \n", bwb_cmdtable[ n ].name );
+X      }
+X
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X#endif
+X
+Xint
+Xgetcmdnum( char *cmdstr )
+X   {
+X   register int c;
+X
+X   for ( c = 0; c < COMMANDS; ++c )
+X      {
+X      if ( strcmp( bwb_cmdtable[ c ].name, cmdstr ) == 0 )
+X         {
+X         return c;
+X         }
+X      }
+X
+X   return -1;
+X
+X   }
+END_OF_FILE
+  if test 35201 -ne `wc -c <'bwb_cmd.c'`; then
+    echo shar: \"'bwb_cmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwb_cmd.c'
+fi
+echo shar: End of archive 9 \(of 11\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

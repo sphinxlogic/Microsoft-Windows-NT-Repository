@@ -1,0 +1,1716 @@
+Newsgroups: comp.sources.misc
+From: david@bdt.com (David Beckemeyer)
+Subject: v37i090:  ulayers - Unix/X client to MacLayers, Part02/03
+Message-ID: <1993May29.181053.21794@sparky.imd.sterling.com>
+X-Md4-Signature: a455af7748fa31896611d4efc35a4de1
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 29 May 1993 18:10:53 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: david@bdt.com (David Beckemeyer)
+Posting-number: Volume 37, Issue 90
+Archive-name: ulayers/part02
+Environment: UNIX, X11, PTY
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  CHANGES ul_modems ulayers.c
+# Wrapped by kent@sparky on Sat May 29 13:04:06 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'CHANGES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CHANGES'\"
+else
+  echo shar: Extracting \"'CHANGES'\" \(1862 characters\)
+  sed "s/^X//" >'CHANGES' <<'END_OF_FILE'
+XV0.1	Mar 9 1993	First Beta Release
+X
+XV0.2	Mar 10, 1993	Added UUCP lockfile support to connect.c
+X
+XV0.3	Mar 11, 1993	Added uploading to ulslave.c
+X			NOTE: This won't work on binary files
+X			with 0xfd characters due to a bug in
+X			the V1.20 "layers" software.
+X
+XV0.4	Mar 12, 1993	Fixed Tilde handling in dumb term mode (startup.c)
+X			Fixed ulslave to pass-thru Zmodem partial inits
+X			Fixed to remove UUCP lock file on exit.
+X
+XV0.5	Mar 15, 1993	Improved ulslave startup synchronization
+X
+XV0.6	Mar 17, 1993	Fixed Tilde handling so "~c" sends "c".
+X			Added conf.h configuration header file.
+X			Added dialers database ($HOME/.ul_numbers)
+X			Added modems/ports databases (ul_modems/ul_ports)
+X
+XV0.7	Mar 24, 1993	Fix KillWindow() free buffer bug.
+X			Some changes to attempt portable/reliable kill.
+X
+XV0.8	Apr 1, 1993	Fixed bug in declaration of a_newfail in ulayers.c
+X			Ignore startup if protocol not 2 instead of abort
+X			Added -f (flowctl) and -v (version) command options.
+X			Added "ulterm" hook for starting layers sessions.
+X
+XV0.8.2	Apr 2, 1993	Added h)elp, s)tatus, a)bort ulayers commands.
+X			Added -m option to override modem type.
+X			Changed so that 'a' closes all windows, aborts
+X			layers mode, but returns to "dumb terminal mode",
+X			while 'q' closes and quits (as before).
+X			Rearranged some code internally.
+X
+XV0.8.3	Apr 4, 1993	Added support for System V style termio.
+X			Ported to SVR3.  Might also work on SVR4.
+X
+XV0.90	Apr 6, 1993	Fixed MAX_PID handling in connect.c.
+X			Minor cleanups to remove compile warnings.
+X			Fixed timeval initialization bug in ulayers.c
+X
+XV0.91	Apr 14, 1993	Fixed B2400 bug in Setspeed().
+X
+XV0.92	Apr 20, 1993	Changed dumb-terminal to strip stdout to 7-bits
+X
+XV0.93	Apr 29, 1993	Added "try all matches" in .ul_numbers file.
+X
+XV0.94	May 7, 1993	Don't remove lockfile when locked by another process
+X
+XV1.0	May 24, 1993	First offical release
+END_OF_FILE
+  if test 1862 -ne `wc -c <'CHANGES'`; then
+    echo shar: \"'CHANGES'\" unpacked with wrong size!
+  fi
+  # end of 'CHANGES'
+fi
+if test -f 'ul_modems' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ul_modems'\"
+else
+  echo shar: Extracting \"'ul_modems'\" \(787 characters\)
+  sed "s/^X//" >'ul_modems' <<'END_OF_FILE'
+X#
+X# Ulayers modem database
+X#
+X# Fields are:
+X#     name:init:prefix:suffix:connect:
+X#
+X# Where:
+X#	name - the modem entry name
+X#	init - the modem init string
+X#	prefix - the dial prefix
+X#	suffix - the disl suffix
+X#	connect - the connect sring
+X#
+X# The following meta sequences are valid in the modem strings:
+X#
+X#	~ - pause one second
+X#	! - sends Carriage-return
+X#	^ - sends a control char 
+X#	| - sends ESC
+X#	% - causes a BREAK
+X#
+X# The special meanings can be avoided by prepending \
+X#
+X# When no match is found, ulayers defaults to its compile-time dialer
+X# (usually a simple hayes dialer).
+X#
+X# Hayes Smart-modem
+Xhayes:ATE1V1X1Q0S2=255S12=255!:ATDT:!:CONNECT:
+X
+X# Telebit T3000/Worldblazer
+Xt3000:ATS111=0S50=254!:ATDT:!:CONNECT:
+X
+X# Telebit T2500
+Xt2500:ATE1V1X12Q0S50=0S94=1S0=0!:ATDT:!:CONNECT:
+END_OF_FILE
+  if test 787 -ne `wc -c <'ul_modems'`; then
+    echo shar: \"'ul_modems'\" unpacked with wrong size!
+  fi
+  # end of 'ul_modems'
+fi
+if test -f 'ulayers.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ulayers.c'\"
+else
+  echo shar: Extracting \"'ulayers.c'\" \(52393 characters\)
+  sed "s/^X//" >'ulayers.c' <<'END_OF_FILE'
+X/********					Ulayers.c
+X*********
+X*********     This is a quick & dirty implementation of the
+X*********     MacLayers protocol client-side for Unix.  It
+X*********     Basically is an emulation of the MacLayers
+X*********     Macintosh application for Unix, except that
+X*********     Ulayers is a bare-bones program, a far cry
+X*********     from the polished and professional MacLayers.
+X*********
+X*********     The hacks to produce Ulayers were made by me,
+X*********     David Beckemeyer david@bdt.com.  Essentially
+X*********     the entire credit for this goes to the original
+X*********     authors however, and all the contributors
+X*********     copyright messages appear below.  On the
+X*********     the other hand, the "real" Maclayers authors
+X*********     are not to blame for the shoddy hacks I made
+X*********     to their code either, and so I'm putting my
+X*********     name here because I'm sure they don't want their
+X*********     name associatyed with this mess!
+X*********
+X*********     Most of the code for Ulayers came straight from
+X*********     the Unix-side of the MacLayers implementation,
+X*********     the copyright messages to which follow:
+X*********
+X*********	Layers - MacLayers Multiwindow BSD Socket Driver
+X*********
+X*********          Dave Trissel oakhill!davet
+X*********
+X********* The sockets handling portion of this control module is based 
+X********* upon 'screen' by Oliver Laumann whose copyright remains below. 
+X********* The rest is
+X *
+X *             Copyright (C) 1989 by David W. Trissel
+X *
+X *              Not derived from licensed software.
+X *
+X * Permission is granted to freely use, copy, modify, and redistribute
+X * this software, provided that no attempt is made to gain profit from it,
+X * the author is not construed to be liable for any results of using the
+X * software, alterations are clearly marked as such, and this notice is
+X * not modified.
+X *
+X */
+Xstatic char UlayersVersion[] = "ulayers V1.0 24-May-1993";
+X
+X/* Copyright (c) 1987,1988 Oliver Laumann, Technical University of Berlin.
+X * Not derived from licensed software.
+X *
+X * Permission is granted to freely use, copy, modify, and redistribute
+X * this software, provided that no attempt is made to gain profit from it,
+X * the author is not construed to be liable for any results of using the
+X * software, alterations are clearly marked as such, and this notice is
+X * not modified.
+X *
+X *	Modified by Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Do whatever you want with (my modifications of) this program, but
+X *	don't claim you wrote them, don't try to make money from them, and
+X *	don't remove this notice.
+X */
+X#include <stdio.h>
+X#include <nlist.h>
+X#include <fcntl.h>   
+X#include <sys/types.h>
+X#include <sys/signal.h>
+X#include <sys/time.h>   
+X#ifdef USG
+X#include <stropts.h>
+X#include <poll.h>
+X#endif
+X#include <sys/file.h> 
+X#include <sys/wait.h> 
+X#include <sys/errno.h> 
+X#include <sys/socket.h>
+X#ifndef USG
+X#include <sys/un.h>  
+X#endif
+X#include <sys/stat.h>
+X#include <sys/dir.h>   
+X#include "conf.h"
+X#ifdef V7TTY
+X#include <sgtty.h>   
+X#include <sys/ioctl.h>
+X#else
+X#include <termio.h>
+X#endif
+X
+X#include "ulayers.h" 
+X
+X/* C Library items */
+Xextern int errno;
+X
+X/* Global items */
+Xint Dflag = 0;
+Xchar *ServerPort, *TtySpeed, *ServerNumber, *ModemName, *ServerName;
+X
+Xstatic char a_newfail[] = "\0333A01";
+X#define A_NEWFSZ    5
+X
+Xstatic char     inbuff[IOSIZE];     /* input buffer from MacLayers */
+Xstatic char     *inpos;             /* current input position in buffer */
+Xstatic int      insize = 0;         /* characters left to process */
+Xstatic int      settimeout = 0;     /* alarm system call timeout value */
+Xstatic int      Outstream = -1;     /* output channel (to xterm) */
+Xstatic int      Instream = -1;      /* input channel (to server) */
+Xstatic int      Sevenbits = 0;      /* communication channel is 7 bits */
+X
+X/* poll .20 secs for new startups */ 
+X#define WUSSTARTUP      200000  
+X#define WMSSTARTUP      200
+X
+Xstatic void     fill4();
+Xstatic void     fill2();
+Xstatic void     fill1();
+Xstatic int      parseshape();
+Xstatic unsigned get4();
+Xstatic unsigned get2();
+Xstatic unsigned get1();
+Xstatic int      myalarm();
+Xstatic void     dumptime();
+Xvoid            SendData();
+Xvoid            ReceiveData();
+Xvoid		hup();
+X
+X#define FLUSH tty_flush()
+X
+Xstatic usage()
+X{
+X
+X    fprintf(stderr, "usage: ulayers [ -df ] [ -m modem ]  tty speed [ number ]\n");
+X    fprintf(stderr, "       ulayers [ -df ] [ -m modem ] system\n");
+X    fprintf(stderr, "       ulayers -v\n");
+X    exit(1);
+X}
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X    int fderr;
+X    int r, w, n;
+X    int len;
+X    char buf[IOSIZE];
+X    struct Layer *layer;
+X    struct Kbuff *kbptr;                /* input keyboard buffer pointer */
+X#ifdef USG
+X    struct pollfd fds[MAXPCHAN+2];
+X    int msec, numfds, i;
+X#else
+X    struct timeval tv;
+X#endif
+X    char *ap;
+X
+X    while (argc > 1)
+X      { ap = argv[1];
+X        if (*ap++ != '-')
+X            break;
+X        argv++;
+X        argc--;
+X	while (*ap)
+X          { switch (*ap++)
+X              { case 'd':
+X                  Dflag++;
+X                  break;
+X                case 'f':
+X                  flowctl++;
+X                  break;
+X                case 'm':
+X                  ModemName = argv[1];
+X                  argv++;
+X                  argc--;
+X                  break;
+X                case 'v':
+X                  printf("%s\n", UlayersVersion);
+X                  exit(0);
+X                default:
+X                  usage(); 
+X              }
+X          }
+X      }
+X    if (argc == 3 || argc == 4) {
+X        ServerPort = argv[1];
+X	TtySpeed = argv[2];
+X	ServerNumber = argv[3];
+X    }
+X    else if (argc == 2) {
+X	ReadStartup();
+X	ServerName = argv[1];
+X	if (GetNumber(ServerName, 1)) {
+X	    fprintf(stderr, "%s: unknown system\n", ServerName);
+X	    exit(1);
+X	}
+X    }
+X    else {
+X        usage();
+X    }
+X
+X    if (Dflag) {
+X        (void) freopen("ulayers.dump", "a", stderr); /* append mode */
+X#ifdef SEQUENT
+X        setlinebuf(stderr);
+X#else
+X        setvbuf(stderr, NULL, _IOLBF, 0);
+X#endif
+X    }
+X
+X    /* Set the mode on our input (keyboard) channel */
+X    GetTTY (0, OldMode);
+X    SetMode (OldMode, NewMode);
+X    SetTTY (0, NewMode);
+X
+X    /* Open the connection to the serial line */
+X    
+X        while (InitConnect() < 0)
+X          { if (!ServerName || GetNumber(ServerName, 0))
+X                FQuit(EXITABNORMAL);
+X      }
+X
+X    signal(SIGHUP, hup);
+X    
+Xrestart:
+X    StartUp();
+X
+X    DO DEBUG("Startup() done.  Serverlevel = %d\n", Serverlevel);
+X
+X    DO DEBUG("Writing startup string ESC [ ? 8 ; 10 ; 2 c\n");
+X    tty_puts("\033[?8;10;2c", 1);
+X    FLUSH;
+X
+X    /* From now on we are in MacLayers-speak */
+X    InitWorld();
+X
+X    fderr = 0;          /* startout no Nerror fd's */
+X
+X    while (1)
+X      {
+X
+X#ifdef USG
+X        /* check for I/O on all available I/O descriptors */
+X        fds[0].fd = 0;
+X        fds[0].events = POLLIN|POLLPRI;
+X        fds[1].fd = TtyFd;
+X        fds[1].events = POLLIN|POLLPRI;
+X        msec = 0;
+X
+X        /* for all active layers set read and write bits as appropriate */
+X        numfds = 2;
+X        for (n=0; n<MAXPCHAN; n++)
+X         { layer = &World[n];
+X         if (layer->allocated) /* if layer exists ... */
+X          { /* if not yet started or has just terminated ... */
+X            if (layer->ptymask & fderr)
+X                msec = WMSSTARTUP;    /* don't spinloop but wait-a-bit */
+X            else
+X              { fds[numfds].fd = layer->ptyfd;
+X                fds[numfds].events = POLLIN|POLLPRI;
+X                if (layer->kbuff && layer->kbuff->size)
+X                    /* keyboard input for layer */
+X                    fds[numfds].events |= POLLOUT;    /* try write to it */
+X                numfds++;
+X               }
+X            }
+X          }
+X        switch ( poll(fds, numfds, msec)) 
+X        { case -1:
+X            /* errno has report */
+X            if (errno == EINTR) /* signal delivered or timout */
+X              { errno = 0;
+X                msec = 0; /* clear timer wait value */
+X                fderr = 0;  /* turn off error stall */
+X                DO DEBUG("poll errno EINTR\n");
+X                continue;   /* re-loop */
+X              }
+X            Abortonmsg = 1;
+X            DO DEBUG("poll errno %d\n", errno);
+X            Msg (errno, "poll");
+X            /*NOTREACHED*/
+X
+X          case 0:
+X            /* timeout reached */
+X            msec = 0;                       /* clear timer wait value */
+X            fderr = 0;                      /* turn off error stall */
+X            continue;                       /* re-loop */
+X
+X          default:
+X            /* a channel has read/write status pending */
+X            break;
+X        }
+X
+X        for (n=0; n<MAXPCHAN; n++)
+X          if ((layer = &World[n])->allocated)
+X
+X        /* process keyboard input first
+X        */
+X        for (n=0; n<MAXPCHAN; n++)
+X          if ((layer = &World[n])->allocated)
+X            for (i = 0; i < numfds; i++)
+X             if (fds[i].fd == layer->ptyfd && fds[i].revents != 0)
+X              { /* input from xterm window, send to server */
+X                DO DEBUG("poll chan=%d, revents = %x\n", layer->chan, fds[i].revents);
+X                if ((fds[i].revents & (POLLIN|POLLPRI)) != 0)
+X                  { len = read(layer->ptyfd, buf, IOSIZE);
+X                    if (len >= 0)               /* if no error ... */
+X                     { DO DEBUG("input chan %d len %d\n", layer->chan, len);
+X                     }
+X                    else
+X                     {  DO DEBUG("read input err chan %d errno %d len %d\n",
+X                           layer->chan, errno, len);
+X                        if (errno == EIO || errno == EAGAIN)
+X                           { DO DEBUG(" ...anticipated\n");
+X                           }
+X                        /* layer not ready or just terminated so wait-a-bit */
+X                        fderr |= layer->ptymask;
+X                        errno = 0;              /* clear errno */
+X                      }
+X                    if (len > 0)
+X                        SendData(layer->chan, buf, len);
+X                  }
+X                if ((fds[i].revents & POLLOUT) != 0)
+X                  { while ((kbptr=layer->kbuff)->size)
+X                      { /* pass as much keyboard as possible */
+X                        len = write(layer->ptyfd, &kbptr->text[kbptr->offset],
+X                                kbptr->size);
+X                        DO DEBUG("keyin len %d to chan %d\n", len, layer->chan);
+X                        if (len <= 0)           /* if no data accepted ... */
+X                          { if (errno == EIO)   /* if I/O error indicated ... */
+X                                fderr |= layer->ptymask; /* wait-a-bit on this */
+X                            errno = 0;          /* clear errno */
+X                            break;              /* try again later */
+X                          }
+X                        /* some of buffer accepted */
+X                        kbptr->size -= len;     /* length processed */
+X                        kbptr->offset += len;   /* bump up offset */
+X                        if (kbptr->size > 0)    /* not all buffer accepted ... */
+X                            break;              /* try feed again later */
+X                        /* see if another buffer chained */
+X                        if (kbptr->next)
+X                          { /* yes, free up current buffer and queue next */
+X                            layer->kbuff = kbptr->next; /* to next buffer */
+X                            free(kbptr);    /* free this buffer up */
+X                          }
+X                        else
+X                          { /* otherwise leave this for next input */
+X                            kbptr->size = 0;    /* empty buffer */
+X                            kbptr->offset = 0;  /* refill from the start */
+X                          }
+X                      }
+X                  }
+X                break;
+X              }
+X        /* next process input stream from layers server */
+X        if (fds[1].revents)
+X          { ProcessStreamin();  /* output and control packets */
+X            continue;   /* status may have changed */
+X          }
+X
+X        /* finally process commands from the Ulayers startup */
+X        if (fds[0].revents)
+X          {
+X            len = read(0, buf, 1);
+X            if (len > 0 && buf[0] > ' ')
+X              {
+X                if (DoCmd(buf[0])) {
+X                    ServerNumber = 0;
+X                    goto restart;
+X		}
+X              }
+X           }                
+X                
+X        if (fderr)
+X            DoWait();
+X
+X
+X#else
+X        /* check for I/O on all available I/O descriptors */
+X        r = (1 | TtyMask);  /* always read server stream */
+X        w = 0;          /* initalize to no write tests */
+X	tv.tv_sec = 0;
+X        tv.tv_usec = 0;     /* default no startup poll */
+X
+X        /* for all active layers set read and write bits as appropriate */
+X        for (n=0; n<MAXPCHAN; n++)
+X         { layer = &World[n];
+X         if (layer->allocated) /* if layer exists ... */
+X          { /* if not yet started or has just terminated ... */
+X            if (layer->ptymask & fderr)
+X                tv.tv_usec = WUSSTARTUP;    /* don't spinloop but wait-a-bit */
+X            else
+X              { if (layer->kbuff && layer->kbuff->size)
+X                    /* keyboard input for layer */
+X                    w |= layer->ptymask;    /* try write to it */
+X                /* read keys from xterm */
+X                r |= layer->ptymask;
+X               }
+X            }
+X          }
+X        DO DEBUG("Select(r %x, w %x, fderr %x, us %d)\n",
+X                    r, w, fderr, tv.tv_usec);
+X
+X        switch ( select(32, &r, &w, NULL, tv.tv_usec ? &tv : NULL) )
+X        { case -1:
+X            /* errno has report */
+X            if (errno == EINTR) /* signal delivered or timout */
+X              { errno = 0;
+X                tv.tv_usec = 0; /* clear timer wait value */
+X                fderr = 0;  /* turn off error stall */
+X                DO DEBUG("select errno EINTR\n");
+X                continue;   /* re-loop */
+X              }
+X            Abortonmsg = 1;
+X            DO DEBUG("select errno %d\n", errno);
+X            Msg (errno, "select");
+X            /*NOTREACHED*/
+X
+X          case 0:
+X            /* timeout reached */
+X            tv.tv_usec = 0;                 /* clear timer wait value */
+X            fderr = 0;                      /* turn off error stall */
+X            continue;                       /* re-loop */
+X
+X          default:
+X            /* a channel has read/write status pending */
+X            break;
+X        }
+X
+X        DO DEBUG("after select r %x w %x\n", r, w);
+X
+X        for (n=0; n<MAXPCHAN; n++)
+X          if ((layer = &World[n])->allocated)
+X            if (w & layer->ptymask)
+X                while ((kbptr=layer->kbuff)->size)
+X                  { /* pass as much keyboard as possible */
+X                    len = write(layer->ptyfd, &kbptr->text[kbptr->offset],
+X                                kbptr->size);
+X                    DO DEBUG("keyin len %d to chan %d\n", len, layer->chan);
+X                    if (len <= 0)           /* if no data accepted ... */
+X                      { if (errno == EIO)   /* if I/O error indicated ... */
+X                            fderr |= layer->ptymask; /* wait-a-bit on this */
+X                        errno = 0;          /* clear errno */
+X                        break;              /* try again later */
+X                      }
+X                    /* some of buffer accepted */
+X                    kbptr->size -= len;     /* length processed */
+X                    kbptr->offset += len;   /* bump up offset */
+X                    if (kbptr->size > 0)    /* not all buffer accepted ... */
+X                        break;              /* try feed again later */
+X                    /* see if another buffer chained */
+X                    if (kbptr->next)
+X                      { /* yes, free up current buffer and queue next */
+X                        layer->kbuff = kbptr->next; /* to next buffer */
+X                        free(kbptr);    /* free this buffer up */
+X                      }
+X                    else
+X                      { /* otherwise leave this for next input */
+X                        kbptr->size = 0;    /* empty buffer */
+X                        kbptr->offset = 0;  /* refill from the start */
+X                      }
+X                  }
+X
+X        /* process keyboard input first
+X        */
+X        for (n=0; n<MAXPCHAN; n++)
+X          if ((layer = &World[n])->allocated)
+X            if (r & layer->ptymask)
+X              { /* input from xterm window, send to server */
+X                len = read(layer->ptyfd, buf, IOSIZE);
+X                if (len >= 0)               /* if no error ... */
+X                  { DO DEBUG("input chan %d len %d\n", layer->chan, len);
+X                  }
+X                else
+X                  { 
+X                    /* We expect EIO error if socket not yet open on other end
+X                    ** or if process using socket has terminated. We expect
+X                    ** EWOULDBLOCK also after process terminates.
+X                    **/
+X                    DO DEBUG("read input err chan %d errno %d len %d\n",
+X                                layer->chan, errno, len);
+X                    if (errno == EIO || errno == EWOULDBLOCK)
+X                      { DO DEBUG(" ...anticipated\n");
+X                      }
+X                    /* layer not ready or just terminated so wait-a-bit */
+X                    fderr |= layer->ptymask;
+X                    errno = 0;              /* clear errno */
+X                  }
+X                if (len > 0)
+X                    SendData(layer->chan, buf, len);
+X              }
+X
+X        /* next process input stream from layers server */
+X        if ((r & TtyMask) != 0)
+X          { ProcessStreamin();  /* output and control packets */
+X            continue;   /* status may have changed */
+X          }
+X
+X        /* finally process commands from the Ulayers startup */
+X        if (r & 1)
+X          {
+X            len = read(0, buf, 1);
+X            if (len > 0 && buf[0] > ' ')
+X              {
+X                if (DoCmd(buf[0])) {
+X                    ServerNumber = 0;
+X                    goto restart;
+X		}
+X              }
+X           }                
+X                
+X        if (fderr)
+X            DoWait();
+X
+X
+X#endif
+X      } /* end while (1) */
+X
+X    /* NOT REACHED */
+X    
+X    
+X        
+X}
+X
+XDoCmd(c)
+Xint c;
+X{
+X    int chan, i;
+X    char obuf[64];
+X    static struct Shape shape;          /* Shape structure */
+X
+X    printf("\r\n[ CMD %c ]\r\n", c);
+X    DO DEBUG("Local CMD %c\n", c);
+X    switch (c) {
+X    case 'n':
+X        chan = MakeWindow(0, &shape);
+X        DO DEBUG("new channel = %d\n", chan);
+X        if (chan == 0) {
+X            break;
+X        }
+X        tty_putc(ESCAPE);
+X        tty_putc(ATTRSIZE + '2');
+X        tty_putc('N');
+X        tty_putc(chan+'0');
+X        asciishape(&shape, obuf);
+X        obuf[ATTRSIZE] = 0;
+X        tty_puts(obuf, 1);
+X        break;
+X        
+X    case 's':
+X        printf("\r\nLAYER    PID\r\n");
+X        for (i=0; i<MAXPCHAN; i++)
+X            if (World[i].allocated)
+X                printf(" %2d   %6d\r\n", World[i].chan, World[i].lpid);
+X        break;
+X    case 'q':
+X    case 'a':
+X        tty_putc(ESCAPE);
+X        tty_putc('1');
+X        tty_putc('E');
+X        FLUSH;
+X        for (i=0; i<MAXPCHAN; i++)
+X            KillWindow(&World[i]);  /* kill all windows */
+X        if (c == 'q')
+X            FQuit(0);
+X        return(-1);
+X        
+X    default:
+X        printf("*** UNKNOWN ULAYERS COMMAND KEY\r\n");
+X        /* FALL THROUGH */
+X    case 'h':
+X        printf("\r\nPress one of the following keys:\r\n");
+X        printf("\r\n    n - open a new layer session\r\n");
+X        printf("\r\n    s - show status of layers\r\n");
+X        printf("\r\n    a - abort host layers, return to dumb terminal\r\n");
+X        printf("\r\n    q - abort host layers, quit\r\n\r\n");
+X        break;
+X
+X    }
+X    return(0);
+X}
+X
+X            /* InitWorld() - initialize layer structures */
+X
+Xstatic
+XInitWorld()
+X{
+X    struct Layer *layer;                /* layer pointer */
+X    int     i;                          /* work variable */
+X
+X    for (i=0; i<MAXPCHAN; i++)
+X      { layer = &World[i];              /* point to layer */
+X        layer->chan = i+1;              /* channel ID */
+X        layer->allocated = 0;           /* does not exist yet */
+X        layer->lpid = 0;                /* head process */
+X        layer->ptyfd = 0;               /* no pseduo pty yet */
+X        layer->ptymask = 0;             /* no pty mask yet */
+X        ClearShape(&layer->shape);      /* clear shape structure */
+X
+X        /* allocate the primary input keybuffer for this layer */
+X        layer->kbuff = (struct Kbuff *) malloc(sizeof(struct Kbuff));
+X        layer->kbuff->next = NULL;      /* no next buffer */
+X        layer->kbuff->size = 0;         /* no data in buffer */
+X        layer->kbuff->offset = 0;       /* start filling at front */
+X
+X      } /* end for layer scan */
+X
+X} /* InitWorld() */
+X
+X
+X
+X                    /* clearshape() - initialize shape structure */
+X
+Xstatic
+XClearShape(shape)
+Xstruct Shape    *shape;                 /* shape structure pointer */
+X{
+X    shape->worigv = 0;                  /* default window position */
+X    shape->worigh = 0;
+X    shape->wlines = 0;                  /* default size */
+X    shape->wchars = 0;
+X    shape->wfont = 0;                   /* default font size */
+X    shape->wattr = 0;                   /* no attributes */
+X
+X} /* clearshape() */
+X
+X
+X
+X            /* ProcessStreamin() - MacLayers has input to process */
+X
+XProcessStreamin()
+X{
+X    DO dumptime();
+X    DO DEBUG("ProcessStreamin() insize %d\n", insize);
+X
+X    GetData();                      /* read some */
+X
+X    while (insize > 0)              /* while more data to process ... */
+X        Parse();                    /* process next chuck of data */
+X
+X} /* ProcessStreamin() */
+X
+X            /* Parse() - process next chunk of input stream */
+X
+Xstatic
+XParse()
+X{
+X#define ST_NULL     0               /* not primed for next state yet */
+X#define ST_STREAM   1               /* processing default stream input */
+X#define ST_PKT      2               /* processing packet data */
+X
+X    int     c;                      /* input character being processed */
+X
+X    static  int state = ST_NULL;    /* current input state */
+X    static  int psize = 0;          /* packet size */
+X    static  int rempsize = 0;       /* remembered packet size */
+X    static  char pdata[MAXSTR];     /* area for packet data */
+X    static  char *ppos;             /* packet read insert position */
+X    static  int escapemode = 0;     /* processing escape character */
+X    static  int escapechar;         /* escape character being processed */
+X    static  pchan = -1;             /* packet input stream channel */
+X
+X    DO dumptime();
+X    DO DEBUG("Parse() insize %d\n", insize);
+X
+X    while (insize-- > 0)            /* while more data */
+X      { c = (*inpos++ & 0x0ff);     /* get next character */
+X        switch (state)              /* process according to state */
+X        { case ST_NULL:             /* prepare for new packet */
+X            DO DEBUG("ST_NULL\n");
+X            psize = 0;              /* clear packet size */
+X            ppos = pdata;           /* start fill at data position */
+X            pchan = Outstream;      /* packet channel is current input stream */
+X            state = ST_STREAM;      /* default is stream processing */
+X
+X          case ST_STREAM:
+X            /* stream output for layer */
+X            /* check for escape char with possible high bit on */
+X#ifdef DUMPALL
+X            DO DEBUG("ST_STREAM %x/%x '%c' esc %d insz %d\n",
+X                        c, c & 0x7f, c & 0x7f, escapemode, insize);
+X#endif
+X            if (c == ESCAPE || c == (ESCAPE | 0x80))
+X             {  if (escapemode && c == escapechar) /* previous was ESCAPE */
+X                /* this is really a single ESCAPE character */
+X                    escapemode = 0;     /* back out of ESCAPE mode */
+X                else
+X                    /* what do we do with back to back esc esc+0x80 ? */
+X                  { /* flag in escape mode */
+X                    escapemode++;
+X                    escapechar = c;     /* remember character used for escape */
+X                    continue;           /* and continue scan */
+X                  }
+X              }
+X            else
+X            if (escapemode)
+X              { /* this is the start of a control packet */
+X                if (psize)              /* if we have previous data packet */
+X                    Packet(pchan, psize, pdata); /* finish up previous pkt */
+X                /* process packet size */
+X                psize = (c & 0x7f) - '0'; /* save size byte */
+X                if (psize <= 0 || psize > MAXSTR)
+X                  { /* bad size */
+X                    DO DEBUG("Bad pkt size %d\n", psize);
+X                    break;              /* trash this packet */
+X                  }
+X                rempsize = psize;       /* remember this size for later */
+X#if 0
+X                ptimo = rtimo;          /* start receive timeout */             
+X#endif
+X                escapemode = 0;         /* escape mode now off */
+X                ppos = pdata;           /* initialize data store pointer */
+X                state = ST_PKT;         /* expect packet data next */
+X                continue;               /* continue scan */
+X              }
+X                  
+X            /* process standard data output character for current stream */
+X            
+X            *ppos++ = c;                /* save next data character */
+X                
+X            if (++psize >= MAXSTR)      /* if packet full ... */
+X              { Packet(pchan, psize, pdata); /* process this packet */
+X                break;                  /* end packet processing */
+X              }               
+X            continue;                   /* continue scan */
+X                                                
+X          case ST_PKT:
+X            /* process next paket data byte */
+X            *ppos++ = c & 0x7f;     /* store next data byte */
+X#ifdef DUMPALL
+X            DO DEBUG("ST_PKT: %x '%c' sz %d\n", c & 0x7f, c & 0x7f, psize);
+X#endif
+X            if (--psize != 0)
+X                continue;
+X#if 0
+X            if (crc((unsigned char *) &rpkt, rpkt.pkt.HEADER_DSIZE+2))
+X                STATS(Scrcerr);         /* communications error */
+X            else
+X#endif
+X            Packet(0, rempsize, pdata); /* process it */
+X                
+X            } /* end build packet switch */
+X            
+X#if 0
+X        ptimo = 0;                      /* no more receive timeout */
+X#endif
+X        state = ST_NULL;                /* no more receive packet in progress */
+X            
+X      } /* end while (insize) */
+X          
+X    if (state == ST_STREAM && psize )   /* if we have some data ... */
+X      { Packet(Outstream, psize, pdata); /* process this data */
+X#if 0
+X        ptimo = 0;                      /* no more receive timeout */
+X#endif
+X        state = ST_NULL;                /* no more receive packet in progress */
+X      }
+X
+X} /* Parse() */
+X
+X
+X        /* Packet() - prcess next input data string or control packet */
+Xstatic
+XPacket(chan, size, buff)
+Xint         chan;                       /* channel (0 if control packet) */
+Xint         size;                       /* amount of data */
+Xchar        *buff;                      /* pointer to packet data */
+X{
+X    static struct Shape shape;          /* Shape structure */
+X    char obuf[64];
+X
+X    DO dumptime();
+X    DO DEBUG("Packet(chan %d, size %d, '%.*s')\n", chan, size, size, buff);
+X
+X    /* verify channel */
+X    if (chan < 0 || chan > MAXPCHAN)
+X      { DO DEBUG("BAD CHANNEL!!\n");
+X        return;                         /* ignore bad channel */
+X      }
+X
+X    /* if data packet (chan>0) feed data to xterm window */
+X    if (chan > 0)
+X      { ReceiveData(chan, buff, size);
+X        return;                         /* we are through */
+X      }
+X
+X    /* control packet (channel 0) */
+X    chan = buff[1] - '0';           /* assume channel specified */
+X    if (chan < 0 || chan > MAXPCHAN)    /* if invalid ... */
+X        chan = 0;           /* set to zero */
+X
+X    switch (buff[0])
+X    { case 'O':     /* redirect stream */
+X        DO DEBUG("CMD 'O' redirect stream to %c\n", buff[1]);
+X        if (size != 2)                  /* verify size */
+X            break;                      /* break if bad */
+X        if (chan == 0)                  /* verify channel */
+X            break;                      /* break if bad */
+X        Outstream = chan;               /* new Outstream channel */
+X        return;                         /* we are through */
+X
+X      case 'T':     /* title packet */
+X        buff[size] = 0;
+X        DO DEBUG("CMD 'T' title chan %c '%s'\n", buff[1], &buff[2]);
+X#ifdef XTERM_TITLE
+X        /* UGLY HACK - depends on xterm ESC sequence */
+X        sprintf(obuf, "\033]2;Layer %d - %s\007", chan, &buff[2]);
+X        ReceiveData(chan, obuf, strlen(obuf));
+X#endif
+X        return;
+X
+X      case 'A':     /* A_NEWLAYER packet */
+X        DO DEBUG("CMD 'A' A_NEWLAYER\n");
+X        if (size != 1 + ATTRSIZE)
+X            break;          /* break if bad */
+X
+X        /* build shape structure for SendNew() */
+X        if (parseshape(&shape, &buff[1]) == -1) {
+X            tty_puts(a_newfail, 1);
+X            break;
+X        }
+X        chan = MakeWindow(0, &shape);
+X        DO DEBUG("new channel = %d\n", chan);
+X        if (chan == 0) {
+X            tty_puts(a_newfail, 1);
+X            break;
+X        }
+X        tty_putc(ESCAPE);
+X        tty_putc(ATTRSIZE + '3');
+X        tty_putc('A');
+X        tty_putc(chan+'0');
+X        tty_putc('0');
+X        asciishape(&shape, obuf);
+X        obuf[ATTRSIZE] = 0;
+X        tty_puts(obuf, 1);
+X
+X        return;                         /* we are through */
+X        
+X      case 'N':     /* new layer creation */
+X        DO DEBUG("CMD 'N' new layer creation newchan %c\n", buff[1]);
+X        if (size != 2 + ATTRSIZE)       /* verify size */
+X            break;                      /* break if bad */
+X        if (chan == 0)                  /* verify channel */
+X            break;                      /* break if bad */
+X        /* build shape structure */
+X        if (parseshape(&shape, &buff[2]) == -1)
+X            break;                      /* if invalid data then bad packet */
+X        ReceiveNew(chan, &shape);       /* pass to server */
+X        return;                         /* packet is done */
+X
+X      case 'D':     /* delete layer */
+X        DO DEBUG("CMD 'D' delete layer %c\n", buff[1]);
+X        if (size != 2)                  /* verify size */
+X            break;                      /* break if bad */
+X        if (chan == 0)                  /* verify channel */
+X            break;                      /* break if bad */
+X        ReceiveDelete(chan);            /* pass on to server */
+X        return;                         /* packet is done */
+X
+X      case 'E':     /* exit - awaiting shutdown */
+X        DO DEBUG("CMD 'E' exit MacLayers awaiting shutdown msg\n");
+X        if (size != 1)                  /* verify size */
+X            break;                      /* break if bad */
+X        ReceiveQuit();                  /* pass to server */
+X        /* NOT REACHED*/
+X        return;                         /* ?? should never reach here */
+X
+X      case 'R':     /* reshape */
+X        DO DEBUG("CMD 'R' reshape chan %c\n", buff[1]);
+X
+X        if (size != 2 + ATTRSIZE)       /* verify size */
+X            break;              /* break if bad */
+X
+X        if (chan == 0)              /* verify channel */
+X            break;              /* break if bad */
+X
+X        /* build shape structure */
+X        if (parseshape(&shape, &buff[2]) == -1)
+X            break;                      /* if invalid data then bad packet */
+X
+X        ReceiveReshape(chan, &shape);   /* tell server about shape */
+X        return;                         /* packet processed */
+X
+X      default:
+X        DO DEBUG("ILLEGAL CONTROL PACKET!!!\n");
+X        return;                         /* ignore bad packet */
+X
+X    } /* end command packet switch */
+X
+X    /* switch falls out if bad size or channel for given command */
+X    DO DEBUG("Invalid size or channel!!!\n");   /* dump error */
+X    return;                             /* ignore packet */
+X
+X} /* Packet() */
+X
+X
+X            /* GetData() - read next input from MacLayers stream */
+X
+X/*  The settimeout variable indicates if we return when nothing
+X**  is read within a certain amount of seconds. The return code is:
+X**
+X**      0 - timeout occured and no data was read
+X**
+X**      1 - no timeout occured, data read
+X*/
+Xstatic int
+XGetData()
+X{
+X    int     result;                 /* return from read() */
+X    int     i;                      /* work counter */
+X    char    *ptr;                   /* work pointer */
+X
+X    DO dumptime();
+X    DO DEBUG("GetData()\n");
+X
+X    /* if buffer still has data simply return (SHOULD NOT OCCUR?) */
+X    if (insize > 0)
+X      { DO DEBUG("early return insize %d\n", insize);
+X        return ( 1 );               /* act as through data read */
+X      }
+X    inpos = inbuff;                 /* next get will start at beginning */
+X    insize = 0;                     /* default insize back to zero */
+X
+X    /* set timeout if we are to do so */
+X    if (settimeout)
+X      { DO DEBUG("alarm(%d)\n", settimeout);
+X        (void) alarm(settimeout);   /* set timeout in seconds */
+X      }
+X
+X    /* do the read from the serial channel */
+X    result = read(TtyFd, inbuff, IOSIZE);
+X
+X    /* if alarm was set cancel it now */
+X    if (settimeout)
+X      { DO DEBUG("alarm(0)\n");
+X        (void) myalarm(0);          /* cancel alarm */
+X      }
+X
+X    /* check for timeout or error */
+X    /* EWOULDBLOCK for no data avail -(but we should not see this) */
+X    /* EINTR if signal stopped the read -(rare but could happen) */
+X    if (result <= 0)
+X      { DO DEBUG(" ?? no data result %d\n", result);
+X        return ( 0 );               /* return nothing read */
+X      }
+X
+X    /* return with fresh buffer data */
+X    insize = result;
+X
+X    /* if 7-bit communication channel then strip all high bits */
+X    if (Sevenbits)
+X      for (i=result,ptr = inbuff; i>0; --i)
+X        *ptr++ &= 0x7f;             /* strip high bit */
+X
+X    DO DEBUG("read %d bytes\n", insize);
+X    return ( 1 );                   /* return OK code */
+X
+X} /* GetData() */
+X
+X                /* asciishape() - convert Shape structure to ASCII */
+Xstatic
+Xasciishape(shape, loc)
+Xstruct Shape    *shape;                     /* Shape structure for channel */
+Xchar            *loc;                       /* location to start filling result */
+X{
+X    char        *origloc;                   /* (for debuggin) */
+X
+X    origloc = loc;                          /* remember start of string */
+X    fill4(&loc, shape->worigh);             /* origin h */
+X    fill4(&loc, shape->worigv);             /* origin v */
+X    fill2(&loc, shape->wlines);             /* lines high */
+X    fill2(&loc, shape->wchars);             /* chars wide */
+X    fill1(&loc, shape->wfont);              /* font size */
+X    fill2(&loc, shape->wattr);              /* attributes */
+X
+X    DO DEBUG("asciishape(): %.*s\n", ATTRSIZE, origloc);
+X
+X} /* asciishape() */
+X
+X
+X
+X                    /* fill4() - convert parameter to ASCII */
+X
+Xstatic void
+Xfill4(loc, valu)
+Xchar        **loc;                          /* pointer to fill area pointer */
+Xunsigned    valu;                           /* value to use */
+X{
+X    fill2(loc, valu>>8);                    /* fill high half word */
+X    fill2(loc, valu & 0xff);                /* fill low half word */
+X
+X} /* fill4() */
+X
+X
+X                    /* fill2() - convert parameter to ASCII */
+X
+Xstatic void
+Xfill2(loc, valu)
+Xchar        **loc;                          /* pointer to fill area pointer */
+Xunsigned    valu;                           /* value to use */
+X{
+X    fill1(loc, valu>>4);                    /* fill high byte */
+X    fill1(loc, valu & 0xf);                 /* fill low byte */
+X    
+X} /* fill2() */
+X
+X
+X                    /* fill1() - convert parameter to ASCII */
+X
+Xstatic void
+Xfill1(loc, valu)
+Xchar        **loc;                          /* pointer to fill area pointer */
+Xunsigned    valu;                           /* value to use */
+X{
+X    *(*loc)++ = "0123456789ABCDEF"[valu & 0xf]; /* return hex value */
+X
+X} /* fill1() */
+X
+X
+X
+X            /* parseshape() - convert ASCII image to Shape structure */
+X                
+Xstatic int  Badconvert;                     /* indicates bad conversion */
+X
+Xstatic int
+Xparseshape(shape, loc)
+Xstruct Shape    *shape;                     /* Shape structure for channel */
+Xchar            *loc;                       /* location to start parsing */
+X{
+X    Badconvert = 0;                         /* clear bad characters indicator */
+X    shape->worigh = get4(&loc);             /* origin h */
+X    shape->worigv = get4(&loc);             /* origin v */
+X    shape->wlines = get2(&loc);             /* lines high */
+X    shape->wchars = get2(&loc);             /* chars wide */
+X    shape->wfont = get1(&loc);              /* font size */
+X    shape->wattr = get2(&loc);              /* attributes */
+X
+X    DO DEBUG("ParseShape(): origv %d, origh %d, lines %d, chars %d\n",
+X                shape->worigv, shape->worigh, shape->wlines, shape->wchars);
+X    DO DEBUG("   font %d, attr 0x%x, badconv %d\n",
+X                    shape->wfont, shape->wattr, Badconvert);
+X
+X    return ( Badconvert ? -1 : 0 );         /* return conversion code */
+X
+X} /* parseshape() */
+X
+X
+X                    /* get4() - convert ASCII to parameter */
+X
+Xstatic unsigned
+Xget4(loc)
+Xchar        **loc;                          /* pointer to fill area pointer */
+X{
+X    unsigned    hi;                         /* high portion */
+X    unsigned    low;                        /* low portion */
+X
+X    hi = get2(loc);                         /* get high byte */
+X    low = get2(loc);                        /* get low byte */
+X
+X    return ( (hi<<8) + low );               /* return word value */
+X
+X} /* get4() */
+X
+X
+X                    /* get2() - convert ASCII to parameter */
+X
+Xstatic unsigned
+Xget2(loc)
+Xchar        **loc;                          /* pointer to fill area pointer */
+X{
+X    unsigned    hi;                         /* high portion */
+X    unsigned    low;                        /* low portion */
+X
+X    hi = get1(loc);                         /* get high half */
+X    low = get1(loc);                        /* get low half */
+X
+X    return ( (hi<<4) + low );               /* return byte value */
+X    
+X} /* get2() */
+X
+X
+X                    /* get1() - convert ASCII to parameter */
+X
+X/*  This function sets 'Badconvert' if an invalid character is detected */
+X
+Xstatic unsigned
+Xget1(loc)
+Xchar        **loc;                          /* pointer to fill area pointer */
+X{
+X    int         c;                          /* character to convert */
+X    
+X    c = *(*loc)++;                          /* fetch character */
+X    
+X    if (c >= '0' && c <= '9')
+X        /* zero through nine */
+X        return ( c - '0' );                 /* return it's binary value */
+X    
+X    if (c >= 'a' && c <= 'f')
+X        /* lower case hex */
+X        return ( c - 'a' + 10);             /* return it's binary value */
+X        
+X    if (c >= 'A' && c <= 'F')
+X        /* upper case hex */
+X        return ( c - 'A' + 10);             /* return it's binary value */
+X        
+X    /* invalid digit! */
+X    Badconvert++;                           /* set bad character flag */
+X    return ( 0 );                           /* return a zero */
+X
+X} /* get1() */
+X
+X
+X
+X
+X                /* myalarm() - setup alarm timeout for next read */
+X
+Xstatic int
+Xmyalarm(time)
+Xint         time;                       /* time in seconds (or zero) */
+X{
+X    DO dumptime();
+X    DO DEBUG("myalarm(%d)\n", time);
+X    settimeout = time;                  /* set for next read */
+X
+X} /* myalarm() */
+X
+X                /* dumptime() - print out time in seconds */
+X
+X/* THIS MAY BE SYSTEM DEPENDENT SO IS BASED UPON DEBUG IFDEF */
+X#ifdef DUMPALL
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#endif
+X
+Xstatic void
+Xdumptime()
+X{
+X#ifdef DUMPALL
+X    time_t  seconds;
+X    static time_t   base;
+X
+X    if (base == 0)
+X      { seconds = 0;
+X        base = time(NULL);
+X      }
+X    else
+X        seconds = time(NULL) - base;
+X
+X    DO DEBUG("[%3d] ", seconds);
+X    
+X#endif
+X} /* dumptime() */
+X
+X
+X            /* SendData() - send keyboard data to server */
+X
+Xvoid
+XSendData(chan, buff, cnt)
+Xint         chan;                   /* layer window ID */
+Xunsigned char *buff;                /* new title string */
+Xint         cnt;                    /* count of title length */
+X{
+X    unsigned c;                     /* output character being sent */
+X
+X    DO
+X      { int     dcnt;
+X
+X        dumptime();
+X        DEBUG("SendData(chan %d, len %d, '", chan, cnt, cnt, buff);
+X        for (dcnt=0; dcnt<cnt; dcnt++)
+X            DEBUG("%c", buff[dcnt]); /* dump each char so null doesn't stop */
+X        DEBUG("')\n");
+X      }
+X
+X    if (chan <= 0 || chan > MAXPCHAN)
+X      { DO DEBUG("BAD CHANNEL!!!\n");
+X        return;                     /* ignore request */
+X      }
+X
+X    /* if new input channel stream then prefix redirect command */
+X    if (chan != Instream)
+X      { DO DEBUG("Redirecting input from %d '~2O%d'\n", chan, chan);
+X        tty_putc(ESCAPE);           /* start of command sequence */
+X        tty_putc('2');              /* send command size */
+X        tty_putc('I');              /* send command */
+X        tty_putc(chan + '0');       /* put out channel in ASCII */
+X        Instream = chan;            /* new input stream set */
+X      }
+X
+X    /* transmit the buffer converting the ESCAPE sequence to double ESCAPE */
+X    while (cnt--)
+X      { c = *buff++;                /* get next input character */
+X#ifdef DUMPALL
+X        DO DEBUG("inchar %c 0x%x\n", c, c);
+X#endif
+X        if (c == ESCAPE || c == (ESCAPE + 0x80))
+X          { tty_putc(c);                /* send it twice */
+X#ifdef DUMPALL
+X            DO DEBUG(" Doubled Escape!\n");
+X#endif
+X          }
+X        tty_putc(c);                    /* write character out */
+X      }
+X
+X    FLUSH;                          /* force out queued output characters */
+X        
+X} /* SendData() */
+X
+Xvoid
+XSendDelete(chan)
+Xint     chan;                       /* dead channel ID */
+X{
+X    DO DEBUG("SendDelete(%d) '~2D%d'\n", chan, chan);
+X
+X    if (chan <= 0 || chan > MAXPCHAN) /* check channel ID */
+X      { DO DEBUG("BAD CHANNEL!!!\n");
+X        return;                     /* ignore request */
+X      }
+X
+X    tty_putc(ESCAPE);               /* send control packet start char */
+X    tty_putc('2');                  /* send command size */
+X    tty_putc('D');                  /* send command character */
+X    tty_putc(chan + '0');           /* channel ID in ascii */
+X    FLUSH;
+X
+X} /* SendDelete() */
+X
+X
+X    /* DoWait() -  send SIGCONT to stopped windows, Free dead process windows */
+Xstatic
+XDoWait()
+X{
+X    register pid;
+X    register struct Layer *layer;
+X    int     i;
+X#ifdef USG
+X    /* dead or stopped child process found */
+X    for (i=0; i<MAXPCHAN; i++)
+X        if (kill((layer = &World[i])->lpid, 0) == -1 && (errno == ESRCH))
+X          {     /* remove dead process's layer */
+X            DO DEBUG("kill dead process window %d\n", layer->chan);
+X            KillWindow (layer);
+X            /* tell server layer is dead */
+X            SendDelete(layer->chan);
+X          }
+X#else
+X    union wait wstat;
+X
+X    DO DEBUG("DoWait()\n");
+X    while ((pid = wait3 (&wstat, WNOHANG|WUNTRACED, NULL)) > 0)
+X        /* dead or stopped child process found */
+X        for (i=0; i<MAXPCHAN; i++)
+X            if ((layer = &World[i])->lpid == pid)
+X              {     /* remove dead process's layer */
+X                DO DEBUG("kill dead process window %d\n", layer->chan);
+X                KillWindow (layer);
+X                /* tell server layer is dead */
+X                SendDelete(layer->chan);
+X              }
+X#endif
+X} /* DoWait() */
+X                /* KillWindow() - remove a layer from the system */
+X
+X/* Note: This function does NOT tell MacLayers about the dead layer */
+X
+Xstatic
+XKillWindow (layer)
+Xstruct Layer *layer;
+X{
+X    struct Kbuff    *kb;                /* work buffer free pointer */
+X    int i, j;
+Xstatic int ksig[] = { SIGHUP, SIGTERM, SIGKILL, 0 };
+X
+X    if (layer->allocated)
+X      {
+X        for (i = 0; layer->lpid != 0 && ksig[i] != 0; i++)
+X          { DO DEBUG("sending signal %d to pid %d\n", ksig[i], layer->lpid);
+X            if (kill(layer->lpid, ksig[i]) == -1)
+X              {
+X                DO DEBUG("Kill failed. Error=%d\n", errno);
+X                if (errno == ESRCH)
+X                  layer->lpid = 0;        /* clear pid field */
+X              }
+X            else
+X              { for (j = 0; layer->lpid != 0 && j < 5; j++)
+X                  {  sleep(1);
+X                     if ((kill(layer->lpid, 0) == -1) && (errno == ESRCH)) 
+X                       layer->lpid = 0;        /* clear pid field */
+X                  }
+X                if (layer->lpid)
+X                  DO DEBUG("kill accepted, but process didn't die\n");
+X              }
+X          }
+X        (void) chmod(layer->tty, 0666);
+X        (void) chown(layer->tty, 0, 0);
+X        close(layer->ptyfd);
+X        DO DEBUG("chmod/chown %s, SendDelete(%d)\n",layer->tty, layer->chan);
+X
+X        ClearShape(&layer->shape);      /* reset the shape structure */
+X        /* free all keybuffers but one and reprime it */
+X        for (kb=layer->kbuff; kb->next; kb=layer->kbuff)
+X          { layer->kbuff = kb->next;    /* reset buffer chain */
+X            free(kb);                   /* free input buffers */
+X          }
+X        kb->size = 0;                   /* empty buffer */
+X        kb->offset = 0;                 /* start refill from front */
+X        layer->allocated = 0;           /* window no longer allocated */
+X      }
+X
+X} /* KillWindow() */
+X
+Xvoid
+XReceiveData(chanid, buff, cnt)
+Xint     chanid;                         /* channel receiving input */
+Xchar    *buff;                          /* buffer containing data */
+Xint     cnt;                            /* count of data bytes */
+X{
+X    struct Layer *layer;                /* layer pointer */
+X    struct Kbuff *kb;                   /* keybuff pointer */
+X
+X    DO DEBUG("ReceiveData(%d, '%.*s')\n", chanid, cnt, buff);
+X    /* verify channel */
+X    if (chanid <= 0 || chanid > MAXPCHAN)
+X        return;         /* ignore invalid channel */
+X    layer = &World[chanid-1];   /* locate target layer */
+X
+X    if (layer->allocated == 0) {
+X        DO DEBUG("Channel %d is not allocated!\n", chanid);
+X    }
+X    /* add character stream to xterm's input buffers for main loop processing */
+X    for (kb=layer->kbuff; kb->next; kb=kb->next); /* find oldest buffer */
+X    while (cnt--)
+X      { 
+X        /* if current buffer full then chain in a new one */
+X        if (kb->offset+kb->size >= IOSIZE)
+X          { kb->next = (struct Kbuff *) malloc(sizeof(struct Kbuff));
+X            kb = kb->next;                  /* base new keybuff */
+X            kb->next = NULL;                /* no next yet */
+X            kb->size = 0;                   /* this character is first */
+X            kb->offset = 0;                 /* at zero offset */
+X          }
+X
+X        /* add new character to the end of this buffer */
+X        kb->text[kb->offset+kb->size++] = *buff++; /* insert at end of data */
+X      }
+X
+X} /* ReceiveData() */
+X
+X                    /* MakeWindow() - create new layer */
+Xstatic
+XMakeWindow (chan, shape)
+Xint     chan;           /* zero or channel to use for window */
+Xstruct Shape *shape;            /* shape to use for window */
+X{
+X    register struct Layer *layer;
+X    register f;
+X
+X    DO DEBUG("MakeWindow(%d, ", chan);
+X    DO DEBUG("    origv %d, origh %d, lines %d, chars %d, ",
+X                shape->worigv, shape->worigh, shape->wlines, shape->wchars);
+X    DO DEBUG("font %d, attr 0x%x\n", shape->wfont, shape->wattr);
+X                    
+X    if ((f = OpenPTY ()) == -1)
+X      { Msg (0, "No more PTYs.");
+X        return ( -1 );
+X      }
+X
+X    /* if channel not given obtain one from MacLayers */
+X    if (chan == 0)
+X      { chan = GetNew(shape);               /* try to get free window */
+X        if (chan == 0)
+X          { Msg (0, "No more windows.");
+X            return ( -1 );
+X          }
+X        DO DEBUG("GetNew() == %d\n", chan);
+X      }
+X
+X    /* verify channel */
+X    if (chan <= 0 || chan > MAXPCHAN)
+X      { Msg(0, "Invalid channel %d.", chan);
+X        return ( -1 );
+X      }
+X
+X    layer = &World[chan-1];         /* find layer structure */
+X    shape->wlines = 25;
+X    shape->wchars = 80;
+X    layer->shape = *shape;          /* install new window shape */
+X    
+X    /* ??? What do we do if layer is still active as far as we're concerned? */
+X    if (layer->allocated)
+X      { DO DEBUG("??? newlayer not free !!!\n");
+X        KillWindow(layer);      /* kill off old layer */
+X        SendDelete(layer->chan);    /* kill window back off */
+X        Msg (0, "Makewindow error: Duplicate active layer %d.", chan);
+X        return ( -1 );          /* return failed */
+X      }
+X
+X    layer->allocated = 1;           /* show layer now in use */
+X
+X    (void) fcntl (f, F_SETFL, FNDELAY);
+X    layer->ptyfd = f;                       /* pseudo pty for task's I/O */
+X    layer->ptymask = 1<<f;                  /* set pty device mask */
+X    strncpy (layer->tty, TtyName, MAXSTR-1);
+X    DO DEBUG("tty %s, ptyfd %d, mask %x\n",
+X                layer->tty, layer->ptyfd, layer->ptymask);
+X    (void) chown (TtyName, getuid (), getgid ());
+X    layer->lpid = StartTerm(f, chan);
+X    DO DEBUG("Starterm() pid = %d\n", layer->lpid);
+X
+X    if (layer->lpid <= 0) {
+X        Msg (0, "Makewindow error: cannot start terminal layer %d.", chan);
+X        layer->allocated = 0;
+X        return(0);
+X    }
+X    return ( chan );
+X
+X} /* MakeWindow() */
+X
+Xvoid
+XReceiveReshape(chanid, shape)
+Xint             chanid;                 /* channel having shape */
+Xstruct Shape    *shape;                 /* shape structure */
+X{
+X
+X    DO DEBUG("ReceiveReshape(%d)\n", chanid);
+X
+X} /* ReceiveReshape() */
+X        
+X                /* ReceiveDelete() - Server says to kill window*/
+Xvoid
+XReceiveDelete(chanid)
+Xint     chanid;                             /* channel which was deleted */
+X{
+X    struct Layer *layer;                /* layer pointer */
+X
+X    /* validate channel */
+X    DO DEBUG("ReceiveDelete(%d)\n", chanid);
+X    if (chanid <= 0 || chanid > MAXPCHAN)
+X        return;                             /* ignore invalid channel */
+X
+X    /* if this layer active then kill it off, else ignore request */
+X    layer = &World[chanid-1];       /* locate target layer */
+X    if (layer->allocated)
+X        KillWindow(layer);
+X
+X} /* ReceiveDelete() */
+X        
+X        
+X                /* ReceiveNew() - MacLayers requests a new shell layer */
+X
+Xvoid
+XReceiveNew(chanid, shape)
+Xint     chanid;                             /* channel for new shell layer */
+Xstruct Shape *shape;                        /* shape for new channel */
+X{
+X    DO DEBUG("ReceiveNew(%d)\n", chanid);
+X    (void) MakeWindow (chanid, shape);
+X
+X} /* ReceiveNew() */
+X
+X
+X                    /* ReceiveQuit() - MacLayers sends Quit packet */
+X
+Xvoid
+XReceiveQuit()
+X{
+X    /* We completely quit layers cancelling all active processes */
+X    DO DEBUG("ReceiveQuit()\n");
+X    FQuit(EXITNORMAL);                  /* normal termination */
+X    /* NOT REACHED */
+X
+X} /* ReceiveQuit() */
+X
+XGetNew()
+X{
+X    int i;
+X
+X    DO DEBUG("GetNew()\n");
+X    for (i=0; i<MAXPCHAN; i++)
+X        if (World[i].allocated == 0)
+X            return(i+1);
+X    return(0);
+X}
+X
+Xvoid                    /* FQuit() - terminate layers */
+XFQuit(exitcode)
+Xint     exitcode;
+X{
+X    int i;
+X
+X    DO DEBUG("FQuit(%d)\n",exitcode);
+X    for (i=0; i<MAXPCHAN; i++)
+X        KillWindow(&World[i]);          /* kill all windows */
+X
+X    SetTTY (0, OldMode);
+X    printf("\n[ulayers exiting]\n");
+X    EndConnect();
+X    exit (exitcode);
+X
+X} /* FQuit() */
+X
+X
+Xstatic char ttybuf[IOSIZE];
+Xstatic char *ttyptr = ttybuf;
+Xstatic int ttylen = 0;
+X
+Xtty_putc(c)
+X{
+X    if (ttylen >= IOSIZE)
+X        tty_flush();
+X    *ttyptr++ = c;
+X    ttylen++;
+X}
+X
+Xtty_puts(s, flg)
+Xchar *s;
+Xint flg;
+X{
+X    while (*s)
+X        tty_putc(*s++);
+X    if (flg)
+X        tty_flush();
+X}
+X
+Xtty_flush()
+X{
+X    if (ttylen) {
+X        DO DEBUG("FLUSH writing %d bytes to TTyfd = %d\n", ttylen, TtyFd);
+X        if (write(TtyFd, ttybuf, ttylen) != ttylen) {
+X            DO DEBUG("TTY write error %d\n", errno);
+X        }
+X        ttylen = 0;
+X        ttyptr = ttybuf;
+X    }
+X}
+X
+X
+X/* 
+X * Send a modem break
+X */
+X 
+Xtty_break() 
+X{ 
+X    tty_flush();
+X#ifdef V7TTY
+X    ioctl(TtyFd, TIOCSBRK, (struct sgttyb *) 0);
+X    sleep(1);
+X    return(ioctl(TtyFd, TIOCCBRK, (struct sgttyb *) 0));
+X#else
+X    return(ioctl(TtyFd, TCSBRK, 0));
+X#endif
+X}
+X
+Xvoid
+Xhup(sig)
+Xint sig;
+X{
+X	signal(sig, SIG_IGN);
+X	DO DEBUG("CAUGHT SIGNAL %d\n", sig);
+X	FQuit(1);
+X}
+X
+END_OF_FILE
+  if test 52393 -ne `wc -c <'ulayers.c'`; then
+    echo shar: \"'ulayers.c'\" unpacked with wrong size!
+  fi
+  # end of 'ulayers.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,2601 @@
+From: aem@aber.ac.uk (Alec David Muffett)
+Newsgroups: comp.sources.misc
+Subject: v28i111: crack - The Unix Password Cracker, version 4.1, Part02/05
+Message-ID: <1992Mar18.143818.23827@aber.ac.uk>
+Date: 18 Mar 92 14:38:18 GMT
+Approved: aem@aber.ac.uk
+X-Md4-Signature: 354b15df96661b02fa2b9193f3eed296
+
+Submitted-by: aem@aber.ac.uk (Alec David Muffett)
+Posting-number: Volume 28, Issue 111
+Archive-name: crack/part02
+Environment: UNIX
+Supersedes: crack: Volume 25, Issue 5-9
+
+#! /bin/sh
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 5)."
+# Contents:  APPENDIX Crack DictSrc/bad_pws.dat LICENCE
+#   Scripts/Crack.network Scripts/dicts.rules Sources/crack-sort.c
+# Wrapped by aem@aberfa on Wed Mar 18 14:08:31 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'APPENDIX' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'APPENDIX'\"
+else
+echo shar: Extracting \"'APPENDIX'\" \(13955 characters\)
+sed "s/^X//" >'APPENDIX' <<'END_OF_FILE'
+XI'd like to thank Chris Samuel and Peter Grandi for all their help in
+Xbeta-testing early versions of Crack, and in Peter's case especially,
+Xfor dropping me into the deep end of troff. Die, you bastard.  As for
+XChris's major contribution, see "Scripts/plaster". 8->
+X
+XFor the v3.? versions of Crack, I'd like to thank Chris Myers, Randal
+XSchwartz, Chris Lewis, and M.Maclaren. Also Brian Tompsett, for
+Xpointing me at the now infamous v3.2 bug, and for suggestions, patches,
+Xand enormous amounts of debugging information. To him should go the
+Xprize for "Most Vociferous Beta Tester Ever".
+X
+XFor Crack v4.1, the greatest help has come from the members of the crack
+Xbeta team, the most vociferous of whom are:
+X
+Xbrown@gov.llnl.ocelot, cavanaug@edu.uiuc.cogsci.lees,
+Xcsx040@uk.ac.coventry.cch, dor@acl.lanl.gov, dowling@gov.ncifcrf,
+Xglad@daimi.aau.dk, kint@engr.washington.edu, korz@edu.columbia.cs.bach,
+Xmorgan@edu.uky.engr, mycroft@edu.mit.ai.gnu, nelsonm@edu.orst.cs.storm,
+Xnestey@edu.colorado.denver.copper, nigelm@uk.ac.york.ohm,
+Xpcl@uk.ac.oxford.convex, phil@com.sequent, phill@com.sequent,
+Xpkh@uk.ac.nott.cs, sck@com.ibm.watson, shabby@edu.purdue.cc.mentor
+X
+X- especially Fred "Mr Statistics" Korz, Paul Leyland, and shabby@purdue
+Xfor all the debugging info.  Also a bit thanks to Michael Glad for being
+Xso helpful while we were writing a decent software interface between
+XCrack and UFC.
+X
+XI also wish to acknowledge the help of Kent Landfield (moderator of
+Xcomp.sources.misc) and Dan "COPS" Farmer, both of them for goading me
+Xinto releasing a version of Crack with fcrypt() installed. Without
+Xthem, I probably would have been too timid...
+X
+XFinally, my gratitude goes to my girlfriend Gilly, for her support
+Xduring the bad times.  You are the everything.
+X
+X--
+XINET: aem@aber.ac.uk       JANET: aem@uk.ac.aber      BITNET: aem%aber@ukacrl
+XUUCP: ...!mcsun!ukc!aber!aem          ARPA: aem%uk.ac.aber@nsfnet-relay.ac.uk
+XAlec Muffett, Somewhere in the UK, Probably lying under a tree drinking cider
+X
+X**********************************************************************
+X
+XSeveral people have asked me why I don't write Crack so that it
+Xdistributes dictionaries over the network and hacks the same password
+Xfile on each machine, as opposed to spreading users over the network and
+Xusing the same dictionaries.
+X
+XThere are several reasons for this, which I will outline.
+X
+XThe reasoning that spreading the dictionaries over the network is faster
+Xis correct in the case of cracking the passwords of ONE user - it is
+Xmost efficient to run different dictionaries on him on several machines,
+Xand you will break his password eventually.
+X
+XScaling this by a factor of 'n' users causes problems.  Firstly, if a
+Xmachine guesses one persons password, it must inform all others on the
+Xnetwork not to waste time cracking him, but to get on with the other
+Xusers.  This is difficult and nasty.
+X
+XSecondly, it is not what Crack was designed to do.  The name "Crack" is
+Xactually a misnomer - Crack really ought to be called "Passwdcheck" or
+Xsomething similar, but such names lack sex appeal.
+X
+XCrack is not a program designed to break the password of every user in
+Xthe file.  Rather, it is designed to find weak passwords in the file, by
+Xattacking those sorts of bad passwords which are most likely to be used,
+Xin the order in which they would most easily be found (ie: are most
+Xlikely to be used by a moronic user).
+X
+XCrack is not designed to break user passwords; it is designed to break
+Xpassword files.  This is a subtle but important distinction.
+X
+XIf you want to break into a safe, you do not take a hammer at every bit
+Xof it in turn; instead, first you try some simple combinations, then you
+Xtry blowing the hinges off, then you get out an acetylene torch and go
+Xfor the bolt.  If that doesnt work, THEN you start on the walls.  You go
+Xfor the bits which are most likely to be weak first.
+X
+XConsider a password file with 'n' users in it.  Say that your ordinary,
+Xserial password cracker (eg: the one supplied with COPS) has a
+Xdictionary of 1000 words, and tries each word 6 ways (upper/lower/mixed
+Xcase, permuted with forwards/backwards)
+X
+XAlso consider that out of that 1000 users, only one (the last one) has a
+Xguessable password - "fred".
+X
+XAlso say that it takes time 'T' seconds to encrypt a word.
+X
+XIf you use the "try each user in turn" method, like the COPS password
+Xcracker, you will have to wait for a time:-
+X
+X	999 users * 1000 words * 6 ways * T = 5,994,000 T seconds
+X
+Xbefore you get to that last user.  Spreading this load around on a
+Xnetwork only alleviates the number of words to be searched (divides them
+Xby the number of machines you are working on).
+X
+XThus, if you use 10 machines, the machine which will guess "fred" will
+Xget to that last user in:-
+X
+X	999 * (1000 / 10) * 6 ways = 599,400 T seconds.
+X
+XAlternatively you can try it the Crack way - "fred" is a word which
+Xappears in a forwards dictionary.  You will only wait:-
+X
+X	999 users * 1000 words * 1st way * T = 999,000 T seconds
+X
+Xto get to that user.  Now split the users across 10 machines (for
+Xsimplicity, as outlined above):-
+X
+X	(999 / 10) users * 1000 words * 1st way = 99,900 T seconds
+X
+XTo get to his password, in ONLY 17% of the time taken by networking
+Xusing the serial cracking method.  This is only a boundary case, but I
+Xhope I have illustrated the concept.
+X
+X**********************************************************************
+X
+XCrack has several other optimisations because of its structured password
+Xguesses.  The figures below are entirely empirical, but I reckon that
+Xthey're as good as any:
+X
+XThe first pass that Crack makes is over the user data user information
+Xgleaned from the users' password field.  In my test file, this gets
+Xabout 4% of the passwords (out of a total of 15% guessed).  This pass
+Xalso completes very quickly, working as it does from a very small
+Xamount of data, but one which is very frequently used for passwords.
+X
+XThe first sweep of the second pass, consisting of lowercase dictionary
+Xwords, gets about another 5% of the passwords. The length of the first
+Xsweep depends on how much CPU and how many dictionaries I supply, but
+Xusing the Ultrix /usr/dict/words and my bad_pws.dat, over 4 CPUs, it
+Xdoesn't take much more that a few hours.
+X
+XFor the further sweeps, the percentages cracked per sweep tail off, 2%,
+X1%, 0.5%...  But they are the people with fairly exotic passwords, and
+Xit's only common sense that that they will take some time to crack.
+X
+X**********************************************************************
+X
+XThere is another major optimisation that I haven't mentioned.
+X
+XBecause of the way the UNIX crypt() algorithm works, each encryption is
+X"salted" with a two letter sequence which is stored as the first two
+Xcharacters of the encrypted password.  This salting means that the word
+X"fred" can be encrypted and appear in a password file in (literally)
+Xthousands of different ways - so long as each encryption has a
+Xdifferent salt.
+X
+XHence, it makes sense to do things in this manner:
+X
+X1) sort and group the input data by encryption salt.
+X2) for each different groups' encryption salt
+X	* get a dictionary word
+X	* encrypt it using that salt (This is the time consuming bit)
+X	* compare the encryption with each member of the group with that salt
+X	* if it matches, you have guessed that users password.
+X
+XThis knocks (empirical guesswork time again) up to one third of the
+Xdictionary encryptions off - thus saving you 0.3 of the time all the
+Xdictionary sweeps would ordinarily take.
+X
+XCrack gives this statistic when it says
+X
+X    pwc: Loaded 'n' password entries into 'm' salted lines. (x%)
+X
+Xwhere 'x' is the percentage of the total passwords loaded which have
+Xdifferent salts.
+X
+X**********************************************************************
+X
+XSome people have asked me how to generate safe passwords.  This, has
+Xbecome a religious issue, and there are now several vociferous
+X"password geeks" on USENET, who will say "my method is the best", in
+Xthe same way that some mathematicians will try to compare so-called
+X"random number generating algorithms".
+X
+XSuch statements are pointless.  I'm sorry for adding to the confusion,
+Xbut I must say that I think they are wrong.
+X
+XOkay, so I am a security fatalist and a security philosopher, but I am
+Xnot going to give and hard and fast answers; rather, I'd like to make
+Xsome points and recommendations to the people out there.  Security isn't
+Xa tangible thing, it is applied psychology.
+X
+XThe whole point of a password is to prevent people accessing your
+Xsystem, getting into it from outside.  Once someone is inside your
+Xsystem, assuming that they have the relevant knowledge of your O/S, it
+Xis safest to assume that anyone can get to be 'superuser'.  Your only
+Xsecurity once someone is on your system is called "security by
+Xobscurity".  If your user has sufficient knowledge, you've "had it".
+X
+XThe question isn't "How secure can my system be made?".
+X
+XThe question really should be, "How much do I care, how much can I trust?".
+X
+XA system can be perfectly secure without any passwords at all, so long
+Xas it is in an environment of people who recognise its purpose and
+Xdepend on it.  I say this after having had acounts on several 'public'
+Xmachines, which could have been taken to bits by any competent Unix
+Xperson, but were largely safe - because when someone worked out who did
+Xanything nasty, the culprit was ostracised from the community.  There
+X_is_ a caveat to this, however.
+X
+XThe problem is the sort of people who go around the world 'collecting'
+Xcomputer accounts and breaking machines, those who have either a
+Xchildish mentality or an ulterior motive.
+X
+XThe former are like the little boys who go around breaking windows and
+Xvandalising things 'for kicks'.  They are the ones who see every
+Xpassword file as a "NO ENTRY" sign, and therefore, driven by what they
+Xthink is anarchy and fun, they break in and smash the place up.  Tell
+Xthem that they are behaving like children, and they will behave moreso.
+X
+XThe latter are driven by personal motives or money.  Their reasons are
+Xtoo complex for me to analyse here.
+X
+XThe 'babyish' hackers need a lesson (which I hope that eventually they
+Xlearn) that true anarchy is for the general good, and is best achieved
+Xby fiat amongst the community.  USENET is a good example - there is a
+Xlot of petty bickering and arguing, but an incredible amount of good
+Xcomes out of it.  It is anarchy that the greek philosophers would have
+Xapproved of.
+X
+XWhat I am trying to say is that, when I say that if someone gets into
+Xyour system, you've "had it", you should consider whether there is
+Xanything to have "had" in the first place.  There is no point in getting
+Xyourself paranoid over security - if you do, you'll lose out.  Don't be
+Xtoo paranoid.  Be SENSIBLE instead, and secure your system according to
+Xit's needs, and not according to some 'holy bible' of absolute security.
+X
+XIf someone gets into your system, you find out how they did it, patch
+Xthe hole, check for back doors, brush yourself off, and start again.
+XIt's not the end of the world.
+X
+XWhat this statement doesn't address (yet) is the needs of system
+Xmanagers who have a REAL need for security - be it corporate data or
+Xresearch work - on their system.  As I have said before, most O/S's have
+Xgaping holes in them that cannot be entirely filled, and so the crackers
+Xmust be stopped on the doorstep.  At the password login.
+X
+XPeople who say that they have a way of generating safe passwords are
+Xmisinformed, IMHO.  Saying that the password "wyufwqpl" is secure is as
+Xmeaningful as saying that the number "4" is random.  Password security,
+Xlike any other form of computer security, is not absolute, but should
+Xbe taken in context.
+X
+XYou can't say that a certain method will provide secure, random
+Xpasswords, because, in defining an algorithm to create these passwords,
+Xyou will use only a subset of all the possible passwords that could ever
+Xexist.  You have shrunk the 'search space' for the passwords.
+X
+XSomeone merely has to write a password cracker which will search this
+Xsmall subset of passwords, in order to break your system.  Passwords
+Xgenerated by any algorithm, human or computer based, are merly
+Xpseudo-secure, in the same way that numbers can be pseudo-random.  For
+Xillustration of this aspect of password security, read the document
+X"Password Security, A Case History" by Morris and Thompson.
+X
+XThere is an incredibly large set of possible passwords in the world, and
+Xthe best approach toward choosing a password is not to try to find a way
+Xto generate 'secure' passwords - there are no such things - but rather
+Xyou should learn to choose passwords which are not easily searched for.
+XPasswords which are out of the 'search space' of most password crackers
+Xlike 'Crack'.
+X
+XRead the Crack documentation.  See what sort of things other programs
+Xlike Crack would search for.  Think of some yourself.  I am not going to
+Xspecifically mention methods, you should really work something out for
+Xyourself.
+X
+XAt the bottom line, the password "fred" is just as secure (random) as
+Xthe password "blurflpox"; the only problem is that "fred" is in a more
+Xeasily searched part of the "password space".
+X
+XBoth of these passwords are more easily found than "Dxk&2+15^N" however.
+XNow you must ask yourself if you can cope with remembering "Dxk&2+15^N".
+X
+X**********************************************************************
+X
+XSome time ago, I was listening to the REM album 'Green' on the way back
+Xfrom the Cropredy folk festival, whilst thinking over things to do to
+XCrack, and I was struck (not for the first time) by the words of the
+Xfirst verse to 'World Leader Pretend':-
+X
+X	I sit at my table, and wage war upon myself.
+X	It seems like it's all, it's all for nothing.
+X	I know the barricades, and I know the mortar in the wall
+X	I recognise the weapons, I use them well.
+X
+X	This is my mistake, let me make it good,
+X	I raised the wall, and I will be the one to knock it down...
+X
+X- writing password cracking programs gets to you after a bit.
+END_OF_FILE
+if test 13955 -ne `wc -c <'APPENDIX'`; then
+    echo shar: \"'APPENDIX'\" unpacked with wrong size!
+fi
+# end of 'APPENDIX'
+fi
+if test -f 'Crack' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Crack'\"
+else
+echo shar: Extracting \"'Crack'\" \(6738 characters\)
+sed "s/^X//" >'Crack' <<'END_OF_FILE'
+X#!/bin/sh
+X
+X###
+X# This program is copyright Alec Muffett 1991, and is provided as part of
+X# the Crack v4.1 Password Cracking package.  The author disclaims all
+X# responsibility or liability with respect to it's usage or its effect
+X# upon hardware or computer systems, and maintains copyright as set out in
+X# the "LICENCE" document which accompanies distributions of Crack v4.0 and
+X# upwards. So there...
+X###
+X
+X###
+X# CRACK_HOME: You must put DOUBLE QUOTES around this and have /bin/csh if
+X# you work relative to ~username - this is the Crack installation directory.
+X# (currently developing on "dougal")
+X###
+X
+XCRACK_HOME="~aem/dougal/crack41f"
+X
+X###
+X# CRACK_OUT: This is the directory into which all the password guesser
+X# output files are to be stored. This affects only the "out*" files, and
+X# not "D*" or "P*", due to restraints on the support scripts.
+X###
+X
+XCRACK_OUT="$CRACK_HOME"
+X
+X###
+X# Umask for security's sake - stops files being world readable (if you
+X# don't have it in your .login)
+X###
+X
+Xumask 077
+X
+X###
+X# DEFAULT_BIN : For non-network cracks, you can leave this as 'generic'.
+X# Setting this to `arch` is non-portable.
+X###
+X
+XDEFAULT_BIN="generic"
+X
+X###
+X# List of standard dictionaries that you should have to provide words;
+X#
+X###
+X
+XSTDDICT="/usr/dict/words"
+X
+X###
+X# Compress: name of a compression prog (compress & pack supported) to be
+X# applied to the bigdict to save filespace
+X###
+X
+Xcompress="/usr/ucb/compress"
+X
+X###
+X############### FROM HERE ON IN IT'S ALL MY FAULT ###############
+X###
+X
+Xversion="4.1f RELEASE"			# version number
+Xpwl=""					# user specified
+Xdomail=""				# user specified
+Xfgnd=""					# user specified
+Xremote=""				# program specified
+Xnice=""					# user specified
+Xrcvr=""					# user specified
+Xinputfile="/tmp/pw.$$"			# program specified, also in pwc.c
+Xverbose=""				# user specified
+Xcf_file="Scripts/network.conf"		# program specified
+Xbigdict="Dicts/bigdict"			# program specified
+Xlockdict="Dicts/.lockfile"		# program specified
+X
+XCRACK_HOME_UNRES="$CRACK_HOME"
+X
+Xif [ -f "/bin/csh" ]			# -x bombs on Ultrix
+Xthen
+X	CRACK_OUT=` /bin/csh -fc "echo $CRACK_OUT" `
+X	CRACK_HOME=` /bin/csh -fc "echo $CRACK_HOME" `
+Xfi
+X
+Xif [ ! -d "$CRACK_OUT" ]
+Xthen
+X	echo "Warning: CRACK_OUT directory reset to directory '.'"
+X	CRACK_OUT="."
+Xfi
+X
+Xexport CRACK_HOME
+Xexport CRACK_OUT
+Xexport DEFAULT_BIN
+Xexport CRACK_HOME_UNRES
+X
+X###
+X# Check existance of a home directory
+X###
+X
+Xif [ "$CRACK_HOME" != "" -a -d "$CRACK_HOME" ]
+Xthen
+X	cd $CRACK_HOME || exit 1
+Xelse
+X	echo "Fatal error: the directory $CRACK_HOME does not exist."
+X	echo ""
+X	echo "Please set the value of CRACK_HOME in the 'Crack' script to the name of
+X	echo "the installation directory."
+X	echo ""
+X	echo "The current working directory is" `pwd`"
+X	exit 1
+Xfi
+X
+X###
+X# Announce ourselves.
+X###
+X
+Xecho "Crack $version, The Password Cracker (c) Alec D.E. Muffett, 1992"
+Xecho "Invoked as: $0 $*"
+X
+Xif [ $# = 0 ]
+Xthen
+X	echo "Usage:    $0 [options] [bindir] passwdfile [...]"
+X	echo "Or:       $0 -network [options] passwdfile [...]"
+X	echo "Options:-"
+X	echo "	-v              - to produce verbose output"
+X	echo "	-nnicevalue     - to run niced to 'nicevalue'"
+X	echo "	-rpointfile     - to recover a crashed-out job"
+X	echo "	-Rpointfile     - to recover (with verify) a crashed-out job"
+X	echo "	-f		- to run in foreground (output to stdout)"
+X	echo "	-m		- to mail the user a warning message if cracked"
+X	exit 1
+Xfi
+X
+X###
+X# Make the dictionaries. God this is SOOOOO much simpler...
+X###
+X
+Xif [ ! -f $lockdict ]
+Xthen
+X	echo "Making dictionary $bigdict - This may take some time..."
+X	(
+X		for dictfile in $STDDICT DictSrc/*
+X		do
+X			case $dictfile in
+X				*.Z)
+X					zcat $dictfile
+X					;;
+X				*.z)
+X					pcat $dictfile
+X					;;
+X				*)
+X					cat $dictfile
+X					;;
+X			esac
+X		done
+X	) |
+X	grep -v '^#' |
+X	sort |
+X	uniq > $bigdict
+X
+X# I do not do "tr A-Z a-z" here because of words like LaTeX and
+X# BiCapitalisation, which are potential passwords, but the structure of
+X# which would be irrecoverably destroyed by lowercaseing.
+X
+X	echo touch $lockdict		# for future refs.
+X	touch $lockdict
+X
+X	if [ "x$compress" != "x" -a -f "$compress" ]
+X	then
+X		echo $compress $bigdict
+X		# if this fails, tweak the $compress definition above...
+X		$compress $bigdict || exit 1
+X	fi
+Xelse
+X	echo Dictionary Dicts/* intact
+Xfi
+X
+X###
+X# Check your invocation...
+X###
+X
+Xif [ "x$1" = "x-network" ]
+Xthen
+X	shift
+X	Scripts/Crack.network $*
+X	exit 0
+Xfi
+X
+Xwhile :
+Xdo
+X	case $1 in
+X		-network)
+X			echo "Error: -network (if specified) must be first argument"
+X			exit 1
+X			;;
+X		-X*)
+X			remote=$1
+X			shift
+X			;;
+X		-m*)
+X			domail=$1
+X			shift
+X			;;
+X		-l*)
+X			pwl=$1
+X			shift
+X			;;
+X		-f*)
+X			fgnd=$1
+X			shift
+X			;;
+X		-n*)
+X			nice=$1
+X			shift
+X			;;
+X		-r*)
+X			rcvr=$1
+X			shift
+X			;;
+X		-v*)
+X			verbose=$1
+X			shift
+X			;;
+X		-*)
+X			echo "Error: unknown argument $1"
+X			shift
+X			;;
+X		*)
+X			break
+X			;;
+X	esac
+Xdone
+X
+X###
+X# Test first non-switch argument for existance, hence where to put binaries
+X###
+X
+Xif [ -f "$1" ]
+Xthen
+X	CRACK_ARCH="$CRACK_HOME/$DEFAULT_BIN"
+Xelse
+X	CRACK_ARCH="$CRACK_HOME/$1"
+X	shift
+Xfi
+X
+Xexport CRACK_ARCH
+X
+Xecho "Binary directory: $CRACK_ARCH"
+X
+X###
+X# Make the password cracker
+X###
+X
+XScripts/do_pwc $CRACK_ARCH || exit 1
+X
+X###
+X# Process input to the program
+X###
+X
+Xecho "Sorting data for Crack."
+X
+Xif [ "x$remote" != "x" ]
+Xthen
+X	cat > $inputfile
+Xelse
+X	out_init=$CRACK_OUT/out.$$
+X
+X	Scripts/do_join $out_init $* > $inputfile || exit 1
+X
+X	if [ "x$domail" != "x" ]
+X	then
+X		MISCREANTS=`awk '/Guessed/{print $6}' < $out_init`
+X		echo Sending Warning Mail to $MISCREANTS
+X		Scripts/nastygram $MISCREANTS
+X	fi
+X
+X	if [ "x$fgnd" != "x" ]
+X	then
+X		cat $out_init || exit 1
+X		rm -f $out_init
+X	fi
+Xfi
+X
+X###
+X# Check the runtime scratch file directory for pwc
+X###
+X
+Xif [ ! -d Runtime ]
+Xthen
+X	echo "Creating Runtime Directory."
+X	mkdir Runtime || exit 1
+Xfi
+X
+X###
+X# Kick it off into the background ?
+X###
+X# This is the message which has drawn the most complaints...  However, I
+X# have no way of knowing the name in advance, and I can't have crack-pwc
+X# print it on stdout due to hanging file descriptors which bollox a
+X# network crack.  Hence I HAVE to be vague...
+X###
+X
+Xflags="$remote $fgnd $XXdomail $pwl $nice $rcvr $verbose -i $inputfile"
+X
+Xecho "Flags:" $flags Dicts/*
+X
+Xif [ "x$fgnd" != "x" ]
+Xthen
+X	echo "Running program in foreground"
+X	$CRACK_ARCH/crack-pwc $flags Dicts/* < /dev/null 2>&1
+Xelse
+X	echo "Running program in background"
+X	# Apollos/Suns need first 7 descriptors closed to bg properly
+X	# from ksh - hence overkill - AEM
+X	nohup $CRACK_ARCH/crack-pwc $flags Dicts/* </dev/null >/dev/null \
+X		2>&1 3>&1 4>&1 5>&1 6>&1 7>&1 8>&1 9>&1 &
+X	echo "Output will be written to a file in directory $CRACK_OUT"
+X	echo "named 'out<something>'"
+Xfi
+X
+Xsleep 1
+X
+Xtest -f nohup.out && rm nohup.out
+X
+X###
+X# There are horrible timeraces involved in removing $tmpfile, so I dont.
+X# Crack-pwc does. Still. Hohum.
+X###
+X
+Xexit 0
+END_OF_FILE
+if test 6738 -ne `wc -c <'Crack'`; then
+    echo shar: \"'Crack'\" unpacked with wrong size!
+fi
+chmod +x 'Crack'
+# end of 'Crack'
+fi
+if test -f 'DictSrc/bad_pws.dat' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'DictSrc/bad_pws.dat'\"
+else
+echo shar: Extracting \"'DictSrc/bad_pws.dat'\" \(6524 characters\)
+sed "s/^X//" >'DictSrc/bad_pws.dat' <<'END_OF_FILE'
+X0
+X1
+X123456
+X12345678
+X2
+X3
+X4
+X5
+X6
+X7
+X8
+X9
+XA
+Xa
+Xaaa
+Xabc
+Xabcd
+Xabcde
+Xabcdef
+Xabcdefg
+Xabcdefgh
+Xacademia
+Xacademic
+Xaccess
+Xada
+Xadmin
+XAdrian
+XAdrianna
+Xaerobics
+Xairplane
+XAlasdair
+Xalbany
+Xalbatross
+XAlbert
+XAlex
+XAlexander
+Xalf
+Xalgebra
+Xalias
+Xaliases
+XAlice
+XAlicia
+XAlisa
+XAlison
+XAlistair
+XAlister
+XAllison
+Xalpha
+Xalphabet
+Xama
+Xamadeus
+XAmanda
+XAmber
+Xamorphous
+XAmy
+Xanalog
+Xanchor
+XAndrea
+Xandromache
+XAnduin
+Xandy
+XAngela
+XAngie
+Xanimal
+Xanimals
+XAnita
+XAnn
+XAnna
+XAnne
+XAnnette
+Xanswer
+Xanthropogenic
+Xanvils
+Xanything
+XApril
+Xaria
+Xariadne
+XArlene
+Xarrow
+XArthur
+Xasd
+Xasdfgh
+Xasm
+Xasshole
+XAthena
+Xatmosphere
+Xaztecs
+Xazure
+XB
+Xb
+Xbacchus
+Xbadass
+XBailey
+Xbanana
+Xbananas
+Xbandit
+Xbanks
+XBarbara
+Xbarber
+Xbaritone
+XBart
+XBartman
+Xbasic
+Xbass
+Xbassoon
+Xbatch
+Xbatman
+XBBROYGBVGW
+Xbeach
+Xbeater
+Xbeauty
+Xbeaver
+XBecky
+Xbeethoven
+Xbeetledrive
+Xbeloved
+Xbenz
+Xbeowulf
+Xberkeley
+Xberlin
+Xberliner
+XBeryl
+Xbeta
+XBeth
+XBetsie
+XBetty
+XBeverly
+Xbicameral
+XBishop
+Xbitch
+Xbizzy
+XBob
+XBongpoo
+Xbradley
+XBrandi
+XBrandy
+XBrenda
+Xbrian
+XBridget
+Xbroadway
+Xbsd
+Xbuggerall
+Xbumbling
+Xburgess
+Xbuzby
+XC
+Xc
+Xcad
+XCalvin
+XCamille
+Xcampanile
+XCandi
+XCandy
+Xcantor
+Xcardinal
+XCaren
+XCarla
+XCarmen
+Xcarmen
+XCarol
+XCarole
+XCarolina
+Xcarolina
+XCaroline
+XCarrie
+Xcarson
+Xcascades
+Xcastle
+Xcat
+XCatherine
+XCathy
+Xcayuga
+XCecily
+Xceltics
+Xcerulean
+Xchange
+XCharity
+XCharles
+Xcharles
+Xcharming
+Xcharon
+Xchat
+Xcheesecake
+Xchem
+Xchemistry
+Xchess
+Xchester
+Xchocolate
+XChristina
+XChristine
+XChristy
+Xcigar
+XCindy
+Xcinelli
+Xclass
+Xclassic
+XClaudia
+Xcluster
+Xclusters
+Xcode
+Xcoffee
+Xcoke
+XCollins
+Xcollins
+Xcommrades
+Xcomputer
+Xcomrade
+Xcomrades
+Xcondo
+Xcondom
+Xconnect
+XConnie
+Xconsole
+Xcookie
+Xcookie
+Xcooper
+XCornelius
+Xcornelius
+Xcouscous
+Xcreate
+Xcreation
+Xcreator
+Xcreosote
+Xcretin
+Xcriminal
+XCristina
+XCrystal
+Xcshrc
+XCynthia
+XD
+Xd
+Xdaemon
+XDaisy
+XDana
+Xdancer
+XDaniel
+Xdaniel
+XDanielle
+Xdanny
+Xdapper
+Xdata
+Xdave
+XDawn
+XDeb
+XDebbie
+XDeborah
+Xdecember
+Xdefault
+Xdefoe
+Xdeluge
+XDenise
+XDesiree
+Xdesperate
+Xdevelop
+Xdevice
+Xdial
+XDiana
+XDiane
+Xdiet
+Xdieter
+Xdigital
+Xdisc
+Xdiscbox
+Xdiscovery
+Xdisk
+Xdisney
+Xdog
+XDoobrie
+Xdos
+Xdrought
+XDulce
+XDuncan
+XE
+Xe
+Xeager
+Xearth
+Xeasier
+Xeasy
+Xeatme
+Xedges
+Xedinburgh
+Xedwin
+XEdwina
+Xegghead
+Xeiderdown
+XEileen
+XEinstein
+XElaine
+XElanor
+Xelephant
+XElizabeth
+XEllen
+Xemail
+Xemerald
+XEmily
+XEmmanuel
+Xenemy
+Xengine
+Xengineer
+Xenterprise
+Xenzyme
+XErica
+XErika
+XErin
+Xersatz
+Xestablish
+Xestate
+Xeternity
+Xeuclid
+Xeugene
+XEvelyn
+Xextension
+XF
+Xf
+Xfairway
+XFelicia
+Xfender
+Xfermat
+Xferrari
+Xfidelity
+Xfield
+Xfile
+Xfinite
+Xfishers
+Xflakes
+Xfloat
+Xflower
+Xflowers
+Xfoolproof
+Xfootball
+Xforesight
+Xformat
+Xforsythe
+Xfourier
+Xfred
+Xfriend
+Xfrighten
+Xfun
+Xfunction
+Xfungible
+XG
+Xg
+XGabriel
+Xgabriel
+Xgames
+Xgardner
+Xgarfield
+Xgatt
+Xgauss
+XGeorge
+Xgeorge
+XGertrude
+Xgertrude
+Xgibson
+XGilly
+XGina
+XGinger
+Xglacier
+Xgnu
+Xgolf
+Xgolfer
+Xgorgeous
+Xgorges
+Xgosling
+Xgouge
+Xgraham
+Xgrahm
+Xgrass
+Xgroup
+Xgryphon
+Xgucci
+Xguess
+Xguest
+Xguitar
+Xgumption
+Xguntis
+Xgweledigaeth
+XH
+Xh
+Xhack
+Xhacker
+Xhal
+Xhamlet
+Xhandily
+Xhappening
+Xharmony
+Xharold
+XHarvey
+Xhawaii
+XHeather
+Xhebrides
+XHeidi
+Xheinlein
+Xhello
+Xhelp
+Xherbert
+XHiawatha
+Xhibernia
+Xhidden
+XHobbes
+Xhobbit
+XHolly
+Xhomework
+Xhoney
+Xhorse
+Xhorus
+Xhutchins
+Xhydrogen
+XI
+Xibm
+Xiluvben
+Ximbroglio
+Ximperial
+Xinclude
+Xingres
+Xingress
+XIngrid
+Xinna
+Xinnocuous
+Xinternet
+XIrene
+Xirishman
+Xisis
+Xizzy
+XJ
+Xj
+XJackie
+XJane
+XJanet
+XJanice
+XJanie
+Xjapan
+XJasmin
+XJean
+XJeanne
+XJen
+XJenni
+XJennifer
+XJenny
+XJessica
+Xjester
+XJill
+Xjixian
+XJoanne
+XJody
+XJohnny
+Xjohnny
+XJoseph
+XJoshua
+XJoy
+XJoyce
+XJudith
+XJudy
+Xjuggle
+XJulia
+XJulie
+XJune
+Xjupiter
+XK
+Xk
+Xkalajira
+XKaren
+XKarie
+XKarina
+XKate
+XKathleen
+XKathrine
+XKathy
+XKatina
+XKatrina
+XKelly
+XKeri
+Xkermit
+Xkernel
+XKerri
+XKerrie
+XKerry
+Xkey
+XKim
+XKimberly
+Xkipper
+Xkirkland
+XKitten
+Xknight
+XKrista
+XKristen
+XKristi
+XKristie
+XKristin
+XKristine
+XKristy
+XL
+Xl
+Xladle
+Xlager
+Xlambda
+Xlamination
+XLana
+XLara
+Xlarkin
+Xlarry
+XLaura
+Xlazarus
+XLeah
+Xlebesgue
+Xlee
+Xleland
+Xleroy
+XLeslie
+Xlewis
+Xlibrary
+Xlight
+XLinda
+XLisa
+Xlisp
+XLiz
+Xllareggub
+Xlock
+Xlockout
+XLois
+XLori
+XLorin
+XLorraine
+XLouis
+XLouise
+Xlove
+XLucy
+XLynn
+XLynne
+XM
+Xm
+Xmac
+Xmacintosh
+Xmack
+Xmaggot
+Xmagic
+Xmail
+Xmaint
+XMalcolm
+Xmalcom
+Xmanager
+XMara
+XMarci
+XMarcy
+XMaria
+XMarietta
+Xmark
+Xmarkus
+XMarni
+Xmars
+Xmarty
+Xmarvin
+XMary
+Xmaster
+Xmath
+XMaurice
+Xmaurice
+XMeagan
+XMegan
+XMelissa
+Xmellon
+Xmemory
+Xmercury
+Xmerlin
+Xmets
+Xmgr
+XMichael
+Xmichael
+XMichele
+XMichelle
+XMickey
+Xmike
+Xminimum
+Xminsky
+Xmit
+Xmodem
+Xmogul
+Xmoguls
+XMonica
+Xmoose
+Xmorley
+XMortis
+Xmortis
+Xmouse
+Xmozart
+Xmuser
+Xmutant
+XMVEMJSUNP
+XN
+Xn
+Xnagel
+XNancy
+Xnapoleon
+Xnasa
+Xnepenthe
+Xneptune
+Xness
+Xnet
+Xnetwork
+Xnew
+Xnews
+Xnewton
+Xnext
+XNicole
+XNita
+Xnobody
+XNoreen
+Xnoxious
+Xnuclear
+Xnutrition
+Xnyquist
+XO
+Xo
+Xoceanography
+Xocelot
+Xoerhrdle
+Xoffice
+Xolivetti
+XOlivia
+Xolivia
+Xopen
+Xoperator
+Xoracle
+Xorca
+Xorchid
+Xorwell
+Xosiris
+Xoutlaw
+Xoxford
+XP
+Xp
+Xpacific
+Xpad
+Xpainless
+Xpakistan
+XPam
+XPamela
+Xpaper
+Xpapers
+Xpass
+Xpassword
+XPat
+XPatricia
+XPatty
+XPaula
+Xpencil
+XPenelope
+Xpenguin
+Xpenis
+Xpeoria
+Xpercolate
+Xpersimmon
+Xpersona
+Xpete
+Xpeter
+Xphilip
+Xphoenix
+Xphone
+XPierre
+Xpierre
+Xpizza
+Xplane
+Xplayboy
+Xplover
+Xpluto
+Xplymouth
+XPolly
+Xpolynomial
+Xpondering
+Xpork
+Xporsche
+Xposter
+Xpower
+Xpraise
+Xprecious
+Xprelude
+Xpresto
+Xprince
+Xprinceton
+Xpriv
+Xprivate
+Xprivs
+Xprofessor
+Xprofile
+Xprogram
+Xprotect
+Xprotozoa
+Xpub
+Xpublic
+Xpumpkin
+Xpuneet
+Xpuppet
+XQ
+Xq
+Xqwerty
+Xqwertyui
+XR
+Xr
+Xrabbit
+XRachel
+XRachelle
+Xrachmaninoff
+Xrainbow
+Xraindrop
+Xraleigh
+Xrandom
+Xrascal
+Xreagan
+Xreally
+XRebecca
+Xregional
+Xremote
+XRenee
+Xrick
+Xripple
+Xrisc
+Xrje
+XRobin
+Xrobot
+Xrobotics
+XRobyn
+XRochelle
+Xrochester
+Xrodent
+Xrolex
+Xromano
+XRonald
+Xronald
+XRonnie
+Xroot
+XRose
+Xrosebud
+XRosemary
+Xroses
+Xruben
+Xrules
+Xruth
+XS
+Xs
+Xsal
+XSamantha
+XSandra
+XSandy
+XSara
+XSarah
+Xsaturn
+Xsaxon
+Xscamper
+Xscheme
+Xschool
+Xscott
+Xscotty
+Xsecret
+Xsecurity
+Xsensor
+Xserenity
+Xservice
+Xsesame
+Xsex
+XShannon
+Xsharc
+Xshark
+Xsharks
+XSharon
+Xsharon
+Xsheffield
+Xsheldon
+Xshell
+XSherri
+XShirley
+Xshit
+Xshitforbrains
+Xshiva
+Xshivers
+Xshuttle
+Xsignature
+Xsilverlake
+Xsimon
+Xsimple
+Xsimpsons
+Xsinger
+Xsingle
+Xsirte
+Xsmile
+Xsmiles
+Xsmooch
+Xsmother
+XSnarfel
+Xsnatch
+Xsnoopy
+Xsoap
+Xsocrates
+Xsomebody
+XSondra
+XSonia
+XSonya
+Xsossina
+Xsparrows
+Xspit
+Xsplatter
+Xsplodge
+Xspring
+Xspringer
+Xsquires
+XStacey
+XStaci
+XStacie
+XStacy
+XSteph
+XStephanie
+Xstrangle
+Xstratford
+Xstudent
+Xstuttgart
+Xsubway
+Xsuccess
+Xsucker
+Xsummer
+Xsun
+Xsuper
+Xsuperstage
+Xsuperuser
+Xsupport
+Xsupported
+Xsurfer
+XSusan
+XSusanne
+XSusie
+XSuzanne
+XSuzie
+Xswearer
+XSybil
+Xsymmetry
+Xsys
+Xsysadmin
+Xsystem
+XT
+Xt
+XTamara
+XTami
+XTamie
+XTammy
+Xtangerine
+Xtape
+XTara
+Xtarget
+Xtarragon
+Xtaylor
+Xteabag
+Xtech
+Xtelephone
+Xtemptation
+Xtennis
+Xterminal
+Xtest
+Xthailand
+Xthanatos
+XTheresa
+XTiffany
+Xtiger
+XTina
+Xtoggle
+Xtomato
+Xtopography
+Xtortoise
+Xtoxic
+Xtoyota
+XTraci
+XTracie
+XTracy
+Xtrails
+Xtransfer
+XTrisha
+Xtrivial
+Xtrombone
+Xtty
+Xtubas
+Xtuttle
+XU
+Xu
+Xumesh
+Xunhappy
+Xunicorn
+Xunix
+Xunknown
+Xuranus
+Xurchin
+XUrsula
+Xutil
+Xutility
+Xuucp
+XV
+Xv
+XValerie
+Xvasant
+Xvenus
+XVeronica
+Xvertigo
+XVicky
+Xvillage
+Xvirgin
+XVirginia
+Xvisitor
+Xvortex
+XW
+Xw
+Xwargames
+XWarren
+Xwarren
+Xwater
+Xweenie
+XWendi
+XWendy
+Xwhatever
+Xwhatnot
+Xwhiting
+XWhitney
+Xwhitney
+Xwholesale
+Xwill
+XWilliam
+Xwilliam
+Xwilliamsburg
+XWillie
+Xwillie
+XWilma
+Xwinston
+Xwisconsin
+Xwizard
+Xwizzy
+XWOBAFGKMRNS
+Xwombat
+Xwoodwind
+Xword
+Xwork
+Xwormwood
+Xwyoming
+XX
+Xx
+Xxerox
+Xxfer
+Xxmodem
+Xxyz
+XY
+Xy
+Xyaco
+Xyang
+Xyellowstone
+XYolanda
+Xyosemite
+XZ
+Xz
+Xzap
+Xzerox
+Xzimmerman
+Xzmodem
+Xzxcvbn
+END_OF_FILE
+if test 6524 -ne `wc -c <'DictSrc/bad_pws.dat'`; then
+    echo shar: \"'DictSrc/bad_pws.dat'\" unpacked with wrong size!
+fi
+# end of 'DictSrc/bad_pws.dat'
+fi
+if test -f 'LICENCE' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'LICENCE'\"
+else
+echo shar: Extracting \"'LICENCE'\" \(4775 characters\)
+sed "s/^X//" >'LICENCE' <<'END_OF_FILE'
+X(*
+XThis document is freely plagiarised from the 'Artistic Licence',
+Xdistributed as part of the Perl v4.0 kit by Larry Wall, which is
+Xavailable from most major archive sites
+X*)
+X
+XThis documents purpose is to state the conditions under which this
+XPackage (See definition below) viz: The "Crack" Password Cracker, which
+Xis copyright Alec David Edward Muffett, may be copied, such that the
+XCopyright Holder maintains some semblance of artistic control over the
+Xdevelopment of the package, while giving the users of the package the
+Xright to use and distribute the Package in a more-or-less customary
+Xfashion, plus the right to make reasonable modifications. 
+X
+XSo there.
+X
+X***************************************************************************
+X
+XDefinitions:
+X
+X"Package" refers to the collection of files distributed by the Copyright
+XHolder, and derivatives of that collection of files created through
+Xtextual modification, or segments thereof.
+X
+X"Standard Version" refers to such a Package if it has not been modified,
+Xor has been modified in accordance with the wishes of the Copyright
+XHolder.
+X
+X"Copyright Holder" is whoever is named in the copyright or copyrights
+Xfor the package.
+X
+X"You" is you, if you're thinking about copying or distributing this
+XPackage.
+X
+X"Reasonable copying fee" is whatever you can justify on the basis of
+Xmedia cost, duplication charges, time of people involved, and so on.
+X(You will not be required to justify it to the Copyright Holder, but
+Xonly to the computing community at large as a market that must bear the
+Xfee.)
+X
+X
+X
+X"Freely Available" means that no fee is charged for the item itself,
+Xthough there may be fees involved in handling the item.  It also means
+Xthat recipients of the item may redistribute it under the same
+Xconditions they received it.
+X
+X1.  You may make and give away verbatim copies of the source form of the
+XStandard Version of this Package without restriction, provided that you
+Xduplicate all of the original copyright notices and associated
+Xdisclaimers.
+X
+X2.  You may apply bug fixes, portability fixes and other modifications
+Xderived from the Public Domain or from the Copyright Holder.  A Package
+Xmodified in such a way shall still be considered the Standard Version.
+X
+X3.  You may otherwise modify your copy of this Package in any way,
+Xprovided that you insert a prominent notice in each changed file stating
+Xhow and when AND WHY you changed that file, and provided that you do at
+Xleast ONE of the following:
+X
+Xa) place your modifications in the Public Domain or otherwise make them
+XFreely Available, such as by posting said modifications to Usenet or an
+Xequivalent medium, or placing the modifications on a major archive site
+Xsuch as uunet.uu.net, or by allowing the Copyright Holder to include
+Xyour modifications in the Standard Version of the Package.
+X
+Xb) use the modified Package only within your corporation or
+Xorganization.
+X
+Xc) rename any non-standard executables so the names do not conflict with
+Xstandard executables, which must also be provided, and provide separate
+Xdocumentation for each non-standard executable that clearly documents
+Xhow it differs from the Standard Version.
+X
+Xd) make other distribution arrangements with the Copyright Holder.
+X
+X4.  You may distribute the programs of this Package in object code or
+Xexecutable form, provided that you do at least ONE of the following:
+X
+Xa) distribute a Standard Version of the executables and library files,
+Xtogether with instructions (in the manual page or equivalent) on where
+Xto get the Standard Version.
+X
+Xb) accompany the distribution with the machine-readable source of the
+XPackage with your modifications.
+X
+Xc) accompany any non-standard executables with their corresponding
+XStandard Version executables, giving the non-standard executables
+Xnon-standard names, and clearly documenting the differences in manual
+Xpages (or equivalent), together with instructions on where to get the
+XStandard Version.
+X
+Xd) make other distribution arrangements with the Copyright Holder.
+X
+X5.  You may charge a reasonable copying fee for any distribution of this
+XPackage.  You may charge any fee you choose for support of this Package. 
+XYOU MAY NOT CHARGE A FEE FOR THIS PACKAGE ITSELF.  However, you may
+Xdistribute this Package in aggregate with other (possibly commercial)
+Xprograms as part of a larger (possibly commercial) software distribution
+Xprovided that YOU DO NOT ADVERTISE this package as a product of your
+Xown. 
+X
+X6.  The name of the Copyright Holder may not be used to endorse or
+Xpromote products derived from this software without specific prior
+Xwritten permission.
+X
+X7.  THIS PACKAGE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED
+XWARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+XMERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X
+X				The End
+END_OF_FILE
+if test 4775 -ne `wc -c <'LICENCE'`; then
+    echo shar: \"'LICENCE'\" unpacked with wrong size!
+fi
+# end of 'LICENCE'
+fi
+if test -f 'Scripts/Crack.network' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Scripts/Crack.network'\"
+else
+echo shar: Extracting \"'Scripts/Crack.network'\" \(3786 characters\)
+sed "s/^X//" >'Scripts/Crack.network' <<'END_OF_FILE'
+X#!/bin/sh
+X
+X###
+X# This program is copyright Alec Muffett 1991, and is provided as part of
+X# the Crack v4.0 Password Cracking package.  The author disclaims all
+X# responsibility or liability with respect to it's usage or its effect
+X# upon hardware or computer systems, and maintains copyright as set out in
+X# the "LICENCE" document which accompanies distributions of Crack v4.0 and
+X# upwards. So there...
+X###
+X# This program reads the network.conf and breaks up the sorted password
+X# file and runs RCrack to kick Crack up on all the machines and feeds 
+X# the file to it.
+X###
+X# Okay, if you don't like this bit of code, YOU think of a totally
+X# portable way to do this - in shell scripts without using PERL - Alec.
+X###
+X
+Xcf=Scripts/network.conf
+Xtf=/tmp/mcp.$$
+X
+X###
+X# Check that the config file is in place
+X###
+X
+Xif [ ! -f $cf -o ! -s $cf ]
+Xthen
+X	echo "Crack.network: empty or missing config file: $cf"
+X	exit 1
+Xfi
+X
+X###
+X# Parse arguments
+X###
+X
+Xargs=""
+Xfiles=""
+Xdomail=""
+X
+Xfor i in $*
+Xdo
+X	if [ -f "$i" ]
+X	then
+X		files="$files $i"
+X	else
+X		case $i in
+X			-f*)
+X				echo "Crack: -f option on COMMAND LINE incompatible with networking - Ignored"
+X				;;
+X			-m*)
+X				domail="$i"
+X				args="$args $i"
+X				;;
+X			*)
+X				args="$args $i"
+X				;;
+X		esac
+X	fi
+Xdone
+X
+X###
+X# Get on with your proper job
+X###
+X
+Xecho "Merging input data."
+X
+Xif [ "$CRACK_OUT" != "" ]
+Xthen
+X	warn=$CRACK_OUT/out.$$
+Xelse
+X	warn=out.$$
+Xfi
+X
+XScripts/do_join $warn $files > $tf
+X
+Xif [ "x$domail" != "x" ]
+Xthen
+X	MISCREANTS=`awk '/Guessed/{print $6}' < $warn`
+X	echo Sending Warning Mail to $MISCREANTS
+X	Scripts/nastygram $MISCREANTS
+Xfi
+X
+X###
+X# Statistics gathering
+X###
+X
+Xlines=`wc -l < $tf`
+Xsaltlines=`Scripts/saltcount < $tf`
+X
+X# Must not quote $lines/$saltlines here for comparison to work
+Xif [ $lines = 0 -o $saltlines = 0 ]
+Xthen
+X	echo "Crack: no uncracked input to distribute."
+X	exit 1
+Xfi
+X
+Xecho "Starting analysis for Network-Crack."
+X
+Xcat $cf |
+Xgrep -v '^#' |
+Xgrep -v '^$' |
+Xsort -t: +2 -n |
+Xawk -F: '
+XBEGIN {
+X	hostcount = 0;
+X	totalweight = 0;
+X	linecount = '"$lines"';
+X	saltlinecount = '"$saltlines"';
+X	iargs = "'"$args"'";
+X	file = "'"$tf"'";
+X}
+X
+X/^[a-zA-Z0-9]/ {
+X	hostname[hostcount] = $1;
+X	bintype[hostcount] = $2;
+X	relpow[hostcount] = $3;
+X	powtot += $3;
+X
+X	if (index($6, "-f") == 0)
+X	{
+X		asynch[hostcount] = "";
+X	} else
+X	{
+X		asynch[hostcount] = "-asynch";
+X	}
+X
+X	crackf[hostcount] = $6 " " iargs;  # useropts go second get priority
+X
+X	if ($4 == "")
+X	{
+X		rshuser[hostcount] = "";
+X	} else
+X	{
+X		rshuser[hostcount] = "-l " $4;
+X		crackf[hostcount] = crackf[hostcount] " -U" $4;
+X	}
+X
+X	if ($5 == "")
+X	{
+X		crackp[hostcount] = "$CRACK_HOME_UNRES/Crack";
+X	} else
+X	{
+X		crackp[hostcount] = $5;
+X	}
+X
+X	crackf[hostcount] = iargs " " $6;
+X	hostcount++;
+X}
+X
+XEND {
+X	done = 1;
+X	slice = 0.0;
+X	remainder = 0.0;
+X	todo = saltlinecount;
+X	print "echo Users:", linecount;
+X	print "echo Salts:", saltlinecount;
+X	print "echo Remote Hosts:", hostcount;
+X	print "echo Total power:", powtot;
+X
+X	for (i = 0; i < hostcount; i++)
+X	{
+X		if (i < hostcount - 1)
+X		{
+X# This balancing algorithm by: george@au.edu.monash.cc.moa (George Scott)
+X# its wonderful - AEM
+X			slice = relpow[i] / powtot;		# fraction
+X			slice *= todo;				# percentage
+X			slice = int(slice);			# round down
+X			todo -= slice;				# remainder
+X			powtot -= relpow[i];
+X		} else
+X		{
+X			slice = todo;	# fastest machine gets the rest.
+X			todo = 0;
+X		}
+X		if (slice > 0)
+X		{
+X			print "echo Calling", hostname[i], "for", slice, "different salts";
+X
+X			line = sprintf( \
+X	   "Scripts/RCrack %s %d %d %s %s \"%s\" %s %s %s < %s", \
+X				asynch[i], \
+X				done, \
+X				done + slice - 1, \
+X				hostname[i], \
+X				rshuser[i], \
+X				crackp[i], \
+X				"-XRuntime/RD'"$$"'." i, \
+X				crackf[i], \
+X				bintype[i], \
+X				file);
+X#			print "echo", line;
+X			print line;
+X		}
+X		done += slice;
+X	}
+X}' | sh		# I'll bet you didn't expect this...
+X
+Xrm $tf
+Xexit 0
+END_OF_FILE
+if test 3786 -ne `wc -c <'Scripts/Crack.network'`; then
+    echo shar: \"'Scripts/Crack.network'\" unpacked with wrong size!
+fi
+chmod +x 'Scripts/Crack.network'
+# end of 'Scripts/Crack.network'
+fi
+if test -f 'Scripts/dicts.rules' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Scripts/dicts.rules'\"
+else
+echo shar: Extracting \"'Scripts/dicts.rules'\" \(10425 characters\)
+sed "s/^X//" >'Scripts/dicts.rules' <<'END_OF_FILE'
+X###
+X# Description file for Crack dictionary processor. ADE Muffett, Mar 1992
+X###
+X# Ordinary Commands:
+X# :	= no-op - do nothing to the input word
+X# <n	= reject word UNLESS it is < n characters long, where n = 0-9a-z
+X# >n	= reject word UNLESS it is > n characters long, where n = 0-9a-z
+X# ^x	= prepend character 'x' to word
+X# $y	= append character 'y' to word
+X# l	= force word to be lowercase
+X# u	= force word to be uppercase
+X# c	= force word to be capitalised
+X# r	= reverse word: "Fred" -> "derF"
+X# d	= duplicate word: "Fred" -> "FredFred"
+X# f	= reflect word: "Fred" -> "FredderF"
+X# p	= make best attempt to pluralise a lowercase word
+X# onx	= overstrike character in position 'n' (start at 0) with character 'x'
+X#	  nb: little overflow checking is done, so use '<' and '>' carefully
+X# inx	= insert character 'x' in position 'n' (start at 0) and shift the rest
+X#	  of the input string right.
+X#	  eg: i3* on "wibble" yields "wib*ble"; i0* on "wibble" yields "*wibble"
+X#	  nb: if n > strlen(input), character 'x' will be appended
+X# xnm	= extract substring from position n (start at 0) for up to m characters
+X#	  eg: using x27 on "autobogotification" yields "tobogot"
+X#	  eg: using x3a on "autobogotification" yields "obogotific" (10 chars)
+X#	  nb: little overflow checking is done, so use '<' and '>' carefully
+X###
+X# Commands which may utilise character classes:	(note special use of '?')
+X# sxy	= replace (swap) all 'x' in the word with 'y'
+X# s?cy	= replace all characters of class 'c' in the word with y
+X# @x	= purge all 'x' from the word
+X# @?c	= purge all characters of class 'c' from the word
+X# !y	= reject word if it contains character 'y'
+X# !?c	= reject word if it contains a character in class 'c'
+X# /x	= reject word unless it contains character 'x'
+X# /?c	= reject word unless it contains a character in class 'c'
+X# =nx	= reject word unless char at position 'n' is equal to x
+X# =n?c	= reject word unless char at position 'n' is in class 'c'
+X#	  nb: the word always starts at position 0
+X###
+X# Character classes for use in above:
+X# ??	matches "?"
+X# ?v	matches vowels aeiou
+X# ?c	matches consonants bcdfghjklmnpqrstvwxyz
+X# ?w	matches whitespace (space, tab)
+X# ?p	matches punctuation .,:;'"?!`
+X# ?s	matches symbols $%^&*()-_+=|\[]{}#@/~
+X# ?l	matches lowercase letters
+X# ?u	matches uppercase letters
+X# ?d	matches any digit
+X# ?a	matches any letter of the alphabet
+X# ?x	matches any letter of the alphabet, or any digit (ie: is alphanumeric)
+X# The complement of a class may be matched by the uppercase of it's letter
+X# ie: where ?d == DIGITS, ?D == NON-DIGITS, and so on.
+X###
+X# Many people haven't realised that the above is a complete language; ie:
+X# if you want to create a dictionary of short words with "123" appended,
+X# use "<6l$1$2$3".
+X###
+X# A FINAL NOTE: remember that very few users are aware that passwords
+X# stop at 8 chars long; so, while it IS worthwhile to check for words
+X# being 8 or more chars long before appending a character, it is NOT
+X# worthwhile to do the same when prepending characters. Hence:-
+X#
+X#		"williamsburgh"  -> "williams" }\
+X#		"williamsburgh1" -> "williams" }/~~~Will be uniqued.
+X#		"1williamsburgh" -> "1william"
+X#
+X###
+X# So, here we go; try to order these in the order most likely to be a
+X# password. First we try to make selections from the pure alphabetic
+X# words in the dicts, then we get onto the weird stuff.
+X######################################################################
+X
+X# Force every pure alphabetic word lowercase and try it
+X# NOT-CONTAIN ANY NON-ALPHA, LOWERCASE
+X!?Al
+X
+X# Pluralise every significant one of the above
+X# MORE-THAN 2, NOT-CONTAIN ANY NON-ALPHA, LOWERCASE, PLURALISE
+X>2!?Alp
+X
+X# Try variations of anything that is not pure alnum
+X# CONTAIN ANY NON-ALNUM
+X/?X
+X# CONTAIN ANY NON-ALNUM, CONTAIN ANY UPPER, LOWERCASE
+X/?X/?ul
+X
+X# Any alphaword >2 & <8 chars long, append a digit or simple punctuation
+X# since few ppl add non alpha chars to a already non-alpha word
+X# MORE-THAN 2, LESS-THAN 8, NOT ANY NON-ALPHA, LOWERCASE, APPEND <whatever>
+X>2<8!?Al$0
+X>2<8!?Al$1
+X>2<8!?Al$2
+X>2<8!?Al$3
+X>2<8!?Al$4
+X>2<8!?Al$5
+X>2<8!?Al$6
+X>2<8!?Al$7
+X>2<8!?Al$8
+X>2<8!?Al$9
+X>2<8!?Al$!
+X>2<8!?Al$.
+X>2<8!?Al$?
+X>2<8!?Al$ :
+X# trailing colon (no-op) on last line delimits space character.
+X
+X# Lowercase every pure alphabetic word and reverse it
+X# MORE-THAN 2, NOT-CONTAIN ANY NON-ALPHA, LOWERCASE, REVERSE
+X>2!?Alr
+X
+X# Capitalise every pure alnum word (ie: not anything which is not alnum)
+X# MORE-THAN 2, NOT-CONTAIN ANY NON-ALNUM, CAPITALISE
+X>2!?Xc
+X
+X# Anything uppercase
+X# MORE-THAN 2, NOT-CONTAIN ANY NON-ALNUM, UPPERCASE
+X>2!?Xu
+X
+X# Pure alphabetic words with vowels removed which are still fairly long
+X# NOT-CONTAIN ANY NON-ALPHA, CONTAIN ANY VOWEL, PURGE ANY VOWEL, MORE-THAN 3
+X!?A/?v@?v>3
+X
+X# Look, I'm getting really bored of this monotone uppercase typing, so
+X# if it's OK with you, I'll drop the commentaries on each rule. You
+X# should have got the idea by now...
+X
+X# Longish pure words lowercased and reflected
+X>2!?Alf
+X
+X# Words containing whitespace, which is then squeezed out
+X/?w@?w>3
+X
+X# In a similar vein, words with punctuation, squeezed out
+X/?p@?p>3
+X
+X# Reasonably short words, duplicated. eg: "fredfred"
+X>1<7!?Ald
+X
+X###
+X# >From: mycroft@edu.mit.ai.gnu
+X# >In addition to the standard dicts.rules, I use the following set.  You
+X# >can guess what it does.
+X# I've tidied this up a bit (I hope) - alec
+X###
+X>2/asa2l
+X>2/asa4l
+X>2/ese3l
+X>2/hsh4l
+X>2/isi1l
+X>2/lsl1l
+X>2/oso0l
+X>2/sss$l
+X>2/asa2/hsh4l
+X>2/asa2/sss$l
+X>2/asa4/hsh4l
+X>2/ese3/asa2l
+X>2/ese3/asa4l
+X>2/ese3/hsh4l
+X>2/ese3/sss$l
+X>2/isi1/asa2l
+X>2/isi1/asa4l
+X>2/isi1/ese3l
+X>2/isi1/hsh4l
+X>2/isi1/sss$l
+X>2/lsl1/asa2l
+X>2/lsl1/asa4l
+X>2/lsl1/ese3l
+X>2/lsl1/hsh4l
+X>2/lsl1/isi1l
+X>2/lsl1/oso0l
+X>2/lsl1/sss$l
+X>2/oso0/asa2l
+X>2/oso0/asa4l
+X>2/oso0/ese3l
+X>2/oso0/hsh4l
+X>2/oso0/isi1l
+X>2/oso0/sss$l
+X>2/sss$/asa4l
+X>2/sss$/hsh4l
+X>2/asa2/sss$/hsh4l
+X>2/ese3/asa2/hsh4l
+X>2/ese3/asa2/sss$l
+X>2/ese3/asa4/hsh4l
+X>2/ese3/sss$/asa4l
+X>2/ese3/sss$/hsh4l
+X>2/isi1/asa2/hsh4l
+X>2/isi1/asa2/sss$l
+X>2/isi1/asa4/hsh4l
+X>2/isi1/ese3/asa2l
+X>2/isi1/ese3/asa4l
+X>2/isi1/ese3/hsh4l
+X>2/isi1/ese3/sss$l
+X>2/isi1/sss$/asa4l
+X>2/isi1/sss$/hsh4l
+X>2/lsl1/asa2/hsh4l
+X>2/lsl1/asa2/sss$l
+X>2/lsl1/asa4/hsh4l
+X>2/lsl1/ese3/asa2l
+X>2/lsl1/ese3/asa4l
+X>2/lsl1/ese3/hsh4l
+X>2/lsl1/ese3/sss$l
+X>2/lsl1/isi1/asa2l
+X>2/lsl1/isi1/asa4l
+X>2/lsl1/isi1/ese3l
+X>2/lsl1/isi1/hsh4l
+X>2/lsl1/isi1/sss$l
+X>2/lsl1/oso0/asa2l
+X>2/lsl1/oso0/asa4l
+X>2/lsl1/oso0/ese3l
+X>2/lsl1/oso0/hsh4l
+X>2/lsl1/oso0/isi1l
+X>2/lsl1/oso0/sss$l
+X>2/lsl1/sss$/asa4l
+X>2/lsl1/sss$/hsh4l
+X>2/oso0/asa2/hsh4l
+X>2/oso0/asa2/sss$l
+X>2/oso0/asa4/hsh4l
+X>2/oso0/ese3/asa2l
+X>2/oso0/ese3/asa4l
+X>2/oso0/ese3/hsh4l
+X>2/oso0/ese3/sss$l
+X>2/oso0/isi1/asa2l
+X>2/oso0/isi1/asa4l
+X>2/oso0/isi1/ese3l
+X>2/oso0/isi1/hsh4l
+X>2/oso0/isi1/sss$l
+X>2/oso0/sss$/asa4l
+X>2/oso0/sss$/hsh4l
+X>2/sss$/asa4/hsh4l
+X>2/ese3/asa2/sss$/hsh4l
+X>2/ese3/sss$/asa4/hsh4l
+X>2/isi1/asa2/sss$/hsh4l
+X>2/isi1/ese3/asa2/hsh4l
+X>2/isi1/ese3/asa2/sss$l
+X>2/isi1/ese3/asa4/hsh4l
+X>2/isi1/ese3/sss$/asa4l
+X>2/isi1/ese3/sss$/hsh4l
+X>2/isi1/sss$/asa4/hsh4l
+X>2/lsl1/asa2/sss$/hsh4l
+X>2/lsl1/ese3/asa2/hsh4l
+X>2/lsl1/ese3/asa2/sss$l
+X>2/lsl1/ese3/asa4/hsh4l
+X>2/lsl1/ese3/sss$/asa4l
+X>2/lsl1/ese3/sss$/hsh4l
+X>2/lsl1/isi1/asa2/hsh4l
+X>2/lsl1/isi1/asa2/sss$l
+X>2/lsl1/isi1/asa4/hsh4l
+X>2/lsl1/isi1/ese3/asa2l
+X>2/lsl1/isi1/ese3/asa4l
+X>2/lsl1/isi1/ese3/hsh4l
+X>2/lsl1/isi1/ese3/sss$l
+X>2/lsl1/isi1/sss$/asa4l
+X>2/lsl1/isi1/sss$/hsh4l
+X>2/lsl1/oso0/asa2/hsh4l
+X>2/lsl1/oso0/asa2/sss$l
+X>2/lsl1/oso0/asa4/hsh4l
+X>2/lsl1/oso0/ese3/asa2l
+X>2/lsl1/oso0/ese3/asa4l
+X>2/lsl1/oso0/ese3/hsh4l
+X>2/lsl1/oso0/ese3/sss$l
+X>2/lsl1/oso0/isi1/asa2l
+X>2/lsl1/oso0/isi1/asa4l
+X>2/lsl1/oso0/isi1/ese3l
+X>2/lsl1/oso0/isi1/hsh4l
+X>2/lsl1/oso0/isi1/sss$l
+X>2/lsl1/oso0/sss$/asa4l
+X>2/lsl1/oso0/sss$/hsh4l
+X>2/lsl1/sss$/asa4/hsh4l
+X>2/oso0/asa2/sss$/hsh4l
+X>2/oso0/ese3/asa2/hsh4l
+X>2/oso0/ese3/asa2/sss$l
+X>2/oso0/ese3/asa4/hsh4l
+X>2/oso0/ese3/sss$/asa4l
+X>2/oso0/ese3/sss$/hsh4l
+X>2/oso0/isi1/asa2/hsh4l
+X>2/oso0/isi1/asa2/sss$l
+X>2/oso0/isi1/asa4/hsh4l
+X>2/oso0/isi1/ese3/asa2l
+X>2/oso0/isi1/ese3/asa4l
+X>2/oso0/isi1/ese3/hsh4l
+X>2/oso0/isi1/ese3/sss$l
+X>2/oso0/isi1/sss$/asa4l
+X>2/oso0/isi1/sss$/hsh4l
+X>2/oso0/sss$/asa4/hsh4l
+X>2/isi1/ese3/asa2/sss$/hsh4l
+X>2/isi1/ese3/sss$/asa4/hsh4l
+X>2/lsl1/ese3/asa2/sss$/hsh4l
+X>2/lsl1/ese3/sss$/asa4/hsh4l
+X>2/lsl1/isi1/asa2/sss$/hsh4l
+X>2/lsl1/isi1/ese3/asa2/hsh4l
+X>2/lsl1/isi1/ese3/asa2/sss$l
+X>2/lsl1/isi1/ese3/asa4/hsh4l
+X>2/lsl1/isi1/ese3/sss$/asa4l
+X>2/lsl1/isi1/ese3/sss$/hsh4l
+X>2/lsl1/isi1/sss$/asa4/hsh4l
+X>2/lsl1/oso0/asa2/sss$/hsh4l
+X>2/lsl1/oso0/ese3/asa2/hsh4l
+X>2/lsl1/oso0/ese3/asa2/sss$l
+X>2/lsl1/oso0/ese3/asa4/hsh4l
+X>2/lsl1/oso0/ese3/sss$/asa4l
+X>2/lsl1/oso0/ese3/sss$/hsh4l
+X>2/lsl1/oso0/isi1/asa2/hsh4l
+X>2/lsl1/oso0/isi1/asa2/sss$l
+X>2/lsl1/oso0/isi1/asa4/hsh4l
+X>2/lsl1/oso0/isi1/ese3/asa2l
+X>2/lsl1/oso0/isi1/ese3/asa4l
+X>2/lsl1/oso0/isi1/ese3/hsh4l
+X>2/lsl1/oso0/isi1/ese3/sss$l
+X>2/lsl1/oso0/isi1/sss$/asa4l
+X>2/lsl1/oso0/isi1/sss$/hsh4l
+X>2/lsl1/oso0/sss$/asa4/hsh4l
+X>2/oso0/ese3/asa2/sss$/hsh4l
+X>2/oso0/ese3/sss$/asa4/hsh4l
+X>2/oso0/isi1/asa2/sss$/hsh4l
+X>2/oso0/isi1/ese3/asa2/hsh4l
+X>2/oso0/isi1/ese3/asa2/sss$l
+X>2/oso0/isi1/ese3/asa4/hsh4l
+X>2/oso0/isi1/ese3/sss$/asa4l
+X>2/oso0/isi1/ese3/sss$/hsh4l
+X>2/oso0/isi1/sss$/asa4/hsh4l
+X>2/lsl1/isi1/ese3/asa2/sss$/hsh4l
+X>2/lsl1/isi1/ese3/sss$/asa4/hsh4l
+X>2/lsl1/oso0/ese3/asa2/sss$/hsh4l
+X>2/lsl1/oso0/ese3/sss$/asa4/hsh4l
+X>2/lsl1/oso0/isi1/asa2/sss$/hsh4l
+X>2/lsl1/oso0/isi1/ese3/asa2/hsh4l
+X>2/lsl1/oso0/isi1/ese3/asa2/sss$l
+X>2/lsl1/oso0/isi1/ese3/asa4/hsh4l
+X>2/lsl1/oso0/isi1/ese3/sss$/asa4l
+X>2/lsl1/oso0/isi1/ese3/sss$/hsh4l
+X>2/lsl1/oso0/isi1/sss$/asa4/hsh4l
+X>2/oso0/isi1/ese3/asa2/sss$/hsh4l
+X>2/oso0/isi1/ese3/sss$/asa4/hsh4l
+X>2/lsl1/oso0/isi1/ese3/asa2/sss$/hsh4l
+X>2/lsl1/oso0/isi1/ese3/sss$/asa4/hsh4l
+X# Bleagh! pant, pant - alec
+X
+X# Oddly enough, people prefixing passwords with numbers is quite a lot
+X# rarer than suffixing numbers.  Hence, we are further down the file
+X# before trying this. Oh well, let's nail the buggers anyway...
+X>2<8l^ :
+X>2l^0
+X>2l^1
+X>2l^2
+X>2l^3
+X>2l^4
+X>2l^5
+X>2l^6
+X>2l^7
+X>2l^8
+X>2l^9
+X
+X# Capitalise and then reverse every word (eg: "derF")
+X>2!?Xcr
+X
+X# Reverse and then capitalise every alphabetic word (eg: "Derf")
+X>2rc
+X
+X# Pure words capitalised with various ejaculatory punctuation added
+X# eg: "Cats!" for Andrew Floyd-Drebber fans...
+X>2<8!?Ac$!
+X>2<8!?Ac$.
+X>2<8!?Ac$?
+X
+X# Uppercase words with various things appended or swapped out
+X>2<8u$!
+X>2<8u$.
+X>2<8u$?
+X>2/OsO0u
+X
+X# Really weird uppercase variations
+X>2ud
+X>2uf
+X>2ur
+X
+X# Yes, I know all this looks like line noise, but I haven't put regexp in yet.
+END_OF_FILE
+if test 10425 -ne `wc -c <'Scripts/dicts.rules'`; then
+    echo shar: \"'Scripts/dicts.rules'\" unpacked with wrong size!
+fi
+# end of 'Scripts/dicts.rules'
+fi
+if test -f 'Sources/crack-sort.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Sources/crack-sort.c'\"
+else
+echo shar: Extracting \"'Sources/crack-sort.c'\" \(5383 characters\)
+sed "s/^X//" >'Sources/crack-sort.c' <<'END_OF_FILE'
+X#include "crack.h"
+X#define Compare(a,b) 	(strcmp(a,b))
+X
+X/*
+X * Sort a list of struct DICT by using an iterative bottom-up merge sort.
+X * This particular piece of code took me ages to do (well, 2 days + 3 weeks
+X * research) and provides a FAST way of sorting a linked list without the
+X * overhead of increasing memory usage via malloc() or brk(). Why ? Because I
+X * have to assume that there is no more memory, thats why. It's all Brian
+X * Thompsett's fault! Really! Filling the swapspace on a SparcStation2 and
+X * expecting Crack to survive! Argh! 8-)
+X */
+X
+X/* Since this code is so nice, I'll comment it fairly thoroughly */
+X
+Xstruct DICT *
+XSortDict (chain3, listlength)
+X    register struct DICT *chain3;
+X    long int listlength;
+X{
+X    /* misc counters */
+X    register int i;
+X    long int discarded;
+X
+X    /* 2^n for n = 0..x */
+X    long int n;
+X
+X    /* head of the first extracted subchain */
+X    register struct DICT *chain1;
+X
+X    /* head of second subchain */
+X    register struct DICT *chain2;
+X
+X    /* useful temp pointer */
+X    register struct DICT *scratch;
+X
+X    /* PTR TO ELEMENT containing TAIL of unsorted list pre-merging */
+X    struct DICT *lead_in;
+X
+X    /* PTR TO HEAD of unsorted list after extracting chains */
+X    struct DICT *lead_out;
+X
+X    /* dummy structures used as fenceposts */
+X    struct DICT dummy1;
+X    struct DICT dummy2;
+X
+X    /* Put the incoming list into 'dummy1' posthole */
+X    dummy1.next = chain3;
+X
+X    /* For values of n = 2^(0..30) limited by listlength */
+X    for (n = 1L; n < listlength; n *= 2)
+X    {
+X	/* Store place to get/put head of list in 'lead_in' */
+X	lead_in = &dummy1;
+X
+X	/* Set chain1 to the head of unsorted list */
+X	for (chain1 = lead_in -> next; chain1; chain1 = lead_in -> next)
+X	{
+X	    /* Break connection head and chain1 */
+X	    lead_in -> next = (struct DICT *) 0;
+X
+X	    /* Extract up to length 'n', park on last element before chain2 */
+X	    for (i = n - 1, scratch = chain1;
+X		 i && scratch -> next;
+X		 scratch = scratch -> next)
+X	    {
+X		i--;
+X	    };
+X
+X	    /* If chain1 is undersized/exact, there is no chain2 */
+X	    if (i || !scratch -> next)
+X	    {
+X		/* put chain1 back where you got it and break */
+X		lead_in -> next = chain1;
+X		break;
+X	    }
+X	    /* Get pointer to head of chain2 */
+X	    chain2 = scratch -> next;
+X
+X	    /* Break connection between chain1 & chain2 */
+X	    scratch -> next = (struct DICT *) 0;
+X
+X	    /* Extract up to length 'n', park on last element of chain2 */
+X	    for (i = n - 1, scratch = chain2;
+X		 i && scratch -> next;
+X		 scratch = scratch -> next)
+X	    {
+X		i--;
+X	    };
+X
+X	    /* Even if it's NULL, store rest of list in 'lead_out' */
+X	    lead_out = scratch -> next;
+X
+X	    /* Break connection between chain2 & tail of unsorted list */
+X	    scratch -> next = (struct DICT *) 0;
+X
+X	    /* Now, mergesort chain1 & chain2 to chain3 */
+X
+X	    /* Set up dummy list fencepost */
+X	    chain3 = &dummy2;
+X	    chain3 -> next = (struct DICT *) 0;
+X
+X	    /* While there is something in each list */
+X	    while (chain1 && chain2)
+X	    {
+X		/* Compare them */
+X		i = Compare (chain1 -> word, chain2 -> word);
+X
+X		if (i < 0)
+X		{
+X		    /* a < b */
+X		    chain3 -> next = chain1;
+X		    chain3 = chain1;
+X		    chain1 = chain1 -> next;
+X		} else if (i > 0)
+X		{
+X		    /* a > b */
+X		    chain3 -> next = chain2;
+X		    chain3 = chain2;
+X		    chain2 = chain2 -> next;
+X		} else
+X		{
+X		    /*
+X		     * a == b. Link them both in. Don't try to get rid of the
+X		     * multiple copies here, because if you free up any
+X		     * elements at this point the listsize changes and the
+X		     * algorithm runs amok.
+X		     */
+X		    chain3 -> next = chain1;
+X		    chain3 = chain1;
+X		    chain1 = chain1 -> next;
+X		    chain3 -> next = chain2;
+X		    chain3 = chain2;
+X		    chain2 = chain2 -> next;
+X		}
+X	    }
+X
+X	    /*
+X	     * Whatever is left is sorted and therefore linkable straight
+X	     * onto the end of the current list.
+X	     */
+X
+X	    if (chain1)
+X	    {
+X		chain3 -> next = chain1;
+X	    } else
+X	    {
+X		chain3 -> next = chain2;
+X	    }
+X
+X	    /* Skip to the end of the sorted list */
+X	    while (chain3 -> next)
+X	    {
+X		chain3 = chain3 -> next;
+X	    }
+X
+X	    /* Append this lot to where you got chain1 from ('lead_in') */
+X	    lead_in -> next = dummy2.next;
+X
+X	    /* Append rest of unsorted list to chain3 */
+X	    chain3 -> next = lead_out;
+X
+X	    /* Set 'lead_in' for next time to last element of 'chain3' */
+X	    lead_in = chain3;
+X	}
+X    }
+X
+X    /* Now, Uniq the list */
+X    discarded = 0;
+X
+X    /* Chain1 to the head of the list, Chain2 to the next */
+X    chain1 = dummy1.next;
+X    chain2 = chain1 -> next;
+X
+X    /* While not at end of list */
+X    while (chain2)
+X    {
+X	/* Whilst (chain1) == (chain2) */
+X	while (!Compare (chain1 -> word, chain2 -> word))
+X	{
+X	    /* Bump the discard count */
+X	    discarded++;
+X
+X	    /* Store the next element */
+X	    scratch = chain2 -> next;
+X
+X	    /* Get some memory back */
+X	    free (chain2);	/* ...<snigger>... */
+X
+X	    /* Assign the skip, break if you run off the end of list */
+X	    if (!(chain2 = scratch))
+X	    {
+X		break;
+X	    }
+X	}
+X
+X	/* Set comparison ptr to new element or terminate */
+X	chain1 -> next = chain2;
+X
+X	/* If not terminated */
+X	if (chain2)
+X	{
+X	    /* set the compared pointer to its successor */
+X	    chain1 = chain2;
+X	    chain2 = chain2 -> next;
+X	}
+X    }
+X
+X    Log ("Sort discarded %ld words; FINAL DICTIONARY SIZE: %ld\n",
+X	 discarded,
+X	 listlength - discarded);
+X
+X    return (dummy1.next);
+X}
+END_OF_FILE
+if test 5383 -ne `wc -c <'Sources/crack-sort.c'`; then
+    echo shar: \"'Sources/crack-sort.c'\" unpacked with wrong size!
+fi
+# end of 'Sources/crack-sort.c'
+fi
+echo shar: End of archive 2 \(of 5\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+exit 0 # Just in case...

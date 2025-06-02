@@ -1,0 +1,1007 @@
+Newsgroups: comp.sources.misc
+From: michaelr@spider.co.uk ("Michael S. A. Robb")
+Subject: v38i018:  tessel - Polygon shading and rendering using triangular tesselation., Part02/02
+Message-ID: <1993Jun20.234856.23310@sparky.imd.sterling.com>
+X-Md4-Signature: 19ce8fd619046a4c52d830d8749549e4
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 20 Jun 1993 23:48:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: michaelr@spider.co.uk ("Michael S. A. Robb")
+Posting-number: Volume 38, Issue 18
+Archive-name: tessel/part02
+Environment: IBM PC with Hercules Graphics Station Card, Borland C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  24bit.h macros.h main.c protos.h readme.txt tessel.h
+#   tessel.txt tmsmodes.c triangle.h
+# Wrapped by kent@sparky on Sun Jun 20 18:34:48 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f '24bit.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'24bit.h'\"
+else
+  echo shar: Extracting \"'24bit.h'\" \(609 characters\)
+  sed "s/^X//" >'24bit.h' <<'END_OF_FILE'
+X/*+-----------------------------------------------------------------------+
+X *| The following type definitions are used to access the TMS34010        |
+X *| I/O registers and memory.                                             |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.1        Date: 16/06/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#include "hardware.h"
+X#include "colours.h"
+X#include "tmsmodes.h"
+X#include "protos.h"
+X#include "macros.h"
+X#include "triangle.h"
+X#include "tessel.h"
+X
+END_OF_FILE
+  if test 609 -ne `wc -c <'24bit.h'`; then
+    echo shar: \"'24bit.h'\" unpacked with wrong size!
+  fi
+  # end of '24bit.h'
+fi
+if test -f 'macros.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'macros.h'\"
+else
+  echo shar: Extracting \"'macros.h'\" \(1597 characters\)
+  sed "s/^X//" >'macros.h' <<'END_OF_FILE'
+X/*+-----------------------------------------------------------------------+
+X *| TMS34020 Hardware Specifics                                           |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.1        Date: 16/06/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define READ_ZBUFFER( A, Z )\
+X  { tms34010_setaddress( A );\
+X    Z.zbuf_hilo.zbuf_hi = tms34010_gethostregister( CPU_SLOWDATA );\
+X    Z.zbuf_hilo.zbuf_lo = tms34010_gethostregister( CPU_SLOWDATA ); }
+X
+X#define WRITE_ZBUFFER( A, Z )\
+X  { tms34010_setaddress( A );\
+X    tms34010_sethostregister( CPU_SLOWDATA, Z.zbuf_hilo.zbuf_hi );\
+X    tms34010_sethostregister( CPU_SLOWDATA, Z.zbuf_hilo.zbuf_lo ); }
+X
+X#define READ_PIXEL( A, P )\
+X  { tms34010_setaddress( A );\
+X    P.col_hilo.col_hi = tms34010_gethostregister( CPU_SLOWDATA );\
+X    P.col_hilo.col_lo = tms34010_gethostregister( CPU_SLOWDATA ); }
+X
+X#define WRITE_PIXEL( A, P )\
+X  { tms34010_setaddress( A );\
+X    tms34010_sethostregister( CPU_SLOWDATA, P.col_hilo.col_hi );\
+X    tms34010_sethostregister( CPU_SLOWDATA, P.col_hilo.col_lo ); }
+X
+X#define HARDWARE_PREPARE()\
+X    tms34010_sethostregister( CPU_CONTROL, HOST_AUTOINCR );
+X
+X#define HARDWARE_RESTORE()\
+X    tms34010_sethostregister( CPU_CONTROL, HOST_NOINCR );
+X
+X#define GRAPHICS_OPEN()\
+X  { tms34010_mode( &mode512x256x32bit );\
+X    tms34010_fillblockaddr32( 0L, 0,   0, 512, 256, 0x0L );\
+X    tms34010_fillblockaddr32( 0L, 0, 256, 512, 256, ZBUFFER_MAX ); }
+X
+X#define GRAPHICS_CLOSE()\
+X    tms34010_setvga()
+END_OF_FILE
+  if test 1597 -ne `wc -c <'macros.h'`; then
+    echo shar: \"'macros.h'\" unpacked with wrong size!
+  fi
+  # end of 'macros.h'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+  echo shar: Extracting \"'main.c'\" \(3857 characters\)
+  sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/*+-----------------------------------------------------------------------+
+X *| This file contains subroutines used to demonstrate how polygons may   |
+X *| may be rendered by tesselation and smooth shading.                    |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.2        Date: 16/06/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <conio.h>
+X#include <math.h>
+X#include <time.h>
+X
+X#include "24bit.h"
+X
+X#define POLY_WIDTH  20
+X#define POLY_HEIGHT 20
+X
+X#define POLY_NUMBER 1000
+X
+X/*+-----------------------------------------------------------------------+
+X *| This subroutine is used to time the speed of the rendering software.  |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid polygon_demo1()
+X  {
+X  COORD vlist[3];
+X  int   n, m;
+X  long  start, finish;
+X
+X  GRAPHICS_OPEN();
+X
+X  polygon_setproc( render_triangle );      /* Call-back routine. */
+X
+X  start = time( 0L );                      /* Starting time */
+X
+X  for ( n = 0; n < POLY_NUMBER; n++ )      /* For all the polygons */
+X    {
+X    vlist[0].c_xpos = random(screen_width -(POLY_WIDTH  <<1) ) + POLY_WIDTH;
+X    vlist[0].c_ypos = random(screen_height-(POLY_HEIGHT <<1) ) + POLY_HEIGHT;
+X
+X    vlist[1].c_xpos = vlist[0].c_xpos + random(POLY_WIDTH  <<1 ) - POLY_WIDTH;
+X    vlist[1].c_ypos = vlist[0].c_ypos + random(POLY_HEIGHT <<1) - POLY_HEIGHT;
+X
+X    vlist[2].c_xpos = vlist[0].c_xpos + random(POLY_WIDTH  <<1 ) - POLY_WIDTH;
+X    vlist[2].c_ypos = vlist[0].c_ypos + random(POLY_HEIGHT <<1 ) - POLY_HEIGHT;
+X
+X    for ( m = 0; m < 3; m++ )           /* For each vertex. */
+X      {
+X      vlist[m].c_zpos  = 0;
+X      vlist[m].c_red   = random( 256 ); /* Choose random colours */
+X      vlist[m].c_green = random( 256 );
+X      vlist[m].c_blue  = random( 256 );
+X      vlist[m].c_blend = 0;
+X      }
+X
+X    polygon_tesselate( 3, vlist );
+X    }
+X
+X  finish = time( 0L ) - start; /* Number of seconds that have elapsed. */
+X
+X  GRAPHICS_CLOSE();
+X
+X  printf( "For %d polygons, %lf seconds",     /* Display results */
+X          POLY_NUMBER,
+X          (double) POLY_NUMBER / finish );
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| This subroutine is used to generate a random polygon.                 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid polygon_random( num, vlist )
+X  int num;
+X  COORD *vlist;
+X  {
+X  int    n;
+X  double angle, radius, mult = M_PI * 2.0 / num;
+X  static int col = 0;
+X
+X  randomize();
+X
+X  col = ( ++col == 8 ? 1 : col );
+X
+X  for ( n = 0; n < num; n++, vlist++ )
+X    {
+X    angle            = mult * n;
+X    radius           = random( 80 ) + 45;
+X
+X    vlist -> c_xpos  = 256 + (long)( cos( angle ) * radius * 2 );
+X    vlist -> c_ypos  = 128 + (long)( sin( angle ) * radius );
+X    vlist -> c_zpos  = 0;
+X
+X    vlist -> c_red   = random( 256 ) * (  col     & 0x01 );
+X    vlist -> c_green = random( 256 ) * ( (col>>1) & 0x01 );
+X    vlist -> c_blue  = random( 256 ) * ( (col>>2) & 0x01 );
+X
+X    vlist -> c_blend = 0;
+X    }
+X  }
+X
+X#define NUM_POINTS    16
+X#define POLY          polygon
+X
+Xvoid polygon_demo2( void )
+X  {
+X  COORD   polygon[NUM_POINTS];             /* Used for random polygons. */
+X
+X  GRAPHICS_OPEN();
+X
+X  polygon_setproc( render_triangle );      /* Call-back routine. */
+X
+X  while ( !kbhit() )
+X    {
+X    polygon_random(    NUM_POINTS, POLY );
+X
+X    polygon_tesselate( NUM_POINTS, POLY ); /* Render the polygon. */
+X    }
+X
+X  GRAPHICS_CLOSE();
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| This is the first subroutine to be executed.                          |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid main( void )
+X  {
+X  polygon_demo1();
+X  }
+END_OF_FILE
+  if test 3857 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+  fi
+  # end of 'main.c'
+fi
+if test -f 'protos.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'protos.h'\"
+else
+  echo shar: Extracting \"'protos.h'\" \(793 characters\)
+  sed "s/^X//" >'protos.h' <<'END_OF_FILE'
+X/*+-----------------------------------------------------------------------+
+X *| Function Prototypes.                                                  |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.1        Date: 29/05/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid tms34010_sethostregister( ADDRESS        address, WORD data );
+XWORD tms34010_gethostregister( ADDRESS        address            );
+Xvoid tms34010_setaddress(      ADDRESS        address            );
+Xvoid tms34010_setregister(     ADDRESS        address, WORD data );
+XWORD tms34010_getregister(     ADDRESS        address            );
+Xvoid tms34010_setmode(         TMS34010_MODE *mode               );
+END_OF_FILE
+  if test 793 -ne `wc -c <'protos.h'`; then
+    echo shar: \"'protos.h'\" unpacked with wrong size!
+  fi
+  # end of 'protos.h'
+fi
+if test -f 'readme.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'readme.txt'\"
+else
+  echo shar: Extracting \"'readme.txt'\" \(2358 characters\)
+  sed "s/^X//" >'readme.txt' <<'END_OF_FILE'
+X==========================================================================
+X==  TESSEL - Source code to demonstrate polygon tesselation and smooth  ==
+X==           shading in 24-bit colour for the Hercules Graphics Station ==
+X==           Card.                                                      ==
+X==                                                                      ==
+X== Author: Michael S. A. Robb       Version: 1.4         Date: 31/05/93 ==
+X==         (michaelr@spider.co.uk)                                      ==
+X==                                                                      ==
+X==========================================================================
+X
+XContents:
+X---------
+X
+XSize    Name          Description
+X
+X12347   tessel.c      Source code to tesselate convex/concave polygons
+X15235   triangle.c    Source code to smooth shade/Z-buffer a triangle
+X 8777   tmsmodes.c    Source code to open and close 24-bit graphics modes
+X
+X 3857   main.c        The demonstration program
+X
+X 2386   tessel.h      Data structures used for polygon tesselation
+X 2640   triangle.h    Data structures used for triangle shading
+X 2737   tmsmodes.h    Data structures used for defining 32-bit video modes
+X13583   hardware.h    Register definitions for the TMS34010 TIGA board
+X 4210   colours.h     Data structures for 32-bit pixels and Z-buffer
+X 1597   macros.h      Some useful macros for performing matrix operations
+X  793   protos.h      Function prototypes
+X  609   24bit.h       Used to include all the above header files
+X
+X 9383   tessel.txt    Article from the news group "comp.graphics" on which the
+X                      tesselation software is based.
+X
+X 2358   readme.txt    This file
+X
+X   44   build.bat     Batch file to create the demonstration program
+X
+X
+XAbout the software
+X------------------
+X
+XThis software has been designed to be compiled using Borland C 6.0 in the
+X"Medium" model. In its current form, it will only execute properly with a
+XHercules Graphics Station Card. Porting it to use other 24-bit graphics
+Xcards should not be difficult (then again I have not programmed any other 
+X24-bit graphics cards). No TIGA command driver or on-board RAM is required.
+X
+X
+XDistribution policy
+X-------------------
+X
+XThis is public domain software. You may use it, modify it or distribute it in
+Xany way you like. No liability is accepted. See warning above.
+X
+X
+END_OF_FILE
+  if test 2358 -ne `wc -c <'readme.txt'`; then
+    echo shar: \"'readme.txt'\" unpacked with wrong size!
+  fi
+  # end of 'readme.txt'
+fi
+if test -f 'tessel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tessel.h'\"
+else
+  echo shar: Extracting \"'tessel.h'\" \(2386 characters\)
+  sed "s/^X//" >'tessel.h' <<'END_OF_FILE'
+X/*+-----------------------------------------------------------------------+
+X *| This header file is for use with the 'C' source module 'tessel.c'.    |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.1        Date: 29/05/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define CONSTANT_ONE   0x10000L
+Xtypedef long MATDATA;
+X
+X/*+-----------------------------------------------------------------------+
+X *| Function prototypes.                                                  |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid polygon_tesselate(            int nverts, COORD *vlist );
+Xvoid polygon_tesselate_convex(     int nverts, COORD *vlist );
+Xvoid polygon_tesselate_concave(    int nverts, COORD *vlist );
+Xvoid polygon_tesselate_complex(    int nverts, COORD *vlist );
+Xvoid polygon_tesselate_noncomplex( int nverts, COORD *vlist );
+X
+Xint  polygon_clockwise(            int nverts, COORD *vlist );
+Xvoid polygon_reverse(              int nverts, COORD *vlist );
+Xint  polygon_convex(               int nverts, COORD *vlist );
+Xint  polygon_complex(              int nverts, COORD *vlist );
+X
+Xvoid polygon_setproc(           void (*polygon_proc)( COORD *triangle ) );
+X
+X/*+-----------------------------------------------------------------------+
+X *| Some useful macros for angle/polygon/coordinate/triangle tests.       |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define MATRIX_DET_2X2( C1, C2, C3, C4 )\
+X          ( ( (MATDATA) (C2).c_xpos - (MATDATA) (C1).c_xpos )\
+X          * ( (MATDATA) (C4).c_ypos - (MATDATA) (C3).c_ypos )\
+X          - ( (MATDATA) (C4).c_xpos - (MATDATA) (C3).c_xpos )\
+X          * ( (MATDATA) (C2).c_ypos - (MATDATA) (C1).c_ypos ))
+X
+X#define COORD_ANGLE( VL, C1, C2, C3 )\
+X            MATRIX_DET_2X2( VL[C3], VL[C1], VL[C2], VL[C1] )
+X
+X#define ANGLE_NONCONVEX( VL, C1, C2, C3 )\
+X            ( COORD_ANGLE( VL, C1, C2, C3 ) >= 0 )
+X
+X#define ANGLE_CONVEX( VL, C1, C2, C3 )\
+X            ( COORD_ANGLE( VL, C1, C2, C3 ) < 0 )
+X
+X#define COORD_OUTSIDE_TRIANGLE( VL, T1, T2, T3, C )\
+X          ( MATRIX_DET_2X2( VL[T2], VL[T1], VL[C], VL[T1] )< 0 ||\
+X            MATRIX_DET_2X2( VL[T3], VL[T2], VL[C], VL[T2] )< 0 ||\
+X            MATRIX_DET_2X2( VL[T1], VL[T3], VL[C], VL[T3] )< 0 )
+X
+END_OF_FILE
+  if test 2386 -ne `wc -c <'tessel.h'`; then
+    echo shar: \"'tessel.h'\" unpacked with wrong size!
+  fi
+  # end of 'tessel.h'
+fi
+if test -f 'tessel.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tessel.txt'\"
+else
+  echo shar: Extracting \"'tessel.txt'\" \(9383 characters\)
+  sed "s/^X//" >'tessel.txt' <<'END_OF_FILE'
+XFrom mango@nova.esd.sgi.com (Eric Manghise) to "comp.graphics"
+X
+X|> 
+X|> 	- Is there a simple way of subdividing a 2D polygon with 
+X|> 		holes into convex pieces?  (Where the holes are
+X|> 		2D polygons that are wholly contained in the 
+X|> 		polygon that delineates the exterior boundary.)
+X
+X		No there is no simple way to decompose a polygon
+X		into convex pieces. I assume you want to decompose
+X		it into triangles. There are alot of different ways
+X		to do this. I might refer you to 
+X
+X			Triangulating a Simple Polygon in Linear Time
+X			Bernard Chazelle
+X			Department of Computer Science
+X			Princeton University.
+X
+X		When you add holes you create a whole world of problems.
+X		Also when you compound this with the case of concave polygons
+X		life become very complicated.
+X
+X
+X		Here is another article I sucked off the net along time ago.
+X
+X
+XConcave or Convex?
+X
+XThe cruz of your problem is determining whether an angle is convex (< 180
+Xdegrees) or not.  Given three distinct points P0, P1, and P2 in the plane,
+Xhow do we tell it the angle formed by line segments P0P1 and P1P2 is con-
+Xvex or not?  Before we answer this, we must be clear about our point of
+Xview:  We assume that we are ABOVE the xy-plane (i.e., at some point with
+Xa positive z-coordinate), looking down.  In addition, we define the angle
+Xbetween P0P1 and P1P2 by measuring the arc swept out by rotating P1P2
+Xabout P1 in a COUNTERCLOCKWISE direction until we meet segment P0P1.
+X
+XWe don't actually need to determine the exact angle.  We simply want to
+Xknow if it is < 180 degrees or not.  Thus, we can conceptualize the pro-
+Xblem in a bit different way:  Consider the infinite line oriented FROM P0
+XTO P1.  Where is P2 in relation to this line?
+X
+X	P2 is on the left:   The angle is < 180 degrees
+X	P2 is on the line:   The angle is = 180 degrees
+X	P2 is on the right:  The angle is > 180 degrees
+X
+XSo now the problem boils down to figuring out which side of a line that
+Xa point is on.  This is easily determined.  If L(x, y) = 0 is the ORIEN-
+XTED equation of a line, where L(x, y) = ax + by + c, then for any point P,
+X
+X	L(P) > 0:  Point P is on the left of the line
+X	L(P) = 0:  Point P is on the line
+X	L(P) < 0:  Point P is on the right of the line
+X
+XThus, to tell whether angle P0P1P2 is convex, do this:  Determine the
+Xoriented equation of the line FROM P0 TO P1, and plug P2 into the equa-
+Xtion.  If the result is > 0, then the angle is convex.
+X
+XWARNING:  As always when working with floating point arithmetic, all 
+Xcomparisons should involve an epsilon.  Furthermore, to be safe, the
+Xequation of the line should be normalized by dividing all coefficients
+Xby sqrt(a*a + b*b).  Then when the equation is evalutated at a point,
+Xthe result is actually the signed distance of the point from the line,
+Xwhich can be compared against an epsilon to see where the point is in
+Xrelation to the line.
+X
+XA shortcut to the above method of determining a line equation is to use
+Xthis determinant, where Ph = (xh, yh), Pi = (xi, yi), and Pj = (xj, yj):
+X
+X		    | xh yh 1 |
+X		D = | xi yi 1 |
+X		    | xj yj 1 |
+X
+XIf D > 0 then Pj lies on the left of the line FROM Ph TO Pi.  If D = 0,
+Xthe three points are collinear.  If D < 0 then Pj lies on the right of the 
+Xline FROM Ph TO Pi.  (Lying on the left means angle PhPiPj is convex, and
+Xlying on the right means the angle is nonconvex.)
+X
+XDISCLAIMER:  The above determinant should be checked.  I am recalling it 
+Xfrom memory, and it may not be quite right.
+X
+XUsing this determinant is not really different from the method already de-
+Xscribed.  Calculating the determinant is exactly the same as determining 
+Xthe equation of the line from point Ph to point Pi and then plugging Pj 
+Xinto the equation.  Also, a warning is in order, because no normalization
+Xis done.
+X
+XSo now we have a way to tell if an angle is convex or not.  This operation
+Xis the basic primitive for all the following algorithms.
+X
+X
+X
+XClockwise or Counterclockwise?
+X
+XSay we are given an array of n >= 3 distinct points labeled P0, P1, ..., 
+XPn-1, which are the vertices of a well-formed simple polygon P.  Say that
+Xthe n vertices are in order, but we don't know if the order is clockwise
+Xor counterclockwise.  How do we tell?  Here is a simple algorithm:
+X
+XScan the set of vertices and find the one with least x-coordinate.  If 
+Xthere is more than one vertex with least x-coordinate, then pick the one 
+Xof them which has least y-coordinate.  The resulting vertex is unique.  
+X(If not, the polygon is ill-formed because its vertices are not distinct 
+Xpoints.) Call this vertex Pi.
+X
+XLet Ph be the vertex preceding Pi, and let Pj be the vertex following Pi.  
+XThen test if angle PhPiPj is convex.  If it is, then the vertices of poly-
+Xgon P are oriented counterclockwise in our input array.  Otherwise, the
+Xvertices are ordered clockwise.  In the latter case, reverse the elements
+Xof P to put the vertices in counterclockwise order.
+X
+X
+X
+XDecomposing a 2-d polygon in the xy-plane into triangles
+X
+XGiven a well-formed simple polygon P with n >= 3 vertices labeled P0, 
+XP1, ..., Pn-1, we want to decompose P into triangles.  We assume that
+Xthe vertices are oriented in a counterclockwise direction as seen from 
+Xabove.
+X
+XBefore presenting a general algorithm which handles all cases, it is 
+Xworthwhile to consider the case when it is known that the polygon is
+Xconvex (i.e., all angles < 180 degrees).  Then the polygon is easily
+Xdecomposed into n-2 triangles by drawing diagonals from vertex 0 to 
+Xthe n-3 vertices P2, P3, ..., Pn-2, resulting in these triangles:
+X
+X	P0,P1,P2
+X	P0,P2,P3
+X	P0,P3,P4
+X	. . .
+X	P0,Pn-2,Pn-1
+X
+XIf it is known that many of the polygons to be processed are likely to
+Xbe convex, then it is a good idea to test each polygon to see if it is
+Xconvex, and if so, apply the above simple algorithm.  Only when a non-
+Xconvex polygon is encountered is it necessary to apply the general al-
+Xgorithm.
+X
+XHere is the general algorithm:
+X
+XLet Pi be any vertex of the polygon.  Let Ph be the vertex preceding Pi,
+Xand let Pj be the vertex following Pi.  Test if angle PhPiPj is convex.
+XIf not, increment i, determine h and j from i, and test again.  If a 
+Xconvex angle is not found by this process, there is an error in the 
+Xpolygon.  It is either not well-formed, or it is oriented clockwise.
+X
+XOnce a convex angle PhPiPj is found, the triangle formed by the three 
+Xpoints is a candidate.  However, it is ONLY a candidate.  It must be
+Xtested like this:  For every vertex V of the polygon other than the three
+Xforming the triangle, test if V is OUTSIDE the triangle (note that V 
+Xmust not be ON the boundary of the triangle).  If some vertex is found
+Xwhich is either on the boundary of or inside of the triangle, then the
+Xtriangle must be rejected.  In this case, increment i and continue 
+Xsearching for a convex angle.
+X
+XIf all V are outside of the triangle, then slice the triangle off the
+Xpolygon by removing vertex Pi.  If the number of points in the resulting
+Xpolygon is 3, then the decomposition is finished.  Otherwise, search
+Xagain from a convex angle.
+X
+XHere is a more detailed version of the algorithm:
+X
+X  i = n-1;
+X
+X  while (n > 3)
+X    {
+X    h = i;
+X    i = (i == n-1 ? 0 : i+1);
+X    j = (i == n-1 ? 0 : i+1);
+X
+X    if (angle PhPiPj nonconvex)
+X      continue;
+X
+X    k = (j == n-1 ? 0 : j+1);         /* k is vertex after j  */
+X    m = n-3;
+X
+X    while (m--)
+X      if (Pk outside triangle PhPiPj)
+X        k = (k == n-1 ? 0 : k+1);
+X      else
+X        break;
+X
+X      if (k != h)	                  /* Vertex k not outside */
+X        continue;	                  /*   triangle PhPiPj    */
+X
+X    Store triangle PhPiPj;
+X
+X    Remove vertex Pi from polygon P;
+X    n--;
+X    i = (i == 0 ? n-1 : i-1);
+X    }
+X
+X  Store triangle P0P1P2 as the final triangle of the decomposition;
+X
+X
+XThe above algorithm always produces exactly n-2 triangles.  Also, every
+Xvertex of every triangle produced by the algorithm is a vertex of the 
+Xoriginal polygon.  In other words, no new points are created by this al-
+Xgorithm.
+X
+X
+X
+XNow Back to 3-Space
+X
+XSince your original problem has to do with a polygon in 3-space, we need
+Xto consider how to get from there to the xy-plane.  Say that the input
+Xis an array Q of n >= 3 3-points, Q0, Q1, ..., Qn-1 which are the vertices 
+Xof a well-formed simple planar polygon.
+X
+XIf the plane of the polygon is not vertical (consider the xy-plane to be
+Xhorizontal), then simply set up a 2-d polygon P with the points Q, ignor-
+Xing the z-coordinate.  In effect, this projects polygon Q onto the xy-
+Xplane.  Now check if P is counterclockwise, and, if not, reverse its ele-
+Xments so it is counterclockwise.  Then decompose P into triangles.  Note
+Xthat if the z-coordinates are carried in polygon P (they will never be
+Xused because all algorithms above use only x- and y-coordinates), then
+Xthe triangles produced by the decomposition will in fact be polygons in
+X3-space with correct z-coordinates.  Thus, the input polygon is decom-
+Xposed as desired.
+X
+XIf the input polygon is in a vertical plane (which can be determined by
+Xchecking to see if the projection onto the xy-plane is a straight line),
+Xthen simply swap the x- and z-coordinates of the input vertices, apply
+Xthe algorithm in the preceding paragraph, and then swap the x- and z-
+Xcoordinates of the resulting triangles.
+X
+XNote that this method of going from 3-space to 2-space works because a 
+Xparallel projection of a polygon does not change any convex angles to
+Xnonconvex ones, or vice versa.
+END_OF_FILE
+  if test 9383 -ne `wc -c <'tessel.txt'`; then
+    echo shar: \"'tessel.txt'\" unpacked with wrong size!
+  fi
+  # end of 'tessel.txt'
+fi
+if test -f 'tmsmodes.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tmsmodes.c'\"
+else
+  echo shar: Extracting \"'tmsmodes.c'\" \(8777 characters\)
+  sed "s/^X//" >'tmsmodes.c' <<'END_OF_FILE'
+X/*+-----------------------------------------------------------------------+
+X *| The following module contains routines which access the advanced      |
+X *| graphics modes of a Hercules Graphics Station Card.                   |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.1        Date: 16/06/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <conio.h>
+X#include <dos.h>
+X#include <mem.h>
+X
+X#include "hardware.h"
+X#include "colours.h"
+X#include "tmsmodes.h"
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following variables are used to store the current dimensions of   |
+X *| the screen.                                                           |
+X *+-----------------------------------------------------------------------+
+X */
+X
+XWORD     screen_width;     /* Stores screen pixel width    */
+XWORD     screen_height;    /* Stores screen pixel height.  */
+XLONG     screen_pitch;     /* Stores screen line pitch.    */
+XLONG     screen_vramwidth; /* Stores VRAM width in pixels. */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following data defines the 512 x 256 x 32 bit graphics mode.      |
+X *+-----------------------------------------------------------------------+
+X */
+X
+XTMS34010_MODE mode512x256x32bit =
+X  {
+X  "512 x 256 x 32 bits",
+X  8,   12,   76,   80,             /* Horizontal timings.   */
+X  1,   35,  547,  548,             /* Vertical   timings.   */
+X
+X  MODE_UNINTERLACED | MODE_2KBYTE, /* Display    controls.  */
+X  0xFFFD,
+X  0x0000,
+X
+X  CLOCK_20000MHZ,                  /* External   controls.  */
+X  PIXEL_SIZE32,
+X  VSCAN_UNINTERLACED,
+X  DEFAULT_24BIT,
+X
+X  512, 256, 32,                    /* Screen dimensions.    */
+X  0x4000,                          /* Display pitch - bits. */
+X  };
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following data defines the 512 x 480 x 32 bit graphics mode.      |
+X *+-----------------------------------------------------------------------+
+X */
+X
+XTMS34010_MODE mode512x480x32bit =
+X  {
+X  "512 x 480 x 32 bits",
+X  8,   12,   76,   80,             /* Horizontal timings.   */
+X  1,   35,  515,  525,             /* Vertical   timings.   */
+X
+X  MODE_UNINTERLACED | MODE_2KBYTE, /* Display    controls.  */
+X  0xFFFC,
+X  0x0000,
+X
+X  CLOCK_20000MHZ,                  /* External   controls.  */
+X  PIXEL_SIZE32,
+X  VSCAN_UNINTERLACED,
+X  DEFAULT_24BIT,
+X
+X  512, 480, 32,                    /* Screen dimensions.    */
+X  0x4000,                          /* Display pitch - bits. */
+X  };
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following data defines the 512 x 512 x 32 bit graphics mode.      |
+X *+-----------------------------------------------------------------------+
+X */
+X
+XTMS34010_MODE mode512x512x32bit =
+X  {
+X  "512 x 512 x 32 bits",
+X   8,  12,   76,  80,              /* Horizontal timings.   */
+X   1,  16,  528, 544,              /* Vertical   timings.   */
+X
+X  MODE_UNINTERLACED | MODE_2KBYTE, /* Display    controls.  */
+X  0xFFFC,
+X  0x0000,
+X
+X  CLOCK_20000MHZ,                  /* External   controls.  */
+X  PIXEL_SIZE32,
+X  VSCAN_UNINTERLACED,
+X  DEFAULT_24BIT,
+X
+X  512, 512, 32,                    /* Screen dimensions.    */
+X  0x4000,                          /* Display pitch - bits. */
+X  };
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following routine is used to set the value of a TMS34010 host     |
+X *| interface register.                                                   |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid tms34010_sethostregister( address, data )
+X  ADDRESS   address;
+X  WORD      data;
+X  {
+X  *( (WORD far *) address ) = data;
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following routine is used to get the value of a TMS34010 host     |
+X *| interface register.                                                   |
+X *+-----------------------------------------------------------------------+
+X */
+X
+XWORD tms34010_gethostregister( address )
+X  ADDRESS address;
+X  {
+X  return( *( (WORD far *) address) );
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following routine is used to set the address accessed via the     |
+X *| TMS34010 host registers.                                              |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid tms34010_setaddress( address )
+X  ADDRESS address;
+X  {
+X  tms34010_sethostregister( CPU_ADDRLO,   (WORD) ( address &  0xFFFFL ) );
+X  tms34010_sethostregister( CPU_ADDRHI,   (WORD) ( address >> 16L     ) );
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following routine is used to set the value of TMS34010 registers. |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid tms34010_setregister( address, data )
+X  ADDRESS address;
+X  WORD    data;
+X  {
+X  tms34010_sethostregister( CPU_ADDRLO,   (WORD) ( address &  0xFFFFL ) );
+X  tms34010_sethostregister( CPU_ADDRHI,   (WORD) ( address >> 16L     ) );
+X  tms34010_sethostregister( CPU_SLOWDATA, data );
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following routine is used to get the value of TMS34010 registers. |
+X *+-----------------------------------------------------------------------+
+X */
+X
+XWORD tms34010_getregister( address )
+X  ADDRESS address;
+X  {
+X  tms34010_sethostregister( CPU_ADDRLO,   (WORD) ( address &  0xFFFFL ) );
+X  tms34010_sethostregister( CPU_ADDRHI,   (WORD) ( address >> 16L     ) );
+X
+X  return( tms34010_gethostregister( CPU_SLOWDATA ) );
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following routine is used to set up a TMS34010 graphics mode.     |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid tms34010_mode( mode )
+X  TMS34010_MODE *mode;
+X  {
+X  WORD n, *data = &mode -> tms_hesync;
+X
+X  tms34010_sethostregister(   CPU_CONTROL,    HOST_AUTOINCR );
+X  tms34010_setaddress(        IO_HESYNC                   );
+X
+X  for ( n = 10; n--; data++ )
+X    tms34010_sethostregister( CPU_SLOWDATA, *data );
+X
+X  tms34010_sethostregister( CPU_CONTROL,    HOST_NOINCR   );
+X  tms34010_setregister(     IO_DPYTAP,      mode -> tms_dpytap );
+X  tms34010_setregister(     CONFIG1_WRITE,  mode -> tms_clockbase | 0x0008 );
+X  tms34010_setregister(     CONFIG2_WRITE,  mode -> tms_pixelsize |
+X                                            mode -> tms_videotiming );
+X
+X  tms34010_setregister(     RAMDAC_COMMAND, mode -> tms_ramdac      );
+X  tms34010_setregister(     CONFIG1_WRITE,  mode -> tms_clockbase & 0x00F7 );
+X  tms34010_setaddress(      NULL );
+X
+X  screen_width     = mode -> tms_xmax;
+X  screen_height    = mode -> tms_ymax;
+X  screen_pitch     = mode -> tms_dpitch;
+X
+X  screen_vramwidth = mode -> tms_dpitch / mode -> tms_psize;
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following routine is used to restore the VGA graphics mode.       |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid tms34010_setvga( void )
+X  {
+X  tms34010_sethostregister( CPU_CONTROL,   HOST_AUTOINCR );
+X
+X  tms34010_setregister(     CONFIG1_WRITE, 0x000A        );
+X  tms34010_setregister(     CONFIG2_WRITE, 0x000C        );
+X
+X  outportb(                 0x03C6,        0x004B );
+X
+X  tms34010_setregister(     CONFIG1_WRITE, 0x0002        );
+X  tms34010_sethostregister( CPU_CONTROL,   HOST_NOINCR   );
+X
+X  textmode( 0x00 );
+X  textmode( 0x03 );
+X
+X  clrscr();
+X  }
+X
+X/*+----------------------------------------------------------------------+
+X *| This subroutine is used to fill a block of memory with a specific    |
+X *| colour.                                                              |
+X *+----------------------------------------------------------------------+
+X */
+X
+Xvoid tms34010_fillblockaddr32( base, xlo, ylo, width, height, col )
+X  ADDRESS  base;
+X  WORD     xlo, ylo;
+X  WORD     width, height;
+X  long     col;
+X  {
+X  WORD y, size;
+X  WORD col_lo = col & 0xFFFFL;
+X  WORD col_hi = col >> 16;
+X
+X  ADDRESS address = (( (ADDRESS) xlo + (ADDRESS) ylo * 512 ) << 5) + base;
+X
+X  tms34010_sethostregister( CPU_CONTROL, HOST_AUTOINCR  );
+X
+X  for ( y = height; y--; address += 0x4000L )
+X    {
+X    tms34010_setaddress( address );
+X
+X    for ( size = width; size--; )
+X      {
+X      tms34010_sethostregister( CPU_SLOWDATA, col_hi );
+X      tms34010_sethostregister( CPU_SLOWDATA, col_lo );
+X      }
+X    }
+X
+X  tms34010_sethostregister( CPU_CONTROL, HOST_NOINCR );
+X  }
+X
+X
+X
+END_OF_FILE
+  if test 8777 -ne `wc -c <'tmsmodes.c'`; then
+    echo shar: \"'tmsmodes.c'\" unpacked with wrong size!
+  fi
+  # end of 'tmsmodes.c'
+fi
+if test -f 'triangle.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'triangle.h'\"
+else
+  echo shar: Extracting \"'triangle.h'\" \(2640 characters\)
+  sed "s/^X//" >'triangle.h' <<'END_OF_FILE'
+X/*
+X *+-------------------------------------------------------------------------+
+X *| "triangle.h" - Header file for data structure and constants.            |
+X *|                                                                         |
+X *| Author: Michael S. A. Robb         Version: 1.4          Date: 30/05/93 |
+X *+-------------------------------------------------------------------------+
+X */
+X
+X#define FIXED_POINT  16  /* Number of bits in the fraction */
+X
+X/*
+X *+-------------------------------------------------------------------------+
+X *| The following data structure is used to represent the coordinate of a   |
+X *| polygon vertex.                                                         |
+X *+-------------------------------------------------------------------------+
+X */
+X
+Xtypedef struct coord_st
+X  {
+X  long c_xpos;    /* X coordinate.       */
+X  long c_ypos;    /* Y coordinate.       */
+X  long c_zpos;    /* Z coordinate.       */
+X  long c_red;     /* Amount of red.      */
+X  long c_green;   /* Amount of green.    */
+X  long c_blue;    /* Amount of blue.     */
+X  long c_blend;   /* Amount of blending. */
+X  } COORD;
+X
+X/*
+X *+-------------------------------------------------------------------------+
+X *| The following data structure is used to represent a single edge of the  |
+X *| triangle.                                                               |
+X *+-------------------------------------------------------------------------+
+X */
+X
+Xtypedef struct edge_st
+X  {
+X  long e_xpos;    /* Current X     coordinate */
+X  long e_ypos;    /* Current Y     coordinate */
+X  long e_zpos;    /* Current Z     coordinate */
+X  long e_red;     /* Current RED   component  */
+X  long e_green;   /* Current GREEN component  */
+X  long e_blue;    /* Current BLUE  component  */
+X  long e_blend;   /* Current BLEND component  */
+X
+X  long e_dxpos;   /* Incremental X coordinate */
+X  long e_deltay;  /* Incremental Y coordinate */
+X  long e_dzpos;   /* Incremental Z coordinate */
+X  long e_dred;    /* Incremental RED   value  */
+X  long e_dgreen;  /* Incremental GREEN value  */
+X  long e_dblue;   /* Incremental BLUE  value  */
+X  long e_dblend;  /* Incremental BLEND value  */
+X  } EDGE;
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| Function prototypes.                                                  |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid render_horizontal_line( void );
+X
+Xvoid edge_update( EDGE *edge );
+Xvoid edge_init(   EDGE *edge, COORD  *v1, COORD *v2 );
+Xvoid render_half( EDGE *e1,   EDGE *e2, long deltay, long ypos );
+X
+Xvoid render_triangle( COORD *tlist );
+END_OF_FILE
+  if test 2640 -ne `wc -c <'triangle.h'`; then
+    echo shar: \"'triangle.h'\" unpacked with wrong size!
+  fi
+  # end of 'triangle.h'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

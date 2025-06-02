@@ -1,0 +1,1985 @@
+From: eay@psych.psy.uq.oz.au (Eric Young)
+Newsgroups: comp.sources.misc
+Subject: v40i009: libdes - DES encryption library, Part02/05
+Date: 14 Oct 1993 18:01:45 +0100
+Sender: aem@aber.ac.uk
+Approved: aem@aber.ac.uk
+Message-ID: <29k0lp$1m2@uk-usenet.uk.sun.com>
+X-Md4-Signature: 866c2241740292272090a787e511ecf8
+
+Submitted-by: eay@psych.psy.uq.oz.au (Eric Young)
+Posting-number: Volume 40, Issue 9
+Archive-name: libdes/part02
+Environment: C
+Supersedes: libdes: Volume 29, Issue 43-46
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  des.c destest.c doPC2 fcrypt.c
+# Wrapped by alecm@uk-usenet on Wed Oct 13 10:33:49 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 5)."'
+if test -f 'des.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'des.c'\"
+else
+  echo shar: Extracting \"'des.c'\" \(16298 characters\)
+  sed "s/^X//" >'des.c' <<'END_OF_FILE'
+X/* des.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include <stdio.h>
+X#ifdef VMS
+X#include <types.h>
+X#include <stat.h>
+X#else
+X#ifndef _IRIX
+X#include <sys/types.h>
+X#endif
+X#include <sys/stat.h>
+X#endif
+X#include "des.h"
+X
+X#if defined(__STDC__) || defined(VMS) || defined(M_XENIX) || defined(MSDOS)
+X#include <string.h>
+X#define bcopy(f,t,n)	memcpy(t,f,(size_t)(n))
+X#define bzero(s,n)	memset(s,0,(size_t)(n))
+X#define bcmp(a,b,n)	memcmp(a, b,(size_t)(n))
+X#define index(s,c)	strchr(s,c)
+X#endif
+X
+X#ifdef PROTO
+Xint usage(void);
+Xint doencryption(void);
+Xint uufwrite(char *data, int size, int num, FILE *fp);
+Xint uufwriteEnd(FILE *fp);
+Xint uufread(char *out,int size,int num,FILE *fp);
+Xint uuencode(unsigned char *in,int num,unsigned char *out);
+Xint uudecode(unsigned char *in,int num,unsigned char *out);
+X#else
+Xint usage();
+Xint doencryption();
+Xint uufwrite();
+Xint uufwriteEnd();
+Xint uufread();
+Xint uuencode();
+Xint uudecode();
+X#endif
+X
+X#ifdef VMS
+X#define EXIT(a) exit(a&0x10000000)
+X#else
+X#define EXIT(a) exit(a)
+X#endif
+X
+X#define BUFSIZE (8*1024)
+X#define VERIFY  1
+X#define KEYSIZ	8
+X#define KEYSIZB 1024 /* should hit tty line limit first :-) */
+Xchar key[KEYSIZB+1];
+Xint do_encrypt,longk=0;
+Xchar *in=NULL,*out=NULL;
+XFILE *DES_IN,*DES_OUT,*CKSUM_OUT;
+Xchar uuname[200];
+Xchar uubuf[50];
+Xint uubufnum;
+X#define INUUBUFN	(45*100)
+X#define OUTUUBUF	(65*100)
+Xchar b[OUTUUBUF];
+Xchar bb[300];
+Xdes_cblock cksum={0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+Xchar cksumname[200]="";
+X
+Xint cflag,eflag,dflag,kflag,bflag,fflag,sflag,uflag,flag3,hflag,error;
+X
+Xmain(argc,argv)
+Xint argc;
+Xchar *argv[];
+X	{
+X	int i;
+X	struct stat ins,outs;
+X	char *p;
+X
+X	cflag=eflag=dflag=kflag=hflag=bflag=fflag=sflag=uflag=flag3=0,error=0;
+X	bzero(key,sizeof(key));
+X
+X	for (i=1; i<argc; i++)
+X		{
+X		p=argv[i];
+X		if ((p[0] == '-') && (p[1] != '\0'))
+X			{
+X			p++;
+X			while (*p)
+X				{
+X				switch (*(p++))
+X					{
+X				case '3':
+X					flag3=1;
+X				/*	bflag=0; */
+X					longk=1;
+X					break;
+X				case 'c':
+X					cflag=1;
+X					strncpy(cksumname,p,200);
+X					p+=strlen(cksumname);
+X					break;
+X				case 'C':
+X					cflag=1;
+X					longk=1;
+X					strncpy(cksumname,p,200);
+X					p+=strlen(cksumname);
+X					break;
+X				case 'e':
+X					eflag=1;
+X					break;
+X				case 'E':
+X					eflag=1;
+X					longk=1;
+X					break;
+X				case 'd':
+X					dflag=1;
+X					break;
+X				case 'D':
+X					dflag=1;
+X					longk=1;
+X					break;
+X				case 'b':
+X					bflag=1;
+X					flag3=0;
+X					break;
+X				case 'f':
+X					fflag=1;
+X					break;
+X				case 's':
+X					sflag=1;
+X					break;
+X				case 'u':
+X					uflag=1;
+X					strncpy(uuname,p,200);
+X					p+=strlen(uuname);
+X					break;
+X				case 'h':
+X					hflag=1;
+X					break;
+X				case 'k':
+X					kflag=1;
+X					if ((i+1) == argc)
+X						{
+X						fputs("must have a key with the -k option\n",stderr);
+X						error=1;
+X						}
+X					else
+X						{
+X						int j;
+X
+X						i++;
+X						strncpy(key,argv[i],KEYSIZB);
+X						for (j=strlen(argv[i])-1; j>=0; j--)
+X							argv[i][j]='\0';
+X						}
+X					break;
+X				default:
+X					fprintf(stderr,"'%c' unknown flag\n",p[-1]);
+X					error=1;
+X					break;
+X					}
+X				}
+X			}
+X		else
+X			{
+X			if (in == NULL)
+X				in=argv[i];
+X			else if (out == NULL)
+X				out=argv[i];
+X			else
+X				error=1;
+X			}
+X		}
+X	if (error) usage();
+X	/* We either
+X	 * do checksum or
+X	 * do encrypt or
+X	 * do decrypt or
+X	 * do decrypt then ckecksum or
+X	 * do checksum then encrypt
+X	 */
+X	if (((eflag+dflag) == 1) || cflag)
+X		{
+X		if (eflag) do_encrypt=DES_ENCRYPT;
+X		if (dflag) do_encrypt=DES_DECRYPT;
+X		}
+X	else
+X		usage();
+X
+X	if (	(in != NULL) &&
+X		(out != NULL) &&
+X#ifndef MSDOS
+X		(stat(in,&ins) != -1) &&
+X		(stat(out,&outs) != -1) &&
+X		(ins.st_dev == outs.st_dev) &&
+X		(ins.st_ino == outs.st_ino))
+X#else /* MSDOS */
+X		(strcmp(in,out) == 0))
+X#endif
+X			{
+X			fputs("input and output file are the same\n",stderr);
+X			EXIT(3);
+X			}
+X
+X	if (!kflag)
+X		if (des_read_pw_string(key,KEYSIZB+1,"Enter key:",eflag?VERIFY:0))
+X			{
+X			fputs("password error\n",stderr);
+X			EXIT(2);
+X			}
+X
+X	if (in == NULL)
+X		DES_IN=stdin;
+X	else if ((DES_IN=fopen(in,"r")) == NULL)
+X		{
+X		perror("opening input file");
+X		EXIT(4);
+X		}
+X
+X	CKSUM_OUT=stdout;
+X	if (out == NULL)
+X		{
+X		DES_OUT=stdout;
+X		CKSUM_OUT=stderr;
+X		}
+X	else if ((DES_OUT=fopen(out,"w")) == NULL)
+X		{
+X		perror("opening output file");
+X		EXIT(5);
+X		}
+X
+X#ifdef MSDOS
+X	/* This should set the file to binary mode. */
+X	{
+X#include <fcntl.h>
+X	if (!(uflag && dflag))
+X		setmode(fileno(DES_IN),O_BINARY);
+X	if (!(uflag && eflag))
+X		setmode(fileno(DES_OUT),O_BINARY);
+X	}
+X#endif
+X
+X	doencryption();
+X	fclose(DES_IN);
+X	fclose(DES_OUT);
+X	EXIT(0);
+X	}
+X
+Xusage()
+X	{
+X	char **u;
+X	static char *usage[]={
+X"des <options> [input-file [output-file]]",
+X"options:",
+X"-e         : encrypt using sunOS compatible user key to DES key conversion.",
+X"-E         : encrypt ",
+X"-d         : decrypt using sunOS compatible user key to DES key conversion.",
+X"-D         : decrypt ",
+X"-c[ckname] : generate a cbc_cksum using sunOS compatible user key to",
+X"             DES key conversion and output to ckname (stdout default,",
+X"             stderr if data being output on stdout).  The checksum is",
+X"             generated before encryption and after decryption if used",
+X"             in conjunction with -[eEdD].",
+X"-C[ckname] : generate a cbc_cksum as for -c but compatible with -[ED].",
+X"-k key     : use key 'key'",
+X"-h         : the key that is entered will be a hexidecimal number",
+X"-u[uuname] : input file is uudecoded if -[dD] or output uuencoded",
+X"             data if -[eE] (uuname is the filename to put in the",
+X"             uuencode header).",
+X"-b         : encrypt using DES in ecb encryption mode, the defaut is",
+X"             cbc mode.",
+X"-3         : encrypt using tripple DES encryption.  This uses 2 keys",
+X"             generated from the input key.  If the input key is less",
+X"             than 8 characters long, this is equivelent to normal",
+X"             encryption.  Default is tripple cbc, -b makes it tripple ecb.",
+XNULL
+X};
+X	for (u=usage; *u; u++)
+X		{
+X		fputs(*u,stderr);
+X		fputc('\n',stderr);
+X		}
+X
+X	EXIT(1);
+X	}
+X
+Xdoencryption()
+X	{
+X	register int i;
+X	des_key_schedule ks,ks2;
+X	unsigned char iv[8],iv2[8],iv3[8];
+X	char *p;
+X	int num=0,j,k,l,rem,ll,len,last,ex=0;
+X	des_cblock kk,k2;
+X	FILE *O;
+X	int Exit=0;
+X#ifndef MSDOS
+X	static unsigned char buf[BUFSIZE+8],obuf[BUFSIZE+8];
+X#else
+X	static unsigned char *buf=NULL,*obuf=NULL;
+X
+X	if (buf == NULL)
+X		{
+X		if (    (( buf=(unsigned char *)malloc(BUFSIZE+8)) == NULL) ||
+X			((obuf=(unsigned char *)malloc(BUFSIZE+8)) == NULL))
+X			{
+X			fputs("Not enough memory\n",stderr);
+X			Exit=10;
+X			goto problems;
+X			}
+X		}
+X#endif
+X
+X	if (hflag)
+X		{
+X		j=(flag3?16:8);
+X		p=key;
+X		for (i=0; i<j; i++)
+X			{
+X			k=0;
+X			if ((*p <= '9') && (*p >= '0'))
+X				k=(*p-'0')<<4;
+X			else if ((*p <= 'f') && (*p >= 'a'))
+X				k=(*p-'a'+10)<<4;
+X			else if ((*p <= 'F') && (*p >= 'A'))
+X				k=(*p-'A'+10)<<4;
+X			else
+X				{
+X				fputs("Bad hex key\n",stderr);
+X				Exit=9;
+X				goto problems;
+X				}
+X			p++;
+X			if ((*p <= '9') && (*p >= '0'))
+X				k|=(*p-'0');
+X			else if ((*p <= 'f') && (*p >= 'a'))
+X				k|=(*p-'a'+10);
+X			else if ((*p <= 'F') && (*p >= 'A'))
+X				k|=(*p-'A'+10);
+X			else
+X				{
+X				fputs("Bad hex key\n",stderr);
+X				Exit=9;
+X				goto problems;
+X				}
+X			p++;
+X			if (i < 8)
+X				kk[i]=k;
+X			else
+X				k2[i-8]=k;
+X			}
+X		des_set_key((C_Block *)k2,ks2);
+X		bzero(k2,sizeof(k2));
+X		}
+X	else if (longk || flag3)
+X		{
+X		if (flag3)
+X			{
+X			des_string_to_2keys(key,(C_Block *)kk,(C_Block *)k2);
+X			des_set_key((C_Block *)k2,ks2);
+X			bzero(k2,sizeof(k2));
+X			}
+X		else
+X			des_string_to_key(key,(C_Block *)kk);
+X		}
+X	else
+X		for (i=0; i<KEYSIZ; i++)
+X			{
+X			l=0;
+X			k=key[i];
+X			for (j=0; j<8; j++)
+X				{
+X				if (k&1) l++;
+X				k>>=1;
+X				}
+X			if (l & 1)
+X				kk[i]=key[i]&0x7f;
+X			else
+X				kk[i]=key[i]|0x80;
+X			}
+X
+X	des_set_key((C_Block *)kk,ks);
+X	bzero(key,sizeof(key));
+X	bzero(kk,sizeof(kk));
+X	/* woops - A bug that does not showup under unix :-( */
+X	bzero(iv,sizeof(iv));
+X	bzero(iv2,sizeof(iv2));
+X	bzero(iv3,sizeof(iv3));
+X
+X	l=1;
+X	rem=0;
+X	/* first read */
+X	if (eflag || (!dflag && cflag))
+X		{
+X		for (;;)
+X			{
+X			num=l=fread(&(buf[rem]),1,BUFSIZE,DES_IN);
+X			l+=rem;
+X			num+=rem;
+X			if (l < 0)
+X				{
+X				perror("read error");
+X				Exit=6;
+X				goto problems;
+X				}
+X
+X			rem=l%8;
+X			len=l-rem;
+X			if (feof(DES_IN))
+X				{
+X				srand(time(NULL));
+X				for (i=7-rem; i>0; i--)
+X					buf[l++]=rand()&0xff;
+X				buf[l++]=rem;
+X				ex=1;
+X				len+=rem;
+X				}
+X			else
+X				l-=rem;
+X
+X			if (cflag)
+X				{
+X				des_cbc_cksum((C_Block *)buf,(C_Block *)cksum,
+X					(long)len,ks,(C_Block *)cksum);
+X				if (!eflag)
+X					{
+X					if (feof(DES_IN)) break;
+X					else continue;
+X					}
+X				}
+X
+X			if (bflag && !flag3)
+X				for (i=0; i<l; i+=8)
+X					des_ecb_encrypt(
+X						(des_cblock *)&(buf[i]),
+X						(des_cblock *)&(obuf[i]),
+X						ks,do_encrypt);
+X			else if (flag3 && bflag)
+X				for (i=0; i<l; i+=8)
+X					des_3ecb_encrypt(
+X						(des_cblock *)&(buf[i]),
+X						(des_cblock *)&(obuf[i]),
+X						ks,ks2,do_encrypt);
+X			else if (flag3 && !bflag)
+X				{
+X				char tmpbuf[8];
+X
+X				if (rem) bcopy(&(buf[l]),tmpbuf,rem);
+X				des_3cbc_encrypt(
+X					(des_cblock *)buf,(des_cblock *)obuf,
+X					(long)l,ks,ks2,(des_cblock *)iv,
+X					(des_cblock *)iv2,do_encrypt);
+X				if (rem) bcopy(tmpbuf,&(buf[l]),rem);
+X				}
+X			else
+X				{
+X				des_cbc_encrypt(
+X					(des_cblock *)buf,(des_cblock *)obuf,
+X					(long)l,ks,(des_cblock *)iv,do_encrypt);
+X				if (l >= 8) bcopy(&(obuf[l-8]),iv,8);
+X				}
+X			if (rem) bcopy(&(buf[l]),buf,rem);
+X
+X			i=0;
+X			while (i < l)
+X				{
+X				if (uflag)
+X					j=uufwrite(obuf,1,l-i,DES_OUT);
+X				else
+X					j=fwrite(obuf,1,l-i,DES_OUT);
+X				if (j == -1)
+X					{
+X					perror("Write error");
+X					Exit=7;
+X					goto problems;
+X					}
+X				i+=j;
+X				}
+X			if (feof(DES_IN))
+X				{
+X				if (uflag) uufwriteEnd(DES_OUT);
+X				break;
+X				}
+X			}
+X		}
+X	else /* decrypt */
+X		{
+X		ex=1;
+X		for (;;)
+X			{
+X			if (ex) {
+X				if (uflag)
+X					l=uufread(buf,1,BUFSIZE,DES_IN);
+X				else
+X					l=fread(buf,1,BUFSIZE,DES_IN);
+X				ex=0;
+X				rem=l%8;
+X				l-=rem;
+X				}
+X			if (l < 0)
+X				{
+X				perror("read error");
+X				Exit=6;
+X				goto problems;
+X				}
+X
+X			if (bflag && !flag3)
+X				for (i=0; i<l; i+=8)
+X					des_ecb_encrypt(
+X						(des_cblock *)&(buf[i]),
+X						(des_cblock *)&(obuf[i]),
+X						ks,do_encrypt);
+X			else if (flag3 && bflag)
+X				for (i=0; i<l; i+=8)
+X					des_3ecb_encrypt(
+X						(des_cblock *)&(buf[i]),
+X						(des_cblock *)&(obuf[i]),
+X						ks,ks2,do_encrypt);
+X			else if (flag3 && !bflag)
+X				{
+X				des_3cbc_encrypt(
+X					(des_cblock *)buf,(des_cblock *)obuf,
+X					(long)l,ks,ks2,(des_cblock *)iv,
+X					(des_cblock *)iv2,do_encrypt);
+X				}
+X			else
+X				{
+X				des_cbc_encrypt(
+X					(des_cblock *)buf,(des_cblock *)obuf,
+X				 	(long)l,ks,(des_cblock *)iv,do_encrypt);
+X				if (l >= 8) bcopy(&(buf[l-8]),iv,8);
+X				}
+X
+X			if (uflag)
+X				ll=uufread(&(buf[rem]),1,BUFSIZE,DES_IN);
+X			else
+X				ll=fread(&(buf[rem]),1,BUFSIZE,DES_IN);
+X			ll+=rem;
+X			rem=ll%8;
+X			ll-=rem;
+X			if (feof(DES_IN) && (ll == 0))
+X				{
+X				last=obuf[l-1];
+X
+X				if ((last > 7) || (last < 0))
+X					{
+X					fputs("The file was not decrypted correctly.\n",
+X						stderr);
+X					/*Exit=8;
+X					goto problems;*/
+X					last=0;
+X					}
+X				l=l-8+last;
+X				}
+X			i=0;
+X			if (cflag) des_cbc_cksum((C_Block *)obuf,
+X				(C_Block *)cksum,(long)l/8*8,ks,
+X				(C_Block *)cksum);
+X			while (i != l)
+X				{
+X				j=fwrite(obuf,1,l-i,DES_OUT);
+X				if (j == -1)
+X					{
+X					perror("Write error");
+X					Exit=7;
+X					goto problems;
+X					}
+X				i+=j;
+X				}
+X			l=ll;
+X			if ((l == 0) && feof(DES_IN)) break;
+X			}
+X		}
+X	if (cflag)
+X		{
+X		l=0;
+X		if (cksumname[0] != '\0')
+X			{
+X			if ((O=fopen(cksumname,"w")) != NULL)
+X				{
+X				CKSUM_OUT=O;
+X				l=1;
+X				}
+X			}
+X		for (i=0; i<8; i++)
+X			fprintf(CKSUM_OUT,"%02X",cksum[i]);
+X		fprintf(CKSUM_OUT,"\n");
+X		if (l) fclose(CKSUM_OUT);
+X		}
+Xproblems:
+X	bzero(buf,sizeof(buf));
+X	bzero(obuf,sizeof(obuf));
+X	bzero(ks,sizeof(ks));
+X	bzero(ks2,sizeof(ks2));
+X	bzero(iv,sizeof(iv));
+X	bzero(iv2,sizeof(iv2));
+X	bzero(iv3,sizeof(iv3));
+X	bzero(kk,sizeof(kk));
+X	bzero(k2,sizeof(k2));
+X	bzero(uubuf,sizeof(uubuf));
+X	bzero(b,sizeof(b));
+X	bzero(bb,sizeof(bb));
+X	bzero(cksum,sizeof(cksum));
+X	if (Exit) EXIT(Exit);
+X	}
+X
+Xint uufwrite(data,size,num,fp)
+Xchar *data;
+Xint size; /* We ignore this parameter but it should be > ~50 I believe */
+Xint num;
+XFILE *fp;
+X	{
+X	int i,j,left,rem,ret=num;
+X	static int start=1;
+X
+X	if (start)
+X		{
+X		fprintf(fp,"begin 600 %s\n",
+X			(uuname[0] == '\0')?"text.d":uuname);
+X		start=0;
+X		}
+X
+X	if (uubufnum)
+X		{
+X		if (uubufnum+num < 45)
+X			{
+X			bcopy(data,&(uubuf[uubufnum]),num);
+X			uubufnum+=num;
+X			return(num);
+X			}
+X		else
+X			{
+X			i=45-uubufnum;
+X			bcopy(data,&(uubuf[uubufnum]),i);
+X			j=uuencode(uubuf,45,b);
+X			fwrite(b,1,j,fp);
+X			uubufnum=0;
+X			data+=i;
+X			num-=i;
+X			}
+X		}
+X
+X	for (i=0; i<(num-INUUBUFN); i+=INUUBUFN)
+X		{
+X		j=uuencode(&(data[i]),INUUBUFN,b);
+X		fwrite(b,1,j,fp);
+X		}
+X	rem=(num-i)%45;
+X	left=(num-i-rem);
+X	if (left)
+X		{
+X		j=uuencode(&(data[i]),left,b);
+X		fwrite(b,1,j,fp);
+X		i+=left;
+X		}
+X	if (i != num)
+X		{
+X		bcopy(&(data[i]),uubuf,rem);
+X		uubufnum=rem;
+X		}
+X	return(ret);
+X	}
+X
+Xint uufwriteEnd(fp)
+XFILE *fp;
+X	{
+X	int j;
+X	static char *end=" \nend\n";
+X
+X	if (uubufnum != 0)
+X		{
+X		uubuf[uubufnum]='\0';
+X		uubuf[uubufnum+1]='\0';
+X		uubuf[uubufnum+2]='\0';
+X		j=uuencode(uubuf,uubufnum,b);
+X		fwrite(b,1,j,fp);
+X		}
+X	fwrite(end,1,strlen(end),fp);
+X	}
+X
+Xint uufread(out,size,num,fp)
+Xchar *out;
+Xint size; /* should always be > ~ 60; I actually ignore this parameter :-) */
+Xint num;
+XFILE *fp;
+X	{
+X	int i,j,tot;
+X	static int done=0;
+X	static int valid=0;
+X	static int start=1;
+X
+X	if (start)
+X		{
+X		for (;;)
+X			{
+X			b[0]='\0';
+X			fgets(b,300,fp);
+X			if (b[0] == '\0')
+X				{
+X				fprintf(stderr,"no 'begin' found in uuencoded input\n");
+X				return(-1);
+X				}
+X			if (strncmp(b,"begin ",6) == 0) break;
+X			}
+X		start=0;
+X		}
+X	if (done) return(0);
+X	tot=0;
+X	if (valid)
+X		{
+X		bcopy(bb,out,valid);
+X		tot=valid;
+X		valid=0;
+X		}
+X	for (;;)
+X		{
+X		b[0]='\0';
+X		fgets(b,300,fp);
+X		if (b[0] == '\0') break;
+X		i=strlen(b);
+X		if ((b[0] == 'e') && (b[1] == 'n') && (b[2] == 'd'))
+X			{
+X			done=1;
+X			while (!feof(fp))
+X				{
+X				fgets(b,300,fp);
+X				}
+X			break;
+X			}
+X		i=uudecode(b,i,bb);
+X		if (i < 0) break;
+X		if ((i+tot+8) > num)
+X			{
+X			/* num to copy to make it a multiple of 8 */
+X			j=(num/8*8)-tot-8;
+X			bcopy(bb,&(out[tot]),j);
+X			tot+=j;
+X			bcopy(&(bb[j]),bb,i-j);
+X			valid=i-j;
+X			break;
+X			}
+X		bcopy(bb,&(out[tot]),i);
+X		tot+=i;
+X		}
+X	return(tot);
+X	}
+X
+X#define ccc2l(c,l)      (l =((unsigned long)(*((c)++)))<<16, \
+X			 l|=((unsigned long)(*((c)++)))<< 8, \
+X		 	 l|=((unsigned long)(*((c)++))))
+X
+X#define l2ccc(l,c)      (*((c)++)=(unsigned char)(((l)>>16)&0xff), \
+X                         *((c)++)=(unsigned char)(((l)>> 8)&0xff), \
+X                         *((c)++)=(unsigned char)(((l)    )&0xff))
+X
+X
+Xint uuencode(in,num,out)
+Xunsigned char *in;
+Xint num;
+Xunsigned char *out;
+X	{
+X	int j,i,k,n,tot=0;
+X	unsigned long l;
+X	register unsigned char *p;
+X	p=out;
+X
+X	for (j=0; j<num; j+=45)
+X		{
+X		if (j+45 > num)
+X			i=(num-j);
+X		else	i=45;
+X		*(p++)=i+' ';
+X		for (n=0; n<i; n+=3)
+X			{
+X			ccc2l(in,l);
+X			*(p++)=((l>>18)&0x3f)+' ';
+X			*(p++)=((l>>12)&0x3f)+' ';
+X			*(p++)=((l>> 6)&0x3f)+' ';
+X			*(p++)=((l    )&0x3f)+' ';
+X			tot+=4;
+X			}
+X		*(p++)='\n';
+X		tot+=2;
+X		}
+X	*p='\0';
+X	l=0;
+X	return(tot);
+X	}
+X
+Xint uudecode(in,num,out)
+Xunsigned char *in;
+Xint num;
+Xunsigned char *out;
+X	{
+X	int j,i,k;
+X	unsigned int n,space=0;
+X	unsigned long l;
+X	unsigned long w,x,y,z;
+X	unsigned int blank='\n'-' ';
+X
+X	for (j=0; j<num; )
+X		{
+X		n= *(in++)-' ';
+X		if (n == blank)
+X			{
+X			n=0;
+X			in--;
+X			}
+X		if (n > 60)
+X			{
+X			fprintf(stderr,"uuencoded line length too long\n");
+X			return(-1);
+X			}
+X		j++;
+X
+X		for (i=0; i<n; j+=4,i+=3)
+X			{
+X			/* the following is for cases where spaces are
+X			 * removed from lines.
+X			 */
+X			if (space)
+X				{
+X				w=x=y=z=0;
+X				}
+X			else
+X				{
+X				w= *(in++)-' ';
+X				x= *(in++)-' ';
+X				y= *(in++)-' ';
+X				z= *(in++)-' ';
+X				}
+X			if ((w > 63) || (x > 63) || (y > 63) || (z > 63))
+X				{
+X				k=0;
+X				if (w == blank) k=1;
+X				if (x == blank) k=2;
+X				if (y == blank) k=3;
+X				if (z == blank) k=4;
+X				space=1;
+X				switch (k) {
+X				case 1:	w=0; in--;
+X				case 2: x=0; in--;
+X				case 3: y=0; in--;
+X				case 4: z=0; in--;
+X					break;
+X				case 0:
+X					space=0;
+X					fprintf(stderr,"bad uuencoded data values\n");
+X					w=x=y=z=0;
+X					return(-1);
+X					break;
+X					}
+X				}
+X			l=(w<<18)|(x<<12)|(y<< 6)|(z    );
+X			l2ccc(l,out);
+X			}
+X		if (*(in++) != '\n')
+X			{
+X			fprintf(stderr,"missing nl in uuencoded line\n");
+X			w=x=y=z=0;
+X			return(-1);
+X			}
+X		j++;
+X		}
+X	*out='\0';
+X	w=x=y=z=0;
+X	return(n);
+X	}
+END_OF_FILE
+  if test 16298 -ne `wc -c <'des.c'`; then
+    echo shar: \"'des.c'\" unpacked with wrong size!
+  fi
+  # end of 'des.c'
+fi
+if test -f 'destest.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'destest.c'\"
+else
+  echo shar: Extracting \"'destest.c'\" \(12238 characters\)
+  sed "s/^X//" >'destest.c' <<'END_OF_FILE'
+X/* destest.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include <stdio.h>
+X#include "des_locl.h" /* for des.h and bcopy macros */
+X/* tisk tisk - the test keys don't all have odd parity :-( */
+X
+X/* test data */
+X#define NUM_TESTS 34
+Xstatic unsigned char key_data[NUM_TESTS][8]={
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+X	0x30,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0xFE,0xDC,0xBA,0x98,0x76,0x54,0x32,0x10,
+X	0x7C,0xA1,0x10,0x45,0x4A,0x1A,0x6E,0x57,
+X	0x01,0x31,0xD9,0x61,0x9D,0xC1,0x37,0x6E,
+X	0x07,0xA1,0x13,0x3E,0x4A,0x0B,0x26,0x86,
+X	0x38,0x49,0x67,0x4C,0x26,0x02,0x31,0x9E,
+X	0x04,0xB9,0x15,0xBA,0x43,0xFE,0xB5,0xB6,
+X	0x01,0x13,0xB9,0x70,0xFD,0x34,0xF2,0xCE,
+X	0x01,0x70,0xF1,0x75,0x46,0x8F,0xB5,0xE6,
+X	0x43,0x29,0x7F,0xAD,0x38,0xE3,0x73,0xFE,
+X	0x07,0xA7,0x13,0x70,0x45,0xDA,0x2A,0x16,
+X	0x04,0x68,0x91,0x04,0xC2,0xFD,0x3B,0x2F,
+X	0x37,0xD0,0x6B,0xB5,0x16,0xCB,0x75,0x46,
+X	0x1F,0x08,0x26,0x0D,0x1A,0xC2,0x46,0x5E,
+X	0x58,0x40,0x23,0x64,0x1A,0xBA,0x61,0x76,
+X	0x02,0x58,0x16,0x16,0x46,0x29,0xB0,0x07,
+X	0x49,0x79,0x3E,0xBC,0x79,0xB3,0x25,0x8F,
+X	0x4F,0xB0,0x5E,0x15,0x15,0xAB,0x73,0xA7,
+X	0x49,0xE9,0x5D,0x6D,0x4C,0xA2,0x29,0xBF,
+X	0x01,0x83,0x10,0xDC,0x40,0x9B,0x26,0xD6,
+X	0x1C,0x58,0x7F,0x1C,0x13,0x92,0x4F,0xEF,
+X	0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,
+X	0x1F,0x1F,0x1F,0x1F,0x0E,0x0E,0x0E,0x0E,
+X	0xE0,0xFE,0xE0,0xFE,0xF1,0xFE,0xF1,0xFE,
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0xFE,0xDC,0xBA,0x98,0x76,0x54,0x32,0x10};
+X
+Xstatic unsigned char plain_data[NUM_TESTS][8]={
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+X	0x10,0x00,0x00,0x00,0x00,0x00,0x00,0x01,
+X	0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
+X	0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0x01,0xA1,0xD6,0xD0,0x39,0x77,0x67,0x42,
+X	0x5C,0xD5,0x4C,0xA8,0x3D,0xEF,0x57,0xDA,
+X	0x02,0x48,0xD4,0x38,0x06,0xF6,0x71,0x72,
+X	0x51,0x45,0x4B,0x58,0x2D,0xDF,0x44,0x0A,
+X	0x42,0xFD,0x44,0x30,0x59,0x57,0x7F,0xA2,
+X	0x05,0x9B,0x5E,0x08,0x51,0xCF,0x14,0x3A,
+X	0x07,0x56,0xD8,0xE0,0x77,0x47,0x61,0xD2,
+X	0x76,0x25,0x14,0xB8,0x29,0xBF,0x48,0x6A,
+X	0x3B,0xDD,0x11,0x90,0x49,0x37,0x28,0x02,
+X	0x26,0x95,0x5F,0x68,0x35,0xAF,0x60,0x9A,
+X	0x16,0x4D,0x5E,0x40,0x4F,0x27,0x52,0x32,
+X	0x6B,0x05,0x6E,0x18,0x75,0x9F,0x5C,0xCA,
+X	0x00,0x4B,0xD6,0xEF,0x09,0x17,0x60,0x62,
+X	0x48,0x0D,0x39,0x00,0x6E,0xE7,0x62,0xF2,
+X	0x43,0x75,0x40,0xC8,0x69,0x8F,0x3C,0xFA,
+X	0x07,0x2D,0x43,0xA0,0x77,0x07,0x52,0x92,
+X	0x02,0xFE,0x55,0x77,0x81,0x17,0xF1,0x2A,
+X	0x1D,0x9D,0x5C,0x50,0x18,0xF7,0x28,0xC2,
+X	0x30,0x55,0x32,0x28,0x6D,0x6F,0x29,0x5A,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+X
+Xstatic unsigned char cipher_data[NUM_TESTS][8]={
+X	0x8C,0xA6,0x4D,0xE9,0xC1,0xB1,0x23,0xA7,
+X	0x73,0x59,0xB2,0x16,0x3E,0x4E,0xDC,0x58,
+X	0x95,0x8E,0x6E,0x62,0x7A,0x05,0x55,0x7B,
+X	0xF4,0x03,0x79,0xAB,0x9E,0x0E,0xC5,0x33,
+X	0x17,0x66,0x8D,0xFC,0x72,0x92,0x53,0x2D,
+X	0x8A,0x5A,0xE1,0xF8,0x1A,0xB8,0xF2,0xDD,
+X	0x8C,0xA6,0x4D,0xE9,0xC1,0xB1,0x23,0xA7,
+X	0xED,0x39,0xD9,0x50,0xFA,0x74,0xBC,0xC4,
+X	0x69,0x0F,0x5B,0x0D,0x9A,0x26,0x93,0x9B,
+X	0x7A,0x38,0x9D,0x10,0x35,0x4B,0xD2,0x71,
+X	0x86,0x8E,0xBB,0x51,0xCA,0xB4,0x59,0x9A,
+X	0x71,0x78,0x87,0x6E,0x01,0xF1,0x9B,0x2A,
+X	0xAF,0x37,0xFB,0x42,0x1F,0x8C,0x40,0x95,
+X	0x86,0xA5,0x60,0xF1,0x0E,0xC6,0xD8,0x5B,
+X	0x0C,0xD3,0xDA,0x02,0x00,0x21,0xDC,0x09,
+X	0xEA,0x67,0x6B,0x2C,0xB7,0xDB,0x2B,0x7A,
+X	0xDF,0xD6,0x4A,0x81,0x5C,0xAF,0x1A,0x0F,
+X	0x5C,0x51,0x3C,0x9C,0x48,0x86,0xC0,0x88,
+X	0x0A,0x2A,0xEE,0xAE,0x3F,0xF4,0xAB,0x77,
+X	0xEF,0x1B,0xF0,0x3E,0x5D,0xFA,0x57,0x5A,
+X	0x88,0xBF,0x0D,0xB6,0xD7,0x0D,0xEE,0x56,
+X	0xA1,0xF9,0x91,0x55,0x41,0x02,0x0B,0x56,
+X	0x6F,0xBF,0x1C,0xAF,0xCF,0xFD,0x05,0x56,
+X	0x2F,0x22,0xE4,0x9B,0xAB,0x7C,0xA1,0xAC,
+X	0x5A,0x6B,0x61,0x2C,0xC2,0x6C,0xCE,0x4A,
+X	0x5F,0x4C,0x03,0x8E,0xD1,0x2B,0x2E,0x41,
+X	0x63,0xFA,0xC0,0xD0,0x34,0xD9,0xF7,0x93,
+X	0x61,0x7B,0x3A,0x0C,0xE8,0xF0,0x71,0x00,
+X	0xDB,0x95,0x86,0x05,0xF8,0xC8,0xC6,0x06,
+X	0xED,0xBF,0xD1,0xC6,0x6C,0x29,0xCC,0xC7,
+X	0x35,0x55,0x50,0xB2,0x15,0x0E,0x24,0x51,
+X	0xCA,0xAA,0xAF,0x4D,0xEA,0xF1,0xDB,0xAE,
+X	0xD5,0xD4,0x4F,0xF7,0x20,0x68,0x3D,0x0D,
+X	0x2A,0x2B,0xB0,0x08,0xDF,0x97,0xC2,0xF2};
+X
+Xstatic unsigned char cbc_key[8]={0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef};
+Xstatic unsigned char cbc_iv[8]={0xfe,0xdc,0xba,0x98,0x76,0x54,0x32,0x10};
+Xstatic unsigned char cbc_data[40]="7654321 Now is the time for ";
+X
+Xstatic unsigned char cbc_ok[32]={
+X	0xcc,0xd1,0x73,0xff,0xab,0x20,0x39,0xf4,
+X	0xac,0xd8,0xae,0xfd,0xdf,0xd8,0xa1,0xeb,
+X	0x46,0x8e,0x91,0x15,0x78,0x88,0xba,0x68,
+X	0x1d,0x26,0x93,0x97,0xf7,0xfe,0x62,0xb4};
+X
+Xstatic unsigned char pcbc_ok[32]={
+X	0xcc,0xd1,0x73,0xff,0xab,0x20,0x39,0xf4,
+X	0x6d,0xec,0xb4,0x70,0xa0,0xe5,0x6b,0x15,
+X	0xae,0xa6,0xbf,0x61,0xed,0x7d,0x9c,0x9f,
+X	0xf7,0x17,0x46,0x3b,0x8a,0xb3,0xcc,0x88};
+X
+Xstatic unsigned char cksum_ok[8]={
+X	0x1d,0x26,0x93,0x97,0xf7,0xfe,0x62,0xb4};
+X
+Xstatic unsigned char cfb_key[8]={0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef};
+Xstatic unsigned char cfb_iv[8]={0x12,0x34,0x56,0x78,0x90,0xab,0xcd,0xef};
+Xstatic unsigned char cfb_buf1[24],cfb_buf2[24],cfb_tmp[8];
+Xstatic unsigned char cfb_plain[24]=
+X	{
+X	0x4e,0x6f,0x77,0x20,0x69,0x73,
+X	0x20,0x74,0x68,0x65,0x20,0x74,
+X	0x69,0x6d,0x65,0x20,0x66,0x6f,
+X	0x72,0x20,0x61,0x6c,0x6c,0x20
+X	};
+Xstatic unsigned char cfb_cipher[24]=
+X	{
+X	0xf3,0x1f,0xda,0x07,0x01,0x14,
+X	0x62,0xee,0x18,0x7f,0x43,0xd8,
+X	0x0a,0x7c,0xd9,0xb5,0xb0,0xd2,
+X	0x90,0xda,0x6e,0x5b,0x9a,0x87
+X	};
+X
+Xstatic unsigned char ofb_key[8]={0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef};
+Xstatic unsigned char ofb_iv[8]={0x12,0x34,0x56,0x78,0x90,0xab,0xcd,0xef};
+Xstatic unsigned char ofb_plain[24]=
+X	{
+X	0x4e,0x6f,0x77,0x20,0x69,0x73,
+X	0x20,0x74,0x68,0x65,0x20,0x74,
+X	0x69,0x6d,0x65,0x20,0x66,0x6f,
+X	0x72,0x20,0x61,0x6c,0x6c,0x20
+X	};
+Xstatic unsigned char ofb_buf1[24],ofb_buf2[24],ofb_tmp[8];
+Xstatic unsigned char ofb_cipher[24]=
+X	{
+X	0xf3,0x09,0x62,0x49,0xc7,0xf4,0x6e,0x51,
+X	0x35,0xf2,0x4a,0x24,0x2e,0xeb,0x3d,0x3f,
+X	0x3d,0x6d,0x5b,0xe3,0x25,0x5a,0xf8,0xc3
+X	};
+X
+Xchar *malloc();
+Xchar *pt();
+X
+Xmain()
+X	{
+X	int i,j;
+X	des_cblock in,out,outin;
+X	des_key_schedule ks;
+X	unsigned char cbc_in[40],cbc_out[40];
+X	unsigned long cs;
+X	unsigned char qret[4][4];
+X	unsigned long lqret[4];
+X	char *str;
+X
+X	printf("Doing ecb\n");
+X	for (i=0; i<NUM_TESTS; i++)
+X		{
+X		if ((j=key_sched((C_Block *)(key_data[i]),ks)) != 0)
+X			printf("Key error %2d:%d\n",i+1,j);
+X		bcopy(plain_data[i],in,8);
+X		bzero(out,8);
+X		bzero(outin,8);
+X		des_ecb_encrypt((C_Block *)in,(C_Block *)out,ks,DES_ENCRYPT);
+X		des_ecb_encrypt((C_Block *)out,(C_Block *)outin,ks,DES_DECRYPT);
+X
+X		if (bcmp(out,cipher_data[i],8) != 0)
+X			{
+X			printf("Encryption error %2d\nk=%s p=%s o=%s act=%s\n",
+X				i+1,pt(key_data[i]),pt(in),pt(cipher_data[i]),
+X				pt(out));
+X			}
+X		if (bcmp(in,outin,8) != 0)
+X			{
+X			printf("Decryption error %2d\nk=%s p=%s o=%s act=%s\n",
+X				i+1,pt(key_data[i]),pt(out),pt(in),pt(outin));
+X			}
+X		}
+X
+X	printf("Doing cbc\n");
+X	if ((j=key_sched((C_Block *)cbc_key,ks)) != 0)
+X		printf("Key error %2d:%d\n",i+1,j);
+X	bzero(cbc_out,40);
+X	bzero(cbc_in,40);
+X	des_cbc_encrypt((C_Block *)cbc_data,(C_Block *)cbc_out,
+X		(long)strlen(cbc_data),ks,(C_Block *)cbc_iv,DES_ENCRYPT);
+X	if (bcmp(cbc_out,cbc_ok,32) != 0)
+X		printf("cbc_encrypt encrypt error\n");
+X	des_cbc_encrypt((C_Block *)cbc_out,(C_Block *)cbc_in,
+X		(long)strlen(cbc_data),ks,(C_Block *)cbc_iv,DES_DECRYPT);
+X	if (bcmp(cbc_in,cbc_data,32) != 0)
+X		printf("cbc_encrypt decrypt error\n");
+X
+X	printf("Doing pcbc\n");
+X	if ((j=key_sched((C_Block *)cbc_key,ks)) != 0)
+X		printf("Key error %2d:%d\n",i+1,j);
+X	bzero(cbc_out,40);
+X	bzero(cbc_in,40);
+X	des_pcbc_encrypt((C_Block *)cbc_data,(C_Block *)cbc_out,
+X		(long)strlen(cbc_data),ks,(C_Block *)cbc_iv,DES_ENCRYPT);
+X	if (bcmp(cbc_out,pcbc_ok,32) != 0)
+X		printf("pcbc_encrypt encrypt error\n");
+X	des_pcbc_encrypt((C_Block *)cbc_out,(C_Block *)cbc_in,
+X		(long)strlen(cbc_data),ks,(C_Block *)cbc_iv,DES_DECRYPT);
+X	if (bcmp(cbc_in,cbc_data,32) != 0)
+X		printf("pcbc_encrypt decrypt error\n");
+X
+X	printf("Doing cfb\n");
+X	key_sched((C_Block *)cfb_key,ks);
+X	bcopy(cfb_iv,cfb_tmp,sizeof(cfb_iv));
+X	des_cfb_encrypt(cfb_plain,cfb_buf1,8,(long)sizeof(cfb_plain),ks,
+X		(C_Block *)cfb_tmp,DES_ENCRYPT);
+X	if (bcmp(cfb_cipher,cfb_buf1,sizeof(cfb_buf1)) != 0)
+X		printf("cfb_encrypt encrypt error\n");
+X	bcopy(cfb_iv,cfb_tmp,sizeof(cfb_iv));
+X	des_cfb_encrypt(cfb_buf1,cfb_buf2,8,(long)sizeof(cfb_buf1),ks,
+X		(C_Block *)cfb_tmp,DES_DECRYPT);
+X	if (bcmp(cfb_plain,cfb_buf2,sizeof(cfb_buf2)) != 0)
+X		printf("cfb_encrypt decrypt error\n");
+X
+X	bcopy(cfb_iv,cfb_tmp,sizeof(cfb_iv));
+X	for (i=0; i<sizeof(cfb_plain); i++)
+X		des_cfb_encrypt(&(cfb_plain[i]),&(cfb_buf1[i]),
+X			8,(long)1,ks,(C_Block *)cfb_tmp,DES_ENCRYPT);
+X	if (bcmp(cfb_cipher,cfb_buf1,sizeof(cfb_buf1)) != 0)
+X		printf("cfb_encrypt small encrypt error\n");
+X
+X	bcopy(cfb_iv,cfb_tmp,sizeof(cfb_iv));
+X	for (i=0; i<sizeof(cfb_plain); i++)
+X		des_cfb_encrypt(&(cfb_buf1[i]),&(cfb_buf2[i]),
+X			8,(long)1,ks,(C_Block *)cfb_tmp,DES_DECRYPT);
+X	if (bcmp(cfb_plain,cfb_buf2,sizeof(cfb_buf2)) != 0)
+X		printf("cfb_encrypt small decrypt error\n");
+X
+X	printf("Doing ofb\n");
+X	key_sched((C_Block *)ofb_key,ks);
+X	bcopy(ofb_iv,ofb_tmp,sizeof(ofb_iv));
+X	des_ofb_encrypt(ofb_plain,ofb_buf1,64,(long)sizeof(cfb_plain)/8,ks,
+X		(C_Block *)ofb_tmp);
+X	if (bcmp(ofb_cipher,ofb_buf1,sizeof(ofb_buf1)) != 0)
+X		printf("ofb_encrypt encrypt error\n");
+X	bcopy(ofb_iv,ofb_tmp,sizeof(ofb_iv));
+X	des_ofb_encrypt(ofb_buf1,ofb_buf2,64,(long)sizeof(ofb_buf1)/8,ks,
+X		(C_Block *)ofb_tmp);
+X	if (bcmp(ofb_plain,ofb_buf2,sizeof(ofb_buf2)) != 0)
+X		printf("ofb_encrypt decrypt error\n");
+X
+X	printf("Doing cbc_cksum\n");
+X	des_cbc_cksum((C_Block *)cbc_data,(C_Block *)cbc_out,
+X		(long)strlen(cbc_data),ks,(C_Block *)cbc_iv);
+X	if (bcmp(cbc_out,cksum_ok,8) != 0)
+X		printf("cbc_cksum error\n");
+X
+X	printf("Doing quad_cksum\n");
+X	cs=quad_cksum((C_Block *)cbc_data,(C_Block *)qret,
+X		(long)strlen(cbc_data),2,(C_Block *)cbc_iv);
+X	for (i=0; i<4; i++)
+X		{
+X		lqret[i]=0;
+X		bcopy(&(qret[i][0]),&(lqret[i]),4);
+X		}
+X	{ /* Big-endian fix */
+X	static unsigned long l=1;
+X	static unsigned char *c=(unsigned char *)&l;
+X	unsigned long ll;
+X
+X	if (!c[0])
+X		{
+X		ll=lqret[0]^lqret[3];
+X		lqret[0]^=ll;
+X		lqret[3]^=ll;
+X		ll=lqret[1]^lqret[2];
+X		lqret[1]^=ll;
+X		lqret[2]^=ll;
+X		}
+X	}
+X	if (cs != 0x70d7a63a)
+X		printf("quad_cksum error, ret %08x should be 70d7a63a\n",cs);
+X	if (lqret[0] != 0x327eba8d)
+X		printf("quad_cksum error, out[0] %08x is not %08x\n",
+X			lqret[0],0x327eba8d);
+X	if (lqret[1] != 0x201a49cc)
+X		printf("quad_cksum error, out[1] %08x is not %08x\n",
+X			lqret[1],0x201a49cc);
+X	if (lqret[2] != 0x70d7a63a)
+X		printf("quad_cksum error, out[2] %08x is not %08x\n",
+X			lqret[2],0x70d7a63a);
+X	if (lqret[3] != 0x501c2c26)
+X		printf("quad_cksum error, out[3] %08x is not %08x\n",
+X			lqret[3],0x501c2c26);
+X
+X	printf("input word alignment test");
+X	for (i=0; i<4; i++)
+X		{
+X		printf(" %d",i);
+X		des_cbc_encrypt((C_Block *)&(cbc_out[i]),(C_Block *)cbc_in,
+X			(long)strlen(cbc_data),ks,(C_Block *)cbc_iv,
+X			DES_ENCRYPT);
+X		}
+X	printf("\noutput word alignment test");
+X	for (i=0; i<4; i++)
+X		{
+X		printf(" %d",i);
+X		des_cbc_encrypt((C_Block *)cbc_out,(C_Block *)&(cbc_in[i]),
+X			(long)strlen(cbc_data),ks,(C_Block *)cbc_iv,
+X			DES_ENCRYPT);
+X		}
+X	printf("\n");
+X	printf("fast crypt test ");
+X	str=crypt("testing","ef");
+X	if (strcmp("efGnQx2725bI2",str) != 0)
+X		printf("fast crypt error, %x should be efGnQx2725bI2\n",str);
+X	str=crypt("bca76;23","yA");
+X	if (strcmp("yA1Rp/1hZXIJk",str) != 0)
+X		printf("fast crypt error, %x should be yA1Rp/1hZXIJk\n",str);
+X	printf("\n");
+X	exit(0);
+X	}
+X
+Xchar *pt(p)
+Xunsigned char *p;
+X	{
+X	char *ret;
+X	int i;
+X	static char *f="0123456789ABCDEF";
+X
+X	ret=(char *)malloc(17);
+X	for (i=0; i<8; i++)
+X		{
+X		ret[i*2]=f[(p[i]>>4)&0xf];
+X		ret[i*2+1]=f[p[i]&0xf];
+X		}
+X	ret[16]='\0';
+X	return(ret);
+X	}
+X	
+END_OF_FILE
+  if test 12238 -ne `wc -c <'destest.c'`; then
+    echo shar: \"'destest.c'\" unpacked with wrong size!
+  fi
+  # end of 'destest.c'
+fi
+if test -f 'doPC2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doPC2'\"
+else
+  echo shar: Extracting \"'doPC2'\" \(1578 characters\)
+  sed "s/^X//" >'doPC2' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X@PC2_C=(14,17,11,24, 1, 5,
+X	 3,28,15, 6,21,10,
+X	23,19,12, 4,26, 8,
+X	16, 7,27,20,13, 2,
+X	);
+X
+X@PC2_D=(41,52,31,37,47,55,
+X	30,40,51,45,33,48,
+X	44,49,39,56,34,53,
+X	46,42,50,36,29,32,
+X	);
+X
+X$i=0;
+Xforeach (@PC2_C) {
+X	$_--;
+X#	printf "%2d,",$_;
+X	$C{$_}=$i;
+X	++$i;
+X#	print "\n" if ((($i) % 8) == 0);
+X	}
+X$i=0;
+X#print "\n";
+Xforeach (@PC2_D) {
+X	$_-=28;
+X	$_--;
+X#	printf "%2d,",$_;
+X	$D{$_}=$i;
+X	$i++;
+X#	print "\n" if ((($i) % 8) == 0);
+X	}
+X
+X#print "\n";
+Xforeach $i (0 .. 27)
+X	{
+X	$_=$C{$i};
+X#	printf "%2d,",$_;
+X	$i++;
+X#	print "\n" if ((($i) % 8) == 0);
+X	}
+X#print "\n";
+X
+X#print "\n";
+Xforeach $i (0 .. 27)
+X	{
+X	$_=$D{$i};
+X#	printf "%2d,",$_;
+X	$i++;
+X#	print "\n" if ((($i) % 8) == 0);
+X	}
+X#print "\n";
+X
+Xprint "static ulong skb[8][64]={\n";
+X&doit("C",*C, 0, 1, 2, 3, 4, 5);
+X&doit("C",*C, 6, 7, 9,10,11,12);
+X&doit("C",*C,13,14,15,16,18,19);
+X&doit("C",*C,20,22,23,25,26,27);
+X
+X&doit("D",*D, 0, 1, 2, 3, 4, 5);
+X&doit("D",*D, 7, 8,10,11,12,13);
+X&doit("D",*D,15,16,17,18,19,20);
+X&doit("D",*D,21,22,23,24,26,27);
+Xprint "};\n";
+X
+Xsub doit
+X	{
+X	local($l,*A,@b)=@_;
+X	local(@out);
+X
+X	printf("/* for $l bits (numbered as per FIPS 46) %d %d %d %d %d %d */\n",
+X		$b[0]+1, $b[1]+1, $b[2]+1, $b[3]+1, $b[4]+1, $b[5]+1);
+X	for ($i=0; $i<64; $i++)
+X		{
+X		$out[$i]=0;
+X		$j=1;
+X#print "\n";
+X		for ($k=0; $k<6; $k++)
+X			{
+X			$l=$A{$b[$k]};
+X#print"$l - ";
+X			if ((1<<$k) & $i)
+X				{
+X				$ll=int($l/6)*8+($l%6);
+X				$out[$i]|=1<<($ll);
+X				}
+X			}
+X		$pp=$out[$i];
+X		$pp=($pp&0xff0000ff)|   (($pp&0x00ff0000)>>8)|
+X					(($pp&0x0000ff00)<<8);
+X		printf("0x%08X,",$pp);
+X		print "\n" if (($i+1) % 4 == 0);
+X		}
+X	}
+END_OF_FILE
+  if test 1578 -ne `wc -c <'doPC2'`; then
+    echo shar: \"'doPC2'\" unpacked with wrong size!
+  fi
+  # end of 'doPC2'
+fi
+if test -f 'fcrypt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fcrypt.c'\"
+else
+  echo shar: Extracting \"'fcrypt.c'\" \(20174 characters\)
+  sed "s/^X//" >'fcrypt.c' <<'END_OF_FILE'
+X/* fcrypt.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include <stdio.h>
+X
+X/* Eric Young.
+X * This version of crypt has been developed from my MIT compatable
+X * DES library.
+X * The library is available at pub/DES at ftp.psy.uq.oz.au
+X * eay@psych.psy.uq.oz.au
+X */
+X
+Xtypedef unsigned char des_cblock[8];
+X
+Xtypedef struct des_ks_struct
+X	{
+X	union	{
+X		des_cblock _;
+X		/* make sure things are correct size on machines with
+X		 * 8 byte longs */
+X		unsigned long pad[2];
+X		} ks;
+X#define _	ks._
+X	} des_key_schedule[16];
+X
+X#define DES_KEY_SZ 	(sizeof(des_cblock))
+X#define DES_ENCRYPT	1
+X#define DES_DECRYPT	0
+X
+X#define ITERATIONS 16
+X#define HALF_ITERATIONS 8
+X
+X#define c2l(c,l)	(l =((unsigned long)(*((c)++)))    , \
+X			 l|=((unsigned long)(*((c)++)))<< 8, \
+X			 l|=((unsigned long)(*((c)++)))<<16, \
+X			 l|=((unsigned long)(*((c)++)))<<24)
+X
+X#define l2c(l,c)	(*((c)++)=(unsigned char)(((l)    )&0xff), \
+X			 *((c)++)=(unsigned char)(((l)>> 8)&0xff), \
+X			 *((c)++)=(unsigned char)(((l)>>16)&0xff), \
+X			 *((c)++)=(unsigned char)(((l)>>24)&0xff))
+X
+Xstatic unsigned long SPtrans[8][64]={
+X/* nibble 0 */
+X0x00820200, 0x00020000, 0x80800000, 0x80820200,
+X0x00800000, 0x80020200, 0x80020000, 0x80800000,
+X0x80020200, 0x00820200, 0x00820000, 0x80000200,
+X0x80800200, 0x00800000, 0x00000000, 0x80020000,
+X0x00020000, 0x80000000, 0x00800200, 0x00020200,
+X0x80820200, 0x00820000, 0x80000200, 0x00800200,
+X0x80000000, 0x00000200, 0x00020200, 0x80820000,
+X0x00000200, 0x80800200, 0x80820000, 0x00000000,
+X0x00000000, 0x80820200, 0x00800200, 0x80020000,
+X0x00820200, 0x00020000, 0x80000200, 0x00800200,
+X0x80820000, 0x00000200, 0x00020200, 0x80800000,
+X0x80020200, 0x80000000, 0x80800000, 0x00820000,
+X0x80820200, 0x00020200, 0x00820000, 0x80800200,
+X0x00800000, 0x80000200, 0x80020000, 0x00000000,
+X0x00020000, 0x00800000, 0x80800200, 0x00820200,
+X0x80000000, 0x80820000, 0x00000200, 0x80020200,
+X/* nibble 1 */
+X0x10042004, 0x00000000, 0x00042000, 0x10040000,
+X0x10000004, 0x00002004, 0x10002000, 0x00042000,
+X0x00002000, 0x10040004, 0x00000004, 0x10002000,
+X0x00040004, 0x10042000, 0x10040000, 0x00000004,
+X0x00040000, 0x10002004, 0x10040004, 0x00002000,
+X0x00042004, 0x10000000, 0x00000000, 0x00040004,
+X0x10002004, 0x00042004, 0x10042000, 0x10000004,
+X0x10000000, 0x00040000, 0x00002004, 0x10042004,
+X0x00040004, 0x10042000, 0x10002000, 0x00042004,
+X0x10042004, 0x00040004, 0x10000004, 0x00000000,
+X0x10000000, 0x00002004, 0x00040000, 0x10040004,
+X0x00002000, 0x10000000, 0x00042004, 0x10002004,
+X0x10042000, 0x00002000, 0x00000000, 0x10000004,
+X0x00000004, 0x10042004, 0x00042000, 0x10040000,
+X0x10040004, 0x00040000, 0x00002004, 0x10002000,
+X0x10002004, 0x00000004, 0x10040000, 0x00042000,
+X/* nibble 2 */
+X0x41000000, 0x01010040, 0x00000040, 0x41000040,
+X0x40010000, 0x01000000, 0x41000040, 0x00010040,
+X0x01000040, 0x00010000, 0x01010000, 0x40000000,
+X0x41010040, 0x40000040, 0x40000000, 0x41010000,
+X0x00000000, 0x40010000, 0x01010040, 0x00000040,
+X0x40000040, 0x41010040, 0x00010000, 0x41000000,
+X0x41010000, 0x01000040, 0x40010040, 0x01010000,
+X0x00010040, 0x00000000, 0x01000000, 0x40010040,
+X0x01010040, 0x00000040, 0x40000000, 0x00010000,
+X0x40000040, 0x40010000, 0x01010000, 0x41000040,
+X0x00000000, 0x01010040, 0x00010040, 0x41010000,
+X0x40010000, 0x01000000, 0x41010040, 0x40000000,
+X0x40010040, 0x41000000, 0x01000000, 0x41010040,
+X0x00010000, 0x01000040, 0x41000040, 0x00010040,
+X0x01000040, 0x00000000, 0x41010000, 0x40000040,
+X0x41000000, 0x40010040, 0x00000040, 0x01010000,
+X/* nibble 3 */
+X0x00100402, 0x04000400, 0x00000002, 0x04100402,
+X0x00000000, 0x04100000, 0x04000402, 0x00100002,
+X0x04100400, 0x04000002, 0x04000000, 0x00000402,
+X0x04000002, 0x00100402, 0x00100000, 0x04000000,
+X0x04100002, 0x00100400, 0x00000400, 0x00000002,
+X0x00100400, 0x04000402, 0x04100000, 0x00000400,
+X0x00000402, 0x00000000, 0x00100002, 0x04100400,
+X0x04000400, 0x04100002, 0x04100402, 0x00100000,
+X0x04100002, 0x00000402, 0x00100000, 0x04000002,
+X0x00100400, 0x04000400, 0x00000002, 0x04100000,
+X0x04000402, 0x00000000, 0x00000400, 0x00100002,
+X0x00000000, 0x04100002, 0x04100400, 0x00000400,
+X0x04000000, 0x04100402, 0x00100402, 0x00100000,
+X0x04100402, 0x00000002, 0x04000400, 0x00100402,
+X0x00100002, 0x00100400, 0x04100000, 0x04000402,
+X0x00000402, 0x04000000, 0x04000002, 0x04100400,
+X/* nibble 4 */
+X0x02000000, 0x00004000, 0x00000100, 0x02004108,
+X0x02004008, 0x02000100, 0x00004108, 0x02004000,
+X0x00004000, 0x00000008, 0x02000008, 0x00004100,
+X0x02000108, 0x02004008, 0x02004100, 0x00000000,
+X0x00004100, 0x02000000, 0x00004008, 0x00000108,
+X0x02000100, 0x00004108, 0x00000000, 0x02000008,
+X0x00000008, 0x02000108, 0x02004108, 0x00004008,
+X0x02004000, 0x00000100, 0x00000108, 0x02004100,
+X0x02004100, 0x02000108, 0x00004008, 0x02004000,
+X0x00004000, 0x00000008, 0x02000008, 0x02000100,
+X0x02000000, 0x00004100, 0x02004108, 0x00000000,
+X0x00004108, 0x02000000, 0x00000100, 0x00004008,
+X0x02000108, 0x00000100, 0x00000000, 0x02004108,
+X0x02004008, 0x02004100, 0x00000108, 0x00004000,
+X0x00004100, 0x02004008, 0x02000100, 0x00000108,
+X0x00000008, 0x00004108, 0x02004000, 0x02000008,
+X/* nibble 5 */
+X0x20000010, 0x00080010, 0x00000000, 0x20080800,
+X0x00080010, 0x00000800, 0x20000810, 0x00080000,
+X0x00000810, 0x20080810, 0x00080800, 0x20000000,
+X0x20000800, 0x20000010, 0x20080000, 0x00080810,
+X0x00080000, 0x20000810, 0x20080010, 0x00000000,
+X0x00000800, 0x00000010, 0x20080800, 0x20080010,
+X0x20080810, 0x20080000, 0x20000000, 0x00000810,
+X0x00000010, 0x00080800, 0x00080810, 0x20000800,
+X0x00000810, 0x20000000, 0x20000800, 0x00080810,
+X0x20080800, 0x00080010, 0x00000000, 0x20000800,
+X0x20000000, 0x00000800, 0x20080010, 0x00080000,
+X0x00080010, 0x20080810, 0x00080800, 0x00000010,
+X0x20080810, 0x00080800, 0x00080000, 0x20000810,
+X0x20000010, 0x20080000, 0x00080810, 0x00000000,
+X0x00000800, 0x20000010, 0x20000810, 0x20080800,
+X0x20080000, 0x00000810, 0x00000010, 0x20080010,
+X/* nibble 6 */
+X0x00001000, 0x00000080, 0x00400080, 0x00400001,
+X0x00401081, 0x00001001, 0x00001080, 0x00000000,
+X0x00400000, 0x00400081, 0x00000081, 0x00401000,
+X0x00000001, 0x00401080, 0x00401000, 0x00000081,
+X0x00400081, 0x00001000, 0x00001001, 0x00401081,
+X0x00000000, 0x00400080, 0x00400001, 0x00001080,
+X0x00401001, 0x00001081, 0x00401080, 0x00000001,
+X0x00001081, 0x00401001, 0x00000080, 0x00400000,
+X0x00001081, 0x00401000, 0x00401001, 0x00000081,
+X0x00001000, 0x00000080, 0x00400000, 0x00401001,
+X0x00400081, 0x00001081, 0x00001080, 0x00000000,
+X0x00000080, 0x00400001, 0x00000001, 0x00400080,
+X0x00000000, 0x00400081, 0x00400080, 0x00001080,
+X0x00000081, 0x00001000, 0x00401081, 0x00400000,
+X0x00401080, 0x00000001, 0x00001001, 0x00401081,
+X0x00400001, 0x00401080, 0x00401000, 0x00001001,
+X/* nibble 7 */
+X0x08200020, 0x08208000, 0x00008020, 0x00000000,
+X0x08008000, 0x00200020, 0x08200000, 0x08208020,
+X0x00000020, 0x08000000, 0x00208000, 0x00008020,
+X0x00208020, 0x08008020, 0x08000020, 0x08200000,
+X0x00008000, 0x00208020, 0x00200020, 0x08008000,
+X0x08208020, 0x08000020, 0x00000000, 0x00208000,
+X0x08000000, 0x00200000, 0x08008020, 0x08200020,
+X0x00200000, 0x00008000, 0x08208000, 0x00000020,
+X0x00200000, 0x00008000, 0x08000020, 0x08208020,
+X0x00008020, 0x08000000, 0x00000000, 0x00208000,
+X0x08200020, 0x08008020, 0x08008000, 0x00200020,
+X0x08208000, 0x00000020, 0x00200020, 0x08008000,
+X0x08208020, 0x00200000, 0x08200000, 0x08000020,
+X0x00208000, 0x00008020, 0x08008020, 0x08200000,
+X0x00000020, 0x08208000, 0x00208020, 0x00000000,
+X0x08000000, 0x08200020, 0x00008000, 0x00208020};
+Xstatic unsigned long skb[8][64]={
+X/* for C bits (numbered as per FIPS 46) 1 2 3 4 5 6 */
+X0x00000000,0x00000010,0x20000000,0x20000010,
+X0x00010000,0x00010010,0x20010000,0x20010010,
+X0x00000800,0x00000810,0x20000800,0x20000810,
+X0x00010800,0x00010810,0x20010800,0x20010810,
+X0x00000020,0x00000030,0x20000020,0x20000030,
+X0x00010020,0x00010030,0x20010020,0x20010030,
+X0x00000820,0x00000830,0x20000820,0x20000830,
+X0x00010820,0x00010830,0x20010820,0x20010830,
+X0x00080000,0x00080010,0x20080000,0x20080010,
+X0x00090000,0x00090010,0x20090000,0x20090010,
+X0x00080800,0x00080810,0x20080800,0x20080810,
+X0x00090800,0x00090810,0x20090800,0x20090810,
+X0x00080020,0x00080030,0x20080020,0x20080030,
+X0x00090020,0x00090030,0x20090020,0x20090030,
+X0x00080820,0x00080830,0x20080820,0x20080830,
+X0x00090820,0x00090830,0x20090820,0x20090830,
+X/* for C bits (numbered as per FIPS 46) 7 8 10 11 12 13 */
+X0x00000000,0x02000000,0x00002000,0x02002000,
+X0x00200000,0x02200000,0x00202000,0x02202000,
+X0x00000004,0x02000004,0x00002004,0x02002004,
+X0x00200004,0x02200004,0x00202004,0x02202004,
+X0x00000400,0x02000400,0x00002400,0x02002400,
+X0x00200400,0x02200400,0x00202400,0x02202400,
+X0x00000404,0x02000404,0x00002404,0x02002404,
+X0x00200404,0x02200404,0x00202404,0x02202404,
+X0x10000000,0x12000000,0x10002000,0x12002000,
+X0x10200000,0x12200000,0x10202000,0x12202000,
+X0x10000004,0x12000004,0x10002004,0x12002004,
+X0x10200004,0x12200004,0x10202004,0x12202004,
+X0x10000400,0x12000400,0x10002400,0x12002400,
+X0x10200400,0x12200400,0x10202400,0x12202400,
+X0x10000404,0x12000404,0x10002404,0x12002404,
+X0x10200404,0x12200404,0x10202404,0x12202404,
+X/* for C bits (numbered as per FIPS 46) 14 15 16 17 19 20 */
+X0x00000000,0x00000001,0x00040000,0x00040001,
+X0x01000000,0x01000001,0x01040000,0x01040001,
+X0x00000002,0x00000003,0x00040002,0x00040003,
+X0x01000002,0x01000003,0x01040002,0x01040003,
+X0x00000200,0x00000201,0x00040200,0x00040201,
+X0x01000200,0x01000201,0x01040200,0x01040201,
+X0x00000202,0x00000203,0x00040202,0x00040203,
+X0x01000202,0x01000203,0x01040202,0x01040203,
+X0x08000000,0x08000001,0x08040000,0x08040001,
+X0x09000000,0x09000001,0x09040000,0x09040001,
+X0x08000002,0x08000003,0x08040002,0x08040003,
+X0x09000002,0x09000003,0x09040002,0x09040003,
+X0x08000200,0x08000201,0x08040200,0x08040201,
+X0x09000200,0x09000201,0x09040200,0x09040201,
+X0x08000202,0x08000203,0x08040202,0x08040203,
+X0x09000202,0x09000203,0x09040202,0x09040203,
+X/* for C bits (numbered as per FIPS 46) 21 23 24 26 27 28 */
+X0x00000000,0x00100000,0x00000100,0x00100100,
+X0x00000008,0x00100008,0x00000108,0x00100108,
+X0x00001000,0x00101000,0x00001100,0x00101100,
+X0x00001008,0x00101008,0x00001108,0x00101108,
+X0x04000000,0x04100000,0x04000100,0x04100100,
+X0x04000008,0x04100008,0x04000108,0x04100108,
+X0x04001000,0x04101000,0x04001100,0x04101100,
+X0x04001008,0x04101008,0x04001108,0x04101108,
+X0x00020000,0x00120000,0x00020100,0x00120100,
+X0x00020008,0x00120008,0x00020108,0x00120108,
+X0x00021000,0x00121000,0x00021100,0x00121100,
+X0x00021008,0x00121008,0x00021108,0x00121108,
+X0x04020000,0x04120000,0x04020100,0x04120100,
+X0x04020008,0x04120008,0x04020108,0x04120108,
+X0x04021000,0x04121000,0x04021100,0x04121100,
+X0x04021008,0x04121008,0x04021108,0x04121108,
+X/* for D bits (numbered as per FIPS 46) 1 2 3 4 5 6 */
+X0x00000000,0x10000000,0x00010000,0x10010000,
+X0x00000004,0x10000004,0x00010004,0x10010004,
+X0x20000000,0x30000000,0x20010000,0x30010000,
+X0x20000004,0x30000004,0x20010004,0x30010004,
+X0x00100000,0x10100000,0x00110000,0x10110000,
+X0x00100004,0x10100004,0x00110004,0x10110004,
+X0x20100000,0x30100000,0x20110000,0x30110000,
+X0x20100004,0x30100004,0x20110004,0x30110004,
+X0x00001000,0x10001000,0x00011000,0x10011000,
+X0x00001004,0x10001004,0x00011004,0x10011004,
+X0x20001000,0x30001000,0x20011000,0x30011000,
+X0x20001004,0x30001004,0x20011004,0x30011004,
+X0x00101000,0x10101000,0x00111000,0x10111000,
+X0x00101004,0x10101004,0x00111004,0x10111004,
+X0x20101000,0x30101000,0x20111000,0x30111000,
+X0x20101004,0x30101004,0x20111004,0x30111004,
+X/* for D bits (numbered as per FIPS 46) 8 9 11 12 13 14 */
+X0x00000000,0x08000000,0x00000008,0x08000008,
+X0x00000400,0x08000400,0x00000408,0x08000408,
+X0x00020000,0x08020000,0x00020008,0x08020008,
+X0x00020400,0x08020400,0x00020408,0x08020408,
+X0x00000001,0x08000001,0x00000009,0x08000009,
+X0x00000401,0x08000401,0x00000409,0x08000409,
+X0x00020001,0x08020001,0x00020009,0x08020009,
+X0x00020401,0x08020401,0x00020409,0x08020409,
+X0x02000000,0x0A000000,0x02000008,0x0A000008,
+X0x02000400,0x0A000400,0x02000408,0x0A000408,
+X0x02020000,0x0A020000,0x02020008,0x0A020008,
+X0x02020400,0x0A020400,0x02020408,0x0A020408,
+X0x02000001,0x0A000001,0x02000009,0x0A000009,
+X0x02000401,0x0A000401,0x02000409,0x0A000409,
+X0x02020001,0x0A020001,0x02020009,0x0A020009,
+X0x02020401,0x0A020401,0x02020409,0x0A020409,
+X/* for D bits (numbered as per FIPS 46) 16 17 18 19 20 21 */
+X0x00000000,0x00000100,0x00080000,0x00080100,
+X0x01000000,0x01000100,0x01080000,0x01080100,
+X0x00000010,0x00000110,0x00080010,0x00080110,
+X0x01000010,0x01000110,0x01080010,0x01080110,
+X0x00200000,0x00200100,0x00280000,0x00280100,
+X0x01200000,0x01200100,0x01280000,0x01280100,
+X0x00200010,0x00200110,0x00280010,0x00280110,
+X0x01200010,0x01200110,0x01280010,0x01280110,
+X0x00000200,0x00000300,0x00080200,0x00080300,
+X0x01000200,0x01000300,0x01080200,0x01080300,
+X0x00000210,0x00000310,0x00080210,0x00080310,
+X0x01000210,0x01000310,0x01080210,0x01080310,
+X0x00200200,0x00200300,0x00280200,0x00280300,
+X0x01200200,0x01200300,0x01280200,0x01280300,
+X0x00200210,0x00200310,0x00280210,0x00280310,
+X0x01200210,0x01200310,0x01280210,0x01280310,
+X/* for D bits (numbered as per FIPS 46) 22 23 24 25 27 28 */
+X0x00000000,0x04000000,0x00040000,0x04040000,
+X0x00000002,0x04000002,0x00040002,0x04040002,
+X0x00002000,0x04002000,0x00042000,0x04042000,
+X0x00002002,0x04002002,0x00042002,0x04042002,
+X0x00000020,0x04000020,0x00040020,0x04040020,
+X0x00000022,0x04000022,0x00040022,0x04040022,
+X0x00002020,0x04002020,0x00042020,0x04042020,
+X0x00002022,0x04002022,0x00042022,0x04042022,
+X0x00000800,0x04000800,0x00040800,0x04040800,
+X0x00000802,0x04000802,0x00040802,0x04040802,
+X0x00002800,0x04002800,0x00042800,0x04042800,
+X0x00002802,0x04002802,0x00042802,0x04042802,
+X0x00000820,0x04000820,0x00040820,0x04040820,
+X0x00000822,0x04000822,0x00040822,0x04040822,
+X0x00002820,0x04002820,0x00042820,0x04042820,
+X0x00002822,0x04002822,0x00042822,0x04042822,
+X};
+X
+X/* See ecb_encrypt.c for a pseudo description of these macros. */
+X#define PERM_OP(a,b,t,n,m) ((t)=((((a)>>(n))^(b))&(m)),\
+X	(b)^=(t),\
+X	(a)^=((t)<<(n)))
+X
+X#define HPERM_OP(a,t,n,m) ((t)=((((a)<<(16-(n)))^(a))&(m)),\
+X	(a)=(a)^(t)^(t>>(16-(n))))\
+X
+Xstatic char shifts2[16]={0,0,1,1,1,1,1,1,0,1,1,1,1,1,1,0};
+X
+Xstatic int body();
+Xstatic int des_set_key();
+X
+Xstatic int des_set_key(key,schedule)
+Xdes_cblock *key;
+Xdes_key_schedule schedule;
+X	{
+X	register unsigned long c,d,t,s;
+X	register unsigned char *in;
+X	register unsigned long *k;
+X	register int i;
+X
+X	k=(unsigned long *)schedule;
+X	in=(unsigned char *)key;
+X
+X	c2l(in,c);
+X	c2l(in,d);
+X
+X	/* I now do it in 47 simple operations :-)
+X	 * Thanks to John Fletcher (john_fletcher@lccmail.ocf.llnl.gov)
+X	 * for the inspiration. :-) */
+X	PERM_OP (d,c,t,4,0x0f0f0f0f);
+X	HPERM_OP(c,t,-2,0xcccc0000);
+X	HPERM_OP(d,t,-2,0xcccc0000);
+X	PERM_OP (d,c,t,1,0x55555555);
+X	PERM_OP (c,d,t,8,0x00ff00ff);
+X	PERM_OP (d,c,t,1,0x55555555);
+X	d=	(((d&0x000000ff)<<16)| (d&0x0000ff00)     |
+X		 ((d&0x00ff0000)>>16)|((c&0xf0000000)>>4));
+X	c&=0x0fffffff;
+X
+X	for (i=0; i<ITERATIONS; i++)
+X		{
+X		if (shifts2[i])
+X			{ c=((c>>2)|(c<<26)); d=((d>>2)|(d<<26)); }
+X		else
+X			{ c=((c>>1)|(c<<27)); d=((d>>1)|(d<<27)); }
+X		c&=0x0fffffff;
+X		d&=0x0fffffff;
+X		/* could be a few less shifts but I am to lazy at this
+X		 * point in time to investigate */
+X		s=	skb[0][ (c    )&0x3f                ]|
+X			skb[1][((c>> 6)&0x03)|((c>> 7)&0x3c)]|
+X			skb[2][((c>>13)&0x0f)|((c>>14)&0x30)]|
+X			skb[3][((c>>20)&0x01)|((c>>21)&0x06) |
+X			                      ((c>>22)&0x38)];
+X		t=	skb[4][ (d    )&0x3f                ]|
+X			skb[5][((d>> 7)&0x03)|((d>> 8)&0x3c)]|
+X			skb[6][ (d>>15)&0x3f                ]|
+X			skb[7][((d>>21)&0x0f)|((d>>22)&0x30)];
+X
+X		/* table contained 0213 4657 */
+X		*(k++)=((t<<16)|(s&0x0000ffff))&0xffffffff;
+X		s=     ((s>>16)|(t&0xffff0000));
+X		
+X		s=(s<<4)|(s>>28);
+X		*(k++)=s&0xffffffff;
+X		}
+X	return(0);
+X	}
+X
+X/******************************************************************
+X * modified stuff for crypt.
+X ******************************************************************/
+X
+X/* The changes to this macro may help or hinder, depending on the
+X * compiler and the achitecture.  gcc2 always seems to do well :-). 
+X * Inspired by Dana How <how@isl.stanford.edu>
+X * DO NOT use the alternative version on machines with 8 byte longs.
+X */
+X#ifdef ALT_ECB
+X#define D_ENCRYPT(L,R,S) \
+X	v=(R^(R>>16)); \
+X	u=(v&E0); \
+X	v=(v&E1); \
+X	u=((u^(u<<16))^R^s[S  ])<<2; \
+X	t=(v^(v<<16))^R^s[S+1]; \
+X	t=(t>>2)|(t<<30); \
+X	L^= \
+X	*(unsigned long *)(des_SP+0x0100+((t    )&0xfc))+ \
+X	*(unsigned long *)(des_SP+0x0300+((t>> 8)&0xfc))+ \
+X	*(unsigned long *)(des_SP+0x0500+((t>>16)&0xfc))+ \
+X	*(unsigned long *)(des_SP+0x0700+((t>>24)&0xfc))+ \
+X	*(unsigned long *)(des_SP+       ((u    )&0xfc))+ \
+X  	*(unsigned long *)(des_SP+0x0200+((u>> 8)&0xfc))+ \
+X  	*(unsigned long *)(des_SP+0x0400+((u>>16)&0xfc))+ \
+X 	*(unsigned long *)(des_SP+0x0600+((u>>24)&0xfc));
+X#else /* original version */
+X#define D_ENCRYPT(L,R,S)	\
+X	v=(R^(R>>16)); \
+X	u=(v&E0); \
+X	v=(v&E1); \
+X	u=(u^(u<<16))^R^s[S  ]; \
+X	t=(v^(v<<16))^R^s[S+1]; \
+X	t=(t>>4)|(t<<28); \
+X	L^=	SPtrans[1][(t    )&0x3f]| \
+X		SPtrans[3][(t>> 8)&0x3f]| \
+X		SPtrans[5][(t>>16)&0x3f]| \
+X		SPtrans[7][(t>>24)&0x3f]| \
+X		SPtrans[0][(u    )&0x3f]| \
+X		SPtrans[2][(u>> 8)&0x3f]| \
+X		SPtrans[4][(u>>16)&0x3f]| \
+X		SPtrans[6][(u>>24)&0x3f];
+X#endif
+X
+Xunsigned char con_salt[128]={
+X0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,
+X0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,
+X0x0A,0x0B,0x05,0x06,0x07,0x08,0x09,0x0A,
+X0x0B,0x0C,0x0D,0x0E,0x0F,0x10,0x11,0x12,
+X0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,
+X0x1B,0x1C,0x1D,0x1E,0x1F,0x20,0x21,0x22,
+X0x23,0x24,0x25,0x20,0x21,0x22,0x23,0x24,
+X0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,
+X0x2D,0x2E,0x2F,0x30,0x31,0x32,0x33,0x34,
+X0x35,0x36,0x37,0x38,0x39,0x3A,0x3B,0x3C,
+X0x3D,0x3E,0x3F,0x00,0x00,0x00,0x00,0x00,
+X};
+X
+Xunsigned char cov_2char[64]={
+X0x2E,0x2F,0x30,0x31,0x32,0x33,0x34,0x35,
+X0x36,0x37,0x38,0x39,0x41,0x42,0x43,0x44,
+X0x45,0x46,0x47,0x48,0x49,0x4A,0x4B,0x4C,
+X0x4D,0x4E,0x4F,0x50,0x51,0x52,0x53,0x54,
+X0x55,0x56,0x57,0x58,0x59,0x5A,0x61,0x62,
+X0x63,0x64,0x65,0x66,0x67,0x68,0x69,0x6A,
+X0x6B,0x6C,0x6D,0x6E,0x6F,0x70,0x71,0x72,
+X0x73,0x74,0x75,0x76,0x77,0x78,0x79,0x7A
+X};
+X
+Xchar *crypt(buf,salt)
+Xchar *buf;
+Xchar *salt;
+X	{
+X	unsigned int i,j,x,y;
+X	unsigned long Eswap0=0,Eswap1=0;
+X	unsigned long out[2],ll;
+X	des_cblock key;
+X	des_key_schedule ks;
+X	static unsigned char buff[20];
+X	unsigned char bb[9];
+X	unsigned char *b=bb;
+X	unsigned char c,u;
+X
+X	/* eay 25/08/92
+X	 * If you call crypt("pwd","*") as often happens when you
+X	 * have * as the pwd field in /etc/passwd, the function
+X	 * returns *\0XXXXXXXXX
+X	 * The \0 makes the string look like * so the pwd "*" would
+X	 * crypt to "*".  This was found when replacing the crypt in
+X	 * our shared libraries.  People found that the disbled
+X	 * accounts effectivly had no passwd :-(. */
+X	if (salt[0] == '\0') salt[0]='A';
+X	if (salt[1] == '\0') salt[1]='A';
+X	x=buff[0]=salt[0];
+X	Eswap0=con_salt[x];
+X	x=buff[1]=salt[1];
+X	Eswap1=con_salt[x]<<4;
+X
+X	for (i=0; i<8; i++)
+X		{
+X		c= *(buf++);
+X		if (!c) break;
+X		key[i]=(c<<1);
+X		}
+X	for (; i<8; i++)
+X		key[i]=0;
+X
+X	des_set_key((des_cblock *)(key),ks);
+X	body(&out[0],&out[1],ks,Eswap0,Eswap1);
+X
+X	ll=out[0]; l2c(ll,b);
+X	ll=out[1]; l2c(ll,b);
+X	y=0;
+X	u=0x80;
+X	bb[8]=0;
+X	for (i=2; i<13; i++)
+X		{
+X		c=0;
+X		for (j=0; j<6; j++)
+X			{
+X			c<<=1;
+X			if (bb[y] & u) c|=1;
+X			u>>=1;
+X			if (!u)
+X				{
+X				y++;
+X				u=0x80;
+X				}
+X			}
+X		buff[i]=cov_2char[c];
+X		}
+X	return((char *)buff);
+X	}
+X
+Xstatic int body(out0,out1,ks,Eswap0,Eswap1)
+Xunsigned long *out0,*out1;
+Xdes_key_schedule *ks;
+Xunsigned long Eswap0,Eswap1;
+X	{
+X	register unsigned long l,r,t,u,v;
+X#ifdef ALT_ECB
+X	register unsigned char *des_SP=(unsigned char *)SPtrans;
+X#endif
+X	register unsigned long *s;
+X	register int i,j;
+X	register unsigned long E0,E1;
+X
+X	l=0;
+X	r=0;
+X
+X	s=(unsigned long *)ks;
+X	E0=Eswap0;
+X	E1=Eswap1;
+X
+X	for (j=0; j<25; j++)
+X		{
+X		for (i=0; i<(ITERATIONS*2); i+=4)
+X			{
+X			D_ENCRYPT(l,r,  i);	/*  1 */
+X			D_ENCRYPT(r,l,  i+2);	/*  2 */
+X			}
+X		t=l;
+X		l=r;
+X		r=t;
+X		}
+X	t=r;
+X	r=(l>>1)|(l<<31);
+X	l=(t>>1)|(t<<31);
+X	/* clear the top bits on machines with 8byte longs */
+X	l&=0xffffffff;
+X	r&=0xffffffff;
+X
+X	PERM_OP(r,l,t, 1,0x55555555);
+X	PERM_OP(l,r,t, 8,0x00ff00ff);
+X	PERM_OP(r,l,t, 2,0x33333333);
+X	PERM_OP(l,r,t,16,0x0000ffff);
+X	PERM_OP(r,l,t, 4,0x0f0f0f0f);
+X
+X	*out0=l;
+X	*out1=r;
+X	return(0);
+X	}
+X
+END_OF_FILE
+  if test 20174 -ne `wc -c <'fcrypt.c'`; then
+    echo shar: \"'fcrypt.c'\" unpacked with wrong size!
+  fi
+  # end of 'fcrypt.c'
+fi
+echo shar: End of archive 2 \(of 5\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

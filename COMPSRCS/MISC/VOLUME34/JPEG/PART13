@@ -1,0 +1,1913 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v34i067:  jpeg - JPEG image compression, Part13/18
+Message-ID: <1992Dec17.164956.6658@sparky.imd.sterling.com>
+X-Md4-Signature: 394fc2e284504b61aa61a5fff123ef6e
+Date: Thu, 17 Dec 1992 16:49:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 34, Issue 67
+Archive-name: jpeg/part13
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Atari, Cray
+Supersedes: jpeg: Volume 29, Issue 1-18
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ckconfig.c jdarith.c jdhuff.c jrdtarga.c jwrgif.c
+# Wrapped by kent@sparky on Wed Dec 16 20:52:29 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 18)."'
+if test -f 'ckconfig.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ckconfig.c'\"
+else
+  echo shar: Extracting \"'ckconfig.c'\" \(13021 characters\)
+  sed "s/^X//" >'ckconfig.c' <<'END_OF_FILE'
+X/*
+X * ckconfig.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X */
+X
+X/*
+X * This program is intended to help you determine how to configure the JPEG
+X * software for installation on a particular system.  The idea is to try to
+X * compile and execute this program.  If your compiler fails to compile the
+X * program, make changes as indicated in the comments below.  Once you can
+X * compile the program, run it, and it will tell you how to set the various
+X * switches in jconfig.h and in your Makefile.
+X *
+X * This could all be done automatically if we could assume we were on a Unix
+X * system, but we don't want to assume that, so you'll have to edit and
+X * recompile this program until it works.
+X *
+X * As a general rule, each time you try to compile this program,
+X * pay attention only to the *first* error message you get from the compiler.
+X * Many C compilers will issue lots of spurious error messages once they
+X * have gotten confused.  Go to the line indicated in the first error message,
+X * and read the comments preceding that line to see what to change.
+X *
+X * Almost all of the edits you may need to make to this program consist of
+X * changing a line that reads "#define SOME_SYMBOL" to "#undef SOME_SYMBOL",
+X * or vice versa.  This is called defining or undefining that symbol.
+X */
+X
+X
+X/* First we must see if your system has the include files we need.
+X * We start out with the assumption that your system follows the ANSI
+X * conventions for include files.  If you get any error in the next dozen
+X * lines, undefine INCLUDES_ARE_ANSI.
+X */
+X
+X#define INCLUDES_ARE_ANSI	/* replace 'define' by 'undef' if error here */
+X
+X#ifdef INCLUDES_ARE_ANSI	/* this will be skipped if you undef... */
+X#include <stdio.h>		/* If you ain't got this, you ain't got C. */
+X#ifdef __SASC			/* Amiga SAS C provides size_t in stddef.h. */
+X#include <stddef.h>		/* (They are wrong...) */
+X#endif
+X#include <string.h>		/* size_t might be here too. */
+Xtypedef size_t my_size_t;	/* The payoff: do we have size_t now? */
+X#include <stdlib.h>		/* Check other ANSI includes we use. */
+X#endif
+X
+X
+X/* If your system doesn't follow the ANSI conventions, we have to figure out
+X * what it does follow.  If you didn't get an error before this line, you can
+X * ignore everything down to "#define HAVE_ANSI_DEFINITIONS".
+X */
+X
+X#ifndef INCLUDES_ARE_ANSI	/* skip these tests if INCLUDES_ARE_ANSI */
+X
+X#include <stdio.h>		/* If you ain't got this, you ain't got C. */
+X
+X/* jinclude.h will try to include <sys/types.h> if you don't set
+X * INCLUDES_ARE_ANSI.  We need to test whether that include file is provided.
+X * If you get an error here, undefine HAVE_TYPES_H.
+X */
+X
+X#define HAVE_TYPES_H
+X
+X#ifdef HAVE_TYPES_H
+X#include <sys/types.h>
+X#endif
+X
+X/* We have to see if your string functions are defined by
+X * strings.h (BSD convention) or string.h (everybody else).
+X * We try the non-BSD convention first; define BSD if the compiler
+X * says it can't find string.h.
+X */
+X
+X#undef BSD
+X
+X#ifdef BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X/* Usually size_t is defined in stdio.h, sys/types.h, and/or string.h.
+X * If not, you'll get an error on the "typedef size_t my_size_t;" line below.
+X * In that case, you'll have to search through your system library to
+X * figure out which include file defines "size_t".  Look for a line that
+X * says "typedef something-or-other size_t;" (stddef.h and stdlib.h are
+X * good places to look first).  Then, change the line below that says
+X * "#include <someincludefile.h>" to instead include the file
+X * you found size_t in, and define NEED_SPECIAL_INCLUDE.
+X */
+X
+X#undef NEED_SPECIAL_INCLUDE	/* assume we DON'T need it, for starters */
+X
+X#ifdef NEED_SPECIAL_INCLUDE
+X#include <someincludefile.h>
+X#endif
+X
+Xtypedef size_t my_size_t;	/* The payoff: do we have size_t now? */
+X
+X
+X#endif /* INCLUDES_ARE_ANSI */
+X
+X
+X
+X/* The next question is whether your compiler supports ANSI-style function
+X * definitions.  You need to know this in order to choose between using
+X * makefile.ansi and using makefile.unix.
+X * The #define line below is set to assume you have ANSI function definitions.
+X * If you get an error in this group of lines, undefine HAVE_ANSI_DEFINITIONS.
+X */
+X
+X#define HAVE_ANSI_DEFINITIONS
+X
+X#ifdef HAVE_ANSI_DEFINITIONS
+Xint testfunction (int arg1, int * arg2); /* check prototypes */
+X
+Xstruct methods_struct {		/* check method-pointer declarations */
+X  int (*error_exit) (char *msgtext);
+X  int (*trace_message) (char *msgtext);
+X  int (*another_method) (void);
+X};
+X
+Xint testfunction (int arg1, int * arg2) /* check definitions */
+X{
+X  return arg2[arg1];
+X}
+X
+Xint testfunction1 (void)	/* check void arg list */
+X{
+X  return 0;
+X}
+X#endif
+X
+X
+X/* Now we want to find out if your compiler knows what "unsigned char" means.
+X * If you get an error on the "unsigned char un_char;" line,
+X * then undefine HAVE_UNSIGNED_CHAR.
+X */
+X
+X#define HAVE_UNSIGNED_CHAR
+X
+X#ifdef HAVE_UNSIGNED_CHAR
+Xunsigned char un_char;
+X#endif
+X
+X
+X/* Now we want to find out if your compiler knows what "unsigned short" means.
+X * If you get an error on the "unsigned short un_short;" line,
+X * then undefine HAVE_UNSIGNED_SHORT.
+X */
+X
+X#define HAVE_UNSIGNED_SHORT
+X
+X#ifdef HAVE_UNSIGNED_SHORT
+Xunsigned short un_short;
+X#endif
+X
+X
+X/* Now we want to find out if your compiler understands type "void".
+X * If you get an error anywhere in here, undefine HAVE_VOID.
+X */
+X
+X#define HAVE_VOID
+X
+X#ifdef HAVE_VOID
+Xtypedef void * void_ptr;	/* check void * */
+Xtypedef void (*void_func) ();	/* check ptr to function returning void */
+X
+Xvoid testfunction2 (arg1, arg2)	/* check void function result */
+X     void_ptr arg1;
+X     void_func arg2;
+X{
+X  char * locptr = (char *) arg1; /* check casting to and from void * */
+X  arg1 = (void *) locptr;
+X  (*arg2) (1, 2);		/* check call of fcn returning void */
+X}
+X#endif
+X
+X
+X/* Now we want to find out if your compiler knows what "const" means.
+X * If you get an error here, undefine HAVE_CONST.
+X */
+X
+X#define HAVE_CONST
+X
+X#ifdef HAVE_CONST
+Xstatic const int carray[3] = {1, 2, 3};
+X
+Xint testfunction3 (arg1)
+X     const int arg1;
+X{
+X  return carray[arg1];
+X}
+X#endif
+X
+X
+X
+X/************************************************************************
+X *  OK, that's it.  You should not have to change anything beyond this
+X *  point in order to compile and execute this program.  (You might get
+X *  some warnings, but you can ignore them.)
+X *  When you run the program, it will make a couple more tests that it
+X *  can do automatically, and then it will print out a summary of the changes
+X *  that you need to make to the makefile and jconfig.h.
+X ************************************************************************
+X */
+X
+X
+Xstatic int any_changes = 0;
+X
+Xint new_change ()
+X{
+X  if (! any_changes) {
+X    printf("\nMost of the changes recommended by this program can be made either\n");
+X    printf("by editing jconfig.h, or by adding -Dsymbol switches to the CFLAGS\n");
+X    printf("line in your Makefile.  (Some PC compilers expect /Dsymbol instead.)\n");
+X    printf("The CFLAGS method is simpler, but if your compiler doesn't support -D,\n");
+X    printf("then you must change jconfig.h.  Also, it's best to change jconfig.h\n");
+X    printf("if you plan to use the JPEG software as a library for other programs.\n");
+X    any_changes = 1;
+X  }
+X  printf("\n");			/* blank line before each problem report */
+X  return 0;
+X}
+X
+X
+Xint test_char_sign (arg)
+X     int arg;
+X{
+X  if (arg == 189) {		/* expected result for unsigned char */
+X    new_change();
+X    printf("You should add -DCHAR_IS_UNSIGNED to CFLAGS,\n");
+X    printf("or else remove the /* */ comment marks from the line\n");
+X    printf("/* #define CHAR_IS_UNSIGNED */  in jconfig.h.\n");
+X    printf("(Be sure to delete the space before the # character too.)\n");
+X  }
+X  else if (arg != -67) {	/* expected result for signed char */
+X    new_change();
+X    printf("Hmm, it seems 'char' is less than eight bits wide on your machine.\n");
+X    printf("I fear the JPEG software will not work at all.\n");
+X  }
+X  return 0;
+X}
+X
+X
+Xint test_shifting (arg)
+X     long arg;
+X/* See whether right-shift on a long is signed or not. */
+X{
+X  long res = arg >> 4;
+X
+X  if (res == 0x80817F4L) {	/* expected result for unsigned */
+X    new_change();
+X    printf("You must add -DRIGHT_SHIFT_IS_UNSIGNED to CFLAGS,\n");
+X    printf("or else remove the /* */ comment marks from the line\n");
+X    printf("/* #define RIGHT_SHIFT_IS_UNSIGNED */  in jconfig.h.\n");
+X  }
+X  else if (res != -0x7F7E80CL) { /* expected result for signed */
+X    new_change();
+X    printf("Right shift isn't acting as I expect it to.\n");
+X    printf("I fear the JPEG software will not work at all.\n");
+X  }
+X  return 0;
+X}
+X
+X
+Xint main (argc, argv)
+X     int argc;
+X     char ** argv;
+X{
+X  char signed_char_check = (char) (-67);
+X
+X  printf("Results of configuration check for Independent JPEG Group's software:\n");
+X  printf("\nIf there's not a specific makefile provided for your compiler,\n");
+X#ifdef HAVE_ANSI_DEFINITIONS
+X  printf("you should use makefile.ansi as the starting point for your Makefile.\n");
+X#else
+X  printf("you should use makefile.unix as the starting point for your Makefile.\n");
+X#endif
+X
+X  /* Check whether we have all the ANSI features, */
+X  /* and whether this agrees with __STDC__ being predefined. */
+X#ifdef __STDC__
+X#define HAVE_STDC	/* ANSI compilers won't allow redefining __STDC__ */
+X#endif
+X
+X#ifdef HAVE_ANSI_DEFINITIONS
+X#ifdef HAVE_UNSIGNED_CHAR
+X#ifdef HAVE_UNSIGNED_SHORT
+X#ifdef HAVE_CONST
+X#define HAVE_ALL_ANSI_FEATURES
+X#endif
+X#endif
+X#endif
+X#endif
+X
+X#ifdef HAVE_ALL_ANSI_FEATURES
+X#ifndef HAVE_STDC
+X  new_change();
+X  printf("Your compiler doesn't claim to be ANSI-compliant, but it is close enough\n");
+X  printf("for me.  Either add -DHAVE_STDC to CFLAGS, or add #define HAVE_STDC at the\n");
+X  printf("beginning of jconfig.h.\n");
+X#define HAVE_STDC
+X#endif
+X#else /* !HAVE_ALL_ANSI_FEATURES */
+X#ifdef HAVE_STDC
+X  new_change();
+X  printf("Your compiler claims to be ANSI-compliant, but it is lying!\n");
+X  printf("Delete the line  #define HAVE_STDC  near the beginning of jconfig.h.\n");
+X#undef HAVE_STDC
+X#endif
+X#endif /* HAVE_ALL_ANSI_FEATURES */
+X
+X#ifndef HAVE_STDC
+X
+X#ifdef HAVE_ANSI_DEFINITIONS
+X  new_change();
+X  printf("You should add -DPROTO to CFLAGS, or else take out the several\n");
+X  printf("#ifdef/#else/#endif lines surrounding #define PROTO in jconfig.h.\n");
+X  printf("(Leave only one #define PROTO line.)\n");
+X#endif
+X
+X#ifdef HAVE_UNSIGNED_CHAR
+X#ifdef HAVE_UNSIGNED_SHORT
+X  new_change();
+X  printf("You should add -DHAVE_UNSIGNED_CHAR and -DHAVE_UNSIGNED_SHORT\n");
+X  printf("to CFLAGS, or else take out the #ifdef HAVE_STDC/#endif lines\n");
+X  printf("surrounding #define HAVE_UNSIGNED_CHAR and #define HAVE_UNSIGNED_SHORT\n");
+X  printf("in jconfig.h.\n");
+X#else /* only unsigned char */
+X  new_change();
+X  printf("You should add -DHAVE_UNSIGNED_CHAR to CFLAGS,\n");
+X  printf("or else move #define HAVE_UNSIGNED_CHAR outside the\n");
+X  printf("#ifdef HAVE_STDC/#endif lines surrounding it in jconfig.h.\n");
+X#endif
+X#else /* !HAVE_UNSIGNED_CHAR */
+X#ifdef HAVE_UNSIGNED_SHORT
+X  new_change();
+X  printf("You should add -DHAVE_UNSIGNED_SHORT to CFLAGS,\n");
+X  printf("or else move #define HAVE_UNSIGNED_SHORT outside the\n");
+X  printf("#ifdef HAVE_STDC/#endif lines surrounding it in jconfig.h.\n");
+X#endif
+X#endif /* HAVE_UNSIGNED_CHAR */
+X
+X#ifdef HAVE_CONST
+X  new_change();
+X  printf("You should delete the  #define const  line from jconfig.h.\n");
+X#endif
+X
+X#endif /* HAVE_STDC */
+X
+X  test_char_sign((int) signed_char_check);
+X
+X  test_shifting(-0x7F7E80B1L);
+X
+X#ifndef HAVE_VOID
+X  new_change();
+X  printf("You should add -Dvoid=char to CFLAGS,\n");
+X  printf("or else remove the /* */ comment marks from the line\n");
+X  printf("/* #define void char */  in jconfig.h.\n");
+X  printf("(Be sure to delete the space before the # character too.)\n");
+X#endif
+X
+X#ifdef INCLUDES_ARE_ANSI
+X#ifndef __STDC__
+X  new_change();
+X  printf("You should add -DINCLUDES_ARE_ANSI to CFLAGS, or else add\n");
+X  printf("#define INCLUDES_ARE_ANSI at the beginning of jinclude.h (NOT jconfig.h).\n");
+X#endif
+X#else /* !INCLUDES_ARE_ANSI */
+X#ifdef __STDC__
+X  new_change();
+X  printf("You should add -DNONANSI_INCLUDES to CFLAGS, or else add\n");
+X  printf("#define NONANSI_INCLUDES at the beginning of jinclude.h (NOT jconfig.h).\n");
+X#endif
+X#ifdef NEED_SPECIAL_INCLUDE
+X  new_change();
+X  printf("In jinclude.h, change the line reading #include <sys/types.h>\n");
+X  printf("to instead include the file you found size_t in.\n");
+X#else /* !NEED_SPECIAL_INCLUDE */
+X#ifndef HAVE_TYPES_H
+X  new_change();
+X  printf("In jinclude.h, delete the line reading #include <sys/types.h>.\n");
+X#endif
+X#endif /* NEED_SPECIAL_INCLUDE */
+X#ifdef BSD
+X  new_change();
+X  printf("You should add -DBSD to CFLAGS, or else add\n");
+X  printf("#define BSD at the beginning of jinclude.h (NOT jconfig.h).\n");
+X#endif
+X#endif /* INCLUDES_ARE_ANSI */
+X
+X  if (any_changes) {
+X    printf("\nI think that's everything...\n");
+X  } else {
+X    printf("\nI think jconfig.h is OK as distributed.\n");
+X  }
+X
+X  return any_changes;
+X}
+END_OF_FILE
+  if test 13021 -ne `wc -c <'ckconfig.c'`; then
+    echo shar: \"'ckconfig.c'\" unpacked with wrong size!
+  fi
+  # end of 'ckconfig.c'
+fi
+if test -f 'jdarith.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jdarith.c'\"
+else
+  echo shar: Extracting \"'jdarith.c'\" \(1147 characters\)
+  sed "s/^X//" >'jdarith.c' <<'END_OF_FILE'
+X/*
+X * jdarith.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains arithmetic entropy decoding routines.
+X * These routines are invoked via the methods entropy_decode
+X * and entropy_decode_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef D_ARITH_CODING_SUPPORTED
+X
+X
+X/*
+X * The arithmetic coding option of the JPEG standard specifies Q-coding,
+X * which is covered by patents held by IBM (and possibly AT&T and Mitsubishi).
+X * At this time it does not appear to be legal for the Independent JPEG
+X * Group to distribute software that implements arithmetic coding.
+X * We have therefore removed arithmetic coding support from the
+X * distributed source code.
+X *
+X * We're not happy about it either.
+X */
+X
+X
+X/*
+X * The method selection routine for arithmetic entropy decoding.
+X */
+X
+XGLOBAL void
+Xjseldarithmetic (decompress_info_ptr cinfo)
+X{
+X  if (cinfo->arith_code) {
+X    ERREXIT(cinfo->emethods, "Sorry, there are legal restrictions on arithmetic coding");
+X  }
+X}
+X
+X#endif /* D_ARITH_CODING_SUPPORTED */
+END_OF_FILE
+  if test 1147 -ne `wc -c <'jdarith.c'`; then
+    echo shar: \"'jdarith.c'\" unpacked with wrong size!
+  fi
+  # end of 'jdarith.c'
+fi
+if test -f 'jdhuff.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jdhuff.c'\"
+else
+  echo shar: Extracting \"'jdhuff.c'\" \(12497 characters\)
+  sed "s/^X//" >'jdhuff.c' <<'END_OF_FILE'
+X/*
+X * jdhuff.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains Huffman entropy decoding routines.
+X * These routines are invoked via the methods entropy_decode
+X * and entropy_decode_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/* Static variables to avoid passing 'round extra parameters */
+X
+Xstatic decompress_info_ptr dcinfo;
+X
+Xstatic INT32 get_buffer;	/* current bit-extraction buffer */
+Xstatic int bits_left;		/* # of unused bits in it */
+Xstatic boolean printed_eod;	/* flag to suppress multiple end-of-data msgs */
+X
+XLOCAL void
+Xfix_huff_tbl (HUFF_TBL * htbl)
+X/* Compute derived values for a Huffman table */
+X{
+X  int p, i, l, si;
+X  char huffsize[257];
+X  UINT16 huffcode[257];
+X  UINT16 code;
+X  
+X  /* Figure C.1: make table of Huffman code length for each symbol */
+X  /* Note that this is in code-length order. */
+X
+X  p = 0;
+X  for (l = 1; l <= 16; l++) {
+X    for (i = 1; i <= (int) htbl->bits[l]; i++)
+X      huffsize[p++] = (char) l;
+X  }
+X  huffsize[p] = 0;
+X  
+X  /* Figure C.2: generate the codes themselves */
+X  /* Note that this is in code-length order. */
+X  
+X  code = 0;
+X  si = huffsize[0];
+X  p = 0;
+X  while (huffsize[p]) {
+X    while (((int) huffsize[p]) == si) {
+X      huffcode[p++] = code;
+X      code++;
+X    }
+X    code <<= 1;
+X    si++;
+X  }
+X
+X  /* We don't bother to fill in the encoding tables ehufco[] and ehufsi[], */
+X  /* since they are not used for decoding. */
+X
+X  /* Figure F.15: generate decoding tables */
+X
+X  p = 0;
+X  for (l = 1; l <= 16; l++) {
+X    if (htbl->bits[l]) {
+X      htbl->valptr[l] = p;	/* huffval[] index of 1st sym of code len l */
+X      htbl->mincode[l] = huffcode[p]; /* minimum code of length l */
+X      p += htbl->bits[l];
+X      htbl->maxcode[l] = huffcode[p-1];	/* maximum code of length l */
+X    } else {
+X      htbl->maxcode[l] = -1;
+X    }
+X  }
+X  htbl->maxcode[17] = 0xFFFFFL;	/* ensures huff_DECODE terminates */
+X}
+X
+X
+X/*
+X * Code for extracting the next N bits from the input stream.
+X * (N never exceeds 15 for JPEG data.)
+X * This needs to go as fast as possible!
+X *
+X * We read source bytes into get_buffer and dole out bits as needed.
+X * If get_buffer already contains enough bits, they are fetched in-line
+X * by the macros get_bits() and get_bit().  When there aren't enough bits,
+X * fill_bit_buffer is called; it will attempt to fill get_buffer to the
+X * "high water mark", then extract the desired number of bits.  The idea,
+X * of course, is to minimize the function-call overhead cost of entering
+X * fill_bit_buffer.
+X * On most machines MIN_GET_BITS should be 25 to allow the full 32-bit width
+X * of get_buffer to be used.  (On machines with wider words, an even larger
+X * buffer could be used.)  However, on some machines 32-bit shifts are
+X * relatively slow and take time proportional to the number of places shifted.
+X * (This is true with most PC compilers, for instance.)  In this case it may
+X * be a win to set MIN_GET_BITS to the minimum value of 15.  This reduces the
+X * average shift distance at the cost of more calls to fill_bit_buffer.
+X */
+X
+X#ifdef SLOW_SHIFT_32
+X#define MIN_GET_BITS  15	/* minimum allowable value */
+X#else
+X#define MIN_GET_BITS  25	/* max value for 32-bit get_buffer */
+X#endif
+X
+Xstatic const int bmask[16] =	/* bmask[n] is mask for n rightmost bits */
+X  { 0, 0x0001, 0x0003, 0x0007, 0x000F, 0x001F, 0x003F, 0x007F, 0x00FF,
+X    0x01FF, 0x03FF, 0x07FF, 0x0FFF, 0x1FFF, 0x3FFF, 0x7FFF };
+X
+X
+XLOCAL int
+Xfill_bit_buffer (int nbits)
+X/* Load up the bit buffer and do get_bits(nbits) */
+X{
+X  /* Attempt to load at least MIN_GET_BITS bits into get_buffer. */
+X  while (bits_left < MIN_GET_BITS) {
+X    register int c = JGETC(dcinfo);
+X    
+X    /* If it's 0xFF, check and discard stuffed zero byte */
+X    if (c == 0xFF) {
+X      int c2 = JGETC(dcinfo);
+X      if (c2 != 0) {
+X	/* Oops, it's actually a marker indicating end of compressed data. */
+X	/* Better put it back for use later */
+X	JUNGETC(c2,dcinfo);
+X	JUNGETC(c,dcinfo);
+X	/* There should be enough bits still left in the data segment; */
+X	/* if so, just break out of the while loop. */
+X	if (bits_left >= nbits)
+X	  break;
+X	/* Uh-oh.  Report corrupted data to user and stuff zeroes into
+X	 * the data stream, so we can produce some kind of image.
+X	 * Note that this will be repeated for each byte demanded for the
+X	 * rest of the segment; this is a bit slow but not unreasonably so.
+X	 * The main thing is to avoid getting a zillion warnings, hence:
+X	 */
+X	if (! printed_eod) {
+X	  WARNMS(dcinfo->emethods, "Corrupt JPEG data: premature end of data segment");
+X	  printed_eod = TRUE;
+X	}
+X	c = 0;			/* insert a zero byte into bit buffer */
+X      }
+X    }
+X
+X    /* OK, load c into get_buffer */
+X    get_buffer = (get_buffer << 8) | c;
+X    bits_left += 8;
+X  }
+X
+X  /* Having filled get_buffer, extract desired bits (this simplifies macros) */
+X  bits_left -= nbits;
+X  return ((int) (get_buffer >> bits_left)) & bmask[nbits];
+X}
+X
+X
+X/* Macros to make things go at some speed! */
+X/* NB: parameter to get_bits should be simple variable, not expression */
+X
+X#define get_bits(nbits) \
+X	(bits_left >= (nbits) ? \
+X	 ((int) (get_buffer >> (bits_left -= (nbits)))) & bmask[nbits] : \
+X	 fill_bit_buffer(nbits))
+X
+X#define get_bit() \
+X	(bits_left ? \
+X	 ((int) (get_buffer >> (--bits_left))) & 1 : \
+X	 fill_bit_buffer(1))
+X
+X
+X/* Figure F.16: extract next coded symbol from input stream */
+X  
+XINLINE
+XLOCAL int
+Xhuff_DECODE (HUFF_TBL * htbl)
+X{
+X  register int l;
+X  register INT32 code;
+X  
+X  code = get_bit();
+X  l = 1;
+X  while (code > htbl->maxcode[l]) {
+X    code = (code << 1) | get_bit();
+X    l++;
+X  }
+X
+X  /* With garbage input we may reach the sentinel value l = 17. */
+X
+X  if (l > 16) {
+X    WARNMS(dcinfo->emethods, "Corrupt JPEG data: bad Huffman code");
+X    return 0;			/* fake a zero as the safest result */
+X  }
+X
+X  return htbl->huffval[ htbl->valptr[l] + ((int) (code - htbl->mincode[l])) ];
+X}
+X
+X
+X/* Figure F.12: extend sign bit */
+X
+X#define huff_EXTEND(x,s)  ((x) < extend_test[s] ? (x) + extend_offset[s] : (x))
+X
+Xstatic const int extend_test[16] =   /* entry n is 2**(n-1) */
+X  { 0, 0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040, 0x0080,
+X    0x0100, 0x0200, 0x0400, 0x0800, 0x1000, 0x2000, 0x4000 };
+X
+Xstatic const int extend_offset[16] = /* entry n is (-1 << n) + 1 */
+X  { 0, ((-1)<<1) + 1, ((-1)<<2) + 1, ((-1)<<3) + 1, ((-1)<<4) + 1,
+X    ((-1)<<5) + 1, ((-1)<<6) + 1, ((-1)<<7) + 1, ((-1)<<8) + 1,
+X    ((-1)<<9) + 1, ((-1)<<10) + 1, ((-1)<<11) + 1, ((-1)<<12) + 1,
+X    ((-1)<<13) + 1, ((-1)<<14) + 1, ((-1)<<15) + 1 };
+X
+X
+X/*
+X * Initialize for a Huffman-compressed scan.
+X * This is invoked after reading the SOS marker.
+X */
+X
+XMETHODDEF void
+Xhuff_decoder_init (decompress_info_ptr cinfo)
+X{
+X  short ci;
+X  jpeg_component_info * compptr;
+X
+X  /* Initialize static variables */
+X  dcinfo = cinfo;
+X  bits_left = 0;
+X  printed_eod = FALSE;
+X
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
+X    compptr = cinfo->cur_comp_info[ci];
+X    /* Make sure requested tables are present */
+X    if (cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no] == NULL ||
+X	cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no] == NULL)
+X      ERREXIT(cinfo->emethods, "Use of undefined Huffman table");
+X    /* Compute derived values for Huffman tables */
+X    /* We may do this more than once for same table, but it's not a big deal */
+X    fix_huff_tbl(cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no]);
+X    fix_huff_tbl(cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no]);
+X    /* Initialize DC predictions to 0 */
+X    cinfo->last_dc_val[ci] = 0;
+X  }
+X
+X  /* Initialize restart stuff */
+X  cinfo->restarts_to_go = cinfo->restart_interval;
+X  cinfo->next_restart_num = 0;
+X}
+X
+X
+X/*
+X * Check for a restart marker & resynchronize decoder.
+X */
+X
+XLOCAL void
+Xprocess_restart (decompress_info_ptr cinfo)
+X{
+X  int c, nbytes;
+X  short ci;
+X
+X  /* Throw away any unused bits remaining in bit buffer */
+X  nbytes = bits_left / 8;	/* count any full bytes loaded into buffer */
+X  bits_left = 0;
+X  printed_eod = FALSE;		/* next segment can get another warning */
+X
+X  /* Scan for next JPEG marker */
+X  do {
+X    do {			/* skip any non-FF bytes */
+X      nbytes++;
+X      c = JGETC(cinfo);
+X    } while (c != 0xFF);
+X    do {			/* skip any duplicate FFs */
+X      /* we don't increment nbytes here since extra FFs are legal */
+X      c = JGETC(cinfo);
+X    } while (c == 0xFF);
+X  } while (c == 0);		/* repeat if it was a stuffed FF/00 */
+X
+X  if (nbytes != 1)
+X    WARNMS2(cinfo->emethods,
+X	    "Corrupt JPEG data: %d extraneous bytes before marker 0x%02x",
+X	    nbytes-1, c);
+X
+X  if (c != (RST0 + cinfo->next_restart_num)) {
+X    /* Uh-oh, the restart markers have been messed up too. */
+X    /* Let the file-format module try to figure out how to resync. */
+X    (*cinfo->methods->resync_to_restart) (cinfo, c);
+X  } else
+X    TRACEMS1(cinfo->emethods, 2, "RST%d", cinfo->next_restart_num);
+X
+X  /* Re-initialize DC predictions to 0 */
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++)
+X    cinfo->last_dc_val[ci] = 0;
+X
+X  /* Update restart state */
+X  cinfo->restarts_to_go = cinfo->restart_interval;
+X  cinfo->next_restart_num = (cinfo->next_restart_num + 1) & 7;
+X}
+X
+X
+X/* ZAG[i] is the natural-order position of the i'th element of zigzag order.
+X * If the incoming data is corrupted, huff_decode_mcu could attempt to
+X * reference values beyond the end of the array.  To avoid a wild store,
+X * we put some extra zeroes after the real entries.
+X */
+X
+Xstatic const short ZAG[DCTSIZE2+16] = {
+X  0,  1,  8, 16,  9,  2,  3, 10,
+X 17, 24, 32, 25, 18, 11,  4,  5,
+X 12, 19, 26, 33, 40, 48, 41, 34,
+X 27, 20, 13,  6,  7, 14, 21, 28,
+X 35, 42, 49, 56, 57, 50, 43, 36,
+X 29, 22, 15, 23, 30, 37, 44, 51,
+X 58, 59, 52, 45, 38, 31, 39, 46,
+X 53, 60, 61, 54, 47, 55, 62, 63,
+X  0,  0,  0,  0,  0,  0,  0,  0, /* extra entries in case k>63 below */
+X  0,  0,  0,  0,  0,  0,  0,  0
+X};
+X
+X
+X/*
+X * Decode and return one MCU's worth of Huffman-compressed coefficients.
+X * This routine also handles quantization descaling and zigzag reordering
+X * of coefficient values.
+X *
+X * The i'th block of the MCU is stored into the block pointed to by
+X * MCU_data[i].  WE ASSUME THIS AREA HAS BEEN ZEROED BY THE CALLER.
+X * (Wholesale zeroing is usually a little faster than retail...)
+X */
+X
+XMETHODDEF void
+Xhuff_decode_mcu (decompress_info_ptr cinfo, JBLOCKROW *MCU_data)
+X{
+X  register int s, k, r;
+X  short blkn, ci;
+X  register JBLOCKROW block;
+X  register QUANT_TBL_PTR quanttbl;
+X  HUFF_TBL *dctbl;
+X  HUFF_TBL *actbl;
+X  jpeg_component_info * compptr;
+X
+X  /* Account for restart interval, process restart marker if needed */
+X  if (cinfo->restart_interval) {
+X    if (cinfo->restarts_to_go == 0)
+X      process_restart(cinfo);
+X    cinfo->restarts_to_go--;
+X  }
+X
+X  /* Outer loop handles each block in the MCU */
+X
+X  for (blkn = 0; blkn < cinfo->blocks_in_MCU; blkn++) {
+X    block = MCU_data[blkn];
+X    ci = cinfo->MCU_membership[blkn];
+X    compptr = cinfo->cur_comp_info[ci];
+X    quanttbl = cinfo->quant_tbl_ptrs[compptr->quant_tbl_no];
+X    actbl = cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no];
+X    dctbl = cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no];
+X
+X    /* Decode a single block's worth of coefficients */
+X
+X    /* Section F.2.2.1: decode the DC coefficient difference */
+X    s = huff_DECODE(dctbl);
+X    if (s) {
+X      r = get_bits(s);
+X      s = huff_EXTEND(r, s);
+X    }
+X
+X    /* Convert DC difference to actual value, update last_dc_val */
+X    s += cinfo->last_dc_val[ci];
+X    cinfo->last_dc_val[ci] = (JCOEF) s;
+X    /* Descale and output the DC coefficient (assumes ZAG[0] = 0) */
+X    (*block)[0] = (JCOEF) (((JCOEF) s) * quanttbl[0]);
+X    
+X    /* Section F.2.2.2: decode the AC coefficients */
+X    /* Since zero values are skipped, output area must be zeroed beforehand */
+X    for (k = 1; k < DCTSIZE2; k++) {
+X      r = huff_DECODE(actbl);
+X      
+X      s = r & 15;
+X      r = r >> 4;
+X      
+X      if (s) {
+X	k += r;
+X	r = get_bits(s);
+X	s = huff_EXTEND(r, s);
+X	/* Descale coefficient and output in natural (dezigzagged) order */
+X	(*block)[ZAG[k]] = (JCOEF) (((JCOEF) s) * quanttbl[k]);
+X      } else {
+X	if (r != 15)
+X	  break;
+X	k += 15;
+X      }
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of a Huffman-compressed scan.
+X */
+X
+XMETHODDEF void
+Xhuff_decoder_term (decompress_info_ptr cinfo)
+X{
+X  /* No work needed */
+X}
+X
+X
+X/*
+X * The method selection routine for Huffman entropy decoding.
+X */
+X
+XGLOBAL void
+Xjseldhuffman (decompress_info_ptr cinfo)
+X{
+X  if (! cinfo->arith_code) {
+X    cinfo->methods->entropy_decode_init = huff_decoder_init;
+X    cinfo->methods->entropy_decode = huff_decode_mcu;
+X    cinfo->methods->entropy_decode_term = huff_decoder_term;
+X  }
+X}
+END_OF_FILE
+  if test 12497 -ne `wc -c <'jdhuff.c'`; then
+    echo shar: \"'jdhuff.c'\" unpacked with wrong size!
+  fi
+  # end of 'jdhuff.c'
+fi
+if test -f 'jrdtarga.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrdtarga.c'\"
+else
+  echo shar: Extracting \"'jrdtarga.c'\" \(13431 characters\)
+  sed "s/^X//" >'jrdtarga.c' <<'END_OF_FILE'
+X/*
+X * jrdtarga.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to read input images in Targa format.
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume input from
+X * an ordinary stdio stream.  They further assume that reading begins
+X * at the start of the file; input_init may need work if the
+X * user interface has already read some data (e.g., to determine that
+X * the file is indeed Targa format).
+X *
+X * These routines are invoked via the methods get_input_row
+X * and input_init/term.
+X *
+X * Based on code contributed by Lee Daniel Crocker.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef TARGA_SUPPORTED
+X
+X
+X/* Macros to deal with unsigned chars as efficiently as compiler allows */
+X
+X#ifdef HAVE_UNSIGNED_CHAR
+Xtypedef unsigned char U_CHAR;
+X#define UCH(x)	((int) (x))
+X#else /* !HAVE_UNSIGNED_CHAR */
+X#ifdef CHAR_IS_UNSIGNED
+Xtypedef char U_CHAR;
+X#define UCH(x)	((int) (x))
+X#else
+Xtypedef char U_CHAR;
+X#define UCH(x)	((int) (x) & 0xFF)
+X#endif
+X#endif /* HAVE_UNSIGNED_CHAR */
+X
+X
+X#define	ReadOK(file,buffer,len)	(JFREAD(file,buffer,len) == ((size_t) (len)))
+X
+X
+Xstatic JSAMPARRAY colormap;	/* Targa colormap (converted to my format) */
+X
+Xstatic big_sarray_ptr whole_image; /* Needed if funny input row order */
+Xstatic long current_row;	/* Current logical row number to read */
+X
+X/* Pointer to routine to extract next Targa pixel from input file */
+Xstatic void (*read_pixel) PP((compress_info_ptr cinfo));
+X
+X/* Result of read_pixel is delivered here: */
+Xstatic U_CHAR tga_pixel[4];
+X
+Xstatic int pixel_size;		/* Bytes per Targa pixel (1 to 4) */
+X
+X/* State info for reading RLE-coded pixels; both counts must be init to 0 */
+Xstatic int block_count;		/* # of pixels remaining in RLE block */
+Xstatic int dup_pixel_count;	/* # of times to duplicate previous pixel */
+X
+X/* This saves the correct pixel-row-expansion method for preload_image */
+Xstatic void (*get_pixel_row) PP((compress_info_ptr cinfo,
+X				 JSAMPARRAY pixel_row));
+X
+X
+X/* For expanding 5-bit pixel values to 8-bit with best rounding */
+X
+Xstatic const UINT8 c5to8bits[32] = {
+X    0,   8,  16,  24,  32,  41,  49,  57,
+X   65,  74,  82,  90,  98, 106, 115, 123,
+X  131, 139, 148, 156, 164, 172, 180, 189,
+X  197, 205, 213, 222, 230, 238, 246, 255
+X};
+X
+X
+X
+XLOCAL int
+Xread_byte (compress_info_ptr cinfo)
+X/* Read next byte from Targa file */
+X{
+X  register FILE *infile = cinfo->input_file;
+X  register int c;
+X
+X  if ((c = getc(infile)) == EOF)
+X    ERREXIT(cinfo->emethods, "Premature EOF in Targa file");
+X  return c;
+X}
+X
+X
+XLOCAL void
+Xread_colormap (compress_info_ptr cinfo, int cmaplen, int mapentrysize)
+X/* Read the colormap from a Targa file */
+X{
+X  int i;
+X
+X  /* Presently only handles 24-bit BGR format */
+X  if (mapentrysize != 24)
+X    ERREXIT(cinfo->emethods, "Unsupported Targa colormap format");
+X
+X  for (i = 0; i < cmaplen; i++) {
+X    colormap[2][i] = (JSAMPLE) read_byte(cinfo);
+X    colormap[1][i] = (JSAMPLE) read_byte(cinfo);
+X    colormap[0][i] = (JSAMPLE) read_byte(cinfo);
+X  }
+X}
+X
+X
+X/*
+X * read_pixel methods: get a single pixel from Targa file into tga_pixel[]
+X */
+X
+XLOCAL void
+Xread_non_rle_pixel (compress_info_ptr cinfo)
+X/* Read one Targa pixel from the input file; no RLE expansion */
+X{
+X  register FILE * infile = cinfo->input_file;
+X  register int i;
+X
+X  for (i = 0; i < pixel_size; i++) {
+X    tga_pixel[i] = (U_CHAR) getc(infile);
+X  }
+X}
+X
+X
+XLOCAL void
+Xread_rle_pixel (compress_info_ptr cinfo)
+X/* Read one Targa pixel from the input file, expanding RLE data as needed */
+X{
+X  register FILE * infile = cinfo->input_file;
+X  register int i;
+X
+X  /* Duplicate previously read pixel? */
+X  if (dup_pixel_count > 0) {
+X    dup_pixel_count--;
+X    return;
+X  }
+X
+X  /* Time to read RLE block header? */
+X  if (--block_count < 0) {	/* decrement pixels remaining in block */
+X    i = read_byte(cinfo);
+X    if (i & 0x80) {		/* Start of duplicate-pixel block? */
+X      dup_pixel_count = i & 0x7F; /* number of duplications after this one */
+X      block_count = 0;		/* then read new block header */
+X    } else {
+X      block_count = i & 0x7F;	/* number of pixels after this one */
+X    }
+X  }
+X
+X  /* Read next pixel */
+X  for (i = 0; i < pixel_size; i++) {
+X    tga_pixel[i] = (U_CHAR) getc(infile);
+X  }
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X *
+X * We provide several different versions depending on input file format.
+X */
+X
+X
+XMETHODDEF void
+Xget_8bit_gray_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading 8-bit grayscale pixels */
+X{
+X  register JSAMPROW ptr0;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    (*read_pixel) (cinfo);	/* Load next pixel into tga_pixel */
+X    *ptr0++ = (JSAMPLE) UCH(tga_pixel[0]);
+X  }
+X}
+X
+XMETHODDEF void
+Xget_8bit_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading 8-bit colormap indexes */
+X{
+X  register int t;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    (*read_pixel) (cinfo);	/* Load next pixel into tga_pixel */
+X    t = UCH(tga_pixel[0]);
+X    *ptr0++ = colormap[0][t];
+X    *ptr1++ = colormap[1][t];
+X    *ptr2++ = colormap[2][t];
+X  }
+X}
+X
+XMETHODDEF void
+Xget_16bit_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading 16-bit pixels */
+X{
+X  register int t;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    (*read_pixel) (cinfo);	/* Load next pixel into tga_pixel */
+X    t = UCH(tga_pixel[0]);
+X    t += UCH(tga_pixel[1]) << 8;
+X    /* We expand 5 bit data to 8 bit sample width.
+X     * The format of the 16-bit (LSB first) input word is
+X     *     xRRRRRGGGGGBBBBB
+X     */
+X    *ptr2++ = (JSAMPLE) c5to8bits[t & 0x1F];
+X    t >>= 5;
+X    *ptr1++ = (JSAMPLE) c5to8bits[t & 0x1F];
+X    t >>= 5;
+X    *ptr0++ = (JSAMPLE) c5to8bits[t & 0x1F];
+X  }
+X}
+X
+XMETHODDEF void
+Xget_24bit_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading 24-bit pixels */
+X{
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    (*read_pixel) (cinfo);	/* Load next pixel into tga_pixel */
+X    *ptr0++ = (JSAMPLE) UCH(tga_pixel[2]); /* convert BGR to RGB order */
+X    *ptr1++ = (JSAMPLE) UCH(tga_pixel[1]);
+X    *ptr2++ = (JSAMPLE) UCH(tga_pixel[0]);
+X  }
+X}
+X
+X/*
+X * Targa also defines a 32-bit pixel format with order B,G,R,A.
+X * We presently ignore the attribute byte, so the code for reading
+X * these pixels is identical to the 24-bit routine above.
+X * This works because the actual pixel length is only known to read_pixel.
+X */
+X
+X#define get_32bit_row  get_24bit_row
+X
+X
+X/*
+X * This method is for re-reading the input data in standard top-down
+X * row order.  The entire image has already been read into whole_image
+X * with proper conversion of pixel format, but it's in a funny row order.
+X */
+X
+XMETHODDEF void
+Xget_memory_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  JSAMPARRAY image_ptr;
+X  long source_row;
+X
+X  /* Compute row of source that maps to current_row of normal order */
+X  /* For now, assume image is bottom-up and not interlaced. */
+X  /* NEEDS WORK to support interlaced images! */
+X  source_row = cinfo->image_height - current_row - 1;
+X
+X  /* Fetch that row from virtual array */
+X  image_ptr = (*cinfo->emethods->access_big_sarray)
+X		(whole_image, source_row * cinfo->input_components, FALSE);
+X
+X  jcopy_sample_rows(image_ptr, 0, pixel_row, 0,
+X		    cinfo->input_components, cinfo->image_width);
+X
+X  current_row++;
+X}
+X
+X
+X/*
+X * This method loads the image into whole_image during the first call on
+X * get_input_row.  The get_input_row pointer is then adjusted to call
+X * get_memory_row on subsequent calls.
+X */
+X
+XMETHODDEF void
+Xpreload_image (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  JSAMPARRAY image_ptr;
+X  long row;
+X
+X  /* Read the data into a virtual array in input-file row order */
+X  for (row = 0; row < cinfo->image_height; row++) {
+X    (*cinfo->methods->progress_monitor) (cinfo, row, cinfo->image_height);
+X    image_ptr = (*cinfo->emethods->access_big_sarray)
+X			(whole_image, row * cinfo->input_components, TRUE);
+X    (*get_pixel_row) (cinfo, image_ptr);
+X  }
+X  cinfo->completed_passes++;
+X
+X  /* Set up to read from the virtual array in unscrambled order */
+X  cinfo->methods->get_input_row = get_memory_row;
+X  current_row = 0;
+X  /* And read the first row */
+X  get_memory_row(cinfo, pixel_row);
+X}
+X
+X
+X/*
+X * Read the file header; return image size and component count.
+X */
+X
+XMETHODDEF void
+Xinput_init (compress_info_ptr cinfo)
+X{
+X  U_CHAR targaheader[18];
+X  int idlen, cmaptype, subtype, flags, interlace_type, components;
+X  UINT16 width, height, maplen;
+X  boolean is_bottom_up;
+X
+X#define GET_2B(offset)	((unsigned int) UCH(targaheader[offset]) + \
+X			 (((unsigned int) UCH(targaheader[offset+1])) << 8))
+X  
+X  if (! ReadOK(cinfo->input_file, targaheader, 18))
+X    ERREXIT(cinfo->emethods, "Unexpected end of file");
+X
+X  /* Pretend "15-bit" pixels are 16-bit --- we ignore attribute bit anyway */
+X  if (targaheader[16] == 15)
+X    targaheader[16] = 16;
+X
+X  idlen = UCH(targaheader[0]);
+X  cmaptype = UCH(targaheader[1]);
+X  subtype = UCH(targaheader[2]);
+X  maplen = GET_2B(5);
+X  width = GET_2B(12);
+X  height = GET_2B(14);
+X  pixel_size = UCH(targaheader[16]) >> 3;
+X  flags = UCH(targaheader[17]);	/* Image Descriptor byte */
+X
+X  is_bottom_up = ((flags & 0x20) == 0);	/* bit 5 set => top-down */
+X  interlace_type = flags >> 6;	/* bits 6/7 are interlace code */
+X
+X  if (cmaptype > 1 ||		/* cmaptype must be 0 or 1 */
+X      pixel_size < 1 || pixel_size > 4 ||
+X      (UCH(targaheader[16]) & 7) != 0 || /* bits/pixel must be multiple of 8 */
+X      interlace_type != 0)	/* currently don't allow interlaced image */
+X    ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X  
+X  if (subtype > 8) {
+X    /* It's an RLE-coded file */
+X    read_pixel = read_rle_pixel;
+X    block_count = dup_pixel_count = 0;
+X    subtype -= 8;
+X  } else {
+X    /* Non-RLE file */
+X    read_pixel = read_non_rle_pixel;
+X  }
+X
+X  /* Now should have subtype 1, 2, or 3 */
+X  components = 3;		/* until proven different */
+X  cinfo->in_color_space = CS_RGB;
+X
+X  switch (subtype) {
+X  case 1:			/* colormapped image */
+X    if (pixel_size == 1 && cmaptype == 1)
+X      get_pixel_row = get_8bit_row;
+X    else
+X      ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X    TRACEMS2(cinfo->emethods, 1, "%ux%u colormapped Targa image",
+X	     width, height);
+X    break;
+X  case 2:			/* RGB image */
+X    switch (pixel_size) {
+X    case 2:
+X      get_pixel_row = get_16bit_row;
+X      break;
+X    case 3:
+X      get_pixel_row = get_24bit_row;
+X      break;
+X    case 4:
+X      get_pixel_row = get_32bit_row;
+X      break;
+X    default:
+X      ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X      break;
+X    }
+X    TRACEMS2(cinfo->emethods, 1, "%ux%u RGB Targa image",
+X	     width, height);
+X    break;
+X  case 3:			/* Grayscale image */
+X    components = 1;
+X    cinfo->in_color_space = CS_GRAYSCALE;
+X    if (pixel_size == 1)
+X      get_pixel_row = get_8bit_gray_row;
+X    else
+X      ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X    TRACEMS2(cinfo->emethods, 1, "%ux%u grayscale Targa image",
+X	     width, height);
+X    break;
+X  default:
+X    ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X    break;
+X  }
+X
+X  if (is_bottom_up) {
+X    whole_image = (*cinfo->emethods->request_big_sarray)
+X			((long) width, (long) height * components,
+X			 (long) components);
+X    cinfo->methods->get_input_row = preload_image;
+X    cinfo->total_passes++;	/* count file reading as separate pass */
+X  } else {
+X    whole_image = NULL;
+X    cinfo->methods->get_input_row = get_pixel_row;
+X  }
+X  
+X  while (idlen--)		/* Throw away ID field */
+X    (void) read_byte(cinfo);
+X
+X  if (maplen > 0) {
+X    if (maplen > 256 || GET_2B(3) != 0)
+X      ERREXIT(cinfo->emethods, "Colormap too large");
+X    /* Allocate space to store the colormap */
+X    colormap = (*cinfo->emethods->alloc_small_sarray)
+X			((long) maplen, 3L);
+X    /* and read it from the file */
+X    read_colormap(cinfo, (int) maplen, UCH(targaheader[7]));
+X  } else {
+X    if (cmaptype)		/* but you promised a cmap! */
+X      ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X    colormap = NULL;
+X  }
+X
+X  cinfo->input_components = components;
+X  cinfo->image_width = width;
+X  cinfo->image_height = height;
+X  cinfo->data_precision = 8;	/* always, even if 12-bit JSAMPLEs */
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xinput_term (compress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/*
+X * The method selection routine for Targa format input.
+X * Note that this must be called by the user interface before calling
+X * jpeg_compress.  If multiple input formats are supported, the
+X * user interface is responsible for discovering the file format and
+X * calling the appropriate method selection routine.
+X */
+X
+XGLOBAL void
+Xjselrtarga (compress_info_ptr cinfo)
+X{
+X  cinfo->methods->input_init = input_init;
+X  /* cinfo->methods->get_input_row is set by input_init */
+X  cinfo->methods->input_term = input_term;
+X}
+X
+X#endif /* TARGA_SUPPORTED */
+END_OF_FILE
+  if test 13431 -ne `wc -c <'jrdtarga.c'`; then
+    echo shar: \"'jrdtarga.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrdtarga.c'
+fi
+if test -f 'jwrgif.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jwrgif.c'\"
+else
+  echo shar: Extracting \"'jwrgif.c'\" \(14045 characters\)
+  sed "s/^X//" >'jwrgif.c' <<'END_OF_FILE'
+X/*
+X * jwrgif.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to write output images in GIF format.
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume output to
+X * an ordinary stdio stream.
+X *
+X * These routines are invoked via the methods put_pixel_rows, put_color_map,
+X * and output_init/term.
+X */
+X
+X/*
+X * This code is loosely based on ppmtogif from the PBMPLUS distribution
+X * of Feb. 1991.  That file contains the following copyright notice:
+X *    Based on GIFENCODE by David Rowley <mgardi@watdscu.waterloo.edu>.
+X *    Lempel-Ziv compression based on "compress" by Spencer W. Thomas et al.
+X *    Copyright (C) 1989 by Jef Poskanzer.
+X *    Permission to use, copy, modify, and distribute this software and its
+X *    documentation for any purpose and without fee is hereby granted, provided
+X *    that the above copyright notice appear in all copies and that both that
+X *    copyright notice and this permission notice appear in supporting
+X *    documentation.  This software is provided "as is" without express or
+X *    implied warranty.
+X *
+X * We are also required to state that
+X *    "The Graphics Interchange Format(c) is the Copyright property of
+X *    CompuServe Incorporated. GIF(sm) is a Service Mark property of
+X *    CompuServe Incorporated."
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef GIF_SUPPORTED
+X
+X
+Xstatic decompress_info_ptr dcinfo; /* to avoid passing to all functions */
+X
+X#define	MAX_LZW_BITS	12	/* maximum LZW code size (4096 symbols) */
+X
+Xtypedef INT16 code_int;		/* must hold -1 .. 2**MAX_LZW_BITS */
+X
+X#define LZW_TABLE_SIZE	((code_int) 1 << MAX_LZW_BITS)
+X
+X#define HSIZE		5003	/* hash table size for 80% occupancy */
+X
+Xtypedef int hash_int;		/* must hold -2*HSIZE..2*HSIZE */
+X
+Xstatic int n_bits;		/* current number of bits/code */
+Xstatic code_int maxcode;	/* maximum code, given n_bits */
+X#define MAXCODE(n_bits)	(((code_int) 1 << (n_bits)) - 1)
+X
+Xstatic int init_bits;		/* initial n_bits ... restored after clear */
+X
+Xstatic code_int ClearCode;	/* clear code (doesn't change) */
+Xstatic code_int EOFCode;	/* EOF code (ditto) */
+X
+Xstatic code_int free_code;	/* first not-yet-used symbol code */
+X
+X/*
+X * The LZW hash table consists of three parallel arrays:
+X *   hash_code[i]	code of symbol in slot i, or 0 if empty slot
+X *   hash_prefix[i]	symbol's prefix code; undefined if empty slot
+X *   hash_suffix[i]	symbol's suffix character; undefined if empty slot
+X * where slot values (i) range from 0 to HSIZE-1.
+X *
+X * Algorithm:  use open addressing double hashing (no chaining) on the
+X * prefix code / suffix character combination.  We do a variant of Knuth's
+X * algorithm D (vol. 3, sec. 6.4) along with G. Knott's relatively-prime
+X * secondary probe.
+X *
+X * The hash tables are allocated from FAR heap space since they would use up
+X * rather a lot of the near data space in a PC.
+X */
+X
+Xstatic code_int FAR *hash_code;	/* => hash table of symbol codes */
+Xstatic code_int FAR *hash_prefix; /* => hash table of prefix symbols */
+Xstatic UINT8 FAR *hash_suffix;	/* => hash table of suffix bytes */
+X
+X
+X/*
+X * Routines to package compressed data bytes into GIF data blocks.
+X * A data block consists of a count byte (1..255) and that many data bytes.
+X */
+X
+Xstatic int bytesinpkt;		/* # of bytes in current packet */
+Xstatic char packetbuf[256];	/* workspace for accumulating packet */
+X
+X
+XLOCAL void
+Xflush_packet (void)
+X/* flush any accumulated data */
+X{
+X  if (bytesinpkt > 0) {		/* never write zero-length packet */
+X    packetbuf[0] = (char) bytesinpkt++;
+X    if (JFWRITE(dcinfo->output_file, packetbuf, bytesinpkt)
+X	!= (size_t) bytesinpkt)
+X      ERREXIT(dcinfo->emethods, "Output file write error");
+X    bytesinpkt = 0;
+X  }
+X}
+X
+X
+X/* Add a character to current packet; flush to disk if necessary */
+X#define CHAR_OUT(c)  \
+X	{ packetbuf[++bytesinpkt] = (char) (c);  \
+X	    if (bytesinpkt >= 255)  \
+X	      flush_packet();  \
+X	}
+X
+X
+X/* Routine to convert variable-width codes into a byte stream */
+X
+Xstatic INT32 cur_accum;		/* holds bits not yet output */
+Xstatic int cur_bits;		/* # of bits in cur_accum */
+X
+X
+XLOCAL void
+Xoutput (code_int code)
+X/* Emit a code of n_bits bits */
+X/* Uses cur_accum and cur_bits to reblock into 8-bit bytes */
+X{
+X  cur_accum |= ((INT32) code) << cur_bits;
+X  cur_bits += n_bits;
+X
+X  while (cur_bits >= 8) {
+X    CHAR_OUT(cur_accum & 0xFF);
+X    cur_accum >>= 8;
+X    cur_bits -= 8;
+X  }
+X
+X  /*
+X   * If the next entry is going to be too big for the code size,
+X   * then increase it, if possible.  We do this here to ensure
+X   * that it's done in sync with the decoder's codesize increases.
+X   */
+X  if (free_code > maxcode) {
+X    n_bits++;
+X    if (n_bits == MAX_LZW_BITS)
+X      maxcode = LZW_TABLE_SIZE;	/* free_code will never exceed this */
+X    else
+X      maxcode = MAXCODE(n_bits);
+X  }
+X}
+X
+X
+X/* The LZW algorithm proper */
+X
+Xstatic code_int waiting_code;	/* symbol not yet output; may be extendable */
+Xstatic boolean first_byte;	/* if TRUE, waiting_code is not valid */
+X
+X
+XLOCAL void
+Xclear_hash (void)
+X/* Fill the hash table with empty entries */
+X{
+X  /* It's sufficient to zero hash_code[] */
+X  jzero_far((void FAR *) hash_code, HSIZE * SIZEOF(code_int));
+X}
+X
+X
+XLOCAL void
+Xclear_block (void)
+X/* Reset compressor and issue a Clear code */
+X{
+X  clear_hash();			/* delete all the symbols */
+X  free_code = ClearCode + 2;
+X  output(ClearCode);		/* inform decoder */
+X  n_bits = init_bits;		/* reset code size */
+X  maxcode = MAXCODE(n_bits);
+X}
+X
+X
+XLOCAL void
+Xcompress_init (int i_bits)
+X/* Initialize LZW compressor */
+X{
+X  /* init all the static variables */
+X  n_bits = init_bits = i_bits;
+X  maxcode = MAXCODE(n_bits);
+X  ClearCode = ((code_int) 1 << (init_bits - 1));
+X  EOFCode = ClearCode + 1;
+X  free_code = ClearCode + 2;
+X  first_byte = TRUE;		/* no waiting symbol yet */
+X  /* init output buffering vars */
+X  bytesinpkt = 0;
+X  cur_accum = 0;
+X  cur_bits = 0;
+X  /* clear hash table */
+X  clear_hash();
+X  /* GIF specifies an initial Clear code */
+X  output(ClearCode);
+X}
+X
+X
+XLOCAL void
+Xcompress_byte (int c)
+X/* Accept and compress one 8-bit byte */
+X{
+X  register hash_int i;
+X  register hash_int disp;
+X
+X  if (first_byte) {		/* need to initialize waiting_code */
+X    waiting_code = c;
+X    first_byte = FALSE;
+X    return;
+X  }
+X
+X  /* Probe hash table to see if a symbol exists for
+X   * waiting_code followed by c.
+X   * If so, replace waiting_code by that symbol and return.
+X   */
+X  i = ((hash_int) c << (MAX_LZW_BITS-8)) + waiting_code;
+X  /* i is less than twice 2**MAX_LZW_BITS, therefore less than twice HSIZE */
+X  if (i >= HSIZE)
+X    i -= HSIZE;
+X  
+X  if (hash_code[i] != 0) {	/* is first probed slot empty? */
+X    if (hash_prefix[i] == waiting_code && hash_suffix[i] == (UINT8) c) {
+X      waiting_code = hash_code[i];
+X      return;
+X    }
+X    if (i == 0)			/* secondary hash (after G. Knott) */
+X      disp = 1;
+X    else
+X      disp = HSIZE - i;
+X    while (1) {
+X      i -= disp;
+X      if (i < 0)
+X	i += HSIZE;
+X      if (hash_code[i] == 0)
+X	break;			/* hit empty slot */
+X      if (hash_prefix[i] == waiting_code && hash_suffix[i] == (UINT8) c) {
+X	waiting_code = hash_code[i];
+X	return;
+X      }
+X    }
+X  }
+X
+X  /* here when hashtable[i] is an empty slot; desired symbol not in table */
+X  output(waiting_code);
+X  if (free_code < LZW_TABLE_SIZE) {
+X    hash_code[i] = free_code++;	/* add symbol to hashtable */
+X    hash_prefix[i] = waiting_code;
+X    hash_suffix[i] = (UINT8) c;
+X  } else
+X    clear_block();
+X  waiting_code = c;
+X}
+X
+X
+XLOCAL void
+Xcompress_term (void)
+X/* Clean up at end */
+X{
+X  /* Flush out the buffered code */
+X  if (! first_byte)
+X    output(waiting_code);
+X  /* Send an EOF code */
+X  output(EOFCode);
+X  /* Flush the bit-packing buffer */
+X  if (cur_bits > 0) {
+X    CHAR_OUT(cur_accum & 0xFF);
+X  }
+X  /* Flush the packet buffer */
+X  flush_packet();
+X}
+X
+X
+X/* GIF header construction */
+X
+X
+XLOCAL void
+Xput_word (UINT16 w)
+X/* Emit a 16-bit word, LSB first */
+X{
+X  putc(w & 0xFF, dcinfo->output_file);
+X  putc((w >> 8) & 0xFF, dcinfo->output_file);
+X}
+X
+X
+XLOCAL void
+Xput_3bytes (int val)
+X/* Emit 3 copies of same byte value --- handy subr for colormap construction */
+X{
+X  putc(val, dcinfo->output_file);
+X  putc(val, dcinfo->output_file);
+X  putc(val, dcinfo->output_file);
+X}
+X
+X
+XLOCAL void
+Xemit_header (int num_colors, JSAMPARRAY colormap)
+X/* Output the GIF file header, including color map */
+X/* If colormap==NULL, synthesize a gray-scale colormap */
+X{
+X  int BitsPerPixel, ColorMapSize, InitCodeSize, FlagByte;
+X  int cshift = dcinfo->data_precision - 8;
+X  int i;
+X
+X  if (num_colors > 256)
+X    ERREXIT(dcinfo->emethods, "GIF can only handle 256 colors");
+X  /* Compute bits/pixel and related values */
+X  BitsPerPixel = 1;
+X  while (num_colors > (1 << BitsPerPixel))
+X    BitsPerPixel++;
+X  ColorMapSize = 1 << BitsPerPixel;
+X  if (BitsPerPixel <= 1)
+X    InitCodeSize = 2;
+X  else
+X    InitCodeSize = BitsPerPixel;
+X  /*
+X   * Write the GIF header.
+X   * Note that we generate a plain GIF87 header for maximum compatibility.
+X   */
+X  putc('G', dcinfo->output_file);
+X  putc('I', dcinfo->output_file);
+X  putc('F', dcinfo->output_file);
+X  putc('8', dcinfo->output_file);
+X  putc('7', dcinfo->output_file);
+X  putc('a', dcinfo->output_file);
+X  /* Write the Logical Screen Descriptor */
+X  put_word((UINT16) dcinfo->image_width);
+X  put_word((UINT16) dcinfo->image_height);
+X  FlagByte = 0x80;		/* Yes, there is a global color table */
+X  FlagByte |= (BitsPerPixel-1) << 4; /* color resolution */
+X  FlagByte |= (BitsPerPixel-1);	/* size of global color table */
+X  putc(FlagByte, dcinfo->output_file);
+X  putc(0, dcinfo->output_file);	/* Background color index */
+X  putc(0, dcinfo->output_file);	/* Reserved in GIF87 (aspect ratio in GIF89) */
+X  /* Write the Global Color Map */
+X  /* If the color map is more than 8 bits precision, */
+X  /* we reduce it to 8 bits by shifting */
+X  for (i=0; i < ColorMapSize; i++) {
+X    if (i < num_colors) {
+X      if (colormap != NULL) {
+X	if (dcinfo->out_color_space == CS_RGB) {
+X	  /* Normal case: RGB color map */
+X	  putc(GETJSAMPLE(colormap[0][i]) >> cshift, dcinfo->output_file);
+X	  putc(GETJSAMPLE(colormap[1][i]) >> cshift, dcinfo->output_file);
+X	  putc(GETJSAMPLE(colormap[2][i]) >> cshift, dcinfo->output_file);
+X	} else {
+X	  /* Grayscale "color map": possible if quantizing grayscale image */
+X	  put_3bytes(GETJSAMPLE(colormap[0][i]) >> cshift);
+X	}
+X      } else {
+X	/* Create a gray-scale map of num_colors values, range 0..255 */
+X	put_3bytes((i * 255 + (num_colors-1)/2) / (num_colors-1));
+X      }
+X    } else {
+X      /* fill out the map to a power of 2 */
+X      put_3bytes(0);
+X    }
+X  }
+X  /* Write image separator and Image Descriptor */
+X  putc(',', dcinfo->output_file); /* separator */
+X  put_word((UINT16) 0);		/* left/top offset */
+X  put_word((UINT16) 0);
+X  put_word((UINT16) dcinfo->image_width); /* image size */
+X  put_word((UINT16) dcinfo->image_height);
+X  /* flag byte: not interlaced, no local color map */
+X  putc(0x00, dcinfo->output_file);
+X  /* Write Initial Code Size byte */
+X  putc(InitCodeSize, dcinfo->output_file);
+X
+X  /* Initialize for LZW compression of image data */
+X  compress_init(InitCodeSize+1);
+X}
+X
+X
+X
+X/*
+X * Initialize for GIF output.
+X */
+X
+XMETHODDEF void
+Xoutput_init (decompress_info_ptr cinfo)
+X{
+X  dcinfo = cinfo;		/* save for use by local routines */
+X  if (cinfo->final_out_comps != 1) /* safety check */
+X    ERREXIT(cinfo->emethods, "GIF output got confused");
+X  /* Allocate space for hash table */
+X  hash_code = (code_int FAR *) (*cinfo->emethods->alloc_medium)
+X				(HSIZE * SIZEOF(code_int));
+X  hash_prefix = (code_int FAR *) (*cinfo->emethods->alloc_medium)
+X				(HSIZE * SIZEOF(code_int));
+X  hash_suffix = (UINT8 FAR *) (*cinfo->emethods->alloc_medium)
+X				(HSIZE * SIZEOF(UINT8));
+X  /*
+X   * If we aren't quantizing, put_color_map won't be called,
+X   * so emit the header now.  This only happens with gray scale output.
+X   * (If we are quantizing, wait for the color map to be provided.)
+X   */
+X  if (! cinfo->quantize_colors)
+X    emit_header(256, (JSAMPARRAY) NULL);
+X}
+X
+X
+X/*
+X * Write the color map.
+X */
+X
+XMETHODDEF void
+Xput_color_map (decompress_info_ptr cinfo, int num_colors, JSAMPARRAY colormap)
+X{
+X  emit_header(num_colors, colormap);
+X}
+X
+X
+X/*
+X * Write some pixel data.
+X */
+X
+XMETHODDEF void
+Xput_pixel_rows (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE pixel_data)
+X{
+X  register JSAMPROW ptr;
+X  register long col;
+X  register long width = cinfo->image_width;
+X  register int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr = pixel_data[0][row];
+X    for (col = width; col > 0; col--) {
+X      compress_byte(GETJSAMPLE(*ptr));
+X      ptr++;
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xoutput_term (decompress_info_ptr cinfo)
+X{
+X  /* Flush LZW mechanism */
+X  compress_term();
+X  /* Write a zero-length data block to end the series */
+X  putc(0, cinfo->output_file);
+X  /* Write the GIF terminator mark */
+X  putc(';', cinfo->output_file);
+X  /* Make sure we wrote the output file OK */
+X  fflush(cinfo->output_file);
+X  if (ferror(cinfo->output_file))
+X    ERREXIT(cinfo->emethods, "Output file write error");
+X  /* Free space */
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/*
+X * The method selection routine for GIF format output.
+X * This should be called from d_ui_method_selection if GIF output is wanted.
+X */
+X
+XGLOBAL void
+Xjselwgif (decompress_info_ptr cinfo)
+X{
+X  cinfo->methods->output_init = output_init;
+X  cinfo->methods->put_color_map = put_color_map;
+X  cinfo->methods->put_pixel_rows = put_pixel_rows;
+X  cinfo->methods->output_term = output_term;
+X
+X  if (cinfo->out_color_space != CS_GRAYSCALE &&
+X      cinfo->out_color_space != CS_RGB)
+X    ERREXIT(cinfo->emethods, "GIF output must be grayscale or RGB");
+X
+X  /* Force quantization if color or if > 8 bits input */
+X  if (cinfo->out_color_space == CS_RGB || cinfo->data_precision > 8) {
+X    /* Force quantization to at most 256 colors */
+X    cinfo->quantize_colors = TRUE;
+X    if (cinfo->desired_number_of_colors > 256)
+X      cinfo->desired_number_of_colors = 256;
+X  }
+X}
+X
+X#endif /* GIF_SUPPORTED */
+END_OF_FILE
+  if test 14045 -ne `wc -c <'jwrgif.c'`; then
+    echo shar: \"'jwrgif.c'\" unpacked with wrong size!
+  fi
+  # end of 'jwrgif.c'
+fi
+echo shar: End of archive 13 \(of 18\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

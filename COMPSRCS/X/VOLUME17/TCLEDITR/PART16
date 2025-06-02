@@ -1,0 +1,1855 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i017: point text editor (TCL and TK), Part16/16
+Message-ID: <1992Mar18.142035.28043@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:20:35 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 17
+Archive-name: tcl-editor/part16
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 15 (of 15)."
+# Contents:  tkColbox.c
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:52 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'tkColbox.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tkColbox.c'\"
+else
+echo shar: Extracting \"'tkColbox.c'\" \(55672 characters\)
+sed "s/^X//" >'tkColbox.c' <<'END_OF_FILE'
+X/* 
+X * tkColbox.c --
+X *
+X *	This module implements colbox widgets for the Tk
+X *	toolkit.  A colbox displays a collection of strings,
+X *	N per line (where N is the number of columns chosen by
+X *      the user), and provides scrolling and selection.
+X *      The items in the list are filled by columns, that is, the
+X *      first column is filled before the second column, and so on.
+X *      Thus an alphabatical list will be alphabetical by columns.
+X *      It would be easy to add on option to fill by rows but I have
+X *      not done it.
+X *
+X *	This module was modified to be a `colbox', that is, a listbox
+X *      that will display the list in one or more columns.
+X *      In addition, a command to return the indexes of the first and
+X *      last selected element was added.  this command is called
+X *      'sellimits' and causes the abbreviation 'se' for 'select' to
+X *      no longer be a valid abbreviation.
+X *      Finally I added a resource to prevent losing the X selection
+X *      from deselecting the selected elements.  This is to allow several
+X *      list boxes to have selections simultaneously.
+X *      The modifications were done in July 1991 by
+X *           Charles Crowley
+X *           Computer Science Department
+X *           University of New Mexico
+X *           Albuquerque, NM 87131
+X *           505-277-3112
+X *           crowley@unmvax.cs.unm.edu
+X *
+X * Copyright 1990 Regents of the University of California.
+X * Permission to use, copy, modify, and distribute this
+X * software and its documentation for any purpose and without
+X * fee is hereby granted, provided that the above copyright
+X * notice appear in all copies.  The University of California
+X * makes no representations about the suitability of this
+X * software for any purpose.  It is provided "as is" without
+X * express or implied warranty.
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <X11/Xatom.h>
+X#include "tkConfig.h"
+X#include "default.h"
+X#include "tkInt.h"
+X
+X/*
+X * One record of the following type is kept for each element
+X * associated with a listbox widget:
+X */
+X
+typedef struct Element {
+X    int textLength;		/* # non-NULL characters in text. */
+X    int lBearing;		/* Distance from first character's
+X				 * origin to left edge of character. */
+X    struct Element *nextPtr;	/* Next in list of all elements of this
+X				 * listbox, or NULL for last element. */
+X    char text[4];		/* Characters of this element, NULL-
+X				 * terminated.  The actual space allocated
+X				 * here will be as large as needed (> 4,
+X				 * most likely).  Must be the last field
+X				 * of the record. */
+X} Element;
+X
+X#define ElementSize(stringLength) \
+X	((unsigned) (sizeof(Element) - 3 + stringLength))
+X
+X#define MAX_COLS	50	/* seems big enough */
+X
+X/*
+X * A data structure of the following type is kept for each listbox
+X * widget managed by this file:
+X */
+X
+typedef struct {
+X    Tk_Window tkwin;		/* Window that embodies the listbox.  NULL
+X				 * means that the window has been destroyed
+X				 * but the data structures haven't yet been
+X				 * cleaned up.*/
+X    Tcl_Interp *interp;		/* Interpreter associated with listbox. */
+X    int numElements;		/* Total number of elements in this listbox. */
+X    Element *elementPtr;	/* First in list of elements (NULL if no
+X				 * elements. */
+X
+X    /*
+X     * Information used when displaying widget:
+X     */
+X
+X    Tk_3DBorder normalBorder;	/* Used for drawing border around whole
+X				 * window, plus used for background. */
+X    int borderWidth;		/* Width of 3-D border around window. */
+X    int relief;			/* 3-D effect: TK_RELIEF_RAISED, etc. */
+X    XFontStruct *fontPtr;	/* Information about text font, or NULL. */
+X    XColor *fgColorPtr;		/* Text color in normal mode. */
+X    GC textGC;			/* For drawing normal text. */
+X    Tk_3DBorder selBorder;	/* Borders and backgrounds for selected
+X				 * elements. */
+X    int selBorderWidth;		/* Width of border around selection. */
+X    XColor *selFgColorPtr;	/* Foreground color for selected elements. */
+X    GC selTextGC;		/* For drawing selected text. */
+X    char *geometry;		/* Desired geometry for window.  Malloc'ed. */
+X    int lineHeight;		/* Number of pixels allocated for each line
+X				 * in display. */
+X    int topIndex;		/* Index of top-most element visible in
+X				 * window (on the left most column). */
+X    int numLines;		/* Number of lines that fit
+X				 * in window at one time. */
+X    int columns;		/* Number of columns to display. Can be at
+X                                 * most MAX_COLS. */
+X    int noxsel;			/* If true, then do not deselect elements
+X                                 * when we lose the X selection. */
+X    int numInColumn;		/* Number of elements in one column. */
+X    int redrawFirst;		/* Index (in element list, not on display)
+X				 * of first element (in the left most column)
+X				 * to redisplay.  -1 means
+X				 * no redisplay pending. */
+X    int redrawLast;		/* Index of last element to redisplay. */
+X    int scrollLines;		/* If non-zero, then DisplayListbox is
+X				 * expected to shift the whole picture
+X				 * down (if > 0) or up (if < 0) this many
+X				 * lines, prior to redisplaying the stuff
+X				 * given by redrawFirst and redrawLast. */
+X
+X    /*
+X     * Information about what's selected, if any.
+X     */
+X
+X    int selectFirst;		/* Index of first selected element (-1 means
+X				 * nothing selected. */
+X    int selectLast;		/* Index of last selected element. */
+X    int selectAnchor;		/* Fixed end of selection (i.e. element
+X				 * at which selection was started.) */
+X
+X    /*
+X     * Information for scanning:
+X     */
+X
+X    int scanMarkY;		/* Y-position at which scan started (e.g.
+X				 * button was pressed here). */
+X    int scanMarkIndex;		/* Index of line that was at top of window
+X				 * when scan started. */
+X
+X    /*
+X     * Miscellaneous information:
+X     */
+X
+X    char *scrollCmd;		/* Command prefix for communicating with
+X				 * scrollbar(s).  NULL means no command
+X				 * to issue.  Malloc'ed. */
+X    int flags;			/* Various flag bits:  see below for
+X				 * definitions. */
+X} Listbox;
+X
+X/*
+X * Flag bits for buttons:
+X *
+X * None currently defined.
+X */
+X
+X/*
+X * Information used for argv parsing:
+X */
+X
+static Tk_ConfigSpec configSpecs[] = {
+X    {TK_CONFIG_BORDER, "-background", "background", "Background",
+X	DEF_LISTBOX_BG_COLOR, Tk_Offset(Listbox, normalBorder),
+X	TK_CONFIG_COLOR_ONLY},
+X    {TK_CONFIG_BORDER, "-background", "background", "Background",
+X	DEF_LISTBOX_BG_MONO, Tk_Offset(Listbox, normalBorder),
+X	TK_CONFIG_MONO_ONLY},
+X    {TK_CONFIG_SYNONYM, "-bd", "borderWidth", (char *) NULL,
+X	(char *) NULL, 0, 0},
+X    {TK_CONFIG_SYNONYM, "-bg", "background", (char *) NULL,
+X	(char *) NULL, 0, 0},
+X    {TK_CONFIG_INT, "-borderwidth", "borderWidth", "BorderWidth",
+X	DEF_LISTBOX_BORDER_WIDTH, Tk_Offset(Listbox, borderWidth), 0},
+X    {TK_CONFIG_INT, "-columns", "columns", "Columns",
+X	"1", Tk_Offset(Listbox, columns), 0},
+X    {TK_CONFIG_INT, "-noxsel", "noxsel", "noxsel",
+X	"0", Tk_Offset(Listbox, noxsel), 0},
+X    {TK_CONFIG_SYNONYM, "-fg", "foreground", (char *) NULL,
+X	(char *) NULL, 0, 0},
+X    {TK_CONFIG_FONT, "-font", "font", "Font",
+X	DEF_LISTBOX_FONT, Tk_Offset(Listbox, fontPtr), 0},
+X    {TK_CONFIG_COLOR, "-foreground", "foreground", "Foreground",
+X	DEF_LISTBOX_FG, Tk_Offset(Listbox, fgColorPtr), 0},
+X    {TK_CONFIG_STRING, "-geometry", "geometry", "Geometry",
+X	DEF_LISTBOX_GEOMETRY, Tk_Offset(Listbox, geometry), 0},
+X    {TK_CONFIG_RELIEF, "-relief", "relief", "Relief",
+X	DEF_LISTBOX_RELIEF, Tk_Offset(Listbox, relief), 0},
+X    {TK_CONFIG_STRING, "-scrollcommand", "scrollCommand", "ScrollCommand",
+X	DEF_LISTBOX_SCROLL_COMMAND, Tk_Offset(Listbox, scrollCmd), 0},
+X    {TK_CONFIG_BORDER, "-selectbackground", "selectBackground", "Foreground",
+X	DEF_LISTBOX_SELECT_COLOR, Tk_Offset(Listbox, selBorder),
+X	TK_CONFIG_COLOR_ONLY},
+X    {TK_CONFIG_BORDER, "-selectbackground", "selectBackground", "Foreground",
+X	DEF_LISTBOX_SELECT_MONO, Tk_Offset(Listbox, selBorder),
+X	TK_CONFIG_MONO_ONLY},
+X    {TK_CONFIG_INT, "-selectborderwidth", "selectBorderWidth", "BorderWidth",
+X	DEF_LISTBOX_SELECT_BD, Tk_Offset(Listbox, selBorderWidth), 0},
+X    {TK_CONFIG_COLOR, "-selectforeground", "selectForeground", "Background",
+X	DEF_LISTBOX_SELECT_FG_COLOR, Tk_Offset(Listbox, selFgColorPtr),
+X	TK_CONFIG_COLOR_ONLY},
+X    {TK_CONFIG_COLOR, "-selectforeground", "selectForeground", "Background",
+X	DEF_LISTBOX_SELECT_FG_MONO, Tk_Offset(Listbox, selFgColorPtr),
+X	TK_CONFIG_MONO_ONLY},
+X    {TK_CONFIG_END, (char *) NULL, (char *) NULL, (char *) NULL,
+X	(char *) NULL, 0, 0}
+X};
+X
+X/*
+X * Flags for GetListboxIndex procedure:
+X */
+X
+X#define ZERO_OK			1
+X#define LAST_PLUS_ONE_OK	2
+X
+X/*
+X * Forward declarations for procedures defined later in this file:
+X */
+X
+static void		ChangeListboxView _ANSI_ARGS_((Listbox *listPtr,
+X                            int index, int lineNum));
+static int		ConfigureListbox _ANSI_ARGS_((Tcl_Interp *interp,
+X			    Listbox *listPtr, int argc, char **argv,
+X			    int flags));
+static void		DeleteEls _ANSI_ARGS_((Listbox *listPtr, int index,
+X			    int count));
+static void		DestroyListbox _ANSI_ARGS_((ClientData clientData));
+static void		DisplayListbox _ANSI_ARGS_((ClientData clientData));
+static int		GetListboxIndex _ANSI_ARGS_((Tcl_Interp *interp,
+X			    Listbox *listPtr, char *string, int flags,
+X			    int *indexPtr));
+static void		InsertEls _ANSI_ARGS_((Listbox *listPtr, int index,
+X			    int argc, char **argv));
+static void		ListboxEventProc _ANSI_ARGS_((ClientData clientData,
+X			    XEvent *eventPtr));
+static int		ListboxFetchSelection _ANSI_ARGS_((
+X                            ClientData clientData, int offset, char *buffer,
+X                            int maxBytes));
+static void		ListboxLostSelection _ANSI_ARGS_((ClientData clientData));
+static void		ListboxMouseProc _ANSI_ARGS_((ClientData clientData,
+X			    XEvent *eventPtr));
+static void		ListboxRedrawRange _ANSI_ARGS_((Listbox *listPtr,
+X			    int first, int last));
+static void		ListboxScanTo _ANSI_ARGS_((Listbox *listPtr, int y));
+static void		ListboxSelectFrom _ANSI_ARGS_((Listbox *listPtr,
+X			    int index));
+static void		ListboxSelectTo _ANSI_ARGS_((Listbox *listPtr,
+X                            int index));
+static void		ListboxUpdateScrollbar _ANSI_ARGS_((Listbox *listPtr));
+static int		ListboxWidgetCmd _ANSI_ARGS_((ClientData clientData,
+X			    Tcl_Interp *interp, int argc, char **argv));
+static int		NearestListboxElement _ANSI_ARGS_((Listbox *listPtr,
+X			    int x, int y));
+X
+X/*
+X *--------------------------------------------------------------
+X *
+X * Tk_ListboxCmd --
+X *
+X *	This procedure is invoked to process the "listbox" Tcl
+X *	command.  See the user documentation for details on what
+X *	it does.
+X *
+X * Results:
+X *	A standard Tcl result.
+X *
+X * Side effects:
+X *	See the user documentation.
+X *
+X *--------------------------------------------------------------
+X */
+X
+int
+Pt_ColboxCmd(clientData, interp, argc, argv)
+X    ClientData clientData;	/* Main window associated with
+X				 * interpreter. */
+X    Tcl_Interp *interp;		/* Current interpreter. */
+X    int argc;			/* Number of arguments. */
+X    char **argv;		/* Argument strings. */
+X{
+X    register Listbox *listPtr;
+X    Tk_Window new;
+X    Tk_Window tkwin = (Tk_Window) clientData;
+X
+X    if (argc < 2) {
+X	Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		argv[0], " pathName ?options?\"", (char *) NULL);
+X	return TCL_ERROR;
+X    }
+X
+X    new = Tk_CreateWindowFromPath(interp, tkwin, argv[1], (char *) NULL);
+X    if (new == NULL) {
+X	return TCL_ERROR;
+X    }
+X
+X    /*
+X     * Initialize the fields of the structure that won't be initialized
+X     * by ConfigureListbox, or that ConfigureListbox requires to be
+X     * initialized already (e.g. resource pointers).
+X     */
+X
+X    listPtr = (Listbox *) ckalloc(sizeof(Listbox));
+X    listPtr->tkwin = new;
+X    listPtr->interp = interp;
+X    listPtr->numElements = 0;
+X    listPtr->numInColumn = 0;
+X    listPtr->elementPtr = NULL;
+X    listPtr->normalBorder = NULL;
+X    listPtr->fontPtr = NULL;
+X    listPtr->fgColorPtr = NULL;
+X    listPtr->textGC = None;
+X    listPtr->selBorder = NULL;
+X    listPtr->selFgColorPtr = NULL;
+X    listPtr->selTextGC = NULL;
+X    listPtr->geometry = NULL;
+X    listPtr->topIndex = 0;
+X    listPtr->redrawFirst = -1;
+X    listPtr->scrollLines = 0;
+X    listPtr->selectFirst = -1;
+X    listPtr->selectLast = -2;
+X    listPtr->scrollCmd = NULL;
+X    listPtr->flags = 0;
+X
+X    Tk_SetClass(listPtr->tkwin, "Colbox");
+X    Tk_CreateEventHandler(listPtr->tkwin, ExposureMask|StructureNotifyMask,
+X	    ListboxEventProc, (ClientData) listPtr);
+X    Tk_CreateEventHandler(listPtr->tkwin, ButtonPressMask|ButtonMotionMask,
+X	    ListboxMouseProc, (ClientData) listPtr);
+X    Tk_CreateSelHandler(listPtr->tkwin, XA_STRING, ListboxFetchSelection,
+X	    (ClientData) listPtr, XA_STRING);
+X    Tcl_CreateCommand(interp, Tk_PathName(listPtr->tkwin), ListboxWidgetCmd,
+X	    (ClientData) listPtr, (void (*)()) NULL);
+X    if (ConfigureListbox(interp, listPtr, argc-2, argv+2, 0) != TCL_OK) {
+X	goto error;
+X    }
+X
+X    interp->result = Tk_PathName(listPtr->tkwin);
+X    return TCL_OK;
+X
+X    error:
+X    Tk_DestroyWindow(listPtr->tkwin);
+X    return TCL_ERROR;
+X}
+X
+X/*
+X *--------------------------------------------------------------
+X *
+X * ListboxWidgetCmd --
+X *
+X *	This procedure is invoked to process the Tcl command
+X *	that corresponds to a widget managed by this module.
+X *	See the user documentation for details on what it does.
+X *
+X * Results:
+X *	A standard Tcl result.
+X *
+X * Side effects:
+X *	See the user documentation.
+X *
+X *--------------------------------------------------------------
+X */
+X
+static int
+ListboxWidgetCmd(clientData, interp, argc, argv)
+X    ClientData clientData;		/* Information about listbox widget. */
+X    Tcl_Interp *interp;			/* Current interpreter. */
+X    int argc;				/* Number of arguments. */
+X    char **argv;			/* Argument strings. */
+X{
+X    register Listbox *listPtr = (Listbox *) clientData;
+X    int result = TCL_OK;
+X    int length;
+X    char c;
+X
+X    if (argc < 2) {
+X	Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		argv[0], " option ?arg arg ...?\"", (char *) NULL);
+X	return TCL_ERROR;
+X    }
+X    Tk_Preserve((ClientData) listPtr);
+X    c = argv[1][0];
+X    length = strlen(argv[1]);
+X    if ((c == 'c') && (strncmp(argv[1], "configure", length) == 0)) {
+X	if (argc == 2) {
+X	    result = Tk_ConfigureInfo(interp, listPtr->tkwin, configSpecs,
+X		    (char *) listPtr, (char *) NULL, 0);
+X	} else if (argc == 3) {
+X	    result = Tk_ConfigureInfo(interp, listPtr->tkwin, configSpecs,
+X		    (char *) listPtr, argv[2], 0);
+X	} else {
+X	    result = ConfigureListbox(interp, listPtr, argc-2, argv+2,
+X		    TK_CONFIG_ARGV_ONLY);
+X	}
+X    } else if ((c == 'd') && (strncmp(argv[1], "delete", length) == 0)) {
+X	int first, last;
+X
+X	if ((argc < 3) || (argc > 4)) {
+X	    Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], " delete firstIndex ?lastIndex?\"",
+X		    (char *) NULL);
+X	    goto error;
+X	}
+X	if (GetListboxIndex(interp, listPtr, argv[2], 0, &first) != TCL_OK) {
+X	    return TCL_ERROR;
+X	}
+X	if (argc == 3) {
+X	    last = first;
+X	} else {
+X	    if (GetListboxIndex(interp, listPtr, argv[3], 0,
+X		    &last) != TCL_OK) {
+X		goto error;
+X	    }
+X	    if (last < first) {
+X		Tcl_AppendResult(interp, "bad listbox index \"", argv[3],
+X			"\"", (char *) NULL);
+X		goto error;
+X	    }
+X	}
+X	DeleteEls(listPtr, first, last+1-first);
+X    } else if ((c == 'g') && (strncmp(argv[1], "get", length) == 0)) {
+X	int index;
+X	register Element *elPtr;
+X
+X	if (argc != 3) {
+X	    Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], " get index\"", (char *) NULL);
+X	    goto error;
+X	}
+X	if (GetListboxIndex(interp, listPtr, argv[2], 0, &index) != TCL_OK) {
+X	    goto error;
+X	}
+X	for (elPtr = listPtr->elementPtr; index > 0;
+X		index--, elPtr = elPtr->nextPtr)
+X	    /*EMPTY*/
+X	    ;
+X	interp->result = elPtr->text;
+X    } else if ((c == 'i') && (strncmp(argv[1], "insert", length) == 0)) {
+X	int index;
+X
+X	if (argc < 3) {
+X	    Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], " insert index ?element ?element ...?\"",
+X		    (char *) NULL);
+X	    goto error;
+X	}
+X	if (argc > 3) {
+X	    if (GetListboxIndex(interp, listPtr, argv[2],
+X	        ZERO_OK|LAST_PLUS_ONE_OK, &index) != TCL_OK) {
+X	        goto error;
+X	    }
+X	    InsertEls(listPtr, index, argc-3, argv+3);
+X	}
+X    } else if ((c == 'n') && (strncmp(argv[1], "nearest", length) == 0)) {
+X	int index, x, y;
+X
+X	if (argc != 4) {
+X	    Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], " nearest x y\"", (char *) NULL);
+X	    goto error;
+X	}
+X	if (Tcl_GetInt(interp, argv[2], &x) != TCL_OK) {
+X	    goto error;
+X	}
+X	if (Tcl_GetInt(interp, argv[3], &y) != TCL_OK) {
+X	    goto error;
+X	}
+X	index = NearestListboxElement(listPtr, x, y);
+X	sprintf(interp->result, "%d", index);
+X    } else if ((c == 's') && (length >= 2)
+X	    && (strncmp(argv[1], "scan", length) == 0)) {
+X	int y;
+X
+X	if (argc != 4) {
+X	    Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], " scan mark|dragto y\"", (char *) NULL);
+X	    goto error;
+X	}
+X	if (Tcl_GetInt(interp, argv[3], &y) != TCL_OK) {
+X	    goto error;
+X	}
+X	if ((argv[2][0] == 'm')
+X		&& (strncmp(argv[2], "mark", strlen(argv[2])) == 0)) {
+X	    listPtr->scanMarkY = y;
+X	    listPtr->scanMarkIndex = listPtr->topIndex;
+X	} else if ((argv[2][0] == 'd')
+X		&& (strncmp(argv[2], "dragto", strlen(argv[2])) == 0)) {
+X	    ListboxScanTo(listPtr, y);
+X	} else {
+X	    Tcl_AppendResult(interp, "bad scan option \"", argv[2],
+X		    "\":  must be mark or dragto", (char *) NULL);
+X	    goto error;
+X	}
+X    } else if ((c == 's') && (length >= 4)
+X	    && (strncmp(argv[1], "sellimits", length) == 0)) {
+X	sprintf(interp->result, "%d %d", listPtr->selectFirst,
+X						listPtr->selectLast);
+X    } else if ((c == 's') && (length >= 4)
+X	    && (strncmp(argv[1], "select", length) == 0)) {
+X	int index;
+X
+X	if (argc != 4) {
+X	    Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], " select option index\"", (char *) NULL);
+X	    goto error;
+X	}
+X	if (GetListboxIndex(interp, listPtr, argv[3], 0, &index) != TCL_OK) {
+X	    goto error;
+X	}
+X	length = strlen(argv[2]);
+X	c = argv[2][0];
+X	if ((c == 'a') && (strncmp(argv[2], "adjust", length) == 0)) {
+X	    if (index < (listPtr->selectFirst + listPtr->selectLast)/2) {
+X		listPtr->selectAnchor = listPtr->selectLast;
+X	    } else {
+X		listPtr->selectAnchor = listPtr->selectFirst;
+X	    }
+X	    ListboxSelectTo(listPtr, index);
+X	} else if ((c == 'f') && (strncmp(argv[2], "from", length) == 0)) {
+X	    ListboxSelectFrom(listPtr, index);
+X	} else if ((c == 't') && (strncmp(argv[2], "to", length) == 0)) {
+X	    ListboxSelectTo(listPtr, index);
+X	} else {
+X	    Tcl_AppendResult(interp, "bad select option \"", argv[2],
+X		    "\": must be adjust, from, or to", (char *) NULL);
+X	    goto error;
+X	}
+X    } else if ((c == 's') && (length >= 2)
+X	    && (strncmp(argv[1], "size", length) == 0)) {
+X	sprintf(interp->result, "%d", listPtr->numElements);
+X    } else if ((c == 'v') && (strncmp(argv[1], "view", length) == 0)) {
+X	int index, lineNum;
+X
+X	if ((argc != 3) && (argc != 4)) {
+X	    Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], " view index ?lineNum?\"", (char *) NULL);
+X	    goto error;
+X	}
+X	if (GetListboxIndex(interp, listPtr, argv[2], ZERO_OK, &index)
+X		!= TCL_OK) {
+X	    goto error;
+X	}
+X	if (argc == 3) {
+X	    lineNum = 0;
+X	} else {
+X	    if (Tcl_GetInt(interp, argv[3], &lineNum) != TCL_OK) {
+X		goto error;
+X	    }
+X	}
+X	ChangeListboxView(listPtr, index, lineNum);
+X    } else {
+X	Tcl_AppendResult(interp, "bad option \"", argv[1],
+X		"\": must be configure, delete, get, insert, ",
+X		"nearest, scan, select, size, or view", (char *) NULL);
+X	goto error;
+X    }
+X    Tk_Release((ClientData) listPtr);
+X    return result;
+X
+X    error:
+X    Tk_Release((ClientData) listPtr);
+X    return TCL_ERROR;
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * DestroyListbox --
+X *
+X *	This procedure is invoked by Tk_EventuallyFree or Tk_Release
+X *	to clean up the internal structure of a listbox at a safe time
+X *	(when no-one is using it anymore).
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	Everything associated with the listbox is freed up.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+DestroyListbox(clientData)
+X    ClientData clientData;	/* Info about listbox widget. */
+X{
+X    register Listbox *listPtr = (Listbox *) clientData;
+X    register Element *elPtr, *nextPtr;
+X
+X    for (elPtr = listPtr->elementPtr; elPtr != NULL; ) {
+X	nextPtr = elPtr->nextPtr;
+X	ckfree((char *) elPtr);
+X	elPtr = nextPtr;
+X    }
+X    if (listPtr->normalBorder != NULL) {
+X	Tk_Free3DBorder(listPtr->normalBorder);
+X    }
+X    if (listPtr->fontPtr != NULL) {
+X	Tk_FreeFontStruct(listPtr->fontPtr);
+X    }
+X    if (listPtr->fgColorPtr != NULL) {
+X	Tk_FreeColor(listPtr->fgColorPtr);
+X    }
+X    if (listPtr->textGC != None) {
+X	Tk_FreeGC(listPtr->textGC);
+X    }
+X    if (listPtr->selBorder != NULL) {
+X	Tk_Free3DBorder(listPtr->selBorder);
+X    }
+X    if (listPtr->selFgColorPtr != NULL) {
+X	Tk_FreeColor(listPtr->selFgColorPtr);
+X    }
+X    if (listPtr->selTextGC != None) {
+X	Tk_FreeGC(listPtr->selTextGC);
+X    }
+X    if (listPtr->geometry != NULL) {
+X	ckfree(listPtr->geometry);
+X    }
+X    if (listPtr->scrollCmd != NULL) {
+X	ckfree(listPtr->scrollCmd);
+X    }
+X    ckfree((char *) listPtr);
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * ConfigureListbox --
+X *
+X *	This procedure is called to process an argv/argc list, plus
+X *	the Tk option database, in order to configure (or reconfigure)
+X *	a listbox widget.
+X *
+X * Results:
+X *	The return value is a standard Tcl result.  If TCL_ERROR is
+X *	returned, then interp->result contains an error message.
+X *
+X * Side effects:
+X *	Configuration information, such as colors, border width,
+X *	etc. get set for listPtr;  old resources get freed,
+X *	if there were any.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static int
+ConfigureListbox(interp, listPtr, argc, argv, flags)
+X    Tcl_Interp *interp;		/* Used for error reporting. */
+X    register Listbox *listPtr;	/* Information about widget;  may or may
+X				 * not already have values for some fields. */
+X    int argc;			/* Number of valid entries in argv. */
+X    char **argv;		/* Arguments. */
+X    int flags;			/* Flags to pass to Tk_ConfigureWidget. */
+X{
+X    XGCValues gcValues;
+X    GC new;
+X    int width, charWidth, height, fontHeight;
+X
+X    if (Tk_ConfigureWidget(interp, listPtr->tkwin, configSpecs,
+X	    argc, argv, (char *) listPtr, flags) != TCL_OK) {
+X	return TCL_ERROR;
+X    }
+X
+X    /*
+X     * A few options need special processing, such as parsing the
+X     * geometry and setting the background from a 3-D border.
+X     */
+X
+X    Tk_SetBackgroundFromBorder(listPtr->tkwin, listPtr->normalBorder);
+X
+X
+X    if ( listPtr->columns < 1 ) {
+X	Tcl_AppendResult(interp, "Number of columns must be >= 1",
+X		(char *) NULL);
+X	return TCL_ERROR;
+X    }
+X    if ( listPtr->columns > MAX_COLS ) {
+X	Tcl_AppendResult(interp, "Number of columns must be <= 50",
+X		(char *) NULL);
+X	return TCL_ERROR;
+X    }
+X    listPtr->numInColumn = ((listPtr->numElements) + (listPtr->columns) - 1)
+X    						/ listPtr->columns;
+X
+X    gcValues.foreground = listPtr->fgColorPtr->pixel;
+X    gcValues.font = listPtr->fontPtr->fid;
+X    new = Tk_GetGC(listPtr->tkwin, GCForeground|GCFont, &gcValues);
+X    if (listPtr->textGC != None) {
+X	Tk_FreeGC(listPtr->textGC);
+X    }
+X    listPtr->textGC = new;
+X
+X    gcValues.foreground = listPtr->selFgColorPtr->pixel;
+X    gcValues.font = listPtr->fontPtr->fid;
+X    new = Tk_GetGC(listPtr->tkwin, GCForeground|GCFont, &gcValues);
+X    if (listPtr->selTextGC != None) {
+X	Tk_FreeGC(listPtr->selTextGC);
+X    }
+X    listPtr->selTextGC = new;
+X
+X    /*
+X     * Register the desired geometry for the window, and arrange for
+X     * the window to be redisplayed.
+X     */
+X
+X    if ((sscanf(listPtr->geometry, "%dx%d", &width, &height) != 2)
+X	    || (width <= 0) || (height <= 0)) {
+X	Tcl_AppendResult(interp, "bad geometry \"",
+X		listPtr->geometry, "\"", (char *) NULL);
+X	return TCL_ERROR;
+X    }
+X    fontHeight = listPtr->fontPtr->ascent + listPtr->fontPtr->descent;
+X    listPtr->lineHeight = fontHeight + 1 + 2*listPtr->selBorderWidth;
+X    listPtr->numLines = (Tk_Height(listPtr->tkwin) - 2*listPtr->borderWidth)
+X	    / listPtr->lineHeight;
+X    if (listPtr->numLines < 0) {
+X	listPtr->numLines = 0;
+X    }
+X    charWidth = XTextWidth(listPtr->fontPtr, "0m", 2)/2;
+X    width = width*charWidth + (15*fontHeight)/10 + 2*listPtr->borderWidth;
+X    height = height*listPtr->lineHeight + 2*listPtr->borderWidth;
+X    Tk_GeometryRequest(listPtr->tkwin, width, height);
+X    Tk_SetInternalBorder(listPtr->tkwin, listPtr->borderWidth);
+X    ListboxRedrawRange(listPtr, 0, listPtr->numInColumn-1);
+X    ListboxUpdateScrollbar(listPtr);
+X    return TCL_OK;
+X}
+X
+X/*
+X *--------------------------------------------------------------
+X *
+X * DisplayListbox --
+X *
+X *	This procedure redraws the contents of a listbox window.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	Information appears on the screen.
+X *
+X *--------------------------------------------------------------
+X */
+X
+static void
+DisplayListbox(clientData)
+X    ClientData clientData;	/* Information about window. */
+X{
+X    register Listbox *listPtr = (Listbox *) clientData;
+X    register Tk_Window tkwin = listPtr->tkwin;
+X    GC gc;
+X    int limit, x, y, margin, height, distance;
+X    int colWidth, nInCol;
+X    int xinc, yinc, i, j, col, cols;
+X    Element *elPtr0, *elPtr[MAX_COLS];
+X    int counter[MAX_COLS];
+X    Element nullElement;
+X
+X    if ((listPtr->tkwin == NULL) || !Tk_IsMapped(tkwin) 
+X	    || ((listPtr->redrawFirst == -1) && (listPtr->scrollLines == 0))) {
+X	goto done;
+X    }
+X
+X    /*
+X     * If we're going to redraw the whole box, then clear it first.  This
+X     * is needed to erase the border, in case its style has changed.
+X     */
+X
+X    if ((listPtr->redrawFirst == 0)
+X	    && (listPtr->redrawLast == (listPtr->numInColumn-1))) {
+X	XClearWindow(Tk_Display(tkwin), Tk_WindowId(tkwin));
+X	listPtr->scrollLines = 0;
+X    }
+X
+X    /*
+X     * In order to provide the smoothest possible scrolling and
+X     * scanning, we use CopyArea operations to avoid redrawing big
+X     * chunks of the listbox.  First, see if the window has moved
+X     * so much that none of its current bits are of any use.
+X     */
+X
+X    if ((listPtr->scrollLines >= listPtr->numLines)
+X	    || (listPtr->scrollLines <= -listPtr->numLines)) {
+X	ListboxRedrawRange(listPtr, 0, listPtr->numInColumn-1);
+X    } else if (listPtr->scrollLines != 0) {
+X
+X	/*
+X	 * Copying bits will help.  Figure out how much of the window's
+X	 * new contents can simply be copied into place, then copy them.
+X	 * Also figure which areas of the window must be explicitly
+X	 * redrawn, and arrange for them to be redrawn.
+X	 */
+X
+X	distance = listPtr->scrollLines * listPtr->lineHeight;
+X	if (listPtr->scrollLines > 0) {
+X	    y = listPtr->borderWidth;
+X	    height = Tk_Height(tkwin) - 2*listPtr->borderWidth - distance;
+X	    ListboxRedrawRange(listPtr, listPtr->topIndex,
+X		    listPtr->topIndex + listPtr->scrollLines - 1);
+X	} else {
+X	    height = Tk_Height(tkwin) - 2*listPtr->borderWidth + distance;
+X	    y = listPtr->borderWidth - distance;
+X	    ListboxRedrawRange(listPtr, listPtr->topIndex
+X		    + listPtr->numLines + listPtr->scrollLines,
+X		    listPtr->topIndex + listPtr->numLines - 1);
+X	}
+X	XCopyArea(Tk_Display(tkwin), Tk_WindowId(tkwin), Tk_WindowId(tkwin),
+X		listPtr->textGC, listPtr->borderWidth, y,
+X		Tk_Width(tkwin) - 2*listPtr->borderWidth, height,
+X		listPtr->borderWidth, y + distance);
+X
+X	/*
+X	 * Some of the bits to be copied may have been obscured by other
+X	 * windows.  Read back the exposure events generated by the
+X	 * copy operation and schedule updates for the obscured areas.
+X	 */
+X
+X	while (1) {
+X	    XEvent event;
+X
+X	    XWindowEvent(Tk_Display(tkwin), Tk_WindowId(tkwin), ExposureMask,
+X		    &event);
+X	    if (event.type == NoExpose) {
+X		break;
+X	    } else if (event.type == GraphicsExpose) {
+X		ListboxRedrawRange(listPtr,
+X			NearestListboxElement(listPtr, 0,
+X				event.xgraphicsexpose.y),
+X			NearestListboxElement(listPtr, 0,
+X				event.xgraphicsexpose.y
+X				+ event.xgraphicsexpose.height));
+X		if (event.xgraphicsexpose.count ==0) {
+X		    break;
+X		}
+X	    } else if (event.type == Expose) {
+X
+X		/* Expose events here are trouble, because there's no way
+X		 * to tell whether the exposure referred to the pre-copy
+X		 * window or the post-copy window.  This is a rare occurrence,
+X		 * so take the easy way out:  redraw everything.
+X		 */
+X
+X		ListboxRedrawRange(listPtr, 0, listPtr->numInColumn-1);
+X	    }
+X	}
+X    }
+X
+X    /*
+X     * Iterate through all of the elements of the listbox, displaying all
+X     * those that need redisplay.  Selected elements use a different
+X     * GC and are raised.
+X     */
+X
+X    limit = listPtr->topIndex + listPtr->numLines - 1;
+X    if (limit > listPtr->redrawLast) {
+X	limit = listPtr->redrawLast;
+X    }
+X    if (listPtr->redrawFirst < listPtr->topIndex) {
+X	listPtr->redrawFirst = listPtr->topIndex;
+X    }
+X    margin = listPtr->borderWidth
+X	    + (7*(listPtr->fontPtr->ascent + listPtr->fontPtr->descent))/10;
+X    colWidth = (Tk_Width(tkwin) - 2*(listPtr->borderWidth)) / listPtr->columns;
+X    nInCol = listPtr->numInColumn;
+X    cols = listPtr->columns;
+X    /* null element for when the last column(s) end early */
+X    nullElement.textLength = 0;
+X    nullElement.lBearing = 0;
+X    nullElement.nextPtr = NULL;
+X    nullElement.text[0] = '\0';
+X    
+X    /* scan down to the first line to redisplay */
+X    for( i = 0, elPtr0 = listPtr->elementPtr;
+X            (i < listPtr->redrawFirst) && (elPtr0 != NULL) && (i < limit);
+X            elPtr0 = elPtr0->nextPtr, ++i )
+X        /*EMPTY*/
+X        ;
+X    counter[0] = i;
+X    elPtr[0] = elPtr0;
+X    if( elPtr0 == NULL )
+X	elPtr[0] = &nullElement;
+X    /* set up an elPtr and counter for each column */
+X    for( i = 1; i < cols; ++i ) {
+X    	elPtr[i] = elPtr[i-1];
+X    	for( j = 0; j < nInCol; ++j ) {
+X    		elPtr[i] = elPtr[i]->nextPtr;
+X		/* this happens when the last column ends early */
+X		if( elPtr[i] == NULL ) {
+X			elPtr[i] = &nullElement;
+X			break;
+X		}
+X	}
+X    	counter[i] = counter[i-1] + nInCol;
+X	if( counter[i] >= listPtr->numElements )
+X		counter[i] = listPtr->numElements - 1;
+X    }
+X    x = listPtr->borderWidth;
+X    
+X    /* loop through each row in the display */
+X    while( (elPtr[0] != NULL) && (counter[0] <= limit) ) {
+X        y = ((counter[0] - listPtr->topIndex) * listPtr->lineHeight) 
+X                + listPtr->borderWidth;
+X        /* loop through each column in the row */
+X        for( col = 0; col < cols; ++col ) {
+X            /* is this a selected element? */
+X            if ((listPtr->selectFirst >= 0)
+X                    && (counter[col] >= listPtr->selectFirst)
+X                    && (counter[col] <= listPtr->selectLast)
+X                    && (elPtr[col] != NULL) && (elPtr[col] != &nullElement) ) {
+X                /* if so draw the background in the selected color */
+X                gc = listPtr->selTextGC; /* remember which gc to use for text */
+X                Tk_Fill3DRectangle(Tk_Display(tkwin), Tk_WindowId(tkwin),
+X                    listPtr->selBorder, x + col*colWidth, y,
+X                    colWidth,
+X                    listPtr->lineHeight, listPtr->selBorderWidth,
+X                    TK_RELIEF_RAISED);
+X                yinc = listPtr->selBorderWidth;
+X                xinc = -1;
+X            } else {
+X                /* otherwise draw the background in the normal color */
+X                gc = listPtr->textGC; /* remember which gc to use for text */
+X                Tk_Fill3DRectangle(Tk_Display(tkwin), Tk_WindowId(tkwin),
+X                    listPtr->normalBorder, x + col*colWidth, y,
+X                    colWidth,
+X                    listPtr->lineHeight, 0, TK_RELIEF_FLAT);
+X                yinc = listPtr->selBorderWidth + 1;
+X                xinc = 0;
+X            }
+X            /* the last column may end early so check for NULL */
+X            if( elPtr[col] != NULL ) {
+X                yinc += listPtr->fontPtr->ascent;
+X                xinc += margin - elPtr[col]->lBearing;
+X                XDrawString(Tk_Display(tkwin), Tk_WindowId(tkwin), gc,
+X                    x + xinc + col*colWidth, y+yinc,
+X                    elPtr[col]->text, elPtr[col]->textLength);
+X                elPtr[col] = elPtr[col]->nextPtr;
+X            }
+X            ++counter[col];
+X        }
+X    }
+X
+X    /*
+X     * Clear empty space past end of list, if there is any, then redraw
+X     * the border around the list, if there is one.
+X     */
+X
+X    if ((listPtr->topIndex + listPtr->numLines) > listPtr->numInColumn) {
+X	y = ((listPtr->numInColumn - listPtr->topIndex) * listPtr->lineHeight)
+X		+ listPtr->borderWidth;
+X    } else {
+X	y = (listPtr->numLines * listPtr->lineHeight) + listPtr->borderWidth;
+X    }
+X    height = Tk_Height(tkwin) - y - listPtr->borderWidth;
+X    if (height > 0) {
+X	Tk_Fill3DRectangle(Tk_Display(tkwin), Tk_WindowId(tkwin),
+X		listPtr->normalBorder, listPtr->borderWidth, y,
+X		Tk_Width(tkwin) - 2*listPtr->borderWidth, height, 0,
+X		TK_RELIEF_FLAT);
+X    }
+X    if (listPtr->relief != TK_RELIEF_FLAT) {
+X	Tk_Draw3DRectangle(Tk_Display(tkwin), Tk_WindowId(tkwin),
+X		listPtr->normalBorder, 0, 0, Tk_Width(tkwin),
+X		Tk_Height(tkwin), listPtr->borderWidth,
+X		listPtr->relief);
+X    } else if (listPtr->borderWidth > 0) {
+X	/*
+X	 * Non-zero border width but flat:  must clear out the border
+X	 * area on the right, since text could have overflowed into it.
+X	 */
+X	XClearArea(Tk_Display(tkwin), Tk_WindowId(tkwin),
+X		Tk_Width(tkwin)-listPtr->borderWidth, 0,
+X		listPtr->borderWidth, Tk_Height(tkwin), False);
+X    }
+X
+X    done:
+X    listPtr->redrawFirst = -1;
+X    listPtr->scrollLines = 0;
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * InsertEls --
+X *
+X *	Add new elements to a listbox widget.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	New information gets added to listPtr;  it will be redisplayed
+X *	soon, but not immediately.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+InsertEls(listPtr, index, argc, argv)
+X    register Listbox *listPtr;	/* Listbox that is to get the new
+X				 * elements. */
+X    int index;			/* Add the new elements before this
+X				 * element. */
+X    int argc;			/* Number of new elements to add. */
+X    char **argv;		/* New elements (one per entry). */
+X{
+X    register Element *prevPtr, *newPtr;
+X    int length, dummy, i;
+X    XCharStruct bbox;
+X
+X    /*
+X     * Find the element before which the new ones will be inserted.
+X     */
+X
+X    if (index == 0) {
+X	prevPtr = NULL;
+X    } else {
+X	for (prevPtr = listPtr->elementPtr, index--; index > 0; index--) {
+X	    prevPtr = prevPtr->nextPtr;
+X	}
+X    }
+X
+X    /*
+X     * For each new element, create a record, initialize it, and link
+X     * it into the list of elements.
+X     */
+X
+X    for (i = argc ; i > 0; i--, argv++, prevPtr = newPtr) {
+X	length = strlen(*argv);
+X	newPtr = (Element *) ckalloc(ElementSize(length));
+X	newPtr->textLength = length;
+X	XTextExtents(listPtr->fontPtr, *argv, 1, &dummy, &dummy, &dummy,
+X		&bbox);
+X	newPtr->lBearing = bbox.lbearing;
+X	if (prevPtr == NULL) {
+X	    newPtr->nextPtr = listPtr->elementPtr;
+X	    listPtr->elementPtr = newPtr;
+X	} else {
+X	    newPtr->nextPtr = prevPtr->nextPtr;
+X	    prevPtr->nextPtr = newPtr;
+X	}
+X	strcpy(newPtr->text, *argv);
+X    }
+X    listPtr->numElements += argc;
+X    listPtr->numInColumn = ((listPtr->numElements) + (listPtr->columns) - 1)
+X    						/ (listPtr->columns);
+X
+X    /*
+X     * Update the selection to account for the  renumbering that has just
+X     * occurred.  Then arrange for the new information to be displayed.
+X     */
+X
+X    if (index <= listPtr->selectFirst) {
+X	listPtr->selectFirst += argc;
+X    }
+X    if (index <= listPtr->selectLast) {
+X	listPtr->selectLast += argc;
+X    }
+X    ListboxRedrawRange(listPtr, index, listPtr->numInColumn-1);
+X    ListboxUpdateScrollbar(listPtr);
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * DeleteEls --
+X *
+X *	Remove one or more elements from a listbox widget.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	Memory gets freed, the listbox gets modified and (eventually)
+X *	redisplayed.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+DeleteEls(listPtr, index, count)
+X    register Listbox *listPtr;	/* Listbox widget to modify. */
+X    int index;			/* Index of first element to delete. */
+X    int count;			/* How many elements to delete. */
+X{
+X    register Element *prevPtr, *elPtr;
+X    int i;
+X
+X    /*
+X     * Find the element just before the ones to delete.
+X     */
+X
+X    if (index == 0) {
+X	prevPtr = NULL;
+X    } else {
+X	for (i = index-1, prevPtr = listPtr->elementPtr; i > 0; i--) {
+X	    prevPtr = prevPtr->nextPtr;
+X	}
+X    }
+X
+X    /*
+X     * Delete the requested number of elements.
+X     */
+X
+X    for (i = count; i > 0; i--) {
+X	if (prevPtr == NULL) {
+X	    elPtr = listPtr->elementPtr;
+X	    listPtr->elementPtr = elPtr->nextPtr;
+X	} else {
+X	    elPtr = prevPtr->nextPtr;
+X	    prevPtr->nextPtr = elPtr->nextPtr;
+X	}
+X	ckfree((char *) elPtr);
+X    }
+X    listPtr->numElements -= count;
+X    listPtr->numInColumn = ((listPtr->numElements) + (listPtr->columns) - 1)
+X    						/ (listPtr->columns);
+X
+X    /*
+X      * Update the selection and viewing information to reflect the change
+X      * in the element numbering, and redisplay to slide information up over
+X      * the elements that were deleted.
+X     */
+X
+X    if (index <= listPtr->selectFirst) {
+X	listPtr->selectFirst -= count;
+X	if (listPtr->selectFirst < index) {
+X	    listPtr->selectFirst = index;
+X	}
+X    }
+X    if (index <= listPtr->selectLast) {
+X	listPtr->selectLast -= count;
+X	if (listPtr->selectLast < index) {
+X	    listPtr->selectLast = index-1;
+X	}
+X    }
+X    if (listPtr->selectLast < listPtr->selectFirst) {
+X	listPtr->selectFirst = -1;
+X    }
+X    if (index <= listPtr->topIndex) {
+X	listPtr->topIndex -= count;
+X	if (listPtr->topIndex < index) {
+X	    listPtr->topIndex = index;
+X	}
+X    }
+X    ListboxRedrawRange(listPtr, index, listPtr->numInColumn-1);
+X    ListboxUpdateScrollbar(listPtr);
+X}
+X
+X/*
+X *--------------------------------------------------------------
+X *
+X * ListboxEventProc --
+X *
+X *	This procedure is invoked by the Tk dispatcher for various
+X *	events on listboxes.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	When the window gets deleted, internal structures get
+X *	cleaned up.  When it gets exposed, it is redisplayed.
+X *
+X *--------------------------------------------------------------
+X */
+X
+static void
+ListboxEventProc(clientData, eventPtr)
+X    ClientData clientData;	/* Information about window. */
+X    XEvent *eventPtr;		/* Information about event. */
+X{
+X    Listbox *listPtr = (Listbox *) clientData;
+X
+X    if (eventPtr->type == Expose) {
+X	ListboxRedrawRange(listPtr,
+X		NearestListboxElement(listPtr, 0,
+X			eventPtr->xexpose.y),
+X		NearestListboxElement(listPtr, 0,
+X			eventPtr->xexpose.y + eventPtr->xexpose.height) );
+X    } else if (eventPtr->type == DestroyNotify) {
+X	Tcl_DeleteCommand(listPtr->interp, Tk_PathName(listPtr->tkwin));
+X	listPtr->tkwin = NULL;
+X	if ((listPtr->redrawFirst != -1) || (listPtr->scrollLines != 0)) {
+X	    Tk_CancelIdleCall(DisplayListbox, (ClientData) listPtr);
+X	}
+X	Tk_EventuallyFree((ClientData) listPtr, DestroyListbox);
+X    } else if (eventPtr->type == ConfigureNotify) {
+X	Tk_Preserve((ClientData) listPtr);
+X	listPtr->numLines = (Tk_Height(listPtr->tkwin)
+X		- 2*listPtr->borderWidth) / listPtr->lineHeight;
+X	ListboxRedrawRange(listPtr, 0, listPtr->numInColumn-1);
+X	ListboxUpdateScrollbar(listPtr);
+X	Tk_Release((ClientData) listPtr);
+X    }
+X}
+X
+X/*
+X *--------------------------------------------------------------
+X *
+X * GetListboxIndex --
+X *
+X *	Parse an index into a listbox and return either its value
+X *	or an error.
+X *
+X * Results:
+X *	A standard Tcl result.  If all went well, then *indexPtr is
+X *	filled in with the index (into listPtr) corresponding to
+X *	string.  Otherwise an error message is left in interp->result.
+X *
+X * Side effects:
+X *	None.
+X *
+X *--------------------------------------------------------------
+X */
+X
+static int
+GetListboxIndex(interp, listPtr, string, flags, indexPtr)
+X    Tcl_Interp *interp;		/* For error messages. */
+X    Listbox *listPtr;		/* Listbox for which the index is being
+X				 * specified. */
+X    char *string;		/* Numerical index into listPtr's element
+X				 * list, or "end" to refer to last element. */
+X    int flags;			/* OR-ed combination of flag bits:  ZERO_OK
+X				 * means accept index 0, even if the list
+X				 * has no entries;  LAST_PLUS_ONE_OK means
+X				 * accept an index equal to the number of
+X				 * elements, and treat "end" as this index. */
+X    int *indexPtr;		/* Where to store converted relief. */
+X{
+X    int last;
+X
+X    if (flags & LAST_PLUS_ONE_OK) {
+X	last = listPtr->numElements;
+X    } else {
+X	last = listPtr->numElements-1;
+X    }
+X    if (string[0] == 'e') {
+X	if (strncmp(string, "end", strlen(string)) != 0) {
+X	    *indexPtr = last;
+X	    badIndex:
+X	    Tcl_AppendResult(interp, "bad listbox index \"", string,
+X		    "\"", (char *) NULL);
+X	    return TCL_ERROR;
+X	}
+X	*indexPtr = last;
+X	if (listPtr->numElements <= 0) {
+X	    if (flags & ZERO_OK) {
+X		*indexPtr = 0;
+X	    } else {
+X		interp->result = "listbox has no entries";
+X		return TCL_ERROR;
+X	    }
+X	}
+X    } else {
+X	if (Tcl_GetInt(interp, string, indexPtr) != TCL_OK) {
+X	    Tcl_SetResult(interp, (char *) NULL, TCL_STATIC);
+X	    goto badIndex;
+X	}
+X	if ((*indexPtr < 0) || (*indexPtr > last)) {
+X	    if ((*indexPtr != 0) || (listPtr->numElements != 0)
+X		    || !(flags & ZERO_OK)) {
+X		goto badIndex;
+X	    }
+X	}
+X    }
+X    return TCL_OK;
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * ChangeListboxView --
+X *
+X *	Change the view on a listbox widget.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	What's displayed on the screen is changed.  If there is a
+X *	scrollbar associated with this widget, then the scrollbar
+X *	is instructed to change its display too.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+ChangeListboxView(listPtr, index, lineNum)
+X    register Listbox *listPtr;		/* Information about widget. */
+X    int index;				/* Index of element in listPtr. */
+X    int lineNum;			/* Index of line on screen:  make
+X					 * element "elIndex" appear at this
+X					 * position on screen. */
+X{
+X    int newTop;
+X
+X    if (listPtr->tkwin == NULL) {
+X	return;
+X    }
+X
+X    newTop = index - lineNum;
+X    if (newTop >= listPtr->numInColumn) {
+X	newTop = listPtr->numInColumn-1;
+X    }
+X    if (newTop < 0) {
+X	newTop = 0;
+X    }
+X    if (listPtr->topIndex == newTop) {
+X	return;
+X    }
+X    if ((listPtr->scrollLines == 0) && (listPtr->redrawFirst == -1)) {
+X	Tk_DoWhenIdle(DisplayListbox, (ClientData) listPtr);
+X    }
+X    listPtr->scrollLines += listPtr->topIndex - newTop;
+X    listPtr->topIndex = newTop;
+X
+X    ListboxUpdateScrollbar(listPtr);
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * ListboxScanTo --
+X *
+X *	Given a y-coordinate (presumably of the curent mouse location)
+X *	drag the view in the window to implement the scan operation.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	The view in the window may change.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+ListboxScanTo(listPtr, y)
+X    register Listbox *listPtr;		/* Information about widget. */
+X    int y;				/* Y-coordinate to use for scan
+X					 * operation. */
+X{
+X    int newTopIndex;
+X
+X    /*
+X     * Compute new top line for screen by amplifying the difference
+X     * between the current position and the place where the scan
+X     * started (the "mark" position).  If we run off the top or bottom
+X     * of the list, then reset the mark point so that the current
+X     * position continues to correspond to the edge of the window.
+X     * This means that the picture will start dragging as soon as the
+X     * mouse reverses direction (without this reset, might have to slide
+X     * mouse a long ways back before the picture starts moving again).
+X     */
+X
+X    newTopIndex = listPtr->scanMarkIndex
+X	    - (10*(y - listPtr->scanMarkY))/listPtr->lineHeight;
+X    if (newTopIndex >= listPtr->numInColumn) {
+X	newTopIndex = listPtr->scanMarkIndex = listPtr->numInColumn-1;
+X	listPtr->scanMarkY = y;
+X    }
+X    if (newTopIndex < 0) {
+X	newTopIndex = listPtr->scanMarkIndex = 0;
+X	listPtr->scanMarkY = y;
+X    } 
+X    ChangeListboxView(listPtr, newTopIndex, 0);
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * NearestListboxElement --
+X *
+X *	Given a y-coordinate inside a listbox, compute the index of
+X *	the element under that y-coordinate (or closest to that
+X *	y-coordinate).
+X *
+X * Results:
+X *	The return value is an index of an element of listPtr.  If
+X *	listPtr has no elements, then 0 is always returned.
+X *
+X * Side effects:
+X *	None.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static int
+NearestListboxElement(listPtr, x, y)
+X    register Listbox *listPtr;		/* Information about widget. */
+X    int x;				/* X-coordinate in listPtr's window. */
+X    int y;				/* Y-coordinate in listPtr's window. */
+X{
+X    int index;
+X    int colWidth;
+X
+X    index = (y - listPtr->borderWidth)/listPtr->lineHeight;
+X    if (index >= listPtr->numLines) {
+X	index = listPtr->numLines-1;
+X    }
+X    if (index < 0) {
+X	index = 0;
+X    }
+X    index += listPtr->topIndex;
+X    colWidth = (Tk_Width(listPtr->tkwin) - 2*(listPtr->borderWidth))
+X    				/ (listPtr->columns);
+X    index += (x/colWidth) * (listPtr->numInColumn);
+X    if (index >= listPtr->numElements) {
+X	index = listPtr->numElements-1;
+X    }
+X    return index;
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * ListboxSelectFrom --
+X *
+X *	Start a new selection in a listbox.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	ListPtr claims the selection, and the selection becomes the
+X *	single element given by index.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+ListboxSelectFrom(listPtr, index)
+X    register Listbox *listPtr;		/* Information about widget. */
+X    int index;				/* Index of element that is to
+X					 * become the new selection. */
+X{
+X    if (listPtr->selectFirst == -1) {
+X	Tk_OwnSelection(listPtr->tkwin, ListboxLostSelection,
+X		(ClientData) listPtr);
+X    } else {
+X	ListboxRedrawRange(listPtr, listPtr->selectFirst, listPtr->selectLast);
+X    }
+X
+X    listPtr->selectFirst = listPtr->selectLast = index;
+X    listPtr->selectAnchor = index;
+X    ListboxRedrawRange(listPtr, index, index);
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * ListboxSelectTo --
+X *
+X *	Modify the selection by moving its un-anchored end.  This could
+X *	make the selection either larger or smaller.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	The selection changes.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+ListboxSelectTo(listPtr, index)
+X    register Listbox *listPtr;		/* Information about widget. */
+X    int index;				/* Index of element that is to
+X					 * become the "other" end of the
+X					 * selection. */
+X{
+X    int newFirst, newLast;
+X
+X    /*
+X     * We should already own the selection, but grab it if we don't.
+X     */
+X
+X    if (listPtr->selectFirst == -1) {
+X	ListboxSelectFrom(listPtr, index);
+X    }
+X
+X    if (listPtr->selectAnchor < index) {
+X	newFirst = listPtr->selectAnchor;
+X	newLast = index;
+X    } else {
+X	newFirst = index;
+X	newLast = listPtr->selectAnchor;
+X    }
+X    if ((listPtr->selectFirst == newFirst)
+X	    && (listPtr->selectLast == newLast)) {
+X	return;
+X    }
+X    if (listPtr->selectFirst != newFirst) {
+X	if (listPtr->selectFirst < newFirst) {
+X	    ListboxRedrawRange(listPtr, listPtr->selectFirst, newFirst-1);
+X	} else {
+X	    ListboxRedrawRange(listPtr, newFirst, listPtr->selectFirst-1);
+X	}
+X	listPtr->selectFirst = newFirst;
+X    }
+X    if (listPtr->selectLast != newLast) {
+X	if (listPtr->selectLast < newLast) {
+X	    ListboxRedrawRange(listPtr, listPtr->selectLast+1, newLast);
+X	} else {
+X	    ListboxRedrawRange(listPtr, newLast+1, listPtr->selectLast);
+X	}
+X	listPtr->selectLast = newLast;
+X    }
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * ListboxFetchSelection --
+X *
+X *	This procedure is called back by Tk when the selection is
+X *	requested by someone.  It returns part or all of the selection
+X *	in a buffer provided by the caller.
+X *
+X * Results:
+X *	The return value is the number of non-NULL bytes stored
+X *	at buffer.  Buffer is filled (or partially filled) with a
+X *	NULL-terminated string containing part or all of the selection,
+X *	as given by offset and maxBytes.  The selection is returned
+X *	as a Tcl list with one list element for each element in the
+X *	listbox.
+X *
+X * Side effects:
+X *	None.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static int
+ListboxFetchSelection(clientData, offset, buffer, maxBytes)
+X    ClientData clientData;		/* Information about listbox widget. */
+X    int offset;				/* Offset within selection of first
+X					 * byte to be returned. */
+X    char *buffer;			/* Location in which to place
+X					 * selection. */
+X    int maxBytes;			/* Maximum number of bytes to place
+X					 * at buffer, not including terminating
+X					 * NULL character. */
+X{
+X    register Listbox *listPtr = (Listbox *) clientData;
+X    register Element *elPtr;
+X    char **argv, *selection;
+X    int src, dst, length, count, argc;
+X
+X    if (listPtr->selectFirst == -1) {
+X	return -1;
+X    }
+X
+X    /*
+X     * Use Tcl_Merge to format the listbox elements into a suitable
+X     * Tcl list.
+X     */
+X
+X    argc = listPtr->selectLast - listPtr->selectFirst + 1;
+X    argv = (char **) ckalloc((unsigned) (argc*sizeof(char *)));
+X    for (src = 0, dst = 0, elPtr = listPtr->elementPtr; ;
+X	    src++, elPtr = elPtr->nextPtr) {
+X	if (src < listPtr->selectFirst) {
+X	    continue;
+X	}
+X	if (src > listPtr->selectLast) {
+X	    break;
+X	}
+X	argv[dst] = elPtr->text;
+X	dst++;
+X    }
+X    selection = Tcl_Merge(argc, argv);
+X
+X    /*
+X     * Copy the requested portion of the selection to the buffer.
+X     */
+X
+X    length = strlen(selection);
+X    count = length - offset;
+X    if (count <= 0) {
+X	count = 0;
+X	goto done;
+X    }
+X    if (count > maxBytes) {
+X	count = maxBytes;
+X    }
+X    memcpy((VOID *) buffer, (VOID *) selection + offset, count);
+X    /* WAS: bcopy(selection + offset, buffer, count); */
+X
+X    done:
+X    buffer[count] = '\0';
+X    ckfree(selection);
+X    return count;
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * ListboxLostSelection --
+X *
+X *	This procedure is called back by Tk when the selection is
+X *	grabbed away from a listbox widget.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *      If the variable 'noxsel' is false then
+X *	the existing selection is unhighlighted, and the window is
+X *	marked as not containing a selection.
+X *      Otherwise there is no effect.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+ListboxLostSelection(clientData)
+X    ClientData clientData;		/* Information about listbox widget. */
+X{
+X    register Listbox *listPtr = (Listbox *) clientData;
+X
+X    if( listPtr->noxsel )
+X	return;
+X    ListboxRedrawRange(listPtr, listPtr->selectFirst, listPtr->selectLast);
+X    listPtr->selectFirst = -1;
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * ListboxMouseProc --
+X *
+X *	This procedure responds to mouse actions to implement selection
+X *	operations and dragging.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	The selection may change, and the window's view may change.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+ListboxMouseProc(clientData, eventPtr)
+X    ClientData clientData;		/* Information about window. */
+X    register XEvent *eventPtr;		/* Information about event. */
+X{
+X    Listbox *listPtr = (Listbox *) clientData;
+X    int index;
+X
+X    Tk_Preserve((ClientData) listPtr);
+X    if (eventPtr->type == ButtonPress) {
+X	if (eventPtr->xbutton.button == 1) {
+X		index = NearestListboxElement(listPtr,
+X				eventPtr->xbutton.x, eventPtr->xbutton.y);
+X	    if (eventPtr->xbutton.state == 0) {
+X		ListboxSelectFrom(listPtr, index);
+X	    } else if (eventPtr->xbutton.state == ShiftMask) {
+X		if (index < (listPtr->selectFirst
+X			+ listPtr->selectLast)/2) {
+X		    listPtr->selectAnchor = listPtr->selectLast;
+X		} else {
+X		    listPtr->selectAnchor = listPtr->selectFirst;
+X		}
+X		ListboxSelectTo(listPtr, index);
+X	    }
+X	} else if ((eventPtr->xbutton.button == 3)
+X		|| (eventPtr->xbutton.state == 0)) {
+X	    listPtr->scanMarkY = eventPtr->xbutton.y;
+X	    listPtr->scanMarkIndex = listPtr->topIndex;
+X	}
+X    } else if (eventPtr->type == MotionNotify) {
+X	if ((eventPtr->xmotion.state & ~ShiftMask) == Button1Mask) {
+X	    index = NearestListboxElement(listPtr,
+X	    			eventPtr->xmotion.x, eventPtr->xmotion.y);
+X	    ListboxSelectTo(listPtr, index);
+X	} else if (eventPtr->xmotion.state == Button3Mask) {
+X	    ListboxScanTo(listPtr, eventPtr->xmotion.y);
+X	}
+X    }
+X    Tk_Release((ClientData) listPtr);
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * ListboxRedrawRange --
+X *
+X *	Ensure that a given range of elements is eventually redrawn on
+X *	the display (if those elements in fact appear on the display).
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	Information gets redisplayed.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+ListboxRedrawRange(listPtr, first, last)
+X    register Listbox *listPtr;		/* Information about widget. */
+X    int first;				/* Index of first element in list
+X					 * that needs to be redrawn. */
+X    int last;				/* Index of last element in list
+X					 * that needs to be redrawn.  May
+X					 * be less than first;
+X					 * these just bracket a range. */
+X{
+X    int nCol = listPtr->numInColumn;
+X    int row_first, row_last;
+X    int col_first, col_last;
+X
+X    if ((listPtr->tkwin == NULL) || !Tk_IsMapped(listPtr->tkwin)) {
+X	return;
+X    }
+X    /* adjust for multiple columns */
+X    if( nCol > 0 ) {
+X        row_first = first % nCol;
+X        col_first = first / nCol;
+X        row_last = last % nCol;
+X        col_last = last / nCol;
+X        if( col_first == col_last ) {
+X            first = row_first;
+X            last = row_last;
+X        } else if( col_first < col_last ) {
+X            first = 0;
+X            last = nCol - 1;
+X        }
+X    }
+X
+X    if (listPtr->redrawFirst == -1) {
+X	listPtr->redrawFirst = first;
+X	listPtr->redrawLast = last;
+X	if (listPtr->scrollLines == 0) {
+X	    Tk_DoWhenIdle(DisplayListbox, (ClientData) listPtr);
+X	}
+X    } else {
+X	if (first < listPtr->redrawFirst) {
+X	    listPtr->redrawFirst = first;
+X	}
+X	if (last > listPtr->redrawLast) {
+X	    listPtr->redrawLast = last;
+X	}
+X    }
+X}
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * ListboxUpdateScrollbar --
+X *
+X *	This procedure is invoked whenever information has changed in
+X *	a listbox in a way that would invalidate a scrollbar display.
+X *	If there is an associated scrollbar, then this command updates
+X *	it by invoking a Tcl command.
+X *
+X * Results:
+X *	None.
+X *
+X * Side effects:
+X *	A Tcl command is invoked, and an additional command may be
+X *	invoked to process errors in the command.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+static void
+ListboxUpdateScrollbar(listPtr)
+X    register Listbox *listPtr;		/* Information about widget. */
+X{
+X    char string[60];
+X    int result, last;
+X
+X    if (listPtr->scrollCmd == NULL) {
+X	return;
+X    }
+X    last = listPtr->topIndex + listPtr->numLines;
+X    if (last >= listPtr->numInColumn) {
+X	last = listPtr->numInColumn-1;
+X    }
+X    sprintf(string, " %d %d %d %d", listPtr->numInColumn, listPtr->numLines,
+X	    listPtr->topIndex, last);
+X    result = Tcl_VarEval(listPtr->interp, listPtr->scrollCmd, string,
+X	    (char *) NULL);
+X    if (result != TCL_OK) {
+X	TkBindError(listPtr->interp);
+X    }
+X}
+END_OF_FILE
+if test 55672 -ne `wc -c <'tkColbox.c'`; then
+    echo shar: \"'tkColbox.c'\" unpacked with wrong size!
+fi
+# end of 'tkColbox.c'
+fi
+echo shar: End of archive 15 \(of 15\).
+cp /dev/null ark15isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

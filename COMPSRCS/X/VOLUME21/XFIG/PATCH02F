@@ -1,0 +1,1061 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb12.lbl.gov (Brian V. Smith)
+Subject: v21i026:  xfig - Draw amd manipulate objects in an X-Window, Patch02f/16
+Message-ID: <1993Oct21.185822.6977@sparky.sterling.com>
+X-Md4-Signature: eba687bfd06d00a16fae0f88b989652a
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Thu, 21 Oct 1993 18:58:22 GMT
+Approved: chris@sterling.com
+
+Submitted-by: envbvs@epb12.lbl.gov (Brian V. Smith)
+Posting-number: Volume 21, Issue 26
+Archive-name: xfig/patch02f
+Environment: patch, X11, xfig
+Patch-To: xfig: Volume 19, Issue 113-139
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xfig.07
+# Wrapped by chris@sparky on Thu Oct 21 13:40:06 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 16)."'
+if test -f 'xfig.07' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xfig.07'\"
+else
+  echo shar: Extracting \"'xfig.07'\" \(31221 characters\)
+  sed "s/^X//" >'xfig.07' <<'END_OF_FILE'
+X!     for (i = 1; i < NUM_PS_FONTS + 1; i++)
+X! 	if (ps_fontinfo[i].xfontnum == f)
+X! 	    {
+X! 	    sprintf(fn, "%s-%d", ps_fontinfo[i].name, s);
+X! 	    break;
+X! 	    }
+X! 
+X!     for (i = strlen(fn) - 1; i >= 0; i--)
+X! 	if (isupper(fn[i]))
+X! 	    fn[i] = tolower(fn[i]);
+X!     if (appres.DEBUG)
+X! 	fprintf(stderr, "Loading font %s\n", fn);
+X!     set_temp_cursor(wait_cursor);
+X!     app_flush();
+X!     fontst = XRotLoadFont(tool_d, fn, angle);
+X!     if (fontst == NULL) {
+X! 	fprintf(stderr, "xfig: Can't load font %s ?!, using %s\n",
+X! 		fn, appres.normalFont);
+X! 	fontst = XRotLoadFont(tool_d, appres.normalFont, angle);
+X!     }
+X!     reset_cursor();
+X!     return (fontst);
+X!   }
+X! 
+X! #else
+X!   {
+X  	char		fn[128];
+X  	char		template[200];
+X  	Boolean		found;
+X  	struct xfont   *newfont, *nf, *oldnf;
+X- 	struct flist   *lp, *nlp, *oldlp;
+X  
+X! 	/* see if we've already loaded that font size 's' at angle 'angle' 
+X  	   from the font family 'f' */
+X! 	/* actually, we've reduced the number of angles to four - 0, 90, 180 and 270 */
+X! 	if (angle < 0.0)
+X! 		angle += 2.0*M_PI;
+X! 	dir = (int)(angle/M_PI_2+0.0001);
+X! 	if (dir > 3)
+X! 		dir -= 4;
+X  	found = False;
+X! 	/* start with the basic font name (e.g. adobe-times-medium-r-normal-...) */
+X  	nf = x_fontinfo[f].xfontlist;
+X  	oldnf = nf;
+X  	if (nf != NULL) {
+X--- 199,232 ----
+X  }
+X  
+X  /*
+X!  * Lookup an X font, "f" corresponding to a Postscript font style that is 
+X!  * close in size to "s"
+X   */
+X  
+X! PIX_FONT
+X! lookfont(f, s)
+X      int		    f, s;
+X  {
+X! 	PIX_FONT        fontst;
+X  	char		fn[128];
+X  	char		template[200];
+X  	Boolean		found;
+X  	struct xfont   *newfont, *nf, *oldnf;
+X  
+X! 
+X! 	if (f == DEFAULT)
+X! 	    f = 0;		/* pass back the -normal font font */
+X! 	if (s < 0)
+X! 	    s = DEF_FONTSIZE;	/* default font size */
+X! 
+X! 	/* see if we've already loaded that font size 's' 
+X  	   from the font family 'f' */
+X! 
+X  	found = False;
+X! 
+X! 	/* start with the basic font name (e.g. adobe-times-medium-r-normal-... 
+X! 		OR times-roman for OpenWindows fonts) */
+X! 
+X  	nf = x_fontinfo[f].xfontlist;
+X  	oldnf = nf;
+X  	if (nf != NULL) {
+X***************
+X*** 268,278 ****
+X  	    strcpy(fn,nf->fname);  /* put the name in fn */
+X  	    if (s < nf->size)
+X  		put_msg("Font size %d not found, using larger %d point",s,nf->size);
+X  	} else if (!appres.SCALABLEFONTS) {	/* not found, use largest available */
+X  	    nf = oldnf;
+X! 	    strcpy(fn,nf->fname);  /* put the name in fn */
+X  	    if (s > nf->size)
+X  		put_msg("Font size %d not found, using smaller %d point",s,nf->size);
+X  	} else { /* SCALABLE; none yet of that size, alloc one and put it in the list */
+X  	    newfont = (struct xfont *) malloc(sizeof(struct xfont));
+X  	    /* add it on to the end of the list */
+X--- 246,260 ----
+X  	    strcpy(fn,nf->fname);  /* put the name in fn */
+X  	    if (s < nf->size)
+X  		put_msg("Font size %d not found, using larger %d point",s,nf->size);
+X+ 	    if (appres.DEBUG)
+X+ 		fprintf(stderr, "Located font %s\n", fn);
+X  	} else if (!appres.SCALABLEFONTS) {	/* not found, use largest available */
+X  	    nf = oldnf;
+X! 	    strcpy(fn,nf->fname);  		/* put the name in fn */
+X  	    if (s > nf->size)
+X  		put_msg("Font size %d not found, using smaller %d point",s,nf->size);
+X+ 	    if (appres.DEBUG)
+X+ 		fprintf(stderr, "Using font %s for size %d\n", fn, s);
+X  	} else { /* SCALABLE; none yet of that size, alloc one and put it in the list */
+X  	    newfont = (struct xfont *) malloc(sizeof(struct xfont));
+X  	    /* add it on to the end of the list */
+X***************
+X*** 282,369 ****
+X  	        oldnf->next = newfont;
+X  	    nf = newfont;		/* keep current ptr */
+X  	    nf->size = s;		/* store the size here */
+X! 	    nf->list = NULL;
+X  	    nf->next = NULL;
+X  
+X! 	    /* create a full XLFD font name */
+X! 	    strcpy(template,x_fontinfo[f].template);
+X! 	    /* attach pointsize to font name */
+X! 	    strcat(template,"%d-*-*-*-*-*-");
+X! 	    /* add ISO8859 (if not Symbol font or ZapfDingbats) to font name */
+X! 	    if (strstr(template,"symbol") == NULL && 
+X  		strstr(template,"zapfdingbats") == NULL)
+X  		    strcat(template,"ISO8859-*");
+X! 	    else
+X  		strcat(template,"*-*");
+X! 	    /* use the pixel field instead of points in the fontname so that the
+X  		font scales with screen size */
+X! 	    sprintf(fn, template, s);
+X  	    /* allocate space for the name and put it in the structure */
+X! 	    nf->fname = (char *) malloc(strlen(fn));
+X  	    strcpy(nf->fname, fn);
+X! 	} /* if (!found) */
+X! 	if (appres.DEBUG)
+X! 	    fprintf(stderr, "Loading font %s at angle %f (%f)\n", 
+X! 			fn, (float) dir*90.0, angle);
+X! 	lp = nf->list;
+X! 	oldlp = lp;
+X! 	found = False;
+X! 	while (lp) {
+X! 		if (lp->dir == dir) {
+X! 		    found = True;
+X! 		    break;
+X! 		}
+X! 		oldlp = lp;
+X! 		lp = lp->next;
+X! 	} /* while (lp) */
+X! 	if (!found) {
+X! 		nlp = (struct flist *) malloc(sizeof(struct flist));
+X! 		nlp->next = NULL;
+X! 		if (oldlp)
+X! 			oldlp->next = nlp;	/* add this to the list */
+X! 		else
+X! 			nf->list = nlp;		/* first on the list */
+X! 		nlp->dir = dir;
+X! 		set_temp_cursor(wait_cursor);
+X! 		app_flush();
+X! 		fontst = XRotLoadFont(tool_d, fn, (float) dir*90.0);
+X! 		reset_cursor();
+X! 		if (fontst == NULL) {
+X! 		    fprintf(stderr, "xfig: Can't load font %s ?!, using %s\n",
+X  			fn, appres.normalFont);
+X! 		    fontst = XRotLoadFont(tool_d, appres.normalFont, (float) dir*90.0);
+X! 		    nf->fname = fn;	/* keep actual name */
+X! 		}
+X! 		/* put the structure in the list */
+X! 		nlp->fstruct = fontst;
+X! 		lp = nlp;
+X! 	} /* if (!found) */
+X! 	fontst = lp->fstruct;
+X! 	return (fontst);
+X!   }
+X  
+X! #endif				/* !OPENWIN */
+X! 
+X  }
+X  
+X! /* print "string" in window "w" using font specified in fstruct at (x,y) */
+X  
+X! pw_text(w, x, y, op, fstruct, string, color)
+X      Window	    w;
+X      int		    x, y, op;
+X!     PIX_ROT_FONT    fstruct;
+X      char	   *string;
+X      Color	    color;
+X  {
+X      if (fstruct == NULL)
+X  	fprintf(stderr,"Error, in pw_text, fstruct==NULL\n");
+X!     pwx_text(w, x, y, op, fstruct, string, color);
+X  }
+X  
+X! pwx_text(w, x, y, op, fstruct, string, color)
+X      Window	    w;
+X      int		    x, y, op;
+X!     PIX_ROT_FONT    fstruct;
+X      char	   *string;
+X      Color	    color;
+X  {
+X--- 264,335 ----
+X  	        oldnf->next = newfont;
+X  	    nf = newfont;		/* keep current ptr */
+X  	    nf->size = s;		/* store the size here */
+X! 	    nf->fstruct = NULL;
+X  	    nf->next = NULL;
+X  
+X! 	    if (openwinfonts) {
+X! 		/* OpenWindows fonts, create font name like times-roman-13 */
+X! 		sprintf(fn, "%s-%d", x_fontinfo[f].template, s);
+X! 	    } else {
+X! 		/* X11 fonts, create a full XLFD font name */
+X! 		strcpy(template,x_fontinfo[f].template);
+X! 		/* attach pointsize to font name */
+X! 		strcat(template,"%d-*-*-*-*-*-");
+X! 		/* add ISO8859 (if not Symbol font or ZapfDingbats) to font name */
+X! 		if (strstr(template,"symbol") == NULL && 
+X  		strstr(template,"zapfdingbats") == NULL)
+X  		    strcat(template,"ISO8859-*");
+X! 		else
+X  		strcat(template,"*-*");
+X! 		/* use the pixel field instead of points in the fontname so that the
+X  		font scales with screen size */
+X! 		sprintf(fn, template, s);
+X! 	    }
+X  	    /* allocate space for the name and put it in the structure */
+X! 	    nf->fname = (char *) malloc(strlen(fn)+1);
+X  	    strcpy(nf->fname, fn);
+X! 	} /* scalable */
+X! 	if (nf->fstruct == NULL) {
+X! 	    if (appres.DEBUG)
+X! 		fprintf(stderr, "Loading font %s\n", fn);
+X! 	    set_temp_cursor(wait_cursor);
+X! 	    app_flush();
+X! 	    fontst = XLoadQueryFont(tool_d, fn);
+X! 	    reset_cursor();
+X! 	    if (fontst == NULL) {
+X! 		fprintf(stderr, "xfig: Can't load font %s ?!, using %s\n",
+X  			fn, appres.normalFont);
+X! 		fontst = XLoadQueryFont(tool_d, appres.normalFont);
+X! 		nf->fname = fn;	/* keep actual name */
+X! 	    }
+X! 	    /* put the structure in the list */
+X! 	    nf->fstruct = fontst;
+X! 	} /* if (nf->fstruct == NULL) */
+X  
+X! 	return (nf->fstruct);
+X  }
+X  
+X! /* print "string" in window "w" using font specified in fstruct at angle
+X! 	"angle" (radians) at (x,y) */
+X  
+X! pw_text(w, x, y, op, fstruct, angle, string, color)
+X      Window	    w;
+X      int		    x, y, op;
+X!     PIX_FONT	    fstruct;
+X!     float	    angle;
+X      char	   *string;
+X      Color	    color;
+X  {
+X      if (fstruct == NULL)
+X  	fprintf(stderr,"Error, in pw_text, fstruct==NULL\n");
+X!     pwx_text(w, x, y, op, fstruct, angle, string, color);
+X  }
+X  
+X! pwx_text(w, x, y, op, fstruct, angle, string, color)
+X      Window	    w;
+X      int		    x, y, op;
+X!     PIX_FONT	    fstruct;
+X!     float	    angle;
+X      char	   *string;
+X      Color	    color;
+X  {
+X***************
+X*** 385,404 ****
+X  		gc_color[op] = writing_bitmap? color : x_color(color);
+X  	    }
+X      }
+X!     zXRotDrawString(tool_d, w, fstruct, gccache[op], x, y, 
+X! 		    string, strlen(string));
+X  }
+X  
+X  pr_size
+X  pf_textwidth(fstruct, n, s)
+X!     PIX_ROT_FONT    fstruct;
+X      int		    n;
+X      char	   *s;
+X  {
+X      pr_size	    ret;
+X  
+X!     ret.x = XRotTextWidth(fstruct, s, n);
+X!     ret.y = XRotTextHeight(fstruct, s, n);
+X      return (ret);
+X  }
+X  
+X--- 351,370 ----
+X  		gc_color[op] = writing_bitmap? color : x_color(color);
+X  	    }
+X      }
+X!     zXRotDrawString(tool_d, fstruct, angle, w, gccache[op], 
+X! 		    x, y, string);
+X  }
+X  
+X  pr_size
+X  pf_textwidth(fstruct, n, s)
+X!     PIX_FONT	    fstruct;
+X      int		    n;
+X      char	   *s;
+X  {
+X      pr_size	    ret;
+X  
+X!     ret.x = XTextWidth(fstruct, s, n);
+X!     ret.y = char_height(fstruct);
+X      return (ret);
+X  }
+X  
+X***************
+X*** 476,487 ****
+X      gcv.arc_mode = ArcPieSlice; /* fill mode for arcs */
+X      gcv.fill_rule = EvenOddRule /* WindingRule */ ;
+X      for (i = 0; i < NUMFILLPATS; i++) {
+X! 	/* make color fill pattern with black bg (fg is set later in set_x_color() */
+X  	fill_gc[i] = makegc(PAINT, x_fg_color.pixel, x_color(BLACK));
+X! 	un_fill_gc[i] = makegc(ERASE, x_fg_color.pixel, x_color(BLACK));
+X  	/* make black fill pattern with default background */
+X  	black_fill_gc[i] = makegc(PAINT, x_fg_color.pixel, x_bg_color.pixel);
+X! 	black_un_fill_gc[i] = makegc(ERASE, x_fg_color.pixel, x_bg_color.pixel);
+X  	gcv.stipple = fill_pm[i];
+X  	XChangeGC(tool_d, fill_gc[i],
+X  		  GCStipple | GCFillStyle | GCFillRule | GCArcMode, &gcv);
+X--- 442,454 ----
+X      gcv.arc_mode = ArcPieSlice; /* fill mode for arcs */
+X      gcv.fill_rule = EvenOddRule /* WindingRule */ ;
+X      for (i = 0; i < NUMFILLPATS; i++) {
+X! 	/* make color fill pattern with black bg - fg is set later in set_fillgc() */
+X  	fill_gc[i] = makegc(PAINT, x_fg_color.pixel, x_color(BLACK));
+X! 	/* make un-fill gc's with canvas background color as foreground */
+X! 	un_fill_gc[i] = makegc(PAINT, x_bg_color.pixel, x_color(BLACK));
+X  	/* make black fill pattern with default background */
+X  	black_fill_gc[i] = makegc(PAINT, x_fg_color.pixel, x_bg_color.pixel);
+X! 	black_un_fill_gc[i] = makegc(PAINT, x_bg_color.pixel, x_fg_color.pixel);
+X  	gcv.stipple = fill_pm[i];
+X  	XChangeGC(tool_d, fill_gc[i],
+X  		  GCStipple | GCFillStyle | GCFillRule | GCArcMode, &gcv);
+X***************
+X*** 744,755 ****
+X      Color	    color;
+X  {
+X      short	    xmin, ymin;
+X!     unsigned short  wd, ht;
+X  
+X!     xmin = (short) min2(xstart, xend);
+X!     ymin = (short) min2(ystart, yend);
+X!     wd = (unsigned short) abs(xstart - xend);
+X!     ht = (unsigned short) abs(ystart - yend);
+X  
+X      /* if it's a fill pat we know about */
+X      if (fill_style >= 1 && fill_style <= NUMFILLPATS) {
+X--- 711,722 ----
+X      Color	    color;
+X  {
+X      short	    xmin, ymin;
+X!     unsigned int    wd, ht;
+X  
+X!     xmin = min2(xstart, xend);
+X!     ymin = min2(ystart, yend);
+X!     wd = (unsigned int) abs(xstart - xend);
+X!     ht = (unsigned int) abs(ystart - yend);
+X  
+X      /* if it's a fill pat we know about */
+X      if (fill_style >= 1 && fill_style <= NUMFILLPATS) {
+X***************
+X*** 891,899 ****
+X      Color	    color;
+X  {
+X      if (op == PAINT) {
+X! 	fillgc = ((color==BLACK || 
+X! 	     (color==DEFAULT_COLOR && x_fg_color.pixel==appres.color[BLACK]) ||
+X! 	     (!all_colors_available && color!=WHITE))? 
+X  		black_fill_gc[fill_style - 1]: fill_gc[fill_style - 1]);
+X  	if (writing_bitmap)
+X  	    {
+X--- 858,865 ----
+X      Color	    color;
+X  {
+X      if (op == PAINT) {
+X! 	fillgc = (color==BLACK || 
+X! 	     (color==DEFAULT_COLOR && x_fg_color.pixel==appres.color[BLACK])?
+X  		black_fill_gc[fill_style - 1]: fill_gc[fill_style - 1]);
+X  	if (writing_bitmap)
+X  	    {
+X***************
+X*** 904,915 ****
+X  	    XSetForeground(tool_d,fillgc,color);
+X  	    }
+X  	else
+X! 	    set_x_color(fillgc, color);
+X      } else
+X! 	fillgc = ((color==BLACK || 
+X! 	     (color==DEFAULT_COLOR && x_fg_color.pixel==appres.color[BLACK]) ||
+X! 	     (!all_colors_available && color!=WHITE))? 
+X! 		black_un_fill_gc[fill_style - 1]: un_fill_gc[fill_style - 1]);
+X      XSetClipRectangles(tool_d, fillgc, 0, 0, clip, 1, YXBanded);
+X  }
+X  
+X--- 870,880 ----
+X  	    XSetForeground(tool_d,fillgc,color);
+X  	    }
+X  	else
+X! 	    set_fill_color(fillgc, color);
+X      } else
+X! 	fillgc = (color==BLACK || 
+X! 	     (color==DEFAULT_COLOR && x_fg_color.pixel==appres.color[BLACK])?
+X! 		black_un_fill_gc[NUMFILLPATS-1]: un_fill_gc[NUMFILLPATS-1]);
+X      XSetClipRectangles(tool_d, fillgc, 0, 0, clip, 1, YXBanded);
+X  }
+X  
+X***************
+X*** 920,926 ****
+X  {
+X      XGCValues	    gcv;
+X      unsigned long   mask;
+X!     static unsigned char dash_list[2] = {-1, -1};
+X  
+X      switch (style) {
+X      case RUBBER_LINE:
+X--- 885,891 ----
+X  {
+X      XGCValues	    gcv;
+X      unsigned long   mask;
+X!     static unsigned char dash_list[2] = {255, 255};
+X  
+X      switch (style) {
+X      case RUBBER_LINE:
+X***************
+X*** 952,958 ****
+X  
+X      if (width == gc_thickness[op] && style == gc_line_style[op] &&
+X  	(writing_bitmap? color == gc_color[op] : x_color(color) == gc_color[op]) &&
+X! 	(style != DASH_LINE && style != DOTTED_LINE ||
+X  	 dash_list[1] == (char) round(style_val * zoomscale)))
+X  	return;			/* no need to change anything */
+X  
+X--- 917,923 ----
+X  
+X      if (width == gc_thickness[op] && style == gc_line_style[op] &&
+X  	(writing_bitmap? color == gc_color[op] : x_color(color) == gc_color[op]) &&
+X! 	((style != DASH_LINE && style != DOTTED_LINE) ||
+X  	 dash_list[1] == (char) round(style_val * zoomscale)))
+X  	return;			/* no need to change anything */
+X  
+Xdiff -rc xfig.2.1.7a/w_drawprim.h xfig.2.1.8/w_drawprim.h
+X*** xfig.2.1.7a/w_drawprim.h	Wed Jan  6 11:26:39 1993
+X--- xfig.2.1.8/w_drawprim.h	Fri Sep  3 11:14:29 1993
+X***************
+X*** 14,20 ****
+X  extern PIX_FONT bold_font;
+X  extern PIX_FONT roman_font;
+X  extern PIX_FONT button_font;
+X! extern PIX_ROT_FONT canvas_font;
+X  
+X  /* Maximum number of points for polygons etc */
+X  #define		MAXNUMPTS	10000
+X--- 14,20 ----
+X  extern PIX_FONT bold_font;
+X  extern PIX_FONT roman_font;
+X  extern PIX_FONT button_font;
+X! extern PIX_FONT canvas_font;
+X  
+X  /* Maximum number of points for polygons etc */
+X  #define		MAXNUMPTS	10000
+X***************
+X*** 26,44 ****
+X  #define		char_height(font) \
+X  		((font)->max_bounds.ascent + (font)->max_bounds.descent)
+X  
+X! #define		rot_char_width(rotfont)	((rotfont)->width)
+X! #define		rot_char_height(rotfont) \
+X! 		((rotfont)->max_ascent + (rotfont)->max_descent)
+X  
+X! #define		rot_char_advance(font,char) \
+X  		    (((font)->per_char)?\
+X! 		    ((font)->per_char[(char)-(font)->min_char].width):\
+X! 		    ((font)->width))
+X  
+X  #define set_x_color(gc,col) XSetForeground(tool_d,gc,\
+X  	(!all_colors_available? (col==WHITE?x_bg_color.pixel:x_fg_color.pixel): \
+X! 	(col<0||col>=NUMCOLORS)? x_fg_color.pixel:appres.color[col]))
+X  
+X  #define x_color(col)\
+X  	(!all_colors_available? (col==WHITE?x_bg_color.pixel:x_fg_color.pixel): \
+X! 	(col<0||col>=NUMCOLORS)? x_fg_color.pixel:appres.color[col])
+X--- 26,46 ----
+X  #define		char_height(font) \
+X  		((font)->max_bounds.ascent + (font)->max_bounds.descent)
+X  
+X! #define		char_width(font) ((font)->max_bounds.width)
+X  
+X! #define		char_advance(font,char) \
+X  		    (((font)->per_char)?\
+X! 		    ((font)->per_char[(char)-(font)->min_char_or_byte2].width):\
+X! 		    ((font)->max_bounds.width))
+X  
+X  #define set_x_color(gc,col) XSetForeground(tool_d,gc,\
+X  	(!all_colors_available? (col==WHITE?x_bg_color.pixel:x_fg_color.pixel): \
+X! 		(col<0||col>=NUMCOLORS)? x_fg_color.pixel:appres.color[col]))
+X  
+X+ #define set_fill_color(gc,col) XSetForeground(tool_d,gc,\
+X+ 	(!all_colors_available? (col==BLACK?x_fg_color.pixel:x_bg_color.pixel): \
+X+ 		(col<0||col>=NUMCOLORS)? x_fg_color.pixel:appres.color[col]))
+X+ 
+X  #define x_color(col)\
+X  	(!all_colors_available? (col==WHITE?x_bg_color.pixel:x_fg_color.pixel): \
+X! 		(col<0||col>=NUMCOLORS)? x_fg_color.pixel:appres.color[col])
+Xdiff -rc xfig.2.1.7a/w_export.c xfig.2.1.8/w_export.c
+X*** xfig.2.1.7a/w_export.c	Fri Apr 16 10:35:46 1993
+X--- xfig.2.1.8/w_export.c	Tue Aug 24 14:21:33 1993
+X***************
+X*** 22,27 ****
+X--- 22,28 ----
+X  extern String	text_translations;
+X  extern Widget	make_popup_menu();
+X  extern char    *panel_get_value();
+X+ extern Boolean	query_save();
+X  extern Widget	file_popup;
+X  extern Widget	file_dir;
+X  
+X***************
+X*** 31,36 ****
+X--- 32,41 ----
+X  
+X  /* LOCAL */
+X  
+X+ static String	file_list_translations =
+X+ 	"<Btn1Down>,<Btn1Up>: Set()Notify()\n\
+X+ 	<Btn1Down>(2): export()\n\
+X+ 	<Key>Return: ExportFile()\n";
+X  static String	file_name_translations =
+X  	"<Key>Return: ExportFile()\n";
+X  void		do_export();
+X***************
+X*** 104,109 ****
+X--- 109,115 ----
+X  }
+X  
+X  static char	export_msg[] = "EXPORT";
+X+ static char	exp_msg[] = "The current figure is modified.\nDo you want to save it before exporting?";
+X  
+X  void
+X  do_export(w)
+X***************
+X*** 116,121 ****
+X--- 122,131 ----
+X  	if (emptyfigure_msg(export_msg))
+X  		return;
+X  
+X+ 	/* if modified (and non-empty) ask to save first */
+X+ 	if (!query_save(exp_msg))
+X+ 	    return;		/* cancel, do not export */
+X+ 
+X  	if (!export_popup) 
+X  		create_export_panel(w);
+X  	FirstArg(XtNstring, &fval);
+X***************
+X*** 123,130 ****
+X  	if (emptyname(fval)) {		/* output filename is empty, use default */
+X  	    fval = default_export_file;
+X  	    warnexist = False;		/* don't warn if this file exists */
+X! 	} else {
+X! 	    warnexist = True;		/* otherwise warn if the file exists */
+X  	}
+X  
+X  	/* if not absolute path, change directory */
+X--- 133,140 ----
+X  	if (emptyname(fval)) {		/* output filename is empty, use default */
+X  	    fval = default_export_file;
+X  	    warnexist = False;		/* don't warn if this file exists */
+X! 	} else if (strcmp(fval,default_export_file) != 0) {
+X! 	    warnexist = True;		/* warn if the file exists and is diff. from default */
+X  	}
+X  
+X  	/* if not absolute path, change directory */
+X***************
+X*** 394,402 ****
+X  
+X  	create_dirinfo(export_panel, exp_selfile, &beside, &below,
+X  		       &exp_mask, &exp_dir, &exp_flist, &exp_dlist);
+X! 	/* make <return> in the file list window export the file */
+X  	XtOverrideTranslations(exp_flist,
+X! 			   XtParseTranslationTable(file_name_translations));
+X  
+X  	FirstArg(XtNlabel, "Cancel");
+X  	NextArg(XtNfromHoriz, beside);
+X--- 404,412 ----
+X  
+X  	create_dirinfo(export_panel, exp_selfile, &beside, &below,
+X  		       &exp_mask, &exp_dir, &exp_flist, &exp_dlist);
+X! 	/* make <return> or double click in the file list window export the file */
+X  	XtOverrideTranslations(exp_flist,
+X! 			   XtParseTranslationTable(file_list_translations));
+X  
+X  	FirstArg(XtNlabel, "Cancel");
+X  	NextArg(XtNfromHoriz, beside);
+X***************
+X*** 463,467 ****
+X--- 473,479 ----
+X  	FirstArg(XtNstring, &dval);
+X  	GetValues(file_dir);
+X  	strcpy(export_dir,dval);
+X+     } else {
+X+ 	strcpy(export_dir,cur_dir);
+X      }
+X  }
+Xdiff -rc xfig.2.1.7a/w_file.c xfig.2.1.8/w_file.c
+X*** xfig.2.1.7a/w_file.c	Mon Mar 22 14:41:00 1993
+X--- xfig.2.1.8/w_file.c	Tue Aug 31 13:40:00 1993
+X***************
+X*** 33,38 ****
+X--- 33,42 ----
+X  static Widget	cancel, save, merge, load;
+X  static Widget	file_w;
+X  static Position xposn, yposn;
+X+ static String	file_list_translations =
+X+ 	"<Btn1Down>,<Btn1Up>: Set()Notify()\n\
+X+ 	<Btn1Down>(2): load()\n\
+X+ 	<Key>Return: load()\n";
+X  static String	file_name_translations =
+X  	"<Key>Return: load()\n";
+X  static void	file_panel_cancel(), do_merge();
+X***************
+X*** 79,85 ****
+X      Widget	    w;
+X      XButtonEvent   *ev;
+X  {
+X!     char	    filename[100];
+X      char	   *fval, *dval;
+X  
+X      FirstArg(XtNstring, &fval);
+X--- 83,89 ----
+X      Widget	    w;
+X      XButtonEvent   *ev;
+X  {
+X!     char	    filename[200];
+X      char	   *fval, *dval;
+X  
+X      FirstArg(XtNstring, &fval);
+X***************
+X*** 107,112 ****
+X--- 111,126 ----
+X  {
+X      char	   *fval, *dval;
+X  
+X+     /* first check if the figure was modified before reloading it */
+X+     if (!emptyfigure() && figure_modified) {
+X+ 	if (file_popup)
+X+ 	    XtSetSensitive(load, False);
+X+ 	if (!popup_query(QUERY_YESCAN, load_msg)) {
+X+ 	    if (file_popup)
+X+ 		XtSetSensitive(load, True);
+X+ 	    return;
+X+ 	}
+X+     }
+X      if (file_popup) {
+X  	FirstArg(XtNstring, &dval);
+X  	GetValues(file_dir);
+X***************
+X*** 113,131 ****
+X  	FirstArg(XtNstring, &fval);
+X  	GetValues(file_selfile);	/* check the ascii widget for a filename */
+X  	if (emptyname(fval))
+X! 	    fval = cur_filename;	/* "Filename" widget empty, use current filename */
+X! 
+X  	if (emptyname_msg(fval, "LOAD"))
+X  	    return;
+X- 
+X- 	if (!emptyfigure() && figure_modified) {
+X- 	    XtSetSensitive(load, False);
+X- 	    if (!popup_query(QUERY_YES, load_msg)) {
+X- 		XtSetSensitive(load, True);
+X- 		return;
+X- 	    }
+X- 	    XtSetSensitive(load, True);
+X- 	}
+X  	if (change_directory(dval) == 0) {
+X  	    if (load_file(fval) == 0) {
+X  		FirstArg(XtNlabel, fval);
+X--- 127,135 ----
+X  	FirstArg(XtNstring, &fval);
+X  	GetValues(file_selfile);	/* check the ascii widget for a filename */
+X  	if (emptyname(fval))
+X! 	    fval = cur_filename;	/* Filename widget empty, use current filename */
+X  	if (emptyname_msg(fval, "LOAD"))
+X  	    return;
+X  	if (change_directory(dval) == 0) {
+X  	    if (load_file(fval) == 0) {
+X  		FirstArg(XtNlabel, fval);
+X***************
+X*** 133,138 ****
+X--- 137,143 ----
+X  		if (fval != cur_filename)
+X  			update_cur_filename(fval);	/* and update cur_filename */
+X  		update_def_filename();		/* and the default export filename */
+X+ 		XtSetSensitive(load, True);
+X  		file_panel_dismiss();
+X  	    }
+X  	}
+X***************
+X*** 191,196 ****
+X--- 196,223 ----
+X      }
+X  }
+X  
+X+ Boolean
+X+ query_save(msg)
+X+     char	   *msg;
+X+ {
+X+     int		    qresult;
+X+     if (!emptyfigure() && figure_modified && !aborting) {
+X+ 	if ((qresult = popup_query(QUERY_YESNOCAN, msg)) == RESULT_CANCEL) 
+X+ 	    return False;
+X+ 	else if (qresult == RESULT_YES) {
+X+ 	    do_save((Widget) 0);
+X+ 	    /*
+X+ 	     * if saving was not successful, figure_modified is still true:
+X+ 	     * do not quit!
+X+ 	     */
+X+ 	    if (figure_modified)
+X+ 		return False;
+X+ 	}
+X+     }
+X+     /* ok */
+X+     return True;
+X+ }
+X+ 
+X  static void
+X  file_panel_cancel(w, ev)
+X      Widget	    w;
+X***************
+X*** 230,236 ****
+X  create_file_panel(w)
+X  	Widget		   w;
+X  {
+X! 	Widget		   file, dir, beside, below;
+X  	PIX_FONT	   temp_font;
+X  	static int	   actions_added=0;
+X  	file_w = w;
+X--- 257,263 ----
+X  create_file_panel(w)
+X  	Widget		   w;
+X  {
+X! 	Widget		   file, beside, below;
+X  	PIX_FONT	   temp_font;
+X  	static int	   actions_added=0;
+X  	file_w = w;
+X***************
+X*** 314,328 ****
+X  	    XtAppAddActions(tool_app, file_name_actions, XtNumber(file_name_actions));
+X  	}
+X  
+X  	/* make <return> in the filename window load the file */
+X  	XtOverrideTranslations(file_selfile,
+X  			   XtParseTranslationTable(file_name_translations));
+X  
+X! 	create_dirinfo(file_panel, file_selfile, &beside, &below,
+X! 		       &file_mask, &file_dir, &file_flist, &file_dlist);
+X! 	/* make <return> in the file list window load the file */
+X! 	XtOverrideTranslations(file_flist,
+X! 			   XtParseTranslationTable(file_name_translations));
+X  	FirstArg(XtNlabel, "Cancel");
+X  	NextArg(XtNvertDistance, 15);
+X  	NextArg(XtNhorizDistance, 25);
+X--- 341,356 ----
+X  	    XtAppAddActions(tool_app, file_name_actions, XtNumber(file_name_actions));
+X  	}
+X  
+X+ 	create_dirinfo(file_panel, file_selfile, &beside, &below,
+X+ 		       &file_mask, &file_dir, &file_flist, &file_dlist);
+X+ 
+X  	/* make <return> in the filename window load the file */
+X  	XtOverrideTranslations(file_selfile,
+X  			   XtParseTranslationTable(file_name_translations));
+X  
+X! 	/* make <return> and a double click in the file list window load the file */
+X! 	XtAugmentTranslations(file_flist,
+X! 			   XtParseTranslationTable(file_list_translations));
+X  	FirstArg(XtNlabel, "Cancel");
+X  	NextArg(XtNvertDistance, 15);
+X  	NextArg(XtNhorizDistance, 25);
+Xdiff -rc xfig.2.1.7a/w_fontbits3.c xfig.2.1.8/w_fontbits3.c
+X*** xfig.2.1.7a/w_fontbits3.c	Wed Dec  9 17:26:05 1992
+X--- xfig.2.1.8/w_fontbits3.c	Mon Aug 23 15:26:38 1993
+X***************
+X*** 771,780 ****
+X      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+X  
+X! Pixmap		psfont_menu_bitmaps[NUM_PS_FONTS + 1];
+X  Pixmap		latexfont_menu_bitmaps[NUM_LATEX_FONTS];
+X  
+X! unsigned char	       *psfont_menu_bits[NUM_PS_FONTS + 1] = {
+X      PS_Default_bits,
+X      Times_Roman_bits,
+X      Times_Italic_bits,
+X--- 771,780 ----
+X      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+X  
+X! Pixmap		psfont_menu_bitmaps[NUM_FONTS + 1];
+X  Pixmap		latexfont_menu_bitmaps[NUM_LATEX_FONTS];
+X  
+X! unsigned char	       *psfont_menu_bits[NUM_FONTS + 1] = {
+X      PS_Default_bits,
+X      Times_Roman_bits,
+X      Times_Italic_bits,
+Xdiff -rc xfig.2.1.7a/w_fontpanel.c xfig.2.1.8/w_fontpanel.c
+X*** xfig.2.1.7a/w_fontpanel.c	Sat Jan  2 18:42:19 1993
+X--- xfig.2.1.8/w_fontpanel.c	Mon Aug 23 16:22:59 1993
+X***************
+X*** 24,31 ****
+X  extern Pixmap	psfont_menu_bitmaps[];
+X  extern Pixmap	latexfont_menu_bitmaps[];
+X  extern Atom	wm_delete_window;
+X! extern struct _fstruct ps_fontinfo[];	/* font names */
+X! extern struct _fstruct latex_fontinfo[];	/* font names */
+X  
+X  /* LOCAL VARIABLES */
+X  
+X--- 24,31 ----
+X  extern Pixmap	psfont_menu_bitmaps[];
+X  extern Pixmap	latexfont_menu_bitmaps[];
+X  extern Atom	wm_delete_window;
+X! extern struct _fstruct ps_fontinfo[];	  /* PostScript/OpenWindows font names */
+X! extern struct _fstruct latex_fontinfo[];  /* LaTeX font names */
+X  
+X  /* LOCAL VARIABLES */
+X  
+X***************
+X*** 37,43 ****
+X  
+X  /********************  local variables	***************************/
+X  
+X! static MenuItemRec ps_fontmenu_items[NUM_PS_FONTS + 1];
+X  static MenuItemRec latex_fontmenu_items[NUM_LATEX_FONTS];
+X  
+X  static void	fontpane_select();
+X--- 37,43 ----
+X  
+X  /********************  local variables	***************************/
+X  
+X! static MenuItemRec ps_fontmenu_items[NUM_FONTS + 1];
+X  static MenuItemRec latex_fontmenu_items[NUM_LATEX_FONTS];
+X  
+X  static void	fontpane_select();
+X***************
+X*** 59,65 ****
+X  
+X  static TOOL	ps_fontpanes, ps_buttons;
+X  static TOOL	latex_fontpanes, latex_buttons;
+X! static TOOL	ps_fontpane[NUM_PS_FONTS + 1];
+X  static TOOL	latex_fontpane[NUM_LATEX_FONTS];
+X  
+X  init_fontmenu(tool)
+X--- 59,65 ----
+X  
+X  static TOOL	ps_fontpanes, ps_buttons;
+X  static TOOL	latex_fontpanes, latex_buttons;
+X! static TOOL	ps_fontpane[NUM_FONTS+1];
+X  static TOOL	latex_fontpane[NUM_LATEX_FONTS];
+X  
+X  init_fontmenu(tool)
+X***************
+X*** 96,102 ****
+X      latex_fontpanes = XtCreateManagedWidget("menu", boxWidgetClass,
+X  					    latex_fontmenu, Args, ArgCount);
+X  
+X!     for (i = 0; i < NUM_PS_FONTS + 1; i++) {
+X  	ps_fontmenu_items[i].type = MENU_IMAGESTRING;	/* put the fontnames in
+X  							 * menu */
+X  	ps_fontmenu_items[i].label = ps_fontinfo[i].name;
+X--- 96,102 ----
+X      latex_fontpanes = XtCreateManagedWidget("menu", boxWidgetClass,
+X  					    latex_fontmenu, Args, ArgCount);
+X  
+X!     for (i = 0; i < NUM_FONTS + 1; i++) {
+X  	ps_fontmenu_items[i].type = MENU_IMAGESTRING;	/* put the fontnames in
+X  							 * menu */
+X  	ps_fontmenu_items[i].label = ps_fontinfo[i].name;
+X***************
+X*** 161,167 ****
+X      NextArg(XtNborderWidth, INTERNAL_BW);
+X      NextArg(XtNresize, False);	/* don't allow resize */
+X  
+X!     for (i = 0; i < NUM_PS_FONTS + 1; ++i) {
+X  	mi = &ps_fontmenu_items[i];
+X  	pane_callbacks[0].closure = (caddr_t) mi;
+X  	ps_fontpane[i] = XtCreateManagedWidget("pane", commandWidgetClass,
+X--- 161,167 ----
+X      NextArg(XtNborderWidth, INTERNAL_BW);
+X      NextArg(XtNresize, False);	/* don't allow resize */
+X  
+X!     for (i = 0; i < NUM_FONTS + 1; ++i) {
+X  	mi = &ps_fontmenu_items[i];
+X  	pane_callbacks[0].closure = (caddr_t) mi;
+X  	ps_fontpane[i] = XtCreateManagedWidget("pane", commandWidgetClass,
+X***************
+X*** 197,203 ****
+X  
+X      /* Create the bitmaps */
+X  
+X!     for (i = 0; i < NUM_PS_FONTS + 1; i++)
+X  	psfont_menu_bitmaps[i] = XCreatePixmapFromBitmapData(tool_d,
+X  				   XtWindow(ind_panel), (char *) psfont_menu_bits[i],
+X  				     PS_FONTPANE_WD, PS_FONTPANE_HT, fg, bg,
+X--- 197,203 ----
+X  
+X      /* Create the bitmaps */
+X  
+X!     for (i = 0; i < NUM_FONTS + 1; i++)
+X  	psfont_menu_bitmaps[i] = XCreatePixmapFromBitmapData(tool_d,
+X  				   XtWindow(ind_panel), (char *) psfont_menu_bits[i],
+X  				     PS_FONTPANE_WD, PS_FONTPANE_HT, fg, bg,
+X***************
+X*** 210,216 ****
+X  				       XDefaultDepthOfScreen(tool_s));
+X  
+X      /* Store the bitmaps in the menu panes */
+X!     for (i = 0; i < NUM_PS_FONTS + 1; i++) {
+X  	FirstArg(XtNbitmap, psfont_menu_bitmaps[i]);
+X  	SetValues(ps_fontpane[i]);
+X      }
+X--- 210,216 ----
+X  				       XDefaultDepthOfScreen(tool_s));
+X  
+X      /* Store the bitmaps in the menu panes */
+X!     for (i = 0; i < NUM_FONTS + 1; i++) {
+X  	FirstArg(XtNbitmap, psfont_menu_bitmaps[i]);
+X  	SetValues(ps_fontpane[i]);
+X      }
+Xdiff -rc xfig.2.1.7a/w_indpanel.c xfig.2.1.8/w_indpanel.c
+X*** xfig.2.1.7a/w_indpanel.c	Thu Oct 21 10:23:00 1993
+X--- xfig.2.1.8/w_indpanel.c	Tue Sep 14 09:14:06 1993
+X***************
+X*** 25,30 ****
+X--- 25,31 ----
+X  #include "w_util.h"
+X  #include "w_zoom.h"
+X  
+X+ #define MAX_SCROLL_WD 50
+X  extern Pixmap	psfont_menu_bitmaps[], latexfont_menu_bitmaps[];
+X  extern Atom	wm_delete_window;
+X  extern struct	_fstruct ps_fontinfo[], latex_fontinfo[];
+X***************
+X*** 88,93 ****
+X--- 89,95 ----
+X  
+X  static int	popup_fonts();
+X  static void	note_state();
+X+ static void	set_all_update(), clr_all_update(), tog_all_update();
+X  
+X  static char	indbuf[12];
+X  static float	old_zoomscale = -1.0;
+X***************
+X*** 94,99 ****
+X--- 96,103 ----
+X  static int	old_rotnangle = -1;
+X  static float	old_elltextangle = -1.0;
+X  
+X+ Widget		upd_ctrl, set_upd, upd_tog,
+X+ 		clr_upd, tog_upd, upd_ctrl_lab, upd_ctrl_btns;
+X  #define		DEF_IND_SW_HT		32
+X  #define		DEF_IND_SW_WD		64
+X  #define		FONT_IND_SW_WD		(40+PS_FONTPANE_WD)
+X***************
+X*** 115,133 ****
+X  #define NUM_ANGLEGEOM_CHOICES (sizeof(anglegeom_choices)/sizeof(choice_info))
+X  
+X  static choice_info valign_choices[] = {
+X!     {NONE, &none_ic,},
+X!     {TOP, &valignt_ic,},
+X!     {CENTER, &valignc_ic,},
+X!     {BOTTOM, &valignb_ic,},
+X  };
+X  
+X  #define NUM_VALIGN_CHOICES (sizeof(valign_choices)/sizeof(choice_info))
+X  
+X  static choice_info halign_choices[] = {
+X!     {NONE, &none_ic,},
+X!     {LEFT, &halignl_ic,},
+X!     {CENTER, &halignc_ic,},
+X!     {RIGHT, &halignr_ic,},
+X  };
+X  
+X  #define NUM_HALIGN_CHOICES (sizeof(halign_choices)/sizeof(choice_info))
+X--- 119,137 ----
+X  #define NUM_ANGLEGEOM_CHOICES (sizeof(anglegeom_choices)/sizeof(choice_info))
+X  
+X  static choice_info valign_choices[] = {
+X!     {ALIGN_NONE, &none_ic,},
+X!     {ALIGN_TOP, &valignt_ic,},
+X!     {ALIGN_CENTER, &valignc_ic,},
+X!     {ALIGN_BOTTOM, &valignb_ic,},
+END_OF_FILE
+  if test 31221 -ne `wc -c <'xfig.07'`; then
+    echo shar: \"'xfig.07'\" unpacked with wrong size!
+  fi
+  # end of 'xfig.07'
+fi
+echo shar: End of archive 6 \(of 16\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 16 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Creating merged patch file xfig.p2
+    cat xfig.[01][0-9] > xfig.p2
+    rm -f xfig.[01][0-9]
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

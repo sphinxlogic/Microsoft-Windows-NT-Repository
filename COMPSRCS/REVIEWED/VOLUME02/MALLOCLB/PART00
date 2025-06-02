@@ -1,0 +1,175 @@
+From: Conor P. Cahill <cpcahil%virtech@uunet.UU.NET>
+Subject: v02i001: malloclib - Malloc Debugging Library, Part00/05
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Conor P. Cahill <cpcahil%virtech@uunet.UU.NET>
+Posting-number: Volume 2, Issue 1
+Archive-name: malloclib/part00
+
+Environment: UNIX
+
+Tested Environments:
+	VAX, BSD 4.3, 
+	VAXstation 3100, ULTRIX-32 v3.1 R11 
+	IBM RT/PC, AOS 4.3, 
+	DECstation 3100, Ultrix 4.2, 
+	IBM RS/6000, AIX 
+	Sun4, SunOS 4.1
+	Sun SPARCsystem 400, SunOS Release 4.1.1  
+	HP 9000 Series 300, HP-UX 8.0
+	HP9000/827, HPUX 8.0.2 
+	Solbourne Series5e/900, OS/MP 4.1A.1 
+	ISC 386 UNIX box, ISC 2.2.1 
+
+Dates:
+	Submission Received: Nov 25 1991
+	Revised Version Received: Dec 3 1991
+	Reviews Returned: Dec 30 1991
+	Revised Version Received: Jan 3 1991
+	Reviews Returned: Jan 25 1992
+	Revised Version Received: Jan 28 1992
+	Accepted: Mar 26 1992
+	
+	
+Author's Summary:
+-----------------
+
+Malloclib is a replacement library for the standard malloc functions
+which provides a full range of debugging features including:
+
+        * tracking of allocations (to assist in finding memory leaks)
+        * detection of out-of-bounds acess to malloc data
+        * assistance in finding the cause of malloc chain corruption
+
+An earlier version was posted to comp.sources.unix in May of 1990.  The
+vast amount of changes in this version make it necessary to re-release
+the entire library. The new enhancments/bug fixes include:
+
+        * tracking of where the item was allocated (to ease debugging)
+        * enhanced malloc chain dump information
+        * enhanced error reporting 
+        * new/much better manual page
+        * leak detection enhancements
+        * port to ANSI-C (works for both K&R & ANSI and hybrids)
+        * and many bug-fixes (thanks to all those that submitted reports)
+
+
+Reviewers' Comments:
+--------------------
+
+[Building this package requires setting 3 parameters:  DATATYPE,
+SIZETYPE, and VOIDTYPE.  Instructions for this are included in the
+README file, but we have found that some trial-and-error may be
+necessary before the package builds without errors.  Also, given the
+non-standard nature of include files across different environments,
+builders may have to make some small changes during the installation.
+-- Moderator]
+
+------------------------------------------------------------------------
+
+  Malloclib is a useful library that I am sure I will use in the
+future when debugging memory problems in programs on which I am
+working.  This new version is even more valuable than previous
+versions, and I am going to install it in a publicly accessible area
+on our systems as soon as the final version comes out in
+comp.sources.reviewed.
+
+- on the RT/PC running AOS 4.3, don't define bcopy() because of
+conflicts with the C library.
+- programs that include <string.h> on the RS/6000 are going to get the
+built-in __strcpy and __strmp routines even if they link against the
+dbmalloc library, because of the #define's in <string.h>.  [See similar
+comments about building under HP-UX below. -- Moderator.]
+
+------------------------------------------------------------------------
+
+Unfortunately the compiler on ULTRIX (cc) did not like 
+	typedef void VOIDTYPE;
+which was easily found as an example.  I used 
+	#define VOIDTYPE void 
+instead. This seemed to work fine.
+...
+The 'basic' functionality is fine: one can quite easily link a
+debugged version of a faulty program and find out what is wrong. This
+is a Good Thing.
+
+There is a nice set of features for controlling the output and
+behaviour of the package during memory operations and in error
+situations. The features look all like useful ones; all of them were
+not tested. The package appears to be a growing one in the sense that
+one can use it really effectively, if the easy methods are not enough.
+It is possible to just link the thing and enjoy or to read the manual
+thoroughly and use 'advanced' features. This looks like well designed
+software. 
+...
+The package offers a very valuable set of tools for debugging memory
+allocations. The features are both relevant and well organized. One
+can use the package as a place in replacement of 'malloc' and 'free'
+or use the more advanced features of the package.
+
+The package seems to run just fine. No large tests were run (I am not
+alone on these machines and e.g. malloccing all the memory I can get
+could generate dissatisfaction among other users). All the tested
+cases (none of which were real, unfortunately) performed just fine.
+
+I would recommend this piece of code to anyone who is suffering from
+the pains of memory management under unix and c. I shall  use
+this package from now on, whenever I find myself in trouble.
+
+------------------------------------------------------------------------
+
+The problem I had building this software was that for my system
+(HP-UX), SIZETYPE wanted to be size_t, and the argument to sbrk in
+mallocint.h:
+
+DATATYPE        * sbrk __stdcargs((SIZETYPE));
+
+needed to be:
+DATATYPE        * sbrk __stdcargs((int));
+
+This seems like a very useful package for tracing down memory leaks
+and cases where one tries to memcpy to a pointer or overuns a malloc'd
+region.  The package appears to provide a useful service, with only a
+moderate slowdown.
+
+------------------------------------------------------------------------
+
+Malloclib is a fine package for assisting you in finding problems with
+dynamic memory allocation.  It works by replacing the malloc routines,
+along with many of the other functions that often work with dynamically
+allocated memory.  Each call of these functions checks to make sure
+that they are going to use the memory properly.  It is a very good
+package for finding memory allocation problems during program
+development.  It can't do a full "memory leak" check, but it does have
+provisions for auditing allocated memory, identifying bad references,
+checking memory overrun and so-on.
+
+The only problem I had with it was compiling it on HPUX which has
+relatively strange ideas of what the system include files look like -
+malloclib provides declarations for the string(3) and memory(3)
+routines it replaces, some which are bound to clash in any UNIX
+implementation.  The difficulty being that the sources often include
+both string.h/memory.h, and the declarations that are part of
+malloclib.  I got around this problem by simply deleting the includes
+of <string.h>/<memory.h> in the malloclib source.
+
+As the documentation indicates, malloclib is rather slow, so it should
+not be included in production binaries.  In my relatively limited
+testing, one program which took 10 CPU minutes with the standard system
+malloc took over 1200 CPU minutes with malloclib before I killed it.
+(This may be a bug in malloclib - a factor of over 100 seems a bit
+unreasonable, but I was unable to investigate further.  The program
+malloc's a LOT of space in small pieces)
+
+------------------------------------------------------------------------
+
+It took a little twiddling before I could make it work on a Sun.
+...
+The library is valuable and deserves to be published.  
+...
+Luckily, this package is only for use by C programmers so it's not all
+that unfair to expect some troubleshooting skills of the person trying
+to build it.
+
+exit 0 # Just in case...

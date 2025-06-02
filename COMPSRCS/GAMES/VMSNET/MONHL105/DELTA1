@@ -1,0 +1,1221 @@
+Newsgroups: vmsnet.sources.games
+Path: uunet!stanford.edu!agate!spool.mu.edu!darwin.sura.net!paladin.american.edu!news.univie.ac.at!hp4at!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI
+Subject: Delta: Monster Helsinki 1.05 to 1.06 (part 1/5)
+Message-ID: <1992Dec6.164338.18427@klaava.Helsinki.FI>
+Followup-To: vmsnet.sources.d
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Organization: University of Helsinki
+Date: Sun, 6 Dec 1992 16:43:38 GMT
+Lines: 1209
+Xref: uunet vmsnet.sources.games:557
+
+Archive-name: monster_helsinki_105_to_106/part1
+Author: Kari.Hurtta@Helsinki.FI
+Package: Delta from Helsinki Monster 1.05 to Helsinki Monster 1.06
+Environment: VMS, Pascal
+Part: 1/5
+
+$! ------------------ CUT HERE -----------------------
+$ v='f$verify(f$trnlnm("SHARE_VERIFY"))'
+$!
+$! This archive created by VMS_SHARE Version 7.2-010  25-Jun-1992
+$!   On  6-DEC-1992 17:16:51.61   By user HURTTA (Kari E. Hurtta <Kari.Hurtta@Helsinki.FI>)
+$!
+$! This VMS_SHARE Written by:
+$!    Andy Harper, Kings College London UK
+$!
+$! Acknowledgements to:
+$!    James Gray       - Original VMS_SHARE
+$!    Michael Bednarek - Original Concept and implementation
+$!
+$!+ THIS PACKAGE DISTRIBUTED IN 5 PARTS, TO KEEP EACH PART
+$!  BELOW 90 BLOCKS
+$!
+$! TO UNPACK THIS SHARE FILE, CONCATENATE ALL PARTS IN ORDER
+$! AND EXECUTE AS A COMMAND PROCEDURE  (  @name  )
+$!
+$! THE FOLLOWING FILE(S) WILL BE CREATED AFTER UNPACKING:
+$!       1. ALLOC.DIF;1
+$!       2. BONE.DIF;1
+$!       3. CASTLE.DIF;2
+$!       4. CLD_PROTO.DIF;1
+$!       5. CLI.DIF;1
+$!       6. COMMANDS.DIF;1
+$!       7. CONVERT.DIF;1
+$!       8. CUSTOM.DIF;1
+$!       9. DATABASE.DIF;1
+$!      10. DOG.DIF;1
+$!      11. FIX.DIF;1
+$!      12. GLOBAL.DIF;1
+$!      13. GREAT_HALL.DIF;1
+$!      14. GUTS.DIF;1
+$!      15. INIT.APPEND;5
+$!      16. INIT_PROTO.DIF;1
+$!      17. INTERPRETER.DIF;1
+$!      18. KEYS.DIF;1
+$!      19. MAKEFILE.DIF;1
+$!      20. MON.DIF;1
+$!      21. MONSTER_CLD.DIF;2
+$!      22. MONSTER_DUMP.DIF;2
+$!      23. MONSTER_E.DIF;1
+$!      24. MONSTER_HELP.DIF;1
+$!      25. MONSTER_INIT.DIF;1
+$!      26. MONSTER_INSTALL.DIF;1
+$!      27. MONSTER_REBUILD.DIF;1
+$!      28. MONSTER_WHO.DIF;1
+$!      29. NEW.TXT;1
+$!      30. PARSER.DIF;1
+$!      31. PRIVUSERS.DIF;1
+$!      32. QUEUE.DIF;1
+$!      33. READ.ME;5
+$!      34. RECEPTIONIST.DIF;1
+$!      35. UPDATE.COM;7
+$!      36. VERSION.DIF;1
+$!
+$set="set"
+$set symbol/scope=(nolocal,noglobal)
+$f=f$parse("SHARE_TEMP","SYS$SCRATCH:.TMP_"+f$getjpi("","PID"))
+$e="write sys$error  ""%UNPACK"", "
+$w="write sys$output ""%UNPACK"", "
+$ if f$trnlnm("SHARE_LOG") then $ w = "!"
+$ ve=f$getsyi("version")
+$ if ve-f$extract(0,1,ve) .ges. "4.4" then $ goto START
+$ e "-E-OLDVER, Must run at least VMS 4.4"
+$ v=f$verify(v)
+$ exit 44
+$UNPACK: SUBROUTINE ! P1=filename, P2=checksum
+$ x = P1 - f$parse(P1,,,"version")
+$ y = f$search(x)
+$ if y .eqs. "" then $ goto file_absent
+$ x = f$integer(f$parse(P1,,,"version")-";")
+$ y = f$integer(f$parse(y,,,"version")-";")
+$ if x .gt. y then $ goto file_absent
+$ if f$mode() .eqs. "INTERACTIVE" then $ goto file_interactive
+$ if x .eq. y then e "-W-EXISTS, File ''P1' exists. Skipped."
+$ if x .ne. y then e "-W-NEWERVERSION, of File ''P1' exists. Skipped."
+$file_delete:
+$ delete 'f'*
+$ exit
+$file_interactive:
+$ if x .eq. y then e "-W-EXISTS, File ''P1' exists."
+$ if x .ne. y then e "-W-NEWERVERSION, of File ''P1' exists."
+$ read/error=file_delete/end=file_delete-
+  /prompt="Create new version [y/n]: " -
+  sys$command x
+$ if .not. x then $ e "-W-SKIPPED, File ''P1' skipped."
+$ if .not. x then $ goto file_delete
+$ P1 = P1 - f$parse(P1,,,"version")
+$file_absent:
+$ if f$parse(P1) .nes. "" then $ goto dirok
+$ dn=f$parse(P1,,,"DIRECTORY")
+$ w "-I-CREDIR, Creating directory ''dn'."
+$ create/dir 'dn'
+$ if $status then $ goto dirok
+$ e "-E-CREDIRFAIL, Unable to create ''dn'. File skipped."
+$ delete 'f'*
+$ exit
+$dirok:
+$ w "-I-PROCESS, Processing file ''P1'."
+$ if .not. f$verify() then $ define/user sys$output nl:
+$ EDIT/TPU/NOSEC/NODIS/COM=SYS$INPUT 'f'/OUT='P1'
+PROCEDURE Unpacker ON_ERROR ENDON_ERROR;SET(FACILITY_NAME,"UNPACK");SET(
+SUCCESS,OFF);SET(INFORMATIONAL,OFF);f:=GET_INFO(COMMAND_LINE,"file_name");b:=
+CREATE_BUFFER(f,f);p:=SPAN(" ")@r&LINE_END;POSITION(BEGINNING_OF(b));
+LOOP EXITIF SEARCH(p,FORWARD)=0;POSITION(r);ERASE(r);ENDLOOP;POSITION(
+BEGINNING_OF(b));g:=0;LOOP EXITIF MARK(NONE)=END_OF(b);x:=ERASE_CHARACTER(1);
+IF g=0 THEN IF x="X" THEN MOVE_VERTICAL(1);ENDIF;IF x="V" THEN APPEND_LINE;
+MOVE_HORIZONTAL(-CURRENT_OFFSET);MOVE_VERTICAL(1);ENDIF;IF x="+" THEN g:=1;
+ERASE_LINE;ENDIF;ELSE IF x="-" THEN IF INDEX(CURRENT_LINE,"+-+-+-+-+-+-+-+")=
+1 THEN g:=0;ENDIF;ENDIF;ERASE_LINE;ENDIF;ENDLOOP;t:="0123456789ABCDEF";
+POSITION(BEGINNING_OF(b));LOOP r:=SEARCH("`",FORWARD);EXITIF r=0;POSITION(r);
+ERASE(r);x1:=INDEX(t,ERASE_CHARACTER(1))-1;x2:=INDEX(t,ERASE_CHARACTER(1))-1;
+COPY_TEXT(ASCII(16*x1+x2));ENDLOOP;WRITE_FILE(b,GET_INFO(COMMAND_LINE,
+"output_file"));ENDPROCEDURE;Unpacker;QUIT;
+$ delete/nolog 'f'*
+$ CHECKSUM 'P1'
+$ IF CHECKSUM$CHECKSUM .eqs. P2 THEN $ EXIT
+$ e "-E-CHKSMFAIL, Checksum of ''P1' failed."
+$ ENDSUBROUTINE
+$START:
+$ create 'f'
+X/
+$ CALL UNPACK ALLOC.DIF;1 47
+$ create 'f'
+X/
+$ CALL UNPACK BONE.DIF;1 47
+$ create 'f'
+X-    1,    2
+XDATABASE%1.04
+XBY%hurtta
+XCHARSET%MULTINATIONAL
+X-  895,  897
+XRCOUNT%93
+XECOUNT%93
+XLASTRUN%12-SEP-1992  6:04pm
+X- 1152, 1152
+XBLOCKB%The bone is ordinary. Some dog is very intensively attached`20
+XBLOCK%to it at the
+X- 1306, 1306
+XBLOCKB%half-filled with water.  On the bottom it some pieces of met
+XBLOCK%al apparently
+X- 1356, 1356
+XSHORTMEGA%    6:    5:    0:    0:GOSUB siirr`E4
+X- 1365, 1365
+XSHORTMEGA%   15:   14:    0:    0:GOSUB siirr`E4
+X- 1413, 1413
+XSHORTMEGA%   63:   62:    0:    0:LABEL siirr`E4
+X- 1734, 1734
+XBLOCKB%The neutron handgrenade is an ultimate weapon. Although it i
+XBLOCK%s simple to`20
+X- 1738, 1738
+XDESCLINEB%The neutron handgrenade is too dangerous weapon in
+XDESCLINE% the hands of fools.
+X- 1848, 1849
+XBLOCKB%  Take Gandalf's sargofaque?  Nah.  Just forget the idea  -`20
+XBLOCK% I just wonder
+XBLOCKB%where you got the idea?  Gandalf, within his return, would j
+XBLOCK%ust transform
+X- 1910, 1923
+XOWNER%*
+XCTIME% 5-AUG-1989  9:32am
+XSTATLAB%poof out
+XRCOUNT%4
+XECOUNT%4
+XLASTRUN%12-SEP-1992  6:01pm
+XSTATLAB%poof in
+XRCOUNT%66
+XECOUNT%66
+XLASTRUN%13-JUN-1992  4:51pm
+XSTATLAB%escaped
+XRCOUNT%583
+XECOUNT%583
+XLASTRUN%12-SEP-1992  6:01pm
+X- 1929, 1931
+XRCOUNT%287
+XECOUNT%0
+XLASTRUN% 6-DEC-1992 12:23pm
+X- 1935, 1935
+XLASTRUN% 6-DEC-1992 12:23pm
+X- 1941, 1943
+XRCOUNT%208
+XECOUNT%0
+XLASTRUN%13-JUN-1992  3:23pm
+X- 2336, 2338
+XBLOCKB%Kaikki huoneessa olevat tavarat yms. ovat minun omaisuuttani
+XBLOCK% eiv`E4tk`E4 ole
+XBLOCK%valmiita mihink`E4`E4n k`E4ytt`F6`F6n (jos koskaan ovatkaan). Jos k`E4
+Vllit jotain
+XBLOCK%k`E4sittelen sinua ansiosi mukaan!`20
+X- 2354, 2360
+XBLOCKB%************************************************************
+XBLOCK%**************
+XBLOCKB%*                                                          `20
+XBLOCK%             *
+XBLOCKB%*                            DIPLOMA                       `20
+XBLOCK%             *
+XBLOCKB%*                                                          `20
+XBLOCK%             *
+XBLOCKB%*      Goodgulf the Grey, Official Wizard of Next Level    `20
+XBLOCK%             *
+XBLOCKB%*                                                          `20
+XBLOCK%             *
+XBLOCKB%************************************************************
+XBLOCK%**************
+X- 2431, 2432
+XBLOCKB%for their unknown purposes.  In this end of the yard there a
+XBLOCK%re exits to
+XBLOCKB%the kitchen, where the cooks are preparing a banquet for the
+XBLOCK% lord of the
+X- 2532, 2532
+XBLOCKB%to the yard and for the ladders seemingly going in the verti
+XBLOCK%cal direction.
+X- 2618, 2618
+XBLOCKB%The ladders continue up and down.  There are also exits to t
+XBLOCK%he north to
+X- 2781, 2782
+XBLOCKB%You are in a dim hall at the top of wester tower. On the sou
+XBLOCK%th wall of`20
+XBLOCKB%that hall is a little window. There is a long table at the m
+XBLOCK%iddle of the
+X- 2851, 2851
+XBLOCKB%coming and going, their faces like engraved to the stone of`20
+XBLOCK%the castle.
+X- 2930, 2931
+XBLOCKB%  It is damned dark in here, but in the dim light you can ob
+XBLOCK%tain a guard
+XBLOCKB%abowe you.  The bones here and there tell you their own stor
+XBLOCK%y about the
+X- 3060, 3060
+XBLOCKB%The bridge leading out of the castle is to the west; to the`20
+XBLOCK%east there is
+X- 3081, 3082
+XBLOCKB%made things not spoken aloud but seen in many places.  Actua
+XBLOCK%lly, Gandalf`20
+XBLOCKB%made this very room to be his study and wants just a few vis
+XBLOCK%itors, if any.
+X- 3091, 3091
+XBLOCKB%think twice before arquing with him  -  you never can tell w
+XBLOCK%hether he is
+X- 3392, 3394
+XBLOCKB%  Watch your step  -  the architect was a bit drunk while pl
+XBLOCK%anning this
+XBLOCKB%castle so there is one little mistake in the design: if some
+XBLOCK%one wants to`20
+XBLOCKB%enter through the gate there is a possibility of danger to a
+XBLOCK%nyone being`20
+X- 3398, 3398
+XBLOCKB%  I suggest you to get out of here either to the south or to
+XBLOCK% the north.
+X- 3408, 3408
+XBLOCKB%  What do you think blood looks like?  I assure you, it IS r
+XBLOCK%ed, ketchup-
+X- 3687, 3687
+XBLOCKB%  What a view!  -  Well, that's what the entrenchment is for
+XBLOCK%, for seeing
+X- 3709, 3710
+XBLOCKB%Hm  -  I hope you don't suffer from dread for high places as
+XBLOCK% it is quite
+XBLOCKB%a drop to the yard below.  This balcony sorrounds the yard i
+XBLOCK%n the southern
+X- 3932, 3932
+XBLOCKB%Floor in this place is square, which one side might be about
+XBLOCK% six feets.
+X- 3940, 3940
+XBLOCKB%have wanted to cover all those holes between flagstones, how
+XBLOCK%ever you can
+X- 3952, 3952
+XBLOCKB%You look corners, one after one, and you find out that all u
+XBLOCK%rine, which
+X- 4144, 4144
+XBLOCKB%There is one large programmable monitor; it is of the newest
+XBLOCK% modell and
+X- 4330, 4330
+XBLOCKB%The room of sentries is a rest place for the soldiers guardi
+XBLOCK%ng the castle.
+X- 4481, 4484
+XDATE% 6-DEC-1992 12:24pm
+XTIME%
+XPASSWD%1
+XBIN%97
+X- 4500, 4500
+XLOC%gate
+X- 4524, 4524
+XBLOCKB%keen on torturing rats and pulling wings of the fly.  Well,`20
+XBLOCK%you guessed
+X- 4588, 4588
+XDESCLINEB%The man is badly wounded  -  a black arrow sticks`20
+XDESCLINE%through his chest.
+X- 4607, 4607
+XBLOCKB%The thing you are looking at is presumably the most discusti
+XBLOCK%ng creature
+X- 4634, 4634
+XDATE% 6-DEC-1992 12:24pm
+X- 4660, 4660
+XDATE%12-SEP-1992  6:04pm
+X- 5258, 5258
+XDESCLINEB%You leave the fresh air of the yard and enter the`20
+XDESCLINE%smithy of the castle.
+X- 6526, 6526
+XDESCLINEB%Why don't you just go out instead of hitting your`20
+XDESCLINE%head against the walls?
+X- 6542, 6542
+XDESCLINEB%Why don't you just go out instead of hitting your`20
+XDESCLINE%head against the walls?
+X- 6558, 6558
+XDESCLINEB%Why don't you just go out instead of hitting your`20
+XDESCLINE%head against the wall
+X- 6574, 6574
+XDESCLINEB%Why don't you just go out instead of hitting your`20
+XDESCLINE%head against the wall
+X- 6944, 6944
+XBLOCKB%  Hey, look at THAT!  Yap, the machinery you see in front of
+XBLOCK% you controls
+X- 7147, 7147
+XBLOCKB%are leaving.  In a single twist of his hand he throws you on
+XBLOCK%to a pile of
+X- 8458, 8458
+XSHORTMEGA%J247:0
+X- 8467, 8467
+XSHORTMEGA%J254:1:45
+X- 8489, 8489
+XSHORTMEGA%J238:1:70
+X- 8512, 8512
+XSHORTMEGA%J238:1:93
+X- 8530, 8530
+XSHORTMEGA%J268:0
+X- 8565, 8565
+XSHORTMEGA%J286:1:138
+X- 8638, 8640
+XSHORTMEGA%J274:1:204
+XSHORTMEGA%206:0:0:0:"man"
+XSHORTMEGA%J274:1:206
+X- 8659, 8763
+XSHORTMEGA%-220:160:185:0:47
+XSHORTMEGA%221:0:0:0:_monster name
+XSHORTMEGA%222:0:0:0:"100"
+XSHORTMEGA%-223:221:222:0:68
+XSHORTMEGA%-224:223:0:0:24
+XSHORTMEGA%-225:168:220:224:24
+XSHORTMEGA%-226:209:219:225:24
+XSHORTMEGA%H6:1:226:attack
+XSHORTMEGA%228:227:0:0:-
+XSHORTMEGA%H6:1:196:leave
+XSHORTMEGA%230:229:0:0:-
+XSHORTMEGA%-231:12:0:0:30
+XSHORTMEGA%232:0:0:0:"1500"
+XSHORTMEGA%-233:231:232:0:38
+XSHORTMEGA%234:0:0:0:_p1
+XSHORTMEGA%-235:231:234:0:31
+XSHORTMEGA%-236:235:0:0:35
+XSHORTMEGA%-237:233:236:0:22
+XSHORTMEGA%H6:1:237:GvExp
+XSHORTMEGA%239:238:0:0:-
+XSHORTMEGA%240:0:0:0:! Tax:
+XSHORTMEGA%J254:1:36
+XSHORTMEGA%H5:1:241:gold
+XSHORTMEGA%243:0:0:0:_gold
+XSHORTMEGA%J260:1:243
+XSHORTMEGA%-245:242:244:0:24
+XSHORTMEGA%H4:1:245:gold
+XSHORTMEGA%H6:1:246:Tax
+XSHORTMEGA%248:247:0:0:-
+XSHORTMEGA%249:0:0:0:_item
+XSHORTMEGA%-250:249:234:0:2
+XSHORTMEGA%-251:249:0:0:53
+XSHORTMEGA%-252:250:251:0:22
+XSHORTMEGA%H2:2:35:252:item
+XSHORTMEGA%H6:1:253:Get it
+XSHORTMEGA%255:254:0:0:-
+XSHORTMEGA%256:0:0:0:"treasurer"
+XSHORTMEGA%-257:234:0:0:50
+XSHORTMEGA%-258:257:0:0:9
+XSHORTMEGA%-259:256:258:0:44
+XSHORTMEGA%H6:1:259:Leave gold
+XSHORTMEGA%261:260:0:0:-
+XSHORTMEGA%262:0:0:0:! Paying:
+XSHORTMEGA%-263:36:0:0:53
+XSHORTMEGA%-264:36:0:0:50
+XSHORTMEGA%-265:264:0:0:9
+XSHORTMEGA%-266:256:265:0:44
+XSHORTMEGA%-267:263:266:0:24
+XSHORTMEGA%H6:1:267:Drop gold
+XSHORTMEGA%269:268:0:0:-
+XSHORTMEGA%270:0:0:0:! Listalta poisto:
+XSHORTMEGA%-271:234:0:0:46
+XSHORTMEGA%-272:271:76:0:45
+XSHORTMEGA%-273:234:272:0:47
+XSHORTMEGA%H6:1:273:poista
+XSHORTMEGA%275:274:0:0:-
+XSHORTMEGA%276:0:0:0:! Komennot
+XSHORTMEGA%-277:234:0:0:54
+XSHORTMEGA%278:0:0:0:"Gatekeeper"
+XSHORTMEGA%-279:277:278:0:2
+XSHORTMEGA%-280:234:0:0:55
+XSHORTMEGA%-281:280:0:0:54
+XSHORTMEGA%-282:280:0:0:55
+XSHORTMEGA%-283:282:0:0:29
+XSHORTMEGA%J304:2:281:283
+XSHORTMEGA%-285:279:284:0:22
+XSHORTMEGA%H6:1:285:parse
+XSHORTMEGA%287:286:0:0:-
+XSHORTMEGA%288:0:0:0:"add"
+XSHORTMEGA%-289:234:288:0:2
+XSHORTMEGA%290:0:0:0:_p2
+XSHORTMEGA%J315:1:290
+XSHORTMEGA%292:0:0:0:"del"
+XSHORTMEGA%-293:234:292:0:2
+XSHORTMEGA%J320:1:290
+XSHORTMEGA%295:0:0:0:"Gatekeeper: my commands are:"
+XSHORTMEGA%-296:295:0:0:15
+XSHORTMEGA%297:0:0:0:"say gatekeeper add <player name>"
+XSHORTMEGA%-298:297:0:0:15
+XSHORTMEGA%299:0:0:0:"say gatekeeper del <player name>"
+XSHORTMEGA%-300:299:0:0:15
+XSHORTMEGA%-301:296:298:300:24
+XSHORTMEGA%-302:293:294:301:22
+XSHORTMEGA%-303:289:291:302:22
+XSHORTMEGA%H6:1:303:komento
+XSHORTMEGA%305:304:0:0:-
+XSHORTMEGA%306:0:0:0:"List is now: "
+XSHORTMEGA%-307:306:21:0:15
+XSHORTMEGA%H6:1:307:my list
+XSHORTMEGA%309:308:0:0:-
+XSHORTMEGA%-310:234:0:0:65
+XSHORTMEGA%-311:21:310:0:12
+XSHORTMEGA%-312:311:0:0:37
+XSHORTMEGA%J308:0
+XSHORTMEGA%-314:312:313:0:24
+XSHORTMEGA%H6:1:314:c add
+XSHORTMEGA%316:315:0:0:-
+XSHORTMEGA%-317:21:310:0:45
+XSHORTMEGA%-318:317:0:0:37
+XSHORTMEGA%-319:318:313:0:24
+XSHORTMEGA%H6:1:319:c del
+XSHORTMEGA%321:320:0:0:-
+X- 8769, 8781
+XRCOUNT%4
+XECOUNT%0
+XLASTRUN% 6-DEC-1992 12:24pm
+XSTATLAB%look
+XRCOUNT%4
+XECOUNT%4
+XLASTRUN% 6-DEC-1992 12:24pm
+XSTATLAB%leave
+XRCOUNT%5
+XECOUNT%0
+XLASTRUN% 6-DEC-1992 12:24pm
+XAUTHOR%hurtta
+XWTIME%12-SEP-1992  6:01pm
+X- 9113, 9123
+XRCOUNT%134
+XECOUNT%134
+XLASTRUN%12-SEP-1992  6:04pm
+XSTATLAB%look
+XRCOUNT%184
+XECOUNT%184
+XLASTRUN%12-SEP-1992  6:04pm
+XSTATLAB%leave
+XRCOUNT%135
+XECOUNT%135
+XLASTRUN%12-SEP-1992  6:04pm
+X- 9244, 9244
+XBLOCKB%are becoming to feel cold.  Don't get cold  -  Merlin takes`20
+XBLOCK%quite a lot
+X- 9941, 9941
+XBLOCKB%Don't you know jumping down from high places is NOT good for
+XBLOCK% your health?
+X-10145,10145
+XBLOCKB%  Hey, look at THAT!  Yap, the machinery you see in front of
+XBLOCK% you controls
+X-10687,10687
+XBLOCKB%Below the piles of dirt, you find enough big hole between tw
+XBLOCK%o flagstones.
+X-11509,11509
+XBLOCKB%you will be in the dungeon before you can say "Gimme one mor
+XBLOCK%e, pleashe!".
+X/
+$ CALL UNPACK CASTLE.DIF;2 3006105106
+$ create 'f'
+X-   45,   45
+X   disallow (START and (BUILD or DUMP or REBUILD or FIX))
+X/
+$ CALL UNPACK CLD_PROTO.DIF;1 459622085
+$ create 'f'
+X/
+$ CALL UNPACK CLI.DIF;1 47
+$ create 'f'
+X-   39,   39
+X                                spell level / set spell level / prog /
+X                                boolean and / boolean or /
+X`09`09`09`09or else / and then
+X-   63,   64
+X`09`09and`09select the common elements of parameters
+X`09`09or `09select all elements from parameters
+X                boolean and       returns "TRUE" if all parameters are non-n
+Vull
+X                boolean or        returns "TRUE" if least one paramater is`2
+V0
+X                                     non-null
+X-  105,  105
+X`09`09get global flag`09returns global flags, what have true from
+X                                    given flags
+X-  155
+X`09`09or else`09`09evalutes paramaters until some paramater
+X`09`09`09`09`09return no null result
+X`09`09and then`09avalutes paramaters until some paramater
+X`09`09`09`09`09returns null result
+X-  250,  250
+X`09not, less, boolean and, boolean or
+X-  295,  295
+X`09`09get global flag`09List of true flags`09> item list
+X-  300,  302
+X`09`09all players`09list of players`09`09> item list`20
+X`09`09all rooms`09list of rooms`09`09> item list
+X`09`09all objects`09list of objects`09`09> item list`20
+X-  325
+X`09`09boolean and     "" or "TRUE"
+X`09`09boolean or      "" or "TRUE"
+X`09`09or else`09`09last evaluted parameter
+X`09`09and then`09last evaluted paramater
+X-  447
+Xboolean and     (<boolean value 1>,...,<boolean value n>)
+Xboolean or      (<boolean value 1>,...,<boolean value n>)
+Xor else`09`09(<condition 1>,...,<condition n>)
+Xand then`09(<condition 1>,...,<condition n>)
+X/
+$ CALL UNPACK COMMANDS.DIF;1 1014113970
+$ create 'f'
+X/
+$ CALL UNPACK CONVERT.DIF;1 47
+$ create 'f'
+X-   33
+X    8.08.1992 `7C         `7C Now do_program (custom object) prints help whe
+Vn`20
+X              `7C         `7C ambiquous name
+X   12.08.1992 `7C         `7C function parse_pers moved to module PARSER
+X              `7C         `7C myslot moved to module PARSER
+X-   47,   47
+X        `7B myslot moved to module PARSER `7D
+X- 1039, 1046
+X`7B function parse_pers moved to module PARSER `7D
+X
+X`5Bglobal`5D function lookup_level(var n: integer;s:string): boolean;
+Xvar
+X`09i,poss,maybe,num: integer;
+Xbegin
+X`09n := 0;
+X- 1051, 1062
+X`09for i := 1 to levels do begin
+X`09`09if s = lowcase (leveltable`5Bi`5D.name) then
+X`09`09`09num := i
+X`09`09else if index(lowcase (leveltable`5Bi`5D.name),s) = 1 then begin
+X`09`09`09maybe := maybe + 1;
+X`09`09`09poss := i;
+X- 1066, 1105
+X- 1770, 1770
+X`09if lookup_dir(dir,dirnam,true) then begin
+X- 2411, 2411
+X`09else if lookup_obj(objnum,object_name,true) then begin
+X- 2970, 2970
+X  else if parse_pers(mslot,name,true) then begin
+X/
+$ CALL UNPACK CUSTOM.DIF;1 574979660
+$ create 'f'
+X/
+$ CALL UNPACK DATABASE.DIF;1 47
+$ create 'f'
+X/
+$ CALL UNPACK DOG.DIF;1 47
+$ create 'f'
+X/
+$ CALL UNPACK FIX.DIF;1 47
+$ create 'f'
+X-  233
+X`09s_charset = 13;
+X-  397,  397
+XType`09chartype = ( ct_none, ct_letter, ct_space, ct_special );
+X
+X`09charrec = record
+X`09    kind: chartype;
+X`09    ucase: char;
+X`09    lcase: char;
+X`09end;
+X-  748
+X
+X`09chartable_charset : `5Bglobal`5D string := 'MULTINATIONAL';
+X`09chartable : `5Bglobal`5D array `5B char `5D of charrec :=
+X`09    `7B Dec Multinational charcter set for default: `7D
+X`09(   ( ct_none, ''(0), ''(0) ),`09    `7B 0 : NUL `7D
+X`09    ( ct_none, ''(1), ''(1) ),`09    `7B 1 : SOH `7D
+X`09    ( ct_none, ''(2), ''(2) ),`09    `7B 2 : STX `7D
+X`09    ( ct_none, ''(3), ''(3) ),`09    `7B 3 : ETX `7D
+X`09    ( ct_none, ''(4), ''(4) ),`09    `7B 4 : EOT `7D
+X`09    ( ct_none, ''(5), ''(5) ),`09    `7B 5 : ENQ `7D
+X`09    ( ct_none, ''(6), ''(6) ),`09    `7B 6 : ACK `7D
+X`09    ( ct_none, ''(7), ''(7) ),`09    `7B 7 : BEL `7D
+X`09    ( ct_none, ''(8), ''(8) ),`09    `7B 8 : BS `7D
+X`09    ( ct_space, ''(9), ''(9) ),`09    `7B 9 : HT `7D
+X`09    ( ct_space, ''(10), ''(10) ),`09    `7B 10 : LF `7D
+X`09    ( ct_space, ''(11), ''(11) ),`09    `7B 11 : VT `7D
+X`09    ( ct_space, ''(12), ''(12) ),`09    `7B 12 : FF `7D
+X`09    ( ct_space, ''(13), ''(13) ),`09    `7B 13 : CR `7D
+X`09    ( ct_none, ''(14), ''(14) ),`09    `7B 14 : SO `7D
+X`09    ( ct_none, ''(15), ''(15) ),`09    `7B 15 : SI `7D
+X`09    ( ct_none, ''(16), ''(16) ),`09    `7B 16 : DLE `7D
+X`09    ( ct_none, ''(17), ''(17) ),`09    `7B 17 : DC1 `7D
+X`09    ( ct_none, ''(18), ''(18) ),`09    `7B 18 : DC2 `7D
+X`09    ( ct_none, ''(19), ''(19) ),`09    `7B 19 : DC3 `7D
+X`09    ( ct_none, ''(20), ''(20) ),`09    `7B 20 : DC4 `7D
+X`09    ( ct_none, ''(21), ''(21) ),`09    `7B 21 : NAK `7D
+X`09    ( ct_none, ''(22), ''(22) ),`09    `7B 22 : SYN `7D
+X`09    ( ct_none, ''(23), ''(23) ),`09    `7B 23 : ETB `7D
+X`09    ( ct_none, ''(24), ''(24) ),`09    `7B 24 : CAN `7D
+X`09    ( ct_none, ''(25), ''(25) ),`09    `7B 25 : EM `7D
+X`09    ( ct_none, ''(26), ''(26) ),`09    `7B 26 : SUB `7D
+X`09    ( ct_none, ''(27), ''(27) ),`09    `7B 27 : ESC `7D
+X`09    ( ct_none, ''(28), ''(28) ),`09    `7B 28 : FS `7D
+X`09    ( ct_none, ''(29), ''(29) ),`09    `7B 29 : GS `7D
+X`09    ( ct_none, ''(30), ''(30) ),`09    `7B 30 : RS `7D
+X`09    ( ct_none, ''(31), ''(31) ),`09    `7B 31 : US `7D
+X`09    ( ct_space, ' ', ' ' ),`09`09    `7B 32 : SP `7D
+X`09    ( ct_special, '!', '!' ),`09`09    `7B 33 : ! `7D
+X`09    ( ct_special, '"', '"' ),`09`09    `7B 34 : " `7D
+X`09    ( ct_special, '#', '#' ),`09`09    `7B 35 : # `7D
+X`09    ( ct_special, '$', '$' ),`09`09    `7B 36 : $ `7D
+X`09    ( ct_special, '%', '%' ),`09`09    `7B 37 : % `7D
+X`09    ( ct_special, '&', '&' ),`09`09    `7B 38 : & `7D
+X`09    ( ct_special, '''', '''' ),`09`09    `7B 39 : ' `7D
+X`09    ( ct_special, '(', '(' ),`09`09    `7B 40 : ( `7D
+X`09    ( ct_special, ')', ')' ),`09`09    `7B 41 : ) `7D
+X`09    ( ct_special, '*', '*' ),`09`09    `7B 42 : ! `7D
+X`09    ( ct_special, '+', '+' ),`09`09    `7B 43 : ! `7D
+X`09    ( ct_special, ',', ',' ),`09`09    `7B 44 : ' `7D
+X`09    ( ct_special, '-', '-' ),`09`09    `7B 45 : - `7D
+X`09    ( ct_special, '.', '.' ),`09`09    `7B 46 : . `7D
+X`09    ( ct_special, '/', '/' ),`09`09    `7B 47 : / `7D
+X`09    ( ct_special, '0', '0' ),`09`09    `7B 48 : 0 `7D
+X`09    ( ct_special, '1', '1' ),`09`09    `7B 49 : 1 `7D
+X`09    ( ct_special, '2', '2' ),`09`09    `7B 50 : 2 `7D
+X`09    ( ct_special, '3', '3' ),`09`09    `7B 51 : 3 `7D
+X`09    ( ct_special, '4', '4' ),`09`09    `7B 52 : 4 `7D
+X`09    ( ct_special, '5', '5' ),`09`09    `7B 53 : 5 `7D
+X`09    ( ct_special, '6', '6' ),`09`09    `7B 54 : 6 `7D
+X`09    ( ct_special, '7', '7' ),`09`09    `7B 55 : 7 `7D
+X`09    ( ct_special, '8', '8' ),`09`09    `7B 56 : 8 `7D
+X`09    ( ct_special, '9', '9' ),`09`09    `7B 57 : 9 `7D
+X`09    ( ct_special, ':', ':' ),`09`09    `7B 58 : : `7D
+X`09    ( ct_special, ';', ';' ),`09`09    `7B 59 : ; `7D
+X`09    ( ct_special, '<', '<' ),`09`09    `7B 60 : < `7D
+X`09    ( ct_special, '=', '=' ),`09`09    `7B 61 : = `7D
+X`09    ( ct_special, '>', '>' ),`09`09    `7B 62 : > `7D
+X`09    ( ct_special, '?', '?' ),`09`09    `7B 63 : ? `7D
+X`09    ( ct_special, '@', '@' ),`09`09    `7B 64 : @ `7D
+X`09    ( ct_letter,  'A', 'a' ),`09`09    `7B 65 : A `7D
+X`09    ( ct_letter,  'B', 'b' ),`09`09    `7B 66 : B `7D
+X`09    ( ct_letter,  'C', 'c' ),`09`09    `7B 67 : C `7D
+X`09    ( ct_letter,  'D', 'd' ),`09`09    `7B 68 : D `7D
+X`09    ( ct_letter,  'E', 'e' ),`09`09    `7B 69 : E `7D
+X`09    ( ct_letter,  'F', 'f' ),`09`09    `7B 70 : F `7D
+X`09    ( ct_letter,  'G', 'g' ),`09`09    `7B 71 : G `7D
+X`09    ( ct_letter,  'H', 'h' ),`09`09    `7B 72 : H `7D
+X`09    ( ct_letter,  'I', 'i' ),`09`09    `7B 73 : I `7D
+X`09    ( ct_letter,  'J', 'j' ),`09`09    `7B 74 : J `7D
+X`09    ( ct_letter,  'K', 'k' ),`09`09    `7B 75 : K `7D
+X`09    ( ct_letter,  'L', 'l' ),`09`09    `7B 76 : L `7D
+X`09    ( ct_letter,  'M', 'm' ),`09`09    `7B 77 : M `7D
+X`09    ( ct_letter,  'N', 'n' ),`09`09    `7B 78 : N `7D
+X`09    ( ct_letter,  'O', 'o' ),`09`09    `7B 79 : O `7D
+X`09    ( ct_letter,  'P', 'p' ),`09`09    `7B 80 : P `7D
+X`09    ( ct_letter,  'Q', 'q' ),`09`09    `7B 81 : Q `7D
+X`09    ( ct_letter,  'R', 'r' ),`09`09    `7B 82 : R `7D
+X`09    ( ct_letter,  'S', 's' ),`09`09    `7B 83 : S `7D
+X`09    ( ct_letter,  'T', 't' ),`09`09    `7B 84 : T `7D
+X`09    ( ct_letter,  'U', 'u' ),`09`09    `7B 85 : U `7D
+X`09    ( ct_letter,  'V', 'v' ),`09`09    `7B 86 : V `7D
+X`09    ( ct_letter,  'W', 'w' ),`09`09    `7B 87 : W `7D
+X`09    ( ct_letter,  'X', 'X' ),`09`09    `7B 88 : X `7D
+X`09    ( ct_letter,  'Y', 'y' ),`09`09    `7B 89 : Y `7D
+X`09    ( ct_letter,  'Z', 'z' ),`09`09    `7B 90 : Z `7D
+X`09    ( ct_special,  '`5B', '`5B' ),`09`09    `7B 91 : `5B `7D
+X`09    ( ct_special,  '\', '\' ),`09`09    `7B 92 : \ `7D
+X`09    ( ct_special,  '`5D', '`5D' ),`09`09    `7B 93 : `5D `7D
+X`09    ( ct_special,  '`5E', '`5E' ),`09`09    `7B 94 : `5E `7D
+X`09    ( ct_special,  '_', '_' ),`09`09    `7B 95 : _ `7D
+X`09    ( ct_special,  '`60', '`60' ),`09`09    `7B 96 : `60 `7D
+X`09    ( ct_letter,  'A', 'a' ),`09`09    `7B 97 : a `7D
+X`09    ( ct_letter,  'B', 'b' ),`09`09    `7B 98 : b `7D
+X`09    ( ct_letter,  'C', 'c' ),`09`09    `7B 99 : c `7D
+X`09    ( ct_letter,  'D', 'd' ),`09`09    `7B 100 : d `7D
+X`09    ( ct_letter,  'E', 'e' ),`09`09    `7B 101 : e `7D
+X`09    ( ct_letter,  'F', 'f' ),`09`09    `7B 102 : f `7D
+X`09    ( ct_letter,  'G', 'g' ),`09`09    `7B 103 : g `7D
+X`09    ( ct_letter,  'H', 'h' ),`09`09    `7B 104 : h `7D
+X`09    ( ct_letter,  'I', 'i' ),`09`09    `7B 105 : i `7D
+X`09    ( ct_letter,  'J', 'j' ),`09`09    `7B 106 : j `7D
+X`09    ( ct_letter,  'K', 'k' ),`09`09    `7B 107 : k `7D
+X`09    ( ct_letter,  'L', 'l' ),`09`09    `7B 108 : l `7D
+X`09    ( ct_letter,  'M', 'm' ),`09`09    `7B 109 : m `7D
+X`09    ( ct_letter,  'N', 'n' ),`09`09    `7B 110 : n `7D
+X`09    ( ct_letter,  'O', 'o' ),`09`09    `7B 111 : o `7D
+X`09    ( ct_letter,  'P', 'p' ),`09`09    `7B 112 : p `7D
+X`09    ( ct_letter,  'Q', 'q' ),`09`09    `7B 113 : q `7D
+X`09    ( ct_letter,  'R', 'r' ),`09`09    `7B 114 : r `7D
+X`09    ( ct_letter,  'S', 's' ),`09`09    `7B 115 : s `7D
+X`09    ( ct_letter,  'T', 't' ),`09`09    `7B 116 : t `7D
+X`09    ( ct_letter,  'U', 'u' ),`09`09    `7B 117 : u `7D
+X`09    ( ct_letter,  'V', 'v' ),`09`09    `7B 118 : v `7D
+X`09    ( ct_letter,  'W', 'w' ),`09`09    `7B 119 : w `7D
+X`09    ( ct_letter,  'X', 'x' ),`09`09    `7B 120 : x `7D
+X`09    ( ct_letter,  'Y', 'y' ),`09`09    `7B 121 : y `7D
+X`09    ( ct_letter,  'Z', 'Z' ),`09`09    `7B 122 : z `7D
+X`09    ( ct_special,  '`7B', '`7B' ),`09`09    `7B 123 `7D
+X`09    ( ct_special,  '`7C', '`7C' ),`09`09    `7B 124 : `7C `7D
+X`09    ( ct_special,  '`7D', '`7D' ),`09`09    `7B 125 `7D
+X`09    ( ct_special,  '`7E', '`7E' ),`09`09    `7B 126 : `7E `7D
+X`09    ( ct_none, ''(127), ''(127) ),`09    `7B 127 : DEL `7D
+X`09    ( ct_none, ''(128), ''(128) ),  `7B 128 `7D
+X`09    ( ct_none, ''(129), ''(129) ),  `7B 129 `7D
+X`09    ( ct_none, ''(130), ''(130) ),  `7B 130 `7D
+X`09    ( ct_none, ''(131), ''(131) ),  `7B 131 `7D
+X`09    ( ct_none, ''(132), ''(132) ),  `7B 132 : IND `7D
+X`09    ( ct_none, ''(133), ''(133) ),  `7B 133 : NEL `7D
+X`09    ( ct_none, ''(134), ''(134) ),  `7B 134 : SSA `7D
+X`09    ( ct_none, ''(135), ''(135) ),  `7B 135 : ESA `7D
+X`09    ( ct_none, ''(136), ''(136) ),  `7B 136 : HTS `7D
+X`09    ( ct_none, ''(137), ''(137) ),  `7B 137 : HTJ `7D
+X`09    ( ct_none, ''(138), ''(138) ),  `7B 138 : VTS `7D
+X`09    ( ct_none, ''(139), ''(139) ),  `7B 139 : PLD `7D
+X`09    ( ct_none, ''(140), ''(140) ),  `7B 140 : PLU `7D
+X`09    ( ct_none, ''(141), ''(141) ),  `7B 141 : RI `7D
+X`09    ( ct_none, ''(142), ''(142) ),  `7B 142 : SS2 `7D
+X`09    ( ct_none, ''(143), ''(143) ),  `7B 143 : SS3 `7D
+X`09    ( ct_none, ''(144), ''(144) ),  `7B 144 : DCS `7D
+X`09    ( ct_none, ''(145), ''(145) ),  `7B 145 : PU1 `7D
+X`09    ( ct_none, ''(146), ''(146) ),  `7B 146 : PU2 `7D
+X`09    ( ct_none, ''(147), ''(147) ),  `7B 147 : STS `7D
+X`09    ( ct_none, ''(148), ''(148) ),  `7B 148 : CCH `7D
+X`09    ( ct_none, ''(149), ''(149) ),  `7B 149 : MW `7D
+X`09    ( ct_none, ''(150), ''(150) ),  `7B 150 : SPA `7D
+X`09    ( ct_none, ''(151), ''(151) ),  `7B 151 : EPA `7D
+X`09    ( ct_none, ''(152), ''(152) ),  `7B 152 `7D
+X`09    ( ct_none, ''(153), ''(153) ),  `7B 153 `7D
+X`09    ( ct_none, ''(154), ''(154) ),  `7B 154 `7D
+X`09    ( ct_none, ''(155), ''(155) ),  `7B 155 : CSI `7D
+X`09    ( ct_none, ''(156), ''(156) ),  `7B 156 : ST `7D
+X`09    ( ct_none, ''(157), ''(157) ),  `7B 157 : OSC `7D
+X`09    ( ct_none, ''(158), ''(158) ),  `7B 158 : PM `7D
+X`09    ( ct_none, ''(159), ''(159) ),  `7B 159 : APC `7D
+X`09    ( ct_special, ''(160), ''(160) ),`09`7B 160 : `A0 `7D
+X`09    ( ct_special, ''(161), ''(161) ),`09`7B 161 : `A1 `7D
+X`09    ( ct_special, ''(162), ''(162) ),`09`7B 162 `7D
+X`09    ( ct_special, ''(163), ''(163) ),`09`7B 163 `7D
+X`09    ( ct_none, ''(164), ''(164) ),`09`7B 164 `7D
+X`09    ( ct_special, ''(165), ''(165) ),`09`7B 165 : `A5 `7D
+X`09    ( ct_none, ''(166), ''(166) ),`09`7B 166 `7D
+X`09    ( ct_special, ''(167), ''(167) ),`09`7B 167 `7D
+X`09    ( ct_special, ''(168), ''(168) ),`09`7B 168 `7D
+X`09    ( ct_special, ''(169), ''(169) ),`09`7B 169 `7D
+X`09    ( ct_special, ''(170), ''(170) ),`09`7B 170 : `AA `7D
+X`09    ( ct_special, ''(171), ''(171) ),`09`7B 171 : `AB `7D
+X`09    ( ct_none, ''(172), ''(172) ),`09`7B 172 `7D
+X`09    ( ct_none, ''(173), ''(173) ),`09`7B 173 `7D
+X`09    ( ct_none, ''(174), ''(174) ),`09`7B 174 `7D
+X`09    ( ct_none, ''(175), ''(175) ),`09`7B 175 `7D
+X`09    ( ct_special, ''(176), ''(176) ),`09`7B 176 : `B0 `7D
+X`09    ( ct_special, ''(177), ''(177) ),`09`7B 177 : `B1 `7D
+X`09    ( ct_special, ''(178), ''(178) ),`09`7B 178 : `B2 `7D
+X`09    ( ct_special, ''(179), ''(179) ),`09`7B 179 `7D
+X`09    ( ct_none, ''(180), ''(180) ),`09`7B 180 `7D
+X`09    ( ct_special, ''(181), ''(181) ),`09`7B 181 : `B5 `7D
+X`09    ( ct_special, ''(182), ''(182) ),`09`7B 182 `7D
+X`09    ( ct_special, ''(183), ''(183) ),`09`7B 183 `7D
+X`09    ( ct_none, ''(184), ''(184) ),`09`7B 184 `7D
+X`09    ( ct_special, ''(185), ''(185) ),`09`7B 185 `7D
+X`09    ( ct_special, ''(186), ''(186) ),`09`7B 186 : `BA `7D
+X`09    ( ct_special, ''(187), ''(187) ),`09`7B 187 : `BB `7D
+X`09    ( ct_special, ''(188), ''(188) ),`09`7B 188 : `BC `7D
+X`09    ( ct_special, ''(189), ''(189) ),`09`7B 189 : `BD `7D
+X`09    ( ct_none, ''(190), ''(190) ),`09`7B 190 `7D
+X`09    ( ct_special, ''(191), ''(191) ),`09`7B 191 : `BF `7D
+X`09    ( ct_letter, ''(192), ''(224) ),`09`7B 192 `7D
+X`09    ( ct_letter, ''(193), ''(225) ),`09`7B 193 `7D
+X`09    ( ct_letter, ''(194), ''(226) ),`09`7B 194 `7D
+X`09    ( ct_letter, ''(195), ''(227) ),`09`7B 195 `7D
+X`09    ( ct_letter, ''(196), ''(228) ),`09`7B 196 : `C4 `7D
+X`09    ( ct_letter, ''(197), ''(229) ),`09`7B 197 : `C5 `7D
+X`09    ( ct_letter, ''(198), ''(230) ),`09`7B 198 : `C6 `7D
+X`09    ( ct_letter, ''(199), ''(231) ),`09`7B 199 `7D
+X`09    ( ct_letter, ''(200), ''(232) ),`09`7B 200 `7D
+X`09    ( ct_letter, ''(201), ''(233) ),`09`7B 201 : `C9 `7D
+X`09    ( ct_letter, ''(202), ''(234) ),`09`7B 202 `7D
+X`09    ( ct_letter, ''(203), ''(235) ),`09`7B 203 `7D
+X`09    ( ct_letter, ''(204), ''(236) ),`09`7B 204 `7D
+X`09    ( ct_letter, ''(205), ''(237) ),`09`7B 205 `7D
+X`09    ( ct_letter, ''(206), ''(238) ),`09`7B 206 `7D
+X`09    ( ct_letter, ''(207), ''(239) ),`09`7B 207 `7D
+X`09    ( ct_none, ''(208), ''(208) ),`09`7B 208 `7D
+X`09    ( ct_letter, ''(209), ''(241) ),`09`7B 209 : `D1 `7D
+X`09    ( ct_letter, ''(210), ''(242) ),`09`7B 210 `7D
+X`09    ( ct_letter, ''(211), ''(243) ),`09`7B 211 `7D
+X`09    ( ct_letter, ''(212), ''(244) ),`09`7B 212 `7D
+X`09    ( ct_letter, ''(213), ''(245) ),`09`7B 213 `7D
+X`09    ( ct_letter, ''(214), ''(246) ),`09`7B 214 : `D6 `7D
+X`09    ( ct_letter, ''(215), ''(247) ),`09`7B 215 `7D
+X`09    ( ct_letter, ''(216), ''(248) ),`09`7B 216 `7D
+X`09    ( ct_letter, ''(217), ''(249) ),`09`7B 217 `7D
+X`09    ( ct_letter, ''(218), ''(250) ),`09`7B 218 `7D
+X`09    ( ct_letter, ''(219), ''(251) ),`09`7B 219 `7D
+X`09    ( ct_letter, ''(220), ''(252) ),`09`7B 220 `7D
+X`09    ( ct_letter, ''(221), ''(253) ),`09`7B 221 `7D
+X`09    ( ct_none, ''(222), ''(222) ),`09`7B 222 `7D
+X`09    ( ct_letter, ''(223), ''(223) ),`09`7B 223 `7D   `20
+X`09    ( ct_letter, ''(192), ''(224) ),`09`7B 224 `7D
+X`09    ( ct_letter, ''(193), ''(225) ),`09`7B 225 `7D
+X`09    ( ct_letter, ''(194), ''(226) ),`09`7B 226 `7D
+X`09    ( ct_letter, ''(195), ''(227) ),`09`7B 227 `7D
+X`09    ( ct_letter, ''(196), ''(228) ),`09`7B 228 : `E4 `7D
+X`09    ( ct_letter, ''(197), ''(229) ),`09`7B 229 : `E4 `7D
+X`09    ( ct_letter, ''(198), ''(230) ),`09`7B 230 : `E6 `7D
+X`09    ( ct_letter, ''(199), ''(231) ),`09`7B 231 `7D
+X`09    ( ct_letter, ''(200), ''(232) ),`09`7B 232 `7D
+X`09    ( ct_letter, ''(201), ''(233) ),`09`7B 233 `7D
+X`09    ( ct_letter, ''(202), ''(234) ),`09`7B 234 `7D
+X`09    ( ct_letter, ''(203), ''(235) ),`09`7B 235 `7D
+X`09    ( ct_letter, ''(204), ''(236) ),`09`7B 236 `7D
+X`09    ( ct_letter, ''(205), ''(237) ),`09`7B 237 `7D
+X`09    ( ct_letter, ''(206), ''(238) ),`09`7B 238 `7D
+X`09    ( ct_letter, ''(207), ''(239) ),`09`7B 239 `7D
+X`09    ( ct_none, ''(240), ''(240) ),`09`7B 240 `7D
+X`09    ( ct_letter, ''(209), ''(241) ),`09`7B 241 `7D
+X`09    ( ct_letter, ''(210), ''(242) ),`09`7B 242 `7D
+X`09    ( ct_letter, ''(211), ''(243) ),`09`7B 243 `7D
+X`09    ( ct_letter, ''(212), ''(244) ),`09`7B 244 `7D
+X`09    ( ct_letter, ''(213), ''(245) ),`09`7B 245 `7D
+X`09    ( ct_letter, ''(214), ''(246) ),`09`7B 246 : `F6 `7D
+X`09    ( ct_letter, ''(215), ''(247) ),`09`7B 247 `7D
+X`09    ( ct_letter, ''(216), ''(248) ),`09`7B 248 `7D
+X`09    ( ct_letter, ''(217), ''(249) ),`09`7B 249 `7D
+X`09    ( ct_letter, ''(218), ''(250) ),`09`7B 250 `7D
+X`09    ( ct_letter, ''(219), ''(251) ),`09`7B 251 `7D
+X`09    ( ct_letter, ''(220), ''(252) ),`09`7B 252 `7D
+X`09    ( ct_letter, ''(221), ''(253) ),`09`7B 253 `7D
+X`09    ( ct_none, ''(254), ''(254) ),`09`7B 254 `7D
+X`09    ( ct_special, ''(255), ''(255) ) );`09`7B 255 `7D
+X
+X`09database_poltime: `5Bglobal`5D string := '0 ::1';
+X`09max_mdl_buffer: `5Bglobal`5D integer := 20;
+X
+X/
+$ CALL UNPACK GLOBAL.DIF;1 845461331
+$ create 'f'
+X/
+$ CALL UNPACK GREAT_HALL.DIF;1 47
+$ create 'f'
+X-   31
+X    14.7.1992 `7C`09`09`7C open_terminal, close_terminal, terminal argument
+V to
+X`09      `7C`09`09`7C to grab_line
+X    15.7.1992 `7C         `7C ESCape sequence length check
+X-   52
+X`09terminal_t = $uword;
+X-  183,  183
+X`09syscall($bintim (database_poltime,time)); `7B yksi sekuntti laukeamiseen
+V `7D
+X-  225,  225
+Xprocedure putchars(s: mega_string; channel: integer := -1);
+X-  233,  234
+X`09if channel >= 0 then`20
+X`09    syscall($qiow(,channel,
+X-  254,  254
+X    if need_reprint then putchars(''(13),inp_chan);
+X-  261,  261
+X`09`09    procedure eof_handler;
+X`09`09    channel: integer := -1);
+X-  336
+X`09have_deccrt : boolean := false;
+X-  341,  346
+X`09    if have_deccrt Then putchars(chr(13)+chr(27)+'`5BK',channel)
+X`09    else begin`20
+X`09`09putchars(chr(13),channel);`09`09`09
+X`09`09for i := 1 to length (prompt) + length(line) do
+X`09`09putchars(' ',channel);`09`09`09
+X`09`09putchars(chr(13),channel);`09`09`09
+X-  351,  359
+X    var tmp : terminal_t;
+Xbegin
+X
+X
+X   if channel < 0 then channel := inp_chan;
+X   tmp := channel;
+X
+X   syscall(GetDvi(DVI$_TRM,tmp,,result));
+X   if not odd(result) then begin
+X`09if channel <> inp_chan then begin
+X`09    writeln('%Error on grab_line. Notify Monster manager.');
+X`09    writeln('%Given terminal argument don''t point to terminal.');
+X`09end else writeln('SYS$INPUT must point to terminal !!!');
+X`09HALT;
+X   end;
+X   syscall(GetDvi(DVI$_TT_DECCRT,tmp,,result));
+X   have_deccrt := odd(result);
+X
+X   putchars(''(13)''(10),channel);
+X-  404,  404
+X`09`09chan := channel,
+X-  425,  425
+X`09syscall($cancel(channel));
+X-  429,  429
+X`09`09channel);
+X-  444,  447
+X  line := '';
+X  for i := 1 to iosb.offtrm do line := line + area`5Bi`5D;
+X  if iosb.trmlen > max_esc then begin
+X`09putchars(''(10)''(13),channel);
+X`09writeln('Too long ESCape sequence.');
+X`09start := line;
+X`09goto again;
+X  end;
+X
+X  terminator := '';
+X  for i := 1 to iosb.trmlen do terminator := terminator + area`5Biosb.offtrm
+V+i`5D;
+X-  454,  454
+X`09    putchars(''(10)''(13),channel);
+X-  460,  460
+X`09    putchars(''(10)''(13),channel);
+X-  479,  479
+X`09`09putchars(''(13)''(0),channel);
+X-  489,  489
+X`09`09putchars(''(13)''(0),channel);
+X-  503,  503
+X else putchars(''(13)''(0),channel);`09`09`09
+X-  515,  515
+X-  532,  532
+X`5Bglobal`5D
+Xfunction open_terminal(name: string; var trm: terminal_t): boolean;
+Xvar result: unsigned;
+Xbegin
+X`09result := $assign(name,trm);
+X`09if not odd (result) then open_terminal := false
+X`09else begin
+X`09    syscall(GetDvi(DVI$_TRM,trm,,result));
+X`09    if not odd (result) then begin
+X`09`09syscall($dassgn(trm));
+X`09`09open_terminal := false;
+X`09    end else open_terminal := true;
+X`09end;
+Xend; `7B open_terminal `7D
+X
+X`5Bglobal`5D
+Xprocedure close_terminal(trm: terminal_t);
+Xbegin
+X    syscall($dassgn(trm));
+Xend; `7B close_terminal `7D
+X/
+$ CALL UNPACK GUTS.DIF;1 1243892649
+$ create 'f'
+X
+X! default chartable is Multinational
+XCHARTABLE:  ! This modifies default chartable - one character per line
+XEND OF CHARTABLE
+X
+X! Time of between database polling in VMS delta-time format
+Xdatabase_poltime: 0 ::1          !  One second
+X
+X! Message what is written when playtime: -entry closes Monster
+XCLOSED MESSAGE:
+X%INSERT message
+XWelcome to the game Monster!
+X
+XBut what now?
+X
+XGoodgulf the Grey appears in a puff of orange smoke!
+XHe is very angry...
+X
+X"What are you doing here? The Dungeon is now closed!"
+X
+XHe waves his Iron Staff and yells "Begone!"
+X
+XYou disappear in a burst of multicolored light...
+X
+XOn wall you see announcement:
+X
+X**********************************************************************
+X*                                                                    *
+X*                    Dungeon is closed on weekdays                   *
+X*                         between 09.00-17.00                        *
+X*                                                                    *
+X**********************************************************************
+X%ENDINSERT
+XEND OF MESSAGE
+X
+Xmdl_buffers: 20
+Xallow_dcl_access: true
+$ CALL UNPACK INIT.APPEND;5 1079839767
+$ create 'f'
+X-   82
+X
+X
+X! default chartable is Multinational
+XCHARTABLE:  ! This modifies default chartable - one character per line
+XEND OF CHARTABLE
+X
+X! Time of between database polling in VMS delta-time format
+Xdatabase_poltime: 0 ::1          !  One second
+X
+X! Message what is written when playtime: -entry closes Monster
+XCLOSED MESSAGE:
+XWelcome to the game Monster!
+X
+XBut what now?
+X
+XGoodgulf the Grey appears in a puff of orange smoke!
+XHe is very angry...
+X
+X"What are you doing here? The Dungeon is now closed!"
+X
+XHe waves his Iron Staff and yells "Begone!"
+X
+XYou disappear in a burst of multicolored light...
+X
+XOn wall you see announcement:
+X
+X**********************************************************************
+X*                                                                    *
+X*                    Dungeon is closed on weekdays                   *
+X*                         between 09.00-17.00                        *
+X*                                                                    *
+X**********************************************************************
+X
+XEND OF MESSAGE
+X
+Xmdl_buffers: 20
+Xallow_dcl_access: true
+X/
+$ CALL UNPACK INIT_PROTO.DIF;1 1628001689
+$ create 'f'
+X-   33
+X   14.7.1992  `7C         `7C load k`E4ytt`E4`E4 nyt grab_line:`E4, jos luku
+V tapahtuu
+X              `7C         `7C p`E4`E4tteelt`E4
+X   15.7.1992  `7C         `7C boolean and, boolean or
+X   16.7.1992  `7C         `7C get global flag palauttaa nyt lippun nimen, jo
+Vs tosi
+X              `7C         `7C eik`E4 teksti`E4 "TRUE"
+X   17.7.1992  `7C         `7C or else, and then
+X   20.8.1992  `7C         `7C e_strip now uses chartable
+X   28.8.1992  `7C         `7C max_buffer = 5 > 20
+X   05.9.1992  `7C         `7C Osittainen muttujien esittelyn tarkistus
+X   13.9.1992  `7C         `7C name_string dynaaminen, pool on nyt osoitin`20
+X              `7C         `7C (dynaamiseen) taulukkoon, max_mdl_buffer kerto
+Vo koon
+X-   85,   85
+X<<loput parametrit kaksoispistell`E4 erotettuina>,
+X-  111,  112
+Xconst`20
+X      atom_length = shortlen;  `20
+X-  117,  117
+X      max_functions = 81;  `7B esimerkiksi null,get, ...   `7D
+X-  128,  128
+X
+X-  132
+X
+X        external_labels = 'enter, leave, say, attack, look, look you,' +
+X`09`09`09  'command, start, escaped, poof in, poof out, ' +
+X`09`09`09  'say, look_detail, look around, wrong dir, ' +
+X`09`09`09  'get fail, get succeed, drop succeed, drop you, ' +
+X`09`09`09  'use succeed, look you, summon, learn';
+X`09external_vars = 'player name, monster name, target, speech, command, ' +
+X`09`09`09'detail, direction, book name';
+X
+X`09define_var_headers = `5B 2, 4 `5D ;
+X-  145
+X      name_string(maxlen: integer) = `5Bhidden`5D
+X`09array `5B1 .. maxlen`5D of char;
+X-  150,  150
+X                long_name: `5Ename_string;
+X-  164
+X
+X    pool_array(n: integer) = array `5B 1 .. n`5D of buffer;
+X-  172,  173
+X`09pool : `5Epool_array;
+X`09current_buffer : integer;
+X-  279,  281
+X`09('boolean and',`091,  max_param),`09    `7B 78 `7D
+X`09('boolean or',`091,  max_param),`09    `7B 79 `7D
+X`09('or else',2, max_param),`09    `7B 80 `7D
+X`09('and then',2, max_param)`09    `7B 81 `7D
+X-  449,  449
+X    with pool`5E`5Bbuffer`5D do begin
+X-  464,  465
+Xfunction ns(name: array `5B low .. hi: integer`5D of char): string_t;
+Xvar i: integer;
+X    s: string_t;
+Xbegin
+X    s := '';
+X    for i := low to hi do s := s + name`5Bi`5D;
+X    ns := s;
+Xend; `7B ns `7D
+X
+Xprocedure as(var name: array `5B low .. hi: integer`5D of char;
+X`09     s: string_t);
+Xvar i: integer;
+Xbegin
+X    if length(s) <> hi - low +1 then begin
+X`09writeln('%Illegal assigment in procedure as.');
+X`09writeln('% Notify Monster Manager.');
+X`09halt;
+X    end;
+X    for i := 1 to length(s) do name`5Blow + i -1`5D := s`5Bi`5D;
+Xend; `7B as `7D
+X
+Xprocedure parse (function reader (var line: string_t): boolean;
+X`09`09var result: text);      `20
+X-  480
+X    eof_flag: boolean := false;
+X-  484,  484
+X`09if eof_flag then begin
+X`09    write_debug('%read_line: eof_flag = true already');
+X-  489,  490
+X`09end else if not reader(line) then begin
+X`09    write_debug('%read_line: EOF');
+X`09    line := '';
+X`09    linep := 0;
+X`09    linecount := linecount +1;
+X`09    atom_line_p := -1;
+X`09    eof_flag := true;
+X`09end else begin
+X-  500,  500
+X`09else LINE_EOF := eof_flag;
+X-  535,  548
+X    function locate_label(name: string_t): integer;
+X    var loc, j: integer;
+X    begin
+X`09loc := 0;
+X`09for j := 1 to label_count do
+X`09    if EQ(name,labels`5Bj`5D.name) then loc := j;
+X`09locate_label := loc;
+X    end; `7B locate_label `7D
+X
+X    procedure replace_GOSUB;
+X    var i,loc: integer;
+X    begin
+X`09for i := 1 to atom_count do
+X`09    with pool`5E`5Bcurrent_buffer`5D.table`5Bi`5D do
+X`09`09if nametype = n_header then if name = GOSUB_ID then begin
+X`09`09    loc := locate_label(ns(long_name`5E));
+X`09`09    if loc = 0 then begin
+X`09`09`09LINE_error;
+X`09`09`09writeln('Error: GOSUB ',ns(long_name`5E));
+X`09`09`09writeln('       without LABEL ',ns(long_name`5E));
+X-  559,  559
+X    procedure do_list(list: string_t; procedure doit(atom: atom_t));
+X    var index: integer;
+X`09atom: atom_t;
+X    begin
+X`09index := 1;
+X`09while index <= length(list) do
+X`09begin
+X`09    atom := clean_spaces(cut_atom(list,index,','));
+X`09    doit(atom);
+X`09end;
+X    end; `7B do_list `7D
+X
+X    function in_list(list: string_t; atom: atom_t): boolean;
+X    var flag: boolean;
+X`09procedure check_one(a: atom_t);
+X`09begin
+X`09    if a = atom then flag := true;
+X`09end; `7B check_one `7D
+X    begin
+X`09flag := false;
+X`09do_list(list,check_one);
+X`09in_list := flag;
+X    end; `7B in_list `7D
+X`09
+X    procedure walk_tree(pos: integer;
+X`09`09`09current_label: string;
+X`09`09`09visited_labels: string_t;
+X`09`09`09defined_vars: string_t);
+X    label OUT;
+X`09procedure add_list(var list: string_t; atom: atom_t);
+X`09begin
+X`09    if length(list) + length(atom) > string_length - 2 then begin
+X`09`09writeln('% List overflow in walk tree !!');
+X`09`09writeln('% Aborting checking.');
+X`09`09goto OUT;
+X`09    end;
+X`09    if list > '' then list := list + ', ';
+X`09    list := list + atom;
+X`09end; `7B add_list `7D
+X
+X`09function pvar(i :integer): atom_t;
+X`09var A: atom_t;
+X`09begin
+X`09    writev(A,'p',i:1);
+X`09    pvar := A;
++-+-+-+-+-+-+-+-  END  OF PART 1 +-+-+-+-+-+-+-+-
+-- 
+- K E H                                      /  El{m{ on monimutkaista
+  Kari.Hurtta@Helsinki.FI

@@ -1,0 +1,2607 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F. Haugh II)
+Subject: v38i128:  shadow - Shadow Password Suite, v3.3, Part09/14
+Message-ID: <1993Aug14.192540.9668@sparky.sterling.com>
+X-Md4-Signature: e9589d1d354bf0cdf52f34789b31398e
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 14 Aug 1993 19:25:40 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F. Haugh II)
+Posting-number: Volume 38, Issue 128
+Archive-name: shadow/part09
+Environment: UNIX
+Supersedes: shadow: Volume 26, Issue 54-64
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  age.c copydir.c groupadd.c mail.c mkpasswd.c passwd.1
+#   setup.c utmp.c
+# Wrapped by kent@sparky on Sat Aug 14 14:11:40 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 14)."'
+if test -f 'age.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'age.c'\"
+else
+  echo shar: Extracting \"'age.c'\" \(6958 characters\)
+  sed "s/^X//" >'age.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <errno.h>
+X#include "config.h"
+X#include "pwd.h"
+X#include "shadow.h"
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)age.c	3.7	21:46:45	02 Jun 1993";
+X#endif
+X
+Xstatic	char	*EXPIRE_DAY = "Your password will expire in 1 day.\n";
+Xstatic	char	*EXPIRE_DAYS = "Your password will expired in %d days.\n";
+Xstatic	char	*PASSWORD_EXPIRED = "Your password has expired.";
+Xstatic	char	*PASSWORD_INACTIVE = "Your password is inactive.";
+Xstatic	char	*LOGIN_EXPIRED = "Your login has expired.";
+Xstatic	char	*CONTACT_SYSADM = "  Contact the system administrator.\n";
+Xstatic	char	*NEW_PASSWORD = "  Choose a new password.\n";
+X
+X#define	DAY	(24L*3600L)
+X#ifdef	ITI_AGING
+X#define	SCALE	(DAY)
+X#else
+X#define	SCALE	(1)
+X#endif
+X
+Xextern	time_t	time ();
+Xextern	char	*strdup();
+X
+X/*
+X * pwd_to_spwd - create entries for new spwd structure
+X *
+X *	pwd_to_spwd() creates a new (struct spwd) containing the
+X *	information in the pointed-to (struct passwd).
+X */
+X
+Xstatic struct spwd *
+Xpwd_to_spwd (pw)
+Xstruct	passwd	*pw;
+X{
+X	static	struct	spwd	tspwd;
+X	struct	spwd	*sp = &tspwd;
+X	time_t	t;
+X
+X	/*
+X	 * Nice, easy parts first.  The name and passwd map directly
+X	 * from the old password structure to the new one.
+X	 */
+X
+X	sp->sp_namp = strdup (pw->pw_name);
+X	sp->sp_pwdp = strdup (pw->pw_passwd);
+X#ifdef	ATT_AGE
+X
+X	/*
+X	 * AT&T-style password aging maps the sp_min, sp_max, and
+X	 * sp_lstchg information from the pw_age field, which appears
+X	 * after the encrypted password.
+X	 */
+X
+X	if (pw->pw_age[0]) {
+X		t = (c64i (pw->pw_age[0]) * 7) * SCALE;
+X		sp->sp_max = t;
+X
+X		if (pw->pw_age[1]) {
+X			t = (c64i (pw->pw_age[1]) * 7) * SCALE;
+X			sp->sp_min = t;
+X		} else
+X			sp->sp_min = (10000L) * SCALE;
+X
+X		if (pw->pw_age[1] && pw->pw_age[2]) {
+X			t = (a64l (pw->pw_age + 2) * 7) * SCALE;
+X			sp->sp_lstchg = t;
+X		} else
+X			sp->sp_lstchg = time ((time_t *) 0) / (DAY/SCALE);
+X	} else {
+X		sp->sp_min = 0;
+X		sp->sp_max = (10000L * SCALE);
+X		sp->sp_lstchg = time ((time_t *) 0) / (DAY/SCALE);
+X	}
+X#else	/* !ATT_AGE */
+X	/*
+X	 * BSD does not use the pw_age field and has no aging information
+X	 * anywheres.  The default values are used to initialize the
+X	 * fields which are in the missing pw_age field;
+X	 */
+X
+X	sp->sp_min = 0;
+X	sp->sp_max = (10000L * SCALE);
+X	sp->sp_lstchg = time ((time_t *) 0) / (DAY/SCALE);
+X#endif	/* ATT_AGE */
+X
+X	/*
+X	 * These fields have no corresponding information in the password
+X	 * file.  They are set to uninitialized values.
+X	 */
+X
+X	sp->sp_warn = -1;
+X	sp->sp_inact = -1;
+X	sp->sp_expire = -1;
+X	sp->sp_flag = -1;
+X
+X	return sp;
+X}
+X
+X/*
+X * isexpired - determine if account is expired yet
+X *
+X *	isexpired calculates the expiration date based on the
+X *	password expiration criteria.
+X */
+X
+X/*ARGSUSED*/
+Xint
+Xisexpired (pw, sp)
+Xstruct	passwd	*pw;
+Xstruct	spwd	*sp;
+X{
+X	long	clock;
+X
+X	clock = time ((time_t *) 0) / (DAY/SCALE);
+X
+X	/*
+X	 * Quick and easy - there is an expired account field
+X	 * along with an inactive account field.  Do the expired
+X	 * one first since it is worse.
+X	 */
+X
+X	if (sp->sp_expire > 0 && sp->sp_expire < clock)
+X		return 3;
+X
+X	if (sp->sp_inact > 0 && sp->sp_lstchg > 0 && sp->sp_max > 0 &&
+X			sp->sp_inact + sp->sp_lstchg + sp->sp_max < clock)
+X		return 2;
+X
+X	/*
+X	 * The last and max fields must be present for an account
+X	 * to have an expired password.  A maximum of >10000 days
+X	 * is considered to be infinite.
+X	 */
+X
+X	if (sp->sp_lstchg == -1 ||
+X			sp->sp_max == -1 || sp->sp_max >= (10000L*SCALE))
+X		return 0;
+X
+X	/*
+X	 * Calculate today's day and the day on which the password
+X	 * is going to expire.  If that date has already passed,
+X	 * the password has expired.
+X	 */
+X
+X	if (sp->sp_lstchg + sp->sp_max < clock)
+X		return 1;
+X
+X	return 0;
+X}
+X
+X/*
+X * expire - force password change if password expired
+X *
+X *	expire() calls /bin/passwd to change the user's password
+X *	if it has expired.
+X */
+X
+Xint
+Xexpire (pw, sp)
+Xstruct	passwd	*pw;
+Xstruct	spwd	*sp;
+X{
+X	int	status;
+X	int	child;
+X	int	pid;
+X
+X	if (! sp)
+X		sp = pwd_to_spwd (pw);
+X
+X	/*
+X	 * See if the user's password has expired, and if so
+X	 * force them to change their password.
+X	 */
+X
+X	switch (status = isexpired (pw, sp)) {
+X		case 0:
+X			return 0;
+X		case 1:
+X			printf (PASSWORD_EXPIRED);
+X			break;
+X		case 2:
+X			printf (PASSWORD_INACTIVE);
+X			break;
+X		case 3:
+X			printf (LOGIN_EXPIRED);
+X			break;
+X	}
+X
+X	/*
+X	 * Setting the maximum valid period to less than the minimum
+X	 * valid period means that the minimum period will never
+X	 * occur while the password is valid, so the user can never
+X	 * change that password.
+X	 */
+X
+X	if (status > 1 || sp->sp_max < sp->sp_min) {
+X		puts (CONTACT_SYSADM);
+X		exit (1);
+X	}
+X	puts (NEW_PASSWORD);
+X	fflush (stdout);
+X
+X	/*
+X	 * Close all the files so that unauthorized access won't
+X	 * occur.  This needs to be done anyway because those files
+X	 * might become stale after "passwd" is executed.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	endspent ();
+X#endif
+X	endpwent ();
+X#ifdef	SHADOWGRP
+X	endsgent ();
+X#endif
+X	endgrent ();
+X
+X	/*
+X	 * Execute the /bin/passwd command.  The exit status will be
+X	 * examined to see what the result is.  If there are any
+X	 * errors the routine will exit.  This forces the user to
+X	 * change their password before being able to use the account.
+X	 */
+X
+X	if ((pid = fork ()) == 0) {
+X
+X		/*
+X		 * Set the UID to be that of the user.  This causes
+X		 * passwd to work just like it would had they executed
+X		 * it from the command line while logged in.
+X		 */
+X
+X		if (setuid (pw->pw_uid))
+X			_exit (errno);
+X
+X		execl ("/bin/passwd", "passwd", pw->pw_name, (char *) 0);
+X		puts ("Can't execute /bin/passwd");
+X		fflush (stdout);
+X
+X		_exit (errno);
+X	} else if (pid == -1) {
+X		perror ("passwd");
+X		exit (errno);
+X	}
+X	while ((child = wait (&status)) != pid && child != -1)
+X		;
+X
+X	if (child == pid && status == 0)
+X		return 1;
+X
+X	exit (1);
+X	/*NOTREACHED*/
+X}
+X
+X/*
+X * agecheck - see if warning is needed for password expiration
+X *
+X *	agecheck sees how many days until the user's password is going
+X *	to expire and warns the user of the pending password expiration.
+X */
+X
+Xvoid
+Xagecheck (pw, sp)
+Xstruct	passwd	*pw;
+Xstruct	spwd	*sp;
+X{
+X	long	clock = time ((long *) 0) / (DAY/SCALE);
+X	long	remain;
+X
+X	if (! sp)
+X		sp = pwd_to_spwd (pw);
+X
+X	/*
+X	 * The last, max, and warn fields must be supported or the
+X	 * warning period cannot be calculated.
+X	 */
+X
+X	if (sp->sp_lstchg == -1 || sp->sp_max == -1 || sp->sp_warn == -1)
+X		return;
+X
+X	if ((remain = (sp->sp_lstchg + sp->sp_max) - clock) <= sp->sp_warn) {
+X		remain /= SCALE;
+X		if (remain >= 0) {
+X			if (remain == 1)
+X				printf (EXPIRE_DAY);
+X			else
+X				printf (EXPIRE_DAYS, remain);
+X		}
+X	}
+X}
+END_OF_FILE
+  if test 6958 -ne `wc -c <'age.c'`; then
+    echo shar: \"'age.c'\" unpacked with wrong size!
+  fi
+  # end of 'age.c'
+fi
+if test -f 'copydir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'copydir.c'\"
+else
+  echo shar: Extracting \"'copydir.c'\" \(7360 characters\)
+  sed "s/^X//" >'copydir.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include "config.h"
+X
+X#if defined(DIR_XENIX) || defined(DIR_BSD) || defined(DIR_SYSV)
+X
+X#ifdef DIR_XENIX
+X#include <sys/ndir.h>
+X#define DIRECT direct
+X#endif
+X#ifdef DIR_BSD
+X#include <ndir.h>
+X#define DIRECT direct
+X#endif
+X#ifdef DIR_SYSV
+X#include <dirent.h>
+X#define DIRECT dirent
+X#endif
+X#include <fcntl.h>
+X#include <stdio.h>
+X
+X#ifndef lint
+Xstatic	char	sccsid[] = "@(#)copydir.c	3.3	07:59:20	20 Apr 1993";
+X#endif
+X
+X#ifndef	S_ISDIR
+X#define	S_ISDIR(x)	(((x)&S_IFMT)==S_IFDIR)
+X#endif
+X#ifndef	S_ISREG
+X#define	S_ISREG(x)	(((x)&S_IFMT)==S_IFREG)
+X#endif
+X
+Xstatic	char	*src_orig;
+Xstatic	char	*dst_orig;
+X
+Xstruct	link_name {
+X	int	ln_dev;
+X	int	ln_ino;
+X	int	ln_count;
+X	char	*ln_name;
+X	struct	link_name *ln_next;
+X};
+Xstatic	struct	link_name *links;
+X
+X/*
+X * remove_link - delete a link from the link list
+X */
+X
+Xvoid
+Xremove_link (link)
+Xstruct	link_name *link;
+X{
+X	struct link_name *lp;
+X
+X	if (links == link) {
+X		links = link->ln_next;
+X		free (link->ln_name);
+X		free (link);
+X		return;
+X	}
+X	for (lp = links;lp;lp = lp->ln_next)
+X		if (lp->ln_next == link)
+X			break;
+X
+X	if (! lp)
+X		return;
+X
+X	lp->ln_next = lp->ln_next->ln_next;
+X	free (link->ln_name);
+X	free (link);
+X}
+X
+X/*
+X * check_link - see if a file is really a link
+X */
+X
+Xstruct link_name *
+Xcheck_link (name, sb)
+Xchar	*name;
+Xstruct	stat	*sb;
+X{
+X	struct	link_name *lp;
+X	int	src_len;
+X	int	dst_len;
+X	int	name_len;
+X	char	*malloc ();
+X
+X	for (lp = links;lp;lp = lp->ln_next)
+X		if (lp->ln_dev == sb->st_dev && lp->ln_ino == sb->st_ino)
+X			return lp;
+X
+X	if (sb->st_nlink == 1)
+X		return 0;
+X
+X	lp = (struct link_name *) malloc (sizeof *lp);
+X	src_len = strlen (src_orig);
+X	dst_len = strlen (dst_orig);
+X	name_len = strlen (name);
+X	lp->ln_dev = sb->st_dev;
+X	lp->ln_ino = sb->st_ino;
+X	lp->ln_count = sb->st_nlink;
+X	lp->ln_name = malloc (name_len - src_len + dst_len + 1);
+X	sprintf (lp->ln_name, "%s%s", dst_orig, name + src_len);
+X	lp->ln_next = links;
+X	links = lp;
+X
+X	return 0;
+X}
+X
+X/*
+X * copy_tree - copy files in a directory tree
+X *
+X *	copy_tree() walks a directory tree and copies ordinary files
+X *	as it goes.
+X */
+X
+Xint
+Xcopy_tree (src_root, dst_root, uid, gid, ouid, ogid)
+Xchar	*src_root;
+Xchar	*dst_root;
+XUID_T	uid;
+XGID_T	gid;
+XUID_T	ouid;
+XGID_T	ogid;
+X{
+X	char	src_name[BUFSIZ];
+X	char	dst_name[BUFSIZ];
+X	char	buf[BUFSIZ];
+X	int	ifd;
+X	int	ofd;
+X	int	err = 0;
+X	int	cnt;
+X	int	set_orig = 0;
+X	struct	DIRECT	*ent;
+X	struct	stat	sb;
+X	struct	link_name *lp;
+X	DIR	*dir;
+X
+X	/*
+X	 * Make certain both directories exist.  This routine is called
+X	 * after the home directory is created, or recursively after the
+X	 * target is created.  It assumes the target directory exists.
+X	 */
+X
+X	if (access (src_root, 0) != 0 || access (dst_root, 0) != 0)
+X		return -1;
+X
+X	/*
+X	 * Open the source directory and read each entry.  Every file
+X	 * entry in the directory is copied with the UID and GID set
+X	 * to the provided values.  As an added security feature only
+X	 * regular files (and directories ...) are copied, and no file
+X	 * is made set-ID.
+X	 */
+X
+X	if (! (dir = opendir (src_root)))
+X		return -1;
+X
+X	if (src_orig == 0) {
+X		src_orig = src_root;
+X		dst_orig = dst_root;
+X		set_orig++;
+X	}
+X	while (ent = readdir (dir)) {
+X
+X		/*
+X		 * Skip the "." and ".." entries
+X		 */
+X
+X		if (strcmp (ent->d_name, ".") == 0 ||
+X				strcmp (ent->d_name, "..") == 0)
+X			continue;
+X
+X		/*
+X		 * Make the filename for both the source and the
+X		 * destination files.
+X		 */
+X
+X		if (strlen (src_root) + strlen (ent->d_name) + 2 > BUFSIZ) {
+X			err++;
+X			break;
+X		}
+X		sprintf (src_name, "%s/%s", src_root, ent->d_name);
+X
+X		if (strlen (dst_root) + strlen (ent->d_name) + 2 > BUFSIZ) {
+X			err++;
+X			break;
+X		}
+X		sprintf (dst_name, "%s/%s", dst_root, ent->d_name);
+X
+X		if (stat (src_name, &sb) == -1)
+X			continue;
+X
+X		if (S_ISDIR (sb.st_mode)) {
+X
+X			/*
+X			 * Create a new target directory, make it owned by
+X			 * the user and then recursively copy that directory.
+X			 */
+X
+X			mkdir (dst_name, sb.st_mode & 0777);
+X			chown (dst_name, uid == -1 ? sb.st_uid:uid,
+X				gid == -1 ? sb.st_gid:gid);
+X
+X			if (copy_tree (src_name, dst_name, uid, gid)) {
+X				err++;
+X				break;
+X			}
+X			continue;
+X		}
+X
+X		/*
+X		 * See if this is a previously copied link
+X		 */
+X
+X		if (lp = check_link (src_name, &sb)) {
+X			if (link (lp->ln_name, dst_name)) {
+X				err++;
+X				break;
+X			}
+X			if (unlink (src_name)) {
+X				err++;
+X				break;
+X			}
+X			if (--lp->ln_count <= 0)
+X				remove_link (lp);
+X
+X			continue;
+X		}
+X
+X		/*
+X		 * Deal with FIFOs and special files.  The user really
+X		 * shouldn't have any of these, but it seems like it
+X		 * would be nice to copy everything ...
+X		 */
+X
+X		if (! S_ISREG (sb.st_mode)) {
+X			if (mknod (dst_name, sb.st_mode & ~07777, sb.st_rdev) ||
+X				chown (dst_name, uid == -1 ? sb.st_uid:uid,
+X					gid == -1 ? sb.st_gid:gid) ||
+X					chmod (dst_name, sb.st_mode & 07777)) {
+X				err++;
+X				break;
+X			}
+X			continue;
+X		}
+X
+X		/*
+X		 * Create the new file and copy the contents.  The new
+X		 * file will be owned by the provided UID and GID values.
+X		 */
+X
+X		if ((ifd = open (src_name, O_RDONLY)) < 0) {
+X			err++;
+X			break;
+X		}
+X		if ((ofd = open (dst_name, O_WRONLY|O_CREAT, 0)) < 0 ||
+X			chown (dst_name, uid == -1 ? sb.st_uid:uid,
+X					gid == -1 ? sb.st_gid:gid) ||
+X				chmod (dst_name, sb.st_mode & 07777)) {
+X			close (ifd);
+X			err++;
+X			break;
+X		}
+X		while ((cnt = read (ifd, buf, sizeof buf)) > 0) {
+X			if (write (ofd, buf, cnt) != cnt) {
+X				cnt = -1;
+X				break;
+X			}
+X		}
+X		close (ifd);
+X		close (ofd);
+X
+X		if (cnt == -1) {
+X			err++;
+X			break;
+X		}
+X	}
+X	closedir (dir);
+X
+X	if (set_orig) {
+X		src_orig = 0;
+X		dst_orig = 0;
+X	}
+X	return err ? -1:0;
+X}
+X
+X/*
+X * remove_tree - remove files in a directory tree
+X *
+X *	remove_tree() walks a directory tree and deletes all the files
+X *	and directories.
+X */
+X
+Xint
+Xremove_tree (root)
+Xchar	*root;
+X{
+X	char	new_name[BUFSIZ];
+X	int	err = 0;
+X	struct	DIRECT	*ent;
+X	struct	stat	sb;
+X	DIR	*dir;
+X
+X	/*
+X	 * Make certain the directory exists.
+X	 */
+X
+X	if (access (root, 0) != 0)
+X		return -1;
+X
+X	/*
+X	 * Open the source directory and read each entry.  Every file
+X	 * entry in the directory is copied with the UID and GID set
+X	 * to the provided values.  As an added security feature only
+X	 * regular files (and directories ...) are copied, and no file
+X	 * is made set-ID.
+X	 */
+X
+X	dir = opendir (root);
+X
+X	while (ent = readdir (dir)) {
+X
+X		/*
+X		 * Skip the "." and ".." entries
+X		 */
+X
+X		if (strcmp (ent->d_name, ".") == 0 ||
+X				strcmp (ent->d_name, "..") == 0)
+X			continue;
+X
+X		/*
+X		 * Make the filename for the current entry.
+X		 */
+X
+X		if (strlen (root) + strlen (ent->d_name) + 2 > BUFSIZ) {
+X			err++;
+X			break;
+X		}
+X		sprintf (new_name, "%s/%s", root, ent->d_name);
+X		if (stat (new_name, &sb) == -1)
+X			continue;
+X
+X		if (S_ISDIR (sb.st_mode)) {
+X
+X			/*
+X			 * Recursively delete this directory.
+X			 */
+X
+X			if (remove_tree (new_name)) {
+X				err++;
+X				break;
+X			}
+X			if (rmdir (new_name)) {
+X				err++;
+X				break;
+X			}
+X			continue;
+X		}
+X		unlink (new_name);
+X	}
+X	closedir (dir);
+X
+X	return err ? -1:0;
+X}
+X
+X#endif	/* defined(DIR_XXX) */
+END_OF_FILE
+  if test 7360 -ne `wc -c <'copydir.c'`; then
+    echo shar: \"'copydir.c'\" unpacked with wrong size!
+  fi
+  # end of 'copydir.c'
+fi
+if test -f 'groupadd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'groupadd.c'\"
+else
+  echo shar: Extracting \"'groupadd.c'\" \(8793 characters\)
+  sed "s/^X//" >'groupadd.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#ifndef lint
+Xstatic	char	sccsid[] = "@(#)groupadd.c	3.6	08:09:24	23 Apr 1993";
+X#endif
+X
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <grp.h>
+X#include <ctype.h>
+X#include <fcntl.h>
+X
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X#include "config.h"
+X#include "shadow.h"
+X
+X#ifdef	USE_SYSLOG
+X#include <syslog.h>
+X#endif
+X
+Xchar	group_name[BUFSIZ];
+XGID_T	group_id;
+X
+Xchar	*Prog;
+X
+Xint	oflg;	/* permit non-unique group ID to be specified with -g         */
+Xint	gflg;	/* ID value for the new group                                 */
+X
+X#ifdef	NDBM
+Xextern	int	gr_dbm_mode;
+Xextern	int	sg_dbm_mode;
+X#endif
+Xextern	char	*malloc();
+X
+Xextern	struct	group	*getgrnam();
+Xextern	struct	group	*gr_next();
+Xextern	int	gr_lock();
+Xextern	int	gr_unlock();
+Xextern	int	gr_rewind();
+Xextern	int	gr_open();
+X
+X#ifdef	SHADOWGRP
+Xextern	int	sgr_lock();
+Xextern	int	sgr_unlock();
+Xextern	int	sgr_open();
+X#endif
+X
+X/*
+X * usage - display usage message and exit
+X */
+X
+Xusage ()
+X{
+X	fprintf (stderr, "usage: groupadd [-g gid [-o]] group\n");
+X	exit (2);
+X}
+X
+X/*
+X * new_grent - initialize the values in a group file entry
+X *
+X *	new_grent() takes all of the values that have been entered and
+X *	fills in a (struct group) with them.
+X */
+X
+Xvoid
+Xnew_grent (grent)
+Xstruct	group	*grent;
+X{
+X	static	char	*empty_list = 0;
+X
+X	memset (grent, 0, sizeof *grent);
+X	grent->gr_name = group_name;
+X	grent->gr_passwd = "*";
+X	grent->gr_gid = group_id;
+X	grent->gr_mem = &empty_list;
+X}
+X
+X#ifdef	SHADOWGRP
+X/*
+X * new_sgent - initialize the values in a shadow group file entry
+X *
+X *	new_sgent() takes all of the values that have been entered and
+X *	fills in a (struct sgrp) with them.
+X */
+X
+Xvoid
+Xnew_sgent (sgent)
+Xstruct	sgrp	*sgent;
+X{
+X	static	char	*empty_list = 0;
+X
+X	memset (sgent, 0, sizeof *sgent);
+X	sgent->sg_name = group_name;
+X	sgent->sg_passwd = "!";
+X	sgent->sg_adm = &empty_list;
+X	sgent->sg_mem = &empty_list;
+X}
+X#endif	/* SHADOWGRP */
+X
+X/*
+X * grp_update - add new group file entries
+X *
+X *	grp_update() writes the new records to the group files.
+X */
+X
+Xvoid
+Xgrp_update ()
+X{
+X	struct	group	grp;
+X#ifdef	SHADOWGRP
+X	struct	sgrp	sgrp;
+X#endif	/* SHADOWGRP */
+X
+X	/*
+X	 * Create the initial entries for this new group.
+X	 */
+X
+X	new_grent (&grp);
+X#ifdef	SHADOWGRP
+X	new_sgent (&sgrp);
+X#endif	/* SHADOWGRP */
+X
+X	/*
+X	 * Write out the new group file entry.
+X	 */
+X
+X	if (! gr_update (&grp)) {
+X		fprintf (stderr, "%s: error adding new group entry\n", Prog);
+X		fail_exit (1);
+X	}
+X#ifdef	NDBM
+X
+X	/*
+X	 * Update the DBM group file with the new entry as well.
+X	 */
+X
+X	if (access ("/etc/group.pag", 0) == 0 && ! gr_dbm_update (&grp)) {
+X		fprintf (stderr, "%s: cannot add new dbm group entry\n", Prog);
+X		fail_exit (1);
+X	}
+X	endgrent ();
+X#endif	/* NDBM */
+X
+X#ifdef	SHADOWGRP
+X
+X	/*
+X	 * Write out the new shadow group entries as well.
+X	 */
+X
+X	if (! sgr_update (&sgrp)) {
+X		fprintf (stderr, "%s: error adding new group entry\n", Prog);
+X		fail_exit (1);
+X	}
+X#ifdef	NDBM
+X
+X	/*
+X	 * Update the DBM group file with the new entry as well.
+X	 */
+X
+X	if (access ("/etc/gshadow.pag", 0) == 0 && ! sg_dbm_update (&sgrp)) {
+X		fprintf (stderr, "%s: cannot add new dbm group entry\n", Prog);
+X		fail_exit (1);
+X	}
+X	endsgent ();
+X#endif	/* NDBM */
+X#endif	/* SHADOWGRP */
+X#ifdef	USE_SYSLOG
+X	syslog (LOG_INFO, "new group: name=%s, gid=%d\n",
+X		group_name, group_id);
+X#endif	/* USE_SYSLOG */
+X}
+X
+X/*
+X * find_new_gid - find the next available GID
+X *
+X *	find_new_gid() locates the next highest unused GID in the group
+X *	file, or checks the given group ID against the existing ones for
+X *	uniqueness.
+X */
+X
+Xvoid
+Xfind_new_gid ()
+X{
+X	struct	group	*grp;
+X
+X	/*
+X	 * Start with some GID value if the user didn't provide us with
+X	 * one already.
+X	 */
+X
+X	if (! gflg)
+X		group_id = 100;
+X
+X	/*
+X	 * Search the entire group file, either looking for this
+X	 * GID (if the user specified one with -g) or looking for the
+X	 * largest unused value.
+X	 */
+X
+X	for (gr_rewind (), grp = gr_next ();grp;grp = gr_next ()) {
+X		if (strcmp (group_name, grp->gr_name) == 0) {
+X			fprintf (stderr, "%s: name %s is not unique\n",
+X				Prog, group_name);
+X			fail_exit (1);
+X		}
+X		if (gflg && group_id == grp->gr_gid) {
+X			fprintf (stderr, "%s: gid %d is not unique\n",
+X				Prog, group_id);
+X			fail_exit (1);
+X		}
+X		if (! gflg && grp->gr_gid >= group_id)
+X			group_id = grp->gr_gid + 1;
+X	}
+X}
+X
+X/*
+X * check_new_name - check the new name for validity
+X *
+X *	check_new_name() insures that the new name doesn't contain
+X *	any illegal characters.
+X */
+X
+Xvoid
+Xcheck_new_name ()
+X{
+X	int	i;
+X
+X	/*
+X	 * Check for validity.  The name must be at least 1 character in
+X	 * length, but not more than 10.  It must start with a letter and
+X	 * contain printable characters, not including ':' and '\n'
+X	 */
+X
+X	if (strlen (group_name) > 10)
+X		goto bad_name;
+X
+X	if (strlen (group_name) >= 1 && isalpha (group_name[0])) {
+X		for (i = 1;group_name[i] && isprint (group_name[i]);i++)
+X			if (group_name[i] == ':' ||
+X					group_name[i] == '\n')
+X				goto bad_name;
+X
+X		/*
+X		 * Something was left over.  It must be a non-printable
+X		 * character.
+X		 */
+X
+X		if (group_name[i])
+X			goto bad_name;
+X
+X		return;
+X	}
+X
+X	/*
+X	 * All invalid group names land here.
+X	 */
+X
+Xbad_name:
+X	fprintf (stderr, "%s: %s is a not a valid group name\n",
+X		Prog, group_name);
+X
+X	exit (3);
+X}
+X
+X/*
+X * process_flags - perform command line argument setting
+X *
+X *	process_flags() interprets the command line arguments and sets
+X *	the values that the user will be created with accordingly.  The
+X *	values are checked for sanity.
+X */
+X
+Xvoid
+Xprocess_flags (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	extern	int	optind;
+X	extern	char	*optarg;
+X	char	*end;
+X	int	arg;
+X
+X	while ((arg = getopt (argc, argv, "og:")) != EOF) {
+X		switch (arg) {
+X			case 'g':
+X				gflg++;
+X				if (! isdigit (optarg[0]))
+X					usage ();
+X
+X				group_id = strtol (optarg, &end, 10);
+X				if (*end != '\0') {
+X					fprintf (stderr, "%s: invalid group %s\n",
+X						Prog, optarg);
+X					fail_exit (3);
+X				}
+X				break;
+X			case 'o':
+X				if (! gflg)
+X					usage ();
+X
+X				oflg++;
+X				break;
+X			default:
+X				usage ();
+X		}
+X	}
+X	if (optind == argc - 1)
+X		strcpy (group_name, argv[argc - 1]);
+X	else
+X		usage ();
+X
+X	check_new_name ();
+X}
+X
+X/*
+X * close_files - close all of the files that were opened
+X *
+X *	close_files() closes all of the files that were opened for this
+X *	new group.  This causes any modified entries to be written out.
+X */
+X
+Xclose_files ()
+X{
+X	if (! gr_close ()) {
+X		fprintf (stderr, "%s: cannot rewrite group file\n", Prog);
+X		fail_exit (1);
+X	}
+X	(void) gr_unlock ();
+X#ifdef	SHADOWGRP
+X	if (! sgr_close ()) {
+X		fprintf (stderr, "%s: cannot rewrite shadow group file\n",
+X			Prog);
+X		fail_exit (1);
+X	}
+X	(void) sgr_unlock ();
+X#endif	/* SHADOWGRP */
+X}
+X
+X/*
+X * open_files - lock and open the group files
+X *
+X *	open_files() opens the two group files.
+X */
+X
+Xopen_files ()
+X{
+X	if (! gr_lock ()) {
+X		fprintf (stderr, "%s: unable to lock group file\n", Prog);
+X		exit (1);
+X	}
+X	if (! gr_open (O_RDWR)) {
+X		fprintf (stderr, "%s: unable to open group file\n", Prog);
+X		fail_exit (1);
+X	}
+X#ifdef	SHADOWGRP
+X	if (! sgr_lock ()) {
+X		fprintf (stderr, "%s: unable to lock shadow group file\n",
+X			Prog);
+X		fail_exit (1);
+X	}
+X	if (! sgr_open (O_RDWR)) {
+X		fprintf (stderr, "%s: unable to open shadow group file\n",
+X			Prog);
+X		fail_exit (1);
+X	}
+X#endif	/* SHADOWGRP */
+X}
+X
+X/*
+X * fail_exit - exit with an error code after unlocking files
+X */
+X
+Xfail_exit (code)
+Xint	code;
+X{
+X	(void) gr_unlock ();
+X#ifdef	SHADOWGRP
+X	(void) sgr_unlock ();
+X#endif
+X	exit (code);
+X}
+X
+X/*
+X * main - useradd command
+X */
+X
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X
+X	/*
+X	 * Get my name so that I can use it to report errors.
+X	 */
+X
+X	if (Prog = strrchr (argv[0], '/'))
+X		Prog++;
+X	else
+X		Prog = argv[0];
+X
+X#ifdef	USE_SYSLOG
+X	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+X#endif	/* USE_SYSLOG */
+X
+X	/*
+X	 * The open routines for the DBM files don't use read-write
+X	 * as the mode, so we have to clue them in.
+X	 */
+X
+X#ifdef	NDBM
+X	gr_dbm_mode = O_RDWR;
+X#ifdef	SHADOWGRP
+X	sg_dbm_mode = O_RDWR;
+X#endif	/* SHADOWGRP */
+X#endif	/* NDBM */
+X	process_flags (argc, argv);
+X
+X	/*
+X	 * Start with a quick check to see if the group exists.
+X	 */
+X
+X	if (getgrnam (group_name)) {
+X		fprintf (stderr, "%s: group %s exists\n", Prog, group_name);
+X		exit (9);
+X	}
+X
+X	/*
+X	 * Do the hard stuff - open the files, create the group entries,
+X	 * then close and update the files.
+X	 */
+X
+X	open_files ();
+X
+X	if (! gflg || ! oflg)
+X		find_new_gid ();
+X
+X	grp_update ();
+X
+X	close_files ();
+X	exit (0);
+X	/*NOTREACHED*/
+X}
+END_OF_FILE
+  if test 8793 -ne `wc -c <'groupadd.c'`; then
+    echo shar: \"'groupadd.c'\" unpacked with wrong size!
+  fi
+  # end of 'groupadd.c'
+fi
+if test -f 'mail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mail.c'\"
+else
+  echo shar: Extracting \"'mail.c'\" \(1058 characters\)
+  sed "s/^X//" >'mail.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X
+X#ifndef	BSD
+X#include <string.h>
+X#include <memory.h>
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X
+X#include "config.h"
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)mail.c	3.3	07:43:42	17 Sep 1991";
+X#endif
+X
+Xextern	char	*getenv();
+Xextern	int	getdef_bool();
+X
+Xvoid	mailcheck ()
+X{
+X	struct	stat	statbuf;
+X	char	*mailbox;
+X
+X	if (! getdef_bool("MAIL_CHECK_ENAB"))
+X		return;
+X	if (! (mailbox = getenv ("MAIL")))
+X		return;
+X
+X	if (stat (mailbox, &statbuf) == -1 || statbuf.st_size == 0)
+X		puts ("No mail.");
+X	else if (statbuf.st_atime > statbuf.st_mtime)
+X		puts ("You have mail.");
+X	else
+X		puts ("You have new mail.");
+X}
+END_OF_FILE
+  if test 1058 -ne `wc -c <'mail.c'`; then
+    echo shar: \"'mail.c'\" unpacked with wrong size!
+  fi
+  # end of 'mail.c'
+fi
+if test -f 'mkpasswd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mkpasswd.c'\"
+else
+  echo shar: Extracting \"'mkpasswd.c'\" \(8738 characters\)
+  sed "s/^X//" >'mkpasswd.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, 1992, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)mkpasswd.c	3.10	11:32:18	28 Jul 1992";
+Xstatic	char	copyright[] = "Copyright 1990, 1991, 1992, John F. Haugh II";
+X#endif
+X
+X#include "config.h"
+X#include <stdio.h>
+X
+X#if !defined(DBM) && !defined(NDBM) /*{*/
+X
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	fprintf(stderr, "%s: no DBM database on system - no action performed\n",
+X		argv[0]);
+X	exit(0);
+X}
+X
+X#else /*} defined(DBM) || defined(NDBM) {*/
+X
+X#include <fcntl.h>
+X#include "pwd.h"
+X#ifdef	BSD
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#else
+X#include <string.h>
+X#endif
+X
+X#ifdef	DBM
+X#include <dbm.h>
+X#endif
+X#ifdef	NDBM
+X#include <ndbm.h>
+X#include <grp.h>
+X#include "shadow.h"
+X
+XDBM	*pw_dbm;
+XDBM	*gr_dbm;
+XDBM	*sp_dbm;
+XDBM	*sg_dbm;
+Xchar	*fgetsx();
+X#endif
+X
+Xchar	*CANT_OPEN =	"%s: cannot open file %s\n";
+Xchar	*CANT_OVERWRITE = "%s: cannot overwrite file %s\n";
+X#ifdef	DBM
+Xchar	*CANT_CREATE =	"%s: cannot create %s\n";
+X#endif
+Xchar	*DBM_OPEN_ERR =	"%s: cannot open DBM files for %s\n";
+Xchar	*PARSE_ERR =	"%s: error parsing line\n\"%s\"\n";
+Xchar	*LINE_TOO_LONG = "%s: the beginning with \"%.16s ...\" is too long\n";
+Xchar	*ADD_REC =	"adding record for name \"%s\"\n";
+Xchar	*ADD_REC_ERR =	"%s: error adding record for \"%s\"\n";
+Xchar	*INFO =		"added %d entries, longest was %d\n";
+X#ifdef	NDBM
+Xchar	*USAGE =	"Usage: %s [ -vf ] [ -p|g|sp|sg ] file\n";
+X#else
+Xchar	*USAGE =	"Usage: %s [ -vf ] file\n";
+X#endif
+X
+Xchar	*Progname;
+Xint	vflg = 0;
+Xint	fflg = 0;
+X#ifdef	NDBM
+Xint	gflg = 0;
+Xint	sflg = 0;
+Xint	pflg = 0;
+X#endif
+X
+Xvoid	usage();
+X
+Xextern	char	*malloc();
+Xextern	struct	passwd	*sgetpwent();
+Xextern	int	pw_dbm_update();
+X#ifdef	NDBM
+Xextern	struct	group	*sgetgrent();
+Xextern	struct	spwd	*sgetspent();
+Xextern	struct	sgrp	*sgetsgent();
+Xextern	int	sp_dbm_update();
+Xextern	int	gr_dbm_update();
+Xextern	int	sg_dbm_update();
+X#endif
+X
+X/*
+X * mkpasswd - create DBM files for /etc/passwd-like input file
+X *
+X * mkpasswd takes an an argument the name of a file in /etc/passwd format
+X * and creates a DBM file keyed by user ID and name.  The output files have
+X * the same name as the input file, with .dir and .pag appended.
+X *
+X * if NDBM is defined this command will also create look-aside files for
+X * /etc/group, /etc/shadow, and /etc/gshadow.
+X */
+X
+Xint
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	extern	int	optind;
+X	extern	char	*optarg;
+X	FILE	*fp;			/* File pointer for input file        */
+X	char	*file;			/* Name of input file                 */
+X	char	*dir;			/* Name of .dir file                  */
+X	char	*pag;			/* Name of .pag file                  */
+X	char	*cp;			/* Temporary character pointer        */
+X	int	flag;			/* Flag for command line option       */
+X#ifdef	DBM
+X	int	fd;			/* File descriptor of open DBM file   */
+X#endif
+X	int	cnt = 0;		/* Number of entries in database      */
+X	int	longest = 0;		/* Longest entry in database          */
+X	int	len;			/* Length of input line               */
+X	int	errors = 0;		/* Count of errors processing file    */
+X	char	buf[BUFSIZ*8];		/* Input line from file               */
+X	struct	passwd	*passwd;	/* Pointer to password file entry     */
+X#ifdef	NDBM
+X	struct	group	*group;		/* Pointer to group file entry        */
+X	struct	spwd	*shadow;	/* Pointer to shadow passwd entry     */
+X	struct	sgrp	*gshadow;	/* Pointer to shadow group entry      */
+X	DBM	*dbm;			/* Pointer to new NDBM files          */
+X	DBM	*dbm_open();		/* Function to open NDBM files        */
+X#endif
+X
+X	/*
+X	 * Figure out what my name is.  I will use this later ...
+X	 */
+X
+X	if (Progname = strrchr (argv[0], '/'))
+X		Progname++;
+X	else
+X		Progname = argv[0];
+X
+X	/*
+X	 * Figure out what the flags might be ...
+X	 */
+X
+X#ifdef	NDBM
+X	while ((flag = getopt (argc, argv, "fvpgs")) != EOF)
+X#else
+X	while ((flag = getopt (argc, argv, "fv")) != EOF)
+X#endif
+X	{
+X		switch (flag) {
+X			case 'v':
+X				vflg++;
+X				break;
+X			case 'f':
+X				fflg++;
+X				break;
+X#ifdef	NDBM
+X			case 'g':
+X				gflg++;
+X				if (pflg)
+X					usage ();
+X
+X				break;
+X			case 's':
+X				sflg++;
+X				break;
+X			case 'p':
+X				pflg++;
+X				if (gflg)
+X					usage ();
+X
+X				break;
+X#endif
+X			default:
+X				usage ();
+X		}
+X	}
+X
+X#ifdef NDBM
+X	/*
+X	 * Backwards compatibility fix for -p flag ...
+X	 */
+X
+X	if (! sflg && ! gflg)
+X		pflg++;
+X#endif
+X
+X	/*
+X	 * The last and only remaining argument must be the file name
+X	 */
+X
+X	if (argc - 1 != optind)
+X		usage ();
+X
+X	file = argv[optind];
+X
+X	if (! (fp = fopen (file, "r"))) {
+X		fprintf (stderr, CANT_OPEN, Progname, file);
+X		exit (1);
+X	}
+X
+X	/*
+X	 * Make the filenames for the two DBM files.
+X	 */
+X
+X	dir = malloc (strlen (file) + 5);	/* space for .dir file */
+X	strcat (strcpy (dir, file), ".dir");
+X
+X	pag = malloc (strlen (file) + 5);	/* space for .pag file */
+X	strcat (strcpy (pag, file), ".pag");
+X
+X	/*
+X	 * Remove existing files if requested.
+X	 */
+X
+X	if (fflg) {
+X		(void) unlink (dir);
+X		(void) unlink (pag);
+X	}
+X
+X	/*
+X	 * Create the two DBM files - it is an error for these files
+X	 * to have existed already.
+X	 */
+X
+X	if (access (dir, 0) == 0) {
+X		fprintf (stderr, CANT_OVERWRITE, Progname, dir);
+X		exit (1);
+X	}
+X	if (access (pag, 0) == 0) {
+X		fprintf (stderr, CANT_OVERWRITE, Progname, pag);
+X		exit (1);
+X	}
+X
+X#ifdef	NDBM
+X	if (sflg)
+X		umask (077);
+X	else
+X#endif
+X	umask (0);
+X#ifdef	DBM
+X	if ((fd = open (dir, O_RDWR|O_CREAT|O_EXCL, 0644)) == -1) {
+X		fprintf (stderr, CANT_CREATE, Progname, dir);
+X		exit (1);
+X	} else
+X		close (fd);
+X
+X	if ((fd = open (pag, O_RDWR|O_CREAT|O_EXCL, 0644)) == -1) {
+X		fprintf (stderr, CANT_CREATE, Progname, pag);
+X		unlink (dir);
+X		exit (1);
+X	} else
+X		close (fd);
+X#endif
+X
+X	/*
+X	 * Now the DBM database gets initialized
+X	 */
+X
+X#ifdef	DBM
+X	if (dbminit (file) == -1) {
+X		fprintf (stderr, DBM_OPEN_ERR, Progname, file);
+X		exit (1);
+X	}
+X#endif
+X#ifdef	NDBM
+X	if (! (dbm = dbm_open (file, O_RDWR|O_CREAT, 0644))) {
+X		fprintf (stderr, DBM_OPEN_ERR, Progname, file);
+X		exit (1);
+X	}
+X	if (gflg) {
+X		if (sflg)
+X			sg_dbm = dbm;
+X		else
+X			gr_dbm = dbm;
+X	} else {
+X		if (sflg)
+X			sp_dbm = dbm;
+X		else
+X			pw_dbm = dbm;
+X	}
+X#endif
+X
+X	/*
+X	 * Read every line in the password file and convert it into a
+X	 * data structure to be put in the DBM database files.
+X	 */
+X
+X#ifdef	NDBM
+X	while (fgetsx (buf, BUFSIZ, fp) != NULL)
+X#else
+X	while (fgets (buf, BUFSIZ, fp) != NULL)
+X#endif
+X	{
+X
+X		/*
+X		 * Get the next line and strip off the trailing newline
+X		 * character.
+X		 */
+X
+X		buf[sizeof buf - 1] = '\0';
+X		if (! (cp = strchr (buf, '\n'))) {
+X			fprintf (stderr, LINE_TOO_LONG, Progname, buf);
+X			exit (1);
+X		}
+X		*cp = '\0';
+X		len = strlen (buf);
+X
+X		/*
+X		 * Parse the password file line into a (struct passwd).
+X		 * Erroneous lines cause error messages, but that's
+X		 * all.  YP lines are ignored completely.
+X		 */
+X
+X		if (buf[0] == '-' || buf[0] == '+')
+X			continue;
+X
+X#ifdef	DBM
+X		if (! (passwd = sgetpwent (buf)))
+X#endif
+X#ifdef	NDBM
+X		if (! (((! sflg && pflg) && (passwd = sgetpwent (buf)))
+X			|| ((sflg && pflg) && (shadow = sgetspent (buf)))
+X			|| ((! sflg && gflg) && (group = sgetgrent (buf)))
+X			|| ((sflg && gflg) && (gshadow = sgetsgent (buf)))))
+X#endif
+X		{
+X			fprintf (stderr, PARSE_ERR, Progname, buf);
+X			errors++;
+X			continue;
+X		}
+X#ifdef	DBM
+X		if (vflg)
+X			printf (ADD_REC, passwd->pw_name);
+X
+X		if (! pw_dbm_update (passwd))
+X			fprintf (stderr, ADD_REC_ERR,
+X				Progname, passwd->pw_name);
+X#endif
+X#ifdef	NDBM
+X		if (vflg) {
+X			if (!sflg && pflg) printf (ADD_REC, passwd->pw_name);
+X			if (sflg && pflg) printf (ADD_REC, shadow->sp_namp);
+X			if (!sflg && gflg) printf (ADD_REC, group->gr_name);
+X			if (sflg && gflg) printf (ADD_REC, gshadow->sg_name);
+X		}
+X		if (! sflg && pflg && ! pw_dbm_update (passwd))
+X			fprintf (stderr, ADD_REC_ERR,
+X				Progname, passwd->pw_name);
+X
+X		if (sflg && pflg && ! sp_dbm_update (shadow))
+X			fprintf (stderr, ADD_REC_ERR,
+X				Progname, shadow->sp_namp);
+X
+X		if (! sflg && gflg && ! gr_dbm_update (group))
+X			fprintf (stderr, ADD_REC_ERR,
+X				Progname, group->gr_name);
+X
+X		if (sflg && gflg && ! sg_dbm_update (gshadow))
+X			fprintf (stderr, ADD_REC_ERR,
+X				Progname, gshadow->sg_name);
+X#endif
+X
+X		/*
+X		 * Update the longest record and record count
+X		 */
+X
+X		if (len > longest)
+X			longest = len;
+X		cnt++;
+X	}
+X
+X	/*
+X	 * Tell the user how things went ...
+X	 */
+X
+X	if (vflg)
+X		printf (INFO, cnt, longest);
+X
+X	exit (errors);
+X	/*NOTREACHED*/
+X}
+X
+X/*
+X * usage - print error message and exit
+X */
+X
+Xvoid
+Xusage ()
+X{
+X	fprintf (stderr, USAGE, Progname);
+X	exit (1);
+X	/*NOTREACHED*/
+X}
+X#endif /*} defined(DBM) || defined(NDBM) */
+END_OF_FILE
+  if test 8738 -ne `wc -c <'mkpasswd.c'`; then
+    echo shar: \"'mkpasswd.c'\" unpacked with wrong size!
+  fi
+  # end of 'mkpasswd.c'
+fi
+if test -f 'passwd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'passwd.1'\"
+else
+  echo shar: Extracting \"'passwd.1'\" \(6659 characters\)
+  sed "s/^X//" >'passwd.1' <<'END_OF_FILE'
+X.\" Copyright 1989, 1990, 1991, 1993, John F. Haugh II
+X.\" All rights reserved.
+X.\"
+X.\" Permission is granted to copy and create derivative works for any
+X.\" non-commercial purpose, provided this copyright notice is preserved
+X.\" in all copies of source code, or included in human readable form
+X.\" and conspicuously displayed on all copies of object code or
+X.\" distribution media.
+X.\"
+X.\" This software is provided on an AS-IS basis and the author makes
+X.\" no warrantee of any kind.
+X.\"
+X.\"	@(#)passwd.1	3.3	09:33:47	30 Apr 1993
+X.\"
+X.TH PASSWD 1
+X.SH NAME
+Xpasswd \- change user password
+X.SH SYNOPSIS
+X\fBpasswd\fR [ \fB-f \fR|\fB -s \fR ] [ \fIname\fR ]
+X.br
+X\fBpasswd\fR [ \fB-g\fR ] [ \fB-r\fR|\fBR\fR ] \fIgroup\fR
+X.br
+X\fBpasswd\fR [ \fB-x\fR \fImax\fR ] [ \fB-n\fR \fImin\fR ]
+X[ \fB-w\fR \fIwarn\fR ] [ \fB-i\fR \fIinact\fR ] \fIname\fR
+X.br
+X\fBpasswd\fR { \fB-l\fR | \fB-u\fR | \fB-d\fR | \fB-S\fR } \fIname\fR
+X.SH DESCRIPTION
+X\fIpasswd\fR changes passwords for user and group accounts.
+XA normal user may only change the password for their own account,
+Xthe super user may change the password for any account.
+XThe administrator of a group may change the password for the group.
+X\fIpasswd\fR also changes account information, such as the full name
+Xof the user, their login shell, or password expiry dates and intervals.
+X.SS Password Changes
+XThe user is first prompted for their old password,
+Xif one is present.
+XThis password is then encrypted and compared against the
+Xstored password.
+XThe user has only one chance to enter the correct password.
+XThe super user is permitted to bypass this step so that forgotten
+Xpasswords may be changed.
+X.PP
+XAfter the password has been entered, password aging information
+Xis checked to see if the user is permitted to change their password
+Xat this time.
+XIf not, \fIpasswd\fR refuses to change the password and exits.
+X.PP
+XThe user is then prompted for a replacement password.
+XThis password is tested for complexity.
+XAs a general guideline,
+Xpasswords should consist of 6 to 8 characters including
+Xone or more from each of following sets:
+X.IP "" .5i
+XLower case alphabetics
+X.IP "" .5i
+XUpper case alphabetics
+X.IP "" .5i
+XDigits 0 thru 9
+X.IP "" .5i
+XPunctuation marks
+X.PP
+XCare must be taken not to include the system default erase
+Xor kill characters.
+X\fIpasswd\fR will reject any password which is not suitably
+Xcomplex.
+X.PP
+XIf the password is accepted,
+X\fIpasswd\fR will prompt again and compare the second entry
+Xagainst the first.
+XBoth entries are require to match in order for the password
+Xto be changed.
+X.SS Group passwords
+XWhen the \fB-g\f option is used, the password for the named
+Xgroup is changed.
+XThe user must either be the super user, or a group administrator
+Xfor the named group.
+XThe current group password is not prompted for.
+XThe \fB-r\f option is used with the \fB-g\f option to remove
+Xthe current password from the named group.
+XThis allows group access to all members.
+XThe \fB-R\f option is used with the \fB-g\f option to restrict
+Xthe named group for all users.
+X.SS Password expiry information
+XThe password aging information may be changed by the super
+Xuser with the \fB-x\fR, \fB-n\fR, \fB-w\fR, and \fB-i\fR options.
+XThe \fB-x\fR option is used to set the maximum number of days
+Xa password remains valid.
+XAfter \fImax\fR days, the password is required to be changed.
+XThe \fB-n\fR option is used to set the minimum number of days
+Xbefore a password may be changed.
+XThe user will not be permitted to change the password until
+X\fImin\fR days have elapsed.
+XThe \fB-w\fR option is used to set the number of days of warning
+Xthe user will receive before their password will expire.
+XThe warning occurs \fIwarn\fR days before the expiration, telling
+Xthe user how many days until the password is set to expire.
+XThe \fB-i\fR option is used to disable an account after the
+Xpassword has been expired for a number of days.
+XAfter a user account has had an expired password for \fIinact\fR
+Xdays, the user may no longer sign on to the account.
+X.SS Account maintenance
+XUser accounts may be locked and unlocked with the \fB-l\fR and
+X\fB-u\fR flags.
+XThe \fB-l\fR option disables an account by changing the password to a
+Xvalue which matches no possible encrypted value.
+XThe \fB-u\fR option re-enables an account by changing the password
+Xback to its previous value.
+X.PP
+XThe account status may be given with the \fB-S\fR option.
+XThe status information consists of 6 parts.
+XThe first part indicates if the user account is locked (L), has no
+Xpassword (NP), or has a usable password (P).
+XThe second part gives the date of the last password change.
+XThe next four parts are the minimum age, maximum age, warning period,
+Xand inactivity period for the password.
+X.SS Hints for user passwords
+XThe security of a password depends upon the strength of the
+Xencryption algorithm and the size of the key space.
+XThe \fB\s-2UNIX\s+2\fR System encryption method is based on
+Xthe NBS DES algorithm and is very secure.
+XThe size of the key space depends upon the randomness of the
+Xpassword which is selected.
+X.PP
+XCompromises in password security normally result from careless
+Xpassword selection or handling.
+XFor this reason, you should select a password which does not
+Xappear in a dictionary or which must be written down.
+XThe password should also not be a proper name, your license
+Xnumber, birth date, or street address.
+XAny of these may be used as guesses to violate system security.
+X.PP
+XYour password must easily remembered so that you will not
+Xbe forced to write it on a piece of paper.
+XThis can be accomplished by appending two small words together
+Xand separating each with a special character or digit.
+XFor example, Pass%word.
+X.PP
+XOther methods of construction involve selecting an easily
+Xremembered phrase from literature and selecting the first
+Xor last letter from each.
+XAn example of this is
+X.IP "" .5i
+XAsk not for whom the bell tolls.
+X.PP
+Xwhich produces
+X.IP "" .5i
+XAn4wtbt.
+X.PP
+XYou may be reasonably sure few crackers will have
+Xincluded this in their dictionary.
+XYou should, however, select your own methods for constructing
+Xpasswords and not rely exclusively on the methods given here.
+X.SS Notes about group passwords
+XGroup passwords are an inherent security problem since more
+Xthan one person is permitted to know the password.
+XHowever, groups are a useful tool for permitting co-operation
+Xbetween different users.
+X.SH CAVEATS
+XNot all options may be supported.
+XPassword complexity checking may vary from site to site.
+XThe user is urged to select as complex a password as they
+Xfeel comfortable with.
+X.SH Files
+X/etc/passwd \- user account information
+X.br
+X/etc/shadow \- encrypted user passwords
+X.SH See Also
+Xpasswd(3),
+Xshadow(3),
+Xgroup(4),
+Xpasswd(4)
+END_OF_FILE
+  if test 6659 -ne `wc -c <'passwd.1'`; then
+    echo shar: \"'passwd.1'\" unpacked with wrong size!
+  fi
+  # end of 'passwd.1'
+fi
+if test -f 'setup.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'setup.c'\"
+else
+  echo shar: Extracting \"'setup.c'\" \(6605 characters\)
+  sed "s/^X//" >'setup.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include <sys/types.h>
+X#include <utmp.h>
+X
+X#include <stdio.h>
+X#include <grp.h>
+X
+X#ifdef	BSD
+X#include <strings.h>
+X#define	strchr	index
+X#else
+X#include <string.h>
+X#include <memory.h>
+X#endif
+X
+X#include "config.h"
+X#include "pwd.h"
+X
+X#ifdef	USE_SYSLOG
+X#include <syslog.h>
+X
+X#ifndef	LOG_WARN
+X#define	LOG_WARN	LOG_WARNING
+X#endif
+X#endif
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)setup.c	3.15	08:07:13	19 Jul 1993";
+X#endif
+X
+X#ifndef	SU
+Xextern	struct	utmp	utent;
+X#endif	/* !SU */
+X
+Xlong	strtol ();
+X#ifdef	HAVE_ULIMIT
+Xlong	ulimit ();
+X#endif
+X
+Xvoid	addenv ();
+Xextern	char	*getdef_str();
+Xextern	int	getdef_bool();
+Xextern	int	getdef_num();
+X
+X/*
+X * setup - initialize login environment
+X *
+X *	setup() performs the following steps -
+X *
+X *	set the login tty to be owned by the new user ID with TTYPERM modes
+X *	change to the user's home directory
+X *	set the process nice, ulimit, and umask from the password file entry
+X *	set the group ID to the value from the password file entry
+X *	set the supplementary group IDs
+X *	set the user ID to the value from the password file entry
+X *	set the HOME, SHELL, MAIL, PATH, and LOGNAME or USER environmental
+X *	variables.
+X */
+X
+Xvoid	setup (info)
+Xstruct	passwd	*info;
+X{
+X	extern	int	errno;
+X	char	buf[BUFSIZ];
+X#ifndef	SU
+X	char	tty[sizeof utent.ut_line + 8];
+X#endif
+X	char	*cp;
+X	char	*group;		/* TTY group name or number */
+X	char	*maildir;	/* the directory in which the mailbox resides */
+X	char	*mailfile;	/* the name of the mailbox */
+X	struct	group	*grent;
+X	int	i;
+X	long	l;
+X
+X#ifndef	SU
+X
+X	/*
+X	 * Determine the name of the TTY device which the user is logging
+X	 * into.  This device will (optionally) have the group set to a
+X	 * pre-defined value.
+X	 */
+X
+X	if (utent.ut_line[0] != '/')
+X		(void) strcat (strcpy (tty, "/dev/"), utent.ut_line);
+X	else
+X		(void) strcpy (tty, utent.ut_line);
+X
+X	/*
+X	 * See if login.defs has some value configured for the port group
+X	 * ID.  Otherwise, use the user's primary group ID.
+X	 */
+X
+X	if (! (group = getdef_str ("TTYGROUP")))
+X		i = info->pw_gid;
+X	else if (group[0] >= '0' && group[0] <= '9')
+X		i = atoi (group);
+X	else if (grent = getgrnam (group))
+X		i = grent->gr_gid;
+X	else
+X		i = info->pw_gid;
+X
+X	/*
+X	 * Change the permissions on the TTY to be owned by the user with
+X	 * the group as determined above.
+X	 */
+X
+X	if (chown (tty, info->pw_uid, i) ||
+X			chmod (tty, getdef_num("TTYPERM", 0622))) {
+X		(void) sprintf (buf, "Unable to change tty %s", tty);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, "unable to change tty `%s' for user `%s'\n",
+X			tty, info->pw_name);
+X		closelog ();
+X#endif
+X		perror (buf);
+X		exit (errno);
+X	}
+X#endif
+X
+X	/*
+X	 * Change the current working directory to be the home directory
+X	 * of the user.  It is a fatal error for this process to be unable
+X	 * to change to that directory.  There is no "default" home
+X	 * directory.
+X	 */
+X
+X	if (chdir (info->pw_dir) == -1) {
+X		(void) sprintf (buf, "Unable to cd to \"%s\"", info->pw_dir);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, "unable to cd to `%s' for user `%s'\n",
+X			info->pw_dir, info->pw_name);
+X		closelog ();
+X#endif
+X		perror (buf);
+X		exit (errno);
+X	}
+X
+X	/*
+X	 * See if the GECOS field contains values for NICE, UMASK or ULIMIT.
+X	 * If this feature is enabled in /etc/login.defs, we makes those
+X	 * values the defaults for this login session.
+X	 */
+X
+X	if ( getdef_bool("QUOTAS_ENAB") ) {
+X		for (cp = info->pw_gecos ; cp != NULL ; cp = strchr (cp, ',')) {
+X			if (*cp == ',')
+X				cp++;
+X
+X			if (strncmp (cp, "pri=", 4) == 0) {
+X				i = atoi (cp + 4);
+X				if (i >= -20 && i <= 20)
+X					(void) nice (i);
+X
+X				continue;
+X			}
+X#ifdef	HAVE_ULIMIT
+X			if (strncmp (cp, "ulimit=", 7) == 0) {
+X				l = strtol (cp + 7, (char **) 0, 10);
+X				(void) ulimit (2, l);
+X
+X				continue;
+X			}
+X#endif
+X			if (strncmp (cp, "umask=", 6) == 0) {
+X				i = strtol (cp + 6, (char **) 0, 8) & 0777;
+X				(void) umask (i);
+X
+X				continue;
+X			}
+X		}
+X	}
+X
+X	/*
+X	 * Set the real group ID to the primary group ID in the password
+X	 * file.
+X	 */
+X
+X	if (setgid (info->pw_gid) == -1) {
+X		puts ("Bad group id");
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, "bad group ID `%d' for user `%s'\n",
+X			info->pw_gid, info->pw_name);
+X		closelog ();
+X#endif
+X		exit (errno);
+X	}
+X#if NGROUPS > 1
+X
+X	/*
+X	 * For systems which support multiple concurrent groups, go get
+X	 * the group set from the /etc/group file.
+X	 */
+X
+X	if (initgroups (info->pw_name, info->pw_gid) == -1) {
+X		puts ("initgroups failure");
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, "initgroups failed for user `%s'\n",
+X			info->pw_name);
+X		closelog ();
+X#endif
+X		exit (errno);
+X	}
+X#endif /* NGROUPS > 1 */
+X
+X	/*
+X	 * Set the real UID to the UID value in the password file.
+X	 */
+X
+X#ifndef	BSD
+X	if (setuid (info->pw_uid))
+X#else
+X	if (setreuid (info->pw_uid, info->pw_uid))
+X#endif
+X	{
+X		puts ("Bad user id");
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, "bad user ID `%d' for user `%s'\n",
+X			info->pw_uid, info->pw_name);
+X		closelog ();
+X#endif
+X		exit (errno);
+X	}
+X
+X	/*
+X	 * Create the HOME environmental variable and export it.
+X	 */
+X
+X	(void) strcat (strcpy (buf, "HOME="), info->pw_dir);
+X	addenv (buf);
+X
+X	/*
+X	 * Create the SHELL environmental variable and export it.
+X	 */
+X
+X	if (info->pw_shell == (char *) 0 || ! *info->pw_shell)
+X		info->pw_shell = "/bin/sh";
+X
+X	(void) strcat (strcpy (buf, "SHELL="), info->pw_shell);
+X	addenv (buf);
+X
+X	/*
+X	 * Create the PATH environmental variable and export it.
+X	 */
+X
+X	cp = getdef_str( info->pw_uid == 0 ? "ENV_SUPATH" : "ENV_PATH" );
+X	addenv( cp != NULL ? cp : "PATH=/bin:/usr/bin" );
+X
+X	/*
+X	 * Export the user name.  For BSD derived systems, it's "USER", for
+X	 * all others it's "LOGNAME".  We set both of them.
+X	 */
+X
+X	(void) strcat (strcpy (buf, "USER="), info->pw_name);
+X	addenv (buf);
+X
+X	(void) strcat (strcpy (buf, "LOGNAME="), info->pw_name);
+X	addenv (buf);
+X
+X	/*
+X	 * Create the MAIL environmental variable and export it.  login.defs
+X	 * knows the prefix.
+X	 */
+X
+X	if ( (cp=getdef_str("MAIL_DIR")) != NULL ) {
+X		maildir = cp;
+X		mailfile = info->pw_name;
+X	} else if ( (cp=getdef_str("MAIL_FILE")) != NULL) {
+X		maildir = info->pw_dir;
+X		mailfile = cp;
+X	} else {
+X		maildir = "/usr/spool/mail";
+X		mailfile = info->pw_name;
+X	}
+X		
+X	(void) strcat (strcat (strcat (strcpy (buf,
+X		"MAIL="), maildir), "/"), mailfile);
+X	addenv (buf);
+X}
+END_OF_FILE
+  if test 6605 -ne `wc -c <'setup.c'`; then
+    echo shar: \"'setup.c'\" unpacked with wrong size!
+  fi
+  # end of 'setup.c'
+fi
+if test -f 'utmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'utmp.c'\"
+else
+  echo shar: Extracting \"'utmp.c'\" \(9115 characters\)
+  sed "s/^X//" >'utmp.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#ifdef	SVR4
+X#include <stdlib.h>
+X#include <utmp.h>
+X#include <utmpx.h>
+X#include <sys/time.h>
+X#else
+X#include <sys/types.h>
+X#include <utmp.h>
+X#endif	/* SVR4 */
+X
+X#include <fcntl.h>
+X#ifndef	BSD
+X#include <string.h>
+X#include <memory.h>
+X#define	bzero(a,n)	memset(a, 0, n)
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X#include <stdio.h>
+X#ifdef	STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef	UNISTD_H
+X#include <unistd.h>
+X#endif
+X#include "config.h"
+X
+X#ifndef	UTMP_FILE
+X#define	UTMP_FILE	"/etc/utmp"
+X#endif
+X
+X#if defined(SUN) || defined(BSD) || defined(SUN4)
+X#ifndef	WTMP_FILE
+X#define WTMP_FILE "/usr/adm/wtmp"
+X#endif
+X#endif	/* SUN || BSD */
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)utmp.c	3.17	08:15:06	07 May 1993";
+X#endif
+X
+X#ifdef	SVR4
+Xextern	struct	utmpx	utxent;
+Xextern	char	host;
+X#endif
+Xextern	struct	utmp	utent;
+X
+Xextern	struct	utmp	*getutent();
+Xextern	struct	utmp	*getutline();
+Xextern	void	setutent();
+Xextern	void	endutent();
+Xextern	time_t	time();
+Xextern	char	*ttyname();
+Xextern	long	lseek();
+X
+X#define	NO_UTENT \
+X	"No utmp entry.  You must exec \"login\" from the lowest level \"sh\""
+X#define	NO_TTY \
+X	"Unable to determine your tty name."
+X
+X/*
+X * checkutmp - see if utmp file is correct for this process
+X *
+X *	System V is very picky about the contents of the utmp file
+X *	and requires that a slot for the current process exist.
+X *	The utmp file is scanned for an entry with the same process
+X *	ID.  If no entry exists the process exits with a message.
+X *
+X *	The "picky" flag is for network and other logins that may
+X *	use special flags.  It allows the pid checks to be overridden.
+X *	This means that getty should never invoke login with any
+X *	command line flags.
+X */
+X
+Xvoid
+Xcheckutmp (picky)
+Xint	picky;
+X{
+X	char	*line;
+X#ifdef	USG
+X#ifdef	SVR4
+X	struct	utmpx	*utx, utmpx, *getutxline();
+X#endif	/* SVR4 */
+X	struct	utmp	*ut, utmp, *getutline();
+X#ifndef	NDEBUG
+X	int	pid = getppid ();
+X#else
+X	int	pid = getpid ();
+X#endif	/* !NDEBUG */
+X#endif	/* USG */
+X
+X#if !defined(SUN) && !defined(SUN4)
+X#ifdef	SVR4
+X	setutxent ();
+X#endif
+X	setutent ();
+X#endif	/* !SUN */
+X
+X#ifdef	USG
+X	if (picky) {
+X#ifdef	SVR4
+X		while (utx = getutxent ())
+X			if (utx->ut_pid == pid)
+X				break;
+X
+X		if (utx)
+X			utxent = *utx;
+X#endif
+X		while (ut = getutent ())
+X			if (ut->ut_pid == pid)
+X				break;
+X
+X		if (ut)
+X			utent = *ut;
+X
+X#ifdef	SVR4
+X		endutxent ();
+X#endif
+X		endutent ();
+X
+X		if (! ut) {
+X 			(void) puts (NO_UTENT);
+X			exit (1);
+X		}
+X#ifndef	UNIXPC
+X
+X		/*
+X		 * If there is no ut_line value in this record, fill
+X		 * it in by getting the TTY name and stuffing it in
+X		 * the structure.  The UNIX/PC is broken in this regard
+X		 * and needs help ...
+X		 */
+X
+X		if (utent.ut_line[0] == '\0')
+X#endif	/* !UNIXPC */
+X		{
+X			if (! (line = ttyname (0))) {
+X				(void) puts (NO_TTY);
+X				exit (1);
+X			}
+X			if (strncmp (line, "/dev/", 5) == 0)
+X				line += 5;
+X			(void) strncpy (utent.ut_line, line,
+X					(int) sizeof utent.ut_line);
+X#ifdef	SVR4
+X			(void) strncpy (utxent.ut_line, line,
+X					(int) sizeof utxent.ut_line);
+X#endif
+X		}
+X	} else {
+X		if (! (line = ttyname (0))) {
+X			puts (NO_TTY);
+X			exit (1);
+X		}
+X		if (strncmp (line, "/dev/", 5) == 0)
+X			line += 5;
+X
+X 		(void) strncpy (utent.ut_line, line,
+X  						(int) sizeof utent.ut_line);
+X		if (ut = getutline (&utent))
+X 			(void) strncpy (utent.ut_id, ut->ut_id,
+X 					(int) sizeof ut->ut_id);
+X
+X		(void) strcpy (utent.ut_user, "LOGIN");
+X		utent.ut_pid = getpid ();
+X		utent.ut_type = LOGIN_PROCESS;
+X		(void) time (&utent.ut_time);
+X#ifdef	SVR4
+X		if (utx = getutxline (&utent))
+X			(void) strncpy (utxent.ut_id, utent.ut_id,
+X					(int) sizeof utxent.ut_id);
+X
+X		(void) strncpy (utxent.ut_user, utent.ut_user,
+X			sizeof utent.ut_user);
+X		utxent.ut_pid = utent.ut_pid;
+X		utxent.ut_type = utent.ut_type;
+X		(void) gettimeofday ((struct timeval *) &utxent.ut_tv, 0);
+X		utent.ut_time = utxent.ut_tv.tv_sec;
+X#endif
+X	}
+X#else	/* !USG */
+X
+X	/*
+X	 * Hand-craft a new utmp entry.
+X	 */
+X
+X	bzero (&utent, sizeof utent);
+X	if (! (line = ttyname (0))) {
+X		puts (NO_TTY);
+X		exit (1);
+X	}
+X	if (strncmp (line, "/dev/", 5) == 0)
+X		line += 5;
+X
+X	(void) strncpy (utent.ut_line, line, sizeof utent.ut_line);
+X	(void) time (&utent.ut_time);
+X#endif	/* !USG */
+X}
+X
+X/*
+X * setutmp - put a USER_PROCESS entry in the utmp file
+X *
+X *	setutmp changes the type of the current utmp entry to
+X *	USER_PROCESS.  the wtmp file will be updated as well.
+X */
+X
+Xvoid
+Xsetutmp (name, line)
+Xchar	*name;
+Xchar	*line;
+X{
+X#ifdef SVR4
+X	struct	utmp	*utmp, utline;
+X	struct	utmpx	*utmpx, utxline;
+X	pid_t	pid = getpid ();
+X	FILE	*utmpx_fp;
+X	int	found_utmpx = 0, found_utmp;
+X	int	fd;
+X
+X	/*
+X	 * The canonical device name doesn't include "/dev/"; skip it
+X	 * if it is already there.
+X	 */
+X
+X	if (strncmp (line, "/dev/", 5) == 0)
+X		line += 5;
+X
+X	/*
+X	 * Update utmpx.  We create an empty entry in case there is
+X	 * no matching entry in the utmpx file.
+X	 */
+X
+X	setutxent ();
+X	setutent ();
+X
+X	while (utmpx = getutxent ()) {
+X		if (utmpx->ut_pid == pid) {
+X			found_utmpx = 1;
+X			break;
+X		}
+X	}
+X	while (utmp = getutent ()) {
+X		if (utmp->ut_pid == pid) {
+X			found_utmp = 1;
+X			break;
+X		}
+X	}
+X
+X	/*
+X	 * If the entry matching `pid' cannot be found, create a new
+X	 * entry with the device name in it.
+X	 */
+X
+X	if (! found_utmpx) {
+X		memset ((void *) &utxline, 0, sizeof utxline);
+X		strncpy (utxline.ut_line, line, sizeof utxline.ut_line);
+X		utxline.ut_pid = getpid ();
+X	} else {
+X		utxline = *utmpx;
+X		if (strncmp (utxline.ut_line, "/dev/", 5) == 0) {
+X			memmove (utxline.ut_line, utxline.ut_line + 5,
+X				sizeof utxline.ut_line - 5);
+X			utxline.ut_line[sizeof utxline.ut_line - 5] = '\0';
+X		}
+X	}
+X	if (! found_utmp) {
+X		memset ((void *) &utline, 0, sizeof utline);
+X		strncpy (utline.ut_line, utxline.ut_line,
+X			sizeof utline.ut_line);
+X		utline.ut_pid = utxline.ut_pid;
+X	} else {
+X		utline = *utmp;
+X		if (strncmp (utline.ut_line, "/dev/", 5) == 0) {
+X			memmove (utline.ut_line, utline.ut_line + 5,
+X				sizeof utline.ut_line - 5);
+X			utline.ut_line[sizeof utline.ut_line - 5] = '\0';
+X		}
+X	}
+X
+X	/*
+X	 * Fill in the fields in the utmpx entry and write it out.  Do
+X	 * the utmp entry at the same time to make sure things don't
+X	 * get messed up.
+X	 */
+X
+X	strncpy (utxline.ut_user, name, sizeof utxline.ut_user);
+X	strncpy (utline.ut_user, name, sizeof utline.ut_user);
+X
+X	utline.ut_type = utxline.ut_type = USER_PROCESS;
+X
+X	gettimeofday (&utxline.ut_tv);
+X	utline.ut_time = utxline.ut_tv.tv_sec;
+X
+X	strncpy (utxline.ut_host, host, sizeof utxline.ut_host);
+X
+X	pututxline (&utxline);
+X	pututline (&utline);
+X
+X	if ((fd = open (WTMP_FILE "x", O_WRONLY|O_APPEND)) != -1) {
+X		write (fd, (void *) &utxline, sizeof utxline);
+X		close (fd);
+X	}
+X	if ((fd = open (WTMP_FILE, O_WRONLY|O_APPEND)) != -1) {
+X		write (fd, (void *) &utline, sizeof utline);
+X		close (fd);
+X	}
+X
+X	utxent = utxline;
+X	utent = utline;
+X	
+X#else /* !SVR4 */
+X	struct	utmp	utmp;
+X	int	fd;
+X	int	found = 0;
+X
+X	if (! (fd = open (UTMP_FILE, O_RDWR)))
+X		return;
+X
+X#if !defined(SUN) && !defined(BSD) && !defined(SUN4)
+X 	while (! found && read (fd, &utmp, sizeof utmp) == sizeof utmp) {
+X 		if (! strncmp (line, utmp.ut_line, (int) sizeof utmp.ut_line))
+X			found++;
+X	}
+X#endif
+X	if (! found) {
+X
+X		/*
+X		 * This is a brand-new entry.  Clear it out and fill it in
+X		 * later.
+X		 */
+X
+X  		(void) bzero (&utmp, sizeof utmp);
+X 		(void) strncpy (utmp.ut_line, line, (int) sizeof utmp.ut_line);
+X	}
+X
+X	/*
+X	 * Fill in the parts of the UTMP entry.  BSD has just the name,
+X	 * while System V has the name, PID and a type.
+X	 */
+X
+X#if defined(SUN) || defined(BSD) || defined(SUN4)
+X	(void) strncpy (utmp.ut_name, name, (int) sizeof utent.ut_name);
+X#else	/* SUN */
+X 	(void) strncpy (utmp.ut_user, name, (int) sizeof utent.ut_user);
+X	utmp.ut_type = USER_PROCESS;
+X	utmp.ut_pid = getpid ();
+X#endif	/* SUN || BSD */
+X
+X	/*
+X	 * Put in the current time (common to everyone)
+X	 */
+X
+X	(void) time (&utmp.ut_time);
+X
+X#ifdef UT_HOST
+X	/*
+X	 * Update the host name field for systems with networking support
+X	 */
+X
+X	(void) strncpy (utmp.ut_host, utent.ut_host, (int) sizeof utmp.ut_host);
+X#endif
+X
+X	/*
+X	 * Locate the correct position in the UTMP file for this
+X	 * entry.
+X	 */
+X
+X#if defined(SUN) || defined(BSD) || defined(SUN4)
+X	(void) lseek (fd, (long) (sizeof utmp) * ttyslot (), 0);
+X#else
+X	if (found)	/* Back up a splot */
+X		lseek (fd, (long) - sizeof utmp, 1);
+X	else		/* Otherwise, go to the end of the file */
+X		lseek (fd, (long) 0, 2);
+X#endif
+X
+X	/*
+X	 * Scribble out the new entry and close the file.  We're done
+X	 * with UTMP, next we do WTMP (which is real easy, put it on
+X	 * the end of the file.
+X	 */
+X
+X	(void) write (fd, &utmp, sizeof utmp);
+X	(void) close (fd);
+X
+X	if ((fd = open (WTMP_FILE, O_WRONLY|O_APPEND)) >= 0) {
+X		(void) write (fd, &utmp, sizeof utmp);
+X		(void) close (fd);
+X	}
+X 	utent = utmp;
+X#endif /* SVR4 */
+X}
+END_OF_FILE
+  if test 9115 -ne `wc -c <'utmp.c'`; then
+    echo shar: \"'utmp.c'\" unpacked with wrong size!
+  fi
+  # end of 'utmp.c'
+fi
+echo shar: End of archive 9 \(of 14\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

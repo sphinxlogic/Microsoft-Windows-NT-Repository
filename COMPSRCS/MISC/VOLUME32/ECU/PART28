@@ -1,0 +1,1804 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i063:  ecu - ECU Asynchronous Communications v3.20, Part28/40
+Message-ID: <1992Sep14.144910.22312@sparky.imd.sterling.com>
+X-Md4-Signature: 5f1d2be75371825ee3348f83c2fbca6b
+Date: Mon, 14 Sep 1992 14:49:10 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 63
+Archive-name: ecu/part28
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.28 (part 28 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file gendial/dceHA24.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 28; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping gendial/dceHA24.c'
+else
+echo 'x - continuing file gendial/dceHA24.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'gendial/dceHA24.c' &&
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:04-16-1991-18:18-wht@n4hgf-creation from template */
+X
+X#include "dialer.h"
+X
+X/*
+X * DCE_DTR_low_msec - milliseconds to hold DTR low to ensure DCE
+X *                    sees the transition; this value may be changed
+X *                    as necessary before each call to lflash_DTR(),
+X * but, generally, a constant value will do.
+X */
+Xlong DCE_DTR_low_msec = 750L;
+X
+X/*
+X * DCE_DTR_high_msec - milliseconds DTR must remain high before the
+X *                     DCE may be expected to be ready to be commanded
+X */
+Xlong DCE_DTR_high_msec = 1500L;
+X
+X/*
+X * DCE_write_pace_msec - milliseconds to pause between each character
+X *                       sent to the DCE (zero if streaming I/O is
+X *                       permitted); this value may be changed as
+X * necessary before each call to lwrite(), but, generally, a constant
+X * value will do.  Note that this value is used to feed a value to Nap(),
+X * which has a granularity of .010 seconds on UNIX/386, .020 on XENIX/286
+X * and .050 seconds on XENIX/86.
+X */
+Xlong DCE_write_pace_msec = 40;
+X
+X/*
+X * DCE_name     - short name for DCE
+X * DCE_revision - revision number for this module
+X */
+Xchar *DCE_name = "generic AT-cmd 2400";
+Xchar *DCE_revision = "1.21";
+X
+X/*
+X * DCE_hangup_CBAUD - baud rate to use for hanging up DCE
+X *                    and readying it for dial in access
+X *                    (BXXX mask); use a value of zero if the speed
+X *                    specified by the invoker is to be used.
+X * This value is useful for DCEs such as the early Hayes 2400
+X * which are so unfortunately compatible with their 1200 predecessor
+X * that they refuse to answer at 2400 baud unless you last spoke to
+X * them at that rate. For such bad boys, use B2400 below.
+X */
+Xint DCE_hangup_CBAUD = B2400;
+X
+X/*
+X * DCE_results - a table of DCE response strings and a token
+X *               code for each; when you call lread() or lread_ignore(),
+X *               if the read routine detects one of the strings,
+X * the appropriate code is returned.  If no string matches, then
+X * lread()/lread_ignore examines the DCE result string for a
+X * numeric value; if one is found, the numeric value or'd with
+X * 0x4000 is returned (in this way, e.g., you can read "modem
+X * S registers."  If nothing agrees with this search, lread()
+X * will abort the program with RC|FAIL|RCE_TIMOUT, lread_ignore()
+X * will return -1.  You may use any value between 0 and 0x3FFFFFFF.
+X * This module is the only consumer  of the codes, although they
+X * are decoded by gendial.c's _lread().
+X *
+X * If one possible result is an "early substring" of another, like
+X * "CONNECT" is of "CONNECT 1200", then put such results later in the
+X * table than the larger result.
+X *
+X */
+X#define rfConnect		0x00400000
+X#define rfMASK			0x000000FF
+X
+X#define rOk				0
+X#define rNoCarrier		1
+X#define rError			2
+X#define rNoDialTone		3
+X#define rBusy			4
+X#define rNoAnswer		5
+X#define rConnect300		(7 | rfConnect)
+X#define rConnect1200	(8 | rfConnect)
+X#define rConnect2400	(9 | rfConnect)
+X
+XDCE_RESULT DCE_results[] =
+X{
+X	{ "OK",						rOk,			},
+X	{ "NO CARRIER",				rNoCarrier,		},
+X	{ "ERROR",					rError			},
+X	{ "NO DIALTONE",			rNoDialTone,	},
+X	{ "BUSY",					rBusy			},
+X	{ "NO ANSWER",				rNoAnswer		},
+X	{ "CONNECT 1200",			rConnect1200	},
+X	{ "CONNECT 2400",			rConnect2400	},
+X	{ "CONNECT",				rConnect300		},
+X	{ (char *)0,				-1				}		/* end table */
+X};
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_baud_to_CBAUD(baud) - check for valid baud rates supported by DCE
+X
+X  DCE dependent function must validate baud rates supported by DCE
+X  returns baud rate in struct termio c_cflag fashion
+X  or terminates program with error
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_baud_to_CBAUD(baud)
+Xunsigned int baud;
+X{
+X	switch(baud)
+X	{
+X		case 50:   return(B50);		/* delete the ones you dont handle */
+X		case 75:   return(B75);
+X		case 110:  return(B110);
+X		case 134:  return(B134);
+X		case 150:  return(B150);
+X		case 300:  return(B300);
+X		case 1200: return(B1200);
+X		case 2400: return(B2400);
+X		case 4800: return(B4800);
+X		case 9600: return(B9600);
+X
+X#if defined(B19200)
+X		case 19200: return(B19200);
+X#else
+X#ifdef EXTA
+X		case 19200: return(EXTA);
+X#endif
+X#endif
+X
+X#if defined(B38400)
+X		case 38400: return(B38400);
+X#else
+X#ifdef EXTB
+X		case 38400: return(EXTB);
+X#endif
+X#endif
+X
+X	}
+X	myexit(RC_FAIL | RCE_SPEED);
+X#if defined(OPTIMIZE) || defined(__OPTIMIZE__)	/* don't complain */
+X	return(0);	/* keep gcc from complaining about no rtn at end */
+X#endif
+X}	/* end of DCE_baud_to_CBAUD */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_hangup() - issue hangup command to DCE
+X
+XThis function should do whatever is necessary to ensure
+X1) any active connection is terminated
+X2) the DCE is ready to receive an incoming call if DTR is asserted
+X3) the DCE will not accept an incoming call if DTR is false
+X
+XThe function should return when done.
+X
+XYou must set any switches necessary to make modem hang up on loss of DTR
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_hangup()
+X{
+Xint itmp;
+Xint maxretry = 4;
+X
+X	DEBUG(1,"--> hanging up %s\n",dce_name);
+X
+X	lflash_DTR();
+X
+X	/*
+X	 * set up modem
+X	 */
+X	for(itmp = 0; itmp < maxretry; itmp++)
+X	{
+X		lwrite("ATS0=1M0Q0V1X3\r");
+X		if(lread(5) == rOk)
+X			break;
+X	}
+X	if(itmp == maxretry)
+X	{
+X		DEBUG(1,"failed to reset modem\n",0);
+X		myexit(RC_FAIL | RCE_TIMOUT);
+X	}
+X
+X	/*
+X	 * shut up - no result codes
+X	 */
+X	lwrite("ATQ1\r");
+X
+X}	/* end of DCE_hangup */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_dial(telno) - dial a remote DCE
+X
+XThis function should connect to the remote DCE and use any success
+Xindication to modify the tty baud rate if necessary before returning.
+X
+XUpon successful connection, return 0.
+X
+XUpon unsuccessful connection, return RC_FAIL or'd with an appropriate
+XRCE_XXX value from dialer.h.
+X
+Xlwrite() is used to write to the DCE.
+X
+Xlread() and lread_ignore() are used to read from the DCE.  Read timeouts
+Xfrom calling lread() will result automatically in the proper error
+Xtermination of the program.  Read timeouts from calling lread_ignore()
+Xreturn -1; you handle the execption here.
+X
+XAny necessary coding of phone numbers, switch settings or other
+Xconfiguration necessary for this function to succeed should be
+Xdocumented at the top of the module.
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_dial(telno_str)
+Xchar *telno_str;
+X{
+Xchar cmd[128];
+Xchar phone[50];
+Xint timeout;
+Xint result;
+Xchar *cptr;
+Xchar *dialout_default = "ATS0=0S7=40S2=43Q0V1E0X3\r";
+X#define MDVALID	 "0123456789NnSs*#,!/()-"
+Xint itmp;
+Xint maxretry = 4;
+X
+X	translate("=,-,",telno_str);
+X	if(strspn(telno_str,MDVALID) != strlen(telno_str))
+X	{
+X		DEBUG(1,"phone number has invalid characters\n",0);
+X		return(RC_FAIL | RCE_PHNO);
+X	}
+X	if(decode_phone_number(telno_str,phone,sizeof(phone)))
+X	{
+X		DEBUG(1,"phone number too long\n",0);
+X		return(RC_FAIL | RCE_PHNO);
+X	}
+X
+X	/*
+X	 * wake up modem
+X	 */
+X	DEBUG(6,"--> waking up modem\n",0);
+X	for(itmp = 0; itmp < maxretry; itmp++)
+X	{
+X		lwrite(dialout_default);
+X		if(lread(5) == rOk)
+X			break;
+X	}
+X	if(itmp == maxretry)
+X	{
+X		DEBUG(1,"DIAL INIT FAILED\n",0);
+X		myexit(RC_FAIL | RCE_TIMOUT);
+X	}
+X
+X	/*
+X	 * calculate a timeout for the connect
+X	 * allow a minimum of 40 seconds
+X	 * if long distance (North American calculation here)
+X	 * make it 132 (S7 is calculated as timeout * .9)
+X	 */
+X	timeout = 40;
+X	if((phone[0] == '1') && (phone[0] != '0'))
+X		timeout = 132;
+X	if((timeout < 90) && (dialer_codes['V' - 'A'] || dialer_codes['P' - 'A']))
+X		timeout = 90;
+X	for(cptr = phone; cptr = strchr(cptr,','); cptr++)
+X		timeout += 2;	/* add extra time for pause characters */
+X	DEBUG(6,"wait for connect = %d seconds\n",timeout);
+X
+X/* indicate non-root should not see DTE->DCE traffic */
+X	secure = 1;
+X
+X/*
+X * build and issue the actual dialing command
+X * if root, let him see number, otherwise just say "remote system"
+X */
+X	DEBUG(1,"--> dialing %s\n", (!ecu_calling & uid)
+X		? "remote system" : telno_str);
+X#ifdef WHT
+X	if(!strncmp(*gargv,"ECU",3))
+X		dialer_codes['S' - 'A'] = 1;
+X#endif
+X	sprintf(cmd,"ATM%dS7=%dDT%s\r",
+X		((dialer_codes['S' - 'A']) && !(dialer_codes['N' - 'A'])) ? 1 : 0,
+X		(timeout * 9) / 10,
+X		phone);
+X
+X	/* cmd string can only be 40 characters including "AT" */
+X	if(strlen(cmd) > 40)
+X	{
+X		DEBUG(1,"phone number string too long\n",0);
+X		cleanup(RC_FAIL | RCE_PHNO);
+X	}
+X	lwrite(cmd);
+X
+X/* indicate non-root can see DTE->DCE traffic */
+X	secure = 0;
+X
+X/* wait for connect */
+X	result = lread(timeout);
+X	if(!(result & rfConnect))
+X	{
+X		switch(result & rfMASK)
+X		{
+X		case rNoCarrier:
+X			return(RC_FAIL | RCE_NOCARR);
+X		case rNoDialTone:
+X			return(RC_FAIL | RCE_NOTONE);
+X		case rBusy:
+X			return(RC_FAIL | RCE_BUSY);
+X		case rNoAnswer:
+X			return(RC_FAIL | RCE_ANSWER);
+X		case rError:
+X		default:
+X			return(RC_FAIL | RCE_NULL);
+X		}
+X	}
+X
+X/* indicate non-root can see DTE->DCE traffic */
+X	secure = 0;
+X	return(0);		/* succeeded */
+X
+X}	/* end of DCE_dial */
+X
+X/**********************************************************
+X*  You probably do not need to modify the code below here *
+X**********************************************************/
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_abort(sig) - dial attempt aborted
+X
+X sig =  0 if non-signal abort (read timeout, most likely)
+X     != 0 if non-SIGALRM signal caught
+X
+X extern int dialing set  1 if dialing request was active,
+X                    else 0 if hangup request was active
+X
+XThis is a chance for the DCE-specific code to do anything it
+Xneeds to cl,ean up after a failure.  Note that if a dialing
+Xcall fails, it is the responsibility of the higher-level
+Xprogram calling the dialer to call it again with a hangup request, so
+Xthis function is usually a no-op.
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_abort(sig)
+Xint sig;
+X{
+X	DEBUG(10,"DCE_abort(%d);\n",sig);
+X}	/* end of DCE_abort */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_exit(exitcode) - "last chance for gas" in this incarnation
+X
+XThe independent portion of the dialer program calls this routine in
+Xlieu of exit() in every case except one (see DCE_argv_hook() below).
+XNormally, this function just passes it's argument to exit(), but
+Xany necessary post-processing can be done.  The function must,
+Xhowever, eventually call exit(exitcode);
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_exit(exitcode)
+Xint exitcode;
+X{
+X	DEBUG(10,"DCE_exit(%d);\n",exitcode);
+X	exit(exitcode);
+X}	/* end of DCE_exit */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_argv_hook(argc,argv,optind,unrecognized_switches)
+X
+XThis hook gives DCE-specific code a chance to look over the entire
+Xcommand line, such as for -z Telebit processing.
+X
+Xargc andf argv are the same values passed to main(),
+X
+Xoptind is the value of optind at the end of normal getopt processing.
+X
+Xunrecognized_switches is the count of switches not handled by main().
+XSpecifically, -h and -x are standard switches.
+X
+XNormally, this function should just return RC_FAIL|RCE_ARGS if there are
+Xany unrecognized switches, otherwise zero.  If you keep your nose clean
+Xthough, you can do anything you need to do here and exit the program.
+X
+XNote: only simple switches (with no argument) may be used with this
+Xfacility if the functrion is to return,' since main()'s getopt() will
+Xstop processing switches if it runs into an unrecognized switch with an
+Xargument.
+X
+XIf the function returns a non-zero value, then the value will be passed
+XDIRECTLY to exit() with no further ado.  Thus, a non-zero value must be
+Xof the format expected by dialer program callers, with RC_FAIL set as a
+Xminimum.
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_argv_hook(argc,argv,optind,unrecognized_switches)
+Xint argc;
+Xchar **argv;
+Xint optind;
+Xint unrecognized_switches;
+X{
+X	if(unrecognized_switches)
+X		return(RC_FAIL | RCE_ARGS);
+X	return(0);
+X}	/* end of DCE_argv_hook */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File gendial/dceHA24.c is complete' &&
+chmod 0644 gendial/dceHA24.c ||
+echo 'restore of gendial/dceHA24.c failed'
+Wc_c="`wc -c < 'gendial/dceHA24.c'`"
+test 12745 -eq "$Wc_c" ||
+	echo 'gendial/dceHA24.c: original size 12745, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gendial/dceMC9624.c ==============
+if test -f 'gendial/dceMC9624.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gendial/dceMC9624.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gendial/dceMC9624.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gendial/dceMC9624.c' &&
+X/* CHK=0xB3C9 */
+X/*+-------------------------------------------------------------------------
+X	dceMC9624.c - DCE-specific portion of generic SCO UUCP dialer
+X	Driver for Microcom AX/9624c (assuming DTMF dialing only)
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:02-02-1992-18:01-root@n4hgf-proper ordering of DCE_result entries */
+X/*:01-26-1992-15:30-wht@n4hgf-gendial 1.2 for ecu 3.20- better hangup */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:03-12-1991-19:11-wht@n4hgf-if ecu dialing, show complete call progress */
+X/*:01-05-1991-13:48-root@n4hgf-ATZ during reset - modem is flakey */
+X/*:11-29-1990-18:31-r@n4hgf-revision/1st releasable */
+X/*:07-24-1990-15:36-wht@n4hgf-add speaker on/off */
+X/*:07-20-1990-00:10-wht@n4hgf-creation */
+X
+X#include "dialer.h"
+X
+X/*
+X * DCE_DTR_low_msec - milliseconds to hold DTR low to ensure DCE
+X *                    sees the transition; this value may be changed
+X *                    as necessary before each call to lflash_DTR(),
+X * but, generally, a constant value will do.
+X */
+Xlong DCE_DTR_low_msec = 500;
+X
+X/*
+X * DCE_DTR_high_msec - milliseconds DTR must remain high before the
+X *                     DCE may be expected to be ready to be commanded
+X */
+Xlong DCE_DTR_high_msec = 500;
+X
+X/*
+X * DCE_write_pace_msec - milliseconds to pause between each character
+X *                       sent to the DCE (zero if streaming I/O is
+X *                       permitted); this value may be changed as
+X * necessary before each call to lwrite(), but, generally, a constant
+X * value will do.  Note that this value is used to feed a value to Nap(),
+X * which has a granularity of .010 seconds on UNIX/386, .020 on XENIX/286
+X * and .050 seconds on XENIX/86.
+X */
+Xlong DCE_write_pace_msec = 0;
+X
+X/*
+X * DCE_name     - short name for DCE
+X * DCE_revision - revision number for this module
+X */
+Xchar *DCE_name = "Microcom AX/9624c";
+Xchar *DCE_revision = "1.21";
+X
+X/*
+X * DCE_hangup_CBAUD - baud rate to use for hanging up DCE
+X *                    and readying it for dial in access
+X *                    (BXXX mask); use a value of zero if the speed
+X *                    specified by the invoker is to be used.
+X * This value is useful for DCEs such as the early Hayes 2400
+X * which are so unfortunately compatible with their 1200 predecessor
+X * that they refuse to answer at 2400 baud unless you last spoke to
+X * them at that rate. For such bad boys, use B2400 below.
+X */
+Xint DCE_hangup_CBAUD = 0;
+X/* int DCE_hangup_CBAUD = B2400; */
+X
+X/*
+X * DCE_results - a table of DCE response strings and a token
+X *               code for each; when you call lread() or lread_ignore(),
+X *               if the read routine detects one of the strings,
+X * the appropriate code is returned.  If no string matches, then
+X * lread()/lread_ignore examines the DCE result string for a
+X * numeric value; if one is found, the numeric value or'd with
+X * 0x40000000 is returned (in this way, e.g., you can read "modem
+X * S registers").  If nothing agrees with this search, lread()
+X * will abort the program with RC|FAIL|RCE_TIMOUT, lread_ignore()
+X * will return -1.  You may use any value between 0 and 0x3FFFFFFF.
+X * This module is the only consumer  of the codes, although they
+X * are decoded by gendial.c's _lread().
+X *
+X * If one possible result is an "early substring" of another, like
+X * "CONNECT" is of "CONNECT 1200", then put such results later in the
+X * table than the larger result.
+X *
+X */
+X
+X/* flag bits */
+X#define rfConnect		0x00800000
+X#define rfREL			0x00400000
+X#define rfMASK			0x0000FFFF	/* mask off rfBits */
+X
+X/* unique codes */
+X#define rOk				0
+X#define rNoCarrier		1
+X#define rError			2
+X#define rNoDialTone 	3
+X#define rBusy			4
+X#define rNoAnswer		5
+X#define rConnect300		(  300  | rfConnect)
+X#define rConnect1200	( 1200  | rfConnect)
+X#define rConnect2400	( 1200  | rfConnect)
+X#define rConnect4800	( 4800  | rfConnect)
+X#define rConnect9600	( 9600  | rfConnect)
+X#define rConnect300R	(  300  | rfConnect | rfREL)
+X#define rConnect1200R	( 1200  | rfConnect | rfREL)
+X#define rConnect2400R	( 2400  | rfConnect | rfREL)
+X#define rConnect4800R	( 4800  | rfConnect | rfREL)
+X#define rConnect9600R	( 9600  | rfConnect | rfREL)
+X
+XDCE_RESULT DCE_results[] =
+X{
+X	{ "OK",						rOk,			},
+X	{ "NO CARRIER",				rNoCarrier,		},
+X	{ "ERROR",					rError			},
+X	{ "NO DIALTONE",			rNoDialTone,	},
+X	{ "BUSY",					rBusy			},
+X	{ "NO ANSWER",				rNoAnswer		},
+X	{ "CONNECT 300/REL",		rConnect300R	},
+X	{ "CONNECT 1200/REL",		rConnect1200R	},
+X	{ "CONNECT 2400/REL",		rConnect2400R	},
+X	{ "CONNECT 4800/REL",		rConnect4800R	},
+X	{ "CONNECT 9600/REL",		rConnect9600R	},
+X	{ "CONNECT 300",			rConnect300		},
+X	{ "CONNECT 1200",			rConnect1200	},
+X	{ "CONNECT 2400",			rConnect2400	},
+X	{ "CONNECT 4800",			rConnect4800 	},
+X	{ "CONNECT 9600",			rConnect9600	},
+X	{ "CONNECT",				rConnect300		},
+X	{ (char *)0,				-1				}		/* end table */
+X};
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_baud_to_CBAUD(baud) - check for valid baud rates supported by DCE
+X
+X  DCE dependent function must validate baud rates supported by DCE
+X  returns baud rate in struct termio c_cflag fashion
+X  or terminates program with error
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_baud_to_CBAUD(baud)
+Xunsigned int baud;
+X{
+X	switch(baud)
+X	{
+X		case 110:  return(B110);
+X		case 300:  return(B300);
+X		case 1200: return(B1200);
+X		case 2400: return(B2400);
+X		case 4800: return(B4800);
+X		case 9600: return(B9600);
+X
+X#if defined(B19200)
+X		case 19200: return(B19200);
+X#else
+X#ifdef EXTA
+X		case 19200: return(EXTA);
+X#endif
+X#endif
+X
+X	}
+X	myexit(RC_FAIL | RCE_SPEED);
+X#if defined(OPTIMIZE) || defined(__OPTIMIZE__)	/* don't complain */
+X	return(0);	/* keep gcc from complaining about no rtn at end */
+X#endif
+X}	/* end of DCE_baud_to_CBAUD */
+X
+X/*+-------------------------------------------------------------------------
+X	sync_Microcom() - sync modem with our DTE speed
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsync_Microcom()
+X{
+Xregister int maxretry = 4;
+X
+X	while(maxretry--)
+X	{
+X		lflush();
+X		DCE_write_pace_msec = 20;
+X		lwrite("ATQ0E1V1\r");
+X		DCE_write_pace_msec = 0;
+X		if(lread_ignore(5) == rOk)
+X			return;
+X	}
+X
+X	DEBUG(1,"Microcom SYNC FAILED\n",0);
+X	myexit(RC_FAIL | RCE_TIMOUT);
+X
+X}	/* end of sync_Microcom */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_hangup() - issue hangup command to DCE
+X
+XThis function should do whatever is necessary to ensure
+X1) any active connection is terminated
+X2) the DCE is ready to receive an incoming call if DTR is asserted
+X3) the DCE will not accept an incoming call if DTR is false
+X
+XThe function should return when done.
+X
+XAny necessary switch setting or other configuration necessary for this
+Xfunction to succeed should be documented at the top of the module.
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_hangup()
+X{
+Xchar *reset_it = "ATZ\r";
+Xchar *dialin = "ATS0=1Q1E0M0\\N3\\Q1\\G1%C1%P2\r";
+X
+X	DEBUG(1,"--> hanging up %s\n",dce_name);
+X	lflash_DTR();
+X	sync_Microcom();
+X	lwrite(reset_it);
+X	lread_ignore(5);
+X	lwrite(dialin);
+X	Nap(500L);
+X
+X}	/* end of DCE_hangup */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_dial(telno_str) - dial a remote DCE
+X
+XThis function should connect to the remote DCE and use any success
+Xindication to modify the tty baud rate if necessary before returning.
+X
+XUpon successful connection, return 0.
+X
+XUpon unsuccessful connection, return RC_FAIL or'd with an appropriate
+XRCE_XXX value from dialer.h.
+X
+Xlwrite() is used to write to the DCE.
+X
+Xlread() and lread_ignore() are used to read from the DCE.  Read timeouts
+Xfrom calling lread() will result automatically in the proper error
+Xtermination of the program.  Read timeouts from calling lread_ignore()
+Xreturn -1; you handle the execption here.
+X
+XAny necessary coding of phone numbers, switch settings or other
+Xconfiguration necessary for this function to succeed should be
+Xdocumented at the top of the module.
+X
+XMicrocom Plus-specific comments:
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_dial(telno_str)
+Xchar *telno_str;
+X{
+Xchar cmd[128];
+Xint timeout;
+Xint result;
+Xchar *cptr;
+Xchar phone[42];
+X#define MDVALID "0123456789NnSs,*#()-"
+Xchar *setup      = "ATQ0E1V1X4S0=0&D2&C1%C1%P2";
+Xchar *setup_REL  = "\\N3\\Q1\\G1";
+Xchar *setup_NORM = "\\N0\\Q0\\G0";
+X
+X/* preliminary setup */
+X	translate("=,-,",telno_str);
+X	if(strspn(telno_str,MDVALID) != strlen(telno_str))
+X	{
+X		DEBUG(1,"phone number has invalid characters\n",0);
+X		return(RC_FAIL | RCE_PHNO);
+X	}
+X	if(decode_phone_number(telno_str,phone,sizeof(phone)))
+X	{
+X		DEBUG(1,"phone number too long\n",0);
+X		return(RC_FAIL | RCE_PHNO);
+X	}
+X
+X/*
+X * calculate a timeout for the connect
+X * allow a minimum of 40 seconds, if reliable, 50
+X * also if long distance (North American calculation here)
+X * make it 132
+X */
+X	timeout = 40;
+X	if(hiCBAUD > B2400)
+X		timeout = 50;
+X	if((phone[0] == '1') && (phone[0] != '0'))
+X		timeout = 132;
+X	for(cptr = phone; cptr = strchr(cptr,','); cptr++)
+X		timeout += 2;	/* add extra time for pause characters */
+X	DEBUG(6,"wait for connect = %d seconds\n",timeout);
+X
+X/*
+X * build and issue the dialout setup command
+X * 9624's S7 timing is way off (S7 is calculated as timeout * .6)
+X */
+X	DEBUG(1,"--> issuing setup command\n",0);
+X	sprintf(cmd,"%s%sS7=%d\r",
+X		setup,
+X		(hiCBAUD > B2400) ? setup_REL : setup_NORM,
+X		(timeout * 6) / 10);
+X
+X	sync_Microcom();
+X	lwrite(cmd);
+X	if(lread(5) != rOk)
+X		return(RC_FAIL | RCE_NULL);
+X
+X/* indicate non-root should not see DTE->DCE traffic */
+X	secure = 1;
+X
+X/*
+X * build and issue the actual dialing command
+X * if root, let him see number, otherwise just say "remote system"
+X */
+X#ifdef WHT
+X	if(!strncmp(*gargv,"ECU",3))
+X		dialer_codes['S' - 'A'] = 1;
+X#endif
+X	DEBUG(1,"--> dialing %s\n", (!ecu_calling & uid) ? "remote system" : phone);
+X	sprintf(cmd,"ATS2=255M%dDT%s\r",
+X		((dialer_codes['S' - 'A']) && !(dialer_codes['N' - 'A'])) ? 1 : 0,
+X		phone);
+X
+X	/* cmd string can only be 40 characters including "AT" */
+X	if(strlen(cmd) > 40)
+X	{
+X		DEBUG(1,"phone number string too long\n",0);
+X		cleanup(RC_FAIL | RCE_PHNO);
+X	}
+X
+X	lwrite(cmd);
+X
+X/* indicate non-root can see DTE->DCE traffic */
+X	secure = 0;
+X
+X/* wait for connect */
+X	result = lread(timeout);
+X	if(!(result & rfConnect))
+X	{
+X		switch(result & rfMASK)
+X		{
+X		case rNoDialTone:
+X			return(RC_FAIL | RCE_NOTONE);
+X		case rBusy:
+X			return(RC_FAIL | RCE_BUSY);
+X		case rNoAnswer:
+X		case rNoCarrier:	/* with ATX4, NO CARRIER == NO ANSWER
+X							 * since BUSY and NO DIAL TONE are reported
+X							 */
+X			return(RC_FAIL | RCE_ANSWER);
+X		default:
+X			return(RC_FAIL | RCE_NULL);
+X		}
+X	}
+X
+X	return(0);		/* succeeded */
+X
+X}	/* end of DCE_dial */
+X
+X/**********************************************************
+X*  You probably do not need to modify the code below here *
+X**********************************************************/
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_abort(sig) - dial attempt aborted
+X
+X sig =  0 if non-signal abort (read timeout, most likely)
+X     != 0 if non-SIGALRM signal caught
+X
+X extern int dialing set  1 if dialing request was active,
+X                    else 0 if hangup request was active
+X
+XThis is a chance for the DCE-specific code to do anything it
+Xneeds to cl,ean up after a failure.  Note that if a dialing
+Xcall fails, it is the responsibility of the higher-level
+Xprogram calling the dialer to call it again with a hangup request, so
+Xthis function is usually a no-op.
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_abort(sig)
+Xint sig;
+X{
+X	DEBUG(10,"DCE_abort(%d);\n",sig);
+X}	/* end of DCE_abort */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_exit(exitcode) - "last chance for gas" in this incarnation
+X
+XThe independent portion of the dialer program calls this routine in
+Xlieu of exit() in every case except one (see DCE_argv_hook() below).
+XNormally, this function just passes it's argument to exit(), but
+Xany necessary post-processing can be done.  The function must,
+Xhowever, eventually call exit(exitcode);
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_exit(exitcode)
+Xint exitcode;
+X{
+X	DEBUG(10,"DCE_exit(%d);\n",exitcode);
+X	exit(exitcode);
+X}	/* end of DCE_exit */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_argv_hook(argc,argv,optind,unrecognized_switches)
+X
+XThis hook gives DCE-specific code a chance to look over the entire
+Xcommand line, such as for -z processing.
+X
+Xargc andf argv are the same values passed to main(),
+X
+Xoptind is the value of optind at the end of normal getopt processing.
+X
+Xunrecognized_switches is the count of switches not handled by main().
+XSpecifically, -h and -x are standard switches.
+X
+XNormally, this function should just return RC_FAIL|RCE_ARGS if there are
+Xany unrecognized switches, otherwise zero.  If you keep your nose clean
+Xthough, you can do anything you need to do here and exit the program.
+X
+XNote: only simple switches (with no argument) may be used with this
+Xfacility if the functrion is to return,' since main()'s getopt() will
+Xstop processing switches if it runs into an unrecognized switch with an
+Xargument.
+X
+XIf the function returns a non-zero value, then the value will be passed
+XDIRECTLY to exit() with no further ado.  Thus, a non-zero value must be
+Xof the format expected by dialer program callers, with RC_FAIL set as a
+Xminimum.
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_argv_hook(argc,argv,optind,unrecognized_switches)
+Xint argc;
+Xchar **argv;
+Xint optind;
+Xint unrecognized_switches;
+X{
+X	if(unrecognized_switches)
+X		return(RC_FAIL | RCE_ARGS);
+X	return(0);
+X}	/* end of DCE_argv_hook */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 gendial/dceMC9624.c ||
+echo 'restore of gendial/dceMC9624.c failed'
+Wc_c="`wc -c < 'gendial/dceMC9624.c'`"
+test 13931 -eq "$Wc_c" ||
+	echo 'gendial/dceMC9624.c: original size 13931, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gendial/dceMPAD.c ==============
+if test -f 'gendial/dceMPAD.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gendial/dceMPAD.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gendial/dceMPAD.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gendial/dceMPAD.c' &&
+X/* CHK=0xFF53 */
+X/*+-------------------------------------------------------------------------
+X	dceMPAD.c - DCE-specific portion of generic SCO UUCP dialer
+X	Driver for ATT Tridom MPAD VSAT modem emulation
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:02-02-1992-18:01-root@n4hgf-proper ordering of DCE_result entries */
+X/*:01-26-1992-15:30-wht@n4hgf-gendial 1.2 for ecu 3.20- better hangup */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:03-12-1991-19:11-wht@n4hgf-if ecu dialing, show complete call progress */
+X/*:11-29-1990-18:31-r@n4hgf-revision/1st releasable */
+X/*:11-29-1990-17:48-wht@n4hgf-creation */
+X
+X#include "dialer.h"
+X
+X/*
+X * DCE_DTR_low_msec - milliseconds to hold DTR low to ensure DCE
+X *                    sees the transition; this value may be changed
+X *                    as necessary before each call to lflash_DTR(),
+X * but, generally, a constant value will do.
+X */
+Xlong DCE_DTR_low_msec = 50;
+X
+X/*
+X * DCE_DTR_high_msec - milliseconds DTR must remain high before the
+X *                     DCE may be expected to be ready to be commanded
+X */
+Xlong DCE_DTR_high_msec = 50;
+X
+X/*
+X * DCE_write_pace_msec - milliseconds to pause between each character
+X *                       sent to the DCE (zero if streaming I/O is
+X *                       permitted); this value may be changed as
+X * necessary before each call to lwrite(), but, generally, a constant
+X * value will do.  Note that this value is used to feed a value to Nap(),
+X * which has a granularity of .010 seconds on UNIX/386, .020 on XENIX/286
+X * and .050 seconds on XENIX/86.
+X */
+Xlong DCE_write_pace_msec = 0;
+X
+X/*
+X * DCE_name     - short name for DCE
+X * DCE_revision - revision number for this module
+X */
+Xchar *DCE_name = "ATT Tridom MPAD";
+Xchar *DCE_revision = "1.37";
+X
+X/*
+X * DCE_hangup_CBAUD - baud rate to use for hanging up DCE
+X *                    and readying it for dial in access
+X *                    (BXXX mask); use a value of zero if the speed
+X *                    specified by the invoker is to be used.
+X * This value is useful for DCEs such as the early Hayes 2400
+X * which are so unfortunately compatible with their 1200 predecessor
+X * that they refuse to answer at 2400 baud unless you last spoke to
+X * them at that rate. For such bad boys, use B2400 below.
+X */
+Xint DCE_hangup_CBAUD = 0;
+X/* int DCE_hangup_CBAUD = B2400; */
+X
+X/*
+X * DCE_results - a table of DCE response strings and a token
+X *               code for each; when you call lread() or lread_ignore(),
+X *               if the read routine detects one of the strings,
+X * the appropriate code is returned.  If no string matches, then
+X * lread()/lread_ignore examines the DCE result string for a
+X * numeric value; if one is found, the numeric value or'd with
+X * 0x40000000 is returned (in this way, e.g., you can read "modem
+X * S registers").  If nothing agrees with this search, lread()
+X * will abort the program with RC|FAIL|RCE_TIMOUT, lread_ignore()
+X * will return -1.  You may use any value between 0 and 0x3FFFFFFF.
+X * This module is the only consumer  of the codes, although they
+X * are decoded by gendial.c's _lread().
+X *
+X * If one possible result is an "early substring" of another, like
+X * "CONNECT" is of "CONNECT 1200", then put such results later in the
+X * table than the larger result.
+X *
+X */
+X
+X/* flag bits */
+X#define rfConnect		0x00800000
+X#define rfMASK			0x0000FFFF	/* mask off rfBits */
+X
+X/* unique codes */
+X#define rOk				0
+X#define rNoCarrier		1
+X#define rError			2
+X#define rNoDialTone 	3
+X#define rBusy			4
+X#define rNoAnswer		5
+X#define rRring			6
+X#define rConnect300		(  300  | rfConnect)
+X#define rConnect1200	( 1200  | rfConnect)
+X#define rConnect2400	( 2400  | rfConnect)
+X#define rConnect4800	( 4800  | rfConnect)
+X#define rConnect9600	( 9600  | rfConnect)
+X#define rConnect9600	( 9600  | rfConnect)
+X#define rConnect19200	(19200  | rfConnect)
+X#define rConnect38400	(38400  | rfConnect)
+X
+XDCE_RESULT DCE_results[] =
+X{
+X    { "OK",                 rOk,            },
+X    { "NO CARRIER",         rNoCarrier,     },
+X    { "ERROR",              rError          },
+X    { "BUSY",               rBusy           },
+X    { "NO ANSWER",          rNoAnswer       },
+X    { "NO DIAL TONE",       rNoDialTone     },
+X    { "KDIR SENDX ERROR",   rNoDialTone     },  /* MPAD software error */
+X    { "KDIR UNRESPONSIVE",  rNoDialTone     },
+X    { "KDIR BUSY",          rBusy           },
+X    { "KDIR BAD REQUEST",   rError          },  /* number 0 or >11 length */
+X    { "NO SUCH NUMBER",     rNoAnswer       },
+X    { "KDIR LOGIC ERROR",   rNoDialTone     },  /* MPAD software error */
+X    { "KDIR NOT AVAIL",     rNoDialTone     },
+X    { "TP4 STATE ERROR",    rNoDialTone     },  /* rain fade */
+X    { "TP4 GIVE UP",        rBusy           },  /* rain fade */
+X    { "TP4 ERROR RESP",     rBusy           },  /* transient problem */
+X    { "NET DEACT",          rNoDialTone     },  /* net op deactivated port */
+X    { "CONNECT 300",        rConnect300     },
+X    { "CONNECT 1200",       rConnect1200    },
+X    { "CONNECT 4800",       rConnect4800    },
+X    { "CONNECT 9600",       rConnect9600    },
+X    { "CONNECT 19200",      rConnect19200   },
+X    { "CONNECT 38400",      rConnect38400   },
+X    { (char *)0,            -1              }       /* end table */
+X};
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_baud_to_CBAUD(baud) - check for valid baud rates supported by DCE
+X
+X  DCE dependent function must validate baud rates supported by DCE
+X  returns baud rate in struct termio c_cflag fashion
+X  or terminates program with error
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_baud_to_CBAUD(baud)
+Xunsigned int baud;
+X{
+X	switch(baud)
+X	{
+X		case 110:  return(B110);
+X		case 300:  return(B300);
+X		case 1200: return(B1200);
+X		case 2400: return(B2400);
+X		case 9600: return(B9600);
+X
+X#if defined(B19200)
+X		case 19200: return(B19200);
+X#else
+X#ifdef EXTA
+X		case 19200: return(EXTA);
+X#endif
+X#endif
+X
+X#if defined(B38400)
+X		case 38400: return(B38400);
+X#else
+X#ifdef EXTB
+X		case 38400: return(EXTB);
+X#endif
+X#endif
+X
+X	}
+X	myexit(RC_FAIL | RCE_SPEED);
+X#if defined(OPTIMIZE) || defined(__OPTIMIZE__)	/* don't complain */
+X	return(0);	/* keep gcc from complaining about no rtn at end */
+X#endif
+X}	/* end of DCE_baud_to_CBAUD */
+X
+X/*+-------------------------------------------------------------------------
+X	sync_MPAD() - sync modem with our DTE speed
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsync_MPAD()
+X{
+Xregister int maxretry = 8;
+Xregister int count;
+Xunsigned char rdchar;
+X
+X	while(maxretry--)
+X	{
+X		lflush();
+X		write(dce_fd,"a",1);
+X		count = 5;
+X		while(count)	/* wait 50-200 msec for character, depending on HZ */
+X		{
+X			if(rdchk(dce_fd))
+X				break;
+X			Nap(50L);
+X			count--;
+X		}
+X		if(count && (read(dce_fd,&rdchar,1) == 1) && (rdchar == 'a'))
+X			return;
+X		write(dce_fd,"atq0v1e1\r",9);
+X		Nap(500L);
+X	}
+X
+X	DEBUG(1,"MPAD SYNC FAILED\n",0);
+X	myexit(RC_FAIL | RCE_TIMOUT);
+X
+X}	/* end of sync_MPAD */
+X
+X/*+-------------------------------------------------------------------------
+X	init_MPAD() - init MPAD from scratch, assuming nothing
+X--------------------------------------------------------------------------*/
+Xvoid
+Xinit_MPAD()
+X{
+Xregister itmp;
+Xint maxretry = 4;
+Xchar *init0 = "ATE0Q0V1X99S0=1S2=255\r";
+X
+X	DEBUG(1,"--> reseting %s\n",dce_name);
+X	lflash_DTR();
+X	sync_MPAD();
+X
+X	/*
+X	 * set to factory default (bless them for this command)
+X	 * and a few initial beachhead values
+X	 */
+X	for(itmp = 0; itmp < maxretry; itmp++)
+X	{
+X		lwrite(init0);
+X		if(lread(5) == rOk)
+X			break;
+X	}
+X	if(itmp == maxretry)
+X	{
+X		DEBUG(1,"reset failed\n",0);
+X		myexit(RC_FAIL | RCE_TIMOUT);
+X	}
+X
+X}	/* end of init_MPAD */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_hangup() - issue hangup command to DCE
+X
+XThis function should do whatever is necessary to ensure
+X1) any active connection is terminated
+X2) the DCE is ready to receive an incoming call if DTR is asserted
+X3) the DCE will not accept an incoming call if DTR is false
+X
+XThe function should return when done.
+X
+XAny necessary switch setting or other configuration necessary for this
+Xfunction to succeed should be documented at the top of the module.
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_hangup()
+X{
+X	DEBUG(1,"--> hanging up %s\n",dce_name);
+X	lflash_DTR();
+X	init_MPAD();
+X
+X}	/* end of DCE_hangup */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_dial(telno_str) - dial a remote DCE
+X
+XThis function should connect to the remote DCE and use any success
+Xindication to modify the tty baud rate if necessary before returning.
+X
+XUpon successful connection, return 0.
+X
+XUpon unsuccessful connection, return RC_FAIL or'd with an appropriate
+XRCE_XXX value from dialer.h.
+X
+Xlwrite() is used to write to the DCE.
+X
+Xlread() and lread_ignore() are used to read from the DCE.  Read timeouts
+Xfrom calling lread() will result automatically in the proper error
+Xtermination of the program.  Read timeouts from calling lread_ignore()
+Xreturn -1; you handle the execption here.
+X
+XAny necessary coding of phone numbers, switch settings or other
+Xconfiguration necessary for this function to succeed should be
+Xdocumented at the top of the module.
+X
+XMPAD Plus-specific comments:
+X Q0          do not be quiet
+X E0          do not echo
+X V1          verbal result codes
+X S0=0        dont allow connect while dialing
+X X99         full result codes
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_dial(telno_str)
+Xchar *telno_str;
+X{
+Xchar cmd[128];
+Xchar phone[50];
+Xint timeout;
+Xint result;
+Xchar *cptr;
+Xchar *dialout_default = "ATQ0E0V1E0S0=0X99\r";
+X#define MDVALID	 "0123456789NnSs()-"
+X
+X/* preliminary setup */
+X	translate("=,-,",telno_str);
+X	if(strspn(telno_str,MDVALID) != strlen(telno_str))
+X	{
+X		DEBUG(1,"phone number has invalid characters\n",0);
+X		return(RC_FAIL | RCE_PHNO);
+X	}
+X	if(decode_phone_number(telno_str,phone,sizeof(phone)))
+X	{
+X		DEBUG(1,"phone number too long\n",0);
+X		return(RC_FAIL | RCE_PHNO);
+X	}
+X
+X/* walk through dialer codes, doing custom setup */
+X	strcpy(cmd,"AT");
+X	cptr = cmd + strlen(cmd);
+X
+X	DEBUG(1,"--> issuing default setup command\n",0);
+X	sync_MPAD();
+X	lwrite(dialout_default);
+X	if(lread(5) != rOk)
+X	{
+X		DEBUG(1,"default dialout setup failed\n",0);
+X		return(RC_FAIL | RCE_NULL);
+X	}
+X
+X/* issue the custom setup command */
+X	if(*cptr)
+X	{
+X		DEBUG(1,"--> issuing custom setup cmd\n",0);
+X		strcat(cmd,"\r");
+X		sync_MPAD();
+X		lwrite(cmd);
+X		if(lread(5) != rOk)
+X		{
+X			DEBUG(1,"custom modem setup failed\n",0);
+X			return(RC_FAIL | RCE_NULL);
+X		}
+X	}
+X
+X/*
+X * calculate a timeout for the connect
+X */
+X	timeout = 20;
+X	DEBUG(6,"wait for connect = %d seconds\n",timeout);
+X
+X/* indicate non-root should not see DTE->DCE traffic */
+X	secure = 1;
+X
+X/*
+X * build and issue the actual dialing command
+X * if root, let him see number, otherwise just say "remote system"
+X */
+X	DEBUG(1,"--> dialing %s\n", (!ecu_calling & uid) ? "remote system" : phone);
+X	sprintf(cmd,"ATS7=%dDT%s\r",(timeout * 9) / 10,phone);
+X
+X	/* cmd string can only be 40 characters including "AT" */
+X	if(strlen(cmd) > 40)
+X	{
+X		DEBUG(1,"phone number string too long\n",0);
+X		cleanup(RC_FAIL | RCE_PHNO);
+X	}
+X
+X	sync_MPAD();
+X	lwrite(cmd);
+X
+X/* indicate non-root can see DTE->DCE traffic */
+X	secure = 0;
+X
+X/* wait for connect */
+X	result = lread(timeout);
+X	if(!(result & rfConnect))
+X	{
+X		switch(result & rfMASK)
+X		{
+X		case rNoCarrier:
+X			return(RC_FAIL | RCE_NOCARR);
+X		case rNoDialTone:
+X			return(RC_FAIL | RCE_NOTONE);
+X		case rBusy:
+X			return(RC_FAIL | RCE_BUSY);
+X		case rNoAnswer:
+X			return(RC_FAIL | RCE_ANSWER);
+X		case rError:
+X		default:
+X			return(RC_FAIL | RCE_NULL);
+X		}
+X	}
+X
+X	return(0);		/* succeeded */
+X
+X}	/* end of DCE_dial */
+X
+X/**********************************************************
+X*  You probably do not need to modify the code below here *
+X**********************************************************/
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_abort(sig) - dial attempt aborted
+X
+X sig =  0 if non-signal abort (read timeout, most likely)
+X     != 0 if non-SIGALRM signal caught
+X
+X extern int dialing set  1 if dialing request was active,
+X                    else 0 if hangup request was active
+X
+XThis is a chance for the DCE-specific code to do anything it
+Xneeds to cl,ean up after a failure.  Note that if a dialing
+Xcall fails, it is the responsibility of the higher-level
+Xprogram calling the dialer to call it again with a hangup request, so
+Xthis function is usually a no-op.
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_abort(sig)
+Xint sig;
+X{
+X	DEBUG(10,"DCE_abort(%d);\n",sig);
+X}	/* end of DCE_abort */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_exit(exitcode) - "last chance for gas" in this incarnation
+X
+XThe independent portion of the dialer program calls this routine in
+Xlieu of exit() in every case except one (see DCE_argv_hook() below).
+XNormally, this function just passes it's argument to exit(), but
+Xany necessary post-processing can be done.  The function must,
+Xhowever, eventually call exit(exitcode);
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_exit(exitcode)
+Xint exitcode;
+X{
+X	DEBUG(10,"DCE_exit(%d);\n",exitcode);
+X	exit(exitcode);
+X}	/* end of DCE_exit */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_argv_hook(argc,argv,optind,unrecognized_switches)
+X
+XThis hook gives DCE-specific code a chance to look over the entire
+Xcommand line, such as for -z processing.
+X
+Xargc andf argv are the same values passed to main(),
+X
+Xoptind is the value of optind at the end of normal getopt processing.
+X
+Xunrecognized_switches is the count of switches not handled by main().
+XSpecifically, -h and -x are standard switches.
+X
+XNormally, this function should just return RC_FAIL|RCE_ARGS if there are
+Xany unrecognized switches, otherwise zero.  If you keep your nose clean
+Xthough, you can do anything you need to do here and exit the program.
+X
+XNote: only simple switches (with no argument) may be used with this
+Xfacility if the functrion is to return,' since main()'s getopt() will
+Xstop processing switches if it runs into an unrecognized switch with an
+Xargument.
+X
+XIf the function returns a non-zero value, then the value will be passed
+XDIRECTLY to exit() with no further ado.  Thus, a non-zero value must be
+Xof the format expected by dialer program callers, with RC_FAIL set as a
+Xminimum.
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_argv_hook(argc,argv,optind,unrecognized_switches)
+Xint argc;
+Xchar **argv;
+Xint optind;
+Xint unrecognized_switches;
+X{
+X	if(unrecognized_switches)
+X		return(RC_FAIL | RCE_ARGS);
+X	return(0);
+X}	/* end of DCE_argv_hook */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 gendial/dceMPAD.c ||
+echo 'restore of gendial/dceMPAD.c failed'
+Wc_c="`wc -c < 'gendial/dceMPAD.c'`"
+test 14942 -eq "$Wc_c" ||
+	echo 'gendial/dceMPAD.c: original size 14942, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gendial/dceT2500.c ==============
+if test -f 'gendial/dceT2500.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gendial/dceT2500.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gendial/dceT2500.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gendial/dceT2500.c' &&
+X/*+-------------------------------------------------------------------------
+X	dceT2500.c - DCE-specific portion of generic SCO UUCP dialer
+X	Driver for Telebit T2500
+X	wht@n4hgf.Mt-Park.GA.US
+X
+Xafter init
+XE0 F1 M0 Q4 P V1 W0 X3 Y0 &P0 &T4     Version GE6.01-T2500
+XS00=001 S01=000 S02:001 S03=013 S04=010 S05=008 S06=002 S07=040 S08=002 S09=006
+XS10=007 S11:050 S12=050 S18=000 S25=005 S26=000 S38=000 
+XS41=000 S45:001 S47=004 S48:001 S49=000 
+XS50=000 S51:252 S52:004 S54:003 S55=000 S56=017 S57=019 S58:002 S59=000 
+XS61=150 S62=003 S63=001 S64:001 S65=000 S66=000 S67=000 S68=255 S69=000 
+XS90=000 S91=000 S92:001 S93=008 S94=001 S95=000 S96=001 S97=000 S98=003 
+XS100=000 S101=000 S102=000 S104=000 S105=001 S106=000 S107=020 
+XS110=255 S111=255 S112=001 
+XS121=000 S130=002 S131:001 
+XS150=000 S151=004 S152=001 S153=001 S154=000 S155=000 
+XS160=010 S161=020 S162=002 S163=003 S164=007 S255=000 
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-27-1992-05:00-wht@n4hgf-no pacing */
+X/*:02-10-1992-21:43-root@n4hgf-made it 1.5 years not setting S131 - then drat */
+X/*:02-10-1992-00:27-wht@n4hgf-improved sync_Telebit */
+X/*:01-26-1992-15:30-wht@n4hgf-gendial 1.2 for ecu 3.20- better hangup */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:03-12-1991-19:11-wht@n4hgf-if ecu dialing, show complete call progress */
+X/*:11-29-1990-18:31-r@n4hgf-revision/1st releasable */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "dialer.h"
+X
+X/*
+X * DCE_DTR_low_msec - milliseconds to hold DTR low to ensure DCE
+X *                    sees the transition; this value may be changed
+X *                    as necessary before each call to lflash_DTR(),
+X * but, generally, a constant value will do.
+X */
+Xlong DCE_DTR_low_msec = 500;
+X
+X/*
+X * DCE_DTR_high_msec - milliseconds DTR must remain high before the
+X *                     DCE may be expected to be ready to be commanded
+X */
+Xlong DCE_DTR_high_msec = 1000L;
+X
+X/*
+X * DCE_write_pace_msec - milliseconds to pause between each character
+X *                       sent to the DCE (zero if streaming I/O is
+X *                       permitted); this value may be changed as
+X * necessary before each call to lwrite(), but, generally, a constant
+X * value will do.  Note that this value is used to feed a value to Nap(),
+X * which has a granularity of .010 seconds on UNIX/386, .020 on XENIX/286
+X * and .050 seconds on XENIX/86.
+X */
+Xlong DCE_write_pace_msec = 0;
+X
+X/*
+X * DCE_name     - short name for DCE
+X * DCE_revision - revision number for this module
+X */
+Xchar *DCE_name = "Telebit T2500";
+Xchar *DCE_revision = "1.30";
+X
+X/*
+X * DCE_hangup_CBAUD - baud rate to use for hanging up DCE
+X *                    and readying it for dial in access
+X *                    (BXXX mask); use a value of zero if the speed
+X *                    specified by the invoker is to be used.
+X * This value is useful for DCEs such as the early Hayes 2400
+X * which are so unfortunately compatible with their 1200 predecessor
+X * that they refuse to answer at 2400 baud unless you last spoke to
+X * them at that rate. For such bad boys, use B2400 below.
+X */
+Xint DCE_hangup_CBAUD = 0;
+X/* int DCE_hangup_CBAUD = B2400; */
+X
+X/*
+X * DCE_results - a table of DCE response strings and a token
+X *               code for each; when you call lread() or lread_ignore(),
+X *               if the read routine detects one of the strings,
+X * the appropriate code is returned.  If no string matches, then
+X * lread()/lread_ignore examines the DCE result string for a
+X * numeric value; if one is found, the numeric value or'd with
+X * 0x40000000 is returned (in this way, e.g., you can read "modem
+X * S registers").  If nothing agrees with this search, lread()
+X * will abort the program with RC_FAIL|RCE_TIMOUT, lread_ignore()
+X * will return -1.  You may use any value between 0 and 0x3FFFFFFF.
+X * This module is the only consumer  of the codes, although they
+X * are decoded by gendial.c's _lread()
+X */
+X
+X/* flag bits */
+X#define rfConnect		0x00800000
+X#define rfREL			0x00400000
+X#define rfFAST			0x00200000
+X#define rfV32			0x00100000
+X#define rfMASK			0x0000FFFF	/* mask off rfBits */
+X
+X/* unique codes */
+X#define rOk				0
+X#define rNoCarrier		1
+X#define rError			2
+X#define rNoDialTone 	3
+X#define rBusy			4
+X#define rNoAnswer		5
+X#define rRring			6
+X#define rConnect300		(  300  | rfConnect)
+X#define rConnect1200	( 1200  | rfConnect)
+X#define rConnect2400	( 1200  | rfConnect)
+X#define rConnect300R	(  300  | rfConnect | rfREL)
+X#define rConnect1200R	( 1200  | rfConnect | rfREL)
+X#define rConnect2400R	( 2400  | rfConnect | rfREL)
+X#define rConnectFASTK	(19200  | rfConnect | rfFAST)	/* may be 9600 */
+X#define rConnectFASTX	(19200  | rfConnect | rfFAST)
+X#define rConnectFASTU	(19200  | rfConnect | rfFAST)
+X#define rConnectFAST	(19200  | rfConnect | rfFAST)
+X#define rConnect9600	( 9600  | rfConnect | rfV32)
+X
+XDCE_RESULT DCE_results[] =
+X{
+X	{ "OK",						rOk,			},
+X	{ "NO CARRIER",				rNoCarrier,		},
+X	{ "ERROR",					rError			},
+X	{ "NO DIALTONE",			rNoDialTone,	},
+X	{ "BUSY",					rBusy			},
+X	{ "NO ANSWER",				rNoAnswer		},
+X	{ "RRING",					rRring			},
+X	{ "CONNECT 300/REL",		rConnect300R	},
+X	{ "CONNECT 1200/REL",		rConnect1200R	},
+X	{ "CONNECT 2400/REL",		rConnect2400R	},
+X	{ "CONNECT 300",			rConnect300		},
+X	{ "CONNECT 1200",			rConnect1200	},
+X	{ "CONNECT 2400",			rConnect2400	},
+X	{ "CONNECT 9600",			rConnect9600	},
+X	{ "CONNECT FAST/KERM",		rConnectFASTK	},
+X	{ "CONNECT FAST/XMDM",		rConnectFASTX	},
+X	{ "CONNECT FAST/UUCP",		rConnectFASTU	},
+X	{ "CONNECT FAST",			rConnectFAST	},
+X	{ (char *)0,				-1				}		/* end table */
+X};
+X
+X#include "tbit.sync.h"
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_baud_to_CBAUD(baud) - check for valid baud rates supported by DCE
+X
+X  DCE dependent function must validate baud rates supported by DCE
+X  returns baud rate in struct termio c_cflag fashion
+X  or terminates program with error
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_baud_to_CBAUD(baud)
+Xunsigned int baud;
+X{
+X	switch(baud)
+X	{
+X		case 110:  return(B110);
+X		case 300:  return(B300);
+X		case 1200: return(B1200);
+X		case 2400: return(B2400);
+X		case 9600: return(B9600);
+X
+X#if defined(B19200)
+X		case 19200: return(B19200);
+X#else
+X#ifdef EXTA
+X		case 19200: return(EXTA);
+X#endif
+X#endif
+X
+X#if defined(B38400)
+X		case 38400: return(B38400);
+X#else
+X#ifdef EXTB
+X		case 38400: return(EXTB);
+X#endif
+X#endif
+X
+X	}
+X	myexit(RC_FAIL | RCE_SPEED);
+X#if defined(OPTIMIZE) || defined(__OPTIMIZE__)	/* don't complain */
+X	return(0);	/* keep gcc from complaining about no rtn at end */
+X#endif
+X}	/* end of DCE_baud_to_CBAUD */
+X
+X/*+-------------------------------------------------------------------------
+X	init_T2500() - init T2500 from scratch, assuming nothing
+X
+X	reset to factory defaults, then set
+X    E0          no local echo in command mode
+X    F1          no local echo in data transfer mode
+X    M0          speaker off
+X    Q4          generate reult codes, but not RING
+X    V1          verbal result codes
+X    X3          extended result codes
+X    S0=1        answer on first ring
+X    S2=255        escape to unusual value
+X    S11=50      50 msec DTMF timing
+X    S45=1       enable remote access
+X    S48=1       all 8 bits are significant
+X    S50=0       use automatic connect speed determination
+X    S51=252     set serial port baud rate automatically (no typeahead)
+X	S52=4       DTR low: drop connection and go into command mode
+X    S54=3       pass BREAK signal to remote modem
+X    S55=0       respond to command escape sequence
+X    S58=2       DTE uses CTS/RTS flow control.
+X    S64=1       ignore characters sent by DTE while answering
+X    S66=0       don't lock interface speed, just go with the flow.
+X    S68=255     DCE uses whatever flow control DTE uses
+X    S92=1       PEP tones at the end of answer sequence
+X    S95=0       no MNP
+X    S110=255    use data compression when the remote modem requests it.
+X    S111=255    accept any protocol
+X	S131=1      DCD follows carrier
+X
+XThe nvram is set to factory + E0 Q0 S52=4 S131=1 S51=252 
+X--------------------------------------------------------------------------*/
+Xvoid
+Xinit_T2500()
+X{
+Xregister itmp;
+Xint maxretry = 4;
+Xchar *init0="AT&F E0 Q0 S52=4 S131=1 S51=252 &w F1 M0 Q4 V1 X3\r";
+Xchar *init1="ATS0=1 S2=255 S11=50 S45=1 S48=1 S50=0 S54=3\r";
+Xchar *init2="ATS55=0 S58=2 S64=1 S66=0 S68=255 S92=1 S95=0 S110=255 S111=255\r";
+X
+X	DEBUG(1,"--> initializing %s on ",DCE_name);
+X	DEBUG(1,"%s\n",dce_name);
+X
+X	lflash_DTR();
+X	sync_Telebit();
+X
+X	/*
+X	 * set to factory default (bless them for this command)
+X	 * and a few initial beachhead values
+X	 */
+X	for(itmp = 0; itmp < maxretry; itmp++)
+X	{
+X		lwrite(init0);
+X		if(lread(5) == rOk)
+X			break;
+X	}
+X	if(itmp == maxretry)
+X	{
+X		DEBUG(1,"INIT FAILED (init0)\n",0);
+X		myexit(RC_FAIL | RCE_TIMOUT);
+X	}
+X
+X	/*
+X	 * send initialization string 1
+X	 */
+X	for(itmp = 0; itmp < maxretry; itmp++)
+X	{
+X		lwrite(init1);
+X		if(lread(5) == rOk)
+X			break;
+X	}
+X	if(itmp == maxretry)
+X	{
+X		DEBUG(1,"INIT FAILED (init1)\n",0);
+X		myexit(RC_FAIL | RCE_TIMOUT);
+X	}
+X
+X	/*
+X	 * send initialization string 2
+X	 */
+X	for(itmp = 0; itmp < maxretry; itmp++)
+X	{
+X		lwrite(init2);
+X		if(lread(5) == rOk)
+X			break;
+X	}
+X	if(itmp == maxretry)
+X	{
+X		DEBUG(1,"INIT FAILED (init2)\n",0);
+X		myexit(RC_FAIL | RCE_TIMOUT);
+X	}
+X
+X}	/* end of init_T2500 */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_hangup() - issue hangup command to DCE
+X
+XThis function should do whatever is necessary to ensure
+X1) any active connection is terminated
+X2) the DCE is ready to receive an incoming call if DTR is asserted
+X3) the DCE will not accept an incoming call if DTR is false
+X
+XThe function should return when done.
+X
+XAny necessary switch setting or other configuration necessary for this
+Xfunction to succeed should be documented at the top of the module.
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_hangup()
+X{
+X	DEBUG(4,"--> hanging up %s\n",dce_name);
+X	init_T2500();
+X
+X}	/* end of DCE_hangup */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_dial(telno_str) - dial a remote DCE
+X
+XThis function should connect to the remote DCE and use any success
+Xindication to modify the tty baud rate if necessary before returning.
+X
+XUpon successful connection, return 0.
+X
+XUpon unsuccessful connection, return RC_FAIL or'd with an appropriate
+XRCE_XXX value from dialer.h.
+X
+Xlwrite() is used to write to the DCE.
+X
+Xlread() and lread_ignore() are used to read from the DCE.  Read timeouts
+Xfrom calling lread() will result automatically in the proper error
+Xtermination of the program.  Read timeouts from calling lread_ignore()
+Xreturn -1; you handle the execption here.
+X
+XAny necessary coding of phone numbers, switch settings or other
+Xconfiguration necessary for this function to succeed should be
+Xdocumented at the top of the module.
+X
+XT2500-specific comments:
+X S0=0        dont allow connect while dialing
+X S54=3       pass BREAK signal to remote modem
+X S64=0       abort dialing if characters sent by DTE
+X S66=1       lock the interface speed
+X S110=0      disable data compression unless requested otherwise
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_dial(telno_str)
+Xchar *telno_str;
+X{
+Xchar cmd[128];
+Xchar phone[50];
+Xint s111_set = 0;
+Xint timeout;
+Xint result;
+Xint rrings = 0;
+Xlong then;
+Xlong now;
+Xchar *cptr;
+Xchar *dialout_default = "ATS0=0S7=40S54=3S64=0S66=1S110=0\r";
+X#define MDVALID	 "0123456789CcEeFfKkMmNnPpRrSsUuWwXxVv*#,!/()-"
+X#ifdef WHT
+X#define RRING_MAX 3
+X#else
+X#define RRING_MAX 6
+X#endif
+X
+X/* preliminary setup */
+X	translate("=,-,",telno_str);
+X	if(strspn(telno_str,MDVALID) != strlen(telno_str))
+X	{
+X		DEBUG(1,"phone number has invalid characters\n",0);
+X		return(RC_FAIL | RCE_PHNO);
+X	}
+X	if(decode_phone_number(telno_str,phone,sizeof(phone)))
+X	{
+X		DEBUG(1,"phone number too long\n",0);
+X		return(RC_FAIL | RCE_PHNO);
+X	}
+X
+X/* walk through dialer codes, doing custom setup */
+X	strcpy(cmd,"AT");
+X	cptr = cmd + strlen(cmd);
+X	if(dialer_codes['C' - 'A'])
+X	{
+X		DEBUG(5,"COMPRESSION requested\n",0);
+X		strcat(cmd,"S110=1");
+X	}
+X	if(dialer_codes['E' - 'A'])
+X	{
+X		DEBUG(5,"ECHO SUPPRESSION requested\n",0);
+X		strcat(cmd,"S121=1");
+X	}
+X	if(dialer_codes['F' - 'A'])
+X	{
+X		DEBUG(5,"XON/XOFF FLOW CONTROL requested\n",0);
+X		strcat(cmd,"S58=3");
+X	}
+X	if(dialer_codes['K' - 'A'])
+X	{
+X		DEBUG(5,"KERMIT requested\n",0);
+X		strcat(cmd,"S111=10");
+X		s111_set++;
+X	}
+X	if(dialer_codes['X' - 'A'])
+X	{
+X		DEBUG(5,"XMODEM requested\n",0);
+X		strcat(cmd,"S111=20");
+X		s111_set++;
+SHAR_EOF
+true || echo 'restore of gendial/dceT2500.c failed'
+fi
+echo 'End of ecu320 part 28'
+echo 'File gendial/dceT2500.c is continued in part 29'
+echo 29 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,844 @@
+Newsgroups: comp.sources.x
+From: mengel@dcdmwm.fnal.gov (Marc W. Mengel)
+Subject: v19i072:  logwatcher -  a graphical monitor for dynamic {log,mail,...} files, Part01/01
+Message-ID: <1993Apr4.003255.1877@sparky.imd.sterling.com>
+X-Md4-Signature: 2cfb1a157f1b4cdfaad6cf345a298f72
+Date: Sun, 4 Apr 1993 00:32:55 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: mengel@dcdmwm.fnal.gov (Marc W. Mengel)
+Posting-number: Volume 19, Issue 72
+Archive-name: logwatcher/part01
+Environment: X11
+
+
+#!/bin/sh
+# This is a shell archive.  Execute this script with /bin/sh
+# to extract the files.
+
+echo Extracting README
+sed -e 's/^X//' > README <<EOF
+XThis is a multiple-mailbox-widget application that lets you associate
+Xshell commands with clicking on various mailbox widgets, as well
+Xas letting you set the bitmap displayed, and placing a name under
+Xeach bitmap.  A simple example is the included  "xbiff.cf" config
+Xfile which puts up 2 mailboxes watching two mailfiles.
+X
+X Originally designed to watch console logs from the Purdue/OSU
+X conserver package, but has thousands of other uses.
+X
+XAuthor: Marc Mengel, Fermi National Accellerator Laboratory, 
+X	<mengel@fnal.fnal.gov>
+X
+XRestrictions: None really; use it as needed, but keep the copyrights in...
+EOF
+echo Extracting Imakefile
+sed -e 's/^X//' > Imakefile <<EOF
+X       INCLUDES = -I\$(TOP)
+XLOCAL_LIBRARIES = \$(XAWLIB) \$(XMULIB) \$(XTOOLLIB) \$(EXTENSIONLIB) \$(XLIB)
+X  SYS_LIBRARIES = -lm
+X           SRCS = gram.c main.c scan.c util.c
+X           OBJS = gram.o main.o scan.o util.o
+X
+XComplexProgramTarget(xbiff)
+X
+Xgram.c: gram.y
+X	yacc -vd gram.y; mv y.tab.c gram.c
+X
+Xscan.c: scan.l
+X	lex scan.l; mv lex.yy.c scan.c
+EOF
+echo Extracting Makefile
+sed -e 's/^X//' > Makefile <<EOF
+XMETA=Makefile gram.y scan.l
+XSRC= Machinelog.c util.c main.c
+XHDR= Machinelog.h MachinelogP.h
+XSRCg=gram.c scan.c
+XHDRg=y.tab.h
+XOBJ= gram.o util.o main.o scan.o 
+X
+XLIB= -L/usr/lpp/X11/Xamples/lib -lXaw -lXmu -lXt -lXext -lX11
+XINCLUDE= 
+XCFLAGS= -g \$(INCLUDE)
+X
+Xall: logwatcher
+X
+Xclean:
+X	rm  -f \$(OBJ) \$(SRCg) \$(HDRg) y.output
+X
+Xlint: lint.errs
+X
+X#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+X
+Xlint.errs: \$(SRC) \$(SRCg)
+X	lint -hxn \$(SRC) \$(SRCg) > lint.errs
+X
+Xlogwatcher: \$(OBJ)
+X	\$(CC) -o logwatcher \$(OBJ) \$(LIB)
+X
+Xgram.c y.tab.h : gram.y
+X	yacc -vd gram.y
+X	mv y.tab.c gram.c
+X
+Xscan.c: scan.l y.tab.h
+X	lex scan.l
+X	mv lex.yy.c scan.c
+EOF
+echo Extracting gram.y
+sed -e 's/^X//' > gram.y <<EOF
+X%{
+X /* (c) 1993 Marc Mengel and Fermilab, who retain a nonexclusive liscence */
+X#include <stdio.h>
+X#include <X11/Xatom.h>
+X#include <X11/Xlib.h>
+X#include <X11/Intrinsic.h>
+X#include <X11/StringDefs.h>
+X#include <X11/Xaw/Form.h>
+X#include <X11/Xaw/Mailbox.h>
+X
+XWidget cur, temp;
+Xchar **ppc;
+X%}
+X
+X%token STRING ITEM INT HEXINT ROW COLUMN COMMAND BITMAP
+X
+X%union {
+X	int i;		/* integer values */
+X	Widget w;	/* Xaw toolkit widgets */
+X	char *pc;	/* character strings */
+X};
+X
+X%type <pc> STRING				/* from scanner */
+X%type <w> group_def vitem_list hitem_list	/* internal use */
+X%type <i> INT HEXINT				/* from scanner */
+X
+X%%
+Xfile 	: def_list group_def ';'
+X	;
+X
+Xdef_list: item_def ';'
+X	| def_list item_def ';'
+X	;
+X
+Xitem_def: ITEM STRING BITMAP STRING
+X		{ 
+X
+X			store(\$2, \$4, 0,0,0);
+X		}
+X	| ITEM STRING COMMAND STRING BITMAP STRING
+X		{ 
+X			ppc = malloc(3*sizeof(char *));
+X			ppc[0] = ppc[1] = ppc[2] = \$4;
+X			store(\$2, \$6, 0,0,ppc);
+X		}
+X	| ITEM STRING COMMAND '(' STRING ',' STRING ',' STRING ')' BITMAP STRING
+X		{ 
+X			ppc = malloc(3*sizeof(char *));
+X			ppc[0] = \$5;
+X			ppc[1] = \$7;
+X			ppc[2] = \$9;
+X			store(\$2, \$12, 0,0,ppc);
+X		}
+X	;
+X
+Xgroup_def
+X	: ROW 	{ push(cur); cur=newform(0,0);} 	'{' hitem_list '}'
+X		{ \$\$ = cur; done(cur);  cur = pop(); }
+X	| COLUMN { push(cur); cur=newform(0,0);}	'{' vitem_list '}'
+X		{ \$\$ = cur; done(cur);  cur = pop(); }
+X	| STRING STRING ';'
+X		{ \$\$ = makeitem( \$1, \$2, 0, 0, 0 ); }
+X	| STRING STRING COMMAND STRING ';'
+X		{ 
+X			ppc = malloc(3*sizeof(char *));
+X			ppc[0] = ppc[1] = ppc[2] = \$4;
+X			\$\$ = makeitem( \$1, \$2, ppc, 0, 0 ); 
+X		}
+X	| STRING STRING COMMAND '(' STRING ',' STRING ',' STRING ')' ';'
+X		{ 
+X			ppc = malloc(3*sizeof(char *));
+X			ppc[0] = \$5;
+X			ppc[1] = \$7;
+X			ppc[2] = \$9;
+X			\$\$ = makeitem( \$1, \$2, ppc, 0, 0 ); 
+X		}
+X	;
+X
+X/*
+X** note that hitem_list and vitem_list are identical *except* that they
+X** pass XtNfromVert and XtNfromHoriz to make the icons stack vertically
+X** or horizantally in the form.
+X*/
+X
+Xvitem_list
+X	: ROW 	{ push(cur); cur=newform(0,0);} 	'{' hitem_list '}' ';'
+X		{ \$\$ = cur; done(cur);  cur = pop(); }
+X	| COLUMN { push(cur); cur=newform(0,0);}	'{' vitem_list '}' ';'
+X		{ \$\$ = cur; done(cur);  cur = pop(); }
+X	| STRING STRING ';'
+X		{ \$\$ = makeitem( \$1, \$2, 0, 0, 0 ); }
+X	| STRING STRING COMMAND STRING ';'
+X		{ \$\$ = makeitem( \$1, \$2, \$4, 0, 0 ); }
+X 	| vitem_list ROW { push(cur); cur=newform(\$1,XtNfromVert);} '{' hitem_list '}' ';'
+X		{ \$\$ = cur; done(cur); cur = pop(); }
+X 	| vitem_list COLUMN {push(cur);cur=newform(\$1,XtNfromVert);} '{' vitem_list '}' ';'
+X		{ \$\$ = cur; done(cur); cur = pop(); }
+X	| vitem_list STRING STRING ';'
+X		{ \$\$ = makeitem( \$2, \$3, 0, \$1, XtNfromVert ); }
+X	| vitem_list STRING STRING COMMAND STRING ';'
+X		{ 
+X			ppc = malloc(3*sizeof(char *));
+X			ppc[0] = \$5;
+X			ppc[1] = \$5;
+X			ppc[2] = \$5;
+X			\$\$ = makeitem( \$2, \$3, ppc, \$1, XtNfromVert ); 
+X		} 
+X	| vitem_list STRING STRING COMMAND '(' STRING ',' STRING ',' STRING ')' ';'
+X		{ 
+X			ppc = malloc(3*sizeof(char *));
+X			ppc[0] = \$6;
+X			ppc[1] = \$8;
+X			ppc[2] = \$10;
+X			\$\$ = makeitem( \$2, \$3, ppc, \$1, XtNfromVert ); 
+X		} 
+X	;
+X
+Xhitem_list
+X	: ROW 	{ push(cur); cur=newform(0,0);} 	'{' hitem_list '}' ';'
+X		{ \$\$ = cur; done(cur); cur = pop(); }
+X	| COLUMN { push(cur); cur=newform(0,0);}	'{' vitem_list '}' ';'
+X		{ \$\$ = cur; done(cur); cur = pop(); }
+X	| STRING STRING ';'
+X		{ \$\$ = makeitem( \$1, \$2, 0, 0, 0 ); }
+X	| STRING STRING COMMAND STRING ';'
+X		{ \$\$ = makeitem( \$1, \$2, \$4, 0, 0 ); }
+X 	| hitem_list ROW { push(cur); cur=newform(\$1,XtNfromHoriz);} '{' hitem_list '}' ';'
+X		{ \$\$ = cur; done(cur); cur = pop(); }
+X 	| hitem_list COLUMN {push(cur);cur=newform(\$1,XtNfromHoriz);} '{' vitem_list '}' ';'
+X		{ \$\$ = cur; done(cur); cur = pop(); }
+X	| hitem_list STRING STRING ';'
+X		{ \$\$ = makeitem( \$2, \$3, 0, \$1, XtNfromHoriz ); }
+X	| hitem_list STRING STRING COMMAND STRING ';'
+X		{ 
+X			ppc = malloc(3*sizeof(char *));
+X			ppc[0] = \$5;
+X			ppc[1] = \$5;
+X			ppc[2] = \$5;
+X			\$\$ = makeitem( \$2, \$3, ppc, \$1, XtNfromHoriz ); 
+X		} 
+X	| hitem_list STRING STRING COMMAND '(' STRING ',' STRING ',' STRING ')' ';'
+X		{ 
+X			ppc = malloc(3*sizeof(char *));
+X			ppc[0] = \$6;
+X			ppc[1] = \$8;
+X			ppc[2] = \$10;
+X			\$\$ = makeitem( \$2, \$3, ppc, \$1, XtNfromHoriz ); 
+X		} 
+X	;
+X%%
+X
+Xyyerror(s) { extern int lines; fprintf(stderr,"line %d:", lines ); perror(s);}
+X
+Xyywrap() { return 1;}
+EOF
+echo Extracting logwatcher.0
+sed -e 's/^X//' > logwatcher.0 <<EOF
+XLOGWATCHER(1)                  Console Tools                     LOGWATCHER(1)
+X
+X
+X
+XNAME
+X   logwatcher -- a graphical monitor for dynamic {log,mail,...} files
+X
+XSYNOPSIS
+X   logwatcher [xoptions] configfile
+X   logwatcher [xoptions] < configfile
+X
+XDESCRIPTION
+X   logwatcher reads a configuration listing icon bitmaps, position
+X   information and log file names, and presents an icon for each
+X   file, which is highlighted when the file grows.  When the icon
+X   for a given log file is pressed, the command associated with
+X   that icon is executed; you can also configure separate commands
+X   for button1, button2, and button3.
+X
+X   Command strings may have a "%s" in them, which is replaced with
+X   the log file name before execution (via sprintf(3)).  Backslash
+X   escapes (like "\\n") are replaced in quoted strings.
+X
+X   Commands can be specified on a per icon-type, and/or a per file
+X   basis, the per file command overrides the per icon-type item.
+X   A list of 3 commands in parenthesis can be given to allow different
+X   commands for different mouse buttons.
+X
+X   The strings in bitmap definitions are names of X bitmap files a'la
+X   bitmap(1).
+X
+X   rows and columns of icons may be nested to group various sets of
+X   items together.
+X
+XEXAMPLES
+X   /* three way xbiff */
+X   icon mailbox command "xterm -e Mail -f %s" 
+X	bitmap /usr/include/X11/bitmaps/flagdown;
+X
+X   row {
+X	mailbox "/usr/mail/fred";
+X	mailbox "/usr/mail/joe";
+X	mailbox "/usr/mail/harry";
+X   };
+X
+X
+XLOGWATCHER(1)                  Console Tools                     LOGWATCHER(1)
+X
+X   
+XGRAMMAR
+X   file : def_list group_def ';'
+X   	;
+X
+X   def_list: item_def ';'
+X   	| def_list item_def ';'
+X   	;
+X
+X   item_def: ITEM STRING BITMAP STRING
+X   	|ITEM STRING COMMAND STRING BITMAP STRING
+X   	|ITEM STRING COMMAND '(' STRING ',' STRING ',' STRING ')' BITMAP STRING
+X   	;
+X
+X   group_def
+X   	: ROW 	 	'{' item_list '}'
+X   	| COLUMN 	'{' item_list '}'
+X   	;
+X
+X   item_list
+X     : ROW 	'{' item_list '}' ';'
+X     | COLUMN 	'{' item_list '}' ';'
+X     | STRING STRING ';'
+X     | STRING STRING COMMAND STRING ';'
+X     | STRING STRING COMMAND '(' STRING ',' STRING ',' STRING ')' ';'
+X     | item_list ROW  '{' item_list '}' ';'
+X     | item_list COLUMN  '{' item_list '}' ';'
+X     | item_list STRING STRING ';'
+X     | item_list STRING STRING COMMAND STRING ';'
+X     | item_list STRING STRING COMMAND '(' STRING ',' STRING ',' STRING ')' ';'
+X     ;
+X
+XRESOURCES
+X   logwatcher*Font
+X
+XAUTHOR
+X   Marc Mengel, Fermi National Accelerator Laboratory
+X
+XSEE ALSO
+X   xbiff(1), printf(3), system(3), bitmap(1)
+X
+XBUGS
+X   There should be some way to unhighlight all of the icons, with or
+X   without executing their commands.
+X
+X   Rows and columns can only be nested 1024 deep.
+X
+X   "\\023" style octal escapes don't work.
+EOF
+echo Extracting logwatcher.cf
+sed -e 's/^X//' > logwatcher.cf <<EOF
+X
+X
+Xicon rs6000 command "./cons  %s" bitmap "rs6000.bm" ;
+X
+Xicon sigma bitmap "sigma.bm" ;
+X 
+Xicon blank bitmap "blank.bm" ;
+X
+Xrow {
+X	row {
+X		column {
+X			rs6000 /usr/farm/log/fnck00;
+X			rs6000 /usr/farm/log/fnck01;
+X			rs6000 /usr/farm/log/fnck02;
+X			rs6000 /usr/farm/log/fnck03;
+X			sigma  _;
+X			rs6000 /usr/farm/log/fnck04;
+X			rs6000 /usr/farm/log/fnck05;
+X			rs6000 /usr/farm/log/fnck06;
+X			rs6000 /usr/farm/log/fnck07;
+X		};
+X		column {
+X			rs6000 /usr/farm/log/fnck08;
+X			rs6000 /usr/farm/log/fnck09;
+X			rs6000 /usr/farm/log/fnck10;
+X			rs6000 /usr/farm/log/fnck11;
+X			blank  _;
+X			rs6000 /usr/farm/log/fnck12;
+X			rs6000 /usr/farm/log/fnck13;
+X			rs6000 /usr/farm/log/fnck14;
+X			rs6000 /usr/farm/log/fnck15;
+X		};
+X		column {
+X			rs6000 /usr/farm/log/fnck16;
+X			rs6000 /usr/farm/log/fnck17;
+X			rs6000 /usr/farm/log/fnck18;
+X			rs6000 /usr/farm/log/fnck19;
+X			sigma  _;
+X			rs6000 /usr/farm/log/fnck20;
+X			rs6000 /usr/farm/log/fnck21;
+X			rs6000 /usr/farm/log/fnck22;
+X			rs6000 /usr/farm/log/fnck23;
+X		};
+X		column {
+X			rs6000 /usr/farm/log/fnck24;
+X			rs6000 /usr/farm/log/fnck25;
+X			rs6000 /usr/farm/log/fnck26;
+X			rs6000 /usr/farm/log/fnck27;
+X			rs6000 /usr/farm/log/fnck28;
+X			rs6000 /usr/farm/log/fnck29;
+X			rs6000 /usr/farm/log/fnck30;
+X			rs6000 /usr/farm/log/fnck31;
+X			rs6000 /usr/farm/log/fnck32;
+X		};
+X	};
+X	row {
+X		column {
+X			rs6000 /usr/farm/log/fnck33;
+X			rs6000 /usr/farm/log/fnck34;
+X			rs6000 /usr/farm/log/fnck35;
+X			rs6000 /usr/farm/log/fnck36;
+X			sigma	_;
+X			rs6000 /usr/farm/log/fnck37;
+X			rs6000 /usr/farm/log/fnck38;
+X			rs6000 /usr/farm/log/fnck39;
+X			rs6000 /usr/farm/log/fnck40;
+X		};
+X		column {
+X			rs6000 /usr/farm/log/fnck41;
+X			rs6000 /usr/farm/log/fnck42;
+X			rs6000 /usr/farm/log/fnck43;
+X			rs6000 /usr/farm/log/fnck44;
+X			blank _;
+X			rs6000 /usr/farm/log/fnck45;
+X			rs6000 /usr/farm/log/fnck46;
+X			rs6000 /usr/farm/log/fnck47;
+X			rs6000 /usr/farm/log/fnck48;
+X		};
+X		column {
+X			rs6000 /usr/farm/log/fnck49;
+X			rs6000 /usr/farm/log/fnck50;
+X			rs6000 /usr/farm/log/fnck51;
+X			rs6000 /usr/farm/log/fnck52;
+X			sigma	_;
+X			rs6000 /usr/farm/log/fnck53;
+X			rs6000 /usr/farm/log/fnck54;
+X			rs6000 /usr/farm/log/fnck55;
+X			rs6000 /usr/farm/log/fnck56;
+X		};
+X		column {
+X			rs6000 /usr/farm/log/fnck57;
+X			rs6000 /usr/farm/log/fnck58;
+X			rs6000 /usr/farm/log/fnck59;
+X			rs6000 /usr/farm/log/fnck60;
+X			rs6000 /usr/farm/log/fnck61;
+X			rs6000 /usr/farm/log/fnck62;
+X			rs6000 /usr/farm/log/fnck63;
+X			rs6000 /usr/farm/log/fnck64;
+X		};
+X	};
+X};
+EOF
+echo Extracting main.c
+sed -e 's/^X//' > main.c <<EOF
+X /* (c) 1993 Marc Mengel and Fermilab, who retain a nonexclusive liscence */
+X/*
+X** pretty straightforward, initialize the toolkit, call the parser
+X** to read in the configuration and build the widgets, and then
+X** call the x toolkit event loop.
+X*/
+X#include <stdio.h>
+X#include <X11/Xatom.h>
+X#include <X11/Xlib.h>
+X#include <X11/Intrinsic.h>
+X#include <X11/StringDefs.h>
+X#include <X11/Xaw/Mailbox.h>
+X#include <X11/Xaw/Form.h>
+X#include "patchlevel.h"
+Xextern void exit();
+Xextern Widget cur;
+X
+Xchar *ProgramName;
+X
+Xstatic void Usage ()
+X{
+X    static char *help_message[] = {
+X"where options include:",
+X"    -display host:dpy              X server to contact",
+X"    -geometry geom                 size of machinelog",
+X"    -bg color                      background color",
+X"    -fg color                      foreground color",
+X"    -n name                        title",
+XNULL};
+X    char **cpp;
+X
+X    fprintf (stderr, "%s", version_id);
+X    fprintf (stderr, "usage:  %s [options ...] [configfile]\\n", ProgramName);
+X    for (cpp = help_message; *cpp; cpp++) {
+X	fprintf (stderr, "%s\\n", *cpp);
+X    }
+X    fprintf (stderr, "\\n");
+X    exit (1);
+X}
+X
+XXtTranslations mytranslations;
+X
+Xextern void Btn1Cmd();
+Xextern void Btn2Cmd();
+Xextern void Btn3Cmd();
+X
+Xstatic XtActionsRec actions[] = {
+X	{"XlogBtn1Cmd", Btn1Cmd},
+X	{"XlogBtn2Cmd", Btn2Cmd},
+X	{"XlogBtn3Cmd", Btn3Cmd},
+X};
+X
+XWidget toplevel;
+X
+Xvoid 
+Xmain (argc, argv)
+X    int argc;
+X    char **argv;
+X{
+X    Widget  w;
+X    int i;
+X    extern int yydebug;
+X    Arg args[5];
+X    char *pcname;
+X     
+X
+X    ProgramName = argv[0];
+X
+X    toplevel = XtInitialize ("main", "XLog", 0, 0,
+X			     &argc, argv);
+X    XtAppAddActions( XtWidgetToApplicationContext(toplevel),
+X		    actions, XtNumber(actions));
+X    mytranslations = XtParseTranslationTable(
+X	"<MapNotify>:unset()\\n\\
+X	 <Btn1Down>,<Btn1Up>:XlogBtn1Cmd()unset()\\n\\
+X	 <Btn2Down>,<Btn2Up>:XlogBtn2Cmd()unset()\\n\\
+X	 <Btn3Down>,<Btn3Up>:XlogBtn3Cmd()unset()\\n"
+X    );
+X 
+X    if (argc == 2) {
+X	freopen(argv[1],"r",stdin);
+X    } else if (argc != 1) {
+X	Usage ();
+X    }
+X
+X    cur = toplevel;
+X
+X    yydebug = 1;
+X    yyparse();
+X    XtRealizeWidget (toplevel);
+X
+X    XtMainLoop ();
+X}
+EOF
+echo Extracting patchlevel.h
+sed -e 's/^X//' > patchlevel.h <<EOF
+Xstatic char ident[] =
+X"@(#)logwatcher 2.3 mengel@dcdmwm ";
+X#define version_id      (ident+4)
+EOF
+echo Extracting scan.l
+sed -e 's/^X//' > scan.l <<EOF
+X%{
+X /* (c) 1993 Marc Mengel and Fermilab, who retain a nonexclusive liscence */
+X#define Widget int
+X#include "y.tab.h"
+X
+Xextern char *strcpy();
+Xchar *strsav(s) char *s; { return strcpy(malloc(strlen(s)+1),s); }
+X
+Xint lines = 1;
+X%}
+X
+X%%
+X
+Xicon			{				   	return ITEM; }
+Xrow			{				   	return ROW; }
+Xcolumn			{ 				   	return COLUMN;}
+Xcommand			{ 				   	return COMMAND;}
+Xbitmap			{				   	return BITMAP; }
+X[-a-zA-Z/_][-a-zA-Z0-9/_]* { yylval.pc = strsav(yytext);	return STRING; }
+X\\"([^\\\\"]|\\\\.)*\\"	{ yylval.pc = strsav(unquote(yytext));	return STRING;}
+X[0-9]+			{ yylval.i =  (int)strtol(yytext,0,10); return INT; }
+X0x[0-9a-f][0-9a-f]	{ yylval.i =  (int)strtol(yytext,0,16); return INT; }
+X[(){},;]		{ return yytext[0];}
+X"/*"([^*]*"*")*"/"	{ ; }
+X"#".*			{ ; }
+X\\n			{ lines++; }
+X.			{ ; }
+EOF
+echo Extracting util.c
+sed -e 's/^X//' > util.c <<EOF
+X /* (c) 1993 Marc Mengel and Fermilab, who retain a nonexclusive liscence */
+X#include <X11/Xatom.h>
+X#include <X11/Xlib.h>
+X#include <X11/Intrinsic.h>
+X#include <X11/StringDefs.h>
+X#include <X11/Xaw/Form.h>
+X#include <X11/Xaw/Label.h>
+X#include <X11/Xaw/Mailbox.h>
+X
+X/*
+X** first a wimpy hash table symbol table to keep icon types
+X*/
+Xtypedef struct item { 
+X	char 	*item, 		/* name of icon type */
+X		**ppcCmds; 
+X	int	bitmap; 	/* bitmap data for icon */
+X	int 	width, height;  /* bitmap dimensions */
+X	struct item *next; 	/* next item in this hash bucket */
+X} ITEM;
+X
+XITEM *hash[256];		/* hash table of item lists */
+X
+X/*
+X** wimpy hash function, xor sum...
+X*/
+Xint hashit(pc)
+X	unsigned char *pc;
+X{
+X	int sum = 0;
+X
+X	while (pc && *pc) {
+X		sum ^= *(pc++);
+X	}
+X	return sum;
+X}
+X
+X/*
+X** routine to add an item to the symbol table 
+X*/
+Xstore( item, bitmap, width, height, ppcCmds )
+X	char *item, **ppcCmds;
+X	int bitmap;
+X	int width, height;
+X{
+X	ITEM *p;
+X	int n, res;
+X	int d;
+X	extern Widget toplevel;
+X
+X	n = hashit(item);
+X	p = malloc(sizeof(ITEM));
+X	p->item = item;
+X	res = XReadBitmapFile(XtDisplay(toplevel),
+X				DefaultRootWindow(XtDisplay(toplevel)),
+X				bitmap,&p->width,&p->height,&p->bitmap,&d,&d);
+X	if (res != BitmapSuccess )
+X		yyerror(bitmap);
+X	p->ppcCmds = ppcCmds;
+X	p->next = hash[n];
+X	hash[n] = p;
+X}
+X
+X/*
+X** make an item instance, with an overriding command name (optional).
+X** prev and direction are the arguments for stacking inside of a
+X** form widget (i.e. XtNvert and the widget above it... )
+X*/
+XWidget
+Xmakeitem( item, name, ppcCmds, prev, direction )
+X	char *item, *name, **ppcCmds;
+X	char *direction;
+X{
+X	int n;
+X	ITEM *p;
+X	Widget w, icn;
+X	extern Widget cur;
+X	extern XtTranslations mytranslations;
+X	char *pcname;
+X 
+X	Arg args[20];
+X	int i, x,y,width,height;
+X
+X	for (p = hash[hashit(item)]; 0 != p && 0 != strcmp(p->item, item); p = p->next)
+X		;
+X	if ( 0 == p ) {
+X		yyerror("nonexistant item");
+X	} else {
+X	    i = 0;
+X	    if ( 0 != prev ) {
+X		    XtSetArg(args[i], direction, prev); i++;
+X	    }
+X	    XtSetArg(args[i], XtNborderWidth, 0); i++;
+X	    XtSetArg(args[i], XtNhorizDistance, 0); i++;
+X	    XtSetArg(args[i], XtNvertDistance, 0); i++;
+X	    w=XtCreateManagedWidget("form",formWidgetClass,cur,args,i);
+X	    i = 0;
+X	    XtSetArg(args[i], XtNfullPixmap, p->bitmap ); i++;
+X	    XtSetArg(args[i], XtNemptyPixmap, p->bitmap ); i++;
+X	    XtSetArg(args[i], XtNwidth, p->width ); i++;
+X	    XtSetArg(args[i], XtNheight, p->height ); i++;
+X	    XtSetArg(args[i], XtNfile, name); i++;
+X	    if ( ppcCmds == NULL ) {
+X		    ppcCmds = p->ppcCmds;
+X	    }
+X	    XtSetArg(args[i], XtNdestroyCallback, ppcCmds); i++;
+X	    XtSetArg(args[i], XtNborderWidth, 0); i++;
+X	    XtSetArg(args[i], XtNhorizDistance, 0); i++;
+X	    XtSetArg(args[i], XtNvertDistance, 0); i++;
+X	    icn = XtCreateManagedWidget("icon",mailboxWidgetClass,w,args,i);
+X	    XtOverrideTranslations(icn,mytranslations);
+X	    if ( 0 != name ) {
+X		    i = 0;
+X		    XtSetArg(args[i], XtNlabel, lastpart(name) );i++;
+X		    XtSetArg(args[i], XtNborderWidth, 0); i++;
+X		    XtSetArg(args[i], XtNfromVert, icn); i++;
+X		    XtSetArg(args[i], XtNborderWidth, 0); i++;
+X		    XtSetArg(args[i], XtNhorizDistance, 0); i++;
+X		    XtSetArg(args[i], XtNvertDistance, 0); i++;
+X		    (void)XtCreateManagedWidget("label",labelWidgetClass,w,
+X								args,i);
+X	    }
+X	}
+X	return w;
+X}
+X
+X/*
+X** makes a new form to hold a column or row of other widgets; called
+X** by the parser when we start a row { ... } or column { ... } construction.
+X** 
+X** prev and direction are for stacking us in our parent's widget.
+X*/
+Xnewform(prev, direction)
+X	char *direction;
+X	Widget prev;
+X{
+X	Widget w;
+X	extern Widget cur;
+X	Arg args[20];
+X	int i,x,y,width,height;
+X	
+X	
+X	i = 0;
+X	if ( 0 != prev ) {
+X		XtSetArg(args[i], direction, prev); i++;
+X	}
+X	    XtSetArg(args[i], XtNborderWidth, 1); i++;
+X	    XtSetArg(args[i], XtNhorizDistance, 0); i++;
+X	    XtSetArg(args[i], XtNvertDistance, 0); i++;
+X	w=XtCreateManagedWidget("form",formWidgetClass,cur,args,i);
+X	return w;
+X}
+X
+X/*
+X** stub routine for debugging, etc. called at the end of a column{...}
+X** or row{...} construction in the parser
+X*/
+Xdone(w)
+X	Widget w;
+X{
+X}
+X
+X/*
+X** now a simple widget stack for keeping track of row and column widgets
+X** so we can build a form within a form and then put more stuff next
+X** to it.  Called from the parser 'cause its more understandable than
+X** sticking stuff in \$1
+X*/
+XWidget stack[1024];
+Xint tos = 0;
+Xpush(w)
+X	Widget w;
+X{
+X	stack[tos++] = w;
+X}
+X
+XWidget pop()
+X{
+X	return stack[--tos];
+X}
+X
+X/*
+X** routine to convert C-style strings from the scanner, so backslashes
+X** etc happen like the C scanner does them.   The conversion is almos
+X** certainly incomplete.
+X*/
+Xunquote(s)
+X	char *s;
+X{
+X	int i, shift = 1;
+X
+X	for( i = 0; s[i+shift] != '"'; i++ ){
+X		if (s[i+shift] == '\\\\') {
+X			shift++;
+X			switch (s[i+shift]) {
+X			case 'n':  s[i+shift] = '\\n'; break;
+X			case 't':  s[i+shift] = '\\t'; break;
+X			case 'b':  s[i+shift] = '\\b'; break;
+X			case 'r':  s[i+shift] = '\\r'; break;
+X			case '"':  s[i+shift] = '\\"'; break;
+X			}
+X		}
+X		s[i] = s[i+shift];
+X	}
+X	s[i] = 0;
+X	return s;
+X}
+X/*
+X** find last component in a filename string so we get shorter labels
+X*/
+X
+Xlastpart(s)
+X	char *s;
+X{
+X	char *s2;
+X
+X	if( s2 = rindex(s,'/')) {
+X		return s2+1;
+X	} else {
+X		return s;
+X	}
+X}
+X
+XBtn1Cmd(w) { DoCommand(w,0);}
+XBtn2Cmd(w) { DoCommand(w,1);}
+XBtn3Cmd(w) { DoCommand(w,2);}
+X
+XDoCommand(w, n)
+X	Widget w;
+X	int n;
+X{
+X	char **ppcCmds, *pcFile;
+X	Arg args[20];
+X	char buf[256];
+X	int i;
+X
+X	i = 0;
+X	XtSetArg(args[i], XtNdestroyCallback, &ppcCmds); i++;
+X	XtSetArg(args[i], XtNfile, &pcFile); i++;
+X	XtGetValues(w, args, i);
+X	if (0 == strcmp(ppcCmds[n] ,"exit"))
+X		exit(0);
+X	sprintf(buf, ppcCmds[n], pcFile );
+X	system(buf);
+X}
+EOF
+echo Extracting xbiff.cf
+sed -e 's/^X//' > xbiff.cf <<EOF
+Xicon mailbox command "xterm -e Mail -f %s" 
+X		bitmap /usr/include/X11/bitmaps/flagdown;
+Xicon quit    command exit
+X		bitmap /usr/include/X11/bitmaps/target;
+X   row {
+X	quit	"quit";
+X	mailbox "/usr/mail/mengel";
+X	mailbox "/usr/mail/root";
+X   };
+EOF
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

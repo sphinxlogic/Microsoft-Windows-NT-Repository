@@ -1,0 +1,1430 @@
+Newsgroups: comp.sources.misc
+From: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Subject:  v29i094:  procmail - mail processing program v2.70, Part05/05
+Message-ID: <1992May11.151809.29667@sparky.imd.sterling.com>
+X-Md4-Signature: 495cd91ef296b898692adbb07a13f548
+Date: Mon, 11 May 1992 15:18:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Posting-number: Volume 29, Issue 94
+Archive-name: procmail/part05
+Environment: UNIX, sendmail, smail, MMDF
+Supersedes: procmail: Volume 28, Issue 01-05
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 5)."
+# Contents:  procmail/Manifest procmail/formail.c procmail/man/mansed
+#   procmail/procmail.c
+# Wrapped by berg@drunol on Thu Apr 30 13:42:58 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'procmail/Manifest' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/Manifest'\"
+else
+echo shar: Extracting \"'procmail/Manifest'\" \(2327 characters\)
+sed "s/^X//" >'procmail/Manifest' <<'END_OF_FILE'
+XMakefile	We all know what that is.
+XREADME		Important, read it.
+XINSTALL		A description of what has to be done to install procmail.
+XFAQ		Lists the things you are too lazy to figure out yourself.
+XHISTORY		Recent and ancient changes, features (or bugs) documented.
+XFEATURES	A summary of all the things procmail is particularly good at.
+Xlockfile.c	main program for lockfile
+Xformail.c	main program for formail
+XManifest	You guessed it.
+Xprocmail.c	main program for procmail.
+Xnonint.c	Collection of routines that don't return ints.
+Xretint.c	Collection of routines that return ints.
+Xgoodies.c	Some real nice routines, deserve to be put in a library.
+Xregexp.c	Custom regular expression library, *fully* egrep compatible.
+Xcommon.c	Some routines that are used by procmail and formail.
+Xexopen.c	Collection of routines about an NFS secure excl. open.
+Xexopen.h	The very same.
+Xstrpbrk.c	A substitute for a possibly missing strpbrk() library function.
+Xstrpbrk.h	Yes.
+Xprocmail.h	Include file with all declarations for procmail.
+X
+Xincludes.h	System include files are all referenced here.
+Xconfig.h	The file to edit if you want to change, yes, the configuration.
+Xautoconf	The shell script that seizes your compiler and machine,
+X		and then creates a file called autoconf.h describing the
+X		kludges that are going to be applied for your installation.
+Xrecommend.c	A program showing the best configuration for you.
+X
+Xshell.h		Defines a few 'shell' macros for malloc and the like.
+Xman/*		Yes, the man pages (made in a labour camp) and two additional
+X		files which makes these man pages auto-adapting.
+Xinclude/*	A few files that are supposed to fool your compiler into
+X		thinking that it has ANSI and POSIX conforming include files.
+Xexamples/?procmailrc
+X		Sample .procmailrc files.
+Xexamples/?rmail
+X		Sample shell scripts that demonstrate how to use
+X		lockfiles while reading the mail (to ensure mail integrity
+X		as soon as you exit the mail program).
+Xexamples/forward
+X		A sample .forward file (MMDF users should disregard this file
+X		and look in the man page).
+Xexamples/advanced
+X		Some extra info for network mounted mailboxes, examples of
+X		advanced .procmailrc expressions and using procmail as
+X		a local delivery agent.
+Xexamples/mailinglist
+X		Comprehensive instructions on maintaining a mailinglist.
+Xexamples/listrc Model-rcfile for use in mailinglists.
+END_OF_FILE
+if test 2327 -ne `wc -c <'procmail/Manifest'`; then
+    echo shar: \"'procmail/Manifest'\" unpacked with wrong size!
+fi
+# end of 'procmail/Manifest'
+fi
+if test -f 'procmail/formail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/formail.c'\"
+else
+echo shar: Extracting \"'procmail/formail.c'\" \(23279 characters\)
+sed "s/^X//" >'procmail/formail.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	formail.c	a mail (re)formatter				*
+X *									*
+X *	Seems to be relatively bug free.				*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	The sources can be freely copied for non-commercial use.	*
+X *	#include "README"						*
+X *									*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic char rcsid[]="$Id: formail.c,v 2.25 1992/04/23 16:26:26 berg Rel $";
+X#endif
+Xstatic char rcsdate[]="$Date: 1992/04/23 16:26:26 $";
+X#include "config.h"					  /* slight overkill */
+X#include "includes.h"
+X#include "strpbrk.h"
+X#include <ctype.h>
+X
+Xchar*pstrspn();
+X
+X#define BSIZE		128
+X
+X#define NAMEPREFIX	"formail: "
+X#define HEAD_DELIMITER	':'
+X
+X#define Re		(re+1)
+X#define putssn(a,l)	tputssn(a,(size_t)(l))
+X#define putcs(a)	(errout=putc(a,mystdout))
+X#define PRDO		poutfd[0]
+X#define PWRO		poutfd[1]
+X#define FLD_HEADSIZ	((size_t)offsetof(struct field,fld_text[0]))
+X
+Xstatic const char couldntw[]="Couldn't write to stdout",unknown[]=UNKNOWN,
+X outofmem[]="Out of memory\n",re[]=" Re:",OldP[]=OLD_PREFIX,
+X From_[]=		FROM,				/* VNIX 'From ' line */
+X path[]=		"Path:",				   /* USENET */
+X article[]=		"Article ",				   /* USENET */
+X returnpath[]=		"Return-Path:",				  /* RFC 822 */
+X received[]=		"Received:",				/* ditto ... */
+X replyto[]=		"Reply-To:",
+X Fromm[]=		"From:",
+X sender[]=		"Sender:",
+X res_replyto[]=		"Resent-Reply-To:",
+X res_from[]=		"Resent-From:",
+X res_sender[]=		"Resent-Sender:",
+X date[]=		"Date:",
+X res_date[]=		"Resent-Date:",
+X to[]=			"To:",
+X res_to[]=		"Resent-To:",
+X cc[]=			"Cc:",
+X res_cc[]=		"Resent-Cc:",
+X bcc[]=			"Bcc:",
+X res_bcc[]=		"Resent-Bcc:",
+X messageid[]=		"Message-ID:",
+X res_messageid[]=	"Resent-Message-ID:",
+X inreplyto[]=		"In-Reply-To:",
+X references[]=		"References:",
+X keywords[]=		"Keywords:",
+X subject[]=		"Subject:",
+X scomments[]=		"Comments:",
+X encrypted[]=		"Encrypted:",
+X errorsto[]=		"Errors-To:",		       /* sendmail extension */
+X retreceiptto[]=	"Return-Receipt-To:",	       /* sendmail extension */
+X summary[]=		"Summary:",			 /* USENET extension */
+X organisation[]=	"Organisation:",			/* ditto ... */
+X aorganization[]=	"Organization:",
+X newsgroups[]=		"Newsgroups:",
+X lines[]=		"Lines:",
+X originator[]=		"Originator:",
+X nntppostinghost[]=	"Nntp-Posting-Host:",
+X status[]=		"Status:",			 /* mailer extension */
+X x_[]=			"X-";				/* general extension */
+X#define ssl(str)	str,STRLEN(str)
+X#define bsl(str)	{ssl(str)}
+Xconst char binsh[]=BinSh;
+X/*
+X *	sender determination fields in order of importance reliability
+X *	reply-address determination fields (wrepl specifies the weight)
+X */
+Xstatic const struct {const char*head;int len,wrepl;}sest[]=
+X{ {ssl(errorsto),5},{ssl(retreceiptto),6},{ssl(sender),0},{ssl(replyto),4},
+X  {ssl(Fromm),2},{ssl(returnpath),1}
+X};
+X/*
+X *	digest splitting fields (if you need to add one, send me a mail, I
+X *	might be interested in including it in the next release)
+X */
+Xstatic const struct {const char*hedr;int lnr;}cdigest[]=
+X{ bsl(path),bsl(article),bsl(returnpath),bsl(received),bsl(replyto),bsl(Fromm),
+X  bsl(sender),bsl(res_replyto),bsl(res_from),bsl(res_sender),bsl(date),
+X  bsl(res_date),bsl(to),bsl(res_to),bsl(cc),bsl(res_cc),bsl(bcc),bsl(res_bcc),
+X  bsl(messageid),bsl(res_messageid),bsl(inreplyto),bsl(references),
+X  bsl(keywords),bsl(subject),bsl(scomments),bsl(encrypted),bsl(errorsto),
+X  bsl(retreceiptto),bsl(summary),bsl(organisation),bsl(aorganization),
+X  bsl(newsgroups),bsl(status),bsl(lines),bsl(originator),bsl(nntppostinghost)
+X};
+X
+Xstatic struct saved{const char*const headr;const int lenr;int rexl;char*rexp;}
+X rex[]={bsl(subject),bsl(references),bsl(messageid),bsl(date)};
+X#define subj	(rex+0)
+X#define refr	(rex+1)
+X#define msid	(rex+2)
+X#define hdate	(rex+3)
+X
+X#ifdef sMAILBOX_SEPARATOR
+Xstatic const char smboxsep[]=sMAILBOX_SEPARATOR,emboxsep[]=eMAILBOX_SEPARATOR;
+X#endif
+X
+Xstatic errout,oldstdout,quiet,buflast;
+Xstatic pid_t child= -1;
+Xstatic FILE*mystdout;
+Xstatic size_t nrskip,nrtotal= -1,buflen,buffilled;
+Xstatic char*buf;
+Xstatic struct field{size_t id_len;size_t tot_len;struct field*fld_next;
+X char fld_text[255];}*rdheader,*iheader,*Iheader,*aheader,*xheader,*nheader;
+X
+Xstruct field*findf(p,hdr)const struct field*const p,*hdr;
+X{ size_t i;char*chp;		/* find a field in the linked list of fileds */
+X  for(i=p->id_len,chp=(char*)p->fld_text;hdr;hdr=hdr->fld_next)
+X     if(i==hdr->id_len&&!strnicmp(chp,hdr->fld_text,i))	 /* case insensitive */
+X	return(struct field*)hdr;
+X  return(struct field*)0;
+X}
+X
+Xvoid*tmalloc(len)const size_t len;
+X{ void*p;
+X  if(p=malloc(len))
+X     return p;
+X  nlog(outofmem);exit(EX_OSERR);
+X}
+X
+Xvoid*trealloc(old,len)void*old;const size_t len;
+X{ if(old=realloc(old,len))
+X     return old;
+X  nlog(outofmem);exit(EX_OSERR);
+X}
+X
+Xtfree(a)void*a;
+X{ free(a);
+X}
+X
+X#include "shell.h"
+X						 /* skips an RFC 822 address */
+Xchar*skipwords(start,end)const char*start,*const end;
+X{ int delim='>',firstch;
+X  if((firstch= *start)=='<')
+X     goto machref;				 /* machine-usable reference */
+X  do
+X   { switch(*start)
+X      { default:					      /* normal word */
+X	   if(firstch!='(')	     /* if it did *not* start with a comment */
+X	    { const char*p;
+Xnotend:	      if(p=strpbrk(start,"([\"<,; \t\n"))	/* find next special */
+X		 switch(*p)			     /* is it a big address? */
+X		  { case '(':case '[':case '"':start=p;continue;
+X		    default:return(char*)p;		/* address delimiter */
+X		  }
+X	      start=strchr(start,'\0')+1;goto notend; /* it can't be the end */
+X	    }
+X	case '(':delim=')';break;				  /* comment */
+X	case '[':delim=']';break;			   /* domain-literal */
+X	case '"':delim='"';
+X      }
+Xmachref:
+X    {int i;
+X     do
+X	if((i= *start++)==delim)		 /* corresponding delimiter? */
+X	   break;
+X	else if(i=='\\'&&*start)		    /* skip quoted character */
+X	   ++start;
+X     while(start<end);						/* anything? */
+X    }
+X   }
+X  while(start<end);
+X  return(char*)end;
+X}
+X
+Xmain(lastm,argv)const char*const argv[];
+X{ int i,j,split=0,force=0,bogus=1,every=0,areply=0,trust=0,digest=0,
+X    nowait=0,keepb=0,minfields=0;
+X  size_t lnl;char*chp,*namep;struct field*fldp,*fp2,**afldp,*fdate;
+X  while(chp=(char*)*++argv)
+X   { if((lastm= *chp++)==FM_SKIP)
+X	goto number;
+X     else if(lastm!=FM_TOTAL)
+X	goto usg;
+X     for(;;)
+X      { switch(lastm= *chp++)
+X	 { case FM_TRUST:trust=1;continue;
+X	   case FM_REPLY:areply=1;continue;
+X	   case FM_FORCE:force=1;continue;
+X	   case FM_EVERY:every=1;continue;
+X	   case FM_DIGEST:digest=1;continue;
+X	   case FM_NOWAIT:nowait=1;continue;
+X	   case FM_KEEPB:keepb=1;continue;
+X	   case FM_QUIET:quiet=1;continue;
+X	   case FM_SPLIT:split=1;
+X	      if(!*chp&&*++argv)
+X		 goto parsedoptions;
+X	      goto usg;
+X	   case FM_MINFIELDS:
+X	     if(!*chp&&!(chp=(char*)*++argv))	/* concatenated or seperate? */
+X		goto usg;
+Xnumber:	   default:
+X	      if(*chp-'0'>(unsigned)9)
+Xusg:	       { log(FM_USAGE);return EX_USAGE;
+X	       }
+X	      i=strtol(chp,(char**)0,10);
+X	      switch(lastm)			/* where does the number go? */
+X	       { case FM_SKIP:nrskip=i;break;
+X		 case FM_TOTAL:nrtotal=i;break;
+X		 default:minfields=i;
+X	       }
+X	      break;
+X	   case FM_BOGUS:bogus=0;continue;
+X	   case FM_ADD_IFNOT:case FM_REN_INSERT:case FM_DEL_INSERT:
+X	   case FM_EXTRACT:
+X	      if(!*chp&&!(chp=(char*)*++argv))	/* concatenated or seperate? */
+X		 goto usg;
+X	      if(!breakfield(chp,i=strlen(chp)))
+X	       { nlog("Invalid field-name: \"");log(chp);log("\"\n");goto usg;
+X	       }
+X	      chp[i++]='\n';			       /* terminate the line */
+X	      addfield(lastm==FM_REN_INSERT?&iheader:lastm==FM_DEL_INSERT?
+X	       &Iheader:lastm==FM_ADD_IFNOT?&aheader:&xheader,chp,i);
+X	   case '\0':;
+X	 }
+X	break;
+X      }
+X   }
+Xparsedoptions:
+X  mystdout=stdout;signal(SIGPIPE,SIG_IGN);
+X  if(split)
+X   { oldstdout=dup(STDOUT);fclose(stdout);startprog(argv);
+X     if(!minfields)			       /* no user specified minimum? */
+X	minfields=DEFminfields;				 /* take our default */
+X   }
+X  else if(every||digest||minfields)	      /* these combinations are only */
+X     goto usg;				  /* valid in combination with split */
+X  if(!areply&&keepb)
+X     goto usg;
+X  namep=malloc(1);buf=malloc(buflen=BSIZE);	       /* prime some buffers */
+X  i=maxindex(rex);
+X  do rex[i].rexp=malloc(1);
+X  while(i--);
+X  fdate=0;addfield(&fdate,date,STRLEN(date)); /* fdate is only for searching */
+X  while((buflast=getchar())=='\n');		     /* skip leading garbage */
+X#ifdef sMAILBOX_SEPARATOR
+X  if(!readhead())				      /* check for a leading */
+X   { if(!strncmp(smboxsep,buf,STRLEN(smboxsep)))	/* mailbox separator */
+X      { buffilled=0;goto startover;				  /* skip it */
+X      }
+X   }
+X  else
+X#endif
+Xstartover:
+X     while(readhead());				 /* read in the whole header */
+X {size_t namel=0;size_t lenparkedbuf;void*parkedbuf;
+X  i=maxindex(rex);
+X  do rex[i].rexl=0;
+X  while(i--);					 /* all state has been reset */
+X  for(fldp=rdheader;fldp;fldp=fldp->fld_next)	    /* go through the linked */
+X   { int nowm;					    /* list of header-fields */
+X     chp=fldp->fld_text;
+X     if((j=fldp->id_len)==STRLEN(From_)&&fldp==rdheader&&eqFrom_(chp))
+X      { nowm=trust?1:3/*wreply*/;goto foundfrom;	    /* leading From_ */
+X      }
+X     concatenate(fldp);i=maxindex(sest);	  /* look for other "sender" */
+X     while((sest[i].len!=j||strnicmp(sest[i].head,chp,j))&&i--);   /* fields */
+X     if(i>=0)						  /* found anything? */
+X      { const char*saddr,*end;
+X	nowm=areply?keepb&&sest[i].head==replyto?    /* determine the weight */
+X	 maxindex(sest)+1:sest[i].wrepl:i;		     /* of this find */
+Xfoundfrom:
+X	saddr=end=chp+fldp->tot_len-1;chp+=j;
+X	for(;;chp=skipwords(chp,end))			/* skip RFC 822 wise */
+X	 { switch(*(chp=pstrspn(chp,",; \t")))
+X	    { default:
+X		 if(saddr==end)		   /* if we haven't got anything yet */
+X		    saddr=chp;			/* this might be the address */
+X	      case '(':continue;		  /* a comment, don't bother */
+X	      case '<':saddr=chp;		  /* hurray, machine useable */
+X	      case '\n':;
+X	    }
+X	   break;
+X	 }	       /* check if the address has any length and extract it */
+X	if((i=skipwords(saddr,end)-saddr)&&(!namel||nowm>lastm))
+X	 { tmemmove(namep=realloc(namep,i+1),saddr,namel=i);
+X	   lastm=mystrstr(namep,".UUCP",end)?nowm-maxindex(sest)-1:nowm;
+X	 }
+X      }					   /* save headers for later perusal */
+X     i=maxindex(rex);chp=fldp->fld_text;j=fldp->id_len;	  /* e.g. for areply */
+X     while((rex[i].lenr!=j||strnicmp(rex[i].headr,chp,j))&&i--);
+X     chp+=j;
+X     if(i>=0&&(j=fldp->tot_len-j)>1)			  /* found anything? */
+X	tmemmove(rex[i].rexp=realloc(rex[i].rexp,rex[i].rexl=j),chp,j);
+X   }
+X  tmemmove(parkedbuf=malloc(buffilled),buf,lenparkedbuf=buffilled);
+X  buffilled=0;	      /* move the contents of buf out of the way temporarily */
+X  if(areply)		      /* autoreply requested, we clean up the header */
+X   { for(fldp= *(afldp= &rdheader);fldp;)
+X	if(!(fp2=findf(fldp,iheader))||fp2->id_len<fp2->tot_len-1)
+X	   *afldp=fldp->fld_next,free(fldp),fldp= *afldp;      /* remove all */
+X	else					/* except the ones mentioned */
+X	   fldp= *(afldp= &fldp->fld_next);		       /* as -i ...: */
+X     loadbuf(to,STRLEN(to));loadchar(' ');	   /* generate the To: field */
+X     if(namel)		       /* did we find a valid return address at all? */
+X	loadbuf(namep,namel);			      /* then insert it here */
+X     else
+X	loadbuf(unknown,STRLEN(unknown));	    /* or insert our default */
+X     loadchar('\n');addbuf();			       /* add it to rdheader */
+X     if(subj->rexl)				      /* any Subject: found? */
+X      { loadbuf(subject,STRLEN(subject));	  /* sure, check for leading */
+X	if(strnicmp(pstrspn(chp=subj->rexp," \t"),Re,STRLEN(Re)))     /* Re: */
+X	   loadbuf(re,STRLEN(re));	       /* no Re: , add one ourselves */
+X	loadsaved(subj);addbuf();
+X      }
+X     if(refr->rexl||msid->rexl)		   /* any References: or Message-ID: */
+X      { loadbuf(references,STRLEN(references));	  /* yes, insert References: */
+X	if(refr->rexl)
+X	 { if(msid->rexl)	    /* if we're going to append a Message-ID */
+X	      --refr->rexl;		    /* suppress the trailing newline */
+X	   loadsaved(refr);
+X	 }
+X	if(msid->rexl)
+X	   loadsaved(msid);		       /* here's our missing newline */
+X	addbuf();
+X      }
+X     if(msid->rexl)			 /* do we add an In-Reply-To: field? */
+X	loadbuf(inreplyto,STRLEN(inreplyto)),loadsaved(msid),addbuf();
+X   }				       /* are we allowed to add From_ lines? */
+X  else if(!force&&(!rdheader||!eqFrom_(rdheader->fld_text))) /* was missing? */
+X   { struct field*old;time_t t;		     /* insert a From_ line up front */
+X     t=time((time_t*)0);old=rdheader;rdheader=0;loadbuf(From_,STRLEN(From_));
+X     if(namel)				  /* we found a valid return address */
+X	loadbuf(namep,namel);
+X     else
+X	loadbuf(unknown,STRLEN(unknown));
+X     if(!hdate->rexl||findf(fdate,iheader)||findf(fdate,Iheader))   /* Date: */
+X	loadchar(' '),chp=ctime(&t),loadbuf(chp,strlen(chp));	/* no Date:, */
+X     else					 /* we generate it ourselves */
+X	loadsaved(hdate);	      /* yes, found Date:, then copy from it */
+X     addbuf();rdheader->fld_next=old;
+X   }
+X  for(fldp=aheader;fldp;fldp=fldp->fld_next)
+X     if(!findf(fldp,rdheader))		       /* only add what didn't exist */
+X	addfield(&nheader,fldp->fld_text,fldp->tot_len);
+X  for(fldp= *(afldp= &rdheader);fldp;)
+X   { i=fldp->tot_len;
+X     if(findf(fldp,xheader))				   /* extract fields */
+X	putssn(fldp->fld_text+fldp->id_len,i-fldp->id_len);
+X     if(fp2=findf(fldp,Iheader))			    /* delete fields */
+X      { *afldp=fldp->fld_next;free(fldp);fldp= *afldp;continue;
+X      }
+X     else if((fp2=findf(fldp,iheader))&&!(areply&&fp2->id_len==fp2->tot_len-1))
+X      { *afldp=fldp=realloc(fldp,FLD_HEADSIZ+(fldp->tot_len=i+STRLEN(OldP)));
+X	tmemmove(fldp->fld_text+STRLEN(OldP),fldp->fld_text,i);
+X	tmemmove(fldp->fld_text,OldP,STRLEN(OldP));	    /* rename fields */
+X      }
+X     fldp= *(afldp= &fldp->fld_next);
+X   }					/* restore the saved contents of buf */
+X  tmemmove(buf,parkedbuf,buffilled=lenparkedbuf);free(parkedbuf);
+X }
+X  if(xheader)				     /* we're just extracting fields */
+X     clearfield(&rdheader),clearfield(&nheader);	    /* throw it away */
+X  else			     /* otherwise, display the new & improved header */
+X   { flushfield(&rdheader);flushfield(&nheader);dispfield(iheader);
+X     dispfield(Iheader);putcs('\n');	      /* make sure it is followed by */
+X   }							    /* an empty line */
+X  if(areply&&!keepb||xheader)	      /* decision time, do we keep the rest? */
+X   { if(split)
+X	closemine();
+X     opensink();					 /* discard the body */
+X   }
+X  lnl=1;					  /* last line was a newline */
+X  if(buffilled==1)		   /* the header really ended with a newline */
+X     buffilled=0;	      /* throw it away, since we already inserted it */
+X  do					 /* continue the quest, line by line */
+X   { if(!buffilled)				      /* is it really empty? */
+X	readhead();				      /* read the next field */
+X     if(!rdheader&&eqFrom_(buf))		 /* special case, From_ line */
+X	addbuf();	       /* add it manually, in case readhead() didn't */
+X     if(rdheader)		    /* anything looking like a header found? */
+X	if(eqFrom_(chp=rdheader->fld_text))	      /* check if it's From_ */
+X	 { register size_t k;
+X	   if(split&&(lnl||every)&&    /* more thorough check for a postmark */
+X	    (k=strcspn(chp=pstrspn(chp+STRLEN(From_)," \t")," \t\n"))&&
+X	    *pstrspn(chp+k," \t")!='\n')
+X	      goto accuhdr;		     /* ok, postmark found, split it */
+X	   if(bogus)						   /* disarm */
+X	      putcs(ESCAP);
+X	 }
+X	else if(split&&digest&&(lnl||every)&&digheadr())	  /* digest? */
+Xaccuhdr: { for(i=minfields;--i&&readhead()&&digheadr(););   /* found enough? */
+X	   if(!i)					   /* then split it! */
+Xsplitit:    { if(!lnl)	    /* did the previous mail end with an empty line? */
+X		 putcs('\n');			      /* but now it does :-) */
+X	      if((fclose(mystdout)==EOF||errout==EOF)&&!quiet)
+X		 nlog(couldntw),log(", continuing...\n"),split= -1;
+X	      if(!nowait)
+X		 waitforit();		 /* wait till the child has finished */
+X	      startprog(argv);goto startover;	    /* and there we go again */
+X	    }
+X	 }
+X#ifdef sMAILBOX_SEPARATOR
+X     if(!strncmp(emboxsep,buf,STRLEN(emboxsep)))	     /* end of mail? */
+X      { if(split)		       /* gobble up the next start separator */
+X	 { buffilled=0;getline();buffilled=0;
+X	   if(buflast!=EOF)					   /* if any */
+X	      goto splitit;
+X	   break;
+X	 }
+X	else if(bogus)
+X	   goto putsp;				   /* escape it with a space */
+X      }
+X     else if(!strncmp(smboxsep,buf,STRLEN(smboxsep)&&bogus))
+Xputsp:	putcs(' ');
+X#endif
+X     lnl=buffilled==1;		      /* check if we just read an empty line */
+X     if(areply&&bogus)					  /* escape the body */
+X	if(fldp=rdheader)	      /* we already read some "valid" fields */
+X	 { register char*p;
+X	   rdheader=0;
+X	   do			       /* careful, then can contain newlines */
+X	    { fp2=fldp->fld_next;chp=fldp->fld_text;
+X	      do putcs(ESCAP),putssn(chp,(p=strchr(chp,'\n')+1)-chp);
+X	      while((chp=p)<fldp->fld_text+fldp->tot_len);
+X	      free(fldp);					/* delete it */
+X	    }
+X	   while(fldp=fp2);		       /* escape all fields we found */
+X	 }
+X	else
+X	 { if(buffilled>1)	  /* we don't escape empty lines, looks neat */
+X	      putcs(ESCAP);
+X	   goto flbuf;
+X	 }
+X     else if(rdheader)
+X	flushfield(&rdheader); /* beware, after this buf can still be filled */
+X     else
+Xflbuf:	putssn(buf,buffilled),buffilled=0;
+X   }			       /* make sure the mail ends with an empty line */
+X  while(buffilled||!lnl||buflast!=EOF);
+X  closemine();child= -1;waitforit();			/* wait for everyone */
+X  return split<0?EX_IOERR:EX_OK;
+X}
+X
+Xconcatenate(fldp)struct field*const fldp;   /* concatenate a continued field */
+X{ register char*p;register size_t l;
+X  l=fldp->tot_len;p=fldp->fld_text;
+X  while(l--)
+X     if(*p++=='\n'&&l)	     /* by substituting all newlines except the last */
+X	p[-1]=' ';
+X}
+X
+XeqFrom_(a)const char*const a;
+X{ return!strncmp(a,From_,STRLEN(From_));
+X}
+X     /* checks if the last field in rdheader looks like a know digest header */
+Xdigheadr()
+X{ char*chp;int i,j;struct field*fp;
+X  for(fp=rdheader;fp->fld_next;fp=fp->fld_next);	 /* skip to the last */
+X  i=maxindex(cdigest);chp=fp->fld_text;j=fp->id_len;
+X  while((cdigest[i].lnr!=j||strnicmp(cdigest[i].hedr,chp,j))&&i--);
+X  return i>=0||j>STRLEN(x_)&&!strnicmp(x_,chp,STRLEN(x_));
+X}
+X
+Xbreakfield(line,len)const char*const line;size_t len;	   /* look where the */
+X{ const char*p=line;			   /* fieldname ends (RFC 822 specs) */
+X  if(eqFrom_(line))				      /* special case, From_ */
+X     return STRLEN(From_);
+X  while(len--&&!iscntrl(*p))		    /* no control characters allowed */
+X   { switch(*p++)
+X      { default:continue;
+X	case HEAD_DELIMITER:len=p-line;return len==1?0:len;	  /* eureka! */
+X	case ' ':;					/* no spaces allowed */
+X      }
+X     break;
+X   }
+X  return 0;		    /* sorry, does not seem to be a legitimate field */
+X}
+X
+Xaddfield(pointer,text,totlen)register struct field**pointer;	  /* add new */
+X const char*const text;const size_t totlen;	   /* field to a linked list */
+X{ register struct field*p;
+X  while(*pointer)			      /* skip to the end of the list */
+X     pointer= &(*pointer)->fld_next;
+X  (*pointer=p=malloc(FLD_HEADSIZ+totlen))->fld_next=0;	 /* create the field */
+X  p->id_len=breakfield(text,totlen);
+X  tmemmove(p->fld_text,text,p->tot_len=totlen);		/* copy the contents */
+X}
+X
+Xclearfield(pointer)register struct field**pointer;	 /* delete the whole */
+X{ register struct field*p,*q;			    /* linked list of fields */
+X  for(p= *pointer,*pointer=0;p;p=q)
+X     q=p->fld_next,free(p);
+X}
+X
+Xflushfield(pointer)register struct field**pointer;	 /* delete and print */
+X{ register struct field*p,*q;				   /* them as you go */
+X  for(p= *pointer,*pointer=0;p;p=q)
+X     q=p->fld_next,putssn(p->fld_text,p->tot_len),free(p);
+X}
+X
+Xdispfield(p)const register struct field*p;   /* print list non-destructively */
+X{ for(;p;p=p->fld_next)
+X     if(p->id_len<p->tot_len-1)			 /* any contents to display? */
+X	putssn(p->fld_text,p->tot_len);
+X}
+X
+Xreadhead()	    /* try and append one valid field to rdheader from stdin */
+X{ getline();
+X  if(!eqFrom_(buf))				    /* it's not a From_ line */
+X   { if(!breakfield(buf,buffilled))	   /* not the start of a valid field */
+X	return 0;
+X     for(;;getline())		      /* get the rest of the continued field */
+X      { switch(buflast)			     /* will this line be continued? */
+X	 { case ' ':case '\t':continue;			  /* yep, it sure is */
+X	 }
+X	break;
+X      }
+X   }
+X  else if(rdheader)
+X     return 0;				       /* the From_ line was a fake! */
+X  addbuf();return 1;		  /* phew, got the field, add it to rdheader */
+X}
+X
+Xaddbuf()
+X{ addfield(&rdheader,buf,buffilled);buffilled=0;
+X}
+X
+Xgetline()				   /* read a newline-terminated line */
+X{ if(buflast!=EOF)			     /* do we still have a leftover? */
+X     loadchar(buflast);				  /* load it into the buffer */
+X  if(buflast!='\n')
+X   { int ch;
+X     while((ch=getchar())!=EOF&&ch!='\n')
+X	loadchar(ch);				/* load the rest of the line */
+X     loadchar('\n');		    /* make sure (!), it ends with a newline */
+X   }		/* (some code in formail.c depends on a terminating newline) */
+X  return buflast=getchar();			/* look ahead, one character */
+X}
+X
+Xloadsaved(sp)const struct saved*const sp;	   /* load a some saved text */
+X{ switch(*sp->rexp)
+X   { default:loadchar(' ');	       /* make sure it has leading whitspace */
+X     case ' ':case '\t':;
+X   }
+X  loadbuf(sp->rexp,sp->rexl);
+X}
+X
+Xloadbuf(text,len)const char*const text;const size_t len;    /* append to buf */
+X{ if(buffilled+len>buflen)			  /* buf can't hold the text */
+X     buf=realloc(buf,buflen+=BSIZE);
+X  tmemmove(buf+buffilled,text,len);buffilled+=len;
+X}
+X
+Xloadchar(c)const int c;			      /* append one character to buf */
+X{ if(buffilled==buflen)
+X     buf=realloc(buf,buflen+=BSIZE);
+X  buf[buffilled++]=c;
+X}
+X
+Xlog(a)const char*const a;				     /* error output */
+X{ fputs(a,stderr);
+X}
+X
+Xtputssn(a,l)const char*a;size_t l;
+X{ while(l--)
+X     putcs(*a++);
+X}
+X
+Xstartprog(argv)const char*const*const argv;
+X{ int poutfd[2];
+X  if(!nrtotal)					/* no more mails to display? */
+X     goto squelch;
+X  if(nrskip)				  /* should we still skip this mail? */
+X   { --nrskip;							 /* count it */
+Xsquelch:
+X     opensink();return;
+X   }
+X  if(nrtotal>0)
+X     --nrtotal;							 /* count it */
+X  dup(oldstdout);pipe(poutfd);
+X  if(!(child=fork()))	/* DON'T fclose(stdin) here, provokes a bug on HP/UX */
+X   { close(STDIN);close(oldstdout);close(PWRO);dup(PRDO);close(PRDO);
+X     shexec(argv);
+X   }
+X  close(STDOUT);close(PRDO);
+X  if(STDOUT!=dup(PWRO)||!(mystdout=fdopen(STDOUT,"a")))
+X     nofild();
+X  close(PWRO);
+X  if(-1==child)
+X     nlog("Can't fork\n"),exit(EX_OSERR);
+X}
+X
+Xnofild()
+X{ nlog("File table full\n");exit(EX_OSERR);
+X}
+X
+Xwaitforit()
+X{ int i;pid_t j;
+X  while(child!=(j=wait(&i))||WIFSTOPPED(i))
+X    if(-1==j)
+X       return;
+X}
+X
+Xnlog(a)const char*const a;
+X{ log(NAMEPREFIX);log(a);
+X}
+X
+Xlogqnl(a)const char*const a;
+X{ log(" \"");log(a);log("\"\n");
+X}
+X
+Xclosemine()
+X{ if((fclose(mystdout)==EOF||errout==EOF)&&!quiet)
+X     nlog(couldntw),log("\n"),exit(EX_IOERR);
+X}
+X
+Xopensink()
+X{ if(!(mystdout=fopen(DevNull,"a")))
+X     nofild();
+X}
+X
+Xstrnicmp(a,b,l)register const char*a,*b;register unsigned l;
+X{ int i,j;
+X  if(l)						 /* case insensitive strncmp */
+X     do
+X      { while(*a&&*a==*b&&--l)
+X	   ++a,++b;
+X	if(!l)
+X	   break;
+X	if((i= *a++)>='A'&&i<='Z')
+X	   i+='a'-'A';
+X	if((j= *b++)>='A'&&j<='Z')
+X	   j+='a'-'A';
+X	if(j!=i)
+X	   return i>j?1:-1;
+X      }
+X     while(i&&j&&--l);
+X  return 0;
+X}
+X
+Xmystrstr(whole,part,end)const char*whole,*const part,*end;
+X{ size_t i;
+X  for(end-=(i=strlen(part))+1;--end>=whole;)
+X     if(!strncmp(end,part,i))
+X	return 1;
+X  return 0;
+X}
+END_OF_FILE
+if test 23279 -ne `wc -c <'procmail/formail.c'`; then
+    echo shar: \"'procmail/formail.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/formail.c'
+fi
+if test -f 'procmail/man/mansed' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/man/mansed'\"
+else
+echo shar: Extracting \"'procmail/man/mansed'\" \(283 characters\)
+sed "s/^X//" >'procmail/man/mansed' <<'END_OF_FILE'
+X
+X#$Id: mansed,v 2.2 1992/03/06 12:40:16 berg Rel $
+X
+XSHELL=$3 || exec $3 man/mansed $* # we're in a csh, feed myself to sh
+Xexport SHELL
+XRM="$4"
+X
+Xif test ! -f "$2"
+Xthen
+X trap "$RM \"$2\";exit 1" 1 2 3 15
+Xfi
+X
+Xsed -f man/man.sed <"$1" >"$2"
+X
+Xif test -f "$2"
+Xthen
+X exit 0
+Xelse
+X exit 1
+Xfi
+END_OF_FILE
+if test 283 -ne `wc -c <'procmail/man/mansed'`; then
+    echo shar: \"'procmail/man/mansed'\" unpacked with wrong size!
+fi
+# end of 'procmail/man/mansed'
+fi
+if test -f 'procmail/procmail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/procmail.c'\"
+else
+echo shar: Extracting \"'procmail/procmail.c'\" \(23455 characters\)
+sed "s/^X//" >'procmail/procmail.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	procmail.c	an autonomous mail processor			*
+X *									*
+X *	It has been designed to be able to be run suid root and (in	*
+X *	case your mail spool area is *not* world writeable) sgid	*
+X *	mail (or daemon), without creating security holes.		*
+X *									*
+X *	Seems to be perfect.						*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	The sources can be freely copied for non-commercial use.	*
+X *	#include "README"						*
+X *									*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic char rcsid[]="$Id: procmail.c,v 2.33 1992/04/29 15:54:33 berg Rel $";
+X#endif
+X#include "config.h"
+X#define MAIN
+X#include "procmail.h"
+X#include "shell.h"
+X#include "patchlevel.h"
+X
+Xchar*buf,*buf2,*globlock,*loclock,*tolock,*lastfolder;
+Xconst char shellflags[]="SHELLFLAGS",shell[]="SHELL",
+X shellmetas[]="SHELLMETAS",lockext[]="LOCKEXT",newline[]="\n",binsh[]=BinSh,
+X unexpeof[]="Unexpected EOL\n",*const*gargv,*sgetcp,*rcfile=PROCMAILRC,
+X dirsep[]=DIRSEP,msgprefix[]="MSGPREFIX",devnull[]=DevNull,
+X executing[]="Executing",oquote[]=" \"",cquote[]="\"\n",procmailn[]="procmail",
+X whilstwfor[]=" whilst waiting for ",sdelivered[]="DELIVERED";
+Xstatic const char slinebuf[]="LINEBUF",tokey[]=TOkey,eumask[]="UMASK",
+X tosubstitute[]=TOsubstitute,lockfile[]="LOCKFILE",defaultf[]="DEFAULT",
+X maildir[]="MAILDIR",couldnread[]="Couldn't read",logfile[]="LOGFILE",
+X orgmail[]="ORGMAIL",user[]="USER",tmp[]=Tmp,home[]="HOME",sfolder[]=FOLDER,
+X sendmail[]="SENDMAIL",host[]="HOST",Log[]="LOG",From[]=FROM,
+X exflags[]=RECFLAGS,system_mbox[]=SYSTEM_MBOX,cldchd[]="Couldn't chdir to";
+Xstruct varval strenvvar[]={{"LOCKSLEEP",DEFlocksleep},
+X {"LOCKTIMEOUT",DEFlocktimeout},{"SUSPEND",DEFsuspend},
+X {"NORESRETRY",DEFnoresretry},{"TIMEOUT",DEFtimeout}};
+Xlong lastdump;			 /* the no. of bytes dumped (saved) recently */
+Xint retval=EX_CANTCREAT,retvl2=EX_OK,sh,pwait,lcking,locknext,verbose,rc= -2,
+X tofolder,tofile,ignwerr,fakedelivery,
+X linebuf=mx(DEFlinebuf,STRLEN(system_mbox)<<1);
+Xvolatile int nextexit;			       /* if termination is imminent */
+Xvolatile time_t alrmtime;
+Xpid_t thepid,pidchild;
+Xstatic volatile mailread;	/* if the mail is completely read in already */
+Xstatic long filled;				   /* the length of the mail */
+Xstatic char*themail,*thebody;		    /* the head and body of the mail */
+X
+Xmain(argc,argv)const char*const argv[];
+X{ static char flags[maxindex(exflags)-1];
+X  static const char*const keepenv[]=KEEPENV,*const prestenv[]=PRESTENV,
+X   *const trusted_ids[]=TRUSTED_IDS;
+X  char*chp,*startchar,*chp2,*fromwhom=0;long tobesent;
+X  int i,lastcond,succeed;uid_t uid;gid_t gid;
+X#define Deliverymode	lastcond
+X#define Presenviron	i
+X#define Privileged	succeed
+X  Deliverymode=strcmp(lastdirsep(argv[0]),procmailn);
+X  for(Presenviron=argc=0;(chp=(char*)argv[++argc])&&*chp=='-';)
+X     for(;;)					       /* processing options */
+X      { switch(*++chp)
+X	 { case VERSIONOPT:log(VERSION);return EX_OK;
+X	   case PRESERVOPT:Presenviron=1;continue;
+X	   case TEMPFAILOPT:retval=EX_TEMPFAIL;continue;
+X	   case FROMWHOPT:case ALTFROMWHOPT:
+X	      if(*++chp)
+X		 fromwhom=chp;
+X	      else if(chp=(char*)argv[argc+1])
+X		 ++argc,fromwhom=chp;
+X	      else
+X		 log("Missing name\n");
+X	      break;
+X	   case DELIVEROPT:Deliverymode=1;++chp;goto last_option;
+X	   default:log("Unrecognised options:");logqnl(chp);
+X	      log(PROCMAIL_USAGE);log("Processing continued\n");
+X	   case '\0':;
+X	 }
+X	break;
+X      }
+Xlast_option:
+X  if(!Presenviron)				     /* drop the environment */
+X   { const char**emax=(const char**)environ,*const*ep,*const*kp;
+X     for(kp=keepenv;*kp;++kp)			     /* preserve a happy few */
+X	for(i=strlen(*kp),ep=emax;chp2=(char*)*ep;++ep)
+X	   if(!strncmp(*kp,chp2,i)&&chp2[i]=='=')
+X	    { *emax++=chp2;break;
+X	    }
+X     *emax=0;						    /* drop the rest */
+X   }
+X  if(Deliverymode&&(!chp||(!*chp&&!(chp=(char*)argv[++argc]))))
+X     Deliverymode=0,log("Missing recipient\n");
+X {struct passwd*pass,*passinvk;
+X  passinvk=getpwuid(uid=getuid());Privileged=1;
+X  if(*trusted_ids&&uid!=geteuid())
+X   { struct group*grp;const char*const*kp;
+X     if(passinvk)			      /* check out the invoker's uid */
+X	for(chp2=passinvk->pw_name,kp=trusted_ids;*kp;)
+X	   if(!strcmp(chp2,*kp++))	      /* is it among the privileged? */
+X	    { endpwent();goto privileged;
+X	    }
+X     endpwent();
+X     if(grp=getgrgid(getgid()))		      /* check out the invoker's gid */
+X       for(chp2=grp->gr_name,kp=trusted_ids;*kp;)
+X	  if(!strcmp(chp2,*kp++))	      /* is it among the privileged? */
+X	   { endgrent();goto privileged;
+X	   }
+X    endgrent();Privileged=0;
+X    if(Deliverymode)
+X       fromwhom=0;
+X  }
+Xprivileged:
+X  umask(INIT_UMASK);fclose(stdout);fclose(stderr);rclose(STDOUT);
+X  rclose(STDERR);
+X  if(0>opena(devnull)||0>opena(vconsole)&&0>opena(devnull))
+X     return EX_OSFILE;			  /* couldn't open stdout and stderr */
+X  setbuf(stdin,(char*)0);buf=malloc(linebuf);buf2=malloc(linebuf);
+X  thepid=getpid();
+X#ifdef SIGXCPU
+X  signal(SIGXCPU,SIG_IGN);signal(SIGXFSZ,SIG_IGN);
+X#endif
+X  signal(SIGPIPE,SIG_IGN);signal(SIGTERM,srequeue);signal(SIGINT,sbounce);
+X  signal(SIGHUP,sbounce);signal(SIGQUIT,slose);signal(SIGALRM,ftimeout);
+X  ultstr(0,(unsigned long)uid,buf);
+X  chp2=fromwhom?fromwhom:!passinvk||!*passinvk->pw_name?buf:passinvk->pw_name;
+X  {time_t t;
+X  t=time((time_t*)0);startchar=ctime(&t);		 /* the current time */
+X  }
+X  strncpy(buf2,chp2,i=linebuf-strlen(startchar)-2);buf2[i]='\0';
+X  strcat(strcat(buf2," "),startchar);
+X  thebody=themail=malloc((tobesent=STRLEN(From)+strlen(buf2))+STRLEN(From));
+X  filled=0;
+X  if(Deliverymode||fromwhom)	 /* do we need to peek for a leading From_ ? */
+X   { int r;
+X     while(1==(r=rread(STDIN,themail,1))&&*themail=='\n');   /* skip garbage */
+X     if(STRLEN(From)-1==(i=rread(STDIN,themail+1,STRLEN(From)-1))&&
+X      !strncmp(From,themail,STRLEN(From)))	      /* is it a From_ line? */
+X      { if(fromwhom||!Privileged)
+X	 { char a;
+X	   while(1==rread(STDIN,&a,1)&&a!='\n');   /* discard the From_ line */
+X	   i=0;goto Frominserted;
+X	 }
+X	filled=STRLEN(From);		       /* leave the From_ line alone */
+X      }
+X     else		   /* move the read-ahead text beyond our From_ line */
+X      { tmemmove(themail+tobesent,themail,i=r<=0?0:i>0?i+1:1);
+X	strcpy(themail,From);			  /* insert From_ of our own */
+XFrominserted:
+X	tmemmove(themail+STRLEN(From),buf2,tobesent-STRLEN(From));
+X	filled=tobesent+i;
+X      }
+X   }
+X  readmail(0,0L);chdir(tmp);		      /* read in the mail completely */
+X  if(Deliverymode)
+X     do
+X      { chp2=chp;
+X#ifndef NO_USER_TO_LOWERCASE_HACK
+X	for(;*chp;chp++)
+X	   if(*chp>='A'&&*chp<='Z')	  /* kludge recipient into lowercase */
+X	      *chp+='a'-'A';	 /* because getpwnam might be case sensitive */
+X#endif
+X	if(argv[++argc])			  /* more than one recipient */
+X	   if(pidchild=sfork())
+X	    { if(forkerr(pidchild,procmailn)||waitfor(pidchild)!=EX_OK)
+X		 retvl2=retval;
+X	      pidchild=0;		      /* loop for the next recipient */
+X	    }
+X	   else
+X	    { thepid=getpid();
+X	      while(argv[++argc]);	    /* skip till end of command line */
+X	    }
+X      }
+X     while(chp=(char*)argv[argc]);
+X  gargv=argv+argc;				 /* save it for nextrcfile() */
+X  if(geteuid()==ROOT_uid&&Deliverymode&&(pass=getpwnam(chp2))||
+X   (pass=passinvk))
+X    /*
+X     *	set preferred uid to the intended recipient
+X     */
+X   { gid=pass->pw_gid;uid=pass->pw_uid;setdef(home,pass->pw_dir);
+X     chdir(pass->pw_dir);setdef(user,*pass->pw_name?pass->pw_name:buf);
+X     setdef(shell,pass->pw_shell);
+X   }
+X  else			 /* user could not be found, set reasonable defaults */
+X    /*
+X     *	set preferred uid to nobody, in case we are running as root
+X     */
+X   { setdef(home,tmp);setdef(user,buf);setdef(shell,binsh);
+X     setgid(gid=NOBODY_gid);setuid(uid=NOBODY_uid);
+X   }
+X  endpwent();
+X }
+X  setdef(orgmail,system_mbox);setdef(shellmetas,DEFshellmetas);
+X  setdef(shellflags,DEFshellflags);setdef(maildir,DEFmaildir);
+X  setdef(defaultf,DEFdefault);setdef(sendmail,DEFsendmail);
+X  setdef(lockext,DEFlockext);setdef(msgprefix,DEFmsgprefix);
+X {const char*const*kp;
+X  for(kp=prestenv;*kp;)	    /* preset or wipe selected environment variables */
+X     strcpy((char*)(sgetcp=buf2),*kp++),readparse(buf,sgetc,2),sputenv(buf);
+X }
+X  if(chdir(chp=(char*)getenv(maildir)))
+X     log(cldchd),logqnl(chp);
+X /*
+X  *	check if the original/default mailbox of the recipient exists, if
+X  *	does, perform some security checks on it (check if it's a regular
+X  *	file, check if it's owned by the recipient), if something is wrong
+X  *	try and move the bogus mailbox out of the way,	create the
+X  *	original/default mailbox file, and chown it to the recipient
+X  */
+X  chp=(char*)getenv(orgmail);strncpy(buf,chp,i=lastdirsep(chp)-chp);
+X {struct stat stbuf; /* check if the recipient's system mailbox is a link */
+X  if(!lstat(chp,&stbuf))
+X     if(!(stbuf.st_mode&S_IWUSR)||S_ISLNK(stbuf.st_mode)||
+X      (S_ISDIR(stbuf.st_mode)?!(stbuf.st_mode&S_IXUSR):stbuf.st_nlink!=1))
+X	goto bogusbox;		 /* we only deliver to real files (security) */
+X     else if(stbuf.st_uid!=uid)		     /* the recipient doesn't own it */
+Xbogusbox:					     /* bogus mailbox found! */
+X      { ultoan((unsigned long)stbuf.st_ino,		  /* i-node numbered */
+X	 strchr(strcpy(buf+i,BOGUSprefix),'\0'));
+X	if(rename(chp,buf))		   /* try and move it out of the way */
+X	   goto fishy;		 /* couldn't rename, something is fishy here */
+X      }
+X     else
+X	goto notfishy;				       /* everything is fine */
+X  buf[i]='\0';
+X  if(!stat(buf,&stbuf)&&
+X   (stbuf.st_mode&(S_IWGRP|S_IXGRP|S_IWOTH))==(S_IWGRP|S_IXGRP)&&
+X   stbuf.st_gid==(gid_t)(tobesent=getegid()))
+X     umask(INIT_UMASK&~S_IRWXG);			    /* keep the gid? */
+X  else
+X     tobesent=gid;
+X /*
+X  *	try and create the file, check if it can be chowned to the recipient
+X  *	if not, then we're either not root or accessing a secure NFS-partition
+X  *	in the latter case, the created file is owned by nobody, not good, so
+X  *	we unlink it again, set our uid to the recipient and try again
+X  */
+X  if(NFSxopen(chp,NORMperm,(time_t*)0))
+X     goto fishy;
+X  if(chown(chp,uid,(gid_t)tobesent)&&
+X   (unlink(chp),setgid(gid),setuid(uid),NFSxopen(chp,NORMperm,(time_t*)0)))
+Xfishy:
+X     sputenv(orgmail),sputenv(defaultf);
+X  umask(INIT_UMASK);
+Xnotfishy:
+X  cat(chp,getenv(lockext));			   /* remove bogus lockfiles */
+X  if(!lstat(strcpy(buf2,buf),&stbuf)&&stbuf.st_uid!=uid)
+X   { ultoan((unsigned long)stbuf.st_ino,		  /* i-node numbered */
+X      strchr(strcpy(buf+i,BOGUSprefix),'\0'));
+X     rename(buf2,buf);			   /* try and move it out of the way */
+X   }
+X }
+X  if(!Deliverymode)			       /* not explicit delivery mode */
+X    /*
+X     *	really change the uid now, since we are not in explicit
+X     *	delivery mode
+X     */
+X     setgid(gid),setuid(uid),nextrcfile();
+X  do					     /* main rcfile interpreter loop */
+X   { alarm((unsigned)(alrmtime=0));			    /* reset timeout */
+X     while(chp=(char*)argv[argc])      /* interpret command line specs first */
+X      { argc++;
+Xlikearg:
+X	strcpy(buf,chp);
+X	if(chp=strchr(buf,'='))
+X	 { strcpy((char*)(sgetcp=buf2),++chp);readparse(chp,sgetc,2);
+X	   goto argenv;
+X	 }
+X      }
+X     if(rc<0)						 /* open new rc file */
+X      { struct stat stbuf;
+X       /*
+X	*	if we happen to be still running as root, and the rcfile
+X	*	is mounted on a secure NFS-partition, we might not be able
+X	*	to access it, so check if we can stat it, if yes, drop
+X	*	all rights and set uid to the recipient beforehand
+X	*/
+X	while(*buf='\0',stat(strcat(
+X	 strchr(dirsep,*rcfile)?buf:cat(tgetenv(home),MCDIRSEP),rcfile),
+X	 &stbuf)||!(stbuf.st_mode&S_IRUSR)?0:(setgid(gid),setuid(uid)),
+X	 0>bopen(buf))
+Xfake_rc: { log(couldnread);logqnl(buf);
+X	   if(!nextrcfile())		      /* not available? try the next */
+X	    { bopen(devnull);goto nomore_rc;
+X	    }
+X	 }
+X       /*
+X	*	OK, so now we have opened an rcfile, but for security reasons
+X	*	we only accept it if it is owned by the recipient or if the
+X	*	$HOME directory is not world writeable
+X	*/
+X	if(lstat(buf,&stbuf)||
+X	 (stbuf.st_uid!=uid&&(stat(tgetenv(home),&stbuf)||
+X	 (stbuf.st_mode&(S_IWOTH|S_IXOTH))==(S_IWOTH|S_IXOTH))))
+X	 { rclose(rc);goto fake_rc;
+X	 }
+X       /*
+X	*	set uid back to recipient in any case, since we might just
+X	*	have opened his/her .procmailrc (don't remove these, since
+X	*	the rcfile might have been created after the first stat)
+X	*/
+X	succeed=lastcond=0;setgid(gid);setuid(uid);
+X      }
+X     unlock(&loclock);				/* unlock any local lockfile */
+X     do skipspace();					  /* skip whitespace */
+X     while(testb('\n'));
+X     if(testb(':'))				       /* check for a recipe */
+X      { readparse(buf,getb,0);sh=strtol(buf,&chp,10);
+X	if(chp==buf)					 /* no number parsed */
+X	   sh= -1;
+X	if(tolock)		 /* clear temporary buffer for lockfile name */
+X	   free(tolock);
+X	for(i=maxindex(flags);flags[i]=0,i--;);		  /* clear the flags */
+X	for(tolock=0,locknext=0;;)
+X	 { switch(i= *chp++)
+X	    { default:
+X		 if(!(chp2=strchr(exflags,i)))	   /* check for a valid flag */
+X		  { --chp;break;
+X		  }
+X		 flags[chp2-exflags]=1;			     /* set the flag */
+X	      case ' ':case '\t':continue;
+X	      case '\0':
+X		 if(*chp!=TMNATE)		/* if not the real end, skip */
+X		    continue;
+X		 break;
+X	      case ':':locknext=1;	    /* yep, local lockfile specified */
+X		 if(*chp||*++chp!=TMNATE)
+X		    tolock=tstrdup(chp),chp=strchr(chp,'\0')+1;
+X	    }
+X	   if(concatenate(chp))
+X	      skipped(chp);			    /* display any leftovers */
+X	   break;
+X	 }
+X	if(sh<0)	  /* assume the appropriate default nr of conditions */
+X	   sh=!flags[ALSO_NEXT_RECIPE]&&!flags[ALSO_N_IF_SUCC];
+X	startchar=themail;tobesent=thebody-themail;
+X	if(flags[BODY_GREP])		       /* what needs to be egrepped? */
+X	   if(flags[HEAD_GREP])
+X	      tobesent=filled;
+X	   else
+X	      startchar=thebody,tobesent=filled-tobesent;
+X	i=flags[ALSO_NEXT_RECIPE]?lastcond:1;		  /* init test value */
+X	if(flags[ALSO_N_IF_SUCC])
+X	   i=lastcond&&succeed;		/* only if the last recipe succeeded */
+X	while(sh--)				    /* any conditions (left) */
+X	 { skipspace();getbl(buf2);
+X	   if(!strncmp(buf2,tokey,STRLEN(tokey)))	     /* magic TOkey? */
+X	      cat(tosubstitute,buf2+STRLEN(tokey));
+X	   else if(*buf=='!'&&!strncmp(buf2+1,tokey,STRLEN(tokey)))  /* yes! */
+X	      strcat(cat("!",tosubstitute),buf2+1+STRLEN(tokey));
+X	   else
+X	      strcpy(buf,buf2);
+X	   if(i)				 /* check out all conditions */
+X	    { chp=buf+1;
+Xsubstituted:  strcpy((char*)(sgetcp=buf2),buf);
+X	      switch(*buf)
+X	       { default:--chp;		     /* no special character, backup */
+X		 case '!':case '\\':
+X		    i=!!egrepin(chp,startchar,tobesent,		  /* grep it */
+X		     flags[DISTINGUISH_CASE])^*buf=='!';       /* invert it? */
+X		    break;
+X		 case '$':*buf2='"';readparse(buf,sgetc,2);goto substituted;
+X		 case '>':case '<':readparse(buf,sgetc,2);
+X		    i=strtol(buf+1,&chp,10);
+X		    i='<'==*buf?filled<i:filled>i;	   /* compare length */
+X		    while(*chp==' ')
+X		       ++chp;
+X		    if(*chp)				    /* any leftover? */
+X		       skipped(chp);
+X	       }
+X	      if(verbose)
+X		 log(i?"M":"No m"),log("atch on"),logqnl(buf);
+X	    }
+X	 }
+X	if(!flags[ALSO_NEXT_RECIPE]&&!flags[ALSO_N_IF_SUCC])
+X	   lastcond=i;			   /* save the outcome for posterity */
+X	startchar=themail;tobesent=filled;	    /* body, header or both? */
+X	if(flags[PASS_HEAD])
+X	 { if(!flags[PASS_BODY])
+X	      tobesent=thebody-themail;
+X	 }
+X	else if(flags[PASS_BODY])
+X	   tobesent-=(startchar=thebody)-themail;
+X	chp=strchr(strcpy(buf,tgetenv(sendmail)),'\0');succeed=sh=0;
+X	pwait=flags[WAIT_EXIT]|flags[WAIT_EXIT_QUIET]<<1;
+X	ignwerr=flags[IGNORE_WRITERR];skipspace();
+X	if(testb('!'))					 /* forward the mail */
+X	 { readparse(chp+1,getb,0);
+X	   if(i)
+X	      goto forward;
+X	 }
+X	else if(testb('|'))				    /* pipe the mail */
+X	 { getbl(buf2);
+X	   for(chp=buf2;*(chp=strchr(chp,'\0')-1)=='\\'&&getbl(chp););
+X	   if(i)
+X	    { if(sh=!!strpbrk(buf2,tgetenv(shellmetas)))
+X		 strcpy(buf,buf2);	 /* copy literally, shell will parse */
+X	      else
+X		 sgetcp=buf2,readparse(buf,sgetc,0);	/* parse it yourself */
+Xforward:      if(!tolock)	   /* an explicit lockfile specified already */
+X	       { chp=buf;*buf2='\0';
+X		 while(i= *chp)	    /* find the implicit lockfile ('>>name') */
+X		    if(chp++,i=='>'&&*chp=='>')
+X		     { chp=pstrspn(chp+1," \t");
+X		       tmemmove(buf2,chp,i=strcspn(chp,EOFName));buf2[i]='\0';
+X		       if(sh)		 /* expand any environment variables */
+X			{ chp=tstrdup(buf);sgetcp=buf2;readparse(buf,sgetc,0);
+X			  strcpy(buf2,buf);strcpy(buf,chp);free(chp);
+X			}
+X		       break;
+X		     }
+X	       }
+X	      lcllock();inittmout(buf);
+X	      if(flags[FILTER])
+X	       { if(startchar==themail&&tobesent!=filled)     /* if only 'h' */
+X		  { if(!pipthrough(buf,startchar,tobesent))
+X		       succeed=1,readmail(1,tobesent);
+X		  }
+X		 else if(!pipthrough(buf,startchar,tobesent))
+X		    succeed=1,filled=startchar-themail,readmail(0,0L);
+X	       }
+X	      else if(!pipin(buf,startchar,tobesent)&&
+X	       (succeed=1,!flags[CONTINUE]))
+X		 goto mailed;
+X	    }
+X	 }
+X	else		   /* dump the mail into a mailbox file or directory */
+X	 { readparse(buf,getb,0);
+X	   if(concatenate(chp=strchr(buf,'\0')+1))
+X	      skipped(chp);			     /* report any leftovers */
+X	   if(i)
+X	    { strcpy(buf2,buf);lcllock();strcpy(buf2,buf);tofile=1;
+X	      if(dump(deliver(buf2),startchar,tobesent))
+X		 writeerr(buf);
+X	      else if(succeed=1,!flags[CONTINUE])
+X		 goto mailed;
+X	      tofile=tofolder=0;
+X	    }
+X	 }
+X      }
+X     else if(testb('#'))				   /* no comment :-) */
+X	getbl(buf);
+X     else				    /* then it must be an assignment */
+X      { for(*(chp=buf)='\0';;)			    /* get the variable name */
+X	 { switch(i=getb())
+X	    { case ' ':case '\t':skipspace();i=testb('=')?'=':0;
+X	      case '\n':case '=':case EOF:*chp='\0';goto eofvarname;
+X	    }
+X	   if(!alphanum(*chp++=i))
+X	      for(;;*chp++=i)			 /* it was garbage after all */
+X		 switch(i=getb())
+X		  { case ' ':case '\t':case '\n':case EOF:*chp='\0';
+X		       skipped(buf);goto mainloop;
+X		  }
+X	 }
+Xeofvarname:
+X	if(i!='=')				   /* removal or assignment? */
+X	 { sputenv(buf);continue;
+X	 }
+X	*chp='=';readparse(++chp,getb,1);
+Xargenv: sputenv(buf);chp[-1]='\0';
+X	if(!strcmp(buf,slinebuf))
+X	 { if((linebuf=renvint(0L,chp)+XTRAlinebuf)<MINlinebuf+XTRAlinebuf)
+X	      linebuf=MINlinebuf+XTRAlinebuf;	       /* check minimum size */
+X	   free(buf);free(buf2);buf=malloc(linebuf);buf2=malloc(linebuf);
+X	 }
+X	else if(!strcmp(buf,maildir))
+X	 { if(chdir(chp))
+X	      log(cldchd),logqnl(chp);
+X	 }
+X	else if(!strcmp(buf,logfile))
+X	 { close(STDERR);
+X	   if(verbose=DEBUGPREFIX==*chp)	     /* turn on diagnostics? */
+X	      chp++;
+X	   if(0>opena(chp))
+X	      if(0>opena(vconsole))
+X		 retval=EX_OSFILE;	  /* bad news, but can't tell anyone */
+X	      else
+X		 writeerr(chp);
+X	 }
+X	else if(!strcmp(buf,Log))
+X	   log(chp);
+X	else if(!strcmp(buf,sdelivered))		    /* fake delivery */
+X	 { lcking|=lck_LOCKFILE;	    /* just to prevent interruptions */
+X	   if((thepid=sfork())>0)
+X	    { nextexit=2;lcking&=~lck_LOCKFILE;return retvl2;
+X	    }					/* signals may cause trouble */
+X	   else
+X	    { if(!forkerr(thepid,procmailn))
+X		 fakedelivery=1;
+X	      thepid=getpid();lcking&=~lck_LOCKFILE;
+X	      if(nextexit)			 /* signals occurred so far? */
+X		 log(newline),terminate();
+X	    }
+X	 }
+X	else if(!strcmp(buf,lockfile))
+X	   lockit(chp,&globlock),chown(chp,uid,gid);
+X	else if(!strcmp(buf,eumask))
+X	   umask((int)strtol(chp,(char**)0,8));
+X	else if(!strcmp(buf,host))
+X	 { if(strncmp(chp,chp2=(char*)hostname(),HOSTNAMElen))
+X	    { yell("HOST mismatched",chp2);
+X	      if(rc<0||!nextrcfile())		  /* if no rcfile opened yet */
+X		 retval=EX_OK,terminate();	  /* exit gracefully as well */
+X	      rclose(rc);rc= -1;
+X	    }
+X	 }
+X	else
+X	 { i=MAXvarvals;
+X	   do				      /* several numeric assignments */
+X	      if(!strcmp(buf,strenvvar[i].name))
+X	       { strenvvar[i].val=renvint(strenvvar[i].val,chp);break;
+X	       }
+X	   while(i--);
+X	 }
+X      }
+Xmainloop:;
+X   }
+X  while(rc<0||!testb(EOF));			    /* main interpreter loop */
+Xnomore_rc:
+X  if(tofile!=2)
+X   { tofile=2;setuid(uid);chp=DEFdefaultlock;goto likearg;
+X   }
+X  if(dump(deliver(tgetenv(defaultf)),themail,filled))		  /* default */
+X   { writeerr(buf);	    /* if it fails, don't panic, try the last resort */
+X     if(dump(deliver(tgetenv(orgmail)),themail,filled))
+X	writeerr(buf);goto mailerr;			/* now you can panic */
+X   }
+Xmailed:
+X  retval=EX_OK;				  /* we're home free, mail delivered */
+Xmailerr:
+X  unlock(&loclock);terminate();
+X}
+X
+Xlogabstract()
+X{ char*chp,*chp2;int i;
+X  if(mailread)				  /* is the mail completely read in? */
+X   { *thebody='\0';		       /* terminate the header, just in case */
+X     if(!strncmp(From,chp=themail,STRLEN(From)))       /* any "From " header */
+X      { if(chp=strchr(themail,'\n'))
+X	   *chp++='\0';
+X	else
+X	   chp=thebody;
+X	log(themail);log(newline);   /* preserve mailbox format (any length) */
+X      }
+X     if(!(lcking&lck_ALLOCLIB)&&		/* don't reenter malloc/free */
+X      (chp=egrepin(NSUBJECT,chp,(long)(thebody-chp),0)))
+X      { for(chp2= --chp;*--chp2!='\n'&&*chp2;);
+X	if(chp-++chp2>MAXSUBJECTSHOW)		    /* keep it within bounds */
+X	   chp2[MAXSUBJECTSHOW]='\0';
+X	*chp='\0';detab(chp2);log(" ");log(chp2);log(newline);
+X      }
+X   }
+X  log(sfolder);i=strlen(strncpy(buf,lastfolder,MAXfoldlen))+STRLEN(sfolder);
+X  buf[MAXfoldlen]='\0';detab(buf);log(buf);i-=i%TABWIDTH;	/* last dump */
+X  do log(TABCHAR);
+X  while((i+=TABWIDTH)<LENoffset);
+X  ultstr(7,lastdump,buf);log(buf);log(newline);
+X}
+X
+Xreadmail(onlyhead,tobesent)const int onlyhead;const long tobesent;
+X{ char*chp,*chp2,*pastend,*realstart;int firstchar;
+X  mailread=0;
+X  if(onlyhead)
+X   { long dfilled=0;
+X     chp=readdyn(malloc(1),&dfilled);filled-=tobesent;
+X     if(tobesent<dfilled)		   /* adjust buffer size (grow only) */
+X	themail=realloc(themail,dfilled+filled);
+X     tmemmove(themail+dfilled,thebody,filled);
+X     tmemmove(themail,chp,dfilled);free(chp);
+X     themail=realloc(themail,1+(filled+=dfilled));
+X   }
+X  else
+X     themail=readdyn(themail,&filled);			 /* read in the mail */
+X  pastend=filled+(thebody=themail);
+X  while(thebody<pastend&&*thebody++=='\n');	     /* skip leading garbage */
+X  realstart=thebody;
+X  while(thebody=egrepin("[^\n]\n[\n\t ]",thebody,(long)(pastend-thebody),1))
+X     if(*--thebody!='\n')
+X	thebody[-1]=' ';		    /* concatenate continuated lines */
+X     else
+X	goto eofheader;			   /* empty line marks end of header */
+X  thebody=pastend;	      /* provide a default, in case there is no body */
+Xeofheader:
+X  firstchar= *realstart;
+X  for(*(chp=realstart)='\0';chp=egrepin(FROM_EXPR,chp,(long)(pastend-chp),1);)
+X   { while(*--chp!='\n');		       /* where did this line start? */
+X     ++chp;tmemmove(chp+1,chp,pastend++-chp);*chp=ESCAP;	   /* bogus! */
+X     themail=realloc(chp2=themail,++filled+1);
+X#define ADJUST(x)	((x)=themail+((x)-chp2))
+X     ADJUST(thebody);ADJUST(pastend);ADJUST(chp);ADJUST(realstart);
+X   }
+X  *realstart=firstchar;mailread=1;
+X}
+X
+Xdirmail()				/* buf should contain directory name */
+X{ char*chp;struct stat stbuf;
+X  if((chp=strchr(buf,'\0')-1)-1>=buf&&chp[-1]==*MCDIRSEP&&*chp=='.')
+X     *chp='\0',strcpy(buf2,buf);			   /* it ended in /. */
+X  else
+X     chp=0,strcpy(buf2,strcat(buf,MCDIRSEP));
+X  if(unique(buf2,strchr(buf2,'\0'),NORMperm))
+X   { if(chp)
+X      { unsigned long i=0;
+X	do ultstr(0,++i,chp);		       /* find first empty MH folder */
+X	while(link(buf2,buf));
+X	unlink(buf2);goto opn;
+X      }
+X     stat(buf2,&stbuf);
+X     ultoan((unsigned long)stbuf.st_ino,      /* filename with i-node number */
+X      strchr(strcat(buf,tgetenv(msgprefix)),'\0'));
+X     if(!myrename(buf2,buf))	       /* rename it, we need the same i-node */
+Xopn:	return opena(buf);
+X   }
+X  return -1;
+X}
+END_OF_FILE
+if test 23455 -ne `wc -c <'procmail/procmail.c'`; then
+    echo shar: \"'procmail/procmail.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/procmail.c'
+fi
+echo shar: End of archive 5 \(of 5\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Sincerely,                                  berg@pool.informatik.rwth-aachen.de
+           Stephen R. van den Berg (AKA BuGless).    berg@physik.tu-muenchen.de
+
+"I have a *cunning* plan!"
+
+exit 0 # Just in case...

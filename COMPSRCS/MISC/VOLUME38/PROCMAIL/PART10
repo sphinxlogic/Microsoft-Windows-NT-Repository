@@ -1,0 +1,1369 @@
+Newsgroups: comp.sources.misc
+From: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Subject: v38i029:  procmail - mail processing package v2.90, Part10/11
+Message-ID: <1993Jul1.151501.21955@sparky.imd.sterling.com>
+X-Md4-Signature: 45f09892c8d94176ba27558b1538883a
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 1 Jul 1993 15:15:01 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Posting-number: Volume 38, Issue 29
+Archive-name: procmail/part10
+Environment: sendmail, smail, MMDF, mailsurr, UNIX, POSIX
+Supersedes: procmail: Volume 35, Issue 21-32,124,125
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 10 (of 11)."
+# Contents:  procmail/mailinglist/etc/rc.main
+#   procmail/man/procmailrc.man procmail/src/procmail.c
+# Wrapped by berg@tubastos on Thu Jul  1 14:06:18 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'procmail/mailinglist/etc/rc.main' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/mailinglist/etc/rc.main'\"
+else
+echo shar: Extracting \"'procmail/mailinglist/etc/rc.main'\" \(216 characters\)
+sed "s/^X//" >'procmail/mailinglist/etc/rc.main' <<'END_OF_FILE'
+X#$Id: rc.main,v 1.4 1993/06/21 14:23:50 berg Exp $
+X
+XMAILDIR=.etc				# chdir to the defaults directory
+X
+XINCLUDERC=rc.init
+X
+X:0 wfh
+X| formail -A"X-Diagnostic: Non-existing mailinglist $X_ENVELOPE_TO"
+X
+XINCLUDERC=rc.post
+END_OF_FILE
+if test 216 -ne `wc -c <'procmail/mailinglist/etc/rc.main'`; then
+    echo shar: \"'procmail/mailinglist/etc/rc.main'\" unpacked with wrong size!
+fi
+# end of 'procmail/mailinglist/etc/rc.main'
+fi
+if test -f 'procmail/man/procmailrc.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/man/procmailrc.man'\"
+else
+echo shar: Extracting \"'procmail/man/procmailrc.man'\" \(19070 characters\)
+sed "s/^X//" >'procmail/man/procmailrc.man' <<'END_OF_FILE'
+X.Id $Id: procmailrc.man,v 1.23 1993/06/21 14:24:10 berg Exp $
+X.TH PROCMAILRC 5 \*(Dt BuGless
+X.na
+X.SH NAME
+Xprocmailrc \- procmail rcfile
+X.SH SYNOPSIS
+X.B $HOME/@PROCMAILRC@
+X.ad
+X.Sh DESCRIPTION
+XFor a quick start, see
+X.B NOTES
+Xat the end of the
+X.BR procmail (1)
+Xman page.
+X.PP
+XThe rcfile can contain a mixture of environment variable assignments (some
+Xof which have special meanings to procmail), and recipes.  In their most
+Xsimple appearance, the recipes are simply one line regular expressions
+Xthat are searched for in the header of the arriving mail, the first recipe
+Xthat matches is used to determine where the mail has to go (usually a file).
+X.PP
+XIf a matching recipe does not specify any special flags (like `@FILTER@' or
+X`@CONTINUE@') and the recipe is successful (i.e. no write failures or other
+Xcalamities), then processing of the rcfile will cease at this point, and
+Xprocmail will consider the mail to have been delivered.
+X.PP
+XThis enables you to presort your mail extremely straightforward into several
+Xmailfolders.  Bear in mind though that the mail can arrive concurrently in
+Xthese mailfolders (if several procmail programs happen to run at the same time,
+Xnot unlikely if a lot of mail arrives), to make sure this does not result in a
+Xmess, proper use of lockfiles is highly recommended.
+X.PP
+XThe environment variable
+X.B assignments
+Xand
+X.B recipes
+Xcan be freely intermixed in the rcfile. If any environment variable has
+Xa special meaning to procmail, it will be used appropriately the moment
+Xit is parsed. (i.e. you can change the current directory whenever you
+Xwant by specifying a new
+X.BR MAILDIR ,
+Xswitch lockfiles by specifying a new
+X.BR LOCKFILE ,
+Xchange the umask at any time, etc., the possibilities are endless :-).
+X.PP
+XThe assignments and substitutions of these environment variables are handled
+Xexactly like in
+X.BR sh (1)
+X(that includes all possible quotes and escapes),
+Xwith the added bonus that blanks around the '=' sign are ignored and that,
+Xif an environment variable appears without a trailing '=', it will be
+Xremoved from the environment.  Any program in backquotes started by procmail
+Xwill have the entire mail at its stdin.
+X.PP
+X.Ss Comments
+XA word beginning with # and all the following characters up to a NEWLINE
+Xare ignored.
+X.Ss Recipes
+X.PP
+XA line starting with ':' marks the beginning of a recipe.  It has the
+Xfollowing format:
+X.PP
+X.Rs
+X: [\fInumber\fP] [\fIflags\fP] [ : [\fIlocallockfile\fP] ]
+X<zero or more conditions (one per line)>
+X<exactly one action line>
+X.Re
+X.PP
+XThe
+X.I number
+Xis optional (defaults to 1) and specifies the number of conditions that
+Xfollow the first line of the recipe.  Conditions are complete lines that are
+Xpassed on to the internal egrep
+X.BR literally ,
+Xexcept for leading and trailing whitespace.  If you start every condition
+Xline with an `*', you do not need to specify
+X.IR number .
+XWhitespace after the leading `*' are ignored.  The safest way would be
+Xto specify
+X.I number
+Xto be zero in that case (to avoid problems when you have no conditions, but
+Xprocmail expects one).
+XThese regular expressions are
+X.B completely
+Xcompatible to the normal
+X.BR egrep (1)
+Xregular expressions.
+X.PP
+XConditions are anded; if
+X.I number
+Xis zero, then the condition is always true and no conditions are expected
+Xnext.
+X.PP
+X.I Flags
+Xcan be any of the following:
+X.Tp 0.5i
+X.B @HEAD_GREP@
+XEgrep the header (default).
+X.Tp
+X.B @BODY_GREP@
+XEgrep the body.
+X.Tp
+X.B @DISTINGUISH_CASE@
+XTell the internal egrep to distinguish between upper and lower case (defaults
+Xto ignoring case).
+X.Tp
+X.B @ALSO_NEXT_RECIPE@
+XThis recipe will depend on the last preceding recipe without the
+X`@ALSO_NEXT_RECIPE@' or `@ALSO_N_IF_SUCC@' flag.  This allows you to chain
+Xactions that depend on a common condition.  The number of conditions that
+Xare expected to follow default to none.
+X.Tp
+X.B @ALSO_N_IF_SUCC@
+XHas the same meaning as the `@ALSO_NEXT_RECIPE@' flag, but will depend on the
+X.I successful
+Xcompletion of the immediately preceding recipe as well.
+X.Tp
+X.B @PASS_HEAD@
+XFeed the header to the pipe (default).
+X.Tp
+X.B @PASS_BODY@
+XFeed the body to the pipe (default).
+X.Tp
+X.B @FILTER@
+XConsider the pipe as a filter.
+X.Tp
+X.B @CONTINUE@
+XContinue processing rcfile even if this recipe matches (not needed when 'f'
+Xspecified).
+X.Tp
+X.B @WAIT_EXIT@
+XWait for the filter or program to finish and check its exitcode (normally
+Xignored); if the filter is unsuccessful, then the text will not have been
+Xfiltered.
+X.Tp
+X.B @WAIT_EXIT_QUIET@
+XHas the same meaning as the `@WAIT_EXIT@' flag, but will suppress any
+X`Program failure' message.
+X.Tp
+X.B @IGNORE_WRITERR@
+XIgnore any write errors on this recipe (i.e. usually due to an early closed
+Xpipe).
+X.PP
+XThere are some special conditions you can use that are not straight regular
+Xexpressions.  To select them, the first character of the condition must
+Xbe a:
+X.Tp 0.5i
+X.B !
+XInvert the condition.
+X.Tp
+X.B $
+XEvaluate the remainder according to
+X.BR sh (1)
+Xsubstitution rules inside double quotes.
+X.Tp
+X.B ?
+XUse the exitcode of the specified program.
+X.Tp
+X.B <
+XCheck if the total length of the mail is shorter than the specified (in
+Xdecimal) number of bytes.
+X.Tp
+X.B >
+XAnalogous to '<'.
+X.Tp
+X.B \e
+XTo quote any of the above at the start of the line.
+X.Ss "Local lockfile"
+X.PP
+XIf you put a second ':' on the first recipe line, then procmail will use a
+X.I locallockfile
+X(for this recipe only).  You can optionally specify the locallockfile
+Xto use; if you don't however, procmail will use the destination filename
+X(or the filename following the first '>>') and will append $LOCKEXT to it.
+X.Ss "Recipe action line"
+X.PP
+XThe action line can start with the following characters:
+X.Tp
+X.B !
+XForwards to all the specified mail addresses.
+X.Tp
+X.B |
+XStarts the specified program, possibly in $SHELL if any
+Xof the characters $SHELLMETAS are spotted.  You can optionally prepend this
+Xpipe symbol with
+X.IR variable= ,
+Xwhich will cause stdout of the program to be captured in the environment
+X.IR variable .
+X.PP
+XAnything else will be taken as a mailbox name (either a filename or a
+Xdirectory, absolute or relative to the current directory (see MAILDIR)).
+XIf it is a filename (or nonexistent), the mail will be appended to it.
+X.PP
+XIf it is a directory, the mail will be delivered to a newly created, guaranteed
+Xto be unique file named $MSGPREFIX* in the specified directory.  If the
+Xdirectory name ends in "@MCDIRSEP@@chCURDIR@", then this directory is presumed
+Xto be an MH folder; i.e. procmail will use the next number it finds available.
+XWhen procmail is delivering to directories, you can specify multiple
+Xdirectories to deliver to (using hardlinks).
+X.Ss "Environment variable defaults"
+X.Tp 2.2i
+X.B "LOGNAME, HOME and SHELL"
+XYour (the recipient's) defaults
+X.Tp
+X.B SHELLMETAS
+X\&@DEFshellmetas@
+X.Tp
+X.B SHELLFLAGS
+X\&@DEFshellflags@
+X.Tp
+X.BR ORGMAIL
+X\&@SYSTEM_MBOX@
+X.Tp
+X.B MAILDIR
+X\&@DEFmaildir@
+X.br
+X(Unless the name of the first successfully opened rcfile starts with
+X`@chCURDIR@@MCDIRSEP@', in which case it defaults to `@chCURDIR@')
+X.Tp
+X.B DEFAULT
+X\&@DEFdefault@
+X.Tp
+X.B MSGPREFIX
+X\&@DEFmsgprefix@
+X.Tp
+X.B SENDMAIL
+X\&@DEFsendmail@
+X.Tp
+X.B COMSAT
+X\&@DEFcomsat@
+X.br
+X(If an rcfile is specified on the command line)
+X.Tp
+X.B LOCKEXT
+X\&@DEFlockext@
+X.Tp
+X.B LOCKFILE
+X\&@DEFdefaultlock@
+X.br
+X(After procmail closed the last rcfile)@PRESTENV@@LD_ENV_FIX@
+X.Ss Environment
+X.PP
+XBefore you get lost in the multitude of environment variables, keep in mind
+Xthat all of them have reasonable defaults.
+X.Tp 1.2i
+X.B MAILDIR
+XCurrent directory while procmail is executing (that means that all paths
+Xare relative to $MAILDIR).
+X.Tp
+X.B DEFAULT
+XDefault
+X.B mailbox
+Xfile (if not told otherwise, procmail will dump mail in this mailbox).
+XProcmail will automatically use LOCKFILE=$DEFAULT$LOCKEXT prior to writing
+Xto this mailbox.
+X.Tp
+X.B MSGPREFIX
+XFilename prefix that is used when delivering to a directory (not used when
+Xdelivering to an MH directory).
+X.Tp
+X.B LOGFILE
+XThis file will also contain any error or diagnostic messages from procmail
+X(normally none :-) or any other programs started by procmail.  If this file
+Xis not specified, any diagnostics or error messages will
+X@pconsole@@console@@aconsole@
+XSee also
+X.BR LOGABSTRACT .
+X.Tp
+X.B VERBOSE
+XYou can turn on
+X.I extended diagnostics
+Xby setting this variable to `yes' or `on', to turn it off again set it to `no'
+Xor `off'.
+X.Tp
+X.B LOGABSTRACT
+XJust before procmail exits it logs an abstract of the delivered message in
+X$LOGFILE showing the `@FROM@' and `Subject:' fields of the header, what folder
+Xit finally went to and how long (in bytes) the message was.  By setting this
+Xvariable to `no', generation of this abstract is suppressed.
+X.Tp
+X.B LOG
+XAnything assigned to this variable will be appended to $LOGFILE.
+X.Tp
+X.B ORGMAIL
+XUsually the system mailbox (\fBOR\fPi\fBG\fPinal \fBMAIL\fPbox).  If, for
+Xsome obscure reason (like `\fBfilesystem full\fP') the mail could not be
+Xdelivered, then this mailbox will be the last resort.  If procmail
+Xfails to save the mail in here (deep, deep trouble :-), then the mail
+Xwill bounce back to the sender.
+X.Tp
+X.B LOCKFILE
+XGlobal semaphore file.  If this file already exists, procmail
+Xwill wait until it has gone before proceeding, and will create it itself
+X(cleaning it up when ready, of course).  If more than one
+X.I lockfile
+Xare specified, then the previous one will be removed before trying to create
+Xthe new one.  The use of a global lockfile is discouraged, whenever possible
+Xuse locallockfiles (on a per recipe basis) instead.
+X.Tp
+X.B LOCKEXT
+XDefault extension that is appended to a destination file to determine
+Xwhat local
+X.I lockfile
+Xto use (only if turned on, on a per-recipe basis).
+X.Tp
+X.B LOCKSLEEP
+XNumber of seconds procmail will sleep before retrying on a
+X.I lockfile
+X(if it already existed); if not specified, it defaults to @DEFlocksleep@
+Xseconds.
+X.Tp
+X.B LOCKTIMEOUT
+XNumber of seconds that have to have passed since a
+X.I lockfile
+Xwas last modified/created before procmail decides that this must be an
+Xerroneously leftover lockfile that can be removed by force now.  If zero,
+Xthen no timeout will be used and procmail will wait forever until the
+Xlockfile is removed; if not specified, it defaults to @DEFlocktimeout@ seconds.
+XThis variable is useful to prevent indefinite hangups of
+X.BR sendmail /procmail.
+XProcmail is immune to clock skew.
+X.Tp
+X.B TIMEOUT
+XNumber of seconds that have to have passed before procmail decides that
+Xsome child it started must be hanging.  The offending program will receive
+Xa TERMINATE signal from procmail, and processing of the rcfile will continue.
+XIf zero, then no timeout will be used and procmail will wait forever until the
+Xchild has terminated; if not specified, it defaults to @DEFtimeout@ seconds.
+X.Tp
+X.B HOST
+XIf this is not the
+X.I hostname
+Xof the machine, processing of the current
+X.I rcfile
+Xwill immediately cease. If other rcfiles were specified on the
+Xcommand line, processing will continue with the next one.  If all rcfiles
+Xare exhausted, the program will terminate, but will not generate an error
+X(i.e. to the mailer it will seem that the mail has been delivered).  Only the
+Xfirst @HOSTNAMElen@ characters of the HOST are significant.
+X.Tp
+X.B UMASK
+XThe name says it all (if it doesn't, then forget about this one :-).
+XAnything assigned to UMASK is taken as an
+X.B octal
+Xnumber.  If not specified, the umask defaults to @INIT_UMASK@.  If the umask
+Xpermits o+x, all the mailboxes procmail delivers to directly will receive
+Xa o+x mode change.  This can be used to check if new mail arrived.
+X.Tp
+X.B SHELLMETAS
+XIf any of the characters in SHELLMETAS appears in the line specifying
+Xa filter or program, the line will be fed to $SHELL
+Xinstead of being executed directly.
+X.Tp
+X.B SHELLFLAGS
+XAny invocation of $SHELL will be like:
+X.br
+X"$SHELL" "$SHELLFLAGS" "$*";
+X.Tp
+X.B SENDMAIL
+XIf you're not using the
+X.I forwarding
+Xfacility don't worry about this one.  It specifies the program being
+Xcalled to forward any mail.
+X.br
+XIt gets invoked as: "$SENDMAIL" "$@";
+X.Tp
+X.B NORESRETRY
+XNumber of retries that are to be made if any `\fBprocess table full\fP',
+X`\fBfile table full\fP', `\fBout of memory\fP' or
+X`\fBout of swap space\fP' error should occur.  If this number is negative,
+Xthen procmail will retry indefinitely; if not specified, it defaults to
+X@DEFnoresretry@ times.  The retries occur with a $SUSPEND second interval.  The
+Xidea behind this is, that if e.g. the
+X.I swap
+X.I space
+Xhas been exhausted or the
+X.I process
+X.I table
+Xis full, usually several other programs will either detect this as well
+Xand abort or crash 8-), thereby freeing valuable
+X.I resources
+Xfor procmail.
+X.Tp
+X.B SUSPEND
+XNumber of seconds that procmail will pause if it has to wait for something
+Xthat is currently unavailable (memory, fork, etc.); if not specified, it will
+Xdefault to @DEFsuspend@ seconds.  See also:
+X.BR LOCKSLEEP .
+X.Tp
+X.B LINEBUF
+XLength of the internal line buffers, cannot be set smaller than @MINlinebuf@.
+XAll lines read from the
+X.I rcfile
+Xshould not exceed $LINEBUF characters before and after expansion.  If not
+Xspecified, it defaults to @DEFlinebuf@.  This limit, of course, does
+X.I not
+Xapply to the mail itself, which can have arbitrary line lengths, or could
+Xbe a binary file for that matter.
+X.Tp
+X.B DELIVERED
+XIf set to `yes' procmail will pretend (to the mail agent) the mail
+Xhas been delivered.  If mail cannot be delivered after meeting this
+Xassignment (to `yes'), the mail will be lost (i.e. it will not bounce).
+X.Tp
+X.B TRAP
+XWhen procmail terminates it will execute the contents of this variable.
+XA copy of the mail can be read from stdin.  Any output produced by this
+Xcommand will be appended to $LOGFILE.  Possible uses for TRAP are: removal
+Xof temporary files, logging customised abstracts, change the exitcode of
+Xprocmail, etc.
+X.Tp
+X.B LASTFOLDER
+XThis variable is assigned to by procmail whenever it is delivering
+Xto a folder or program.  It always contains the name of the last folder
+X(or program) procmail delivered to.
+X.Tp
+X.B INCLUDERC
+XNames an rcfile (relative to the current directory) which will be included
+Xhere as if it were part of the current rcfile.  Unlimited nesting is
+Xpermitted.
+X.Tp
+X.B COMSAT
+X.BR Comsat (8)/ biff (1)
+Xnotification is on by default, it can be turned off by setting this variable
+Xto `no'.  Alternatively the biff-service can be customised by setting it to
+Xeither `service@SERV_ADDRsep@', `@SERV_ADDRsep@hostname', or
+X`service@SERV_ADDRsep@hostname'.  When not specified it defaults
+Xto @COMSATservice@@SERV_ADDRsep@@COMSAThost@.
+X.Sh EXAMPLES
+XLook in the
+X.BR procmailex (5)
+Xman page.
+X.Sh CAVEATS
+XContinued lines in an action line that specifies a program always have to end
+Xin a backslash, even if the underlying shell would not need or want the
+Xbackslash to indicate continuation.  This is due to the two pass parsing
+Xprocess needed (first procmail, then the shell (or not, depending on
+X.BR SHELLMETAS )).
+X.PP
+XDon't put comments on the regular expression condition lines in a
+Xrecipe, these lines are fed to the internal egrep
+X.I literally
+X(except for continuation backslashes at the end of a line).
+X.PP
+XWatch out for deadlocks when doing unhealthy things like forwarding mail
+Xto your own account.  Deadlocks can be broken by proper use of
+X.BR LOCKTIMEOUT .
+X.PP
+XAny default values that procmail has for some environment variables will
+X.B always
+Xoverride the ones that were already defined.  If you really want to
+Xoverride the defaults, you either have to put them in the
+X.B rcfile
+Xor on the command line as arguments.
+X.PP
+XEnvironment variables set
+X.B inside
+Xthe action part of a recipe will
+X.B not
+Xretain their value after the recipe has finished since they are set in a
+Xsubshell of procmail.  To make sure the value of an environment variable is
+Xretained you have to put the assignment to the variable before the leading `|'
+Xof a recipe, so that it can capture stdout of the program.
+X.PP
+XIf you specify only a `@PASS_HEAD@' or a `@PASS_BODY@' flag on a recipe,
+Xand the recipe matches, then, unless a `@FILTER@' or `@CONTINUE@' flag is
+Xpresent as well, the body respectively the header of the mail will be silently
+Xlost.
+X.PP
+XThe `@CONTINUE@' flag defaults to on when capturing stdout of a recipe in an
+Xenvironment variable.
+X.Sh "SEE ALSO"
+X.na
+X.nh
+X.BR procmail (1),
+X.BR procmailex (5),
+X.BR sh (1),
+X.BR csh (1),
+X.BR mail (1),
+X.BR mailx (1),
+X.BR binmail (1),
+X.BR uucp (1),
+X.BR aliases (5),
+X.BR sendmail (8),
+X.BR egrep (1),
+X.BR grep (1),
+X.BR biff (1),
+X.BR comsat (8),
+X.BR lockfile (1),
+X.BR formail (1)
+X.hy
+X.ad
+X.Sh BUGS
+XThe only substitutions of environment variables that can be handled by
+Xprocmail itself are of the type $name, ${name}, $#, $n, $$, $? and $\-;
+Xwhereas $\- will be substituted by $LASTFOLDER.  When the
+X.B \-$ARGUMENTOPT@
+Xor
+X.B \-$MAILFILTOPT@
+Xoptions are used, "$@" will expand to respectively the specified argument
+Xor the sender and recipient list; but only when passed as in the
+Xargument list to a program.@UPPERCASE_USERNAMES@
+X.PP
+XA line buffer of length $LINEBUF is used when processing the
+X.IR rcfile ,
+Xany expansions
+X.B have
+Xto fit within this limit; if they don't, behaviour is undefined.
+X.PP
+XIf the global lockfile has a
+X.I relative
+Xpath, and the current directory
+Xis not the same as when the global lockfile was created, then the global
+Xlockfile will not be removed if procmail exits at that point (remedy:
+Xuse
+X.I absolute
+Xpaths to specify global lockfiles).
+X.PP
+XWhen capturing stdout from a recipe into an environment variable, exactly
+Xone trailing newline will be stripped.
+X.PP
+XBy using the `^' or `$' in other spots than at the start respectively
+Xend of a regular expression you can use the internal egrep to do multiline
+Xmatches.
+X.PP
+XWhen the regular expression starts with `^^' it will anchor the match
+Xat the very start of the text.
+X.Sh MISCELLANEOUS
+XIf the regular expression contains `\fB@TOkey@\fP' it will be substituted by
+X.na
+X.nh
+X`\fB@TOsubstitute@\fP',
+Xwhich should catch all destination specifications.
+X.hy
+X.ad
+X.PP
+XIf the regular expression contains `\fB@FROMDkey@\fP' it will be
+Xsubstituted by
+X.na
+X.nh
+X`\fB@FROMDsubstitute@\fP',
+Xwhich should catch mails coming from most daemons (how's that for a regular
+Xexpression :-).
+X.hy
+X.ad
+X.PP
+XIf the regular expression contains `\fB@FROMMkey@\fP' it will be
+Xsubstituted by
+X.na
+X.nh
+X`\fB@FROMMsubstitute@\fP'
+X(a stripped down version of `\fB@FROMDkey@\fP'),
+Xwhich should catch mails coming from most mailer-daemons.
+X.hy
+X.ad
+X.PP
+XWhen assigning boolean values to variables like VERBOSE, DELIVERED or COMSAT,
+Xprocmail accepts as true every string starting with: a non-zero value, `on',
+X`y', `t' or `e'.  False is every string starting with: a zero value, `off',
+X`n', `f' or 'd'.
+X.PP
+XIf the action line of a recipe specifies a program, a sole backslash-newline
+Xpair in it on an otherwise empty line will be converted into a newline.
+X.Sh NOTES
+XSince whitespace is generally ignored in the rcfile you can indent everything
+Xto taste.
+X.PP
+XThe leading `|' on the action line to specify a program or filter is stripped
+Xbefore checking for $SHELLMETAS.
+X.PP
+XFiles included with the INCLUDERC directive containing only environment
+Xvariable assignments can be shared with sh.
+X.PP
+XFor
+X.I really
+Xcomplicated processing you can even consider calling
+X.B procmail
+Xrecursively.
+END_OF_FILE
+if test 19070 -ne `wc -c <'procmail/man/procmailrc.man'`; then
+    echo shar: \"'procmail/man/procmailrc.man'\" unpacked with wrong size!
+fi
+# end of 'procmail/man/procmailrc.man'
+fi
+if test -f 'procmail/src/procmail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/src/procmail.c'\"
+else
+echo shar: Extracting \"'procmail/src/procmail.c'\" \(25195 characters\)
+sed "s/^X//" >'procmail/src/procmail.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	procmail - The autonomous mail processor			*
+X *									*
+X *	It has been designed to be able to be run suid root and (in	*
+X *	case your mail spool area is *not* world writeable) sgid	*
+X *	mail (or daemon), without creating security holes.		*
+X *									*
+X *	Seems to be perfect.						*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	#include "README"						*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic /*const*/char rcsid[]=
+X "$Id: procmail.c,v 1.37 1993/07/01 11:58:36 berg Exp $";
+X#endif
+X#include "../patchlevel.h"
+X#include "procmail.h"
+X#include "sublib.h"
+X#include "robust.h"
+X#include "shell.h"
+X#include "misc.h"
+X#include "pipes.h"
+X#include "common.h"
+X#include "cstdio.h"
+X#include "exopen.h"
+X#include "goodies.h"
+X#include "locking.h"
+X#include "mailfold.h"
+X
+Xstatic const char fdefault[]="DEFAULT",orgmail[]="ORGMAIL",*const nullp,
+X sendmail[]="SENDMAIL",From_[]=FROM,exflags[]=RECFLAGS,
+X systm_mbox[]=SYSTEM_MBOX,pmusage[]=PM_USAGE,DEFdeflock[]=DEFdefaultlock;
+Xchar*buf,*buf2,*globlock,*loclock,*tolock;
+Xconst char shellflags[]="SHELLFLAGS",shell[]="SHELL",lockfile[]="LOCKFILE",
+X shellmetas[]="SHELLMETAS",lockext[]="LOCKEXT",newline[]="\n",binsh[]=BinSh,
+X unexpeof[]="Unexpected EOL\n",*const*gargv,*const*restargv= &nullp,*sgetcp,
+X *rcfile=PROCMAILRC,dirsep[]=DIRSEP,msgprefix[]="MSGPREFIX",devnull[]=DevNull,
+X lgname[]="LOGNAME",executing[]="Executing",oquote[]=" \"",cquote[]="\"\n",
+X procmailn[]="procmail",whilstwfor[]=" whilst waiting for ",home[]="HOME",
+X maildir[]="MAILDIR",*defdeflock,*argv0="";
+Xchar*Stdout;
+Xint retval=EX_CANTCREAT,retvl2=EX_OK,sh,pwait,lcking,rc=rc_INIT,
+X ignwerr,lexitcode=EX_OK,asgnlastf,accspooldir,crestarg;
+Xsize_t linebuf=mx(DEFlinebuf+XTRAlinebuf,STRLEN(systm_mbox)<<1);
+Xvolatile int nextexit;			       /* if termination is imminent */
+Xpid_t thepid;
+Xlong filled;					   /* the length of the mail */
+Xchar*themail,*thebody;			    /* the head and body of the mail */
+Xuid_t uid;
+Xgid_t gid,sgid;
+X
+Xmain(argc,argv)const char*const argv[];
+X{ register char*chp,*chp2;register i;int suppmunreadable;
+X  ;{ int Deliverymode,mailfilter;char*fromwhom=0;
+X#define Presenviron	i
+X     Deliverymode=mailfilter=0;
+X     if(argc)			       /* sanity check, any argument at all? */
+X      { Deliverymode=strcmp(lastdirsep(argv0=argv[0]),procmailn);
+X	for(Presenviron=argc=0;(chp2=(char*)argv[++argc])&&*chp2=='-';)
+X	   for(;;)				       /* processing options */
+X	    { switch(*++chp2)
+X	       { case VERSIONOPT:elog(VERSION);return EX_OK;
+X		 case HELPOPT1:case HELPOPT2:elog(pmusage);elog(PM_HELP);
+X		    elog(PM_QREFERENCE);return EX_USAGE;
+X		 case PRESERVOPT:Presenviron=1;continue;
+X		 case MAILFILTOPT:mailfilter=1;continue;
+X		 case TEMPFAILOPT:retval=EX_TEMPFAIL;continue;
+X		 case FROMWHOPT:case ALTFROMWHOPT:
+X		    if(*++chp2)
+X		       fromwhom=chp2;
+X		    else if(chp2=(char*)argv[argc+1])
+X		       argc++,fromwhom=chp2;
+X		    else
+X		       nlog("Missing name\n");
+X		    break;
+X		 case ARGUMENTOPT:
+X		  { static const char*argv1[]={"",0};
+X		    if(*++chp2)
+X		       goto setarg;
+X		    else if(chp2=(char*)argv[argc+1])
+X		     { argc++;
+Xsetarg:		       *argv1=chp2;restargv=argv1;crestarg=1;
+X		     }
+X		    else
+X		       nlog("Missing argument\n");
+X		    break;
+X		  }
+X		 case DELIVEROPT:
+X		    if(!*(chp= ++chp2)&&!(chp=(char*)argv[++argc]))
+X		     { nlog("Missing recipient\n");break;
+X		     }
+X		    else
+X		     { Deliverymode=1;goto last_option;
+X		     }
+X		 case '-':
+X		    if(!*chp2)
+X		     { argc++;goto last_option;
+X		     }
+X		 default:nlog("Unrecognised options:");logqnl(chp2);
+X		    elog(pmusage);elog("Processing continued\n");
+X		 case '\0':;
+X	       }
+X	      break;
+X	    }
+X      }
+Xlast_option:
+X     if(mailfilter)
+X      { if(Deliverymode)				 /* -d supersedes -m */
+X	 { mailfilter=0;goto conflopt;
+X	 }
+X	if(crestarg)				     /* -m will supersede -a */
+Xconflopt:  nlog("Conflicting options\n"),elog(pmusage);
+X      }
+X     if(!Presenviron)				     /* drop the environment */
+X      { const char**emax=(const char**)environ,*const*ep,*const*kp;
+X	static const char*const keepenv[]=KEEPENV;
+X	for(kp=keepenv;*kp;kp++)		     /* preserve a happy few */
+X	   for(i=strlen(*kp),ep=emax;chp2=(char*)*ep;ep++)
+X	      if(!strncmp(*kp,chp2,i)&&(chp2[i]=='='||chp2[i-1]=='_'))
+X	       { *emax++=chp2;break;
+X	       }
+X	*emax=0;					    /* drop the rest */
+X      }
+X#ifdef LD_ENV_FIX
+X     ;{ const char**emax=(const char**)environ,**ep;
+X	static const char ld_[]="LD_";
+X	for(ep=emax;*emax;emax++);	  /* find the end of the environment */
+X	while(*ep)
+X	   if(!strncmp(ld_,*ep++,STRLEN(ld_)))	       /* it starts with LD_ */
+X	      *--ep= *--emax,*emax=0;			/* copy from the end */
+X      }
+X#endif /* LD_ENV_FIX */
+X     ;{ struct passwd*pass,*passinvk,spassinvk;int privs;
+X	uid_t euid=geteuid();
+X	if(passinvk=getpwuid(uid=getuid()))	    /* save it by copying it */
+X	   tmemmove(&spassinvk,passinvk,sizeof spassinvk),passinvk= &spassinvk;
+X	privs=1;gid=getgid();
+X	;{ static const char*const trusted_ids[]=TRUSTED_IDS;
+X	   if(*trusted_ids&&uid!=euid)
+X	    { struct group*grp;const char*const*kp;
+X	      if(passinvk)		      /* check out the invoker's uid */
+X		 for(chp2=passinvk->pw_name,kp=trusted_ids;*kp;)
+X		    if(!strcmp(chp2,*kp++)) /* is it amongst the privileged? */
+X		      goto privileged;
+X	      if(grp=getgrgid(gid))	      /* check out the invoker's gid */
+X		for(chp2=grp->gr_name,kp=trusted_ids;*kp;)
+X		   if(!strcmp(chp2,*kp++))    /* is it among the privileged? */
+X		      goto privileged;
+X	      privs=0;
+X	      if(Deliverymode)
+X		fromwhom=0;
+X	    }
+X	 }
+Xprivileged:
+X	endgrent();endpwent();umask(INIT_UMASK);fclose(stdout);rclose(STDOUT);
+X	if(0>opena(devnull))
+X	 { writeerr(devnull);return EX_OSFILE;	     /* couldn't open stdout */
+X	 }
+X#ifdef console
+X	opnlog(console);
+X#endif
+X	setbuf(stdin,(char*)0);buf=malloc(linebuf);buf2=malloc(linebuf);
+X	thepid=getpid();
+X#ifdef SIGXCPU
+X	signal(SIGXCPU,SIG_IGN);signal(SIGXFSZ,SIG_IGN);
+X#endif
+X#ifdef SIGLOST
+X	signal(SIGLOST,SIG_IGN);
+X#endif
+X	signal(SIGPIPE,SIG_IGN);signal(SIGTERM,(void(*)())srequeue);
+X	signal(SIGINT,(void(*)())sbounce);signal(SIGHUP,(void(*)())sbounce);
+X	signal(SIGQUIT,(void(*)())slose);signal(SIGALRM,(void(*)())ftimeout);
+X	ultstr(0,(unsigned long)uid,buf);
+X	chp2=fromwhom?
+X	 fromwhom:!passinvk||!*passinvk->pw_name?buf:passinvk->pw_name;
+X	;{ time_t t;char*chp3;
+X	   t=time((time_t*)0);chp3=ctime(&t);		 /* the current time */
+X	   strncpy(buf2,chp2,i=linebuf-strlen(chp3)-2);buf2[i]='\0';
+X	   strcat(strcat(buf2," "),chp3);
+X	 }
+X	;{ size_t already;
+X	   thebody=themail=
+X	    malloc((already=STRLEN(From_)+strlen(buf2))+linebuf);
+X	   filled=0;
+X	   if(Deliverymode||fromwhom)  /* need to peek for a leading From_ ? */
+X	    { char*rstart;int r;			     /* skip garbage */
+X	      while(1==(r=rread(STDIN,themail,1))&&*themail=='\n');
+X	      i=0;
+X	      if(r>0&&STRLEN(From_)<=(i=rread(	      /* is it a From_ line? */
+X	       STDIN,(rstart=themail)+1,linebuf-2)+1)&&eqFrom_(themail))
+X		 if(fromwhom||!privs)
+X		    do				       /* discard From_ line */
+X		       if(!i--&&(i=rread(STDIN,rstart=themail,linebuf-1)-1)<0)
+X			{ i=0;break;
+X			}
+X		    while(*rstart++!='\n');
+X		 else			       /* leave the From_ line alone */
+X		  { already=0;goto leaveFrom;
+X		  }	   /* move the read-ahead text beyond our From_ line */
+X	      tmemmove(themail+already,rstart,i);strcpy(themail,From_);
+X	      tmemmove(themail+STRLEN(From_),buf2,already-STRLEN(From_));
+XleaveFrom:    filled=already+i;
+X	    }
+X	 }
+X	readmail(0,0L);			      /* read in the mail completely */
+X	if(Deliverymode)
+X	   do
+X	    { chp2=chp;
+X#ifndef NO_USER_TO_LOWERCASE_HACK
+X	      for(;*chp;chp++)		  /* kludge recipient into lowercase */
+X		 if((unsigned)*chp-'A'<='Z'-'A')
+X		    *chp+='a'-'A';	 /* getpwnam might be case sensitive */
+X#endif
+X	      if(argv[++argc])			  /* more than one recipient */
+X		 if(pidchild=sfork())
+X		  { if(forkerr(pidchild,procmailn)||waitfor(pidchild)!=EX_OK)
+X		       retvl2=retval;
+X		    pidchild=0;		      /* loop for the next recipient */
+X		  }
+X		 else
+X		  { thepid=getpid();
+X		    while(argv[++argc]);    /* skip till end of command line */
+X		  }
+X	    }
+X	   while(chp=(char*)argv[argc]);
+X	gargv=argv+argc;			 /* save it for nextrcfile() */
+X	if(Deliverymode)
+X	 { if(!(pass=getpwnam(chp2)))
+X	    { nlog("Unknown user");logqnl(chp2);return EX_NOUSER;
+X	    }
+X	   if(passinvk&&passinvk->pw_uid==pass->pw_uid||euid==ROOT_uid)
+X	      goto Setuser;
+X	 }
+X	if(pass=passinvk)
+X	  /*
+X	   *	set preferred uid to the intended recipient
+X	   */
+XSetuser: { gid=pass->pw_gid;uid=pass->pw_uid;
+X	   setdef(lgname,chp= *pass->pw_name?pass->pw_name:buf);
+X	   setdef(home,pass->pw_dir);
+X	   if(euid==ROOT_uid)
+X	      initgroups(chp,gid);
+X	   endgrent();setdef(shell,*pass->pw_shell?pass->pw_shell:binsh);
+X	 }
+X	else		 /* user could not be found, set reasonable defaults */
+X	  /*
+X	   *	to prevent security holes, drop any privileges now
+X	   */
+X	 { setdef(lgname,buf);setdef(home,RootDir);setdef(shell,binsh);
+X	   setids(uid,gid);
+X	 }
+X	endpwent();
+X      }
+X     setdef(orgmail,systm_mbox);setdef(shellmetas,DEFshellmetas);
+X     setdef(shellflags,DEFshellflags);setdef(maildir,DEFmaildir);
+X     setdef(fdefault,DEFdefault);setdef(sendmail,DEFsendmail);
+X     setdef(lockext,DEFlockext);setdef(msgprefix,DEFmsgprefix);
+X     ;{ const char*const*kp;static const char*const prestenv[]=PRESTENV;
+X	for(kp=prestenv;*kp;)	/* preset or wipe some environment variables */
+X	 { strcpy((char*)(sgetcp=buf2),*kp++);readparse(buf,sgetc,2);
+X	   sputenv(buf);
+X	 }
+X      }				 /* find out the name of our system lockfile */
+X     sgetcp=DEFdeflock+STRLEN(lockfile)+1;readparse(buf,sgetc,2);
+X     defdeflock=tstrdup(buf);strcpy(buf,chp=(char*)getenv(orgmail));
+X     buf[i=lastdirsep(chp)-chp]='\0';
+X     ;{ struct stat stbuf;			   /* strip off the basename */
+X	sgid=gid;					/* presumed innocent */
+X       /*
+X	*	do we need sgidness to access the mail-spool directory/files?
+X	*/
+X	if(!stat(buf,&stbuf))
+X	 { accspooldir=stbuf.st_mode&(S_IWGRP|S_IWOTH);
+X	   if((uid!=stbuf.st_uid&&stbuf.st_gid==getegid()||(rc=rc_NOSGID,0))&&
+X	    (stbuf.st_mode&(S_IWGRP|S_IXGRP|S_IWOTH))==(S_IWGRP|S_IXGRP))
+X	    { umask(INIT_UMASK&~S_IRWXG);goto keepgid;	  /* group-writeable */
+X	    }
+X	   else if(stbuf.st_mode&S_ISGID)
+Xkeepgid:      sgid=stbuf.st_gid;   /* keep the gid from the parent directory */
+X	 }
+X       /*
+X	*	check if the default-mailbox-lockfile is owned by the
+X	*	recipient, if not, mark it for further investigation, it
+X	*	might need to be removed
+X	*/
+X	for(;;)
+X	 { ;{ int mboxstat;
+X	      ;{ int goodlock;
+X		 if(!(goodlock=lstat(defdeflock,&stbuf)||stbuf.st_uid==uid))
+X		    ultoan((unsigned long)stbuf.st_ino,	  /* i-node numbered */
+X		     strchr(strcpy(buf+i,BOGUSprefix),'\0'));
+X		/*
+X		 *	check if the original/default mailbox of the recipient
+X		 *	exists, if it does, perform some security checks on it
+X		 *	(check if it's a regular file, check if it's owned by
+X		 *	the recipient), if something is wrong try and move the
+X		 *	bogus mailbox out of the way, create the
+X		 *	original/default mailbox file, and chown it to
+X		 *	the recipient
+X		 */
+X		 if(lstat(chp,&stbuf))			 /* stat the mailbox */
+X		  { mboxstat= -(errno==EACCES);goto boglock;
+X		  }				/* lockfile unrightful owner */
+X		 mboxstat=1;
+X		 if(!goodlock&&!(stbuf.st_mode&S_IWGRP))
+Xboglock:	    if(!goodlock)	      /* try & rename bogus lockfile */
+X		       rename(defdeflock,buf);		   /* out of the way */
+X	       }
+X	      if(mboxstat>0||mboxstat<0&&(setids(uid,gid),!lstat(chp,&stbuf)))
+X		 if(!(stbuf.st_mode&S_IWUSR)||S_ISLNK(stbuf.st_mode)||
+X		  (S_ISDIR(stbuf.st_mode)?
+X		  !(stbuf.st_mode&S_IXUSR):stbuf.st_nlink!=1))
+X		    goto bogusbox;	    /* we only deliver to real files */
+X		 else if(stbuf.st_uid!=uid)	      /* recipient not owner */
+Xbogusbox:	  { ultoan((unsigned long)stbuf.st_ino,	  /* i-node numbered */
+X		     strchr(strcpy(buf+i,BOGUSprefix),'\0'));	    /* bogus */
+X		    if(rename(chp,buf))	   /* try and move it out of the way */
+X		       goto fishy;  /* rename failed, something's fishy here */
+X		  }				/* SysV type autoforwarding? */
+X		 else if(Deliverymode&&stbuf.st_mode&(S_ISGID|S_ISUID))
+X		  { nlog("Autoforwarding mailbox found\n");return EX_NOUSER;
+X		  }
+X		 else
+X		    break;			  /* everything is just fine */
+X	    }
+X	   if(!xcreat(chp,NORMperm,(time_t*)0,1)) /* can create the mailbox? */
+X	      break;			      /* yes we could, fine, proceed */
+X	   if(!lstat(chp,&stbuf))		     /* anything in the way? */
+X	      continue;			       /* check if it could be valid */
+X	   setids(uid,gid);				   /* try some magic */
+X	   if(!xcreat(chp,NORMperm,(time_t*)0,0))		/* try again */
+X	      break;
+X	   if(lstat(chp,&stbuf))		      /* nothing in the way? */
+Xfishy:	    { nlog("Couldn't create");logqnl(chp);sputenv(orgmail);
+X	      sputenv(fdefault);break;				 /* so panic */
+X	    }
+X	 }					/* bad news, be conservative */
+X	umask(INIT_UMASK);
+X      }
+X     suppmunreadable=verbose;
+X     if(!Deliverymode)			       /* not explicit delivery mode */
+X       /*
+X	*	really change the uid now, since we are not in explicit
+X	*	delivery mode
+X	*/
+X      { setids(uid,gid);rc=rc_NOFILE;
+X	if(suppmunreadable=nextrcfile())  /* any rcfile on the command-line? */
+X#ifndef NO_COMSAT
+X	   if(!getenv(scomsat))
+X	      setdef(scomsat,DEFcomsat)	       /* turn off comsat by default */
+X#endif
+X	    ;
+X	else if(mailfilter)
+X	 { nlog("Missing rcfile\n");return EX_NOINPUT;
+X	 }
+X	while(chp=(char*)argv[argc])   /* interpret command line specs first */
+X	 { argc++;
+X	   if(!asenvcpy(chp)&&mailfilter)
+X	    { gargv= &nullp;
+X	      for(restargv=argv+argc;restargv[crestarg];crestarg++);
+X	      break;
+X	    }
+X	 }
+X      }
+X   }
+X  ;{ int succeed,lastcond;
+X     do					     /* main rcfile interpreter loop */
+X      { alarm((unsigned)(alrmtime=0));			    /* reset timeout */
+X	if(rc<0)					 /* open new rc file */
+X	 { struct stat stbuf;
+X	  /*
+X	   *	if we happen to be still running as root, and the rcfile
+X	   *	is mounted on a secure NFS-partition, we might not be able
+X	   *	to access it, so check if we can stat it or don't need any
+X	   *	sgid privileges, if yes, drop all privs and set uid to
+X	   *	the recipient beforehand
+X	   */
+X	   goto findrc;
+X	   do
+X	    { if(suppmunreadable)	  /* should we supress this message? */
+Xfake_rc:	 readerr(buf);
+X	      if(!nextrcfile())		      /* not available? try the next */
+X		 goto nomore_rc;
+X	      suppmunreadable=0;
+Xfindrc:	      i=0;		    /* should we keep the current directory? */
+X	      if(strchr(dirsep,*rcfile)||		   /* absolute path? */
+X	       *rcfile==chCURDIR&&strchr(dirsep,rcfile[1])&&(i=1)) /* ./ pfx */
+X		 *buf='\0';		/* do not put anything in front then */
+X	      else
+X		 cat(tgetenv(home),MCDIRSEP);	  /* prepend $HOME directory */
+X	      if(stat(strcat(buf,rcfile),&stbuf)?	      /* accessible? */
+X	       rc==rc_NOSGID:stbuf.st_mode&S_IRUSR)   /* and owner-readable? */
+X		 setids(uid,gid);			/* then transmogrify */
+X	    }
+X	   while(0>bopen(buf));			   /* try opening the rcfile */
+X	   if(i&&!didchd)	  /* opened rcfile in the current directory? */
+X	    { didchd=1;*(chp=strcpy(buf2,maildir)+STRLEN(maildir))='=';
+X	      *++chp=chCURDIR;*++chp='\0';sputenv(buf2);
+X	    }
+X	  /*
+X	   *	OK, so now we have opened an rcfile, but for security reasons
+X	   *	we only accept it if it is owned by the recipient or if the
+X	   *	the directory it is in, is not world writeable
+X	   */
+X	   i= *(chp=lastdirsep(buf));
+X	   if(lstat(buf,&stbuf)||
+X	    (stbuf.st_uid!=uid&&(*chp='\0',stat(buf,&stbuf)||
+X	    (stbuf.st_mode&(S_IWOTH|S_IXOTH))==(S_IWOTH|S_IXOTH))))
+X	    { *chp=i;rclose(rc);nlog("Suspicious rcfile\n");goto fake_rc;
+X	    }
+X	  /*
+X	   *	set uid back to recipient in any case, since we might just
+X	   *	have opened his/her .procmailrc (don't remove these, since
+X	   *	the rcfile might have been created after the first stat)
+X	   */
+X	   *chp=i;yell("Rcfile:",buf);succeed=lastcond=0;setids(uid,gid);
+X	   firstchd();
+X	 }
+X	unlock(&loclock);			/* unlock any local lockfile */
+X	do skipspace();					  /* skip whitespace */
+X	while(testb('\n'));
+X	if(testb(':'))				       /* check for a recipe */
+X	 { int locknext;long tobesent;char*startchar;
+X	   static char flags[maxindex(exflags)];
+X	   ;{ int nrcond;
+X	      readparse(buf,getb,0);
+X	      ;{ char*chp3=chp;
+X		 nrcond=strtol(buf,&chp3,10);chp=chp3;
+X	       }
+X	      if(chp==buf)				 /* no number parsed */
+X		 nrcond= -1;
+X	      if(tolock)	 /* clear temporary buffer for lockfile name */
+X		 free(tolock);
+X	      for(i=maxindex(flags);flags[i]=0,i--;);	  /* clear the flags */
+X	      for(tolock=0,locknext=0;;)
+X	       { chp=skpspace(chp);
+X		 switch(i= *chp++)
+X		  { default:
+X		       if(!(chp2=strchr(exflags,i)))	    /* a valid flag? */
+X			{ chp--;break;
+X			}
+X		       flags[chp2-exflags]=1;		     /* set the flag */
+X		    case '\0':
+X		       if(chp!=Tmnate)		/* if not the real end, skip */
+X			  continue;
+X		       break;
+X		    case ':':locknext=1;    /* yep, local lockfile specified */
+X		       if(*chp||++chp!=Tmnate)
+X			  tolock=tstrdup(chp),chp=strchr(chp,'\0')+1;
+X		  }
+X		 concatenate(chp);skipped(chp);break;	/* display leftovers */
+X	       }
+X	      if(nrcond<0)    /* assume appropriate default nr of conditions */
+X		 nrcond=!flags[ALSO_NEXT_RECIPE]&&!flags[ALSO_N_IF_SUCC];
+X	      startchar=themail;tobesent=thebody-themail;
+X	      if(flags[BODY_GREP])	       /* what needs to be egrepped? */
+X		 if(flags[HEAD_GREP])
+X		    tobesent=filled;
+X		 else
+X		  { startchar=thebody;tobesent=filled-tobesent;goto noconcat;
+X		  }
+X	      concon(' ');
+Xnoconcat:     i=flags[ALSO_NEXT_RECIPE]?lastcond:1;	  /* init test value */
+X	      if(flags[ALSO_N_IF_SUCC])
+X		 i=lastcond&&succeed;	/* only if the last recipe succeeded */
+X	      while(skipspace(),nrcond--,testb('*')||nrcond>=0)
+X	       { skipspace();getlline(buf2);	    /* any conditions (left) */
+X		 for(chp=strchr(buf2,'\0');--chp>=buf2;)
+X		  { switch(*chp)	  /* strip off whitespace at the end */
+X		     { case ' ':case '\t':*chp='\0';continue;
+X		     }
+X		    break;
+X		  }
+X		 if(i)				 /* check out all conditions */
+X		  { int negate=0;
+X		    for(chp=buf2+1;;strcpy(buf2,buf))
+X		     { switch(*(sgetcp=buf2))
+X			{ default:chp--;     /* no special character, backup */
+X			  case '\\':
+X			   { int or_nocase;	/* case-distinction override */
+X			     static const struct {const char*regkey,*regsubst;}
+X			      *regsp,regs[]=
+X			       { {FROMDkey,FROMDsubstitute},
+X				 {TOkey,TOsubstitute},
+X				 {FROMMkey,FROMMsubstitute},
+X				 {0,0}
+X			       };
+X			     ;{ char*tg;
+X				for(or_nocase=0,tg=chp2=chp;;tg++,chp2++)
+X				 { switch(*tg= *chp2)
+X				    { case '\n':
+X					 if(or_nocase==1)
+X					    tg-=2;   /* throw out \ \n pairs */
+X					 or_nocase=2;continue;
+X				      case '\\':or_nocase=1;continue;
+X				      case ' ':case '\t':
+X					 if(or_nocase==2)    /* skip leading */
+X					  { tg--;continue;     /* whitespace */
+X					  }
+X				      default:or_nocase=0;continue;
+X				      case '\0':;
+X				    }
+X				   break;
+X				 }
+X			      }
+X			     or_nocase=0;goto jinregs;
+X			     do		   /* find special keyword in regexp */
+X				if((chp2=strstr(chp,regsp->regkey))&&
+X				 (chp2==buf2||chp2[-1]!='\\'))	 /* escaped? */
+X				 { size_t lregs,lregk;		   /* no, so */
+X				   lregk=strlen(regsp->regkey); /* insert it */
+X				   tmemmove(
+X				    chp2+(lregs=strlen(regsp->regsubst)),
+X				    chp2+lregk,strlen(chp2)-lregk+1);
+X				   tmemmove(chp2,regsp->regsubst,lregs);
+X				   if(regsp==regs)	   /* daemon regexp? */
+X				      or_nocase=1;   /* no case sensitivity! */
+Xjinregs:			   regsp=regs;	/* start over and look again */
+X				 }
+X				else
+X				   regsp++;		     /* next keyword */
+X			     while(regsp->regkey);
+X			     i=!!egrepin(chp,startchar,tobesent, /* egrep it */
+X			      or_nocase?0:flags[DISTINGUISH_CASE]);
+X			     break;
+X			   }
+X			  case '$':*buf2='"';readparse(buf,sgetc,2);continue;
+X			  case '!':negate^=1;strcpy(buf,chp);continue;
+X			  case '?':pwait=2;metaparse(chp);inittmout(buf);
+X			      ignwerr=1;i=!pipin(buf,startchar,tobesent);
+X			      strcpy(buf2,buf);break;
+X			  case '>':case '<':readparse(buf,sgetc,2);
+X			     ;{ char*chp3=chp;
+X				i=strtol(buf+1,&chp3,10);chp=chp3;
+X			      }
+X			     i='<'==*buf?filled<i:filled>i;
+X			     skipped(skpspace(chp));strcpy(buf2,buf);
+X			}					/* leftovers */
+X		       break;
+X		     }
+X		    i^=negate;
+X		    if(verbose)	     /* not entirely correct, but it will do */
+X		     { nlog(i?"M":"No m");elog("atch on");
+X		       if(negate)
+X			  elog(" !");
+X		       logqnl(buf2);
+X		     }
+X		  }
+X	       }
+X	    }
+X	   if(!flags[ALSO_NEXT_RECIPE]&&!flags[ALSO_N_IF_SUCC])
+X	      lastcond=i;		   /* save the outcome for posterity */
+X	   startchar=themail;tobesent=filled;	    /* body, header or both? */
+X	   if(flags[PASS_HEAD])
+X	    { if(!flags[PASS_BODY])
+X		 tobesent=thebody-themail;
+X	    }
+X	   else if(flags[PASS_BODY])
+X	      tobesent-=(startchar=thebody)-themail;
+X	   chp=strchr(strcpy(buf,tgetenv(sendmail)),'\0');succeed=sh=0;
+X	   pwait=flags[WAIT_EXIT]|flags[WAIT_EXIT_QUIET]<<1;
+X	   ignwerr=flags[IGNORE_WRITERR];Stdout=0;skipspace();
+X	   if(i)
+X	      concon('\n');
+Xprogrm:	   if(testb('!'))				 /* forward the mail */
+X	    { readparse(chp+1,getb,0);
+X	      if(i)
+X		 goto forward;
+X	    }
+X	   else if(testb('|'))				    /* pipe the mail */
+X	    { getlline(buf2);			 /* get the command to start */
+X	      if(i)
+X	       { metaparse(buf2);
+Xforward:	 if(locknext)
+X		  { if(!tolock)	   /* an explicit lockfile specified already */
+X		     { *buf2='\0';  /* find the implicit lockfile ('>>name') */
+X		       for(chp=buf;i= *chp++;)
+X			  if(i=='>'&&*chp=='>')
+X			   { chp=pstrspn(chp+1," \t");
+X			     tmemmove(buf2,chp,i=strcspn(chp,EOFName));
+X			     buf2[i]='\0';
+X			     if(sh)	 /* expand any environment variables */
+X			      { chp=tstrdup(buf);sgetcp=buf2;
+X				readparse(buf,sgetc,0);strcpy(buf2,buf);
+X				strcpy(buf,chp);free(chp);
+X			      }
+X			     break;
+X			   }
+X		       if(!*buf2)
+X			{ nlog("Couldn't determine implicit lockfile from");
+X			  logqnl(buf);
+X			}
+X		       else if(!strcmp(buf2,devnull))	/* locking /dev/null */
+X			  goto noloclock;		   /* would be silly */
+X		     }
+X		    lcllock();
+X		    if(!pwait)		/* try and protect the user from his */
+X		       pwait=2;			   /* blissful ignorance :-) */
+X		  }
+Xnoloclock:	 inittmout(buf);asgnlastf=1;
+X		 if(flags[FILTER])
+X		  { if(startchar==themail&&tobesent!=filled)  /* if only 'h' */
+X		     { if(!pipthrough(buf,startchar,tobesent))
+X			  succeed=1,readmail(1,tobesent);
+X		     }
+X		    else if(!pipthrough(buf,startchar,tobesent))
+X		       succeed=1,filled=startchar-themail,readmail(0,0L);
+X		  }
+X		 else if(Stdout)		  /* capturing stdout again? */
+X		  { if(!pipthrough(buf,startchar,tobesent))
+X		       succeed=1,postStdout();	  /* only parse if no errors */
+X		  }
+X		 else if(!pipin(buf,startchar,tobesent)&& /* regular program */
+X		  (succeed=1,!flags[CONTINUE]))
+X		    goto mailed;
+X	       }
+X	    }
+X	   else		   /* dump the mail into a mailbox file or directory */
+X	    { if(flags[FILTER])
+X		 flags[FILTER]=0,nlog("Extraneous filter-flag ignored\n");
+X	      if(chp=gobenv(buf))	   /* can it be an environment name? */
+X	       { if(skipspace())
+X		    chp++;		   /* keep pace with argument breaks */
+X		 if(testb('='))		      /* is it really an assignment? */
+X		  { int c;
+X		    *chp++='=';*chp='\0';
+X		    if(skipspace())
+X		       chp++;
+X		    ungetb(c=getb());
+X		    switch(c)
+X		     { case '!':case '|':		  /* ok, it's a pipe */
+X			  if(i)
+X			     primeStdout();
+X			  goto progrm;
+X		     }
+X		  }
+X	       }
+X	      else
+X		 chp=strchr(buf,'\0');			     /* find the end */
+X	      readparse(chp,getb,0);
+X	      if(i)
+X	       { strcpy(buf2,buf);
+X		 if(locknext)
+X		    lcllock();		     /* write to a file or directory */
+X		 if(dump(deliver(buf,strchr(buf,'\0')+1),startchar,tobesent)&&
+X		  !ignwerr)
+X		    writeerr(buf);
+X		 else if(succeed=1,!flags[CONTINUE])
+X		    goto mailed;
+X	       }
+X	    }
+X	 }
+X	else if(testb('#'))				   /* no comment :-) */
+X	   getbl(buf);
+X	else				    /* then it must be an assignment */
+X	 { if(!(chp=gobenv(buf)))
+X	    { if(!*buf)					/* skip a word first */
+X		 getbl(buf);				      /* then a line */
+X	      skipped(buf);continue;			/* display leftovers */
+X	    }
+X	   skipspace();
+X	   if(testb('='))			   /* removal or assignment? */
+X	      *chp='=',readparse(++chp,getb,1);
+X	   else
+X	      *++chp='\0';		     /* throw in a second terminator */
+X	   sputenv(buf);chp[-1]='\0';asenv(chp);
+X	 }
+X      }
+X     while(rc<0||!testb(EOF)||poprc());		    /* main interpreter loop */
+X   }
+Xnomore_rc:
+X  ;{ int succeed;
+X     concon('\n');succeed=0;
+X     if(*(chp=(char*)tgetenv(fdefault)))		     /* DEFAULT set? */
+X      { setuid(uid);firstchd();
+X	if(strcmp(chp,devnull))			     /* don't lock /dev/null */
+X	   asenvcpy((char*)DEFdeflock);			    /* implicit lock */
+X	if(dump(deliver(chp,(char*)0),themail,filled))		  /* default */
+X	   writeerr(buf);
+X	else
+X	   succeed=1;
+X      }
+X     if(!succeed&&*(chp=(char*)tgetenv(orgmail)))      /* if all else failed */
+X	if(dump(deliver(chp,(char*)0),themail,filled))	      /* don't panic */
+X	   writeerr(buf);			      /* try the last resort */
+X	else
+X	   succeed=1;
+X     if(succeed)				     /* should we panic now? */
+Xmailed: retval=EX_OK;			  /* we're home free, mail delivered */
+X   }
+X  unlock(&loclock);terminate();
+X}
+X
+XeqFrom_(a)const char*const a;
+X{ return!strncmp(a,From_,STRLEN(From_));
+X}
+END_OF_FILE
+if test 25195 -ne `wc -c <'procmail/src/procmail.c'`; then
+    echo shar: \"'procmail/src/procmail.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/src/procmail.c'
+fi
+echo shar: End of archive 10 \(of 11\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Sincerely,                                  berg@pool.informatik.rwth-aachen.de
+           Stephen R. van den Berg (AKA BuGless).    berg@physik.tu-muenchen.de
+
+"Always look on the bright side of life!"
+
+exit 0 # Just in case...

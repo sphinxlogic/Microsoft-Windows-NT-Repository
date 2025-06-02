@@ -1,0 +1,2336 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.mt-park.ga.us (Warren Tucker)
+Subject:  v32i042:  ecu - ECU Asynchronous Communications v3.20, Part07/40
+Message-ID: <1992Sep11.192654.7262@sparky.imd.sterling.com>
+X-Md4-Signature: 0d7fbd07d4f42b73dd1b7e3d67c52050
+Date: Fri, 11 Sep 1992 19:26:54 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.mt-park.ga.us (Warren Tucker)
+Posting-number: Volume 32, Issue 42
+Archive-name: ecu/part07
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.07 (part 7 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ecufinsert.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 7; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ecufinsert.c'
+else
+echo 'x - continuing file ecufinsert.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ecufinsert.c' &&
+X{
+Xint itmp;
+Xregister rchar;
+Xint old_ttymode = get_ttymode();
+Xlong total_chars = 0L;
+Xlong total_lines = 0L;
+Xulong colors_at_entry = colors_current;
+Xlong timeout_msecs;
+XFILE *fp;
+Xchar file_string[256];
+Xchar s256[256];
+Xchar xmit_mode;
+Xuchar delim;
+X#ifdef USE_XON_XOFF
+Xint ixon;
+Xint ixoff;
+X#endif
+Xchar *make_char_graphic();
+X
+X	sigint = 0;
+X
+X	if(narg > 1)
+X	{
+X		strncpy(s256,arg[1],sizeof(s256));	
+X		s256[sizeof(s256) - 1] = 0;
+X	}
+X	else
+X	{
+X		ff(se,"\r\n--> File to insert on comm line: ");
+X		ttygets(s256,sizeof(s256),TG_CRLF,&delim,(int *)0);
+X		if((delim == ESC) || !strlen(s256)) 
+X		{
+X			ff(se," --> transmission aborted\r\n");
+X			return(0);
+X		}
+X	}
+X	if((itmp = expand_filename(s256,sizeof(s256))) < 0)
+X		return(-1);
+X	else if(itmp)
+X		ff(se,"\r\n--> wild card match: %s",s256);
+X
+X	if((fp = fopen(s256,"r")) == (FILE *)0)
+X	{
+X		ff(se,"\r\n--> ");
+X		pperror(s256);			/* print error if we get one */
+X		return(-1);
+X	}
+X
+X	if(narg > 1)
+X		ff(se,"\r\n");
+X
+X	if(narg > 2)
+X		xmit_mode = *arg[2];
+X	else
+X	{
+XASK_OPTION:
+X		ff(se,"(S)ingle line at a time\r\n");
+X		ff(se,"(E)cho pacing\r\n");
+X		ff(se,"(F)ull speed transmission\r\n");
+X		ff(se,"(P)aced transmission (20 msec/char)\r\n");
+X		ff(se,"(Q)uit (or ESC)          press a key:   ");
+X		xmit_mode = ttygetc(0) & 0x7F;
+X		if(xmit_mode > 0x20)
+X			fputs(make_char_graphic(xmit_mode,0),se);
+X		fputs("\r\n",se);
+X	}
+X
+X	kill_rcvr_process(SIGUSR1);
+X
+X	switch(xmit_mode = to_lower(xmit_mode))
+X	{
+X		case 's':
+X			setcolor(colors_alert);
+X			fputs("--> press SPACE to continue or ESC/'s' to stop\r\n",se);
+X			setcolor(colors_at_entry);
+X			break;
+X
+X		case 'e':
+X			/* fall through */
+X
+X		case 'f':
+X		case 'p':
+X			setcolor(colors_alert);
+X			ff(se,"--> press %s to abort\r\n",make_char_graphic(kbdintr,0));
+X			setcolor(colors_at_entry);
+X			ttymode(2);
+X			break;
+X
+X		case 'q':
+X		case ESC:
+X			goto INSERT_DONE2;
+X
+X		default:
+X			ring_bell();
+X			fputs("\r\n",se);
+X			goto ASK_OPTION;
+X	}
+X
+X#ifdef USE_XON_XOFF
+X	lget_xon_xoff(&ixon,&ixoff);		/* get current line xon/xoff status */
+X	lxon_xoff(IXON);					/* set it for us */
+X#endif
+X
+X	while(fgets(file_string,sizeof(file_string),fp))
+X	{
+X	int xmit_len = strlen(file_string);
+X	int xmit_cr = xmit_len && (file_string[xmit_len - 1] == NL);
+X
+X		if(xmit_cr)
+X		{
+X			xmit_len--;
+X			file_string[xmit_len] = 0;
+X		}
+X		total_chars += xmit_len;
+X		total_lines++;
+X
+X/* some destinations, like BBS msg entry, take a blank line to mean
+Xend of message, so do not send completely blank lines */
+X		if(!xmit_len && xmit_cr)
+X		{
+X			lputc(' ');
+X			xmit_len = 1;
+X		}
+X		else if(xmit_mode == 'p')
+X		{
+X		register char *cptr = file_string;
+X			while(*cptr)
+X			{
+X				lputc(*cptr++);
+X				Nap(20L);
+X				while(rdchk(shm->Liofd))
+X				{
+X					rchar = lgetc_xmtr();
+X					process_xmtr_rcvd_char((char)rchar,1);
+X				}
+X			}
+X		}
+X		else
+X			lputs(file_string);
+X		if(xmit_cr)
+X		{
+X			if(xmit_mode == 'p')
+X				Nap(20L);
+X			lputc('\r');
+X			xmit_len++;
+X		}
+X
+X		if(sigint)
+X			break;
+X
+X		switch(xmit_mode)
+X		{
+X			case 's':
+X				while(1)
+X				{
+X					if(ttyrdchk())
+X						break;
+X					rchar = lgetc_timeout(5 * 1000L);
+X					if(rchar < 0)
+X						file_insert_clear_xoff();
+X					else
+X						process_xmtr_rcvd_char((char)rchar,1);
+X					if(rchar == 0x0A)
+X						break;
+X				}
+X				rchar = to_lower(ttygetc(1));
+X				if((rchar == 's') || (rchar == ESC))
+X					goto INSERT_DONE;
+X				break;
+X
+X			case 'e':
+X				timeout_msecs = 5 * 1000L;
+X				while(1)
+X				{
+X					if(sigint)
+X						break;
+X					rchar = lgetc_timeout(timeout_msecs);
+X					if(rchar < 0)
+X					{
+X						if(!xmit_len)
+X							break;
+X						file_insert_clear_xoff();
+X						timeout_msecs = 1 * 1000L;
+X					}
+X					else
+X					{
+X						process_xmtr_rcvd_char((char)rchar,1);
+X						timeout_msecs = 100L;
+X						if(xmit_len)
+X							xmit_len--;
+X					}
+X					if(rchar == 0x0A)
+X						break;
+X				}
+X				break;
+X
+X			case 'f':
+X			case 'p':
+X				while(rdchk(shm->Liofd))
+X				{
+X					rchar = lgetc_xmtr();
+X					process_xmtr_rcvd_char((char)rchar,1);
+X				}
+X				break;
+X		}
+X		if(sigint)
+X			break;
+X	}
+X
+XINSERT_DONE:
+X
+X	if(sigint)
+X	{
+X		sigint = 0;
+X		setcolor(colors_error);
+X		ff(se,"--> Interrupted\r\n");
+X		setcolor(colors_at_entry);
+X	}
+X
+XINSERT_DONE2:
+X
+X	fclose(fp);
+X
+X	ttymode(old_ttymode);		/* restore old console mode */
+X	sigint = 0;				/* reset SIGINT flag */
+X
+X	while(((rchar = lgetc_timeout(200L)) >= 0) && !sigint)
+X		process_xmtr_rcvd_char((char)rchar,1);
+X
+X	setcolor(colors_success);
+X	ff(se,"\r\n-->  done ... sent %ld lines, %ld characters\r\n",
+X				total_lines,total_chars);
+X	setcolor(colors_at_entry);
+X	lclear_xmtr_xoff();
+X#ifdef USE_XON_XOFF
+X	lxon_xoff(ixon | ixoff);	/* restore old line xon/xoff status */
+X#endif
+X	start_rcvr_process(1);
+X	return(0);
+X
+X}	/* end of file_insert_to_line */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecufinsert.c */
+SHAR_EOF
+echo 'File ecufinsert.c is complete' &&
+chmod 0644 ecufinsert.c ||
+echo 'restore of ecufinsert.c failed'
+Wc_c="`wc -c < 'ecufinsert.c'`"
+test 7262 -eq "$Wc_c" ||
+	echo 'ecufinsert.c: original size 7262, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecufkey.c ==============
+if test -f 'ecufkey.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecufkey.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecufkey.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecufkey.c' &&
+X/*+-----------------------------------------------------------------
+X	ecufkey.c -- function key definition
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	ffso(str)
+X	idke_to_xf(ikde)
+X	kde_fgets(buf,bufsize,fp)
+X	kde_name_to_ikde(keystr)
+X	kde_text(ikde)
+X	keyset_define_key(bufptr)
+X	keyset_display()
+X	keyset_idstr(ikde)
+X	keyset_init()
+X	keyset_read(name)
+X	xf_text(xf)
+X	xf_to_ikde(xf)
+X
+X------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-17-1992-16:29-wht@n4hgf-initialize keyset to SCO "ANSI" send strings */
+X/*:09-01-1991-05:16-wht@n4hgf2-allow comments and whitespace after names */
+X/*:08-31-1991-13:21-wht@n4hgf2-look for keys file in ECULIBDIR */
+X/*:08-16-1991-00:11-wht@n4hgf-keyset_init loads default keyset if found */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:07-12-1991-13:57-wht@n4hgf-GCC140 fix update */
+X/*:05-21-1991-00:45-wht@n4hgf-added -3 error code to keyset_read */
+X/*:05-21-1991-00:37-wht@n4hgf-improve fkey load error detection */
+X/*:05-16-1991-15:05-wht@n4hgf-gcc binary exploded in keyset_display */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "ecufkey.h"
+X#include "ecuxkey.h"
+X#include "ecufork.h"
+X
+Xchar *str_token();
+X
+Xextern char kbdintr;	/* current input INTR */
+Xextern char curr_dir[CURR_DIRSIZ];	/* current working key defns */
+X
+XKDE keyset_table[KDE_COUNT];
+Xchar keyset_name[256] = "";
+X
+XKDEMAP kdemap[] = {
+X	{ XFcurup,	IKDE_CUU,	"CUU",	"\033[A"	},
+X	{ XFcurdn,	IKDE_CUD,	"CUD",	"\033[B"	},
+X	{ XFcurrt,	IKDE_CUR,	"CUR",	"\033[C"	},
+X	{ XFcurlf,	IKDE_CUL,	"CUL",	"\033[D"	},
+X	{ XFcur5,	IKDE_CU5,	"CU5",	"\033[E"	},
+X	{ XFend,	IKDE_END,	"End",	"\033[F"	},
+X	{ XFpgdn,	IKDE_PGDN,	"PgDn",	"\033[G"	},
+X	{ XFhome,	IKDE_HOME,	"Home",	"\033[H"	},
+X	{ XFpgup,	IKDE_PGUP,	"PgUp",	"\033[I"	},
+X	{ XFins,	IKDE_INS,	"Ins",	"\033[L"	},
+X	{ XF1,		IKDE_F1,	"F1",	"\033[M"	},
+X	{ XF2,		IKDE_F2,	"F2",	"\033[N"	},
+X	{ XF3,		IKDE_F3,	"F3",	"\033[O"	},
+X	{ XF4,		IKDE_F4,	"F4",	"\033[P"	},
+X	{ XF5,		IKDE_F5,	"F5",	"\033[Q"	},
+X	{ XF6,		IKDE_F6,	"F6",	"\033[R"	},
+X	{ XF7,		IKDE_F7,	"F7",	"\033[S"	},
+X	{ XF8,		IKDE_F8,	"F8",	"\033[T"	},
+X	{ XF9,		IKDE_F9,	"F9",	"\033[U"	},
+X	{ XF10,		IKDE_F10,	"F10",	"\033[V"	},
+X	{ XF11,		IKDE_F11,	"F11",	"\033[W"	},
+X	{ XF12,		IKDE_F12,	"F12",	"\033[X"	},
+X	{ XFbktab,	IKDE_BKTAB,	"BkTab","\033[Z"	},
+X	{ 255,		IKDE_InitStr,"IS",	""			},
+X	{ 0,0,"",""}
+X};
+X
+X/*+-------------------------------------------------------------------------
+X	keyset_init()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xkeyset_init()
+X{
+X	register itmp;
+X	register KDE *tkde;
+X	register KDEMAP *kmap;
+X
+X	for(itmp = 0; itmp < KDE_COUNT; itmp++)
+X	{
+X		tkde = &keyset_table[itmp];
+X		tkde->logical[0] = 0;
+X		tkde->ikde = (uchar)itmp;
+X	}
+X
+X	kmap = kdemap;
+X	while(kmap->xf)
+X	{
+X		if(kmap->ikde <= IKDE_lastKey)
+X		{
+X			tkde = &keyset_table[kmap->ikde];
+X			sprintf(tkde->logical,"SCO %s",kmap->name);
+X			strcpy(tkde->str,kmap->init);
+X			tkde->count  = strlen(tkde->str);
+X		}
+X		kmap++;
+X	}
+X
+X	keyset_name[0] = 0;
+X
+X	tkde = &keyset_table[IKDE_BKTAB];
+X	strcpy(tkde->logical,"redisplay");
+X	tkde->count = KACT_REDISPLAY;
+X
+X	tkde = &keyset_table[IKDE_HOME];
+X	strcpy(tkde->logical,"ecu cmd");
+X	tkde->count = KACT_COMMAND;
+X
+X	tkde = &keyset_table[IKDE_INS];
+X	strcpy(tkde->logical,"local shell");
+X	tkde->count = KACT_LOCAL_SHELL;
+X
+X	tkde = &keyset_table[IKDE_CU5];
+X	strcpy(tkde->logical,"screen dump");
+X	tkde->str[0] = 0x7F;	/* this key is intercepted by kbd read routine */
+X	tkde->count = 0;
+X
+X}	/* end of keyset_init */
+X
+X/*+-------------------------------------------------------------------------
+X	kde_fgets(buf,bufsize,fp) - read and evaluate key file line
+X
+XReturns:
+X    KDETYPE_COMMENT     comment or blank line (null, all blank or "#"
+X                        as non-blank)
+X    KDETYPE_NAME        "name" (non "#\t " in column 1)
+X    KDETYPE_ENTRY       "entry" ("\t " in column 1)
+X    KDETYPE_EOF         end of file
+X--------------------------------------------------------------------------*/
+Xint
+Xkde_fgets(buf,bufsize,fp)
+Xchar *buf;
+Xint bufsize;
+XFILE *fp;
+X{
+X	register itmp;
+X	register char *cptr;
+X
+X	if(!fgets(buf,bufsize,fp))
+X	{
+X		return(KDETYPE_EOF);
+X	}
+X
+X	if(!(itmp = strlen(buf)))
+X		return(KDETYPE_COMMENT);
+X	if(buf[itmp - 1] == NL)
+X	{
+X		buf[itmp - 1] = 0;
+X		itmp--;
+X	}
+X	if(!itmp)
+X		return(KDETYPE_COMMENT);
+X
+X	cptr = buf;
+X	itmp = (strchr(" \t",*cptr)) ? KDETYPE_ENTRY : KDETYPE_NAME;
+X	while(*cptr && ((*cptr == SPACE) || (*cptr == TAB)))
+X		cptr++;
+X
+X	if(!*cptr || (*cptr == '#'))
+X		return(KDETYPE_COMMENT);
+X
+X	return(itmp);
+X	
+X}	/* end of kde_fgets */
+X
+X/*+-------------------------------------------------------------------------
+X	kde_name_to_ikde(keystr)
+X--------------------------------------------------------------------------*/
+Xint
+Xkde_name_to_ikde(keystr)
+Xchar *keystr;
+X{
+X	KDEMAP *kmap = kdemap;
+X
+X	while(kmap->xf != 0)
+X	{
+X		if(!strcmpi(kmap->name,keystr))
+X			return((int)kmap->ikde);
+X		kmap++;
+X	}
+X	return(-1);
+X}	/* end of kde_name_to_ikde */
+X
+X/*+-------------------------------------------------------------------------
+X	keyset_idstr(ikde)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xkeyset_idstr(ikde)
+Xint ikde;
+X{
+X	KDEMAP *kmap = kdemap;
+X
+X	while(kmap->xf)
+X	{
+X		if((int)kmap->ikde == ikde)
+X			return(kmap->name);
+X		kmap++;
+X	}
+X	return((char *)0);
+X}	/* end of keyset_idstr */
+X
+X/*+-------------------------------------------------------------------------
+X	xf_to_ikde(xf)
+X--------------------------------------------------------------------------*/
+Xint
+Xxf_to_ikde(xf)
+Xuchar xf;
+X{
+X	KDEMAP *kmap = kdemap;
+X
+X	while(kmap->xf)
+X	{
+X		if(kmap->xf == xf)
+X			return((int)kmap->ikde & 0xFF);
+X		kmap++;
+X	}
+X	return(-1);
+X}	/* end of xf_to_ikde */
+X
+X/*+-------------------------------------------------------------------------
+X	ikde_to_xf(ikde)
+X--------------------------------------------------------------------------*/
+Xint
+Xikde_to_xf(ikde)
+Xuchar ikde;
+X{
+X	KDEMAP *kmap = kdemap;
+X
+X	while(kmap->xf)
+X	{
+X		if(kmap->ikde == ikde)
+X			return((int)kmap->xf & 0xFF);
+X		kmap++;
+X	}
+X	return(-1);
+X}	/* end of ikde_to_xf */
+X
+X/*+-------------------------------------------------------------------------
+X	kde_text(ikde) - ikde value to text
+X--------------------------------------------------------------------------*/
+Xchar *
+Xkde_text(ikde)
+Xint ikde;
+X{
+X	KDEMAP *kmap = kdemap;
+X
+X	while(kmap->xf)
+X	{
+X		if(kmap->ikde == (char)ikde)
+X			return(kmap->name);
+X		kmap++;
+X	}
+X	return("??");
+X}	/* end of xf_to_ikde */
+X
+X/*+-------------------------------------------------------------------------
+X	xf_text(xf) - XFkey to text
+X--------------------------------------------------------------------------*/
+Xchar *
+Xxf_text(xf)
+Xuchar xf;
+X{
+X	static char sc8[8];
+X
+X	switch(xf)
+X	{
+X		case XFcurup:	return("CUU");
+X		case XFcurdn:	return("CUD");
+X		case XFcurrt:	return("CUR");
+X		case XFcurlf:	return("CUL");
+X		case XFcur5:	return("CU5");
+X		case XFend:		return("End");
+X		case XFpgdn:	return("PgDn");
+X		case XFhome:	return("Home");
+X		case XFpgup:	return("PgUp");
+X		case XFins:		return("Ins");
+X		case XF1:		return("F1");
+X		case XF2:		return("F2");
+X		case XF3:		return("F3");
+X		case XF4:		return("F4");
+X		case XF5:		return("F5");
+X		case XF6:		return("F6");
+X		case XF7:		return("F7");
+X		case XF8:		return("F8");
+X		case XF9:		return("F9");
+X		case XF10:		return("F10");
+X		case XF11:		return("F11");
+X		case XF12:		return("F12");
+X		case XFbktab:	return("BkTab");
+X	}
+X
+X	if((xf >= XF_ALTA) && (xf <= XF_ALTZ))
+X	{
+X		sprintf(sc8,"Alt-%c",'a' + xf - XF_ALTA);
+X		return(sc8);
+X	}
+X	sprintf(sc8,"XF_%02x\n",xf);
+X	return(sc8);
+X}	/* end of xf_text */
+X
+X/*+-------------------------------------------------------------------------
+X	keyset_define_key(bufptr)
+X
+Xreturn 0 if no error, -1 if error
+X--------------------------------------------------------------------------*/
+Xint
+Xkeyset_define_key(bufptr)
+Xchar *bufptr;
+X{
+X	register itmp;
+X	register token_number;
+X	register KDE *tkde = (KDE *)0;
+X	int ikde = 0;
+X	char token_separator[8];
+X	char *token;
+X	char *syntax = "syntax error in key definition: %s\n";
+X
+X	if((itmp = strlen(bufptr)) && (bufptr[itmp - 1] == NL))
+X		bufptr[--itmp] = 0;		/* strip trailing NL */
+X	if(!itmp)
+X		return(0);
+X
+X	if((*bufptr != SPACE) && (*bufptr != TAB))	/* if no leading space */
+X		return(0);
+X
+X	while((*bufptr == SPACE) || (*bufptr == TAB))	/* strip lding sp/tab */
+X		bufptr++;
+X
+X	token_number = 0;
+X	strcpy(token_separator,":");
+X	while(token = str_token(bufptr,token_separator))
+X	{
+X		bufptr = (char *)0;	/* further calls to str_token need NULL */
+X		switch(token_number)
+X		{
+X			case 0:		/* first field is key identifier */
+X				if((ikde = kde_name_to_ikde(token)) < 0)
+X				{
+X					pprintf(syntax,keyset_name);
+X					pprintf("  %s is not a legal key identifier\n",token);
+X					return(-1);
+X				}
+X				if(ikde == IKDE_HOME)
+X				{
+X					pprintf(syntax,keyset_name);
+X					pprintf("  HOME cannot be redefined!\n");
+X					return(-1);
+X				}
+X				if(ikde == IKDE_CU5)
+X				{
+X					pprintf(syntax,keyset_name);
+X					pprintf("  CUR5 cannot be redefined!\n");
+X					return(-1);
+X				}
+X				if(ikde == IKDE_BKTAB)
+X				{
+X					pprintf(syntax,keyset_name);
+X					pprintf("  BkTab cannot be redefined!\n");
+X					return(-1);
+X				}
+X				tkde = &keyset_table[ikde];
+X				tkde->logical[0] = 0;
+X				tkde->count = 0;
+X				break;
+X
+X			case 1:		/* second field is logical key name */
+X				strncpy(tkde->logical,token,sizeof(tkde->logical));
+X				tkde->logical[sizeof(tkde->logical) - 1] = 0;
+X				strcpy(token_separator," \t"); /* whitespace is tok sep now */
+X				break;
+X
+X			default:	/* third and subsequent to define key */
+X				if(!strlen(token))
+X					continue;
+X				if(tkde->count == sizeof(tkde->str))
+X				{
+X					pprintf(syntax,keyset_name);
+X					pprintf("  %s: output count too long",
+X						keyset_idstr(ikde));
+X					return(-1);
+X				}
+X				if((itmp = ascii_to_hex(token)) < 0)
+X				{
+X					pprintf(syntax,keyset_name);
+X					pprintf("  %s: '%s' invalid code\n",
+X						keyset_idstr(ikde),token);
+X					return(0);
+X				}
+X				tkde->str[tkde->count] = itmp;
+X				tkde->count++;
+X				break;
+X		}	/* end of switch(token_number) */
+X		token_number++;
+X	}		/* end while not end of record */
+X
+X	return(0);
+X}	/* end of keyset_define_key */
+X
+X/*+-------------------------------------------------------------------------
+X	keyset_read(name)
+Xreturns 0 on success, -1 if no .ecu/keys, -2 if no 'name', -3 if error
+X--------------------------------------------------------------------------*/
+Xint
+Xkeyset_read(name)
+Xchar *name;
+X{
+X	int itmp;
+X	int ikde;
+X	char ecukeys_name[128];
+X	char s128[128];
+X	FILE *fp_keys;
+X
+X	get_home_dir(ecukeys_name);
+X	strcat(ecukeys_name,"/.ecu/keys");	/* someone may core dump here one day */
+X
+X	if(!(fp_keys = fopen(ecukeys_name,"r")))
+X	{
+X		strcpy(ecukeys_name,eculibdir);
+X		strcat(ecukeys_name,"/keys");
+X		if(!(fp_keys = fopen(ecukeys_name,"r")))
+X			return(-1);
+X	}
+X
+X/* find keyset name */
+X	itmp = 0;
+X	while((ikde = kde_fgets(s128,sizeof(s128),fp_keys)) != KDETYPE_EOF)
+X	{
+X		if((ikde == KDETYPE_NAME) && !strcmp(s128,name))
+X		{
+X			itmp = 1; /* success */
+X			break;
+X		}
+X	}
+X	if(!itmp)				/* find match? */
+X	{
+X		fclose(fp_keys);	/* nope */
+X		return(-2);
+X	}
+X
+X/*
+X * read past any other keyset names matching this set
+X * process 1st line of definition when found
+X */
+X	while((ikde = kde_fgets(s128,sizeof(s128),fp_keys)) != KDETYPE_EOF)
+X	{
+X		if((ikde == KDETYPE_NAME) || (ikde == KDETYPE_COMMENT))
+X			continue;
+X		else if(ikde == KDETYPE_ENTRY)
+X		{
+X			if(keyset_define_key(s128) < 0)
+X			{
+X				fclose(fp_keys);
+X				keyset_init();
+X				return(-3);
+X			}
+X			break;
+X		}
+X	}
+X
+X/*
+X * read rest of definition
+X */
+X	while((ikde = kde_fgets(s128,sizeof(s128),fp_keys)) != KDETYPE_EOF)
+X	{
+X		switch(ikde)
+X		{
+X			case KDETYPE_COMMENT:
+X				continue;
+X			case KDETYPE_ENTRY:
+X				if(keyset_define_key(s128) < 0)
+X				{
+X					fclose(fp_keys);
+X					keyset_init();
+X					return(-3);
+X				}
+X				break;
+X			default:
+X				goto DONE;
+X		}
+X	}
+X
+XDONE:
+X	strncpy(keyset_name,name,sizeof(keyset_name));
+X	keyset_name[sizeof(keyset_name) - 1] = 0;
+X	fclose(fp_keys);
+X	return(0);
+X}	/* end of keyset_read */
+X
+X/*+-------------------------------------------------------------------------
+X	ffso(str)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xffso(str)
+Xchar *str;
+X{
+X	tcap_stand_out();
+X	fputs(str,se);
+X	tcap_stand_end();
+X}	/* end of ffso */
+X
+X/*+-------------------------------------------------------------------------
+X	keyset_display()
+X
+X F1  xxxxx  F2   xxxxx   HOME xxxxx  PGUP xxxxx
+X F3  xxxxx  F4   xxxxx   END  xxxxx  PGDN xxxxx
+X F5  xxxxx  F6   xxxxx   INS  xxxxx  CUR5 xxxxx
+X F7  xxxxx  F8   xxxxx   BkTab xxxxx
+X F9  xxxxx  F10  xxxxx   CUR^ xxxxx  CUR> xxxxx
+X F11 xxxxx  F12  xxxxx   CUR< xxxxx  CURv xxxxx
+X--------------------------------------------------------------------------*/
+Xvoid
+Xkeyset_display()
+X{
+X	int itmp;
+X	int itmp2;
+X	int clen1 = 0;
+X	char cfmt1[32];
+X	int clen2 = 0;
+X	char cfmt2[32];
+X	int clen3 = 0;
+X	char cfmt3[32];
+X	char cfmt4[32];
+X	KDE *tkde;
+X
+X	if(!keyset_name[0])
+X		keyset_init();
+X
+X	for(itmp = 0; itmp < KDE_COUNT; itmp++)
+X	{
+X		tkde = &keyset_table[itmp];
+X		itmp2 = strlen(tkde->logical);
+X#if defined(__GNUC__) && !defined(GCC140)
+X		/*
+X		 * do absolutely nothing except defeat optimization
+X		 * see top of source; function is in ecuutil.c
+X		 * GCC 1.40 fixed the bug
+X		 */
+X		defeat_optimize_to_work_around_bug(&itmp);
+X#endif /* __GNUC__ */
+X		switch(itmp)
+X		{
+X			case IKDE_F1: case IKDE_F3: case IKDE_F5: case IKDE_F7:
+X			case IKDE_F9: case IKDE_F11:
+X				if(clen1 < itmp2)
+X					clen1 = itmp2;
+X				break;
+X
+X			case IKDE_F2: case IKDE_F4: case IKDE_F6: case IKDE_F8:
+X			case IKDE_F10: case IKDE_F12:
+X				if(clen2 < itmp2)
+X					clen2 = itmp2;
+X				break;
+X
+X			case IKDE_HOME: case IKDE_END: case IKDE_INS:
+X			case IKDE_CUU: case IKDE_CUL:
+X				if(clen3 < itmp2)
+X					clen3 = itmp2;
+X				break;
+X
+X			case IKDE_InitStr:	/* initialization string excluded */
+X				break;
+X		}
+X	}
+X	sprintf(cfmt1," %%-%d.%ds",clen1,clen1);
+X	sprintf(cfmt2," %%-%d.%ds",clen2,clen2);
+X	sprintf(cfmt3," %%-%d.%ds",clen3,clen3);
+X	strcpy(cfmt4," %s");
+X	ff(se,"   key definition: %s\r\n\r\n",keyset_name);
+X
+X	ffso(" F1  ");ff(se,cfmt1,keyset_table[IKDE_F1].logical);
+X	fputs("  ",se);
+X	ffso(" F2  ");ff(se,cfmt2,keyset_table[IKDE_F2].logical);
+X	fputs("  ",se);
+X	ffso(" Home ");ff(se,cfmt3,keyset_table[IKDE_HOME].logical);
+X	fputs("  ",se);
+X	ffso(" PgUp ");ff(se,cfmt4,keyset_table[IKDE_PGUP].logical);
+X	fputs("\r\n",se);
+X
+X	ffso(" F3  ");ff(se,cfmt1,keyset_table[IKDE_F3].logical);
+X	fputs("  ",se);
+X	ffso(" F4  ");ff(se,cfmt2,keyset_table[IKDE_F4].logical);
+X	fputs("  ",se);
+X	ffso(" End  ");ff(se,cfmt3,keyset_table[IKDE_END].logical);
+X	fputs("  ",se);
+X	ffso(" PgDn ");ff(se,cfmt4,keyset_table[IKDE_PGDN].logical);
+X	fputs("\r\n",se);
+X
+X	ffso(" F5  ");ff(se,cfmt1,keyset_table[IKDE_F5].logical);
+X	fputs("  ",se);
+X	ffso(" F6  ");ff(se,cfmt2,keyset_table[IKDE_F6].logical);
+X	fputs("  ",se);
+X	ffso(" Ins  ");ff(se,cfmt3,keyset_table[IKDE_INS].logical);
+X	fputs("  ",se);
+X	ffso(" CUR5 ");ff(se,cfmt4,keyset_table[IKDE_CU5].logical);
+X	fputs("\r\n",se);
+X
+X	ffso(" F7  ");ff(se,cfmt1,keyset_table[IKDE_F7].logical);
+X	fputs("  ",se);
+X	ffso(" F8  ");ff(se,cfmt2,keyset_table[IKDE_F8].logical);
+X	fputs("  ",se);
+X	ffso(" BkTab");ff(se,cfmt3,keyset_table[IKDE_BKTAB].logical);
+X	fputs("\r\n",se);
+X
+X	ffso(" F9  ");ff(se,cfmt1,keyset_table[IKDE_F9].logical);
+X	fputs("  ",se);
+X	ffso(" F10 ");ff(se,cfmt2,keyset_table[IKDE_F10].logical);
+X	fputs("  ",se);
+X	ffso(" CUR^ ");ff(se,cfmt3,keyset_table[IKDE_CUU].logical);
+X	fputs("  ",se);
+X	ffso(" CUR> ");ff(se,cfmt4,keyset_table[IKDE_CUR].logical);
+X	fputs("\r\n",se);
+X
+X	ffso(" F11 ");ff(se,cfmt1,keyset_table[IKDE_F11].logical);
+X	fputs("  ",se);
+X	ffso(" F12 ");ff(se,cfmt2,keyset_table[IKDE_F12].logical);
+X	fputs("  ",se);
+X	ffso(" CUR< ");ff(se,cfmt3,keyset_table[IKDE_CUL].logical);
+X	fputs("  ",se);
+X	ffso(" CURv ");ff(se,cfmt4,keyset_table[IKDE_CUD].logical);
+X	fputs("\r\n\r\n",se);
+X
+X}	/* end of keyset_display */
+X
+X/* end of ecufkey.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecufkey.c ||
+echo 'restore of ecufkey.c failed'
+Wc_c="`wc -c < 'ecufkey.c'`"
+test 15916 -eq "$Wc_c" ||
+	echo 'ecufkey.c: original size 15916, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecufkey.h ==============
+if test -f 'ecufkey.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecufkey.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecufkey.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecufkey.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecufkey.h -- AT XENIX/UNIX function key phrases
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecufkey_h
+X#define _ecufkey_h
+X
+X/*
+X * indices to key mapping tables
+X *
+X * these are close to being magic numbers - don't change w/o looking
+X * at IKDE_to_XF in ecutty.c
+X */
+Xenum ikde_enum {
+X	IKDE_HOME,
+X	IKDE_END,
+X	IKDE_PGUP,
+X	IKDE_PGDN,
+X	IKDE_F1,
+X	IKDE_F2,
+X	IKDE_F3,
+X	IKDE_F4,
+X	IKDE_F5,
+X	IKDE_F6,
+X	IKDE_F7,
+X	IKDE_F8,
+X	IKDE_F9,
+X	IKDE_F10,
+X	IKDE_F11,
+X	IKDE_F12,
+X	IKDE_CUU,
+X	IKDE_CUD,
+X	IKDE_CUR,
+X	IKDE_CUL,
+X	IKDE_CU5,
+X	IKDE_INS,
+X	IKDE_BKTAB
+X};
+X#define IKDE_lastKey	IKDE_BKTAB
+X#define IKDE_InitStr	(IKDE_BKTAB + 1)	/* initialization string kludge */
+X#define KDE_COUNT		(IKDE_BKTAB + 2)
+X
+X#define KDE_LOGICAL_MAX		12	/* max length of keystroke sequence */
+X#define KDE_OUTSTR_MAX		32	/* max length of output sequence */
+X
+X/*
+X * KDE input line types
+X*/
+X#define KDETYPE_NAME		1
+X#define KDETYPE_ENTRY		2
+X#define KDETYPE_COMMENT		3
+X#define KDETYPE_EOF			4
+X
+Xtypedef struct kde
+X{
+X	int count;
+X	uchar ikde;
+X	char logical[KDE_LOGICAL_MAX];
+X	char str[KDE_OUTSTR_MAX];
+X}	KDE;
+X
+X/* when a count is not a count but an action: */
+X#define KACT_COMMAND			-1
+X#define KACT_LOCAL_SHELL		-2
+X#define KACT_REDISPLAY			-3
+X
+Xtypedef struct kdemap
+X{
+X	uchar xf;			/* extended function code (0x80+ from ttygetc()) */
+X	short ikde;			/* index into keyset */
+X	char *name;			/* ECU "formal" name for key */
+X	char *init;			/* key sends this string to port by default */
+X}	KDEMAP;
+X
+Xchar *keyset_idstr();
+X
+X#endif /* _ecufkey_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecufkey.h */
+SHAR_EOF
+chmod 0644 ecufkey.h ||
+echo 'restore of ecufkey.h failed'
+Wc_c="`wc -c < 'ecufkey.h'`"
+test 1988 -eq "$Wc_c" ||
+	echo 'ecufkey.h: original size 1988, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecufork.c ==============
+if test -f 'ecufork.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecufork.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecufork.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecufork.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecufork.c -- ecu spawning ground
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	exec_cmd(cmdstr)
+X	expand_wildcard_list(wild,expcmd)
+X	find_executable(progname)
+X	is_executable(progname)
+X	shell(shellcmd)
+X	smart_fork()
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-29-1992-13:29-wht@n4hgf-ignore SIGQUIT when in executing a child */
+X/*:09-25-1991-18:02-wht@n4hgf2-find_executable flunks directories now */
+X/*:09-06-1991-04:20-wht@n4hgf2-expand_wildcard_list minor bug */
+X/*:08-29-1991-01:56-wht@n4hgf2-use max esd size instead of 5120 */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "esd.h"
+X#include "ecufork.h"
+X
+Xextern int last_child_wait_status;
+Xextern int last_child_wait_pid;
+X
+X#ifdef M_I286
+X#define MAX_EXEC_ARG 512
+X#else
+X#if defined(M_UNIX) || defined(ISC)
+X#define MAX_EXEC_ARG 1024
+X#else
+X#define MAX_EXEC_ARG 2048
+X#endif	/* M_UNIX || ISC */
+X#endif	/* M_I286 */
+X
+X/*+-------------------------------------------------------------------------
+X	smart_fork()
+X--------------------------------------------------------------------------*/
+Xint
+Xsmart_fork()
+X{
+X	register int count = 5;
+X	register int pid;
+X
+X	while(count--)
+X	{
+X		if((pid = fork()) >= 0)
+X			return(pid);
+X		if(count)
+X			Nap(40L);
+X	}
+X	return(-1);
+X}	/* end of smart_fork */
+X
+X/*+-----------------------------------------------------------------------
+X	shell(shellcmd)
+X
+X  param 'shellcmd' is a shell command prefixed with either
+X  a '!', '$', '>' character.
+X
+X  '!' causes the command to run as a normal subshell of a process.
+X  '$' causes the communications line to be stdin and stdout
+X      for the spawned shell
+X  '>' causes spawned shell to receive exactly sames files as ecu
+X------------------------------------------------------------------------*/
+Xvoid
+Xshell(shellcmd)
+Xchar *shellcmd;
+X{
+X	register shellpid;
+X	register itmp;
+X	register char *cptr;
+X#if defined(FORK_DEBUG)
+X	char s40[40];
+X#endif
+X	int wait_status;
+X	int restart_rcvr = need_rcvr_restart();
+X	char *getenv();
+X
+X	kill_rcvr_process(SIGUSR1);		/* stop receiver process gracefully */
+X
+X	signal(SIGINT,SIG_IGN);
+X	signal(SIGQUIT,SIG_IGN);
+X	signal(SIGUSR1,SIG_IGN);
+X	signal(SIGUSR2,SIG_IGN);
+X	signal(SIGCLD,SIG_DFL);
+X
+X	if((shellpid = smart_fork()) < 0)
+X	{
+X		ff(se,"Cannot fork\r\n");
+X		if(restart_rcvr)
+X			start_rcvr_process(1);
+X		xmtr_signals();
+X		return;
+X	}
+X
+X	ttymode(0);  	     		/* set canonical tty mode */
+X	if(shellpid == 0)			/* we are the spawned (going to call shell) */
+X	{
+X		if(*shellcmd != '>')	/* '>' prefix means leave fd's alone! */
+X		{
+X			/* Hook-up our "standard output" to either the tty or
+X			 * the line as appropriate for '!' or '$' */
+X			close(TTYOUT);
+X			fcntl(((*shellcmd == '$') ? shm->Liofd : TTYERR),F_DUPFD,TTYOUT);
+X			if(*shellcmd == '$')
+X			{
+X				close(TTYIN);
+X				fcntl(shm->Liofd,F_DUPFD,TTYIN);
+X			}
+X			close(shm->Liofd);
+X		}
+X
+X		child_signals();		/* signals for child */
+X
+X		if(*shellcmd == '!')
+X		{
+X			cptr = getenv("SHELL");
+X			if(cptr == (char *)0)
+X				cptr = "/bin/csh";
+X		}
+X		else
+X			cptr = "/bin/sh";
+X
+X		shellcmd++;
+X		child_signals();
+X		if(ulindex(cptr,"csh") > -1)
+X		{
+X			if(*shellcmd == '\0')
+X				execl(cptr,"csh",(char *)0);
+X			else
+X				execl(cptr,"csh","-c",shellcmd,(char *)0);
+X		}
+X		else
+X		{
+X			if(*shellcmd == '\0')
+X				execl(cptr,"sh",(char *)0);
+X			else
+X				execl(cptr,"sh","-c",shellcmd,(char *)0);
+X		}
+X
+X		ff(se,"cannot execute %s\r\n",cptr);	/* should not get here */
+X		_exit(255);								/* end of spawned process */
+X	}	/* end of if child process */
+X
+X#if defined(FORK_DEBUG)
+X	sprintf(s40,"DEBUG fork shell pid %d",shellpid);
+X	ecu_log_event(getpid(),s40); /* shell */
+X#endif
+X
+X	while(((itmp = wait(&wait_status)) != shellpid) && (itmp != -1))
+X		;
+X	last_child_wait_status = wait_status;
+X	last_child_wait_pid = shellpid;
+X
+X	xmtr_signals();			/* restore standard xmtr signals */
+X	ttymode(1);				/* control tty back to raw mode */
+X
+X/* any comm program will probably doodle with the line characteristics. */
+X/* we want to make sure they are restored to normal */
+X	lreset_ksr();			/* restore comm line params */
+X
+X	if(restart_rcvr)
+X		start_rcvr_process(1);
+X
+X}	/* end of shell */
+X
+X/*+-------------------------------------------------------------------------
+X	is_executable(progname)
+X--------------------------------------------------------------------------*/
+Xis_executable(progname)
+Xchar *progname;
+X{
+X	struct stat ss;
+X
+X	if(stat(progname,&ss) < 0)			/* if cannot stat, flunk */
+X		return(0);
+X	if((ss.st_mode & 0111) == 0)		/* if no --x--x--x, flunk */
+X		return(0);
+X	if((ss.st_mode & S_IFMT) != S_IFREG)/* if no --x--x--x, flunk */
+X		return(0);
+X	return(1);	/* whew, this OUGHT to work */
+X
+X}	/* end of is_executable */
+X
+X/*+-------------------------------------------------------------------------
+X	find_executable(progname)
+XPATH=':/usr/wht/bin:/bin:/usr/bin:/usr/wht/bin:/etc/tuckerware' len=56
+X--------------------------------------------------------------------------*/
+Xchar *
+Xfind_executable(progname)
+Xchar *progname;
+X{
+X	register itmp;
+X	static char *path_buf = (char *)0;
+X#define PATHNAME_QUAN 32
+X	static char *path_name[PATHNAME_QUAN + 1];
+X	static char rtn_path[256];
+X	static int path_count = 0;
+X	char *cptr;
+X	char *getenv();
+X
+X	if(path_buf == (char *)0)
+X	{
+X		if((cptr = getenv("PATH")) == (char *)0)
+X			return(cptr);
+X		if(!(path_buf = malloc(strlen(cptr) + 1)))
+X			return((char *)0);
+X		strcpy(path_buf,cptr);
+X		path_name[PATHNAME_QUAN + 1] = (char *)0;
+X		cptr = path_buf;
+X		for(path_count = 0; path_count < PATHNAME_QUAN; path_count++)
+X		{
+X			if(*cptr == 0)
+X				break;
+X			path_name[path_count] = cptr;
+X			while((*cptr != ':') && (*cptr != 0))
+X				cptr++;
+X			if(*cptr == ':')
+X				*cptr++ = 0;
+X		}
+X	}	/* end of get and process path env variable */
+X
+X/* look for executable */
+X	for(itmp = 0; itmp < path_count; itmp++)
+X	{
+X		if(*path_name[itmp] == 0)	/* if null path (./) */
+X			strcpy(rtn_path,"./");
+X		else
+X			sprintf(rtn_path,"%s/",path_name[itmp]);
+X		strcat(rtn_path,progname);
+X		if(is_executable(rtn_path))
+X			return(rtn_path);
+X	}
+X	return((char *)0);
+X}	/* end of find_executable */
+X
+X/*+-------------------------------------------------------------------------
+X	exec_cmd(cmdstr) - execute an arbitrary program with arguments
+Xkills rcvr process if alive and restarts it when done if was alive
+X--------------------------------------------------------------------------*/
+Xexec_cmd(cmdstr)
+Xchar *cmdstr;
+X{
+X	char *cmdpath;
+X	char *cmdargv[MAX_EXEC_ARG];
+X	int itmp;
+X	int execpid;
+X	int restart_rcvr = need_rcvr_restart();
+X	int old_ttymode = get_ttymode();
+X	int wait_status = 0;
+X	char *strrchr();
+X
+X#if defined(FORK_DEBUG)
+X	char s80[80];
+X	strcpy(s80,"DEBUG exec ");
+X	strncat(s80,cmdstr,sizeof(s80)-12);
+X	s80[sizeof(s80)-12] = 0;
+X	ecu_log_event(getpid(),s80);
+X#endif
+X
+X	build_arg_array(cmdstr,cmdargv,MAX_EXEC_ARG,&itmp);
+X	if(itmp == MAX_EXEC_ARG)
+X	{
+X		ff(se,"Too many arguments to command\r\n");
+X		return(-1);
+X	}
+X	else if(!itmp)
+X	{
+X		ff(se,"null command\r\n");
+X		return(-1);
+X	}
+X
+X	if(*cmdargv[0] == '/')
+X	{
+X		cmdpath = cmdargv[0];
+X		cmdargv[0] = strrchr(cmdargv[0],'/') + 1;
+X	}
+X	else
+X	{
+X		if((cmdpath = find_executable(cmdargv[0])) == (char *)0)
+X		{
+X			ff(se,"Cannot find %s\r\n",cmdargv[0]);
+X			return(-1);
+X		}
+X	}
+X
+X	kill_rcvr_process(SIGUSR1);		/* stop receiver process gracefully */
+X
+X/* this code executed by the father (forking) process */
+X/* wait on death of child (morbid in life, but ok here) */
+X
+X	signal(SIGINT,SIG_IGN);
+X	signal(SIGQUIT,SIG_IGN);
+X	signal(SIGUSR1,SIG_IGN);
+X	signal(SIGUSR2,SIG_IGN);
+X	signal(SIGCLD,SIG_DFL);
+X
+X	if((execpid = smart_fork()) < 0)
+X	{
+X		ff(se,"Cannot fork\r\n");
+X		if(restart_rcvr)
+X			start_rcvr_process(1);
+X		xmtr_signals();
+X		return(-1);
+X	}
+X
+X	if(execpid == 0)			/* we are the spawned (going to call exec) */
+X	{
+X		ttymode(0);  	     	/* set canonical tty mode */
+X		child_signals();
+X		execv(cmdpath,cmdargv);
+X		perror(cmdpath);
+X		_exit(255);				/* end of spawned process */
+X	}	/* end of if child process */
+X
+X	wait_status = 0;
+X	while(((itmp = wait(&wait_status)) != execpid) && (itmp != -1))
+X		;
+X	last_child_wait_status = wait_status;
+X	last_child_wait_pid = execpid;
+X
+X/* resume our normally scheduled program */
+X	lreset_ksr();				/* restore comm line params */
+X	ttymode(old_ttymode);		/* control tty back to original */
+X	if(restart_rcvr)
+X		start_rcvr_process(1);
+X	xmtr_signals();
+X	return(last_child_wait_status);
+X
+X}	/* end of exec_cmd */
+X
+X/*+-------------------------------------------------------------------------
+X	expand_wildcard_list(wild,&expcmd)
+X
+Xcalled with 'foo <wildcardlist>' for command expansion prior to exec()
+X         or '<wildcardlist>' to expand a list of files.
+X
+XIf called with 'foo'-style wild, anything you want to protect from csh 
+Xglobbing or other interpretation must be properly protected (quoted) --
+XAND quoting will be removed one level by the csh.
+X
+Xif return 0, wild has been expanded, expcmd must be free()'d when done
+Xif return -1, error, expcmd has error message (static message: DO NOT FREE)
+X--------------------------------------------------------------------------*/
+Xexpand_wildcard_list(wild,expcmd)
+Xchar *wild;
+Xchar **expcmd;
+X{
+X	register char *cptr;
+X#define P_READ 0
+X#define P_WRITE 1
+X	PID_T pipe_pid;
+X	int stdout_pipe[2];
+X	int stderr_pipe[2];
+X	int count;
+X	int expcmd_size = 0;
+X	int itmp;
+X	int wait_status;
+X	int restart_rcvr = need_rcvr_restart();
+X	FILE *fp_pipe = (FILE *)0;
+X	char *echo_cmd;
+X	static char s132[132];
+X	char *strchr();
+X	static char *pipe_err_msg = "system error: no pipe";
+X	static char *mem_err_msg = "system error: no memory";
+X
+X	if(strchr(wild,'<') || strchr(wild,'>') || strchr(wild,'&'))
+X	{
+X		*expcmd = "illegal characters: '<', '>' or '&'";
+X		return(-1);
+X	}
+X
+X	if(pipe(stdout_pipe) < 0)
+X	{
+X		*expcmd = pipe_err_msg;
+X		return(-1);
+X	}
+X	if(pipe(stderr_pipe) < 0)
+X	{
+X		close(stdout_pipe[P_READ]);
+X		close(stdout_pipe[P_WRITE]);
+X		*expcmd = pipe_err_msg;
+X		return(-1);
+X	}
+X	if(!(echo_cmd = malloc(strlen(wild) + 10)))
+X	{
+X		close(stdout_pipe[P_READ]);
+X		close(stdout_pipe[P_WRITE]);
+X		close(stderr_pipe[P_READ]);
+X		close(stderr_pipe[P_WRITE]);
+X		*expcmd = mem_err_msg;
+X		return(-1);
+X	}
+X
+X	strcpy(echo_cmd,"echo ");
+X	strcat(echo_cmd,wild);
+X
+X	kill_rcvr_process(SIGUSR1);		/* stop receiver process gracefully */
+X
+X	signal(SIGINT,SIG_IGN);
+X	signal(SIGQUIT,SIG_IGN);
+X	signal(SIGUSR1,SIG_IGN);
+X	signal(SIGUSR2,SIG_IGN);
+X	signal(SIGCLD,SIG_DFL);
+X
+X	if((pipe_pid = smart_fork()) == 0)
+X	{
+X	int null = open("/dev/null",O_WRONLY,0);
+X
+X		close(stdout_pipe[P_READ]);
+X		close(TTYOUT);
+X		dup(stdout_pipe[P_WRITE]);
+X		close(stdout_pipe[P_WRITE]);
+X		close(TTYERR);
+X		dup(stderr_pipe[P_WRITE]);
+X		close(stderr_pipe[P_WRITE]);
+X		close(null);
+X		child_signals();
+X		execl("/bin/csh","csh","-e","-f","-c",echo_cmd,(char *)0);
+X		_exit(255);
+X	}
+X
+X#if defined(FORK_DEBUG)
+X	sprintf(s132,"DEBUG expand pid %d",pipe_pid);
+X	ecu_log_event(getpid(),s132);		/* expand_wildcard_list */
+X#endif
+X
+X	free(echo_cmd);
+X
+X	close(stdout_pipe[P_WRITE]);
+X	close(stderr_pipe[P_WRITE]);
+X	if(pipe_pid == -1)
+X	{
+X		close(stdout_pipe[P_READ]);
+X		close(stderr_pipe[P_READ]);
+X		*expcmd = "could not fork";
+X		if(restart_rcvr)
+X			start_rcvr_process(0);
+X		xmtr_signals();
+X		return(-1);
+X	}
+X
+X	if(!(*expcmd = malloc(expcmd_size = ESD_MAXSIZE)))
+X	{
+X		close(stdout_pipe[P_READ]);
+X		close(stderr_pipe[P_READ]);
+X		kill(pipe_pid,SIGKILL);
+X		*expcmd = mem_err_msg;
+X		if(restart_rcvr)
+X			start_rcvr_process(0);
+X		xmtr_signals();
+X		return(-1);
+X	}
+X
+X	if(!(fp_pipe = fdopen(stdout_pipe[P_READ],"r")) ||
+X		((count = fread(*expcmd,1,expcmd_size,fp_pipe)) < 0))
+X	{
+X			free(*expcmd);
+X			kill(pipe_pid,SIGKILL);
+X			close(stdout_pipe[P_READ]);
+X			close(stderr_pipe[P_READ]);
+X			*expcmd = "error reading wild list expansion";
+X			if(restart_rcvr)
+X				start_rcvr_process(0);
+X			xmtr_signals();
+X			return(-1);
+X	}
+X
+X	/*
+X	 * make sure stdout is closed
+X	 */
+X	if(fp_pipe)
+X		fclose(fp_pipe);
+X	close(stdout_pipe[P_READ]);
+X
+X	/*
+X	 * place trailing null
+X	 * kill trailing new line
+X	 */
+X	if(count)
+X	{
+X		cptr = (*expcmd) + count;
+X		*cptr-- = 0;
+X		if(*cptr == '\n')
+X		{
+X			*cptr = 0;
+X			count--;
+X		}
+X	}
+X
+X	/*
+X	 * if no expansion, read stderr to find out why
+X	 */
+X	if(!count)
+X	{
+X		free(*expcmd);
+X		count = read(stderr_pipe[P_READ],s132,sizeof(s132) - 1);
+X		if(count < 0)
+X			strcpy(s132,errno_text(errno));
+X		else
+X			s132[count] = 0;
+X		if(s132[count - 1] == '\n')
+X			s132[count - 1] = 0;
+X		close(stderr_pipe[P_READ]);
+X		if(strncmp(s132,"echo: ",6))
+X			*expcmd = s132;
+X		else
+X			*expcmd = s132 + 6;
+X		if(restart_rcvr)
+X			start_rcvr_process(0);
+X		return(-1);
+X	}
+X
+X	/*
+X	 * clean up zombie
+X	 */
+X	wait_status = 0;
+X	while(((itmp = wait(&wait_status)) != pipe_pid) && (itmp != -1))
+X		;
+X
+X	xmtr_signals();
+X
+X	/*
+X	 * if bad termination status, read stderr
+X	 */
+X	if(wait_status)
+X	{
+X		free(*expcmd);
+X		count = read(stderr_pipe[P_READ],s132,sizeof(s132) - 1);
+X		if(count < 0)
+X			strcpy(s132,errno_text(errno));
+X		else
+X			s132[count] = 0;
+X		if(s132[count - 1] == '\n')
+X			s132[count - 1] = 0;
+X		close(stderr_pipe[P_READ]);
+X		if(strncmp(s132,"echo: ",6))
+X			*expcmd = s132;
+X		else
+X			*expcmd = s132 + 6;
+X		if(restart_rcvr)
+X			start_rcvr_process(0);
+X		return(-1);
+X	}
+X	close(stderr_pipe[P_READ]);
+X
+X	/*
+X	 * whew: we have (I think) a file list expansion
+X	 */
+X	if(restart_rcvr)
+X		start_rcvr_process(0);
+X
+X	return(0);
+X}	/* end of expand_wildcard_list */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecufork.c */
+SHAR_EOF
+chmod 0644 ecufork.c ||
+echo 'restore of ecufork.c failed'
+Wc_c="`wc -c < 'ecufork.c'`"
+test 13563 -eq "$Wc_c" ||
+	echo 'ecufork.c: original size 13563, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecufork.h ==============
+if test -f 'ecufork.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecufork.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecufork.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecufork.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecufork.h 
+X	wht@n4hgf.Mt-Park.GA.US
+X
+Xfor now just vehicle for deciding whether or not to debug fork/waits
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecufork_h
+X#define _ecufork_h
+X
+X/* #define FORK_DEBUG */
+X
+X#endif /* _ecufork_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecufork.h */
+SHAR_EOF
+chmod 0644 ecufork.h ||
+echo 'restore of ecufork.h failed'
+Wc_c="`wc -c < 'ecufork.h'`"
+test 717 -eq "$Wc_c" ||
+	echo 'ecufork.h: original size 717, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecugrabbag.c ==============
+if test -f 'ecugrabbag.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecugrabbag.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecugrabbag.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecugrabbag.c' &&
+X/*+-----------------------------------------------------------------
+X	ecugrabbag.c -- very machine/OS dependent functions
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	bell_alarm(xbell_type)
+X	bell_notify(xbell_type)
+X	bell_notify_text(bn)
+X	kbd_escape(xkey)
+X	morse_bell(xbell_type,count)
+X	parse_bell_notify_argument(strarg)
+X	rename(from,to)
+X	send_bell_fd(fd,count,nap_msec)
+X	send_get_response(narg,arg)
+X	set_bell_fd(fd,pitch,duration)
+X	set_default_escape_prompt()
+X	show_escape_prompt()
+X	signal_name_text(sig)
+X	xbell(type,count)
+X	xbell_fd(fd,type,count)
+X	xterm_title(text,code)
+X
+X  This module is a grab bag for historical reasons.  Needs reorg.
+X------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-09-1992-05:47-wht@n4hgf-cleanup new "bn" argument parsing */
+X/*:02-16-1992-01:41-wht@n4hgf-turn off xterm_title */
+X/*:12-13-1991-17:14-wht@n4hgf-add bell_notify_text */
+X/*:12-13-1991-17:14-wht@n4hgf-add parse_bell_notify_argument */
+X/*:09-03-1991-18:23-wht@n4hgf-sigint rearrangement in send_get_response */
+X/*:08-28-1991-14:07-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:08-13-1991-15:28-wht@n4hgf-more problems with history manager */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:07-14-1991-18:18-wht@n4hgf-new ttygets functions */
+X/*:06-29-1991-15:42-wht@n4hgf-if WHT and xterm, play with title bar */
+X/*:06-04-1991-13:19-wht@n4hgf-WHT version always gets morse for bells */
+X/*:05-07-1991-06:10-wht@n4hgf-subtle changes in send_and_get_response */
+X/*:03-18-1991-22:31-wht@n4hgf-ISC 2.2 has rename() */
+X/*:01-16-1991-23:54-wht@n4hgf-if WHT, bell_notify always available */
+X/*:01-09-1991-22:31-wht@n4hgf-ISC port */
+X/*:12-04-1990-03:55-wht@n4hgf-bell_notify only if on multiscreen */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "ecufkey.h"
+X#include "ecuxkey.h"
+X#include "ecutty.h"
+X#include "ecufork.h"
+X#include "esd.h"
+X
+X#if defined(MORSE)
+X/* the space between # and include prevents make depend from seeing this */
+X# include <local/morse_dvr.h>
+X#endif
+X
+Xchar *get_ttyname();
+X
+Xextern char curr_dir[]; /* current working key defns */
+Xextern KDE keyset_table[];
+Xextern char keyset_name[];
+X
+XESD *icmd_prompt;		/* interactive command prompt */
+Xint icmd_prompt_len;
+X
+X/*+-------------------------------------------------------------------------
+X	show_escape_prompt()
+Xreturns number of character positions written to screen
+X--------------------------------------------------------------------------*/
+Xshow_escape_prompt()
+X{
+X	char prompt_last;
+X
+X	prompt_last = 'd';	/* dummy */
+X	if(icmd_prompt->cb)
+X		prompt_last = *(icmd_prompt->pb + icmd_prompt->cb - 1);
+X
+X	icmd_prompt_len = 0;
+X	shmx_make_rcvr_sleep(1);
+X	if(!(colors_current & 0xFFFF0000L) || !(colors_current & 0xFFFFL))
+X		setcolor(colors_normal);
+X	else
+X		setcolor(colors_current);
+X	tcap_stand_out();
+X	if(icmd_prompt->cb)
+X	{
+X		ff(se," %s",icmd_prompt->pb);
+X		icmd_prompt_len += icmd_prompt->cb + 1;
+X	}
+X	if(isalnum(prompt_last))
+X	{
+X		fputs(" %",se);
+X		icmd_prompt_len += 2;
+X	}
+X	tcap_stand_end();
+X	fputc(' ',se);
+X	icmd_prompt_len++;
+X	return(icmd_prompt_len);
+X
+X}	/* end of show_escape_prompt */
+X
+X/*+-------------------------------------------------------------------------
+X	set_default_escape_prompt()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xset_default_escape_prompt()
+X{
+X	register char *cptr;
+X	char *getenv();
+X
+X	if((cptr = getenv("ECUPROMPT")) != (char *)0)
+X	{
+X		strncpy(icmd_prompt->pb,cptr,icmd_prompt->maxcb);
+X		*(icmd_prompt->pb + icmd_prompt->maxcb - 1) = 0;
+X		icmd_prompt->cb = strlen(icmd_prompt->pb);
+X		esd_null_terminate(icmd_prompt);
+X	}
+X
+X}	/* end of set_default_escape_prompt */
+X
+X/*+-------------------------------------------------------------------------
+X	kbd_escape() -- xmtr got extended key -- process it
+Xreturns(1)
+X--------------------------------------------------------------------------*/
+Xkbd_escape(xkey)
+Xuchar xkey;
+X{
+X	register itmp;
+X	int ttygets_flags = TG_XDELIM;
+X	uchar delim;
+X	int strpos;
+X	int old_ttymode = get_ttymode();
+X	register backspace_count;
+X	register KDE *tkde;
+X	uchar icmd_buf[128];
+X
+X	if((xkey >= XF_ALTA) && (xkey <= XF_ALTZ))
+X	{
+X		char alt_key_proc_name[8];
+X		char *arg = alt_key_proc_name;
+X		int narg = 1;
+X		int restart_rcvr = need_rcvr_restart();
+X		kill_rcvr_process(SIGUSR1);
+X		sprintf(alt_key_proc_name,"alt_%c",xkey - XF_ALTA + 'a');
+X		ttymode(2);
+X		ttyflush(0);
+X		if(do_proc(narg,&arg))
+X			ring_bell();
+X		sigint = 0;
+X		proc_file_reset();
+X		ttymode(old_ttymode);
+X		if(restart_rcvr)
+X			start_rcvr_process(0);
+X		return(1);
+X	}
+X
+X	switch(xkey)
+X	{
+X		case XFhome:	 /* home key pressed ? */
+X			icmd_buf[0] = 0;
+X			backspace_count = show_escape_prompt();
+X			strpos = 0;
+X			icmd_buf[0] = 0;
+XGET_ICMD:
+X			ttygets(icmd_buf,sizeof(icmd_buf),ttygets_flags,&delim,&strpos);
+X			switch(delim)
+X			{
+X				case XFhome:
+X				case XFpgup:
+X				case XFcurup:
+X					if(icmd_history_manager(delim,icmd_buf,sizeof(icmd_buf)))
+X					{
+X						ring_bell();
+X						ttygets_flags |= 4;
+X						goto GET_ICMD;
+X					}
+X					break;
+X				case ESC:
+X				case NL:
+X					break;
+X				default:
+X					ring_bell();
+X					itmp = strlen((char *)icmd_buf);
+X					while(itmp--)
+X						ff(se,"\b \b");
+X					ttygets_flags |= 4;
+X					goto GET_ICMD;
+X			}
+X			if((delim == ESC) || !icmd_buf[0])
+X			{
+X				while(backspace_count--)
+X					ff(se,"\b \b");
+X				break;
+X			}
+X			if(icmd(icmd_buf))
+X				termecu(TERMECU_OK);
+X			break;
+X
+X		default:
+X			if((itmp = xf_to_ikde(xkey)) < 0)
+X			{
+X				ring_bell();
+X				break;
+X			}
+X			tkde = &keyset_table[itmp];
+X			if((itmp = tkde->count) > 0)
+X			{
+X			register char *cptr = tkde->str;
+X				while(itmp--)
+X					lputc(*cptr++);
+X			}
+X			else if(tkde->count < 0)
+X			{
+X				switch(tkde->count)
+X				{
+X					case KACT_LOCAL_SHELL:
+X						fputs("\r\n",se);
+X						tcap_stand_out();
+X						ff(se," local shell in %s ",curr_dir);
+X						tcap_stand_end();
+X						ff(se,"\r\n");
+X						shell("!");
+X						break;
+X					case KACT_REDISPLAY:
+X						redisplay_rcvr_screen();
+X				}
+X			}
+X			else
+X				ring_bell();
+X			break;
+X	}
+X	return(1);
+X}	/* end of kbd_escape */
+X
+X/*+-------------------------------------------------------------------------
+X	set_bell_fd(fd,pitch,duration)
+XExample: 1B 5B 3D 34 30 30 30 3B 31 42 | .[=4000;1B
+X--------------------------------------------------------------------------*/
+Xvoid
+Xset_bell_fd(fd,pitch,duration)
+Xint fd;
+Xint pitch;
+Xint duration;
+X{
+X#if defined(M_SYSV)
+X	char bell_cmd[32];
+X
+X	if(!tty_is_multiscreen)
+X		return;
+X
+X	sprintf(bell_cmd,"\033[=%d;%dB",pitch,duration);
+X	write(fd,bell_cmd,strlen(bell_cmd));
+X#endif
+X}	/* end of set_bell_fd */
+X
+X/*+-------------------------------------------------------------------------
+X	send_bell_fd(fd,count,nap_msec)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsend_bell_fd(fd,count,nap_msec)
+Xregister fd;
+Xregister count;
+Xregister nap_msec;
+X{
+X	static char bellch = 0x07;
+X
+X	if(count)
+X	{
+X		while(count--)
+X		{
+X			write(fd,&bellch,1);	
+X			Nap((long)nap_msec);
+X		}
+X	}
+X}	/* end of send_bell_fd */
+X
+X/*+-------------------------------------------------------------------------
+X	xbell_fd(fd,type,count)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxbell_fd(fd,type,count)
+Xregister fd;
+Xregister type;
+Xregister count;
+X{
+X#if defined(M_SYSV)
+X	register itmp;
+X
+X	if(!tty_is_multiscreen)
+X	{
+X		ring_bell();
+X		return;
+X	}
+X
+X	if(count)
+X	{
+X		while(count--)
+X		{
+X			switch(type)
+X			{
+X				case XBELL_DONE:		/* octaves */
+X					set_bell_fd(fd,1000,1);
+X					send_bell_fd(fd,1,100);
+X					set_bell_fd(fd,2000,1);
+X					send_bell_fd(fd,1,100);
+X					set_bell_fd(fd,4000,1);
+X					send_bell_fd(fd,1,100);
+X					break;
+X				case XBELL_ATTENTION:		/* morse .-.-.- ATTENTION */
+X					for(itmp = 0; itmp < 3; itmp++)
+X					{
+X						set_bell_fd(fd,2000,1);
+X						send_bell_fd(fd,1,140);
+X						set_bell_fd(fd,2000,3);
+X						send_bell_fd(fd,1,340);
+X					}
+X					break;
+X				case XBELL_C:		/* morse -.-. C */
+X					for(itmp = 0; itmp < 2; itmp++)
+X					{
+X						set_bell_fd(fd,2000,3);
+X						send_bell_fd(fd,1,320);
+X						set_bell_fd(fd,2000,1);
+X						send_bell_fd(fd,1,120);
+X					}
+X					break;
+X				case XBELL_3T:		/* 3 morse T's */
+X					set_bell_fd(fd,2000,3);
+X					send_bell_fd(fd,3,460);
+X					break;
+X				default:
+X					set_bell_fd(fd,2000,4);
+X					send_bell_fd(fd,1,100);
+X					break;
+X			}
+X		}
+X	}
+X				
+X	set_bell_fd(fd,4000,1);
+X#endif	
+X}	/* end of xbell_fd */
+X
+X/*+-------------------------------------------------------------------------
+X	morse_bell(xbell_type,count)
+X--------------------------------------------------------------------------*/
+X#if defined(MORSE)
+Xmorse_bell(xbell_type,count)
+Xint xbell_type;
+Xint count;
+X{
+X	register morse_fd;
+X	int morse_frequency = 800;
+X	char morse_char;
+X	static int morse_ticks = 0;
+X
+X#if !defined(WHT)
+X	if(!tty_is_multiscreen)
+X	{
+X		ring_bell();
+X		return(0);
+X	}
+X#endif
+X
+X	if(!morse_ticks)
+X		morse_ticks = hz / 25;
+X
+X	if((morse_fd = open("/dev/morse",O_WRONLY,0)) < 0)
+X		return(-1);
+X
+X	ioctl(morse_fd,MORSE_SET_SPEED,&morse_ticks);
+X	ioctl(morse_fd,MORSE_SET_FREQUENCY,&morse_frequency);
+X	switch(xbell_type)
+X	{
+X		case XBELL_DONE:
+X			morse_char = 'd';
+X/*
+X			morse_frequency = 400;
+X			ioctl(morse_fd,MORSE_SET_FREQUENCY,&morse_frequency);
+X*/
+X			break;
+X		case XBELL_ATTENTION:
+X			morse_char = '.';
+X			break;
+X		case XBELL_C:
+X			morse_char = 'c';
+X			break;
+X		case XBELL_3T:
+X			morse_char = 'o';
+X			break;
+X		default:
+X			morse_char = BT;
+X			break;
+X	}
+X	while(count--)
+X		write(morse_fd,&morse_char,1);
+X	close(morse_fd);
+X	return(0);
+X}	/* end of morse_bell */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	xbell(type,count)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxbell(type,count)
+Xint type;
+Xint count;
+X{
+X#if defined(WHT) && defined(MORSE)
+X	if(morse_bell(type,count))
+X		ring_bell();
+X#else
+X#if defined(WHT) && defined(AUDIO)
+X	void audio_notify();
+X	audio_notify(type);
+X#else
+X	if(!tty_is_multiscreen)
+X	{
+X		ring_bell();
+X		return;
+X	}
+X
+X#if defined(MORSE)
+X	if(morse_bell(type,count))
+X#endif
+X		xbell_fd(1,type,count);
+X#endif /* WHT && AUDIO */
+X#endif /* WHT && MORSE */
+X
+X}	/* end of xbell */
+X
+X/*+-------------------------------------------------------------------------
+X	bell_alarm(xbell_type)
+X  ring bell on multiscreens; if morse driver included, use it instead
+X--------------------------------------------------------------------------*/
+Xint
+Xbell_alarm(xbell_type)
+Xint xbell_type;
+X{
+X#if defined(M_SYSV)
+X	register notify_fd;
+X	register fork_pid;
+X	static long notify_time = 0L;
+X	char *get_ttyname();
+X	char devname[64];
+X	int devnum;
+X	int ttnum;
+X
+X#if !(defined(WHT) && defined(MORSE))
+X	if(!tty_is_multiscreen)
+X	{
+X		ring_bell();
+X		return(1);
+X	}
+X#endif
+X
+X	ttnum = atoi(get_ttyname() + 8);
+X
+X/* if happened less than 15 secs ago, forget it */
+X	if((time((long *)0) - notify_time) < 15L)
+X		return(0);
+X
+X	notify_time = time((long *)0);
+X
+X#if defined(MORSE)
+X	if(morse_bell(xbell_type,1))
+X	{
+X#endif
+X		if((fork_pid = smart_fork()) != 0)
+X		{
+X#if defined(FORK_DEBUG)
+X			sprintf(devname,"DEBUG bell notify pid %d",fork_pid);
+X			ecu_log_event(getpid(),devname);	/* bell notify */
+X#endif
+X			return(fork_pid > 0);
+X		}
+X
+X		for(devnum = 1; devnum < 13; devnum++)
+X		{
+X			if(devnum == ttnum)		/* don't bell notify ecu's tty */
+X				continue;
+X			sprintf(devname,"/dev/tty%02d",devnum);
+X			if((notify_fd = open(devname,O_WRONLY,0)) >= 0)
+X			{
+X				xbell_fd(notify_fd,xbell_type,1);
+X				close(notify_fd);
+X			}
+X		}
+X
+X		_exit(0);		/* end of child tine (of the fork, naturally) */
+X#if defined(MORSE)
+X	}
+X	/*NOTREACHED*/
+X#endif
+X#else /* not SCO (M_SYSV) */
+X	ring_bell();
+X#endif
+X	return(1);
+X}	/* end of bell_alarm */
+X
+X/*+-------------------------------------------------------------------------
+X	bell_notify(xbell_type)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xbell_notify(xbell_type)
+Xint xbell_type;
+X{
+X#if defined(M_SYSV)
+X	if(
+X#if !defined(WHT) && !defined(PTY_BELL_NOTIFY)
+X		tty_is_multiscreen &&
+X#endif
+X			 shm->bell_notify_state)
+X	{
+X		bell_alarm(xbell_type);
+X	}
+X#endif
+X}	/* end of bell_notify */
+X
+X/*+-------------------------------------------------------------------------
+X	parse_bell_notify_argument(strarg) - parse "bell notify" argument
+X
+X  Returns 0,1,2 according to parsing rules
+X          -1 on error
+X--------------------------------------------------------------------------*/
+Xint
+Xparse_bell_notify_argument(strarg)
+Xchar *strarg;
+X{
+X	static STR_CLASSIFY sc[] = {
+X		{ "off",	3,0 },
+X		{ "on",		2,1 },
+X		{ "alert",  1,2 },
+X		{ (char *)0,0,-1 },
+X	};
+X	int itmp;
+X
+X	if(isdigit(*strarg))
+X	{
+X		if( ( (itmp = atoi(strarg)) >= 0) && (itmp < 3) )
+X			return(itmp);
+X		return(-1);
+X	}
+X
+X	return(str_classify(sc,strarg));
+X
+X}	/* end of parse_bell_notify_argument */
+X
+X/*+-------------------------------------------------------------------------
+X	bell_notify_text(bn) - text for bell notify status
+X--------------------------------------------------------------------------*/
+Xchar *
+Xbell_notify_text(bn)
+Xint bn;
+X{
+X	char *cptr = "?";
+X
+X	switch(bn)
+X	{
+X		case 0: cptr = "OFF"; break;
+X		case 1: cptr = "ON"; break;
+X		case 2: cptr = "ON+ALERT"; break;
+X		default: cptr = "???"; break;
+X	}
+X	return(cptr);
+X}	/* end of bell_notify_text */
+X
+X/*+-------------------------------------------------------------------------
+X	signal_name_text(sig)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xsignal_name_text(sig)
+Xint sig;
+X{
+X	register char *cptr;
+X	static char sigunknown[20];
+X
+X	sig &= 0x7F;
+X	switch(sig)
+X	{
+X		case SIGHUP:	cptr = "SIGHUP"; break;
+X		case SIGINT:	cptr = "SIGINT"; break;
+X		case SIGQUIT:	cptr = "SIGQUIT"; break;
+X		case SIGILL:	cptr = "SIGILL"; break;
+X		case SIGTRAP:	cptr = "SIGTRAP"; break;
+X#ifdef SIGIOT
+X		case SIGIOT:	cptr = "SIGIOT"; break;
+X#endif
+X#ifdef SIGEMT
+X		case SIGEMT:	cptr = "SIGEMT"; break;
+X#endif
+X		case SIGFPE:	cptr = "SIGFPE"; break;
+X		case SIGKILL:	cptr = "SIGKILL"; break;
+X		case SIGBUS:	cptr = "SIGBUS"; break;
+X		case SIGSEGV:	cptr = "SIGSEGV"; break;
+X		case SIGSYS:	cptr = "SIGSYS"; break;
+X		case SIGPIPE:	cptr = "SIGPIPE"; break;
+X		case SIGALRM:	cptr = "SIGALRM"; break;
+X		case SIGTERM:	cptr = "SIGTERM"; break;
+X		case SIGUSR1:	cptr = "SIGUSR1"; break;
+X		case SIGUSR2:	cptr = "SIGUSR2"; break;
+X		case SIGCLD:	cptr = "SIGCLD"; break;
+X#if	defined(SIGPWR)
+X		case SIGPWR:	cptr = "SIGPWR"; break;
+X#endif
+X#if	defined(SIGSTOP)
+X		case SIGSTOP:   cptr = "SIGSTOP"; break;
+X#endif
+X#if	defined(SIGTSOP)
+X		case SIGTSTP:   cptr = "SIGTSTP"; break;
+X#endif
+X#if	defined(SIGCONT)
+X		case SIGCONT:   cptr = "SIGCONT"; break;
+X#endif
+X#if	defined(SIGTTIN)
+X		case SIGTTIN:   cptr = "SIGTTIN"; break;
+X#endif
+X#if	defined(SIGTTOU)
+X		case SIGTTOU:   cptr = "SIGTTOU"; break;
+X#endif
+X		default:
+X			sprintf(sigunknown,"SIGNAL %u",sig);
+X			return(sigunknown);
+X	}
+X	return(cptr);
+X
+X}	/* end of signal_name_text */
+X
+X/*+-------------------------------------------------------------------------
+X	rename(from,to)
+X--------------------------------------------------------------------------*/
+X#if defined(M_XENIX) && !defined(BUILDING_LINT_ARGS)
+Xint
+Xrename(from,to)
+Xchar *from;
+Xchar *to;
+X{
+X	struct stat ss;
+X	int save_errno;
+X	extern int errno;
+X
+X	if(!stat(to,&ss))	/* if to exists, flunk */
+X	{
+X		errno = EEXIST;	/* fake "file exists" error */
+X		return(-1);
+X	}
+X
+X	if(link(from,to))	/* if cannot link, flunk */
+X		return(-1);
+X
+X	if(unlink(from))	/* if cannot unlink, flunk */
+X	{
+X		save_errno = errno;
+X		unlink(to);
+X		errno = save_errno;
+SHAR_EOF
+true || echo 'restore of ecugrabbag.c failed'
+fi
+echo 'End of ecu320 part 7'
+echo 'File ecugrabbag.c is continued in part 8'
+echo 8 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

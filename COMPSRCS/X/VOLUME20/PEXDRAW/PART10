@@ -1,0 +1,2076 @@
+Newsgroups: comp.sources.x
+From: jch@okimicro.oki.com (Jan Hardenbergh)
+Subject: v20i020:  pexdraw - A PEX drawing program, Part10/14
+Message-ID: <1993Jun8.150218.19247@sparky.imd.sterling.com>
+X-Md4-Signature: 7d08faebcaf1664665a5294de6acea41
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 8 Jun 1993 15:02:18 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: jch@okimicro.oki.com (Jan Hardenbergh)
+Posting-number: Volume 20, Issue 20
+Archive-name: pexdraw/part10
+Environment: X11R5, PEX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  pexdrawc.2 pexdrawu.3
+# Wrapped by chris@sparky on Tue Jun  8 09:46:34 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 14)."'
+if test -f 'pexdrawc.2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pexdrawc.2'\"
+else
+  echo shar: Extracting \"'pexdrawc.2'\" \(29508 characters\)
+  sed "s/^X//" >'pexdrawc.2' <<'END_OF_FILE'
+X  } else if (OCData->oc_type  == PEXOCTriangleStrip ) {
+X    nPoints = OCData->data.TriangleStrip.count;
+X    p = OCData->data.TriangleStrip.vertices.no_data;
+X  } else if (OCData->oc_type  == PEXOCNURBCurve ) {
+X    if (OCData->data.NURBCurve.rationality == PEXRational) {
+X      int i;
+X      double w;
+X      for (i = 0; i < OCData->data.NURBCurve.count; i++ ) {
+X	w = 1.0 / OCData->data.NURBCurve.points.point_4d[i].w;
+X	OCData->data.NURBCurve.points.point[i].x = 
+X	  OCData->data.NURBCurve.points.point_4d[i].x * w;
+X	OCData->data.NURBCurve.points.point[i].y = 
+X	  OCData->data.NURBCurve.points.point_4d[i].y * w;
+X	OCData->data.NURBCurve.points.point[i].z = 
+X	  OCData->data.NURBCurve.points.point_4d[i].z * w;
+X      }
+X    }
+X
+X    nPoints = OCData->data.NURBCurve.count;
+X    p = OCData->data.NURBCurve.points.point;
+X  } else if (OCData->oc_type  == PEXOCText ) {
+X
+X    PEXSetElementPtr( theDisplay, theSelectedStrux, PEXBeginning,  5 );
+X
+X    if (GetTextRect(OCData, theSelectedStrux, theSelectedElement-1, &p)) {
+X      nPoints = 4;
+X    } else {
+X      nPoints = 1;
+X      p = &OCData->data.EncodedText.origin;
+X    }
+X  } else {
+X    printf("imagine a Motif alarm! selecting unknown element type %d\n",
+X	   OCData->oc_type );
+X    PEXFreeOCData(count, OCData);
+X    free(eData);
+X    return (1);
+X  }
+X
+X/* do not need this now.
+X   if (!(PEXFetchElements( theDisplay, theSelectedStrux,
+X			   PEXBeginning, MATRIX_ELEM,
+X			   PEXBeginning, MATRIX_ELEM, theFF,
+X			   &count, &length, &edata ))) { return; }
+X
+X  matrixOC = PEXDecodeOCs( theFF, count, length, eData );
+X  XFree((char *)eData);
+X
+X  theMCMatrix.strux = theSelectedStrux;
+X  theMCMatrix.seqNo = ++theMCSeqNo;
+X  bcopy( theMCMatrix.matrix, 
+X	matrixOC->data.SetLocalTransform.transform, sizeof(PEXMatrix));
+X*/
+X  nGot = theRenderProcs.MapMCToX(&theMCMatrix, nPoints, p, points );
+X
+X  PEXFreeOCData(count, OCData);
+X  PEXFreeOCData(count, matrixOC);
+X  free(eData);
+X
+X  if (nGot != nPoints) return (error);
+X
+X  *nPoints_return = nPoints;
+X  return (0);
+X}
+X
+X/*************************************************************************
+X * InsertMClipCmd - take two points and create a positiion & vector, that
+X * defines a model clipping plane.
+X * Wow is me, the UI for this should really be thought out more. For now,
+X * We will put:
+X *  - marker color
+X *  - line - When selected.
+X *  - marker
+X *  - model clip indicator
+X *  - model clip volume
+X */
+Xvoid InsertMClipCmd( points, select )
+X     PEXCoord *points;
+X     int select;
+X{
+X  PEXStructure strux;
+X  int error, e;
+X  PEXHalfSpace halfSpace;
+X
+X  if ( theSelectedElement != -1 ) {
+X    strux = theSelectedStrux;
+X  } else if (theNewStrux != 0) {
+X    strux = theNewStrux;
+X  }
+X
+X  if ( theSelectedElement != -1 ) {
+X    ClearSelection();
+X  }
+X
+X  halfSpace.point = points[0];
+X  halfSpace.vector.x = points[1].x - points[0].x;
+X  halfSpace.vector.y = points[1].y - points[0].y;
+X  halfSpace.vector.z = points[1].z - points[0].z;
+X
+X  PEXNormalizeVectors(1, &halfSpace.vector, &halfSpace.vector);
+X
+X  points[1].x = points[0].x + halfSpace.vector.x;
+X  points[1].y = points[0].y + halfSpace.vector.y;
+X  points[1].z = points[0].z + halfSpace.vector.z;
+X
+X  PEXSetElementPtr( theDisplay, strux, PEXBeginning, FACE_CULL_ELEM );
+X  PEXNoop(theDisplay, strux, PEXOCStore); /* where color usuall goes */
+X  PEXSetMarkerColorIndex( theDisplay, strux, PEXOCStore, 7);
+X  PEXMarkers(theDisplay, strux, PEXOCStore, 2, points);
+X  if (select) PEXPolyline(theDisplay, strux, PEXOCStore, 2, points);
+X
+X  PEXSetModelClipFlag( theDisplay, strux, PEXOCStore, PEXClip );
+X  PEXSetModelClipVolume( theDisplay, strux, PEXOCStore,
+X			   PEXModelClipIntersection, 1, &halfSpace );
+X
+X  if (select) {
+X    theSelectedStrux = strux;
+X    theSelectedElement = FACE_CULL_ELEM + 2;
+X  }
+X}
+X
+X/*************************************************************************
+X * DumpStrux
+X *
+X * In: strux   - structure to dump
+X *     element - is -1 do whole structure, else just that one
+X *     pretty  - use pretty formatting, dump into Motif window???
+X */
+Xvoid
+XDumpStrux( strux, element, pretty )
+X     long strux;
+X     long element;
+X     int pretty;
+X{
+X  char *eData, *eStuff;
+X  PEXOCData *ocd, *OCData;
+X  int i, start;
+X  unsigned long count, length;
+X
+X  if (element != -1) {
+X    if (!(PEXFetchElements( theDisplay, strux,
+X			     PEXBeginning, element, PEXBeginning, element, 
+X			     theFF, &count, &length, &eData  ))) { return; }
+X    start = element;
+X  } else {
+X    if (!(PEXFetchElements( theDisplay, strux,
+X			     PEXBeginning, 1, PEXEnd, 0, theFF,
+X			     &count, &length, &eData ))) { return; }
+X    start = 1;
+X  }
+X
+X  if (eData) printf("fetch!\n");
+X
+X  OCData = PEXDecodeOCs( theFF, count, length, eData );
+X  for (i = 0, ocd = OCData; i < count; i++, start++) {
+X    printf("%d element is type %d - first 12 bytes %x, %x, %x\n", start,
+X	   ocd->oc_type, ocd->data.FillAreaSet.shape_hint, 
+X	   ocd->data.FillAreaSet.ignore_edges,
+X	   ocd->data.FillAreaSet.contour_hint );
+X
+X    ocd++;
+X  }
+X  PEXFreeOCData(count, OCData);
+X
+X  XFree(eData);
+X}
+X
+X/*************************************************************************
+X * PrintElement - dump out the element contents in hex.
+X */
+X/*
+Xvoid
+XPrintElement( long struxID, long element, long ocType, long eSize,
+X		  char *elem_data )
+X{
+X  long i, *p;
+X}
+X*/
+X/*************************************************************************
+X * ResizeWindow
+X *
+X * uses rubber sheet. The alternative would be porthole.
+X *
+X * It changes the Workstation Window (NPC) to the aspect ratio of the window.
+X * It changes the Workstation Viewport (DC) to the size of the window.
+X *
+X * To do porthole, the Workstation Window would move around NPC. The
+X * Workstation Viewport would still be the whole window.
+X *
+X * Watch out for X Window, View Window and Workstation Window confusion.
+X */
+Xvoid ResizeWindow( w, width, height)
+X     Window w;
+X     int width;
+X     int height;
+X{
+X   float d, minx, maxx, miny, maxy;
+X   PEXNPCSubVolume  volume;
+X   PEXViewport  viewport; 
+X   
+X   theRenderProcs.ReconfigureWindow( w, width, height );
+X
+X   if (width > height) {
+X      minx = theWindowCenterX - theWindowSize;
+X      maxx = theWindowCenterX + theWindowSize;
+X      d = (float)(height)/(float)(width);
+X      miny = theWindowCenterY - theWindowSize*(d);
+X      maxy = theWindowCenterY + theWindowSize*(d);
+X   }
+X   else {
+X      miny = theWindowCenterY - theWindowSize;
+X      maxy = theWindowCenterY + theWindowSize;
+X      d = (float)(width)/(float)(height);
+X      minx = theWindowCenterX - theWindowSize*(d);
+X      maxx = theWindowCenterX + theWindowSize*(d);
+X   }
+X
+X   viewport.min.x = 0.0;
+X   viewport.max.x = width;
+X   viewport.min.y = 0.0;
+X   viewport.max.y = height;
+X   viewport.min.z = 0.0;
+X   viewport.max.z = 1.0;
+X   viewport.use_drawable = 1; 
+X    
+X   volume.min.x = (float)minx;
+X   volume.max.x = (float)maxx;
+X   volume.min.y = (float)miny;
+X   volume.max.y = (float)maxy;
+X   volume.min.z = 0.0;
+X   volume.max.z = 1.0;
+X
+X   theRenderProcs.SetNPCToDC( &volume, &viewport );
+X}
+X
+X/*************************************************************************
+X * InitLights - random init of two lights.
+X */
+XInitLights()
+X{
+X  PEXLightEntry			light;
+X
+X  light.type = PEXLightAmbient;
+X  light.color.type = PEXColorTypeRGB;
+X  light.color.value.rgb.red   =  AmbientColor[0];
+X  light.color.value.rgb.green =  AmbientColor[1];
+X  light.color.value.rgb.blue  =  AmbientColor[2];
+X  PEXSetTableEntries(theDisplay,theLightLUT,1,1,PEXLUTLight,(char *)&light);
+X
+X  light.type = PEXLightWCVector;
+X  light.color.type = PEXColorTypeRGB;
+X  light.color.value.rgb.red   =  LightColor[0];
+X  light.color.value.rgb.green =  LightColor[1];
+X  light.color.value.rgb.blue  =  LightColor[2];
+X  light.direction.x = LightVector[0];
+X  light.direction.y = LightVector[1];
+X  light.direction.z = LightVector[2];
+X  PEXSetTableEntries(theDisplay,theLightLUT,2,1,PEXLUTLight,(char *)&light);
+X
+X  /* set up light state info for structure elements */
+X  theLightsOn[0] = 1;
+X  theLightsOn[1] = 2;
+X  theLightsOnCount = 2;
+X  theLightsOffCount = 0;
+X}
+X
+X/*************************************************************************
+X * StartSpinning - install oneSpin as a Motif "work proc"
+X *
+X * set up the Global theSpinInfo to allow oneSpin to incrementally spin
+X * theNewStrux. This is installed as a Motif work proc and gets called
+X * whenever the XtMainLoop has nothing better to do.
+X *
+X * SEE ALSO, StopSpinning().  This sets theSpinInfo.stop which gets returned
+X * by oneSpin each time it is called.  A non-zero value mean that the work
+X * proc is done.
+X */
+Xint
+XStartSpinning(sid)
+X     PEXStructure sid;
+X{
+X  SpinInfo *si;
+X  int i;
+X
+X  if (GetSpinInfo(sid)) return (0); /* it's going, don't bother */
+X
+X  si = (SpinInfo *)malloc(sizeof(SpinInfo));
+X
+X  si->strux = sid;
+X  /*
+X   * If I weren't such a wimp I'd get the matrix and decompose it so we start
+X   * from the right place, tick, tick...
+X   */
+X  si->point.x = 0.0;
+X  si->point.y = 0.0;
+X  si->point.z = 0.0;
+X  si->offset.x = 0;
+X  si->offset.y = 0;
+X  si->offset.z = 0;
+X  si->scale.x = 1.0;
+X  si->scale.y = 1.0;
+X  si->scale.z = 1.0;
+X  si->x_ang = 0.0;
+X  si->y_ang = 0.0;
+X  si->z_ang = 0.0;
+X  si->delta_x = ((float)(theSpinList.count+1))/10.0;
+X  si->delta_y = (float)0.1;
+X  si->delta_z = 0.0;
+X
+X  si->wk_id = theRenderObj;
+X  si->dpy = theDisplay;
+X  si->stop = 0;
+X  si->next = theSpinList.listHead;
+X  theSpinList.count++;
+X  theSpinList.listHead = si;
+X
+X  if (theSpinList.count == 1)
+X  AddWorkProc(manageSpin,(char *)si);
+X
+X  return (1); /* we started something spinning */
+X}
+X
+XSpinInfo *
+XGetSpinInfo(sid)
+X     PEXStructure sid;
+X{
+X  SpinInfo *si;
+X  int i;
+X
+X  if (theSpinList.count == 0) theSpinList.listHead = (SpinInfo *)0; /* mem leak */
+X  /*
+X   * first check to make sure we are not spinning this strux already
+X   */
+X  si = theSpinList.listHead;
+X  for (i=0; i < theSpinList.count; i++) { /* what me trust linked lists? */
+X    if (si == (SpinInfo *)0) {
+X      printf("imagine there's no heaven, -John Lennon\n");
+X      /* oh, just let it crash */
+X    }
+X    if (si->strux == sid) return (si);
+X    si = si->next;
+X  }
+X  return ((SpinInfo *)0);
+X}
+X
+X/*************************************************************************
+X * oneSpin - Motif "work proc" for spinning a structure
+X *
+X * there is a bug in Xt that prevents multiple work procs from getting
+X * time. So this one WorkProc manages all of the spins.
+X * If Xt could round robin the workProcs, then oneSpin would be the
+X * work proc.
+X */
+Xint manageSpin(client_data)
+X     char *client_data;
+X{
+X  SpinInfo *si;
+X  int error;
+X  int stop = 1;
+X  int i;
+X  
+X  /*
+X   * walk through list, call oneSpin for each.
+X   */
+X  si = theSpinList.listHead;
+X  for (i=0; i < theSpinList.count; i++) { /* what me trust linked lists? */
+X    if (si == (SpinInfo *)0) {
+X      printf("imagine there's no heaven, -John Lennon\n");
+X      /* oh, just let it crash */
+X    }
+X    if (!oneSpin((char *)si)) stop = 0;
+X    si = si->next;
+X  }
+X  theRenderProcs.ReDraw();
+X
+X  XSync(theDisplay, 0); /* perhaps save the first display? */
+X
+X  return (stop);
+X}
+X
+X/*************************************************************************
+X * oneSpin - Motif "work proc" for spinning a structure
+X */
+Xint oneSpin(client_data)
+X     char *client_data;
+X{
+X  SpinInfo *si;
+X  int error;
+X
+X  si = (SpinInfo *)client_data;
+X
+X  if (si->stop) return (si->stop);
+X/*
+X * go to replace mode because we just want to bang that matrix a bunch of
+X * times. err... well in this case, just once.
+X */
+X  PEXSetEditingMode(theDisplay, si->strux, PEXStructureReplace );
+X  PEXSetElementPtr( theDisplay, si->strux, PEXBeginning,  MATRIX_ELEM );
+X
+X  si->x_ang += si->delta_x;
+X  si->y_ang += si->delta_y;
+X  si->z_ang += si->delta_z;
+X
+X  theMCMatrix.seqNo = ++theMCSeqNo;
+X  PEXBuildTransform(&si->point, &si->offset,
+X	si->x_ang, si->y_ang, si->z_ang, &si->scale, 
+X	theMCMatrix.matrix);
+X
+X  PEXSetLocalTransform(theDisplay, si->strux, PEXOCStoreSingle, PEXReplace, 
+X		       theMCMatrix.matrix);
+X  PEXSetEditingMode(theDisplay, si->strux, PEXStructureInsert );
+X
+X  return (si->stop);
+X}
+X/*************************************************************************
+X * StopSpinning(sidToStop)
+X *
+X * When Is Making Possible: to free the spin memory.
+X */
+Xint
+XStopSpinning(sid)
+X     PEXStructure sid;
+X{
+X  SpinInfo *si, *presi;
+X  int i;
+X
+X  si = theSpinList.listHead;
+X  if (sid == (PEXStructure)-1) {
+X    for (i=0; i < theSpinList.count; i++) { /* what me trust linked lists? */
+X      si->stop = 1;
+X      si = si->next;
+X    }
+X    theSpinList.count = 0;
+X    return (2);
+X  }
+X  /*
+X   * first check to make sure we are not spinning this strux already
+X   */
+X  presi = (SpinInfo *)0;
+X  si = theSpinList.listHead;
+X  for (i=0; i < theSpinList.count; i++) { /* what me trust linked lists? */
+X    if (si == (SpinInfo *)0) {
+X      printf("imagine there's no heaven, -John Lennon\n");
+X      /* oh, just let it crash */
+X    }
+X    if (si->strux == sid) {
+X      si->stop = 1;
+X      if (presi == (SpinInfo *)0) {
+X	theSpinList.listHead = si->next;
+X      } else {
+X	presi->next = si->next;
+X	return (1);
+X      }
+X      theSpinList.count--;
+X    }
+X    si = si->next;
+X  }
+X  return (0); /* nothing started */
+X}
+X/*************************************************************************
+X * ReadArchiveFile
+X *
+X * Find all of the root structures - first find all structres and weed out
+X *  those that are instanced by others.
+X * Read the whole archive, should do this be reading networks of posters, but..
+X * Post all of the poster candidates.
+X */
+Xint ReadArchiveFile(filename)
+X  char *filename;
+X{
+X  char *command;
+X  int len1;
+X  XID newStrux;
+X  int enough = 200;
+X  
+X  len1 = strlen(filename);
+X  command = (char *)malloc(len1+enough);
+X  if (!command)   {printf("can't malloc %s\n",filename); return (-1);}
+X  strcat(command,filename);
+X  
+X  newStrux = InitStrux();
+X  XSync(theDisplay, 0);
+X
+X  strcat(&command[len1]," -display ");
+X  len1 += strlen(" -display ");
+X  strcat(&command[len1],DisplayString(theDisplay));
+X  len1 += strlen(DisplayString(theDisplay));
+X  strcat(&command[len1]," -strux ");
+X  len1 += strlen(" -strux ");
+X  sprintf(&command[len1],"%d\n",newStrux);
+X  printf(" system >%s< \n",command);
+X  system(command);
+X  free(command);
+X}
+X
+X/*************************************************************************
+X *  WriteArchiveFile
+X */
+Xint WriteArchiveFile(filename)
+X     char *filename;
+X{
+X  int arid;
+X
+X  printf("closed archive file %s\n", filename);
+X}
+X
+X
+X/*************************************************************************
+X * SolidToggleCmd - ideally this should inquire the state, if solid
+X * make hollow, if hollow make solid and return the state so the menu
+X * can give the user feedback about the state.
+X */
+Xint 
+XInteriorStyleCmd(style)
+X     int style;
+X{
+X  long strux;
+X
+X  if ( theSelectedElement != -1 ) {
+X    strux =  theSelectedStrux;
+X  } else {
+X    if (theNewStrux == 0) theNewStrux = InitStrux();
+X    strux =  theNewStrux;
+X  }
+X
+X  PEXSetEditingMode(theDisplay, strux, PEXStructureReplace );
+X  PEXSetElementPtr( theDisplay, strux, PEXBeginning,  INT_STYLE_ELEM );
+X  PEXSetInteriorStyle(theDisplay, strux, PEXOCStoreSingle, style);
+X  PEXSetEditingMode(theDisplay, strux, PEXStructureInsert );
+X
+X  return (0);
+X}
+X
+Xint SurfaceInterpCmd( method)
+X     int method;
+X{
+X  long strux;
+X
+X  if ( theSelectedElement != -1 ) {
+X    strux =  theSelectedStrux;
+X  } else {
+X    if (theNewStrux == 0) theNewStrux = InitStrux();
+X    strux =  theNewStrux;
+X  }
+X
+X  PEXSetEditingMode(theDisplay, strux, PEXStructureReplace );
+X  PEXSetElementPtr( theDisplay, strux, PEXBeginning, INT_SHAD_ELEM );
+X  PEXSetSurfaceInterpMethod(theDisplay, strux, PEXOCStoreSingle, method );
+X  PEXSetEditingMode(theDisplay, strux, PEXStructureInsert );
+X
+X  return (0);
+X}
+X
+X/*************************************************************************
+X *
+X */
+Xint FacetCullingCmd( mode)
+X     int mode;
+X{
+X  long strux;
+X  PEXElementInfo *eInfo;
+X  unsigned long count;
+X
+X  if ( theSelectedElement != -1 ) {
+X    strux =  theSelectedStrux;
+X  } else {
+X    if (theNewStrux == 0) theNewStrux = InitStrux();
+X    strux =  theNewStrux;
+X  }
+X
+X  PEXSetEditingMode(theDisplay, strux, PEXStructureReplace );
+X  PEXSetElementPtr( theDisplay, strux, PEXBeginning, FACE_CULL_ELEM);
+X/*
+X * check to make sure there is a facet culling OC here, if not insert.
+X */
+X  if(PEXGetElementInfo(theDisplay, strux, PEXBeginning, FACE_CULL_ELEM,
+X		    PEXBeginning, FACE_CULL_ELEM, theFF, &count, &eInfo )){
+X    if ((count != 1) || (eInfo->type != PEXOCFacetCullingMode)) {
+X      PEXSetEditingMode(theDisplay, strux, PEXStructureInsert );
+X      PEXSetElementPtr( theDisplay, strux, PEXCurrent, -1);
+X      if (theSelectedElement != -1 ) theSelectedElement++;
+X    }
+X  } else { printf("PEXGetStructureInfo failed\n");}
+X
+X  PEXSetFacetCullingMode(theDisplay, strux, PEXOCStoreSingle, mode );
+X  PEXSetEditingMode(theDisplay, strux, PEXStructureInsert );
+X
+X  return (0);
+X}
+X
+Xint ReflectionAttributesCmd(reflAttrs)
+X     PEXReflectionAttributes *reflAttrs;
+X{
+X  long strux;
+X
+X  if ( theSelectedElement != -1 ) {
+X    strux =  theSelectedStrux;
+X  } else {
+X    if (theNewStrux == 0) theNewStrux = InitStrux();
+X    strux =  theNewStrux;
+X  }
+X
+X  PEXSetEditingMode(theDisplay, strux, PEXStructureReplace );
+X  PEXSetElementPtr( theDisplay, strux, PEXBeginning, REFL_ATTRS_ELEM );
+X  PEXSetReflectionAttributes(theDisplay, strux, PEXOCStoreSingle, reflAttrs );
+X  PEXSetEditingMode(theDisplay, strux, PEXStructureInsert );
+X
+X  return (0);
+X}
+X
+Xvoid
+XDumpStruxCmd(pretty)
+X     int pretty;
+X{
+X    if ( theSelectedElement != -1 ) {
+X      DumpStrux(theSelectedStrux, -1, pretty ); 
+X    } else if (theNewStrux != 0){
+X      DumpStrux(theNewStrux, -1, pretty ); 
+X    }
+X  }
+X
+X/*************************************************************************
+X * From posting by Alan Paeth
+X *
+XPlatonic Solids (regular and quasi-regular, Kepler-Poinset star solids omitted)
+X
+XThe orientations minimize the number of distinct coordinates, thereby revealing
+Xboth symmetry groups and embedding (eg, tetrahedron in cube in dodecahedron).
+XConsequently, the latter is depicted resting on an edge (Z taken as up/down).
+X
+XSOLID		 VERTEX COORDINATES
+X-----------      -------------------
+XTetrahedron      (  1,  1,  1), (  1, -1, -1), ( -1,  1, -1), ( -1, -1,  1)
+XCube             (+-1,+-1,+-1)
+XOctahedron       (+-1,  0,  0), (  0,+-1,  0), (  0,  0,+-1)
+XCubeoctahedron   (  0,+-1,+-1), (+-1,  0,+-1), (+-1,+-1,  0)
+XIcosahedron      (  0,+-p,+-1), (+-1,  0,+-p), (+-p,+-1,  0)
+XDodecahedron     (  0,+-i,+-p), (+-p,  0,+-i), (+-i,+-p,  0), (+-1,+-1,+-1)
+XIcosidodecahedron(+-2,  0,  0), (  0,+-2,  0), (  0,  0,+-2), ...
+X                 (+-p,+-i,+-1), (+-1,+-p,+-i), (+-i,+-1,+-p)
+X
+Xwith golden mean: p = (sqrt(5)+1)/2; i = (sqrt(5)-1)/2 = 1/p = p-1
+X------------------------------------------------------------------------------
+X
+X   /Alan Paeth
+X   Computer Graphics Laboratory
+X   University of Waterloo
+X
+XWhy am I doing this split tristrip, when I should be writing!!!
+X
+Xwhile (i<n) {
+X t1[j] = v[i], n1[j] = vn[i]
+X t1[j+1] = (v[i]+v[i+1])/2, n[j+1] = vn[i]+vn[i+1]/2 Normalize
+X t1[j+2] = (v[i]+v[i+2])/2, n[j+2] = vn[i]+vn[i+2]/2 Normalize
+X t1[j+3] = (v[i+1]+v[i+2])/2, n[j+3] = vn[i+1]+vn[i+2]/2 Normalize
+X
+X if length is odd and i = n-2 then skip this.
+X
+X t2[j] = t1[j+1], n2[j] = n[j+1]
+X t2[j+1] = v[i+1], n2[j+1] = vn[i+1]
+X t2[j+2] = t1[j+3]
+X t2[j+3] = (v[i+1]+v[i+3])/2, n2[j+3] = vn[i+1]+vn[i+3]/2 Normalize
+X
+X j += 4;
+X i += 2;
+X }
+X
+X*/
+X
+Xstatic int cohCount = 0;
+Xstatic PEXCoord cohVertex[] = { {0,1,1},{1,1,0},{1,0,1},{1,0,-1},{1,-1,0},
+X {0,-1,-1},{0,-1,1},{-1,-1,0},{-1,0,1},{-1,0,-1},{-1,1,0},{0,1,-1},
+X {0,1,1},{1,1,0}, /* duplicate */ {1,1,0},{0,1,-1}, {1,0,-1}, 
+X {-1,0,-1}, {0,-1,-1}, {-1,-1,0},{-1,-1,0}, /*duplicate, web, duplicate */
+X {-1,1,0},{-1,1,0},{0,1,1},{-1,0,1},{1,0,1},{0,-1,1},{1,-1,0}};
+X
+X#define R3I .577
+X
+X/* this is sort of interesting, but let's use the utility */
+X#ifdef NOT_DEF
+Xstatic PEXVector cohNormals[] = { {R3I,R3I,R3I},{1,0,0},{1,0,0},{R3I,-R3I,-R3I},{0,-1,0},
+X {0,-1,0},{-R3I,-R3I,R3I},{-1,0,0},{-1,0,0},{-R3I,R3I,-R3I},{0,1,0},{0,1,0},
+X {R3I,R3I,-R3I},{R3I,R3I,-R3I}, /* duplicate now 14,15 */ {0,0,-1},{0,0,-1}, {-R3I,-R3I,-R3I}, 
+X {-R3I,-R3I,-R3I}, {-R3I,-R3I,-R3I}, {-R3I,-R3I,-R3I},{-R3I,R3I,R3I}, /*duplicate, web, duplicate */
+X {-R3I,R3I,R3I},{0,0,1},{0,0,1},{0,0,1},{0,0,1}};
+X#endif
+X
+X#define COH_VERTS 28
+X
+Xlong
+XCubeoctahedron(offset, radius)
+X     PEXCoord *offset;
+X     double radius;
+X{
+X  PEXVertexNormal		vertex_data[COH_VERTS];
+X  PEXVertexNormal		*nv1, *nv2;
+X  PEXCoord p[2];
+X  float sq2;
+X  int i, j;
+X  long strux;
+X  PEXArrayOfFacetData facetNormals;
+X  PEXVector *fn1, *fn2;
+X  PEXArrayOfVertex too;  /* should be able to cast these somehow, too late */
+X  PEXVector cohNormals[COH_VERTS];
+X
+X  strux = InitStrux();
+X
+X  PEXSetLineColorIndex( theDisplay, strux, PEXOCStore, 2);
+X  
+X  p[0].x = 0; p[0].y = 0; p[0].z = 0;
+X  p[1].x = offset->x*radius;
+X  p[1].y = offset->y*radius;
+X  p[1].z = offset->z*radius;
+X  PEXPolyline(theDisplay, strux, PEXOCStore, 2, p );
+X
+X/*
+X * if we are passing though an odd pass insert a NURB sphere.
+X */
+X
+X  if (cohCount++ & 0x1) {
+X    too.normal = vertex_data;    
+X
+X/* this is now done in the pipeline context.
+X *   PEXSetSurfaceApprox(theDisplay, strux, PEXOCStore, 
+X *			PEXApproxConstantBetweenKnots, 2.0, 2.0 );
+X */
+X    PEXSetSurfaceColorIndex( theDisplay, strux, PEXOCStore, 5 );
+X    InsertNURBSphere( theDisplay, strux );
+X
+X  } else {
+X
+X    /*
+X     * generate the cubo
+X     */
+X    sq2 = sqrt((double)2.0) / 2.0;
+X    
+X    for (i = 0; i < COH_VERTS; i++ ) {
+X      vertex_data[i].point.x = offset->x + radius*cohVertex[i].x;
+X      vertex_data[i].point.y = offset->y + radius*cohVertex[i].y;
+X      vertex_data[i].point.z = offset->z + radius*cohVertex[i].z;
+X      vertex_data[i].normal.x = sq2*cohVertex[i].x;
+X      vertex_data[i].normal.y = sq2*cohVertex[i].y;
+X      vertex_data[i].normal.z = sq2*cohVertex[i].z;
+X    }
+X#define NO_DOUBLE 1
+X
+X#ifdef NO_DOUBLE
+X
+X    PEXSetSurfaceColorIndex( theDisplay, strux, PEXOCStore, 4 );
+X    too.normal = vertex_data;
+X    facetNormals.normal = cohNormals;
+X    PEXGeoNormTriangleStrip( PEXGANormal, PEXGANormal,
+X		     PEXColorTypeRGB, facetNormals, 28, too);
+X
+X    for (i = 0; i < COH_VERTS-2; i++ ) {
+X      cohNormals[i].x = -cohNormals[i].x;
+X      cohNormals[i].y = -cohNormals[i].y;
+X      cohNormals[i].z = -cohNormals[i].z;
+X    }
+X
+X    PEXTriangleStrip( theDisplay, strux, PEXOCStore, PEXGANormal, PEXGANormal,
+X		     PEXColorTypeRGB, facetNormals, 28, too);
+X
+X#else
+X
+X/*
+X * double the tristrip
+X */
+X
+X    nv1 = (PEXVertexNormal *)malloc(COH_VERTS*4*sizeof(PEXVertexNormal));
+X      if (!nv1) {printf("nv1\n"); exit(1);}
+X    nv2 = nv1+2*COH_VERTS;
+X
+X    fn1 = (PEXVector *)malloc(COH_VERTS*4*sizeof(PEXVector));
+X      if (!fn1) {printf("nv1\n"); exit(1);}
+X    fn2 = fn1+2*COH_VERTS;
+X
+X
+X    i = 0; j = 0;
+X
+X#define AVERAGE(a,b,c) {a.x=(b.x+c.x)/2;a.y=(b.y+c.y)/2;a.z=(b.z+c.z)/2;}
+X
+X    while (i < COH_VERTS) {
+X
+X      nv1[j].point = vertex_data[i].point;
+X      nv1[j].normal = vertex_data[i].normal;
+X
+X      fn1[j] = cohNormals[i];
+X      fn1[j+1] = cohNormals[i];
+X      fn1[j+2] = cohNormals[i];
+X      fn1[j+3] = cohNormals[i+1];
+X
+X      AVERAGE(nv1[j+1].point, vertex_data[i].point, vertex_data[i+1].point);
+X      AVERAGE(nv1[j+1].normal, vertex_data[i].normal, vertex_data[i+1].normal);
+X      PEXNormalizeVectors(1, &nv1[j+1].normal, &nv1[j+1].normal);
+X
+X      AVERAGE(nv1[j+2].point, vertex_data[i].point, vertex_data[i+2].point);
+X      AVERAGE(nv1[j+2].normal, vertex_data[i].normal, vertex_data[i+2].normal);
+X      PEXNormalizeVectors(1, &nv1[j+2].normal, &nv1[j+2].normal);
+X
+X      AVERAGE(nv1[j+3].point, vertex_data[i+1].point, vertex_data[i+2].point);
+X      AVERAGE(nv1[j+3].normal,vertex_data[i+1].normal,vertex_data[i+2].normal);
+X      PEXNormalizeVectors(1, &nv1[j+3].normal, &nv1[j+3].normal);
+X
+X      /*  if length is odd and i = n-2 then skip this. */
+X
+X      nv2[j] = nv1[j+1];
+X
+X      nv2[j+1].point = vertex_data[i+1].point;
+X      nv2[j+1].normal = vertex_data[i+1].normal;
+X
+X      nv2[j+2] = nv1[j+3];
+X
+X      AVERAGE(nv2[j+3].point, vertex_data[i+1].point, vertex_data[i+3].point);
+X      AVERAGE(nv2[j+3].normal,vertex_data[i+1].normal,vertex_data[i+3].normal);
+X      PEXNormalizeVectors(1, &nv2[j+3].normal, &nv2[j+3].normal);
+X
+X      fn2[j] = cohNormals[i];
+X      fn2[j+1] = cohNormals[i+1];
+X      fn2[j+2] = cohNormals[i+1];
+X      fn2[j+3] = cohNormals[i+1];
+X
+X      j += 4;
+X      i += 2;
+X    }
+X    PEXSetSurfaceColorIndex( theDisplay, strux, PEXOCStore, 4 );
+X    too.normal = nv1;
+X    facetNormals.normal = fn1;
+X    PEXTriangleStrip( theDisplay, strux, PEXOCStore, PEXGANormal, PEXGANormal,
+X		     PEXColorTypeRGB, facetNormals, 54, too);
+X
+X    PEXSetSurfaceColorIndex( theDisplay, strux, PEXOCStore, 4 );
+X    too.normal = nv2;
+X    facetNormals.normal = fn2;
+X    PEXTriangleStrip( theDisplay, strux, PEXOCStore, PEXGANormal, PEXGANormal,
+X		     PEXColorTypeRGB, facetNormals, 54, too);
+X
+X    free(nv1);
+X    free(fn1);
+X#endif
+X  }
+X
+X  theRenderProcs.Post( strux );
+X
+X  return (strux);
+X}
+X/*************************************************************************
+X *
+X */
+Xint GetTextRect(OCData, strux, offset, rect )
+X     PEXOCData *OCData;
+X     XID strux;
+X     int offset;
+X     PEXCoord **rect;
+X{
+X  PEXTextExtent *extent;
+X  TextAttributes *tAttrs;
+X  PEXListOfEncodedText listOfEncodedText;
+X
+X/* GetTextAttributes - really needs to be a renderer function?
+X * No, the structure inquiry should happen in application code, getting
+X * the default should be from the renderer.
+X				      tAttrs->index, tAttrs->path,
+X				      tAttrs->expansion, tAttrs->spacing,
+X				      tAttrs->height, 
+X				      tAttrs->halign, tAttrs->valign, 
+X */
+X
+X listOfEncodedText.count = OCData->data.EncodedText.count;
+X listOfEncodedText.encoded_text = OCData->data.EncodedText.encoded_text;
+X
+X  XSync(theDisplay, 0);
+X
+X  extent = PEXQueryEncodedTextExtents( theDisplay, theFontLUT,
+X				      (unsigned int)1, PEXPathRight,
+X				      1.0, 0.0, 0.08, 
+X				      PEXVAlignNormal, PEXHAlignNormal,
+X				      1, &listOfEncodedText );
+X
+X  textRect[0].x = OCData->data.EncodedText.origin.x + extent->lower_left.x;
+X  textRect[0].y = OCData->data.EncodedText.origin.y + extent->lower_left.y;
+X  textRect[2].x = textRect[0].x + extent->upper_right.x;
+X  textRect[2].y = textRect[0].y + extent->upper_right.y;
+X
+X  textRect[1].x = textRect[2].x;
+X  textRect[1].y = textRect[0].y;
+X  textRect[3].x = textRect[0].x;
+X  textRect[3].y = textRect[2].y;
+X
+X  textRect[3].z = textRect[2].z = textRect[1].z = textRect[0].z = 
+X    OCData->data.EncodedText.origin.z;
+X
+X  *rect = textRect;
+X  return (1);
+X}
+X
+X/*************************************************************************
+X *
+X */
+X
+XInsertNURBSphere(dpy,struxid)
+X     Display *dpy;
+X     XID struxid;
+X{
+X  float uKnots[8]; /* 3 + 5 = 8 <> order + points = number of knots */
+X  float vKnots[12]; /* 3 + 9 = 12 */
+X  PEXCoord uPoints[5];
+X  PEXCoord vPoints[9];
+X  PEXCoord4D points[45];
+X  float uWeights[5];
+X  float vWeights[9];
+X  PEXArrayOfCoord parr;
+X  int i,j;
+X
+X#define SET_POINT(p,a,b,c) {(p)->x=(a);(p)->y=(b);(p)->z=(c);}
+X
+X  SET_POINT(&uPoints[0], 0, 0, -0.5); uWeights[0] = 1;
+X  SET_POINT(&uPoints[1], 0.5, 0, -0.5); uWeights[1] = 0.707107;
+X  SET_POINT(&uPoints[2], 0.5, 0, 0);  uWeights[2] = 1;
+X  SET_POINT(&uPoints[3], 0.5, 0, 0.5);  uWeights[3] = 0.707107;
+X  SET_POINT(&uPoints[4], 0, 0, 0.5);  uWeights[4] = 1;
+X
+X  uKnots[0]=0; uKnots[1]=0; uKnots[2]=0;
+X  uKnots[3]=1; uKnots[4]=1;
+X  uKnots[5]=2; uKnots[6]=2; uKnots[7]=2;
+X
+X  SET_POINT(&vPoints[0], 0, 1, 0);   vWeights[0] = 1;        
+X  SET_POINT(&vPoints[1], 1, 1, 0);   vWeights[1] = 0.707107; 
+X  SET_POINT(&vPoints[2], 1, 0, 0);   vWeights[2] = 1;        
+X  SET_POINT(&vPoints[3], 1, -1, 0);  vWeights[3] = 0.707107; 
+X  SET_POINT(&vPoints[4], 0, -1, 0);  vWeights[4] = 1;        
+X  SET_POINT(&vPoints[5], -1, -1, 0); vWeights[5] = 0.707107; 
+X  SET_POINT(&vPoints[6], -1, 0, 0);  vWeights[6] = 1;        
+X  SET_POINT(&vPoints[7], -1, 1, 0);  vWeights[7] = 0.707107; 
+X  SET_POINT(&vPoints[8], 0, 1, 0);   vWeights[8] = 1;        
+X
+X  vKnots[0]=0; vKnots[1]=0; vKnots[2]=0;
+X  vKnots[3]=1; vKnots[4]=1;
+X  vKnots[5]=2; vKnots[6]=2;
+X  vKnots[7]=3; vKnots[8]=3;
+X  vKnots[9]=4; vKnots[10]=4; vKnots[11]=4;
+X
+X  for (i = 0; i < 9; i++ ) { /* for each v point */
+X    for (j = 0; j < 5; j++ ) { /* for each u point */
+X      points[i*5+j].w = uWeights[j] * vWeights[i];
+X      SET_POINT(&points[i*5+j], uPoints[j].x*vPoints[i].x * points[i*5+j].w,
+X		uPoints[j].x*vPoints[i].y  * points[i*5+j].w,
+X		uPoints[j].z * points[i*5+j].w);
+X    }
+X  }
+X  parr.point_4d = points;
+X  PEXNURBSurface(dpy,struxid,PEXOCStore, PEXRational, 3, 3,
+X		 uKnots, vKnots, 
+X		 5, 9, parr, 0, 0 );
+X}
+X
+X/*************************************************************************
+X *
+X */
+X
+XInsertNURBSurface(dpy,struxid, rational)
+X     Display *dpy;
+X     XID struxid;
+X     int rational;
+X{
+X  float uKnots[6]; /* 3 + 5 = 8 <> order + points = number of knots */
+X  float vKnots[8]; /* 3 + 9 = 12 */
+X  PEXCoord p3[12];
+X  PEXCoord4D p4[12];
+X  PEXArrayOfCoord parr;
+X  int i;
+X
+X  uKnots[0]=0; uKnots[1]=0; uKnots[2]=0;
+X  uKnots[3]=1; uKnots[4]=1; uKnots[5]=1;
+X
+X  vKnots[0]=0; vKnots[1]=0; vKnots[2]=0; vKnots[3]=0;
+X  vKnots[4]=1; vKnots[5]=1; vKnots[6]=1; vKnots[7]=1;
+X
+X  SET_POINT(&p3[0], 0.0, 0.5, 0.0);
+X  SET_POINT(&p3[1], 0.0, 0.6, 0.5);
+X  SET_POINT(&p3[2], 0.0, 0.5, 1.0);
+X  SET_POINT(&p3[3], 0.3, 0.5, 0.0);
+X  SET_POINT(&p3[4], 0.3, 1.0, 0.5);
+X  SET_POINT(&p3[5], 0.3, 0.5, 1.0);
+X  SET_POINT(&p3[6], 0.6, 0.4, 0.0);
+X  SET_POINT(&p3[7], 0.6, 0.5, 0.5);
+X  SET_POINT(&p3[8], 0.6, 0.4, 1.0);
+X  SET_POINT(&p3[9], 0.9, 0.5, 0.0);
+X  SET_POINT(&p3[10], 0.9, 0.3, 0.5);
+X  SET_POINT(&p3[11], 0.9, 0.2, 1.0);
+X
+X  if (rational == PEXRational) {
+X    PEXCoord   *pp3;
+X    PEXCoord4D *pp4;
+X    float w;
+X
+X    w = 0.5;
+X
+X    for (i=0, pp4 = p4, pp3 = p3; i < 12;  i++, pp4++, pp3++ ) {
+X	pp4->x = pp3->x * w;
+X	pp4->y = pp3->y * w;
+END_OF_FILE
+  if test 29508 -ne `wc -c <'pexdrawc.2'`; then
+    echo shar: \"'pexdrawc.2'\" unpacked with wrong size!
+  fi
+  # end of 'pexdrawc.2'
+fi
+if test -f 'pexdrawu.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pexdrawu.3'\"
+else
+  echo shar: Extracting \"'pexdrawu.3'\" \(28828 characters\)
+  sed "s/^X//" >'pexdrawu.3' <<'END_OF_FILE'
+X            };
+X        };
+Xobject
+X    light_type_directional : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Directional";
+X            };
+X        callbacks {
+X            XmNvalueChangedCallback = procedure proc_pexdraw_activate (k_light_type_directional);
+X            };
+X        };
+Xobject
+X    light_type_positional : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Positional";
+X            };
+X        callbacks {
+X            XmNvalueChangedCallback = procedure proc_pexdraw_activate (k_light_type_positional);
+X            };
+X        };
+Xobject
+X    light_type_spot : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Spot";
+X            };
+X        callbacks {
+X            XmNvalueChangedCallback = procedure proc_pexdraw_activate (k_light_type_spot);
+X            };
+X       };
+X
+X!*************************************************************** light pos *
+X
+Xobject
+X    light_pos_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET;
+X	    XmNtopWidget = XmRadioBox light_type_box;
+X	};
+X    };
+X
+X
+Xobject
+X    light_pos_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_pos_sep;
+X	    XmNrightAttachment = XmATTACH_FORM ;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Light Position";
+X            };
+X        };
+X
+Xobject
+X    light_pos_x : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_pos_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmLabel light_pos_label;
+X            XmNwidth = 30;
+X            XmNmaxLength = 3;
+X            XmNvalue = "0";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_pos_x);
+X            };
+X        };
+X
+Xobject
+X    light_pos_y : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_pos_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmTextField light_pos_x;
+X            XmNwidth = 30;
+X            XmNmaxLength = 3;
+X            XmNvalue = "1";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_pos_y);
+X            };
+X        };
+X
+Xobject
+X    light_pos_z : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_pos_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmTextField light_pos_y;
+X            XmNwidth = 30;
+X            XmNmaxLength = 3;
+X            XmNvalue = "0";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_pos_z);
+X            };
+X        };
+X
+X!****************************** light color ********************************
+X
+Xobject
+X    light_color_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET;
+X	    XmNtopWidget = XmTextField light_pos_z;
+X	};
+X    };
+X
+Xobject
+X    light_color_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_color_sep;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Light Color - red, green, blue";
+X            };
+X        };
+X
+Xobject
+X    light_color_red : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_color_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmLabel light_color_label;
+X            XmNwidth = 30;
+X            XmNmaxLength = 3;
+X            XmNvalue = "-1";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_color_red);
+X            };
+X        };
+X
+Xobject
+X    light_color_green : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_color_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmTextField light_color_red;
+X            XmNwidth = 30;
+X            XmNmaxLength = 3;
+X            XmNvalue = "1";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_color_green);
+X            };
+X        };
+X
+Xobject
+X    light_color_blue : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_color_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmTextField light_color_green;
+X            XmNwidth = 30;
+X            XmNmaxLength = 3;
+X            XmNvalue = "-1";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_color_blue);
+X            };
+X        };
+X
+X!****************************** light direction *************
+X
+Xobject
+X    light_direction_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET;
+X	    XmNtopWidget = XmTextField light_color_blue;
+X	};
+X    };
+X
+X
+Xobject
+X    light_direction_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_direction_sep;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "View Direction, Back & Front";
+X            };
+X        };
+X
+Xobject
+X    light_direction_x : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_direction_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmLabel light_direction_label;
+X            XmNwidth = 30;
+X            XmNmaxLength = 3;
+X            XmNvalue = "0";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_direction_x);
+X            };
+X        };
+X
+Xobject
+X    light_direction_y : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_direction_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmTextField light_direction_x;
+X            XmNwidth = 30;
+X            XmNmaxLength = 3;
+X            XmNvalue = "0";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_direction_y);
+X            };
+X        };
+X
+Xobject
+X    light_direction_z : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_direction_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmTextField light_direction_y;
+X            XmNwidth = 30;
+X            XmNmaxLength = 3;
+X            XmNvalue = "-1";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_direction_z);
+X            };
+X        };
+X
+X
+X!****************************** light attenuation coefficients *************
+X
+Xobject
+X    light_coeff_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET;
+X	    XmNtopWidget = XmTextField light_direction_z;
+X	};
+X    };
+X
+X
+Xobject
+X    light_coeff_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_coeff_sep;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Light Attenuation Coeffients, Const & Dist";
+X            };
+X        };
+X
+Xobject
+X    light_coeff_const : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_coeff_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmLabel light_coeff_label;
+X            XmNwidth = 30;
+X            XmNmaxLength = 5;
+X            XmNvalue = "0";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_coeff_const);
+X            };
+X        };
+X
+Xobject
+X    light_coeff_dist : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_coeff_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmTextField light_coeff_const;
+X            XmNwidth = 30;
+X            XmNmaxLength = 5;
+X            XmNvalue = "0";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_coeff_dist);
+X            };
+X        };
+X
+X!****************************** light concentration exponent *************
+X
+Xobject
+X    light_conc_exp_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET;
+X	    XmNtopWidget = XmTextField light_direction_z;
+X	};
+X    };
+X
+X
+Xobject
+X    light_conc_exp_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_conc_exp_sep;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Concentration Exponent";
+X            };
+X        };
+X
+Xobject
+X    light_conc_exp : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_conc_exp_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmLabel light_conc_exp_label;
+X            XmNwidth = 30;
+X            XmNmaxLength = 5;
+X            XmNvalue = "0";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_conc_exp);
+X            };
+X        };
+X
+X
+X!****************************** light spread angle *************
+X
+Xobject
+X    light_spread_angle_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET;
+X	    XmNtopWidget = XmTextField light_conc_exp;
+X	};
+X    };
+X
+X
+Xobject
+X    light_spread_angle_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_spread_angle_sep;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Spread Angle";
+X            };
+X        };
+X
+Xobject
+X    light_spread_angle : XmTextField {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator light_spread_angle_sep;
+X	    XmNleftAttachment = XmATTACH_WIDGET;
+X	    XmNleftWidget = XmLabel light_spread_angle_label;
+X            XmNwidth = 30;
+X            XmNmaxLength = 5;
+X            XmNvalue = "0";
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_light_spread_angle);
+X            };
+X        };
+X
+X
+X!*****************************  Bottom Buttons ******************************
+X
+Xobject
+X    light_button_box : XmRowColumn {
+X        arguments {
+X            XmNorientation = XmHORIZONTAL;
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNbottomAttachment =  XmATTACH_FORM;
+X            XmNborderWidth = 2;
+X            XmNentryBorder = 3;
+X            };
+X        controls {                                                  
+X            XmPushButton     light_apply_button;
+X            XmPushButton     light_dismiss_button;
+X            XmPushButton     light_can_button;
+X            };
+X        };
+X
+Xobject
+X    light_apply_button : XmPushButton widget { ! The menu positions the buttons
+X        arguments {                     !  automatically.
+X            XmNlabelString = "apply";
+X            XmNforeground = yellow;
+X            XmNbackground = red;
+X            XmNhighlightColor = magenta;
+X            XmNborderColor = green;
+X	    XmNaccelerator = "Ctrl <key>a";
+X	    XmNacceleratorText = " ^a";
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_apply_light);
+X            XmNactivateCallback = procedure proc_pexdraw_activate (k_apply_light);
+X        };
+X    };
+X
+Xobject
+X    light_can_button : XmPushButton widget {                       
+X        arguments {
+X            XmNlabelString = "reset";
+X            XmNforeground = yellow;
+X            XmNbackground = red;
+X            XmNhighlightColor = magenta;
+X            XmNborderColor = green;
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_reset_light);
+X            XmNactivateCallback = procedure proc_pexdraw_activate (k_reset_light);
+X        };
+X    };
+X
+Xobject
+X    light_dismiss_button : XmPushButton widget {
+X        arguments {
+X            XmNlabelString = "dismiss";
+X            XmNforeground = yellow;
+X            XmNbackground = red;
+X            XmNhighlightColor = magenta;
+X            XmNborderColor = green;
+X        };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_dismiss_light);
+X            XmNactivateCallback = procedure proc_pexdraw_activate (k_dismiss_light);
+X        };
+X    };
+X
+X!************************************************************************
+X! end of Lights Form
+X!************************************************************************
+X
+X
+X!************************************************************************
+X! The File Form
+X!************************************************************************
+X
+Xobject
+X    file_dialog : XmFormDialog {
+X        arguments {
+X            XmNdialogTitle = "File Selection";
+X            XmNdialogStyle = XmDIALOG_MODELESS;
+X	    XmNheight = 400;
+X	    XmNwidth = 360;
+X            XmNbackground = lightblue;
+X        };
+X        controls {
+X            XmFileSelectionBox file_selector;
+X	};
+X
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_file);
+X        };
+X      };
+X
+Xobject
+X    file_selector : XmFileSelectionBox {
+X	    arguments {
+X	         XmNbackground = lightblue;	
+X	    };
+X	    callbacks {
+X        	 XmNokCallback = procedure proc_pexdraw_file();
+X        	 XmNcancelCallback = procedure proc_pexdraw_file();
+X        	 XmNhelpCallback = procedure proc_pexdraw_activate(k_file_help);
+X            };		
+X	};	
+X
+X
+X!************************************************************************
+X! The Surface Form
+X!************************************************************************
+X
+Xobject
+X    surface_dialog : XmFormDialog {
+X        arguments {
+X            XmNdialogTitle = "PEX Surface Options";
+X            XmNdialogStyle = XmDIALOG_MODELESS;
+X	    XmNheight = 500;
+X	    XmNwidth = 360;
+X!	    XmNmwmDecorations = 30;
+X            XmNbackground = lightblue;
+X        };
+X        controls {
+X	    XmSeparator	surface_style_sep;
+X            XmLabel     surface_style_label;
+X            XmRadioBox 	surface_style_box;
+X	    XmSeparator	surface_shade_sep;
+X	    XmLabel	surface_shade_label;
+X	    XmRadioBox	surface_shade_box;
+X	    XmSeparator	surface_refl_sep;
+X	    XmLabel	surface_refl_label;
+X	    XmSeparator	surface_ambient_sep;
+X	    XmLabel	surface_ambient_label;
+X	    XmScale	surface_refl_ambient;
+X	    XmLabel	surface_diffuse_label;
+X	    XmScale	surface_refl_diffuse;
+X	    XmLabel	surface_specular_label;
+X	    XmScale	surface_refl_specular;
+X	    XmSeparator	surface_specular_sep;
+X	    XmLabel	surface_specular_dummy;
+X	    XmLabel	surface_specexp_label;
+X	    XmScale	surface_refl_specexp;
+X	    XmLabel	surface_transparency_label;
+X	    XmScale	surface_refl_transparency;
+X            XmRowColumn surface_button_box;
+X	    XmSeparator	surface_cull_sep;
+X	    XmLabel	surface_cull_label;
+X	    XmRadioBox	surface_cull_box;
+X            };
+X
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_surface);
+X            };
+X    };
+X
+X!****************************** Surface Style
+Xobject
+X    surface_style_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_FORM;
+X	};
+X    };
+X
+Xobject
+X    surface_style_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator surface_style_sep;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X	    XmNrightAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Surface Style";
+X            };
+X        };
+X
+Xobject
+X    surface_style_box : XmRadioBox {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmLabel surface_style_label;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X	    XmNrightAttachment = XmATTACH_FORM ;
+X            XmNorientation = XmHORIZONTAL;
+X            XmNborderWidth = 1;
+X            };
+X        controls {
+X            XmToggleButton   surface_edit1;
+X            XmToggleButton   surface_edit2;
+X            XmToggleButton   surface_edit3;
+X            };
+X        };
+X
+X
+Xobject
+X    surface_edit1 : XmToggleButton {
+X        arguments {  XmNlabelString = "Hollow"; 
+X            XmNset = on;   ! A radio box requires one toggle to be set.
+X	  };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_sstyle_hollow);
+X            };
+X
+X        };
+Xobject
+X    surface_edit2 : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Solid";
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_sstyle_solid);
+X            };
+X        };
+Xobject
+X    surface_edit3 : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Empty";
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_sstyle_empty);
+X            };
+X        };
+X
+X!****************************** surface shade Radio ********************
+Xobject
+X    surface_shade_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET;
+X	    XmNtopWidget = XmRadioBox surface_style_box;
+X	};
+X    };
+X
+Xobject
+X    surface_shade_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator surface_shade_sep;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X	    XmNrightAttachment = XmATTACH_FORM;
+X            XmNlabelString = "Shading / Interpolation Method";
+X            };
+X        };
+X
+Xobject
+X    surface_shade_box : XmRadioBox {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmLabel surface_shade_label;
+X	    XmNleftAttachment = XmATTACH_FORM;
+X	    XmNrightAttachment = XmATTACH_FORM;
+X            XmNorientation = XmHORIZONTAL;
+X            XmNborderWidth = 1;
+X            };
+X        controls {
+X            XmToggleButton   surface_shade_flat;
+X            XmToggleButton   surface_shade_gouraud;
+X            XmToggleButton   surface_shade_dot;
+X            XmToggleButton   surface_shade_phong;
+X            };
+X        };
+X
+Xobject
+X    surface_shade_flat : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Flat";
+X            XmNset = on;   ! A radio box requires one toggle to be set.
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create(k_sshade_flat);
+X            };
+X        };
+Xobject
+X    surface_shade_gouraud : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Gouraud";
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create(k_sshade_gouraud);
+X            };
+X        };
+Xobject
+X    surface_shade_dot : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Dot";
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create(k_sshade_dot);
+X            };
+X        };
+Xobject
+X    surface_shade_phong : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Phong";
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_sshade_phong);
+X            };
+X       };
+X
+X!*************************************************************** surface refl *
+X
+Xobject
+X    surface_refl_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET;
+X	    XmNtopWidget = XmRadioBox surface_shade_box;
+X	};
+X    };
+X
+X
+Xobject
+X    surface_refl_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator surface_refl_sep;
+X	    XmNrightAttachment = XmATTACH_FORM ;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Surface Reflections Attributes";
+X            };
+X        };
+X
+Xobject
+X    surface_ambient_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET;
+X	    XmNtopWidget = XmLabel surface_refl_label;
+X	};
+X    };
+X
+Xobject
+X    surface_ambient_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator surface_ambient_sep;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Ambient Reflection";
+X            };
+X        };
+X
+Xobject
+X    surface_refl_ambient : XmScale {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmLabel surface_ambient_label;
+X	    XmNleftAttachment = XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X            XmNorientation = XmHORIZONTAL;
+X	    XmNminimum = 000;
+X	    XmNmaximum = 100;
+X            XmNvalue = 30;
+X            XmNshowValue = on;
+X	    XmNdecimalPoints = 2;
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_surface_refl_ambient);
+X            };
+X        };
+X
+X
+Xobject
+X    surface_diffuse_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmScale surface_refl_ambient;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Diffuse Reflection";
+X            };
+X        };
+X
+Xobject
+X    surface_refl_diffuse : XmScale {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmLabel surface_diffuse_label;
+X	    XmNleftAttachment = XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X            XmNorientation = XmHORIZONTAL;
+X	    XmNminimum = 000;
+X	    XmNmaximum = 100;
+X            XmNvalue = 30;
+X            XmNshowValue = on;
+X	    XmNdecimalPoints = 2;
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_surface_refl_diffuse);
+X            };
+X        };
+X
+Xobject
+X    surface_specular_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmScale surface_refl_diffuse;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Specular Reflection";
+X            };
+X        };
+X
+Xobject
+X    surface_refl_specular : XmScale {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmLabel surface_specular_label;
+X	    XmNleftAttachment = XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X            XmNorientation = XmHORIZONTAL;
+X	    XmNminimum = 000;
+X	    XmNmaximum = 100;
+X            XmNvalue = 30;
+X            XmNshowValue = on;
+X	    XmNdecimalPoints = 2;
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_surface_refl_specular);
+X            };
+X        };
+X
+X
+Xobject
+X    surface_specular_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET;
+X	    XmNtopWidget = XmScale surface_refl_specular;
+X	};
+X    };
+X
+X
+Xobject
+X    surface_specular_dummy : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator surface_specular_sep;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Specular Color is white...come and change it";
+X            };
+X        };
+X
+X
+Xobject
+X    surface_specexp_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmLabel surface_specular_dummy;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Specular Exponent";
+X            };
+X        };
+X
+Xobject
+X    surface_refl_specexp : XmScale {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmLabel surface_specexp_label;
+X	    XmNleftAttachment = XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X            XmNorientation = XmHORIZONTAL;
+X	    XmNminimum = 00;
+X	    XmNmaximum = 2000;
+X            XmNvalue = 500;
+X            XmNshowValue = on;
+X	    XmNdecimalPoints = 1;
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_surface_refl_specexp);
+X            };
+X        };
+X
+Xobject
+X    surface_transparency_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmScale surface_refl_specexp;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Transparency";
+X            };
+X        };
+X
+Xobject
+X    surface_refl_transparency : XmScale {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmLabel surface_transparency_label;
+X	    XmNleftAttachment = XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X            XmNorientation = XmHORIZONTAL;
+X	    XmNminimum = 0;
+X	    XmNmaximum = 100;
+X            XmNvalue = 0;
+X            XmNshowValue = on;
+X	    XmNdecimalPoints = 2;
+X            };
+X        callbacks {
+X	    MrmNcreateCallback = procedure proc_pexdraw_create(k_surface_refl_transparency);
+X            };
+X        };
+X
+X!****************************** Surface Cull
+Xobject
+X    surface_cull_sep : XmSeparator {
+X	arguments {
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmScale surface_refl_transparency;
+X	};
+X    };
+X
+Xobject
+X    surface_cull_label : XmLabel {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmSeparator surface_cull_sep;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X	    XmNrightAttachment = XmATTACH_FORM ;
+X            XmNlabelString = "Surface Cull";
+X            };
+X        };
+X
+Xobject
+X    surface_cull_box : XmRadioBox {
+X        arguments {
+X	    XmNtopAttachment = XmATTACH_WIDGET ;
+X	    XmNtopWidget = XmLabel surface_cull_label;
+X	    XmNleftAttachment = XmATTACH_FORM ;
+X	    XmNrightAttachment = XmATTACH_FORM ;
+X            XmNorientation = XmHORIZONTAL;
+X            XmNborderWidth = 1;
+X            };
+X        controls {
+X            XmToggleButton   surface_cull_none;
+X            XmToggleButton   surface_cull_back;
+X            XmToggleButton   surface_cull_front;
+X            };
+X        };
+X
+X
+Xobject
+X    surface_cull_none : XmToggleButton {
+X        arguments {  XmNlabelString = "Neither"; 
+X            XmNset = on;   ! A radio box requires one toggle to be set.
+X	  };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_cull_none);
+X            };
+X
+X        };
+Xobject
+X    surface_cull_back : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Back Faces";
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_cull_back);
+X            };
+X        };
+Xobject
+X    surface_cull_front : XmToggleButton {
+X        arguments {
+X            XmNlabelString = "Front Faces";
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_cull_front);
+X            };
+X        };
+X
+X
+X!*****************************  Bottom Buttons ******************************
+X
+Xobject
+X    surface_button_box : XmRowColumn {
+X        arguments {
+X            XmNorientation = XmHORIZONTAL;
+X	    XmNleftAttachment =  XmATTACH_FORM;
+X	    XmNrightAttachment =  XmATTACH_FORM;
+X	    XmNbottomAttachment =  XmATTACH_FORM;
+X            XmNborderWidth = 2;
+X            XmNentryBorder = 3;
+X            };
+X        controls {                                                  
+X            XmPushButton     surface_apply_button;
+X            XmPushButton     surface_dismiss_button;
+X            XmPushButton     surface_can_button;
+X            };
+X        };
+X
+Xobject
+X    surface_apply_button : XmPushButton widget { ! The menu positions the buttons
+X        arguments {                     !  automatically.
+X            XmNlabelString = "apply";
+X            XmNforeground = yellow;
+X            XmNbackground = red;
+X            XmNhighlightColor = magenta;
+X            XmNborderColor = green;
+X	    XmNaccelerator = "Ctrl <key>a";
+X	    XmNacceleratorText = " ^a";
+X            };
+X        callbacks {
+X            MrmNcreateCallback = procedure proc_pexdraw_create (k_apply_surface);
+X            XmNactivateCallback = procedure proc_pexdraw_activate (k_apply_surface);
+X        };
+X    };
+X
+Xobject
+X    surface_can_button : XmPushButton widget {                       
+X        arguments {
+X            XmNlabelString = "fetch";
+X            XmNforeground = yellow;
+X            XmNbackground = red;
+X            XmNhighlightColor = magenta;
+X            XmNborderColor = green;
+X            };
+X        callbacks {
+X            XmNactivateCallback = procedure proc_pexdraw_activate (k_reset_surface);
+X        };
+X    };
+END_OF_FILE
+  if test 28828 -ne `wc -c <'pexdrawu.3'`; then
+    echo shar: \"'pexdrawu.3'\" unpacked with wrong size!
+  fi
+  # end of 'pexdrawu.3'
+fi
+echo shar: End of archive 10 \(of 14\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo "concatentating pexdraw.c ..."
+    cat pexdrawc.? > pexdraw.c
+    rm pexdrawc.?
+    echo "concatentating pexdraw.uil ..."
+    cat pexdrawu.? > pexdraw.uil
+    rm pexdrawu.?
+    echo "concatentating teapot.c ..."
+    rm teapotc.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

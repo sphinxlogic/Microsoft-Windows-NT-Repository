@@ -1,0 +1,2654 @@
+Newsgroups: comp.sources.misc
+From: vikas@jvnc.net (Vikas Aggarwal)
+Subject: v40i145:  nocol - Network Monitoring System, Part15/26
+Message-ID: <1993Nov23.212654.21720@sparky.sterling.com>
+X-Md4-Signature: 52be94b85a4409631922e458871ec8ad
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 23 Nov 1993 21:26:54 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: vikas@jvnc.net (Vikas Aggarwal)
+Posting-number: Volume 40, Issue 145
+Archive-name: nocol/part15
+Environment: INET, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  nocol-3.0/src/cmu-snmp/apps/snmp_agent.c
+#   nocol-3.0/src/cmu-snmp/include/mib.c
+#   nocol-3.0/src/cmu-snmp/snmplib/asn1.c.cmu
+#   nocol-3.0/src/support/mping/m.dat nocol-3.0/src/trapmon/trapmon.c
+# Wrapped by kent@sparky on Tue Nov  9 22:22:20 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 15 (of 26)."'
+if test -f 'nocol-3.0/src/cmu-snmp/apps/snmp_agent.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/apps/snmp_agent.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/apps/snmp_agent.c'\" \(17980 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/apps/snmp_agent.c' <<'END_OF_FILE'
+X/*
+X * Simple Network Management Protocol (RFC 1067).
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X
+X#ifdef KINETICS
+X#include "gw.h"
+X#include "ab.h"
+X#include "inet.h"
+X#include "fp4/cmdmacro.h"
+X#include "fp4/pbuf.h"
+X#include "glob.h"
+X#endif
+X
+X#if (defined(unix) && !defined(KINETICS))
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#ifndef NULL
+X#define NULL 0
+X#endif
+X#endif
+X
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "asn1.h"
+X
+X#include "mib.h"
+X
+Xvoid	snmp_input();
+Xvoid	snmp_trap();
+Xint	create_identical();
+Xint	parse_var_op_list();
+Xint	snmp_access();
+X
+X#if kinetics
+Xchar	version_descr[];
+Xoid	version_id[];
+Xint	version_id_len;
+X#endif
+X
+Xstruct pbuf *definitelyGetBuf();
+X
+X#define NUM_COMMUNITIES	5
+Xchar	*communities[NUM_COMMUNITIES] = {
+X    "public", 
+X    "proxy",
+X    "private",
+X    "regional",
+X    "core"
+X};
+X
+X/* these can't be global in a multi-process router */
+X    u_char	sid[SID_MAX_LEN + 1];
+X    int		sidlen;
+X    u_char	*packet_end;
+X    int		community;
+X
+X
+X#ifdef KINETICS
+Xvoid
+Xsnmp_input(p)
+X    struct pbuf *p;
+X{
+X    struct ip	    *ip = (struct ip *)p->p_off;
+X    int		    hlen = (int)ip->ip_hl << 2;
+X    register struct udp	    *udp;
+X    register u_char *data;  /* pointer to the rest of the unread data */
+X    int		    length; /* bytes of data left in msg after the "data" pointer */
+X    struct pbuf	    *out_packet;
+X    register u_char *out_data;
+X    int		    out_length;
+X    u_short	    udp_src;
+X    extern struct mib_udp   mib_udp;
+X
+X    
+X    udp = (struct udp *)(p->p_off + hlen);
+X    if (ntohs(ip->ip_len) - hlen < sizeof(struct udp) ||    /* IP length < minimum UDP packet */
+X	    ntohs(udp->length) > ntohs(ip->ip_len) - hlen){ /* UDP length > IP data */
+X	ERROR("dropped packet with bad length");    /* delete me */
+X	return; /* drop packet */
+X    }
+X    data = (u_char *)udp + sizeof(struct udp);
+X    length = ntohs(udp->length) - sizeof(struct udp);
+X
+X    out_packet = definitelyGetBuf(); /* drop packets off input queue if necessary */
+X    out_data = (u_char *)(out_packet->p_off + sizeof (struct ip) + sizeof (struct udp));
+X    out_length = MAXDATA - sizeof(struct ip) - sizeof (struct udp);
+X
+XK_LEDON();
+X    if (!snmp_agent_parse(data, length, out_data, &out_length, (u_long)ip->ip_src)){
+X	K_PFREE(out_packet);
+XK_LEDOFF();
+X	return;
+X    }
+XK_LEDOFF();
+X    out_packet->p_len = packet_end - (u_char *)out_packet->p_off;
+X    setiphdr(out_packet, ip->ip_src);	/* address to source of request packet (ntohl ??? ) */
+X    udp_src = ntohs(udp->src);
+X    udp = (struct udp *)(out_packet->p_off + sizeof (struct ip));
+X    udp->src = htons(SNMP_PORT);
+X    udp->dst = htons(udp_src);
+X    udp->length = out_packet->p_len - sizeof(struct ip);
+X    udp->checksum = 0;	/* this should be computed */
+X
+X    mib_udp.udpOutDatagrams++;
+X    routeip(out_packet, 0, 0);
+X}
+X
+X
+Xvoid
+Xsnmp_trap(destAddr, trapType, specificType)
+X    u_long  destAddr;
+X    int	    trapType;
+X    int	    specificType;
+X{
+X    struct pbuf	    *out_packet;
+X    register u_char *out_data;
+X    register struct udp	    *udp;
+X    int		    out_length;
+X    static oid	    sysDescrOid[] = {1, 3, 6, 1, 2, 1, 1, 1, 0};
+X    
+X    out_packet = definitelyGetBuf(); /* drop packets off input queue if necessary */
+X    out_data = (u_char *)(out_packet->p_off + sizeof (struct ip) + sizeof (struct udp));
+X    out_length = MAXDATA - sizeof(struct ip) - sizeof (struct udp);
+X
+XK_LEDON();
+X    out_packet->p_len = snmp_build_trap(out_data, out_length, version_id, version_id_len,
+X	conf.ipaddr, trapType, specificType, TICKS2MS(tickclock)/10, sysDescrOid, sizeof(sysDescrOid)/sizeof(oid),
+X	ASN_OCTET_STR, strlen(version_descr), (u_char *)version_descr);
+X    if (out_packet->p_len == 0){
+X	K_PFREE(out_packet);
+XK_LEDOFF();
+X	return;
+X    }
+XK_LEDOFF();
+X    out_packet->p_len += sizeof(struct ip) + sizeof(struct udp);
+X    setiphdr(out_packet, destAddr);	/* address to source of request packet (ntohl ??? ) */
+X    udp = (struct udp *)(out_packet->p_off + sizeof (struct ip));
+X    udp->src = htons(SNMP_PORT);
+X    udp->dst = htons(SNMP_TRAP_PORT);
+X    udp->length = out_packet->p_len - sizeof(struct ip);
+X    udp->checksum = 0;	/* this should be computed */
+X
+X    mib_udp.udpOutDatagrams++;
+X    routeip(out_packet, 0, 0);
+X}
+X#endif
+X
+Xint
+Xsnmp_agent_parse(data, length, out_data, out_length, sourceip)
+X    register u_char	*data;
+X    int			length;
+X    register u_char	*out_data;
+X    int			*out_length;
+X    u_long		sourceip;	/* possibly for authentication */
+X{
+X    u_char	    msg_type, type;
+X    long	    zero = 0;
+X    long	    reqid, errstat, errindex;
+X    register u_char *out_auth, *out_header, *out_reqid;
+X    u_char	    *startData = data;
+X    int		    startLength = length;
+X    long	    version;
+X    int		    header_shift, auth_shift;
+X
+X    sidlen = SID_MAX_LEN;
+X    data = snmp_auth_parse(data, &length, sid, &sidlen, &version); /* authenticates message and returns length if valid */
+X    if (data == NULL){
+X	ERROR("bad authentication");
+X	/* send auth fail trap */
+X	return 0;
+X    }
+X    if (version != SNMP_VERSION_1){
+X	ERROR("wrong version");
+X	return NULL;
+X    }
+X    community = get_community(sid);
+X    if (community == -1)
+X	return NULL;
+X    data = asn_parse_header(data, &length, &msg_type);
+X    if (data == NULL){
+X	ERROR("bad header");
+X	return 0;
+X    }
+X    if (msg_type != GET_REQ_MSG && msg_type != GETNEXT_REQ_MSG && msg_type != SET_REQ_MSG){
+X	return 0;
+X    }
+X    data = asn_parse_int(data, &length, &type, &reqid, sizeof(reqid));
+X    if (data == NULL){
+X	ERROR("bad parse of reqid");
+X	return 0;
+X    }
+X    data = asn_parse_int(data, &length, &type, &errstat, sizeof(errstat));
+X    if (data == NULL){
+X	ERROR("bad parse of errstat");
+X	return 0;
+X    }
+X    data = asn_parse_int(data, &length, &type, &errindex, sizeof(errindex));
+X    if (data == NULL){
+X	ERROR("bad parse of errindex");
+X	return 0;
+X    }
+X    /*
+X     * Now start cobbling together what is known about the output packet.
+X     * The final lengths are not known now, so they will have to be recomputed
+X     * later.
+X     */
+X    out_auth = out_data;
+X    out_header = snmp_auth_build(out_auth, out_length, sid, &sidlen, &zero, 0);
+X    if (out_header == NULL){
+X	ERROR("snmp_auth_build failed");
+X	return 0;
+X    }
+X    out_reqid = asn_build_header(out_header, out_length, (u_char)GET_RSP_MSG, 0);
+X    if (out_reqid == NULL){
+X	ERROR("");
+X	return 0;
+X    }
+X
+X    type = (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER);
+X    /* return identical request id */
+X    out_data = asn_build_int(out_reqid, out_length, type, &reqid, sizeof(reqid));
+X    if (out_data == NULL){
+X	ERROR("build reqid failed");
+X	return 0;
+X    }
+X
+X    /* assume that error status will be zero */
+X    out_data = asn_build_int(out_data, out_length, type, &zero, sizeof(zero));
+X    if (out_data == NULL){
+X	ERROR("build errstat failed");
+X	return 0;
+X    }
+X
+X    /* assume that error index will be zero */
+X    out_data = asn_build_int(out_data, out_length, type, &zero, sizeof(zero));
+X    if (out_data == NULL){
+X	ERROR("build errindex failed");
+X	return 0;
+X    }
+X
+X    errstat = parse_var_op_list(data, length, out_data, *out_length, msg_type, &errindex, 0);
+X    if (msg_type == SET_REQ_MSG && errstat == SNMP_ERR_NOERROR){
+X	/*
+X	 * SETS require 2 passes through the var_op_list.  The first pass verifies that
+X	 * all types, lengths, and values are valid, and the second does the set.  Then
+X	 * the identical GET RESPONSE packet is returned.
+X	 */
+X	errstat = parse_var_op_list(data, length, out_data, *out_length, msg_type, &errindex, 1);
+X	if (create_identical(startData, out_auth, startLength, 0L, 0L))
+X	    return 1;
+X	return 0;
+X    }
+X    switch((short)errstat){
+X	case SNMP_ERR_NOERROR:
+X	    /*
+X	     * Because of the assumption above that header lengths would be encoded
+X	     * in one byte, things need to be fixed, now that the actual lengths are known.
+X	     */
+X	    header_shift = 0;
+X	    *out_length = packet_end - out_reqid;
+X	    if (*out_length >= 0x80){
+X		header_shift++;
+X		if (*out_length > 0xFF)
+X		    header_shift++;
+X	    }
+X	    auth_shift = 0;
+X	    *out_length = (packet_end - out_auth) - 2 + header_shift;
+X	    if (*out_length >= 0x80){
+X		auth_shift++;
+X		if (*out_length > 0xFF)
+X		    auth_shift++;
+X	    }
+X	    if (auth_shift + header_shift){
+X		/*
+X		 * Shift packet (from request id to end of packet) by the sum of the
+X		 * necessary shift counts.
+X		 */
+X		shift_array(out_reqid, packet_end - out_reqid, auth_shift + header_shift);
+X		/* Now adjust pointers into the packet */
+X		packet_end += auth_shift + header_shift;
+X		out_reqid += auth_shift + header_shift;
+X		out_header += auth_shift;
+X	    }
+X	    
+X	    /* re-encode the headers with the real lengths */
+X	    out_data = out_header;
+X	    *out_length = packet_end - out_reqid;
+X	    out_data = asn_build_header(out_data, out_length, GET_RSP_MSG, *out_length);
+X	    if (out_data != out_reqid){
+X		ERROR("internal error: header");
+X		return 0;
+X	    }
+X
+X	    out_data = out_auth;
+X	    *out_length = packet_end - out_auth;
+X	    out_data = snmp_auth_build(out_data, out_length, sid, &sidlen, &zero, packet_end - out_header);
+X	    if (out_data != out_header){
+X		ERROR("internal error");
+X		return 0;
+X	    }
+X	    break;
+X	case SNMP_ERR_NOSUCHNAME:
+X	case SNMP_ERR_TOOBIG:
+X	case SNMP_ERR_BADVALUE:
+X	case SNMP_ERR_READONLY:
+X	case SNMP_ERR_GENERR:
+X	    if (create_identical(startData, out_auth, startLength, errstat, errindex))
+X		break;
+X	    return 0;
+X	default:
+X	    return 0;
+X    }
+X    *out_length = packet_end - out_auth;
+X    return 1;
+X}
+X
+X/*
+X * Parse_var_op_list goes through the list of variables and retrieves each one,
+X * placing it's value in the output packet.  If doSet is non-zero, the variable is set
+X * with the value in the packet.  If any error occurs, an error code is returned.
+X */
+Xint
+Xparse_var_op_list(data, length, out_data, out_length, msgtype, index, doSet)
+X    register u_char	*data;
+X    int			length;
+X    register u_char	*out_data;
+X    int			out_length;
+X    u_char		msgtype;
+X    register long	*index;
+X    int			doSet;
+X{
+X    u_char  type;
+X    oid	    var_name[MAX_NAME_LEN];
+X    int	    var_name_len, var_val_len;
+X    u_char  var_val_type, *var_val, statType;
+X    register u_char *statP;
+X    int	    statLen;
+X    u_short acl;
+X    int	    rw, exact;
+X    int	    (*write_method)();
+X    u_char  *headerP, *var_list_start;
+X    int	    dummyLen;
+X    int	    header_shift;
+X    u_char  *getStatPtr();
+X
+X    if (msgtype == SET_REQ_MSG)
+X	rw = WRITE;
+X    else
+X	rw = READ;
+X    if (msgtype == GETNEXT_REQ_MSG)
+X	exact = FALSE;
+X    else
+X	exact = TRUE;
+X    data = asn_parse_header(data, &length, &type);
+X    if (data == NULL){
+X	ERROR("not enough space for varlist");
+X	return PARSE_ERROR;
+X    }
+X    if (type != (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR)){
+X	ERROR("wrong type");
+X	return PARSE_ERROR;
+X    }
+X    headerP = out_data;
+X    out_data = asn_build_header(out_data, &out_length, (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR), 0);
+X    if (out_data == NULL){
+X    	ERROR("not enough space in output packet");
+X	return BUILD_ERROR;
+X    }
+X    var_list_start = out_data;
+X
+X    *index = 1;
+X    while((int)length > 0){
+X	/* parse the name, value pair */
+X	var_name_len = MAX_NAME_LEN;
+X	data = snmp_parse_var_op(data, var_name, &var_name_len, &var_val_type, &var_val_len, &var_val, (int *)&length);
+X	if (data == NULL)
+X	    return PARSE_ERROR;
+X	/* now attempt to retrieve the variable on the local entity */
+X	statP = getStatPtr(var_name, &var_name_len, &statType, &statLen, &acl, exact, &write_method);
+X	if (statP == NULL)
+X	    return SNMP_ERR_NOSUCHNAME;
+X	/* Check if this user has access rights to this variable */
+X	if (!snmp_access(acl, community, rw))
+X	    return SNMP_ERR_NOSUCHNAME;	/* bogus */
+X	if (msgtype == SET_REQ_MSG){
+X	    if (write_method == 0){
+X		/* see if the type and value is consistent with this entities variable */
+X		if (!goodValue(var_val_type, var_val_len, statType, statLen)){
+X		    return SNMP_ERR_BADVALUE;
+X		}
+X		/* actually do the set if necessary */
+X		if (doSet)
+X		    setVariable(var_val, var_val_type, var_val_len, statP, statLen);
+X	    } else {
+X		if (!(*write_method)(doSet, var_val, var_val_type, var_val_len, statP))
+X		    return SNMP_ERR_BADVALUE;
+X	    }
+X	}
+X	/* retrieve the value of the variable and place it into the outgoing packet */
+X	out_data = snmp_build_var_op(out_data, var_name, &var_name_len, statType, statLen, statP, &out_length);
+X	if (out_data == NULL){
+X	    return SNMP_ERR_TOOBIG;
+X	}
+X
+X	(*index)++;
+X    }
+X    packet_end = out_data;  /* save a pointer to the end of the packet */
+X
+X    /*
+X     * Because of the assumption above that header lengths would be encoded
+X     * in one byte, things need to be fixed, now that the actual lengths are known.
+X     */
+X    header_shift = 0;
+X    out_length = packet_end - var_list_start;
+X    if (out_length >= 0x80){
+X	header_shift++;
+X	if (out_length > 0xFF)
+X	    header_shift++;
+X    }
+X    if (header_shift){
+X	shift_array(var_list_start, packet_end - var_list_start, header_shift);
+X	packet_end += header_shift;
+X	var_list_start += header_shift;
+X    }
+X
+X    /* Now rebuild header with the actual lengths */
+X    dummyLen = packet_end - var_list_start;
+X    if (asn_build_header(headerP, &dummyLen, (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR), dummyLen) == NULL){
+X	return SNMP_ERR_TOOBIG;	/* bogus error ???? */
+X    }
+X    *index = 0;
+X    return SNMP_ERR_NOERROR;
+X}
+X
+X/*
+X * create a packet identical to the input packet, except for the error status
+X * and the error index which are set according to the input variables.
+X * Returns 1 upon success and 0 upon failure.
+X */
+Xint
+Xcreate_identical(snmp_in, snmp_out, snmp_length, errstat, errindex)
+X    u_char	    *snmp_in;
+X    u_char	    *snmp_out;
+X    int		    snmp_length;
+X    long	    errstat, errindex;
+X{
+X    register u_char *data;
+X    u_char	    type;
+X    u_long	    dummy;
+X    int		    length, headerLength;
+X    register u_char *headerPtr, *reqidPtr, *errstatPtr, *errindexPtr, *varListPtr;
+X
+X    bcopy((char *)snmp_in, (char *)snmp_out, snmp_length);
+X    length = snmp_length;
+X    headerPtr = snmp_auth_parse(snmp_out, &length, sid, &sidlen, (long *)&dummy);
+X    if (headerPtr == NULL)
+X	return 0;
+X    reqidPtr = asn_parse_header(headerPtr, &length, (u_char *)&dummy);
+X    if (reqidPtr == NULL)
+X	return 0;
+X    headerLength = length;
+X    errstatPtr = asn_parse_int(reqidPtr, &length, &type, (long *)&dummy, sizeof dummy);	/* request id */
+X    if (errstatPtr == NULL)
+X	return 0;
+X    errindexPtr = asn_parse_int(errstatPtr, &length, &type, (long *)&dummy, sizeof dummy);	/* error status */
+X    if (errindexPtr == NULL)
+X	return 0;
+X    varListPtr = asn_parse_int(errindexPtr, &length, &type, (long *)&dummy, sizeof dummy);	/* error index */
+X    if (varListPtr == NULL)
+X	return 0;
+X
+X    data = asn_build_header(headerPtr, &headerLength, GET_RSP_MSG, headerLength);
+X    if (data != reqidPtr)
+X	return 0;
+X    length = snmp_length;
+X    type = (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER);
+X    data = asn_build_int(errstatPtr, &length, type, &errstat, sizeof errstat);
+X    if (data != errindexPtr)
+X	return 0;
+X    data = asn_build_int(errindexPtr, &length, type, &errindex, sizeof errindex);
+X    if (data != varListPtr)
+X	return 0;
+X    packet_end = snmp_out + snmp_length;
+X    return 1;
+X}
+X
+X#ifdef KINETICS
+Xstruct pbuf *
+XdefinitelyGetBuf(){
+X    register struct pbuf *p;
+X
+X    K_PGET(PT_DATA, p);
+X    while(p == 0){
+X#ifdef notdef
+X	if (pq->pq_head != NULL){
+X	    K_PDEQ(SPLIMP, pq, p);
+X	    if (p) K_PFREE(p);
+X	} else if (sendq->pq_head != NULL){
+X	    K_PDEQ(SPLIMP, sendq, p);
+X	    if (p) K_PFREE(p);
+X	}
+X#endif
+X	K_PGET(PT_DATA, p);
+X    }
+X    return p;
+X}
+X#endif
+X
+Xint
+Xsnmp_access(acl, community, rw)
+X    u_short 	acl;
+X    int		community;
+X    int		rw;
+X{
+X    /*
+X     * Each group has 2 bits, the more significant one is for read access,
+X     * the less significant one is for write access.
+X     */
+X
+X    community <<= 1;	/* multiply by two two shift two bits at a time */
+X    if (rw == READ){
+X	return (acl & (2 << community));    /* return the correct bit */
+X    } else {
+X	return (acl & (1 << community));
+X    }
+X}
+X
+Xint
+Xget_community(sessionid)
+X    u_char	*sessionid;
+X{
+X    int	count;
+X
+X    for(count = 0; count < NUM_COMMUNITIES; count++){
+X	if (!strcmp(communities[count], (char *)sessionid))
+X	    break;
+X    }
+X    if (count == NUM_COMMUNITIES)
+X	return -1;
+X    return count;
+X}
+X
+Xint
+XgoodValue(inType, inLen, actualType, actualLen)
+X    u_char	inType, actualType;
+X    int		inLen, actualLen;
+X{
+X    if (inLen > actualLen)
+X	return FALSE;
+X    return (inType == actualType);
+X}
+X
+XsetVariable(var_val, var_val_type, var_val_len, statP, statLen)
+X    u_char  *var_val;
+X    u_char  var_val_type;
+X    int	    var_val_len;
+X    u_char  *statP;
+X    int	    statLen;
+X{
+X    int	    buffersize = 1000;
+X
+X    switch(var_val_type){
+X	case ASN_INTEGER:
+X	case COUNTER:
+X	case GAUGE:
+X	case TIMETICKS:
+X	    asn_parse_int(var_val, &buffersize, &var_val_type, (long *)statP, statLen);
+X	    break;
+X	case ASN_OCTET_STR:
+X	case IPADDRESS:
+X	case OPAQUE:
+X	    asn_parse_string(var_val, &buffersize, &var_val_type, statP, &statLen);
+X	    break;
+X	case ASN_OBJECT_ID:
+X	    asn_parse_objid(var_val, &buffersize, &var_val_type, (oid *)statP, &statLen);
+X	    break;
+X    }
+X}
+X
+X
+END_OF_FILE
+  if test 17980 -ne `wc -c <'nocol-3.0/src/cmu-snmp/apps/snmp_agent.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/apps/snmp_agent.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/apps/snmp_agent.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/include/mib.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/include/mib.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/include/mib.c'\" \(17909 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/include/mib.c' <<'END_OF_FILE'
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <sys/time.h>
+X#include "asn1.h"
+X#include "snmp_impl.h"
+X#include "snmp_api.h"
+X#include "parse.h"
+X
+Xstatic void sprint_by_type();
+X
+Xstatic char *
+XuptimeString(timeticks, buf)
+X    register long timeticks;
+X    char *buf;
+X{
+X    int	seconds, minutes, hours, days;
+X
+X    timeticks /= 100;
+X    days = timeticks / (60 * 60 * 24);
+X    timeticks %= (60 * 60 * 24);
+X
+X    hours = timeticks / (60 * 60);
+X    timeticks %= (60 * 60);
+X
+X    minutes = timeticks / 60;
+X    seconds = timeticks % 60;
+X
+X    if (days == 0){
+X	sprintf(buf, "%d:%02d:%02d", hours, minutes, seconds);
+X    } else if (days == 1) {
+X	sprintf(buf, "%d day, %d:%02d:%02d", days, hours, minutes, seconds);
+X    } else {
+X	sprintf(buf, "%d days, %d:%02d:%02d", days, hours, minutes, seconds);
+X    }
+X    return buf;
+X}
+X
+Xstatic sprint_hexstring(buf, cp, len)
+X    char *buf;
+X    u_char  *cp;
+X    int	    len;
+X{
+X
+X    for(; len >= 16; len -= 16){
+X	sprintf(buf, "%02X %02X %02X %02X %02X %02X %02X %02X ", cp[0], cp[1], cp[2], cp[3], cp[4], cp[5], cp[6], cp[7]);
+X	buf += strlen(buf);
+X	cp += 8;
+X	sprintf(buf, "%02X %02X %02X %02X %02X %02X %02X %02X\n", cp[0], cp[1], cp[2], cp[3], cp[4], cp[5], cp[6], cp[7]);
+X	buf += strlen(buf);
+X	cp += 8;
+X    }
+X    for(; len > 0; len--){
+X	sprintf(buf, "%02X ", *cp++);
+X	buf += strlen(buf);
+X    }
+X    *buf = '\0';
+X}
+X
+Xstatic sprint_asciistring(buf, cp, len)
+X    char *buf;
+X    u_char  *cp;
+X    int	    len;
+X{
+X    int	x;
+X
+X    for(x = 0; x < len; x++){
+X	if (isprint(*cp)){
+X	    *buf++ = *cp++;
+X	} else {
+X	    *buf++ = '.';
+X	    cp++;
+X	}
+X	if ((x % 48) == 47)
+X	    *buf++ = '\n';
+X    }
+X    *buf = '\0';
+X}
+X
+X#ifdef UNUSED
+Xint
+Xread_rawobjid(input, output, out_len)
+X    char *input;
+X    oid *output;
+X    int	*out_len;
+X{
+X    char    buf[12], *cp;
+X    oid	    *op = output;
+X    u_long  subid;
+X
+X    while(*input != '\0'){
+X	if (!isdigit(*input))
+X	    break;
+X	cp = buf;
+X	while(isdigit(*input))
+X	    *cp++ = *input++;
+X	*cp = '\0';
+X	subid = atoi(buf);
+X	if(subid > MAX_SUBID){
+X	    fprintf(stderr, "sub-identifier too large: %s\n", buf);
+X	    return 0;
+X	}
+X	if((*out_len)-- <= 0){
+X	    fprintf(stderr, "object identifier too long\n");
+X	    return 0;
+X	}
+X	*op++ = subid;
+X	if(*input++ != '.')
+X	    break;
+X    }
+X    *out_len = op - output;
+X    if (*out_len == 0)
+X	return 0;
+X    return 1;
+X}
+X
+X#endif /* UNUSED */
+X
+Xstatic void
+Xsprint_octet_string(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X    int hex, x;
+X    u_char *cp;
+X
+X    if (var->type != ASN_OCTET_STR){
+X	sprintf(buf, "Wrong Type (should be OCTET STRING): ");
+X	buf += strlen(buf);
+X	sprint_by_type(buf, var, (struct enum_list *)NULL);
+X	return;
+X    }
+X    hex = 0;
+X    for(cp = var->val.string, x = 0; x < var->val_len; x++, cp++){
+X	if (!(isprint(*cp) || isspace(*cp)))
+X	    hex = 1;
+X    }
+X    if (var->val_len <= 4)
+X	hex = 1;    /* not likely to be ascii */
+X    if (hex){
+X	sprintf(buf, "OCTET STRING-   (hex):\t");
+X	buf += strlen(buf);
+X	sprint_hexstring(buf, var->val.string, var->val_len);
+X    } else {
+X	sprintf(buf, "OCTET STRING- (ascii):\t");
+X	buf += strlen(buf);
+X	sprint_asciistring(buf, var->val.string, var->val_len);
+X    }
+X}
+X
+Xstatic void
+Xsprint_opaque(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X
+X    if (var->type != OPAQUE){
+X	sprintf(buf, "Wrong Type (should be Opaque): ");
+X	buf += strlen(buf);
+X	sprint_by_type(buf, var, (struct enum_list *)NULL);
+X	return;
+X    }
+X    sprintf(buf, "OPAQUE -   (hex):\t");
+X    buf += strlen(buf);
+X    sprint_hexstring(buf, var->val.string, var->val_len);
+X}
+X
+Xstatic void
+Xsprint_object_identifier(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X    if (var->type != ASN_OBJECT_ID){
+X	sprintf(buf, "Wrong Type (should be OBJECT IDENTIFIER): ");
+X	buf += strlen(buf);
+X	sprint_by_type(buf, var, (struct enum_list *)NULL);
+X	return;
+X    }
+X    sprintf(buf, "OBJECT IDENTIFIER:\t");
+X    buf += strlen(buf);
+X    sprint_objid(buf, (oid *)(var->val.objid), var->val_len / sizeof(oid));
+X}
+X
+Xstatic void
+Xsprint_timeticks(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X    char timebuf[32];
+X
+X    if (var->type != TIMETICKS){
+X	sprintf(buf, "Wrong Type (should be Timeticks): ");
+X	buf += strlen(buf);
+X	sprint_by_type(buf, var, (struct enum_list *)NULL);
+X	return;
+X    }
+X    sprintf(buf, "Timeticks: (%d) %s", *(var->val.integer), uptimeString(*(var->val.integer), timebuf));
+X}
+X
+Xstatic void
+Xsprint_integer(buf, var, enums)
+X    char *buf;
+X    struct variable_list *var;
+X    struct enum_list	    *enums;
+X{
+X    char    *enum_string = NULL;
+X
+X    if (var->type != ASN_INTEGER){
+X	sprintf(buf, "Wrong Type (should be INTEGER): ");
+X	buf += strlen(buf);
+X	sprint_by_type(buf, var, (struct enum_list *)NULL);
+X	return;
+X    }
+X    for (; enums; enums = enums->next)
+X	if (enums->value == *var->val.integer){
+X	    enum_string = enums->label;
+X	    break;
+X	}
+X    if (enum_string == NULL)
+X	sprintf(buf, "INTEGER: %d", *var->val.integer);
+X    else
+X	sprintf(buf, "INTEGER: %s(%d)", enum_string, *var->val.integer);
+X}
+X
+Xstatic void
+Xsprint_gauge(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X    if (var->type != GAUGE){
+X	sprintf(buf, "Wrong Type (should be Gauge): ");
+X	buf += strlen(buf);
+X	sprint_by_type(buf, var, (struct enum_list *)NULL);
+X	return;
+X    }
+X    sprintf(buf, "Gauge: %lu", *var->val.integer);
+X}
+X
+Xstatic void
+Xsprint_counter(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X    if (var->type != COUNTER){
+X	sprintf(buf, "Wrong Type (should be Counter): ");
+X	buf += strlen(buf);
+X	sprint_by_type(buf, var, (struct enum_list *)NULL);
+X	return;
+X    }
+X    sprintf(buf, "Counter: %lu", *var->val.integer);
+X}
+X
+Xstatic void
+Xsprint_networkaddress(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X    int x, len;
+X    u_char *cp;
+X
+X    sprintf(buf, "Network Address:\t");
+X    buf += strlen(buf);
+X    cp = var->val.string;    
+X    len = var->val_len;
+X    for(x = 0; x < len; x++){
+X	sprintf(buf, "%02X", *cp++);
+X	buf += strlen(buf);
+X	if (x < (len - 1))
+X	    *buf++ = ':';
+X    }
+X}
+X
+Xstatic void
+Xsprint_ipaddress(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X    u_char *ip;
+X
+X    if (var->type != IPADDRESS){
+X	sprintf(buf, "Wrong Type (should be Ipaddress): ");
+X	buf += strlen(buf);
+X	sprint_by_type(buf, var, (struct enum_list *)NULL);
+X	return;
+X    }
+X    ip = var->val.string;
+X    sprintf(buf, "IpAddress:\t%d.%d.%d.%d",ip[0], ip[1], ip[2], ip[3]);
+X}
+X
+Xstatic void
+Xsprint_unsigned_short(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X    if (var->type != ASN_INTEGER){
+X	sprintf(buf, "Wrong Type (should be INTEGER): ");
+X	buf += strlen(buf);
+X	sprint_by_type(buf, var, (struct enum_list *)NULL);
+X	return;
+X    }
+X    sprintf(buf, "INTEGER (0..65535): %lu", *var->val.integer);
+X}
+X
+Xstatic void
+Xsprint_null(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X    if (var->type != ASN_NULL){
+X	sprintf(buf, "Wrong Type (should be NULL): ");
+X	buf += strlen(buf);
+X	sprint_by_type(buf, var, (struct enum_list *)NULL);
+X	return;
+X    }
+X    sprintf(buf, "NULL");
+X}
+X
+Xstatic void
+Xsprint_unknowntype(buf, var)
+X    char *buf;
+X    struct variable_list *var;
+X{
+X/*    sprintf(buf, "Variable has bad type"); */
+X    sprint_by_type(buf, var, NULL);
+X}
+X
+Xstatic void
+Xsprint_badtype(buf)
+X    char *buf;
+X{
+X    sprintf(buf, "Variable has bad type");
+X}
+X
+Xstatic void
+Xsprint_by_type(buf, var, enums)
+X    char *buf;
+X    struct variable_list *var;
+X    struct enum_list	    *enums;
+X{
+X    switch (var->type){
+X	case ASN_INTEGER:
+X	    sprint_integer(buf, var, enums);
+X	    break;
+X	case ASN_OCTET_STR:
+X	    sprint_octet_string(buf, var);
+X	    break;
+X	case OPAQUE:
+X	    sprint_opaque(buf, var);
+X	    break;
+X	case ASN_OBJECT_ID:
+X	    sprint_object_identifier(buf, var);
+X	    break;
+X	case TIMETICKS:
+X	    sprint_timeticks(buf, var);
+X	    break;
+X	case GAUGE:
+X	    sprint_gauge(buf, var);
+X	    break;
+X	case COUNTER:
+X	    sprint_counter(buf, var);
+X	    break;
+X	case IPADDRESS:
+X	    sprint_ipaddress(buf, var);
+X	    break;
+X	case ASN_NULL:
+X	    sprint_null(buf, var);
+X	    break;
+X	default:
+X	    sprint_badtype(buf);
+X	    break;
+X    }
+X}
+X
+Xstruct tree *get_symbol();
+X
+Xoid RFC1066_MIB[] = { 1, 3, 6, 1, 2, 1 };
+Xunsigned char RFC1066_MIB_text[] = ".iso.org.dod.internet.mgmt.mib";
+Xstruct tree *Mib;
+X
+Xinit_mib()
+X{
+X    char *file, *getenv();
+X
+X    Mib = 0;
+X    file = getenv("MIBFILE");
+X    if (file)
+X	Mib = read_mib(file);
+X    if (!Mib)
+X	Mib = read_mib("mib.txt");
+X    if (!Mib)
+X	Mib = read_mib("/etc/mib.txt");
+X    if (!Mib){
+X	fprintf(stderr, "Couldn't find mib file\n");
+X	exit(2);
+X    }
+X    set_functions(Mib);
+X}
+X
+Xstatic
+Xset_functions(subtree)
+X    struct tree *subtree;
+X{
+X    for(; subtree; subtree = subtree->next_peer){
+X	switch(subtree->type){
+X	    case TYPE_OBJID:
+X		subtree->printer = sprint_object_identifier;
+X		break;
+X	    case TYPE_OCTETSTR:
+X		subtree->printer = sprint_octet_string;
+X		break;
+X	    case TYPE_INTEGER:
+X		subtree->printer = sprint_integer;
+X		break;
+X	    case TYPE_NETADDR:
+X		subtree->printer = sprint_networkaddress;
+X		break;
+X	    case TYPE_IPADDR:
+X		subtree->printer = sprint_ipaddress;
+X		break;
+X	    case TYPE_COUNTER:
+X		subtree->printer = sprint_counter;
+X		break;
+X	    case TYPE_GAUGE:
+X		subtree->printer = sprint_gauge;
+X		break;
+X	    case TYPE_TIMETICKS:
+X		subtree->printer = sprint_timeticks;
+X		break;
+X	    case TYPE_OPAQUE:
+X		subtree->printer = sprint_opaque;
+X		break;
+X	    case TYPE_NULL:
+X		subtree->printer = sprint_null;
+X		break;
+X	    case TYPE_OTHER:
+X	    default:
+X		subtree->printer = sprint_unknowntype;
+X		break;
+X	}
+X	set_functions(subtree->child_list);
+X    }
+X}
+X
+X#ifdef testing
+Xint snmp_dump_packet = 0;
+X
+Xmain(argc, argv)
+X     int argc;
+X     char *argv[];
+X{
+X    oid objid[64];
+X    int objidlen = sizeof (objid);
+X    int count;
+X    struct variable variable;
+X
+X    init_mib(&Mib);
+X    if (argc < 2)
+X	print_subtree(Mib, 0);
+X    variable.type = ASN_INTEGER;
+X    variable.val.integer = 3;
+X    variable.val_len = 4;
+X    for (argc--; argc; argc--, argv++) {
+X	objidlen = sizeof (objid);
+X	printf("read_objid(%s) = %d\n",
+X	       argv[1], read_objid(argv[1], objid, &objidlen));
+X	for(count = 0; count < objidlen; count++)
+X	    printf("%d.", objid[count]);
+X	printf("\n");
+X	print_variable(objid, objidlen, &variable);
+X    }
+X}
+X
+X#endif testing
+X
+X
+Xstatic struct tree *
+Xfind_rfc1066_mib(root)
+X    struct tree *root;
+X{
+X    oid *op = RFC1066_MIB;
+X    struct tree *tp;
+X    int len;
+X
+X    for(len = sizeof(RFC1066_MIB)/sizeof(oid); len; len--, op++){
+X	for(tp = root; tp; tp = tp->next_peer){
+X	    if (tp->subid == *op){
+X		root = tp->child_list;
+X		break;
+X	    }
+X	}
+X	if (tp == NULL)
+X	    return NULL;
+X    }
+X    return root;
+X}
+X
+Xint read_objid(input, output, out_len)
+X    char *input;
+X    oid *output;
+X    int	*out_len;   /* number of subid's in "output" */
+X{
+X    struct tree *root = Mib;
+X    oid *op = output;
+X    int i;
+X
+X    if (*input == '.')
+X	input++;
+X    else {
+X	root = find_rfc1066_mib(root);
+X	for (i = 0; i < sizeof (RFC1066_MIB)/sizeof(oid); i++) {
+X	    if ((*out_len)-- > 0)
+X		*output++ = RFC1066_MIB[i];
+X	    else {
+X		fprintf(stderr, "object identifier too long\n");
+X		return (0);
+X	    }
+X	}
+X    }
+X
+X    if (root == NULL){
+X	fprintf(stderr, "Mib not initialized.  Exiting.\n");
+X	exit(1);
+X    }
+X    if ((*out_len =
+X	 parse_subtree(root, input, output, out_len)) == 0)
+X	return (0);
+X    *out_len += output - op;
+X
+X    return (1);
+X}
+X
+Xstatic
+Xparse_subtree(subtree, input, output, out_len)
+X    struct tree *subtree;
+X    char *input;
+X    oid	*output;
+X    int	*out_len;   /* number of subid's */
+X{
+X    char buf[128], *to = buf;
+X    u_long subid = 0;
+X    struct tree *tp;
+X
+X    /*
+X     * No empty strings.  Can happen if there is a trailing '.' or two '.'s
+X     * in a row, i.e. "..".
+X     */
+X    if ((*input == '\0') ||
+X	(*input == '.'))
+X	return (0);
+X
+X    if (isdigit(*input)) {
+X	/*
+X	 * Read the number, then try to find it in the subtree.
+X	 */
+X	while (isdigit(*input)) {
+X	    subid *= 10;
+X	    subid += *input++ - '0';
+X	}
+X	for (tp = subtree; tp; tp = tp->next_peer) {
+X	    if (tp->subid == subid)
+X		goto found;
+X	}
+X	tp = NULL;
+X    }
+X    else {
+X	/*
+X	 * Read the name into a buffer.
+X	 */
+X	while ((*input != '\0') &&
+X	       (*input != '.')) {
+X	    *to++ = *input++;
+X	}
+X	*to = '\0';
+X
+X	/*
+X	 * Find the name in the subtree;
+X	 */
+X	for (tp = subtree; tp; tp = tp->next_peer) {
+X	    if (lc_cmp(tp->label, buf) == 0) {
+X		subid = tp->subid;
+X		goto found;
+X	    }
+X	}
+X
+X	/*
+X	 * If we didn't find the entry, punt...
+X	 */
+X	if (tp == NULL) {
+X	    fprintf(stderr, "sub-identifier not found: %s\n", buf);
+X	    return (0);
+X	}
+X    }
+X
+Xfound:
+X    if(subid > (u_long)MAX_SUBID){
+X	fprintf(stderr, "sub-identifier too large: %s\n", buf);
+X	return (0);
+X    }
+X
+X    if ((*out_len)-- <= 0){
+X	fprintf(stderr, "object identifier too long\n");
+X	return (0);
+X    }
+X    *output++ = subid;
+X
+X    if (*input != '.')
+X	return (1);
+X    if ((*out_len =
+X	 parse_subtree(tp ? tp->child_list : NULL, ++input, output, out_len)) == 0)
+X	return (0);
+X    return (++*out_len);
+X}
+X
+Xprint_objid(objid, objidlen)
+X    oid	    *objid;
+X    int	    objidlen;	/* number of subidentifiers */
+X{
+X    char    buf[256];
+X    struct tree    *subtree = Mib;
+X
+X    *buf = '.';	/* this is a fully qualified name */
+X    get_symbol(objid, objidlen, subtree, buf + 1);
+X    printf("%s\n", buf);
+X        
+X}
+X
+Xsprint_objid(buf, objid, objidlen)
+X    char *buf;
+X    oid	    *objid;
+X    int	    objidlen;	/* number of subidentifiers */
+X{
+X    struct tree    *subtree = Mib;
+X
+X    *buf = '.';	/* this is a fully qualified name */
+X    get_symbol(objid, objidlen, subtree, buf + 1);
+X}
+X
+X
+Xprint_variable(objid, objidlen, variable)
+X    oid     *objid;
+X    int	    objidlen;
+X    struct  variable_list *variable;
+X{
+X    char    buf[512], *cp;
+X    struct tree    *subtree = Mib;
+X
+X    *buf = '.';	/* this is a fully qualified name */
+X    subtree = get_symbol(objid, objidlen, subtree, buf + 1);
+X    cp = buf;
+X    if ((strlen(buf) >= strlen((char *)RFC1066_MIB_text)) && !bcmp(buf, (char *)RFC1066_MIB_text,
+X	strlen((char *)RFC1066_MIB_text))){
+X	    cp += sizeof(RFC1066_MIB_text);
+X    }
+X    printf("Name: %s\n", cp);
+X    *buf = '\0';
+X    if (subtree->printer)
+X	(*subtree->printer)(buf, variable, subtree->enums);
+X    else {
+X	sprint_by_type(buf, variable, subtree->enums);
+X    }
+X    printf("%s\n", buf);
+X}
+X
+Xsprint_variable(buf, objid, objidlen, variable)
+X    char *buf;
+X    oid     *objid;
+X    int	    objidlen;
+X    struct  variable_list *variable;
+X{
+X    char    tempbuf[512], *cp;
+X    struct tree    *subtree = Mib;
+X
+X    *tempbuf = '.';	/* this is a fully qualified name */
+X    subtree = get_symbol(objid, objidlen, subtree, tempbuf + 1);
+X    cp = tempbuf;
+X    if ((strlen(buf) >= strlen((char *)RFC1066_MIB_text)) && !bcmp(buf, (char *)RFC1066_MIB_text,
+X	strlen((char *)RFC1066_MIB_text))){
+X	    cp += sizeof(RFC1066_MIB_text);
+X    }
+X    sprintf(buf, "Name: %s\n", cp);
+X    buf += strlen(buf);
+X    if (subtree->printer)
+X	(*subtree->printer)(buf, variable, subtree->enums);
+X    else {
+X	sprint_by_type(buf, variable, subtree->enums);
+X    }
+X    strcat(buf, "\n");
+X}
+X
+Xsprint_value(buf, objid, objidlen, variable)
+X    char *buf;
+X    oid     *objid;
+X    int	    objidlen;
+X    struct  variable_list *variable;
+X{
+X    char    tempbuf[512];
+X    struct tree    *subtree = Mib;
+X
+X    subtree = get_symbol(objid, objidlen, subtree, tempbuf);
+X    if (subtree->printer)
+X	(*subtree->printer)(buf, variable, subtree->enums);
+X    else {
+X	sprint_by_type(buf, variable, subtree->enums);
+X    }
+X}
+X
+Xprint_value(objid, objidlen, variable)
+X    oid     *objid;
+X    int	    objidlen;
+X    struct  variable_list *variable;
+X{
+X    char    tempbuf[512];
+X    struct tree    *subtree = Mib;
+X
+X    subtree = get_symbol(objid, objidlen, subtree, tempbuf);
+X    if (subtree->printer)
+X	(*subtree->printer)(tempbuf, variable, subtree->enums);
+X    else {
+X	sprint_by_type(tempbuf, variable, subtree->enums);
+X    }
+X    printf("%s\n", tempbuf);
+X}
+X
+Xstruct tree *
+Xget_symbol(objid, objidlen, subtree, buf)
+X    oid	    *objid;
+X    int	    objidlen;
+X    struct tree    *subtree;
+X    char    *buf;
+X{
+X    struct tree    *return_tree = NULL;
+X
+X    for(; subtree; subtree = subtree->next_peer){
+X	if (*objid == subtree->subid){
+X	    strcpy(buf, subtree->label);
+X	    goto found;
+X	}
+X    }
+X
+X    /* subtree not found */
+X    while(objidlen--){	/* output rest of name, uninterpreted */
+X	sprintf(buf, "%u.", *objid++);
+X	while(*buf)
+X	    buf++;
+X    }
+X    *(buf - 1) = '\0'; /* remove trailing dot */
+X    return NULL;
+X
+Xfound:
+X    if (objidlen > 1){
+X	while(*buf)
+X	    buf++;
+X	*buf++ = '.';
+X	*buf = '\0';
+X	return_tree = get_symbol(objid + 1, objidlen - 1, subtree->child_list, buf);
+X    } 
+X    if (return_tree != NULL)
+X	return return_tree;
+X    else
+X	return subtree;
+X}
+X
+X
+Xstatic int
+Xlc_cmp(s1, s2)
+X    char *s1, *s2;
+X{
+X    char c1, c2;
+X
+X    while(*s1 && *s2){
+X	if (isupper(*s1))
+X	    c1 = tolower(*s1);
+X	else
+X	    c1 = *s1;
+X	if (isupper(*s2))
+X	    c2 = tolower(*s2);
+X	else
+X	    c2 = *s2;
+X	if (c1 != c2)
+X	    return ((c1 - c2) > 0 ? 1 : -1);
+X	s1++;
+X	s2++;
+X    }
+X
+X    if (*s1)
+X	return -1;
+X    if (*s2)
+X	return 1;
+X    return 0;
+X}
+X
+END_OF_FILE
+  if test 17909 -ne `wc -c <'nocol-3.0/src/cmu-snmp/include/mib.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/include/mib.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/include/mib.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/snmplib/asn1.c.cmu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/snmplib/asn1.c.cmu'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/snmplib/asn1.c.cmu'\" \(18366 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/snmplib/asn1.c.cmu' <<'END_OF_FILE'
+X/*
+X * Abstract Syntax Notation One, ASN.1
+X * As defined in ISO/IS 8824 and ISO/IS 8825
+X * This implements a subset of the above International Standards that
+X * is sufficient to implement SNMP.
+X *
+X * Encodes abstract data types into a machine independent stream of bytes.
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#ifdef KINETICS
+X#include "gw.h"
+X#endif
+X
+X#if (defined(unix) && !defined(KINETICS))
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#endif
+X
+X#include "asn1.h"
+X
+X#ifndef NULL
+X#define NULL	0
+X#endif
+X#define	ERROR(x)
+X
+X/*
+X * asn_parse_int - pulls a long out of an ASN int type.
+X *  On entry, datalength is input as the number of valid bytes following
+X *   "data".  On exit, it is returned as the number of valid bytes
+X *   following the end of this object.
+X *
+X *  Returns a pointer to the first byte past the end
+X *   of this object (i.e. the start of the next object).
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_parse_int(data, datalength, type, intp, intsize)
+X    register u_char	    *data;	/* IN - pointer to start of object */
+X    register int	    *datalength;/* IN/OUT - number of valid bytes left in buffer */
+X    u_char		    *type;	/* OUT - asn type of object */
+X    long		    *intp;	/* IN/OUT - pointer to start of output buffer */
+X    int			    intsize;    /* IN - size of output buffer */
+X{
+X/*
+X * ASN.1 integer ::= 0x02 asnlength byte {byte}*
+X */
+X    register u_char *bufp = data;
+X    u_long	    asn_length;
+X    register long   value = 0;
+X
+X    if (intsize != sizeof (long)){
+X	ERROR("not long");
+X	return NULL;
+X    }
+X    *type = *bufp++;
+X    bufp = asn_parse_length(bufp, &asn_length);
+X    if (bufp == NULL){
+X	ERROR("bad length");
+X	return NULL;
+X    }
+X    if (asn_length + (bufp - data) > *datalength){
+X	ERROR("overflow of message");
+X	return NULL;
+X    }
+X    if (asn_length > intsize){
+X	ERROR("I don't support such large integers");
+X	return NULL;
+X    }
+X    *datalength -= (int)asn_length + (bufp - data);
+X    if (*bufp & 0x80)
+X	value = -1; /* integer is negative */
+X    while(asn_length--)
+X	value = (value << 8) | *bufp++;
+X    *intp = value;
+X    return bufp;
+X}
+X
+X
+X/*
+X * asn_build_int - builds an ASN object containing an integer.
+X *  On entry, datalength is input as the number of valid bytes following
+X *   "data".  On exit, it is returned as the number of valid bytes
+X *   following the end of this object.
+X *
+X *  Returns a pointer to the first byte past the end
+X *   of this object (i.e. the start of the next object).
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_build_int(data, datalength, type, intp, intsize)
+X    register u_char *data;	/* IN - pointer to start of output buffer */
+X    register int    *datalength;/* IN/OUT - number of valid bytes left in buffer */
+X    u_char	    type;	/* IN - asn type of object */
+X    register long   *intp;	/* IN - pointer to start of long integer */
+X    register int    intsize;    /* IN - size of *intp */
+X{
+X/*
+X * ASN.1 integer ::= 0x02 asnlength byte {byte}*
+X */
+X
+X    register long integer;
+X    register u_long mask;
+X
+X    if (intsize != sizeof (long))
+X	return NULL;
+X    integer = *intp;
+X    /*
+X     * Truncate "unnecessary" bytes off of the most significant end of this 2's complement integer.
+X     * There should be no sequence of 9 consecutive 1's or 0's at the most significant end of the
+X     * integer.
+X     */
+X    mask = 0x1FF << ((8 * (sizeof(long) - 1)) - 1);
+X    /* mask is 0xFF800000 on a big-endian machine */
+X    while((((integer & mask) == 0) || ((integer & mask) == mask)) && intsize > 1){
+X	intsize--;
+X	integer <<= 8;
+X    }
+X    data = asn_build_header(data, datalength, type, intsize);
+X    if (data == NULL)
+X	return NULL;
+X    if (*datalength < intsize)
+X	return NULL;
+X    *datalength -= intsize;
+X    mask = 0xFF << (8 * (sizeof(long) - 1));
+X    /* mask is 0xFF000000 on a big-endian machine */
+X    while(intsize--){
+X	*data++ = (u_char)((integer & mask) >> (8 * (sizeof(long) - 1)));
+X	integer <<= 8;
+X    }
+X    return data;
+X}
+X
+X
+X/*
+X * asn_parse_string - pulls an octet string out of an ASN octet string type.
+X *  On entry, datalength is input as the number of valid bytes following
+X *   "data".  On exit, it is returned as the number of valid bytes
+X *   following the beginning of the next object.
+X *
+X *  "string" is filled with the octet string.
+X *
+X *  Returns a pointer to the first byte past the end
+X *   of this object (i.e. the start of the next object).
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_parse_string(data, datalength, type, string, strlength)
+X    u_char	    *data;	    /* IN - pointer to start of object */
+X    register int    *datalength;    /* IN/OUT - number of valid bytes left in buffer */
+X    u_char	    *type;	    /* OUT - asn type of object */
+X    u_char	    *string;	    /* IN/OUT - pointer to start of output buffer */
+X    register int    *strlength;     /* IN/OUT - size of output buffer */
+X{
+X/*
+X * ASN.1 octet string ::= primstring | cmpdstring
+X * primstring ::= 0x04 asnlength byte {byte}*
+X * cmpdstring ::= 0x24 asnlength string {string}*
+X * This doesn't yet support the compound string.
+X */
+X    register u_char *bufp = data;
+X    u_long	    asn_length;
+X
+X    *type = *bufp++;
+X    bufp = asn_parse_length(bufp, &asn_length);
+X    if (bufp == NULL)
+X	return NULL;
+X    if (asn_length + (bufp - data) > *datalength){
+X	ERROR("overflow of message");
+X	return NULL;
+X    }
+X    if (asn_length > *strlength){
+X	ERROR("I don't support such long strings");
+X	return NULL;
+X    }
+X    bcopy((char *)bufp, (char *)string, (int)asn_length);
+X    *strlength = (int)asn_length;
+X    *datalength -= (int)asn_length + (bufp - data);
+X    return bufp + asn_length;
+X}
+X
+X
+X/*
+X * asn_build_string - Builds an ASN octet string object containing the input string.
+X *  On entry, datalength is input as the number of valid bytes following
+X *   "data".  On exit, it is returned as the number of valid bytes
+X *   following the beginning of the next object.
+X *
+X *  Returns a pointer to the first byte past the end
+X *   of this object (i.e. the start of the next object).
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_build_string(data, datalength, type, string, strlength)
+X    u_char	    *data;	    /* IN - pointer to start of object */
+X    register int    *datalength;    /* IN/OUT - number of valid bytes left in buffer */
+X    u_char	    type;	    /* IN - ASN type of string */
+X    u_char	    *string;	    /* IN - pointer to start of input buffer */
+X    register int    strlength;	    /* IN - size of input buffer */
+X{
+X/*
+X * ASN.1 octet string ::= primstring | cmpdstring
+X * primstring ::= 0x04 asnlength byte {byte}*
+X * cmpdstring ::= 0x24 asnlength string {string}*
+X * This code will never send a compound string.
+X */
+X    data = asn_build_header(data, datalength, type, strlength);
+X    if (data == NULL)
+X	return NULL;
+X    if (*datalength < strlength)
+X	return NULL;
+X    bcopy((char *)string, (char *)data, strlength);
+X    *datalength -= strlength;
+X    return data + strlength;
+X}
+X
+X
+X/*
+X * asn_parse_header - interprets the ID and length of the current object.
+X *  On entry, datalength is input as the number of valid bytes following
+X *   "data".  On exit, it is returned as the number of valid bytes
+X *   in this object following the id and length.
+X *
+X *  Returns a pointer to the first byte of the contents of this object.
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_parse_header(data, datalength, type)
+X    u_char	    *data;	/* IN - pointer to start of object */
+X    int		    *datalength;/* IN/OUT - number of valid bytes left in buffer */
+X    u_char	    *type;	/* OUT - ASN type of object */
+X{
+X    register u_char *bufp = data;
+X    register	    header_len;
+X    u_long	    asn_length;
+X
+X    /* this only works on data types < 30, i.e. no extension octets */
+X    if (IS_EXTENSION_ID(*bufp)){
+X	ERROR("can't process ID >= 30");
+X	return NULL;
+X    }
+X    *type = *bufp;
+X    bufp = asn_parse_length(bufp + 1, &asn_length);
+X    if (bufp == NULL)
+X	return NULL;
+X    header_len = bufp - data;
+X    if (header_len + asn_length > *datalength){
+X	ERROR("asn length too long");
+X	return NULL;
+X    }
+X    *datalength = (int)asn_length;
+X    return bufp;
+X}
+X
+X/*
+X * asn_build_header - builds an ASN header for an object with the ID and
+X * length specified.
+X *  On entry, datalength is input as the number of valid bytes following
+X *   "data".  On exit, it is returned as the number of valid bytes
+X *   in this object following the id and length.
+X *
+X *  This only works on data types < 30, i.e. no extension octets.
+X *  The maximum length is 0xFFFF;
+X *
+X *  Returns a pointer to the first byte of the contents of this object.
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_build_header(data, datalength, type, length)
+X    register u_char *data;	/* IN - pointer to start of object */
+X    int		    *datalength;/* IN/OUT - number of valid bytes left in buffer */
+X    u_char	    type;	/* IN - ASN type of object */
+X    int		    length;	/* IN - length of object */
+X{
+X    if (*datalength < 1)
+X	return NULL;
+X    *data++ = type;
+X    (*datalength)--;
+X    return asn_build_length(data, datalength, length);
+X    
+X}
+X
+X/*
+X * asn_parse_length - interprets the length of the current object.
+X *  On exit, length contains the value of this length field.
+X *
+X *  Returns a pointer to the first byte after this length
+X *  field (aka: the start of the data field).
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_parse_length(data, length)
+X    u_char  *data;	/* IN - pointer to start of length field */
+X    u_long  *length;	/* OUT - value of length field */
+X{
+X    register u_char lengthbyte = *data;
+X
+X    if (lengthbyte & ASN_LONG_LEN){
+X	lengthbyte &= ~ASN_LONG_LEN;	/* turn MSb off */
+X	if (lengthbyte == 0){
+X	    ERROR("We don't support indefinite lengths");
+X	    return NULL;
+X	}
+X	if (lengthbyte > sizeof(long)){
+X	    ERROR("we can't support data lengths that long");
+X	    return NULL;
+X	}
+X	bcopy((char *)data + 1, (char *)length, (int)lengthbyte);
+X	*length = ntohl(*length);
+X	*length >>= (8 * ((sizeof *length) - lengthbyte));
+X	return data + lengthbyte + 1;
+X    } else { /* short asnlength */
+X	*length = (long)lengthbyte;
+X	return data + 1;
+X    }
+X}
+X
+Xu_char *
+Xasn_build_length(data, datalength, length)
+X    register u_char *data;	/* IN - pointer to start of object */
+X    int		    *datalength;/* IN/OUT - number of valid bytes left in buffer */
+X    register int    length;	/* IN - length of object */
+X{
+X    u_char    *start_data = data;
+X
+X    /* no indefinite lengths sent */
+X    if (length < 0x80){
+X	*data++ = (u_char)length;
+X    } else if (length <= 0xFF){
+X	*data++ = (u_char)(0x01 | ASN_LONG_LEN);
+X	*data++ = (u_char)length;
+X    } else { /* 0xFF < length <= 0xFFFF */
+X	*data++ = (u_char)(0x02 | ASN_LONG_LEN);
+X	*data++ = (u_char)((length >> 8) & 0xFF);
+X	*data++ = (u_char)(length & 0xFF);
+X    }
+X    if (*datalength < (data - start_data)){
+X	ERROR("build_length");
+X	return NULL;
+X    }
+X    *datalength -= (data - start_data);
+X    return data;
+X
+X}
+X
+X/*
+X * asn_parse_objid - pulls an object indentifier out of an ASN object identifier type.
+X *  On entry, datalength is input as the number of valid bytes following
+X *   "data".  On exit, it is returned as the number of valid bytes
+X *   following the beginning of the next object.
+X *
+X *  "objid" is filled with the object identifier.
+X *
+X *  Returns a pointer to the first byte past the end
+X *   of this object (i.e. the start of the next object).
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_parse_objid(data, datalength, type, objid, objidlength)
+X    u_char	    *data;	    /* IN - pointer to start of object */
+X    int		    *datalength;    /* IN/OUT - number of valid bytes left in buffer */
+X    u_char	    *type;	    /* OUT - ASN type of object */
+X    oid		    *objid;	    /* IN/OUT - pointer to start of output buffer */
+X    int		    *objidlength;     /* IN/OUT - number of sub-id's in objid */
+X{
+X/*
+X * ASN.1 objid ::= 0x06 asnlength subidentifier {subidentifier}*
+X * subidentifier ::= {leadingbyte}* lastbyte
+X * leadingbyte ::= 1 7bitvalue
+X * lastbyte ::= 0 7bitvalue
+X */
+X    register u_char *bufp = data;
+X    register oid *oidp = objid + 1;
+X    register u_long subidentifier;
+X    register long   length;
+X    u_long	    asn_length;
+X
+X    *type = *bufp++;
+X    bufp = asn_parse_length(bufp, &asn_length);
+X    if (bufp == NULL)
+X	return NULL;
+X    if (asn_length + (bufp - data) > *datalength){
+X	ERROR("overflow of message");
+X	return NULL;
+X    }
+X    *datalength -= (int)asn_length + (bufp - data);
+X
+X    length = asn_length;
+X    (*objidlength)--;	/* account for expansion of first byte */
+X    while (length > 0 && (*objidlength)-- > 0){
+X	subidentifier = 0;
+X	do {	/* shift and add in low order 7 bits */
+X	    subidentifier = (subidentifier << 7) + (*(u_char *)bufp & ~ASN_BIT8);
+X	    length--;
+X	} while (*(u_char *)bufp++ & ASN_BIT8);	/* last byte has high bit clear */
+X	if (subidentifier > (u_long)MAX_SUBID){
+X	    ERROR("subidentifier too long");
+X	    return NULL;
+X	}
+X	*oidp++ = (oid)subidentifier;
+X    }
+X
+X    /*
+X     * The first two subidentifiers are encoded into the first component
+X     * with the value (X * 40) + Y, where:
+X     *	X is the value of the first subidentifier.
+X     *  Y is the value of the second subidentifier.
+X     */
+X    subidentifier = (u_long)objid[1];
+X    objid[1] = (u_char)(subidentifier % 40);
+X    objid[0] = (u_char)((subidentifier - objid[1]) / 40);
+X
+X    *objidlength = (int)(oidp - objid);
+X    return bufp;
+X}
+X
+X/*
+X * asn_build_objid - Builds an ASN object identifier object containing the input string.
+X *  On entry, datalength is input as the number of valid bytes following
+X *   "data".  On exit, it is returned as the number of valid bytes
+X *   following the beginning of the next object.
+X *
+X *  Returns a pointer to the first byte past the end
+X *   of this object (i.e. the start of the next object).
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_build_objid(data, datalength, type, objid, objidlength)
+X    register u_char *data;	    /* IN - pointer to start of object */
+X    int		    *datalength;    /* IN/OUT - number of valid bytes left in buffer */
+X    u_char	    type;	    /* IN - ASN type of object */
+X    oid		    *objid;	    /* IN - pointer to start of input buffer */
+X    int		    objidlength;    /* IN - number of sub-id's in objid */
+X{
+X/*
+X * ASN.1 objid ::= 0x06 asnlength subidentifier {subidentifier}*
+X * subidentifier ::= {leadingbyte}* lastbyte
+X * leadingbyte ::= 1 7bitvalue
+X * lastbyte ::= 0 7bitvalue
+X */
+X    u_char buf[MAX_OID_LEN];
+X    u_char *bp = buf;
+X    oid	objbuf[MAX_OID_LEN];
+X    oid *op = objbuf;
+X    register int    asnlength;
+X    register u_long subid, mask, testmask;
+X    register int bits, testbits;
+X
+X    bcopy((char *)objid, (char *)objbuf, objidlength * sizeof(oid));
+X    /* transform size in bytes to size in subid's */
+X    /* encode the first two components into the first subidentifier */
+X    op[1] = op[1] + (op[0] * 40);
+X    op++;
+X    objidlength--;
+X
+X    while(objidlength-- > 0){
+X	subid = *op++;
+X	mask = 0x7F; /* handle subid == 0 case */
+X	bits = 0;
+X	/* testmask *MUST* !!!! be of an unsigned type */
+X	for(testmask = 0x7F, testbits = 0; testmask != 0; testmask <<= 7, testbits += 7){
+X	    if (subid & testmask){	/* if any bits set */
+X		mask = testmask;
+X		bits = testbits;
+X	    }
+X	}
+X	/* mask can't be zero here */
+X	for(;mask != 0x7F; mask >>= 7, bits -= 7){
+X	    if (mask == 0x1E00000)  /* fix a mask that got truncated above */
+X		mask = 0xFE00000;
+X	    *bp++ = (u_char)(((subid & mask) >> bits) | ASN_BIT8);
+X	}
+X	*bp++ = (u_char)(subid & mask);
+X    }
+X    asnlength = bp - buf;
+X    data = asn_build_header(data, datalength, type, asnlength);
+X    if (data == NULL)
+X	return NULL;
+X    if (*datalength < asnlength)
+X	return NULL;
+X    bcopy((char *)buf, (char *)data, asnlength);
+X    *datalength -= asnlength;
+X    return data + asnlength;
+X}
+X
+X/*
+X * asn_parse_null - Interprets an ASN null type.
+X *  On entry, datalength is input as the number of valid bytes following
+X *   "data".  On exit, it is returned as the number of valid bytes
+X *   following the beginning of the next object.
+X *
+X *  Returns a pointer to the first byte past the end
+X *   of this object (i.e. the start of the next object).
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_parse_null(data, datalength, type)
+X    u_char	    *data;	    /* IN - pointer to start of object */
+X    int		    *datalength;    /* IN/OUT - number of valid bytes left in buffer */
+X    u_char	    *type;	    /* OUT - ASN type of object */
+X{
+X/*
+X * ASN.1 null ::= 0x05 0x00
+X */
+X    register u_char   *bufp = data;
+X    u_long	    asn_length;
+X
+X    *type = *bufp++;
+X    bufp = asn_parse_length(bufp, &asn_length);
+X    if (bufp == NULL)
+X	return NULL;
+X    if (asn_length != 0){
+X	ERROR("Malformed NULL");
+X	return NULL;
+X    }
+X    *datalength -= (bufp - data);
+X    return bufp + asn_length;
+X}
+X
+X
+X/*
+X * asn_build_null - Builds an ASN null object.
+X *  On entry, datalength is input as the number of valid bytes following
+X *   "data".  On exit, it is returned as the number of valid bytes
+X *   following the beginning of the next object.
+X *
+X *  Returns a pointer to the first byte past the end
+X *   of this object (i.e. the start of the next object).
+X *  Returns NULL on any error.
+X */
+Xu_char *
+Xasn_build_null(data, datalength, type)
+X    u_char	    *data;	    /* IN - pointer to start of object */
+X    int		    *datalength;    /* IN/OUT - number of valid bytes left in buffer */
+X    u_char	    type;	    /* IN - ASN type of object */
+X{
+X/*
+X * ASN.1 null ::= 0x05 0x00
+X */
+X    return asn_build_header(data, datalength, type, 0);
+X}
+X
+END_OF_FILE
+  if test 18366 -ne `wc -c <'nocol-3.0/src/cmu-snmp/snmplib/asn1.c.cmu'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/snmplib/asn1.c.cmu'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/snmplib/asn1.c.cmu'
+fi
+if test -f 'nocol-3.0/src/support/mping/m.dat' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/support/mping/m.dat'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/support/mping/m.dat'\" \(1541 characters\)
+  sed "s/^X//" >'nocol-3.0/src/support/mping/m.dat' <<'END_OF_FILE'
+X#
+X# Format:
+X#
+X# name	address	size[56],pattern[0],numToGet[1],retry[5],timeout[1000 m-sec]
+X#
+X#
+X#  size [default: 56]:		Decimal number giving the size of the ICMP
+X#				data portion of the packet.  The actual IP
+X#				packet will be at least 8 octets larger.
+X#
+X# pattern [default: 0x0]:	A hex number specifying a byte value to
+X#				initialize the ICMP data portion of the
+X#				packet.
+X#
+X# numToGet [default: 1]:	Number of return packets to require.
+X#
+X# retry [default: 5]:		Number of retries to make before declaring
+X#				a packet lost.  Note that if <numToGet> is
+X#				greater than 1, the retry limit applies to
+X#				each attempt.  That is if the first attempt
+X#				requires 4 tries before a successful return,
+X#				then next attempt will still make up to 5
+X#				tries.
+X#
+X# timeout [default: 1000]	Number of milliseconds to wait before
+X#				assuming packet lost and retrying.  The
+X#				default timeout is fine within an all
+X#				ethernet environment, but you need a longer
+X#				one for WAN links.
+X
+X#
+X# systems upstairs and on the 21 subnet
+X# (no router, no bridge)
+X#
+Xcupid		130.132.21.192	128,0,2
+X
+Xyalevm		130.132.1.4	128,0,2
+Xvenus		130.132.1.5	128,0,2
+X
+Xenvy		130.132.1.19	128,0,2
+Xcommons1-gw	130.132.1.29	128,0,2
+Xcommons2-gw	130.132.1.49	128,0,2
+Xcommons3-gw	130.132.1.53	128,0,2
+Xcommons4-gw	130.132.1.50	128,0,2
+Xcommons5-gw	130.132.1.51	128,0,2
+Xcommons6-gw	130.132.1.52	128,0,2
+Xcommons7-gw	130.132.1.75	128,0,2
+Xcommons8-gw	130.132.1.76	128,0,2
+Xcommons9-gw	130.132.1.77	128,0,2
+Xcommons10-gw	130.132.1.78	128,0,2
+X
+Xfoo.bar		130.132.1.199	128,0,2
+END_OF_FILE
+  if test 1541 -ne `wc -c <'nocol-3.0/src/support/mping/m.dat'`; then
+    echo shar: \"'nocol-3.0/src/support/mping/m.dat'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/support/mping/m.dat'
+fi
+if test -f 'nocol-3.0/src/trapmon/trapmon.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/trapmon/trapmon.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/trapmon/trapmon.c'\" \(15708 characters\)
+  sed "s/^X//" >'nocol-3.0/src/trapmon/trapmon.c' <<'END_OF_FILE'
+X/* $Header: /home/aggarwal/lsrc/nocol/src/trapmon/RCS/trapmon.c,v 2.3 1993/11/04 07:39:22 aggarwal Exp $ */
+X
+X/*
+X** DESCRIPTION
+X**	Listens for SNMP traps asynchronously and outputs information about
+X**	received traps in several possible formats.
+X**
+X**	For output to netmon, maintains a datafile with one EVENT per trap.
+X**	Appends new EVENTs to the end of the file.  Deletes EVENTs that are
+X**	more than 30 minutes old (by having two pointers running through the
+X**	file).
+X**
+X** Also see the DISCLAIMER file for important information.
+X*/
+X
+X/*
+X** AUTHOR
+X**	David Wagner, wagner@jvnc.net, June 9 1992
+X**	I changed the snmptrapd program from Carnegie Mellon University
+X**	See their disclaimer attached below
+X*/
+X
+X/*
+X *
+X * $Log: trapmon.c,v $
+X * Revision 2.3  1993/11/04  07:39:22  aggarwal
+X * Now shows type only for enterprise specific and also dumps
+X * out the contents of the trap packets.
+X *
+X * Revision 2.2  1993/10/30  03:31:13  aggarwal
+X * Tried to add the pdu->specific_type to the trapname.
+X *
+X * Revision 2.1  1993/09/21  19:50:27  aggarwal
+X * Added NOCOL logging.
+X *
+X * Revision 2.0  1992/06/18  21:24:17  aggarwal
+X * Had to send a pointer to the EVENT structure
+X *
+X * Revision 1.9  1992/06/12  00:51:12  aggarwal
+X * Added enterprise specific trap identifier in the trap description.
+X *
+X * Revision 1.8  1992/06/11  07:21:14  aggarwal
+X * Added 'usage' function.
+X *
+X * Revision 1.7  1992/06/11  06:44:51  aggarwal
+X * Modified for the new t_desc structure.
+X *
+X * Revision 1.6  1992/06/10  21:27:47  wagner
+X * Fixed the address and name fields of the event structure so that they
+X * behave as expected now.
+X *
+X * Revision 1.1  1992/06/10  14:23:16  wagner
+X * Initial revision
+X *
+X */
+X
+X/*
+X * snmptrapd.c - receive and log snmp traps
+X *
+X */
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X
+X/*  */
+X
+X#ifndef lint
+X static char rcsid[] = "$RCSfile: trapmon.c,v $ $Revision: 2.3 $ $Date: 1993/11/04 07:39:22 $" ;
+X#endif
+X
+X#include "trapmon.h"
+X
+Xchar *
+Xuptime_string(timeticks, buf)
+X    register u_long timeticks;
+X    char *buf;
+X{
+X    int	seconds, minutes, hours, days;
+X
+X    timeticks /= 100;
+X    days = timeticks / (60 * 60 * 24);
+X    timeticks %= (60 * 60 * 24);
+X
+X    hours = timeticks / (60 * 60);
+X    timeticks %= (60 * 60);
+X
+X    minutes = timeticks / 60;
+X    seconds = timeticks % 60;
+X
+X    if (days == 0)
+X	sprintf(buf, "%d:%02d:%02d", hours, minutes, seconds);
+X    else if (days == 1)
+X	sprintf(buf, "%d day, %d:%02d:%02d", days, hours, minutes, seconds);
+X    else
+X	sprintf(buf, "%d days, %d:%02d:%02d", days, hours, minutes, seconds);
+X
+X    return buf;
+X}
+X
+X/*
+X * Appends a new event to the end of the datafile. For an enterprise specific
+X * trap, it adds the 'specific_type' of the trap for identification.
+X */
+Xadd_event(addr, name, pdu)
+X    char *addr;					/* Address of trap sender */
+X    char *name;					/* Name of trap sender */
+X    struct snmp_pdu *pdu;			/* trap PDU */
+X{
+X    int fd;
+X    int trap = pdu->trap_type;			/* Trap number */
+X    struct tm *tm;
+X    time_t clock;
+X    EVENT v;
+X
+X    bzero((char *)&v, sizeof(v));
+X
+X    /*
+X     * In the following 'strncpy's, the null character at the end is
+X     * auto appended since to the bzero of the event struct and also
+X     * because we are doing a copy for 1 less than the size of the storage
+X     */
+X    strncpy(v.sender, progname, sizeof(v.sender) - 1);	/* Set sender */
+X    strncpy(v.site.addr, addr, sizeof(v.site.addr) -1);	/* From address */
+X    strncpy(v.site.name, name, sizeof(v.site.name) -1);
+X
+X    strncpy(v.var.name, trap_desc[trap].tname, sizeof(v.var.name) -1);
+X    if (trap == SNMP_TRAP_ENTERPRISESPECIFIC)	/* specific type */
+X    { 
+X	static char spdutype[16] ;		/* convert int to string */
+X	sprintf (spdutype, "/%d\0", pdu->specific_type) ;
+X	if ( (sizeof(v.var.name) - strlen(v.var.name)) > 5)
+X	  strncpy (v.var.name + strlen(v.var.name), spdutype, 4) ;
+X	else
+X	  strncpy (v.var.name + sizeof(v.var.name) - 5, spdutype, 4) ;
+X    }
+X
+X    v.var.value = 0;				/* No value field */
+X    v.var.threshold = 0;			/* No threshold field */
+X    v.var.units[0] = '\0';			/* No units field */
+X
+X    v.severity = trap_desc[trap].tseverity;	/* Set the severity level */
+X    v.nocop = SETF_UPDOUN (v.nocop, trap_desc[trap].nocop);
+X    v.loglevel = trap_desc[trap].loglevel ;	/* logging level */
+X
+X    clock = time(NULL);				/* Get the time of day... */
+X    tm = localtime(&clock);
+X    v.mon = tm->tm_mon + 1;			/* Don't forget to add 1! */
+X    v.day = tm->tm_mday;			/* Straightforward... */
+X    v.hour = tm->tm_hour;
+X    v.min = tm->tm_min;
+X
+X    eventlog(&v);				/* Log the event */
+X
+X    fd = open(datafname, O_WRONLY | O_APPEND);	/* Add the new EVENT */
+X    if (write(fd, &v, sizeof(v)) != sizeof(v)) {
+X	fprintf(stderr, "write() failed on %s\n", datafname);
+X	perror("addevent()");
+X
+X	closeeventlog();
+X	exit(1);
+X    }
+X    close(fd);
+X
+X    /* Store the time after which the trap event is to be deleted */
+X    die_at[numtraps++] = clock + TIME_TO_LIVE;	/* When to be reaped... */
+X
+X    if (options & O_DEBUG)
+X	printf("Added: sendr=%s sitenm=%s siteaddr=%s varnm=%s severity=%d mon=%d day=%d hr=%d min=%d die_at=%d\n",
+X	    v.sender, name, addr, v.var.name, v.severity, v.mon, v.day,
+X	    v.hour, v.min, die_at[numtraps - 1]);
+X}
+X
+X
+Xint process_trap(op, session, reqid, pdu, magic)
+X    int op;
+X    struct snmp_session *session;
+X    int reqid;
+X    struct snmp_pdu *pdu;
+X    void *magic;
+X{
+X    char varbuf[512] ;				/* For variable_list */
+X    char buf[64];				/* For uptime_string() */
+X    struct hostent *he;				/* For gethostbyaddr() */
+X    char *dotted;				/* For inet_ntoa() */
+X    char *nameptr;				/* Name of trap sender */
+X
+X    varbuf[0] = '\0';
+X    if (options & O_DEBUG)
+X	printf("Entered process_trap...\n");
+X
+X    if (op == RECEIVED_MESSAGE && pdu->command == TRP_REQ_MSG){
+X	he = gethostbyaddr(&(pdu->agent_addr.sin_addr),
+X	    sizeof(unsigned long), AF_INET);
+X	if (he == NULL)
+X	    nameptr = "Unknown";		/* Error getting host name */
+X	else
+X	    nameptr = he->h_name;		/* Name of trap sender */
+X	dotted = inet_ntoa(pdu->agent_addr.sin_addr);/* Addr of sender */
+X
+X	if (options & O_PRINT)			/* Log to stderr */
+X	    fprintf(stderr, "%s [%s]: %s Trap (%d) Uptime: %s %s\n",
+X		dotted,
+X		nameptr,
+X		trap_desc[pdu->trap_type].tname,
+X		pdu->specific_type,
+X		uptime_string(pdu->time, buf),
+X		trap_desc[pdu->trap_type].tseverity_str);
+X
+X	if (options & O_DEBUG)
+X	{
+X	    struct variable_list *vars;
+X	    char * pc = varbuf ;
+X
+X            for(vars = pdu->variables; vars ; vars = vars->next_variable)
+X	      switch (vars->type)
+X	      {
+X		  int c ;
+X	       case ASN_INTEGER:
+X		  sprintf (pc, "%d \0", *(vars->val.integer)) ;
+X		  pc += strlen(pc) ;
+X		  break ;
+X               case ASN_OCTET_STR:
+X		  for (c = 0 ; c < vars->val_len ; ++c)
+X		    *pc++ = *(vars->val.string + c) ;
+X		  *pc++ = ' ';
+X		  break ;
+X	       default:
+X		  sprintf (pc, "(Unprintable type %d) \0", vars->type) ;
+X		  pc += strlen(pc) ;
+X		  break ;
+X	      }
+X	    sprintf (pc, "\n\0") ;
+X	    printf ("%s", varbuf);
+X	}
+X
+X	if (options & O_LOG)			/* Log to syslog() */
+X	    syslog(LOG_WARNING, "%s [%s]: %s Trap (%d) Uptime: %s %s (%s)\n",
+X		dotted,
+X		nameptr,
+X		trap_desc[pdu->trap_type].tname,
+X		pdu->specific_type,
+X		uptime_string(pdu->time, buf),
+X		trap_desc[pdu->trap_type].tseverity_str,
+X	        varbuf);
+X
+X	if (options & O_NETMON)			/* Log EVENTs */
+X	    add_event(dotted,
+X	    nameptr,
+X	    pdu);
+X    } else if (op == TIMED_OUT) {		/* Not a trap! */
+X	fprintf(stderr, "Timeout: This shouldn't happen!\n");
+X	if (options & O_LOG)
+X	    syslog(LOG_WARNING, "Timeout: This shouldn't happen!\n");
+X    } /* end of if */
+X
+X    if (options & O_DEBUG) {
+X	printf("Done with process_trap.\n");
+X	fflush(stdout);
+X    }
+X}
+X
+X
+X/*+
+X** Strategy: I open the datafile twice, once read-only, and once write-only.
+X** Now I have two (independent) seek pointers for the single file.
+X** They then roam down the file, with the read pointer ahead of the
+X** write pointer.  Normally, the cycle is this:
+X**	(1) Read an EVENT with the read-only pointer, and advance it
+X**	(2) Write that EVENT with the write-only pointer, and advance it
+X** If, when reading an EVENT, we discover it needs to be reaped, then step (2)
+X** is not performed, i.e. only the read-pointer advances (and the write-pointer
+X** remains at the same location).
+X** There is one more detail, though.  After the whole file has been read and
+X** all the timed-out EVENTs have been reaped, the file must be truncated:
+X** it must be shortened by an amount proportional to the number of EVENTs
+X** reaped.
+X**
+X** The general loop, then, is this:
+X**	(1) Read an EVENT and advance the read-pointer.
+X**	(2) If this EVENT must be reaped, go to step 4.
+X**	(3) Otherwise, write the EVENT and advance the write-pointer.
+X**	(4) If end-of-file not reached yet, go back to 1.
+X**	(5) Truncate the file.
+X*/
+Xint reap_events(fname)
+X    char *fname;				/* Name of EVENT file */
+X{
+X    int rd;					/* Read-only pointer */
+X    int wr;					/* Write-only pointer */
+X    int i;					/* Read index into die_at[] */
+X    int j;					/* Write index into die_at[] */
+X    EVENT v;					/* EVENT buffer */
+X    time_t death_date;				/* die_at[] buffer */
+X    time_t clock;				/* Current time */
+X
+X    i = j = 0;
+X    clock = time(NULL);				/* Get the current time */
+X    if ((rd = open(fname, O_RDONLY)) < 0)	/* Init read pointer */
+X    {
+X	fprintf(stderr, "%s (reap_events): %s ", progname, fname) ;
+X	perror ("read open");
+X	if (options & O_LOG)
+X	  syslog(LOG_WARNING, "(reap_events) Couldn't ropen datafile %s\n",
+X		 fname);
+X
+X	closeeventlog();
+X	return (-1);
+X    }
+X    /* Init write pointer */
+X    if ((wr = open(fname, O_WRONLY, DATAFILE_MODE)) < 0)
+X    {
+X	fprintf(stderr, "%s (reap_events): %s ", progname, fname) ;
+X	perror ("write open");
+X	if (options & O_LOG)
+X	  syslog(LOG_WARNING, "(reap_events) Couldn't wopen datafile %s\n",
+X		 fname);
+X
+X	closeeventlog();
+X	return (-1);
+X    }	
+X
+X    if (options & O_DEBUG)
+X	printf("Entered reap_events() numtraps=%d clock=%d... ",
+X	    numtraps, clock);
+X
+X    while (read(rd, &v, sizeof(v)) == sizeof(v))/* Read EVENTs one by one */
+X	if ((death_date = die_at[i++]) > clock) {	/* Reap this EVENT? */
+X	    write(wr, &v, sizeof(v));		/* No - keep this EVENT */
+X	    die_at[j++] = death_date;
+X	    if (options & O_DEBUG)
+X		printf("kept, ");
+X	}
+X	else if (options & O_DEBUG)		/* Yes - reap this EVENT */
+X	    printf("reaped, ");
+X
+X    numtraps = j;
+X    ftruncate(wr, (off_t) j * sizeof(EVENT));	/* Shorten the file */
+X
+X    if (options & O_DEBUG)
+X	printf("truncated, ");
+X
+X    close(rd);					/* Done with read pointer */
+X    close(wr);					/* Done with write pointer */
+X
+X    if (options & O_DEBUG) {
+X	printf("Done.\n");
+X	fflush(stdout);
+X    }
+X}
+X
+Xusage()
+X{
+X    fprintf(stderr,
+X	    "Usage: %s [-v (verbose)] [-p (errors on stderr)] ",
+X	    progname);
+X    fprintf(stderr, "[-l (syslog output)] [-n (nocol output)]\n");
+X}
+X
+X
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    struct snmp_session session, *ss;
+X    int	arg;
+X    int ch;
+X    int count, numfds, block;
+X    fd_set fdset;
+X    struct timeval timeout;
+X
+X    options = 0;				/* Default: no logging */
+X    if ((progname = strrchr(argv[0], '/')) == NULL) /* Get the basename.. */
+X	progname = argv[0];			/* ..not the full path */
+X    else
+X	progname++;
+X
+X    /* Make filename for EVENT file */
+X    strcpy(datafname, DATADIR);
+X    strcat(datafname, "/");
+X    strcat(datafname, progname);
+X    strcat(datafname, OUTPUT_EXTENSION);
+X
+X    while ((ch = getopt(argc, argv, "plnv")) != EOF)
+X	switch(ch) {
+X	    case 'p':				/* Print to stderr */
+X		options |= O_PRINT; break;
+X	    case 'l':				/* Log to syslog() */
+X		options |= O_LOG; break;
+X	    case 'n':				/* Create EVENTs for netmon */
+X		options |= O_NETMON; break;
+X	    case 'd':				/* Print debugging output */
+X	    case 'v':				/* Print debugging output */
+X		options |= O_DEBUG; break;
+X	    case '?':				/* Unrecognized switch */
+X	    default:
+X		usage() ;
+X		exit (1);
+X	} /* end of switch and while */
+X
+X    if ((options & ~O_DEBUG) == 0) {		/* Gotta do something! */
+X	fprintf (stderr, "Reporting type not specified.\n");
+X	usage() ;
+X	exit (1);
+X    }
+X
+X    if (options & O_LOG)			/* Start up syslog() */
+X	init_syslog();
+X
+X    if (options & O_NETMON) {			/* Make an empty EVENT file */
+X	int fd;
+X
+X	if (options & O_DEBUG) 
+X	{
+X	    fprintf(stderr, 
+X		    "progname set to %s, datafname to %s.\n", 
+X		    progname, datafname);
+X	    fflush(stderr);
+X	}
+X
+X	unlink(datafname);
+X	fd = open(datafname, O_WRONLY | O_CREAT, DATAFILE_MODE);
+X	if (fd < 0) {
+X	    closeeventlog();
+X
+X	    fprintf(stderr, "open() failed on %s\n", datafname);
+X	    perror(progname);
+X	    exit(1);
+X	}
+X	close(fd);
+X	openeventlog();			/* Logging daemon */
+X    }	/* if nocol logging */
+X
+X    if (options & O_DEBUG)
+X	printf("options set to %d.\n", options);
+X
+X    bzero((char *)&session, sizeof(struct snmp_session));
+X    session.peername = NULL;
+X    session.community = NULL;
+X    session.community_len = 0;
+X    session.retries = SNMP_DEFAULT_RETRIES;
+X    session.timeout = SNMP_DEFAULT_TIMEOUT;
+X    session.authenticator = NULL;
+X    session.callback = process_trap;		/* Defined above... */
+X    session.callback_magic = NULL;
+X    session.local_port = SNMP_TRAP_PORT;
+X    ss = snmp_open(&session);
+X    if (ss == NULL) {				/* Couldn't do snmp_open() */
+X	fprintf(stderr, "Couldn't open snmp session.\n");
+X	if (options & O_LOG)			/* Tell syslog() */
+X	  syslog(LOG_WARNING, "Couldn't open snmp session.\n");
+X
+X	if (options & O_NETMON)
+X	  closeeventlog();
+X	exit (1);
+X    }
+X
+X    if (options & O_DEBUG)
+X	printf("SNMP session opened successfully.\n");
+X
+X    while (1) {					/* Main event-driven loop */
+X	if (options & O_NETMON)
+X	    reap_events(datafname);		/* Delete timed-out EVENTs */
+X	numfds = 0;				/* Reset the list of file.. */
+X	FD_ZERO(&fdset);			/* ..descriptors */
+X	block = 0;				/* Don't block */
+X	timeout.tv_sec = (long) SELECT_TIMEOUT;	/* Only select() for a while */
+X	timeout.tv_usec = (long) 0;
+X	snmp_select_info(&numfds, &fdset, &timeout, &block);
+X
+X	if (options & O_DEBUG)
+X	    fprintf(stderr, "snmp_select_info()... ");
+X
+X	count = select(numfds, &fdset, 0, 0, &timeout);
+X
+X	if (options & O_DEBUG)
+X	    fprintf(stderr, "select() == %d... ", count);
+X
+X	if (count > 0)
+X	    snmp_read(&fdset);
+X	else if (count == 0)
+X	    snmp_timeout();
+X	else if (errno != EINTR) {
+X	    perror("select");
+X	    if (options & O_LOG)
+X		syslog(LOG_WARNING, "fatal select() error\n");
+X
+X	    closeeventlog();
+X	    exit (1);
+X	} /* end of if */
+X
+X	if (options & O_DEBUG) {
+X	    fprintf(stderr, "Ok.\n");
+X	    fflush(stdout);
+X	}
+X    } /* end of while */
+X
+X  /* NOTREACHED */
+X}
+X
+X/*
+X * All messages will be logged to the local0 facility and will be sent to
+X * the console if syslog doesn't work.
+X */
+Xinit_syslog()
+X{
+X    openlog("trapmon", LOG_CONS, LOG_LOCAL0);
+X    syslog(LOG_INFO, "Starting trapmon\n");
+X}
+END_OF_FILE
+  if test 15708 -ne `wc -c <'nocol-3.0/src/trapmon/trapmon.c'`; then
+    echo shar: \"'nocol-3.0/src/trapmon/trapmon.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/trapmon/trapmon.c'
+fi
+echo shar: End of archive 15 \(of 26\).
+cp /dev/null ark15isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

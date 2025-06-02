@@ -1,0 +1,2313 @@
+Newsgroups: comp.sources.misc
+From: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Subject: v38i082:  lout - Lout document formatting system, v2.05, Part14/35
+Message-ID: <1993Aug10.032706.17135@sparky.sterling.com>
+X-Md4-Signature: 43915ad4b3147f619d5cf1c49d1d6426
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 10 Aug 1993 03:27:06 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Posting-number: Volume 38, Issue 82
+Archive-name: lout/part14
+Environment: UNIX
+Supersedes: lout: Volume 37, Issue 99-128
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  doc/tr.impl/s4.0 include/fig_prepend z19.c z25.c
+# Wrapped by kent@sparky on Sun Aug  8 12:29:25 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 14 (of 35)."'
+if test -f 'doc/tr.impl/s4.0' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/tr.impl/s4.0'\"
+else
+  echo shar: Extracting \"'doc/tr.impl/s4.0'\" \(4101 characters\)
+  sed "s/^X//" >'doc/tr.impl/s4.0' <<'END_OF_FILE'
+X@Section
+X    @Tag { functional }
+X    @Title { Implementation of the functional subset }
+X@Begin
+X@PP
+XThe objects and definitions of Lout are very similar to those found in
+Xother functional languages, and they form a natural subset of the
+Xlanguage.  So we pause here and present an overview of the Basser Lout
+Xobject evaluation algorithm.
+X@PP
+XThe problem is to take an unsized object (pure parse tree), its
+Xenvironment (Section {@NumberOf defs.impl}), and its style
+X(Section {@NumberOf style}), and to produce a PostScript file for
+Xrendering the object on an output device.  This file is essentially a
+Xsequence of instructions to print a given string of characters in a
+Xgiven font at a given point.
+X@PP
+XBefore the algorithm begins, the parse tree must be obtained, either by
+Xparsing input or by copying from the symbol table.  Afterwards the data
+Xstructure must be disposed.  The algorithm proper consists of five
+Xpasses, each a recursive traversal of the structure from the root down
+Xto the leaves and back.
+X@DP
+X@I {1.  Evaluation of unsized objects.}  On the way down, calculate
+Xenvironments and replace non-recursive, non-receptive symbols by their
+Xbodies (Section {@NumberOf defs.impl}); broadcast fonts to the leaves,
+Xand paragraph breaking and spacing styles to the paragraph nodes.  On the
+Xway back up, delete @Eq { FONT }, @Eq { BREAK }, and @Eq { SPACE } nodes,
+Xand insert @Eq { SPLIT }, @Eq { COL }, and @Eq { ROW } nodes
+X(Section {@NumberOf objects}).
+X@DP
+X@I {2.  Width calculations and breaking.}  Calculate the width of every
+Xsubobject from the bottom up.  As described in Section {@NumberOf objects},
+X@Eq { WIDE } nodes may trigger object breaking sub-traversals during this pass.
+X@DP
+X@I {3.  Height calculations.}  Calculate the height of every subobject,
+Xfrom the bottom up.
+X@DP
+X@I {4.  Horizontal coordinates.}  Calculate the horizontal coordinate of
+Xeach subobject from the top down, and store each leaf's coordinate in
+Xthe leaf.
+X@DP
+X@I {5.  Vertical coordinates and PostScript generation.}  Calculate the
+Xvertical coordinate of every subobject from the top down, and at each
+Xleaf, retrieve the character string, font, and horizontal coordinate,
+Xand print the PostScript instruction for rendering that leaf.
+X@DP
+XFigure {@NumberOf components} gives the amount of code required for each
+X
+X@Figure
+X    @Tag { components }
+X    @Caption { Major components of the Basser Lout interpreter, showing
+Xthe approximate number of lines of C code.  }
+X@Begin
+X@Tab
+X   vmargin { 0.5vx }
+X   @Fmta { @Col @RR A ! @Col B ! @Col @RR C }
+X   @Fmtb { @Col @RR A ! @Col B ! @Col     C }
+X{
+X   @Rowa A { 1. } B { Initialization } C { 200 }
+X   @Rowa A { 2. } B { Memory allocation, ordered dag operations } C { 400 }
+X   @Rowa A { 3. } B { Lexical analysis, macros, file handling } C { 1,350 }
+X   @Rowa A { 4. } B { Parsing of objects and definitions } C { 1,150 }
+X   @Rowa A { 5. } B { Symbol table and call graph } C { 600 }
+X   @Rowa A { 6. } B { Evaluation of pure parse trees } C { 1,650 }
+X   @Rowa A { 7. } B { Reading, storing, and scaling of fonts } C { 600 }
+X   @Rowa A { 8. } B { Cross references and databases } C { 1,000 }
+X   @Rowa A { 9. } B { Width and height calculations, and breaking } C { 700 }
+X   @Rowa A { 10. } B { @I Constrained and @I AdjustSize } C { 700 }
+X   @Rowa A { 11. } B { Transfer of sized objects into galley tree } C { 450 }
+X   @Rowa A { 12. } B { Galley flushing algorithm } C { 1,500 }
+X   @Rowa A { 13. } B { Coordinate calculations and PostScript output } C { 700 }
+X   @Rowa A { 14. } B { Debugging and error handling } C { 1,200 }
+X   @Rowb vmargin { 0.1c } C { @Line }
+X   @Rowa C { 12,200 }
+X}
+X@End @Figure
+X
+Xpass.  Symmetry between horizontal and vertical is exploited throughout
+XBasser Lout, and passes 2 and 3, as well as 4 and 5, are executed on
+Xshared code.
+X@PP
+XThe author can see no simple way to reduce the number of passes.  The
+Xintroduction of horizontal galleys (Section {@NumberOf horizontal})
+Xwould remove the need for the object breaking transformations within this
+Xalgorithm that are the principal obstacles in the way of the merging of
+Xpasses 2 and 3.
+X@End @Section
+END_OF_FILE
+  if test 4101 -ne `wc -c <'doc/tr.impl/s4.0'`; then
+    echo shar: \"'doc/tr.impl/s4.0'\" unpacked with wrong size!
+  fi
+  # end of 'doc/tr.impl/s4.0'
+fi
+if test -f 'include/fig_prepend' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'include/fig_prepend'\"
+else
+  echo shar: Extracting \"'include/fig_prepend'\" \(22299 characters\)
+  sed "s/^X//" >'include/fig_prepend' <<'END_OF_FILE'
+X%%BeginResource: procset LoutFigPrependGraphic
+X%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X%                                                                    %
+X%  PostScript @SysPrependGraphic file for @Fig  Jeffrey H. Kingston  %
+X%  Version 2.0 (includes CIRCUM label)                 January 1992  %
+X%                                                                    %
+X%  To assist in avoiding name clashes, the names of all symbols      %
+X%  defined here begin with "lfig".  However, this is not feasible    %
+X%  with user-defined labels and some labels used by users.           %
+X%                                                                    %
+X%  <point>      is two numbers, a point.                             %
+X%  <length>     is one number, a length                              %
+X%  <angle>      is one number, an angle in degrees                   %
+X%  <dashlength> is one number, the preferred length of a dash        %
+X%                                                                    %
+X%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X
+Xerrordict begin
+X   /handleerror
+X   {
+X      {  /Times-Roman findfont 8 pt scalefont setfont
+X	 0 setgray 4 pt 4 pt moveto
+X	 $error /errorname get
+X	 dup lfigdict exch known
+X	 { lfigdict exch get }
+X	 { 30 string cvs } ifelse
+X	 show
+X	 (  Command: ) show
+X	 $error /command get 30 string cvs show
+X      } stopped {} if
+X      showpage stop
+X   } def
+Xend
+X
+X% concat strings: <string> <string> lfigconcat <string>
+X% must be defined outside lfigdict since used in lfigpromotelabels
+X/lfigconcat
+X{ 2 copy length exch length add string
+X  dup 0 4 index putinterval
+X  dup 3 index length 3 index putinterval
+X  3 1 roll pop pop
+X} def
+X
+X% <string> lfigdebugprint -
+X% must be defined outside lfigdict since used in arbitrary places
+X% /lfigdebugprint
+X% { print
+X%   (;  operand stack:\n) print
+X%   count copy
+X%   count 2 idiv
+X%   { ==
+X%     (\n) print
+X%   } repeat
+X%   (\n) print
+X% } def
+X
+X/lfigdict 120 dict def
+Xlfigdict begin
+X
+X% error messages
+X/dictfull (dictfull error:  too many labels?) def
+X/dictstackoverflow (dictstackoverflow error:  labels nested too deeply?) def
+X/execstackoverflow (execstackoverflow error:  figure nested too deeply?) def
+X/limitcheck (limitcheck error:  figure nested too deeply or too large?) def
+X/syntaxerror (syntaxerror error:  syntax error in text of figure?) def
+X/typecheck (typecheck error:  syntax error in text of figure?) def
+X/undefined (undefined error:  unknown or misspelt label?) def
+X/VMError (VMError error:  run out of memory?) def
+X
+X% push pi onto stack:  - lfigpi <num>
+X/lfigpi 3.14159 def
+X
+X% arc directions
+X/clockwise     false def
+X/anticlockwise true  def
+X
+X% maximum of two numbers:  <num> <num> lfigmax <num>
+X/lfigmax { 2 copy gt { pop } { exch pop } ifelse } def
+X
+X% minimum of two numbers:  <num> <num> lfigmin <num>
+X/lfigmin { 2 copy lt { pop } { exch pop } ifelse } def
+X
+X% add two points:  <point> <point> lfigpadd <point>
+X/lfigpadd { exch 3 1 roll add 3 1 roll add exch } def
+X
+X% subtract first point from second:  <point> <point> lfigpsub <point>
+X/lfigpsub { 3 2 roll sub 3 1 roll exch sub exch } def
+X
+X% max two points:  <point> <point> lfigpmax <point>
+X/lfigpmax { exch 3 1 roll lfigmax 3 1 roll lfigmax exch } def
+X
+X% min two points:  <point> <point> lfigpmin <point>
+X/lfigpmin { exch 3 1 roll lfigmin 3 1 roll lfigmin exch } def
+X
+X% scalar multiplication: <point> <num> lfigpmul <point>
+X/lfigpmul { dup 3 1 roll mul 3 1 roll mul exch } def
+X
+X% point at angle and distance:  <point> <length> <angle> lfigatangle <point>
+X/lfigatangle { 2 copy cos mul 3 1 roll sin mul lfigpadd } def
+X
+X% angle from one point to another:  <point> <point> lfigangle <angle>
+X/lfigangle { lfigpsub 2 copy 0 eq exch 0 eq and {pop} {exch atan} ifelse } def
+X
+X% distance between two points:  <point> <point> lfigdistance <length>
+X/lfigdistance { lfigpsub dup mul exch dup mul add sqrt } def
+X
+X% difference in x coords: <point> <point> lfigxdistance <length>
+X/lfigxdistance { pop 3 1 roll pop sub } def
+X
+X%difference in y coords: <point> <point> lfigydistance <length>
+X/lfigydistance { 3 1 roll pop sub exch pop } def
+X
+X% stroke a solid line:  <length> <dashlength> lfigsolid -
+X/lfigsolid
+X{  pop pop [] 0 setdash stroke
+X} def
+X
+X% stroke a lfigdashed line:   <length> <dashlength> lfigdashed -
+X/lfigdashed
+X{  2 copy div 2 le 1 index 0 le or
+X   {  exch pop 1 pt lfigmax [ exch dup ] 0 setdash }
+X   {  dup [ exch 4 2 roll 2 copy div
+X      1 sub 2 div ceiling dup 4 1 roll
+X      1 add mul sub exch div ] 0 setdash
+X   } ifelse stroke
+X} def
+X
+X% stroke a lfigcdashed line:  <length> <dashlength> lfigcdashed -
+X/lfigcdashed
+X{  2 copy le 1 index 0 le or
+X   {  exch pop 1 pt lfigmax [ exch dup ] copy 0 get 2 div setdash }
+X   { dup [ 4 2 roll exch 2 copy exch div
+X     2 div ceiling div 1 index sub
+X     ] exch 2 div setdash
+X   } ifelse stroke
+X} def
+X
+X% stroke a dotted line:  <length> <dashlength> lfigdotted -
+X/lfigdotted
+X{  dup 0 le
+X   {  exch pop 1 pt lfigmax [ exch 0 exch ] 0 setdash }
+X   { 1 index exch div ceiling div
+X     [ 0 3 2 roll ] 0 setdash
+X   } ifelse stroke
+X} def
+X
+X% stroke a noline line:  <length> <dashlength> lfignoline -
+X/lfignoline
+X{ pop pop
+X} def
+X
+X% painting (i.e. filling): - lfigwhite - (etc.)
+X/lfigwhite   { 1.0  setgray fill } def
+X/lfiglight   { 0.95 setgray fill } def
+X/lfiggrey    { 0.9  setgray fill } def
+X/lfiggray    { 0.9  setgray fill } def
+X/lfigdark    { 0.7  setgray fill } def
+X/lfigblack   { 0.0  setgray fill } def
+X/lfignopaint {                   } def
+X
+X% line caps (and joins, not currently used)
+X/lfigbutt       0 def
+X/lfiground      1 def
+X/lfigprojecting 2 def
+X/lfigmiter      0 def
+X/lfigbevel      2 def
+X
+X% shape and labels of the @Box symbol
+X/lfigbox
+X{
+X   0     0     /SW  lfigpointdef
+X   xsize 0     /SE  lfigpointdef
+X   xsize ysize /NE  lfigpointdef
+X   0     ysize /NW  lfigpointdef
+X   SE 0.5 lfigpmul /S   lfigpointdef
+X   NW 0.5 lfigpmul /W   lfigpointdef
+X   W SE lfigpadd   /E   lfigpointdef
+X   S NW lfigpadd   /N   lfigpointdef
+X   NE 0.5 lfigpmul /CTR lfigpointdef
+X   [ CTR NE lfigpsub /lfigboxcircum cvx ] lfigcircumdef
+X   SW SE NE NW SW
+X} def
+X
+X% shape and labels of the @Square symbol
+X/lfigsquare
+X{
+X   xsize ysize 0.5 lfigpmul /CTR lfigpointdef
+X   CTR xsize xsize ysize ysize lfigpmax 0.5 lfigpmul lfigpadd /NE lfigpointdef
+X   CTR 0 0 CTR NE lfigdistance 135 lfigatangle lfigpadd /NW lfigpointdef
+X   CTR 0 0 CTR NE lfigdistance 225 lfigatangle lfigpadd /SW lfigpointdef
+X   CTR 0 0 CTR NE lfigdistance 315 lfigatangle lfigpadd /SE lfigpointdef
+X   SW 0.5 lfigpmul SE 0.5 lfigpmul lfigpadd /S lfigpointdef
+X   NW 0.5 lfigpmul NE 0.5 lfigpmul lfigpadd /N lfigpointdef
+X   SW 0.5 lfigpmul NW 0.5 lfigpmul lfigpadd /W lfigpointdef
+X   SE 0.5 lfigpmul NE 0.5 lfigpmul lfigpadd /E lfigpointdef
+X   [ CTR NE lfigpsub /lfigboxcircum cvx ] lfigcircumdef
+X   SW SE NE NW SW
+X} def
+X
+X% shape and labels of the @Diamond symbol
+X/lfigdiamond
+X{
+X   xsize 0 0.5 lfigpmul /S   lfigpointdef
+X   0 ysize 0.5 lfigpmul /W   lfigpointdef
+X   S W         lfigpadd /CTR lfigpointdef
+X   CTR W       lfigpadd /N   lfigpointdef
+X   CTR S       lfigpadd /E   lfigpointdef
+X   [ xsize ysize 0.5 lfigpmul /lfigdiamondcircum cvx ] lfigcircumdef
+X   S E N W S
+X} def
+X
+X% shape and labels of the @Ellipse symbol
+X/lfigellipse
+X{
+X   xsize 0 0.5 lfigpmul /S   lfigpointdef
+X   0 ysize 0.5 lfigpmul /W   lfigpointdef
+X   S W         lfigpadd /CTR lfigpointdef
+X   CTR W       lfigpadd /N   lfigpointdef
+X   CTR S       lfigpadd /E   lfigpointdef
+X   CTR xsize 0 0.3536 lfigpmul lfigpadd 0 ysize 0.3536 lfigpmul lfigpadd /NE lfigpointdef
+X   0 ysize 0.3536 lfigpmul CTR xsize 0 0.3536 lfigpmul lfigpadd lfigpsub /SE lfigpointdef
+X   xsize 0 0.3536 lfigpmul CTR lfigpsub 0 ysize 0.3536 lfigpmul lfigpadd /NW lfigpointdef
+X   0 ysize 0.3536 lfigpmul xsize 0 0.3536 lfigpmul CTR lfigpsub lfigpsub /SW lfigpointdef
+X   [ xsize ysize 0.5 lfigpmul /lfigellipsecircum cvx ] lfigcircumdef
+X   S [ CTR ] E [ CTR ] N [ CTR ] W [ CTR ] S
+X} def
+X
+X% shape and labels of the @Circle symbol
+X/lfigcircle
+X{
+X   xsize ysize 0.5 lfigpmul /CTR lfigpointdef
+X   CTR xsize 0 ysize 0 lfigpmax 0.5 lfigpmul lfigpadd /E lfigpointdef
+X   CTR 0 0 CTR E lfigdistance 45 lfigatangle lfigpadd /NE lfigpointdef
+X   CTR 0 0 CTR E lfigdistance 90 lfigatangle lfigpadd /N lfigpointdef
+X   CTR 0 0 CTR E lfigdistance 135 lfigatangle lfigpadd /NW lfigpointdef
+X   CTR 0 0 CTR E lfigdistance 180 lfigatangle lfigpadd /W lfigpointdef
+X   CTR 0 0 CTR E lfigdistance 225 lfigatangle lfigpadd /SW lfigpointdef
+X   CTR 0 0 CTR E lfigdistance 270 lfigatangle lfigpadd /S lfigpointdef
+X   CTR 0 0 CTR E lfigdistance 315 lfigatangle lfigpadd /SE lfigpointdef
+X   [ S E lfigpsub /lfigellipsecircum cvx ] lfigcircumdef
+X   S [ CTR ] E [ CTR ] N [ CTR ] W [ CTR ] S
+X} def
+X
+X% shape and labels of the @HLine and @HArrow symbols
+X/lfighline
+X{
+X   0 ymark lfigprevious /FROM lfigpointdef
+X   xsize ymark lfigprevious /TO lfigpointdef
+X} def
+X
+X% shape and labels of the @VLine and @VArrow symbols
+X/lfigvline
+X{
+X   xmark ysize lfigprevious /FROM lfigpointdef
+X   xmark 0 lfigprevious /TO lfigpointdef
+X} def
+X
+X% points of a polygon around base with given no of sides, vert init angle:
+X% <sides> <angle> figpolygon <point> ... <point>
+X/lfigpolygon
+X{  xsize ysize 0.5 lfigpmul /CTR lfigpointdef
+X   90 sub CTR 2 copy lfigmax 5 3 roll
+X   [ 4 copy pop /lfigpolycircum cvx ] lfigcircumdef
+X   exch dup 360 exch div exch
+X   1 1  3 2 roll
+X   {  4 string cvs (P) exch lfigconcat cvn
+X      6 copy pop pop lfigatangle 2 copy 10 2 roll
+X      3 2 roll lfigpointdef
+X      dup 3 1 roll add exch
+X   }  for
+X   pop lfigatangle
+X} def
+X
+X% next array element:  <array> <index> lfiggetnext <array> <index> <any> true
+X%                                               or <array> <index> false
+X/lfiggetnext
+X{  2 copy exch length ge
+X   { false }
+X   { 2 copy get exch 1 add exch true } ifelse
+X} def
+X
+X% check whether thing is number:  <any> lfigisnumbertype <any> <bool>
+X/lfigisnumbertype
+X{  dup type dup
+X   /integertype eq exch /realtype eq or
+X} def
+X
+X% check whether thing is an array:  <any> lfigisarraytype <any> <bool>
+X/lfigisarraytype { dup type /arraytype eq } def
+X
+X% get next item:  <array> <index> lfiggetnextitem <array> <index> 0
+X%                                              or <array> <index> <array> 1
+X%                                              or <array> <index> <point> 2
+X/lfiggetnextitem
+X{   lfiggetnext
+X    {	lfigisarraytype
+X	{   1
+X	}
+X	{   lfigisnumbertype
+X	    {	3 1 roll
+X		lfiggetnext
+X		{   lfigisnumbertype
+X		    {	4 3 roll exch  2
+X		    }
+X		    {	pop 3 2 roll pop  0
+X		    } ifelse
+X		}
+X		{   3 2 roll pop  0
+X		} ifelse
+X	    }
+X	    {	pop 0
+X	    } ifelse
+X	} ifelse
+X    }
+X    {	0
+X    } ifelse
+X} def
+X
+X% set arc path:  bool x1 y1  x2 y2  x0 y0  lfigsetarc  <angle> <angle> <dist>
+X% the path goes from x1 y1 to x2 y2 about centre x0 y0,
+X% anticlockwise if bool is true else clockwise.
+X% The orientations of backwards pointing and forwards pointing
+X% arrowheads are returned in the two angles, and
+X% the length of the arc is returned in <dist>.
+X/lfigsetarc
+X{
+X  20 dict begin
+X     matrix currentmatrix 8 1 roll
+X     2 copy translate 2 copy 8 2 roll
+X     4 2 roll lfigpsub 6 2 roll lfigpsub
+X     dup /y1 exch def dup mul /y1s exch def
+X     dup /x1 exch def dup mul /x1s exch def
+X     dup /y2 exch def dup mul /y2s exch def
+X     dup /x2 exch def dup mul /x2s exch def
+X
+X     y1s y2s eq
+X     {	-1
+X     }
+X     {	y1s x2s mul y2s x1s mul sub y1s y2s sub div
+X     } ifelse
+X     /da exch def
+X
+X     x1s x2s eq
+X     {	-1
+X     }
+X     {	x1s y2s mul x2s y1s mul sub x1s x2s sub div
+X     } ifelse
+X     /db exch def
+X
+X     da 0 gt db 0 gt and
+X     {	/LMax da sqrt db sqrt lfigmax def
+X	/scalex da sqrt LMax div def
+X	/scaley db sqrt LMax div def
+X	scalex scaley scale
+X	0 0 LMax
+X	0 0 x1 scalex mul y1 scaley mul lfigangle
+X	0 0 x2 scalex mul y2 scaley mul lfigangle
+X	2 copy eq { 360 add } if
+X	2 copy 8 2 roll
+X	5 index { arc } { arcn } ifelse
+X	2 index 1 index
+X	{ 90 sub } { 90 add } ifelse
+X	dup sin scaley mul exch cos scalex mul atan
+X	2 index 2 index
+X	{ 90 add } { 90 sub } ifelse
+X	dup sin scaley mul exch cos scalex mul atan
+X	5 2 roll  % res1 res2 ang1 ang2 anticlockwise
+X	{ exch sub } { sub } ifelse
+X	dup 0 le { 360 add } if  lfigpi mul LMax mul 180 div
+X     }
+X     {	0 0 x1 y1 lfigdistance 0 0 x2 y2 lfigdistance eq
+X	0 0 x1 y1 lfigdistance 0 gt and
+X	{	0 0
+X		0 0 x1 y1 lfigdistance
+X		0 0 x1 y1 lfigangle
+X		0 0 x2 y2 lfigangle
+X		2 copy eq { 360 add } if
+X		2 copy 8 2 roll
+X		5 index { arc } { arcn } ifelse
+X		2 index 1 index
+X		{ 90 sub } { 90 add } ifelse
+X		2 index 2 index
+X		{ 90 add } { 90 sub } ifelse
+X		5 2 roll % res1 res2 ang1 ang2 clockwise
+X		{ exch sub } { sub } ifelse
+X		dup 0 le { 360 add } if lfigpi mul 0 0 x1 y1 lfigdistance mul 180 div
+X	}
+X	{	x2 y2 lineto pop
+X		x2 y2 x1 y1 lfigangle
+X		x1 y1 x2 y2 lfigangle
+X		x1 y1 x2 y2 lfigdistance
+X	} ifelse
+X     } ifelse
+X     4 -1 roll setmatrix
+X   end
+X} def
+X
+X% lfigsetcurve: set up a Bezier curve from x0 y0 to x3 y3
+X% and return arrowhead angles and length of curve (actually 0)
+X% x0 y0 x1 y1 x2 y2 x3 y3 lfigsetcurve <angle> <angle> <length>
+X/lfigsetcurve
+X{ 8 copy curveto pop pop
+X  lfigangle
+X  5 1 roll
+X  4 2 roll lfigangle
+X  exch
+X  0
+X} def
+X
+X% lfigpaintpath: paint a path of the given shape
+X% /paint [ shape ] lfigpaintpath -
+X/lfigpaintpath
+X{
+X  10 dict begin
+X    0 newpath
+X    /prevseen false def
+X    /curveseen false def
+X    { lfiggetnextitem
+X      dup 0 eq { pop exit }
+X      { 1 eq
+X        { /curveseen true def
+X	  /curve exch def
+X	  curve length 0 eq { /curveseen false def } if
+X        }
+X        { /ycurr exch def
+X	  /xcurr exch def
+X	  prevseen
+X	  { curveseen
+X	    { curve length 4 eq
+X	      { xprev yprev
+X		curve 0 get curve 1 get
+X		curve 2 get curve 3 get
+X		xcurr ycurr
+X		lfigsetcurve pop pop pop
+X	      }
+X	      { xprev yprev xcurr ycurr
+X	        curve length 1 ge { curve 0 get } { 0 } ifelse
+X	        curve length 2 ge { curve 1 get } { 0 } ifelse
+X	        curve length 3 ge { curve 2 get } { true } ifelse
+X	        7 1 roll
+X	        lfigsetarc pop pop pop
+X	      } ifelse
+X	    }
+X	    { xcurr ycurr lineto
+X	    } ifelse
+X	  }
+X	  { xcurr ycurr moveto
+X	  } ifelse
+X	  /xprev xcurr def
+X	  /yprev ycurr def
+X	  /prevseen true def
+X	  /curveseen false def
+X        } ifelse
+X      } ifelse
+X    } loop pop pop cvx exec
+X  end
+X} def
+X
+X% stroke a path of the given shape in the given linestyle and dash length.
+X% Return the origin and angle of the backward and forward arrow heads.
+X% dashlength /linestyle [shape] lfigdopath  [<point> <angle>] [<point> <angle>] 
+X/lfigdopath
+X{
+X  10 dict begin
+X    0
+X    /prevseen  false def
+X    /curveseen false def
+X    /backarrow []    def
+X    /fwdarrow  []    def
+X    {
+X	lfiggetnextitem
+X	dup 0 eq { pop exit }
+X	{
+X	    1 eq
+X	    {	/curveseen true def
+X		/curve exch def
+X		curve length 0 eq { /prevseen false def } if
+X	    }
+X	    {	/ycurr exch def
+X		/xcurr exch def
+X		prevseen
+X		{   newpath xprev yprev moveto
+X		    curveseen
+X		    {	curve length 4 eq
+X			{   xprev yprev
+X			    curve 0 get curve 1 get
+X			    curve 2 get curve 3 get
+X			    xcurr ycurr lfigsetcurve
+X			}
+X			{   xprev yprev xcurr ycurr
+X			    curve length 1 ge { curve 0 get } { 0 } ifelse
+X			    curve length 2 ge { curve 1 get } { 0 } ifelse
+X			    curve length 3 ge { curve 2 get } { true } ifelse
+X			    7 1 roll
+X			    lfigsetarc
+X			} ifelse
+X		    }
+X		    {	xcurr ycurr lineto
+X			xcurr ycurr xprev yprev lfigangle dup 180 sub
+X			xprev yprev xcurr ycurr lfigdistance
+X		    } ifelse
+X		    6 index 6 index cvx exec
+X		    [ xprev yprev 5 -1 roll ]
+X		    backarrow length 0 eq
+X		    { /backarrow exch def }
+X		    { pop } ifelse
+X		    [ xcurr ycurr 4 -1 roll ] /fwdarrow exch def
+X		} if
+X		/xprev xcurr def
+X		/yprev ycurr def
+X		/prevseen true def
+X		/curveseen false def
+X	    } ifelse
+X	} ifelse
+X    } loop
+X    pop pop pop pop
+X    backarrow length 0 eq { [ 0 0 0 ] } { backarrow } ifelse
+X    fwdarrow  length 0 eq { [ 0 0 0 ] } { fwdarrow  } ifelse
+X  end
+X} def
+X
+X% lfigdoarrow: draw an arrow head of given form
+X% dashlength /lstyle /pstyle hfrac height width [ <point> <angle> ] lfigdoarrow -
+X/lfigdoarrow
+X{  matrix currentmatrix 8 1 roll
+X   dup 0 get 1 index 1 get translate
+X   2 get rotate
+X   [ 2 index neg 2 index 0 0
+X     3 index 3 index neg
+X     1 index 10 index mul 0
+X     7 index 7 index ]
+X   4 1 roll pop pop pop
+X   dup 3 1 roll
+X   gsave lfigpaintpath grestore lfigdopath pop pop
+X   setmatrix
+X} def
+X
+X% arrow head styles
+X/lfigopen     0.0 def
+X/lfighalfopen 0.5 def
+X/lfigclosed   1.0 def
+X
+X% stroke no arrows, forward, back, and both
+X/lfignoarrow { pop pop pop pop pop pop pop pop                        } def
+X/lfigforward { 7 -1 roll lfigdoarrow pop                              } def
+X/lfigback    { 8 -2 roll pop lfigdoarrow                              } def
+X/lfigboth    { 8 -1 roll 7 copy lfigdoarrow pop 7 -1 roll lfigdoarrow } def
+X
+X% lfigprevious: return previous point on path
+X/lfigprevious
+X{ lfigisnumbertype
+X  { 2 copy }
+X  { lfigisarraytype
+X    { 2 index 2 index }
+X    { 0 0 }
+X    ifelse
+X  } ifelse
+X} def
+X
+X% label a point in 2nd top dictionary:  <point> /name lfigpointdef -
+X/lfigpointdef
+X{
+X  % (Entering lfigpointdef) lfigdebugprint
+X  [ 4 2 roll transform
+X    /itransform cvx ] cvx
+X    currentdict end
+X    3 1 roll
+X    % currentdict length currentdict maxlength lt
+X    % { def }
+X    % { exec moveto (too many labels) show stop }
+X    % ifelse
+X    def
+X    begin
+X  % (Leaving lfigpointdef) lfigdebugprint
+X} def
+X
+X% promote labels from second top to third top dictionary
+X% <string> lfigpromotelabels -
+X/lfigpromotelabels
+X{
+X  % (Entering lfigpromotelabels) lfigdebugprint
+X  currentdict end exch currentdict end
+X  { exch 20 string cvs 2 index
+X    (@) lfigconcat exch lfigconcat cvn exch def
+X  } forall pop begin
+X  % (Leaving lfigpromotelabels) lfigdebugprint
+X} def
+X
+X% show labels (except CIRCUM): - lfigshowlabels -
+X/lfigshowlabels
+X{
+X  % (Entering lfigshowlabels) lfigdebugprint
+X  currentdict end
+X    currentdict
+X    { 1 index 20 string cvs (CIRCUM) search % if CIRCUM in key
+X      { pop pop pop pop pop }
+X      { pop cvx exec 2 copy
+X        newpath 1.5 pt 0 360 arc
+X        0 setgray fill
+X        /Times-Roman findfont 8 pt scalefont setfont
+X        moveto 0.2 cm 0.1 cm rmoveto 20 string cvs show
+X      }
+X      ifelse
+X    } forall
+X  begin
+X  % (Leaving lfigshowlabels) lfigdebugprint
+X} def
+X
+X% fix an angle to between 0 and 360 degrees:  <angle> lfigfixangle <angle>
+X/lfigfixangle
+X{
+X  % (Entering lfigfixangle) lfigdebugprint
+X  { dup 0 ge { exit } if
+X    360 add
+X  } loop
+X  { dup 360 lt { exit } if
+X    360 sub
+X  } loop
+X  % (Leaving lfigfixangle) lfigdebugprint
+X} def
+X
+X% find point on circumference of box:  alpha a b lfigboxcircum x y
+X/lfigboxcircum
+X{
+X  % (Entering lfigboxcircum) lfigdebugprint
+X  4 dict begin
+X    /b exch def
+X    /a exch def
+X    lfigfixangle /alpha exch def
+X    0 0 a b lfigangle /theta exch def
+X
+X    % if alpha <= theta, return (a, a*tan(alpha))
+X    alpha theta le
+X    { a  a alpha sin mul alpha cos div }
+X    {
+X      % else if alpha <= 180 - theta, return (b*cot(alpha), b)
+X      alpha 180 theta sub le
+X      { b alpha cos mul alpha sin div  b }
+X      {
+X        % else if alpha <= 180 + theta, return (-a, -a*tan(alpha))
+X        alpha 180 theta add le
+X        { a neg  a neg alpha sin mul alpha cos div }
+X        {
+X	  % else if alpha <= 360 - theta, return (-b*cot(alpha), -b)
+X	  alpha 360 theta sub le
+X          { b neg alpha cos mul alpha sin div  b neg }
+X	  {
+X	    % else 360 - theta <= alpha, return (a, a*tan(alpha))
+X	    a  a alpha sin mul alpha cos div
+X	  } ifelse
+X        } ifelse
+X      } ifelse
+X    } ifelse
+X  end
+X  % (Leaving lfigboxcircum) lfigdebugprint
+X} def
+X
+X% find point on circumference of diamond:  alpha a b lfigdiamondcircum x y
+X/lfigdiamondcircum
+X{
+X  % (Entering lfigdiamondcircum) lfigdebugprint
+X  4 dict begin
+X    /b exch def
+X    /a exch def
+X    lfigfixangle /alpha exch def
+X    b alpha cos abs mul  a alpha sin abs mul  add  /denom exch def
+X    a b mul alpha cos mul denom div
+X    a b mul alpha sin mul denom div
+X  end
+X  % (Leaving lfigdiamondcircum) lfigdebugprint
+X} def
+X
+X% find point on circumference of ellipse:  alpha a b lfigellipsecircum x y
+X/lfigellipsecircum
+X{
+X  % (Entering lfigellipsecircum) lfigdebugprint
+X  4 dict begin
+X    /b exch def
+X    /a exch def
+X    lfigfixangle /alpha exch def
+X    b alpha cos mul dup mul  a alpha sin mul dup mul  add sqrt /denom exch def
+X    a b mul alpha cos mul denom div
+X    a b mul alpha sin mul denom div
+X  end
+X  % (Leaving lfigellipsecircum) lfigdebugprint
+X} def
+X
+X% find point of intersection of two lines each defined by two points
+X% x1 y1 x2 y2  x3 y3 x4 y4  lfiglineintersect x y
+X/lfiglineintersect
+X{
+X  % (Entering lfiglineintersect) lfigdebugprint
+X  13 dict begin
+X    /y4 exch def
+X    /x4 exch def
+X    /y3 exch def
+X    /x3 exch def
+X    /y2 exch def
+X    /x2 exch def
+X    /y1 exch def
+X    /x1 exch def
+X    x2 x1 sub /x21 exch def
+X    x4 x3 sub /x43 exch def
+X    y2 y1 sub /y21 exch def
+X    y4 y3 sub /y43 exch def
+X    y21 x43 mul y43 x21 mul sub /det exch def
+X  
+X    % calculate x 
+X    y21 x43 mul x1 mul
+X    y43 x21 mul x3 mul sub
+X    y3 y1 sub x21 mul x43 mul add
+X    det div
+X
+X    % calculate y
+X    x21 y43 mul y1 mul
+X    x43 y21 mul y3 mul sub
+X    x3 x1 sub y21 mul y43 mul add
+X    det neg div
+X
+X  end
+X  % (Leaving lfiglineintersect) lfigdebugprint
+X} def
+X
+X% find point on circumference of polygon
+X% alpha radius num theta lfigpolycircum x y
+X/lfigpolycircum
+X{
+X  % (Entering lfigpolycircum) lfigdebugprint
+X  13 dict begin
+X    /theta exch def
+X    /num exch def
+X    /radius exch def
+X    /alpha exch def
+X
+X    % calculate delta, the angle from theta to alpha
+X    alpha theta sub lfigfixangle
+X
+X    % calculate the angle which is the multiple of 360/num closest to delta
+X    360 num div div truncate 360 num div mul theta add /anglea exch def
+X
+X    % calculate the next multiple of 360/num after anglea
+X    anglea 360 num div add /angleb exch def
+X
+X    % intersect the line through these two points with the alpha line
+X    anglea cos anglea sin  angleb cos angleb sin
+X    0 0  alpha cos 2 mul alpha sin 2 mul
+X    lfiglineintersect radius lfigpmul
+X
+X  end
+X  % (Leaving lfigpolycircum) lfigdebugprint
+X} def
+X
+X% add CIRCUM operator with this body:  <array> lfigcircumdef -
+X/lfigcircumdef
+X{   % (Entering lfigcircumdef) lfigdebugprint
+X    /CIRCUM exch cvx
+X    currentdict end
+X    3 1 roll
+X    % currentdict length currentdict maxlength lt
+X    % { def }
+X    % { exec moveto (too many labels) show stop }
+X    % ifelse
+X    def
+X    begin
+X    % (Leaving lfigcircumdef) lfigdebugprint
+X} def
+X
+Xend
+X%%EndResource
+END_OF_FILE
+  if test 22299 -ne `wc -c <'include/fig_prepend'`; then
+    echo shar: \"'include/fig_prepend'\" unpacked with wrong size!
+  fi
+  # end of 'include/fig_prepend'
+fi
+if test -f 'z19.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'z19.c'\"
+else
+  echo shar: Extracting \"'z19.c'\" \(22103 characters\)
+  sed "s/^X//" >'z19.c' <<'END_OF_FILE'
+X/*@z19.c:Galley Attaching:DetachGalley()@*************************************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.05)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z19.c                                                      */
+X/*  MODULE:       Galley Attaching                                           */
+X/*  EXTERNS:      SearchGalley(), AttachGalley(), DetachGalley()             */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  DetachGalley(hd)                                                         */
+X/*                                                                           */
+X/*  Detach galley hd from its target.                                        */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XDetachGalley(hd)
+XOBJECT hd;
+X{ OBJECT prnt, index;
+X  debug1(DGA, D, "DetachGalley( %s )", EchoObject(hd));
+X  assert( type(hd) == HEAD && Up(hd) != hd, "DetachGalley: precondition!" );
+X  Parent(prnt, Up(hd));
+X  assert( Up(prnt) != prnt, "DetachGalley: parent!" );
+X  index = New(UNATTACHED);
+X  MoveLink(Up(hd), index, PARENT);
+X  Link(NextDown(Up(prnt)), index);
+X  debug0(DGA, D, "DetachGalley returning.");
+X} /* end DetachGalley */
+X
+X
+X/*@::SearchGalley()@**********************************************************/
+X/*                                                                           */
+X/*  OBJECT SearchGalley(start, sym, forwards, subgalleys, closures, input)   */
+X/*                                                                           */
+X/*  Search a galley and its sub-galleys for a target which uses sym.  The    */
+X/*  meanings of the flags are as follows:                                    */
+X/*                                                                           */
+X/*    forwards     If TRUE, search forwards from just after start, else      */
+X/*                 search backwards from just before start                   */
+X/*    subgalleys   If TRUE, search down into sub-galleys of this galley      */
+X/*    closures     If TRUE, closures in this galley are acceptable results   */
+X/*    input        If TRUE, InputSym is an acceptable result                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT SearchGalley(start, sym, forwards, subgalleys, closures, input)
+XOBJECT start, sym;  BOOLEAN forwards, subgalleys, closures, input;
+X{ OBJECT y, res, z, zlink, link;
+X  debug5(DGA, D, "[SearchGalley( start, %s, %s, %s, %s, %s )", SymName(sym),
+X	forwards ? "fwd" : "back", subgalleys ? "subgalleys" : "nosubgalleys",
+X	closures ? "closures" : "noclosures", input ? "input" : "noinput");
+X  assert( type(start) == LINK || type(start) == HEAD, "SearchGalley: start!" );
+X
+X  link = forwards ? NextDown(start) : PrevDown(start);
+X  res = nil;
+X  while( res == nil && type(link) != HEAD )
+X  { Child(y, link);
+X    debug1(DGA, DD, "  examining %s", EchoObject(y));
+X    switch( type(y) )
+X    {
+X      case UNATTACHED:
+X      case RECEIVING:
+X	
+X	if( subgalleys )
+X	for( zlink = Down(y); zlink!=y && res==nil;  zlink = NextDown(zlink) )
+X	{ Child(z, zlink);
+X	  res = SearchGalley(z, sym, TRUE, TRUE, TRUE, input);
+X	}
+X	if( !res && input && type(y)==RECEIVING && actual(actual(y))==InputSym )
+X	  res = y;
+X	break;
+X
+X
+X      case RECEPTIVE:
+X	
+X	if( closures && type(actual(y)) == CLOSURE
+X		     && SearchUses(actual(actual(y)), sym) )  res = y;
+X	else if( input && actual(actual(y)) == InputSym )  res = y;
+X	break;
+X
+X
+X      default:
+X	
+X	break;
+X
+X    }
+X    link = forwards ? NextDown(link) : PrevDown(link);
+X  }
+X  debug1(DGA, D, "]SearchGalley returning %s", EchoObject(res));
+X  return res;
+X} /* end SearchGalley */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  AttachGalley(hd, inners)                                                 */
+X/*                                                                           */
+X/*  Attach galley hd, which may be unsized, to a destination.  This involves */
+X/*  searching for a destination forward or back from the attachment point of */
+X/*  hd and promoting up to and including the first definite component of hd. */
+X/*                                                                           */
+X/*  Although AttachGalley never flushes any galleys, it may identify some    */
+X/*  galleys which should be flushed, even if the attach is itself not        */
+X/*  successful.  These are returned in *inners, or nil if none.              */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XAttachGalley(hd, inners)
+XOBJECT hd, *inners;
+X{ OBJECT index;			/* the index of hd in the enclosing galley   */
+X  OBJECT hd_inners;		/* inner galleys of hd, if unsized           */
+X  OBJECT dest;			/* the target @Galley hd empties into        */
+X  OBJECT dest_index;		/* the index of dest                         */
+X  OBJECT target;		/* the target indefinite containing dest     */
+X  OBJECT target_index;		/* the index of target                       */
+X  OBJECT target_galley;		/* the body of target, made into a galley    */
+X  OBJECT tg_inners;		/* inner galleys of target_galley            */
+X  BOOLEAN need_precedes;	/* true if destination lies before galley    */
+X  OBJECT recs;			/* list of recursive definite objects        */
+X  OBJECT link, y;		/* for scanning through the components of hd */
+X  CONSTRAINT c;			/* temporary variable holding a constraint   */
+X  OBJECT env, n1, tmp, zlink, z, sym;	/* placeholders and temporaries	     */
+X  BOOLEAN was_sized;		/* true if sized(hd) initially               */
+X
+X  debug2(DGA, D, "[AttachGalley(Galley %s into %s)",
+X	SymName(actual(hd)), SymName(whereto(hd)));
+X  ifdebug(DGA, DD, DebugObject(hd));
+X  assert( Up(hd) != hd, "AttachGalley: no index!" );
+X  Parent(index, Up(hd));
+X  assert( type(index) == UNATTACHED, "AttachGalley: not UNATTACHED!" );
+X  *inners = hd_inners = tg_inners = nil;
+X  was_sized = sized(hd);
+X
+X  for(;;)
+X  {
+X    /*************************************************************************/
+X    /*                                                                       */
+X    /*  Search for a destination for hd.  If hd is unsized, search for       */
+X    /*  inner galleys preceding it first of all, then for receptive objects  */
+X    /*  following it, possibly in inner galleys.  If no luck, exit.          */
+X    /*  If hd is sized, search only for receptive objects in the current     */
+X    /*  galley below the current spot, and fail if cannot find any.          */
+X    /*                                                                       */
+X    /*************************************************************************/
+X
+X    sym = whereto(hd);
+X    if( sized(hd) )
+X    {
+X      /* sized galley case: search on from current spot */
+X      target_index = SearchGalley(Up(index), sym, TRUE, FALSE, TRUE, TRUE);
+X      if( target_index == nil )
+X      {	
+X	/* search failed to find any new target, so kill the galley */
+X	for( link = Down(hd); link != hd; link = NextDown(link) )
+X	{ Child(y, link);
+X	  if( type(y) == SPLIT )  Child(y, DownDim(y, ROW));
+X	  if( is_definite(type(y)) )  break;
+X	}
+X	if( link != hd )
+X	    Error(WARN, &fpos(y), "galley %s deleted from here: no target",
+X		SymName(actual(hd)));
+X	debug0(DGA, D, "calling KillGalley from AttachGalley (a)");
+X	KillGalley(hd);
+X	debug0(DGA, D, "]AttachGalley returning: no target for sized galley");
+X	return;
+X      }
+X      else if( actual(actual(target_index)) == InputSym )
+X      {
+X	/* search found input object, so suspend on that */
+X	DeleteNode(index);
+X	Link(target_index, hd);
+X	debug0(DGA, D, "]AttachGalley returning: InputSym");
+X	return;
+X      }
+X
+X    }
+X    else /* unsized galley, either backwards or normal */
+X    {
+X      if( backward(hd) )
+X      {	target_index= SearchGalley(Up(index), sym, FALSE, TRUE, TRUE, FALSE);
+X	need_precedes = FALSE;
+X      }
+X      else
+X      {	target_index = SearchGalley(Up(index), sym, FALSE, TRUE, FALSE, FALSE);
+X	need_precedes = (target_index != nil);
+X	if( target_index == nil )
+X	  target_index = SearchGalley(Up(index), sym, TRUE, TRUE, TRUE, FALSE);
+X      }
+X
+X      /* if no luck, exit without error */
+X      if( target_index == nil )
+X      {	debug0(DGA, D, "]AttachGalley returning: no target for unsized galley");
+X	return;
+X      }
+X    }
+X    assert( type(target_index) == RECEPTIVE, "AttachGalley: target_index!" );
+X    target = actual(target_index);
+X    assert( type(target) == CLOSURE, "AttachGalley: target!" );
+X
+X    /* set target_galley to the expanded value of target */
+X    EnterErrorBlock(FALSE);
+X    target_galley = New(HEAD);
+X    FposCopy(fpos(target_galley), fpos(target));
+X    actual(target_galley) = actual(target);
+X    whereto(target_galley) = ready_galls(target_galley) = nil;
+X    backward(target_galley) = must_expand(target_galley) = FALSE;
+X    sized(target_galley) = FALSE;
+X    Constrained(target, &c, COL);
+X    if( !constrained(c) )  Error(FATAL, &fpos(target),
+X       "receptive symbol %s has unconstrained width", SymName(actual(target)));
+X    debug2(DSC, D, "Constrained( %s, COL ) = %s",
+X	EchoObject(target), EchoConstraint(&c));
+X    debug1(DGA, DD, "  expanding %s", EchoObject(target));
+X    tmp = CopyObject(target, no_fpos);
+X    Link(target_galley, tmp);
+X    if( !FitsConstraint(0, 0, c) )
+X    { debug0(DGA, D, "  reject: target_galley horizontal constraint is -1");
+X      goto REJECT;
+X    }
+X    env = DetachEnv(tmp);
+X    SizeGalley(target_galley, env, external(target), threaded(target),
+X	non_blocking(target_index), trigger_externs(target_index),
+X	&save_style(target), &c, whereto(hd), &dest_index, &recs, &tg_inners);
+X    if( recs != nil )  ExpandRecursives(recs);
+X    dest = actual(dest_index);
+X
+X    /* verify that hd satisfies any horizontal constraint on dest */
+X    debug1(DGA, DD, "  checking COL fit of hd in %s", SymName(actual(dest)));
+X    Constrained(dest, &c, COL);
+X    debug2(DSC, D, "Constrained( %s, COL ) = %s",
+X	EchoObject(dest), EchoConstraint(&c));
+X    assert( constrained(c), "AttachGalley: dest unconstrained!" );
+X    if( !sized(hd) )
+X    { EnterErrorBlock(TRUE);
+X      if( !FitsConstraint(0, 0, c) )
+X      {	debug0(DGA, D, "  reject: hd horizontal constraint is -1");
+X	goto REJECT;
+X      }
+X      n1 = nil;
+X      Child(y, Down(hd));
+X      env = DetachEnv(y);
+X      /*** to set non_blocking() to FALSE seems doubtful!
+X      SizeGalley(hd, env, TRUE, threaded(dest), FALSE, TRUE,
+X		&save_style(dest), &c, nil, &n1, &recs, &hd_inners);
+X      *** */
+X      SizeGalley(hd, env, TRUE, threaded(dest), non_blocking(target_index),
+X	TRUE, &save_style(dest), &c, nil, &n1, &recs, &hd_inners);
+X      if( recs != nil )  ExpandRecursives(recs);
+X      if( need_precedes )		/* need an ordering constraint */
+X      {	OBJECT index1 = New(PRECEDES);
+X	OBJECT index2 = New(FOLLOWS);
+X	blocked(index2) = FALSE;
+X	tmp = MakeWord(WORD, STR_EMPTY, no_fpos);
+X	Link(index1, tmp);  Link(index2, tmp);
+X	Link(Up(index), index1);
+X	Link(Down(hd), index2);
+X	debug0(DGA, D, "  inserting PRECEDES and FOLLOWS");
+X      }
+X      LeaveErrorBlock(TRUE);
+X    }
+X    if( !FitsConstraint(back(hd, COL), fwd(hd, COL), c) )
+X    { debug3(DGA, D, "  reject: hd %s,%s does not fit target_galley %s",
+X	EchoLength(back(hd, COL)), EchoLength(fwd(hd, COL)),
+X	EchoConstraint(&c));
+X      Error(WARN, &fpos(hd),"too little horizontal space for galley %s at %s",
+X	SymName(actual(hd)), SymName(actual(dest)));
+X      goto REJECT;
+X    }
+X
+X    /* check status of first component of hd */
+X    debug0(DGA, DD, "  now ready to attach; hd =");
+X    ifdebug(DGA, DD, DebugObject(hd));
+X    for( link = Down(hd);  link != hd;  link = NextDown(link) )
+X    {
+X      Child(y, link);
+X      debug1(DGA, DD, "  examining %s", EchoObject(y));
+X      if( type(y) == SPLIT )  Child(y, DownDim(y, ROW));
+X      switch( type(y) )
+X      {
+X
+X	case EXPAND_IND:
+X	case GALL_PREC:
+X	case GALL_FOLL:
+X	case GALL_TARG:
+X	case CROSS_PREC:
+X	case CROSS_FOLL:
+X	case CROSS_TARG:
+X	    
+X	  break;
+X
+X
+X	case PRECEDES:
+X	case UNATTACHED:
+X	    
+X	  if( was_sized )
+X	  { /* SizeGalley was not called, so hd_inners was not set by it */
+X	    if( hd_inners == nil )  hd_inners = New(ACAT);
+X	    Link(hd_inners, y);
+X	  }
+X	  break;
+X
+X
+X	case RECEPTIVE:
+X
+X	  if( non_blocking(y) )
+X	  { link = PrevDown(link);
+X	    DeleteNode(y);
+X	  }
+X	  else goto SUSPEND;
+X	  break;
+X
+X
+X	case RECEIVING:
+X	    
+X	  if( non_blocking(y) )
+X	  { while( Down(y) != y )
+X	    { Child(z, Down(y));
+X	      DetachGalley(z);
+X	      KillGalley(z);
+X	    }
+X	    link = PrevDown(link);
+X	    DeleteNode(y);
+X	  }
+X	  else goto SUSPEND;
+X	  break;
+X
+X
+X	case FOLLOWS:
+X	    
+X	  Child(tmp, Down(y));
+X	  if( Up(tmp) == LastUp(tmp) )
+X	  { link = pred(link, CHILD);
+X	    debug0(DGA, DD, "  disposing FOLLOWS");
+X	    DisposeChild(NextDown(link));
+X	    break;
+X	  }
+X	  Parent(tmp, Up(tmp));
+X	  assert(type(tmp) == PRECEDES, "Attach: PRECEDES!");
+X	  switch( CheckConstraint(tmp, target_index) )
+X	  {
+X	    case CLEAR:		DeleteNode(tmp);
+X				link = pred(link, CHILD);
+X				DisposeChild(NextDown(link));
+X				break;
+X
+X	    case PROMOTE:	break;
+X
+X	    case BLOCK:		debug0(DGA, DD, "CheckContraint: BLOCK");
+X				goto SUSPEND;
+X
+X	    case CLOSE:		debug0(DGA, D, "  reject: CheckContraint");
+X				goto REJECT;
+X	  }
+X	  break;
+X
+X
+X	case GAP_OBJ:
+X
+X	  if( !join(gap(y)) )  seen_nojoin(hd) = TRUE;
+X	  break;
+X
+X
+X	case CLOSURE:
+X	case NULL_CLOS:
+X	case CROSS:
+X
+X	  break;
+X
+X
+X	case WORD:
+X	case QWORD:
+X	case ONE_COL:
+X	case ONE_ROW:
+X	case WIDE:
+X	case HIGH:
+X	case HSCALE:
+X	case VSCALE:
+X	case HCONTRACT:
+X	case VCONTRACT:
+X	case HEXPAND:
+X	case VEXPAND:
+X	case PADJUST:
+X	case HADJUST:
+X	case VADJUST:
+X	case ROTATE:
+X	case SCALE:
+X	case INCGRAPHIC:
+X	case SINCGRAPHIC:
+X	case GRAPHIC:
+X	case ACAT:
+X	case HCAT:
+X	case ROW_THR:
+X	    
+X	  /* make sure y is not joined to a target below */
+X	  for( zlink = NextDown(link);  zlink != hd;  zlink = NextDown(zlink) )
+X	  { Child(z, zlink);
+X	    switch( type(z) )
+X	    {
+X	      case RECEPTIVE:	if( non_blocking(z) )
+X				{ zlink = PrevDown(zlink);
+X				  DeleteNode(z);
+X				}
+X				else
+X				{ y = z;
+X				  goto SUSPEND;
+X				}
+X				break;
+X
+X	      case RECEIVING:	if( non_blocking(z) )
+X				{ zlink = PrevDown(zlink);
+X				  while( Down(z) != z )
+X				  { Child(tmp, Down(y));
+X				    DetachGalley(tmp);
+X				    KillGalley(tmp);
+X				  }
+X				  DeleteNode(z);
+X				}
+X				else
+X				{ y = z;
+X				  goto SUSPEND;
+X				}
+X				break;
+X
+X	      case GAP_OBJ:	if( !join(gap(z)) )  zlink = PrevDown(hd);
+X				break;
+X
+X	      default:		break;
+X	    }
+X	  }
+X
+X	  /* check availability of vertical space for the first component */
+X	  if( !external(dest) )
+X	  { Constrained(dest, &c, ROW);
+X	    debug2(DSC, D, "Constrained( %s, ROW ) = %s",
+X	      EchoObject(dest), EchoConstraint(&c));
+X	    if( !FitsConstraint(back(y, ROW), fwd(y, ROW), c) )
+X	    { Error(WARN, &fpos(y),
+X		"this component of %s did not fit into its nearest target",
+X		SymName(actual(hd)));
+X	      debug3(DGA, D, "  reject: vsize %s,%s in %s; y=",
+X		EchoLength(back(y, ROW)), EchoLength(fwd(y, ROW)),
+X		EchoConstraint(&c));
+X	      ifdebug(DGA, D, DebugObject(y));
+X	      goto REJECT;
+X	    }
+X	    debug0(DSA, D, "calling AdjustSize from AttachGalley (a)");
+X	    AdjustSize(dest, back(y, ROW), fwd(y, ROW), ROW);
+X	  }
+X	  if( !external(target) )
+X	  { Constrained(target, &c, ROW);
+X	    debug2(DSC, D, "Constrained( %s, ROW ) = %s",
+X			EchoObject(target), EchoConstraint(&c));
+X	    Child(z, LastDown(target_galley));
+X	    assert( !is_index(type(z)), "AttachGalley: is_index(z)!" );
+X	    assert( back(z, ROW) >= 0 && fwd(z, ROW) >= 0,
+X			"AttachGalley: negative z sizes!" );
+X	    if( !FitsConstraint(back(z, ROW), fwd(z, ROW), c) )
+X	    { Error(WARN, &fpos(y),
+X		"this component of %s did not fit into its nearest target",
+X		SymName(actual(hd)));
+X	      debug3(DGA, D, "  reject: size was %s,%s in %s; y =",
+X		EchoLength(back(z, ROW)), EchoLength(fwd(z, ROW)),
+X		EchoConstraint(&c));
+X	      ifdebug(DGA, D, DebugObject(y));
+X	      goto REJECT;
+X	    }
+X	    debug0(DSA, D, "calling AdjustSize from AttachGalley (b)");
+X	    AdjustSize(target, back(z, ROW), fwd(z, ROW), ROW);
+X	  }
+X	  goto ACCEPT;
+X
+X
+X	default:
+X	    
+X	  Error(INTERN, &fpos(y), "AttachGalley: %s", Image(type(y)));
+X	  break;
+X
+X      } /* end switch */
+X    } /* end for */
+X
+X    /* empty galley; promote any indexes, kill the galley, and exit */
+X    /* this bypasses target_galley, which is not expanded in the empty case */
+X    debug0(DGA, D, "  empty galley");
+X    if( tg_inners != nil )  DisposeObject(tg_inners), tg_inners = nil;
+X    DisposeObject(target_galley);
+X    LeaveErrorBlock(FALSE);
+X    if( LastDown(hd) != hd )  Promote(hd, hd, target_index);
+X    debug0(DGA, D, "calling KillGalley from AttachGalley (b)");
+X    KillGalley(hd);
+X
+X    /* return; only hd_inners needs to be flushed now */
+X    *inners = hd_inners;
+X    debug0(DGA, D, "]AttachGalley returning killed: empty galley");
+X    return;
+X
+X
+X    REJECT:
+X	
+X      /* reject first component */
+X      LeaveErrorBlock(TRUE);
+X      if( tg_inners != nil )  DisposeObject(tg_inners), tg_inners = nil;
+X      DisposeObject(target_galley);
+X      if( backward(hd) && !sized(hd) )
+X      {
+X	/* move to just before the failed target */
+X	MoveLink(Up(index), Up(target_index), PARENT);
+X      }
+X      else
+X      {
+X	/* move to just after the failed target */
+X	MoveLink(Up(index), NextDown(Up(target_index)), PARENT);
+X      }
+X      continue;
+X
+X
+X    SUSPEND:
+X	
+X      /* suspend at first component */
+X      debug1(DGA, D, "  suspend %s", EchoObject(y));
+X      blocked(y) = TRUE;
+X      LeaveErrorBlock(FALSE);
+X      if( tg_inners != nil )  DisposeObject(tg_inners), tg_inners = nil;
+X      DisposeObject(target_galley);
+X      MoveLink(Up(index), Up(target_index), PARENT);
+X      if( was_sized )
+X      { /* nothing new to flush if suspending and already sized */
+X	if( hd_inners != nil )  DisposeObject(hd_inners), hd_inners = nil;
+X      }
+X      else
+X      { /* flush newly discovered inners if not sized before */
+X	*inners = hd_inners;
+X      }
+X      debug0(DGA, D, "]AttachGalley returning: suspending.");
+X      return;
+X
+X
+X    ACCEPT:
+X	
+X      /* accept first component; now committed to the attach */
+X      debug1(DGA, D, "  accept %s", EchoObject(y));
+X      LeaveErrorBlock(TRUE);
+X
+X      /* adjust horizontal sizes */
+X      debug0(DSA, D, "calling AdjustSize from AttachGalley (c)");
+X      AdjustSize(dest, back(hd, COL), fwd(hd, COL), COL);
+X      debug0(DSA, D, "calling AdjustSize from AttachGalley (d)");
+X      AdjustSize(target, back(target_galley, COL),
+X				fwd(target_galley, COL), COL);
+X		
+X      /* attach hd to dest */
+X      MoveLink(Up(hd), dest_index, PARENT);
+X      assert( type(index) == UNATTACHED, "AttachGalley: type(index)!" );
+X      DeleteNode(index);
+X
+X      /* move first component of hd into dest */
+X      /* nb Interpose must be done after all AdjustSize calls */
+X      if( !external(dest) )   Interpose(dest, VCAT, hd, y);
+X      Promote(hd, NextDown(link), dest_index);
+X
+X      /* move target_galley into target */
+X      /* nb Interpose must be done after all AdjustSize calls */
+X      if( !external(target) )
+X      {	Child(z, LastDown(target_galley));
+X	Interpose(target, VCAT, z, z);
+X      }
+X      Promote(target_galley, target_galley, target_index);
+X      DeleteNode(target_galley);
+X      assert(Down(target_index)==target_index, "AttachGalley: target_ind");
+X      if( blocked(target_index) )  blocked(dest_index) = TRUE;
+X      DeleteNode(target_index);
+X
+X      /* return; both tg_inners and hd_inners need to be flushed now;        */
+X      /* if was_sized, hd_inners contains the inners of the first component; */
+X      /* otherwise it contains the inners of all components, from SizeGalley */
+X      if( tg_inners == nil ) *inners = hd_inners;
+X      else if( hd_inners == nil ) *inners = tg_inners;
+X      else
+X      {	TransferLinks(Down(hd_inners), hd_inners, tg_inners);
+X	DeleteNode(hd_inners);
+X	*inners = tg_inners;
+X      }
+X      debug0(DGA, D, "]AttachGalley returning (accept)");
+X      return;
+X
+X  } /* end for */
+X} /* end AttachGalley */
+END_OF_FILE
+  if test 22103 -ne `wc -c <'z19.c'`; then
+    echo shar: \"'z19.c'\" unpacked with wrong size!
+  fi
+  # end of 'z19.c'
+fi
+if test -f 'z25.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'z25.c'\"
+else
+  echo shar: Extracting \"'z25.c'\" \(21404 characters\)
+  sed "s/^X//" >'z25.c' <<'END_OF_FILE'
+X/*@z25.c:Object Echo:aprint(), cprint(), printnum()@**************************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.05)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z25.c                                                      */
+X/*  MODULE:       Object Echo                                                */
+X/*  EXTERNS:      EchoObject(), PrintObject()                                */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X#if DEBUG_ON
+X
+Xstatic	int	limit;			/* column where newline is needed    */
+Xstatic	int	indent;			/* current indent                    */
+Xstatic	int	col;			/* current output column             */
+Xstatic	FILE	*fp;			/* current output file               */
+X
+X#define	moveright()	(indent += 3)
+X#define	moveleft()	(indent -= 3)
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static aprint(x)                                                         */
+X/*  static cprint(x)                                                         */
+X/*                                                                           */
+X/*  Print the ASCII or FULL_CHAR string x onto the appropriate output.       */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic cprint(x)
+XFULL_CHAR *x;
+X{ col += StringLength(x);
+X  if( fp == null ) AppendString(x);
+X  else StringFPuts(x, fp);
+X} /* end print */
+X
+Xstatic aprint(x)
+Xchar *x;
+X{ cprint(AsciiToFull(x));
+X} /* end aprint */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static printnum(x)                                                       */
+X/*                                                                           */
+X/*  Print the number x onto the appropriate output.                          */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic printnum(x)
+Xint x;
+X{ cprint(StringInt(x));
+X} /* end printnum */
+X
+X
+X/*@::tab(), newline(), space()@***********************************************/
+X/*                                                                           */
+X/*  static tab(x)                                                            */
+X/*                                                                           */
+X/*  Tab to column x, or anyway insert at least one space.                    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic tab(x)
+Xint x;
+X{  do
+X     aprint(" ");
+X   while( col < x );
+X} /* end tab */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static newline()                                                         */
+X/*                                                                           */
+X/*  Echo a newline to the appropriate output (unless output is a string).    */
+X/*  Correct indenting and right limits are maintained, if possible.          */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic newline()
+X{ if( fp == null )  AppendString(STR_SPACE);
+X  else
+X  { fputs("\n", fp);
+X    fflush(fp);
+X    for( col = 0;  col < indent;  col++ )  fputs(" ", fp);
+X  }
+X} /* end newline */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static space(n)                                                          */
+X/*                                                                           */
+X/*  Echo n spaces to the appropriate output.                                 */
+X/*  Correct indenting and right limits are maintained, if possible.          */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic space(n)
+Xint n;
+X{ int i;
+X  if( fp == null )
+X    for( i = 0;  i < n;  i++ )  AppendString(STR_SPACE);
+X  else if( col + n > limit )
+X  { fputs("\n", fp);
+X    for( col = 0;  col < n-1;  col++ )  fputs(" ", fp);
+X  }
+X  else for( i = 0;  i < n;  col++, i++ )  fputs(" ", fp);
+X} /* end space */
+X
+X
+X/*@::echo()@******************************************************************/
+X/*                                                                           */
+X/*  static echo(x, outer_prec)                                               */
+X/*                                                                           */
+X/*  Echo x.  The result will be enclosed in braces only if its precedence    */
+X/*  is less than or equal to outer_prec (words and parameterless closures    */
+X/*  are taken to have infinite precedence, i.e. never enclosed in braces).   */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic echo(x, outer_prec)
+XOBJECT x;  unsigned outer_prec;
+X{ OBJECT link, y, tmp, sym;
+X  char *op;  int prec, i;
+X  BOOLEAN npar_seen, name_printed, lbr_printed, braces_needed;
+X
+X  switch( type(x) )
+X  {
+X
+X    case DEAD:
+X
+X	aprint("#dead");
+X	break;
+X
+X    case UNATTACHED:
+X    
+X	aprint( "#unattached " );
+X	moveright();
+X	if( Down(x) != x )
+X	{ Child(y, Down(x));
+X	  if( y != x ) echo(y, NO_PREC);
+X	  else aprint("<child is self!>");
+X	}
+X	else aprint("<no child!>");
+X	moveleft();
+X	break;
+X
+X
+X    case EXPAND_IND:
+X    case GALL_PREC:
+X    case GALL_FOLL:
+X    case GALL_TARG:
+X    case CROSS_PREC:
+X    case CROSS_FOLL:
+X    case CROSS_TARG:
+X    case RECURSIVE:
+X    
+X	aprint("#"); cprint(Image(type(x))); aprint(" ");
+X	echo(actual(x), NO_PREC);
+X	break;
+X
+X		
+X    case RECEPTIVE:
+X    case RECEIVING:
+X    
+X	aprint(type(x) == RECEIVING ? "#receiving " : "#receptive ");
+X	if( external(actual(x)) )  aprint("(external) ");
+X	if( threaded(actual(x)) )  aprint("(threaded) ");
+X	if( blocked(x) )           aprint("(blocked) " );
+X	if( trigger_externs(x) )   aprint("(trigger_externs) " );
+X	if( non_blocking(x) )      aprint("(non_blocking) " );
+X	cprint( type(actual(x)) == CLOSURE ?
+X		SymName(actual(actual(x))) : Image(type(actual(x))) );
+X	aprint(" ");
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  moveright();
+X	  echo(y, NO_PREC);
+X	  moveleft();
+X	}
+X	break;
+X
+X
+X    case PRECEDES:
+X    
+X	aprint("#precedes");
+X	break;
+X
+X
+X    case FOLLOWS:
+X    
+X	aprint("#follows");
+X	if( blocked(x) )  aprint(" (blocked)");
+X	Child(y, Down(x));
+X	if( Up(y) == LastUp(y) )  aprint(" (no precedes!)");
+X	break;
+X
+X
+X    case HEAD:
+X    
+X	aprint("Galley ");  cprint(SymName(actual(x)));
+X	aprint(" into ");   cprint(SymName(whereto(x)));
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  newline();
+X	  echo(y, type(y) == GAP_OBJ ? VCAT : VCAT_PREC);
+X	}
+X	break;
+X
+X
+X    case ROW_THR:
+X
+X	aprint("{R ");
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  echo(y, VCAT_PREC);
+X	  newline();
+X	  if( NextDown(link) != x )  aprint("/R ");
+X	}
+X	aprint("R}");
+X	break;
+X
+X
+X    case COL_THR:
+X
+X	aprint("{C ");
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  echo(y, HCAT_PREC);
+X	  newline();
+X	  if( NextDown(link) != x )  aprint("|C ");
+X	}
+X	aprint("C}");
+X	break;
+X
+X
+X    case VCAT: op = "/", prec = VCAT_PREC;  goto ETC;
+X    case HCAT: op = "|", prec = HCAT_PREC;  goto ETC;
+X    case ACAT: op = "&", prec = ACAT_PREC;  goto ETC;
+X    
+X	ETC:
+X	if( Down(x) == x )
+X	{ aprint(op);
+X	  aprint("<empty>");
+X	  break;
+X	}
+X	if( prec <= outer_prec ) aprint("{ ");
+X	/* *** if( Down(x) == LastDown(x) )  aprint(op);  must be manifested */
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  if( is_index(type(y)) )
+X	    newline();
+X	  else if( (type(y) == GAP_OBJ && type(x) != ACAT) )
+X	    newline();
+X	  if( type(y) == GAP_OBJ )  echo(y, type(x));
+X	  else echo(y, prec);
+X	}
+X	if( prec <= outer_prec )  aprint(" }");
+X	break;
+X
+X
+X    case GAP_OBJ:
+X
+X	/* in this case the outer_prec argument is VCAT, HCAT or ACAT */
+X	if( Down(x) != x )
+X	{ if( outer_prec == ACAT )  aprint(" ");
+X	  cprint( EchoCatOp(outer_prec, mark(gap(x)), join(gap(x))) );
+X	  Child(y, Down(x));
+X	  echo(y, FORCE_PREC);
+X	  aprint(" ");
+X	}
+X	else if( outer_prec == ACAT )
+X	{ for( i = 1;  i <= vspace(x);  i++ )  newline();
+X	  for( i = 1;  i <= hspace(x);  i++ )  aprint(" ");
+X	}
+X	else
+X	{ cprint( EchoCatOp(outer_prec, mark(gap(x)), join(gap(x))) );
+X	  cprint( EchoGap(&gap(x)) );
+X	  aprint(" ");
+X	}
+X	break;
+X
+X
+X    case WORD:
+X    
+X	if( StringLength(string(x)) == 0 )
+X	  aprint("{}");
+X	else cprint( string(x) );
+X	break;
+X
+X
+X    case QWORD:
+X    
+X	cprint( StringQuotedWord(x) );
+X	break;
+X
+X
+X    case ENV:
+X    
+X	/* debug only */
+X	aprint("<");
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  if( type(y) == CLOSURE )
+X	  { cprint( SymName(actual(y)) );
+X	    echo(GetEnv(y), NO_PREC);
+X	  }
+X	  else if( type(y) == ENV )  echo(y, NO_PREC);
+X	  else cprint(Image(type(y)));
+X	  if( NextDown(link) != x )  aprint(" ");
+X	}
+X	aprint(">");
+X	break;
+X
+X
+X    case CROSS:
+X
+X	assert( Down(x) != x, "echo: CROSS Down(x)!" );
+X	Child(y, Down(x));
+X	if( type(y) == CLOSURE )  cprint(SymName(actual(y)));
+X	else
+X	{ cprint(KW_LBR);
+X	  echo(y, NO_PREC);
+X	  cprint(KW_RBR);
+X	}
+X	cprint(KW_CROSS);
+X	if( NextDown(Down(x)) != x )
+X	{ Child(y, NextDown(Down(x)));
+X	  echo(y, NO_PREC);
+X	}
+X	else aprint("??");
+X	break;
+X
+X
+X    case CLOSURE:
+X    
+X	sym = actual(x);
+X	braces_needed =
+X	    precedence(sym) <= outer_prec && (has_lpar(sym) || has_rpar(sym));
+X
+X	/* print brace if needed */
+X	if( braces_needed )  aprint("{ ");
+X
+X	npar_seen = FALSE;  name_printed = FALSE;
+X	for( link = Down(x); link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  if( type(y) == PAR )
+X	  { assert( Down(y) != y, "EchoObject: Down(PAR)!" );
+X	    switch( type(actual(y)) )
+X	    {
+X	     case LPAR:	Child(tmp, Down(y));
+X			echo(tmp, (unsigned) precedence(sym));
+X			aprint(" ");
+X			break;
+X
+X	     case NPAR:	if( !name_printed )
+X			{ cprint(SymName(sym));
+X			  if( external(x) || threaded(x) )
+X			  { aprint(" #");
+X			    if( external(x) )  aprint(" external");
+X			    if( threaded(x) )  aprint(" threaded");
+X			    newline();
+X			  }
+X			  name_printed = TRUE;
+X			}
+X			newline();  aprint("  ");
+X			cprint( SymName(actual(y)) );
+X			aprint(" { ");
+X			Child(tmp, Down(y));
+X			echo(tmp, NO_PREC);
+X			aprint(" }");
+X			npar_seen = TRUE;
+X			break;
+X
+X	     case RPAR:	if( !name_printed )
+X			{ cprint(SymName(sym));
+X			  if( external(x) || threaded(x) )
+X			  { aprint(" #");
+X			    if( external(x) )  aprint(" external");
+X			    if( threaded(x) )  aprint(" threaded");
+X			    newline();
+X			  }
+X			  name_printed = TRUE;
+X			}
+X			if( npar_seen ) newline();
+X			else aprint(" ");
+X			Child(tmp, Down(y));
+X			if( has_body(sym) )
+X			{ aprint("{ ");
+X			  echo(tmp, NO_PREC);
+X			  aprint(" }");
+X			}
+X			else echo(tmp, (unsigned) precedence(sym));
+X			break;
+X	
+X	     default:	Error(INTERN, &fpos(y), "echo: %s",
+X					Image(type(actual(y))) );
+X			break;
+X
+X	    }
+X	  }
+X	}
+X	if( !name_printed )
+X	{ cprint( SymName(sym) );
+X	  if( external(x) || threaded(x) )
+X	  { aprint(" #");
+X	    if( external(x) )  aprint(" external");
+X	    if( threaded(x) )  aprint(" threaded");
+X	    newline();
+X	  }
+X	}
+X
+X	/* print closing brace if needed */
+X	if( braces_needed ) aprint(" }");
+X	break;
+X
+X
+X    case SPLIT:
+X    
+X	/* this should occur only in debug output case */
+X	cprint(KW_SPLIT);  moveright();
+X	Child(y, DownDim(x, COL));
+X	aprint(" ");
+X	echo(y, FORCE_PREC);
+X	moveleft();
+X	break;
+X
+X
+X    case PAR:
+X    
+X	/* this should occur only in debug output case */
+X	aprint("par ");  cprint(SymName(actual(x)));
+X	break;
+X
+X
+X    case CR_LIST:
+X
+X	aprint("(");
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  echo(y, NO_PREC);
+X	  if( NextDown(link) != x )  aprint(", ");
+X	}
+X	aprint(")");
+X	break;
+X
+X
+X    case MACRO:
+X    
+X	newline();  cprint(KW_MACRO);
+X	aprint(" ");  cprint(SymName(x));
+X	if( sym_body(x) != nil )
+X	{ newline();  cprint(KW_LBR);
+X	  y = sym_body(x);
+X	  do
+X	  { for( i = 1;  i <= vspace(y);  i++ )  newline();
+X	    for( i = 1;  i <= hspace(y);  i++ )  aprint(" ");
+X	    cprint(EchoToken(y));
+X	    y = succ(y, PARENT);
+X	  } while( y != sym_body(x) );
+X	  newline();  aprint(KW_RBR);
+X	}
+X	else aprint(" {}");
+X	if( visible(x) )  aprint(" # (visible)");
+X	break;
+X
+X
+X    case NPAR:
+X    case LOCAL:
+X    
+X	/* print predefined operators in abbreviated form */
+X	if( sym_body(x) == nil && enclosing(x) != nil )
+X	{ tab(3); aprint("# sys ");
+X	  cprint(SymName(x));
+X	  break;
+X	}
+X
+X	/* print def line and miscellaneous debug info */
+X	if( type(x) == LOCAL ) newline();
+X	cprint(type(x) == NPAR ? KW_NAMED : KW_DEF);
+X	aprint(" ");  cprint( SymName(x) );
+X	if( recursive(x) || indefinite(x) || visible(x) ||
+X	    is_extern_target(x) || uses_extern_target(x) || uses_galley(x) )
+X	{ tab(25);  aprint("#");
+X	  if( visible(x)  )  aprint(" visible");
+X	  if( recursive(x)  )  aprint(" recursive");
+X	  if( indefinite(x) )  aprint(" indefinite");
+X	  if( is_extern_target(x) )  aprint(" is_extern_target");
+X	  if( uses_extern_target(x) )  aprint(" uses_extern_target");
+X	  if( uses_galley(x) )  aprint(" uses_galley");
+X	}
+X
+X	/* print uses list, if necessary */
+X	if( uses(x) != nil || dirty(x) )
+X	{ newline();  aprint("   # ");
+X	  if( dirty(x) ) aprint("dirty, ");
+X	  aprint("uses");
+X	  if( uses(x) != nil )
+X	  { tmp = next(uses(x));
+X	    do
+X	    { aprint(" "), cprint( SymName(item(tmp)) );
+X	      tmp = next(tmp);
+X	    } while( tmp != next(uses(x)) );
+X	  }
+X	  /* ***
+X	  for( tmp = uses(x);  tmp != nil;  tmp = next(tmp) )
+X	  { aprint(" "), cprint( SymName(item(tmp)) );
+X	  }
+X	  *** */
+X	}
+X
+X	/* print precedence, if necessary */
+X	if( precedence(x) != DEFAULT_PREC )
+X	{ newline();  aprint("   ");  cprint(KW_PRECEDENCE);
+X	  aprint(" ");  printnum(precedence(x));
+X	}
+X
+X	/* print associativity, if necessary */
+X	if( !right_assoc(x) )
+X	{ newline();  aprint("   ");
+X	  cprint(KW_ASSOC);  aprint(" ");  cprint(KW_LEFT);
+X	}
+X
+X	/* print named parameters and local objects */
+X	lbr_printed = FALSE;
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  assert( enclosing(y) == x, "echo: enclosing(y) != x!" );
+X	  switch( type(y) )
+X	  {
+X	    case LPAR:
+X	    case RPAR:	newline();  aprint("   ");
+X			cprint( type(y) == LPAR ? KW_LEFT :
+X			    has_body(x) ? KW_BODY : KW_RIGHT);
+X			aprint(" ");
+X			cprint( SymName(y) );
+X			aprint("   # uses_count = ");
+X			printnum(uses_count(y));
+X			if( visible(y) )  aprint(" (visible)");
+X			break;
+X
+X	    case NPAR:	moveright();  newline();
+X			echo(y, NO_PREC);
+X			aprint("   # uses_count = ");
+X			printnum(uses_count(y));
+X			moveleft();
+X			break;
+X
+X	    case MACRO:
+X	    case LOCAL:	if( !lbr_printed )
+X			{ newline();
+X			  cprint(KW_LBR);
+X			  lbr_printed = TRUE;
+X			}
+X			moveright();
+X			echo(y, NO_PREC);
+X			moveleft();  newline();
+X			break;
+X
+X	    default:	Error(FATAL, &fpos(y), "echo: type(y) = %s",
+X					Image(type(y)));
+X			break;
+X	  }
+X	}
+X	if( type(x) == NPAR && Down(x) == x )  aprint(" ");
+X	else newline();
+X	if( !lbr_printed )
+X	{ cprint(KW_LBR);  aprint("  ");
+X	  lbr_printed = TRUE;
+X	}
+X	else aprint("   ");
+X
+X	/* print body */
+X	moveright();
+X	if( sym_body(x) != nil )  echo(sym_body(x), NO_PREC);
+X	moveleft();  if( type(x) == LOCAL ) newline();
+X	cprint(KW_RBR);
+X	break;
+X
+X
+X    case ONE_COL:
+X    case ONE_ROW:
+X    case HCONTRACT:
+X    case VCONTRACT:
+X    case HEXPAND:
+X    case VEXPAND:
+X    case PADJUST:
+X    case HADJUST:
+X    case VADJUST:
+X    case HSCALE:
+X    case VSCALE:
+X    case NEXT:
+X    case WIDE:
+X    case HIGH:
+X    case INCGRAPHIC:
+X    case SINCGRAPHIC:
+X    case GRAPHIC:
+X    case ROTATE:
+X    case SCALE:
+X    case CASE:
+X    case YIELD:
+X    case XCHAR:
+X    case FONT:
+X    case SPACE:
+X    case BREAK:
+X    case OPEN:
+X    case TAGGED:
+X    
+X	/* print enclosing left brace if needed */
+X	braces_needed = (DEFAULT_PREC <= outer_prec);
+X	if( braces_needed )  cprint(KW_LBR), aprint(" ");
+X
+X	/* print left parameter */
+X	if( Down(x) != LastDown(x) )
+X	{ Child(y, Down(x));
+X	  echo(y, max(outer_prec, DEFAULT_PREC));
+X	  aprint(" ");
+X	}
+X
+X	cprint(Image(type(x)));
+X
+X	/* print right parameter */
+X	assert( LastDown(x) != x, "echo: right parameter of predefined!" );
+X	aprint(" ");
+X	Child(y, LastDown(x));
+X	echo(y, type(x)==OPEN ? FORCE_PREC : max(outer_prec,DEFAULT_PREC));
+X	if( braces_needed )  aprint(" "), cprint(KW_RBR);
+X	break;
+X
+X
+X    case NULL_CLOS:
+X    
+X	cprint(Image(type(x)));
+X	break;
+X
+X
+X    case CR_ROOT:
+X
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  echo(y, NO_PREC);  newline();
+X	}
+X	break;
+X
+X
+X    case CROSS_SYM:
+X
+X	aprint("Cross-references for ");
+X	cprint(SymName(symb(x)));  newline();
+X	switch( target_state(x) )
+X	{
+X	  case 0:	aprint("NO_TARGET");
+X			break;
+X
+X	  case 1:	aprint("SEEN_TARGET ");
+X			printnum(target_seq(x));
+X			aprint(": ");
+X			echo(target_val(x), NO_PREC);
+X			break;
+X
+X	  case 2:	aprint("WRITTEN_TARGET ");
+X			printnum(target_seq(x));
+X			aprint(": to file ");
+X			cprint(FileName(target_file(x)));
+X			aprint(" at ");
+X			printnum(target_pos(x));
+X			break;
+X	
+X	  default:	aprint("ILLEGAL!");
+X			break;
+X	}
+X	newline();
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{ Child(y, link);
+X	  aprint("   ");
+X	  if( gall_rec(y) )  aprint("gall_rec!");
+X	  else cprint(string(y));
+X	  newline();
+X	}
+X	break;
+X
+X
+X    default:
+X    
+X	Error(INTERN, no_fpos, "echo found %s", Image(type(x)));
+X	break;
+X
+X  } /* end switch */
+X} /* end echo */
+X
+X
+X/*@::EchoObject(), DebugObject()@*********************************************/
+X/*                                                                           */
+X/*  FULL_CHAR *EchoObject(x)                                                 */
+X/*                                                                           */
+X/*  Return an image of unsized object x in result.                           */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XFULL_CHAR *EchoObject(x)
+XOBJECT x;
+X{ debug0(DOE, D, "EchoObject()");
+X  fp = null;;
+X  col = 0;
+X  indent = 0;
+X  limit  = 60;
+X  if( fp == null )
+X  BeginString();
+X  if( x == nil )  AppendString(AsciiToFull("<nil>"));
+X  else echo(x, type(x) == GAP_OBJ ? VCAT : 0);
+X  debug0(DOE, D, "EchoObject returning");
+X  return EndString();
+X} /* end EchoObject */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  DebugObject(x)                                                           */
+X/*                                                                           */
+X/*  Send an image of unsized object x to result.                             */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XDebugObject(x)
+XOBJECT x;
+X{ debug0(DOE, D, "DebugObject()");
+X  fp = stderr;
+X  col = 0;
+X  indent = 0;
+X  limit  = 60;
+X  if( x == nil )  fprintf(stderr, "<nil>");
+X  else echo(x, type(x) == GAP_OBJ ? VCAT : 0);
+X  fprintf(stderr, "\n");
+X  debug0(DOE, D, "DebugObject returning");
+X} /* end DebugObject */
+X#endif
+END_OF_FILE
+  if test 21404 -ne `wc -c <'z25.c'`; then
+    echo shar: \"'z25.c'\" unpacked with wrong size!
+  fi
+  # end of 'z25.c'
+fi
+echo shar: End of archive 14 \(of 35\).
+cp /dev/null ark14isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 35 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

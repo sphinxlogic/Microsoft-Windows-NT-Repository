@@ -1,0 +1,1856 @@
+From: eay@psych.psy.uq.oz.au (Eric Young)
+Newsgroups: comp.sources.misc
+Subject: v29i074: libdes - DES encryption library, Patch01
+Message-ID: <1992Apr15.094827.25293@aber.ac.uk>
+Date: 15 Apr 92 09:48:27 GMT
+Approved: aem@aber.ac.uk
+X-Md4-Signature: 0aeffb6027240d3c49748f8196918267
+
+Submitted-by: eay@psych.psy.uq.oz.au (Eric Young)
+Posting-number: Volume 29, Issue 74
+Archive-name: libdes/patch01
+Environment: UNIX
+Patch-To: libdes: Volume 29, Issue 43-46
+
+This is a patch file that incorporates suggestions I have received
+since libdes was first posted.
+
+to apply the patch, run the following
+
+/bin/rm sp.h
+patch -p1 <patch1
+
+- Makefile support for installation
+- Posix/SYSV support, for systems without bcopy, bzero etc.
+- des(1) has been given new options allowing the use of keys longer
+  than 8 bytes.
+- Modifications so libdes should compile under VMS
+- Changes to speed.c so that it should compile on systems without
+  SIGALRM and can be build on systems without times(3).
+- A 5% speedup (on a sparc2) in ecb_encrypt().
+
+diff -r -c old/INSTALLATION new/INSTALLATION
+*** old/INSTALLATION	Mon Apr 13 10:05:17 1992
+--- new/INSTALLATION	Mon Apr 13 12:44:24 1992
+***************
+*** 1,22 ****
+  Check the CC and CFLAGS lines in the makefile
+- Check the HZ value for the times(3) function.  If it is not 60 then
+- you will need to change its value in speed.c
+  
+! If possible use gcc v 2.0.
+  Turn on the maximum optimising
+  
+! type './make'
+  
+  run './destest' to check things are ok.
+  run './rpw' to check the tty code for reading passwords works.
+  run './speed' to see how fast those optimisations make the library run :-)
+  
+! You will need to install by hand
+! libdes.a      to /usr/local/lib/libdes.a
+! des.h         to /usr/include/des.h
+! des	      to /usr/local/bin/des
+! des_crypt.man to /usr/local/man/man3/des_crypt.3
+! des.man       to /usr/local/man/man1/des.1
+  
+  des(1) should be compatable with sunOS's but I have been unable to
+  test it.
+--- 1,27 ----
+  Check the CC and CFLAGS lines in the makefile
+  
+! If your C library does not suport the times(3) function, change the
+! #define TIMES to
+! #undef TIMES in speed.c
+! If it does, check the HZ value for the times(3) function.
+! If your system does not define CLK_TCK it will be assumed to
+! be 60.
+! 
+! If possible use gcc v 2.1.
+  Turn on the maximum optimising
+  
+! type 'make'
+  
+  run './destest' to check things are ok.
+  run './rpw' to check the tty code for reading passwords works.
+  run './speed' to see how fast those optimisations make the library run :-)
+  
+! A make install will by default install
+! libdes.a      in /usr/local/lib/libdes.a
+! des           in /usr/local/bin/des
+! des_crypt.man in /usr/local/man/man3/des_crypt.3
+! des.man       in /usr/local/man/man1/des.1
+! des.h         in /usr/include/des.h
+  
+  des(1) should be compatable with sunOS's but I have been unable to
+  test it.
+Only in old: MANIFEST
+diff -r -c old/README new/README
+*** old/README	Mon Apr 13 10:05:18 1992
+--- new/README	Mon Apr 13 12:17:38 1992
+***************
+*** 12,22 ****
+  destest should be run after compilation to test the des routines.
+  rpw should be run after compilation to test the read password routines.
+  The des program is a replacement for the sun des command.  I believe it
+! conforms to the sun binary but I am unable to test it.
+  
+  The Imakefile is setup for use in the kerberos distribution.
+  
+! These routines are best compiled with gcc v 2.0 or any other good
+  optimising compiler.
+  Just turn you optimiser up to the highest settings and run destest
+  after the build to make sure everything works.
+--- 12,22 ----
+  destest should be run after compilation to test the des routines.
+  rpw should be run after compilation to test the read password routines.
+  The des program is a replacement for the sun des command.  I believe it
+! conforms to the sun binary.
+  
+  The Imakefile is setup for use in the kerberos distribution.
+  
+! These routines are best compiled with gcc v 2.1 or any other good
+  optimising compiler.
+  Just turn you optimiser up to the highest settings and run destest
+  after the build to make sure everything works.
+***************
+*** 24,30 ****
+  I believe these routines are about the fastest DES routines that use
+  small lookup tables (4.5k) that are publicly available.
+  The fcrypt routine is faster than ufc's fcrypt (when compiling with
+! gcc2 -O2) on the sparc 2 (1340 vs 1270) but is not so good on other machines
+  (on a sun3/260 168 vs 336).
+  
+  Eric Young (eay@psych.psy.uq.oz.au)
+--- 24,30 ----
+  I believe these routines are about the fastest DES routines that use
+  small lookup tables (4.5k) that are publicly available.
+  The fcrypt routine is faster than ufc's fcrypt (when compiling with
+! gcc2 -O2) on the sparc 2 (1410 vs 1270) but is not so good on other machines
+  (on a sun3/260 168 vs 336).
+  
+  Eric Young (eay@psych.psy.uq.oz.au)
+diff -r -c old/VERSION new/VERSION
+*** old/VERSION	Mon Apr 13 10:05:19 1992
+--- new/VERSION	Mon Apr 13 12:20:26 1992
+***************
+*** 1,4 ****
+! Version 1.9 24/03/91 eay
+  	Now contains a fast small crypt replacement.
+  	Added des(1) command.
+  	Added des_rw_mode so people can use cbc encryption with
+--- 1,20 ----
+! Version 1.92 13/04/92 eay
+! 	Changed D_ENCRYPT so that the rotation of R occures outside of
+! 	 the loop.  This required rotating all the longs in sp.h (now
+! 	 called spr.h). Thanks to Richard Outerbridge <71755.204@CompuServe.COM>
+! 	speed.c has been changed so it will work without SIGALRM.  If
+! 	 times(3) is not present it will try to use ftime() instead.
+! 
+! Version 1.91 08/04/92 eay
+! 	Added -E/-D options to des(1) so it can use string_to_key.
+! 	Added SVR4 mods suggested by witr@rwwa.COM
+! 	Added VMS mods suggested by brennan@coco.cchs.su.oz.AU.  If
+! 	anyone knows how to turn of tty echo in VMS please tell me or
+! 	implement it yourself :-).
+! 	Changed FILE *IN/*OUT to *DES_IN/*DES_OUT since it appears VMS
+! 	does not like IN/OUT being used.
+! 
+! Version 1.9 24/03/92 eay
+  	Now contains a fast small crypt replacement.
+  	Added des(1) command.
+  	Added des_rw_mode so people can use cbc encryption with
+diff -r -c old/des.c new/des.c
+*** old/des.c	Mon Apr 13 10:05:27 1992
+--- new/des.c	Wed Apr  8 10:49:03 1992
+***************
+*** 1,16 ****
+  /* des.c */
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
+  #include <stdio.h>
+  #include <sys/types.h>
+  #include <sys/stat.h>
+  #include "des.h"
+  
+  #define VERIFY  1
+  #define KEYSIZ	8
+! char key[KEYSIZ+1];
+! int encrypt;
+  char *in=NULL,*out=NULL;
+! FILE *IN,*OUT;
+  
+  int eflag,dflag,kflag,bflag,fflag,sflag,error;
+  
+--- 1,31 ----
+  /* des.c */
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
+  #include <stdio.h>
++ #ifdef VMS
++ #include <types.h>
++ #include <stat.h>
++ #else
+  #include <sys/types.h>
+  #include <sys/stat.h>
++ #endif
+  #include "des.h"
+  
++ #if defined(__STDC__) || defined(VMS)
++ #include <string.h>
++ #define bcopy(f,t,n)	memcpy(t,f,(size_t)(n))
++ #define bzero(s,n)	memset(s,0,(size_t)(n))
++ #define bcmp(a,b,n)	memcmp(a, b,(size_t)(n))
++ #define index(s,c)	strchr(s,c)
++ #endif
++ 
++ 
+  #define VERIFY  1
+  #define KEYSIZ	8
+! #define KEYSIZB 1024 /* should hit tty line limit first :-) */
+! char key[KEYSIZB+1];
+! int encrypt,longk=0;
+  char *in=NULL,*out=NULL;
+! FILE *DES_IN,*DES_OUT;
+  
+  int eflag,dflag,kflag,bflag,fflag,sflag,error;
+  
+***************
+*** 22,28 ****
+  	struct stat ins,outs;
+  
+  	eflag=dflag=kflag=bflag=fflag=sflag=0,error=0;
+! 	memset(key,0,sizeof(key));
+  
+  	for (i=1; i<argc; i++)
+  		{
+--- 37,43 ----
+  	struct stat ins,outs;
+  
+  	eflag=dflag=kflag=bflag=fflag=sflag=0,error=0;
+! 	bzero(key,sizeof(key));
+  
+  	for (i=1; i<argc; i++)
+  		{
+***************
+*** 34,42 ****
+--- 49,65 ----
+  			case 'e':
+  				eflag=1;
+  				break;
++ 			case 'E':
++ 				eflag=1;
++ 				longk=1;
++ 				break;
+  			case 'd':
+  				dflag=1;
+  				break;
++ 			case 'D':
++ 				dflag=1;
++ 				longk=1;
++ 				break;
+  			case 'b':
+  				bflag=1;
+  				break;
+***************
+*** 58,64 ****
+  					int j;
+  
+  					i++;
+! 					strncpy(key,argv[i],KEYSIZ);
+  					for (j=strlen(argv[i])-1; j>=0; j--)
+  						argv[i][j]='\0';
+  					}
+--- 81,87 ----
+  					int j;
+  
+  					i++;
+! 					strncpy(key,argv[i],KEYSIZB);
+  					for (j=strlen(argv[i])-1; j>=0; j--)
+  						argv[i][j]='\0';
+  					}
+***************
+*** 100,106 ****
+  			}
+  
+  	if (!kflag)
+! 		if (des_read_pw_string(key,KEYSIZ+1,"Enter key:",eflag?VERIFY:0))
+  			{
+  			fputs("password error\n",stderr);
+  			exit(2);
+--- 123,129 ----
+  			}
+  
+  	if (!kflag)
+! 		if (des_read_pw_string(key,KEYSIZB+1,"Enter key:",eflag?VERIFY:0))
+  			{
+  			fputs("password error\n",stderr);
+  			exit(2);
+***************
+*** 107,114 ****
+  			}
+  
+  	if (in == NULL)
+! 		IN=stdin;
+! 	else if ((IN=fopen(in,"r")) == NULL)
+  		{
+  		perror("opening input file");
+  		exit(4);
+--- 130,137 ----
+  			}
+  
+  	if (in == NULL)
+! 		DES_IN=stdin;
+! 	else if ((DES_IN=fopen(in,"r")) == NULL)
+  		{
+  		perror("opening input file");
+  		exit(4);
+***************
+*** 115,122 ****
+  		}
+  
+  	if (out == NULL)
+! 		OUT=stdout;
+! 	else if ((OUT=fopen(out,"w")) == NULL)
+  		{
+  		perror("opening output file");
+  		exit(5);
+--- 138,145 ----
+  		}
+  
+  	if (out == NULL)
+! 		DES_OUT=stdout;
+! 	else if ((DES_OUT=fopen(out,"w")) == NULL)
+  		{
+  		perror("opening output file");
+  		exit(5);
+***************
+*** 123,136 ****
+  		}
+  
+  	doencryption();
+! 	fclose(IN);
+! 	fclose(OUT);
+  	exit(0);
+  	}
+  
+  usage()
+  	{
+! 	fputs("des -e | -d [ -bfs ] [ -k key ] [ input-file [ output-file]\n",
+  		stderr);
+  	exit(1);
+  	}
+--- 146,159 ----
+  		}
+  
+  	doencryption();
+! 	fclose(DES_IN);
+! 	fclose(DES_OUT);
+  	exit(0);
+  	}
+  
+  usage()
+  	{
+! 	fputs("des (-e|-E) | (-d|-D) [ -bfs ] [ -k key ] [ input-file [ output-file]\n",
+  		stderr);
+  	exit(1);
+  	}
+***************
+*** 142,165 ****
+  	des_key_schedule ks;
+  	char iv[8];
+  	int i,j,k,l,ll,last,ex=0;
+  
+! 	for (i=0; i<KEYSIZ; i++)
+  		{
+! 		l=0;
+! 		k=key[i];
+! 		for (j=0; j<8; j++)
+  			{
+! 			if (k&1) l++;
+! 			k>>=1;
+  			}
+- 		if (l & 1)
+- 			key[i]=key[i]&0x7f;
+- 		else
+- 			key[i]=key[i]|0x80;
+- 		}
+  
+! 	des_set_key(key,ks);
+! 	memset(key,0,sizeof(key));
+  
+  	l=1;
+  	/* first read */
+--- 165,195 ----
+  	des_key_schedule ks;
+  	char iv[8];
+  	int i,j,k,l,ll,last,ex=0;
++ 	des_cblock kk;
+  
+! 	if (longk)
+  		{
+! 		des_string_to_key(key,kk);
+! 		}
+! 	else
+! 		for (i=0; i<KEYSIZ; i++)
+  			{
+! 			l=0;
+! 			k=key[i];
+! 			for (j=0; j<8; j++)
+! 				{
+! 				if (k&1) l++;
+! 				k>>=1;
+! 				}
+! 			if (l & 1)
+! 				kk[i]=key[i]&0x7f;
+! 			else
+! 				kk[i]=key[i]|0x80;
+  			}
+  
+! 	des_set_key(kk,ks);
+! 	bzero(key,sizeof(key));
+! 	bzero(kk,sizeof(kk));
+  
+  	l=1;
+  	/* first read */
+***************
+*** 167,173 ****
+  		{
+  		for (;;)
+  			{
+! 			l=fread(buf,1,1024*8,IN);
+  			if (l < 0)
+  				{
+  				perror("read error");
+--- 197,203 ----
+  		{
+  		for (;;)
+  			{
+! 			l=fread(buf,1,1024*8,DES_IN);
+  			if (l < 0)
+  				{
+  				perror("read error");
+***************
+*** 174,180 ****
+  				exit(6);
+  				}
+  
+! 			if (feof(IN))
+  				{
+  				last=l%8;
+  				srand(time(NULL));
+--- 204,210 ----
+  				exit(6);
+  				}
+  
+! 			if (feof(DES_IN))
+  				{
+  				last=l%8;
+  				srand(time(NULL));
+***************
+*** 201,207 ****
+  			i=0;
+  			while (i != l)
+  				{
+! 				j=fwrite(obuf,1,l-i,OUT);
+  				if (j == -1)
+  					{
+  					perror("Write error");
+--- 231,237 ----
+  			i=0;
+  			while (i != l)
+  				{
+! 				j=fwrite(obuf,1,l-i,DES_OUT);
+  				if (j == -1)
+  					{
+  					perror("Write error");
+***************
+*** 209,215 ****
+  					}
+  				i+=j;
+  				}
+! 			if (feof(IN)) break;
+  			}
+  		}
+  	else /* decrypt */
+--- 239,245 ----
+  					}
+  				i+=j;
+  				}
+! 			if (feof(DES_IN)) break;
+  			}
+  		}
+  	else /* decrypt */
+***************
+*** 218,224 ****
+  		for (;;)
+  			{
+  			if (ex) {
+! 				l=fread(buf,1,1024*8,IN);
+  				ex=0;
+  				}
+  			if (l < 0)
+--- 248,254 ----
+  		for (;;)
+  			{
+  			if (ex) {
+! 				l=fread(buf,1,1024*8,DES_IN);
+  				ex=0;
+  				}
+  			if (l < 0)
+***************
+*** 241,248 ****
+  				if (l >= 8) bcopy(&(buf[l-8]),iv,8);
+  				}
+  
+! 			if (!ex) ll=fread(buf,1,1024*8,IN);
+! 			if (feof(IN) && (ll == 0))
+  				{
+  				last=obuf[l-1];
+  				if ((last > 7) || (last < 0))
+--- 271,278 ----
+  				if (l >= 8) bcopy(&(buf[l-8]),iv,8);
+  				}
+  
+! 			ll=fread(buf,1,1024*8,DES_IN);
+! 			if (feof(DES_IN) && (ll == 0))
+  				{
+  				last=obuf[l-1];
+  				if ((last > 7) || (last < 0))
+***************
+*** 256,262 ****
+  			i=0;
+  			while (i != l)
+  				{
+! 				j=fwrite(obuf,1,l-i,OUT);
+  				if (j == -1)
+  					{
+  					perror("Write error");
+--- 286,292 ----
+  			i=0;
+  			while (i != l)
+  				{
+! 				j=fwrite(obuf,1,l-i,DES_OUT);
+  				if (j == -1)
+  					{
+  					perror("Write error");
+***************
+*** 265,271 ****
+  				i+=j;
+  				}
+  			l=ll;
+! 			if ((l == 0) && feof(IN)) break;
+  			}
+  		}
+  	}
+--- 295,301 ----
+  				i+=j;
+  				}
+  			l=ll;
+! 			if ((l == 0) && feof(DES_IN)) break;
+  			}
+  		}
+  	}
+diff -r -c old/des.man new/des.man
+*** old/des.man	Mon Apr 13 10:05:20 1992
+--- new/des.man	Mon Apr 13 12:52:50 1992
+***************
+*** 3,11 ****
+--- 3,17 ----
+  des - encrypt or decrypt data using Data Encryption Standard
+  .SH SYNOPSIS
+  .B des
++ (
+  .B \-e
+  |
++ .B \-E
++ ) | (
+  .B \-d
++ |
++ .B \-D
++ )
+  [
+  .B \-bfs
+  ] [
+***************
+*** 21,29 ****
+  encrypts and decrypts data using the
+  Data Encryption Standard algorithm.
+  One of
+! .B \-e
+  (for encrypt) or
+! .B \-d
+  (for decrypt) must be specified.
+  .LP
+  Two standard encryption modes are supported by the
+--- 27,35 ----
+  encrypts and decrypts data using the
+  Data Encryption Standard algorithm.
+  One of
+! .B \-e, \-E
+  (for encrypt) or
+! .B \-d, \-D
+  (for decrypt) must be specified.
+  .LP
+  Two standard encryption modes are supported by the
+***************
+*** 37,43 ****
+  .B DES
+  algorithm is obtained by prompting the user unless the
+  .B `\-k
+! .I key '
+  option is given.
+  If the key is an argument to the
+  .B des
+--- 43,49 ----
+  .B DES
+  algorithm is obtained by prompting the user unless the
+  .B `\-k
+! .I key'
+  option is given.
+  If the key is an argument to the
+  .B des
+***************
+*** 62,72 ****
+  Select ECB
+  (eight bytes at a time) encryption mode.
+  .TP
+  .B \-d
+! Decrypt data.
+  .TP
+! .B \-e
+! Encrypt data.
+  .TP
+  .B \-f
+  Does nothing - allowed for compatibility with sunOS des(1) command.
+--- 68,86 ----
+  Select ECB
+  (eight bytes at a time) encryption mode.
+  .TP
++ .B \-e
++ Encrypt data using an 8 byte key in a maner compatible with sunOS
++ des(1).
++ .TP
++ .B \-E
++ Encrypt data using a key of nearly unlimited length (1024 bytes).
++ This will product a more secure encryption.
++ .TP
+  .B \-d
+! Decrypt data that was encrypted with the \-e option.
+  .TP
+! .B \-D
+! Decrypt data that was encrypted with the \-E option.
+  .TP
+  .B \-f
+  Does nothing - allowed for compatibility with sunOS des(1) command.
+***************
+*** 74,80 ****
+  .B \-s
+  Does nothing - allowed for compatibility with sunOS des(1) command.
+  .TP
+! .I \-k " key"
+  Use the encryption 
+  .I key
+  specified.
+--- 88,94 ----
+  .B \-s
+  Does nothing - allowed for compatibility with sunOS des(1) command.
+  .TP
+! .I "\-k key"
+  Use the encryption 
+  .I key
+  specified.
+***************
+*** 83,93 ****
+  .B des_crypt(3)
+  .SH BUGS
+  .LP
+  It would be better to use a real 56-bit key rather than an
+! ASCII-based
+! 56-bit pattern.  Knowing that the key was derived from ASCII
+! radically reduces
+! the time necessary for a brute-force cryptographic attack.
+  .SH AUTHOR
+  .LP
+  Eric Young (eay@psych.psy.uq.oz.au), Psychology Department,
+--- 97,115 ----
+  .B des_crypt(3)
+  .SH BUGS
+  .LP
++ The problem with using the
++ .B -e
++ option is the short key length.
+  It would be better to use a real 56-bit key rather than an
+! ASCII-based 56-bit pattern.  Knowing that the key was derived from ASCII
+! radically reduces the time necessary for a brute-force cryptographic attack.
+! My attempt to remove this problem is to add an alternative text-key to
+! DES-key function.  This alternative function (accessed via
+! .B -E
+! and
+! .B -D
+! )
+! used DES to help generate the key.
+  .SH AUTHOR
+  .LP
+  Eric Young (eay@psych.psy.uq.oz.au), Psychology Department,
+diff -r -c old/des_local.h new/des_local.h
+*** old/des_local.h	Mon Apr 13 10:05:21 1992
+--- new/des_local.h	Wed Apr  8 09:48:23 1992
+***************
+*** 3,8 ****
+--- 3,16 ----
+  #include <stdio.h>
+  #include "des.h"
+  
++ #if defined(__STDC__) || defined(VMS)
++ #include <string.h>
++ #define bcopy(b1,b2,len) memcpy(b2, b1, (size_t)(len))
++ #define bzero(b,len) memset(b, 0, (size_t)(len))
++ #define bcmp(b1,b2,len) memcmp(b1, b2, (size_t)(len))
++ #define index(s1,char) strchr(s1,char)
++ #endif
++ 
+  typedef unsigned char uchar;
+  typedef unsigned short ushort;
+  typedef unsigned int uint;
+diff -r -c old/ecb_encrypt.c new/ecb_encrypt.c
+*** old/ecb_encrypt.c	Mon Apr 13 10:05:22 1992
+--- new/ecb_encrypt.c	Mon Apr 13 12:55:09 1992
+***************
+*** 1,7 ****
+  /* ecb_encrypt.c */
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
+  #include "des_local.h"
+! #include "sp.h"
+  
+  int des_ecb_encrypt(input,output,ks,encrypt)
+  des_cblock *input;
+--- 1,7 ----
+  /* ecb_encrypt.c */
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
+  #include "des_local.h"
+! #include "spr.h"
+  
+  int des_ecb_encrypt(input,output,ks,encrypt)
+  des_cblock *input;
+***************
+*** 28,36 ****
+  	}
+  
+  #define D_ENCRYPT(L,R,S)	\
+! 	t=(R<<1)|(R>>31); \
+! 	u=(t^s[S  ]); \
+! 	t=(t^s[S+1]); \
+  	t=(t>>4)|(t<<28); \
+  	L^=	des_SPtrans[1][(t    )&0x3f]| \
+  		des_SPtrans[3][(t>> 8)&0x3f]| \
+--- 28,35 ----
+  	}
+  
+  #define D_ENCRYPT(L,R,S)	\
+! 	u=(R^s[S  ]); \
+! 	t=(R^s[S+1]); \
+  	t=(t>>4)|(t<<28); \
+  	L^=	des_SPtrans[1][(t    )&0x3f]| \
+  		des_SPtrans[3][(t>> 8)&0x3f]| \
+***************
+*** 101,113 ****
+  	PERM_OP(r,l,t, 2,0x33333333);
+  	PERM_OP(l,r,t, 8,0x00ff00ff);
+  	PERM_OP(r,l,t, 1,0x55555555);
+! 	/* r and l are reversed - remember that :-) */
+! 	t=l;
+! 	l=r;
+! 	r=t;
+  
+! 	s=(ulong *)ks;
+  
+  	/* I don't know if it is worth the effort of loop unrolling the
+  	 * inner loop */
+  	if (encrypt)
+--- 100,119 ----
+  	PERM_OP(r,l,t, 2,0x33333333);
+  	PERM_OP(l,r,t, 8,0x00ff00ff);
+  	PERM_OP(r,l,t, 1,0x55555555);
+! 	/* r and l are reversed - remember that :-) - fix
+! 	 * it in the next step */
+  
+! 	/* Things have been modified so that the initial rotate is
+! 	 * done outside the loop.  This required the 
+! 	 * des_SPtrans values in sp.h to be rotated 1 bit to the right.
+! 	 * One perl script later and things have a 5% speed up on a sparc2.
+! 	 * Thanks to Richard Outerbridge <71755.204@CompuServe.COM>
+! 	 * for pointing this out. */
+! 	t=(r<<1)|(r>>31);
+! 	r=(l<<1)|(l>>31); 
+! 	l=t;
+  
++ 	s=(ulong *)ks;
+  	/* I don't know if it is worth the effort of loop unrolling the
+  	 * inner loop */
+  	if (encrypt)
+***************
+*** 126,131 ****
+--- 132,139 ----
+  			D_ENCRYPT(r,l,i-2); /* 15 */
+  			}
+  		}
++ 	l=(l>>1)|(l<<31);
++ 	r=(r>>1)|(r<<31);
+  
+  	/* swap l and r
+  	 * we will not do the swap so just remember they are
+diff -r -c old/fcrypt.c new/fcrypt.c
+*** old/fcrypt.c	Mon Apr 13 10:05:31 1992
+--- new/fcrypt.c	Mon Apr 13 09:59:25 1992
+***************
+*** 39,186 ****
+  
+  static unsigned long SPtrans[8][64]={
+  /* nibble 0 */
+! 0x00410100, 0x00010000, 0x40400000, 0x40410100,
+! 0x00400000, 0x40010100, 0x40010000, 0x40400000,
+! 0x40010100, 0x00410100, 0x00410000, 0x40000100,
+! 0x40400100, 0x00400000, 0x00000000, 0x40010000,
+! 0x00010000, 0x40000000, 0x00400100, 0x00010100,
+! 0x40410100, 0x00410000, 0x40000100, 0x00400100,
+! 0x40000000, 0x00000100, 0x00010100, 0x40410000,
+! 0x00000100, 0x40400100, 0x40410000, 0x00000000,
+! 0x00000000, 0x40410100, 0x00400100, 0x40010000,
+! 0x00410100, 0x00010000, 0x40000100, 0x00400100,
+! 0x40410000, 0x00000100, 0x00010100, 0x40400000,
+! 0x40010100, 0x40000000, 0x40400000, 0x00410000,
+! 0x40410100, 0x00010100, 0x00410000, 0x40400100,
+! 0x00400000, 0x40000100, 0x40010000, 0x00000000,
+! 0x00010000, 0x00400000, 0x40400100, 0x00410100,
+! 0x40000000, 0x40410000, 0x00000100, 0x40010100,
+! 
+  /* nibble 1 */
+! 0x08021002, 0x00000000, 0x00021000, 0x08020000,
+! 0x08000002, 0x00001002, 0x08001000, 0x00021000,
+! 0x00001000, 0x08020002, 0x00000002, 0x08001000,
+! 0x00020002, 0x08021000, 0x08020000, 0x00000002,
+! 0x00020000, 0x08001002, 0x08020002, 0x00001000,
+! 0x00021002, 0x08000000, 0x00000000, 0x00020002,
+! 0x08001002, 0x00021002, 0x08021000, 0x08000002,
+! 0x08000000, 0x00020000, 0x00001002, 0x08021002,
+! 0x00020002, 0x08021000, 0x08001000, 0x00021002,
+! 0x08021002, 0x00020002, 0x08000002, 0x00000000,
+! 0x08000000, 0x00001002, 0x00020000, 0x08020002,
+! 0x00001000, 0x08000000, 0x00021002, 0x08001002,
+! 0x08021000, 0x00001000, 0x00000000, 0x08000002,
+! 0x00000002, 0x08021002, 0x00021000, 0x08020000,
+! 0x08020002, 0x00020000, 0x00001002, 0x08001000,
+! 0x08001002, 0x00000002, 0x08020000, 0x00021000,
+! 
+  /* nibble 2 */
+! 0x20800000, 0x00808020, 0x00000020, 0x20800020,
+! 0x20008000, 0x00800000, 0x20800020, 0x00008020,
+! 0x00800020, 0x00008000, 0x00808000, 0x20000000,
+! 0x20808020, 0x20000020, 0x20000000, 0x20808000,
+! 0x00000000, 0x20008000, 0x00808020, 0x00000020,
+! 0x20000020, 0x20808020, 0x00008000, 0x20800000,
+! 0x20808000, 0x00800020, 0x20008020, 0x00808000,
+! 0x00008020, 0x00000000, 0x00800000, 0x20008020,
+! 0x00808020, 0x00000020, 0x20000000, 0x00008000,
+! 0x20000020, 0x20008000, 0x00808000, 0x20800020,
+! 0x00000000, 0x00808020, 0x00008020, 0x20808000,
+! 0x20008000, 0x00800000, 0x20808020, 0x20000000,
+! 0x20008020, 0x20800000, 0x00800000, 0x20808020,
+! 0x00008000, 0x00800020, 0x20800020, 0x00008020,
+! 0x00800020, 0x00000000, 0x20808000, 0x20000020,
+! 0x20800000, 0x20008020, 0x00000020, 0x00808000,
+! 
+  /* nibble 3 */
+! 0x00080201, 0x02000200, 0x00000001, 0x02080201,
+! 0x00000000, 0x02080000, 0x02000201, 0x00080001,
+! 0x02080200, 0x02000001, 0x02000000, 0x00000201,
+! 0x02000001, 0x00080201, 0x00080000, 0x02000000,
+! 0x02080001, 0x00080200, 0x00000200, 0x00000001,
+! 0x00080200, 0x02000201, 0x02080000, 0x00000200,
+! 0x00000201, 0x00000000, 0x00080001, 0x02080200,
+! 0x02000200, 0x02080001, 0x02080201, 0x00080000,
+! 0x02080001, 0x00000201, 0x00080000, 0x02000001,
+! 0x00080200, 0x02000200, 0x00000001, 0x02080000,
+! 0x02000201, 0x00000000, 0x00000200, 0x00080001,
+! 0x00000000, 0x02080001, 0x02080200, 0x00000200,
+! 0x02000000, 0x02080201, 0x00080201, 0x00080000,
+! 0x02080201, 0x00000001, 0x02000200, 0x00080201,
+! 0x00080001, 0x00080200, 0x02080000, 0x02000201,
+! 0x00000201, 0x02000000, 0x02000001, 0x02080200,
+! 
+  /* nibble 4 */
+! 0x01000000, 0x00002000, 0x00000080, 0x01002084,
+! 0x01002004, 0x01000080, 0x00002084, 0x01002000,
+! 0x00002000, 0x00000004, 0x01000004, 0x00002080,
+! 0x01000084, 0x01002004, 0x01002080, 0x00000000,
+! 0x00002080, 0x01000000, 0x00002004, 0x00000084,
+! 0x01000080, 0x00002084, 0x00000000, 0x01000004,
+! 0x00000004, 0x01000084, 0x01002084, 0x00002004,
+! 0x01002000, 0x00000080, 0x00000084, 0x01002080,
+! 0x01002080, 0x01000084, 0x00002004, 0x01002000,
+! 0x00002000, 0x00000004, 0x01000004, 0x01000080,
+! 0x01000000, 0x00002080, 0x01002084, 0x00000000,
+! 0x00002084, 0x01000000, 0x00000080, 0x00002004,
+! 0x01000084, 0x00000080, 0x00000000, 0x01002084,
+! 0x01002004, 0x01002080, 0x00000084, 0x00002000,
+! 0x00002080, 0x01002004, 0x01000080, 0x00000084,
+! 0x00000004, 0x00002084, 0x01002000, 0x01000004,
+! 
+  /* nibble 5 */
+! 0x10000008, 0x00040008, 0x00000000, 0x10040400,
+! 0x00040008, 0x00000400, 0x10000408, 0x00040000,
+! 0x00000408, 0x10040408, 0x00040400, 0x10000000,
+! 0x10000400, 0x10000008, 0x10040000, 0x00040408,
+! 0x00040000, 0x10000408, 0x10040008, 0x00000000,
+! 0x00000400, 0x00000008, 0x10040400, 0x10040008,
+! 0x10040408, 0x10040000, 0x10000000, 0x00000408,
+! 0x00000008, 0x00040400, 0x00040408, 0x10000400,
+! 0x00000408, 0x10000000, 0x10000400, 0x00040408,
+! 0x10040400, 0x00040008, 0x00000000, 0x10000400,
+! 0x10000000, 0x00000400, 0x10040008, 0x00040000,
+! 0x00040008, 0x10040408, 0x00040400, 0x00000008,
+! 0x10040408, 0x00040400, 0x00040000, 0x10000408,
+! 0x10000008, 0x10040000, 0x00040408, 0x00000000,
+! 0x00000400, 0x10000008, 0x10000408, 0x10040400,
+! 0x10040000, 0x00000408, 0x00000008, 0x10040008,
+! 
+  /* nibble 6 */
+! 0x00000800, 0x00000040, 0x00200040, 0x80200000,
+! 0x80200840, 0x80000800, 0x00000840, 0x00000000,
+! 0x00200000, 0x80200040, 0x80000040, 0x00200800,
+! 0x80000000, 0x00200840, 0x00200800, 0x80000040,
+! 0x80200040, 0x00000800, 0x80000800, 0x80200840,
+! 0x00000000, 0x00200040, 0x80200000, 0x00000840,
+! 0x80200800, 0x80000840, 0x00200840, 0x80000000,
+! 0x80000840, 0x80200800, 0x00000040, 0x00200000,
+! 0x80000840, 0x00200800, 0x80200800, 0x80000040,
+! 0x00000800, 0x00000040, 0x00200000, 0x80200800,
+! 0x80200040, 0x80000840, 0x00000840, 0x00000000,
+! 0x00000040, 0x80200000, 0x80000000, 0x00200040,
+! 0x00000000, 0x80200040, 0x00200040, 0x00000840,
+! 0x80000040, 0x00000800, 0x80200840, 0x00200000,
+! 0x00200840, 0x80000000, 0x80000800, 0x80200840,
+! 0x80200000, 0x00200840, 0x00200800, 0x80000800,
+! 
+  /* nibble 7 */
+! 0x04100010, 0x04104000, 0x00004010, 0x00000000,
+! 0x04004000, 0x00100010, 0x04100000, 0x04104010,
+! 0x00000010, 0x04000000, 0x00104000, 0x00004010,
+! 0x00104010, 0x04004010, 0x04000010, 0x04100000,
+! 0x00004000, 0x00104010, 0x00100010, 0x04004000,
+! 0x04104010, 0x04000010, 0x00000000, 0x00104000,
+! 0x04000000, 0x00100000, 0x04004010, 0x04100010,
+! 0x00100000, 0x00004000, 0x04104000, 0x00000010,
+! 0x00100000, 0x00004000, 0x04000010, 0x04104010,
+! 0x00004010, 0x04000000, 0x00000000, 0x00104000,
+! 0x04100010, 0x04004010, 0x04004000, 0x00100010,
+! 0x04104000, 0x00000010, 0x00100010, 0x04004000,
+! 0x04104010, 0x00100000, 0x04100000, 0x04000010,
+! 0x00104000, 0x00004010, 0x04004010, 0x04100000,
+! 0x00000010, 0x04104000, 0x00104010, 0x00000000,
+! 0x04000000, 0x04100010, 0x00004000, 0x00104010};
+  static ulong skb[8][64]={
+  /* for C bits (numbered as per FIPS 46) 1 2 3 4 5 6 */
+  0x00000000,0x00000010,0x20000000,0x20000010,
+--- 39,179 ----
+  
+  static unsigned long SPtrans[8][64]={
+  /* nibble 0 */
+! 0x00820200, 0x00020000, 0x80800000, 0x80820200,
+! 0x00800000, 0x80020200, 0x80020000, 0x80800000,
+! 0x80020200, 0x00820200, 0x00820000, 0x80000200,
+! 0x80800200, 0x00800000, 0x00000000, 0x80020000,
+! 0x00020000, 0x80000000, 0x00800200, 0x00020200,
+! 0x80820200, 0x00820000, 0x80000200, 0x00800200,
+! 0x80000000, 0x00000200, 0x00020200, 0x80820000,
+! 0x00000200, 0x80800200, 0x80820000, 0x00000000,
+! 0x00000000, 0x80820200, 0x00800200, 0x80020000,
+! 0x00820200, 0x00020000, 0x80000200, 0x00800200,
+! 0x80820000, 0x00000200, 0x00020200, 0x80800000,
+! 0x80020200, 0x80000000, 0x80800000, 0x00820000,
+! 0x80820200, 0x00020200, 0x00820000, 0x80800200,
+! 0x00800000, 0x80000200, 0x80020000, 0x00000000,
+! 0x00020000, 0x00800000, 0x80800200, 0x00820200,
+! 0x80000000, 0x80820000, 0x00000200, 0x80020200,
+  /* nibble 1 */
+! 0x10042004, 0x00000000, 0x00042000, 0x10040000,
+! 0x10000004, 0x00002004, 0x10002000, 0x00042000,
+! 0x00002000, 0x10040004, 0x00000004, 0x10002000,
+! 0x00040004, 0x10042000, 0x10040000, 0x00000004,
+! 0x00040000, 0x10002004, 0x10040004, 0x00002000,
+! 0x00042004, 0x10000000, 0x00000000, 0x00040004,
+! 0x10002004, 0x00042004, 0x10042000, 0x10000004,
+! 0x10000000, 0x00040000, 0x00002004, 0x10042004,
+! 0x00040004, 0x10042000, 0x10002000, 0x00042004,
+! 0x10042004, 0x00040004, 0x10000004, 0x00000000,
+! 0x10000000, 0x00002004, 0x00040000, 0x10040004,
+! 0x00002000, 0x10000000, 0x00042004, 0x10002004,
+! 0x10042000, 0x00002000, 0x00000000, 0x10000004,
+! 0x00000004, 0x10042004, 0x00042000, 0x10040000,
+! 0x10040004, 0x00040000, 0x00002004, 0x10002000,
+! 0x10002004, 0x00000004, 0x10040000, 0x00042000,
+  /* nibble 2 */
+! 0x41000000, 0x01010040, 0x00000040, 0x41000040,
+! 0x40010000, 0x01000000, 0x41000040, 0x00010040,
+! 0x01000040, 0x00010000, 0x01010000, 0x40000000,
+! 0x41010040, 0x40000040, 0x40000000, 0x41010000,
+! 0x00000000, 0x40010000, 0x01010040, 0x00000040,
+! 0x40000040, 0x41010040, 0x00010000, 0x41000000,
+! 0x41010000, 0x01000040, 0x40010040, 0x01010000,
+! 0x00010040, 0x00000000, 0x01000000, 0x40010040,
+! 0x01010040, 0x00000040, 0x40000000, 0x00010000,
+! 0x40000040, 0x40010000, 0x01010000, 0x41000040,
+! 0x00000000, 0x01010040, 0x00010040, 0x41010000,
+! 0x40010000, 0x01000000, 0x41010040, 0x40000000,
+! 0x40010040, 0x41000000, 0x01000000, 0x41010040,
+! 0x00010000, 0x01000040, 0x41000040, 0x00010040,
+! 0x01000040, 0x00000000, 0x41010000, 0x40000040,
+! 0x41000000, 0x40010040, 0x00000040, 0x01010000,
+  /* nibble 3 */
+! 0x00100402, 0x04000400, 0x00000002, 0x04100402,
+! 0x00000000, 0x04100000, 0x04000402, 0x00100002,
+! 0x04100400, 0x04000002, 0x04000000, 0x00000402,
+! 0x04000002, 0x00100402, 0x00100000, 0x04000000,
+! 0x04100002, 0x00100400, 0x00000400, 0x00000002,
+! 0x00100400, 0x04000402, 0x04100000, 0x00000400,
+! 0x00000402, 0x00000000, 0x00100002, 0x04100400,
+! 0x04000400, 0x04100002, 0x04100402, 0x00100000,
+! 0x04100002, 0x00000402, 0x00100000, 0x04000002,
+! 0x00100400, 0x04000400, 0x00000002, 0x04100000,
+! 0x04000402, 0x00000000, 0x00000400, 0x00100002,
+! 0x00000000, 0x04100002, 0x04100400, 0x00000400,
+! 0x04000000, 0x04100402, 0x00100402, 0x00100000,
+! 0x04100402, 0x00000002, 0x04000400, 0x00100402,
+! 0x00100002, 0x00100400, 0x04100000, 0x04000402,
+! 0x00000402, 0x04000000, 0x04000002, 0x04100400,
+  /* nibble 4 */
+! 0x02000000, 0x00004000, 0x00000100, 0x02004108,
+! 0x02004008, 0x02000100, 0x00004108, 0x02004000,
+! 0x00004000, 0x00000008, 0x02000008, 0x00004100,
+! 0x02000108, 0x02004008, 0x02004100, 0x00000000,
+! 0x00004100, 0x02000000, 0x00004008, 0x00000108,
+! 0x02000100, 0x00004108, 0x00000000, 0x02000008,
+! 0x00000008, 0x02000108, 0x02004108, 0x00004008,
+! 0x02004000, 0x00000100, 0x00000108, 0x02004100,
+! 0x02004100, 0x02000108, 0x00004008, 0x02004000,
+! 0x00004000, 0x00000008, 0x02000008, 0x02000100,
+! 0x02000000, 0x00004100, 0x02004108, 0x00000000,
+! 0x00004108, 0x02000000, 0x00000100, 0x00004008,
+! 0x02000108, 0x00000100, 0x00000000, 0x02004108,
+! 0x02004008, 0x02004100, 0x00000108, 0x00004000,
+! 0x00004100, 0x02004008, 0x02000100, 0x00000108,
+! 0x00000008, 0x00004108, 0x02004000, 0x02000008,
+  /* nibble 5 */
+! 0x20000010, 0x00080010, 0x00000000, 0x20080800,
+! 0x00080010, 0x00000800, 0x20000810, 0x00080000,
+! 0x00000810, 0x20080810, 0x00080800, 0x20000000,
+! 0x20000800, 0x20000010, 0x20080000, 0x00080810,
+! 0x00080000, 0x20000810, 0x20080010, 0x00000000,
+! 0x00000800, 0x00000010, 0x20080800, 0x20080010,
+! 0x20080810, 0x20080000, 0x20000000, 0x00000810,
+! 0x00000010, 0x00080800, 0x00080810, 0x20000800,
+! 0x00000810, 0x20000000, 0x20000800, 0x00080810,
+! 0x20080800, 0x00080010, 0x00000000, 0x20000800,
+! 0x20000000, 0x00000800, 0x20080010, 0x00080000,
+! 0x00080010, 0x20080810, 0x00080800, 0x00000010,
+! 0x20080810, 0x00080800, 0x00080000, 0x20000810,
+! 0x20000010, 0x20080000, 0x00080810, 0x00000000,
+! 0x00000800, 0x20000010, 0x20000810, 0x20080800,
+! 0x20080000, 0x00000810, 0x00000010, 0x20080010,
+  /* nibble 6 */
+! 0x00001000, 0x00000080, 0x00400080, 0x00400001,
+! 0x00401081, 0x00001001, 0x00001080, 0x00000000,
+! 0x00400000, 0x00400081, 0x00000081, 0x00401000,
+! 0x00000001, 0x00401080, 0x00401000, 0x00000081,
+! 0x00400081, 0x00001000, 0x00001001, 0x00401081,
+! 0x00000000, 0x00400080, 0x00400001, 0x00001080,
+! 0x00401001, 0x00001081, 0x00401080, 0x00000001,
+! 0x00001081, 0x00401001, 0x00000080, 0x00400000,
+! 0x00001081, 0x00401000, 0x00401001, 0x00000081,
+! 0x00001000, 0x00000080, 0x00400000, 0x00401001,
+! 0x00400081, 0x00001081, 0x00001080, 0x00000000,
+! 0x00000080, 0x00400001, 0x00000001, 0x00400080,
+! 0x00000000, 0x00400081, 0x00400080, 0x00001080,
+! 0x00000081, 0x00001000, 0x00401081, 0x00400000,
+! 0x00401080, 0x00000001, 0x00001001, 0x00401081,
+! 0x00400001, 0x00401080, 0x00401000, 0x00001001,
+  /* nibble 7 */
+! 0x08200020, 0x08208000, 0x00008020, 0x00000000,
+! 0x08008000, 0x00200020, 0x08200000, 0x08208020,
+! 0x00000020, 0x08000000, 0x00208000, 0x00008020,
+! 0x00208020, 0x08008020, 0x08000020, 0x08200000,
+! 0x00008000, 0x00208020, 0x00200020, 0x08008000,
+! 0x08208020, 0x08000020, 0x00000000, 0x00208000,
+! 0x08000000, 0x00200000, 0x08008020, 0x08200020,
+! 0x00200000, 0x00008000, 0x08208000, 0x00000020,
+! 0x00200000, 0x00008000, 0x08000020, 0x08208020,
+! 0x00008020, 0x08000000, 0x00000000, 0x00208000,
+! 0x08200020, 0x08008020, 0x08008000, 0x00200020,
+! 0x08208000, 0x00000020, 0x00200020, 0x08008000,
+! 0x08208020, 0x00200000, 0x08200000, 0x08000020,
+! 0x00208000, 0x00008020, 0x08008020, 0x08200000,
+! 0x00000020, 0x08208000, 0x00208020, 0x00000000,
+! 0x08000000, 0x08200020, 0x00008000, 0x00208020};
+  static ulong skb[8][64]={
+  /* for C bits (numbered as per FIPS 46) 1 2 3 4 5 6 */
+  0x00000000,0x00000010,0x20000000,0x20000010,
+***************
+*** 395,406 ****
+   ******************************************************************/
+  
+  #define D_ENCRYPT(L,R,S)	\
+! 	t=(R<<1)|(R>>31); \
+! 	v=(t^(t>>16)); \
+  	u=(v&E0); \
+  	v=(v&E1); \
+! 	u=(u^(u<<16))^t^s[S  ]; \
+! 	t=(v^(v<<16))^t^s[S+1]; \
+  	t=(t>>4)|(t<<28); \
+  	L^=	SPtrans[1][(t    )&0x3f]| \
+  		SPtrans[3][(t>> 8)&0x3f]| \
+--- 388,398 ----
+   ******************************************************************/
+  
+  #define D_ENCRYPT(L,R,S)	\
+! 	v=(R^(R>>16)); \
+  	u=(v&E0); \
+  	v=(v&E1); \
+! 	u=(u^(u<<16))^R^s[S  ]; \
+! 	t=(v^(v<<16))^R^s[S+1]; \
+  	t=(t>>4)|(t<<28); \
+  	L^=	SPtrans[1][(t    )&0x3f]| \
+  		SPtrans[3][(t>> 8)&0x3f]| \
+***************
+*** 528,536 ****
+  		l=r;
+  		r=t;
+  		}
+! 	t=l;
+! 	l=r;
+! 	r=t;
+  	PERM_OP(r,l,t, 1,0x55555555);
+  	PERM_OP(l,r,t, 8,0x00ff00ff);
+  	PERM_OP(r,l,t, 2,0x33333333);
+--- 520,529 ----
+  		l=r;
+  		r=t;
+  		}
+! 	t=r;
+! 	r=(l>>1)|(l<<31);
+! 	l=(t>>1)|(t<<31);
+! 
+  	PERM_OP(r,l,t, 1,0x55555555);
+  	PERM_OP(l,r,t, 8,0x00ff00ff);
+  	PERM_OP(r,l,t, 2,0x33333333);
+diff -r -c old/makefile new/makefile
+*** old/makefile	Mon Apr 13 10:05:23 1992
+--- new/makefile	Mon Apr 13 13:04:38 1992
+***************
+*** 5,19 ****
+  
+  OBJS=	cbc_cksum.o cbc_encrypt.o ecb_encrypt.o pcbc_encrypt.o \
+  	quad_cksum.o random_key.o read_password.o set_key.o string_to_key.o \
+  	enc_read.o enc_write.o fcrypt.o
+  
+! GENERAL=COPYING FILES INSTALLATION Imakefile README VERSION makefile times
+  DES=	des.c des.man
+  TESTING=destest.c speed.c rpw.c
+  LIBDES=	des_crypt.man des.h cbc_cksum.c cbc_encrypt.c ecb_encrypt.c \
+  	enc_read.c enc_write.c pcbc_encrypt.c quad_cksum.c random_key.c \
+  	read_password.c set_key.c string_to_key.c fcrypt.c des_local.h \
+! 	podd.h sk.h sp.h
+  PERL=	des.pl testdes.pl doIP doPC1 doPC2 PC1 PC2 shifts.pl
+  
+  ALL=	$(GENERAL) $(DES) $(TESTING) $(LIBDES) $(PERL)
+--- 5,27 ----
+  
++ LIBDIR=/usr/local/lib
++ BINDIR=/usr/local/bin
++ INCDIR=/usr/include
++ MANDIR=/usr/local/man
++ MAN1=1
++ MAN3=3
++ 
+  OBJS=	cbc_cksum.o cbc_encrypt.o ecb_encrypt.o pcbc_encrypt.o \
+  	quad_cksum.o random_key.o read_password.o set_key.o string_to_key.o \
+  	enc_read.o enc_write.o fcrypt.o
+  
+! GENERAL=COPYING FILES INSTALLATION Imakefile README VERSION makefile times \
+! 	vms.com
+  DES=	des.c des.man
+  TESTING=destest.c speed.c rpw.c
+  LIBDES=	des_crypt.man des.h cbc_cksum.c cbc_encrypt.c ecb_encrypt.c \
+  	enc_read.c enc_write.c pcbc_encrypt.c quad_cksum.c random_key.c \
+  	read_password.c set_key.c string_to_key.c fcrypt.c des_local.h \
+! 	podd.h sk.h spr.h
+  PERL=	des.pl testdes.pl doIP doPC1 doPC2 PC1 PC2 shifts.pl
+  
+  ALL=	$(GENERAL) $(DES) $(TESTING) $(LIBDES) $(PERL)
+***************
+*** 25,31 ****
+  $(LIB):	$(OBJS)
+  	/bin/rm -f $(LIB)
+  	ar cr $(LIB) $(OBJS)
+! 	ranlib libdes.a
+  
+  destest: destest.o libdes.a
+  	$(CC) $(CFLAGS) -o destest destest.o libdes.a
+--- 33,41 ----
+  $(LIB):	$(OBJS)
+  	/bin/rm -f $(LIB)
+  	ar cr $(LIB) $(OBJS)
+! 	-if test -s /bin/ranlib; then /bin/ranlib $(LIB); \
+! 	else if test -s /usr/bin/ranlib; then /usr/bin/ranlib $(LIB); \
+! 	else exit 0; fi; fi
+  
+  destest: destest.o libdes.a
+  	$(CC) $(CFLAGS) -o destest destest.o libdes.a
+***************
+*** 47,49 ****
+--- 57,71 ----
+  
+  clean:
+  	/bin/rm -f *.o rpw destest des speed $(LIB)
++ 
++ install: $(LIB) des
++ 	cp $(LIB) $(LIBDIR)/$(LIB)
++ 	chmod 644 $(LIBDIR)/$(LIB)
++ 	cp des $(BINDIR)/des
++ 	chmod 711 $(BINDIR)/des
++ 	cp des_crypt.man $(MANDIR)/man$(MAN3)/des_crypt.$(MAN3)
++ 	chmod 644 $(MANDIR)/man$(MAN3)/des_crypt.$(MAN3)
++ 	cp des.man $(MANDIR)/man$(MAN1)/des.$(MAN1)
++ 	chmod 644 $(MANDIR)/man$(MAN1)/des.$(MAN1)
++ 	cp des.h $(INCDIR)/des.h
++ 	chmod 644 $(INCDIR)/des.h
+diff -r -c old/read_password.c new/read_password.c
+*** old/read_password.c	Mon Apr 13 10:05:24 1992
+--- new/read_password.c	Wed Apr  8 10:01:34 1992
+***************
+*** 1,11 ****
+  /* read_password.c */
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
+  #include "des_local.h"
+  #include <string.h>
+  #include <signal.h>
+  #include <sgtty.h>
+  #include <sys/ioctl.h>
+! #include <setjmp.h>
+  
+  static int read_pw();
+  static void recsig();
+--- 1,22 ----
+  /* read_password.c */
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
++ /* 06-Apr-92 Luke Brennan    Support for VMS */
+  #include "des_local.h"
+  #include <string.h>
+  #include <signal.h>
++ #include <setjmp.h>
++ #ifndef VMS
+  #include <sgtty.h>
+  #include <sys/ioctl.h>
+! #else /* VMS */
+! truct sgttyb {
+! 	unsigned char class, ttype;
+! 	unsigned short pgwid;
+! 	unsigned ttchr : 24;
+! 	unsigned char pglen;
+! 	unsigned int xchar;
+! 	};
+! #endif
+  
+  static int read_pw();
+  static void recsig();
+***************
+*** 70,77 ****
+--- 81,90 ----
+  
+  	if ((tty=fopen("/dev/tty","r")) == NULL)
+  		tty=stdin;
++ #ifdef TIOCGETP
+  	if (ioctl(fileno(tty),TIOCGETP,(char *)&tty_orig) == -1)
+  		return(-1);
++ #endif
+  	bcopy(&(tty_orig),&(tty_new),sizeof(tty_orig));
+  	if (setjmp(save))
+  		{
+***************
+*** 81,88 ****
+--- 94,103 ----
+  	pushsig();
+  	ps=1;
+  	tty_new.sg_flags &= ~ECHO;
++ #ifdef TIOCSETP
+  	if (ioctl(fileno(tty),TIOCSETP,(char *)&tty_new) == -1)
+  		return(-1);
++ #endif
+  	ps=2;
+  
+  	while (!ok)
+***************
+*** 120,126 ****
+--- 135,143 ----
+  error:
+  	fprintf(stderr,"\n");
+  	/* What can we do if there is an error? */
++ #ifdef TIOCSETP
+  	if (ps >= 2) ioctl(fileno(tty),TIOCSETP,(char *)&tty_orig);
++ #endif
+  	if (ps >= 1) popsig();
+  	if (stdin != tty) fclose(tty);
+  	return(!ok);
+Only in old: sp.h
+diff -r -c old/speed.c new/speed.c
+*** old/speed.c	Mon Apr 13 10:05:25 1992
+--- new/speed.c	Mon Apr 13 12:29:31 1992
+***************
+*** 1,25 ****
+  /* speed.c */
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
+  #include <stdio.h>
+  #include <signal.h>
+  #include <sys/types.h>
+  #include <sys/times.h>
+  #include "des.h"
+  
+  /* The following if from times(3) man page.  It may need to be changed */
+  #define HZ	60.0
+  
+  #define BUFSIZE	(1024*8)
+- 
+  long run=0;
+- int sig_done() { run=0; }
+  
+  main(argc,argv)
+  int argc;
+  char *argv[];
+  	{
+! 	struct tms tstart,tend;
+! 	int count;
+  	FILE *in,*out,*std;
+  	static unsigned char buf[BUFSIZE];
+  	static des_cblock key={0x12,0x34,0x56,0x78,0x9a,0xbc,0xde,0xf0};
+--- 1,101 ----
+  /* speed.c */
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
++ /* 06-Apr-92 Luke Brennan    Support for VMS and add extra signal calls */
++ 
++ #define TIMES
++ 
+  #include <stdio.h>
+  #include <signal.h>
++ #undef SIGALRM
++ #ifndef VMS
++ #include <time.h>
+  #include <sys/types.h>
+  #include <sys/times.h>
++ #else /* VMS */
++ #include <types.h>
++ struct tms {
++ 	time_t tms_utime;
++ 	time_t tms_stime;
++ 	time_t tms_uchild;          /* I dunno...  */
++ 	time_t tms_uchildsys;       /* so these names are a guess :-) */
++ 	}
++ #endif
++ #ifndef TIMES
++ #include <sys/timeb.h>
++ #endif
+  #include "des.h"
+  
+  /* The following if from times(3) man page.  It may need to be changed */
++ #ifndef CLK_TCK
++ #ifndef VMS
+  #define HZ	60.0
++ #else /* VMS */
++ #define HZ	100.0
++ #endif
++ #else /* CLK_TCK */
++ #define HZ ((double)CLK_TCK)
++ #endif
+  
+  #define BUFSIZE	(1024*8)
+  long run=0;
+  
++ #ifdef SIGALRM
++ #ifdef __STDC__
++ #define SIGRETTYPE void
++ #else
++ #define SIGRETTYPE int
++ #endif 
++ 
++ SIGRETTYPE sig_done(sig)
++ int sig;
++ 	{
++ 	signal(SIGALRM,sig_done);
++ 	run=0;
++ 	}
++ #endif
++ 
++ #define START	0
++ #define STOP	1
++ 
++ double Time(s)
++ int s;
++ 	{
++ #ifdef TIMES
++ 	static struct tms tstart,tend;
++ 
++ 	if (s == START)
++ 		{
++ 		times(&tstart);
++ 		return(0);
++ 		}
++ 	else
++ 		{
++ 		times(&tend);
++ 		return(((double)(tend.tms_utime-tstart.tms_utime))/HZ);
++ 		}
++ #else /* !times() */
++ 	static struct timeb tstart,tend;
++ 	long i;
++ 
++ 	if (s == START)
++ 		{
++ 		ftime(&tstart);
++ 		return(0);
++ 		}
++ 	else
++ 		{
++ 		ftime(&tend);
++ 		i=(long)tend.time-(long)tstart.time;
++ 		return(((double)(tend.time-tstart.time))+i/1000.0);
++ 		}
++ #endif
++ 	}
++ 
+  main(argc,argv)
+  int argc;
+  char *argv[];
+  	{
+! 	long count;
+  	FILE *in,*out,*std;
+  	static unsigned char buf[BUFSIZE];
+  	static des_cblock key={0x12,0x34,0x56,0x78,0x9a,0xbc,0xde,0xf0};
+***************
+*** 26,78 ****
+  	des_key_schedule sch;
+  	int i,j,k,enc,cat=0,catfd;
+  	double d,a,b,c;
+  
+! 	signal(SIGALRM,sig_done);
+  
+  	printf("Doing set_key for 60 seconds\n");
+  	alarm(60);
+! 	times(&tstart);
+! 	for (count=0,run=1; run; count++)
+  		des_set_key(key,sch);
+! 	times(&tend);
+! 	d=((double)(tend.tms_utime-tstart.tms_utime))/HZ;
+! 	printf("%d set_key's in %.2f second\n",
+! 		count,d);
+! 	a=((double)count)/d;
+  
+  	printf("Doing des_ecb_encrypt's for 60 seconds\n");
+  	alarm(60);
+! 	times(&tstart);
+! 	for (count=0,run=1; run; count++)
+  		des_ecb_encrypt(buf,buf,&(sch[0]),DES_ENCRYPT);
+! 	times(&tend);
+! 	d=((double)(tend.tms_utime-tstart.tms_utime))/HZ;
+! 	printf("%d des_ecb_encrypt's in %.2f second\n",
+! 		count,d);
+! 	b=((double)count*8)/d;
+  
+  	printf("Doing des_cbc_encrypt on %d byte blocks for 60 seconds\n",
+  		BUFSIZE);
+  	alarm(60);
+! 	times(&tstart);
+! 	for (count=0,run=1; run; count++)
+  		des_cbc_encrypt(buf,buf,BUFSIZE,&(sch[0]),
+  		&(key[0]),DES_ENCRYPT);
+! 	times(&tend);
+! 	d=((double)(tend.tms_utime-tstart.tms_utime))/HZ;
+  	printf("%d des_cbc_encrypt's of %d byte blocks in %.2f second\n",
+  		count,BUFSIZE,d);
+! 	c=((double)count*BUFSIZE)/d;
+  
+  	printf("Doing crypt for 60 seconds\n");
+  	alarm(60);
+! 	times(&tstart);
+! 	for (count=0,run=1; run; count++)
+  		crypt("testing1","ef");
+! 	times(&tend);
+! 	d=((double)(tend.tms_utime-tstart.tms_utime))/HZ;
+  	printf("%d crypts in %.2f second\n",count,d);
+! 	d=((double)count)/d;
+  
+  	printf("set_key       per sec = %12.2f\n",a);
+  	printf("DES ecb bytes per sec = %12.2f\n",b);
+--- 102,188 ----
+  	des_key_schedule sch;
+  	int i,j,k,enc,cat=0,catfd;
+  	double d,a,b,c;
++ 	long ca,cb,cc,cd;
+  
+! #ifndef TIMES
+! 	printf("To get the most acurate results, try to run this\n");
+! 	printf("program when this computer is idle.\n");
+! #endif
+  
++ #ifndef SIGALRM
++ 	printf("First calculate aprox speed...\n");
++ 	des_set_key(key,sch);
++ 	count=10;
++ 	do	{
++ 		count*=2;
++ 		Time(START);
++ 		for (i=count; i; i--)
++ 			des_ecb_encrypt(buf,buf,&(sch[0]),DES_ENCRYPT);
++ 		d=Time(STOP);
++ 		} while (d <3);
++ 	ca=count;
++ 	cb=count*10;
++ 	cc=count*10*8/BUFSIZE+1;
++ 	cd=count/20+1;
++ 	printf("Doing set_key's %d times\n",ca);
++ #define COND(d)	(count != (d))
++ #define COUNT(d) (d)
++ #else
++ #define COND(c)	(run)
++ #define COUNT(d) (count)
++ 	signal(SIGALRM,sig_done);
+  	printf("Doing set_key for 60 seconds\n");
+  	alarm(60);
+! #endif
+! 
+! 	Time(START);
+! 	for (count=0,run=1; COND(ca); count++)
+  		des_set_key(key,sch);
+! 	d=Time(STOP);
+! 	printf("%d set_key's in %.2f seconds\n",count,d);
+! 	a=((double)COUNT(ca))/d;
+  
++ #ifdef SIGALRM
+  	printf("Doing des_ecb_encrypt's for 60 seconds\n");
+  	alarm(60);
+! #else
+! 	printf("Doing %d des_ecb_encrypt's\n",cb);
+! #endif
+! 	Time(START);
+! 	for (count=0,run=1; COND(cb); count++)
+  		des_ecb_encrypt(buf,buf,&(sch[0]),DES_ENCRYPT);
+! 	d=Time(STOP);
+! 	printf("%d des_ecb_encrypt's in %.2f second\n",count,d);
+! 	b=((double)COUNT(cb)*8)/d;
+  
++ #ifdef SIGALRM
+  	printf("Doing des_cbc_encrypt on %d byte blocks for 60 seconds\n",
+  		BUFSIZE);
+  	alarm(60);
+! #else
+! 	printf("Doing %d des_cbc_encrypt's on %d byte blocks\n",cc,BUFSIZE);
+! #endif
+! 	Time(START);
+! 	for (count=0,run=1; COND(cc); count++)
+  		des_cbc_encrypt(buf,buf,BUFSIZE,&(sch[0]),
+  		&(key[0]),DES_ENCRYPT);
+! 	d=Time(STOP);
+  	printf("%d des_cbc_encrypt's of %d byte blocks in %.2f second\n",
+  		count,BUFSIZE,d);
+! 	c=((double)COUNT(cc)*BUFSIZE)/d;
+  
++ #ifdef SIGALRM
+  	printf("Doing crypt for 60 seconds\n");
+  	alarm(60);
+! #else
+! 	printf("Doing %d crypt's\n",cd);
+! #endif
+! 	Time(START);
+! 	for (count=0,run=1; COND(cd); count++)
+  		crypt("testing1","ef");
+! 	d=Time(STOP);
+  	printf("%d crypts in %.2f second\n",count,d);
+! 	d=((double)COUNT(cd))/d;
+  
+  	printf("set_key       per sec = %12.2f\n",a);
+  	printf("DES ecb bytes per sec = %12.2f\n",b);
+diff -r -c old/spr.h new/spr.h
+*** old/spr.h	Mon Apr 13 12:57:36 1992
+--- new/spr.h	Mon Apr 13 09:47:55 1992
+***************
+*** 0 ****
+--- 1,146 ----
++ /* sp.h */
++ /* Copyright (C) 1992 Eric Young - see COPYING for more details */
++ static unsigned long des_SPtrans[8][64]={
++ /* nibble 0 */
++ 0x00820200, 0x00020000, 0x80800000, 0x80820200,
++ 0x00800000, 0x80020200, 0x80020000, 0x80800000,
++ 0x80020200, 0x00820200, 0x00820000, 0x80000200,
++ 0x80800200, 0x00800000, 0x00000000, 0x80020000,
++ 0x00020000, 0x80000000, 0x00800200, 0x00020200,
++ 0x80820200, 0x00820000, 0x80000200, 0x00800200,
++ 0x80000000, 0x00000200, 0x00020200, 0x80820000,
++ 0x00000200, 0x80800200, 0x80820000, 0x00000000,
++ 0x00000000, 0x80820200, 0x00800200, 0x80020000,
++ 0x00820200, 0x00020000, 0x80000200, 0x00800200,
++ 0x80820000, 0x00000200, 0x00020200, 0x80800000,
++ 0x80020200, 0x80000000, 0x80800000, 0x00820000,
++ 0x80820200, 0x00020200, 0x00820000, 0x80800200,
++ 0x00800000, 0x80000200, 0x80020000, 0x00000000,
++ 0x00020000, 0x00800000, 0x80800200, 0x00820200,
++ 0x80000000, 0x80820000, 0x00000200, 0x80020200,
++ 
++ /* nibble 1 */
++ 0x10042004, 0x00000000, 0x00042000, 0x10040000,
++ 0x10000004, 0x00002004, 0x10002000, 0x00042000,
++ 0x00002000, 0x10040004, 0x00000004, 0x10002000,
++ 0x00040004, 0x10042000, 0x10040000, 0x00000004,
++ 0x00040000, 0x10002004, 0x10040004, 0x00002000,
++ 0x00042004, 0x10000000, 0x00000000, 0x00040004,
++ 0x10002004, 0x00042004, 0x10042000, 0x10000004,
++ 0x10000000, 0x00040000, 0x00002004, 0x10042004,
++ 0x00040004, 0x10042000, 0x10002000, 0x00042004,
++ 0x10042004, 0x00040004, 0x10000004, 0x00000000,
++ 0x10000000, 0x00002004, 0x00040000, 0x10040004,
++ 0x00002000, 0x10000000, 0x00042004, 0x10002004,
++ 0x10042000, 0x00002000, 0x00000000, 0x10000004,
++ 0x00000004, 0x10042004, 0x00042000, 0x10040000,
++ 0x10040004, 0x00040000, 0x00002004, 0x10002000,
++ 0x10002004, 0x00000004, 0x10040000, 0x00042000,
++ 
++ /* nibble 2 */
++ 0x41000000, 0x01010040, 0x00000040, 0x41000040,
++ 0x40010000, 0x01000000, 0x41000040, 0x00010040,
++ 0x01000040, 0x00010000, 0x01010000, 0x40000000,
++ 0x41010040, 0x40000040, 0x40000000, 0x41010000,
++ 0x00000000, 0x40010000, 0x01010040, 0x00000040,
++ 0x40000040, 0x41010040, 0x00010000, 0x41000000,
++ 0x41010000, 0x01000040, 0x40010040, 0x01010000,
++ 0x00010040, 0x00000000, 0x01000000, 0x40010040,
++ 0x01010040, 0x00000040, 0x40000000, 0x00010000,
++ 0x40000040, 0x40010000, 0x01010000, 0x41000040,
++ 0x00000000, 0x01010040, 0x00010040, 0x41010000,
++ 0x40010000, 0x01000000, 0x41010040, 0x40000000,
++ 0x40010040, 0x41000000, 0x01000000, 0x41010040,
++ 0x00010000, 0x01000040, 0x41000040, 0x00010040,
++ 0x01000040, 0x00000000, 0x41010000, 0x40000040,
++ 0x41000000, 0x40010040, 0x00000040, 0x01010000,
++ 
++ /* nibble 3 */
++ 0x00100402, 0x04000400, 0x00000002, 0x04100402,
++ 0x00000000, 0x04100000, 0x04000402, 0x00100002,
++ 0x04100400, 0x04000002, 0x04000000, 0x00000402,
++ 0x04000002, 0x00100402, 0x00100000, 0x04000000,
++ 0x04100002, 0x00100400, 0x00000400, 0x00000002,
++ 0x00100400, 0x04000402, 0x04100000, 0x00000400,
++ 0x00000402, 0x00000000, 0x00100002, 0x04100400,
++ 0x04000400, 0x04100002, 0x04100402, 0x00100000,
++ 0x04100002, 0x00000402, 0x00100000, 0x04000002,
++ 0x00100400, 0x04000400, 0x00000002, 0x04100000,
++ 0x04000402, 0x00000000, 0x00000400, 0x00100002,
++ 0x00000000, 0x04100002, 0x04100400, 0x00000400,
++ 0x04000000, 0x04100402, 0x00100402, 0x00100000,
++ 0x04100402, 0x00000002, 0x04000400, 0x00100402,
++ 0x00100002, 0x00100400, 0x04100000, 0x04000402,
++ 0x00000402, 0x04000000, 0x04000002, 0x04100400,
++ 
++ /* nibble 4 */
++ 0x02000000, 0x00004000, 0x00000100, 0x02004108,
++ 0x02004008, 0x02000100, 0x00004108, 0x02004000,
++ 0x00004000, 0x00000008, 0x02000008, 0x00004100,
++ 0x02000108, 0x02004008, 0x02004100, 0x00000000,
++ 0x00004100, 0x02000000, 0x00004008, 0x00000108,
++ 0x02000100, 0x00004108, 0x00000000, 0x02000008,
++ 0x00000008, 0x02000108, 0x02004108, 0x00004008,
++ 0x02004000, 0x00000100, 0x00000108, 0x02004100,
++ 0x02004100, 0x02000108, 0x00004008, 0x02004000,
++ 0x00004000, 0x00000008, 0x02000008, 0x02000100,
++ 0x02000000, 0x00004100, 0x02004108, 0x00000000,
++ 0x00004108, 0x02000000, 0x00000100, 0x00004008,
++ 0x02000108, 0x00000100, 0x00000000, 0x02004108,
++ 0x02004008, 0x02004100, 0x00000108, 0x00004000,
++ 0x00004100, 0x02004008, 0x02000100, 0x00000108,
++ 0x00000008, 0x00004108, 0x02004000, 0x02000008,
++ 
++ /* nibble 5 */
++ 0x20000010, 0x00080010, 0x00000000, 0x20080800,
++ 0x00080010, 0x00000800, 0x20000810, 0x00080000,
++ 0x00000810, 0x20080810, 0x00080800, 0x20000000,
++ 0x20000800, 0x20000010, 0x20080000, 0x00080810,
++ 0x00080000, 0x20000810, 0x20080010, 0x00000000,
++ 0x00000800, 0x00000010, 0x20080800, 0x20080010,
++ 0x20080810, 0x20080000, 0x20000000, 0x00000810,
++ 0x00000010, 0x00080800, 0x00080810, 0x20000800,
++ 0x00000810, 0x20000000, 0x20000800, 0x00080810,
++ 0x20080800, 0x00080010, 0x00000000, 0x20000800,
++ 0x20000000, 0x00000800, 0x20080010, 0x00080000,
++ 0x00080010, 0x20080810, 0x00080800, 0x00000010,
++ 0x20080810, 0x00080800, 0x00080000, 0x20000810,
++ 0x20000010, 0x20080000, 0x00080810, 0x00000000,
++ 0x00000800, 0x20000010, 0x20000810, 0x20080800,
++ 0x20080000, 0x00000810, 0x00000010, 0x20080010,
++ 
++ /* nibble 6 */
++ 0x00001000, 0x00000080, 0x00400080, 0x00400001,
++ 0x00401081, 0x00001001, 0x00001080, 0x00000000,
++ 0x00400000, 0x00400081, 0x00000081, 0x00401000,
++ 0x00000001, 0x00401080, 0x00401000, 0x00000081,
++ 0x00400081, 0x00001000, 0x00001001, 0x00401081,
++ 0x00000000, 0x00400080, 0x00400001, 0x00001080,
++ 0x00401001, 0x00001081, 0x00401080, 0x00000001,
++ 0x00001081, 0x00401001, 0x00000080, 0x00400000,
++ 0x00001081, 0x00401000, 0x00401001, 0x00000081,
++ 0x00001000, 0x00000080, 0x00400000, 0x00401001,
++ 0x00400081, 0x00001081, 0x00001080, 0x00000000,
++ 0x00000080, 0x00400001, 0x00000001, 0x00400080,
++ 0x00000000, 0x00400081, 0x00400080, 0x00001080,
++ 0x00000081, 0x00001000, 0x00401081, 0x00400000,
++ 0x00401080, 0x00000001, 0x00001001, 0x00401081,
++ 0x00400001, 0x00401080, 0x00401000, 0x00001001,
++ 
++ /* nibble 7 */
++ 0x08200020, 0x08208000, 0x00008020, 0x00000000,
++ 0x08008000, 0x00200020, 0x08200000, 0x08208020,
++ 0x00000020, 0x08000000, 0x00208000, 0x00008020,
++ 0x00208020, 0x08008020, 0x08000020, 0x08200000,
++ 0x00008000, 0x00208020, 0x00200020, 0x08008000,
++ 0x08208020, 0x08000020, 0x00000000, 0x00208000,
++ 0x08000000, 0x00200000, 0x08008020, 0x08200020,
++ 0x00200000, 0x00008000, 0x08208000, 0x00000020,
++ 0x00200000, 0x00008000, 0x08000020, 0x08208020,
++ 0x00008020, 0x08000000, 0x00000000, 0x00208000,
++ 0x08200020, 0x08008020, 0x08008000, 0x00200020,
++ 0x08208000, 0x00000020, 0x00200020, 0x08008000,
++ 0x08208020, 0x00200000, 0x08200000, 0x08000020,
++ 0x00208000, 0x00008020, 0x08008020, 0x08200000,
++ 0x00000020, 0x08208000, 0x00208020, 0x00000000,
++ 0x08000000, 0x08200020, 0x00008000, 0x00208020};
+diff -r -c old/times new/times
+*** old/times	Mon Apr 13 10:05:26 1992
+--- new/times	Mon Apr 13 12:56:37 1992
+***************
+*** 1,4 ****
+--- 1,15 ----
++ New version 1.92 - slight speedup.
++ 
+  sun sparc 2 - gcc2 -O2
++ set_key       per sec =     21559.10
++ DES ecb bytes per sec =    305566.92
++ DES cbc bytes per sec =    303497.50
++ crypt         per sec =      1410.48
++ 
++ 
++ Old version 1.90
++ 
++ sun sparc 2 - gcc2 -O2
+  -rw-r-----  1 eay      wheel       25804 Mar 24 14:16 libdes.a
+  set_key       per sec =     21462.36
+  DES ecb bytes per sec =    289342.72
+***************
+*** 25,27 ****
+--- 36,47 ----
+  DES ecb bytes per sec =     31061.97
+  DES cbc bytes per sec =     31561.52
+  crypt         per sec =       148.66
++ 
++ From Robert Withrow <witr@rwwa.COM>
++ 386/33 - cc -O
++ -rw-r--r--   1 root     other      32708 Apr  4 14:45 /usr/local/lib/libdes.a
++ set_key       per sec =      5475.44
++ DES ecb bytes per sec =     64527.52
++ DES cbc bytes per sec =     67086.06
++ crypt         per sec =       298.54
++ 
+diff -r -c old/vms.com new/vms.com
+*** old/vms.com	Mon Apr 13 13:05:48 1992
+--- new/vms.com	Wed Apr  8 08:54:51 1992
+***************
+*** 0 ****
+--- 1,82 ----
++ $! --- VMS.com ---
++ $!
++ $ GoSub defines
++ $ GoSub linker_options
++ $ If (P1 .nes. "")
++ $ Then 
++ $   GoSub 'P1'
++ $ Else
++ $   GoSub lib
++ $   GoSub destest
++ $   GoSub rpw
++ $   GoSub speed
++ $   GoSub des
++ $ EndIF
++ $!
++ $ Exit
++ $!
++ $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
++ $!
++ $DEFINES:
++ $ LINKOPTS := "VAX_LINKER_OPTIONS.OPT"
++ $!
++ $ OBJS  = "cbc_cksum.obj,cbc_encrypt.obj,ecb_encrypt.obj,pcbc_encrypt.obj," + -
++           "quad_cksum.obj,random_key.obj,read_password.obj,set_key.obj,"    + -
++           "string_to_key.obj,enc_read.obj,enc_write.obj,fcrypt.obj"
++ $!
++ $ LIBDES = "cbc_cksum.c,cbc_encrypt.c,ecb_encrypt.c,enc_read.c,"           + -
++            "enc_write.c,pcbc_encrypt.c,quad_cksum.c,random_key.c,"         + -
++            "read_password.c,set_key.c,string_to_key.c,fcrypt.c"
++ $ Return
++ $!
++ $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
++ $!
++ $LINKER_OPTIONS:
++ $ If (f$search(LINKOPTS) .eqs. "")
++ $ Then
++ $   Create 'LINKOPTS'
++ $DECK
++ ! Default system options file to link against the sharable C runtime library
++ !
++ Sys$Share:VAXcRTL.exe/Share
++ $EOD
++ $ EndIF
++ $ Return
++ $!
++ $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
++ $!
++ $LIB:
++ $ CC 'LIBDES'
++ $ If (f$search("LIBDES.OLB") .nes. "")
++ $ Then Library /Object /Replace libdes 'OBJS'
++ $ Else Library /Create /Object  libdes 'OBJS'
++ $ EndIF
++ $ Return
++ $!
++ $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
++ $!
++ $DESTEST:
++ $ CC destest
++ $ Link /Exec=destest destest.obj,libdes/LIBRARY,'linkopts'/Option
++ $ Return
++ $!
++ $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
++ $!
++ $RPW:
++ $ CC rpw
++ $ Link /Exec=rpw  rpw.obj,libdes/LIBRARY,'linkopts'/Option
++ $ Return
++ $!
++ $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
++ $!
++ $SPEED:
++ $ CC speed
++ $ Link /Exec=speed speed.obj,libdes/LIBRARY,'linkopts'/Option
++ $ Return
++ $!
++ $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
++ $!
++ $DES:
++ $ CC des
++ $ Link /Exec=des des.obj,libdes/LIBRARY,'linkopts'/Option
++ $ Return
+
+
+exit 0 # Just in case...

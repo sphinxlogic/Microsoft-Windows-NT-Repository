@@ -1,0 +1,477 @@
+Newsgroups: vmsnet.sources.games
+Path: uunet!stanford.edu!agate!spool.mu.edu!tulane!darwin.sura.net!paladin.american.edu!news.univie.ac.at!hp4at!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI
+Subject: Delta: Monster Helsinki 1.05 to 1.06 (part 5/5)
+Message-ID: <1992Dec6.184347.20974@klaava.Helsinki.FI>
+Followup-To: vmsnet.sources.d
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Organization: University of Helsinki
+Date: Sun, 6 Dec 1992 18:43:47 GMT
+Lines: 465
+Xref: uunet vmsnet.sources.games:561
+
+Archive-name: monster_helsinki_105_to_106/part5
+Author: Kari.Hurtta@Helsinki.FI
+Package: Delta from Helsinki Monster 1.05 to Helsinki Monster 1.06
+Environment: VMS, Pascal
+Part: 5/5
+
+-+-+-+-+-+-+-+-+ START OF PART 5 -+-+-+-+-+-+-+-+
+X`09`09    for i := 1 to length(line) do
+X`09`09`09if line`5Bi`5D = '"' then quoted := not quoted
+X`09`09`09else if (line`5Bi`5D = '!') and not quoted`20
+X`09`09`09    and (pos = 0) then`20
+X`09`09`09`09pos := i;
+X
+X`09`09    if quoted then message('Bailing out quote !');
+X`09`09    if pos > 0 then line := substr(line,1,pos-1);
+X
+X`09`09    line := strip_line(line);
+X`09`09end; `7B exact `7D
+X
+X`09`09get_line := line;
+X`09`09ok := (line > '') or exact;
+X-   90,   99
+X-  201,  202
+X
+X
+X    procedure read_chartable;
+X    var`09new_charset: string;
+X`09
+X`09procedure set_chartable(line: string);
+X
+X`09    function cut_word(var line: string): string;
+X`09    var result: string;
+X`09`09quoted,ready: boolean;
+X`09`09i: integer;
+X`09    begin
+X`09`09quoted := false;
+X`09`09ready  := false;
+X`09`09result := '';
+X`09`09i := 1;
+X`09`09ready := i > length(line);
+X`09`09while not ready do begin
+X`09`09    if line`5Bi`5D = '"' then quoted := not quoted;
+X`09`09    if (chartable`5Bline`5Bi`5D`5D.kind <> ct_space) or quoted then`20
+X`09`09`09result := result + line`5Bi`5D
+X`09`09    else if (chartable`5Bline`5Bi`5D`5D.kind = ct_space) and not quote
+Vd
+X`09`09`09and (result > '') then ready := true;
+X`09`09    i := i + 1;
+X`09`09    if i > length(line) then ready := true;
+X`09`09end;
+X`09`09if quoted then message ('Bailing out quote: ' + result);
+X`09   `20
+X`09`09if i  > length(line) then line := ''
+X`09`09else line := substr(line,i,length(line)-i+1);
+X
+X`09`09cut_word := result;
+X`09    end; `7B cut_word `7D
+X
+X`09    function parse_char(word: string): char;
+X`09    var code: integer;
+X`09    begin
+X`09`09if word = '' then message ('Character specification expected.');
+X`09`09if word`5B1`5D = '"' then begin
+X`09`09    if length(word) <> 3 then`20
+X`09`09`09message('Bad character specification: ' + word);
+X`09`09    if word`5B3`5D <> '"' then`20
+X`09`09`09message('Bad character specification: ' + word);
+X`09`09    parse_char := word`5B2`5D;
+X`09`09end else begin
+X`09`09    readv(word,code,error := continue);
+X`09`09    if statusv <> 0 then`20
+X`09`09`09message('Bad value of character spefication: ' + word);
+X`09`09    if (code < 0) or (code > 255) then
+X`09`09`09message ('Character code out of range: ' + word);
+X`09`09    parse_char := chr(code);
+X`09`09end;`09`09
+X`09    end; `7B parse char `7D
+X
+X`09    var word: string;
+X`09    ch: char;
+X`09    T: charrec;
+X`09begin
+X`09    word := cut_word(line);
+X`09    if word = 'char' then begin
+X`09`09chartable_charset := '';
+X`09`09word := cut_word(line); ch := parse_char(word);
+X`09`09with T do begin
+X`09`09    kind := ct_none;
+X`09`09    lcase := ch;
+X`09`09    ucase := ch;
+X`09`09    word := cut_word(line);
+X`09`09    while word > '' do begin
+X`09`09`09if word = 'none' then kind := ct_none
+X`09`09`09else if word = 'letter' then kind := ct_letter
+X`09`09`09else if word = 'special' then kind := ct_special
+X`09`09`09else if word = 'space' then kind := ct_space
+X`09`09`09else if word = 'upper' then begin
+X`09`09`09    word := cut_word(line);
+X`09`09`09    ucase := parse_char(word);
+X`09`09`09end else if word = 'lower' then begin
+X`09`09`09    word := cut_word(line);
+X`09`09`09    lcase := parse_char(word);
+X`09`09`09end else message('Bad argument: '+word);
+X`09`09`09word := cut_word(line);
+X`09`09    end; `7B while `7D
+X`09`09end; `7B with `7D
+X`09`09chartable`5Bch`5D := T;
+X`09    end else if word = 'charset' then begin
+X`09`09if new_charset <> 'UNKNOWN' then`20
+X`09`09    message('Charset defined twice');
+X`09`09word := cut_word(line);
+X`09`09if (word = '') then message ('Charset name expected.');
+X`09`09if word`5B1`5D = '"' then begin
+X`09`09    if word`5Blength(word)`5D <> '"' then
+X`09`09`09message ('Bad charset specification: ' + word);
+X`09`09    word := substr(word,2,length(word)-2);
+X`09`09end;
+X`09`09new_charset := word;
+X`09`09word := cut_word(line);
+X`09`09if (word > '') then`20
+X`09`09    message ('Too many arguments: ' + word);
+X`09    end else message ('"char" or "charset" expected: ' + word);
+X`09end; `7B set_chartable `7D
+X
+X    var line : string;
+X    begin
+X`09new_charset := 'UNKNOWN';
+X
+X`09if get_line <> 'CHARTABLE:' then message('CHARTABLE: expected');
+X`09line := get_line;
+X`09while (line <> 'END OF CHARTABLE') and (line <> '') do begin
+X`09    set_chartable(line);
+X`09    line := get_line;
+X`09end;
+X`09if chartable_charset = '' then chartable_charset := new_charset;
+X`09if line <> 'END OF CHARTABLE' then message('END OF CHARTABLE expected.');
+X    end; `7B read_chartable `7D
+X
+X    procedure read_message;
+X    var line : string;
+X    begin
+X`09if get_line <> 'CLOSED MESSAGE:' then`20
+X`09    message('CLOSED MESSAGE: expected');
+X`09line := get_line(true);`09`09`09`7B don't uncomment `7D
+X`09while (strip_line(line) <> 'END OF MESSAGE') and not eof(init) do begin
+X`09    if msg_count >= max_message_lines then
+X`09`09message('Too many lines in CLOSED MESSAGE');
+X`09    msg_count := msg_count + 1;
+X`09    msg`5Bmsg_count`5D := line;
+X`09    line := get_line(true);`09`09`7B don't uncomment `7D
+X`09end;
+X`09if strip_line(line) <> 'END OF MESSAGE' then`20
+X`09    message('END OF MESSAGE expected.');
+X
+X    end;
+X`09
+X-  252,  255
+X    read_chartable;
+X
+X    database_poltime := item_value('database_poltime');
+X
+X    read_message;
+X
+X    max_mdl_buffer  := item_number('mdl_buffers');
+X    alloc_dcl_access := item_value('allow_dcl_access') = 'true';
+X
+X    close (init);
+Xend;`09`7B Get_Environment `7D
+X-  259,  281
+Xvar i: integer;
+Xbegin
+X    for i := 1 to msg_count do writeln(msg`5Bi`5D);
+X/
+$ CALL UNPACK PRIVUSERS.DIF;1 222126442
+$ create 'f'
+X/
+$ CALL UNPACK QUEUE.DIF;1 47
+$ create 'f'
+X                  MONSTER Helsinki V 1.06
+X                  -----------------------
+X
+X    Monster, a multiplayer adventure game where the players create the
+X    world and make the rules.
+X
+X    Derived from Rich Skrenta's Monster (from version 1).
+X
+X    Includes programmable non-player characters (NPC) with own programming
+X    language - MDL (Monster Defination Language). Also rooms and objects
+X    can program with it (via so called hooks). NPCs are called to 'monster',
+X    all other MDL-objects are called to 'hook'.
+X
+X    In this version have new documentation. So you perhaps want this.
+X    Look also bug fig of MONSTER/FIX (there was one severe bug).
+X
+XEnvironment: VMS V4.x (MONSTER_INSTALL.COM requires V5.x)
+X             PASCAL`20
+X
+XTHIS IS DELTA POSTING AGAIST VERSION 1.05
+XDelta from version 1.04 to version 1.05 is posted 1.7.1992
+XVersion 1.04 is posted 14.6.1992
+X
+XNew to version 1.05:
+X- Jorma Korkiakoski translated Finnish ducumentation of MDL to English
+X  (This includes only MDL functions of version 1.05). And fix (part of)
+X  monster_e.hlp. (Thanks !)
+X- New commands:
+X`09show charset
+X- New command forms:
+X`09claim room
+X`09claim object `7Bobject`7D
+X`09claim monster `7Bmonster`7D
+X`09claim spell `7Bspell`7D
+X`09disown room
+X`09disown object `7Bobject`7D
+X`09disown monster `7Bmonster`7D
+X`09disown spell `7Bspell`7D
+X`09public room
+X`09public object `7Bobject`7D
+X`09public monster `7Bmonster`7D
+X`09public spell `7Bspell`7D
+X
+X`09If `7Borject`7D, `7Bmonster`7D or `7Bspell`7D argument is missing, it is
+V prompted.
+X`09If it is ambiquous, list for possible matches are given (selection
+X`09`09by number or cursor keys).
+X- New MDL-functions:
+X`09boolean and (arg1,arg2,...)
+X`09boolean or (arg1,arg2,...)
+X`09or else (arg1,arg2,...)
+X`09and then (arg1,arg2,...)
+X- Changed MDL-functions:
+X`09get global flag(arg)
+X`09strip (arg)
+X- Default character set is now Dec Multinational
+X- If argument of command is ambiquos, monster gives list of possible
+X  matches and player can select correct one by number or by cursor keys.
+X  (This not apply to all commands or all forms of commands.)
+X  This is available (at least) in following commands:
+X`09claim `5Bobject`7Cmonster`7Cspell`5D `7Bsomething`7D
+X`09disown `5Bobject`7Cmonster`7Cspell`5D `7Bsomething`7D
+X`09public `5Bobject`7Cmonster`7Cspell`5D `7Bsomething`7D
+X`09custom `5Bobject`7Cmonster`5D `7Bsomething`7D
+X`09get `7Bobejct`7D
+X`09drop `7Bobject`7D
+X`09delete `5Broom`7Cobject`7Cmonster`5D `7Bsomething`7D
+X`09scan `7Bobject`7D
+X`09destroy `7Bobject`7D
+X`09duplicate `7Bobject`7D
+X`09erase `7Bmonster`7D
+X`09reset `7Bobject`7D
+X`09wear `7Bobject`7D
+X`09wield `7Bobject`7D
+X`09set `7Bsomething`7D
+X- New tables in MONSTER.INIT:
+X`09CHARTABLE:   (can be empty)
+X`09`7B charset ....
+X`09  char ... `7D`09`09`09This table also effects to parsing of`20
+X`09END OF CHARTABLE`09`09MDL and MDL function strip(...).
+X
+X`09CLOSED MESSAGE:`09`09`09This is same as ILMOITUS.TXT file
+X`09`7Bsome text`7D`09`09`09`09in previously.
+X`09END OF MESSAGE
+X- New fields in MONSTER.INIT:`09`09(this is value what MONSTER_INSTALL.COM
+X`09`09`09`09`09 gives)
+X`09database_poltime:`09`09default "0 ::1"
+X`09mdl_buffers: `09`09`09default 20
+X`09dcl_access_allowed:`09`09default yes
+X- Format of dump of MONSTER/DUMP is also changed little (as usual).
+X`09MONSTER/REBUILD (of course) reads all previous formats.
+X- MDL parser now tires check if variable is used before it defination
+X`09in compile time (not easy task, because variables are defined`20
+X`09dynamically).
+X- MDL code loading from terminal is now handled correctly (no block
+X`09Monster's event loop). So you can use "g tt:" command to
+X`09enter MDL -code.
+X- MDL interpreter should now be little faster (and uses memory
+X`09little more sensible - however number of mdl -buffers
+X`09is now 20 by default instead of 5).
+X- BUG fixes:
+X`09- recovery routines in MONSTER/FIX destroys intergity
+X`09  of database in version 1.05. Now fixed.
+X`09- MONSTER/DUMP - MONSTER/REBUILD now not destroy end
+X`09  of descriptions lines if these are near to 80 characters.
+X        - MONSTER/REBUILD don't now crashed so easily when it
+X`09  detects some errors in dumpfile.
+X`09- Some other bug fixes.
+X
+XNew in verstin 1.05 to version 1.04 (posted 1.7.1992):
+X - MONSTER /BUILD and /DUMP commands now correct handle passwords
+X   of virual userids created by MONSTER/USER (you can't do
+X     text dump of database and build new database where password
+X     of virtual userids have saved in available)
+X - MDL function 'or' accept now any number of parameters
+X - MDL function 'and' accept now more than two parameters
+X - New modules: VERSION.PAS (version number of monster)
+X                ALLOC.PAS
+X - New image MONSTER_REBUILD.EXE - here is now commands:
+X`09`09MONSTER/REBUILD
+X`09`09MONSTER/FIX
+X`09`09MONSTER/BATCH
+X - Document have updated little
+X
+XNew in version 1.04 to version 1.03 (posted 24.11.1990):
+X -  Several bugfixes (of course)
+X -  New commands MONSTER/DUMP and MONSTER/BUILD (via MONSTER_DUMP.EXE)
+X -  Reading of keyboard and database polling starategy have rewrote -
+X    should cause smaller IO-load to system (new GUTS.PAS).
+X -  MDL -parser now writes offending line and points error position when`20
+X    it detects error in MDL-program.
+X
+XPrevious distributions:
+X`09in machine hylkb.Helsinki.FI   (also hylka.Helsinki.FI, but this
+X`09`09`09`09`09will be removed form service)
+X`09in directory public_disk:<public.vax.games-etc.monster.sources>
+X`09have following savesets:
+X
+X`09dist_10_11_1990.saveset`09`09Monster Helsinki 1.00
+X`09dist_24_11_1990.saveset`09`09Monster Helsinki 1.02
+X`09diff_6_12_1990.saveset`09`09`09Delta 1.02 -> 1.03
+X`09dist_14_6_1992.saveset `09`09Monster Helsinki 1.04
+X`09diff_1_7_1992.saveset`09`09`09Delta 1.04 -> 1.05
+X`09and will be:
+X`09diff_7_12_1992.saveset`09`09`09Delta 1.05 -> 1.06
+X
+X`09This is available also in some site(s), which archives
+X`09vmsnet.sources.games. Check:
+X`09unix.hensa.ac.uk:`09
+X`09`09/pub/uunet/usenet/comp.sources.games/vmsnet.sources.games
+X`09src.doc.ic.ac.uk: /usenet/comp.sources.games/vmsnet.sources.games
+X`09puffin.doc.ic.ac.uk: /usenet/comp.sources.games/vmsnet.sources.games
+X`09archie.au: /usenet/comp.sources.games/vmsnet.sources.games
+X`09pinus.slu.se: /pub/usenet/comp.sources.games/vmsnet.sources.games
+X`09( ftp.uu.net )
+X`09mirrors of ftp.uu.net
+X
+XRunning delta:
+X    Get MONSTER Version 1.05 distribution
+X      Put logical name MONSTER105 to point that directory
+X    Create directory for sources of version 1.06`20
+X      Put logical name MONSTER106 to point that directory
+X    Go to directory where is this delta distribution
+X      execute UPDATE.COM:
+X         $ @UPDATE
+X
+X    Go directory MONSTER105
+X
+X    Compilation and installation - three possibility:
+X1)  Compile MONSTER_E.HLP
+X         $ LIBRARIAN/HELP/CREATE MONSTER_E MONSTER_E
+X    Read installation help
+X         $ HELP/LIBRARY=SYS$DISK:<>MONSTER_E Installation
+X    and follow help.
+X2)  Run installation-script
+X         $ @MONSTER_INSTALL
+X    and answer to questions.
+X
+X3)  Compile with MMS (there if file MAKEFILE.)
+X         $ MMS ALL
+X    Install manually
+X
+X    Send notice to me (Kari.Hurtta@Helsinki.Fi) or to`20
+X    kristallipallo@com.cc.Helsinki.FI if you get this
+X    working or if you have problems.
+X
+X- K E H
+X( Kari.Hurtta@Helsinki.FI,
+X  hurtta@cc.Helsinki.FI,
+X  hurtta@cs.Helsinki.FI,
+X  HURTTA@FINUH.BITNET
+X)
+$ CALL UNPACK READ.ME;5 67315921
+$ create 'f'
+X/
+$ CALL UNPACK RECEPTIONIST.DIF;1 47
+$ create 'f'
+X$ IF F$TRNLNM("MONSTER105") .eqs. "" .or. F$TRNLNM("MONSTER106") .eqs. ""
+X$  THEN
+X$  write sys$OUTPUT "Define MONSTER105 to point Monster Version 1.05"
+X$  write sys$OUTPUT "    distribution directory"
+X$  write sys$OUTPUT "Create directory for Monster Version 1.06 and
+X$  write SYS$OUTPUT "   MONSTER106 to point that directory"
+X$  EXIT
+X$ ENDIF
+X$ EDIT/SUM MONSTER105:BONE.MDL        /UPDATE=SYS$DISK:<>BONE.DIF /OUTPUT=MO
+VNSTER106:
+X$ EDIT/SUM MONSTER105:CASTLE.DMP      /UPDATE=SYS$DISK:<>CASTLE.DIF /OUTPUT=
+VMONSTER106:
+X$ EDIT/SUM MONSTER105:CLD.PROTO       /UPDATE=SYS$DISK:<>CLD_PROTO.DIF /OUTP
+VUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:CLI.PAS         /UPDATE=SYS$DISK:<>CLI.DIF /OUTPUT=MON
+VSTER106:
+X$ EDIT/SUM MONSTER105:COMMANDS.PAPER  /UPDATE=SYS$DISK:<>COMMANDS.DIF /OUTPU
+VT=MONSTER106:
+X$ EDIT/SUM MONSTER105:CONVERT.BATCH   /UPDATE=SYS$DISK:<>CONVERT.DIF /OUTPUT
+V=MONSTER106:
+X$ EDIT/SUM MONSTER105:CUSTOM.PAS      /UPDATE=SYS$DISK:<>CUSTOM.DIF /OUTPUT=
+VMONSTER106:
+X$ EDIT/SUM MONSTER105:DATABASE.PAS    /UPDATE=SYS$DISK:<>DATABASE.DIF /OUTPU
+VT=MONSTER106:
+X$ EDIT/SUM MONSTER105:DOG.MDL         /UPDATE=SYS$DISK:<>DOG.DIF /OUTPUT=MON
+VSTER106:
+X$ EDIT/SUM MONSTER105:FIX.BATCH       /UPDATE=SYS$DISK:<>FIX.DIF /OUTPUT=MON
+VSTER106:
+X$ EDIT/SUM MONSTER105:GLOBAL.PAS      /UPDATE=SYS$DISK:<>GLOBAL.DIF /OUTPUT=
+VMONSTER106:
+X$ EDIT/SUM MONSTER105:GREAT_HALL.MDL  /UPDATE=SYS$DISK:<>GREAT_HALL.DIF /OUT
+VPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:GUTS.PAS        /UPDATE=SYS$DISK:<>GUTS.DIF /OUTPUT=MO
+VNSTER106:
+X$ EDIT/SUM MONSTER105:INIT.PROTO      /UPDATE=SYS$DISK:<>INIT_PROTO.DIF /OUT
+VPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:INTERPRETER.PAS /UPDATE=SYS$DISK:<>INTERPRETER.DIF /OU
+VTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:KEYS.PAS        /UPDATE=SYS$DISK:<>KEYS.DIF /OUTPUT=MO
+VNSTER106:
+X$ EDIT/SUM MONSTER105:MON.PAS         /UPDATE=SYS$DISK:<>MON.DIF /OUTPUT=MON
+VSTER106:
+X$ EDIT/SUM MONSTER105:MONSTER.CLD              /UPDATE=SYS$DISK:<>MONSTER_CL
+VD.DIF /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:MONSTER.HELP             /UPDATE=SYS$DISK:<>MONSTER_HE
+VLP.DIF /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:MONSTER.INIT             /UPDATE=SYS$DISK:<>MONSTER_IN
+VIT.DIF /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:MONSTER_DUMP.PAS         /UPDATE=SYS$DISK:<>MONSTER_DU
+VMP.DIF /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:MONSTER_E.HLP            /UPDATE=SYS$DISK:<>MONSTER_E.
+VDIF /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:MONSTER_INSTALL.COM      /UPDATE=SYS$DISK:<>MONSTER_IN
+VSTALL.DIF /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:MONSTER_WHO.PAS          /UPDATE=SYS$DISK:<>MONSTER_WH
+VO.DIF /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:PARSER.PAS               /UPDATE=SYS$DISK:<>PARSER.DIF
+V /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:PRIVUSERS.PAS            /UPDATE=SYS$DISK:<>PRIVUSERS.
+VDIF /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:QUEUE.PAS                /UPDATE=SYS$DISK:<>QUEUE.DIF
+V /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:RECEPTIONIST.MDL         /UPDATE=SYS$DISK:<>RECEPTIONI
+VST.DIF /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:ALLOC.PAS         /UPDATE=SYS$DISK:<>ALLOC.DIF /OUTPUT
+V=MONSTER106:
+X$ EDIT/SUM MONSTER105:VERSION.PAS       /UPDATE=SYS$DISK:<>VERSION.DIF /OUTP
+VUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:MONSTER_REBUILD.PAS  /UPDATE=SYS$DISK:<>MONSTER_REBUIL
+VD.DIF /OUTPUT=MONSTER106:
+X$ EDIT/SUM MONSTER105:MAKEFILE.         /UPDATE=SYS$DISK:<>MAKEFILE.DIF /OUT
+VPUT=MONSTER106:
+X$ COPY/LOG INIT.APPEND               MONSTER106:
+$ CALL UNPACK UPDATE.COM;7 1545608806
+$ create 'f'
+X-    1,    2
+X
+X`5Binherit ('GlobaL') `5D
+XMODULE Version;
+X-    8,   10
+X`09:= 'Monster Helsinki 1.06';
+X    DISTRIBUTED : `5Bglobal`5D string
+X`09:= '7.12.1992';
+X/
+$ CALL UNPACK VERSION.DIF;1 1430727667
+$ v=f$verify(v)
+$ EXIT
+-- 
+- K E H                                      /  El{m{ on monimutkaista
+  Kari.Hurtta@Helsinki.FI

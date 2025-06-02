@@ -1,0 +1,2852 @@
+Newsgroups: comp.sources.misc
+From: mool@oce.nl (Bram Moolenaar)
+Subject: v41i064:  vim - Vi IMitation editor, v2.0, Part14/25
+Message-ID: <1993Dec21.035146.28532@sparky.sterling.com>
+X-Md4-Signature: e893f42c485c2e2e6fe52ea6624a2a22
+Keywords: utility, editor, vi, vim
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 21 Dec 1993 03:51:46 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mool@oce.nl (Bram Moolenaar)
+Posting-number: Volume 41, Issue 64
+Archive-name: vim/part14
+Environment: UNIX, AMIGA, MS-DOS
+Supersedes: vim: Volume 37, Issue 1-24
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 14 (of 25)."
+# Contents:  vim/src/amiga.c vim/src/buffers.c
+# Wrapped by mool@oce-rd2 on Wed Dec 15 09:50:06 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'vim/src/amiga.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/amiga.c'\"
+else
+echo shar: Extracting \"'vim/src/amiga.c'\" \(30444 characters\)
+sed "s/^X//" >'vim/src/amiga.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * amiga.c
+X *
+X * Amiga system-dependent routines.
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X
+X#include <fcntl.h>
+X
+X#undef TRUE 			/* will be redefined by exec/types.h */
+X#undef FALSE
+X
+X#ifndef LATTICE
+X#  include <exec/types.h>
+X#  include <exec/exec.h>
+X#  include <libraries/dos.h>
+X#  include <libraries/dosextens.h>
+X#  include <intuition/intuition.h>
+X#else
+X#  include <proto/dos.h>
+X#  include <libraries/dosextens.h>
+X#  include <proto/intuition.h>
+X#  include <proto/exec.h>
+X#endif
+X
+X#ifndef NO_ARP
+X#include <libraries/arpbase.h>		/* for arp.library */
+X#endif
+X#include <dos/dostags.h>			/* for 2.0 functions */
+X#include <dos/dosasl.h>
+X
+X#if defined(LATTICE) && !defined(SASC) && !defined(NO_ARP)
+X# include <libraries/arp_pragmas.h>
+X#endif
+X
+X/*
+X * At this point TRUE and FALSE are defined as 1L and 0L, but we want 1 and 0.
+X */
+X#undef TRUE
+X#define TRUE (1)
+X#undef FALSE
+X#define FALSE (0)
+X
+X#ifndef AZTEC_C
+Xstatic long dos_packet __ARGS((struct MsgPort *, long, long));
+X#endif
+Xstatic int lock2name __ARGS((BPTR lock, char *buf, long	len));
+Xstatic struct FileInfoBlock *get_fib __ARGS((char *));
+Xstatic int sortcmp __ARGS((char **a, char **b));
+X
+Xstatic BPTR				raw_in = (BPTR)NULL;
+Xstatic BPTR				raw_out = (BPTR)NULL;
+Xstatic int				close_win = FALSE;	/* set if Vim opened the window */
+X
+Xstruct IntuitionBase	*IntuitionBase = NULL;
+X#ifndef NO_ARP
+Xstruct ArpBase			*ArpBase = NULL;
+X#endif
+X
+Xstatic struct Window	*wb_window;
+Xstatic char				*oldwindowtitle = NULL;
+X
+X#ifndef NO_ARP
+Xint						dos2 = FALSE;		/* Amiga DOS 2.0x or higher */
+X#endif
+Xint						size_set = FALSE;	/* set to TRUE if window size was set */
+X
+X	void
+Xwin_resize_on()
+X{
+X	outstrn("\033[12{");
+X}
+X
+X	void
+Xwin_resize_off()
+X{
+X	outstrn("\033[12}");
+X}
+X
+X	void
+Xmch_write(p, len)
+X	char	*p;
+X	int		len;
+X{
+X	Write(raw_out, p, (long)len);
+X}
+X
+X/*
+X * GetChars(): low level input funcion.
+X * Get a characters from the keyboard.
+X * If time == 0 do not wait for characters.
+X * If time == n wait a short time for characters.
+X * If time == -1 wait forever for characters.
+X */
+X	int
+XGetChars(buf, maxlen, time)
+X	char	*buf;
+X	int		maxlen;
+X	int		time;				/* milli seconds */
+X{
+X	int		len;
+X	long	utime;
+X	
+X	if (time >= 0)
+X	{
+X		if (time == 0)
+X			utime = 100L;			/* time = 0 causes problems in DOS 1.2 */
+X		else
+X			utime = time * 1000L;	/* convert from milli to micro secs */
+X		if (WaitForChar(raw_in, utime) == 0)	/* no character available */
+X			return 0;
+X	}
+X	else	/* time == -1 */
+X	{
+X	/*
+X	 * If there is no character available within 2 seconds (default)
+X	 * write the autoscript file to disk
+X	 */
+X		if (WaitForChar(raw_in, p_ut * 1000L) == 0)
+X			updatescript(0);
+X	}
+X
+X	for (;;)		/* repeat until we got a character */
+X	{
+X		len = Read(raw_in, buf, (long)maxlen);
+X		if (len > 0)
+X			return len;
+X	}
+X}
+X
+X	void
+Xsleep(n)
+X	int 			n;
+X{
+X#ifndef LATTICE			/* SAS declares void Delay(UNLONG) */
+X	void			Delay __ARGS((long));
+X#endif
+X
+X	if (n > 0)
+X		Delay((long)(50L * n));
+X}
+X
+X	void
+Xvim_delay()
+X{
+X	Delay(25L);
+X}
+X
+X/*
+X * We have no job control, fake it by starting a new shell.
+X */
+Xvoid
+Xmch_suspend()
+X{
+X	outstr("new shell started\n");
+X	call_shell(NULL, 0, TRUE);
+X}
+X
+X#define DOS_LIBRARY     ((UBYTE *) "dos.library")
+X
+X	void
+Xmch_windinit()
+X{
+X	static char		intlibname[] = "intuition.library";
+X
+X#ifdef AZTEC_C
+X	Enable_Abort = 0;			/* disallow vim to be aborted */
+X#endif
+X	Columns = 80;
+X	Rows = 24;
+X
+X	/*
+X	 * Set input and output channels, unless we have opened our own window
+X	 */
+X	if (raw_in == (BPTR)NULL)
+X	{
+X		raw_in = Input();
+X		raw_out = Output();
+X	}
+X
+X	flushbuf();
+X
+X	wb_window = NULL;
+X	if ((IntuitionBase = (struct IntuitionBase *)OpenLibrary((UBYTE *)intlibname, 0L)) == NULL)
+X	{
+X		fprintf(stderr, "cannot open %s!?\n", intlibname);
+X		mch_windexit(3);
+X	}
+X	mch_get_winsize();
+X}
+X
+X#include <workbench/startup.h>
+X
+X/*
+X * Check_win checks whether we have an interactive window.
+X * If not, a new window is opened with the newcli command.
+X * If we would open a window ourselves, the :sh and :! commands would not
+X * work properly (Why? probably because we are then running in a background CLI).
+X * This also is the best way to assure proper working in a next Workbench release.
+X *
+X * For the -e option (quickfix mode) and -x we open our own window and disable :sh.
+X * Otherwise the compiler would never know when editing is finished.
+X */
+X#define BUF2SIZE 320		/* lenght of buffer for argument with complete path */
+X
+X	void
+Xcheck_win(argc, argv)
+X	int argc;
+X	char **argv;
+X{
+X	int				i;
+X	BPTR			nilfh, fh;
+X	char			buf1[20];
+X	char			buf2[BUF2SIZE];
+X	static char		*(constrings[3]) = {"con:0/0/662/210/",
+X									  "con:0/0/640/200/",
+X									  "con:0/0/320/200/"};
+X	static char		winerr[] = "VIM: Can't open window!\n";
+X	struct WBArg	*argp;
+X	int				ac;
+X	char			*av;
+X	char			*device = NULL;
+X	int				exitval = 4;
+X	struct Library	*DosBase;
+X	int				usewin = FALSE;
+X
+X/*
+X * check if we are running under DOS 2.0x or higher
+X */
+X    if (DosBase = OpenLibrary(DOS_LIBRARY, 37L))
+X    {
+X		CloseLibrary(DosBase);
+X#ifndef NO_ARP
+X		dos2 = TRUE;
+X#endif
+X    }
+X	else			/* without arp functions we NEED 2.0 */
+X	{
+X#ifdef NO_ARP
+X		fprintf(stderr, "Need Amigados version 2.04 or later\n");
+X		exit(3);
+X#else
+X					/* need arp functions for dos 1.x */
+X		if (!(ArpBase = (struct ArpBase *) OpenLibrary((UBYTE *)ArpName, ArpVersion)))
+X		{
+X			fprintf(stderr, "Need %s version %ld\n", ArpName, ArpVersion);
+X			exit(3);
+X		}
+X#endif
+X	}
+X
+X/*
+X * scan argv[] for the '-e', '-x' and '-d' arguments
+X */
+X	for (i = 1; i < argc; ++i)
+X		if (argv[i][0] == '-')
+X		{
+X			switch (argv[i][1])
+X			{
+X			case 'e':
+X			case 'x':
+X				usewin = TRUE;
+X				break;
+X
+X			case 'd':
+X				if (i < argc - 1)
+X					device = argv[i + 1];
+X				break;
+X			}
+X		}
+X
+X/*
+X * If we were not started from workbench, do not have a '-d' argument and
+X * we have been started with an interactive window, use that window.
+X */
+X	if (argc != 0 && device == NULL &&
+X				IsInteractive(Input()) && IsInteractive(Output()))
+X		return;
+X
+X/*
+X * If we are in quickfix mode, we open our own window. We can't use the
+X * newcli trick below, because the compiler would not know when we are finished.
+X * We do the same with the '-x' option, for mail, rn, etc.
+X */
+X	if (usewin)
+X	{
+X		/*
+X		 * Try to open a window. First try the specified device.
+X		 * Then try a 24 line 80 column window.
+X		 * If that fails, try two smaller ones.
+X		 */
+X		for (i = -1; i < 3; ++i)
+X		{
+X			if (i >= 0)
+X				device = constrings[i];
+X			if (device && (raw_in = Open((UBYTE *)device, (long)MODE_NEWFILE)) != (BPTR)NULL)
+X				break;
+X		}
+X		if (raw_in == (BPTR)NULL)		/* all three failed */
+X		{
+X			fprintf(stderr, winerr);
+X			goto exit;
+X		}
+X		raw_out = raw_in;
+X		close_win = TRUE;
+X		return;
+X	}
+X
+X	if ((nilfh = Open((UBYTE *)"NIL:", (long)MODE_NEWFILE)) == (BPTR)NULL)
+X	{
+X		fprintf(stderr, "Cannot open NIL:\n");
+X		goto exit;
+X	}
+X
+X	/*
+X	 * make a unique name for the temp file (which we will not delete!)
+X	 */
+X	sprintf(buf1, "t:nc%ld", buf1);	/* nobody else is using our stack */
+X	if ((fh = Open((UBYTE *)buf1, (long)MODE_NEWFILE)) == (BPTR)NULL)
+X	{
+X		fprintf(stderr, "Cannot create %s\n", buf1);
+X		goto exit;
+X	}
+X	/*
+X	 * Write the command into the file, put quotes around the arguments that
+X	 * have a space in them.
+X	 */
+X	if (argc == 0)		/* run from workbench */
+X		ac = ((struct WBStartup *)argv)->sm_NumArgs;
+X	else
+X		ac = argc;
+X	for (i = 0; i < ac; ++i)
+X	{
+X		if (argc == 0)
+X		{
+X			*buf2 = NUL;
+X			argp = &(((struct WBStartup *)argv)->sm_ArgList[i]);
+X			if (argp->wa_Lock)
+X				lock2name(argp->wa_Lock, buf2, (long)(BUF2SIZE - 1));
+X#ifndef NO_ARP
+X			if (dos2)		/* use 2.0 function */
+X#endif
+X				AddPart((UBYTE *)buf2, (UBYTE *)argp->wa_Name, (long)(BUF2SIZE - 1));
+X#ifndef NO_ARP
+X			else			/* use arp function */
+X				TackOn(buf2, argp->wa_Name);
+X#endif
+X			av = buf2;
+X		}
+X		else
+X			av = argv[i];
+X
+X		if (av[0] == '-' && av[1] == 'd')		/* skip '-d' option */
+X		{
+X			++i;
+X			continue;
+X		}
+X		if (strchr(av, ' '))
+X			Write(fh, "\"", 1L);
+X		Write(fh, av, (long)strlen(av));
+X		if (strchr(av, ' '))
+X			Write(fh, "\"", 1L);
+X		Write(fh, " ", 1L);
+X	}
+X	Write(fh, "\nendcli\n", 8L);
+X	Close(fh);
+X
+X/*
+X * Try to open a new cli in a window. If '-d' argument was given try to open
+X * the specified device. Then try a 24 line 80 column window.
+X * If that fails, try two smaller ones.
+X */
+X	for (i = -1; i < 3; ++i)
+X	{
+X		if (i >= 0)
+X			device = constrings[i];
+X		else if (device == NULL)
+X			continue;
+X		sprintf(buf2, "newcli <nil: >nil: %s from %s", device, buf1);
+X#ifndef NO_ARP
+X		if (dos2)
+X		{
+X#endif
+X			if (!SystemTags((UBYTE *)buf2, SYS_UserShell, TRUE, TAG_DONE))
+X				break;
+X#ifndef NO_ARP
+X		}
+X		else
+X		{
+X			if (Execute((UBYTE *)buf2, nilfh, nilfh))
+X				break;
+X		}
+X#endif
+X	}
+X	if (i == 3)		/* all three failed */
+X	{
+X		DeleteFile((UBYTE *)buf1);
+X		fprintf(stderr, winerr);
+X		goto exit;
+X	}
+X	exitval = 0;	/* The Execute succeeded: exit this program */
+X
+Xexit:
+X#ifndef NO_ARP
+X	if (ArpBase)
+X		CloseLibrary((struct Library *) ArpBase);
+X#endif
+X	exit(exitval);
+X}
+X
+X/*
+X * fname_case(): Set the case of the filename, if it already exists.
+X *				 This will cause the filename to remain exactly the same.
+X */
+X	void
+Xfname_case(name)
+X	char *name;
+X{
+X	register struct FileInfoBlock	*fib;
+X	register size_t					len;
+X
+X	fib = get_fib(name);
+X	if (fib != NULL)
+X	{
+X		len = strlen(name);
+X		if (len == strlen(fib->fib_FileName))	/* safety check */
+X			memmove(name, fib->fib_FileName, len);
+X		free(fib);
+X	}
+X}
+X
+X/*
+X * Get the FileInfoBlock for file "fname"
+X * The returned structure has to be free()d.
+X * Returns NULL on error.
+X */
+X	static struct FileInfoBlock *
+Xget_fib(fname)
+X	char *fname;
+X{
+X	register BPTR					flock;
+X	register struct FileInfoBlock	*fib;
+X
+X	if (fname == NULL)		/* safety check */
+X		return NULL;
+X	fib = (struct FileInfoBlock *)malloc(sizeof(struct FileInfoBlock));
+X	if (fib != NULL)
+X	{
+X		flock = Lock((UBYTE *)fname, (long)ACCESS_READ);
+X		if (flock == (BPTR)NULL || !Examine(flock, fib))
+X		{
+X			free(fib);	/* in case of an error the memory is freed here */
+X			fib = NULL;
+X		}
+X		if (flock)
+X			UnLock(flock);
+X	}
+X	return fib;
+X}
+X
+X/*
+X * settitle(): set titlebar of our window
+X */
+Xstatic char *lasttitle = NULL;
+X
+X	void
+Xsettitle(str)
+X	char *str;
+X{
+X
+X	if (wb_window != NULL)
+X	{
+X		free(lasttitle);
+X		lasttitle = alloc((unsigned)(strlen(str) + 7));
+X		if (lasttitle != NULL)
+X		{
+X			sprintf(lasttitle, "VIM - %s", str);
+X			SetWindowTitles(wb_window, (UBYTE *)lasttitle, (UBYTE *)-1L);
+X		}
+X	}
+X}
+X
+X	void
+Xresettitle()
+X{
+X		if (wb_window != NULL && lasttitle != NULL)
+X				SetWindowTitles(wb_window, (UBYTE *)lasttitle, (UBYTE *)-1L);
+X}
+X
+X/*
+X * Get name of current directory into buffer 'buf' of length 'len' bytes.
+X * Return non-zero for success.
+X */
+Xdirname(buf, len)
+X	char		*buf;
+X	int			len;
+X{
+X	return FullName("", buf, len);
+X}
+X
+X/*
+X * get absolute filename into buffer 'buf' of length 'len' bytes
+X */
+XFullName(fname, buf, len)
+X	char		*fname, *buf;
+X	int			len;
+X{
+X	BPTR		l;
+X	int			retval = 0;
+X
+X	if (fname == NULL)	/* always fail */
+X		return 0;
+X
+X	if ((l = Lock((UBYTE *)fname, (long)ACCESS_READ)))/* lock the file */
+X	{
+X		retval = lock2name(l, buf, (long)len);
+X		UnLock(l);
+X	}
+X	if (retval == 0 || *buf == 0 || *buf == ':')
+X		strcpy(buf, fname);			/* something failed; use the filename */
+X	return retval;
+X}
+X
+X/*
+X * Get the full filename from a lock. Use 2.0 function if possible, because
+X * the arp function has more restrictions on the path length.
+X */
+X	static int
+Xlock2name(lock, buf, len)
+X	BPTR	lock;
+X	char	*buf;
+X	long	len;
+X{
+X#ifndef NO_ARP
+X	if (dos2)				/* use 2.0 function */
+X#endif
+X		return (int)NameFromLock(lock, (UBYTE *)buf, len);
+X#ifndef NO_ARP
+X	else				/* use arp function */
+X		return (int)PathName(lock, buf, (long)(len/32));
+X#endif
+X}
+X
+X/*
+X * get file permissions for 'name'
+X */
+X	long
+Xgetperm(name)
+X	char		*name;
+X{
+X	struct FileInfoBlock	*fib;
+X	long 					retval = -1;
+X
+X	fib = get_fib(name);
+X	if (fib != NULL)
+X	{
+X		retval = fib->fib_Protection;
+X		free(fib);
+X	}
+X	return retval;
+X}
+X
+X/*
+X * set file permission for 'name' to 'perm'
+X */
+Xsetperm(name, perm)
+X	char		*name;
+X	long		perm;
+X{
+X	perm &= ~FIBF_ARCHIVE;				/* reset archived bit */
+X	return (int)SetProtection((UBYTE *)name, (long)perm);
+X}
+X
+X/*
+X * check if "name" is a directory
+X */
+Xisdir(name)
+X	char		*name;
+X{
+X	struct FileInfoBlock	*fib;
+X	int 					retval = -1;
+X
+X	fib = get_fib(name);
+X	if (fib != NULL)
+X	{
+X		retval = (fib->fib_DirEntryType >= 0);
+X		free(fib);
+X	}
+X	return retval;
+X}
+X
+X/*
+X * Careful: mch_windexit() may be called before mch_windinit()!
+X */
+X	void
+Xmch_windexit(r)
+X	int 			r;
+X{
+X	if (raw_in)						/* put terminal in 'normal' mode */
+X	{
+X		settmode(0);
+X		stoptermcap();
+X	}
+X	if (raw_out)
+X	{
+X		if (term_console)
+X		{
+X			win_resize_off();		/* window resize events de-activated */
+X			if (size_set)
+X				outstr("\233t\233u");		/* reset window size (CSI t CSI u) */
+X		}
+X		flushbuf();
+X	}
+X
+X	if (wb_window != NULL)			/* disable window title */
+X		SetWindowTitles(wb_window, (UBYTE *)oldwindowtitle, (UBYTE *)-1L);
+X	stopscript();					/* remove autoscript file */
+X#ifndef NO_ARP
+X	if (ArpBase)
+X		CloseLibrary((struct Library *) ArpBase);
+X#endif
+X	if (close_win)
+X		Close(raw_in);
+X	if (r)
+X		printf("Vim exiting with %d\n", r);	/* somehow this makes :cq work!? */
+X	exit(r);
+X}
+X
+X/*
+X * This is a routine for setting a given stream to raw or cooked mode on the
+X * Amiga . This is useful when you are using Lattice C to produce programs
+X * that want to read single characters with the "getch()" or "fgetc" call.
+X *
+X * Written : 18-Jun-87 By Chuck McManis.
+X */
+X
+X#define MP(xx)	((struct MsgPort *)((struct FileHandle *) (BADDR(xx)))->fh_Type)
+X
+X/*
+X * Function mch_settmode() - Convert the specified file pointer to 'raw' or 'cooked'
+X * mode. This only works on TTY's.
+X *
+X * Raw: keeps DOS from translating keys for you, also (BIG WIN) it means
+X *		getch() will return immediately rather than wait for a return. You
+X *		lose editing features though.
+X *
+X * Cooked: This function returns the designate file pointer to it's normal,
+X *		wait for a <CR> mode. This is exactly like raw() except that
+X *		it sends a 0 to the console to make it back into a CON: from a RAW:
+X */
+X	void
+Xmch_settmode(raw)
+X	int			raw;
+X{
+X	if (dos_packet(MP(raw_in), (long)ACTION_SCREEN_MODE, raw ? -1L : 0L) == 0)
+X		fprintf(stderr, "cannot change console mode ?!\n");
+X}
+X
+X/*
+X * Code for this routine came from the following :
+X *
+X * ConPackets.c -  C. Scheppner, A. Finkel, P. Lindsay	CBM
+X *	 DOS packet example
+X *	 Requires 1.2
+X *
+X * Found on Fish Disk 56.
+X *
+X * Heavely modified by mool.
+X */
+X
+X#include <devices/conunit.h>
+X
+X/*
+X * try to get the real window size
+X * return non-zero for failure
+X */
+X	int
+Xmch_get_winsize()
+X{
+X	struct ConUnit	*conUnit;
+X 	char			id_a[sizeof(struct InfoData) + 3];
+X	struct InfoData *id;
+X
+X	if (!term_console)	/* not an amiga window */
+X		return 1;
+X
+X	/* insure longword alignment */
+X 	id = (struct InfoData *)(((long)id_a + 3L) & ~3L);
+X
+X	/*
+X	 * Should make console aware of real window size, not the one we set.
+X	 * Unfortunately, under DOS 2.0x this redraws the window and it
+X	 * is rarely needed, so we skip it now, unless we changed the size.
+X	 */
+X	if (size_set)
+X		outstr("\233t\233u");	/* CSI t CSI u */
+X	flushbuf();
+X
+X	if (dos_packet(MP(raw_out), (long)ACTION_DISK_INFO, ((ULONG) id) >> 2) == 0 ||
+X				(wb_window = (struct Window *)id->id_VolumeNode) == NULL)
+X	{
+X		/* it's not an amiga window, maybe aux device */
+X		/* terminal type should be set */
+X		term_console = FALSE;
+X		return 1;
+X	}
+X	if (oldwindowtitle == NULL)
+X		oldwindowtitle = (char *)wb_window->Title;
+X	if (id->id_InUse == (BPTR)NULL)
+X	{
+X		fprintf(stderr, "mch_get_winsize: not a console??\n");
+X		return (2);
+X	}
+X	conUnit = (struct ConUnit *) ((struct IOStdReq *) id->id_InUse)->io_Unit;
+X
+X	/* get window size */
+X	Rows = conUnit->cu_YMax + 1;
+X	Columns = conUnit->cu_XMax + 1;
+X	if (Rows < 0 || Rows > 200) 	/* cannot be an amiga window */
+X	{
+X		Columns = 80;
+X		Rows = 24;
+X		term_console = FALSE;
+X		return 1;
+X	}
+X	Rows_max = Rows;				/* remember physical max height */
+X
+X	check_winsize();
+X	script_winsize();
+X
+X	return 0;
+X}
+X
+X/*
+X * try to set the real window size
+X */
+X	void
+Xmch_set_winsize()
+X{
+X	if (term_console)
+X	{
+X		size_set = TRUE;
+X		outchar(CSI);
+X		outnum((long)Rows);
+X		outchar('t');
+X		outchar(CSI);
+X		outnum((long)Columns);
+X		outchar('u');
+X		flushbuf();
+X	}
+X}
+X
+X#ifdef SETKEYMAP
+X/*
+X * load and activate a new keymap for our CLI - DOES NOT WORK -
+X * The problem is that after the setting of the keymap the input blocks
+X * But the new keymap works allright in another window.
+X * Tried but no improvement:
+X * - remembering the length, data and command fields in request->io_xxx
+X * - settmode(0) first, settmode(1) afterwards
+X * - putting the keymap directly in conunit structure
+X */
+X
+X#include <devices/keymap.h>
+X
+X	void
+Xset_keymap(name)
+X	char *name;
+X{
+X 	char					id_a[sizeof(struct InfoData) + 3];
+X	struct InfoData			*id;
+X	static struct KeyMap	*old;
+X	static BPTR				segment = (BPTR)NULL;
+X	struct IOStdReq			*request;
+X	int						c;
+X
+X	if (!term_console)
+X		return;
+X
+X	/* insure longword alignment */
+X 	id = (struct InfoData *)(((long)id_a + 3L) & ~3L);
+X
+X	if (dos_packet(MP(raw_out), (long)ACTION_DISK_INFO, ((ULONG) id) >> 2) == 0)
+X	{
+X		emsg("dos_packet failed");
+X		return;
+X	}
+X	if (id->id_InUse == (BPTR)NULL)
+X	{
+X		emsg("not a console??");
+X		return;
+X	}
+X	request = (struct IOStdReq *) id->id_InUse;
+X
+X	if (segment != (BPTR)NULL)	/* restore old keymap */
+X	{
+X		request->io_Command = CD_SETKEYMAP;
+X		request->io_Length = sizeof(struct KeyMap);
+X		request->io_Data = (APTR)old;
+X		DoIO((struct IORequest *)request);
+X		if (request->io_Error)
+X			emsg("Cannot reset keymap");
+X		else				/* no error, free the allocated memory */
+X		{
+X			UnLoadSeg(segment);
+X			FreeMem(old, sizeof(struct KeyMap));
+X			segment = (BPTR)NULL;
+X		}
+X	}
+X	if (name != NULL)
+X	{
+X		segment = LoadSeg(name);
+X		if (segment == (BPTR)NULL)
+X		{
+X			emsg("Cannot open keymap file");
+X			return;
+X		}
+X		old = (struct KeyMap *)AllocMem(sizeof(struct KeyMap), MEMF_PUBLIC);
+X		if (old == NULL)
+X		{
+X			emsg(e_outofmem);
+X			UnLoadSeg(segment);
+X			segment = (BPTR)NULL;
+X		}
+X		else
+X		{
+X			request->io_Command = CD_ASKKEYMAP;
+X			request->io_Length = sizeof(struct KeyMap);
+X			request->io_Data = (APTR)old;
+X			DoIO((struct IORequest *)request);
+X			if (request->io_Error)
+X			{
+X				emsg("Cannot get old keymap");
+X				UnLoadSeg(segment);
+X				segment = (BPTR)NULL;
+X				FreeMem(old, sizeof(struct KeyMap));
+X			}
+X			else
+X			{
+X				request->io_Command = CD_SETKEYMAP;
+X				request->io_Length = sizeof(struct KeyMap);
+X				request->io_Data = (APTR)((segment << 2) + 18);
+X				DoIO((struct IORequest *)request);
+X				if (request->io_Error)
+X					emsg("Cannot set keymap");
+X
+X				/* test for blocking */
+X				request->io_Command = CMD_READ;
+X				request->io_Length = 1;
+X				request->io_Data = (APTR)&c;
+X				DoIO((struct IORequest *)request);	/* BLOCK HERE! */
+X				if (request->io_Error)
+X					emsg("Cannot set keymap");
+X			}
+X		}
+X	}
+X}
+X#endif
+X
+X#ifndef AZTEC_C
+X/*
+X * Sendpacket.c
+X *
+X * An invaluable addition to your Amiga.lib file. This code sends a packet to
+X * the given message port. This makes working around DOS lots easier.
+X *
+X * Note, I didn't write this, those wonderful folks at CBM did. I do suggest
+X * however that you may wish to add it to Amiga.Lib, to do so, compile it and
+X * say 'oml lib:amiga.lib -r sendpacket.o'
+X */
+X
+X/* #include <proto/exec.h> */
+X/* #include <proto/dos.h> */
+X#include <exec/memory.h>
+X
+X/*
+X * Function - dos_packet written by Phil Lindsay, Carolyn Scheppner, and Andy
+X * Finkel. This function will send a packet of the given type to the Message
+X * Port supplied.
+X */
+X
+X	static long
+Xdos_packet(pid, action, arg)
+X	struct MsgPort *pid;	/* process indentifier ... (handlers message port) */
+X	long			action, /* packet type ... (what you want handler to do)   */
+X					arg;	/* single argument */
+X{
+X# ifndef NO_ARP
+X	struct MsgPort			*replyport;
+X	struct StandardPacket	*packet;
+X	long					res1;
+X
+X	if (dos2)
+X# endif
+X		return DoPkt(pid, action, arg, 0L, 0L, 0L, 0L);	/* use 2.0 function */
+X# ifndef NO_ARP
+X
+X	replyport = (struct MsgPort *) CreatePort(NULL, 0);	/* use arp function */
+X	if (!replyport)
+X		return (0);
+X
+X	/* Allocate space for a packet, make it public and clear it */
+X	packet = (struct StandardPacket *)
+X		AllocMem((long) sizeof(struct StandardPacket), MEMF_PUBLIC | MEMF_CLEAR);
+X	if (!packet) {
+X		DeletePort(replyport);
+X		return (0);
+X	}
+X	packet->sp_Msg.mn_Node.ln_Name = (char *) &(packet->sp_Pkt);
+X	packet->sp_Pkt.dp_Link = &(packet->sp_Msg);
+X	packet->sp_Pkt.dp_Port = replyport;
+X	packet->sp_Pkt.dp_Type = action;
+X	packet->sp_Pkt.dp_Arg1 = arg;
+X
+X	PutMsg(pid, (struct Message *)packet);		/* send packet */
+X
+X	WaitPort(replyport);
+X	GetMsg(replyport);
+X
+X	res1 = packet->sp_Pkt.dp_Res1;
+X
+X	FreeMem(packet, (long) sizeof(struct StandardPacket));
+X	DeletePort(replyport);
+X
+X	return (res1);
+X# endif
+X}
+X#endif
+X
+X/*
+X * call shell, return non-zero for failure
+X */
+X	int
+Xcall_shell(cmd, filter, cooked)
+X		char	*cmd;
+X		int		filter;		/* if != 0: called by dofilter() */
+X		int		cooked;
+X{
+X	BPTR mydir;
+X	int x;
+X#ifndef LATTICE
+X	int	use_execute;
+X	char *shellcmd = NULL;
+X	char *shellarg;
+X#endif
+X	int	retval = 0;
+X
+X	if (close_win)
+X	{
+X		/* if Vim opened a window: Executing a shell may cause crashes */
+X		emsg("Cannot execute shell with -e or -x option");
+X		return 1;
+X	}
+X
+X	if (term_console)
+X		win_resize_off(); 			/* window resize events de-activated */
+X	flushbuf();
+X
+X	if (cooked)
+X		settmode(0); 				/* set to cooked mode */
+X	mydir = Lock((UBYTE *)"", (long)ACCESS_READ);	/* remember current directory */
+X
+X#ifdef LATTICE						/* not tested very much */
+X	if (cmd == NULL)
+X	{
+X# ifndef NO_ARP
+X		if (dos2)
+X# endif
+X			x = SystemTags(p_sh, SYS_UserShell, TRUE, TAG_DONE);
+X# ifndef NO_ARP
+X		else
+X			x = Execute(p_sh, raw_in, raw_out);
+X# endif
+X	}
+X	else
+X	{
+X# ifndef NO_ARP
+X		if (dos2)
+X# endif
+X			x = SystemTags(cmd, SYS_UserShell, TRUE, TAG_DONE);
+X# ifndef NO_ARP
+X		else
+X			x = Execute(cmd, 0L, raw_out);
+X# endif
+X	}
+X# ifdef NO_ARP
+X	if (x < 0)
+X# else
+X	if ((dos2 && x < 0) || (!dos2 && !x))
+X# endif
+X	{
+X		if (cmd == NULL)
+X			emsg2("Cannot execute shell %s", p_sh);
+X		else
+X			emsg2("Cannot execute %s", cmd);
+X		outchar('\n');
+X		retval = 1;
+X	}
+X# ifdef NO_ARP
+X	else if (x)
+X# else
+X	else if (!dos2 || x)
+X# endif
+X	{
+X		if (x = IoErr())
+X		{
+X			smsg("%d returned", x);
+X			outchar('\n');
+X			retval = 1;
+X		}
+X	}
+X#else	/* LATTICE */
+X	if (p_st >= 4 || (p_st >= 2 && !filter))
+X		use_execute = 1;
+X	else
+X		use_execute = 0;
+X	if (!use_execute)
+X	{
+X		/*
+X		 * separate shell name from argument
+X		 */
+X		shellcmd = strsave(p_sh);
+X		if (shellcmd == NULL)		/* out of memory, use Execute */
+X			use_execute = 1;
+X		else
+X		{
+X			shellarg = shellcmd;
+X			skiptospace(&shellarg);	/* find start of arguments */
+X			if (*shellarg != NUL)
+X			{
+X				*shellarg++ = NUL;
+X				skipspace(&shellarg);
+X			}
+X		}
+X	}
+X	if (cmd == NULL)
+X	{
+X		if (use_execute)
+X		{
+X#ifndef NO_ARP
+X			if (dos2)
+X#endif
+X				x = SystemTags((UBYTE *)p_sh, SYS_UserShell, TRUE, TAG_DONE);
+X#ifndef NO_ARP
+X			else
+X				x = !Execute((UBYTE *)p_sh, raw_in, raw_out);
+X#endif
+X		}
+X		else
+X			x = fexecl(shellcmd, shellcmd, shellarg, NULL);
+X	}
+X	else if (use_execute)
+X	{
+X#ifndef NO_ARP
+X		if (dos2)
+X#endif
+X			x = SystemTags((UBYTE *)cmd, SYS_UserShell, TRUE, TAG_DONE);
+X#ifndef NO_ARP
+X		else
+X			x = !Execute((UBYTE *)cmd, 0L, raw_out);
+X#endif
+X	}
+X	else if (p_st & 1)
+X		x = fexecl(shellcmd, shellcmd, shellarg, cmd, NULL);
+X	else
+X		x = fexecl(shellcmd, shellcmd, shellarg, "-c", cmd, NULL);
+X#ifdef NO_ARP
+X	if (x < 0)
+X#else
+X	if ((dos2 && x < 0) || (!dos2 && x))
+X#endif
+X	{
+X		if (use_execute)
+X			emsg2("Cannot execute %s", cmd == NULL ? p_sh : cmd);
+X		else
+X			emsg2("Cannot execute shell %s", shellcmd);
+X		outchar('\n');
+X		retval = 1;
+X	}
+X	else
+X	{
+X		if (use_execute)
+X		{
+X#ifdef NO_ARP
+X			if (x)
+X#else
+X			if (!dos2 || x)
+X#endif
+X				x = IoErr();
+X		}
+X		else
+X			x = wait();
+X		if (x)
+X		{
+X			smsg("%d returned", x);
+X			outchar('\n');
+X			retval = 1;
+X		}
+X	}
+X	free(shellcmd);
+X#endif
+X
+X	if (mydir = CurrentDir(mydir))		/* make sure we stay in the same directory */
+X		UnLock(mydir);
+X	if (cooked)
+X		settmode(1); 					/* set to raw mode */
+X	resettitle();
+X	if (term_console)
+X		win_resize_on(); 				/* window resize events activated */
+X	return retval;
+X}
+X
+X/*
+X * check for an "interrupt signal"
+X * We only react to a CTRL-C, but also clear the other break signals to avoid trouble
+X * with lattice-c programs.
+X */
+X	void
+Xbreakcheck()
+X{
+X   if (SetSignal(0L, (long)(SIGBREAKF_CTRL_C|SIGBREAKF_CTRL_D|SIGBREAKF_CTRL_E|SIGBREAKF_CTRL_F)) & SIGBREAKF_CTRL_C)
+X		got_int = TRUE;
+X}
+X
+X/* this routine causes manx to use this Chk_Abort() rather than it's own */
+X/* otherwise it resets our ^C when doing any I/O (even when Enable_Abort */
+X/* is zero).  Since we want to check for our own ^C's                    */
+X
+X#ifdef _DCC
+X#define Chk_Abort chkabort
+X#endif
+X
+X	long
+XChk_Abort()
+X{
+X	return(0L);
+X}
+X
+X/*
+X * ExpandWildCard() - this code does wild-card pattern matching using the arp
+X *					  routines. This is based on WildDemo2.c (found in arp1.1
+X *					  distribution). That code's copyright follows :
+X *-------------------------------------------------------------------------
+X * WildDemo2.c - Search filesystem for patterns, and separate into directories
+X *		 and files, sorting each separately using DA lists.
+X *
+X * -+=SDB=+-
+X *
+X * Copyright (c) 1987, Scott Ballantyne
+X * Use and abuse as you please.
+X *
+X * num_pat is number of input patterns
+X * pat is array of pointers to input patterns
+X * num_file is pointer to number of matched file names
+X * file is pointer to array of pointers to matched file names
+X * if file_only is TRUE we match only files, no dirs
+X * if list_notfound is TRUE we include not-found entries (probably locked)
+X * return 0 for success, 1 for error (you may loose some memory)
+X *-------------------------------------------------------------------------
+X */
+X
+X/* #include <arpfunctions.h> */
+Xextern void *malloc __ARGS((size_t)), *calloc __ARGS((size_t, size_t));
+Xstatic int insfile __ARGS((char *, int));
+Xstatic void freefiles __ARGS((void));
+X
+X#define ANCHOR_BUF_SIZE (512)
+X#define ANCHOR_SIZE (sizeof(struct AnchorPath) + ANCHOR_BUF_SIZE)
+X
+X/*
+X * we use this structure to built a list of file names
+X */
+Xstruct onefile
+X{
+X	struct onefile	*next;
+X	char			name[1];	/* really longer */
+X} *namelist = NULL;
+X
+X/*
+X * insert one file into the list of file names
+X * return -1 for failure
+X * return 0 for success
+X */
+X	static int
+Xinsfile(name, isdir)
+X	char	*name;
+X	int		isdir;
+X{
+X	struct onefile *new;
+X
+X	new = (struct onefile *)alloc((unsigned)(sizeof(struct onefile) + strlen(name) + isdir));
+X	if (new == NULL)
+X		return -1;
+X	strcpy(&(new->name[0]), name);
+X	if (isdir)
+X		strcat(&(new->name[0]), "/");
+X	new->next = namelist;
+X	namelist = new;
+X	return 0;
+X}
+X
+X/*
+X * free a whole list of file names
+X */
+X	static void
+Xfreefiles()
+X{
+X	struct onefile *p;
+X
+X	while (namelist)
+X	{
+X		p = namelist->next;
+X		free(namelist);
+X		namelist = p;
+X	}
+X}
+X
+X	static int
+Xsortcmp(a, b)
+X	char **a, **b;
+X{
+X	return strcmp(*a, *b);
+X}
+X
+XExpandWildCards(num_pat, pat, num_file, file, files_only, list_notfound)
+X	int 			num_pat;
+X	char		  **pat;
+X	int 		   *num_file;
+X	char		 ***file;
+X	int			files_only;
+X	int			list_notfound;
+X{
+X	int 					i;
+X	struct AnchorPath		*Anchor;
+X	int						domatchend = FALSE;
+X	LONG					Result;
+X	struct onefile			*p;
+X	char					*errmsg = NULL;
+X	char					*starbuf, *sp, *dp;
+X	int						foundone;
+X
+X	*num_file = 0;
+X	*file = (char **)"";
+X
+X	/* Get our AnchorBase */
+X	Anchor = (struct AnchorPath *) calloc((size_t)1, (size_t)ANCHOR_SIZE);
+X	if (!Anchor)
+X		goto OUT_OF_MEMORY;
+X	Anchor->ap_StrLen = ANCHOR_BUF_SIZE;	/* ap_Length not supported anymore */
+X#ifdef APF_DODOT
+X	Anchor->ap_Flags = APF_DODOT | APF_DOWILD;		/* allow '.' for current dir */
+X#else
+X	Anchor->ap_Flags = APF_DoDot | APF_DoWild;		/* allow '.' for current dir */
+X#endif
+X
+X	for (i = 0; i < num_pat; i++)
+X	{
+X#ifndef NO_ARP
+X		if (dos2)
+X		{
+X#endif
+X				/* hack to replace '*' by '#?' */
+X			starbuf = alloc((unsigned)(2 * strlen(pat[i]) + 1));	/* maximum required */
+X			if (starbuf == NULL)
+X				goto OUT_OF_MEMORY;
+X			for (sp = pat[i], dp = starbuf; *sp; ++sp)
+X			{
+X				if (*sp == '*')
+X				{
+X					*dp++ = '#';
+X					*dp++ = '?';
+X				}
+X				else
+X					*dp++ = *sp;
+X			}
+X			*dp = NUL;
+X			Result = MatchFirst((UBYTE *)starbuf, Anchor);
+X			free(starbuf);
+X#ifndef NO_ARP
+X		}
+X		else
+X			Result = FindFirst(pat[i], Anchor);
+X#endif
+X		domatchend = TRUE;
+X		foundone = FALSE;
+X		while (Result == 0)
+X		{
+X			if (!files_only || Anchor->ap_Info.fib_DirEntryType < 0)
+X			{
+X				(*num_file)++;
+X				if (insfile(Anchor->ap_Buf, Anchor->ap_Info.fib_DirEntryType >= 0))
+X				{
+XOUT_OF_MEMORY:
+X					errmsg = "Out of memory";
+X					goto Return;
+X				}
+X				foundone = TRUE;
+X			}
+X#ifndef NO_ARP
+X			if (dos2)
+X#endif
+X				Result = MatchNext(Anchor);
+X#ifndef NO_ARP
+X			else
+X				Result = FindNext(Anchor);
+X#endif
+X		}
+X		if (Result == ERROR_BUFFER_OVERFLOW)
+X		{
+X			errmsg = "ANCHOR_BUF_SIZE too small.";
+X			goto Return;
+X		}
+X		if (!foundone)
+X		{
+X			if (list_notfound)	/* put object with error in list */
+X			{
+X				(*num_file)++;
+X				if (insfile(pat[i], FALSE))
+X					goto OUT_OF_MEMORY;
+X			}
+X			else if (Result != ERROR_OBJECT_NOT_FOUND && Result != ERROR_NO_MORE_ENTRIES)
+X			{
+X				errmsg = "I/O ERROR";
+X				goto Return;
+X			}
+X		}
+X#ifndef NO_ARP
+X		if (dos2)
+X#endif
+X			MatchEnd(Anchor);
+X#ifndef NO_ARP
+X		else
+X		{
+X			FreeAnchorChain(Anchor);
+X			Anchor = NULL;			/* is this right or wrong? */
+X		}
+X#endif
+X		domatchend = FALSE;
+X	}
+X
+X	p = namelist;
+X	if (p)
+X	{
+X		*file = (char **) malloc(sizeof(char *) * (*num_file));
+X		if (*file == NULL)
+X			goto OUT_OF_MEMORY;
+X		for (i = *num_file - 1; p; p = p->next, --i)
+X		{
+X			(*file)[i] = (char *) malloc(strlen(p->name) + 1);
+X			if ((*file)[i] == NULL)
+X				goto OUT_OF_MEMORY;
+X			strcpy((*file)[i], p->name);
+X		}
+X		qsort((void *)*file, (size_t)*num_file, sizeof(char *), sortcmp);
+X	}
+XReturn:
+X	if (domatchend)
+X	{
+X#ifndef NO_ARP
+X		if (dos2)
+X#endif
+X			MatchEnd(Anchor);
+X#ifndef NO_ARP
+X		else
+X		{
+X			FreeAnchorChain(Anchor);
+X			Anchor = NULL;			/* is this right or wrong? */
+X		}
+X#endif
+X	}
+X	if (Anchor)
+X		free(Anchor);
+X	freefiles();
+X	if (errmsg)
+X	{
+X		emsg(errmsg);
+X		*num_file = 0;
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+X	void
+XFreeWild(num, file)
+X	int		num;
+X	char	**file;
+X{
+X	if (file == NULL || num == 0)
+X		return;
+X	while (num--)
+X		free(file[num]);
+X	free(file);
+X}
+X
+X	int
+Xhas_wildcard(p)
+X	char *p;
+X{
+X	for ( ; *p; ++p)
+X		if (strchr("*?[(~#", *p) != NULL)
+X			return 1;
+X	return 0;
+X}
+X
+X/*
+X * With 2.0 support for reading local environment variables
+X */
+X
+X	char *
+Xvimgetenv(var)
+X	char *var;
+X{
+X  int len;
+X
+X#ifndef NO_ARP
+X  if (!dos2)
+X		return getenv(var);
+X#endif
+X
+X  len = GetVar((UBYTE *)var, (UBYTE *)IObuff, (long)(IOSIZE - 1), (long)0);
+X
+X  if (len == -1)
+X      return NULL;
+X  else
+X      return IObuff;
+X}
+END_OF_FILE
+if test 30444 -ne `wc -c <'vim/src/amiga.c'`; then
+    echo shar: \"'vim/src/amiga.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/amiga.c'
+# end of 'vim/src/amiga.c'
+fi
+if test -f 'vim/src/buffers.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/buffers.c'\"
+else
+echo shar: Extracting \"'vim/src/buffers.c'\" \(29561 characters\)
+sed "s/^X//" >'vim/src/buffers.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * buffers.c
+X *
+X * manipulations with redo buffer and stuff buffer
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X
+X/*
+X * structure used to store one block of the stuff/redo/macro buffers
+X */
+Xstruct bufblock
+X{
+X		struct bufblock *b_next;		/* pointer to next bufblock */
+X		u_char			b_str[1];		/* contents (actually longer) */
+X};
+X
+X#define MINIMAL_SIZE 20 				/* minimal size for b_str */
+X
+X/*
+X * header used for the stuff buffer and the redo buffer
+X */
+Xstruct buffheader
+X{
+X		struct bufblock bh_first;		/* first (dummy) block of list */
+X		struct bufblock *bh_curr;		/* bufblock for appending */
+X		int 			bh_index;		/* index for reading */
+X		int 			bh_space;		/* space in bh_curr for appending */
+X};
+X
+Xstatic struct buffheader stuffbuff = {{NULL, {NUL}}, NULL, 0, 0};
+Xstatic struct buffheader redobuff = {{NULL, {NUL}}, NULL, 0, 0};
+Xstatic struct buffheader recordbuff = {{NULL, {NUL}}, NULL, 0, 0};
+X
+X	/*
+X	 * when block_redo is TRUE redo buffer will not be changed
+X	 * used by edit() to repeat insertions and 'V' command for redoing
+X	 */
+Xstatic int		block_redo = FALSE;
+X
+X/*
+X * structure used for mapping
+X */
+Xstruct mapblock
+X{
+X	struct mapblock *m_next;		/* next mapblock */
+X	char			*m_keys;		/* mapped from */
+X	int				 m_keylen;		/* strlen(m_keys) */
+X	char			*m_str; 		/* mapped to */
+X	int 			 m_mode;		/* valid mode */
+X	int				 m_noremap;		/* if non-zero no re-mapping for m_str */
+X};
+X
+Xstatic struct mapblock maplist = {NULL, NULL, 0, NULL, 0, 0};
+X									/* first dummy entry in maplist */
+X
+X/*
+X * variables used by vgetorpeek() and flush_buffers()
+X *
+X * typestr contains all characters that are not consumed yet.
+X * The part in front may contain the result of mappings and @a commands.
+X * The lenght of this part is typemaplen.
+X * After it are characters that come from the terminal.
+X * Some parts of typestr may not be mapped. These parts are remembered in
+X * the noremaplist. 
+X */
+X#define MAXMAPLEN 50				/* maximum length of key sequence to be mapped */
+X									/* must be able to hold an Amiga resize report */
+Xstatic char		*typestr = NULL;	/* NUL-terminated buffer for typeahead characters */
+Xstatic char		typebuf[MAXMAPLEN + 3]; /* initial typestr */
+X
+Xstatic int		typemaplen = 0;		/* number of mapped characters in typestr */
+X
+X/* 
+X * parts int typestr that should not be mapped are remembered with a list
+X * of noremap structs. Noremaplist is the first.
+X */
+Xstruct noremap
+X{
+X	int				nr_off;			/* offset to not remappable chars */
+X	int				nr_len;			/* number of not remappable chars */
+X	struct noremap	*nr_next;		/* next entry in the list */
+X};
+X
+Xstatic struct noremap noremaplist = {0, 0, NULL};
+X
+Xstatic void		free_buff __ARGS((struct buffheader *));
+Xstatic u_char	*get_bufcont __ARGS((struct buffheader *, int));
+Xstatic void		add_buff __ARGS((struct buffheader *, char *));
+Xstatic void		add_num_buff __ARGS((struct buffheader *, long));
+Xstatic void		add_char_buff __ARGS((struct buffheader *, int));
+Xstatic u_char	read_stuff __ARGS((int));
+Xstatic int		start_stuff __ARGS((void));
+Xstatic int		read_redo __ARGS((int));
+Xstatic void		gotchars __ARGS((char *, int));
+Xstatic void		init_typestr __ARGS((void));
+Xstatic u_char	vgetorpeek __ARGS((int));
+Xstatic void		showmap __ARGS((struct mapblock *));
+X
+X/*
+X * free and clear a buffer
+X */
+X	static void
+Xfree_buff(buf)
+X	struct buffheader *buf;
+X{
+X		register struct bufblock *p, *np;
+X
+X		for (p = buf->bh_first.b_next; p != NULL; p = np)
+X		{
+X				np = p->b_next;
+X				free((char *)p);
+X		}
+X		buf->bh_first.b_next = NULL;
+X}
+X
+X/*
+X * return the contents of a buffer as a single string
+X */
+X	static u_char *
+Xget_bufcont(buffer, dozero)
+X	struct buffheader	*buffer;
+X	int					dozero;		/* count == zero is not an error */
+X{
+X		u_long			count = 0;
+X		u_char			*p = NULL;
+X		struct bufblock	*bp;
+X
+X/* compute the total length of the string */
+X		for (bp = buffer->bh_first.b_next; bp != NULL; bp = bp->b_next)
+X				count += strlen((char *)bp->b_str);
+X
+X		if ((count || dozero) && (p = (u_char *)lalloc(count + 1, TRUE)) != NULL)
+X		{
+X				*p = NUL;
+X				for (bp = buffer->bh_first.b_next; bp != NULL; bp = bp->b_next)
+X						strcat((char *)p, (char *)bp->b_str);
+X		}
+X		return (p);
+X}
+X
+X/*
+X * return the contents of the record buffer as a single string
+X *	and clear the record buffer
+X */
+X	u_char *
+Xget_recorded()
+X{
+X	u_char *p;
+X
+X	p = get_bufcont(&recordbuff, TRUE);
+X	free_buff(&recordbuff);
+X	return (p);
+X}
+X
+X/*
+X * return the contents of the redo buffer as a single string
+X */
+X	u_char *
+Xget_inserted()
+X{
+X		return(get_bufcont(&redobuff, FALSE));
+X}
+X
+X/*
+X * add string "s" after the current block of buffer "buf"
+X */
+X	static void
+Xadd_buff(buf, s)
+X	register struct buffheader	*buf;
+X	char						*s;
+X{
+X	struct bufblock *p;
+X	u_long 			n;
+X	u_long 			len;
+X
+X	if ((n = strlen(s)) == 0)				/* don't add empty strings */
+X		return;
+X
+X	if (buf->bh_first.b_next == NULL)		/* first add to list */
+X	{
+X		buf->bh_space = 0;
+X		buf->bh_curr = &(buf->bh_first);
+X	}
+X	else if (buf->bh_curr == NULL)			/* buffer has already been read */
+X	{
+X		emsg("Add to read buffer");
+X		return;
+X	}
+X	else if (buf->bh_index != 0)
+X		strcpy((char *)buf->bh_first.b_next->b_str, (char *)buf->bh_first.b_next->b_str + buf->bh_index);
+X	buf->bh_index = 0;
+X
+X	if (buf->bh_space >= n)
+X	{
+X		strcat((char *)buf->bh_curr->b_str, s);
+X		buf->bh_space -= n;
+X	}
+X	else
+X	{
+X		if (n < MINIMAL_SIZE)
+X			len = MINIMAL_SIZE;
+X		else
+X			len = n;
+X		p = (struct bufblock *)lalloc((u_long)(sizeof(struct bufblock) + len), TRUE);
+X		if (p == NULL)
+X			return; /* no space, just forget it */
+X		buf->bh_space = len - n;
+X		strcpy((char *)p->b_str, s);
+X
+X		p->b_next = buf->bh_curr->b_next;
+X		buf->bh_curr->b_next = p;
+X		buf->bh_curr = p;
+X	}
+X	return;
+X}
+X
+X	static void
+Xadd_num_buff(buf, n)
+X	struct buffheader *buf;
+X	long 			  n;
+X{
+X		char	number[32];
+X
+X		sprintf(number, "%ld", n);
+X		add_buff(buf, number);
+X}
+X
+X	static void
+Xadd_char_buff(buf, c)
+X	struct buffheader *buf;
+X	int 			  c;
+X{
+X		char	temp[2];
+X
+X		temp[0] = c;
+X		temp[1] = NUL;
+X		add_buff(buf, temp);
+X}
+X
+X/*
+X * get one character from the stuff buffer
+X * If advance == TRUE go to the next char.
+X */
+X	static u_char
+Xread_stuff(advance)
+X	int			advance;
+X{
+X		register u_char c;
+X		register struct bufblock *curr;
+X
+X
+X		if (stuffbuff.bh_first.b_next == NULL)	/* buffer is empty */
+X			return NUL;
+X
+X		curr = stuffbuff.bh_first.b_next;
+X		c = curr->b_str[stuffbuff.bh_index];
+X
+X		if (advance)
+X		{
+X			if (curr->b_str[++stuffbuff.bh_index] == NUL)
+X			{
+X				stuffbuff.bh_first.b_next = curr->b_next;
+X				free((char *)curr);
+X				stuffbuff.bh_index = 0;
+X			}
+X		}
+X		return c;
+X}
+X
+X/*
+X * prepare stuff buffer for reading (if it contains something)
+X */
+X	static int
+Xstart_stuff()
+X{
+X	if (stuffbuff.bh_first.b_next == NULL)
+X		return FALSE;
+X	stuffbuff.bh_curr = &(stuffbuff.bh_first);
+X	stuffbuff.bh_space = 0;
+X	return TRUE;
+X}
+X
+X/*
+X * check if the stuff buffer is empty
+X */
+X	int
+Xstuff_empty()
+X{
+X	return (stuffbuff.bh_first.b_next == NULL);
+X}
+X
+X/*
+X * Remove the contents of the stuff buffer and the mapped characters in the
+X * typeahead buffer (used in case of an error). If 'typeahead' is true,
+X * flush all typeahead characters (used when interrupted by a CTRL-C).
+X */
+X	void
+Xflush_buffers(typeahead)
+X	int typeahead;
+X{
+X	struct noremap *p;
+X
+X	init_typestr();
+X
+X	start_stuff();
+X	while (read_stuff(TRUE) != NUL)
+X		;
+X
+X	if (typeahead)			/* remove all typeahead */
+X	{
+X			/*
+X			 * We have to get all characters, because we may delete the first
+X			 * part of an escape sequence.
+X			 * In an xterm we get one char at a time and we have to get them all.
+X			 */
+X		while (inchar(typestr, MAXMAPLEN, 10))	
+X			;
+X		*typestr = NUL;
+X	}
+X	else					/* remove mapped characters only */
+X		strcpy(typestr, typestr + typemaplen);
+X	typemaplen = 0;
+X	noremaplist.nr_len = 0;
+X	noremaplist.nr_off = 0;
+X	while (noremaplist.nr_next)
+X	{
+X		p = noremaplist.nr_next->nr_next;
+X		free(noremaplist.nr_next);
+X		noremaplist.nr_next = p;
+X	}
+X}
+X
+X	void
+XResetRedobuff()
+X{
+X	if (!block_redo)
+X		free_buff(&redobuff);
+X}
+X
+X	void
+XAppendToRedobuff(s)
+X	char		   *s;
+X{
+X	if (!block_redo)
+X		add_buff(&redobuff, s);
+X}
+X
+X	void
+XAppendCharToRedobuff(c)
+X	int			   c;
+X{
+X	if (!block_redo)
+X		add_char_buff(&redobuff, c);
+X}
+X
+X	void
+XAppendNumberToRedobuff(n)
+X	long 			n;
+X{
+X	if (!block_redo)
+X		add_num_buff(&redobuff, n);
+X}
+X
+X	void
+XstuffReadbuff(s)
+X	char		   *s;
+X{
+X	add_buff(&stuffbuff, s);
+X}
+X
+X	void
+XstuffcharReadbuff(c)
+X	int			   c;
+X{
+X	add_char_buff(&stuffbuff, c);
+X}
+X
+X	void
+XstuffnumReadbuff(n)
+X	long	n;
+X{
+X	add_num_buff(&stuffbuff, n);
+X}
+X
+X/*
+X * Read a character from the redo buffer.
+X * The redo buffer is left as it is.
+X */
+X	static int
+Xread_redo(init)
+X	int			init;
+X{
+X	static struct bufblock	*bp;
+X	static u_char			*p;
+X	int						c;
+X
+X	if (init)
+X	{
+X		if ((bp = redobuff.bh_first.b_next) == NULL)
+X			return TRUE;
+X		p = bp->b_str;
+X		return FALSE;
+X	}
+X	if ((c = *p) != NUL)
+X	{
+X		if (*++p == NUL && bp->b_next != NULL)
+X		{
+X			bp = bp->b_next;
+X			p = bp->b_str;
+X		}
+X	}
+X	return c;
+X}
+X
+X/*
+X * copy the rest of the redo buffer into the stuff buffer (could be done faster)
+X */
+X	void
+Xcopy_redo()
+X{
+X	register int c;
+X
+X	while ((c = read_redo(FALSE)) != NUL)
+X		stuffcharReadbuff(c);
+X}
+X
+Xextern int redo_Visual_busy;		/* this is in normal.c */
+X
+X/*
+X * Stuff the redo buffer into the stuffbuff.
+X * Insert the redo count into the command.
+X */
+X	int
+Xstart_redo(count)
+X	long count;
+X{
+X	register int c;
+X
+X	if (read_redo(TRUE))	/* init the pointers; return if nothing to redo */
+X		return FALSE;
+X
+X	c = read_redo(FALSE);
+X
+X/* copy the buffer name, if present */
+X	if (c == '"')
+X	{
+X		add_buff(&stuffbuff, "\"");
+X		c = read_redo(FALSE);
+X
+X/* if a numbered buffer is used, increment the number */
+X		if (c >= '1' && c < '9')
+X			++c;
+X		add_char_buff(&stuffbuff, c);
+X		c = read_redo(FALSE);
+X	}
+X
+X	if (c == 'v')	/* redo Visual */
+X	{
+X		Visual = Curpos;
+X		redo_Visual_busy = TRUE;
+X		c = read_redo(FALSE);
+X	}
+X
+X/* try to enter the count (in place of a previous count) */
+X	if (count)
+X	{
+X		while (isdigit(c))		/* skip "old" count */
+X			c = read_redo(FALSE);
+X		add_num_buff(&stuffbuff, count);
+X	}
+X
+X/* copy from the redo buffer into the stuff buffer */
+X	add_char_buff(&stuffbuff, c);
+X	copy_redo();
+X	return TRUE;
+X}
+X
+X/*
+X * Repeat the last insert (R, o, O, a, A, i or I command) by stuffing
+X * the redo buffer into the stuffbuff.
+X */
+X	int
+Xstart_redo_ins()
+X{
+X	register u_char c;
+X
+X	if (read_redo(TRUE))
+X		return FALSE;
+X	start_stuff();
+X
+X/* skip the count and the command character */
+X	while ((c = read_redo(FALSE)) != NUL)
+X	{
+X		c = TO_UPPER(c);
+X		if (strchr("AIRO", c) != NULL)
+X		{
+X			if (c == 'O')
+X				stuffReadbuff(NL_STR);
+X			break;
+X		}
+X	}
+X
+X/* copy the typed text from the redo buffer into the stuff buffer */
+X	copy_redo();
+X	block_redo = TRUE;
+X	return TRUE;
+X}
+X
+X	void
+Xset_redo_ins()
+X{
+X	block_redo = TRUE;
+X}
+X
+X	void
+Xstop_redo_ins()
+X{
+X	block_redo = FALSE;
+X}
+X
+X/*
+X * insert a string in front of the typeahead buffer (for '@' command and vgetorpeek)
+X */
+X	int
+Xins_typestr(str, noremap)
+X	char	*str;
+X	int		noremap;
+X{
+X	register char	*s;
+X	register int	newlen;
+X	register int	addlen;
+X
+X	init_typestr();
+X
+X	/*
+X	 * In typestr there must always be room for MAXMAPLEN + 3 characters
+X	 */
+X	addlen = strlen(str);
+X	newlen = strlen(typestr) + addlen + MAXMAPLEN + 3;
+X	if (newlen < 0)				/* string is getting too long */
+X	{
+X		emsg(e_toocompl);		/* also calls flush_buffers */
+X		setcursor();
+X		return -1;
+X	}
+X	s = alloc(newlen);
+X	if (s == NULL)				/* out of memory */
+X		return -1;
+X
+X	strcpy(s, str);
+X	strcat(s, typestr);
+X	if (typestr != typebuf)
+X		free(typestr);
+X	typestr = s;
+X	typemaplen += addlen;		/* the inserted string is not typed */
+X	if (noremap)
+X	{
+X		if (noremaplist.nr_off == 0)
+X			noremaplist.nr_len += addlen;
+X		else
+X		{
+X			struct noremap *p;
+X
+X			p = (struct noremap *)alloc((int)sizeof(struct noremap));
+X			if (p != NULL)
+X			{
+X				p->nr_next = noremaplist.nr_next;
+X				p->nr_off = noremaplist.nr_off;
+X				p->nr_len = noremaplist.nr_len;
+X				noremaplist.nr_next = p;
+X				noremaplist.nr_len = addlen;
+X				noremaplist.nr_off = 0;
+X			}
+X		}
+X	}
+X	else if (noremaplist.nr_len)
+X		noremaplist.nr_off += addlen;
+X	return 0;
+X}
+X
+X/*
+X * remove "len" characters from the front of typestr
+X */
+X	void
+Xdel_typestr(len)
+X	int	len;
+X{
+X	struct noremap *p;
+X
+X	strcpy(typestr, typestr + len);		/* remove chars from the buffer */
+X	if ((typemaplen -= len) <= 0)		/* adjust typemaplen */
+X		typemaplen = 0;
+X	while (len)							/* adjust noremaplist */
+X	{
+X		if (noremaplist.nr_off >= len)
+X		{
+X			noremaplist.nr_off -= len;
+X			break;
+X		}
+X		len -= noremaplist.nr_off;
+X		noremaplist.nr_off = 0;
+X		if (noremaplist.nr_len > len)
+X		{
+X			noremaplist.nr_len -= len;
+X			break;
+X		}
+X		len -= noremaplist.nr_len;
+X		p = noremaplist.nr_next;
+X		if (p == NULL)
+X		{
+X			noremaplist.nr_len = 0;
+X			break;
+X		}
+X		noremaplist.nr_next = p->nr_next;
+X		noremaplist.nr_len = p->nr_len;
+X		noremaplist.nr_off = p->nr_off;
+X		free(p);
+X	}
+X}
+X
+Xextern int arrow_used;			/* this is in edit.c */
+X
+X/*
+X * Write typed characters to script file.
+X * If recording is on put the character in the recordbuffer.
+X */
+X	static void
+Xgotchars(s, len)
+X	char	*s;
+X	int		len;
+X{
+X	while (len--)
+X	{
+X		updatescript(*s & 255);
+X
+X		if (Recording)
+X			add_char_buff(&recordbuff, (*s & 255));
+X		++s;
+X	}
+X
+X			/* do not sync in insert mode, unless cursor key has been used */
+X	if (!(State & (INSERT + CMDLINE)) || arrow_used)		
+X		u_sync();
+X}
+X
+X/*
+X * Initialize typestr to point to typebuf.
+X * Alloc() cannot be used here: In out-of-memory situations it would
+X * be impossible to type anything.
+X */
+X	static void
+Xinit_typestr()
+X{
+X	if (typestr == NULL)
+X	{
+X		typestr = typebuf;
+X		typebuf[0] = NUL;
+X	}
+X}
+X
+X#define NEEDMORET 9999		/* value for incomplete mapping or key-code */
+X
+X/*
+X * get a character: 1. from the stuffbuffer
+X *					2. from the typeahead buffer
+X *					3. from the user
+X *
+X * KeyTyped is set to TRUE in the case the user typed the key.
+X * If advance is TRUE, we really get the character. Otherwise we just look
+X * whether there is a character available.
+X */
+X	static u_char
+Xvgetorpeek(advance)
+X	int		advance;
+X{
+X	register int	c;
+X	int				n = 0;		/* init for GCC */
+X	int				len;
+X#ifdef AMIGA
+X	char			*s;
+X#endif
+X	register struct mapblock *mp;
+X	int				timedout = FALSE;	/* waited for more than 1 second
+X												for mapping to complete */
+X	int				mapdepth = 0;		/* check for recursive mapping */
+X	int				mode_deleted = FALSE;	/* set when mode has been deleted */
+X
+X	init_typestr();
+X	start_stuff();
+X	if (typemaplen == 0)
+X		Exec_reg = FALSE;
+X	do
+X	{
+X		c = read_stuff(advance);
+X		if (c != NUL && !got_int)
+X			KeyTyped = FALSE;
+X		else
+X		{
+X			/*
+X			 * Loop until we either find a matching mapped key, or we
+X			 * are sure that it is not a mapped key.
+X			 * If a mapped key sequence is found we go back to the start to
+X			 * try re-mapping.
+X			 */
+X
+X			for (;;)
+X			{
+X				len = strlen(typestr);
+X				breakcheck();				/* check for CTRL-C */
+X				if (got_int)
+X				{
+X					c = inchar(typestr, MAXMAPLEN, 0);	/* flush all input */
+X					/*
+X					 * If inchar returns TRUE (script file was active) or we are
+X					 * inside a mapping, get out of insert mode.
+X					 * Otherwise we behave like having gotten a CTRL-C.
+X					 * As a result typing CTRL-C in insert mode will
+X					 * really insert a CTRL-C.
+X					 */
+X					if ((c || typemaplen) && (State & (INSERT + CMDLINE)))
+X						c = ESC;
+X					else
+X						c = Ctrl('C');
+X					flush_buffers(TRUE);		/* flush all typeahead */
+X					break;
+X				}
+X				else if (len > 0)	/* see if we have a mapped key sequence */
+X				{
+X					/*
+X					 * walk through the maplist until we find an
+X					 * entry that matches (if not timed out).
+X					 */
+X					mp = NULL;
+X					if (!timedout && (typemaplen == 0 || (p_remap &&
+X							(noremaplist.nr_len == 0 || noremaplist.nr_off != 0)))
+X							&& !((State & (INSERT + CMDLINE)) && p_paste))
+X					{
+X						for (mp = maplist.m_next; mp; mp = mp->m_next)
+X						{
+X							if ((mp->m_mode & ABBREV) || !(mp->m_mode & State))
+X								continue;
+X							n = mp->m_keylen;
+X							if (noremaplist.nr_off != 0 && n > noremaplist.nr_off)
+X								continue;
+X							if (!strncmp(mp->m_keys, typestr, (size_t)(n > len ? len : n)))
+X								break;
+X						}
+X					}
+X					if (mp == NULL)					/* no match found */
+X					{
+X							/*
+X							 * check if we have a terminal code, when
+X							 *	mapping is allowed,
+X							 *  keys have not been mapped,
+X							 *	and not an ESC sequence, not in insert mode or
+X							 *		p_ek is on,
+X							 *	and when not timed out,
+X							 */
+X						if (State != NOMAPPING &&
+X								typemaplen == 0 &&
+X								(typestr[0] != ESC || p_ek || !(State & INSERT)) &&
+X								!timedout)
+X							n = check_termcode(typestr);
+X						else
+X							n = 0;
+X						if (n == 0)		/* no matching terminal code */
+X						{
+X#ifdef AMIGA					/* check for window bounds report */
+X							if (typemaplen == 0 && (typestr[0] & 0xff) == CSI)
+X							{
+X								for (s = typestr + 1; isdigit(*s) || *s == ';' || *s == ' '; ++s)
+X									;
+X								if (*s == 'r' || *s == '|')	/* found one */
+X								{
+X									strcpy(typestr, s + 1);
+X									set_winsize(0, 0, FALSE);		/* get size and redraw screen */
+X									continue;
+X								}
+X								if (*s == NUL)		/* need more characters */
+X									n = -1;
+X							}
+X							if (n != -1)			/* got a single character */
+X#endif
+X							{
+X								c = typestr[0] & 255;
+X								if (typemaplen)
+X									KeyTyped = FALSE;
+X								else
+X								{
+X									KeyTyped = TRUE;
+X									if (advance)	/* write char to script file(s) */
+X										gotchars(typestr, 1);
+X								}
+X								if (advance)		/* remove chars from typestr */
+X									del_typestr(1);
+X								break;		/* got character, break for loop */
+X							}
+X						}
+X						if (n > 0)		/* full matching terminal code */
+X							continue;	/* try mapping again */
+X
+X						/* partial match: get some more characters */
+X						n = NEEDMORET;
+X					}
+X					if (n <= len)		/* complete match */
+X					{
+X						if (n > typemaplen)		/* write chars to script file(s) */
+X							gotchars(typestr + typemaplen, n - typemaplen);
+X
+X						del_typestr(n);	/* remove the mapped keys */
+X
+X						/*
+X						 * Put the replacement string in front of mapstr.
+X						 * The depth check catches ":map x y" and ":map y x".
+X						 */
+X						if (++mapdepth == 1000)
+X						{
+X							emsg("recursive mapping");
+X							if (State == CMDLINE)
+X								redrawcmdline();
+X							else
+X								setcursor();
+X							flush_buffers(FALSE);
+X							mapdepth = 0;		/* for next one */
+X							c = -1;
+X							break;
+X						}
+X						if (ins_typestr(mp->m_str, mp->m_noremap) < 0)
+X						{
+X							c = -1;
+X							break;
+X						}
+X						continue;
+X					}
+X				}
+X				/*
+X				 * special case: if we get an <ESC> in insert mode and there are
+X				 * no more characters at once, we pretend to go out of insert mode.
+X				 * This prevents the one second delay after typing an <ESC>.
+X				 * If we get something after all, we may have to redisplay the
+X				 * mode. That the cursor is in the wrong place does not matter.
+X				 */
+X				c = 0;
+X				if (advance && len == 1 && typestr[0] == ESC && typemaplen == 0 && (State & INSERT) && (p_timeout || (n == NEEDMORET && p_ttimeout)) && (c = inchar(typestr + len, 2, 0)) == 0)
+X				{
+X					if (p_smd)
+X					{
+X						delmode();
+X						mode_deleted = TRUE;
+X					}
+X					if (Curscol)		/* move cursor one left if possible */
+X						--Curscol;
+X					else if (p_wrap && Curpos.col != 0 && Cursrow)
+X					{
+X							--Cursrow;
+X							Curscol = Columns - 1;
+X					}
+X					setcursor();
+X					flushbuf();
+X				}
+X				len += c;
+X
+X				if (len >= typemaplen + MAXMAPLEN)	/* buffer full, don't map */
+X				{
+X					timedout = TRUE;
+X					continue;
+X				}
+X				c = inchar(typestr + len, typemaplen + MAXMAPLEN - len, !advance ? 0 : ((len == 0 || !(p_timeout || (p_ttimeout && n == NEEDMORET))) ? -1 : (int)p_tm));
+X				if (c <= NUL)		/* no character available */
+X				{
+X					if (!advance)
+X						break;
+X					if (len)				/* timed out */
+X					{
+X						timedout = TRUE;
+X						continue;
+X					}
+X				}
+X				else
+X				{
+X					if (mode_deleted)		/* character entered after ESC */
+X					{
+X						showmode();
+X						mode_deleted = FALSE;
+X					}
+X				}
+X			}		/* for (;;) */
+X		}		/* if (!character from stuffbuf) */
+X
+X						/* if advance is FALSE don't loop on NULs */
+X	} while (c < 0 || (advance && c == NUL));
+X
+X		/* delete "INSERT" message if we return an ESC */
+X	if (c == ESC && p_smd && !mode_deleted && (State & INSERT))
+X		delmode();
+X
+X	return (u_char) c;
+X}
+X
+X	u_char
+Xvgetc()
+X{
+X	return (vgetorpeek(TRUE));
+X}
+X
+X	u_char
+Xvpeekc()
+X{
+X	return (vgetorpeek(FALSE));
+X}
+X
+X/*
+X * map[!]					: show all key mappings
+X * map[!] {lhs}				: show key mapping for {lhs}
+X * map[!] {lhs} {rhs}		: set key mapping for {lhs} to {rhs}
+X * noremap[!] {lhs} {rhs}	: same, but no remapping for {rhs}
+X * unmap[!] {lhs}			: remove key mapping for {lhs}
+X * abbr						: show all abbreviations
+X * abbr {lhs}				: show abbreviations for {lhs}
+X * abbr {lhs} {rhs}			: set abbreviation for {lhs} to {rhs}
+X * noreabbr {lhs} {rhs}		: same, but no remapping for {rhs}
+X * unabbr {lhs}				: remove abbreviation for {lhs}
+X *
+X * maptype == 1 for unmap command, 2 for noremap command.
+X *
+X * keys is pointer to any arguments.
+X *
+X * for :map	  mode is NORMAL 
+X * for :map!  mode is INSERT + CMDLINE
+X * for :cmap  mode is CMDLINE
+X * for :imap  mode is INSERT 
+X * for :abbr  mode is INSERT + CMDLINE + ABBREV
+X * for :iabbr mode is INSERT + ABBREV
+X * for :cabbr mode is CMDLINE + ABBREV
+X * 
+X * Return 0 for success
+X *		  1 for invalid arguments
+X *		  2 for no match
+X *		  3 for ambiguety
+X *		  4 for out of mem
+X */
+X	int
+Xdomap(maptype, keys, mode)
+X	int		maptype;
+X	char	*keys;
+X	int		mode;
+X{
+X	struct mapblock		*mp, *mprev;
+X	char				*arg;
+X	char				*p;
+X	int					n = 0;			/* init for GCC */
+X	int					len = 0;		/* init for GCC */
+X	char				*newstr;
+X	int					hasarg;
+X	int					haskey;
+X	int					did_it = FALSE;
+X	int					abbrev = 0;
+X	int					round;
+X
+X	if (mode & ABBREV)		/* not a mapping but an abbreviation */
+X	{
+X		abbrev = ABBREV;
+X		mode &= ~ABBREV;
+X	}
+X/*
+X * find end of keys and remove CTRL-Vs in it
+X */
+X	p = keys;
+X	while (*p && *p != ' ' && *p != '\t')
+X	{
+X		if (*p == Ctrl('V') && p[1] != NUL)
+X			strcpy(p, p + 1);			/* remove CTRL-V */
+X		++p;
+X	}
+X	if (*p != NUL)
+X		*p++ = NUL;
+X	skipspace(&p);
+X	arg = p;
+X	hasarg = (*arg != NUL);
+X	haskey = (*keys != NUL);
+X
+X		/* check for :unmap with not one argument */
+X	if (maptype == 1 && (!haskey || hasarg))	
+X		return 1;
+X
+X/*
+X * remove CTRL-Vs from argument
+X */
+X	while (*p)
+X	{
+X		if (*p == Ctrl('V') && p[1] != NUL)
+X			strcpy(p, p + 1);			/* remove CTRL-V */
+X		++p;
+X	}
+X
+X/*
+X * check arguments and translate function keys
+X */
+X	if (haskey)
+X	{
+X		if (*keys == '#' && isdigit(*(keys + 1)))	/* function key */
+X		{
+X			if (*++keys == '0')
+X				*(u_char *)keys = K_F10;
+X			else
+X				*keys += K_F1 - '1';
+X		}
+X		len = strlen(keys);
+X		if (len > MAXMAPLEN)			/* maximum lenght of MAXMAPLEN chars */
+X			return 2;
+X	}
+X
+X	if (haskey && hasarg && abbrev)		/* will add an abbreviation */
+X		no_abbr = FALSE;
+X
+X#ifdef AMIGA
+X	if (!haskey || (maptype != 1 && !hasarg))
+X		settmode(0);				/* set cooked mode so output can be halted */
+X#endif
+X/*
+X * Find an entry in the maplist that matches.
+X * For :unmap we may loop two times: once to try to unmap an entry with a
+X * matching 'from' part, a second time, if the first fails, to unmap an
+X * entry with a matching 'to' part. This was done to allow ":ab foo bar" to be
+X * unmapped by typing ":unab foo", where "foo" will be replaced by "bar" because
+X * of the abbreviation.
+X */
+X	for (round = 0; (round == 0 || maptype == 1) && round <= 1 && !did_it; ++round)
+X	{
+X		for (mp = maplist.m_next, mprev = &maplist; mp; mprev = mp, mp = mp->m_next)
+X		{
+X										/* skip entries with wrong mode */
+X			if (!(mp->m_mode & mode) || (mp->m_mode & ABBREV) != abbrev)
+X				continue;
+X			if (!haskey)						/* show all entries */
+X			{
+X				showmap(mp);
+X				did_it = TRUE;
+X			}
+X			else								/* do we have a match? */
+X			{
+X				if (round)		/* second round: try 'to' string for unmap */
+X				{
+X					n = strlen(mp->m_str);
+X					p = mp->m_str;
+X				}
+X				else
+X				{
+X					n = mp->m_keylen;
+X					p = mp->m_keys;
+X				}
+X				if (!strncmp(p, keys, (size_t)(n < len ? n : len)))
+X				{
+X					if (maptype == 1)			/* delete entry */
+X					{
+X						if (n != len)			/* not a full match */
+X							continue;
+X						/*
+X						 * We reset the indicated mode bits. If nothing is left the
+X						 * entry is deleted below.
+X						 */
+X						mp->m_mode &= (~mode | ABBREV);
+X						did_it = TRUE;			/* remember that we did something */
+X					}
+X					else if (!hasarg)			/* show matching entry */
+X					{
+X						showmap(mp);
+X						did_it = TRUE;
+X					}
+X					else if (n != len)			/* new entry is ambigious */
+X					{
+X						return 3;
+X					}
+X					else
+X					{
+X						mp->m_mode &= (~mode | ABBREV);		/* remove mode bits */
+X						if (!(mp->m_mode & ~ABBREV) && !did_it)	/* reuse existing entry */
+X						{
+X							newstr = strsave(arg);
+X							if (newstr == NULL)
+X								return 4;			/* no mem */
+X							free(mp->m_str);
+X							mp->m_str = newstr;
+X							mp->m_noremap = maptype;
+X							mp->m_mode = mode + abbrev;
+X							did_it = TRUE;
+X						}
+X					}
+X					if (!(mp->m_mode & ~ABBREV))		/* entry can be deleted */
+X					{
+X						free(mp->m_keys);
+X						free(mp->m_str);
+X						mprev->m_next = mp->m_next;
+X						free(mp);
+X						mp = mprev;					/* continue with next entry */
+X					}
+X				}
+X			}
+X		}
+X	}
+X
+X	if (maptype == 1)						/* delete entry */
+X	{
+X		if (did_it)
+X			return 0;						/* removed OK */
+X		else
+X			return 2;						/* no match */
+X	}
+X
+X	if (!haskey || !hasarg)					/* print entries */
+X	{
+X#ifdef AMIGA
+X		settmode(1);
+X#endif
+X		if (did_it)
+X			wait_return(TRUE);
+X		else if (abbrev)
+X			msg("No abbreviation found");
+X		else
+X			msg("No mapping found");
+X		return 0;							/* listing finished */
+X	}
+X
+X	if (did_it)					/* have added the new entry already */
+X		return 0;
+X/*
+X * get here when we have to add a new entry
+X */
+X		/* allocate a new entry for the maplist */
+X	mp = (struct mapblock *)alloc((unsigned)sizeof(struct mapblock));
+X	if (mp == NULL)
+X		return 4;			/* no mem */
+X	mp->m_keys = strsave(keys);
+X	mp->m_str = strsave(arg);
+X	if (mp->m_keys == NULL || mp->m_str == NULL)
+X	{
+X			free(mp->m_keys);
+X			free(mp->m_str);
+X			free(mp);
+X			return 4;		/* no mem */
+X	}
+X	mp->m_keylen = strlen(mp->m_keys);
+X	mp->m_noremap = maptype;
+X	mp->m_mode = mode + abbrev;
+X
+X	/* add the new entry in front of the maplist */
+X	mp->m_next = maplist.m_next;
+X	maplist.m_next = mp;
+X
+X	return 0;				/* added OK */
+X}
+X
+X	static void
+Xshowmap(mp)
+X	struct mapblock *mp;
+X{
+X	int len;
+X
+X	if ((mp->m_mode & (INSERT + CMDLINE)) == INSERT + CMDLINE)
+X		outstr("! ");
+X	else if (mp->m_mode & INSERT)
+X		outstr("i ");
+X	else if (mp->m_mode & CMDLINE)
+X		outstr("c ");
+X	len = outtrans(mp->m_keys, -1);	/* get length of what we have written */
+X	do
+X	{
+X		outchar(' ');				/* padd with blanks */
+X		++len;
+X	} while (len < 12);
+X	if (mp->m_noremap)
+X		outchar('*');
+X	else
+X		outchar(' ');
+X	outtrans(mp->m_str, -1);
+X	outchar('\n');
+X	flushbuf();
+X}
+X
+X/*
+X * Check for an abbreviation.
+X * Cursor is at ptr[col]. When inserting, mincol is where insert started.
+X * "c" is the character typed before check_abbr was called.
+X */
+X	int
+Xcheck_abbr(c, ptr, col, mincol)
+X	int		c;
+X	char	*ptr;
+X	int		col;
+X	int		mincol;
+X{
+X	int				len;
+X	int				j;
+X	char			tb[3];
+X	struct mapblock *mp;
+X
+X	for (len = col; len > 0 && isidchar(ptr[len - 1]); --len)
+X		;
+X	if (len < mincol)
+X		len = mincol;
+X	if (len < col)				/* there is a word in front of the cursor */
+X	{
+X		ptr += len;
+X		len = col - len;
+X		for (mp = maplist.m_next; mp; mp = mp->m_next)
+X		{
+X					/* find entries with right mode and keys */
+X			if ((mp->m_mode & ABBREV) == ABBREV &&
+X						(mp->m_mode & State) &&
+X						mp->m_keylen == len &&
+X						!strncmp(mp->m_keys, ptr, (size_t)len))
+X				break;
+X		}
+X		if (mp)								/* found a match */
+X		{
+X			j = 0;
+X			if (c < 0x100 && (c < ' ' || c > '~'))
+X				tb[j++] = Ctrl('V');		/* special char needs CTRL-V */
+X			tb[j++] = c;
+X			tb[j] = NUL;
+X			ins_typestr(tb, TRUE);			/* insert the last typed char */
+X			ins_typestr(mp->m_str, mp->m_noremap);	/* insert the to string */
+X			while (len--)
+X				ins_typestr("\b", TRUE);	/* delete the from string */
+X			return TRUE;
+X		}
+X	}
+X	return FALSE;
+X}
+X
+X/*
+X * Write map commands for the current mappings to an .exrc file.
+X * Return 1 on error.
+X */
+X	int
+Xmakemap(fd)
+X	FILE *fd;
+X{
+X	struct mapblock *mp;
+X	char			c1;
+X	char 			*p;
+X
+X	for (mp = maplist.m_next; mp; mp = mp->m_next)
+X	{
+X		c1 = NUL;
+X		p = "map";
+X		switch (mp->m_mode)
+X		{
+X		case NORMAL:
+X			break;
+X		case CMDLINE + INSERT:
+X			p = "map!";
+X			break;
+X		case CMDLINE:
+X			c1 = 'c';
+X			break;
+X		case INSERT:
+X			c1 = 'i';
+X			break;
+X		case INSERT + CMDLINE + ABBREV:
+X			p = "abbr";
+X			break;
+X		case CMDLINE + ABBREV:
+X			c1 = 'c';
+X			p = "abbr";
+X			break;
+X		case INSERT + ABBREV:
+X			c1 = 'i';
+X			p = "abbr";
+X			break;
+X		default:
+X			emsg("makemap: Illegal mode");
+X			return 1;
+X		}
+X		if (c1 && putc(c1, fd) < 0)
+X			return 1;
+X		if (mp->m_noremap && fprintf(fd, "nore") < 0)
+X			return 1;
+X		if (fprintf(fd, p) < 0)
+X			return 1;
+X
+X		if (	putc(' ', fd) < 0 || putescstr(fd, mp->m_keys, FALSE) < 0 ||
+X				putc(' ', fd) < 0 || putescstr(fd, mp->m_str, FALSE) < 0 ||
+X#ifdef MSDOS
+X				putc('\r', fd) < 0 ||
+X#endif
+X				putc('\n', fd) < 0)
+X			return 1;
+X	}
+X	return 0;
+X}
+X
+X	int
+Xputescstr(fd, str, set)
+X	FILE		*fd;
+X	char		*str;
+X	int			set;		/* TRUE for makeset, FALSE for makemap */
+X{
+X	for ( ; *str; ++str)
+X	{
+X		/*
+X		 * some characters have to be escaped with CTRL-V to
+X		 * prevent them from misinterpreted in DoOneCmd().
+X		 * A space has to be escaped with a backslash to
+X		 * prevent it to be misinterpreted in doset().
+X		 */
+X		if (*str < ' ' || *str > '~' || (*str == ' ' && !set))
+X		{
+X			if (putc(Ctrl('V'), fd) < 0)
+X				return -1;
+X		}
+X		else if ((set && *str == ' ') || *str == '|')
+X		{
+X			if (putc('\\', fd) < 0)
+X				return -1;
+X		}
+X		if (putc(*str, fd) < 0)
+X			return -1;
+X	}
+X	return 0;
+X}
+END_OF_FILE
+if test 29561 -ne `wc -c <'vim/src/buffers.c'`; then
+    echo shar: \"'vim/src/buffers.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/buffers.c'
+# end of 'vim/src/buffers.c'
+fi
+echo shar: End of archive 14 \(of 25\).
+cp /dev/null ark14isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+===============================================================================
+Bram Moolenaar                             | DISCLAIMER:  This  note  does  not
+Oce Nederland B.V., Research & Development | necessarily represent the position
+p.o. box 101, 5900 MA  Venlo               | of  Oce-Nederland  B.V.  Therefore
+The Netherlands        phone +31 77 594077 | no liability or responsibility for
+UUCP: mool@oce.nl        fax +31 77 595473 | whatever will be accepted.
+
+exit 0 # Just in case...

@@ -1,0 +1,1500 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i075:  imagemagic - X11 image processing and display, Part19/38
+Message-ID: <1993Jul14.175746.1880@sparky.sterling.com>
+X-Md4-Signature: ade494ab4486b420325968b41ed54ccb
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:57:46 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 75
+Archive-name: imagemagic/part19
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.19 (part 19 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/animate.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 19; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/animate.c'
+else
+echo 'x - continuing file ImageMagick/animate.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/animate.c' &&
+X  window->image.border_width=resource_info->border_width;
+X  window->image.immutable=False;
+X  window->image.attributes.event_mask=ButtonMotionMask | ButtonPressMask |
+X    ButtonReleaseMask | EnterWindowMask | ExposureMask | KeyPressMask |
+X    LeaveWindowMask | OwnerGrabButtonMask | StructureNotifyMask;
+X  XGetWindowInfo(display,visual_info,map_info,&pixel_info,font_info,
+X    resource_info,&window->backdrop);
+X  if (resource_info->backdrop)
+X    {
+X      /*
+X        Initialize backdrop window.
+X      */
+X      window->backdrop.cursor=XMakeInvisibleCursor(display,root_window);
+X      if (window->backdrop.cursor == (Cursor) NULL)
+X        Error("unable to create cursor",(char *) NULL);
+X      window->backdrop.name="ImageMagick Background";
+X      window->backdrop.flags=USSize | USPosition;
+X      window->backdrop.width=XDisplayWidth(display,visual_info->screen);
+X      window->backdrop.height=XDisplayHeight(display,visual_info->screen);
+X      window->backdrop.border_width=0;
+X      window->backdrop.immutable=True;
+X      window->backdrop.attributes.cursor=window->backdrop.cursor;
+X      window->backdrop.attributes.do_not_propagate_mask=
+X        ButtonPressMask | ButtonReleaseMask;
+X      window->backdrop.attributes.override_redirect=True;
+X      manager_hints->flags=IconWindowHint | InputHint | StateHint;
+X      manager_hints->icon_window=window->icon.id;
+X      manager_hints->input=True;
+X      manager_hints->initial_state=
+X        resource_info->iconic ? IconicState : NormalState;
+X      XMakeWindow(display,root_window,argv,argc,class_hint,manager_hints,
+X        delete_property,&window->backdrop);
+X      if (resource_info->debug)
+X        (void) fprintf(stderr,"Window id: 0x%lx (backdrop)\n",
+X          window->backdrop.id);
+X      XSetTransientForHint(display,window->backdrop.id,window->backdrop.id);
+X      XMapWindow(display,window->backdrop.id);
+X      /*
+X        Position image in the center the backdrop.
+X      */
+X      window->image.flags|=USPosition;
+X      window->image.x=XDisplayWidth(display,visual_info->screen)/2-
+X        window->image.width/2;
+X      window->image.y=XDisplayHeight(display,visual_info->screen)/2-
+X        window->image.height/2;
+X      window->image.attributes.event_mask|=FocusChangeMask;
+X    }
+X  manager_hints->flags=IconWindowHint | InputHint | StateHint;
+X  manager_hints->icon_window=window->icon.id;
+X  manager_hints->input=True;
+X  manager_hints->initial_state=
+X    resource_info->iconic ? IconicState : NormalState;
+X  XMakeWindow(display,(resource_info->backdrop ? window->backdrop.id :
+X    root_window),argv,argc,class_hint,manager_hints,delete_property,
+X    &window->image);
+X  if (resource_info->debug)
+X    (void) fprintf(stderr,"Window id: 0x%lx (image)\n",window->image.id);
+X  XMapWindow(display,window->image.id);
+X  window->image.x=0;
+X  window->image.y=0;
+X  /*
+X    Initialize image X image structure.
+X  */
+X  status=XMakeImage(display,resource_info,&window->image,images[0],
+X    images[0]->columns,images[0]->rows);
+X  status|=XMakePixmap(display,resource_info,&window->image);
+X  if (status == False)
+X    Error("unable to create X image",(char *) NULL);
+X  if (resource_info->debug)
+X    {
+X      (void) fprintf(stderr,"Image: [%u] %s %ux%u ",images[0]->scene,
+X        images[0]->filename,images[0]->columns,images[0]->rows);
+X      if (images[0]->colors != 0)
+X        (void) fprintf(stderr,"%uc ",images[0]->colors);
+X      (void) fprintf(stderr,"%s\n",images[0]->magick);
+X    }
+X  XRefreshWindow(display,&window->image,(XEvent *) NULL);
+X  /*
+X    Initialize popup window.
+X  */
+X  XGetWindowInfo(display,visual_info,map_info,&pixel_info,font_info,
+X    resource_info,&window->popup);
+X  window->popup.name="ImageMagick Popup";
+X  window->popup.flags=PSize | PPosition;
+X  window->popup.attributes.override_redirect=True;
+X  window->popup.attributes.save_under=True;
+X  window->popup.attributes.event_mask=ButtonMotionMask | ButtonPressMask |
+X    ButtonReleaseMask | EnterWindowMask | ExposureMask | LeaveWindowMask |
+X    OwnerGrabButtonMask;
+X  manager_hints->flags=InputHint | StateHint | WindowGroupHint;
+X  manager_hints->input=False;
+X  manager_hints->initial_state=NormalState;
+X  manager_hints->window_group=window->image.id;
+X  XMakeWindow(display,root_window,argv,argc,class_hint,manager_hints,
+X    delete_property,&window->popup);
+X  if (resource_info->debug)
+X    (void) fprintf(stderr,"Window id: 0x%lx (popup)\n",window->popup.id);
+X  XSetTransientForHint(display,window->popup.id,window->image.id);
+X  /*
+X    Initialize info window.
+X  */
+X  XGetWindowInfo(display,visual_info,map_info,&pixel_info,font_info,
+X    resource_info,&window->info);
+X  window->info.name="ImageMagick Info";
+X  window->info.flags=PSize | PPosition;
+X  window->info.x=2;
+X  window->info.y=2;
+X  window->info.attributes.win_gravity=UnmapGravity;
+X  window->info.attributes.event_mask=StructureNotifyMask;
+X  manager_hints->flags=InputHint | StateHint | WindowGroupHint;
+X  manager_hints->input=False;
+X  manager_hints->initial_state=NormalState;
+X  manager_hints->window_group=window->image.id;
+X  XMakeWindow(display,window->image.id,argv,argc,class_hint,manager_hints,
+X    delete_property,&window->info);
+X  if (resource_info->debug)
+X    (void) fprintf(stderr,"Window id: 0x%lx (info)\n",window->info.id);
+X  /*
+X    Initialize image pixmaps structure.
+X  */
+X  XDefineCursor(display,window->image.id,window->image.busy_cursor);
+X  XMapWindow(display,window->info.id);
+X  window->image.pixmaps=(Pixmap *) malloc(number_scenes*sizeof(Pixmap));
+X  if (window->image.pixmaps == (Pixmap *) NULL)
+X    Error("unable to animate images","memory allocation failed");
+X  window->image.pixmaps[0]=window->image.pixmap;
+X  scene_info.pixels=(unsigned long *) NULL;
+X  for (scene=1; scene < number_scenes; scene++)
+X  {
+X    /*
+X      Display information about the image in the info window.
+X    */
+X    (void) sprintf(text," [%u] %s %ux%u ",images[scene]->scene,
+X      images[scene]->filename,window->image.width,window->image.height);
+X    if (images[scene]->colors > 0)
+X      (void) sprintf(text,"%s%uc ",text,images[scene]->colors);
+X    XSetWindowExtents(display,&window->info,text);
+X    XDisplayInfoString(display,&window->info,text);
+X    XFlush(display);
+X    /*
+X      Create X image.
+X    */
+X    window->image.pixmap=(Pixmap) NULL;
+X    if (images[scene]->packed_pixels != (unsigned char *) NULL)
+X      {
+X        status=RunlengthDecodeImage(images[scene]);
+X        if (status == False)
+X          Error("unable to unpack image",(char *) NULL);
+X      }
+X    if ((resource_info->map_type != (char *) NULL) ||
+X        (visual_info->class == TrueColor) ||
+X        (visual_info->class == DirectColor))
+X      if (images[scene]->class == PseudoClass)
+X        {
+X          /*
+X            Get pixel info for this scene.
+X          */
+X          XGetPixelInfo(display,visual_info,map_info,resource_info,
+X            images[scene],&scene_info);
+X          window->image.pixel_info=(&scene_info);
+X        }
+X    status=XMakeImage(display,resource_info,&window->image,images[scene],
+X      images[scene]->columns,images[scene]->rows);
+X    status|=XMakePixmap(display,resource_info,&window->image);
+X    if (status == False)
+X      Error("unable to create X image",(char *) NULL);
+X    if (resource_info->debug)
+X      {
+X        (void) fprintf(stderr,"Image: [%u] %s %ux%u ",images[scene]->scene,
+X          images[scene]->filename,images[scene]->columns,images[scene]->rows);
+X        if (images[scene]->colors != 0)
+X          (void) fprintf(stderr,"%uc ",images[scene]->colors);
+X        (void) fprintf(stderr,"%s\n",images[scene]->magick);
+X      }
+X    /*
+X      Free image pixels.
+X    */
+X    if (scene_info.pixels != (unsigned long *) NULL)
+X      (void) free((char *) scene_info.pixels);
+X    (void) free((char *) images[scene]->pixels);
+X    images[scene]->pixels=(RunlengthPacket *) NULL;
+X    /*
+X      Refresh image window.
+X    */
+X    window->image.pixmaps[scene]=window->image.pixmap;
+X    XRefreshWindow(display,&window->image,(XEvent *) NULL);
+X    XSync(display,False);
+X  }
+X  window->image.pixel_info=(&pixel_info);
+X  XWithdrawWindow(display,window->info.id,window->info.screen);
+X  XDefineCursor(display,window->image.id,window->image.cursor);
+X  /*
+X    Respond to events.
+X  */
+X  image=images[0];
+X  state=DefaultState;
+X  scene=0;
+X  do
+X  {
+X    if (XEventsQueued(display,QueuedAfterFlush) == 0)
+X      if ((state & PlayAnimationState) || (state & StepAnimationState))
+X        {
+X          if (state & InfoMappedState)
+X            XWithdrawWindow(display,window->info.id,window->info.screen);
+X          /*
+X            Copy X pixmap to image window.
+X          */
+X          image=images[scene];
+X          window->image.pixmap=window->image.pixmaps[scene];
+X          XRefreshWindow(display,&window->image,(XEvent *) NULL);
+X          XSync(display,False);
+X          if (state & StepAnimationState)
+X            {
+X              state&=(~StepAnimationState);
+X              UserCommand(display,resource_info,window,XK_i,&images[scene],
+X                &state);
+X            }
+X          if (resource_info->delay != 0)
+X            Delay((unsigned long) resource_info->delay);
+X          if (state & ForwardAnimationState)
+X            {
+X              /*
+X                Forward animation:  increment scene number.
+X              */
+X              scene++;
+X              if (scene == number_scenes)
+X                if (state & AutoReverseAnimationState)
+X                  {
+X                    state&=(~ForwardAnimationState);
+X                    scene--;
+X                  }
+X                else
+X                  {
+X                    if (!(state & RepeatAnimationState))
+X                      state&=(~PlayAnimationState);
+X                    scene=0;
+X                  }
+X            }
+X          else
+X            {
+X              /*
+X                Reverse animation:  decrement scene number.
+X              */
+X              scene--;
+X              if (scene < 0)
+X                if (state & AutoReverseAnimationState)
+X                  {
+X                    state|=ForwardAnimationState;
+X                    scene=0;
+X                  }
+X                else
+X                  {
+X                    if (!(state & RepeatAnimationState))
+X                      state&=(~PlayAnimationState);
+X                    scene=number_scenes-1;
+X                  }
+X            }
+X          continue;
+X        }
+X    /*
+X      Handle a window event.
+X    */
+X    XNextEvent(display,&event);
+X    switch (event.type)
+X    {
+X      case ButtonPress:
+X      {
+X        if (event.xbutton.window == window->image.id)
+X          switch (event.xbutton.button)
+X          {
+X            case Button1:
+X            {
+X              char
+X                command[2048];
+X
+X              int
+X                command_number;
+X
+X              static char
+X                *MenuSelections[]=
+X                {
+X                  "Image Info",
+X                  "Play",
+X                  "Step",
+X                  "Repeat",
+X                  "Auto Reverse",
+X                  "Slower",
+X                  "Faster",
+X                  "Forward",
+X                  "Reverse",
+X                  "Quit"
+X                };
+X
+X              static KeySym
+X                MenuCommand[]=
+X                {
+X                  XK_i,
+X                  XK_p,
+X                  XK_s,
+X                  XK_period,
+X                  XK_a,
+X                  XK_less,
+X                  XK_greater,
+X                  XK_f,
+X                  XK_r,
+X                  XK_q
+X                };
+X
+X              /*
+X                Select a command from the pop-up menu.
+X              */
+X              command_number=XPopupMenu(display,&window->popup,
+X                event.xbutton.x_root,event.xbutton.y_root,"Commands",
+X                MenuSelections,sizeof(MenuSelections)/sizeof(char *),command);
+X              if (command_number >= 0)
+X                UserCommand(display,resource_info,window,
+X                  MenuCommand[command_number],&image,&state);
+X              break;
+X            }
+X            default:
+X              break;
+X          }
+X        break;
+X      }
+X      case ClientMessage:
+X      {
+X        /*
+X          If client window delete message, exit.
+X        */
+X        if (event.xclient.message_type == protocols_property)
+X          if (*event.xclient.data.l == delete_property)
+X            if (event.xclient.window == window->image.id)
+X              state|=ExitState;
+X            else
+X              XWithdrawWindow(display,event.xclient.window,visual_info->screen);
+X        break;
+X      }
+X      case ConfigureNotify:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Configure Notify: 0x%lx %dx%d+%d+%d\n",
+X            event.xconfigure.window,event.xconfigure.width,
+X            event.xconfigure.height,event.xconfigure.x,event.xconfigure.y);
+X        if (event.xconfigure.window == window->image.id)
+X          {
+X            /*
+X              Image window has a new configuration.
+X            */
+X            window->image.width=event.xconfigure.width;
+X            window->image.height=event.xconfigure.height;
+X            break;
+X          }
+X        if (event.xconfigure.window == window->icon.id)
+X          {
+X            /*
+X              Icon window has a new configuration.
+X            */
+X            window->icon.width=event.xconfigure.width;
+X            window->icon.height=event.xconfigure.height;
+X            break;
+X          }
+X      }
+X      case EnterNotify:
+X      {
+X        /*
+X          Selectively install colormap.
+X        */
+X        if (map_info->colormap != XDefaultColormap(display,visual_info->screen))
+X          if (event.xcrossing.mode != NotifyUngrab)
+X            XInductColormap(display,map_info->colormap);
+X        break;
+X      }
+X      case Expose:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Expose: 0x%lx %dx%d+%d+%d\n",
+X            event.xexpose.window,event.xexpose.width,event.xexpose.height,
+X            event.xexpose.x,event.xexpose.y);
+X        /*
+X          Repaint windows that are now exposed.
+X        */
+X        if (event.xexpose.window == window->image.id)
+X          {
+X            window->image.pixmap=window->image.pixmaps[scene];
+X            XRefreshWindow(display,&window->image,&event);
+X            break;
+X          }
+X        break;
+X      }
+X      case FocusOut:
+X      {
+X        /*
+X          Set input focus for backdrop window.
+X        */
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"FocusOut Notify: 0x%lx\n",event.xfocus.window);
+X        if (event.xfocus.window == window->image.id)
+X          XSetInputFocus(display,window->image.id,RevertToNone,CurrentTime);
+X        break;
+X      }
+X      case KeyPress:
+X      {
+X        static char
+X          command[2048];
+X
+X        static KeySym
+X          key_symbol;
+X
+X        /*
+X          Respond to a user key press.
+X        */
+X        if (state & ConfigureWindowState)
+X          {
+X            XBell(display,0);
+X            break;
+X          }
+X        *command='\0';
+X        XLookupString((XKeyEvent *) &event.xkey,command,sizeof(command),
+X          &key_symbol,(XComposeStatus *) NULL);
+X        if (key_symbol == XK_Help)
+X          Usage(False);
+X        else
+X          if (!IsCursorKey(key_symbol))
+X            UserCommand(display,resource_info,window,key_symbol,&image,&state);
+X        break;
+X      }
+X      case LeaveNotify:
+X      {
+X        /*
+X          Selectively uninstall colormap.
+X        */
+X        if (map_info->colormap != XDefaultColormap(display,visual_info->screen))
+X          if (event.xcrossing.mode != NotifyUngrab)
+X            XUninductColormap(display,map_info->colormap);
+X        break;
+X      }
+X      case MapNotify:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Map Notify: 0x%lx\n",event.xmap.window);
+X        if (event.xmap.window == window->image.id)
+X          {
+X            state=ForwardAnimationState | PlayAnimationState;
+X            if (window->backdrop.id != (Window) NULL)
+X              {
+X                /*
+X                  Install colormap and set input focus for backdrop window.
+X                */
+X                XInstallColormap(display,map_info->colormap);
+X                XSetInputFocus(display,window->image.id,RevertToNone,
+X                  CurrentTime);
+X                break;
+X              }
+X            break;
+X          }
+X        if (event.xmap.window == window->info.id)
+X          {
+X            state|=InfoMappedState;
+X            break;
+X          }
+X        if (event.xmap.window == window->icon.id)
+X          {
+X            /*
+X              Create icon pixmap.
+X            */
+X            status=XMakeImage(display,resource_info,&window->icon,images[0],
+X              window->icon.width,window->icon.height);
+X            status|=XMakePixmap(display,resource_info,&window->icon);
+X            if (status == False)
+X              Error("unable to create icon image",(char *) NULL);
+X            XSetWindowBackgroundPixmap(display,window->icon.id,
+X              window->icon.pixmap);
+X            XClearWindow(display,window->icon.id);
+X            break;
+X          }
+X        break;
+X      }
+X      case MappingNotify:
+X      {
+X        XRefreshKeyboardMapping(&event.xmapping);
+X        break;
+X      }
+X      case ReparentNotify:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Reparent Notify: 0x%lx=>0x%lx\n",
+X            event.xreparent.parent,event.xreparent.window);
+X        break;
+X      }
+X      case UnmapNotify:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Unmap Notify: 0x%lx\n",event.xunmap.window);
+X        if (event.xunmap.window == window->info.id)
+X          {
+X            state&=(~InfoMappedState);
+X            break;
+X          }
+X        break;
+X      }
+X      default:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Event type: %d\n",event.type);
+X        break;
+X      }
+X    }
+X  }
+X  while (!(state & ExitState));
+X  /*
+X    Free X resources.
+X  */
+X  (void) free((char *) window->image.name);
+X  (void) free((char *) window->image.icon_name);
+X  if (resource_info->backdrop)
+X    XFreeCursor(display,window->backdrop.cursor);
+X  XFreeGC(display,pixel_info.graphic_context);
+X  XFreeGC(display,pixel_info.highlight_context);
+X  XFreeFont(display,font_info);
+X  /*
+X    Destroy X windows.
+X  */
+X  for (i=0; i < number_windows; i++)
+X  {
+X    if (magick_windows[i]->id != (Window) NULL)
+X      XDestroyWindow(display,magick_windows[i]->id);
+X    if (magick_windows[i]->ximage != (XImage *) NULL)
+X      XDestroyImage(magick_windows[i]->ximage);
+X    if (magick_windows[i]->pixmap != (Pixmap) NULL)
+X      XFreePixmap(display,magick_windows[i]->pixmap);
+X    XFreeCursor(display,magick_windows[i]->cursor);
+X    XFreeCursor(display,magick_windows[i]->busy_cursor);
+X  }
+X  for (scene=0; scene < number_scenes; scene++)
+X  {
+X    XFreePixmap(display,window->image.pixmaps[scene]);
+X    DestroyImage(images[scene]);
+X  }
+X  (void) free((char *) window->image.pixmaps);
+X  /*
+X    Free Standard Colormap.
+X  */
+X  if (resource_info->map_type == (char *) NULL)
+X    XFreeStandardColormap(display,visual_info,&pixel_info,map_info);
+X  (void) free((void *) window);
+X  XFree((void *) manager_hints);
+X  XFree((void *) class_hint);
+X  XFree((void *) visual_info);
+X  XFree((void *) map_info);
+X  visual_info=(XVisualInfo *) NULL;
+X  XFlush(display);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%    M a i n                                                                  %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+int main(argc,argv)
+int
+X  argc;
+X
+char
+X  **argv;
+{
+X  char
+X    *clip_geometry,
+X    *density,
+X    *option,
+X    *resource_value,
+X    *scale_geometry,
+X    *server_name;
+X
+X  Display
+X    *display;
+X
+X  double
+X    gamma;
+X
+X  Image
+X    **images;
+X
+X  int
+X    degrees,
+X    i,
+X    x;
+X
+X  unsigned int
+X    image_number,
+X    interlace,
+X    maximum_images,
+X    reflect,
+X    verbose;
+X
+X  XResourceInfo
+X    resource_info;
+X
+X  XrmDatabase
+X    resource_database,
+X    server_database;
+X
+X  /*
+X    Display usage profile if there are no command line arguments.
+X  */
+X  client_name=(*argv);
+X  if (argc < 2)
+X    Usage(True);
+X  /*
+X    Set defaults.
+X  */
+X  display=(Display *) NULL;
+X  server_name=(char *) NULL;
+X  maximum_images=2048;
+X  images=(Image **) malloc(maximum_images*sizeof(Image *));
+X  if (images == (Image **) NULL)
+X    Error("unable to animate images","memory allocation failed");
+X  /*
+X    Check for server name specified on the command line.
+X  */
+X  for (i=1; i < argc; i++)
+X  {
+X    /*
+X      Check command line for server name.
+X    */
+X    option=argv[i];
+X    if (((int) strlen(option) > 1) && ((*option == '-') || (*option == '+')))
+X      if (strncmp("display",option+1,3) == 0)
+X        {
+X          /*
+X            User specified server name.
+X          */
+X          if (*option == '-')
+X            {
+X              i++;
+X              if (i == argc)
+X                Error("missing server name on -display",(char *) NULL);
+X              server_name=argv[i];
+X              break;
+X            }
+X        }
+X  }
+X  /*
+X    Open X server connection.
+X  */
+X  display=XOpenDisplay(server_name);
+X  if (display == (Display *) NULL)
+X    Error("unable to connect to X server",XDisplayName(server_name));
+X  /*
+X    Set our forgiving error handler.
+X  */
+X  XSetErrorHandler(XError);
+X  /*
+X    Initialize resource database.
+X  */
+X  XrmInitialize();
+X  resource_database=XrmGetDatabase(display);
+X  resource_value=XResourceManagerString(display);
+X  if (resource_value == (char *) NULL)
+X    resource_value="";
+X  server_database=XrmGetStringDatabase(resource_value);
+X  XrmMergeDatabases(server_database,&resource_database);
+X  /*
+X    Get user defaults from X resource database.
+X  */
+X  XGetResourceInfo(resource_database,client_name,&resource_info);
+X  clip_geometry=
+X    XGetResource(resource_database,client_name,"clipGeometry",(char *) NULL);
+X  resource_value=XGetResource(resource_database,client_name,"delay","8");
+X  resource_info.delay=atoi(resource_value);
+X  density=XGetResource(resource_database,client_name,"density",(char *) NULL);
+X  resource_value=XGetResource(resource_database,client_name,"gamma","0.0");
+X  gamma=atof(resource_value);
+X  resource_value=
+X    XGetResource(resource_database,client_name,"interlace","none");
+X  interlace=UndefinedInterlace;
+X  if (Latin1Compare("none",resource_value) == 0)
+X    interlace=NoneInterlace;
+X  if (Latin1Compare("line",resource_value) == 0)
+X    interlace=LineInterlace;
+X  if (Latin1Compare("plane",resource_value) == 0)
+X    interlace=PlaneInterlace;
+X  if (interlace == UndefinedInterlace)
+X    Warning("unrecognized interlace type",resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"reflect","False");
+X  reflect=IsTrue(resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"rotate","0");
+X  degrees=atoi(resource_value);
+X  scale_geometry=
+X    XGetResource(resource_database,client_name,"scaleGeometry",(char *) NULL);
+X  resource_value=XGetResource(resource_database,client_name,"verbose","False");
+X  verbose=IsTrue(resource_value);
+X  /*
+X    Parse command line.
+X  */
+X  image_number=0;
+X  for (i=1; i < argc; i++)
+X  {
+X    option=argv[i];
+X    if (((int) strlen(option) > 1) && ((*option == '-') || (*option == '+')))
+X      switch (*(option+1))
+X      {
+X        case 'b':
+X        {
+X          if (strncmp("backdrop",option+1,5) == 0)
+X            {
+X              resource_info.backdrop=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("background",option+1,5) == 0)
+X            {
+X              resource_info.background_color=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing color on -background",(char *) NULL);
+X                  resource_info.background_color=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("bordercolor",option+1,7) == 0)
+X            {
+X              resource_info.border_color=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing color on -bordercolor",(char *) NULL);
+X                  resource_info.border_color=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("borderwidth",option+1,7) == 0)
+X            {
+X              resource_info.border_width=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing width on -borderwidth",(char *) NULL);
+X                  resource_info.border_width=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'c':
+X        {
+X          if (strncmp("clip",option+1,2) == 0)
+X            {
+X              clip_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -clip",(char *) NULL);
+X                  clip_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("colormap",option+1,6) == 0)
+X            {
+X              resource_info.colormap=PrivateColormap;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -colormap",(char *) NULL);
+X                  option=argv[i];
+X                  resource_info.colormap=UndefinedColormap;
+X                  if (Latin1Compare("private",option) == 0)
+X                    resource_info.colormap=PrivateColormap;
+X                  if (Latin1Compare("shared",option) == 0)
+X                    resource_info.colormap=SharedColormap;
+X                  if (resource_info.colormap == UndefinedColormap)
+X                    Error("invalid colormap type on -colormap",option);
+X                }
+X              break;
+X            }
+X          if (strncmp("colors",option+1,7) == 0)
+X            {
+X              resource_info.number_colors=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing colors on -colors",(char *) NULL);
+X                  resource_info.number_colors=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("colorspace",option+1,7) == 0)
+X            {
+X              resource_info.colorspace=RGBColorspace;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -colorspace",(char *) NULL);
+X                  option=argv[i];
+X                  resource_info.colorspace=UndefinedColorspace;
+X                  if (Latin1Compare("gray",option) == 0)
+X                    resource_info.colorspace=GRAYColorspace;
+X                  if (Latin1Compare("rgb",option) == 0)
+X                    resource_info.colorspace=RGBColorspace;
+X                  if (Latin1Compare("xyz",option) == 0)
+X                    resource_info.colorspace=XYZColorspace;
+X                  if (Latin1Compare("ycbcr",option) == 0)
+X                    resource_info.colorspace=YCbCrColorspace;
+X                  if (Latin1Compare("yiq",option) == 0)
+X                    resource_info.colorspace=YIQColorspace;
+X                  if (Latin1Compare("yuv",option) == 0)
+X                    resource_info.colorspace=YUVColorspace;
+X                  if (resource_info.colorspace == UndefinedColorspace)
+X                    Error("invalid colorspace type on -colorspace",option);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'd':
+X        {
+X          if (strncmp("debug",option+1,3) == 0)
+X            {
+X              resource_info.debug=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("delay",option+1,3) == 0)
+X            {
+X              resource_info.delay=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing seconds on -delay",(char *) NULL);
+X                  resource_info.delay=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("density",option+1,3) == 0)
+X            {
+X              density=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -density",(char *) NULL);
+X                  density=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("display",option+1,3) == 0)
+X            {
+X              server_name=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing server name on -display",(char *) NULL);
+X                  server_name=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("dither",option+1,3) == 0)
+X            {
+X              resource_info.dither=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'f':
+X        {
+X          if (strncmp("font",option+1,3) == 0)
+X            {
+X              resource_info.font=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing font name on -font",(char *) NULL);
+X                  resource_info.font=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("foreground",option+1,3) == 0)
+X            {
+X              resource_info.foreground_color=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing foreground on -foreground",(char *) NULL);
+X                  resource_info.foreground_color=argv[i];
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'g':
+X        {
+X          if (strncmp("gamma",option+1,2) == 0)
+X            {
+X              gamma=0.0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%f",(float *) &x))
+X                    Error("missing gamma on -gamma",(char *) NULL);
+X                  gamma=atof(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("geometry",option+1,2) == 0)
+X            {
+X              resource_info.image_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -geometry",(char *) NULL);
+X                  resource_info.image_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'h':
+X        {
+X          Usage(True);
+X          break;
+X        }
+X        case 'i':
+X        {
+X          if (strncmp("iconGeometry",option+1,5) == 0)
+X            {
+X              resource_info.icon_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -iconGeometry",(char *) NULL);
+X                  resource_info.icon_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("iconic",option+1,5) == 0)
+X            {
+X              resource_info.iconic=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("interlace",option+1,3) == 0)
+X            {
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -interlace",(char *) NULL);
+X                  option=argv[i];
+X                  interlace=UndefinedInterlace;
+X                  if (Latin1Compare("none",option) == 0)
+X                    interlace=NoneInterlace;
+X                  if (Latin1Compare("line",option) == 0)
+X                    interlace=LineInterlace;
+X                  if (Latin1Compare("plane",option) == 0)
+X                    interlace=PlaneInterlace;
+X                  if (interlace == UndefinedInterlace)
+X                    Error("invalid interlace type on -interlace",option);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'm':
+X        {
+X          if (strncmp("map",option+1,3) == 0)
+X            {
+X              resource_info.map_type=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing map type on -map",(char *) NULL);
+X                  resource_info.map_type=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("monochrome",option+1,2) == 0)
+X            {
+X              resource_info.monochrome=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'n':
+X        {
+X          resource_info.name=(char *) NULL;
+X          if (*option == '-')
+X            {
+X              i++;
+X              if (i == argc)
+X                Error("missing name on -name",(char *) NULL);
+X              resource_info.name=argv[i];
+X            }
+X          break;
+X        }
+X        case 'r':
+X        {
+X          if (strncmp("reflect",option+1,2) == 0)
+X            {
+X              reflect=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("rotate",option+1,3) == 0)
+X            {
+X              degrees=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing degrees on -rotate",(char *) NULL);
+X                  degrees=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 's':
+X        {
+X          scale_geometry=(char *) NULL;
+X          if (*option == '-')
+X            {
+X              i++;
+X              if ((i == argc) || !sscanf(argv[i],"%f",(float *) &x))
+X                Error("missing scale geometry on -scale",(char *) NULL);
+X              scale_geometry=argv[i];
+X            }
+X          break;
+X        }
+X        case 't':
+X        {
+X          if (strncmp("title",option+1,2) == 0)
+X            {
+X              resource_info.title=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing title on -title",(char *) NULL);
+X                  resource_info.title=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("treedepth",option+1,2) == 0)
+X            {
+X              resource_info.tree_depth=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing depth on -treedepth",(char *) NULL);
+X                  resource_info.tree_depth=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'v':
+X        {
+X          if (strncmp("verbose",option+1,2) == 0)
+X            {
+X              verbose=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("visual",option+1,2) == 0)
+X            {
+X              resource_info.visual_type=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing visual class on -visual",(char *) NULL);
+X                  resource_info.visual_type=argv[i];
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        default:
+X        {
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X      }
+X    else
+X      {
+X        double
+X          normalized_maximum_error,
+X          normalized_mean_error;
+X
+X        Image
+X          *image,
+X          info_image,
+X          *next_image;
+X
+X        ImageInfo
+X          image_info;
+X
+X        time_t
+X          start_time;
+X
+X        unsigned int
+X          mean_error_per_pixel;
+X
+X        unsigned long
+X          total_colors;
+X
+X        /*
+X          Option is a file name: begin by reading image from specified file.
+X        */
+X        start_time=time((time_t *) NULL);
+X        GetImageInfo(&image_info);
+X        (void) strcpy(image_info.filename,option);
+X        image_info.server_name=resource_info.server_name;
+X        image_info.font=resource_info.font;
+X        image_info.geometry=resource_info.image_geometry;
+X        image_info.density=density;
+X        image_info.border_color=resource_info.border_color;
+X        image_info.interlace=interlace;
+X        image_info.monochrome=resource_info.monochrome;
+X        image_info.verbose=verbose;
+X        image=ReadImage(&image_info);
+X        if (image == (Image *) NULL)
+X          if (*option == '-')
+X            break;
+X          else
+X            continue;
+X        do
+X        {
+X          info_image=(*image);
+X          total_colors=0;
+X          /*
+X            Transform image as defined by the clip, image and scale geometries.
+X          */
+X          TransformImage(&image,clip_geometry,resource_info.image_geometry,
+X            scale_geometry);
+X          if (reflect)
+X            {
+X              Image
+X                *reflected_image;
+X
+X              /*
+X                Reverse image scanlines.
+X              */
+X              reflected_image=ReflectImage(image);
+X              if (reflected_image != (Image *) NULL)
+X                {
+X                  DestroyImage(image);
+X                  image=reflected_image;
+X                }
+X            }
+X          if ((degrees % 360) != 0)
+X            {
+X              Image
+X                *rotated_image;
+X
+X              /*
+X                Rotate image.
+X              */
+X              rotated_image=RotateImage(image,(double) degrees,False);
+X              if (rotated_image != (Image *) NULL)
+X                {
+X                  DestroyImage(image);
+X                  image=rotated_image;
+X                }
+X            }
+X          if (gamma > 0.0)
+X            GammaImage(image,gamma);
+X          if (resource_info.colorspace == GRAYColorspace)
+X            QuantizeImage(image,256,8,resource_info.dither,GRAYColorspace,True);
+X          if (resource_info.monochrome)
+X            QuantizeImage(image,2,8,resource_info.dither,GRAYColorspace,True);
+X          if (resource_info.number_colors != 0)
+X            if ((image->class == DirectClass) ||
+X                (image->colors > resource_info.number_colors))
+X              {
+X                /*
+X                  Reduce the number of colors in the image.
+X                */
+X                QuantizeImage(image,resource_info.number_colors,
+X                  resource_info.tree_depth,resource_info.dither,
+X                  resource_info.colorspace,True);
+X                if (verbose)
+X                  {
+X                    /*
+X                      Measure quantization error.
+X                    */
+X                    QuantizationError(image,&mean_error_per_pixel,
+X                      &normalized_mean_error,&normalized_maximum_error);
+X                    total_colors=NumberColors(image,(FILE *) NULL);
+X                  }
+X                SyncImage(image);
+X              }
+X          if (verbose)
+X            {
+X              /*
+X                Display detailed info about the image.
+X              */
+X              (void) fprintf(stderr,"[%u] %s",
+X                image->scene == 0 ? image_number : image->scene,
+X                info_image.filename);
+X              (void) fprintf(stderr," %ux%u",info_image.columns,
+X                info_image.rows);
+X              if ((info_image.columns != image->columns) ||
+X                  (info_image.rows != image->rows))
+X                (void) fprintf(stderr,"=>%ux%u",image->columns,image->rows);
+X              if (image->class == DirectClass)
+X                (void) fprintf(stderr," DirectClass");
+X              else
+X                if (total_colors == 0)
+X                  (void) fprintf(stderr," PseudoClass %uc",image->colors);
+X                else
+X                  {
+X                    (void) fprintf(stderr," PseudoClass %lu=>%uc",total_colors,
+X                      image->colors);
+X                    (void) fprintf(stderr," %u/%.6f/%.6fe",mean_error_per_pixel,
+X                      normalized_mean_error,normalized_maximum_error);
+X                  }
+X              (void) fprintf(stderr," %s %lds\n",image->magick,
+X                time((time_t *) NULL)-start_time+1);
+X            }
+X          /*
+X            Pack image data to conserve memory (memory <=> speed).
+X          */
+X          image->alpha=False;
+X          (void) RunlengthEncodeImage(image);
+X          (void) free((char *) image->pixels);
+X          image->pixels=(RunlengthPacket *) NULL;
+X          if (image_number == maximum_images)
+X            {
+X              /*
+X                Increase size of images array.
+X              */
+X              maximum_images<<=1;
+X              images=(Image **)
+X                realloc((char *) images,maximum_images*sizeof(Image *));
+X              if (images == (Image **) NULL)
+X                Error("unable to animate images","memory allocation failed");
+X            }
+X          images[image_number++]=image;
+X          next_image=image->next;
+X          if (next_image != (Image *) NULL)
+X            image=next_image;
+X        } while (next_image != (Image *) NULL);
+X      }
+X  }
+X  if (image_number == 0)
+X    Error("missing an image file name",(char *) NULL);
+X  XAnimateImage(display,&resource_info,argv,argc,images,image_number);
+X  (void) free((char *) images);
+X  XCloseDisplay(display);
+X  return(False);
+}
+SHAR_EOF
+echo 'File ImageMagick/animate.c is complete' &&
+chmod 0644 ImageMagick/animate.c ||
+echo 'restore of ImageMagick/animate.c failed'
+Wc_c="`wc -c < 'ImageMagick/animate.c'`"
+test 73391 -eq "$Wc_c" ||
+	echo 'ImageMagick/animate.c: original size 73391, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/animate.h ==============
+if test -f 'ImageMagick/animate.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/animate.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/animate.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/animate.h' &&
+/*
+X  Define declarations.
+*/
+#ifdef SYSV
+#include <poll.h>
+poll((struct poll *) 0, (size_t) 0, usec / 1000);
+#define Delay(milliseconds)  \
+X  poll((struct poll *) 0,(size_t) 0,milliseconds/1000);
+#else
+#ifdef vms
+#define Delay(milliseconds)
+#else
+#define Delay(milliseconds)  \
+{  \
+X  struct timeval  \
+X    timeout;  \
+X  \
+X  timeout.tv_usec=(milliseconds % 1000)*1000;  \
+X  timeout.tv_sec=milliseconds/1000;  \
+X  select(0,(void *) 0,(void *) 0,(void *) 0,&timeout);  \
+}
+#endif
+#endif
+SHAR_EOF
+chmod 0644 ImageMagick/animate.h ||
+echo 'restore of ImageMagick/animate.h failed'
+Wc_c="`wc -c < 'ImageMagick/animate.h'`"
+test 485 -eq "$Wc_c" ||
+	echo 'ImageMagick/animate.h: original size 485, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/animate.man ==============
+if test -f 'ImageMagick/animate.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/animate.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/animate.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/animate.man' &&
+.ad l
+.nh
+.TH animate 1 "10 October 1992" "ImageMagick"
+.SH NAME
+animate - display a sequence of images on any workstation running X
+.SH SYNOPSIS
+.B "animate" [ \fIoptions\fP ...] \fIfile\fP
+[ [ \fIoptions\fP ...] \fIfile\fP ...]
+.SH DESCRIPTION
+\fBanimate\fP displays a sequence of images on any workstation display
+running an X server.  \fBanimate\fP first determines the hardware
+capabilities of the workstation.  If the number of unique colors in an
+image is less than or equal to the number the workstation can support,
+the image is displayed in an X window.  Otherwise the number of colors
+in the image is first reduced to match the color resolution of the
+workstation before it is displayed.
+.PP
+This means that a continuous-tone 24 bits-per-pixel image can display on a
+8 bit pseudo-color device or monochrome device.  In most instances the
+reduced color image closely resembles the original.  Alternatively, a
+monochrome or pseudo-color image sequence can display on a continuous-tone
+24 bits-per-pixel device.
+.PP
+To help prevent color flashing on X server visuals that have colormaps,
+\fBanimate\fP creates a single colormap from the image sequence.  This can
+be rather time consuming.  You can speed this operation up by reducing
+the colors in the image before you `animate' them.  Use \fBmogrify\fP
+to color reduce the images to a single colormap.  See \fBmogrify(1)\fP for
+details.  Alternatively, you can use a Standard Colormap; or a static, direct,
+or true color visual.  You can define a Standard Colormap with
+\fIxstdcmap\fP.  See \fBXSTDCMAP(1)\fP for details.
+.SH EXAMPLES
+To animate a set of images of a cockatoo, use:
+.PP
+.B
+X     animate cockatoo.*
+.PP
+To animate a cockatoo image sequence while using the Standard Colormap
+"best", use:
+.PP
+.B
+X     xstdcmap -best
+.B
+X     animate -map best cockatoo.*
+.PP
+To animate an image of a cockatoo without a border centered on a
+backdrop, use:
+.PP
+.B
+X     animate +borderwidth -backdrop cockatoo.*
+.SH OPTIONS
+.TP 5
+.B "-backdrop"
+display the image centered on a backdrop.
+X
+This backdrop covers the entire workstation screen and is useful for
+hiding other X window activity while viewing the image sequence.   The color
+of the backdrop is specified as the background color.  Refer to \fBX
+RESOURCES\fP for details.
+.TP 5
+.B "-clip \fI<width>x<height>{\+-}<x offset>{\+-}<y offset>\fP"
+preferred size and location of the clipped image.  See \fBX(1)\fP for details
+about the geometry specification.
+X
+Use clipping to apply image processing options, or display, only a
+particular area of an image.
+X
+The equivalent X resource for this option is \fBclipGeometry\fP
+(class \fBClipGeometry\fP).  See \fBX RESOURCES\fP for details.
+.TP 5
+.B "-colormap \fItype\fP"
+the type of colormap: \fBShared\fP or \fBPrivate\fP.
+X
+This option only applies when the default X server visual is
+\fIPseudoColor\fP or \fIGrayScale\fP.  Refer to \fB-visual\fP for more
+details.  By default, a shared colormap is allocated.  The image shares
+colors with other X clients.  Some image colors could be approximated,
+therefore your image may look very different than intended.  Choose
+\fBPrivate\fP and the image colors appear exactly as they are
+defined.  However, other clients may go "technicolor" when the image
+colormap is installed.
+.TP 5
+.B "-colors \fIvalue\fP"
+preferred number of colors in the image.
+X
+The actual number of colors in the image may be less than your request,
+but never more.  Note, this is a color reduction option.  Images with
+less unique colors than specified with this option will remain unchanged.
+Refer to \fBquantize(9)\fP for more details.
+X
+Note, options \fB-dither\fP, \fB-colorspace\fP, and \fB-treedepth\fP affect
+the color reduction algorithm.
+.TP 5
+.B "-colorspace \fIvalue\fP"
+the type of colorspace: \fBGRAY\fP, \fBRGB\fP, \fBXYZ\fP, \fBYCbCr\fP,
+\fBYIQ\fP, or \fBYUV\fP.
+X 
+Color reduction, by default, takes place in the RGB color space.
+Empirical evidence suggests that distances in color spaces such as YUV
+or YIQ correspond to perceptual color differences more closely
+than do distances in RGB space.  These color spaces may give better
+results when color reducing an image.  Refer to \fBquantize(9)\fP for
+more details.
+X
+The \fB-colors\fP or \fB-monochrome\fP option is required for this option
+to take effect.
+.TP 5
+.B "-delay \fImilliseconds\fP"
+display the next image after pausing.
+X
+This option is useful for regulating the display of the sequence of
+images.  \fImilliseconds\fP milliseconds must expire before the display of
+SHAR_EOF
+true || echo 'restore of ImageMagick/animate.man failed'
+fi
+echo 'End of ImageMagick part 19'
+echo 'File ImageMagick/animate.man is continued in part 20'
+echo 20 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

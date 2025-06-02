@@ -1,0 +1,2344 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i045:  ecu - ECU Asynchronous Communications v3.20, Part10/40
+Message-ID: <1992Sep13.153236.5127@sparky.imd.sterling.com>
+X-Md4-Signature: 3c97a0b3684e75e7059e730ca5fbb547
+Date: Sun, 13 Sep 1992 15:32:36 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 45
+Archive-name: ecu/part10
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.10 (part 10 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ecupde.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 10; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ecupde.c'
+else
+echo 'x - continuing file ecupde.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ecupde.c' &&
+X	if(shm->Lbaud != tpde->baud)
+X		shm->Lmodem_already_init = 0;
+X	Ldial_debug_level = tpde->debug_level;
+X	/* tpde->dcdwatch is explicitly unused here; must defer until connect  */
+X
+X	if(!trial)
+X	{
+X		if(reopen)
+X		{
+X			if(lerr = lopen())
+X			{
+X				tcap_curbotleft();
+X				pprintf("%s: %s\n",shm->Lline,linst_err_text(lerr));
+X				termecu(TERMECU_LINE_OPEN_ERROR);
+X			}
+X		}
+X		else
+X		{
+X			lset_baud_rate(1);
+X			lset_parity(1);
+X		}
+X	}
+X	return(0);
+X
+X}	/* end of copy_pde_to_Lvariables */
+X
+X/*+-----------------------------------------------------------------------
+X	logical_telno_to_pde() - logical dial string to dialing info (PDE)
+X
+X	NOT USED BY THE CURSES DIRECTORY MANAGER
+X
+XA logical telephone number is one of:
+X1. null,
+X2. a symbolic identifer, or
+X3. an actual telephone number.  
+X
+XA symbolic identifer is a string whose initial character is a
+Xletter.  An actual telephone number begins with a numeral.
+X
+XThis function converts a logical telephone number to a dialing
+Xentry (PDE) from the directory or a constructed static one.  It
+Xis called by command line processing when 'ecu logical-name' is
+Xspecified or in response to a %dial logical-name.
+X
+XThe function returns one of the following:
+X
+X  directory or static PDE		if no error occurs
+X  (PDE *)0						if not numeric phone number
+X								and logical string not found in directory;
+X								global char[] errmsg has been plugged with
+X								error message
+X
+X------------------------------------------------------------------------*/
+XPDE *
+Xlogical_telno_to_pde(logical)
+Xchar *logical;
+X{
+X	static PDE literal_number_pde;
+X	register PDE *tpde = 0;
+X	extern int phdir_list_quan;
+X
+X#ifdef CHOOSE_DEBUG
+X	char s80[80];
+X	sprintf(s80,"logical_telno_to_pde(logical='%s')",logical);
+X	ecu_log_event((int)xmtr_pid,s80);
+X#endif
+X
+X/*
+X * if literal phone number, return homemade, static "PDE"
+X * with most stuff dummied up with the status quo
+X */
+X	if(isdigit(*logical))
+X	{
+X		tpde = &literal_number_pde;
+X		memset((char *)tpde,0,sizeof(PDE));
+X		tpde->baud = shm->Lbaud;
+X		tpde->parity = shm->Lparity;
+X		strncpy(tpde->logical,logical,DESTREF_LEN);
+X		tpde->logical[DESTREF_LEN] = 0;
+X		strncpy(tpde->telno,logical,DESTREF_LEN);
+X		tpde->telno[DESTREF_LEN] = 0;
+X		strncpy(tpde->tty,shm->Lline + 5,PDE_TTY_LEN);
+X		tpde->tty[PDE_TTY_LEN] = 0;
+X		if((strlen(logical) + 8) <= PDE_DESCR_LEN)
+X			sprintf(tpde->descr,"<telno %s>",logical);
+X		else
+X			strcpy(tpde->descr,"<telno>");
+X		tpde->dcdwatch = 'n';
+X		goto RETURN;
+X	}
+X
+X/*
+X * if empty phone number, return homemade, static "PDE"
+X * with most stuff dummied up with the status quo
+X */
+X	if(!*logical)
+X	{
+X		tpde = &literal_number_pde;
+X		memset((char *)tpde,0,sizeof(PDE));
+X		tpde->baud = shm->Lbaud;
+X		tpde->parity = shm->Lparity;
+X		strcpy(tpde->tty,shm->Lline + 5);
+X		if(!tpde->tty[0])
+X			strcpy(tpde->tty,default_tty + 5);
+X		strcpy(tpde->descr,"<direct connect>");
+X		tpde->dcdwatch = 'n';
+X		goto RETURN;
+X	}
+X
+X	/*
+X	 * read directory if necessary
+X	 */
+X	if(!phdir_list_quan)
+X	{
+X		if(phdir_list_read() && !phdir_list_quan)
+X		{	/* if still no good, ... */
+X			strcpy(errmsg,"phone directory empty");
+X			tpde = 0;
+X			goto RETURN;
+X		}
+X	}
+X
+X	/*
+X	 * now, look up the entry
+X	 */
+X	if(tpde = phdir_list_search(logical,0))
+X		goto RETURN;
+X
+X	/*
+X	 * whoops ... not found
+X	 */
+X	shm->Lrname[0] = 0;
+X	shm->Ltelno[0] = 0;
+X	shm->Ldescr[0] = 0;
+X	strcpy(errmsg,"entry not found in directory");
+X	tpde = 0;
+X
+XRETURN:
+X
+X#ifdef CHOOSE_DEBUG
+X	sprintf(s80,"logical_telno_to_pde %s%s",
+X		(tpde) ? "chosen tty=" : "no tty chosen",
+X		(tpde) ? tpde->tty : "");
+X	ecu_log_event((int)xmtr_pid,s80);
+X#endif
+X
+X	return(tpde);
+X
+X}	/* end of logical_telno_to_pde */
+X
+X/*+-------------------------------------------------------------------------
+X	call_logical_telno(logical) - call a logical or literal telephone number
+X
+X-1 if no such entry or pde_dial() status
+X--------------------------------------------------------------------------*/
+Xint
+Xcall_logical_telno(logical)
+Xchar *logical;
+X{
+X	int ret;
+X	PDE *tpde;
+X
+X	if(tpde = logical_telno_to_pde(logical))
+X		ret = pde_dial(tpde);
+X	else
+X	{
+X		pprintf("%s: %s\n",logical,errmsg);
+X		ret = eFATAL_ALREADY;
+X	}
+X
+X	return(ret);
+X
+X}	/* end of call_logical_telno */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecupde.c */
+SHAR_EOF
+echo 'File ecupde.c is complete' &&
+chmod 0644 ecupde.c ||
+echo 'restore of ecupde.c failed'
+Wc_c="`wc -c < 'ecupde.c'`"
+test 16547 -eq "$Wc_c" ||
+	echo 'ecupde.c: original size 16547, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecupde.h ==============
+if test -f 'ecupde.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecupde.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecupde.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecupde.h' &&
+X/*+-----------------------------------------------------------------------
+X	ecupde.h - phone directory entry definition
+X	wht@n4hgf.Mt-Park.GA.US
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:11-28-1991-14:56-wht@n4hgf-add dcdwatch */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:06-01-1991-23:53-wht@n4hgf-use PDE_..._LEN identifiers */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecupde_h
+X#define _ecupde_h
+X
+X#define PDE_TTY_LEN			15
+X#define PDE_DESCR_LEN		40
+X
+X#ifdef futures
+X#define PDE_FC_NONE			0	/* no FAS: none   FAS: RTS/CTS */
+X#define PDE_FC_XON_XOFF		1	/* XON/XOFF */
+X#define PDE_FC_RTS_CTS		2	/* no FAS: SCO RTS/CTS */
+X#endif
+X
+Xtypedef struct phone_directory_entry
+X{
+X	struct phone_directory_entry *next;
+X	struct phone_directory_entry *prev;
+X	uint baud;				
+X	short parity;						/* 0,'e','o', maybe 'm','s' */
+X	ushort redial;						/* if non-zero, marked for redial */
+X	char logical[DESTREF_LEN + 1];	/* logical name of remote */
+X	char telno[DESTREF_LEN + 1];		/* telno for remote or null */
+X	char tty[PDE_TTY_LEN + 1];			/* ttyname for access */
+X	char descr[PDE_DESCR_LEN + 1];		/* description of remote */
+X#ifdef futures
+X	uint zwindw_size;					/* default ZMODEM window size */
+X	uchar flow_control;					/* PDE_FC_... flow control */
+X#endif
+X	uchar debug_level;					/* -x debug level for dialer */
+X	uchar dcdwatch;			/*
+X							 * how to set shm->Ldcdwatch on successful connect
+X							 * '0': off
+X							 * '1': on
+X							 * 't': terminate
+X							 * 'n': no change
+X							 */
+X}	PDE;
+X
+X#endif /* _ecupde_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecupde.h */
+SHAR_EOF
+chmod 0644 ecupde.h ||
+echo 'restore of ecupde.h failed'
+Wc_c="`wc -c < 'ecupde.h'`"
+test 1832 -eq "$Wc_c" ||
+	echo 'ecupde.h: original size 1832, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuphdir.c ==============
+if test -f 'ecuphdir.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuphdir.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuphdir.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuphdir.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecuphone.c -- visual phone dialer/directory editor
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  .---[ title ]------------modified-.<-- dirw "top line"
+X  |   stand out mode                |<-- dirw "header line"
+X  |                                 |<-- scrw first line
+X  |                                 |
+X  |                                 |
+X  |                                 |
+X  |                                 |<-- scrw last line
+X  +---------------------------------+<-- dirw bottom separator line
+X  |                                 |<-- dirw extra cmd prompt line
+X  |   stand out mode                |<-- dirw "cmd line"
+X  `---------------------------------'<-- dirw bottom line
+X
+X  00000000001111111111222222222233333333334444444444555555555566
+X  01234567890123456789012345678901234567890123456789012345678901
+X 0.--[ entry nnnnn ]-------------------------------------------.
+X 1|                                                            |
+X 2| telephone number  ___________________                      |
+X 3| device            __________                               |
+X 4| baud rate         _____                                    |
+X 5| parity            _                                        |
+X 6| description       ________________________________________ |
+X 7| debug level       _  (dialer -x value 0-9)                 |
+X 8| DCD watch         _                                        |
+X 9|                                                            |
+X10| <prompt>                                                   |
+X11| <control key description>                                  |
+X12`------------------------------------------------------------'
+X
+X  Defined functions:
+X	check_curr_pde()
+X	dirw_bot_msg(msg)
+X	dirw_cmd_line_setup(prompt1,prompt2)
+X	dirw_display()
+X	dirw_display_config()
+X	dirw_display_phonedir_name()
+X	dirw_get_cmd()
+X	phdir_add_or_edit(tpde,edit)
+X	phdir_add_or_edit_read(prompt,edit,y,buf,bufmax,delim)
+X	phdir_cmd_add(tpde)
+X	phdir_cmd_change_dir()
+X	phdir_cmd_down()
+X	phdir_cmd_find()
+X	phdir_cmd_mark(tpde)
+X	phdir_cmd_remove()
+X	phdir_cmd_remove_oops()
+X	phdir_cmd_save()
+X	phdir_cmd_set_wait()
+X	phdir_cmd_unmark(tpde)
+X	phdir_cmd_unmark_all()
+X	phdir_cmd_up()
+X	phdir_dial_cycle()
+X	phdir_display(line,tpde,stand_out)
+X	phdir_display_logical(line,tpde,stand_out)
+X	phdir_list_add(tpde)
+X	phdir_list_erase()
+X	phdir_list_remove(tpde)
+X	phdir_list_save_if_dirty()
+X	phdir_list_search(logical,exact_flag)
+X	phdir_list_set_dirty(flag)
+X	phdir_manager()
+X	scrw_fill(tpde,curr_pde_line)
+X	scrw_fill_at(line_num,tpde,curr_pde_line)
+X	want_pd_create(name)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:05-17-1992-18:29-wht@n4hgf-pde add now cycles thru fields til END */
+X/*:11-28-1991-14:32-wht@n4hgf-add dcdwatch option */
+X/*:11-20-1991-05:19-wht@n4hgf-improve "Any" line handling on add or edit */
+X/*:08-28-1991-15:15-wht@n4hgf2-fix bad structure in phdir_add_or_edit_read */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-15-1991-18:13-wht@n4hgf-do not allow edit of non-existent entry */
+X/*:08-11-1991-19:56-wht@n4hgf-soup up tty name for ISC vs. SCO */
+X/*:08-07-1991-13:48-root@n4hgf-w subcommand was not asking both questions */
+X/*:08-01-1991-03:52-wht@n4hgf-when editing string, set cursor to end */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:07-12-1991-15:37-wht@n4hgf-fix core dump when creating phone from setup */
+X/*:06-09-1991-16:54-jjb-want_pd_create sneak path when not in curses */
+X/*:06-02-1991-19:43-wht@n4hgf-add dial debug level */
+X/*:06-02-1991-17:29-wht@n4hgf-move hdb_choose_Any to hdbintf.c */
+X/*:06-01-1991-23:53-wht@n4hgf-use PDE_..._LEN identifiers */
+X/*:04-03-1991-14:47-wht@n4hgf-must refresh both windows in terminfo curses */
+X/*:03-18-1991-21:39-wht@n4hgf-add wrefresh of scrw in up/down */
+X/*:02-05-1991-14:51-wht@n4hgf-calloc PDE instead of malloc */
+X/*:01-09-1991-22:31-wht@n4hgf-ISC port */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecucurses.h"
+X
+X#define STDIO_H_INCLUDED
+X#define OMIT_TERMIO_REFERENCES
+X#include "ecu.h"
+X#include "pc_scr.h"
+X
+X#include "ecupde.h"
+X#include "ecukey.h"
+X#include "ecuxkey.h"
+X#include "esd.h"
+X#include "var.h"
+X
+Xchar *find_procedure();
+Xchar *make_char_graphic();
+Xchar *linst_err_text();
+XWINDOW *window_create();
+X
+Xvoid dirw_bot_msg();
+Xvoid dirw_display_phonedir_name();
+Xvoid dirw_cmd_line_setup();
+X
+X/* window definitions */
+X#define DIRW_LINES		(LINES - 1)
+X#define DIRW_COLS		(80)
+X#define DIRW_TOP_LINES	2
+X#define DIRW_BOT_LINES	4
+X#define DIRW_CMD_LINE	(DIRW_LINES - 2)
+X#define SCRW_LINES		(DIRW_LINES - DIRW_TOP_LINES - DIRW_BOT_LINES)
+X#define SCRW_COLS		(DIRW_COLS)
+X#define SCRW_TLY		(DIRW_TOP_LINES)
+X#define SCRW_TLX		0
+X#define PDE_ITEM_COUNT	(7)
+X#define ADDW_LINES		(PDE_ITEM_COUNT + 6)
+X#define ADDW_COLS		(62)
+X#define ADDW_TLY		(SCRW_TLY + 1)
+X#define ADDW_TLX		(4)
+X
+Xextern int errno;
+X
+Xextern int windows_active;
+Xextern char errmsg[];
+Xextern char kbdintr;
+Xextern char phonedir_name[];		/* phone directory name */
+Xextern char *phonedir_trigger;
+X
+XWINDOW *dirw = (WINDOW *)0;
+XWINDOW *scrw = (WINDOW *)0;
+XWINDOW *addw = (WINDOW *)0;
+X
+XPDE *phdir_list_head = (PDE *)0;	/* pointer to first pde in linked list */
+XPDE *curr_pde = (PDE *)0;		/* current pde */
+XPDE *remove_pde = (PDE *)0;		/* if non-zero, pde just removed */
+Xint remove_dirty_flag;			/* phdir_list_dirty at remove time */
+Xint phdir_list_quan = 0;			/* count of items in list now */
+Xint phdir_list_dirty = 0;			/* phdir_list modified but not saved */
+Xint pde_marked_for_redial_count = 0;
+Xint scrw_curr_pde_line;			/* scrw line curr_pde is on */
+Xint phonedir_name_x;			/* position for phonedir name on screen */
+X
+X
+X#define NAP_DECISEC_SINGLE_MIN         10
+X#define NAP_DECISEC_MULTIPLE_MIN       10
+Xint nap_decisec_single   = 150;
+Xint nap_decisec_multiple = 50;
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_list_erase()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_list_erase()
+X{
+X	register PDE *pde = phdir_list_head;
+X	register PDE *next;
+X
+X	while(pde)
+X	{
+X		next = pde->next;
+X		free((char *)pde);
+X		pde = next;
+X	}
+X	phdir_list_head = (PDE *)0;
+X	phdir_list_quan = 0;
+X	curr_pde = (PDE *)0;
+X	remove_pde = (PDE *)0;
+X	pde_marked_for_redial_count = 0;
+X
+X}	/* end of phdir_list_erase */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_list_set_dirty(flag)
+X0: clean, 1 dirty, -1 do not modify;update screen only
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_list_set_dirty(flag)
+Xint flag;
+X{
+X	register itmp;
+X	if(flag != phdir_list_dirty)
+X	{
+X		if(flag != -1)
+X			phdir_list_dirty = flag;
+X		wmove(dirw,0,DIRW_COLS - 14);
+X		if(phdir_list_dirty)
+X			waddstr(dirw," modified ");
+X		else
+X		{
+X			itmp = 10;
+X#if defined(SVR4)
+X			whline(dirw, (unsigned long)(sHR & 0x00ff), itmp);
+X#else
+X			while(itmp--)
+X				waddch(dirw,(unsigned)sHR);
+X#endif
+X		}
+X		wrefresh(dirw);
+X	}
+X}	/* end of phdir_list_set_dirty */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_list_add(tpde) -- add to linked list
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_list_add(tpde)
+XPDE *tpde;
+X{
+X	register PDE *this = tpde;
+X	register PDE *prev;
+X	register PDE *next;
+X
+X/* if empty, init list with this one and quit */
+X	if(phdir_list_head == (PDE *)0)
+X	{
+X		phdir_list_head = this;
+X		this->prev = (PDE *)0;
+X		this->next = (PDE *)0;
+X		phdir_list_quan++;
+X		return;
+X	}
+X
+X/* list not empty */
+X	prev = (PDE *)0;		/* no previous yet */
+X	next = phdir_list_head;	/* init next to top of list */
+X
+X	while(strcmp(next->logical,this->logical) < 0)
+X	{
+X		prev = next;
+X		next = prev->next;
+X		if(next == (PDE *)0)
+X			break;
+X	}
+X
+X	if(prev)		/* if non-zero, we will not update the list head */
+X	{
+X		this->next = prev->next;
+X		this->prev = prev;
+X		prev->next = this;
+X		if(next)
+X			next->prev = this;
+X	}
+X	else	/* 'this' is to become the new list head (1st element) */
+X	{
+X		this->next = next;
+X		this->prev = (PDE *)0;
+X		if(next)
+X			next->prev = this;
+X		phdir_list_head = this;
+X	}
+X	phdir_list_quan++;
+X
+X}	/* end of pde_add */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_list_remove(tpde) -- remove from linked list
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_list_remove(tpde)
+Xregister PDE *tpde;
+X{
+X	register PDE *prev;
+X	register PDE *next;
+X
+X	prev = (PDE *)0;	/* there is no previous now */
+X
+X	if((next = phdir_list_head) == (PDE *)0)	/* if empty list */
+X		return;
+X
+X	while(next != tpde)
+X	{
+X		prev = next;
+X		next = prev->next;
+X		if(next == (PDE *)0)
+X			return;
+X	}
+X
+X/* take care of "current pde" */
+X	if(tpde == curr_pde)
+X	{
+X		if(tpde->next)
+X			curr_pde = tpde->next;
+X		else if(tpde->prev)
+X			curr_pde = tpde->prev;
+X		else
+X			curr_pde = (PDE *)0;
+X	}
+X
+X/* marked? */
+X	if(tpde->redial)
+X	{
+X		tpde->redial = 0;
+X		pde_marked_for_redial_count--;
+X	}
+X
+X/* unlink */
+X
+X	if(prev)		/* if non-zero, we will not update the list head */
+X	{
+X		prev->next = tpde->next;
+X		if(tpde->next)
+X			(tpde->next)->prev = prev;
+X	}
+X	else
+X	{
+X		phdir_list_head = tpde->next;
+X		if(tpde->next)
+X			(tpde->next)->prev = (PDE *)0;
+X	}
+X
+X	tpde->next = (PDE *)0;
+X	tpde->prev = (PDE *)0;
+X
+X	phdir_list_quan--;
+X}	/* end of phdir_list_remove */
+X
+X/*+-----------------------------------------------------------------------
+X	PDE *phdir_list_search(logical,exact_flag)
+X------------------------------------------------------------------------*/
+XPDE *
+Xphdir_list_search(logical,exact_flag)
+Xchar *logical;
+Xint exact_flag;
+X{
+X	register PDE *tpde;
+X
+X	if(!phdir_list_quan)
+X	{
+X		if(phdir_list_read())
+X			return((PDE *)0);
+X	}
+X
+X	if(!logical || !*logical)
+X		return((PDE *)0);
+X
+X	tpde = phdir_list_head;
+X	while(tpde)
+X	{
+X		/* only first few chars necessary for match with ulcmpb */
+X		if(exact_flag)
+X		{
+X			if(strcmp(tpde->logical,logical) == 0)
+X				return(tpde);
+X		}
+X		else
+X		{
+X			if(ulcmpb(tpde->logical,logical) < 0)
+X				return(tpde);
+X		}
+X		tpde = tpde->next;
+X	}
+X	if(!tpde)
+X		sprintf(errmsg,"'%s' not found",logical);
+X	return(tpde);
+X
+X}	/* end of phdir_list_search */
+X
+X/*+-------------------------------------------------------------------------
+X	want_pd_create(name)
+X--------------------------------------------------------------------------*/
+Xint
+Xwant_pd_create(name)
+Xchar *name;
+X{
+X	uchar uctmp = 255;
+X
+X	if(!dirw)
+X		return(1);
+X
+X#ifdef COMPILER_BUG_FIXED
+X	dirw_bot_msg("type 'y' or 'n'");
+X	while(uctmp == 255)
+X	{
+X		ring_bell();
+X		dirw_cmd_line_setup(name,"does not exist: create?");
+X		uctmp = ttygetc(0);
+X		if(isupper(uctmp))
+X			uctmp = tolower(uctmp);
+X		switch(uctmp)
+X		{
+X			case 'y': uctmp = 1; break;
+X			case 'n': uctmp = 0; break;
+X			default: uctmp = 255; break;		
+X		}
+X	}
+X	dirw_bot_msg("");
+X	return((int)uctmp);
+X
+X#else
+X
+XKROCK:
+X	dirw_bot_msg("type 'y' or 'n'");
+X	ring_bell();
+X	dirw_cmd_line_setup(name,"does not exist: create?");
+X	uctmp = ttygetc(0);
+X	dirw_bot_msg("");
+X	if(isupper(uctmp))
+X		uctmp = tolower(uctmp);
+X	switch(uctmp)
+X	{
+X		case 'y': return(1);
+X		case 'n': return(0);
+X	}
+X	goto KROCK;
+X#endif
+X}	/* end of want_pd_create */
+X
+X/*+-------------------------------------------------------------------------
+X	dirw_display_phonedir_name()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdirw_display_phonedir_name()
+X{
+X	register itmp,x;
+X	char s80[80];
+X
+X	if(!dirw || !phonedir_name[0])
+X		return;
+X
+X	wmove(dirw,0,phonedir_name_x);
+X	waddch(dirw,' ');
+X	strncpy(s80,phonedir_name,itmp = DIRW_COLS - phonedir_name_x - 5);
+X	s80[itmp] = 0;
+X	waddstr(dirw,s80);
+X	waddch(dirw,' ');
+X	getyx(dirw,itmp,x);
+X
+X#if defined(SVR4)
+X	whline(dirw, (unsigned long)(sHR & 0x00ff), DIRW_COLS - 1 - x);
+X#else
+X	while(x < DIRW_COLS - 1)
+X	{
+X		waddch(dirw,sHR);
+X		x++;
+X	}
+X#endif
+X}	/* end of dirw_display_phonedir_name */
+X
+X/*+-------------------------------------------------------------------------
+X	dirw_display_config()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdirw_display_config()
+X{
+X	register y,x;
+X
+X	if(!dirw)
+X		return;
+X
+X#if defined(SVR4)
+X	wmove(dirw,DIRW_LINES - DIRW_BOT_LINES,1);
+X	whline(dirw, (unsigned long)(sHR & 0x00ff), DIRW_COLS - 2);
+X#else
+X	wmove(dirw,DIRW_LINES - DIRW_BOT_LINES,0);
+X	waddch(dirw,sLT);
+X	getyx(dirw,y,x);
+X	while(x++ < (DIRW_COLS - 1))
+X		waddch(dirw,sHR);
+X	waddch(dirw,sRT);
+X#endif
+X
+X	if(pde_marked_for_redial_count)
+X	{
+X		wmove(dirw,DIRW_LINES - DIRW_BOT_LINES,2);
+X		wstandout(dirw);
+X		wprintw(dirw," REDIAL CYCLE  wait: single=%d multiple=%d ",
+X			nap_decisec_single / 10,nap_decisec_multiple / 10);
+X
+X		wmove(dirw,DIRW_LINES - DIRW_BOT_LINES,56);
+X		wprintw(dirw," %2d marked entr%s ",
+X			pde_marked_for_redial_count,
+X			(pde_marked_for_redial_count == 1) ? "y" : "ies");
+X		wstandend(dirw);
+X	}
+X}	/* end of dirw_display_config */
+X
+X/*+-----------------------------------------------------------------------
+X	dirw_display()
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+X| entry name | telephone number | tty | baud P | description                   |
+X| 0123456789 | 0123456789012345 | 01  | baud P | 01234567890123456789012345678 |
+X------------------------------------------------------------------------*/
+Xvoid
+Xdirw_display()
+X{
+X	if(!dirw)
+X		return;
+X	wmove(dirw,1,1);
+X	wstandout(dirw);
+X
+X#if defined(SVR4)
+X	waddstr(dirw,
+X" entry name | telephone number | tty | baud P | description                   "
+X		);
+X#else
+X	waddstr(dirw," entry name ");
+X	waddch(dirw,(unsigned)sVR);
+X	waddstr(dirw," telephone number ");
+X	waddch(dirw,(unsigned)sVR);
+X	waddstr(dirw," tty ");
+X	waddch(dirw,(unsigned)sVR);
+X	waddstr(dirw," baud P ");
+X	waddch(dirw,(unsigned)sVR);
+X	waddstr(dirw," description                   ");
+X#endif
+X
+X	wstandend(dirw);
+X	dirw_display_phonedir_name();
+X	dirw_display_config();
+X#if 0
+X	touchwin(stdscr);
+X	wrefresh(stdscr);
+X#endif
+X	wrefresh(dirw);
+X
+X}	/* end of dirw_display */
+X
+X/*+-------------------------------------------------------------------------
+X	dirw_bot_msg(msg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdirw_bot_msg(msg)
+Xchar *msg;
+X{
+X	register itmp;
+X	register itmp2;
+X	static last_msglen = 0;
+X#define DIRW_BOT_LINE_TLX 2
+X#define DIRW_BOT_LINE_MAX_MSGLEN	(DIRW_COLS - DIRW_BOT_LINE_TLX - 8)
+X	char msg2[80];
+X
+X	if(!dirw || (!last_msglen && !strlen(msg)))
+X		return;
+X
+X	wmove(dirw,DIRW_LINES - 1,DIRW_BOT_LINE_TLX);
+X
+X	if((itmp = strlen(msg)) == 0)
+X	{
+X		itmp2 = last_msglen + 2;
+X
+X#if defined(SVR4)
+X		whline(dirw, (unsigned long)(sHR & 0x00ff), itmp2);
+X#else
+X		for(itmp = 0; itmp < itmp2; itmp++)
+X			waddch(dirw,(unsigned)sHR);
+X#endif
+X
+X		last_msglen = 0;
+X	}
+X	else
+X	{
+X		waddch(dirw,' ');
+X		if(itmp > DIRW_BOT_LINE_MAX_MSGLEN)
+X		{
+X			strncpy(msg2,msg,DIRW_BOT_LINE_MAX_MSGLEN);
+X			msg2[DIRW_BOT_LINE_MAX_MSGLEN + 1] = 0;
+X			waddstr(dirw,msg2);
+X			itmp = strlen(msg2);
+X		}
+X		else
+X		{
+X			waddstr(dirw,msg);
+X			itmp = strlen(msg);
+X		}
+X		waddch(dirw,' ');
+X		if((itmp2 = last_msglen - itmp) > 0)
+X		{
+X#if defined(SVR4)
+X			whline(dirw, (unsigned long)(sHR & 0x00ff), itmp2);
+X#else
+X			while(itmp2--)
+X				waddch(dirw,(unsigned)sHR);
+X#endif
+X		}
+X		last_msglen = itmp;		/* remember last message length */
+X	}
+X	wrefresh(dirw);
+X}	/* end of dirw_bot_msg */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_display_logical(line,tpde,stand_out)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_display_logical(line,tpde,stand_out)
+Xint line;
+XPDE *tpde;
+Xint stand_out;
+X{
+X
+X	wmove(scrw,line,0);
+X#if defined(SVR4)
+X	wvline(scrw, (unsigned long)(sVR & 0x00ff), 1);
+X	wmove(scrw,line,1);
+X#else
+X	waddch(scrw,(unsigned)sVR);
+X#endif
+X
+X	if(tpde->redial)
+X	{
+X		wstandout(scrw);
+X		waddch(scrw,'>');
+X		wstandend(scrw);
+X	}
+X	else
+X		waddch(scrw,' ');
+X
+X	if(stand_out)
+X		wstandout(scrw);
+X	wprintw(scrw,"%-10.10s",tpde->logical);
+X	if(stand_out)
+X		wstandend(scrw);
+X
+X}	/* end of phdir_display_logical */
+X
+X/*+-----------------------------------------------------------------------
+X	phdir_display(win,line,tpde,stand_out)
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+X| entry name | telephone number | tty | baud P | description                   |
+X| 0123456789 | 0123456789012345 | 01  | baud P | 01234567890123456789012345678 |
+X--------------------------------------------------------------------------*/
+Xphdir_display(line,tpde,stand_out)
+Xint line;
+XPDE *tpde;
+Xint stand_out;
+X{
+X
+X	phdir_display_logical(line,tpde,stand_out);
+X	waddch(scrw,' ');
+X#if defined(SVR4)
+X	wmove(scrw, line, 13);
+X	waddch(scrw,'|');
+X#else
+X	waddch(scrw,(unsigned)sVR);
+X#endif
+X	waddch(scrw,' ');
+X#if defined(SVR4)
+X	wprintw(scrw,"%-16.16s |",tpde->telno);
+X	if(tpde->tty[0])
+X		wprintw(scrw,"%-5.5s|",tpde->tty);
+X	else
+X		waddstr(scrw,"Any  |");
+X	wprintw(scrw,"%5u %c | ",tpde->baud,
+X		(tpde->parity) ? to_upper(tpde->parity) : 'N');
+X	wprintw(scrw,"%-29.29s",tpde->descr);
+X#else
+X	wprintw(scrw,"%-16.16s ",tpde->telno);
+X	waddch(scrw,(unsigned)sVR);
+X	if(tpde->tty[0])
+X		wprintw(scrw,"%-5.5s",tpde->tty);
+X	else
+X		waddstr(scrw,"Any  ");
+X	waddch(scrw,(unsigned)sVR);
+X	wprintw(scrw,"%5u %c ",tpde->baud,
+X		(tpde->parity) ? to_upper(tpde->parity) : 'N');
+X	waddch(scrw,(unsigned)sVR);
+X	wprintw(scrw," %-29.29s ",tpde->descr);
+X	waddch(scrw,(unsigned)sVR);
+X#endif
+X	return(0);
+X
+X}	/* end of phdir_display */
+X
+X/*+-----------------------------------------------------------------------
+X	scrw_fill(first_pde,curr_pde_line)
+X------------------------------------------------------------------------*/
+Xvoid
+Xscrw_fill(tpde,curr_pde_line)
+Xregister PDE *tpde;
+Xint *curr_pde_line;
+X{
+X	register line;
+X	register is_curr_pde;
+X
+X	*curr_pde_line = -1;
+X	for(line = 0; line < SCRW_LINES; line++)
+X	{
+X		if(tpde)
+X		{
+X			if(is_curr_pde = (tpde == curr_pde))
+X				*curr_pde_line = line;
+X			phdir_display(line,tpde,is_curr_pde);
+X			tpde = tpde->next;
+X		}
+X		else
+X		{
+X			wmove(scrw,line,0);
+X#if defined(SVR4)
+X			wvline(scrw, (unsigned long)(sVR & 0x00ff), 1);
+X			wmove(scrw,line,1);
+X#else
+X			waddch(scrw,(unsigned)sVR);
+X#endif
+X			wclrtoeol(scrw);
+X			wmove(scrw,line,SCRW_COLS - 1);
+X#if defined(SVR4)
+X			wvline(scrw, (unsigned long)(sVR & 0x00ff), 1);
+X#else
+X			waddch(scrw,(unsigned)sVR);
+X#endif
+X		}
+X	}
+X	wrefresh(scrw);
+X
+X}	/* end of scrw_fill */
+X
+X/*+-------------------------------------------------------------------------
+X	scrw_fill_at(line_num,first_pde,curr_pde_line)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xscrw_fill_at(line_num,tpde,curr_pde_line)
+Xint line_num;
+Xregister PDE *tpde;
+Xint *curr_pde_line;
+X{
+X	register itmp;
+X
+X	if(!tpde)
+X	{
+X		scrw_fill(tpde,curr_pde_line);
+X		return;
+X	}
+X	for(itmp = 0; itmp < line_num; itmp++)
+X	{
+X		if(!tpde->prev)
+X			break;
+X		tpde = tpde->prev;
+X	}
+X
+X	scrw_fill(tpde,curr_pde_line);
+X
+X}	/* end of scrw_fill_at */
+X
+X/*+-------------------------------------------------------------------------
+X	dirw_cmd_line_setup(prompt1,prompt2)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdirw_cmd_line_setup(prompt1,prompt2)
+Xchar *prompt1;
+Xchar *prompt2;
+X{
+X	register icol;
+X	int y;
+X	int x;
+X	char *cptr;
+X	int standout_mode;
+X
+X	wmove(dirw,DIRW_CMD_LINE - 1,1);
+X	wstandend(dirw);
+X	standout_mode = 0;
+X	waddch(dirw,' ');
+X	cptr = prompt1;
+X	while(*cptr)
+X	{
+X		if(*cptr == '~')
+X		{
+X			if(standout_mode)
+X				wstandend(dirw);
+X			else
+X				wstandout(dirw);
+X			standout_mode = !standout_mode;
+X			cptr++;
+X		}
+X		else
+X			waddch(dirw,*cptr++);
+X	}
+X	wstandend(dirw);
+X	standout_mode = 0;
+X
+X	waddch(dirw,' ');
+X	getyx(dirw,y,x);
+X	for(icol = x; icol < DIRW_COLS - 1; icol++)
+X		waddch(dirw,' ');
+X
+X	wmove(dirw,DIRW_CMD_LINE,1);
+X	waddch(dirw,' ');
+X	cptr = prompt2;
+X	while(*cptr)
+X	{
+X		if(*cptr == '~')
+X		{
+X			if(standout_mode)
+X				wstandend(dirw);
+X			else
+X				wstandout(dirw);
+X			standout_mode = !standout_mode;
+X			cptr++;
+X		}
+X		else
+X			waddch(dirw,*cptr++);
+X	}
+X	wstandend(dirw);
+X	waddch(dirw,' ');
+X	getyx(dirw,y,x);
+X	for(icol = x; icol < DIRW_COLS - 1; icol++)
+X		waddch(dirw,' ');
+X	wmove(dirw,y,x);
+X	wrefresh(scrw);
+X	wrefresh(dirw);
+X}	/* end of dirw_cmd_line_setup */
+X
+X/*+-------------------------------------------------------------------------
+X	dirw_get_cmd()
+X--------------------------------------------------------------------------*/
+Xuchar
+Xdirw_get_cmd()
+X{
+X	register uchar cmd;
+X	char setupline1[128];	/* yetch ... avoid source line > 80 chars */
+X	char *setupline1_1 = "~d~own ~u~p ~e~dit ~a~dd ~r~emove ~s~ave ~f~ind ";
+X	char *setupline1_2 = "~c~hange dial dir ~ENTER~:dial ~ESC,q~uit";
+X
+X	strcpy(setupline1,setupline1_1);
+X	strcat(setupline1,setupline1_2);
+X
+X	dirw_cmd_line_setup(
+X		setupline1,
+X		"redial: ~m~ark un~M~ark ~U~nmark all ~w~ait between dial");
+X	cmd = ttygetc(1);
+X	dirw_bot_msg("");
+X	return(cmd);
+X
+X}	/* end of dirw_get_cmd */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_save()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_save()
+X{
+X	FILE *fpold;
+X	FILE *fpnew;
+X	PDE *tpde;
+X	char *cptr;
+X	char phonedir_ntmp[256];		/* temp phone directory name */
+X	char iobuf[128];
+X	int count = 0;
+X
+X	if(!phdir_list_dirty)
+X	{
+X		dirw_bot_msg("directory has not been modified");
+X		return;
+X	}
+X
+X	strcpy(phonedir_ntmp,phonedir_name);
+X	strcat(phonedir_ntmp,".t");
+X
+X	if(!(fpnew = fopen(phonedir_ntmp,"w")))	/* open old file */
+X	{
+X		sprintf(iobuf,"cannot open %s",phonedir_ntmp);
+X		dirw_bot_msg(iobuf);
+X		return;
+X	}
+X
+X/* write trigger */
+X	fputs(phonedir_trigger,fpnew);
+X
+X/* retain commented entries */
+X	if((fpold = fopen(phonedir_name,"r")))	/* open old file */
+X	{
+X		while(fgets(iobuf,sizeof(iobuf),fpold))
+X		{
+X			if((iobuf[0] == '#') && strcmp(iobuf,phonedir_trigger))
+X				fputs(iobuf,fpnew);
+X		}
+X		fclose(fpold);
+X	}
+X
+X/* write new entries */
+X	tpde = phdir_list_head;
+X	while(tpde)
+X	{
+X		cptr = tpde->descr;
+X		while(*cptr)			/* cannot have ':' in description */
+X		{						/* should have picked another separator, ... */
+X			if(*cptr == ':')	/* ... but compatibility is important */
+X				*cptr = '-';
+X			cptr++;
+X		}
+X		sprintf(iobuf,"%d",count+1);
+X		dirw_bot_msg(iobuf);
+X		sprintf(iobuf,"%s:%s:%s:%u:%c:%s:%d:%c\n",tpde->logical,tpde->telno,
+X			tpde->tty,tpde->baud,
+X			(tpde->parity) ? to_upper(tpde->parity) : 'N',
+X			tpde->descr,tpde->debug_level,to_upper(tpde->dcdwatch));
+X		fputs(iobuf,fpnew);
+X		tpde = tpde->next;
+X		count++;
+X	}
+X
+X	fclose(fpnew);
+X	unlink(phonedir_name);
+X	rename(phonedir_ntmp,phonedir_name);
+X	sprintf(iobuf,"saved %d entries",count);
+X	dirw_bot_msg(iobuf);
+X	phdir_list_set_dirty(0);
+X
+X}	/* end of phdir_cmd_save */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_list_save_if_dirty()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_list_save_if_dirty()
+X{
+X	uint cmd = 0;
+X
+X	if(phdir_list_dirty)
+X	{
+X		dirw_bot_msg("type 'y' or 'n'");
+X		while(!cmd)
+X		{
+X			ring_bell();
+X			dirw_cmd_line_setup("","current directory modified: save?");
+X			cmd = ttygetc(0);
+X			if(isupper(cmd))
+X				cmd = tolower(cmd);
+X			switch(cmd)
+X			{
+X				case 'y': phdir_cmd_save(); break;
+X				case 'n': break;
+X				default:
+X					cmd = 0;
+X					break;		
+X			}
+X		}
+X		dirw_bot_msg("");
+X	}
+X}	/* end of phdir_list_save_if_dirty */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_up()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_up()
+X{
+X	register PDE *tpde;
+X
+X	if((!curr_pde) || (curr_pde->prev == (PDE *)0))
+X	{
+X		ring_bell();
+X		return;
+X	}
+X	if(scrw_curr_pde_line)
+X	{
+X		phdir_display_logical(scrw_curr_pde_line,curr_pde,0);
+X		scrw_curr_pde_line--;
+X		curr_pde = curr_pde->prev;
+X		phdir_display_logical(scrw_curr_pde_line,curr_pde,1);
+X	}
+X	else
+X	{
+X		tpde = curr_pde;
+X		curr_pde = curr_pde->prev;
+X		scrw_fill_at(10,tpde,&scrw_curr_pde_line);
+X	}
+X
+X}	/* end of phdir_cmd_up */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_down()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_down()
+X{
+X	register PDE *tpde;
+X
+X	if((!curr_pde) || (curr_pde->next == (PDE *)0))
+X	{
+X		ring_bell();
+X		return;
+X	}
+X	if(scrw_curr_pde_line < (SCRW_LINES - 1))
+X	{
+X		phdir_display_logical(scrw_curr_pde_line,curr_pde,0);
+X		scrw_curr_pde_line++;
+X		curr_pde = curr_pde->next;
+X		phdir_display_logical(scrw_curr_pde_line,curr_pde,1);
+X	}
+X	else
+X	{
+X		tpde = curr_pde;
+X		curr_pde = curr_pde->next;
+X		scrw_fill_at(SCRW_LINES - 10,tpde,&scrw_curr_pde_line);
+X	}
+X
+X}	/* end of phdir_cmd_down */
+X
+X/*+-------------------------------------------------------------------------
+X	check_curr_pde() -- return 1 if there is a current pde, else 0
+X--------------------------------------------------------------------------*/
+Xcheck_curr_pde()
+X{
+X	if(!curr_pde)
+X	{
+X		dirw_bot_msg("no directory entry selected");
+X		return(0);
+X	}
+X	return(1);
+X}	/* end of check_curr_pde */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_add_or_edit_read(prompt,edit,y,buf,bufmax,delim)
+X
+XThere are numerous theoretcally possible string overflow possibilities
+Xin here, but no practical string will be long enough
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_add_or_edit_read(prompt,edit,y,buf,bufmax,delim)
+Xchar *prompt;
+Xint edit;
+Xint y;
+Xchar *buf;
+Xint bufmax;
+Xuchar *delim;
+X{
+X	int wgpos = -1;
+X	char s80[80];
+X	int done = 0;
+X
+X	if(!check_curr_pde())
+X		return;
+X
+X	wmove(addw,PDE_ITEM_COUNT + 3,2);
+X	waddstr(addw,prompt);
+X
+X	wstandout(addw);
+X	if(edit)
+X		strcpy(s80,buf);
+X
+X	do
+X	{
+X		(void)wingets(addw,y,20,s80,bufmax,delim,edit,&wgpos);
+X		wstandend(addw);
+X		clear_area(addw,y,20,bufmax);
+X		edit = 1;		/* if we come back again, edit string */
+X
+X		switch(*((uchar *)delim))
+X		{
+X			case ESC:
+X				waddstr(addw,buf);
+X				done = 1;
+X				break;
+X
+X			case TAB:
+X			case NL:
+X			case XFcurdn:
+X				*delim = NL;
+X			case XFend:
+X				strcpy(buf,s80);
+X				waddstr(addw,buf);
+X				done = 1;
+X				break;
+X
+X			case CTL_U:
+X				s80[0] = 0;
+X				break;
+X
+X			case CTL_B:
+X			case XFcurup:
+X				strcpy(buf,s80);
+X				waddstr(addw,buf);
+X				*delim = CTL_B;
+X				done = 1;
+X				break;
+X
+X			default:
+X				ring_bell();
+X				break;
+X		}
+X	} while(!done);
+X
+X	clear_area(addw,PDE_ITEM_COUNT + 3,2,strlen(prompt));
+X
+X}	/* end of phdir_add_or_edit_read */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_add_or_edit(tpde,edit)
+X--------------------------------------------------------------------------*/
+Xint
+Xphdir_add_or_edit(tpde,edit)
+Xregister PDE *tpde;
+Xint edit;
+X{
+X	int input_state = 0;
+X	int changed = 0;
+X	int done = 0;
+X	int aborted = 0;
+X	int itmp;
+X	int wgedit = 0;
+X	int wgpos = -1;
+X	char s64[64];
+X	uchar delim = 0;
+X	int y,x;
+X	PDE *old_curr_pde = (PDE *)0;
+X	uint baud;
+X	char cmpbuf[128];
+X	char *emsg = (char *)0;
+X
+X	if(!edit)
+X	{
+X		dirw_bot_msg("ESC: abort  ^U: erase input");
+X		dirw_cmd_line_setup(
+X			"Only the 1st 10 characters appear in the table",
+X			"Enter new directory entry name: ");
+X		getyx(dirw,y,x);
+X		wstandout(dirw);
+X		while((delim != ESC) && (delim != NL))
+X		{
+X			(void)wingets(dirw,y,x,tpde->logical,DESTREF_LEN+1,&delim,
+X				wgedit,&wgpos);
+X			wgedit = 1;
+X		}
+X		wstandend(dirw);
+X		dirw_bot_msg("");
+X		if((!strlen(tpde->logical)) || (delim == ESC))
+X		{
+X			dirw_bot_msg("add aborted");
+X			return(0);
+X		}
+X	
+X		if(!isalpha(tpde->logical[0]))
+X		{
+X			dirw_bot_msg("first character must be alphabetic");
+X			return(0);
+X		}
+X
+X		if(phdir_list_search(tpde->logical,1))
+X		{
+X			sprintf(s64,"'%s' is already in the directory",tpde->logical);
+X			ring_bell();
+X			dirw_bot_msg(s64);
+X			return(0);
+X		}
+X
+X		tpde->descr[0] = 0;
+X		tpde->telno[0] = 0;
+X		tpde->tty[0] = 0;
+X		tpde->parity = 0;
+X		tpde->baud = DEFAULT_BAUD_RATE;
+X		tpde->debug_level = 0;
+X		tpde->dcdwatch = 'n';		/* do not modify shm->Ldcdwatch */
+X	
+X		phdir_list_add(tpde);
+X		old_curr_pde = curr_pde;
+X		curr_pde = tpde;
+X		scrw_fill_at(SCRW_LINES / 2,tpde,&scrw_curr_pde_line);
+X		tpde = curr_pde;
+X	}	/* end of add code */
+X
+X	dirw_cmd_line_setup("","");
+X
+X	/*
+X	 * get a new window
+X	 */
+X	sprintf(s64,"entry: %s",tpde->logical);
+X	addw = window_create(s64,3,ADDW_TLY,ADDW_TLX,ADDW_LINES,ADDW_COLS);
+X
+X	wmove(addw,2,2);  waddstr(addw,"telephone number");
+X	wmove(addw,3,2);  waddstr(addw,"device");
+X	wmove(addw,4,2);  waddstr(addw,"baud rate");
+X	wmove(addw,5,2);  waddstr(addw,"parity");
+X	wmove(addw,6,2);  waddstr(addw,"description");
+X	wmove(addw,7,2);  waddstr(addw,"debug level");
+X	wmove(addw,7,23); waddstr(addw,"(dialer -x value 0-9)");
+X	wmove(addw,8,2);  waddstr(addw,"DCD watch");
+X
+X	wmove(addw,2,20); waddstr(addw,tpde->telno);
+X	wmove(addw,3,20); waddstr(addw,(tpde->tty[0]) ? tpde->tty : "Any");
+X	sprintf(s64,"%-5u",tpde->baud);
+X	wmove(addw,4,20); waddstr(addw,s64);
+X	s64[0] = (tpde->parity) ? to_upper((char)tpde->parity) : 'N';
+X	s64[1] = 0;
+X	wmove(addw,5,20); waddstr(addw,s64);
+X	wmove(addw,6,20); waddstr(addw,tpde->descr);
+X	sprintf(s64,"%u",tpde->debug_level);
+X	wmove(addw,7,20); waddstr(addw,s64);
+X	wmove(addw,8,20); waddch(addw,tpde->dcdwatch);
+X
+X	wmove(addw,PDE_ITEM_COUNT + 4,2);
+X	if(edit)
+X		waddstr(addw,"ESC: exit  END: accept  ^U: erase ^B: back  TAB: fwd");
+X	else
+X		waddstr(addw,"ESC: cancel  END: accept  ^U: erase field  ^B: back up");
+X	wrefresh(addw);
+X
+X/* add/edit common */
+X	while(!done)
+X	{
+X		changed = 0;
+X		switch(input_state)
+X		{
+X			case 0:
+X				if(edit)
+X					strcpy(s64,tpde->telno);
+X				phdir_add_or_edit_read("Enter telephone number",
+X					edit,input_state + 2,tpde->telno,DESTREF_LEN+1,&delim);
+X				if(edit && strcmp(tpde->telno,s64))
+X					changed = 1;
+X				break;
+X
+X			case 1:
+X				if(!tpde->tty[0])
+X					strcpy(tpde->tty,"Any");
+X				if(edit)
+X					strcpy(s64,tpde->tty);
+XCASE_1_AGAIN:
+X				phdir_add_or_edit_read( (emsg) ? emsg :
+X					"Enter tty (e.g. 1a), Any or [=/]Devices-type",
+X					edit,input_state + 2,s64,PDE_TTY_LEN+1,&delim);
+X				if((delim != ESC) && (s64[0] == '/') &&
+X					regexp_compile(s64 + 1,cmpbuf,sizeof(cmpbuf),&emsg))
+X				{
+X					ring_bell();
+X					goto CASE_1_AGAIN;
+X				}
+X				emsg = (char *)0;
+X				if(!strlen(s64) || !strcmpi(s64,"any"))
+X				{
+X					strcpy(s64,"Any");
+X					clear_area(addw,input_state + 2,20,PDE_TTY_LEN+1);
+X					waddstr(addw,s64);
+X				}
+X				if(edit)
+X					changed = !!strcmp(tpde->tty,s64);
+X				if(!strcmpi(s64,"any"))
+X					tpde->tty[0] = 0;
+X				else
+X					strcpy(tpde->tty,s64);
+X				break;
+X
+X			case 2:
+X				sprintf(s64,"%u",tpde->baud);
+X				phdir_add_or_edit_read(
+X				"Enter rate (110,300,600,1200,2400,4800,9600,19200,38400)",
+X					1,input_state + 2,s64,5+1,&delim);
+X				if(valid_baud_rate(baud = atoi(s64)) < 0)
+X				{
+X					ring_bell();
+X					continue;
+X				}
+X				if(edit && (tpde->baud != baud ))
+X					changed = 1;
+X				tpde->baud = baud;
+X				break;
+X
+X			case 3:
+X				sprintf(s64,"%c",(tpde->parity) ? tpde->parity : 'N');
+X				phdir_add_or_edit_read("Enter parity (n,o,e)",
+X					1,input_state + 2,s64,1+1,&delim);
+X				switch(s64[0] = to_lower(s64[0]))
+X				{
+X					case 'n':
+X						s64[0] = 0;
+X					case 'o':
+X					case 'e':
+X						if(edit && (tpde->parity != s64[0]))
+X							changed = 1;
+X						tpde->parity = s64[0];
+X						break;
+X					default:
+X						ring_bell();
+X						continue;
+X				}
+X				break;
+X
+X			case 4:
+X				if(edit)
+X					strcpy(s64,tpde->descr);
+X				phdir_add_or_edit_read("Enter description",
+X					edit,input_state + 2,tpde->descr,PDE_DESCR_LEN+1,&delim);
+X				if(edit && strcmp(tpde->descr,s64))
+X					changed = 1;
+X				break;
+X
+X			case 5:
+X				sprintf(s64,"%u",tpde->debug_level);
+X				phdir_add_or_edit_read("Enter dialer debug level (0-9)",
+X					1,input_state + 2,s64,1+1,&delim);
+X				if(!isdigit(s64[0]))
+X				{
+X					ring_bell();
+X					continue;
+X				}
+X				itmp = atoi(s64);
+X				if(edit && (itmp != tpde->debug_level))
+X					changed = 1;
+X				tpde->debug_level = itmp;
+X				break;
+X
+X			case 6:
+X				sprintf(s64,"%c",tpde->dcdwatch);
+X				phdir_add_or_edit_read(
+X					"0=off,1=on,t=terminate ecu on carrier loss,n=no change",
+X					1,input_state + 2,s64,1+1,&delim);
+X				switch(s64[0] = to_lower(s64[0]))
+X				{
+X					case '0':
+X					case '1':
+X					case 't':
+X					case 'n':
+X						break;
+X					default:
+X						ring_bell();
+X						continue;
+X				}
+X				if(edit && ((uchar)s64[0] != tpde->dcdwatch))
+X					changed = 1;
+X				tpde->dcdwatch = s64[0];
+X				break;
+X		}
+X
+X		switch(delim) /* process delimiter */
+X		{
+X			case CTL_L:
+X			case CTL_R:
+X				touchwin(stdscr);
+X				wrefresh(stdscr);
+X				touchwin(dirw);
+X				wrefresh(dirw);
+X				touchwin(scrw);
+X				wrefresh(scrw);
+X				break;
+X
+X			case CTL_B:
+X				if(input_state)
+X					input_state--;
+X				else
+X					input_state = 6;
+X				break;
+X
+X			case ESC:
+X				if(edit)
+X				{
+X					dirw_bot_msg("edit exit");
+X					done = 1;
+X				}
+X				else
+X				{
+X					phdir_list_remove(tpde);
+X					if(old_curr_pde)
+X						curr_pde = old_curr_pde;
+X					else
+X					{
+X						pputs("\nphdir_add_or_edit logic error\n");
+X						termecu(TERMECU_XMTR_FATAL_ERROR);
+X					}
+X					dirw_bot_msg("add aborted");
+X					aborted = 1;
+X					done = 1;
+X				}
+X				break;
+X
+X			case XFend:
+X				done = 1;
+X			case NL:
+X				if(edit && changed)
+X					phdir_list_set_dirty(1);
+X				input_state++;
+X				input_state %= PDE_ITEM_COUNT;
+X				break;
+X
+X			default:
+X				ring_bell();
+X				break;
+X
+X		}
+X	}
+X
+X	delwin(addw);
+X	addw = (WINDOW *)0;
+X	touchwin(scrw);
+X	if(aborted)
+X	{
+X		scrw_fill_at(scrw_curr_pde_line + 1,curr_pde,
+X			&scrw_curr_pde_line);
+X	}
+X	else
+X		phdir_display(scrw_curr_pde_line,tpde,1);
+X	return(!aborted);
+X
+X}	/* end of phdir_add_or_edit */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_add(tpde)
+Xif tpde != 0, it is an already valid pde that is to be added
+Xelse if == 0, interactive add
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_add(tpde)
+Xregister PDE *tpde;
+X{
+X
+X	if(tpde)
+X	{
+X		phdir_list_add(tpde);
+X	}
+X	else
+X	{
+X		if(!(tpde = (PDE *)calloc(1,sizeof(PDE ))))
+X		{
+X			dirw_bot_msg("Out of memory -- cannot add new entry");
+X			return;
+X		}
+X		if(!phdir_add_or_edit(tpde,0))	/* routine will add to list ... */
+X		{								/* ... if good return */
+X			free((char *)tpde);
+X			return;
+X		}
+X	}
+X	phdir_list_set_dirty(1);
+X
+X	curr_pde = tpde;
+X	scrw_fill_at(SCRW_LINES / 2,curr_pde,&scrw_curr_pde_line);
+X
+X}	/* end of phdir_cmd_add */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_mark(tpde) - mark for redial
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_mark(tpde)
+Xregister PDE *tpde;
+X{
+X
+X	if(!tpde)
+X		return;
+X	if(!tpde->redial)
+X	{
+X		tpde->redial = 1;
+X		if(tpde == curr_pde)
+X			phdir_display_logical(scrw_curr_pde_line,curr_pde,1);
+X		pde_marked_for_redial_count++;
+X		dirw_display_config();
+X	}
+X
+X}	/* end of phdir_cmd_mark */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_unmark(tpde) - unmark for redial
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_unmark(tpde)
+Xregister PDE *tpde;
+X{
+X
+X	if(!tpde)
+X		return;
+X	if(tpde->redial)
+X	{
+X		tpde->redial = 0;
+X		if(tpde == curr_pde)
+X			phdir_display_logical(scrw_curr_pde_line,curr_pde,1);
+X		pde_marked_for_redial_count--;
+X		dirw_display_config();
+X	}
+X
+X}	/* end of phdir_cmd_unmark */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_unmark_all() - unmark for redial all PDEs
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_unmark_all()
+X{
+X	register PDE *tpde;
+X	register y;
+X
+X	tpde = phdir_list_head;
+X	while(tpde)
+X	{
+X		tpde->redial = 0;
+X		tpde = tpde->next;
+X	}
+X
+X	for(y = 0; y < SCRW_LINES; y++)
+X	{
+X		wmove(scrw,y,1);
+X		waddch(scrw,' ');
+X	}
+X	pde_marked_for_redial_count = 0;
+X	dirw_display_config();
+X
+X}	/* end of phdir_cmd_unmark_all */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_remove_oops()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_remove_oops()
+X{
+X	if(!remove_pde)
+X	{
+X		dirw_bot_msg("no removed entry to restore");
+X		return;
+X	}
+X	phdir_cmd_add(remove_pde);
+X	phdir_list_set_dirty(remove_dirty_flag);
+X	remove_pde = (PDE *)0;
+X}	/* end of phdir_cmd_remove_oops */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_remove()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_remove()
+X{
+X	char s80[80];
+X
+X	if(!check_curr_pde())
+X		return;
+X
+X	remove_pde = curr_pde;
+X	remove_dirty_flag = phdir_list_dirty;
+X	phdir_list_remove(curr_pde);
+X	phdir_list_set_dirty(1);
+X
+X	if(phdir_list_quan)
+X		scrw_fill_at(scrw_curr_pde_line + 1,curr_pde,&scrw_curr_pde_line);
+X	else
+X		scrw_fill((PDE *)0,&scrw_curr_pde_line);
+X
+X	ring_bell();
+X	sprintf(s80,"if you did not mean to to remove '%s', press 'o' (oops) NOW!",
+X			remove_pde->logical);
+X	dirw_bot_msg(s80);
+X
+X}	/* end of phdir_cmd_remove */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_find()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_find()
+X{
+X	register PDE *tpde;
+X	char findname[12];
+X	uchar delim = 0;
+X	int y,x;
+X	int wgedit = 0;
+X	int wgpos = -1;
+X
+X	dirw_bot_msg("ESC: abort  ^U: erase input");
+X	dirw_cmd_line_setup("","Directory entry name to find: ");
+X	getyx(dirw,y,x);
+X	wstandout(dirw);
+X	while((delim != ESC) && (delim != NL))
+X	{
+X		(void)wingets(dirw,y,x,findname,DESTREF_LEN+1,&delim,
+X			wgedit,&wgpos);
+X		wgedit = 1;
+X	}
+X	wstandend(dirw);
+X	dirw_bot_msg("");
+X	if((!strlen(findname)) || (delim == ESC))
+X		return;
+X
+X	if(! (tpde = phdir_list_search(findname,0)))
+X	{
+X		dirw_bot_msg(errmsg);
+X		return;
+X	}
+X	curr_pde = tpde;
+X	scrw_fill_at(SCRW_LINES / 2,tpde,&scrw_curr_pde_line);
+X
+X}	/* end of phdir_cmd_find */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_change_dir()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_change_dir()
+X{
+X	int itmp;
+X	char newdirname[256];
+X	char buf[256];
+X	uchar delim = 0;
+X	int y,x;
+X	int wgedit = 0;
+X	int wgpos = -1;
+X	char *expcmd;
+X	extern char errmsg[];
+X
+X	phdir_list_save_if_dirty();
+X	dirw_bot_msg("ESC: abort  ^U: erase input");
+X	dirw_cmd_line_setup(" Enter new directory name:","");
+X	getyx(dirw,y,x);
+X	wstandout(dirw);
+X	while((delim != ESC) && (delim != NL))
+X	{
+X		(void)wingets(dirw,y,x,buf,70+1,&delim,
+X			wgedit,&wgpos);
+X		wgedit = 1;
+X	}
+X	wstandend(dirw);
+X	dirw_bot_msg("");
+X	if((!strlen(buf)) || (delim == ESC))
+X		return;
+X
+X	if((buf[0] == '~') || (buf[0] == '.') || (buf[0] == '/'))
+X		strcpy(newdirname,buf);
+X	else
+X	{
+X		get_curr_dir(newdirname,sizeof(newdirname));
+X		strcat(newdirname,"/");
+X		strcat(newdirname,buf);
+X	}
+X	if(find_shell_chars(newdirname))
+X	{
+X		if(expand_wildcard_list(newdirname,&expcmd))
+X		{
+X			dirw_bot_msg(expcmd);
+X			ring_bell();
+X			return;
+X		}
+X		strncpy(newdirname,expcmd,sizeof(newdirname) - 1);
+X		newdirname[sizeof(newdirname) - 1] = 0;
+X		free(expcmd);
+X	}
+X
+X	if(access(newdirname,4))
+X	{
+X		if(errno == ENOENT)
+X		{
+X			if(!want_pd_create(newdirname))
+X			{
+X				dirw_bot_msg("non-existent file not created");
+X				return;
+X			}
+X			if((itmp = open(newdirname,O_RDWR | O_CREAT | O_TRUNC,0600)) >= 0)
+X			{
+X				write(itmp,phonedir_trigger,strlen(phonedir_trigger));
+X				close(itmp);
+X				dirw_bot_msg("created new (empty) directory file");
+X				ring_bell();
+X				Nap(1000L);
+X				goto READ_LIST;
+X			}
+X			if(errno == ENOENT)
+X			{
+X				dirw_bot_msg("directory does not exist");
+X				ring_bell();
+X				return;
+X			}
+X		}
+X		dirw_bot_msg(errno_text(errno));
+X		ring_bell();
+X		return;
+X	}
+X
+XREAD_LIST:
+X	strcpy(phonedir_name,newdirname);
+X	if(phdir_list_read())
+X	{
+X		dirw_bot_msg(errmsg);
+X		return;
+X	}
+X	curr_pde = phdir_list_head;
+X	scrw_fill(curr_pde,&scrw_curr_pde_line);
+X	if(!phdir_list_quan)
+X	{
+X		dirw_bot_msg("directory empty");
+X		return;
+X	}
+X
+X}	/* end of phdir_cmd_change_dir */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_dial_cycle() - dial single destination or cycle through list
+Xreturn 1 if connect occurs, 0 if cycle expires or interrupted
+X--------------------------------------------------------------------------*/
+Xint
+Xphdir_dial_cycle()
+X{
+X	register PDE *tpde = phdir_list_head;
+X	uint ans;
+X	int nap_decisec;
+X	int rtn = 0;
+X	int restart_rcvr = need_rcvr_restart();
+X
+X	if(!tpde || !phdir_list_quan)
+X	{
+X		ring_bell();
+X		return(0);
+X	}
+X
+X	if(!pde_marked_for_redial_count)
+X	{
+X		pde_dial(curr_pde);
+X		return(!(int)iv[0]);
+X	}
+X
+X	kill_rcvr_process(SIGUSR1);
+X
+X	ff(se,"\r\nbeginning cycle through %d marked redial entr%s\r\n",
+X		pde_marked_for_redial_count,
+X		(pde_marked_for_redial_count > 1) ? "ies" : "y");
+X
+X	while(1)	/* forever until a connect or interrupt */
+X	{
+X		if(tpde->redial)
+X		{
+X			pde_dial(tpde);
+X			switch((int)iv[0])
+X			{
+X				case 0:		/* CONNECTED */
+X					tpde->redial = 0;
+X					pde_marked_for_redial_count--;
+X					bell_notify(XBELL_C);
+X					rtn = 1;
+X					goto RETURN;
+X				case 2:		/* INTERRUPTED */
+X					ff(se,"\r\ndial interrupted: abort cycle (y,n)?  ");
+X					sigint = 0;
+X					ans = 0;
+X					while(ans == 0)
+X					{
+X						switch(ans = to_lower(ttygetc(1)))
+X						{
+X							case 'y':
+X								ff(se,"YES\r\n");
+X								goto ABORT_CYCLE;
+X							case 'n':
+X								ff(se,"NO\r\n");
+X								break;
+X							default: 
+X								ring_bell();
+X								ans = 0;
+X						}
+X					}
+X					break;
+X				case 1:		/* FAILED TO CONNECT */
+X				case 3:		/* MODEM ERROR */
+X				default:
+X					if(pde_marked_for_redial_count == 1)
+X						nap_decisec = nap_decisec_single;
+X					else
+X						nap_decisec = nap_decisec_multiple;
+X					ff(se,
+X					"waiting %d seconds ... 'c' to cycle, %s to abort\r\n",
+X						nap_decisec/10,
+X						(kbdintr == DEL) ?"DEL":make_char_graphic(kbdintr,0));
+X					while(nap_decisec--)
+X					{
+X						Nap(100L);
+X						if(ttyrdchk())
+X						{
+X							ans = to_lower(ttygetc(1));
+X							ttyflush(0);
+X							if(ans == 'c')
+X								goto CONTINUE_CYCLE;
+X							else if(ans == kbdintr)
+X								goto ABORT_CYCLE;
+X							else
+X								ring_bell();
+X						}
+X						if(sigint)
+X							goto ABORT_CYCLE;
+X					}
+X					break;
+X			}
+X		}
+XCONTINUE_CYCLE:
+X		tpde = tpde->next;
+X		if(!tpde)
+X			tpde = phdir_list_head;
+X	}
+X
+XABORT_CYCLE:
+X	sigint = 0;
+X	ff(se,"redial cycle ABORTED\r\n");
+X
+XRETURN:
+X	if(restart_rcvr)
+X		start_rcvr_process(1);
+X
+X	return(rtn);
+X
+X}	/* end of phdir_dial_cycle */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_cmd_set_wait()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_cmd_set_wait()
+X{
+X	char buf[64];
+X	uchar delim = 0;
+X	int y,x;
+X	int wgpos = -1;
+X
+X	dirw_bot_msg("ESC: abort  ^U: erase input");
+X	sprintf(buf,"(Must be greater than or equal to %d seconds)",
+X		NAP_DECISEC_SINGLE_MIN / 10);
+X	dirw_cmd_line_setup(buf,"Wait between dials when one entry marked:");
+X	getyx(dirw,y,x);
+X	sprintf(buf,"%d",nap_decisec_single / 10);
+X	wstandout(dirw);
+X	wgpos = strlen(buf);
+X	while((delim != ESC) && (delim != NL))
+X		(void)wingets(dirw,y,x,buf,3+1,&delim,1,&wgpos);
+X	wstandend(dirw);
+X	if((!strlen(buf)) || (delim == ESC))
+X	{
+X		dirw_bot_msg("");
+X		return;
+X	}
+X	nap_decisec_single = 0;
+X	sscanf(buf,"%d",&nap_decisec_single);
+X	nap_decisec_single *= 10;
+X	if(nap_decisec_single <  NAP_DECISEC_SINGLE_MIN)
+X		nap_decisec_single = NAP_DECISEC_SINGLE_MIN;
+X	dirw_display_config();
+X
+X	sprintf(buf,"(Must be greater than or equal to %d seconds)",
+X		NAP_DECISEC_MULTIPLE_MIN / 10);
+X	dirw_cmd_line_setup(buf,"Wait between dials when multiple entries marked:");
+X	getyx(dirw,y,x);
+X	sprintf(buf,"%d",nap_decisec_multiple / 10);
+X	wstandout(dirw);
+X	wgpos = strlen(buf);
+X	delim = 0;
+X	while((delim != ESC) && (delim != NL))
+X		(void)wingets(dirw,y,x,buf,3+1,&delim,1,&wgpos);
+X	wstandend(dirw);
+X	if((!strlen(buf)) || (delim == ESC))
+X	{
+X		dirw_bot_msg("");
+X		return;
+X	}
+X	nap_decisec_multiple = 0;
+X	sscanf(buf,"%d",&nap_decisec_multiple);
+X	nap_decisec_multiple *= 10;
+X	if(nap_decisec_multiple <  NAP_DECISEC_MULTIPLE_MIN)
+X		nap_decisec_multiple = NAP_DECISEC_MULTIPLE_MIN;
+X	dirw_display_config();
+X
+X	dirw_bot_msg("");
+X
+X}	/* end of phdir_cmd_set_wait */
+X
+X/*+-------------------------------------------------------------------------
+X	phdir_manager()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphdir_manager()
+X{
+X	register uchar cmd = 0;
+X	int done;
+X	char s80[80];
+X	int restart_rcvr = need_rcvr_restart();
+X
+X	kill_rcvr_process(SIGUSR1);
+X
+X	windows_start();
+X	dirw = window_create("dialing directory",3,0,0,DIRW_LINES,DIRW_COLS);
+X	phonedir_name_x = 26;	/* must be set before calling dirw_display */
+X	dirw_display();
+X
+X	scrw = subwin(dirw,SCRW_LINES,SCRW_COLS,SCRW_TLY,SCRW_TLX);
+X	scrollok(scrw,0);
+X	if(!phdir_list_quan)
+X	{
+X		if(phdir_list_read())
+X			dirw_bot_msg(errmsg);
+X		else if(!phdir_list_quan)
+X			dirw_bot_msg("directory empty");
+X	}
+X
+X	if(phdir_list_quan)
+X	{
+X		if(curr_pde)
+X			scrw_fill_at(scrw_curr_pde_line,curr_pde,&scrw_curr_pde_line);
+X		else
+X		{
+X			curr_pde = phdir_list_head;
+X			scrw_fill(curr_pde,&scrw_curr_pde_line);
+X		}
+X	}
+X
+X	phdir_list_set_dirty(-1);
+X
+X	done = 0;
+X	while(!done)
+X	{
+X		cmd = dirw_get_cmd();
+X		if((cmd != 'o') && (remove_pde))
+X		{
+X			free((char *)remove_pde);
+X			remove_pde = (PDE *)0;
+X		}
+X
+X		switch(cmd)
+X		{
+X			case XFcurdn:
+X			case 'd':
+X			case 'j': phdir_cmd_down(); break;
+X
+X			case XFcurup:
+X			case 'u':
+X			case 'k': phdir_cmd_up(); break;
+X
+X			case 's': phdir_cmd_save(); break;
+X
+X			case 'm': phdir_cmd_mark(curr_pde); break;
+X			case 'M': phdir_cmd_unmark(curr_pde); break;
+X			case 'U': phdir_cmd_unmark_all(); break;
+X			case 'c': phdir_cmd_change_dir(); break;
+X
+X			case 'w': phdir_cmd_set_wait(); break;
+X
+X			case CRET:
+X			case NL:
+X			case XFend:
+X				cmd = NL;
+X				if(!check_curr_pde())
+X					break;
+X				phdir_list_save_if_dirty();
+X				wrefresh(dirw);
+X				delwin(scrw);
+X				delwin(dirw);
+X				windows_end(1);
+X				dirw = (WINDOW *)0;
+X				scrw = (WINDOW *)0;
+X				phdir_dial_cycle();
+X				done = 1;
+X				if(restart_rcvr)
+X					start_rcvr_process(1);
+X				break;
+X
+X			case ESC:
+X			case CTL_C:
+X				cmd = 'q';
+X			case 'q':
+X				done = 1;
+X				continue;
+X
+X			case '/':
+X			case 'f': phdir_cmd_find(); break;
+X
+X			case 'r': phdir_cmd_remove(); break;
+X			case 'o': phdir_cmd_remove_oops(); break;
+X
+X			case 'a': phdir_cmd_add((PDE *)0); break;
+X
+X			case 'e': phdir_add_or_edit(curr_pde,1); break;
+X
+X			case CTL_L:
+X			case CTL_R:
+X				touchwin(stdscr);
+X				wrefresh(stdscr);
+X				touchwin(dirw);
+X				wrefresh(dirw);
+X				touchwin(scrw);
+X				wrefresh(scrw);
+X				break;
+X
+X			default:
+X				sprintf(s80,"invalid command: %s",
+X					(cmd < 0x80) ? make_char_graphic(cmd,0) : "?");
+X				ring_bell();
+X				dirw_bot_msg(s80);
+X				break;
+X		}
+X	}
+X	sigint = 0;
+X	if(cmd == NL)
+X		return;
+X
+X	phdir_list_save_if_dirty();
+X	wrefresh(dirw);
+X	delwin(scrw);
+X	delwin(dirw);
+X	windows_end(0);
+X	dirw = (WINDOW *)0;
+X	scrw = (WINDOW *)0;
+X	redisplay_rcvr_screen();
+X
+X	if(restart_rcvr)
+X		start_rcvr_process(0);
+X
+X}	/* end of phdir_manager */
+X
+X/* end of ecuphone.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecuphdir.c ||
+echo 'restore of ecuphdir.c failed'
+Wc_c="`wc -c < 'ecuphdir.c'`"
+test 46641 -eq "$Wc_c" ||
+	echo 'ecuphdir.c: original size 46641, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuphrase.c ==============
+if test -f 'ecuphrase.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuphrase.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuphrase.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuphrase.c' &&
+X/*+-----------------------------------------------------------------
+X	ecuphrases.c - %# phrase management
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	phrase_help()
+X	phrases(nargc,nargv)
+X	read_phrases()
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X
+X#define P_N_QUAN	23
+Xchar *phrases_string[P_N_QUAN];
+SHAR_EOF
+true || echo 'restore of ecuphrase.c failed'
+fi
+echo 'End of ecu320 part 10'
+echo 'File ecuphrase.c is continued in part 11'
+echo 11 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

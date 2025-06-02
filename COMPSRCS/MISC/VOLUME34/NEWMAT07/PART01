@@ -1,0 +1,1785 @@
+Newsgroups: comp.sources.misc
+From: robertd@kauri.vuw.ac.nz (Robert Davies)
+Subject: v34i107:  newmat07 - A matrix package in C++, Part01/08
+Message-ID: <csm-v34i107=newmat07.092706@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 17be861d78211877536dd045e4561a2f
+Date: Mon, 11 Jan 1993 15:28:23 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: robertd@kauri.vuw.ac.nz (Robert Davies)
+Posting-number: Volume 34, Issue 107
+Archive-name: newmat07/part01
+Environment: C++
+Supersedes: newmat06: Volume 34, Issue 7-13
+
+   Newmat is an experimental  matrix  package in  C++.  It supports  
+matrix types: Matrix, UpperTriangularMatrix, LowerTriangularMatrix, 
+DiagonalMatrix, SymmetricMatrix, RowVector, ColumnVector, BandMatrix,
+UpperBandMatrix, LowerBandMatrix and SymmetricBandMatrix.   Only one 
+element type (float or double) is supported.
+
+   The package includes the operations *, +, -, (defined as operators)
+inverse, transpose, conversion between types, submatrix, determinant,
+Cholesky decomposition, Householder triangularisation, singular value
+decomposition, eigenvalues of a symmetric matrix, sorting, fast Fourier
+transform, printing, an interface with "Numerical Recipes in C" and an
+emulation of exceptions.
+
+   It is intended for matrices in the range 15 x 15 up to the size your
+computer can store in one block.
+------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 8)."
+# Contents:  example.cxx newmata.txt readme
+# Wrapped by robert@kea on Sun Jan 10 23:57:09 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'example.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example.cxx'\"
+else
+echo shar: Extracting \"'example.cxx'\" \(9543 characters\)
+sed "s/^X//" >'example.cxx' <<'END_OF_FILE'
+X//$$ example.cxx                             Example of use of matrix package
+X
+X#define WANT_STREAM                  // include.h will get stream fns
+X#define WANT_MATH                    // include.h will get math fns
+X
+X#include "include.h"                 // include standard files
+X
+X#include "newmatap.h"                // need matrix applications
+X
+XReal t3(Real);                       // round to 3 decimal places
+X
+X
+X// demonstration of matrix package on linear regression problem
+X
+X
+Xvoid test1(Real* y, Real* x1, Real* x2, int nobs, int npred)
+X{
+X   cout << "\n\nTest 1 - traditional\n";
+X
+X   // traditional sum of squares and products method of calculation
+X   // with subtraction of means
+X
+X   // make matrix of predictor values
+X   Matrix X(nobs,npred);
+X
+X   // load x1 and x2 into X
+X   //    [use << rather than = with submatrices and/or loading arrays]
+X   X.Column(1) << x1;  X.Column(2) << x2;
+X
+X   // vector of Y values
+X   ColumnVector Y(nobs); Y << y;
+X
+X   // make vector of 1s
+X   ColumnVector Ones(nobs); Ones = 1.0;
+X
+X   // calculate means (averages) of x1 and x2 [ .t() takes transpose]
+X   RowVector M = Ones.t() * X / nobs;
+X
+X   // and subtract means from x1 and x1
+X   Matrix XC(nobs,npred);
+X   XC = X - Ones * M;
+X
+X   // do the same to Y [need "Real" to convert 1x1 matrix to scalar]
+X   ColumnVector YC(nobs);
+X   Real m = (Ones.t() * Y).AsScalar() / nobs;  YC = Y - Ones * m;
+X
+X   // form sum of squares and product matrix
+X   //    [use << rather than = for copying Matrix into SymmetricMatrix]
+X   SymmetricMatrix SSQ; SSQ << XC.t() * XC;
+X
+X   // calculate estimate
+X   //    [bracket last two terms to force this multiplication first]
+X   //    [ .i() means inverse, but inverse is not explicity calculated]
+X   ColumnVector A = SSQ.i() * (XC.t() * YC);
+X
+X   // calculate estimate of constant term
+X   Real a = m - (M * A).AsScalar();
+X
+X   // Get variances of estimates from diagonal elements of invoice of SSQ
+X   //    [ we are taking inverse of SSQ; would have been better to use
+X   //        CroutMatrix method - see documentation ]
+X   Matrix ISSQ = SSQ.i(); DiagonalMatrix D; D << ISSQ;
+X   ColumnVector V = D.AsColumn();
+X   Real v = 1.0/nobs + (M * ISSQ * M.t()).AsScalar();
+X					    // for calc variance const
+X
+X   // Calculate fitted values and residuals
+X   int npred1 = npred+1;
+X   ColumnVector Fitted = X * A + a;
+X   ColumnVector Residual = Y - Fitted;
+X   Real ResVar = Residual.SumSquare() / (nobs-npred1);
+X
+X   // Get diagonals of Hat matrix (an expensive way of doing this)
+X   Matrix X1(nobs,npred1); X1.Column(1)<<Ones; X1.Columns(2,npred1)<<X;
+X   DiagonalMatrix Hat;  Hat << X1 * (X1.t() * X1).i() * X1.t();
+X
+X   // print out answers
+X   cout << "\nEstimates and their standard errors\n\n";
+X   cout << a <<"\t"<< sqrt(v*ResVar) << "\n";
+X   for (int i=1; i<=npred; i++)
+X   cout << A(i) <<"\t"<< sqrt(V(i)*ResVar) << "\n";
+X   cout << "\nObservations, fitted value, residual value, hat value\n";
+X   for (i=1; i<=nobs; i++)
+X      cout << X(i,1) <<"\t"<< X(i,2) <<"\t"<< Y(i) <<"\t"<<
+X      t3(Fitted(i)) <<"\t"<< t3(Residual(i)) <<"\t"<< t3(Hat(i)) <<"\n";
+X   cout << "\n\n";
+X}
+X
+Xvoid test2(Real* y, Real* x1, Real* x2, int nobs, int npred)
+X{
+X   cout << "\n\nTest 2 - Cholesky\n";
+X
+X   // traditional sum of squares and products method of calculation
+X   // with subtraction of means - using Cholesky decomposition
+X
+X   Matrix X(nobs,npred);
+X   X.Column(1) << x1;  X.Column(2) << x2;
+X   ColumnVector Y(nobs); Y << y;
+X   ColumnVector Ones(nobs); Ones = 1.0;
+X   RowVector M = Ones.t() * X / nobs;
+X   Matrix XC(nobs,npred);
+X   XC = X - Ones * M;
+X   ColumnVector YC(nobs);
+X   Real m = (Ones.t() * Y).AsScalar() / nobs;  YC = Y - Ones * m;
+X   SymmetricMatrix SSQ; SSQ << XC.t() * XC;
+X
+X   // Cholesky decomposition of SSQ
+X   LowerTriangularMatrix L = Cholesky(SSQ);
+X
+X   // calculate estimate
+X   ColumnVector A = L.t().i() * (L.i() * (XC.t() * YC));
+X
+X   // calculate estimate of constant term
+X   Real a = m - (M * A).AsScalar();
+X
+X   // Get variances of estimates from diagonal elements of invoice of SSQ
+X   DiagonalMatrix D; D << L.t().i() * L.i();
+X   ColumnVector V = D.AsColumn();
+X   Real v = 1.0/nobs + (L.i() * M.t()).SumSquare();
+X
+X   // Calculate fitted values and residuals
+X   int npred1 = npred+1;
+X   ColumnVector Fitted = X * A + a;
+X   ColumnVector Residual = Y - Fitted;
+X   Real ResVar = Residual.SumSquare() / (nobs-npred1);
+X
+X   // Get diagonals of Hat matrix (an expensive way of doing this)
+X   Matrix X1(nobs,npred1); X1.Column(1)<<Ones; X1.Columns(2,npred1)<<X;
+X   DiagonalMatrix Hat;  Hat << X1 * (X1.t() * X1).i() * X1.t();
+X
+X   // print out answers
+X   cout << "\nEstimates and their standard errors\n\n";
+X   cout << a <<"\t"<< sqrt(v*ResVar) << "\n";
+X   for (int i=1; i<=npred; i++)
+X      cout << A(i) <<"\t"<< sqrt(V(i)*ResVar) << "\n";
+X   cout << "\nObservations, fitted value, residual value, hat value\n";
+X   for (i=1; i<=nobs; i++)
+X      cout << X(i,1) <<"\t"<< X(i,2) <<"\t"<< Y(i) <<"\t"<<
+X      t3(Fitted(i)) <<"\t"<< t3(Residual(i)) <<"\t"<< t3(Hat(i)) <<"\n";
+X   cout << "\n\n";
+X}
+X
+Xvoid test3(Real* y, Real* x1, Real* x2, int nobs, int npred)
+X{
+X   cout << "\n\nTest 3 - Householder triangularisation\n";
+X
+X   // Householder triangularisation method
+X 
+X   // load data - 1s into col 1 of matrix
+X   int npred1 = npred+1;
+X   Matrix X(nobs,npred1); ColumnVector Y(nobs);
+X   X.Column(1) = 1.0;  X.Column(2) << x1;  X.Column(3) << x2;  Y << y;
+X
+X   // do Householder triangularisation
+X   // no need to deal with constant term separately
+X   Matrix XT = X.t();             // Want data to be along rows
+X   RowVector YT = Y.t();
+X   LowerTriangularMatrix L; RowVector M;
+X   HHDecompose(XT, L); HHDecompose(XT, YT, M); // YT now contains resids
+X   ColumnVector A = L.t().i() * M.t();
+X   ColumnVector Fitted = X * A;
+X   Real ResVar = YT.SumSquare() / (nobs-npred1);
+X
+X   // get variances of estimates
+X   L = L.i(); DiagonalMatrix D; D << L.t() * L;
+X
+X   // Get diagonals of Hat matrix
+X   DiagonalMatrix Hat;  Hat << XT.t() * XT;
+X
+X   // print out answers
+X   cout << "\nEstimates and their standard errors\n\n";
+X   for (int i=1; i<=npred1; i++)
+X      cout << A(i) <<"\t"<< sqrt(D(i)*ResVar) << "\n";
+X   cout << "\nObservations, fitted value, residual value, hat value\n";
+X   for (i=1; i<=nobs; i++)
+X      cout << X(i,2) <<"\t"<< X(i,3) <<"\t"<< Y(i) <<"\t"<<
+X      t3(Fitted(i)) <<"\t"<< t3(YT(i)) <<"\t"<< t3(Hat(i)) <<"\n";
+X   cout << "\n\n";
+X}
+X
+Xvoid test4(Real* y, Real* x1, Real* x2, int nobs, int npred)
+X{
+X   cout << "\n\nTest 4 - singular value\n";
+X
+X   // Singular value decomposition method
+X 
+X   // load data - 1s into col 1 of matrix
+X   int npred1 = npred+1;
+X   Matrix X(nobs,npred1); ColumnVector Y(nobs);
+X   X.Column(1) = 1.0;  X.Column(2) << x1;  X.Column(3) << x2;  Y << y;
+X
+X   // do SVD
+X   Matrix U, V; DiagonalMatrix D;
+X   SVD(X,D,U,V);                              // X = U * D * V.t()
+X   ColumnVector Fitted = U.t() * Y;
+X   ColumnVector A = V * ( D.i() * Fitted );
+X   Fitted = U * Fitted;
+X   ColumnVector Residual = Y - Fitted;
+X   Real ResVar = Residual.SumSquare() / (nobs-npred1);
+X
+X   // get variances of estimates
+X   D << V * (D * D).i() * V.t();
+X
+X   // Get diagonals of Hat matrix
+X   DiagonalMatrix Hat;  Hat << U * U.t();
+X
+X   // print out answers
+X   cout << "\nEstimates and their standard errors\n\n";
+X   for (int i=1; i<=npred1; i++)
+X      cout << A(i) <<"\t"<< sqrt(D(i)*ResVar) << "\n";
+X   cout << "\nObservations, fitted value, residual value, hat value\n";
+X   for (i=1; i<=nobs; i++)
+X      cout << X(i,2) <<"\t"<< X(i,3) <<"\t"<< Y(i) <<"\t"<<
+X      t3(Fitted(i)) <<"\t"<< t3(Residual(i)) <<"\t"<< t3(Hat(i)) <<"\n";
+X   cout << "\n\n";
+X}
+X
+Xmain()
+X{
+X   cout << "\nDemonstration of Matrix package\n\n";
+X
+X   // Test for any memory not deallocated after running this program
+X   Real* s1; { ColumnVector A(8000); s1 = A.Store(); }
+X
+X   {
+X      // the data
+X
+X#ifndef ATandT
+X      Real y[]  = { 8.3, 5.5, 8.0, 8.5, 5.7, 4.4, 6.3, 7.9, 9.1 };
+X      Real x1[] = { 2.4, 1.8, 2.4, 3.0, 2.0, 1.2, 2.0, 2.7, 3.6 };
+X      Real x2[] = { 1.7, 0.9, 1.6, 1.9, 0.5, 0.6, 1.1, 1.0, 0.5 };
+X#else             // for compilers that don't understand aggregrates
+X      Real y[9], x1[9], x2[9];
+X      y[0]=8.3; y[1]=5.5; y[2]=8.0; y[3]=8.5; y[4]=5.7;
+X      y[5]=4.4; y[6]=6.3; y[7]=7.9; y[8]=9.1;
+X      x1[0]=2.4; x1[1]=1.8; x1[2]=2.4; x1[3]=3.0; x1[4]=2.0;
+X      x1[5]=1.2; x1[6]=2.0; x1[7]=2.7; x1[8]=3.6;
+X      x2[0]=1.7; x2[1]=0.9; x2[2]=1.6; x2[3]=1.9; x2[4]=0.5;
+X      x2[5]=0.6; x2[6]=1.1; x2[7]=1.0; x2[8]=0.5;
+X#endif
+X
+X      int nobs = 9;                           // number of observations
+X      int npred = 2;                          // number of predictor values
+X
+X      // we want to find the values of a,a1,a2 to give the best
+X      // fit of y[i] with a0 + a1*x1[i] + a2*x2[i]
+X      // Also print diagonal elements of hat matrix, X*(X.t()*X).i()*X.t()
+X
+X      // this example demonstrates four methods of calculation
+X
+X      Try
+X      {
+X         test1(y, x1, x2, nobs, npred);
+X         test2(y, x1, x2, nobs, npred);
+X         test3(y, x1, x2, nobs, npred);
+X         test4(y, x1, x2, nobs, npred);
+X      }
+X      Catch(DataException) { cout << "\nInvalid data\n"; }
+X      Catch(SpaceException) { cout << "\nMemory exhausted\n"; }
+X      CatchAll { cout << "\nUnexpected program failure\n"; }
+X   }
+X
+X#ifdef DO_FREE_CHECK
+X   FreeCheck::Status();
+X#endif
+X   Real* s2; { ColumnVector A(8000); s2 = A.Store(); }
+X   cout << "\n\nChecking for lost memory: "
+X      << (unsigned long)s1 << " " << (unsigned long)s2 << " ";
+X   if (s1 != s2) cout << " - error\n"; else cout << " - ok\n";
+X
+X   return 0;
+X
+X}
+X
+XReal t3(Real r) { return int(r*1000) / 1000.0; }
+END_OF_FILE
+if test 9543 -ne `wc -c <'example.cxx'`; then
+    echo shar: \"'example.cxx'\" unpacked with wrong size!
+fi
+# end of 'example.cxx'
+fi
+if test -f 'newmata.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmata.txt'\"
+else
+echo shar: Extracting \"'newmata.txt'\" \(48103 characters\)
+sed "s/^X//" >'newmata.txt' <<'END_OF_FILE'
+X//$$ newmata.txt                                   Documentation file
+X
+X
+X   Documentation for newmat07, an experimental matrix package in C++.
+X   ==================================================================
+X
+X
+XMATRIX PACKAGE                                          1 January, 1993
+X
+XCopyright (C) 1991,2,3: R B Davies
+X
+XPermission is granted to use but not to sell.
+X
+X
+XContents
+X========
+X
+XGeneral description
+XIs this the package you need?
+XChanges
+XWhere you can get a copy of this package
+XCompiler performance
+XExample
+XDetailed documentation
+X   Customising
+X   Constructors
+X   Elements of matrices
+X   Matrix copy
+X   Entering values
+X   Unary operators
+X   Binary operators
+X   Combination of a matrix and scalar
+X   Scalar functions of matrices
+X   Submatrix operations
+X   Change dimensions
+X   Change type
+X   Multiple matrix solve
+X   Memory management
+X   Efficiency
+X   Output
+X   Accessing matrices of unspecified type
+X   Cholesky decomposition
+X   Householder triangularisation
+X   Singular Value Decomposition
+X   Eigenvalues
+X   Sorting
+X   Fast Fourier Transform
+X   Interface to Numerical Recipes in C
+X   Exceptions
+X   Clean up following an exception
+XList of files
+XProblem report form
+X
+X
+X---------------------------------------------------------------------------
+X
+X
+XGeneral description
+X===================
+X
+XThe package is intented for scientists and engineers who need to
+Xmanipulate a variety of types of matrices using standard matrix
+Xoperations. Emphasis is on the kind of operations needed in statistical
+Xcalculations such as least squares, linear equation solve and
+Xeigenvalues.
+X
+XIt supports matrix types
+X
+X    Matrix                       (rectangular matrix)
+X    nricMatrix                   (variant of rectangular matrix)
+X    UpperTriangularMatrix
+X    LowerTriangularMatrix
+X    DiagonalMatrix
+X    SymmetricMatrix
+X    BandMatrix
+X    UpperBandMatrix              (upper triangular band matrix)
+X    LowerBandMatrix              (lower triangular band matrix)
+X    SymmetricBandMatrix
+X    RowVector                    (derived from Matrix)
+X    ColumnVector                 (derived from Matrix).
+X
+XOnly one element type (float or double) is supported.
+X
+XThe package includes the operations *, +, -, inverse, transpose,
+Xconversion between types, submatrix, determinant, Cholesky
+Xdecomposition, Householder triangularisation, singular value
+Xdecomposition, eigenvalues of a symmetric matrix, sorting, fast fourier
+Xtransform, printing and an interface with "Numerical Recipes in C".
+X
+XIt is intended for matrices in the range 15 x 15 to the maximum size
+Xyour machine will accomodate in a single array. For example 90 x 90 (125
+Xx 125 for triangular matrices) in machines that have 8192 doubles as the
+Xmaximum size of an array. The number of elements in an array cannot
+Xexceed the maximum size of an "int". The package will work for very
+Xsmall matrices but becomes rather inefficient.
+X
+XA two-stage approach to evaluating matrix expressions is used to improve
+Xefficiency and reduce use of temporary storage.
+X
+XThe package is designed for version 2 or 3 of C++. It works with Borland
+X(3.1) and Microsoft (7.0) C++ on a PC and AT&T C++ (2.1 & 3) and Gnu C++
+X(2.2). It works with some problems with Zortech C++ (version 3.04).
+X
+X
+X---------------------------------------------------------------------------
+X
+X
+XIs this the package you need?
+X=============================
+X
+XDo you
+X
+X1.   need matrix operators such as * and + defined as operators so you
+X     can write things like
+X
+X        X  = A * (B + C);
+X
+X2.   need a variety of types of matrices
+X
+X3.   need only one element type (float or double)
+X
+X4.   work with matrices in the range 10 x 10 up to what can be stored in
+X     one memory block
+X
+X5.   tolerate a large package
+X
+X
+XThen maybe this is the right package for you. 
+X
+XIf you don't need (1) then there may be better options. Likewise if you
+Xdon't need (2) there may be better options. If you require "not (5)"
+Xthen this is not the package for you.
+X
+X
+XIf you need (2) and "not (3)" and have some spare money, then maybe you
+Xshould look at M++ from Dyad [phone in the USA (800)366-1573,
+X(206)637-9427, fax (206)637-9428], or the Rogue Wave matrix package
+X[(800)487-3217, (503)754-3010, fax (503)757-6650].
+X
+X
+XIf you need not (4); that is very large matrices that will need to be
+Xstored on disk, there is a package YAMP on CompuServe under the Borland
+XC++ library that might be of interest.
+X
+X
+XDetails of some other free C or C++ matrix packages follow - extracted
+Xfrom the list assembled by ajayshah@usc.edu.
+X
+XName: SPARSE
+XWhere: in sparse on Netlib
+XDescription: library for LU factorisation for large sparse matrices 
+XAuthor: Ken Kundert, Alberto Sangiovanni-Vincentelli,
+X     sparse@ic.berkeley.edu
+X
+XName: matrix.tar.Z
+XWhere: in ftp-raimund/pub/src/Math on nestroy.wu-wien.ac.at
+X     (137.208.3.4)
+XAuthor: Paul Schmidt, TI
+XDescription: Small matrix library, including SOR, WLS
+X
+XName: matrix04.zip
+XWhere: in mirrors/msdos/c on wuarchive.wustl.edu
+XDescription: Small matrix toolbox
+X
+XName: Matrix.tar.Z
+XWhere: in pub ftp.cs.ucla.edu
+XDescription: The C++ Matrix class, including a matrix implementation of
+X     the backward error propagation (backprop) algorithm for training
+X     multi-layer, feed-forward artificial neural networks
+XAuthor: E. Robert (Bob) Tisdale, edwin@cs.ucla.edu
+X
+XName: meschach
+XWhere: in c/meschach on netlib
+XSystems: Unix, PC
+XDescription: a library for matrix computation; more functionality than
+X     Linpack; nonstandard matrices
+XAuthor: David E. Stewart, des@thrain.anu.edu.au
+XVersion: 1.0, Feb 1992
+X
+XName: nlmdl
+XWhere: in pub/arg/nlmdl at ccvr1.cc.ncsu.edu (128.109.212.20)
+XLanguage: C++
+XSystems: Unix, MS-DOS (Turbo C++)
+XDescription: a library for estimation of nonlinear models
+XAuthor: A. Ronald Gallant, arg@ccvr1.cc.ncsu.edu
+XComments: nonlinear maximisation, estimation, includes a real matrix
+X     class
+XVersion: January 1991
+X
+X
+X
+X---------------------------------------------------------------------------
+X
+X
+XChanges
+X=======
+X
+XNewmat07 - January, 1993
+X
+XMinor corrections to improve compatibility with Zortech, Microsoft and
+XGnu. Correction to exception module. Additional FFT functions. Some
+Xminor increases in efficiency. Submatrices can now be used on RHS of =.
+XOption for allowing C type subscripts. Method for loading short lists of
+Xnumbers.
+X
+X
+XNewmat06 - December 1992:
+X
+XAdded band matrices; 'real' changed to 'Real' (to avoid potential
+Xconflict in complex class); Inject doesn't check for no loss of
+Xinformation;  fixes for AT&T C++ version 3.0; real(A) becomes
+XA.AsScalar(); CopyToMatrix becomes AsMatrix, etc; .c() is no longer
+Xrequired (to be deleted in next version); option for version 2.1 or
+Xlater. Suffix for include files changed to .h; BOOL changed to Boolean
+X(BOOL doesn't work in g++ v 2.0); modfications to allow for compilers
+Xthat destroy temporaries very quickly; (Gnu users - see the section of
+Xcompiler performance). Added CleanUp, LinearEquationSolver, primitive
+Xversion of exceptions.
+X
+X
+XNewmat05 - June 1992:
+X
+XFor private release only 
+X
+X
+XNewmat04 - December 1991:
+X
+XFix problem with G++1.40, some extra documentation
+X
+X
+XNewmat03 - November 1991:
+X
+XCol and Cols become Column and Columns. Added Sort, SVD, Jacobi,
+XEigenvalues, FFT, real conversion of 1x1 matrix, "Numerical Recipes in
+XC" interface, output operations, various scalar functions. Improved
+Xreturn from functions. Reorganised setting options in "include.hxx".
+X
+X
+XNewmat02 - July 1991:
+X
+XVersion with matrix row/column operations and numerous additional
+Xfunctions.
+X
+X
+XMatrix - October 1990:
+X
+XEarly version of package.
+X
+X
+X---------------------------------------------------------------------------
+X
+X
+XHow to get a copy of this package
+X=================================
+X
+XI am putting copies on Compuserve (Borland library, zip format),
+XSIMTEL20 (MsDos library, zip format), comp.sources.misc on Internet
+X(shar format).
+X
+X
+X---------------------------------------------------------------------------
+X
+X
+XCompiler performance
+X====================
+X
+XI have tested this package on a number of compilers. Here are the levels
+Xof success with this package. In most cases I have chosen code that
+Xworks under all the compilers I have access to, but I have had to
+Xinclude some specific work-arounds for some compilers. For the MsDos
+Xversions, I use a 486dx computer running MsDos 5. The unix versions are
+Xon a Sun Sparc station or a Silicon Graphics or a HP unix workstation.
+XThanks to Victoria University and Industrial Research Ltd for access to
+Xthe Unix machines.
+X
+XA series of #defines at the beginning of "include.h" customises the
+Xpackage for the compiler you are using. Turbo, Borland, Gnu and Zortech
+Xare recognised automatically, otherwise you have to set the appropriate
+X#define statement. Activate the option for version 2.1 if you are using
+Xversion 2.1 of C++ or later.
+X
+XBorland C++ 3.1: Recently this has been my main development platform,
+Xso naturally almost everything works with this compiler. Make sure you
+Xhave the compiler option "treat enums as ints" set. There was a problem
+Xwith the library utility in version 2.0 which is now fixed. You will
+Xneed to use the large model. If you are not debugging, turn off the
+Xoptions that collect debugging information.
+X
+XMicrosoft C++ (7.0): Seems to work OK. You must #define
+XTEMPS_DESTROYED_QUICKLY owing to a bug in the current version of MSC.
+X
+XZortech C++ 3.0: "const" doesn't work correctly with this compiler, so
+Xthe package skips all of the statements Zortech can't handle. Zortech
+Xleaves rubbish on the heap. I don't know whether this is my programming
+Xerror or a Zortech error or additional printer buffers. Deactivate the
+Xoption for version 2.1 in include.h. Does not support IO manipulators.
+XOtherwise the package mostly works, but not completely. Best don't
+X#define TEMPS_DESTROYED_QUICKLY. Exceptions and the nric interface don't
+Xwork. I think the problems are because Zortech doesn't handle
+Xconversions correctly, particularly automatic conversions. Zortech runs
+Xmuch more slowly than Borland and Microsoft. Use the large model and
+Xoptimisation.
+X
+XGlockenspiel C++ (2.00a for MsDos loading into Microsoft C 5.1): I
+Xhaven't tested the latest version of my package with Glockenspiel. I had
+Xto #define the matrix names to shorter names to avoid ambiguities and
+Xhad quite a bit of difficulty stopping the compiles from running out of
+Xspace and not exceeding Microsoft's block nesting limit. A couple of my
+Xtest statements produced statements too complex for Microsoft, but
+Xbasically the package worked. This was my original development platform
+Xand I still use .cxx as my file name extensions for the C++ files.
+X
+XSun AT&T C++ 2.1;3.0: This works fine. Except aggregates are not
+Xsupported in 2.1 and setjmp.h generated a warning message. Neither
+Xcompiler would compile when I set DO_FREE_CHECK (see my file
+Xnewmatc.txt). If you are using "interviews" you may get a conflict with
+XCatch. Either #undefine Catch or replace Catch with CATCH throughout my
+Xpackage. In AT&T 2.1 you may get an error when you use an expression for
+Xthe single argument when constructing a Vector or DiagonalMatrix or one
+Xof the Triangular Matrices. You need to evaluate the expression
+Xseparately.
+X
+XGnu G++ 2.2:  This mostly works. You can't use expressions like
+XMatrix(X*Y) in the middle of an expression and (Matrix)(X*Y) is
+Xunreliable. If you write a function returning a matrix, you MUST use the
+XReturnMatrix method described in this documentation. This is because g++
+Xdestroys temporaries occuring in an expression too soon for the two
+Xstage way of evaluating expressions that newmat uses. Gnu 2.2 does seem
+Xto leave some rubbish on the stack. I suspect this is a printer buffer
+Xso it may not be a bug. There were a number of warning messages from the
+Xcompiler about my "unconstanting" constants; but I think this was just
+Xgnu being over-sensitive. Gnu 2.3.2 seems to report internal errors -
+Xthese don't seem to be consistent, different users report different
+Xexperiences; I suggest, if possible, you stick to version 2.2 until 2.3
+Xsorts itself out.
+X
+XJPI: Their second release worked on a previous version of this package
+Xprovided you disabled the smart link option - it isn't smart enough. I
+Xhaven't tested the latest version of this package.
+X
+X
+X---------------------------------------------------------------------------
+X
+XExample
+X=======
+X
+XAn example is given in  example.cxx .  This gives a simple linear
+Xregression example using four different algorithms. The correct output
+Xis given in example.txt. The program carries out a check that no memory
+Xis left allocated on the heap when it terminates.
+X
+XThe file  example.mak is a make file for compiling example.cxx under gnu g++.
+XUse the gnu make facility. You can probably adapt it for the compiler you are
+Xusing. I also include the make files for Zortech, Borland and Microsoft C -
+Xsee the list of files. Use a command like
+X
+Xgmake -f example.mak
+Xnmake -f ex_ms.mak
+Xmake -f ex_z.mak
+Xmake -f ex_b.mak
+X
+X ---------------------------------------------------------------------
+X| Don't forget to remove references to  newmat9.cxx  in the make file |
+X| if you are using a compiler that does not support the standard io   |
+X| manipulators.                                                       |
+X ---------------------------------------------------------------------
+X
+X---------------------------------------------------------------------------
+X
+X
+XDetailed Documentation
+X======================
+X
+XCopyright (C) 1989,1990,1991,1992,1993: R B Davies
+X
+XPermission is granted to use but not to sell.
+X
+X   --------------------------------------------------------------
+X  | Please understand that this is a test version; there may     |
+X  | still be bugs and errors. Use at your own risk. I take no    |
+X  | responsibility for any errors or omissions in this package   |
+X  | or for any misfortune that may befall you or others as a     |
+X  | result of its use.                                           |
+X   --------------------------------------------------------------
+X
+XPlease report bugs to me at
+X
+X    robertd@kauri.vuw.ac.nz
+X
+Xor
+X
+X    Compuserve 72777,656
+X
+XWhen reporting a bug please tell me which C++ compiler you are using (if
+Xknown), and what version. Also give me details of your computer (if
+Xknown). Tell me where you downloaded your version of my package from and
+Xits version number (eg newmat03 or newmat04). (There may be very minor
+Xdifferences between versions at different sites). Note any changes you
+Xhave made to my code. If at all possible give me a piece of code
+Xillustrating the bug.
+X
+XPlease do report bugs to me.
+X
+X
+XThe matrix inverse routine and the sort routines are adapted from
+X"Numerical Recipes in C" by Press, Flannery, Teukolsky, Vetterling,
+Xpublished by the Cambridge University Press.
+X
+XOther code is adapted from routines in "Handbook for Automatic
+XComputation, Vol II, Linear Algebra" by Wilkinson and Reinsch, published
+Xby Springer Verlag. 
+X
+X
+XCustomising
+X-----------
+X
+XI use .h as the suffix of definition files and .cxx as the suffix of
+XC++ source files. This does not cause any problems with the compilers I
+Xuse except that Borland and Turbo need to be told to accept any suffix
+Xas meaning a C++ file rather than a C file.
+X
+XUse the large model when you are using a PC. Do not "outline" inline
+Xfunctions.
+X
+XEach file accessing the matrix package needs to have file newmat.h 
+X#included  at the beginning. Files using matrix applications (Cholesky
+Xdecomposition, Householder triangularisation etc) need newmatap.h
+Xinstead (or as well). If you need the output functions you will also
+Xneed newmatio.h.
+X
+XThe file  include.h  sets the options for the compiler. If you are using
+Xa compiler different from one I have worked with you may have to set up
+Xa new section in  include.h  appropriate for your compiler.
+X
+XBorland, Turbo, Gnu, Microsoft and Zortech are recognised automatically.
+XIf you using Glockenspiel on a PC, AT&T activate the appropriate
+Xstatement at the beginning of include.h.
+X
+XActivate the appropriate statement to make the element type float or
+Xdouble.
+X
+XIf you are using version 2.1 or later of C++ make sure Version21 is
+X#defined, otherwise make sure it is not #defined.
+X
+XThe file (newmat9.cxx) containing the output routines can be used only
+Xwith libraries that support the AT&T input/output routines including
+Xmanipulators. It cannot be used with Zortech or Gnu.
+X
+XYou will need to compile all the *.cxx files except example.cxx and the
+Xtmt*.cxx files to to get the complete package. The tmt*.cxx files are
+Xused for testing and example.cxx is an example. The files tmt.mak and
+Xexample.mak are "make" files for unix systems. Edit in the correct name
+Xof compiler. This "make" file worked for me with the default "make" on
+Xthe HP unix workstation and the Sun sparc station and gmake on the
+XSilicon Graphics. With Borland and Microsoft, its pretty quick just to
+Xload all the files in the interactive environment by pointing and
+Xclicking.
+X
+XYou may need to increase the stack space size.
+X
+X
+XConstructors
+X------------
+X
+XTo construct an m x n matrix, A, (m and n are integers) use
+X
+X    Matrix A(m,n);
+X
+XThe UpperTriangularMatrix, LowerTriangularMatrix, SymmetricMatrix and
+XDiagonalMatrix types are square. To construct an n x n matrix use,
+Xfor example
+X
+X    UpperTriangularMatrix U(n);
+X
+XBand matrices need to include bandwidth information in their
+Xconstructors.
+X
+X    BandMatrix BM(n, lower, upper);
+X    UpperBandMatrix UB(n, upper);
+X    LowerBandMatrix LB(n, lower);
+X    SymmetrixBandMatrix SB(n, lower);
+X
+XThe integers upper and lower are the number of non-zero diagonals above
+Xand below the diagonal (excluding the diagonal) respectively.
+X 
+XThe RowVector and ColumnVector types take just one argument in their
+Xconstructors:
+X
+X    RowVector RV(n);
+X
+XYou can also construct vectors and matrices without specifying the
+Xdimension. For example
+X
+X    Matrix A;
+X
+XIn this case the dimension must be set by an assignment statement or a
+Xre-dimension statement.
+X
+XYou can also use a constructor to set a matrix equal to another matrix
+Xor matrix expression.
+X
+X    Matrix A = U;
+X
+X    Matrix A = U * L;
+X
+XOnly conversions that don't lose information are supported - eg you
+Xcannot convert an upper triangular matrix into a diagonal matrix using =.
+X
+X
+XElements of matrices
+X--------------------
+X
+XElements are accessed by expressions of the form A(i,j) where i and j
+Xrun from 1 to the appropriate dimension. Access elements of vectors with
+Xjust one argument. Diagonal matrices can accept one or two subscripts.
+X
+XThis is different from the earliest version of the package in which the
+Xsubscripts ran from 0 to one less than the appropriate dimension. Use
+XA.element(i,j) if you want this earlier convention.
+X
+XA(i,j) and A.element(i,j) can appear on either side of an = sign.
+X
+XIf you activate the #define SETUP_C_SUBSCRIPTS in newmat.h you can also
+Xaccess elements using the tradition C style notation. That is A[i][j]
+Xfor matrices (except diagonal) and V[i] for vectors and diagonal
+Xmatrices. The subscripts start at zero (ie like element) and there is no
+Xrange checking. Because of the possibility of confusing V(i)
+Xand V[i], I suggest you do not activate this option unless you really
+Xwant to use it. This option may not be available for Complex when this
+Xis introduced.
+X
+X
+XMatrix copy
+X-----------
+X
+XThe operator = is used for copying matrices, converting matrices, or
+Xevaluating expressions. For example
+X
+X    A = B;  A = L;  A = L * U;
+X
+XOnly conversions that don't lose information are supported. The
+Xdimensions of the matrix on the left hand side are adjusted to those of
+Xthe matrix or expression on the right hand side. Elements on the right
+Xhand side which are not present on the left hand side are set to zero.
+X
+XThe operator << can be used in place of = where it is permissible for
+Xinformation to be lost.
+X
+XFor example
+X
+X    SymmetricMatrix S; Matrix A;
+X    ......
+X    S << A.t() * A;
+X
+Xis acceptable whereas
+X
+X    S = A.t() * A;                            // error
+X
+Xwill cause a runtime error since the package does not (yet?) recognise
+XA.t()*A as symmetric.
+X
+XNote that you can not use << with constructors. For example
+X
+X    SymmetricMatrix S << A.t() * A;           // error
+X
+Xdoes not work.
+X
+XAlso note that << cannot be used to load values from a full matrix into
+Xa band matrix, since it will be unable to determine the bandwidth of the
+Xband matrix.
+X
+XA third copy routine is used in a similar role to =. Use
+X
+X    A.Inject(D);
+X
+Xto copy the elements of D to the corresponding elements of A but leave
+Xthe elements of A unchanged if there is no corresponding element of D
+X(the = operator would set them to 0). This is useful, for example, for
+Xsetting the diagonal elements of a matrix without disturbing the rest of
+Xthe matrix. Unlike = and <<, Inject does not reset the dimensions of A,
+Xwhich must match those of D. Inject does not test for no loss of
+Xinformation.
+X
+XYou cannot replace D by a matrix expression. The effect of Inject(D)
+Xdepends on the type of D. If D is an expression it might not be obvious
+Xto the user what type it would have. So I thought it best to disallow
+Xexpressions.
+X
+XInject can be used for loading values from a regular matrix into a band
+Xmatrix. (Don't forget to zero any elements of the left hand side that
+Xwill not be set by the loading operation).
+X
+XBoth << and Inject can be used with submatrix expressions on the left
+Xhand side. See the section on submatrices.
+X
+XTo set the elements of a matrix to a scalar use operator =
+X
+X    Real r; Matrix A(m,n);
+X    ......
+X    Matrix A(m,n); A = r;
+X
+X
+XEntering values
+X---------------
+X
+XYou can load the elements of a matrix from an array:
+X
+X    Matrix A(3,2);
+X    Real a[] = { 11,12,21,22,31,33 };
+X    A << a;
+X
+XThis construction cannot check that the numbers of elements match
+Xcorrectly. This version of << can be used with submatrices on the left
+Xhand side. It is not defined for band matrices.
+X
+XAlternatively you can enter short lists using a sequence of numbers
+Xseparated by << .
+X
+X    Matrix A(3,2);
+X    A << 11 << 12
+X      << 21 << 22
+X      << 31 << 32;
+X
+XThis does check for the correct total number of entries, although the
+Xmessage for there being insufficient numbers in the list may be delayed
+Xuntil the end of the block or the next use of this construction. This
+Xdoes not work for band matrices or submatrices, or for long lists. Also
+Xtry to restrict its use to numbers. You can include expressions, but
+Xthese must not call a function which includes the same construction.
+X
+X
+XUnary operators
+X---------------
+X
+XThe package supports unary operations
+X
+X    change sign of elements            -A
+X    transpose                          A.t()
+X    inverse (of square matrix A)       A.i()
+X
+X
+XBinary operations
+X-----------------
+X
+XThe package supports binary operations
+X
+X    matrix addition                    A+B
+X    matrix subtraction                 A-B
+X    matrix multiplication              A*B
+X    equation solve (square matrix A)   A.i()*B
+X
+XIn the last case the inverse is not calculated.
+X
+XNotes:
+X
+XIf you are doing repeated multiplication. For example A*B*C, use
+Xbrackets to force the order to minimize the number of operations. If C
+Xis a column vector and A is not a vector, then it will usually reduce
+Xthe number of operations to use A*(B*C) .
+X
+XThe package does not recognise B*A.i() as an equation solve. It is
+Xprobably better to use (A.t().i()*B.t()).t() .
+X
+X
+XCombination of a matrix and scalar
+X----------------------------------
+X
+XThe following expression multiplies the elements of a matrix A by a
+Xscalar f:  A * f; Likewise one can divide the elements of a matrix A by
+Xa scalar f:  A / f;
+X
+XThe expressions  A + f and A - f add or subtract a rectangular matrix of
+Xthe same dimension as A with elements equal to f to or from the matrix
+XA.
+X
+XIn each case the matrix must be the first term in the expression.
+XExpressions such  f + A  or  f * A  are not recognised.
+X
+X
+XScalar functions of matrices
+X----------------------------
+X            
+X    int m = A.Nrows();                    // number of rows
+X    int n = A.Ncols();                    // number of columns
+X    Real ssq = A.SumSquare();             // sum of squares of elements
+X    Real sav = A.SumAbsoluteValue();      // sum of absolute values
+X    Real mav = A.MaximumAbsoluteValue();  // maximum of absolute values
+X    Real norm = A.Norm1();                // maximum of sum of absolute
+X                                             values of elements of a column
+X    Real norm = A.NormInfinity();         // maximum of sum of absolute
+X                                             values of elements of a row
+X    Real t = A.Trace();                   // trace
+X    LogandSign ld = A.LogDeterminant();   // log of determinant
+X    Boolean z = A.IsZero();               // test all elements zero
+X    MatrixType mt = A.Type();             // type of matrix
+X    Real* s = Store();                    // pointer to array of elements
+X    int l = Storage();                    // length of array of elements
+X
+XA.LogDeterminant() returns a value of type LogandSign. If ld is of type 
+XLogAndSign  use
+X
+X    ld.Value()    to get the value of the determinant
+X    ld.Sign()     to get the sign of the determinant (values 1, 0, -1)
+X    ld.LogValue() to get the log of the absolute value.
+X
+XA.IsZero() returns Boolean value TRUE if the matrix A has all elements
+Xequal to 0.0.
+X
+XMatrixType mt = A.Type() returns the type of a matrix. Use (char*)mt to
+Xget a string  (UT, LT, Rect, Sym, Diag, Crout, BndLU) showing the type
+X(Vector types are returned as Rect).
+X
+XSumSquare(A), SumAbsoluteValue(A), MaximumAbsoluteValue(A), Trace(A),
+XLogDeterminant(A), Norm1(A), NormInfinity(A)  can be used in place of
+XA.SumSquare(), A.SumAbsoluteValue(), A.MaximumAbsoluteValue(),
+XA.Trace(), A.LogDeterminant(), A.Norm1(), A.NormInfinity().
+X
+X
+XSubmatrix operations
+X--------------------
+X
+XA.SubMatrix(fr,lr,fc,lc)
+X
+XThis selects a submatrix from A. the arguments  fr,lr,fc,lc  are the
+Xfirst row, last row, first column, last column of the submatrix with the
+Xnumbering beginning at 1. This may be used in any matrix expression or
+Xon the left hand side of =, << or Inject. Inject does not check no
+Xinformation loss. You can also use the construction
+X
+X    Real c; .... A.SubMatrix(fr,lr,fc,lc) = c;
+X
+Xto set a submatrix equal to a constant.
+X
+XThe follwing are variants of SubMatrix:
+X
+X    A.SymSubMatrix(f,l)             //   This assumes fr=fc and lr=lc.
+X    A.Rows(f,l)                     //   select rows
+X    A.Row(f)                        //   select single row
+X    A.Columns(f,l)                  //   select columns
+X    A.Column(f)                     //   select single column
+X
+XIn each case f and l mean the first and last row or column to be
+Xselected (starting at 1).
+X
+XIf SubMatrix or its variant occurs on the right hand side of an = or <<
+Xor within an expression its type is as follows
+X
+X    A.Submatrix(fr,lr,fc,lc):           If A is RowVector or
+X                                        ColumnVector then same type
+X                                        otherwise type Matrix
+X    A.SymSubMatrix(f,l):                Same type as A
+X    A.Rows(f,l):                        Type Matrix
+X    A.Row(f):                           Type RowVector
+X    A.Columns(f,l):                     Type Matrix
+X    A.Column(f):                        Type ColumnVector
+X
+X
+XIf SubMatrix or its variant appears on the left hand side of  = or << ,
+Xthink of its type being Matrix. Thus L.Row(1) where L is
+XLowerTriangularMatrix expects  L.Ncols()  elements even though it will
+Xuse only one of them. If you are using = the program will check for no
+Xloss of data.
+X
+X
+XChange dimensions
+X-----------------
+X
+XThe following operations change the dimensions of a matrix. The values
+Xof the elements are lost.
+X
+X    A.ReDimension(nrows,ncols);     // for type Matrix or nricMatrix
+X    A.ReDimension(n);               // for all other types, except Band
+X    A.ReDimension(n,lower,upper);   // for BandMatrix
+X    A.ReDimension(n,lower);         // for LowerBandMatrix
+X    A.ReDimension(n,upper);         // for UpperBandMatrix
+X    A.ReDimension(n,lower);         // for SymmetricBandMatrix
+X
+XUse   A.CleanUp()  to set the dimensions of A to zero and release all
+Xthe heap memory.
+X
+XRemember that ReDimension destroys values. If you want to ReDimension, but
+Xkeep the values in the bit that is left use something like
+X
+XColumnVector V(100);
+X...                            // load values
+XV = V.Rows(1,50);              // to get first 50 vlaues.
+X
+XIf you want to extend a matrix or vector use something like
+X
+XColumnVector V(50);
+X...                            // load values
+X{ V.Release(); ColumnVector X=V; V.ReDimension(100); V.Rows(1,50)=X; }
+X                               // V now length 100
+X
+X
+XChange type
+X-----------
+X
+XThe following functions interpret the elements of a matrix
+X(stored row by row) to be a vector or matrix of a different type. Actual
+Xcopying is usually avoided where these occur as part of a more
+Xcomplicated expression.
+X
+X    A.AsRow()
+X    A.AsColumn()
+X    A.AsDiagonal()
+X    A.AsMatrix(nrows,ncols)
+X    A.AsScalar()
+X
+XThe expression A.AsScalar() is used to convert a 1 x 1 matrix to a
+Xscalar.
+X
+X
+XMultiple matrix solve
+X---------------------
+X
+XIf A is a square or symmetric matrix use
+X
+X    CroutMatrix X = A;                // carries out LU decomposition
+X    Matrix AP = X.i()*P; Matrix AQ = X.i()*Q;
+X    LogAndSign ld = X.LogDeterminant();
+X
+Xrather than
+X
+X    Matrix AP = A.i()*P; Matrix AQ = A.i()*Q;
+X    LogAndSign ld = A.LogDeterminant();
+X
+Xsince each operation will repeat the LU decomposition.
+X
+XIf A is a BandMatrix or a SymmetricBandMatrix begin with
+X
+X    BandLUMatrix X = A;               // carries out LU decomposition
+X
+XA CroutMatrix or a BandLUMatrix can't be manipulated or copied. Use
+Xreferences as an alternative to copying.
+X
+XAlternatively use
+X
+X    LinearEquationSolver X = A;
+X
+XThis will choose the most appropiate decomposition of A. That is, the
+Xband form if A is banded; the Crout decomposition if A is square or
+Xsymmetric and no decomposition if A is triangular or diagonal. If you
+Xwant to use the LinearEquationSolver #include newmatap.h.
+X
+X
+XMemory management
+X-----------------
+X
+XThe package does not support delayed copy. Several strategies are
+Xrequired to prevent unnecessary matrix copies.
+X
+XWhere a matrix is called as a function argument use a constant
+Xreference. For example
+X
+X    YourFunction(const Matrix& A)
+X
+Xrather than
+X
+X    YourFunction(Matrix A)
+X
+X
+XSkip the rest of this section on your first reading.
+X
+X --------------------------------------------------------------------- 
+X|  Gnu g++ users please read on; if you are returning matrix values   |
+X|  from a function, then you must use the ReturnMatrix construct.     |
+X ---------------------------------------------------------------------
+X
+XA second place where it is desirable to avoid unnecessary copies is when
+Xa function is returning a matrix. Matrices can be returned from a
+Xfunction with the return command as you would expect. However these may
+Xincur one and possibly two copyings of the matrix. To avoid this use the
+Xfollowing instructions.
+X
+XMake your function of type  ReturnMatrix . Then precede the return
+Xstatement with a Release statement (or a ReleaseAndDelete statement if
+Xthe matrix was created with new). For example
+X
+X
+X    ReturnMatrix MakeAMatrix()
+X    {
+X       Matrix A;
+X       ......
+X       A.Release(); return A;
+X    }
+X
+Xor
+X
+X    ReturnMatrix MakeAMatrix()
+X    {
+X       Matrix* m = new Matrix;
+X       ......
+X       m->ReleaseAndDelete(); return *m;
+X    }
+X
+X
+XIf you are using AT&T C++ you may wish to replace  return A; by
+Xreturn (ReturnMatrix)A;  to avoid a warning message.
+X
+X 
+X --------------------------------------------------------------------- 
+X| Do not forget to make the function of type ReturnMatrix; otherwise  |
+X| you may get incomprehensible run-time errors.                       |
+X --------------------------------------------------------------------- 
+X
+XYou can also use .Release() or ->ReleaseAndDelete() to allow a matrix
+Xexpression to recycle space. Suppose you call
+X
+X    A.Release();
+X
+Xjust before A is used just once in an expression. Then the memory used
+Xby A is either returned to the system or reused in the expression. In
+Xeither case, A's memory is destroyed. This procedure can be used to
+Ximprove efficiency and reduce the use of memory.
+X
+XUse ->ReleaseAndDelete for matrices created by new if you want to
+Xcompletely delete the matrix after it is accessed.
+X
+X
+XEfficiency
+X----------
+X
+XThe package tends to be not very efficient for dealing with matrices
+Xwith short rows. This is because some administration is required for
+Xaccessing rows for a variety of types of matrices. To reduce the
+Xadministration a special multiply routine is used for rectangular
+Xmatrices in place of the generic one. Where operations can be done
+Xwithout reference to the individual rows (such as adding matrices of the
+Xsame type) appropriate routines are used.
+X
+XWhen you are using small matrices (say smaller than 10 x 10) you may
+Xfind it a little faster to use rectangular matrices rather than the
+Xtriangular or symmetric ones.
+X
+X
+XOutput
+X------
+X
+XTo print a matrix use an expression like
+X
+X    Matrix A;
+X    ......
+X    cout << setw(10) << setprecision(5) << A;
+X
+XThis will work only with systems that support the AT&T input/output
+Xroutines including manipulators.
+X
+X
+XAccessing matrices of unspecified type
+X--------------------------------------
+X
+XSkip this section on your first reading.
+X
+XSuppose you wish to write a function which accesses a matrix of unknown
+Xtype including expressions (eg A*B). Then use a layout similar to the
+Xfollowing:
+X
+X   void YourFunction(BaseMatrix& X)
+X   {
+X      GeneralMatrix* gm = X.Evaluate();   // evaluate an expression
+X                                          // if necessary
+X      ........                            // operations on *gm
+X      gm->tDelete();                      // delete *gm if a temporary
+X   }
+X
+XSee, as an example, the definitions of operator<< in newmat9.cxx.
+X
+XUnder certain circumstances; particularly where X is to be used just
+Xonce in an expression you can leave out the Evaluate() statement and the
+Xcorresponding tDelete(). Just use X in the expression.
+X
+XIf you know YourFunction will never have to handle a formula as its
+Xargument you could also use
+X
+X   void YourFunction(const GeneralMatrix& X)
+X   {
+X      ........                            // operations on X
+X   }
+X
+X
+XCholesky decomposition
+X----------------------
+X
+XSuppose S is symmetric and positive definite. Then there exists a unique
+Xlower triangular matrix L such that L * L.t() = S. To calculate this use
+X
+X    SymmetricMatrix S;
+X    ......
+X    LowerTriangularMatrix L = Cholesky(S);
+X
+XIf S is a symmetric band matrix then L is a band matrix and an
+Xalternative procedure is provied for carrying out the decomposition:
+X
+X    SymmetricBandMatrix S;
+X    ......
+X    LowerBandMatrix L = Cholesky(S);
+X
+X
+XHouseholder triangularisation
+X-----------------------------
+X
+XStart with matrix
+X
+X       / X    0 \      s
+X       \ Y    0 /      t
+X
+X         n    s
+X
+XThe Householder triangularisation post multiplies by an orthogonal
+Xmatrix Q such that the matrix becomes
+X
+X       / 0    L \      s
+X       \ Z    M /      t
+X
+X         n    s
+X
+Xwhere L is lower triangular. Note that X is the transpose of the matrix
+Xsometimes considered in this context.
+X
+XThis is good for solving least squares problems: choose b (matrix or row
+Xvector) to minimize the sum of the squares of the elements of
+X
+X         Y - b*X
+X
+XThen choose b = M * L.i();
+X
+XTwo routines are provided:
+X
+X    HHDecompose(X, L);
+X
+Xreplaces X by orthogonal columns and forms L.
+X
+X    HHDecompose(X, Y, M);
+X
+Xuses X from the first routine, replaces Y by Z and forms M.
+X
+X
+XSingular Value Decomposition
+X----------------------------
+X
+XThe singular value decomposition of an m x n matrix A ( where m >= n) is
+Xa decomposition
+X
+X    A  = U * D * V.t()
+X
+Xwhere U is m x n with  U.t() * U  equalling the identity, D is an n x n
+Xdiagonal matrix and V is an n x n orthogonal matrix.
+X
+XSingular value decompositions are useful for understanding the structure
+Xof ill-conditioned matrices, solving least squares problems, and for
+Xfinding the eigenvalues of A.t() * A.
+X
+XTo calculate the singular value decomposition of A (with m >= n) use one
+Xof
+X
+X    SVD(A, D, U, V);                  // U (= A is OK)
+X    SVD(A, D);
+X    SVD(A, D, U);                     // U (= A is OK)
+X    SVD(A, D, U, FALSE);              // U (can = A) for workspace only
+X    SVD(A, D, U, V, FALSE);           // U (can = A) for workspace only
+X
+XThe values of A are not changed unless A is also inserted as the third
+Xargument.
+X
+X
+XEigenvalues
+X-----------
+X
+XAn eigenvalue decomposition of a symmetric matrix A is a decomposition
+X
+X    A  = V * D * V.t()
+X
+Xwhere V is an orthogonal matrix and D is a diagonal matrix.
+X
+XEigenvalue analyses are used in a wide variety of engineering,
+Xstatistical and other mathematical analyses.
+X
+XThe package includes two algorithms: Jacobi and Householder. The first
+Xis extremely reliable but much slower than the second.
+X
+XThe code is adapted from routines in "Handbook for Automatic
+XComputation, Vol II, Linear Algebra" by Wilkinson and Reinsch, published
+Xby Springer Verlag. 
+X
+X
+X    Jacobi(A,D,S,V);                  // A, S symmetric; S is workspace,
+X                                      //    S = A is OK
+X    Jacobi(A,D);                      // A symmetric
+X    Jacobi(A,D,S);                    // A, S symmetric; S is workspace,
+X                                      //    S = A is OK
+X    Jacobi(A,D,V);                    // A symmetric
+X
+X    EigenValues(A,D);                 // A symmetric
+X    EigenValues(A,D,S);               // A, S symmetric; S is for back
+X                                      //    transforming, S = A is OK
+X    EigenValues(A,D,V);               // A symmetric
+X
+X
+XSorting
+X-------
+X
+XTo sort the values in a matrix or vector, A, (in general this operation
+Xmakes sense only for vectors and diagonal matrices) use
+X
+X    SortAscending(A);
+X
+Xor
+X
+X    SortDescending(A);
+X
+XI use the Shell-sort algorithm. This is a medium speed algorithm, you
+Xmight want to replace it with something faster if speed is critical and
+Xyour matrices are large.
+X
+X
+XFast Fourier Transform
+X----------------------
+X
+XFFT(X, Y, F, G);                         // F=X and G=Y are OK
+X
+Xwhere X, Y, F, G are column vectors. X and Y are the real and imaginary
+Xinput vectors; F and G are the real and imaginary output vectors. The
+Xlengths of X and Y must be equal and should be the product of numbers
+Xless than about 10 for fast execution.
+X
+XThe formula is
+X
+X          n-1
+X   h[k] = SUM  z[j] exp (-2 pi i jk/n)
+X          j=0
+X
+Xwhere z[j] is stored complex and stored in X(j+1) and Y(j+1). Likewise
+Xh[k] is complex and stored in F(k+1) and G(k+1). The fast Fourier
+Xalgorithm takes order n log(n) operations (for "good" values of n)
+Xrather than n**2 that straight evaluation would take.
+X
+XI use the method of Carl de Boor (1980), Siam J Sci Stat Comput, pp
+X173-8. The sines and cosines are calculated explicitly. This gives
+Xbetter accuracy, at an expense of being a little slower than is
+Xotherwise possible.
+X
+XRelated functions
+X
+XFFTI(F, G, X, Y);                        // X=F and Y=G are OK
+XRealFFT(X, F, G);
+XRealFFTI(F, G, X);
+X
+XFFTI is the inverse trasform for FFT. RealFFT is for the case when the
+Xinput vector is real, that is Y = 0. I assume the length of X, denoted
+Xby n, is even. The program sets the lengths of F and G to n/2 + 1.
+XRealFFTI is the inverse of RealFFT.
+X
+X
+XInterface to Numerical Recipes in C
+X-----------------------------------
+X
+XThis package can be used with the vectors and matrices defined in
+X"Numerical Recipes in C". You need to edit the routines in Numerical
+XRecipes so that the elements are of the same type as used in this
+Xpackage. Eg replace float by double, vector by dvector and matrix by
+Xdmatrix, etc. You will also need to edit the function definitions to use
+Xthe version acceptable to your compiler. Then enclose the code from
+XNumerical Recipes in  extern "C" { ... }. You will also need to include
+Xthe matrix and vector utility routines.
+X
+XThen any vector in Numerical Recipes with subscripts starting from 1 in
+Xa function call can be accessed by a RowVector, ColumnVector or
+XDiagonalMatrix in the present package. Similarly any matrix with
+Xsubscripts starting from 1 can be accessed by an  nricMatrix  in the
+Xpresent package. The class nricMatrix is derived from Matrix and can be
+Xused in place of Matrix. In each case, if you wish to refer to a
+XRowVector, ColumnVector, DiagonalMatrix or nricMatrix X in an function
+Xfrom Numerical Recipes, use X.nric() in the function call.
+X
+XNumerical Recipes cannot change the dimensions of a matrix or vector. So
+Xmatrices or vectors must be correctly dimensioned before a Numerical
+XRecipes routine is called.
+X
+XFor example
+X
+X   SymmetricMatrix B(44);
+X   .....                             // load values into B
+X   nricMatrix BX = B;                // copy values to an nricMatrix
+X   DiagonalMatrix D(44);             // Matrices for output
+X   nricMatrix V(44,44);              //    correctly dimensioned
+X   int nrot;
+X   jacobi(BX.nric(),44,D.nric(),V.nric(),&nrot);
+X                                     // jacobi from NRIC
+X   cout << D;                        // print eigenvalues
+X
+X
+XExceptions
+X----------
+X
+XThis package includes a partial implementation of exceptions. I used
+XCarlos Vidal's article in the September 1992 C Users Journal as a
+Xstarting point.
+X
+XNewmat does a partial clean up of memory following throwing an exception
+X- see the next section. However, the present version will leave a little
+Xheap memory unrecovered under some circumstances. I would not expect
+Xthis to be a major problem, but it is something that needs to be sorted
+Xout.
+X
+XThe functions/macros I define are Try, Throw, Catch, CatchAll and
+XCatchAndThrow. Try, Throw, Catch and CatchAll correspond to try, throw,
+Xcatch and catch(...) in the C++ standard. A list of Catch clauses must
+Xbe terminated by either CatchAll or CatchAndThrow but not both. Throw
+Xtakes an Exception as an argument or takes no argument (for passing on
+Xan exception). I do not have a version of Throw for specifying which
+Xexceptions a function might throw. Catch takes an exception class name
+Xas an argument; CatchAll and CatchAndThrow don't have any arguments.
+XTry, Catch and CatchAll must be followed by blocks enclosed in curly
+Xbrackets.
+X
+XAll Exceptions must be derived from a class, Exception, defined in
+Xnewmat and can contain only static variables. See the examples in newmat
+Xif you want to define additional exceptions.
+X
+XI have defined 5 clases of exceptions for users (there are others but I
+Xsuggest you stick to these ones):
+X
+X   SpaceException                 Insufficient space on the heap
+X   ProgramException               Errors such as out of range index or
+X                                  incompatible matrix types or
+X                                  dimensions
+X   ConvergenceException           Iterative process does not converge
+X   DataException                  Errors such as attempting to invert a
+X                                  singular matrix
+X   InternalException              Probably a programming error in newmat
+X
+XFor each of these exception classes, I have defined a member function
+Xvoid SetAction(int). If you call SetAction(1), and a corresponding
+Xexception occurs, you will get an error message. If there is a Catch
+Xclause for that exception, execution will be passed to that clause,
+Xotherwise the program will exit. If you call SetAction(0) you will get
+Xthe same response, except that there will be no error message. If you
+Xcall SetAction(-1), you will get the error message but the program will
+Xalways exit.
+X
+XI have defined a class Tracer that is intended to help locate the place
+Xwhere an error has occurred. At the beginning of a function I suggest
+Xyou include a statement like
+X
+X   Tracer tr("name");
+X
+Xwhere name is the name of the function. This name will be printed as
+Xpart of the error message, if an exception occurs in that function, or
+Xin a function called from that function. You can change the name as you
+Xproceed through a function with the ReName function
+X
+X   tr.ReName("new name");
+X
+Xif, for example, you want to track progress through the function.
+X
+X
+XClean up following an exception
+X-------------------------------
+X
+XThe exception mechanisms in newmat are based on the C functions setjmp
+Xand longjmp. These functions do not call destructors so can lead to
+Xgarbage being left on the heap. (I refer to memory allocated by "new" as
+Xheap memory). For example, when you call
+X
+XMatrix A(20,30);
+X
+Xa small amount of space is used on the stack containing the row and
+Xcolumn dimensions of the matrix and 600 doubles are allocated on the
+Xheap for the actual values of the matrix. At the end of the block in
+Xwhich A is declared, the destructor for A is called and the 600
+Xdoubles are freed. The locations on the stack are freed as part of the
+Xnormal operations of the stack. If you leave the block using a longjmp
+Xcommand those 600 doubles will not be freed and will occupy space until
+Xthe program terminates.
+X
+XTo overcome this problem newmat keeps a list of all the currently
+Xdeclared matrices and its exception mechanism will return heap memory
+Xwhen you do a Throw and Catch.
+X
+XHowever it will not return heap memory from objects from other packages.
+XIf you want the mechanism to work with another class you will have to do
+Xthree things:
+X
+X1: derive your class from class Janitor defined in except.h;
+X
+X2: define a function void CleanUp() in that class to return all heap
+X   memory;
+X
+X3: include the following lines in the class definition
+X
+X      public:
+X         void* operator new(size_t size)
+X         { do_not_link=TRUE; void* t = ::operator new(size); return t; }
+X         void operator delete(void* t) { ::operator delete(t); }
+X
+X
+X
+X
+X
+X
+X---------------------------------------------------------------------------
+X
+X
+XList of files
+X=============
+X
+XREADME          readme file
+XNEWMATA  TXT    documentation file
+XNEWMATB  TXT    notes on the package design
+XNEWMATC  TXT    notes on testing the package
+X
+XBOOLEAN  H      boolean class definition
+XCONTROLW H      control word definition file
+XEXCEPT   H      general exception handler definitions
+XINCLUDE  H      details of include files and options
+XNEWMAT   H      main matrix class definition file
+XNEWMATAP H      applications definition file
+XNEWMATIO H      input/output definition file
+XNEWMATRC H      row/column functions definition files
+XNEWMATRM H      rectangular matrix access definition files
+XPRECISIO H      numerical precision constants
+X
+XBANDMAT  CXX    band matrix routines
+XCHOLESKY CXX    Cholesky decomposition
+XEXCEPT   CXX    general error and exception handler
+XEVALUE   CXX    eigenvalues and eigenvector calculation
+XFFT      CXX    fast Fourier transform
+XHHOLDER  CXX    Householder triangularisation
+XJACOBI   CXX    eigenvalues by the Jacobi method
+XNEWMAT1  CXX    type manipulation routines
+XNEWMAT2  CXX    row and column manipulation functions
+XNEWMAT3  CXX    row and column access functions
+XNEWMAT4  CXX    constructors, redimension, utilities
+XNEWMAT5  CXX    transpose, evaluate, matrix functions
+XNEWMAT6  CXX    operators, element access
+XNEWMAT7  CXX    invert, solve, binary operations
+XNEWMAT8  CXX    LU decomposition, scalar functions
+XNEWMAT9  CXX    output routines
+XNEWMATEX CXX    matrix exception handler
+XNEWMATRM CXX    rectangular matrix access functions
+XSORT     CXX    sorting functions
+XSUBMAT   CXX    submatrix functions
+XSVD      CXX    singular value decomposition
+X
+XEXAMPLE  CXX    example of use of package
+XEXAMPLE  TXT    output from example
+XEXAMPLE  MAK    make file for example (ATandT or Gnu)
+XEX_MS    MAK    make file for Microsoft C
+XEX_Z     MAK    make file for Zortech
+XEX_B     MAK    make file for Borland
+X
+XSee newmatc.txt for details of test files.
+X
+X---------------------------------------------------------------------------
+X
+X                   Matrix package problem report form
+X                   ----------------------------------
+X
+XVersion: ............... newmat07
+XDate of release: ....... Jaunary 1st, 1993
+XPrimary site: ..........
+XDownloaded from: .......
+XYour email address: ....
+XToday's date: ..........
+XYour machine: ..........
+XOperating system: ......
+XCompiler & version: ....
+XDescribe the problem - attach examples if possible:
+X
+X
+X
+X
+X
+X
+X
+X
+X
+XEmail to  robertd@kauri.vuw.ac.nz  or  Compuserve 72777,656 
+X
+X-------------------------------------------------------------------------------
+END_OF_FILE
+if test 48103 -ne `wc -c <'newmata.txt'`; then
+    echo shar: \"'newmata.txt'\" unpacked with wrong size!
+fi
+# end of 'newmata.txt'
+fi
+if test -f 'readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'readme'\"
+else
+echo shar: Extracting \"'readme'\" \(1015 characters\)
+sed "s/^X//" >'readme' <<'END_OF_FILE'
+X   ReadMe file for newmat07, an experimental matrix package in C++.
+X
+X
+XDocumentation is in  newmata.txt, newmatb.txt and newmatc.txt.
+X
+XThis is a minor upgrade on newmat06 to correct some errors, improve
+Xefficiency and improve compatibility with a range of compilers. It
+Xincludes some new FFT functions and an option for allowing C style
+Xsubscripts. You should upgrade from newmat06. If you are using << to
+Xload a real into a submatrix please change this to =.
+X
+X
+XIf you are upgrading from newmat03 or newmat04 note the following
+X
+X.hxx files are now .h files
+X
+Xreal changed to Real
+X
+XBOOL changed to Boolean
+X
+XCopyToMatrix changed to AsMatrix, etc
+X
+Xreal(A) changed to A.AsScalar()
+X
+Xoption added in include.h for version 2.1 or later
+X
+Xadded band matrices
+X
+Xadded exceptions.
+X
+X
+XNewmat07 is quite a bit longer that newmat04, so if you are almost out of
+Xspace with newmat04, don't throw newmat04 away until you have checked your
+Xprogram will work under newmat07.
+X
+X
+XSee the section on changes in newmata.txt for other changes.
+END_OF_FILE
+if test 1015 -ne `wc -c <'readme'`; then
+    echo shar: \"'readme'\" unpacked with wrong size!
+fi
+# end of 'readme'
+fi
+echo shar: End of archive 1 \(of 8\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

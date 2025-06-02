@@ -1,0 +1,1831 @@
+Newsgroups: comp.sources.misc
+From: ram@eiffel.com (Raphael Manfredi)
+Subject:  v33i102:  mailagent - Rule Based Mail Filtering, Part10/17
+Message-ID: <1992Nov20.230408.26327@sparky.imd.sterling.com>
+X-Md4-Signature: b826138ad1dd7510dfb9c4ab4c3a8e03
+Date: Fri, 20 Nov 1992 23:04:08 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ram@eiffel.com (Raphael Manfredi)
+Posting-number: Volume 33, Issue 102
+Archive-name: mailagent/part10
+Environment: Perl, Sendmail, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  agent/filter/hash.c agent/maildist.SH agent/mailpatch.SH
+#   agent/pl/lexical.pl agent/pl/queue_mail.pl agent/pl/sendfile.pl
+# Wrapped by kent@sparky on Wed Nov 18 22:42:25 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 17)."'
+if test -f 'agent/filter/hash.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/hash.c'\"
+else
+  echo shar: Extracting \"'agent/filter/hash.c'\" \(10157 characters\)
+  sed "s/^X//" >'agent/filter/hash.c' <<'END_OF_FILE'
+X/*
+X
+X #    #    ##     ####   #    #           ####
+X #    #   #  #   #       #    #          #    #
+X ######  #    #   ####   ######          #
+X #    #  ######       #  #    #   ###    #
+X #    #  #    #  #    #  #    #   ###    #    #
+X #    #  #    #   ####   #    #   ###     ####
+X
+X	Hash table handling (no item ever deleted).
+X*/
+X
+X/*
+X * $Id: hash.c,v 2.9 92/07/14 16:48:08 ram Exp $
+X *
+X *  Copyright (c) 1992, Raphael Manfredi
+X *
+X *  You may redistribute only under the terms of the GNU General Public
+X *  Licence as specified in the README file that comes with dist.
+X *
+X * $Log:	hash.c,v $
+X * Revision 2.9  92/07/14  16:48:08  ram
+X * 3.0 beta baseline.
+X * 
+X */
+X
+X#include "config.h"
+X#include "portable.h"
+X#include "hash.h"
+X
+X#ifndef lint
+Xprivate char *rcsid =
+X	"$Id: hash.c,v 2.9 92/07/14 16:48:08 ram Exp $";
+X#endif
+X
+Xprivate uint32 hashcode();			/* The hahsing function */
+Xprivate int prime();				/* Is a number a prime one? */
+Xprivate uint32 nprime();			/* Find next prime number */
+X
+Xextern char *malloc();				/* Memory allocation */
+Xextern char *calloc();				/* Character allocation */
+Xextern char *strsave();				/* Save string in memory */
+X
+Xpublic int ht_create(ht, n)
+Xstruct htable *ht;
+Xint n;
+X{
+X	/* Creates an H table to hold 'n' items with descriptor held in 'ht'. The
+X	 * size of the table is optimized to avoid conflicts and is of course a
+X	 * prime number. We take the first prime after (5 * n / 4).
+X	 * The function returns 0 if everything was ok, -1 otherwise.
+X	 */
+X
+X	int hsize;			/* Size of created table */
+X	char **array;		/* For array creation (keys/values) */
+X	
+X	hsize = nprime((5 * n) / 4);	/* Table's size */
+X
+X	array = (char **) calloc(hsize, sizeof(char *));	/* Array of keys */
+X	if (array == (char **) 0)
+X		return -1;					/* Malloc failed */
+X	ht->h_keys = array;				/* Where array of keys is stored */
+X
+X	array = (char **) malloc(hsize * sizeof(char *));	/* Array of values */
+X	if (array == (char **) 0) {
+X		free(ht->h_keys);			/* Free keys array */
+X		return -1;					/* Malloc failed */
+X	}
+X	ht->h_values = array;			/* Where array of keys is stored */
+X
+X	ht->h_size = hsize;				/* Size of hash table */
+X	ht->h_items = 0;				/* Table is empty */
+X
+X	return 0;			/* Creation was ok */
+X}
+X
+Xpublic char *ht_value(ht, skey)
+Xstruct htable *ht;
+Xchar *skey;
+X{
+X	/* Look for item associated with given key and returns its value.
+X	 * Return a null pointer if item is not found.
+X	 */
+X	
+X	register1 int32 key;		/* Hash code associated with string key */
+X	register2 int32 pos;		/* Position in H table */
+X	register3 int32 hsize;		/* Size of H table */
+X	register4 char **hkeys;		/* Array of keys */
+X	register5 int32 try = 0;	/* Count number of attempts */
+X	register6 int32 inc;		/* Loop increment */
+X
+X	/* Initializations */
+X	hsize = ht->h_size;
+X	hkeys = ht->h_keys;
+X	key = hashcode(skey);
+X
+X	/* Jump from one hashed position to another until we find the value or
+X	 * go to an empty entry or reached the end of the table.
+X	 */
+X	inc = 1 + (key % (hsize - 1));
+X	for (pos = key % hsize; try < hsize; try++, pos = (pos + inc) % hsize) {
+X		if (hkeys[pos] == (char *) 0)
+X			break;
+X		else if (0 == strcmp(hkeys[pos], skey))
+X			return ht->h_values[pos];
+X	}
+X
+X	return (char *) 0;			/* Item was not found */
+X}
+X
+Xpublic char *ht_put(ht, skey, val)
+Xstruct htable *ht;
+Xchar *skey;
+Xchar *val;
+X{
+X	/* Puts string held at 'val' tagged with key 'key' in H table 'ht'. If
+X	 * insertion was successful, the address of the value is returned and the
+X	 * value is copied in the array. Otherwise, return a null pointer.
+X	 */
+X
+X	register1 int32 key;		/* Hash code associated with string key */
+X	register2 int32 pos;		/* Position in H table */
+X	register3 int32 hsize;		/* Size of H table */
+X	register4 char **hkeys;		/* Array of keys */
+X	register5 int32 try = 0;	/* Records number of attempts */
+X	register6 int32 inc;		/* Loop increment */
+X
+X	/* If the table is full at 75%, resize it to avoid performance degradations.
+X	 * The extension updates the htable structure in place.
+X	 */
+X	hsize = ht->h_size;
+X	if ((ht->h_items * 4) / 3 > hsize) {
+X		ht_xtend(ht);
+X		hsize = ht->h_size;
+X	}
+X	hkeys = ht->h_keys;
+X	key = hashcode(skey);
+X
+X	/* Jump from one hashed position to another until we find a free entry or
+X	 * we reached the end of the table.
+X	 */
+X	inc = 1 + (key % (hsize - 1));
+X	for (pos = key % hsize; try < hsize; try++, pos = (pos + inc) % hsize) {
+X		if (hkeys[pos] == (char *) 0) {			/* Found a free location */
+X			hkeys[pos] = strsave(skey);			/* Record item */
+X			ht->h_values[pos] = strsave(val);	/* Save string */
+X			ht->h_items++;				/* One more item */
+X			return ht->h_values[pos];
+X		} else if (0 == strcmp(hkeys[pos], skey))
+X			fatal("H table key conflict: %s", skey);
+X	}
+X
+X	return (char *) 0;		/* We were unable to insert item */
+X}
+X
+Xpublic char *ht_force(ht, skey, val)
+Xstruct htable *ht;
+Xchar *skey;
+Xchar *val;
+X{
+X	/* Replace value tagged with key 'key' in H table 'ht' with 'val'. If
+X	 * insertion was successful, the address of the value is returned and the
+X	 * value is copied in the array. Otherwise, return a null pointer (if table
+X	 * is full and item was not found). The previous value is freed if any.
+X	 * Otherwise, simply add the item in the table.
+X	 */
+X
+X	register1 int32 key;		/* Hash code associated with string key */
+X	register2 int32 pos;		/* Position in H table */
+X	register3 int32 hsize;		/* Size of H table */
+X	register4 char **hkeys;		/* Array of keys */
+X	register5 int32 try = 0;	/* Records number of attempts */
+X	register6 int32 inc;		/* Loop increment */
+X
+X	/* If the table is full at 75%, resize it to avoid performance degradations.
+X	 * The extension updates the htable structure in place.
+X	 */
+X	hsize = ht->h_size;
+X	if ((ht->h_items * 4) / 3 > hsize) {
+X		ht_xtend(ht);
+X		hsize = ht->h_size;
+X	}
+X	hkeys = ht->h_keys;
+X	key = hashcode(skey);
+X
+X	/* Jump from one hashed position to another until we find a free entry or
+X	 * we reached the end of the table.
+X	 */
+X	inc = 1 + (key % (hsize - 1));
+X	for (pos = key % hsize; try < hsize; try++, pos = (pos + inc) % hsize) {
+X		if (hkeys[pos] == (char *) 0) {			/* Found a free location */
+X			hkeys[pos] = strsave(skey);			/* Record item */
+X			ht->h_values[pos] = strsave(val);	/* Save string */
+X			ht->h_items++;						/* One more item */
+X			return ht->h_values[pos];
+X		} else if (0 == strcmp(hkeys[pos], skey)) {
+X			if (ht->h_values[pos])				/* If old value */
+X				free(ht->h_values[pos]);		/* Free it */
+X			ht->h_values[pos] = strsave(val);	/* Save string */
+X			return ht->h_values[pos];
+X		}
+X	}
+X
+X	return (char *) 0;		/* We were unable to insert item */
+X}
+X
+Xpublic int ht_xtend(ht)
+Xstruct htable *ht;
+X{
+X	/* The H table 'ht' is full and needs resizing. We add 50% of old size and
+X	 * copy the old table in the new one, before freeing the old one. Note that
+X	 * h_create multiplies the number we give by 5/4, so 5/4*3/2 yields ~2, i.e.
+X	 * the final size will be the double of the previous one (modulo next prime
+X	 * number).
+X	 * Return 0 if extension was ok, -1 otherwise.
+X	 */
+X
+X	register1 int32 size;			/* Size of old H table */
+X	register2 char **key;			/* To loop over keys */
+X	register3 char **val;			/* To loop over values */
+X	struct htable new_ht;
+X
+X	size = ht->h_size;
+X	if (-1 == ht_create(&new_ht, size + (size / 2)))
+X		return -1;		/* Extension of H table failed */
+X
+X	key = ht->h_keys;				/* Start of array of keys */
+X	val = ht->h_values;				/* Start of array of values */
+X
+X	/* Now loop over the whole table, inserting each item in the new one */
+X
+X	for (; size > 0; size--, key++, val++)
+X		if ((char *) 0 == ht_put(&new_ht, *key, *val)) {	/* Failed */
+X			free(new_ht.h_values);	/* Free new H table */
+X			free(new_ht.h_keys);
+X			fatal("BUG in ht_xtend");
+X		}
+X
+X	/* Free old H table and set H table descriptor */
+X	free(ht->h_values);				/* Free in allocation order */
+X	free(ht->h_keys);				/* To make free happy (coalescing) */
+X	bcopy(&new_ht, ht, sizeof(struct htable));
+X
+X	return 0;		/* Extension was ok */
+X}
+X
+Xpublic int ht_start(ht)
+Xstruct htable *ht;
+X{
+X	/* Start iteration over H table. Return 0 if ok, -1 if the table is empty */
+X
+X	register1 int32 hpos;		/* Index in H table */
+X	register2 char **hkeys;		/* Array of keys */
+X	register3 int32 hsize;		/* Size of H table */
+X
+X	/* Initializations */
+X	hpos = 0;
+X	hkeys = ht->h_keys;
+X	hsize = ht->h_size;
+X
+X	/* Stop at first non-null key */
+X	for (; hpos < hsize; hpos++, hkeys++)
+X		if (*hkeys != (char *) 0)
+X			break;
+X	ht->h_pos = hpos;			/* First non-null postion */
+X
+X	return (hpos < hsize) ? 0 : -1;
+X}
+X
+Xpublic int ht_next(ht)
+Xstruct htable *ht;
+X{
+X	/* Advance to next item in H table, if possible. Return 0 if there is a
+X	 * next item, -1 otherwise.
+X	 */
+X
+X	register1 int32 hpos;		/* Index in H table */
+X	register2 char **hkeys;		/* Array of keys */
+X	register3 int32 hsize;		/* Size of H table */
+X
+X	/* Initializations */
+X	hpos = ht->h_pos + 1;
+X	hkeys = ht->h_keys + hpos;
+X	hsize = ht->h_size;
+X
+X	/* Stop at first non-null key */
+X	for (; hpos < hsize; hpos++, hkeys++)
+X		if (*hkeys != (char *) 0)
+X			break;
+X	ht->h_pos = hpos;			/* Next non-null postion */
+X
+X	return (hpos < hsize) ? 0 : -1;
+X}
+X
+Xpublic char *ht_ckey(ht)
+Xstruct htable *ht;
+X{
+X	/* Return pointer on current item's key */
+X
+X	return ht->h_keys[ht->h_pos];
+X}
+X
+Xpublic char *ht_cvalue(ht)
+Xstruct htable *ht;
+X{
+X	/* Return pointer on current item's value */
+X
+X	return ht->h_values[ht->h_pos];
+X}
+X
+Xpublic int ht_count(ht)
+Xstruct htable *ht;
+X{
+X	/* Return the number of items in the H table */
+X
+X	return ht->h_items;
+X}
+X
+Xprivate uint32 hashcode(s)
+Xregister3 char *s;
+X{
+X	/* Compute the hash code associated with given string s. The magic number
+X	 * below is the greatest prime lower than 2^23.
+X	 */
+X
+X	register1 uint32 hashval = 0;
+X	register2 uint32 magic = 8388593;
+X
+X	while (*s)
+X		hashval = ((hashval % magic) << 8) + (unsigned int) *s++;
+X
+X	return hashval;
+X}
+X
+Xprivate uint32 nprime(n)
+Xregister1 uint32 n;
+X{
+X	/* Return the closest prime number greater than `n' */
+X
+X	while (!prime(n))
+X		n++;
+X
+X	return n;
+X}
+X
+Xprivate int prime(n)
+Xregister2 uint32 n;
+X{
+X	/* Return 1 if `n' is a prime number */
+X
+X	register1 uint32 divisor;
+X
+X	if (n == 1)
+X		return 0;
+X	else if (n == 2)
+X		return 1;
+X	else if (n % 2) {
+X		for (
+X			divisor = 3; 
+X			divisor * divisor <= n;
+X			divisor += 2
+X		)
+X			if (0 == (n % divisor))
+X				return 0;
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+END_OF_FILE
+  if test 10157 -ne `wc -c <'agent/filter/hash.c'`; then
+    echo shar: \"'agent/filter/hash.c'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/hash.c'
+fi
+if test -f 'agent/maildist.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/maildist.SH'\"
+else
+  echo shar: Extracting \"'agent/maildist.SH'\" \(9200 characters\)
+  sed "s/^X//" >'agent/maildist.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test ! -f config.sh; then
+X		ln ../config.sh . || \
+X		ln ../../config.sh . || \
+X		ln ../../../config.sh . || \
+X		(echo "Can't find config.sh."; exit 1)
+X	fi 2>/dev/null
+X	. config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting agent/maildist (with variable substitutions)"
+X$spitshell >maildist <<!GROK!THIS!
+X# feed this into perl
+X	eval "exec perl -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X# $Id: maildist.SH,v 2.9 92/07/14 16:48:51 ram Exp $
+X#
+X#  Copyright (c) 1991, 1992, Raphael Manfredi
+X#
+X#  You may redistribute only under the terms of the GNU General Public
+X#  Licence as specified in the README file that comes with dist.
+X#
+X# $Log:	maildist.SH,v $
+X# Revision 2.9  92/07/14  16:48:51  ram
+X# 3.0 beta baseline.
+X# 
+X
+X\$mversion = '$VERSION';
+X\$patchlevel = '$PATCHLEVEL';
+X!GROK!THIS!
+X
+X$spitshell >>maildist <<'!NO!SUBS!'
+X
+X$prog_name = $0;				# Who I am
+X$prog_name =~ s|^.*/(.*)|$1|;	# Keep only base name
+X
+Xdo read_config();	# First, read configuration file (in ~/.mailagent)
+X
+X# take job number and command from environment
+X# (passed by mailagent)
+X$jobnum = $ENV{'jobnum'};
+X$fullcmd = $ENV{'fullcmd'};
+X$pack = $ENV{'pack'};
+X$path = $ENV{'path'};
+X
+Xdo read_dist();		# Read distributions
+X
+X$dest = shift;		# Who should the system be sent to
+X$system = shift;	# Which system
+X$version = shift;	# Which version it is
+X
+X# A single '-' as first argument stands for return path
+X$dest = $path if $dest eq '-';
+X
+X# A single '-' for version means "highest available" version
+X$version = $Version{$system} if $version eq '-' || $version eq '';
+X
+X# Full program's name for H table access
+X$pname = $system . "|" . $version;
+X
+X$maillist = "To obtain a list of what is available, send me the following mail:
+X
+X	Subject: Command
+X	@SH maillist $path
+X		^ note the l";
+X
+Xif (!$System{$system}) {
+X	open(MAILER, "|/usr/lib/sendmail -odq -t");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: No program called $system
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI don't know how to send a program called \"$system\".  Sorry.
+X
+X$maillist
+X
+XIf $cf'name can figure out what you meant, you'll get the program anyway.
+X
+X-- $prog_name speaking for $cf'user
+X";
+X	close MAILER;
+X    do add_log("FAILED (UNKNOWN SYSTEM)") if ($loglvl > 1);
+X    exit 0;
+X}
+X
+Xif (!$Program{$pname}) {
+X	open(MAILER, "|/usr/lib/sendmail -odq -t");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: No version $version for $system
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI don't know how to send version $version of $system.  Sorry.
+X
+X$maillist
+X
+XIf $cf'name can figure out what you meant, you'll get the program anyway.
+X
+X-- $prog_name speaking for $cf'user
+X";
+X	close MAILER;
+X    do add_log("FAILED (BAD VERSION NUMBER)") if ($loglvl > 1);
+X    exit 0;
+X}
+X
+X# Has the user made a request for an old version (patch only) ?
+Xif ($Patch_only{$pname}) {
+X	# It is required that patch only systems have a version number
+X	do abort("old system has no version number") if $version eq '';
+X	open(MAILER, "|/usr/lib/sendmail -odq -t");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: System $system $version is obsolete
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI can't send you version $version of $system. Sorry.
+X
+XThis version appears to be an old one, and only patches are available.
+XThe up-to-date version for $system is $Version{$system}.
+X
+X$maillist
+X
+XIf $cf'name can figure out what you meant, he may send you the latest version.
+X
+X-- $prog_name speaking for $cf'user
+X";
+X	close MAILER;
+X    do add_log("FAILED (PATCH ONLY VERSION)") if ($loglvl > 1);
+X    exit 0;
+X}
+X
+X# If the request is not the most recent version, warn the user.
+Xif ($version < $Version{$system}) {
+X	open(MAILER, "|/usr/lib/sendmail -odq -t");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: Version $version of $system is an old one
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XYou asked for version $version of $system.
+X
+XThis version appears to be an old one, but it is sill available, and
+XI am currently processing your request. However, I wanted to let you
+Xknow that the up-to-date version for $system is $Version{$system}.
+X
+X$maillist
+X
+XUnless you receive an error message telling you otherwise, I am sending
+Xyou version $version of $system. You may also request for the new version
+Xright now if you wish.
+X
+X-- $prog_name speaking for $cf'user
+X";
+X	close MAILER;
+X    do add_log("MSG old version still available") if ($loglvl > 8);
+X}
+X
+X# Create a temporary directory
+X$tmp = "$cf'tmpdir/dmd$$";
+Xmkdir($tmp, 0700);
+X
+X# Need to unarchive the distribution
+Xif ($Archived{$pname}) {
+X	# Create a temporary directory for distribution
+X	$tmp_loc = "$cf'tmpdir/dmdl$$";
+X	mkdir($tmp_loc, 0700);
+X	$location =
+X		do unpack($Location{$pname}, $tmp_loc, $Compressed{$pname});
+X} else {
+X	$location = $Location{$pname};
+X}
+X
+X# Go to top-level directory
+Xchdir "$location" ||
+X	do abort("cannot go to $location");
+X
+X# We are now in the place. Look for a MANIFEST file. If none, we will
+X# send *everything* held, RCS sub-directories and executable/object files
+X# excepted.
+X
+X$manifest = '';
+X$tmp_list = '';
+X
+Xif (-f 'MANIFEST') {
+X	$manifest = "$location/MANIFEST";
+X} else {
+X	$tmp_list = "$cf'tmpdir/mdlist$$";
+X	open(FIND, "find . -type f -print | sort |") ||
+X		do abort("cannot run find");
+X	open(LIST, ">$tmp_list") ||
+X		do abort("cannot create $tmp_list");
+X	while (<FIND>) {
+X		chop;
+X		s|\./||;
+X		next if (m|^U/| && -f '.package');	# Skip units if meta-configured
+X		next if m|^RCS/|;			# Skip RCS files
+X		next if m|/RCS/|;
+X		next if m|,v$|;
+X		next if m|bugs/|;			# Skip bugs files (patches and al.)
+X		next if m|^\.#|;			# Skip [marked for deletion] files
+X		next if m|/\.#|;
+X		next if m|\.o$|;			# Skip object files
+X		next if m|core$|;			# Skip core files
+X		next if (-x $_ && -B $_);	# Skip binaries
+X		print LIST $_,"\n";			# Keep that file
+X	}
+X	close FIND;
+X	close LIST;
+X	$manifest = $tmp_list;
+X}
+X
+Xdo add_log("manifest is in $manifest") if ($loglvl > 19);
+Xchdir $tmp || do abort("cannot chdir to $tmp");
+X
+X# Now for each file in manifest, look if there is an
+X# RCS file associated with it. If so, check out either
+X# the 'lastpat' version or the highest version on the
+X# default branch, provided that the file does not exists
+X# in checked-out form. Otherwise, only run co if 'lastpat'
+X# is defined.
+Xopen(MANI, $manifest) || do abort("cannot open $manifest");
+Xwhile (<MANI>) {
+X	next if /^--/;
+X	s|^\s*||;						# Remove leading spaces
+X	($file,$foo) = split;			# Save filename, discard comments
+X	next if (-d "$location/$file");	# Skip directories
+X	next if ($file =~ /^\s*$/);		# Skip blank lines
+X	# Extract dirname and basename
+X	($dir, $base) = ('', $file) unless ($dir, $base) = ($file =~ m|(.*/)(.*)|);
+X	$logmsg = '';				# String to add to log message
+X	$rcsfile = 'blurfl';
+X	$rcsfile = "$location/$file,v" if (-f "$location/$file,v");
+X	$rcsfile = "$location/${dir}RCS/$base,v"
+X		if (-f "$location/${dir}RCS/$base,v");
+X	next unless -f "$location/$file" || -f "$rcsfile";	# Skip unexisting files
+X	do makedir($dir) unless $dir eq '';
+X	open(COPY, ">$file") || do abort("cannot create $file");
+X	if ($rcsfile ne '') {
+X		$rlog = `rlog $rcsfile 2>&1`;
+X		($revs) = ($rlog =~ /lastpat: (\d+)/);
+X		if (!$revs) {
+X			# Symbol 'lastpat' is not defined
+X			# If file exists, open it. Otherwise, run co
+X			if (-f "$location/$file") {
+X				$logmsg = " (lastpat undefined)";
+X				$origfile = "$location/$file";
+X				open(FILE, $origfile) ||
+X					do abort("cannot open $origfile");
+X			} else {
+X				$logmsg = " (co but no lastpat)";
+X				$origfile = $rcsfile;
+X				open(FILE, "co -q -p $rcsfile |") ||
+X					do abort("cannot run co on $rcsfile");
+X			}
+X		} else {
+X			# Symbol 'lastpat' is defined
+X			$logmsg = " (co lastpat)";
+X			$origfile = $rcsfile;
+X			open(FILE, "co -q -p -rlastpat $rcsfile |") ||
+X				do abort("cannot run co on $rcsfile");
+X		}
+X	} else {
+X		$origfile = "$location/$file";
+X		open(FILE, "$location/$file") ||
+X			do abort("cannot open $location/$file");
+X	}
+X	while (<FILE>) {
+X		s|$|;      # Remove locker mark
+X		(print COPY) || do abort("ran out of disk space");
+X	}
+X	close FILE;
+X	close COPY;
+X	do add_log("copied $file$logmsg") if ($loglvl > 19);
+X
+X	# If file is executable, change its permissions
+X	if (-x $origfile) {
+X		chmod 0755, $file;
+X	} else {
+X		chmod 0644, $file;
+X	}
+X}
+X
+X$subject = "$system";
+X$subject .= " $version" if $version ne '0';
+X$subject .= " package";
+Xdo sendfile($dest, $tmp, $pack, $subject);
+Xdo clean_tmp();
+X
+Xexit 0;		# Ok
+X
+Xsub clean_tmp {
+X	# Do not stay in the directories we are removing...
+X	chdir $cf'home;
+X	if ($tmp ne '') {
+X		system '/bin/rm', '-rf', $tmp;
+X		do add_log("removed dir $tmp") if ($loglvl > 19);
+X	}
+X	if ($Archived{$pname}) {
+X		system '/bin/rm', '-rf', $tmp_loc;
+X		do add_log("removed dir $tmp_loc") if ($loglvl > 19);
+X	}
+X	unlink $tmp_list if $tmp_list ne '';
+X}
+X
+X# Emergency exit with clean-up
+Xsub abort {
+X	local($reason) = shift(@_);		# Why we are exiting
+X	do clean_tmp();
+X	do fatal($reason);
+X}
+X
+X!NO!SUBS!
+X$grep -v '^;#' pl/makedir.pl >>maildist
+X$grep -v '^;#' pl/fatal.pl >>maildist
+X$grep -v '^;#' pl/add_log.pl >>maildist
+X$grep -v '^;#' pl/read_conf.pl >>maildist
+X$grep -v '^;#' pl/unpack.pl >>maildist
+X$grep -v '^;#' pl/sendfile.pl >>maildist
+X$grep -v '^;#' pl/distribs.pl >>maildist
+Xchmod 755 maildist
+X$eunicefix maildist
+END_OF_FILE
+  if test 9200 -ne `wc -c <'agent/maildist.SH'`; then
+    echo shar: \"'agent/maildist.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'agent/maildist.SH'
+  # end of 'agent/maildist.SH'
+fi
+if test -f 'agent/mailpatch.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/mailpatch.SH'\"
+else
+  echo shar: Extracting \"'agent/mailpatch.SH'\" \(8849 characters\)
+  sed "s/^X//" >'agent/mailpatch.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test ! -f config.sh; then
+X		ln ../config.sh . || \
+X		ln ../../config.sh . || \
+X		ln ../../../config.sh . || \
+X		(echo "Can't find config.sh."; exit 1)
+X	fi 2>/dev/null
+X	. config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting agent/mailpatch (with variable substitutions)"
+X$spitshell >mailpatch <<!GROK!THIS!
+X# feed this into perl
+X	eval "exec perl -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X# $Id: mailpatch.SH,v 2.9 92/07/14 16:49:00 ram Exp $
+X#
+X#  Copyright (c) 1991, 1992, Raphael Manfredi
+X#
+X#  You may redistribute only under the terms of the GNU General Public
+X#  Licence as specified in the README file that comes with dist.
+X#
+X# $Log:	mailpatch.SH,v $
+X# Revision 2.9  92/07/14  16:49:00  ram
+X# 3.0 beta baseline.
+X# 
+X
+X\$cat = '$cat';
+X\$zcat = '$zcat';
+X\$mversion = '$VERSION';
+X\$patchlevel = '$PATCHLEVEL';
+X!GROK!THIS!
+X$spitshell >>mailpatch <<'!NO!SUBS!'
+X
+X$prog_name = $0;				# Who I am
+X$prog_name =~ s|^.*/(.*)|$1|;	# Keep only base name
+X
+Xdo read_config();	# First, read configuration file (in ~/.mailagent)
+X
+X# take job number and command from environment
+X# (passed by mailagent)
+X$jobnum = $ENV{'jobnum'};
+X$fullcmd = $ENV{'fullcmd'};
+X$pack = $ENV{'pack'};
+X$path = $ENV{'path'};
+X
+Xdo read_dist();			# Read distributions
+X
+X$dest = shift;			# Who should the patches be sent to
+X$system = shift;		# Which system do patches belong
+X$version = shift;		# Which version it is
+X
+X# A single '-' as first argument stands for return path
+X$dest = $path if $dest eq '-';
+X
+X# A single '-' for version means "highest available" version.
+X$version = $Version{$system} if $version eq '-';
+X
+X# Full name of system for H table access
+X$pname = $system . "|" . $version;
+X
+X$maillist = "To obtain a list of what is available, send me the following mail:
+X
+X	Subject: Command
+X	@SH maillist $path
+X		^ note the l";
+X
+Xif (!$System{$system}) {
+X	open(MAILER, "|/usr/lib/sendmail -odq -t");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: No program called $system
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI don't know how to send patches for a program called $system.  Sorry.
+X
+X$maillist
+X
+XIf $cf'name can figure out what you meant, you'll get the patches anyway.
+X
+X-- mailpatch speaking for $cf'user
+X";
+X	close MAILER;
+X    do add_log("FAILED (UNKNOWN SYSTEM)") if ($loglvl > 1);
+X    exit 0;
+X}
+X
+Xif (!$Program{$pname}) {
+X	open(MAILER, "|/usr/lib/sendmail -odq -t");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: No patches for $system version $version
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI don't know how to send patches for version $version of $system.  Sorry.";
+X	if ($Version{$system} ne '') {
+X		print MAILER "
+X
+X[The highest version for $system is $Version{$system}.]";
+X		do add_log("MSG highest version is $Version{$system}")
+X			if ($loglvl > 11);
+X	} else {
+X		print MAILER "
+X
+X[There is no version number for $system.]";
+X		do add_log("MSG no version number") if ($loglvl > 11);
+X	}
+X	print MAILER "
+X
+X$maillist
+X
+XIf $cf'name can figure out what you meant, you'll get the patches anyway.
+X
+X-- mailpatch speaking for $cf'user
+X";
+X	close MAILER;
+X    do add_log("FAILED (BAD SYSTEM NUMBER)") if ($loglvl > 1);
+X    exit 0;
+X}
+X
+Xif (!($Maintained{$pname} || $Patches{$pname})) {
+X	open(MAILER, "|/usr/lib/sendmail -odq -t");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: $system version $version is not maintained
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI can't send you patches for version $version of $system, because this code
+Xis not maintained by $cf'name. There are no official patches available either...
+X
+X$maillist
+X
+XAnyway, if you discover a bug or have remarks about \"$system\", please
+Xlet me know. Better, if you know where patches for $system can be found,
+Xwell... you have my e-mail address ! :->
+X
+X-- mailpatch speaking for $cf'user
+X";
+X	close MAILER;
+X    do add_log("FAILED (NOT MAINTAINED)") if ($loglvl > 1);
+X    exit 0;
+X}
+X
+X# Create a temporary directory
+X$tmp = "$cf'tmpdir/dmp$$";
+Xmkdir($tmp, 0700) || do fatal("cannot create $tmp");
+X
+X# Need to unarchive the distribution
+Xif ($Archived{$pname}) {
+X	# Create a temporary directory for distribution
+X	$tmp_loc = "$cf'tmpdir/dmpl$$";
+X	mkdir($tmp_loc, 0700) || do fatal("cannot create $tmp_loc");
+X	$Location{$pname} =
+X		do unpack($Location{$pname}, $tmp_loc, $Compressed{$pname});
+X}
+X
+X# Go to bugs sub-directory. It is possible to ask for patches for
+X# old systems. Such systems are identified by having the `patches'
+X# field from the distrib file set to "old". In that case, patches
+X# are taken from a bugs-version directory. Version has to be non null.
+X
+Xif ($Patch_only{$pname}) {
+X	do abort("old system has no version number") if $version eq '';
+X	chdir "$Location{$pname}/bugs-$version" ||
+X		do abort("cannot go to $Location{$pname}/bugs-$version");
+X	# There is no patchlevel to look at -- compute by hand.
+X	for ($maxnum = 1; ; $maxnum++) {
+X		last unless -f "patch$maxnum" || -f "patch$maxnum.Z";
+X	}
+X	$maxnum--;		# We've gone too far
+X} else {
+X	chdir "$Location{$pname}/bugs" ||
+X		do abort("cannot go to $Location{$pname}/bugs");
+X	open(PATCHLEVEL, "../patchlevel.h") ||
+X		do abort("cannot open patchlevel.h");
+X	$maxnum = 0;
+X	while (<PATCHLEVEL>) {
+X		if (/.*PATCHLEVEL[ \t]*(\d+)/) {
+X			$maxnum = $1;
+X			last;
+X		}
+X	}
+X	close PATCHLEVEL;
+X}
+X
+Xif (!$maxnum) {
+X	# If we get here, it must be for one of our systems. Indeed,
+X	# if we do not have any patches for a third party program, there
+X	# should be a "no" in the patches field of distribution file, and
+X	# in that case an error would have been reported before.
+X	open(MAILER, "|/usr/lib/sendmail -odq -t");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: No patches yet for $system version $version
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XThere are no patches (yet) for $system version $version. Sorry.
+X
+X-- mailpatch speaking for $cf'user
+X";
+X	close MAILER;
+X    do add_log("FAILED (NO PATCHES YET)") if ($loglvl > 1);
+X	do clean_tmp();
+X    exit 0;
+X}
+X
+X$patchlist = do rangeargs($maxnum, @ARGV);	# Generate patch list
+X
+Xif (! ($patchlist =~ /\d/)) {
+X	open(MAILER, "|/usr/lib/sendmail -odq -t");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: Invalid patch request for $system $version
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X";
+X	if ($Patches{$pname}) {
+X		print MAILER "
+XThe highest patch I have for $system version $version is #$maxnum.";
+X	} else {
+X		print MAILER "
+XThe latest patch for $system version $version is #$maxnum.";
+X	}
+X	print MAILER "
+X(Your command was: $fullcmd)";
+X	if ($Version{$system} > $version) {
+X		print MAILER "
+X
+XPlease note that the latest version for $system is $Version{$system}.
+X
+X$maillist";
+X	}
+X	print MAILER "
+X
+X-- mailpatch speaking for $cf'user
+X";
+X	close MAILER;
+X    do add_log("FAILED (INVALID PATCH LIST)") if ($loglvl > 1);
+X	do clean_tmp();
+X    exit 0;
+X}
+X
+X@numbers = split(/ /,$patchlist);
+X
+Xforeach $num (@numbers) {
+X	$patchfile = "patch" . $num;	# Base name of the patch
+X	if (-f $patchfile) {			# Normal patch
+X		$append = $cat;
+X		$extent = '';
+X	} elsif (-f "$patchfile.Z") {	# Compressed patch
+X		if ($zcat ne 'zcat') {		# Zcat found by Configure
+X			$append = $zcat;
+X			$extent = '.Z';
+X		} else {
+X			do add_log("ERROR no zcat to uncompress patch #$num ($system)")
+X				if ($loglvl > 5);
+X			next;
+X		}
+X	} else {
+X		do add_log("ERROR no patch #$num ($system)") if ($loglvl > 5);
+X		next;
+X	}
+X	open (TMP, ">$tmp/$patchfile");
+X	if ($Patches{$pname}) {
+X		print TMP "
+XThis is an official patch for $system version $version, please apply it.
+XThe highest patch I have for that version of $system is #$maxnum.";
+X	} else {
+X		print TMP "
+XThe latest patch for $system version $version is #$maxnum.";
+X	}
+X	print TMP "
+X
+X-- mailpatch speaking for $cf'user
+X
+X";
+X	close TMP;
+X	system "$append <$patchfile$extent >>$tmp/$patchfile";
+X	do add_log("copied file $patchfile into $tmp") if ($loglvl > 17);
+X}
+X
+Xif ($#numbers > 0) {
+X	$subject = $#numbers + 1;		# Array count starts at 0
+X	$subject = "$system $version, $subject patches";
+X} else {
+X	$subject = "$system $version patch #$numbers[0]";
+X}
+Xdo sendfile($dest, $tmp, $pack, $subject);
+Xdo clean_tmp();
+X
+Xexit 0;		# Ok
+X
+Xsub clean_tmp {
+X	# Do not stay in the directories we are removing...
+X	chdir $cf'home;
+X	if ($tmp ne '') {
+X		system '/bin/rm', '-rf', $tmp;
+X		do add_log("removed dir $tmp") if ($loglvl > 19);
+X	}
+X	if ($Archived{$pname}) {
+X		system '/bin/rm', '-rf', $tmp_loc;
+X		do add_log("removed dir $tmp_loc") if ($loglvl > 19);
+X	}
+X}
+X
+X# Emergency exit with clean-up
+Xsub abort {
+X	local($reason) = shift(@_);		# Why we are exiting
+X	do clean_tmp();
+X	do fatal($reason);
+X}
+X
+X!NO!SUBS!
+X$grep -v '^;#' pl/fatal.pl >>mailpatch
+X$grep -v '^;#' pl/add_log.pl >>mailpatch
+X$grep -v '^;#' pl/read_conf.pl >>mailpatch
+X$grep -v '^;#' pl/unpack.pl >>mailpatch
+X$grep -v '^;#' pl/rangeargs.pl >>mailpatch
+X$grep -v '^;#' pl/sendfile.pl >>mailpatch
+X$grep -v '^;#' pl/distribs.pl >>mailpatch
+Xchmod 755 mailpatch
+X$eunicefix mailpatch
+END_OF_FILE
+  if test 8849 -ne `wc -c <'agent/mailpatch.SH'`; then
+    echo shar: \"'agent/mailpatch.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'agent/mailpatch.SH'
+  # end of 'agent/mailpatch.SH'
+fi
+if test -f 'agent/pl/lexical.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/lexical.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/lexical.pl'\" \(4343 characters\)
+  sed "s/^X//" >'agent/pl/lexical.pl' <<'END_OF_FILE'
+X;# $Id: lexical.pl,v 2.9.1.2 92/11/01 15:50:52 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	lexical.pl,v $
+X;# Revision 2.9.1.2  92/11/01  15:50:52  ram
+X;# patch11: fixed English typo
+X;# 
+X;# Revision 2.9.1.1  92/08/02  16:11:18  ram
+X;# patch2: added support for negated selectors
+X;# 
+X;# Revision 2.9  92/07/14  16:50:10  ram
+X;# 3.0 beta baseline.
+X;# 
+X;#
+X#
+X# Lexical parsing of the rules
+X#
+X
+X# The following subroutine is called whenever a new rule input is needed.
+X# It returns that new line or a null string if end of file has been reached.
+Xsub read_filerule {
+X	<RULES>;					# Read a new line from file
+X}
+X
+X# The following subroutine is called in place of read_rule when rules are
+X# coming from the command line via @Linerules.
+Xsub read_linerule {
+X	shift(@Linerules);			# Read a new line from array
+X}
+X
+X# Assemble a whole rule in one line and return it. The end of a line is
+X# marked by a ';' at the end of an input line.
+Xsub get_line {
+X	local($result) = "";		# what will be returned
+X	local($in_braces) = 0;		# are we inside braces ?
+X	for (;;) {
+X		$_ = &read_rule;		# new rule line (pseudo from compile_rules)
+X		last if $_ eq '';		# end of file reached
+X		s/\n$//;				# don't use chop in case we read from array
+X		next if /^\s*#/;		# skip comments
+X		s/\s\s+/ /;				# reduce white spaces
+X		$result .= $_;
+X		# Very simple braces handling
+X		/.*{/ && ($in_braces = 1);
+X		if ($in_braces) {
+X			/.*}/ && ($in_braces = 0);
+X		}
+X		last if !$in_braces && /;\s*$/;
+X	}
+X	$result;
+X}
+X
+X# Get optional mode (e.g. <TEST>) at the beginning of the line and return
+X# it, or ALL if none was present.
+Xsub get_mode {
+X	local(*line) = shift(@_);	# edited in place
+X	local($_) = $line;			# make a copy of original
+X	local($mode) = "ALL";		# default mode
+X	s/^<([\s\w,]+)>// && ($mode = $1);
+X	$mode =~ s/\s//g;			# no spaces in returned mode
+X	$line = $_;					# eventually updates the line
+X	$mode;
+X}
+X
+X# A selector is either a script or a list of header fields ending with a ':'.
+Xsub get_selector {
+X	local(*line) = shift(@_);	# edited in place
+X	local($_) = $line;			# make a copy of original
+X	local($selector) = "";
+X	s/^\s*,//;					# remove rule separator
+X	if (/^\s*\[\[/) {			# detected a script form
+X		$selector = 'script:';
+X	} else {
+X		s/^\s*([^\/,{\n]*:)// && ($selector = $1);
+X	}
+X	$line = $_;					# eventually updates the line
+X	$selector;
+X}
+X
+X# A pattern if either a single word (with no white space) or something
+X# starting with a / and ending with an un-escaped / followed by some optional
+X# modifiers.
+X# Patterns may be preceded by a single '!' to negate the matching value.
+Xsub get_pattern {
+X	local(*line) = shift(@_);		# edited in place
+X	local($_) = $line;				# make a copy of original
+X	local($pattern) = "";			# the recognized pattern
+X	local($buffer) = "";			# the buffer used for parsing
+X	local($not) = '';				# shall boolean value be negated?
+X	s|^\s*||;						# remove leading spaces
+X	s/^!// && ($not = '!');			# A leading '!' inverts matching status
+X	if (s|^\[\[([^{]*)\]\]||) {		# pattern is a script
+X		$pattern = $1;				# get the whole script
+X	} elsif (s|^/||) {				# pattern starts with a /
+X		$pattern = "/";				# record the /
+X		while (s|([^/]*/)||) {		# while there is something before a /
+X			$buffer = $1;			# save what we've been reading
+X			$pattern .= $1;
+X			last unless $buffer =~ m|\\/$|;	# finished unless / is escaped
+X		}
+X		s/^(\w+)// && ($pattern .= $1);		# add optional modifiers
+X	} else {								# pattern does not start with a /
+X		s/([^\s,;{]*)// && ($pattern = $1);	# grab all until next delimiter
+X	}
+X	$line = $_;					# eventually updates the line
+X	$pattern =~ s/\s+$//;		# remove trailing spaces
+X	if ($not && !$pattern) {
+X		&add_log("ERROR discarding '!' not followed by pattern") if $loglvl;
+X	} else {
+X		$pattern = $not . $pattern;
+X	}
+X	$pattern;
+X}
+X
+Xsub get_action {
+X	local(*line) = shift(@_);	# edited in place
+X	local($_) = $line;			# make a copy of original
+X	local($action) = "";
+X	if (s/^\s*{([^}]*)}//) {
+X		$action = $1;
+X	} else {
+X		unless (/\{.*\}/) {		# trash line if no { action } is present
+X			&add_log("ERROR expected action, discarded '$_'") if $loglvl;
+X			$_ = '';
+X		}
+X	}
+X	$line = $_;					# eventually updates the line
+X	$action =~ s/\s+$//;		# remove trailing spaces
+X	$action;
+X}
+X
+END_OF_FILE
+  if test 4343 -ne `wc -c <'agent/pl/lexical.pl'`; then
+    echo shar: \"'agent/pl/lexical.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/lexical.pl'
+fi
+if test -f 'agent/pl/queue_mail.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/queue_mail.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/queue_mail.pl'\" \(8543 characters\)
+  sed "s/^X//" >'agent/pl/queue_mail.pl' <<'END_OF_FILE'
+X;# $Id: queue_mail.pl,v 2.9 92/07/14 16:50:34 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	queue_mail.pl,v $
+X;# Revision 2.9  92/07/14  16:50:34  ram
+X;# 3.0 beta baseline.
+X;# 
+X;#
+X;# Queue a mail file. Needs add_log(). Calls fatal() in emergency situations.
+X;# Requires a parsed config file.
+X;# 
+X# Queue mail in a 'fm' file. The mail is held in memory. It returns 0 if the
+X# mail was queued, 1 otherwise.
+Xsub qmail {
+X	local(*array) = @_;			# In which array mail is located.
+X	local($queue_file);			# Where we attempt to save the mail
+X	local($failed) = 0;			# Be positive and look forward :-)
+X	$queue_file = "$cf'queue/Tqm$$";
+X	$queue_file = "$cf'queue/Tqmb$$" if -f "$queue_file";	# Paranoid
+X	unless (open(QUEUE, ">$queue_file")) {
+X		&add_log("ERROR unable to create $queue_file: $!") if $loglvl > 1;
+X		return 1;		# Failed
+X	}
+X	# Write mail on disk, making sure there is a first From line
+X	local($first_line) = 1;
+X	local($in_header) = 1;		# True while in mail header
+X	foreach $line (@array) {
+X		if ($first_line) {
+X			$first_line = 0;
+X			print QUEUE "$FAKE_FROM\n" unless $line =~ /^From\s+\S+/;
+X		}
+X		next if (print QUEUE $line, "\n");
+X		$failed = 1;
+X		&add_log("SYSERR write: $!") if $loglvl;
+X		last;
+X	}
+X	close QUEUE;
+X	unlink "$queue_file" if $failed;
+X	$failed = &queue_mail($queue_file) unless $failed;
+X	$failed;			# 0 means success
+X}
+X
+X# Queue mail in a 'fm' file. The mail is supposed to be either on disk or
+X# is expected from standard input. Returns 0 for success, 1 if failed.
+X# In case mail comes from stdin, may not return at all but raise a fatal error.
+Xsub queue_mail {
+X	local($file_name) = shift(@_);		# Where mail to-be-queued is
+X	local($deferred) = shift(@_);		# True when 'qm' mail wanted instead
+X	local($dirname);					# Directory name of processed file
+X	local($tmp_queue);					# Tempoorary storing of queued file
+X	local($queue_file);					# Final name of queue file
+X	local($ok) = 1;						# Print status
+X	local($_);
+X	&add_log("queuing mail for delayed processing") if $loglvl > 18;
+X	chdir $cf'queue || do fatal("cannot chdir to $cf'queue");
+X
+X	# The following ensures unique queue mails. As the mailagent itself may
+X	# queue intensively throughout the SPLIT command, a queue counter is kept
+X	# and is incremented each time a mail is successfully queued.
+X	local($base) = $deferred ? 'qm' : 'fm';
+X	$queue_file = "$base$$";		# 'fm' stands for Full Mail
+X	$queue_file = "$base$$x" . $queue_count if -f "$queue_file";
+X	$queue_file = "${queue_file}x" if -f "$queue_file";	# Paranoid
+X	++$queue_count;					# Counts amount of queued mails
+X	&add_log("queue file is $queue_file") if $loglvl > 19;
+X
+X	# Do not write directly in the fm file, otherwise the main
+X	# mailagent process could start its processing on it...
+X	$tmp_queue = "Tfm$$";
+X	local($sender) = "<someone>";	# Attempt to report the sender of message
+X	if ($file_name) {				# Mail is already on file system
+X		# Mail already in a file
+X		$ok = 0 if &mv($file_name, $tmp_queue);
+X		if ($ok && open(QUEUE, $tmp_queue)) {
+X			while (<QUEUE>) {
+X				$Header{'All'} .= $_ unless defined $Header{'All'};
+X				if (1 .. /^$/) {		# While in header of message
+X					/^From:[ \t]*(.*)/ && ($sender = $1 );
+X				}
+X			}
+X			close QUEUE;
+X		}
+X	} else {
+X		# Mail comes from stdin or has already been stored in %Header
+X		unless (defined $Header{'All'}) {	# Only if mail was not already read
+X			$Header{'All'} = '';			# Needed in case of emergency
+X			if (open(QUEUE, ">$tmp_queue")) {
+X				while (<STDIN>) {
+X					$Header{'All'} .= $_;
+X					if (1 .. /^$/) {		# While in header of message
+X						/^From:[ \t]*(.*)/ && ($sender = $1);
+X					}
+X					(print QUEUE) || ($ok = 0);
+X				}
+X				close QUEUE;
+X			} else {
+X				$ok = 0;		# Signals: was not able to queue mail
+X			}
+X		} else {							# Mail already in %Header
+X			if (open(QUEUE, ">$tmp_queue")) {
+X				local($in_header) = 1;
+X				foreach (split(/\n/, $Header{'All'})) {
+X					if ($in_header) {		# While in header of message
+X						$in_header = 0 if /^$/;
+X						/^From:[ \t]*(.*)/ && ($sender = $1);
+X					}
+X					(print QUEUE $_, "\n") || ($ok = 0);
+X				}
+X				close QUEUE;
+X			} else {
+X				$ok = 0;		# Signals: was not able to queue mail
+X			}
+X		}
+X	}
+X
+X	# If there has been some problem (like we ran out of disk space), then
+X	# attempt to record the temporary file name into the waiting file. If
+X	# mail came from stdin, there is not much we can do, so we panic.
+X	if (!$ok) {
+X		do add_log("ERROR could not queue message") if $loglvl > 0;
+X		unlink "$tmp_queue";
+X		if ($file_name) {
+X			# The file processed is already on the disk
+X			$dirname = $file_name;
+X			$dirname =~ s|^(.*)/.*|$1|;	# Keep only basename
+X			$cf'user = (getpwuid($<))[0] || "uid$<" if $cf'user eq '';
+X			$tmp_queue = $dirname/$cf'user.$$;
+X			$tmp_queue = $file_name if &mv($file_name, $tmp_queue);
+X			do add_log("NOTICE mail held in $tmp_queue") if $loglvl > 4;
+X		} else {
+X			do fatal("mail may be lost");	# Mail came from filter via stdin
+X		}
+X		# If the mail is on the disk, add its name to the file $agent_wait
+X		# in the queue directory. This file contains the names of the mails
+X		# stored outside of the mailagent's queue and waiting to be processed.
+X		$ok = &waiting_mail($tmp_queue);
+X		return 1 unless $ok;	# Queuing failed if not ok
+X		return 0;
+X	}
+X
+X	# We succeeded in writing the temporary queue mail. Now rename it so that
+X	# the mailagent may see it and process it.
+X	if (rename($tmp_queue, $queue_file)) {
+X		local($bytes) = (stat($queue_file))[7];	# Size of file
+X		local($s) = $bytes == 1 ? '' : 's';
+X		&add_log("QUEUED [$queue_file] ($bytes byte$s) from $sender")
+X			if $loglvl > 3;
+X	} else {
+X		&add_log("ERROR cannot rename $tmp_queue to $queue_file") if $loglvl;
+X		$ok = &waiting_mail($tmp_queue);
+X	}
+X	return 1 unless $ok;		# Queuing failed if not ok
+X	0;
+X}
+X
+X# Adds mail into the agent.wait file, if possible. This file records all the
+X# mails queued with a non-standard name or which are stored outside of the
+X# queue. Returns 1 if mail was successfully added to this list.
+Xsub waiting_mail {
+X	local($tmp_queue) = @_;
+X	local($status) = 0;
+X	if (open(WAITING, ">>$agent_wait")) {
+X		if (print WAITING "$tmp_queue\n") {
+X			$status = 1;			# Mail more or less safely queued
+X			do add_log("NOTICE processing deferred for $tmp_queue")
+X				if $loglvl > 3;
+X		} else {
+X			do add_log("ERROR could not record $tmp_queue in $agent_wait")
+X				if $loglvl > 1;
+X		}
+X		close WAITING;
+X	} else {
+X		do add_log("ERROR unable to open $agent_wait") if $loglvl > 0;
+X		do add_log("WARNING left mail in $tmp_queue") if $loglvl > 1;
+X	}
+X	$status;		# 1 means success
+X}
+X
+X# Performs a '/bin/mv' operation, but without the burden of an extra process.
+Xsub mv {
+X	local($from, $to) = @_;		# Original path and destination path
+X	# If the two files are on the same file system, then we may use the rename()
+X	# system call.
+X	if (&same_device($from, $to)) {
+X		&add_log("using rename system call") if $loglvl > 19;
+X		unless (rename($from, $to)) {
+X			&add_log("SYSERR rename: $!") if $loglvl;
+X			&add_log("ERROR could not rename $from into $to") if $loglvl;
+X			return 1;
+X		}
+X		return 0;
+X	}
+X	# Have to emulate a 'cp'
+X	&add_log("copying file $from to $to") if $loglvl > 19;
+X	unless (open(FROM, $from)) {
+X		&add_log("SYSERR open: $!") if $loglvl;
+X		&add_log("ERROR cannot open source $from") if $loglvl;
+X		return 1;
+X	}
+X	unless (open(TO, ">$to")) {
+X		&add_log("SYSERR open: $!") if $loglvl;
+X		&add_log("ERROR cannot open target $to") if $loglvl;
+X		close FROM;
+X		return 1;
+X	}
+X	local($ok) = 1;		# Assume all I/O went all right
+X	local($_);
+X	while (<FROM>) {
+X		next if print TO;
+X		$ok = 0;
+X		&add_log("SYSERR write: $!") if $loglvl;
+X		last;
+X	}
+X	close FROM;
+X	close TO;
+X	unless ($ok) {
+X		&add_log("ERROR could not copy $from to $to") if $loglvl;
+X		unlink "$to";
+X		return 1;
+X	}
+X	# Copy succeeded, remove original file
+X	unlink "$from";
+X	0;					# Denotes success
+X}
+X
+X# Look whether two paths refer to the same device.
+X# Compute basename and directory name for both files, as the file may
+X# not exist. However, if both directories are on the same file system,
+X# then so is it for the two files beneath each of them.
+Xsub same_device {
+X	local($from, $to) = @_;		# Original path and destination path
+X	local($fromdir, $fromfile) = $from =~ m|^(.*)/(.*)|;
+X	($fromdir, $fromfile) = ('.', $fromdir) if $fromfile eq '';
+X	local($todir, $tofile) = $to =~ m|^(.*)/(.*)|;
+X	($todir, $tofile) = ('.', $todir) if $tofile eq '';
+X	local($dev1) = stat($fromdir);
+X	local($dev2) = stat($todir);
+X	$dev1 == $dev2;
+X}
+X
+END_OF_FILE
+  if test 8543 -ne `wc -c <'agent/pl/queue_mail.pl'`; then
+    echo shar: \"'agent/pl/queue_mail.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/queue_mail.pl'
+fi
+if test -f 'agent/pl/sendfile.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/sendfile.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/sendfile.pl'\" \(8942 characters\)
+  sed "s/^X//" >'agent/pl/sendfile.pl' <<'END_OF_FILE'
+X;# $Id: sendfile.pl,v 2.9 92/07/14 16:50:49 ram Exp $
+X;#
+X;#  Copyright (c) 1991, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	sendfile.pl,v $
+X;# Revision 2.9  92/07/14  16:50:49  ram
+X;# 3.0 beta baseline.
+X;# 
+X;#
+X;# This file contains two subroutines:
+X;#   - sendfile, sends a set of files
+X;#   - abort, called when something got wrong
+X;#
+X;# A routine clean_tmp must be defined in the program, for removing
+X;# possible temporary files in case abort is called.
+X;#
+X# Send a set of files
+Xsub sendfile {
+X	local($dest, $cf'tmpdir, $pack, $subject) = @_;
+X	do add_log("sending dir $cf'tmpdir to $dest, mode $pack")
+X		if ($loglvl > 9);
+X
+X	# A little help message
+X	local($mail_help) = "Detailed intructions can be obtained by:
+X
+X	Subject: Command
+X	@SH mailhelp $dest";
+X
+X	# Go to tmpdir where files are stored
+X	chdir $cf'tmpdir || do abort("NO TMP DIRECTORY");
+X
+X	# Build a list of files to send
+X	local($list) = "";		# List of plain files
+X	local($dlist) = "";		# List with directories (for makekit)
+X	local($nbyte) = 0;
+X	local($nsend) = 0;
+X	open(FIND, "find . -print |") || do abort("CANNOT RUN FIND");
+X	while (<FIND>) {
+X		chop;
+X		next if $_ eq '.';		# Skip current directory `.'
+X		s|^\./||;
+X		$dlist .= $_ . " ";		# Save file/dir name
+X		if (-f $_) {			# If plain file
+X			$list .= $_ . " ";	# Save plain file
+X			$nsend++;			# One more file to send
+X			($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
+X				$blksize,$blocks) = stat($_);
+X			$nbyte += $size;	# Update total size
+X		}
+X	}
+X	close FIND;
+X
+X	do abort("NO FILE TO SEND") unless $nsend;
+X	if ($nsend > 1) {
+X		do add_log("$nsend files to pack ($nbyte bytes)") if ($loglvl > 9);
+X	} else {
+X		do add_log("1 file to pack ($nbyte bytes)") if ($loglvl > 9);
+X	}
+X
+X	# Pack files
+X	if ($pack =~ /kit/) {
+X		system "kit -n Part $list" || do abort("CANNOT KIT FILES");
+X		$packed = "kit";
+X	} elsif ($pack =~ /shar/) {
+X		# Create a manifest, so that we can easily run maniscan
+X		# Leave a PACKNOTES file with non-zero length if problems.
+X		local($mani) = $dlist;
+X		$mani =~ s/ /\n/g;
+X		local($packlist) = "pack.$$";	# Pack list used as manifest
+X		if (open(PACKLIST, ">$packlist")) {
+X			print PACKLIST $mani;
+X			close PACKLIST;
+X			system 'maniscan', "-i$packlist",
+X				"-o$packlist", '-w0', '-n', '-lPACKNOTES';
+X			do add_log("ERROR maniscan returned non-zero status")
+X				if ($loglvl > 5 && $?);
+X			if (-s 'PACKNOTES') {		# Files split or uu-encoded
+X				system 'makekit', "-i$packlist", '-t',
+X					"Now run 'sh PACKNOTES'." || do abort("CANNOT SHAR FILES");
+X			} else {
+X				system 'makekit', "-i$packlist" || do abort("CANNOT SHAR FILES");
+X			}
+X		} else {
+X			do add_log("ERROR cannot create packlist") if ($loglvl > 5);
+X			system "makekit $dlist" || do abort("CANNOT SHAR FILES");
+X		}
+X		$packed = "shar";
+X	} else {
+X		if ($nbyte > $cf'maxsize) {		# Defined in ~/.mailagent
+X			system "kit -M -n Part $list" || do abort("CANNOT KIT FILES");
+X			$packed = "minikit";		# The minikit is included
+X		} else {
+X			# Try with makekit first
+X			if (system "makekit $dlist") {	# If failed
+X				system "kit -M -n Part $list" || do abort("CANNOT KIT FILES");
+X				$packed = "minikit";	# The minikit is included
+X			} else {
+X				$packed = "shar";
+X			}
+X		}
+X	}
+X
+X	# How many parts are there ?
+X	@parts = <Part*>;
+X	$npart = $#parts + 1;		# Number of parts made
+X	do abort("NO PART TO SEND -- $packed failed") unless $npart;
+X	if ($npart > 1) {
+X		do add_log("$npart $packed parts to send") if ($loglvl > 19);
+X	} else {
+X	do add_log("$npart $packed part to send") if ($loglvl > 19);
+X	}
+X
+X	# Now send the parts
+X	$nbyte = 0;				# How many bytes do we send ?
+X	$part_num = 0;
+X	$signal="";				# To signal parts number if more than 1
+X	local($partsent) = 0;	# Number of parts actually sent
+X	local($bytesent) = 0;	# Amount of bytes actually sent
+X	foreach $part (@parts) {
+X		($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
+X			$blksize,$blocks) = stat($part);
+X		$nbyte += $size;	# Update total size
+X
+X		do add_log("dealing with $part ($size bytes)") if ($loglvl > 19);
+X
+X		# See if we need to signal other parts
+X		$part_num++;			# Update part number
+X		if ($npart > 1) {
+X			$signal=" (Part $part_num/$npart)";
+X		}
+X
+X		# Send part
+X		open(MAILER, "|/usr/lib/sendmail -odq -t");
+X		print MAILER
+X"To: $dest
+XSubject: $subject$signal
+XPrecedence: bulk
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XHere is the answer to your request:
+X
+X	$fullcmd
+X
+X
+X";
+X		if ($packed eq 'minikit') {		# Kit with minikit included
+X			print MAILER
+X"This is a kit file. It will be simpler to unkit it if you own the kit
+Xpackage (latest patchlevel), but you can use the minikit provided with
+Xthis set of file (please see instructions provided by kit itself at the
+Xhead of each part). If you wish to get kit, send me the following mail:
+X
+X";
+X		} elsif ($packed eq 'kit') {	# Plain kit files
+X			print MAILER
+X"This is a kit file. You need the kit package (latest patchlevel) to
+Xunkit it. If you do not have kit, send me the following mail:
+X
+X";
+X		}
+X		if ($packed =~ /kit/) {		# Kit parts
+X			print MAILER
+X"	Subject: Command
+X	@PACK shar
+X	@SH maildist $dest kit -
+X
+Xand you will get the latest release of kit as shell archives.
+X
+X$mail_help
+X
+X";
+X			# Repeat instructions which should be provided by kit anyway
+X			if ($npart > 1) {
+X				print MAILER
+X"Unkit:	Save this mail into a file, e.g. \"foo$part_num\" and wait until
+X	you have received the $npart parts. Then, do \"unkit foo*\". To see
+X	what will be extracted, you may wish to do \"unkit -l foo*\" before.
+X";
+X			} else {
+X				print MAILER
+X"Unkit:	Save this mail into a file, e.g. \"foo\". Then do \"unkit foo\". To see
+X	what will be extracted, you may wish to do \"unkit -l foo\" before.
+X";
+X			}
+X			# If we used the minikit, signal where instruction may be found
+X			if ($packed eq 'minikit') {
+X				print MAILER
+X"	This kit archive also contains a minikit which will enable you to
+X	extract the files even if you do not have kit. Please follow the
+X	instructions kit has provided for you at the head of each part. Should
+X	the minikit prove itself useless, you may wish to get kit.
+X";
+X			}
+X		} else {			# Shar parts
+X			print MAILER
+X"This is a shar file. It will be simpler to unshar it if you own the Rich Salz's
+Xcshar package. If you do not have it, send me the following mail:
+X
+X	Subject: Command
+X	@PACK shar
+X	@SH maildist $dest cshar 3.0
+X
+Xand you will get cshar as shell archives.
+X
+X$mail_help
+X
+X";
+X			if (-s 'PACKNOTES') {		# Problems detected by maniscan
+X				print MAILER
+X"
+XWarning:
+X	Some minor problems were encountered during the building of the
+X	shell archives. Perhaps a big file has been split, a binary has been
+X	uu-encoded, or some lines were too long. Once you have unpacked the
+X	whole distribution, see file PACKNOTES for more information. You can
+X	run it through sh by typing 'sh PACKNOTES' to restore possible splited
+X	or encoded files.
+X
+X";
+X			}
+X			if ($npart > 1) {
+X				print MAILER
+X"Unshar: Save this mail into a file, e.g. \"foo$part_num\" and wait until
+X	you have received the $npart parts. Then, do \"unshar -n foo*\". If you
+X	do not own \"unshar\", edit the $npart files and remove the mail header
+X	by hand before feeding into sh.
+X";
+X			} else {
+X				print MAILER
+X"Unshar: Save this mail into a file, e.g. \"foo\". Then do \"unshar -n foo\". If
+X	you do not own \"unshar\", edit the file and remove the mail header by
+X	hand before feeding into sh.
+X";
+X			}
+X		}
+X		print MAILER
+X"
+X-- $prog_name speaking for $cf'user
+X
+X
+X";
+X		open(PART, $part) || do abort("CANNOT OPEN $part");
+X		while (<PART>) {
+X			print MAILER;
+X		}
+X		close PART;
+X		close MAILER;
+X		if ($?) {
+X			do add_log("ERROR couldn't send $size bytes to $dest")
+X				if $loglvl > 1;
+X		} else {
+X			do add_log("SENT $size bytes to $dest") if $loglvl > 2;
+X			$partsent++;
+X			$bytesent += $size;
+X		}
+X	}
+X
+X	# Prepare log message
+X	local($partof) = "";
+X	local($byteof) = "";
+X	local($part);
+X	local($byte);
+X	if ($partsent > 1) {
+X		$part = "parts";
+X	} else {
+X		$part = "part";
+X	}
+X	if ($bytesent > 1) {
+X		$byte = "bytes";
+X	} else {
+X		$byte = "byte";
+X	}
+X	if ($partsent != $npart) {
+X		$partof = " (of $npart)";
+X		$byteof = "/$nbyte";
+X	}
+X	&add_log(
+X		"SENT $partsent$partof $packed $part ($bytesent$byteof $byte) to $dest"
+X	) if $loglvl > 4;
+X}
+X
+X# In case something got wrong
+X# We call the clean_tmp routine, which must be defined in the
+X# main program that will use abort.
+Xsub abort {
+X	local($reason) = shift;		# Why do we abort ?
+X	open(MAILER,"|/usr/lib/sendmail -odq -t");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: $subject failed
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XSorry, the $prog_name command failed while sending files.
+X
+XYour command was: $fullcmd
+XError message I got:
+X
+X	>>>> $reason <<<<
+X
+XIf $cf'name can figure out what you meant, he may answer anyway.
+X
+X-- $prog_name speaking for $cf'user
+X";
+X	close MAILER;
+X	do add_log("FAILED ($reason)") if ($loglvl > 1);
+X	do clean_tmp();
+X	exit 0;			# Scheduled error
+X}
+X
+END_OF_FILE
+  if test 8942 -ne `wc -c <'agent/pl/sendfile.pl'`; then
+    echo shar: \"'agent/pl/sendfile.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/sendfile.pl'
+fi
+echo shar: End of archive 10 \(of 17\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 17 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1668 @@
+Newsgroups: comp.sources.x
+From: markham@cadence.com (Jeff Markham)
+Subject: v19i032:  xmail - X Window System interface to the mail program, Part07/10
+Message-ID: <1993Mar10.202949.11121@sparky.imd.sterling.com>
+X-Md4-Signature: 1ff1f8f228112041ef0665c267ad0612
+Date: Wed, 10 Mar 1993 20:29:49 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: markham@cadence.com (Jeff Markham)
+Posting-number: Volume 19, Issue 32
+Archive-name: xmail/part07
+Environment: X11
+Supersedes: xmail: Volume 15, Issue 18-26
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  HelpText.c directory.c mail.c utils.c
+# Wrapped by chris@sparky on Wed Mar 10 14:17:49 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 10)."'
+if test -f 'HelpText.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'HelpText.c'\"
+else
+  echo shar: Extracting \"'HelpText.c'\" \(18289 characters\)
+  sed "s/^X//" >'HelpText.c' <<'END_OF_FILE'
+X/*
+X * xmail - X window system interface to the mail program
+X *
+X * Copyright 1990,1991,1992 by National Semiconductor Corporation
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of National Semiconductor Corporation not
+X * be used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission.
+X *
+X * NATIONAL SEMICONDUCTOR CORPORATION MAKES NO REPRESENTATIONS ABOUT THE
+X * SUITABILITY OF THIS SOFTWARE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS"
+X * WITHOUT EXPRESS OR IMPLIED WARRANTY.  NATIONAL SEMICONDUCTOR CORPORATION
+X * DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  IN NO
+X * EVENT SHALL NATIONAL SEMICONDUCTOR CORPORATION BE LIABLE FOR ANY SPECIAL,
+X * INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+X * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X * Author:  Michael C. Wagnitz - National Semiconductor Corporation
+X *
+X */
+X
+X#include	"global.h"
+X
+X
+XString	Autograph_Info[] = {
+X		"Append your 'Sign'ature (if any) to the message text",
+X		"Append your 'sign'ature (if any) to the message text",
+X		NULL
+X		};
+X
+XString	Copy_Info[] = {
+X                "Copy the selected message to the specified folder",
+X                "Copy the message to a folder named for it's author",
+X                NULL
+X                };
+X
+XString	Default_Status_Info = "Press <Middle-Mouse-Button> for help on any window";
+X
+XString	Delete_Info[] = {
+X                "Delete the currently selected message",
+X                "Undelete the selected or most recently deleted message",
+X                NULL
+X                };
+X
+XString	Deliver_Info[] = {
+X		"Deliver this message",
+X		"Re-edit this message",
+X		"Cancel the request but save the text in the dead letter file",
+X		"Abort this request and discard the text",
+X		NULL
+X		};
+X
+XString	Folder_Info[] = {
+X		"Access the specified folder, or select from the list",
+X		"Copy this folder name to the fileWindow",
+X		"Copy the folder path to the fileWindow or view the next level",
+X		NULL
+X		};
+X
+XString	Hold_Info[] = {
+X                "Preserve the selected message in the system folder",
+X                NULL
+X                };
+X
+XString	NewMail_Info[] = {
+X                "Re-read your system mail folder",
+X                "Incorporate new mail without committing any current changes",
+X                "Make xmail refresh the folder list next time it's displayed",
+X                NULL
+X                };
+X
+XString	Print_Info[] = {
+X                "Print the selected message on the system printer",
+X                NULL
+X                };
+X
+XString	Quit_Info[] = {
+X                "Quit xmail",
+X                "Leave xmail without committing any current changes",
+X                NULL
+X                };
+X
+XString	Read_Info[] = {
+X                "Read the next message",
+X                "Read the previous message",
+X                "Read the current message",
+X                "Read the current message, and include full mail headers",
+X                NULL
+X                };
+X
+XString	Reply_Info[] = {
+X                "Reply to the author of the message",
+X                "Reply to the author of, and include the message text",
+X                "Include all recipients of the original message in your reply",
+X                "Include all recipients, and the text, of this message",
+X                NULL
+X                };
+X
+XString	Save_Info[] = {
+X                "Save the selected message in the specified folder",
+X                "Save the message in a folder named for it's author",
+X                "Write the message to the folder, but don't include headers",
+X                NULL
+X                };
+X
+XString	Send_Info[] = {
+X                "Compose and send a new mail message",
+X                "Forward a copy of the selected mail message",
+X                NULL
+X                };
+X
+XString	SendMail_Info[] = {
+X		"Specify the name(s) of the recipient(s) (<Shift><Button2> for help)",
+X		"Enter the subject of this message (<Shift><Button2> for help)",
+X		"Specify the names of any carbon copy recipients (<Shift><Button2> for help)",
+X		"Enter the names of any blind carbon copy recipients (<Shift><Button2> for help)",
+X		NULL
+X		};
+X
+XString Abort_Help = "\n\n\n\n\n\n\
+X Pressing the \"Abort\" button cancels delivery of the\n\
+X message, and deletes any text that may have been created.";
+X
+XString	Bcc_Help = "\n\
+X Specify any blind carbon copy recipients for this message\n\
+X using the Bcc: window.  Blind carbon recipient names are\n\
+X removed from the message prior to delivery.\n\n\
+X Pressing the right mouse button in this window displays\n\
+X a list of your aliases.  Releasing the right mouse\n\
+X button while one of the alias names is highlighted\n\
+X copies that name into the window, preceding it with a\n\
+X comma if necessary.\n\n\
+X Standard editing functions associated with the text widget\n\
+X are supported, and can be altered using the application\n\
+X resources.";
+X
+XString Cancel_Help = "\n\n\n\n\n\
+X Pressing the \"Cancel\" button causes delivery of this\n\
+X message to be abandoned, but saves a copy of the message\n\
+X text in your dead letter file (default $HOME/dead.letter)\n\
+X without any header information.";
+X
+XString	Cc_Help = "\n\n\
+X Specify carbon copy recipients for this message using the\n\
+X Cc: window.  Multiple recipients should be comma separated.\n\n\
+X Pressing the right mouse button in this window displays a\n\
+X list of your aliases.  Releasing the right mouse button\n\
+X while one of the alias names is highlighted copies that\n\
+X name into this window, preceded with a comma if needed.\n\n\
+X Standard editing functions associated with the text widget\n\
+X are supported, and can be altered using the application\n\
+X resources.";
+X
+XString	Copy_Help = "\n\
+X Pressing this button copies the current message to the\n\
+X file or folder named in the File: window, without marking\n\
+X the original for removal.  (If a folder name is not\n\
+X specified, it will be copied to your mbox folder.)\n\n\
+X The right mouse button pops up a menu for both the copy\n\
+X and Copy commands.\n\n\
+X The uppercase (Copy) command copies the message to a file\n\
+X whose name is derived from the author of the message,\n\
+X rather than from any name currently in the File: window.\n\n\
+X See also the save command help for additional information.";
+X
+XString	Delete_Help = "\
+X Pressing this button removes the selected message from the\n\
+X current folder.\n\n\
+X The right mouse button displays a menu for both the delete\n\
+X and undelete commands.\n\n\
+X Undelete restores the selected message (if it has been\n\
+X marked 'D'eleted), otherwise the deleted message with the\n\
+X smallest message number is restored.\n\n\
+X Undelete may be used repeatedly to restore all deleted\n\
+X messages if changes have not yet been committed.\n\n\
+X See also preserve, save, folder, Newmail, and quit.";
+X
+XString	Deliver_Help = "\n\n\n\n\n\
+X The Deliver button will send the composed message text\n\
+X to your sendmail daemon for delivery to the specified\n\
+X recipient(s).";
+X
+XString	File_Help = "\n\
+X The File: window provides a mechanism for specifying a\n\
+X file or folder name for use by other xmail commands.\n\n\
+X Text entered beyond the right margin of the window will\n\
+X cause a horizontal scrollbar to appear, for scrolling the\n\
+X displayed text to the left or right as needed for viewing.\n\n\
+X Pressing the backspace or delete key erases a previously\n\
+X entered character.  Control_W (^W) erases a previous word\n\
+X and Control_U (^U) the entire line.\n\n\
+X See the folder and save commands for more information.";
+X
+XString	Folder_Help = "\
+X The left button changes the active folder to the one\n\
+X specified in the File: window.  Changing folders COMMITs\n\
+X any modifications to the current folder.\n\n\
+X The right button displays a menu of folders from which to\n\
+X choose.  Clicking the left button on a directory (indicated\n\
+X by trailing slash) while still holding down the right,\n\
+X expands that directory if it contains files.  Folders with\n\
+X unread messages will be highlighted by a hatch pattern.\n\
+X Releasing the right button copies the selected name to the\n\
+X File: window.\n\n\
+X The current menu can be erased (to include new folders\n\
+X created since the menu was last generated) by using the\n\
+X Drop option provided with the Newmail command button menu.";
+X
+XString	Hold_Help = "\n\
+X The Preserve command marks the selected message for\n\
+X retention in the system mailbox.  Normally when a message\n\
+X is 'saved' to some other folder file, it is automatically\n\
+X deleted from your system folder.  'Preserve' causes mail\n\
+X to not remove the original from your system mail folder.\n\n\
+X Pressing the right mouse button on the Preserve command\n\
+X presents a menu of four mail (and one xmail) variables\n\
+X that may be toggled while currently operating in xmail.\n\n\
+X Commands listed denote what state each variable will be\n\
+X changed to, if the appropriate label is highlighted when\n\
+X the right mouse button is released.";
+X
+XString	Index_Help = "\n\
+X The index window displays a list of mail messages in the\n\
+X current folder, as well as the currently selected message.\n\n\
+X Pressing the left mouse button anywhere on a line marks\n\
+X the message as selected (for other commands) but does not\n\
+X automatically display the message in the text window.\n\n\
+X Pressing the right button selects and also automatically\n\
+X displays the message.\n\
+X See also the next command help for additional information.\n\n\
+X The index window header list may be scrolled using either\n\
+X the scrollbar and mouse or keyboard keys.  See the Text\n\
+X window help for a description of the keys supported.";
+X
+XString	NewMail_Help = "\
+X The Newmail button will be highlighted with a hatching\n\
+X pattern whenever new mail has arrived for your account.\n\n\
+X Pressing the NewMail button accesses your system folder\n\
+X (if mail exists) and includes any new mail delivered\n\
+X since the last time your system folder was accessed.\n\
+X This action also resets any button highlighting, and\n\
+X COMMITS any changes that may have been made to the\n\
+X current folder.  (Confirmation provided if not expert.)\n\n\
+X The right mouse button provides a menu for committing\n\
+X changes, incorporating new messages without committing\n\
+X changes (only if currently in your system folder), or\n\
+X causing xmail to redetermine the list of mail folders.";
+X
+XString	Print_Help = "\n\n\n\
+X Pressing this button causes the selected message to be\n\
+X printed on the system printer.\n\n\
+X A message will be displayed in the status window\n\
+X indicating which message was printed, along with its\n\
+X size in bytes.\n\n\
+X See also the Index window for help on selecting a message.";
+X
+XString	Quit_Help = "\n\n\
+X quit - terminates xmail, committing changes made to the\n\
+X current folder.\n\n\
+X The right mouse button pops up a menu for the quit and\n\
+X exit commands.\n\n\
+X Use exit when you wish to leave xmail without committing\n\
+X the current folder's changes.\n\n\
+X See also the folder, Newmail, and delete commands.";
+X
+XString	Read_Help = "\n\
+X Pressing this button causes the next message in the list\n\
+X to be displayed in the text (bottom) window.\n\n\
+X Current message selection is indicated by caret (>) in\n\
+X the index (top) window.\n\n\
+X The right mouse button displays a menu for reading the\n\
+X next message, reading the previous or current message,\n\
+X or reading the current message with full headers (this\n\
+X overrides any suppression of normally ignored fields).\n\n\
+X See also the Index window help for more information.";
+X
+XString ReEdit_Help = "\n\n\n\n\n\
+X Use the ReEdit selection to perform additional changes\n\
+X to the current message composition.  When completed, you\n\
+X will again be presented with the send completion menu.";
+X
+XString	Reply_Help = "\n\n\
+X reply - initiates the mechanism to create and send a mail\n\
+X message to the author of a current message.\n\n\
+X The right mouse button displays a menu for selecting\n\
+X 'reply', 'reply included', 'replyall' (which addresses all\n\
+X recipients of the original mail), or 'replyall included'.\n\
+X The include options automatically copy the original\n\
+X message into the new one.\n\nSee also the Send command.";
+X
+XString	Save_Help = "\n\
+X save - copies a message to the file or folder named in\n\
+X the File: window, marking the original for deletion.\n\
+X If none is specified, the name in your environment MBOX\n\
+X is used ($HOME/mbox by default).\n\n\
+X The right button pops up a menu of related commands.\n\n\
+X A written (vs. copied) message does not include mail\n\
+X headers or trailing blank line.\n\n\
+X Uppercase commands create a file named from the author of\n\
+X the message, rather than any name in the File: window.";
+X
+XString	Send_Help = "\n\
+X send - initiates the mechanism to create and send a\n\
+X message to the designated recipient(s).  The right mouse\n\
+X button displays a menu which provides the choice of\n\
+X 'send'ing, or 'forwarding a message'.  Forwarding includes\n\
+X the text of the current message in the new one.\n\n\
+X As with the 'reply' command, a dialog box is provided to\n\
+X specify the name of the recipient(s), subject, and to whom\n\
+X to send copies of this message.  Pressing the 'Deliver'\n\
+X button completes the operation.\n\n\
+X See also the reply command help for additional information.";
+X
+XString	Sign_Help = "\n\n\n\
+X Pressing this Autograph button will append your .mailrc\n\
+X defined 'Sign'ature (uppercase 'S') text to the current\n\
+X message composition, replacing any backslash-'n' character\n\
+X combinations (\\n) found in it with true newline characters.\n\
+X (See the Mail(1) man page for details on defining a Sign.)\n\n\
+X If your .mailrc does not contain a Sign definition, xmail\n\
+X will look for a .Signature file in your home directory,\n\
+X appending its contents, if any, to the current composition.";
+X
+XString	sign_Help = "\n\n\n\
+X Pressing this autograph button will append your .mailrc\n\
+X defined 'sign'ature (lowercase 's') text to the current\n\
+X message composition, replacing any backslash-'n' character\n\
+X combinations (\\n) found in it with true newline characters.\n\
+X (See the Mail(1) man page for details on defining a sign.)\n\n\
+X If your .mailrc does not contain a sign definition, xmail\n\
+X will look for a .signature file in your home directory,\n\
+X appending its contents, if any, to the current composition.";
+X
+XString	Status_Help = "\n\n\n\
+X The Status window displays xmail program info, status, and\n\
+X error messages.\n\n\
+X Error messages usually cause the terminal bell to ring, to\n\
+X attract the user's attention.\n\n\
+X The BELL can be disabled, by either including the command\n\
+X line option -nb, or by specifying the '*bellRing' resource\n\
+X as False.";
+X
+XString	Subject_Help = "\n\n\
+X The Subject: window provides a method for specifying the\n\
+X subject for this mail message.\n\n\
+X Text entered beyond the right margin of the window will\n\
+X cause a horizontal scrollbar to appear, for scrolling the\n\
+X displayed text to the left or right as needed for viewing.\n\n\
+X Pressing the backspace or delete key erases a previously\n\
+X entered character, while Control_W (^W) erases a previous\n\
+X word and Control_U (^U) to the beginning of the line.";
+X
+XString	Text_Help = "\n\
+X The text window displays the currently selected message.\n\
+X See the Index window help on how to select a message.\n\n\
+X Text and index windows may be scrolled using either the\n\
+X mouse and scrollbar, or the keyboard keys in the manner\n\
+X of text display programs such as \"more\" and \"less\".\n\n\
+X spacebar - scroll down a page      b - scroll up a page\n\
+X return   - scroll down a line      k - scroll up a line\n\
+X   G      - go to end of text       ' - go to top of text\n\n\
+X The both windows also support keyboard access to each of\n\
+X the command buttons.  See the xmail man page for details\n\
+X or press the question mark key (?) within the text window.";
+X
+XString	Text2_Help = "\n\
+XKeyboard key defaults that duplicate command button actions:\n\n\
+X a - REPLY to ALL recipients    A  - REPLY to ALL INCLUDED\n\
+X c - COPY a message             C  - COPY to AUTHOR file\n\
+X d - DELETE the message         u  - UNDELETE a message\n\
+X f - READ with FULL headers     F  - FORWARD a message\n\
+X m - MAIL a message             M  - REPLY to a message\n\
+X i - Incorporate NEW MAIL       N  - retrieve NEW MAIL\n\
+X p - read PREVIOUS message      P  - PRINT a message\n\
+X r - READ the current message   R  - REPLY included\n\
+X s - SAVE current message       S  - SAVE to AUTHOR\n\
+X n - read the NEXT message      w  - WRITE current message\n\
+X q - QUIT, committing changes   x  - EXIT, no commits\n\
+X ? - DISPLAY this help info   <LF> - REMOVE this help info";
+X
+XString	Title_Help = "\n\n\n\n\
+XThe Titlebar window displays the xmail program name and the\n\
+Xcurrent version number, along with the name of the current\n\
+Xmail folder being accessed, and its message count(s).\n\n\
+XPressing the left mouse button on the National Semiconductor\n\
+XCorporation logo in the top left corner of the title bar\n\
+Xissues an XLib request to iconify this xmail application.";
+X
+XString	To_Help = "\n\
+X Use the To: window to specify the recipients for this mail\n\
+X message.  Text entered beyond the right margin of the\n\
+X window will cause a horizontal scrollbar to appear, for\n\
+X scrolling the displayed text left or right as desired for\n\
+X viewing.  Pressing the backspace or delete key erases the\n\
+X previously entered character, while Control_W (^W) erases\n\
+X a previous word and Control_U (^U) to the start of a line.\n\n\
+X Pressing the right mouse button in this window displays a\n\
+X list of your alias names.  Releasing the right mouse\n\
+X button while one of the names is highlighted will copy\n\
+X that name into the window, prepending it with a comma if\n\
+X needed.";
+X
+X/* HelpText */
+END_OF_FILE
+  if test 18289 -ne `wc -c <'HelpText.c'`; then
+    echo shar: \"'HelpText.c'\" unpacked with wrong size!
+  fi
+  # end of 'HelpText.c'
+fi
+if test -f 'directory.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'directory.c'\"
+else
+  echo shar: Extracting \"'directory.c'\" \(8030 characters\)
+  sed "s/^X//" >'directory.c' <<'END_OF_FILE'
+X/*
+X * xmail - X window system interface to the mail program
+X *
+X * Copyright 1990,1991,1992 by National Semiconductor Corporation
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of National Semiconductor Corporation not
+X * be used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission.
+X *
+X * NATIONAL SEMICONDUCTOR CORPORATION MAKES NO REPRESENTATIONS ABOUT THE
+X * SUITABILITY OF THIS SOFTWARE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS"
+X * WITHOUT EXPRESS OR IMPLIED WARRANTY.  NATIONAL SEMICONDUCTOR CORPORATION
+X * DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  IN NO
+X * EVENT SHALL NATIONAL SEMICONDUCTOR CORPORATION BE LIABLE FOR ANY SPECIAL,
+X * INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+X * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X * Author:  Michael C. Wagnitz - National Semiconductor Corporation
+X *
+X */
+X
+X#include "global.h"
+X#include <sys/stat.h>
+X
+X#ifndef	S_ISDIR
+X#define	S_ISDIR(m)	(((m)&S_IFMT) == S_IFDIR)
+X#endif
+X
+X#ifdef USE_DIRENT
+X#include <dirent.h>
+X#else
+X#include <sys/dir.h>
+X#endif
+X
+X
+X/*
+X** @(#)SetDirectory() - Create popup list of directory folder names
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XSetDirectory(w, event, params, num_params)
+XWidget		w;
+XXEvent		*event;
+XString		*params;
+XCardinal	*num_params;
+X{
+X int		depth, label_width, n, total, x;
+X char		buf[BUFSIZ], tmp[BUFSIZ], trans[BUFSIZ];
+X String		ep, name, path, s, List, *ftbl;
+X Widget		menu, layout, bw, above, to_left;
+X Arg		args[8];
+X DIR		*dirp;
+X struct	stat	st_buf;
+X#ifdef USE_DIRENT
+X struct dirent	*dp;
+X#else
+X struct direct	*dp;
+X#endif
+X
+X static String	dir_Trans = "<Btn1Down>: SetDirectory(%s, %s, %d)";
+X static String	m_Trans   = "<Leave>: MenuPopdown(%s)";
+X static String	b_Trans   = "<Enter>: set()\n<Leave>: unset()\n<Btn3Up>: MyNotify(%d) MenuPopdown(%s)";
+X
+X static XtCallbackRec callbacks[] = {
+X        { (XtCallbackProc) GetFolderName, NULL },
+X        { NULL,          NULL }
+X       };
+X
+X
+X name = params[0];
+X path = params[1];
+X (void) sscanf(params[2], "%d", &depth);
+X
+X depth      += 1;
+X label_width = 0;
+X
+X     /*
+X     ** To avoid problems later on with XtNameToWidget, don't create a
+X     ** menu if the name contains either a dot (.) or an asterisk (*).
+X     */
+X for (s = name; *s; s++)
+X     if (strchr(".*", *s) != NULL) break;
+X
+X menu = XtNameToWidget(w, name);
+X if (*s == NULL && menu == NULL) {	/* no dot or asterisk and no menu yet */
+X    SetCursor(WATCH);
+X    (void) sprintf(trans, m_Trans, name);
+X    XtSetArg(args[0], XtNtranslations, XtParseTranslationTable(trans));
+X    menu = XtCreatePopupShell(name, overrideShellWidgetClass, w, args, ONE);
+X
+X    XtSetArg(args[0], XtNdefaultDistance, 1);
+X    layout = XtCreateManagedWidget("menu", formWidgetClass, menu, args, ONE);
+X    /*
+X    ** Copy folder names into a list
+X    */
+X    n = BUFSIZ;					/* start with a BUFSIZ block */
+X    List = (String) XtMalloc((unsigned) n);
+X    List[0] = '\0';
+X
+X    if ((dirp = opendir(path)) == NULL)
+X       XtError("xmail cannot access directory name passed to SetDirectory()");
+X
+X    for (dp = readdir(dirp); dp != NULL; dp = readdir(dirp))
+X        if (dp->d_name[0] != '.') {		/* skip parent and dot files */
+X           if (strlen(List) + strlen(dp->d_name) + 2 >= n) {
+X              n += BUFSIZ;
+X              List = (String) XtRealloc(List, (unsigned) n);
+X             }
+X           if (List[0]) (void) strcat(List, " ");
+X           (void) strcat(List, dp->d_name);
+X          }
+X    (void) closedir(dirp);
+X
+X    List = (String) XtRealloc(List, (unsigned) strlen(List) + 2);
+X
+X    if (List[0]) {			/* if directory isn't empty... */
+X       /*
+X       ** Store pointers to folder names in a table array for sorting
+X       */
+X       for (total=1, s=List; *s; s++)	/* count number of names in the List */
+X           if (*s == ' ') total++;	/* (increase the folder name count) */
+X       ftbl = (String *) XtMalloc((unsigned) (total + 2) * sizeof(String *));
+X       x = n = 0;
+X       ep = &List[strlen(List)];	/* Find the end of this array */
+X       for (s = List; s < ep; s++) {	/* stuff word pointers into a table */
+X           while ((s+n < ep) && *(s+n) != ' ') n++;
+X           if (s+n < ep) *(s+n) = '\0';	/* mark off the end of this name */
+X           ftbl[x++] = s;		/* save this pointer in our table */
+X           s += n;			/* find start of next folder name */
+X           n  = 0;
+X          }
+X       ftbl[x] = NULL;			/* NULL terminate our table */
+X       /*
+X       ** (quick) sort our table into ascending alphabetical order
+X       */
+X       if (total > 1)
+X       qsort((char *)ftbl, total, sizeof(char *), str_compare);
+X       /*
+X       ** Then, determine label width by finding longest entry in our table
+X       */
+X       for (x = n = 0; n < total && ftbl[n]; n++)
+X           if (strlen(ftbl[n]) > strlen(ftbl[x])) x = n;
+X
+X       label_width = XTextWidth(XMail.buttonFont, ftbl[x], strlen(ftbl[x]));
+X      }
+X
+X    if (label_width) {
+X       (void) sprintf(trans, b_Trans, depth, name);
+X
+X       XtSetArg(args[0], XtNtranslations, XtParseTranslationTable(trans));
+X       XtSetArg(args[1], XtNwidth, label_width + 12);
+X       XtSetArg(args[2], XtNfont, XMail.buttonFont);
+X       XtSetArg(args[3], XtNcallback, callbacks);
+X/*
+X** create the menu buttons
+X*/
+X       bw = above = to_left = NULL;
+X       for (x = 0; x < total; x++) {
+X           (void) sprintf(buf, "%s/%s", path, ftbl[x]);
+X           (void) strncpy(tmp, ftbl[x], BUFSIZ);
+X/*
+X           ** If this folder is also a directory, add a trailing slash '/'
+X*/
+X           if (stat(buf, &st_buf) == 0)		/* IF exists and is readable */
+X	      if (S_ISDIR(st_buf.st_mode) && LASTCH(tmp) != '/')
+X                 (void) strcat(tmp, "/");	/* If a directory mark it so */
+X
+X           XtSetArg(args[4], XtNlabel, tmp);
+X           XtSetArg(args[5], XtNfromHoriz, to_left);
+X           if (! to_left)			/* (else keep current value) */
+X              XtSetArg(args[6], XtNfromVert, above);
+X
+X           bw = XtCreateManagedWidget("menubutton",commandWidgetClass,layout,args,7);
+X
+X           if (to_left == NULL) above = bw;
+X           if ((x+1) % 3 == 0)			/* make box three items wide */
+X              to_left = NULL;
+X           else to_left = bw;
+X
+X           if (LASTCH(tmp) != '/')
+X              AddInfoHandler(bw, Folder_Info[1]);
+X           else {
+X/*
+X              ** This is a directory.  Add a button popup menu for its files.
+X*/
+X              (void) sprintf(trans, dir_Trans, tmp, buf, depth);
+X              XtOverrideTranslations(bw, XtParseTranslationTable(trans));
+X              AddInfoHandler(bw, Folder_Info[2]);
+X             }
+X          } /* end - for each name in the folder table */
+X      } /* end - if there exists at least one folder name */
+X/*
+X** If no buttons were created for this menu, destroy the widget.
+X*/
+X    if (! label_width)
+X       XtDestroyWidget(menu);
+X    SetCursor(NORMAL);
+X    XtFree((String) ftbl);
+X    XtFree((String) List);
+X   } /* end - if menu had not yet been created */
+X/*
+X** If menu exists, pop it up, after setting x,y coordinates
+X*/
+X menu = XtNameToWidget(w, name);
+X
+X if (! menu || menu->core.being_destroyed)
+X    XBell(XtDisplay(toplevel), 33);
+X else {
+X    SetPopup(w, event, params, num_params);
+X    /*
+X    ** Mark folders with new messages by changing the background Pixmap
+X    */
+X    SetNewness(XtNameToWidget(menu, "*menu"), path);
+X
+X    XtSetArg(args[0], XtNy, NULL);
+X    XtGetValues(menu, args, ONE);
+X
+X    args[0].value -= XMail.menuY;	/* don't offset menu below cursor */
+X    XtSetValues(menu, args, ONE);
+X
+X    XtPopup(menu, XtGrabNone);
+X   }
+X} /* SetDirectory */
+END_OF_FILE
+  if test 8030 -ne `wc -c <'directory.c'`; then
+    echo shar: \"'directory.c'\" unpacked with wrong size!
+  fi
+  # end of 'directory.c'
+fi
+if test -f 'mail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mail.c'\"
+else
+  echo shar: Extracting \"'mail.c'\" \(14182 characters\)
+  sed "s/^X//" >'mail.c' <<'END_OF_FILE'
+X/*
+X * xmail - X window system interface to the mail program
+X *
+X * Copyright 1990,1991,1992 by National Semiconductor Corporation
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of National Semiconductor Corporation not
+X * be used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission.
+X *
+X * NATIONAL SEMICONDUCTOR CORPORATION MAKES NO REPRESENTATIONS ABOUT THE
+X * SUITABILITY OF THIS SOFTWARE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS"
+X * WITHOUT EXPRESS OR IMPLIED WARRANTY.  NATIONAL SEMICONDUCTOR CORPORATION
+X * DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  IN NO
+X * EVENT SHALL NATIONAL SEMICONDUCTOR CORPORATION BE LIABLE FOR ANY SPECIAL,
+X * INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+X * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X * The following software modules were created and are Copyrighted by National
+X * Semiconductor Corporation:
+X *
+X * 1. warp_handler: 
+X * 2. extract_of: 
+X * 3. endEdits: 
+X * 4. editMail: 
+X * 5. makeHeading: 
+X * 6. makeButton: 
+X * 7. sendMail: 
+X *
+X * Author:  Michael C. Wagnitz - National Semiconductor Corporation
+X *
+X */
+X#include "global.h"
+X#include <sys/wait.h>
+X#include <sys/stat.h>
+X#include <signal.h>
+X#include <errno.h>
+X
+X#ifdef vms
+Xextern int	noshare errno;
+X#else
+Xextern int	errno;
+X#endif
+X
+X#if ! defined(SIGCHLD) && defined(SIGCLD)
+X#define	SIGCHLD		SIGCLD
+X#endif
+X
+X#ifndef	DEFAULT_VISUAL
+X#define	DEFAULT_VISUAL	"/usr/ucb/vi"
+X#endif
+X
+Xstatic int		editMail_pid;
+X
+X
+X/* ARGSUSED */
+XXtEventHandler
+Xwarp_handler(w, client_data, event)
+XWidget	w;
+Xcaddr_t	client_data;
+XXEvent	*event;
+X{
+X Widget Popup = XtNameToWidget(toplevel,"topBox.commandPanel.Send.popup");
+X Widget    To = XtNameToWidget(Popup, "SubjCc.To");
+X
+X if (event->type == MapNotify) {
+X    XWarpPointer(XtDisplay(toplevel), None, XtWindow(To), 0,0,0,0, 15, 10);
+X    XtRemoveEventHandler(Popup, StructureNotifyMask, False, warp_handler, NULL);
+X   }
+X}
+X
+X
+X/*
+X** @(#)extract_of - strip off header information from a buffer and return
+X**                  the extracted information and the incremented pointer
+X*/
+Xchar *
+Xextract_of(p)
+Xchar	**p;
+X{
+X int	n;
+X char	tmp[BUFSIZ];
+X
+X
+X for (n = 0; *(*p); (*p)++) {
+X     if (*(*p) == '\n' && *((*p) + 1) != ' ' && *((*p) + 1) != '\t') break;
+X     if (*(*p) == '\n') {
+X        if (tmp[n - 1] != ' ' && tmp[n - 1] != '\t') tmp[n++] = ' ';
+X        for ((*p)++; *(*p) && (*(*p) == ' ' || *(*p) == '\t');) (*p)++;
+X       }
+X     if (*(*p) != '\n') tmp[n++] = *(*p);
+X    }
+X tmp[n] = '\0';
+X return((char *)tmp);
+X}
+X
+X
+X/*
+X** @(#)endEdits() - catch the signal when the edit child finishes
+X**                  (The idea for this was ``borrowed'' from xrn.)
+X**                  If editheaders is set, extract selected header
+X**                  information from the message text file and
+X**                  install it in the appropriate header windows.
+X**                  Then, popup the completion window with header
+X**                  edit windows and completion control buttons.
+X*/
+Xint
+XendEdits(signum)
+Xint	signum;
+X{
+X int		fd, status;
+X String		p, q;
+X char		buf[BUFSIZ];
+X Widget		sb, Popup;
+X
+X
+X if (signum != SIGCHLD)
+X    return 1;
+X
+X if (editMail_pid != wait(&status))
+X    return 1;				/* the mail child could die too */
+X
+X (void) signal(SIGCHLD, SIG_DFL);	/* turn off the endEdits hook */
+X
+X sb = XtNameToWidget(toplevel, "topBox.commandPanel.Send");
+X
+X if (p = GetMailEnv("editheaders")) {
+X    XtFree((String) p);
+X    if ((fd = open(tmpName, O_RDONLY)) >= 0) {
+X       while (1) {
+X          bzero(Command, BUFSIZ);
+X          status = read(fd, Command, BUFSIZ);
+X          for (p = Command; *p; p++) {
+X              if (*p == '\n' && *(p - 1) == '\n') {
+X                 status = 0;
+X                 break;
+X                }
+X              if (strncmp(p, "To: ", 4) == 0) {
+X                 p += 4;
+X                 writeTo(XtNameToWidget(sb, "*To"), extract_of(&p), REPLACE);
+X                } else 
+X              if (strncmp(p, "Subject: ", 9) == 0) {
+X                 p += 9;
+X                 writeTo(XtNameToWidget(sb,"*Subject"),extract_of(&p),REPLACE);
+X                } else 
+X              if (strncmp(p, "In-Reply-To: ", 13) == 0) {
+X                 p += 13;
+X                 (void) strcpy(buf, extract_of(&p));
+X                 if (! (q = strchr(buf, ':')))
+X                    (void) sprintf(InReply, "In-Reply-To: %s", buf);
+X                 else {
+X                    q -= 5;
+X                    if (strncmp(q, "dated: ", 7) != 0)
+X                       (void) sprintf(InReply, "In-Reply-To: %s", buf);
+X                    else {
+X                       *(q - 1) = '\0';
+X                       (void) sprintf(InReply, "In-Reply-To: %s\n      ", buf);
+X                       (void) strcat(InReply, q);
+X                      }
+X                   }
+X                } else 
+X              if (strncmp(p, "Forwarding: ", 12) == 0) {
+X                 p += 12;
+X                 (void) strcpy(buf, extract_of(&p));
+X                 if (! (q = strchr(buf, ':')))
+X                    (void) sprintf(InReply, "Forwarding: %s", buf);
+X                 else {
+X                    q -= 5;
+X                    if (strncmp(q, "dated: ", 7) != 0)
+X                       (void) sprintf(InReply, "Forwarding: %s", buf);
+X                    else {
+X                       *(q - 1) = '\0';
+X                       (void) sprintf(InReply, "Forwarding: %s\n     ", buf);
+X                       (void) strcat(InReply, q);
+X                      }
+X                   }
+X                } else 
+X              if (strncmp(p, "Cc: ", 4) == 0) {
+X                 p += 4;
+X                 writeTo(XtNameToWidget(sb, "*Cc"), extract_of(&p), REPLACE);
+X                } else 
+X              if (strncmp(p, "Bcc: ", 5) == 0) {
+X                 p += 5;
+X                 writeTo(XtNameToWidget(sb, "*Bcc"), extract_of(&p), REPLACE);
+X                } else {
+X                 for (;*p && *p != '\n';) p++;
+X                }
+X             }
+X          if (status < BUFSIZ) break;
+X         }
+X       (void) close(fd);
+X      }
+X   }
+X
+X Popup = XtNameToWidget(sb, ".popup");
+X
+X SetXY(Popup, XtNameToWidget(toplevel, "topBox.commandPanel"), 0, 0);
+X
+X XtPopup(Popup, XtGrabNone);
+X
+X XSync(XtDisplay(toplevel), False);
+X
+X XtAddEventHandler(Popup, StructureNotifyMask, False, warp_handler, NULL);
+X
+X return 1;
+X}
+X
+X
+X/*
+X** @(#)editMail() - edit a mail message using the preferred editor
+X**
+X** Support is now provided for declaring the editor command as an xmail
+X** resource, ala xrn.  If the resource ``xmail.editorCommand'' is defined,
+X** it must contain an `sprintf'-able format string that provides for the
+X** inclusion of both a display name and the name of the file to be edited.
+X** If the resource declaration is not included, or does not contain the two
+X** required percent-s (%s) formatting strings, xmail will use the VISUAL
+X** resource.  If VISUAL is used, try to accommodate those editors (emacs,
+X** xedit...) which start their own window in X11.  We know for a fact that
+X** vi and ed variants do not invoke windows.  We assume any other editor
+X** specification does.
+X*/
+Xvoid
+XeditMail()
+X{
+X String		edit, cp;
+X char		cmd[BUFSIZ];
+X Display	*ad;
+X
+X
+X bzero(cmd, BUFSIZ);
+X
+X ad  = XtDisplay(XtNameToWidget(toplevel, "topBox.statusWindow"));
+X/*
+X** If editorCommand resource exists, use it (format validated during initialize)
+X*/
+X if (XMail.editorCommand)
+X    (void) sprintf(cmd, XMail.editorCommand, ad->display_name, tmpName);
+X else {
+X    /*
+X    ** Otherwise, default to the VISUAL method of starting things
+X    */
+X    if (! (edit = GetMailEnv("VISUAL")))
+X           edit = XtNewString(DEFAULT_VISUAL);
+X
+X    if ((cp = strrchr(edit, '/')) == NULL) cp = edit;
+X    else cp++;
+X
+X    if (strcmp(cp, "ed") == 0 ||
+X        strcmp(cp,"red") == 0 ||
+X        strcmp(cp, "ex") == 0 ||
+X        strcmp(cp, "vi") == 0) {
+X       (void) sprintf(cmd, "exec xterm -display %s -name XMail -title 'Message entry' -e %s %s",
+X                     ad->display_name, edit, tmpName);
+X      } else (void) sprintf(cmd, "exec %s -display %s %s", edit, ad->display_name, tmpName);
+X    XtFree((String) edit);
+X   }
+X
+X editMail_pid = fork();
+X
+X switch (editMail_pid) {
+X    case -1:			/* fork failed ... */
+X         if (errno == ENOMEM)
+X            Bell("Not enough core for edits\n");
+X         else
+X            Bell("No more processes - no edits\n");
+X         break;
+X
+X    case 0:			/* child starts the message entry session */
+X         (void) close(ConnectionNumber(XtDisplay(toplevel)));
+X         (void) execl("/bin/sh", "sh", "-c", cmd, 0);
+X         perror("editMail: Failed to start the text editor");
+X         (void) _exit(127);
+X         break;
+X
+X    default:			/* parent waits for editing to conclude */
+X         (void) signal(SIGCHLD, endEdits);
+X         break;
+X   }
+X} /* editMail */
+X
+X
+X/*
+X** @(#)readMail() - callback invoked every time input is pending on mail fd
+X**
+X** Calls QueryMail() to read all available data from mail file descriptor,
+X** and passes output to parse() for analysis and appropriate action.
+X*/
+X/* ARGSUSED */
+XXtInputCallbackProc
+XreadMail(client_data, source, id)
+Xcaddr_t   client_data;	/* unused */
+Xint 	  *source;	/* unused */
+XXtInputId *id;		/* unused */
+X{
+X SetCursor(WATCH);
+X parse(QueryMail(""));
+X} /* readMail */
+X
+X
+X/*
+X** @(#)makeHeading() - Create the specified message header windows
+X*/
+Xvoid
+XmakeHeading(parent, label_string, left, above, info, help_text)
+XWidget	parent;
+XString	label_string;
+XWidget	*left, *above;
+XString	info, help_text;
+X{
+X Arg	args[11];
+X char	resource_name[10];
+X Widget	input_window;
+X
+X
+X XtSetArg(args[0], XtNfromVert, *left);
+X XtSetArg(args[1], XtNfromHoriz, NULL);
+X XtSetArg(args[2], XtNlabel, label_string);
+X XtSetArg(args[3], XtNborderWidth, 0);
+X XtSetArg(args[4], XtNfont, XMail.buttonFont);
+X XtSetArg(args[5], XtNheight, XMail.buttonHeight + XMail.borderWidth + 7);
+X XtSetArg(args[6], XtNwidth, XMail.buttonWidth);
+X XtSetArg(args[7], XtNjustify, XtJustifyLeft);
+X XtSetArg(args[8], XtNinternalHeight, 0);
+X XtSetArg(args[9], XtNinternalWidth, 1);
+X *left = XtCreateManagedWidget("SubjCc", labelWidgetClass, parent, args, 10);
+X
+X bzero(resource_name, 9);
+X (void) strncpy(resource_name, label_string, strlen(label_string) - 1);
+X input_window = CreateInputWindow(parent, resource_name);
+X
+X XtSetArg(args[0], XtNfromVert, *above);
+X XtSetArg(args[1], XtNfromHoriz, *left);
+X XtSetValues(input_window, args, 2);
+X
+X AddInfoHandler(input_window, info);
+X
+X AddHelpText(input_window, help_text);
+X
+X *above = input_window;
+X} /* makeHeading */
+X
+X
+X/*
+X** @(#)makeButton() - Create the specified command button with callback
+X*/
+Xvoid
+XmakeButton(parent, label, CBProc, CBData, info, help_text)
+XWidget		parent;
+XString		label;
+XXtCallbackProc	CBProc;
+XString		CBData, info, help_text;
+X{
+X Arg		args[3];
+X Widget		button;
+X int		width = (((XMail.shellWidth-2)/6) - XMail.borderWidth*2) - 4;
+X
+X
+X XtSetArg(args[0], XtNfont, XMail.buttonFont);
+X XtSetArg(args[1], XtNheight, XMail.buttonHeight);
+X XtSetArg(args[2], XtNwidth, width);
+X
+X button = XtCreateManagedWidget(label, commandWidgetClass, parent, args, 3);
+X
+X XtAddCallback(button, XtNcallback, CBProc, CBData);
+X
+X AddInfoHandler(button, info);
+X
+X AddHelpText(button, help_text);
+X} /* makeButton */
+X
+X
+X/*
+X** @(#)sendMail() - Create the send window popup for message headers
+X*/
+Xvoid
+XsendMail(parent)
+XWidget	parent;
+X{
+X Arg		args[11];
+X Widget		Popup, Layout, Box, left, above;
+X
+X
+X Popup = XtNameToWidget(parent, "popup");
+X
+X if (! Popup) {
+X    XtSetArg(args[0], XtNinput, True);
+X    XtSetArg(args[1], XtNwidth, XMail.shellWidth - 2);
+X    XtSetArg(args[2], XtNheight,
+X           XMail.borderWidth*3 + XMail.buttonHeight*5 + 44);
+X    Popup = XtCreatePopupShell("popup",transientShellWidgetClass,parent,args,3);
+X
+X    XtSetArg(args[0], XtNdefaultDistance, 2);
+X    Layout = XtCreateManagedWidget("SubjCc", formWidgetClass, Popup, args, 1);
+X
+X    left = above = NULL;
+X
+X    makeHeading(Layout,      "To:",&left,&above,SendMail_Info[0],To_Help);
+X
+X    makeHeading(Layout, "Subject:",&left,&above,SendMail_Info[1],Subject_Help);
+X
+X    makeHeading(Layout,      "Cc:",&left,&above,SendMail_Info[2],Cc_Help);
+X
+X    makeHeading(Layout,     "Bcc:",&left,&above,SendMail_Info[3],Bcc_Help);
+X
+X    XtRegisterGrabAction(SetAliases, True, ButtonPressMask | ButtonReleaseMask,
+X                         GrabModeAsync, GrabModeAsync);
+X
+X    XtSetArg(args[0], XtNfont, XMail.buttonFont);
+X    XtSetArg(args[1], XtNheight, XMail.buttonHeight + XMail.borderWidth*2 + 4);
+X    XtSetArg(args[2], XtNwidth, XMail.shellWidth - 2);
+X    XtSetArg(args[3], XtNfromVert, left);
+X    XtSetArg(args[4], XtNfromHoriz, NULL);
+X    XtSetArg(args[5], XtNborderWidth, 0);
+X    XtSetArg(args[6], XtNresize, False);
+X    XtSetArg(args[7], XtNmin, args[1].value);
+X    XtSetArg(args[8], XtNmax, args[1].value);
+X    XtSetArg(args[9], XtNhSpace, 2);
+X    XtSetArg(args[10],XtNvSpace, 2);
+X    Box = XtCreateManagedWidget("Box", boxWidgetClass, Layout, args, 11);
+X
+X    makeButton(Box, "Autograph", (XtCallbackProc) Autograph, "A",
+X                     Autograph_Info[0], Sign_Help);
+X
+X    makeButton(Box, "autograph", (XtCallbackProc) Autograph, "a",
+X                     Autograph_Info[1], sign_Help);
+X
+X    makeButton(Box, "ReEdit", (XtCallbackProc) ReEdit, "ReEdit",
+X                     Deliver_Info[1], ReEdit_Help);
+X
+X    makeButton(Box, "Cancel", (XtCallbackProc) Done, "cancel",
+X                     Deliver_Info[2], Cancel_Help);
+X
+X    makeButton(Box, "Abort", (XtCallbackProc) Done, "Cancel",
+X                     Deliver_Info[3], Abort_Help);
+X
+X    makeButton(Box, "Deliver", (XtCallbackProc) Done, "Deliver",
+X                     Deliver_Info[0], Deliver_Help);
+X   }
+X} /* sendMail */
+X
+X
+X/*
+X** @(#)writeMail() - Write command s to the mail process.
+X*/
+Xvoid
+XwriteMail(s) 
+Xchar *s;
+X{
+X (void) write(mail_fd, s, strlen(s));
+X} /* writeMail */
+END_OF_FILE
+  if test 14182 -ne `wc -c <'mail.c'`; then
+    echo shar: \"'mail.c'\" unpacked with wrong size!
+  fi
+  # end of 'mail.c'
+fi
+if test -f 'utils.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'utils.c'\"
+else
+  echo shar: Extracting \"'utils.c'\" \(13989 characters\)
+  sed "s/^X//" >'utils.c' <<'END_OF_FILE'
+X/*
+X * xmail - X window system interface to the mail program
+X *
+X * Copyright 1990,1991,1992 by National Semiconductor Corporation
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of National Semiconductor Corporation not
+X * be used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission.
+X *
+X * NATIONAL SEMICONDUCTOR CORPORATION MAKES NO REPRESENTATIONS ABOUT THE
+X * SUITABILITY OF THIS SOFTWARE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS"
+X * WITHOUT EXPRESS OR IMPLIED WARRANTY.  NATIONAL SEMICONDUCTOR CORPORATION
+X * DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  IN NO
+X * EVENT SHALL NATIONAL SEMICONDUCTOR CORPORATION BE LIABLE FOR ANY SPECIAL,
+X * INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+X * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X * The following software modules were created and are Copyrighted by
+X * National Semiconductor Corporation:
+X *
+X * 1. markIndex:
+X * 2. LastNumber:
+X * 3. SelectionNumber:
+X * 4. SetCursor: and
+X * 5. SetXY.
+X *
+X * Author:  Michael C. Wagnitz - National Semiconductor Corporation
+X *
+X */
+X
+X
+X#include <ctype.h>
+X#include "global.h"
+X#include "patchlevel.h"
+X#include "revtable.h"
+X
+X
+X/*
+X** @(#)Bell() - write a status message and (optionally) ring the terminal bell
+X*/
+Xvoid
+XBell(msg)
+XString		msg;
+X{
+X Arg		args[1];
+X char		*p;
+X char		buf[BUFSIZ];
+X int		size;
+X static int	worthy = 0;		/* only msgs with ending newline are */
+X
+X
+X size = strlen(msg);
+X if (size >= BUFSIZ) size = BUFSIZ - 1;
+X
+X (void) strncpy(buf, msg, size);
+X buf[size] = '\0';
+X
+X p = strchr(buf, '\n');			/* messages with newline get a bell */
+X/*
+X** Because we have now added enter/leave window event information messages,
+X** we must play a slight game with incoming messages, to prevent any error
+X** messages from a menu selection failure or status messages from a command
+X** button being overwritten by the subsequent event info messages produced
+X** when the menu popup is dismissed or the command completes.  To do this,
+X** we make the bell worthy-ness flag static, and only replace a message after
+X** first seeing a non-default status message, which will reset the worthy-ness
+X** flag, but otherwise be ignored.  When the first non-default, non-error
+X** message comes in, simply reset our bell worthy-ness flag and return, leaving
+X** the previous error message still intact.  This means, to ensure seeing the
+X** default message, first send a blank line to reset the worthy-ness flag.
+X*/
+X if (! XMail.Show_Info)			/* if NOT showing info flags always */
+X    worthy = 0;				/* reset the bell worthy-ness flag */
+X else {
+X    if (worthy && p == NULL) {		/* if last was but this ain't urgent */
+X       if (strcmp(buf, Default_Status_Info))	/* and not the default info */
+X          worthy = 0;			/* reset the bell worthy-ness flag */
+X       return;				/* ignore event info if menu errored */
+X      }					/* by leaving previous error message */
+X   }
+X
+X if (size == 0)				/* if intent was just to reset flag */
+X    return;
+X
+X if (p != NULL) {			/* Only display first line of output */
+X    *p = '\0';				/* (no new line at end of label) */
+X    worthy = 1;				/* this message is worthy of a bell */
+X   }
+X
+X if (worthy && XMail.bellRing)		/* ring bell if not silenced by user */
+X    XBell(XtDisplay (toplevel), 33);
+X
+X XtSetArg(args[0], XtNlabel, (XtArgVal) buf);	/* show this message text */
+X XtSetValues(XtNameToWidget(toplevel, "topBox.statusWindow"), args, 1);
+X XFlush(XtDisplay(toplevel));
+X} /* Bell */
+X
+X
+X/*
+X** @(#)figureWidth() - determine the figure width of the specified font
+X*/
+Xint
+XfigureWidth(font)
+XXFontStruct *font;
+X{
+X Atom		_XA_FIGURE_WIDTH;
+X unsigned long	width = 0;
+X
+X
+X _XA_FIGURE_WIDTH = XInternAtom(XtDisplay(toplevel), "FIGURE_WIDTH", FALSE);
+X if ((_XA_FIGURE_WIDTH != NULL) &&
+X    ((! XGetFontProperty(font, _XA_FIGURE_WIDTH, &width)) || (width == 0)))
+X    if (font->per_char && font->min_char_or_byte2 <= '$' &&
+X                          font->max_char_or_byte2 >= '$')
+X       width = font->per_char['$' - font->min_char_or_byte2].width;
+X    else
+X       width = font->max_bounds.width;
+X
+X return(width);
+X} /* end - figureWidth */
+X
+X
+X
+X/*
+X** @(#)markIndex() - add or remove a tag from the start of a mail header line
+X**                   May be invoked by button press, which sets the insertion
+X**                   pointer for the text to the current mouse cursor location.
+X*/
+Xvoid
+XmarkIndex(s)
+Xchar	*s;
+X{
+X int			size;
+X XawTextPosition	pos, old;
+X String			c, p = NULL;
+X char			buf[3];
+X Widget			iw = XtNameToWidget(toplevel, "topBox.indexWindow");
+X Arg			args[1];
+X XawTextBlock		text;
+X
+X
+X (void) strcpy(buf, s);			/* make a copy of our marker string */
+X
+X XtSetArg(args[0], XtNstring, &p);	/* retrieve the current index buffer */
+X XtGetValues(iw, args, 1);
+X
+X for (pos = XawTextGetInsertionPoint(iw); pos > 0 && p[pos-1] != '\n'; pos--);
+X
+X if (buf[0] == '>') {			/* if mark is for 'current' pointer */
+X    XtSetArg(args[0], XtNstring, &p);	/* retrieve the current index buffer */
+X    XtGetValues(iw, args, 1);
+X
+X    if (strlen(p) < 3)			/* trap for case of no index at all */
+X       return;
+X
+X    if (strlen(p) > pos + 1)
+X       if (p[pos + 1] == 'S')		/* keep the Save marker if it exists */
+X          if (strlen(buf) > 1)
+X             buf[1] = '\0';
+X
+X    for (c = p; *c; c++)
+X        if (*c == '>' && (c == p || *(c - 1) == '\n')) {
+X           old = c - p;			/* if found, remove the old '>' mark */
+X           text.firstPos = 0;
+X           text.length   = 1;
+X           text.ptr      = " ";
+X           text.format   = FMT8BIT;
+X           XawTextReplace(iw, (XawTextPosition) old, (XawTextPosition) old + 1, &text);
+X           break;
+X          }
+X   }
+X
+X size = strlen(buf);			/* now write the specified marker */
+X old = (buf[0] == '>') ? pos : pos + 1;
+X text.firstPos = 0;
+X text.length   = size;
+X text.ptr      = buf;
+X text.format   = FMT8BIT;
+X XawTextReplace(iw, (XawTextPosition) old, (XawTextPosition) old + size, &text);
+X
+X XawTextSetInsertionPoint(iw, pos);	/* reset our actual insertion point */
+X} /* markIndex */
+X
+X
+X/*
+X** @(#)LastNumber() - Get mail index number for last message in folder
+X*/
+Xint
+XLastNumber()
+X{
+X int			last_number;
+X Arg			args[1];
+X String			c, ep, str = NULL;
+X Widget			iw = XtNameToWidget(toplevel, "topBox.indexWindow");
+X 
+X
+X XtSetArg(args[0], XtNstring, &str);
+X XtGetValues(iw, args, 1);
+X
+X ep = &str[strlen(str) - 1];
+X
+X for (c = ep - 1; c > str; c--)
+X     if (*(c - 1) == '\n' && *(c + 1) != 'D')
+X        break;
+X
+X for (; c < ep && !isdigit(*c); c++);
+X (void) sscanf(c, "%d", &last_number);
+X
+X return(last_number);
+X} /* LastNumber */
+X
+X
+X/*
+X** @(#)SelectionNumber() - Get mail index number from line position
+X*/
+Xint
+XSelectionNumber(undeleting)
+Xint	undeleting;
+X{
+X Arg			args[1];
+X String			c, str = NULL;
+X Widget			iw = XtNameToWidget(toplevel, "topBox.indexWindow");
+X XawTextPosition	pos;
+X int			selection_number = 0;
+X
+X
+X XtSetArg(args[0], XtNstring, &str);
+X XtGetValues(iw, args, 1);
+X
+X for (pos = XawTextGetInsertionPoint(iw); pos > 0 && str[pos] != '\n'; pos--);
+X pos++;
+X
+X if (! undeleting || str[pos + 1] == 'D') {
+X    for (c = &str[pos]; *c && !isdigit(*c); c++);
+X    (void) sscanf(c, "%d", &selection_number);
+X   }
+X
+X return(selection_number);
+X} /* SelectionNumber */
+X
+X
+X/* ARGSUSED */
+X/*
+X** @(#)SetCursor() - sets the wait cursor or restores the default
+X*/
+Xvoid
+XSetCursor(waiting)
+Xint	waiting;		/* a non-zero value sets the busy cursor */
+X{
+X if (! waiting)
+X    XUnmapWindow(XtDisplay(toplevel), WaitCursorWindow);
+X else {
+X      XMapWindow(XtDisplay(toplevel), WaitCursorWindow);
+X    Waiting = TRUE;		/* to prevent overwrite of important info */
+X   }
+X
+X XFlush(XtDisplay(toplevel));
+X} /* SetCursor */
+X
+X
+X/*
+X** @(#)SetXY() - Set relative window coordinates including specified offset
+X*/
+Xvoid
+XSetXY(target, reference, X_offset, Y_offset)
+XWidget	target, reference;
+Xint	X_offset, Y_offset;
+X{
+X Arg		args[2];
+X Display	*dpy = XtDisplay(reference);
+X 
+X Window		dumy;
+X int		x, y;
+X
+X
+X XTranslateCoordinates(dpy, XtWindow(reference),
+X                       RootWindow(dpy, DefaultScreen(dpy)),
+X                       X_offset, Y_offset, &x, &y, &dumy);
+X /*
+X ** Keep window within root window borders (don't place it off-screen)
+X */
+X if (! XtIsRealized(target))
+X    XtRealizeWidget(target);		/* to get width and height values */
+X
+X if (x + target->core.width > RootWidth)
+X    x = RootWidth - target->core.width - 2;
+X
+X if (y + target->core.height > RootHeight)
+X    y = RootHeight - target->core.height - 2;
+X
+X XtSetArg(args[0], XtNx, x);
+X XtSetArg(args[1], XtNy, y);
+X XtSetValues(target, args, 2);
+X} /* end - SetXY */
+X
+X
+X/*
+X** @(#)TextGetLastPos() - return position of last text character
+X*/
+XXawTextPosition
+XTextGetLastPos(w)
+XWidget w;
+X{
+X TextWidget ctx = (TextWidget) w;
+X return (XawTextSourceScan(ctx->text.source,0,XawstAll,XawsdRight,1,TRUE));
+X}
+X
+X
+X/*
+X** @(#)UpdateTitleBar() - replace information in the title bar title
+X*/
+Xvoid
+XUpdateTitleBar(msg)
+Xchar *msg;
+X{
+X char		message[BUFSIZ];
+X Arg		args[1];
+X Widget		w;
+X
+X
+X (void) sprintf(message, "%s%d - %s", TITLE, PATCHLEVEL, msg);
+X
+X w = XtNameToWidget(toplevel, "topBox.titleBar.title");
+X
+X XtSetArg(args[0], XtNlabel, (XtArgVal) message);
+X XtSetValues(w, args, 1);
+X 
+X w = XtNameToWidget(toplevel, "topBox.commandPanel.Newmail.Newmail_menu.menu.inc");
+X if (w)
+X    XtSetSensitive(w, In_System_Folder());
+X} /* UpdateTitleBar */
+X
+X
+X/*
+X** @(#)writeTo() - write data to the specified text widget
+X*/
+Xvoid
+XwriteTo(w, data, do_append)
+XWidget	w;
+Xchar   *data;
+Xint	do_append;
+X{
+X XawTextBlock		text;
+X XawTextPosition	startPos, endPos;
+X int			l, n;
+X
+X
+X endPos         = TextGetLastPos(w) + (do_append ? 0 : 1);
+X startPos       = (do_append ? endPos : 0);
+X text.firstPos  = 0;
+X text.length    = strlen(data);
+X text.ptr       = data;
+X text.format    = FMT8BIT;
+X
+X XawTextReplace(w, (XawTextPosition) startPos, (XawTextPosition) endPos, &text);
+X
+X XawTextSetInsertionPoint(w, (XawTextPosition) TextGetLastPos(w));
+X
+X XawTextInvalidate(w, (XawTextPosition) 0, (XawTextPosition) endPos);
+X} /* writeTo */
+X
+X
+X/*
+X** @(#)writeText() - replace the current text string in the text window.
+X**                 Also look for an X-Face: header and if found, display.
+X*/
+Xvoid
+XwriteText(buf)
+Xchar    *buf;
+X{
+X Arg            args[2];
+X Widget		w = XtNameToWidget(toplevel, "topBox.textWindow.text");
+X#ifdef X_FACE
+X Display        *dpy = XtDisplay(w);
+X Widget         fw;
+X Window         rw;
+X char           cb[1024], fb[2048], *ptr, *xface;
+X int            i, n, x, y;
+X#endif
+X
+X if (buf && *buf) {
+X#ifndef X_FACE
+X    XtSetArg(args[0], XtNstring, buf);
+X    XtSetValues(w, args, 1);
+X#else
+X    if (! (fw = XtNameToWidget(XtParent(w), "face"))) {
+X       XtSetArg(args[0], XtNstring, buf);
+X       XtSetValues(w, args, 1);
+X       return;
+X      }
+X    /*
+X    ** First, unmap any current picture.
+X    **
+X    ** Look for a line containing an 'X-Face:' header, followed by 72
+X    ** characters of compressed data.  The second and any subsequent lines
+X    ** will contain an initial space (which is ignored), followed by 79
+X    ** characters of compressed data.  The last line may contain fewer than 79
+X    ** characters.
+X    **
+X    ** The X-Face: header and any immediate whitespace (tabs or spaces) will be
+X    ** removed, and the remaining line placed in the internal buffer (minus
+X    ** any trailing newline).  On subsequent lines, initial whitespace will be
+X    ** removed, and the remainder of the data appended to the buffer (minus any
+X    ** trailing newline).
+X    **
+X    ** A blank line, a line without an initial whitespace character,or the
+X    ** end of the input buffer will signify the end of the X-Face data.  That
+X    ** buffer will then be uncompressed, and if the data was valid, displayed.
+X    */
+X
+X    if (XtIsManaged(fw))
+X       XtUnmanageChild(fw);
+X
+X    for (ptr = buf; *ptr; ptr++) {
+X        if (*ptr == '\n'                    ||
+X           strncmp(ptr, "Status:", 7) == 0  ||
+X           strncmp(ptr, "X-Face:", 7) == 0) break;
+X
+X        for (; *ptr && *ptr != '\n'; ptr++);
+X       }
+X
+X    if (! *ptr || strncmp(ptr, "X-Face:", 7) != 0) {
+X       XtSetArg(args[0], XtNstring, buf);
+X       XtSetValues(w, args, 1);
+X       return;
+X      }
+X
+X    xface = ptr;	/* keep track of the start position of X-Face header */
+X
+X    bzero(fb, 2048);
+X    for (i = 0, ptr += 7; *ptr; ptr++) {
+X        if (*ptr != ' ' && *ptr != '\t' && *ptr != '\n')
+X           fb[i++] = *ptr;
+X        if (*ptr == '\n' && *(ptr+1) && *(ptr+1) != ' ' && *(ptr+1) != '\t')
+X           break;
+X       }
+X
+X    if (XMail.No_X_Hdr) {
+X       if (*ptr) ptr++;
+X       bcopy(ptr, xface, strlen(ptr) + 1);	/* suppress the X-Face header */
+X      }
+X
+X    XtSetArg(args[0], XtNstring, buf);
+X    XtSetValues(w, args, 1);
+X
+X    if (uncompface(fb) >= 0) {
+X       bzero(cb, 1024);
+X       for (i = n = 0;i < 1024;) {
+X           if (! sscanf(&fb[n], "%i%n", &x, &y)) break;
+X           cb[i++] = revtable[(x >> 8) & 0xFF];
+X           cb[i++] = revtable[x & 0xFF];
+X           n += y;
+X           while (fb[n] && (fb[n]==',' || fb[n]=='\n')) n++;
+X          }
+X
+X       XtSetArg(args[0], XtNwidth, NULL);
+X       XtGetValues(XtParent(w), args, 1);
+X       n = args[0].value - 48;
+X       if (n < 0) n = 0;
+X
+X       XtSetArg(args[0], XtNbitmap, NULL);
+X       XtGetValues(fw, args, 1);
+X       if (args[0].value != None)
+X          XFreePixmap(dpy, args[0].value);
+X
+X       rw = RootWindow(dpy, DefaultScreen(dpy));
+X       XtSetArg(args[0], XtNbitmap, XCreateBitmapFromData(dpy, rw, cb, 48, 48));
+X       XtSetArg(args[1], XtNhorizDistance, n);
+X       XtSetValues(fw, args, 2);
+X
+X       XtManageChild(fw);
+X      }
+X#endif
+X   }
+X} /* writeText */
+END_OF_FILE
+  if test 13989 -ne `wc -c <'utils.c'`; then
+    echo shar: \"'utils.c'\" unpacked with wrong size!
+  fi
+  # end of 'utils.c'
+fi
+echo shar: End of archive 7 \(of 10\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

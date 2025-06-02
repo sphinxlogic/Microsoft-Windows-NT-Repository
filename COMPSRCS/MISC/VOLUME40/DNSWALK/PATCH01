@@ -1,0 +1,970 @@
+Newsgroups: comp.sources.misc
+From: barr@pop.psu.edu (David Barr)
+Subject: v40i129:  dnswalk - A DNS Debugger, Patch01
+Message-ID: <1993Nov14.031012.1218@sparky.sterling.com>
+X-Md4-Signature: 4decc66c358b3cb822e28ddda4959ef5
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 14 Nov 1993 03:10:12 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: barr@pop.psu.edu (David Barr)
+Posting-number: Volume 40, Issue 129
+Archive-name: dnswalk/patch01
+Environment: Perl, Dig, DNS
+Patch-To: dnswalk: Volume 39, Issue 45
+
+The following patch brings dnswalk 1.6 to version 1.7.  Note
+that a new file is created, 'dnswalk.1'.
+
+*** dnswalk.1.6/CHANGES	Wed Nov 10 16:16:45 1993
+--- CHANGES	Sat Oct 30 15:19:49 1993
+***************
+*** 1,5 ****
+! $Id: CHANGES,v 1.2 1993/07/21 14:38:47 barr Exp barr $
+  
+  Version 1.6
+  removed -c switch, since I thought it would work a long time ago, but
+  later found out it could never be made to work.  Well, it could, just
+--- 1,23 ----
+! $Id: CHANGES,v 1.3 1993/10/15 22:02:28 barr Exp barr $
+! Version 1.7
+! Added "_" to list of invalid characters in a hostname.  (Painful
+! because we have hundreds of PCs and Macs here with one.)  Can
+! now be supressed with '-i' option (whew).
+  
++ Fixed wildcard RR's being marked as having invalid characters.
++ (Thanks to Paul Turner <turner@telstar.kodak.com> for reporting it)
++ 
++ Changed how the return codes for gethostby*() routines were being
++ checked.  Added caveat in README about herror().  Thanks to Bill Fenner
++ 
++ Suppresses duplicate error message per zone.  Idea from Paul Turner.
++ 
++ Checks for dom.ain.dom.ain. in data, in case someone forgot the
++ trailing '.'.
++ 
++ Finally added a man page.  Trimmed out redundant information
++ from the README file.
++ 
+  Version 1.6
+  removed -c switch, since I thought it would work a long time ago, but
+  later found out it could never be made to work.  Well, it could, just
+*** dnswalk.1.6/TODO	Wed Nov 10 16:16:46 1993
+--- TODO	Wed Nov 10 16:18:17 1993
+***************
+*** 3,6 ****
+  
+  Better error checking so it doesn't create a foo/bar/baz directory
+  when the baz/bar/foo domain doesn't exist.
+- 
+--- 3,5 ----
+*** dnswalk.1.6/TIPS	Wed Nov 10 16:16:46 1993
+--- TIPS	Sat Oct 30 20:37:46 1993
+***************
+*** 3,29 ****
+  
+  * Every Internet host should have a name.  Enough said.
+  
+  * You shouldn't have any A records in an in-addr.arpa zone file.
+    This includes NS glue records.  Just put the nameserver name in
+    there and be done with it.  Why?  It's unnecessary, and just makes
+    things harder when that nameserver changes its IP address.  You'll
+    spend hours trying to figure out why random people still see the old
+!   address for some machine.
+  
+  * Verify the data you just entered or changed by querying the
+    resolver with 'dig' (or your favorite DNS tool) after a change.  A
+    few seconds spent double checking can save hours of trouble, lost
+!   mail, and headaches.
+  
+  * Don't forget to change the serial number.  Also, even though BIND
+! allows you to use a decimal in a serial number, don't use them.  If you
+! want to know why, read "DNS & BIND" (see below).
+  
+  * Always remember your $ORIGIN.  If you don't put a '.' at the end
+    of an FQDN, it's not an FQDN.  Double check, triple check, those dots.
+  
+  * BE CONSISTENT!  If your $ORIGIN is "foo.org.", don't have entries
+! like:
+  
+  tron		in	a	1.2.3.1
+  mcp.foo.org.	in	a	1.2.3.2
+--- 3,35 ----
+  
+  * Every Internet host should have a name.  Enough said.
+  
++ * Allowable characters in a name are ONLY letters, digits, and
++   the '-' character (separated by '.' of course).  Domain names
++   may not be all numbers, but may have a leading digit.  (e.g. 3com.com)
++   (See RFC 1035 and 1123)
++ 
+  * You shouldn't have any A records in an in-addr.arpa zone file.
+    This includes NS glue records.  Just put the nameserver name in
+    there and be done with it.  Why?  It's unnecessary, and just makes
+    things harder when that nameserver changes its IP address.  You'll
+    spend hours trying to figure out why random people still see the old
+!   address for some machine.  BIND 4.9.x handles this better, however.
+  
+  * Verify the data you just entered or changed by querying the
+    resolver with 'dig' (or your favorite DNS tool) after a change.  A
+    few seconds spent double checking can save hours of trouble, lost
+!   mail, and headaches.  Also be sure to check syslog output when you
+!   reload the nameserver.
+  
+  * Don't forget to change the serial number.  Also, even though BIND
+!   allows you to use a decimal in a serial number, don't use them.  If you
+!   want to know why, read "DNS & BIND" (see below).
+  
+  * Always remember your $ORIGIN.  If you don't put a '.' at the end
+    of an FQDN, it's not an FQDN.  Double check, triple check, those dots.
+  
+  * BE CONSISTENT!  If your $ORIGIN is "foo.org.", don't have entries
+!   like:
+  
+  tron		in	a	1.2.3.1
+  mcp.foo.org.	in	a	1.2.3.2
+***************
+*** 73,84 ****
+  
+  * Wildcard MX's are only useful for non IP-connected sites.  If
+    a site has any records, a wildcard MX won't apply to it.
+  e.g.
+  *.podunk.edu	in	mx	mail.podunk.edu.
+  mary.podunk.edu	in	A	1.2.3.4
+  
+    Mail for "mary.podunk.edu" will be sent to mary, while mail for
+!   "jane.podunk.edu" will be sent to mail.podunk.edu.
+  
+  * Don't go overboard with CNAMEs.  Use them when moving/renaming machines,
+    but plan to get rid of them.  (And inform your users)
+--- 79,91 ----
+  
+  * Wildcard MX's are only useful for non IP-connected sites.  If
+    a site has any records, a wildcard MX won't apply to it.
++ 
+  e.g.
+  *.podunk.edu	in	mx	mail.podunk.edu.
+  mary.podunk.edu	in	A	1.2.3.4
+  
+    Mail for "mary.podunk.edu" will be sent to mary, while mail for
+!   "jane.podunk.edu" will be sent to mail.podunk.edu.  Really.
+  
+  * Don't go overboard with CNAMEs.  Use them when moving/renaming machines,
+    but plan to get rid of them.  (And inform your users)
+*** dnswalk.1.6/README	Wed Nov 10 16:16:46 1993
+--- README	Wed Nov 10 16:09:29 1993
+***************
+*** 1,7 ****
+! 		dnswalk 1.6 - July 1993
+  
+  Author: David Barr <barr@pop.psu.edu>
+! $Id: README,v 1.1 1993/07/21 14:39:25 barr Exp barr $
+  
+  INTRO
+  
+--- 1,7 ----
+! 		dnswalk 1.7 - Oct 1993
+  
+  Author: David Barr <barr@pop.psu.edu>
+! $Id: README,v 1.2 1993/11/10 21:09:23 barr Exp barr $
+  
+  INTRO
+  
+***************
+*** 45,60 ****
+  and documentation are distributed with the program.  This program is
+  released as-is, with no warranty expressed or implied.  Some assembly
+  required, contents may settle during shipment.  This program can be
+! found at ftp.pop.psu.edu:/pub/src/dnswalk/dnswalk.1.6.tar.Z,
+! ftp.univ-lyon1.fr:/pub/mirrors/unix/dnswalk, and probably also in
+! ftp.uu.net:/networking/ip/dns.
+  
+- USAGE
+- 
+- 	Invoke dnswalk as follows:
+- 
+- dnswalk [-fradm] domain [> logfile]
+- 
+  	dnswalk tends to produce lots of output, so I'd suggest
+  redirecting this into a file of your choice.  I debated using doc's
+  strategy of automatically putting it in a logfile, but decided not
+--- 45,55 ----
+  and documentation are distributed with the program.  This program is
+  released as-is, with no warranty expressed or implied.  Some assembly
+  required, contents may settle during shipment.  This program can be
+! found in:
+! ftp.pop.psu.edu:/pub/src/dnswalk/
+! ftp.univ-lyon1.fr:/pub/mirrors/unix/dnswalk/
+! ftp.uu.net:/networking/ip/dns/dnswalk/
+  
+  	dnswalk tends to produce lots of output, so I'd suggest
+  redirecting this into a file of your choice.  I debated using doc's
+  strategy of automatically putting it in a logfile, but decided not
+***************
+*** 62,209 ****
+  mostly-correct domains it is pretty manageable, however.  For larger
+  domains, use the included 'do-dnswalk' script as a guide.
+  
+! Options:
+! 	-f	Force a zone transfer from an authoritative nameserver.
+! 		dnswalk normally will look in its saved 'axfr' file
+! 		for each domain and use that. (if it exists)
+! 	-r	Recursively descend sub-domains of the specified
+! 		domain.  Use with caution and care.
+! 	-a	Turn on warning of duplicate A records.  (see below)
+! 	-d	Some debugging.  (Use only if redirecting stdout)
+! 	-m	Perform checks only if the zone has been modified since
+! 		the previous run.
+! 	-F	perform "fascist" checking.  When checking an A record,
+! 		compare the PTR name for each IP address with the forward
+! 		name and report mismatches.  (see below)  I recommend
+! 		you try this option at least once to see what sorts of
+! 		errors pop up - you might be surprised!.
+! 	-l	Perform "lame delegation" checking.  For every NS record,
+! 		check to see that the listed host is indeed returning
+! 		authoritative answers for this domain.  Inspiration for
+! 		this comes from the guys at the Univ. of Michigan.
+! 
+! 
+! The domain name specified on the command line MUST end with a '.'.
+! You can specify a forward domain, such as "dnswalk pop.psu.edu."
+! or a reverse domain, such as "dnswalk 155.118.128.in-addr.arpa."
+! 
+! What dnswalk will do is if it is checking "pop.psu.edu.", it will
+! do a zone transfer of the data from the authoritative nameserver and
+! put it in the file "edu/psu/pop/axfr".  (relative to the current directory)
+! If dnswalk is run again, it will use this file instead of asking the
+! nameserver again.  You can override this with the '-f' switch.  It
+! will also do a zone transfer again later if the serial number in the
+! file is less than what is returned from the server.
+! 
+! As a result, if you use the recursive option, you will get a directory
+! tree corresponding exactly to the DNS hierarchy.  Again, I must stress
+! that you use the recursive option with care, and the author calls you
+! a slime-ball again if you use this for evil purposes.
+! 
+! 
+! WHAT DNSWALK CHECKS FOR..
+! 
+! *  all PTR records that look like a full IP address point back to a
+! forward name.  In other words, "3.155.118.128.in-addr.arpa."
+! will be checked, but "155.118.128.in-addr.arpa." will NOT be checked.
+! (For those people who give their subnets a name)  Addresses ending
+! in .0 are also NOT checked.
+! [ reports error as "X PTR Y: unknown host" ]
+! 
+! *  PTR records are listed as IP addresses in forward name.  In other
+! words if 4.3.2.1.in-addr.arpa. points to "foo.org", but "foo.org"
+! doesn't have "1.2.3.4" listed in its forward A records then it will
+!  be an error.
+! [ reports error as "X PTR Y: forward matching A record not found" ]
+! 
+! *  PTR records do not point to a CNAME.
+! [ reports error as "X PTR Y: CNAME (to Z)" ]
+! 
+! *  CNAMEs point to a host with an A record.
+! [ reports error as "X CNAME Y: unknown host" ]
+! 
+! *  CNAMEs do not point to another CNAME.
+! [ reports error as "X CNAME Y: CNAME (to Z)" ]
+! 
+! *  MXs point to a host with an A record.
+! [ reports error as "X MX Y: unknown host" ]
+! 
+! *  MXs do not point to a CNAME.
+! [ reports error as "X MX Y: CNAME (to Z)" ]
+! 
+! *  A records have some corresponding PTR record.  (Not necessarily
+! of the same name, of course)
+! [ reports error as "X A Y: no PTR record" ]
+! 
+! *  Reports any packet size errors listed in dig zone transfer output
+! (Could be caused by a corrupted zone file, or invalid syntax used)
+! 
+! *  That there is more than one authoritative nameserver for a zone.
+! It does not check if the machine is on a separate network (yet).
+! A site should ALWAYS have a secondary nameserver.  It SHOULD be
+! on a different network than the primary.
+! 
+! (with -a switch)
+! *  duplicate A records listed for a given host.  NOTE: this is most
+! often caused by the practice of always putting A records for all
+! secondaries after NS glue records.  While this is not an error, it is
+! usually redundant and makes changing IP addresses later more difficult,
+! since they occur more than one time in the file (and in multiple
+! files).  This checking needs more work.  (Mostly because of a quirk in
+! BIND that reports cached A records in a zone transfer even though they
+! don't exist in the original zone file.  I might just end up skipping this
+! check altogether.)
+! [ reports error as "X: possible duplicate A record (glue of Z?)" 
+! where Z is the previous zone listed in the file ]
+! 
+! (with -F switch)
+! * perform "fascist" checking.  When checking an A record, compare the PTR
+!   name for each IP address with the forward name.  This WILL result in
+!   needless errors (like if you have an A record for your domain name
+!   pointing to your main server, or have A records like "mailhost" or
+!   "ns" defined to point to your mail or DNS server) but will catch little
+!   errors that may have crept in if you have an A record pointing to a host
+!   that you didn't intend to.
+! [ reports error as "X A Y: points to Z" where Z is the "canonical" name
+!   as returned by gethostbyaddr() ]
+! 
+! (with -l switch)
+! * Lame delegations.  A lame delegation is when a domain says "this
+! server is a secondary for zone Z" but the listed server is not giving
+! out authoritative data for zone Z.  This is usually the result of
+! a lack of communication on the part of the respective hostmasters.
+! Lame delegations are not fatal problems, they just tend to create
+! significant increases in DNS traffic.
+! [ reports error as "X NS Y: lame NS delegation" where X is the domain,
+! and Y is the lame nameserver ]
+! 
+! * Nameserver errors.  Any errors while contacting other nameservers
+! (like connection refused or timeout) will be reported.  This could
+! mean a lame delegation, or simply that the host is temporarily
+! unreachable.
+! [ reports error as "X NS Y: nameserver error (lame?)" followed by the
+! error message from dig]
+  
+  *** NOTICE ***
+! 	I fully realize that while some of the above rules are not
+! in violation of an RFC, it might be wise to reconsider their usage anyway.
+! dnswalk was written to be a tool to let the hostmaster decide what are 
+! troublesome areas, not as a program that has all the answers.
+  *** NOTICE ***
+  
+- 
+- CAVEATS
+- 
+- 	If a domain "foo.edu" lists "ns.bar.foo.edu" as authoritative for
+- a zone "bar.foo.edu", but "ns.bar.foo.edu" isn't, then the the dig of
+- the zone transfer will hang.  (This was the case here for a subdomain
+- that moved into a new set of IP addresses, but the parent nameserver still
+- had the old authority records pointing to their nameservers which weren't
+- answering to the old reverse domain anymore.)  If this happens, you can
+- hit ^C while the transfer is going on and dnswalk will abort that server.
+- (It will also remove the partial axfr file)  Hopefully I can figure a
+- more elegant way around this.  (or fix dig so that it doesn't hang)
+- 
+  This program was tested with data from the psu.edu domain.  If your
+  site does things differently than the way we do things, then you
+  may see it report things as errors, when in fact they are "okay".
+--- 57,77 ----
+  mostly-correct domains it is pretty manageable, however.  For larger
+  domains, use the included 'do-dnswalk' script as a guide.
+  
+! If you use the recursive option, you will get a directory tree
+! corresponding exactly to the DNS hierarchy.  I must stress that
+! you use the recursive option with care, and the author calls you a
+! slime-ball again if you use this for evil purposes.
+  
++ Please refer to the man page on what dnswalk checks for, and
++ the format of the output.
++ 
+  *** NOTICE ***
+! 	I fully realize that while some of the rules are not in
+! violation of an RFC, it might be wise to reconsider their usage
+! anyway.  dnswalk was written to be a tool to let the hostmaster decide
+! what are troublesome areas, not as a program that has all the answers.
+  *** NOTICE ***
+  
+  This program was tested with data from the psu.edu domain.  If your
+  site does things differently than the way we do things, then you
+  may see it report things as errors, when in fact they are "okay".
+***************
+*** 213,248 ****
+  my personal feelings about what "nice" DNS databases look like.  Others
+  are free to differ.  (and tell me so)
+  
+! BUGS
+! 	I should get around to writing a real man page.
+! 
+! 	dnswalk will make the directory tree before it has a chance to
+! find out that you gave it a bogus domain name.
+! 
+! 	When checking lots of hosts and lots of options, it is very
+! slow.  Running dnswalk on a machine with a local nameserver helps
+! considerably.
+! 
+! 	Perl's gethostby{name,addr}() routine doesn't seem to
+! consistently return an error whenever it is unable to resolve an
+! address.  Argh.  This will mean lots of "no PTR record" and "host unknown"
+! errors if a server is unavailable, or for some reason the lookup fails.
+! 
+! 	I really need to rewrite this all to not rely on dig, and use
+! bind.pl instead.
+! 
+! OTHER SOURCES
+! 
+! RFC 1034 - "DOMAIN NAMES - CONCEPTS AND FACILITIES"
+! 
+! RFC 1035 - "DOMAIN NAMES - IMPLEMENTATION AND SPECIFICATION"
+! 
+! RFC 1123 - "Requirements for Internet Hosts -- Application and Support"
+! 
+! Paul Albits, Cricket Liu: "DNS and BIND" O'Reilly & Associates.
+! 
+! [the author recommends copies by your favorite bathroom and/or nightstand]
+! 
+  David Barr - System Administrator
+  The Pennsylvania State University Population Research Institute
+  <barr@pop.psu.edu>
+--- 81,87 ----
+  my personal feelings about what "nice" DNS databases look like.  Others
+  are free to differ.  (and tell me so)
+  
+! Author:
+  David Barr - System Administrator
+  The Pennsylvania State University Population Research Institute
+  <barr@pop.psu.edu>
+*** dnswalk.1.6/dnswalk	Wed Nov 10 16:16:46 1993
+--- dnswalk	Wed Nov 10 16:10:58 1993
+***************
+*** 2,8 ****
+  # dnswalk    Walk through a DNS tree, pulling out zone data and
+  # dumping it in a directory tree
+  #
+! # $Id: dnswalk,v 1.4 1993/07/18 00:46:05 barr Exp $
+  #
+  # check data collected for legality using standard resolver
+  #
+--- 2,8 ----
+  # dnswalk    Walk through a DNS tree, pulling out zone data and
+  # dumping it in a directory tree
+  #
+! # $Id: dnswalk,v 1.6 1993/11/10 21:10:55 barr Exp barr $
+  #
+  # check data collected for legality using standard resolver
+  #
+***************
+*** 19,25 ****
+  
+  require "getopts.pl";
+  
+! do Getopts(":rfcadmFl");
+  
+  
+  $basedir = ".";
+--- 19,25 ----
+  
+  require "getopts.pl";
+  
+! do Getopts(":rfiadmFl");
+  
+  
+  $basedir = ".";
+***************
+*** 65,71 ****
+                  # error handling
+      ($path=&host2path($domain)) =~ tr/A-Z/a-z/;
+      local(@servers) = &getauthservers($domain);
+!     print "warning: $domain has only one authoratative nameserver\n" if (scalar(@servers) == 1);
+      if ((-f "$basedir/$path/axfr") && (!$main'opt_f)) {
+          open(DIG,"<$basedir/$path/axfr");
+          while (<DIG>) {
+--- 65,71 ----
+                  # error handling
+      ($path=&host2path($domain)) =~ tr/A-Z/a-z/;
+      local(@servers) = &getauthservers($domain);
+!     &printerr("warning: $domain has only one authoratative nameserver\n") if (scalar(@servers) == 1);
+      if ((-f "$basedir/$path/axfr") && (!$main'opt_f)) {
+          open(DIG,"<$basedir/$path/axfr");
+          while (<DIG>) {
+***************
+*** 179,184 ****
+--- 179,185 ----
+  # here's where the fun begins
+  sub checkfile {
+      open(FILE,"<$_[0]");
++     undef $errlist;
+      print "Checking $domain\n";
+      local (%glues)=();	# look for duplicate glue (A) records
+      local ($name, $aliases, $addrtype, $length, @addrs);
+***************
+*** 187,192 ****
+--- 188,195 ----
+      local ($lastns);	# last NS record we saw
+      local (@keys);	# temp variable
+      $soa=undef;
++     $doubledom = $domain . $domain;
++     $doubledom =~ s/(\W)/\\\1/g;	# quote string so it's a regexp
+      while (<FILE>) {
+          chop;
+          if (/^;/) {
+***************
+*** 197,212 ****
+              }
+          }
+          next if /^$/;	# skip blanks
+          split(/\t/);
+          # 0=key 2=rrtype 3=value (4=value if 2=MX)
+          next if ($_[0] =~ /;/);
+!         if ($_[0] =~ /[^-A-Za-z0-9._]/) {
+! 	    # I know, underscores aren't kosher but ....
+!             print " $_[0]: invalid character(s) in name\n";
+          }
+          if ($_[2] eq "SOA") {
+              print STDERR 's' if $opt_d;
+! 	    if (! $soa) {  # aviod duplicate SOA's.  Argh.
+                 ($soa,$contact) = $_[3] =~ /(\S+)\s+(\S+)/;
+                 print "SOA=$soa	contact=$contact\n";
+  	    }
+--- 200,219 ----
+              }
+          }
+          next if /^$/;	# skip blanks
++ 	# check to see if there is a "foo.bar.baz.bar.baz."
++ 	# probably a trailing-dot death.
++ 	if (/$doubledom/) {
++ 		&printerr("$_: domain occurred twice, forgot trailing '.'?");
++ 	}
+          split(/\t/);
+          # 0=key 2=rrtype 3=value (4=value if 2=MX)
+          next if ($_[0] =~ /;/);
+!         if (($_[0] =~ /[^\*][^-A-Za-z0-9.]/) && (!$opt_i)) {
+!             &printerr(" $_[0]: invalid character(s) in name\n");
+          }
+          if ($_[2] eq "SOA") {
+              print STDERR 's' if $opt_d;
+! 	    if (! $soa) {  # avoid duplicate SOA's.  Argh.
+                 ($soa,$contact) = $_[3] =~ /(\S+)\s+(\S+)/;
+                 print "SOA=$soa	contact=$contact\n";
+  	    }
+***************
+*** 217,234 ****
+                  # a full IP addr
+                  # skip ".0" networks
+                  if ($keys[0] ne "0") {
+!                     if (!(($name, $aliases, $addrtype, $length, @addrs)=gethostbyname($_[3])) && $!) {
+!                         print " gethostbyname($_[3]): $!\n";
+                      }
+                      else {
+                          if (!$name) {
+!                             print " $_[0] PTR $_[3]: unknown host\n";
+                          }
+                          elsif (!&equal(($name.'.'),$_[3])) {
+!                             print " $_[0] PTR $_[3]: CNAME (to $name)\n";
+                          }    
+                          elsif (!&matchaddrlist($_[0])) {
+!                             print " $_[0] PTR $_[3]: A record not found\n";
+                          }
+                      }
+                  }
+--- 224,241 ----
+                  # a full IP addr
+                  # skip ".0" networks
+                  if ($keys[0] ne "0") {
+!                     if (!(($name, $aliases, $addrtype, $length, @addrs)=gethostbyname($_[3])) && !$?) {
+!                         &printerr(" gethostbyname($_[3]): $!\n");
+                      }
+                      else {
+                          if (!$name) {
+!                             &printerr(" $_[0] PTR $_[3]: unknown host\n");
+                          }
+                          elsif (!&equal(($name.'.'),$_[3])) {
+!                             &printerr(" $_[0] PTR $_[3]: CNAME (to $name)\n");
+                          }    
+                          elsif (!&matchaddrlist($_[0])) {
+!                             &printerr(" $_[0] PTR $_[3]: A record not found\n");
+                          }
+                      }
+                  }
+***************
+*** 236,250 ****
+          } elsif (($_[2] eq "A") ) {
+              print STDERR 'a' if $opt_d;
+  # check to see that a reverse PTR record exists
+!             if (!(($name,$aliases,$addrtype,$length,@addrs)=gethostbyaddr(pack('C4', split(/\./,$_[3])),2)) && $!) {
+!                 print " gethostbyaddr($_[3]): $!\n";
+              }
+              else {
+                  if (!$name) {
+!                     print " $_[0] A $_[3]: no PTR record\n";
+                  }
+                  elsif ($opt_F && !&equal($name.".",$_[0])) {
+!                     print " $_[0] A $_[3]: points to $name\n" if ((split(/\./,$name,1))[0] ne "localhost");
+                  }
+                  if ($main'opt_a) {
+                      # keep list in %glues, report any duplicates
+--- 243,257 ----
+          } elsif (($_[2] eq "A") ) {
+              print STDERR 'a' if $opt_d;
+  # check to see that a reverse PTR record exists
+!             if (!(($name,$aliases,$addrtype,$length,@addrs)=gethostbyaddr(pack('C4', split(/\./,$_[3])),2)) && !$?) {
+!                 &printerr(" gethostbyaddr($_[3]): $!\n");
+              }
+              else {
+                  if (!$name) {
+!                     &printerr(" $_[0] A $_[3]: no PTR record\n");
+                  }
+                  elsif ($opt_F && !&equal($name.".",$_[0])) {
+!                     &printerr(" $_[0] A $_[3]: points to $name\n") if ((split(/\./,$name,1))[0] ne "localhost");
+                  }
+                  if ($main'opt_a) {
+                      # keep list in %glues, report any duplicates
+***************
+*** 252,258 ****
+                          $glues{$_[3]}=$_[0];
+                      }
+                      elsif (($glues{$_[3]} eq $_[0]) && (!&equal($lastns,$domain))) {
+!                             print " $_[0]: possible duplicate A record (glue of $lastns?)\n";
+                      }
+                  }
+              }
+--- 259,265 ----
+                          $glues{$_[3]}=$_[0];
+                      }
+                      elsif (($glues{$_[3]} eq $_[0]) && (!&equal($lastns,$domain))) {
+!                             &printerr(" $_[0]: possible duplicate A record (glue of $lastns?)\n");
+                      }
+                  }
+              }
+***************
+*** 261,301 ****
+              print STDERR 'n' if $opt_d;
+              # check to see if object of NS is real
+              &checklamer($_[0],$_[3]) if ($main'opt_l);
+!             if (!(($name, $aliases, $addrtype, $length, @addrs)=gethostbyname($_[3])) && $!) {
+!                 print " gethostbyname($_[3]): $!\n";
+              }
+              else {
+                  if (!$name) {
+!                     print " $_[0] NS $_[3]: unknown host\n";
+                  } elsif (!&equal(($name.'.'),$_[3])) {
+!                     print " $_[0] NS $_[3]: CNAME (to $name)\n";
+                  }
+              }
+          } elsif ($_[2] eq "MX") {
+              print STDERR 'm' if $opt_d;
+              # check to see if object of mx is real
+              ($prio,$mx)=split(/ /,$_[3]);
+!             if (!(($name, $aliases, $addrtype, $length, @addrs)=gethostbyname($mx)) && $!) {
+!                 print " gethostbyname($mx): $!\n";
+              }
+              else {
+                  if (!$name) {
+!                     print " $_[0] MX $_[3]: unknown host\n";
+                  }
+                  elsif (!&equal(($name.'.'),$mx)) {
+!                     print " $_[0] MX $_[3]: CNAME (to $name)\n";
+                  }
+              }
+          } elsif ($_[2] eq "CNAME") {
+              print STDERR 'c' if $opt_d;
+!             if (!(($name, $aliases, $addrtype, $length, @addrs)=gethostbyname($_[3])) && $!) {
+!                 print " gethostbyname($_[3]): $!\n";
+              }
+              else {
+                  if (!$name) {
+!                     print " $_[0] CNAME $_[3]: unknown host\n";
+                  } elsif (!&equal(($name.'.'),$_[3])) {
+!                     print " $_[0] CNAME $_[3]: CNAME (to $name)\n";
+                  }
+              }
+          }
+--- 268,308 ----
+              print STDERR 'n' if $opt_d;
+              # check to see if object of NS is real
+              &checklamer($_[0],$_[3]) if ($main'opt_l);
+!             if (!(($name, $aliases, $addrtype, $length, @addrs)=gethostbyname($_[3])) && !$?) {
+!                 &printerr(" gethostbyname($_[3]): $!\n");
+              }
+              else {
+                  if (!$name) {
+!                     &printerr(" $_[0] NS $_[3]: unknown host\n");
+                  } elsif (!&equal(($name.'.'),$_[3])) {
+!                     &printerr(" $_[0] NS $_[3]: CNAME (to $name)\n");
+                  }
+              }
+          } elsif ($_[2] eq "MX") {
+              print STDERR 'm' if $opt_d;
+              # check to see if object of mx is real
+              ($prio,$mx)=split(/ /,$_[3]);
+!             if (!(($name, $aliases, $addrtype, $length, @addrs)=gethostbyname($mx)) && !$?) {
+!                 &printerr(" gethostbyname($mx): $!\n");
+              }
+              else {
+                  if (!$name) {
+!                     &printerr(" $_[0] MX $_[3]: unknown host\n");
+                  }
+                  elsif (!&equal(($name.'.'),$mx)) {
+!                     &printerr(" $_[0] MX $_[3]: CNAME (to $name)\n");
+                  }
+              }
+          } elsif ($_[2] eq "CNAME") {
+              print STDERR 'c' if $opt_d;
+!             if (!(($name, $aliases, $addrtype, $length, @addrs)=gethostbyname($_[3])) && !$?) {
+!                 &printerr(" gethostbyname($_[3]): $!\n");
+              }
+              else {
+                  if (!$name) {
+!                     &printerr(" $_[0] CNAME $_[3]: unknown host\n");
+                  } elsif (!&equal(($name.'.'),$_[3])) {
+!                     &printerr(" $_[0] CNAME $_[3]: CNAME (to $name)\n");
+                  }
+              }
+          }
+***************
+*** 303,308 ****
+--- 310,327 ----
+      print STDERR "\n" if $opt_d;
+      close(FILE);
+  }
++ 
++ # prints an error message, suppressing duplicates
++ sub printerr {
++     local ($err)=$_[0];
++     if ($errlist{$err}==undef) {
++ 	print $err;
++ 	print STDERR "!" if $opt_d;
++ 	$errlist{$err}=1;
++     } else {
++ 	print STDERR "." if $opt_d;
++     }
++ }
+  
+  sub equal {
+      # Do case-insensitive string comparisons
+*** /dev/null	Wed Nov 10 16:08:44 1993
+--- dnswalk.1	Wed Nov 10 16:12:33 1993
+***************
+*** 0 ****
+--- 1,230 ----
++ .TH DNSWALK 1
++ .SH NAME
++ dnswalk \- A DNS database debugger
++ .SH SYNOPSIS
++ .B dnswalk
++ [
++ .BR \- adilrfFm
++ ]
++ .I domain.
++ .SH "DESCRIPTION"
++ .B dnswalk
++ is a DNS debugger.  It performs zone transfers of specified domains,
++ and checks the database in numerous ways for internal consistency, as
++ well as for correctness according to accepted practices with the Domain
++ Name System.
++ .PP
++ The
++ .I domain
++ name specified on the command line MUST end with a '.'.
++ You can specify a forward domain, such as
++ .B dnswalk pop.psu.edu.
++ or a reverse domain, such as
++ .B dnswalk 155.118.128.in-addr.arpa.
++ .SH OPTIONS
++ .PD 0
++ .TP
++ .BI \-f
++ Force a zone transfer from an authoritative nameserver.
++ dnswalk normally will look in its saved 'axfr' file
++ for each domain and use that. (if it exists, and the serial
++ number has not increased)
++ .TP
++ .BI \-r
++ Recursively descend sub-domains of the specified
++ domain.  Use with care.
++ .TP
++ .BI \-a
++ Turn on warning of duplicate A records.  (see below)
++ .TP
++ .BI \-d
++ Print debugging and 'status' information to stderr.
++ (Use only if redirecting stdout)  See DIAGNOSTICS section.
++ .TP
++ .BI \-m
++ Perform checks only if the zone has been modified since the previous run.
++ .TP
++ .BI \-F
++ perform "fascist" checking.  When checking an A record,
++ compare the PTR name for each IP address with the forward
++ name and report mismatches.  (see below)  I recommend
++ you try this option at least once to see what sorts of
++ errors pop up - you might be surprised!.
++ .TP
++ .BI \-i
++ Supress check for invalid characters in a domain name.  (see below)
++ .TP
++ .BI \-l
++ Perform "lame delegation" checking.  For every NS record,
++ check to see that the listed host is indeed returning
++ authoritative answers for this domain.
++ .SH ERRORS
++ The following the list of error messages that dnswalk will return
++ if it sees a potential problem with the database.  Duplicate messages
++ will be suppressed automatically for each zone.
++ .TP
++ .PD 0
++ .BI "X PTR Y: unknown host"
++ X is a PTR record to Y, but Y is not a valid host (no A record).
++ .TP
++ .BI "X PTR Y: forward matching A record not found"
++ X is a PTR record to Y, but the IP address associated with the PTR
++ record is not listed as an address for Y.  There should be an A
++ record for every valid IP adddress for a host.
++ .TP
++ .BI "X PTR Y: CNAME (to Z)"
++ X is a PTR record to Y, but Y is a CNAME to Z.  PTR records MUST point
++ to the canonical name of a host, not an alias.
++ .TP
++ .BI "X CNAME Y: unknown host"
++ X is aliased to Y, but Y is not a valid host (no A record).
++ .TP
++ .BI "X CNAME Y: CNAME (to Z)"
++ X is alised to Y, but Y is aliased to Z.  CNAMEs should not be chained.
++ .TP
++ .BI "X MX Y: unknown host"
++ X is an MX to Y, but Y is not a valid host (no A record).
++ .TP
++ .BI "X MX Y: CNAME (to Z)"
++ X is an MX to Y, but Y is an alias for Z.  MX records must point to
++ the canonical name, not an alias.
++ .TP
++ .BI "X A Y: no PTR record"
++ X has an IP address Y, but there is no record to map the IP address
++ Y back to a hostname (usually X).
++ .TP
++ .BI ";; packet size error (found xxx, dlen was yyy)"
++ These are error messages from dig.  They indicate a format error
++ in the DNS response.  Most often they are caused by records which have
++ an incorrect number of fields.  For example, HINFO records require
++ exactly two fields.
++ .TP
++ .BI "warning: X has only one authoritative nameserver"
++ Zones must have at least one authoritative nameserver, in case
++ one is down or unreachable.  Make sure the parent and child domains
++ list all authoritative nameservers for a zone.
++ .TP
++ .BI "X: invalid character(s) in name"
++ Allowable characters in a domain name are the ASCII letters a through Z,
++ and the "-" character.  A "." may be used only as a domain separator.
++ (checking can be suppressed with
++ .B \-i
++ )
++ .TP
++ .BI "X: domain occurred twice, forgot trailing '.'?"
++ A sanity check which looks for "dom.ain.dom.ain." in a name.  This
++ is often caused by forgetting to put a trailing '.' on the end of
++ a name.
++ .TP
++ (with -a switch)
++ .TP
++ .BI "X: possible duplicate A record (glue of Z?)"
++ A duplicate A records is listed for X.  NOTE: this is most
++ often caused by the practice of always putting A records for all
++ secondaries after NS glue records.  While this is not an error, it is
++ usually redundant and makes changing IP addresses later more difficult,
++ since they occur more than one time in the file (and in multiple
++ files).  You may get spurious errors, mostly because of a quirk in
++ BIND releases before 4.9.x that reports cached glue A records in a zone
++ transfer even though they don't exist in the original zone file.
++ .TP
++ (with -F switch)
++ .TP
++ .BI "X A Y: points to Z"
++ X has Y for an IP address, but the PTR record associated with Y
++ returns "Z" as the name associated with that host.  This is not
++ necessarily an error (for example if you have an A record for your
++ domain name), but can be useful to check for A records which point
++ to the wrong host, or PTR records that point to the wrong host.
++ .TP
++ (with -l switch)
++ .TP
++ .BI "X NS Y: lame NS delegation"
++ Y is a listed nameserver for zone X, but Y is not returning
++ authoritative data for zone X.  This is usually the result of a
++ lack of communication on the part of the respective hostmasters.  Lame
++ delegations are not fatal problems except in severe cases, they just
++ tend to create significant increases in DNS traffic.  NS records for
++ the parent and child domains should be consistent, and each server
++ listed in the NS record MUST be able to answer with authoritative data,
++ either by being a primary or secondary for the zone.
++ .TP
++ .BI "X NS Y: nameserver error (lame?)"
++ Any errors returned from dig while contacting other nameservers
++ (like connection refused or timeout) will be reported.  This could
++ mean a lame delegation, or simply that the host is temporarily
++ unreachable.
++ .SH FILES
++ .br
++ .nf
++ .\" set tabstop to longest possible filename, plus a wee bit
++ .ta \w'xxxxxxxxxxxxxxxxxxxxxxxx   'u
++ \fIbar/foo/axfr\fR  saved zone transfer information for "foo.bar"
++ .SH "SEE ALSO"
++ .nf
++ RFC 1034 - "DOMAIN NAMES - CONCEPTS AND FACILITIES"
++ RFC 1035 - "DOMAIN NAMES - IMPLEMENTATION AND SPECIFICATION"
++ RFC 1123 - "Requirements for Internet Hosts -- Application and Support"
++ Paul Albits, Cricket Liu: "DNS and BIND" O'Reilly & Associates.
++ .SH NOTES
++ This package was tested under Perl 4.036, dig 2.0, as well as the dig
++ shipped with BIND 4.9.x.
++ .SH CAVEATS
++ If a domain "foo.edu" lists "ns.bar.foo.edu" as authoritative for
++ a zone "bar.foo.edu", but "ns.bar.foo.edu" isn't, then the the dig of
++ the zone transfer will hang.  (This was the case here for a subdomain
++ that moved into a new set of IP addresses, but the parent nameserver still
++ had the old authority records pointing to their nameservers which weren't
++ answering to the old reverse domain anymore.)  If this happens, you can
++ hit ^C while the transfer is going on and dnswalk will abort that server.
++ (It will also remove the partial axfr file)  Hopefully I can figure a
++ more elegant way around this.  (or fix dig so that it doesn't hang)
++ .SH DIAGNOSTICS
++ When invoked with the
++ .B \-d
++ option,
++ .B dnswalk
++ will print status information to stderr.  It consists of information
++ about what zone is being checked, and a single letter corresponding
++ to the resource record checked, and any errors.
++ .TP
++ .BI a
++ A record
++ .TP
++ .BI c
++ CNAME record
++ .TP
++ .BI p
++ PTR record
++ .TP
++ .BI m
++ MX record
++ .TP
++ .BI s
++ SOA record
++ .TP
++ .BI !
++ An error occurred
++ .TP
++ .BI .
++ A previous error in the zone was repeated, but suppressed.
++ .PP
++ .SH BUGS
++ dnswalk will make the directory tree before it has a chance to
++ find out that you gave it a bogus domain name.
++ .PP
++ When checking lots of hosts and lots of options, it is very
++ slow.  Running dnswalk on a machine with a local nameserver helps
++ considerably.
++ .PP
++ Perl's gethostby{name,addr}() routine doesn't seem to
++ consistently return an error whenever it is unable to resolve an
++ address.  Argh.  This will mean lots of "no PTR record" and "host unknown"
++ errors if a server is unavailable, or for some reason the lookup fails.
++ You may get strange error messages if your perl was compiled without
++ support for herror().
++ .PP
++ I really need to rewrite this all to not rely on dig, and use
++ bind.pl instead.
++ .SH AUTHOR
++ David Barr <barr@pop.psu.edu>
+-- 
+"The wisest man I have ever known once said to me: 'Nine out of every ten
+people improve on acquaintance,' and I have found his words true."
+- Frank Swinnerton
+
+exit 0 # Just in case...

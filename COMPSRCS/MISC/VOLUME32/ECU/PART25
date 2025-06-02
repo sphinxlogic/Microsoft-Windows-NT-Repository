@@ -1,0 +1,2177 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i060:  ecu - ECU Asynchronous Communications v3.20, Part25/40
+Message-ID: <1992Sep14.144645.22082@sparky.imd.sterling.com>
+X-Md4-Signature: dea35ee9e7428239289a82ce4ef4e57e
+Date: Mon, 14 Sep 1992 14:46:45 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 60
+Archive-name: ecu/part25
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.25 (part 25 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file z/zcommon.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 25; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping z/zcommon.c'
+else
+echo 'x - continuing file z/zcommon.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'z/zcommon.c' &&
+X/*:05-11-1992-16:43-wht@gyro-fix WORKING_SELECT nap once and for all */
+X/*:05-08-1992-02:42-wht@n4hgf-select-based Nap was buggy */
+X/*:08-30-1991-20:09-wht@n4hgf2-sun Nap was not returning a value */
+X/*:08-30-1991-02:34-jdeitch@jadpc.cts.com-fix no hzmsec */
+X/*:08-21-1991-06:23-wht@n4hgf-sun porting */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <stdio.h>
+X#include <errno.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X#include <ctype.h>
+X#include "../ecu_types.h"
+X#include <sys/param.h>
+X#include "../ecu_pwd.h"
+X#include "zmodem.h"
+X
+X#if defined(sun) || defined(SVR4)
+X# include <sys/time.h>
+X#endif
+X
+Xextern unsigned char vmin_count;
+Xextern int Zmodem;
+Xextern unsigned Baudrate;
+Xextern int Twostop;		/* Use two stop bits */
+X
+X#if defined(LLITOUT)
+Xlong Locmode;		/* Saved "local mode" for 4.x BSD "new driver" */
+Xlong Locbit = LLITOUT;	/* Bit SUPPOSED to disable output translations */
+X#endif
+X
+Xint sigint = 0;			/* dummy for nap.c */
+X
+Xstruct 
+X{
+X	unsigned baudr;
+X	int speedcode;
+X} speeds[] = 
+X{
+X	110,	B110,
+X	300,	B300,
+X	600,	B600,
+X	1200,	B1200,
+X	2400,	B2400,
+X	4800,	B4800,
+X	9600,	B9600,
+X	19200,	EXTA,
+X	38400,	EXTB,
+X	0,
+X};
+X
+X/* crctab calculated by Mark G. Mendel,Network Systems Corporation */
+Xunsigned short crctab[256] = 
+X{
+X	0x0000,0x1021,0x2042,0x3063,0x4084,0x50a5,0x60c6,0x70e7,
+X	0x8108,0x9129,0xa14a,0xb16b,0xc18c,0xd1ad,0xe1ce,0xf1ef,
+X	0x1231,0x0210,0x3273,0x2252,0x52b5,0x4294,0x72f7,0x62d6,
+X	0x9339,0x8318,0xb37b,0xa35a,0xd3bd,0xc39c,0xf3ff,0xe3de,
+X	0x2462,0x3443,0x0420,0x1401,0x64e6,0x74c7,0x44a4,0x5485,
+X	0xa56a,0xb54b,0x8528,0x9509,0xe5ee,0xf5cf,0xc5ac,0xd58d,
+X	0x3653,0x2672,0x1611,0x0630,0x76d7,0x66f6,0x5695,0x46b4,
+X	0xb75b,0xa77a,0x9719,0x8738,0xf7df,0xe7fe,0xd79d,0xc7bc,
+X	0x48c4,0x58e5,0x6886,0x78a7,0x0840,0x1861,0x2802,0x3823,
+X	0xc9cc,0xd9ed,0xe98e,0xf9af,0x8948,0x9969,0xa90a,0xb92b,
+X	0x5af5,0x4ad4,0x7ab7,0x6a96,0x1a71,0x0a50,0x3a33,0x2a12,
+X	0xdbfd,0xcbdc,0xfbbf,0xeb9e,0x9b79,0x8b58,0xbb3b,0xab1a,
+X	0x6ca6,0x7c87,0x4ce4,0x5cc5,0x2c22,0x3c03,0x0c60,0x1c41,
+X	0xedae,0xfd8f,0xcdec,0xddcd,0xad2a,0xbd0b,0x8d68,0x9d49,
+X	0x7e97,0x6eb6,0x5ed5,0x4ef4,0x3e13,0x2e32,0x1e51,0x0e70,
+X	0xff9f,0xefbe,0xdfdd,0xcffc,0xbf1b,0xaf3a,0x9f59,0x8f78,
+X	0x9188,0x81a9,0xb1ca,0xa1eb,0xd10c,0xc12d,0xf14e,0xe16f,
+X	0x1080,0x00a1,0x30c2,0x20e3,0x5004,0x4025,0x7046,0x6067,
+X	0x83b9,0x9398,0xa3fb,0xb3da,0xc33d,0xd31c,0xe37f,0xf35e,
+X	0x02b1,0x1290,0x22f3,0x32d2,0x4235,0x5214,0x6277,0x7256,
+X	0xb5ea,0xa5cb,0x95a8,0x8589,0xf56e,0xe54f,0xd52c,0xc50d,
+X	0x34e2,0x24c3,0x14a0,0x0481,0x7466,0x6447,0x5424,0x4405,
+X	0xa7db,0xb7fa,0x8799,0x97b8,0xe75f,0xf77e,0xc71d,0xd73c,
+X	0x26d3,0x36f2,0x0691,0x16b0,0x6657,0x7676,0x4615,0x5634,
+X	0xd94c,0xc96d,0xf90e,0xe92f,0x99c8,0x89e9,0xb98a,0xa9ab,
+X	0x5844,0x4865,0x7806,0x6827,0x18c0,0x08e1,0x3882,0x28a3,
+X	0xcb7d,0xdb5c,0xeb3f,0xfb1e,0x8bf9,0x9bd8,0xabbb,0xbb9a,
+X	0x4a75,0x5a54,0x6a37,0x7a16,0x0af1,0x1ad0,0x2ab3,0x3a92,
+X	0xfd2e,0xed0f,0xdd6c,0xcd4d,0xbdaa,0xad8b,0x9de8,0x8dc9,
+X	0x7c26,0x6c07,0x5c64,0x4c45,0x3ca2,0x2c83,0x1ce0,0x0cc1,
+X	0xef1f,0xff3e,0xcf5d,0xdf7c,0xaf9b,0xbfba,0x8fd9,0x9ff8,
+X	0x6e17,0x7e36,0x4e55,0x5e74,0x2e93,0x3eb2,0x0ed1,0x1ef0
+X};
+X
+X#if defined(WANT_UPDCRC_HERE)	/* wht -- moved to zmodem.h */
+X/*
+X * updcrc macro derived from article Copyright (C) 1986 Stephen Satchell. 
+X *  NOTE: First srgument must be in range 0 to 255.
+X *        Second argument is referenced twice.
+X * 
+X * Programmers may incorporate any or all code into their programs,
+X * giving proper credit within the source. Publication of the 
+X * source routines is permitted so long as proper credit is given 
+X * to Stephen Satchell, Satchell Evaluations and Chuck Forsberg,
+X * Omen Technology.
+X */
+X
+X#define updcrc(cp,crc) ( crctab[((crc >> 8) & 255)] ^ (crc << 8) ^ cp)
+X#endif
+X
+X/*
+X  First,the polynomial itself and its table of feedback terms.  The
+X  polynomial is:
+X
+X  X^32+X^26+X^23+X^22+X^16+X^12+X^11+X^10+X^8+X^7+X^5+X^4+X^2+X^1+X^0
+X
+X  Note that we take it "backwards" and put the highest-order term in the
+X  lowest-order bit.  The X^32 term is "implied"; the LSB is the X^31
+X  term,etc.  The X^0 term (usually shown as "+1") results in the MSB being
+X  1.  Note that the usual hardware shift register implementation,which is
+X  what we're using (we're merely optimizing it by doing eight-bit chunks at
+X  a time) shifts bits into the lowest-order term.  In our
+X  implementation,that means shifting towards the right.  Why do we do it
+X  this way?  Because the calculated CRC must be transmitted in order from
+X  highest-order term to lowest-order term.  UARTs transmit characters in
+X  order from LSB to MSB.  By storing the CRC this way, we hand it to the
+X  UART in the order low-byte to high-byte; the UART sends each low-bit to
+X  hight-bit; and the result is transmission bit by bit from highest- to
+X  lowest-order term without requiring any bit shuffling on our part.
+X  Reception works similarly.
+X
+X  The feedback terms table consists of 256 32-bit entries.  Notes:   
+X
+X     The macro for using the table is UPDC32 is located in zmodem.h
+X                                                                     
+X     It might not be obvious,but the feedback terms simply represent the
+X     results of eight shift/xor opera- tions for all combinations of data
+X     and CRC register values.
+X                                                                     
+X     The values must be right-shifted by eight bits by the "UPDC32" logic;
+X     the shift must be unsigned (bring in zeroes).  On some hardware you
+X     could probably optimize the shift in assembler by using byte-swap
+X     instructions.
+X*/
+X
+Xlong cr3tab[] =		/* CRC polynomial 0xedb88320 */
+X{
+X	0x00000000,0x77073096,0xee0e612c,0x990951ba,0x076dc419,0x706af48f,0xe963a535,0x9e6495a3,
+X	0x0edb8832,0x79dcb8a4,0xe0d5e91e,0x97d2d988,0x09b64c2b,0x7eb17cbd,0xe7b82d07,0x90bf1d91,
+X	0x1db71064,0x6ab020f2,0xf3b97148,0x84be41de,0x1adad47d,0x6ddde4eb,0xf4d4b551,0x83d385c7,
+X	0x136c9856,0x646ba8c0,0xfd62f97a,0x8a65c9ec,0x14015c4f,0x63066cd9,0xfa0f3d63,0x8d080df5,
+X	0x3b6e20c8,0x4c69105e,0xd56041e4,0xa2677172,0x3c03e4d1,0x4b04d447,0xd20d85fd,0xa50ab56b,
+X	0x35b5a8fa,0x42b2986c,0xdbbbc9d6,0xacbcf940,0x32d86ce3,0x45df5c75,0xdcd60dcf,0xabd13d59,
+X	0x26d930ac,0x51de003a,0xc8d75180,0xbfd06116,0x21b4f4b5,0x56b3c423,0xcfba9599,0xb8bda50f,
+X	0x2802b89e,0x5f058808,0xc60cd9b2,0xb10be924,0x2f6f7c87,0x58684c11,0xc1611dab,0xb6662d3d,
+X	0x76dc4190,0x01db7106,0x98d220bc,0xefd5102a,0x71b18589,0x06b6b51f,0x9fbfe4a5,0xe8b8d433,
+X	0x7807c9a2,0x0f00f934,0x9609a88e,0xe10e9818,0x7f6a0dbb,0x086d3d2d,0x91646c97,0xe6635c01,
+X	0x6b6b51f4,0x1c6c6162,0x856530d8,0xf262004e,0x6c0695ed,0x1b01a57b,0x8208f4c1,0xf50fc457,
+X	0x65b0d9c6,0x12b7e950,0x8bbeb8ea,0xfcb9887c,0x62dd1ddf,0x15da2d49,0x8cd37cf3,0xfbd44c65,
+X	0x4db26158,0x3ab551ce,0xa3bc0074,0xd4bb30e2,0x4adfa541,0x3dd895d7,0xa4d1c46d,0xd3d6f4fb,
+X	0x4369e96a,0x346ed9fc,0xad678846,0xda60b8d0,0x44042d73,0x33031de5,0xaa0a4c5f,0xdd0d7cc9,
+X	0x5005713c,0x270241aa,0xbe0b1010,0xc90c2086,0x5768b525,0x206f85b3,0xb966d409,0xce61e49f,
+X	0x5edef90e,0x29d9c998,0xb0d09822,0xc7d7a8b4,0x59b33d17,0x2eb40d81,0xb7bd5c3b,0xc0ba6cad,
+X	0xedb88320,0x9abfb3b6,0x03b6e20c,0x74b1d29a,0xead54739,0x9dd277af,0x04db2615,0x73dc1683,
+X	0xe3630b12,0x94643b84,0x0d6d6a3e,0x7a6a5aa8,0xe40ecf0b,0x9309ff9d,0x0a00ae27,0x7d079eb1,
+X	0xf00f9344,0x8708a3d2,0x1e01f268,0x6906c2fe,0xf762575d,0x806567cb,0x196c3671,0x6e6b06e7,
+X	0xfed41b76,0x89d32be0,0x10da7a5a,0x67dd4acc,0xf9b9df6f,0x8ebeeff9,0x17b7be43,0x60b08ed5,
+X	0xd6d6a3e8,0xa1d1937e,0x38d8c2c4,0x4fdff252,0xd1bb67f1,0xa6bc5767,0x3fb506dd,0x48b2364b,
+X	0xd80d2bda,0xaf0a1b4c,0x36034af6,0x41047a60,0xdf60efc3,0xa867df55,0x316e8eef,0x4669be79,
+X	0xcb61b38c,0xbc66831a,0x256fd2a0,0x5268e236,0xcc0c7795,0xbb0b4703,0x220216b9,0x5505262f,
+X	0xc5ba3bbe,0xb2bd0b28,0x2bb45a92,0x5cb36a04,0xc2d7ffa7,0xb5d0cf31,0x2cd99e8b,0x5bdeae1d,
+X	0x9b64c2b0,0xec63f226,0x756aa39c,0x026d930a,0x9c0906a9,0xeb0e363f,0x72076785,0x05005713,
+X	0x95bf4a82,0xe2b87a14,0x7bb12bae,0x0cb61b38,0x92d28e9b,0xe5d5be0d,0x7cdcefb7,0x0bdbdf21,
+X	0x86d3d2d4,0xf1d4e242,0x68ddb3f8,0x1fda836e,0x81be16cd,0xf6b9265b,0x6fb077e1,0x18b74777,
+X	0x88085ae6,0xff0f6a70,0x66063bca,0x11010b5c,0x8f659eff,0xf862ae69,0x616bffd3,0x166ccf45,
+X	0xa00ae278,0xd70dd2ee,0x4e048354,0x3903b3c2,0xa7672661,0xd06016f7,0x4969474d,0x3e6e77db,
+X	0xaed16a4a,0xd9d65adc,0x40df0b66,0x37d83bf0,0xa9bcae53,0xdebb9ec5,0x47b2cf7f,0x30b5ffe9,
+X	0xbdbdf21c,0xcabac28a,0x53b39330,0x24b4a3a6,0xbad03605,0xcdd70693,0x54de5729,0x23d967bf,
+X	0xb3667a2e,0xc4614ab8,0x5d681b02,0x2a6f2b94,0xb40bbe37,0xc30c8ea1,0x5a05df1b,0x2d02ef8d
+X};
+X
+X#if defined(FIONREAD)
+X/*
+X *  Return non 0 iff something to read from io descriptor f
+X */
+Xint
+Xrdchk(f)
+Xint f;
+X{
+X	int lf = 0;
+X
+X	ioctl(f,FIONREAD,&lf);
+X	return(!!lf);
+X}
+X#endif
+X
+Xunsigned short
+Xgetspeed(code)
+Xint code;
+X{
+X	register n;
+X
+X	for(n=0; speeds[n].baudr; ++n)
+X		if(speeds[n].speedcode == code)
+X			return(speeds[n].baudr);
+X	return(38400);	/* Assume fifo if ioctl failed */
+X}
+X
+X
+X
+X#if defined(ICANON)
+Xstruct termio oldtty,tty;
+X#else
+Xstruct sgttyb oldtty,tty;
+Xstruct tchars oldtch,tch;
+X#endif
+X
+Xextern int iofd;		/* File descriptor for ioctls & reads */
+X
+X/*
+X * mode(n)
+X *  3: save old tty stat, set raw mode with flow control
+X *  2: set XON/XOFF for sb/sz with ZMODEM or YMODEM-g
+X *  1: save old tty stat, set raw mode 
+X *  0: restore original tty mode
+X */
+Xmode(new_mode)
+Xint new_mode;
+X{
+X	static did0 = FALSE;
+X	report_mode(new_mode);
+X	switch(new_mode)
+X	{
+X	case 2:		/* Un-raw mode used by sz,sb when -g detected */
+X		if(!did0)
+X			(void) ioctl(iofd,TCGETA,&oldtty);
+X		tty = oldtty;
+X		tty.c_iflag &= ~(IXON | IXOFF | IXANY);
+X
+X#if defined(RTSFLOW)
+X		if(tty.c_cflag & (RTSFLOW | CTSFLOW))
+X			tty.c_iflag = BRKINT;
+X		else
+X			tty.c_iflag = BRKINT|IXON;
+X#else
+X		tty.c_iflag = BRKINT|IXON;
+X#endif
+X
+X		tty.c_oflag = 0;	/* Transparent output */
+X
+X		tty.c_cflag &= ~PARENB;	/* Disable parity */
+X		tty.c_cflag |= CS8;	/* Set character size = 8 */
+X		if(Twostop)
+X			tty.c_cflag |= CSTOPB;	/* Set two stop bits */
+X
+X
+X#if defined(READCHECK)
+X		tty.c_lflag = Zmodem ? 0 : ISIG;
+X		tty.c_cc[VINTR] = Zmodem ? -1:030;	/* Interrupt char */
+X#else
+X		tty.c_lflag = ISIG;
+X		tty.c_cc[VINTR] = Zmodem ? 03:030;	/* Interrupt char */
+X#endif
+X		tty.c_cc[VQUIT] = -1;			/* Quit char */
+X#if defined(NFGVMIN)
+X		tty.c_cc[VMIN] = 1;
+X#else
+X		tty.c_cc[VMIN] = 3;	 /* This many chars satisfies reads */
+X#endif
+X		tty.c_cc[VTIME] = 1;	/* or in this many tenths of seconds */
+X
+X		(void) ioctl(iofd,TCSETAW,&tty);
+X		did0 = TRUE;
+X		return(OK);
+X	case 1:
+X	case 3:
+X		if(!did0)
+X			(void) ioctl(iofd,TCGETA,&oldtty);
+X		tty = oldtty;
+X		tty.c_iflag &= ~(IXON | IXOFF | IXANY);
+X
+X#if defined(RTSFLOW)
+X		tty.c_iflag = new_mode == 3 ? (IGNBRK | RTSFLOW) : IGNBRK;
+X#else
+X		tty.c_iflag = new_mode == 3 ? (IGNBRK | IXOFF) : IGNBRK;
+X#endif
+X
+X		/* No echo,crlf mapping,INTR,QUIT,delays,no erase/kill */
+X		tty.c_lflag &= ~(ECHO | ICANON | ISIG);
+X
+X		tty.c_oflag = 0;	/* Transparent output */
+X
+X		tty.c_cflag &= ~PARENB;	/* Same baud rate,disable parity */
+X		tty.c_cflag |= CS8;	/* Set character size = 8 */
+X		if(Twostop)
+X			tty.c_cflag |= CSTOPB;	/* Set two stop bits */
+X#if defined(NFGVMIN)
+X		tty.c_cc[VMIN] = 1; /* This many chars satisfies reads */
+X#else
+X		tty.c_cc[VMIN] = vmin_count; /* This many chars satisfies reads */
+X#endif
+X		tty.c_cc[VTIME] = 1;	/* or in this many tenths of seconds */
+X		(void) ioctl(iofd,TCSETAW,&tty);
+X		did0 = TRUE;
+X		Baudrate = getspeed(tty.c_cflag & CBAUD);
+X		report_comm_baud_rate(Baudrate);
+X		return(OK);
+X	case 0:
+X		if(!did0)
+X			return(ERROR);
+X		(void) ioctl(iofd,TCSBRK,1);	/* Wait for output to drain */
+X		(void) ioctl(iofd,TCFLSH,1);	/* Flush input queue */
+X		(void) ioctl(iofd,TCSETAW,&oldtty);	/* Restore modes */
+X		(void) ioctl(iofd,TCXONC,1);	/* Restart output */
+X		return(OK);
+X	default:
+X		return(ERROR);
+X	}
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	sendbrk()
+X--------------------------------------------------------------------------*/
+Xsendbrk()
+X{
+X	ioctl(iofd,TCSBRK,0);
+X}	/* end of sendbrk */
+X
+X/*+-------------------------------------------------------------------------
+X	get_curr_dir(currdir,currdir_max)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xget_curr_dir(currdir,currdir_max)
+Xchar *currdir;
+Xint currdir_max;
+X{
+X	getcwd(currdir,currdir_max);
+X}	/* end of get_curr_dir */
+X
+X/*+-------------------------------------------------------------------------
+X	zmputs(str) - send a string to the modem
+X
+Xprocessing for \336 (sleep 1 sec) and \335 (break signal)
+X--------------------------------------------------------------------------*/
+Xzmputs(str)
+Xregister char *str;
+X{
+Xregister char strch;
+X
+X	while(strch = *str++)
+X	{
+X		switch(strch)
+X		{
+X		case '\336':
+X			sleep(1);
+X			continue;
+X		case '\335':
+X			sendbrk();
+X			continue;
+X		default:
+X			sendline(strch);
+X		}
+X	}
+X}	/* end of zmputs */
+X
+X/*+-----------------------------------------------------------------------
+X	get_home_dir(home_dir):  leave plenty of room for result!
+X------------------------------------------------------------------------*/
+Xget_home_dir(home_dir)
+Xchar *home_dir;
+X{
+Xchar *cptr;
+Xstatic char home_directory[256] = "";
+Xstruct passwd *pwent;
+Xstruct passwd *getpwuid();
+Xchar *getenv();
+X
+X	if(home_directory[0])
+X	{
+X		strcpy(home_dir,home_directory);
+X		return(0);
+X	}
+X
+X	if(cptr = getenv("HOME"))			/* x286 seems to blow up ... */
+X	{									/* ... in pwent code ... hmmm */
+X		strcpy(home_directory,cptr);
+X		strcpy(home_dir,cptr);
+X		return(0);
+X	}
+X
+X	if(!(pwent = getpwuid(getuid())))
+X	{
+X		perror("cannot get pwent for you!!");
+X		exit(1);
+X	}
+X	strcpy(home_directory,pwent->pw_dir);
+X	strcpy(home_dir,pwent->pw_dir);
+X	endpwent();
+X	return(0);
+X
+X}	/* end of get_home_dir */
+X
+X/* end of zcommon.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File z/zcommon.c is complete' &&
+chmod 0644 z/zcommon.c ||
+echo 'restore of z/zcommon.c failed'
+Wc_c="`wc -c < 'z/zcommon.c'`"
+test 14276 -eq "$Wc_c" ||
+	echo 'z/zcommon.c: original size 14276, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= z/zcurses.c ==============
+if test -f 'z/zcurses.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping z/zcurses.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting z/zcurses.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'z/zcurses.c' &&
+X/*+-------------------------------------------------------------------------
+X	zcurses.c -- ecu file transfer program curses interface
+X
+X  000000000011111111112222222222333333333344444444445555555550
+X  012345678901234567890123456789012345678901234567890123456789
+X00.-[ prog+rev ]-- <dir> ------------------------------------.
+X01|  ZMODEM_6____  _40_____________________________________  |
+X02|  File ### of ###: _38__________________________________  |
+X03|  File position:  _8______ length: _8______  -rwxrwxrwx   |
+X04|  _55____________________________________________________ | transaction
+X05|  _55____________________________________________________ | last rx/tx hdr
+X06|  Comm I/O: rx _8______  tx _8______ bytes                |
+X07|  Baud rate: _5___ BINARY blklen: _____ comm mode: RAW-g  |
+X08|  Time:    started: __:__:__ this file: __:__:__ window:  |
+X09|  __:__:__ elapsed: __:__:__            __:__:__ ________ |
+X10|  Errors: this file: _3_ total: _4__ files skipped: _3_   |
+X11|  _55____________________________________________________ |  err str
+X12|  _55____________________________________________________ |  comment str
+X13|  _55____________________________________________________ |  remote info
+X14`----------------------------------------------------------'
+X
+X14|  FE ___ OE ___ rcvd ________ xmtd ________ RTS _ CTS _      FASI
+X15|  flow xmtr CTS ____ XOFF ____ rcvr RTS ____ XOFF ____
+X16|  queues: xmtr _____ of _____  rcvr _____ of _____
+X
+X14|  Output queue depth  ______  RTS _  CTS _                   sun
+X15|  Input queue depth   ______  Input queue avail ______ 
+X
+X
+X  Defined functions:
+X	clear_area(w,row,col,len)
+X	clear_area_char(w,row,col,len,fillchar)
+X	determine_output_mode()
+X	dumbtty_newline()
+X	get_elapsed_time(elapsed_secs)
+X	get_tod(type,tod)
+X	mode_map(file_mode,mode_str)
+X	report_comm_baud_rate(baud_rate)
+X	report_error_count()
+X	report_file_byte_io(count)
+X	report_file_close(skipped)
+X	report_file_open_length(length)
+X	report_file_open_mode(file_mode)
+X	report_file_open_tod()
+X	report_file_rcv_started(filename,length,last_mod_time,file_mode)
+X	report_file_send_open(filename,filestat)
+X	report_file_xfer_rate(text,count,final)
+X	report_init(title)
+X	report_last_rxhdr(rptstr,error_flag)
+X	report_last_txhdr(rptstr,error_flag)
+X	report_mode(comm_mode)
+X	report_protocol_crc_type(str)
+X	report_protocol_type(str)
+X	report_rx_ind(status)
+X	report_rx_tx_count()
+X	report_rxblklen(blklen)
+X	report_rxpos(pos)
+X	report_str(rptstr,error_flag)
+X	report_top_line(topstr)
+X	report_transaction(str)
+X	report_transfer_progress(filepos,initfpos)
+X	report_tx_ind(status)
+X	report_txblklen(blklen)
+X	report_txpos(pos)
+X	report_uninit(sig)
+X	report_window()
+X	report_xfer_mode(str)
+X	vanilla_ruling()
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:02-09-1992-16:08-root@n4hgf-ruling characters only on  SCO (tcap curses) */
+X/*:01-05-1992-17:27-wht@n4hgf-properly display progress for resumed transfers */
+X/*:09-02-1991-01:12-wht@n4hgf2-show sun driver information */
+X/*:08-28-1991-14:08-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:08-23-1991-18:33-wht@n4hgf2-disable force no curses for tty vs. line speed */
+X/*:08-21-1991-06:23-wht@n4hgf-sun porting */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:06-15-1991-05:47-root@n4hgf-report per-file xfer rate */
+X/*:05-25-1991-14:51-wht@n4hgf-FAS/i display */
+X/*:04-24-1991-01:22-wht@n4hgf-handle dumbtty and single file xfer >= 1 hour */
+X/*:02-03-1991-17:27-wht@n4hgf-show elapsed time during no curses xfer */
+X/*:01-04-1991-15:54-wht@n4hgf-dumbtty per-file xfer rate was wrong */
+X/*:12-18-1990-21:26-wht@n4hgf-better output control */
+X/*:12-04-1990-04:07-wht@n4hgf-handle slow terminal using faster line */
+X/*:12-04-1990-03:04-wht@n4hgf-choose ruling chars based on multiscreen or not */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:41-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "../ecucurses.h"
+X#include "../ecu_types.h"
+X#include "../ecu_stat.h"
+X#include <ctype.h>
+X#include <signal.h>
+X#include <time.h>
+X#include <sys/timeb.h>
+X
+X#if defined(M_SYSV)
+X#   include <sys/machdep.h>
+X#else
+X#if defined(ISC) || defined(SVR4)
+X#  include <sys/at_ansi.h>
+X#  include <sys/kd.h>
+X#endif
+X#endif
+X
+X#if defined(FASI)
+X#  include <local/fas.h>
+X#endif	/* FASI */
+X
+X#include "../pc_scr.h"
+X
+X#ifdef USE_PROTOS
+X# include "protos.h"
+X#endif
+X
+Xlong time();
+Xvoid report_error_count();
+Xextern char *tzname[];
+Xstruct tm *localtime();
+X
+Xunsigned char sTL = at_TL;
+Xunsigned char sTR = at_TR;
+Xunsigned char sBL = at_BL;
+Xunsigned char sBR = at_BR;
+Xunsigned char sLT = at_LT;
+Xunsigned char sRT = at_RT;
+Xunsigned char sVR = at_VR;
+Xunsigned char sHR = at_HR;
+X
+X#if defined(FASI)
+X#define WIN_LINES	18
+X#else
+X#if defined(sun)
+X#define WIN_LINES	17
+X#else
+X#define WIN_LINES	15
+X#endif	/* sun */
+X#endif	/* FASI */
+X
+X#define WIN_COLS	60
+X#define WIN_TOPY	2
+X#define WIN_LEFTX	8
+X
+Xextern char curr_dir[];
+Xextern char *bottom_label;
+Xextern int Filcnt;
+Xextern int ecusz_flag;	/* ecusz == 1, ecurz == 0 */
+Xextern int force_dumbtty;
+Xextern int skip_count;
+Xextern int npats;
+Xextern int iofd;
+Xextern long rxpos;
+Xextern int log_packets;
+Xextern long Txpos;
+Xextern long Rxpos;
+Xextern long initial_filepos;
+X
+XWINDOW	*win;
+Xint (*original_sigint_handler)();
+Xint (*original_sigquit_handler)();
+Xint (*original_sigterm_handler)();
+Xint report_init_complete;
+Xint report_verbosity;
+Xint dumbtty;
+Xint dumbtty_pos;
+Xint this_file_errors;
+Xlong this_file_xfer_count;
+Xint total_errors;
+Xint show_window;
+Xlong current_seconds;
+Xlong start_seconds;
+Xlong this_file_start_seconds;
+Xlong elapsed_seconds;
+Xunsigned long total_data_bytes_xfered;
+Xunsigned int zcurses_baud_rate;
+Xchar s128[128];
+X
+X#if defined(FASI)
+Xstruct fas_info fip_start;
+X#endif /* FASI */
+X
+X
+Xchar *win_template[] =
+X{
+X/*00000000001111111111222222222233333333334444444444555555555 */
+X/*01234567890123456789012345678901234567890123456789012345678 */
+X/*.----------------------------------------------------------. */
+X  "                                                          ",	/* 1 */
+X  "  File ### of ###: _____________________________________  ",	/* 2 */
+X  "  File position:  ________ length: ________               ",	/* 3 */
+X  "                                                          ",	/* 4 */
+X  "  tx: ______________________  rx: ______________________  ",	/* 5 */
+X  "  Comm I/O: rx ________  tx ________ bytes                ",	/* 6 */
+X  "  Baud rate: _____ ______ blklen: _____ comm mode: ______ ",	/* 7 */
+X  "  Time:    started: __:__:__ this file: __:__:__          ", /* 8 */
+X  "  __:__:__ elapsed: __:__:__            __:__:__          ", /* 9 */
+X  "  Errors: this file: ___ total: ____ files skipped: ___   ", /* 10 */
+X  "                                                          ",	/* 11 */
+X  "                                                          ",	/* 12 */
+X  "                                                          ",	/* 13 */
+X#if defined(FASI)
+X  "  FE ___ OE ___ rcvd ________ xmtd ________ RTS _ CTS _   ",
+X  "  flow xmtr CTS ____ XOFF ____ rcvr RTS ____ XOFF ____    ",
+X  "  queues: xmtr _____ of _____  rcvr _____ of _____        ",
+X#endif	/* FASI */
+X#if defined(sun)
+X  "  Output queue depth  ______  RTS _  CTS _                ",
+X  "  Input queue depth   ______  Input queue avail ______    ",
+X#endif
+X/*`----------------------------------------------------------' */
+X(char *)0
+X};
+X
+X/*+-------------------------------------------------------------------------
+X	vanilla_ruling() - use ordinary ruling characters
+X--------------------------------------------------------------------------*/
+Xvoid
+Xvanilla_ruling()
+X{
+X	sTL = vanilla_TL;
+X	sTR = vanilla_TR;
+X	sBL = vanilla_BL;
+X	sBR = vanilla_BR;
+X	sLT = vanilla_LT;
+X	sRT = vanilla_RT;
+X	sVR = vanilla_VR;
+X	sHR = vanilla_HR;
+X
+X}	/* end of vanilla_ruling */
+X
+X/*+-----------------------------------------------------------------------
+X	char *get_elapsed_time(elapsed_secs)
+X	hh:mm:ss returned
+X  static string address is returned
+X------------------------------------------------------------------------*/
+Xchar *
+Xget_elapsed_time(elapsed_secs)
+Xlong elapsed_secs;
+X{
+X	static char elapsed_time_str[10];
+X	long hh,mm,ss;
+X
+X	hh = elapsed_secs / 3600;
+X	elapsed_secs -= hh * 3600;
+X	mm = elapsed_secs / 60L;
+X	elapsed_secs -= mm * 60L;
+X	ss = elapsed_secs;
+X
+X	sprintf(elapsed_time_str,"%02ld:%02ld:%02ld",hh,mm,ss);
+X	return(elapsed_time_str);
+X}	/* end of get_elapsed_time */
+X
+X/*+-----------------------------------------------------------------------
+X	char *get_tod(type,tod)
+X
+X  time of day types:
+X	0		hh:mm
+X	1		hh:mm:ss
+X	2		mm-dd-yyyy hh:mm
+X
+X  static string address is returned
+X  if tod != (char *)0, time is returned there too
+X------------------------------------------------------------------------*/
+Xchar *
+Xget_tod(type,tod)
+Xint type;
+Xchar *tod;
+X{
+X	static char tod_str[32];
+X	long cur_time = time((long *)0);
+X	struct tm *lt = localtime(&cur_time);
+X
+X	switch(type)
+X	{
+X		case 0:
+X			sprintf(tod_str,"%02d:%02d",lt->tm_hour,lt->tm_min);
+X			break;
+X
+X		default:
+X		case 1:
+X			sprintf(tod_str,"%02d:%02d:%02d",
+X				lt->tm_hour,lt->tm_min,lt->tm_sec);
+X			break;
+X
+X		case 2:
+X			sprintf(tod_str,"%02d-%02d-%04d %02d:%02d",
+X				lt->tm_mon + 1,lt->tm_mday,lt->tm_year + 1900,
+X				lt->tm_hour,lt->tm_min);
+X			break;
+X	}
+X
+X	if(tod != (char *)0)
+X		strcpy(tod,tod_str);
+X
+X	return(tod_str);
+X}	/* end of get_tod */
+X
+X/*+-----------------------------------------------------------------------
+X	mode_map(file_mode,mode_str)	build drwxrwxrwx string
+X------------------------------------------------------------------------*/
+Xchar *
+Xmode_map(file_mode,mode_str)
+Xunsigned short file_mode;
+Xchar *mode_str;
+X{
+Xregister unsigned ftype = file_mode & S_IFMT;
+Xregister char *rtn;
+Xstatic char result[12];
+X
+X	rtn = (mode_str == (char *)0) ? result : mode_str;
+X
+X	/*               drwxrwxrwx */
+X	/*               0123456789 */
+X	strcpy(rtn,"----------");
+X
+X	switch(ftype)
+X	{
+X		case S_IFIFO:	*rtn = 'p'; break; /* FIFO (named pipe) */
+X		case S_IFDIR:	*rtn = 'd'; break; /* directory */
+X		case S_IFCHR:	*rtn = 'c'; break; /* character special */
+X		case S_IFBLK:	*rtn = 'b'; break; /* block special */
+X		case S_IFREG:	*rtn = '-'; break; /* regular */
+X
+X#if defined(S_IFLNK)
+X		case S_IFLNK:	*rtn = 'l'; break; /* symbolic link */
+X#endif
+X#if defined(S_IFSOCK)
+X		case S_IFSOCK:	*rtn = 's'; break; /* socket */
+X#endif
+X
+X#if defined(S_IFNAM)
+X		case S_IFNAM:						/* name space entry */
+X#if defined(S_IFNAM)
+X			if(file_mode & S_INSEM)				/* semaphore */
+X			{
+X				*rtn = 's';
+X				break;
+X			}
+X#endif
+X#if defined(S_INSHD)
+X			if(file_mode & S_INSHD)				/* shared memory */
+X			{
+X				*rtn = 'm';
+X				break;
+X			}
+X			break;
+X#endif
+X#endif
+X
+X		default:		*rtn = '?'; break;	/* ??? */
+X	}
+X
+X	if(file_mode & 000400) *(rtn + 1) = 'r';
+X	if(file_mode & 000200) *(rtn + 2) = 'w';
+X	if(file_mode & 000100) *(rtn + 3) = 'x';
+X	if(file_mode & 004000) *(rtn + 3) = 's';
+X	if(file_mode & 000040) *(rtn + 4) = 'r';
+X	if(file_mode & 000020) *(rtn + 5) = 'w';
+X	if(file_mode & 000010) *(rtn + 6) = 'x';
+X	if(file_mode & 002000) *(rtn + 6) = 's';
+X	if(file_mode & 000004) *(rtn + 7) = 'r';
+X	if(file_mode & 000002) *(rtn + 8) = 'w';
+X	if(file_mode & 000001) *(rtn + 9) = 'x';
+X	if(file_mode & 001000) *(rtn + 9) = 't';
+X
+X	return(rtn);
+X
+X}	/* end of mode_map */
+X
+X/*+-------------------------------------------------------------------------
+X	dumbtty_newline()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdumbtty_newline()
+X{
+X	if(dumbtty_pos)
+X		printf("\r\n");
+X	dumbtty_pos = 0;
+X
+X}	/* end of dumbtty_newline */
+X
+X/*+-------------------------------------------------------------------------
+X	clear_area(w,row,col,len)
+X--------------------------------------------------------------------------*/
+Xclear_area(w,row,col,len)
+XWINDOW	*w;
+Xint row;
+Xint col;
+Xint len;
+X{
+X	if(dumbtty)
+X		return;
+X	wmove(w,row,col);
+X	while(len-- > 0)
+X		waddch(w,' ');
+X	wmove(w,row,col);
+X
+X}	/* end of clear_area */
+X
+X/*+-------------------------------------------------------------------------
+X	clear_area_char(w,row,col,len,fillchar)
+X--------------------------------------------------------------------------*/
+Xclear_area_char(w,row,col,len,fillchar)
+XWINDOW	*w;
+Xint row;
+Xint col;
+Xint len;
+Xchar fillchar;
+X{
+X	if(dumbtty)
+X		return;
+X	wmove(w,row,col);
+X	while(len-- > 0)
+X		waddch(w,fillchar);
+X	wmove(w,row,col);
+X
+X}	/* end of clear_area_char */
+X
+X/*+-------------------------------------------------------------------------
+X	report_top_line(topstr)
+X   top line: row 1 col 17 length 42
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_top_line(topstr)
+Xchar *topstr;
+X{
+Xchar s42[42];
+X
+X	if(dumbtty)
+X	{
+X		dumbtty_newline();
+X		dumbtty_pos = printf("%s",topstr);
+X		fflush(stdout);
+X		return;
+X	}
+X
+X	clear_area(win,1,17,42);
+X	if(strlen(topstr) < 40)
+X		waddstr(win,topstr);
+X	else
+X	{
+X		strncpy(s42,topstr,40);
+X		s42[40] = 0;
+X		waddstr(win,s42);
+X	}
+X}	/* end of report_top_line */
+X
+X/*+-------------------------------------------------------------------------
+X	report_xfer_mode(modestr)  BINARY/ASCII
+X   protocol xfer type: row 7 col 20 length 6
+X--------------------------------------------------------------------------*/
+Xreport_xfer_mode(str)
+Xchar *str;
+X{
+Xchar s10[10];
+X
+X	if(dumbtty)
+X		return;
+X	if(strlen(str) > 6)
+X	{
+X		strncpy(s10,str,6);
+X		s10[7] = 0;
+X		str = s10;
+X	}
+X	clear_area(win,7,20,6);
+X	waddstr(win,str);
+X	wrefresh(win);
+X
+X}	/* end of report_xfer_mode */
+X
+X/*+-------------------------------------------------------------------------
+X	report_protocol_type(str)
+X
+X  protocol type:  row 1 col 3 length 6 string
+X--------------------------------------------------------------------------*/
+Xreport_protocol_type(str)
+Xregister char *str;
+X{
+Xchar s10[10];
+X
+X	if(dumbtty)
+X	{
+X		return;
+X	}
+X
+X	if(strlen(str) > 6)
+X	{
+X		strncpy(s10,str,6);
+X		s10[7] = 0;
+X		str = s10;
+X	}
+X	clear_area(win,1,3,6);
+X	waddstr(win,str);
+X	wrefresh(win);
+X
+X}	/* end of report_protocol_type */
+X
+X/*+-------------------------------------------------------------------------
+X	report_protocol_crc_type(str)
+X
+X  protocol crc type:  row 1 col 9 length 6
+X--------------------------------------------------------------------------*/
+Xreport_protocol_crc_type(str)
+Xregister char *str;
+X{
+Xchar s8[8];
+X
+X	if(dumbtty)
+X	{
+X		return;
+X	}
+X
+X	if(strlen(str) > 6)
+X	{
+X		strncpy(s8,str,6);
+X		s8[7] = 0;
+X		str = s8;
+X	}
+X	clear_area(win,1,9,6);
+X	waddstr(win,str);
+X	wrefresh(win);
+X
+X}	/* end of report_protocol_crc_type */
+X
+X/*+-------------------------------------------------------------------------
+X	report_uninit(sig)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_uninit(sig)
+Xint sig;		/* if -1, called by normal code, else kill() value */
+X{
+X	float rate = 0.0;
+X	float eff = 0.0;
+X
+X	if(report_init_complete)
+X	{
+X		current_seconds = time((long *)0);
+X		elapsed_seconds = current_seconds - start_seconds;
+X		if(elapsed_seconds && (zcurses_baud_rate > 50))
+X		{
+X			rate = (float)total_data_bytes_xfered /
+X				(float)elapsed_seconds;
+X			if(zcurses_baud_rate)
+X				eff  = 100.0 * (rate / ((float)zcurses_baud_rate / 10.0));
+X		}
+X		if(rate > 0.01)
+X		{
+X			sprintf(s128,"XFERINFO transaction rate ~= %.0f ch/sec (%.0f%%)",
+X			    rate,(eff > 0.5) ? eff : 0.0);
+X			if(log_packets)
+X			{
+X				write(log_packets,"info: ",6);
+X				write(log_packets,s128,strlen(s128));
+X				write(log_packets,"\n",1);
+X			}
+X			report_top_line(s128 + 9);
+X#if defined(WHT)
+X			ecu_log_event(getppid(),s128);
+X#endif
+X		}
+X		if(dumbtty)
+X			dumbtty_newline();
+X		else
+X		{
+X			report_file_byte_io(0L);
+X			report_rx_tx_count();
+X			wmove(win,WIN_LINES - 1,WIN_COLS - 1);
+X			wrefresh(win);
+X			endwin();
+X			fprintf(stderr,"\r\n\r\n\r\n");
+X			fflush(stderr);
+X		}
+X		report_init_complete = 0;
+X	}
+X
+X}	/* end of report_uninit */
+X
+X/*+-------------------------------------------------------------------------
+X	determine_output_mode()
+X--------------------------------------------------------------------------*/
+Xint
+Xdetermine_output_mode()
+X{
+X#if defined(CONS_GET)
+X	int monitor_type;
+X#endif
+X	struct stat dn;
+X	struct stat tty_stat;
+X#ifdef NO_PTY_CURSES
+X	struct stat pty_stat;
+X#endif
+X
+X	if(force_dumbtty)
+X	{
+X		dumbtty = 1;
+X		report_verbosity = 1;
+X		report_init_complete = 1;
+X		return(1);
+X	}
+X
+X#ifndef M_SYSV	/* these are always set thus for non-SCO */
+X	vanilla_ruling();
+X#endif
+X
+X#if defined(CONS_GET)
+X	if(ioctl(0,CONS_GET,&monitor_type) < 0)	/* not multiscreen */
+X	{
+X#endif
+X
+X#ifdef M_SYSV	/* SCO non AT console */
+X		vanilla_ruling();
+X#endif
+X
+X		/*
+X		 * if tty (console) is not character special, only report
+X		 * basic progress
+X		 */
+X		memset((char *)&dn,0,sizeof(dn));
+X		stat("/dev/null",&dn);
+X		if(fstat(0,&tty_stat) ||
+X			((tty_stat.st_mode & S_IFMT) != S_IFCHR) ||
+X			(dn.st_rdev == tty_stat.st_rdev))
+X		{
+X			dumbtty = 1;
+X			report_verbosity = 0;
+X			report_init_complete = 1;
+X			return(1);
+X		}
+X
+X#ifdef NO_PTY_CURSES
+X		/*
+X		 * if pty (must be xterm), send clear screen and no curses
+X		 */
+X		if(!stat("/dev/ttyp0",&pty_stat) &&
+X			(pty_stat.st_rdev & 0xFF00) == (tty_stat.st_rdev & 0xFF00))
+X		{
+X		static char ff[] = "\033[H\0332J\r\n";
+X			write(2,ff,strlen(ff));
+X			dumbtty = 1;
+X			report_verbosity = 1;
+X			report_init_complete = 1;
+X			return(1);
+X		}
+X#endif
+X
+X		/*
+X		 * if non-multiscreen tty baud rate not at least that
+X		 * of the attached line, use no curses, but do be a bit
+X		 * more verbose than if tty not char special
+X		 */
+X#ifdef TTY_VS_LINE_SPEED_NO_CURSES
+X		test_tty_and_line_baud();
+X#endif
+X
+X#if defined(CONS_GET)
+X	}
+X#endif
+X
+X	return(dumbtty);
+X
+X}	/* end of determine_output_mode */
+X
+X/*+-------------------------------------------------------------------------
+X	report_init(title)
+X  "top line": row 1 col 11 len 21
+X  file quan:  row 2 col 15 len  3
+X              row 2 col 12 len  7 clear "of ###"
+X  start time: row 8 col 21 len  8
+X  "window:"   row 8 col 50 len  7
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_init(title)
+Xchar *title;
+X{
+X	register int itmp;
+X
+X	if(report_init_complete)
+X		return;
+X
+X	start_seconds = time((long *)0);
+X	current_seconds = start_seconds;
+X
+X	if(dumbtty)
+X		return;
+X
+X#if defined(FASI)
+X		(void)ioctl(iofd,FASIC_SIP,&fip_start);
+X#endif /* FASI */
+X
+X	if(!initscr())
+X		exit(254);
+X	if(!stdscr)
+X		exit(254);
+X	crmode();
+X	noecho();
+X	nonl();
+X	clear();
+X	report_init_complete = 1;
+X	win = newwin(WIN_LINES,WIN_COLS,WIN_TOPY,WIN_LEFTX);
+X	box(win,sVR,sHR);
+X#ifndef SVR4
+X	wmove(win,0,0); waddch(win,sTL);
+X	wmove(win,win->_maxy - 1,0); waddch(win,sBL);
+X	wmove(win,win->_maxy - 1,win->_maxx - 1); waddch(win,sBR);
+X	wmove(win,0,win->_maxx - 1); waddch(win,sTR);
+X#endif
+X	wmove(win,0,2);
+X	wstandout(win);
+X	waddch(win,'[');
+X	waddch(win,' ');
+X	strcpy(s128,title);
+X	waddstr(win,s128);
+X	waddch(win,' ');
+X	waddch(win,']');
+X	wstandend(win);
+X#ifdef SVR4
+X	whline(win, (unsigned long)(sHR & 0x00ff), 2);
+X	wmove(win,0, 8 + strlen(title));
+X#else
+X	waddch(win,sHR);
+X	waddch(win,sHR);
+X#endif
+X	waddch(win,' ');
+X	itmp = WIN_COLS - 2 - 7 - strlen(title);
+X	curr_dir[itmp] = 0;
+X	waddstr(win,curr_dir);
+X	waddch(win,' ');
+X	if(bottom_label)
+X	{
+X		strncpy(s128,bottom_label,WIN_COLS - 6);
+X		s128[WIN_COLS - 6] = 0;
+X		wmove(win,WIN_LINES - 1,2);
+X		waddch(win,' ');
+X		waddstr(win,s128);
+X		waddch(win,' ');
+X	}
+X
+X	itmp = 0;
+X	while(1)
+X	{
+X		if(win_template[itmp] == (char *)0)
+X			break;
+X		wmove(win,itmp + 1,1);
+X		waddstr(win,win_template[itmp++]);
+X	}
+X	if(ecusz_flag)
+X	{
+X		clear_area(win,2,15,3);
+X		sprintf(s128,"%-3d",npats);
+X		waddstr(win,s128);
+X#if defined(FORK_DEBUG)
+X		sprintf(s128,"DEBUG ecusz pid %d",getpid());
+X#endif
+X	}
+X	else	/* ecurz */
+X	{
+X		clear_area(win,2,11,8);	/* clear "of ###" */
+X		waddstr(win,":");
+X#if defined(FORK_DEBUG)
+X		sprintf(s128,"DEBUG ecurz pid %d",getpid());
+X#endif
+X	}
+X
+X#if defined(FORK_DEBUG)
+X	ecu_log_event(getppid(),s128);
+X#endif
+X
+X	clear_area(win,1,11,21);
+X	report_error_count();
+X	clear_area(win,8,21,8);		/* starting time */
+X	waddstr(win,get_tod(1,(char *)0));
+X
+X	if(show_window)
+X	{
+X		wmove(win,8,50);
+X		waddstr(win,"window:");
+X		wmove(win,9,50);
+X		waddstr(win,"+0");
+X	}
+X
+X	wrefresh(win);
+X
+X}	/* end of report_init */
+X
+X/*+-------------------------------------------------------------------------
+X	report_rx_ind(status)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_rx_ind(status)
+Xint status;
+X{
+Xchar *cptr;
+X
+X	if(dumbtty)
+X	{
+X		if(report_verbosity && status)
+X		{
+X			printf("R");
+X			if(++dumbtty_pos > 75)
+X			{
+X				dumbtty_newline();
+X				current_seconds = time((long *)0);
+X				elapsed_seconds = current_seconds - this_file_start_seconds;
+X				cptr = get_elapsed_time(elapsed_seconds);
+X				dumbtty_pos = printf("%s elapsed ",cptr +
+X					((elapsed_seconds < 3600L) ? 3 : 0));
+X			}
+X			fflush(stdout);
+X		}
+X		return;
+X	}
+X	wmove(win,1,54);
+X	waddch(win,(status) ? 'R' : ' ');
+X	wmove(win,1,54);
+X	wrefresh(win);
+X}	/* end of report_rx_ind */
+X
+X/*+-------------------------------------------------------------------------
+X	report_tx_ind(status)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_tx_ind(status)
+Xint status;
+X{
+Xchar *cptr;
+X	if(dumbtty)
+X	{
+X		if(report_verbosity && status)
+X		{
+X			printf("T");
+X			if(++dumbtty_pos > 75)
+X			{
+X				dumbtty_newline();
+X				dumbtty_newline();
+X				current_seconds = time((long *)0);
+X				elapsed_seconds = current_seconds - this_file_start_seconds;
+X				cptr = get_elapsed_time(elapsed_seconds);
+X				dumbtty_pos = printf("%s elapsed ",cptr +
+X					((elapsed_seconds < 3600L) ? 3 : 0));
+X			}
+X			fflush(stdout);
+X		}
+X		return;
+X	}
+X	wmove(win,1,56);
+X	waddch(win,(status) ? 'T' : ' ');
+X	wmove(win,1,56);
+X	wrefresh(win);
+X}	/* end of report_tx_ind */
+X
+X/*+-------------------------------------------------------------------------
+X	report_window() - if enable, show open widow size
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_window()
+X{
+X	if(show_window && !dumbtty)
+X	{
+X	long ltmp;
+X		wmove(win,9,50);
+X		if((ltmp = (Txpos - Rxpos)) > 999999L)
+X			waddstr(win,">+999999");
+X		else if(ltmp < -999999L)
+X			;
+X		else
+X		{
+X			sprintf(s128,"%+-8ld",ltmp);
+X			waddstr(win,s128);
+X			if(log_packets)
+X			{
+X				write(log_packets,"window: ",8);
+X				write(log_packets,s128,strlen(s128));
+X				write(log_packets,"\n",1);
+X			}
+X		}
+X	}
+X}	/* end of report_window */
+X
+X/*+-------------------------------------------------------------------------
+X	report_rx_tx_count()
+X
+X  This function may be counted upon to perform wrefresh(win)
+X
+X  rx char count:          row  6 col 16 len 8 unsigned long
+X  tx char count:          row  6 col 29 len 8 unsigned long
+X  session elapsed time:   row  9 col 21 len 8
+X  this file elapsed time: row  9 col 41 len 8
+X  current tod:            row  9 col  3 len 8
+X  window:                 row  9 col 50 len 8
+X
+XIf FASI,
+X  FE:                     row 14 col  6 len 4
+X  OE:                     row 14 col 13 len 4
+X  rcvd count:             row 14 col 22 len 8 unsigned long
+X  xmtd count:             row 14 col 36 len 8 unsigned long
+X  RTS status:             row 14 col 48 len 1
+X  CTS status:             row 14 col 55 len 1
+X  xmtr CTS count:         row 15 col 18 len 4
+X  xmtr XOFF count:        row 15 col 28 len 4
+X  rcvr CTS count:         row 15 col 42 len 4
+X  rcvr XOFF count:        row 15 col 52 len 4
+X  xmtr queue depth        row 16 col 16 len 5
+X  xmtr queue size         row 16 col 25 len 5 (one time)
+X  rcvr queue depth        row 16 col 37 len 5
+X  rcvr queue size         row 16 col 46 len 5 (one time)
+X
+XIf sun,
+X  output queue depth      row 14 col 23 len 6
+X  RTS status              row 14 col 35 len 1
+X  CTS status              row 14 col 42 len 1
+X  input queue depth       row 15 col 23 len 6
+X  input queue avail       row 15 col 49 len 6
+X--------------------------------------------------------------------------*/
+Xreport_rx_tx_count()
+X{
+X	extern unsigned long rx_char_count;
+X	extern unsigned long tx_char_count;
+X#if defined(FASI)
+X	unsigned long ltmp;
+X	struct fas_info now;
+X#endif	/* FASI */
+X#if defined(sun)
+Xuint output_queue;
+Xuint input_avail;
+Xuint input_size;
+Xuint modem_lines;
+X#endif
+X
+X	register char *cptr;
+X
+X	if(dumbtty)
+X	{
+X		return;
+X	}
+X
+X	sprintf(s128,"%-8ld",rx_char_count);
+X	wmove(win,6,16);
+X	waddstr(win,s128);
+X	sprintf(s128,"%-8ld",tx_char_count);
+X	wmove(win,6,29);
+X	waddstr(win,s128);
+X
+X	/* now time of day */
+X	wmove(win,9,3);
+X	cptr = get_tod(1,(char *)0);
+X	waddstr(win,cptr);
+X	current_seconds = time((long *)0);
+X	elapsed_seconds = current_seconds - start_seconds;
+X	cptr = get_elapsed_time(elapsed_seconds);
+X	wmove(win,9,21);
+X	waddstr(win,cptr);
+X	if(this_file_start_seconds)
+X		elapsed_seconds = current_seconds - this_file_start_seconds;
+X	else
+X		elapsed_seconds = 0;
+X	cptr = get_elapsed_time(elapsed_seconds);
+X	wmove(win,9,41);
+X	waddstr(win,cptr);
+X
+X#if defined(FASI)
+X	if(!ioctl(iofd,FASIC_SIP,&now))
+X	{
+X	static int statics = 0;	/* one time display flag */
+X		if((ltmp = now.framing_errors - fip_start.framing_errors) > 999L)
+X			ltmp = 999L;
+X		sprintf(s128,"%-3lu",ltmp);
+X		wmove(win,14,6);
+X		waddstr(win,s128);
+X
+X		if((ltmp = now.overrun_errors - fip_start.overrun_errors) > 999L)
+X			ltmp = 999L;
+X		sprintf(s128,"%-3lu",ltmp);
+X		wmove(win,14,13);
+X		waddstr(win,s128);
+X
+X		ltmp = now.characters_received - fip_start.characters_received;
+X		sprintf(s128,"%-8lu",ltmp);
+X		wmove(win,14,22);
+X		waddstr(win,s128);
+X
+X		ltmp = now.characters_transmitted - fip_start.characters_transmitted;
+X		sprintf(s128,"%-8lu",ltmp);
+X		wmove(win,14,36);
+X		waddstr(win,s128);
+X
+X		wmove(win,14,49);
+X		waddch(win,(now.mcr & MC_SET_RTS) ? 'T' : 'F');
+X
+X		wmove(win,14,55);
+X		waddch(win,(now.msr & MS_CTS_PRESENT) ? 'T' : 'F');
+X
+X		ltmp = now.xmtr_hw_flow_count - fip_start.xmtr_hw_flow_count;
+X		if(ltmp > 9999L)
+X			ltmp = 9999L;
+X		sprintf(s128,"%-4lu",ltmp);
+X		wmove(win,15,17);
+X		waddstr(win,s128);
+X
+X		ltmp = now.xmtr_sw_flow_count - fip_start.xmtr_sw_flow_count;
+X		if(ltmp > 9999L)
+X			ltmp = 9999L;
+X		sprintf(s128,"%-4lu",ltmp);
+X		wmove(win,15,27);
+X		waddstr(win,s128);
+X
+X		ltmp = now.rcvr_hw_flow_count - fip_start.rcvr_hw_flow_count;
+X		if(ltmp > 9999L)
+X			ltmp = 9999L;
+X		sprintf(s128,"%-4lu",ltmp);
+X		wmove(win,15,41);
+X		waddstr(win,s128);
+X
+X		ltmp = now.rcvr_sw_flow_count - fip_start.rcvr_sw_flow_count;
+X		if(ltmp > 9999L)
+X			ltmp = 9999L;
+X		sprintf(s128,"%-4lu",ltmp);
+X		wmove(win,15,51);
+X		waddstr(win,s128);
+X
+X		if(now.xmit_ring_cnt > 99999)
+X			now.xmit_ring_cnt = 99999;
+X		sprintf(s128,"%-5u",now.xmit_ring_cnt);
+X		wmove(win,16,16);
+X		waddstr(win,s128);
+X
+X		if(now.recv_ring_cnt > 99999)
+X			now.recv_ring_cnt = 99999;
+X		sprintf(s128,"%-5u",now.recv_ring_cnt);
+X		wmove(win,16,37);
+X		waddstr(win,s128);
+X
+X		if(!statics)
+X		{
+X			statics = 1;
+X			ltmp = XMIT_BUFF_SIZE;
+X			if(ltmp > 99999)
+X				ltmp = 99999;
+X			sprintf(s128,"%-5lu",ltmp);
+X			wmove(win,16,25);
+X			waddstr(win,s128);
+X
+X			ltmp = RECV_BUFF_SIZE;
+X			if(ltmp > 99999)
+X				ltmp = 99999;
+X			sprintf(s128,"%-5lu",ltmp);
+X			wmove(win,16,46);
+X			waddstr(win,s128);
+X		}
+X	}
+X#endif	/* FASI */
+X
+X#if defined(sun)
+X	output_queue = 0;
+X	ioctl(iofd,TIOCOUTQ,(int *)&output_queue);
+X	if(output_queue > 999999)
+X		output_queue = 999999;
+X	sprintf(s128,"%6u",output_queue);
+X	wmove(win,14,23);
+X	waddstr(win,s128);
+X
+X	modem_lines = 0;
+X	ioctl(iofd,TIOCMGET,(int *)&modem_lines);
+X	wmove(win,14,35);
+X	waddch(win,(modem_lines & TIOCM_RTS) ? 'T' : 'F');
+X	wmove(win,14,42);
+X	waddch(win,(modem_lines & TIOCM_CTS) ? 'T' : 'F');
+X
+X	input_size = 0;
+X	input_avail = 0;
+X	ioctl(iofd,TIOCISPACE,(int *)&input_avail);
+X	ioctl(iofd,TIOCISIZE,(int *)&input_size);
+X	if(input_size > 999999)
+X		input_size = 999999;
+X	if(input_avail > 999999)
+X		input_avail = 999999;
+X	sprintf(s128,"%6u",input_size - input_avail);
+X	wmove(win,15,23);
+X	waddstr(win,s128);
+X	sprintf(s128,"%6u",input_avail);
+X	wmove(win,15,49);
+X	waddstr(win,s128);
+X#endif
+X
+X	report_window();
+X
+X	wrefresh(win);		/* calling procs expect this to occur always */
+X
+X}	/* end of report_rx_tx_count */
+X
+X/*+-------------------------------------------------------------------------
+X	report_mode(comm_mode)
+X
+X comm mode row 7 col 52 length 6
+X   3: save old tty stat, set raw mode with flow control
+X   2: set XON/XOFF for sb/sz with ZMODEM or YMODEM-g
+X   1: save old tty stat, set raw mode 
+X   0: restore original tty mode
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_mode(comm_mode)
+Xint comm_mode;
+X{
+Xchar *cptr;
+Xchar tmp[8];
+X
+X	if(dumbtty)
+X	{
+X		return;
+X	}
+X
+X	clear_area(win,7,52,6);
+X	switch(comm_mode)
+X	{
+X		case 0:
+X			cptr = "NORMAL";
+X			break;
+X		case 1:
+X			cptr = "RAW";
+X			break;
+X		case 2:
+X			cptr = "RAW-g";
+X			break;
+X		case 3:
+X			cptr = "RAW-f";
+X			break;
+X		default:
+X			sprintf(tmp,"%5u",comm_mode);
+X			cptr = tmp;
+X	}
+X	waddstr(win,cptr);
+X	wrefresh(win);
+X	if(log_packets)
+X	{
+X		write(log_packets,"comm_mode: ",6);
+X		write(log_packets,cptr,strlen(cptr));
+X		write(log_packets,"\n",1);
+X	}
+X
+X}	/* end of report_mode */
+X
+X/*+-------------------------------------------------------------------------
+X	report_rxblklen(blklen) 
+Xrow 7 col 35 5 chars
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_rxblklen(blklen)
+Xint blklen;
+X{
+X	char tmp[10];
+X
+X	if(dumbtty)
+X	{
+X		return;
+X	}
+X
+X	sprintf(tmp,"%-5u",blklen);
+X	clear_area(win,7,35,5);
+X	waddstr(win,tmp);
+X	wrefresh(win);
+X}	/* end of report_rxblklen */
+X
+X/*+-------------------------------------------------------------------------
+X	report_txblklen(blklen) 
+Xrow 7 col 35 5 chars
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_txblklen(blklen)
+Xint blklen;
+X{
+X	if(dumbtty)
+X	{
+X		return;
+X	}
+X
+X	report_rxblklen(blklen);
+X}	/* end of report_txblklen */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_xfer_rate(text,count,final)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_file_xfer_rate(text,count,final)
+Xchar *text;
+Xlong count;
+Xint final;
+X{
+X	float rate = 0.0;
+X	float efficiency = 0.0;
+X	static long last_report = 0L;
+X
+X	current_seconds = time((long *)0);
+X
+X	if(!final && (current_seconds < (last_report + 5L)))
+X		return;
+X	last_report = current_seconds;
+X
+X	elapsed_seconds = current_seconds - this_file_start_seconds;
+X
+X	if(count && (elapsed_seconds > 0) && zcurses_baud_rate)
+X	{
+X		rate = (float)count / (float)elapsed_seconds;
+X		efficiency  = 100.0 * (rate / ((float)zcurses_baud_rate / 10.0));
+X	}
+X
+X	if(efficiency > 120.0)	/* interim hack for ecusz -r */
+X		return;
+X
+X	if(rate > 0.01)
+X	{
+X		if(efficiency < 0.5)
+X			sprintf(s128,"XFERINFO %s rate ~= %.0f ch/sec",text,rate);
+X		else
+X		{
+X			sprintf(s128,"XFERINFO %s rate ~= %.0f ch/sec (%.0lf%%)",
+X				text,rate,efficiency);
+X		}
+X		if(!dumbtty)
+X			report_top_line(s128 + 9);
+X#if defined(WHT)
+X		if(final)
+X			ecu_log_event(getppid(),s128);
+X#endif
+X	}
+X
+X}	/* end of report_file_xfer_rate */
+X
+X/*+-------------------------------------------------------------------------
+X	report_transfer_progress(filepos,initfpos)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_transfer_progress(filepos,initfpos)
+Xlong filepos;
+Xlong initfpos;
+X{
+Xchar refr;
+X
+X	if(dumbtty)
+X		return;
+X
+X	if(rdchk(0))
+X	{
+X		read(0,&refr,1);
+X		if(refr == 0x0C || refr == 0x012)	/* ^L or ^R */
+X		{
+X			touchwin(stdscr);
+X			wrefresh(stdscr);
+X			touchwin(win);
+X			wrefresh(win);
+X		}
+X	}
+X
+X	if((filepos > 99999999L) || (filepos < 0L))
+X		return;
+X
+X	sprintf(s128,"%-8lu",filepos);
+X	wmove(win,3,19);
+X	waddstr(win,s128);
+X	report_file_xfer_rate("data",filepos - initfpos,0);
+X	report_rx_tx_count();	/* which will do a refresh */
+X
+X}	/* end of report_transfer_progress */
+X
+X/*+-------------------------------------------------------------------------
+X	report_rxpos(pos) - report received file progress
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_rxpos(pos)
+Xlong pos;
+X{
+X
+X	if(dumbtty)
+X		return;
+X	report_transfer_progress(pos,initial_filepos);
+X
+X}	/* end of report_rxpos */
+X
+X/*+-------------------------------------------------------------------------
+X	report_txpos(pos) - report transmitted file progress
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_txpos(pos)
+Xlong pos;
+X{
+X
+X	if(dumbtty)
+X		return;
+X	report_transfer_progress(pos,initial_filepos);
+X
+X}	/* end of report_txpos */
+X
+X/*+-------------------------------------------------------------------------
+X	report_error_count()
+X
+X  this file: row 10 col 22 len 3
+X  total:     row 10 col 33 len 4
+X  skipped:   row 10 col 53 len 3
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_error_count()
+X{
+X	char tmp[16];
+X
+X	if(dumbtty)
+X	{
+X		return;
+X	}
+X
+X	wmove(win,10,22);
+X	sprintf(tmp,"%-3d",this_file_errors);
+X	if(this_file_errors)
+X		wstandout(win);
+X	waddstr(win,tmp);
+X	if(this_file_errors)
+X		wstandend(win);
+X
+X	wmove(win,10,33);
+X	sprintf(tmp,"%-4d",total_errors);
+X	if(total_errors)
+X		wstandout(win);
+X	waddstr(win,tmp);
+X	if(total_errors)
+X		wstandend(win);
+X
+X	wmove(win,10,53);
+X	sprintf(tmp,"%-3d",skip_count);
+X	waddstr(win,tmp);
+X	wrefresh(win);
+X
+X}	/* end of report_error_count */
+X
+X/*+-------------------------------------------------------------------------
+X	report_last_txhdr(rptstr,error_flag)
+X	5,7,22
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_last_txhdr(rptstr,error_flag)
+Xregister char *rptstr;
+Xint error_flag;
+X{
+Xchar s24[24];
+X
+X	if(log_packets)
+X	{
+X		write(log_packets,"tx:   ",6);
+X		write(log_packets,rptstr,strlen(rptstr));
+X		write(log_packets,"\n",1);
+X	}
+X
+X	if(dumbtty)
+X	{
+X		if(error_flag)
+X		{
+X			dumbtty_newline();
+X			dumbtty_pos = printf("%s ",rptstr);
+X			++this_file_errors;
+X			++total_errors;
+X		}
+X		return;
+X	}
+X
+X	if(strlen(rptstr) > 22)
+X	{
+X		strncpy(s24,rptstr,22);
+X		s24[23] = 0;
+X		rptstr = s24;
+X	}
+X	clear_area(win,5,7,22);
+X	waddstr(win,rptstr);
+X
+X	if(error_flag)
+X	{
+X		++this_file_errors;
+X		++total_errors;
+X		report_error_count();
+X	}
+X#if 0
+X	else
+X		wrefresh(win);
+X#endif
+X
+X}	/* end of report_last_txhdr */
+X
+X/*+-------------------------------------------------------------------------
+X	report_last_rxhdr(rptstr,error_flag)
+X	5,35,22
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_last_rxhdr(rptstr,error_flag)
+Xregister char *rptstr;
+Xint error_flag;
+X{
+Xchar s24[24];
+Xextern int log_packets;
+X
+X	if(log_packets)
+X	{
+X		write(log_packets,"rx:   ",6);
+X		write(log_packets,rptstr,strlen(rptstr));
+X		write(log_packets,"\n",1);
+X	}
+X
+X	if(dumbtty)
+X	{
+X		if(error_flag)
+X		{
+X			dumbtty_newline();
+X			dumbtty_pos = printf("%s ",rptstr);
+X			++this_file_errors;
+X			++total_errors;
+X		}
+X		return;
+X	}
+X
+X	if(strlen(rptstr) > 22)
+X	{
+X		strncpy(s24,rptstr,22);
+X		s24[23] = 0;
+X		rptstr = s24;
+X	}
+X	clear_area(win,5,35,22);
+X	waddstr(win,rptstr);
+X
+X	report_window();
+X	if(error_flag)
+X	{
+X		++this_file_errors;
+X		++total_errors;
+X		report_error_count();
+X	}
+X#if 0
+X	else
+X		wrefresh(win);
+X#endif
+X
+X}	/* end of report_last_rxhdr */
+X
+X/*+-------------------------------------------------------------------------
+X	report_str(rptstr,error_flag) row 11/12 col 3 len 55
+X
+X  error_flag == 0 for status/progress message
+X             == 1 for bump error count, unless rptstr is null
+X                  in which case, merely clear error string area
+X             == 2 write string on bottom line (not an error)
+X             == 3 write string on transaction line (not an error)
+X             == -1 use error line but do not bump error count
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_str(rptstr,error_flag)
+Xregister char *rptstr;
+Xint error_flag;
+X{
+Xchar s60[60];
+Xextern int log_packets;
+X
+X	if(log_packets)
+X	{
+X		sprintf(s60,"rpt %d:",error_flag);
+X		write(log_packets,s60,strlen(s60));
+X		write(log_packets,rptstr,strlen(rptstr));
+X		write(log_packets,"\n",1);
+X	}
+X
+X	if(dumbtty)
+X	{
+X		if(!strlen(rptstr))
+X			return;
+X		switch(error_flag)
+X		{
+X			case 0:
+X				break;
+X			case 1:
+X				this_file_errors++;
+X				total_errors++;
+X			case -1:
+X			case 2:
+X			case 3:
+X				dumbtty_newline();
+X				dumbtty_pos = printf("%s ",rptstr);
+X				fflush(stdout);
+X		}
+X		return;
+X	}
+X
+X	if(strlen(rptstr) > 55)
+X	{
+X		strncpy(s60,rptstr,55);
+X		s60[55] = 0;
+X		rptstr = s60;
+X	}
+X
+X	switch(error_flag)
+X	{
+X		case 0:
+X			clear_area(win,12,3,55);
+X			break;
+X		case 1:
+X			this_file_errors++;
+X			total_errors++;
+X			report_error_count();
+X		case -1:
+X			clear_area(win,11,3,55);
+X			break;
+X		case 2:
+X			clear_area(win,13,3,55);
+X			break;
+X		case 3:
+X			clear_area(win,4,3,55);
+X			break;
+X	}
+X
+X	waddstr(win,rptstr);
+X	wrefresh(win);
+X
+X}	/* end of report_str */
+X
+X/*+-------------------------------------------------------------------------
+X	report_transaction()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_transaction(str)
+Xchar *str;
+X{
+X	report_str(str,3);
+X}	/* end of report_transaction */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_open_tod() -- time of start of this file
+X
+X  this file open time: row 8 col 41 length 8
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_file_open_tod()
+X{
+X	if(dumbtty)
+X		return;
+X	clear_area(win,8,41,8);
+X	waddstr(win,get_tod(1,(char *)0));
+X	wrefresh(win);
+X}	/* end of report_file_open_tod */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_open_mode(file_mode)
+X  mode map: row 4 col 46 len 10
+X--------------------------------------------------------------------------*/
+Xreport_file_open_mode(file_mode)
+Xunsigned short file_mode;
+X{
+X	if(dumbtty)
+X		return;
+X	clear_area(win,3,46,10);
+X	waddstr(win,mode_map(file_mode,(char *)0));
+X	wrefresh(win);
+X}	/* end of report_file_open_mode */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_open_length(long_length)
+X  length:   row 3 col 36 len  8
+X--------------------------------------------------------------------------*/
+Xreport_file_open_length(length)
+Xlong length;
+X{
+X	if(dumbtty)
+X		return;
+X	clear_area(win,3,36,8);
+X	if(length <= 0)
+X		waddstr(win,"unknown");
+X	else
+X	{
+X		sprintf(s128,"%-8lu",length);
+X		waddstr(win,s128);
+X	}
+X	wrefresh(win);
+X}	/* end of report_file_open_length */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_send_open(filename,filestat)
+X
+X  filename: row 2 col 20 len 38
+X  number:   row 2 col 8 len 3
+X  length:   row 3 col 36 len  8
+X  mode:     row 3 col 46 len 10
+X  time of start of this file: row 4 col 47 length 8 hh:mm:ss
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_file_send_open(filename,filestat)
+Xchar *filename;
+Xstruct stat *filestat;
+X{
+Xchar s50[50];
+Xregister char *cptr = filename;
+X
+X	if(log_packets)
+X	{
+X		write(log_packets,"file: ",6);
+X		write(log_packets,filename,strlen(filename));
+X		write(log_packets,"\n",1);
+X	}
+X
+X	this_file_start_seconds = time((long *)0);
+X	this_file_xfer_count = 0;
+X
+X	if(dumbtty)
+X	{
+X		dumbtty_newline();
+X		dumbtty_pos = printf("Sending '%s' ",filename);
+X		fflush(stdout);
+X		return;
+X	}
+X
+X	/* number */
+X	clear_area(win,2,8,3);
+X	sprintf(s50,"%-3d",Filcnt);
+X	waddstr(win,s50);
+X
+X	/* filename */
+X	if(strlen(filename) > 38)
+X	{
+X		strncpy(s50,filename,38);
+X		s50[39] = 0;
+X		cptr = s50;
+X	}
+X	clear_area(win,2,20,38);
+X	waddstr(win,cptr);
+X
+X	/* length */
+X	report_file_open_length(filestat->st_size);
+X
+X	/* mode */
+X	report_file_open_mode(filestat->st_mode);
+X
+X	/* time of start of this file */
+X	report_file_open_tod();
+X
+X	this_file_errors = 0;
+X	report_error_count();
+X}	/* end of report_file_send_open */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_rcv_started(filename,length,last_mod_time,file_mode)
+X
+X  filenumber: row 2 col  8 len  3
+X              row 2 col 12 len  7 clear "of ###"
+X  filename:   row 2 col 20 len 38
+X--------------------------------------------------------------------------*/
+Xreport_file_rcv_started(filename,length,last_mod_time,file_mode)
+Xchar *filename;
+Xlong length;				/* if < 0, "UNKNOWN" */
+Xlong last_mod_time;			/* not currently displayed */
+Xunsigned short file_mode;	/* UNIX file modifier or zero */
+X{
+Xregister char *cptr;
+Xchar s50[50];
+X
+X	if(log_packets)
+X	{
+X		write(log_packets,"file: ",6);
+X		write(log_packets,filename,strlen(filename));
+X		write(log_packets,"\n",1);
+X	}
+X
+X	this_file_start_seconds = time((long *)0);
+X	this_file_xfer_count = 0;
+X
+X	if(dumbtty)
+X	{
+X		dumbtty_newline();
+X		dumbtty_pos = printf("Receiving '%s' ",filename) - 2;
+X		fflush(stdout);
+X		return;
+X	}
+X
+X	/* filename */
+X	if(strlen(filename) > 38)
+X	{
+X		strncpy(s50,filename,38);
+X		s50[39] = 0;
+X		cptr = s50;
+X	}
+X	else
+X		cptr = filename;
+X
+X	clear_area(win,2,20,38);
+X	waddstr(win,cptr);
+X
+X	/* file number */
+X	clear_area(win,2,8,3);
+X	Filcnt++;
+X	sprintf(s50,"%-3d",Filcnt);	/* rz uses as file number 1-n */
+X	waddstr(win,s50);
+X
+X/* if remote sender provides a file count, display it */
+X	if(npats)
+X	{
+X		clear_area(win,2,12,7);	/* clear "of ###" */
+X		sprintf(s50,"of %3d:",npats);
+X		waddstr(win,s50);
+X	}
+X
+X	/* length */
+X	report_file_open_length(length);
+X
+X	/* mode */
+X	report_file_open_mode(file_mode);
+X
+X	/* time of start of this file */
+X	report_file_open_tod();
+X
+X	this_file_errors = 0;
+X	report_error_count();
+X}	/* end of report_file_rcv_started */
+X
+X/*+-------------------------------------------------------------------------
+SHAR_EOF
+true || echo 'restore of z/zcurses.c failed'
+fi
+echo 'End of ecu320 part 25'
+echo 'File z/zcurses.c is continued in part 26'
+echo 26 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

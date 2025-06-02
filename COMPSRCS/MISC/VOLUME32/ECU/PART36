@@ -1,0 +1,1649 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i071:  ecu - ECU Asynchronous Communications v3.20, Part36/40
+Message-ID: <1992Sep15.153640.20828@sparky.imd.sterling.com>
+X-Md4-Signature: a9f4363a63f03edd062665b870f38a57
+Date: Tue, 15 Sep 1992 15:36:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 71
+Archive-name: ecu/part36
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.36 (part 36 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file doc/_features.txt continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 36; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping doc/_features.txt'
+else
+echo 'x - continuing file doc/_features.txt'
+sed 's/^X//' << 'SHAR_EOF' >> 'doc/_features.txt' &&
+X
+X0x00 nul    0x10 dle 
+X0x01 soh    0x11 dc1 
+X0x02 stx    0x12 dc2 
+X0x03 etx    0x13 dc3 
+X0x04 eot    0x14 dc4 
+X0x05 enq    0x15 nak 
+X0x06 ack    0x16 syn 
+X0x07 bel    0x17 etb 
+X0x08 bs     0x18 can 
+X0x09 ht     0x19 em  
+X0x0A nl     0x1A sub 
+X0x0B vt     0x1B esc 
+X0x0C np     0x1C fs  
+X0x0D cr     0x1D gs  
+X0x0E so     0x1E rs  
+X0x0F si     0x1F us  
+X            0x20 sp  
+X            0x7F del 
+X.DE
+X
+X.*s 2 "Line Editing"
+X
+XWhen you are entering a line of text for an ecu command or in
+Xa field on a screen, you may edit it in a number of ways at any
+Xtime prior to pressing Enter.  Cursor Left moves the cursor left
+Xby one character position, nondestructively.  Cursor Right moves
+Xto the right.  Insert toggles insert mode.  Backspace (your
+Xerase key as specified to stty in commands, the actual backspace key
+Xin screens) deletes the character to the left of the cursor.
+XYour line kill key (as specified to stty) in command mode or
+Xthe ^U character in screen mode erases the entire line.  Esc
+Xin command mode cancels the command.  Esc in screen mode usually
+Xcancels the screen or subfunction in a screen.  ^L or ^R in
+Xinteractive command mode shows the current state of Insert mode and
+Xredisplays the edited string.
+X
+X.*s 2 "Screen Dump"
+XWhen the "cursor 5" key is pressed, the screen contents are
+Xdumped to a file.  By default, this file is named '~/.ecu/screen.dump'.
+XThe
+X.B sdname
+Xinteractive command either displays or changes the current screen
+Xdump file name, depending upon whether or not an argument
+Xis supplied.
+XThe
+X.B scrdump
+Xprocedure command can initiate a dump.
+X
+XNote that from an SCO multiscreen, screen dump produces a dump of the
+Xactual screen contents (it is obtained from
+Xthe video driver), including ecu-generated output.  When
+Xusing a non-multiscreen terminal, screen dump dumps only the
+Xshared memory virtual screen as received from the host.
+X
+XIf, at a multiscreen, you wish a screen dump free of ecu output
+X"pollution," use Shift-Tab (BkTab) to redraw the screen, then
+Xperform the screen dump.  If you are not on a multiscreen, then the
+Xscreen dump comes from the (sometimes inexact) screen memory
+Xrepresentation and this step is not necessary.
+X
+X.*s 3 "Multiscreen and Non-Multiscreen"
+XNote that from multiscreens, screen dump produces a dump of the
+Xactual screen contents, including ECU-generated output.  When
+Xusing a non-multiscreen terminal, screen dump dumps only the 
+Xshared memory virtual screen as received from the host.
+XIf standard input is not a serial line (xterm or /dev/null),
+Xscreen dumps will be of the non-multiscreen type.
+X
+XIf, at a multiscreen, you wish a screen dump free of ECU output
+X"pollution," use Shift-Tab (BkTab) to redraw the screen, then
+Xperform the screen dump.
+X
+X.*s 3 "Multiscreen Bug"
+XThere has been a bug in the multiscreen driver for some time
+Xwherein a MEDIA COPY (screen dump) sequence ("ESC [ 2 i") leaves
+Xthe "ESC [ 2" part "active".  When a screen dump (Cursor 5)
+Xcommand is given, I do the screen dump, then send a "l" to the
+Xscreen to work around the bug ("ESC 2 [ l" unlocks the keyboard,
+Xessentially a no-op).  If and when it gets fixed, you'll see an
+X"l" show up on your screen after a screen dump sequence.  To fix
+Xthis, comment out the
+X.DS I
+X#define MULTISCREEN_DUMP_BUG
+X.DE
+Xat the top of ecuscrdump.c.
+X
+X.*s 2 "Interactive Command History"
+X
+XAfter pressing the Home key, pressing it again invokes the
+Xinteractive command history function.  After the second
+XHome key is pressed, the last interactive command is
+Xredisplayed. Line editing may be performed on the command as described
+Xin the previous section.
+X
+XAdditionally, using the Cursor Up key accesses less recent commands.
+XThe Cursor Down key accesses more recent commands.  Pressing Enter causes
+Xthe command to be executed.  Pressing Esc aborts command entry.
+X
+X.*s 2 "Dialing Directory"
+X
+XECU provides an on-line editable dialing directory.  Remote
+Xsystems are defined as records using alphanumeric identifiers
+Xas keys.  Other record fields include telephone number, baud
+Xrate, parity and textual description.
+X
+XOther features include changing to alternate dialing directory
+Xand a multi-number redial cycle function. Refer below to the description
+Xof the interactive
+X.B dial
+Xcommand.
+X
+XWhile a long entry in a field may be truncated on the display,
+Xwhen the entry is edited, it's full contents will be dispalyed on the
+Xedit subform.
+X
+XEntering or editing a dialing directory entry is for the most part
+Xstraightforward.  A note on the use of the "tty" field is useful, however.
+XWhen prompted for a tty, you may choose
+X.BL
+X.LI
+X"Any" line  (deprecated, for compatibility only)
+X.LI
+Xa tty line matching a Devices type
+X.LI
+Xa specific tty line
+X.LE
+X
+XA specific line is chosen by using the base name of the tty
+X(e.g., "tty1a" or "acu0").  On SCO, since ttys are all named
+Xconsistently according to the "/dev/ttyxx" form, you may omit the "tty"
+X(e.g., "1a" or "4g").  This latter feature is for compatibility
+Xwith earlier revisions of ECU.  It is good practice to fully
+Xspecify the tty name.
+X
+X"Any" matches any tty line in the /usr/lib/Devices file supporting
+Xthe specified baud rate and whose Devices type begins with the
+Xcharacters (case independent) "ACU".  This choice is provided to
+Xbe compatible with earlier versions of ECU (prior to 3.10). 
+XUse of this argument is discouraged.  It's equivalent in current
+Xpractice is "/ACU", as you can see next.
+X
+XA more general choice for choosing a tty line based on Devices type
+Xis the "Devices type matching" choice, invoked by prefixing the tty
+Xfield with a slash or equals sign.
+X
+X.BL
+X.LI
+X/ prefix searches for a Devices type matching a regular expression (a
+Xla sed or ed)
+X.LI
+X= prefix searches for an exact match on a Devices type
+X.LE
+X
+X.DS L
+XExamples:
+X
+X   =ACU        matches "ACU", fails on "acu" and "ACUx"
+X   /.*tbit.*   matches "ACUtbit1", "tbit"
+X.DE
+X
+XA specific tty line may also be specified.  This is the only means
+Xof attaching a line not mentioned in the Devices file.
+X
+XNOTE:  If the bell rings and you are not allowed to leave a field,
+Xit is because you MUST enter acceptible data before you can leave
+Xa field using other than the ESCape key.
+X
+XThe "debug level" parameter allows you to specify a number between 0 and
+X9 for passing to a UUCP dialer program with the -x switch.
+X
+XThe "DCD watch" parameter allows you to modify the DCD watcher
+Xupon successful connection to a remote.  The values allowed are:
+X.DS L
+X   1    enable DCD watcher
+X   0    disable DCD watcher
+X   t    terminate ECU on loss of DCD
+X   n    no change of dcdwatch state
+X.DE
+XSpecifying 'n' leaves the dcdwatch state unaffected.  See the description
+Xof the
+X.B dcdwatch
+Xinteractive command for more information.
+X
+XThe following sample dialing directory screen shows an edit in
+Xprogress.
+X
+X.DS L
+X .--[ dialing directory ]-- /u1/wht/.ecu/phone --------- modified ---.
+X | entry name | telephone number | tty | baud P | description        |
+X | ......     | ........         |Any  | 2400 N | ...............    |
+X | li.--[ entry: new ]--------------------------------------------.  |
+X | ..|                                                            |  |
+X | ..| telephone number  1(800)555-1212                           |  |
+X | ..| device            =ACUtbit                                 |..|
+X | ..| baud rate         19200                                    |..|
+X | ..| parity            N                                        |  |
+X | ..| description       don't call this_________________________ |..|
+X | ..| debug level       0  (dialer -x value 0-9)                 |  |
+X | ..| DCD watch         n                                        |  |
+X | ..| Enter description                                          |..|
+X | ..| ESC: abort  End: finish  ^U: erase ^B: back  TAB: fwd      |  |
+X | ..`------------------------------------------------------------'  |
+X | .....      | ..........       |2b   | 9600 N | ...................|
+X | sco19      | 1(408)426-9525p  |2b   | 9600 N | SCO Tech Services  |
+X | sco24      | 1(408)426-9495   |2b   | 2400 N | SCO Tech Services  |
+X +-------------------------------------------------------------------+
+X |down up edit add remove save find change dial dir ENTER:dial quit  |
+X |redial: mark unMark Unmark all wait between dial                   |
+X `-------------------------------------------------------------------'
+X.DE
+X
+XYou may use the vi conventions of 'j' for down and 'k' for up.
+XYou may also use the up and down arrow keys if you are on an SCO
+Xmultiscreen or if the function keys have been properly defined
+Xwith funckeymap.
+X
+X.*s 2 "Online Interactive Command Help"
+X
+XThe ECU help command presents a display of interactive commands.  The user
+Xis then prompted to enter a command name for further, Unix-style
+X"usage" information.
+X
+X.*s 2 "Multiscreen Event Alarm"
+X
+XOn an SCO machine, by using the 
+X.B BN
+X(bell notify) interactive command, an audible alert is sent to all
+Xmultiscreens when an ASCII BEL (bell) is received or when a file
+Xtransfer completes.  An additional option causes an alert when ANY
+Xdata is received from the line.  This makes it simple to do work on
+Xother multiscreen consoles and be alerted when attention to the
+Xcommunications session is required.
+X
+XFor instance, the Berkeley 4.x Unix utility "talk" rings the bell when
+Xanother user wishes an interactive chat mode.  BSD "biff" rings the bell
+Xwhen incoming mail is received.  Scripts or commands at remote sites can
+Xbe configured to ring the bell as in:
+X.DS I
+Xmake foo bar; bell; make more_stuff; bell;
+X.DE
+Xto call attention to the ECU user when work is being done
+Xon other multiscreen consoles.
+X
+XThis feature is only available when you are running ECU from a multiscreen.
+X
+X.*s 2 "Built-in Modem Dialer"
+X
+XThe built-in ECU dialer supports modems which use the 
+X.B
+XHayes-style AT command set or most variants
+X.R
+X.B thereof .
+XIt is used when HoneyDanBer UUCP is not installed or when there is no
+Xentry in the /usr/lib/uucp/Devices file for the selected outgoing line.
+X(For more information, see the later section titled "HoneyDanBer UUCP
+XInterface".)
+X
+XThe built-in dialer uses files in the ecu library directory which
+Xcontains modem initialization information.  Modem initialization
+Xfilenames are made from concatenating the tty name with ".mi".  For
+Xinstance, tty1a's initialization file is named "tty1a.mi".
+X
+XCommands for initializing the modem and for dialing may be specified in
+Xa very flexible manner.  Separate init and dial strings for each legal
+Xbaud rate, a single pair of strings for all baud rates or a combination
+Xmay be specified.
+X.DF L
+X.hl
+X.ce 1
+XSample Modem Initialization Files
+X
+X#+-----------------------------------------------------------
+X#  tty1a.mi - Microcom AX/9624c
+X#------------------------------------------------------------
+Xinit_>2400:ATS11=47X4S0=0S7=30\eQ1\eX1\eN3   # baud rates > 2400
+Xinit_default:ATS11=47X4S0=0S7=30\eQ0\eX0\eN0 # other baud rates
+Xdial_default:ATDT
+X
+X#+-----------------------------------------------------------
+X#  tty2d.mi - USR Courier 2400
+X#------------------------------------------------------------
+Xinit_default:ATS11=47 X4 S0=0 S7=32
+Xdial_default:ATDT
+X
+X.DE
+X
+X.*s 2 "File Transfer"
+X
+XECU supports numerous file transfer protocols: as of this writing,
+XXMODEM, XMODEM/CRC, XMODEM-1K, YMODEM/CRC Batch, ZMODEM/CRC-16,
+XZMODEM/CRC-32, C-Kermit and SEAlink are supported.  `
+XAlthough a seamless interface
+X(there's some yuppie marketing newspeak) is provided to the user,
+Xtransfer is facilitated by executing external programs.
+X
+XKermit support requires you to obtain C-Kermit version 5A or later.
+XYou may also patch C-Kermit 4E to work with ECU (The
+Xpatch information is available in the ckermit subdirectory of the
+XECU release).  C-Kermit 5 is in beta release as of this writing
+Xand supports ECU without modification.
+X
+XXMODEM, YMODEM and ZMODEM transfers (thanks to modified public domain
+Xprograms by Chuck Forsberg) present dynamic status displays similar to
+Xthe following:
+X.DS L
+X .-[ ecusz 3.20 ]-- /tmp -------------------------------.
+X |  ZMODEM/CRC32   data rate ~= 900 ch/sec (94%)     T  |
+X |  File 1   of 1  : /t/ecu320cpio.Z                    |
+X |  File position:  617472 length: 915263  -rw-r--r--   |
+X |  Total transaction 915263 bytes (xfer time ~= 17:29) |
+X |  tx: D32 ZCRCG 1024          rx: HEX ZACK  605184    |
+X |  Comm I/O: rx 917       tx 650041   bytes            |
+X |  Baud rate: 9600 BINARY blklen: 1024 comm mode: RAW  |
+X |  Time: started: 13:39:34 this file: 13:39:35 window: |
+X |  13:51:34 elapsed: 00:12:00         00:11:59 +12288  |
+X |  Errors: this file: 2   total: 2  files skipped: 0   |
+X |                                                      |
+X |  This file 67%, transaction 67% complete             |
+X |  Remote: CRC32 y  duplex y  continuous stream y      |
+X `- Connected to tridom --------------------------------'
+X.DE
+X
+XDuring file transfer, data rates are displayed from time to time.
+XWhile the figures may vary significantly during the transfer, bear in mind
+Xthe calculations are for actual data throughput, measured as total DATA
+Xcharacters transferred from the time the file is opened until it is closed.
+XSo, if the data rate appears to be low at the start of the transfer
+Xand increase over time, perhaps it took a significant amount of time for
+Xthe receiver to open it's file or to respond to protocol startup stimuli.
+XIf the data rate appears to be higher at the beginning and become
+Xlower over time, perhaps flow control is being invoked.  A sudden
+Xreduction in the "last file" or "transaction" data rate over the
+Xin progress rate reflects the time required to close files, operate
+Xthe protocol or to skip files (in the case of ZMODEM).  If any files
+Xare skipped in a session, you may be sure the transaction
+Xrate will be (perhaps much) lower than the per-file rate.
+X
+XOn some systems and driver options, sundry driver statistics are
+Xdisplayed during X/Y/ZMODEM transfers.  For instance, in the above
+Xdisplay from a Sun session.  the driver's current output and input
+Xqueue depths and input queue space available are displayed along with
+Xthe current status of RTS and CTS.  While such gay banter is rightly
+Xrelegated to the "bell and whistle" category, it does provide a rare
+Xinsight into driver operation.  The ECU FAS/i driver for 386 systems
+X(after Uwe Doering's FAS driver) provides other information.
+X
+X.DS L
+X        |  Output queue depth       0  RTS T  CTS T                |
+X        |  Input queue depth       10  Input queue avail    490    |
+X.DE
+X
+X
+X.*s 2 "Automatic ZMODEM Receive"
+XECU in the interactive mode (no procedure executing) can interpret a
+XSUB, 'B', '0', '0' receive data sequence as a ZMODEM ZRQINIT frame and
+Xautomatically begin a ZMODEM receive operation.  The
+X.B autorz
+Xinteractive and procedure commands control
+Xthis feature.  By default, this feature is turned on.
+X
+X.*s 2 "Procedures (Scripts)"
+XA powerful, language-style procedure language is incorporated
+Xinto ECU.  The language is described in the companion "Procedure
+XLanguage" manual.
+X
+XProcedures are files of programmatic instructions written in
+Xthe ECU procedure language invoked explicitly by the
+X.B do 
+Xinteractive command or automatically by ECU functions described below.
+XProcedures are invoked by
+X.I name ,
+Xand result in execution of the file
+X.I name .ep.
+X
+XThe file is searched for in the current directory.  If not found there,
+XECU checks your personal .ecu subdirectory.  If not there, the ECU library "ep" subdirectory is searched (e.g.,
+X.I /usr/local/lib/ecu/ep ).
+X
+X.*s 3 "Initial (Startup) Procedure"
+XAn
+X.B
+Xinitial procedure
+X.R
+Xmay be be specified to ECU either to initialize an interactive
+Xsession or to execute an entirely unattended or "batch"
+Xcommunication session.  Refer to the section on command switches ("-p").
+X
+X.*s 3 "Dialing Procedure"
+XWhen a named dialing entry is selected for calling, if a procedure
+Xcan be located using the above mentioned search sequence whose name matches
+Xthe name of the directory, then all of the usual ECU built-in dialing
+Xprocedure is bypassed and the procedure is used.  For details, refer to
+Xother sections related to dialing.
+X.*s 3 "Other Special Procedures"
+XOther special procedures may be invoked when
+X.BL
+X.LI
+Xecu starts up (_rc.ep)
+X.LI
+Xa connection is established (_connect.ep)
+X.LI
+Xan attempted connection fails (_connfail.ep)
+X.LI
+Xa connection is terminated with the hangup command (_hangup.ep)
+X.LE
+XSee the ECU procedure manual for details.
+X
+X.*s 2 "DCD (Carrier) Watcher"
+XECU can be instructed to monitor DCD (carrier) status on any
+Xtty line whose driver honors dynamic manipulation of the CLOCAL
+Xcontrol bit.  
+XECU may be instructed to ignore DCD (the default state).
+XIn such a state, if carrier is lost after a connection has been
+Xmade, ECU is unaware the connection has been lost.  An interactive
+X.B stat
+Xcommand will show the connection still active.
+X
+XWhen the DCD watcher is enabled, loss of carrier will cause
+Xthe hangup command processing to automatically be executed
+X(including execution of the special procedure
+X_hangup.ep if any can be found).
+X
+XAn additional mode is available which, in addition to the hangup
+Xprocessing,  causes ecu to terminate execution.
+X
+XThe
+X.B dcdwatch
+Xinteractive and procedure commands control this feature.
+XIn addition, each dialing directory entry has a field
+Xspecifying whether or not the DCD watcher status is to be
+Xchanged upon connecting to the remote system and if so,
+Xto what state.  Refer to the description of the
+X.B dcdwatch
+Xand
+X.B dial
+Xcommands for details.
+X
+X.*s 2 "Home Directory Files"
+XECU control files reside in the .ecu subdirectory of
+Xeach user's home directory.  For example, in home directory /usr/wht:
+X.DS I
+X   /usr/wht/.ecu/dir          CD interactive command history file
+X*  /usr/wht/.ecu/keys         function key mapping
+X*  /usr/wht/.ecu/funckeymap  function key mapping
+X   /usr/wht/.ecu/log          connect, file transfer history
+X   /usr/wht/.ecu/phone        default dialing directory
+X*% /usr/wht/.ecu/colors       colors used by ECU
+X.DE
+X
+X* The ecu library directory (normally /usr/local/lib/ecu) is searched for
+Xthe "keys", "colors" and "funckeymap" file if a personal version
+Xcannot be found.
+X
+X% The "colors" file does not apply to systems on which color is not yet
+Xsupported.
+X
+XThe .ecu directory is searched for an ECU procedure file
+X(having the '.ep' extension) if the procedure file cannot be found in
+Xthe current working directory.
+X
+X.*s 2 "Lock Files"
+X
+XECU maintains lock files in the standard directory in accordance with the
+XHoneyDanBer UUCP conventions (ASCII pids as 10-character strings
+Xfollowed by a newline).  If porting to a machine with old-style
+Xinteger pids, grep for HONEYDANBER in the sources for hints on
+Xwhere changes are needed.
+X
+XStandard lock directories for versions supported as of this writing:
+X.DS I
+X   SCO               /usr/spool/uucp
+X   ISC               /usr/spool/locks
+X   SunOS, SVR4       /var/spool/locks
+X.DE
+X
+X.ul 1
+XWorld write access to this directory must be in effect. 
+X
+XSee the later section titled "HoneyDanBer UUCP Interface".
+X
+X.*s 2 "Dial-In/Dial-Out Line Support"
+X
+XOn SCO XENIX and UNIX 3.2 systems,
+XECU works with the SCO getty to support dialing out on a line
+Xenabled for login.  After use of the line is complete,
+XECU signals the system to restore incoming call status to
+Xthe line.
+XSee the later section titled "HoneyDanBer UUCP Interface".
+X
+XThis facility is not supported in other environments as of this writing.
+XScan the distribution README.* files for any updates.
+X
+X.*s 2 "Tools"
+X
+XCommands are provided for conversion of hexadecimal or decimal numbers
+Xto and from ASCII equivalents.  For example, 26(10) == 0x1a == ^Z == SUB.
+XFor details, refer to the description of the
+X.B XA
+Xand
+X.B AX
+Xinteractive commands.
+X
+X.*s 2 "Shared Memory 'Friend' Interface"
+X
+XECU maintains a copy of the received screen image (80 x 43
+Xmaximum) and other
+Xinformation in its shared memory segment.  Normally, this
+Xinformation is used only by the transmitter and receiver
+Xprocess.  However,  ECU supports the concept of a
+X.B friend
+Xprocess which may access the shared memory segment, perform
+Xarbitrary auxiliary operations, read from and write to the
+Xattached communications line and communicate resulting information
+Xor status to an ECU procedure via a 1024-byte "friend"
+Xdata area in the shared memory segment.
+X
+XThe procedure language supports the friend
+Xprocess concept through commands and functions which allow
+X.BL
+X.LI
+Xpassing the ECU shared memory segment id (%shmid) to a called
+Xprogram,
+X.LI
+Xreading a single character or string of characters from
+Xscreen memory,
+X.LI
+Xreading cursor position information and
+X.LI
+Xreading and writing of characters, short or long integers and
+Xstrings in the 1024-byte "friend" shared memory data area.
+X.LE
+X
+XThe algorithm for obtaining the shared memory segment key is
+X.DS L
+X0xEC000000L + transmitter process id
+X.DE
+XThus a "friend" process may either use a %shmid 
+X.B
+Xshared memory key
+X.R
+Xpassed as an argument or obtain the 
+X.B
+Xshared memory key
+X.R
+Xby using:
+X.DS L
+Xkey_t shmkey = 0xEC000000L | getppid();
+X.DE
+X
+XThis facility allows batch and interactive applications
+Xto be developed with C programs which would be
+Xtedious or impractical to implement with procedure language alone.
+X
+XFor more information, refer to the shared memory header file
+X.B ecushm.h ,
+Xthe
+X.B ecufriend
+Xsubdirectory of the software release
+Xand to the description of the
+X.B %shmid ,
+X.B %cury
+Xand
+X.B %curx
+Xprocedure functions
+Xand the
+X.B getf
+Xand
+X.B putf
+Xprocedure commands.
+SHAR_EOF
+echo 'File doc/_features.txt is complete' &&
+chmod 0644 doc/_features.txt ||
+echo 'restore of doc/_features.txt failed'
+Wc_c="`wc -c < 'doc/_features.txt'`"
+test 38219 -eq "$Wc_c" ||
+	echo 'doc/_features.txt: original size 38219, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/_hdb.txt ==============
+if test -f 'doc/_hdb.txt' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/_hdb.txt (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/_hdb.txt (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/_hdb.txt' &&
+X.*s 1 "HoneyDanBer UUCP Interface"
+X
+X.*s 2 "Control Files"
+X
+XThis section describes how ecu uses verious HDB UUCP control
+Xfiles found in the UUCP library directory (e.g., /usr/lib/uucp on
+XSCO and ISC or /etc/uucp on SunOS and SVR4).
+X
+X.*s 3 "Devices"
+X
+XECU reads this file to determine what tty devices are available
+Xfor outgoing calls. The fourth field must contain a baud rate or
+Xrange of baud rates acceptable for the line.  The fifth field of
+Xeach entry must contain either the full pathname of an (SCO)
+Xmodem dialer program (with leading slash) or the name of an entry
+Xin the HDB Dialers file (no leading slash).  For more
+Xinformation, consult the UUCP documentation for your system and
+Xsee "Dialers" and "Choosing a Dialout Line" below.
+X
+X.*s 3 "Dialers"
+X
+X.B Dialers
+Xentries may be specified in the Devices entry. 
+XECU provides Dialers support that is largely compatible
+Xwith most System V HDB uucico programs.  Refer to
+Xyour system's UUCP documentation for general
+Xusage instructions.  Refer to the procedure command
+X.B expresp
+Xfor a precise list of escape sequences supported by ECU.
+X
+X.*s 3 "Sysfiles"
+X
+XSysfiles support is not yet provided.  The Devices and
+XDialers files must have their default names.
+X
+X.*s 3 "Systems"
+X
+XNo use is made of the
+X.B Systems
+Xfile at this time.  ECU provides the
+Xequivalent function with its dialing directory.
+X
+X.*s 2 "Choosing a Dialout Line"
+X
+XWhen using the interactive
+X.B dial
+Xcommand, or when dialing from the initial menu,
+Xif a logical or system name is specified, the directory
+Xentry is fetched and examined.  If the tty field specifies
+Xa value other than "Any", the specific line requested is
+Xopened, if available, and dialing commences. 
+XIf the specified line is not available, the dial attempt
+Xfails.
+X
+XIf "Any" is found in the dialing directory entry tty field, then
+XECU finds an available Devices line which matches the baud rate
+Xspecified in the entry. 
+X
+XOther special tty field entries allow regular expression or
+Xliteral matching of Devices types.  See the description of the  dialing
+Xdirectory for more details.
+X
+XA line is selected only if its class begins with the three
+Xcharacters "ACU."  UUCP will only select a line whose Devices
+Xentry class matches the active Systems entry class (usually
+X"ACU"), so usually you may make a modem accessible to ECU, but not
+Xto UUCP, by setting it's class to ACUECU.
+X
+XOn systems employing ecuungetty, if a line being considered for
+Xselectionis found to be a line enabled for login, but
+Xcurrently idle, the ecuungetty interface, described below,
+Xis used to acquire the line for outgoing use.
+X
+XThe DCD watcher (see the interactive and procedure commands
+X.B dcdwatch )
+Xdepends upon the tty driver to return zero
+Xon a read when DCD is low when the termio flag CLOCAL is reset.
+XThe tty driver must ignore DCD if CLOCAL is set.
+XIf your system offers a "modem" and "direct" choice (by choice
+Xof filename), you probably need to use the "modem" choice for
+Xthis to work properly.  However, the choice depends upon
+Xthe needs of the underlying driver you are using.
+XFor instance, if you are using FAS in a shared modem application,
+Xyour getty should use the "modem" choice and ECU should
+Xuse the "direct" choice.  Some experimentation may be required.
+X
+XOne of the symptoms of an incorrect line choice is ECU hangs,
+Xline errors such as EIO and EBUSY.  These problems may
+Xbe caused by other problems, but incorrect line choice is
+Xthe most frequent cause.
+X
+X
+X.*s 2 "SCO Tty Naming"
+X
+XOn SCO,
+XTTY devices must be named in the style of:
+X.DS I
+X/dev/tty#N
+X        ^^
+X        ||
+X        |`------ uppercase letter for modem control
+X        |        lowercase for non-modem control
+X        `--------digit (1-4)
+X.DE
+X
+XIf you are using FAS or other third-party driver, you may
+Xuse ECU with ports not normally named in the /dev/tty#N
+Xstyle in one of two ways under UNIX and one way under XENIX:
+X
+X.DS I
+X1.  Under XENIX or UNIX, create a link to the port
+X    with a compatible name:
+X
+X          ln /dev/ttyF00 /dev/tty1a
+X          ln /dev/ttyFM00 /dev/tty1A
+X
+X2.  Under UNIX, add additional lines to the
+X    /etc/conf/node.d file and rebuild the kernel
+X    environment (this is the recommended approach
+X    for UNIX):
+X
+Xfas ttyF00  c   48
+Xfas tty1a   c   48
+Xfas ttyF01  c   49
+Xfas tty1b   c   49
+Xfas ttyFM00 c   208
+Xfas tty1A   c   208
+Xfas ttyFM01 c   209
+Xfas tty1B   c   209
+X.DE
+X
+XNote the device numbers are examples only.  Consult the driver
+Xdocumentation for proper choices.
+X
+XIf you cannot live within this restriction, search for the #define
+XSCO_TTY_NAMING in ecu.h (that depends on SCO's M_SYSV) and disable it.
+X
+X.*s 2 "Ecuungetty (Getty Interface)"
+X
+XThis section applies to the SCO version of the program.  It
+Xmay also apply to others in part.  Specifically, as of this
+Xwriting, this section does not apply to the SunOS version
+Xdue to the differences in utmp arrangement.  In some versions,
+Xthe mechanism may execute and do no harm, yet essentially be a no-op.
+X
+XWhen an idle dialin (enabled) line is chosen for dialout,
+XECU makes use of
+X.B ecuungetty
+X(in the ecu library directory, normally /usr/local/lib/ecu)
+Xto signal the line's getty to release the line (via SIGUSR1).
+X.B Ecuungetty
+Xis again employed to signal the getty to reacquire the
+Xline when outgoing communication is complete (via SIGUSR2).
+X
+XEcuungetty is a privileged program, which must be owned by root
+Xand have the setuid-on-execute bit set.  An encrypted id is passed
+Xby ecu to ecuungetty to validate requests and to prevent abuse of
+Xecuungetty by crackers, malcontents and other twentieth-century
+Xphenomena.
+X
+X.*s 2 "SCO Dialer Programs"
+X
+XThe concept of a dialer program (an executable binary
+Xas opposed to a Dialers entry) is an SCO enhancement and
+Xis unlikely to be of benefit to users of other versions (too bad!).
+XECU will support dialer programs under any version, but other
+Xusers of the Devices file (read "your vendor-supplied uucico")
+Xwill most likely barf on non-SCO systems.
+X
+XIf the
+X.B Devices
+Xfile can be found in /usr/lib/uucp,
+Xand a valid entry for the attached line can be found,
+XECU will use the Dialers script or dialer program specified in the
+X.B Devices
+Xentry.
+X
+X.*s 2 "Gendial Dialer Package"
+X
+XSample SCO-style modem dialer program sources may be found
+Xin the gendial/ subdirectory of the distribution.
+XSome of them, particularly dialgHA24 and dialgT2500, are very
+Xrobust and succeed where other programs may fail.  They retry
+Xmodem initialization and reset/hangup commands .
+X
+XThe code is divided into one general module and several modem-
+Xand DCE-specific modules.  A program is built by combining
+Xthe gendial.o with the appropriate dceFOO.o module to produce
+Xa dialgFOO executable.
+X
+XTo write a dialer for a modem not already in the gendial package,
+Xcopy template.c to dceMYMODEM.c and edit it to contain the
+Xnecessary variable assignments and initialization, dialing and hangup
+Xcode.  The existing dce*.c modules provide examples.
+XEdit the gendial/Make.src file to add rule lines for your program.
+X(Do not modify Makefile alone
+Xsince a "Configure" will overwrite Makefile.)
+X
+X.DS L
+XdialgMYMODEM: gendial.o dceMYMODEM.o
+X    $(CC) $(LDFLAGS) gendial.o dceMYMODEM.o $(LIBS) -o $@
+X.DE
+X
+XTo be "correct," you should run the Configure procedure
+Xin the main ecu directory to make a new Makefile,
+Xbut this has the unfortunate side effect of rebuilding all
+Xof the Makefiles which are built from Make.src files.
+XIf this happens, the next make will rebuild all of the
+Xobjects.
+X
+XIn this case, it is "OK" to cheat and copy the new Make.src lines to
+XMakefile.  A later Configure will not cause loss of the new lines.
+SHAR_EOF
+chmod 0644 doc/_hdb.txt ||
+echo 'restore of doc/_hdb.txt failed'
+Wc_c="`wc -c < 'doc/_hdb.txt'`"
+test 7541 -eq "$Wc_c" ||
+	echo 'doc/_hdb.txt: original size 7541, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/_icmd.txt ==============
+if test -f 'doc/_icmd.txt' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/_icmd.txt (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/_icmd.txt (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/_icmd.txt' &&
+X.*s 1 "Interactive Mode Commands"
+X
+XThe following is a partial list of commands available in the
+Xinteractive (non-procedure) mode.  It is not necessary to enter
+Xthe entire command in most cases.  The portion of each command
+Xwhich must be entered is capitalized in the following section
+Xheaders.
+X
+XRefer to the sections titled Interactive Command History
+Xand Line Editing for more information.
+X
+X.*s 2 "AUTORZ : Automatic ZMODEM Receive"
+XUsage: autorz [off | on | ]
+X
+XECU in the interactive mode (no procedure executing) can interpret a
+XSUB, 'B', '0', '0' receive data sequence as a ZMODEM ZRQINIT frame and
+Xautomatically begin a ZMODEM receive operation.  This command controls
+Xor displays this feature.  By default, this feature is turned on.
+X
+X.*s 2 "AX : ascii char to hex/oct/dec"
+X.DS L
+Xusage: ax [<param>]
+X.DE
+X
+X<param> may be a single ASCII character, a standard ASCII
+Xidentifier (such as ETX), or a two-character control
+Xcharacter identifier (such as ^C, typed as a caret followed
+Xby a C).
+X
+XIf no argument is supplied, a table of control characters
+Xis printed containing decimal, octal, hex, ASCII identifiers
+Xand two-character control character identifier.
+X
+X
+X.*s 2 "BAud : set/display line baud rate"
+X.DS L
+Xusage: baud [<baud-rate>]
+X.DE
+X
+X<baud-rate>, if specified, must be taken from the values
+X110, 300, 600, 1200, 2400, 4800, 9600, 19200 and 38400.  On
+Xsome systems, 19200 and 38400 may not be supported.  If a baud
+Xrate less than 300 is selected, 2 stop bits are automatically
+Xspecified; other baud rates set 1 stop bit.  If <baud-rate>
+Xis not supplied, the current baud rate is displayed.
+X
+XThe setting may be automatically changed as the result of a 'dial'
+Xcommand.  See also the
+X.B dial
+Xand
+X.B parity
+Xcommand descriptions.
+X
+X
+X.*s 2 "BN : all console event alarm"
+X.DS L
+XUsage: bn [ off | on | alert ]
+X       bn [ 0 | 1 | 2 ]
+X.DE
+X
+X"bell notify": If no parameter is supplied, the current setting is
+Xdisplayed.  Specifying 0 or off disables the facility; 1 or on causes
+Xan audible alarm to be sounded upon receipt of a bell (0x07)
+Xcharacter from the remote system; 2 or alert causes an audible alarm
+Xupon receipt of ANY characters.  This command may not be functional
+Xin the version for your system.
+X
+XOn SCO, different alarm styles are sent depending upon the type of
+Xevent causing the alarms.  The alarms consist of Morse characters.
+XEven if you do not understand Morse, the patterns of the alarm
+Xtones are distinct enough to be distinguishable.
+X
+XAdditionally on SCO, if you are running ECU from a multiscreen,
+Xthe alarms will be signalled even if you have temporarily
+Xswitched to another screen.
+X
+XBN is set to 1 (on) when ECU begins executing.
+X
+X.*s 2 "BReak : send break to remote"
+X.DS L
+Xusage: break
+X.DE
+X
+XThis command sends a break signal to the remote system.
+X
+X
+X.*s 2 "CD : change current directory"
+X.DS L
+Xusage: cd [<dir-path>]
+X.DE
+X
+XThis command allows you to change the working directory of
+Xthe ECU process.  If <dir-path> is supplied, the previous
+Xworking directory is displayed, and <dir-path> is made the
+Xnew working directory.  A history of previous directory
+Xchanges is maintained.  Entering the
+X.B cd
+Xcommand shows the numbered history list and allows you to select a new
+Xdirectory by entering the number.  Other commands allow
+Xdeletion of directories from the list or saving the list to
+Xfile ~/.ecu/dir.  This file is automatically read at ECU
+Xstartup, providing a convenient list of directories
+Xavailable for quick selection.  If you edit this file by hand,
+Xyou may force ECU to re-read the file using the %read option.
+X
+XThe %xmitcd option transmits "cd "+current_directory+CR to the remote,
+Xa convenience to set the remote current directory to the
+Xsame as your local one.
+X
+XThe %pushd # option pushes the current directory onto the same stack
+Xused by the
+X.B pushd
+Xinteractive command and changes the current directory to the numbered
+Xdirectory specified by #.  Use the
+X.B popd
+Xinteractive command to return to the previous directory.
+X
+XOther %options have usage information by entering them with no arguments.
+X.*s 2 "DA : decimal to ascii char"
+X.DS L
+Xusage: da [<decimal-val>]
+X.DE
+X
+X<decimal-val> is a decimal value between 0 and 256; the
+Xparity (sign) bit is stripped and the equivalent ASCII
+Xcharacter value is displayed.
+X
+XIf no argument is supplied, a table of control characters
+Xis printed containing decimal, octal, hex, ASCII identifiers
+Xand two-character control character identifier.
+X
+X.*s 2 "DCDwatch"
+X.DS L
+Xusage: dcdwatch [<dcdwatch-param>]
+X.DE
+X
+XThis command controls the DCD watcher.  The optional parameter may be:
+X.DS L
+X   y  yes - enable DCD watcher
+X   n  no - disable DCD watcher
+X   t  terminate - terminate ECU on loss of DCD
+X.DE
+XEntering the command without an argument shows the current status.
+X
+XThe DCD watcher when enabled causes ECU to monitor the DCD line
+X(within the limits imposed by the OS with its CLOCAL=0 functionality).
+XWhen the watcher is on and DCD drops, ecu automatically performs
+Xthe action of the interactive or procedure
+X.B hangup
+Xcommand.  If the 't'erminate option is chosen, then after
+Xhangup processing is complete, the ECU program will terminate.  
+X
+XThe state of the watcher may be changed by the use of the dial
+Xcommand which uses a directory entry that changes the
+XDCD watcher status.
+X
+XThe DCD watcher depends upon the tty driver to return zero
+Xon a read when DCD is low when the termio flag CLOCAL is reset.
+XThe tty driver must ignore DCD if CLOCAL is set.
+XIf your system offers a "modem" and "direct" choice (by choice
+Xof filename), you probably need to use the "modem" choice for
+Xthis to work properly.  However, the choice depends upon
+Xthe needs of the underlying driver you are using.
+XFor instance, if you are using FAS in a shared modem application,
+Xyour getty should use the "modem" choice and ECU should
+Xuse the "direct" choice.  Some experimentation may be required.
+X
+X.*s 2 "Dial : dial remote destination"
+X.DS L
+Xusage: dial [<dial-param>]
+X.DE
+X
+X<dial-param> may take one of two forms, a telephone number
+Xto dial (initial digit) or a logical name (initial letter)
+Xwhich can be found in the user
+Xphone directory (in file ~/.ecu/phone).
+X
+XIf a telephone number is supplied, the phone number is
+Xdialed; you must first have set the desired baud rate and
+Xparity using the
+X.B baud
+Xand
+X.B parity
+Xcommands.
+X(If the last character of a telephone number is a dollar sign,
+Xit is removed and is replaced with the contents of the first line
+Xin ~/.ecu/credit.  See the description of the dialing directory.)
+X
+XIf a logical name is entered, the phone directory is searched; if
+Xthe entry is found, the baud rate and parity is automatically
+Xset.  if a procedure file can be found in the current directory,
+Xthe user's home .ecu subdirectory or the ECU library directory "ep"
+X(normally /usr/local/lib/ecu/ep) whose name matches the logical
+Xname, then the procedure is executed with the argument '!INTERACTIVE'.
+X
+XIf <dial-param> is not supplied, then a screen-oriented
+Xself-documenting <:-)> directory manager is executed; you may
+Xscan the directory to select a number to dial, as well
+Xas add, remove and edit entries.
+X.*s 3 "Alternate Dialing Directory"
+X
+XThe default dialing directory is ~/.ecu/phone.  You may change to
+Xanother directory by issuing the interactive 
+X.B dial
+Xcommand with no arguments to enter the dialing directory
+Xmenu, selecting 'c'hange dial directory, and entering the name
+Xof a new directory.  The specified pathname must either be
+Xa fully qualified pathname or a pathname relative to the
+Xcurrent working directory.  Once an alternate directory
+Xhas been selected, it will be used by
+Xboth the interactive command 'dial <logical>' and 
+Xthe dialing directory menu.
+X
+XUsing the dial command with a directory entry may change the 
+XDCD watcher (dcdwatch) status.
+XSee the section on the
+X.B dcdwatch
+Xcommand for more information.
+X
+XSee the section below titled "Choosing a Dialout Line" for
+Xmore information on using "Any" in the "tty"
+Xfield of a directory entry.
+X
+X.*s 3 "Multi-Number Redial Cycle"
+X
+XWhile in the  dialing directory, you may "mark" one or more
+Xentries for a cyclical redial attempt.  When any entry is
+Xmarked, typing ENTER (carriage return or line feed/newline)
+Xcauses each marked entry to be dialed in turn until one of
+Xthe remote systems is successfully connected.  When a
+Xsuccessful connection occurs, ECU unmarks the 
+Xassociated entry, leaving the others marked.  Thus, you
+Xmay mark several entries and merely reenter the dialing
+Xdirectory after each connection is finished and press
+XENTER to reenter the redial cycle.  If a single entry
+Xis marked, ECU pauses 15 seconds between each dialing attempt,
+Xotherwise 5 seconds.  Pressing 'c' will cause the pause to
+Xbe prematurely terminated and the next attempt to be made.
+XPressing your interrupt key (DEL, ^C or whatever) aborts
+Xthe cycle.  If you interrupt an active dialing attempt, you 
+Xwill be prompted as to whether or not you wish to cycle to the next
+Xentry or abort the cycle.
+X
+XIf no entries are marked for redial, the current, highlighted
+Xdirectory entry is used for dialing.
+X
+XTo unmark a single entry, press 'M' (uppercase M).
+XTo unmark all entries, press 'U'.
+X
+X.*s 3 "Automatic Dialing/Login Procedure"
+X
+XUpon dialing from the menu, if a procedure file can be found in
+Xthe current directory, the user's home .ecu subdirectory or the
+XECU library subdirectory "ep" (normally /usr/local/lib/ecu/ep) whose name
+Xmatches the logical name, then the procedure is executed with the
+Xargument '!MENU'.  It is the responsibility of the automatically
+Xexecuted procedure to establish connection with the remote system
+X(by using the procedure
+X.B dial
+Xcommand).  An example of an automatic login procedure
+Xcan be found in the distribution subdirectory 'models'
+Xnamed 'sysname.ep'.  A companion procedure is 'unixlogin.ep'.
+X
+XFor example,
+X.DS L
+X.--[ dialing directory ]-- /u1/wht/.ecu/phone -- ...
+X| entry name | telephone number | tty | baud P | ...
+X| sysname    | 555-1234         | Any | 2400 N | ...
+X.DE
+X.DS L
+X#-----------------------------------------------------------
+X# sysname.ep - procedure to call UNIX-like system 'sysname'
+X#
+X# CONFIDENTIAL - This function should be chmod 0600 because
+X# it contains a password which you probably don't want to be
+X# common knowledge.
+X#
+X# This procedure calls 'unixlogin.ep' to do the hard work.
+X#-----------------------------------------------------------
+X
+X    mkvar $s_pwd(20)    # local variable preserves password
+X    $s_pwd = 'password' # security by disappearing when the
+X                        # procedure terminates
+X
+X#   also, by keeping the password text off the following line,
+X#   the password will not be displayed if you abort (interrupt)
+X#   the procedure
+X
+X    do 'unixlogin' %argv(0) 'username' $s_pwd 'ansi-or-whatever'
+X.DE
+X
+X.*s 2 "DO : perform procedure"
+X.DS L
+Xusage: do <procname> [<arg> ... ]
+X.DE
+X
+XPerform ECU procedure.  Ecu searches for <procname>.ep in
+Xthe current directory.  If the file is not found, the program
+Xlooks for the file in the ~/.ecu directory and in the ep subdirectory
+Xof the library directory (usually /usr/local/lib/ecu/ep).  One or more
+Xarguments may be passed to the procedure.  Arguments
+Xare made available in the called procedure by use of the
+X.B %argc
+Xinteger function and
+X.B %argv
+Xstring function.
+X
+XUnlike arguments to the
+X.B do
+Xprocedure command, 
+Xarguments to the
+X.B do
+Xinteractive command are not quoted and may not contain
+Xembedded spaces or tabs.
+X
+X
+X.*s 2 "DUplex : set/display duplex"
+X.DS L
+Xusage: duplex [ Full | Half ]
+X.DE
+X
+XThis command specifies whether or not ECU is to locally echo
+Xcharacters typed by you at the keyboard.  The overwhelming
+Xmajority of remote systems provide the echo function, in
+Xwhich case full duplex must be used.  For the rare occasions
+Xwhen the remote system does not echo your keyboard input,
+Xsetting half duplex will allow you to see what you are
+Xtyping.
+X
+XWhen communicating with another terminal in a "teletype
+Xconversation", setting half duplex is generally required.
+XIn such cases, use of the 
+X.B nl ,
+X.B nlin
+X.R
+Xand
+X.B nlout
+Xcommands may also be required.
+X
+XThe default setting for duplex is full.
+X
+X
+X.*s 2 "EXit : drop carrier, exit program"
+X.DS L
+Xusage: exit
+X.DE
+X
+XThis command terminates ECU promptly.  If your modem does
+Xnot drop carrier upon loss of Data Terminal Ready (DTR),
+Xthe command will terminate ECU,
+Xbut may leave the communications line off hook.
+XIt is strongly recommended that you configure your
+Xmodem to hang up the phone line when DTR drops.  A shorthand
+Xversion of this command exists: '.' is equivalent to 
+X.B exit .
+X
+X
+X.*s 2 "FI : send text file to line"
+X.DS L
+Xusage: fi [<filename>]  [ | f | e | s]
+X                        f full speed transmission
+X                        e echo pacing
+X                        s single line transmission
+X
+X.DE
+X
+X"file insert": This command causes file characters to be inserted
+Xinto the transmit data stream as though they had been entered at the
+Xkeyboard.  No error correction is provided, although XON/XOFF flow
+Xcontrol is obeyed.
+X
+XIf <filename> is not entered on the command line, a prompt for the
+Xfilename is made.  Once the filename has been entered and file has
+Xbeen opened, you are asked whether the file should be transmitted at
+Xfull speed, by "echo pacing" or by a single line at a time.  You may
+Xalso append an 'f', 'e' or 's' argument to the command line.
+X
+XIf your remote can tolerate it, full speed transmission is the
+Xfastest.  Some systems are not capable of receiving large amount of
+Xdata ("streaming data") without pauses.  Even with "full" speed
+Xtransmission, some "pacing" (inter-character delay) is introduced to
+Xease loading on the remote system.  Pressing the interrupt key (DEL)
+Xstops a full speed transmission.
+X
+XBy specifying echo pacing, it is possible to increase the likelihood
+Xof proper receipt.  Echo pacing reads the return data stream to
+Xattempt to keep from overloading the remote.  Pressing the interrupt
+Xkey (DEL) stops an echo paced transmission.
+X
+XAs a last resort, if echo pacing is not working for you, (i.e., you
+Xare using the command in an environment where the remote does not
+Xecho your characters), single line at a time transmission is
+Xavailable.  With "single" line transmission, you must press the
+Xspace key to initiate sending each line.  Pressing the 'ESC' or 's'
+Xkey stops the transfer.
+X
+X.*s 2 "FKEy : function key definition"
+X.DS L
+Xusage: fkey [<keyset_name>]
+X       fkey -r
+X.DE
+X
+XThis command allows the mapping of function keys F1-F12,
+XPgUp, PgDn, End and Ins and the cursor up, down, left and
+Xright keys to emit a desired sequence of characters when a
+Xfunction key is pressed.  <keyset_name> specifies which key
+Xset in ~/.ecu/keys is to be selected. Sample entry:
+X.DS I
+Xhayes
+X    F1:escape:+ + +
+X    F2:autoans:A T S 0 = 1 cr
+X    F3:dial:A T D T
+Xbbs
+X    F1:cancel:^K
+X    F2:yes:y cr
+X.DE
+X
+X-r resets the key handler to the same state as when ECU
+Xwas started.  See the section above titled "Standard Function Keys".
+X
+XIf a keyset_name matches a logical dial directory name, it
+Xis loaded after a connection is established.
+X
+XThe characters in the mapped string may be any printable character
+Xor one of the following:
+X.DS I
+Xmap -> character       map -> character
+X---    -----------     ---    ------------
+Xnul    0 000 00 ^@  |  dle    16 020 10 ^P
+Xsoh    1 001 01 ^A  |  dc1    17 021 11 ^Q
+Xstx    2 002 02 ^B  |  dc2    18 022 12 ^R
+Xetx    3 003 03 ^C  |  dc3    19 023 13 ^S
+Xeot    4 004 04 ^D  |  dc4    20 024 14 ^T
+Xenq    5 005 05 ^E  |  nak    21 025 15 ^U
+Xack    6 006 06 ^F  |  syn    22 026 16 ^V
+Xbel    7 007 07 ^G  |  etb    23 027 17 ^W
+Xbs     8 010 08 ^H  |  can    24 030 18 ^X
+Xht     9 011 09 ^I  |  em     25 031 19 ^Y
+Xnl    10 012 0a ^J  |  sub    26 032 1a ^Z
+Xvt    11 013 0b ^K  |  esc    27 033 1b ^[
+Xff    12 014 0c ^L  |  fs     28 034 1c ^\e
+Xcr    13 015 0d ^M  |  gs     29 035 1d ^]
+Xso    14 016 0e ^N  |  rs     30 036 1e ^^
+Xsi    15 017 0f ^O  |  us     31 037 1f ^_
+X.DE
+X
+X.*s 2 "FKMap : funckeymap (function key recognition) management"
+X.DS L
+Xusage: fkmap 
+X       fkmap <keyname>
+X       fkmap <keyname> <keylist>
+X       fkmap -r
+X       fkmap -s <file>
+X.DE
+X
+XThis command manages the mechanism ECU uses to recognize function
+Xkeys when they are entered at the console.  Entering the command
+Xwith no arguments displays the current mapping in funckeymap format.
+X
+XIf supplied, the first argument to the command must be the
+Xrecognized name of a function key from the list:
+X.DS L
+X F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12
+X Home End PgUp PgDn CUP CUL CU5 CUR CUD
+X.DE
+XThe case of the entered argument is unimportant.
+X
+XIf only one argument is supplied, the mapping for the specified key
+Xis displayed.  If more than one argument is supplied, the keyboard
+Xmapping is changed.  Arguments 2-n are character code specifiers
+Xin the format used to define a funckeymap entry.
+X
+X.B WARNING :
+XIf found to be syntactically correct, a mapping change
+Xis installed immediately.  If incorrect mapping of the HOME
+Xkey is requested, you may lose control of ECU.
+X
+XThe -r form rereads the original funckeymap definition (as
+Xat program invocation), reseting the mapping.  The -s switch
+Xsaves the current mapping to <file>.
+X
+X.DS L
+XExamples:
+X
+X    fkmap f10       display F10 mapping
+X    fkmap Home ^Z   map Home to ^Z
+X                    after this command, type ^Z for Home
+X.DE
+X
+X.*s 2 "HAngup : hang up modem"
+X.DS L
+Xusage: hangup
+X.DE
+X
+XThis causes DTR to be momentarily interrupted,
+Xterminating any outstanding connection.
+XYour DCE (modem) must be able to drop carrier upon loss of DTR.
+X
+X.*s 2 "HElp : invoke help"
+X.DS L
+Xusage: help [<cmd-name>]
+X.DE
+X
+XIssuing this command with no argument displays a list of
+Xcommands followed by a request for a command for further
+Xinformation.
+X
+X.*s 2 "KBDTest : test keyboard mapping"
+X.DS L
+Xusage: kbdtest
+X.DE
+X
+XThis command runs a keyboard test which asks you to press function keys
+X(e.g., F1).  For each key pressed, ECU gives you the actual character
+Xsequence generated by the key.  It also tells you which function key it
+Xrecognizes (if any).  mapping of keyboard generated character sequences
+Xto ECU internal key codes.  The command is useful for verifying and
+Xdebugging a "funckeymap" entry.  To exit the test at any time, press the
+Xescape key.
+X
+X.*s 2 "LLp : set session log to /dev/lp"
+X.DS L
+Xusage: llp
+X.DE
+X
+XThis command is a
+Xshorthand version of 'log /dev/lp'.  /dev/lp must not be
+Xunder the control of a print spooler.
+X
+X
+X.*s 2 "LOFf : turn off session logging"
+X.DS L
+Xusage: loff
+X.DE
+X
+XThis command is shorthand for 'log off'.  If session logging
+Xis active, it is turned off.
+X
+X.*s 2 "LOG : session logging control"
+X.DS L
+Xusage: log [-s] [-r] [ | off | filename ]
+X    -s "scratch" previous file contents; otherwise append
+X    -r "raw" logging; otherwise non-printable characters
+X        other than tab and newline are omitted from the log
+X.DE
+X
+XThis command controls session logging; issuing the command
+Xwith no argument causes the status of session logging to be
+Xdisplayed.  The special argument 'off' causes active logging
+Xto be terminated.  Other argument values cause logging to
+Xstart using the argument as a filename.  Issuing a 
+X.B log
+Xcommand with a filename when logging is already active causes the
+Xprevious file to be closed and the new file to be opened.
+XSwitches are meaningful only when used in conjunction with a
+Xfilename to start logging.
+X
+X
+X.*s 2 "NL : display CR/LF mapping"
+X.DS L
+Xusage: nl
+X.DE
+X
+XDisplay the current setting of CR/LF mapping.  For more
+Xinformation, refer to the
+X.B nlin
+Xand
+X.B nlout
+Xcommand descriptions.
+X
+X
+X.*s 2 "NLIn : set receive CR/LF mapping"
+X.DS L
+Xusage: nlin [<y-n>]
+X.DE
+X
+XThis command controls whether or not a newline (NL/LF)
+Xcharacter is sent to the screen upon receipt of a carriage
+Xreturn (CR) from the remote system.  Most remote computers
+Xsupply a NL after CR.  When communicating with another
+Xterminal in a "teletype conversation", this is generally not
+Xthe case (see also the 
+X.B duplex
+Xcommand).
+X
+XIssuing the command without <y-n> causes the current setting
+Xto be displayed.  The format of <y-n> is flexible: 'y' or '1'
+Xenables appending NL to CR, 'n' or '0' causes the
+Xfeature to be disabled.
+X
+X
+X.*s 2 "NLOut : set transmit CR/LF mapping"
+X.DS L
+Xusage: nlout [<y-n>]
+X.DE
+X
+XThis command controls whether or not a newline (NL/LF)
+Xcharacter is sent to the remote system upon transmission of
+Xa carriage return (CR) entered by the keyboard.  Most remote
+Xcomputers do not require (indeed "dislike") a NL after CR.
+XWhen communicating with another terminal in a "teletype
+Xconversation", this is generally not the case (see also the
+X.B duplex
+Xcommand).
+X
+XIssuing the command without <y-n> causes the current setting
+Xto be displayed.  The format of <y-n> is flexible: 'y' or '1'
+Xenables appending NL to CR, 'n' or '0' causes the
+Xfeature to be disabled.
+X
+X
+X.*s 2 "OA : octal to ascii char"
+X.DS L
+Xusage: oa [<octal-val>]
+X.DE
+X
+X<octal-val> is a octal value between 0 and 0377; the parity
+X(sign) bit is stripped and the equivalent ASCII character
+Xvalue is displayed.
+X
+XIf no argument is supplied, a table of control characters
+Xis printed containing decimal, octal, hex, ASCII identifiers
+Xand two-character control character identifier.
+X
+X
+X.*s 2 "PARity : set/display line parity"
+X.DS L
+Xusage: parity [ None | Even | Odd ]
+X.DE
+X
+XThis command controls the parity of characters transmitted
+Xby the keyboard.  Issuing the command with no argument
+Xdisplays the current setting.  When the argument is
+Xsupplied, only the first character is required.  Even or odd
+Xparity implies seven data bits; no parity implies eight data
+Xbits.  Parity of incoming characters is not checked.
+X
+XThe setting may be automatically changed as the result of an
+Xinteractive or procedure
+X.B dial
+Xcommand.  See the 
+X.B baud
+Xand 
+X.B dial
+Xcommand descriptions.
+X
+X
+X.*s 2 "PId : display process ids"
+X.DS L
+Xusage: pid
+X.DE
+X
+XThis command displays the process id of the ECU transmitter
+Xprocess, the ECU receiver process and the process ids of
+XECU's parent and group.
+X
+X.*s 2 "PLog : procedure logging"
+X.DS L
+Xusage: plog [ <filename> | off]
+X.DE
+X
+XThis command enables or disables procedure logging.
+X
+X.*s 2 "POpd : pop to previous directory"
+X.DS L
+Xusage: popd [ | <#> | all]
+X.DE
+X
+XThis command returns to a previous directory after a
+X.B pushd
+Xcommand has been previously executed.
+X
+XIf no argument is supplied, the directory at the immediately previous
+Xlevel is restored.  
+X
+XIf a numeric argument is supplied, the directory
+Xat the specified level is restored; the level numbers may be obtained by
+Xissuing a
+X.B pushd
+Xcommand with no arguments.
+X
+XIf the 'all' argument is supplied, it is treated as a numeric argument of 0;
+Xthat is the directory stack is cleared and the directory at level 0 is
+Xrestored.
+X
+XThe directory stack is shared between interactive and procedure
+Xcommands.  Neither beginning nor ending a procedure affects the
+Xdirectory stack level.
+X
+X.DS L
+XExamples:
+X   popd
+X   popd 3
+X   popd all
+X.DE
+X
+X.*s 2 "PTrace : control procedure trace"
+X.DS L
+Xusage: ptrace [ on | off | #]
+X     on  - set trace state to 1
+X     off - set trace state to 0
+X     #   - set trace to numeric value #
+X.DE
+X
+XThis command controls whether or not procedure execution is
+Xto be traced. Trace output is written to
+Xthe screen and varies in its nature depending
+Xupon the command being traced.  Specifically,
+Xany change to a string or integer variable
+Xis noted.  If tracing is enabled, the output will also be
+Xwritten to the procedure log file (see the
+X.b plog
+Xinteractive and procedure commands).
+X
+XThe majority of procedure tracing features use the current trace
+Xstate as a binary condition.  That is, either tracing is done
+Xor not.  However, the procedure command
+X.B expresp
+Xemits varying levels of debugging output in a manner similar to
+Xthe uucico -x flag.
+X
+XIssuing the command with no argument shows current status.
+X
+X.*s 2 "PUshd : push to new directory"
+X.DS L
+Xusage: pushd [ | <dir>]
+X.DE
+X
+XThis command either 1) saves the current directory pathname on
+Xa stack and establishes a new current directory or
+X2) displays the current stack and current directory.
+XThe stack size is 10.
+X
+XIf no argument is supplied, the directory stack is displayed.
+X
+XThe directory stack is shared between interactive and procedure
+Xcommands.  Neither beginning nor ending a procedure affects the
+Xdirectory stack level.
+X
+X.DS L
+XExamples:
+X   pushd
+X   pushd /tmp
+X.DE
+X
+X.*s 2 "PWd : print working directory"
+X.DS L
+Xusage: pwd
+X.DE
+X
+XThis command prints the current working directory of the ECU
+Xprocess.
+X
+X
+X.*s 2 "REDial : redial last number"
+X.DS L
+Xusage: redial [<retry-count> [<pause-interval>]]
+X.DE
+X
+XThis command redials a number previously dialed with the 'dial' command.
+XModem status is tested and multiple retries may be made.  <retry-count>
+Xspecifies how many retries are to be made.  <pause-interval> specifies
+Xhow many seconds the program pauses after a failure to connect.  You
+Xmust specify <retry-count> in order to specify <pause-interval>.  The
+Xdefault value for <retry-count> is 10, for <pause-interval> is 60.
+X
+XYou should know that in some jurisdictions, it is ILLEGAL to dial the
+Xsame telephone number more than a specified number of times during some
+Xinterval of time.  In any case, a <pause-interval> less than 15 seconds
+Xis silently changed to 15 seconds.
+X
+X.*s 2 "REV : ECU revision/make date"
+X.DS L
+Xusage: rev
+X.DE
+X
+XThis command displays ECU's revision, the transmitter process id'
+Xand the date and time ECU was made.
+X
+X.*s 2 "RK : receive via C-Kermit"
+X.DS L
+Xusage: rk
+X.DE
+X
+XThis command invokes C-Kermit to
+Xreceive
+Xfiles. ECU searches the PATH list for 'kermit' or 'ckermit',
+Xexpecting to find Columbia University C-Kermit version 5A(173)
+SHAR_EOF
+true || echo 'restore of doc/_icmd.txt failed'
+fi
+echo 'End of ecu320 part 36'
+echo 'File doc/_icmd.txt is continued in part 37'
+echo 37 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,3756 @@
+Newsgroups: comp.sources.misc
+From: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Subject: v41i100:  wwfs - WorldWide File System, Part15/22
+Message-ID: <1994Jan17.202428.20278@sparky.sterling.com>
+X-Md4-Signature: ecda4c6b83f01eed6179fcbd84d3c10a
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Nara Institute of Science and Technology, Japan
+Date: Mon, 17 Jan 1994 20:24:28 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Posting-number: Volume 41, Issue 100
+Archive-name: wwfs/part15
+Environment: UNIX, inet
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  csd/crc32.c csd/cs_subr.c csd/main.c csd/sched.c
+#   doc/overview.eps mosaic/ftplib.pl mosaic/gget.pl rpc/cs_prot_xdr.c
+#   rpc/nfs_prot.x rpc/nfs_prot_xdr.c saps/crontab-add.sh
+# Wrapped by kent@sparky on Sun Jan 16 17:48:37 1994
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 15 (of 22)."'
+if test -f 'csd/crc32.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/crc32.c'\"
+else
+  echo shar: Extracting \"'csd/crc32.c'\" \(7866 characters\)
+  sed "s/^X//" >'csd/crc32.c' <<'END_OF_FILE'
+X/*
+X * In WWFS we occasionally need crc to map filename to/from fileid,
+X * since some storage systems (e.g. FTP) doesn't support fileid.
+X *
+X * Minor modification for 32bit crc by Youki Kadobayashi, Osaka University
+X */
+Xstatic char *AtFSid = "$Header: crc32.c[109.0] Wed Nov 24 03:47:04 1993 youki-k@is.aist-nara.ac.jp saved $";
+X/* updcrc(3), crc(1) - calculate crc polynomials
+X *
+X * Calculate, intelligently, the CRC of a dataset incrementally given a
+X * buffer full at a time.
+X *
+X * Usage:
+X *      newcrc = updcrc( oldcrc, bufadr, buflen )
+X *              unsigned long oldcrc;
+X *		unsigned int buflen;
+X *              char *bufadr;
+X *
+X * Compiling with -DTEST creates a program to print the CRC of stdin to stdout.
+X * Compile with -DMAKETAB to print values for crctab to stdout.  If you change
+X *      the CRC polynomial parameters, be sure to do this and change
+X *      crctab's initial value.
+X *
+X * Notes:
+X *  Regards the data stream as an integer whose MSB is the MSB of the first
+X *  byte recieved.  This number is 'divided' (using xor instead of subtraction)
+X *  by the crc-polynomial P.
+X *  XMODEM does things a little differently, essentially treating the LSB of
+X * the first data byte as the MSB of the integer. Define SWAPPED to make
+X * things behave in this manner.
+X *
+X * Author:      Mark G. Mendel, 7/86
+X *              UUCP: ihnp4!umn-cs!hyper!mark, GEnie: mgm
+X */
+X 
+X/* The CRC polynomial.
+X * These 4 values define the crc-polynomial.
+X * If you change them, you must change crctab[]'s initial value to what is
+X * printed by initcrctab() [see 'compile with -DMAKETAB' above].
+X */
+X    /* Value used by:                   CITT    XMODEM  ARC     */
+X#define P        0xA0000001L  /* the poly:   0x1021  0x1021  A001    */
+X#define INIT_CRC 0L      /* init value: -1      0       0       */
+X#define SWAPPED          /* bit order:  undef   defined defined */
+X#define W       32       /* bits in CRC:16      16      16      */
+X 
+X    /* data type that holds a W-bit unsigned integer */
+X#if W <= 16
+X#  define WTYPE unsigned short
+X#else
+X#  define WTYPE   unsigned long
+X#endif
+X 
+X    /* the number of bits per char: don't change it. */
+X#define B       8
+X 
+Xstatic WTYPE crctab[1<<B] = /* as calculated by initcrctab() */ {
+X0x0L,  0xc0c00001L,  0xc1800001L,  0x1400000L,  0xc3000001L,  0x3c00000L,  0x2800000L,  0xc2400001L,
+X0xc6000001L,  0x6c00000L,  0x7800000L,  0xc7400001L,  0x5000000L,  0xc5c00001L,  0xc4800001L,  0x4400000L,
+X0xcc000001L,  0xcc00000L,  0xd800000L,  0xcd400001L,  0xf000000L,  0xcfc00001L,  0xce800001L,  0xe400000L,
+X0xa000000L,  0xcac00001L,  0xcb800001L,  0xb400000L,  0xc9000001L,  0x9c00000L,  0x8800000L,  0xc8400001L,
+X0xd8000001L,  0x18c00000L,  0x19800000L,  0xd9400001L,  0x1b000000L,  0xdbc00001L,  0xda800001L,  0x1a400000L,
+X0x1e000000L,  0xdec00001L,  0xdf800001L,  0x1f400000L,  0xdd000001L,  0x1dc00000L,  0x1c800000L,  0xdc400001L,
+X0x14000000L,  0xd4c00001L,  0xd5800001L,  0x15400000L,  0xd7000001L,  0x17c00000L,  0x16800000L,  0xd6400001L,
+X0xd2000001L,  0x12c00000L,  0x13800000L,  0xd3400001L,  0x11000000L,  0xd1c00001L,  0xd0800001L,  0x10400000L,
+X0xf0000001L,  0x30c00000L,  0x31800000L,  0xf1400001L,  0x33000000L,  0xf3c00001L,  0xf2800001L,  0x32400000L,
+X0x36000000L,  0xf6c00001L,  0xf7800001L,  0x37400000L,  0xf5000001L,  0x35c00000L,  0x34800000L,  0xf4400001L,
+X0x3c000000L,  0xfcc00001L,  0xfd800001L,  0x3d400000L,  0xff000001L,  0x3fc00000L,  0x3e800000L,  0xfe400001L,
+X0xfa000001L,  0x3ac00000L,  0x3b800000L,  0xfb400001L,  0x39000000L,  0xf9c00001L,  0xf8800001L,  0x38400000L,
+X0x28000000L,  0xe8c00001L,  0xe9800001L,  0x29400000L,  0xeb000001L,  0x2bc00000L,  0x2a800000L,  0xea400001L,
+X0xee000001L,  0x2ec00000L,  0x2f800000L,  0xef400001L,  0x2d000000L,  0xedc00001L,  0xec800001L,  0x2c400000L,
+X0xe4000001L,  0x24c00000L,  0x25800000L,  0xe5400001L,  0x27000000L,  0xe7c00001L,  0xe6800001L,  0x26400000L,
+X0x22000000L,  0xe2c00001L,  0xe3800001L,  0x23400000L,  0xe1000001L,  0x21c00000L,  0x20800000L,  0xe0400001L,
+X0xa0000001L,  0x60c00000L,  0x61800000L,  0xa1400001L,  0x63000000L,  0xa3c00001L,  0xa2800001L,  0x62400000L,
+X0x66000000L,  0xa6c00001L,  0xa7800001L,  0x67400000L,  0xa5000001L,  0x65c00000L,  0x64800000L,  0xa4400001L,
+X0x6c000000L,  0xacc00001L,  0xad800001L,  0x6d400000L,  0xaf000001L,  0x6fc00000L,  0x6e800000L,  0xae400001L,
+X0xaa000001L,  0x6ac00000L,  0x6b800000L,  0xab400001L,  0x69000000L,  0xa9c00001L,  0xa8800001L,  0x68400000L,
+X0x78000000L,  0xb8c00001L,  0xb9800001L,  0x79400000L,  0xbb000001L,  0x7bc00000L,  0x7a800000L,  0xba400001L,
+X0xbe000001L,  0x7ec00000L,  0x7f800000L,  0xbf400001L,  0x7d000000L,  0xbdc00001L,  0xbc800001L,  0x7c400000L,
+X0xb4000001L,  0x74c00000L,  0x75800000L,  0xb5400001L,  0x77000000L,  0xb7c00001L,  0xb6800001L,  0x76400000L,
+X0x72000000L,  0xb2c00001L,  0xb3800001L,  0x73400000L,  0xb1000001L,  0x71c00000L,  0x70800000L,  0xb0400001L,
+X0x50000000L,  0x90c00001L,  0x91800001L,  0x51400000L,  0x93000001L,  0x53c00000L,  0x52800000L,  0x92400001L,
+X0x96000001L,  0x56c00000L,  0x57800000L,  0x97400001L,  0x55000000L,  0x95c00001L,  0x94800001L,  0x54400000L,
+X0x9c000001L,  0x5cc00000L,  0x5d800000L,  0x9d400001L,  0x5f000000L,  0x9fc00001L,  0x9e800001L,  0x5e400000L,
+X0x5a000000L,  0x9ac00001L,  0x9b800001L,  0x5b400000L,  0x99000001L,  0x59c00000L,  0x58800000L,  0x98400001L,
+X0x88000001L,  0x48c00000L,  0x49800000L,  0x89400001L,  0x4b000000L,  0x8bc00001L,  0x8a800001L,  0x4a400000L,
+X0x4e000000L,  0x8ec00001L,  0x8f800001L,  0x4f400000L,  0x8d000001L,  0x4dc00000L,  0x4c800000L,  0x8c400001L,
+X0x44000000L,  0x84c00001L,  0x85800001L,  0x45400000L,  0x87000001L,  0x47c00000L,  0x46800000L,  0x86400001L,
+X0x82000001L,  0x42c00000L,  0x43800000L,  0x83400001L,  0x41000000L,  0x81c00001L,  0x80800001L,  0x40400000L,
+X} ;
+X 
+XWTYPE
+Xupdcrc( icrc, icp, icnt )
+X    WTYPE icrc;
+X    unsigned char *icp;
+X    int icnt;
+X{
+X    register WTYPE crc = icrc;
+X    register unsigned char *cp = icp;
+X    register int cnt = icnt;
+X 
+X    while( cnt-- ) {
+X#ifndef SWAPPED
+X        crc = (crc<<B) ^ crctab[(crc>>(W-B)) ^ *cp++];
+X#else
+X        crc = (crc>>B) ^ crctab[(crc & ((1<<B)-1)) ^ *cp++];
+X#endif SWAPPED
+X    }
+X 
+X    return( crc );
+X}
+X 
+X#ifdef MAKETAB
+X 
+X#include <stdio.h>
+X#include <limits.h>
+Xmain()
+X{
+X    initcrctab();
+X}
+X 
+Xinitcrctab()
+X{
+X    register  int b, i;
+X    WTYPE v;
+X 
+X 
+X    for( b = 0; b <= (1<<B)-1; ++b ) {
+X#ifndef SWAPPED
+X        for( v = b<<(W-B), i = B; --i >= 0; )
+X            v = v & ((WTYPE)1<<(W-1)) ? (v<<1)^P : v<<1;
+X#else
+X        for( v = b, i = B; --i >= 0; )
+X            v = v & 1 ? (v>>1)^P : v>>1;
+X#endif
+X        crctab[b] = v;
+X 
+X#if W <= 31
+X        printf( "0x%lx,", v & ((1L<<W)-1L));
+X#else
+X        printf( "0x%lxL,", v & ULONG_MAX);
+X#endif
+X        if( (b&7) == 7 )
+X            printf("\n" );
+X        else
+X            printf("  ");
+X    }
+X}
+X#endif
+X 
+X#ifdef TEST
+X 
+X#include <stdio.h>
+X#include <fcntl.h>
+X 
+X#define MAXBUF  4096
+X 
+Xmain( ac, av )
+X    int ac; char **av;
+X{
+X    int fd;
+X    int nr;
+X    int i;
+X    char buf[MAXBUF];
+X    WTYPE crc, crc2;
+X 
+X    fd = 0;
+X    if( ac > 1 )
+X        if( (fd = open( av[1], O_RDONLY )) < 0 ) {
+X            perror( av[1] );
+X            exit( -1 );
+X        }
+X    crc = crc2 = INIT_CRC;
+X 
+X    while( (nr = read( fd, buf, MAXBUF )) > 0 ) {
+X        crc = updcrc( crc, buf, nr );
+X    }
+X 
+X    if( nr != 0 )
+X        perror( "reading" );
+X    else {
+X        printf( "%lx\n", crc );
+X    }
+X 
+X#ifdef MAGICCHECK
+X    /* tack one's complement of crc onto data stream, and
+X       continue crc calculation.  Should get a constant (magic number)
+X       dependent only on P, not the data.
+X     */
+X    crc2 = crc ^ -1L;
+X    for( nr = W-B; nr >= 0; nr -= B ) {
+X        buf[0] = (crc2 >> nr);
+X        crc = updcrc(crc, buf, 1);
+X    }
+X 
+X    /* crc should now equal magic */
+X    buf[0] = buf[1] = buf[2] = buf[3] = 0;
+X    printf( "magic test: %lx =?= %lx\n", crc, updcrc(-1, buf, W/B));
+X#endif MAGICCHECK
+X}
+X 
+X#endif
+END_OF_FILE
+  if test 7866 -ne `wc -c <'csd/crc32.c'`; then
+    echo shar: \"'csd/crc32.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/crc32.c'
+fi
+if test -f 'csd/cs_subr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/cs_subr.c'\"
+else
+  echo shar: Extracting \"'csd/cs_subr.c'\" \(8626 characters\)
+  sed "s/^X//" >'csd/cs_subr.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/*
+X * RPC stubs for CS (WWFS Cluster Server) protocol.
+X *
+X * Darn. it would be far easier if I could write filesystems in Haskell.
+X */
+Xstatic char *AtFSid = "$Header: cs_subr.c[109.0] Wed Nov 24 03:47:06 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include "wfs.h"
+X#include "global.h"
+X#include "util.h"
+X
+Xvoid *
+Xcs_proc_null_1(argp, rqstp)	/* CS RPC keepalive */
+Xvoid *argp;
+Xsvc_req *rqstp;
+X{
+X	static char res;
+X	return (void *) &res;
+X}
+X
+Xint *
+Xcs_proc_getport_1(argp, rqstp)	/* XXX get NFS port - obsolete */
+Xvoid *argp;
+Xsvc_req *rqstp;
+X{
+X	static int res;
+X
+X#ifdef DEBUG_CSPROC
+X	dlog("cs_proc_getport_1");
+X#endif
+X	bzero((char *)&res, sizeof(res));
+X	res = cs_nfsport;
+X	return &res;
+X}
+X
+Xcs_fhres *
+Xcs_proc_register_1(argp, rqstp)
+Xvoid *argp;
+Xsvc_req *rqstp;
+X{
+X	static cs_fhres res;
+X	static wf_fh *fhp = (wf_fh *) &res.cs_fhres_u.file;
+X
+X	/* Establish relationship with csd by initial filehandle. */
+X	bzero((char *)&res, sizeof(res));
+X	res.status = CS_OK;
+X	fhp->world_id = cs_world;
+X	fhp->parent_vol = fhp->child_vol = WF_ROOT_VOL_ID;
+X	fhp->dir_id = fhp->file_id = WF_ROOT_DIR_ID;
+X	return &res;
+X}
+X
+Xcs_res *
+Xcs_proc_unregister_1(argp, rqstp)
+Xvoid *argp;
+Xsvc_req *rqstp;
+X{
+X	static cs_res res;
+X
+X	/* Purge relationship with csd. Just for "showmount" function. */
+X	res.status = CS_OK;
+X	bzero((char *)&res, sizeof(res));
+X	return &res;
+X}
+X
+Xstatic int
+Xis_cluster_root(rqstp)
+Xsvc_req *rqstp;
+X{
+X	sockaddr_in *sin;
+X	struct authunix_parms *unix_cred;
+X
+X	sin = svc_getcaller(rqstp->rq_xprt);
+X	if (rqstp->rq_cred.oa_flavor == AUTH_UNIX) {
+X		unix_cred = (struct authunix_parms *) rqstp->rq_clntcred;
+X		if (unix_cred->aup_uid == 0
+X		    && bcmp(&sin->sin_addr, &cs_ipaddr,
+X			    sizeof(struct in_addr)) == 0) {
+X			return 1;
+X		}
+X	}
+X	return 0;
+X}
+X
+X/* volname -> Bool */
+Xcs_res *
+Xcs_proc_mount_1(argp, rqstp)
+Xcs_volargs *argp;
+Xsvc_req *rqstp;
+X{
+X	static cs_res res;
+X	wf_thrd *c;
+X
+X#ifdef DEBUG_CSPROC
+X	dlog("cs_proc_mount_1");
+X#endif
+X	if (!is_cluster_root(rqstp)) {
+X		bzero((char *)&res, sizeof(res));
+X		res.status = CSERR_ACCES;
+X		return &res;
+X	}
+X	c = thrd_alloc();
+X	c->rqstp = CLONE(rqstp);
+X	c->fname = argp->vol;
+X	c->reply = cs_mount_done;
+X	cs_mount(c);
+X	return (cs_res *)0;
+X}
+X
+X/* volname -> Bool */
+Xcs_res *
+Xcs_proc_umount_1(argp, rqstp)
+Xcs_volargs *argp;
+Xsvc_req *rqstp;
+X{
+X	static cs_res res;
+X
+X#ifdef DEBUG_CSPROC
+X	dlog("cs_proc_umount_1");
+X#endif
+X	bzero((char *)&res, sizeof(res));
+X	if (!is_cluster_root(rqstp)) {
+X		res.status = CSERR_ACCES;
+X		return &res;
+X	}
+X	res.status = cs_umount(argp->vol);
+X	return &res;
+X}
+X
+X/* pathname -> filename -> [nfs_fh, fattr] */
+Xcs_diropres *
+Xcs_proc_lookup_1(argp, rqstp)
+Xcs_diropargs *argp;
+Xsvc_req *rqstp;
+X{
+X	static cs_diropres res;
+X	wf_fh fh;
+X	wf_vol *volp;
+X	int ret;
+X
+X#ifdef DEBUG_CSPROC
+X	dlog("cs_proc_lookup_1");
+X#endif
+X
+X	ret = cs_namei(argp->pname, &fh);
+X	if (ret != CS_OK) {
+X		bzero(&res, sizeof(res));
+X		res.status = ret;
+X		return &res;
+X	}
+X	volp = vol_findid(fh.child_vol);
+X	if (volp == NULL) {
+X		bzero(&res, sizeof(res));
+X		res.status = CSERR_STALE;
+X		return &res;
+X	}
+X	cs_lookup(rqstp, volp, &fh, argp->fname);
+X	return (cs_diropres *)0;
+X}
+X
+X/* nfs_fh -> cookie -> count -> [[file id, filename, fattr]] */
+Xcs_readdirres *
+Xcs_proc_readdir_1(argp, rqstp)
+Xcs_readdirargs *argp;
+Xsvc_req *rqstp;
+X{
+X	static cs_readdirres res;
+X	wf_fh *fhp = (wf_fh *) &argp->dir;
+X	wf_vol *volp;
+X
+X#ifdef DEBUG_CSPROC
+X	dlog("cs_proc_readdir_1");
+X#endif
+X	bzero(&res, sizeof(res));
+X	/* auth */
+X	if (fhp->world_id != cs_world) {
+X		res.status = CSERR_ACCES;
+X		return &res;
+X	}
+X
+X	volp = vol_findid(fhp->child_vol);
+X	if (volp == NULL) {
+X		res.status = CSERR_STALE;
+X		return &res;
+X	}
+X	cs_readdir(rqstp, volp, fhp, argp->cookie, argp->count);
+X	return (cs_readdirres *)0;
+X}
+X
+Xcs_readres *
+Xcs_proc_read_1(argp, rqstp)
+Xcs_readargs *argp;
+Xsvc_req *rqstp;
+X{
+X	static cs_readres res;
+X	wf_fh *fhp = (wf_fh *) &argp->file;
+X	wf_vol *volp;
+X
+X#ifdef DEBUG_CSPROC
+X	dlog("cs_proc_read_1");
+X#endif
+X	bzero(&res, sizeof(res));
+X	/* auth */
+X	if (fhp->world_id != cs_world) {
+X		res.status = CSERR_ACCES;
+X		return &res;
+X	}
+X
+X	volp = vol_findid(fhp->child_vol);
+X	if (volp == NULL) {
+X		res.status = CSERR_STALE;
+X		return &res;
+X	}
+X	cs_read(rqstp, volp, fhp, argp->offset, argp->count, argp->totalcount);
+X	return (cs_readres *)0;
+X}
+X
+Xcs_volres *
+Xcs_proc_getvol_1(argp, rqstp)
+Xcs_volargs *argp;
+Xsvc_req *rqstp;
+X{
+X	static cs_volres res;
+X	cs_volokres *p;
+X	wf_vol *volp;
+X
+X#ifdef DEBUG_CSPROC
+X	dlog("cs_proc_getvol_1");
+X#endif
+X	bzero((char *)&res, sizeof(res));
+X	volp = vol_findname(".", argp->vol);	/* XXX must support subdirs */
+X	if (volp == NULL) {
+X		res.status = CSERR_NOENT;
+X		return &res;
+X	}
+X	p = &res.cs_volres_u.volok;
+X	p->volume_id = volp->id;
+X	p->bytes_to_server = volp->stats.bytes_to_server;
+X	p->bytes_from_server = volp->stats.bytes_from_server;
+X	p->bytes_to_client = volp->stats.bytes_from_server;
+X	p->bytes_from_client = volp->stats.bytes_from_client;
+X	p->n_request_readdir = volp->stats.n_request_readdir;
+X	p->n_request_lookup = volp->stats.n_request_lookup;
+X	p->n_request_read = volp->stats.n_request_read;
+X	p->n_request_readdir_miss = volp->stats.n_request_readdir_miss;
+X	p->n_request_lookup_miss = volp->stats.n_request_lookup_miss;
+X	p->n_request_read_miss = volp->stats.n_request_read_miss;
+X	return &res;
+X}
+X
+Xcs_xferres *
+Xcs_proc_getxfer_1(fhp, rqstp)
+Xwf_fh *fhp;
+Xsvc_req *rqstp;
+X{
+X	static cs_xferres res;
+X	wf_vol *volp;
+X	wf_dir *dirp;
+X	wf_file *filep;
+X	wf_thrd *thrdp;
+X	sockaddr_in *sin;
+X
+X#ifdef DEBUG_CSPROC
+X	dlog("cs_proc_getxfer_1");
+X#endif
+X	bzero(&res, sizeof(res));
+X	volp = vol_findid(fhp->child_vol);
+X	if (!volp) {
+X		res.status = CSERR_STALE;
+X		return &res;
+X	}
+X	dirp = dir_findcache(volp, fhp->dir_id);
+X	if (!dirp) {
+X		res.status = CSERR_STALE;
+X		return &res;
+X	}
+X	filep = file_findid(dirp, fhp->child_vol, fhp->file_id);
+X	if (!filep) {
+X		res.status = CSERR_STALE;
+X		return &res;
+X	}
+X	if (!filep->thrdp) {
+X		/* not transferring this file */
+X		res.status = CSERR_NOENT;
+X		return &res;
+X	}
+X	thrdp = filep->thrdp;
+X	res.status = CS_OK;
+X	if (thrdp->rqstp->rq_cred.oa_flavor == AUTH_UNIX) {
+X                struct authunix_parms *unix_cred;
+X		unix_cred = (struct authunix_parms *) thrdp->rqstp->rq_clntcred;
+X		res.cs_xferres_u.xfer.uid = unix_cred->aup_uid;
+X		res.cs_xferres_u.xfer.gid = unix_cred->aup_gid;
+X	} else {
+X		res.cs_xferres_u.xfer.uid = 54321;	/* TNFS? yittch. */
+X		res.cs_xferres_u.xfer.gid = 54321;
+X	}
+X	sin = svc_getcaller(thrdp->rqstp->rq_xprt);
+X	res.cs_xferres_u.xfer.ip_address = sin->sin_addr.s_addr;
+X	res.cs_xferres_u.xfer.bytes = thrdp->bytes;
+X	res.cs_xferres_u.xfer.idle = thrdp->idle;
+X	res.cs_xferres_u.xfer.server.server_len = strlen(thrdp->cp->srv->name);
+X	res.cs_xferres_u.xfer.server.server_val = thrdp->cp->srv->name;
+X	return &res;
+X}
+X
+Xcs_udares *
+Xcs_proc_getuda_1(argp, rqstp)
+Xcs_udaargs *argp;
+Xsvc_req *rqstp;
+X{
+X	static cs_udares res;
+X
+X#ifdef DEBUG_CSPROC
+X	dlog("cs_proc_getuda_1");
+X#endif
+X	bzero((char *)&res, sizeof(res));
+X	cs_getuda(rqstp, (wf_fh *) &argp->file, argp->attrname);
+X	return &res;
+X}
+X
+Xcs_geterrres *
+Xcs_proc_geterr_1(argp, rqstp)
+Xcs_geterrargs *argp;
+Xsvc_req *rqstp;
+X{
+X	static cs_geterrres res;
+X
+X#ifdef DEBUG_CSPROC
+X	dlog("cs_proc_geterr_1");
+X#endif
+X	bzero((char *)&res, sizeof(res));
+X	cs_geterr(rqstp, argp->err_context);
+X	return &res;
+X}
+X
+END_OF_FILE
+  if test 8626 -ne `wc -c <'csd/cs_subr.c'`; then
+    echo shar: \"'csd/cs_subr.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/cs_subr.c'
+fi
+if test -f 'csd/main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/main.c'\"
+else
+  echo shar: Extracting \"'csd/main.c'\" \(8762 characters\)
+  sed "s/^X//" >'csd/main.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* Cluster Server; part of Worldwide File System */
+Xstatic char *AtFSid = "$Header: main.c[109.0] Wed Nov 24 03:47:11 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <sys/types.h>
+X#include <sys/signal.h>
+X#include <sys/file.h>		/* for R_OK */
+X#ifndef R_OK
+X#include <unistd.h>
+X#endif
+X#include <fcntl.h>		/* for O_RDWR */
+X#include <netdb.h>		/* for hostent */
+X#include <setjmp.h>		/* for jmp_buf */
+X#include <string.h>		/* for strchr */
+X#include <pwd.h>		/* for getpwnam */
+X#include "wfs.h"
+X#include "util.h"
+X#include "global.h"
+X#include <arpa/nameser.h>
+X#include <resolv.h>
+X
+X/* configurable parameters */
+Xchar		*cs_domain;		/* my domain name */
+Xchar		*cs_topdir;		/* top directory of entire system */
+Xunsigned long	cs_minfree;		/* minimum free space to be left */
+X
+X/* network related information */
+Xchar		cs_hostname[MAXHOSTNAMELEN];	/* my hostname */
+Xstruct in_addr	cs_ipaddr;			/* my IP address */
+Xint		cs_nfsport;			/* my NFS port */
+X
+X/* for messages */
+Xchar		*cs_progname;			/* my program name */
+Xint		cs_world = 0xC0FFEE;		/* my world id */
+Xint		cs_pid;				/* my process id */
+Xint		cs_uid;				/* my user id */
+Xint		cs_gid;				/* my group id */
+Xchar		*cs_conf = "/etc/csd.conf";	/* daemon configuration file */
+X
+X/* internal state */
+Xserv_state	cs_state;			/* my state */
+Xjmp_buf		select_intr;
+Xint		select_intr_valid;
+Xtime_t		now;
+Xint		foreground = 1;
+Xint		immediate_abort;
+X
+Xstatic void
+Xsigterm(sig)
+Xint sig;
+X{
+X	switch (sig) {
+X	case SIGINT:
+X		immediate_abort = 15;
+X		break;
+X	case SIGTERM:
+X		immediate_abort = -1;
+X		break;
+X	}
+X	syslog(LOG_WARNING, "going down on signal %d", sig);
+X	if (select_intr_valid)
+X		longjmp(select_intr, sig);
+X}
+X
+Xstatic void
+Xsighup(sig)
+Xint sig;
+X{
+X}
+X
+Xstatic void
+Xcsd_getnames()
+X{
+X	/* get identifiers: [gup]id, IP address, and hostname */
+X	struct sockaddr_in sin;
+X	struct passwd *pw;
+X
+X	/*
+X	 * get uid, gid, pid
+X	 */
+X	pw = getpwnam("wwfs");
+X	if (!pw) {
+X		syslog(LOG_CRIT, "Password entry for user \"wwfs\" not set");
+X		csd_abort(1);
+X	}
+X	cs_uid = pw->pw_uid;
+X	cs_gid = pw->pw_gid;
+X	cs_pid = getpid();
+X
+X	/*
+X	 * get IP address
+X	 */
+X	get_myaddress(&sin);		/* rpc(3N) */
+X	cs_ipaddr.s_addr = sin.sin_addr.s_addr;
+X
+X	/*
+X	 * get hostname
+X	 */
+X	if (gethostname(cs_hostname, sizeof(cs_hostname)) < 0) {
+X		syslog(LOG_CRIT, "gethostname: %m");
+X		csd_abort(1);
+X	}
+X	if (!*cs_hostname) {
+X		syslog(LOG_CRIT, "host name is not set");
+X		csd_abort(1);
+X	}
+X}
+X
+Xstatic void
+Xcsd_getdomain()
+X{
+X	/*
+X	 * get network name
+X	 */
+X	char *domdot;
+X
+X	if (domdot = strchr(cs_hostname, '.')) {
+X		/*
+X		 * Hostname already contains domainname.
+X		 * Split out hostname and domainname components
+X		 */
+X		*domdot++ = '\0';
+X		cs_domain = domdot;
+X	} else if (! cs_domain) {
+X		/* LIBS=-lresolv and proper DNS configuration required */
+X		struct hostent *hp;
+X		hp = gethostbyname(cs_hostname);
+X		assert(hp != NULL);
+X		strcpy(cs_hostname, hp->h_name);
+X		domdot = strchr(cs_hostname, '.');
+X		if (domdot) {
+X			*domdot++ = '\0';
+X			cs_domain = domdot;
+X		} else {
+X			int i;
+X			for (i = 0; hp->h_aliases[i]; ++i) {
+X				strcpy(cs_hostname, hp->h_aliases[i]);
+X				domdot = strchr(cs_hostname, '.');
+X				if (domdot) {
+X					*domdot++ = '\0';
+X					cs_domain = domdot;
+X					break;
+X				}
+X			}
+X		}
+X		assert(cs_domain != NULL);
+X	}
+X}
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X	int error;
+X
+X	/*
+X	 * initial status
+X	 */
+X	cs_state = Start;
+X	openlog("csd", LOG_PID, LOG_DAEMON);
+X
+X	/*
+X	 * sanity check
+X	 */
+X	assert(sizeof(nfscookie) >= sizeof (unsigned int));
+X	assert(sizeof(int) >= 4);
+X	if (geteuid() != 0) {
+X		syslog(LOG_WARNING, "Must be root to run WWFS");
+X		csd_abort(1);
+X	}
+X
+X	/*
+X	 * get program name
+X	 */
+X	if (argv[0]) {
+X		cs_progname = strrchr(argv[0], '/');
+X		if (cs_progname && cs_progname[1])
+X			cs_progname++;
+X		else
+X			cs_progname = argv[0];
+X	}
+X	if (!cs_progname)
+X		cs_progname = "csd";
+X
+X	/*
+X	 * get initial time
+X	 */
+X	realtime();
+X
+X	/*
+X	 * hook signal
+X	 */
+X	/* Trap interrupts for shutdowns. */
+X	(void) signal(SIGINT, sigterm);
+X
+X	/* Hangups tell us to reload the cache */
+X	(void) signal(SIGHUP, sighup);
+X
+X	/* Trap Terminate so that we can shutdown gracefully (some chance) */
+X	(void) signal(SIGTERM, sigterm);
+X
+X	/* ICMP is much informative than SIGPIPE */
+X	(void) signal(SIGPIPE, SIG_IGN);
+X
+X	/*
+X	 * get identifiers
+X	 */
+X	csd_getnames();
+X	if (parse_conf(cs_conf, csd_tailor) < 0) {
+X		dlog("error reading config file %s", cs_conf);
+X		csd_abort(1);		/* Fatal error in configuration file */
+X	}
+X	csd_getdomain();
+X
+X	/*
+X	 * get arguments
+X	 */
+X	/* XXX */
+X	/* get_args(argc, argv); */;
+X
+X	if (argc == 1	/* XXX */
+X	    && getppid() != 1) {	/* I'm not started by init. */
+X		int fd;
+X
+X		/* portions of this code came from
+X		 * "UNIX Network Programming", W. Richard Stevens
+X		 */
+X		if (background() > 0)
+X			exit(0);	/* parent process */
+X		
+X#ifdef TIOCNOTTY
+X		/* BSDism here. */
+X		setpgrp(0, getpid());
+X		if ((fd = open("/dev/tty", O_RDWR)) >= 0) {
+X			ioctl(fd, TIOCNOTTY, 0);
+X			close(fd);
+X		}
+X#else
+X		/* SysV anyone? */
+X		setpgrp();
+X#endif
+X		closelog();
+X		for (fd = 0; fd < NOFILE; ++fd)
+X			close(fd);
+X		errno = 0;
+X		openlog("csd", LOG_PID, LOG_DAEMON);	/* itch. */
+X	}
+X
+X	/*
+X	 * initialize other module as uid=root
+X	 */
+X	csd_start_1();
+X
+X	/*
+X	 * change user and group id
+X	 */
+X	setuid(cs_uid);
+X	setgid(cs_gid);
+X
+X	/*
+X	 * initialize other module as uid=wwfs
+X	 */
+X	csd_start_2();
+X
+X	/*
+X	 * other unix environments
+X	 */
+X	umask(022);
+X	chdir(cs_topdir);
+X
+X	/*
+X	 * DNS should not freeze csd
+X	 */
+X	_res.retrans = 1;
+X	_res.retry   = 5;
+X
+X	/*
+X	 * RPC binding
+X	 */
+X	error = csd_rpc();
+X
+X	/*
+X	 * start the server
+X	 */
+X	if (!error && csd_run() != Done) {
+X		syslog(LOG_CRIT, "csd_run failed");
+X		cs_state = Done;
+X	}
+X
+X	/*
+X	 * going down
+X	 */
+X	csd_abort(error);
+X
+X	abort();
+X}
+X
+X/* initialize other modules as root */
+Xvoid
+Xcsd_start_1()
+X{
+X	dlog_start();
+X	icmp_start();
+X}
+X
+X/* initialize other modules as wwfs */
+Xvoid
+Xcsd_start_2()
+X{
+X	getdate();
+X	alloc_start();
+X	root_start();
+X	bfs_start();
+X	dir_start();
+X	conn_start();
+X	thrd_start();
+X	uip_start();
+X	talk_start();
+X#ifdef TRACE
+X	trace_start();
+X#endif
+X}
+X
+Xvoid
+Xcsd_stop()
+X{
+X	thrd_stop();
+X	conn_stop();
+X	dlog_stop();
+X}
+X
+Xstatic int
+Xcsd_set_domain(name)
+Xchar *name;
+X{
+X	if (! strchr(name, '.')) {
+X		syslog(LOG_ERR, "%s: DOMAIN: invalid domain name", cs_conf);
+X		return -1;
+X	}
+X	cs_domain = name;
+X	return 0;
+X}
+X
+Xstatic int
+Xcsd_set_topdir(topdir)
+Xchar *topdir;
+X{
+X	if (validate_dir(topdir) < 0) {
+X		syslog(LOG_ERR, "%s: WWFSDIR (%s): %m", cs_conf, topdir);
+X		return -1;
+X	}
+X	/*
+X	 * now that topdir exists, check if it is writable by "wwfs"
+X	 */
+X	if (access(topdir, R_OK|W_OK|X_OK) < 0) {
+X		syslog(LOG_ERR, "%s: WWFSDIR (%s): permission denied",
+X		       cs_conf, topdir);
+X		return -1;
+X	}
+X	cs_topdir = topdir;
+X	return 0;
+X}
+X
+Xstatic int
+Xcsd_set_minfree(capacity)
+Xchar *capacity;
+X{
+X	switch (capacity[strlen(capacity)-1]) {
+X	case 'G':
+X	case 'g':
+X		cs_minfree = atoi(capacity) * 1024 * 1024 * 1024;
+X		break;
+X	case 'M':
+X	case 'm':
+X		cs_minfree = atoi(capacity) * 1024 * 1024;
+X		break;
+X	case 'K':
+X	case 'k':
+X		cs_minfree = atoi(capacity) * 1024;
+X		break;
+X	default:
+X		syslog(LOG_ERR, "%s: MINFREE: Ambiguous storage unit", cs_conf);
+X		return -1;
+X	}
+X	return 0;
+X}
+X
+Xstatic wf_tailor cs_tailor[] = {
+X	{ "DOMAIN", csd_set_domain },
+X	{ "MINFREE", csd_set_minfree },
+X	{ "WWFSDIR", csd_set_topdir },
+X	{ NULL, (int (*)())0 }
+X};
+X
+Xint
+Xcsd_tailor(name, value)
+Xchar *name;
+Xchar *value;
+X{
+X	return parse_tailor(cs_tailor, name, value);
+X}
+X
+END_OF_FILE
+  if test 8762 -ne `wc -c <'csd/main.c'`; then
+    echo shar: \"'csd/main.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/main.c'
+fi
+if test -f 'csd/sched.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/sched.c'\"
+else
+  echo shar: Extracting \"'csd/sched.c'\" \(7458 characters\)
+  sed "s/^X//" >'csd/sched.c' <<'END_OF_FILE'
+Xstatic char *AtFSid = "$Header: sched.c[109.0] Wed Nov 24 03:47:16 1993 youki-k@is.aist-nara.ac.jp saved $";
+X/*
+X * Copyright (c) 1990 Jan-Simon Pendry
+X * Copyright (c) 1990 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1990 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: sched.c,v 5.2.2.1 1992/02/09 15:09:02 jsp beta $
+X *
+X */
+X
+X/*
+X * Process scheduler
+X */
+X/* #define DEBUG_SLEEP */
+X
+X#include <sys/signal.h>
+X#include <sys/wait.h>
+X#include <setjmp.h>
+X#include "wfs.h"
+X#include "util.h"
+Xextern jmp_buf select_intr;
+Xextern int select_intr_valid;
+X
+Xtypedef struct pjob pjob;
+Xstruct pjob {
+X	qelem hdr;			/* Linked list */
+X	int pid;			/* Process ID of job */
+X	func cb_fun;			/* Callback function */
+X	void *cb_closure;		/* Closure for callback */
+X	void *wchan;			/* Wait channel */
+X};
+X
+Xextern qelem proc_list_head;
+Xqelem proc_list_head = { &proc_list_head, &proc_list_head };
+Xextern qelem proc_wait_list;
+Xqelem proc_wait_list = { &proc_wait_list, &proc_wait_list };
+X
+Xint task_notify_todo;
+X
+Xstatic pjob *sched_job(cf, ca)
+Xfunc cf;
+Xvoid *ca;
+X{
+X	pjob *p = ALLOC(pjob);
+X
+X	p->cb_fun = cf;
+X	p->cb_closure = ca;
+X
+X	/* Now append on wait queue */
+X	q_insert(p, LAST(pjob, &proc_wait_list));
+X
+X	return p;
+X}
+X
+Xstatic pjob *sched_job_atop(cf, ca)
+Xfunc cf;
+Xvoid *ca;
+X{
+X	pjob *p = ALLOC(pjob);
+X
+X	p->cb_fun = cf;
+X	p->cb_closure = ca;
+X
+X	/* Now place on top of wait queue */
+X	q_insert(p, &proc_wait_list);
+X
+X	return p;
+X}
+X
+Xvoid run_task(tf, ta, cf, ca)
+Xint (*tf)();
+Xvoid *ta;
+Xfunc cf;
+Xvoid *ca;
+X{
+X	pjob *p = sched_job(cf, ca);
+X	int mask;
+X
+X	p->wchan = (void *) p;
+X
+X	mask = sigblock(sigmask(SIGCHLD));
+X
+X	if (p->pid = background()) {
+X		sigsetmask(mask);
+X		return;
+X	}
+X
+X	exit((*tf)(ta));
+X	/* firewall... */
+X	abort();
+X}
+X
+X/*
+X * Schedule a task to be run when woken up
+X */
+Xvoid sched_task(cf, ca, wchan)
+Xfunc cf;
+Xvoid *ca;
+Xvoid *wchan;
+X{
+X	/*
+X	 * Allocate a new task
+X	 */
+X	pjob *p = sched_job(cf, ca);
+X	p->wchan = wchan;
+X	p->pid = 0;
+X#ifdef DEBUG_SLEEP
+X	dlog("SLEEP on %x", wchan);
+X#endif
+X}
+X
+X/*
+X * On some specific situation, the order of wakeupjob() calls
+X * lead to a problem, since every resource manipulation functions
+X * should be bracketed between resource-allocation functions and
+X * resource-freeing functions; incorrect ordering of wakeupjob()
+X * will violate this rule.
+X *
+X * sched_task_atop() was devised for this purpose; i.e. to avoid
+X * freeing resources before they are accessed.
+X */
+Xvoid sched_task_atop(cf, ca, wchan)
+Xfunc cf;
+Xvoid *ca;
+Xvoid *wchan;
+X{
+X	/*
+X	 * Allocate a new task
+X	 */
+X	pjob *p = sched_job_atop(cf, ca);
+X	p->wchan = wchan;
+X	p->pid = 0;
+X#ifdef DEBUG_SLEEP
+X	dlog("SLEEP on %x", wchan);
+X#endif
+X}
+X
+Xstatic void wakeupjob(p)
+Xpjob *p;
+X{
+X	q_remove(p);
+X	q_insert(p, &proc_list_head);
+X	task_notify_todo++;
+X#ifdef DEBUG_SLEEP
+X	dlog("task_notify_todo = %d", task_notify_todo);
+X#endif
+X}
+X
+Xvoid wakeup(wchan)
+Xvoid *wchan;
+X{
+X	pjob *p, *p2;
+X#ifdef DEBUG_SLEEP
+X	int done = 0;
+X#endif
+X
+X#ifdef DEBUG_SLEEP
+X	dlog("wakeup(%x)", wchan);
+X#endif
+X	/* Use ITER2() here because wakeupjob() juggles the list. */
+X	ITER2(p, p2, pjob, &proc_wait_list) {
+X		if (p->wchan == wchan) {
+X#ifdef DEBUG_SLEEP
+X			done = 1;
+X#endif
+X			wakeupjob(p);
+X		}
+X	}
+X
+X#ifdef DEBUG_SLEEP
+X	if (!done)
+X		dlog("Nothing SLEEPing on %x", wchan);
+X#endif
+X}
+X
+X/*ARGSUSED*/
+X
+Xvoid sigchld(sig)
+Xint sig;
+X{
+X	union wait w;
+X	int pid;
+X
+X#ifdef SYS5_SIGNALS
+X	if ((pid = wait(&w)) > 0) {
+X#else
+X	while ((pid = wait3((int *) &w, WNOHANG, (struct rusage *) 0)) > 0) {
+X#endif /* SYS5_SIGNALS */
+X		pjob *p, *p2;
+X
+X		if (WIFSIGNALED(w))
+X			syslog(LOG_ERR, "Process %d exited with signal %d",
+X				pid, w.w_termsig);
+X#ifdef DEBUG
+X		else
+X			dlog("Process %d exited with status %d",
+X				pid, w.w_retcode);
+X#endif /* DEBUG */
+X
+X		ITER2(p, p2, pjob, &proc_wait_list) {
+X			if (p->pid == pid) {
+X				wakeupjob(p);
+X				break;
+X			}
+X		}
+X
+X#ifdef DEBUG
+X		if (p) ; else dlog("can't locate task block for pid %d", pid);
+X#endif /* DEBUG */
+X	}
+X
+X#ifdef SYS5_SIGNALS
+X	signal(sig, sigchld);
+X#endif /* SYS5_SIGNALS */
+X	if (select_intr_valid)
+X		longjmp(select_intr, sig);
+X}
+X
+X/*
+X * Run any pending tasks.
+X * This must be called with SIGCHLD disabled
+X */
+Xvoid do_task_notify()
+X{
+X	/*
+X	 * Keep taking the first item off the list and processing it.
+X	 *
+X	 * Done this way because the the callback can, quite reasonably,
+X	 * queue a new task, so no local reference into the list can be
+X	 * held here.
+X	 */
+X#ifdef DEBUG_SLEEP
+X	dlog("do_task_notify");
+X#endif
+X	while (MORE(&proc_list_head)) {
+X		pjob *p = FIRST(pjob, &proc_list_head);
+X		q_remove(p);
+X		/*
+X		 * This job has completed
+X		 */
+X		--task_notify_todo;
+X#ifdef DEBUG_SLEEP
+X		dlog("task_notify_todo = %d", task_notify_todo);
+X#endif
+X
+X		/*
+X		 * Do callback if it exists
+X		 */
+X		if (p->cb_fun) {
+X			(*p->cb_fun)(p->cb_closure);
+X		}
+X
+X		FREE((void *) p);
+X	}
+X}
+X
+X#ifdef HAS_SVR3_SIGNALS
+X/*
+X * 4.2 signal library based on svr3 (4.1+ bsd) interface
+X * From Stephen C. Pope <scp@acl.lanl.gov).
+X */
+X
+Xstatic int current_mask = 0;
+X
+Xint sigblock(mask)
+Xint mask;
+X{
+X    int sig;
+X    int m;
+X    int oldmask;
+X
+X    oldmask = current_mask;
+X    for ( sig = 1, m = 1; sig <= MAXSIG; sig++, m <<= 1 ) {
+X        if (mask & m)  {
+X	    sighold(sig);
+X            current_mask |= m;
+X        }
+X    }
+X    return oldmask;
+X}
+X
+Xint sigsetmask(mask)
+Xint mask;
+X{
+X    int sig;
+X    int m;
+X    int oldmask;
+X
+X    oldmask = current_mask;
+X    for ( sig = 1, m = 1; sig <= MAXSIG; sig++, m <<= 1 ) {
+X        if (mask & m)  {
+X            sighold(sig);
+X            current_mask |= m;
+X        }
+X        else  {
+X            sigrelse(sig);
+X            current_mask &= ~m;
+X        }
+X    }
+X    return oldmask;
+X}
+X
+X#endif /* HAS_SVR3_SIGNALS */
+END_OF_FILE
+  if test 7458 -ne `wc -c <'csd/sched.c'`; then
+    echo shar: \"'csd/sched.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/sched.c'
+fi
+if test -f 'doc/overview.eps' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/overview.eps'\"
+else
+  echo shar: Extracting \"'doc/overview.eps'\" \(7624 characters\)
+  sed "s/^X//" >'doc/overview.eps' <<'END_OF_FILE'
+X%!PS-Adobe-2.0 EPSF-2.0
+X%%Title: /tmp/xfig-fig006468
+X%%Creator: fig2dev
+X%%CreationDate: Sat Aug 14 02:16:47 1993
+X%%For: youki-k@dec413 (Youki Kadobayashi)
+X%%BoundingBox: -1 0 617 233
+X%%Pages: 0
+X%%EndComments
+X/$F2psDict 200 dict def 
+X$F2psDict begin
+X$F2psDict /mtrx matrix put
+X/l {lineto} bind def
+X/m {moveto} bind def
+X/s {stroke} bind def
+X/n {newpath} bind def
+X/gs {gsave} bind def
+X/gr {grestore} bind def
+X/clp {closepath} bind def
+X/graycol {dup dup currentrgbcolor 4 -2 roll mul 4 -2 roll mul
+X4 -2 roll mul setrgbcolor} bind def
+X/col-1 {} def
+X/col0 {0 0 0 setrgbcolor} bind def
+X/col1 {0 0 1 setrgbcolor} bind def
+X/col2 {0 1 0 setrgbcolor} bind def
+X/col3 {0 1 1 setrgbcolor} bind def
+X/col4 {1 0 0 setrgbcolor} bind def
+X/col5 {1 0 1 setrgbcolor} bind def
+X/col6 {1 1 0 setrgbcolor} bind def
+X/col7 {1 1 1 setrgbcolor} bind def
+X /DrawEllipse {
+X	/endangle exch def
+X	/startangle exch def
+X	/yrad exch def
+X	/xrad exch def
+X	/y exch def
+X	/x exch def
+X	/savematrix mtrx currentmatrix def
+X	x y translate xrad yrad scale 0 0 1 startangle endangle arc
+X	savematrix setmatrix
+X	} def
+X
+X	end
+X/$F2psBegin {$F2psDict begin /$F2psEnteredState save def} def
+X/$F2psEnd {$F2psEnteredState restore end} def
+X%%EndProlog
+X
+X$F2psBegin
+X0 setlinecap 0 setlinejoin
+X-40.0 288.0 translate 0.900 -0.900 scale
+X0.500 setlinewidth
+X% Polyline
+Xn 66 204 m 59 204 59 237 7 arcto 4 {pop} repeat 59 244 102 244 7 arcto 4 {pop} repeat 109 244 109 211 7 arcto 4 {pop} repeat 109 204 66 204 7 arcto 4 {pop} repeat clp gs col-1 s gr
+X% Polyline
+Xn 114 249 m 114 199 l  54 199 l  54 249 l  clp gs col-1 s gr
+X% Polyline
+Xn 54 254 m 44 269 l  104 269 l  114 254 l  54 254 l gs col-1 s gr
+X% Polyline
+Xn 114 199 m 124 204 l  124 239 l  114 249 l gs col-1 s gr
+X% Polyline
+Xn 114 254 m 114 264 l  104 274 l  44 274 l  44 269 l gs col-1 s gr
+X% Polyline
+Xn 104 269 m 104 274 l gs col-1 s gr
+X/Courier findfont 6.00 scalefont setfont
+X64 214 m 
+Xgs 1 -1 scale (cd /ww/fs) col-1 show gr
+X/Courier findfont 6.00 scalefont setfont
+X64 224 m 
+Xgs 1 -1 scale (cat INDEX) col-1 show gr
+X/Courier findfont 6.00 scalefont setfont
+X64 234 m 
+Xgs 1 -1 scale (cd RFC) col-1 show gr
+X% Ellipse
+Xn 74 186 5 2 0 360 DrawEllipse gs col-1 s gr
+X% Ellipse
+Xn 81 178 8 4 0 360 DrawEllipse gs col-1 s gr
+X% Ellipse
+Xn 96 155 28 17 0 360 DrawEllipse gs col-1 s gr
+X/Helvetica-Bold findfont 16.00 scalefont setfont
+X79 159 m 
+Xgs 1 -1 scale ("     ") col-1 show gr
+X% Polyline
+Xn 394 259 m 394 174 l  329 174 l  329 259 l  clp gs col-1 s gr
+X% Polyline
+Xn 394 174 m 409 164 l  409 249 l  394 259 l gs col-1 s gr
+X% Polyline
+Xn 329 174 m 344 164 l  409 164 l gs col-1 s gr
+X% Polyline
+Xn 409 244 m 424 244 l  394 264 l  314 264 l  329 254 l gs col-1 s gr
+X% Polyline
+Xn 314 264 m 314 274 l  394 274 l  424 254 l  424 244 l gs col-1 s gr
+X% Polyline
+Xn 394 264 m 394 274 l gs col-1 s gr
+X% Polyline
+Xn 334 249 m 334 244 l  389 244 l  389 249 l  clp gs 0.75 setgray fill gr
+Xgs col-1 s gr
+X% Polyline
+Xn 334 239 m 334 234 l  389 234 l  389 239 l  clp gs 0.75 setgray fill gr
+Xgs col-1 s gr
+X% Polyline
+Xn 334 229 m 334 224 l  389 224 l  389 229 l  clp gs 0.75 setgray fill gr
+Xgs col-1 s gr
+X% Polyline
+Xn 334 219 m 334 214 l  389 214 l  389 219 l  clp gs 0.75 setgray fill gr
+Xgs col-1 s gr
+X% Polyline
+Xn 334 209 m 334 204 l  389 204 l  389 209 l  clp gs 0.75 setgray fill gr
+Xgs col-1 s gr
+X% Polyline
+Xn 699 259 m 699 174 l  634 174 l  634 259 l  clp gs col-1 s gr
+X% Polyline
+Xn 699 174 m 714 164 l  714 249 l  699 259 l gs col-1 s gr
+X% Polyline
+Xn 634 174 m 649 164 l  714 164 l gs col-1 s gr
+X% Polyline
+Xn 714 244 m 729 244 l  699 264 l  619 264 l  634 254 l gs col-1 s gr
+X% Polyline
+Xn 619 264 m 619 274 l  699 274 l  729 254 l  729 244 l gs col-1 s gr
+X% Polyline
+Xn 699 264 m 699 274 l gs col-1 s gr
+X% Polyline
+Xn 639 249 m 639 244 l  694 244 l  694 249 l  clp gs 0.75 setgray fill gr
+Xgs col-1 s gr
+X% Polyline
+Xn 639 239 m 639 234 l  694 234 l  694 239 l  clp gs 0.75 setgray fill gr
+Xgs col-1 s gr
+X% Polyline
+Xn 639 229 m 639 224 l  694 224 l  694 229 l  clp gs 0.75 setgray fill gr
+Xgs col-1 s gr
+X% Polyline
+Xn 639 219 m 639 214 l  694 214 l  694 219 l  clp gs 0.75 setgray fill gr
+Xgs col-1 s gr
+X% Polyline
+Xn 639 209 m 639 204 l  694 204 l  694 209 l  clp gs 0.75 setgray fill gr
+Xgs col-1 s gr
+X% Polyline
+Xn 261 204 m 254 204 254 237 7 arcto 4 {pop} repeat 254 244 297 244 7 arcto 4 {pop} repeat 304 244 304 211 7 arcto 4 {pop} repeat 304 204 261 204 7 arcto 4 {pop} repeat clp gs col-1 s gr
+X% Polyline
+Xn 309 249 m 309 199 l  249 199 l  249 249 l  clp gs col-1 s gr
+X% Polyline
+Xn 249 254 m 239 269 l  299 269 l  309 254 l  249 254 l gs col-1 s gr
+X% Polyline
+Xn 309 199 m 319 204 l  319 239 l  309 249 l gs col-1 s gr
+X% Polyline
+Xn 309 254 m 309 264 l  299 274 l  239 274 l  239 269 l gs col-1 s gr
+X% Polyline
+Xn 299 269 m 299 274 l gs col-1 s gr
+X/Courier findfont 6.00 scalefont setfont
+X259 214 m 
+Xgs 1 -1 scale (csd &) col-1 show gr
+X% Ellipse
+Xn 356 114 32 32 0 360 DrawEllipse gs col-1 s gr
+X% Ellipse
+Xn 664 104 42 42 0 360 DrawEllipse gs col-1 s gr
+X% Polyline
+Xn 94 149 m 84 164 l  104 164 l  94 149 l gs col-1 s gr
+X% Polyline
+Xn 566 204 m 559 204 559 237 7 arcto 4 {pop} repeat 559 244 602 244 7 arcto 4 {pop} repeat 609 244 609 211 7 arcto 4 {pop} repeat 609 204 566 204 7 arcto 4 {pop} repeat clp gs col-1 s gr
+X% Polyline
+Xn 614 249 m 614 199 l  554 199 l  554 249 l  clp gs col-1 s gr
+X% Polyline
+Xn 554 254 m 544 269 l  604 269 l  614 254 l  554 254 l gs col-1 s gr
+X% Polyline
+Xn 614 199 m 624 204 l  624 239 l  614 249 l gs col-1 s gr
+X% Polyline
+Xn 614 254 m 614 264 l  604 274 l  544 274 l  544 269 l gs col-1 s gr
+X% Polyline
+Xn 604 269 m 604 274 l gs col-1 s gr
+Xn 147.000 241.000 m 139.000 239.000 l 147.000 237.000 l gs 2 setlinejoin col-1 s gr
+X% Polyline
+Xn 139 239 m 239 239 l gs col-1 s gr
+Xn 231.000 237.000 m 239.000 239.000 l 231.000 241.000 l gs 2 setlinejoin col-1 s gr
+Xn 447.000 241.000 m 439.000 239.000 l 447.000 237.000 l gs 2 setlinejoin col-1 s gr
+X% Polyline
+Xn 439 239 m 539 239 l gs col-1 s gr
+Xn 531.000 237.000 m 539.000 239.000 l 531.000 241.000 l gs 2 setlinejoin col-1 s gr
+X% Polyline
+Xn 359 149 m 369 169 l gs col-1 s gr
+Xn 367.211 160.950 m 369.000 169.000 l 363.633 162.739 l gs 2 setlinejoin col-1 s gr
+X% Polyline
+Xn 664 149 m 674 169 l gs col-1 s gr
+Xn 672.211 160.950 m 674.000 169.000 l 668.633 162.739 l gs 2 setlinejoin col-1 s gr
+X% Polyline
+Xn 349 124 m 339 139 l  359 139 l  349 124 l gs col-1 s gr
+X% Polyline
+Xn 654 124 m 644 139 l  664 139 l  654 124 l gs col-1 s gr
+X% Polyline
+Xn 671 104 m 664 104 664 112 7 arcto 4 {pop} repeat 664 119 677 119 7 arcto 4 {pop} repeat 684 119 684 111 7 arcto 4 {pop} repeat 684 104 671 104 7 arcto 4 {pop} repeat clp gs col-1 s gr
+X% Polyline
+Xn 669 94 m 673 80 l  663 70 l  649 74 l  645 88 l  655 98 l 
+X clp gs col-1 s gr
+X% Polyline
+Xn 364 114 m 364 99 l  349 99 l  349 114 l  clp gs 0.50 setgray fill gr
+Xgs col-1 s gr
+X/Courier findfont 6.00 scalefont setfont
+X564 214 m 
+Xgs 1 -1 scale (cd /export) col-1 show gr
+X/Times-Roman findfont 16.00 scalefont setfont
+X174 234 m 
+Xgs 1 -1 scale (NFS) col-1 show gr
+X/Times-Roman findfont 16.00 scalefont setfont
+X474 234 m 
+Xgs 1 -1 scale (FTP) col-1 show gr
+X/Helvetica-Bold findfont 16.00 scalefont setfont
+X59 319 m 
+Xgs 1 -1 scale (wwmount) col-1 show gr
+X/Times-Roman findfont 16.00 scalefont setfont
+X59 299 m 
+Xgs 1 -1 scale (clients, with) col-1 show gr
+X/Times-Roman findfont 16.00 scalefont setfont
+X259 299 m 
+Xgs 1 -1 scale (cluster server, running) col-1 show gr
+X/Times-Roman findfont 16.00 scalefont setfont
+X579 299 m 
+Xgs 1 -1 scale (file servers, running) col-1 show gr
+X/Helvetica-Bold findfont 16.00 scalefont setfont
+X579 319 m 
+Xgs 1 -1 scale (ftpd) col-1 show gr
+X/Helvetica-Bold findfont 16.00 scalefont setfont
+X259 319 m 
+Xgs 1 -1 scale (csd) col-1 show gr
+X$F2psEnd
+END_OF_FILE
+  if test 7624 -ne `wc -c <'doc/overview.eps'`; then
+    echo shar: \"'doc/overview.eps'\" unpacked with wrong size!
+  fi
+  # end of 'doc/overview.eps'
+fi
+if test -f 'mosaic/ftplib.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mosaic/ftplib.pl'\"
+else
+  echo shar: Extracting \"'mosaic/ftplib.pl'\" \(8343 characters\)
+  sed "s/^X//" >'mosaic/ftplib.pl' <<'END_OF_FILE'
+X#
+X#   This is a set of ftp library routines using chat2.pl
+X# 
+X#   Return code information taken from RFC 959
+X
+X#   Written by Gene Spafford  <spaf@cs.purdue.edu>
+X#       Last update: 10 April 92,   Version 0.9
+X#
+X
+X#
+X#   Most of these routines communicate over an open ftp channel
+X#   The channel is opened with the "ftp'open" call.
+X#
+X
+Xpackage ftp;
+Xrequire "chat2.pl";
+Xrequire "syscall.ph";
+X
+X
+X###########################################################################
+X#
+X#  The following are the variables local to this package.
+X#  I declare them all up front so I can remember what I called 'em. :-)
+X#
+X###########################################################################
+X
+XLOCAL_VARS: {	
+X    $Control;
+X    $Data_handle;
+X    $Host;
+X    $Myhost = "\0" x 65;
+X    (syscall(&SYS_gethostname, $Myhost, 65) == 0) || 
+X	die "Cannot 'gethostname' of local machine (in ftplib)\n";
+X    $Myhost =~ s/\0*$//;
+X    $NeedsCleanup;
+X    $NeedsClose;
+X    $ftp_error;
+X    $ftp_matched;
+X    $ftp_trans_flag;
+X    @ftp_list;
+X
+X    local(@tmp) = getservbyname("ftp", "tcp");
+X    ($FTP = $tmp[2]) || 
+X	die "Unable to get service number for 'ftp' (in ftplib)!\n";
+X
+X    @std_actions = (
+X	    'TIMEOUT',
+X	    q($ftp_error = "Connection timed out for $Host!\n"; undef),
+X	    'EOF', 
+X	    q($ftp_error = "Connection to $Host timed out unexpectedly!\n"; undef)
+X    );
+X
+X    @sigs = ('INT', 'HUP', 'TERM', 'QUIT');  # sigs we'll catch & terminate on
+X}
+X
+X
+X
+X###########################################################################
+X#
+X#  The following are intended to be the user-callable routines.
+X#  Each of these does one of the ftp keyword functions.
+X#
+X###########################################################################
+X
+Xsub error { ## Public
+X    $ftp_error;
+X}
+X  
+X#######################################################
+X
+X#   cd up a directory level
+X
+Xsub cdup { ## Public
+X    &do_ftp_cmd(200, "cdup");
+X}
+X
+X#######################################################
+X
+X# close an open ftp connection
+X
+Xsub close { ## Public
+X    return unless $NeedsClose;
+X    &do_ftp_cmd(221, "quit");
+X    &chat'close($Control);
+X    undef $NeedsClose;
+X    &do_ftp_signals(0);
+X}
+X
+X#######################################################
+X
+X# change remote directory
+X
+Xsub cwd { ## Public
+X    &do_ftp_cmd(250, "cwd", @_);
+X}
+X  
+X#######################################################
+X
+X#  delete a remote file
+X
+Xsub delete { ## Public
+X     &do_ftp_cmd(250, "dele", @_); 
+X}
+X
+X#######################################################
+X
+X#  get a directory listing of remote directory ("ls -l")
+X
+Xsub dir { ## Public
+X    &do_ftp_listing("list", @_);
+X}
+X
+X#######################################################
+X
+X#  get a remote file to a local file
+X#    get(remote[, local])
+X
+Xsub get { ## Public
+X    local($remote, $local) = @_;
+X    ($local = $remote) unless $local;
+X
+X    unless (open(DFILE, ">$local")) {
+X	$ftp_error =  "Open of local file $local failed: $!";
+X	return undef;
+X    } else {
+X	$NeedsCleanup = $local;
+X    }
+X
+X    return undef unless &do_open_dport; 	# Open a data channel
+X    unless (&do_ftp_cmd(150, "retr $remote")) {
+X	$ftp_error .= "\nFile $remote not fetched from $Host\n";
+X	close DFILE;
+X	unlink $local;
+X	undef $NeedsCleanup;
+X	return;
+X    }
+X
+X    $ftp_trans_flag = 0;
+X
+X    do {
+X	&chat'expect($Data_handle, 60,
+X		     '.|\n', q{print DFILE ($chat'thisbuf) ||
+X			($ftp_trans_flag = 3); undef $chat'S},
+X		     'EOF',  '$ftp_trans_flag = 1',
+X		     'TIMEOUT', '$ftp_trans_flag = 2');
+X    } until $ftp_trans_flag;
+X
+X    close DFILE;
+X    &chat'close($Data_handle);		# Close the data channel
+X
+X    undef $NeedsCleanup;
+X    if ($ftp_trans_flag > 1) {
+X	unlink $local;
+X	$ftp_error = "Unexpected " . ($ftp_trans_flag == 2 ? "timeout" :
+X		($ftp_trans_flag != 3 ? "failure" : "local write failure")) .
+X                " getting $remote\n";
+X    }
+X    
+X    &do_ftp_cmd(226);
+X}
+X
+X#######################################################
+X
+X#  Do a simple name list ("ls")
+X
+Xsub list { ## Public
+X    &do_ftp_listing("nlst", @_);
+X}
+X
+X#######################################################
+X
+X#   Make a remote directory
+X
+Xsub mkdir { ## Public
+X    &do_ftp_cmd(257, "mkd", @_);
+X}
+X
+X#######################################################
+X
+X#  Open an ftp connection to remote host
+X
+Xsub open {  ## Public
+X    if ($NeedsClose) {
+X	$ftp_error = "Connection still open to $Host!";
+X	return undef;
+X    }
+X
+X    $Host = shift(@_);
+X    local($User, $Password, $Acct) = @_;
+X    $User = "anonymous" unless $User;
+X    $Password = "-" . $main'ENV{'USER'} . "@$Myhost" unless $Password;
+X    $ftp_error = '';
+X
+X    unless($Control = &chat'open_port($Host, $FTP)) {
+X	$ftp_error = "Unable to connect to $Host ftp port: $!";
+X	return undef;
+X    }
+X
+X    unless(&chat'expect($Control, 60,
+X		        "^220 .*\n",	 "1",
+X		        "^\d\d\d .*\n",  "undef")) {
+X	$ftp_error = "Error establishing control connection to $Host";
+X        &chat'close($Control);
+X	return undef;
+X    }
+X    &do_ftp_signals($NeedsClose = 1);
+X
+X    unless (&do_ftp_cmd(331, "user $User")) {
+X	$ftp_error .= "\nUser command failed establishing connection to $Host";
+X	return undef;
+X    }
+X
+X    unless (&do_ftp_cmd("(230|332|202)", "pass $Password")) {
+X	$ftp_error .= "\nPassword command failed establishing connection to $Host";
+X	return undef;
+X    }
+X
+X    return 1 unless $Acct;
+X
+X    unless (&do_ftp_cmd("(230|202)", "pass $Password")) {
+X	$ftp_error .= "\nAcct command failed establishing connection to $Host";
+X	return undef;
+X    }
+X    1;
+X}
+X
+X#######################################################
+X
+X#  Get name of current remote directory
+X
+Xsub pwd { ## Public
+X    if (&do_ftp_cmd(257, "pwd")) {
+X	$ftp_matched =~ m/^257 (.+)\r?\n/;
+X	$1;
+X    } else {
+X	undef;
+X    }    
+X}
+X
+X#######################################################
+X
+X#  Rename a remote file
+X
+Xsub rename { ## Public
+X    local($from, $to) = @_;
+X
+X    &do_ftp_cmd(350, "rnfr $from") && &do_ftp_cmd(250, "rnto $to");
+X}
+X
+X#######################################################
+X
+X#  Set transfer type
+X
+Xsub type { ## Public
+X    &do_ftp_cmd(200, "type", @_); 
+X}
+X
+X
+X###########################################################################
+X#
+X#  The following are intended to be utility routines used only locally.
+X#  Users should not call these directly.
+X#
+X###########################################################################
+X
+Xsub do_ftp_cmd {  ## Private
+X    local($okay, @commands, $val) = @_;
+X
+X    $commands[0] && 
+X	&chat'print($Control, join(" ", @commands), "\r\n");
+X
+X    &chat'expect($Control, 60, 
+X		 "^$okay .*\\n",        '$ftp_matched = $&; 1',
+X		 '^(\d)\d\d .*\\n', '($String = $&) =~ y/\r\n//d; 
+X		     $ftp_error = qq{Unexpected reply for ' .
+X		     "@commands" . ': $String}; 
+X		     $1 > 3 ? undef : 1',
+X		 @std_actions
+X		);
+X}
+X
+X#######################################################
+X
+Xsub do_ftp_listing { ## Private
+X    local(@lcmd) = @_;
+X    @ftp_list = ();
+X    $ftp_trans_flag = 0;
+X
+X    return undef unless &do_open_dport;
+X
+X    return undef unless &do_ftp_cmd(150, @lcmd);
+X    do {			#  Following is grotty, but chat2 makes us do it
+X        &chat'expect($Data_handle, 30,
+X		"(.*)\r?\n",    'push(@ftp_list, $1)',
+X		"EOF",     '$ftp_trans_flag = 1');
+X    } until $ftp_trans_flag;
+X
+X    &chat'close($Data_handle);
+X    return undef unless &do_ftp_cmd(226);
+X
+X    grep(y/\r\n//d, @ftp_list);
+X    @ftp_list;
+X}  
+X
+X#######################################################
+X
+Xsub do_open_dport { ## Private
+X    local(@foo, $port) = &chat'open_listen;
+X    ($port, $Data_handle) = splice(@foo, 4, 2);
+X
+X    unless ($Data_handle) {
+X	$ftp_error =  "Unable to open data port: $!";
+X	return undef;
+X    }
+X
+X    push(@foo, $port >> 8, $port & 0xff);
+X    local($myhost) = (join(',', @foo));
+X    
+X    &do_ftp_cmd(200, "port $myhost");
+X}
+X
+X#######################################################
+X#
+X#  To cleanup after a problem
+X#
+X
+Xsub do_ftp_abort {
+X    die unless $NeedsClose;
+X
+X    &chat'print($Control, "abor", "\r\n");
+X    &chat'close($Data_handle);
+X    &chat'expect($Control, 10, '.', undef);
+X    &chat'close($Control);
+X
+X    close DFILE;
+X    unlink($NeedsCleanup) if $NeedsCleanup;
+X    die;
+X}
+X
+X#######################################################
+X#
+X#  To set signals to do the abort properly
+X#
+X
+Xsub do_ftp_signals {
+X    local($flag, $sig) = @_;
+X
+X    local ($old, $new) = ('DEFAULT', "ftp'do_ftp_abort");
+X    $flag || (($old, $new) = ($new, $old));
+X    foreach $sig (@sigs) {
+X	($SIG{$sig} == $old) && ($SIG{$sig} = $new);
+X    }
+X}
+X
+X1;
+END_OF_FILE
+  if test 8343 -ne `wc -c <'mosaic/ftplib.pl'`; then
+    echo shar: \"'mosaic/ftplib.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mosaic/ftplib.pl'
+fi
+if test -f 'mosaic/gget.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mosaic/gget.pl'\"
+else
+  echo shar: Extracting \"'mosaic/gget.pl'\" \(8269 characters\)
+  sed "s/^X//" >'mosaic/gget.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X#
+X# gget               --- recursively get files starting at a given URL
+X#
+X# Given a starting URL, gget will recursively retrieve gopher files.
+X# It will also generate "gget.log" -- a table of titles and hosts.
+X# Tries to find as many new hosts as possible, and strictly
+X# limits the number of pages it will request from any one server.
+X#
+X# gget will stop when $maxtotal pages are retrieved (1000!),
+X# or when the all pages were retrieved,
+X# or when SIGINT is received (^C).
+X#
+X# NB: to get all pages recursively, try:
+X#       gget -ls <home-page>
+X#
+X# Author: Youki Kadobayashi <youki@wide.ad.jp>
+X# derived from "explore" written by: Oscar Nierstrasz oscar@cui.unige.ch
+X# This file is part of WWFS.
+X#
+X#v = '(v1.0)'; # August 30, 1993
+X#v = '(v1.1)'; # August 31 -- added triggering of xmosaic
+X#v = '(v1.2)'; # Sept 1 -- added various options; SIGINT handling
+X#v = '(v1.3)'; # Oct 21 -- fixed counting of hosts; added -d
+X#v = '(v1.4)'; # Oct 23 -- fixed sigint to allow <CR> to continue
+X#                #       -- fixed printing of $hostsig
+X$v = '(v1.0)'; # Nov 14, 1993 -- gget initial revision
+X
+Xrequire '/etc/csd.pl';
+Xunshift(@INC, "$WWFSDIR/lib");
+Xrequire 'url.pl';
+Xrequire 'dirutil.pl';
+X
+X$usg = 'Usage: gget [<options>] <gopher-url>
+X	<gopher-url>      -- URL to start with (no default)
+X	<output file>   -- default is gget.log
+X	-m <maxpages>   -- max pages to get per site (default 5)
+X	-t <maxtotal>   -- max total pages to get (default 100)
+X	-h <maxhosts>   -- max hosts to explore (default unlimited)
+X	-s <savedir>	-- directory to save pages to (default current)
+X	-ls             -- list all pages at starting site (use with care!)
+X';
+X$maxpages = 5;          # max pages to retrieve per site
+X$maxtotal = 100;        # max pages to retrieve in total
+X$maxhosts = undef;      # max hosts to visit
+X
+X$hosts = 1;             # hosts visited (always at least 1)
+X
+Xchop($date = `date +%d.%m.%y`);
+X$sig = "This page was generated by gget $v on $date.\n";
+X
+X# A good default starting point:
+X# $whatsnew = "http://www.ncsa.uiuc.edu/SDG/Software/Mosaic/Docs/whats-new.html";
+X# $start = "http://www.ncsa.uiuc.edu/SDG/Software/Mosaic/StartingPoints/NetworkStartingPoints.html";
+X
+X# default log file:
+X$deflog = "gget.log";
+X
+X# default save directory:
+X$savedir = ".";
+X
+Xwhile ($#ARGV >= $[) {
+X	$arg = shift @ARGV;
+X
+X	if ($arg eq "-m") {
+X		$arg = shift @ARGV;
+X		if ($arg =~ /^\d+$/){
+X			print STDERR "maxpages = $arg (was $maxpages)\n";
+X			$maxpages = $arg;
+X			next;
+X		}
+X		else { die "Bad arg for -m\n$usg"; }
+X	}
+X
+X	if ($arg eq "-t") {
+X		$arg = shift @ARGV;
+X		if ($arg =~ /^\d+$/){
+X			print STDERR "maxtotal = $arg (was $maxtotal)\n";
+X			$maxtotal = $arg;
+X			next;
+X		}
+X		else { die "Bad arg for -t\n$usg"; }
+X	}
+X
+X	if ($arg eq "-h") {
+X		$arg = shift @ARGV;
+X		if ($arg =~ /^\d+$/){
+X			print STDERR "maxhosts = $arg (was $maxhosts)\n";
+X			$maxhosts = $arg;
+X			next;
+X		}
+X		else { die "Bad arg for -h\n$usg"; }
+X	}
+X
+X	if ($arg eq "-s") {
+X		$arg = shift @ARGV;
+X		if (-d $arg) {
+X			print STDERR "directory = $arg (was $savedir)\n";
+X			$savedir = $arg;
+X			next;
+X		}
+X		else { die "Bad arg for -s\n$usg"; }
+X	}
+X
+X	if ($arg eq "-ls") {
+X		$maxhosts = 1;
+X		$maxtotal = $maxpages = 1000;
+X		next;
+X	}
+X
+X	if ($arg eq "-h") { die "$usg"; }
+X	if ($arg =~ /^-/) { die "Invalid flag\n$usg"; }
+X	if ($arg =~ /^gopher:/) {
+X		if ($start) { die "Please give only one URL\n$usg"; }
+X		$start = $arg;
+X	}
+X	else {
+X		if ($log) { die "Please give only one output file\n$usg"; }
+X		$log = $arg;
+X	}
+X}
+X
+Xunless ($start) { die "$usg"; }
+Xunless ($log) { $log = $deflog; }
+X(open(STDOUT,">$log")) || die "Can't create $log\n";
+X$| = 1;
+Xprint STDERR "Writing output to $log\n";
+X&explore($start);
+X
+X# Explore the gopherspace, starting at $url.
+X# Maintains a list @tocheck of URLs to try.
+Xsub explore {
+X	local($url) = @_;
+X	if ($maxhosts == 1) {
+X		print "Log of gopher transfer from $url\n$sig\n";
+X	}
+X	else {
+X		print "Log of gopher transfer starting at $url\n";
+X		if ($maxhosts) {
+X			print "Maximum hosts to visit = $maxhosts.\n";
+X		}
+X		print "Max pages per site = $maxpages.\n",
+X			"Max total pages = $maxtotal.\n$sig\n";
+X	}
+X
+X	$SIG{'INT'} = 'sigint'; # Stop when SIGINT is received
+X	push(@tocheck,$url);    # Initialize
+X	$seen{$url} = 1;        # Remember that we've seen it
+X	($thistype,$thishost, $thisport, $thispath, $request) =
+X		&url'parse(undef,undef,undef,undef,$url);
+X	$seenhost{$thishost} = 1;
+X
+X	while ($#tocheck >= $[) {
+X		$url = shift @tocheck;
+X		# Remember current host, port and path:
+X		($thistype,$thishost, $thisport, $thispath, $request) =
+X			&url'parse(undef,undef,undef,undef,$url);
+X		print STDERR "Requesting $url\n";
+X		unless ($page = &url'get($url)) {
+X			print "Can't get $url\n";
+X			next;
+X		} ;
+X
+X		# Extract the title and detect errors
+X		if ($page =~ /^0Server Error:/) {
+X			print "Invalid page: $url\n";
+X			next;
+X		}
+X
+X		# Save URL and gopher output
+X		&save_url($savedir . $request, $url);
+X		if ($thispath =~ m:^/1/: || $thispath =~ m:^/$:) {
+X			&savefile("/tmp/gget$$", $page);
+X		} else {
+X			&savefile($savedir . $request, $page);
+X			next;
+X		}
+X
+X		# Attempt to convert the gopher listing to an HTML
+X		open(G, "/tmp/gget$$");
+X		$html = "Select one of:<P>\n<UL>";
+X		while (<G>) {
+X			chop; chop;        # strip CRLF
+X			($host, $port, $path, $type, $title)
+X			   = &parse_gopher($_);
+X			$href = "gopher://$host:$port/$path";
+X			$html .= "<LI> <A HREF=\"$href\">$title</A>\n";
+X
+X			# Skip this host if invalid:
+X			unless ($host) { next; }
+X			# Skip if seen already:
+X			if ($seen{$href}) { next; }
+X			$seen{$href} = 1;
+X			# Don't ask too many pages from a given host:
+X			unless (++$count{$host} <= $maxpages) { next; }
+X			if ($seenhost{$host}) {
+X				# Seen this host, so add to end of queue:
+X				print STDERR "Pushing $href\n";
+X				push(@tocheck,$href);
+X			}
+X			else {
+X				if ($maxhosts) {
+X					if (++$hosts > $maxhosts) { next; }
+X				}
+X				# New host, so add to front:
+X				print STDERR "Queueing $href\n";
+X				unshift(@tocheck,$href);
+X				$seenhost{$host} = 1;
+X			}
+X		}
+X		close(G);
+X		$html .= "</UL>\n";
+X		&savefile($savedir . $request . "/", $html);
+X
+X		if (!($maxhosts == 1)) { $hostsig = " ($thishost)"; }
+X		# This page is ok, so log it:
+X		print "$title$hostsig\n";
+X		# from the last request
+X		if (++$entries >= $maxtotal) { last; }
+X	}
+X
+X	print "\nSearch completed.\n";
+X	close(STDOUT);
+X	print STDERR "Result of exploration in $log\n";
+X}
+X
+Xsub parse_gopher {
+X	local ($entry) = @_;
+X	local ($type, $title, $path, $host, $port);
+X
+X	($title, $path, $host, $port) = split("\t", $entry);
+X	($type, $title) = unpack("a1 a*", $title);
+X#	print "$entry => $host, $port, $path, $type, $title\n";
+X	return ($host, $port, $path, $type, $title);
+X}
+X
+Xsub save_url {
+X	# keep url-to-file mapping information
+X	local ($path, $url) = @_;
+X	local ($dir, $file);
+X
+X	($dir, $file) = &basename($path);
+X	($url, $file) = &basename($url);
+X	if (! -e "$dir/.url") {
+X		open(URL, ">$dir/.url");
+X		print URL "$url\n";
+X		close(URL);
+X	}
+X}
+X
+Xsub savefile {
+X	local ($path, $page) = @_;
+X	local ($dir, $file);
+X
+X	($dir, $file) = &basename($path);
+X	# make directories if necessary, and write the page
+X	if (! -d $dir) {
+X		if (&mkdirhier($dir)) {
+X			print "mkdir $dir\n";
+X		} else {
+X			print "Error in creating $dir: $!\n";
+X		}
+X	}
+X	if ($path =~ m:/$:) {
+X		# gopherd may have mapped directory to a page,
+X		# e.g, "/" -> "/foo/Welcome.html".
+X		# as a workaround, we save it under some name
+X		# unlikely to conflict.
+X		$path .= "urlget_dir.html";
+X	}
+X	if (open(FILE, ">$path")) {
+X		print FILE $page;
+X		close(FILE);
+X		print "got $path: ";
+X	} else {
+X		print "Error in creating $path: $!: ";
+X	}
+X}
+X
+Xsub sigint {
+X	local ($/) = "\n";
+X	local ($res);
+X	print STDERR "Enter <CR> to continue, \"q\" to quit\n";
+X	chop ($res = <STDIN>);
+X	return if ($res eq "");
+X	if ($res ne "q") {
+X	    print STDERR "Invalid response -- continuing\n";
+X	    return;
+X	}
+X	print STDERR "Quitting\n";
+X	# should dump @tocheck in a file?
+X	print "\n\nInterrupted!\n";
+X	close(STDOUT);
+X	print STDERR "Result of exploration in $log\n";
+X	exit(0);
+X}
+X
+X# return a list of all the hrefs in a page
+Xsub hrefs {
+X	local($page) = @_;
+X	$page =~ s/^[^<]+</</;
+X	$page =~ s/>[^<]*</></g;
+X	$page =~ s/<a[^>]*href\s*=\s*"([^"]+)"[^>]*>/$1\n/gi;
+X	$page =~ s/<[^>]*>//g;
+X	$page =~ s/\n+/\n/g;
+X	split(/\n/,$page);
+X}
+X
+X# Local Variables:
+X# mode: cperl
+X# cperl-indent-level: 8
+X# cperl-continued-statement-offset: 8
+X# End:
+END_OF_FILE
+  if test 8269 -ne `wc -c <'mosaic/gget.pl'`; then
+    echo shar: \"'mosaic/gget.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mosaic/gget.pl'
+fi
+if test -f 'rpc/cs_prot_xdr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rpc/cs_prot_xdr.c'\"
+else
+  echo shar: Extracting \"'rpc/cs_prot_xdr.c'\" \(8068 characters\)
+  sed "s/^X//" >'rpc/cs_prot_xdr.c' <<'END_OF_FILE'
+X/*
+X * Please do not edit this file.
+X * It was generated using rpcgen.
+X */
+X
+X#include <rpc/rpc.h>
+X#include "cs_prot.h"
+X
+Xbool_t
+Xxdr_cs_stat(xdrs, objp)
+X	XDR *xdrs;
+X	cs_stat *objp;
+X{
+X	if (!xdr_enum(xdrs, (enum_t *)objp)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_fhres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_fhres *objp;
+X{
+X	if (!xdr_cs_stat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case CS_OK:
+X		if (!xdr_nfs_fh(xdrs, &objp->cs_fhres_u.file)) {
+X			return (FALSE);
+X		}
+X		break;
+X	default:
+X		if (!xdr_long(xdrs, &objp->cs_fhres_u.err_context)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_res(xdrs, objp)
+X	XDR *xdrs;
+X	cs_res *objp;
+X{
+X	if (!xdr_cs_stat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case CS_OK:
+X		break;
+X	default:
+X		if (!xdr_long(xdrs, &objp->cs_res_u.err_context)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_volname(xdrs, objp)
+X	XDR *xdrs;
+X	volname *objp;
+X{
+X	if (!xdr_string(xdrs, objp, CS_MAXNAMLEN)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_volargs(xdrs, objp)
+X	XDR *xdrs;
+X	cs_volargs *objp;
+X{
+X	if (!xdr_volname(xdrs, &objp->vol)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_volokres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_volokres *objp;
+X{
+X	if (!xdr_long(xdrs, &objp->volume_id)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->bytes_to_server)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->bytes_from_server)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->bytes_to_client)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->bytes_from_client)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->n_request_readdir)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->n_request_lookup)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->n_request_read)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->n_request_readdir_miss)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->n_request_lookup_miss)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->n_request_read_miss)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_volres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_volres *objp;
+X{
+X	if (!xdr_cs_stat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case CS_OK:
+X		if (!xdr_cs_volokres(xdrs, &objp->cs_volres_u.volok)) {
+X			return (FALSE);
+X		}
+X		break;
+X	default:
+X		if (!xdr_long(xdrs, &objp->cs_volres_u.err_context)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_xferent(xdrs, objp)
+X	XDR *xdrs;
+X	cs_xferent *objp;
+X{
+X	if (!xdr_int(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->uid)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->gid)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->ip_address)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->bytes)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->idle)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_array(xdrs, (char **)&objp->server.server_val, (u_int *)&objp->server.server_len, CS_MAXHOSTLEN, sizeof(char), xdr_char)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_xferres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_xferres *objp;
+X{
+X	if (!xdr_cs_stat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case CS_OK:
+X		if (!xdr_cs_xferent(xdrs, &objp->cs_xferres_u.xfer)) {
+X			return (FALSE);
+X		}
+X		break;
+X	default:
+X		if (!xdr_long(xdrs, &objp->cs_xferres_u.err_context)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_udaargs(xdrs, objp)
+X	XDR *xdrs;
+X	cs_udaargs *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->file)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_string(xdrs, &objp->attrname, CS_MAXNAMLEN)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_udares(xdrs, objp)
+X	XDR *xdrs;
+X	cs_udares *objp;
+X{
+X	if (!xdr_cs_stat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case CS_OK:
+X		if (!xdr_array(xdrs, (char **)&objp->cs_udares_u.attr.attr_val, (u_int *)&objp->cs_udares_u.attr.attr_len, CS_MAXDATA, sizeof(char), xdr_char)) {
+X			return (FALSE);
+X		}
+X		break;
+X	default:
+X		if (!xdr_long(xdrs, &objp->cs_udares_u.err_context)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_diropargs(xdrs, objp)
+X	XDR *xdrs;
+X	cs_diropargs *objp;
+X{
+X	if (!xdr_nfspath(xdrs, &objp->pname)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_filename(xdrs, &objp->fname)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_diropokres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_diropokres *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->file)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_fattr(xdrs, &objp->attr)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_diropres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_diropres *objp;
+X{
+X	if (!xdr_cs_stat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case CS_OK:
+X		if (!xdr_cs_diropokres(xdrs, &objp->cs_diropres_u.diropok)) {
+X			return (FALSE);
+X		}
+X		break;
+X	default:
+X		if (!xdr_long(xdrs, &objp->cs_diropres_u.err_context)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_readdirargs(xdrs, objp)
+X	XDR *xdrs;
+X	cs_readdirargs *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->dir)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->cookie)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->count)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_dirent(xdrs, objp)
+X	XDR *xdrs;
+X	cs_dirent *objp;
+X{
+X	if (!xdr_u_int(xdrs, &objp->fileid)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_filename(xdrs, &objp->name)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_fattr(xdrs, &objp->attr)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_pointer(xdrs, (char **)&objp->nextentry, sizeof(cs_dirent), xdr_cs_dirent)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_readdirokres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_readdirokres *objp;
+X{
+X	if (!xdr_pointer(xdrs, (char **)&objp->entries, sizeof(cs_dirent), xdr_cs_dirent)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_bool(xdrs, &objp->eof)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_readdirres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_readdirres *objp;
+X{
+X	if (!xdr_cs_stat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case CS_OK:
+X		if (!xdr_cs_readdirokres(xdrs, &objp->cs_readdirres_u.readdirok)) {
+X			return (FALSE);
+X		}
+X		break;
+X	default:
+X		if (!xdr_long(xdrs, &objp->cs_readdirres_u.err_context)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_readargs(xdrs, objp)
+X	XDR *xdrs;
+X	cs_readargs *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->file)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->offset)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->count)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->totalcount)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_bool(xdrs, &objp->prefer_bulk)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_readokres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_readokres *objp;
+X{
+X	if (!xdr_fattr(xdrs, &objp->attr)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_bytes(xdrs, (char **)&objp->data.data_val, (u_int *)&objp->data.data_len, CS_MAXDATA)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_readbulkres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_readbulkres *objp;
+X{
+X	if (!xdr_fattr(xdrs, &objp->attr)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_long(xdrs, &objp->sin_port)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_readres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_readres *objp;
+X{
+X	if (!xdr_cs_stat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case CS_OK:
+X		if (!xdr_cs_readokres(xdrs, &objp->cs_readres_u.readok)) {
+X			return (FALSE);
+X		}
+X		break;
+X	case CS_BULK:
+X		if (!xdr_cs_readbulkres(xdrs, &objp->cs_readres_u.readbulk)) {
+X			return (FALSE);
+X		}
+X		break;
+X	default:
+X		if (!xdr_long(xdrs, &objp->cs_readres_u.err_context)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_geterrargs(xdrs, objp)
+X	XDR *xdrs;
+X	cs_geterrargs *objp;
+X{
+X	if (!xdr_long(xdrs, &objp->err_context)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_cs_geterrres(xdrs, objp)
+X	XDR *xdrs;
+X	cs_geterrres *objp;
+X{
+X	if (!xdr_cs_stat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case CS_OK:
+X		if (!xdr_string(xdrs, &objp->cs_geterrres_u.err_string, CS_MAXNAMLEN)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+END_OF_FILE
+  if test 8068 -ne `wc -c <'rpc/cs_prot_xdr.c'`; then
+    echo shar: \"'rpc/cs_prot_xdr.c'\" unpacked with wrong size!
+  fi
+  # end of 'rpc/cs_prot_xdr.c'
+fi
+if test -f 'rpc/nfs_prot.x' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rpc/nfs_prot.x'\"
+else
+  echo shar: Extracting \"'rpc/nfs_prot.x'\" \(7830 characters\)
+  sed "s/^X//" >'rpc/nfs_prot.x' <<'END_OF_FILE'
+X/* @(#)nfs_prot.x	1.2 87/11/12 3.9 RPCSRC */
+X
+X/*
+X * Sun RPC is a product of Sun Microsystems, Inc. and is provided for
+X * unrestricted use provided that this legend is included on all tape
+X * media and as a part of the software program in whole or part.  Users
+X * may copy or modify Sun RPC without charge, but are not authorized
+X * to license or distribute it to anyone else except as part of a product or
+X * program developed by the user.
+X * 
+X * SUN RPC IS PROVIDED AS IS WITH NO WARRANTIES OF ANY KIND INCLUDING THE
+X * WARRANTIES OF DESIGN, MERCHANTIBILITY AND FITNESS FOR A PARTICULAR
+X * PURPOSE, OR ARISING FROM A COURSE OF DEALING, USAGE OR TRADE PRACTICE.
+X * 
+X * Sun RPC is provided with no support and without any obligation on the
+X * part of Sun Microsystems, Inc. to assist in its use, correction,
+X * modification or enhancement.
+X * 
+X * SUN MICROSYSTEMS, INC. SHALL HAVE NO LIABILITY WITH RESPECT TO THE
+X * INFRINGEMENT OF COPYRIGHTS, TRADE SECRETS OR ANY PATENTS BY SUN RPC
+X * OR ANY PART THEREOF.
+X * 
+X * In no event will Sun Microsystems, Inc. be liable for any lost revenue
+X * or profits or other special, indirect and consequential damages, even if
+X * Sun has been advised of the possibility of such damages.
+X * 
+X * Sun Microsystems, Inc.
+X * 2550 Garcia Avenue
+X * Mountain View, California  94043
+X */
+X
+X/*
+X * nfs_prot.x 1.2 87/10/12
+X * Copyright 1987 Sun Microsystems, Inc.
+X */
+Xconst NFS_PORT          = 2049;
+Xconst NFS_MAXDATA       = 8192;
+Xconst NFS_MAXPATHLEN    = 1024;
+Xconst NFS_MAXNAMLEN	= 255;
+Xconst NFS_FHSIZE	= 32;
+Xconst NFS_COOKIESIZE	= 4;
+Xconst NFS_FIFO_DEV	= -1;	/* size kludge for named pipes */
+X
+X/*
+X * File types
+X */
+Xconst NFSMODE_FMT  = 0170000;	/* type of file */
+Xconst NFSMODE_DIR  = 0040000;	/* directory */
+Xconst NFSMODE_CHR  = 0020000;	/* character special */
+Xconst NFSMODE_BLK  = 0060000;	/* block special */
+Xconst NFSMODE_REG  = 0100000;	/* regular */
+Xconst NFSMODE_LNK  = 0120000;	/* symbolic link */
+Xconst NFSMODE_SOCK = 0140000;	/* socket */
+Xconst NFSMODE_FIFO = 0010000;	/* fifo */
+X
+X/*
+X * Error status
+X */
+Xenum nfsstat {
+X	NFS_OK= 0,		/* no error */
+X	NFSERR_PERM=1,		/* Not owner */
+X	NFSERR_NOENT=2,		/* No such file or directory */
+X	NFSERR_IO=5,		/* I/O error */
+X	NFSERR_NXIO=6,		/* No such device or address */
+X	NFSERR_ACCES=13,	/* Permission denied */
+X	NFSERR_EXIST=17,	/* File exists */
+X	NFSERR_NODEV=19,	/* No such device */
+X	NFSERR_NOTDIR=20,	/* Not a directory*/
+X	NFSERR_ISDIR=21,	/* Is a directory */
+X	NFSERR_FBIG=27,		/* File too large */
+X	NFSERR_NOSPC=28,	/* No space left on device */
+X	NFSERR_ROFS=30,		/* Read-only file system */
+X	NFSERR_NAMETOOLONG=63,	/* File name too long */
+X	NFSERR_NOTEMPTY=66,	/* Directory not empty */
+X	NFSERR_DQUOT=69,	/* Disc quota exceeded */
+X	NFSERR_STALE=70,	/* Stale NFS file handle */
+X	NFSERR_WFLUSH=99	/* write cache flushed */
+X};
+X
+X/*
+X * File types
+X */
+Xenum ftype {
+X	NFNON = 0,	/* non-file */
+X	NFREG = 1,	/* regular file */
+X	NFDIR = 2,	/* directory */
+X	NFBLK = 3,	/* block special */
+X	NFCHR = 4,	/* character special */
+X	NFLNK = 5,	/* symbolic link */
+X	NFSOCK = 6,	/* unix domain sockets */
+X	NFBAD = 7,	/* unused */
+X	NFFIFO = 8 	/* named pipe */
+X};
+X
+X#ifndef RPC_XDR
+X%#ifndef NFS_FH_DEFINED	/* nfs_fh has been declared in cs_prot.h */
+X#endif
+X/*
+X * File access handle
+X */
+Xstruct nfs_fh {
+X	opaque data[NFS_FHSIZE];
+X};
+X#ifndef RPC_XDR
+X%#define NFS_FH_DEFINED
+X%#endif
+X#endif
+X
+X/* 
+X * Timeval
+X */
+Xstruct nfstime {
+X	unsigned seconds;
+X	unsigned useconds;
+X};
+X
+X
+X/*
+X * File attributes
+X */
+Xstruct fattr {
+X	ftype type;		/* file type */
+X	unsigned mode;		/* protection mode bits */
+X	unsigned nlink;		/* # hard links */
+X	unsigned uid;		/* owner user id */
+X	unsigned gid;		/* owner group id */
+X	unsigned size;		/* file size in bytes */
+X	unsigned blocksize;	/* prefered block size */
+X	unsigned rdev;		/* special device # */
+X	unsigned blocks;	/* Kb of disk used by file */
+X	unsigned fsid;		/* device # */
+X	unsigned fileid;	/* inode # */
+X	nfstime	atime;		/* time of last access */
+X	nfstime	mtime;		/* time of last modification */
+X	nfstime	ctime;		/* time of last change */
+X};
+X
+X/*
+X * File attributes which can be set
+X */
+Xstruct sattr {
+X	unsigned mode;	/* protection mode bits */
+X	unsigned uid;	/* owner user id */
+X	unsigned gid;	/* owner group id */
+X	unsigned size;	/* file size in bytes */
+X	nfstime	atime;	/* time of last access */
+X	nfstime	mtime;	/* time of last modification */
+X};
+X
+X
+Xtypedef string filename<NFS_MAXNAMLEN>; 
+Xtypedef string nfspath<NFS_MAXPATHLEN>;
+X
+X/*
+X * Reply status with file attributes
+X */
+Xunion attrstat switch (nfsstat status) {
+Xcase NFS_OK:
+X	fattr attributes;
+Xdefault:
+X	void;
+X};
+X
+Xstruct sattrargs {
+X	nfs_fh file;
+X	sattr attributes;
+X};
+X
+X/*
+X * Arguments for directory operations
+X */
+Xstruct diropargs {
+X	nfs_fh	dir;	/* directory file handle */
+X	filename name;		/* name (up to NFS_MAXNAMLEN bytes) */
+X};
+X
+Xstruct diropokres {
+X	nfs_fh file;
+X	fattr attributes;
+X};
+X
+X/*
+X * Results from directory operation
+X */
+Xunion diropres switch (nfsstat status) {
+Xcase NFS_OK:
+X	diropokres diropres;
+Xdefault:
+X	void;
+X};
+X
+Xunion readlinkres switch (nfsstat status) {
+Xcase NFS_OK:
+X	nfspath data;
+Xdefault:
+X	void;
+X};
+X
+X/*
+X * Arguments to remote read
+X */
+Xstruct readargs {
+X	nfs_fh file;		/* handle for file */
+X	unsigned offset;	/* byte offset in file */
+X	unsigned count;		/* immediate read count */
+X	unsigned totalcount;	/* total read count (from this offset)*/
+X};
+X
+X/*
+X * Status OK portion of remote read reply
+X */
+Xstruct readokres {
+X	fattr	attributes;	/* attributes, need for pagin*/
+X	opaque data<NFS_MAXDATA>;
+X};
+X
+Xunion readres switch (nfsstat status) {
+Xcase NFS_OK:
+X	readokres reply;
+Xdefault:
+X	void;
+X};
+X
+X/*
+X * Arguments to remote write 
+X */
+Xstruct writeargs {
+X	nfs_fh	file;		/* handle for file */
+X	unsigned beginoffset;	/* beginning byte offset in file */
+X	unsigned offset;	/* current byte offset in file */
+X	unsigned totalcount;	/* total write count (to this offset)*/
+X	opaque data<NFS_MAXDATA>;
+X};
+X
+Xstruct createargs {
+X	diropargs where;
+X	sattr attributes;
+X};
+X
+Xstruct renameargs {
+X	diropargs from;
+X	diropargs to;
+X};
+X
+Xstruct linkargs {
+X	nfs_fh from;
+X	diropargs to;
+X};
+X
+Xstruct symlinkargs {
+X	diropargs from;
+X	nfspath to;
+X	sattr attributes;
+X};
+X
+X
+Xtypedef opaque nfscookie[NFS_COOKIESIZE];
+X
+X/*
+X * Arguments to readdir
+X */
+Xstruct readdirargs {
+X	nfs_fh dir;		/* directory handle */
+X	nfscookie cookie;
+X	unsigned count;		/* number of directory bytes to read */
+X};
+X
+Xstruct entry {
+X	unsigned fileid;
+X	filename name;
+X	nfscookie cookie;
+X	entry *nextentry;
+X};
+X
+Xstruct dirlist {
+X	entry *entries;
+X	bool eof;
+X};
+X
+Xunion readdirres switch (nfsstat status) {
+Xcase NFS_OK:
+X	dirlist reply;
+Xdefault:
+X	void;
+X};
+X
+Xstruct statfsokres {
+X	unsigned tsize;	/* preferred transfer size in bytes */
+X	unsigned bsize;	/* fundamental file system block size */
+X	unsigned blocks;	/* total blocks in file system */
+X	unsigned bfree;	/* free blocks in fs */
+X	unsigned bavail;	/* free blocks avail to non-superuser */
+X};
+X
+Xunion statfsres switch (nfsstat status) {
+Xcase NFS_OK:
+X	statfsokres reply;
+Xdefault:
+X	void;
+X};
+X
+X/*
+X * Remote file service routines
+X */
+Xprogram NFS_PROGRAM {
+X	version NFS_VERSION {
+X		void 
+X		NFSPROC_NULL(void) = 0;
+X
+X		attrstat 
+X		NFSPROC_GETATTR(nfs_fh) =	1;
+X
+X		attrstat 
+X		NFSPROC_SETATTR(sattrargs) = 2;
+X
+X		void 
+X		NFSPROC_ROOT(void) = 3;
+X
+X		diropres 
+X		NFSPROC_LOOKUP(diropargs) = 4;
+X
+X		readlinkres 
+X		NFSPROC_READLINK(nfs_fh) = 5;
+X
+X		readres 
+X		NFSPROC_READ(readargs) = 6;
+X
+X		void 
+X		NFSPROC_WRITECACHE(void) = 7;
+X
+X		attrstat
+X		NFSPROC_WRITE(writeargs) = 8;
+X
+X		diropres
+X		NFSPROC_CREATE(createargs) = 9;
+X
+X		nfsstat
+X		NFSPROC_REMOVE(diropargs) = 10;
+X
+X		nfsstat
+X		NFSPROC_RENAME(renameargs) = 11;
+X
+X		nfsstat
+X		NFSPROC_LINK(linkargs) = 12;
+X
+X		nfsstat
+X		NFSPROC_SYMLINK(symlinkargs) = 13;
+X
+X		diropres
+X		NFSPROC_MKDIR(createargs) = 14;
+X
+X		nfsstat
+X		NFSPROC_RMDIR(diropargs) = 15;
+X
+X		readdirres
+X		NFSPROC_READDIR(readdirargs) = 16;
+X
+X		statfsres
+X		NFSPROC_STATFS(nfs_fh) = 17;
+X	} = 2;
+X} = 100003;
+X
+END_OF_FILE
+  if test 7830 -ne `wc -c <'rpc/nfs_prot.x'`; then
+    echo shar: \"'rpc/nfs_prot.x'\" unpacked with wrong size!
+  fi
+  # end of 'rpc/nfs_prot.x'
+fi
+if test -f 'rpc/nfs_prot_xdr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rpc/nfs_prot_xdr.c'\"
+else
+  echo shar: Extracting \"'rpc/nfs_prot_xdr.c'\" \(8059 characters\)
+  sed "s/^X//" >'rpc/nfs_prot_xdr.c' <<'END_OF_FILE'
+X/*
+X * Please do not edit this file.
+X * It was generated using rpcgen.
+X */
+X
+X#include <rpc/rpc.h>
+X#include "nfs_prot.h"
+X
+Xbool_t
+Xxdr_nfsstat(xdrs, objp)
+X	XDR *xdrs;
+X	nfsstat *objp;
+X{
+X	if (!xdr_enum(xdrs, (enum_t *)objp)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_ftype(xdrs, objp)
+X	XDR *xdrs;
+X	ftype *objp;
+X{
+X	if (!xdr_enum(xdrs, (enum_t *)objp)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_nfs_fh(xdrs, objp)
+X	XDR *xdrs;
+X	nfs_fh *objp;
+X{
+X	if (!xdr_opaque(xdrs, objp->data, NFS_FHSIZE)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_nfstime(xdrs, objp)
+X	XDR *xdrs;
+X	nfstime *objp;
+X{
+X	if (!xdr_u_int(xdrs, &objp->seconds)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->useconds)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_fattr(xdrs, objp)
+X	XDR *xdrs;
+X	fattr *objp;
+X{
+X	if (!xdr_ftype(xdrs, &objp->type)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->mode)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->nlink)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->uid)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->gid)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->size)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->blocksize)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->rdev)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->blocks)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->fsid)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->fileid)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_nfstime(xdrs, &objp->atime)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_nfstime(xdrs, &objp->mtime)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_nfstime(xdrs, &objp->ctime)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_sattr(xdrs, objp)
+X	XDR *xdrs;
+X	sattr *objp;
+X{
+X	if (!xdr_u_int(xdrs, &objp->mode)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->uid)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->gid)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->size)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_nfstime(xdrs, &objp->atime)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_nfstime(xdrs, &objp->mtime)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_filename(xdrs, objp)
+X	XDR *xdrs;
+X	filename *objp;
+X{
+X	if (!xdr_string(xdrs, objp, NFS_MAXNAMLEN)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_nfspath(xdrs, objp)
+X	XDR *xdrs;
+X	nfspath *objp;
+X{
+X	if (!xdr_string(xdrs, objp, NFS_MAXPATHLEN)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_attrstat(xdrs, objp)
+X	XDR *xdrs;
+X	attrstat *objp;
+X{
+X	if (!xdr_nfsstat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case NFS_OK:
+X		if (!xdr_fattr(xdrs, &objp->attrstat_u.attributes)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_sattrargs(xdrs, objp)
+X	XDR *xdrs;
+X	sattrargs *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->file)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_sattr(xdrs, &objp->attributes)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_diropargs(xdrs, objp)
+X	XDR *xdrs;
+X	diropargs *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->dir)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_filename(xdrs, &objp->name)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_diropokres(xdrs, objp)
+X	XDR *xdrs;
+X	diropokres *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->file)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_fattr(xdrs, &objp->attributes)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_diropres(xdrs, objp)
+X	XDR *xdrs;
+X	diropres *objp;
+X{
+X	if (!xdr_nfsstat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case NFS_OK:
+X		if (!xdr_diropokres(xdrs, &objp->diropres_u.diropres)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_readlinkres(xdrs, objp)
+X	XDR *xdrs;
+X	readlinkres *objp;
+X{
+X	if (!xdr_nfsstat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case NFS_OK:
+X		if (!xdr_nfspath(xdrs, &objp->readlinkres_u.data)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_readargs(xdrs, objp)
+X	XDR *xdrs;
+X	readargs *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->file)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->offset)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->count)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->totalcount)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_readokres(xdrs, objp)
+X	XDR *xdrs;
+X	readokres *objp;
+X{
+X	if (!xdr_fattr(xdrs, &objp->attributes)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_bytes(xdrs, (char **)&objp->data.data_val, (u_int *)&objp->data.data_len, NFS_MAXDATA)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_readres(xdrs, objp)
+X	XDR *xdrs;
+X	readres *objp;
+X{
+X	if (!xdr_nfsstat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case NFS_OK:
+X		if (!xdr_readokres(xdrs, &objp->readres_u.reply)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_writeargs(xdrs, objp)
+X	XDR *xdrs;
+X	writeargs *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->file)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->beginoffset)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->offset)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->totalcount)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_bytes(xdrs, (char **)&objp->data.data_val, (u_int *)&objp->data.data_len, NFS_MAXDATA)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_createargs(xdrs, objp)
+X	XDR *xdrs;
+X	createargs *objp;
+X{
+X	if (!xdr_diropargs(xdrs, &objp->where)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_sattr(xdrs, &objp->attributes)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_renameargs(xdrs, objp)
+X	XDR *xdrs;
+X	renameargs *objp;
+X{
+X	if (!xdr_diropargs(xdrs, &objp->from)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_diropargs(xdrs, &objp->to)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_linkargs(xdrs, objp)
+X	XDR *xdrs;
+X	linkargs *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->from)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_diropargs(xdrs, &objp->to)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_symlinkargs(xdrs, objp)
+X	XDR *xdrs;
+X	symlinkargs *objp;
+X{
+X	if (!xdr_diropargs(xdrs, &objp->from)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_nfspath(xdrs, &objp->to)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_sattr(xdrs, &objp->attributes)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_nfscookie(xdrs, objp)
+X	XDR *xdrs;
+X	nfscookie objp;
+X{
+X	if (!xdr_opaque(xdrs, objp, NFS_COOKIESIZE)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_readdirargs(xdrs, objp)
+X	XDR *xdrs;
+X	readdirargs *objp;
+X{
+X	if (!xdr_nfs_fh(xdrs, &objp->dir)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_nfscookie(xdrs, objp->cookie)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->count)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_entry(xdrs, objp)
+X	XDR *xdrs;
+X	entry *objp;
+X{
+X	if (!xdr_u_int(xdrs, &objp->fileid)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_filename(xdrs, &objp->name)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_nfscookie(xdrs, objp->cookie)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_pointer(xdrs, (char **)&objp->nextentry, sizeof(entry), xdr_entry)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_dirlist(xdrs, objp)
+X	XDR *xdrs;
+X	dirlist *objp;
+X{
+X	if (!xdr_pointer(xdrs, (char **)&objp->entries, sizeof(entry), xdr_entry)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_bool(xdrs, &objp->eof)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_readdirres(xdrs, objp)
+X	XDR *xdrs;
+X	readdirres *objp;
+X{
+X	if (!xdr_nfsstat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case NFS_OK:
+X		if (!xdr_dirlist(xdrs, &objp->readdirres_u.reply)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_statfsokres(xdrs, objp)
+X	XDR *xdrs;
+X	statfsokres *objp;
+X{
+X	if (!xdr_u_int(xdrs, &objp->tsize)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->bsize)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->blocks)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->bfree)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->bavail)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_statfsres(xdrs, objp)
+X	XDR *xdrs;
+X	statfsres *objp;
+X{
+X	if (!xdr_nfsstat(xdrs, &objp->status)) {
+X		return (FALSE);
+X	}
+X	switch (objp->status) {
+X	case NFS_OK:
+X		if (!xdr_statfsokres(xdrs, &objp->statfsres_u.reply)) {
+X			return (FALSE);
+X		}
+X		break;
+X	}
+X	return (TRUE);
+X}
+END_OF_FILE
+  if test 8059 -ne `wc -c <'rpc/nfs_prot_xdr.c'`; then
+    echo shar: \"'rpc/nfs_prot_xdr.c'\" unpacked with wrong size!
+  fi
+  # end of 'rpc/nfs_prot_xdr.c'
+fi
+if test -f 'saps/crontab-add.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'saps/crontab-add.sh'\"
+else
+  echo shar: Extracting \"'saps/crontab-add.sh'\" \(833 characters\)
+  sed "s/^X//" >'saps/crontab-add.sh' <<'END_OF_FILE'
+X#!/bin/sh
+X#
+X# crontab-add.sh -- add crontab for expire.
+X# This file is part of WWFS.
+X#
+Xif [ -f /usr/lib/crontab.local ]; then
+X	# for SONY NEWS-OS
+X	. /etc/csd.conf
+X	/bin/cp /usr/lib/crontab.local /usr/lib/crontab.local.org
+X	echo 33 6 * * * wwfs    $WWFSDIR/bin/expire >> /usr/lib/crontab.local
+Xelse if [ -f /usr/lib/crontab ]; then
+X	# for DEC Ultrix, NeXT
+X	. /etc/csd.conf
+X	/bin/cp /usr/lib/crontab.local /usr/lib/crontab.local.org
+X	echo 33 6 * * * wwfs    $WWFSDIR/bin/expire >> /usr/lib/crontab.local
+Xelse if [ -d /var/spool/cron/crontabs ]; then
+X	# for SunOS
+X	. /etc/csd.conf
+X	echo 33 6 * * * wwfs    $WWFSDIR/bin/expire >> /var/spool/cron/crontabs/wwfs
+Xelse if [ -d /usr/spool/cron/crontabs ]; then
+X	# for IRIX
+X	. /etc/csd.conf
+X	echo 33 6 * * * wwfs    $WWFSDIR/bin/expire >> /usr/spool/cron/crontabs/wwfs
+Xfi
+X# other machines...?
+END_OF_FILE
+  if test 833 -ne `wc -c <'saps/crontab-add.sh'`; then
+    echo shar: \"'saps/crontab-add.sh'\" unpacked with wrong size!
+  fi
+  # end of 'saps/crontab-add.sh'
+fi
+echo shar: End of archive 15 \(of 22\).
+cp /dev/null ark15isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 22 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

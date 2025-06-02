@@ -1,0 +1,1960 @@
+Newsgroups: comp.sources.misc
+From: ajcd@dcs.ed.ac.uk (Angus Duggan)
+Subject: v39i094:  psutils - Postscript document manipulation tools, v1.12, Part02/04
+Message-ID: <1993Sep20.171855.18099@sparky.sterling.com>
+X-Md4-Signature: 362d7c4a18abf960a82998b19fedd53a
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 20 Sep 1993 17:18:55 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: ajcd@dcs.ed.ac.uk (Angus Duggan)
+Posting-number: Volume 39, Issue 94
+Archive-name: psutils/part02
+Environment: UNIX, VMS, msdos
+Supersedes: psutils: Volume 35, Issue 8-11
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 4)."
+# Contents:  epsffit.c getafm psnup.c psselect.c psspec.c pstops.c
+#   psutil.c
+# Wrapped by ajcd@fivla on Fri Sep 17 14:10:22 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f epsffit.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"epsffit.c\"
+else
+echo shar: Extracting \"epsffit.c\" \(4661 characters\)
+sed "s/^X//" >epsffit.c <<'END_OF_epsffit.c'
+X/* epsffit.c
+X * AJCD 6 Dec 90
+X * fit epsf file into constrained size
+X * Usage:
+X *       epsffit [-c] [-r] [-a] [-s] llx lly urx ury [file]
+X *               -c centres the image in the bounding box given
+X *               -r rotates the image by 90 degrees anti-clockwise
+X *               -a alters the aspect ratio to fit the bounding box
+X *               -s adds a showpage at the end of the image
+X *
+X * Added filename spec (from Larry Weissman) 5 Feb 93
+X * Accepts double %%BoundingBox input, outputs proper BB, 4 Jun 93. (I don't
+X * like this; developers should read the Big Red Book before writing code which
+X * outputs PostScript.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include "patchlevel.h"
+X
+X#define min(x,y) ((x) > (y) ? (y) : (x))
+X#define max(x,y) ((x) > (y) ? (x) : (y))
+X
+Xstatic char *prog;
+X
+Xvoid usage()
+X{
+X   fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+X   fprintf(stderr, "Usage: %s [-c] [-r] [-a] [-s] llx lly urx ury [file]\n",
+X	   prog);
+X   exit(1);
+X}
+X
+Xmain(argc, argv)
+X     int argc;
+X     char **argv;
+X{
+X   int bbfound = 0;              /* %%BoundingBox: found */
+X   int urx, ury, llx, lly;
+X   int furx, fury, fllx, flly;
+X   int showpage = 0, centre = 0, rotate = 0, aspect = 0, maximise = 0;
+X   char buf[BUFSIZ];
+X   FILE *input = stdin;
+X
+X   prog = *argv++; argc--;
+X
+X   while (argc > 0 && argv[0][0] == '-') {
+X      switch (argv[0][1]) {
+X      case 'c': centre = 1; break;
+X      case 's': showpage = 1; break;
+X      case 'r': rotate = 1; break;
+X      case 'a': aspect = 1; break;
+X      case 'm': maximise = 1; break;
+X      case 'v':
+X      default:  usage();
+X      }
+X      argc--;
+X      argv++;
+X   }
+X
+X   if (argc < 4) usage();
+X   fllx = atoi(argv[0]);
+X   flly = atoi(argv[1]);
+X   furx = atoi(argv[2]);
+X   fury = atoi(argv[3]);
+X
+X   if (argc > 4) {
+X      if(!(input = fopen(argv[4],"r"))) {
+X	 fprintf(stderr, "%s: Cannot open %s\n", prog, argv[4]);
+X	 exit(1);
+X      }
+X   }
+X
+X   while (fgets(buf, BUFSIZ, input)) {
+X      if (buf[0] == '%' && (buf[1] == '%' || buf[1] == '!')) {
+X	 /* still in comment section */
+X	 if (!strncmp(buf, "%%BoundingBox:", 14)) {
+X	    double illx, illy, iurx, iury;	/* input bbox parameters */
+X	    if (sscanf(buf, "%%%%BoundingBox:%lf %lf %lf %lf\n",
+X		       &illx, &illy, &iurx, &iury) == 4) {
+X	       bbfound = 1;
+X	       llx = (int)illx;	/* accept doubles, but convert to int */
+X	       lly = (int)illy;
+X	       urx = (int)(iurx+0.5);
+X	       ury = (int)(iury+0.5);
+X	    }
+X	 } else if (!strncmp(buf, "%%EndComments", 13)) {
+X	    strcpy(buf, "\n"); /* don't repeat %%EndComments */
+X	    break;
+X	 } else fputs(buf,stdout);
+X      } else break;
+X   }
+X
+X   if (bbfound) { /* put BB, followed by scale&translate */
+X      int fwidth, fheight;
+X      double xscale, yscale;
+X      double xoffset = fllx, yoffset = flly;
+X      double width = urx-llx, height = ury-lly;
+X
+X      if (maximise)
+X	 if ((width > height && fury-flly > furx-fllx) ||
+X	     (width < height && fury-flly < furx-fllx)) 
+X	    rotate = 1;
+X
+X      if (rotate) {
+X	 fwidth = fury - flly;
+X	 fheight = furx - fllx;
+X      } else {
+X	 fwidth = furx - fllx;
+X	 fheight = fury - flly;
+X      }
+X
+X      xscale = fwidth/width;
+X      yscale = fheight/height;
+X
+X      if (!aspect) {       /* preserve aspect ratio ? */
+X	 xscale = yscale = min(xscale,yscale);
+X      }
+X      width *= xscale;     /* actual width and height after scaling */
+X      height *= yscale;
+X      if (centre) {
+X	 if (rotate) {
+X	    xoffset += (fheight - height)/2;
+X	    yoffset += (fwidth - width)/2;
+X	 } else {
+X	    xoffset += (fwidth - width)/2;
+X	    yoffset += (fheight - height)/2;
+X	 }
+X      }
+X      printf("%%%%BoundingBox: %d %d %d %d\n", (int)xoffset, (int)yoffset,
+X	     (int)(xoffset+(rotate ? height : width)),
+X	     (int)(yoffset+(rotate ? width : height)));
+X      if (rotate) {  /* compensate for original image shift */
+X	 xoffset += height + lly * yscale;  /* displacement for rotation */
+X	 yoffset -= llx * xscale;
+X      } else {
+X	 xoffset -= llx * xscale;
+X	 yoffset -= lly * yscale;
+X      }
+X      puts("%%EndComments");
+X      if (showpage)
+X	 puts("save /showpage{}def /copypage{}def /erasepage{}def");
+X      else
+X	 puts("%%BeginProcSet: epsffit 1 0");
+X      puts("gsave");
+X      printf("%.3lf %.3lf translate\n", xoffset, yoffset);
+X      if (rotate)
+X	 puts("90 rotate");
+X      printf("%.3lf %.3lf scale\n", xscale, yscale);
+X      if (!showpage)
+X	 puts("%%EndProcSet");
+X   }
+X   do {
+X      fputs(buf,stdout);
+X   } while (fgets(buf, BUFSIZ, input));
+X   if (bbfound) {
+X      puts("grestore");
+X      if (showpage)
+X	 puts("restore showpage"); /* just in case */
+X   } else {
+X      fprintf(stderr, "%s: no %%%%BoundingBox:\n", prog);
+X      exit(1);
+X   }
+X   exit(0);
+X}
+END_OF_epsffit.c
+if test 4661 -ne `wc -c <epsffit.c`; then
+    echo shar: \"epsffit.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f getafm -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"getafm\"
+else
+echo shar: Extracting \"getafm\" \(6124 characters\)
+sed "s/^X//" >getafm <<'END_OF_getafm'
+X#!/bin/sh
+X
+Xif [ $# -ne 1 ]; then
+X  echo "usage: $0 font-name | gsnd - >font-name.afm" >&2
+X  exit 1
+Xfi
+X
+Xcat << EOF
+X%!
+X% produce .afm for $1
+X% (c) 1993 by Robert Joop <rj@rainbow.in-berlin.de>
+X% inspired by two other versions of this theme which are
+X%	getafm 1.00 (c) AJCD
+X% and getafm.ps by an unknown author,
+X%	modified by J. Daniel Smith <dsmith@mailhost.aa.cad.slb.com>
+X
+X% Metrics dictionary code added by AJCD, 7/6/93
+X
+X/getafmdict 100 dict dup begin
+X
+X  /buf 256 string def
+X  /buf2 16 string def
+X
+X  /prany	% dict dictname printname -> dict
+X  {
+X    2 index 2 index cvn known
+X    {
+X      print % printname
+X      ( ) print
+X      1 index exch cvn get =
+X    }
+X    {
+X      (Comment /FontInfo contains no /) print
+X      2 copy eq
+X      {
+X        = % printname
+X	pop % dictname
+X      }
+X      {
+X	exch
+X	print % dictname
+X	(, therefore no ) print
+X	= % printname
+X      }
+X      ifelse
+X    }
+X    ifelse
+X  }
+X  bind def
+X
+X  /printfontname
+X  {
+X    (FontName)dup prany
+X  }
+X  bind def
+X
+X  /printfontinfo
+X  {
+X    dup /FontInfo known
+X    {
+X      dup /FontInfo get
+X	(FullName)dup prany
+X	(FamilyName)dup prany
+X	(Weight)dup prany
+X	(ItalicAngle)dup prany
+X	(isFixedPitch)(IsFixedPitch) prany
+X	(UnderlinePosition)dup prany
+X	(UnderlineThickness)dup prany
+X	(Version)(version) prany
+X	(Notice)dup prany
+X      pop
+X    }
+X    {
+X      (Comment Font lacks a /FontInfo!)=
+X    }
+X    ifelse
+X  }
+X  bind def
+X
+X  /prbbox % llx lly urx ury -> -
+X  {
+X    4 1 roll 3 1 roll exch % swap top 4 elements
+X    4 { ( ) print buf cvs print } repeat
+X  }
+X  bind def
+X
+X  /getbbox % fontdict chardict character -> fontdict chardict llx lly urx ury
+X  {
+X    gsave
+X      2 index setfont 0 0 moveto
+X      false charpath flattenpath pathbbox
+X    grestore
+X  }
+X  bind def
+X
+X  /printmiscinfo
+X  {
+X    dup /FontBBox known
+X    {
+X      (FontBBox) print
+X      dup /FontBBox get aload pop prbbox ()=
+X    }
+X    {
+X      (Comment missing required /FontBBox)=
+X      quit
+X    }
+X    ifelse
+X    2 copy exch get
+X      dup /H known
+X      1 index /x known and
+X      1 index /d known and
+X      1 index /p known and
+X      dup /looksRoman exch def
+X      {
+X	(CapHeight ) print
+X	(H) getbbox
+X	ceiling cvi = pop pop pop
+X	(XHeight ) print
+X	(x) getbbox
+X	ceiling cvi = pop pop pop
+X	(Ascender ) print
+X	(d) getbbox
+X	ceiling cvi = pop pop pop
+X	(Descender ) print
+X	(p) getbbox
+X	pop pop floor cvi = pop
+X      }
+X      {
+X	(Comment font doesn't contain H, x, d and p; therefore no CapHeight, XHeight, Ascender and Descender)=
+X      }
+X      ifelse
+X    pop
+X    dup /Encoding get
+X      [
+X	[ (ISOLatin1Encoding) /ISOLatin1Encoding ]
+X	[ (AdobeStandardEncoding) /StandardEncoding ]
+X      ]
+X      {
+X	aload pop dup where
+X	{
+X	  exch get 2 index eq
+X	  {
+X	    (EncodingScheme ) print
+X	    buf cvs =
+X	  }
+X	  {
+X	    pop
+X	  }
+X	  ifelse
+X	}
+X	{
+X	  pop pop
+X	}
+X	ifelse
+X      }
+X      forall
+X    pop
+X  }
+X  bind def
+X
+X  /printcharmetric
+X  {
+X    % chardictname fontdict charnamedict encoding charindex charname
+X
+X    4 index dup length dict dup begin exch
+X      {
+X	1 index /FID ne
+X	2 index /UniqueID ne
+X	and
+X	{
+X	  1 index /Encoding eq { 256 array copy } if
+X	  def
+X	}
+X	{ pop pop }
+X	ifelse
+X      }
+X      forall
+X    end
+X    dup /Encoding get 32 3 index put
+X    /f2 exch definefont
+X    setfont
+X
+X    (C ) print
+X    1 index buf cvs print
+X
+X    ( ; WX ) print
+X% Metrics entries are:
+X%       1 number:               which is the character width
+X%       an array of 2 numbers:  which are the left sidebearing and width
+X%       an array of 4 numbers:  x & y left sidebearing, width and height
+X    dup 5 index         % /charname fontdict
+X    dup /Metrics known {
+X       /Metrics get exch 2 copy known {
+X          get dup type /arraytype eq {
+X             dup length 2 eq
+X             {1 get} {2 get} ifelse
+X          } if
+X          round cvi buf cvs print
+X       } {
+X          pop pop ( ) stringwidth pop round cvi buf cvs print
+X       } ifelse
+X    } {
+X       pop pop ( ) stringwidth pop round cvi buf cvs print
+X    } ifelse
+X
+X    ( ; N ) print
+X    dup buf cvs print
+X
+X    ( ; B) print
+X    gsave
+X      newpath 0 0 moveto
+X      ( ) true charpath flattenpath pathbbox
+X    grestore
+X    2 { ceiling cvi 4 1 roll } repeat
+X    2 { floor cvi 4 1 roll } repeat
+X    prbbox
+X
+X    looksRoman
+X    {
+X      [
+X	[ /f [ /i /f /l ] ]
+X	[ /ff [ /i /l ] ]
+X      ]
+X      {
+X	aload pop 1 index 3 index eq
+X	{
+X	  { 
+X	    1 index buf cvs
+X	    length
+X	    1 index buf2 cvs dup length
+X	    2 index add
+X	    buf
+X	    4 2 roll putinterval
+X	    buf 0
+X	    3 -1 roll getinterval
+X	    dup cvn
+X	    7 index
+X	    exch known
+X	    {
+X	      exch
+X	      ( ; L ) print
+X	      buf2 cvs print
+X	      ( ) print
+X	      print
+X	    }
+X	    {
+X	      pop pop
+X	    }
+X	    ifelse
+X	  }
+X	  forall
+X	  pop 
+X	}
+X	{
+X	  pop pop
+X	}
+X	ifelse
+X      }
+X      forall
+X    }
+X    if
+X    pop
+X
+X    ( ;)=
+X  }
+X  bind def
+X
+X  /printcharmetrics
+X  {
+X    (StartCharMetrics ) print
+X    2 copy exch get length 1 sub buf cvs =
+X
+X    256 dict dup begin
+X      1 index /Encoding get
+X      { null def }
+X      forall
+X    end
+X    % chardictname fontdict charnamedict
+X    1 index /Encoding get
+X    0 1 255
+X    {
+X      % encoding index
+X      2 copy get
+X      dup /.notdef eq { pop } { printcharmetric } ifelse
+X      pop % index
+X    } for
+X
+X    -1
+X    3 index 5 index get
+X    {
+X      pop
+X      dup /.notdef eq
+X      { pop }
+X      {
+X	% chardictname fontdict charnamedict encoding charindex charname
+X	dup 4 index exch known
+X	{ pop }
+X	{ printcharmetric }
+X	ifelse
+X      }
+X      ifelse
+X    }
+X    forall
+X    % charnamedict encoding index
+X    pop pop pop
+X
+X    (EndCharMetrics)=
+X  }
+X  bind def
+X
+X  /printfontmetrics
+X  {
+X    (StartFontMetrics 3.0)=
+X    (Comment Produced by getafm 3.0 (which is by rj@rainbow.in-berlin.de))=
+X
+X    printfontname
+X    printfontinfo
+X    printmiscinfo
+X    printcharmetrics
+X
+X    (EndFontMetrics)=
+X  }
+X  bind def
+X
+Xend def
+X
+X/getafm
+X{
+X  getafmdict begin
+X    save exch
+X      findfont 1000 scalefont 
+X
+X      null
+X      [ /CharDefs /CharData /CharProcs /CharStrings ]
+X      {
+X	2 index 1 index known { exch } if
+X	pop
+X      }
+X      forall
+X      dup null eq
+X      {
+X	(can't find dictionary with character data!)=
+X	quit
+X      }
+X      if
+X      exch % dictname fontdict
+X
+X      printfontmetrics
+X
+X      pop pop
+X    restore
+X  end
+X}
+Xbind def
+X
+X/$1 getafm
+X
+XEOF
+END_OF_getafm
+if test 6124 -ne `wc -c <getafm`; then
+    echo shar: \"getafm\" unpacked with wrong size!
+fi
+chmod +x getafm
+# end of overwriting check
+fi
+if test -f psnup.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"psnup.c\"
+else
+echo shar: Extracting \"psnup.c\" \(8785 characters\)
+sed "s/^X//" >psnup.c <<'END_OF_psnup.c'
+X/* psnup.c
+X * AJCD 4/6/93
+X * put multiple pages onto one physical sheet of paper
+X *
+X * Usage:
+X *      psnup [-q] [-w<dim>] [-h<dim>] [-ppaper] [-b<dim>] [-m<dim>]
+X *            [-l] [-c] [-f] [-sscale] [-d] [-nup] [in [out]]
+X *              -w<dim> sets the paper width
+X *              -h<dim> sets the paper height
+X *              -ppaper sets the paper size (width and height) by name
+X *              -m<dim> sets the margin around the paper
+X *              -b<dim> sets the border around each page
+X *              -sscale alters the scale at which the pages are displayed
+X *              -l      used if pages are in landscape orientation (rot left)
+X *              -r      used if pages are in seascape orientation (rot right)
+X * 		-c	for column-major layout
+X *		-f	for flipped (wider than tall) pages
+X * 		-d	to draw the page boundaries
+X */
+X
+X#include "psutil.h"
+X#include "psspec.h"
+X#include "patchlevel.h"
+X
+Xvoid usage()
+X{
+X   fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+X   fprintf(stderr, "Usage: %s [-q] [-wwidth] [-hheight] [-ppaper] [-l] [-r] [-c] [-f] [-mmargin] [-bborder] [-dlwidth] [-sscale] [-nup] [infile [outfile]]\n",
+X	   prog);
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+Xvoid argerror()
+X{
+X   fprintf(stderr, "%s: bad dimension\n", prog);
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+X#define min(x,y) ((x) > (y) ? (y) : (x))
+X#define max(x,y) ((x) > (y) ? (x) : (y))
+X
+X/* return next larger exact divisor of number, or 0 if none. There is probably
+X * a much more efficient method of doing this, but the numbers involved are
+X * small, so it's not a big loss. */
+Xint nextdiv(n, m)
+X     int n, m;
+X{
+X   while (++n <= m) {
+X      if (m%n == 0)
+X	 return (n);
+X   }
+X   return (0);
+X}
+X
+Xmain(argc, argv)
+X     int argc;
+X     char *argv[];
+X{
+X   int horiz, vert, rotate, column, flip, leftright, topbottom;
+X   int nup = 1;
+X   double draw = 0;				/* draw page borders */
+X   double scale;				/* page scale */
+X   double uscale = 0;				/* user supplied scale */
+X   double ppwid, pphgt;				/* paper dimensions */
+X   double margin, border;			/* paper & page margins */
+X   double vshift, hshift;			/* page centring shifts */
+X   double tolerance = 100000;			/* layout tolerance */
+X   struct papersize *paper;
+X
+X#ifdef PAPER
+X   if (paper = findpaper(PAPER)) {
+X      width = (double)paper->width;
+X      height = (double)paper->height;
+X   }
+X#endif
+X
+X   margin = border = vshift = hshift = column = flip = 0;
+X   leftright = topbottom = 1;
+X
+X   infile = stdin;
+X   outfile = stdout;
+X   verbose = 1;
+X   for (prog = *argv++; --argc; argv++) {
+X      if (argv[0][0] == '-') {
+X	 switch (argv[0][1]) {
+X	 case 'q':	/* quiet */
+X	    verbose = 0;
+X	    break;
+X	 case 'd':	/* draw borders */
+X	    if (argv[0][2])
+X	       draw = singledimen(*argv+2);
+X	    else
+X	       draw = 1;
+X	    break;
+X	 case 'l':	/* landscape (rotated left) */
+X	    column = !column;
+X	    topbottom = !topbottom;
+X	    break;
+X	 case 'r':	/* seascape (rotated right) */
+X	    column = !column;
+X	    leftright = !leftright;
+X	    break;
+X	 case 'f':	/* flipped */
+X	    flip = 1;
+X	    break;
+X	 case 'c':	/* column major layout */
+X	    column = !column;
+X	    break;
+X	 case 'w':	/* page width */
+X	    width = singledimen(*argv+2);
+X	    break;
+X	 case 'h':	/* page height */
+X	    height = singledimen(*argv+2);
+X	    break;
+X	 case 'm':	/* margins around whole page */
+X	    margin = singledimen(*argv+2);
+X	    break;
+X	 case 'b':	/* border around individual pages */
+X	    border = singledimen(*argv+2);
+X	    break;
+X	 case 't':	/* layout tolerance */
+X	    tolerance = atof(*argv+2);
+X	    break;
+X	 case 's':	/* override scale */
+X	    uscale = atof(*argv+2);
+X	    break;
+X	 case 'p':	/* paper type */
+X	    if (paper = findpaper(*argv+2)) {
+X	       width = (double)paper->width;
+X	       height = (double)paper->height;
+X	    } else {
+X	       fprintf(stderr, "%s: paper size '%s' not recognised\n",
+X		       prog, *argv+2);
+X	       fflush(stderr);
+X	       exit(1);
+X	    }
+X	    break;
+X	 case 'n':	/* n-up, for compatibility with other psnups */
+X	    if (argc >= 2) {
+X	       argv++;
+X	       argc--;
+X	       if ((nup = atoi(*argv)) < 1) {
+X		  fprintf(stderr, "%s: -n %d too small\n", prog, nup);
+X		  fflush(stderr);
+X		  exit(1);
+X	       }
+X	    } else {
+X	       fprintf(stderr, "%s: argument expected for -n\n", prog);
+X	       fflush(stderr);
+X	       exit(1);
+X	    }
+X	    break;
+X	 case '1':
+X	 case '2':
+X	 case '3':
+X	 case '4':
+X	 case '5':
+X	 case '6':
+X	 case '7':
+X	 case '8':
+X	 case '9':
+X	    nup = atoi(*argv+1);
+X	    break;
+X	 case 'v':	/* version */
+X	 default:
+X	    usage();
+X	 }
+X      } else if (infile == stdin) {
+X	 if ((infile = fopen(*argv, "r")) == NULL) {
+X	    fprintf(stderr, "%s: can't open input file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else if (outfile == stdout) {
+X	 if ((outfile = fopen(*argv, "w")) == NULL) {
+X	    fprintf(stderr, "%s: can't open output file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else usage();
+X   }
+X   if ((infile=seekable(infile))==NULL) {
+X      fprintf(stderr, "%s: can't seek input\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X
+X   if (width <= 0 || height <= 0) {
+X      fprintf(stderr, "%s: page width and height must be set\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X
+X   /* subtract paper margins from height & width */
+X   ppwid = width - margin*2;
+X   pphgt = height - margin*2;
+X
+X   if (ppwid <= 0 || pphgt <= 0) {
+X      fprintf(stderr, "%s: paper margins are too large\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X
+X   /* Finding the best layout is an optimisation problem. We try all of the
+X    * combinations of width*height in both normal and rotated form, and
+X    * minimise the wasted space. */
+X   {
+X      double best = tolerance;
+X      int hor;
+X      for (hor = 1; hor; hor = nextdiv(hor, nup)) {
+X	 int ver = nup/hor;
+X	 /* try normal orientation first */
+X	 double scl = min(pphgt/(height*ver), ppwid/(width*hor));
+X	 double optim = (ppwid-scl*width*hor)*(ppwid-scl*width*hor) +
+X	    (pphgt-scl*height*ver)*(pphgt-scl*height*ver);
+X	 if (optim < best) {
+X	    best = optim;
+X	    /* recalculate scale to allow for internal borders */
+X	    scale = min((pphgt-2*border*ver)/(height*ver),
+X			(ppwid-2*border*hor)/(width*hor));
+X	    hshift = (ppwid/hor - width*scale)/2;
+X	    vshift = (pphgt/ver - height*scale)/2;
+X	    horiz = hor; vert = ver;
+X	    rotate = flip;
+X	 }
+X	 /* try rotated orientation */
+X	 scl = min(pphgt/(width*hor), ppwid/(height*ver));
+X	 optim = (pphgt-scl*width*hor)*(pphgt-scl*width*hor) +
+X	    (ppwid-scl*height*ver)*(ppwid-scl*height*ver);
+X	 if (optim < best) {
+X	    best = optim;
+X	    /* recalculate scale to allow for internal borders */
+X	    scale = min((pphgt-2*border*hor)/(width*hor),
+X			(ppwid-2*border*ver)/(height*ver));
+X	    hshift = (ppwid/ver - height*scale)/2;
+X	    vshift = (pphgt/hor - width*scale)/2;
+X	    horiz = ver; vert = hor;
+X	    rotate = !flip;
+X	 }
+X      }
+X
+X      /* fail if nothing better than worst tolerance was found */
+X      if (best == tolerance) {
+X	 fprintf(stderr, "%s: can't find acceptable layout for %d-up\n",
+X		 prog, nup);
+X	 fflush(stderr);
+X	 exit(1);
+X      }
+X   }
+X
+X   if (flip) {	/* swap width & height for clipping */
+X      double tmp = width;
+X      width = height;
+X      height = tmp;
+X   }
+X
+X   if (rotate) {	/* rotate leftright and topbottom orders */
+X      int tmp = topbottom;
+X      topbottom = !leftright;
+X      leftright = tmp;
+X      column = !column;
+X   }
+X
+X   /* now construct specification list and run page rearrangement procedure */
+X   {
+X      int page = 0;
+X      struct pagespec *specs, *tail;
+X
+X      tail = specs = newspec();
+X
+X      while (page < nup) {
+X	 int up, across;		/* page index */
+X
+X	 if (column) {
+X	    if (leftright)		/* left to right */
+X	       across = page/vert;
+X	    else			/* right to left */
+X	       across = horiz-1-page/vert;
+X	    if (topbottom)		/* top to bottom */
+X	       up = vert-1-page%vert;
+X	    else			/* bottom to top */
+X	       up = page%vert;
+X	 } else {
+X	    if (leftright)		/* left to right */
+X	       across = page%horiz;
+X	    else			/* right to left */
+X	       across = horiz-1-page%horiz;
+X	    if (topbottom)		/* top to bottom */
+X	       up = vert-1-page/horiz;
+X	    else			/* bottom to top */
+X	       up = page/horiz;
+X	 }
+X	 if (rotate) {
+X	    tail->xoff = margin + (across+1)*ppwid/horiz - hshift;
+X	    tail->rotate = 90;
+X	    tail->flags |= ROTATE;
+X	 } else {
+X	    tail->xoff = margin + across*ppwid/horiz + hshift;
+X	 }
+X	 tail->pageno = page;
+X	 if (uscale > 0)
+X	    tail->scale = uscale;
+X	 else
+X	    tail->scale = scale;
+X	 tail->flags |= SCALE;
+X	 tail->yoff = margin + up*pphgt/vert + vshift;
+X	 tail->flags |= OFFSET;
+X	 if (++page < nup) {
+X	    tail->flags |= ADD_NEXT;
+X	    tail->next = newspec();
+X	    tail = tail->next;
+X	 }
+X      }
+X      
+X      pstops(nup, 1, 0, specs, draw);		/* do page rearrangement */
+X   }
+X
+X   exit(0);
+X}
+X
+END_OF_psnup.c
+if test 8785 -ne `wc -c <psnup.c`; then
+    echo shar: \"psnup.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f psselect.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"psselect.c\"
+else
+echo shar: Extracting \"psselect.c\" \(5298 characters\)
+sed "s/^X//" >psselect.c <<'END_OF_psselect.c'
+X/* psselect.c
+X * AJCD 27/1/91
+X * rearrange pages in conforming PS file for printing in signatures
+X *
+X * Usage:
+X *       psselect [-q] [-e] [-o] [-r] [-p<pages>] [infile [outfile]]
+X */
+X
+X#include "psutil.h"
+X#include "patchlevel.h"
+X
+Xvoid usage()
+X{
+X   fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+X   fprintf(stderr,
+X	   "Usage: %s [-q] [-e] [-o] [-r] [-p<pages>] [infile [outfile]]\n",
+X	   prog);
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+Xstruct pgrange {
+X   int first, last;
+X   struct pgrange *next;
+X};
+X
+Xtypedef struct pgrange range;
+X
+Xrange * makerange(beg, end, next)
+X     int beg, end;
+X     range *next;
+X{
+X   range *new;
+X   if ((new = (range *)malloc(sizeof(range))) == NULL) {
+X      fprintf(stderr, "%s: out of memory\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X   new->first = beg;
+X   new->last = end;
+X   new->next = next;
+X   return (new);
+X}
+X
+X
+Xrange * addrange(str, rp)
+X     char *str;
+X     range *rp;
+X{
+X   int first=0;
+X   int sign;
+X   sign = (*str == '_' && ++str) ? -1 : 1;
+X   if (isdigit(*str)) {
+X      first = sign*atoi(str);
+X      while (isdigit(*str)) str++;
+X   }
+X   switch (*str) {
+X   case '\0':
+X      if (first)
+X	 return (makerange(first, first, rp));
+X      break;
+X   case ',':
+X      if (first)
+X	 return (addrange(str+1, makerange(first, first, rp)));
+X      break;
+X   case '-':
+X   case ':':
+X      str++;
+X      sign = (*str == '_' && ++str) ? -1 : 1;
+X      if (isdigit(*str)) {
+X	 int last = sign*atoi(str);
+X	 while (isdigit(*str)) str++;
+X	 if (!first)
+X	    first = 1;
+X	 if (last >= first) 
+X	    switch (*str) {
+X	    case '\0':
+X	       return (makerange(first, last, rp));
+X	    case ',':
+X	       return (addrange(str+1, makerange(first, last, rp)));
+X	    }
+X      } else if (*str == '\0')
+X	 return (makerange(first, -1, rp));
+X      else if (*str == ',')
+X	 return (addrange(str+1, makerange(first, -1, rp)));
+X   }
+X   fprintf(stderr, "%s: invalid page range\n", prog);
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+X
+Xmain(argc, argv)
+X     int argc;
+X     char *argv[];
+X{
+X   int currentpg, maxpage = 0;
+X   int even = 0, odd = 0, reverse = 0;
+X   int pass, all;
+X   range *pagerange = NULL;
+X
+X   infile = stdin;
+X   outfile = stdout;
+X   verbose = 1;
+X   for (prog = *argv++; --argc; argv++) {
+X      if (argv[0][0] == '-') {
+X	 switch (argv[0][1]) {
+X	 case 'e':	/* even pages */
+X	    even = 1;
+X	    break;
+X	 case 'o':	/* odd pages */
+X	    odd = 1;
+X	    break;
+X	 case 'r':	/* reverse */
+X	    reverse = 1;
+X	    break;
+X	 case 'p':	/* page spec */
+X	    pagerange = addrange(*argv+2, pagerange);
+X	    break;
+X	 case 'q':	/* quiet */
+X	    verbose = 0;
+X	    break;
+X	 case 'v':	/* version */
+X	 default:
+X	    usage();
+X	 }
+X      } else if (pagerange == NULL && !reverse && !even && !odd) {
+X	 pagerange = addrange(*argv, NULL);
+X      } else if (infile == stdin) {
+X	 if ((infile = fopen(*argv, "r")) == NULL) {
+X	    fprintf(stderr, "%s: can't open input file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else if (outfile == stdout) {
+X	 if ((outfile = fopen(*argv, "w")) == NULL) {
+X	    fprintf(stderr, "%s: can't open output file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else usage();
+X   }
+X   if ((infile=seekable(infile))==NULL) {
+X      fprintf(stderr, "%s: can't seek input\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X   scanpages();
+X
+X   /* reverse page list if not reversing pages (list constructed bottom up) */
+X   if (!reverse) {
+X      range *revlist = NULL;
+X      range *next = NULL;
+X      while (pagerange) {
+X	 next = pagerange->next;
+X	 pagerange->next = revlist;
+X	 revlist = pagerange;
+X	 pagerange = next;
+X      }
+X      pagerange = revlist;
+X   }
+X
+X   /* select all pages or all in range if odd or even not set */
+X   all = !(odd || even);
+X
+X   /* count pages on first pass, select pages on second pass */
+X   for (pass = 0; pass < 2; pass++) {
+X      if (pass) {                           /* write header on second pass */
+X	 writeheader(maxpage);
+X	 writeprolog("");
+X      }
+X      if (pagerange) {
+X	 range *r;
+X	 for (r = pagerange; r; r = r->next) {
+X	    if (pagerange->first < 0) {
+X	       pagerange->first += pages + 1;
+X	       if (pagerange->first < 0)
+X		  pagerange->first = 0;
+X	    }
+X	    if (pagerange->last < 0) {
+X	       pagerange->last += pages + 1;
+X	       if (pagerange->last < 0)
+X		  pagerange->last = 0;
+X	    }
+X	    if (reverse) {
+X	       for (currentpg = r->last; currentpg >= r->first; currentpg--) {
+X		  if (currentpg <= pages &&
+X		      ((currentpg&1) ? (odd || all) : (even || all))) {
+X		     if (pass)
+X			writepage(currentpg-1);
+X		     else
+X			maxpage++;
+X		  }
+X	       }
+X	    } else {
+X	       for (currentpg = r->first; currentpg <= r->last; currentpg++) {
+X		  if (currentpg <= pages &&
+X		      ((currentpg&1) ? (odd || all) : (even || all))) {
+X		     if (pass)
+X			writepage(currentpg-1);
+X		     else
+X			maxpage++;
+X		  }
+X	       }
+X	    }
+X	 }
+X      } else if (reverse) {
+X	 for (currentpg = pages; currentpg > 0; currentpg--)
+X	    if ((currentpg&1) ? (odd || all) : (even || all)) {
+X	       if (pass)
+X		  writepage(currentpg-1);
+X	       else
+X		  maxpage++;
+X	    }
+X      } else {
+X	 for (currentpg = 1; currentpg <= pages; currentpg++)
+X	    if ((currentpg&1) ? (odd || all) : (even || all)) {
+X	       if (pass)
+X		  writepage(currentpg-1);
+X	       else
+X		  maxpage++;
+X	    }
+X      }
+X   }
+X   writetrailer();
+X
+X   exit(0);
+X}
+END_OF_psselect.c
+if test 5298 -ne `wc -c <psselect.c`; then
+    echo shar: \"psselect.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f psspec.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"psspec.c\"
+else
+echo shar: Extracting \"psspec.c\" \(7082 characters\)
+sed "s/^X//" >psspec.c <<'END_OF_psspec.c'
+X/* psspec.c
+X * AJCD 5/6/93
+X * page spec routines for page rearrangement
+X */
+X
+X#include "psutil.h"
+X#include "psspec.h"
+X#include "patchlevel.h"
+X
+Xdouble width = -1;
+Xdouble height = -1;
+X
+X/* create a new page spec */
+Xstruct pagespec *newspec()
+X{
+X   struct pagespec *temp = (struct pagespec *)malloc(sizeof(struct pagespec));
+X   if (temp == NULL) {
+X      fprintf(stderr, "%s: out of memory\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X   temp->reversed = temp->pageno = temp->flags = temp->rotate = 0;
+X   temp->scale = 1;
+X   temp->xoff = temp->yoff = 0;
+X   temp->next = NULL;
+X   return (temp);
+X}
+X
+X/* dimension parsing routines */
+Xint parseint(sp)
+X     char **sp;
+X{
+X   char *s = *sp;
+X   int num = atoi(s);
+X
+X   while (isdigit(*s))
+X      s++;
+X   if (*sp == s) argerror();
+X   *sp = s;
+X   return (num);
+X}
+X
+Xdouble parsedouble(sp)
+X     char **sp;
+X{
+X   char *s = *sp;
+X   double num = atof(s);
+X
+X   while (isdigit(*s) || *s == '-' || *s == '.')
+X      s++;
+X   if (*sp == s) argerror();
+X   *sp = s;
+X   return (num);
+X}
+X
+Xdouble parsedimen(sp)
+X     char **sp;
+X{
+X   double num = parsedouble(sp);
+X   char *s = *sp;
+X
+X   if (strncmp(s, "pt", 2) == 0) {
+X      s += 2;
+X   } else if (strncmp(s, "in", 2) == 0) {
+X      num *= 72;
+X      s += 2;
+X   } else if (strncmp(s, "cm", 2) == 0) {
+X      num *= 28.346456692913385211;
+X      s += 2;
+X   } else if (strncmp(s, "mm", 2) == 0) {
+X      num *= 2.8346456692913385211;
+X      s += 2;
+X   } else if (*s == 'w') {
+X      if (width < 0) {
+X	 fprintf(stderr, "%s: width not initialised\n", prog);
+X	 fflush(stderr);
+X	 exit(1);
+X      }
+X      num *= width;
+X      s++;
+X   } else if (*s == 'h') {
+X      if (height < 0) {
+X	 fprintf(stderr, "%s: height not initialised\n", prog);
+X	 fflush(stderr);
+X	 exit(1);
+X      }
+X      num *= height;
+X      s++;
+X   }
+X   *sp = s;
+X   return (num);
+X}
+X
+Xdouble singledimen(str)
+X     char *str;
+X{
+X   double num = parsedimen(&str);
+X   if (*str) usage();
+X   return (num);
+X}
+X
+Xvoid pstops(modulo, pps, nobind, specs, draw)
+X     int modulo, pps, nobind;
+X     double draw;
+X     struct pagespec *specs;
+X{
+X   int thispg, maxpage;
+X   int pageindex = 0;
+X
+X   scanpages();
+X
+X   maxpage = ((pages+modulo-1)/modulo)*modulo;
+X
+X   /* rearrange pages: doesn't cope properly with loaded definitions */
+X   writeheader((maxpage/modulo)*pps);
+X   writestring("%%BeginProcSet: pstops");
+X   if (width > 0 && height > 0)
+X      writestring("-clip");
+X   if (nobind)
+X      writestring("-nobind");
+X#ifdef SHOWPAGE_LOAD
+X   writestring("-spload");
+X#endif
+X   writestring(" 1 0\n");
+X#ifndef SHOWPAGE_LOAD
+X   writestring("[/showpage/erasepage/copypage]{dup where{pop dup load\n");
+X   writestring(" type/operatortype eq{1 array cvx dup 0 3 index cvx put\n");
+X   writestring(" bind def}{pop}ifelse}{pop}ifelse}forall\n");
+X#else
+X   writestring("[/showpage/copypage/erasepage]{dup 10 string cvs dup\n");
+X   writestring(" length 6 add string dup 0 (pstops) putinterval dup\n");
+X   writestring(" 6 4 -1 roll putinterval 2 copy cvn dup where\n");
+X   writestring(" {pop pop pop}{exch load def}ifelse cvx cvn 1 array cvx\n");
+X   writestring(" dup 0 4 -1 roll put def}forall\n");
+X#endif
+X   writestring("[/letter/legal/executivepage/a4/a4small/b5/com10envelope\n");
+X   writestring(" /monarchenvelope/c5envelope/dlenvelope/lettersmall/note\n");
+X   writestring(" /folio/quarto/a5]{dup where{dup wcheck{exch{}put}\n");
+X   writestring(" {pop{}def}ifelse}{pop}ifelse}forall\n");
+X   writestring("/lcvx{dup load dup type dup/operatortype eq{pop exch pop}\n");
+X   writestring(" {/arraytype eq{dup xcheck{exch pop aload pop}\n");
+X   writestring(" {pop cvx}ifelse}{pop cvx}ifelse}ifelse}bind def\n");
+X   writestring("/pstopsmatrix matrix currentmatrix def\n");
+X   writestring("/pstopsxform matrix def\n");
+X   writestring("/defaultmatrix{pstopsmatrix exch pstopsxform exch concatmatrix}bind def\n");
+X   writestring("/initmatrix{matrix defaultmatrix setmatrix}bind def\n");
+X   writestring("/pathtoproc{[{currentpoint}stopped{$error/newerror false\n");
+X   writestring(" put{newpath}}{/newpath cvx 3 1 roll/moveto cvx 4 array\n");
+X   writestring(" astore cvx}ifelse]{[/newpath cvx{/moveto cvx}{/lineto cvx}\n");
+X   writestring(" {/curveto cvx}{/closepath cvx}pathforall]cvx exch pop}\n");
+X   writestring(" stopped{$error/errorname get/invalidaccess eq{cleartomark\n");
+X   writestring(" $error/newerror false put cvx exec}{stop}ifelse}if}def\n");
+X   if (width > 0 && height > 0) {
+X      char buffer[BUFSIZ];
+X      writestring("/initclip[/matrix lcvx/currentmatrix lcvx/pstopsmatrix cvx/setmatrix lcvx\n");
+X      writestring(" /pathtoproc lcvx/initclip lcvx/newpath lcvx\n");
+X      writestring(" 0 0 /moveto lcvx");
+X      sprintf(buffer,
+X	      " %lf 0/rlineto lcvx\n 0 %lf/rlineto lcvx -%lf 0/rlineto lcvx\n",
+X	      width, height, width);
+X      writestring(buffer);
+X      writestring(" /closepath lcvx/clip lcvx\n");
+X      writestring(" /newpath lcvx/exec lcvx/setmatrix lcvx]cvx def\n");
+X   }
+X   writestring("/initgraphics{initmatrix newpath initclip 1 setlinewidth\n");
+X   writestring(" 0 setlinecap 0 setlinejoin []0 setdash 0 setgray\n");
+X   writestring(" 10 setmiterlimit}bind def\n");
+X   if (nobind) /* desperation measures */
+X      writestring("/bind{}def\n");
+X   writestring("%%EndProcSet\n");
+X   /* save transformation from original to current matrix */
+X   writeprolog("/pstopsxform pstopsmatrix matrix currentmatrix matrix invertmatrix matrix concatmatrix matrix invertmatrix store\n");
+X   for (thispg = 0; thispg < maxpage; thispg += modulo) {
+X      int add_last = 0;
+X      struct pagespec *ps;
+X      for (ps = specs; ps != NULL; ps = ps->next) {
+X	 int actualpg;
+X	 int add_next = ((ps->flags & ADD_NEXT) != 0);
+X	 if (ps->reversed)
+X	    actualpg = maxpage-thispg-modulo+ps->pageno;
+X	 else
+X	    actualpg = thispg+ps->pageno;
+X	 if (actualpg < pages)
+X	    seekpage(actualpg);
+X	 if (!add_last) {
+X	    writepageheader("pstops", ++pageindex);
+X	 }
+X	 writestring("/pstopssaved save def\n");
+X	 if (ps->flags & GSAVE) {
+X	    char buffer[BUFSIZ];
+X	    writestring("pstopsmatrix setmatrix\n");
+X	    if (ps->flags & OFFSET) {
+X	       sprintf(buffer, "%lf %lf translate\n", ps->xoff, ps->yoff);
+X	       writestring(buffer);
+X	    }
+X	    if (ps->flags & ROTATE) {
+X	       sprintf(buffer, "%d rotate\n", ps->rotate);
+X	       writestring(buffer);
+X	    }
+X	    if (ps->flags & SCALE) {
+X	       sprintf(buffer, "%lf dup scale\n", ps->scale);
+X	       writestring(buffer);
+X	    }
+X	    if (width > 0 && height > 0) {
+X	       writestring("/pstopsmatrix matrix currentmatrix def\n");
+X	       writestring("initclip\n");
+X	       if (draw > 0) {
+X		  sprintf(buffer, "gsave clippath 0 setgray %lf setlinewidth stroke grestore\n", draw);
+X		  writestring(buffer);
+X	       }
+X	    }
+X	    writestring("pstopsxform concat\n");
+X	 }
+X	 if (add_next) {
+X#ifndef SHOWPAGE_LOAD
+X	    writestring("/showpage{}def/copypage{}def/erasepage{}def\n");
+X#else
+X	    writestring("/pstopsshowpage{}def/pstopscopypage{}def/pstopserasepage{}def\n");
+X#endif
+X	 }
+X	 if (actualpg < pages)
+X	    writepagebody(actualpg);
+X	 else
+X	    writestring("showpage\n");
+X	 writestring("pstopssaved restore\n");
+X	 add_last = add_next;
+X      }
+X   }
+X   writetrailer();
+X}
+END_OF_psspec.c
+if test 7082 -ne `wc -c <psspec.c`; then
+    echo shar: \"psspec.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f pstops.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"pstops.c\"
+else
+echo shar: Extracting \"pstops.c\" \(4388 characters\)
+sed "s/^X//" >pstops.c <<'END_OF_pstops.c'
+X/* pstops.c
+X * AJCD 27/1/91
+X * rearrange pages in conforming PS file for printing in signatures
+X *
+X * Usage:
+X *       pstops [-q] [-b] [-d] [-w<dim>] [-h<dim>] [-ppaper] <pagespecs> [infile [outfile]]
+X */
+X
+X#include "psutil.h"
+X#include "psspec.h"
+X#include "patchlevel.h"
+X
+Xvoid usage()
+X{
+X   fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+X   fprintf(stderr, "Usage: %s [-q] [-b] [-wwidth] [-hheight] [-dlwidth] [-ppaper] <pagespecs> [infile [outfile]]\n",
+X	   prog);
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+Xvoid argerror()
+X{
+X   fprintf(stderr, "%s: page specification error:\n", prog);
+X   fprintf(stderr, "  <pagespecs> = [modulo:]<spec>\n");
+X   fprintf(stderr, "  <spec>      = [-]pageno[@scale][L|R|U][(xoff,yoff)][,spec|+spec]\n");
+X   fprintf(stderr, "                modulo>=1, 0<=pageno<modulo\n");
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+Xstatic int modulo = 1;
+Xstatic int pagesperspec = 1;
+X
+Xstruct pagespec *parsespecs(str)
+X     char *str;
+X{
+X   char *t;
+X   struct pagespec *head, *tail;
+X   int other = 0;
+X   int num = -1;
+X
+X   head = tail = newspec();
+X   while (*str) {
+X      if (isdigit(*str)) {
+X	 num = parseint(&str);
+X      } else {
+X	 switch (*str++) {
+X	 case ':':
+X	    if (other || head != tail || num < 1) argerror();
+X	    modulo = num;
+X	    num = -1;
+X	    break;
+X	 case '-':
+X	    tail->reversed = !tail->reversed;
+X	    break;
+X	 case '@':
+X	    if (num < 0) argerror();
+X	    tail->scale *= parsedouble(&str);
+X	    tail->flags |= SCALE;
+X	    break;
+X	 case 'l': case 'L':
+X	    tail->rotate += 90;
+X	    tail->flags |= ROTATE;
+X	    break;
+X	 case 'r': case 'R':
+X	    tail->rotate -= 90;
+X	    tail->flags |= ROTATE;
+X	    break;
+X	 case 'u': case 'U':
+X	    tail->rotate += 180;
+X	    tail->flags |= ROTATE;
+X	    break;
+X	 case '(':
+X	    tail->xoff += parsedimen(&str);
+X	    if (*str++ != ',') argerror();
+X	    tail->yoff += parsedimen(&str);
+X	    if (*str++ != ')') argerror();
+X	    tail->flags |= OFFSET;
+X	    break;
+X	 case '+':
+X	    tail->flags |= ADD_NEXT;
+X	 case ',':
+X	    if (num < 0 || num >= modulo) argerror();
+X	    if ((tail->flags & ADD_NEXT) == 0)
+X	       pagesperspec++;
+X	    tail->pageno = num;
+X	    tail->next = newspec();
+X	    tail = tail->next;
+X	    num = -1;
+X	    break;
+X	 default:
+X	    argerror();
+X	 }
+X	 other = 1;
+X      }
+X   }
+X   if (num >= modulo)
+X      argerror();
+X   else if (num >= 0)
+X      tail->pageno = num;
+X   return (head);
+X}
+X
+Xmain(argc, argv)
+X     int argc;
+X     char *argv[];
+X{
+X   struct pagespec *specs = NULL;
+X   int nobinding = 0;
+X   double draw = 0;
+X   struct papersize *paper;
+X
+X#ifdef PAPER
+X   if (paper = findpaper(PAPER)) {
+X      width = (double)paper->width;
+X      height = (double)paper->height;
+X   }
+X#endif
+X
+X   infile = stdin;
+X   outfile = stdout;
+X   verbose = 1;
+X   for (prog = *argv++; --argc; argv++) {
+X      if (argv[0][0] == '-') {
+X	 switch (argv[0][1]) {
+X	 case 'q':	/* quiet */
+X	    verbose = 0;
+X	    break;
+X	 case 'd':	/* draw borders */
+X	    if (argv[0][2])
+X	       draw = singledimen(*argv+2);
+X	    else
+X	       draw = 1;
+X	    break;
+X	 case 'b':	/* no bind operator */
+X	    nobinding = 1;
+X	    break;
+X	 case 'w':	/* page width */
+X	    width = singledimen(*argv+2);
+X	    break;
+X	 case 'h':	/* page height */
+X	    height = singledimen(*argv+2);
+X	    break;
+X	 case 'p':	/* paper type */
+X	    if (paper = findpaper(*argv+2)) {
+X	       width = (double)paper->width;
+X	       height = (double)paper->height;
+X	    } else {
+X	       fprintf(stderr, "%s: paper size '%s' not recognised\n",
+X		       prog, *argv+2);
+X	       fflush(stderr);
+X	       exit(1);
+X	    }
+X	    break;
+X	 case 'v':	/* version */
+X	    usage();
+X	 default:
+X	    if (specs == NULL)
+X	       specs = parsespecs(*argv);
+X	    else
+X	       usage();
+X	 }
+X      } else if (specs == NULL)
+X	 specs = parsespecs(*argv);
+X      else if (infile == stdin) {
+X	 if ((infile = fopen(*argv, "r")) == NULL) {
+X	    fprintf(stderr, "%s: can't open input file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else if (outfile == stdout) {
+X	 if ((outfile = fopen(*argv, "w")) == NULL) {
+X	    fprintf(stderr, "%s: can't open output file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else usage();
+X   }
+X   if (specs == NULL)
+X      usage();
+X   if ((infile=seekable(infile))==NULL) {
+X      fprintf(stderr, "%s: can't seek input\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X
+X   pstops(modulo, pagesperspec, nobinding, specs, draw);
+X
+X   exit(0);
+X}
+END_OF_pstops.c
+if test 4388 -ne `wc -c <pstops.c`; then
+    echo shar: \"pstops.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f psutil.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"psutil.c\"
+else
+echo shar: Extracting \"psutil.c\" \(8195 characters\)
+sed "s/^X//" >psutil.c <<'END_OF_psutil.c'
+X/* psutil.c
+X * AJCD 29/1/91
+X * utilities for PS programs
+X */
+X
+X/*
+X *  AJCD 6/4/93
+X *    Changed to using ftell() and fseek() only (no length calculations)
+X *  Hunter Goatley    31-MAY-1993 23:33
+X *    Fixed VMS support.
+X *  Hunter Goatley     2-MAR-1993 14:41
+X *    Added VMS support.
+X */
+X#define LOCAL
+X#include "psutil.h"
+X#include "patchlevel.h"
+X
+X#ifdef VMS
+X#include <file.h>
+X#else
+X#include <fcntl.h>
+X#endif
+X#include <string.h>
+X
+X#define iscomment(x,y) (strncmp(x,y,strlen(y)) == 0)
+X
+Xextern void argerror();
+X
+Xstatic char buffer[BUFSIZ];
+Xstatic long bytes = 0;
+Xstatic long pagescmt = 0;
+Xstatic long headerpos = 0;
+Xstatic long endsetup = 0;
+Xstatic int outputpage = 0;
+Xstatic int maxpages = 100;
+Xstatic long *pageptr;
+X
+X/* list of paper sizes supported */
+Xstatic struct papersize papersizes[] = {
+X   { "a3", 842, 1191 },		/* 29.7cm * 42cm */
+X   { "a4", 595, 842 },		/* 21cm * 29.7cm */
+X   { "a5", 421, 595 },		/* 14.85cm * 21cm */
+X   { "b5", 516, 729 },		/* 18.2cm * 25.72cm */
+X   { "A3", 842, 1191 },		/* 29.7cm * 42cm */
+X   { "A4", 595, 842 },		/* 21cm * 29.7cm */
+X   { "A5", 421, 595 },		/* 14.85cm * 21cm */
+X   { "B5", 516, 729 },		/* 18.2cm * 25.72cm */
+X   { "letter", 612, 792 },	/* 8.5in * 11in */
+X   { "legal", 612, 1008 },	/* 8.5in * 14in */
+X   { "ledger", 1224, 792 },	/* 17in * 11in */
+X   { "tabloid", 792, 1224 },	/* 11in * 17in */
+X   { "statement", 396, 612 },	/* 5.5in * 8.5in */
+X   { "executive", 540, 720 },	/* 7.6in * 10in */
+X   { "folio", 612, 936 },	/* 8.5in * 13in */
+X   { "quarto", 610, 780 },	/* 8.5in * 10.83in */
+X   { "10x14", 720, 1008 },	/* 10in * 14in */
+X   { NULL, 0, 0 }
+X};
+X
+X/* return pointer to paper size struct or NULL */
+Xstruct papersize* findpaper(name)
+X     char *name;
+X{
+X   struct papersize *pp;
+X   for (pp = papersizes; pp->name; pp++) {
+X      if (strcmp(pp->name, name) == 0) {
+X	 return pp;
+X      }
+X   }
+X   return NULL;
+X}
+X
+X/* make a file seekable; trick stolen from Chris Torek's libdvi */
+XFILE *seekable(fp)
+X     FILE *fp;
+X{
+X   int fd, tf, n, w;
+X   char *tmpdir, *p;
+X
+X   fd = fileno(fp);
+X   if (lseek(fd, 0L, 1) >= 0 && !isatty(fd))
+X      return (fp);
+X
+X#ifdef MSDOS
+X   fprintf(stderr, "%s: input is not seekable\n", prog);
+X   fflush(stderr);
+X   exit(1);
+X#else
+X   if ((tmpdir = getenv("TMPDIR")) == NULL)
+X      tmpdir = TMPDIR;
+X   (void) sprintf(buffer, "%s/#%d", tmpdir, getpid());
+X   if ((tf = open(buffer, O_RDWR | O_CREAT | O_EXCL, 0666)) == -1)
+X      return (NULL);
+X   (void) unlink(buffer);
+X
+X   while ((n = read(fd, p = buffer, BUFSIZ)) > 0) {
+X      do {
+X	 if ((w = write(tf, p, n)) < 0) {
+X	    (void) close(tf);
+X	    (void) fclose(fp);
+X	    return (NULL);
+X	 }
+X	 p += w;
+X      } while ((n -= w) > 0);
+X   }
+X   if (n < 0) {
+X      (void) close(tf);
+X      (void) fclose(fp);
+X      return (NULL);
+X   }
+X
+X   /* discard the input file, and rewind and open the temporary */
+X   (void) fclose(fp);
+X   (void) lseek(tf, 0L, 0);
+X   if ((fp = fdopen(tf, "r")) == NULL) {
+X      (void) close(tf);
+X   }
+X   return (fp);
+X#endif
+X}
+X
+X/* copy input file from current position upto new position to output file */
+Xstatic int fcopy(upto)
+X     long upto;
+X{
+X   long here = ftell(infile);
+X   while (here < upto) {
+X      if ((fgets(buffer, BUFSIZ, infile) == NULL) ||
+X	  (fputs(buffer, outfile) == EOF))
+X	 return(0);
+X      here = ftell(infile);
+X      bytes += strlen(buffer);
+X   }
+X   return (1);
+X}
+X
+X/* build array of pointers to start/end of pages */
+Xvoid scanpages()
+X{
+X   register char *comment = buffer+2;
+X   register int nesting = 0;
+X   register long int record;
+X
+X   if ((pageptr = (long *)malloc(sizeof(long)*maxpages)) == NULL) {
+X      fprintf(stderr, "%s: out of memory\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X   pages = 0;
+X   fseek(infile, 0L, 0);
+X   while (record = ftell(infile), fgets(buffer, BUFSIZ, infile) != NULL)
+X      if (*buffer == '%') {
+X	 if (buffer[1] == '%') {
+X	    if (nesting == 0 && iscomment(comment, "Page:")) {
+X	       if (pages >= maxpages-1) {
+X		  maxpages *= 2;
+X		  if ((pageptr = (long *)realloc((char *)pageptr,
+X					     sizeof(long)*maxpages)) == NULL) {
+X		     fprintf(stderr, "%s: out of memory\n", prog);
+X		     fflush(stderr);
+X		     exit(1);
+X		  }
+X	       }
+X	       pageptr[pages++] = record;
+X	    } else if (headerpos == 0 && iscomment(comment, "Pages:"))
+X	       pagescmt = record;
+X	    else if (headerpos == 0 && iscomment(comment, "EndComments"))
+X	       headerpos = ftell(infile);
+X	    else if (iscomment(comment, "BeginDocument") ||
+X		     iscomment(comment, "BeginBinary") ||
+X		     iscomment(comment, "BeginFile"))
+X	       nesting++;
+X	    else if (iscomment(comment, "EndDocument") ||
+X		     iscomment(comment, "EndBinary") ||
+X		     iscomment(comment, "EndFile"))
+X	       nesting--;
+X	    else if (nesting == 0 && iscomment(comment, "EndSetup"))
+X	       endsetup = record;
+X	    else if (nesting == 0 && iscomment(comment, "Trailer")) {
+X	       fseek(infile, record, 0);
+X	       break;
+X	    }
+X	 } else if (headerpos == 0 && buffer[1] != '!')
+X	    headerpos = record;
+X      } else if (headerpos == 0)
+X	 headerpos = record;
+X   pageptr[pages] = ftell(infile);
+X   if (endsetup == 0)
+X      endsetup = pageptr[0];
+X}
+X
+X/* seek a particular page */
+Xvoid seekpage(p)
+X     int p;
+X{
+X   fseek(infile, pageptr[p], 0);
+X   if (fgets(buffer, BUFSIZ, infile) != NULL &&
+X       iscomment(buffer, "%%Page:")) {
+X      char *start, *end;
+X      for (start = buffer+7; isspace(*start); start++);
+X      if (*start == '(') {
+X	 int paren = 1;
+X	 for (end = start+1; paren > 0; end++)
+X	    switch (*end) {
+X	    case '\0':
+X	       fprintf(stderr,
+X		       "%s: Bad page label while seeking page %d\n", prog, p);
+X	       fflush(stderr);
+X	       exit(1);
+X	    case '(':
+X	       paren++;
+X	       break;
+X	    case ')':
+X	       paren--;
+X	       break;
+X	    }
+X      } else
+X	 for (end = start; !isspace(*end); end++);
+X      strncpy(pagelabel, start, end-start);
+X      pageno = atoi(end);
+X   } else {
+X      fprintf(stderr, "%s: I/O error seeking page %d\n", prog, p);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X}
+X
+X/* Output routines. These all update the global variable bytes with the number
+X * of bytes written */
+Xvoid writestring(s)
+X     char *s;
+X{
+X   fputs(s, outfile);
+X   bytes += strlen(s);
+X}
+X
+Xvoid writepageheader(label, page)
+X     char *label;
+X     int page;
+X{
+X   if (verbose) {
+X      sprintf(buffer, "[%d] ", page);
+X      message(buffer);
+X   }
+X   sprintf(buffer, "%%%%Page: %s %d\n", label, ++outputpage);
+X   writestring(buffer);
+X}
+X
+Xvoid writepagebody(p)
+X     int p;
+X{
+X   if (!fcopy(pageptr[p+1])) {
+X      fprintf(stderr, "%s: I/O error writing page %d\n", prog, outputpage);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X}
+X
+Xvoid writepage(p)
+X     int p;
+X{
+X   seekpage(p);
+X   writepageheader(pagelabel, p+1);
+X   writepagebody(p);
+X}
+X
+Xvoid writeheader(p)
+X     int p;
+X{
+X   fseek(infile, 0L, 0);
+X   if (pagescmt) {
+X      if (!fcopy(pagescmt) || fgets(buffer, BUFSIZ, infile) == NULL) {
+X	 fprintf(stderr, "%s: I/O error in header\n", prog);
+X	 fflush(stderr);
+X	 exit(1);
+X      }
+X      sprintf(buffer, "%%%%Pages: %d 0\n", p);
+X      writestring(buffer);
+X   }
+X   if (!fcopy(headerpos)) {
+X      fprintf(stderr, "%s: I/O error in header\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X}
+X
+X
+Xvoid writeprolog(setup)
+X     char *setup;
+X{
+X   if (!fcopy(endsetup)) {
+X      fprintf(stderr, "%s: I/O error in prologue\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X   writestring(setup);
+X   if (!fcopy(pageptr[0])) {
+X      fprintf(stderr, "%s: I/O error in prologue\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X}
+X
+X/* write trailer */
+Xvoid writetrailer()
+X{
+X   fseek(infile, pageptr[pages], 0);
+X   while (fgets(buffer, BUFSIZ, infile) != NULL) {
+X      writestring(buffer);
+X   }
+X   if (verbose) {
+X      sprintf(buffer, "Wrote %d pages, %ld bytes\n", outputpage, bytes);
+X      message(buffer);
+X   }
+X}
+X
+X/* write message to stderr */
+Xvoid message(s)
+X     char *s;
+X{
+X   static int pos = 0;
+X   char *nl = strchr(s, '\n');
+X   int len = nl ? (nl-s) : strlen(s);
+X
+X   if (pos+len > 79 && (pos > 79 || len < 80)) {
+X      fputc('\n', stderr);
+X      pos = 0;
+X   }
+X   fputs(s, stderr);
+X   fflush(stderr);
+X   pos += len;
+X}
+X
+X
+Xvoid writeemptypage()
+X{
+X   if (verbose)
+X      message("[*] ");
+X   sprintf(buffer, "%%%%Page: * %d\nshowpage\n", ++outputpage);
+X   writestring(buffer);
+X}
+X
+END_OF_psutil.c
+if test 8195 -ne `wc -c <psutil.c`; then
+    echo shar: \"psutil.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 2 \(of 4\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

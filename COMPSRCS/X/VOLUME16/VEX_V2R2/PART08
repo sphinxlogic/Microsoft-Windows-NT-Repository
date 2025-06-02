@@ -1,0 +1,1942 @@
+Path: uunet!think.com!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i059: Video Extension for X (v2r2), Part08/29
+Message-ID: <1992Feb6.145514.127@msi.com>
+Date: 6 Feb 92 14:55:14 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1929
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 59
+Archive-name: vex.v2r2/part08
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 8 (of 29)."
+# Contents:  extensions/xv/test/xvt4.c server/ddx/dec/tx/xfbbanksw.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:45 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'extensions/xv/test/xvt4.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/test/xvt4.c'\"
+else
+echo shar: Extracting \"'extensions/xv/test/xvt4.c'\" \(9575 characters\)
+sed "s/^X//" >'extensions/xv/test/xvt4.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X** File: 
+X**
+X**   xvt4.c --- Xv test program 4
+X**   
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   05.15.91 Carver
+X**     - version 2.0 upgrade
+X**
+X**   18.04.91 Carver
+X**     - origional
+X**       
+X*/
+X#include <stdio.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/extensions/Xvlib.h>
+X
+X
+Xmain(argc, argv)
+X     int         argc;
+X     char        *argv[];
+X{
+X  char chr;
+X  int ii, jj, status;
+X  int screen;
+X
+X  Display *dpy;
+X  Visual *vis,*def_vis;
+X  unsigned long vis_id;
+X  unsigned long depth;
+X  XVisualInfo *p_vis_info, vis_info_tmpl;
+X  XGCValues gc_attr;
+X  GC gc;
+X  XSetWindowAttributes win_attr;
+X  Window root,main_win;
+X  Colormap cmap;
+X  XEvent event;
+X  XColor scolor,ecolor;
+X  XImage *image;
+X
+X  unsigned long version, revision;
+X  unsigned int major_opcode;
+X  unsigned int event_base;
+X  unsigned int error_base;
+X  unsigned long nAdaptors;
+X  XvAdaptorInfo *pAdaptors;
+X  XvPortID port;
+X  XvEncodingID enc_id;
+X  XvEvent *pe;
+X  float rate;
+X  int video;
+X
+X  printf("\n  Welcome to Xv test program #4\n\n");
+X  printf("  This program users GetImage with the video extension.  After\n");
+X  printf("  video appears press the left button in video window to capture\n");
+X  printf("  and display an image.  Press ^c exit.\n");
+X
+X  printf("\n> Press return to continue...");
+X  chr = getc(stdin);
+X
+X  dpy = XOpenDisplay(0);
+X  if (!dpy)
+X    {
+X      printf("\n  Couldn't open display\n");
+X      printf("\n  Xv test program #4 terminated\n");
+X      exit();
+X    }
+X  root = XDefaultRootWindow(dpy);
+X  screen = XDefaultScreen(dpy);
+X
+X  XSynchronize(dpy, True);
+X
+X  status = XvQueryExtension(dpy, &version, &revision,
+X			    &major_opcode, &event_base, &error_base);
+X
+X  if (status != Success) 
+X    {
+X      printf("\n  Xv video extension not available\n");
+X      printf("\n  Xv test program #4 terminated\n");
+X      exit();
+X    }
+X
+X  printf("\n  Xv V%01d.%d\n", version, revision);
+X
+X  XvQueryAdaptors(dpy, root, &nAdaptors, &pAdaptors);
+X
+X  if (!nAdaptors)
+X    {
+X      printf("\n  Your display has no video adaptors\n");
+X      printf("\n  Xv test program #4 terminated\n");
+X      exit();
+X    }
+X
+X if (!Setup(argc, argv, nAdaptors, pAdaptors, 
+X	    &port, &depth, &vis_id))
+X   {
+X     printf("\n  Setup failed.\n");
+X     printf("\n  Xv test program #3 terminated\n");
+X     exit();
+X   }
+X
+X  vis_info_tmpl.visualid = vis_id;
+X  p_vis_info = XGetVisualInfo(dpy, VisualIDMask, 
+X			      &vis_info_tmpl, &ii);
+X  if (!p_vis_info)
+X    {
+X      printf("      Error: Couldn't find visual ");
+X      printf("#%x listed for adaptor.\n", vis_id);
+X      printf("\n  Xv test program #4 terminated.\n");
+X      return;
+X    }
+X
+X  vis = p_vis_info->visual;
+X  def_vis = XDefaultVisual(dpy,screen);
+X
+X  if (vis->visualid == def_vis->visualid)
+X    cmap = XDefaultColormap(dpy,screen);
+X  else
+X    cmap = XCreateColormap(dpy, root, vis, AllocNone);
+X
+X  XAllocNamedColor(dpy, cmap, "midnight blue", &scolor, &ecolor);
+X
+X  win_attr.colormap = cmap;
+X  win_attr.background_pixel = scolor.pixel;
+X  win_attr.event_mask = ExposureMask | VisibilityChangeMask | 
+X    ButtonPressMask | KeyPressMask;
+X  win_attr.backing_store = Always;
+X  win_attr.border_pixel = scolor.pixel;
+X
+X  main_win = XCreateWindow(dpy, root, 0, 0, 672, 972, 0, 
+X			   depth, InputOutput, vis,
+X			   CWColormap | CWBackPixel | CWEventMask |
+X			   CWBackingStore | CWBorderPixel,
+X			   &win_attr);
+X
+X  XMapWindow(dpy, main_win);
+X
+X  printf("\n  Waiting for window to become visible...\n");
+X  while (1)
+X    {
+X      XNextEvent(dpy, &event);
+X      if (event.type == VisibilityNotify) break;
+X    }
+X
+X  printf("\n  SelectVideoNotify on window\n");
+X  XvSelectVideoNotify(dpy, main_win, True);
+X  
+X  gc_attr.foreground = scolor.pixel;
+X  gc = XCreateGC(dpy, main_win, GCForeground, &gc_attr);
+X
+X  printf("\n  PutVideo\n\n");
+X  XvPutVideo(dpy, port, main_win, gc, 0, 0, 
+X	     640, 480, 16, 4, 640, 480);
+X
+X  while (1)
+X    {
+X      XNextEvent(dpy, &event);
+X
+X      if (event.type == KeyPress)
+X	{
+X	  if ((XLookupKeysym(&event.xkey,0) == 'c') && 
+X	      (event.xkey.state & ControlMask))
+X	    {
+X	      break;
+X	    }
+X	}
+X      else if (event.type == ButtonPress)
+X	{
+X	  if (event.xbutton.button == Button1)
+X	    {
+X	      if (video)
+X		{
+X		  XvStopVideo(dpy, port, main_win);
+X
+X		  image = XGetImage(dpy, main_win, 16, 4, 640, 480, 
+X				    -1, ZPixmap);
+X
+X		  XPutImage(dpy, main_win, gc, image, 0, 0, 16, 488, 640, 480);
+X
+X		  XDestroyImage(image);
+X
+X		}
+X	      XvPutVideo(dpy, port, main_win, gc, 0, 0, 
+X			 640, 480, 16, 4, 640, 480);
+X	    }
+X	}
+X      else if (event.type == event_base)
+X	{
+X	  pe = (XvEvent *)&event;
+X	  if (pe->xvvideo.drawable == main_win)
+X	    {
+X	      if (pe->xvvideo.reason == XvStarted)
+X		{
+X		  printf("  Video started on port %d\n", pe->xvvideo.port_id);
+X		  video = True;
+X		}
+X	      if (pe->xvvideo.reason == XvStopped)
+X		{
+X		  printf("  Video stopped on port %d\n", pe->xvvideo.port_id);
+X		  video = False;
+X		}
+X	      if (pe->xvvideo.reason == XvPreempted)
+X		{
+X		  printf("  Video preempted on port %d\n", pe->xvvideo.port_id);
+X		  video = False;
+X		}
+X	      if (pe->xvvideo.reason == XvHardError)
+X		{
+X		  printf("  Video error on port %d\n", pe->xvvideo.port_id);
+X		  video = False;
+X		}
+X	      if (pe->xvvideo.reason == XvBusy)
+X		{
+X		  printf("  Port %d is grabbed by another client\n", 
+X			 pe->xvvideo.port_id);
+X		  XBell(dpy, 100);
+X		  if (pe->xvvideo.drawable == main_win)
+X		    video = False;
+X		}
+X	    }
+X	  else
+X	    {
+X	      printf("  Wrong video notify window!!!\n");
+X	    }
+X	}
+X    }
+X
+X  printf("\n  Xv test program #4 finished\n");
+X
+X}
+X
+X
+XSetup(argc, argv, nAdaptors, pAdaptors, p_port, p_depth, p_vis_id)
+X     int         argc;
+X     char        *argv[];
+X     unsigned long nAdaptors;
+X     XvAdaptorInfo *pAdaptors;
+X     unsigned long *p_port;
+X     unsigned long *p_depth;
+X     unsigned long *p_vis_id;
+X{
+X  int ii, jj;
+X  XvAdaptorInfo *pAdaptor;
+X  XvFormat *pFormat;
+X  int adaptor, port, depth, visual_id;
+X
+X  adaptor = port = depth = visual_id = -1;
+X
+X  /* LOOK THROUGH COMMAND LINE ARGUMENTS */
+X
+X  for ( ii = 1; ii < argc; ii++ )
+X    {
+X      if (strcmp( argv[ii], "-adaptor") == 0)
+X	{
+X	    if(++ii < argc)
+X	      adaptor = atoi(argv[ii]);
+X            else
+X	      UseMsg(argv);
+X	}
+X      else if (strcmp( argv[ii], "-port") == 0)
+X	{
+X	    if(++ii < argc)
+X	      port = atoi(argv[ii]);
+X            else
+X	      UseMsg(argv);
+X	}
+X      else if (strcmp( argv[ii], "-depth") == 0)
+X	{
+X	    if(++ii < argc)
+X	      depth = atoi(argv[ii]);
+X            else
+X	      UseMsg(argv);
+X	}
+X      else if (strcmp( argv[ii], "-visual") == 0)
+X	{
+X	    if(++ii < argc)
+X	      visual_id = atoi(argv[ii]);
+X            else
+X	      UseMsg(argv);
+X	}
+X      else if (strcmp( argv[ii], "-help") == 0)
+X	{
+X	  UseMsg(argv);
+X	}
+X    }
+X
+X  if (adaptor < 0)
+X    {
+X      pAdaptor = pAdaptors;
+X    }
+X  else
+X    {
+X      if (adaptor > nAdaptors)
+X	{
+X	  printf("\n  Adaptor #%d doesn't exist.\n", adaptor);
+X	  return False;
+X	}
+X      pAdaptor = pAdaptors+(adaptor-1);
+X    }
+X
+X  if (port < 0)
+X    {
+X      port = pAdaptor->base_id;
+X    }
+X  else
+X    {
+X      if (port > pAdaptor->num_ports)
+X	{
+X	  printf("\n  Port #%d doesn't exist for adaptor #%d.\n", 
+X		 port, adaptor);
+X	  return False;
+X	}
+X    }
+X
+X  pFormat = pAdaptor->formats;
+X
+X  if (depth < 0)
+X    {
+X      depth = pFormat->depth;
+X    }
+X  else
+X    {
+X      for (ii=0; ii<pAdaptor->num_formats; ii++)
+X	{
+X	  if (pFormat->depth == depth) break;
+X	  pFormat++;
+X	}
+X
+X      if (ii >= pAdaptor->num_formats)
+X	{
+X	  printf("\n  Depth %d not supported by adaptor.\n", depth);
+X	  return False;
+X	}
+X    }
+X
+X  if (visual_id < 0)
+X    {
+X      visual_id = pFormat->visual_id;
+X    }
+X  else
+X    {
+X
+X      pFormat = pAdaptor->formats;
+X
+X      for (ii=0; ii<pAdaptor->num_formats; ii++)
+X	{
+X	  if ((pFormat->visual_id == visual_id) && pFormat->depth == depth)
+X	    break;
+X	  pFormat++;
+X	}
+X
+X      if (ii >= pAdaptor->num_formats)
+X	{
+X	  printf("\n  Visual-id %d at depth %d not supported by adaptor.\n", 
+X		 depth, visual_id);
+X	  return False;
+X	}
+X    }
+X
+X  *p_port = port;
+X  *p_depth = depth;
+X  *p_vis_id = visual_id;
+X
+X  return True;
+X}
+X
+XUseMsg(argv)
+X     char        *argv[];
+X{
+X
+X  printf("use: %s [option]\n", argv[0]);
+X  printf("\t-adaptor #                       adaptor number\n");
+X  printf("\t-port #                          port (XID)\n");
+X  printf("\t-depth #                         drawable depth (planes)\n");
+X  printf("\t-visual #                        drawable visual (id)\n");
+X  exit();
+X}
+END_OF_FILE
+if test 9575 -ne `wc -c <'extensions/xv/test/xvt4.c'`; then
+    echo shar: \"'extensions/xv/test/xvt4.c'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/test/xvt4.c'
+fi
+if test -f 'server/ddx/dec/tx/xfbbanksw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/tx/xfbbanksw.c'\"
+else
+echo shar: Extracting \"'server/ddx/dec/tx/xfbbanksw.c'\" \(42228 characters\)
+sed "s/^X//" >'server/ddx/dec/tx/xfbbanksw.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+XTitle:		xfbbanksw.c -- Bank switching module for TX
+XAuthor:		Edwin Goei
+XCreated:	21 Mar 91
+X
+XPurpose:
+X    Some machines like the 3max have an I/O address space limit which is
+X    smaller than the total I/O space of the TX board.  On these machines
+X    the TX card must be run in "bankswitched" mode to access all the
+X    memory on the board.  This module manages all of this.
+X
+XNotes:
+X    For efficiency reasons, this module should not be called for machines
+X    that do not need bank switching, although it should still work.
+X
+X    The implementation wraps both GC funcs and ops for 24-bit GCs in order
+X    to capture requests that draw into the 24-bit frame buffer.   In addition,
+X    it also wraps certain screen funcs that access the 24-bit frame buffer.
+X
+X    The wrapper code here assumes that the last func to be called before any
+X    op will be ValidateGC.
+X
+X    Window to window copies currently can use large pixmaps.  We should
+X    probably rewrite this to be more memory efficient.
+X
+XUpdates:
+X    17 Sep 91 (edg) = Added code to set the select plane of 8-bit
+X	StaticGray windows to depth 24.  All drawing is still done in 8 bits.
+X	This trick causes StaticGray windows to display using the decomposed
+X	hardware colormap.  See ropcolor.c for more info.
+X*/
+X
+X#include "X.h"
+X#include "Xproto.h"
+X#include "regionstr.h"
+X#include "gcstruct.h"
+X#include "scrnintstr.h"
+X#include "pixmapstr.h"
+X#include "windowstr.h"
+X#include "xfbstruct.h"
+X#include "xfbbankswst.h"
+X#include "tfb.h"
+X#include "tfbdraw.h"
+X#include "fontstruct.h"
+X#include "cfb.h"
+X
+X/* RasterOps screen regions
+XThis stuff is RasterOps specific.  May want to put this in screen private
+Xto generalize this mechanism for other hardware.
+X*/
+X
+X#ifdef nomore
+X
+X#define xfbBankLength 0x200000  /* length of a bank in bytes */
+X#define xfbBankRegionsN 3
+Xstatic RegionPtr xfbBankRegions[xfbBankRegionsN];
+X/* List of rectangles that make up each region */
+Xstatic int xfbBankRectsN[xfbBankRegionsN] = { 2, 3, 2 };
+Xstatic xRectangle xfbBankRects[xfbBankRegionsN][3] = {
+X    { { 0, 0, 1280, 409 }, { 0, 409, 768, 1 }, { 0, 0, 0, 0 } },
+X    { { 768, 409, 512, 1 }, { 0, 410, 1280, 409 }, { 0, 819, 256, 1 } },
+X    { { 256, 819, 1024, 1 }, { 0, 820, 1280, 204 }, { 0, 0, 0, 0 } },
+X};
+X
+X#endif nomore
+X
+X
+X#define xfbBankLength 0x200000  /* length of a bank in bytes */
+X#define xfbBankRegionsN 7
+Xstatic RegionPtr xfbBankRegions[xfbBankRegionsN];
+X/* List of rectangles that make up each region */
+Xstatic int xfbBankRectsN[xfbBankRegionsN] = { 1, 1, 1, 1, 1, 1, 1 };
+Xstatic xRectangle xfbBankRects[xfbBankRegionsN][1] = {
+X    { { 0, 0, 1280, 409 } }, 
+X    { { 0, 409, 768, 1 } }, 
+X    { { 768, 409, 512, 1 } }, 
+X    { { 0, 410, 1280, 409 } }, 
+X    { { 0, 819, 256, 1 } },
+X    { { 256, 819, 1024, 1 } }, 
+X    { { 0, 820, 1280, 204 } }, 
+X};
+Xstatic int xfbBanks[xfbBankRegionsN] = {0, 0, 1, 1, 1, 2, 2};
+X
+X#define BANK_DEFAULT -1
+X
+X/* Screen stuff */
+Xstatic int  xfbBankScreenIndex;
+Xstatic unsigned long xfbBankGeneration = 0;
+X
+X#define SCREEN_PROLOGUE(pScreen, field)\
+X  ((pScreen)->field = \
+X   ((xfbBankScreenPtr) \
+X    (pScreen)->devPrivates[xfbBankScreenIndex].ptr)->field)
+X
+X#define SCREEN_EPILOGUE(pScreen, field, wrapper)\
+X    ((pScreen)->field = wrapper)
+X
+X
+X/* GC stuff */
+Xstatic int  xfbBankGCIndex;
+X
+X#define FUNC_PROLOGUE(pGC, pPriv) \
+X    ((pGC)->funcs = pPriv->wrapFuncs),\
+X    ((pGC)->ops = pPriv->wrapOps)
+X
+X#define FUNC_EPILOGUE(pGC, pPriv) \
+X    ((pGC)->funcs = &xfbBankGCFuncs),\
+X    ((pGC)->ops = &xfbBankGCOps)
+X
+Xstatic void xfbBankValidateGC(), xfbBankChangeGC(), xfbBankCopyGC();
+Xstatic void xfbBankDestroyGC(), xfbBankChangeClip(), xfbBankDestroyClip();
+Xstatic void xfbBankCopyClip();
+X
+Xstatic GCFuncs xfbBankGCFuncs = {
+X    xfbBankValidateGC,
+X    xfbBankChangeGC,
+X    xfbBankCopyGC,
+X    xfbBankDestroyGC,
+X    xfbBankChangeClip,
+X    xfbBankDestroyClip,
+X    xfbBankCopyClip,
+X};
+X
+X#define OP_INIT(pGC) \
+X    ScreenPtr pScreen = (pGC)->pScreen; \
+X    tfbPrivGCPtr pTfbPriv = (tfbPrivGCPtr) \
+X	(pGC)->devPrivates[tfbGCPrivateIndex].ptr; \
+X    xfbBankGCPtr pGCPriv = (xfbBankGCPtr) \
+X	(pGC)->devPrivates[xfbBankGCIndex].ptr; \
+X    RegionPtr pOrigCompositeClip; \
+X    RegionRec tmpReg; \
+X    int i; \
+X    GCFuncs *oldFuncs = (pGC)->funcs; \
+X
+X#define OP_PROLOGUE(pGC) \
+X    (pGC)->ops = pGCPriv->wrapOps; \
+X    (pGC)->funcs = pGCPriv->wrapFuncs;
+X
+X#define OP_EPILOGUE(pGC) \
+X    pGCPriv->wrapOps = (pGC)->ops; \
+X    (pGC)->ops = &xfbBankGCOps; \
+X    (pGC)->funcs = oldFuncs; \
+X
+X#define OP_TOP_PART(pGC) \
+X    (*pScreen->RegionInit)(&tmpReg, NullBox, 0); \
+X    pOrigCompositeClip = pTfbPriv->pCompositeClip; \
+X    pTfbPriv->pCompositeClip = &tmpReg; \
+X    for (i = 0; i < xfbBankRegionsN; i++) { \
+X	(*pScreen->Intersect)(pTfbPriv->pCompositeClip, pOrigCompositeClip, \
+X	    xfbBankRegions[i]); \
+X	if (pScreen->RegionNotEmpty(&tmpReg)) { \
+X	    xfbBankSetBank(pScreen, i); \
+X
+X#define OP_BOTTOM_PART(pGC) \
+X	} \
+X    } \
+X    xfbBankSetBank(pScreen, BANK_DEFAULT); \
+X    pTfbPriv->pCompositeClip = pOrigCompositeClip; \
+X    (*pScreen->RegionUninit)(&tmpReg); \
+X
+X/* edg: may want to get rid of this macro */
+X#define OP_DEST_ONLY(pDrawable, pGC, statement) \
+X    if ((pDrawable)->type == DRAWABLE_WINDOW) { \
+X	OP_TOP_PART(pGC); \
+X	statement; \
+X	OP_BOTTOM_PART(pGC); \
+X    } else { \
+X	statement; \
+X    }
+X
+X#define OP_SIMPLE(pDrawable, pGC, statement) \
+X    OP_INIT(pGC); \
+X    OP_PROLOGUE(pGC); \
+X    OP_DEST_ONLY(pDrawable, pGC, statement); \
+X    OP_EPILOGUE(pGC);
+X
+Xstatic void xfbBankFillSpans(), xfbBankSetSpans(), xfbBankPutImage();
+Xstatic RegionPtr xfbBankCopyArea(), xfbBankCopyPlane();
+Xstatic void xfbBankPolyPoint(), xfbBankPolylines(), xfbBankPolySegment();
+Xstatic void xfbBankPolyRectangle(),xfbBankPolyArc(), xfbBankFillPolygon();
+Xstatic void xfbBankPolyFillRect(), xfbBankPolyFillArc();
+Xstatic int xfbBankPolyText8(), xfbBankPolyText16();
+Xstatic void xfbBankImageText8(), xfbBankImageText16();
+Xstatic void xfbBankImageGlyphBlt(),xfbBankPolyGlyphBlt();
+Xstatic void xfbBankPushPixels(), xfbBankLineHelper();
+X
+Xstatic GCOps xfbBankGCOps = {
+X    xfbBankFillSpans,		xfbBankSetSpans,	xfbBankPutImage,	
+X    xfbBankCopyArea,		xfbBankCopyPlane,	xfbBankPolyPoint,
+X    xfbBankPolylines,		xfbBankPolySegment,	xfbBankPolyRectangle,
+X    xfbBankPolyArc,		xfbBankFillPolygon,	xfbBankPolyFillRect,
+X    xfbBankPolyFillArc,		xfbBankPolyText8,	xfbBankPolyText16,
+X    xfbBankImageText8,		xfbBankImageText16,	xfbBankImageGlyphBlt,
+X    xfbBankPolyGlyphBlt,	xfbBankPushPixels,	xfbBankLineHelper,
+X};
+X
+X
+Xvoid
+XxfbBankSetBank(pScreen, bank)
+X    ScreenPtr	pScreen;
+X    int		bank;
+X{
+X#ifdef nomore
+X    ropSetBank(pScreen, bank);
+X    if (bank != BANK_DEFAULT) {
+X	tfbDrawSetFb24(pScreen,
+X	    ((xfbBankScreenPtr) pScreen->devPrivates[xfbBankScreenIndex].ptr)
+X	    ->mappedAdr - bank * xfbBankLength);
+X    }
+X#endif nomore
+X    ropSetBank(pScreen, xfbBanks[bank]);
+X    if (bank != BANK_DEFAULT) {
+X	tfbDrawSetFb24(pScreen,
+X	    ((xfbBankScreenPtr) pScreen->devPrivates[xfbBankScreenIndex].ptr)
+X	    ->mappedAdr - xfbBanks[bank] * xfbBankLength);
+X    }
+X
+X}
+X
+X/* Screen procs */
+X
+Xstatic Bool
+XxfbBankCloseScreen(i, pScreen)
+X    ScreenPtr	pScreen;
+X{
+X    xfbBankScreenPtr   pScreenPriv;
+X
+X    pScreenPriv = (xfbBankScreenPtr)
+X	pScreen->devPrivates[xfbBankScreenIndex].ptr;
+X
+X    xfbBankSetBank(pScreen, BANK_DEFAULT);
+X    pScreen->CloseScreen = pScreenPriv->CloseScreen;
+X    pScreen->GetImage = pScreenPriv->GetImage;
+X    pScreen->GetSpans = pScreenPriv->GetSpans;
+X    pScreen->CreateGC = pScreenPriv->CreateGC;
+X    pScreen->PaintWindowBackground = pScreenPriv->PaintWindowBackground;
+X    pScreen->PaintWindowBorder = pScreenPriv->PaintWindowBorder;
+X    pScreen->CopyWindow = pScreenPriv->CopyWindow;
+X
+X    xfree((pointer) pScreenPriv);
+X    return (*pScreen->CloseScreen)(i, pScreen);
+X}
+X
+X#define RectToRegion(pScreen, prect, preg) { \
+X    BoxRec box; \
+X    box.x1 = (prect)->x; \
+X    box.y1 = (prect)->y; \
+X    box.x2 = box.x1 + (prect)->width; \
+X    box.y2 = box.y1 + (prect)->height; \
+X    (*(pScreen)->RegionInit)((preg), &box, 0); \
+X};
+X
+Xstatic void
+XxfbBankGetImage(pDrawable, sx, sy, w, h, format, planemask, pdstLine)
+X    DrawablePtr	    pDrawable;
+X    int		    sx, sy, w, h;
+X    unsigned int    format;
+X    unsigned long   planemask;
+X    pointer	    pdstLine;
+X{
+X    ScreenPtr pScreen = pDrawable->pScreen;
+X    int i, j;
+X    RegionRec tmpReg, srcReg;
+X    BoxRec box, *pbox;
+X    
+X    SCREEN_PROLOGUE(pScreen, GetImage);
+X    if (pDrawable->type == DRAWABLE_WINDOW && pDrawable->depth == 24) {
+X        box.x1 = pDrawable->x + sx;
+X        box.y1 = pDrawable->y + sy;
+X        box.x2 = box.x1 + w;
+X        box.y2 = box.y1 + h;
+X	(*pScreen->RegionInit)(&srcReg, &box, 0);
+X	for (i = 0; i < xfbBankRegionsN; i++) {
+X	    for (j = 0; j < xfbBankRectsN[i]; j++) {
+X		RectToRegion(pScreen, &xfbBankRects[i][j], &tmpReg);
+X		(*pScreen->Intersect)(&tmpReg, &tmpReg, &srcReg);
+X		if (pScreen->RegionNotEmpty(&tmpReg)) {
+X		    pbox = pScreen->RegionExtents(&tmpReg);
+X		    w = pbox->x2 - pbox->x1;
+X		    h = pbox->y2 - pbox->y1;
+X		    xfbBankSetBank(pScreen, i);
+X		    (*pScreen->GetImage)(pDrawable, pbox->x1 - pDrawable->x,
+X			pbox->y1 - pDrawable->y, w, h, format, planemask,
+X			pdstLine);
+X		    /* the following assumes alot about the pixmap format */
+X		    pdstLine += w * 4 * h;
+X		}
+X		(*pScreen->RegionUninit)(&tmpReg);
+X	    }
+X	}
+X	xfbBankSetBank(pScreen, BANK_DEFAULT);
+X	(*pScreen->RegionUninit)(&srcReg);
+X    } else {
+X	(*pScreen->GetImage)(pDrawable, sx, sy, w, h,
+X				  format, planemask, pdstLine);
+X    }
+X    SCREEN_EPILOGUE(pScreen, GetImage, xfbBankGetImage);
+X}
+X
+Xstatic void
+XxfbBankGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart)
+X    DrawablePtr	pDrawable;
+X    int		wMax;
+X    DDXPointPtr	ppt;
+X    int		*pwidth;
+X    int		nspans;
+X    unsigned int *pdstStart;
+X{
+X    ScreenPtr		    pScreen = pDrawable->pScreen;
+X    
+X    SCREEN_PROLOGUE(pScreen, GetSpans);
+X    if (pDrawable->type == DRAWABLE_WINDOW && pDrawable->depth == 24) {
+X	/* The following code for bank switching 24-bit windows is RasterOps
+X	    specific.  Also, it does not assume spans are sorted.
+X	*/
+X
+X#define InRegion0 \
+X    (ppt[k].y < 409 || ppt[k].y == 409 && ppt[k].x + pwidth[k] <= 768)
+X#define OnBorder01 \
+X    (ppt[k].y == 409 && ppt[k].x < 768 && ppt[k].x + pwidth[k] > 768)
+X#define InRegion1 \
+X    (ppt[k].y > 409 && ppt[k].y < 819 \
+X    || ppt[k].y == 819 && ppt[k].x + pwidth[k] <= 256 \
+X    || ppt[k].y == 409 && ppt[k].x >= 768)
+X#define OnBorder12 \
+X    (ppt[k].y == 819 && ppt[k].x < 256 && ppt[k].x + pwidth[k] > 256)
+X#define InRegion2 \
+X    (ppt[k].y > 819 || ppt[k].y == 819 && ppt[k].x >= 256)
+X
+X	DDXPointRec pt2;
+X	int w1, w2, k, start, dstInc;
+X
+X	for (k = 0; k < nspans;) {
+X	    if (InRegion0) {
+X		xfbBankSetBank(pScreen, 0);
+X		start = k;
+X		dstInc = 0;
+X		do {
+X		    dstInc += pwidth[k];
+X		    k++;
+X		} while (InRegion0 && k < nspans);
+X		(*pScreen->GetSpans)(pDrawable, wMax, &ppt[start],
+X		    &pwidth[start], k-start, pdstStart);
+X		pdstStart += dstInc;
+X	    } else if (OnBorder01) {
+X		/* get left half of span: */
+X		xfbBankSetBank(pScreen, 0);
+X		w1 = 768 - ppt[k].x;
+X		(*pScreen->GetSpans)(pDrawable, wMax, &ppt[k],
+X		    &w1, 1, pdstStart);
+X		pdstStart += w1;
+X
+X		/* get right half of span: */
+X		xfbBankSetBank(pScreen, 1);
+X		pt2.y = ppt[k].y;
+X		pt2.x = 768;
+X		w2 = pwidth[k] - w1;
+X		(*pScreen->GetSpans)(pDrawable, wMax, &pt2,
+X		    w2, 1, pdstStart);
+X		pdstStart += w2;
+X		k++;
+X	    } else if (InRegion1) {
+X		xfbBankSetBank(pScreen, 1);
+X		start = k;
+X		dstInc = 0;
+X		do {
+X		    dstInc += pwidth[k];
+X		    k++;
+X		} while (InRegion1 && k < nspans);
+X		(*pScreen->GetSpans)(pDrawable, wMax, &ppt[start],
+X		    &pwidth[start], k-start, pdstStart);
+X		pdstStart += dstInc;
+X	    } else if (OnBorder12) {
+X		/* get left half of span: */
+X		xfbBankSetBank(pScreen, 1);
+X		w1 = 256 - ppt[k].x;
+X		(*pScreen->GetSpans)(pDrawable, wMax, &ppt[k],
+X		    &w1, 1, pdstStart);
+X		pdstStart += w1;
+X
+X		/* get right half of span: */
+X		xfbBankSetBank(pScreen, 2);
+X		pt2.y = ppt[k].y;
+X		pt2.x = 256;
+X		w2 = pwidth[k] - w1;
+X		(*pScreen->GetSpans)(pDrawable, wMax, &pt2,
+X		    w2, 1, pdstStart);
+X		pdstStart += w2;
+X		k++;
+X	    } else {  /* span must be in region 2 */
+X		xfbBankSetBank(pScreen, 2);
+X		start = k;
+X		dstInc = 0;
+X		do {
+X		    dstInc += pwidth[k];
+X		    k++;
+X		} while (InRegion2 && k < nspans);
+X		(*pScreen->GetSpans)(pDrawable, wMax, &ppt[start],
+X		    &pwidth[start], k-start, pdstStart);
+X		pdstStart += dstInc;
+X	    }
+X	}
+X	xfbBankSetBank(pScreen, BANK_DEFAULT);
+X#undef InRegion0
+X#undef OnBorder01
+X#undef InRegion1
+X#undef OnBorder12
+X#undef InRegion2
+X
+X    } else {
+X	(*pScreen->GetSpans)(pDrawable, wMax, ppt, pwidth, nspans, pdstStart);
+X    }
+X    SCREEN_EPILOGUE(pScreen, GetSpans, xfbBankGetSpans);
+X}
+X
+Xstatic Bool
+XxfbBankCreateGC(pGC)
+X    GCPtr   pGC;
+X{
+X    ScreenPtr	pScreen = pGC->pScreen;
+X    xfbBankGCPtr pGCPriv = (xfbBankGCPtr) pGC->devPrivates[xfbBankGCIndex].ptr;
+X    Bool	ret;
+X
+X    SCREEN_PROLOGUE(pScreen, CreateGC);
+X    
+X    if ((ret = (*pScreen->CreateGC)(pGC)) && pGC->depth == 24) {
+X	/* wrap funcs and ops */
+X	pGCPriv->wrapFuncs = pGC->funcs;
+X	pGCPriv->wrapOps = pGC->ops;
+X	pGC->funcs = &xfbBankGCFuncs;
+X	pGC->ops = &xfbBankGCOps;
+X    }
+X
+X    SCREEN_EPILOGUE(pScreen, CreateGC, xfbBankCreateGC);
+X    return (ret);
+X}
+X
+Xvoid
+XxfbBankPaintWindow(pWin, pRegion, what)
+X    WindowPtr	pWin;
+X    RegionPtr	pRegion;
+X    int		what;
+X{
+X    ScreenPtr	pScreen = pWin->drawable.pScreen;
+X    RegionRec tmpReg;
+X    int i;
+X    void (*paintWindow)();
+X
+X    if (what == PW_BORDER) {
+X	SCREEN_PROLOGUE(pScreen, PaintWindowBorder);
+X	paintWindow = pScreen->PaintWindowBorder;
+X    } else {
+X	SCREEN_PROLOGUE(pScreen, PaintWindowBackground);
+X	paintWindow = pScreen->PaintWindowBackground;
+X    }
+X    if (pWin->drawable.depth == 24) {
+X	(*pScreen->RegionInit)(&tmpReg, NullBox, 0);
+X	for (i = 0; i < xfbBankRegionsN; i++) {
+X	    (*pScreen->Intersect)(&tmpReg, pRegion, xfbBankRegions[i]);
+X	    if (pScreen->RegionNotEmpty(&tmpReg)) {
+X		xfbBankSetBank(pScreen, i);
+X		(*paintWindow)(pWin, &tmpReg, what);
+X	    }
+X	}
+X	(*pScreen->RegionUninit)(&tmpReg);
+X	xfbBankSetBank(pScreen, BANK_DEFAULT);
+X    } else {
+X	(*paintWindow)(pWin, pRegion, what);
+X    }
+X    if (what == PW_BORDER) {
+X	SCREEN_EPILOGUE(pScreen, PaintWindowBorder, xfbBankPaintWindow);
+X    } else {
+X	SCREEN_EPILOGUE(pScreen, PaintWindowBackground, xfbBankPaintWindow);
+X    }
+X}
+X
+X/*
+XCopy (x1,x2) from boxes in pRegion to ppt array, translating by (dx, dy)
+X*/
+Xstatic void
+XMkBitbltPoints(ppt, pRegion, dx, dy)
+X    DDXPointPtr ppt;
+X    RegionPtr pRegion;
+X    int dx, dy;
+X{
+X    BoxPtr pbox;
+X    int i, nbox;
+X
+X    pbox = REGION_RECTS(pRegion);
+X    nbox = REGION_NUM_RECTS(pRegion);
+X    for (i = nbox; --i >= 0; ppt++, pbox++) {
+X	ppt->x = pbox->x1 + dx;
+X	ppt->y = pbox->y1 + dy;
+X    }
+X}
+X
+Xextern void tfbDoBitbltCopy();  /* look in tfbblt.c */
+Xextern void tfbDoBitblt();  /* look in tfbblt.c */
+Xextern WindowPtr *WindowTable;
+X
+X/*
+XDo a 24 bit CopyWindow with bank switching.  Use a temporary pixmap and
+Xcopy the data twice.
+X*/
+Xstatic void
+XxfbBankCopyWindow24(pWin, ptOldOrg, prgnSrc)
+X    WindowPtr pWin;
+X    DDXPointRec ptOldOrg;
+X    RegionPtr prgnSrc;
+X{
+X    ScreenPtr pScreen = pWin->drawable.pScreen;
+X    DDXPointPtr pptBitbltSrc;
+X    int dx, dy;
+X    int i;
+X    WindowPtr pWinRoot= WindowTable[pScreen->myNum];
+X    PixmapPtr pPixmap;
+X    RegionRec tmpReg;
+X    BoxPtr pSrcBB, pDstBB;  /* src and dst region bounding boxes (extents) */
+X
+X    /* make prgnSrc cover the region that we need to copy */
+X    dx = pWin->drawable.x - ptOldOrg.x;
+X    dy = pWin->drawable.y - ptOldOrg.y;
+X    (*pScreen->TranslateRegion)(prgnSrc, dx, dy);
+X    (*pScreen->Intersect)(prgnSrc, &pWin->borderClip, prgnSrc);
+X    (*pScreen->TranslateRegion)(prgnSrc, -dx, -dy);
+X
+X    pSrcBB = (*pScreen->RegionExtents)(prgnSrc);
+X    pPixmap = (*pScreen->CreatePixmap)(pScreen, pSrcBB->x2 - pSrcBB->x1,
+X	pSrcBB->y2 - pSrcBB->y1, 24);
+X    (*pScreen->RegionInit)(&tmpReg, NullBox, 0);
+X
+X    for (i = 0; i < xfbBankRegionsN; i++) {
+X	(*pScreen->Intersect)(&tmpReg, prgnSrc, xfbBankRegions[i]);
+X	if (pScreen->RegionNotEmpty(&tmpReg)) {
+X	    xfbBankSetBank(pScreen, i);
+X	    if (!(pptBitbltSrc = (DDXPointPtr) ALLOCATE_LOCAL(
+X		REGION_NUM_RECTS(&tmpReg) * sizeof(DDXPointRec)))) {
+X		(*pScreen->RegionUninit)(&tmpReg);
+X		(*pScreen->DestroyPixmap)(pPixmap);
+X		return;
+X	    }
+X	    MkBitbltPoints(pptBitbltSrc, &tmpReg, 0, 0);
+X	    (*pScreen->TranslateRegion)(&tmpReg, -pSrcBB->x1, -pSrcBB->y1);
+X	    tfbDoBitbltCopy((DrawablePtr) pWinRoot, (DrawablePtr) pPixmap,
+X		GXcopy, &tmpReg, pptBitbltSrc, ~0L);
+X	    DEALLOCATE_LOCAL(pptBitbltSrc);
+X	}
+X    }
+X
+X    (*pScreen->TranslateRegion)(prgnSrc, dx, dy);
+X    /* now prgnSrc is really the destination region! */
+X    pDstBB = (*pScreen->RegionExtents)(prgnSrc);
+X    for (i = 0; i < xfbBankRegionsN; i++) {
+X	(*pScreen->Intersect)(&tmpReg, prgnSrc, xfbBankRegions[i]);
+X	if (pScreen->RegionNotEmpty(&tmpReg)) {
+X	    xfbBankSetBank(pScreen, i);
+X	    if (!(pptBitbltSrc = (DDXPointPtr) ALLOCATE_LOCAL(
+X		REGION_NUM_RECTS(&tmpReg) * sizeof(DDXPointRec)))) {
+X		(*pScreen->RegionUninit)(&tmpReg);
+X		(*pScreen->DestroyPixmap)(pPixmap);
+X		return;
+X	    }
+X	    MkBitbltPoints(pptBitbltSrc, &tmpReg, -pDstBB->x1, -pDstBB->y1);
+X	    tfbDoBitbltCopy((DrawablePtr) pPixmap, (DrawablePtr) pWinRoot,
+X		GXcopy, &tmpReg, pptBitbltSrc, ~0L);
+X	    DEALLOCATE_LOCAL(pptBitbltSrc);
+X	}
+X    }
+X
+X    (*pScreen->RegionUninit)(&tmpReg);
+X    (*pScreen->DestroyPixmap)(pPixmap);
+X    xfbBankSetBank(pScreen, BANK_DEFAULT);
+X}
+X
+Xvoid 
+XxfbBankCopyWindow(pWin, ptOldOrg, prgnSrc)
+X    WindowPtr pWin;
+X    DDXPointRec ptOldOrg;
+X    RegionPtr prgnSrc;
+X{
+X    ScreenPtr	pScreen = pWin->drawable.pScreen;
+X    int depth, hwCmap;
+X
+X    SCREEN_PROLOGUE(pScreen, CopyWindow);
+X
+X    xfbFindDepthAndHwCmap(pWin, &depth, &hwCmap);
+X    if (hwCmap != -1) {
+X	/* easy case: windows all have the same hardware cmap */
+X	ropSetSelect(pWin->drawable.pScreen, &pWin->borderClip, hwCmap);
+X    } else {
+X	xfbCopyWindowSetCmaps(pWin);
+X    }
+X    if (depth == 8) {
+X	/* no bank switching needed */
+X	cfbCopyWindow(pWin, ptOldOrg, prgnSrc);
+X    } else {
+X	/* do bank switched CopyWindow */
+X	xfbBankCopyWindow24(pWin, ptOldOrg, prgnSrc);
+X    }
+X    SCREEN_EPILOGUE(pScreen, CopyWindow, xfbBankCopyWindow);
+X}
+X
+X
+X/* GC funcs */
+X
+Xstatic void
+XxfbBankValidateGC(pGC, stateChanges, pDrawable)
+X    GCPtr   	  pGC;
+X    unsigned long stateChanges;
+X    DrawablePtr   pDrawable;
+X{
+X    xfbBankGCPtr pPriv = (xfbBankGCPtr) pGC->devPrivates[xfbBankGCIndex].ptr;
+X
+X    FUNC_PROLOGUE(pGC, pPriv);
+X
+X    (*pGC->funcs->ValidateGC)(pGC, stateChanges, pDrawable);
+X
+X    /* save funcs and ops as Validate may have changed them */
+X    pPriv->wrapFuncs = pGC->funcs;
+X    pPriv->wrapOps = pGC->ops;
+X
+X    FUNC_EPILOGUE(pGC, pPriv);
+X}
+X
+Xstatic void
+XxfbBankChangeGC(pGC, mask)
+X    GCPtr   pGC;
+X    unsigned long   mask;
+X{
+X    xfbBankGCPtr pPriv = (xfbBankGCPtr) pGC->devPrivates[xfbBankGCIndex].ptr;
+X
+X    FUNC_PROLOGUE(pGC, pPriv);
+X
+X    (*pGC->funcs->ChangeGC)(pGC, mask);
+X
+X    FUNC_EPILOGUE(pGC, pPriv);
+X}
+X
+Xstatic void
+XxfbBankCopyGC(pGCSrc, mask, pGCDst)
+X    GCPtr   pGCSrc, pGCDst;
+X    unsigned long   mask;
+X{
+X    xfbBankGCPtr pPriv = (xfbBankGCPtr) pGCDst->devPrivates[xfbBankGCIndex].ptr;
+X
+X    FUNC_PROLOGUE(pGCDst, pPriv);
+X
+X    (*pGCDst->funcs->CopyGC)(pGCSrc, mask, pGCDst);
+X
+X    FUNC_EPILOGUE(pGCDst, pPriv);
+X}
+X
+Xstatic void
+XxfbBankDestroyGC(pGC)
+X    GCPtr   pGC;
+X{
+X    xfbBankGCPtr pPriv = (xfbBankGCPtr) pGC->devPrivates[xfbBankGCIndex].ptr;
+X
+X    FUNC_PROLOGUE(pGC, pPriv);
+X
+X    (*pGC->funcs->DestroyGC)(pGC);
+X
+X    FUNC_EPILOGUE(pGC, pPriv);
+X}
+X
+Xstatic void
+XxfbBankChangeClip(pGC, type, pvalue, nrects)
+X    GCPtr	pGC;
+X    int		type;
+X    pointer	pvalue;
+X    int		nrects;
+X{
+X    xfbBankGCPtr pPriv = (xfbBankGCPtr) pGC->devPrivates[xfbBankGCIndex].ptr;
+X
+X    FUNC_PROLOGUE(pGC, pPriv);
+X
+X    (*pGC->funcs->ChangeClip)(pGC, type, pvalue, nrects);
+X
+X    FUNC_EPILOGUE(pGC, pPriv);
+X}
+X
+Xstatic void
+XxfbBankDestroyClip(pGC)
+X    GCPtr	pGC;
+X{
+X    xfbBankGCPtr pPriv = (xfbBankGCPtr) pGC->devPrivates[xfbBankGCIndex].ptr;
+X
+X    FUNC_PROLOGUE(pGC, pPriv);
+X
+X    (*pGC->funcs->DestroyClip)(pGC);
+X
+X    FUNC_EPILOGUE(pGC, pPriv);
+X}
+X
+Xstatic void
+XxfbBankCopyClip(pgcDst, pgcSrc)
+X    GCPtr pgcDst, pgcSrc;
+X{
+X    xfbBankGCPtr pPriv = (xfbBankGCPtr) pgcDst->devPrivates[xfbBankGCIndex].ptr;
+X
+X    FUNC_PROLOGUE(pgcDst, pPriv);
+X
+X    (*pgcDst->funcs->CopyClip)(pgcDst, pgcSrc);
+X
+X    FUNC_EPILOGUE(pgcDst, pPriv);
+X}
+X
+X
+X/* Ops are below */
+X
+Xstatic void
+XxfbBankFillSpans(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int		nInit;			/* number of spans to fill */
+X    DDXPointPtr pptInit;		/* pointer to list of start points */
+X    int		*pwidthInit;		/* pointer to list of n widths */
+X    int 	fSorted;
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X    (*pGC->ops->FillSpans)(pDrawable, pGC, nInit, pptInit,
+X	pwidthInit, fSorted));
+X}
+X
+Xstatic void
+XxfbBankSetSpans(pDrawable, pGC, psrc, ppt, pwidth, nspans, fSorted)
+X    DrawablePtr		pDrawable;
+X    GCPtr		pGC;
+X    int			*psrc;
+X    register DDXPointPtr ppt;
+X    int			*pwidth;
+X    int			nspans;
+X    int			fSorted;
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->SetSpans)(pDrawable, pGC, psrc, ppt, pwidth,
+X	nspans, fSorted));
+X}
+X
+Xstatic void
+XxfbBankPutImage(pDrawable, pGC, depth, x, y, w, h, leftPad, format, pBits)
+X    DrawablePtr	  pDrawable;
+X    GCPtr   	  pGC;
+X    int		  depth;
+X    int	    	  x;
+X    int	    	  y;
+X    int	    	  w;
+X    int	    	  h;
+X    int	    	  format;
+X    char    	  *pBits;
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->PutImage)(pDrawable, pGC,
+X	depth, x, y, w, h, leftPad, format, pBits));
+X}
+X
+X/*
+XCopyArea for pixmap to window case is much like the other simple ops.
+X*/
+Xstatic void
+XxfbBankCopyAreaPixWin(pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty)
+X    PixmapPtr	  pSrc;
+X    WindowPtr	  pDst;
+X    GCPtr   	  pGC;
+X    int	    	  srcx;
+X    int	    	  srcy;
+X    int	    	  w;
+X    int	    	  h;
+X    int	    	  dstx;
+X    int	    	  dsty;
+X{
+X    OP_INIT(pGC);
+X    OP_PROLOGUE(pGC);
+X    OP_TOP_PART(pGC);
+X    /* copy area but don't generate any exposures */
+X    pTfbPriv->fExpose = FALSE;
+X    (void) (*pGC->ops->CopyArea)((DrawablePtr) pSrc, (DrawablePtr) pDst, pGC,
+X	srcx, srcy, w, h, dstx, dsty);
+X    pTfbPriv->fExpose = TRUE;
+X    OP_BOTTOM_PART(pGC);
+X    OP_EPILOGUE(pGC);
+X}
+X
+X/*
+XrgnBlt could be improved by intersecting it with rgnDst, ie. compositeClip
+X*/
+Xstatic void
+XxfbBankCopyAreaWinPix(pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty)
+X    WindowPtr	  pSrc;
+X    PixmapPtr	  pDst;
+X    GCPtr   	  pGC;
+X    int	    	  srcx;
+X    int	    	  srcy;
+X    int	    	  w;
+X    int	    	  h;
+X    int	    	  dstx;
+X    int	    	  dsty;
+X{
+X    extern RegionPtr miHandleExposures();
+X    ScreenPtr pScreen = pGC->pScreen;
+X    BoxRec box;
+X    RegionRec rgnTmp, rgnSrc;
+X    RegionRec rgnBlt;		/* part of source region to copy */
+X    BoxPtr pBltBB;		/* rgnBlt bounding box (extents) */
+X    RegionPtr prgnSrcClip;	/* may be a new region, or just a pointer */
+X    Bool freeSrcClip = FALSE;
+X    int i;
+X    WindowPtr pWinRoot= WindowTable[pScreen->myNum];
+X    DDXPointPtr pptBitbltSrc;
+X
+X    box.x1 = pSrc->drawable.x + srcx;
+X    box.y1 = pSrc->drawable.y + srcy;
+X    box.x2 = box.x1 + w;
+X    box.y2 = box.y1 + h;
+X    (*pScreen->RegionInit)(&rgnSrc, &box, 0);
+X    if (pGC->subWindowMode == IncludeInferiors) {
+X	prgnSrcClip = NotClippedByChildren(pSrc);
+X	freeSrcClip = TRUE;
+X    } else {
+X	prgnSrcClip = &pSrc->clipList;
+X    }
+X    (*pScreen->RegionInit)(&rgnBlt, NullBox, 0);
+X    (*pScreen->Intersect)(&rgnBlt, &rgnSrc, prgnSrcClip);
+X    (*pScreen->RegionUninit)(&rgnSrc);
+X    if (freeSrcClip)
+X	(*pGC->pScreen->RegionDestroy)(prgnSrcClip);
+X    pBltBB = (*pScreen->RegionExtents)(&rgnBlt);
+X
+X    (*pScreen->RegionInit)(&rgnTmp, NullBox, 0);
+X    for (i = 0; i < xfbBankRegionsN; i++) {
+X	(*pScreen->Intersect)(&rgnTmp, &rgnBlt, xfbBankRegions[i]);
+X	if (pScreen->RegionNotEmpty(&rgnTmp)) {
+X	    xfbBankSetBank(pScreen, i);
+X	    if (!(pptBitbltSrc = (DDXPointPtr) ALLOCATE_LOCAL(
+X		REGION_NUM_RECTS(&rgnTmp) * sizeof(DDXPointRec)))) {
+X		(*pScreen->RegionUninit)(&rgnTmp);
+X		(*pScreen->RegionUninit)(&rgnBlt);
+X		return;
+X	    }
+X	    MkBitbltPoints(pptBitbltSrc, &rgnTmp, 0, 0);
+X	    (*pScreen->TranslateRegion)(&rgnTmp, -box.x1, -box.y1);
+X	    tfbDoBitblt((DrawablePtr) pWinRoot, (DrawablePtr) pDst,
+X		pGC->alu, &rgnTmp, pptBitbltSrc, pGC->planemask);
+X	    DEALLOCATE_LOCAL(pptBitbltSrc);
+X	}
+X    }
+X    xfbBankSetBank(pScreen, BANK_DEFAULT);
+X
+X    (*pScreen->RegionUninit)(&rgnTmp);
+X    (*pScreen->RegionUninit)(&rgnBlt);
+X}
+X
+X/*
+XSimilar to WinPix case, uses temporary pixmap and then calls PixWin case.
+XCould be much faster.
+X*/
+Xstatic void
+XxfbBankCopyAreaWinWin(pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty)
+X    WindowPtr	  pSrc;
+X    WindowPtr	  pDst;
+X    GCPtr   	  pGC;
+X    int	    	  srcx;
+X    int	    	  srcy;
+X    int	    	  w;
+X    int	    	  h;
+X    int	    	  dstx;
+X    int	    	  dsty;
+X{
+X    extern RegionPtr miHandleExposures();
+X    ScreenPtr pScreen = pGC->pScreen;
+X    BoxRec box;
+X    RegionRec rgnTmp, rgnSrc;
+X    RegionRec rgnBlt;		/* part of source region to copy */
+X    BoxPtr pBltBB;		/* rgnBlt bounding box (extents) */
+X    RegionPtr prgnSrcClip;	/* may be a new region, or just a pointer */
+X    Bool freeSrcClip = FALSE;
+X    int i;
+X    PixmapPtr pPixmap;
+X    WindowPtr pWinRoot= WindowTable[pScreen->myNum];
+X    DDXPointPtr pptBitbltSrc;
+X
+X    box.x1 = pSrc->drawable.x + srcx;
+X    box.y1 = pSrc->drawable.y + srcy;
+X    box.x2 = box.x1 + w;
+X    box.y2 = box.y1 + h;
+X    (*pScreen->RegionInit)(&rgnSrc, &box, 0);
+X    if (pGC->subWindowMode == IncludeInferiors) {
+X	prgnSrcClip = NotClippedByChildren(pSrc);
+X	freeSrcClip = TRUE;
+X    } else {
+X	prgnSrcClip = &pSrc->clipList;
+X    }
+X    (*pScreen->RegionInit)(&rgnBlt, NullBox, 0);
+X    (*pScreen->Intersect)(&rgnBlt, &rgnSrc, prgnSrcClip);
+X    (*pScreen->RegionUninit)(&rgnSrc);
+X    if (freeSrcClip)
+X	(*pGC->pScreen->RegionDestroy)(prgnSrcClip);
+X    pBltBB = (*pScreen->RegionExtents)(&rgnBlt);
+X    pPixmap = (*pScreen->CreatePixmap)(pScreen, pBltBB->x2 - pBltBB->x1,
+X	pBltBB->y2 - pBltBB->y1, 24);
+X
+X    /* Essentially does the same thing as xfbBankCopyAreaWinPix() : */
+X    (*pScreen->RegionInit)(&rgnTmp, NullBox, 0);
+X    for (i = 0; i < xfbBankRegionsN; i++) {
+X	(*pScreen->Intersect)(&rgnTmp, &rgnBlt, xfbBankRegions[i]);
+X	if (pScreen->RegionNotEmpty(&rgnTmp)) {
+X	    xfbBankSetBank(pScreen, i);
+X	    if (!(pptBitbltSrc = (DDXPointPtr) ALLOCATE_LOCAL(
+X		REGION_NUM_RECTS(&rgnTmp) * sizeof(DDXPointRec)))) {
+X		(*pScreen->RegionUninit)(&rgnTmp);
+X		(*pScreen->DestroyPixmap)(pPixmap);
+X		(*pScreen->RegionUninit)(&rgnBlt);
+X		return;
+X	    }
+X	    MkBitbltPoints(pptBitbltSrc, &rgnTmp, 0, 0);
+X	    (*pScreen->TranslateRegion)(&rgnTmp, -pBltBB->x1, -pBltBB->y1);
+X	    tfbDoBitblt((DrawablePtr) pWinRoot, (DrawablePtr) pPixmap,
+X		pGC->alu, &rgnTmp, pptBitbltSrc, pGC->planemask);
+X	    DEALLOCATE_LOCAL(pptBitbltSrc);
+X	}
+X    }
+X    xfbBankSetBank(pScreen, BANK_DEFAULT);
+X
+X    xfbBankCopyAreaPixWin(pPixmap, pDst, pGC, 0, 0,
+X	pBltBB->x2 - pBltBB->x1, pBltBB->y2 - pBltBB->y1,
+X	dstx + pBltBB->x1 - box.x1, dsty + pBltBB->y1 - box.y1);
+X
+X    (*pScreen->RegionUninit)(&rgnTmp);
+X    (*pScreen->DestroyPixmap)(pPixmap);
+X    (*pScreen->RegionUninit)(&rgnBlt);
+X}
+X
+Xstatic RegionPtr
+XxfbBankCopyArea(pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty)
+X    DrawablePtr	  pSrc;
+X    DrawablePtr	  pDst;
+X    GCPtr   	  pGC;
+X    int	    	  srcx;
+X    int	    	  srcy;
+X    int	    	  w;
+X    int	    	  h;
+X    int	    	  dstx;
+X    int	    	  dsty;
+X{
+X    RegionPtr winExposed;
+X
+X    if (pDst->type == DRAWABLE_WINDOW) {
+X	if (pSrc->type == DRAWABLE_WINDOW) {
+X	    extern int txDebugOption;
+X	    if (txDebugOption & 0x1) {
+X		winExposed = miCopyArea(pSrc, pDst, pGC, srcx, srcy, w, h,
+X		    dstx, dsty);
+X		return (winExposed);
+X	    } else {
+X		xfbBankCopyAreaWinWin((WindowPtr) pSrc, (WindowPtr) pDst, pGC,
+X		    srcx, srcy, w, h, dstx, dsty);
+X	    }
+X	} else {
+X	    xfbBankCopyAreaPixWin((PixmapPtr) pSrc, pDst, pGC, srcx, srcy,
+X		w, h, dstx, dsty);
+X	}
+X    } else {
+X	if (pSrc->type == DRAWABLE_WINDOW) {
+X	    xfbBankCopyAreaWinPix((WindowPtr) pSrc, (PixmapPtr) pDst, pGC,
+X		srcx, srcy, w, h, dstx, dsty);
+X	} else {
+X	    /* simple, no bank switching, just call down */
+X	    OP_INIT(pGC);
+X	    OP_PROLOGUE(pGC);
+X	    winExposed = (*pGC->ops->CopyArea)(pSrc, pDst, pGC, srcx, srcy,
+X		w, h, dstx, dsty);
+X	    OP_EPILOGUE(pGC);
+X	    return (winExposed);
+X	}
+X    }
+X    return (miHandleExposures(pSrc, pDst, pGC, srcx, srcy, w, h,
+X	dstx, dsty, (unsigned long) 0));
+X}
+X
+Xstatic RegionPtr
+XxfbBankCopyPlane(pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty, plane)
+X    DrawablePtr	  pSrc;
+X    DrawablePtr	  pDst;
+X    register GC   *pGC;
+X    int     	  srcx,
+X		  srcy;
+X    int     	  w,
+X		  h;
+X    int     	  dstx,
+X		  dsty;
+X    unsigned long  plane;
+X{
+X    RegionPtr winExposed;
+X
+X    if (pDst->type == DRAWABLE_WINDOW) {
+X	if (pSrc->type == DRAWABLE_WINDOW) {
+X	    winExposed = miCopyPlane(pSrc, pDst, pGC, srcx, srcy, w, h,
+X		dstx, dsty, plane);
+X	    return (winExposed);
+X	} else {
+X	    OP_INIT(pGC);
+X	    OP_PROLOGUE(pGC);
+X	    OP_TOP_PART(pGC);
+X	    /* try to avoid calling miHandleExposures() until later */
+X	    pTfbPriv->fExpose = FALSE;
+X	    (void) (*pGC->ops->CopyPlane)(pSrc, pDst, pGC, srcx, srcy, w, h,
+X		dstx, dsty, plane);
+X	    pTfbPriv->fExpose = TRUE;
+X	    OP_BOTTOM_PART(pGC);
+X	    OP_EPILOGUE(pGC);
+X	}
+X    } else {
+X	if (pSrc->type == DRAWABLE_WINDOW) {
+X	    winExposed = miCopyPlane(pSrc, pDst, pGC, srcx, srcy, w, h,
+X		dstx, dsty, plane);
+X	    return (winExposed);
+X	} else {
+X	    /* simple, no bank switching, just call down */
+X	    OP_INIT(pGC);
+X	    OP_PROLOGUE(pGC);
+X	    winExposed = (*pGC->ops->CopyPlane)(pSrc, pDst, pGC,
+X		srcx, srcy, w, h, dstx, dsty, plane);
+X	    OP_EPILOGUE(pGC);
+X	    return (winExposed);
+X	}
+X    }
+X    return (miHandleExposures(pSrc, pDst, pGC, srcx, srcy, w, h,
+X	dstx, dsty, plane));
+X}
+X
+Xstatic void
+XxfbBankPolyPoint(pDrawable, pGC, mode, npt, pptInit)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int		mode;		/* Origin or Previous */
+X    int		npt;
+X    xPoint 	*pptInit;
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->PolyPoint)(pDrawable, pGC, mode, npt, pptInit));
+X}
+X
+Xstatic void
+XxfbBankPolylines(pDrawable, pGC, mode, npt, pptInit)
+X    DrawablePtr	  pDrawable;
+X    GCPtr   	  pGC;
+X    int	    	  mode;
+X    int	    	  npt;
+X    DDXPointPtr	  pptInit;
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->Polylines)(pDrawable, pGC, mode, npt, pptInit));
+X
+X#if 0  /* this stuff is for debugging: */
+X    OP_INIT(pGC);
+X    OP_PROLOGUE(pGC);
+X    if ((pDrawable)->type == DRAWABLE_WINDOW) {
+X	(*pScreen->RegionInit)(&tmpReg, NullBox, 0);
+X	pOrigCompositeClip = pTfbPriv->pCompositeClip;
+X	pTfbPriv->pCompositeClip = &tmpReg;
+X	for (i = 0; i < xfbBankRegionsN; i++) {
+X	    (*pScreen->Intersect)(pTfbPriv->pCompositeClip, pOrigCompositeClip, 
+X		xfbBankRegions[i]);
+X	    if (pScreen->RegionNotEmpty(&tmpReg)) {
+X		xfbBankSetBank(pScreen, i);
+X		(*pGC->ops->Polylines)(pDrawable, pGC, mode, npt, pptInit);
+X	    }
+X	}
+X	xfbBankSetBank(pScreen, BANK_DEFAULT);
+X	pTfbPriv->pCompositeClip = pOrigCompositeClip;
+X	(*pScreen->RegionUninit)(&tmpReg);
+X    } else {
+X	(*pGC->ops->Polylines)(pDrawable, pGC, mode, npt, pptInit);
+X    }
+X    OP_EPILOGUE(pGC);
+X#endif
+X}
+X
+Xstatic void
+XxfbBankPolySegment(pDrawable, pGC, nseg, pSegs)
+X    DrawablePtr pDrawable;
+X    GCPtr 	pGC;
+X    int		nseg;
+X    xSegment	*pSegs;
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->PolySegment)(pDrawable, pGC, nseg, pSegs));
+X}
+X
+Xstatic void
+XxfbBankPolyRectangle(pDrawable, pGC, nrects, pRects)
+X    DrawablePtr	pDrawable;
+X    GCPtr	pGC;
+X    int		nrects;
+X    xRectangle	*pRects;
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->PolyRectangle)(pDrawable, pGC, nrects, pRects));
+X}
+X
+Xstatic void
+XxfbBankPolyArc(pDrawable, pGC, narcs, parcs)
+X    DrawablePtr	pDrawable;
+X    GCPtr	pGC;
+X    int		narcs;
+X    xArc	*parcs;
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->PolyArc)(pDrawable, pGC, narcs, parcs));
+X}
+X
+X/*
+XAssumes pPtsDst array is large enough to hold count objects.
+X*/
+X#if 1
+Xstatic void
+XxfbBankCopyPts(count, pPtsSrc, pPtsDst)
+X    int		count; 		/* number of points to copy */
+X    DDXPointPtr	pPtsSrc;  	/* Pointer to src */
+X    DDXPointPtr	pPtsDst;  	/* Pointer to dst */
+X{
+X    while (count--) {
+X	*pPtsDst++ = *pPtsSrc++;
+X    }
+X}
+X#elif 0
+X#define xfbBankCopyPts(count, pPtsSrc, pPtsDst) { \
+X    int	n = count; \
+X    DDXPointPtr	pSrc = pPtsSrc; \
+X    DDXPointPtr	pDst = pPtsDst; \
+X    while (n--) { \
+X	*pDst++ = *pSrc++; \
+X    } \
+X}
+X#else
+X#define xfbBankCopyPts(count, pPtsSrc, pPtsDst) \
+X    bcopy(pPtsSrc, pPtsDst, count * sizeof(DDXPointRec));
+X#endif
+X
+X/*
+XNote: we copy pPts here because tfbFillPolygon(), based on MIT cfb,
+Xassumes that it only gets called once and so it translates the points
+Xpassed to it.  This breaks bank switching if a polygon occupies 2 or
+Xmore bank regions by causing translation to occur more than once.  Copying
+Xfixes this.  XXX Should MIT cfb be fixed instead?
+X*/
+Xstatic void
+XxfbBankFillPolygon(pDrawable, pGC, shape, mode, count, pPts)
+X    DrawablePtr		pDrawable;
+X    register GCPtr	pGC;
+X    int			shape, mode;
+X    register int	count;
+X    DDXPointPtr		pPts;
+X{
+X    OP_INIT(pGC);
+X    OP_PROLOGUE(pGC);
+X    if ((pDrawable)->type == DRAWABLE_WINDOW) {
+X	DDXPointPtr pPtsCopy;
+X
+X	/* make a copy of pPts because tfbFillPolygon() changes it */
+X	pPtsCopy = (DDXPointPtr) xalloc(sizeof(DDXPointRec) * count);
+X	if (!pPtsCopy) {
+X	    OP_EPILOGUE(pGC);
+X	    return;
+X	}
+X	(*pScreen->RegionInit)(&tmpReg, NullBox, 0);
+X	pOrigCompositeClip = pTfbPriv->pCompositeClip;
+X	pTfbPriv->pCompositeClip = &tmpReg;
+X	for (i = 0; i < xfbBankRegionsN; i++) {
+X	    (*pScreen->Intersect)(pTfbPriv->pCompositeClip, pOrigCompositeClip, 
+X		xfbBankRegions[i]);
+X	    if (pScreen->RegionNotEmpty(&tmpReg)) {
+X		xfbBankCopyPts(count, pPts, pPtsCopy);
+X		xfbBankSetBank(pScreen, i);
+X		(*pGC->ops->FillPolygon)(pDrawable, pGC, shape, mode, count,
+X		    pPtsCopy);
+X	    }
+X	}
+X	xfbBankSetBank(pScreen, BANK_DEFAULT);
+X	pTfbPriv->pCompositeClip = pOrigCompositeClip;
+X	(*pScreen->RegionUninit)(&tmpReg);
+X	xfree((pointer) pPtsCopy);
+X    } else {
+X	(*pGC->ops->FillPolygon)(pDrawable, pGC, shape, mode, count, pPts);
+X    }
+X    OP_EPILOGUE(pGC);
+X}
+X
+X/*
+XAssumes prectDst array is large enough to hold nrect rectangles.
+X*/
+Xstatic void
+XxfbBankCopyRects(nrect, prectSrc, prectDst)
+X    int		nrect; 		/* number of rectangles to copy */
+X    xRectangle	*prectSrc;  	/* Pointer to src */
+X    xRectangle	*prectDst;  	/* Pointer to dst */
+X{
+X    while (nrect--) {
+X	*prectDst++ = *prectSrc++;
+X    }
+X}
+X
+X/*
+XNote: we copy prectInit here because tfbPolyFillRect(), based on MIT cfb,
+Xassumes that it only gets called once and so it translates the rectangles
+Xpassed to it.  This breaks bank switching if a rectangle occupies 2 or
+Xmore bank regions by causing translation to occur more than once.  Copying
+Xfixes this.  XXX Should MIT cfb be fixed instead?
+X*/
+Xstatic void
+XxfbBankPolyFillRect(pDrawable, pGC, nrectFill, prectInit)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int		nrectFill; 	/* number of rectangles to fill */
+X    xRectangle	*prectInit;  	/* Pointer to first rectangle to fill */
+X{
+X    OP_INIT(pGC);
+X    OP_PROLOGUE(pGC);
+X    if (pDrawable->type == DRAWABLE_WINDOW) {
+X	xRectangle *prectCopy;
+X
+X	/* make a copy of prectInit because tfbPolyFillRect() changes it */
+X	prectCopy = (xRectangle *) xalloc(sizeof(xRectangle) * nrectFill);
+X	if (!prectCopy) {
+X	    OP_EPILOGUE(pGC);
+X	    return;
+X	}
+X	(*pScreen->RegionInit)(&tmpReg, NullBox, 0);
+X	pOrigCompositeClip = pTfbPriv->pCompositeClip;
+X	pTfbPriv->pCompositeClip = &tmpReg;
+X	for (i = 0; i < xfbBankRegionsN; i++) {
+X	    (*pScreen->Intersect)(pTfbPriv->pCompositeClip, pOrigCompositeClip, 
+X		xfbBankRegions[i]);
+X	    if (pScreen->RegionNotEmpty(&tmpReg)) {
+X		xfbBankCopyRects(nrectFill, prectInit, prectCopy);
+X		xfbBankSetBank(pScreen, i);
+X		(*pGC->ops->PolyFillRect)(pDrawable, pGC, nrectFill, prectCopy);
+X	    }
+X	}
+X	xfbBankSetBank(pScreen, BANK_DEFAULT);
+X	pTfbPriv->pCompositeClip = pOrigCompositeClip;
+X	(*pScreen->RegionUninit)(&tmpReg);
+X	xfree((pointer) prectCopy);
+X    } else {
+X	(*pGC->ops->PolyFillRect)(pDrawable, pGC, nrectFill, prectInit);
+X    }
+X    OP_EPILOGUE(pGC);
+X}
+X
+Xstatic void
+XxfbBankPolyFillArc(pDrawable, pGC, narcs, parcs)
+X    DrawablePtr	pDrawable;
+X    GCPtr	pGC;
+X    int		narcs;
+X    xArc	*parcs;
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->PolyFillArc)(pDrawable, pGC, narcs, parcs));
+X}
+X
+X/*
+XNote: the value returned by calling down should be exactly the same each
+Xtime so we just return the result of the last call down.
+X*/
+Xstatic int
+XxfbBankPolyText8(pDrawable, pGC, x, y, count, chars)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int		x, y;
+X    int 	count;
+X    char	*chars;
+X{
+X    int result;
+X    OP_SIMPLE(pDrawable, pGC,
+X	result = (*pGC->ops->PolyText8)(pDrawable, pGC, x, y, count, chars));
+X    return (result);
+X}
+X
+X/*
+XNote: the value returned by calling down should be exactly the same each
+Xtime so we just return the result of the last call down.
+X*/
+Xstatic int
+XxfbBankPolyText16(pDrawable, pGC, x, y, count, chars)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int		x, y;
+X    int		count;
+X    unsigned short *chars;
+X{
+X    int	result;
+X    OP_SIMPLE(pDrawable, pGC,
+X	result = (*pGC->ops->PolyText16)(pDrawable, pGC, x, y, count, chars));
+X    return (result);
+X}
+X
+Xstatic void
+XxfbBankImageText8(pDrawable, pGC, x, y, count, chars)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int		x, y;
+X    int		count;
+X    char	*chars;
+X{
+X#if 0
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->ImageText8)(pDrawable, pGC, x, y, count, chars));
+X#endif
+X
+X    OP_INIT(pGC);
+X    OP_PROLOGUE(pGC);
+X    if ((pDrawable)->type == DRAWABLE_WINDOW) {
+X	(*pScreen->RegionInit)(&tmpReg, NullBox, 0);
+X	pOrigCompositeClip = pTfbPriv->pCompositeClip;
+X	pTfbPriv->pCompositeClip = &tmpReg;
+X	for (i = 0; i < xfbBankRegionsN; i++) {
+X	    (*pScreen->Intersect)(pTfbPriv->pCompositeClip, pOrigCompositeClip, 
+X		xfbBankRegions[i]);
+X	    if (pScreen->RegionNotEmpty(&tmpReg)) {
+X		xfbBankSetBank(pScreen, i);
+X		(*pGC->ops->ImageText8)(pDrawable, pGC, x, y, count, chars);
+X	    }
+X	}
+X	xfbBankSetBank(pScreen, BANK_DEFAULT);
+X	pTfbPriv->pCompositeClip = pOrigCompositeClip;
+X	(*pScreen->RegionUninit)(&tmpReg);
+X    } else {
+X	(*pGC->ops->ImageText8)(pDrawable, pGC, x, y, count, chars);
+X    }
+X    OP_EPILOGUE(pGC);
+X}
+X
+Xstatic void
+XxfbBankImageText16(pDrawable, pGC, x, y, count, chars)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int		x, y;
+X    int		count;
+X    unsigned short *chars;
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->ImageText16)(pDrawable, pGC, x, y, count, chars));
+X}
+X
+Xstatic void
+XxfbBankImageGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
+X    DrawablePtr pDrawable;
+X    GC 		*pGC;
+X    int 	x, y;
+X    unsigned int nglyph;
+X    CharInfoPtr *ppci;		/* array of character info */
+X    pointer 	pglyphBase;	/* start of array of glyphs */
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->ImageGlyphBlt)(pDrawable, pGC, x, y, nglyph, ppci,
+X	pglyphBase));
+X}
+X
+Xstatic void
+XxfbBankPolyGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int 	x, y;
+X    unsigned int nglyph;
+X    CharInfoPtr *ppci;		/* array of character info */
+X    char 	*pglyphBase;	/* start of array of glyphs */
+X{
+X    OP_SIMPLE(pDrawable, pGC,
+X	(*pGC->ops->PolyGlyphBlt)(pDrawable, pGC, x, y, nglyph,
+X	    ppci, pglyphBase));
+X}
+X
+Xstatic void
+XxfbBankPushPixels(pGC, pBitMap, pDst, w, h, x, y)
+X    GCPtr	pGC;
+X    PixmapPtr	pBitMap;
+X    DrawablePtr pDst;
+X    int		w, h, x, y;
+X{
+X    OP_SIMPLE(pDst, pGC,
+X	(*pGC->ops->PushPixels)(pGC, pBitMap, pDst, w, h, x, y));
+X}
+X
+Xstatic void
+XxfbBankLineHelper()
+X{
+X    FatalError("xfbBankLineHelper called\n");
+X}
+X
+X
+X/* Initialization */
+X
+X/*
+XInputs: mappedAdr = address of where bank switched memory is mapped to
+X*/
+XBool
+XxfbBankSwitchInit(pScreen, mappedAdr)
+X    ScreenPtr	pScreen;
+X    pointer	mappedAdr;
+X{
+X    int i;
+X    xfbBankScreenPtr    pScreenPriv;
+X
+X    if (xfbBankGeneration != serverGeneration) {
+X	xfbBankScreenIndex = AllocateScreenPrivateIndex();
+X	if (xfbBankScreenIndex < 0)
+X	    return (FALSE);
+X	xfbBankGCIndex = AllocateGCPrivateIndex();
+X	xfbBankGeneration = serverGeneration;
+X    }
+X    if (!AllocateGCPrivate(pScreen, xfbBankGCIndex, sizeof(xfbBankGCRec)))
+X	return (FALSE);
+X    pScreenPriv = (xfbBankScreenPtr) xalloc(sizeof(xfbBankScreenRec));
+X    if (!pScreenPriv)
+X	return (FALSE);
+X
+X    pScreenPriv->mappedAdr = mappedAdr;
+X    pScreenPriv->CloseScreen = pScreen->CloseScreen;
+X    pScreenPriv->GetImage = pScreen->GetImage;
+X    pScreenPriv->GetSpans = pScreen->GetSpans;
+X    pScreenPriv->CreateGC = pScreen->CreateGC;
+X    pScreenPriv->PaintWindowBackground = pScreen->PaintWindowBackground;
+X    pScreenPriv->PaintWindowBorder = pScreen->PaintWindowBorder;
+X    pScreenPriv->CopyWindow = pScreen->CopyWindow;
+X
+X    pScreen->CloseScreen = xfbBankCloseScreen;
+X    pScreen->GetImage = xfbBankGetImage;
+X    pScreen->GetSpans = xfbBankGetSpans;
+X    pScreen->CreateGC = xfbBankCreateGC;
+X    pScreen->PaintWindowBackground = xfbBankPaintWindow;
+X    pScreen->PaintWindowBorder = xfbBankPaintWindow;
+X    pScreen->CopyWindow = xfbBankCopyWindow;
+X
+X    pScreen->devPrivates[xfbBankScreenIndex].ptr = (pointer) pScreenPriv;
+X
+X    /* initialize clip regions for each bank */
+X    for (i = 0; i < xfbBankRegionsN; i++) {
+X	xfbBankRegions[i] = (*pScreen->RectsToRegion)(xfbBankRectsN[i],
+X	    xfbBankRects[i], CT_UNSORTED);
+X    }
+X    xfbBankSetBank(pScreen, BANK_DEFAULT);
+X    return (TRUE);
+X}
+END_OF_FILE
+if test 42228 -ne `wc -c <'server/ddx/dec/tx/xfbbanksw.c'`; then
+    echo shar: \"'server/ddx/dec/tx/xfbbanksw.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/tx/xfbbanksw.c'
+fi
+echo shar: End of archive 8 \(of 29\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

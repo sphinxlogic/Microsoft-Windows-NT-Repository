@@ -1,0 +1,2431 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i052:  ecu - ECU Asynchronous Communications v3.20, Part17/40
+Message-ID: <1992Sep13.153653.5650@sparky.imd.sterling.com>
+X-Md4-Signature: 1e1581eedfca7743f82adff0a5d02ca7
+Date: Sun, 13 Sep 1992 15:36:53 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 52
+Archive-name: ecu/part17
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.17 (part 17 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file gint.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 17; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping gint.c'
+else
+echo 'x - continuing file gint.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'gint.c' &&
+X
+X		default:
+X			break;
+X	}   /* end of switch statement */
+X
+X/* we did not catch any special cases with the switch statement must
+Xbe numeric integer */
+X
+X	return(gint_constant(param,value));
+X
+X}   /* end of gint_base() */
+X
+X/*+-------------------------------------------------------------------------
+X    gintop(param,intop) - evaluate integer operator
+X--------------------------------------------------------------------------*/
+Xint
+Xgintop(param,intop)
+XESD *param;
+Xint *intop;
+X{
+X	register erc;
+X
+X	if(erc = skip_cmd_break(param))
+X		return(erc);
+X	switch(param->pb[param->index])
+X	{
+X		case '+':
+X			param->index++;
+X			*intop = OP_ADD;
+X			break;
+X
+X		case '-':
+X			param->index++;
+X			*intop = OP_SUB;
+X			break;
+X
+X		case '*':
+X			param->index++;
+X			*intop = OP_MUL;
+X			break;
+X
+X		case '/':
+X			param->index++;
+X			*intop = OP_DIV;
+X			break;
+X
+X		case '|':
+X			if(*(param->pb + param->index + 1) == '|')
+X				return(eInvalidIntOp);
+X			param->index++;
+X			*intop = OP_OR;
+X			break;
+X
+X		case '@':
+X			param->index++;
+X			*intop = OP_MOD;
+X			break;
+X
+X		case '^':
+X			param->index++;
+X			*intop = OP_XOR;
+X			break;
+X
+X		case '&':
+X			if(*(param->pb + param->index + 1) == '&')
+X				return(eInvalidIntOp);
+X			param->index++;
+X			*intop = OP_AND;
+X			break;
+X
+X		default:
+X			return(eInvalidIntOp);
+X	}   /* end of switch statement */
+X
+X	return(0);
+X
+X}   /* end of gintop() */
+X
+X/*+-------------------------------------------------------------------------
+X    gint(param,int_returned) - evaluate integer expression
+X--------------------------------------------------------------------------*/
+Xint
+Xgint(param,int_returned)
+XESD *param;
+Xlong *int_returned;
+X{
+Xregister erc;
+Xlong int1;
+Xlong int_accum = 0;
+Xint intop;
+Xint unary_minus = 0;
+X
+X	if(erc = skip_cmd_break(param))
+X		return(erc);
+X	if(param->pb[param->index] == '-')
+X		unary_minus++,param->index++;
+X
+X	if(erc = gint_base(param,&int1))
+X		return(erc);
+X	int_accum = (unary_minus) ? -int1 : int1;
+X
+X	while((erc = gintop(param,&intop)) == 0)
+X	{
+X		if(erc = gint_base(param,&int1))
+X			return(erc);
+X		switch(intop)
+X		{
+X			case OP_ADD:
+X				int_accum += int1;
+X				break;
+X			case OP_SUB:
+X				int_accum -= int1;
+X				break;
+X			case OP_MUL:
+X				int_accum *= int1;
+X				break;
+X			case OP_DIV:
+X				int_accum /= int1;
+X				break;
+X			case OP_MOD:
+X				int_accum %= int1;
+X				break;
+X			case OP_XOR:
+X				int_accum ^= (unsigned)int1;
+X				break;
+X			case OP_AND:
+X				int_accum &= (unsigned)int1;
+X				break;
+X			case OP_OR:
+X				int_accum |= (unsigned)int1;
+X				break;
+X			default:
+X				return(eInvalidIntOp);
+X		}
+X	}
+X	param->index = param->old_index;
+X
+X	*int_returned = int_accum;
+X	return(0);
+X}   /* end of gint() */
+X
+X/*+-------------------------------------------------------------------------
+X    col_range(param,col1,col2) - get a column range
+X:$i0[-$i1]
+Xargument may be integer constant, function or variable, but not expression
+X--------------------------------------------------------------------------*/
+Xint
+Xgcol_range(param,col1,col2)
+XESD *param;
+Xulong *col1;
+Xulong *col2;
+X{
+X	register erc;
+X
+X	if(skip_cmd_char(param,':') == 0)
+X	{
+X		if(erc = gint_base(param,col1))
+X			return(erc);
+X
+X		if(skip_cmd_char(param,'-') == 0)     /* if hyphen found, range */
+X		{
+X			if(erc = gint_base(param,col2))
+X				return(erc);
+X		}
+X		else
+X			*col2 = *col1;		/* otherwise, first and last columns same */
+X
+X		if(*col1 > *col2)
+X		{
+X			pputs("Invalid column range: column 1 greater than column 2\n");
+X			return(eFATAL_ALREADY);
+X		}
+X	}
+X	else
+X		erc = eBadParameter;
+X
+X	return(erc);
+X}   /* end of gcol_range() */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of gint.c */
+SHAR_EOF
+echo 'File gint.c is complete' &&
+chmod 0644 gint.c ||
+echo 'restore of gint.c failed'
+Wc_c="`wc -c < 'gint.c'`"
+test 7030 -eq "$Wc_c" ||
+	echo 'gint.c: original size 7030, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gstr.c ==============
+if test -f 'gstr.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gstr.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gstr.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gstr.c' &&
+X/*+-------------------------------------------------------------------------
+X    gstr.c - ecu get string parameter functions
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	gstr(param,result,realloc_ok)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:05-02-1991-03:54-wht@n4hgf-new realloc algorithm */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "var.h"
+X
+Xextern int proctrace;
+X
+X/*+-------------------------------------------------------------------------
+X    gstr(param,result,realloc_ok) - get a string 
+X
+XExamples:
+X
+X set $s0='test ... '+%date+' '+%time+%chr(0x0D)+%chr(0x0A)
+X hexdump $s0
+X0000  74 65 73 74 20 2E 2E 2E 20 30 36 2D 30 39 2D 31 | test ... 06-09-1 |
+X0010  39 38 39 20 31 37 3A 31 35 0D 0A                | 989 17:15..      |
+X
+X set $s0='12345678':1-6+'abc'
+X set s0
+X$S00 = '234567abc'
+X
+Xif realloc_ok and string too small, realloc result string as necessary
+X
+X--------------------------------------------------------------------------*/
+Xint
+Xgstr(param,result,realloc_ok)
+XESD *param;
+XESD *result;
+Xint realloc_ok;
+X{
+Xregister char param_char;
+Xregister char *pb;
+XESD *tesd;
+XESD *svptr;
+Xint cb = 0;
+Xint segment_index;
+Xint next_is_literal = 0;	/* last char was not a backslash */
+Xulong itmp1;
+Xulong itmp2;
+Xulong itmp3;
+Xulong itmp4;
+Xint erc;
+Xint param_index_save;
+Xint result_remaining;
+Xint in_quoted_string = 0;   /* not currently in quoted string */
+Xint end_of_parameter = 0;
+X
+X	if(erc = skip_cmd_break(param))
+X		return(erc);
+X
+X	segment_index = 0;			
+X	result_remaining = result->maxcb;	/* number we can put into result */
+X	param_index_save = param->index;
+X
+X	if((tesd = esdalloc(ESD_MAXSIZE)) == (ESD *)0)
+X		return(eNoMemory);
+X	pb = tesd->pb;
+X
+XCONCATENATE:
+X	while((param->index < param->cb) && !end_of_parameter)
+X	{
+X		param_char = param->pb[param->index];
+X		if(in_quoted_string)
+X		{
+X			++param->index;
+X			if(next_is_literal)
+X			{
+X				next_is_literal = 0;
+X				switch(param_char)
+X				{
+X					case 'b' : param_char = 0x08; break;
+X					case 'n' : param_char = 0x0A; break;
+X					case 'r' : param_char = 0x0D; break;
+X					case 't' : param_char = 0x09; break;
+X					case '\'': param_char = '\''; break;
+X				}
+X				if((result_remaining-- == 0) &&
+X					(!realloc_ok && (cb == ESD_MAXSIZE)))
+X				{
+X					erc = eBufferTooSmall;
+X					goto RETURN;
+X				}
+X				*(pb + cb++) = param_char;
+X			}
+X			else if(param_char == '\\')
+X				next_is_literal = 1;
+X			else if(param_char == '\'')
+X				in_quoted_string = 0;
+X			else
+X			{
+X				if((result_remaining-- == 0) &&
+X					(!realloc_ok && (cb == ESD_MAXSIZE)))
+X				{
+X					erc = eBufferTooSmall;
+X					goto RETURN;
+X				}
+X				*(pb + cb++) = param_char;
+X			}
+X		}
+X		else /* not in quoted string */
+X		{
+X			param->old_index = param->index;
+X			switch(param_char)
+X			{
+X			case '\'':      /* apostrophe denotes literal text */
+X				++param->index;
+X				in_quoted_string = 1;
+X				break;
+X
+X			case '%':
+X				++param->index;
+X				tesd->cb = cb;
+X				if(erc = feval_str(param,tesd))
+X					goto RETURN;
+X				cb = tesd->cb;
+X				result_remaining = (result->maxcb - cb);
+X				break;
+X
+X			case '$':           /* '$Snn' variable reference? */
+X				/* must be at least two more character */
+X				if(param->index >= param->cb-2)
+X				{
+X					erc = eSyntaxError;
+X					goto RETURN;
+X				}
+X				param->old_index = ++param->index;
+X				if(to_lower(param->pb[param->index++]) != 's' )
+X				{
+X					erc = eIllegalVarType;
+X					goto RETURN;
+X				}
+X				if(erc = get_svptr(param,&svptr,0))
+X					goto RETURN;
+X				if((!realloc_ok && (svptr->cb > (result->maxcb - cb))) ||
+X					(svptr->cb > (ESD_MAXSIZE - cb)))
+X				{
+X					erc = eBufferTooSmall;
+X					goto RETURN;
+X				}
+X				else if(svptr->cb)
+X				{
+X					memcpy(&pb[cb],svptr->pb,svptr->cb);
+X					cb += svptr->cb;
+X					result_remaining -= svptr->cb;
+X				}
+X				break;
+X
+X			case ':':
+X/*
+X * itmp1 holds col 1 (0-n) of substring operation
+X * itmp2 holds col 2 (0-n) of operation adjusted to reflect
+X *       end of string segment
+X * itmp3 holds length of string segment
+X * itmp4 holds length of substring segment output by substring operation
+X*/
+X				if(erc = gcol_range(param,&itmp1,&itmp2))
+X					goto RETURN;
+X				if((itmp3 = cb - segment_index)
+X				    &&
+X					(itmp4 = ((itmp2<itmp3)?itmp2:itmp3) - itmp1 + 1))
+X				{
+X					if(itmp1)
+X						memcpy(&pb[segment_index],
+X							&pb[segment_index+(int)itmp1],(int)itmp4);
+X					cb -= ((int)itmp3 - (int)itmp4);
+X				}
+X				break;
+X
+X			case '+':
+X				segment_index = cb;
+X				++param->index;
+X				goto CONCATENATE;
+X
+X			case ';':
+X			case '#':
+X				end_of_parameter = 1;
+X				break;
+X
+X			default:
+X				erc = 0;
+X				if((param->index < param->cb) &&
+X					isalnum(*(param->pb + param->index)))
+X					erc = eSyntaxError;
+X				else if(param_index_save == param->index)
+X					erc = eBadParameter;
+X				end_of_parameter = 1;
+X				break;
+X			}   /* end of switch (param_char) */
+X		}       /* end of else not in quoted string */
+X	}           /* end of while(index<cb) */
+X
+X
+XRETURN:
+X	if(result_remaining < 0)
+X	{
+X		if(!realloc_ok)
+X			erc = eBufferTooSmall;
+X		else
+X		{
+X			int new_size = (cb + 128) & (~127);	/* speed + anti-fragment */
+X			if(new_size > ESD_MAXSIZE)
+X				new_size = ESD_MAXSIZE;
+X			if(new_size < cb)
+X				erc = eBufferTooSmall;
+X			else
+X				erc = esdrealloc(result,new_size);
+X		}
+X		if(erc)
+X			return(erc);
+X	}
+X	if(cb)
+X		memcpy(result->pb,pb,cb);
+X	result->cb = cb;
+X	esd_null_terminate(result);
+X	esdfree(tesd);
+X	return(erc);
+X}   /* end of gqstr */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of qstr.c */
+SHAR_EOF
+chmod 0644 gstr.c ||
+echo 'restore of gstr.c failed'
+Wc_c="`wc -c < 'gstr.c'`"
+test 5625 -eq "$Wc_c" ||
+	echo 'gstr.c: original size 5625, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= hdbintf.c ==============
+if test -f 'hdbintf.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping hdbintf.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting hdbintf.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'hdbintf.c' &&
+X#if defined(SHARE_DEBUG)
+X#define LOG_UNGETTY
+X#define LOG_HDBDIAL
+X#endif
+X
+X/* #define CHOOSE_DEBUG */
+X
+X/*+-------------------------------------------------------------------------
+X	hdbintf.c - HDB UUCP database and /etc/utmp interface routines
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	_ungetty_return_line(line)
+X	add_to_ungetty_list(line)
+X	dialcodes_translate(phone)
+X	dialstr_translate(translate_list,to_translate)
+X	display_ungetty_list()
+X	dvtype_match(typespec,dvtype)
+X	enddlent()
+X	enddvent()
+X	getdlent()
+X	getdlentname(name)
+X	getdvbaud(baud)
+X	getdvent()
+X	getdvline(line)
+X	getdvtype(type)
+X	hdb_choose_Any(baud)
+X	hdb_choose_Device(type,baud)
+X	hdb_dial(presult)
+X	hdb_dial_error_text(errcode)
+X	hdb_init()
+X	in_ungetty_list(line)
+X	malformed_Devices_entry(text,ntokens,tokens)
+X	remove_from_ungetty_list(line)
+X	reserve_line(line)
+X	strip_phone_num(sptr)
+X	ugstat_text(ugstat)
+X	ungetty_get_line(line)
+X	ungetty_return_all_but(line)
+X	ungetty_return_line(line)
+X
+XDate: Fri, 23 Aug 91 18:30:06 +0300 (MSD)
+XFrom: emory!hq.demos.su!ache (Andrew A. Chernov, canton Uri's citizen)
+X1) HDB dialers may return connect speed as return code (!= 0)
+X2) Using HDB Dialcodes file for phone numbers translation now
+X   (\D,\T escape sequence)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:09-10-1992-03:35-wht@n4hgf-change the way we flunk a line=="-" */
+X/*:09-04-1992-19:08-wht@n4hgf-harden Devices parsing */
+X/*:08-29-1992-15:37-wht@n4hgf-absolutely prohibit /dev/tty fed to ecuungetty */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-21-1992-17:20-wht@n4hgf-hdb_dial of "/=" type bug fixed */
+X/*:07-19-1992-22:12-wht@n4hgf-move old check_utmp here+call it reserve_line */
+X/*:07-19-1992-10:07-wht@n4hgf-add ungetty_return_all_but */
+X/*:07-19-1992-09:11-wht@n4hgf-validate tty line name before ungetty get */
+X/*:06-07-1992-17:05-wht@n4hgf-lock tty before ungetty get */
+X/*:05-13-1992-13:27-wht@n4hgf-active_pde use */
+X/*:05-13-1992-10:30-cma@ifsbd-Add baud rate checking to hdb_dial function */
+X/*:05-04-1992-04:45-wht@n4hgf-wrong sense of strcmp in ,M test for SVR4 */
+X/*:04-28-1992-03:29-wht@n4hgf-more fixes for abend due to line problems */
+X/*:04-27-1992-20:02-wht@n4hgf-add ecuungetty error reporting */
+X/*:04-25-1992-13:02-wht@n4hgf-some exits from hdb_choose_Any omitted enddvent */
+X/*:04-24-1992-21:59-wht@n4hgf-more SCO tty name normalizing */
+X/*:04-19-1992-03:21-jhpb@sarto.budd-lake.nj.us-3.18.37 has ESIX SVR4 */
+X/*:01-18-1992-13:29-root@n4hgf-use proctrace value for expresp_verbosity */
+X/*:11-15-1991-04:02-wht@n4hgf-SCO tty naming now observed in getdvline */
+X/*:09-01-1991-16:20-wht@n4hgf2-generalize HDB configuration files location */
+X/*:09-01-1991-02:27-wht@n4hgf2-dialer gets file name instead of "ECUdial" */
+X/*:08-25-1991-13:07-wht@n4hgf-apply ache@hq.demos.su patches */
+X/*:08-10-1991-17:39-wht@n4hgf-US_WEGOTIT handling */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:06-02-1991-17:42-wht@n4hgf-add getdvtype */
+X/*:06-02-1991-17:27-wht@n4hgf-hdb_choose_Device + move hdb_choose_Any here */
+X/*:10-16-1990-20:43-wht@n4hgf-add SHARE_DEBUG */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecupde.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "termecu.h"
+X#include "utmpstatus.h"
+X#include "ecuungetty.h"
+X#include "dvent.h"
+X#include "dlent.h"
+X#include "dialprog.h"
+X#include <errno.h>
+X#include <utmp.h>
+X
+Xchar *arg_token();
+Xchar *skip_ld_break();
+Xchar *dialcodes_translate();
+Xchar *strip_phone_num();
+X
+Xextern char kbdintr;		/* current input INTR */
+Xextern ulong colors_current;
+Xextern int proctrace;
+Xextern int expresp_verbosity;
+X
+Xint there_is_hdb_on_this_machine = 0;
+Xstatic FILE *fpdv = (FILE *)0;
+Xstatic FILE *fpdl = (FILE *)0;
+Xchar *Devices_file = "/usr/lib/uucp/Devices";
+Xchar *Dialers_file = "/usr/lib/uucp/Dialers";
+Xchar *Dialcodes_file = "/usr/lib/uucp/Dialcodes";
+Xuchar last_ugstat = 0;
+X
+X#define UNGETTY_LIST_MAX	3
+Xchar *ungetty_list[UNGETTY_LIST_MAX];
+X
+X/*+-------------------------------------------------------------------------
+X	display_ungetty_list() - display ungetty list with pputs()
+X--------------------------------------------------------------------------*/
+X#if defined(USE_ECUUNGETTY)
+Xvoid
+Xdisplay_ungetty_list()
+X{
+X	int itmp;
+X	int found_one = 0;
+X
+X	for(itmp = 0; itmp < UNGETTY_LIST_MAX; itmp++)
+X	{
+X		if(*ungetty_list[itmp])
+X		{
+X			found_one = 1;
+X			break;
+X		}
+X	}
+X
+X	if(!found_one)
+X	{
+X		pputs("No lines acquired by ecuungetty\n");
+X		return;
+X	}
+X
+X	pputs("Acquired by ecuungetty: ");
+X	for(itmp = 0; itmp < UNGETTY_LIST_MAX; itmp++)
+X	{
+X		if(*ungetty_list[itmp])
+X		{
+X			pputs(ungetty_list[itmp]);
+X			pputs(" ");
+X		}
+X	}
+X	pputs("\n");
+X
+X}	/* end of display_ungetty_list */
+X#endif /* defined(USE_ECUUNGETTY) */
+X
+X/*+-------------------------------------------------------------------------
+X	in_ungetty_list(line) - check for line present in ungetty list
+X--------------------------------------------------------------------------*/
+X#if defined(USE_ECUUNGETTY)
+Xint
+Xin_ungetty_list(line)
+Xchar *line;
+X{
+X	int itmp;
+X
+X	for(itmp = 0; itmp < UNGETTY_LIST_MAX; itmp++)
+X	{
+X		if(!strcmp(line,ungetty_list[itmp]))
+X			return(1);
+X	}
+X	return(0);
+X
+X}	/* end of in_ungetty_list */
+X#endif /* defined(USE_ECUUNGETTY) */
+X
+X/*+-------------------------------------------------------------------------
+X	add_to_ungetty_list(line) - add line to ungetty list
+X--------------------------------------------------------------------------*/
+X#if defined(USE_ECUUNGETTY)
+Xvoid
+Xadd_to_ungetty_list(line)
+Xchar *line;
+X{
+X	int itmp;
+X	char *lptr;
+X
+X	if(in_ungetty_list(line))
+X		return;
+X
+X	for(itmp = 0; itmp < UNGETTY_LIST_MAX; itmp++)
+X	{
+X		if(!*(lptr = ungetty_list[itmp]))
+X		{
+X			strcpy(lptr,line);
+X			return;
+X		}
+X	}
+X	ecu_log_event(getpid(),"ungetty_list overflow");
+X	termecu(TERMECU_LOGIC_ERROR);
+X	/*NOTREACHED*/
+X
+X}	/* end of add_to_ungetty_list */
+X#endif /* defined(USE_ECUUNGETTY) */
+X
+X/*+-------------------------------------------------------------------------
+X	remove_from_ungetty_list(line) - remove line from ungetty list
+X--------------------------------------------------------------------------*/
+X#if defined(USE_ECUUNGETTY)
+Xvoid
+Xremove_from_ungetty_list(line)
+Xchar *line;
+X{
+X	int itmp;
+X	char *lptr;
+X
+X	for(itmp = 0; itmp < UNGETTY_LIST_MAX; itmp++)
+X	{
+X		if(!strcmp((lptr = ungetty_list[itmp]),line))
+X		{
+X			*lptr = 0;
+X			return;
+X		}
+X	}
+X
+X#ifdef CHOOSE_DEBUG
+X	{
+X		char s128[128];
+X		sprintf(s128,"remove_from_ungetty_list failed for %s",line);
+X		ecu_log_event(getpid(),s128);
+X	}
+X#endif
+X
+X}	/* end of remove_from_ungetty_list */
+X#endif /* defined(USE_ECUUNGETTY) */
+X
+X/*+-------------------------------------------------------------------------
+X	ugstat_text(ugstat) - text for ecuungetty code
+X--------------------------------------------------------------------------*/
+Xchar *
+Xugstat_text(ugstat)
+Xint ugstat;
+X{
+X	static char errant[32];
+X
+X	switch(ugstat)
+X	{
+X		case UG_NOTENAB:
+X			return("line not enabled");
+X			break;
+X		case UG_RESTART:
+X			return("restart needed");
+X			break;
+X		case UG_FAIL:
+X			return("line in use");
+X			break;
+X		case UGE_T_LOGIN:
+X			return("-t found US_LOGIN");
+X			break;
+X		case UGE_T_LOGGEDIN:
+X			return("-t found US_LOGGGEDIN");
+X			break;
+X		case UGE_T_NOTFOUND:
+X			return("not found");
+X			break;
+X		case UGE_BADSWITCH:
+X			return("usage: bad switch");
+X			break;
+X		case UGE_BADARGC:
+X			return("usage: bad arg count");
+X			break;
+X		case UGE_BADARGV:
+X			return("this a valid tty??");
+X			break;
+X		case UGE_NOTROOT:
+X			return("not setuid root");
+X			break;
+X		case UGE_CALLER:
+X			return("invalid caller");
+X			break;
+X		case UGE_NOUUCP:
+X			return("cannot find uucp passwd entry");
+X			break;
+X		case UGE_LOGIC:
+X			return("logic error");
+X			break;
+X		case UGE_BOMB:
+X			return("core dumped or killed");
+X			break;
+X		case UGE_DNE:
+X			return("did not execute");
+X			break;
+X	}
+X	sprintf(errant,"error %u",ugstat);
+X	return(errant);
+X}	/* end of ugstat_text */
+X
+X/*+-------------------------------------------------------------------------
+X	ungetty_get_line(line) - acquire a line through ecuungetty protocol
+X--------------------------------------------------------------------------*/
+Xint
+Xungetty_get_line(line)
+Xchar *line;
+X{
+X#if !defined(USE_ECUUNGETTY)
+X	return(0);
+X#else
+X	int itmp;
+X	int rtn = 0;
+X	int we_locked = 0;
+X	int ungetty_pid;
+X	SIGTYPE (*original_sighdlr)();
+X	int wait_status;
+X	char ungetty[128];
+X	char ungetty_log[80];
+X	char bamboozlement[20];
+X	struct stat st;
+X	char *bamboozle();
+X
+X	/*
+X	 * quick check - ecuungetty does a much better job
+X	 */
+X	if(!strcmp(line,"/dev/tty")) /* some keep getting /dev/tty chown'd! */
+X		return(LINST_INVALID);
+X	if(stat(line,&st))
+X	{
+X		if(errno == ENOENT)
+X			return(LINST_NODEV);
+X		return(LINST_OPNFAIL);
+X	}
+X	if((st.st_mode & S_IFMT) != S_IFCHR)
+X		return(LINST_NOTCHR);
+X	if(!there_is_hdb_on_this_machine)
+X		return(0);
+X	if(in_ungetty_list(line))
+X		return(0);
+X
+X	/*
+X	 * lock line before ecuungetty call
+X	 */
+X	if((itmp = lock_tty(line)) && (itmp != LINST_WEGOTIT))
+X		return(itmp);
+X	we_locked = (!itmp);
+X
+X	sprintf(ungetty,"%s/ecuungetty",ECULIBDIR);
+X	strcpy(bamboozlement,bamboozle(getpid()));
+X	if(access(ungetty,1))
+X	{
+X		pperror(ungetty);
+X		rtn = LINST_ENABLED;
+X		goto RETURN;
+X	}
+X	original_sighdlr = signal(SIGCLD,SIG_DFL);
+X	if((ungetty_pid = smart_fork()) == 0)
+X	{
+X		execl(ungetty,"ungetty",line,bamboozlement,(char *)0);
+X		_exit(UGE_DNE);	/* did not execute */
+X	}
+X	while(((itmp = wait(&wait_status)) != ungetty_pid) && (itmp != -1))
+X		;
+X	signal(SIGCLD,original_sighdlr);
+X
+X	if(wait_status & 0xFF)
+X		last_ugstat = UGE_BOMB;
+X	else
+X		last_ugstat = (uchar)(wait_status >> 8);
+X	switch(last_ugstat)
+X	{
+X		case UG_NOTENAB:	/* line acquired: not enabled */
+X			break;
+X
+X		case UG_RESTART:	/* line acquired: need ungetty -r when done */
+X#if defined(LOG_UNGETTY)
+X			sprintf(ungetty_log,"UNGETTY acquired %s",shm->Lline);
+X			ecu_log_event(getpid(),ungetty_log);
+X#endif
+X			add_to_ungetty_list(line);
+X			break;
+X
+X		case UG_FAIL:		/* line in use */
+X			rtn = LINST_ENABLED_IN_USE;
+X			break;
+X
+X		default:
+X			sprintf(ungetty_log,"UNGETTY status 0x%04x: %s",
+X				wait_status,ugstat_text(last_ugstat));
+X			ecu_log_event(getpid(),ungetty_log);
+X			rtn = (last_ugstat == UGE_BOMB)
+X				? LINST_ECUUNGETTY2 : LINST_ECUUNGETTY;
+X			break;
+X	}
+X
+XRETURN: ;
+X	if(rtn && we_locked)
+X		unlock_tty(line);
+X	return(rtn);
+X
+X#endif /* !defined(USE_ECUUNGETTY) */
+X}	/* end of ungetty_get_line */
+X
+X/*+-------------------------------------------------------------------------
+X    reserve_line(line)
+Xreturn 0 if line reserved, else LINST code
+X--------------------------------------------------------------------------*/
+Xint
+Xreserve_line(line)
+Xchar *line;
+X{
+Xregister utstatus;
+Xregister status = 0;
+X
+X    switch(utstatus = utmp_status(line))
+X    {
+X        case US_DIALOUT:    /* enabled for login, currently dialout */
+X            status = LINST_DIALOUT_IN_USE;
+X            break;
+X        case US_LOGGEDIN:   /* enabled for login, in use */
+X            status = LINST_ENABLED_IN_USE;
+X            break;
+X        case US_NOTFOUND:   /* not in utmp, or getty dead */
+X            break;
+X        case US_WEGOTIT:    /* we own the line */
+X            status = LINST_WEGOTIT;   /* not really an error */
+X            break;
+X        case US_LOGIN:      /* enabled for login, idle */
+X            status = ungetty_get_line(line);
+X            break;
+X    }
+X
+X#if defined(LOG_LOCKS)
+X    {
+X        char s64[64];
+X        sprintf(s64,"UTMPCHK %s st=%d ut=%d",line,status,utstatus);
+X        ecu_log_event(getpid(),s64);
+X    }
+X#endif
+X
+X    return(status);
+X
+X}   /* end of reserve_line */
+X
+X/*+-------------------------------------------------------------------------
+X	_ungetty_return_line(line) - return line to "getty" status
+X--------------------------------------------------------------------------*/
+Xvoid
+X_ungetty_return_line(line)
+Xchar *line;
+X{
+X#if !defined(USE_ECUUNGETTY)
+X	return;
+X#else
+X	int ungetty_pid;
+X	int itmp;
+X	SIGTYPE (*original_sighdlr)();
+X	int wait_status = 0xDEAD;
+X	char ungetty[128];
+X#if defined(LOG_UNGETTY)
+X	char ungetty_log[80];
+X#endif
+X	char bamboozlement[20];
+X	char *bamboozle();
+X
+X	if(!there_is_hdb_on_this_machine)
+X		return;
+X	if(!in_ungetty_list(line))
+X		return;
+X
+X	sprintf(ungetty,"%s/ecuungetty",ECULIBDIR);
+X	strcpy(bamboozlement,bamboozle(getpid()));
+X
+X	/* call ungetty to see if we need to switch to dialin */
+X#if 0 /* if in_ungetty_list, trust we need to -r */
+X	if(access(ungetty,1))
+X	{
+X		pperror(ungetty);
+X		return;
+X	}
+X	original_sighdlr = signal(SIGCLD,SIG_DFL);
+X	if((ungetty_pid = smart_fork()) == 0)
+X	{
+X		execl(ungetty,"ungetty","-t",line,bamboozlement,(char *)0);
+X		ecu_log_event(getpid(),"could not exec ecuungetty -t");
+X		_exit(UGE_DNE);	/* did not execute */
+X	}
+X	while(((itmp = wait(&wait_status)) != ungetty_pid) &&
+X			(itmp != -1) )
+X		;
+X	signal(SIGCLD,original_sighdlr);
+X
+X#if defined(LOG_UNGETTY)
+X	sprintf(ungetty_log,"UNGETTY -t %s status %04x",line,wait_status);
+X	ecu_log_event(getpid(),ungetty_log);
+X#endif
+X	switch((uchar)(wait_status >> 8))
+X	{
+X		case UG_RESTART:
+X			break;
+X
+X		default:
+X			remove_from_ungetty_list(line);
+X			return;
+X	}
+X#endif
+X
+X	original_sighdlr = signal(SIGCLD,SIG_DFL);
+X	if((ungetty_pid = smart_fork()) == 0)
+X	{
+X		execl(ungetty,"ungetty","-r",line,bamboozlement,(char *)0);
+X		ecu_log_event(getpid(),"could not exec ecuungetty -r");
+X		_exit(UGE_DNE);	/* did not execute */
+X	}
+X
+X	while(((itmp = wait(&wait_status)) != ungetty_pid) &&
+X			(itmp != -1))
+X		;
+X
+X#if defined(LOG_UNGETTY)
+X	if(wait_status)
+X	{
+X		sprintf(ungetty_log,"UNGETTY -r %s status 0x%04x",
+X			line,wait_status);
+X	}
+X	else
+X		sprintf(ungetty_log,"UNGETTY returned %s",line);
+X	ecu_log_event(getpid(),ungetty_log);
+X#endif
+X
+X	remove_from_ungetty_list(line);
+X
+X#endif /* !defined(USE_ECUUNGETTY) */
+X}	/* end of _ungetty_return_line */
+X
+X/*+-------------------------------------------------------------------------
+X	ungetty_return_line(line) - return one or all lines to "getty" status
+X--------------------------------------------------------------------------*/
+Xvoid
+Xungetty_return_line(line)
+Xchar *line;
+X{
+X#if !defined(USE_ECUUNGETTY)
+X	return;
+X#else
+X	int itmp;
+X
+X	if(line)
+X		_ungetty_return_line(line);
+X	else
+X	{
+X		for(itmp = 0; itmp < UNGETTY_LIST_MAX; itmp++)
+X		{
+X			if(*(line = ungetty_list[itmp]))
+X				_ungetty_return_line(line);
+X		}
+X	}
+X
+X#endif /* !defined(USE_ECUUNGETTY) */
+X}	/* end of ungetty_return_line */
+X
+X/*+-------------------------------------------------------------------------
+X	ungetty_return_all_but(line) - return all lines but 'line'
+X--------------------------------------------------------------------------*/
+Xvoid
+Xungetty_return_all_but(line)
+Xchar *line;
+X{
+X#if !defined(USE_ECUUNGETTY)
+X	return;
+X#else
+X	int itmp;
+X
+X	for(itmp = 0; itmp < UNGETTY_LIST_MAX; itmp++)
+X	{
+X		if(ungetty_list[itmp][0] && strcmp(line,ungetty_list[itmp]))
+X			_ungetty_return_line(line);
+X	}
+X
+X#endif /* !defined(USE_ECUUNGETTY) */
+X}	/* end of ungetty_return_all_but */
+X
+X/*+-------------------------------------------------------------------------
+X	malformed_Devices_entry(text,ntokens,tokens)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xmalformed_Devices_entry(text,ntokens,tokens)
+Xchar *text;
+Xint ntokens;
+Xchar **tokens;
+X{
+X	char s512[512];
+X	char *cptr;
+X	char *nlptr;
+X	static already = 0;
+X	extern int tty_not_char_special;
+X
+X	sprintf(s512,"malformed Devices entry (%s):\n",text);
+X	cptr = s512 + strlen(s512);
+X	nlptr = cptr - 1;
+X
+X	while(ntokens--)
+X	{
+X		if(((cptr - s512) + strlen(*tokens) + 2) > sizeof(s512))
+X			break;
+X		sprintf(cptr,"%s ",*tokens++);
+X		cptr += strlen(cptr);
+X	}
+X
+X	if(!already && !tty_not_char_special)
+X	{
+X		pputs("\7\n");
+X		pputs(s512);
+X		pputs("\nFurther Devices errors will not be displayed,\n");
+X		pputs("but are logged in ~/.ecu/log.  Press any key to continue.\7");
+X		ttyflush(0);
+X		ttygetc(1);
+X		pputs("\n");
+X	}
+X	already = 1;
+X
+X	memcpy(s512,"MALFORMED",9);		/* mod for log file */
+X	*nlptr = ' ';
+X	ecu_log_event(xmtr_pid,s512);
+X
+X}	/* end of malformed_Devices_entry */
+X
+X/*+-------------------------------------------------------------------------
+X	getdvent() - get first or next Devices entry (a la getpwent)
+X--------------------------------------------------------------------------*/
+XDVE *
+Xgetdvent()
+X{
+X#define MAX_DV_TOKENS 9
+X	char *tokens[MAX_DV_TOKENS];
+X	int ntokens;
+X#if 0
+X	int itokens;
+X#endif
+X	char *cptr;
+X	static DVE dve;
+X	static char dvstr[256];
+X	char *strchr();
+X	char *skip_ld_break();
+X
+X	if(!there_is_hdb_on_this_machine)
+X		goto RETURN_NULL;
+X
+X	if(!fpdv)
+X	{
+X		if(!(fpdv = fopen(Devices_file,"r")))
+X		{
+X			pperror(Devices_file);
+X			goto RETURN_NULL;
+X		}
+X	}
+X
+X	while(1)
+X	{
+X		/*
+X		 * read a Devices line
+X		 */
+X		if(!fgets(dvstr,sizeof(dvstr),fpdv))
+X		{
+XRETURN_NULL:
+X#ifdef CHOOSE_DEBUG
+X			ecu_log_event(xmtr_pid,"getdvent returning NULL");
+X#endif
+X			return((DVE *)0);
+X		}
+X
+X		/*
+X		 * weed out comments and blank lines
+X		 */
+X		if(strlen(dvstr) <= 1)					/* blank line */
+X			continue;
+X		cptr = skip_ld_break(dvstr);			/* first non-blank */
+X		if(!*cptr || strchr("#\n",*cptr))		/* comment or all white space */
+X			continue;
+X
+X		/*
+X		 * tokenize
+X		 */
+X		build_arg_array(dvstr,tokens,MAX_DV_TOKENS,&ntokens);
+X
+X		/*
+X		 * honor '#' whever it occurs
+X		 */
+X#if 0
+X		for(itokens = 0; itokens < ntokens; itokens++)
+X		{
+X			if(!tokens[itokens])
+X				tokens[itokens] = "";
+X			if(cptr = strchr(tokens[itokens],'#'))
+X			{
+X				*cptr = 0;
+X				ntokens = itokens + 1;
+X				break;
+X			}
+X		}
+X#endif
+X
+X		/*
+X		 * a bit of validation
+X		 */
+X		if(ntokens < 4)
+X		{
+X			malformed_Devices_entry("too few fields",ntokens,tokens);
+X			continue;
+X		}
+X
+X		/*
+X		 * TCP,et - - Any TCP - 
+X		 * found in Sun Devices (UUCP over TCP)
+X		 */
+X#if 0	/* leave this generic; handle in getdvbaud and getdvtype */
+X		if(!strcmp(tokens[1],"-"))
+X		{
+X			malformed_Devices_entry("bad tty specified",ntokens,tokens);
+X			continue;
+X		}
+X#endif
+X
+X		break;
+X	}
+X
+X	/*
+X	 * we have a good entry
+X	 */
+X	dve.type = tokens[0];
+X	dve.line = tokens[1];
+X
+X#if defined(SVR4)
+X	{ /* get rid of possible SVR4 ",M" modem control suffix */
+X		int itmp;
+X		itmp = strlen(dve.line);
+X		if((itmp > 2) && !strcmp(dve.line + itmp - 2,",M"))
+X		  dve.line[itmp - 2] = 0;
+X	}
+X#endif /* SVR4 */
+X
+X	dve.dialer = tokens[2];
+X	if(!strcmpi(tokens[3],"Any"))
+X	{
+X		dve.low_baud = 1;
+X		dve.high_baud = 65535;
+X	}
+X	else
+X	{
+X		dve.low_baud = atoi(tokens[3]);
+X		if(!(cptr = strchr(tokens[3],'-')))
+X			dve.high_baud = dve.low_baud;
+X		else
+X			dve.high_baud = atoi(cptr + 1);
+X	}
+X	dve.dialprog = tokens[4];
+X	dve.token = tokens[5];
+X#ifdef CHOOSE_DEBUG
+X	{
+X		char s256[256];
+X		sprintf(s256,"getdvent returning '%s' type='%s'",dve.line,dve.type);
+X		ecu_log_event(xmtr_pid,s256);
+X	}
+X#endif
+X	return(&dve);
+X
+X}	/* end of getdvent */
+X
+X/*+-------------------------------------------------------------------------
+X	enddvent() - close Devices file
+X--------------------------------------------------------------------------*/
+Xvoid
+Xenddvent()
+X{
+X	if(fpdv)
+X	{
+X		fclose(fpdv);
+X		fpdv = (FILE *)0;
+X	}
+X}	/* end of enddvent */
+X
+X/*+-------------------------------------------------------------------------
+X	getdvbaud(baud) - get Devices entry matching baud rate
+X--------------------------------------------------------------------------*/
+XDVE *
+Xgetdvbaud(baud)
+Xuint baud;
+X{
+X	DVE *tdve;
+X
+X#ifdef CHOOSE_DEBUG
+X	char s128[128];
+X
+X	sprintf(s128,"getdvbaud looking for %u baud",baud);
+X	ecu_log_event(getpid(),s128);
+X#endif
+X
+X	while(1)
+X	{
+X		if((tdve = getdvent()) == (DVE *)0)
+X			return(tdve);
+X#ifdef CHOOSE_DEBUG
+X		sprintf(s128,"getdvbaud found %s type '%s' baud lo=%d hi=%d",
+X			tdve->line,tdve->type,tdve->low_baud,tdve->high_baud);
+X		
+X		ecu_log_event(getpid(),s128);
+X#endif
+X		if(!strcmp(tdve->line,"-"))	/* neo-entries like TCP have "-" line */
+X			continue;
+X		if((tdve->low_baud <= baud) && (baud <= tdve->high_baud))
+X		{
+X#ifdef CHOOSE_DEBUG
+X			sprintf(s128,"getdvbaud returning %s",tdve->line);
+X			ecu_log_event(getpid(),s128);
+X#endif
+X			return(tdve);
+X		}
+X	}
+X	/*NOTREACHED*/
+X
+X}	/* end of getdvbaud */
+X
+X/*+-------------------------------------------------------------------------
+X	getdvline(line) - get Devices entry matching line
+Xcalling argument 'line's is string AFTER "/dev/"
+X--------------------------------------------------------------------------*/
+XDVE *
+Xgetdvline(line)
+Xchar *line;
+X{
+X	DVE *tdve;
+X
+X#ifdef CHOOSE_DEBUG
+X	char s128[128];
+X
+X	sprintf(s128,"getdvline looking for %s",line);
+X	ecu_log_event(getpid(),s128);
+X#endif
+X
+X	while(1)
+X	{
+X		if((tdve = getdvent()) == (DVE *)0)
+X			return(tdve);
+X#ifdef CHOOSE_DEBUG
+X		sprintf(s128,"getdvline %s found baud lo=%d hi=%d",tdve->line,
+X			tdve->low_baud, tdve->high_baud);
+X		ecu_log_event(getpid(),s128);
+X#endif
+X		if(!TTYNAME_STRCMP(tdve->line,line))
+X			return(tdve);
+X	}
+X	/*NOTREACHED*/
+X
+X}	/* end of getdvline */
+X
+X/*+-------------------------------------------------------------------------
+X	dvtype_match(typespec,dvtype) - match between pde typespec and dvtype
+X
+Xreturns 1 if pde type specification 'typespec' matches Devices device 'type'
+X--------------------------------------------------------------------------*/
+Xint
+Xdvtype_match(typespec,dvtype)
+Xchar *typespec;
+Xchar *dvtype;
+X{
+X	char *emsg;
+X	char *match;
+X	int matchlen;
+X	int re_match = 1;
+X	char cmpbuf[128];
+X
+X	if(*typespec == '=')
+X		typespec++;
+X	else if(*typespec == '/')
+X	{
+X		re_match = 0;
+X		typespec++;
+X	}
+X
+X	if(re_match)
+X	{
+X		if(!strcmp(dvtype,typespec))
+X			return(1);
+X	}
+X	else
+X	{
+X		if(regexp_compile(typespec,cmpbuf,sizeof(cmpbuf),&emsg))
+X			return(0);
+X		if(regexp_scan(cmpbuf,dvtype,&match,&matchlen))
+X			return(1);
+X	}
+X	return(0);
+X
+X}	/* end of dvtype_match */
+X
+X/*+-------------------------------------------------------------------------
+X	getdvtype(type) - get Devices entry matching type
+X
+Xtype is either 'Device_type'   search for exact match on Device_type
+X               '=Device_type'  search for exact match on Device_type
+X               '/regexp'       search for match with regular expression
+X
+Xyou must make sure any supplied regexp is a valid one, for regexp
+Xcompilation errors are indistinguishable from other seach failures
+X
+Xuses optimized implementation of dvtype_match functionality
+X--------------------------------------------------------------------------*/
+XDVE *
+Xgetdvtype(type)
+Xchar *type;
+X{
+X	DVE *tdve;
+X	char *emsg;
+X	char *match;
+X	int matchlen;
+X	int re_match = 0;	/* regular expression match */
+X	char cmpbuf[128];
+X
+X	if(*type == '=')
+X		type++;
+X	else if(*type == '/')
+X	{
+X		re_match = 1;
+X		type++;
+X		if(regexp_compile(type,cmpbuf,sizeof(cmpbuf),&emsg))
+X			return((DVE *)0);
+X	}
+X
+X	while(tdve = getdvent())
+X	{
+X		if(!strcmp(tdve->line,"-"))	/* neo-entries like TCP have "-" line */
+X			continue;
+X		if(re_match)
+X		{
+X			if(regexp_scan(cmpbuf,tdve->type,&match,&matchlen))
+X				break;
+X		}
+X		else
+X		{
+X			if(!strcmp(tdve->type,type))
+X				break;
+X		}
+X	}
+X	return(tdve);
+X
+X}	/* end of getdvtype */
+X
+X/*+-------------------------------------------------------------------------
+X	dialstr_translate(translate_list,to_translate) - translate dial strings
+X--------------------------------------------------------------------------*/
+X#if 0
+Xvoid
+Xdialstr_translate(translate_list,to_translate)
+Xregister char *translate_list;
+Xchar *to_translate;
+X{
+X	register char *cptr;
+X
+X	while(*translate_list && *(translate_list + 1))
+X	{
+X		for(cptr=to_translate; *cptr; cptr++)
+X		{
+X			if(*translate_list == *cptr)
+X				*cptr = *(translate_list + 1);
+X		}
+X		translate_list += 2;
+X	}
+X}	/* end of dialstr_translate */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	getdlent() - get first or next Dialers entry (a la getpwent)
+X--------------------------------------------------------------------------*/
+Xstruct dlent *
+Xgetdlent()
+X{
+X	int itmp;
+X#define MAX_DL_TOKENS 3
+X	char *tokens[MAX_DL_TOKENS];
+X	static struct dlent dle;
+X	static char dlstr[128];
+X	char *strchr();
+X
+X	if(!there_is_hdb_on_this_machine)
+X		return((struct dlent *)0);
+X
+X	if(!fpdl)
+X	{
+X		if(!(fpdl = fopen(Dialers_file,"r")))
+X		{
+X			pperror(Dialers_file);
+X			return((struct dlent *)0);
+X		}
+X	}
+X
+X	while(1)
+X	{
+X		if(!fgets(dlstr,sizeof(dlstr),fpdl))
+X			return((struct dlent *)0);
+X		if(((itmp = strlen(dlstr)) <= 1) || (dlstr[0] == '#') ||
+X			(dlstr[0] == ' '))
+X		{
+X			continue;
+X		}
+X		dlstr[--itmp] = 0;
+X		for(itmp = 0; itmp < MAX_DL_TOKENS; itmp++)
+X			tokens[itmp] = "";
+X		if(tokens[0] = arg_token(dlstr," \t\r\n"))
+X		{
+X			if(tokens[1] = arg_token((char *)0," \t\r\n"))
+X			{
+X			extern char *str_token_static;
+X				tokens[2] = skip_ld_break(str_token_static);
+X			}
+X		}
+X		break;
+X	}
+X
+X	dle.name = tokens[0];
+X	dle.tlate = tokens[1];
+X	dle.script = tokens[2];
+X	return(&dle);
+X
+X}	/* end of getdlent */
+X
+X/*+-------------------------------------------------------------------------
+X	enddlent() - close Dialers file
+X--------------------------------------------------------------------------*/
+Xvoid
+Xenddlent()
+X{
+X	if(fpdl)
+X	{
+X		fclose(fpdl);
+X		fpdl = (FILE *)0;
+X	}
+X}	/* end of enddlent */
+X
+X/*+-------------------------------------------------------------------------
+X	getdlentname(name) - get Dialers entry by name
+X--------------------------------------------------------------------------*/
+Xstruct dlent *
+Xgetdlentname(name)
+Xchar *name;
+X{
+X	register DLE *tdle;
+X
+X	while(tdle = getdlent())
+X	{
+X		if(!strcmp(name,tdle->name))
+X			break;
+X	}
+X	return(tdle);
+X
+X}	/* end of getdlentname */
+X
+X/*+-------------------------------------------------------------------------
+X	hdb_choose_Any(baud) - user will take 'Any' line
+X
+Xgive preference to current line
+X--------------------------------------------------------------------------*/
+XDVE *
+Xhdb_choose_Any(baud)
+Xuint baud;
+X{
+X	DVE *tdve = (DVE *)0;
+X	char newtty[sizeof(shm->Lline)];
+X	int lerr = 0;
+X	int utmpst = 0;
+X#if defined(LOG_HDBDIAL) || defined(CHOOSE_DEBUG)
+X	char s128[128];
+X#endif
+X
+X#ifdef CHOOSE_DEBUG
+X	sprintf(s128,"hdb_choose_Any baud=%u current line='%s'",baud,shm->Lline);
+X	ecu_log_event(getpid(),s128);
+X#endif
+X
+X	enddvent();	/* krock but safe */
+X
+X/*
+X * see if shm->Lline in use by someone else; if not and baud rate ok, no further
+X */
+X
+X	if(shm->Lline[0])
+X	{
+X		while(tdve = getdvline(shm->Lline + 5))
+X		{
+X			if((tdve->low_baud <= baud) && (baud <= tdve->high_baud))
+X				break;
+X		}
+X
+X		if(tdve)
+X		{
+X			switch(utmpst = utmp_status(shm->Lline))
+X			{
+X			case US_WEGOTIT:
+X				goto RETURN;
+X			case US_NOTFOUND:	/* not in utmp, or getty dead */
+X#if 0
+X				if(access(shm->Lline,6))
+X					break;
+X#endif
+X				if((lerr = line_lock_status(shm->Lline)) &&
+X					(lerr != LINST_WEGOTIT))
+X				{
+X					break;
+X				}
+X				goto RETURN;
+X			case US_LOGIN:		/* enabled for login, idle */
+X				goto RETURN;
+X			}
+X		}
+X
+X		enddvent();
+X	}
+X
+X	/*
+X	 * we've got to pick a new line
+X	 */
+X
+X#ifdef CHOOSE_DEBUG
+X	sprintf(s128,"must pick new line utmpst=%u lerr=%u",utmpst,lerr);
+X	ecu_log_event(getpid(),s128);
+X#endif
+X
+X	lerr = 0;
+X	while(1)
+X	{
+X		if(!(tdve = getdvbaud(baud)))
+X			break;
+X
+X		/* by now, we know shm->Lline wont work */
+X		if(!TTYNAME_STRCMP(tdve->line,shm->Lline + 5))
+X			continue;
+X
+X		/* if not acu, dont use it */
+X		if(ulindex(tdve->type,"ACU") < 0)
+X			continue;
+X
+X		sprintf(newtty,"/dev/%s",tdve->line);
+X		switch(utmpst = utmp_status(newtty))
+X		{
+X			case US_NOTFOUND:	/* not in utmp, or getty dead */
+X#if 0
+X				if(access(newtty,6)) /* ecuungetty won't be able to help us */
+X					break;
+X#endif
+X				if((lerr = line_lock_status(newtty)) &&
+X					(lerr != LINST_WEGOTIT))
+X				{
+X					break;
+X				}
+X				goto RETURN;
+X
+X			case US_LOGIN:		/* enabled for login, idle */
+X				goto RETURN;
+X
+X			case US_WEGOTIT:
+X				goto RETURN;
+X		}
+X	}
+X
+XRETURN:
+X	enddvent();
+X#ifdef LOG_HDBDIAL
+X	sprintf(s128,"CHOOSEANY lerr=%d chose %s",
+X		lerr,(tdve) ? tdve->line : "<none>");
+X	ecu_log_event(getpid(),s128);
+X#endif
+X	return(tdve);
+X
+X}	/* end of hdb_choose_Any */
+X
+X/*+-------------------------------------------------------------------------
+X	hdb_choose_Device(type,baud) - need line with 'type' and 'baud'
+X
+Xreturn DVE pointer if line chosen, 0 if failed to find a line
+XPriority is given to retaining the current line
+X--------------------------------------------------------------------------*/
+XDVE *
+Xhdb_choose_Device(type,baud)
+Xchar *type;
+Xuint baud;
+X{
+X	DVE *tdve = (DVE *)0;
+X	char s32[32];
+X	int itmp = 0;
+X	int lerr = 0;
+X	int utmpst = 0;
+X	int done;
+X
+X#ifdef CHOOSE_DEBUG
+X	char s128[128];
+X	sprintf(s128,"hdb_choose_Device type='%s' baud=%u curr line='%s'",
+X	    type,baud,shm->Lline);
+X	ecu_log_event(getpid(),s128);
+X#endif
+X
+X	/*
+X	 * check current line
+X	 */
+X	if(shm->Lline[0])
+X	{
+X		while(tdve = getdvline(shm->Lline + 5))
+X		{
+X			if(dvtype_match(type,tdve->type) &&
+X				(tdve->low_baud <= baud) && (baud <= tdve->high_baud))
+X			{
+X				break;
+X			}
+X		}
+X		enddvent();
+X
+X		if(tdve)
+X		{
+X			switch(utmpst = utmp_status(shm->Lline))
+X			{
+X				case US_WEGOTIT:
+X					goto RETURN;
+X
+X				case US_NOTFOUND:	/* not in utmp, or getty dead */
+X#if 0
+X					if(access(shm->Lline,6))
+X						break;
+X#endif
+X					if((lerr = line_lock_status(shm->Lline)) &&
+X						(lerr != LINST_WEGOTIT))
+X					{
+X						break;
+X					}
+X					goto RETURN;
+X
+X				case US_LOGIN:		/* enabled for login, idle */
+X					goto RETURN;
+X			}
+X		}
+X	}
+X
+X	/*
+X	 * we've got to pick a new line
+X	 */
+X
+X#ifdef CHOOSE_DEBUG
+X	sprintf(s128,"must pick new line utmpst=%u lerr=%u",utmpst,lerr);
+X	ecu_log_event(getpid(),s128);
+X#endif
+X
+X	done = 0;
+X	lerr = 0;
+X	while(!done)
+X	{
+X		/*
+X		 * get Devices entry matching type
+X		 */
+X		if(!(tdve = getdvtype(type)))
+X		{
+X#ifdef CHOOSE_DEBUG
+X			sprintf(s128,"no line matches type '%s'",type);
+X			ecu_log_event(getpid(),s128);
+X#endif
+X			break;
+X		}
+X
+X		/*
+X		 * does baud rate match?
+X		 */
+X		if((tdve->low_baud > baud) || (baud > tdve->high_baud))
+X			continue;
+X
+X		sprintf(s32,"/dev/%s",tdve->line);
+X		itmp = utmp_status(s32);
+X#ifdef CHOOSE_DEBUG
+X		sprintf(s128,"%s: utmp_status = %d  lock status=%d",s32,itmp,
+X				line_lock_status(s32));
+X		ecu_log_event(getpid(),s128);
+X#endif
+X		switch(itmp)
+X		{
+X			case US_NOTFOUND:	/* not in utmp, or getty dead */
+X#if 0
+X				if(access(s32,6))	/* ecuungetty won't be able to help us */
+X					break;
+X#endif
+X				if(!(itmp = line_lock_status(s32)) || (itmp == LINST_WEGOTIT))
+X					done = 1;
+X				break;
+X
+X			case US_WEGOTIT:	/* we own the line */
+X				/* this would be a curious case to succeed */
+X				done = 1;
+X				break;
+X
+X			case US_LOGIN:		/* enabled for login, idle */
+X				done = 1;
+X				break;
+X
+X			default:
+X				break;
+X		}
+X	}
+X
+XRETURN:
+X	enddvent();
+X	return(tdve);
+X
+X}	/* end of hdb_choose_Device */
+X
+X/*+-------------------------------------------------------------------------
+X	hdb_dial_error(errcode) - dialer program error code to text
+X
+Xalso sets iv[0] to dial command status
+X--------------------------------------------------------------------------*/
+Xchar *
+Xhdb_dial_error_text(errcode)
+Xint errcode;
+X{
+X	static char errant[64];
+X
+X	iv[0] = 1;
+X	switch(errcode &= 0x7F)
+X	{
+X		case RCE_INUSE:
+X			return("!Line in use");
+X		case RCE_SIG:
+X			iv[0] = 2;
+X			return("!Interrupted");
+X		case RCE_ARGS:
+X			return("!Invalid arguments");
+X		case RCE_PHNO:
+X			return("!Invalid phone number");
+X		case RCE_SPEED:
+X			return("!Bad baud rate");
+X		case RCE_OPEN:
+X			return("!Line open error");
+X		case RCE_IOCTL:
+X			return("!Ioctl error");
+X		case RCE_TIMOUT:
+X			iv[0] = 3;
+X			return("!Modem Error");
+X		case RCE_NOTONE:
+X			return("NO DIAL TONE");
+X		case RCE_BUSY:
+X			return("BUSY");
+X		case RCE_NOCARR:
+X			return("NO CARRIER");
+X		case RCE_ANSWER:
+X			return("NO ANSWER");
+X		default:
+X		case RCE_NULL:
+X			sprintf(errant,"unknown dialer error code %d",errcode);
+X			return(errant);
+X	}
+X	/*NOTREACHED*/
+X}	/* end of hdb_dial_error */
+X
+X/*+-------------------------------------------------------------------------
+X	hdb_dial(presult) - dial with uucp dialer if we can
+X
+Xreturn 0 if connected
+X       1 if dial failed
+X       2 if interrupted
+X       3 if modem error
+X       4 if use ecu DCE dialer
+X--------------------------------------------------------------------------*/
+Xint
+Xhdb_dial(presult)
+Xchar **presult;
+X{
+X	int itmp;
+X	PID_T dial_pid;
+X	int wait_status;
+X	int old_ttymode = get_ttymode();
+X	SIGTYPE (*original_sighdlr)();
+X	DVE *tdve;
+X	struct dlent *tdle = (struct dlent *)0;
+X	char baudstr[16];
+X	char dbgstr[16];
+X	char dial_log[100];
+X	char *stripped_num;
+X	char *sptr;
+X	char *dptr;
+X	static char stat_s64[64];
+X	ulong colors_at_entry = colors_current;
+X	extern char *make_char_graphic();
+X	char token[128];        /* translated dialer token */
+X	FILE *fp;
+X	char credit_file[128];
+X	char *error_name = "";
+X	int error_baud = 0;
+X
+X	if(sigint)	/* don't even start if console interrupt posted */
+X	{
+X		sigint = 0;
+X		return(2);
+X	}
+X
+X	if(!there_is_hdb_on_this_machine)
+X		return(4);
+X
+X#if defined(CHOOSE_DEBUG)
+X	sprintf(dial_log,"HDB_DIAL Lline=%s Lbaud=%d",
+X		shm->Lline,shm->Lbaud);
+X	ecu_log_event(getpid(),dial_log);
+X#endif
+X
+X	/*
+X	 * get a Devices entry appropriate for dialing on the line;
+X	 */
+X	enddvent();
+X	while(tdve = getdvline(shm->Lline + 5))
+X	{
+X		if((tdve->low_baud <= shm->Lbaud) &&
+X			(shm->Lbaud <= tdve->high_baud)) 
+X		{
+X			break;
+X		}
+X	}
+X	error_name = shm->Lline + 5;
+X	error_baud = shm->Lbaud;
+X	enddvent();
+X
+X	if(!tdve)
+X	{
+X		pprintf("no Devices entry for %s at %u baud ... trying ecu dialer\n",
+X			error_name,error_baud);
+X		return(4);
+X	}
+X
+X	dial_log[0] = 0;
+X	if(*tdve->dialprog != '/')
+X	{
+X		tdle = getdlentname(tdve->dialprog);
+X		enddlent();
+X		if(!tdle)
+X		{
+X			sprintf(dial_log,
+X				"UUCPDIAL Devices entry %s: '%s' not found in Dialers",
+X				shm->Lline + 5,tdve->dialprog);
+X		}
+X	}
+X	else if(access(tdve->dialprog,1))
+X	{
+X		sprintf(dial_log,"UUCPDIAL Devices entry %s: (%s) %s",
+X			shm->Lline + 5,tdve->dialprog,errno_text(errno));
+X	}
+X
+X	if(dial_log[0])
+X	{
+X#if defined(LOG_HDBDIAL)
+X		ecu_log_event(getpid(),dial_log);
+X#endif
+X		pputs(dial_log + 9);
+X		pputs("\n");
+X		return(4);
+X	}
+X
+X	stripped_num = strip_phone_num(shm->Ltelno);
+X
+X	/*
+X	 * if trailing '$', read and append ~/.ecu/.credit
+X	 */
+X	dptr = stripped_num;
+X	if(*(dptr - 1) == '$')
+X	{
+X		*--dptr = 0;
+X		get_home_dir(credit_file);
+X		strcat(credit_file,"/.ecu/.credit");
+X		chmod(credit_file,0400);	/* let's keep this one quiet */
+X		if(fp = fopen(credit_file,"r"))
+X		{
+X			fgets(dptr,30,fp);
+X			fclose(fp);
+X		}
+X		if(!fp || !(*dptr))
+X		{
+X			strcpy(sv[0]->pb,"!CREDIT CARD ERROR");
+X			sv[0]->cb = strlen(sv[0]->pb);
+X			pputs("\ncredit card error\n");
+X			iv[0] = 1;
+X			return(1);
+X		}
+X		if(*(dptr + strlen(dptr) - 1) == 0x0A)
+X			*(dptr + strlen(dptr) - 1) = 0; /* kill NL */
+X	}
+X
+X  /* Translate Token now (thanks to ache@hq.demos.su) */
+X
+X	if (tdve->token == (char *)0 || !tdve->token[0])
+X		strcpy(token, stripped_num);
+X	else {
+X		dptr = token;
+X		for (sptr = tdve->token; *sptr; sptr++)
+X			if (*sptr != '\\')
+X				*dptr++ = *sptr;
+X			else {
+X				char *s, *t;
+X
+X				switch (*(sptr + 1)) {
+X
+X				/* Direct */
+X				case 'D':
+X					sptr++;
+X					s = stripped_num;
+X					while (*s)
+X						*dptr++ = *s++;
+X					break;
+X
+X				/* Dialcodes Translate */
+X				case 'T':
+X					sptr++;
+X					s = stripped_num;
+X					t = dialcodes_translate(&s);
+X					while(*t)
+X						*dptr++ = *t++;
+X					while (*s)
+X						*dptr++ = *s++;
+X					break;
+X
+X				default:
+X					*dptr++ = '\\';
+X					break;
+X				}
+X			}
+X		*dptr = 0;
+X	}
+X
+X	pprintf("Type %s to abort ... ",
+X		(kbdintr == 0x7F) ? "DEL" : make_char_graphic(kbdintr,0));
+X	setcolor(colors_normal);
+X
+X	if(Ldial_debug_level)
+X	{
+X		ttymode(0);
+X		pputs("\n");
+X	}
+X	else
+X		ttymode(2);
+X
+X	if(!tdle)
+X	{
+X		if(access(tdve->dialprog,1))
+X		{
+X			pperror(tdve->dialprog);
+X			pputs("trying ecu dialer\n");
+X			return(4);
+X		}
+X		sprintf(baudstr,"%u",shm->Lbaud);
+X		sprintf(dbgstr,"-x%d",Ldial_debug_level);
+X		original_sighdlr = signal(SIGCLD,SIG_DFL);
+X		if((dial_pid = smart_fork()) == 0)
+X		{
+X			signal(SIGINT,SIG_DFL);
+X			execl(tdve->dialprog,
+X#if defined(WHT) || defined(ECUdial)
+X				"ECUdial",		/* tell dialer ECU is calling */
+X#else
+X				tdve->dialprog,
+X#endif
+X				dbgstr, shm->Lline,token,baudstr,(char *)0);
+X			_exit(0xFF);	/* did not execute */
+X		}
+X
+X		wait_status = (RC_FAIL | RCE_SIG) << 8;
+X		while(((itmp = wait(&wait_status)) != dial_pid) && (itmp != -1))
+X			;
+X		signal(SIGCLD,original_sighdlr);
+X		ttymode(old_ttymode);
+X		ttyflush(0);
+X
+X		if(sigint)	/* keyboard interrupt? */
+X		{
+X			kill(dial_pid,9);	/* kill dialer */
+X			lflash_dtr();		/* drop line */
+X			sigint = 0;			/* reset SIGINT indication */
+X		}
+X		lreset_ksr(); /* uucp dialers are nice guys, but lets use our termio */
+X
+X#if defined(LOG_HDBDIAL)
+X		if(wait_status)
+X		{
+X			sprintf(dial_log,"UUCPDIAL %s %s exit status0x%04x",
+X				tdve->dialprog,token,wait_status & 0xFFFF);
+X			ecu_log_event(getpid(),dial_log);
+X		}
+X#endif
+X
+X		/*
+X		 * if system reports interrupt, fake dial-reported status
+X		 */
+X		if(wait_status & 0xFF)
+X			wait_status = (RC_FAIL | RCE_SIG) << 8;
+X
+X		if((wait_status & 0xFF00) == 0xFF00)
+X		{
+X			pprintf("%s failed  ... trying ecu dialer\n",tdve->dialprog);
+X			return(4);
+X		}
+X
+X		wait_status = (wait_status >> 8) & 0xFF;
+X
+X		if(!(wait_status & ~RC_BAUD))
+X		{
+X			char *cptr;
+X
+X			wait_status &= RC_BAUD;
+X			switch (wait_status) 
+X			{
+X			case 0:         cptr = baudstr; break;  /* SAME */
+X			case B50:       cptr = "50"; break;
+X			case B75:       cptr = "75"; break;
+X			case B110:      cptr = "110"; break;
+X			case B134:      cptr = "134.5"; break;
+X			case B150:      cptr = "150"; break;
+X			case B200:      cptr = "200"; break;
+X			case B300:      cptr = "300"; break;
+X			case B600:      cptr = "600"; break;
+X			case B1200:     cptr = "1200"; break;
+X			case B1800:     cptr = "1800"; break;
+X			case B2400:     cptr = "2400"; break;
+X			case B4800:     cptr = "4800"; break;
+X			case B9600:     cptr = "9600"; break;
+X#if defined(B19200)
+X			case B19200:    cptr = "19200"; break;
+X#endif
+X#if defined(B38400)
+X			case B38400:    cptr = "38400"; break;
+X#endif
+X			default:
+X				switch (wait_status) {
+X				case EXTA:      cptr = "EXTA"; break;
+X				case EXTB:      cptr = "EXTB"; break;
+X				default:        cptr = "????"; break;
+X				}
+X			}
+X
+X			sprintf(stat_s64,"CONNECT %s",cptr);
+X			*presult = stat_s64;    /* DCE_dial will report result code */
+X			return(0);
+X		}
+X
+X		*presult = hdb_dial_error_text(wait_status);
+X		setcolor(colors_error);
+X		pputs(*presult);
+X		setcolor(colors_at_entry);
+X		pputc('\n');
+X		lflash_dtr();
+X	}
+X	else
+X	{
+X		pprintf("using Dialers entry '%s'\n",tdle->name);
+X		expresp_verbosity = (proc_level & proctrace) ? proctrace : 0;
+X		if(execute_expresp(tdle->script))
+X		{
+X			*presult = "DIALER SCRIPT FAILED";
+X			setcolor(colors_error);
+X			pputs(*presult);
+X			setcolor(colors_at_entry);
+X			pputc('\n');
+X			iv[0] = 1;
+X		}
+X		else
+X		{
+X			extern char last_Speed_result[];
+X			if(last_Speed_result[0])
+X				*presult = last_Speed_result;
+X			else
+X			{
+X				sprintf(stat_s64,"CONNECT %u",shm->Lbaud);
+X				*presult = stat_s64;	/* DCE_dial will report result code */
+X			}
+X			setcolor(colors_at_entry);
+X			iv[0] = 0;
+X		}
+X	}
+X
+X	return((int)iv[0]);
+X
+X}	/* end of hdb_dial */
+X
+X/*+-------------------------------------------------------------------------
+X	hdb_init() - initialize HoneyDanBerInterface
+X--------------------------------------------------------------------------*/
+Xvoid
+Xhdb_init()
+X{
+X	char *hdblibdir = HDBLIBDIR;		/* system independent location */
+X	int itmp;
+X	int buflen = strlen(hdblibdir) + 64;
+X	char *emsg = "hdb_init memory allocation failed!\n";
+X
+X	if(!(Devices_file = malloc(buflen)))
+X	{
+X		pputs(emsg);
+X		termecu(TERMECU_MALLOC);
+X	}
+X	strcpy(Devices_file,hdblibdir);
+X	strcat(Devices_file,"/Devices");
+X
+X	if(!(Dialers_file = malloc(buflen)))
+X	{
+X		pputs(emsg);
+X		termecu(TERMECU_MALLOC);
+X	}
+X	for(itmp = 0; itmp < UNGETTY_LIST_MAX; itmp++)
+X	{
+X		if(!(ungetty_list[itmp] = malloc(64)))
+X		{
+X			pputs(emsg);
+X			termecu(TERMECU_MALLOC);
+X		}
+X	}
+X	strcpy(Dialers_file,hdblibdir);
+X	strcat(Dialers_file,"/Dialers");
+X
+X	if(!(Dialcodes_file = malloc(buflen)))
+X	{
+X		pputs(emsg);
+X		termecu(TERMECU_MALLOC);
+X	}
+X	strcpy(Dialcodes_file,hdblibdir);
+X	strcat(Dialcodes_file,"/Dialcodes");
+X
+X	there_is_hdb_on_this_machine = !access(Devices_file,4);
+X
+X}	/* end of hdb_init */
+X
+X/*+-------------------------------------------------------------------------
+Xdialcodes_translate(phone)  -  translate first part of phone using Dialcodes
+X--------------------------------------------------------------------------*/
+Xchar *
+Xdialcodes_translate(phone)
+Xchar **phone;
+X{
+X	FILE *f;
+X	int itmp;
+X#define MAX_DLC_TOKENS 2
+X	char *tokens[MAX_DLC_TOKENS];
+X	static char dlstr[128];
+X
+X	if(!(f = fopen(Dialcodes_file, "r")))
+X		return("");
+X
+X	while(fgets(dlstr,sizeof(dlstr),f))
+X	{
+X		if(((itmp = strlen(dlstr)) > 0) && (dlstr[itmp - 1] == '\n'))
+X			dlstr[--itmp] = 0;
+X		if((dlstr[0] == '#') || (dlstr[0] == ' ') || (!itmp))
+X			continue;
+X		if(tokens[0] = arg_token(dlstr," \t\r\n"))
+X		{
+X			if (!(tokens[1] = arg_token((char *)0," \t\r\n")))
+X				tokens[1] = "";
+X			itmp = strlen(tokens[0]);
+X			if (strncmp(*phone, tokens[0], itmp))
+X				continue;
+X			fclose(f);
+X			*phone += itmp;
+X			fclose(f);
+X			return(tokens[1]);
+X		}
+X		break;
+X	}
+X
+X	fclose(f);
+X	return("");
+X}
+X
+X/*+-------------------------------------------------------------------------
+X      strip_phone_num(sptr) - remove junk characters from phone
+X--------------------------------------------------------------------------*/
+Xchar *
+Xstrip_phone_num(sptr)
+Xchar *sptr;
+X{
+X	static char stripped_num[64];
+X	char *dptr;
+X
+X	dptr = stripped_num;
+X	while(*sptr)
+X	{
+X		if((*sptr == '(') || (*sptr == ')')
+X#if defined(WHT) || defined(STRIP_TELNO_HYPHENS)
+X			|| (*sptr == '-')	/* some want '-' for pauses; I use ',' */
+X#endif
+X			)
+X		{
+X			sptr++;
+X			continue;
+X		}
+X		*dptr++ = *sptr++;
+X	}
+X	*dptr = 0;
+X
+X	return(stripped_num);
+X}
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of hdbintf.c */
+SHAR_EOF
+chmod 0644 hdbintf.c ||
+echo 'restore of hdbintf.c failed'
+Wc_c="`wc -c < 'hdbintf.c'`"
+test 40881 -eq "$Wc_c" ||
+	echo 'hdbintf.c: original size 40881, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= kbdtest.c ==============
+if test -f 'kbdtest.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping kbdtest.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting kbdtest.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'kbdtest.c' &&
+X/*+-----------------------------------------------------------------------
+X	kbdtest.c -- hack to test keyboard function key sequences
+X    wht@n4hgf.Mt-Park.GA.US
+X
+X  compile with     cc -o kbdtest kbdtest.c
+X  or just          cc kbdtest.c;a.out
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:12-21-1990-23:47-wht@n4hgf-liven up for release with ECU 3 */
+X/*:04-07-1990-01:36-wht@tridom-bring out of the daaaaark ages a bit */
+X/*:04-18-1988-13:44-wht-first edits -- oollldd program */
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <ctype.h>
+X#include <fcntl.h>
+X#include <termio.h>
+X#include "ecu_types.h"
+X#include <sys/errno.h>
+X#include "ecu_stat.h"
+X#include <string.h>
+X
+X#define TTYIN   0
+X#define TTYOUT  1
+X#define TTYERR  2
+X
+Xstruct termio tv0;		/* for saving, changing TTY atributes */
+Xstruct termio tv;		/* for saving, changing TTY atributes */
+X
+X/*+-----------------------------------------------------------------------
+X	ttymode(arg) -- control user console (kbd/screen)
+X
+X  Where arg ==
+X	0 restore attributes saved at start of execution
+X	1 raw mode 
+X
+X------------------------------------------------------------------------*/
+Xvoid ttymode(arg)
+X{
+X	char *mode_type;
+X
+X	switch(arg)
+X	{
+X		case 0:	
+X			mode_type = "console to cooked mode\r\n";
+X			break;
+X		default: 
+X			mode_type = "console to raw mode\r\n";
+X			break;
+X	}
+X	(void)fprintf(stderr,mode_type);
+X
+X	if(arg)
+X	{
+X		(void)ioctl(TTYIN,TCGETA,&tv);
+X		Ltermio.c_cflag &= ~(CS8 | PARENB | PARODD);
+X		Ltermio.c_cflag |= CS8;
+X		tv.c_iflag &= ~(INLCR | ICRNL | IGNCR | IXOFF | IUCLC | ISTRIP);
+X		tv.c_oflag |= OPOST;
+X		tv.c_oflag &= ~(OLCUC | ONLCR | OCRNL | ONOCR | ONLRET);
+X		tv.c_lflag &= ~(ICANON | ISIG | ECHO);
+X		tv.c_cc[VEOF] = '\01';
+X		tv.c_cc[VEOL] = '\0';
+X		tv.c_cc[VMIN] = 1;
+X		tv.c_cc[VTIME] = 1;
+X		(void)ioctl(TTYIN,TCSETAW,&tv);
+X	}
+X	else
+X		(void)ioctl(TTYIN,TCSETAW,&tv0);
+X}
+X
+X
+X/*+-----------------------------------------------------------------------
+X	main()
+X------------------------------------------------------------------------*/
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+Xunsigned char inchar;
+X
+X	setbuf(stdout,NULL);
+X	setbuf(stderr,NULL);
+X
+X	ioctl(TTYIN,TCGETA,&tv0);		/* get original status */
+X	ttymode(2);
+X
+X	fprintf(stderr,"press ^D (0x04) to terminate program\r\n");
+X
+X	while(read(TTYIN,&inchar,1) == 1)
+X	{
+X		printf("%02x %c\r\n",inchar,
+X		    ((inchar >= 0x20) && (inchar < 0x7F)) ? inchar : '.');
+X		if((inchar & 0x7F) == 4)
+X		{
+X			ttymode(0);
+X			exit(0);
+X		}
+X	}
+X	ttymode(0);
+X	exit(1);
+X
+X}
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of kbdtest.c */
+SHAR_EOF
+chmod 0644 kbdtest.c ||
+echo 'restore of kbdtest.c failed'
+Wc_c="`wc -c < 'kbdtest.c'`"
+test 2711 -eq "$Wc_c" ||
+	echo 'kbdtest.c: original size 2711, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= kbdtest3.c ==============
+if test -f 'kbdtest3.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping kbdtest3.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting kbdtest3.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'kbdtest3.c' &&
+X/* CHK=0x2F4F */
+Xchar *revision = "3.21";
+SHAR_EOF
+true || echo 'restore of kbdtest3.c failed'
+fi
+echo 'End of ecu320 part 17'
+echo 'File kbdtest3.c is continued in part 18'
+echo 18 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

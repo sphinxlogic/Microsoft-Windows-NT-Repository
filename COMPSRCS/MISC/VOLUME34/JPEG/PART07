@@ -1,0 +1,1219 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v34i061:  jpeg - JPEG image compression, Part07/18
+Message-ID: <1992Dec17.041756.23538@sparky.imd.sterling.com>
+X-Md4-Signature: 51d1adee0a296b28b49d70084b7a46fa
+Date: Thu, 17 Dec 1992 04:17:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 34, Issue 61
+Archive-name: jpeg/part07
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Atari, Cray
+Supersedes: jpeg: Volume 29, Issue 1-18
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  jquant1.c timg.ppm.UU.B
+# Wrapped by kent@sparky on Wed Dec 16 20:52:27 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 18)."'
+if test -f 'jquant1.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jquant1.c'\"
+else
+  echo shar: Extracting \"'jquant1.c'\" \(22021 characters\)
+  sed "s/^X//" >'jquant1.c' <<'END_OF_FILE'
+X/*
+X * jquant1.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains 1-pass color quantization (color mapping) routines.
+X * These routines are invoked via the methods color_quantize
+X * and color_quant_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef QUANT_1PASS_SUPPORTED
+X
+X
+X/*
+X * The main purpose of 1-pass quantization is to provide a fast, if not very
+X * high quality, colormapped output capability.  A 2-pass quantizer usually
+X * gives better visual quality; however, for quantized grayscale output this
+X * quantizer is perfectly adequate.  Dithering is highly recommended with this
+X * quantizer, though you can turn it off if you really want to.
+X *
+X * This implementation quantizes in the output colorspace.  This has a couple
+X * of disadvantages: each pixel must be individually color-converted, and if
+X * the color conversion includes gamma correction then quantization is done in
+X * a nonlinear space, which is less desirable.  The major advantage is that
+X * with the usual output color spaces (RGB, grayscale) an orthogonal grid of
+X * representative colors can be used, thus permitting the very simple and fast
+X * color lookup scheme used here.  The standard JPEG colorspace (YCbCr) cannot
+X * be effectively handled this way, because only about a quarter of an
+X * orthogonal grid would fall within the gamut of realizable colors.  Another
+X * advantage is that when the user wants quantized grayscale output from a
+X * color JPEG file, this quantizer can provide a high-quality result with no
+X * special hacking.
+X *
+X * The gamma-correction problem could be eliminated by adjusting the grid
+X * spacing to counteract the gamma correction applied by color_convert.
+X * At this writing, gamma correction is not implemented by jdcolor, so
+X * nothing is done here.
+X *
+X * In 1-pass quantization the colormap must be chosen in advance of seeing the
+X * image.  We use a map consisting of all combinations of Ncolors[i] color
+X * values for the i'th component.  The Ncolors[] values are chosen so that
+X * their product, the total number of colors, is no more than that requested.
+X * (In most cases, the product will be somewhat less.)
+X *
+X * Since the colormap is orthogonal, the representative value for each color
+X * component can be determined without considering the other components;
+X * then these indexes can be combined into a colormap index by a standard
+X * N-dimensional-array-subscript calculation.  Most of the arithmetic involved
+X * can be precalculated and stored in the lookup table colorindex[].
+X * colorindex[i][j] maps pixel value j in component i to the nearest
+X * representative value (grid plane) for that component; this index is
+X * multiplied by the array stride for component i, so that the
+X * index of the colormap entry closest to a given pixel value is just
+X *    sum( colorindex[component-number][pixel-component-value] )
+X * Aside from being fast, this scheme allows for variable spacing between
+X * representative values with no additional lookup cost.
+X */
+X
+X
+X#define MAX_COMPONENTS 4	/* max components I can handle */
+X
+Xstatic JSAMPARRAY colormap;	/* The actual color map */
+X/* colormap[i][j] = value of i'th color component for output pixel value j */
+X
+Xstatic JSAMPARRAY colorindex;	/* Precomputed mapping for speed */
+X/* colorindex[i][j] = index of color closest to pixel value j in component i,
+X * premultiplied as described above.  Since colormap indexes must fit into
+X * JSAMPLEs, the entries of this array will too.
+X */
+X
+Xstatic JSAMPARRAY input_buffer;	/* color conversion workspace */
+X/* Since our input data is presented in the JPEG colorspace, we have to call
+X * color_convert to get it into the output colorspace.  input_buffer is a
+X * one-row-high workspace for the result of color_convert.
+X */
+X
+X
+X/* Declarations for Floyd-Steinberg dithering.
+X *
+X * Errors are accumulated into the arrays evenrowerrs[] and oddrowerrs[].
+X * These have resolutions of 1/16th of a pixel count.  The error at a given
+X * pixel is propagated to its unprocessed neighbors using the standard F-S
+X * fractions,
+X *		...	(here)	7/16
+X *		3/16	5/16	1/16
+X * We work left-to-right on even rows, right-to-left on odd rows.
+X *
+X * In each of the xxxrowerrs[] arrays, indexing is [component#][position].
+X * We provide (#columns + 2) entries per component; the extra entry at each
+X * end saves us from special-casing the first and last pixels.
+X * In evenrowerrs[], the entries for a component are stored left-to-right, but
+X * in oddrowerrs[] they are stored right-to-left.  This means we always
+X * process the current row's error entries in increasing order and the next
+X * row's error entries in decreasing order, regardless of whether we are
+X * working L-to-R or R-to-L in the pixel data!
+X *
+X * Note: on a wide image, we might not have enough room in a PC's near data
+X * segment to hold the error arrays; so they are allocated with alloc_medium.
+X */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+Xtypedef INT16 FSERROR;		/* 16 bits should be enough */
+X#else
+Xtypedef INT32 FSERROR;		/* may need more than 16 bits? */
+X#endif
+X
+Xtypedef FSERROR FAR *FSERRPTR;	/* pointer to error array (in FAR storage!) */
+X
+Xstatic FSERRPTR evenrowerrs[MAX_COMPONENTS]; /* errors for even rows */
+Xstatic FSERRPTR oddrowerrs[MAX_COMPONENTS];  /* errors for odd rows */
+Xstatic boolean on_odd_row;	/* flag to remember which row we are on */
+X
+X
+X/*
+X * Policy-making subroutines for color_quant_init: these routines determine
+X * the colormap to be used.  The rest of the module only assumes that the
+X * colormap is orthogonal.
+X *
+X *  * select_ncolors decides how to divvy up the available colors
+X *    among the components.
+X *  * output_value defines the set of representative values for a component.
+X *  * largest_input_value defines the mapping from input values to
+X *    representative values for a component.
+X * Note that the latter two routines may impose different policies for
+X * different components, though this is not currently done.
+X */
+X
+X
+XLOCAL int
+Xselect_ncolors (decompress_info_ptr cinfo, int Ncolors[])
+X/* Determine allocation of desired colors to components, */
+X/* and fill in Ncolors[] array to indicate choice. */
+X/* Return value is total number of colors (product of Ncolors[] values). */
+X{
+X  int nc = cinfo->color_out_comps; /* number of color components */
+X  int max_colors = cinfo->desired_number_of_colors;
+X  int total_colors, iroot, i;
+X  long temp;
+X  boolean changed;
+X
+X  /* We can allocate at least the nc'th root of max_colors per component. */
+X  /* Compute floor(nc'th root of max_colors). */
+X  iroot = 1;
+X  do {
+X    iroot++;
+X    temp = iroot;		/* set temp = iroot ** nc */
+X    for (i = 1; i < nc; i++)
+X      temp *= iroot;
+X  } while (temp <= (long) max_colors); /* repeat till iroot exceeds root */
+X  iroot--;			/* now iroot = floor(root) */
+X
+X  /* Must have at least 2 color values per component */
+X  if (iroot < 2)
+X    ERREXIT1(cinfo->emethods, "Cannot quantize to fewer than %d colors",
+X	     (int) temp);
+X
+X  if (cinfo->out_color_space == CS_RGB && nc == 3) {
+X    /* We provide a special policy for quantizing in RGB space.
+X     * If 256 colors are requested, we allocate 8 red, 8 green, 4 blue levels;
+X     * this corresponds to the common 3/3/2-bit scheme.  For other totals,
+X     * the counts are set so that the number of colors allocated to each
+X     * component are roughly in the proportion R 3, G 4, B 2.
+X     * For low color counts, it's easier to hardwire the optimal choices
+X     * than try to tweak the algorithm to generate them.
+X     */
+X    if (max_colors == 256) {
+X      Ncolors[0] = 8;  Ncolors[1] = 8;  Ncolors[2] = 4;
+X      return 256;
+X    }
+X    if (max_colors < 12) {
+X      /* Fixed mapping for 8 colors */
+X      Ncolors[0] = Ncolors[1] = Ncolors[2] = 2;
+X    } else if (max_colors < 18) {
+X      /* Fixed mapping for 12 colors */
+X      Ncolors[0] = 2;  Ncolors[1] = 3;  Ncolors[2] = 2;
+X    } else if (max_colors < 24) {
+X      /* Fixed mapping for 18 colors */
+X      Ncolors[0] = 3;  Ncolors[1] = 3;  Ncolors[2] = 2;
+X    } else if (max_colors < 27) {
+X      /* Fixed mapping for 24 colors */
+X      Ncolors[0] = 3;  Ncolors[1] = 4;  Ncolors[2] = 2;
+X    } else if (max_colors < 36) {
+X      /* Fixed mapping for 27 colors */
+X      Ncolors[0] = 3;  Ncolors[1] = 3;  Ncolors[2] = 3;
+X    } else {
+X      /* these weights are readily derived with a little algebra */
+X      Ncolors[0] = (iroot * 266) >> 8; /* R weight is 1.0400 */
+X      Ncolors[1] = (iroot * 355) >> 8; /* G weight is 1.3867 */
+X      Ncolors[2] = (iroot * 177) >> 8; /* B weight is 0.6934 */
+X    }
+X    total_colors = Ncolors[0] * Ncolors[1] * Ncolors[2];
+X    /* The above computation produces "floor" values, so we may be able to
+X     * increment the count for one or more components without exceeding
+X     * max_colors.  We try in the order B, G, R.
+X     */
+X    do {
+X      changed = FALSE;
+X      for (i = 2; i >= 0; i--) {
+X	/* calculate new total_colors if Ncolors[i] is incremented */
+X	temp = total_colors / Ncolors[i];
+X	temp *= Ncolors[i]+1;	/* done in long arith to avoid oflo */
+X	if (temp <= (long) max_colors) {
+X	  Ncolors[i]++;		/* OK, apply the increment */
+X	  total_colors = (int) temp;
+X	  changed = TRUE;
+X	}
+X      }
+X    } while (changed);		/* loop until no increment is possible */
+X  } else {
+X    /* For any colorspace besides RGB, treat all the components equally. */
+X
+X    /* Initialize to iroot color values for each component */
+X    total_colors = 1;
+X    for (i = 0; i < nc; i++) {
+X      Ncolors[i] = iroot;
+X      total_colors *= iroot;
+X    }
+X    /* We may be able to increment the count for one or more components without
+X     * exceeding max_colors, though we know not all can be incremented.
+X     */
+X    for (i = 0; i < nc; i++) {
+X      /* calculate new total_colors if Ncolors[i] is incremented */
+X      temp = total_colors / Ncolors[i];
+X      temp *= Ncolors[i]+1;	/* done in long arith to avoid oflo */
+X      if (temp > (long) max_colors)
+X	break;			/* won't fit, done */
+X      Ncolors[i]++;		/* OK, apply the increment */
+X      total_colors = (int) temp;
+X    }
+X  }
+X
+X  return total_colors;
+X}
+X
+X
+XLOCAL int
+Xoutput_value (decompress_info_ptr cinfo, int ci, int j, int maxj)
+X/* Return j'th output value, where j will range from 0 to maxj */
+X/* The output values must fall in 0..MAXJSAMPLE in increasing order */
+X{
+X  /* We always provide values 0 and MAXJSAMPLE for each component;
+X   * any additional values are equally spaced between these limits.
+X   * (Forcing the upper and lower values to the limits ensures that
+X   * dithering can't produce a color outside the selected gamut.)
+X   */
+X  return (int) (((INT32) j * MAXJSAMPLE + maxj/2) / maxj);
+X}
+X
+X
+XLOCAL int
+Xlargest_input_value (decompress_info_ptr cinfo, int ci, int j, int maxj)
+X/* Return largest input value that should map to j'th output value */
+X/* Must have largest(j=0) >= 0, and largest(j=maxj) >= MAXJSAMPLE */
+X{
+X  /* Breakpoints are halfway between values returned by output_value */
+X  return (int) (((INT32) (2*j + 1) * MAXJSAMPLE + maxj) / (2*maxj));
+X}
+X
+X
+X/*
+X * Initialize for one-pass color quantization.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_init (decompress_info_ptr cinfo)
+X{
+X  int total_colors;		/* Number of distinct output colors */
+X  int Ncolors[MAX_COMPONENTS];	/* # of values alloced to each component */
+X  int i,j,k, nci, blksize, blkdist, ptr, val;
+X
+X  /* Make sure my internal arrays won't overflow */
+X  if (cinfo->num_components > MAX_COMPONENTS ||
+X      cinfo->color_out_comps > MAX_COMPONENTS)
+X    ERREXIT1(cinfo->emethods, "Cannot quantize more than %d color components",
+X	     MAX_COMPONENTS);
+X  /* Make sure colormap indexes can be represented by JSAMPLEs */
+X  if (cinfo->desired_number_of_colors > (MAXJSAMPLE+1))
+X    ERREXIT1(cinfo->emethods, "Cannot request more than %d quantized colors",
+X	     MAXJSAMPLE+1);
+X
+X  /* Select number of colors for each component */
+X  total_colors = select_ncolors(cinfo, Ncolors);
+X
+X  /* Report selected color counts */
+X  if (cinfo->color_out_comps == 3)
+X    TRACEMS4(cinfo->emethods, 1, "Quantizing to %d = %d*%d*%d colors",
+X	     total_colors, Ncolors[0], Ncolors[1], Ncolors[2]);
+X  else
+X    TRACEMS1(cinfo->emethods, 1, "Quantizing to %d colors", total_colors);
+X
+X  /* Allocate and fill in the colormap and color index. */
+X  /* The colors are ordered in the map in standard row-major order, */
+X  /* i.e. rightmost (highest-indexed) color changes most rapidly. */
+X
+X  colormap = (*cinfo->emethods->alloc_small_sarray)
+X		((long) total_colors, (long) cinfo->color_out_comps);
+X  colorindex = (*cinfo->emethods->alloc_small_sarray)
+X		((long) (MAXJSAMPLE+1), (long) cinfo->color_out_comps);
+X
+X  /* blksize is number of adjacent repeated entries for a component */
+X  /* blkdist is distance between groups of identical entries for a component */
+X  blkdist = total_colors;
+X
+X  for (i = 0; i < cinfo->color_out_comps; i++) {
+X    /* fill in colormap entries for i'th color component */
+X    nci = Ncolors[i];		/* # of distinct values for this color */
+X    blksize = blkdist / nci;
+X    for (j = 0; j < nci; j++) {
+X      /* Compute j'th output value (out of nci) for component */
+X      val = output_value(cinfo, i, j, nci-1);
+X      /* Fill in all colormap entries that have this value of this component */
+X      for (ptr = j * blksize; ptr < total_colors; ptr += blkdist) {
+X	/* fill in blksize entries beginning at ptr */
+X	for (k = 0; k < blksize; k++)
+X	  colormap[i][ptr+k] = (JSAMPLE) val;
+X      }
+X    }
+X    blkdist = blksize;		/* blksize of this color is blkdist of next */
+X
+X    /* fill in colorindex entries for i'th color component */
+X    /* in loop, val = index of current output value, */
+X    /* and k = largest j that maps to current val */
+X    val = 0;
+X    k = largest_input_value(cinfo, i, 0, nci-1);
+X    for (j = 0; j <= MAXJSAMPLE; j++) {
+X      while (j > k)		/* advance val if past boundary */
+X	k = largest_input_value(cinfo, i, ++val, nci-1);
+X      /* premultiply so that no multiplication needed in main processing */
+X      colorindex[i][j] = (JSAMPLE) (val * blksize);
+X    }
+X  }
+X
+X  /* Pass the colormap to the output module. */
+X  /* NB: the output module may continue to use the colormap until shutdown. */
+X  cinfo->colormap = colormap;
+X  cinfo->actual_number_of_colors = total_colors;
+X  (*cinfo->methods->put_color_map) (cinfo, total_colors, colormap);
+X
+X  /* Allocate workspace to hold one row of color-converted data */
+X  input_buffer = (*cinfo->emethods->alloc_small_sarray)
+X			(cinfo->image_width, (long) cinfo->color_out_comps);
+X
+X  /* Allocate Floyd-Steinberg workspace if necessary */
+X  if (cinfo->use_dithering) {
+X    size_t arraysize = (size_t) ((cinfo->image_width + 2L) * SIZEOF(FSERROR));
+X
+X    for (i = 0; i < cinfo->color_out_comps; i++) {
+X      evenrowerrs[i] = (FSERRPTR) (*cinfo->emethods->alloc_medium) (arraysize);
+X      oddrowerrs[i]  = (FSERRPTR) (*cinfo->emethods->alloc_medium) (arraysize);
+X      /* we only need to zero the forward contribution for current row. */
+X      jzero_far((void FAR *) evenrowerrs[i], arraysize);
+X    }
+X    on_odd_row = FALSE;
+X  }
+X}
+X
+X
+X/*
+X * Subroutines for color conversion methods.
+X */
+X
+XLOCAL void
+Xdo_color_conversion (decompress_info_ptr cinfo, JSAMPIMAGE input_data, int row)
+X/* Convert the indicated row of the input data into output colorspace */
+X/* in input_buffer.  This requires a little trickery since color_convert */
+X/* expects to deal with 3-D arrays; fortunately we can fake it out */
+X/* at fairly low cost. */
+X{
+X  short ci;
+X  JSAMPARRAY input_hack[MAX_COMPONENTS];
+X  JSAMPARRAY output_hack[MAX_COMPONENTS];
+X
+X  /* create JSAMPIMAGE pointing at specified row of input_data */
+X  for (ci = 0; ci < cinfo->num_components; ci++)
+X    input_hack[ci] = input_data[ci] + row;
+X  /* Create JSAMPIMAGE pointing at input_buffer */
+X  for (ci = 0; ci < cinfo->color_out_comps; ci++)
+X    output_hack[ci] = &(input_buffer[ci]);
+X
+X  (*cinfo->methods->color_convert) (cinfo, 1, cinfo->image_width,
+X				    input_hack, output_hack);
+X}
+X
+X
+X/*
+X * Map some rows of pixels to the output colormapped representation.
+X */
+X
+XMETHODDEF void
+Xcolor_quantize (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE input_data, JSAMPARRAY output_data)
+X/* General case, no dithering */
+X{
+X  register int pixcode, ci;
+X  register JSAMPROW ptrout;
+X  register long col;
+X  int row;
+X  long width = cinfo->image_width;
+X  register int nc = cinfo->color_out_comps;  
+X
+X  for (row = 0; row < num_rows; row++) {
+X    do_color_conversion(cinfo, input_data, row);
+X    ptrout = output_data[row];
+X    for (col = 0; col < width; col++) {
+X      pixcode = 0;
+X      for (ci = 0; ci < nc; ci++) {
+X	pixcode += GETJSAMPLE(colorindex[ci]
+X			      [GETJSAMPLE(input_buffer[ci][col])]);
+X      }
+X      *ptrout++ = (JSAMPLE) pixcode;
+X    }
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xcolor_quantize3 (decompress_info_ptr cinfo, int num_rows,
+X		 JSAMPIMAGE input_data, JSAMPARRAY output_data)
+X/* Fast path for color_out_comps==3, no dithering */
+X{
+X  register int pixcode;
+X  register JSAMPROW ptr0, ptr1, ptr2, ptrout;
+X  register long col;
+X  int row;
+X  long width = cinfo->image_width;
+X
+X  for (row = 0; row < num_rows; row++) {
+X    do_color_conversion(cinfo, input_data, row);
+X    ptr0 = input_buffer[0];
+X    ptr1 = input_buffer[1];
+X    ptr2 = input_buffer[2];
+X    ptrout = output_data[row];
+X    for (col = width; col > 0; col--) {
+X      pixcode  = GETJSAMPLE(colorindex[0][GETJSAMPLE(*ptr0++)]);
+X      pixcode += GETJSAMPLE(colorindex[1][GETJSAMPLE(*ptr1++)]);
+X      pixcode += GETJSAMPLE(colorindex[2][GETJSAMPLE(*ptr2++)]);
+X      *ptrout++ = (JSAMPLE) pixcode;
+X    }
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xcolor_quantize_dither (decompress_info_ptr cinfo, int num_rows,
+X		       JSAMPIMAGE input_data, JSAMPARRAY output_data)
+X/* General case, with Floyd-Steinberg dithering */
+X{
+X  register FSERROR val;
+X  FSERROR two_val;
+X  register FSERRPTR thisrowerr, nextrowerr;
+X  register JSAMPROW input_ptr;
+X  register JSAMPROW output_ptr;
+X  JSAMPLE *range_limit = cinfo->sample_range_limit;
+X  JSAMPROW colorindex_ci;
+X  JSAMPROW colormap_ci;
+X  register int pixcode;
+X  int dir;			/* 1 for left-to-right, -1 for right-to-left */
+X  int ci;
+X  int nc = cinfo->color_out_comps;
+X  int row;
+X  long col_counter;
+X  long width = cinfo->image_width;
+X  SHIFT_TEMPS
+X
+X  for (row = 0; row < num_rows; row++) {
+X    do_color_conversion(cinfo, input_data, row);
+X    /* Initialize output values to 0 so can process components separately */
+X    jzero_far((void FAR *) output_data[row],
+X	      (size_t) (width * SIZEOF(JSAMPLE)));
+X    for (ci = 0; ci < nc; ci++) {
+X      if (on_odd_row) {
+X	/* work right to left in this row */
+X	dir = -1;
+X	input_ptr = input_buffer[ci] + (width-1);
+X	output_ptr = output_data[row] + (width-1);
+X	thisrowerr = oddrowerrs[ci] + 1;
+X	nextrowerr = evenrowerrs[ci] + width;
+X      } else {
+X	/* work left to right in this row */
+X	dir = 1;
+X	input_ptr = input_buffer[ci];
+X	output_ptr = output_data[row];
+X	thisrowerr = evenrowerrs[ci] + 1;
+X	nextrowerr = oddrowerrs[ci] + width;
+X      }
+X      colorindex_ci = colorindex[ci];
+X      colormap_ci = colormap[ci];
+X      *nextrowerr = 0;		/* need only initialize this one entry */
+X      for (col_counter = width; col_counter > 0; col_counter--) {
+X	/* Get accumulated error for this component, round to integer.
+X	 * RIGHT_SHIFT rounds towards minus infinity, so adding 8 is correct
+X	 * for either sign of the error value.
+X	 */
+X	val = RIGHT_SHIFT(*thisrowerr + 8, 4);
+X	/* Compute pixel value + error compensation, range-limit to
+X	 * 0..MAXJSAMPLE.  Note max error value is +- MAXJSAMPLE.
+X	 */
+X	val = GETJSAMPLE(range_limit[GETJSAMPLE(*input_ptr) + val]);
+X	/* Select output value, accumulate into output code for this pixel */
+X	pixcode = GETJSAMPLE(*output_ptr) + GETJSAMPLE(colorindex_ci[val]);
+X	*output_ptr = (JSAMPLE) pixcode;
+X	/* Compute actual representation error at this pixel */
+X	/* Note: we can do this even though we don't yet have the final */
+X	/* value of pixcode, because the colormap is orthogonal. */
+X	val -= GETJSAMPLE(colormap_ci[pixcode]);
+X	/* Propagate error to (same component of) adjacent pixels */
+X	/* Remember that nextrowerr entries are in reverse order! */
+X	two_val = val * 2;
+X	nextrowerr[-1]  = val; /* not +=, since not initialized yet */
+X	val += two_val;		/* form error * 3 */
+X	nextrowerr[ 1] += val;
+X	val += two_val;		/* form error * 5 */
+X	nextrowerr[ 0] += val;
+X	val += two_val;		/* form error * 7 */
+X	thisrowerr[ 1] += val;
+X	input_ptr += dir;	/* advance input ptr to next column */
+X	output_ptr += dir;	/* advance output ptr to next column */
+X	thisrowerr++;		/* cur-row error ptr advances to right */
+X	nextrowerr--;		/* next-row error ptr advances to left */
+X      }
+X    }
+X    on_odd_row = (on_odd_row ? FALSE : TRUE);
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_term (decompress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X  /* Note that we *mustn't* free the colormap before free_all, */
+X  /* since output module may use it! */
+X}
+X
+X
+X/*
+X * Prescan some rows of pixels.
+X * Not used in one-pass case.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_prescan (decompress_info_ptr cinfo, int num_rows,
+X		     JSAMPIMAGE image_data, JSAMPARRAY workspace)
+X{
+X  ERREXIT(cinfo->emethods, "Should not get here!");
+X}
+X
+X
+X/*
+X * Do two-pass quantization.
+X * Not used in one-pass case.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_doit (decompress_info_ptr cinfo, quantize_caller_ptr source_method)
+X{
+X  ERREXIT(cinfo->emethods, "Should not get here!");
+X}
+X
+X
+X/*
+X * The method selection routine for 1-pass color quantization.
+X */
+X
+XGLOBAL void
+Xjsel1quantize (decompress_info_ptr cinfo)
+X{
+X  if (! cinfo->two_pass_quantize) {
+X    cinfo->methods->color_quant_init = color_quant_init;
+X    if (cinfo->use_dithering) {
+X      cinfo->methods->color_quantize = color_quantize_dither;
+X    } else {
+X      if (cinfo->color_out_comps == 3)
+X	cinfo->methods->color_quantize = color_quantize3;
+X      else
+X	cinfo->methods->color_quantize = color_quantize;
+X    }
+X    cinfo->methods->color_quant_prescan = color_quant_prescan;
+X    cinfo->methods->color_quant_doit = color_quant_doit;
+X    cinfo->methods->color_quant_term = color_quant_term;
+X  }
+X}
+X
+X#endif /* QUANT_1PASS_SUPPORTED */
+END_OF_FILE
+  if test 22021 -ne `wc -c <'jquant1.c'`; then
+    echo shar: \"'jquant1.c'\" unpacked with wrong size!
+  fi
+  # end of 'jquant1.c'
+fi
+if test -f 'timg.ppm.UU.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'timg.ppm.UU.B'\"
+else
+  echo shar: Extracting \"'timg.ppm.UU.B'\" \(33672 characters\)
+  sed "s/^X//" >'timg.ppm.UU.B' <<'END_OF_FILE'
+XMV)"DIU]S?S=.CT9C;B-(:AY)7Q5!9!Q%714\7!0[:2)';21(714V9!LXA3E4
+XMJ%USO'"!OW)]N6UQP'-T>$J"CU^7I'*HE6*6L7JM<C=H3Q ^7QU*6Q=#71E#
+XM7QI"8!A!7A9!7A9!715 6A1!71A(81Q,20,P60\W4@4H7@XJL6%UPG. I%9=
+XMRH&#V):1S9&(Z+*GSZ"3VJ^?]<:YX:"=H5)6E3<^N4Q6RU!<V%5CY61QW6)K
+XMX'-WUW1UTW9UTWAXV'9ZW'1ZX6YZWVQXXG=^U6USTFIPTFIRS65OSVMTTW)\
+XMRW%ZS79^S7F UX.*W(6-V7R%W'J"W75_UF-OTE9?V%EAUV-GUF5HT%YDSUEB
+XMV%MHW61PX71^ZI&4\K&N_LS&_];/[;VXV)N:U8R.SWE[RV]SRFQUR&=RQ&%O
+XMR&-RQ5UMM$M9H3E#HCI"JT--I3Y*HCU.EC!'>A0S?!L_8@\T60XU:!U%:1Y&
+XM>B]7<B=.9!HZGU9RUX^DVY.GLVM_@#A/B4!=;2)'9AI%8!9"8AI#610\714\
+XM;29+;21(61$P8QHVBT!8LV=\O'%_NFUVN&QOPWAV<T5]A56.CUV5I7*FAU"#
+XM:S!A9RA6:"9351$]6A0_7A8_7!0]6Q,^7A9!8!A#7AA&5A!%9B!54 HX4@<O
+XM4P4FA#-+S7R*J%A>MFEHWY6/W)F1V)V2W*:;W[*D_=3'WJNAJEA;GCQ$I#=!
+XMP4Q6TE5AV%ECWV!JXVEOXW)UWW9VW7AWWWQ]X7Y_XWV!Y'I_XGA]UW1USVYL
+XMU7)SVW5YUFYTU6]VV7=_UGB!V'Z'UG^'W8F0X8J2W(**XX6,Z(:.YGF#UEMD
+XMWE]GVV=KUV=JT5]ESUICUUQHVF%MY'F"Z)"5Z:JI],2^_=/,\<.]X*:DXIN:
+XMY8Z-X8*!W7V V'1[S69PRF%NR5YIOU)<MTM2MTM1O5%8LTA3JT%2G#%*@A@W
+XMA")$8Q S60XU:!U%:1Y&>2Y6<29-81<WG51PU8VBWY>KN7&%@SM2?S93;R1)
+XM8A9!8QE%7Q= 610\7A8]:R1):2!$5PTM:!PYE4IBNFZ!O7)^N6QSNFYQQWQX
+XM@U6-?T^(<#YVBE>+;SAKATQ]9RA871M(5! \6Q5 7A8_6A([61$Z7A8_8AI%
+XM7QE'6Q5-7QE16Q%#3P,N<R)"L6%UOFYXH%%3R7UXZZ&7Y*&5Y:J=UZ27],>[
+XM\LN_HFIFBRHRNT54O$52O410UEYHU5UESUA=Z'%TZ'1VYW9WYWIZZ8" ZX2$
+XMZ8:'Z(6&Y(.#[9&+X(9]XX1_YX6#X7M_XGR!ZX>0[8R6ZI"8Y(Z4Y9&8Y)"7
+XMWHB.WH:-W'^(U&QTVF)JX65LWFINUV=JT6%FT5QEUUQHUE]JX'5^Y(Z2YZJH
+XM\L2]_=/,\L:_Y:RLZZ2CY(Z(WGYYVWEWV7-WT69MT61NUFAPU65LQU=<PU-6
+XMPU9:NDQ6M4=7ICE0B1H[A2!#9Q0W7!$X:1Y&:1Y&=RQ4;B-*71,SF$]KTXN@
+XMXYNONW.'AS]6=2Q)<B=,7A(]:!Y*7!0]6A4]7A8]9A]$8QH^6 XN<25 HE=M
+XMO7&$O7)^NFUTOG-SS(%]CF"7:#EN=T5Y=4!PL7FG?D)O2 @T6AA$614_8!I%
+XM8AI%6Q,^5A$Y6Q8^7QI"7AE'9")93@I"7!)$6 HRFDECT7V,HU%6K%Y:Y)V2
+XMYZ:9V)V.]K^S\\"VZ[NUKW]Z=3(SH#5 LS9%RU!<U5IER%!8TEQAXVURW&=I
+XMZW=YZGEZZWQ\[8*![8B'ZXJ(Z8J)Y(J%Z9**WHB Y8N$[9&-ZHN*ZHJ-\)"5
+XM[9&5ZI*7XHR0XX^5YI*8YI"4YXZ3WX&(S6EPV6EPWVMQW6MQV&9LU6%GU5UE
+XMV%MGU%UHUV]WXHR0ZZVI^,C"_]7.\<6^X*NJY:2CY)*+XX5]Y82"Z82%X'5\
+XMVFERUV)KSUE@TEQAR%16QE58O4U4O$U<K#]5AQPW?ADZ;!@[8A4Z;1]':QU&
+XM=RE2:R!'6A PE4QHTHJ?YIZRO'2(BD)7;B5!=2M-6Q X:R%-6Q,^714^7Q4]
+XM8Q@_810W7 XL>BU&K6%TNW!\NW%YMVYPOG9ST(: CV"3?D^ F6>3KWFBG&.)
+XM;S)55A,X;"=-:"!)6Q,^7Q9$9!Y+6!0^3PXU6!<\7R%)5QQ-4!!#7!(^;QX^
+XMS'2&N6%HGDE'VH^%V9J,Y;"AWJ^BY;BN\K^[SI67:B<OAC,\ISE!OT1-S%%:
+XMSU1=SE=<TUQAVF1IWFINXW)UY'1WYGM\Z8*"ZXF'ZXR)Z(R(YHR'ZY61[)>3
+XMZI61YI&-XY&.YY62Z)64Y9*1XY"/Y9*1Z923ZY*3YXN-X8&$V79ZTW!TTW!S
+XMU&UQU&9MV&)IW5QGW5MFVUEDTEIDUFQQV8*"YJ.A^<*^_M#*]LK#Y+>SWZBD
+XMY9N3YY&)X(6#W'M]W'%XW&ISW&1NW6%JV%QAU5M?RU17Q5%7OU%;ICQ-B"(W
+XM>QLW91$R9!4[;R!(;1Y&>"E1:QY#6PXOCD)=TH>=YYVOT8J;@#A->C%-7Q4W
+XM6A X;R518!A#6Q$]9AA!;!I!8@XO;!8RED)5N6AUPW=[NG%QN7-MQH!WTXR!
+XMA52%H&Z<LW^GBE1W<C55C$QKEE)RD$=K?3-;8QE%6A$_8!I'71E%5Q8_5A<[
+XM418]6!U,61I(6 \UHD]JQFU\N%]BK5M4YI^2WZ>7WK"AX;BMY+JUX*NN<3$Y
+XM<B0SB2LZK3Q%P4=-S5-9T%9<SE=<TUQAVF1IWFINXW)UXG5WY'M[YX*!Z8B&
+XMZXR)Z8V)Z(Z)[):2[9B6ZIB5Y921XI20Y9F4Y9F4Y):2YI62Z):3[)64[9*2
+XMZXN-Y8*%WWA\V7-WT71VTG!TUFAOW&%LX5QHXEAFW5ADU5ICU&IOV'^ YZ"=
+XM^,"\_\_*]\K&XKBUVJ>CWIN3XY&*WX>$W7M_WG%[WVITWF-NWE]GW5UCVUU@
+XMT%9:RE9<PU5?J$%.BB8Y>QXW9Q,T9Q@^<"%)<"%)>RQ4:QQ"60TKB3U8T(::
+XMY9NMT(F:CT=<=BU)7Q4W6A X:B!,7!-!7!(^:1E#:Q@]90TN=QXWH$I<OVQU
+XMPW9WNG)MNW5LQX)VTXQ_E6"0;#5E5A]'3A,V=3=5N':1M&Z)ACY;?C-881<_
+XM50TX7!9#71E%61A!6!D_5!8^415 5Q8_:B!"Q7*+O&5QJ%)4R'MRZ:::X:R=
+XMZ[ZRY;NTYKFWE5UB2P<5:QDLFSE+M$)+QDQ2SU5;T%9<SE=<TUQAVF1IWFIN
+XMXW)UX71VY'EZYG]_YX6#ZHN(ZX^+[)*-[I:3[YJ6[)J5Z)B2YIB2Z)J4YYN4
+XMY9>1ZIJ4ZYF4[9>3[9*0[(N+Z(.$XGM]W7=[UG9XU71VVFQSWV1OXEUIX%EF
+XMWEEEUEMDTV=MUGU^YIZ;^+Z[_\_+^<S(Y+JWV::BW)F1XI")WX>$WWV!X'-]
+XMX&MUWF-NW5YFW%QBW%YAT5I=S5E?Q%=AJ4)/B28Z>A\Y9Q4U:AM!;R!(<R1,
+XM?B]7:1I 5PLI@350SX69X9>IS(66I5UR;B5!7Q4W60\W9!I&61 ^7Q5!:AM#
+XM9Q0Y90TL@BE"K5AGQ'%ZP71UO'1NOWEPRH5YTXQ_B$Q_1@LZ/0 G6AP\AT9?
+XMM&^%L6J!G51N>C%.9!D^7A0^8!I%615!4A \6!A!6QU%3 TS5A(TFT]LP7&#
+XMM6%HIU94YI^6XJ69W*N>\,2\Z;^\IW=Z4!,?9QTO<!DRJ$18ND=3R4]5T5==
+XMT%9<SE=<U%UBVV1IWFAMXG%TXW-VXWAYXWQ\Y8.!Z8B&[8Z+[Y./[I:1\)J6
+XM\)N7[)J5ZYN5ZYV7ZIR6YIB2[)R6[9B4[962[(^.Z8B(YX*#Y7M^X'E[V'=Y
+XMV'5XW&YUWV=QX5]JX%EFWEEEUUQETF9LV'Q^YYR:^+RW_\_*_='*Y[VXV::B
+XMVI>/X8^*X(B'X7^#XW: XFUWWV1OVU]FV5M@V5Y@T5I=REA>P59AHSY/@R,X
+XM=APW91,S;!U#;1Y&=B=/@C-;:1I 5PLI>BY)SH28W9.EQ7Z/N'"$9QXX7!(R
+XM61 V8!9 7!0_9!I&:AM#8 TP9 PKC31+N&-QQW5[OW)QOW=QQ7]VS8AZTXU]
+XM=31G5Q=#6AD^92$_@3Q2K69WM6M[JF!RB3Y6;"- 7Q8\7QI"5Q,]4 XZ4Q,^
+XM5!0]3PLM;B5!Q7F.N&EUIUA<RG][]K2LWZB=X+.IY+RVS*&B3APF30L=;!TT
+XMB2Q(HSA1OTI6RU%7T5==T5==T5==UUUCVV1IW&9KXFYRX7%TXW9XY'M[Y']^
+XMYX6#[(V*[Y./[I2/\)J4\9V6[9N4[)R4[IZ6[)R4Z)B0ZYF2[):0[)*-ZHN(
+XMYH2"Y'U]XGEYX'=WV'5VVG1XWV]TX&APWUYIWEEEW%IEV5UFTV5LV'M]Y9B7
+XM][:S_\_*_]3.Z\.]V:FCVI2-X(Z)X(B'XH"$Y'>!XVYXX&5PW&!GUUM@V5]C
+XMT5M@R5E@O51AGCQ.?R Y<QDV8Q$Q;!U#9QA =B=/A39<:!D]6 PJ="A#S8.7
+XMVI"@OWB'PWN/:!\Y60\O6 \U71,]8QM&9QU'9QA 7 DL9@\KESY3P&MWQW5Z
+XMO7!OPWMUS(=[T8Q^U(Y^?39G6Q5"308I50XIAT!1MVY[MFMWLF=UFT]D;B(]
+XM3P<H40DP5! Z51,_4A(^2PHQ61$NE$A=QGB%LF1KH594[JJD[;&HX*ZFY[VX
+XMUJ^O>4U51A ?718M;1<UE"]2H#!-P$E6S%)8T5==TEA>TUE?V%YDW&)HVV1I
+XMWVMOX7!SXG5WY'EZXGM[YH& Z8B&[H^,[)*+[YB0\9N3[YN2[IV3[IZ4ZYN1
+XMYY:,ZY>.Z9.+Z8^(YXB#XX%]X7MXX79UWG-RV'%SVW%VWFYSWF9NWEUHW5AD
+XMVUEDV5UFU65LVGE[Y).1\["N_\S(_];0[L; VJJDVI2-X8R(X8:&X8""Y'A_
+XMXG!YWV=QWF)IVEYCVF-FTEYDQUEANE)BF3E.>ATX<!@W8@\R;1Y"8A,Y=B=/
+XMAC==918Z6 PJ;B,[RX&3V8^?O'6$RH*6=2Q&60\O6 \U6Q$[:B)-:!Y(918\
+XM7PTM<ALUI$M@QG%]Q')UO7!MR(%XTXZ U9""TXU]="A78A9!60\O:1XVEDM9
+XMIEQFIUICSX*-NV^ A#E/6 XN3P@M40LV4A \4A(^3@LP<B4\M69SM&9MJ5Y>
+XMOGAR]+2LY:^FYKBRWK>WH'A_/Q(@8B<^8Q<U=AL^C"-*J355OTA7RE!6T5==
+XMTEA>U5E@VEYEVV%GV6)GWFAMXFYRY'1WY'=YXWIZXWQ\Z82#ZXN&ZH^&[Y6,
+XM\9J0\)N0[YN0[IV1ZYJ.Y92(Z)2)Z)&'Z(V$YH9_Y(!ZXGEUX'1QW7%NUVYN
+XMVFYRW6MQW65MW%QDV5=@VEAAV5UFU6-IV'5XXHV,[ZBG_\?$_]70[L; V*JC
+XMVY6.X8R(X8:&X8""XG=^XW%ZX6ESWV5KVF!DVF-HSUUCPU9@LDU>DC-*<Q@X
+XM:Q0V8Q(T;R!$7Q V="5+A39<8!$U5@HG9QPTQWV/V8^?OG>&SX>;BT)<7!(R
+XM61 V60\Y;"1-91M#8Q0Z:!8U@RQ%LUMMRG9_PG%QOG)KS(5XV92&V).#TXQ_
+XM8Q,_9QA 81$O9A<MEDA5HE5<C$!$IEEBYINIKV5Y?3118AL^3PHR2 <P3@XY
+XM5! RC3]0RGA^K6!AGU=4ZZFBY:RDZ[FS[\7"SJ>K3R8S1Q0J5A@T;QY <A,X
+XMC!]'K#97OT96R4]5T%9<TUE?UEIAVEYEVV%GV5]EWF=LXFQQY71WYG9YXWAY
+XMY'M[YX" ZHB$ZHR$[I.)\9B-\)F.[YJ.[YR/ZYB+YI.&Z).'ZI&&ZHR#YX9^
+XMY7]YXGASX7)OWF]MUFEKV&MOWFIPW6)KV5IBUU=?V5EAV5UDUF)HV7)VX(>(
+XM[J.A_\.^_]/-[,>^V*JCVY6.XHR(X(6%X'^!XG=^XG)YX6MRX&9LV5]CUV%F
+XMRUMBNU-=JTE;BBU(;!0V8Q U910V<B-'7@\U="5+A#5;70XR4P<D8A<OQ'J,
+XMVI"@P7J)TXR=FU-J8!<T61 T5PTU;"1-8AD_8Q0X<!X[D#I0O65TS7E_P&]M
+XMOG-ISHAXW)>'VI6%TXQ_;1E#:!4Z=B1!=24YH5)>NVUTN6MP?3 YH59DSH.9
+XMQGV96Q0U610Z6!0\/  B9R$_P'%^KEQ?J%M8N')L];>O[+:OYK>T]<O.8SM%
+XM2!HM21$M8!P^>"5*;PXSF"A/I2].N#]-PDA.S5%8U%A?UUMBV5UDW&!GWF1J
+XMW69KX&IOY'!TY75XY7AZYWQ]ZH&!Z82!Z(B!ZH^%\)6+\9B-[)6*Z).'YY*&
+XMZ).'YY"%ZH^%ZHJ"YX-\YW]YY7EUWFYKTF%@V6ELU6-IUF!EVF!FV5IBTU5:
+XMTU5:UUMBVF1KUVMQX(.%\*&A^[VY_]/-\\[%W;"FU8^(WXF%WX*#W7I]WG-Z
+XMWV]VWVEPW&5JVF-FTEYBREYDPEMGI$19?2- 91 V8Q$X:1H^;R!$9Q@^?B]5
+XMAC=;7Q$R50DF9ALSLFAZV(^<NG. P7J+M&R#9ATZ4PHN7Q4]91U$9QY$70\P
+XM;ATWJ%)FR7)^Q'%TP7%KQWQPS(9UU)!^UY*"U8Z!C#==:A8W>B="AC1'JEEF
+XMTH.-VHN5C4!+;B(UM6J"SH6B:"%"3@HL3 DM4 TOB$%:KU]GO6QJIUM6TX^)
+XM];FR^<7![<# JH"'52DY0@\G20PL91Q ?B=+<0XSE29*HBU)ND%/Q$I0SE)9
+XMU%A?UEIAUUMBVEYEW&!GWV5KX&ENXV]SY71WYW=ZYWI\ZG^ Z8. Z8>!ZHR#
+XM[I"'[I.)[).(Z9*'Z)&&Z)&&Z(^$[(Z%ZXJ"Z()\YWUXY79SX&UKUF-BVV=K
+XMV&)IV&%FVF!FUUM@TU5:TU5:UEI?VV1IVFIOXX*$\9Z=^[JU_]+*]]+(Y+BN
+XMU8^(WHB$WH&"W7I]WG-ZWFYUWFAOW&5JV&-ET%YDR5YENUAFFSY7=AX_8A Y
+XM8!([:!D]<2-$:AL_?S!6AC=;8!(S5 @E8Q@NJ5]OV(^<PWR)QG^0M&R#9ATZ
+XM40@L8!8^91U$8QH^7Q$P=R8^KUEKRG-]Q'%RPW-KRG]QS8=VTX]]U9%_U(Y^
+XM?"A)8@XNB#5.HE!CMF=TZ)FF]JBUH55F7Q(IC$!=K6.#91X_204C1@(@8!TX
+XMGEAKOFYTN6AEL&AB[*JC][VX_\W+N8J121PJ2!<N0 @F3@LO;2!%B"]4=Q(U
+XMD25%H"U%NT1/Q4M1SU-:U%A?UUA@V%EAVEMCVEYEWF1JX&ENXVURYG)VYG5X
+XMZ'A[Z7Q^ZH%_ZH: YX=_Z(B Z8N"ZH^%ZI&&ZI&&Z9"%YXR"[(R$[8F"Z(!Z
+XMY7EUY'1QWVQJV61DV6)EV&%FUV!EV&%FU5M?T55:TE19TE9;VF!FV6=MXWV!
+XM[9B7];.N_\[&^];,[\.YU8^(W8>#W'^ W'E\WG1YWFYUW&ANVF1IUF!ET&!E
+XMQEYFLU%AD#5/;1D\7P\[7Q,^91@[<R5&;1Y"@#%5A39:8!(S4P<B8!4KG%)B
+XMUHV:S8:3RX25M&R#:B$^4@DM8!<]8QQ!7A4Y8A0RAC5,N61SRW1\Q'%PQ75K
+XMSH1TT(IWTX][TX]]T8M[<!TZ@2Y)J%9MJEINJUMMVXV>[:&TLVA^9QLX9QT]
+XM?3566Q,T2P4A10(:=#)%NG. M6AIF$I&THR%][FS]KV[YK*U<D%-1Q4I1P\M
+XM1@<K50TT=B1+E#E<?1DWD2A H3-%N4)-Q$I0SE)9TU=>UUA@V%EAVEMCW5YF
+XMWF)IX6=MXVQQYG!UYW-WYW9YZ7E\Z7Y]Z8-^XX)ZXH%YY(1\Z(J!ZH^%ZH^%
+XMZ(V#YXF ZXN#ZX> YGYXXG9RX7%NWFEHV6)CUEQ@UUUCV5]EUV!EU5M?T%9:
+XMSE)7T5-8UUMBV6-JXGA]Z9"1[:FE_,C!_-G.]\O!UY&*W86"W7U_WWE]X75[
+XMWFYUW&ANVF1IU&!DTF)IQ5UGJ$A:A2M&:!4Z71$^81=#8Q8Y=2=(<2)&@#%5
+XMA#598!(S4P<B7!$GDTE9THF6THN8R8*1MFZ#=2Q(5@XO7A4[7Q@]6! Q:!HX
+XMED9:P6QZRW5[Q')OQWAKTXEWTHUWTHYZT(QZSXEYA#-+M&-[M61[B3I.?"U!
+XMHU=LK6)ZE4QI6A R6 \U;"-)4PLL3PDD6A8HDD]:Q8"$JV!>L&9@_+BR^+RW
+XMX:JIDU]E.P@85R Y31 R40PT7 XW>21,G$!@?QXXC2DZH39!MD%*P4=-S%!7
+XMTU=>UUA@V5IBW%UEWV!HW6%HWV5KXFMPY&YSY7%UY71WZ'=ZZ'M[YH![XGYX
+XMWWUWX(!YY8=_Z8N#Z(V$YHN"YHB Z8>!Z8-^Y7MWXG-QX&ULVV1EU5Q=U%9;
+XMV5IBV5]CV5]CU%U@TEE:SU16SU%6V5IBV6%IX75[YXN-[*6B^\? _]S1^]+'
+XMVY.-W(2!VWM]X'I^XW=]WV]VW&ANVF9JTF%DT&)IP%EEGCY1>2(^9!(Y7A-#
+XM8QA'810Y>"I+="5)?S!4@3-481,R5 @C6Q FC$)2RX*-T8N5Q7Z-N7&&ASY:
+XM714V7!,Y6!$T50TN<B5 I55IQ7!\R7-WQG1OR'EKUHQXTHUWT(QVSHIVS8=W
+XMF$=>RWR0O&V!BS]2>2U"BT!8>C%.;"%&5 HR6A Z7Q4]3 0E:R8^BD94I&)G
+XMG5A9J&!;U(R'YZ:AVZ&>Q(^26B4P.P480 <C41 W6 XZ7PLV>B%(H4-B@B(W
+XMB2@SG34[M$!&P$9,RT]6TE9=UUA@V5IBW%UEWV!HWE]GWV-JXVEOY&URY&YS
+XMY7%UYG5XZ'A[Y7QZX7UWX7UWX7]YXX-\Y8=_YXF!YXF!YH9_YH1^Y7]ZXW=T
+XMXG%PX&MKV%]@S5%6TE):V5IBW&!EVV%EUV!AUUY?U%E;T5-6VUUBW&)HX71X
+XMYXJ,[:6B_,C!_]W2_-/(VY.-VH)_V7E[WWE]XW=]WFYUVF9LV65IT6!CS6%G
+XMN%%=D3-%;A@V8!$Y8!5'8AE(8!,X>BQ+=BA)?2Y2?C!181,R5@HE6Q$E@#=$
+XMPWJ%THR6PWR+P'B-F$]K9!P]61 V4@LN5P\N@31/LV-WQW)^R')TRGAQRGMM
+XMUHQXTHUUSXMUS8EUS8=WC3Y2LF9YN6V L6=[CT1:B#];;R5'81<_6Q _5PP[
+XM4PDS7Q<XI%UTO'>!MW1UE5%-H%I4P7UWO7][R(^-IG!U6R8S5ATU2@LN50\Z
+XM7 T[7@@T>Q]%ITIFAB@YAB@OFC0XMD)(PD9-S%!7TE9=UE=?V%EAW%QDWEYF
+XMW5YFWV-JXFANXFMPXVURY'!TY71WYG9YX7AVX7MXXWY[XH!\XH)]XX-^Y(6 
+XMYH>"YH:!YH%^XWIXX71TY'!RX6IMTUE=QDA-TE):W%QDX65JX&9JW69GW&5F
+XMVV!BUEA;VEQAV5]EX'!UYH:)ZZ.@^L:__=K/]LW"VI*,UW]\U75WW7=[XG9\
+XMVVMRUV-IUV-GSUYAR5UCKDI5A28[9A P7@XX7Q5)81=)7A$V>RU,=RE*>BQ-
+XM>RU.8A0S60XF71,G;R8SNG%\UI":QX"/QGZ3I5QX:"!!6 \S3P@K714TD41?
+XMOFZ"QW)^R7-USWYTS7YNUHUVT8QTSHMRS8ESSHAX9ADP=2I"D$E@HUYV:"(^
+XM6A(S4P@P5 8Q5PLX3P4Q5A$VA$-<SY"<S8Z0SHR'SHJ$N79TOGQ]UYF;X::K
+XMB$U84QDI1 8B5A8Y6! [7@\]7@HU>R)'KE%LC"X_ARDPFS0XN4-*QD=/SU!8
+XMU%5=UU==V%A>VEI@W%QBWEYDX&)GXF9KXFMNXFQQXV]SY'-VY75XXG5UY'MY
+XMZ']]YX%^XH!\X8%\XX-^YH:!YX6!Y']\X7AVWW)RY7%SX&ELT%9:OD)'TE-;
+XMW5YFY&AMY&INXVEMY&AMXV-IVUMAV%9=U5E@VVEOXX*$ZYZ;_<&Z_=''\\2Y
+XMVI"*UWQZTG-RVW9WX'1XV6ENU&!FTV%IREQDPEEFID16>1\Z7@LP6@X[719)
+XM7Q9%7A$V?"Y->2A(>RI*>RI,9!,U6PTL7A(M8!@LLVQYV96=RH:.RX23JV-Z
+XM:R%#6 TR3P4E8ADUFTYEQ76%QG-\R79UU(-YT(%QU8QUTHISSHEQS8ESSXEX
+XM6@TR5Q SBTQOB$MN>3I@6A0_3P M7 @U9A0^40DJ,P /OHZ5Q9:3TI^5V9B+
+XMXI^7VYN@Z*FUUI>CFUII9"(T4@\G40\L4 TO6Q8^5@XW6@PT?"E,GT5@E#1'
+XMB24PHS4]N3Y'Q45-T4]6V%9=VEE=VEE=VUI=W5Q?WE]AX&)DXF=IX6IKX6QN
+XMXFYPXG%TY71WYW9WYW9WY7AXY7IYXWUZY']\Y()^Y8-_Y8-_YH%^YGU[XW9V
+XMXG%RWFEKTUE=Q4M/S%5:W&5JX6=MU59>T$Y7W5=AZ%]JYEUHT$I4UE=AV&-L
+XMVG1XZY:4_[BS_L"X\K*JSGYXU7MVWWUYX'=SVVQJWFUNVVEQR5IGQEYRLE%K
+XM@RA*80XU7Q,^711"61-!9Q]*:1P_<" ^A#)/="$^@2I.:!,[7PPY7Q$Z714T
+XMJF9XSY"2SY"/O'A^L&EZ=RA,70LT7 PJ81(II%9GR7J&QWA\SGU[RWMQUHI[
+XMU8IVTXEUT8ETT(ASSX9V:!Y(HUV(M7>?6Q]).P G4PTZ;Q]-8Q$[3@ C2 (=
+XM9S ^T:*CPY6.X:ZAZ*R;Z*B?Z*RUQXF=E55G:20X40HA3@<B50\M6A8X7AD_
+XM5A$W6 \U?"M-H4=BES=,D"<UJSA$N3U&Q4-,T$Q3UE)9V%19V559VUA9WEM<
+XMWUY?X&-BXF=HY&MLXVYPXV]QY'-VZ'1XZ71VZ75WYW9WY7AXY7QZY7]\Y8!]
+XMY()^Y()^YH%^YGU[XW9VXW)SWVMMU%U@QU!3UV%FU%YCP4=-HR,KFA0>K"$M
+XMOC-!Q#E'UD]<U59@SEQDT&INXHJ)^*JF]*ZHYIZ8V(-_U7EUW'ARWW5PW&QI
+XMW&MLV&=PQEIKP5QWGD%D<1Q&6@LY6A$_6Q5#6A9"9!Q%:QY!=")!@B]*=1\[
+XM@"A*:Q,^9 ]"9!-$5@TQFUENRXV/SI*+MG1ULFMZ?RY27 @R9Q8P="0VLF-P
+XMRWR&Q79XRGQXRWYSUHI[U8EXU(EUTHATT(9TSX9V;RM5L6V7KFV6921+51$Y
+XM51 V8AM 20(C2P4A5A$GC4Q9T)*8U9N8Z[2IWJ>9YK"GZJ^\I&9\7QXU2@4=
+XM4@LD5@XK5Q Q6A,X8!M!6A(Y6@\V?BU/I4MFG#Q1E2X[L#]*O$!)QT5.SDQ3
+XMTU%8UU-8V%18W%E:WUQ=WUY?X&-BXF=HY&MLY&UPY'!RY71WZG9ZZ'-UYW-U
+XMYW9WY7AXYGMZY7]\Y8!]Y()^XX%]YH%^Y7]\Y'EXY'5UX7!QV&1FSEE;VF-H
+XMVV%GS5%8N#A LBTWO3=!Q3Y+PSY*PT)-P$A0O$Y5P5YAV(!_[J"<ZZ.>WI2.
+XMX(J&UWAUUG%NW')NVVIIV6AKU61OQUINNE9SB2Y19! Z6@X[6A$_6Q9$7QM'
+XM8!M!;2!#>BA'@"U&=B \?25':Q,^:!-%9Q9'40@LB4=<R8N-TI:1LW)QN7)_
+XMBCE=70HQ<A\XCCU+PW)_SGZ$PG-UR'IVS8!UU8EZU(AWU(AWT8=UT(9TSH5U
+XMFUJ#G%B";"1-4PLR<"M07QP^:2M'9"<_:2D[A4%1G5)@N&MTT8R.SI*-QI>,
+XMY;>QL7J)>CM53 DC4 HE:2(];25"8!@Y50XS8!A!61$X6Q W@C%3JE!KH4%6
+XMES ]L#]*PD9/RTE2T4]6U%)9V%19VE9:WEM<X%]@W%U=WV!@XV5GXVIKXVQO
+XMY&]QYG)VZ75YYG%SYW)TYG5VYWAXYGMZY'Y[Y']\XX%]XX%]Y()^Y8!]XGQY
+XMXWAWY'5UW6QMUF)DQD]4TU=>V%QCV%EAV5EAW5UEU59@QTM4M3]&NTM0P5I>
+XMS&QNWHF'[J"<Z*";W9*.XHJ)UW9VUW%NW'%PV6IJUF1LTF-PR%YSJ$9D=1T_
+XM7@\W8QE%7!9#61=#8B%*9!]%;B%$@C!/@BU&?"= ?25&;!0]:A5%911%4PHP
+XM>CA-QXF-V)R7LG%PP7B%DT)D8@XQ=2,XH%!:S7V%SX"$PW5RR'ITT81YU(AZ
+XMU(AYTX=VT8=UT(9VSH5VDU-\C4EQ60XV2  D>#%2>CM4CEMKCEMHG6)MLFUW
+XMK5AFKE5@L%UFM')SV*ZGQZ*@8BM!5A0S2@8D5Q$O;R5%=RU-:R)&6Q$Y714^
+XM6 XX7!$XA316K59PI$98EC$^K#Y(PTA1RTM3TE!7U%)9U518UU99W%M<X%]@
+XMVEM;WE]?X6-EX6AIX6IMXFUOY'!TYG)VY&]QY7!RYW-UYWAXYWIZYGU[Y']\
+XMXH!\X8%\Y8-_Y()^XGUZY'MYY'EXX'-SW&MLU%I@V5UDUUMBTU=>U%I@V&)G
+XMUF)HS5UBQEQ?TW!QXX:'[9:5\J&>\*:@Y)R7VHV*X(6%V'5VW'-SWG-TUV=L
+XMT&)JS6%PPEQQC2].9Q,V7A,[9B!+6QE%5Q5!8B%*:"-)<"%%C#A8@BU&A2Y(
+XM?B9%;A<]:A5%8 ] 5@TS;"E!P(*(V)N9LF]PPWJ%E$)A:!0T>24TK5MASWV"
+XMSWY^QGATRGUTTXA\TH=YTXEYTHAXT8=WSH5VSH1Z8!Q&=3!8?C-:?#)4DU!J
+XMB4]?GF]VL(*$T):;N'!WITI6L4]=I4Y:THZ4\\W+?EI?21(K51(V5Q,U6A(S
+XM9!<Z;R)%;2))8QE!7A0^6 XX7!$XAC57KUARIDA:ES(_JSU'P49/RDI2T4]6
+XMTU%8TU)6U517V5A9W5Q=VEM;W5Y>X&)DX69HWVAKX&MMXFQQY&YSXVQOY6YQ
+XMYG)TYW9WYWIZYGU[XWY[X7][XH!\Y(1_Y8-_XWY[XGQYY'MYXGEWX7)RZ7)W
+XMZ&QSWV5KU%YCU&-FVW!QX'E[WGU]T71SXHR(]Z6B_[&M_+*L[ZFBX9N5V(N(
+XMW'^ VW5YWG1WW'!TU&9MT61PQ5UMK4QD<QLZ8A W7A8_8Q]+61E$5!0]7AU$
+XM:R9+;R!$DS]?@2Q%BC-,?B=#<!D];1E&8! ^6 XV7QPVM'5]TY:5LW!QP'>"
+XMC3M8<1XYA#$\N6AHRWIXS'MXRGUTRWYSU(E[TH=YTHAXT8AYSX9WSH5XS8-[
+XM8!9 <2A.GE9WFUARH&9VF6=MM8B&V:FFR(F)HU5:E39#NEAHS'2#[*>SPYF>
+XM1R(M5!P\8AY&9AY%8Q@_9!<\:1Q!;1]':A]'9!I$6Q$Y7!$XA#-5KE=QITA=
+XMF#5!KD%+P$A0RTM3T5%7U%1:U518U517V%=8VUI;W5Y>WV!@XF1FXF=IX6=K
+XMX&ELX6MPXVURXFMNY&UPYG%SYW9WZ7IZYWQ[Y'Y[XWY[XH!\Y8-_Y8-_X7][
+XMX7QYXWUZXGQYXW9VX6MPXFMPWFINVFIMVG-SXH%_Z)"-ZIB3T8-]X9>/\JRE
+XM^K>O^+6M[*JBW9N4V8R)VGU_W75[W7-XV&QSTV9PTV=UNE9JD31/9A(S8A<^
+XM71="6!A#6QM&6!D_7AU"<2I-;R!$ET-D?2A BC1*?B0_=!P^=1]+915#6Q$Y
+XM5Q0OJFMUSY"2N'5VOW: B#=/@BU%FD9,R'9SR7=RR7EQSH%VRW]QU8I\THEY
+XMT8AYSHAXS89YS(5ZS8-]918^?C-8NG>2J6V LH"(RYZ>UJBBV:&;DTQ+ET-)
+XMESI$R&I[\J&QV96E:SI'2APP5!D^7!A"9!Q%:R!(<2)*<B-)<B-+<B1-:Q]*
+XM7Q0\7A X@C%3K%5OI4E=FC=%LD5/PDI2S$U5U%1:UU==V%=;V%=:VEE:W%M<
+XMWV!@X6)BXV5GXVAJXFALX&ELXFMPY&URXVEMXVQOYG%SZ75WZ7IZZ'M[YGU[
+XMXWUZY']\Z(. Z(. XWY[X'MXXGUZXWUZXWAWXG%TY'!TWG%SVW1TWG]\Z)*,
+XM]*:@^K.JVIF.XZ.8[;"F]+>M\K6KZ:F@VIJ2U8J&W7V X'5^VF]XTV9PTVAS
+XMU&Q\L5!H>" _8A,Y:"!)6QE%4A,_7!Y&7A]%8A]#=B]0;A]#F$1E>B,\BS)'
+XM>R(Y=1T\>B10;1I)7Q,^5Q QIF5TSHZ3O7E]PGB AS=+CSM.KEA:U8%ZRG9M
+XMR7ANTH-VRG]QU(M[TXI[SXEYSH=ZS89[S(5\S8)^A3%4QWF8RHVCNHF3NY*2
+XMT:>BXZRHOWUXF$='F$!%FD--O6QZ]:N]>3=,2Q G51LZ7!M$7!9#8AA"9AA!
+XM:!8_<R%(>"9/:QM%8A0]9QE"60PQ<2! K59PHT=;HT%/JT!+P$I3S4Y6T5-8
+XMTU-9U%18V%E;VUI;V5A9WEU>WV!@X6-EXF=IXFALXFALWVAMWF=LWF1HX&EL
+XMXVYPXV]QXG%RY'5UY7IYY7QZX'=UX7MXXWUZXWUZX7MXX'IWWWEVX7AVWG%S
+XMY7AZX7IZV7AVVX5_[)^6^+*I^+BMWZ>9V*&3ZK.G^<"U[K6JZ*VBX*"8SH-_
+XMVGI_S6)MY7J%W'%\R%]MQF)UE3I49! Q7Q0\81U)4Q1"5!A#6!I"7!M ;"A*
+XM:2%"=R9*D3I<>R4[ABY >A\U>R$^:Q9 91)!6 PY4 DLC4M=Q8**Q8"$PGA^
+XMAC1'I$]>N6)AS'=LSGIOR'=KSG]QTHAXSX9WS8=WSH=ZS(=YRX9ZRX-]RX-^
+XMF$)@S(&9NX22LXB+U*ZJY[FSTY61H515FT5)J5%8D$%+Z:*OD$YA7!LT6Q<W
+XM61(W8QU(7QE&8QE#9!8^91,Z<1Y%>B=.<B!)8Q0\9AA 7 TS;AT]J51MHD==
+XMHT13IS])OTE2RDY5T5-8TE19U559V5I<W%M<VEE:WEU>X%]@XF-EY&9IXV=L
+XMXFALXFANWVAMXVEMXVQOY6YQY&]QY7%SYG5VY7AXYGEYXG=VY'EXY'MYXWIX
+XMX7AVWG5SWG5SWW9TWG-TY'M[WWU[V'QXW8F"[Z2:^[BN_<"TX*B:UI^1YJ^C
+XM^<"U\K>LYJF?W9N4T82#UG5]VF]ZV7!]T6IWS&=XLU1I?RA$8!$U6Q8^7Q]+
+XM4Q9&51E&61E"7AL_;RA);R)#@"U4DSQ>?B@^B#! ?2,T?20]<!M#:!5$6P\^
+XM40DPBDA=Q8*+QX*&O7-YBCE'K%=CO&1AS79KSWINRG=JSX!RTHAXSX9WS8=W
+XMS8AZS(=[RX5\RH1]RX-^G$UCNG2%K7E_O9*2Z+ZYWJJFLFMLC3D_G45-FT=0
+XMRX:0M7B(4!,I4 XK8A,Y:AA":"!+81M&91I"9!4[8Q S;QL^?2A.>RA-9!4[
+XM9Q@^7@\S:1@XI4]KH49<J$A:HSI'NT9/QTM2SE)7TE19UE9:VEM=W5Q=VUI;
+XMWUY?X%]@XF-EXV5HXV=LY&AMXVEOXFANX6IMWVAKWF=JWVILXFUOXV]QX7!Q
+XMX7)RXW1TXG5UXW9VX79UX'5TWW1SX'5TX79UWW1UY'M[X'Y\VW][XHZ']*>>
+XM_[RS_\:[Z*N?WZ*6ZZZD_;VT^+:NZJ>?W9>1U82$T&]WXGF&S69SRV9URFI]
+XMECM39Q4T7!,Y61=#7B%15!E(5AI'61E"7AD^<RI'=B5%A"]7CC=9?"8ZA"P[
+XM?",R>B$X<QQ"91)!7A%"40DRA$%9Q8*-RX:*M6QODD%.N&%IP6=@T79JT'IL
+XMRWAIT(%STHAXSX9WSHAXS(=YRH=[R89\RH1]RX-^GUQEIVMRO(B+WJVMX*NJ
+XMM79VF4M0FD--F410KV%NUYJH62$S3Q0L5Q,S<1Q&@2A79AQ&7AD_9!D^9A<[
+XM9!(R<1H\@2I,@2U0:AD]918Z8!$U910THDQHG$-:JDQ=G39"M$)*PTE/S%!5
+XMT%19UEA;VUQ>WEU>W%M<WEU>X%]@X6)DY&1HY6=LY&AMY&AOXVEOWVAKVV1G
+XMVF-FWF=JX6QNX6QNX&QNXFYPW6QMWFUNWW!PWW!PWW!PWW!PXG-SY'5UX71V
+XMY7I[Y'U]X8!^YXV(]:&:_[&K_[BQ]:ZE]J^F^K*L_;.M^Z^J]:>CY922U'U_
+XMRFAPW'6"R61ST6^!N5UQ>"$[7Q$R5Q(Z5AI'72555!Q,5AM(6AE"81H]>"I(
+XM>R='B#%7B3%3?R8[ABTZ?B4R=QXS=1Y"8@T]70X_4 8R?3=2PW^-SXJ.KV-G
+XMFDI2O&9LQFIDU7AJTGELS7AJTH-UTHAXSH5VSHE[RH=[R89ZR(5[R(5[R8-\
+XMN8J'O(R)Y[*Q]+FZPGV!G$Y5FT92GTQ9K6)PVI:F>4)12A,I3Q$M7!$VB2]<
+XMCC-C8A<_610Y8QD[:QHZ:14U=!P[@RM,A2]/<A]"8Q(T8Q(T8Q$QH$IFECU4
+XMJ4U?EC$^KCQ$OD1*R$Y2SU-8UEA;W%U?WEU>VUI;WEU>WUY?X&%CXF)FXV5J
+XMY6=LY&AOY&IPXFMNW&=IWF=JXVQOY6YQX6IMX&MMXVYPW6AJWVILX6QNX6QN
+XMWVMMWVMMX6UOXFYPY71WYW=ZY7I[Y'M[Y']^Z8B&[I&0\)63]IZ;_ZNG^Z2C
+XMZY.2[)23\YB8XH6'R6ENR&1OSFEVS6M[TW6'G41;8@\L8A<\4Q([51I)7"56
+XM4AM,5QQ+71Q%9AM ?2M*?2=%BS1:AR]1ABY CC5 ARPX>1\R?29*91! 60H[
+XM3P4Q<RU)OGB)U8V2JEYAIU5;OF9KRW!GUGEKTWALSGEKU(5WTXEYS(9VSXI\
+XMRH=[R(=ZQX9[QX1ZR8-ZW+^PW[JN_,3 W)27I4Y8G4)0HTM:FTM;VIFHJ&Y^
+XM1Q,H4ADS3 @H8!$Y@"-1F#MI8!4\6!$R8A8T;!PZ;QDU=A\[@2I&@RU+?"I*
+XM7PXP8A$S8Q$QH$IFCC5.ITM?DRX]J#8_MT!%Q4M/S5%6U5=:W%U?W5Q=VUI;
+XMW%M<W5Q=WE]AX&!DX6-HY&9KXV=NXVEOX6IMW&=IWVAKXVQOWF=JTUQ?T%E<
+XMUUUAWV5IXFALY&INXFMNX6IMWVAKWVAKWFEKX&IOWVMOW&MNV&AKU&=IU&EJ
+XMUFQOUF]QX'E[[(>(W7=[QF!DSVALVG-WRV-IMDY6R&1OQV1RT'""PF9Z@"E"
+XM6PLI8QQ!4Q4_4AM+62-64!E,5QQ+8AY(:QY#?BM(>R-"B3)8@"A*B3%#CC5 
+XMABPU=!HK@2I,:!-#6 @\4@8U:R-"M6^ UHZ3J5Y>M&)GOF=ISW1KUWILTG=K
+XMT'ILUH5XTXAZS(5XS8M\R(=ZR(=ZQX9[QX1ZR()YX]B^Y,BVWZ.>LEYDI#Q,
+XMJT-7IDQ?NG""R)&@4B(S52(X3A(O6Q U9A$[9@<VDSEF9!D^6!(P7Q,P:QLU
+XM;QHS=1XW?RA"?RE%AC)27 HJ8 \Q9!(RGTQGA"U&HT=;DBT\HS$ZLSQ!PDA,
+XMS%!5U%99VUQ>W5Q=VEE:VUI;W%M<W%U?WEYBX&)GXF1IXF9MXVEOX6IMWFEK
+XMX&ELX&ELU%I>P$9*N3]#OT-(R4U2SE)7TU=<U5M?U5M?U%I>TUE=TUE=S%)8
+XMRE!6Q4Y3PTQ1PDM0Q$Y3R5-:SEI@T5UCTU]EODE2L3Q%OTU5QE1<O4M4N$I4
+XMS69SSVU]S6U_GD17;ADQ7A(O5Q0Y5AI%41Q,52)631=*6!M+9B!+<"%%@2E(
+XM>1X^BC%8>R-%B#!"BC(Z@"8O;!(CA2U/;AE)6PL_6 P[91T\J6-VU(R1JE]?
+XMPW%TP6IJU7=OV7IMTG=KT7MMV(=ZTXAZRX9XSHQ]R(=ZQH=YQH5XQH-WR(-W
+XMZ=&\W+BINWAVF$%)KTI;K$A<HT]B[JJ\?TQ<2ADM2Q8O7!P]:AQ$8PTY70,P
+XM@RU9:A]$6A(Q71$N:!@T:Q@S<ATV>R5!>B=$BSE860<G7PXN9A0SH$UH?BE!
+XMGT9;CRT_G2\YL#I!OT=/RE!6TE=9VEQ>VUQ<V5A9VEE:VEE:VUQ<W5Y@WF!E
+XMWV-JX6=MX&ENYG%SY&]QY7!RXFMNS599M#H^K# UL34ZJ2LPKS$VN#@^OS]%
+XMPD)(PT-)Q$))PT-)MCI#LC= L#5 L39!LCI$N4!,Q$U8S59AT5IEQE%;KCE#
+XMKCE#Q$]8PE!8O4M3REUGS6IXUGJ,Q6M^?"8\9!,M9!HZ3 DN6AY)4QM+5R!1
+XM3Q1%6QI):B)+="-'@"A'=AL[CS9;?B9'C3-&BS(_?B4R:A$FBS16>"117Q!!
+XM7!(^8!HXHEQOTHJ1K%]@S7Q\Q6]KU'EOV7QNT7AKT7QNUXAZU(E[S(9VSHQ]
+XMR(=XQX9WQH5VQH-WR(-W^KFV[:JJH5A;GU%8A#- KV%PY9^PM'2&51HO4QHR
+XM6!HX7!D[7!,Y7A Y:!9 <"!*;B%&8!8X7Q(S:1L\<B%!;QX^;Q\]=25#A353
+XM:AHX8A(P8Q,OF4AB?RQ%DC]8D39,FC)"JSI'N4=0Q$Y7RU%7SE-5U%55V5E7
+XMV595V%A6V5I:VUU?W&!EW6-IW65MW6=NYW-UY'%PX6YMWFEIVV1EV%]@TUA:
+XMT5-6QT=+QD)'Q#Y$R4%'T$A.V$Y5W%!8V%)<RTY:RE-@RU5DR5-DQ5)BQU5F
+XMS%QOTV-VU6=WY7F(TV=UPUAATVMQU6YRRV1FTG!TTWJ)R72*ET1=9!0P71$O
+XM8!D\71E!7Q]*6QQ(5Q=#40\[7AA#=BA0>"=+<QP^=AX]DC=7A"A$ABM#DSA.
+XM?"$Y:A,M?2M+?S!67!(Z7QH_5Q,QD$MAU8R7OG!TT7QZR7)JUH!RTGQLT7QN
+XMTX-SU89VT8=WT(=WT(IZRX9VR8=VR8=VRX9XRX9X_[>ZLF!EIEA=E$I2KFAR
+XMW)BFSHZ@;S%'6ATU6QPX7QP^8!M 718[7!$Y8Q4^;!Y&;2!%8A4Z7A$T9QH]
+XM;1Y";!U!;1] <B1#@#!.;!PZ914Q914QDT)<>"=!C3Q6D#=0E"Y"I#9&M411
+XMP4Q6QT]7S%%3TE-3UE94VE=6VUA7VEE:W%U?VU]DW6-IW&9MW&ANY'-TXG%P
+XMXF]NX6QLWVAIW&-DUUQ>U559U518UU-8V5%7V4]6VT]7X%%:Y55>Y%EEXV9S
+XMYF]^[7>(\GR.]8&5^H>=_Y&H_YBO_Y*F_9.DX7J'S&5OU'%UVG=XTW%OTG5W
+XMRW6'J5AP>RM'7A(P6Q,T6Q8[6Q<_8!](5Q8_6A9 6Q,\9!I"<R1*<1Y!;AH[
+XM>R-"E3M6@B=!BRY)D310?" ^<!@W>2='@S997!4X71H\5A0QCDE?U(N8PG-W
+XMTGUYRW1JU8!RTGYMT'UNTH-STX=VT8=UT(=WT(IYRX=URX=URX9VRX9VS(9V
+XMS'M[FTQ.J%I>J%YFY:"JV)>FA$-86QPU6QTY71T^81Y"8AU"7A<\6Q W7Q$Y
+XM9AA :QY#8A4Z7A$V91@]:AU :AU ;1] <B1#>RM);Q\]:1DU9A8RBSI4=",]
+XMB3A2CS9/CB@]GC!"KC].O$E5Q4U5RT]4T%%3TU)3UU13V%54V%=8V5I<VUU@
+XMVF!DVF-HV6-HY'!RX7!QY'!RY7!RY&UPXFALW6%FVEQAV5=>WEIAX%IBWU9?
+XMW%%;W5%;XU=AYEUH[&QZ\'2%^'Z1_X::_XF?_XVD_Y*H_Y6K_Z&V_Y.EY'B&
+XMT69OTFIPWG=YW79VT6]UP&I^AC117Q$O7!(R7A4Y6A4[71E!8!](5! Z6Q8^
+XM8!@_:!U$;A]#:18Y:Q<W?RE'F#Y9?R0^DC50C3!,>Q\]>" _<R%!B3Q?718Y
+XM7!@Z5Q4RC$==TXJ5QWA\TWYZS7AMUH%UTGUOT7YOTX1TTX=VT8=UT(=WT(IY
+XMRX9VRX9VRX9VRX9VS(5XET9#JUU:L65HY)RCW)>CFEAJ4Q(K8R-"6AL^7!M 
+XM8A]$9!]%7Q@]6@\V7A$V9!<\:QY#9!<\810Y9AD^:AU :QY!;B!!<R5&>RI*
+XM="1":1DW:!@TAC11=R9 B#=1BC-,B",ZF2L_J3I*N$53PDQ5R4U4SDY2T$]0
+XMT5%/U%%0U%-4U596UUE;UUQ>V%YBUF%CWVMMWFUNXFYPY7%SYG%SY&UPWV5I
+XMW&!EUU==V5=>W%A?VU5=VU);W%-<X59@X5MEXF%NYFEX[W&#]':*\W:+[W6)
+XM['.)ZG.(]8&3YG2%V&EXT6-MTF9MX75[XW=[SFISJE1J<!\_5@DJ7Q4W7Q8\
+XM7AD_8Q]'71Q%51$[7!<_81E :!U";1] 9!,S:1<T@BQ(F$%;?20]ECM5B2Y(
+XM?2$]?B9%;QL\D$%E8!<[6Q<Y6Q<UB$-9T8B3RWV!TX%\T7QQUX)VTG]PT(!P
+XMTX1TU(AWT(=WSHAWSXEYS(=WS(=WS(=WS(=YS89YL6-=L65@W924_;6\G%=E
+XM;2M 8R$^5A4Z6AI#71Q%9"!*9B%)8QM"7A,X8A4X:!L^9QQ!9!E 8Q@]9QQ!
+XM;!]";2!#;R)#<R5&>BQ+=BA':!@V:!@V@C).?"Q(AS=1AB])AB$ZE"<]I#1'
+XMLD!0ODE5QDM4RDQ1S$U/STY/T%!.TE)0U%55UEE8UEM<V%]?UV!AVV=IVFEJ
+XMWVMMXV]QY7!RY&UPX6=KWF)GW5]DVUMAV%A>V5=>W5E@WUEAWEA@W%=AVUIG
+XMX&!NZ&AV[FY^\'""[&Z Z&Q_Y&I]V&!RUV%RVVAVWFUZX&]ZY7=_X')ZQ6!M
+XMC#5/9A<[71 U8!4\7!0[81Q$9B),6A9 7!A 71A 7A<\9QT_;" ^914S:ADS
+XMA"](EC]8@"= ECM3B"U'@25!@BA%;AH[DD-G9!L_718Y71HUA4!4SX:1T(*&
+XMU()]TW]TUX1WTX!ST']RU(5WU(AYT(=WS8=WSHEYS(=YRHAYRHAYS(=YS(=[
+XMSX5[THB"_\/$O'9_<2T_8A\Y92)&71Q%71U)8!Y-9R)0:B1/9Q]&8AD]91L[
+XM;2!!91H_91I!9QQ!:1Y#;2!%;R)%<"-&<21%>"I)>2M*9Q<U:1DW?BY*?R]+
+XMAS=1A"](@Q\ZCR0]G2Y%JCI-MD-1OD=2PTE/QDA+S4Y0SD]/T5)0U%53UUI9
+XMVEU<VV!?V6-@UV1CUV9GW&AJWVMMXVYPXFUOWVAKWF1HX65JWF!EV5M@V5E?
+XMVUMAVUE@UU5<TE):U%5?UE=CVEMGWEYLW6!MW%]NV5ULUEUKTEMHW6=VXW!^
+XMY72!YWB%X')\R5QFK$A9<APZ9!<\8!4\7!(Z6!,[7QE$8AY(614_92%)8!M!
+XM718Y9AP^;2$_9Q<S;1PVAS1-D#M3A"U&D3A/B2Y(ABI&?R5";QL\DT)F:1Y#
+XM718Y8!TX@CU1S82/U(F)TX-[U8%VV(5XTH%TT(%STH9WTXEYT(=XS(=WSHE[
+XMRXEZRXEZRXEZRXA\S8A\UH^&\JRFVY:7<BTW92 T7QLY6Q<_:"938!U/81Y0
+XM9R)2:2-09AY%81@\9!HZ:R%!8!4Z9!E :!U$:R!';"%&;2)';R)%;B%";R-!
+XM>BQ+9QDW:!HX=2A#>BU(A351AC!,?QXZBB [DRA!H3))KCQ-MT%0O$1.OD1*
+XMQ4I,R$I,S$].T%-0U%=4V5Q9W%]<VV)@V&-CUV-GV65IW6EMX6MPX6MPWVEN
+XMWF=LW&5JW&)HVEYEV%QCUUMBU5E@TU=>T55<SE-<S5);S5);S5)=S5)=S%1>
+XMS%-?RU1?VV9PZ'6!X'%^VFUYXG>"TF9TJ4!-C2U 91,S8AA 71,]6! [7!9!
+XM71E#71E#81U':R9.9!]$8!DZ9QT];" ]914Q<!\WCSU4B31,BS5+BC%(C#%+
+XMC#!,>B ]=1\_D#]A;2)'7A<X8R [@#M/S(.-UXR,TX-[U(-WUX9ZTH%UT8)U
+XMTH9XTHEZSH=ZS(=YS(I[RXA\RHE\RHE\RXA\RXA^Y:&;YZ.?>#0X8R K5Q0L
+XM7AL]<"Q65!)!7QQ08AQ19!]191]-81E"7!4X7Q<T9QX[71(W8Q@_:1Y%:R!'
+XM;"%&;"%&;2!#:QY!:1P]>BY,:AP[:1LY;R$_=BE$@S-/AC-0>ATYA!X\C"5!
+XMF2Y'ICA,L#Y/MD%-N$)+OD1*P49(Q$E*RTY-T%-0U5A5V%M8V%U<V&-EUV-G
+XMV65IW&ALX&IOX6MPX&IOWFAMV&)GVV5JW69KVV1IUV!EU5YCUV!EV&)GTEYD
+XMT%QBSEI@SUMATU]EV&1JVFANW&IRXW-Z[H"(V6YYS&-PVW2!Q6)PE3-!?"$W
+XM8Q0X8QM&61$\5A ]81U)71E%6A9 ;"A0;2A.:2)'91T^:2 ]:AX[810M<"$X
+XME$-:@S%&CSE/ABU$C3)*D#5/=APY=R%!CCM><21'7Q<X9R$]?SI.RX*,V(V-
+XMTH)ZU(-WUX9ZTH-VSX-UTH=[THE\S8AZRHAYS(E]RHE\RHE\RHE\RHE^RHE^
+XM_[V]DE!16A<?9",R81XY5Q0X7AI&7AE+7AA-8AQ1:2)5:R539AY'8!D\9!PY
+XM;25"81@\9AQ$:!]%9!M!9QQ!;2)';B1&:B!";B%"<B5&<B9$;" ^:1LY;B ^
+XM=BA&?2M(@R='>A@XAR- EC%*E"M!H31(M$54MD-/N$)+O$5*PTI+S%%2TE=6
+XMU5I9UEE6TUA7W&5HVV5JVV=KW6EMWFINWFINW6EMVV=KV&1HVF9JV6AKUF5H
+XMTV)EUF5HW6QOXW-VWG)VXGA[Y7Q\XWIZY'EZYGM\YGM\XWE\XGM_WWE^T&QU
+XMTW)]TG."GD-3=1LL?RQ%8Q@_6Q5"5Q$^5A(^6Q=#8!Q(8Q])9"!(;2A.8!D\
+XM8QL\9!LX91DV7Q(K:!DPET9=BSE.@BU#DSI/CS1,?R0^@"1 ?B9'AC-6>2Q/
+XM91T\:"(]<"H]P7N$X)65S8!WUXA[S'UPRWYSS8!UT(5YT(E^T(M_RXA\R(=Z
+XMR8A]R(A]R(A]R(A]R(A_L'!W<# X6!<F9",X7QTZ7AM 9"!,7!='6Q9(8!M-
+XM9R!1:")/8QM"7!4X81DX:B)!8!<]91M#9QY$8QI 9!E :1Y#;"%&:B!";!]"
+XM<21%<"1":AX\:!HX;!X\<R5#>2=&@"A)=!@X?B$]CRY*C2A!E2Q"JCY/L4)1
+XMND=3ODE2Q$U2RE!4SE56TE=8U%E8U5I;V6)EV&)GV&1HV65IVV=KW&ALV6AK
+XMV6AKV6ELW&QOW7!RW&]QVFUOVVYPX71VY'I]YH&"YX:&Z(>%YH2"Y()^YX)_
+XMY8!_X'Y\XH&!V'A[T7-\TG>#O&1T@"H^8Q$F=RI%7Q= 5Q5"5!(_6!-!7!A$
+XM81U)9"!*92!(;R=.8QH^:!Y :!PZ9QDW810O:QLUFDMBBSM/@RY$DCQ0D#5+
+XM@B4^@R=#@2E*BC97=2=(91L[9A\Z;B@[PWV&X)B5TH5ZVXQ_R7QQS8!UT(5Y
+XMTXE_THN SHM_RXI]RHE^R(A]R(A]R(A]R(A_R(A_;2T^61DK6QHQ8R$\6A<Y
+XM8!Q$9R-/6Q9$7!5&81M)9R%.:")-8AM 6Q0W8!HX:2)#718[8QM"9AQ$8AA 
+XM7Q8\81@^:!U":R!%:1]!;2-#;B) :!PZ91DW:1T[;R$_<R-!?2E);Q<X=QP\
+XMABI&A"1 A2(ZEC!%I3M.K#Y.M$-0O$=1PDQ3QU!5SU59V%U?W6-GVF-HV6-J
+XMVF1KVF9LW&ANVVEOW6MQW6URVFUQW7%UX7=ZXWE\X'E[X'E[XWQ^XX"!ZHV.
+XM[)&/[)*-Z(R(Z(F$YXB#Y(6 WX!]X82#T75YU'R$T7R*GDQ?8A,J6PXG<BI)
+XM6A9 511#515!6!9#7!I&8AY*9"!*9B%);25,91Q ;")$:Q\]:!HX8Q8Q;Q\[
+XMGU!GC#Q0@S%$E#Y2D#5+A"= ABI&ABM+BS=8<R5&:B! 9!TV;2<ZQ7^&X)B5
+XMTXA\VHZ QGENS(%WTXA^U8N!T8N"S(E_RXI_RHI_QX=^Q8A^Q8A^Q8=_Q8=_
+XM9RA$71T\7AX_7AY!5Q0Y71E!9"!*71E#7QE&9!Y):B5-:B5+8QQ!7!4X8AL\
+XM;29'6Q0Y81E 91M#81<_7!,Y7!,Y9!D^:A]$:!Y ;")$;2!!:!PZ9AHX:1T[
+XM;1\];1\^>2A(;!HZ<!P\@2E(?R5 =ADT@A\WDRU"G#)%ICA(LD%.ND51OTE2
+XMQT]7U%EBW&)HV6%IV&)IV6-JVF1KVV=MW&IPWFYSWW)VV6UQWG1WXGM]YH&"
+XMY8*#Y(&"XX*"XX2#Z)"/Z9*1Z9./YHZ)YXV&Z(V$Y8F#WX-_W(%_SG=YV8*,
+XMR'2#A#5+6@XI91PY;RI/5A9!519$5A=#61E%7AQ(82!)92%)9R)(:B-(9AU!
+XM;R5';!] 9QDX9!8U<R-!HU-MCCY2AC1'E3]3D#5+A"= ARQ&ABM+BC-5=R9(
+XM=BE*91XW;"8WQX&(W962T89ZUXM]PG=KRG]UTHA^TXR#SXF R8A]R(A]R8F 
+XMQ(=]Q(9^Q(9^Q(9^Q(9^>3EB925.6QM$7AU&71Q%6QI!7QM#7QM#8!M!9B%'
+XM;B=,;29+8AL^6Q0W8AL^;B=*7!0[8!A!8QM"81E 7!,Y6A$W8!<[9QY":!Y 
+XM;")$:R%!9QT]:!PZ:Q\];" ^:Q\]="9';!X];QX^?"I)?RE'<A@S;Q(M?ATU
+XMCRI!FC)&J#I,LD!0N4-2OTA5R$];SU=ATUMCU5UEUF!GV&)IV&1JV&AMVVYR
+XMWW-WVG!SW79XX7Y_Y82$YXB'YXB'Y8B'XXB&Y(V,Y9".Y8^+Y8V(Z8^([)&(
+XMZXR'XX>#UGM[TGE^UX*.LV%T;Q\Y8!0R<2A,9B%)5QA$5AI'61I&7!Q(7AY)
+XM8B%*9R-+:B5+9A]$9!L_;B1&:AU 9A@Y9A@Y<R5&I%1PD$%7AS=)ET%3CS1*
+XM@R8_B"U'A2I*AB]1=B5'?S-191PV:B0URH2+VY.0T8A[UHQ\PWANRH!XTHB 
+XMTHN"S(F!R(9^R(A_R(N!Q(9^PX=^PX> PX> PX> =35H82)25A5$7Q]+9R51
+XM8!](7!D^8!U!8!P^9B)$;B=(;"5&8!D\61(U81H];B=,7A8]8!A!8QM"9!Q#
+XM8!8^6Q(X7A4[91Q 9QT_:R%#:R%!:!X^:AX\;2$_;2$_:AX\;B1$<"-$;2!!
+XM=2=&@"Y-=1\]:A K<!,N>ADSAB WE2M I35(L3U/O4=8QU!?SU9DSU=ATUMC
+XMUV%HV6-JV65KVFIOW7!TX'9YVG-UW'=XX'U^Y(6$YHF(YXR*YXR*Y8V,XXZ-
+XMY(^.Y(V,Y8V*ZX^)\)**[8Z)YH>$TW9WU7R!TWR(GTUB8A(N8Q8Y<BA06Q5"
+XM6QQ(61Y+6Q]*7B!*7Q](8B%(:"5*;B9-91Q"8Q@_;2!%9QH]9A<[:1H^=29*
+XMH5-QD$%7B#A*ET%3C31)@R8_BRY)B"Q,ABY/<R%!A#A68ADS:"(SS8>.W)21
+XMU(M^V8]_Q7MQRH!XSH=^SXF S(F!R8F QXJ R8R"PH9]PH9]PH9_PH9_PH9_
+XM82-;71U35Q=+71Q-9B118!](6Q@\8!X]81T[:"1"<2M);BA&81H[61(U8AM 
+XM<"A/81E"8!A!8QM$9AY'9!Q#7A8]7A4[8AD]91L]:!Y :1\_:!X^:Q\];R-!
+XM;B) :!\\:B)!<2E*:B! ;2$_?S%0?"I);14T;A(P; PH=1 I@ADQDR0[I#%'
+XMM3Y3P4E<QU!?R$];SE9@U%YGUV%JUV)KUV=NVFQSW7-XV7)VV7-WVGE[WGZ 
+XMX(6%XXN*Y8V,Y8Z-YY"0YY"0Y8V,Y8J(ZXR)[HZ)Z8F$X8!^TW-VUGF"RG& 
+XMEC]880\O8A,[;R-071=%8"%-7B1.7R-.7R%+7Q](8B%(:B=,<2E091Q"8Q@_
+XM:QY#9AD^:!D_;1Y$>"E/H5-RCT!6B#A(ED)3C31)A2A!D#-.C3%/BC)3=")"
+XMBS]=8ADS9R$RSHB/V9*/U(M^V(Y^Q7MQQWUWQW]YR()[R(5]QH9]Q8=_Q(A_
+XMP85\OX9\OX9^OX9^P85^4AA/72%66AY16!E)7!Q(6QI#6A<[81T_9R!!;BA&
+XM=2U,<BI+9!U 7!4Z91Y#="Q38QM$8!A!8AI#:"!)9Q]&8!@_7A0\8!<]8Q@]
+XM9AP^:!Y 9QT_:QX_;R)#;2!!:1P]:B! ="I*:AT^:1L\@3!2@S%1<QT]<!0R
+XM<A(N=1$L>A0KA!DPDB,ZGR]&J39.KSM/MT12ODQ5QE1=R5AAREEBREQDSF-J
+XMT6EOU6]TTW!TU')VU7AYVX" WH:%XHJ)XXJ+Z9*4Z)&3Y8R-XXB(Y8B'Z(F&
+XMX8)_V'EXT')WT'9_PFIZDSY7910T8!(Z;").92!.8"527R=58"528"%-7Q]*
+XM9"!*:R9.<RM291Y#8AD_9QY"8QD[:1P_<2-$>RU.HU-QC3Y4B#A(E$-3C#9(
+XMABM!DSA0D3=2C3=5>"9%DT5C9ALS:B RT(B/UH^,T(=ZTXAZPW=PPW9SPG=S
+XMPGIUQ'YXQ(!ZPX%ZOX%[PH1^P85^P86 P86 P86 2!9"2QE%4!I%51I'71Y*
+XM8!](81Q$8AA 91I">2M3=2I/=RQ15PXT7Q@]8AM ="]481Q"71A 81E"9AY'
+XM9AY'8!A!8!8^8QI 61 V7Q8Z9QQ!:A]$:R!%:R%#<"-&="=(="9$=BA&=B5%
+XM="%$>"1'@BM/A2I,@25#>ALT>18L>A8J@1LOA1PR@QHRAAPYCB,\D"<UF# Z
+XMHSM%K$1.LDI4N%%;PEQCQV-JRFANSFQRTG)WUG9YUWI\VGZ W8&#X(2&YXZ1
+XMX(F+W(.&VX*#X(6%WH.#UWQ\SG5VQG!TR'5^M&1TB3Q39R [7AHZ7QQ!6!I$
+XM5!U-6B177B)76QM/7QI,:2)3;B53:B)+:"-)8AY 81T]9!XZ9!LW:1TX@S-/
+XMGDYHED==BCQ-D$!0D#]-A3% C#9(E#Y2AS)*?2I%B#50=B4]A#9'S'^(UXZ.
+XMUH^&RX!VQ'-PN&5FLE]@NFEIP7)RP'-ROW=TPGMZPX!^PH& PH& P(& P(.!
+XM4"-)4"!'5"-*82I320LU61=#9!Q'8A9#;B!+@3%;?2]7>RU56@\V7Q8\8AL^
+XM<BU28!M!7!<_8!A!9!Q%9!Q%7Q= 7Q4]8AA 7A4[7Q8\8Q@_:!U$;"%&;B-(
+XM<"-(<"-&;R$_<B(^<1\^<!P_=A]%@2A-B"U/B"M'@"$X@2$TB2<WE#!!FC9*
+XMG#9-H3I8J$%;I4!/K492M$U9ME)=MU->NE9?P%QEQ&)JS&IPT&YTUG1ZV7E\
+XMW'Q_WGZ!X8&$X82&X(>*W(2)VH&$VH&"VH&"UG]_SWAXR'-RO&IMO7!WIUYI
+XM>#)#51,H5!4O92E&;C596BA462986R)482%5:2-8<"98;"-28AQ'9B-(81Y"
+XM7AX]8B [9!TV;"$YA#5,G4QDED==B#Q/D$)1D4)/@S) AS9$DS]0B31*?BE!
+XMA3!)>"8]@S%$TX2.UHN+U8V'QGISN&5DM%U?L%I<LV!AN&9IN6ILNVYOO'%Q
+XMNG-TN71UNG=XNGAYNGM[EVJ/:CM@2!<]318^71])5Q8_61$\9AI%;1]*?C!9
+XM?2]7=2=/6 TR7!,W8AL^;RM-7AD_7!<_7Q= 8AI#8AI#7Q= 7Q4]81<_8AD_
+XM8!<]818]91I!;"%&;R1);2)';!]";B ^;Q\[;!L[:18Y<!D_?"-(B"U/C3!,
+XMBRQ!D3%#GSU+K4I8ME%BNU)HOU5PQ%MSSF=TTFITUFYXU6YXTVQVTFQSU6]V
+XMUG)YSVMRTW!TVG=[WGU_X'^!X8""XH&#XH*%Z(R0YXZ1Z(^2Z9"1YY"/YH^.
+XMXXZ,WXV*Y)65YIV?U8^6K&ETA$15;3%$7B8\41PY6"=+5B5,6"%*6QQ(61=$
+XM7!9$9!Y+;RE48Q]'71Q!7!P]81\\91XY;B(]A#--F4A@ED==B3U0D4-4DD)2
+XM@C$_A31"DS]0C#=-@"M$@"M$?"I!@2]"W(V7T8:&TXN%O7%JJE=6KEA:K5=9
+XMJ597JEA;KV!BL61EL&5EKV9HKVAIL&MMLF]PLW%RRY[#IWB=:3A>,@ D:2Y5
+XM5Q8_5Q(Z:!Y(:!U%>RU5?C!8;B-(61 T7!,W:"%"<R]17AD_71A 8!A!81E"
+XM81E"8!A!81<_8AA 8QI 8AD_8A<^91I!:1Y#;"%&;"%&:R%#<25";R(]:AP[
+XM9Q8X:A4[=1Y"A2I,CS).EC=,HD!0L4Y:OEIEQ5YKQUUPREUTS%]USV-QTF=R
+XMU6IUU&QTTFIRTFIRU&QTU6]TT6MPUG!TW7=[WWQ_X7Z!X'V X'V WWZ VWZ 
+XMVX*#WH6&X(B'X(J&XHZ'YI2-YYF3\*:@]*VJ\["PYZFMV9^EP(F5F6-R<T%3
+XM3B$Y3!X[52% 8B=*9"5+7QM%7AI$92%+71Q%6AD^6AH[7QT\9AX[<"1!A#--
+XME41<ETA?B#Q1D$)3DT-3@C%!@S)"DCY1CCE/A"](?RE%@2Y'A#)%YI>AS(&!
+XMSH: M&IBI%-1K5I;KEM<I514H5)4J%E;JEU>IUI;J5U@J6!BJF)EJV9HJVAI
+XMNHZPRYR_KGVA9C%631(Y4Q0Z8Q]'91U$;2)*?3)9@SA=;B1&7Q<X8!@Y<2I+
+XM?#567AD_7QI"7QI"7QI"81E"8QM$8QM"8QM"81@^8QI 91Q"91Q"91H_9QQ!
+XM:R!%;B1&;R9";B(_:AX\9A@Y:!4Z<1U @RM*DSA2FSU/JDA6NE9?Q%YER5YI
+XMREUKREIMREMKQUIFR5QFS%]IS6)ISF-JSV1KT&5LT&EMT6INUF]QW'5WWWI[
+XMWWI[WGEZW7AYVWAYTG)TTG=WU'EYTWMXU'YXVX=^XY.)Z9Z2ZJ.8[*F?[*ZF
+XM[[6P],"\\L'!WJZQQ9F?F'!Y>D]<7BX_6"$X7!X\7AY!8B%(:"=071Q%6AM!
+XM6AH]7QP^:" _=2E&B#93E4)=F$E@ASM0CC]3D4%3@C%!@C%!D3U0CCE1B#-,
+XM@BQ(AC-,C#I-ZINERG]_R(%XL&9<J5M8M&-CM61DJEM;I%57J%E;J5Q=I5A9
+XMIUM>IUM>IEU@IEU@I%Q?M(BJHG.6J7B<PXZS61Y#5A<]6Q@]81Q";B5+?3)7
+XMACQ>:1]!7A8W714V<2M)>3)37AD_8!M#8!M#7AE!8!A!9!Q%91U$9!Q#8!<]
+XM8QI 91Q"9!M!8Q@]9!D^:R!%<2=):R(^:2 \:1T[:!H[:1@\<1U A2U,F3Y8
+XMG#Y0K4Q7O5E@Q5YBR%QCS%MDSEMIS%MHSV%IT&)JTF1LU6=NUVEPUVMQV&QR
+XMV&QPU&ALUVYNVW)RWG5UW71TVG-SV7)RV'-RV'EXUWIYV'MZUWUXUX%YWXN 
+XMYYB+[*.3[ZJ:\K.C\K>H[+>HZ+>JZ;RRZ<"WZ,"XY;^YRZ6CIGA\?$E672(W
+XM4!$K6!@Y929*71Y$6AM!5Q@\7!D[:") >"Q*BCA5E4)=FDIDA#=.B3I.CS]1
+XM@C!#@C!#CSI0C#=/AS)+@RU)AC-,E4-6Z9JDR7Y^PGMRLFA>M&=DNFMKNFMK
+XMM69FKV!BKE]AK%]@JEU>J%Q?IUM>I5E=HU=;H559QYB[?4YQ>$AIP8ROEEV!
+XM9BE,30PQ9!]$9R!%=BU1@3E:8!@Y6Q,R6! O<2M)=S!17!<]7QM#7AI"7!<_
+XM7!<_8AU%9!]%8QM"81H_81H_81@^81@^8AD]9AU!:R)&;R=(:"$\:!\[:2 ]
+XM:AT^:AD];1H]@2M)ECU6GD!1KTY8P%I>QEI>R5E<SEI@T5MDT%MDS5MCS5UD
+XMSEYET6%FU&1ITV9JTV9JTV9HUFEKV&ULVW!OW'%PVW!OV&]MV&]MUW%NT7!N
+XMTG-PT75QU'ISUH%UVXI]X96$XYV*Y*..Z["9\+ND[;REY[JDY[VJZ\.R[LBV
+XMW[NIZL:W\,2\V:BJL'J#ADI=9"= 3Q(R51H]4A<Z4!,V4Q,V8AL\=2A)AS54
+XMD#U:G$QF@31+@S1*C#Q0@S%$@S%$CCE/B31,@"M$@BQ(@2Y'G4M>Y):=RG]]
+XMOWAOMF]DO'%MO&]NO&]NO7!ONFUNM&=HL61ELV9GKV%EK5]CJ5M@I5=<HE19
+XMP9*UDF&%<C]A<3Q?OH6I>#M>5!,X9R1(8AU"<BM.@#E:7Q<X714T7!0S>#)0
+XM?3976Q8\7AI"71E!614]6Q8^81Q$8QY$8!M!9!U"8!D^710Z7A4[9!L_:B%%
+XM;21(;25&:B,^:2(];"- ;!] 9Q@\:18Y>R5%D#=0H4-4LU%9PEM?Q5I;QU97
+XMS5A:T5I?T5I?SEI@S5MASUUCTF!FUF5HV&AKV&AKV&AKV6IJV6QLVVYNVF]N
+XMV6]KV&YJV&YJV&]KT6]KT7)MU'ARVH!WX(M_Y96%YYV)YZ*,[["8[;2:ZK>;
+XMZ;J?Z;^BZ\*GZ,&GX[ZCZ<>KZ<2KZK^O[K^V\KV^WJ6OIVU_<#=/3A8R2A(R
+XM1@PM2@PL614U;B1$@C!0B#95GDYJ@#-,@#%'BCI.@S%&@S%&C3A0AS)+>B1 
+XM@"I&?"E"H4]BWY&8S(%_O79MNW1IP'5QNF]MNW!NPW9UP71UN&MLM6AIN6QM
+XMM6=KLF1HKU]EJUMAJ%A>MXBK<T)F=T1H;SI?@DQOK7*782)&8B%&9"%%<2U/
+XM>#%28AL\61$R4@HK>3%0="U.7!<]7AI"7AI"6Q<_614]7!A 8QY$9R)(8QQ!
+XM8AM 8!D^8!D^8AD]9AU!:2!$;"1%;RA#;RA!>"],:1P]8!$U:QH^<Q\_C#-,
+XMGD!1L$U8N%%5OE%1RE=6S597SU16U%I>T5M@T%Q@T5UAU&!DU61GUV9IUV9G
+XMUV9GV&EIVFMKW&UKVFYKV6UJV6UJV6UIV&]KU7!MUG9QVWUUWH5ZX8Q^Y96%
+XMZ)Z*Z::-[:Z4ZK&5Y[26YKB8YKN:YKZ>YL"@Y<&@Z,2AZL2DZ\"G[;RL\[^X
+XM^,#"[KC!X*JYB5=K6B<_0@TH3!,O61<T91T\?2].CS]=FDQJ?"]*A#5,@S))
+XM>RD^AC1)AC%)@2Q%A2]+@"I&=B,\MF1WTX6,SX2"O79KP7IOP7ETP7EVP7EV
+XMPG=UP'5UOG-SNW!PNF]ON&INMVEMM65KLV-ILF)HHG.8LX*H<#QC3!<\B5)X
+XMK'.7EEA^7!U!82!%;"E-<2U/8!DZ6Q,T5@XO?#15=B]27AD_7QM#8!Q$7!A 
+XM6A8^7!A 8AU#9B%':"%&9A]$8QQ!81H_8AD]91Q :!]#:B)!<"=!<2A">S)/
+XM;2!!8Q0X;!L_<Q\_BC--G$!2KTY8N%)6OE%3RE=6T%=8SU16U5E>TEQAT5UA
+XMT5UATEYBU&-FUV9IVFEJVVIKV6IJVVQLW&UKVVQJV&QIV&QIVFYJVW%MUW-M
+XMV'AQW7]VWX9[XHU_Y)6%YY^*Z::-ZZZ3Z;&3Y[.4YK>6Y;J8YKV:YKZ;Y[^<
+XMY<"<ZL*?[<&C\,&I]L.V^\? ]L/#[+K W*VXH'!_93-'3A<N5!<P:R5#>RY/
+XM>RU,F$II>BQ*@C),@C%)>RE AS5,AS)+@BQ(@RU+?"9"=B,\NVE\U8>.S(%_
+XMO'5JQ'URPWMVPWMXPWMXPGIWP7AXP'5UOG-SO'%QNV]RNVUQN6MPMV=MMF9L
+XM?4QSGVZ5CEJ"9"]67B=/@DEOOX2K;S%782!%:"5):B5*7A<Z7!4X61(U?C59
+XM=S!38!U"7QY%7QY%71Q#7!A 7!A 8!U"9B%':R9+:21)9!]$8QQ!8AL^8QP_
+XM91Y!:" _<R="="E!@352="9'9Q@\;1H_<AX_BC--FS]3L$]:N5-8OE%3RU=9
+XMT5A9TE19U5E>TEQAT5UCT5UCTU]EU&-FV&=JW6QOX&]RVVQLVVQLVVQLV6IJ
+XMUFIGUVMHVV]LW')NVW=QW'QUWX%XX8A]X8Y_Y)6%YIZ)YZ.-Z:R1YJV1Y;&2
+XMYK24YK>6Y[F8YKN9Y[R:Y;R9ZK^=[\&A\<"F]L*N^LBX^LB^]<?!_M/3Y+B^
+XMLH:0>DA85Q\U6!8Q:2% =2A)E$9G=BA'?R]+@"]'>B@_AC1+B#-,@RU)@"I(
+XM=!XZ=B,\Q'*%UXF0QGMYNG-HR8)WQ7]YQ7Y[Q7Y[Q'UZPGMZP7AXOW9VOG5U
+XMOG5WOW-VO7%UO&YSNFQQ9S5?52--HV^9F66-2A0]9"U5G6.,HVB/9"5+8R)'
+XM9"%&610Y7A<\6Q0Y?S9<=2Y38R!%8!]&82!'8!]&7AI"7!A 7QQ!92)';BE.
+XM:R9+9B%&8AU"8AL^9!U 9R!#:B)!="= >BI$B3E7?2Q.;1Q ;!D^<1T^BS10
+XMF3U3L$Y<NE1;OE%5RU=9TUE=U%9;U%A?SUE@T%QBTU]EUF)HUV5KVFELWFUP
+XMX7!SW6UPW&UMVFMKV&EIU6AHUVMHVV]LWG1PWWMUWW]XXH1[XHE^XH^"XY2$
+XMY9V*YJ*,YJF0Y:J1Y*Z1Y;&3YK.5Z+:6Y[B7Z+F8Y[F9Z[V=[[^@\;ZB\;ZD
+XM\<"I],2Q\\>WZ\2X^M3.\<K*PI:>@U!@61PT614S<RE+C4!C<2-">BI&?"M%
+XM=R0]A#%*AC%*@BQ(?"9$;!8R=B,\S'J-V(J1P79TNG-HS89[QH!ZQG]\Q7Y[
+XMQ'UZPWQ[P7IYP'EXP'=WPGE[P'=YOG5XO'-VNW)U<3]K/PTYA5!]M8&K<3MF
+XM<#EB:S%;S9&[9RE18R1*8AY&610Z7Q<^6Q,Z?#):="I29"!(8!]&82!'8B%(
+XM7AU$61@_7AM 92)';"E-:29*92!%8AU"81T_8Q]!:2)%;B1$>"A"?2Q$CCQ;
+XM@S!3<!U$:Q@_;QL^C#13ECM3KU!?NU1>O5%7RU=;TUQAU59>U%AARE1;S5MC
+XMU&)JV6=OVVEOW&IPW&QQW6URW6UPVFUOV&MMU6AJU&=GU6IIVF]NWG5SX7UW
+XMX8%ZXX5]XXF XHZ#XY2&Y)N+Y*",YJ:1Y*F2Y*N3Y*Z3YK"5Z+*5Z;.6Z;67
+XMZ[B>[;J@\;RA\;RA[[N=[KN?[L*D\LFNZL>N\]&_]]/*[<;&PY2??$1:5Q@T
+XM9R!#ASI=:QT^=25#=R9 ="$Z@2Y'A"Y*@"I&>B1"9Q$M=R0]T7^2UHB/OG-Q
+XMNW1IS89[QH!ZQ(!\PW][P7UYP'QZOWMYOWMYP7IYPGM\P'EZOG9YO'1WN71V
+X 
+Xend
+END_OF_FILE
+  if test 33672 -ne `wc -c <'timg.ppm.UU.B'`; then
+    echo shar: \"'timg.ppm.UU.B'\" unpacked with wrong size!
+  elif test -f 'timg.ppm.UU.A'; then
+    echo shar: Combining  \"'testimg.ppm.U'\" \(64632 characters\)
+    cat 'timg.ppm.UU.A' 'timg.ppm.UU.B' > 'testimg.ppm.U'
+    if test 64632 -ne `wc -c <'testimg.ppm.U'`; then
+      echo shar: \"'testimg.ppm.U'\" combined with wrong size!
+    else
+      rm timg.ppm.UU.A timg.ppm.UU.B
+      if test 64632 -ne `wc -c <'testimg.ppm.U'`; then
+         echo shar: \"'testimg.ppm.U'\" unpacked with wrong size!
+      else
+         echo shar: Uudecoding \"'testimg.ppm'\" \(46890 characters\)
+         cat testimg.ppm.U | uudecode
+         if test 46890 -ne `wc -c <'testimg.ppm'`; then
+           echo shar: \"'testimg.ppm'\" uudecoded with wrong size!
+         else
+           rm testimg.ppm.U
+         fi
+       fi
+       # end of 'testimg.ppm.U'
+    fi
+  fi
+  # end of 'timg.ppm.UU.B'
+fi
+echo shar: End of archive 7 \(of 18\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

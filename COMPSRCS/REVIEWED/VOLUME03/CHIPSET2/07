@@ -1,0 +1,1012 @@
+From decwrl!athertn!sander.cupertino.ca.us!paul@cs.purdue.edu Wed Jan  6 13:53:34 EST 1993
+Submit chipset-2 07/10 
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 7 (of 10)."
+# Contents:  Makefile src/btree/btree.man
+# Wrapped by paul@sander on Sun Nov 22 15:41:53 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f Makefile -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"Makefile\"
+else
+echo shar: Extracting \"Makefile\" \(12140 characters\)
+sed "s/^X//" >Makefile <<'END_OF_Makefile'
+X# This is the Makefile for the Software ChipSet.  Edit this as needed
+X# for your system.  This makefile works properly with brain-dead SVR2
+X# make, so it should work with your tool, too.
+X#
+X# The "all" target installs all of the components in a single library
+X# rooted in this directory.  The "install" target installs that library
+X# and the include files and documents in an appropriate place.
+X#
+X# This file is part of a suite of programs called Software Chipset.
+X# The source code for Software Chipset has been released into the
+X# public domain by its author, Paul Sander.
+X
+Xinclude common.mk
+X
+X# This rule verifies that all of the Software ChipSet's files have unpacked
+X# correctly.
+X
+Xverify:
+X	ok=1;								\
+X	if [ ! -f MANIFEST ];						\
+X	then								\
+X		echo MANIFEST file missing from top-level directory;	\
+X		ok=0;							\
+X	elif [ ! -d src ];						\
+X	then								\
+X		echo There is no source code for the components;	\
+X		echo Source code belongs in directories contained in;	\
+X		echo the directory '"./src"';				\
+X		ok=0;							\
+X	else								\
+X		cd src;							\
+X		for x in `/bin/ls`;					\
+X		do							\
+X			if [ "$$x" = "CVS" ];				\
+X			then						\
+X				continue;				\
+X			fi;						\
+X			echo Checking ./src/$$x;			\
+X			if [ -d $$x ];					\
+X			then						\
+X				cd $$x;					\
+X				if [ ! -f MANIFEST ];			\
+X				then					\
+X					echo MANIFEST missing from ./src/$$x;\
+X					ok=0;				\
+X				else					\
+X					thisOk=1;			\
+X					for y in `cat MANIFEST`;	\
+X					do				\
+X						if [ ! -f $$y ];	\
+X						then			\
+X							echo $$y missing from ./src/$$x;\
+X							thisOk=0;	\
+X						fi;			\
+X					done;				\
+X					if [ $$thisOk = 0 ];		\
+X					then				\
+X						ok=0;			\
+X					fi;				\
+X				fi;					\
+X				cd ..;					\
+X			fi;						\
+X		done;							\
+X	fi;								\
+X	if [ "$$ok" = 0 ];						\
+X	then								\
+X		echo Failed to verify installation;			\
+X		false;							\
+X	else								\
+X		echo Installation is okay;				\
+X	fi;								\
+X
+X# This rule builds the staging area rooted in the present working directory.
+X
+Xprep:
+X	echo '*** Prepping ***'
+X	if [ ! -d $(STAGE) ];						\
+X	then								\
+X		echo The $(STAGE) directory does not exist.  Please;	\
+X		echo create it.;					\
+X		/bin/false;						\
+X	else								\
+X		for x in $(STAGEINC) $(STAGELIB) $(STAGEMAN)	 	\
+X		         $(STAGEMAN)/man3 $(STAGETMP);			\
+X		do							\
+X			if [ ! -d "$$x" ];				\
+X			then						\
+X				mkdir $$x;				\
+X			fi;						\
+X		done;							\
+X	fi
+X
+X# This rule makes the "installInclude," "installLib," and "installDocs"
+X# targets in each of the source directories, forcing their ROOT macros
+X# to point to here.  Thus, installed under this directory are the
+X# include files first (since some components may depend on others),
+X# then the libraries and documentation.  Finally, the libchipset.a
+X# library is built.
+X
+Xall: prep
+X	root=$(STAGE);							\
+X	incdir=$(STAGEINC);						\
+X	libdir=$(STAGELIB);						\
+X	mandir=$(STAGEMAN)/man3;					\
+X	for t in installInclude installLib installDocs;			\
+X	do								\
+X		for x in $(COMPONENTS);					\
+X		do							\
+X			if [ -f "src/$$x/Makefile" ];			\
+X			then						\
+X				echo '***' Building $$x $$t '***';	\
+X				( cd src/$$x && make $$t ROOT=$$root	\
+X					INCDIR=$$incdir			\
+X					LIBDIR=$$libdir			\
+X					MANDIR=$$mandir			\
+X				);					\
+X				echo;					\
+X			else						\
+X				echo '***' No Makefile in $$x '***';	\
+X			fi;						\
+X		done;							\
+X	done
+X	echo '***' Building libchipset.a library '***'
+X	rm -rf $(STAGETMP)/*
+X	stagelib=$(STAGELIB);						\
+X	cd $(STAGETMP);							\
+X	for x in $$stagelib/*.a;					\
+X	do								\
+X		if [ "$$x" != "$$stagelib/libchipset.a" ];		\
+X		then							\
+X			echo '***' Processing $$x '***';		\
+X			ar x $$x;					\
+X			ar r $$stagelib/libchipset.a *.o;		\
+X			rm *.o;						\
+X		fi;							\
+X	done
+X	if [ -x $(RANLIB) ]; then $(RANLIB) $(STAGELIB)/libchipset.a; fi
+X
+X# This rule installs the manpages.  It scans the man directory, and
+X# makes sure a corresponding one exists in the install tree.  Then
+X# it copies all of the manpages it finds into the install tree, one
+X# directory at a time.
+X
+XinstallDocs:
+X	if [ ! -d $(DESTMAN) ];						\
+X	then								\
+X		echo $(DESTMAN) does not exist.  Please create it.;	\
+X		false;							\
+X	fi
+X	echo '***' Installing manpages '***'
+X	cd $(STAGEMAN);							\
+X	for sec in *;							\
+X	do								\
+X		if [ -d $$sec -a -d $(DESTMAN)/$$sec ];			\
+X		then							\
+X		(							\
+X			cd $$sec;					\
+X			for f in *;					\
+X			do						\
+X				if [ -f $$f ];				\
+X				then					\
+X					cp $$f $(DESTMAN)/$$sec/$$f;	\
+X					chmod 644 $(DESTMAN)/$$sec/$$f;	\
+X				fi;					\
+X			done;						\
+X		);							\
+X		else							\
+X			echo $(DESTMAN)/$$sec does not exist.;		\
+X			echo Please create it.;				\
+X			false;						\
+X			break;						\
+X		fi;							\
+X	done;
+X
+X# This rule copies all of the include files into the install tree.
+X
+XinstallInclude:
+X	if [ ! -d $(DESTINC) ];						\
+X	then								\
+X		echo $(DESTINC) does not exist.  Please create it.;	\
+X		false;							\
+X	fi
+X	echo '***' Installing include files '***'
+X	cd $(STAGEINC);							\
+X	for x in *;							\
+X	do								\
+X		if [ -f $$x ];						\
+X		then							\
+X			cp $$x $(DESTINC);				\
+X			chmod 644 $(DESTINC)/$$x;			\
+X		fi;							\
+X	done
+X
+X# This rule copies the libchipset.a file to the install tree, and
+X# ranlibs it if necessary.
+X
+XinstallLib:
+X	if [ ! -d $(DESTLIB) ];						\
+X	then								\
+X		echo $(DESTLIB) does not exist.  Please create it.;	\
+X		false;							\
+X	fi
+X	echo '***' Installing library '***'
+X	cp $(STAGELIB)/libchipset.a $(DESTLIB)
+X	if [ -x $(RANLIB) ]; then $(RANLIB) $(DESTLIB)/libchipset.a; fi
+X	chmod 644 $(DESTLIB)/libchipset.a
+X
+X# This rule installs public header files, libchipset.a, and the manpages.
+X
+Xinstall: all installDocs installInclude installLib
+X	echo '***' Installation complete '***'
+X
+X# This rule builds and runs the self-tests for each component.
+X
+Xtest: all
+X	if [ ! -d $(STAGETMP) ];					\
+X	then								\
+X		mkdir $(STAGETMP);					\
+X	fi;								\
+X	rm -f $(STAGETMP)/test.out;					\
+X	touch $(STAGETMP)/test.out;					\
+X	for x in $(COMPONENTS);						\
+X	do								\
+X	(								\
+X		if [ ! -f src/$$x/Makefile ];				\
+X		then							\
+X			continue;					\
+X		fi;							\
+X		echo "Testing $$x:";					\
+X		echo "Testing $$x:" >> $(STAGETMP)/test.out;		\
+X		cd src/$$x;						\
+X		make test ROOT=$(STAGE) INCDIR=$(STAGEINC)		\
+X			LIBDIR=$(STAGELIB) MANDIR=$(STAGEMAN);		\
+X		if [ "$$?" -ne 0 ];					\
+X		then							\
+X			echo "FAILED to build test" >> $(STAGETMP)/test.out;\
+X			echo "FAILED to build test";			\
+X			false;						\
+X			break;						\
+X		else							\
+X			./test >> $(STAGETMP)/test.out;			\
+X			if [ "$$?" -ne 0 ];				\
+X			then						\
+X				echo "FAILED test";			\
+X				false;					\
+X				break;					\
+X			else						\
+X				echo "PASSED test";			\
+X			fi;						\
+X		fi;							\
+X	);								\
+X	done;								\
+X	if [ "$$?" -ne 0 ];						\
+X	then								\
+X		echo "---- FAILED ----";				\
+X	else								\
+X		echo "---- PASSED ----";				\
+X	fi
+X
+X# This rule cleans intermediate files by cleaning the staging area
+X# and doing a "make clean" in all of the component source directories.
+X
+Xclean:
+X	if [ -d $(STAGELIB) ];						\
+X	then								\
+X		cd $(STAGELIB);						\
+X		> /dev/null 2>&1 files=* /bin/true;			\
+X		if [ "$$files" != "" ];					\
+X		then							\
+X			for x in $$files;				\
+X			do						\
+X				if [ "$$x" != "libchipset.a" ];		\
+X				then					\
+X					rm $$x;				\
+X				fi;					\
+X			done;						\
+X		fi;							\
+X	fi
+X	for x in $(COMPONENTS);						\
+X	do								\
+X		if [ -d src/$$x -a -f src/$$x/Makefile ];		\
+X		then							\
+X			echo '***' Cleaning $$x '***';			\
+X			( cd src/$$x && make clean );			\
+X		fi;							\
+X	done
+X	rm -rf $(STAGETMP)
+X
+X# This rule attempts to return to pristine sources by removing all
+X# installed files from the staging area, and doing a "make spotless"
+X# in each of the component source directories.
+X
+Xspotless clobber realclean veryclean:
+X	rm -rf $(STAGEINC) $(STAGELIB) $(STAGETMP) $(STAGEMAN) $(STAGEINST)
+X	rm -rf $(STAGE)
+X	rm temp
+X	for x in $(COMPONENTS);						\
+X	do								\
+X		if [ -d src/$$x -a -f src/$$x/Makefile ];		\
+X		then							\
+X			echo '***' Scrubbing $$x '***';			\
+X			( cd src/$$x && make spotless );		\
+X		fi;							\
+X	done
+X
+XMANIFEST: clobber
+X	find . -type f -print |						\
+X		sed -e 's/^\.\///' -e /CVS/d -e /header/d |		\
+X		sort > MANIFEST
+X	for x in $(COMPONENTS);						\
+X	do								\
+X		echo Processing $$x;					\
+X		( cd src/$$x && make MANIFEST );			\
+X	done
+X
+X# This rule builds a shar file using Rich $alz's shar implementation.
+X
+Xshar:
+X	for x in $(STAGETMP) $(STAGEINST);				\
+X	do								\
+X		if [ ! -d $$x ];					\
+X		then							\
+X			mkdir $$x;					\
+X		fi;							\
+X	done
+X	cp MANIFEST $(STAGETMP)/MANIFEST
+X	echo src >> $(STAGETMP)/MANIFEST
+X	for x in $(COMPONENTS);						\
+X	do								\
+X		if [ -f src/$$x/Makefile -a -f src/$$x/MANIFEST ];	\
+X		then							\
+X			echo src/$$x >> $(STAGETMP)/MANIFEST;		\
+X		fi;							\
+X	done
+X	for x in $(COMPONENTS);						\
+X	do								\
+X		if [ -f src/$$x/Makefile -a -f src/$$x/MANIFEST ];	\
+X		then							\
+X			echo "Processing $$x";				\
+X			sed -e "s/^/src\/$$x\//g" src/$$x/MANIFEST	\
+X				>> $(STAGETMP)/MANIFEST;		\
+X		fi;							\
+X	done
+X	makekit -n$(STAGEINST)/ChipSet.part -s30k 			\
+X		"-tNow edit common.mk and do a 'make all'"		\
+X		< $(STAGETMP)/MANIFEST
+X	rm $(STAGETMP)/MANIFEST
+X
+X# This rule builds a portable cpio archive.
+X
+Xcpio:
+X	for x in $(STAGETMP) $(STAGEINST);				\
+X	do								\
+X		if [ ! -d $$x ];					\
+X		then							\
+X			mkdir $$x;					\
+X		fi;							\
+X	done
+X	cp MANIFEST $(STAGETMP)/MANIFEST
+X	for x in $(COMPONENTS);						\
+X	do								\
+X		if [ -f src/$$x/Makefile -a -f src/$$x/MANIFEST ];	\
+X		then							\
+X			echo "Processing $$x";				\
+X			sed -e "s/^/src\/$$x\//g" src/$$x/MANIFEST	\
+X				>> $(STAGETMP)/MANIFEST;		\
+X		fi;							\
+X	done
+X	cpio -ocv < $(STAGETMP)/MANIFEST | compress 			\
+X		> $(STAGEINST)/ChipSet.cpio.Z
+X	rm $(STAGETMP)/MANIFEST
+X
+X# This rule builds a tar archive.
+X
+Xtar:
+X	for x in $(STAGETMP) $(STAGETMP)/ChipSet			\
+X		 $(STAGETMP)/ChipSet/src $(STAGEINST);			\
+X	do								\
+X		if [ ! -d $$x ];					\
+X		then							\
+X			mkdir $$x;					\
+X		fi;							\
+X	done
+X	cp MANIFEST $(STAGETMP)/MANIFEST
+X	for x in $(COMPONENTS);						\
+X	do								\
+X		if [ -f src/$$x/Makefile -a -f src/$$x/MANIFEST ];	\
+X		then							\
+X			echo "Processing $$x";				\
+X			sed -e "s/^/src\/$$x\//g" src/$$x/MANIFEST	\
+X				>> $(STAGETMP)/MANIFEST;		\
+X			mkdir $(STAGETMP)/ChipSet/src/$$x;		\
+X		fi;							\
+X	done
+X	(								\
+X		read x;							\
+X		while [ "$$x" != "" ];					\
+X		do							\
+X			echo Linking $$x;				\
+X			ln $$x $(STAGETMP)/ChipSet/$$x;			\
+X			read x;						\
+X		done;							\
+X		/bin/true;						\
+X	) < $(STAGETMP)/MANIFEST
+X	( cd $(STAGETMP)/ChipSet; tar cf - . ) | compress 		\
+X		> $(STAGEINST)/ChipSet.tar.Z
+X	rm -rf $(STAGETMP)/MANIFEST $(STAGETMP)/ChipSet
+X
+X# This rule builds a zip archive.
+X
+Xzip:
+X	for x in $(STAGETMP) $(STAGETMP)/ChipSet 			\
+X		 $(STAGETMP)/ChipSet/src $(STAGEINST);			\
+X	do								\
+X		if [ ! -d $$x ];					\
+X		then							\
+X			mkdir $$x;					\
+X		fi;							\
+X	done
+X	cp MANIFEST $(STAGETMP)/MANIFEST
+X	for x in $(COMPONENTS);						\
+X	do								\
+X		if [ -f src/$$x/Makefile -a -f src/$$x/MANIFEST ];	\
+X		then							\
+X			echo "Processing $$x";				\
+X			sed -e "s/^/src\/$$x\//g" src/$$x/MANIFEST	\
+X				>> $(STAGETMP)/MANIFEST;		\
+X			mkdir $(STAGETMP)/ChipSet/src/$$x;		\
+X		fi;							\
+X	done
+X	(								\
+X		read x;							\
+X		while [ "$$x" != "" ];					\
+X		do							\
+X			echo Linking $$x;				\
+X			ln $$x $(STAGETMP)/ChipSet/$$x;			\
+X			read x;						\
+X		done;							\
+X		/bin/true;						\
+X	) < $(STAGETMP)/MANIFEST
+X	rm -f $(STAGEINST)/ChipSet.zip
+X	echo Software ChipSet |						\
+X		( cd $(STAGETMP)/ChipSet;				\
+X		  NOZIP=":" zip -rnsz $(STAGEINST)/ChipSet.zip . )
+X	rm -rf $(STAGETMP)/MANIFEST $(STAGETMP)/ChipSet
+X
+X# This rule builds arc archives for each component plus the scaffolding.
+X# This remains undocumented because the archive files are cumbersome to
+X# unpack, and because the unpacked source files are not suitable for
+X# compilation on Unix systems.
+X
+Xarc:
+X	if [ ! -d $(STAGEINST) ]; then mkdir $(STAGEINST); fi
+X	rm -f $(STAGEINST)/*.arc
+X	arc ais $(STAGEINST)/ChipSet.arc `cat MANIFEST`
+X	for x in $(COMPONENTS);						\
+X	do								\
+X		if [ -f src/$$x/Makefile -a -f src/$$x/MANIFEST ];	\
+X		then							\
+X		(							\
+X			cd src/$$x;					\
+X			arc ais $(STAGEINST)/$$x.arc `cat MANIFEST`;	\
+X		);							\
+X		fi;							\
+X	done
+X
+X### End of file ###
+X
+END_OF_Makefile
+if test 12140 -ne `wc -c <Makefile`; then
+    echo shar: \"Makefile\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btree.man -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btree.man\"
+else
+echo shar: Extracting \"src/btree/btree.man\" \(10900 characters\)
+sed "s/^X//" >src/btree/btree.man <<'END_OF_src/btree/btree.man'
+X.TH BTREE
+X.SH NAME
+Xbt_dump, bt_search, bt_setup, bt_freeSetup, bt_new, bt_destroy, bt_insert,
+Xbt_traverse, bt_delete, bt_rank, bt_delRank, bt_data, bt_setData -
+XIn-memory B-tree manipulation
+X.SH SYNOPSIS
+X#include <btree.h>
+X.sp
+X#ifdef __STDC__
+X.sp
+XBT_SETUP bt_setup(int order, int (*comp)(void*,void*), void *data)
+X.sp
+Xvoid bt_freeSetup(BT_SETUP setup)
+X.sp
+XBTREE bt_new(BT_SETUP setup)
+X.sp
+Xvoid bt_destroy(BTREE tree, void (*free_key)(void*,void*),
+Xvoid (*free_data)(void*,void*), void *info)
+X.sp
+Xint bt_insert(BTREE tree, void *key, void *data)
+X.sp
+Xvoid	*bt_delete(BTREE tree, void *key, void **data)
+X.sp
+Xvoid *bt_search(BTREE tree, void *target, void **data)
+X.sp
+Xvoid bt_traverse(BTREE tree, void (*fn)(void*,void*,void*), void *parms)
+X.sp
+Xvoid bt_dump(BTREE tree, void (*key_dump)(void*,void*,void*), void *info)
+X.sp
+Xvoid *bt_first(BTREE tree, void **data)
+X.sp
+Xvoid *bt_last(BTREE tree, void **data)
+X.sp
+Xvoid *bt_next(BTREE tree, void **data)
+X.sp
+Xvoid *bt_prev(BTREE tree, void **data)
+X.sp
+Xvoid *bt_rank(BTREE tree, int rank, void **data)
+X.sp
+Xvoid *bt_delRank(BTREE tree, int rank, void **data)
+X.sp
+Xvoid *bt_data(BTREE tree)
+X.sp
+Xvoid bt_setData(BTREE tree, void *data)
+X.sp
+X#else
+X.sp
+XBT_SETUP bt_setup(order,comp,data)
+X.br
+Xint	order;
+X.br
+Xint	(*comp)();
+X.br
+Xvoid	*data;
+X.sp
+Xvoid bt_freeSetup(setup)
+X.br
+XBT_SETUP	setup;
+X.sp
+XBTREE bt_new(setup)
+X.br
+XBT_SETUP	setup;
+X.sp
+Xvoid bt_destroy(tree,free_key,free_data,info)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	(*free_key)();
+X.br
+Xvoid	(*free_data)();
+X.br
+Xvoid	*info;
+X.sp
+Xint bt_insert(tree,key,data)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	*key;
+X.br
+Xvoid	*data;
+X.sp
+Xvoid	*bt_delete(tree,key,data)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	*key;
+X.br
+Xvoid	**data;
+X.sp
+Xvoid *bt_search(tree,target,data)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	*target;
+X.br
+Xvoid	**data;
+X.sp
+Xvoid bt_traverse(tree,fn,parms)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	(*fn)();
+X.br
+Xvoid	*parms;
+X.sp
+Xvoid bt_dump(tree,key_dump,info)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	(*key_dump)();
+X.br
+Xvoid	*info;
+X.sp
+Xvoid *bt_first(tree,data)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	**data;
+X.sp
+Xvoid *bt_last(tree,data)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	**data;
+X.sp
+Xvoid *bt_next(tree,data)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	**data;
+X.sp
+Xvoid *bt_prev(tree,data)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	**data;
+X.sp
+Xvoid *bt_rank(tree,rank,data)
+X.br
+XBTREE	tree;
+X.br
+Xint	rank;
+X.br
+Xvoid	**data;
+X.sp
+Xvoid *bt_delRank(tree,rank,data)
+X.br
+XBTREE	tree;
+X.br
+Xint	rank;
+X.br
+Xvoid	**data;
+X.sp
+Xvoid *bt_data(tree)
+X.br
+XBTREE	tree;
+X.sp
+Xvoid bt_setData(tree,data)
+X.br
+XBTREE	tree;
+X.br
+Xvoid	*data;
+X.sp
+X#endif
+X.SH DESCRIPTION
+XThese functions implement an in-memory B-tree data structure.  The tree
+Xitself stores only pointers to the client's data, and relies on
+Xclient-provided functions for any comparisons and storage deallocation.
+X.sp
+X.B bt_setup
+Xbuilds a setup structure before a B-tree can be created, or NULL if an
+Xerror occurs.  The setup structure is a magic
+Xcookie that can be used to set up many B-trees.  It must be freed by calling
+X.BR bt_freeSetup .
+XThe client specifies the desired order (the maximum
+Xnumber of children allowed each node) of the tree to be set up
+X(for performance trade-offs based on the efficiency of comparisons of
+Xclient-provided data), an optional pointer to a user-defined structure that
+Xis stored once with the tree, and a pointer to a function that compares two
+Xclient-provided data structures.  The comparison function, 
+X.BR comp ,
+Xhas the following interface:
+X.RS
+X.B
+Xint comp(k1,k2)
+X.br
+X.B
+Xvoid *k1,*k2;
+X.RE
+XThe result of this function is -1 if the object pointed to by k1 is "less than"
+Xthe object pointed to by k2, 0 if they are "equal", and 1 otherwise.
+XClient-provided data structures that
+Xcompare greater by this function will appear later in the lexical order
+Xof the data stored in the tree.
+XThe client may also specify the initial value of the data returned by
+X.B bt_getData
+Xafter a tree is instantiated.
+X.sp
+X.B bt_freeSetup
+Xfrees the setup structure created by
+X.BR bt_setup .
+XIt can be called any time after
+X.B bt_new
+Xis called.  B-trees do not require their setup structures to exist after they
+Xare created.  The user-defined structure (pointed to by
+X.B data
+Xwhen
+X.B bt_setup
+Xis called) is not affected in any way.
+X.sp
+X.B bt_new
+Xcreates a new B-tree.  Given a BT_SETUP setup structure,
+X.B bt_new
+Xreturns a pointer to a handle for the B-tree, or NULL if an error occurs.
+X.sp
+X.B bt_destroy
+Xdeallocates all storage allocated to a B-tree.  The client provides a pointer
+Xto two visitation functions that are each called once for each item stored in
+Xthe tree.  The items are visited in arbitrary order.  If
+XNULL is passed instead of a pointer to a function, no action is taken for
+Xthe client-provided data or key, but the tree structure itself is freed.
+XThe
+X.B free_key
+Xand
+X.B free_data
+Xparameters specify functions that free the keys and data stored in the tree.
+XThe
+X.B free_data
+Xfunction is always called before the
+X.B free_key
+Xfunction.  The
+X.B info
+Xparameter is always passed to both functions without modification.
+XThe interfaces for these functions follow:
+X.sp
+X	void freeThis(keyOrData,info)
+X.br
+X	void	*keyOrData;
+X.br
+X	void	*info;
+X.sp
+X.B bt_insert
+Xinserts a new item into the tree.  1 is returned if the insertion was
+Xsuccessful, -1 is returned if the new item matches another item that has
+Xalready been inserted into the tree, and 0 is returned in the event of an
+Xerror.  The
+X.B data
+Xparameter is a pointer to a user-defined data structure that is stored with
+Xthe key, and can be retrieved by any access or deletion function.
+X.sp
+X.B bt_delete
+Xdeletes an item from a tree.  The value returned is the same as that passed
+Xto
+X.B bt_insert
+Xwhen the item was inserted, or NULL if the item is not found.  The
+X.B data
+Xparameter returns the pointer stored with the key when
+X.B bt_insert
+Xwas called, or is undefined when the key is not found.
+X.sp
+X.B bt_search
+Xsearches for an item in a tree.  The value returned is the same as that passed
+Xto
+X.B bt_insert
+Xwhen the item was inserted, or NULL if the item is not found.  The
+X.B data
+Xparameter returns the pointer stored with the key when
+X.B bt_insert
+Xwas called, or is undefined if the key is not found.
+X.sp
+X.B bt_traverse
+Xtraverses the tree, calling a client-provided visitation function
+X.B fn
+Xonce for each item stored there.
+X.B fn
+Xhas the following interface:
+X.RS
+X.B
+Xvoid fn(item,parms,data)
+X.br
+X.B
+Xvoid *item;
+X.B
+X.br
+X.B
+Xvoid *parms;
+X.br
+X.B
+Xvoid *data;
+X.RE
+X.B item
+Xis the pointer stored when the item was inserted into the tree.
+X.B parms
+Xis an arbitrary pointer that the client wishes to pass to the visitation
+Xfunction, but is otherwise unused by the B-tree implementation.
+X.B data
+Xis a pointer to a user-defined structure that is stored with the key when
+X.B bt_insert
+Xis called.
+XItems are visited in their lexical order.
+X.sp
+X.B bt_dump
+Xdisplays the contents of the tree to stdout, along with some diagnostic and
+Xstatistical information.  The
+X.B key_dump
+Xfunction is called once for each item in the tree, in arbitrary order.  It
+Xmay be NULL if no action is desired.  Its interface follows:
+X.RS
+X.B
+Xvoid key_dump(key,data,info)
+X.br
+X.B
+Xvoid *key;
+X.br
+X.B
+Xvoid *data;
+X.br
+X.B
+Xvoid *info;
+X.RE
+XWhere
+X.B key
+Xis a key stored in the B-tree,
+X.B data
+Xis the user-defined pointer stored with the key at the time
+X.B bt_insert
+Xwas called, and
+X.B info
+Xis arbitrary data passed to the bt_dump function as the
+X.B info
+Xparameter.
+X.sp
+X.B bt_first
+Xreturns the item that falls earliest in the lexical order of the items
+Xstored in the tree, or NULL if the tree is empty.  The user-defined pointer
+Xstored with the key is also returned in the
+X.B data
+Xparameter.
+X.sp
+X.B bt_last
+Xreturns the item that falls latest in the lexical order of the items
+Xstored in the tree, or NULL if the tree is empty.  The user-defined pointer
+Xstored with the key is also returned in the
+X.B data
+Xparameter.
+X.sp
+X.B bt_next
+Xreturns the next item higher in the lexical order after the last key
+Xreturned by
+X.BR bt_first ,
+X.BR bt_next ,
+X.BR bt_prev ,
+X.BR bt_rank ,
+Xor
+X.BR bt_search .
+XIf
+X.B bt_search
+Xfailed to find an item,
+X.B bt_next
+Xreturns the next item higher in the
+Xlexical order that was stored in the tree.  NULL is returned if
+Xthe last call to
+X.B bt_next
+Xreturned the item falling highest in the
+Xlexical order of the items stored in the tree, or if the tree was
+Xmodified since the last call to
+X.B bt_next
+Xor
+X.BR bt_prev .
+XIf a key is found, the user-defined pointer stored with the key is also returned
+Xin the
+X.B data
+Xparameter.
+X.sp
+X.B bt_prev
+Xreturns the next item lower in the lexical order after the last key
+Xreturned by
+X.BR bt_last ,
+X.BR bt_next ,
+X.b bt_prev ,
+X.b bt_rank ,
+Xor
+X.BR bt_search .
+XIf
+X.B bt_search
+Xfailed to find an item,
+X.B bt_prev
+Xreturns the next item lower in the
+Xlexical order that was stored in the tree.  NULL is returned if
+Xthe last call to
+X.B bt_prev
+Xreturned the item falling lowest in the
+Xlexical order of the items stored in the tree, or if the tree was
+Xmodified since the last call to
+X.B bt_next
+Xor
+X.BR bt_prev .
+XIf a key is found, the user-defined pointer stored with the key is also returned
+Xin the
+X.B data
+Xparameter.
+X.sp
+X.B bt_rank
+Xreturns the key in the B-tree that falls in the
+X.BR rank th
+Xposition in the lexical order of all keys stored in the tree.
+XThe
+X.B rank
+Xparameter is zero-based.
+XNULL is returned if the specified rank is less than 0 or greater or equal to
+Xthe number of keys stored in the tree.
+XIf the call succeeds, the tree is left in a state such that
+X.B bt_next
+Xand
+X.B bt_prev
+Xbehave as expected.  The user-defined pointer stored with the key is also
+Xreturned in the
+X.B data
+Xparameter.
+X.sp
+X.B bt_delRank
+Xdeletes the key stored in the specified lexical position in the B-tree.
+XThe value returned is the same as that passed to
+X.B bt_insert
+Xwhen the item was inserted, or NULL if the specified
+X.B rank
+Xis invalid.
+X.B rank
+Xis zero-based, and must be less than the number of keys stored in the tree.
+XThe user-defined pointer stored with the key is also returned in the
+X.B data
+Xparameter.
+X.sp
+X.B NOTE:
+XNULL can safely be passed as the
+X.B data
+Xparameter in any of the access functions (
+X.BR bt_search ,
+X.BR bt_first ,
+X.BR bt_next ,
+X.BR bt_last ,
+X.BR bt_prev ,
+Xor
+X.BR bt_rank )
+Xor deletion functions (
+X.B bt_delete
+Xor
+X.BR bt_delRank ).
+X.sp
+XWorst case performance characteristics are listed below.  Here, "m" is number
+Xpassed as the "order" parameter to bt_setup, and "n" is the number of items
+Xstored in the tree.
+X.RS
+Xbt_search:	O(m * log n)
+X.br
+Xbt_new:		O(1)
+X.br
+Xbt_destroy:	O(log n) + O(n) when free_key is not NULL
+X.br
+X		O(log n) otherwise
+X.br
+Xbt_insert:	O(m * log n)
+X.br
+Xbt_delete:	O(m * log n)
+X.br
+Xbt_traverse:	O(n)
+X.br
+Xbt_next:		O(log n)
+X.br
+Xbt_prev:		O(log n)
+X.br
+Xbt_first:		O(log n)
+X.br
+Xbt_last:		O(log n)
+X.br
+Xbt_rank:	O(m * log n)
+X.br
+Xbt_delRank:	O(m * log n)
+X.br
+Xbt_data:	O(1)
+X.br
+Xbt_setData:	O(1)
+X.RE
+X.sp
+XThe B-tree implementation is reentrant.
+X.SH BUGS
+XThis implementation has not been tested on nearly enough platforms.
+X.sp
+X.B bt_dump
+Xassumes that pointers are the same size as integers, and that they can be
+Xdisplayed in total in eight hexidecimal digits.
+END_OF_src/btree/btree.man
+if test 10900 -ne `wc -c <src/btree/btree.man`; then
+    echo shar: \"src/btree/btree.man\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 7 \(of 10\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    echo "Now edit common.mk and do a 'make all'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+

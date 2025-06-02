@@ -1,0 +1,1990 @@
+Newsgroups: comp.sources.misc
+From: lwall@netlabs.com (Larry Wall)
+Subject:  v30i042:  perl - The perl programming language, Patch31
+Message-ID: <1992Jun11.180837.1513@sparky.imd.sterling.com>
+X-Md4-Signature: caccc3bc2532ecd416516dc628dc3e6e
+Date: Thu, 11 Jun 1992 18:08:37 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lwall@netlabs.com (Larry Wall)
+Posting-number: Volume 30, Issue 42
+Archive-name: perl/patch31
+Environment: UNIX, MS-DOS, OS2
+Patch-To: perl: Volume 18, Issue 19-54
+
+System: perl version 4.0
+Patch #: 31
+Priority: highish
+Subject: patch #20, continued
+
+Description:
+	See patch #20.
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your perl source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		*** DO NOTHING--INSTALL ALL PATCHES UP THROUGH #33 FIRST ***
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+	Larry Wall
+	lwall@netlabs.com
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+	Subject: Command
+	@SH mailpatch PATH perl 4.0 LIST
+		   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+
+Index: patchlevel.h
+Prereq: 30
+1c1
+< #define PATCHLEVEL 30
+---
+> #define PATCHLEVEL 31
+
+Index: regcomp.c
+*** regcomp.c.old	Mon Jun  8 17:51:34 1992
+--- regcomp.c	Mon Jun  8 17:51:35 1992
+***************
+*** 7,15 ****
+   * blame Henry for some of the lack of readability.
+   */
+  
+! /* $RCSfile: regcomp.c,v $$Revision: 4.0.1.4 $$Date: 91/11/05 22:55:14 $
+   *
+   * $Log:	regcomp.c,v $
+   * Revision 4.0.1.4  91/11/05  22:55:14  lwall
+   * patch11: Erratum
+   * 
+--- 7,21 ----
+   * blame Henry for some of the lack of readability.
+   */
+  
+! /* $RCSfile: regcomp.c,v $$Revision: 4.0.1.5 $$Date: 92/06/08 15:23:36 $
+   *
+   * $Log:	regcomp.c,v $
++  * Revision 4.0.1.5  92/06/08  15:23:36  lwall
++  * patch20: Perl now distinguishes overlapped copies from non-overlapped
++  * patch20: /^stuff/ wrongly assumed an implicit $* == 1
++  * patch20: /x{0}/ was wrongly interpreted as /x{0,}/
++  * patch20: added \W, \S and \D inside /[...]/
++  * 
+   * Revision 4.0.1.4  91/11/05  22:55:14  lwall
+   * patch11: Erratum
+   * 
+***************
+*** 86,92 ****
+--- 92,102 ----
+  #define	ISMULT1(c)	((c) == '*' || (c) == '+' || (c) == '?')
+  #define	ISMULT2(s)	((*s) == '*' || (*s) == '+' || (*s) == '?' || \
+  	((*s) == '{' && regcurly(s)))
++ #ifdef atarist
++ #define	PERL_META	"^$.[()|?+*\\"
++ #else
+  #define	META	"^$.[()|?+*\\"
++ #endif
+  
+  #ifdef SPSTART
+  #undef SPSTART		/* dratted cpp namespace... */
+***************
+*** 160,169 ****
+  	int backest;
+  	int curback;
+  	int minlen;
+- #ifndef safemalloc
+- 	extern char *safemalloc();
+- #endif
+- 	extern char *savestr();
+  	int sawplus = 0;
+  	int sawopen = 0;
+  
+--- 170,175 ----
+***************
+*** 198,204 ****
+  
+  	/* Second pass: emit code. */
+  	if (regsawbracket)
+! 	    bcopy(regprecomp,exp,xend-exp);
+  	r->prelen = xend-exp;
+  	r->precomp = regprecomp;
+  	r->subbeg = r->subbase = NULL;
+--- 204,210 ----
+  
+  	/* Second pass: emit code. */
+  	if (regsawbracket)
+! 	    Copy(regprecomp,exp,xend-exp,char);
+  	r->prelen = xend-exp;
+  	r->precomp = regprecomp;
+  	r->subbeg = r->subbase = NULL;
+***************
+*** 243,251 ****
+  			r->regstclass = first;
+  		else if (OP(first) == BOUND || OP(first) == NBOUND)
+  			r->regstclass = first;
+! 		else if (OP(first) == BOL ||
+! 		    (OP(first) == STAR && OP(NEXTOPER(first)) == ANY) ) {
+! 			/* kinda turn .* into ^.* */
+  			r->reganch = ROPT_ANCH | ROPT_IMPLICIT;
+  			first = NEXTOPER(first);
+  		    	goto again;
+--- 249,262 ----
+  			r->regstclass = first;
+  		else if (OP(first) == BOUND || OP(first) == NBOUND)
+  			r->regstclass = first;
+! 		else if (OP(first) == BOL) {
+! 			r->reganch = ROPT_ANCH;
+! 			first = NEXTOPER(first);
+! 		    	goto again;
+! 		}
+! 		else if ((OP(first) == STAR && OP(NEXTOPER(first)) == ANY) &&
+! 			 !(r->reganch & ROPT_ANCH) ) {
+! 			/* turn .* into ^.* with an implied $*=1 */
+  			r->reganch = ROPT_ANCH | ROPT_IMPLICIT;
+  			first = NEXTOPER(first);
+  		    	goto again;
+***************
+*** 564,569 ****
+--- 575,582 ----
+  		    else
+  			max = regparse;
+  		    tmp = atoi(max);
++ 		    if (!tmp && *max != '0')
++ 			tmp = 32767;		/* meaning "infinity" */
+  		    if (tmp && tmp < iter)
+  			fatal("Can't do {n,m} with n > m");
+  		    if (regcode != &regdummy) {
+***************
+*** 967,994 ****
+  			class = UCHARAT(regparse++);
+  			switch (class) {
+  			case 'w':
+! 				for (class = 'a'; class <= 'z'; class++)
+  					regset(bits,def,class);
+! 				for (class = 'A'; class <= 'Z'; class++)
+  					regset(bits,def,class);
+- 				for (class = '0'; class <= '9'; class++)
+- 					regset(bits,def,class);
+- 				regset(bits,def,'_');
+  				lastclass = 1234;
+  				continue;
+  			case 's':
+! 				regset(bits,def,' ');
+! 				regset(bits,def,'\t');
+! 				regset(bits,def,'\r');
+! 				regset(bits,def,'\f');
+! 				regset(bits,def,'\n');
+  				lastclass = 1234;
+  				continue;
+  			case 'd':
+  				for (class = '0'; class <= '9'; class++)
+  					regset(bits,def,class);
+  				lastclass = 1234;
+  				continue;
+  			case 'n':
+  				class = '\n';
+  				break;
+--- 980,1020 ----
+  			class = UCHARAT(regparse++);
+  			switch (class) {
+  			case 'w':
+! 				for (class = 0; class < 256; class++)
+! 				    if (isALNUM(class))
+  					regset(bits,def,class);
+! 				lastclass = 1234;
+! 				continue;
+! 			case 'W':
+! 				for (class = 0; class < 256; class++)
+! 				    if (!isALNUM(class))
+  					regset(bits,def,class);
+  				lastclass = 1234;
+  				continue;
+  			case 's':
+! 				for (class = 0; class < 256; class++)
+! 				    if (isSPACE(class))
+! 					regset(bits,def,class);
+  				lastclass = 1234;
+  				continue;
++ 			case 'S':
++ 				for (class = 0; class < 256; class++)
++ 				    if (!isSPACE(class))
++ 					regset(bits,def,class);
++ 				lastclass = 1234;
++ 				continue;
+  			case 'd':
+  				for (class = '0'; class <= '9'; class++)
+  					regset(bits,def,class);
+  				lastclass = 1234;
+  				continue;
++ 			case 'D':
++ 				for (class = 0; class < '0'; class++)
++ 					regset(bits,def,class);
++ 				for (class = '9' + 1; class < 256; class++)
++ 					regset(bits,def,class);
++ 				lastclass = 1234;
++ 				continue;
+  			case 'n':
+  				class = '\n';
+  				break;
+***************
+*** 1184,1189 ****
+--- 1210,1218 ----
+  	*place++ = '\0';
+  	while (offset-- > 0)
+  	    *place++ = '\0';
++ #ifdef REGALIGN
++ 	*place++ = '\177';
++ #endif
+  }
+  
+  /*
+***************
+*** 1420,1425 ****
+--- 1449,1455 ----
+  }
+  #endif /* DEBUGGING */
+  
++ void
+  regfree(r)
+  struct regexp *r;
+  {
+
+Index: regexec.c
+*** regexec.c.old	Mon Jun  8 17:51:40 1992
+--- regexec.c	Mon Jun  8 17:51:40 1992
+***************
+*** 7,15 ****
+   * blame Henry for some of the lack of readability.
+   */
+  
+! /* $RCSfile: regexec.c,v $$Revision: 4.0.1.3 $$Date: 91/11/05 18:23:55 $
+   *
+   * $Log:	regexec.c,v $
+   * Revision 4.0.1.3  91/11/05  18:23:55  lwall
+   * patch11: prepared for ctype implementations that don't define isascii()
+   * patch11: initial .* in pattern had dependency on value of $*
+--- 7,20 ----
+   * blame Henry for some of the lack of readability.
+   */
+  
+! /* $RCSfile: regexec.c,v $$Revision: 4.0.1.4 $$Date: 92/06/08 15:25:50 $
+   *
+   * $Log:	regexec.c,v $
++  * Revision 4.0.1.4  92/06/08  15:25:50  lwall
++  * patch20: pattern modifiers i and g didn't interact right
++  * patch20: in some cases $` and $' didn't get set by match
++  * patch20: /x{0}/ was wrongly interpreted as /x{0,}/
++  * 
+   * Revision 4.0.1.3  91/11/05  18:23:55  lwall
+   * patch11: prepared for ctype implementations that don't define isascii()
+   * patch11: initial .* in pattern had dependency on value of $*
+***************
+*** 140,149 ****
+  	}
+  
+  	if (prog->do_folding) {
+- 		safebase = FALSE;
+  		i = strend - string;
+  		New(1101,c,i+1,char);
+! 		(void)bcopy(string, c, i+1);
+  		string = c;
+  		strend = string + i;
+  		for (s = string; s < strend; s++)
+--- 145,153 ----
+  	}
+  
+  	if (prog->do_folding) {
+  		i = strend - string;
+  		New(1101,c,i+1,char);
+! 		Copy(string, c, i+1, char);
+  		string = c;
+  		strend = string + i;
+  		for (s = string; s < strend; s++)
+***************
+*** 441,446 ****
+--- 445,452 ----
+  	goto phooey;
+  
+      got_it:
++ 	prog->subbeg = strbeg;
++ 	prog->subend = strend;
+  	if ((!safebase && (prog->nparens || sawampersand)) || prog->do_folding){
+  		strend += dontbother;	/* uncheat */
+  		if (safebase)			/* no need for $digit later */
+***************
+*** 453,460 ****
+  		    prog->subbeg = prog->subbase = s;
+  		    prog->subend = s+i;
+  		}
+! 		else
+! 		    s = prog->subbase;
+  		s += (stringarg - strbeg);
+  		for (i = 0; i <= prog->nparens; i++) {
+  			if (prog->endp[i]) {
+--- 459,469 ----
+  		    prog->subbeg = prog->subbase = s;
+  		    prog->subend = s+i;
+  		}
+! 		else {
+! 		    i = strend - string + (stringarg - strbeg);
+! 		    prog->subbeg = s = prog->subbase;
+! 		    prog->subend = s+i;
+! 		}
+  		s += (stringarg - strbeg);
+  		for (i = 0; i <= prog->nparens; i++) {
+  			if (prog->endp[i]) {
+***************
+*** 742,748 ****
+  			goto repeat;
+  		case STAR:
+  			ln = 0;
+! 			n = 0;
+  			scan = NEXTOPER(scan);
+  			goto repeat;
+  		case PLUS:
+--- 751,757 ----
+  			goto repeat;
+  		case STAR:
+  			ln = 0;
+! 			n = 32767;
+  			scan = NEXTOPER(scan);
+  			goto repeat;
+  		case PLUS:
+***************
+*** 751,757 ****
+  			 * when we know what character comes next.
+  			 */
+  			ln = 1;
+! 			n = 0;
+  			scan = NEXTOPER(scan);
+  		    repeat:
+  			if (OP(next) == EXACTLY)
+--- 760,766 ----
+  			 * when we know what character comes next.
+  			 */
+  			ln = 1;
+! 			n = 32767;
+  			scan = NEXTOPER(scan);
+  		    repeat:
+  			if (OP(next) == EXACTLY)
+***************
+*** 813,819 ****
+  	register char *loceol = regeol;
+  
+  	scan = reginput;
+! 	if (max && max < loceol - scan)
+  	    loceol = scan + max;
+  	opnd = OPERAND(p);
+  	switch (OP(p)) {
+--- 822,828 ----
+  	register char *loceol = regeol;
+  
+  	scan = reginput;
+! 	if (max != 32767 && max < loceol - scan)
+  	    loceol = scan + max;
+  	opnd = OPERAND(p);
+  	switch (OP(p)) {
+
+Index: x2p/s2p.SH
+*** x2p/s2p.SH.old	Mon Jun  8 17:52:59 1992
+--- x2p/s2p.SH	Mon Jun  8 17:52:59 1992
+***************
+*** 20,28 ****
+--- 20,32 ----
+  : Move anything that needs config subs from !NO!SUBS! section to !GROK!THIS!.
+  : Protect any dollar signs and backticks that you do not want interpreted
+  : by putting a backslash in front.  You may delete these comments.
++ rm -f s2p
+  $spitshell >s2p <<!GROK!THIS!
+  #!$bin/perl
+  
++ eval 'exec $bin/perl -S \$0 \${1+"\$@"}'
++ 	if \$running_under_some_shell;
++ 
+  \$bin = '$bin';
+  !GROK!THIS!
+  
+***************
+*** 29,37 ****
+  : In the following dollars and backticks do not need the extra backslash.
+  $spitshell >>s2p <<'!NO!SUBS!'
+  
+! # $RCSfile: s2p.SH,v $$Revision: 4.0.1.1 $$Date: 91/06/07 12:19:18 $
+  #
+  # $Log:	s2p.SH,v $
+  # Revision 4.0.1.1  91/06/07  12:19:18  lwall
+  # patch4: s2p now handles embedded newlines better and optimizes common idioms
+  # 
+--- 33,46 ----
+  : In the following dollars and backticks do not need the extra backslash.
+  $spitshell >>s2p <<'!NO!SUBS!'
+  
+! # $RCSfile: s2p.SH,v $$Revision: 4.0.1.2 $$Date: 92/06/08 17:26:31 $
+  #
+  # $Log:	s2p.SH,v $
++ # Revision 4.0.1.2  92/06/08  17:26:31  lwall
++ # patch20: s2p didn't output portable startup code
++ # patch20: added ... as variant on ..
++ # patch20: s2p didn't translate s/pat/\&/ or s/pat/\$/ or s/pat/\\1/ right
++ # 
+  # Revision 4.0.1.1  91/06/07  12:19:18  lwall
+  # patch4: s2p now handles embedded newlines better and optimizes common idioms
+  # 
+***************
+*** 162,168 ****
+  	} else {
+  	    &Die("Invalid second address at line $.\n");
+  	}
+! 	$addr1 .= " .. $addr2";
+      }
+  
+      # Now we check for metacommands {, }, and ! and worry
+--- 171,182 ----
+  	} else {
+  	    &Die("Invalid second address at line $.\n");
+  	}
+! 	if ($addr2 =~ /^\d+$/) {
+! 	    $addr1 .= "..$addr2";
+! 	}
+! 	else {
+! 	    $addr1 .= "...$addr2";
+! 	}
+      }
+  
+      # Now we check for metacommands {, }, and ! and worry
+***************
+*** 488,494 ****
+--- 502,521 ----
+  		      substr($_,$i,1) =~ /^[<>]$/) {
+  			substr($_,$i,1) = 'b';
+  		    }
++ 		    elsif ($repl && substr($_,$i,1) =~ /^\d$/) {
++ 			substr($_,$i-1,1) = '$';
++ 		    }
+  		}
++ 		elsif ($c eq '&' && $repl) {
++ 		    substr($_, $i, 0) = '$';
++ 		    $i++;
++ 		    $len++;
++ 		}
++ 		elsif ($c eq '$' && $repl) {
++ 		    substr($_, $i, 0) = '\\';
++ 		    $i++;
++ 		    $len++;
++ 		}
+  		elsif ($c eq '[' && !$repl) {
+  		    $i++ if substr($_,$i,1) eq '^';
+  		    $i++ if substr($_,$i,1) eq ']';
+***************
+*** 515,523 ****
+  	    $end = substr($_, $end + 1, 1000);
+  	    &simplify($pat);
+  	    $dol = '$';
+- 	    $repl =~ s/\$/\\$/;
+- 	    $repl =~ s'&'$&'g;
+- 	    $repl =~ s/[\\]([0-9])/$dol$1/g;
+  	    $subst = "$pat$repl$delim";
+  	    $cmd = '';
+  	    while ($end) {
+--- 542,547 ----
+
+Index: hints/sco_2_3_3.sh
+*** hints/sco_2_3_3.sh.old	Mon Jun  8 17:48:13 1992
+--- hints/sco_2_3_3.sh	Mon Jun  8 17:48:13 1992
+***************
+*** 1,4 ****
+  yacc='/usr/bin/yacc -Sm25000'
+- libswanted=`echo $libswanted | sed 's/ x / /'`
+  echo "NOTE: you may have problems due to a spurious semicolon on the strerror()"
+  echo "macro definition in /usr/include/string.h.  If so, delete the semicolon."
+--- 1,3 ----
+
+Index: hints/sco_2_3_4.sh
+*** hints/sco_2_3_4.sh.old	Mon Jun  8 17:48:15 1992
+--- hints/sco_2_3_4.sh	Mon Jun  8 17:48:15 1992
+***************
+*** 0 ****
+--- 1,5 ----
++ yacc='/usr/bin/yacc -Sm25000'
++ ccflags="$ccflags -UM_I86"
++ d_mymalloc=define
++ echo "NOTE: you may have problems due to a spurious semicolon on the strerror()"
++ echo "macro definition in /usr/include/string.h.  If so, delete the semicolon."
+
+Index: hints/sgi.sh
+*** hints/sgi.sh.old	Mon Jun  8 17:48:17 1992
+--- hints/sgi.sh	Mon Jun  8 17:48:18 1992
+***************
+*** 1,6 ****
+  optimize='-O1'
+! usemymalloc='y'
+  mallocsrc='malloc.c'
+  mallocobj='malloc.o'
+  d_voidsig=define
+  d_vfork=undef
+--- 1,12 ----
+  optimize='-O1'
+! d_mymalloc=define
+  mallocsrc='malloc.c'
+  mallocobj='malloc.o'
+  d_voidsig=define
+  d_vfork=undef
++ d_charsprf=undef
++ case `(uname -r) 2>/dev/null` in
++ 4*)libswanted=`echo $libswanted | sed 's/c_s \(.*\)/\1 c_s/'`
++     ccflags="$ccflags -DLANGUAGE_C -DBSD_SIGNALS -cckr -signed"
++     ;;
++ esac
+
+Index: lib/shellwords.pl
+*** lib/shellwords.pl.old	Mon Jun  8 17:49:11 1992
+--- lib/shellwords.pl	Mon Jun  8 17:49:12 1992
+***************
+*** 1,12 ****
+! #; shellwords.pl
+! #;
+! #; Usage:
+! #;	require 'shellwords.pl';
+! #;	@words = &shellwords($line);
+! #;	or
+! #;	@words = &shellwords(@lines);
+! #;	or
+! #;	@words = &shellwords;		# defaults to $_ (and clobbers it)
+  
+  sub shellwords {
+      package shellwords;
+--- 1,12 ----
+! ;# shellwords.pl
+! ;#
+! ;# Usage:
+! ;#	require 'shellwords.pl';
+! ;#	@words = &shellwords($line);
+! ;#	or
+! ;#	@words = &shellwords(@lines);
+! ;#	or
+! ;#	@words = &shellwords;		# defaults to $_ (and clobbers it)
+  
+  sub shellwords {
+      package shellwords;
+***************
+*** 17,27 ****
+      while ($_ ne '') {
+  	$field = '';
+  	for (;;) {
+! 	    if (s/^"(([^"\\]+|\\[\\"])*)"//) {
+  		($snippet = $1) =~ s#\\(.)#$1#g;
+  	    }
+! 	    elsif (s/^'(([^'\\]+|\\[\\'])*)'//) {
+  		($snippet = $1) =~ s#\\(.)#$1#g;
+  	    }
+  	    elsif (s/^\\(.)//) {
+  		$snippet = $1;
+--- 17,33 ----
+      while ($_ ne '') {
+  	$field = '';
+  	for (;;) {
+! 	    if (s/^"(([^"\\]|\\[\\"])*)"//) {
+  		($snippet = $1) =~ s#\\(.)#$1#g;
+  	    }
+! 	    elsif (/^"/) {
+! 		die "Unmatched double quote: $_\n";
+! 	    }
+! 	    elsif (s/^'(([^'\\]|\\[\\'])*)'//) {
+  		($snippet = $1) =~ s#\\(.)#$1#g;
++ 	    }
++ 	    elsif (/^'/) {
++ 		die "Unmatched single quote: $_\n";
+  	    }
+  	    elsif (s/^\\(.)//) {
+  		$snippet = $1;
+
+Index: atarist/test/sig
+*** atarist/test/sig.old	Mon Jun  8 17:45:21 1992
+--- atarist/test/sig	Mon Jun  8 17:45:21 1992
+***************
+*** 0 ****
+--- 1,12 ----
++ sub handler {
++     local($sig) = @_;
++     print "Caught SIG$sig\n";
++     exit(0);
++ }
++ 
++ $SIG{'INT'} = 'handler';
++ 
++ print "Hit CRTL-C to see if it is trapped\n";
++ while($_ = <ARGV>) {
++     print $_;
++ }
+
+Index: stab.c
+*** stab.c.old	Mon Jun  8 17:51:45 1992
+--- stab.c	Mon Jun  8 17:51:45 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: stab.c,v $$Revision: 4.0.1.3 $$Date: 91/11/05 18:35:33 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: stab.c,v $$Revision: 4.0.1.4 $$Date: 92/06/08 15:32:19 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,18 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	stab.c,v $
++  * Revision 4.0.1.4  92/06/08  15:32:19  lwall
++  * patch20: fixed confusion between a *var's real name and its effective name
++  * patch20: the debugger now warns you on lines that can't set a breakpoint
++  * patch20: the debugger made perl forget the last pattern used by //
++  * patch20: paragraph mode now skips extra newlines automatically
++  * patch20: ($<,$>) = ... didn't work on some architectures
++  * 
+   * Revision 4.0.1.3  91/11/05  18:35:33  lwall
+   * patch11: length($x) was sometimes wrong for numeric $x
+   * patch11: perl now issues warning if $SIG{'ALARM'} is referenced
+***************
+*** 91,97 ****
+      case '1': case '2': case '3': case '4':
+      case '5': case '6': case '7': case '8': case '9': case '&':
+  	if (curspat) {
+! 	    paren = atoi(stab_name(stab));
+  	  getparen:
+  	    if (curspat->spat_regexp &&
+  	      paren <= curspat->spat_regexp->nparens &&
+--- 98,104 ----
+      case '1': case '2': case '3': case '4':
+      case '5': case '6': case '7': case '8': case '9': case '&':
+  	if (curspat) {
+! 	    paren = atoi(stab_ename(stab));
+  	  getparen:
+  	    if (curspat->spat_regexp &&
+  	      paren <= curspat->spat_regexp->nparens &&
+***************
+*** 138,144 ****
+  	break;
+      case '.':
+  #ifndef lint
+! 	if (last_in_stab) {
+  	    str_numset(stab_val(stab),(double)stab_io(last_in_stab)->lines);
+  	}
+  #endif
+--- 145,151 ----
+  	break;
+      case '.':
+  #ifndef lint
+! 	if (last_in_stab && stab_io(last_in_stab)) {
+  	    str_numset(stab_val(stab),(double)stab_io(last_in_stab)->lines);
+  	}
+  #endif
+***************
+*** 151,157 ****
+  	if (s)
+  	    str_set(stab_val(stab),s);
+  	else {
+! 	    str_set(stab_val(stab),stab_name(curoutstab));
+  	    str_cat(stab_val(stab),"_TOP");
+  	}
+  	break;
+--- 158,164 ----
+  	if (s)
+  	    str_set(stab_val(stab),s);
+  	else {
+! 	    str_set(stab_val(stab),stab_ename(curoutstab));
+  	    str_cat(stab_val(stab),"_TOP");
+  	}
+  	break;
+***************
+*** 158,164 ****
+      case '~':
+  	s = stab_io(curoutstab)->fmt_name;
+  	if (!s)
+! 	    s = stab_name(curoutstab);
+  	str_set(stab_val(stab),s);
+  	break;
+  #ifndef lint
+--- 165,171 ----
+      case '~':
+  	s = stab_io(curoutstab)->fmt_name;
+  	if (!s)
+! 	    s = stab_ename(curoutstab);
+  	str_set(stab_val(stab),s);
+  	break;
+  #ifndef lint
+***************
+*** 172,177 ****
+--- 179,186 ----
+  	str_numset(stab_val(stab),(double)stab_io(curoutstab)->page);
+  	break;
+  #endif
++     case ':':
++ 	break;
+      case '/':
+  	break;
+      case '[':
+***************
+*** 260,266 ****
+      case '1': case '2': case '3': case '4':
+      case '5': case '6': case '7': case '8': case '9': case '&':
+  	if (curspat) {
+! 	    paren = atoi(stab_name(stab));
+  	  getparen:
+  	    if (curspat->spat_regexp &&
+  	      paren <= curspat->spat_regexp->nparens &&
+--- 269,275 ----
+      case '1': case '2': case '3': case '4':
+      case '5': case '6': case '7': case '8': case '9': case '&':
+  	if (curspat) {
+! 	    paren = atoi(stab_ename(stab));
+  	  getparen:
+  	    if (curspat->spat_regexp &&
+  	      paren <= curspat->spat_regexp->nparens &&
+***************
+*** 314,319 ****
+--- 323,329 ----
+      }
+  }
+  
++ void
+  stabset(mstr,str)
+  register STR *mstr;
+  STR *str;
+***************
+*** 324,330 ****
+  
+      switch (mstr->str_rare) {
+      case 'E':
+! 	setenv(mstr->str_ptr,str_get(str));
+  				/* And you'll never guess what the dog had */
+  				/*   in its mouth... */
+  #ifdef TAINT
+--- 334,340 ----
+  
+      switch (mstr->str_rare) {
+      case 'E':
+! 	my_setenv(mstr->str_ptr,str_get(str));
+  				/* And you'll never guess what the dog had */
+  				/*   in its mouth... */
+  #ifdef TAINT
+***************
+*** 376,384 ****
+  	    stab = mstr->str_u.str_stab;
+  	    i = str_true(str);
+  	    str = afetch(stab_xarray(stab),atoi(mstr->str_ptr), FALSE);
+! 	    cmd = str->str_magic->str_u.str_cmd;
+! 	    cmd->c_flags &= ~CF_OPTIMIZE;
+! 	    cmd->c_flags |= i? CFT_D1 : CFT_D0;
+  	}
+  	break;
+      case '#':
+--- 386,397 ----
+  	    stab = mstr->str_u.str_stab;
+  	    i = str_true(str);
+  	    str = afetch(stab_xarray(stab),atoi(mstr->str_ptr), FALSE);
+! 	    if (str->str_magic && (cmd = str->str_magic->str_u.str_cmd)) {
+! 		cmd->c_flags &= ~CF_OPTIMIZE;
+! 		cmd->c_flags |= i? CFT_D1 : CFT_D0;
+! 	    }
+! 	    else
+! 		warn("Can't break at that line\n");
+  	}
+  	break;
+      case '#':
+***************
+*** 405,411 ****
+  		strcpy(stab_magic(stab),"StB");
+  		stab_val(stab) = Str_new(70,0);
+  		stab_line(stab) = curcmd->c_line;
+! 		stab_stash(stab) = curcmd->c_stash;
+  	    }
+  	    else {
+  		stab = stabent(s,TRUE);
+--- 418,424 ----
+  		strcpy(stab_magic(stab),"StB");
+  		stab_val(stab) = Str_new(70,0);
+  		stab_line(stab) = curcmd->c_line;
+! 		stab_estab(stab) = stab;
+  	    }
+  	    else {
+  		stab = stabent(s,TRUE);
+***************
+*** 459,468 ****
+  		inplace = Nullch;
+  	    break;
+  	case '\020':	/* ^P */
+! 	    perldb = (int)str_gnum(str);
+  	    break;
+  	case '\024':	/* ^T */
+! 	    basetime = (long)str_gnum(str);
+  	    break;
+  	case '\027':	/* ^W */
+  	    dowarn = (bool)str_gnum(str);
+--- 472,490 ----
+  		inplace = Nullch;
+  	    break;
+  	case '\020':	/* ^P */
+! 	    i = (int)str_gnum(str);
+! 	    if (i != perldb) {
+! 		static SPAT *oldlastspat;
+! 
+! 		if (perldb)
+! 		    oldlastspat = lastspat;
+! 		else
+! 		    lastspat = oldlastspat;
+! 	    }
+! 	    perldb = i;
+  	    break;
+  	case '\024':	/* ^T */
+! 	    basetime = (time_t)str_gnum(str);
+  	    break;
+  	case '\027':	/* ^W */
+  	    dowarn = (bool)str_gnum(str);
+***************
+*** 508,514 ****
+  	    if (str->str_pok) {
+  		rs = str_get(str);
+  		rslen = str->str_cur;
+! 		if (!rslen) {
+  		    rs = "\n\n";
+  		    rslen = 2;
+  		}
+--- 530,536 ----
+  	    if (str->str_pok) {
+  		rs = str_get(str);
+  		rslen = str->str_cur;
+! 		if (rspara = !rslen) {
+  		    rs = "\n\n";
+  		    rslen = 2;
+  		}
+***************
+*** 547,588 ****
+  	    break;
+  	case '<':
+  	    uid = (int)str_gnum(str);
+- #if defined(HAS_SETREUID) || !defined(HAS_SETRUID)
+  	    if (delaymagic) {
+! 		delaymagic |= DM_REUID;
+  		break;				/* don't do magic till later */
+  	    }
+- #endif /* HAS_SETREUID or not HASSETRUID */
+  #ifdef HAS_SETRUID
+! 	    if (setruid((UIDTYPE)uid) < 0)
+! 		uid = (int)getuid();
+  #else
+  #ifdef HAS_SETREUID
+! 	    if (setreuid((UIDTYPE)uid, (UIDTYPE)-1) < 0)
+! 		uid = (int)getuid();
+  #else
+  	    if (uid == euid)		/* special case $< = $> */
+! 		setuid(uid);
+  	    else
+  		fatal("setruid() not implemented");
+  #endif
+  #endif
+  	    break;
+  	case '>':
+  	    euid = (int)str_gnum(str);
+- #if defined(HAS_SETREUID) || !defined(HAS_SETEUID)
+  	    if (delaymagic) {
+! 		delaymagic |= DM_REUID;
+  		break;				/* don't do magic till later */
+  	    }
+- #endif /* HAS_SETREUID or not HAS_SETEUID */
+  #ifdef HAS_SETEUID
+! 	    if (seteuid((UIDTYPE)euid) < 0)
+! 		euid = (int)geteuid();
+  #else
+  #ifdef HAS_SETREUID
+! 	    if (setreuid((UIDTYPE)-1, (UIDTYPE)euid) < 0)
+! 		euid = (int)geteuid();
+  #else
+  	    if (euid == uid)		/* special case $> = $< */
+  		setuid(euid);
+--- 569,603 ----
+  	    break;
+  	case '<':
+  	    uid = (int)str_gnum(str);
+  	    if (delaymagic) {
+! 		delaymagic |= DM_RUID;
+  		break;				/* don't do magic till later */
+  	    }
+  #ifdef HAS_SETRUID
+! 	    (void)setruid((UIDTYPE)uid);
+  #else
+  #ifdef HAS_SETREUID
+! 	    (void)setreuid((UIDTYPE)uid, (UIDTYPE)-1);
+  #else
+  	    if (uid == euid)		/* special case $< = $> */
+! 		(void)setuid(uid);
+  	    else
+  		fatal("setruid() not implemented");
+  #endif
+  #endif
++ 	    uid = (int)getuid();
+  	    break;
+  	case '>':
+  	    euid = (int)str_gnum(str);
+  	    if (delaymagic) {
+! 		delaymagic |= DM_EUID;
+  		break;				/* don't do magic till later */
+  	    }
+  #ifdef HAS_SETEUID
+! 	    (void)seteuid((UIDTYPE)euid);
+  #else
+  #ifdef HAS_SETREUID
+! 	    (void)setreuid((UIDTYPE)-1, (UIDTYPE)euid);
+  #else
+  	    if (euid == uid)		/* special case $> = $< */
+  		setuid(euid);
+***************
+*** 590,604 ****
+  		fatal("seteuid() not implemented");
+  #endif
+  #endif
+  	    break;
+  	case '(':
+  	    gid = (int)str_gnum(str);
+- #if defined(HAS_SETREGID) || !defined(HAS_SETRGID)
+  	    if (delaymagic) {
+! 		delaymagic |= DM_REGID;
+  		break;				/* don't do magic till later */
+  	    }
+- #endif /* HAS_SETREGID or not HAS_SETRGID */
+  #ifdef HAS_SETRGID
+  	    (void)setrgid((GIDTYPE)gid);
+  #else
+--- 605,618 ----
+  		fatal("seteuid() not implemented");
+  #endif
+  #endif
++ 	    euid = (int)geteuid();
+  	    break;
+  	case '(':
+  	    gid = (int)str_gnum(str);
+  	    if (delaymagic) {
+! 		delaymagic |= DM_RGID;
+  		break;				/* don't do magic till later */
+  	    }
+  #ifdef HAS_SETRGID
+  	    (void)setrgid((GIDTYPE)gid);
+  #else
+***************
+*** 605,622 ****
+  #ifdef HAS_SETREGID
+  	    (void)setregid((GIDTYPE)gid, (GIDTYPE)-1);
+  #else
+! 	    fatal("setrgid() not implemented");
+  #endif
+  #endif
+  	    break;
+  	case ')':
+  	    egid = (int)str_gnum(str);
+- #if defined(HAS_SETREGID) || !defined(HAS_SETEGID)
+  	    if (delaymagic) {
+! 		delaymagic |= DM_REGID;
+  		break;				/* don't do magic till later */
+  	    }
+- #endif /* HAS_SETREGID or not HAS_SETEGID */
+  #ifdef HAS_SETEGID
+  	    (void)setegid((GIDTYPE)egid);
+  #else
+--- 619,638 ----
+  #ifdef HAS_SETREGID
+  	    (void)setregid((GIDTYPE)gid, (GIDTYPE)-1);
+  #else
+! 	    if (gid == egid)			/* special case $( = $) */
+! 		(void)setgid(gid);
+! 	    else
+! 		fatal("setrgid() not implemented");
+  #endif
+  #endif
++ 	    gid = (int)getgid();
+  	    break;
+  	case ')':
+  	    egid = (int)str_gnum(str);
+  	    if (delaymagic) {
+! 		delaymagic |= DM_EGID;
+  		break;				/* don't do magic till later */
+  	    }
+  #ifdef HAS_SETEGID
+  	    (void)setegid((GIDTYPE)egid);
+  #else
+***************
+*** 623,631 ****
+  #ifdef HAS_SETREGID
+  	    (void)setregid((GIDTYPE)-1, (GIDTYPE)egid);
+  #else
+! 	    fatal("setegid() not implemented");
+  #endif
+  #endif
+  	    break;
+  	case ':':
+  	    chopset = str_get(str);
+--- 639,651 ----
+  #ifdef HAS_SETREGID
+  	    (void)setregid((GIDTYPE)-1, (GIDTYPE)egid);
+  #else
+! 	    if (egid == gid)			/* special case $) = $( */
+! 		(void)setgid(egid);
+! 	    else
+! 		fatal("setegid() not implemented");
+  #endif
+  #endif
++ 	    egid = (int)getegid();
+  	    break;
+  	case ':':
+  	    chopset = str_get(str);
+***************
+*** 640,646 ****
+  			s += strlen(++s);	/* this one is ok too */
+  		}
+  		if (origenviron[0] == s + 1) {	/* can grab env area too? */
+! 		    setenv("NoNeSuCh", Nullch);	/* force copy of environment */
+  		    for (i = 0; origenviron[i]; i++)
+  			if (origenviron[i] == s + 1)
+  			    s += strlen(++s);
+--- 660,667 ----
+  			s += strlen(++s);	/* this one is ok too */
+  		}
+  		if (origenviron[0] == s + 1) {	/* can grab env area too? */
+! 		    my_setenv("NoNeSuCh", Nullch);
+! 						/* force copy of environment */
+  		    for (i = 0; origenviron[i]; i++)
+  			if (origenviron[i] == s + 1)
+  			    s += strlen(++s);
+***************
+*** 653,662 ****
+  		i = origalen;
+  		str->str_cur = i;
+  		str->str_ptr[i] = '\0';
+! 		bcopy(s, origargv[0], i);
+  	    }
+  	    else {
+! 		bcopy(s, origargv[0], i);
+  		s = origargv[0]+i;
+  		*s++ = '\0';
+  		while (++i < origalen)
+--- 674,683 ----
+  		i = origalen;
+  		str->str_cur = i;
+  		str->str_ptr[i] = '\0';
+! 		Copy(s, origargv[0], i, char);
+  	    }
+  	    else {
+! 		Copy(s, origargv[0], i, char);
+  		s = origargv[0]+i;
+  		*s++ = '\0';
+  		while (++i < origalen)
+***************
+*** 676,681 ****
+--- 697,703 ----
+      }
+  }
+  
++ int
+  whichsig(sig)
+  char *sig;
+  {
+***************
+*** 725,731 ****
+      if (!sub) {
+  	if (dowarn)
+  	    warn("SIG%s handler \"%s\" not defined.\n",
+! 		sig_name[sig], stab_name(stab) );
+  	return;
+      }
+      /*SUPPRESS 701*/
+--- 747,753 ----
+      if (!sub) {
+  	if (dowarn)
+  	    warn("SIG%s handler \"%s\" not defined.\n",
+! 		sig_name[sig], stab_ename(stab) );
+  	return;
+      }
+      /*SUPPRESS 701*/
+***************
+*** 751,757 ****
+      sub->depth++;
+      if (sub->depth >= 2) {	/* save temporaries on recursion? */
+  	if (sub->depth == 100 && dowarn)
+! 	    warn("Deep recursion on subroutine \"%s\"",stab_name(stab));
+  	savelist(sub->tosave->ary_array,sub->tosave->ary_fill);
+      }
+  
+--- 773,779 ----
+      sub->depth++;
+      if (sub->depth >= 2) {	/* save temporaries on recursion? */
+  	if (sub->depth == 100 && dowarn)
+! 	    warn("Deep recursion on subroutine \"%s\"",stab_ename(stab));
+  	savelist(sub->tosave->ary_array,sub->tosave->ary_fill);
+      }
+  
+***************
+*** 888,893 ****
+--- 910,916 ----
+  	strcpy(stab_magic(stab),"StB");
+  	stab_val(stab) = Str_new(72,0);
+  	stab_line(stab) = curcmd->c_line;
++ 	stab_estab(stab) = stab;
+  	str_magic((STR*)stab, stab, '*', name, len);
+  	stab_stash(stab) = stash;
+  	if (isDIGIT(*name) && *name != '0') {
+***************
+*** 900,905 ****
+--- 923,929 ----
+      }
+  }
+  
++ void
+  stab_fullname(str,stab)
+  STR *str;
+  STAB *stab;
+***************
+*** 913,918 ****
+--- 937,956 ----
+      str_scat(str,stab->str_magic);
+  }
+  
++ void
++ stab_efullname(str,stab)
++ STR *str;
++ STAB *stab;
++ {
++     HASH *tb = stab_estash(stab);
++ 
++     if (!tb)
++ 	return;
++     str_set(str,tb->tbl_name);
++     str_ncat(str,"'", 1);
++     str_scat(str,stab_estab(stab)->str_magic);
++ }
++ 
+  STIO *
+  stio_new()
+  {
+***************
+*** 923,928 ****
+--- 961,967 ----
+      return stio;
+  }
+  
++ void
+  stab_check(min,max)
+  int min;
+  register int max;
+***************
+*** 960,965 ****
+--- 999,1006 ----
+      STIO *stio;
+      SUBR *sub;
+  
++     if (!stab || !stab->str_ptr)
++ 	return;
+      afree(stab_xarray(stab));
+      stab_xarray(stab) = Null(ARRAY*);
+      (void)hfree(stab_xhash(stab), FALSE);
+
+Index: stab.h
+*** stab.h.old	Mon Jun  8 17:51:49 1992
+--- stab.h	Mon Jun  8 17:51:50 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: stab.h,v $$Revision: 4.0.1.2 $$Date: 91/11/05 18:36:15 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: stab.h,v $$Revision: 4.0.1.3 $$Date: 92/06/08 15:33:44 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,15 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	stab.h,v $
++  * Revision 4.0.1.3  92/06/08  15:33:44  lwall
++  * patch20: fixed confusion between a *var's real name and its effective name
++  * patch20: ($<,$>) = ... didn't work on some architectures
++  * 
+   * Revision 4.0.1.2  91/11/05  18:36:15  lwall
+   * patch11: length($x) was sometimes wrong for numeric $x
+   * 
+***************
+*** 25,31 ****
+      FCMD	*stbp_form;	/* format value */
+      ARRAY	*stbp_array;	/* array value */
+      HASH	*stbp_hash;	/* associative array value */
+!     HASH	*stbp_stash;	/* symbol table for this stab */
+      SUBR	*stbp_sub;	/* subroutine value */
+      int		stbp_lastexpr;	/* used by nothing_in_common() */
+      line_t	stbp_line;	/* line first declared at (for -w) */
+--- 29,35 ----
+      FCMD	*stbp_form;	/* format value */
+      ARRAY	*stbp_array;	/* array value */
+      HASH	*stbp_hash;	/* associative array value */
+!     STAB	*stbp_stab;	/* effective stab, if *glob */
+      SUBR	*stbp_sub;	/* subroutine value */
+      int		stbp_lastexpr;	/* used by nothing_in_common() */
+      line_t	stbp_line;	/* line first declared at (for -w) */
+***************
+*** 56,68 ****
+  				 ((STBP*)(stab->str_ptr))->stbp_hash : \
+  				 ((STBP*)(hadd(stab)->str_ptr))->stbp_hash)
+  #endif			/* Microport 2.4 hack */
+- #define stab_stash(stab)	(((STBP*)(stab->str_ptr))->stbp_stash)
+  #define stab_sub(stab)		(((STBP*)(stab->str_ptr))->stbp_sub)
+  #define stab_lastexpr(stab)	(((STBP*)(stab->str_ptr))->stbp_lastexpr)
+  #define stab_line(stab)		(((STBP*)(stab->str_ptr))->stbp_line)
+  #define stab_flags(stab)	(((STBP*)(stab->str_ptr))->stbp_flags)
+  #define stab_name(stab)		(stab->str_magic->str_ptr)
+  
+  #define SF_VMAGIC 1		/* call routine to dereference STR val */
+  #define SF_MULTI 2		/* seen more than once */
+  
+--- 60,79 ----
+  				 ((STBP*)(stab->str_ptr))->stbp_hash : \
+  				 ((STBP*)(hadd(stab)->str_ptr))->stbp_hash)
+  #endif			/* Microport 2.4 hack */
+  #define stab_sub(stab)		(((STBP*)(stab->str_ptr))->stbp_sub)
+  #define stab_lastexpr(stab)	(((STBP*)(stab->str_ptr))->stbp_lastexpr)
+  #define stab_line(stab)		(((STBP*)(stab->str_ptr))->stbp_line)
+  #define stab_flags(stab)	(((STBP*)(stab->str_ptr))->stbp_flags)
++ 
++ #define stab_stab(stab)		(stab->str_magic->str_u.str_stab)
++ #define stab_estab(stab)	(((STBP*)(stab->str_ptr))->stbp_stab)
++ 
+  #define stab_name(stab)		(stab->str_magic->str_ptr)
++ #define stab_ename(stab)	stab_name(stab_estab(stab))
+  
++ #define stab_stash(stab)	(stab->str_magic->str_u.str_stash)
++ #define stab_estash(stab)	stab_stash(stab_estab(stab))
++ 
+  #define SF_VMAGIC 1		/* call routine to dereference STR val */
+  #define SF_MULTI 2		/* seen more than once */
+  
+***************
+*** 114,123 ****
+  EXT unsigned short statusvalue;
+  
+  EXT int delaymagic INIT(0);
+! #define DM_DELAY 1
+! #define DM_REUID 2
+! #define DM_REGID 4
+  
+  STAB *aadd();
+  STAB *hadd();
+  STAB *fstab();
+--- 125,142 ----
+  EXT unsigned short statusvalue;
+  
+  EXT int delaymagic INIT(0);
+! #define DM_UID   0x003
+! #define DM_RUID   0x001
+! #define DM_EUID   0x002
+! #define DM_GID   0x030
+! #define DM_RGID   0x010
+! #define DM_EGID   0x020
+! #define DM_DELAY 0x100
+  
+  STAB *aadd();
+  STAB *hadd();
+  STAB *fstab();
++ void stabset();
++ void stab_fullname();
++ void stab_efullname();
++ void stab_check();
+
+Index: str.c
+*** str.c.old	Mon Jun  8 17:51:53 1992
+--- str.c	Mon Jun  8 17:51:54 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: str.c,v $$Revision: 4.0.1.4 $$Date: 91/11/05 18:40:51 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: str.c,v $$Revision: 4.0.1.5 $$Date: 92/06/08 15:40:43 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,21 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	str.c,v $
++  * Revision 4.0.1.5  92/06/08  15:40:43  lwall
++  * patch20: removed implicit int declarations on functions
++  * patch20: Perl now distinguishes overlapped copies from non-overlapped
++  * patch20: paragraph mode now skips extra newlines automatically
++  * patch20: fixed memory leak in doube-quote interpretation
++  * patch20: made /\$$foo/ look for literal '$foo'
++  * patch20: "$var{$foo'bar}" didn't scan subscript correctly
++  * patch20: a splice on non-existent array elements could dump core
++  * patch20: running taintperl explicitly now does checks even if $< == $>
++  * 
+   * Revision 4.0.1.4  91/11/05  18:40:51  lwall
+   * patch11: $foo .= <BAR> could overrun malloced memory
+   * patch11: \$ didn't always make it through double-quoter to regexp routines
+***************
+*** 32,37 ****
+--- 42,50 ----
+  #include "perl.h"
+  #include "perly.h"
+  
++ static void ucase();
++ static void lcase();
++ 
+  #ifndef str_get
+  char *
+  str_get(str)
+***************
+*** 48,53 ****
+--- 61,67 ----
+   * dlb the following functions are usually macros.
+   */
+  #ifndef str_true
++ int
+  str_true(Str)
+  STR *Str;
+  {
+***************
+*** 81,87 ****
+  char *
+  str_grow(str,newlen)
+  register STR *str;
+! #ifndef MSDOS
+  register int newlen;
+  #else
+  unsigned long newlen;
+--- 95,101 ----
+  char *
+  str_grow(str,newlen)
+  register STR *str;
+! #ifndef DOSISH
+  register int newlen;
+  #else
+  unsigned long newlen;
+***************
+*** 99,105 ****
+  	str->str_len += str->str_u.str_useful;
+  	str->str_ptr -= str->str_u.str_useful;
+  	str->str_u.str_useful = 0L;
+! 	bcopy(s, str->str_ptr, str->str_cur+1);
+  	s = str->str_ptr;
+  	str->str_state = SS_NORM;			/* normal again */
+  	if (newlen > str->str_len)
+--- 113,119 ----
+  	str->str_len += str->str_u.str_useful;
+  	str->str_ptr -= str->str_u.str_useful;
+  	str->str_u.str_useful = 0L;
+! 	Move(s, str->str_ptr, str->str_cur+1, char);
+  	s = str->str_ptr;
+  	str->str_state = SS_NORM;			/* normal again */
+  	if (newlen > str->str_len)
+***************
+*** 116,121 ****
+--- 130,136 ----
+      return s;
+  }
+  
++ void
+  str_numset(str,num)
+  register STR *str;
+  double num;
+***************
+*** 212,217 ****
+--- 227,233 ----
+   * as temporary.
+   */
+  
++ void
+  str_sset(dstr,sstr)
+  STR *dstr;
+  register STR *sstr;
+***************
+*** 273,278 ****
+--- 289,298 ----
+  		char *tmps = dstr->str_ptr;
+  
+  		if (*tmps == 'S' && bcmp(tmps,"StB",4) == 0) {
++ 		    if (dstr->str_magic && dstr->str_magic->str_rare == 'X') {
++ 			str_free(dstr->str_magic);
++ 			dstr->str_magic = Nullstr;
++ 		    }
+  		    if (!dstr->str_magic) {
+  			dstr->str_magic = str_smake(sstr->str_magic);
+  			dstr->str_magic->str_rare = 'X';
+***************
+*** 296,301 ****
+--- 316,322 ----
+      }
+  }
+  
++ void
+  str_nset(str,ptr,len)
+  register STR *str;
+  register char *ptr;
+***************
+*** 305,311 ****
+  	return;
+      STR_GROW(str, len + 1);
+      if (ptr)
+! 	(void)bcopy(ptr,str->str_ptr,len);
+      str->str_cur = len;
+      *(str->str_ptr+str->str_cur) = '\0';
+      str->str_nok = 0;		/* invalidate number */
+--- 326,332 ----
+  	return;
+      STR_GROW(str, len + 1);
+      if (ptr)
+! 	Move(ptr,str->str_ptr,len,char);
+      str->str_cur = len;
+      *(str->str_ptr+str->str_cur) = '\0';
+      str->str_nok = 0;		/* invalidate number */
+***************
+*** 315,320 ****
+--- 336,342 ----
+  #endif
+  }
+  
++ void
+  str_set(str,ptr)
+  register STR *str;
+  register char *ptr;
+***************
+*** 327,333 ****
+  	ptr = "";
+      len = strlen(ptr);
+      STR_GROW(str, len + 1);
+!     (void)bcopy(ptr,str->str_ptr,len+1);
+      str->str_cur = len;
+      str->str_nok = 0;		/* invalidate number */
+      str->str_pok = 1;		/* validate pointer */
+--- 349,355 ----
+  	ptr = "";
+      len = strlen(ptr);
+      STR_GROW(str, len + 1);
+!     Move(ptr,str->str_ptr,len+1,char);
+      str->str_cur = len;
+      str->str_nok = 0;		/* invalidate number */
+      str->str_pok = 1;		/* validate pointer */
+***************
+*** 336,341 ****
+--- 358,364 ----
+  #endif
+  }
+  
++ void
+  str_chop(str,ptr)	/* like set but assuming ptr is in str */
+  register STR *str;
+  register char *ptr;
+***************
+*** 358,363 ****
+--- 381,387 ----
+      str->str_pok = 1;		/* validate pointer (and unstudy str) */
+  }
+  
++ void
+  str_ncat(str,ptr,len)
+  register STR *str;
+  register char *ptr;
+***************
+*** 368,374 ****
+      if (!(str->str_pok))
+  	(void)str_2ptr(str);
+      STR_GROW(str, str->str_cur + len + 1);
+!     (void)bcopy(ptr,str->str_ptr+str->str_cur,len);
+      str->str_cur += len;
+      *(str->str_ptr+str->str_cur) = '\0';
+      str->str_nok = 0;		/* invalidate number */
+--- 392,398 ----
+      if (!(str->str_pok))
+  	(void)str_2ptr(str);
+      STR_GROW(str, str->str_cur + len + 1);
+!     Move(ptr,str->str_ptr+str->str_cur,len,char);
+      str->str_cur += len;
+      *(str->str_ptr+str->str_cur) = '\0';
+      str->str_nok = 0;		/* invalidate number */
+***************
+*** 378,383 ****
+--- 402,408 ----
+  #endif
+  }
+  
++ void
+  str_scat(dstr,sstr)
+  STR *dstr;
+  register STR *sstr;
+***************
+*** 393,398 ****
+--- 418,424 ----
+  	str_ncat(dstr,sstr->str_ptr,sstr->str_cur);
+  }
+  
++ void
+  str_cat(str,ptr)
+  register STR *str;
+  register char *ptr;
+***************
+*** 407,413 ****
+  	(void)str_2ptr(str);
+      len = strlen(ptr);
+      STR_GROW(str, str->str_cur + len + 1);
+!     (void)bcopy(ptr,str->str_ptr+str->str_cur,len+1);
+      str->str_cur += len;
+      str->str_nok = 0;		/* invalidate number */
+      str->str_pok = 1;		/* validate pointer */
+--- 433,439 ----
+  	(void)str_2ptr(str);
+      len = strlen(ptr);
+      STR_GROW(str, str->str_cur + len + 1);
+!     Move(ptr,str->str_ptr+str->str_cur,len+1,char);
+      str->str_cur += len;
+      str->str_nok = 0;		/* invalidate number */
+      str->str_pok = 1;		/* validate pointer */
+***************
+*** 530,542 ****
+  	*bigend = '\0';
+  	while (midend > mid)		/* shove everything down */
+  	    *--bigend = *--midend;
+! 	(void)bcopy(little,big+offset,littlelen);
+  	bigstr->str_cur += i;
+  	STABSET(bigstr);
+  	return;
+      }
+      else if (i == 0) {
+! 	(void)bcopy(little,bigstr->str_ptr+offset,len);
+  	STABSET(bigstr);
+  	return;
+      }
+--- 556,568 ----
+  	*bigend = '\0';
+  	while (midend > mid)		/* shove everything down */
+  	    *--bigend = *--midend;
+! 	Move(little,big+offset,littlelen,char);
+  	bigstr->str_cur += i;
+  	STABSET(bigstr);
+  	return;
+      }
+      else if (i == 0) {
+! 	Move(little,bigstr->str_ptr+offset,len,char);
+  	STABSET(bigstr);
+  	return;
+      }
+***************
+*** 551,562 ****
+  
+      if (mid - big > bigend - midend) {	/* faster to shorten from end */
+  	if (littlelen) {
+! 	    (void)bcopy(little, mid, littlelen);
+  	    mid += littlelen;
+  	}
+  	i = bigend - midend;
+  	if (i > 0) {
+! 	    (void)bcopy(midend, mid, i);
+  	    mid += i;
+  	}
+  	*mid = '\0';
+--- 577,588 ----
+  
+      if (mid - big > bigend - midend) {	/* faster to shorten from end */
+  	if (littlelen) {
+! 	    Move(little, mid, littlelen,char);
+  	    mid += littlelen;
+  	}
+  	i = bigend - midend;
+  	if (i > 0) {
+! 	    Move(midend, mid, i,char);
+  	    mid += i;
+  	}
+  	*mid = '\0';
+***************
+*** 571,582 ****
+  	while (i--)
+  	    *--midend = *--big;
+  	if (littlelen)
+! 	    (void)bcopy(little, mid, littlelen);
+      }
+      else if (littlelen) {
+  	midend -= littlelen;
+  	str_chop(bigstr,midend);
+! 	(void)bcopy(little,midend,littlelen);
+      }
+      else {
+  	str_chop(bigstr,midend);
+--- 597,608 ----
+  	while (i--)
+  	    *--midend = *--big;
+  	if (littlelen)
+! 	    Move(little, mid, littlelen,char);
+      }
+      else if (littlelen) {
+  	midend -= littlelen;
+  	str_chop(bigstr,midend);
+! 	Move(little,midend,littlelen,char);
+      }
+      else {
+  	str_chop(bigstr,midend);
+***************
+*** 679,684 ****
+--- 705,711 ----
+  	return 0;
+  }
+  
++ int
+  str_eq(str1,str2)
+  register STR *str1;
+  register STR *str2;
+***************
+*** 699,704 ****
+--- 726,732 ----
+      return !bcmp(str1->str_ptr, str2->str_ptr, str1->str_cur);
+  }
+  
++ int
+  str_cmp(str1,str2)
+  register STR *str1;
+  register STR *str2;
+***************
+*** 747,752 ****
+--- 775,789 ----
+  
+      if (str == &str_undef)
+  	return Nullch;
++     if (rspara) {		/* have to do this both before and after */
++ 	do {			/* to make sure file boundaries work right */
++ 	    i = getc(fp);
++ 	    if (i != '\n') {
++ 		ungetc(i,fp);
++ 		break;
++ 	    }
++ 	} while (i != EOF);
++     }
+  #ifdef STDSTDIO		/* Here is some breathtakingly efficient cheating */
+      cnt = fp->_cnt;			/* get count into register */
+      str->str_nok = 0;			/* invalidate number */
+***************
+*** 849,854 ****
+--- 886,900 ----
+  
+  #endif /* STDSTDIO */
+  
++     if (rspara) {
++         while (i != EOF) {
++ 	    i = getc(fp);
++ 	    if (i != '\n') {
++ 		ungetc(i,fp);
++ 		break;
++ 	    }
++ 	}
++     }
+      return str->str_cur - append ? str->str_ptr : Nullch;
+  }
+  
+***************
+*** 906,912 ****
+      if (cmd->c_type != C_EXPR || cmd->c_next || arg->arg_type != O_LIST)
+  	fatal("panic: error in parselist %d %x %d", cmd->c_type,
+  	  cmd->c_next, arg ? arg->arg_type : -1);
+!     Safefree(cmd);
+      eval_root = Nullcmd;
+      return arg;
+  }
+--- 952,959 ----
+      if (cmd->c_type != C_EXPR || cmd->c_next || arg->arg_type != O_LIST)
+  	fatal("panic: error in parselist %d %x %d", cmd->c_type,
+  	  cmd->c_next, arg ? arg->arg_type : -1);
+!     cmd->c_expr = Nullarg;
+!     cmd_free(cmd);
+      eval_root = Nullcmd;
+      return arg;
+  }
+***************
+*** 945,954 ****
+  		if (*nointrp) {		/* in a regular expression */
+  		    if (*s == '@')	/* always strip \@ */ /*SUPPRESS 530*/
+  			;
+- 		    else if (*s == '$') {
+- 			if (s+1 >= send || index(nointrp, s[1]))
+- 			    str_ncat(str,s-1,1); /* only strip \$ for vars */
+- 		    }
+  		    else		/* don't strip \\, \[, \{ etc. */
+  			str_ncat(str,s-1,1);
+  		}
+--- 992,997 ----
+***************
+*** 988,1014 ****
+  		do {
+  		    switch (*s) {
+  		    case '[':
+! 			if (s[-1] != '$')
+! 			    brackets++;
+  			break;
+  		    case '{':
+  			brackets++;
+  			break;
+  		    case ']':
+! 			if (s[-1] != '$')
+! 			    brackets--;
+  			break;
+  		    case '}':
+  			brackets--;
+  			break;
+  		    case '\'':
+  		    case '"':
+! 			if (s[-1] != '$') {
+! 			    /*SUPPRESS 68*/
+! 			    s = cpytill(tokenbuf,s+1,send,*s,&len);
+! 			    if (s >= send)
+! 				fatal("Unterminated string");
+! 			}
+  			break;
+  		    }
+  		    s++;
+--- 1031,1060 ----
+  		do {
+  		    switch (*s) {
+  		    case '[':
+! 			brackets++;
+  			break;
+  		    case '{':
+  			brackets++;
+  			break;
+  		    case ']':
+! 			brackets--;
+  			break;
+  		    case '}':
+  			brackets--;
+  			break;
++ 		    case '$':
++ 		    case '%':
++ 		    case '@':
++ 		    case '&':
++ 		    case '*':
++ 			s = scanident(s,send,tokenbuf);
++ 			break;
+  		    case '\'':
+  		    case '"':
+! 			/*SUPPRESS 68*/
+! 			s = cpytill(tokenbuf,s+1,send,*s,&len);
+! 			if (s >= send)
+! 			    fatal("Unterminated string");
+  			break;
+  		    }
+  		    s++;
+***************
+*** 1254,1259 ****
+--- 1300,1306 ----
+      return str;
+  }
+  
++ static void
+  ucase(s,send)
+  register char *s;
+  register char *send;
+***************
+*** 1265,1270 ****
+--- 1312,1318 ----
+      }
+  }
+  
++ static void
+  lcase(s,send)
+  register char *s;
+  register char *send;
+***************
+*** 1381,1387 ****
+  str_2mortal(str)
+  register STR *str;
+  {
+!     if (str == &str_undef)
+  	return str;
+      if (++tmps_max > tmps_size) {
+  	tmps_size = tmps_max;
+--- 1429,1435 ----
+  str_2mortal(str)
+  register STR *str;
+  {
+!     if (!str || str == &str_undef)
+  	return str;
+      if (++tmps_max > tmps_size) {
+  	tmps_size = tmps_max;
+***************
+*** 1439,1445 ****
+  	Str_Grow(old,0);
+      if (new->str_ptr)
+  	Safefree(new->str_ptr);
+!     Copy(old,new,1,STR);
+      if (old->str_ptr) {
+  	new->str_ptr = nsavestr(old->str_ptr,old->str_len);
+  	new->str_pok &= ~SP_TEMP;
+--- 1487,1493 ----
+  	Str_Grow(old,0);
+      if (new->str_ptr)
+  	Safefree(new->str_ptr);
+!     StructCopy(old,new,STR);
+      if (old->str_ptr) {
+  	new->str_ptr = nsavestr(old->str_ptr,old->str_len);
+  	new->str_pok &= ~SP_TEMP;
+***************
+*** 1447,1452 ****
+--- 1495,1501 ----
+      return new;
+  }
+  
++ void
+  str_reset(s,stash)
+  register char *s;
+  HASH *stash;
+***************
+*** 1504,1509 ****
+--- 1553,1559 ----
+  }
+  
+  #ifdef TAINT
++ void
+  taintproper(s)
+  char *s;
+  {
+***************
+*** 1511,1517 ****
+      if (debug & 2048)
+  	fprintf(stderr,"%s %d %d %d\n",s,tainted,uid, euid);
+  #endif
+!     if (tainted && (!euid || euid != uid || egid != gid)) {
+  	if (!unsafe)
+  	    fatal("%s", s);
+  	else if (dowarn)
+--- 1561,1567 ----
+      if (debug & 2048)
+  	fprintf(stderr,"%s %d %d %d\n",s,tainted,uid, euid);
+  #endif
+!     if (tainted && (!euid || euid != uid || egid != gid || taintanyway)) {
+  	if (!unsafe)
+  	    fatal("%s", s);
+  	else if (dowarn)
+***************
+*** 1519,1524 ****
+--- 1569,1575 ----
+      }
+  }
+  
++ void
+  taintenv()
+  {
+      register STR *envstr;
+
+Index: lib/syslog.pl
+*** lib/syslog.pl.old	Mon Jun  8 17:49:14 1992
+--- lib/syslog.pl	Mon Jun  8 17:49:14 1992
+***************
+*** 2,7 ****
+--- 2,10 ----
+  # syslog.pl
+  #
+  # $Log:	syslog.pl,v $
++ # Revision 4.0.1.1  92/06/08  13:48:05  lwall
++ # patch20: new warning for ambiguous use of unary operators
++ # 
+  # Revision 4.0  91/03/20  01:26:24  lwall
+  # 4.0 baseline.
+  # 
+***************
+*** 164,170 ****
+      $name =~ y/a-z/A-Z/;
+      $name = "LOG_$name" unless $name =~ /^LOG_/;
+      $name = "syslog'$name";
+!     eval &$name || -1;
+  }
+  
+  sub connect {
+--- 167,173 ----
+      $name =~ y/a-z/A-Z/;
+      $name = "LOG_$name" unless $name =~ /^LOG_/;
+      $name = "syslog'$name";
+!     eval(&$name) || -1;
+  }
+  
+  sub connect {
+
+Index: atarist/test/tbinmode
+*** atarist/test/tbinmode.old	Mon Jun  8 17:45:23 1992
+--- atarist/test/tbinmode	Mon Jun  8 17:45:25 1992
+***************
+*** 0 ****
+--- 1,12 ----
++ open(FP, ">bintest") || die "Can't open bintest for write\n";
++ binmode FP;
++ print FP pack("C*", 0xaa, 0x55, 0xaa, 0x55,
++                     0xff, 0x0d, 0x0a);
++ close FP;
++ 
++ open(FP, "<bintest") || die "Can't open bintest for read\n";
++ binmode FP;
++ @got = unpack("C*", <FP>);
++ close FP;
++ printf "expect:\t7 elements: aa 55 aa 55 ff 0d 0a\n";
++ printf "got:\t%d elements: %x %x %x %x %x %02x %02x\n", $#got+1-$[, @got;
+
+Index: hints/ultrix_4.sh
+*** hints/ultrix_4.sh.old	Mon Jun  8 17:48:29 1992
+--- hints/ultrix_4.sh	Mon Jun  8 17:48:29 1992
+***************
+*** 18,22 ****
+--- 18,23 ----
+      toke_cflags='optimize="-g"'
+      ttoke_cflags='optimize="-g"'
+      ;;
++ *4.2*) libswanted=`echo $libswanted | sed 's/ malloc / /'` ;;
+  esac
+  
+
+Index: hints/unisysdynix.sh
+*** hints/unisysdynix.sh.old	Mon Jun  8 17:47:43 1992
+--- hints/unisysdynix.sh	Mon Jun  8 17:47:43 1992
+***************
+*** 0 ****
+--- 1 ----
++ d_waitpid=undef
+
+Index: atarist/usersub.c
+*** atarist/usersub.c.old	Mon Jun  8 17:45:26 1992
+--- atarist/usersub.c	Mon Jun  8 17:45:27 1992
+***************
+*** 0 ****
+--- 1,9 ----
++ #include "EXTERN.h"
++ #include "perl.h"
++ #include <stdio.h>
++ 
++ int userinit()
++ {
++     install_null();	/* install device /dev/null or NUL: */
++     return 0;
++ }
+
+*** End of Patch 31 ***
+exit 0 # Just in case...

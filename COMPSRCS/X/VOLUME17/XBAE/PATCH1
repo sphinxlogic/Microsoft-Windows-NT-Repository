@@ -1,0 +1,755 @@
+Newsgroups: comp.sources.x
+Path: uunet!wupost!darwin.sura.net!mips!msi!dcmartin
+From: Andrew Wason <aw@bae.bellcore.com>
+Subject: v17i075: Xbae patch, Patch1, Part01/01
+Message-ID: <1992Apr23.125827.29074@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Nntp-Posting-Host: fascet
+Organization: Molecular Simulations, Inc.
+References: <csx-17i075-xbae@uunet.UU.NET>
+Date: Thu, 23 Apr 1992 12:58:27 GMT
+Approved: dcmartin@msi.com
+Lines: 741
+
+Submitted-by: Andrew Wason <aw@bae.bellcore.com>
+Posting-number: Volume 17, Issue 75
+Archive-name: xbae/patch1
+Patch-To: xbae: Volume 17, Issue 28
+
+This patch fixes a number of bugs in Xbae 3.5, bringing it up to
+version 3.6.  This patch does not update the PostScript
+documents, because even though the changes were small, the diffs
+were huge.
+
+Andrew
+
+#!/bin/sh
+# This is a shell archive (produced by shar 3.50)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 04/10/1992 17:40 UTC by aw@jello
+# Source directory /fs/11/m/acp/aw/Xbae-rls/Xbae-6-public/patch
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#    454 -rw-r--r-- README.patch
+#  18187 -rw-r--r-- patch-3.5-to-3.6
+#
+# ============= README.patch ==============
+if test -f 'README.patch' -a X"$1" != X"-c"; then
+	echo 'x - skipping README.patch (File already exists)'
+else
+echo 'x - extracting README.patch (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'README.patch' &&
+This patch brings Xbae 3.5 up to version 3.6.  See the patched
+README for what was changed.  This patch does *not* patch the
+PostScript documents.  Even though they did not change much, the
+diff was over 6000 lines long.  If you want the new docs, ftp the
+entire 3.6 distribution from export.lcs.mit.edu in
+contrib/Xbae-widgets-3.6.tar.Z.
+X
+To apply the patch, cd to the toplevel directory in the Xbae
+distribution, and do
+X
+X  patch -p0 < patch-3.5-to-3.6
+SHAR_EOF
+chmod 0644 README.patch ||
+echo 'restore of README.patch failed'
+Wc_c="`wc -c < 'README.patch'`"
+test 454 -eq "$Wc_c" ||
+	echo 'README.patch: original size 454, current size' "$Wc_c"
+fi
+# ============= patch-3.5-to-3.6 ==============
+if test -f 'patch-3.5-to-3.6' -a X"$1" != X"-c"; then
+	echo 'x - skipping patch-3.5-to-3.6 (File already exists)'
+else
+echo 'x - extracting patch-3.5-to-3.6 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patch-3.5-to-3.6' &&
+*** ../../Xbae-5-public/Xbae/README	Tue Mar 17 15:59:59 1992
+--- README	Fri Apr 10 10:47:44 1992
+***************
+*** 1,5 ****
+! Xbae Library Version 3.5 (see src/version.c)
+! Xbae 3.5 is the first public release.
+X  
+X  The Xbae library is a set of two Motif widgets, XbaeMatrix and
+X  XbaeCaption.  It was developed using X11R4/X11R5 and Motif 1.1.[0-4]
+--- 1,5 ----
+! Xbae Library Version 3.6 (see src/version.c)
+! Xbae 3.6 is the second public release.
+X  
+X  The Xbae library is a set of two Motif widgets, XbaeMatrix and
+X  XbaeCaption.  It was developed using X11R4/X11R5 and Motif 1.1.[0-4]
+***************
+*** 50,52 ****
+--- 50,78 ----
+X     groups of related widgets can be labeled similarly to the IBM CUA
+X     "Group Box", but with more flexibility.  XbaeCaption is also useful
+X     for associating labels with individual XmTextField widgets.
++ 
++ Bugs fixed in version 3.6:
++ 
++  * XbaeMatrix computes a bad width when XmNvisibleColumns == XmNcolumns.
++    (reported by salevin@drl.mobil.com (S. A. Levin [Stewart]))
++  * Changed XbaeMatrix to allow XmNvisibleRows to be greater than XmNrows.
++    (reported by mark@bryce.llnl.gov (Mark Spruiell))
++  * The XbaeMatrix methods: XbaeMatrixAddRows, XbaeMatrixDeleteRows,
++    XbaeMatrixAddColumns, XbaeMatrixDeleteColumns, XbaeMatrixSetRowColors,
++    XbaeMatrixSetColumnColors and XbaeMatrixSetCellColor need to check
++    if they are realized.
++    (reported by salevin@drl.mobil.com (S. A. Levin [Stewart]))
++  * Calling XbaeMatrixEditCell before the widget is realized could result
++    in the edit TextField being positioned wrong.
++  * XbaeMatrix needs to call the XmNtraverseCellCallback functions when
++    the widget initially gets traversed into, and it is not currently
++    editing a cell.
++    (reported by mark@bryce.llnl.gov (Mark Spruiell))
++  * Adding/deleting rows from an XbaeMatrix with XmNfixedRows could later
++    result in a core dump when scrolling to the bottom of the matrix.
++    (reported by nick@ps.quotron.com (Nick Aiuto))
++  * Changed XbaeMatrix to use XrmPermStringToQuark for R5.
++ 
++ 
++ Andrew Wason
++ aw@bae.bellcore.com
+*** ../../Xbae-5-public/Xbae/src/Matrix.c	Mon Mar 16 13:05:11 1992
+--- src/Matrix.c	Thu Apr  9 11:26:20 1992
+***************
+*** 38,46 ****
+X  #include <Xbae/MatrixP.h>
+X  
+X  #ifndef SABER
+! static char sccsid[] = "@(#)Matrix.c	3.12 3/11/92";
+X  #endif
+X  
+X  /*
+X   * Translations for Matrix (these will also be used by the Clip child).
+X   */
+--- 38,50 ----
+X  #include <Xbae/MatrixP.h>
+X  
+X  #ifndef SABER
+! static char sccsid[] = "@(#)Matrix.c	3.16 4/9/92";
+X  #endif
+X  
++ #ifndef XlibSpecificationRelease
++ #define XrmPermStringToQuark XrmStringToQuark
++ #endif
++ 
+X  /*
+X   * Translations for Matrix (these will also be used by the Clip child).
+X   */
+***************
+*** 978,994 ****
+X      }
+X  
+X      /*
+-      * We can't have too many visible rows
+-      */
+-     if (new->matrix.visible_rows > new->matrix.rows - new->matrix.fixed_rows) {
+- 	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+- 			"initialize", "tooManyVisibleRows", "XbaeMatrix",
+- 			"XbaeMatrix: Too many visible rows",
+- 			(String *) NULL, (Cardinal *) NULL);
+- 	new->matrix.visible_rows = 0;
+-     }
+- 
+-     /*
+X       * We can't have too many visible columns
+X       */
+X      if (new->matrix.visible_columns >
+--- 982,987 ----
+***************
+*** 1252,1258 ****
+X      XtRealizeWidget(TextChild(mw));
+X      XtRealizeWidget(ClipChild(mw));
+X      XReparentWindow(XtDisplay(mw), XtWindow(TextChild(mw)),
+! 		    XtWindow(ClipChild(mw)), 0, 0);
+X  }
+X  
+X  static void
+--- 1245,1252 ----
+X      XtRealizeWidget(TextChild(mw));
+X      XtRealizeWidget(ClipChild(mw));
+X      XReparentWindow(XtDisplay(mw), XtWindow(TextChild(mw)),
+! 		    XtWindow(ClipChild(mw)),
+! 		    TextChild(mw)->core.x, TextChild(mw)->core.y);
+X  }
+X  
+X  static void
+***************
+*** 2399,2423 ****
+X      }
+X  
+X      /*
+!      * We can't have too many visible rows.
+!      * This could be caused by visible_rows or rows or fixed_rows changing.
+!      */
+!     if (new->matrix.visible_rows >
+! 	new->matrix.rows - new->matrix.fixed_rows) {
+! 	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+! 		      "setValues", "tooManyVisibleRows", "XbaeMatrix",
+! 		      "XbaeMatrix: visibleRows must not be greater than (rows - fixedRows)",
+! 		      (String *) NULL, (Cardinal *) NULL);
+! 	if (NE(matrix.visible_rows))
+! 	    new->matrix.visible_rows = current->matrix.visible_rows;
+! 	if (NE(matrix.rows))
+! 	    new->matrix.rows = current->matrix.rows;
+! 	if (NE(matrix.fixed_rows))
+! 	    new->matrix.fixed_rows = current->matrix.fixed_rows;
+!     }
+! 
+!     /*
+!      * We can't have too many visible columns.
+X       * This could be caused by visible_columns or columns or fixed_columns
+X       * changing.
+X       */
+--- 2393,2399 ----
+X      }
+X  
+X      /*
+!      * We can't have too many visible columns.
+X       * This could be caused by visible_columns or columns or fixed_columns
+X       * changing.
+X       */
+***************
+*** 2897,2904 ****
+X       */
+X      if (mw->matrix.visible_columns)
+X  	width = ROW_LABEL_WIDTH(mw) + 2 * mw->manager.shadow_thickness +
+! 	    mw->matrix.column_positions[mw->matrix.fixed_columns +
+! 					mw->matrix.visible_columns];
+X      else if (compute_width)
+X  	width = full_width;
+X      else
+--- 2873,2881 ----
+X       */
+X      if (mw->matrix.visible_columns)
+X  	width = ROW_LABEL_WIDTH(mw) + 2 * mw->manager.shadow_thickness +
+! 	    COLUMN_WIDTH(mw, mw->matrix.visible_columns - 1) +
+! 		mw->matrix.column_positions[mw->matrix.fixed_columns +
+! 					    mw->matrix.visible_columns - 1];
+X      else if (compute_width)
+X  	width = full_width;
+X      else
+***************
+*** 3365,3370 ****
+--- 3342,3350 ----
+X       */
+X      VERT_ORIGIN(mw) = call_data->value;
+X  
++     if (!XtIsRealized(mw))
++ 	return;
++ 
+X      /*
+X       * If we scrolled more than a screenful, just clear and
+X       * redraw the whole thing
+***************
+*** 3541,3546 ****
+--- 3521,3529 ----
+X       */
+X      HORIZ_ORIGIN(mw) = call_data->value;
+X  
++     if (!XtIsRealized(mw))
++ 	return;
++ 
+X      /*
+X       * If we scrolled more than a screenful, just clear and
+X       * redraw the whole thing
+***************
+*** 3729,3737 ****
+X       */
+X      else {
+X  	int column = XtoCol(mw, FIXED_COLUMN_WIDTH(mw) +  HORIZ_ORIGIN(mw));
+X  
+X  	(*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.edit_cell)
+! 	    (mw, VERT_ORIGIN(mw) + mw->matrix.fixed_rows, column);
+X  
+X  	XmProcessTraversal(TextChild(mw), XmTRAVERSE_CURRENT);
+X      }
+--- 3712,3747 ----
+X       */
+X      else {
+X  	int column = XtoCol(mw, FIXED_COLUMN_WIDTH(mw) +  HORIZ_ORIGIN(mw));
++ 	int row = VERT_ORIGIN(mw) + mw->matrix.fixed_rows;
+X  
++ 	/*
++ 	 * Call the traverseCellCallback to allow the application to
++ 	 * perform custom traversal.
++ 	 */
++ 	if (mw->matrix.traverse_cell_callback) {
++ 	    XbaeMatrixTraverseCellCallbackStruct call_data;
++ 	    
++ 	    call_data.reason = XbaeTraverseCellReason;
++ 	    call_data.row = 0;
++ 	    call_data.column = 0;
++ 	    call_data.next_row = row;
++ 	    call_data.next_column = column;
++ 	    call_data.fixed_rows = mw->matrix.fixed_rows;
++ 	    call_data.fixed_columns = mw->matrix.fixed_columns;
++ 	    call_data.num_rows = mw->matrix.rows;
++ 	    call_data.num_columns = mw->matrix.columns;
++ 	    call_data.param = NULL;
++ 	    call_data.qparam = NULLQUARK;
++ 	    
++ 	    XtCallCallbackList((Widget)mw, mw->matrix.traverse_cell_callback,
++ 			       (XtPointer) &call_data);
++ 
++ 	    row = call_data.next_row;
++ 	    column = call_data.next_column;
++ 	}
++ 			   
+X  	(*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.edit_cell)
+! 	    (mw, row, column);
+X  
+X  	XmProcessTraversal(TextChild(mw), XmTRAVERSE_CURRENT);
+X      }
+***************
+*** 5986,5992 ****
+X       * Reconfig the VSB maximum.
+X       */
+X      XtVaSetValues(VertScrollChild(mw),
+! 		  XmNmaximum,	mw->matrix.rows,
+X  		  NULL);
+X  
+X      /*
+--- 5996,6003 ----
+X       * Reconfig the VSB maximum.
+X       */
+X      XtVaSetValues(VertScrollChild(mw),
+! 		  XmNmaximum,	(mw->matrix.rows -
+! 				 (int) mw->matrix.fixed_rows),
+X  		  NULL);
+X  
+X      /*
+***************
+*** 6000,6014 ****
+X      (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X  	(mw, True);
+X  
+!     /*
+!      * Generate expose events on Matrix and Clip to force the
+!      * new rows to be drawn.
+!      */
+!     XClearArea(XtDisplay(mw), XtWindow(mw),
+! 	       0, 0,
+! 	       0 /*Full Width*/, 0 /*Full Height*/,
+! 	       True);
+!     XbaeClipRedraw(ClipChild(mw));
+X  }
+X  
+X  /*
+--- 6011,6027 ----
+X      (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X  	(mw, True);
+X  
+!     if (XtIsRealized(mw)) {
+! 	/*
+! 	 * Generate expose events on Matrix and Clip to force the
+! 	 * new rows to be drawn.
+! 	 */
+! 	XClearArea(XtDisplay(mw), XtWindow(mw),
+! 		   0, 0,
+! 		   0 /*Full Width*/, 0 /*Full Height*/,
+! 		   True);
+! 	XbaeClipRedraw(ClipChild(mw));
+!     }
+X  }
+X  
+X  /*
+***************
+*** 6073,6079 ****
+X       * Reconfig the VSB maximum. Reset the sliderSize to avoid warnings.
+X       */
+X      XtVaSetValues(VertScrollChild(mw),
+! 		  XmNmaximum,	mw->matrix.rows,
+X  		  XmNsliderSize,1,
+X  		  NULL);
+X  
+--- 6086,6093 ----
+X       * Reconfig the VSB maximum. Reset the sliderSize to avoid warnings.
+X       */
+X      XtVaSetValues(VertScrollChild(mw),
+! 		  XmNmaximum,	(mw->matrix.rows -
+! 				 (int) mw->matrix.fixed_rows),
+X  		  XmNsliderSize,1,
+X  		  NULL);
+X  
+***************
+*** 6088,6102 ****
+X      (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X  	(mw, True);
+X  
+!      /*
+!      * Generate expose events on Matrix and Clip to force the
+!      * rows to be redrawn.
+!      */
+!     XClearArea(XtDisplay(mw), XtWindow(mw),
+! 	       0, 0,
+! 	       0 /*Full Width*/, 0 /*Full Height*/,
+! 	       True);
+!     XbaeClipRedraw(ClipChild(mw));
+X  }
+X  
+X  /*
+--- 6102,6118 ----
+X      (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X  	(mw, True);
+X  
+!     if (XtIsRealized(mw)) {
+! 	/*
+! 	 * Generate expose events on Matrix and Clip to force the
+! 	 * rows to be redrawn.
+! 	 */
+! 	XClearArea(XtDisplay(mw), XtWindow(mw),
+! 		   0, 0,
+! 		   0 /*Full Width*/, 0 /*Full Height*/,
+! 		   True);
+! 	XbaeClipRedraw(ClipChild(mw));
+!     }
+X  }
+X  
+X  /*
+***************
+*** 6167,6173 ****
+X       * Reconfig the HSB maximum.
+X       */
+X      XtVaSetValues(HorizScrollChild(mw),
+! 		  XmNmaximum,	mw->matrix.cell_total_width,
+X  		  NULL);
+X  
+X      /*
+--- 6183,6189 ----
+X       * Reconfig the HSB maximum.
+X       */
+X      XtVaSetValues(HorizScrollChild(mw),
+! 		  XmNmaximum,	CELL_TOTAL_WIDTH(mw),
+X  		  NULL);
+X  
+X      /*
+***************
+*** 6181,6195 ****
+X      (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X  	(mw, True);
+X  
+!     /*
+!      * Generate expose events on Matrix and Clip to force the
+!      * new columns to be drawn.
+!      */
+!     XClearArea(XtDisplay(mw), XtWindow(mw),
+! 	       0, 0,
+! 	       0 /*Full Width*/, 0 /*Full Height*/,
+! 	       True);
+!     XbaeClipRedraw(ClipChild(mw));
+X  }
+X  
+X  /*
+--- 6197,6213 ----
+X      (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X  	(mw, True);
+X  
+!     if (XtIsRealized(mw)) {
+! 	/*
+! 	 * Generate expose events on Matrix and Clip to force the
+! 	 * new columns to be drawn.
+! 	 */
+! 	XClearArea(XtDisplay(mw), XtWindow(mw),
+! 		   0, 0,
+! 		   0 /*Full Width*/, 0 /*Full Height*/,
+! 		   True);
+! 	XbaeClipRedraw(ClipChild(mw));
+!     }
+X  }
+X  
+X  /*
+***************
+*** 6260,6266 ****
+X       * Reconfig the HSB maximum. Reset the sliderSize to avoid warnings.
+X       */
+X      XtVaSetValues(HorizScrollChild(mw),
+! 		  XmNmaximum,	mw->matrix.cell_total_width,
+X  		  XmNsliderSize,1,
+X  		  NULL);
+X  
+--- 6278,6284 ----
+X       * Reconfig the HSB maximum. Reset the sliderSize to avoid warnings.
+X       */
+X      XtVaSetValues(HorizScrollChild(mw),
+! 		  XmNmaximum,	CELL_TOTAL_WIDTH(mw),
+X  		  XmNsliderSize,1,
+X  		  NULL);
+X  
+***************
+*** 6275,6289 ****
+X      (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X  	(mw, True);
+X  
+!     /*
+!      * Generate expose events on Matrix and Clip to force the
+!      * columns to be redrawn.
+!      */
+!     XClearArea(XtDisplay(mw), XtWindow(mw),
+! 	       0, 0,
+! 	       0 /*Full Width*/, 0 /*Full Height*/,
+! 	       True);
+!     XbaeClipRedraw(ClipChild(mw));
+X  }
+X  
+X  /*
+--- 6293,6309 ----
+X      (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X  	(mw, True);
+X  
+!     if (XtIsRealized(mw)) {
+! 	/*
+! 	 * Generate expose events on Matrix and Clip to force the
+! 	 * columns to be redrawn.
+! 	 */
+! 	XClearArea(XtDisplay(mw), XtWindow(mw),
+! 		   0, 0,
+! 		   0 /*Full Width*/, 0 /*Full Height*/,
+! 		   True);
+! 	XbaeClipRedraw(ClipChild(mw));
+!     }
+X  }
+X  
+X  /*
+***************
+*** 6354,6376 ****
+X  	for (j = 0; j < mw->matrix.columns; j++)
+X  	    mw->matrix.colors[i + position][j] = colors[i];
+X  
+!     /*
+!      * Redraw all the visible non-fixed cells.	We don't need to clear first
+!      * since only the color changed.
+!      */
+!     SETRECT(rect,
+! 	    0, 0,
+! 	    ClipChild(mw)->core.width - 1, ClipChild(mw)->core.height - 1);
+!     RedrawCells(mw, &rect);
+X  
+!     /*
+!      * Redraw all the visible fixed cells (but not the labels).
+!      * We don't need to clear first since only the color changed.
+!      */
+!     SETRECT(rect,
+! 	    ROW_LABEL_WIDTH(mw), COLUMN_LABEL_HEIGHT(mw),
+! 	    mw->core.width - 1, mw->core.height - 1);
+!     RedrawLabelsAndFixed(mw, &rect);
+X  }
+X  
+X  /*
+--- 6374,6398 ----
+X  	for (j = 0; j < mw->matrix.columns; j++)
+X  	    mw->matrix.colors[i + position][j] = colors[i];
+X  
+!     if (XtIsRealized(mw)) {
+! 	/*
+! 	 * Redraw all the visible non-fixed cells. We don't need to clear first
+! 	 * since only the color changed.
+! 	 */
+! 	SETRECT(rect,
+! 		0, 0,
+! 		ClipChild(mw)->core.width - 1, ClipChild(mw)->core.height - 1);
+! 	RedrawCells(mw, &rect);
+X  
+! 	/*
+! 	 * Redraw all the visible fixed cells (but not the labels).
+! 	 * We don't need to clear first since only the color changed.
+! 	 */
+! 	SETRECT(rect,
+! 		ROW_LABEL_WIDTH(mw), COLUMN_LABEL_HEIGHT(mw),
+! 		mw->core.width - 1, mw->core.height - 1);
+! 	RedrawLabelsAndFixed(mw, &rect);
+!     }
+X  }
+X  
+X  /*
+***************
+*** 6442,6464 ****
+X  	for (j = 0; j < num_colors; j++)
+X  	    mw->matrix.colors[i][j + position] = colors[j];
+X  
+!     /*
+!      * Redraw all the visible non-fixed cells.	We don't need to clear first
+!      * since only the color changed.
+!      */
+!     SETRECT(rect,
+! 	    0, 0,
+! 	    ClipChild(mw)->core.width - 1, ClipChild(mw)->core.height - 1);
+!     RedrawCells(mw, &rect);
+X  
+!     /*
+!      * Redraw all the visible fixed cells (but not the labels).
+!      * We don't need to clear first since only the color changed.
+!      */
+!     SETRECT(rect,
+! 	    ROW_LABEL_WIDTH(mw), COLUMN_LABEL_HEIGHT(mw),
+! 	    mw->core.width - 1, mw->core.height - 1);
+!     RedrawLabelsAndFixed(mw, &rect);
+X  }
+X  
+X  /*
+--- 6464,6488 ----
+X  	for (j = 0; j < num_colors; j++)
+X  	    mw->matrix.colors[i][j + position] = colors[j];
+X  
+!     if (XtIsRealized(mw)) {
+! 	/*
+! 	 * Redraw all the visible non-fixed cells. We don't need to clear first
+! 	 * since only the color changed.
+! 	 */
+! 	SETRECT(rect,
+! 		0, 0,
+! 		ClipChild(mw)->core.width - 1, ClipChild(mw)->core.height - 1);
+! 	RedrawCells(mw, &rect);
+X  
+! 	/*
+! 	 * Redraw all the visible fixed cells (but not the labels).
+! 	 * We don't need to clear first since only the color changed.
+! 	 */
+! 	SETRECT(rect,
+! 		ROW_LABEL_WIDTH(mw), COLUMN_LABEL_HEIGHT(mw),
+! 		mw->core.width - 1, mw->core.height - 1);
+! 	RedrawLabelsAndFixed(mw, &rect);
+!     }
+X  }
+X  
+X  /*
+***************
+*** 6522,6532 ****
+X       */
+X      mw->matrix.colors[row][column] = color;
+X  
+!     /*
+!      * Redraw the cell if it is visible
+!      */
+!     if (IsCellVisible(mw, row, column))
+! 	DrawCell(mw, row, column);
+X  }
+X  
+X  /*
+--- 6546,6558 ----
+X       */
+X      mw->matrix.colors[row][column] = color;
+X  
+!     if (XtIsRealized(mw)) {
+! 	/*
+! 	 * Redraw the cell if it is visible
+! 	 */
+! 	if (IsCellVisible(mw, row, column))
+! 	    DrawCell(mw, row, column);
+!     }
+X  }
+X  
+X  /*
+***************
+*** 6573,6583 ****
+X       * Get static quarks for the parms we understand
+X       */
+X      if (!haveQuarks) {
+! 	QPointer = XrmStringToQuark("Pointer");
+! 	QLeft = XrmStringToQuark("Left");
+! 	QRight = XrmStringToQuark("Right");
+! 	QUp = XrmStringToQuark("Up");
+! 	QDown = XrmStringToQuark("Down");
+X  	haveQuarks = True;
+X      }
+X  
+--- 6599,6609 ----
+X       * Get static quarks for the parms we understand
+X       */
+X      if (!haveQuarks) {
+! 	QPointer = XrmPermStringToQuark("Pointer");
+! 	QLeft = XrmPermStringToQuark("Left");
+! 	QRight = XrmPermStringToQuark("Right");
+! 	QUp = XrmPermStringToQuark("Up");
+! 	QDown = XrmPermStringToQuark("Down");
+X  	haveQuarks = True;
+X      }
+X  
+*** ../../Xbae-5-public/Xbae/src/MatrixP.h	Mon Mar 16 13:05:14 1992
+--- src/MatrixP.h	Thu Apr  9 11:26:22 1992
+***************
+*** 30,36 ****
+X  #define _MatrixP_h
+X  
+X  /*
+!  *  "@(#)MatrixP.h	3.7 3/11/92"
+X   */
+X  
+X  #include <Xm/XmP.h>
+--- 30,36 ----
+X  #define _MatrixP_h
+X  
+X  /*
+!  *  "@(#)MatrixP.h	3.8 4/8/92"
+X   */
+X  
+X  #include <Xm/XmP.h>
+***************
+*** 379,385 ****
+X      GC		cell_bottom_shadow_clip_gc; /* GC for clipped bottom shadow */
+X  
+X      XFontStruct	*font;		    /* fontStruct from fontList */
+-     int		char_width;	    /* average character width for font */
+X  
+X      int		*column_positions;  /* pixel position of each column */
+X  
+--- 379,384 ----
+*** ../../Xbae-5-public/Xbae/src/version.c	Mon Mar 16 13:05:39 1992
+--- src/version.c	Thu Apr  9 11:26:22 1992
+***************
+*** 21,27 ****
+X   */
+X  
+X  #ifndef SABER
+! static char sccsid[] = "@(#)version.c	3.5 3/13/92";
+X  #endif
+X  
+X  /*
+--- 21,27 ----
+X   */
+X  
+X  #ifndef SABER
+! static char sccsid[] = "@(#)version.c	3.6 4/9/92";
+X  #endif
+X  
+X  /*
+***************
+*** 30,37 ****
+X    The SCCSID of this file should be used as the Xbae release number.
+X  
+X    Matrix.h	3.7
+!   MatrixP.h	3.7
+!   Matrix.c	3.12
+X    Clip.h	3.3
+X    ClipP.h	3.3
+X    Clip.c	3.3
+--- 30,37 ----
+X    The SCCSID of this file should be used as the Xbae release number.
+X  
+X    Matrix.h	3.7
+!   MatrixP.h	3.8
+!   Matrix.c	3.16
+X    Clip.h	3.3
+X    ClipP.h	3.3
+X    Clip.c	3.3
+SHAR_EOF
+chmod 0644 patch-3.5-to-3.6 ||
+echo 'restore of patch-3.5-to-3.6 failed'
+Wc_c="`wc -c < 'patch-3.5-to-3.6'`"
+test 18187 -eq "$Wc_c" ||
+	echo 'patch-3.5-to-3.6: original size 18187, current size' "$Wc_c"
+fi
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

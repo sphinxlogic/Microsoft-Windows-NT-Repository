@@ -1,0 +1,1584 @@
+Newsgroups: comp.sources.misc
+From: jim@nestmoi.rain.com (Jim Chorn)
+Subject: v36i020:  jobs - misc.jobs Employment Search toolkit, Part01/02
+Message-ID: <csm-v36i020=jobs.140509@sparky.IMD.Sterling.COM>
+X-Md4-Signature: d35e6289e23cd1d5284799c3b3717a6a
+Date: Fri, 19 Mar 1993 20:05:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jim@nestmoi.rain.com (Jim Chorn)
+Posting-number: Volume 36, Issue 20
+Archive-name: jobs/part01
+Environment: news, sh
+
+This tool is used to summarize misc.job.* postings for a particular
+location and/or type of work. The summary can then be printed on
+paper and/or distributed to people that don't have news access but
+need the information for employment search purposes.
+
+This tool is mainly of interest to employment search support
+organizations or persons interested in collecting information for
+a particular locality for local distribution. The tool is general
+enough to *potentially* be used for other news article searches but
+there is no intention,support or testing done other than for the
+expressed focus of job/employment searching.
+
+The toolkit requires: a news feed for misc.jobs.* and may require
+(depending on your site system administration) access to /etc/crontab*
+or alternately use of the 'at' command. The toolkit has been tested
+on a NeXT system (4.3bsd) but should be functional on other systems
+with minor modification (See Readme).
+
+Enclosed is a Readme which describes the submission, an installation 
+script and the tools. All of which are bourne shell source, example 
+ascii data files, ascii informational files, one of which contains a 
+sample cron entry.
+
+See enclosed Readme for more information.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  listjobs maintjobs setup.default setup.example
+#   setup.newyork
+# Wrapped by kent@sparky on Fri Mar 19 13:59:43 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'listjobs' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'listjobs'\"
+else
+  echo shar: Extracting \"'listjobs'\" \(19340 characters\)
+  sed "s/^X//" >'listjobs' <<'END_OF_FILE'
+X#!/bin/sh
+XPATH=/bin:/usr/bin:/usr/ucb
+Xexport PATH
+X# CopyRight 1993 James Chorn All Rights Reserved.
+X# This work is wholely owned by James Chorn.
+X# Permission is given to use and copy the tools described and included
+X# herein with the following proviso:
+X# Proviso: You will not litigate against James Chorn for misuse, destruction
+X#	of property informational or otherwise, and you give James Chorn
+X#	credit for producing these tools by always including this copyright
+X#	notice prominently in all copies and distributions.
+X# No Warrantee is implied or Expressed and this software is provided 'as is'. 
+X# James Chorn will not be held accountable for any problem associated with the
+X# use of this software.
+X# 
+X# Usage: listjobs [setupfile]
+X#
+X# Use this script as often as the posts are cleared from the spool directory.
+X#
+X# This script finds all job postings with mention for a particular
+X# area set. The script cd's to the news spool directory and searches
+X# all of the 'misc.jobs.*' articles which include offered,contract,misc,resume.
+X# The words that might be expected in a job post:
+X#	Area		= Any word like a City Name or State which might appear
+X#	ExtendedArea	= Subject line (only) words such as State Abbrev.'s
+X#			  ExtendedArea is always a superset of Area.
+X#	OtherDisregard	= Any word that might indicate a trusted poster which
+X#			  is known to produce proper subject lines. Disregard
+X#			  causes posts which are out of the areas to be dropped
+X#			  iff we can trust the poster's subject line.
+X#	Disregard	= Organizations which are local but for reasons
+X#			  of duplication of effort want only to be summarized.
+X#			  (Eg. This print out is circulated to a group of
+X#			    people that get copies of job descriptions from
+X#			    a contact which also posts these same descriptions
+X#			    on the net.)
+X#	NeverTrust	= We have noticed inappropriate information for *our*
+X#			  purposes. Adding a login, site or other reasonably
+X#			  unique word to NeverTrust will remove these articles
+X#			  from the report generated.
+X#
+X# Note: Below the notion of a trusted user is mentioned. A trusted user
+X#	becomes trusted by putting one of the area's that we detect into
+X#	the subject line. In the case of OtherDisregard's (for example)
+X#	this amounts to	depending on the subject line to determine if
+X#	the article will be included or not.
+X# Other Features:
+X#	The Setup information below can be placed into a separate file
+X#	and used to create different forms for different groups.
+X#	eg. listjobs with no arguments get's the Full listing
+X#	    listjobs SetupFile uses 'SetupFile' information
+X#
+X# Also see the setup file 'setup.default' for additional information.
+XArea="Portland Hillsboro Beaverton Oregon"
+XExtendedArea="${Area} OR"
+XOtherDisregard="DRINKING Gorgeous"
+XNeverTrust="none"
+X#
+X# Disregard format is as follows: Pattern Key Symbol [Pattern Key Symbol] [...]
+X# Where: Pattern is the same type as OtherDisregard (a search pattern).
+X#	 Key a word to identify summary information.
+X#	 Symbol a word which is descriptive of the Pattern.
+X#
+X# eg. Disregard="MyRecruiter Subject: Bob's YourRecruiter Position Harry_Jones"
+X#
+XDisregard="none"
+X#
+X# Usenet news spooler structural information.
+X#
+XSpooledNewsDir="/usr/spool/news/misc/jobs"
+XSpooledNews="/usr/spool/news"			# Always assume news kept here
+XPostedGroups="contract/* offered/*"
+XExt=""
+X
+Xtrap "rm -rf /tmp/jobs.$$ /tmp/jobtest$$; echo Caught Signal ; exit 1" \
+X	1 2 3 4 5 6 7 8 9 10 12 13 14 15
+X#
+X# Pre Sys V.4 uses -y to make grep case insensitive
+XGREPCASE='-c'		# BSD systems
+X#GREPCASE='-y'		# Att SysV.4
+X#
+X# Get Setup Information from a setup file if one present.
+X# Note: We check test this file to ensure we have some confidence it will
+X#	function properly.
+X#
+Xif [ $# = 1 ]; then
+X	#
+X	# Need to eval Area prior to eval of the entire setup to
+X	# ensure ExtendedArea picks up the Area from the file and
+X	# not the Default above. Variables don't take effect until
+X	# after eval completes.
+X	eval `egrep '^Area=' $1 | head -1`	# set $Area from setup file
+X	eval `sed -e 's,#.*$,,' $1`		# set & eval are sh built-in's
+X	#
+X	# Now test the setup file out
+X	echo "#!/bin/sh -u" > /tmp/jobtest$$	# -u treat unset var's as errors
+X	sed -e 's,#.*$,,' $1 >> /tmp/jobtest$$
+X	echo `awk -f= '{if (NF != 2) next; printf "echo $%s; ", $1 }' \
+X		/tmp/jobtest$$` >> /tmp/jobtest$$
+X	chmod +x /tmp/jobtest$$
+X	/tmp/jobtest$$ >/dev/null
+X	badfile=$?				 # $? = exit status
+X	#
+X	# Check for multiple of three patterns
+X	# on the Disregard Variable
+X	#
+X	badvar=0
+X	egrep -s "^Disregard=none" /tmp/jobtest$$ 	# -s silent mode
+X	if [ $? = 1 ]; then				# $? = exit status
+X		TestDisLine=`egrep '^Disregard' /tmp/jobtest$$ | \
+X			awk -f= '{ print $2 }' | sed -e s,\",,g`
+X		echo $TestDisLine | \
+X			awk '{	if ( NF % 3 != 0 ) \
+X					{ exit 1 } \
+X				else \
+X					print $0 }' > /dev/null
+X		badvar=$?
+X	fi
+X	#
+X	# Check out Errors.
+X	#
+X	rm -f /tmp/jobtest$$
+X	if [ $badvar = 1 ]; then
+X		echo "$0: Bad setup file $1"
+X		echo "$0: Disregard Variable not modulo three fields"
+X	fi
+X	if [ $badfile = 1 ]; then
+X		echo "$0: Bad setup file $1"
+X		echo "$0: Variables may not contain #'s characters"
+X		echo "$0: Disregard Fields:"
+X		echo $TestDisLine | awk '{ while (i++ < NF) \
+X					printf "\t%d:\t%s\n", i, $i}'
+X	fi
+X	if [ $badvar = 1 -o $badfile = 1 ]; then 
+X		exit 1		# Quit
+X	fi
+Xfi
+X
+X#
+X# Format of the Output:
+X#	A Header to describe where this info is coming from and the date.
+X#	Subject lines of properly posted articles that match.
+X#	The articles that match.
+X#	Subject lines of all 'other' articles that have the Area mentioned
+X#		which might include: Local company response address or sales
+X#		office list (which may really be information not applicable to
+X#		the posting's real objective eg a Portland company looking
+X#		for an Field Applications Engineer for the Atlanta Office.
+X#	The articles that match.
+X#	A short blurp of other useful Local information eg BBS, Contact's etc.
+X#
+X# Where to work on it and put it...
+X#
+X
+Xmkdir /tmp/jobs.$$
+Xjobdir=/tmp/jobs.$$
+Xjobs=/usr/local/jobs
+X
+X#
+X# listname format: YearMonthDay but can be any form which is granular to # runs.
+X#
+Xlistname=`/bin/date | awk '{printf "%s%s%s", $6, $2, $3}'`
+Xcd $SpooledNewsDir
+X#
+X# Check Area's out first, this will include any article with
+X# *any* mention of a local target job including positions which
+X# are offered by local companies that reside out of the area.
+X# We use the ignore case grep option here and *assume* "Area" uses
+X# full city names. Note that if an article subject line is affected
+X# by case the article will placed in the 'other' possibles group
+X# but at least it won't be lost.
+X#
+Xset ${Area}
+Xwhile [ -n "$1" ]
+Xdo
+X	word=`echo $1 | sed -e 's,\^\[, ,g'`
+X	for i in  $PostedGroups
+X	do
+X		echo -n "$i : "
+X		sed -e /Message-ID/d -e /Xref/d -e /Path/d $i | \
+X			grep ${GREPCASE} -i "${word}"
+X	done >>${jobdir}/Possibles
+X	shift
+Xdone
+Xsort ${jobdir}/Possibles | uniq | grep -v ": 0" | \
+X	sed -e 's/: .*$//p' | uniq >${jobdir}/AllAreas
+X#
+X# Now pare the list down
+X#
+X# Checking Subject lines for Extended areas, eg State Abbrev in subject.
+X# We Don't ignore the case in the subject lines here.
+X# Note that this is marginal. If the city/state isn't mentioned in
+X# the article then it probably won't help to try to catch it here.
+X# However, if some friendly person often posts in CAPS and your pattern
+X# is often triggered by it, this will help filter some of it out. This
+X# is really meant to be a partial filter. There is a more drastic alternative
+X# available if using Extended Areas don't help.
+X#
+Xset ${ExtendedArea}
+Xtouch MatchedSubs
+Xwhile [ -n "$1" ]			# -n length of string nonzero?
+Xdo
+X	word=`echo $1 | sed -e 's,\^\[, ,g'`
+X	for i in `cat ${jobdir}/AllAreas`
+X	do 
+X		echo -n "$i : "
+X		grep Subject $i | grep ${GREPCASE} "${word}"
+X	done >>${jobdir}/MatchedSubs
+X	shift
+Xdone
+Xsort ${jobdir}/MatchedSubs | grep -v ": 0" | \
+X	sed -e 's/: .*$//p' | uniq > ${jobdir}/Local
+X#
+X# sort out other positions which we know probably aren't what we want
+X# namely those added from OtherDisregard. 
+X#
+Xset ${OtherDisregard}
+Xif [ $1 != none ]; then
+X	while [ -n "$1" ]
+X	do
+X		word=`echo $1 | sed -e 's,\^\[, ,g'`
+X		for i in `cat ${jobdir}/AllAreas`
+X		do 
+X			echo -n "$i : " ; grep ${GREPCASE} "${word}" $i
+X		done >>${jobdir}/OtherDis
+X		shift
+X	done
+X	#
+X	# strip out those with no reference and then reformat the line
+X	# removing the count information generated by the grep -c above.
+X	if [ -s ${jobdir}/OtherDis ]; then		# -s exists && size > 0
+X		sort ${jobdir}/OtherDis | grep -v ": 0" | \
+X			sed -e 's/: .*$//p' | uniq > ${jobdir}/NotLocal
+X	fi
+Xfi
+Xtouch ${jobdir}/NotLocal	# Ensure that one exists for later
+X#
+X# Find duplicates from cross postings.
+X# This gets kind of complicated due to the format of the Xref string
+X# but without it there would be even more work.
+X#
+Xset `echo "$PostedGroups" | sed -e 's,/\*,,g'`
+Xif [ $# -gt 1 ]; then	# only one dir to look thru so don't bother.
+X			# It get's messy below so we will not indent this 'if'
+X			# to provide reasonable indentation in this block.
+X			# The 'fi' is commented. Note: $# = num of params set
+Xtouch ${jobdir}/Duplicates
+Xfor i in `cat ${jobdir}/Local`
+Xdo
+X	#
+X	# Get all xref's
+X	if grep -s Xref $i ; then
+X		grep Xref $i >> ${jobdir}/Duplicates
+X	fi
+Xdone
+X
+Xif [ -s ${jobdir}/Duplicates ]; then
+X	sort ${jobdir}/Duplicates | uniq > ${jobdir}/tmpDup
+X	#
+X	# separate all fields into single component lines
+X	Head=`echo ${SpooledNewsDir} | sed -e s,${SpooledNews}/,,`
+X	rm -f ${jobdir}/Duplicates
+X	cat ${jobdir}/tmpDup | \
+X		awk '{ for (j = 3; j <= NF; ++j) print $j }' | \
+X		sed -e s,:,/, -e 's,\.,/,g' -e s,${Head}.,, \
+X		>> ${jobdir}/Duplicates
+X	#
+X	# Gather all lines that we need to look at into a single file
+X	# remember that we may have dup's for postings like offered/333
+X	# and misc/2222 but misc isn't needed because we only need offered,
+X	# we need offered but it's not really a dup so we find out here.
+X	# Cryptic but think about it.
+X	rm -f ${jobdir}/tmpDup
+X	awkmess='{ for (i = 1; i < NF; ++i) printf "%s/" , $i  ; print "\n" }'
+X	Groups=`echo "$PostedGroups" | sed -e 's,/\*,,g'`
+X	set `cat ${jobdir}/Duplicates` ""
+X	while [ -n "$1" ] 		# Checking all potential duplicates
+X	do
+X		for i in $Groups	# against -> all selected groups
+X		do
+X			group=`echo $1 | awk -f/ "$awkmess" | \
+X				sed -e 's,/$,,' | head -1`  # get's the dir
+X			if [ "$group" = "$i" ]; then
+X				echo $1 >> ${jobdir}/tmpDup
+X			fi
+X		done
+X		shift;
+X	done
+X	#
+X	# tmpDup now has only duplicates in our PostedGroups but it also
+X	# has all potential duplicates as well. These are all consecutive
+X	# entries in tmpDup so we can now step thru weed out the real dups.
+X	#
+X	# Now eliminate all unwanted groups from tmpDup
+X	rm -f ${jobdir}/Duplicates
+X	if [ -s ${jobdir}/tmpDup ]; then
+X		set `cat ${jobdir}/tmpDup` ""
+X		while [ -n "$1" -a -n "$2" ]
+X		do
+X			if cmp -s $1 $2 ; then		# -s is silent mode
+X				echo $1 >> ${jobdir}/Duplicates
+X			fi
+X			shift
+X		done
+X	fi
+X	touch ${jobdir}/Duplicates	# Always ensure one is there.
+Xfi
+X
+Xfi	# Commented 'fi' as described from above. This 'fi' is needed
+X	# for the block above.
+X#
+X# Back to main stream.... Once the duplicates have been determined they
+X# need to be eliminated from several places.
+X#
+X# Eliminate duplicates from cross postings
+X#
+Xfor i in `cat ${jobdir}/Duplicates`
+Xdo
+X	sed -e s,$i,, ${jobdir}/Local | sort > ${jobdir}/NoDuplics
+X	mv -f ${jobdir}/NoDuplics ${jobdir}/Local
+Xdone
+Xcat ${jobdir}/Local | sort | uniq >${jobdir}/LocalArea
+X#
+X# Find all articles in AllAreas (LocalArea inclusive)
+X#	which we never want to see.
+X#
+Xtouch ${jobdir}/NeverTrust		# Ensure that one exists for later
+Xset ${NeverTrust}
+Xif [ $1 != none ]; then
+X	while [ -n "$1" ]
+X	do
+X		word=`echo $1 | sed -e 's,\^\[, ,g'`
+X		for i in `cat ${jobdir}/AllAreas`
+X		do 					# -c count of lines only
+X			echo -n "$i : " ; grep ${GREPCASE} "${word}" $i	
+X		done >>${jobdir}/NotEver
+X		shift
+X	done
+X	#
+X	# strip out those with no reference and then reformat the line
+X	# removing the count information generated by the grep -c above.
+X	if [ -s ${jobdir}/NotEver ]; then
+X		sort ${jobdir}/NotEver | grep -v ": 0" | \
+X			sed -e 's/: .*$//p' | uniq > ${jobdir}/NeverTrust
+X	fi
+Xfi
+X#
+X# Eliminate LocalArea and Duplicates from AllAreas
+X#
+Xfor i in `cat ${jobdir}/LocalArea ${jobdir}/Duplicates`
+Xdo
+X	sed -e s,$i,, ${jobdir}/AllAreas > ${jobdir}/NoLNoD
+X	mv -f ${jobdir}/NoLNoD ${jobdir}/AllAreas
+Xdone
+X#
+X# Eliminate NonLocal and NeverTrust from AllAreas
+X#
+Xfor i in `cat ${jobdir}/NotLocal ${jobdir}/NeverTrust`
+Xdo
+X	sed -e s,$i,, ${jobdir}/AllAreas > ${jobdir}/NoLNoT
+X	mv -f ${jobdir}/NoLNoT ${jobdir}/AllAreas		# -f force
+Xdone
+Xcat ${jobdir}/AllAreas | sort | uniq >${jobdir}/NoLNoT
+Xmv -f ${jobdir}/NoLNoT ${jobdir}/AllAreas
+X#
+X# Find Disregards in LocalArea 
+X#
+Xtouch ${jobdir}/Disregards
+Xset ${Disregard}
+Xif [ $1 != none ]; then 
+X	while [ -n "$1" ]
+X	do
+X		word=`echo $1 | sed -e 's,\^\[, ,g'`
+X		for i in `cat ${jobdir}/LocalArea`
+X		do
+X			if grep -s  "${word}" $i ; then
+X				echo $i	>> ${jobdir}/Disregards
+X				echo $i	>> ${jobdir}/Disregards.$1
+X			fi
+X		done
+X		shift; shift; shift;
+X	done
+Xfi
+X#
+X# Eliminate Disregard and NeverTrust from LocalArea 
+X#
+Xfor i in `cat ${jobdir}/Disregards ${jobdir}/NeverTrust`
+Xdo
+X	sed -e s,$i,, ${jobdir}/LocalArea > ${jobdir}/LoNoDNoT
+X	mv -f ${jobdir}/LoNoDNoT ${jobdir}/LocalArea
+Xdone
+Xcat ${jobdir}/LocalArea | sort | uniq > ${jobdir}/LoNoDNoT
+Xmv -f ${jobdir}/LoNoDNoT ${jobdir}/LocalArea
+X#
+X# Formating time...
+X#
+X# Header with subject summary for local stuff...
+X#
+X(	echo -n "________________________________________"; # 40 per
+X	echo	"________________________________________";
+X	echo ""; )					> ${jobdir}/Postings
+X echo "Internet Job Postings for `/bin/date`"		>> ${jobdir}/Postings
+X(	echo -n "________________________________________";
+X	echo	"________________________________________";
+X	echo ""; )					>> ${jobdir}/Postings
+X(echo ""; echo "Local Area Offerings Summary:")		>> ${jobdir}/Postings
+X#
+X# Messages for the rest of the form
+XOtherLocalSumMSG="Other Local Company Offerings Summary:"
+XOtherSumMSG="Summary of Other Postings which follow:"
+XSummaryMSG="Summary of "
+XPostMSG="posts"
+X# Note that the open bracket in the next line matches near its close
+XNotShownMSG="        (Articles are not shown below, contact "
+X# Lines with imbedded tabs at the start of each string.
+XNoAdditionalsMSG="	No Additional Articles Applicable"
+XNoArticlesMSG="	No Articles Applicable"
+X
+X#
+X# Collect the subject lines
+X# (echo a tab to indent the subject line as well).
+X# Note: wc -w = number of words
+Xif [ `cat ${jobdir}/LocalArea | wc -w | awk '{ print $1 }'` = 0 ]; then
+X	echo "${NoArticlesMSG}"				>> ${jobdir}/Postings
+Xfi
+X
+Xfor i in `cat ${jobdir}/LocalArea`	# Won't happen if nothing there.
+Xdo
+X(	echo -n "	"; egrep '^Subject' $i |head -1| sed -e s,Subject.,, )\
+X							>> ${jobdir}/Postings
+Xdone
+X#
+X# Format break.
+X(echo -n "________________________________________";
+Xecho	 "________________________________________";
+Xecho     ""; )						>> ${jobdir}/Postings
+X#
+X# Add Articles
+X# Note: grep -v = print all except those with ...
+Xfor i in `cat ${jobdir}/LocalArea`
+Xdo
+X	(echo "";
+X	cat $i | grep -v Message-ID ;
+X	echo "";
+X	echo -n "________________________________________";
+X	echo    "________________________________________";
+X	echo ""; ) 					>> ${jobdir}/Postings
+Xdone
+X#
+X# Add Header for others...
+X#
+Xecho ""						>> ${jobdir}/Postings
+X(echo -n "________________________________________";
+Xecho     "________________________________________";
+Xecho     ""; )	 					>> ${jobdir}/Postings
+X(echo    "";
+Xecho  "${OtherLocalSumMSG}")				>> ${jobdir}/Postings
+X#
+X# Print out summary's of Disregards
+X#
+X# This is complicated and needs some minor explanation.
+X# If there is Disregard'd posts then check the list '$Disregard'
+X# for all occurrences of these posts since we know that at least one exists.
+X# When one is found, print a header and the name. The name may contain a
+X# backslash due to escaping quotes or other special characters so it is
+X# sed'd out. Since sed requires a newline we must awk out the newline
+X# to create an 'echo -n' effect. These lines are clearly marked below.
+X#
+X# Remember $Disregard format is 'Pattern Key Symbolic(person)'
+X#
+Xif [ `cat ${jobdir}/Disregards | wc -w | awk '{ print $1 }'` != 0 ]; then
+X
+X	set ${Disregard}
+X	if [ $1 != none ]; then
+X	    while [ -n "$1" ]
+X	    do
+X		if [ -s ${jobdir}/Disregards.$1 ]; then
+X			(echo "";
+X			 echo -n ${SummaryMSG}" ";
+X			# next echo acts like echo -n
+X			echo  $1 | sed -e 's,\\,,' -e 's,\^\[, ,g' | \
+X				awk '{printf "%s", $0 }';
+X			# get the summary lines from these users...
+X			echo " ${PostMSG}:";
+X			word=`echo $2 | sed -e 's,\^\[, ,g'`
+X			for i in `cat ${jobdir}/Disregards.$1`
+X			do
+X				echo -n "        ";	# tabs->' '
+X				tr '\011' ' ' < $i | grep "${word} ";
+X			done;
+X			echo "";
+X			(echo -n "${NotShownMSG}";
+X			# next echo acts like echo -n
+X			echo  $3 | sed -e 's,\\,,' -e 's,\^\[, ,g' | \
+X				awk '{printf "%s", $0 }';
+X			#
+X			echo " )") | fmt )		>> ${jobdir}/Postings
+X		fi
+X		shift; shift; shift;	# Must match #arg's per entry
+X	    done
+X	    echo ""					>> ${jobdir}/Postings
+X	    echo "${OtherSumMSG}"			>> ${jobdir}/Postings
+X	fi
+Xfi
+X#
+X# Collect the subject lines
+X#
+Xif [ `cat ${jobdir}/AllAreas | wc -w | awk '{ print $1 }'` = 0 ]; then
+X	echo "$NoAdditionalsMSG"			>> ${jobdir}/Postings
+Xfi
+X
+Xfor i in `cat ${jobdir}/AllAreas`
+Xdo
+X	(echo -n "	"; egrep '^Subject' $i |head -1|sed -e s,Subject.,, ) \
+X							>> ${jobdir}/Postings
+Xdone
+X#
+X(echo -n "________________________________________";
+Xecho     "________________________________________";
+Xecho     ""; ) 						>> ${jobdir}/Postings
+X#
+X# Add Articles
+X#
+Xfor i in `cat ${jobdir}/AllAreas`
+Xdo
+X	( echo "";
+X	cat $i | grep -v Message-ID ;
+X	echo "";
+X	echo -n "________________________________________";
+X	echo     "________________________________________";
+X	echo     ""; ) 					>> ${jobdir}/Postings
+Xdone
+X#
+X# Add a Default Final Comment.
+X#
+Xif [ -s ${jobs}/Comments${Ext} ]; then
+X	egrep -v "^#" ${jobs}/Comments${Ext}		>> ${jobdir}/Postings
+Xelif [ -s ${jobs}/Comments ]; then
+X	egrep -v "^#" ${jobs}/Comments			>> ${jobdir}/Postings
+Xelse
+X   (echo "";
+X    echo "This job listing was provided by an automated tool which collect"; 
+X    echo "and organizes Usenet Articles from misc.jobs news groups, updated";
+X    echo "weekly. Any comments should be directed to jobs@nestmoi.rain.com via e-mail.";
+X    echo "";
+X    echo "The usual disclaimers apply.... Good Hunting!"
+X    echo -n "________________________________________";
+X    echo    "________________________________________";) >> ${jobdir}/Postings
+Xfi
+X#
+X# Now save it somewhere usefully accessible
+X#
+Xegrep -v '^Xref' ${jobdir}/Postings > ${jobs}/${listname}${Ext}
+Xecho $listname > ${jobs}/Last
+Xrm -rf $jobdir
+Xexit 0
+X#
+X# Inconveniences:
+X# 1. This should allow other places like comp.jobs or other's which might
+X#    pop up in Internet topology but is not implemented.
+X#
+X# 1 can be solved by altering the 'cd' line and replicating the script
+X# for the other tree's or just use the check arg[0] trick with a link.
+X#    I've made provisions in the setup scripts to do some of this but
+X#    I don't get ba.jobs or other topologies so I can't test it out. This
+X#    might already work.
+X#
+X# 2. The script is slow, (but who cares, it's a cron job anyway RIGHT?).
+X#
+X# 3. It would be nice if we only needed to run this script once for each
+X#    different setup file but I don't have the time to investigate the
+X#    file name conflicts which might exist (let me know if you do).
+X#
+X# 4. It would be nice to handle line wrapped patterns.
+END_OF_FILE
+  if test 19340 -ne `wc -c <'listjobs'`; then
+    echo shar: \"'listjobs'\" unpacked with wrong size!
+  fi
+  chmod +x 'listjobs'
+  # end of 'listjobs'
+fi
+if test -f 'maintjobs' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'maintjobs'\"
+else
+  echo shar: Extracting \"'maintjobs'\" \(17976 characters\)
+  sed "s/^X//" >'maintjobs' <<'END_OF_FILE'
+X#!/bin/sh 
+XPATH=/bin:/usr/bin:/usr/ucb
+Xexport PATH
+X# CopyRight 1993 James Chorn All Rights Reserved.
+X# This work is wholely owned by James Chorn.
+X# Permission is given to use and copy the tools described and included
+X# herein with the following proviso:
+X# Proviso: You will not litigate against James Chorn for misuse, destruction
+X#	of property informational or otherwise, and you give James Chorn
+X#	credit for producing these tools by always including this copyright
+X#	notice prominently in all copies and distributions.
+X# No Warrantee is implied or Expressed and this software is provided 'as is'. 
+X# James Chorn will not be held accountable for any problem associated with the
+X# use of this software.
+X# 
+X# Usage: maintjobs [name]
+X#
+X# Use this script when ever you need to create a new setup file or you
+X# need to modify an existing setup file.
+X#
+X# The Variables:
+X#	SpooledNewsDir	  Where the news lives
+X#	PostedGroups	  Which news groups to check
+X#	Area		= Any word like a City Name or State which might appear
+X#	ExtendedArea	= Subject line (only) words such as State Abbrev.'s
+X#			  ExtendedArea is always a superset of Area.
+X#			  These also tell us the articles which we trust, namely
+X#			  that the subject line and/or content is interesting.
+X#	OtherDisregard	= Any word that might indicate a trusted poster which
+X#			  is known to produce proper subject lines. Disregard
+X#			  causes posts which are out of the areas to be dropped
+X#			  iff we trust the poster's subject line.
+X#	Disregard	= Organizations which are local but for reasons
+X#			  of duplication of effort want only to be summarized.
+X#			  (Eg. This print out is circulated to a group of
+X#			    people that get copies of job descriptions from
+X#			    a contact which also posts these same descriptions
+X#			    on the net.)
+X#	NeverTrust	= Articles that may contain information we don't
+X#			  want can be removed using never trust. Typically
+X#			  a small percentage of articles are posted by
+X#			  people thinking that the news groups searched are
+X#			  meant for requests for information instead of 
+X#			  being meant to provide requests for interested
+X#			  parties. Sometimes there are mistakes and flames
+X#			  all of which we don't want to see. NeverTrust
+X#			  provides a way to remove these once detected.
+X#			  You can add a usenet address or a word from the
+X#			  content which uniquely identifies this stream.
+X#			  You should also be careful to be *very* selective
+X#			  as there are no checks against the other variables.
+X#	Ext		= setup file extension name
+X#
+X# Also see the setup file 'setup.default' for additional information.
+Xjobs=/usr/local/jobs
+X
+X#
+X# List of expected variables in the setup file. If These aren't there they
+X# are added. Maintenance note: Variables is order dependent and must be
+X# consistent with the notion of the variable order here in this script
+X# and the setup file.
+XVar1="Area ExtendedArea NeverTrust OtherDisregard SpooledNewsDir"
+XVar2="PostedGroups Ext"
+XVariables="$Var1 $Var2"
+X#
+X# Set the default variables
+XArea="Portland Hillsboro Beaverton Oregon"
+XExtendedArea="${Area} OR"
+XOtherDisregard="DRINKING Gorgeous"
+XDisregard="none"
+XNeverTrust="none"
+XSpooledNewsDir="/usr/spool/news/misc/jobs"
+XPostedGroups="contract/* offered/*"
+XExt=""
+X
+Xmodmods=/tmp/maintjobsmods.$$		# modifications are placed here
+Xmodfile=/tmp/maintjobsfile.$$		# copy of original setup file
+Xtestfile=/tmp/maintjobs.$$ 		# test file to be created
+Xmodit=/tmp/maintjobsED.$$		# ed script created to deal with changes
+Xtrap "rm -rf $testfile $modfile ${modfile}.tmp $modmods $modit ; exit 1 " \
+X	0 1 2 3 4 5 6 7 8 9 10 12 13 14 15
+X
+X#
+X# Help user with navigation
+X#
+Xnotdone=1
+Xif [ $# != 1 ]; then
+X	echo "All setup files are in the format 'setup.name'"
+X	echo "Where 'name' is the only argument to this program"; echo""
+X	echo "The default file is named 'setup.default'."
+X	name=default
+Xelse
+X	name=`echo $1 | sed -e s,setup,, -e 's/\.//'`
+Xfi
+X
+Xwhile [ $notdone = 1 ];
+Xdo
+X	echo -n "Is it ok to use setup.$name y/[n]? "
+X	read ans
+X	if [ " $ans" = " y" ]; then
+X		notdone=0
+X		Name=$name
+X	else
+X		echo -n "enter name: "
+X		read name
+X		Name=`echo $name | sed -e s,setup,, -e 's/\.//'`
+X		while [ " $name" = " " ];
+X		do
+X			echo -n "Quit [n]/y? "
+X			read ans
+X			if [ " $ans" = " y" ]; then exit;
+X			else
+X				echo -n "enter name: "
+X				read name
+X			fi
+X		done
+X	fi
+Xdone
+X
+X#
+X# Got a name so, check the name out and deal with it.
+X#
+Xif [ $Name != default -a -s ${jobs}/setup.$Name ]; then
+X	echo -n "$Name exists, ok to modify $Name [y]/n? "
+X	read ans
+X	if [ " $ans" != " n" ]; then 
+X		echo "Modifying ${jobs}/setup.$Name"
+X		eval `sed -e 's,#.*$,,' ${jobs}/setup.$Name`
+X	else
+X		exit
+X	fi
+Xelif [ $Name = default ]; then
+X	if [ -s ${jobs}/setup.default ]; then
+X		echo "Modifying ${jobs}/setup.$Name"
+X		eval `sed -e 's,#.*$,,' ${jobs}/setup.$Name`
+X	else
+X		echo "The default setup file is missing"
+X		echo "using built-in's..."; echo ""
+X	fi
+Xelse
+X	echo "Creating ${jobs}/setup.$Name"
+X	if [ -s ${jobs}/setup.default ]; then
+X		# copy the default's file and use it.
+X		#
+X		cp ${jobs}/setup.default ${jobs}/setup.$Name
+X		if [ $? = 1 ]; then
+X			echo "Can't create it, check permissions, sorry."
+X			exit 1
+X		fi
+X		eval `sed -e 's,#.*$,,' ${jobs}/setup.$Name`
+X	else
+X		echo "The default setup file is missing"
+X		echo "using built-in's..."; echo ""
+X		echo "#" > ${jobs}/setup.$Name
+X		if [ $? = 1 ]; then
+X			echo "Can't create it, check permissions, sorry."
+X			exit 1
+X		fi
+X		(echo "#"; echo "# job list setup file"; echo "#" ) \
+X			>> ${jobs}/setup.$Name
+X	fi
+Xfi
+Xcp ${jobs}/setup.$Name $modfile
+X#
+X# setup an ESC character to the real thing
+XESC=`echo a | tr a '\033'`
+X#
+X# Loop forever asking for changes and testing the results.
+X# We ask to break the loop at selected points.
+X#
+XMod=""	# Keep track of fields modified
+Xnotdone=1
+Xwhile [ $notdone = 1 ];
+Xdo
+X	eval `sed -e 's,#.*$,,' $modfile`
+X	#
+X	# Make up a tmp ExtendedArea, we separate this up and recombine later
+X	# to deal with the imbedded Area variable.
+X	set $ExtendedArea
+X	for a in $Area
+X	do
+X		if [ " $1" = " $a" ]; then
+X			shift;
+X		fi
+X	done
+X	LOCALE=$*
+X	# Ensure a 'none' field always in these.
+X	if [ "${Area} " = " " ]; then
+X		Area="none" ; fi
+X	if [ "${LOCALE} " = " " ]; then
+X		LOCALE="none" ; fi
+X	if [ "${NeverTrust} " = " " ]; then
+X		NeverTrust="none" ; fi
+X	if [ "${OtherDisregard} " = " " ]; then
+X		OtherDisregard="none" ; fi
+X	if [ "${Disregard} " = " " ]; then
+X		Disregard="none" ; fi
+X	if [ "${SpooledNewsDir} " = " " ]; then
+X		Area="/usr/spool/news" ; fi
+X	if [ "${PostedGroups} " = " " ]; then
+X		PostedGroups='*' ; fi
+X	#
+X	# Ask for changes
+X	#
+X	echo "---------------------------------"
+X	echo "Areas: 		${Area}"
+X	echo "ExtendedArea: 	${LOCALE}"
+X	echo "NeverSee:	${NeverTrust}"
+X	echo "OtherDisregard: ${OtherDisregard}"
+X	echo "Disregard: 	${Disregard}"
+X	echo "SpooledNewsDir: ${SpooledNewsDir}"
+X	echo "PostedGroups: 	${PostedGroups}"
+X	echo "---------------------------------"
+X	echo "Commands: A-Add D-Delete C-Clearall Q-Quit S-Show H-Help"
+X	echo "Fields: 	A E N O D S P"
+X	while [ $notdone = 1 ];
+X	do
+X	#
+X	# Get the command
+X	#
+X		echo -n "Command? " ; read ans;
+X		case $ans in
+X		A | a ) cmd=add;;
+X		C | c ) cmd=clr;;
+X		D | d ) cmd=del;;
+X		Q | q ) cmd=quit;;
+X		S | s ) cmd=tryagain;
+X			echo "---------------------------------"
+X			echo "Areas: 		${Area}"
+X			echo "ExtendedArea: 	${LOCALE}"
+X			echo "NeverSee:	${NeverTrust}"
+X			echo "OtherDisregard: ${OtherDisregard}"
+X			echo "Disregard: 	${Disregard}"
+X			echo "SpooledNewsDir: ${SpooledNewsDir}"
+X			echo "PostedGroups: 	${PostedGroups}"
+X			echo "---------------------------------"
+X			echo -n "Commands: A-Add D-Delete C-Clearall Q-Quit"
+X			echo " S-Show H-Help"
+X			echo "Fields: 	A E N O D S P"
+X			;;
+X		H | h ) cmd=tryagain;
+X			if [ -s ${jobs}/Help ]; then
+X				cat ${jobs}/Help
+X			fi
+X			;;
+X		*) cmd=tryagain;;
+X		esac
+X		if [ $cmd = quit ]; then
+X			break;
+X		elif [ $cmd = tryagain ]; then
+X			continue
+X		fi
+X	#
+X	# Get field to apply command
+X	#
+X		echo -n "Field? " ; read ans;
+X		new="";
+X		case $ans in
+X		A | a) fld=A; set "${Area}";;
+X		E | e) fld=E; set "${LOCALE}";;
+X		N | n) fld=N; set "${NeverTrust}";;
+X		O | o) fld=O; set "${OtherDisregard}";;
+X		D | d) fld=D; set "${Disregard}";;
+X		S | s) fld=S; set "${SpooledNewsDir}";;
+X		P | p) fld=P; set "${PostedGroups}";;
+X		*) continue;;
+X		esac
+X	#
+X	# Apply commands, most special cases handle removal of extra
+X	#		space characters, special conditions on variables
+X	#		and we try to be *real* careful.
+X		New=$*
+X		idx=$#
+X		case $cmd in
+X			
+X		add )	Mod="${Mod} $fld";
+X			if [ $fld = D ]; then		# Remind fields
+X			       echo "FYI-> 1:WhoPat 2:SummaryPat 3:Contact_info"
+X			fi
+X			echo -n "name: "; read ans;
+X			tmpans=`echo "${ans}" | sed -e "s,\\\\${ESC},^[,g" `
+X			ans=${tmpans}
+X			set -
+X			if [ "$New" = none ]; then # we are adding to none
+X				New=""		  # so remove 'none' from list
+X			fi
+X			if [ "$New" = "*" ]; then
+X				New=""		 	# so remove * from list
+X			fi
+X			if [ $fld = P ]; then		# add expansion
+X				if [ " $ans" != " " ]; then
+X					ans="${ans}/*"	# ignore blanks
+X				fi
+X			fi
+X			new="${New} ${ans}";
+X			if [ " $New" = " " ]; then	# ignore blanks
+X				new="${ans}";
+X			fi
+X			New=$new
+X			if [ $fld = S ]; then	# Only allow one here
+X				New=$ans;
+X			fi
+X			if [ $fld = E -a "$Area" = none ]; then
+X				echo "Add some Area's first, Extended Areas"
+X				echo "	is used to qualify additional Subject"
+X				echo "	lines and will always include Area"
+X				New=""
+X			fi
+X		;;
+X		del ) set $@	# We ask for each one
+X			if [ $fld = S ]; then	# tell em to use add
+X				echo "Use Add to change spool directory"
+X				continue
+X			fi
+X			if [ "$New" = none ]; then
+X				echo "None to delete"
+X				continue
+X			fi
+X			while [ $idx -gt 0 ]; do
+X				tmpqus=`echo "$1"| sed -e 's,\^\[, ,g' `
+X				echo -n "Delete '${tmpqus}' y/[n]? "
+X				read ans
+X				if [ " $ans" != " y" ]; then
+X					if [ " $new" = " " ]; then
+X						new="$1"
+X					else
+X						new="$new $1"
+X					fi
+X				fi
+X				shift; idx=$#
+X			done
+X			if [ $fld = P ]; then
+X				new='*'
+X			fi
+X			New=$new
+X			Mod="${Mod} $fld";
+X		;;
+X		clr ) if [ $fld = S ]; then # tell em to use add
+X				echo "Use Add to change spool directory"
+X				continue
+X			fi
+X			New=""
+X			#
+X			# Ensure a 'none' field always in these.
+X			if [ $fld = N -o $fld = O -o $fld = D ];
+X			then
+X				New="none"
+X			elif [ $fld = A -o $fld = E ];
+X			then
+X				New="none"
+X			elif [ $fld = A ]; then # clear Extended area as well
+X				LOCALE="none"
+X			fi
+X			#
+X			# set it to all possible subdirectories
+X			if [ $fld = P ]; then
+X				New='*'
+X			fi
+X			Mod="${Mod} $fld";
+X		;;
+X		esac
+X		#
+X		# Ensure a 'none' field always in these.
+X		if [ "${New} " = " " ]; then
+X			if [ $fld = N -o $fld = O -o $fld = D ];
+X			then
+X				New="none"
+X			elif [ $fld = A -o $fld = E ];
+X			then
+X				New="none"
+X			elif [ $fld = A ]; then
+X				LOCALE="none"
+X			fi
+X		fi
+X		#
+X		# This is where we actually replace the variables with the tmp.
+X		case $fld in
+X		A ) Area=$New;;
+X		E ) LOCALE=$New;;
+X		#  The sed action below handles "*" and "'" strings in raw form
+X		#  A similar sed line also appears in the 'ed' script for
+X		#  the same reason
+X		N ) NeverTrust=`echo "$New" | \
+X			sed -e "s,',\\\\\',g" -e "s,\\\*,\\\\\*,g"`;;
+X		O ) OtherDisregard=`echo "$New" | \
+X			sed -e "s,',\\\\\',g" -e "s,\\\*,\\\\\*,g"`;;
+X		D ) Disregard=`echo "$New" | \
+X			sed -e "s,',\\\\\',g" -e "s,\\\*,\\\\\*,g"`;;
+X		S ) if [ -d $New ]; then
+X			SpooledNewsDir=$New
+X		    else
+X			echo "$New doesn't exist, no change"
+X		    fi ;;
+X		P )
+X		    if [ "$New" != "*" ]; then
+X			new=""
+X			tdir=`echo $New | sed -e 's,/\*,,g'`
+X			for dir in $tdir
+X			do
+X				if [ -d "${SpooledNewsDir}/${dir}" ]; then
+X					if [ " $new" = " " ]; then
+X						new="${dir}/*"
+X					else
+X						new="$new ${dir}/*"
+X					fi
+X				else
+X				    echo "no ${SpooledNewsDir}/$dir, ignored"
+X				fi
+X			done
+X			New=$new
+X		    fi
+X		    PostedGroups=$New;;
+X		esac
+X	done
+X	ExtendedArea="${Area} ${LOCALE}"	# Always reset this here
+X
+X	#
+X	# Create a file with all modified variables in it.
+X	#
+X	echo "Area=\"${Area}\"" 			> $modmods
+X	if [ "$LOCALE" = none ]; then
+X		LOCALE=""
+X	fi
+X	echo "ExtendedArea=\"\${Area} ${LOCALE}\""	>> $modmods
+X	if [ "$NeverTrust" = none ]; then
+X		echo "NeverTrust=none"			>> $modmods
+X	else
+X		echo "NeverTrust=\"${NeverTrust}\""	>> $modmods
+X	fi
+X	if [ "$OtherDisregard" = none ]; then
+X		echo "OtherDisregard=none"		>> $modmods
+X	else
+X		echo "OtherDisregard=\"${OtherDisregard}\""	>> $modmods
+X	fi
+X	if [ "$Disregard" = none ]; then
+X		echo "Disregard=none"			>> $modmods
+X	else
+X		echo "Disregard=\"${Disregard}\""	>> $modmods
+X	fi
+X	echo "SpooledNewsDir=\"${SpooledNewsDir}\""	>> $modmods
+X	echo "PostedGroups=\"${PostedGroups}\""		>> $modmods
+X	#
+X	# Special case default...
+X	if [ "$Name" != default ]; then
+X		echo "Ext=\".$Name\""			>> $modmods
+X	else
+X		echo "Ext=\"\""				>> $modmods
+X	fi
+X	#
+X	# Check out the setup file to ensure we are consistent with
+X	# any maintenance on this script. We want to match the number
+X	# number of lines in the modmods file to the variables in the
+X	# actual setup file.
+X	SetupLines=`egrep -v "^#" $modfile | sed -e '/^$/D' | \
+X		wc -l | awk '{print $1}'`
+X	ModLines=`wc -l $modmods | awk '{print $1}'`
+X	if [ $SetupLines != $ModLines ]; then
+X		echo "Missing variables in setup file. Correcting..."
+X		sed -e 's,^,#,' $modfile > ${modfile}.tmp
+X		cat $modmods >> ${modfile}.tmp
+X		mv -f ${modfile}.tmp ${modfile}
+X		echo "Fixed. Corrections are added if you want these changes."
+X		echo "You will be asked."
+X	fi
+X	#
+X	# Remove redundant Mod's in Mod field
+X	if [ " $Mod" != " " ]; then		# No changes made avoid set
+X		set $Mod
+X		Mod=""
+X		while [ $# ]; do
+X			isInList=false
+X			for I in $Mod
+X			do
+X				if [ " $I" = " $1" ]; then 
+X					isInList=true; break
+X				fi
+X			done
+X			if [ $isInList = false ]; then
+X				Mod="${Mod} $1";
+X			fi
+X			if [ $# != 1 ]; then
+X				shift
+X			else
+X				break;
+X			fi
+X		done
+X	fi
+X	#
+X	# Create an ed script to make the changes.
+X	( echo '#!/bin/sh'
+X		echo '#'
+X		echo '# This is an ed script.'
+X		echo '#'
+X		echo 'read area'
+X		echo 'read exarea'
+X					)	> $modit
+X	#
+X	# Urggggg ;-) sed out for special characters...
+X	#
+X	cat >>$modit << @@EDSCRIPT@@
+X		read nevsee
+X		nevsee=\`echo "\$nevsee" |sed -e "s,',\\\\\\\\\',g"\`
+X		nevsee=\`echo "\$nevsee" |sed -e "s,\\\*,\\\\\\\\\*,g"\`
+X@@EDSCRIPT@@
+X	cat >>$modit << @@EDSCRIPT@@
+X		read odist
+X		odist=\`echo "\$odist" |sed -e "s,',\\\\\\\\\',g"\`
+X		odist=\`echo "\$odist" |sed -e "s,\\\*,\\\\\\\\\*,g"\`
+X@@EDSCRIPT@@
+X	cat >>$modit << @@EDSCRIPT@@
+X		read dgard
+X		dgard=\`echo "\$dgard" |sed -e "s,\\\*,\\\\\\\\\*,g"\`
+X		dgard=\`echo "\$dgard" |sed -e "s,',\\\\\\\\\',g"\`
+X@@EDSCRIPT@@
+X		echo read spool 		>> $modit
+X		echo read pnews 		>> $modit
+X	#
+X	# So much for the preamble.
+X	#
+X	# Some of this next stuff looks bad but...
+X	#
+X	echo 'read ext' 			>> $modit
+X	echo "/bin/ed ${modfile}" '  << @EOF@'	>> $modit # Watch the quotes
+X	for mods in $Mod
+X	do
+X		case $mods in
+X		A) echo '$' 			>> $modit
+X		   echo '/^Area/'		>> $modit
+X		   echo 's/^/#/'		>> $modit
+X		   echo 'a'			>> $modit
+X		   echo '$area'			>> $modit
+X		   echo '.'			>> $modit
+X		   ;;
+X		E) echo '$'			>> $modit
+X		   echo '/^ExtendedArea/'	>> $modit
+X		   echo 's/^/#/'		>> $modit
+X		   echo 'a'			>> $modit
+X		   echo '$exarea'		>> $modit
+X		   echo '.'			>> $modit
+X		   ;;
+X		N) echo '$'			>> $modit
+X		   echo '/^NeverTrust/'		>> $modit
+X		   echo 's/^/#/'		>> $modit
+X		   echo 'a'			>> $modit
+X		   echo '$nevsee'		>> $modit
+X		   echo '.'			>> $modit
+X		   ;;
+X		O) echo '$'			>> $modit
+X		   echo '/^OtherDisregard/'	>> $modit
+X		   echo 's/^/#/'		>> $modit
+X		   echo 'a'			>> $modit
+X		   echo '$odist'		>> $modit
+X		   echo '.'			>> $modit
+X		   ;;
+X		D) echo '$'			>> $modit
+X		   echo '/^Disregard/'		>> $modit
+X		   echo 's/^/#/'		>> $modit
+X		   echo 'a'			>> $modit
+X		   echo '$dgard'		>> $modit
+X		   echo '.'			>> $modit
+X		   ;;
+X		S) echo '$'			>> $modit
+X		   echo '/^SpooledNewsDir/'	>> $modit
+X		   echo 's/^/#/'		>> $modit
+X		   echo 'a'			>> $modit
+X		   echo '$spool'		>> $modit
+X		   echo '.'			>> $modit
+X		   ;;
+X		P) echo '$'			>> $modit
+X		   echo '/^PostedGroups/'	>> $modit
+X		   echo 's/^/#/'		>> $modit
+X		   echo 'a'			>> $modit
+X		   echo '$pnews'		>> $modit
+X		   echo '.'			>> $modit
+X		   ;;
+X		*) ;;
+X		esac
+X	done
+X	# Do Ext= string and write quit
+X	if [ " `egrep '^Ext=' $modfile`" = " " ]; then	   # not there add it
+X		echo '$'			>> $modit
+X		echo 'a'			>> $modit
+X		echo '$ext'			>> $modit
+X		echo '.'			>> $modit
+X	elif [ " `egrep '^Ext=' $modfile`" != " Ext=\".${Name}\"" ]; then
+X		echo '$'			>> $modit
+X		echo 's/^Ext=/#Ext=/'		>> $modit
+X		echo 'a'			>> $modit
+X		echo '$ext'			>> $modit
+X		echo '.'			>> $modit
+X	fi
+X	echo 'w'			>> $modit
+X	echo 'q'			>> $modit
+X	echo '@EOF@'			>> $modit
+X	#
+X	# That's all of the script building stuff so let's use it.
+X	#
+X	chmod +x $modit
+X	$modit < $modmods 2>&1 >/dev/null
+X	#
+X	# Test changes
+X	#
+X	set  $modfile
+X	echo "Testing changes..."
+X	echo "#!/bin/sh -u" > $testfile
+X	sed -e 's,#.*$,,' $1 >> $testfile
+X	echo `awk -f= '{if (NF != 2) next; printf "echo $%s; ", $1 }' \
+X		$testfile` >> $testfile
+X	chmod +x $testfile
+X	$testfile >/dev/null
+X	badfile=$?
+X	#
+X	# Check for multiple of three patterns
+X	# on the Disregard Variable
+X	#
+X	badvar=0
+X	egrep -s "^Disregard=none" $testfile
+X	if [ $? = 1 ]; then
+X		TestDisLine=`egrep '^Disregard' $testfile | \
+X			awk -f= '{ print $2 }' | sed -e s,\",,g`
+X		echo $TestDisLine | \
+X			awk '{	if ( NF % 3 != 0 ) \
+X					{ exit 1 } \
+X				else \
+X					print $0 }' >/dev/null
+X		badvar=$?
+X	fi
+X	#
+X	# Check out Errors.
+X	#
+X	rm -f $testfile
+X	if [ $badvar = 1 ]; then
+X		echo "$0: Bad setup file $1"
+X		echo "$0: Disregard Variable not modulo three fields"
+X	fi
+X	if [ $badfile = 1 ]; then
+X		echo "$0: Bad setup file $1"
+X		echo "$0: Variables may not contain #'s characters"
+X		echo "$0: Disregard Fields:"
+X		echo $TestDisLine | awk '{ while (i++ < NF) \
+X					printf "\t%d:\t%s\n", i, $i}'
+X	fi
+X	#
+X	# Check bad and make corrections.
+X	#
+X	if [ $badvar = 0 -a $badfile = 0 ]; then 
+X		echo "Testing complete."
+X		echo -n "Are these what you want [y]/n? "
+X		read ans
+X		if [ " $ans" != " n" ]; then
+X			notdone=0		# Yes, so quit
+X		else
+X			echo -n "Quit [y]/n? "
+X			read ans
+X			if [ " $ans" != " n" ]; then
+X				exit 0
+X			fi
+X		fi
+X	fi
+Xdone
+Xcp $modfile ${jobs}/setup.$Name
+END_OF_FILE
+  if test 17976 -ne `wc -c <'maintjobs'`; then
+    echo shar: \"'maintjobs'\" unpacked with wrong size!
+  fi
+  chmod +x 'maintjobs'
+  # end of 'maintjobs'
+fi
+if test -f 'setup.default' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'setup.default'\"
+else
+  echo shar: Extracting \"'setup.default'\" \(3682 characters\)
+  sed "s/^X//" >'setup.default' <<'END_OF_FILE'
+X# Distribution Functional Setup file with modified parameters
+X# 
+X# Comments in this file consist of an occurrence of '#' at the beginning
+X# of a line and go until the end of that line.
+X# 
+X# 
+X# Default directory and News groups
+XSpooledNewsDir="/usr/spool/news/misc/jobs"
+XPostedGroups="contract/* offered/* offered/entry/*"
+X#
+X# Default Area's
+XArea="Portland Hillsboro Beaverton Aloha Oregon"
+X#
+X# Default Extended Area's Always keep ${Area} and add 'CA' or 'GA' or whatever
+XExtendedArea="${Area} OR"
+X# Default NeverTrust	- Articles that may contain information we don't
+X#			want can be removed using never trust. Typically
+X#			a small percentage of articles are posted by
+X#			people thinking that the news groups searched are
+X#			meant for requests for information instead of 
+X#			being meant to provide requests for interested
+X#			parties. Sometimes there are mistakes and flames
+X#			all of which we don't want to see. NeverTrust
+X#			provides a way to remove these once detected.
+X#			You can add a usenet address or a word from the
+X#			content which uniquely identifies this stream.
+X#			You should also be careful to be *very* selective
+X#			as there are no checks against the other variables.
+X#NeverTrust="Looking^[for^[a^[job"
+XNeverTrust=none
+X#
+X# Default OtherDisregards - These are patterns which are known to pop up
+X#			in the 'other local company offerings' section because
+X#			of the return address or other parts of the article.
+X#			For eg. there is a Hillsboro Rd in Nashville which
+X#			pop's up from a Recruiter posting from there.
+X#			These poster's are usually very consistent when it
+X#			comes to article net-etiquette so we don't waste 
+X#			time on their likely out-of-area posts.
+X#OtherDisregard="joeLocalBigCompanyInHR Nashville"
+XOtherDisregard="none"
+X#
+X# Optional three argument field for redundant posts. All articles by
+X#		the first pattern are replaced by a summary
+X#		and shown at the top of the Other Company's list.
+X#		We assume that these articles will have good net-etiquette.
+X#		The second argument forms an article search pattern for
+X#		a one line summary statement. The first occurrence of
+X#		pattern 2 followed by a space or tab in the article will
+X#		be what appears on each summary line.
+X#		The third pattern is the contact person which must not
+X#		contain any spaces (use underscores and/or dot's).
+X#		You can also escape "*" with "\*", I've not tried others ;-).
+X#	eg. "IRecruite Position IRecruite(Joe_Recruiter:800.555.1212)"
+X#	The company "IRecruite", Each summary line starts after the first line
+X#	with the string "Position " until the end of line is reached and
+X#	the contact information is "IRecruite(Joe_Recruiter:800.555.1212)".
+X# Disregard="IRecruite Position IRecruite(Joe_Recruiter:800.555.1212)"
+XDisregard=none
+X#
+X# Ext A file extension helpful with managing multiple lists which go to
+X#	multiple groups of people that may not have the same contacts.
+X#	eg. You want the Default full list (no filename extension) to
+X#	go to one group but you want a list which weeds out IRecruite
+X#	articles to go to another. Soooo, You create multiple setup files
+X#	that have different Ext's and print or email them after a late night
+X#	run once a week. The file 'Last' in the 'jobdir' directory will
+X#	contain the filename of the last listing and will look like '1993Jan01'
+X#	which can be used for this purpose,
+X#		eg. lpr -T JobListing < `cat ${jobdir}/Last`.MyGroup
+X#		eg. mail -s JobListing joe@hireme.com < `cat ${jobdir}/Last
+X#	where .MyGroup is the Ext file extension. lpr will print the MyGroup
+X#	list off and joe@hireme.com will get the listing with no file extension.
+X#	Note: You still must run the main script one time for each setup file.
+XExt=""
+END_OF_FILE
+  if test 3682 -ne `wc -c <'setup.default'`; then
+    echo shar: \"'setup.default'\" unpacked with wrong size!
+  fi
+  # end of 'setup.default'
+fi
+if test -f 'setup.example' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'setup.example'\"
+else
+  echo shar: Extracting \"'setup.example'\" \(3739 characters\)
+  sed "s/^X//" >'setup.example' <<'END_OF_FILE'
+X# Distribution Functional Setup file with modified parameters
+X# 
+X# Comments in this file consist of an occurrence of '#' at the beginning
+X# of a line and go until the end of that line.
+X# 
+X# Default directory and News groups
+XSpooledNewsDir="/usr/spool/news/misc/jobs"
+XPostedGroups="contract/* offered/*"
+X#
+X# Default Area's
+XArea="Portland Hillsboro Beaverton Aloha Oregon"
+X#
+X# Default Extended Area's Always keep ${Area} and add 'CA' or 'GA' or whatever
+XExtendedArea="${Area} OR"
+X# Default NeverTrust	- Articles that may contain information we don't
+X#			want can be removed using never trust. Typically
+X#			a small percentage of articles are posted by
+X#			people thinking that the news groups searched are
+X#			meant for requests for information instead of 
+X#			being meant to provide requests for interested
+X#			parties. Sometimes there are mistakes and flames
+X#			all of which we don't want to see. NeverTrust
+X#			provides a way to remove these once detected.
+X#			You can add a usenet address or a word from the
+X#			content which uniquely identifies this stream.
+X#			You should also be careful to be *very* selective
+X#			as there are no checks against the other variables.
+X#NeverTrust=none
+XNeverTrust="Looking^[for^[a^[job"
+X# Default OtherDisregards - These are patterns which are known to pop up
+X#			in the 'other local company offerings' section because
+X#			of the return address or other parts of the article.
+X#			For eg. there is a Hillsboro Rd in Nashville which
+X#			pop's up from a Recruiter posting from there.
+X#			These poster's are usually very consistent when it
+X#			comes to article net-etiquette so we don't waste 
+X#			time on their likely out-of-area posts.
+X#OtherDisregard="joeLocalBigCompanyInHR Nashville"
+XOtherDisregard="NBI\'s Crush Nashville"
+X#
+X# Optional three argument field for redundant posts. All articles by
+X#		the first pattern are replaced by a summary
+X#		and shown at the top of the Other Company's list.
+X#		We assume that these articles will have good net-etiquette.
+X#		The second argument forms an article search pattern for
+X#		a one line summary statement. The first occurrence of
+X#		pattern 2 followed by a space or tab in the article will
+X#		be what appears on each summary line.
+X#		The third pattern is the contact person which must not
+X#		contain any spaces (use underscores and/or dot's).
+X#		You can also escape "*" with "\*", I've not tried others ;-).
+X#	eg. "IRecruite Position IRecruite(Joe_Recruiter:800.555.1212)"
+X#	The company "IRecruite", Each summary line starts after the first line
+X#	with the string "Position " until the end of line is reached and
+X#	the contact information is "IRecruite(Joe_Recruiter:800.555.1212)".
+X# Disregard="IRecruite Position IRecruite(Joe_Recruiter:800.555.1212)"
+X#Disregard="none"
+XDisregard="NBI\'s \* NBI's(Joe_NoBody:555.1212)"
+X#
+X# Ext A file extension helpful with managing multiple lists which go to
+X#	multiple groups of people that may not have the same contacts.
+X#	eg. You want the Default full list (no filename extension) to
+X#	go to one group but you want a list which weeds out IRecruite
+X#	articles to go to another. Soooo, You create multiple setup files
+X#	that have different Ext's and print or email them after a late night
+X#	run once a week. The file 'Last' in the 'jobdir' directory will
+X#	contain the filename of the last listing and will look like '1993Jan01'
+X#	which can be used for this purpose,
+X#		eg. lpr -T JobListing < `cat ${jobdir}/Last`.MyGroup
+X#		eg. mail -s JobListing joe@hireme.com < `cat ${jobdir}/Last
+X#	where .MyGroup is the Ext file extension. lpr will print the MyGroup
+X#	list off and joe@hireme.com will get the listing with no file extension.
+X#	Note: You still must run the main script one time for each setup file.
+XExt=".example"
+END_OF_FILE
+  if test 3739 -ne `wc -c <'setup.example'`; then
+    echo shar: \"'setup.example'\" unpacked with wrong size!
+  fi
+  # end of 'setup.example'
+fi
+if test -f 'setup.newyork' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'setup.newyork'\"
+else
+  echo shar: Extracting \"'setup.newyork'\" \(3813 characters\)
+  sed "s/^X//" >'setup.newyork' <<'END_OF_FILE'
+X# Distribution Functional Setup file with modified parameters
+X# 
+X# Comments in this file consist of an occurrence of '#' at the beginning
+X# of a line and go until the end of that line.
+X# 
+X# 
+X# Default directory and News groups
+XSpooledNewsDir="/usr/spool/news/misc/jobs"
+XPostedGroups="contract/* offered/* offered/entry/*"
+X#
+X# Default Area's
+X#Area="Portland Hillsboro Beaverton Aloha Oregon"
+XArea="New^[York New^[Jersey ^[NY ^[NJ NYC Manhattan"
+X#
+X# Default Extended Area's Always keep ${Area} and add 'CA' or 'GA' or whatever
+X#ExtendedArea="${Area} OR"
+XExtendedArea="${Area} NY NJ ny/nj"
+X# Default NeverTrust	- Articles that may contain information we don't
+X#			want can be removed using never trust. Typically
+X#			a small percentage of articles are posted by
+X#			people thinking that the news groups searched are
+X#			meant for requests for information instead of 
+X#			being meant to provide requests for interested
+X#			parties. Sometimes there are mistakes and flames
+X#			all of which we don't want to see. NeverTrust
+X#			provides a way to remove these once detected.
+X#			You can add a usenet address or a word from the
+X#			content which uniquely identifies this stream.
+X#			You should also be careful to be *very* selective
+X#			as there are no checks against the other variables.
+X#NeverTrust=none
+XNeverTrust="Subject:^[Re: RFD:^[misc.jobs Sample^[Contract Great^[Usenet^[Piss"
+X#
+X# Default OtherDisregards - These are patterns which are known to pop up
+X#			in the 'other local company offerings' section because
+X#			of the return address or other parts of the article.
+X#			For eg. there is a Hillsboro Rd in Nashville which
+X#			pop's up from a Recruiter posting from there.
+X#			These poster's are usually very consistent when it
+X#			comes to article net-etiquette so we don't waste 
+X#			time on likely out-of-area posts.
+X#OtherDisregard="Nashville stylistic"
+XOtherDisregard=none
+X#
+X# Optional three argument field for redundant posts. All articles by
+X#		the first pattern are replaced by a summary
+X#		and shown at the top of the Other Company's list.
+X#		We assume that these articles will have good net-etiquette.
+X#		The second argument forms an article search pattern for
+X#		a one line summary statement. The first occurrence of
+X#		pattern 2 followed by a space or tab in the article will
+X#		be what appears on each summary line.
+X#		The third pattern is the contact person which must not
+X#		contain any spaces (use underscores and/or dot's).
+X#		You can also escape "'" with "\'", I've not tried others ;-).
+X#	eg. "IRecruite Position IRecruite(Joe_Recruiter:800.555.1212)"
+X#	The company "IRecruite", Each summary line starts after the first line
+X#	with the string "Position " until the end of line is reached and
+X#	the contact information is "IRecruite(Joe_Recruiter:800.555.1212)".
+X# Disregard="IRecruite Position IRecruite(Joe_Recruiter:800.555.1212)"
+XDisregard=none
+X#
+X# Ext A file extension helpful with managing multiple lists which go to
+X#	multiple groups of people that may not have the same contacts.
+X#	eg. You want the Default full list (no filename extension) to
+X#	go to one group but you want a list which weeds out IRecruite
+X#	articles to go to another. Soooo, You create multiple setup files
+X#	that have different Ext's and print or email them after a late night
+X#	run once a week. The file 'Last' in the 'jobdir' directory will
+X#	contain the filename of the last listing and will look like '1993Jan01'
+X#	which can be used for this purpose,
+X#		eg. lpr -T JobListing < `cat ${jobdir}/Last`.MyGroup
+X#		eg. mail -s JobListing joe@hireme.com < `cat ${jobdir}/Last
+X#	where .MyGroup is the Ext file extension. lpr will print the MyGroup
+X#	list off and joe@hireme.com will get the listing with no file extension.
+X#	Note: You still must run the main script one time for each setup file.
+X#Ext=""
+XExt=".newyork"
+END_OF_FILE
+  if test 3813 -ne `wc -c <'setup.newyork'`; then
+    echo shar: \"'setup.newyork'\" unpacked with wrong size!
+  fi
+  # end of 'setup.newyork'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,785 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 32/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.114916.15080@klaava.Helsinki.FI>
+Date: 14 Jun 92 11:49:16 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 773
+
+Archieve-name: monster_helsinki_104/part32
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 32/32
+
+-+-+-+-+-+-+-+-+ START OF PART 32 -+-+-+-+-+-+-+-+
+X`009`009`009bite := substr(s,1,i-1);
+X`009`009`009s := slead(substr(s,i+1,length(s)-i));
+X`009`009end;
+X`009end;
+Xend;
+X
+Xend. `123 module parser `125
+$ CALL UNPACK PARSER.PAS;67 608138093
+$ create/nolog 'f'
+X`091environment,inherit ('sys$library:starlet','global') `093
+Xmodule privusers(output);
+X
+Xvar timestring : string := '';
+X    default_allow: `091global`093 integer := 0;
+X    min_room: `091global`093 integer := 0;
+X    min_accept: `091global`093 integer := 0;
+X
+Xfunction image_name: string;
+Xvar
+X    value: string;
+X    ret: unsigned;
+X    itmlst: itmlst_type;
+X    i: integer;
+X   `032
+Xbegin
+X    with itmlst do begin
+X`009buffer_length := string_len;
+X`009item_code := jpi$_imagname;
+X`009new (buffer_address);
+X`009new (return_length_address);
+X`009itmlst_end := 0;
+X    end;
+X         `032
+X    ret := $getjpiw (,,,itmlst,,,);
+X   `032
+X    if odd(ret) then begin
+X`009value := '';
+X`009for i:= 1 to itmlst.return_length_address`094 do
+X`009    value := value + itmlst.buffer_address`094(.i.);
+X`009image_name := value;
+X    end else
+X`009image_name := '';
+X
+X    with itmlst do begin
+X`009dispose(buffer_address);
+X`009dispose(return_length_address);
+X    end;
+X
+Xend; `123 image_name `125
+X
+XFunction strip_line(line: string): string;
+Xvar ok: boolean;
+Xbegin
+X    while index(line,' ') = 1 do
+X`009line := substr(line,2,length(line)-1);
+X
+X    ok := true;
+X    while ok do begin
+X`009ok := line > '';
+X`009if ok then ok := line`091length(line)`093 = ' ';
+X`009if ok then line := substr(line,1,length(line)-1);
+X    end; `123 ok `125
+X    strip_line := line;
+Xend; `123 strip_line `125
+X
+X`091global`093
+XProcedure Get_Environment;
+Xvar path: string;
+X    pos,i: integer;
+X    init: text;
+X    counter: integer;
+X    current_line: string;
+X
+X    function get_line: string;
+X    var line: string;
+X`009pos: integer;
+X`009ok: boolean;
+X    begin
+X`009ok := false;
+X`009repeat
+X`009    if eof(init) then begin
+X`009`009get_line := '';
+X`009`009ok := true;
+X`009    end else begin
+X`009`009readln(init,line);
+X`009`009counter := counter +1;
+X`009`009current_line := line;
+X`009`009pos := index(line,'!');
+X`009`009if pos > 0 then line := substr(line,1,pos-1);
+X
+X`009`009line := strip_line(line);
+X
+X`009`009get_line := line;
+X`009`009ok := line > '';
+X`009    end;
+X`009until ok;
+X    end;    `123 get_line `125
+X
+X    procedure message(s: string);
+X    begin
+X`009writeln('%Error in ',path);
+X`009writeln('%at line ',counter:1);
+X`009writeln('%',current_line);
+X`009writeln('%',s);
+X`009writeln('%Notify Monster Manager.');
+X`009halt;
+X    end; `123 message `125
+X
+X    function item_value(item: string): string;
+X    var line: string;
+X`009pos: integer;
+X    begin
+X`009line := get_line;
+X`009if (line  = '') and  eof(init) then message('EOF detected.');
+X`009pos := index(line,':');
+X`009if pos = 0 then message (': must be in line');
+X`009if item <> substr(line,1,pos-1) then message(item+': expected');
+X`009if pos = length(line) then message('value must be in line');
+X`009line := substr(line,pos+1,length(line)-pos);
+X`009line := strip_line(line);
+X`009if line = '' then message('value can''t be only space');
+X`009item_value := line;
+X    end;    `123 item_value `125
+X
+X    function item_number(item: string): integer;
+X    var val: string;
+X`009num: integer;
+X    begin
+X`009val := item_value(item);
+X`009readv(val,num,error := continue);
+X`009if statusv > 0 then message('value '+val+' must be integer');
+X`009if num < 0 then message('value '+val+' must be positive or zero');
+X`009item_number := num;
+X    end; `123 item_number `125
+X
+X    procedure set_level(var level: levelrec; line: string);
+X
+X`009function cut_field(var line: string): string;
+X`009var pos: integer;
+X`009begin
+X`009    pos := index(line,',');
+X`009    if pos = 0 then begin
+X`009`009cut_field := strip_line(line);
+X`009`009line := ''
+X`009    end else begin
+X`009`009cut_field := strip_line(substr(line,1,pos-1));
+X`009`009line := substr(line,pos+1,length(line)-pos);
+X`009`009line := strip_line(line);
+X`009    end;
+X`009end; `123 cut_field `125
+X
+X`009function cut_number(var line: string): integer;
+X`009var val: string;
+X`009    num: integer;
+X`009begin
+X`009    val := cut_field(line);
+X`009    if val = '' then message('field can''t be empty');
+X`009    readv(val,num,error := continue);
+X`009    if statusv > 0 then message('value '+val+' must be integer');
+X`009    if num < 0 then message('value '+val+' must be positive or zero');
+X`009    cut_number := num;
+X`009end; `123 cut_number `125
+X`009   `032
+X    begin
+X`009with level do begin
+X`009    name :=     cut_field  (line);
+X`009    exp  :=     cut_number (line);
+X`009    priv :=     cut_number (line);
+X`009    health   := cut_number (line);
+X`009    factor   := cut_number (line);
+X`009    maxpower := cut_number (line);
+X`009    hidden   := cut_field  (line) = 'hidden';
+X`009end;`009
+X    end;    `123 set_level `125
+X`009
+X    procedure read_leveltable;
+X    var line: string;
+X`009i: integer;
+X    begin
+X`009levels := 0;
+X`009if get_line <> 'LEVELTABLE:' then message('LEVELTABLE: expected');
+X`009line := get_line;
+X`009while (line <> 'END OF LEVELTABLE') and (line <> '') do begin
+X`009    levels := levels+1;
+X`009    set_level(leveltable`091levels`093,line);
+X`009    line := get_line;
+X`009end;
+X`009if line <> 'END OF LEVELTABLE' then`032
+X`009    message('END OF LEVELTABLE expected');
+X`009levels := levels +1;
+X`009with leveltable`091levels`093 do begin
+X`009    name :=   'Archwizard';
+X`009    exp  :=   MaxInt;
+X`009    priv :=     item_number('Archpriv');
+X`009    health   := item_number('Archhealth');
+X`009    factor   := item_number('Archfactor');
+X`009    maxpower := item_number('Archpower');
+X`009    hidden   := false;
+X`009end; `123 with `125
+X`009for i := levels+1 to maxlevels do with leveltable`091i`093 do begin
+X`009    name :=   '';
+X`009    exp  :=   MaxInt;
+X`009    priv :=     0;
+X`009    health   := 0;
+X`009    factor   := 0;
+X`009    maxpower := 0;
+X`009    hidden   := true;
+X`009end;`009   `032
+X    end; `123 read_leveltable `125
+X`009
+X`009  `032
+Xbegin
+X    counter := 0;
+X    current_line := '';
+X
+X    path := image_name;
+X    if path = '' then begin
+X`009writeln('%Can''t get IMAGNAME. Notify Monster Manager.');
+X`009halt;
+X    end;
+X    pos := 0;
+X    for i := 1 to length(path) do begin
+X`009if path`091i`093 = '>' then pos := i;
+X`009if path`091i`093 = '`093' then pos := i;
+X    end;
+X    if pos = 0 then begin
+X`009writeln('%Odd IMAGNAME. Notify Monster manager.');
+X`009writeln('%IMAGNAME: ',path);
+X`009halt;
+X    end;
+X   `032
+X    path := substr(path,1,pos) + 'MONSTER.INIT';
+X
+X    open (init,path,history := READONLY, error := CONTINUE);
+X
+X    if status (init) > 0 then begin
+X`009writeln('%Can''t open ',path);
+X`009writeln('%Notify Monster Manager.');
+X`009halt;
+X    end else if status(init) < 0 then begin
+X`009writeln('%',path,' is empty');
+X`009writeln('%Notify Monster Manager.');
+X`009halt;
+X    end;
+X
+X    reset(init);
+X
+X    MM_userid  := item_value('MM_userid');
+X    gen_debug  := item_value('gen_debug') = 'true';
+X    rebuild_ok := item_value('REBUILD_OK') = 'true';
+X    root       := item_value('root');
+X    coderoot   := item_value('coderoot');
+X    read_leveltable;
+X    maxexperience := item_number('maxexperience');
+X    protect_exp   := item_number('protect_exp');
+X    timestring    := item_value('Playtime');
+X    default_allow := item_number('default_allow');
+X    min_room      := item_number('min_room');
+X    min_accept     := item_number('min_accept');
+X
+X    close (init);
+X
+Xend;`009`123 Get_Environment `125
+X
+X
+X`091 global `093
+Xprocedure write_message;
+Xvar ch: char;
+X    fyle : text;
+Xbegin
+X   open(fyle,
+X        root+'ILMOITUS.TXT',
+X        access_method:=sequential,
+X        history:= readonly,
+X        sharing:=readonly,
+X`009error:=continue);
+X   if status(fyle) <> 0 then
+X`009writeln('%Can''t type ILMOITUS.TXT. Notify Monster Manager.')
+X   else begin
+X       reset(fyle);
+X       while not eof(fyle) do begin
+X`009  while not eoln(fyle) do begin
+X`009     read(fyle,ch);
+X`009     write(ch)
+X`009  end;
+X`009  readln(fyle);
+X`009  writeln
+X       end;
+X       close(fyle);
+X   end;
+Xend;`009`123 write_message `125
+X
+X`091global`093
+Xfunction work_time: boolean;
+Xtype
+X    hournums= 0..23;
+X    timeset= set of hournums;
+Xvar
+X    hours: timeset;
+X    allright: boolean;     `123 This will be set to false on any error. `125
+X    root: `091external`093 varying `09180`093 of char;
+X
+X
+X    function wkdayp: boolean;
+X    type
+X`009string = varying`091string_len`093 of char;
+X
+X    var
+X`009value: string;
+X`009fake: boolean;
+X
+X
+X`009function sys_trnlnm (
+X`009    tabnam : `091class_s`093 packed array `091$l2..$u2:integer`093 of ch
+Var;
+X`009    lognam : `091class_s`093 packed array `091$l3..$u3:integer`093 of ch
+Var
+X`009    ): string;
+X
+X`009(*
+X   `032
+X`009    Takes as parameters a logical name table and a logical  name.
+X`009    Returns  the  equivalence string, or if the name is undefined
+X`009    the logical  name  itself.  The  parameters  must  be  string
+X`009    constants, not variables.
+X   `032
+X`009    leino@finuh 20 Mar 1989
+X   `032
+X`009    *)
+X`009       `032
+X   `032
+X`009var
+X`009    value: string;
+X`009    ret: unsigned;
+X`009    itmlst: itmlst_type;
+X`009    i: integer;
+X   `032
+X`009begin
+X`009    with itmlst do begin
+X`009`009buffer_length := string_len;
+X`009`009item_code := lnm$_string;
+X`009`009new (buffer_address);
+X`009`009new (return_length_address);
+X`009`009itmlst_end := 0;
+X`009    end;
+X         `032
+X`009    ret := $trnlnm (lnm$m_case_blind, tabnam,`032
+X`009`009`009    lognam, psl$c_user, itmlst);
+X   `032
+X`009    if odd(ret) then begin
+X`009`009value := '';
+X`009`009for i:= 1 to itmlst.return_length_address`094 do
+X`009`009    value := value + itmlst.buffer_address`094(.i.);
+X`009`009sys_trnlnm := value;
+X`009    end else
+X`009`009sys_trnlnm := lognam;
+X
+X`009    with itmlst do begin
+X`009`009dispose(buffer_address);
+X`009`009dispose(return_length_address);
+X`009    end;
+X
+X`009end; (* of sys_trnlnm *)
+X
+X    begin
+X`009fake := false;
+X`009value := sys_trnlnm ('lnm$process_directory', 'lnm$directories');
+X`009if value <> 'lnm$directories' then fake := true;
+X`009value := sys_trnlnm ('lnm$process_directory', 'lnm$system_table');
+X`009if value <> 'lnm$system_table' then fake := true;
+X`009value := sys_trnlnm ('lnm$system_table', '$daystatus');
+X`009if value = 'WEEKDAY' then
+X`009    wkdayp := true
+X`009else
+X`009    wkdayp := false;
+X`009if fake then begin
+X`009    writeln ('%MONSTER-F-CRACK, cracking attempt suspected');
+X`009    wkdayp := true;
+X`009    halt;
+X`009end;
+X    end;
+X
+X    procedure getlegal(var time: timeset);
+X    var i: integer;
+X    begin
+X`009time := `091`093;
+X`009if length(timestring) <> 24 then allright := false
+X`009else for i:=0 to 23 do begin
+X`009        if timestring`091i+1`093 = '+' then time:=time+`091i`093;
+X`009    end;
+X    end;
+X
+X    function gethour: integer;
+X    var systime: packed array`0911..11`093 of char;
+X    begin
+X`009time(systime);
+X`009if systime`0911`093=' '
+X`009then gethour:=ord(systime`0912`093)-ord('0')
+X`009else gethour:=10*(ord(systime`0911`093)-ord('0'))+ord(systime`0912`093)-
+Vord('0')
+X    end; `123 gethour `125
+X
+Xbegin
+X   allright:=true;     `123 Let's suppose ev'rything goes fine. `125
+X   work_time:=false;
+X   if wkdayp
+X   then begin
+X      hours:=`091`093;
+X      getlegal(hours);    `123 At this moment the 'allright' may change in `
+V125
+X      if allright then begin  `123 procedure getlegal() only `125
+X         if not (gethour in hours)
+X         then begin
+X            work_time:=true    `123 Someone tries to play at noon. `125
+X         end
+X      end else
+X         work_time:=true  `123 Something odd is going on. Let's prevent play
+Ving. `125
+X   end
+Xend;
+X
+Xend. `123 of module privusers `125
+$ CALL UNPACK PRIVUSERS.PAS;7 1076246245
+$ create/nolog 'f'
+X`091inherit ('Global'),environment`093
+XModule Queue;`009`009`009`123 Written by Kari Hurtta, 1989 `125
+X
+XConst
+X`009maxqueue = 100;
+X
+XType`032
+X`009item = record
+X               Monster: shortstring;
+X               code:    integer;
+X               label_name:   shortstring;
+X               deltatime: integer;
+X        end;
+X
+XVar used : 0 .. maxqueue := 0;
+X    myname: `091external`093 shortstring;
+X    debug:  `091external`093 boolean;
+X    queue : array `091 1 .. maxqueue `093 of item;
+X
+X
+X`091external`093
+Xfunction lowcase(s: string): string; external;
+X
+X`091external`093
+Xfunction run_monster (monster_name: shortstring; code: integer;
+X                      label_name: shortstring; variable: shortstring;
+X                      value: mega_string;
+X                      time: shortstring;
+X`009`009      spell: shortstring := '';
+X`009`009      summoner: shortstring := ''): boolean; external;`032
+X                                                    `123 hurtta@finuh `125
+X
+X`091external`093
+Xfunction sysdate: string; external;
+X
+X`091external`093
+Xfunction systime: string; external;
+X
+X`091external`093
+Xfunction current_run: integer; external;
+X
+X`091external`093
+Xprocedure log_event(`009send: integer := 0;`009`123 slot of sender `125
+X`009`009`009act:integer;`009`009`123 what event occurred `125
+X`009`009`009targ: integer := 0;`009`123 target of event `125
+X`009`009`009p: integer := 0;`009`123 expansion parameter `125
+X`009`009`009s: string := '';`009`123 string for messages `125
+X`009`009`009room: integer := 0`009`123 room to log event in `125
+X`009`009   );`009external;
+X
+X`091external`093
+Xfunction player_room(player: shortstring): integer; external;
+X
+X`091external`093
+Xfunction protected(n: integer := 0): boolean; external;
+X
+X`091global`093
+Xprocedure reset_queue;
+Xbegin
+X    used := 0;
+Xend;
+X
+X`091global`093
+Xprocedure add_queue (monster: shortstring; code: integer;
+X`009label_name: shortstring; deltatime: integer);
+Xvar place,i : integer;
+Xbegin
+X   if used < maxqueue then begin
+X      place := used+1;
+X      for i := used downto 1 do`032
+X         if queue`091i`093.deltatime > deltatime then place := i;
+X      for i := used downto place do queue`091i+1`093 := queue`091i`093;
+X      used := used +1;
+X      queue`091place`093.monster    := monster;
+X      queue`091place`093.code       := code;
+X      queue`091place`093.label_name := label_name;
+X      queue`091place`093.deltatime  := deltatime;
+X   end;
+Xend;
+X
+Xfunction run_task(nr : integer): boolean;
+Xvar i: integer;
+Xbegin
+X   with queue`091nr`093 do
+X      run_task := run_monster(monster,code,label_name,'','',sysdate+' '+syst
+Vime);
+X   used := used -1;
+X   for i := nr to used do queue`091i`093 := queue `091i+1`093;
+Xend;
+X
+X`091global`093
+Xfunction time_check: boolean;
+Xvar i: integer;
+Xbegin
+X  for i := 1 to used do with queue`091i`093 do
+X     if deltatime > 0 then deltatime := deltatime -1;
+X  time_check := false;
+X  if (used > 0) and not protected then`032
+X     if queue`0911`093.deltatime = 0 then
+X        if current_run = 0 then time_check := run_task(1);
+Xend;
+X
+X`091global`093
+Xfunction send_submit (monster: shortstring; code: integer;
+X`009label_name: shortstring; deltatime: integer; player: shortstring):
+X`009boolean;
+Xvar room: integer;
+Xbegin
+X   room := player_room(player);
+X   if room > 0 then`032
+X      log_event( act := E_SUBMIT, targ := code, p := deltatime,
+X`009`009s := monster + ',' + label_name + ',' + player,
+X`009`009room := room);
+X   send_submit := room > 0;
+Xend;
+X
+X`091global`093
+Xprocedure get_submit(targ: integer; s: string; p: integer);
+Xvar loc: integer;
+X    s1,s2,s3,s4: string;
+Xbegin
+X  loc := index(s,',');
+X  s1 := substr(s,1,loc-1);
+X  s2 := substr(s,loc+1,length(s)-loc);
+X  loc := index(s2,',');
+X  s3 := substr(s2,1,loc-1);
+X  s4 := substr(s2,loc+1,length(s2)-loc);
+X  if lowcase(myname) = lowcase(s4) then
+X     add_queue(s1, targ,s3 ,p);
+Xend;`032
+X
+Xend. `123 End of module Queue `125
+$ CALL UNPACK QUEUE.PAS;122 578611759
+$ create/nolog 'f'
+X                         Monster Helsinki V 1.04
+X                         -----------------------
+X
+X    Monster, a multiplayer adventure game where the players create the
+X    world and make the rules.
+X
+X    Derived from Rich Skrenta's Monster (from version 1).
+X
+X    Includes programmable non-player characters (NPC) with own programming
+X    language - MDL (Monster Defination Language). Also rooms and objects
+X    can program with it (via so called hooks). NPCs are called to 'monster',
+X    all other MDL-objects are called to 'hook'.
+X
+XEnvironment: VMS V4.x (MONSTER_INSTALL.COM requires V5.x)
+X             PASCAL`032
+X
+XNew to version 1.03 (posted 24.11.1990):
+X1)  Several bugfixes (of course)
+X2)  New commands MONSTER/DUMP and MONSTER/BUILD (via MONSTER_DUMP.EXE)
+X3)  Reading of keyboard and database polling starategy have rewrote -
+X    should cause smaller IO-load to system (new GUTS.PAS).
+X4)  MDL -parser now writes offending line and points error position when`032
+X    it detects error in MDL-program.
+X
+X    This distribution includes also small database for starters (Build`032
+X    with command MONSTER/BUILD CASTLE.DMP).
+X
+X    Compilation and installation - two possibility:
+X1)  Compile MONSTER_E.HLP
+X         $ LIBRARIAN/HELP/CREATE MONSTER_E MONSTER_E
+X    Read installation help
+X         $ HELP/LIBRARY=SYS$DISK:<>MONSTER_E Installation
+X    and follow help.
+X2)  Run installation-script
+X         $ @MONSTER_INSTALL
+X    and answer to questions.
+X
+X
+X    Send notice to me (Kari.Hurtta@Helsinki.Fi) if you get this
+X    working or if you have problems.
+X
+X- K E H
+X( Kari.Hurtta@Helsinki.FI,
+X  hurtta@cc.Helsinki.FI,
+X  hurtta@cs.Helsinki.FI,
+X  HURTTA@FINUH.BITNET
+X)
+$ CALL UNPACK READ.ME;4 777611371
+$ create/nolog 'f'
+X! For receptionist of medium hotel
+X- LABEL enter()
+X- LABEL leave()
+X- LABEL say(if(include(speech,"Give room"),GOSUB room()),
+X`009    if(include(speech,"Give key"),GOSUB key()),
+X`009    if(include(speech,"Fire"),GOSUB fire()),
+X`009    if(include(speech,"Withdraw"),GOSUB withdraw()),
+X`009    if(include(speech,"Hello"),GOSUB hello()))
+X- LABEL attack()
+X- LABEL look()
+X- LABEL look you()
+X- LABEL command(DEFINE lowcase(prog(SET lowcase(strip(command)),
+X`009if(=(lowcase,"ripe"), GOSUB ripe(command,lowcase),
+X`009if(=(lowcase,"love"), GOSUB ripe(command,lowcase),
+X`009if(=(lowcase,"fuck"), GOSUB ripe(command,lowcase),
+X`009if(=(lowcase,"kiss"), GOSUB kiss(command,lowcase),
+X`009if(=(lowcase,"smile"), GOSUB smile(command,lowcase),
+X`009if(=(lowcase,"status"), GOSUB status(command,lowcase),
+X`009if(=(lowcase,"restart"), GOSUB restart(command,lowcase),
+X`009if(=(lowcase,"clean"), GOSUB clean(command,lowcase),
+X`009pprint("You can't ",lowcase," receptionist.")
+X)))))))))))
+X
+X- LABEL Action(
+X`009pprint raw("You ",p1," ",p2),
+X`009oprint raw(print null(player name)," ",p1,"s ",p2)
+X`009)
+X
+X- LABEL No Action(
+X`009pprint raw("You can't ",p1," ",p2),
+X`009oprint(player name," can't ",p1," ",p2)
+X`009)
+X
+X- LABEL ripe(GOSUB Action("grap","receptionist to arms trying make love."),
+X`009print("Receptionist shout: RIPE !"),
+X`009pprint("Guard appears and shouts you."),
+X`009oprint("Guard appears and shouts",player name,"."),
+X`009attack("40")
+X`009)`009
+X
+X- LABEL Score(set experience(plus(experience(player name),p1)))
+X
+X- LABEL kiss(pprint("You kiss receptionist."),
+X`009oprint(player name,"kiss receptionst."),
+X`009GOSUB Score(random("0, 0, 0, 0, 0, 0, 1, 1, 2")),
+X`009print("Receptionist smiles.")
+X`009)
+X
+X- LABEL smile(GOSUB Action("smile","to receptionist."))
+X
+X- LABEL status(pprint("Receptionist's status: ",get state()))
+X
+X- LABEL Manager(and(player name,get remote state("R2D2")))
+X
+X- LABEL fire(if (GOSUB Manager(),GOSUB Fire(string tail(speech)),
+X`009print("Receptionist: You don't have my boss.")))
+X
+X- LABEL restart(if(GOSUB Manager(),GOSUB Restart(),
+X`009GOSUB No Action("restart","receptionist.")))
+X
+X- LABEL clean(if(GOSUB Manager(),GOSUB Clean(),
+X`009GOSUB No Action("clean","receptionist.")))
+X
+X- LABEL Restart(GOSUB Action("restart","receptionist."),
+X`009set state(""),
+X`009FOR i("-1-, -2-, -3-, -4-",GOSUB Get(i)),
+X`009move("reception"))
+X
+X- LABEL Clean(GOSUB Action("clean","receptionist."),
+X`009set state(FOR i(get state(),include(i,"/"))))
+X
+X- LABEL Get(move(+("Room ",p1)),
+X`009    if(get(+("Key ",p1)),pprint("Succeed: ",p1)))
+X
+X! This should solve problem of overruning fields maximun length
+X- LABEL Key & player(head(list(+("Key ",p1," / ",player name))))
+X
+X- LABEL Key & name(head(list(+("Key ",p1," / ",p2))))
+X
+X! This is kludge for overruning field problem
+X- LABEL is in list(FOR p(p1,include(p2,p)))
+X
+X- LABEL Fire(SET p1(parse player(strip(p1))),
+X`009if (p1, FOR i("-1-, -2-, -3-, -4-",
+X`009`009if (GOSUB is in list(get state(),GOSUB Key & name(i,p1)),
+X`009`009GOSUB Fire from(i,p1))),
+X`009print("Receptionist: Who ?")))
+X
+X- LABEL Fire from(set state(exclude(get state(),
+X`009GOSUB is in list(get state(),GOSUB Key & name(p1,p2)))),
+X`009print("Receptionist fires",p2,"from room",p1))
+X`009
+X- LABEL Free(not(include(get state(),+("Key ",p1," /"))))
+X
+X- LABEL In player(GOSUB is in list(get state(),GOSUB Key & player(p1)))
+X
+X- LABEL Locate(random(FOR i("-1-, -2-, -3-, -4-",GOSUB Free(i))))
+X
+X- LABEL Locate2(random(FOR i("-1-, -2-, -3-, -4-",GOSUB In player(i))))
+X
+X- LABEL room(DEFINE room(if(SET room(GOSUB Locate2()),
+X`009pprint("Receptionist: You have already room ",room,"."),
+X`009if(SET room(GOSUB Locate()),
+X`009   if(GOSUB rent(),GOSUB Give(room,"hire")),
+X`009   print("Receptionist: No rooms left.")))))
+X
+X- LABEL Give(if(pduplicate(destroy(+("Key ",p1))),
+X`009`009null(set state(or(get state(),
+X`009`009`009GOSUB Key & player(p1))),
+X`009`009`009if(p2,null(GOSUB Action("hire",+("room ",p1,".")),
+X`009`009`009           GOSUB Score("2"))),
+X`009`009`009pprint("Receptionist gives Key ",p1," to you."))))
+X
+X- LABEL key(DEFINE room(
+X`009if(SET room(GOSUB Locate2()),
+X`009   GOSUB Give(room,""),
+X`009   print("Receptionist: You haven't room."))))
+X
+X- LABEL withdraw(DEFINE room(
+X`009if(SET room(GOSUB Locate2()),
+X`009GOSUB Withdraw(room),
+X`009print("Receptionist: You haven't room."))))
+X           `032
+X- LABEL Withdraw(duplicate(pdestroy(+("Key ",p1))),
+X`009`009set state(exclude(get state(),
+X`009`009`009GOSUB is in list(get state(),
+X`009`009`009`009GOSUB Key & player(p1)))),
+X`009`009GOSUB Action("withdraw",+("room ",p1,".")),
+X`009`009GOSUB Score("10"),
+X`009`009move(+("Room ",p1)),
+X`009`009get(+("Key ",p1)),
+X`009`009move("Reception"))
+X
+X-LABEL hello(DEFINE i(if(GOSUB Locate(),
+X`009`009         if(SET i(GOSUB Locate2()),
+X`009`009            if(and(inv(),+("key ",i)),
+X`009                       print("Receptionist: Hello! Want you key?"),
+X`009`009`009       print("Receptionist: Hello!")),
+X`009`009            print("Receptionist: Hello! Want you room?")),
+X`009`009         print("Receptionist: Hello!"))))
+X
+X- LABEL money("gold coin, gold sack")
+X
+X- LABEL sel money(random(and(GOSUB money(),pinv ())))
+X
+X- LABEL rent(DEFINE money(if(SET money(GOSUB sel money()),
+X`009`009`009  prog(pprint("Receptionist take ",money," as rent."),
+X`009`009`009       pdestroy(money),
+X`009`009`009       move("hotel's wareroom"),
+X`009`009`009       duplicate(money),
+X`009`009`009       drop(money),
+X`009`009`009       move("reception"),
+X`009`009`009       money),
+X`009`009`009  prog(print("Receptionist: You mast have something as rent."),
+X`009`009`009       print("Receptionist: Maybe ",
+X`009`009`009             random(GOSUB money())),
+X`009`009`009       ""))))
+$ CALL UNPACK RECEPTIONIST.MDL;57 56126839
+$ EXIT

@@ -1,0 +1,853 @@
+Path: comp-sources-3b1
+From: andy@scp.caltech.edu (Andy Fyfe)
+Subject:  v02i041:  packdisk - a program for defragmenting your disk, Part01/01
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 6715c3ee f38bc91d b522d7eb b9679373
+
+Submitted-by: andy@scp.caltech.edu (Andy Fyfe)
+Posting-number: Volume 2, Issue 41
+Archive-name: packdisk/part01
+
+Enclosed is a copy of my packdisk program.  It rearranges completely
+a disk containing a unix file system so that each file is composed
+of a contiguous allocation of disk blocks.  The program "fsanalyze"
+(att7300/misc/fsanaly.cpio.Z, in the uunet/OSU 3b1 archives) can be
+used to check the amount of fragmentation within a file system.
+
+This version of packdisk is virtually identical to the version already
+in the 3b1 archives (att7300/misc/packdsk.cpio.Z), except for one
+important change.  The code now attempts, via a call to ustat(), to
+verify that the disk is not mounted, and the README file is a bit
+clearer on the importance of this.
+
+Andy Fyfe					andy@cs.caltech.edu
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  README COPYRIGHT Makefile packdisk.c
+# Wrapped by andy@marmot on Thu May  6 10:26:02 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(3690 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis program rearranges the files and directories on a disk
+Xso that they appear contiguously.  This is to counteract the
+Xfragmentation that occurs after a time under System V.  After
+Xthe program finishes all the free space will be collected at
+Xthe end of the disk.
+X
+XThis program is rather drastic, in the sense that it does a
+Xwholesale rearrangement of the disk -- every single file may be
+Xmoved to a different part of the disk.  It does this based on
+Xits view of the disk.  Similarly, the kernel, if it had the
+Xdisk mounted, would update the disk, from time to time, based
+Xon its view of the disk.  For both to happen simultaneously,
+Xboth would have to be made aware of any changes made by the
+Xother, since if not, then either may update the disk based on
+Xno longer current information, resulting in a scrambed mess.
+XI'm not sure such awareness is even possible, but in any event,
+X*the program doesn't even try*(*).  Thus both *can not* happen
+Xsimultaneously, that is, this program can only be used on
+Xa disk that is *not* *mounted*(+).  This may very well mean that
+Xyou have to run the program from a floppy file system, after
+Xbooting from floppies.
+X
+XThis program was written on an AT&T 3b1 (running unix version 3.5).
+XWhile the program was written with portability in mind, it is *not*
+Xguaranteed to run on *any* machine, not even the 3b1.  It has,
+Xhowever, worked for me.
+X
+XYou should run fsck before running this program, and again after
+Xit's done, just to be sure!
+X
+XThe program is *slow*.  However, the disk is updated after *every*
+Xblock is moved, so the file system should be in a consistent state
+Xif the program is halted for any reason (except for the free list,
+Xwhich is not rebuilt until the very end, but fsck will easily
+Xrebuild the free list).
+X
+XI don't guarantee that this program won't destroy your disk.
+XMake sure you have a backup just in case!!!
+X
+XTo run the program, simply give the disk device as its only
+Xargument.  The program will normally ensure that the given name
+Xis a character special device, and will try to verify that the
+Xdisk is not mounted.  If compiled with '-DDEBUG', these checks are
+Xeliminated.  This allows, for example, you to "dd" a floppy to
+Xa disk file (say /tmp/disk) and then run the program with
+X'/tmp/disk' as its argument.  Again, when running on a real disk,
+Xthe disk in question *must* *not* be mounted (the internal attempt
+Xto verify this is not guaranteed to save you)!!!
+X
+XRemember:  THIS PROGRAM IS POTENTIALLY VERY DANGEROUS.  Use it
+Xat your own risk.
+X
+X				Andy Fyfe
+X				andy@cs.caltech.edu
+X
+X(*) There are at least 2 problems.  First, is cache consistency.  For
+Xefficiency, both the kernel and packdisk keep in memory various parts
+Xof the disk.  Things aren't likely as simple as having packdisk use
+Xthe block device (which goes through the buffer cache).  For example,
+Xthe head of the free list (which changes constantly as packdisk runs)
+Xis kept in the superblock.  Second, is mutual exclusion.  Packdisk makes
+Xa long series of read-modify-write operations, each of which must be
+Xatomic.  The kernel can enforce mutual exclusion by blocking interrupts
+Xor suspending processes.  A user process has no such control -- indeed,
+Xa read or write system call leaves the process open to suspension.
+X
+X(+) Typing "/etc/mount" will list the devices that are currently
+Xmounted.  For example, I get
+X    $ /etc/mount
+X    / on /dev/fp002 read/write on Mon Apr 19 23:08:57 1993
+XIn this state I should not run packdisk on /dev/rfp002.  Attempting
+Xto run packdisk anyway should give the following error:
+X    $ packdisk /dev/rfp002
+X    packdisk: /dev/fp002 appears to be mounted, packdisk cannot be run
+Xbut you shouldn't rely on the internal check alone!
+END_OF_FILE
+if test 3690 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'COPYRIGHT' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'COPYRIGHT'\"
+else
+echo shar: Extracting \"'COPYRIGHT'\" \(1026 characters\)
+sed "s/^X//" >'COPYRIGHT' <<'END_OF_FILE'
+X/*
+X * Copyright (c) Andrew Fyfe, 1989
+X * All rights reserved.
+X * Written by Andrew Fyfe.
+X *
+X * Permission is granted to anyone to use this software for any purpose on
+X * any computer system, and to alter it and redistribute it freely, subject
+X * to the following restrictions:
+X *
+X * 1. The author is not responsible for the consequences of use of this
+X *    software, no matter how awful, even if they arise from flaws in it.
+X *
+X * 2. The origin of this software must not be misrepresented, either by
+X *    explicit claim or by omission.  Since few users ever read sources,
+X *    credits must appear in the documentation.
+X *
+X * 3. Altered versions must be plainly marked as such, and must not be
+X *    misrepresented as being the original software.  Since few users
+X *    ever read sources, credits must appear in the documentation.
+X *
+X * 4. This notice may not be removed or altered.
+X */
+X
+X /*
+X  * This notice is copied from that included with cnews, which was
+X  * written (mostly) by Geoffrey Collyer and Henry Spencer.
+X  */
+END_OF_FILE
+if test 1026 -ne `wc -c <'COPYRIGHT'`; then
+    echo shar: \"'COPYRIGHT'\" unpacked with wrong size!
+fi
+# end of 'COPYRIGHT'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(130 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+XCC = gcc -Wall
+XCFLAGS = -O # -DDEBUG
+XLDFLAGS = -s -shlib
+X
+Xpackdisk: packdisk.o
+X	$(CC) $(CFLAGS) $(LDFLAGS) -o packdisk packdisk.o
+END_OF_FILE
+if test 130 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'packdisk.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'packdisk.c'\"
+else
+echo shar: Extracting \"'packdisk.c'\" \(15433 characters\)
+sed "s/^X//" >'packdisk.c' <<'END_OF_FILE'
+X/*
+X *
+X * This program takes a disk and makes all the files and directories,
+X * and the free list, contiguous.
+X *
+X * The idea to add the reference count to the "map" array comes from
+X * Rick Richardson, pcrat!rick@uunet.uu.net
+X *
+X * Patches from George Sipe, rebel!george@gatech.edu were helpful
+X * in converting this back to "OLDC".
+X *
+X * Other modifications include a minor fix to speed up the search for
+X * free blocks.  I now get about 15 Mbytes / hour on the 3b1.
+X *
+X * Added a call to ustat() to see if the disk is mounted.  April 1993
+X *
+X * 						Andrew Fyfe
+X *						 7 October 1989
+X *						16 October 1989
+X *
+X *						andy@csvax.caltech.edu
+X */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/filsys.h>
+X#include <sys/ino.h>
+X#include <sys/stat.h>
+X#include <ustat.h>
+X#include <stdio.h>
+X#include <memory.h>
+X#include <malloc.h>
+X
+X#define NUM_ADDR	13
+X#define FIRST_INDIR	10   /* 0-9 direct, 10 single, 11 double, 12 triple */
+X#define NUM_INDIR	(NUM_ADDR - FIRST_INDIR)
+X
+X#ifdef __GNUC__
+X#define FsBSIZE_dev_	FsBSIZE(dev)
+X#else
+X#define FsBSIZE_dev_	1024	/* must be as big as your disk block size */
+X#endif
+X
+Xchar *cmd_name;
+Xint disk, dev;
+Xdaddr_t used;
+X
+Xstruct filsys filsys;
+X
+Xstruct dinode ino;	/* current working inode, and its number */
+Xino_t w_ino;
+X
+Xchar *inode_block;	/* block containing last read/written inode */
+Xdaddr_t w_ino_blk;	/* and its number */
+X
+Xchar *indir[NUM_INDIR];		/* current working indirect blocks */
+Xdaddr_t w_indir[NUM_INDIR];	/* and their numbers */
+X
+Xdaddr_t next_fill;	/* next (sequential) block to fill */
+Xdaddr_t last_free;	/* last free block on the disk */
+X
+Xchar *inode_table;	/* a cache of the entire inode section of the disk */
+X
+Xlong *map;	/* a map from block numbers to referencing inode/indir block */
+Xlong *ref;	/* a reference count */
+X
+X#ifdef __STDC__
+Xstatic void read_superblk(void);
+Xstatic void write_superblk(void);
+Xstatic void map_inode(ino_t inode);
+Xstatic void update_map(long map_entry, daddr_t block, int level);
+Xstatic void read_block(daddr_t block, void *buf);
+Xstatic void write_block(daddr_t block, void *buf);
+Xstatic void read_inode(ino_t inode, struct dinode *buf);
+Xstatic void write_inode(ino_t inode, struct dinode *buf);
+Xstatic void move_block(daddr_t from, daddr_t to);
+Xstatic void move_inode(ino_t inode);
+Xstatic void mov_indirect(daddr_t block, int level);
+Xstatic void make_hole(void);
+Xstatic void rebuild_free_list(void);
+X
+Xextern void l3tol(long *, char *, int length);
+Xextern void ltol3(char *, long *, int length);
+Xextern int  stat(const char *, struct stat *);
+Xextern long lseek(int fildes, long offset, int whence);
+Xextern char *ctime(long *);
+X#else
+Xstatic void read_superblk();
+Xstatic void write_superblk();
+Xstatic void map_inode();
+Xstatic void update_map();
+Xstatic void read_block();
+Xstatic void write_block();
+Xstatic void read_inode();
+Xstatic void write_inode();
+Xstatic void move_block();
+Xstatic void move_inode();
+Xstatic void mov_indirect();
+Xstatic void make_hole();
+Xstatic void rebuild_free_list();
+X
+Xextern void l3tol();
+Xextern void ltol3();
+Xextern long lseek();
+Xextern char *ctime();
+X#endif
+X
+X#ifdef __STDC__
+Xvoid
+Xmain(int argc, char *argv[])
+X#else
+Xvoid
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X#endif
+X{
+X    ino_t inode, total_inodes;
+X    daddr_t block;
+X    int i;
+X#ifndef DEBUG
+X    struct stat statb;
+X    struct ustat ustatb;
+X    char blkdev[80];
+X#endif
+X
+X    cmd_name = argv[0];
+X
+X    if (argc != 2) {
+X	fprintf(stderr, "%s: Usage: %s <file system>\n",
+X	    cmd_name, cmd_name);
+X	exit(1);
+X    }
+X
+X#ifndef DEBUG
+X    if (stat(argv[1], &statb) < 0) {
+X	fprintf(stderr, "%s: can't stat %s: ", cmd_name, argv[1]);
+X	perror("");
+X	exit(1);
+X    }
+X    if ((statb.st_mode & S_IFMT) != S_IFCHR) {
+X	fprintf(stderr, "%s: %s is not a character device\n",
+X	    cmd_name, argv[1]);
+X	exit(1);
+X    }
+X    strcpy(blkdev, "/dev/");
+X    strcat(blkdev, &argv[1][6]);
+X    if (strncmp(argv[1], "/dev/r", 6) == 0 && stat(blkdev, &statb) == 0
+X	&& (statb.st_mode & S_IFMT) == S_IFBLK) {
+X	if (ustat(statb.st_rdev, &ustatb) == 0) {
+X	    fprintf(stderr,
+X		"%s: %s appears to be mounted, packdisk cannot be run\n",
+X		cmd_name, blkdev);
+X	    exit(1);
+X	}
+X	else {
+X	    fprintf(stderr,
+X		"%s: the block device %s appears not to be mounted\n",
+X		cmd_name, blkdev);
+X	}
+X    }
+X    else {
+X	fprintf(stderr,
+X	    "%s: Warning: can't find the block device corresponding to %s\n",
+X	    cmd_name, argv[1]);
+X	fprintf(stderr,
+X	    "%s: Warning: no check that the disk is not mounted\n",
+X	    cmd_name);
+X    }
+X#endif
+X
+X    disk = open(argv[1], 2, 0);
+X    if (disk < 0) {
+X	fprintf(stderr, "%s: can't open %s: ", cmd_name, argv[1]);
+X	perror("");
+X	exit(1);
+X    }
+X
+X    read_superblk();
+X
+X    total_inodes = (filsys.s_isize - FsITOD(dev, ROOTINO)) * FsINOPB(dev);
+X    used = filsys.s_fsize - filsys.s_isize - filsys.s_tfree;
+X    fprintf(stderr, "File system: name: \"%.6s\", pack: \"%.6s\"\n",
+X	filsys.s_fname, filsys.s_fpack);
+X    fprintf(stderr, "\tlast modified on %s", ctime(&filsys.s_time));
+X    fprintf(stderr,
+X	"\ttotal inodes = %d, data blocks = %ld, total = %ld blocks\n",
+X	total_inodes, (long)(filsys.s_fsize - filsys.s_isize),
+X	(long)filsys.s_fsize);
+X    fprintf(stderr, "\tfree blocks = %ld, free inodes = %d\n",
+X	(long)filsys.s_tfree, filsys.s_tinode);
+X
+X    for (i = 0; i < NUM_INDIR; ++i) {
+X	w_indir[i] = 0;
+X	indir[i] = (char *)malloc((size_t)FsBSIZE(dev));
+X	if (indir[i] == 0) {
+X	    fprintf(stderr, "%s: can't malloc indir buffer space: ", cmd_name);
+X	    perror("");
+X	    exit(1);
+X	}
+X    }
+X    w_ino = 0;
+X
+X    map = (long *)calloc((size_t)filsys.s_fsize, sizeof(*map));
+X    if (map == 0) {
+X	fprintf(stderr, "%s: can't calloc map: ", cmd_name);
+X	perror("");
+X	exit(1);
+X    }
+X    ref = (long *)calloc((size_t)filsys.s_fsize, sizeof(*ref));
+X    if (ref == 0) {
+X	fprintf(stderr, "%s: can't calloc ref: ", cmd_name);
+X	perror("");
+X	exit(1);
+X    }
+X
+X    inode_table = (char *)malloc((size_t)filsys.s_isize * FsBSIZE(dev));
+X    if (inode_table == 0) {
+X	fprintf(stderr, "%s: can't malloc space for inode table\n", cmd_name);
+X	w_ino_blk = 0;
+X	inode_block = (char *)malloc((size_t)FsBSIZE(dev));
+X	if (inode_block == 0) {
+X	    fprintf(stderr, "%s: can't malloc inode buffer space: ", cmd_name);
+X	    perror("");
+X	    exit(1);
+X	}
+X    }
+X    else
+X	for (block = FsITOD(dev, ROOTINO); block < filsys.s_isize; ++block)
+X	    read_block(block, &inode_table[block * FsBSIZE(dev)]);
+X
+X    fprintf(stderr, "mapping...");
+X    for (inode = ROOTINO; inode <= total_inodes; ++inode)
+X	map_inode(inode);
+X    fprintf(stderr, "done\n");
+X
+X    next_fill = filsys.s_isize;
+X    last_free = filsys.s_fsize - 1;
+X    for (inode = ROOTINO; inode <= total_inodes; ++inode)
+X	move_inode(inode);
+X
+X    fprintf(stderr, "\nrebuilding the free list\n");
+X    rebuild_free_list();
+X
+X    fprintf(stderr, "*** Run fsck to check out the disk!!!\n");
+X
+X    close(disk);
+X    exit(0);
+X}
+X
+Xstatic void
+Xread_superblk()
+X{
+X    if (lseek(disk, (long)SUPERBOFF, 0) != SUPERBOFF) {
+X	fprintf(stderr, "%s: can't seek to superblock: ", cmd_name);
+X	perror("");
+X	exit(1);
+X    }
+X    if (read(disk, &filsys, sizeof(filsys)) != sizeof(filsys)) {
+X	fprintf(stderr, "%s: can't read superblock: ", cmd_name);
+X	perror("");
+X	exit(1);
+X    }
+X    if (filsys.s_magic != FsMAGIC) {
+X	fprintf(stderr, "%s: invalid superblock magic number\n", cmd_name);
+X	exit(1);
+X    }
+X    dev = (filsys.s_type == Fs2b) ? Fs2BLK : 0;
+X}
+X
+Xstatic void
+Xwrite_superblk()
+X{
+X    if (lseek(disk, (long)SUPERBOFF, 0) != SUPERBOFF) {
+X	fprintf(stderr, "%s: can't seek to superblock: ", cmd_name);
+X	perror("");
+X	exit(1);
+X    }
+X    if (write(disk, &filsys, sizeof(filsys)) != sizeof(filsys)) {
+X	fprintf(stderr, "%s: can't write superblock: ", cmd_name);
+X	perror("");
+X	exit(1);
+X    }
+X}
+X
+X#ifdef __STDC__
+Xstatic void
+Xmap_inode(ino_t inode)
+X#else
+Xstatic void
+Xmap_inode(inode)
+Xino_t inode;
+X#endif
+X{
+X    int type, i;
+X    long block[NUM_ADDR];
+X
+X    read_inode(inode, &ino);
+X    if (ino.di_mode == 0)
+X	return;
+X    type = ino.di_mode & S_IFMT;
+X    if (type == S_IFCHR || type == S_IFBLK)
+X	return;
+X
+X    l3tol(block, ino.di_addr, NUM_ADDR);
+X    for (i = 0; i < NUM_ADDR; ++i)
+X	if (block[i] != 0)
+X	    update_map((long)inode, block[i],
+X		(i < FIRST_INDIR) ? 0 : (i - FIRST_INDIR + 1));
+X}
+X
+X#ifdef __STDC__
+Xstatic void
+Xupdate_map(long map_entry, daddr_t block, int level)
+X#else
+Xstatic void
+Xupdate_map(map_entry, block, level)
+Xlong map_entry;
+Xdaddr_t block;
+Xint level;
+X#endif
+X{
+X    int i;
+X
+X    if (map[block] != 0) {
+X	fprintf(stderr, "%s: duplicate block %ld in %ld and %ld\n",
+X	    cmd_name, (long)block, map[block], map_entry);
+X	exit(1);
+X    }
+X    map[block] = map_entry;
+X
+X    if (map_entry < 0)
+X	++ref[-map_entry];
+X
+X    if (level == 0)
+X	return;
+X
+X    --level;
+X    read_block(block, indir[level]);
+X    for (i = 0; i < FsNINDIR(dev); ++i)
+X	if (((daddr_t *)indir[level])[i] != 0)
+X	    update_map(-block, ((daddr_t *)indir[level])[i], level);
+X}
+X
+X#ifdef __STDC__
+Xstatic void
+Xread_block(daddr_t block, void *buf)
+X#else
+Xstatic void
+Xread_block(block, buf)
+Xdaddr_t block;
+Xchar *buf;
+X#endif
+X{
+X    if (lseek(disk, (long)block * FsBSIZE(dev), 0) != block * FsBSIZE(dev)) {
+X	fprintf(stderr, "%s: can't seek to block %ld: ", cmd_name, (long)block);
+X	perror("");
+X	exit(1);
+X    }
+X    if (read(disk, buf, FsBSIZE(dev)) != FsBSIZE(dev)) {
+X	fprintf(stderr, "%s: can't read block %ld: ", cmd_name, (long)block);
+X	perror("");
+X	exit(1);
+X    }
+X}
+X
+X#ifdef __STDC__
+Xstatic void
+Xwrite_block(daddr_t block, void *buf)
+X#else
+Xstatic void
+Xwrite_block(block, buf)
+Xdaddr_t block;
+Xchar *buf;
+X#endif
+X{
+X    if (lseek(disk, (long)block * FsBSIZE(dev), 0) != block * FsBSIZE(dev)) {
+X	fprintf(stderr, "%s: can't seek to block %ld: ", cmd_name, (long)block);
+X	perror("");
+X	exit(1);
+X    }
+X    if (write(disk, buf, FsBSIZE(dev)) != FsBSIZE(dev)) {
+X	fprintf(stderr, "%s: can't write block %ld: ", cmd_name, (long)block);
+X	perror("");
+X	exit(1);
+X    }
+X}
+X
+X#ifdef __STDC__
+Xstatic void
+Xread_inode(ino_t inode, struct dinode *ino_p)
+X#else
+Xstatic void
+Xread_inode(inode, ino_p)
+Xino_t inode;
+Xstruct dinode *ino_p;
+X#endif
+X{
+X    daddr_t block;
+X
+X    block = FsITOD(dev, inode);
+X    if (inode_table == 0) {
+X	if (w_ino_blk != block) {
+X	    w_ino_blk = block;
+X	    read_block(block, inode_block);
+X	}
+X	*ino_p = ((struct dinode *)inode_block)[FsITOO(dev, inode)];
+X    }
+X    else {
+X	*ino_p = ((struct dinode *)&inode_table[block * FsBSIZE(dev)])
+X	    [FsITOO(dev, inode)];
+X    }
+X}
+X
+X#ifdef __STDC__
+Xstatic void
+Xwrite_inode(ino_t inode, struct dinode *ino_p)
+X#else
+Xstatic void
+Xwrite_inode(inode, ino_p)
+Xino_t inode;
+Xstruct dinode *ino_p;
+X#endif
+X{
+X    daddr_t block;
+X
+X    block = FsITOD(dev, inode);
+X    if (inode_table == 0) {
+X	if (w_ino_blk != block) {
+X	    w_ino_blk = block;
+X	    read_block(block, inode_block);
+X	}
+X	((struct dinode *)inode_block)[FsITOO(dev, inode)] = *ino_p;
+X	write_block(block, inode_block);
+X    }
+X    else {
+X	((struct dinode *)&inode_table[block * FsBSIZE(dev)])
+X	    [FsITOO(dev, inode)] = *ino_p;
+X	write_block(block, &inode_table[block * FsBSIZE(dev)]);
+X    }
+X}
+X
+X#ifdef __STDC__
+Xstatic void
+Xmove_block(daddr_t from, daddr_t to)
+X#else
+Xstatic void
+Xmove_block(from, to)
+Xdaddr_t from;
+Xdaddr_t to;
+X#endif
+X{
+X    char buffer[FsBSIZE_dev_];
+X    daddr_t block;
+X
+X    if (map[to] != 0)
+X	make_hole();
+X
+X    read_block(from, buffer);
+X    write_block(to, buffer);
+X
+X    map[to] = map[from];
+X    ref[to] = ref[from];
+X    map[from] = 0;
+X    ref[from] = 0;
+X
+X    if (from > last_free)
+X	last_free = from;
+X
+X    if (ref[to] > 0)
+X	for (block = filsys.s_isize; block < filsys.s_fsize; ++block)
+X	    if (map[block] == -from)
+X		map[block] = -to;
+X}
+X
+X#ifdef __STDC__
+Xstatic void
+Xmove_inode(ino_t inode)
+X#else
+Xstatic void
+Xmove_inode(inode)
+Xino_t inode;
+X#endif
+X{
+X    int type, i;
+X    long block[NUM_ADDR];
+X
+X    read_inode(inode, &ino);
+X    w_ino = inode;
+X    if (ino.di_mode == 0)
+X	return;
+X    type = ino.di_mode & S_IFMT;
+X    if (type == S_IFCHR || type == S_IFBLK)
+X	return;
+X    
+X    fprintf(stderr, "moving inode %5d (size %8ld) -- %2d%% done\r",
+X	inode, ino.di_size, (next_fill - filsys.s_isize) * 100 / used);
+X
+X    l3tol(block, ino.di_addr, NUM_ADDR);
+X    for (i = 0; i < NUM_ADDR; ++i) {
+X	if (block[i] == 0)
+X	    continue;
+X	if (block[i] != next_fill) {
+X	    move_block(block[i], next_fill);
+X	    l3tol(block, ino.di_addr, NUM_ADDR);
+X	    block[i] = next_fill;
+X	    ltol3(ino.di_addr, block, NUM_ADDR);
+X	    write_inode(inode, &ino);
+X	}
+X	++next_fill;
+X    }
+X    
+X    for (i = FIRST_INDIR; i < NUM_ADDR; ++i)
+X	mov_indirect(block[i], i-FIRST_INDIR);
+X}
+X
+X#ifdef __STDC__
+Xstatic void
+Xmov_indirect(daddr_t block, int level)
+X#else
+Xstatic void
+Xmov_indirect(block, level)
+Xdaddr_t block;
+Xint level;
+X#endif
+X{
+X    int i;
+X
+X    if (block == 0)
+X	return;
+X
+X    read_block(block, indir[level]);
+X    w_indir[level] = block;
+X
+X    for (i = 0; i < FsNINDIR(dev); ++i) {
+X	if (((daddr_t *)indir[level])[i] == 0)
+X	    continue;
+X	if (((daddr_t *)indir[level])[i] != next_fill) {
+X	    move_block(((daddr_t *)indir[level])[i], next_fill);
+X	    ((daddr_t *)indir[level])[i] = next_fill;
+X	    write_block(block, indir[level]);
+X	}
+X	++next_fill;
+X    }
+X
+X    if (level == 0)
+X	return;
+X
+X    for (i = 0; i < FsNINDIR(dev); ++i)
+X	mov_indirect(((daddr_t *)indir[level])[i], level-1);
+X}
+X
+Xstatic void
+Xmake_hole()
+X{
+X    char t_indir[FsBSIZE_dev_];
+X    daddr_t *p_indir;
+X    struct dinode t_ino, *p_ino;
+X    long block[NUM_ADDR];
+X    daddr_t back;
+X    int i;
+X
+X    for(back = last_free; next_fill < back && map[back] != 0; --back)
+X	;
+X
+X    if (next_fill >= back) {
+X	fprintf(stderr, "%s: can't find a free block for %ld\n",
+X	    cmd_name, (long)next_fill);
+X	exit(1);
+X    }
+X    last_free = back - 1;
+X
+X    move_block(next_fill, back);
+X
+X    if (map[back] < 0) {
+X	block[0] = -map[back];
+X	for (i = 0; i < NUM_INDIR; ++i)
+X	    if (block[0] == w_indir[i])
+X		break;
+X	if (i < NUM_INDIR) {
+X	    p_indir = (daddr_t *)indir[i];
+X	}
+X	else {
+X	    p_indir = (daddr_t *)t_indir;
+X	    read_block(block[0], t_indir);
+X	}
+X	for (i = 0; i < FsNINDIR(dev); ++i) {
+X	    if (p_indir[i] == next_fill) {
+X		p_indir[i] = back;
+X		break;
+X	    }
+X	}
+X	if (i == FsNINDIR(dev)) {
+X	    fprintf(stderr,
+X		"%s: panic: can't find %ld in indirect block %ld\n",
+X		cmd_name, (long)next_fill, -map[back]);
+X	    exit(1);
+X	}
+X	write_block(block[0], (char *)p_indir);
+X    }
+X    else {
+X	if (map[back] == w_ino) {
+X	    p_ino = &ino;
+X	}
+X	else {
+X	    p_ino = &t_ino;
+X	    read_inode((ino_t)map[back], &t_ino);
+X	}
+X	l3tol(block, p_ino->di_addr, NUM_ADDR);
+X	for (i = 0; i < NUM_ADDR; ++i) {
+X	    if (block[i] == next_fill) {
+X		block[i] = back;
+X		ltol3(p_ino->di_addr, block, NUM_ADDR);
+X		break;
+X	    }
+X	}
+X	if (i == NUM_ADDR) {
+X	    fprintf(stderr, "%s: panic: can't find %ld in inode %ld\n",
+X		cmd_name, (long)next_fill, map[back]);
+X	    exit(1);
+X	}
+X	write_inode((ino_t)map[back], p_ino);
+X    }
+X}
+X
+Xstatic void
+Xrebuild_free_list()
+X{
+X    long free_size;
+X    int nfree;
+X    daddr_t free[NICFREE], block;
+X    char buf[FsBSIZE_dev_];
+X
+X    free_size = filsys.s_fsize - next_fill;
+X    if (free_size != filsys.s_tfree) {
+X	fprintf(stderr, "%s: free list changed size from %ld to %ld\n",
+X	    cmd_name, (long)filsys.s_tfree, free_size);
+X	exit(1);
+X    }
+X
+X    nfree = 1;
+X    memset((char *)free, 0, sizeof(free));
+X    memset((char *)buf, 0, sizeof(buf));
+X
+X    for (block = filsys.s_fsize - 1; block >= next_fill; --block) {
+X	if (nfree == NICFREE) {
+X	    ((int *)buf)[0] = nfree;
+X	    memcpy((char *)&((int *)buf)[1], (char *)free, sizeof(free));
+X	    write_block(block, buf);
+X	    nfree = 0;
+X	    memset((char *)free, 0, sizeof(free));
+X	}
+X	free[nfree++] = block;
+X    }
+X
+X    filsys.s_nfree = nfree;
+X    memcpy((char *)filsys.s_free, (char *)free, sizeof(free));
+X    filsys.s_dinfo[0] = 1;
+X    write_superblk();
+X}
+END_OF_FILE
+if test 15433 -ne `wc -c <'packdisk.c'`; then
+    echo shar: \"'packdisk.c'\" unpacked with wrong size!
+fi
+# end of 'packdisk.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+-- 
+David H. Brierley                            Work: dhb@ssd.ray.com
+3B1 Hacker Extraordinaire                    Home: dave@galaxia.network23.com

@@ -1,0 +1,1174 @@
+Newsgroups: comp.sources.misc
+From: jik@Athena.MIT.EDU (Jonathan I. Kamens)
+Subject:  v33i070:  delete - MIT Athena delete/undelete programs, Patch15
+Message-ID: <1992Nov10.151207.27537@sparky.imd.sterling.com>
+X-Md4-Signature: c25b91c7c7af45f5a3ce3b4e597c6ed3
+Date: Tue, 10 Nov 1992 15:12:07 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jik@Athena.MIT.EDU (Jonathan I. Kamens)
+Posting-number: Volume 33, Issue 70
+Archive-name: delete/patch15
+Environment: SunOS, BSD, Ultrix, Mach, A/UX, HP-UX
+Patch-To: delete: Volume 17, Issue 23-26
+
+This patch brings the "delete" package from patchlevel 14 to patchlevel 15. 
+Use "patch -p0" in your delete source directory to apply it.
+
+This patch accomplishes the following:
+
+1) The test to see if malloc(0) returns 0 also checks to see if realloc(0)
+returns 0, since this is the case on some systems.
+
+2) The POSIX dirent support has been updated slightly, to take into account
+the fact that doing "#define direct dirent" breaks on some systems (e.g.,
+Ultrix systems).
+
+3) If the AFS_MOUNTPOINTS option is used to include support for AFS when
+compiling, the mtime of a file is changed when the file is deleted, so that
+"expunge" will do the right thing when only removing files that were deleted
+more than a specified amount of time previously.
+
+4) Several large buffers in recursive functions have been made static, so that
+they would not need to be allocated on the stack for each recursion.  This
+prevents the programs from running out of memory and/or overrunning their
+stack space when descending trees with large amounts of nesting.
+
+5) A bug related to symbolic links pointing nowhere has been fixed.
+
+6) Minor changes have been made for HP-UX and UTEK support.
+
+7) I've given up on trying to make RCS "$Header$" and "$Source$" lines
+work in our environment, where AFS mount points and the way AFS works
+causes their value to change often when it shouldn't.  Therefore, much
+of this patch is just removing "$Header$", "$Source$" and "$Author$"
+lines and replacing them with "$Id$" lines (besides, the "$Source$"
+and "$Author$" lines were redundant when "$Source$" was present).  I
+hope this is the last patch I'll have to release with major RCS
+frobbing in it.
+
+*** ../delete.old/PATCHLEVEL	Tue Nov 10 00:21:56 1992
+--- PATCHLEVEL	Tue Nov 10 01:02:08 1992
+***************
+*** 1 ****
+! 14
+--- 1 ----
+! 15
+*** ../delete.old/col.c	Tue Nov 10 00:19:32 1992
+--- col.c	Tue Nov 10 00:57:45 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/col.c,v $
+-  * $Author: jik $
+-  *
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+   * replacement for rm which allows for file recovery.
+--- 1,4 ----
+***************
+*** 11,17 ****
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_col_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/col.c,v 1.8 91/02/28 18:42:09 jik Exp $";
+  #endif
+  
+  /*
+--- 8,14 ----
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_col_c[] = "$Id: col.c,v 1.9 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  /*
+*** ../delete.old/col.h	Tue Nov 10 00:19:32 1992
+--- col.h	Tue Nov 10 00:57:46 1992
+***************
+*** 1,6 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/col.h,v $
+!  * $Author: jik $
+   *
+   * This header file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: col.h,v 1.4 1992/11/10 05:57:24 jik Exp $
+   *
+   * This header file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/delete.h	Tue Nov 10 00:19:33 1992
+--- delete.h	Tue Nov 10 00:57:51 1992
+***************
+*** 1,7 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/delete.h,v $
+!  * $Author: jik $
+!  * $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/delete.h,v 1.5 91/02/28 18:42:22 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: delete.h,v 1.6 1992/11/10 05:57:24 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/delete_errs.et	Tue Nov 10 00:19:33 1992
+--- delete_errs.et	Tue Nov 10 00:57:52 1992
+***************
+*** 3,11 ****
+  #     For copying and distribution information, see the file
+  #     "mit-copying.h".
+  #
+! #     $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/delete_errs.et,v $
+! #     $Author: jik $
+! #     $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/delete_errs.et,v 1.4 91/02/28 18:42:24 jik Exp $
+  #
+  
+  	et	del
+--- 3,9 ----
+  #     For copying and distribution information, see the file
+  #     "mit-copying.h".
+  #
+! #     $Id: delete_errs.et,v 1.5 1992/11/10 05:57:24 jik Exp $
+  #
+  
+  	et	del
+*** ../delete.old/directories.h	Tue Nov 10 00:19:34 1992
+--- directories.h	Tue Nov 10 00:57:55 1992
+***************
+*** 1,7 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/directories.h,v $
+!  * $Author: jik $
+!  * $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/directories.h,v 1.12 91/03/11 18:41:30 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: directories.h,v 1.13 1992/11/10 05:57:24 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/errors.c	Tue Nov 10 00:19:34 1992
+--- errors.c	Tue Nov 10 00:57:58 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/errors.c,v $
+-  * $Author: jik $
+-  *
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+   * replacement for rm which allows for file recovery.
+--- 1,4 ----
+***************
+*** 11,17 ****
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_errors_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/errors.c,v 1.4 91/02/28 18:42:40 jik Exp $";
+  #endif
+  
+  #include <com_err.h>
+--- 8,14 ----
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_errors_c[] = "$Id: errors.c,v 1.5 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  #include <com_err.h>
+*** ../delete.old/errors.h	Tue Nov 10 00:19:35 1992
+--- errors.h	Tue Nov 10 00:57:59 1992
+***************
+*** 1,7 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/errors.h,v $
+!  * $Author: jik $
+!  * $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/errors.h,v 1.3 91/02/28 18:42:52 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: errors.h,v 1.4 1992/11/10 05:57:24 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/expunge.h	Tue Nov 10 00:19:35 1992
+--- expunge.h	Tue Nov 10 00:58:03 1992
+***************
+*** 1,7 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/expunge.h,v $
+!  * $Author: jik $
+!  * $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/expunge.h,v 1.5 91/02/28 18:43:02 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: expunge.h,v 1.6 1992/11/10 05:57:24 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/lsdel.h	Tue Nov 10 00:19:36 1992
+--- lsdel.h	Tue Nov 10 00:58:07 1992
+***************
+*** 1,7 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/lsdel.h,v $
+!  * $Author: jik $
+!  * $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/lsdel.h,v 1.5 91/02/28 18:43:08 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: lsdel.h,v 1.6 1992/11/10 05:57:24 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/man1/delete.1	Tue Nov 10 00:19:36 1992
+--- man1/delete.1	Tue Nov 10 01:00:54 1992
+***************
+*** 1,6 ****
+! .\"	$Source: /afs/athena.mit.edu/astaff/project/delete/src/man1/RCS/delete.1,v $
+! .\"	$Author: jik $
+! .\"	$Header: /afs/athena.mit.edu/astaff/project/delete/src/man1/RCS/delete.1,v 1.5 89/09/14 03:42:51 jik Exp $
+  .\"
+  .\" Copyright 1989 by the Massachusetts Institute of Technology.  All
+  .\" rights reserved.  The file /usr/include/mit-copyright.h specifies
+--- 1,4 ----
+! .\"	$Id: delete.1,v 1.7 1992/11/10 06:00:44 jik Exp $
+  .\"
+  .\" Copyright 1989 by the Massachusetts Institute of Technology.  All
+  .\" rights reserved.  The file /usr/include/mit-copyright.h specifies
+***************
+*** 131,136 ****
+--- 129,145 ----
+  file names, even if they start with a dash.
+  .SH "SEE ALSO"
+  undelete(1), purge(1), expunge(1), lsdel(1), rm(1), rmdir(1)
++ .SH BUGS
++ .I Delete
++ may change the access and modification times on a file when it is
++ deleted.  This is necessary in order to guarantee that
++ .I expunge
++ will work correctly in
++ .I AFS
++ filesystems.  You might say that this is a bug in
++ .IR AFS ,
++ rather than a bug in
++ .IR delete .
+  .SH AUTHOR
+  Jonathan I. Kamens (MIT-Project Athena)
+  .SH COPYRIGHT
+*** ../delete.old/man1/expunge.1	Tue Nov 10 00:19:37 1992
+--- man1/expunge.1	Tue Nov 10 01:00:58 1992
+***************
+*** 1,6 ****
+! .\"	$Source: /afs/athena.mit.edu/astaff/project/delete/src/man1/RCS/expunge.1,v $
+! .\"	$Author: jik $
+! .\"	$Header: /afs/athena.mit.edu/astaff/project/delete/src/man1/RCS/expunge.1,v 1.9 91/01/01 05:09:52 jik Exp $
+  .\"
+  .\" Copyright 1989 by the Massachusetts Institute of Technology.  All
+  .\" rights reserved.  The file /usr/include/mit-copyright.h specifies
+--- 1,4 ----
+! .\"	$Id: expunge.1,v 1.10 1992/11/10 06:00:44 jik Exp $
+  .\"
+  .\" Copyright 1989 by the Massachusetts Institute of Technology.  All
+  .\" rights reserved.  The file /usr/include/mit-copyright.h specifies
+*** ../delete.old/man1/lsdel.1	Tue Nov 10 00:22:03 1992
+--- man1/lsdel.1	Tue Nov 10 01:01:00 1992
+***************
+*** 1,6 ****
+! .\"	$Source: /afs/athena.mit.edu/astaff/project/delete/src/man1/RCS/lsdel.1,v $
+! .\"	$Author: jik $
+! .\"	$Header: /afs/athena.mit.edu/astaff/project/delete/src/man1/RCS/lsdel.1,v 1.7 91/06/04 18:57:40 jik Exp $
+  .\"
+  .\" Copyright 1989 by the Massachusetts Institute of Technology.  All
+  .\" rights reserved.  The file /usr/include/mit-copyright.h specifies
+--- 1,4 ----
+! .\"	$Id: lsdel.1,v 1.8 1992/11/10 06:00:44 jik Exp $
+  .\"
+  .\" Copyright 1989 by the Massachusetts Institute of Technology.  All
+  .\" rights reserved.  The file /usr/include/mit-copyright.h specifies
+*** ../delete.old/man1/purge.1	Tue Nov 10 00:19:38 1992
+--- man1/purge.1	Tue Nov 10 01:01:04 1992
+***************
+*** 1,6 ****
+! .\"	$Source: /afs/athena.mit.edu/astaff/project/delete/src/man1/RCS/purge.1,v $
+! .\"	$Author: jik $
+! .\"	$Header: /afs/athena.mit.edu/astaff/project/delete/src/man1/RCS/purge.1,v 1.1 89/01/27 04:50:13 jik Exp $
+  .\"
+  .\" Copyright 1989 by the Massachusetts Institute of Technology.  All
+  .\" rights reserved.  The file /usr/include/mit-copyright.h specifies
+--- 1,4 ----
+! .\"	$Id: purge.1,v 1.2 1992/11/10 06:00:44 jik Exp $
+  .\"
+  .\" Copyright 1989 by the Massachusetts Institute of Technology.  All
+  .\" rights reserved.  The file /usr/include/mit-copyright.h specifies
+*** ../delete.old/man1/undelete.1	Tue Nov 10 00:19:39 1992
+--- man1/undelete.1	Tue Nov 10 01:01:08 1992
+***************
+*** 1,6 ****
+! .\"	$Source: /afs/athena.mit.edu/astaff/project/delete/src/man1/RCS/undelete.1,v $
+! .\"	$Author: jik $
+! .\"	$Header: /afs/athena.mit.edu/astaff/project/delete/src/man1/RCS/undelete.1,v 1.5 89/11/02 07:13:26 jik Exp $
+  .\" Copyright 1989 by the Massachusetts Institute of Technology.  All
+  .\" rights reserved.  The file /usr/include/mit-copyright.h specifies
+  .\" the terms and conditions for redistribution.
+--- 1,4 ----
+! .\"	$Id: undelete.1,v 1.6 1992/11/10 06:00:44 jik Exp $
+  .\" Copyright 1989 by the Massachusetts Institute of Technology.  All
+  .\" rights reserved.  The file /usr/include/mit-copyright.h specifies
+  .\" the terms and conditions for redistribution.
+*** ../delete.old/pattern.h	Tue Nov 10 00:19:39 1992
+--- pattern.h	Tue Nov 10 00:58:13 1992
+***************
+*** 1,7 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/pattern.h,v $
+!  * $Author: jik $
+!  * $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/pattern.h,v 1.6 91/02/28 18:43:19 jik Exp $
+   * 
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: pattern.h,v 1.7 1992/11/10 05:57:24 jik Exp $
+   * 
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/shell_regexp.c	Tue Nov 10 00:19:40 1992
+--- shell_regexp.c	Tue Nov 10 00:58:15 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/shell_regexp.c,v $
+-  * $Author: jik $
+-  *
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+   * replacement for rm which allows for file recovery.
+--- 1,4 ----
+***************
+*** 11,17 ****
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_shell_regexp_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/shell_regexp.c,v 1.3 91/02/28 18:43:43 jik Exp $";
+  #endif
+  
+  #include <com_err.h>
+--- 8,14 ----
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_shell_regexp_c[] = "$Id: shell_regexp.c,v 1.4 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  #include <com_err.h>
+*** ../delete.old/shell_regexp.h	Tue Nov 10 00:19:40 1992
+--- shell_regexp.h	Tue Nov 10 00:58:16 1992
+***************
+*** 1,6 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/shell_regexp.h,v $
+!  * $Author: jik $
+   *
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: shell_regexp.h,v 1.4 1992/11/10 05:57:24 jik Exp $
+   *
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/stack.c	Tue Nov 10 00:22:03 1992
+--- stack.c	Tue Nov 10 00:58:18 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/stack.c,v $
+-  * $Author: jik $
+-  *
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+   * replacement for rm which allows for file recovery.
+--- 1,4 ----
+***************
+*** 11,17 ****
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_stack_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/stack.c,v 1.10 91/06/04 22:05:49 jik Exp $";
+  #endif
+  
+  #include <sys/types.h>
+--- 8,14 ----
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_stack_c[] = "$Id: stack.c,v 1.11 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  #include <sys/types.h>
+*** ../delete.old/stack.h	Tue Nov 10 00:19:41 1992
+--- stack.h	Tue Nov 10 00:58:19 1992
+***************
+*** 1,7 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/stack.h,v $
+!  * $Author: jik $
+!  * $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/stack.h,v 1.3 91/02/28 18:43:52 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: stack.h,v 1.4 1992/11/10 05:57:24 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/undelete.h	Tue Nov 10 00:19:42 1992
+--- undelete.h	Tue Nov 10 00:59:21 1992
+***************
+*** 1,7 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/undelete.h,v $
+!  * $Author: jik $
+!  * $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/undelete.h,v 1.5 91/02/28 18:44:06 jik Exp $
+   * 
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: undelete.h,v 1.6 1992/11/10 05:57:24 jik Exp $
+   * 
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/util.h	Tue Nov 10 00:19:42 1992
+--- util.h	Tue Nov 10 00:59:24 1992
+***************
+*** 1,7 ****
+  /*
+!  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/util.h,v $
+!  * $Author: jik $
+!  * $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/util.h,v 1.12 91/02/28 18:44:15 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+--- 1,5 ----
+  /*
+!  * $Id: util.h,v 1.13 1992/11/10 05:57:24 jik Exp $
+   * 
+   * This file is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+*** ../delete.old/Makefile	Tue Nov 10 00:21:55 1992
+--- Makefile	Tue Nov 10 00:57:43 1992
+***************
+*** 3,11 ****
+  #     For copying and distribution information, see the file
+  #     "mit-copying.h".
+  #
+! #     $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/Makefile,v $
+! #     $Author: jik $
+! #     $Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/Makefile,v 1.32 91/06/04 22:17:28 jik Exp $
+  #
+  
+  # If you are compiling on a system that has an st_blocks field in
+--- 3,9 ----
+  #     For copying and distribution information, see the file
+  #     "mit-copying.h".
+  #
+! #     $Id: Makefile,v 1.34 1992/11/10 05:57:24 jik Exp $
+  #
+  
+  # If you are compiling on a system that has an st_blocks field in
+***************
+*** 14,22 ****
+  # variable below.  If you don't know whether or not to define it, run
+  # "make block-test".
+  # 
+! # If you are using a system where malloc(0) returns 0 even when it
+! # succeeds, then set MALLOC below to -DMALLOC_0_RETURNS_NULL.  If you
+! # don't know whether or not to define it, run "make malloc-test".
+  
+  DESTDIR=
+  TARGETS= 	delete undelete expunge purge lsdel
+--- 12,21 ----
+  # variable below.  If you don't know whether or not to define it, run
+  # "make block-test".
+  # 
+! # If you are using a system where malloc(0) or realloc(ptr, 0) returns
+! # 0 even when it succeeds, then set MALLOC below to
+! # -DMALLOC_0_RETURNS_NULL.  If you don't know whether or not to define
+! # it, run "make malloc-test".
+  
+  DESTDIR=
+  TARGETS= 	delete undelete expunge purge lsdel
+*** ../delete.old/expunge.c	Tue Nov 10 00:22:02 1992
+--- expunge.c	Tue Nov 10 00:58:02 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/expunge.c,v $
+-  * $Author: jik $
+-  *
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+   * replacement for rm which allows for file recovery.
+--- 1,4 ----
+***************
+*** 11,17 ****
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_expunge_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/expunge.c,v 1.20 91/06/04 22:07:43 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+--- 8,14 ----
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_expunge_c[] = "$Id: expunge.c,v 1.23 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+***************
+*** 19,25 ****
+  #include <sys/time.h>
+  #ifdef POSIX
+  #include <dirent.h>
+- #define direct dirent
+  #else
+  #include <sys/dir.h>
+  #endif
+--- 16,21 ----
+***************
+*** 292,298 ****
+       int retval;
+       
+       if ((leaf->specified) && ((leaf->specs.st_mode & S_IFMT) == S_IFDIR)) {
+! 	  char buf[MAXPATHLEN];
+  
+  	  if (retval = get_leaf_path(leaf, buf)) {
+  	       error("get_leaf_path");
+--- 288,298 ----
+       int retval;
+       
+       if ((leaf->specified) && ((leaf->specs.st_mode & S_IFMT) == S_IFDIR)) {
+! 	  /*
+! 	   * This is static so that we don't create a copy of it for
+! 	   * every recursive invocation of expunge_specified.
+! 	   */
+! 	  static char buf[MAXPATHLEN];
+  
+  	  if (retval = get_leaf_path(leaf, buf)) {
+  	       error("get_leaf_path");
+*** ../delete.old/lsdel.c	Tue Nov 10 00:22:02 1992
+--- lsdel.c	Tue Nov 10 00:58:05 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/lsdel.c,v $
+-  * $Author: jik $
+-  *
+   * This program is a replacement for rm.  Instead of actually deleting
+   * files, it marks them for deletion by prefixing them with a ".#"
+   * prefix.
+--- 1,4 ----
+***************
+*** 11,17 ****
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_lsdel_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/lsdel.c,v 1.19 91/06/04 22:08:30 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+--- 8,14 ----
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_lsdel_c[] = "$Id: lsdel.c,v 1.21 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+***************
+*** 18,24 ****
+  #include <sys/types.h>
+  #ifdef POSIX
+  #include <dirent.h>
+- #define direct dirent
+  #else
+  #include <sys/dir.h>
+  #endif
+--- 15,20 ----
+*** ../delete.old/undelete.c	Tue Nov 10 00:21:58 1992
+--- undelete.c	Tue Nov 10 00:59:19 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/undelete.c,v $
+-  * $Author: jik $
+-  *
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+   * replacement for rm which allows for file recovery.
+--- 1,4 ----
+***************
+*** 11,17 ****
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_undelete_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/undelete.c,v 1.24 91/06/04 22:07:21 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+--- 8,14 ----
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_undelete_c[] = "$Id: undelete.c,v 1.26 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+***************
+*** 18,24 ****
+  #include <sys/types.h>
+  #ifdef POSIX
+  #include <dirent.h>
+- #define direct dirent
+  #else
+  #include <sys/dir.h>
+  #endif
+--- 15,20 ----
+***************
+*** 545,551 ****
+--- 541,551 ----
+       char buf[MAXPATHLEN];
+       struct stat stat_buf;
+       DIR *dirp;
++ #ifdef POSIX
++      struct dirent *dp;
++ #else
+       struct direct *dp;
++ #endif
+       int retval;
+       int status = 0;
+       
+*** ../delete.old/util.c	Tue Nov 10 00:22:01 1992
+--- util.c	Tue Nov 10 00:59:22 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/util.c,v $
+-  * $Author: jik $
+-  *
+   * This program is a replacement for rm.  Instead of actually deleting
+   * files, it marks them for deletion by prefixing them with a ".#"
+   * prefix.
+--- 1,4 ----
+***************
+*** 11,28 ****
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_util_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/util.c,v 1.23 91/06/04 22:06:34 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+  #include <sys/param.h>
+  #include <sys/types.h>
+! #ifdef SYSV /* SYSV doesn't define uid_t */
+  typedef unsigned short uid_t;
+  #endif
+  #ifdef POSIX
+  #include <dirent.h>
+- #define direct dirent
+  #else
+  #include <sys/dir.h>
+  #endif
+--- 8,24 ----
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_util_c[] = "$Id: util.c,v 1.28 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+  #include <sys/param.h>
+  #include <sys/types.h>
+! #if defined(SYSV) && !defined(hpux) /* SYSV doesn't define uid_t */
+  typedef unsigned short uid_t;
+  #endif
+  #ifdef POSIX
+  #include <dirent.h>
+  #else
+  #include <sys/dir.h>
+  #endif
+***************
+*** 39,44 ****
+--- 35,41 ----
+  #include <sys/ioctl.h>
+  #include <afs/param.h>
+  #include <afs/vice.h>
++ #include <netinet/in.h>
+  #include <afs/venus.h>
+  #endif
+  #include "delete_errs.h"
+***************
+*** 48,55 ****
+  #include "errors.h"
+  
+  extern char *getenv();
+- extern uid_t getuid();
+  extern int errno;
+  
+  char *convert_to_user_name(real_name, user_name)
+  char real_name[];
+--- 45,57 ----
+  #include "errors.h"
+  
+  extern char *getenv();
+  extern int errno;
++ 
++ #ifdef UTEK
++ extern int getuid();
++ #else /* ! UTEK */
++ extern uid_t getuid();
++ #endif /* UTEK */
+  
+  char *convert_to_user_name(real_name, user_name)
+  char real_name[];
+*** ../delete.old/delete.c	Tue Nov 10 00:21:56 1992
+--- delete.c	Tue Nov 10 00:57:48 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/delete.c,v $
+-  * $Author: jik $
+-  *
+   * This program is a replacement for rm.  Instead of actually deleting
+   * files, it marks them for deletion by prefixing them with a ".#"
+   * prefix.
+--- 1,4 ----
+***************
+*** 11,24 ****
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_delete_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/delete.c,v 1.26 91/06/04 22:06:55 jik Exp $";
+  #endif
+  
+  #include <sys/types.h>
+  #include <stdio.h>
+  #ifdef POSIX
+  #include <dirent.h>
+- #define direct dirent
+  #else
+  #include <sys/dir.h>
+  #endif
+--- 8,23 ----
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_delete_c[] = "$Id: delete.c,v 1.30 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  #include <sys/types.h>
++ #ifdef AFS_MOUNTPOINTS
++ #include <sys/time.h>
++ #endif
+  #include <stdio.h>
+  #ifdef POSIX
+  #include <dirent.h>
+  #else
+  #include <sys/dir.h>
+  #endif
+***************
+*** 79,84 ****
+--- 78,86 ----
+  int force, interactive, recursive, noop, verbose, filesonly, directoriesonly;
+  int emulate_rm, linked_to_rm, linked_to_rmdir;
+  extern int errno;
++ #ifdef AFS_MOUNTPOINTS
++ struct timeval tvp[2];
++ #endif
+  
+  main(argc, argv)
+  int argc;
+***************
+*** 91,97 ****
+       whoami = lastpart(argv[0]);
+  
+       initialize_del_error_table();
+!      
+       force = interactive = recursive = noop = verbose = filesonly =
+  	  directoriesonly = emulate_rm = linked_to_rm = linked_to_rmdir = 0;
+  
+--- 93,104 ----
+       whoami = lastpart(argv[0]);
+  
+       initialize_del_error_table();
+! 
+! #ifdef AFS_MOUNTPOINTS
+!      gettimeofday(&tvp[0], (struct timezone *)0);
+!      tvp[1] = tvp[0];
+! #endif
+! 
+       force = interactive = recursive = noop = verbose = filesonly =
+  	  directoriesonly = emulate_rm = linked_to_rm = linked_to_rmdir = 0;
+  
+***************
+*** 319,325 ****
+--- 326,336 ----
+  char *filename;
+  {
+       DIR *dirp;
++ #ifdef POSIX
++      struct dirent *dp;
++ #else
+       struct direct *dp;
++ #endif
+  
+       dirp = Opendir(filename);
+       if (! dirp) {
+***************
+*** 350,356 ****
+--- 361,371 ----
+  int recursed;
+  {
+       DIR *dirp;
++ #ifdef POSIX
++      struct dirent *dp;
++ #else
+       struct direct *dp;
++ #endif
+       int status = 0;
+       char newfile[MAXPATHLEN];
+       int retval = 0;
+***************
+*** 496,501 ****
+--- 511,533 ----
+       else {
+  	  if (verbose)
+  	       fprintf(stderr, "%s: %s removed\n", whoami, filename);
++ #ifdef AFS_MOUNTPOINTS
++ 	  /*
++ 	   * Normally, expunge uses the ctime to determine how long
++ 	   * ago a file was deleted (since the ctime is normally
++ 	   * updated when a file is renamed).  However, in AFS,
++ 	   * renaming a file does not change the ctime, mtime OR
++ 	   * atime, so we have to use utimes to force the change.
++ 	   * This unfortunately causes the loss of the real mtime, but
++ 	   * there's nothing we can do about that, if we want expunge
++ 	   * to be able to do the right thing.
++ 	   *
++ 	   * Don't bother checking for errors, because we can't do
++ 	   * anything about them anyway, and in any case, this isn't a
++ 	   * *really* important operation.
++ 	   */
++ 	  utimes(buf, tvp);
++ #endif
+  	  return 0;
+       }
+  }
+***************
+*** 508,514 ****
+--- 540,550 ----
+       char buf[MAXPATHLEN];
+       struct stat stat_buf;
+       DIR *dirp;
++ #ifdef POSIX
++      struct dirent *dp;
++ #else
+       struct direct *dp;
++ #endif
+       int status = 0;
+       int retval;
+       
+*** ../delete.old/directories.c	Tue Nov 10 00:21:59 1992
+--- directories.c	Tue Nov 10 00:57:54 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/directories.c,v $
+-  * $Author: jik $
+-  * 
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+   * replacement for rm which allows for file recovery.
+--- 1,4 ----
+***************
+*** 11,17 ****
+   */
+  
+  #if !defined(lint) && !defined(SABER)
+!      static char rcsid_directories_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/directories.c,v 1.21 91/06/04 22:08:14 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+--- 8,14 ----
+   */
+  
+  #if !defined(lint) && !defined(SABER)
+!      static char rcsid_directories_c[] = "$Id: directories.c,v 1.24 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+***************
+*** 19,25 ****
+  #include <sys/param.h>
+  #ifdef POSIX
+  #include <dirent.h>
+- #define direct dirent
+  #else
+  #include <sys/dir.h>
+  #endif
+--- 16,21 ----
+***************
+*** 369,375 ****
+  void print_paths_from(leaf)
+  filerec *leaf;
+  {
+!      char buf[MAXPATHLEN];
+  
+       printf("%s\n", get_leaf_path(leaf, buf));
+       if (leaf->dirs)
+--- 365,375 ----
+  void print_paths_from(leaf)
+  filerec *leaf;
+  {
+!      /*
+!       * This is static to prevent multiple copies of it when calling
+!       * recursively.
+!       */
+!      static char buf[MAXPATHLEN];
+  
+       printf("%s\n", get_leaf_path(leaf, buf));
+       if (leaf->dirs)
+***************
+*** 384,390 ****
+  void print_specified_paths_from(leaf)
+  filerec *leaf;
+  {
+!      char buf[MAXPATHLEN];
+  
+       if (leaf->specified)
+  	  printf("%s\n", get_leaf_path(leaf, buf));
+--- 384,394 ----
+  void print_specified_paths_from(leaf)
+  filerec *leaf;
+  {
+!      /*
+!       * This is static to prevent multiple copies of it when calling
+!       * recursively.
+!       */
+!      static char buf[MAXPATHLEN];
+  
+       if (leaf->specified)
+  	  printf("%s\n", get_leaf_path(leaf, buf));
+***************
+*** 663,674 ****
+  char ***in_strings;
+  int *num;
+  {
+-      char newname[MAXPATHLEN];
+       char **strings;
+       int retval;
+       
+       strings = *in_strings;
+       if (leaf->specified) {
+  	  *num += 1;
+  	  strings = (char **) realloc((char *) strings, (unsigned)
+  				      (sizeof(char *) * (*num)));
+--- 667,684 ----
+  char ***in_strings;
+  int *num;
+  {
+       char **strings;
+       int retval;
+       
+       strings = *in_strings;
+       if (leaf->specified) {
++ 	  /*
++ 	   * This array is static so that only one copy of it is allocated,
++ 	   * rather than one copy on the stack for each recursive
++ 	   * invocation of accumulate_names.
++ 	   */
++ 	  static char newname[MAXPATHLEN];
++ 
+  	  *num += 1;
+  	  strings = (char **) realloc((char *) strings, (unsigned)
+  				      (sizeof(char *) * (*num)));
+*** ../delete.old/pattern.c	Tue Nov 10 00:22:00 1992
+--- pattern.c	Tue Nov 10 00:58:11 1992
+***************
+*** 1,7 ****
+  /*
+-  * $Source: /afs/athena.mit.edu/astaff/project/delete/src/RCS/pattern.c,v $
+-  * $Author: jik $
+-  *
+   * This program is part of a package including delete, undelete,
+   * lsdel, expunge and purge.  The software suite is meant as a
+   * replacement for rm which allows for file recovery.
+--- 1,4 ----
+***************
+*** 11,17 ****
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_pattern_c[] = "$Header: /afs/athena.mit.edu/astaff/project/delete/src/RCS/pattern.c,v 1.23 91/06/04 22:06:14 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+--- 8,14 ----
+   */
+  
+  #if (!defined(lint) && !defined(SABER))
+!      static char rcsid_pattern_c[] = "$Id: pattern.c,v 1.26 1992/11/10 05:57:24 jik Exp $";
+  #endif
+  
+  #include <stdio.h>
+***************
+*** 18,24 ****
+  #include <sys/types.h>
+  #ifdef POSIX
+  #include <dirent.h>
+- #define direct dirent
+  #else
+  #include <sys/dir.h>
+  #endif
+--- 15,20 ----
+***************
+*** 422,428 ****
+--- 418,428 ----
+  Boolean match_undeleted, match_deleted;
+  {
+       char base[MAXPATHLEN];
++ #ifdef POSIX
++      struct dirent *dp;
++ #else
+       struct direct *dp;
++ #endif
+       DIR *dirp;
+       char first[MAXNAMLEN], rest[MAXPATHLEN];
+       int retval;
+***************
+*** 581,596 ****
+  	       continue;
+  	  }
+  
+! 	  if (! stat(base, &statbuf)) {
+! 	       if ((statbuf.st_mode & S_IFMT) == S_IFDIR)
+! 		    dirp = Opendir(base);
+! 	  }
+! 	  else {
+! 	       dirp = NULL;
+! 	  }
+  	  if (! dirp) {
+! 	       set_error(errno);
+! 	       error(base);
+  	       string_pop(base);
+  	       string_pop(rest);
+  	       string_pop(first);
+--- 581,627 ----
+  	       continue;
+  	  }
+  
+! 	  /*
+! 	   * The logic here in this attempt to descend is as follows:
+! 	   *
+! 	   * Try to stat base.  Succeeds?
+! 	   * Yes:
+! 	   *   Is it a directory?
+! 	   *   Yes:
+! 	   *     Try to open it.
+! 	   *     Does the open succeed?
+! 	   *     Yes:
+! 	   *       Continue the loop.
+! 	   *     No:
+! 	   *       Print an error, and pop up to the last directory.
+! 	   *   No:
+! 	   *     Pop up to the last directory.
+! 	   * No:
+! 	   *   Try to lstat base.  Succeeds?
+! 	   *   Yes:
+! 	   *     Is it a directory?
+! 	   *     Yes: see above.  *** this should never happen ***
+! 	   *     No:
+! 	   *       Pop up to the last directory.
+! 	   *   No:
+! 	   *     Print an error, and pop up to the last directory.
+! 	   *
+! 	   * The reason for the lstat is that we don't want to print
+! 	   * errors when we can't descend because we're trying to go
+! 	   * into a symlink pointing nowhere; a symlink pointing
+! 	   * nowhere is not an error when matching, it just means that
+! 	   * we can't descend.
+! 	   */
+! 	  dirp = NULL;
+! 	  if (((! (retval = stat(base, &statbuf))) ||
+! 	       (! (retval = lstat(base, &statbuf)))) &&
+! 	      ((statbuf.st_mode & S_IFMT) == S_IFDIR))
+! 	       dirp = Opendir(base);
+  	  if (! dirp) {
+! 	       if (retval || ((statbuf.st_mode & S_IFMT) == S_IFDIR)) {
+! 		    set_error(errno);
+! 		    error(base);
+! 	       }
+  	       string_pop(base);
+  	       string_pop(rest);
+  	       string_pop(first);
+***************
+*** 743,749 ****
+--- 774,784 ----
+  int options;
+  {
+       char base[MAXPATHLEN];
++ #ifdef POSIX
++      struct dirent *dp;
++ #else
+       struct direct *dp;
++ #endif
+       DIR *dirp;
+       int retval;
+       int strsize;
+*** ../delete.old/malloc-test.c	Tue Nov 10 00:22:04 1992
+--- malloc-test.c	Tue Nov 10 00:41:30 1992
+***************
+*** 1,6 ****
+  main()
+  {
+       printf("You %s define MALLOC_0_RETURNS_NULL.\n",
+! 	    malloc(0) ? "should NOT" : "SHOULD");
+       exit(0);
+  }
+--- 1,11 ----
+  main()
+  {
++      char *ptr1, *ptr2;
++ 
++      ptr1 = (char *) malloc(0);
++      ptr2 = (char *) realloc(ptr1, 0);
++ 
+       printf("You %s define MALLOC_0_RETURNS_NULL.\n",
+! 	    (ptr1 && ptr2) ? "should NOT" : "SHOULD");
+       exit(0);
+  }
+
+-- 
+Jonathan Kamens                                         jik@MIT.Edu
+MIT Information Systems/Athena              Moderator, news.answers
+
+exit 0 # Just in case...

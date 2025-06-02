@@ -1,0 +1,2633 @@
+Newsgroups: comp.sources.misc
+From: markd@werple.apana.org.au (Mark Delany)
+Subject: v35i119:  ipick - an interactive filter to pick lines, Part03/05
+Message-ID: <1993Mar4.192503.9622@sparky.imd.sterling.com>
+X-Md4-Signature: e836d4671bccdf23011cdfe2c4d6b892
+Date: Thu, 4 Mar 1993 19:25:03 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: markd@werple.apana.org.au (Mark Delany)
+Posting-number: Volume 35, Issue 119
+Archive-name: ipick/part03
+Environment: UNIX, Curses
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  ipick/curses.c ipick/fileio.c ipick/keyboard.c
+#   ipick/main.c ipick/ipickrc ipick/config/hpux
+#   ipick/config/interactive
+# Wrapped by markd@bushwire on Sun Feb 28 10:06:38 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 5)."'
+if test -f 'ipick/curses.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/curses.c'\"
+else
+  echo shar: Extracting \"'ipick/curses.c'\" \(12231 characters\)
+  sed "s/^X//" >'ipick/curses.c' <<'END_OF_FILE'
+X/* $Id: curses.c,v 1.1 1993/02/27 21:48:01 markd Exp $
+X *
+X * Handle all screen manipulation for ipick
+X *
+X *    Copyright (c) 1993, Mark Delany
+X *
+X *    You may distribute under the terms of either the GNU General Public
+X *    License or the Artistic License, as specified in the README file.
+X *
+X * $Log: curses.c,v $
+X * Revision 1.1  1993/02/27  21:48:01  markd
+X * Initial revision
+X *
+X */
+X
+X#include "ipick.h"
+X
+X
+X/*
+X * The selection info on the LHS of each line is described in
+X * disp_data(), the DD_ values help control that format.
+X */
+X
+X#define	DD_HIGHLIGHT_ON		0
+X#define	DD_POINTER_ON		1
+X#define	DD_ASTER		2
+X#define	DD_NUMBER		3	/* Implicit knowledge of MOD_VALUE */
+X#define	DD_POINTER_OFF		6
+X#define	DD_HIGHLIGHT_OFF	7
+X#define	DD_CURSOR		7
+X
+X#define	DISPLAY_INDENT		(DD_CURSOR + 1)	/* Cols used by selection */
+X
+Xstatic	int	curses_started	=	FALSE;
+Xstatic	int	pointer_line	=	0;	/* Line # of pointer */
+X
+Xstatic	int	wtitle_offset	=	0;
+Xstatic	int	wdata_offset	=	0;
+Xstatic	int	wcommand_offset	=	0;
+X
+X
+X/* Define a few psuedo-graphic characters */
+X
+X#ifndef	ACS_VLINE
+X#define	ACS_VLINE	'|'
+X#endif
+X
+X
+X#ifndef	ACS_HLINE
+X#define	ACS_HLINE	'-'
+X#endif
+X
+X
+X
+X
+X/* Internal routines */
+X
+Xstatic	void	hyphen_line();
+Xstatic	void	hyphen_char();
+X
+X/*  Start curses up. */
+X
+Xextern	void
+Xscrn_init()
+X
+X{
+X
+X    char	*term_name;
+X    int		i, sub_len;
+X    int		x;
+X
+X/* DEC's newterm does not use $TERM if termname is NULL - sigh. */
+X
+X    term_name = getenv("TERM");
+X    if (!term_name || !*term_name) {
+X	fatal(msg_curses[0], (char *) NULL);	/* TERM is not set */
+X    }
+X
+X/*
+X * If you don't have newterm(), try the one in port.c, but it's a guess
+X * and you should disallow SIGWINCH as initscr() cannot be called
+X * more than once.
+X */
+X
+X    if (!newterm(term_name, termfile, termfile)) {
+X	fprintf(stderr,	msg_curses[1], term_name); /* Init failed for term */
+X	fprintf(stderr, msg_curses[2]);
+X	fatal(msg_curses[3], "newterm");	/* Could not init */
+X    }
+X
+X    curses_started = TRUE;
+X
+X/* Do all the rest of that good curses stuff... */
+X
+X    scrn_set_modes();
+X
+X    erase_char = erasechar();	/* If you don't have these, just */
+X    kill_char = killchar();	/* comment them out to get defaults */
+X
+X/*
+X * The data area is the variable sized one, but as yet the size of the
+X * title is unknown as it may contain \n\r sequences. Find out now what
+X * it's real size is.
+X */
+X
+X    if (ctitle_string) {
+X	mvaddstr(0, 0, ctitle_string);
+X	getyx(stdscr, ctitle_lcount, x);
+X	ctitle_lcount++;
+X    }
+X
+X    wtitle_lines = ctitle_lcount + stitle_lcount;
+X    if (wtitle_lines) wtitle_lines++;	/* Allow for separator */
+X
+X    wdata_lines = LINES - COMMAND_LINES - wtitle_lines;
+X    wdata_cols = COLS - DISPLAY_INDENT;
+X
+X/*
+X * Data lines or cols may not fit if screen is too small. This will
+X * occur either because they are playing with -T or stty/win resize
+X * has been made absurdly small.
+X */
+X
+X    if (wdata_lines <= 1) {		/* Not enough lines */
+X	fatal(sigwinch_raised ? msg_curses[4] : msg_curses[5], (char *) NULL);
+X    }
+X
+X    if (wdata_cols <= 1) {		/* Not enough cols */
+X	fatal(sigwinch_raised ? msg_curses[6] : msg_curses[6], (char *) NULL);
+X    }
+X
+X/*
+X * If data cols is greater than our MOD_VALUE, reduce it to size and
+X * hope that curses copes with the empty bottom. This only occurs for
+X * a window of MOD_VALUE+ lines so it shouldn't be a very common
+X * problem!
+X */
+X
+X    if (wdata_cols >= MOD_VALUE) wdata_cols = MOD_VALUE - 1;
+X
+X/* Determine the window offsets */
+X
+X    wtitle_offset = 0;
+X    wdata_offset = wtitle_offset + wtitle_lines;
+X    wcommand_offset = wdata_offset + wdata_lines;
+X
+X/*
+X * If the terminal smells like an Xterm, send the tracking sequences.
+X * This is slow and rough, but ...
+X */
+X
+X    sub_len = strlen(xterm_substr);
+X    if (sub_len) {
+X	for (i=0; i < (int) strlen(term_name); i++) {
+X	    if (strncmp(xterm_substr, term_name+i, sub_len) == 0) {
+X		xterm_active = TRUE;
+X		break;
+X	    }
+X	}
+X    }
+X
+X    if (xterm_active) {
+X	fwrite(XTERM_ENABLE_TRACKING, 1, strlen(XTERM_ENABLE_TRACKING),
+X	       termfile);
+X	fflush(termfile);
+X    }
+X}
+X
+X
+X/* Set the curses modes that are needed, wrt: raw, cbreak, etc */
+X
+Xvoid
+Xscrn_set_modes()
+X
+X{
+X    noecho();
+X    nonl();
+X
+X/* If restricted, make sure keyboard signals cannot occur */
+X
+X    raw_mode ? raw() : cbreak();
+X}
+X
+X
+Xvoid
+Xscrn_clear_modes()
+X
+X{
+X    raw_mode ? noraw() : nocbreak();
+X    nl();
+X    echo();
+X}
+X
+X
+Xvoid
+Xscrn_update()
+X
+X{
+X    refresh();
+X}
+X
+X
+X/* Terminate curses */
+X
+Xvoid
+Xscrn_term()
+X
+X{
+X    if (curses_started) {
+X	STATMSG("");		/* endwin is meant to go to ll, but ... */
+X	if (xterm_active) {
+X	    fwrite(XTERM_DISABLE_TRACKING, 1, strlen(XTERM_DISABLE_TRACKING),
+X		   termfile);
+X	    fflush(termfile);
+X	}
+X	scrn_clear_modes();
+X	endwin();
+X    }
+X}
+X
+X
+X/* Re-establish screen image after signal/shell */
+X
+Xvoid
+Xscrn_repaint()
+X
+X{
+X
+X/* If pointer has been chopped off the bottom, put it at the top */
+X
+X    if (pointer_line >= wdata_lines) {
+X	pointer_line = 0;
+X	current_line = top_of_screen;
+X    }
+X
+X/* Fill in the data */
+X
+X    move(0,0);
+X    clrtobot();
+X    disp_title();
+X    disp_data(TRUE);
+X    disp_status();
+X    scrn_update();
+X}
+X
+X
+Xextern	void
+Xscrn_beep()
+X
+X{
+X    if (bell_flag) beep();
+X}
+X
+X
+X/*
+X * scrn_getch is an interlude routine to wgetch(). Note that keypad is
+X * definitely *NOT* enabled for reasons to do with detecting our own
+X * keybindings in preference to the termcap/terminfo definitions.
+X *
+X * Besides which, many curses have a very limited set of KEY_
+X * definitions.
+X */
+X
+Xextern	int
+Xscrn_getch()
+X
+X{
+X    return getch();
+X}
+X
+X
+X/* curses interlude */
+X
+Xextern	void
+Xscrn_refresh()
+X
+X{
+X    clearok(curscr, TRUE);
+X}
+X
+X
+X
+X/*
+X * The scrn_suspend is responsible for suspending curses and setting
+X * the tty back into "normal" mode for an impending shell/pipe
+X * command.
+X *
+X * scrn_resume is responsible for reversing the suspend.
+X */
+X
+X
+Xextern	void
+Xscrn_suspend()
+X
+X{
+X    scrn_clear_modes();
+X    endwin();
+X}
+X
+X
+Xextern	void
+Xscrn_resume()
+X{
+X    scrn_set_modes();
+X}
+X
+X
+X/*
+X * disp_title displays the title lines given on the command line and
+X * possibly from the initial stdin. It's main concern is to scroll the
+X * -T lines, but not the -t lines.
+X */
+X
+Xvoid
+Xdisp_title()
+X
+X{
+X    int		count, curr_line;
+X    LN		*lnp;
+X
+Xif (!wtitle_lines) return;		/* No titles! */
+X
+X/* Fill in the static title if present */
+X
+X    curr_line = 0;
+X    if (ctitle_string) {
+X	mvaddstr(wtitle_offset + curr_line, 0, ctitle_string);
+X	curr_line += ctitle_lcount;
+X    }
+X
+X/* Fill in the scrollable title if present */
+X
+X    for (count=0, lnp=first_title;
+X	 lnp && (count < stitle_lcount);
+X	 lnp = lnp->next, count++, curr_line++) {
+X
+X	move(wtitle_offset + curr_line, DISPLAY_INDENT);
+X
+X/* But only display these title lines if the column offset allows */
+X
+X	if (lnp->display_len > column_offset) {
+X	    printw("%.*s",
+X		   MY_MIN(wdata_cols, lnp->display_len - column_offset),
+X		   lnp->display_data + column_offset);
+X	}
+X
+X	clrtoeol();
+X
+X/* Show line continuation */
+X
+X	if (lnp->display_len > (column_offset + wdata_cols)) {
+X	    mvaddch(wtitle_offset + curr_line, COLS - 1, '$');
+X	}
+X    }
+X
+X    hyphen_line(wtitle_offset + wtitle_lines - 1);
+X}
+X
+X
+X
+X/*
+X * disp_data generates a screen of lines. The format is:
+X *
+X *  1234567
+X *  R>*nn<Sdata....
+X *
+X * RS	is reserved for highlight attribute characters (one magic
+X *	cookie space is reserved) which are turned on for selected
+X *	items.
+X *
+X * ><	Current pointer. Cursor is also use at S
+X *
+X * *	Selected line flag.
+X *
+X * nn 	is the line number relative to this screen.
+X *
+X * This routine ensures that bottom_of_screen is set correctly
+X * for disp_status.
+X */
+X
+Xvoid
+Xdisp_data(include_data)
+X
+X    int		include_data;
+X
+X{
+X    LN		*lnp;
+X    int		lines_left;
+X    int		curr_line;
+X
+X    curr_line = wdata_offset;
+X    lnp = top_of_screen;
+X    lines_left = wdata_lines;
+X
+X    while (lnp && lines_left) {
+X
+X/* Make sure there is data available to display */
+X
+X	if (!lnp->next && !end_of_data) read_lines(1);
+X
+X	bottom_of_screen = lnp;
+X
+X/* Display the selection information */
+X
+X	if (lnp == current_line) {		/* Highlight the pointer */
+X	    move(curr_line, 0);
+X	    standout();
+X	}
+X
+X/* Note implicit knowledge of MOD_VALUE in the printw pattern */
+X
+X	move(curr_line, DD_POINTER_ON);
+X	printw("%c%c%3d",
+X	       (lnp == current_line) ? '>' : ' ',
+X	       lnp->picked ? '*' : ' ',
+X	       lnp->line_number % MOD_VALUE);
+X
+X	if (lnp == current_line) {
+X	    addch('<');
+X	    standend();
+X	}
+X	else {
+X	    addch(ACS_VLINE);
+X	}
+X
+X/* Remember where the current pointer is for possible SIGWINCH */
+X
+X	if (lnp == current_line) pointer_line = curr_line;
+X
+X/* Only consider data if we are told to */
+X
+X	if (include_data) {
+X
+X/* Only display the data if the column offset allows */
+X
+X	    if (lnp->display_len > column_offset) {
+X		move(curr_line, DISPLAY_INDENT);
+X		printw("%.*s",
+X		       MY_MIN(wdata_cols, lnp->display_len - column_offset),
+X		       lnp->display_data + column_offset);
+X	    }
+X
+X	    clrtoeol();
+X
+X/* Show line continuation if needed */
+X
+X	    if (lnp->display_len > (column_offset + wdata_cols)) {
+X		mvaddch(curr_line, COLS - 1, '$');
+X	    }
+X	}
+X
+X/* Next */
+X	curr_line++; lines_left--;
+X	lnp = lnp->next;
+X    }
+X
+X/* Tidy up residual lines on the screen */
+X
+X    if (include_data) {
+X	while (lines_left--) {
+X	    move(curr_line, 0);
+X	    clrtoeol();
+X	    mvaddch(curr_line, DD_POINTER_OFF, ACS_VLINE);
+X	    curr_line++;
+X	}
+X    }
+X}
+X
+X
+X/* Place cursor on same line as pointer. */
+X
+Xextern	void
+Xdisp_cursor()
+X
+X{
+X    move(pointer_line, DD_CURSOR + cursor_offset - column_offset);
+X    refresh();
+X}
+X
+X
+X
+X/*
+X * disp_status generates the status line between the data region
+X * and the command region.
+X *
+X * Sample format: More:1-of-37----Col:1----Selected: 0---- 4 to 6 ----auto-
+X *
+X * Where:
+X *
+X *	More:
+X *	Last:		Indicates where pointer is relative to EOF
+X *
+X *	1-of-37		Pointer relative to lines read thus far. A trailing
+X *			+ indicates that stdin still has unread data.
+X *
+X *	Col:1		If horizontally scrolled right.
+X *
+X *	Selected:	Items selected. A trailing + means that the
+X *			unread lines have been selected.
+X *
+X *	4 to 6		Minimum and maximum limits set
+X *
+X *	>= 4		Minimum only set
+X *
+X *	<= 6		Maximum only set
+X *
+X *	auto		If auto exit when in-range is enabled (-a option)
+X */
+X
+Xvoid
+Xdisp_status()
+X
+X{
+X    hyphen_line(wcommand_offset);
+X
+X/* File positioning info */
+X
+X    move(wcommand_offset, 0);
+X    printw(msg_curses[15], 	/* english: %s:%d of %d%s */
+X	   bottom_of_screen->next ? msg_curses[8] : msg_curses[9],
+X	   current_line->line_number,
+X	   total_lines,
+X	   end_of_data ? "" : "+");
+X
+X    move(wcommand_offset, 24);
+X
+X/* Selection info */
+X
+X    printw(" %s: %d%s ",
+X	   msg_curses[10], total_picked,
+X	   unread_picked && !end_of_data ? "+" : "");
+X    hyphen_char(4);
+X
+X/* Range info */
+X
+X    if (minimum || maximum) {
+X
+X/* Turn on highlight, etc if not yet in range */
+X
+X	if (!select_in_range) {
+X	    standout();
+X	}
+X	else {
+X	    addstr(msg_curses[11]);
+X	}
+X
+X	if (minimum && !maximum) {
+X	    printw(" >= %d ", minimum);
+X	}
+X	if (!minimum && maximum) {
+X	    printw(" <= %d ", maximum);
+X	}
+X	if (minimum && maximum) {
+X	    printw(" %d %s %d ", minimum, msg_curses[12], maximum);
+X	}
+X
+X	if (!select_in_range) standend();
+X
+X	hyphen_char(4);
+X    }
+X
+X/* Auto exit info */
+X
+X    if (auto_exit) {
+X	addstr(msg_curses[13]);
+X	hyphen_char(4);
+X    }
+X
+X/* Horizontal scroll info */
+X
+X    if (cursor_offset) printw(" %s:%d ", msg_curses[14], cursor_offset);
+X}
+X
+X
+X
+X/*
+X * Place a message on the bottom of the screen and possibly ring the
+X * bell. The message will stay there until the next command is
+X * entered.
+X */
+X
+Xvoid
+Xdisp_message(error_flag, str)
+X
+X    int		error_flag;
+X    char	*str;
+X
+X{
+X    if (error_flag) standout();
+X    mvaddstr(COMMAND_MSG, 0, str);
+X    if (error_flag) standend();
+X    clrtoeol();
+X    if (error_flag) scrn_beep();
+X    msg_on_screen = TRUE;
+X    refresh();
+X}
+X
+X
+X
+Xvoid
+Xclear_message()
+X
+X{
+X
+X    if (cmd_on_screen) {
+X	move(COMMAND_INPUT, 0);
+X	clrtoeol();
+X    }
+X
+X    if (msg_on_screen) {
+X	move(COMMAND_MSG, 0);
+X	clrtoeol();
+X    }
+X
+X    if (msg_on_screen || cmd_on_screen) {
+X	move(pointer_line, DD_CURSOR);	/* Make sure cursor is correct */
+X	refresh();
+X	msg_on_screen = cmd_on_screen = FALSE;
+X    }
+X}
+X
+X
+X
+X/* Fill a single line with hyphens */
+X
+Xstatic	void
+Xhyphen_line(line)
+X
+X    int		line;
+X
+X{
+X    move(line, 0);
+X    hyphen_char(COLS);
+X}
+X
+X
+X
+X/* Add the hyphen characters to the current position */
+X
+Xstatic	void
+Xhyphen_char(count)
+X
+X    int		count;
+X
+X{
+X    while (count--) addch(ACS_HLINE);
+X}
+END_OF_FILE
+  if test 12231 -ne `wc -c <'ipick/curses.c'`; then
+    echo shar: \"'ipick/curses.c'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/curses.c'
+fi
+if test -f 'ipick/fileio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/fileio.c'\"
+else
+  echo shar: Extracting \"'ipick/fileio.c'\" \(8675 characters\)
+  sed "s/^X//" >'ipick/fileio.c' <<'END_OF_FILE'
+X/* $Id: fileio.c,v 1.1 1993/02/27 21:48:01 markd Exp $
+X *
+X * Handle all file I/O for ipick
+X *
+X *    Copyright (c) 1993, Mark Delany
+X *
+X *    You may distribute under the terms of either the GNU General Public
+X *    License or the Artistic License, as specified in the README file.
+X *
+X * $Log: fileio.c,v $
+X * Revision 1.1  1993/02/27  21:48:01  markd
+X * Initial revision
+X *
+X */
+X
+X#include "ipick.h"
+X
+X
+Xstatic	char	big_buffer[BUFSIZ];
+X
+X/* Track how much of big_buffer we have used so far */
+X
+Xstatic	unsigned	char	*bb_cp;
+Xstatic	int		bb_remaining = 0;
+X
+X
+X/* Internal routines */
+X
+Xstatic	int	make_printable();
+X
+X
+X/*
+X * read_lines get a screen full of data lines and append them to the
+X * current list. This routine scans the buffer for the \n character
+X * and accepts \0 !!
+X *
+X * If necessary, data lines are converted to a printable form for the
+X * screen output. This often involves copying the data and expanding
+X * control characters etc., at a cost of CP and memory.
+X *
+X * Sheesh, why am I doing this binary support at all! (Well, I need
+X * to at least cope with TAB and randomly entered control characters,
+X * so the effort is incremental)
+X *
+X * The second question is: why not do it at display time? Well, it's
+X * "six of one, half a dozen of the other" really. The major reason is
+X * ease of coding. Think about the problem of horizontally scrolled
+X * data. Note that for data that's completely printable there is no
+X * additional overhead so the performance question is moot.
+X *
+X * A final note. The original data has to be retained as I want to
+X * ensure that the data out is *exactly* the same as data in. If
+X * you're bored one day, try: 
+X *
+X *	ipick /vmunix >/tmp/junk
+X *	SQ
+X *	cmp /vmunix /tmp/junk
+X */
+X
+Xextern	void
+Xread_lines(lines)
+X
+X    int		lines;
+X
+X{
+X    LN		*lnp;
+X    int		unprintable;
+X    int		line_len;
+X    int		LF_found;
+X    register	unsigned	char	*cp;
+X    
+X    if (end_of_data) return;
+X
+X    while (lines && !end_of_data) {
+X
+X/* Allocate an LN */
+X
+X	lnp = (LN *) xmalloc(sizeof(LN), "fileio:LN");
+X	lnp->len = 0;
+X	lnp->data = NULL;
+X	lnp->next = lnp->prev = NULL;
+X	unprintable = 0;
+X
+X/* Read and fill until we have a complete line */
+X
+X	LF_found = FALSE;
+X
+X	while (!LF_found && !end_of_data) {
+X
+X/* Does the buffer need refilling? */
+X
+X	    if (bb_remaining == 0) {
+X		bb_remaining = fread(big_buffer, 1, sizeof(big_buffer),
+X				     infile);
+X
+X/* If eof, make a quick exit if the current LN has no data yet */
+X
+X		if (bb_remaining <= 0) {
+X		    end_of_data = TRUE;
+X		    fclose(infile);
+X		    if (!lnp->data) return;
+X		}
+X		bb_cp = (unsigned char *) big_buffer;
+X	    }
+X
+X/*
+X * Determine size of next line in printable and unprintable form. The 
+X * count of extra characters needed for unprintable is based on the 
+X * display format that make_unprintable creates. Controls need an extra
+X * one for ^, others need an extra three for \233. Tab needs up to TABSIZE.
+X */
+X
+X	    for (cp = bb_cp; bb_remaining > 0; bb_remaining--, cp++) {
+X
+X		if (*cp == LF_CHAR) {		/* End of line? */
+X		    LF_found = TRUE;
+X		    break;
+X		}
+X
+X/* If the character isn't printable, how much space does it need? */
+X
+X		if (!isprint(*cp)) {
+X		    if (*cp == TAB_CHAR) {
+X			unprintable += TAB_SIZE;	/* May be oversized */
+X		    }
+X		    else {
+X			unprintable += iscntrl(*cp) ? 1 : 3;
+X		    }
+X		}
+X	    }
+X
+X/* 
+X * Scan of data buffer stopped for some reason (LF or end of buffer). If
+X * LF stopped it, include it in the data to be copied in. 
+X */
+X
+X	    if (LF_found) {
+X		bb_remaining--;
+X		cp++;
+X	    }
+X
+X/*
+X * Regardless of what happened, append the data to the current LN. In 
+X * the normal case of course there will not be many appends...
+X */
+X
+X	    line_len = cp - bb_cp;
+X
+X/* Malloc (realloc) and copy (append) the data into the current LN */
+X
+X	    if (lnp->data) {
+X		lnp->data =
+X		    xrealloc(lnp->data, lnp->len+line_len+1, "fileio:data");
+X	    }
+X	    else {
+X		lnp->data = xmalloc(line_len + 1, "fileio:data");
+X	    }
+X
+X/* Carefully copy - remember this data may have embedded \0's */
+X
+X	    memcpy(lnp->data + lnp->len, bb_cp, line_len);
+X	    lnp->len += line_len;
+X	    lnp->data[lnp->len] = '\0';
+X	    bb_cp += line_len;
+X	}
+X
+X/* Fell out of loops means eof or LF, in either case complete the LN */
+X
+X	if (!unprintable) {		/* If it's all printable, easy */
+X	    lnp->display_data = lnp->data;	/* display same as original */
+X	    lnp->display_len = lnp->len - (LF_found == TRUE);
+X	}
+X	else { 			/* allocate and make a displayable version */
+X
+X	    lnp->display_data =
+X		xmalloc(lnp->len + unprintable + 1, "fileio:display");
+X	    lnp->display_len = make_printable((unsigned char *) lnp->data,
+X					      lnp->len - (LF_found == TRUE),
+X					      (unsigned char *) 
+X					      	lnp->display_data);
+X	}
+X
+X	lines--;	/* Say we got a line */
+X
+X	lnp->picked = unread_picked;
+X	if (lnp->picked) total_picked++;
+X
+X/* Chain it into the list */
+X
+X	if (!first_line) {
+X	    lnp->line_number = 1;
+X	    first_line = last_line = lnp;
+X	}
+X	else {
+X	    lnp->line_number = last_line->line_number + 1;
+X	    last_line->next = lnp;
+X	    lnp->prev = last_line;
+X	    last_line = lnp;
+X	}
+X	total_lines++;
+X    }
+X}
+X
+X
+X/*
+X * Make_printable converts all non-printable characters to a printable
+X * form, very much along the lines of emacs. Ie, control characters
+X * are displayed as ^A etc, DEL as ^? and all others as \NNN. The code
+X * that counted the unprintables has to know this to malloc
+X * accordingly...
+X */
+X
+Xstatic	int
+Xmake_printable(original_from, from_len, original_to)
+X
+X    unsigned	char	*original_from;
+X    int			from_len;
+X    unsigned	char	*original_to;
+X
+X{
+X
+X    register	unsigned	char	*from = original_from;
+X    register	unsigned	char	*to = original_to;
+X    register	int	cc;
+X
+X    int		pos;
+X
+X    for (; from_len; from++, from_len--) {
+X	cc = *from;
+X
+X	if (isprint(cc)) {		/* Copy printables */
+X	    *to++ = cc;
+X	    continue;
+X	}
+X
+X	if (cc == DEL_CHAR) {		/* Handle DEL especially */
+X	    *to++ = '^';
+X	    *to++ = '?';
+X	    continue;
+X	}
+X
+X	if (cc == TAB_CHAR) {
+X	    pos = to - original_to;
+X	    pos = TAB_SIZE - pos % TAB_SIZE;
+X	    while (pos--) *to++ = ' ';
+X	    continue;
+X	}
+X
+X	if (cc == '\0')	{
+X	    *to++ = '^';
+X	    *to++ = '@';
+X	    continue;
+X	}
+X
+X	if (iscntrl(cc)) {		/* Control character */
+X	    *to++ = '^';
+X	    *to++ = cc + 'A' - 1;	/* EBCDIC users note, this */
+X					/* assumes that A-Z is contiguous! */
+X	    continue;			/* You will need to fix this with an */
+X	}				/* array of some sort */
+X
+X/* None of the above means display as octal */
+X
+X	*to++ = '\\';
+X	*to++ = ((cc & 0700) >> 6) + '0';
+X	*to++ = ((cc & 070) >> 3) + '0';
+X	*to++ = (cc & 07) + '0';
+X    }
+X
+X    *to = '\0';
+X
+X    return to - original_to;	/* Return length */
+X}
+X
+X
+X/*
+X * write_picked transfers selected lines to stdout. It also copes
+X * with the case where the user has selected all lines, yet they
+X * may not have all been read in yet, if so total_picked is adjusted
+X * in that direction if needed.
+X *
+X * If selected_flag is not TRUE, then only write out those lines
+X * not selected.
+X */
+X
+Xextern	int
+Xwrite_picked(selected_flag)
+X
+X    int		selected_flag;
+X
+X{
+X    LN		*lnp;
+X    int		bytes;
+X    int		write_count;
+X
+X    for (write_count=0, lnp=first_line; lnp; lnp=lnp->next) {
+X	if (lnp->picked == selected_flag) {
+X	    if (fwrite(lnp->data, 1, lnp->len, outfile) != lnp->len) {
+X		fatal(msg_fileio[3], "ipick:fwrite");	/* fwrite failed */
+X	    }
+X	    write_count++;
+X	}
+X    }
+X
+X/*
+X * If unread_picked equals the selected flag, then transfer unread. If
+X * an accurate count is desired, then change this routine to call
+X * read_lines until end_of_data. This will be at the expense of
+X * performance.
+X */
+X
+X    if (unread_picked == selected_flag) {
+X
+X	write_count++;		/* Not even close... but sufficient! */
+X
+X	if (bb_remaining) {
+X	    if (fwrite(bb_cp, 1, bb_remaining, outfile) != bb_remaining) {
+X		fatal(msg_fileio[4], "ipick:fwrite");	/* fwrite failed */
+X	    }
+X	}
+X
+X	while ((bytes = fread(big_buffer, 1, sizeof(big_buffer), infile))
+X	              > 0) {
+X	    if (fwrite(big_buffer, 1, bytes, outfile) != bytes) {
+X		fatal(msg_fileio[5], "ipick:fwrite");	/* fwrite failed */
+X	    }
+X	}
+X    }
+X
+X    fflush(outfile);
+X
+X    return write_count;
+X}
+X
+X
+X/*
+X * stdin has to be drained in the cases that read_lines hasn't
+X * done so and write_selected hasn't needed to. If the drain isn't
+X * done, the abrupt close (potentially) gives the process upstream a
+X * SIGPIPE. No great harm, but some people may not like it and since
+X * it's but a line of code and a bucket of resources...
+X *
+X * Should check for a pipe, but this is predominantly for pipes and
+X * small files. (Maybe that's not true if you're looking to hack this
+X * bit?)
+X */
+X
+Xextern	void
+Xdrain_stdin()
+X
+X{
+X    int		bytes;
+X
+X    for (;;) {
+X	bytes = fread(big_buffer, 1, sizeof(big_buffer), infile);
+X	if (bytes <= 0) break;
+X    }
+X}
+END_OF_FILE
+  if test 8675 -ne `wc -c <'ipick/fileio.c'`; then
+    echo shar: \"'ipick/fileio.c'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/fileio.c'
+fi
+if test -f 'ipick/keyboard.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/keyboard.c'\"
+else
+  echo shar: Extracting \"'ipick/keyboard.c'\" \(19886 characters\)
+  sed "s/^X//" >'ipick/keyboard.c' <<'END_OF_FILE'
+X/* $Id: keyboard.c,v 1.1 1993/02/27 21:48:01 markd Exp $
+X *
+X * Handle all keyboard processing.
+X *
+X *    Copyright (c) 1993, Mark Delany
+X *
+X *    You may distribute under the terms of either the GNU General Public
+X *    License or the Artistic License, as specified in the README file.
+X *
+X * $Log: keyboard.c,v $
+X * Revision 1.1  1993/02/27  21:48:01  markd
+X * Initial revision
+X *
+X */
+X
+X#include "ipick.h"
+X
+X/*
+X * Keyboard processing includes:
+X *
+X *	o	Data entry of keystrokes
+X *
+X *	o	Mapping of keystrokes to functions
+X *
+X *	o	Data entry requirements for functions
+X *
+X *	o	Binding routines used by rc.c
+X * 
+X *
+X * In terms of data structures, this routine assumes that most
+X * keybindings will be single character, thus the handling of
+X * multi-character bindings is somewhat simplistic and slowish. That
+X * is, it's a link-list!
+X *
+X * Keeping in mind the purpose of this program, I don't mind this
+X * slight performance hit at the expense of less code.
+X *
+X * The order of the keybindings is significant as earlier bindings are
+X * overrided by later bindings in the case of ambiguity or
+X * duplication. The main reason for this is so that the local .rc file
+X * always takes precedence.
+X *
+X * Oh, in case it's not obvious, this routine does not enable the
+X * curses keypad decoding with keypad() for the following reasons:
+X *
+X *	o	A number of curses libraries have only *very* limited
+X *		definitions of KEY_ values.
+X *
+X *	o	We have to handle additional keybindings anyway so it
+X *		doesn't save any coding.
+X *
+X *	o	I don't want that ESC timing cruft getting in the way
+X *
+X *
+X * The keymap consists of a MAX_KEYS entry array, each entry has a
+X * a function-code which tells us whether it is a command function,
+X * a multi-character binding or invalid. 
+X *
+X * In the case of a multi-character binding, the link-list of MULTI's
+X * is then searched to resolve the binding.
+X *
+X * Once the input resolves to a function, then data entry (if
+X * necessary) occurs.
+X */
+X
+X#define	MAX_KEYS		(1<<CHAR_BIT)
+X
+X
+Xstatic	FUNC_CODE	keymap[MAX_KEYS];
+X
+X
+X
+X
+X/* MULTI holds multi-character bindings in their entirety. */
+X
+Xtypedef	struct	multi_s	MULTI;
+X
+Xstruct	multi_s {
+X    MULTI	*next;
+X    unsigned	char	*keystrokes;	/* This keysequence of ... */
+X    short	length;			/* this length maps to ... */
+X    FUNC_CODE	func;			/* this function. */
+X    char	*help;
+X};
+X
+X
+X/* MULTI bindings are stored in a sorted list starting with first_multi */
+X
+Xstatic	MULTI	*first_multi	=	NULL;
+X
+X
+X
+X/*
+X * BUILTIN defines the builtin keybindings that are automatically
+X * loaded by ipick on startup.
+X */
+X
+Xtypedef struct	{
+X    FUNC_CODE	func;
+X    unsigned	char	keystrokes[4];
+X    char	*help;
+X} BUILTIN;
+X
+X
+Xstatic	BUILTIN	builtin_list[] = {
+X
+X#ifndef	NO_DEFAULT_BINDINGS
+X
+XBEGINNING_OF_LINE,	{ MY_CTRL('A'), '\0'}, "^A",
+XSCROLL_LEFT_CHAR,	{ MY_CTRL('B'), '\0'}, "^B",
+XABORT,			{ MY_CTRL('C'), '\0'}, "^C",
+XSCROLL_DOWN_HALF,	{ MY_CTRL('D'), '\0'}, "^D",
+XEND_OF_LINE,		{ MY_CTRL('E'), '\0'}, "^E",
+XSCROLL_RIGHT_CHAR,	{ MY_CTRL('F'), '\0'}, "^F",
+XSCROLL_TAB,		{ MY_CTRL('I'), '\0'}, "Tab",
+XTOGGLE_CURRENT,		{ MY_CTRL('J'),	'\0'}, "Return",
+XREFRESH,		{ MY_CTRL('L'), '\0'}, "^L",
+XTOGGLE_CURRENT,		{ MY_CTRL('M'),	'\0'}, "^M",
+XNEXT_LINE,		{ MY_CTRL('N'), '\0'}, "^N",
+XPREVIOUS_LINE,		{ MY_CTRL('P'), '\0'}, "^P",
+XSEARCH_BACKWARD,	{ MY_CTRL('R'), '\0'}, "^R",
+XSEARCH_FORWARD,		{ MY_CTRL('S'), '\0'}, "^S",
+XSCROLL_UP_HALF,		{ MY_CTRL('U'), '\0'}, "^U",
+XSCROLL_DOWN_FULL,	{ MY_CTRL('V'), '\0'}, "^V",
+X
+X/*
+X * Spare special characters ":#%'(),-;=@[]_`{|}~ 
+X *
+X * Note that #$@^` and ~ are reserved for international use and
+X * probably should be avoided. Thus ipick's (and vi's) use of the
+X * circumflex is a *bit* naughty.
+X *
+X * I have plans for:
+X *
+X *	@	(mark)
+X */
+X
+XSCROLL_DOWN_FULL,	" ",		"Space",
+XSHELL,			"!",		"!",
+XEND_OF_LINE,		"$",		"$",
+XPREVIOUS_SELECTED,	"&",		"&",
+XNEXT_SELECTED,		"*",		"*",
+XTOGGLE_UNREAD,		"+",		"+",
+XREDO_COMMAND,		".",		".",
+XSEARCH_FORWARD,		"/",		"/",
+X
+XSELECT_NUMBER,		"0",		"0",
+XSELECT_NUMBER,		"1",		"1",
+XSELECT_NUMBER,		"2",		"2",
+XSELECT_NUMBER,		"3",		"3",
+XSELECT_NUMBER,		"4",		"4",
+XSELECT_NUMBER,		"5",		"5",
+XSELECT_NUMBER,		"6",		"6",
+XSELECT_NUMBER,		"7",		"7",
+XSELECT_NUMBER,		"8",		"8",
+XSELECT_NUMBER,		"9",		"9",
+X
+XSCROLL_LEFT_SCREEN,	"<",		"<",
+XSCROLL_RIGHT_SCREEN,	">",		">",
+XHELP,			"?",		"?",
+X
+XCLEAR_RANGE,		"c",		"c",
+XCLEAR_ALL,		"C",		"C",
+XSCROLL_UP_FULL,		"b",		"b",
+XEND_OF_FILE,		"B",		"B",
+XGOTO_LINE,		"g",		"g",
+XSCROLL_LEFT_CHAR,	"h",		"h",
+XTOP_OF_SCREEN,		"H",		"H",
+XPREVIOUS_LINE,		"k",		"k",
+XNEXT_LINE,		"j",		"j",
+XSCROLL_RIGHT_CHAR,	"l",		"l",
+XBOTTOM_OF_SCREEN,	"L",		"L",
+XRE_SEARCH_FORWARD,	"n",		"n",
+XRE_SEARCH_BACKWARD,	"N",		"N",
+XQUIT,			"q",		"q",
+XQUIT,			"Q",		"Q",
+XSELECT_RANGE,		"s",		"s",
+XSELECT_ALL,		"S",		"S",
+XTOGGLE_RANGE,		"t",		"t",
+XBEGINNING_OF_FILE,	"T",		"T",
+X
+XSEARCH_BACKWARD,	"\\",		"\\",
+XBEGINNING_OF_LINE,	"^",		"^",
+X
+XPIPE,			"|",		"|",
+X
+XQUIT,			"\030\003",	"^X^C",
+XQUIT,			"ZZ",		"ZZ",	/* For vi freaks */
+XSCROLL_BACKTAB,		"\033i",	"E-i",
+XSCROLL_UP_FULL,		"\033v",	"E-v",
+XSEARCH_FORWARD,		"\033s",	"E-s",
+XSEARCH_BACKWARD,	"\033r",	"E-r",
+XBEGINNING_OF_FILE,	"\033<",	"E-<",
+XEND_OF_FILE,		"\033>",	"E->",
+XXTERM_MOUSE,		"\033[M",	"",
+X
+X#endif
+X
+XLAST_COMMAND};
+X
+X
+X/*
+X * CAP_MAP maps capnames to functions. It is used by the init routine
+X * to build the binding list.
+X */
+X
+Xtypedef	struct	{
+X    FUNC_CODE	func;			/* Maps to this function */
+X    char	ti_name[6];		/* Terminfo capability */
+X    char	tc_name[4];		/* Termcap capability */
+X} CAP_MAP;
+X
+Xstatic	CAP_MAP cap_fund[] = {
+X
+X#ifndef	NO_DEFAULT_BINDINGS
+X
+XBEGINNING_OF_FILE,	"kbeg",         "@1",           /* beginning */
+XSCROLL_BACKTAB,		"kcbt",		"kB",		/* Backtab */
+XCLEAR_RANGE,		"kclr",		"kC",		/* clear */
+XSCROLL_LEFT_CHAR,       "kcub1",        "kl",           /* left arrow */
+XNEXT_LINE,          	"kcud1",        "kd",           /* down arrow */
+XSCROLL_RIGHT_CHAR,      "kcuf1",        "kr",           /* right arrow */
+XPREVIOUS_LINE,          "kcuu1",        "ku",           /* up arrow */
+XEND_OF_FILE,         	"kend",         "@7",           /* end key */
+XTOGGLE_CURRENT,         "kent",         "@8",           /* enter/return */
+XQUIT,                   "kext",         "@9",           /* exit key */
+XSEARCH_FORWARD,         "kfnd",         "@0",           /* find key */
+XHELP,                   "khlp",         "%1",           /* help key */
+XTOP_OF_SCREEN,          "khome",        "kh",           /* home key */
+XSCROLL_DOWN_FULL,       "kind",         "kF",           /* scroll-forward */
+XBOTTOM_OF_SCREEN,       "kll",          "kH",           /* home-down key */
+XGOTO_LINE,		"kmov",		"%4",		/* Move */
+XSCROLL_DOWN_FULL,       "knp",          "kN",           /* next-page */
+XNEXT_SELECTED,          "knxt",         "%5",           /* next-object */
+XSCROLL_UP_FULL,         "kpp",          "kP",           /* previous-page*/
+XPREVIOUS_SELECTED,      "kprv",         "%8",           /* prev-object */
+XREDO_COMMAND,           "krdo",         "%0",           /* redo key */
+XREFRESH,                "krfr",         "&2",           /* refresh */
+XSCROLL_UP_FULL,         "kri",          "kR",           /* scroll-backwards */
+XSEARCH_BACKWARD,	"kFND",		"*0",		/* Shift find */
+XSELECT_RANGE,		"kslt",		"*6",		/* Select */
+X
+X#endif
+X
+XLAST_COMMAND};
+X
+X/* Internal routines */
+X
+Xstatic	FUNC_CODE	lookup_multi();
+Xstatic	void		load_bindings();
+Xstatic	int		load_one_binding();
+X
+X
+X/* Initialize all predefined bindings. */
+X
+Xextern	void
+Xkb_init()
+X
+X{
+X    int			i;
+X    BUILTIN		*bi_p;
+X    CAP_MAP		*cap_p;
+X
+X/* Init the keymap structure */
+X
+X    for (i=0; i<MAX_KEYS; i++) keymap[i] = INVALID_COMMAND;
+X
+X/* Load up the builtins */
+X
+X    for (bi_p=builtin_list; bi_p->func != LAST_COMMAND; bi_p++) {
+X	kb_addcode(bi_p->keystrokes, bi_p->func, bi_p->help);
+X    }
+X
+X/*
+X * Determine the terminfo/termcap pre-defined keys. To make sure this
+X * works for either library, both capabilty names are looked up. This
+X * may be a bit slow - sorry.
+X */
+X
+X    for (cap_p = cap_fund; cap_p->func != LAST_COMMAND; cap_p++) {
+X
+X#ifndef	NO_TGETSTR
+X	(void) kb_addtcap(cap_p->tc_name, cap_p->func, cap_p->tc_name);
+X#endif
+X
+X#ifdef	USE_TIGETSTR
+X	(void) kb_addtinfo(cap_p->ti_name, cap_p->func, cap_p->ti_name);
+X#endif
+X
+X    }
+X
+X#ifdef	TESTING
+X    kb_dump();
+X    kill_me();
+X#endif
+X}
+X
+X
+X
+X/*
+X * Add a termcap binding to the keybind list. Return -1 if capability
+X * is invalid, 0 if capability isn't defined and 1 if the capability
+X * is found and bound.
+X */
+X
+X#ifndef	NO_TGETSTR
+X
+Xstatic	char	*tcap_buf = NULL;
+Xstatic	char	*cap_cp;
+X
+Xextern	int
+Xkb_addtcap(cap, func, help)
+X
+X    char	*cap;
+X    FUNC_CODE	func;
+X    char	*help;
+X
+X{
+X    char	*buf;
+X
+X/* First call ever must allocate the tca_buf */
+X
+X    if (!tcap_buf) {
+X	cap_cp = tcap_buf = xmalloc(1024, "keyboard:tcap_buf");
+X    }
+X
+X    buf = (char *) tgetstr(cap, &cap_cp);
+X
+X    if (!buf) return 0;
+X
+X    kb_addcode((unsigned char *) buf, func, help);
+X
+X    return 1;
+X}
+X
+X#endif
+X
+X
+X/*
+X * All keyboard bindings are complete, free up the tcap_buf as it's
+X * not needed after initialization and load the bindings into the
+X * lookup table.
+X */
+X
+Xextern	void
+Xkb_done()
+X
+X{
+X#ifndef	NO_TGETSTR
+X    if (tcap_buf) xfree(tcap_buf, "keyboard:tcap_buf");
+X#endif
+X    load_bindings();
+X}
+X
+X
+X/*
+X * Add a terminfo binding to the keybind list. If the binding name is
+X * invalid return -1. If capability isn't defined return 0, otherwise
+X * return 1.
+X */
+X
+X#ifdef	USE_TIGETSTR
+X
+Xextern	int
+Xkb_addtinfo(cap, func, help)
+X
+X    char	*cap;
+X    FUNC_CODE	func;
+X    char	*help;
+X
+X{
+X    char	*buf;
+X
+X    buf = (char *) tigetstr(cap);
+X
+X/* (char *) -1 indeed! */
+X
+X#ifdef	ERR
+X    if (buf == (char *) ERR) return -1;
+X#endif
+X
+X    if (!buf) return 0;
+X
+X    kb_addcode((unsigned char *) buf, func, help);
+X
+X    return 1;
+X}
+X
+X#endif
+X
+X
+X/*
+X * Add a key binding to the list of bindings to be loaded once the
+X * list is completed.
+X
+X * The general idea of this is to make life easier for myself. What
+X * happens is this:
+X *
+X *	o	Each keybinding requested is added to a link-list at
+X *		the head of the list.
+X *
+X *	o	When bindings from all sources have been added, the
+X *		list is processed from the head and bindings are added
+X *		into into the lookup table. Any duplicates are
+X *		discarded.
+X *
+X *	o	All this so that the most recent bindings over-ride
+X *		earlier ones.
+X *
+X * But, this apparently convoluted approach actually turns out to be
+X * *far* easier to code than the alternative of removing entries that
+X * are redefined by later definitions.
+X */
+X
+Xextern	void
+Xkb_addcode(keys, func_code, help)
+X
+X    unsigned	char	*keys;
+X    FUNC_CODE		func_code;
+X    char		*help;
+X
+X{
+X    MULTI	*mp;
+X    mp = (MULTI *) xmalloc(sizeof(MULTI), "keyboard:MULTI");
+X
+X/* Have to strdup(keys) as it is over-written in the termcap and .rc case */
+X
+X    mp->keystrokes =
+X	(unsigned char *) xstrdup((char *) keys, "keyboard:keystrokes");
+X    mp->help = xstrdup(help, "keyboard:help");
+X    mp->func = func_code;
+X    mp->length = strlen((char *) keys);
+X    mp->next = first_multi;
+X    first_multi = mp;
+X}
+X
+X
+X
+X/*
+X * All bindings have been defined. Load them in, latest first discarding
+X * duplicates.
+X */
+X
+Xstatic	void
+Xload_bindings()
+X
+X{
+X    MULTI	*mp;
+X    MULTI	*next_mp;
+X
+X    for (mp=first_multi, first_multi = NULL; mp; mp=next_mp) {
+X	next_mp = mp->next;
+X	if (!load_one_binding(mp)) {		/* If discarded, free memory */
+X	    xfree(mp->help, "load_bindings:help");
+X	    xfree((char*) mp->keystrokes, "load_bindings:keystrokes");
+X	    xfree((char *) mp, "load_bindings:mp");
+X	}
+X    }
+X}
+X
+X
+X/*
+X * This routine actually does the work for kb_load. Add the binding
+X * into the lookup table. Return TRUE if added, FALSE if discarded.
+X * Note that single bindings do not actually need to retain the MULTI
+X * structuree except for the help string, so we *could* free it up,
+X * but why bother?
+X */
+X
+Xstatic	int
+Xload_one_binding(mp)
+X
+X    MULTI	*mp;
+X
+X{
+X    int		cc;
+X    MULTI	*prev_mp;
+X    MULTI	*search_mp;
+X    int		char0;
+X
+X    char0 = mp->keystrokes[0];
+X
+X/* Try and do single character bindings quickly. */
+X
+X    if (!mp->keystrokes[1]) {
+X	if (keymap[char0] != INVALID_COMMAND) {
+X	    return FALSE			;/* Don't override */
+X	}
+X	keymap[char0] = mp->func;
+X	hlp_add(mp->func, mp->help);
+X	return TRUE;
+X    }
+X
+X/* Make sure the multi-entry can be added into the keymap */
+X
+X    if (	(keymap[char0] != MULTI_COMMAND)
+X	&&	(keymap[char0] != INVALID_COMMAND)) {
+X	return FALSE;			/* Cannot override! */
+X    }
+X
+X/* Find insert point  - it's in sorted order */
+X
+X    for (prev_mp = NULL, search_mp = first_multi;
+X	 search_mp;
+X	 prev_mp = search_mp, search_mp = search_mp->next) {
+X
+X	cc = strcmp((char *) mp->keystrokes, (char *) search_mp->keystrokes);
+X
+X	if (cc < 0) break;		/* mp is LT, insert after */
+X	if (cc == 0) return FALSE;	/* mp is EQ, duplicates ignored */
+X    }
+X
+X/* Have insert point. Place new binding between prev_mp and search_mp. */
+X
+X    keymap[char0] = MULTI_COMMAND;	/* Ensure map is correct */
+X
+X/* Insert into Link-list. */
+X
+X    if (!prev_mp) {			/* Very first entry in linked-list */
+X	mp->next = first_multi;
+X	first_multi = mp;
+X    }
+X    else {
+X	mp->next = search_mp;
+X	prev_mp->next = mp;
+X    }
+X
+X    hlp_add(mp->func, mp->help);
+X
+X    return TRUE;
+X}
+X
+X
+X
+X/*
+X * Find the function name and return the corresponding function code.
+X *
+X * If not found, return INVALID_COMMAND.
+X */
+X
+Xextern	FUNC_CODE
+Xkb_findfunc(func)
+X
+X    char	*func;
+X
+X{
+X    register	FUNC_MAP	*fmp;
+X    int		fc;
+X
+X    for (fc=(int) FIRST_COMMAND, fmp=func_list; fmp->func_name; fc++, fmp++) {
+X
+X	if (	(fmp->func_name[0] == func[0])		/* Quick check */
+X	    &&	(strcmp(fmp->func_name, func) == 0)) {
+X		return (FUNC_CODE) fc;
+X	    }
+X    }
+X
+X    return INVALID_COMMAND;
+X}
+X
+X
+X
+X/*
+X * kb_getkey is responsible for getting the keystroke command sequence.
+X *
+X * It's primary purposes are:
+X *
+X *
+X *	1) Manage the single-key/multi-key commands such that single
+X *	   key commands do not need a <Return> while multi-key
+X *	   commands do.
+X *
+X *	2) Manage the window display and simplistic editing for multi-char
+X *	   commands.
+X *
+X * kb_getkey handles a request to re-get a command that is partially
+X * complete by passing in the function and command string. This
+X * functionality is specifically for signal handling.
+X *
+X * This routine handles keybindings.
+X */
+X
+X
+Xextern	FUNC_CODE
+Xkb_getkey(keystrokes, keystrokes_size, data, data_size)
+X
+X    unsigned	char	*keystrokes;
+X    int		keystrokes_size;
+X    char	*data;
+X    int		data_size;
+X
+X{
+X    int		cc;
+X    FUNC_CODE	fc;
+X    FUNC_MAP	*fmp;
+X    int		initial_x;
+X    int		data_len;
+X
+X/* Limit data to one line of the screen */
+X
+X    if (data_size > COLS) data_size = COLS - 1;
+X    data_size--;			/* Reserve a place for \0 */
+X    data_len = strlen(data);		/* pre-existing data */
+X
+X/* Get the first character of inbound keystroke */
+X
+X    if (*keystrokes) {		/* Use pre-existing first */
+X	cc = *keystrokes;
+X    }
+X    else {
+X	cc = scrn_getch();
+X	if ((cc == -1) && (errno == EINTR)) return NO_COMMAND;
+X	if (cc <= 0) return QUIT;
+X
+X	keystrokes[0] = (unsigned char) cc;
+X	keystrokes[1] = '\0';
+X    }
+X
+X/* We have a keystroke, clear out any previous message */
+X
+X    if (msg_on_screen || cmd_on_screen) clear_message();
+X
+X/* Is first character valid? */
+X
+X    fc = keymap[cc];
+X
+X    if ((fc == NO_COMMAND) || (fc == INVALID_COMMAND)) return fc;
+X
+X/* Check for a multi-key command sequence. */
+X
+X    if (fc == MULTI_COMMAND) {
+X	fc = lookup_multi(keystrokes, keystrokes_size);
+X	if ((fc == NO_COMMAND) || (fc == INVALID_COMMAND)) return fc;
+X    }
+X
+X/* Finally, a valid function. Point to func_list entry. */
+X
+X    fmp = &func_list[(int) fc];
+X
+X/* If command is a non-data command, all done */
+X
+X    if (fmp->message_index < 0) return fc;
+X
+X/*
+X * It's a sub_data command then we have to: handle erase and kill,
+X * make the command visible, show and clear sub-message.
+X *
+X * If the user erases back to the beginning or kills, then simply 
+X * return NO_COMMAND and the caller should loop around...
+X */
+X
+X    initial_x = 0;
+X
+X    mvaddstr(COMMAND_MSG, 0, msg_keyboard[fmp->message_index]);
+X    clrtobot();
+X
+X/* Place in data buffer if not already there */
+X
+X    if ((data_len == 0) && (fmp->retain_first)) {
+X	data[0] = cc;
+X	data_len = 1;
+X	data[data_len] = '\0';
+X    }
+X
+X/* Position and display initial prompt and data */
+X
+X    move(COMMAND_INPUT, initial_x);
+X    if (fmp->prompt_char) {
+X	initial_x++;
+X	addch(fmp->prompt_char);
+X    }
+X    addstr(data);
+X    clrtoeol();
+X
+X    for (;;) {
+X
+X	move(COMMAND_INPUT, initial_x + data_len);
+X	refresh();
+X
+X/* Get the next character. Cursor is in correct spot ... */
+X
+X	cc = scrn_getch();
+X	if (cc == -1) {
+X	    fc = (errno == EINTR) ? NO_COMMAND : QUIT;
+X	    break;
+X	}
+X
+X/* Be nice and take any of Del, backspace or defined erase char */
+X
+X	if ((cc == erase_char) || (cc == MY_CTRL('H')) || (cc == DEL_CHAR)) {
+X	    if (data_len == 0) {
+X		fc = NO_COMMAND;
+X		break;
+X	    }
+X	    data_len--;
+X	    data[data_len] = '\0';
+X	    mvaddch(COMMAND_INPUT, initial_x + data_len, ' ');
+X	    continue;
+X	}
+X
+X/* Erased data, command is ignored */
+X
+X	if (cc == kill_char) {
+X	    move(COMMAND_INPUT, initial_x);
+X	    clrtoeol();
+X	    fc = NO_COMMAND;
+X	    data_len = 0;
+X	    break;
+X	}
+X
+X/* command completed? */
+X
+X	if ((cc == '\n') || (cc == '\r')) break;
+X
+X/* Invalid data? */
+X
+X	if (!isprint(cc)) {
+X	    scrn_beep();	/* Complain, but accept */
+X	    cc = '?';		/* with a  safe conversion */
+X	}
+X
+X/* A data character. Add it in if there's room */
+X
+X	if (data_len == data_size) {	/* No room */
+X	    scrn_beep();
+X	}
+X	else {					/* Some room */
+X	    addch(cc);
+X	    data[data_len++] = cc;
+X	    data[data_len] = '\0';
+X	}
+X    }
+X
+X/* Fell out, data_len tells all */
+X
+X    data[data_len] = '\0';
+X
+X/* Clear window */
+X
+X    if ((data_len > 0) || fmp->prompt_char) cmd_on_screen = TRUE;
+X
+X    move(COMMAND_MSG, 0);
+X    clrtoeol();
+X    move(COMMAND_MSG, 0);
+X    refresh();
+X
+X    return fc;
+X}
+X
+X
+X
+X/* lookup_multi handles the lookup of a multi-key keystroke binding */
+X
+Xstatic	FUNC_CODE
+Xlookup_multi(keystrokes, keystrokes_size)
+X
+X    unsigned	char	*keystrokes;
+X    int		keystrokes_size;
+X
+X{
+X    int		keystrokes_len;
+X    int		cc;
+X    int		cindex;
+X    int		next_char;
+X    MULTI	*mp;
+X
+X    keystrokes_size--;				/* Reserve a place for \0 */
+X
+X    keystrokes_len = strlen((char *) keystrokes);
+X    mp = first_multi;
+X    cindex = 0;
+X
+X    while (mp) {
+X
+X	if (cindex < keystrokes_len) {
+X	    next_char = keystrokes[cindex];
+X	}
+X	else {
+X	    next_char = scrn_getch();
+X	    if (next_char == -1) {
+X		return (errno == EINTR) ? NO_COMMAND : QUIT;
+X	    }
+X
+X/* Add into buffer if there's room */
+X
+X	    if (keystrokes_len == keystrokes_size) {
+X		scrn_beep();
+X		return INVALID_COMMAND;
+X	    }
+X
+X	    keystrokes[keystrokes_len++] = next_char;
+X	    keystrokes[keystrokes_len] = '\0';
+X	}
+X	
+X	cindex++;		/* Character accepted */
+X
+X/* Find matching point */
+X
+X	for (; mp; mp=mp->next) {
+X	    if (keystrokes_len == 1) {		/* Optimize common case */
+X		cc = *mp->keystrokes - *keystrokes;
+X	    }
+X	    else {
+X		cc = strncmp((char *) mp->keystrokes, (char *) keystrokes,
+X			     keystrokes_len);
+X	    }
+X
+X	    if (cc == 0) break;	/* Exact match good! */
+X	    if (cc > 0) return INVALID_COMMAND;	/* No chance of a match */
+X	}
+X
+X	if (!mp) return INVALID_COMMAND;	/* Fell off the end */
+X
+X	if (keystrokes_len >= mp->length) break; /* Complete match, done! */
+X    }
+X
+X    return mp ? mp->func : INVALID_COMMAND;
+X}
+X
+X
+X#ifdef	TESTING
+X
+X/* Debug routine - print out the current keybindings */
+X
+Xextern	int
+Xkb_dump()
+X
+X{
+X    kb_dump_single();
+X    kb_dump_multi();
+X}
+X
+Xextern	int
+Xkb_dump_single()
+X
+X{
+X    int		i;
+X
+X    fprintf(stderr, "Single character bindings\n");
+X
+X    for (i=0; i<MAX_KEYS; i++) {
+X	if (keymap[i] != INVALID_COMMAND) {
+X	    fprintf(stderr, "%c (%x) : %d %s\n", isprint(i) ? i : '?',
+X		    i, keymap[i], func_list[keymap[i]].func_name);
+X	}
+X    }
+X}
+X
+Xextern	int
+Xkb_dump_multi()
+X
+X{
+X
+X    MULTI	*mp;
+X
+X    fprintf(stderr, "Multi character bindings\n");
+X
+X    for (mp = first_multi; mp; mp = mp->next) {
+X	fprintf(stderr, "%x: Func: %d. Len=%d. SEQ:  %x - ",
+X		mp, mp->func, mp->length, mp->keystrokes);
+X	fflush(stderr);
+X	fprintf(stderr, ">>%s<< Func: %s. Nxt=%x\n",
+X		mp->keystrokes, func_list[mp->func].func_name, mp->next);
+X    }
+X}
+X
+X
+X#endif
+END_OF_FILE
+  if test 19886 -ne `wc -c <'ipick/keyboard.c'`; then
+    echo shar: \"'ipick/keyboard.c'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/keyboard.c'
+fi
+if test -f 'ipick/main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/main.c'\"
+else
+  echo shar: Extracting \"'ipick/main.c'\" \(9098 characters\)
+  sed "s/^X//" >'ipick/main.c' <<'END_OF_FILE'
+X/* $Id: main.c,v 1.1 1993/02/27 22:04:46 markd Exp $
+X *
+X * Startup module
+X *
+X *    Copyright (c) 1993, Mark Delany
+X *
+X *    You may distribute under the terms of either the GNU General Public
+X *    License or the Artistic License, as specified in the README file.
+X *
+X * $Log: main.c,v $
+X * Revision 1.1  1993/02/27  22:04:46  markd
+X * Initial revision
+X *
+X */
+X
+X#define	MAIN			/* Define externals in this module */
+X
+X#include "ipick.h"
+X
+X#define	usage1	msg_main[0]
+X#define	usage1A	msg_main[1]
+X#define	usage2	msg_main[2]
+X
+X
+Xstatic	void	parse_args();
+Xstatic	void	ripoff_title_lines();
+X
+Xstatic	void	give_usage();
+Xstatic	void	give_version();
+X
+X#ifdef	HANDLE_SIGWINCH
+Xstatic	void	catch_winch();
+X#endif
+X
+X/* External variables */
+X
+Xextern	char	*optarg;
+Xextern	int	optind;
+X
+X
+Xextern	int
+Xmain(argc, argv)
+X
+X    int		argc;
+X    char	*argv[];
+X
+X{
+X    int		infd;		
+X    int		outfd;		
+X    int		total_written;
+X
+X    parse_args(argc, argv);
+X
+X/*
+X * Open the file that'll be used as the fd for all terminal I/O. Try
+X * /dev/tty first, then revert to stderr.
+X */
+X
+X    termfile = fopen("/dev/tty", "r+");	/* r+ = open for update */
+X    if (!termfile) termfile = stderr;
+X
+X/*
+X * Fiddle fd's so we can still see the original stdin/stdout but all
+X * else only sees the terminal. This is primarily for initscr() and
+X * shelling out, but also I have plans for a possible internal xargs
+X * command.
+X *
+X * The net effect is that infile is a FILE * set up for fread calls
+X * and the results of the pick are fwritten to outfile.
+X */
+X
+X    if (	((infd = dup(0)) == -1)
+X	||	(close(0) == -1)
+X	||	(dup(fileno(termfile)) == -1)) {
+X	fatal(msg_main[3], "ipick:dup/close");	/* Dup failed */
+X    }
+X
+X    if (	((outfd = dup(1)) == -1)
+X	||	(close(1) == -1)
+X	||	(dup(fileno(termfile)) == -1)) {
+X	fatal(msg_main[4], "ipick:dup/close");	/* dup failed */
+X    }
+X
+X/* Use stdio for input as fread() may provide some performance benefit... */
+X
+X    infile = fdopen(infd, "r");
+X    if (!infile) {
+X	fprintf(stderr, msg_main[5], infd, errno);	/* fdopen failed */
+X	exit(2);
+X    }
+X
+X    outfile = fdopen(outfd, "w");
+X    if (!outfile) {
+X	fprintf(stderr, msg_main[6], outfd, errno);	/* fdopen failed */
+X	exit(2);
+X    }
+X
+X/* All set up, start the ball rolling */
+X
+X    sigs_on();
+X
+X/*
+X * Get stitle_lcount+1 lines of data, for two reasons:
+X *
+X * 1. 	To ensure that we have at least one line of data before proceeding
+X *	with the pick process.
+X *
+X * 2.	To get any lines needed for the -T title lines.
+X *
+X * If the title requirements consumes all of stdin, go away quietly.
+X */
+X
+X    read_lines(stitle_lcount + 1);
+X
+X    if (first_line) {	/* There is at least some stdin - good */
+X
+X	if (stitle_lcount) ripoff_title_lines();	/* Grab titles */
+X
+X	if (first_line) {		/* Anything left after titles? */
+X	    current_line = top_of_screen = first_line;	/* Yes */
+X
+X	    scrn_init();		/* Start curses */
+X	    kb_init();
+X	    if (!rc_init()) fatal(msg_main[12], (char *) NULL);
+X	    kb_done();
+X	    while (!command()) read_lines(1);	/* Command loop */
+X	    scrn_term();
+X
+X	}
+X    }
+X
+X/* All done. Close down the screen and write the picked lines */
+X
+X    total_written = write_picked(!invert_mode);
+X
+X    if (drain_requested && !unread_picked) {
+X	fprintf(stderr, msg_main[7]);	/* Draining stdin */
+X	drain_stdin();			/* Avoid "Broken pipe" (SIGPIPE) */
+X	fprintf(stderr, "\n");
+X    }
+X
+X    exit(total_written == 0);	/* Return doesn't work on some systems! */
+X
+X    /* NOTREACHED */
+X}
+X
+X
+X
+X/*
+X * Decode and check the command line.  On return, stdin will be
+X * pointed correctly and all command line statics will be set as
+X * necessary.
+X */
+X
+Xstatic	void
+Xparse_args(argc, argv)
+X
+X    int		argc;
+X    char	*argv[];
+X
+X{
+X    int		cc;
+X    char	*msg;
+X
+X    while ((cc = getopt(argc, argv, "abdhm:M:rRt:T:vVX:")) != -1) {
+X
+X	switch (cc) {
+X
+X/* Parameterless options first */
+X
+X	  case 'a':	auto_exit = TRUE; break;
+X
+X	  case 'b':	bell_flag = TRUE; break;
+X
+X	  case 'd':	drain_requested = TRUE; break;
+X
+X	  case 'h':	give_usage(); exit(0);
+X
+X	  case 'r':	restricted_mode = TRUE; break;
+X
+X	  case 'R':	raw_mode = FALSE; break;
+X
+X	  case 'v':	invert_mode = TRUE; break;
+X
+X	  case 'V':	give_version(); exit(0);
+X
+X/* Options with parameters */
+X
+X	  case 'm':	minimum = my_atoi(optarg);
+X			if (minimum < 0) {		/* Zero acceptable */
+X			    fprintf(stderr, msg_main[8], optarg);
+X			    exit(2);
+X			}
+X	    		break;
+X
+X	  case 'M':	maximum = my_atoi(optarg);
+X			if (maximum <= 0) {
+X			    fprintf(stderr, msg_main[9], optarg);
+X			    exit(2);
+X			}
+X			break;
+X
+X	  case 't':	ctitle_string = optarg;
+X			break;
+X
+X	  case 'T':	stitle_lcount = my_atoi(optarg);
+X			if (stitle_lcount < 0) {	/* Zero acceptable */
+X			    fprintf(stderr, msg_main[10], optarg);
+X			    exit(2);
+X			}
+X			break;
+X
+X	  case 'X':	xterm_substr = optarg;
+X			break;
+X
+X#ifndef	NO_OPTOPT
+X	  case '?':	if (optopt == '?') {
+X	      		    give_usage();
+X			    exit(0);		
+X			}
+X#endif
+X
+X	  default:	fprintf(stderr, usage1);
+X			fprintf(stderr, usage1A);
+X			exit(2);
+X	}
+X    }
+X
+X
+X/* Check the arguments */
+X
+X    if ((minimum > maximum) && (maximum > 0)) {
+X	fprintf(stderr, msg_main[11], minimum, maximum);	/* min > max */
+X	exit(2);
+X    }
+X
+X/* Auto_exit forces a sensible minimum and maximum if not supplied */
+X
+X    if (auto_exit && !minimum) {
+X	minimum = 1;
+X	if (!maximum) maximum = 1;
+X    }
+X
+X/* If a file nominated, use it instead of stdin */
+X
+X    if (optind < argc) {
+X	if ((optind + 1) <  argc) {
+X	    fprintf(stderr, msg_main[13]);	/* Only one file allowed */
+X	    exit(2);
+X	}
+X	if (!freopen(argv[optind], "r", stdin)) {
+X	    fprintf(stderr, msg_main[14], argv[optind], errno);
+X	    perror("ipick:fopen");
+X	    exit(2);
+X	}
+X    }
+X/* If there's a command line title, decode possible escape characters */
+X
+X    if (ctitle_string) {
+X	msg = decode(ctitle_string, ctitle_string);
+X	if (msg) {
+X	    fprintf(stderr, msg_main[16], msg);
+X	    perror("ipick:decode");
+X	    exit(2);
+X	}
+X    }
+X}
+X
+X
+X/*
+X * ripoff_title_lines transfers stitle_lcount data lines from
+X * first_line to the first_title. An earlier call to read_lines has
+X * ensured sufficient title lines.
+X *
+X * Note that this routine can deplete all data lines so checks have to
+X * be made subsequently...
+X */
+X
+X
+Xstatic	void
+Xripoff_title_lines()
+X
+X{
+X    int		count;
+X    LN		*lnp;
+X
+X    first_title = first_line;
+X
+X/* Position to the last of the title lines */
+X
+X    for (lnp=first_line, count=1; count < stitle_lcount; count++) {
+X	if (lnp->next) lnp = lnp->next;
+X    }
+X
+X/* Set new first line, it *may* be NULL! */
+X
+X    first_line = lnp->next;
+X
+X/* Fix up pointers */
+X
+X    lnp->next = NULL;
+X    if (first_line) first_line->prev = NULL;
+X
+X/* Fix up counters */
+X
+X    total_lines -= stitle_lcount;
+X    if (total_lines < 0) total_lines = 0;
+X
+X/* Resequence residual lines */
+X
+X    for (lnp=first_line, count=1; lnp; lnp = lnp->next, count++) {
+X	lnp->line_number = count;
+X    }
+X}
+X
+X
+Xstatic	void
+Xgive_usage()
+X
+X{
+X    fprintf(stderr, usage1);
+X    fprintf(stderr, usage2);
+X}
+X
+X
+Xstatic	void
+Xgive_version()
+X
+X{
+X
+X/*
+X
+Xipick version: 1.0 Alpha1. Patch level: 0
+X$Revision: 1.1 $ $Date: 1993/02/27 22:04:46 $ 
+X
+XConfig: 	vanilla		Language:	english
+XFlags:		NO_BEEP ...
+XSystem rcfile:	/usr/local/lib/ipickrc
+X
+X*/
+X
+X    fprintf(stderr, "\n%s %s: %s%s. %s: %d\n",
+X	    NAME, msg_main[17], VERSION, RELEASE, msg_main[18], PATCHLEVEL);
+X
+X    fprintf(stderr, "$Revision: 1.1 $ $Date: 1993/02/27 22:04:46 $\n\n");
+X
+X    fprintf(stderr, "%s:\t\t%s\t\t%s:\t%s\n",
+X	    msg_main[19], CONFIG, msg_main[26], LANGUAGE);
+X
+X    fprintf(stderr, "CHAR_BIT:\t%d\t\tSYSTEM_RCFILE:\t", CHAR_BIT);
+X
+X#ifdef	SYSTEM_RCFILE
+X    fputs(*SYSTEM_RCFILE ? SYSTEM_RCFILE : msg_main[26], stderr);
+X#else
+X    fputs(msg_main[26], stderr);
+X#endif
+X
+X    fprintf(stderr, "\n\n%s:\t", msg_main[20]);
+X
+X#ifdef NO_BEEP
+X    fputs("NO_BEEP ", stderr);
+X#endif
+X
+X#ifdef NO_NEWTERM
+X    fputs("NO_NEWTERM ", stderr);
+X#endif
+X
+X#ifdef NO_PROTOTYPES
+X    fputs("NO_PROTOTYPES ", stderr);
+X#endif
+X
+X#ifdef HANDLE_SIGWINCH
+X    fputs("HANDLE_SIGWINCH ", stderr);
+X#endif
+X
+X#ifdef NO_STANDOUT
+X    fputs("NO_STANDOUT ", stderr);
+X#endif
+X
+X#ifdef NO_STRDUP
+X    fputs("NO_STRDUP ", stderr);
+X#endif
+X
+X#ifdef NO_STRSTR
+X    fputs("NO_STRSTR ", stderr);
+X#endif
+X
+X#ifdef NO_STRPBRK
+X    fputs("NO_STRPBRK ", stderr);
+X#endif
+X
+X#ifdef NO_TGETSTR
+X    fputs("NO_TGETSTR ", stderr);
+X#endif
+X
+X#ifdef USE_TIGETSTR
+X    fputs("USE_TIGETSTR ", stderr);
+X#endif
+X
+X#ifdef	NO_DEFAULT_BINDINGS
+X    fputs("NO_DEFAULT_BINDINGS ", stderr);
+X#endif
+X
+X    fputs("\n\n", stderr);
+X
+X    fprintf(stderr, msg_main[21], AUTHOR);	/* Copyright etc */
+X    fputs(msg_main[22], stderr);
+X    fputs(msg_main[23], stderr);
+X    fputs(msg_main[24], stderr);
+X}
+X
+X
+X/* Set up our signal handlers */
+X
+Xextern	void
+Xsigs_on()
+X
+X{
+X
+X#ifdef	HANDLE_SIGWINCH
+X    (void) signal(SIGWINCH, catch_winch);
+X#endif
+X
+X/* SIGINT either stops long commands or kills ipick */
+X
+X    (void) signal(SIGINT, kill_me);
+X    (void) signal(SIGTERM, kill_me);
+X}
+X
+X
+X/* Revert all signal handlers to defaults */
+X
+Xextern	void
+Xsigs_off()
+X
+X{
+X
+X#ifdef	HANDLE_SIGWINCH
+X    (void) signal(SIGWINCH, SIG_DFL);
+X#endif
+X
+X    (void) signal(SIGINT, SIG_DFL);
+X    (void) signal(SIGTERM, SIG_DFL);
+X}
+X
+X
+X#ifdef	HANDLE_SIGWINCH
+X
+Xstatic	void
+Xcatch_winch(sig)
+X
+X    int		sig;
+X{
+X    sigwinch_raised = TRUE;
+X    (void) signal(SIGWINCH, catch_winch);
+X}
+X
+X#endif
+END_OF_FILE
+  if test 9098 -ne `wc -c <'ipick/main.c'`; then
+    echo shar: \"'ipick/main.c'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/main.c'
+fi
+if test -f 'ipick/ipickrc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/ipickrc'\"
+else
+  echo shar: Extracting \"'ipick/ipickrc'\" \(4393 characters\)
+  sed "s/^X//" >'ipick/ipickrc' <<'END_OF_FILE'
+X# This file reflects the builtin keybindings used by ipick. It is
+X# provided as an example of what a .ipickrc file could look like. Of
+X# especial interest are the bind-termcap and bind-terminfo functions
+X# as they let you avoid hard-coding escape-sequences and instead,
+X# define the interface in a terminal independent way.
+X#
+X# Notes.
+X#
+X# 1.	The local .ipickrc file over-rides definitions in both the
+X#	system rc file and the builtins.
+X#
+X# 2.	The system rc file over-rides the builtin bindings.
+X#
+X# 3.	The only function not present as an example in this file is
+X#	include directive. It takes the obvious form with the addition
+X#	that the filename can be a shell-command.
+X#
+X#	The rules are:
+X#
+X#	If any shell characters then popen("cat filename");
+X#	If any shell characters and the last character is | (pipe) then
+X#	popen("filename");
+X
+X
+X
+X# Bindings unique to ipick
+X
+Xbind-key	toggle-current		\n
+Xbind-key	toggle-current		\r
+Xbind-key	shell			!
+Xbind-key	previous-selected	&
+Xbind-key	next-selected		*
+Xbind-key	toggle-unread		+
+Xbind-key	select-number		0
+Xbind-key	select-number		1
+Xbind-key	select-number		2
+Xbind-key	select-number		3
+Xbind-key	select-number		4
+Xbind-key	select-number		5
+Xbind-key	select-number		6
+Xbind-key	select-number		7
+Xbind-key	select-number		8
+Xbind-key	select-number		9
+X		
+Xbind-key	scroll-left-screen	<
+Xbind-key	scroll-right-screen	>
+Xbind-key	help			?
+Xbind-key	clear-range		c
+Xbind-key	clear-all		C
+Xbind-key	quit			q
+Xbind-key	quit			Q
+Xbind-key	select-range		s
+Xbind-key	select-all		S
+Xbind-key	toggle-range		t
+Xbind-key	beginning-of-file	T
+Xbind-key	pipe			|
+X		
+Xbind-key	goto-line		g
+Xbind-key	re-search-backward	N
+Xbind-key	search-backward		\\
+X
+X# Bindings to give a flavour of Emacs
+X
+Xbind-key	beginning-of-line	^A
+Xbind-key	scroll-left-char	^B
+Xbind-key	abort			^C
+Xbind-key	end-of-line		^E
+Xbind-key	scroll-right-char	^F
+Xbind-key	scroll-tab		\t
+Xbind-key	refresh			\f
+Xbind-key	next-line		^N
+Xbind-key	previous-line		^P
+Xbind-key	search-backward		^R
+Xbind-key	search-forward		^S
+Xbind-key	scroll-down-full	^V
+Xbind-key	quit			^X^C
+Xbind-key	scroll-backtab		\Ei
+Xbind-key	scroll-up-full		\Ev
+Xbind-key	search-forward		\Es
+Xbind-key	search-backward		\Er
+Xbind-key	xterm-mouse		\E[M
+Xbind-key	beginning-of-file	\E<
+Xbind-key	end-of-file		\E>
+X
+X# A taste of vi
+X
+Xbind-key	scroll-down-half	^D
+Xbind-key	scroll-up-half		^U
+Xbind-key	end-of-line		$
+Xbind-key	redo-command		.
+Xbind-key	search-forward		/
+Xbind-key	scroll-left-char	h
+Xbind-key	top-of-screen		H
+Xbind-key	previous-line		k
+Xbind-key	next-line		j
+Xbind-key	scroll-right-char	l
+Xbind-key	bottom-of-screen	L
+Xbind-key	re-search-forward	n
+Xbind-key	beginning-of-line	\^
+Xbind-key	quit			ZZ
+X		
+X# The "more" command
+X		
+Xbind-key	scroll-up-full		b
+Xbind-key	end-of-file		B
+Xbind-key	scroll-down-full	\s	# Space
+X		
+X# Terminfo definitions
+X		
+Xbind-terminfo	beginning-of-file	kbeg
+Xbind-terminfo	scroll-backtab		kcbt
+Xbind-terminfo	clear-range		kclr
+Xbind-terminfo	scroll-left-char	kcub1
+Xbind-terminfo	next-line		kcud1
+Xbind-terminfo	scroll-right-char	kcuf1
+Xbind-terminfo	previous-line		kcuu1
+Xbind-terminfo	end-of-file		kend
+Xbind-terminfo	toggle-current		kent
+Xbind-terminfo	quit			kext
+Xbind-terminfo	search-forward		kfnd
+Xbind-terminfo	help			khlp
+Xbind-terminfo	top-of-screen		khome
+Xbind-terminfo	scroll-down-full	kind
+Xbind-terminfo	bottom-of-screen	kll
+Xbind-terminfo	goto-line		kmov
+Xbind-terminfo	scroll-down-full	knp
+Xbind-terminfo	next-selected		knxt
+Xbind-terminfo	scroll-up-full		kpp
+Xbind-terminfo	previous-selected	kprv
+Xbind-terminfo	redo-command		krdo
+Xbind-terminfo	refresh			krfr
+Xbind-terminfo	scroll-up-full		kri
+Xbind-terminfo	search-backward		kFND
+Xbind-terminfo	select-range		kslt
+X		
+X		
+X#	Termcap	definitions
+X		
+Xbind-termcap	beginning-of-file	@1
+Xbind-termcap	scroll-backtab		kB
+Xbind-termcap	clear-range		kC
+Xbind-termcap	scroll-left-char	kl
+Xbind-termcap	next-line		kd
+Xbind-termcap	scroll-right-char	kr
+Xbind-termcap	previous-line		ku
+Xbind-termcap	end-of-file		@7
+Xbind-termcap	toggle-current		@8
+Xbind-termcap	quit			@9
+Xbind-termcap	search-forward		@0
+Xbind-termcap	help			%1
+Xbind-termcap	top-of-screen		kh
+Xbind-termcap	scroll-down-full	kF
+Xbind-termcap	bottom-of-screen	kH
+Xbind-termcap	goto-line		%4
+Xbind-termcap	scroll-down-full	kN
+Xbind-termcap	next-selected		%5
+Xbind-termcap	scroll-up-full		kP
+Xbind-termcap	previous-selected	%8
+Xbind-termcap	redo-command		%0
+Xbind-termcap	refresh			&2
+Xbind-termcap	scroll-up-full		kR
+Xbind-termcap	search-backward		*0
+Xbind-termcap	select-range		*6
+END_OF_FILE
+  if test 4393 -ne `wc -c <'ipick/ipickrc'`; then
+    echo shar: \"'ipick/ipickrc'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/ipickrc'
+fi
+if test -f 'ipick/config/hpux' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/hpux'\"
+else
+  echo shar: Extracting \"'ipick/config/hpux'\" \(144 characters\)
+  sed "s/^X//" >'ipick/config/hpux' <<'END_OF_FILE'
+X#	For:	HP-UX 8.02 (on an HP9000)
+X#	From:	David Elliott <elliott@quando.quantum.de>
+X
+XP_CFLAGS	= -O -Aa
+XP_LIBS		= -lcurses
+X
+X# Maybe? -DNO_STRPBRK
+END_OF_FILE
+  if test 144 -ne `wc -c <'ipick/config/hpux'`; then
+    echo shar: \"'ipick/config/hpux'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/hpux'
+fi
+if test -f 'ipick/config/interactive' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/interactive'\"
+else
+  echo shar: Extracting \"'ipick/config/interactive'\" \(252 characters\)
+  sed "s/^X//" >'ipick/config/interactive' <<'END_OF_FILE'
+X#	For:	Interactive SysVr3 2.2 with cc.
+X#	From:	Andy Dougherty <doughera@lafcol.lafayette.edu>
+X
+XP_CFLAGS	= -O
+XP_LIBS		= -lcurses -lc_s
+XP_NO_FLAGS 	= -DNO_STRSTR -DNO_PROTOTYPES
+X
+X# Maybe? -DNO_STRPBRK
+X
+X# Could -lcposix be added to remove NO_STRSTR? (MD)
+END_OF_FILE
+  if test 252 -ne `wc -c <'ipick/config/interactive'`; then
+    echo shar: \"'ipick/config/interactive'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/interactive'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    echo "Check Makefile then run 'make'"
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

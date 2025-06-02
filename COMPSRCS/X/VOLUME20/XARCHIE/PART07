@@ -1,0 +1,1921 @@
+Newsgroups: comp.sources.x
+From: ferguson@cs.rochester.edu (George Ferguson)
+Subject: v20i035:  xarchie - An X browser interface to Archie, v2.0.6, Part07/24
+Message-ID: <1993Jun15.223239.239@sparky.imd.sterling.com>
+X-Md4-Signature: a9ad0a18199263559626bac125a090d1
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 15 Jun 1993 22:32:39 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ferguson@cs.rochester.edu (George Ferguson)
+Posting-number: Volume 20, Issue 35
+Archive-name: xarchie/part07
+Environment: X11
+Supersedes: xarchie: Volume 14, Issue 82-90
+
+Submitted-by: ferguson@cs.rochester.edu
+Archive-name: xarchie-2.0.6/part07
+
+#!/bin/sh
+# this is Part.07 (part 7 of xarchie-2.0.6)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xarchie-2.0.6/dirsend.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 7; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xarchie-2.0.6/dirsend.c'
+else
+echo 'x - continuing file xarchie-2.0.6/dirsend.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xarchie-2.0.6/dirsend.c' &&
+X * returns the descriptor if successful, otherwise -1 to indicate that
+X * dirsend() should return NULL immediately.
+X */
+static int
+initDirsend()
+{
+#if defined(XARCHIE) || defined(VARCHIE)
+X    status0("Initializing");
+#endif
+X
+X    if(one == 0) one = htons((short) 1);
+X
+X    priority = htons(rdgram_priority);
+X
+X    timeout.tv_sec = client_dirsrv_timeout;
+X    timeout.tv_usec = 0;
+X
+X    ackwait.tv_sec = 0;
+X    ackwait.tv_usec = 500000;
+X
+X    gapwait.tv_sec = (client_dirsrv_timeout < 5 ? client_dirsrv_timeout : 5);
+X    gapwait.tv_usec = 0;
+X
+X    comp_thru = NULL;
+X    perrno = 0;
+X    nd_pkts = 0;
+X    no_pkts = 0;
+X    pkt_cid = 0;
+X
+X    /* Find first connection ID */
+X    if(next_conn_id == 0) {
+X	srand(getpid()+time(0)); /* XXX: arg ok, but not right type. */
+X	next_conn_id = rand();
+X    }
+X
+X
+X    /* If necessary, find out what udp port to send to */
+X    if (dir_udp_port == 0) {
+X        register struct servent *sp;
+X	tmp = pfs_enable; pfs_enable = PMAP_DISABLE;
+#ifdef USE_ASSIGNED_PORT
+X	/* UCX needs 0 & -1 */
+X	sp = getservbyname("prospero","udp");
+X	if (sp == (struct servent *)0 || sp == (struct servent *)-1) {
+#ifdef DEBUG
+X	    if (pfs_debug)
+X		fprintf(stderr, "dirsrv: udp/prospero unknown service - using %d\n", 
+X			PROSPERO_PORT);
+#endif
+X	    dir_udp_port = htons((u_short) PROSPERO_PORT);
+X        }
+#else
+X	/* UCX needs 0 & -1 */
+X	sp = getservbyname("dirsrv","udp");
+X	if (sp == (struct servent *)0 || sp == (struct servent *)-1) {
+#ifdef DEBUG
+X	    if (pfs_debug)
+X		fprintf(stderr, "dirsrv: udp/dirsrv unknown service - using %d\n", 
+X			DIRSRV_PORT);
+#endif
+X	    dir_udp_port = htons((u_short) DIRSRV_PORT);
+X        }
+#endif
+X	else dir_udp_port = sp->s_port;
+X	pfs_enable = tmp;
+#ifdef DEBUG
+X        if (pfs_debug > 3)
+X            fprintf(stderr,"dir_udp_port is %d\n", ntohs(dir_udp_port));
+#endif
+X    }
+X
+X    /* If we were given the host address, then use it.  Otherwise  */
+X    /* lookup the hostname.  If we were passed a host address of   */
+X    /* 0, we must lookup the host name, then replace the old value */
+X    if(!hostaddr || (hostaddr->sin_addr.s_addr == 0)) {
+X	/* I we have a null host name, return an error */
+X	if((hostname == NULL) || (*hostname == '\0')) {
+#ifdef DEBUG
+X            if (pfs_debug)
+X                fprintf(stderr, "dirsrv: Null hostname specified\n");
+#endif
+X	    perrno = DIRSEND_BAD_HOSTNAME;
+X	    ptlfree(pkt);
+X            /* return(NULL); */
+X	    return(-1);
+X	}
+X	/* If a port is included, save it away */
+X	if(openparen = index(hostname,'(')) {
+X	    sscanf(openparen+1,"%d",&req_udp_port);
+X	    strncpy(hostnoport,hostname,400);
+X	    if((openparen - hostname) < 400) {
+X		*(hostnoport + (openparen - hostname)) = '\0';
+X		hostname = hostnoport;
+X	    }
+X	}
+#if defined(XARCHIE) || defined(VARCHIE)
+X	status1("Getting address for host \"%s\"",hostname);
+#endif
+X	tmp = pfs_enable; pfs_enable = PMAP_DISABLE;
+X	if((host = gethostbyname(hostname)) == NULL) {
+X	    pfs_enable = tmp;
+X	    /* Check if a numeric address */
+X	    newhostaddr = inet_addr(hostname);
+X	    if(newhostaddr == -1) {
+#ifdef DEBUG
+X		if (pfs_debug)
+X		  fprintf(stderr, "dirsrv: Can't resolve host %s\n",hostname);
+#endif
+X		perrno = DIRSEND_BAD_HOSTNAME;
+X		ptlfree(pkt);
+X		/* return(NULL); */
+X		return(-1);
+X	    }
+X	    bzero((char *)&to, S_AD_SZ);
+X	    to.sin_family = AF_INET;
+X	    bcopy((char *) &newhostaddr, (char *)&to.sin_addr, 4);
+X	    if(hostaddr) bcopy(&to,hostaddr, S_AD_SZ);
+X	}
+X	else {
+X	    pfs_enable = tmp;
+X	    bzero((char *)&to, S_AD_SZ);
+X	    to.sin_family = host->h_addrtype;
+#ifdef CUTCP
+X	    bcopy((char *) &host->h_addr, (char *)&to.sin_addr, host->h_length);
+#else
+X	    bcopy(host->h_addr, (char *)&to.sin_addr, host->h_length);
+#endif
+X	    if(hostaddr) bcopy(&to,hostaddr, S_AD_SZ);
+X	}
+X    }
+X    else bcopy(hostaddr,&to, S_AD_SZ);
+X    /* lmjm: Save away the hostname */
+X    strncpy(to_hostname,inet_ntoa(to.sin_addr),sizeof(to_hostname)-1);
+X
+X    if(req_udp_port) to.sin_port = htons(req_udp_port);
+X    else to.sin_port = dir_udp_port;
+X
+X    /* If a port was specified in hostaddr, use it, otherwise fill it in */
+X    if(hostaddr) {
+X	if(hostaddr->sin_port) to.sin_port = hostaddr->sin_port;
+X	else hostaddr->sin_port = to.sin_port;
+X    }
+X
+#ifndef CUTCP
+X    /* Must open a new port each time. we do not want to see old */
+X    /* responses to messages we are done with                    */
+X    if ((lp = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+#ifdef DEBUG
+X        if (pfs_debug)
+X            fprintf(stderr,"dirsrv: Can't open socket\n");
+#endif
+X	perrno = DIRSEND_UDP_CANT;
+X	ptlfree(pkt);
+X        /* return(NULL); */
+X	return(-1);
+X    }
+#endif /* not CUTCP */
+X
+X    /* Try to bind it to a privileged port - loop through candidate */
+X    /* ports trying to bind.  If failed, that's OK, we will let the */
+X    /* system assign a non-privileged port later                    */
+#ifndef CUTCP
+X    if(!notprived) {
+X	for(tmp = PROS_FIRST_PRIVP; tmp < PROS_FIRST_PRIVP+PROS_NUM_PRIVP; 
+X	    tmp++) {
+#endif
+X	    bzero((char *)&us, sizeof(us));
+X	    us.sin_family = AF_INET;
+#ifndef CUTCP
+X	    us.sin_port = htons((u_short) tmp);
+X	    if (bind(lp, (struct sockaddr *)&us, sizeof(us))) {
+X		if(errno != EADDRINUSE) {
+X		    notprived++;
+X		    break;
+X		}
+X	    }
+X	    else break;
+X	}
+X    }
+#else
+X    us.sin_port = htons(PROS_FIRST_PRIVP);
+X    netulisten(PROS_FIRST_PRIVP);
+#endif
+X
+#ifndef USE_V3_PROT
+X    /* Add header */
+X    if(rdgram_priority) {
+X	pkt->start -= 15;
+X	pkt->length += 15;
+X	*(pkt->start) = (char) 15;
+X	bzero(pkt->start+9,4);
+X	*(pkt->start+11) = 0x02;
+X	bcopy(&priority,pkt->start+13,2);
+X    }
+X    else {
+X	pkt->start -= 9;
+X	pkt->length += 9;
+X	*(pkt->start) = (char) 9;
+X    }
+X    this_conn_id = htons(next_conn_id++);
+X    if(next_conn_id == 0) next_conn_id++;
+X    bcopy(&this_conn_id,pkt->start+1,2);
+X    bcopy(&one,pkt->start+3,2);
+X    bcopy(&one,pkt->start+5,2);
+X    bzero(pkt->start+7,2);
+#endif
+X
+#ifdef DEBUG
+X    if (pfs_debug > 2) {
+#ifndef USE_V3_PROT
+X        if (to.sin_family == AF_INET) {
+X	    if(req_udp_port) 
+X		fprintf(stderr,"Sending message to %s+%d(%d)...",
+X			to_hostname, req_udp_port, ntohs(this_conn_id));
+X	    else fprintf(stderr,"Sending message to %s(%d)...",
+X			 to_hostname, ntohs(this_conn_id));
+X	}
+#else
+X        if (to.sin_family == AF_INET) 
+X	    fprintf(stderr,"Sending message to %s...", to_hostname);
+#endif /* USE_V3_PROT */
+X        else
+X            fprintf(stderr,"Sending message...");
+X        (void) fflush(stderr);
+X    }
+#endif /* DEBUG */
+X
+X    first = ptalloc();
+X    next = first;
+X
+#if defined(XARCHIE) || defined(VARCHIE)
+X    status2("Connecting to %s (%s)",to_hostname,hostname);
+X    packetCounter = 0;
+#endif
+X
+#ifndef CUTCP
+X    return(lp);
+#else
+X    return(1);
+#endif /* CUTCP */
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * This used to be a label to goto to retry the last packet. Now we resend
+X * the packet and call keepWaitingDirsend() to wait for a reply. (We
+X * call keepWaitingDirsend() because formerly the code dropped through
+X * the keep_waiting label.)
+X */
+static void
+retryDirsend()
+{
+#ifdef CUTCP
+X    int lretry = 3;
+#endif
+X    gaps = ackpend = 0;
+X
+#ifndef CUTCP
+X    ns = sendto(lp,(char *)(pkt->start), pkt->length, 0, (struct sockaddr *)&to, S_AD_SZ);
+#else
+X    while(--lretry) {
+X	    ns = netusend(&to.sin_addr,ntohs(to.sin_port),ntohs(us.sin_port),
+X			  (char *) pkt->start, pkt->length);
+X	    if(!ns)
+X		break;
+X	    Stask();
+X	    Stask();
+X	    Stask();
+X    }
+#endif /* CUTCP */
+X
+#ifndef CUTCP
+X    if(ns != pkt->length) {
+#else
+X    if(ns != 0) {
+#endif
+#ifdef DEBUG
+X	if (pfs_debug) {
+X    fprintf(stderr,"\nsent only %d/%d: ",ns, pkt->length);
+X	    perror("");
+X	}
+#endif
+X	close(lp);
+X	perrno = DIRSEND_NOT_ALL_SENT;
+X	ptlfree(first);
+X	ptlfree(pkt);
+X	/* return(NULL); */
+X	dirsendReturn = NULL;
+X	dirsendDone = DSRET_SEND_ERROR;
+X    }
+#ifdef DEBUG
+X    if (pfs_debug > 2) fprintf(stderr,"Sent.\n");
+#endif
+X    keepWaitingDirsend();
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * This used to be a label to goto to set the appropriate timeout value
+X * and blocked in select(). Now we set selwait and the fd_sets to the
+X * appropriate values, and in X register a new timeout, then return to
+X * allow event processing.
+X */
+static void
+keepWaitingDirsend()
+{
+X    /* We come back to this point (by a goto) if the packet */
+X    /* received is only part of the response, or if the     */
+X    /* response came from the wrong host		    */
+X
+#ifdef DEBUG
+X    if (pfs_debug > 2) fprintf(stderr,"Waiting for reply...");
+#endif
+X
+#ifndef CUTCP
+X    FD_ZERO(&readfds);
+X    FD_SET(lp, &readfds);
+#endif
+X
+X    if(ackpend) selwait = &ackwait;
+X    else if(gaps) selwait = &gapwait;
+X    else selwait = &timeout;
+X
+X    addTimeOut();
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * This routine is called when a timeout occurs. It includes the code that
+X * was formerly used when select() returned 0 (indicating a timeout).
+X */
+/*ARGSUSED*/
+static void
+timeoutProc(client_data,id)
+XXtPointer client_data;
+XXtIntervalId *id;
+{
+X    if (gaps || ackpend) { /* Send acknowledgment */
+X	/* Acks are piggybacked on retries - If we have received */
+X	/* an ack from the server, then the packet sent is only  */
+X	/* an ack and the rest of the message will be empty      */
+#ifdef DEBUG
+X	if (pfs_debug > 2) {
+X            fprintf(stderr,"Acknowledging (%s).\n",
+X		    (ackpend ? "requested" : "gaps"));
+X	}	
+#endif
+X	retryDirsend();
+X	return;
+X    }
+X
+X    if (retries-- > 0) {
+X	timeout.tv_sec = CLIENT_DIRSRV_BACKOFF(timeout.tv_sec);
+#ifdef DEBUG
+X	if (pfs_debug > 2) {
+X            fprintf(stderr,"Timed out.  Setting timeout to %d seconds.\n",
+X		    timeout.tv_sec);
+X	}
+#endif
+#if defined(XARCHIE) || defined(VARCHIE)
+X        status1("Timed out -- retrying (%d seconds)",timeout.tv_sec);
+#endif
+X	retryDirsend();
+X	return;
+X    }
+X
+#ifdef DEBUG
+X    if (pfs_debug) {
+X	fprintf(stderr, "select failed(timeoutProc): readfds=%x ",
+X		readfds);
+X	perror("");
+X    }
+#endif
+#ifndef CUTCP
+X    close(lp);
+#endif
+X    perrno = DIRSEND_SELECT_FAILED;
+X    ptlfree(first);
+X    ptlfree(pkt);
+X    /* return(NULL); */
+X    dirsendReturn = NULL;
+X    dirsendDone = DSRET_TIMEOUT;
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * This function is called whenever there's something to read on the
+X * connection. It includes the code that was run when select() returned
+X * greater than 0 (indicating read ready).
+X */
+/*ARGSUSED*/
+static void
+readProc(client_data,source,id)
+XXtPointer client_data;
+int *source;
+XXtInputId *id;
+{
+#ifdef CUTCP
+X    int lretry = 3;
+#endif
+X
+X    /* We got something to read, so clear the timer */
+X    removeTimeOut();
+X
+X    from_sz = sizeof(from);
+X    next->start = next->dat;
+X
+#ifndef CUTCP
+X    if ((nr = recvfrom(lp, next->start, sizeof(next->dat), 0, (struct sockaddr *)&from, &from_sz)) < 0) {
+#else
+X    nr = neturead(next->start);
+X    if (nr < 1) {
+#endif
+#ifdef DEBUG
+X        if (pfs_debug) perror("recvfrom");
+#endif
+#ifndef CUTCP
+X	close(lp);
+#endif
+X	perrno = DIRSEND_BAD_RECV;
+X	ptlfree(first);
+X	ptlfree(pkt);
+X	/* return(NULL) */
+X	dirsendReturn = NULL;
+X	dirsendDone = DSRET_RECV_ERROR;
+X        return;
+X    }
+X
+X    next->length = nr;
+X    next->start[next->length] = 0;
+X
+#ifdef DEBUG
+X    if (pfs_debug > 2)
+X        fprintf(stderr,"Received packet from %s\n",inet_ntoa(from.sin_addr));
+#endif
+X
+#if defined(XARCHIE) || defined(VARCHIE)
+X    if (packetCounter == 0)
+X	status2("Connected to %s (%s)",to_hostname,hostname);
+X    else
+X	status1("Receiving...%d",packetCounter);
+X    packetCounter += 1;
+#endif
+X
+X    /* For the current format, if the first byte is less than             */
+X    /* 20, then the first two bits are a version number and the next six  */
+X    /* are the header length (including the first byte).                  */
+X    if((hdr_len = (unsigned char) *(next->start)) < 20) {
+X	ctlptr = next->start + 1;
+X	next->seq = 0;
+X	if(hdr_len >= 3) { 	/* Connection ID */
+X	    bcopy(ctlptr,&stmp,2);
+X	    if(stmp) pkt_cid = ntohs(stmp);
+X	    ctlptr += 2;
+X	}
+X	/*
+X	 * Problem noted by eanders+@cmu.edu against the V5 Prospero server:
+X	 * "the problem is that clients look at a unsigned short as a signed
+X	 * integer.  Then they do comparisons, and naturally they are not
+X	 * equal." This fix is as opposed to some kind of casting, and
+X	 * will be moot when the new clients are written for the new servers.
+X	 */
+X	if (pkt_cid < 0)
+X	    pkt_cid = 65536+pkt_cid;
+X	if(pkt_cid && this_conn_id && (pkt_cid != ntohs(this_conn_id))) {
+X	    /* The packet is not for us */
+X	    /* goto keep_waiting; */
+#ifdef DEBUG
+X	    if (pfs_debug > 20)
+X		fprintf(stderr,"Packet not for us %d,%d,%d\n",
+X			pkt_cid,this_conn_id,ntohs(this_conn_id));
+#endif
+X	    keepWaitingDirsend();
+X	    return;
+X	}
+X	if(hdr_len >= 5) {	/* Packet number */
+X	    bcopy(ctlptr,&stmp,2);
+X	    next->seq = ntohs(stmp);
+X	    ctlptr += 2;
+X	}
+X	else { /* No packet number specified, so this is the only one */
+X	    next->seq = 1;
+X	    nd_pkts = 1;
+X	}
+X	if(hdr_len >= 7) {	    /* Total number of packets */
+X	    bcopy(ctlptr,&stmp,2);  /* 0 means don't know      */
+X	    if(stmp) nd_pkts = ntohs(stmp);
+X	    ctlptr += 2;
+X	}
+X	if(hdr_len >= 9) {	/* Receievd through */
+X	    bcopy(ctlptr,&stmp,2);  /* 1 means received request */
+#ifndef USE_V3_PROT
+X	    if((stmp) && (ntohs(stmp) == 1)) {
+X		/* Future retries will be acks only */
+X		pkt->length = 9;
+X		bcopy(&zero,pkt->start+3,2);
+#ifdef DEBUG
+X		if(pfs_debug > 2) 
+X		    fprintf(stderr,"Server acked request - retries will be acks only\n");
+#endif
+X	    }
+#endif
+X	    ctlptr += 2;
+X	}
+X	if(hdr_len >= 11) {	/* Backoff */
+X	    bcopy(ctlptr,&stmp,2);
+X	    if(stmp) {
+X		backoff = (short)ntohs(stmp);
+#ifdef DEBUG
+X		if(pfs_debug > 2) 
+X		    fprintf(stderr,"Backing off to %d seconds\n", backoff);
+#endif
+X		timeout.tv_sec = backoff;
+X		if ((backoff > 60) && (first == next) && (no_pkts == 0)) {
+X		    /* Probably a long queue on the server - don't give up */
+X		    retries = client_dirsrv_retry;
+X		}
+X	    }
+X	    ctlptr += 2;
+X	}
+X	if(hdr_len >= 12) {	/* Flags (1st byte) */
+X	    bcopy(ctlptr,&rdflag11,1);
+X	    if(rdflag11 & 0x80) {
+#ifdef DEBUG
+X		if(pfs_debug > 2) 
+X		    fprintf(stderr,"Ack requested\n");
+#endif
+X		ackpend++;
+X	    }
+X	    if(rdflag11 & 0x40) {
+#ifdef DEBUG
+X		if(pfs_debug > 2) 
+X		    fprintf(stderr,"Sequenced control packet\n");
+#endif
+X		next->length = -1;
+X		scpflag++;
+X	    }
+X	    ctlptr += 1;
+X	}
+X	if(hdr_len >= 13) {	/* Flags (2nd byte) */
+X	    /* Reserved for future use */
+X	    bcopy(ctlptr,&rdflag12,1);
+X	    ctlptr += 1;
+X	}
+X	if(next->seq == 0) {
+X	    /* goto keep_waiting; */
+X	    keepWaitingDirsend();
+X	    return;
+X	}
+X	if(next->length >= 0) next->length -= hdr_len;
+X	next->start += hdr_len;
+X	goto done_old;
+X    }
+X
+X    pkt_cid = 0;
+X
+X    /* if intermediate format (between old and new), then process */
+X    /* and go to done_old                                         */
+X    ctlptr = next->start + max(0,next->length-20);
+X    while(*ctlptr) ctlptr++;
+X    /* Control fields start after the terminating null */
+X    ctlptr++;
+X    /* Until old version are gone, must be 4 extra bytes minimum */
+X    /* When no version 3 servers, can remove the -4              */
+X    if(ctlptr < (next->start + next->length - 4)) {
+X	/* Connection ID */
+X	bcopy(ctlptr,&stmp,2);
+X	if(stmp) pkt_cid = ntohs(stmp);
+X	ctlptr += 2;
+X	if(pkt_cid && this_conn_id && (pkt_cid != ntohs(this_conn_id))) {
+X	    /* The packet is not for us */
+X	    /* goto keep_waiting; */
+X	    keepWaitingDirsend();
+X	    return;
+X	}
+X	/* Packet number */
+X	if(ctlptr < (next->start + next->length)) {
+X	    bcopy(ctlptr,&stmp,2);
+X	    next->seq = ntohs(stmp);
+X	    ctlptr += 2;
+X	}
+X	/* Total number of packets */
+X	if(ctlptr < (next->start + next->length)) {
+X	    bcopy(ctlptr,&stmp,2);
+X	    if(stmp) nd_pkts = ntohs(stmp);
+X	    ctlptr += 2;
+X	}
+X	/* Receievd through */
+X	if(ctlptr < (next->start + next->length)) {
+X	    /* Not supported by clients */
+X	    ctlptr += 2;
+X	}
+X	/* Backoff */
+X	if(ctlptr < (next->start + next->length)) {
+X	    bcopy(ctlptr,&stmp,2);
+X	    backoff = ntohs(stmp);
+#ifdef DEBUG
+X	    if(pfs_debug > 2) 
+X		fprintf(stderr,"Backing off to %d seconds\n", backoff);
+#endif
+X	    if(backoff) timeout.tv_sec = backoff;
+X	    ctlptr += 2;
+X	}
+X	if(next->seq == 0) {
+X	    /* goto keep_waiting; */
+X	    keepWaitingDirsend();
+X	    return;
+X	}
+X	goto done_old;
+X
+X    }
+X
+X    /* Notes that we have to start searching 11 bytes before the    */
+X    /* expected start of the MULTI-PACKET line because the message  */
+X    /* might include up to 10 bytes of data after the trailing null */
+X    /* The order of those bytes is two bytes each for Connection ID */
+X    /* Packet-no, of, Received-through, Backoff                     */
+X    seqtxt = nlsindex(next->start + max(0,next->length - 40),"MULTI-PACKET"); 
+X    if(seqtxt) seqtxt+= 13;
+X
+X    if((nd_pkts == 0) && (no_pkts == 0) && (seqtxt == NULL)) goto all_done;
+X
+X    tmp = sscanf(seqtxt,"%d OF %d", &(next->seq), &nd_pkts);
+#ifdef DEBUG    
+X    if (pfs_debug && (tmp == 0)) 
+X	fprintf(stderr,"Cant read packet sequence number: %s", seqtxt);    
+#endif
+X done_old:
+#ifdef DEBUG
+X    if(pfs_debug > 2) fprintf(stderr,"Packet %d of %d\n",next->seq,nd_pkts);
+#endif
+X    if ((first == next) && (no_pkts == 0)) {
+X	if(first->seq == 1) {
+X	    comp_thru = first;
+X	    /* If only one packet, then return it */
+X	    if(nd_pkts == 1) goto all_done;
+X	}
+X	else gaps++;
+X	no_pkts = 1;
+X	next = ptalloc();
+X	/* goto keep_waiting; */
+X	keepWaitingDirsend();
+X	return;
+X    }
+X	
+X    if(comp_thru && (next->seq <= comp_thru->seq))
+X	ptfree(next);
+X    else if (next->seq < first->seq) {
+X	vtmp = first;
+X	first = next;
+X	first->next = vtmp;
+X	first->previous = NULL;
+X	vtmp->previous = first;
+X	if(first->seq == 1) comp_thru = first;
+X	no_pkts++;
+X    }
+X    else {
+X	vtmp = (comp_thru ? comp_thru : first);
+X	while (vtmp->seq < next->seq) {
+X	    if(vtmp->next == NULL) {
+X		vtmp->next = next;
+X		next->previous = vtmp;
+X		next->next = NULL;
+X		no_pkts++;
+X		goto ins_done;
+X	    }
+X	    vtmp = vtmp->next;
+X	}
+X	if(vtmp->seq == next->seq)
+X	    ptfree(next);
+X	else {
+X	    vtmp->previous->next = next;
+X	    next->previous = vtmp->previous;
+X	    next->next = vtmp;
+X	    vtmp->previous = next;
+X	    no_pkts++;
+X	}
+X    }   
+X
+ins_done:
+X	
+X    while(comp_thru && comp_thru->next && 
+X	  (comp_thru->next->seq == (comp_thru->seq + 1))) {
+X	comp_thru = comp_thru->next;
+#ifndef USE_V3_PROT
+X	recvd_thru = htons(comp_thru->seq);
+X	bcopy(&recvd_thru,pkt->start+7,2); /* Let server know we got it */
+#endif
+X	/* We've made progress, so reset retry count */
+X	retries = client_dirsrv_retry;
+X	/* Also, next retry will be only an acknowledgement */
+X	/* but for now, we can't fill in the ack field      */
+#ifdef DEBUG
+X	if(pfs_debug > 2) 
+X	    fprintf(stderr,"Packets now received through %d\n",comp_thru->seq);
+#endif
+X    }
+X
+X    /* See if there are any gaps */
+X    if(!comp_thru || comp_thru->next) gaps++;
+X    else gaps = 0;
+X
+X    if ((nd_pkts == 0) || (no_pkts < nd_pkts)) {
+X	next = ptalloc();
+X	/* goto keep_waiting; */
+X	keepWaitingDirsend();
+X	return;
+X    }
+X
+X all_done:
+X    if(ackpend) { /* Send acknowledgement if requested */
+#ifdef DEBUG
+X	if (pfs_debug > 2) {
+X	    if (to.sin_family == AF_INET)
+X		fprintf(stderr,"Acknowledging final packet to %s(%d)\n",
+X			to_hostname, ntohs(this_conn_id));
+X            else
+X                fprintf(stderr,"Acknowledging final packet\n");
+X	    (void) fflush(stderr);
+X	}
+#endif
+#ifndef CUTCP
+X	ns = sendto(lp,(char *)(pkt->start), pkt->length, 0, (struct sockaddr *)&to, S_AD_SZ);
+#else
+X	while(--lretry) {
+X	    ns = netusend(&to.sin_addr, ntohs(to.sin_port), ntohs(us.sin_port),(char *) pkt->start, pkt->length);
+X		if(!ns)
+X			break;
+X		Stask();
+X		Stask();
+X	}
+#endif
+X
+#ifndef CUTCP
+X	if(ns != pkt->length) {
+#else
+X	if(ns != 0) {
+#endif
+X
+#ifdef DEBUG
+X	    if (pfs_debug) {
+X		fprintf(stderr,"\nsent only %d/%d: ",ns, pkt->length);
+X		perror("");
+X	    }
+#endif
+X	}
+X
+X    }
+#ifndef CUTCP
+X    close(lp);
+#endif
+X    ptlfree(pkt);
+X
+X    /* Get rid of any sequenced control packets */
+X    if(scpflag) {
+X	while(first && (first->length < 0)) {
+X	    vtmp = first;
+X	    first = first->next;
+X	    if(first) first->previous = NULL;
+X	    ptfree(vtmp);
+X	}
+X	vtmp = first;
+X	while(vtmp && vtmp->next) {
+X	    if(vtmp->next->length < 0) {
+X		if(vtmp->next->next) {
+X		    vtmp->next = vtmp->next->next;
+X		    ptfree(vtmp->next->previous);
+X		    vtmp->next->previous = vtmp;
+X		}
+X		else {
+X		    ptfree(vtmp->next);
+X		    vtmp->next = NULL;
+X		}
+X	    }
+X	    vtmp = vtmp->next;
+X	}
+X    }
+X
+X    /* return(first); */
+X    dirsendReturn = first;
+X    dirsendDone = DSRET_DONE;
+X
+}
+/*	-	-	-	-	-	-	-	-	*/
+/* These routines allow dirsend() to run with or without X by providing
+X * wrappers around the calls that handle the asynchronous communication.
+X * All parameters are passed using globals.
+X * Under X: The input sources and timeouts are set using Xt calls, and
+X *	    processEvent() just calls XtAppProcessEvent().
+X * Non-X: None of the input sources and timeouts are used, and
+X *	  processEvent() calls select() to handle both timeouts and the
+X *	  socket file descriptor. The return value of select() is used
+X *	  to determine which callback routine to call.
+X */
+X
+static void
+addInputSource()
+{
+#ifdef XARCHIE
+X    inputId = XtAppAddInput(appContext,lp,(XtPointer)XtInputReadMask,
+X			    readProc,NULL);
+#endif
+}
+X
+static void
+removeInputSource()
+{
+#ifdef XARCHIE
+X    XtRemoveInput(inputId);
+#endif
+}
+X
+static void
+addTimeOut()
+{
+#ifdef XARCHIE
+X    unsigned long timeoutLen = selwait->tv_sec*1000 + selwait->tv_usec/1000;
+X
+X    /* old timeout can still be there if we are being called after the
+X     * file descriptor was read, so we remove it just to be sure. */
+X    removeTimeOut();
+X    timerId = XtAppAddTimeOut(appContext,timeoutLen,timeoutProc,NULL);
+#endif
+}
+X
+static void
+removeTimeOut()
+{
+#ifdef XARCHIE
+X    if (timerId != (XtIntervalId)0) {
+X	XtRemoveTimeOut(timerId);
+X	timerId = (XtIntervalId)0;
+X    }
+#endif
+}
+X
+/*
+X * In X, this just calls the X routine that blocks waiting for an event,
+X * timer, or input source and dispatches it.
+X *
+X * Otherwise, for Unix we call select() with the appropriate arguments,
+X * and act on its return calue as follows:
+X *  == 0 : The timer expired, call timeoutProc() then return to, presumably,
+X *         the loop that calling processEvent() until dirsendDone.
+X *  < 0 :  If we were interrupted (errno == EINTR) then don't do anything.
+X *         Presumably the signal handler set flags if needed, and we'll
+X *         come back to select() again on the next pass of the outer loop
+X *         if we're supposed to. Otherwise, puke on the error.
+X *  > 0 :  The socket is ready for reading, so call readProc().
+X *
+X * Otherwise, if we're in MSDOS (CUTCP defined) then I (gf) have no idea
+X * what's going on. Ask Brendan.
+X */
+static void
+processEvent()
+{
+#ifdef CUTCP
+X    unsigned long now;
+#endif
+#ifdef XARCHIE
+X    XtAppProcessEvent(appContext,XtIMAll);
+#else
+X    /* select - either recv is ready, or timeout */
+X    /* see if timeout or error or wrong descriptor */
+#ifndef CUTCP
+X    tmp = select(lp + 1, &readfds, (fd_set *)0, (fd_set *)0, selwait);
+X    if (tmp == 0) {
+X	timeoutProc(NULL,&timerId);
+X    } else if (tmp < 0 && errno == EINTR) {	/* gf: new for ^C in varchie */
+X	fprintf(stderr,"select interrupted\n");	/* do nothing, we'll be back */
+X    } else if ((tmp < 0) || !FD_ISSET(lp,&readfds)) {
+#ifdef DEBUG
+X	if (pfs_debug) {
+X	    fprintf(stderr, "select failed(processEvent): readfds=%x ",
+X		    readfds);
+X	    perror("");
+X	}
+#endif
+X	close(lp);
+#else /* CUTCP's flood. */
+X	/* while not timeout in selwait loop, stask looking for uevents */
+X	now = time(NULL) + selwait->tv_sec;
+#ifdef	DEBUG
+X	if(pfs_debug) {
+X		fprintf(stderr,"Waiting %d seconds\n",selwait->tv_sec);
+X	}
+X
+#endif
+X	while(now > time(NULL)) {
+X		int	i, cl, dat;
+X
+X		Stask();
+X		if (0 < (i = Sgetevent(USERCLASS, &cl, &dat))) {
+X			/* got a user class event */
+X			if(cl == USERCLASS &&
+X				i == UDPDATA) {
+X					readProc(NULL,&lp,&inputId);
+X					return;
+X			}
+X		}
+X		if(kbhit()) {
+X			int c = getch();
+X			if(c == 27 || c == 3)
+X				break;
+X			fprintf(stderr,"Press <ESCAPE> to abort\n");
+X		}
+X	}
+X	if(now <= time(NULL)) { /* timeout */
+X		timeoutProc(NULL,&timerId);
+X		 return;
+X	}
+X
+#endif /* CUTCP */
+X	perrno = DIRSEND_SELECT_FAILED;
+X	ptlfree(first);
+X	ptlfree(pkt);
+X	/* return(NULL); */
+X	dirsendReturn = NULL;
+X	dirsendDone = DSRET_SELECT_ERROR;
+#ifndef CUTCP
+X    } else {
+X	readProc(NULL,&lp,&inputId);
+X    }
+#endif /* CUTCP */
+#endif /* XARCHIE */
+}
+X
+void
+abortDirsend()
+{
+X    if (!dirsendDone) {
+#ifndef CUTCP
+X	close(lp);
+#endif
+X	ptlfree(first);
+X	ptlfree(pkt);
+X	dirsendReturn = NULL;
+X	dirsendDone = DSRET_ABORTED;
+X    }
+X    return;
+}
+SHAR_EOF
+echo 'File xarchie-2.0.6/dirsend.c is complete' &&
+chmod 0644 xarchie-2.0.6/dirsend.c ||
+echo 'restore of xarchie-2.0.6/dirsend.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/dirsend.c'`"
+test 34011 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/dirsend.c: original size 34011, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/display-x.c ==============
+if test -f 'xarchie-2.0.6/display-x.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/display-x.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/display-x.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/display-x.c' &&
+/*
+X * display-x.c : Display routines for xarchie
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X * 14 May 1993: Need <stdio.h> when DEBUG defined.
+X *		Need to resize List in redrawBrowserPane() when MULTILIST
+X *		not defined. 
+X */
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Xaw/AsciiText.h>
+#ifdef MULTILIST
+#include <MultiList.h>
+#else
+#include <X11/Xaw/List.h>
+#endif
+#include "xarchie.h"
+#include "appres.h"
+#include "browser.h"
+#include "alert.h"
+#include "xutil.h"
+#include "stringdefs.h"			/* bezro, bcopy */
+#include "debug.h"
+X
+/*
+X * Functions defined here:
+X */
+/* Text output routines */
+void setTitleText(), setStatusText();
+void setSearchText(), setHostText(), setLocationText(), setFileText();
+void setSizeText(), setModesText(), setDateText();
+X
+/* Button sensitivity routines */
+void setQuerySensitive(), setAbortSensitive();
+void setUpSensitive(), setDownSensitive();
+X
+/* Browser routines */
+void initBrowser(),clearBrowser(),redrawBrowser();
+void clearBrowserPane(), redrawBrowserPane(), unhighlightBrowserPane();
+void clearBrowserItem(), redrawBrowserItem(), unhighlightBrowserItem();
+void highlightBrowserItem(), setBrowserItem();
+/* Browser action routines */
+void nextBrowserPane(),prevBrowserPane();
+void nextBrowserItem(),prevBrowserItem();
+void toggleCurrentBrowserItem(),selectCurrentBrowserItem();
+X
+/* Misc. display routines */
+void beep();
+X
+/* Internal routines */
+static void updatePasteBuffer(), setListString();
+X
+/*
+X * Data defined here:
+X */
+/*
+X * These string arrays are needed since the only way to set a List
+X * widget in X is to pass it an array of strings. That is, there's
+X * no way to add items incrementally. Blech. Still, the arrays are
+X * grown as needed, so these values can be way off, as they are.
+X */
+#define INIT_NUM_BROWSER_STRINGS 1
+#define REALLOC_INCR(num) (2*(num))
+X
+static char **browserStrings[NUM_BROWSER_PANES];
+static int numBrowserStrings[NUM_BROWSER_PANES];
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Text output */
+X
+/*ARGSUSED*/
+void
+setTitleText(str)
+char *str;
+{
+X    /*EMPTY*/
+}
+X
+void
+setStatusText(str)
+char *str;
+{
+X    setWidgetString(statusText,str);
+X    XFlush(display);
+}
+X
+void
+setSearchText(str)
+char *str;
+{
+X    setWidgetString(searchText,str);
+}
+X
+void
+setHostText(str)
+char *str;
+{
+X    setWidgetString(hostText,str);
+X    if (appResources.pasteBuffer)
+X	updatePasteBuffer();
+}
+X
+void
+setLocationText(str)
+char *str;
+{
+X    setWidgetString(locationText,str);
+X    if (appResources.pasteBuffer)
+X	updatePasteBuffer();
+}
+X
+void
+setFileText(str)
+char *str;
+{
+X    setWidgetString(fileText,str);
+X    if (appResources.pasteBuffer)
+X	updatePasteBuffer();
+}
+X
+void
+setSizeText(str)
+char *str;
+{
+X    setWidgetString(sizeText,str);
+}
+X
+void
+setModesText(str)
+char *str;
+{
+X    setWidgetString(modesText,str);
+}
+X
+void
+setDateText(str)
+char *str;
+{
+X    setWidgetString(dateText,str);
+}
+X
+static void
+updatePasteBuffer()
+{
+X    char *host,*loc,*file,*buf;
+X
+X    host = getWidgetString(hostText);
+X    loc = getWidgetString(locationText);
+X    file = getWidgetString(fileText);
+X    buf = XtMalloc(strlen(host)+strlen(loc)+strlen(file)+3);
+X    sprintf(buf,"%s:%s/%s",host,loc,file);
+X    XStoreBytes(display,buf,strlen(buf));
+X    XtFree(buf);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Buttons */
+X
+void
+setQuerySensitive(state)
+int state;
+{
+X    int i;
+X
+X    XtSetSensitive(queryButton,(state > 0 ? True : False));
+X    /* Disable the Lists so they get redrawn in "gray" */
+X    for (i=0; i < NUM_BROWSER_PANES; i++)
+X	XtSetSensitive(browserLists[i],(state > 0 ? True : False));
+X    /* This is a simple way to disable the up/down buttons */
+X    XtSetSensitive(browserForm,(state > 0 ? True : False));
+X    /* Update the icon also (True=busy, when query off ie. state = 0) */
+X    setIconStatus((state > 0) ? False : True);
+}
+X
+void
+setAbortSensitive(state)
+int state;
+{
+X    XtSetSensitive(abortButton,(state > 0 ? True : False));
+}
+X
+void
+setUpSensitive(state)
+int state;
+{
+X    XtSetSensitive(browserUpButton,(state > 0 ? True : False));
+}
+X
+void
+setDownSensitive(state)
+int state;
+{
+X    XtSetSensitive(browserDownButton,(state > 0 ? True : False));
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Browser */
+X
+void
+initBrowser()
+{
+X    /*EMPTY*//* Done by widget creation */
+}
+X
+void
+clearBrowser()
+{
+X    int pane;
+X
+X    for (pane=0; pane < NUM_BROWSER_PANES; pane++) {
+X	clearBrowserPane(pane);
+X    }
+}
+X
+void
+redrawBrowser()
+{
+X    /*EMPTY*/
+}
+X
+/* Browser panes */
+X
+void
+clearBrowserPane(pane)
+int pane;
+{
+X    static char *emptyNames[] = { NULL };
+X
+#ifdef MULTILIST
+X    XfwfMultiListSetNewData((XfwfMultiListWidget)browserLists[pane],
+X			    emptyNames,0,0,False,(Boolean *)NULL);
+#else
+X    XawListChange(browserLists[pane],emptyNames,0,0,False);
+#endif
+}
+X
+void
+redrawBrowserPane(pane)
+int pane;
+{
+#ifdef MULTILIST
+X    XfwfMultiListSetNewData((XfwfMultiListWidget)browserLists[pane],
+X			    browserStrings[pane],0,0,True,(Boolean *)NULL);
+#else
+X    XawListChange(browserLists[pane],browserStrings[pane],0,0,True);
+#endif
+}
+X
+void
+unhighlightBrowserPane(pane)
+int pane;
+{
+#ifdef MULTILIST
+X    XfwfMultiListUnhighlightAll((XfwfMultiListWidget)browserLists[pane]);
+#else
+X    XawListUnhighlight(browserLists[pane]);
+#endif
+}
+X
+/* Browser items */
+X
+/*ARGSUSED*/
+void
+clearBrowserItem(pane,item)
+int pane,item;
+{
+X    /*EMPTY*/
+}
+X
+/*ARGSUSED*/
+void
+redrawBrowserItem(pane,item)
+int pane,item;
+{
+X    /*EMPTY*/
+}
+X
+void
+unhighlightBrowserItem(pane,item)
+int pane,item;
+{
+#ifdef MULTILIST
+X    XfwfMultiListUnhighlightItem((XfwfMultiListWidget)browserLists[pane],item);
+#else
+X    XawListUnhighlight(browserLists[pane]);
+#endif
+}
+X
+void
+highlightBrowserItem(pane,item)
+int pane,item;
+{
+X    Arg args[1];
+X    int number;
+X    float percent;
+X
+#ifdef MULTILIST
+X    XfwfMultiListHighlightItem((XfwfMultiListWidget)browserLists[pane],item);
+#else
+X    XawListHighlight(browserLists[pane],item);
+#endif
+X    /* Move the scrollbar so we see the item */
+X    if (appResources.autoScroll) {
+X	XtSetArg(args[0],XtNnumberStrings,&number);
+X	XtGetValues(browserLists[pane],args,1);
+X	percent = (float)(item-1) / (float)number;
+X	if (percent < 0.0)
+X	    percent = 0.0;
+X	else if (percent > 100.)
+X	    percent = 100.0;
+X	XtCallCallbacks(browserScrollbars[pane],
+X			"jumpProc",(XtPointer)&percent);
+X    }
+}
+X
+void
+setBrowserItem(pane,item,str)
+int pane,item;
+char *str;
+{
+X    /* Set the actual value */
+X    setListString(pane,item,str);
+X    /* Need a terminating NULL later, so add it now */
+X    setListString(pane,item+1,NULL);
+}
+X
+/* Browser actions */
+X
+void
+nextBrowserPane()
+{
+X    /*EMPTY*//* Done with mouse */
+}
+X
+void
+prevBrowserPane()
+{
+X    /*EMPTY*//* Done with mouse */
+}
+X
+void
+nextBrowserItem()
+{
+X    /*EMPTY*//* Done with mouse */
+}
+X
+void
+prevBrowserItem()
+{
+X    /*EMPTY*//* Done with mouse */
+}
+X
+void
+toggleCurrentBrowserItem()
+{
+X    /*EMPTY*//* Done by X */
+}
+X
+void
+selectCurrentBrowserItem()
+{
+X    /*EMPTY*//* Done by X */
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Misc. display routines */
+X
+void
+beep()
+{
+X    XBell(display,0);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * setListString() : This routine provides access to the dynamically-grown
+X *	lists of strings. I bzero() the allocated space even though I shouldn't
+X *	need to.
+X */
+static void
+setListString(pane,index,string)
+int pane,index;
+char *string;
+{
+X    char **oldStr;
+X    int oldNum;
+X
+X    DEBUG3("setting index %d of pane %d to \"%s\"\n",index,pane,string);
+X    if (pane >= NUM_BROWSER_PANES) {
+X	alert2("Attempt to set string in pane %d: \"%s\"",(char *)pane,string);
+X	return;
+X    }
+X    /* Free old string if there was one */
+X    if (index < numBrowserStrings[pane]) {
+X	XtFree((XtPointer)(*(browserStrings[pane]+index)));
+X	DEBUG0("  freed old string\n");
+X    }
+X    /* If this is the first call, get the initial string array */
+X    if (numBrowserStrings[pane] == 0) {
+X	DEBUG0("  getting initial string array\n");
+X	numBrowserStrings[pane] = INIT_NUM_BROWSER_STRINGS;
+X	browserStrings[pane] = (char **)XtCalloc(numBrowserStrings[pane],
+X						 sizeof(char *));
+X	bzero((char *)(browserStrings[pane]),
+X	      numBrowserStrings[pane]*sizeof(char *));
+X    }
+X    DEBUG1("  string array is size %d\n",numBrowserStrings[pane]);
+X    /* Grow the array until it's big enough for this string */
+X    while (index >= numBrowserStrings[pane]) {
+X	DEBUG0("  growing string array\n");
+X	oldStr = browserStrings[pane];
+X	oldNum = numBrowserStrings[pane];
+X	numBrowserStrings[pane] = REALLOC_INCR(numBrowserStrings[pane]);
+X	browserStrings[pane] = (char **)XtCalloc(numBrowserStrings[pane],
+X						 sizeof(char *));
+X	bzero((char *)(browserStrings[pane]),
+X	      numBrowserStrings[pane]*sizeof(char *));
+X	bcopy((char *)oldStr,(char *)(browserStrings[pane]),
+X	      oldNum*sizeof(char *));
+X	XtFree((XtPointer)oldStr);
+X    }
+X    DEBUG1("  string array is now size %d\n",numBrowserStrings[pane]);
+X    /* Finally, set this value */
+X    if (string == (char *)NULL)
+X	*(browserStrings[pane]+index) = (char *)NULL;
+X    else
+X	*(browserStrings[pane]+index) = XtNewString(string);
+X    DEBUG1("  done setting string \"%s\"\n",string);
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/display-x.c ||
+echo 'restore of xarchie-2.0.6/display-x.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/display-x.c'`"
+test 8929 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/display-x.c: original size 8929, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/display.h ==============
+if test -f 'xarchie-2.0.6/display.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/display.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/display.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/display.h' &&
+/*
+X * display.h : Definitions of device-independent interface functions
+X *
+X * This header file is used for both the X and Curses display routines.
+X * Not all functions are needed for both types of display.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#ifndef DISPLAY_H
+#define DISPLAY_H
+X
+#ifdef __STDC__
+/* Text output routines */
+extern void setTitleText(char *str), setStatusText(char *str);
+extern void setSearchText(char *str), setHostText(char *str);
+extern void setLocationText(char *str), setFileText(char *str);
+extern void setSizeText(char *str), setModesText(char *str);
+extern void setDateText(char *str);
+X
+/* Button sensitivity routines */
+extern void setQuerySensitive(int state), setAbortSensitive(int state);
+extern void setUpSensitive(int state), setDownSensitive(int state);
+X
+/* Browser routines */
+extern void initBrowser(void),clearBrowser(void),redrawBrowser(void);
+extern void clearBrowserPane(int pane), redrawBrowserPane(int pane);
+extern void unhighlightBrowserPane(int pane);
+extern void clearBrowserItem(int pane, int item);
+extern void redrawBrowserItem(int pane, int item);
+extern void unhighlightBrowserItem(int pane, int item);
+extern void highlightBrowserItem(int pane, int item);
+extern void setBrowserItem(int pane, int item, char *str);
+/* Browser action routines */
+extern void nextBrowserPane(void),prevBrowserPane(void);
+extern void nextBrowserItem(void),prevBrowserItem(void);
+extern void toggleCurrentBrowserItem(void),selectCurrentBrowserItem(void);
+X
+/* Misc. display routines */
+extern void beep(void);
+X
+#else /*!__STDC__*/
+X
+/* Text output routines */
+extern void setTitleText(), setStatusText();
+extern void setSearchText(), setHostText(), setLocationText(), setFileText();
+extern void setSizeText(), setModesText(), setDateText();
+X
+/* Button sensitivity routines */
+extern void setQuerySensitive(), setAbortSensitive();
+extern void setUpSensitive(), setDownSensitive();
+X
+/* Browser routines */
+extern void initBrowser(),clearBrowser(),redrawBrowser();
+extern void clearBrowserPane(), redrawBrowserPane(), unhighlightBrowserPane();
+extern void clearBrowserItem(), redrawBrowserItem(), unhighlightBrowserItem();
+extern void highlightBrowserItem(), setBrowserItem();
+X
+/* Browser action routines */
+extern void nextBrowserPane(),prevBrowserPane();
+extern void nextBrowserItem(),prevBrowserItem();
+extern void toggleCurrentBrowserItem(),selectCurrentBrowserItem();
+X
+/* Misc. display routines */
+extern void beep();
+X
+#endif /*!__STDC__*/
+#endif /* DISPLAY_H */
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/display.h ||
+echo 'restore of xarchie-2.0.6/display.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/display.h'`"
+test 2521 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/display.h: original size 2521, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/fchooser.c ==============
+if test -f 'xarchie-2.0.6/fchooser.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/fchooser.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/fchooser.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/fchooser.c' &&
+/*
+X * fchooser.c : Xarchie interface to the FileChooser
+X *
+X * The FileChooser enforces very little policy. This wrapper adds
+X * the following:
+X * - The FileChooser is created with several other widgets: a Text
+X *   widget, and OK button, and a cancel button. These are created in
+X *   the sameparent, but other widgets can also be there.
+X * - Selecting a file in the FileChooser just puts the string in the
+X *   Text widget. You have to hit Ok to use it.
+X * - When ok is clicked or Return typed, the directory from the fileChooser
+X *   and the file from the Text are concatenated. If the result is a
+X *   directory, the fileChooser is reset to that directory. Otherwise
+X *   the callback is called with the filename as call_data.
+X * - Leading tildes are expanded in directories entered in the Text widget.
+X *
+X * Oh yeah, if FILECHOOSER is not defined, ignore all that about it. In that
+X * case we just have a Text and two buttons.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X * 13 May 1993: Fixes for when FILECHOOSER not defined.
+X * 14 May 1993: More of the same (find MAXPATHLEN), initialize dir.
+X *
+X */
+#include "config.h"
+#ifdef HAVE_SYS_PARAM_H
+# include <sys/param.h>
+#endif
+X
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/keysym.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Label.h>
+#include <X11/Xaw/AsciiText.h>
+#include <X11/Xaw/Command.h>
+#ifdef FILECHOOSER
+#include <FChooser.h>
+#endif
+#include "fchooser.h"
+#include "xarchie.h"
+#include "xutil.h"
+#include "tilde.h"
+#include "status.h"
+#include "alert.h"
+#include "debug.h"
+X
+/*
+X * Functions defined here:
+X */
+FileChooserInfo *createFileChooser(
+#if NeedFunctionPrototypes
+X    Widget shell,
+X    Widget parent,
+X    char *basename,
+X    FileChooserOkProc okCallback,
+X    FileChooserCancelProc cancelCallback,
+X    XtPointer client_data
+#endif
+);
+X
+#ifdef FILECHOOSER
+static void fileChooserCallback();
+#endif
+static void okButtonCallback(),cancelButtonCallback();
+static void keyPressEventHandler(),nonmaskableEventHandler();
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+FileChooserInfo *
+createFileChooser(shell,parent,basename,okCallback,cancelCallback,client_data)
+Widget shell,parent;
+char *basename;
+FileChooserOkProc okCallback;
+FileChooserCancelProc cancelCallback;
+XXtPointer client_data;
+{
+X    FileChooserInfo *info;
+X    char name[64];
+X    Arg args[1];
+X
+X    info = XtNew(FileChooserInfo);
+X    info->shell = shell;
+X    info->okCallback = okCallback;
+X    info->cancelCallback = cancelCallback;
+X    info->client_data = client_data;
+#ifdef FILECHOOSER
+X    status0("Initializing File Selector...");
+X    sprintf(name,"%sFileChooser",basename);
+X    info->fcw =
+X	XtCreateManagedWidget(name,xfwfFileChooserWidgetClass,parent,NULL,0);
+X    XtAddCallback(info->fcw,XtNcallback,fileChooserCallback,(XtPointer)info);
+X    status0("Done.");
+X    XtSetArg(args[0],XtNfromVert,info->fcw);
+#else
+X    XtSetArg(args[0],XtNfromVert,NULL);
+#endif
+X    sprintf(name,"%sTextLabel",basename);
+X    (void)XtCreateManagedWidget(name,labelWidgetClass,parent,args,1);
+X    sprintf(name,"%sText",basename);
+X    info->text =
+X	XtCreateManagedWidget(name,asciiTextWidgetClass,parent,args,1);
+X    sprintf(name,"%sOkButton",basename);
+X    info->okButton =
+X	XtCreateManagedWidget(name,commandWidgetClass,parent,NULL,0);
+X    XtAddCallback(info->okButton,XtNcallback,okButtonCallback,(XtPointer)info);
+X    /* Allow Return in the Text to be Ok */
+X    XtAddEventHandler(info->text,KeyPressMask,False,
+X		      keyPressEventHandler,(XtPointer)info);
+X    sprintf(name,"%sCancelButton",basename);
+X    info->cancelButton =
+X	XtCreateManagedWidget(name,commandWidgetClass,parent,NULL,0);
+X    XtAddCallback(info->cancelButton,XtNcallback,
+X		  cancelButtonCallback,(XtPointer)info);
+X    /* Allow WM_DELETE_WINDOW to the Shell to be Cancel */
+X    if (info->shell != NULL)
+X	XtAddEventHandler(info->shell,NoEventMask,True,
+X			  nonmaskableEventHandler,(XtPointer)info);
+X    return(info);
+}
+X
+#ifdef FILECHOOSER
+/*
+X * When a selection is made, put the string in the Text item. If background
+X * selected, clear the Text item.
+X */
+/*ARGSUSED*/
+static void
+fileChooserCallback(w,client_data,call_data)
+Widget w;
+XXtPointer client_data;	/* info */
+XXtPointer call_data;	/* return struct */
+{
+X    FileChooserInfo *fcinfo = (FileChooserInfo *)client_data;
+X    XfwfFileChooserReturnStruct *ret =
+X	(XfwfFileChooserReturnStruct *)call_data;
+X    Arg args[1];
+X
+X    DEBUG1("fileChooserCallback: fcinfo=0x%lx\n",fcinfo);
+X    if (fcinfo == NULL || fcinfo->text == NULL)		/* creating */
+X	return;
+X    if (ret->file == NULL) {
+X	XtSetArg(args[0],XtNstring,"");
+X    } else {
+X	XtSetArg(args[0],XtNstring,ret->file);
+X    }
+X    XtSetValues(fcinfo->text,args,1);
+X    DEBUG0("fileChooserCallback: done\n");
+}
+#endif /* FILECHOOSER */
+X
+/*
+X * If Ok is clicked, get the directory from the FileChooser (if FILECHOOSER)
+X * and get the filename from the Text. Do tilde expansion. If result is
+X * a directory, use it in the FileChooser, otherwise invoke the callback
+X * passing filename and client_data. Finally free the info.
+X */
+/*ARGSUSED*/
+static void
+okButtonCallback(w,client_data,call_data)
+Widget w;
+XXtPointer client_data;	/* info */
+XXtPointer call_data;	/* not used */
+{
+X    FileChooserInfo *fcinfo = (FileChooserInfo *)client_data;
+X    static char filename[MAXPATHLEN];
+X    struct stat statbuf;
+X    char *dir,*file;
+X
+X    DEBUG1("okButtonCallback: fcinfo=0x%lx\n",fcinfo);
+X    filename[0] = '\0';
+#ifdef FILECHOOSER
+X    dir = XfwfFileChooserCurrentDirectory((XfwfFileChooserWidget)(fcinfo->fcw));
+X    DEBUG1("okButtonCallback: dir=\"%s\"\n",dir);
+#else
+X    dir = "";
+#endif
+X    file = getWidgetString(fcinfo->text);
+X    if (file == NULL || *file == '\0') {
+X	alert0("No filename specified!");
+X	return;
+X    }
+X    DEBUG1("okButtonCallback: file=\"%s\"\n",file);
+X    if (*file == '/') {					/* absolute path */
+X	strcpy(filename,file);
+X    } else if (*file == '~') {				/* tilde path */
+X	strcpy(filename,tildeExpand(file));
+X    } else {						/* relative to fcw */
+X	sprintf(filename,"%s%s",dir,file);
+X    }
+X    DEBUG1("okButtonCallback: filename=\"%s\"\n",filename);
+#ifdef FILECHOOSER
+X    /* If we got a directory, go open it rather than use it */
+X    if (stat(filename,&statbuf) == 0 && S_ISDIR(statbuf.st_mode)) {
+X	XfwfFileChooserChangeDirectory((XfwfFileChooserWidget)fcinfo->fcw,
+X				       filename);
+X	return;
+X    }
+#endif	
+X    if (fcinfo->okCallback != NULL) {
+X	DEBUG0("okButtonCallback: calling okCallback...\n");
+X	(*(fcinfo->okCallback))(fcinfo,filename,fcinfo->client_data);
+X    }
+X    DEBUG0("okButtonCallback: done\n");
+}
+X
+/*
+X * If Cancel is clicked, invoke the callback passing client_data.
+X * Finally free the info.
+X */
+/*ARGSUSED*/
+static void
+cancelButtonCallback(w,client_data,call_data)
+Widget w;
+XXtPointer client_data;	/* fcinfo */
+XXtPointer call_data;	/* not used */
+{
+X    FileChooserInfo *fcinfo = (FileChooserInfo *)client_data;
+X
+X    DEBUG1("cancelButtonCallback: fcinfo=0x%lx\n",fcinfo);
+X    if (fcinfo->cancelCallback != NULL) {
+X	DEBUG0("cancelButtonCallback: calling cancelCallback\n");
+X	(*(fcinfo->cancelCallback))(fcinfo,fcinfo->client_data);
+X    }
+X    DEBUG0("cancelButtonCallback: done\n");
+}
+X
+/*
+X * KeyPress event handler for Text item: When Return is typed, act as if
+X * OK had been clicked. If this event isn't Return, just let it be
+X * dispatched normally.
+X */
+/*ARGSUSED*/
+static void
+keyPressEventHandler(w,client_data,event,continue_to_dispatch)
+Widget w;
+XXtPointer client_data;
+XXEvent *event;
+Boolean *continue_to_dispatch;
+{
+X    KeySym keysym;
+X    char str[8];
+X
+X    DEBUG1("keyPressHandler: w=0x%x\n",w);
+X    (void)XLookupString((XKeyEvent*)event,str,sizeof(str),&keysym,NULL);
+X    if (keysym == XK_Return) {
+X	DEBUG0("keyPressHandler: calling okButtonCallback...\n");
+X	okButtonCallback(NULL,client_data,NULL);
+X    }
+X    DEBUG0("keyPressHandler: done\n");
+}
+X
+/*
+X * Nonmaskable event handler for Shell: If the event is a ClientMessage
+X * of WM_PROTOCOLS then act as if Cancel had been clicked.
+X */
+/*ARGSUSED*/
+static void
+nonmaskableEventHandler(w,client_data,event,continue_to_dispatch)
+Widget w;
+XXtPointer client_data;
+XXEvent *event;
+Boolean *continue_to_dispatch;
+{
+X    DEBUG1("nonmaskableHandler: w=0x%x\n",w);
+X    if (event->type == ClientMessage &&
+X        event->xclient.data.l[0] == WM_DELETE_WINDOW) {
+X	DEBUG0("nonmaskableHandler: calling cancelButtonCallback\n");
+X	cancelButtonCallback(NULL,client_data,NULL);
+X    }
+X    DEBUG0("nonmaskableHandler: done\n");
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/fchooser.c ||
+echo 'restore of xarchie-2.0.6/fchooser.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/fchooser.c'`"
+test 8468 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/fchooser.c: original size 8468, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/fchooser.h ==============
+if test -f 'xarchie-2.0.6/fchooser.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/fchooser.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/fchooser.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/fchooser.h' &&
+/*
+X * fchooser.c : Xarchie interface to the FileChooser
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#if NeedFunctionPrototypes
+struct _FileChooserInfo;
+#endif
+X
+typedef void (*FileChooserOkProc)(
+#if NeedFunctionPrototypes
+X    struct _FileChooserInfo *fcinfo,
+X    char *filename,
+X    XtPointer client_data
+#endif
+);
+X
+typedef void (*FileChooserCancelProc)(
+#if NeedFunctionPrototypes
+X    struct _FileChooserInfo *fcinfo,
+X    XtPointer client_data
+#endif
+);
+X
+typedef struct _FileChooserInfo {
+X    Widget shell;
+#ifdef FILECHOOSER
+X    Widget fcw;
+#endif
+X    Widget text;
+X    Widget okButton,cancelButton;
+X    FileChooserOkProc okCallback;
+X    FileChooserCancelProc cancelCallback;
+X    XtPointer client_data;
+} FileChooserInfo;
+X
+extern FileChooserInfo *
+createFileChooser(
+#if NeedFunctionPrototypes
+X    Widget shell,
+X    Widget parent,
+X    char *basename,
+X    FileChooserOkProc okCallback,
+X    FileChooserCancelProc cancelCallback,
+X    XtPointer client_data
+#endif
+);
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/fchooser.h ||
+echo 'restore of xarchie-2.0.6/fchooser.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/fchooser.h'`"
+test 988 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/fchooser.h: original size 988, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/file-panel.c ==============
+if test -f 'xarchie-2.0.6/file-panel.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/file-panel.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/file-panel.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/file-panel.c' &&
+/*
+X * file-panel.c : The save-load-write panel
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X * 14 May 1993: Fixed #endif followed by non-comment.
+X */
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/Shell.h>
+#include <X11/StringDefs.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/MenuButton.h>
+#include <X11/Xaw/Label.h>
+#ifdef FILECHOOSER
+# include <FChooser.h>
+#endif
+#include "config.h"
+#ifdef HAVE_SYS_PARAM_H
+#include <sys/param.h>
+#endif
+#include "xarchie.h"
+SHAR_EOF
+true || echo 'restore of xarchie-2.0.6/file-panel.c failed'
+fi
+echo 'End of xarchie-2.0.6 part 7'
+echo 'File xarchie-2.0.6/file-panel.c is continued in part 8'
+echo 8 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

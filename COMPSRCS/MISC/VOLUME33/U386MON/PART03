@@ -1,0 +1,1904 @@
+Newsgroups: comp.sources.misc
+From: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Subject:  v33i112:  u386mon - SVR3 performance/status monitor v2.60, Part03/09
+Message-ID: <1992Nov22.020019.24090@sparky.imd.sterling.com>
+X-Md4-Signature: 4354a39d956d61a1640565f0cf3be39a
+Date: Sun, 22 Nov 1992 02:00:19 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Posting-number: Volume 33, Issue 112
+Archive-name: u386mon/part03
+Environment: SYSVR3
+Supersedes: u386mon: Volume 22, Issue 3-9
+
+#!/bin/sh
+# This is part 03 of u386mon.2.60
+# ============= u386mon.c ==============
+if test -f 'u386mon.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping u386mon.c (File already exists)'
+else
+echo 'x - extracting u386mon.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'u386mon.c' &&
+X/* CHK=0x0C21 */
+Xchar *revision = "2.6";
+X/*+-------------------------------------------------------------------------
+X	u386mon.c - UNIX 386 (and other) system monitor
+X	wht@n4hgf.Mt-Park.GA.US and many others
+X
+X  Defined functions:
+X	adb_trap()
+X	calc_cpu_avg(per_state)
+X	calc_wait_avg(per_state)
+X	caught_signal(sig)
+X	draw_cpuscale_literals(win,y,x)
+X	draw_per_sec_literals(win,y,x)
+X	draw_waitscale_literals(win,y,x)
+X	extra_info_stuff()
+X	extra_static_stuff()
+X	get_cpu_avg(cpu_ticks,period)
+X	get_elapsed_time(elapsed_seconds)
+X	get_wait_avg(wait_ticks,period)
+X	leave(exit_code)
+X	leave_text(text,exit_code)
+X	leaving(exit_code)
+X	main(argc,argv,envp)
+X	update_cpuscale(win,y,x,width,per_state)
+X	update_waitscale(win,y,x,width,per_state,total_ticks)
+X
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+X u386mon xxx.xxx                       PLOCK     INVALID      hh:mm:ss wht@n4hgf
+X
+X---- CPU --- tot usr ker brk ---------------------------------------------------
+X Instant %   ### ### ### ### xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X 5 Sec Avg % ### ### ### ### xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X10 Sec Avg % ### ### ### ### xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X---- Wait -- tot  io pio swp ---------------------------------------------------
+X Instant %   ### ### ### ### xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X 5 Sec Avg % ### ### ### ### xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X10 Sec Avg % ### ### ### ### xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:34-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:03-09-1992-11:54-wht@n4hgf-bump version number for p_sid addition */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-14-1991-13:04-wht@n4hgf-STREAMS and table works for ISC 2.2 */
+X/*:08-11-1991-14:05-root@n4hgf-use PATCHLEVEL */
+X/*:08-01-1991-23:35-wht@n4hgf-release 2.40 source control point */
+X/*:05-15-1991-17:22-wht@n4hgf-2.3 patches for SVR31 from nba@sysware.dk */
+X/*:05-14-1991-06:11-root@n4hgf-evidently a fast cpu gets 0 cpu sometimes :-) */
+X/*:05-09-1991-03:57-wht@n4hgf-fix HZ problem reported by ir@crosfield.co.uk */
+X/*:05-09-1991-03:35-wht@n4hgf-gcc gives good warning */
+X/*:05-09-1991-02:24-wht@n4hgf-HZ environment variable might be non-zero */
+X/*:04-16-1991-02:25-martin@hppcmart additions for SCO 3.2.2 */
+X/*:03-16-1991-14:22-wht@n4hgf-widen sysinfo column 4 */
+X/*:08-14-1990-19:08-root@n4hgf-fix **argv bug */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:08-01-1990-19:24-jdc@dell.com-add DELL config */
+X/*:08-01-1990-17:25-wht@n4hgf-fix sysi86 swap calculations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:07-28-1990-15:05-wht@n4hgf-make CYCLEmsec variable */
+X/*:07-11-1990-03:45-root@n4hgf-faster proc table manipulation */
+X/*:07-10-1990-19:06-root@n4hgf-redesign attributes/color pairs */
+X/*:07-10-1990-18:33-root@n4hgf-move pio wait to medium alert */
+X/*:07-10-1990-18:01-root@n4hgf-"improvement" didnt do much, but leave for now */
+X/*:07-10-1990-13:54-root@n4hgf-improve nap heuristics and catch signals */
+X/*:07-08-1990-20:31-root@n4hgf-make room for phread/phwrite */
+X/*:07-03-1990-02:48-root@n4hgf-more accurate timing using ftime calculations */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-27-1990-01:07-wht@n4hgf-add ^R and ^L refresh */
+X/*:06-25-1990-17:34-wht@n4hgf-add detail extra for 25 line tubes */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:06-15-1990-18:32-wht@n4hgf-creation */
+X
+X#include "config.h"
+X#include "patchlevel.h"
+X
+X#include <curses.h>
+X#include <sys/types.h>
+X#undef timeout /* conflict in curses.h and bootinfo.h per trb@ima.ima.isc.com */
+X#undef reg     /* per nba@sysware.dk */
+X#include "libpanel.h"
+X#include <signal.h>
+X#include <string.h>
+X#include <fcntl.h>
+X#include <nlist.h>
+X#include <errno.h>
+X#include <time.h>
+X#if defined(HAS_TIMEB)
+X# include <sys/timeb.h>
+X#endif
+X#include <sys/lock.h>
+X#include <sys/utsname.h>
+X#include <sys/stat.h>
+X#if defined(HAS_ASCII)
+X# include <sys/ascii.h>
+X#else
+X#define A_ESC	'\033'
+X#endif
+X#undef NGROUPS_MAX
+X#undef NULL
+X#include <sys/param.h>
+X#if defined(HAS_BOOTINFO)
+X# include <sys/bootinfo.h>
+X#endif
+X#include <sys/tuneable.h>
+X#include <sys/sysinfo.h>
+X#include <sys/sysmacros.h>
+X#include <sys/immu.h>
+X#include <sys/region.h>
+X#if defined(mips)
+X# include <sys/sbd.h>
+X#endif
+X#include <sys/proc.h>
+X#include <sys/var.h>
+X#if defined(i386) || defined(i486)
+X# include <sys/sysi86.h>
+X#endif
+X#if defined(mips)
+X# include <sys/sysmips.h>
+X#endif
+X#include <sys/swap.h>
+X#if !defined(mips)
+X# include <sys/trap.h>
+X#endif
+X
+X#include "nlsym.h"
+X#include "libkmem.h"
+X#include "libmem.h"
+X#include "libswap.h"
+X#include "libnlsym.h"
+X#include "u386mon.h"
+X
+Xlong nap();
+XPANEL *mkpanel();
+X
+X#if defined(HAS_TIMEB)
+X#define delta_msec(t,t0) ((( t.time * 1000L) +  t.millitm) - \
+X                          ((t0.time * 1000L) + t0.millitm))
+X#endif
+X
+X#define INEXACT_STATE	2
+X#define INVALID_STATE	5
+X
+X#if defined(mips)
+X#define CYCLEmsecDef 5000L
+X#define CYCLEmsecMax 9000L
+X#else
+X#define CYCLEmsecDef 2000L
+X#define CYCLEmsecMax 4000L
+X#endif
+X
+Xlong CYCLEmsec = CYCLEmsecDef;
+X
+Xstruct sysinfo sysinfo;
+Xstruct sysinfo sysinfo_last;
+X#define sysidelta(x) (sysinfo.x - sysinfo_last.x)
+X
+Xstruct minfo minfo;
+Xstruct minfo minfo_last;
+X#define midelta(x) (minfo.x - minfo_last.x)
+X
+X#if defined(HAS_BOOTINFO)
+Xstruct bootinfo bootinfo;
+X#endif
+X
+Xswpt_t swaptab [MSFILES];
+Xswpi_t swapint = {SI_LIST, (char *)swaptab};
+Xstruct tune tune;
+Xstruct utsname utsname;
+Xstruct var v;
+X
+X#if defined(HAS_TIMEB)
+Xstruct timeb timeb_cycle_start;
+Xstruct timeb timeb_cycle_end;
+Xstruct timeb timeb_info_read;
+Xstruct timeb timeb_last_info_read;
+X#endif
+X
+Xint hz;
+Xint nswap;	/* seems to be in units of NBPSCTR bytes */
+Xint maxmem;
+Xint freemem;
+Xdaddr_t myreadlen = 0L;
+Xint myreadcnt = 0;
+Xint stat_period_msec_y = -1;
+Xint stat_period_msec_x = -1;
+Xint color_avail = 0;
+Xint invalidity = 0;
+X
+XPANEL *pscr;
+XWINDOW *wscr;
+Xextern WINDOW *wdet;
+X
+X#define CPU_AVG_MAX		10
+Xint cpu_avg_init = 0;
+Xtime_t *cpu_avg[CPU_AVG_MAX];
+Xtime_t cpu_ticks[5];
+X
+X#define WAIT_AVG_MAX	10
+Xint wait_avg_init = 0;
+Xtime_t *wait_avg[WAIT_AVG_MAX];
+Xtime_t wait_ticks[5];
+X
+X/*+-------------------------------------------------------------------------
+X	basename(fullname) - strip directory name from filename
+X
+Xreturns address of static string
+X--------------------------------------------------------------------------*/
+Xchar *
+Xbasename(fullname)
+Xchar *fullname;
+X{
+X	register char *start;
+X	static char outstr[256];
+X	char *strrchr();
+X
+X	start = strrchr(fullname,'/'); /* find last slash */
+X	if(!start)
+X		return(fullname);
+X	start++;
+X	strcpy(outstr,start);
+X	return(outstr);
+X}	/* end of basename */
+X
+X/*+-------------------------------------------------------------------------
+X	leaving() - perform leave() basic processing and return
+X--------------------------------------------------------------------------*/
+Xvoid
+Xleaving()
+X{
+X	wmove(wscr,CMD_TLY,0);
+X	use_cp(wscr,cpLIT);
+X	wclrtoeol(wscr);
+X	pflush();
+X	endwin();
+X}	/* end of leaving */
+X
+X/*+-------------------------------------------------------------------------
+X	leave(exit_code) - leave program with exit code
+X--------------------------------------------------------------------------*/
+Xvoid
+Xleave(exit_code)
+Xint exit_code;
+X{
+X	leaving();
+X	exit(exit_code);
+X}	/* end of leave */
+X
+X/*+-------------------------------------------------------------------------
+X	leave_text(text,exit_code) - leave program with message and exit code
+XIf exit_code == 255, do wperror
+X--------------------------------------------------------------------------*/
+Xvoid
+Xleave_text(text,exit_code)
+Xchar *text;
+Xint exit_code;
+X{
+X	if(exit_code == 255)
+X	{
+X		int y;
+X		register x;
+X		extern int errno;
+X		extern int sys_nerr;
+X		extern char *sys_errlist[];
+X
+X		top_panel(pscr);
+X		wmove(wscr,MSG_TLY - 2,0);
+X		use_cp(wscr,cpHIGH);
+X		x = 0;
+X		while(x++ < COLS)
+X			waddch(wscr,(chtype)' ');
+X		wmove(wscr,MSG_TLY - 1,0);
+X		wprintw(wscr,"errno %d",errno);
+X		if(errno < sys_nerr)
+X			wprintw(wscr,": %s",sys_errlist[errno]);
+X		getyx(wscr,y,x);
+X		while(x++ < COLS)
+X			waddch(wscr,(chtype)' ');
+X	}
+X	if (text && *text)
+X		disp_msg(cpHIGH,text);
+X	else
+X	{
+X		wmove(stdscr,LINES - 1,0);
+X		wclrtoeol(stdscr);
+X	}
+X	leave(exit_code);
+X}	/* end of leave_text */
+X
+X/*+-------------------------------------------------------------------------
+X	adb_trap() - convenient trap for catching abort
+X
+X  Get a look at stack before abort() botches it
+X--------------------------------------------------------------------------*/
+X#if defined(ADB_DEBUG)
+Xvoid
+Xadb_trap()
+X{
+X	printf("too bad .... goodbye\n");
+X}	/* end of adb_trap */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	caught_signal(sig) - SIGHUP thru SIGSYS: leave with possible abort
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcaught_signal(sig)
+Xint sig;
+X{
+X	leaving();
+X	switch(sig)
+X	{
+X		case SIGQUIT:
+X		case SIGILL:
+X		case SIGTRAP:
+X		case SIGIOT:
+X		case SIGEMT:
+X		case SIGFPE:
+X		case SIGBUS:
+X		case SIGSEGV:
+X		case SIGSYS:
+X#if defined(ADB_DEBUG)
+X			adb_trap();	/* if debugging, stop at convenient breakpoint */
+X#endif
+X			abort();
+X	}
+X	exit(200);
+X}	/* end of caught_signal */
+X
+X/*+-----------------------------------------------------------------------
+X	char *get_elapsed_time(elapsed_seconds) - "ddd+hh:mm:ss" returned
+X  static string address is returned
+X------------------------------------------------------------------------*/
+Xchar *
+Xget_elapsed_time(elapsed_seconds)
+Xtime_t elapsed_seconds;
+X{
+X	static char elapsed_time_str[32];
+X	time_t dd,hh,mm,ss;
+X
+X	dd = 0;
+X	hh = elapsed_seconds / 3600;
+X	if(hh > 24)
+X	{
+X		dd = hh / 24;
+X		elapsed_seconds -= dd * 3600 * 24;
+X		hh %= 24;
+X	}
+X	elapsed_seconds -= hh * 3600;
+X	mm = elapsed_seconds / 60L;
+X	elapsed_seconds -= mm * 60L;
+X	ss = elapsed_seconds;
+X
+X	if(dd)
+X		(void)sprintf(elapsed_time_str,"%3ld+%02ld:%02ld:%02ld",dd,hh,mm,ss);
+X	else
+X		(void)sprintf(elapsed_time_str,"    %2ld:%02ld:%02ld",hh,mm,ss);
+X	return(elapsed_time_str);
+X}	/* end of get_elapsed_time */
+X
+X/*+-------------------------------------------------------------------------
+X	draw_cpuscale_literals(win)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdraw_cpuscale_literals(win,y,x)
+XWINDOW *win;
+Xint y;
+Xint x;
+X{
+X	int x2 = x;
+X
+X	wmove(win,y,x);
+X	use_cp(wscr,cpBANNER);
+X	waddstr(win,"---- CPU --- tot usr ker brk ");
+X	getyx(win,y,x2);
+X	while(x2 < COLS)
+X		waddch(win,(chtype)'-'),x2++;
+X	use_cp(wscr,cpLIT);
+X	wmove(win,y + 1,x);
+X	if(CYCLEmsec == 1000L)
+X		waddstr(win," Instant %  ");
+X	else
+X		wprintw(win,"%2d Sec Avg %%",(int)(CYCLEmsec / 1000L));
+X	wmove(win,y + 2,x);
+X  	wprintw(win,"%2d Sec Avg %%",(int)(CYCLEmsec * 5 / 1000L));
+X	wmove(win,y + 3,x);
+X  	wprintw(win,"%2d Sec Avg %%",(int)(CYCLEmsec * 10 / 1000L));
+X
+X}	/* end of draw_cpuscale_literals */
+X
+X/*+-------------------------------------------------------------------------
+X	update_cpuscale(win,y,width,per_state)
+X
+X000000000011111111112222222222333333333344444444445555555555666666
+X012345678901234567890123456789012345678901234567890123456789012345
+Xtot usr ker misc 
+X### ### ### ### xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X--------------------------------------------------------------------------*/
+X#define _CPUSCALE_TX	0
+X#define _CPUSCALE_UX	4
+X#define _CPUSCALE_KX	8
+X#define _CPUSCALE_BX	12
+X#define _CPUSCALE_SX	16
+X
+Xtime_t
+Xupdate_cpuscale(win,y,x,width,per_state)
+XWINDOW *win;
+Xint y;
+Xint x;
+Xregister width;
+Xtime_t *per_state;
+X{
+X	register itmp;
+X	int accum = 0;
+X	time_t idle = per_state[CPU_IDLE] + per_state[CPU_WAIT];
+X	time_t cpu_ticks_total = idle + per_state[CPU_SXBRK] + 
+X							 per_state[CPU_KERNEL] + per_state[CPU_USER];
+X	time_t percent_user    = 0;
+X	time_t percent_kernel  = 0;
+X	time_t percent_break   = 0;
+X	time_t percent_busy    = 0;
+X
+X	if(cpu_ticks_total)
+X	{
+X		percent_user    = (per_state[CPU_USER]   * 100) / cpu_ticks_total;
+X		percent_kernel  = (per_state[CPU_KERNEL] * 100) / cpu_ticks_total;
+X		percent_break   = (per_state[CPU_SXBRK]  * 100) / cpu_ticks_total;
+X		percent_busy    = percent_user + percent_kernel + percent_break;
+X	}
+X
+X	if(!idle)			/* take care of integer div truncation */
+X		percent_busy = 100;
+X
+X	wmove(win,y, x + _CPUSCALE_TX);
+X	if(percent_busy < 70)
+X		use_cp(wscr,cpLOW);
+X	else if(percent_busy < 90)
+X		use_cp(wscr,cpMED);
+X	else
+X		use_cp(wscr,cpHIGH);
+X	wprintw(win,"%3ld",percent_busy);
+X
+X	wmove(win,y, x + _CPUSCALE_UX);
+X	use_cp(wscr,cpINFO);
+X	wprintw(win,"%3ld",percent_user);
+X	
+X	wmove(win,y, x + _CPUSCALE_KX);
+X	wprintw(win,"%3ld",percent_kernel);
+X	
+X	wmove(win,y, x + _CPUSCALE_BX);
+X	wprintw(win,"%3ld",percent_break);
+X	
+X	wmove(win,y, x + _CPUSCALE_SX);
+X	use_cp(wscr,cpLOW);
+X	itmp = (width * percent_user) / 100;
+X	accum += itmp;
+X	while(itmp--)
+X		waddch(win,(chtype)'u');
+X
+X	use_cp(wscr,cpMED);
+X	itmp = (width * percent_kernel) / 100;
+X	accum += itmp;
+X	while(itmp--)
+X		waddch(win,(chtype)'k');
+X
+X	use_cp(wscr,cpHIGH);
+X	itmp = (width * percent_break) / 100;
+X	accum += itmp;
+X	while(itmp--)
+X		waddch(win,(chtype)'b');
+X
+X	if((percent_busy > 98) && ((width - accum) > 0))
+X	{
+X		waddch(win,(chtype)'*');
+X		accum++;
+X	}
+X
+X	use_cp(wscr,cpLIT);
+X	if((itmp = (width - accum)) > 0)
+X	{
+X		while(itmp--)
+X			waddch(win,(chtype)' ');
+X	}
+X	return(cpu_ticks_total);
+X}	/* end of update_cpuscale */
+X
+X/*+-------------------------------------------------------------------------
+X	calc_cpu_avg(per_state) - add per_state array to avg array
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcalc_cpu_avg(per_state)
+Xtime_t per_state[];
+X{
+X	register itmp;
+X
+X	if(!cpu_avg_init)
+X	{
+X		for(itmp = 0; itmp < CPU_AVG_MAX; itmp++)
+X			(void)memcpy(cpu_avg[itmp],per_state,sizeof(time_t) * 5);
+X		cpu_avg_init = 1;
+X	}
+X	else
+X	{
+X		for(itmp = 0; itmp < CPU_AVG_MAX - 1; itmp++)
+X			(void)memcpy(cpu_avg[itmp],cpu_avg[itmp + 1],sizeof(time_t) * 5);
+X		(void)memcpy(cpu_avg[itmp],per_state,sizeof(time_t) * 5);
+X	}
+X
+X}	/* end of calc_cpu_avg */
+X
+X/*+-------------------------------------------------------------------------
+X	get_cpu_avg(cpu_ticks,period)
+X--------------------------------------------------------------------------*/
+Xget_cpu_avg(cpu_ticks,period)
+Xtime_t cpu_ticks[];
+Xint period;
+X{
+X	register iperiod = CPU_AVG_MAX;
+X	register istate;
+X	register count = period;
+X
+X	for(istate = 0; istate < 5; istate++)
+X		cpu_ticks[istate] = 0;
+X
+X	while(count--)
+X	{
+X		iperiod--;
+X		for(istate = 0; istate < 5; istate++)
+X		{
+X			cpu_ticks[istate] += (cpu_avg[iperiod])[istate];
+X		}
+X	}
+X
+X	for(istate = 0; istate < 5; istate++)
+X		cpu_ticks[istate] /= period;
+X
+X}	/* end of get_cpu_avg */
+X
+X/*+-------------------------------------------------------------------------
+X	draw_waitscale_literals(win)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdraw_waitscale_literals(win,y,x)
+XWINDOW *win;
+Xint y;
+Xint x;
+X{
+X	int x2 = x;
+X
+X	wmove(win,y,x);
+X	use_cp(wscr,cpBANNER);
+X	waddstr(win,"---- Wait -- tot  io pio swp -- (% of real time) ");
+X	getyx(win,y,x2);
+X	while(x2 < COLS)
+X		waddch(win,(chtype)'-'),x2++;
+X	use_cp(wscr,cpLIT);
+X	wmove(win,y + 1,x);
+X	if(CYCLEmsec == 1000L)
+X		waddstr(win," Instant %  ");
+X	else
+X		wprintw(win,"%2d Sec Avg %%",(int)(CYCLEmsec / 1000L));
+X	wmove(win,y + 2,x);
+X  	wprintw(win,"%2d Sec Avg %%",(int)(CYCLEmsec * 5 / 1000L));
+X	wmove(win,y + 3,x);
+X  	wprintw(win,"%2d Sec Avg %%",(int)(CYCLEmsec * 10 / 1000L));
+X
+X}	/* end of draw_waitscale_literals */
+X
+X/*+-------------------------------------------------------------------------
+X	draw_per_sec_literals(win)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdraw_per_sec_literals(win,y,x)
+XWINDOW *win;
+Xint y;
+Xint x;
+X{
+X
+X	wmove(win,y,x);
+X	use_cp(wscr,cpBANNER);
+X	waddstr(win,"---- Sysinfo/Minfo --- (last ");
+X	getyx(win,stat_period_msec_y,stat_period_msec_x);
+X 	wprintw(win," %4ld msec activity) ",CYCLEmsec);
+X	getyx(win,y,x);
+X	while(x < getmaxx(win))
+X		waddch(win,(chtype)'-'),x++;
+X
+X}	/* end of draw_per_sec_literals */
+X
+X/*+-------------------------------------------------------------------------
+X	update_waitscale(win,y,width,per_state)
+X
+X000000000011111111112222222222333333333344444444445555555555666666
+X012345678901234567890123456789012345678901234567890123456789012345
+Xtot  io pio swp  
+X### ### ### ### xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X--------------------------------------------------------------------------*/
+X#define _WAITSCALE_TX	0
+X#define _WAITSCALE_IX	4
+X#define _WAITSCALE_PX	8
+X#define _WAITSCALE_WX	12
+X#define _WAITSCALE_SX	16
+X
+Xtime_t
+Xupdate_waitscale(win,y,x,width,per_state,total_ticks)
+XWINDOW *win;
+Xint y;
+Xint x;
+Xregister width;
+Xtime_t *per_state;
+Xtime_t total_ticks;
+X{
+X	register itmp;
+X	int accum = 0;
+X	time_t percent_io = 0L;
+X	time_t percent_swap = 0L;
+X	time_t percent_pio = 0L;
+X	time_t percent_total_wait;
+X	time_t total_wait;
+X
+X/* crock: because of latency, total_ticks < all wait ticks sometimes */
+X	total_wait = per_state[W_IO] + per_state[W_SWAP] + per_state[W_PIO];
+X	if(total_ticks < total_wait)
+X		total_ticks = total_wait;
+X
+X	if(total_ticks)
+X	{
+X		percent_io    = (per_state[W_IO]   * 100) / total_ticks;
+X		percent_pio   = (per_state[W_PIO]  * 100) / total_ticks;
+X		percent_swap  = (per_state[W_SWAP] * 100) / total_ticks;
+X	}
+X
+X	wmove(win,y, x + _WAITSCALE_TX);
+X	percent_total_wait = percent_io + percent_swap + percent_pio;
+X	if(percent_total_wait < 30)
+X		use_cp(wscr,cpLOW);
+X	else if(percent_total_wait < 50)
+X		use_cp(wscr,cpMED);
+X	else
+X		use_cp(wscr,cpHIGH);
+X	wprintw(win,"%3ld",percent_total_wait);
+X
+X	use_cp(wscr,cpINFO);
+X	wmove(win,y, x + _WAITSCALE_IX);
+X	wprintw(win,"%3ld",percent_io);
+X	
+X	wmove(win,y, x + _WAITSCALE_PX);
+X	wprintw(win,"%3ld",percent_pio);
+X	
+X	wmove(win,y, x + _WAITSCALE_WX);
+X	wprintw(win,"%3ld",percent_swap);
+X	
+X	wmove(win,y, x + _WAITSCALE_SX);
+X	use_cp(wscr,cpLOW);
+X	itmp = (width * percent_io) / 100;
+X	accum += itmp;
+X	while(itmp--)
+X		waddch(win,(chtype)'i');
+X
+X	use_cp(wscr,cpMED);
+X	itmp = (width * percent_pio) / 100;
+X	accum += itmp;
+X	while(itmp--)
+X		waddch(win,(chtype)'p');
+X
+X	use_cp(wscr,cpHIGH);
+X	itmp = (width * percent_swap) / 100;
+X	accum += itmp;
+X	while(itmp--)
+X		waddch(win,(chtype)'s');
+X
+X	use_cp(wscr,cpLIT);
+X	if((itmp = (width - accum)) > 0)
+X	{
+X		while(itmp--)
+X			waddch(win,(chtype)' ');
+X	}
+X
+X}	/* end of update_waitscale */
+X
+X/*+-------------------------------------------------------------------------
+X	calc_wait_avg(per_state) - add per_state array to avg array
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcalc_wait_avg(per_state)
+Xtime_t per_state[];
+X{
+X	register itmp;
+X
+X	if(!wait_avg_init)
+X	{
+X		for(itmp = 0; itmp < WAIT_AVG_MAX; itmp++)
+X			(void)memcpy(wait_avg[itmp],per_state,sizeof(time_t) * 3);
+X		wait_avg_init = 1;
+X	}
+X	else
+X	{
+X		for(itmp = 0; itmp < WAIT_AVG_MAX - 1; itmp++)
+X			(void)memcpy(wait_avg[itmp],wait_avg[itmp + 1],sizeof(time_t) * 3);
+X		(void)memcpy(wait_avg[itmp],per_state,sizeof(time_t) * 3);
+X	}
+X
+X}	/* end of calc_wait_avg */
+X
+X/*+-------------------------------------------------------------------------
+X	get_wait_avg(wait_ticks,period)
+X--------------------------------------------------------------------------*/
+Xget_wait_avg(wait_ticks,period)
+Xtime_t wait_ticks[];
+Xint period;
+X{
+X	register iperiod = WAIT_AVG_MAX;
+X	register istate;
+X	register count = period;
+X
+X	for(istate = 0; istate < 3; istate++)
+X		wait_ticks[istate] = 0;
+X
+X	while(count--)
+X	{
+X		iperiod--;
+X		for(istate = 0; istate < 3; istate++)
+X		{
+X			wait_ticks[istate] += (wait_avg[iperiod])[istate];
+X		}
+X	}
+X
+X	for(istate = 0; istate < 3; istate++)
+X		wait_ticks[istate] /= period;
+X
+X}	/* end of get_wait_avg */
+X
+X/*+-------------------------------------------------------------------------
+X	extra_static_stuff()/extra_info_stuff() - for 43 line display
+X--------------------------------------------------------------------------*/
+Xvoid
+Xextra_static_stuff()
+X{
+X	display_var(wscr,EXTRA_TLY,EXTRA1_TLX);
+X#if defined(HAS_BOOTINFO)
+X	display_bootinfo(wscr,EXTRA_TLY,EXTRA2_TLX);
+X#endif
+X	display_tune(wscr,EXTRA_TLY,EXTRA3_TLX);
+X}	/* end of extra_static_stuff */
+X
+Xvoid
+Xextra_info_stuff()
+X{
+X	display_proc(wscr,EXTRA_TLY,EXTRA4_TLX);
+X}	/* end of extra_info_stuff */
+X
+X/*+-------------------------------------------------------------------------
+X	read_sysinfo_and_minfo()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xread_sysinfo_and_minfo()
+X{
+X#if defined(HAS_TIMEB)
+X	timeb_last_info_read = timeb_info_read;
+X	(void)ftime(&timeb_info_read);
+X#endif
+X	kread((caddr_t)&sysinfo,sysinfoaddr,sizeof(sysinfo));
+X	kread((caddr_t)&minfo,minfoaddr,sizeof(minfo));
+X}	/* end of read_sysinfo_and_minfo */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv,envp)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xmain(argc,argv,envp)
+Xint argc;
+Xchar **argv;
+Xchar **envp;
+X{
+X	register itmp;
+X	register char *cptr;
+X	register chtype cmd;
+X	register chtype initial_cmd = 0;
+X	int errflg = 0;
+X	int plock_indicator = 0;
+X	time_t total_ticks;
+X	long stat_period_msec;
+X	long nap_msec;
+X	long nap_msec_remaining;
+X	int y,x;
+X	int banner_free_x;
+X	long ltmp, now;
+X#if !defined(HAS_TIMEB)
+X	long then;
+X#endif /* HAS_TIMEB */
+X	struct tm *lt;
+X	static char stdoutbuf[2048];
+X	char s80[80];
+X	extern int optind;
+X
+X/*
+X * curses works better if standard output is fully buffered
+X */
+X	(void)setvbuf(stdout,stdoutbuf,_IOFBF,sizeof(stdoutbuf));
+X
+X/*
+X * check out command line
+X */
+X	while((itmp = getopt(argc,argv,"lPnpstw")) != -1)
+X	{
+X		switch(itmp)
+X		{
+X			case 'P':
+X			case 'p':
+X#if defined(DPT_STREAMS)
+X			case 'n':
+X#endif
+X#if defined(DPT_TABLE)
+X			case 't':
+X#endif
+X#if defined(DPT_SIO)
+X			case 's':
+X#endif
+X#if defined(DPT_WD)
+X			case 'w':
+X#endif
+X				initial_cmd = (chtype) itmp;
+X				break;
+X			case 'l':
+X				plock_indicator = 1;
+X				break;
+X			case '?':
+X				errflg++;
+X		}
+X	}
+X	if(errflg || (optind != argc))
+X	{
+X		static char *usage_str[]=
+X		{
+X			"-l lock process into memory (if root)",
+X			"-p begin with short ps display",
+X			"-P begin with long ps display (if 43 line screen)",
+X			(char *)0
+X		};
+X		char **cpptr = usage_str;
+X		fprintf(stderr,"usage: %s [-l] [-p | -P]\n",basename(*argv));
+X		while(*cpptr)
+X			(void)fprintf(stderr,"%s\n",*(cpptr++));
+X		exit(1);
+X	}
+X
+X/*
+X * if man wants to plock() try it; fail silently if non-root
+X */
+X	if(plock_indicator && plock(PROCLOCK))
+X	{
+X		nice(-5);
+X		plock_indicator = 0;
+X	}
+X
+X/*
+X * Real(tm) performance monitor users will have done a kernel link
+X * and won't need to rely on /etc/systemid
+X */
+X	if(uname(&utsname))
+X	{
+X		leave_text("uname failed",255);
+X		exit(1);
+X	}
+X
+X/*
+X * allocate memory for cpu time array averaging buckets
+X */
+X	for(itmp = 0; itmp < CPU_AVG_MAX; itmp++)
+X	{
+X		if(!(cpu_avg[itmp] = (time_t *)malloc(sizeof(time_t) * 5)))
+X			leave_text("cannot alloc memory for cpu avg arrays",1);
+X	}
+X
+X/*
+X * allocate memory for wait time array averaging buckets
+X */
+X	for(itmp = 0; itmp < WAIT_AVG_MAX; itmp++)
+X	{
+X		if(!(wait_avg[itmp] = (time_t *)malloc(sizeof(time_t) * 3)))
+X			leave_text("cannot alloc memory for wait avg arrays",1);
+X	}
+X
+X/*
+X * initialize curses environment
+X */
+X	if(!initscr())
+X	{
+X		(void)printf("curses init failed\n");
+X		exit(1);
+X	}
+X#if defined(COLOR_PAIR)
+X	has_colors_kludge();
+X#endif
+X	clear();
+X	refresh();
+X
+X	if((LINES < 24) || (COLS < 80))
+X	{
+X		waddstr(stdscr,"\n\n\nNeed at least 80x24 screen\n\n");
+X		refresh();
+X		endwin();
+X		exit(1);
+X	}
+X
+X	noecho();
+X	keypad(stdscr,TRUE);
+X	typeahead(-1);
+X#if !defined(HAS_RDCHK)
+X	cbreak ();
+X#endif
+X
+X/*
+X * see u386mon.h cXXX definitons for A_BOLD requirements for bright colors
+X */
+X#if defined(COLOR_PAIR)
+X	if(color_avail)
+X	{
+X		start_color();
+X		init_pair(cpLIT,cBLU,cBLK);
+X		init_pair(cpINFO,cGRN,cBLK);
+X		init_pair(cpLOW,cLTG,cBLK);
+X		init_pair(cpMED,cYEL,cBLK);
+X		init_pair(cpHIGH,cRED,cBLK);
+X		init_pair(cpBANNER,cBLK,cWHT);
+X		init_pair(cpREVERSE,cRED,cWHT);
+X		init_pair(cpBANWARN,cBLU,cWHT);
+X	}
+X#endif
+X
+X#if (defined(i386) || defined(i486)) && defined(HI_BIT_CAN_BE_SET)
+X	/* a hack for now -- assuming AT char set */
+X	/* This does NOT work with SCO ... rumours are it does work somewhere */
+X	acs_map['l'] = A_ALTCHARSET | sTL;	
+X	acs_map['m'] = A_ALTCHARSET | sTR;	
+X	acs_map['j'] = A_ALTCHARSET | sBL;	
+X	acs_map['k'] = A_ALTCHARSET | sBR;	
+X	acs_map['x'] = A_ALTCHARSET | sVR;		/* vertical rule */
+X	acs_map['q'] = A_ALTCHARSET | sHR;		/* horizontal rule */
+X	acs_map['t'] = A_ALTCHARSET | sLT;		/* left hand T */
+X	acs_map['u'] = A_ALTCHARSET | sRT;		/* right hand T */
+X#endif
+X
+X	if(!(pscr = mkpanel(LINES - 1,COLS,0,0,"main")))
+X	{
+X		addstr("cannot make screen panel");
+X		refresh();
+X		endwin();
+X		exit(1);
+X	}
+X	wscr = panel_window(pscr);
+X	top_panel(pscr);
+X#if !defined(HAS_RDCHK)
+X	nodelay (wscr, TRUE);
+X#endif
+X
+X/*
+X * catch signals that can leave our tty in disarray
+X */
+X	for(itmp = SIGHUP; itmp < SIGSYS; itmp++)
+X		signal(itmp,caught_signal);
+X
+X/*
+X * read nlist symbols, open /dev/kmem, /dev/mem, /dev/swap,
+X * initialize detail environment
+X * (all of these must occur after curses init)
+X * drop euid and egid (after opening privileged mem/devices)
+X * initialize process status uid->name hasher
+X */
+X	nlsym_read();
+X	kinit(0);	/* /dev/kmem, read access only */
+X	minit(0);	/* /dev/mem,  read access only */
+X	sinit();	/* /dev/swap, only read access available */
+X	(void)setuid(getuid());	/* some people run us setuid, so clen that up */
+X	(void)setgid(getgid());	/* now that we have the fds open, drop egid */
+X	kread((caddr_t)&v,vaddr,sizeof(v));
+X	detail_init();
+X
+X/*
+X * start fireworks
+X */
+X	wmove(wscr,0,0);
+X	use_cp(wscr,cpBANNER);
+X	waddch(wscr,(chtype)' ');
+X	waddstr(wscr,basename(*argv));
+X	waddch(wscr,(chtype)' ');
+X	waddstr(wscr,revision);
+X	wprintw(wscr,"%d",PATCHLEVEL);	/* good for nine patches */
+X
+X#if defined(mips)
+X	waddstr(wscr,"/Tandem");
+X#else
+X#if defined(M_UNIX)
+X	waddstr(wscr,"/SCO");
+X#else
+X#if defined(ISC)
+X#if defined(DELL)
+X	waddstr(wscr,"/Dell");
+X#else
+X	waddstr(wscr,"/ISC");
+X#endif
+X#endif
+X#endif
+X#endif
+X	
+X#if defined(DELL)
+X	wprintw(wscr," Rel %s Ver %s - Node %s ",
+X		utsname.release,utsname.version,utsname.nodename);
+X#else
+X#if defined(m68k)
+X	wprintw(wscr," %s %s - %s ",
+X		utsname.release,utsname.version,utsname.nodename);
+X#else
+X	/* utsname.release and utsname.version are practcally redundant here */
+X	wprintw(wscr," %s - %s ",utsname.release,utsname.nodename);
+X#endif
+X#endif
+X	getyx(wscr,y,x);
+X	banner_free_x = x+2;
+X	while(x < getmaxx(wscr))
+X		waddch(wscr,(chtype)' '),x++;
+X	wmove(wscr,0,COLS - 9);
+X	waddstr(wscr,"wht@n4hgf");
+X	if(plock_indicator)
+X	{
+X		wmove(wscr,0,banner_free_x);
+X		use_cp(wscr,cpMED);
+X		waddstr(wscr," PLOCK ");
+X		use_cp(wscr,cpBANNER);
+X	}
+X	wmove(wscr,3,0);
+X	use_cp(wscr,cpMED);
+X	waddstr(wscr,"WAIT");
+X	pflush();
+X
+X	wmove(stdscr,CMD_TLY,0);
+X	use_cp(stdscr,cpBANNER);
+X	if(LINES >= 43)
+X		waddstr(stdscr,"ESC=quit P,p=ps m=main ");
+X	else
+X		waddstr(stdscr,"ESC=quit p=ps e=extra m=main ");
+X#if defined(DPT_SIO)
+X	waddstr(stdscr,"s=sio ");
+X#endif
+X#if defined(DPT_TABLE)
+X	waddstr(stdscr,"t=table ");
+X#endif
+X#if defined(DPT_STREAMS)
+X	waddstr(stdscr,"n=net ");
+X#endif
+X#if defined(DPT_WD)
+X	waddstr(stdscr,"w=disk ");
+X#endif
+X
+X	if(getuid() == 0)	/* root can launch fireworks very predictably */
+X		waddstr(stdscr,"l/u=lock ");
+X	waddstr(stdscr,"+/-=rate");
+X	getyx(stdscr,y,x);
+X	while(x < getmaxx(stdscr))
+X		waddch(stdscr,(chtype)' '),x++;
+X	use_cp(stdscr,cpLIT);
+X	use_cp(wscr,cpLIT);
+X
+X/*
+X * make initial kmem readings
+X */
+X	hz = (cptr = getenv("HZ")) ? atoi(cptr) : HZ;
+X	if(!hz)		/* avoid problem reported by Ian Reid <ir@crosfield.co.uk> */
+X		hz = HZ;
+X	kread((caddr_t)&maxmem,maxmemaddr,sizeof(maxmem));
+X	kread((caddr_t)&tune,tuneaddr,sizeof(tune));
+X	kread((caddr_t)&v,vaddr,sizeof(v));
+X
+X	kread((caddr_t)&nswap,nswapaddr,sizeof(nswap));
+X	itmp = -1;
+X#if defined(S3BSWPI)	/* 68000 handled here, not AT&T 3B */
+X	itmp = _sysm68k (S3BSWPI,&swapint);	/* per nba@sysware.dk */
+X#endif
+X#if defined(SI86SWPI)
+X	itmp = sysi86(SI86SWPI,&swapint);
+X#endif
+X#if defined(SMIPSSWPI)
+X	itmp = sysmips(SMIPSSWPI,&swapint);
+X#endif
+X	if(!itmp)
+X	{
+X		nswap = 0;
+X		for (itmp = 0; itmp < MSFILES; itmp++)
+X			nswap += swaptab[itmp].st_npgs * NBPP / NBPSCTR;
+X	}
+X
+X#if defined(HAS_BOOTINFO)
+X	kread((caddr_t)&bootinfo,bootinfoaddr,sizeof(bootinfo));
+X#endif
+X
+X	read_sysinfo_and_minfo();
+X	sysinfo_last = sysinfo;
+X	minfo_last = minfo;
+X
+X#if defined(HAS_TIMEB)
+X	timeb_last_info_read = timeb_info_read;
+X#else
+X	(void)time (&now);
+X#endif
+X
+X/*
+X * initialize static display (literals)
+X */
+X	draw_cpuscale_literals(wscr,CPUSCALE_TLY,0);
+X	draw_waitscale_literals(wscr,WAITSCALE_TLY,0);
+X	draw_per_sec_literals(wscr,PER_SEC_TLY,0);
+X
+X	if(LINES >= 43)
+X		extra_static_stuff();
+X
+X/*
+X * while(user_not_bored) entertain_and_inform_user();
+X */
+X#ifdef HAS_NAP
+X	nap(CYCLEmsec);
+X#else
+X	napms(CYCLEmsec);
+X#endif
+X	while(1)
+X	{
+X
+X#if defined(HAS_RDCHK)
+X		if(rdchk(0))
+X			goto RDCHK;
+X#endif
+X
+X#if defined(HAS_TIMEB)
+X		ftime(&timeb_cycle_start);
+X		stat_period_msec = delta_msec(timeb_info_read,timeb_last_info_read);
+X		(void)time(&now);
+X#else
+X		then = now;
+X		(void)time(&now);
+X		stat_period_msec = (now - then) * 1000L;
+X#endif
+X
+X		lt = localtime(&now);
+X		wmove(wscr,0,COLS - 18);
+X		use_cp(wscr,cpBANNER);
+X		wprintw(wscr,"%02d:%02d:%02d",lt->tm_hour,lt->tm_min,lt->tm_sec);
+X
+X		kread((caddr_t)&freemem,freememaddr,sizeof(freemem));
+X		read_sysinfo_and_minfo();
+X
+X		/* heuristic validity determination */
+X		wmove(wscr,0,banner_free_x + 8);
+X		if((itmp = stat_period_msec > (CYCLEmsec + 3000L)) ||
+X			(invalidity > INVALID_STATE))
+X		{
+X			use_cp(wscr,cpHIGH);
+X			waddstr(wscr," INVALID ");
+X			if(itmp)
+X			{	/* gack - a hack */
+X				itmp = (stat_period_msec - CYCLEmsec) / 1000;
+X				if(itmp > 4)
+X					itmp = 4;
+X				invalidity += INVALID_STATE + itmp;
+X			}
+X		}
+X		else if((itmp = (stat_period_msec > (CYCLEmsec + 1500L))) ||
+X				(invalidity > INEXACT_STATE))
+X		{
+X			use_cp(wscr,cpMED);
+X			waddstr(wscr," INEXACT ");
+X			if(itmp)
+X				invalidity += INEXACT_STATE;
+X		}
+X		if(invalidity && !(--invalidity))
+X		{
+X			use_cp(wscr,cpBANNER);
+X			waddstr(wscr,"         ");
+X		}
+X		if(stat_period_msec > (CYCLEmsec + 1000L))
+X			use_cp(wscr,cpREVERSE);
+X		else if(stat_period_msec > (CYCLEmsec + 500L))
+X			use_cp(wscr,cpBANWARN);
+X		else
+X			use_cp(wscr,cpBANNER);
+X		wmove(wscr,stat_period_msec_y,stat_period_msec_x);
+X		wprintw(wscr,"%5ld",stat_period_msec);
+X
+X
+X#if defined(FIRST_TRY)
+X		/* going this way seems to get cpu+wait ticks > real time */
+X		for (itmp = 0; itmp < 5; itmp++)
+X			cpu_ticks[itmp] = sysidelta(cpu[itmp]);
+X		for (itmp = 0; itmp < 3; itmp++)
+X			wait_ticks[itmp] = sysidelta(wait[itmp]);
+X#else
+X		for (itmp = 0; itmp < 5; itmp++)
+X		{
+X			if(itmp != CPU_WAIT)
+X				cpu_ticks[itmp] = sysidelta(cpu[itmp]);
+X		}
+X		cpu_ticks[CPU_WAIT] = 0;
+X		for (itmp = 0; itmp < 3; itmp++)
+X			cpu_ticks[CPU_WAIT] += (wait_ticks[itmp] = sysidelta(wait[itmp]));
+X#endif
+X
+X		total_ticks = update_cpuscale(wscr,CPUSCALE_TLY + 1,CPUSCALE_SX,
+X			CPUSCALE_WIDTH,cpu_ticks);
+X
+X		update_waitscale(wscr,WAITSCALE_TLY + 1,WAITSCALE_SX,
+X			WAITSCALE_WIDTH,wait_ticks,total_ticks);
+X
+X		calc_cpu_avg(cpu_ticks);
+X		calc_wait_avg(wait_ticks);
+X
+X		get_cpu_avg(cpu_ticks,5);
+X		total_ticks = update_cpuscale(wscr,CPUSCALE_TLY + 2,CPUSCALE_SX,
+X			CPUSCALE_WIDTH,cpu_ticks);
+X
+X		get_wait_avg(wait_ticks,5);
+X		update_waitscale(wscr,WAITSCALE_TLY + 2,WAITSCALE_SX,
+X			WAITSCALE_WIDTH,wait_ticks,total_ticks);
+X
+X		get_cpu_avg(cpu_ticks,10);
+X		total_ticks = update_cpuscale(wscr,CPUSCALE_TLY + 3,CPUSCALE_SX,
+X			CPUSCALE_WIDTH,cpu_ticks);
+X
+X		get_wait_avg(wait_ticks,10);
+X		update_waitscale(wscr,WAITSCALE_TLY + 3,WAITSCALE_SX,
+X			WAITSCALE_WIDTH,wait_ticks,total_ticks);
+X
+X		use_cp(wscr,cpINFO);
+X		y = PER_SEC_TLY + 1;
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"bread    ","%7ld",sysidelta(bread));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"bwrite   ","%7ld",sysidelta(bwrite));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		if((ltmp = sysidelta(lread) - myreadcnt) < 0)
+X			ltmp = 0;
+X		disp_info_long(wscr,"lread    ","%7ld",ltmp);
+X		myreadcnt = 0;	/* reset /dev/{mem,kmem,swap} read count */
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"lwrite   ","%7ld",sysidelta(lwrite));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"phread   ","%7ld",sysidelta(phread));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"phwrite  ","%7ld",sysidelta(phwrite));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"swapin   ","%7ld",sysidelta(swapin));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"swapout  ","%7ld",sysidelta(swapout));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"bswapin  ","%7ld",sysidelta(bswapin));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"bswapout ","%7ld",sysidelta(bswapout));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"iget     ","%7ld",sysidelta(iget));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"namei    ","%7ld",sysidelta(namei));
+X		wmove(wscr,y++,PER_SEC1_TLX);
+X		disp_info_long(wscr,"dirblk   ","%7ld",sysidelta(dirblk));
+X
+X		y = PER_SEC_TLY + 1;
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		if((ltmp = sysidelta(readch) - myreadlen) < 0)
+X			ltmp = 0;
+X		disp_info_long(wscr,"readch  ","%7ld",ltmp);
+X		myreadlen = 0;	/* reset /dev/{mem,kmem,swap} read count */
+X
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_info_long(wscr,"writch  ","%7ld",sysidelta(writech));
+X
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_info_long(wscr,"rawch   ","%7ld",sysidelta(rawch));
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_info_long(wscr,"canch   ","%7ld",sysidelta(canch));
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_info_long(wscr,"outch   ","%7ld",sysidelta(outch));
+X
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_info_long(wscr,"msg     ","%7ld",sysidelta(msg));
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_info_long(wscr,"sema    ","%7ld",sysidelta(sema));
+X
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_static_long(wscr, "maxmem  ","%6ldk",(long)maxmem * NBPP / 1024);
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_info_long(wscr,   "frmem   ","%6ldk",(long)freemem * NBPP / 1024);
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_info_int (wscr,   "mem used","%6d%%",
+X			100 - (int)((freemem * 100) / maxmem));
+X
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_static_int(wscr, "nswap   ","%6ldk",nswap * NBPSCTR / 1024);
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_info_long(wscr,  "frswp   ","%6ldk",minfo.freeswap* NBPSCTR/1024);
+X		wmove(wscr,y++,PER_SEC2_TLX);
+X		disp_info_int(wscr,   "swp used","%6d%%",
+X			100 - (int)((minfo.freeswap * 100) / nswap));
+X
+X		y = PER_SEC_TLY + 1;
+X		wmove(wscr,y++,PER_SEC3_TLX);
+X		disp_info_long(wscr,"pswitch ","%5ld",sysidelta(pswitch));
+X		wmove(wscr,y++,PER_SEC3_TLX);
+X		disp_info_long(wscr,"syscall ","%5ld",sysidelta(syscall));
+X		wmove(wscr,y++,PER_SEC3_TLX);
+X		disp_info_long(wscr,"sysread ","%5ld",sysidelta(sysread));
+X		wmove(wscr,y++,PER_SEC3_TLX);
+X		disp_info_long(wscr,"syswrit ","%5ld",sysidelta(syswrite));
+X		wmove(wscr,y++,PER_SEC3_TLX);
+X		disp_info_long(wscr,"sysfork ","%5ld",sysidelta(sysfork));
+X		wmove(wscr,y++,PER_SEC3_TLX);
+X		disp_info_long(wscr,"sysexec ","%5ld",sysidelta(sysexec));
+X
+X		y++;
+X		wmove(wscr,y++,PER_SEC3_TLX);
+X		disp_info_long(wscr,"runque  ","%5ld",sysidelta(runque));
+X		wmove(wscr,y++,PER_SEC3_TLX);
+X		disp_info_long(wscr,"runocc  ","%5ld",sysidelta(runocc));
+X		wmove(wscr,y++,PER_SEC3_TLX);
+X		disp_info_long(wscr,"swpque  ","%5ld",sysidelta(swpque));
+X		wmove(wscr,y++,PER_SEC3_TLX);
+X		disp_info_long(wscr,"swpocc  ","%5ld",sysidelta(swpocc));
+X
+X		y = PER_SEC_TLY + 1;
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"vfault  ","%4ld",midelta(vfault));
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"demand  ","%4ld",midelta(demand));
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"pfault  ","%4ld",midelta(pfault));
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"cw      ","%4ld",midelta(cw));
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"steal   ","%4ld",midelta(steal));
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"frdpgs  ","%4ld",midelta(freedpgs));
+X#if defined(SVR32)
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"vfpg    ","%4ld",midelta(vfpg));
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"sfpg    ","%4ld",midelta(sfpg));
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"vspg    ","%4ld",midelta(vspg));
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"sspg    ","%4ld",midelta(sspg));
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"pnpfault","%4ld",sysidelta(pnpfault));
+X		wmove(wscr,y++,PER_SEC4_TLX);
+X		disp_info_long(wscr,"wrtfault","%4ld",sysidelta(wrtfault));
+X#endif
+X
+X		y = PER_SEC_TLY + 1;
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		disp_info_long(wscr,"unmodsw ","%3ld",midelta(unmodsw));
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		disp_info_long(wscr,"unmodfl ","%3ld",midelta(unmodfl));
+X#if defined(SVR32)
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		disp_info_long(wscr,"psoutok ","%3ld",midelta(psoutok));
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		disp_info_long(wscr,"psinfai ","%3ld",midelta(psinfail));
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		disp_info_long(wscr,"psinok  ","%3ld",midelta(psinok));
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		disp_info_long(wscr,"rsout   ","%3ld",midelta(rsout));
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		disp_info_long(wscr,"rsin    ","%3ld",midelta(rsin));
+X#endif
+X
+X		y++;
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		use_cp(wscr,cpLIT);
+X		waddstr(wscr,"pages on   ");
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		disp_info_long(wscr,"swap  ","%5ld",midelta(swap));
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		disp_info_long(wscr,"cache ","%5ld",midelta(cache));
+X		wmove(wscr,y++,PER_SEC5_TLX);
+X		disp_info_long(wscr,"file  ","%5ld",midelta(file));
+X
+X		if(LINES >= 43)
+X			extra_info_stuff();
+X
+X		detail_panel_update();
+X
+X		if(initial_cmd)
+X		{
+X			detail_panel_cmd(initial_cmd);
+X			initial_cmd = 0;
+X		}
+X
+X		pflush();
+X
+X		cmd = 0;
+X#if defined(HAS_RDCHK)
+XRDCHK:
+X		while(rdchk(0))
+X#endif
+X		{
+X			switch(cmd = wgetch(wscr))
+X			{
+X				case 'L' & 0x1F:		/* ^L */
+X				case 'R' & 0x1F:		/* ^R */
+X					clearok (wscr, TRUE);
+X					touchwin(wscr);
+X					wrefresh(wscr);
+X					if(wdet)
+X					{
+X						touchwin(wdet);
+X						wrefresh(wscr);
+X					}
+X					break;
+X
+X				case 'q':
+X				case A_ESC:
+X					goto GOOD_BYE;
+X#if defined(HAS_BOOTINFO)
+X				case 'b':
+X					if(bootinfo.bootstrlen > 79)
+X						itmp = 79;
+X					else
+X						itmp = bootinfo.bootstrlen;
+X					kread(s80,bootinfoaddr +
+X						(bootinfo.bootstr - (caddr_t)&bootinfo),itmp);
+X					s80[itmp] = 0;
+X					disp_msg(cpMED,s80);
+X					break;
+X#endif
+X				case 'e':
+X				case 'P':
+X				case 'p':
+X				case 'm':
+X#if defined(DPT_TABLE)
+X				case 't':
+X#endif
+X#if defined(DPT_STREAMS)
+X				case 'n':
+X#endif
+X#if defined(DPT_SIO)
+X				case 's':
+X#endif
+X#if defined(DPT_WD)
+X				case 'w':
+X#endif
+X					detail_panel_cmd(cmd);
+X					break;
+X				case 'l':
+X					if(!plock_indicator)
+X					{
+X						if(!plock(PROCLOCK))
+X						{
+X							plock_indicator = 1;
+X							wmove(wscr,0,banner_free_x);
+X							use_cp(wscr,cpMED);
+X							waddstr(wscr," PLOCK ");
+X							nice(-5);
+X						}
+X					}
+X					break;
+X				case 'u':
+X					if(plock_indicator)
+X					{
+X						if(!plock(UNLOCK))
+X						{
+X							plock_indicator = 0;
+X							wmove(wscr,0,banner_free_x);
+X							use_cp(wscr,cpBANNER);
+X							waddstr(wscr,"       ");
+X							nice(5);
+X						}
+X					}
+X					break;
+X				case '+':
+X					if(CYCLEmsec < CYCLEmsecMax)
+X					{
+X						invalidity += (INEXACT_STATE * (CYCLEmsec + 1000L)) /
+X											CYCLEmsec;
+X						CYCLEmsec += 1000L;
+X						draw_cpuscale_literals(wscr,CPUSCALE_TLY,0);
+X						draw_waitscale_literals(wscr,WAITSCALE_TLY,0);
+X					}
+X					else beep();
+X					break;
+X				case '-':
+X					if(CYCLEmsec > 1000L)
+X					{
+X						CYCLEmsec -= 1000L;
+X						draw_cpuscale_literals(wscr,CPUSCALE_TLY,0);
+X						draw_waitscale_literals(wscr,WAITSCALE_TLY,0);
+X					}
+X					else beep();
+X					break;
+X				case 0:
+X				case (chtype)-1:
+X					break;
+X				default:
+X					beep();
+X					break;
+X			}
+X		}
+X
+X		/* remember previous statistics for next delta */
+X		sysinfo_last = sysinfo;
+X		minfo_last = minfo;
+X
+X		/* ex-lax: all in the name of regularity */
+X#if defined(HAS_TIMEB)
+X		ftime(&timeb_cycle_end);
+X		nap_msec = CYCLEmsec - delta_msec(timeb_cycle_end,timeb_cycle_start);
+X		if(nap_msec < (CYCLEmsec - 300L))
+X			nap_msec = (CYCLEmsec - 300L);
+X#else
+X		nap_msec = (CYCLEmsec - 300L);
+X#endif
+X
+X		nap_msec_remaining = nap_msec;
+X
+X#if defined(HAS_RDCHK)
+X		while(nap_msec_remaining > 0)
+X		{
+X#ifdef HAS_NAP
+X			nap(250L);
+X#else
+X			napms(250);	/* curses call: alas most round UP to nearest second */
+X#endif
+X			nap_msec_remaining -= 250;
+X			if(rdchk(0))
+X				break;
+X		}
+X#else /* do not have rdchk() */
+X#ifdef HAS_NAP
+X			nap(nap_msec_remaining);
+X#else
+X			napms(nap_msec_remaining);
+X#endif
+X#endif /* HAS_NAP */
+X			
+X	}
+X
+XGOOD_BYE:
+X	leave_text("",0);
+X	/*NOTREACHED*/
+X}	/* end of main */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of u386mon.c */
+SHAR_EOF
+chmod 0644 u386mon.c ||
+echo 'restore of u386mon.c failed'
+Wc_c="`wc -c < 'u386mon.c'`"
+test 40718 -eq "$Wc_c" ||
+	echo 'u386mon.c: original size 40718, current size' "$Wc_c"
+fi
+# ============= bootinfo.c ==============
+if test -f 'bootinfo.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping bootinfo.c (File already exists)'
+else
+echo 'x - extracting bootinfo.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'bootinfo.c' &&
+X/* CHK=0xA59C */
+X/*+-------------------------------------------------------------------------
+X	bootinfo.c - u386mon bootinfo struct display
+X
+X  Defined functions:
+X	bmemf_text(flags)
+X	display_bootinfo(win,y,x)
+X
+XWe try to be dynamic with memory block counts, but if the sum of
+Xmemavailcnt and memusedcnt ever exceeds 7, we will lose in 24 line
+Xsessions (8 in 25 line, 9 in 43 line)
+X
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:06-21-1992-00:34-root@n4hgf-needed extern for 3.2v4 */
+X/*:06-20-1992-20:19-root@n4hgf-dont let info fall off bottom */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:35-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:07-11-1990-17:19-root@n4hgf-more input from trb@ima.ima.isc.com */
+X/*:07-04-1990-01:28-root@n4hgf-alan@cms2.lonestar.org reported missing M_ */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-25-1990-03:18-wht@n4hgf-ODT/3.2.1 has B_MEM_CANTDMA not B_MEM_NODMA */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:06-17-1990-14:59-wht-creation */
+X
+X#include "config.h"
+X
+X#if defined(HAS_BOOTINFO)
+X
+X#include <curses.h>
+X#undef timeout /* conflict in curses.h and bootinfo.h per trb@ima.ima.isc.com */
+X#undef reg     /* per nba@sysware.dk */
+X#include "libpanel.h"
+X#include <sys/types.h>
+X#include <sys/bootinfo.h>
+X#include "u386mon.h"
+X
+Xextern struct bootinfo bootinfo;
+X
+X/*+-------------------------------------------------------------------------
+X	bmemf_text(flags)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xbmemf_text(flags)
+Xulong flags;
+X{
+X	static char hex_errant[16];
+X	ulong orig_flags = flags;
+X
+X#if defined(B_MEM_DOWN)		/* SCO only */
+X	flags &= ~B_MEM_DOWN;
+X#endif
+X#if defined(B_MEM_BASE)		/* ISC only (or is it SVR3.2.2?) */
+X	flags &= ~B_MEM_BASE;
+X#endif
+X#if defined(B_MEM_EXPANS)	/* ISC */
+X	flags &= ~B_MEM_EXPANS;
+X#endif
+X#if defined(B_MEM_SHADOW)	/* ISC */
+X	flags &= ~B_MEM_SHADOW;
+X#endif
+X#if defined(B_MEM_TREV)		/* ISC */
+X	flags &= ~B_MEM_TREV;
+X#endif
+X
+X	if(!flags)
+X		return("    ");
+X	switch(flags)
+X	{
+X#if defined(B_MEM_RSRVD)
+X		case B_MEM_RSRVD: return("RSVD");
+X#endif
+X#if defined(B_MEM_KBSS)
+X		case B_MEM_KBSS:  return("KBSS");
+X#endif
+X#if defined(B_MEM_KTEXT)
+X		case B_MEM_KTEXT: return("KTXT");
+X#endif
+X#if defined(B_MEM_KDATA)
+X		case B_MEM_KDATA: return("KDTA");
+X#endif
+X#if defined(B_MEM_NODMA)
+X		case B_MEM_NODMA: return("NODM");
+X#endif
+X#if defined(B_MEM_CANTDMA)
+X		case B_MEM_CANTDMA: return("NODM");
+X#endif
+X	}
+X	sprintf(hex_errant,"%04x",(ushort)orig_flags);
+X	return(hex_errant);
+X}	/* end of bmemf_text */
+X
+X/*+-------------------------------------------------------------------------
+X	ISC_machinetype_text(machine)
+X--------------------------------------------------------------------------*/
+X#if defined(ME_COMPAQVGA)	/* ISC machdep.h */
+Xchar *
+XISC_machinetype_text(machine)
+Xunsigned char machine;
+X{
+X	switch(machine)
+X	{
+X#if defined(M_UNKNOWN)	/* some ISC bootinfo.h do not have these */
+X		case M_UNKNOWN:
+X			return("");
+X			break;
+X#endif
+X#if defined(M_COMPAQ)
+X		case M_COMPAQ:
+X			return("Compaq");
+X			break;
+X#endif
+X#if defined(M_PS2)
+X		case M_PS2:
+X			return("PS/2");
+X			break;
+X#endif
+X#if defined(M_AT)
+X		case M_AT:
+X			return("Generic 386");
+X			break;
+X#endif
+X#if defined(M_ATT)
+X		case M_ATT:
+X			return("AT&T 6386");
+X			break;
+X#endif
+X#if defined(M_ATT5)
+X		case M_ATT5:
+X			return("AT&T 6386");
+X			break;
+X#endif
+X#if defined(M_M380)
+X		case M_M380:
+X			return("Olivetti M380");
+X			break;
+X#endif
+X#if defined(M_DELL)
+X		case M_DELL:
+X			return("Dell 386");
+X			break;
+X#endif
+X#if defined(M_D325)
+X		case M_D325:
+X			return("Dell 325");
+X			break;
+X#endif
+X#if defined(M_ALR)
+X		case M_ALR:
+X			return("Adv Logic Res");
+X			break;
+X#endif
+X#if defined(M_ZDS)
+X		case M_ZDS:
+X			return("Zenith Data");
+X			break;
+X#endif
+X	}
+X	return("i386");
+X}	/* end of ISC_machinetype_text */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	ISC_displaytype_text(adapter)
+X--------------------------------------------------------------------------*/
+X#if defined(ME_COMPAQVGA)	/* ISC machdep.h */
+Xchar *
+XISC_displaytype_text(adapter)
+Xunsigned char adapter;
+X{
+X
+X	switch(adapter)
+X	{
+X		case ME_UNKNOWN:
+X			return("unknown to sys");
+X			break;
+X		case ME_EGA:
+X			return("EGA");
+X			break;
+X		case ME_CGA80:
+X			return("CGA");
+X			break;
+X		case ME_MONO:
+X			return("MONO");
+X			break;
+X		case ME_COMPAQHR:
+X			return("Compaq mono");
+X			break;
+X		case ME_Z449:
+X			return("Zenith Z449");
+X			break;
+X		case ME_T5100:
+X			return("Toshiba T5100");
+X			break;
+X		case ME_COMPAQVGA:
+X			return("Compaq VGA");
+X			break;
+X		case ME_OTHERVGA:
+X			return("VGA");
+X			break;
+X#if defined(ME_PVGA1)
+X		case ME_PVGA1:
+X			return("Paradise VGA1");
+X			break;
+X#endif /*ME_PVGA1*/
+X#if defined(ME_V7VGA)
+X		case ME_V7VGA:
+X			return("Video 7 VGA");
+X			break;
+X#endif /*ME_V7VGA*/
+X	}
+X	return("???");
+X}	/* end of ISC_displaytype_text */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	display_bootinfo(win,y,x)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_bootinfo(win,y,x)
+XWINDOW *win;
+Xint y;
+Xint x;
+X{
+X	register itmp;
+X	register struct bootmem *bmem;
+X	int maxy = getmaxy(win);
+X
+X	use_cp(win,cpBANNER);
+X	wmove(win,y++,x);
+X	waddstr(win,"-- Bootinfo ----------");
+X#if defined(M_UNIX)	/* ISC doesn't have this in struct */
+X	wmove(win,y++,x);
+X	disp_static_long(win,"basemem  ","%7ldk     ",bootinfo.basemem / 1024);
+X	wmove(win,y++,x);
+X	disp_static_long(win,"extmem   ","%7ldk     ",bootinfo.extmem / 1024);
+X#endif
+X#if defined(ME_COMPAQVGA)	/* ISC machdep.h */
+X	wmove(win,y++,x);
+X	wprintw(win,"machine %14.14s",
+X		ISC_machinetype_text(bootinfo.machenv.machine));
+X	wmove(win,y++,x);
+X	wprintw(win,"disp %17.17s",
+X		ISC_displaytype_text(bootinfo.machenv.adapter));
+X#endif
+X	wmove(win,y++,x);
+X	disp_static_long(win,"bflags   ","%08lx     ",bootinfo.bootflags);
+X
+X	wmove(win,y++,x); waddstr(win,"memory available      ");
+X	for(itmp = 0; itmp < bootinfo.memavailcnt; itmp++)
+X	{
+X		bmem = &bootinfo.memavail[itmp];
+X#if defined(B_MEM_DOWN)
+X		if(bmem->flags & B_MEM_DOWN)
+X		{
+X			bmem->base -= bmem->extent;
+X			bmem->flags &= ~B_MEM_DOWN;
+X		}
+X#endif
+X		if(y == (maxy - 2))
+X			goto NO_ROOM;
+X		wmove(win,y++,x);
+X		wprintw(win,"%08lx %08lx %s",bmem->base,bmem->extent,
+X			bmemf_text(bmem->flags));
+X	}
+X
+X	if(y == (maxy - 2))
+X		goto NO_ROOM;
+X	wmove(win,y++,x);
+X	waddstr(win,"memory used           ");
+X	for(itmp = 0; itmp < bootinfo.memusedcnt; itmp++)
+X	{
+X		bmem = &bootinfo.memused[itmp];
+X#if defined(B_MEM_DOWN)
+X		if(bmem->flags & B_MEM_DOWN)
+X		{
+X			bmem->base -= bmem->extent;
+X			bmem->flags &= ~B_MEM_DOWN;
+X		}
+X#endif
+X		if(y == (maxy - 2))
+X			goto NO_ROOM;
+X		wmove(win,y++,x);
+X		wprintw(win,"%08lx %08lx %s",bmem->base,bmem->extent,
+X			bmemf_text(bmem->flags));
+X	}
+X
+X
+X	return;
+X
+XNO_ROOM:
+X	wmove(win,maxy - 2,x);
+X	waddstr(win,"insufficient display rows for complete information");
+X
+X}	/* end of display_bootinfo */
+X
+X#endif /* HAS_BOOTINFO */
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of bootinfo.c */
+SHAR_EOF
+chmod 0644 bootinfo.c ||
+echo 'restore of bootinfo.c failed'
+Wc_c="`wc -c < 'bootinfo.c'`"
+test 7500 -eq "$Wc_c" ||
+	echo 'bootinfo.c: original size 7500, current size' "$Wc_c"
+fi
+true || echo 'restore of detail.c failed'
+echo End of part 3, continue with part 4
+exit 0
+
+exit 0 # Just in case...

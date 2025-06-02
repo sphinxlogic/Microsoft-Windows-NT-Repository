@@ -1,0 +1,1328 @@
+Newsgroups: comp.sources.misc
+From: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Subject: v38i027:  procmail - mail processing package v2.90, Part08/11
+Message-ID: <1993Jul1.151300.21721@sparky.imd.sterling.com>
+X-Md4-Signature: 33617c3b0d3b6a96000a1dd00762c63a
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 1 Jul 1993 15:13:00 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Posting-number: Volume 38, Issue 27
+Archive-name: procmail/part08
+Environment: sendmail, smail, MMDF, mailsurr, UNIX, POSIX
+Supersedes: procmail: Volume 35, Issue 21-32,124,125
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 8 (of 11)."
+# Contents:  procmail/mailinglist/Manual
+#   procmail/mailinglist/bin/digest procmail/src/mailfold.c
+#   procmail/src/regexp.c
+# Wrapped by berg@tubastos on Thu Jul  1 14:06:17 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'procmail/mailinglist/Manual' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/mailinglist/Manual'\"
+else
+echo shar: Extracting \"'procmail/mailinglist/Manual'\" \(15180 characters\)
+sed "s/^X//" >'procmail/mailinglist/Manual' <<'END_OF_FILE'
+X$Id: Manual,v 1.11 1993/06/21 14:23:42 berg Exp $
+X
+X		Written by Stephen R. van den Berg.
+X					berg@pool.informatik.rwth-aachen.de
+X					berg@physik.tu-muenchen.de
+X
+XContents:
+X---------	1. Creating and removing mailinglists or archive servers
+X		2. Remote maintenance of mailinglists
+X		3. Customisation
+X		3a.Digest processing
+X		3b.Moderated lists
+X		3c.Schematic overview of what goes on behind the scenes
+X		4. The archive server
+X		5. The format of the dist file
+X		6. Multigram and the thresholds in rc.init/rc.custom
+X
+X
+X1. Creating and removing mailinglists or archive servers
+X   -----------------------------------------------------
+X
+XMake sure that the .bin directory is in your PATH.  Now you can issue
+Xcommands like:
+X
+X	createlist testing
+X	createlist testing joe@somewhere.edu
+X	createlist -a testing joe@somewhere.edu
+X	removelist testing
+X
+XThe first command creates a mailinglist with two useful addresses:
+X
+X	testing
+X	testing-request
+X
+XThe second command does the same, but it also specifies joe@somewhere.edu
+Xto be the responsible contact person for this list.
+X
+XThe third command does the same, except instead of creating a mailinglist,
+Xit creates an archive server.
+X
+XThe fourth command removes all traces of the "testing" mailinglist again.
+X
+XThere are two other convenience-utilitis that can be used:
+X	delink
+X		It will unlink a file from its hardlinked counterpart(s).
+X	showlink
+X		It will display what groups of files are linked together.
+X
+X
+X2. Remote maintenance of mailinglists
+X   ----------------------------------
+X
+XTo facilitate remote maintenance of some mailinglists by their maintainers
+XI have created the .bin/x_command script.  It parses mails sent to the
+X-request address and can execute some administrative commands.
+X
+XThe mail should be sent to the -request address of a mailinglist and
+Xshould contain a field in the header looking like this:
+X
+XX-Command: joe@somewhere.edu password command
+X
+X"command" can be anything of the following:
+X
+X	subscribe mailaddress
+X	unsubscribe mailaddress
+X	showdist			To list the distfile
+X	showlog				To list the log
+X	wipelog				To clear the log
+X	help				To show this command summary
+X	info				Ditto
+X
+XThe exact fieldname defaults to "X-Command", but can be customised to
+Xwhatever you want.
+X
+XThe password defaults to "password", but can/should be changed.
+X
+XThe "joe@somewhere.edu" is always the mail address of the maintainer.  Note
+Xthat this has to match what was specified on the command line of
+X"createlist" when the list was created.
+X
+XNote that the X-Command: field has to be part of the header, when it's
+Xin the body of the mail, it has no effect.
+X
+XAnytime an X-Command: mail has been processed, the results will be
+Xmailed back to the maintainer of the list, and the X-Command: field
+Xwill have been renamed to X-Processed:.
+X
+XAlthough this remote-facility is convenient, some might argue that it
+Xpresents a security hole.  Well, in order to make this hole as small as
+Xpossible, you can keep the password secret.  Also, the exact mailaddress
+Xof the maintainer might not be publicly known.	You can simply change
+Xthe X-Command field into something else like X-MyCommand.  Above all, since
+Xfaking mail is a well known possibility it would be ridiculous to take
+Xmore precautions than these.  Besides, if someone indeed manages to sneek in
+Xa bogus X-Command:, it will never go unnoticed since the mailing list
+Xmaintainer (and only the maintainer) will always receive the X-Processed:
+Xmail.
+X
+X
+X3. Customisation
+X   -------------
+X
+XThe mailinglists can be customised in several ways:
+X
+X- For all the lists:
+X	- Since all the lists share the same help.txt, subscibe.txt, rc.init,
+X	  rc.submit and rc.request files (hardlinked), any change to them
+X	  will affect all lists.
+X	- Since all the lists have the .bin directory in their PATH, any
+X	  change to one of the Bourne shell scripts in there will affect
+X	  them all.
+X- Per list:
+X	- Every list directory contains an "rc.custom" rcfile which can
+X	  be edited to your hearts content to customise certain parameters
+X	  for this list only.
+X	- For graver customisation you can remove the hardlink (using
+X	  .bin/delink for example) to any of the files in a list directory and
+X	  provide that list with its own copy in order to edit that to taste.
+X	- Since the current directory is in the PATH before the .bin
+X	  directory you can create per-list copies of any of the Bourne shell
+X	  scripts in .bin which can then be changed without affecting the
+X	  other lists.
+X- Per group of lists:
+X	- The same applies as when customising per list, but you should
+X	  then hardlink the appropriate files among the group of list
+X	  directories.
+X
+XIf you are not using the remote-maintenance facility and you start editing
+Xor customising scripts/files by hand, then you should make sure that there
+Xdoesn't arrive any mail to those lists that are affected by your changes.
+X
+XIf you are editing while the system is running you can temporarily put
+Xincoming mails on hold;	 you can do this:
+X
+X- for all the lists by creating the file:	.etc/rc.lock
+X- only for one list by creating the file:	rc.lock
+X  in the list directory of that list.
+X
+XThe .bin/flist command checks to see if these rc.lock files exist AND are
+Xnot older than 17 minutes before delivering the mail.  So, if you create
+Xan rc.lock file, mails to that (or all) lists will stall for the next
+X17 minutes.  If you need more time, touch the file every so often.
+XYou should remove the rc.lock files again after finishing your editing.
+X
+X
+X3a.Digest processing
+X   -----------------
+X
+XYou can configure a list to send out digests of accumulated submissions.
+XIn order to do so, simply uncomment the appropriate assignment to
+Xdigest_flag in rc.init (if you want all lists to be digested) or rc.custom
+X(if you only want this list to be digested).  Digests are then sent out
+Xevery so often depending on size and age of the accumulated messages.
+X
+XThe conditions for sending out a digest are checked during the arrival
+Xof every submission.  If however traffic on the list sometimes is very low
+X(i.e. less often than the maximum age of a digest) a digest could be laying
+Xaround for longer than the specified maximum period (3 days by default).
+X
+XIn order to make sure that the digest gets sent out anyway, you should be
+Xrunning the .bin/flush_digests program every so often.	The recommended
+Xprocedure is to create a cron job (under the list account) that contains
+Xsomething like the following entry:
+X
+X0 6 * * * /home/list/.bin/flush_digests
+X
+XThis will ensure that at six o'clock in the morning all the overdue digests
+Xwill be sent out.  Beware: call flush_digests with an absolute or relative
+Xpath, do not rely on PATH to find it for you (flush_digests uses $0 to
+Xfind the location of the lists).
+X
+XIf you want to give your subscribers the choice of receiving digests or not.
+XThis is what you can do:
+X
+X	Create two lists.  E.g. if your list would be called "thelist", then
+X	you have the `real' list called "thelist" (created and used like
+X	a regular list) and the `digested' list called "thelist-d".
+X
+X	In the distfile of thelist you should include thelist-d as one of
+X	the subscribers.  In the rc.custom file of thelist-d you should
+X	edit the assignment to undigested_list to read
+X	"undigested_list =	thelist@$domain".
+X
+X	After you've done this, you're all set.	 People that want digests
+X	simply subscribe to thelist-d and people that don't, subscribe to
+X	thelist.
+X
+X
+X3b.Moderated lists
+X   ---------------
+X
+XThe easiest way to set up a moderated list would be to rename the "thelist"
+Xalias into "thelist-approved", and to create a new "thelist" alias that
+Xpoints to the moderator.  This way the moderator receives all submissions,
+Xwhich he/she then can forward to thelist-approved to finally distribute it
+X(after some editing of the message perhaps).
+X
+X
+X3c.Schematic overview of what goes on behind the scenes
+X   ----------------------------------------------------
+X
+XSuppose you have two entries in the aliases file, one for thelist@domain
+Xand one for thelist-request@domain.
+X
+XWhenever mail arrives for either address, the following happens:
+X	- flist is started suid root with thelist as its argument
+X		- changes its uid and gid to that of the list account
+X		- changes its current directory to that of thelist
+X		- waits until both ../.etc/rc.lock and rc.lock are gone or
+X		  are old enough (17 minutes)
+X
+XThen, if it was a regular submission to thelist@domain:
+X	- flist execs procmail with rcfile rc.submit
+X		- pulls in rc.init that sets up the defaults
+X		- pulls in rc.custom that overrides some defaults (if any)
+X		- checks the submission format and fires of sendmail to
+X		  send the mail to thelist-dist@domain
+X	- If the mail was an administrative request, it does not get
+X	  passed on to the list, instead, procmail pulls in rc.request
+X
+XBut, if it was an administrative mail for thelist-request@domain:
+X	- flist execs procmail with rcfile rc.request
+X		- pulls in rc.init that sets up the defaults
+X		- pulls in rc.custom that overrides some defaults (if any)
+X		- performs the necessary actions, depending on the content
+X		- if the content was undecipherable, it gets passed on to
+X		  the maintainer of thelist
+X
+XIf there are grave system failures during all this, the catch-all script
+Xrc.post will kick in and make sure that the mail is stashed away somewhere
+Xor forwarded to the maintainer, whatever works.	 This to ensure that no
+Xmail gets lost.
+X
+X
+X4. The archive server
+X   ------------------
+X
+XAll mail (except mail being forwarded from another mailinglist) sent to any
+Xof the lists is archived.  The archiving is fairly straightforward.
+XE.g. if you have a list called "scuba", then all submissions are archived
+Xin scuba/archive/latest/.  The mails will be stored one-mail-per-file each.
+XThe files will be numbered.
+X
+XNow, normally, only the last two mails will be kept around, the others
+Xare periodically removed.  This in order to keep down the archiving costs
+Xfor people with limited diskspace.  To disable archiving completely,
+Xedit the rc.submit file.  To simply make the archive-history longer,
+Xedit the rc.custom file.  To get more sophisticated archiving, like grouping
+Xsubmissions monthly, you should either create a cron job or edit the
+X.bin/arch_trunc file.
+X
+XThe archive server can be accessed per mailinglist by sending mail
+Xto the -request address with the following Subject:
+X
+X	Subject: archive
+X
+XThe body of the mail or the rest of the subject line can then be
+Xfiled with requests to the archive server.  It basically understands
+Xthree commands:
+X
+X	get file ...
+X	ls directory ...
+X	help
+X
+XThe archive server does a thorough check on the commands and the files
+Xthat are requested.  This to ensure that it does not access any files
+Xoutside the "scuba/archive" directory.	Any text-file that you put below
+Xthe "scuba/archive" directory can now be retrieved by the archive commands.
+X
+XThe whole archive server can be found in the .bin/arch_retrieve script.
+X
+X
+X5. The format of the dist file
+X   ---------------------------
+X
+XYou do not need to know this, unless you edit the dist file by hand or want
+Xto incorporate an existing list of addresses.
+X
+XIn order to distribute incoming submissions the dist file is fed to sendmail
+Xwith the regular :include: alias.  So the format of this file must
+Xbe in accordance with what sendmail would expect.  In addition to that
+Xthis file is searched and edited by multigram in order to find particular
+Xsubscribers.  The format which multigram expects is a bit more rigid than
+Xwhat sendmail allows.
+X
+XThe following conditions apply:
+X- One subscriber per line.
+X- Empty lines are allowed.
+X- The mail address of the subscriber must be the first word on the line.
+X- Comments may follow the address (but separated from the address by
+X  at least one whitespace character).
+X- Everything preceding the line containing:
+X	(Only addresses below this line can be automatically removed)
+X  is write protected from changes by multigram (i.e. these addresses can
+X  never be automatically/accidentally unsubscribed).
+X- If the line:
+X	(Only addresses below this line can be automatically removed)
+X  is not present at all, automatic unsubscriptions to this list are impossible.
+X- Whenever multigram automatically removes an address from the list, it
+X  rewrites the dist file `in situ'.  This means that the dist file will be
+X  contracted at that point, any excess slack at the end will be overwritten
+X  by newlines (i.e. the dist file never shrinks, this because ANSI-C does not
+X  provide a truncate() command of some kind).  I choose to write in situ in
+X  order to avoid copying the dist file every time it changes (a real life
+X  saver if the list grows too big).
+X- Multigram always adds new subscribers on the line immediately following the
+X  last filled entry in the dist file.
+X
+XSome sample entries (the preferred format):
+X	joe@some.where
+X	joe@some.where (some comment)
+X	joe@some.where (some comment) (some more comment)
+X
+XDepreciated, but allowed:
+X	<joe@some.where>
+X	<joe@some.where> some comment
+X	<joe@some.where> (some comment)
+X
+XNot allowed by multigram (although sendmail doesn't mind):
+X	(some comment) joe@some.where
+X	some comment <joe@some.where>
+X
+X
+X6. Multigram and the thresholds in rc.init/rc.custom
+X   -------------------------------------------------
+X
+XThe rc.init and rc.custom scripts define some threshold values:
+X
+X	match_threshold, off_threshold, reject_threshold, submit_threshold.
+X
+XThese values are fed to multigram as a cut-off value with which to decide
+Xif a certain mail address is on a list.
+XThe higher the threshold, the better the match must be.	 The thresholds
+Xhave a scale from -16383 to 32767.  This means that, for instance a threshold
+Xof 30730 can be used to find only mailaddresses that are almost verbatim
+Xon the list.  A value of 24476 on the other hand allows for some error
+X(like mailaddresses munged by gateways etc.) in finding matches to the
+Xlist.
+X
+XThe values 30730 and 24476 are somewhat arbitrary values which seem
+Xto work well for the particular problems at hand.
+X
+XTo get a feeling for the values computed by multigram you can do
+Xthe following test:
+X
+X	Create a file with the same format as the distfile, fill it with
+X	any number of addresses you like (e.g. you could take an existing
+X	distfile).
+X	Now make a copy of this `distfile' and alter some of the addresses
+X	a bit (like omit one character, or add some gateway information,
+X	switch two words, change it into an uucp address, etc.).
+X	Next you should call up multigram with the following command line:
+X
+X		multigram -l-16000 -b300 pseudo_distfile <altered_distfile
+X
+X	Multigram will display up the 300 best matches it found after
+X	crossreferencing altered_distfile and pseudo_distfile.
+X	The output produced by multigram can be disected as follows:
+X
+X		lineno. name1 goodness name2
+X
+X	Lineno. and name1 refer to the line number in pseudo_distfile which
+X	contains the mailaddress name1.	 Goodness is the metric that
+X	corresponds to the aforementioned threshold values, and name2 is
+X	the matching mailaddress from altered_distfile (which is usually
+X	the incoming mail).
+X
+X	Once you get the hang of it you can play around a bit with the
+X	entries in altered_distfile by mutilating them more and more in
+X	order to see what multigram makes of it (try inserting some non-
+X	existing addresses as well).
+END_OF_FILE
+if test 15180 -ne `wc -c <'procmail/mailinglist/Manual'`; then
+    echo shar: \"'procmail/mailinglist/Manual'\" unpacked with wrong size!
+fi
+# end of 'procmail/mailinglist/Manual'
+fi
+if test -f 'procmail/mailinglist/bin/digest' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/mailinglist/bin/digest'\"
+else
+echo shar: Extracting \"'procmail/mailinglist/bin/digest'\" \(2415 characters\)
+sed "s/^X//" >'procmail/mailinglist/bin/digest' <<'END_OF_FILE'
+X#! /bin/sh
+X:
+X#$Id: digest,v 1.4 1993/06/02 15:30:44 berg Exp $
+X
+Xtest=test		# /bin/test
+Xecho=echo		# /bin/echo
+Xls=ls			# /bin/ls
+Xawk=awk			# /usr/bin/awk
+Xcat=cat			# /bin/cat
+Xdate=date		# /bin/date
+Xrm=rm			# /bin/rm
+Xsed=sed			# /bin/sed
+Xexpr=expr		# /bin/expr
+Xformail=formail		# /usr/local/bin/formail
+X
+X$test -z "$listaddr" &&
+X $echo "Don't start this script directly, it is used in rc.submit" && exit 64
+X
+Xtest -z "$foreign_submit$METOO" && exit 1
+X
+Xtmprequest=tmp.request
+Xtmpfrom=tmp.from
+X
+Xdigestheader=archive/latest/digest.header
+Xdigestadmin=digest.admin
+Xdigestadmin2=archive/latest/$digestadmin
+Xdigestbody=archive/latest/digest.body
+Xdigesttrailer=archive/latest/digest.trailer
+X
+X$echo "$digest_age $digest_size $archive_hist $UMASK
+X$SENDMAIL $sendmailOPT $listdist" >.digest.params
+X
+X$awk '
+XBEGIN					{ lines=0;mode=0; }
+X					{ match=0; }
+X/^$/					{ match=1; }
+X/^[	 ][	 ]*$/			{ match=2; }
+X/^------------------------------$/	{ match=3; }
+X{ if(mode==0)
+X   { print($0) >"'$tmpfrom'";
+X     if(match==1)
+X	mode=1;
+X     next;
+X   }
+X  if(mode==1 && match)
+X     next;
+X  mode=2;
+X  if(match==1)
+X   { ++lines;next;
+X   }
+X  while(lines)
+X   { print("");--lines;
+X   }
+X  if(match==3)
+X     print(" -----------------------------");
+X  else
+X     print($0);
+X}
+XEND { print("");print("------------------------------");print(""); }
+X' >$tmprequest
+X
+Xflush_digests -c
+X
+Xfor a in Date From To Cc Subject Message-ID Keywords Summary
+Xdo
+X  b="`$formail -X $a: <$tmpfrom`"
+X  if $test ! -z "$b"
+X  then
+X     $echo "$b" >>$digestbody
+X  fi
+Xdone
+X
+X$echo "" >>$digestbody
+X$cat $tmprequest >>$digestbody
+X
+Xif $test ! -f $digesttrailer
+Xthen
+X
+X  Year=`$date +%y`
+X  Issue=0
+X
+X  if $test -f $digestheader
+X  then
+X     set dummy `$sed -n \
+X      -e '1,/^$/ s/^Subject:.*Digest V\([0-9]*\) #\([0-9]*\)/\1 \2/p' \
+X      <$digestheader`
+X     $test $Year = "$2" && Issue=$3
+X  fi
+X
+X  Issue=`$expr 1 + $Issue`
+X
+X  $cat >$digestheader <<HERE
+XFrom: $listreq
+XReply-To: $undigested_list
+XSubject: $list Digest V$Year #$Issue
+XX-Loop: $listaddr
+XPrecedence: list
+XTo: $listaddr
+X
+X$list Digest				Volume $Year : Issue $Issue
+X
+XToday's Topics:
+XHERE
+X
+X  $echo "End of $list Digest V$Year Issue #$Issue" >$digesttrailer
+X  b=`$sed -e 's/./*/g' <$digesttrailer`
+X  $echo "$b" >>$digesttrailer
+Xfi
+X
+X$echo  "	`$formail -x Subject: <$tmpfrom`" >>$digestheader
+X$cat /dev/null >$tmprequest 2>$tmpfrom
+X
+X#
+X# Check again, maybe we exceed the time or size limits now already.
+X#
+X
+Xflush_digests -c
+Xexit 0
+END_OF_FILE
+if test 2415 -ne `wc -c <'procmail/mailinglist/bin/digest'`; then
+    echo shar: \"'procmail/mailinglist/bin/digest'\" unpacked with wrong size!
+fi
+chmod +x 'procmail/mailinglist/bin/digest'
+# end of 'procmail/mailinglist/bin/digest'
+fi
+if test -f 'procmail/src/mailfold.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/src/mailfold.c'\"
+else
+echo shar: Extracting \"'procmail/src/mailfold.c'\" \(12269 characters\)
+sed "s/^X//" >'procmail/src/mailfold.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	Routines that deal with the mailfolder(format)			*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	#include "README"						*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic /*const*/char rcsid[]=
+X "$Id: mailfold.c,v 1.32 1993/07/01 11:58:32 berg Exp $";
+X#endif
+X#include "procmail.h"
+X#include "sublib.h"
+X#include "robust.h"
+X#include "shell.h"
+X#include "misc.h"
+X#include "pipes.h"
+X#include "common.h"
+X#include "exopen.h"
+X#include "goodies.h"
+X#include "locking.h"
+X#include "mailfold.h"
+X#ifndef NO_COMSAT
+X#include "network.h"
+X
+Xconst char scomsat[]="COMSAT";
+X#endif
+Xint logopened,tofile;
+Xoff_t lasttell;
+Xstatic long lastdump;
+Xstatic volatile mailread;	/* if the mail is completely read in already */
+Xstatic struct dyna_long escFrom_,confield;	  /* escapes, concatenations */
+X			       /* inserts escape characters on outgoing mail */
+Xstatic long getchunk(s,fromw,len)const int s;const char*fromw;const long len;
+X{ long dist,dif;int i;static const char esc[]=ESCAP;
+X  dist=fromw-themail;			/* where are we now in transmitting? */
+X  for(dif=len,i=0;i<escFrom_.filled;)	    /* let's see if we can find this */
+X     if(!(dif=escFrom_.offs[i++]-dist))			 /* this exact spot? */
+X      { rwrite(s,esc,STRLEN(esc));lastdump++;			/* escape it */
+X	if(i>=escFrom_.filled)				      /* last block? */
+X	   return len;				/* yes, give all what's left */
+X	dif=escFrom_.offs[i]-dist;break;	     /* the whole next block */
+X      }
+X     else if(dif>0)				/* passed this spot already? */
+X	break;
+X  return dif<len?dif:len;
+X}
+X
+Xlong dump(s,source,len)const int s;const char*source;long len;
+X{ int i;long part;
+X  lasttell=i= -1;
+X  if(s>=0)
+X   { if(tofile&&(lseek(s,(off_t)0,SEEK_END),fdlock(s)))
+X	nlog("Kernel-lock failed\n");
+X     lastdump=len;part=tofile==to_FOLDER?getchunk(s,source,len):len;
+X     lasttell=lseek(s,(off_t)0,SEEK_END);smboxseparator(s);	 /* optional */
+X#ifndef NO_NFS_ATIME_HACK					/* separator */
+X     if(part&&tofile)		       /* if it is a file, trick NFS into an */
+X	len--,part--,rwrite(s,source++,1),sleep(1);	    /* a_time<m_time */
+X#endif
+X     goto jin;
+X     do
+X      { part=getchunk(s,source,len);
+Xjin:	while(part&&(i=rwrite(s,source,BLKSIZ<part?BLKSIZ:(int)part)))
+X	 { if(i<0)
+X	      goto writefin;
+X	   part-=i;len-=i;source+=i;
+X	 }
+X      }
+X     while(len);
+X     if(!len&&(lastdump<2||!(source[-1]=='\n'&&source[-2]=='\n')))
+X	lastdump++,rwrite(s,newline,1);	       /* message always ends with a */
+X     emboxseparator(s);		 /* newline and an optional custom separator */
+Xwritefin:
+X     if(tofile&&fdunlock())
+X	nlog("Kernel-unlock failed\n");
+X     i=rclose(s);
+X   }			   /* return an error even if nothing was to be sent */
+X  tofile=0;return i&&!len?-1:len;
+X}
+X
+Xstatic dirfile(chp,linkonly)char*const chp;const int linkonly;
+X{ if(chp)
+X   { long i=0;			     /* first let us try to prime i with the */
+X#ifndef NOopendir		     /* highest MH folder number we can find */
+X     long j;DIR*dirp;struct dirent*dp;char*chp2;
+X     if(dirp=opendir(buf))
+X      { while(dp=readdir(dirp))		/* there still are directory entries */
+X	   if((j=strtol(dp->d_name,&chp2,10))>i&&!*chp2)
+X	      i=j;			    /* yep, we found a higher number */
+X	closedir(dirp);				     /* aren't we neat today */
+X      }
+X     else
+X	readerr(buf);
+X#endif /* NOopendir */
+X     ;{ int ok;
+X	do ultstr(0,++i,chp);		       /* find first empty MH folder */
+X	while((ok=link(buf2,buf))&&errno==EEXIST);
+X	if(linkonly)
+X	 { if(ok)
+X	      goto nolnk;
+X	   goto ret;
+X	 }
+X      }
+X     unlink(buf2);goto opn;
+X   }
+X  ;{ struct stat stbuf;
+X     stat(buf2,&stbuf);
+X     ultoan((unsigned long)stbuf.st_ino,      /* filename with i-node number */
+X      strchr(strcat(buf,tgetenv(msgprefix)),'\0'));
+X   }
+X  if(linkonly)
+X   { yell("Linking to",buf);
+X     if(link(buf2,buf))	   /* hardlink the new file, it's a directory folder */
+Xnolnk:	nlog("Couldn't make link to"),logqnl(buf);
+X     goto ret;
+X   }
+X  if(!myrename(buf2,buf))	       /* rename it, we need the same i-node */
+Xopn: return opena(buf);
+Xret:
+X  return -1;
+X}
+X
+Xstatic ismhdir(chp)char*const chp;
+X{ if(chp-1>=buf&&chp[-1]==*MCDIRSEP_&&*chp==chCURDIR)
+X   { chp[-1]='\0';return 1;
+X   }
+X  return 0;
+X}
+X				       /* open file or new file in directory */
+Xdeliver(boxname,linkfolder)char*boxname,*linkfolder;
+X{ struct stat stbuf;char*chp;int mhdir;mode_t cumask;
+X  umask(cumask=umask(0));cumask=UPDATE_MASK&~cumask;tofile=to_FILE;
+X  asgnlastf=1;
+X  if(boxname!=buf)
+X     strcpy(buf,boxname);		 /* boxname can be found back in buf */
+X  if(*(chp=buf))				  /* not null length target? */
+X     chp=strchr(buf,'\0')-1;		     /* point to just before the end */
+X  mhdir=ismhdir(chp);				      /* is it an MH folder? */
+X  if(!stat(boxname,&stbuf))					/* it exists */
+X   { if(cumask&&!(stbuf.st_mode&UPDATE_MASK))
+X	chmod(boxname,stbuf.st_mode|UPDATE_MASK);
+X     if(!S_ISDIR(stbuf.st_mode))	 /* it exists and is not a directory */
+X	goto makefile;				/* no, create a regular file */
+X   }
+X  else if(!mhdir||mkdir(buf,NORMdirperm))    /* shouldn't it be a directory? */
+Xmakefile:
+X   { if(linkfolder)	  /* any leftovers?  Now is the time to display them */
+X	concatenate(linkfolder),skipped(linkfolder);
+X     tofile=strcmp(devnull,buf)?to_FOLDER:0;return opena(boxname);
+X   }
+X  if(linkfolder)		    /* any additional directories specified? */
+X   { size_t blen;
+X     if(blen=Tmnate-linkfolder)		       /* copy the names into safety */
+X	Tmnate=(linkfolder=tmemmove(malloc(blen),linkfolder,blen))+blen;
+X     else
+X	linkfolder=0;
+X   }
+X  if(mhdir)				/* buf should contain directory name */
+X     *chp='\0',chp[-1]= *MCDIRSEP_,strcpy(buf2,buf);	   /* it ended in /. */
+X  else					 /* fixup directory name, append a / */
+X     strcat(chp,MCDIRSEP_),strcpy(buf2,buf),chp=0;
+X  ;{ int fd= -1;		/* generate the name for the first directory */
+X     if(unique(buf2,strchr(buf2,'\0'),NORMperm,verbose)&&
+X      (fd=dirfile(chp,0))>=0&&linkfolder)	 /* save the file descriptor */
+X	for(strcpy(buf2,buf),boxname=linkfolder;boxname!=Tmnate;)
+X	 { strcpy(buf,boxname);		/* go through the list of other dirs */
+X	   if(*(chp=buf))
+X	      chp=strchr(buf,'\0')-1;
+X	   mhdir=ismhdir(chp);			      /* is it an MH folder? */
+X	   if(stat(boxname,&stbuf))			 /* it doesn't exist */
+X	      mkdir(buf,NORMdirperm);				/* create it */
+X	   else if(cumask&&!(stbuf.st_mode&UPDATE_MASK))
+X	      chmod(buf,stbuf.st_mode|UPDATE_MASK);
+X	   if(mhdir)
+X	      *chp='\0',chp[-1]= *MCDIRSEP_;
+X	   else				 /* fixup directory name, append a / */
+X	      strcat(chp,MCDIRSEP_),chp=0;
+X	   dirfile(chp,1);		/* link it with the original in buf2 */
+X	   while(*boxname++);		  /* skip to the next directory name */
+X	 }
+X     if(linkfolder)					   /* free our cache */
+X	free(linkfolder);
+X     return fd;			      /* return the file descriptor we saved */
+X   }
+X}
+X
+Xvoid logabstract(lstfolder)const char*const lstfolder;
+X{ if(lgabstract>0||logopened&&lgabstract)  /* don't mail it back unrequested */
+X   { char*chp,*chp2;int i;static const char sfolder[]=FOLDER;
+X     if(mailread)			  /* is the mail completely read in? */
+X      { *thebody='\0';		       /* terminate the header, just in case */
+X	if(eqFrom_(chp=themail))		       /* any "From " header */
+X	 { if(chp=strchr(themail,'\n'))
+X	      *chp++='\0';
+X	   else
+X	      chp=thebody;			  /* preserve mailbox format */
+X	   elog(themail);elog(newline);			     /* (any length) */
+X	 }
+X	if(!(lcking&lck_ALLOCLIB)&&		/* don't reenter malloc/free */
+X	 (chp=egrepin(NSUBJECT,chp,(long)(thebody-chp),0)))
+X	 { for(chp2= --chp;*--chp2!='\n'&&*chp2;);
+X	   if(chp-++chp2>MAXSUBJECTSHOW)	    /* keep it within bounds */
+X	      chp2[MAXSUBJECTSHOW]='\0';
+X	   *chp='\0';detab(chp2);elog(" ");elog(chp2);elog(newline);
+X	 }
+X      }
+X     elog(sfolder);
+X     i=strlen(strncpy(buf,lstfolder,MAXfoldlen))+STRLEN(sfolder);
+X     buf[MAXfoldlen]='\0';detab(buf);elog(buf);i-=i%TABWIDTH;	/* last dump */
+X     do elog(TABCHAR);
+X     while((i+=TABWIDTH)<LENoffset);
+X     ultstr(7,lastdump,buf);elog(buf);elog(newline);
+X   }
+X#ifndef NO_COMSAT
+X  ;{ int s;struct sockaddr_in addr;char*chp,*chad;	     /* @ seperator? */
+X     if(chad=strchr(chp=(char*)tgetenv(scomsat),SERV_ADDRsep))
+X	*chad++='\0';		      /* split it up in service and hostname */
+X     else if(!renvint(-1L,scomsat))		/* or is it a false boolean? */
+X	return;					       /* ok, no comsat then */
+X     if(!chad||!*chad)						  /* no host */
+X#ifndef IP_localhost
+X	chad=COMSAThost;				      /* use default */
+X#else /* IP_localhost */
+X      { static const unsigned char ip_localhost[]=IP_localhost;
+X	addr.sin_family=AF_INET;
+X	tmemmove(&addr.sin_addr,ip_localhost,sizeof ip_localhost);
+X      }
+X     else
+X#endif /* IP_localhost */
+X      { const struct hostent*host;	      /* what host?  paranoid checks */
+X	if(!(host=gethostbyname(chad))||!host->h_0addr_list)
+X	 { endhostent();return;		     /* host can't be found, too bad */
+X	 }
+X	addr.sin_family=host->h_addrtype;	     /* address number found */
+X	tmemmove(&addr.sin_addr,host->h_0addr_list,host->h_length);
+X	endhostent();
+X      }
+X     if(!*chp)						       /* no service */
+X	chp=BIFF_serviceport;				      /* use default */
+X     s=strtol(chp,&chad,10);
+X     if(chp==chad)			       /* the service is not numeric */
+X      { const struct servent*serv;
+X	if(!(serv=getservbyname(chp,COMSATprotocol)))	   /* so get its no. */
+X	 { endservent();return;
+X	 }
+X	addr.sin_port=serv->s_port;endservent();
+X      }
+X     else
+X	addr.sin_port=htons((short)s);			    /* network order */
+X     cat(tgetenv(lgname),"@");			 /* should always fit in buf */
+X     if(lasttell>=0)					   /* was it a file? */
+X	ultstr(0,(unsigned long)lasttell,buf2),catlim(buf2);	      /* yep */
+X     catlim(COMSATxtrsep);				 /* custom seperator */
+X     if(lasttell>=0&&!strchr(dirsep,*lstfolder))       /* relative filename? */
+X	catlim(tgetenv(maildir)),catlim(MCDIRSEP_);   /* prepend current dir */
+X     catlim(lstfolder);s=socket(AF_INET,SOCK_DGRAM,UDP_protocolno);
+X     sendto(s,buf,strlen(buf),0,(const void*)&addr,sizeof(addr));rclose(s);
+X     yell("Notified comsat:",buf);
+X   }
+X#endif /* NO_COMSAT */
+X}
+X
+Xstatic concnd;					 /* last concatenation value */
+X
+Xvoid concon(ch)const int ch;   /* flip between concatenated and split fields */
+X{ size_t i;
+X  if(concnd!=ch)				   /* is this run redundant? */
+X   { concnd=ch;			      /* no, but note this one for next time */
+X     for(i=confield.filled;i;)		   /* step through the saved offsets */
+X	themail[confield.offs[--i]]=ch;		       /* and flip every one */
+X   }
+X}
+X
+Xvoid readmail(rhead,tobesent)const long tobesent;
+X{ char*chp,*pastend,*realstart;
+X  ;{ long dfilled;
+X     if(rhead)					/* only read in a new header */
+X      { dfilled=mailread=0;chp=readdyn(malloc(1),&dfilled);filled-=tobesent;
+X	if(tobesent<dfilled)		   /* adjust buffer size (grow only) */
+X	   themail=realloc(themail,dfilled+filled);
+X	tmemmove(themail+dfilled,thebody,filled);tmemmove(themail,chp,dfilled);
+X	free(chp);themail=realloc(themail,1+(filled+=dfilled));
+X      }
+X     else
+X      { if(!mailread||!filled)
+X	   rhead=1;	 /* yup, we read in a new header as well as new mail */
+X	mailread=0;dfilled=thebody-themail;themail=readdyn(themail,&filled);
+X      }
+X     pastend=filled+(thebody=themail);
+X     while(thebody<pastend&&*thebody++=='\n');	     /* skip leading garbage */
+X     realstart=thebody;
+X     if(rhead)			      /* did we read in a new header anyway? */
+X      { confield.filled=0;concnd='\n';
+X	while(thebody=
+X	 egrepin("[^\n]\n[\n\t ]",thebody,(long)(pastend-thebody),1))
+X	   if(thebody[-1]!='\n')		  /* mark continuated fields */
+X	      app_val(&confield,(off_t)(--thebody-1-themail));
+X	   else
+X	      goto eofheader;		   /* empty line marks end of header */
+X	thebody=pastend;      /* provide a default, in case there is no body */
+Xeofheader:;
+X      }
+X     else			       /* no new header read, keep it simple */
+X	thebody=themail+dfilled; /* that means we know where the body starts */
+X   }
+X  ;{ int f1stchar;    /* to make sure that the first From_ line is uninjured */
+X     f1stchar= *realstart;*(chp=realstart)='\0';escFrom_.filled=0;
+X     while(chp=egrepin(FROM_EXPR,chp,(long)(pastend-chp),1))
+X      { while(*--chp!='\n');		       /* where did this line start? */
+X	app_val(&escFrom_,(off_t)(++chp-themail));chp++;	   /* bogus! */
+X      }
+X     *realstart=f1stchar;mailread=1;
+X   }
+X}
+END_OF_FILE
+if test 12269 -ne `wc -c <'procmail/src/mailfold.c'`; then
+    echo shar: \"'procmail/src/mailfold.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/src/mailfold.c'
+fi
+if test -f 'procmail/src/regexp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/src/regexp.c'\"
+else
+echo shar: Extracting \"'procmail/src/regexp.c'\" \(14162 characters\)
+sed "s/^X//" >'procmail/src/regexp.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	Custom regular expression library, *fully* egrep compatible	*
+X *									*
+X *	Seems to be perfect.						*
+X *									*
+X *	Copyright (c) 1991-1992, S.R. van den Berg, The Netherlands	*
+X *	#include "README"						*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic /*const*/char rcsid[]=
+X "$Id: regexp.c,v 1.27 1993/06/30 16:14:06 berg Exp $";
+X#endif
+X#include "procmail.h"
+X#include "robust.h"
+X#include "shell.h"
+X#include "misc.h"
+X#include "regexp.h"
+X
+X#define R_BEG_GROUP	'('
+X#define R_OR		'|'
+X#define R_END_GROUP	')'
+X#define R_0_OR_MORE	'*'
+X#define R_0_OR_1	'?'
+X#define R_1_OR_MORE	'+'
+X#define R_DOT		'.'
+X#define R_SOL		'^'
+X#define R_EOL		'$'
+X#define R_BEG_CLASS	'['
+X#define R_NOT_CLASS	'^'
+X#define R_RANGE		'-'
+X#define R_END_CLASS	']'
+X#define R_ESCAPE	'\\'
+X
+X#define BITS_P_CHAR		8
+X#define OPB			(1<<BITS_P_CHAR)
+X#define DONE_NODE		(OPB<<1)
+X#define DONE_MASK		(DONE_NODE-1)
+X#define LOOPL_NODE		(OPB<<2)
+X#define LOOPR_NODE		(OPB<<3)
+X#define LOOP_MASK		(LOOPL_NODE-1)
+X#define OPC_SEMPTY		OPB
+X#define OPC_TSWITCH		(OPB+1)
+X#define OPC_DOT			(OPB+2)
+X#define OPC_BOTEXT		(OPB+3)
+X#define OPC_EPS			(OPB+4)
+X#define OPC_JUMP		(OPB+5)
+X#define OPC_CLASS		(OPB+6)
+X#define OPC_FIN			(OPB+7)
+X#define OPC_FILL		(OPB+8)
+X		  /* Don't change any opcode above without checking skplen[] */
+X#define bit_type		unsigned
+X#define bit_bits		(sizeof(bit_type)*8)
+X#define bit_index(which)	((unsigned)(which)/bit_bits)
+X#define bit_mask(which)		((unsigned)1<<(unsigned)(which)%bit_bits)
+X#define bit_toggle(name,which)	(name[bit_index(which)]^=bit_mask(which))
+X#define bit_test(name,which)	(!!(name[bit_index(which)]&bit_mask(which)))
+X#define bit_set(name,which,value)	\
+X (value?(name[bit_index(which)]|=bit_mask(which)):\
+X (name[bit_index(which)]&=~bit_mask(which)))
+X#define bit_field(name,size)	bit_type name[((size)+bit_bits-1)/bit_bits]
+X
+X#define SZ(x)		(sizeof(struct x))
+X#define Ceps		(struct eps*)
+X#define epso(to,add)	(Ceps((char*)(to)+(add)))
+X#define ii		(aleps.topc)
+X#define jj		(aleps.au.jju)
+X#define spawn		sp.awn
+X
+Xstatic struct eps*r;
+Xstatic struct{unsigned topc;union{struct eps*tnext;unsigned jju;}au;}aleps;
+Xstatic uchar*p,*cachea,*cachep;
+Xstatic size_t cacher;
+Xstatic case_ignore,errorno;
+X
+Xstruct jump {unsigned opcj_;struct eps*nextj;};
+Xstruct mchar {unsigned opcc_;struct eps*next1_,*p1_,*p2_;};
+Xstruct chclass {unsigned opc_;struct eps*next_,*pos1,*pos2;
+X bit_field(c,OPB);};
+X					  /* length array, used by skiplen() */
+Xstatic /*const*/char skplen[]=		   /* it SHOULD have been const, but */
+X {SZ(eps),SZ(jump),SZ(chclass),0,0};   /* some !@#$%^&*() compilers disagree */
+X						       /* epsilon transition */
+Xstatic void puteps(spot,to)struct eps*const spot;const struct eps*const to;
+X{ spot->opc=OPC_EPS;spot->next=Ceps to;spot->spawn=0;
+X}
+X
+X#define Cc(p,memb)	(((struct chclass*)(p))->memb)
+X#define rAc		Cc(r,c)
+X
+Xstatic void bseti(i,j)unsigned i;const int j;
+X{ bit_set(rAc,i,j);			   /* mark 'i' as being in the class */
+X  if(case_ignore)				  /* mark the other case too */
+X   { if(i-'A'<'Z'-'A')						/* uppercase */
+X	i+='a'-'A';
+X     else if(i-'a'<'z'-'a')					/* lowercase */
+X	i-='a'-'A';
+X     else return;						  /* no case */
+X     bit_set(rAc,i,j);
+X   }
+X}
+X					   /* general purpose length routine */
+Xstatic struct eps*skiplen(ep)const struct eps*const ep;
+X{ return epso(ep,(ep->opc&DONE_MASK)<OPC_EPS?
+X   SZ(mchar):skplen[(ep->opc&DONE_MASK)-OPC_EPS]);
+X}
+X
+Xstatic por P((const struct eps*const e));
+X
+Xstatic void psimp(e)const struct eps*const e;
+X{ switch(*p)
+X   { case R_BEG_GROUP:p++;			  /* not so simple after all */
+X	if(por(e))
+X	   errorno=1;
+X	return;
+X     case R_BEG_CLASS:					   /* a simple class */
+X      { unsigned i,j=R_NOT_CLASS==*++p;
+X	if(e)
+X	 { r->opc=OPC_CLASS;r->next=Ceps e;Cc(r,pos1)=Cc(r,pos2)=0;
+X	   i=maxindex(rAc);
+X	   do rAc[i]=j?~0:0;			     /* preset the bit field */
+X	   while(i--);
+X	 }
+X	if(j)					  /* skip the 'not' modifier */
+X	 { p++;
+X	   if(e)
+X	      bit_toggle(rAc,'\n');
+X	 }
+X	if(*p==R_END_CLASS)	  /* right at the start, cannot mean the end */
+X	 { p++;
+X	   if(e)
+X	      i=R_END_CLASS,bit_toggle(rAc,R_END_CLASS);
+X	 }
+X	else if(*p==R_RANGE)				/* take it literally */
+X	 { p++;
+X	   if(e)
+X	      i=R_RANGE,bit_toggle(rAc,R_RANGE);
+X	 }
+X	for(;;p++)
+X	 { switch(*p)
+X	    { case R_END_CLASS:p++;
+X	      case '\0':r=epso(r,SZ(chclass));return;
+X	      case R_RANGE:
+X		 switch(*++p)
+X		  { default:
+X		       if(e)
+X			  while(++i<*p)		    /* mark all in the range */
+X			     bseti(i,!j);
+X		       break;
+X		    case '\0':case R_END_CLASS:p--;		/* literally */
+X		  }
+X	    }
+X	   if(e)
+X	      bseti(i= *p,!j);		      /* a normal character, mark it */
+X	 }
+X      }
+X     case '\0':return;
+X     case R_DOT:			 /* matches everything but a newline */
+X	if(e)
+X	 { r->opc=OPC_DOT;goto fine;
+X	 }
+X	goto fine2;
+X     case R_EOL:case R_SOL:		      /* match a newline (in effect) */
+X	if(p[1]==R_SOL)
+X	 { p++;
+X	   if(e)
+X	    {  r->opc=OPC_BOTEXT;goto fine;
+X	    }
+X	 }
+X	else if(e)
+X	 { r->opc='\n';goto fine;
+X	 }
+X	goto fine2;
+X     case R_ESCAPE:					  /* quote something */
+X	if(!*++p)					 /* nothing to quote */
+X	   p--;
+X   }
+X  if(e)						      /* a regular character */
+X   { r->opc=case_ignore&&(unsigned)*p-'A'<'Z'-'A'?*p+'a'-'A':*p;
+Xfine:
+X     r->next=Ceps e;Cc(r,pos1)=Cc(r,pos2)=0;
+X   }
+Xfine2:
+X  p++;r=epso(r,SZ(mchar));
+X}
+X
+X#define EOS(x)	(jj?Ceps e:(x))
+X
+Xstatic void pnorm(e)const struct eps*const e;
+X{ void*pold;struct eps*rold;
+X  for(;;)
+X   { pold=p;rold=r;psimp(Ceps 0);ii= *p;		    /* skip it first */
+X     jj=p[1]==R_OR||p[1]==R_END_GROUP||!p[1];
+X     if(e)
+X	p=pold,pold=r;
+X     switch(ii)			   /* check for any of the postfix operators */
+X      { case R_0_OR_MORE:r++;
+X	   if(e)			  /* first an epsilon, then the rest */
+X	      puteps(rold,EOS(r)),r=rold+1,psimp(rold);
+X	   goto incagoon;
+X	case R_1_OR_MORE:				   /* first the rest */
+X	   if(e)				      /* and then an epsilon */
+X	    { puteps(r,rold);
+X	      if(jj)
+X		 (r+1)->opc=OPC_JUMP,(r+1)->next=Ceps e;
+X	      r=rold;psimp(Ceps pold);
+X	    }
+X	   r++;
+X	   if(p[1]==R_OR||p[1]==R_END_GROUP||!p[1])
+X	      r=epso(r,SZ(jump));
+X	   goto incagoon;
+X	case R_0_OR_1:r++;
+X	   if(e)			  /* first an epsilon, then the rest */
+X	      puteps(rold,r=EOS(r)),pold=r,r=rold+1,psimp(Ceps pold);
+Xincagoon:  switch(*++p)			/* at the end of this group already? */
+X	    { case R_OR:case R_END_GROUP:case '\0':return;
+X	    }
+X	   continue;				 /* regular end of the group */
+X	case R_OR:case R_END_GROUP:case '\0':
+X	   if(e)
+X	      r=rold,psimp(e);
+X	   return;
+X      }
+X     if(e)			/* no fancy postfix operators, plain vanilla */
+X	r=rold,psimp(Ceps pold);
+X   }
+X}
+X
+Xstatic por(e)const struct eps*const e;
+X{ uchar*pvold;struct eps*rvold;
+X  if(!e)
+X   { rvold=r;
+X     if(cachea==(pvold=p))
+X      { p=cachep;r=epso(rvold,cacher);goto ret0;
+X      }
+X   }
+X  for(;;)
+X   { uchar*pold;struct eps*rold;
+X     for(pold=p,rold=r;;)
+X      { switch(*p)
+X	 { default:pnorm(Ceps 0);r=rold;continue;     /* still in this group */
+X	   case '\0':case R_END_GROUP:	       /* found the end of the group */
+X	      if(p==pold)				 /* empty 'or' group */
+X	       { if(e)
+X		    r->opc=OPC_JUMP,r->next=Ceps e;
+X		 r=epso(r,SZ(jump));
+X	       }
+X	      else
+X		 p=pold,pnorm(e);			/* normal last group */
+X	      if(!e)
+X	       { if(*p)
+X		    p++;
+X		 cachea=pvold;cachep=p;cacher=(char*)r-(char*)rvold;goto ret0;
+X	       }
+X	      if(*p)
+X	       { p++;
+Xret0:		 return 0;
+X	       }
+X	      return 1;
+X	   case R_OR:r++;
+X	      if(p==pold)				 /* empty 'or' group */
+X	       { if(e)
+X		    puteps(rold,e);			  /* special epsilon */
+X	       }
+X	      else
+X	       { p=pold;pnorm(e);	      /* normal 'or' group, first an */
+X		 if(e)				   /* epsilon, then the rest */
+X		    puteps(rold,r);
+X	       }
+X	      p++;
+X	 }
+X	break;
+X      }
+X   }
+X}
+X		  /* go down recursively, mark loopbacks on the way up again */
+Xstatic struct eps*maxback(down)struct eps*down;
+X{ ii=0;				   /* didn't find a loop at this level (yet) */
+X  for(;;)
+X   { switch(down->opc&LOOP_MASK)			/* chase JUMP chains */
+X      { default:goto ret0;			 /* oops, not an EPS, return */
+X	case OPC_JUMP:down->opc=OPC_JUMP|DONE_NODE;	/* mark them as used */
+X	case OPC_JUMP|DONE_NODE:down=down->next;continue;
+X	case OPC_EPS|DONE_NODE:ii=1;   /* used EPS found, return loop number */
+X	   return down->spawn==Ceps&aleps?down:down->spawn;
+X	case OPC_EPS:;			/* unused EPS found, the work starts */
+X      }
+X     break;
+X   }
+X  if(!down->spawn)	 /* has it been visited (belongs to previous group?) */
+X   { struct eps*left;					/* no, so process it */
+X     down->opc=OPC_EPS|DONE_NODE;down->spawn=Ceps&aleps;     /* mark as used */
+X     left=maxback(down->next);		   /* init loop no. and recurse left */
+X     if(ii)				    /* loop found directly below us? */
+X	down->opc|=LOOPL_NODE;				 /* mark a left-loop */
+X     ;{ struct eps*right;		 /* recurse right, take the smallest */
+X	if((right=maxback(down+1))&&(char*)left>(char*)right)	 /* loop no. */
+X	   left=right;
+X      }
+X     if(ii)				       /* loop found directly below? */
+X      { down->opc|=LOOPR_NODE;				/* mark a right-loop */
+X	if(!(down->opc&LOOPL_NODE))	/* if we didn't also had a left-loop */
+X	   ii=0;		/* we tell our predecessor we are not a loop */
+X      }
+X     if(!left)					    /* found no loop at all? */
+X      { down->spawn=down;goto ret0;  /* then give ourselves our own loop no. */
+X      }
+X     if((down->spawn=left)!=down)     /* save the loop no., check if it's us */
+X	return left;			       /* if not, pass the number up */
+X   }				     /* otherwise we are the end of the loop */
+Xret0:
+X  return 0;					       /* no loop whatsoever */
+X}
+X
+Xstruct eps*bregcomp(a,ign_case)const char*const a;
+X{ struct eps*st;size_t i;      /* first a trial run, determine memory needed */
+X  skplen[OPC_FILL-OPC_EPS]=SZ(eps)-ioffsetof(struct eps,sp);  /* a constant! */
+X  errorno=0;p=(uchar*)a;case_ignore=ign_case;r=Ceps&aleps;cachea=0;por(Ceps 0);
+X  st=r=
+X   malloc((i=(char*)r-(char*)&aleps)+sizeof r->opc);
+X  p=(uchar*)a;
+X  if(!por(epso(st,i)))					   /* really compile */
+X     errorno=1;
+X  r->opc=OPC_FIN;
+X  if(errorno)
+X     nlog("Invalid regexp"),logqnl(a);
+X  for(r=st;;st=skiplen(st))		 /* simplify the compiled code (i.e. */
+X     switch(st->opc)		      /* take out cyclic epsilon references) */
+X      { case OPC_FIN:return r;					 /* finished */
+X	case OPC_EPS:		     /* check for any closed epsilon circles */
+X	   if(!st->spawn)			   /* they can't be executed */
+X	    { maxback(st);     /* if not visited yet, recurse and mark loops */
+X	      ;{ register struct eps*i;
+X		 for(i=r;;i=skiplen(i))		 /* search the whole program */
+X		  { switch(i->opc&LOOP_MASK)
+X		     { default:				/* renumber regulars */
+X			{ register struct eps*f;		/* if needed */
+X			  if(((f=i->next)->opc&DONE_MASK)==OPC_EPS&&f->spawn)
+X			   { for(;f->spawn!=f;f=f->spawn);   /* search start */
+X			     i->next=f;				  /* of loop */
+X			   }
+X			}	       /* spare the used nodes in this group */
+X		       case OPC_EPS|DONE_NODE:case OPC_JUMP|DONE_NODE:
+X		       case OPC_FILL:continue;
+X		       case OPC_FIN:;
+X		     }
+X		    break;
+X		  }
+X	       }
+X	      ;{ register struct eps*i;
+X		 for(i=r;;i=skiplen(i))		 /* search the whole program */
+X		  { switch(i->opc)	  /* unmark/transform the used nodes */
+X		     { case OPC_EPS|DONE_NODE|LOOPL_NODE:i->next=i+1;
+X		       case OPC_EPS|DONE_NODE|LOOPR_NODE:i->sp.sopc=OPC_FILL;
+X		       case OPC_JUMP|DONE_NODE:i->opc=OPC_JUMP;continue;
+X		       case OPC_EPS|DONE_NODE|LOOPL_NODE|LOOPR_NODE:
+X		       case OPC_EPS|DONE_NODE:i->opc=OPC_EPS;
+X		       default:continue;
+X		       case OPC_FIN:;
+X		     }
+X		    break;
+X		  }
+X	       }
+X	    }
+X      }
+X}
+X
+X#define XOR1		\
+X (ioffsetof(struct chclass,pos1)^ioffsetof(struct chclass,pos2))
+X#define PC(this,t)	(*(struct eps**)((char*)(this)+(t)))
+X
+Xchar*bregexec(code,text,len,ign_case)struct eps*code;const uchar*const text;
+X size_t len;
+X{ register struct eps*reg,*stack,*other,*thiss;unsigned i,th1,ot1;
+X  const uchar*str;struct eps*initstack,*initcode;
+X  static struct mchar tswitch={OPC_TSWITCH,Ceps&tswitch};
+X  static struct eps sempty={OPC_SEMPTY,&sempty};
+X  sempty.spawn=initstack= &sempty;
+X  if((initcode=code)->opc==OPC_EPS)
+X     initcode=(initstack=code)->next,code->spawn= &sempty;
+X  thiss=Ceps&tswitch;th1=ioffsetof(struct chclass,pos1);
+X  ot1=ioffsetof(struct chclass,pos2);str=text-1;len++;i='\n';goto setups;
+X  do			      /* make sure any beginning-of-line-hooks catch */
+X   { i= *++str;				 /* get the next real-text character */
+X     if(ign_case&&i-'A'<'Z'-'A')
+X	i+='a'-'A';			     /* transmogrify it to lowercase */
+Xlastrun:				     /* switch this & other pc-stack */
+X     th1^=XOR1;ot1^=XOR1;thiss=other;
+Xsetups:
+X     other=Ceps&tswitch;stack=initstack;reg=initcode;goto nostack;
+X     for(;;)				 /* pop next entry off this pc-stack */
+X      { thiss=PC(reg=thiss,th1);PC(reg,th1)=0;reg=reg->next;goto nostack;
+X	for(;;)				/* pop next entry off the work-stack */
+X	   for(reg=stack->next,stack=stack->spawn;;)
+Xnostack:    { switch(reg->opc-OPB)
+X	       { default:
+X		    if(i==reg->opc)		  /* regular character match */
+X		       goto yep;
+X		    break;	    /* push spawned branch on the work-stack */
+X		 case OPC_EPS-OPB:reg->spawn=stack;reg=(stack=reg)+1;continue;
+X		 case OPC_JUMP-OPB:reg=reg->next;continue;
+X		 case OPC_FIN-OPB:return(char*)str;    /* one past the match */
+X		 case OPC_SEMPTY-OPB:goto empty_stack;
+X		 case OPC_TSWITCH-OPB:goto pcstack_switch;
+X		 case OPC_BOTEXT-OPB:
+X		    if(str<text)	       /* only at the very beginning */
+X		       goto yep;
+X		    break;
+X		 case OPC_CLASS-OPB:
+X		    if(bit_test(((struct chclass*)reg)->c,i))
+X		       goto yep;		       /* character in class */
+X		    break;
+X		 case OPC_DOT-OPB:			     /* dot-wildcard */
+X		    if(i!='\n')
+Xyep:		       if(!PC(reg,ot1))		     /* state not yet pushed */
+X			  PC(reg,ot1)=other,other=reg; /* push location onto */
+X	       }					   /* other pc-stack */
+X	      break;
+X	    }
+Xempty_stack:;					  /* the work-stack is empty */
+X      }
+Xpcstack_switch:;				   /* this pc-stack is empty */
+X   }
+X  while(--len);					     /* still text to search */
+X  if(ign_case!=2)					      /* out of text */
+X   { ign_case=2;len=1;str++;goto lastrun;	 /* check if we just matched */
+X   }
+X  return 0;							 /* no match */
+X}
+END_OF_FILE
+if test 14162 -ne `wc -c <'procmail/src/regexp.c'`; then
+    echo shar: \"'procmail/src/regexp.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/src/regexp.c'
+fi
+echo shar: End of archive 8 \(of 11\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Sincerely,                                  berg@pool.informatik.rwth-aachen.de
+           Stephen R. van den Berg (AKA BuGless).    berg@physik.tu-muenchen.de
+
+"Always look on the bright side of life!"
+
+exit 0 # Just in case...

@@ -1,0 +1,2189 @@
+Newsgroups: comp.sources.misc
+From: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Subject:  v32i021:  xbbs - A Bulletin Board System for System V, Part06/11
+Message-ID: <1992Sep9.045245.26424@sparky.imd.sterling.com>
+X-Md4-Signature: 18316296d9955cb9461b7d60b6bf2455
+Date: Wed, 9 Sep 1992 04:52:45 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Posting-number: Volume 32, Issue 21
+Archive-name: xbbs/part06
+Environment: SYSV, Xenix
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bbscdef.h bbscqust.c purge_mvfil.sh today/today.c
+#   xbbsgen/xbbsgen.c ymod.c
+# Wrapped by kent@sparky on Fri Sep  4 12:48:51 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 11)."'
+if test -f 'bbscdef.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscdef.h'\"
+else
+  echo shar: Extracting \"'bbscdef.h'\" \(8247 characters\)
+  sed "s/^X//" >'bbscdef.h' <<'END_OF_FILE'
+X/*
+X        bbscdef.h
+X
+X        Global defines and storage definitions for use by
+X        BBSc system.
+X        Last modification date: Mar  21, 1990
+X                  Version 7.91 and above!
+X
+X*/
+X
+X
+X
+X/* --------------------------------------------------------------------- */
+X#include <stdio.h>
+X#define MAXLINE 82
+X#define CPMEOF 0x1a
+X#define TRUE      1
+X#define FALSE     0
+X#define ERROR    -1
+X#define OK        1
+X#define READ      0
+X#define WRITE     1
+X#define UPDATE    2
+X#define STDIN     0
+X#define STDOUT    1
+X/* --------------------------------------------------------------------- */
+X
+X#define ESC       0x1b
+X#define CR        0x0d
+X#define LF        0x0a
+X#define BELL      0x07                  /* Avon calling */
+X#define CRLF      "\r\n"                /* <cr><lf> */
+X#define CTL_D     0x04                  /* <ctl-d> */
+X#define CTL_K     0x0b                  /* <ctl-k> */
+X#define CTL_X     0x18                  /* <ctl-x> */
+X
+X
+X#define IF_MONITOR TRUE                 /* Set True if you want to monitor
+X                                           the input/output on another
+X                                           device                     */
+X/*      defines used by the bbscfile.c routine     */
+X
+X#define MSG1MAX 102             /* max. piece of message to put in 128 */
+X                                /*  byte chunk of msg file */
+X#define MSGSECT 128             /* size of message sector */
+X
+X/*                      end of defines used by the bbscfile.c routine */
+X#define MESSAGES  "messages.bbs"        /* file name */
+X#define HEADER    "header.bbs"
+X#define MSGLOG    "messages.log"
+X#define BBSMAIL   "/usr/spool/mail/bbsuser"             /* group mail */
+X#define CROSSREF  "crossref.bbs"
+X#define FILES     "files.bbs"
+X#define TMPFILE   "/tmp/files"
+X#define FLIST     "/tmp/flist"
+X#define STDERR    "/tmp/error_out"
+X#define SYSTTY    "/tmp/ttydev"
+Xchar FOO[10];
+Xchar TAR[50];
+Xchar ZCAT[50];
+Xchar ARC[50];
+Xchar ZIP[50];
+Xchar MONITOR[30];               /* Monitor device */
+Xchar CONSOLE[30];               /* The main console */
+Xchar WELCOME[50];       /* file name */
+Xchar BULLETINS[50];     /* file name */
+Xchar NEWUSER[50];       /* file name */
+Xchar SYSTEM[50];        /* file name */
+Xchar CALLERS[50];       /* file name */
+Xchar LASTCALL[50];      /* file name */
+Xchar USERS[50];         /* file name */
+Xchar QUESTION[50];
+Xchar LISTFILES[50];
+Xchar ANSWER[50];
+Xchar UNIXMSG[50];
+Xchar DLMSG[50];         /* Download message */
+Xchar HUMOR[50];         /* file name */
+Xchar HELP[50];          /* file name */
+Xchar HELPFILE[50];
+Xchar HELPMSG[50];
+Xchar USERPRIV[50];
+Xchar MAINPRIV[50];
+Xchar FILEPRIV[50];
+Xchar ADDITN[50];
+Xchar TODAY[99];
+Xchar ORGPATH[50];
+Xchar AREAS[50];
+Xchar SIGS[50];
+Xchar MSGS[50];
+Xchar USRBBS[50];
+Xchar RB[50];
+Xchar SB[50];
+Xchar RZ[50];
+Xchar SZ[50];
+Xchar CRCR[50];
+Xchar CRCS[50];
+Xchar YMDR[50];
+Xchar YMDS[50];
+Xchar YMS[50];
+Xchar YMR[50];
+Xchar KS[50];
+Xchar KRA[50];
+Xchar KRE[50];
+Xchar SEAR[50];
+Xchar SEAS[50];
+Xchar SYSOP[30]; 
+Xchar SHELL[30];
+Xint LOGTIME;    /* Login Time    */
+Xint RUNTIME;    /* Usage Time    */
+Xint WAITTIME;   /* Response Time */
+Xint NEWPRIV;
+Xint MAXPRIV;
+Xint MAXSEC;
+Xint MAXKBYTE;
+X
+X
+X                                /* global variables */
+Xchar    portin();               /* in routine returns a character */
+Xchar    *gb4sin();              /* returns pointer to character */
+X
+XFILE    *inbuf ;                /* handy input buffer pointer */
+XFILE    *otbuf ;                /* another handy buffer pointer */
+XFILE    *itbuf ;                /* pointer used to read/write user file */
+XFILE    *rdstatbuf;
+XFILE    *wtstatbuf;
+XFILE    *STDerr;
+X
+Xchar    w_fname[25];            /* first name on signon */
+Xchar    w_lname[25];            /* last  name on signon */
+Xchar    w_password[13];         /* password   on signon */
+Xchar    *passptr;               /* ptr to password */
+X
+X                                /* define user file fields */
+Xchar    u_fname[25];
+Xchar    u_lname[25];
+Xchar    u_password[13];
+Xchar    u_time1[12];            /* first time on system */
+Xchar    u_date1[9];             /* first date on system */
+Xchar    u_time2[12];            /* last  time on system */
+Xchar    u_date2[9];             /* last  date on system */
+Xchar    u_city[31];             /* city, state */
+X
+Xchar    z_date[9];
+Xchar	z_time[9];
+X                                /* define message file fields   */
+Xchar    msg_no[12];             /* message number */
+Xchar    msg_date[10];           /* date of message */
+Xchar    msg_time[16];           /* time of message */
+Xchar    msg_to[22];             /* who message is to */
+Xchar    msg_from[22];           /* who message is from */
+Xchar    msg_pass[12];           /* password */
+Xchar    msg_subject[22];        /* what it's all about */
+X#define MAX_MSG_LINES   99
+Xchar    msg_text[(MAX_MSG_LINES * 74)+74];         /* text of message MAX_MSG_LINES lines */
+X                                /*  by 72 wide */
+Xchar    msg_delete[3];          /* indicates msg status */
+X                                /*  0 = active */
+X                                /*  9 = deleted */
+X                                /*  5 = active private */
+Xchar    pubpriv[2];             /* temporary message type */
+X
+Xchar    z_mm[3];
+Xchar    z_dd[3];
+Xchar    z_yy[3];
+Xchar    buf128[384];
+X
+Xchar    l_m_base[3];
+Xchar    l_f_base[3];
+Xchar    xprt_a[2];
+Xchar    tggl_a[2];
+X
+Xint     maxkbyte,
+X        logtime,
+X        runtime,
+X        waittime,
+X        newpriv;
+Xint     mon_handle;             /* Monitor Handle */
+Xint     debug;                  /* switch for debug mode */
+Xint     offline;                /* switch for offline mode */
+Xint     xpert;                  /* switch */
+Xint     toggle;                 /* switch for list mode */
+Xint     which_timer;
+Xint     char_in_passwd;         /* Number of characters in the password */
+Xint     if_monitor;
+Xint     in_the_buffer;
+Xint     active;                 /* indicates if logged on */
+Xint     statcnt;                /* count used for status routines */
+Xint     stop_that;              /* switch - true indicates ctl-K */
+X                                /*  or K received in portout routine */
+X                                /* date/time fields - used by bbsclock.c */
+X/*
+X ****************** Start of Priv Table *********************
+X*/
+Xint     mpB,
+X        mpK,
+X        mpE,
+X        mpG,
+X        mpN,
+X        mpQ,
+X        mpR,
+X        mpS,
+X        mpW,
+X        mpM,
+X        mpX,
+X        mpF,
+X        mpC,
+X        mpH,
+X        mpT,
+X        mpD,
+X        mpY,
+X        mpP,
+X        mpA,
+X        mpU,
+X        mpCHAT,
+X        mpQUEST,
+X        mpMS,
+X        mpRF,
+X        mpCONF,
+X	mpUSENET,
+X        mpL,
+X        mpZ;
+Xint     fpL,
+X        fpU,
+X        fpD,
+X        fpM,
+X        fpG,
+X        fpR;
+X/*
+X **************** End of Priv Table *******************
+X*/
+Xchar    mm[3];
+Xchar    dd[3];
+Xchar    yy[3];
+Xchar    month[20];              /* ie. January */
+Xchar    day[3];                 /* dd */
+Xchar    year[5];                /* 19yy */
+Xchar    date[30];               /* ie. January 31, 1983 */ 
+Xchar    week[20];               /* day of week Monday, Tuesday... */
+Xchar    ttime[12];              /* time of day  HH:MM:SS xM */
+X                                /*          where x = A or P */
+X
+X/*                      variables used by the bbscfile.c routine */
+X
+Xchar    h_next_msg[10];         /* next avail. message # */
+Xchar    h_date[10];             /* last update date of header file */
+Xchar    h_act_msg[10];
+Xchar    jnk[2];
+Xint     lnctx;
+Xint     chat_in_progress;
+Xint     stop_chat;
+Xint     h_act;
+Xint     h_next;                 /* next avail. message # in integer */
+Xlong    xtable[1000];
+Xlong    save_d_pos;
+X
+Xlong    d_pos;
+Xlong    old_long_date;
+Xlong    new_long_date;
+Xlong    xmm;
+Xlong    xdd;
+Xlong    xyy;
+Xchar    f_pathname[99];
+Xchar    u_pathname[99];
+Xchar    m_pathname[99];
+Xchar    c_pathname[99];
+Xchar    area_name[80];
+Xchar    f_pathtext[80];
+X
+X/*                      end of variables used by bbscfile.c */
+X/*         Variables used by xmodem.c               */
+Xchar    x_filename[99];         /* filename */
+Xchar    x_pathandfile[512];      /* the full string */
+Xchar    who_am_i[99];
+Xchar    who_am_I[99];
+Xchar    f_lines[99][83];
+Xint     dir_priv[99];
+X
+X                        /* end of globals */
+X
+X/* end of program */
+END_OF_FILE
+  if test 8247 -ne `wc -c <'bbscdef.h'`; then
+    echo shar: \"'bbscdef.h'\" unpacked with wrong size!
+  fi
+  # end of 'bbscdef.h'
+fi
+if test -f 'bbscqust.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscqust.c'\"
+else
+  echo shar: Extracting \"'bbscqust.c'\" \(10548 characters\)
+  sed "s/^X//" >'bbscqust.c' <<'END_OF_FILE'
+X#include <string.h>
+X#include <ctype.h>
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/locking.h>
+X#include <sys/stat.h>
+X#include "bbscdef.h"
+Xstruct stat statbuf;
+Xchar QST_FILE[50];
+X/*
+X    The following questionnaire commands are available for usage:
+X    Command           Description
+X      !               Output the rest of the line and wait for an input
+X      ^               Same as '!' except strlen of input must be > 0
+X      @               Output the rest of the line and send a \n\r
+X      &               Same as '@' without a terminal \n\r
+X      $               Input line
+X      *               Same as '$' except strlen of input must be > 0
+X      %               Output \n\r
+X      Y || y          Output line and set flag true if answer is a Y or y
+X      N || n          Output line and set flag true if answer is an N or n
+X      {               Start conditional response based on flag = true
+X      }               End conditional response
+X      /               Exit questionnaire - normally used as a conditional
+X                      statement
+X
+X      The COMMAND is in column one of line
+X*/
+Xquestion(typeofqst)
+Xint typeofqst;
+X{
+X        int result, fds, var;
+X        char *ptr;
+X        var = FALSE;
+X	result=change_qst(0, typeofqst);
+X        if( result != 0)
+X        {
+X                portsout("\n\rThere is NO questionnaire today!\n\r");
+X                return;
+X        }
+X        if((inbuf=fopen(QST_FILE,"r")) == NULL)
+X        {
+X                portsout("\n\rThat questionnaire was not found -- notify the sysop!\n\r");
+X                return;
+X        }
+X        if((otbuf=fopen(ANSWER,"a+")) == NULL)
+X        {
+X                portsout("\n\rError opening answer file!\n\r");
+X                exit (1);
+X        }
+X        fds = fileno(otbuf);
+X        rewind (otbuf);
+X        locking(fds, LK_LOCK, 0L);
+X	lseek(fds, 0L, 2);
+X        fprintf(otbuf,"%s\n","***********************************************");
+X        fprintf(otbuf, "%s %s    %s %s %s\n", w_fname, w_lname, week, date, ttime);
+Xnext_qloop:
+X        while ((fgets(buf128, 80, inbuf)) != NULL )
+X        {
+X                strip(buf128);
+X                if(buf128[0] == '$')
+X                {
+X                        portsout("\n\r? ");
+X                        portsin(buf128,80);
+X                        fprintf(otbuf, "%s\n", buf128);
+X                        continue;
+X                }
+X                if(buf128[0] == '*')
+X                {
+X			while (1) {
+X                       		portsout("\n\r? ");
+X                       		portsin(buf128,80);
+X				if( strlen(buf128) > 0 )
+X					break;
+X				portsout("\n\rInput is required.");
+X			}
+X			
+X                       	fprintf(otbuf, "%s\n", buf128);
+X                        continue;
+X                }
+X                if(buf128[0] == '!')
+X                {
+X                        ptr = buf128 + 1;
+X                        portsout(CRLF);
+X                        portsout(ptr);
+X                        portsout(" ? ");
+X                        portsin(buf128,80);
+X                        fprintf(otbuf, "%s\n", buf128);
+X                        continue;
+X                }
+X                if(buf128[0] == '^')
+X                {
+X                        ptr = buf128 + 1;
+X                        portsout(CRLF);
+X                        portsout(ptr);
+X                        portsout(" ? ");
+X			while(1) {
+X                        	portsin(buf128,80);
+X				if( strlen(buf128) > 0 )
+X					break;
+X				portsout("\n\rInput is required.");
+X                       		portsout("\n\r? ");
+X			}
+X                        fprintf(otbuf, "%s\n", buf128);
+X                        continue;
+X                }
+X                if(buf128[0] == '@')
+X                {
+X                        ptr = buf128 + 1;
+X                        portsout(CRLF);
+X                        portsout(ptr);
+X                        portsout(CRLF);
+X                        continue;
+X                }
+X                if(buf128[0] == '&')
+X                {
+X                        ptr = buf128 + 1;
+X                        portsout(CRLF);
+X                        portsout(ptr);
+X                        continue;
+X                }
+X                if(buf128[0] == '%' )
+X                {
+X                        portsout(CRLF);
+X                        continue;
+X                }
+X                if(buf128[0] == 'y' || buf128[0] == 'Y')
+X                {
+X                        ptr = buf128 + 1;
+X                        portsout(CRLF);
+X                        portsout(ptr);
+X                        portsout(" ? ");
+X                        portsin(buf128,1);
+X                        if(buf128[0] == 'Y' || buf128[0] == 'y') var = TRUE;
+X                        else var = FALSE;
+X                        continue;
+X                }
+X                if(buf128[0] == 'n' || buf128[0] == 'N')
+X                {
+X                        ptr = buf128 + 1;
+X                        portsout(CRLF);
+X                        portsout(ptr);
+X                        portsout(" ? ");
+X                        portsin(buf128,1);
+X                        if(buf128[0] == 'N' || buf128[0] == 'n') var = TRUE;
+X                        else var = FALSE;
+X                        continue;
+X                }
+X                if(buf128[0] == '/')
+X                {
+X                        rewind(otbuf);
+X                        locking(fds, LK_UNLCK, 0L);
+X                        fclose(inbuf);
+X                        fclose(otbuf);
+X                        return;
+X                }
+X                if(buf128[0] == '{' && var == TRUE ) continue;
+X                if(buf128[0] == '{')
+X                {
+X                        while ((fgets(buf128, 80, inbuf)) != NULL )
+X                        {
+X                                strip(buf128);
+X                                if(buf128[0] == '}')
+X                                goto next_qloop;
+X                        }
+X                        rewind(otbuf);
+X                        locking(fds, LK_UNLCK, 0L);
+X                        fclose(inbuf);
+X                        fclose(otbuf);
+X                        return;
+X                }
+X                if(buf128[0] == '}') continue;
+X        }
+X        rewind(otbuf);
+X        locking(fds, LK_UNLCK, 0L);
+X        fclose(inbuf);
+X        fclose(otbuf);
+X}
+X
+X
+Xint             set_yet_q = TRUE;
+Xextern int      user_priv;
+X
+X
+Xint change_qst( type, typeofqst ) int type, typeofqst;
+X{
+X        FILE           *fpt, *fopen();
+X        char           *fgets(), *getenv();
+X        char            choice[4];
+X#ifndef SYSV
+X        char            dir_priv_ascii[7];
+X#endif
+X#ifdef SYSV
+X        char            dir_priv_ascii[20];
+X#endif
+X
+X        char           *buf_ptr;
+X        int             line_cnt, ret, i;
+X        int             index_value, ptr;
+X        int             length;
+X
+X
+Xdo_again:
+X        strcpy(buf128, QUESTION);
+X
+X        if ((fpt = fopen(buf128, "r")) == NULL) {
+X                portsout("\n\rError Opening Questionnaire List: Notify Sysop!\n\r");
+X                return (-1);
+X        }
+X        if(!type) {
+X        portsout("\n\r    Questionnaire     Description                                      \n\r");
+X        portsout("    ============= ========================================== \n\r");
+X        }
+X
+X        line_cnt = 0;
+X        while (fpt) {
+X		zfl(f_lines[line_cnt], 81);
+X                if ((fgets(f_lines[line_cnt], 80, fpt)) == NULL) {
+X                        if (line_cnt == 0) {
+X                                portsout("\n\rEOF Unexpected in Questionnaire List: Notify Sysop!\n\r");
+X                                return (-1);
+X                        }
+X                        break;  /* if not 1st line */
+X                }               /* end of if ((fgets)) */
+X                if (line_cnt > 0) {
+X                        length = strlen(f_lines[line_cnt]);
+X                        length -= 57;
+X                        if(length > 6)
+X                                length = 6;
+X                        substr(f_lines[line_cnt], dir_priv_ascii, 57, length);
+X                        dir_priv[line_cnt] = atoi(dir_priv_ascii);
+X                        if (dir_priv[line_cnt] > user_priv)
+X                                goto next_read;
+X                        strcpy(who_am_i, f_lines[line_cnt]);
+X                        buf_ptr = who_am_i;
+X                        buf_ptr += 56;
+X                        for (ptr = 0; ptr < 6; ptr++)
+X                                *buf_ptr++ = ' ';
+X			*buf_ptr='\0';
+X                        sprintf(buf128, "%2d) %s", line_cnt, who_am_i);
+X                        if(!type) {
+X                        strip(buf128);
+X                        term_space(buf128);
+X                        portsout(buf128);
+X                        portsout("\n\r");
+X                        }
+X                }
+Xnext_read:
+X                ++line_cnt;
+X        }                       /* end of while (fpt) */
+X        if (line_cnt <= 1)
+X                return;
+X        if (set_yet_q && !type) {
+X                portsout(CRLF);
+X	if(!typeofqst)
+X                portsout(" Q) Quit to Previous Menu");
+X        }
+X        if(!type)portsout(CRLF);
+X        fclose(fpt);
+X        if(!type)portsout(CRLF);
+X
+X        while (1) {
+X                if(!type) {
+X                portsout("Enter Selection ===> ");
+X		if(!typeofqst)
+X          		 portsin_cmp(choice, 2, "Qq");
+X		else
+X			portsin(choice, 2);
+X                portsout(CRLF);
+X                *choice = toupper(*choice);
+X
+X                if (*choice == 'Q' && set_yet_q && !typeofqst)
+X                        return (-1);
+X
+X
+X                index_value = atoi(choice);
+X                }
+X                else index_value = type;
+X                if (index_value > 0 && index_value < line_cnt) {
+X                        if (dir_priv[index_value] <= user_priv) {
+X                                parse2arg(f_lines[index_value]);
+X                                set_yet_q = TRUE;
+X                                return (0);
+X                        }
+X                }
+X                if( type != 0 ) {
+X                        type = 0;
+X                        portsout("\n\rInvalid Questionnaire request!\n\r");
+X                        goto do_again;
+X                }
+X        }
+X}
+X
+X
+X
+X
+X
+Xparse2arg(string)
+X        char           *string;
+X{
+X
+X        register char  *file_ptr, *xptr;
+X        register int    i;
+X
+X        strcpy(QST_FILE, ORGPATH);
+X        file_ptr = (QST_FILE + strlen(QST_FILE));
+X
+X        i = 0;
+X        while (string[i] != ' ') {
+X                *file_ptr = string[i];
+X                ++file_ptr;
+X                ++i;
+X        }
+X        *file_ptr = '\0';
+X	strcpy(ANSWER, QST_FILE);
+X	strcat(QST_FILE, ".qst");
+X	strcat(ANSWER, ".ans");
+X
+X}
+END_OF_FILE
+  if test 10548 -ne `wc -c <'bbscqust.c'`; then
+    echo shar: \"'bbscqust.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscqust.c'
+fi
+if test -f 'purge_mvfil.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'purge_mvfil.sh'\"
+else
+  echo shar: Extracting \"'purge_mvfil.sh'\" \(10136 characters\)
+  sed "s/^X//" >'purge_mvfil.sh' <<'END_OF_FILE'
+X
+XHere are the latest copies of the XBBS Sysop's utilities purge & mvfile.sh.
+XYou should find that they will run without modification with the exception of
+Xpurge which will require you to correct the path to allign.
+X
+X
+X===================  B E G I N N I N G    O F   P U R G E   ====================
+X:
+X# trap " put clean-up code here" 1 2 3 15
+X#purge
+X#	This script will assist the XBBS system operator in maintaining
+X#	the users lists.
+X#
+X#	Copyright Dighera Data Services  July 20, 1987
+X#
+X
+X# This command should assure that the user.bbs file has been 'alligned',
+X# then prompt the sysop for a date, range of dates, name, or other search
+X# criteria, present matching users names individually and ask if they should be
+X# purged, if yes, then purge their records from: user.bbs, userpriv.bbs, and 
+X# messages.log in each of the message directories.  The deletion is most easily
+X# accomplished with grep -vf , sed, awk, or ed.
+X
+XNAME="`basename $0`"				# The Name of this Script
+XHOMEDIR="`grep '^bbs:' /etc/passwd | awk -F\":\" '{print $6}'`"	# XBBS home dir
+XBINDIR="`head -21 $HOMEDIR/.config.bbs | tail -1`"		# XBBS binaries
+XUSERFIL="`head -7 $HOMEDIR/.config.bbs | tail -1`"		# Users dBASE
+XPRIVFIL="`head -13 $HOMEDIR/.config.bbs | tail -1`"		# Privlege File
+XMSGMENU="`head -23 $HOMEDIR/.config.bbs | tail -1`"		# Message Areas
+XMSGLOG="messages.log"						# Message Log 
+Xexport NAME HOMEDIR BINDIR USERFIL PRIVFIL MSGMENU MSGLOG
+Xecho "\014\n\n\n\tX B B S    U S E R    P U R G E    M E N U \n\n"
+X#
+X#  Save a copy of all files that will be modified
+X#
+Xif [ -f ${USERFIL}.o ]
+Xthen
+X	echo "${USERFIL}.o exists.  Ok to overwrite it? \c"
+X	read ANS
+X	case $ANS in
+X		[yY]*) :;;
+X		*) echo "${NAME}: Aborting ..."; exit 1;;
+X	esac
+Xelse
+X	cp $USERFIL ${USERFIL}.o
+Xfi
+Xif [ -f ${PRIVFIL}.o ]
+Xthen
+X	echo "${PRIVFIL}.o exists.  Ok to overwrite it? \c"
+X	read ANS
+X	case $ANS in
+X		[yY]*) :;;
+X		*) echo "${NAME}: Aborting ..."; exit 1;;
+X	esac
+Xelse
+X	cp $PRIVFIL ${PRIVFIL}.o
+Xfi
+X#
+X# Allign the users file
+X#
+XFLAG=0; export FLAG
+Xecho "\nAllinging $USERFIL file ...\nPlease stand by ...\c"
+Xecho "$USERFIL" >/tmp/$NAME.tmp
+X# You will have put the path to your allign program here
+X#$BINDIR/allign/allign </tmp/$NAME.tmp 2>&1 > /dev/null || (echo "${NAME}: cannot allign, aborting ..."; FLAG=1)
+X$USERFIL/allign </tmp/$NAME.tmp 2>&1 > /dev/null || (echo "${NAME}: cannot allign, aborting ..."; FLAG=1)
+Xrm -f /tmp/$NAME.tmp
+Xif [ $FLAG -eq 1 ];then exit 1;fi
+X#
+X# Display Menu
+X#
+Xecho "\014"
+Xcat << EOT
+X
+X
+X		X B B S   U S E R    P U R G E    M E N U
+X
+X
+X	N.  Purge Users by NAME
+X	D.  Purge Users by DATE
+X	C.  Purge Users that have ONLY CALLED ONCE
+X	P.  Purge Users by PRIVLEGE LEVEL
+X	B.  Purge Users by PRIVLEGE LEVEL & ONLY CALLED ONCE
+X
+X	Q.  Quit to Unix
+X?
+XEOT
+Xread CHOICE
+Xcase $CHOICE in 
+X	[nN]*) echo "${NAME}: This command is not implemented yet";;
+X	[dD]*) echo "${NAME}: This command is not implemented yet";;
+X# 
+X# Find all user records with first-session-date = last-session-date, and
+X# present them for deletion from users data base.
+X#
+X	[cC]*) echo "\nSearching $USERFIL for One-time-callers...\c";
+X		rm -f /tmp/$NAME.found /tmp/$NAME.prv.rm /tmp/$NAME.priv > /dev/null 2>&1 ;
+X		awk -F"~" '$5 == $7 {print}' $USERFIL >> /tmp/$NAME.found && echo "Search Completed!";
+X# This trap needs to address processing the other files created by split
+X		if [ `wc -l /tmp/$NAME.found | awk '{print $1}'` -gt 900 ]
+X		then
+X			echo "File contains more than 900 lines; being split.."
+X			split /tmp/$NAME.found /tmp/$NAME.found.
+X			cp /tmp/$NAME.found.aa /tmp/$NAME.found
+X		fi;
+X		echo "Please stand by ... \c";
+X		for I in `awk -F"~" '{print $1"~"$2"~"}' /tmp/$NAME.found`
+X		do
+X			J="`echo \"$I\" | awk -F\"~\" '{print $1, $2, }'`"
+X			export J
+X			echo "\nPriv Record: \c"
+X			fgrep "$J" $PRIVFIL | tee /tmp/$NAME.priv
+X			if [ -s /tmp/$NAME/priv ]; then echo "\007";fi
+X			echo "User Record: \c"
+X			fgrep "$I" /tmp/$NAME.found
+X			echo "\n\tRemove (y,N,p,q)? \c"; read REMOVE
+X			case $REMOVE in
+X				[yY]*) echo "$I" >> /tmp/$NAME.rm;
+X				      cat /tmp/$NAME.priv >> /tmp/$NAME.prv.rm;;
+X				[pP]*) break;;
+X				[bB]*) echo "Not yet emplemented";;
+X				[qQ]*) exit 1;; # Add exit & clean up code here
+X				*) continue;;
+X			esac
+X			echo
+X		done;
+X		rm -f /tmp/$NAME.found /tmp/$NAME.priv;
+X		#
+X		# Create Purged  USERFIL
+X		#
+X	# This trap needs to address processing the other files created by split
+X		if [ `wc -l /tmp/$NAME.rm | awk '{print $1}'` -gt 200 ]
+X		then
+X			echo "File contains more than 200 lines; being split.."
+X			split /tmp/$NAME.rm /tmp/$NAME.rm.
+X			cp /tmp/$NAME.rm.aa /tmp/$NAME.rm
+X		fi
+X		fgrep -vf /tmp/$NAME.rm $USERFIL >${USERFIL}NEW;
+X		cp ${USERFIL}NEW $USERFIL && rm ${USERFIL}NEW;
+X		#
+X		# Create Purged PRIVFIL
+X		#
+X	# This trap needs to address processing the other files created by split
+X		if [ `wc -l /tmp/$NAME.prv.rm | awk '{print $1}'` -gt 200 ]
+X		then
+X			echo "File contains more than 200 lines; being split.."
+X			split /tmp/$NAME.prv.rm /tmp/$NAME.prv.rm.
+X			cp /tmp/$NAME.prv.rm.aa /tmp/$NAME.prv.rm
+X		fi
+X		fgrep -vf /tmp/$NAME.prv.rm $PRIVFIL >${PRIVFIL}NEW;
+X		cp ${PRIVFIL}NEW $PRIVFIL && rm ${PRIVFIL}NEW;
+X		#
+X		# Create Purged MSGFIL
+X		#
+X		for J in `awk 'NR > 1 {print $1}' $MSGMENU`
+X		do
+X			cd $BINDIR/$J
+X			fgrep -vf /tmp/$NAME.prv.rm $MSGLOG >${MSGLOG}NEW
+X			cp $MSGLOG o$MSGLOG && (cp ${MSGLOG}NEW $MSGLOG; rm ${MSGLOG}NEW)
+X		done;
+X		# add clean-up code here
+X		rm /tmp/$NAME.rm /tmp/$NAME.prv.rm;;
+X	[pP]*) echo "${NAME}: This command is not implemented yet";;
+X	[qQ]*) exit 0;;
+X	*) ;;
+Xesac
+Xexec $0
+X# trap 1 2 3 15
+X============================  E N D    O F    P U R G E  ====================
+X
+X===================  B E G I N N I N G    O F    M V F I L E . S H  ======
+X:
+X#mvfile.sh 	Version 1.0 Beta
+X#	This Bourn shell script will assist the Sysop in moving
+X#	files that have been uploaded by XBBS users to their 
+X#	respective directories.
+X#
+X#	Copyright Dighera Data Services September 5, 1987
+X#
+X
+XNAME=`basename $0`	# The name of this program
+XSRCDIR=""		# Directory name containing files to be moved
+XDESTDIR=""		# Directory name that will receive file
+XJUNKDIR=/usr/tmp	# Destination for junked files
+XFLINE=""		# Line from files.bbs that describes file
+XHOMEDIR="`grep '^bbs:' /etc/passwd | awk -F\":\" '{print $6}'`"	# XBBS home dir
+XORGDIR=`cat $HOMEDIR/.config.bbs | awk 'NR == 21 {print}' -`	# XBBS Origin 
+XAREAS_BBS=`cat $HOMEDIR/.config.bbs | awk 'NR == 22 {print}' -`	# File w/ areas
+XAREAS=`cat $AREAS_BBS | awk 'NR > 1 { print $1 }'`	# All file areas
+X# AREA_NO=`expr \`wc -l $AREAS_BBS | awk '{print $1}'\` - 1`
+Xset $AREAS
+XAREA_NO=$#
+XMENU="cat /usr/tmp/$NAME.mnu"
+Xexport NAME HOMEDIR ORGDIR AREAS_BBS AREAS AREA_NO SRCDIR FLINE DESTDIR MENU SORT DAYS
+Xtrap "echo \"\007$0: Aborted\"; eval rm /usr/tmp/$NAME.mnu; exit 2" 1 2
+X
+X#	Make Menu File
+Xecho "\014\n\t    X B B S    F I L E    D I S P E R S A L    M E N U\n\n" > /usr/tmp/$NAME.mnu
+Xecho "\t\tEnter the Number of Your Choice --\n" >> /usr/tmp/$NAME.mnu
+Xfor I
+Xdo
+X	echo "$I" >> /usr/tmp/$NAME.mu
+Xdone
+Xcat /usr/tmp/$NAME.mu | pr -3t -n -o8 >>/usr/tmp/$NAME.mnu
+Xecho >> /usr/tmp/$NAME.mnu
+Xrm /usr/tmp/$NAME.mu
+X
+X#
+X#	Main Program Begins
+X#
+Xcd $ORGDIR	# No doubt this is the cause of the exec $0's failing
+X$MENU
+Xecho "Enter the Number of the Source Directory\ncontaining the files you wish to move: \c"
+Xread SRCDIR
+Xcase $SRCDIR in
+X  1[123] | [0123456789]) SRCDIR=`echo $AREAS | awk '{print $'$SRCDIR'}'`;;
+X  *) echo "Invalid Input\007"; sleep 3; exec $0;; 	# Bug here $0
+Xesac
+X# This section needs work !!!!!!!!!!!!!!!!!!!!!
+Xwhile true
+Xdo
+X   head -6 /usr/tmp/$NAME.mnu
+X   cat << EOT
+X
+X	1.  Sort $SRCDIR ALPHABETICALLY (default)
+X	2.  Sort $SRCDIR REVERSED ALPHABETICAL
+X	3.  Sort $SRCDIR BEGINNING with Specific Characters
+X	4.  Sort $SRCDIR OLDest first
+X	5.  Sort $SRCDIR NEWest first
+X	6.  Show $SRCDIR files LESS THAN A NUMBER OF DAYS OLD
+X	7.  Show $SRCDIR files MORE THAN A NUMBER OF DAYS OLD
+X?
+XEOT
+X   read CHOICE
+X   case $CHOICE in
+X	1) CMD="ls $SRCDIR"; break;;
+X	2) CMD="ls -r $SRCDIR"; break;;
+X# The choice below only returns ONE filename; bug
+X	3) echo "\n\tEnter characters for begining of file name \c"; read SORT;
+X		CMD='basename `ls $SRCDIR/$SORT*`'; break;;
+X	4) CMD="ls -tr $SRCDIR"; break;;
+X	5) CMD="ls -t $SRCDIR"; break;;
+X# The two choices below don't fine any filenames; bug
+X	6) echo "Enter the NUMBER of DAYS";read DAYS; CMD="find $SRCDIR -ctime -$DAYS -print"; break;;
+X	7) echo "Enter the NUMBER of DAYS";read DAYS; CMD="find $SRCDIR -ctime +$DAYS -print"; break;;
+X	*) CMD="ls $SRCDIR"; break;;
+X   esac
+Xdone
+X#
+X#	Main Loop
+X#
+Xecho "$CMD"
+Xfor J in `eval "$CMD"`
+Xdo
+X   if [ ! -f $SRCDIR/$J ] ;then continue; fi	# Don't process directories
+X   $MENU
+X   echo "\tQ.\tQuit to Unix\n\tN.\tNext File (don't move this one)\n\tJ.\tJunk this File (in $JUNKDIR)\n"
+X   FLINE="`grep ^$J $SRCDIR/files.bbs || (echo \"\007$0: File $J probabily not referenced in $SRCDIR/files.bbs.\"; sleep 3; continue)`"
+X   test `echo "$FLINE" | wc -l` -gt 1 && (echo "\007$0: File $J probabily referenced more than once in $SRCDIR/files.bbs"; sleep 3 ; continue)
+X   echo "Move?: $FLINE\n"
+X   ls -la $SRCDIR/$J
+X   echo "\nEnter the Number of the Distination Directory: \c"
+X   read CHOICE
+X   case $CHOICE in
+X 	[qQ]*) exit;;
+X 	[nN]*) continue;;
+X	[jJ]*) mv $SRCDIR/$J $JUNKDIR;
+X 		grep -v "$FLINE" $SRCDIR/files.bbs > /usr/tmp/$NAME.$$ || (echo " $0: grep error" ; sleep 3; continue);
+X		if [ -s /usr/tmp/$NAME.$$ ] ;then cp /usr/tmp/$NAME.$$ $SRCDIR/files.bbs
+X		else echo "\007$0: 0 length file error"; exit 1 ; fi
+X		rm /usr/tmp/$NAME.$$;
+X		echo $FLINE >> $JUNKDIR/files.bbs;;
+X 	[0-9] | 1[0-2]) DESTDIR=`echo $AREAS | awk '{print $'$CHOICE'}'`;
+X 		grep -v "$FLINE" $SRCDIR/files.bbs > /usr/tmp/$NAME.$$ || (echo " $0: grep error" ; sleep 3; continue);
+X		mv $SRCDIR/$J $DESTDIR;
+X		if [ -s /usr/tmp/$NAME.$$ ] ;then cp /usr/tmp/$NAME.$$ $SRCDIR/files.bbs
+X		else echo "\007$0: 0 length file error"; exit 1 ; fi
+X		rm /usr/tmp/$NAME.$$;
+X 		echo $FLINE >> $DESTDIR/files.bbs;;
+X# Add edit option here for $DESTDIR/files.bbs
+X 	*) echo "\007Your entery '$CHOICE' is not amoung the valid choices. Continuing ..."; sleep 2 ;;
+X   esac
+Xdone
+Xrm /usr/tmp/$NAME.mnu
+Xtrap 1 2 3 9 15
+X===========================  E N D    O F    M V F I L E . S H   =============
+X
+END_OF_FILE
+  if test 10136 -ne `wc -c <'purge_mvfil.sh'`; then
+    echo shar: \"'purge_mvfil.sh'\" unpacked with wrong size!
+  fi
+  # end of 'purge_mvfil.sh'
+fi
+if test -f 'today/today.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'today/today.c'\"
+else
+  echo shar: Extracting \"'today/today.c'\" \(10080 characters\)
+  sed "s/^X//" >'today/today.c' <<'END_OF_FILE'
+X/*
+X *			T O D A Y
+X *
+X * time of day
+X *
+X * Define UNIX for "native" Unix
+X */
+X
+X/*)BUILD	$(PROGRAM)	= today
+X		$(FILES)	= { today datetx timetx nbrtxt moontx }
+X		$(TKBOPTIONS)	= {
+X			TASK	= ...TOD
+X		}
+X*/
+X
+X#ifdef	DOCUMENTATION
+X
+Xtitle	today	Date and Time in English
+Xindex		Date and Time in English
+X
+Xsynopsis
+X
+X	today [-] [x] | [date]
+X
+Xdescription
+X
+X	Today prints the date, time, and phase of the moon in English.
+X	The following options are available:
+X	.lm +8
+X	.s.i -8;- or x	Read date strings from the standard input file.
+X	.s.i -8;date	Print information for the indicated date.
+X	.s.lm -8
+X	Date and time information is given in ISO numeric notation.  For
+X	example, November 6, 1980 would be represented as "801106".  If
+X	a time is needed, it would be appended to the date, using 24-hour
+X	notation: "801106110402" would be a time which is exact to the
+X	second.  To specify the century, the two-digit century number
+X	may be preceeded by '+' as in "+18801106".
+X	.s
+X	Non-numeric separators between the various fields are permitted:
+X	"+1776.07.04-11:15:21".  Note that the full two digit entry must be
+X	given.
+X	.s
+X	If no parameter is given, today outputs the current date and time.
+X
+Xdiagnostics
+X
+X	.lm +8
+X	.s.i -8;Bad parameters or date out of range in ...
+X	.s
+X	An input date or time is incorrect.
+X	.lm -8
+X
+Xauthor
+X
+X	Martin Minow
+X
+Xbugs
+X
+X	The algorithm is only valid for the Gregorian calender.
+X
+X#endif
+X
+X#define	APRIL_FOOLS
+X
+Xint	__narg	=	1;		/* No prompt if no args		*/
+X#define LINEWIDTH       72              /* Width of line                */
+X
+X#include <stdio.h>
+X#include <time.h>
+X#include <ctype.h>
+X#undef NULL
+X
+X#define	NULL		0
+X#define	EOS		0
+X#define	FALSE		0
+X#define	TRUE		1
+X
+Xint day_month[] = {			/* Needed for dotexttime()      */
+X	0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+X};
+Xint     ccpos;                          /* Current line position        */
+Xchar    lastbyte;                       /* Memory for output()          */
+Xchar    line[100];                      /* Data line for input function */
+Xchar    *valptr;                        /* Needed for number converter  */
+Xchar    wordbuffer[LINEWIDTH];          /* Buffer for output function   */
+Xchar    *wordptr = wordbuffer;          /* Free byte in wordbuffer      */
+Xchar	linebuffer[LINEWIDTH+2];	/* Output text buffer		*/
+Xchar	*lineptr = linebuffer;		/* Free byte in linebuffer	*/
+Xint     polish;                         /* Funny mode flag              */
+Xint	sunrise;			/* Sunrise print flag		*/
+X
+Xextern  char    *datetxt();             /* Date getter                  */
+Xextern  char    *timetxt();             /* Time of day getter           */
+Xextern  char    *moontxt();             /* Phase of the moon getter     */
+X
+Xmain(argc, argv)
+Xint     argc;
+Xchar    *argv[];
+X/*
+X * Driver for time routines.  Usage:
+X *
+X *      today                   Prints current time of day in readable form,
+X *                              followed by a cookie.
+X *
+X *      today {+cc}yymmddhhmmss Prints indicated time of day.
+X *                              Note, hh, mm, ss may be omitted.
+X *                              For example:
+X *                                today 401106     = Nov. 6, 1940
+X *                                today +19401106  = Nov. 6, 1940
+X *                                today 4011061015 = Nov. 6, 1940 10:15 AM
+X *
+X *      today -                 Data is read from the standard input and
+X *      today x                 output as needed.  The format of each
+X *                              line is identical to the command format.
+X *				("today x" is needed for vms.)
+X */
+X
+X{
+X	ccpos = 0;                      /* New line now                 */
+X	wordptr = wordbuffer;           /* Nothing buffered             */
+X	lineptr = linebuffer;		/* Nothing in output buffer too	*/
+X	polish = 0;			/* Normal mode			*/
+X	if (argc > 1 && tolower(argv[1][0]) == 'p') {
+X		polish = 1;
+X		argc--;
+X		argv++;
+X	}
+X	sunrise = 0;
+X	if (argc > 1 && tolower(argv[1][0]) == 's') {
+X		sunrise = 1;
+X		argc--;
+X		argv++;
+X	}
+X
+X	if (argc == 1) sunrise = 1;
+X
+X	if (argc == 2 && ((argv[1][0] == '-') || (argv[1][0] | 040) == 'x')) {
+X		while (!getline()) {	/* Read and print times */
+X			dotexttime(line);
+X		}
+X		return;
+X	}
+X	else if (argc > 1) {
+X		if (dotexttime(argv[1]) == 0)
+X			return;
+X	}
+X	/*
+X	 * Here if no parameters or an error in the parameter field.
+X	 */
+X	dotime();			/* Print the time.              */
+X	output("\n");           	/* Space before cookie          */
+X#ifdef	UNIX
+X	execl(COOKIEPROGRAM, "cookie", 0);
+X#endif
+X}
+X
+Xdotime()
+X/*
+X * Print the time of day for Unix or VMS native mode.
+X */
+X{
+X	long    tvec;                   /* Buffer for time function     */
+X	struct  tm *localtime();	/* Unix time decompile function */
+X	struct  tm *p;			/* Local pointer to time of day */
+X	int     year;
+X	int     month;
+X 
+X	time(&tvec);                     /* Get the time of day          */
+X	p = localtime(&tvec);           /* Make it more understandable  */
+X	year = p->tm_year + 1900;
+X	month = p->tm_mon + 1;
+X#ifdef	APRIL_FOOLS
+X	if (month == 4 && p->tm_mday == 1)
+X		polish = !polish;
+X#endif
+X	process(year, month, p->tm_mday, p->tm_hour,
+X 			p->tm_min, p->tm_sec, p->tm_isdst);
+X}
+X
+Xdotexttime(text)
+Xchar    *text;                          /* Time text                    */
+X/*
+X * Create the time values and print them, return 1 on error.
+X */
+X
+X{
+X	int     epoch;                  /* Which century                */
+X	int     year;
+X	int     month;
+X	int     day;
+X	int     hour;
+X	int     minute;
+X	int     second;
+X	int     leapyear;
+X
+X	valptr = text;                          /* Setup for getval()   */
+X	while (*valptr == ' ') valptr++;        /* Leading blanks skip  */
+X	if (*valptr != '+')
+X		epoch = 1900;                   /* Default for now      */
+X	else {
+X		valptr++;
+X		if ((epoch = getval(-1, 00, 99)) < 0) goto bad;
+X		epoch *= 100;                   /* Make it a real epoch */
+X	}
+X
+X	if ((year = getval(-1, 00, 99)) < 0) goto bad;
+X	year += epoch;
+X	leapyear = ((year%4) == 0) && (((year%400) == 0) || (year%100 != 0));
+X	if ((month = getval(-1, 1, 12)) < 0) goto bad;
+X	if ((day = getval(-1, 1,
+X		(month == 2 && leapyear) ? 29 : day_month[month])) < 0)
+X			goto bad;
+X	if ((hour = getval(-2, 0, 23)) == -1) goto bad;
+X	if ((minute = getval(-2, 0, 59)) == -1) goto bad;
+X	if ((second = getval(-2, 0, 59)) == -1) goto bad;
+X	process(year, month, day, hour, minute, second, 0);
+X	return(0);				/* Normal exit		*/
+X
+Xbad:    output("Bad parameters or date out of range in \"");
+X	output(text);
+X	output("\" after scanning \"");
+X	*valptr = '\0';
+X	output(text);
+X	output("\".\n");
+X	return(1);				/* Error exit		*/
+X}
+X
+Xstatic	char    outline[500];		/* Output buffer                */
+X
+Xprocess(year, month, day, hour, minute, second, daylight)
+Xint     year;                           /* Year		1900 = 1900	*/
+Xint     month;                          /* Month	January = 1	*/
+Xint     day;                            /* Day		1 = 1		*/
+Xint	hour;				/* Hour		0 .. 23		*/
+Xint	minute;				/* Minute	0 .. 59		*/
+Xint	second;				/* Second	0 .. 59		*/
+Xint	daylight;			/* Daylight savings time if 1	*/
+X/*
+X * Output the information.  Note that the parameters are within range.
+X */
+X{
+X
+X	output("Today is ");
+X	datetxt(outline, year, month, day);
+X	output(outline);
+X	output(".  ");
+X	timetxt(outline, hour, minute, second,
+X			(polish) ? 0101010 : daylight);
+X	output(outline);
+X	if (sunrise) {
+X	  int sunrh, sunrm, sunsh, sunsm;
+X	  sun(&sunrh, &sunrm, &sunsh, &sunsm);
+X	  output("Sunrise is at ");
+X	  timetxt(outline, sunrh, sunrm, -2, -1);
+X	  output(outline);
+X	  output("; sunset is at ");
+X	  timetxt(outline, sunsh, sunsm, -2, -1);
+X	  output(outline);
+X	  output(".  ");
+X	  }
+X/*	output("The moon is ");			*/
+X/*	moontxt(outline, year, month, day);	*/
+X	moontxt(outline);	/* replaced by smarter version */
+X	output(outline);
+X	output(".\n");
+X
+X}
+X
+X
+Xoutput(text)
+Xchar    *text;                                  /* What to print        */
+X/*
+X * Output routine.  Text is output using put() so that lines are
+X * not more than LINEWIDTH bytes long.  Current position is in global ccpos.
+X * (put is equivalent to putchar() except that it is locally buffered.)
+X */
+X{
+X	register char	*in;                    /* Current pos. in scan */
+X	register char	c;                      /* Current character    */
+X	register char	*wp;			/* Word pointer		*/
+X
+X	in = text;
+X	while (c = *in++) {
+X		switch (c) {
+X		case '\n':                      /* Force new line       */
+X		case ' ':                       /* or a space seen      */
+X			if ((wordptr-wordbuffer) + ccpos >= LINEWIDTH) {
+X				put('\n');  /* Current word         */
+X				ccpos = 0;      /* won't fit, dump it.  */
+X			}
+X			if (wordptr > wordbuffer) {
+X				if (ccpos) {	/* Leading space needed */
+X					put(' ');
+X					ccpos++;
+X				}
+X				for (wp = wordbuffer; wp < wordptr;) {
+X					put(*wp++);
+X				}
+X				ccpos += (wordptr - wordbuffer);
+X				wordptr = wordbuffer;	/* Empty buffer	*/
+X			}
+X			if (c == '\n') {
+X				put('\n');	/* Print a newline	*/
+X				ccpos = 0;	/* and reset the cursor	*/
+X			}
+X			break;
+X
+X		default:
+X			*wordptr++ = c;         /* Save piece of word   */
+X		}
+X	}
+X}
+X
+Xput(c)
+Xregister char	c;
+X/*
+X * Actual output routine
+X */
+X{
+X	if (c == '\n' || (lineptr - linebuffer) >= LINEWIDTH) {
+X		*lineptr = EOS;
+X		puts(linebuffer);
+X		lineptr = linebuffer;
+X		if (c == '\n')
+X			return;
+X	}
+X	*lineptr++ = c;
+X} 
+X
+Xgetline()
+X/*
+X * Read text to global line[].  Return 1 on end of file, zero on ok.
+X */
+X{
+X	register char *t;
+X
+X	return (gets(line) == NULL);
+X}
+X
+Xgetval(flag, low, high)
+Xint     flag;
+Xint     low;
+Xint     high;
+X/*
+X * Global valptr points to a 2-digit positive decimal integer.
+X * Skip over leading non-numbers and return the value.
+X * Return flag if text[0] == '\0'. Return -1 if the text is bad,
+X * or if the value is out of the low:high range.
+X */
+X{
+X	register int value;
+X	register int i;
+X	register int temp;
+X
+X	if (*valptr == '\0') return(flag);        /* Default?             */
+X	while (*valptr && (*valptr < '0' || *valptr > '9')) *valptr++;
+X				/* The above allows for 78.04.22 format */
+X	for (value = i = 0; i < 2; i++) {
+X		temp = *valptr++ - '0';
+X		if (temp < 0 || temp > 9) return(-1);
+X		value = (value*10) + temp;
+X	}
+X	return((value >= low && value <= high) ? value : -1);
+X}
+X
+END_OF_FILE
+  if test 10080 -ne `wc -c <'today/today.c'`; then
+    echo shar: \"'today/today.c'\" unpacked with wrong size!
+  fi
+  # end of 'today/today.c'
+fi
+if test -f 'xbbsgen/xbbsgen.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xbbsgen/xbbsgen.c'\"
+else
+  echo shar: Extracting \"'xbbsgen/xbbsgen.c'\" \(10128 characters\)
+  sed "s/^X//" >'xbbsgen/xbbsgen.c' <<'END_OF_FILE'
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <string.h>
+X#include <sys/stat.h>
+X#define	TAR	"tar"
+X#define	ARC	"arc"
+X#define ZIP	"zip"
+X#define CONFIG	"/.config.bbs"
+Xstruct stat statbuf;
+Xlong atol();
+Xmain()
+X{
+X	FILE *instream;
+X	char	buffer[99], user[99], temp[99], bbs_soft[99], config_file[99];
+X	int	i, result;
+X	long	j;
+X	printf("\nInput the full path name for the users home directory: ");
+X	scanf("%s", user);
+X	printf("\n");
+X	strcpy(config_file, user);
+X	strcat(config_file, CONFIG);
+X	result = stat(config_file, &statbuf);
+X	if(!result)
+X	{
+X		printf("\nThere already is a configuration file, please delete it or rename it!\n");
+X		exit(1);
+X	}
+X	if((instream=fopen(config_file,"w")) == NULL)
+X	{
+X		printf("\nError opening configuration file for generation!\n");
+X		exit(1);
+X	}
+X	printf("\nInput the directory name where the bbs software can be found: ");
+X	scanf("%s", bbs_soft);
+X	printf("\n");
+X	strcpy(buffer,bbs_soft);
+X	strcat(buffer, "/welcome.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer,bbs_soft);
+X	strcat(buffer, "/bulletin.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer,bbs_soft);
+X	strcat(buffer, "/newuser.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer,bbs_soft);
+X	strcat(buffer,"/system.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/callers.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/lastcall.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/users.bbs");
+X	result = stat(buffer, &statbuf);
+X	if( result != 0 )
+X	{
+X		strcpy(temp, "> ");
+X		strcat(temp, buffer);
+X		(void)system(temp);
+X		strcpy(temp, "chown bbs ");
+X		strcat(temp, buffer);
+X		strcat(temp, "; chgrp root ");
+X		strcat(temp, buffer);
+X		strcat(temp, "; chmod 660 ");
+X		strcat(temp, buffer);
+X		(void)system(temp);
+X	}
+X	fprintf(instream, "%s\n", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/unixmsg.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/dlmsg.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/humor.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/help.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/helpfile.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/helpmsg.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/userpriv.bbs");
+X	result = stat(buffer, &statbuf);
+X	if( result != 0 )
+X	{
+X		strcpy(temp, "> ");
+X		strcat(temp, buffer);
+X		(void)system(temp);
+X		strcpy(temp, "chown bbs ");
+X		strcat(temp, buffer);
+X		strcat(temp, "; chgrp root ");
+X		strcat(temp, buffer);
+X		strcat(temp, "; chmod 660 ");
+X		strcat(temp, buffer);
+X		(void)system(temp);
+X	}
+X	fprintf(instream, "%s\n", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/mainpriv.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/filepriv.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/question.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/answer.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/features.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/listfile.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/today > /tmp/today\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/areas.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, bbs_soft);
+X	strcat(buffer, "/msgareas.bbs\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, user);
+X	strcat(buffer, "/\n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the full path name for checksum: ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " r \n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " s \n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the full path name for crc: ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " r \n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " s \n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the full path name for ymod: ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " r \n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " s \n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the full path name for rb: ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, "\n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the full path name for sb: ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " -k \n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the full path name for rz: ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, "\n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the full path name for sz: ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " \n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the full path name for kermit: ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " -i -q -s \n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " -i -w -q -r\n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, "ls ");
+X	strcat(buffer, user);
+X	strcat(buffer, " > /tmp/flist\n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the full path name for sealink: ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " -r \n");
+X	fprintf(instream, "%s", buffer);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " -s \n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the first name of the sysop: ");
+X	scanf("%s", temp);
+X	fix_name(temp);
+X	strcpy(buffer, temp);
+X	printf("\nInput the last name of the sysop: ");
+X	scanf("%s", temp);
+X	fix_name(temp);
+X	strcat(buffer, " ");
+X	strcat(buffer, temp);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the number of SECONDS you will allow for a login: ");
+X	scanf("%s", temp);
+X	j = atol(temp);
+X	if(j < 60L ) j=60L;
+X	if(j > 32767L) j=32767L;
+X	sprintf(buffer, "%ld", j);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the number of SECONDS you will allow for usage: ");
+X	scanf("%s", temp);
+X	j = atol(temp);
+X	if(j < 60L ) j=60L;
+X	if(j > 32767L) j=32767L;
+X	sprintf(buffer, "%ld", j);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the number of SECONDS you will allow for response: ");
+X	scanf("%s", temp);
+X	j = atol(temp);
+X	if(j < 60L ) j=60L;
+X	if(j > 32767L) j=32767L;
+X	sprintf(buffer, "%ld", j);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the privilege level for new users: ");
+X	scanf("%s", temp);
+X	j = atol(temp);
+X	if(j < 1L ) j=1L;
+X	if(j > 32767L) j=32767L;
+X	sprintf(buffer, "%ld", j);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the maximum privilege level allowed to users: ");
+X	scanf("%s", temp);
+X	j = atol(temp);
+X	if(j < 1L ) j=1L;
+X	if(j > 32767L) j=32767L;
+X	sprintf(buffer, "%ld", j);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the maximum number of seconds allowed to users: ");
+X	scanf("%s", temp);
+X	j = atol(temp);
+X	if(j < 1L ) j=1L;
+X	if(j > 32767L) j=32767L;
+X	sprintf(buffer, "%ld", j);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the daily number of KILOBYTES allowed to users: ");
+X	scanf("%s", temp);
+X	j = atol(temp);
+X	if(j < 1L ) j=1L;
+X	if(j > 32767L) j=32767L;
+X	sprintf(buffer, "%ld", j);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the full path name for tar: ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " -tvf \n");
+X	fprintf(instream, "%s", buffer);
+X	printf("\nInput the full path name for zcat( link to compress): ");
+X	scanf("%s", temp);
+X	strcpy(buffer, temp);
+X	strcat(buffer, " \n");
+X	fprintf(instream, "%s", buffer);
+X/*
+X *	Starting with version 7.102, external arc and zip programs are
+X *	no longer needed! To be compatible with the older .config.bbs files,
+X *	we will just put something there for old time sake!
+X *
+X *	printf("\nInput the full path name for arc: ");
+X *	scanf("%s", temp);
+X *	strcpy(buffer, temp);
+X *	strcat(buffer, " -v \n");
+X *	fprintf(instream, "%s", buffer);
+X *	printf("\nInput the full path name for unzip: ");
+X *	scanf("%s", temp);
+X *	strcpy(buffer, temp);
+X *	strcat(buffer, " -v \n");
+X *	fprintf(instream, "%s", buffer);
+X*/
+X
+X	fprintf(instream, "/usr/bin/arc -v \n");   /*  fake arc  */
+X	fprintf(instream, "/usr/bin/zip -v \n");   /*  fake zip  */
+X
+X
+X	printf("\nInput the full path name of the dev driver for local monitoring: ");
+X	scanf("%s", buffer);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the full path name for the console device driver: ");
+X	scanf("%s", buffer);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the full path name for the SHELL and command switch");
+X	printf("\nyou wish to use for the U(nix) option in the main menu.");
+X	printf("\nExample: /bin/sh ");
+X	printf("\n?  ");
+X	scanf("%s", buffer);
+X	fprintf(instream, "%s -i\n", buffer);
+Xlogloop:
+X	printf("\nDo wish to have the software do a message scan when the user\n");
+X	printf("logs on? 1=yes, 0=no ..... ");
+X	scanf("%s", temp);
+X	i = atoi(temp);
+X	if( i > 1 || i < 0) goto logloop;
+X	sprintf(buffer, "%d", i);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the full path name to be used for the USENET reader.\n");
+X	printf("Example: /usr/bin/readnews : ");
+X	scanf("%s", buffer);
+X	fprintf(instream, "%s\n", buffer);
+X	printf("\nInput the full path name to be used for the USENET poster.\n");
+X	printf("Example: /usr/bin/postnews : ");
+X	scanf("%s", buffer);
+X	fprintf(instream, "%s\n", buffer);
+X	fclose(instream);
+X	printf("\n\n\nConfiguration file has been generated!\n\n\n");
+X}
+Xfix_name(adr) char *adr ;
+X	{
+X	char *adrs, *str_ptr;
+X	char tempbf[30];
+X	adrs = adr ;
+X	while(*adrs)
+X		{
+X		*adrs = tolower(*adrs) ;
+X		adrs++ ;
+X		}
+X	while (1)
+X		{
+X		str_ptr = strrchr(adr, ' ');
+X		if(str_ptr == NULL) break;
+X		*str_ptr++ = '\0';
+X		strcpy(tempbf, adr);
+X		strcat(tempbf, str_ptr);
+X		strcpy(adr,tempbf);
+X		}
+X	*adr = toupper(*adr) ;
+X	}
+END_OF_FILE
+  if test 10128 -ne `wc -c <'xbbsgen/xbbsgen.c'`; then
+    echo shar: \"'xbbsgen/xbbsgen.c'\" unpacked with wrong size!
+  fi
+  # end of 'xbbsgen/xbbsgen.c'
+fi
+if test -f 'ymod.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ymod.c'\"
+else
+  echo shar: Extracting \"'ymod.c'\" \(9777 characters\)
+  sed "s/^X//" >'ymod.c' <<'END_OF_FILE'
+X/*
+X * A version of Ward Christensen's file transfer protocol for
+X * Unix System V or 4.2 bsd.
+X *
+X *        Emmet P. Gray, ..!ihnp4!uiucuxc!fthood!egray, 16 Aug 85
+X *
+X * Modified by Sanford Zelkovitz   08/18/86
+X * Last modification date = 05/20/87
+X */
+X
+X#define SV
+X#undef  BSD
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#ifdef SV
+X#include <termio.h>
+X#endif
+X#ifdef BSD
+X#include <sgtty.h>
+X#endif
+X
+X#define MAXERRORS 10			/* max number of times to retry */
+X#define SECSIZE	1024			/* CP/M sector, transmission block */
+X#define CPMEOF	26			/* End Of File (for CP/M) */
+X#define SOH     1
+X#define STX	2			/* Start Of Header */
+X#define EOT	4			/* End Of Transmission */
+X#define ACK	6			/* ACKnowledge */
+X#define NAK	21			/* Negative AcKnowledge */
+X#define CAN	24			/* CANcel */
+X
+Xint synchron;
+Xint exit_return;
+Xunsigned char crc1, crc2;
+X#ifdef SV
+Xstruct termio ttyhold;
+X#endif
+X#ifdef BSD
+Xstruct sgttyb ttyhold;
+X#endif
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	int msgstat;
+X	char *tty, *ttyname();
+X	struct stat stbuf;
+X	exit_return=0;
+X	if (argc != 3) {
+X		usage();
+X		exit(1);
+X	}
+X	tty = ttyname(1);
+X	stat(tty, &stbuf); 
+X	msgstat = (stbuf.st_mode & 0777);
+X	chmod(tty, 0600);			/* mesg n */
+X#ifdef SV
+X	ioctl(0, TCGETA, &ttyhold);		/* get current settings */
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCGETP, &ttyhold);
+X#endif
+X	switch (*argv[1]) {
+X		case 'r':
+X			recvfile(argv[2]);
+X			break;
+X		case 's':
+X			sendfile(argv[2]);
+X			break;
+X		default:
+X			usage();
+X	}
+X#ifdef SV
+X	ioctl(0, TCSETAF, &ttyhold);		/* restore settings */
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCSETP, &ttyhold);
+X#endif
+X	chmod(tty, msgstat);			/* restore mesg status */
+X	exit(exit_return);
+X}
+X
+X/* send a file to the remote */
+Xsendfile(tfile)
+Xchar *tfile;
+X{
+X	FILE *fp;
+X	unsigned char chr, checksum, block, sector[SECSIZE];
+X	int i, mode, nbytes, errcount, size, speed;
+X	long min, sec;
+X	static int baud[15] = {0, 50, 75, 110, 134, 150, 200,
+X	300, 600, 1200, 1800, 2400, 4800, 9600, 19200};
+X	struct stat sbuf;
+X
+X	if (!(fp = fopen(tfile, "r"))) {
+X		fprintf(stderr, "xmodem: Can't open '%s' for read\r\n", tfile);
+X		exit_return=1;
+X		return;
+X	}
+X	stat(tfile, &sbuf);
+X	size = (sbuf.st_size / 1024) + 1;
+X#ifdef SV
+X	speed = baud[ttyhold.c_cflag & 017];
+X#endif
+X#ifdef BSD
+X	speed = baud[ttyhold.sg_ispeed];
+X#endif
+X	sec = size;
+X	sec = sec * 1024L * 11L / speed;
+X	min = sec / 60L;
+X	sec = sec - min * 60L;
+X	printf("File open: %d records\r\n", size);
+X	printf("Send time: %ld min, %ld sec at %d baud\r\n", min, sec, speed);
+X	printf("To cancel: use CTRL-X numerous times\r\n");
+X	printf("Waiting ready signal\r\n");
+X
+X	rawmode();
+X	errcount = 0;
+X	mode = 0;
+X	block = 1;
+X	while (errcount < MAXERRORS) {
+X		chr = getchar_t();
+X		if (chr == NAK)			/* checksum mode */
+X			break;
+X		if (chr == 'C') {		/* CRC mode */
+X			mode = 1;
+X			break;
+X		}
+X		errcount++;
+X	}
+X	if (errcount == MAXERRORS) {
+X		sleep(3);
+X		fprintf(stderr, "xmodem: Timed out on acknowledge\r\n");
+X		exit_return=1;
+X		return;
+X	}
+X	while (nbytes = fread(sector, sizeof(sector[0]), SECSIZE, fp)) {
+X		if (nbytes < SECSIZE) {		/* fill short sector */
+X			for (i=nbytes; i < SECSIZE; i++)
+X				sector[i] = CPMEOF;
+X		}
+X		errcount = 0;
+X		while (errcount < MAXERRORS) {
+X			putchar(STX);		/* the header */
+X			putchar(block);		/* the block number */
+X			chr = ~block;
+X			putchar(chr);		/* it's complement */
+X			checksum = 0;
+X			crc1 = 0;
+X			crc2 = 0;
+X			for (i=0; i < SECSIZE; i++) {
+X				putchar(sector[i]);
+X				if (mode)
+X					update_crc(sector[i]);
+X				else
+X					checksum += sector[i];
+X			}
+X			if (mode) {
+X				update_crc(0);
+X				update_crc(0);
+X				putchar(crc1);
+X				putchar(crc2);
+X			}
+X			else
+X				putchar(checksum);
+Xrec_loop:
+X			chr = getchar_t();
+X			if (chr == CAN) {
+X				sleep(3);
+X				fprintf(stderr,"\r\nxmodem: Abort request received\r\n");
+X				exit_return=1;
+X				return;
+X			}
+X			if (chr == ACK)
+X				break;		/* got it! */
+X			if (chr != NAK ) goto rec_loop;   /* noise on line? */
+X			errcount++;
+X		}
+X		if (errcount == MAXERRORS) {
+X			error();
+X			exit_return=1;
+X			return;
+X		}
+X		block++;
+X	}
+X	errcount = 0;
+X	exit_return=1;
+X	while (errcount < MAXERRORS) {
+X		putchar(EOT);
+X		if (getchar_t() == ACK)
+X			{
+X			exit_return=0;
+X			break;
+X			}
+X		errcount++;
+X	}
+X	return;
+X}
+X
+X/* receive a file from the remote */
+Xrecvfile(tfile)
+Xchar *tfile;
+X{
+X	FILE *fp;
+X	unsigned char hdr, blk, cblk, tmp, cksum;
+X	unsigned char c1, c2, sum, block, sector[SECSIZE];
+X	int i, stop = 0, mode, errcount, resync();
+X	long true_end;
+X	char ans[40];
+X
+X	if (!access(tfile, 00)) {
+X		while (1) {
+X			printf("File already exists \r\n");
+X				return;
+X		}
+X	}
+X
+X	if (!(fp = fopen(tfile, "w"))) {
+X		fprintf(stderr, "xmodem: Can't open '%s' for write\r\n", tfile);
+X		return;
+X	}
+X	printf("File open - ready to receive\r\n");
+X	rawmode();
+X	errcount = 0;
+X	block = 1;
+X	
+X	sleep(10);
+X	while (errcount < MAXERRORS) {
+X		if (errcount < (MAXERRORS / 2)) {
+X			putchar('C');		/* try CRC mode first */
+X			mode = 1;
+X		}
+X		else {
+X			putchar(NAK);		/* then checksum */
+X			mode = 0;
+X		}
+X		if ((hdr = getchar_t()) == SOH) {
+X			ungetc(SOH, stdin);
+X			break;
+X		}
+X		if ( hdr == STX ) {
+X			ungetc(STX, stdin);
+X			break;
+X		}
+X		errcount++;
+X	}
+X	if (errcount == MAXERRORS) {
+X		sleep(3);
+X		fprintf(stderr, "\r\nxmodem: Timed out on acknowledge\r\n");
+X		return;
+X	}
+X	errcount = 0;
+X
+X	while (errcount < MAXERRORS) {
+X		hdr = getchar_t();
+X		if (hdr == CAN) {
+X			sleep(3);
+X			fprintf(stderr, "\r\nxmodem: Abort request received\r\n");
+X			return;
+X		}
+X		if (hdr == EOT)			/* done! */
+X			break;
+X		if (hdr != STX && hdr != SOH) {		/* read in junk for 6 seconds */
+X			synchron = 0;		/*  to re-synchronized block */
+X			signal(SIGALRM, resync);
+X			alarm(6);
+X			while(synchron == 0)
+X				hdr = getchar();
+X			goto nak;
+X		}
+X		blk = getchar_t();
+X		cblk = getchar_t();
+X		crc1 = 0;
+X		crc2 = 0;
+X		sum = 0;
+X		for (i=0; i < SECSIZE; i++) {
+X			sector[i] = getchar_t();
+X			if (mode)
+X				update_crc(sector[i]);
+X			else
+X				sum += sector[i];
+X		}
+X		if (mode) {
+X			c1 = getchar_t();
+X			c2 = getchar_t();
+X		}
+X		else
+X			cksum = getchar_t();
+X		if (blk != block && blk != (block - 1))
+X			goto nak;
+X		tmp = ~blk;
+X		if (cblk != tmp)
+X			goto nak;
+X		if (mode) {
+X			update_crc(0);
+X			update_crc(0);
+X			if (c1 != crc1 || c2 != crc2)
+X				goto nak;
+X		}
+X		else {
+X			if (cksum != sum)
+X				goto nak;
+X		}
+X		if (block == blk) {
+X			fflush(fp);
+X			fwrite(sector, sizeof(sector[0]), SECSIZE, fp);
+X		}
+X		block = blk + 1;
+X		putchar(ACK);			/* got it! */
+X		errcount = 0;
+X		continue;
+X
+X	nak:	putchar(NAK);			/* do it over */
+X		errcount++;
+X	}
+X	if (errcount == MAXERRORS) {
+X		error();
+X		return;
+X	}
+X	putchar(ACK);
+X	for (i = SECSIZE -1; i >= 0; i--) {	/* find true EOF */
+X		if (sector[i] != CPMEOF) {
+X			stop = i;
+X			break;
+X		}
+X	}
+X/*
+X * Some CPM systems don't pad the end of the file with ^Z's so the file may
+X * have junk at the end.  A conservative approach had to be taken in order
+X * for Unix object code (where ^Z's may be valid data) to transfer properly.
+X */
+X	true_end = ftell(fp) - SECSIZE + stop +1;
+X	fclose(fp);
+X	truncate(tfile, true_end);
+X	return;
+X}
+X
+X/* give minimal usage message */
+Xusage()
+X{
+X	fprintf(stderr, "Usage: xmodem [ s | r ] filename\r\n");
+X	fprintf(stderr, "       options are 's' for send or 'r' for receive\r\n");
+X	return;
+X}
+X
+X/* exceeded the maximum number of retry's */
+Xerror()
+X{
+X	putchar(CAN);
+X	putchar(CAN);
+X	putchar(CAN);
+X	putchar(CAN);
+X	sleep(3);
+X	fprintf(stderr, "\r\nxmodem: Exceeded error limit...aborting\r\n");
+X	return;
+X}
+X
+X/* update the CRC bytes */
+Xupdate_crc(c)
+Xunsigned char c;
+X{
+X	int i, temp;
+X	unsigned char carry, c_crc1, c_crc2;
+X	for (i=0; i < 8; i++) {
+X		temp = c * 2;
+X		c = temp;			/* rotate left */
+X		carry = ((temp > 255) ? 1 : 0);
+X		temp = crc2 * 2;
+X		crc2 = temp;
+X		crc2 |= carry;			/* rotate with carry */
+X		c_crc2 = ((temp > 255) ? 1 : 0);
+X		temp = crc1 * 2;
+X		crc1 = temp;
+X		crc1 |= c_crc2;
+X		c_crc1 = ((temp > 255) ? 1 : 0);
+X		if (c_crc1) {
+X			crc2 ^= 0x21;
+X			crc1 ^= 0x10;
+X		}
+X	}
+X	return;
+X}
+X
+X/* getchar with a 10 sec time out */
+Xgetchar_t()
+X{
+X	int force_it();
+X	unsigned char c;
+X	signal(SIGALRM, force_it);
+X	alarm(10);				/* only have 10 sec... */
+X	c = getchar();
+X	alarm(0);
+X	return(c);
+X}
+X
+X/*
+X * This code (and the resync() below) is the most machine dependent part
+X * of the program.  The action of the signal SIGALRM during a read system
+X * call is not well defined.  Some systems return the stack to the point
+X * outside the system call, others inside the call itself.  Have fun...
+X */
+Xforce_it()
+X{
+X	unsigned char c;
+X	c = CPMEOF;				/* arbitrary default char */
+X#ifdef SV
+X	ungetc(c, stdin);
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCSTI, &c);
+X#endif
+X	return;
+X}
+X
+X/* truncate file to given length */
+Xtruncate(path, length)
+Xchar *path;
+Xlong length;
+X{
+X	FILE *fp, *tempfp;
+X	long i;
+X	char c, string[80], *tempfile, *mktemp();
+X	if (!(fp = fopen(path, "r"))) {
+X		fprintf(stderr, "xmodem: Can't open '%s' for read\r\n", path);
+X		return;
+X	}
+X	tempfile = mktemp("/tmp/trunXXXXXX");
+X	if (!(tempfp = fopen(tempfile, "w"))) {
+X		fprintf(stderr, "xmodem: Can't open temporary file\r\n");
+X		return;
+X	}
+X	for (i=0; i < length; i++) {
+X		c = fgetc(fp);
+X		fputc(c, tempfp);
+X	}
+X	fclose(fp);
+X	fclose(tempfp);
+X	sprintf(string, "mv %s %s", tempfile, path);
+X	system(string);
+X	return;
+X}
+X
+X/* put the stdin/stdout in the "raw" mode */
+Xrawmode()
+X{
+X#ifdef SV
+X	struct termio tbuf;
+X	ioctl(0, TCGETA, &tbuf);
+X	tbuf.c_cc[4] = 1;			/* VMIN */
+X	tbuf.c_cc[5] = 0;			/* VTIME */
+X	tbuf.c_iflag = 0;
+X	tbuf.c_oflag = 0;
+X	tbuf.c_lflag = 0;
+X	tbuf.c_cflag &= ~CSIZE;
+X	tbuf.c_cflag |= CS8;
+X	tbuf.c_cflag &= ~PARENB;
+X	ioctl(0, TCSETAF, &tbuf);
+X	return;
+X#endif
+X#ifdef BSD
+X	struct sgttyb sgbuf;
+X	ioctl(0, TIOCGETP, &sgbuf);
+X	sgbuf.sg_flags |= RAW;
+X	sgbuf.sg_flags &= ~ECHO;
+X	ioctl(0, TIOCSETP, &sgbuf);
+X	return;
+X#endif
+X}
+X
+X/*  after 6 seconds of reading junk data... */
+Xresync()
+X{
+X	char c;
+X	synchron = 1;				/* set the flag */
+X	c = SOH;
+X#ifdef SV
+X	ungetc(c, stdin);
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCSTI, &c);
+X#endif
+X	return;
+X}
+END_OF_FILE
+  if test 9777 -ne `wc -c <'ymod.c'`; then
+    echo shar: \"'ymod.c'\" unpacked with wrong size!
+  fi
+  # end of 'ymod.c'
+fi
+echo shar: End of archive 6 \(of 11\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1636 @@
+Newsgroups: comp.sources.misc
+From: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Subject: v36i082:  chiaro - Image Utilities, Part12/18
+Message-ID: <1993Mar26.202831.14773@sparky.imd.sterling.com>
+X-Md4-Signature: 9695f50e3725082a8f6fa0cb9b14d584
+Date: Fri, 26 Mar 1993 20:28:31 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Posting-number: Volume 36, Issue 82
+Archive-name: chiaro/part12
+Environment: UNIX, Sun, DECstation, 3B1
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  src/bmp.c src/gifcheck.1
+# Wrapped by kent@sparky on Thu Mar 25 11:20:05 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 18)."'
+if test -f 'src/bmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/bmp.c'\"
+else
+  echo shar: Extracting \"'src/bmp.c'\" \(19928 characters\)
+  sed "s/^X//" >'src/bmp.c' <<'END_OF_FILE'
+X/***************************************************************************
+X*   BMP.C                                                                  *
+X*   MODULE:  BMP                                                           *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1993 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   $Id: bmp.c,v 1.2 1993/03/02 00:52:42 jwbirdsa Exp $
+X*                                                                          *
+X*   This file contains functions to process BMP format files.              *
+X*   Functions:                                                             *
+X*      bmp_verify    - checks filename to see if it is an BMP file         *
+X*      bmp_getheader - extracts header data from BMP file                  *
+X*                                                                          *
+X*      bmp_errstring - converts error code into message                    *
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X#ifndef NO_STR_INC
+X#ifdef STRING_PLURAL
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X#endif
+X
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X#include "formats.h"
+X#include "bmp.h"
+X
+X
+X/*
+X** local #defines
+X*/
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+X/*
+X** typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+X/*
+X** static globals
+X*/
+X
+Xstatic char CONST rcsid[] = "$Id: bmp.c,v 1.2 1993/03/02 00:52:42 jwbirdsa Exp $";
+X
+X
+X/*
+X** function prototypes
+X*/
+X
+X#ifdef NO_STR_INC
+Xextern char *strrchr();
+Xextern int strcmp();
+X#endif
+X
+X
+X/*
+X** functions
+X*/
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    bmp_verify                                                *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Verifies that a file is an BMP file by checking filename against   *
+X*       list of extensions. Reads BMP magic number from start of file.     *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filename - name of file to be verified                             *
+X*       version  - pointer to unsigned long in which format/version value  *
+X*                  is returned                                             *
+X*       exts     - array of string pointers, list of extensions for BMP    *
+X*                  files                                                   *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xbmp_verify(char *filename, ULONG *version, char **exts)
+X#else
+Xbmp_verify(filename, version, exts)
+Xchar *filename;
+XULONG *version;
+Xchar **exts;
+X#endif
+X{
+X    char *extptr;
+X    int loop;
+X    int magic;
+X    FILE *bmpfile;
+X    char buffer[4];
+X    ULONG infolen;
+X    ULONG retval;
+X
+X    /* Search for '.' marking extension. */
+X
+X    extptr = strrchr(filename, '.');
+X    if (NULL == extptr)
+X    {
+X        /* No extension, cannot classify. */
+X
+X        *version = BMP_NOT;
+X        return 0;
+X    }
+X    extptr++;
+X
+X    /* Now we have the extension, check against list. */
+X
+X    for (loop = 0; exts[loop] != NULL; loop++)
+X    {
+X        /* Case-sensitive string compare. */
+X
+X        if (strcmp(extptr, exts[loop]) == 0)
+X        {
+X            /* Match, so break out of loop. */
+X
+X            break;
+X        }
+X    }
+X
+X    /* Check exit from loop. */
+X
+X    if (NULL == exts[loop])
+X    {
+X        /* No match, return. */
+X
+X        *version = BMP_NOT;
+X        return 0;
+X    }
+X
+X    /* Extension is valid for type BMP, so process accordingly. */
+X
+X    if ((bmpfile = fopen(filename, FOPEN_READ_BINARY)) == (FILE *) NULL)
+X    {
+X        return BMP_FILEERR_E;
+X    }
+X
+X    /* Read magic number. */
+X
+X    if ((magic = fgetc(bmpfile)) == EOF)
+X    {
+X        *version = BMP_NOT;
+X        retval = (feof(bmpfile) ? ST_SUCCESS : BMP_FILEERR_E);
+X        fclose(bmpfile);
+X        return retval;
+X    }
+X    if (2 == magic)
+X    {
+X        *version = BMP_WIN2;
+X    }
+X    else if ('B' == magic)
+X    {
+X        /* Read more magic number. */
+X
+X        if (((magic = fgetc(bmpfile)) == EOF) || (magic != 'M'))
+X        {
+X            *version = BMP_NOT;
+X            retval = (feof(bmpfile) ? ST_SUCCESS : BMP_FILEERR_E);
+X            fclose(bmpfile);
+X            return retval;
+X        }
+X
+X        if (fseek(bmpfile, (long) BMP_HDR_INFOLEN_OFF, SEEK_SET))
+X        {
+X            *version = BMP_NOT;
+X            fclose(bmpfile);
+X            return BMP_FILEERR_E;
+X        }
+X
+X        if (fread(buffer, sizeof(char), 4, bmpfile) != 4)
+X        {
+X            *version = BMP_NOT;
+X            retval = (feof(bmpfile) ? ST_SUCCESS : BMP_FILEERR_E);
+X            fclose(bmpfile);
+X            return retval;
+X        }
+X
+X        if ((infolen = CONSTRUCT_I_ULONG(buffer)) >= MKLONG(65536))
+X        {
+X            *version = BMP_NOT;
+X            return (fclose(bmpfile) ? BMP_FILEERR_E : ST_SUCCESS);
+X        }
+X        switch ((int)(infolen))
+X        {
+X            case BMP_HDR11_INFOLEN_VAL:
+X                *version = BMP_OS2_11;
+X                break;
+X
+X            case BMP_HDR3_INFOLEN_VAL:
+X                *version = BMP_WIN3;
+X                break;
+X
+X            case BMP_HDR20_INFOLEN_VAL:
+X                *version = BMP_OS2_20;
+X                break;
+X
+X            default:
+X                *version = (((infolen > BMP_HDR3_INFOLEN_VAL) &&
+X                             (infolen < BMP_HDR20_INFOLEN_VAL)) ?
+X                            BMP_OS2_20 : BMP_NOT);
+X                break;
+X        }
+X    }            
+X
+X    /* Close file. */
+X
+X    if (fclose(bmpfile))
+X    {
+X        return BMP_FILEERR_E;
+X    }
+X
+X    /* Return OK. */
+X
+X    return 0;
+X} /* end of bmp_verify() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    bmp_getheader                                             *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Assumes that file is an BMP file. Reads header from file, extracts *
+X*       data into BMP_HDR structure.                                       *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile  - file to be processed                                     *
+X*       results - pointer to BMP_HDR structure in which data from header   *
+X*                 is returned                                              *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*       Leaves file pointing to beginning of image data.                   *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xbmp_getheader(FILE *infile, BMP_HDR *results)
+X#else
+Xbmp_getheader(infile, results)
+XFILE *infile;
+XBMP_HDR *results;
+X#endif
+X{
+X    UCHAR rawhdr[BMP_HDR20_LEN];
+X    int validbytes;
+X    ULONG infolen;
+X
+X    /* Make sure we're at beginning of file. */
+X
+X    if (fseek(infile, 0L, SEEK_SET))
+X    {
+X        return BMP_FILEERR_E;
+X    }
+X
+X    /* Read raw bytes into buffer. */
+X
+X    if ((validbytes = fread(rawhdr, sizeof(UCHAR), BMP_HDR20_LEN, infile)) <
+X        BMP_HDR2_LEN)
+X    {
+X        return (feof(infile) ? BMP_UNEOF_E : BMP_FILEERR_E);
+X    }
+X
+X    /* Extract version from raw header. */
+X
+X    if (2 == *(rawhdr + BMP_HDR2_MAGIC_OFF))
+X    {
+X        /* Is a WIN2 BMP, very different. */
+X
+X        results->version = BMP_WIN2;
+X    }
+X    else if (('B' == *(rawhdr + BMP_HDR_MAGIC_OFF)) &&
+X             ('M' == *(rawhdr + BMP_HDR_MAGIC_OFF + 1)) &&
+X             (validbytes >= BMP_HDR11_LEN))
+X    {
+X        /* Is one of the OS2 or WIN3 BMPs. */
+X
+X        switch (infolen = CONSTRUCT_I_ULONG(rawhdr + BMP_HDR_INFOLEN_OFF))
+X        {
+X            case BMP_HDR11_INFOLEN_VAL:
+X                results->version = BMP_OS2_11;
+X                break;
+X
+X            case BMP_HDR3_INFOLEN_VAL:
+X                results->version = BMP_WIN3;
+X                break;
+X
+X            case BMP_HDR20_INFOLEN_VAL:
+X                results->version = BMP_OS2_20;
+X                break;
+X
+X            default:
+X                results->version = (((infolen > BMP_HDR3_INFOLEN_VAL) &&
+X                                     (infolen < BMP_HDR20_INFOLEN_VAL)) ?
+X                                    BMP_OS2_20 : BMP_NOT);
+X                break;
+X        }
+X        if (BMP_NOT == results->version)
+X        {
+X            return BMP_NOTBMP_E;
+X        }
+X    }
+X    else
+X    {
+X        results->version = BMP_NOT;
+X        return BMP_NOTBMP_E;
+X    }
+X
+X    switch (FORMAT_VERS(results->version))
+X    {
+X        case FORMAT_VERS(BMP_WIN2):
+X            results->imwid = (ULONG)CONSTRUCT_I_UINT(rawhdr+BMP_HDR2_IMWID_OFF);
+X            results->imhi = (ULONG)CONSTRUCT_I_UINT(rawhdr + BMP_HDR2_IMHI_OFF);
+X            results->planes = CONSTRUCT_I_UINT(rawhdr + BMP_HDR2_PLANES_OFF);
+X            results->pixbits = CONSTRUCT_I_UINT(rawhdr + BMP_HDR2_BITS_OFF);
+X            results->dataoffset = 16;
+X            if ((results->more = ((VOID *) malloc(sizeof(BMP_H2)))) != NULL)
+X            {
+X                ((BMP_H2 *) results->more)->discardable = 
+X                                          (int)(*(rawhdr + BMP_HDR2_DISC_OFF));
+X            }
+X            break;
+X
+X        case FORMAT_VERS(BMP_OS2_11):
+X            results->imwid = (ULONG) 
+X                             CONSTRUCT_I_UINT(rawhdr+BMP_HDR11_IMWID_OFF);
+X            results->imhi = (ULONG)
+X                            CONSTRUCT_I_UINT(rawhdr + BMP_HDR11_IMHI_OFF);
+X            results->planes = CONSTRUCT_I_UINT(rawhdr + BMP_HDR11_PLANES_OFF);
+X            results->pixbits = CONSTRUCT_I_UINT(rawhdr + BMP_HDR11_BITS_OFF); 
+X            results->dataoffset = CONSTRUCT_I_ULONG(rawhdr + BMP_HDR_HLEN_OFF);
+X            if ((results->more = ((VOID *) malloc(sizeof(BMP_H11)))) != NULL)
+X            {
+X                ((BMP_H11 *) results->more)->filesize =
+X                                 CONSTRUCT_I_ULONG(rawhdr + BMP_HDR_FSIZE_OFF);
+X            }
+X            break;
+X
+X        case FORMAT_VERS(BMP_WIN3):
+X            results->imwid = (ULONG)CONSTRUCT_I_UINT(rawhdr+BMP_HDR3_IMWID_OFF);
+X            results->imhi = (ULONG)CONSTRUCT_I_UINT(rawhdr + BMP_HDR3_IMHI_OFF);
+X            results->planes = CONSTRUCT_I_UINT(rawhdr + BMP_HDR3_PLANES_OFF);
+X            results->pixbits = CONSTRUCT_I_UINT(rawhdr + BMP_HDR3_BITS_OFF); 
+X            results->dataoffset = CONSTRUCT_I_ULONG(rawhdr + BMP_HDR_HLEN_OFF);
+X            if ((results->more = ((VOID *) malloc(sizeof(BMP_H3)))) != NULL)
+X            {
+X                BMP_H3 *more = (BMP_H3 *) results->more;
+X
+X                more->more.filesize = 
+X                                 CONSTRUCT_I_ULONG(rawhdr + BMP_HDR_FSIZE_OFF);
+X                more->compression =
+X                                 CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_COMPR_OFF);
+X                more->compsize = CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_CSIZE_OFF);
+X                more->xres = CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_XRES_OFF);
+X                more->yres = CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_YRES_OFF);
+X                more->clrused =CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_CLRUSED_OFF);
+X                more->clrimp = CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_CLRIMP_OFF);
+X            }
+X            break;
+X
+X        case FORMAT_VERS(BMP_OS2_20):
+X            results->imwid = (ULONG)CONSTRUCT_I_UINT(rawhdr+BMP_HDR3_IMWID_OFF);
+X            results->imhi = (ULONG)CONSTRUCT_I_UINT(rawhdr + BMP_HDR3_IMHI_OFF);
+X            results->planes = CONSTRUCT_I_UINT(rawhdr + BMP_HDR3_PLANES_OFF);
+X            results->pixbits = CONSTRUCT_I_UINT(rawhdr + BMP_HDR3_BITS_OFF); 
+X            results->dataoffset = CONSTRUCT_I_ULONG(rawhdr + BMP_HDR_HLEN_OFF);
+X            if ((results->more = ((VOID *) malloc(sizeof(BMP_H20)))) != NULL)
+X            {
+X                BMP_H20 *more = (BMP_H20 *) results->more;
+X
+X                more->more.more.filesize = 
+X                                 CONSTRUCT_I_ULONG(rawhdr + BMP_HDR_FSIZE_OFF);
+X
+X                /*
+X                ** At last! A real use for fall-through in a switch.
+X                ** The header of an OS/2 2.0 bitmap may be truncated anywhere
+X                ** after the bits per pixel field. So we zero out all fields
+X                ** in the structure and use fall-through to collect whatever
+X                ** ones are present.
+X                */
+X
+X                more->more.compression = 0;
+X                more->more.compsize = 0;
+X                more->more.xres = 0;
+X                more->more.yres = 0;
+X                more->more.clrused = 0;
+X                more->more.clrimp = 0;
+X                more->resunits = 0;
+X                more->origin = 0;
+X                more->halfalg = 0;
+X                more->half1 = 0;
+X                more->half2 = 0;
+X                more->clrencode = 0;
+X                more->appdata = 0;
+X
+X                switch (infolen + BMP_HDR_INFOLEN_OFF)
+X                {
+X                    case BMP_HDR20_APPDATA_OFF:
+X                        more->appdata = 
+X                              CONSTRUCT_I_ULONG(rawhdr + BMP_HDR20_APPDATA_OFF);
+X                    case BMP_HDR20_CLRENC_OFF:
+X                        more->clrencode =
+X                               CONSTRUCT_I_ULONG(rawhdr + BMP_HDR20_CLRENC_OFF);
+X                    case BMP_HDR20_HALF2_OFF:
+X                        more->half2 =
+X                               CONSTRUCT_I_ULONG(rawhdr + BMP_HDR20_HALF2_OFF);
+X                    case BMP_HDR20_HALF1_OFF:
+X                        more->half1 =
+X                               CONSTRUCT_I_ULONG(rawhdr + BMP_HDR20_HALF1_OFF);
+X                    case BMP_HDR20_HALFALG_OFF:
+X                        more->halfalg =
+X                               CONSTRUCT_I_UINT(rawhdr + BMP_HDR20_HALFALG_OFF);
+X                    case BMP_HDR20_ORIENT_OFF:
+X                        more->origin =
+X                               CONSTRUCT_I_UINT(rawhdr + BMP_HDR20_ORIENT_OFF);
+X                    case BMP_HDR20_RESUNITS_OFF:
+X                        more->resunits =
+X                              CONSTRUCT_I_UINT(rawhdr + BMP_HDR20_RESUNITS_OFF);
+X                    case BMP_HDR3_CLRIMP_OFF:
+X                        more->more.clrimp =
+X                               CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_CLRIMP_OFF);
+X                    case BMP_HDR3_CLRUSED_OFF:
+X                        more->more.clrused =
+X                               CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_CLRUSED_OFF);
+X                    case BMP_HDR3_YRES_OFF:
+X                        more->more.yres =
+X                               CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_YRES_OFF);
+X                    case BMP_HDR3_XRES_OFF:
+X                        more->more.xres =
+X                               CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_XRES_OFF);
+X                    case BMP_HDR3_CSIZE_OFF:
+X                        more->more.compsize =
+X                               CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_CSIZE_OFF);
+X                    case BMP_HDR3_COMPR_OFF:
+X                        more->more.compression =
+X                               CONSTRUCT_I_ULONG(rawhdr + BMP_HDR3_COMPR_OFF);
+X                        break;
+X
+X                    default:
+X                        /* Something very bad has happened. */
+X
+X                        results->version = BMP_NOT;
+X                        return BMP_NOTBMP_E;
+X                        break;
+X                }
+X            }
+X            break;
+X
+X        default:
+X            /* Something very bad has happened. */
+X
+X            results->version = BMP_NOT;
+X            return BMP_NOTBMP_E;
+X            break;
+X    }
+X
+X    /* Set file to point to start of colormap or data. */
+X
+X    if (fseek(infile, 
+X              ((BMP_WIN2 == results->version) ?
+X               16L : (long)(infolen + BMP_HDR_INFOLEN_OFF)), SEEK_SET))
+X    {
+X        return BMP_FILEERR_E;
+X    }
+X
+X    /* Return OK. */
+X
+X    return 0;
+X} /* end of bmp_getheader() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: bmp_errstring                                                *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Returns a string corresponding to an error code.                    *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      errcode - error code to be translated                               *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns a pointer to the appropriate string, or NULL if there is    *
+X*      no appropriate string.                                              *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xchar *
+X#ifdef __STDC__
+Xbmp_errstring(ULONG errcode)
+X#else
+Xbmp_errstring(errcode)
+XULONG errcode;
+X#endif
+X{
+X    char *temp;
+X
+X    /* If error code not from this module, return NULL. */
+X
+X    if ((errcode & ST_MOD_MASK) != BMP_MODULE)
+X    {
+X        return NULL;
+X    }
+X
+X    /* Process by code. */
+X
+X    switch (ERRSEV(errcode))
+X    {
+X        case ERRSEV(BMP_NOTBMP_E):
+X            temp = "File is not a BMP format file.";
+X            break;
+X        case ERRSEV(BMP_FILEERR_E):
+X            temp = "Error accessing file.";
+X            break;
+X        case ERRSEV(BMP_UNEOF_E):
+X            temp = "Unexpected End of File";
+X            break;
+X
+X        default:
+X            temp = NULL;
+X            break;
+X    }
+X
+X    return temp;
+X} /* end of bmp_errstring() */
+X
+END_OF_FILE
+  if test 19928 -ne `wc -c <'src/bmp.c'`; then
+    echo shar: \"'src/bmp.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/bmp.c'
+fi
+if test -f 'src/gifcheck.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/gifcheck.1'\"
+else
+  echo shar: Extracting \"'src/gifcheck.1'\" \(32803 characters\)
+  sed "s/^X//" >'src/gifcheck.1' <<'END_OF_FILE'
+X.\" 
+X.\" $Id: gifcheck.1,v 1.3 1993/03/13 02:58:49 jwbirdsa Exp $
+X.\"
+X.TH GIFCHECK 1 "$Date: 1993/03/13 02:58:49 $
+X.PD 1
+X.SH NAME
+Xgifcheck \- GIF file analysis and verification
+X.SH SYNOPSIS
+X.B gifcheck
+X[
+X.B \-v
+X][
+X.B \-H
+X][
+X.B \-c
+X][
+X.B \-dn
+X][
+X.B \-en
+X][
+X.B \-b
+X][
+X.B \-r
+X][
+X.B \-\-
+X][
+X.B \-l
+X][
+X.B \-f
+X][
+X.B \-h
+X] target [ target... ]
+X.br
+X.SH DESCRIPTION
+X.I Gifcheck
+Xperforms complete analysis and verification of GIF-format images
+Xand displays the information it finds. It can also be used in shell scripts
+Xto determine whether GIF files are valid, and if they need to be passed
+Xthrough the
+X.I gifstrip
+Xprogram to remove excess characters.
+X.SH TARGETS
+XA target is a filename or directory. Multiple targets may be specified on
+Xthe command line. If a target is a directory, all files in that directory
+Xwill be processed. If no targets are specified on the command line, a usage
+Xmessage will be printed.
+X.SH OPTIONS
+XOptions may not be combined. In the case of the
+X.B \-dn
+Xand
+X.B \-en
+Xoptions, there cannot be a space between the option and the argument to the
+Xoption.
+X.TP
+X.B \-v
+XOutput is in a more verbose format. No additional data is displayed.
+X.TP
+X.B \-H
+XPlain Text Extensions and Comment Extensions are displayed in hex dump
+Xformat instead of as text.
+X.TP
+X.B \-c
+XAll color tables in the file are dumped as decimal RGB triplets of the form
+XRRR/GGG/BBB.
+X.TP
+X.B \-dn
+XSets display warning level (see DIAGNOSTICS below for an explanation of the
+Xtypes):
+X.RS 10
+X.PP
+X.nf
+X-d0             display anomalies and violations
+X-d1 (default)   display anomalies, violations,
+X                 and fascinatings
+X-d2             display all (anomalies, violations,
+X                 fascinatings, nitpicks)
+X.fi
+X.RE
+X.TP
+X.B \-en
+XSet exit warning level, at which processing of an image is stopped and 
+X.I gifcheck
+Xskips to the next image (see DIAGNOSTICS below for an explanation of the
+Xtypes):
+X.RS 10
+X.PP
+X.nf
+X-e0             skip on anomalies only
+X-e1 (default)   skip on anomalies and violations
+X-e2             skip on anomalies, violations,
+X                 and fascinatings
+X.fi
+X.RE
+X.TP
+X.B \-b
+XOperate in batch mode. All output is suppressed. This option should be
+Xfirst on the command line or other options may generate output before this
+Xoption is found. When in batch mode,
+X.I gifcheck
+Xadjusts its status return to reflect the results of processing. The status
+Xmay be:
+X.RS 10
+X.PP
+X.nf
+X0     the file is GIF format and did not need
+X       stripping
+X1     file is not GIF format
+X2     an unexpected EOF was encountered
+X       (usually indicates a corrupt file)
+X3     any other error
+X4     file is GIF format and needs stripping
+X5     file is GIF format and needs to be
+X       stripped with the -m option
+X.fi
+X.RE
+X.RS 5
+X.PP
+XNote that the status reflects the result of only the last file processed.
+XTherefore, in batch mode only one file should be specified on the command
+Xline.
+X.RE
+X.TP
+X.B \-r
+XRedirects error messages to stderr.
+X.TP
+X.B \-\-
+XRead targets from stdin. The list of targets must have only one target per
+Xline. Targets which are directories will be expanded as usual, but
+Xwildcards will not be expanded. Targets on the command line will be
+Xignored.
+XFor use with the
+X.B \-f
+Xoption of
+X.I
+Xchils.
+X.TP
+X.B \-l
+XDisables check for excess characters at the beginning of the file. By
+Xdefault,
+X.I gifcheck
+Xwill search through a file looking for the GIF signature if the file does
+Xnot begin with that signature. This option will disable that search.
+X.TP
+X.B \-f
+XDisables image decompression. This can be a slow process for large files.
+XHowever, an image cannot be completely verified if it is not decompressed,
+Xand some information can only be obtained by decompressing the image data.
+X.TP
+X.B \-p
+XIf
+X.I gifcheck
+Xwas compiled with the PROGRESS_IND option enabled, it will by default print
+Xa progress indicator when decompressing an image. This option turns off the
+Xprogress indicator. Note that this option is not valid if
+X.I gifcheck
+Xwas not complied with the PROGRESS_IND option enabled. Check the help 
+X(-h) to see if this option is listed and hence valid.
+X.TP
+X.B \-h
+XPrints a usage message. No files are processed and all other options are
+Xignored.
+X.SH OUTPUT
+X.I Gifcheck
+Xrecognizes eight different types of blocks within a GIF file: file headers,
+Ximages, and five types of extension block: generic extensions, Graphic
+XControl Extensions, Plain Text Extensions, Comment Extensions, and
+XApplication Extensions (the last four are found only in GIF89a-format
+Xfiles).
+X.PP
+XData from each type of block is output in a different format, which may
+Xchange according to the settings of the output format options. The various
+Xdisplays are explained below.
+X.RS 3
+X.SS "FILE HEADER"
+XThe default file header display, with no options, looks like this:
+X.RS 3
+X.PP
+X.nf
+XProcessing junk2/devil.gif...
+XFILE junk2/devil.gif   GIF87a      11209 bytes
+X   logical screen:    640 x   480
+X   8 bits per color available on source
+XGLOBAL COLOR TABLE:
+X   6 bits (64 colors)   bg index 0 (000/000/000)
+X   59 unique colors.
+X.fi
+X.RE
+X.PP
+XThe first line gives the filename, in case an error is encountered
+Ximmediately. The second line repeats the filename and displays the
+Xformat and filesize. The third line gives the size, in pixels, of the
+Xlogical screen on which all images in the file will be displayed. The
+Xfourth line displays how many bits per color (R,G,B) were available on
+Xthe machine on which the file was created. This value is frequently set
+Xincorrectly and may generally be ignored.
+X.PP
+XThe global color table, if present, has a subsection to itself. The
+Xsixth line indicates how large the global color table is. It also
+Xdisplays the background color index and the RGB value corresponding to
+Xthat index. While the background color index is actually part of the
+Xfile header proper, it is meaningless unless a global color table is
+Xpresent, so it is displayed in the global color table section. If the
+Xfile is a GIF89a-format image, this line also indicates whether the
+Xglobal color table is sorted. Finally, the seventh line indicates how
+Xmany unique colors are present in the global color table.
+X.PP
+XIf no global color table is present, a line stating this is displayed
+Xinstead.
+X.PP
+XIf the
+X.B \-v
+Xoption is in effect, the file header display looks like this:
+X.RS 3
+X.PP
+X.nf
+XProcessing junk2/devil.gif...
+XFILE junk2/devil.gif is GIF version GIF87a:
+X   file size (bytes):    11209
+X   logical screen size (pixels, width x height):   640 x   480
+X   8 bits per color available on source
+X   This file has a global color table.
+XGLOBAL COLOR TABLE:
+X   6 bits per index for a table size of 64
+X   background index 0, RGB value 000/000/000
+X   59 unique colors.
+X.fi
+X.RE
+X.PP
+XThe data displayed is the same, but more explanatory text is
+Xincluded.
+X.PP
+XIf the
+X.B \-c
+Xoption is in effect, the file header display looks like this:
+X.RS 3
+X.PP
+X.nf
+XProcessing junk2/devil.gif...
+XFILE junk2/devil.gif   GIF87a      11209 bytes
+X   logical screen:    640 x   480
+X   8 bits per color available on source
+XGLOBAL COLOR TABLE:
+X   6 bits (64 colors)   bg index 0 (000/000/000)
+X   59 unique colors.
+X   000/000/000   255/197/197   255/156/156   255/189/189   255/131/131
+X   255/180/180   255/148/148   255/205/205   041/000/000   255/123/123
+X   255/172/172   255/074/074   082/000/000   255/057/057   255/090/090
+X   255/115/115   008/000/000   049/000/000   255/164/164   024/000/000
+X   131/000/000   255/049/049   074/000/000   255/082/082   123/000/000
+X   255/139/139   065/000/000   148/000/000   255/041/041   016/000/000
+X   255/016/016   230/024/024   255/032/032   115/000/000   164/000/000
+X   057/000/000   255/106/106   106/000/000   156/000/000   255/008/008
+X   032/000/000   255/065/065   139/000/000   180/000/000   255/024/024
+X   098/000/000   090/000/000   238/000/000   189/000/000   230/000/000
+X   213/000/000   172/000/000   205/000/000   197/000/000   246/000/000
+X   222/000/000   230/016/016   255/000/000   255/098/098   000/000/000
+X   000/000/000   000/000/000   000/000/000   000/000/000
+X.fi
+X.RE
+X.PP
+XThe standard or verbose display is followed by a listing, in decimal,
+Xof the raw RGB values found in the global color map.
+X.SS IMAGE
+XThe default image display, with no options, looks like this:
+X.RS 3
+X.PP
+X.nf
+XIMAGE 1:
+X   size   640 x   480   corner     0,     0   sequentially
+X   This image uses the global color table (no local color table).
+X   IMAGE DATA FOR IMAGE 1:
+X   code size 6 bits
+X   Reached end of codes in block 42
+X   totals: 7906 codes packed into 10948 bytes in 43 blocks
+X        307200 pixels extracted
+X        code table cleared 2 times
+X        compressed data is 4% of the size of uncompressed image
+X        59 colors referenced (59 unique)
+X.fi
+X.RE
+X.PP
+XEach image in the file is numbered by 
+X.I gifcheck
+Xstarting at 1 and has
+Xa section to itself. The first line gives the image number. The second
+Xline indicates the size, in pixels, of the image; the location, in
+Xpixels, of the upper left corner, and how the image is stored
+X("sequentially" or "interlaced").
+X.PP
+XThe third line indicates whether there is a local color table, and
+Xwhether the image uses the global or local color table. If there is a
+Xlocal color table, the third line is followed by a color table display
+Xsimilar to the one for global color tables, including a dump of
+Xthe raw RGB values if the
+X.B \-c
+Xcolor dump option is in effect. Very few images have local color tables.
+X.PP
+XImage data is stored compressed, and the compressed data is further
+Xbroken up into blocks (which are numbered by 
+X.I gifcheck
+Xstarting at 0).
+XThe fifth line indicates the minimum code size for the image. The sixth
+Xline indicates the block in which the end-of-information (EOI) code was
+Xencountered. The seventh line indicates the number of codes extracted,
+Xthe number of bytes which those codes occupied, and how many blocks
+Xthose bytes were divided into. The eighth line indicates how many pixels
+Xwere generated when the codes were decompressed, and the ninth line
+Xindicates how many times the table-clear code was encountered.
+X.PP
+XThe tenth line indicates the size of the compressed data as a
+Xpercentage of the size of the uncompressed image. The size of the
+Xcompressed data is the size of the data only, not including block
+Xheaders, image headers, or any other non-image data, so the compression
+Xratio is accurate. The size of the uncompressed image is calculated by
+Xmultiplying the height and the width to get the total number of pixels
+Xin the image, then multiplying by the number of bits required to
+Xrepresent the global or local color table, depending on which one is
+Xused by the image. Finally, the eleventh line indicates how many colors
+Xwere referenced by the image data, and how many of the colors referenced
+Xare unique.
+X.PP
+XIf the
+X.B \-v
+Xoption is in effect, the image display looks like this:
+X.RS 3
+X.PP
+X.nf
+XIMAGE 1:
+X   image size (pixels, width x height):   640 x   480
+X   image upper left corner (column, row):     0,     0
+X   image is stored sequentially
+X   This image uses the global color table (no local color table).
+X   IMAGE DATA FOR IMAGE 1:
+X   code size 6 bits
+X   Reached end of codes in block 42
+X   totals: 7906 codes packed into 10948 bytes in 43 blocks
+X        307200 pixels extracted
+X        code table cleared 2 times
+X        compressed data is 4% of the size of uncompressed image
+X        59 colors referenced (59 unique)
+X.fi
+X.RE
+X.PP
+XThe data displayed is the same, but more explanatory text is included.
+X.PP
+XIf the
+X.B \-f
+Xoption is in effect, the image display looks like this:
+X.RS 3
+X.PP
+X.nf
+XIMAGE 1:
+X   size   640 x   480   corner     0,     0   sequentially
+X   This image uses the global color table (no local color table).
+X   IMAGE DATA FOR IMAGE 1:
+X   code size 6 bits
+X   totals: 10948 bytes in 43 blocks
+X        compressed data is 4% of the size of uncompressed image
+X.fi
+X.RE
+X.PP
+XSince the compressed image data is not decompressed under this
+Xoption, less information is available.
+X.SS "GENERIC EXTENSIONS"
+XIf the format is GIF87a, or the format is GIF89a but the type
+Xidentifier is not one of the four dedicated types, the "generic
+Xextension" format is used. It looks like this:
+X.RS 3
+X.PP
+X.nf
+XGENERIC EXTENSION BLOCK 1:
+X   extension block type 255
+X   BLOCK 0 (11 bytes):
+XG 47    I 49    F 46    L 4C    I 49    T 54    E 45      20
+X  20      20      20
+X   BLOCK 1 (6 bytes):
+X  01    ) 29    p 70      0E      02      00
+X   totals: 17 bytes of data in 2 blocks
+X.fi
+X.RE
+X.PP
+XGeneric extension blocks are numbered sequentially by 
+X.I gifcheck
+Xstarting at 1. The
+Xfirst line indicates that it is a generic extension block and gives the
+Xsequence number. The second line shows the type identifier value. The
+Xnext lines display the data in hex dump format (generic extensions are
+Xalways displayed in hex dump format, regardless of the setting of the
+X.B \-H
+Xoption). Each data block is numbered sequentially by 
+X.I gifcheck
+Xstarting at 0. A line giving the data block number and the number of
+Xbytes in the block is shown. Then the data bytes themselves are
+Xdisplayed, eight per line. If the byte is a printable character, the
+Xcharacter is printed, followed by the hex value of the byte; otherwise a
+Xspace is printed, followed by the hex value. Finally, a totals line is
+Xprinted, indicating the total number of data bytes and the total number
+Xof data blocks.
+X.PP
+XThe
+X.B \-v
+Xoption has no effect on generic extension displays.
+X.SS "GRAPHIC CONTROL EXTENSION"
+XGraphic Control Extensions (GCEs) are one of the GIF89a dedicated
+Xextension types. When encountered, they are displayed like this:
+X.RS 3
+X.PP
+X.nf
+XGRAPHIC CONTROL EXTENSION BLOCK 1:
+X   Disposal method: 0 (none)
+X   User input is not expected
+X   Transparency enabled (index 3)
+X   No delay time specified
+X.fi
+X.RE
+X.PP
+XGCEs are numbered sequentially (by 
+X.I gifcheck).
+XThe first line
+Xindicates that it is a GCE and gives the sequence number. The second
+Xline shows the disposal method (which applies to the next graphic --
+Xi.e. image or Plain Text Extension -- in the file). This can be: "none",
+X"leave in place", "restore to background", or "restore to previous".
+X.PP
+XThe third line indicates whether user input is expected before the
+Xnext graphic will be displayed. The fourth line indicates whether a
+Xtransparency color index (which indicates that pixels of the given color
+Xshould be rendered "transparent" -- i.e., not drawn) has been specified,
+Xand if so, what the transparency index is. The last line indicates
+Xwhether a delay time (delay before the next graphic is displayed) has
+Xbeen specified, and if so what the delay value is.
+X.PP
+XThe
+X.B \-v
+Xoption has no effect on GCE displays.
+X.SS "PLAIN TEXT EXTENSION"
+XPlain Text Extensions (PTEs) are one of the GIF89a dedicated
+Xextension types. When encountered, they are displayed like this:
+X.RS 3
+X.PP
+X.nf
+XPLAIN TEXT EXTENSION BLOCK 1:
+X   char cell   8 x  28, grid  96( 12) x  28(  1) at     0,   112
+X   Foreground color index 0 (RGB 016/016/014)
+X   Background color index 3 (RGB 113/110/232)
+X   START TEXT (12 characters):
+X Cass Berry
+X   END TEXT.
+X.fi
+X.RE
+X.PP
+XPTEs are numbered sequentially by 
+X.I gifcheck
+Xstarting at 1. The first line
+Xindicates that it is a PTE and gives the sequence number. The second
+Xline shows: the size of the character cell, in pixels; the size of the
+Xcharacter grid, in pixels and cells (cells in parentheses); and the
+Xlocation of the upper left corner of the grid. The third line shows the
+Xindex and RGB values of the foreground text color, and the fourth line
+Xshows the same for the background color.
+X.PP
+XThe fifth line indicates the start of the text, and how many
+Xcharacters of text are present. It is followed by the text itself, which
+Xis in turn followed by an "END TEXT." marker on the next line.
+X.PP
+XIf the
+X.B \-v
+Xoption is in effect, PTEs are displayed like this:
+X.RS 3
+X.PP
+X.nf
+XPLAIN TEXT EXTENSION BLOCK 1:
+X   Character cell grid upper left corner (column, row):     0,   112
+X   Character cell size (pixels, width x height):   8 x  28
+X   Character grid size (pixels, width x height):  96 x  28
+X   Character grid size (chars, width x height):  12 x   1
+X   Foreground color index 0 (RGB 016/016/014)
+X   Background color index 3 (RGB 113/110/232)
+X   START TEXT (12 characters):
+X Cass Berry
+X   END TEXT.
+X.fi
+X.RE
+X.PP
+XThe same information is displayed, but more explanatory text is included.
+X.PP
+XIf the
+X.B \-H
+Xoption is in effect, the text is displayed in hex dump format, like this:
+X.RS 3
+X.PP
+X.nf
+XPLAIN TEXT EXTENSION BLOCK 1:
+X   char cell   8 x  28, grid  96( 12) x  28(  1) at     0,   112
+X   Foreground color index 0 (RGB 016/016/014)
+X   Background color index 3 (RGB 113/110/232)
+X   START TEXT (12 characters):
+X   LINE 1:
+X  20    C 43    a 61    s 73    s 73      20    B 42    e 65
+Xr 72    r 72    y 79      20
+X   END TEXT.
+X.fi
+X.RE
+X.PP
+XInstead of simply displaying the text, each character is displayed
+Xindividually, followed by its hex value.
+X.SS "COMMENT EXTENSION"
+XComment Extensions are one of the GIF89a dedicated extension types.
+XWhen encountered, they are displayed like this:
+X.RS 3
+X.PP
+X.nf
+XCOMMENT EXTENSION BLOCK 1:
+X   START TEXT (161 characters):
+X+-------------------------------------------------+
+X| Multi-image GIF89a created with CompuMake Tools |
+X+-------------------------------------------------+
+X
+X   END TEXT.
+X   0 unprintable characters.
+X.fi
+X.RE
+X.PP
+XComment Extensions are numbered sequentially by 
+X.I gifcheck
+Xstarting at 1. The first
+Xline indicates that it is a Comment Extension and gives the sequence
+Xnumber. The second line indicates the start of the text and how many
+Xcharacters of text are present. It is followed by the text itself, which
+Xis in turn followed by an "END TEXT." marker on the next line. The last
+Xline indicates how many unprintable characters were found in the text.
+X.PP
+XThe
+X.B \-v
+Xoption has no effect on Comment Extension displays.
+X.PP
+XIf the
+X.B \-H
+Xoption is in effect, the text is displayed in hex dump format, like this:
+X.RS 3
+X.PP
+X.nf
+XCOMMENT EXTENSION BLOCK 1:
+X   START TEXT (161 characters):
+X+ 2B    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    + 2B      0D      0A    | 7C      20    M 4D
+Xu 75    l 6C    t 74    i 69    - 2D    i 69    m 6D    a 61
+Xg 67    e 65      20    G 47    I 49    F 46    8 38    9 39
+Xa 61      20    c 63    r 72    e 65    a 61    t 74    e 65
+Xd 64      20    w 77    i 69    t 74    h 68      20    C 43
+Xo 6F    m 6D    p 70    u 75    M 4D    a 61    k 6B    e 65
+X  20    T 54    o 6F    o 6F    l 6C    s 73      20    | 7C
+X  0D      0A    + 2B    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D    - 2D
+X- 2D    - 2D    - 2D    - 2D    + 2B      0D      0A      0D
+X  0A
+X   END TEXT.
+X   0 unprintable characters.
+X.fi
+X.RE
+X.PP
+XInstead of simply displaying the text, each character is displayed
+Xindividually, followed by its hex value.
+X.SS "APPLICATION EXTENSION"
+XApplication Extensions are one of the GIF89a dedicated extension
+Xtypes. When encountered, they are displayed like this:
+X.RS 3
+X.PP
+X.nf
+XAPPLICATION EXTENSION BLOCK 1:
+X   application identifier:
+Xf 66    r 72    a 61    c 63    t 74    i 69    n 6E    t 74
+X   application authentication code:
+X0 30    0 30    1 31
+X   246 bytes of application data.
+XF 46    r 72    a 61    c 63    t 74    a 61    l 6C      00
+X  96      00      07      00      00      00      00    h 68
+X  D8      FB      0C    @ 40      00      00      00      20
+X  0B      FF      0C    @ 40      00      00      00      00
+X  00      E9    I 49    ? 3F      00      00      00      00
+X  F0    = 3D      89    ? 3F      00      00      00      00
+X  00      00      00      00      00      00      00      00
+X  00      00      00      00      00      00      00      00
+X  00      00      00      00      1B      00      80      02
+X  E0      01      00      01      04      00      00      00
+X  00      00      00      00      00      00      00      00
+X  00      00      00      00      00      00      00      00
+X  00      00      00      00      00      00      FF      FF
+X  01      00      01      00      00      00      00      00
+X  00      00      00      00      00      00      00      00
+X  00      00      00      00      E7      03      00      00
+XZ 5A      00      09      01      00      00    x 78      00
+X  8C      00    ( 28      00      00      00      02      00
+Xn 6E      00      00      00      00      00      01      00
+X  FF      FF      01      00      00      00      14      00
+X  00      00      00      00      04      00      00      00
+X  00      00      04      00    P 50      00    d 64      00
+X  00      00      00      00      00      00      FF      FF
+X  00      00      00    h 68      D8      FB      0C    @ 40
+X  00      00      00      00      00      E9    I 49    ? 3F
+Xg 67      00      04      00      06      01      00      00
+X  00      00      00      00      00      00      D8      A7
+X  00      00      00      06      02      03      00      00
+X  00      00      00      00      00      00      00      00
+X  00      00      00      00      00      00      00      00
+X  01      00      00      00      00      00
+X.fi
+X.RE
+X.PP
+XApplication Extensions are numbered sequentially by 
+X.I gifcheck
+Xstarting at 1. The
+Xfirst line indicates that it is an Application Extension and gives the
+Xsequence number. The second line introduces the eight-byte application
+Xidentifier and is followed on the third line by the application
+Xidentifier itself, in hex dump format. The fourth line introduces the
+Xthree-byte application authentication code and is followed on the fifth
+Xline by the application authentication code itself, in hex dump format.
+XThe sixth line indicates how many bytes of application data are present,
+Xand is followed by the application data itself in hex dump format. All
+Xdata in Application Extensions is always displayed in hex dump format,
+Xregardless of the setting of the
+X.B \-H
+Xoption.
+X.PP
+XThe
+X.B \-v
+Xoption has no effect on Application Extension displays.
+X.SS TERMINATOR
+XWhen the GIF terminator block is encountered,
+X.I gifcheck
+Xprints this line:
+X.RS 3
+X.PP
+X.nf
+XGIF TERMINATOR
+X.fi
+X.RE
+X.SH DIAGNOSTICS
+X.I Gifcheck
+Xcan produce a variety of diagnostic messages. Some indicate
+Xproblems within the GIF file. Others indicate malfunctions of
+X.I gifcheck
+Xor the computer. Messages beginning with "ANOMALY", "VIOLATION",
+X"FASCINATING", and "NITPICK" indicate problems within the GIF file.
+XMessages beginning "FATAL ERROR", "ERROR", or "WARNING" indicate
+Xmalfunctions. Messages beginning "STRIP" indicate that the file should
+Xbe processed by the
+X.I gifstrip
+Xprogram to remove excess characters.
+X.RS 3
+X.SS ANOMALIES
+XAnomalies are radical violations of the GIF specification. Anomalies
+Xmay be caused by massive corruption of the file, to the extent that
+X.I gifcheck
+Xcannot determine how to proceed with processing of the file, or
+Xby individual values that make no sense. In either case, an image with
+Xanomalies will probably be rejected by most GIF viewers. Anomalies are
+Xalways displayed and always cause
+X.I gifcheck
+Xto skip immediately to the next file to be processed.
+X.PP
+XThe various anomalies that
+X.I gifcheck
+Xcan detect are explained below.
+X.HP 9
+XANOMALY: end of data reached before end of codes
+X.RS 5
+X.PD 0
+X.PP
+X.I gifcheck
+Xreached the end of the packed image data
+Xwithout encountering an End-of-Information code, which
+Xsignals the end of the image.
+X.RE
+X.PD 1
+X.HP 9
+XANOMALY: decompression error in block xxx at offset yyy
+X.RS 5
+X.PD 0
+X.PP
+X.I gifcheck
+Xfound a bad code in the packed image data. This
+Xindicates that the file has been corrupted, and most
+Xlikely the rest of the file is trash.
+X.RE
+X.PD 1
+X.HP 9
+XANOMALY: foreground color index off end of global color table
+X.RS 5
+X.PD 0
+X.PP
+XThe color index specified for the foreground in a GIF89a
+XPlain Text Extension is invalid (PTEs always use the
+Xglobal color table).
+X.RE
+X.PD 1
+X.HP 9
+XANOMALY: background color index off end of global color table
+X.RS 5
+X.PD 0
+X.PP
+XThe color index specified for the background in a GIF89a
+XPlain Text Extension is invalid (PTEs always use the
+Xglobal color table).
+X.RE
+X.PD 1
+X.HP 9
+XANOMALY: an undefined disposal method (x) is given
+X.RS 5
+X.PD 0
+X.PP
+XThe value in the disposal method of a Graphic Control
+XExtension is undefined.
+X.RE
+X.PD 1
+X.HP 9
+XANOMALY: a ... cannot follow a ...
+X.RS 5
+X.PD 0
+X.PP
+XWhere "..." is a block type. The GIF89a specification
+Xincludes a grammar which indicates which types of blocks
+Xcan follow which other types of blocks (in the simpler
+XGIF87a specification, there was no need). This grammar
+Xhas been violated.
+X.PD 1
+X.RE
+X.SS VIOLATIONS
+XViolations are major violations of the GIF specification. Violations
+Xmay be caused by corruption of the file or by individual values that
+Xmake no sense. In either case, an image with violations may be rejected
+Xby some viewers and displayed with difficulty by others. Violations are
+Xalways displayed, and by default cause
+X.I gifcheck
+Xto skip immediately to the next file to be processed.
+X.PP
+XThe various violations that
+X.I gifcheck
+Xcan detect are explained below.
+X.HP 11
+XVIOLATION: image does not fit on logical screen
+X.PD 0
+X.RS 5
+X.PP
+XEither the size of the image given in the image header
+Xis greater in one or both dimensions than the size of
+Xthe logical screen given in the file header, or the
+Xposition of the image given in the image header causes
+Xparts of the image to extend beyond the boundaries of
+Xthe logical screen.
+X.RE
+X.PD 1
+X.HP 11
+XVIOLATION: bad transparency index (x)
+X.PD 0
+X.RS 5
+X.PP
+XIf processing a Plain Text Extension, indicates that the
+Xtransparency index specified by a preceeding Graphic
+XControl Extension is off the end of the global color
+Xtable (PTEs always use the global color table). If
+Xprocessing an image, indicates that the transparency
+Xindex is off the end of either the global or local color
+Xtable, depending on which one the image uses.
+X.RE
+X.PD 1
+X.HP 11
+XVIOLATION: character grid does not fit on logical screen
+X.PD 0
+X.RS 5
+X.PP
+XEither the size of the character grid given in the Plain
+XText Extension is greater in one or both dimensions than
+Xthe size of the logical screen given in the file header,
+Xor the position of the character grid causes parts of it
+Xto extend beyond the boundaries of the logical screen.
+X.RE
+X.PD 1
+X.HP 11
+XVIOLATION: text is too long to fit into character grid
+X.PD 0
+X.RS 5
+X.PP
+XThe text given in the Plain Text Extension contains more
+Xcharacters than there are character cells in the
+Xcharacter grid.
+X.RE
+X.PD 1
+X.HP 11
+XVIOLATION: xxx garbage characters found between blocks
+X.PD 0
+X.RS 5
+X.PP
+XThere should be no garbage characters between blocks.
+XWhile this can theoretically be solved by using the
+X.I gifstrip
+Xprogram, it probably indicates that the file
+Xhas been corrupted.
+X.PD 1
+X.RE
+X.SS FASCINATINGS
+XFascinatings are not always violations of the GIF specification.
+XFascinatings are unusual conditions which most viewers can cope with, but
+Xare still worthy of note. Fascinatings are displayed by default, and by
+Xdefault do NOT cause
+X.I gifcheck
+Xto skip.
+X.PP
+XThe various fascinatings that
+X.I gifcheck
+Xcan detect are explained below.
+X.HP 13
+XFASCINATING: this file does not contain a global color table
+X.PD 0
+X.RS 5
+X.PP
+XThe GIF specification allows for files without global
+Xcolor tables; they are to be displayed using the global
+Xcolor table from a previous file, or a default table
+Xchosen by the viewer if no previous global color table
+Xis available. Files without global color tables are
+Xextremely rare. This message is displayed when an image
+Xwhich uses the global color table is encountered in a
+Xfile which has none.
+X.RE
+X.PD 1
+X.HP 13
+XFASCINATING: xxx extra blocks on end of image
+X.PD 0
+X.RS 5
+X.PP
+XThe packed image data continued for one or more blocks
+Xafter the block in which the End-of-Information (EOI)
+Xcode was found. While this condition is suspicious, the
+Xdata before the EOI decompressed correctly (otherwise an
+XANOMALY would have occurred), so there's no concrete
+Xevidence that the image is bad.
+X.RE
+X.PD 1
+X.HP 13
+XFASCINATING: too few pixels extracted (xxx lines found, yyy pixels missing)
+X.PD 0
+X.RS 5
+X.PP
+XWhen the End-of-Information code was encountered, too
+Xfew pixels had been extracted to fill the image (e.g,
+Xfor a 320 by 200 image, which should have 64,000 pixels,
+Xonly 63,999 were extracted). Typically only one or two
+Xare missing. Viewers seem to cope with this condition
+XOK.
+X.RE
+X.PD 1
+X.HP 13
+XFASCINATING: too many pixels extracted (xxx extra)
+X.PD 0
+X.RS 5
+X.PP
+XWhen the End-of-Information code was encountered, more
+Xpixels than necessary had been extracted (e.g., for a
+X320 by 200 image, which should have 64,000 pixels,
+X64,001 were extracted). Typically only one or two extras
+Xare present. Viewers seem to cope with this condition
+XOK.
+X.RE
+X.PD 1
+X.HP 13
+XFASCINATING: code table never cleared
+X.PD 0
+X.RS 5
+X.PP
+XWhile this is technically OK, it is recommended practice
+Xto clear the decompression code table (via a clear code
+Xin the compressed image data) immediately at the
+Xbeginning of the image. If the code table was never
+Xcleared, this initial clear never occurred.
+X.RE
+X.PD 1
+X.HP 13
+XFASCINATING: this file has no Global Color Table (GCT is used by PTE)
+X.PD 0
+X.RS 5
+X.PP
+XThe GIF specification allows for files without global
+Xcolor tables; they are to be displayed using the global
+Xcolor table from a previous file, or a default table
+Xchosen by the viewer if no previous global color table
+Xis available. Files without global color tables are
+Xextremely rare. This message is displayed when a Plain
+XText Extension (PTEs always use the global color table)
+Xis encountered in a file which has no global color table.
+X.RE
+X.PD 1
+X.HP 13 
+XFASCINATING: transparency index does not match either foreground or background
+X.PD 0
+X.RS 5
+X.PP
+XThis message is displayed when processing a Plain Text
+XExtension and the transparency index specified by a
+Xpreceeding Graphic Control Extension does not match
+Xeither the foreground or the background color indices of
+Xthe PTE. This renders the transparency index
+Xmeaningless, since it only applies to the next graphic
+X(image or PTE) following the GCE. Nothing is technically
+Xwrong, but it's weird.
+X.PD 1
+X.RE
+X.SS NITPICKS
+XNitpicks are minor technical violations of the GIF specification.
+XSome are very common, and they should not cause problems when viewing
+Xthe file. Nitpicks are by default NOT displayed, and never cause
+X.I gifcheck
+Xto skip.
+X.PP
+XThe various nitpicks that
+X.I gifcheck
+Xcan detect are explained below.
+XMost of these messages are self-explanatory, so no detailed explanation
+Xis given.
+X.HP 9
+XNITPICK: byte 6 of the logical screen descriptor should be 0 for GIF87A
+X.HP 9
+XNITPICK: bit 3, byte 4 of logical screen descriptor should be 0 for GIF87A
+X.HP 9
+XNITPICK: bits 3 and 4, byte 9 of image descriptor should be 0
+X.HP 9
+XNITPICK: bit 5, byte 9 of image descriptor should be 0 for GIF87A
+X.HP 9
+XNITPICK: bits 5-7, byte 1 of graphic control extension should be 0
+X.HP 9
+XNITPICK: local color table size is nonzero
+X.PD 0
+X.RS 5
+X.PP
+XThe image does not have a local color table, but the
+Xlocal color table size is nonzero.
+X.PD 1
+X.RE
+X.HP 9
+XNITPICK: character grid not an integral number of character cells wide
+X.PD 0
+X.RS 5
+X.PP
+XThe horizontal size of the character grid in a Plain
+XText Extension is not evenly divisible by the horizontal
+Xsize of a character cell.
+X.PD 1
+X.RE
+X.HP 9
+XNITPICK: character grid not an integral number of character cells high
+X.PD 0
+X.RS 5
+X.PP
+XThe vertical size of the character grid in a Plain Text
+XExtension is not evenly divisible by the vertical size
+Xof a character cell.
+X.PD 1
+X.RE
+X.HP 9
+XNITPICK: xxx unprintable characters in text
+X.PD 0
+X.RS 5
+X.PP
+XPlain Text Extensions are supposed to contain only
+X"7-bit printable ASCII characters".
+X.PD 1
+X.RE
+X.SS MISCELLANEOUS
+X.I Gifcheck
+Xcan also produce messages beginning with "FATAL ERROR",
+X"ERROR", "WARNING", and "STRIP". The first three indicate malfunctions
+Xof
+X.I gifcheck
+Xor the computer, and typically cause
+X.I gifcheck
+Xto exit
+Ximmediately. Messages beginning with "STRIP" indicate that the file
+Xshould be processed by the
+X.I gifstrip
+Xprogram to remove excess characters,
+Xand are simply for the user's information. Processing of the file is not
+Xaffected.
+X.RE
+X.SH COPYRIGHT
+X.I Gifcheck
+Xis copyright 1993 by James W. Birdsall, all rights reserved.
+X.PP
+XThe Graphics Interchange Format(c) is the Copyright property of CompuServe
+XIncorporated. GIF(sm) is a Service Mark property of CompuServe
+XIncorporated.
+X.SH AUTHOR
+XJames W. Birdsall
+X.RS 3
+X.nf
+Xsupport@picarefy.com
+Xuunet!uw-coco!amc-gw!picarefy!support
+XCompuServe: 71261,1731
+XGEnie: J.BIRDSALL2
+X.fi
+X.RE
+X.SH "SEE ALSO"
+Xchils(1),
+Xgifstrip(1)
+END_OF_FILE
+  if test 32803 -ne `wc -c <'src/gifcheck.1'`; then
+    echo shar: \"'src/gifcheck.1'\" unpacked with wrong size!
+  fi
+  # end of 'src/gifcheck.1'
+fi
+echo shar: End of archive 12 \(of 18\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

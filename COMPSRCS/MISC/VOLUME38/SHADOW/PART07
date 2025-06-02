@@ -1,0 +1,2979 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F. Haugh II)
+Subject: v38i126:  shadow - Shadow Password Suite, v3.3, Part07/14
+Message-ID: <1993Aug14.192455.9503@sparky.sterling.com>
+X-Md4-Signature: f47a619562ee4948382f37021a510b59
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 14 Aug 1993 19:24:55 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F. Haugh II)
+Posting-number: Volume 38, Issue 126
+Archive-name: shadow/part07
+Environment: UNIX
+Supersedes: shadow: Volume 26, Issue 54-64
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  groupio.c grpck.c port.c sgroupio.c shadowio.c
+# Wrapped by kent@sparky on Sat Aug 14 14:11:40 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 14)."'
+if test -f 'groupio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'groupio.c'\"
+else
+  echo shar: Extracting \"'groupio.c'\" \(11194 characters\)
+  sed "s/^X//" >'groupio.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, 1992, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X *
+X *	This file implements a transaction oriented group database
+X *	library.  The group file is updated one entry at a time.
+X *	After each transaction the file must be logically closed and
+X *	transferred to the existing group file.  The sequence of
+X *	events is
+X *
+X *	gr_lock				-- lock group file
+X *	gr_open				-- logically open group file
+X *	while transaction to process
+X *		gr_(locate,update,remove) -- perform transaction
+X *	done
+X *	gr_close			-- commit transactions
+X *	gr_unlock			-- remove group lock
+X */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <fcntl.h>
+X#include <errno.h>
+X#include <grp.h>
+X#include <stdio.h>
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)groupio.c	3.10 08:39:39 29 Apr 1993";
+X#endif
+X
+Xstatic	int	islocked;
+Xstatic	int	isopen;
+Xstatic	int	open_modes;
+Xstatic	FILE	*grfp;
+X
+Xstruct	gr_file_entry {
+X	char	*grf_line;
+X	int	grf_changed;
+X	struct	group	*grf_entry;
+X	struct	gr_file_entry *grf_next;
+X};
+X
+Xstruct	gr_file_entry	*__grf_head;
+Xstatic	struct	gr_file_entry	*grf_tail;
+Xstatic	struct	gr_file_entry	*grf_cursor;
+Xint	__gr_changed;
+Xstatic	int	lock_pid;
+X
+X#define	GR_LOCK	"/etc/group.lock"
+X#define	GR_TEMP "/etc/grp.%d"
+X#define	GROUP	"/etc/group"
+X
+Xstatic	char	gr_filename[BUFSIZ] = GROUP;
+X
+Xextern	char	*strdup();
+Xextern	struct	group	*sgetgrent();
+Xextern	char	*malloc();
+Xextern	char	*fgetsx();
+X
+X/*
+X * gr_dup - duplicate a group file entry
+X *
+X *	gr_dup() accepts a pointer to a group file entry and
+X *	returns a pointer to a group file entry in allocated
+X *	memory.
+X */
+X
+Xstatic struct group *
+Xgr_dup (grent)
+Xstruct	group	*grent;
+X{
+X	struct	group	*gr;
+X	int	i;
+X
+X	if (! (gr = (struct group *) malloc (sizeof *gr)))
+X		return 0;
+X
+X	if ((gr->gr_name = strdup (grent->gr_name)) == 0 ||
+X			(gr->gr_passwd = strdup (grent->gr_passwd)) == 0)
+X		return 0;
+X
+X	for (i = 0;grent->gr_mem[i];i++)
+X		;
+X
+X	gr->gr_mem = (char **) malloc (sizeof (char *) * (i + 1));
+X	for (i = 0;grent->gr_mem[i];i++)
+X		if (! (gr->gr_mem[i] = strdup (grent->gr_mem[i])))
+X			return 0;
+X
+X	gr->gr_mem[i] = 0;
+X	gr->gr_gid = grent->gr_gid;
+X
+X	return gr;
+X}
+X
+X/*
+X * gr_free - free a dynamically allocated group file entry
+X *
+X *	gr_free() frees up the memory which was allocated for the
+X *	pointed to entry.
+X */
+X
+Xstatic void
+Xgr_free (grent)
+Xstruct	group	*grent;
+X{
+X	int	i;
+X
+X	free (grent->gr_name);
+X	free (grent->gr_passwd);
+X
+X	for (i = 0;grent->gr_mem[i];i++)
+X		free (grent->gr_mem[i]);
+X
+X	free ((char *) grent->gr_mem);
+X}
+X
+X/*
+X * gr_name - change the name of the group file
+X */
+X
+Xint
+Xgr_name (name)
+Xchar	*name;
+X{
+X	if (isopen || strlen (name) > (BUFSIZ-10))
+X		return -1;
+X
+X	strcpy (gr_filename, name);
+X	return 0;
+X}
+X
+X/*
+X * gr_lock - lock a group file
+X *
+X *	gr_lock() encapsulates the lock operation.  it returns
+X *	TRUE or FALSE depending on the group file being
+X *	properly locked.  the lock is set by creating a semaphore
+X *	file, GR_LOCK.
+X */
+X
+Xint
+Xgr_lock ()
+X{
+X	int	fd;
+X	int	pid;
+X	int	len;
+X	char	file[BUFSIZ];
+X	char	buf[32];
+X	struct	stat	sb;
+X
+X	if (islocked)
+X		return 1;
+X
+X	if (strcmp (gr_filename, GROUP) != 0)
+X		return 0;
+X
+X	/*
+X	 * Create a lock file which can be switched into place
+X	 */
+X
+X	sprintf (file, GR_TEMP, lock_pid = getpid ());
+X	if ((fd = open (file, O_CREAT|O_EXCL|O_WRONLY, 0600)) == -1)
+X		return 0;
+X
+X	sprintf (buf, "%d", lock_pid);
+X	if (write (fd, buf, strlen (buf) + 1) != strlen (buf) + 1) {
+X		(void) close (fd);
+X		(void) unlink (file);
+X		return 0;
+X	}
+X	close (fd);
+X
+X	/*
+X	 * Simple case first -
+X	 *	Link fails (in a sane environment ...) if the target
+X	 *	exists already.  So we try to switch in a new lock
+X	 *	file.  If that succeeds, we assume we have the only
+X	 *	valid lock.  Needs work for NFS where this assumption
+X	 *	may not hold.  The simple hack is to check the link
+X	 *	count on the source file, which should be 2 iff the
+X	 *	link =really= worked.
+X	 */
+X
+X	if (link (file, GR_LOCK) == 0) {
+X		if (stat (file, &sb) != 0)
+X			return 0;
+X
+X		if (sb.st_nlink != 2)
+X			return 0;
+X
+X		(void) unlink (file);
+X		islocked = 1;
+X		return 1;
+X	}
+X
+X	/*
+X	 * Invalid lock test -
+X	 *	Open the lock file and see if the lock is valid.
+X	 *	The PID of the lock file is checked, and if the PID
+X	 *	is not valid, the lock file is removed.  If the unlink
+X	 *	of the lock file fails, it should mean that someone
+X	 *	else is executing this code.  They will get success,
+X	 *	and we will fail.
+X	 */
+X
+X	if ((fd = open (GR_LOCK, O_RDWR)) == -1 ||
+X			(len = read (fd, buf, BUFSIZ)) <= 0) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	buf[len] = '\0';
+X	if ((pid = strtol (buf, (char **) 0, 10)) == 0) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	if (kill (pid, 0) == 0)  {
+X		errno = EEXIST;
+X		return 0;
+X	}
+X	if (unlink (GR_LOCK)) {
+X		(void) close (fd);
+X		(void) unlink (file);
+X
+X		return 0;
+X	}
+X
+X	/*
+X	 * Re-try lock -
+X	 *	The invalid lock has now been removed and I should
+X	 *	be able to acquire a lock for myself just fine.  If
+X	 *	this fails there will be no retry.  The link count
+X	 *	test here makes certain someone executing the previous
+X	 *	block of code didn't just remove the lock we just
+X	 *	linked to.
+X	 */
+X
+X	if (link (file, GR_LOCK) == 0) {
+X		if (stat (file, &sb) != 0)
+X			return 0;
+X
+X		if (sb.st_nlink != 2)
+X			return 0;
+X
+X		(void) unlink (file);
+X		islocked = 1;
+X		return 1;
+X	}
+X	(void) unlink (file);
+X	return 0;
+X}
+X
+X/*
+X * gr_unlock - logically unlock a group file
+X *
+X *	gr_unlock() removes the lock which was set by an earlier
+X *	invocation of gr_lock().
+X */
+X
+Xint
+Xgr_unlock ()
+X{
+X	if (isopen) {
+X		open_modes = O_RDONLY;
+X		if (! gr_close ())
+X			return 0;
+X	}
+X	if (islocked) {
+X		islocked = 0;
+X		if (lock_pid != getpid ())
+X			return 0;
+X
+X		(void) unlink (GR_LOCK);
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+X/*
+X * gr_open - open a group file
+X *
+X *	gr_open() encapsulates the open operation.  it returns
+X *	TRUE or FALSE depending on the group file being
+X *	properly opened.
+X */
+X
+Xint
+Xgr_open (mode)
+Xint	mode;
+X{
+X	char	buf[8192];
+X	char	*cp;
+X	struct	gr_file_entry	*grf;
+X	struct	group	*grent;
+X
+X	if (isopen || (mode != O_RDONLY && mode != O_RDWR))
+X		return 0;
+X
+X	if (mode != O_RDONLY && ! islocked &&
+X			strcmp (gr_filename, GROUP) == 0)
+X		return 0;
+X
+X	if ((grfp = fopen (gr_filename, mode == O_RDONLY ? "r":"r+")) == 0)
+X		return 0;
+X
+X	__grf_head = grf_tail = grf_cursor = 0;
+X	__gr_changed = 0;
+X
+X	while (fgetsx (buf, sizeof buf, grfp) != (char *) 0) {
+X		if (cp = strrchr (buf, '\n'))
+X			*cp = '\0';
+X
+X		if (! (grf = (struct gr_file_entry *) malloc (sizeof *grf)))
+X			return 0;
+X
+X		grf->grf_changed = 0;
+X		grf->grf_line = strdup (buf);
+X		if ((grent = sgetgrent (buf)) && ! (grent = gr_dup (grent)))
+X			return 0;
+X
+X		grf->grf_entry = grent;
+X
+X		if (__grf_head == 0) {
+X			__grf_head = grf_tail = grf;
+X			grf->grf_next = 0;
+X		} else {
+X			grf_tail->grf_next = grf;
+X			grf->grf_next = 0;
+X			grf_tail = grf;
+X		}
+X	}
+X	isopen++;
+X	open_modes = mode;
+X
+X	return 1;
+X}
+X
+X/*
+X * gr_close - close the group file
+X *
+X *	gr_close() outputs any modified group file entries and
+X *	frees any allocated memory.
+X */
+X
+Xint
+Xgr_close ()
+X{
+X	char	backup[BUFSIZ];
+X	int	mask;
+X	int	c;
+X	int	errors = 0;
+X	FILE	*bkfp;
+X	struct	gr_file_entry *grf;
+X	struct	stat	sb;
+X
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	if (islocked && lock_pid != getpid ()) {
+X		isopen = 0;
+X		islocked = 0;
+X		errno = EACCES;
+X		return 0;
+X	}
+X	strcpy (backup, gr_filename);
+X	strcat (backup, "-");
+X
+X	if (open_modes == O_RDWR && __gr_changed) {
+X		mask = umask (0222);
+X		(void) unlink (backup);
+X		if ((bkfp = fopen (backup, "w")) == 0) {
+X			umask (mask);
+X			return 0;
+X		}
+X		umask (mask);
+X		fstat (fileno (grfp), &sb);
+X		chown (backup, sb.st_uid, sb.st_gid);
+X
+X		rewind (grfp);
+X		while ((c = getc (grfp)) != EOF) {
+X			if (putc (c, bkfp) == EOF) {
+X				fclose (bkfp);
+X				return 0;
+X			}
+X		}
+X		if (fclose (bkfp))
+X			return 0;
+X
+X		isopen = 0;
+X		(void) fclose (grfp);
+X
+X		mask = umask (0222);
+X		if (! (grfp = fopen (gr_filename, "w"))) {
+X			umask (mask);
+X			return 0;
+X		}
+X		umask (mask);
+X
+X		for (grf = __grf_head;! errors && grf;grf = grf->grf_next) {
+X			if (grf->grf_changed) {
+X				if (putgrent (grf->grf_entry, grfp))
+X					errors++;
+X			} else {
+X				if (fputsx (grf->grf_line, grfp))
+X					errors++;
+X
+X				if (putc ('\n', grfp) == EOF)
+X					errors++;
+X			}
+X		}
+X		if (fflush (grfp))
+X			errors++;
+X
+X		if (errors) {
+X			unlink (gr_filename);
+X			link (backup, gr_filename);
+X			unlink (backup);
+X			return 0;
+X		}
+X	}
+X	if (fclose (grfp))
+X		return 0;
+X
+X	grfp = 0;
+X
+X	while (__grf_head != 0) {
+X		grf = __grf_head;
+X		__grf_head = grf->grf_next;
+X
+X		if (grf->grf_entry) {
+X			gr_free (grf->grf_entry);
+X			free ((char *) grf->grf_entry);
+X		}
+X		if (grf->grf_line)
+X			free (grf->grf_line);
+X
+X		free ((char *) grf);
+X	}
+X	grf_tail = 0;
+X	isopen = 0;
+X	return 1;
+X}
+X
+Xint
+Xgr_update (grent)
+Xstruct	group	*grent;
+X{
+X	struct	gr_file_entry	*grf;
+X	struct	group	*ngr;
+X
+X	if (! isopen || open_modes == O_RDONLY) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	for (grf = __grf_head;grf != 0;grf = grf->grf_next) {
+X		if (grf->grf_entry == 0)
+X			continue;
+X
+X		if (strcmp (grent->gr_name, grf->grf_entry->gr_name) != 0)
+X			continue;
+X
+X		if (! (ngr = gr_dup (grent)))
+X			return 0;
+X		else {
+X			gr_free (grf->grf_entry);
+X			*(grf->grf_entry) = *ngr;
+X		}
+X		grf->grf_changed = 1;
+X		grf_cursor = grf;
+X		return __gr_changed = 1;
+X	}
+X	grf = (struct gr_file_entry *) malloc (sizeof *grf);
+X	if (! (grf->grf_entry = gr_dup (grent)))
+X		return 0;
+X
+X	grf->grf_changed = 1;
+X	grf->grf_next = 0;
+X	grf->grf_line = 0;
+X
+X	if (grf_tail)
+X		grf_tail->grf_next = grf;
+X
+X	if (! __grf_head)
+X		__grf_head = grf;
+X
+X	grf_tail = grf;
+X
+X	return __gr_changed = 1;
+X}
+X
+Xint
+Xgr_remove (name)
+Xchar	*name;
+X{
+X	struct	gr_file_entry	*grf;
+X	struct	gr_file_entry	*ogrf;
+X
+X	if (! isopen || open_modes == O_RDONLY) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	for (ogrf = 0, grf = __grf_head;grf != 0;
+X			ogrf = grf, grf = grf->grf_next) {
+X		if (! grf->grf_entry)
+X			continue;
+X
+X		if (strcmp (name, grf->grf_entry->gr_name) != 0)
+X			continue;
+X
+X		if (grf == grf_cursor)
+X			grf_cursor = ogrf;
+X
+X		if (ogrf != 0)
+X			ogrf->grf_next = grf->grf_next;
+X		else
+X			__grf_head = grf->grf_next;
+X
+X		if (grf == grf_tail)
+X			grf_tail = ogrf;
+X
+X		return __gr_changed = 1;
+X	}
+X	errno = ENOENT;
+X	return 0;
+X}
+X
+Xstruct group *
+Xgr_locate (name)
+Xchar	*name;
+X{
+X	struct	gr_file_entry	*grf;
+X
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	for (grf = __grf_head;grf != 0;grf = grf->grf_next) {
+X		if (grf->grf_entry == 0)
+X			continue;
+X
+X		if (strcmp (name, grf->grf_entry->gr_name) == 0) {
+X			grf_cursor = grf;
+X			return grf->grf_entry;
+X		}
+X	}
+X	errno = ENOENT;
+X	return 0;
+X}
+X
+Xint
+Xgr_rewind ()
+X{
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	grf_cursor = 0;
+X	return 1;
+X}
+X
+Xstruct group *
+Xgr_next ()
+X{
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	if (grf_cursor == 0)
+X		grf_cursor = __grf_head;
+X	else
+X		grf_cursor = grf_cursor->grf_next;
+X
+X	while (grf_cursor) {
+X		if (grf_cursor->grf_entry)
+X			return grf_cursor->grf_entry;
+X
+X		grf_cursor = grf_cursor->grf_next;
+X	}
+X	return 0;
+X}
+END_OF_FILE
+  if test 11194 -ne `wc -c <'groupio.c'`; then
+    echo shar: \"'groupio.c'\" unpacked with wrong size!
+  fi
+  # end of 'groupio.c'
+fi
+if test -f 'grpck.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'grpck.c'\"
+else
+  echo shar: Extracting \"'grpck.c'\" \(12079 characters\)
+  sed "s/^X//" >'grpck.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1992, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)grpck.c	3.2	08:45:11	29 Apr 1993";
+X#endif
+X
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <grp.h>
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X#include "config.h"
+X#include "pwd.h"
+X#ifdef	SHADOWPWD
+X#include "shadow.h"
+X#endif
+X
+X#ifdef	USE_SYSLOG
+X#include <syslog.h>
+X
+X#ifndef	LOG_WARN
+X#define	LOG_WARN LOG_WARNING
+X#endif
+X#endif
+X
+Xstruct	gr_file_entry {
+X	char	*grf_line;
+X	int	grf_changed;
+X	struct	group	*grf_entry;
+X	struct	gr_file_entry *grf_next;
+X};
+X
+X#ifdef	SHADOWGRP
+Xstruct	sg_file_entry {
+X	char	*sgr_line;
+X	int	sgr_changed;
+X	struct	sgrp	*sgr_entry;
+X	struct	sg_file_entry *sgr_next;
+X};
+X#endif
+X
+X/*
+X * Exit codes
+X */
+X
+X#define	E_OKAY		0
+X#define	E_USAGE		1
+X#define	E_BADENTRY	2
+X#define	E_CANTOPEN	3
+X#define	E_CANTLOCK	4
+X#define	E_CANTUPDATE	5
+X
+X/*
+X * Message strings
+X */
+X
+Xchar	*CANTOPEN = "%s: cannot open file %s\n";
+Xchar	*CANTLOCK = "%s: cannot lock file %s\n";
+Xchar	*CANTUPDATE = "%s: cannot update file %s\n";
+Xchar	*CHANGES = "%s: the files have been updated; run mkpasswd\n";
+Xchar	*NOCHANGES = "%s: no changes\n";
+Xchar	*NOUSER = "group %s: no user %s\n";
+Xchar	*BADENTRY = "invalid group file entry\n";
+Xchar	*GRDUP = "duplicate group entry\n";
+Xchar	*DELETE = "delete line `%s'? ";
+Xchar	*DELMEM = "delete member `%s'? ";
+Xchar	*NO = "No";
+X#ifdef	SHADOWGRP
+Xchar	*NOSUSER = "shadow group %s: no user %s\n";
+Xchar	*NOSADMUSER = "shadow group %s: no administrative user %s\n";
+Xchar	*BADSENTRY = "invalid shadow group file entry\n";
+Xchar	*SGRDUP = "duplicate shadow group entry\n";
+Xchar	*DELADM = "delete administrative member `%s'? ";
+X#endif
+X
+X/*
+X * Global variables
+X */
+X
+Xextern	int	optind;
+Xextern	char	*optarg;
+Xextern	struct	gr_file_entry	*__grf_head;
+Xextern	int	__gr_changed;
+X#ifdef	SHADOWGRP
+Xextern	struct	sg_file_entry	*__sgr_head;
+Xextern	int	__sg_changed;
+X#endif
+X
+X/*
+X * Local variables
+X */
+X
+Xchar	*Prog;
+Xchar	*grp_file = GRPFILE;
+X#ifdef	SHADOWGRP
+Xchar	*sgr_file = GSHADOW;
+X#endif
+Xchar	read_only;
+X
+X/*
+X * usage - print syntax message and exit
+X */
+X
+Xusage ()
+X{
+X#ifdef	SHADOWGRP
+X	fprintf (stderr, "Usage: %s [ -r ] [ group shadow ]\n", Prog);
+X#else
+X	fprintf (stderr, "Usage: %s [ -r ] [ group ]\n", Prog);
+X#endif
+X	exit (E_USAGE);
+X}
+X
+X/*
+X * yes_or_no - get answer to question from the user
+X */
+X
+Xint
+Xyes_or_no ()
+X{
+X	char	buf[BUFSIZ];
+X
+X	/*
+X	 * In read-only mode all questions are answered "no".
+X	 */
+X
+X	if (read_only) {
+X		puts (NO);
+X		return 0;
+X	}
+X
+X	/*
+X	 * Get a line and see what the first character is.
+X	 */
+X
+X	if (fgets (buf, BUFSIZ, stdin))
+X		return buf[0] == 'y' || buf[0] == 'Y';
+X
+X	return 0;
+X}
+X
+X/*
+X * delete_member - delete an entry in a list of members
+X */
+X
+Xvoid
+Xdelete_member (list, member)
+Xchar	**list;
+Xchar	*member;
+X{
+X	int	i;
+X
+X	for (i = 0;list[i];i++)
+X		if (list[i] == member)
+X			break;
+X
+X	if (list[i])
+X		for (;list[i];i++)
+X			list[i] = list[i + 1];
+X}
+X
+X/*
+X * grpck - verify group file integrity
+X */
+X
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	int	arg;
+X	int	errors = 0;
+X	int	deleted = 0;
+X	int	i;
+X	struct	gr_file_entry	*gre, *tgre;
+X	struct	group	*grp;
+X#ifdef	SHADOWGRP
+X	struct	sg_file_entry	*sge, *tsge;
+X	struct	sgrp	*sgr;
+X#endif
+X
+X	/*
+X	 * Get my name so that I can use it to report errors.
+X	 */
+X
+X	if (Prog = strrchr (argv[0], '/'))
+X		Prog++;
+X	else
+X		Prog = argv[0];
+X
+X#ifdef	USE_SYSLOG
+X	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+X#endif
+X
+X	/*
+X	 * Parse the command line arguments
+X	 */
+X
+X	while ((arg = getopt (argc, argv, "r")) != EOF) {
+X		if (arg == 'r')
+X			read_only = 1;
+X		else if (arg != EOF)
+X			usage ();
+X	}
+X
+X	/*
+X	 * Make certain we have the right number of arguments
+X	 */
+X
+X#ifdef	SHADOWGRP
+X	if (optind != argc && optind + 2 != argc)
+X#else
+X	if (optind != argc && optind + 1 != argc)
+X#endif
+X		usage ();
+X
+X	/*
+X	 * If there are two left over filenames, use those as the
+X	 * group and group password filenames.
+X	 */
+X
+X	if (optind != argc) {
+X		grp_file = argv[optind];
+X		gr_name (grp_file);
+X#ifdef	SHADOWGRP
+X		sgr_file = argv[optind + 1];
+X		sgr_name (sgr_file);
+X#endif
+X	}
+X
+X	/*
+X	 * Lock the files if we aren't in "read-only" mode
+X	 */
+X
+X	if (! read_only) {
+X		if (! gr_lock ()) {
+X			fprintf (stderr, CANTLOCK, Prog, grp_file);
+X#ifdef	USE_SYSLOG
+X			if (optind == argc)
+X				syslog (LOG_WARN, "cannot lock %s\n", grp_file);
+X
+X			closelog ();
+X#endif
+X			exit (E_CANTLOCK);
+X		}
+X#ifdef	SHADOWGRP
+X		if (! sgr_lock ()) {
+X			fprintf (stderr, CANTLOCK, Prog, sgr_file);
+X#ifdef	USE_SYSLOG
+X			if (optind == argc)
+X				syslog (LOG_WARN, "cannot lock %s\n", sgr_file);
+X
+X			closelog ();
+X#endif
+X			exit (E_CANTLOCK);
+X		}
+X#endif
+X	}
+X
+X	/*
+X	 * Open the files.  Use O_RDONLY if we are in read_only mode,
+X	 * O_RDWR otherwise.
+X	 */
+X
+X	if (! gr_open (read_only ? O_RDONLY:O_RDWR)) {
+X		fprintf (stderr, CANTOPEN, Prog, grp_file);
+X#ifdef	USE_SYSLOG
+X		if (optind == argc)
+X			syslog (LOG_WARN, "cannot open %s\n", grp_file);
+X
+X		closelog ();
+X#endif
+X		exit (E_CANTOPEN);
+X	}
+X#ifdef	SHADOWGRP
+X	if (! sgr_open (read_only ? O_RDONLY:O_RDWR)) {
+X		fprintf (stderr, CANTOPEN, Prog, sgr_file);
+X#ifdef	USE_SYSLOG
+X		if (optind == argc)
+X			syslog (LOG_WARN, "cannot open %s\n", sgr_file);
+X
+X		closelog ();
+X#endif
+X		exit (E_CANTOPEN);
+X	}
+X#endif
+X
+X	/*
+X	 * Loop through the entire group file.
+X	 */
+X
+X	for (gre = __grf_head;gre;gre = gre->grf_next) {
+X
+X		/*
+X		 * Start with the entries that are completely corrupt.
+X		 * They have no (struct group) entry because they couldn't
+X		 * be parsed properly.
+X		 */
+X
+X		if (gre->grf_entry == (struct group *) 0) {
+X
+X			/*
+X			 * Tell the user this entire line is bogus and
+X			 * ask them to delete it.
+X			 */
+X
+X			printf (BADENTRY);
+X			printf (DELETE, gre->grf_line);
+X			errors++;
+X
+X			/*
+X			 * prompt the user to delete the entry or not
+X			 */
+X
+X			if (! yes_or_no ())
+X				continue;
+X
+X			/*
+X			 * All group file deletions wind up here.  This
+X			 * code removes the current entry from the linked
+X			 * list.  When done, it skips back to the top of
+X			 * the loop to try out the next list element.
+X			 */
+X
+Xdelete_gr:
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_INFO,
+X				"delete group line `%s'\n", gre->grf_line);
+X#endif
+X			deleted++;
+X			__gr_changed = 1;
+X
+X			/*
+X			 * Simple case - delete from the head of the
+X			 * list.
+X			 */
+X
+X			if (gre == __grf_head) {
+X				__grf_head = gre->grf_next;
+X				continue;
+X			}
+X
+X			/*
+X			 * Hard case - find entry where grf_next is
+X			 * the current entry.
+X			 */
+X
+X			for (tgre = __grf_head;tgre->grf_next != gre;
+X					tgre = tgre->grf_next)
+X				;
+X
+X			tgre->grf_next = gre->grf_next;
+X			continue;
+X		}
+X
+X		/*
+X		 * Group structure is good, start using it.
+X		 */
+X
+X		grp = gre->grf_entry;
+X
+X		/*
+X		 * Make sure this entry has a unique name.
+X		 */
+X
+X		for (tgre = __grf_head;tgre;tgre = tgre->grf_next) {
+X
+X			/*
+X			 * Don't check this entry
+X			 */
+X
+X			if (tgre == gre)
+X				continue;
+X
+X			/*
+X			 * Don't check invalid entries.
+X			 */
+X
+X			if (tgre->grf_entry == (struct group *) 0)
+X				continue;
+X
+X			if (strcmp (grp->gr_name, tgre->grf_entry->gr_name))
+X				continue;
+X
+X			/*
+X			 * Tell the user this entry is a duplicate of
+X			 * another and ask them to delete it.
+X			 */
+X
+X			puts (GRDUP);
+X			printf (DELETE, gre->grf_line);
+X			errors++;
+X
+X			/*
+X			 * prompt the user to delete the entry or not
+X			 */
+X
+X			if (yes_or_no ())
+X				goto delete_gr;
+X		}
+X
+X		/*
+X		 * Make sure each member exists
+X		 */
+X
+X		for (i = 0;grp->gr_mem[i];i++) {
+X			if (! getpwnam (grp->gr_mem[i])) {
+X
+X				/*
+X				 * Can't find this user.  Remove them
+X				 * from the list.
+X				 */
+X
+X				errors++;
+X				printf (NOUSER, grp->gr_name, grp->gr_mem[i]);
+X				printf (DELMEM, grp->gr_mem[i]);
+X				if (yes_or_no ()) {
+X#ifdef	USE_SYSLOG
+X					syslog (LOG_INFO,
+X						"delete member `%s' group `%s'\n",
+X						grp->gr_mem[i], grp->gr_name);
+X#endif
+X					deleted++;
+X					delete_member (grp->gr_mem,
+X							grp->gr_mem[i]);
+X					gre->grf_changed = 1;
+X					__gr_changed = 1;
+X				}
+X			}
+X		}
+X	}
+X
+X#ifdef	SHADOWGRP
+X	/*
+X	 * Loop through the entire shadow group file.
+X	 */
+X
+X	for (sge = __sgr_head;sge;sge = sge->sgr_next) {
+X
+X		/*
+X		 * Start with the entries that are completely corrupt.
+X		 * They have no (struct sgrp) entry because they couldn't
+X		 * be parsed properly.
+X		 */
+X
+X		if (sge->sgr_entry == (struct sgrp *) 0) {
+X
+X			/*
+X			 * Tell the user this entire line is bogus and
+X			 * ask them to delete it.
+X			 */
+X
+X			printf (BADSENTRY);
+X			printf (DELETE, sge->sgr_line);
+X			errors++;
+X
+X			/*
+X			 * prompt the user to delete the entry or not
+X			 */
+X
+X			if (! yes_or_no ())
+X				continue;
+X
+X			/*
+X			 * All shadow group file deletions wind up here.
+X			 * This code removes the current entry from the
+X			 * linked list.  When done, it skips back to the
+X			 * top of the loop to try out the next list element.
+X			 */
+X
+Xdelete_sg:
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_INFO,
+X				"delete shadow line `%s'\n", sge->sgr_line);
+X#endif
+X			deleted++;
+X			__sg_changed = 1;
+X
+X			/*
+X			 * Simple case - delete from the head of the
+X			 * list.
+X			 */
+X
+X			if (sge == __sgr_head) {
+X				__sgr_head = sge->sgr_next;
+X				continue;
+X			}
+X
+X			/*
+X			 * Hard case - find entry where sgr_next is
+X			 * the current entry.
+X			 */
+X
+X			for (tsge = __sgr_head;tsge->sgr_next != sge;
+X					tsge = tsge->sgr_next)
+X				;
+X
+X			tsge->sgr_next = sge->sgr_next;
+X			continue;
+X		}
+X
+X		/*
+X		 * Shadow group structure is good, start using it.
+X		 */
+X
+X		sgr = sge->sgr_entry;
+X
+X		/*
+X		 * Make sure this entry has a unique name.
+X		 */
+X
+X		for (tsge = __sgr_head;tsge;tsge = tsge->sgr_next) {
+X
+X			/*
+X			 * Don't check this entry
+X			 */
+X
+X			if (tsge == sge)
+X				continue;
+X
+X			/*
+X			 * Don't check invalid entries.
+X			 */
+X
+X			if (tsge->sgr_entry == (struct sgrp *) 0)
+X				continue;
+X
+X			if (strcmp (sgr->sg_name, tsge->sgr_entry->sg_name))
+X				continue;
+X
+X			/*
+X			 * Tell the user this entry is a duplicate of
+X			 * another and ask them to delete it.
+X			 */
+X
+X			puts (SGRDUP);
+X			printf (DELETE, sge->sgr_line);
+X			errors++;
+X
+X			/*
+X			 * prompt the user to delete the entry or not
+X			 */
+X
+X			if (yes_or_no ())
+X				goto delete_sg;
+X		}
+X
+X		/*
+X		 * Make sure each administrator exists
+X		 */
+X
+X		for (i = 0;sgr->sg_adm[i];i++) {
+X			if (! getpwnam (sgr->sg_adm[i])) {
+X
+X				/*
+X				 * Can't find this user.  Remove them
+X				 * from the list.
+X				 */
+X
+X				errors++;
+X				printf (NOSADMUSER, sgr->sg_adm[i]);
+X				printf (DELADM, sgr->sg_adm[i]);
+X				if (yes_or_no ()) {
+X#ifdef	USE_SYSLOG
+X					syslog (LOG_INFO,
+X						"delete admin `%s' from shadow group `%s'\n",
+X						sgr->sg_adm[i], sgr->sg_name);
+X#endif
+X					deleted++;
+X					delete_member (sgr->sg_adm,
+X							sgr->sg_adm[i]);
+X					sge->sgr_changed = 1;
+X					__sg_changed = 1;
+X				}
+X			}
+X		}
+X
+X		/*
+X		 * Make sure each member exists
+X		 */
+X
+X		for (i = 0;sgr->sg_mem[i];i++) {
+X			if (! getpwnam (sgr->sg_mem[i])) {
+X
+X				/*
+X				 * Can't find this user.  Remove them
+X				 * from the list.
+X				 */
+X
+X				errors++;
+X				printf (NOUSER, sgr->sg_mem[i]);
+X				printf (DELMEM, sgr->sg_mem[i]);
+X				if (yes_or_no ()) {
+X#ifdef	USE_SYSLOG
+X					syslog (LOG_INFO,
+X						"delete member `%s' from shadow group `%s'\n",
+X						sgr->sg_mem[i], sgr->sg_name);
+X#endif
+X					deleted++;
+X					delete_member (sgr->sg_mem,
+X							sgr->sg_mem[i]);
+X					sge->sgr_changed = 1;
+X					__sg_changed = 1;
+X				}
+X			}
+X		}
+X	}
+X#endif	/* SHADOWGRP */
+X
+X	/*
+X	 * All done.  If there were no deletions we can just abandon any
+X	 * changes to the files.
+X	 */
+X
+X	if (deleted) {
+X		if (! gr_close ()) {
+X			fprintf (stderr, CANTUPDATE, Prog, grp_file);
+X			exit (E_CANTUPDATE);
+X		}
+X#ifdef	SHADOWGRP
+X		if (! sgr_close ()) {
+X			fprintf (stderr, CANTUPDATE, Prog, sgr_file);
+X			exit (E_CANTUPDATE);
+X		}
+X#endif
+X	}
+X
+X	/*
+X	 * Don't be anti-social - unlock the files when you're done.
+X	 */
+X
+X#ifdef	SHADOWGRP
+X	(void) sgr_unlock ();
+X#endif
+X	(void) gr_unlock ();
+X
+X	/*
+X	 * Tell the user what we did and exit.
+X	 */
+X
+X	if (errors)
+X		printf (deleted ? CHANGES:NOCHANGES, Prog);
+X
+X	exit (errors ? E_BADENTRY:E_OKAY);
+X}
+END_OF_FILE
+  if test 12079 -ne `wc -c <'grpck.c'`; then
+    echo shar: \"'grpck.c'\" unpacked with wrong size!
+  fi
+  # end of 'grpck.c'
+fi
+if test -f 'port.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'port.c'\"
+else
+  echo shar: Extracting \"'port.c'\" \(9462 characters\)
+  sed "s/^X//" >'port.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include <stdio.h>
+X#include <time.h>
+X#include <sys/types.h>
+X#include <ctype.h>
+X#include <errno.h>
+X#ifndef	BSD
+X#include <string.h>
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X#include "port.h"
+X
+X#ifndef	lint
+Xstatic	char	_sccsid[] = "@(#)port.c	3.3	09:35:06	30 Apr 1993";
+X#endif
+X
+Xextern	int	errno;
+X
+Xstatic	FILE	*ports;
+X
+X/*
+X * portcmp - compare the name of a port to a /etc/porttime entry
+X *
+X *	portcmp works like strcmp, except that if the last character
+X *	in a failing match is a '*', the match is considered to have
+X *	passed.
+X */
+X
+Xstatic int
+Xportcmp (pattern, port)
+Xchar	*pattern;
+Xchar	*port;
+X{
+X	while (*pattern && *pattern == *port)
+X		pattern++, port++;
+X
+X	return (*pattern == 0 && *port == 0) || *pattern == '*' ? 0:1;
+X}
+X
+X/*
+X * setportent - open /etc/porttime file or rewind
+X *
+X *	the /etc/porttime file is rewound if already open, or
+X *	opened for reading.
+X */
+X
+Xvoid
+Xsetportent ()
+X{
+X	if (ports)
+X		rewind (ports);
+X	else 
+X		ports = fopen (PORTS, "r");
+X}
+X
+X/*
+X * endportent - close the /etc/porttime file
+X *
+X *	the /etc/porttime file is closed and the ports variable set
+X *	to NULL to indicate that the /etc/porttime file is no longer
+X *	open.
+X */
+X
+Xvoid
+Xendportent ()
+X{
+X	if (ports)
+X		fclose (ports);
+X
+X	ports = (FILE *) 0;
+X}
+X
+X/*
+X * getportent - read a single entry from /etc/porttime
+X *
+X *	the next line in /etc/porttime is converted to a (struct port)
+X *	and a pointer to a static (struct port) is returned to the
+X *	invoker.  NULL is returned on either EOF or error.  errno is
+X *	set to EINVAL on error to distinguish the two conditions.
+X */
+X
+Xstruct port *
+Xgetportent ()
+X{
+X	static	struct	port	port;	/* static struct to point to         */
+X	static	char	buf[BUFSIZ];	/* some space for stuff              */
+X	static	char	*ttys[PORT_TTY+1]; /* some pointers to tty names     */
+X	static	char	*users[PORT_IDS+1]; /* some pointers to user ids     */
+X	static	struct	pt_time	times[PORT_TIMES+1]; /* time ranges          */
+X	char	*cp;			/* pointer into line                 */
+X	int	time;			/* scratch time of day               */
+X	int	i, j;
+X	int	saveerr = errno;	/* errno value on entry              */
+X
+X	/*
+X	 * If the ports file is not open, open the file.  Do not rewind
+X	 * since we want to search from the beginning each time.
+X	 */
+X
+X	if (! ports)
+X		setportent ();
+X
+X	if (! ports) {
+X		errno = saveerr;
+X		return 0;
+X	}
+X
+X	/*
+X	 * Common point for beginning a new line -
+X	 *
+X	 *	- read a line, and NUL terminate
+X	 *	- skip lines which begin with '#'
+X	 *	- parse off the tty names
+X	 *	- parse off a list of user names
+X	 *	- parse off a list of days and times
+X	 */
+X
+Xagain:
+X
+X	/*
+X	 * Get the next line and remove the last character, which
+X	 * is a '\n'.  Lines which begin with '#' are all ignored.
+X	 */
+X
+X	if (fgets (buf, BUFSIZ, ports) == 0) {
+X		errno = saveerr;
+X		return 0;
+X	}
+X	if (buf[0] == '#')
+X		goto again;
+X
+X	/*
+X	 * Get the name of the TTY device.  It is the first colon
+X	 * separated field, and is the name of the TTY with no
+X	 * leading "/dev".  The entry '*' is used to specify all
+X	 * TTY devices.
+X	 */
+X
+X	buf[strlen (buf) - 1] = 0;
+X
+X	port.pt_names = ttys;
+X	for (cp = buf, j = 0;j < PORT_TTY;j++) {
+X		port.pt_names[j] = cp;
+X		while (*cp && *cp != ':' && *cp != ',')
+X			cp++;
+X
+X		if (! *cp)
+X			goto again;	/* line format error */
+X
+X		if (*cp == ':')		/* end of tty name list */
+X			break;
+X
+X		if (*cp == ',')		/* end of current tty name */
+X			*cp++ = '\0';
+X	}
+X	*cp++ = 0;
+X	port.pt_names[j + 1] = (char *) 0;
+X
+X	/*
+X	 * Get the list of user names.  It is the second colon
+X	 * separated field, and is a comma separated list of user
+X	 * names.  The entry '*' is used to specify all usernames.
+X	 * The last entry in the list is a (char *) 0 pointer.
+X	 */
+X
+X	if (*cp != ':') {
+X		port.pt_users = users;
+X		port.pt_users[0] = cp;
+X
+X		for (j = 1;*cp != ':';cp++) {
+X			if (*cp == ',' && j < PORT_IDS) {
+X				*cp++ = 0;
+X				port.pt_users[j++] = cp;
+X			}
+X		}
+X		port.pt_users[j] = 0;
+X	} else
+X		port.pt_users = 0;
+X
+X	if (*cp != ':')
+X		goto again;
+X
+X	*cp++ = 0;
+X
+X	/*
+X	 * Get the list of valid times.  The times field is the third
+X	 * colon separated field and is a list of days of the week and
+X	 * times during which this port may be used by this user.  The
+X	 * valid days are 'Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', and 'Sa'.
+X	 *
+X	 * In addition, the value 'Al' represents all 7 days, and 'Wk'
+X	 * represents the 5 weekdays.
+X	 *
+X	 * Times are given as HHMM-HHMM.  The ending time may be before
+X	 * the starting time.  Days are presumed to wrap at 0000.
+X	 */
+X
+X	if (*cp == '\0') {
+X		port.pt_times = 0;
+X		return &port;
+X	}
+X
+X	port.pt_times = times;
+X
+X	/*
+X	 * Get the next comma separated entry
+X	 */
+X
+X	for (j = 0;*cp && j < PORT_TIMES;j++) {
+X
+X		/*
+X		 * Start off with no days of the week
+X		 */
+X
+X		port.pt_times[j].t_days = 0;
+X
+X		/*
+X		 * Check each two letter sequence to see if it is
+X		 * one of the abbreviations for the days of the
+X		 * week or the other two values.
+X		 */
+X
+X		for (i = 0;cp[i] && cp[i + 1] && isalpha (cp[i]);i += 2) {
+X			switch ((cp[i] << 8) | (cp[i + 1])) {
+X				case ('S' << 8) | 'u':
+X					port.pt_times[j].t_days |= 01;
+X					break;
+X				case ('M' << 8) | 'o':
+X					port.pt_times[j].t_days |= 02;
+X					break;
+X				case ('T' << 8) | 'u':
+X					port.pt_times[j].t_days |= 04;
+X					break;
+X				case ('W' << 8) | 'e':
+X					port.pt_times[j].t_days |= 010;
+X					break;
+X				case ('T' << 8) | 'h':
+X					port.pt_times[j].t_days |= 020;
+X					break;
+X				case ('F' << 8) | 'r':
+X					port.pt_times[j].t_days |= 040;
+X					break;
+X				case ('S' << 8) | 'a':
+X					port.pt_times[j].t_days |= 0100;
+X					break;
+X				case ('W' << 8) | 'k':
+X					port.pt_times[j].t_days |= 076;
+X					break;
+X				case ('A' << 8) | 'l':
+X					port.pt_times[j].t_days |= 0177;
+X					break;
+X				default:
+X					errno = EINVAL;
+X					return 0;
+X			}
+X		}
+X
+X		/*
+X		 * The default is 'Al' if no days were seen.
+X		 */
+X
+X		if (i == 0)
+X			port.pt_times[j].t_days = 0177;
+X
+X		/*
+X		 * The start and end times are separated from each
+X		 * other by a '-'.  The times are four digit numbers
+X		 * representing the times of day.
+X		 */
+X
+X		for (time = 0;cp[i] && isdigit (cp[i]);i++)
+X			time = time * 10 + cp[i] - '0';
+X
+X		if (cp[i] != '-' || time > 2400 || time % 100 > 59)
+X			goto again;
+X		port.pt_times[j].t_start = time;
+X		cp = cp + i + 1;
+X
+X		for (time = i = 0;cp[i] && isdigit (cp[i]);i++)
+X			time = time * 10 + cp[i] - '0';
+X
+X		if ((cp[i] != ',' && cp[i]) || time > 2400 || time % 100 > 59)
+X			goto again;
+X
+X		port.pt_times[j].t_end = time;
+X		cp = cp + i + 1;
+X	}
+X
+X	/*
+X	 * The end of the list is indicated by a pair of -1's for the
+X	 * start and end times.
+X	 */
+X
+X	port.pt_times[j].t_start = port.pt_times[j].t_end = -1;
+X
+X	return &port;
+X}
+X
+X/*
+X * getttyuser - get ports information for user and tty
+X *
+X *	getttyuser() searches the ports file for an entry with a TTY
+X *	and user field both of which match the supplied TTY and
+X *	user name.  The file is searched from the beginning, so the
+X *	entries are treated as an ordered list.
+X */
+X
+Xstruct port *
+Xgetttyuser (tty, user)
+Xchar	*tty;
+Xchar	*user;
+X{
+X	int	i, j;
+X	struct	port	*port;
+X
+X	setportent ();
+X
+X	while (port = getportent ()) {
+X		if (port->pt_names == 0 || port->pt_users == 0)
+X			continue;
+X
+X		for (i = 0;port->pt_names[i];i++)
+X			if (portcmp (port->pt_names[i], tty) == 0)
+X				break;
+X
+X		if (port->pt_names[i] == 0)
+X			continue;
+X
+X		for (j = 0;port->pt_users[j];j++)
+X			if (strcmp (user, port->pt_users[j]) == 0 ||
+X					strcmp (port->pt_users[j], "*") == 0)
+X				break;
+X
+X		if (port->pt_users[j] != 0)
+X			break;
+X	}
+X	endportent ();
+X	return port;
+X}
+X
+X/*
+X * isttytime - tell if a given user may login at a particular time
+X *
+X *	isttytime searches the ports file for an entry which matches
+X *	the user name and TTY given.
+X */
+X
+Xint
+Xisttytime (id, port, clock)
+Xchar	*id;
+Xchar	*port;
+Xlong	clock;
+X{
+X	int	i;
+X	int	time;
+X	struct	port	*pp;
+X	struct	tm	*tm,
+X			*localtime();
+X
+X	/*
+X	 * Try to find a matching entry for this user.  Default to
+X	 * letting the user in - there are pleny of ways to have an
+X	 * entry to match all users.
+X	 */
+X
+X	if (! (pp = getttyuser (port, id)))
+X		return 1;
+X
+X	/*
+X	 * The entry is there, but has not time entries - don't
+X	 * ever let them login.
+X	 */
+X
+X	if (pp->pt_times == 0)
+X		return 0;
+X
+X	/*
+X	 * The current time is converted to HHMM format for
+X	 * comparision against the time values in the TTY entry.
+X	 */
+X
+X	tm = localtime (&clock);
+X	time = tm->tm_hour * 100 + tm->tm_min;
+X
+X	/*
+X	 * Each time entry is compared against the current
+X	 * time.  For entries with the start after the end time,
+X	 * the comparision is made so that the time is between
+X	 * midnight and either the start or end time.
+X	 */
+X
+X	for (i = 0;pp->pt_times[i].t_start != -1;i++) {
+X		if (! (pp->pt_times[i].t_days & PORT_DAY(tm->tm_wday)))
+X			continue;
+X
+X		if (pp->pt_times[i].t_start <= pp->pt_times[i].t_end) {
+X			if (time >= pp->pt_times[i].t_start &&
+X					time <= pp->pt_times[i].t_end)
+X				return 1;
+X		} else {
+X			if (time >= pp->pt_times[i].t_start ||
+X					time <= pp->pt_times[i].t_end)
+X				return 1;
+X		}
+X	}
+X
+X	/*
+X	 * No matching time entry was found, user shouldn't
+X	 * be let in right now.
+X	 */
+X
+X	return 0;
+X}
+END_OF_FILE
+  if test 9462 -ne `wc -c <'port.c'`; then
+    echo shar: \"'port.c'\" unpacked with wrong size!
+  fi
+  # end of 'port.c'
+fi
+if test -f 'sgroupio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sgroupio.c'\"
+else
+  echo shar: Extracting \"'sgroupio.c'\" \(11858 characters\)
+  sed "s/^X//" >'sgroupio.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X *
+X *	This file implements a transaction oriented shadow group
+X *	database library.  The shadow group file is updated one
+X *	entry at a time.  After each transaction the file must be
+X *	logically closed and transferred to the existing shadow
+X *	group file.  The sequence of events is
+X *
+X *	sgr_lock			-- lock shadow group file
+X *	sgr_open			-- logically open shadow group file
+X *	while transaction to process
+X *		sgr_(locate,update,remove) -- perform transaction
+X *	done
+X *	sgr_close			-- commit transactions
+X *	sgr_unlock			-- remove shadow group lock
+X */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <fcntl.h>
+X#include <errno.h>
+X#include <stdio.h>
+X#ifdef	BSD
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#else
+X#include <string.h>
+X#endif
+X#include "shadow.h"
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)sgroupio.c	3.7	07:49:53	06 May 1993";
+X#endif
+X
+Xstatic	int	islocked;
+Xstatic	int	isopen;
+Xstatic	int	open_modes;
+Xstatic	FILE	*sgrfp;
+X
+Xstruct	sg_file_entry {
+X	char	*sgr_line;
+X	int	sgr_changed;
+X	struct	sgrp	*sgr_entry;
+X	struct	sg_file_entry *sgr_next;
+X};
+X
+Xstruct	sg_file_entry	*__sgr_head;
+Xstatic	struct	sg_file_entry	*sgr_tail;
+Xstatic	struct	sg_file_entry	*sgr_cursor;
+Xint	__sg_changed;
+Xstatic	int	lock_pid;
+X
+X#define	SG_LOCK	"/etc/gshadow.lock"
+X#define	GR_TEMP "/etc/gshadow.%d"
+X#define	SGROUP	"/etc/gshadow"
+X
+Xstatic	char	sg_filename[BUFSIZ] = SGROUP;
+X
+Xextern	char	*strdup();
+Xextern	struct	sgrp	*sgetsgent();
+Xextern	char	*fgetsx();
+Xextern	char	*malloc();
+X
+X/*
+X * sgr_dup - duplicate a shadow group file entry
+X *
+X *	sgr_dup() accepts a pointer to a shadow group file entry and
+X *	returns a pointer to a shadow group file entry in allocated memory.
+X */
+X
+Xstatic struct sgrp *
+Xsgr_dup (sgrent)
+Xstruct	sgrp	*sgrent;
+X{
+X	struct	sgrp	*sgr;
+X	int	i;
+X
+X	if (! (sgr = (struct sgrp *) malloc (sizeof *sgr)))
+X		return 0;
+X
+X	if ((sgr->sg_name = strdup (sgrent->sg_name)) == 0 ||
+X			(sgr->sg_passwd = strdup (sgrent->sg_passwd)) == 0)
+X		return 0;
+X
+X	for (i = 0;sgrent->sg_mem[i];i++)
+X		;
+X
+X	sgr->sg_mem = (char **) malloc (sizeof (char *) * (i + 1));
+X	for (i = 0;sgrent->sg_mem[i];i++)
+X		if (! (sgr->sg_mem[i] = strdup (sgrent->sg_mem[i])))
+X			return 0;
+X
+X	sgr->sg_mem[i] = 0;
+X
+X	for (i = 0;sgrent->sg_adm[i];i++)
+X		;
+X
+X	sgr->sg_adm = (char **) malloc (sizeof (char *) * (i + 1));
+X	for (i = 0;sgrent->sg_adm[i];i++)
+X		if (! (sgr->sg_adm[i] = strdup (sgrent->sg_adm[i])))
+X			return 0;
+X
+X	sgr->sg_adm[i] = 0;
+X
+X	return sgr;
+X}
+X
+X/*
+X * sgr_free - free a dynamically allocated shadow group file entry
+X *
+X *	sgr_free() frees up the memory which was allocated for the
+X *	pointed to entry.
+X */
+X
+Xstatic void
+Xsgr_free (sgrent)
+Xstruct	sgrp	*sgrent;
+X{
+X	int	i;
+X
+X	free (sgrent->sg_name);
+X	free (sgrent->sg_passwd);
+X
+X	for (i = 0;sgrent->sg_mem[i];i++)
+X		free (sgrent->sg_mem[i]);
+X
+X	free (sgrent->sg_mem);
+X
+X	for (i = 0;sgrent->sg_adm[i];i++)
+X		free (sgrent->sg_adm[i]);
+X
+X	free (sgrent->sg_adm);
+X}
+X
+X/*
+X * sgr_name - change the name of the shadow group file
+X */
+X
+Xint
+Xsgr_name (name)
+Xchar	*name;
+X{
+X	if (isopen || strlen (name) > (BUFSIZ-10))
+X		return -1;
+X
+X	strcpy (sg_filename, name);
+X	return 0;
+X}
+X
+X/*
+X * sgr_lock - lock a shadow group file
+X *
+X *	sgr_lock() encapsulates the lock operation.  it returns
+X *	TRUE or FALSE depending on the shadow group file being
+X *	properly locked.  the lock is set by creating a semaphore
+X *	file, SG_LOCK.
+X */
+X
+Xint
+Xsgr_lock ()
+X{
+X	int	fd;
+X	int	pid;
+X	int	len;
+X	char	file[BUFSIZ];
+X	char	buf[32];
+X	struct	stat	sb;
+X
+X	if (islocked)
+X		return 1;
+X
+X	if (strcmp (sg_filename, SGROUP) != 0)
+X		return 0;
+X
+X	/*
+X	 * Create a lock file which can be switched into place
+X	 */
+X
+X	sprintf (file, GR_TEMP, lock_pid = getpid ());
+X	if ((fd = open (file, O_CREAT|O_EXCL|O_WRONLY, 0600)) == -1)
+X		return 0;
+X
+X	sprintf (buf, "%d", lock_pid);
+X	if (write (fd, buf, strlen (buf) + 1) != strlen (buf) + 1) {
+X		(void) close (fd);
+X		(void) unlink (file);
+X		return 0;
+X	}
+X	close (fd);
+X
+X	/*
+X	 * Simple case first -
+X	 *	Link fails (in a sane environment ...) if the target
+X	 *	exists already.  So we try to switch in a new lock
+X	 *	file.  If that succeeds, we assume we have the only
+X	 *	valid lock.  Needs work for NFS where this assumption
+X	 *	may not hold.  The simple hack is to check the link
+X	 *	count on the source file, which should be 2 iff the
+X	 *	link =really= worked.
+X	 */
+X
+X	if (link (file, SG_LOCK) == 0) {
+X		if (stat (file, &sb) != 0)
+X			return 0;
+X
+X		if (sb.st_nlink != 2)
+X			return 0;
+X
+X		(void) unlink (file);
+X		islocked = 1;
+X		return 1;
+X	}
+X
+X	/*
+X	 * Invalid lock test -
+X	 *	Open the lock file and see if the lock is valid.
+X	 *	The PID of the lock file is checked, and if the PID
+X	 *	is not valid, the lock file is removed.  If the unlink
+X	 *	of the lock file fails, it should mean that someone
+X	 *	else is executing this code.  They will get success,
+X	 *	and we will fail.
+X	 */
+X
+X	if ((fd = open (SG_LOCK, O_RDWR)) == -1 ||
+X			(len = read (fd, buf, BUFSIZ)) <= 0) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	buf[len] = '\0';
+X	if ((pid = strtol (buf, (char **) 0, 10)) == 0) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	if (kill (pid, 0) == 0)  {
+X		errno = EEXIST;
+X		return 0;
+X	}
+X	if (unlink (SG_LOCK)) {
+X		(void) close (fd);
+X		(void) unlink (file);
+X
+X		return 0;
+X	}
+X
+X	/*
+X	 * Re-try lock -
+X	 *	The invalid lock has now been removed and I should
+X	 *	be able to acquire a lock for myself just fine.  If
+X	 *	this fails there will be no retry.  The link count
+X	 *	test here makes certain someone executing the previous
+X	 *	block of code didn't just remove the lock we just
+X	 *	linked to.
+X	 */
+X
+X	if (link (file, SG_LOCK) == 0) {
+X		if (stat (file, &sb) != 0)
+X			return 0;
+X
+X		if (sb.st_nlink != 2)
+X			return 0;
+X
+X		(void) unlink (file);
+X		islocked = 1;
+X		return 1;
+X	}
+X	(void) unlink (file);
+X	return 0;
+X}
+X
+X/*
+X * sgr_unlock - logically unlock a shadow group file
+X *
+X *	sgr_unlock() removes the lock which was set by an earlier
+X *	invocation of sgr_lock().
+X */
+X
+Xint
+Xsgr_unlock ()
+X{
+X	if (isopen) {
+X		open_modes = O_RDONLY;
+X		if (! sgr_close ())
+X			return 0;
+X	}
+X	if (islocked) {
+X		islocked = 0;
+X		if (lock_pid != getpid ())
+X			return 0;
+X
+X		(void) unlink (SG_LOCK);
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+X/*
+X * sgr_open - open a shadow group file
+X *
+X *	sgr_open() encapsulates the open operation.  it returns
+X *	TRUE or FALSE depending on the shadow group file being
+X *	properly opened.
+X */
+X
+Xint
+Xsgr_open (mode)
+Xint	mode;
+X{
+X	char	buf[8192];
+X	char	*cp;
+X	struct	sg_file_entry	*sgrf;
+X	struct	sgrp	*sgrent;
+X
+X	if (isopen || (mode != O_RDONLY && mode != O_RDWR))
+X		return 0;
+X
+X	if (mode != O_RDONLY && ! islocked &&
+X			strcmp (sg_filename, SGROUP) == 0)
+X		return 0;
+X
+X	if ((sgrfp = fopen (sg_filename, mode == O_RDONLY ? "r":"r+")) == 0)
+X		return 0;
+X
+X	__sgr_head = sgr_tail = sgr_cursor = 0;
+X	__sg_changed = 0;
+X
+X	while (fgetsx (buf, sizeof buf, sgrfp) != (char *) 0) {
+X		if (cp = strrchr (buf, '\n'))
+X			*cp = '\0';
+X
+X		if (! (sgrf = (struct sg_file_entry *) malloc (sizeof *sgrf)))
+X			return 0;
+X
+X		sgrf->sgr_changed = 0;
+X		sgrf->sgr_line = strdup (buf);
+X		if ((sgrent = sgetsgent (buf)) && ! (sgrent = sgr_dup (sgrent)))
+X			return 0;
+X
+X		sgrf->sgr_entry = sgrent;
+X
+X		if (__sgr_head == 0) {
+X			__sgr_head = sgr_tail = sgrf;
+X			sgrf->sgr_next = 0;
+X		} else {
+X			sgr_tail->sgr_next = sgrf;
+X			sgrf->sgr_next = 0;
+X			sgr_tail = sgrf;
+X		}
+X	}
+X	isopen++;
+X	open_modes = mode;
+X
+X	return 1;
+X}
+X
+X/*
+X * sgr_close - close the shadow group file
+X *
+X *	sgr_close() outputs any modified shadow group file entries and
+X *	frees any allocated memory.
+X */
+X
+Xint
+Xsgr_close ()
+X{
+X	char	backup[BUFSIZ];
+X	int	mask;
+X	int	c;
+X	int	errors = 0;
+X	FILE	*bkfp;
+X	struct	sg_file_entry *sgrf;
+X	struct	stat	sb;
+X
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	if (islocked && lock_pid != getpid ()) {
+X		isopen = 0;
+X		islocked = 0;
+X		errno = EACCES;
+X		return 0;
+X	}
+X	strcpy (backup, sg_filename);
+X	strcat (backup, "-");
+X
+X	if (open_modes == O_RDWR && __sg_changed) {
+X		mask = umask (0377);
+X		(void) unlink (backup);
+X		if ((bkfp = fopen (backup, "w")) == 0) {
+X			umask (mask);
+X			return 0;
+X		}
+X		umask (mask);
+X		(void) chmod (backup, 0400);
+X		fstat (fileno (sgrfp), &sb);
+X		chown (backup, sb.st_uid, sb.st_gid);
+X
+X		rewind (sgrfp);
+X		while ((c = getc (sgrfp)) != EOF) {
+X			if (putc (c, bkfp) == EOF) {
+X				fclose (bkfp);
+X				return 0;
+X			}
+X		}
+X		if (fclose (bkfp))
+X			return 0;
+X
+X		isopen = 0;
+X		(void) fclose (sgrfp);
+X
+X		mask = umask (0277);
+X		(void) chmod (sg_filename, 0400);
+X		if (! (sgrfp = fopen (sg_filename, "w"))) {
+X			umask (mask);
+X			return 0;
+X		}
+X		umask (mask);
+X
+X		for (sgrf = __sgr_head;! errors && sgrf;sgrf = sgrf->sgr_next) {
+X			if (sgrf->sgr_changed) {
+X				if (putsgent (sgrf->sgr_entry, sgrfp))
+X					errors++;
+X			} else {
+X				if (fputsx (sgrf->sgr_line, sgrfp))
+X					errors++;
+X
+X				if (putc ('\n', sgrfp) == EOF)
+X					errors++;
+X			}
+X		}
+X		if (fflush (sgrfp))
+X			errors++;
+X
+X		if (errors) {
+X			unlink (sg_filename);
+X			link (backup, sg_filename);
+X			unlink (backup);
+X			return 0;
+X		}
+X	}
+X	if (fclose (sgrfp))
+X		return 0;
+X
+X	sgrfp = 0;
+X
+X	while (__sgr_head != 0) {
+X		sgrf = __sgr_head;
+X		__sgr_head = sgrf->sgr_next;
+X
+X		if (sgrf->sgr_entry) {
+X			sgr_free (sgrf->sgr_entry);
+X			free (sgrf->sgr_entry);
+X		}
+X		if (sgrf->sgr_line)
+X			free (sgrf->sgr_line);
+X
+X		free (sgrf);
+X	}
+X	sgr_tail = 0;
+X	isopen = 0;
+X	return 1;
+X}
+X
+Xint
+Xsgr_update (sgrent)
+Xstruct	sgrp	*sgrent;
+X{
+X	struct	sg_file_entry	*sgrf;
+X	struct	sgrp	*nsgr;
+X
+X	if (! isopen || open_modes == O_RDONLY) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	for (sgrf = __sgr_head;sgrf != 0;sgrf = sgrf->sgr_next) {
+X		if (sgrf->sgr_entry == 0)
+X			continue;
+X
+X		if (strcmp (sgrent->sg_name, sgrf->sgr_entry->sg_name) != 0)
+X			continue;
+X
+X		if (! (nsgr = sgr_dup (sgrent)))
+X			return 0;
+X		else {
+X			sgr_free (sgrf->sgr_entry);
+X			*(sgrf->sgr_entry) = *nsgr;
+X		}
+X		sgrf->sgr_changed = 1;
+X		sgr_cursor = sgrf;
+X		return __sg_changed = 1;
+X	}
+X	sgrf = (struct sg_file_entry *) malloc (sizeof *sgrf);
+X	if (! (sgrf->sgr_entry = sgr_dup (sgrent)))
+X		return 0;
+X
+X	sgrf->sgr_changed = 1;
+X	sgrf->sgr_next = 0;
+X	sgrf->sgr_line = 0;
+X
+X	if (sgr_tail)
+X		sgr_tail->sgr_next = sgrf;
+X
+X	if (! __sgr_head)
+X		__sgr_head = sgrf;
+X
+X	sgr_tail = sgrf;
+X
+X	return __sg_changed = 1;
+X}
+X
+Xint
+Xsgr_remove (name)
+Xchar	*name;
+X{
+X	struct	sg_file_entry	*sgrf;
+X	struct	sg_file_entry	*osgrf;
+X
+X	if (! isopen || open_modes == O_RDONLY) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	for (osgrf = 0, sgrf = __sgr_head;sgrf != 0;
+X			osgrf = sgrf, sgrf = sgrf->sgr_next) {
+X		if (! sgrf->sgr_entry)
+X			continue;
+X
+X		if (strcmp (name, sgrf->sgr_entry->sg_name) != 0)
+X			continue;
+X
+X		if (sgrf == sgr_cursor)
+X			sgr_cursor = osgrf;
+X
+X		if (osgrf != 0)
+X			osgrf->sgr_next = sgrf->sgr_next;
+X		else
+X			__sgr_head = sgrf->sgr_next;
+X
+X		if (sgrf == sgr_tail)
+X			sgr_tail = osgrf;
+X
+X		return __sg_changed = 1;
+X	}
+X	errno = ENOENT;
+X	return 0;
+X}
+X
+Xstruct sgrp *
+Xsgr_locate (name)
+Xchar	*name;
+X{
+X	struct	sg_file_entry	*sgrf;
+X
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	for (sgrf = __sgr_head;sgrf != 0;sgrf = sgrf->sgr_next) {
+X		if (sgrf->sgr_entry == 0)
+X			continue;
+X
+X		if (strcmp (name, sgrf->sgr_entry->sg_name) == 0) {
+X			sgr_cursor = sgrf;
+X			return sgrf->sgr_entry;
+X		}
+X	}
+X	errno = ENOENT;
+X	return 0;
+X}
+X
+Xint
+Xsgr_rewind ()
+X{
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	sgr_cursor = 0;
+X	return 1;
+X}
+X
+Xstruct sgrp *
+Xsgr_next ()
+X{
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	if (sgr_cursor == 0)
+X		sgr_cursor = __sgr_head;
+X	else
+X		sgr_cursor = sgr_cursor->sgr_next;
+X
+X	while (sgr_cursor) {
+X		if (sgr_cursor->sgr_entry)
+X			return sgr_cursor->sgr_entry;
+X
+X		sgr_cursor = sgr_cursor->sgr_next;
+X	}
+X	return 0;
+X}
+END_OF_FILE
+  if test 11858 -ne `wc -c <'sgroupio.c'`; then
+    echo shar: \"'sgroupio.c'\" unpacked with wrong size!
+  fi
+  # end of 'sgroupio.c'
+fi
+if test -f 'shadowio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'shadowio.c'\"
+else
+  echo shar: Extracting \"'shadowio.c'\" \(11350 characters\)
+  sed "s/^X//" >'shadowio.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X *
+X *	This file implements a transaction oriented password database
+X *	library.  The password file is updated one entry at a time.
+X *	After each transaction the file must be logically closed and
+X *	transferred to the existing password file.  The sequence of
+X *	events is
+X *
+X *	spw_lock			-- lock shadow file
+X *	spw_open			-- logically open shadow file
+X *	while transaction to process
+X *		spw_(locate,update,remove) -- perform transaction
+X *	done
+X *	spw_close			-- commit transactions
+X *	spw_unlock			-- remove shadow lock
+X */
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)shadowio.c	3.7	07:56:13	06 May 1993";
+X#endif
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <fcntl.h>
+X#include <errno.h>
+X#include <stdio.h>
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X#include "shadow.h"
+X
+Xstatic	int	islocked;
+Xstatic	int	isopen;
+Xstatic	int	open_modes;
+Xstatic	FILE	*spwfp;
+X
+Xstruct	spw_file_entry {
+X	char	*spwf_line;
+X	int	spwf_changed;
+X	struct	spwd	*spwf_entry;
+X	struct	spw_file_entry *spwf_next;
+X};
+X
+Xstruct	spw_file_entry	*__spwf_head;
+Xstatic	struct	spw_file_entry	*spwf_tail;
+Xstatic	struct	spw_file_entry	*spwf_cursor;
+Xint	__sp_changed;
+Xstatic	int	lock_pid;
+X
+X#define	SPW_LOCK	"/etc/shadow.lock"
+X#define	SPW_TEMP	"/etc/spwd.%d"
+X#define	SHADOW		"/etc/shadow"
+X
+Xstatic	char	spw_filename[BUFSIZ] = SHADOW;
+X
+Xextern	char	*strdup();
+Xextern	char	*malloc();
+Xextern	struct	spwd	*sgetspent();
+X
+X/*
+X * spw_dup - duplicate a shadow file entry
+X *
+X *	spw_dup() accepts a pointer to a shadow file entry and
+X *	returns a pointer to a shadow file entry in allocated
+X *	memory.
+X */
+X
+Xstatic struct spwd *
+Xspw_dup (spwd)
+Xstruct	spwd	*spwd;
+X{
+X	struct	spwd	*spw;
+X
+X	if (! (spw = (struct spwd *) malloc (sizeof *spw)))
+X		return 0;
+X
+X	*spw = *spwd;
+X	if ((spw->sp_namp = strdup (spwd->sp_namp)) == 0 ||
+X			(spw->sp_pwdp = strdup (spwd->sp_pwdp)) == 0)
+X		return 0;
+X
+X	return spw;
+X}
+X
+X/*
+X * spw_free - free a dynamically allocated shadow file entry
+X *
+X *	spw_free() frees up the memory which was allocated for the
+X *	pointed to entry.
+X */
+X
+Xstatic void
+Xspw_free (spwd)
+Xstruct	spwd	*spwd;
+X{
+X	free (spwd->sp_namp);
+X	free (spwd->sp_pwdp);
+X}
+X
+X/*
+X * spw_name - change the name of the shadow password file
+X */
+X
+Xint
+Xspw_name (name)
+Xchar	*name;
+X{
+X	if (isopen || strlen (name) > (BUFSIZ-10))
+X		return -1;
+X
+X	strcpy (spw_filename, name);
+X	return 0;
+X}
+X
+X/*
+X * spw_lock - lock a password file
+X *
+X *	spw_lock() encapsulates the lock operation.  it returns
+X *	TRUE or FALSE depending on the password file being
+X *	properly locked.  the lock is set by creating a semaphore
+X *	file, SPW_LOCK.
+X */
+X
+Xint
+Xspw_lock ()
+X{
+X	int	fd;
+X	int	pid;
+X	int	len;
+X	char	file[BUFSIZ];
+X	char	lock[BUFSIZ];
+X	char	buf[32];
+X	struct	stat	sb;
+X
+X	if (islocked)
+X		return 1;
+X
+X	if (strcmp (spw_filename, SHADOW) != 0) {
+X		sprintf (file, "%s.%d", spw_filename, lock_pid = getpid ());
+X		sprintf (lock, "%s.lock", spw_filename);
+X	} else {
+X		sprintf (file, SPW_TEMP, lock_pid = getpid ());
+X		strcpy (lock, SPW_LOCK);
+X	}
+X
+X	/*
+X	 * Create a lock file which can be switched into place
+X	 */
+X
+X	if ((fd = open (file, O_CREAT|O_EXCL|O_WRONLY, 0600)) == -1)
+X		return 0;
+X
+X	sprintf (buf, "%d", lock_pid);
+X	if (write (fd, buf, strlen (buf) + 1) != strlen (buf) + 1) {
+X		(void) close (fd);
+X		(void) unlink (file);
+X		return 0;
+X	}
+X	close (fd);
+X
+X	/*
+X	 * Simple case first -
+X	 *	Link fails (in a sane environment ...) if the target
+X	 *	exists already.  So we try to switch in a new lock
+X	 *	file.  If that succeeds, we assume we have the only
+X	 *	valid lock.  Needs work for NFS where this assumption
+X	 *	may not hold.  The simple hack is to check the link
+X	 *	count on the source file, which should be 2 iff the
+X	 *	link =really= worked.
+X	 */
+X
+X	if (link (file, lock) == 0) {
+X		if (stat (file, &sb) != 0)
+X			return 0;
+X
+X		if (sb.st_nlink != 2)
+X			return 0;
+X
+X		(void) unlink (file);
+X		islocked = 1;
+X		return 1;
+X	}
+X
+X	/*
+X	 * Invalid lock test -
+X	 *	Open the lock file and see if the lock is valid.
+X	 *	The PID of the lock file is checked, and if the PID
+X	 *	is not valid, the lock file is removed.  If the unlink
+X	 *	of the lock file fails, it should mean that someone
+X	 *	else is executing this code.  They will get success,
+X	 *	and we will fail.
+X	 */
+X
+X	if ((fd = open (lock, O_RDWR)) == -1 ||
+X			(len = read (fd, buf, BUFSIZ)) <= 0) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	buf[len] = '\0';
+X	if ((pid = strtol (buf, (char **) 0, 10)) == 0) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	if (kill (pid, 0) == 0)  {
+X		errno = EEXIST;
+X		return 0;
+X	}
+X	if (unlink (lock)) {
+X		(void) close (fd);
+X		(void) unlink (file);
+X
+X		return 0;
+X	}
+X
+X	/*
+X	 * Re-try lock -
+X	 *	The invalid lock has now been removed and I should
+X	 *	be able to acquire a lock for myself just fine.  If
+X	 *	this fails there will be no retry.  The link count
+X	 *	test here makes certain someone executing the previous
+X	 *	block of code didn't just remove the lock we just
+X	 *	linked to.
+X	 */
+X
+X	if (link (file, lock) == 0) {
+X		if (stat (file, &sb) != 0)
+X			return 0;
+X
+X		if (sb.st_nlink != 2)
+X			return 0;
+X
+X		(void) unlink (file);
+X		islocked = 1;
+X		return 1;
+X	}
+X	(void) unlink (file);
+X	return 0;
+X}
+X
+X/*
+X * spw_unlock - logically unlock a shadow file
+X *
+X *	spw_unlock() removes the lock which was set by an earlier
+X *	invocation of spw_lock().
+X */
+X
+Xint
+Xspw_unlock ()
+X{
+X	char	lock[BUFSIZ];
+X
+X	if (isopen) {
+X		open_modes = O_RDONLY;
+X		if (! spw_close ())
+X			return 0;
+X	}
+X  	if (islocked) {
+X  		islocked = 0;
+X		if (lock_pid != getpid ())
+X			return 0;
+X
+X		strcpy (lock, spw_filename);
+X		strcat (lock, ".lock");
+X		(void) unlink (lock);
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+X/*
+X * spw_open - open a password file
+X *
+X *	spw_open() encapsulates the open operation.  it returns
+X *	TRUE or FALSE depending on the shadow file being
+X *	properly opened.
+X */
+X
+Xint
+Xspw_open (mode)
+Xint	mode;
+X{
+X	char	buf[BUFSIZ];
+X	char	*cp;
+X	struct	spw_file_entry	*spwf;
+X	struct	spwd	*spwd;
+X
+X	if (isopen || (mode != O_RDONLY && mode != O_RDWR))
+X		return 0;
+X
+X	if (mode != O_RDONLY && ! islocked &&
+X			strcmp (spw_filename, SHADOW) == 0)
+X		return 0;
+X
+X	if ((spwfp = fopen (spw_filename, mode == O_RDONLY ? "r":"r+")) == 0)
+X		return 0;
+X
+X	__spwf_head = spwf_tail = spwf_cursor = 0;
+X	__sp_changed = 0;
+X
+X	while (fgets (buf, sizeof buf, spwfp) != (char *) 0) {
+X		if (cp = strrchr (buf, '\n'))
+X			*cp = '\0';
+X
+X		if (! (spwf = (struct spw_file_entry *) malloc (sizeof *spwf)))
+X			return 0;
+X
+X		spwf->spwf_changed = 0;
+X		spwf->spwf_line = strdup (buf);
+X		if ((spwd = sgetspent (buf)) && ! (spwd = spw_dup (spwd)))
+X			return 0;
+X
+X		spwf->spwf_entry = spwd;
+X
+X		if (__spwf_head == 0) {
+X			__spwf_head = spwf_tail = spwf;
+X			spwf->spwf_next = 0;
+X		} else {
+X			spwf_tail->spwf_next = spwf;
+X			spwf->spwf_next = 0;
+X			spwf_tail = spwf;
+X		}
+X	}
+X	isopen++;
+X	open_modes = mode;
+X
+X	return 1;
+X}
+X
+X/*
+X * spw_close - close the password file
+X *
+X *	spw_close() outputs any modified password file entries and
+X *	frees any allocated memory.
+X */
+X
+Xint
+Xspw_close ()
+X{
+X	char	backup[BUFSIZ];
+X	int	mask;
+X	int	c;
+X	int	errors = 0;
+X	FILE	*bkfp;
+X	struct	spw_file_entry *spwf;
+X	struct	stat	sb;
+X
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	if (islocked && lock_pid != getpid ()) {
+X		isopen = 0;
+X		islocked = 0;
+X		errno = EACCES;
+X		return 0;
+X	}
+X	strcpy (backup, spw_filename);
+X	strcat (backup, "-");
+X
+X	if (open_modes == O_RDWR && __sp_changed) {
+X		mask = umask (0377);
+X		(void) unlink (backup);
+X		if ((bkfp = fopen (backup, "w")) == 0) {
+X			umask (mask);
+X			return 0;
+X		}
+X		umask (mask);
+X		(void) chmod (backup, 0400);
+X		fstat (fileno (spwfp), &sb);
+X		chown (backup, sb.st_uid, sb.st_gid);
+X
+X		rewind (spwfp);
+X		while ((c = getc (spwfp)) != EOF) {
+X			if (putc (c, bkfp) == EOF) {
+X				fclose (bkfp);
+X				return 0;
+X			}
+X		}
+X		if (fclose (bkfp))
+X			return 0;
+X
+X		isopen = 0;
+X		(void) fclose (spwfp);
+X
+X		mask = umask (0377);
+X		if (! (spwfp = fopen (spw_filename, "w"))) {
+X			umask (mask);
+X			return 0;
+X		}
+X		umask (mask);
+X
+X		for (spwf = __spwf_head;errors == 0 && spwf;
+X						spwf = spwf->spwf_next) {
+X			if (spwf->spwf_changed) {
+X				if (putspent (spwf->spwf_entry, spwfp))
+X					errors++;
+X			} else {
+X				if (fputs (spwf->spwf_line, spwfp) == EOF)
+X					errors++;
+X				if (putc ('\n', spwfp) == EOF)
+X					errors++;
+X			}
+X		}
+X		if (fflush (spwfp))
+X			errors++;
+X
+X		if (errors) {
+X			unlink (spw_filename);
+X			link (backup, spw_filename);
+X			unlink (backup);
+X			return 0;
+X		}
+X	}
+X	if (fclose (spwfp))
+X		return 0;
+X
+X	spwfp = 0;
+X
+X	while (__spwf_head != 0) {
+X		spwf = __spwf_head;
+X		__spwf_head = spwf->spwf_next;
+X
+X		if (spwf->spwf_entry) {
+X			spw_free (spwf->spwf_entry);
+X			free (spwf->spwf_entry);
+X		}
+X		if (spwf->spwf_line)
+X			free (spwf->spwf_line);
+X
+X		free (spwf);
+X	}
+X	spwf_tail = 0;
+X	isopen = 0;
+X	return 1;
+X}
+X
+Xint
+Xspw_update (spwd)
+Xstruct	spwd	*spwd;
+X{
+X	struct	spw_file_entry	*spwf;
+X	struct	spwd	*nspwd;
+X
+X	if (! isopen || open_modes == O_RDONLY) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	for (spwf = __spwf_head;spwf != 0;spwf = spwf->spwf_next) {
+X		if (spwf->spwf_entry == 0)
+X			continue;
+X
+X		if (strcmp (spwd->sp_namp, spwf->spwf_entry->sp_namp) != 0)
+X			continue;
+X
+X		if (! (nspwd = spw_dup (spwd)))
+X			return 0;
+X		else {
+X			spw_free (spwf->spwf_entry);
+X			*(spwf->spwf_entry) = *nspwd;
+X		}
+X		spwf->spwf_changed = 1;
+X		spwf_cursor = spwf;
+X		return __sp_changed = 1;
+X	}
+X	spwf = (struct spw_file_entry *) malloc (sizeof *spwf);
+X	if (! (spwf->spwf_entry = spw_dup (spwd)))
+X		return 0;
+X
+X	spwf->spwf_changed = 1;
+X	spwf->spwf_next = 0;
+X	spwf->spwf_line = 0;
+X
+X	if (spwf_tail)
+X		spwf_tail->spwf_next = spwf;
+X
+X	if (! __spwf_head)
+X		__spwf_head = spwf;
+X
+X	spwf_tail = spwf;
+X
+X	return __sp_changed = 1;
+X}
+X
+Xint
+Xspw_remove (name)
+Xchar	*name;
+X{
+X	struct	spw_file_entry	*spwf;
+X	struct	spw_file_entry	*ospwf;
+X
+X	if (! isopen || open_modes == O_RDONLY) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	for (ospwf = 0, spwf = __spwf_head;spwf != 0;
+X			ospwf = spwf, spwf = spwf->spwf_next) {
+X		if (! spwf->spwf_entry)
+X			continue;
+X
+X		if (strcmp (name, spwf->spwf_entry->sp_namp) != 0)
+X			continue;
+X
+X		if (spwf == spwf_cursor)
+X			spwf_cursor = ospwf;
+X
+X		if (ospwf != 0)
+X			ospwf->spwf_next = spwf->spwf_next;
+X		else
+X			__spwf_head = spwf->spwf_next;
+X
+X		if (spwf == spwf_tail)
+X			spwf_tail = ospwf;
+X
+X		return __sp_changed = 1;
+X	}
+X	errno = ENOENT;
+X	return 0;
+X}
+X
+Xstruct spwd *
+Xspw_locate (name)
+Xchar	*name;
+X{
+X	struct	spw_file_entry	*spwf;
+X
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	for (spwf = __spwf_head;spwf != 0;spwf = spwf->spwf_next) {
+X		if (spwf->spwf_entry == 0)
+X			continue;
+X
+X		if (strcmp (name, spwf->spwf_entry->sp_namp) == 0) {
+X			spwf_cursor = spwf;
+X			return spwf->spwf_entry;
+X		}
+X	}
+X	errno = ENOENT;
+X	return 0;
+X}
+X
+Xint
+Xspw_rewind ()
+X{
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	spwf_cursor = 0;
+X	return 1;
+X}
+X
+Xstruct spwd *
+Xspw_next ()
+X{
+X	if (! isopen) {
+X		errno = EINVAL;
+X		return 0;
+X	}
+X	if (spwf_cursor == 0)
+X		spwf_cursor = __spwf_head;
+X	else
+X		spwf_cursor = spwf_cursor->spwf_next;
+X
+X	while (spwf_cursor) {
+X		if (spwf_cursor->spwf_entry)
+X			return spwf_cursor->spwf_entry;
+X
+X		spwf_cursor = spwf_cursor->spwf_next;
+X	}
+X	return 0;
+X}
+END_OF_FILE
+  if test 11350 -ne `wc -c <'shadowio.c'`; then
+    echo shar: \"'shadowio.c'\" unpacked with wrong size!
+  fi
+  # end of 'shadowio.c'
+fi
+echo shar: End of archive 7 \(of 14\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1946 @@
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i075: Video Extension for X (v2r2), Part24/29
+Message-ID: <1992Feb6.145941.1081@msi.com>
+Date: 6 Feb 92 14:59:41 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1933
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 75
+Archive-name: vex.v2r2/part24
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 24 (of 29)."
+# Contents:  install/ddx-dec-tx.sh server/ddx/cfb32/cfbfillrct.c
+#   server/ddx/cfb32/cfbscrinit.c server/ddx/cfb32/cfbsetsp.c
+#   server/ddx/cfb32/cfbwindow.c server/ddx/dec/tx/xfbcmap.c
+#   server/ddx/dec/tx/xfbwindow.c server/ddx/sun/xfbscrinit.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:50 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'install/ddx-dec-tx.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'install/ddx-dec-tx.sh'\"
+else
+echo shar: Extracting \"'install/ddx-dec-tx.sh'\" \(881 characters\)
+sed "s/^X//" >'install/ddx-dec-tx.sh' <<'END_OF_FILE'
+X
+Xecho ""
+Xecho "  Creating $top/server/ddx/dec/tx"
+X
+Xif [ ! -w $top/server/ddx/dec ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't access ddx/dec directory"
+X	exit
+Xfi
+X
+Xif [ -s $top/server/ddx/dec/tx ]
+Xthen
+X	echo ""
+X	echo "  Moving existing tx directory to tx.$bak"
+X	if [ -s $top/server/ddx/dec/tx.$bak ]
+X	then
+X		echo -n "> Remove existing tx.$bak? (y,[n]) "
+X		read yesno
+X		if [  x$yesno = xy -o x$yesno = xY ]
+X		then
+X			rm -rf $top/server/ddx/dec/tx.$bak
+X			if [ $? -gt 0 ]
+X			then
+X			  echo ""
+X			  echo "  Error: Couldn't remove existing tx.$bak"
+X			  exit
+X			fi
+X		else
+X			echo ""
+X			echo "  Aborting Xv Installation"
+X			exit
+X		fi
+X	fi
+X
+X	mv -f $top/server/ddx/dec/tx $top/server/ddx/dec/tx.$bak
+X	if [ $? -gt 0 ]
+X	then
+X		echo ""
+X		echo "  Error: Couldn't move existing tx directory to tx.$bak"
+X	fi
+Xfi
+X
+Xecho ""
+Xcd $pwd/server/ddx/dec
+Xtar cf - tx | (cd $top/server/ddx/dec; tar xvf -)
+Xcd $pwd
+END_OF_FILE
+if test 881 -ne `wc -c <'install/ddx-dec-tx.sh'`; then
+    echo shar: \"'install/ddx-dec-tx.sh'\" unpacked with wrong size!
+fi
+# end of 'install/ddx-dec-tx.sh'
+fi
+if test -f 'server/ddx/cfb32/cfbfillrct.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbfillrct.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbfillrct.c'\" \(7050 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbfillrct.c' <<'END_OF_FILE'
+X/*
+X * Fill rectangles.
+X */
+X
+X/*
+XCopyright 1989 by the Massachusetts Institute of Technology
+X
+XPermission to use, copy, modify, and distribute this software and its
+Xdocumentation for any purpose and without fee is hereby granted,
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in
+Xsupporting documentation, and that the name of M.I.T. not be used in
+Xadvertising or publicity pertaining to distribution of the software
+Xwithout specific, written prior permission.  M.I.T. makes no
+Xrepresentations about the suitability of this software for any
+Xpurpose.  It is provided "as is" without express or implied warranty.
+X*/
+X
+X/* $XConsortium: cfbfillrct.c,v 5.13 90/05/15 18:40:19 keith Exp $ */
+X
+X#include "X.h"
+X#include "Xmd.h"
+X#include "servermd.h"
+X#include "gcstruct.h"
+X#include "window.h"
+X#include "pixmapstr.h"
+X#include "scrnintstr.h"
+X#include "windowstr.h"
+X
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X#include "mergerop.h"
+X
+X#if PPW == 4
+Xextern void cfb8FillRectOpaqueStippled32();
+Xextern void cfb8FillRectTransparentStippled32();
+Xextern void cfb8FillRectStippledUnnatural();
+X#endif
+X
+Xextern void cfbFillRectSolidCopy(), cfbFillRectSolidXor (), cfbFillRectSolidGeneral ();
+X
+Xextern void cfbFillRectTile32Copy (), cfbFillRectTile32General ();
+X
+Xextern void cfbFillBoxTileOddCopy ();
+Xextern void cfbFillBoxTileOddGeneral ();
+Xextern void cfbFillBoxTile32sCopy ();
+Xextern void cfbFillBoxTile32sGeneral ();
+X
+Xvoid
+XcfbFillBoxTileOdd (pDrawable, n, rects, tile, xrot, yrot)
+X    DrawablePtr	pDrawable;
+X    int		n;
+X    BoxPtr	rects;
+X    PixmapPtr	tile;
+X    int		xrot, yrot;
+X{
+X    if (tile->drawable.width & PIM)
+X	cfbFillBoxTileOddCopy (pDrawable, n, rects, tile, xrot, yrot, GXcopy, ~0);
+X    else
+X	cfbFillBoxTile32sCopy (pDrawable, n, rects, tile, xrot, yrot, GXcopy, ~0);
+X}
+X
+Xvoid
+XcfbFillRectTileOdd (pDrawable, pGC, nBox, pBox)
+X    DrawablePtr	pDrawable;
+X    GCPtr	pGC;
+X    int		nBox;
+X    BoxPtr	pBox;
+X{
+X    int	xrot, yrot;
+X    void    (*fill)();
+X
+X    xrot = pDrawable->x + pGC->patOrg.x;
+X    yrot = pDrawable->y + pGC->patOrg.y;
+X    if (pGC->tile.pixmap->drawable.width & PIM)
+X    {
+X    	fill = cfbFillBoxTileOddGeneral;
+X    	if ((pGC->planemask & PMSK) == PMSK)
+X    	{
+X	    if (pGC->alu == GXcopy)
+X	    	fill = cfbFillBoxTileOddCopy;
+X    	}
+X    }
+X    else
+X    {
+X    	fill = cfbFillBoxTile32sGeneral;
+X    	if ((pGC->planemask & PMSK) == PMSK)
+X    	{
+X	    if (pGC->alu == GXcopy)
+X	    	fill = cfbFillBoxTile32sCopy;
+X    	}
+X    }
+X    (*fill) (pDrawable, nBox, pBox, pGC->tile.pixmap, xrot, yrot, pGC->alu, pGC->planemask);
+X}
+X
+X#define NUM_STACK_RECTS	1024
+X
+Xvoid
+XcfbPolyFillRect(pDrawable, pGC, nrectFill, prectInit)
+X    DrawablePtr pDrawable;
+X    register GCPtr pGC;
+X    int		nrectFill; 	/* number of rectangles to fill */
+X    xRectangle	*prectInit;  	/* Pointer to first rectangle to fill */
+X{
+X    xRectangle	    *prect;
+X    RegionPtr	    prgnClip;
+X    register BoxPtr pbox;
+X    register BoxPtr pboxClipped;
+X    BoxPtr	    pboxClippedBase;
+X    BoxPtr	    pextent;
+X    BoxRec	    stackRects[NUM_STACK_RECTS];
+X    cfbPrivGC	    *priv;
+X    int		    numRects;
+X    void	    (*BoxFill)();
+X    int		    n;
+X    int		    xorg, yorg;
+X
+X    priv = (cfbPrivGC *) pGC->devPrivates[cfbGCPrivateIndex].ptr;
+X    prgnClip = priv->pCompositeClip;
+X
+X    BoxFill = 0;
+X    switch (pGC->fillStyle)
+X    {
+X    case FillSolid:
+X	switch (priv->rop) {
+X	case GXcopy:
+X	    BoxFill = cfbFillRectSolidCopy;
+X	    break;
+X	case GXxor:
+X	    BoxFill = cfbFillRectSolidXor;
+X	    break;
+X	default:
+X	    BoxFill = cfbFillRectSolidGeneral;
+X	    break;
+X	}
+X	break;
+X    case FillTiled:
+X	if (!((cfbPrivGCPtr) pGC->devPrivates[cfbGCPrivateIndex].ptr)->
+X							pRotatedPixmap)
+X	    BoxFill = cfbFillRectTileOdd;
+X	else
+X	{
+X	    if (pGC->alu == GXcopy && (pGC->planemask & PMSK) == PMSK)
+X		BoxFill = cfbFillRectTile32Copy;
+X	    else
+X		BoxFill = cfbFillRectTile32General;
+X	}
+X	break;
+X#if (PPW == 4)
+X    case FillStippled:
+X	if (!((cfbPrivGCPtr) pGC->devPrivates[cfbGCPrivateIndex].ptr)->
+X							pRotatedPixmap)
+X	    BoxFill = cfb8FillRectStippledUnnatural;
+X	else
+X	    BoxFill = cfb8FillRectTransparentStippled32;
+X	break;
+X    case FillOpaqueStippled:
+X	if (!((cfbPrivGCPtr) pGC->devPrivates[cfbGCPrivateIndex].ptr)->
+X							pRotatedPixmap)
+X	    BoxFill = cfb8FillRectStippledUnnatural;
+X	else
+X	    BoxFill = cfb8FillRectOpaqueStippled32;
+X	break;
+X#endif
+X    }
+X    prect = prectInit;
+X    xorg = pDrawable->x;
+X    yorg = pDrawable->y;
+X    if (xorg || yorg)
+X    {
+X	prect = prectInit;
+X	n = nrectFill;
+X	while(n--)
+X	{
+X	    prect->x += xorg;
+X	    prect->y += yorg;
+X	    prect++;
+X	}
+X    }
+X
+X    prect = prectInit;
+X
+X    numRects = REGION_NUM_RECTS(prgnClip) * nrectFill;
+X    if (numRects > NUM_STACK_RECTS)
+X    {
+X	pboxClippedBase = (BoxPtr)ALLOCATE_LOCAL(numRects * sizeof(BoxRec));
+X	if (!pboxClippedBase)
+X	    return;
+X    }
+X    else
+X	pboxClippedBase = stackRects;
+X
+X    pboxClipped = pboxClippedBase;
+X	
+X    if (REGION_NUM_RECTS(prgnClip) == 1)
+X    {
+X	int x1, y1, x2, y2, bx2, by2;
+X
+X	pextent = REGION_RECTS(prgnClip);
+X	x1 = pextent->x1;
+X	y1 = pextent->y1;
+X	x2 = pextent->x2;
+X	y2 = pextent->y2;
+X    	while (nrectFill--)
+X    	{
+X	    if ((pboxClipped->x1 = prect->x) < x1)
+X		pboxClipped->x1 = x1;
+X    
+X	    if ((pboxClipped->y1 = prect->y) < y1)
+X		pboxClipped->y1 = y1;
+X    
+X	    bx2 = (int) prect->x + (int) prect->width;
+X	    if (bx2 > x2)
+X		bx2 = x2;
+X	    pboxClipped->x2 = bx2;
+X    
+X	    by2 = (int) prect->y + (int) prect->height;
+X	    if (by2 > y2)
+X		by2 = y2;
+X	    pboxClipped->y2 = by2;
+X
+X	    prect++;
+X	    if ((pboxClipped->x1 < pboxClipped->x2) &&
+X		(pboxClipped->y1 < pboxClipped->y2))
+X	    {
+X		pboxClipped++;
+X	    }
+X    	}
+X    }
+X    else
+X    {
+X	int x1, y1, x2, y2, bx2, by2;
+X
+X	pextent = (*pGC->pScreen->RegionExtents)(prgnClip);
+X	x1 = pextent->x1;
+X	y1 = pextent->y1;
+X	x2 = pextent->x2;
+X	y2 = pextent->y2;
+X    	while (nrectFill--)
+X    	{
+X	    BoxRec box;
+X    
+X	    if ((box.x1 = prect->x) < x1)
+X		box.x1 = x1;
+X    
+X	    if ((box.y1 = prect->y) < y1)
+X		box.y1 = y1;
+X    
+X	    bx2 = (int) prect->x + (int) prect->width;
+X	    if (bx2 > x2)
+X		bx2 = x2;
+X	    box.x2 = bx2;
+X    
+X	    by2 = (int) prect->y + (int) prect->height;
+X	    if (by2 > y2)
+X		by2 = y2;
+X	    box.y2 = by2;
+X    
+X	    prect++;
+X    
+X	    if ((box.x1 >= box.x2) || (box.y1 >= box.y2))
+X	    	continue;
+X    
+X	    n = REGION_NUM_RECTS (prgnClip);
+X	    pbox = REGION_RECTS(prgnClip);
+X    
+X	    /* clip the rectangle to each box in the clip region
+X	       this is logically equivalent to calling Intersect()
+X	    */
+X	    while(n--)
+X	    {
+X		pboxClipped->x1 = max(box.x1, pbox->x1);
+X		pboxClipped->y1 = max(box.y1, pbox->y1);
+X		pboxClipped->x2 = min(box.x2, pbox->x2);
+X		pboxClipped->y2 = min(box.y2, pbox->y2);
+X		pbox++;
+X
+X		/* see if clipping left anything */
+X		if(pboxClipped->x1 < pboxClipped->x2 && 
+X		   pboxClipped->y1 < pboxClipped->y2)
+X		{
+X		    pboxClipped++;
+X		}
+X	    }
+X    	}
+X    }
+X    if (pboxClipped != pboxClippedBase)
+X	(*BoxFill) (pDrawable, pGC,
+X		    pboxClipped-pboxClippedBase, pboxClippedBase);
+X    if (pboxClippedBase != stackRects)
+X    	DEALLOCATE_LOCAL(pboxClippedBase);
+X}
+END_OF_FILE
+if test 7050 -ne `wc -c <'server/ddx/cfb32/cfbfillrct.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbfillrct.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbfillrct.c'
+fi
+if test -f 'server/ddx/cfb32/cfbscrinit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbscrinit.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbscrinit.c'\" \(7672 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbscrinit.c' <<'END_OF_FILE'
+X/************************************************************
+XCopyright 1987 by Sun Microsystems, Inc. Mountain View, CA.
+X
+X                    All Rights Reserved
+X
+XPermission  to  use,  copy,  modify,  and  distribute   this
+Xsoftware  and  its documentation for any purpose and without
+Xfee is hereby granted, provided that the above copyright no-
+Xtice  appear  in all copies and that both that copyright no-
+Xtice and this permission notice appear in  supporting  docu-
+Xmentation,  and  that the names of Sun or MIT not be used in
+Xadvertising or publicity pertaining to distribution  of  the
+Xsoftware  without specific prior written permission. Sun and
+XM.I.T. make no representations about the suitability of this
+Xsoftware for any purpose. It is provided "as is" without any
+Xexpress or implied warranty.
+X
+XSUN DISCLAIMS ALL WARRANTIES WITH REGARD TO  THIS  SOFTWARE,
+XINCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FIT-
+XNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL SUN BE  LI-
+XABLE  FOR  ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,  DATA  OR
+XPROFITS,  WHETHER  IN  AN  ACTION OF CONTRACT, NEGLIGENCE OR
+XOTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION  WITH
+XTHE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X********************************************************/
+X/* $XConsortium: cfbscrinit.c,v 5.19 91/06/28 12:40:07 keith Exp $ */
+X
+X#include "X.h"
+X#include "Xmd.h"
+X#include "servermd.h"
+X#include "scrnintstr.h"
+X#include "pixmapstr.h"
+X#include "resource.h"
+X#include "colormap.h"
+X#include "colormapst.h"
+X#include "cfb.h"
+X#include "mi.h"
+X#include "mistruct.h"
+X#include "dix.h"
+X#include "cfbmskbits.h"
+X#include "mibstore.h"
+X
+Xextern RegionPtr mfbPixmapToRegion();
+Xextern RegionPtr cfbCopyPlane();
+Xextern Bool mfbAllocatePrivates();
+X
+Xextern int defaultColorVisualClass;
+X
+X#define _BP 8
+X#define _RZ ((DEPTH + 2) / 3)
+X#define _RS 0
+X#define _RM ((1 << _RZ) - 1)
+X#define _GZ ((DEPTH - _RZ + 1) / 2)
+X#define _GS _RZ
+X#define _GM (((1 << _GZ) - 1) << _GS)
+X#define _BZ (DEPTH - _RZ - _GZ)
+X#define _BS (_RZ + _GZ)
+X#define _BM (((1 << _BZ) - 1) << _BS)
+X#define _CE (1 << _RZ)
+X
+X#if PSZ <= 16
+X#define ALL_MAPS
+X#endif
+X
+Xstatic VisualRec visuals[] = {
+X/* vid  class        bpRGB cmpE nplan rMask gMask bMask oRed oGreen oBlue */
+X#ifndef STATIC_COLOR
+X#ifdef ALL_MAPS
+X    0,  PseudoColor, _BP,  1<<PSZ,   PSZ,  0,   0,   0,   0,   0,   0,
+X#endif
+X    0,  DirectColor, _BP, _CE,       PSZ,  _RM, _GM, _BM, _RS, _GS, _BS,
+X#ifdef ALL_MAPS
+X    0,  GrayScale,   _BP,  1<<PSZ,   PSZ,  0,   0,   0,   0,   0,   0,
+X    0,  StaticGray,  _BP,  1<<PSZ,   PSZ,  0,   0,   0,   0,   0,   0,
+X#endif
+X#endif
+X#ifdef ALL_MAPS
+X    0,  StaticColor, _BP,  1<<PSZ,   PSZ,  _RM, _GM, _BM, _RS, _GS, _BS,
+X#endif
+X    0,  TrueColor,   _BP, _CE,       PSZ,  _RM, _GM, _BM, _RS, _GS, _BS
+X};
+X
+X#define	NUMVISUALS	((sizeof visuals)/(sizeof visuals[0]))
+X
+Xstatic  VisualID VIDs[NUMVISUALS];
+X
+X
+Xstatic DepthRec depths[] = {
+X/* depth	numVid		vids */
+X    1,		0,		NULL,
+X    DEPTH,	NUMVISUALS,	VIDs
+X};
+X
+X#define NUMDEPTHS	((sizeof depths)/(sizeof depths[0]))
+X
+Xint cfbWindowPrivateIndex;
+Xint cfbGCPrivateIndex;
+X
+Xstatic unsigned long cfbGeneration = 0;
+X
+XmiBSFuncRec cfbBSFuncRec = {
+X    cfbSaveAreas,
+X    cfbRestoreAreas,
+X    (void (*)()) 0,
+X    (PixmapPtr (*)()) 0,
+X    (PixmapPtr (*)()) 0,
+X};
+X
+XBool
+XcfbSetupScreen(pScreen, pbits, xsize, ysize, dpix, dpiy, width)
+X    register ScreenPtr pScreen;
+X    pointer pbits;		/* pointer to screen bitmap */
+X    int xsize, ysize;		/* in pixels */
+X    int dpix, dpiy;		/* dots per inch */
+X    int width;			/* pixel width of frame buffer */
+X{
+X    if (!mfbAllocatePrivates(pScreen,
+X			     &cfbWindowPrivateIndex, &cfbGCPrivateIndex))
+X	return FALSE;
+X    if (!AllocateWindowPrivate(pScreen, cfbWindowPrivateIndex,
+X			       sizeof(cfbPrivWin)) ||
+X	!AllocateGCPrivate(pScreen, cfbGCPrivateIndex, sizeof(cfbPrivGC)))
+X	return FALSE;
+X    pScreen->defColormap = FakeClientID(0);
+X    /* let CreateDefColormap do whatever it wants for pixels */ 
+X    pScreen->blackPixel = pScreen->whitePixel = (Pixel) 0;
+X    pScreen->QueryBestSize = mfbQueryBestSize;
+X    /* SaveScreen */
+X    pScreen->GetImage = cfbGetImage;
+X    pScreen->GetSpans = cfbGetSpans;
+X    pScreen->CreateWindow = cfbCreateWindow;
+X    pScreen->DestroyWindow = cfbDestroyWindow;
+X    pScreen->PositionWindow = cfbPositionWindow;
+X    pScreen->ChangeWindowAttributes = cfbChangeWindowAttributes;
+X    pScreen->RealizeWindow = cfbMapWindow;
+X    pScreen->UnrealizeWindow = cfbUnmapWindow;
+X    pScreen->PaintWindowBackground = cfbPaintWindow;
+X    pScreen->PaintWindowBorder = cfbPaintWindow;
+X    pScreen->CopyWindow = cfbCopyWindow;
+X    pScreen->CreatePixmap = cfbCreatePixmap;
+X    pScreen->DestroyPixmap = cfbDestroyPixmap;
+X    pScreen->RealizeFont = mfbRealizeFont;
+X    pScreen->UnrealizeFont = mfbUnrealizeFont;
+X    pScreen->CreateGC = cfbCreateGC;
+X    pScreen->CreateColormap = cfbInitializeColormap;
+X    pScreen->DestroyColormap = NoopDDA;
+X#ifdef	STATIC_COLOR
+X    pScreen->InstallColormap = cfbInstallColormap;
+X    pScreen->UninstallColormap = cfbUninstallColormap;
+X    pScreen->ListInstalledColormaps = cfbListInstalledColormaps;
+X    pScreen->StoreColors = NoopDDA;
+X#endif
+X    pScreen->ResolveColor = cfbResolveColor;
+X    pScreen->BitmapToRegion = mfbPixmapToRegion;
+X
+X    mfbRegisterCopyPlaneProc (pScreen, cfbCopyPlane);
+X    return TRUE;
+X}
+X
+XcfbFinishScreenInit(pScreen, pbits, xsize, ysize, dpix, dpiy, width)
+X    register ScreenPtr pScreen;
+X    pointer pbits;		/* pointer to screen bitmap */
+X    int xsize, ysize;		/* in pixels */
+X    int dpix, dpiy;		/* dots per inch */
+X    int width;			/* pixel width of frame buffer */
+X{
+X    int	i;
+X
+X    if (cfbGeneration != serverGeneration)
+X    {
+X	/*  Set up the visual IDs */
+X	for (i = 0; i < NUMVISUALS; i++) {
+X	    visuals[i].vid = FakeClientID(0);
+X	    VIDs[i] = visuals[i].vid;
+X	}
+X	cfbGeneration = serverGeneration;
+X    }
+X
+X    if (defaultColorVisualClass < 0)
+X    {
+X	i = 0;
+X    }
+X    else
+X    {
+X	for (i = 0;
+X	     (i < NUMVISUALS) && (visuals[i].class != defaultColorVisualClass);
+X	     i++)
+X	    ;
+X	if (i >= NUMVISUALS)
+X	    i = 0;
+X    }
+X    return miScreenInit(pScreen, pbits, xsize, ysize, dpix, dpiy, width,
+X			DEPTH, NUMDEPTHS, depths,
+X			visuals[i].vid, NUMVISUALS, visuals,
+X			&cfbBSFuncRec);
+X}
+X
+X/* dts * (inch/dot) * (25.4 mm / inch) = mm */
+XBool
+XcfbScreenInit(pScreen, pbits, xsize, ysize, dpix, dpiy, width)
+X    register ScreenPtr pScreen;
+X    pointer pbits;		/* pointer to screen bitmap */
+X    int xsize, ysize;		/* in pixels */
+X    int dpix, dpiy;		/* dots per inch */
+X    int width;			/* pixel width of frame buffer */
+X{
+X#ifdef MULTIDEPTH
+X
+X  /* THIS ASSUMES THAT cfbScreenInit ONLY GETS CALLED WHEN THIS DEPTH
+X    (PPW) IS THE ONLY DEPTH SUPPORTED BY THE SCREEN; IF IT IS NOT,
+X    THEN I ASSUME THAT THERE IS A THIRD PARTY TAKING CARE OF THE
+X    INITIALIZATION; THUS IF THE CODE IS COMPILED TO LOOK FOR THE SCREEN PIXMAP
+X    POINTER IN A PARTICULAR PLACE, THEN WE MUST BE CONSISTANT TO COVER THE
+X    CASE OF MULTIPLE SCREEN SUPPORT; THE CODE MAY BE PRIMARY FOR ONE SCREEN 
+X    BUT SECONDARY FOR ANOTHER; OF COURSE THIS ALSO ASSUMES THAT THE CODE
+X    GETS COMPILED ONCE FOR EACH DIFFERENT PIXMAP OF A SCREEN EVEN IF THOSE
+X    PIXMAPS ARE THE SAME DEPTH; CLEARLY A WASTE, BUT I'M NOT GOING TO FIX IT */
+X
+X  if ((cfbScreenPrivateIndex = AllocateScreenPrivateIndex()) < 0)
+X    return FALSE;
+X
+X#endif MULTIDEPTH
+X
+X  if (!cfbSetupScreen(pScreen, pbits, xsize, ysize, dpix, dpiy, width))
+X    return FALSE;
+X  if (!cfbFinishScreenInit(pScreen, pbits, xsize, ysize, dpix, dpiy, width))
+X    return FALSE;
+X
+X#ifdef MULTIDEPTH
+X  pScreen->devPrivates[cfbScreenPrivateIndex].ptr =
+X    pScreen->devPrivate;
+X#endif MULTIDEPTH
+X
+X  return TRUE;
+X}
+END_OF_FILE
+if test 7672 -ne `wc -c <'server/ddx/cfb32/cfbscrinit.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbscrinit.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbscrinit.c'
+fi
+if test -f 'server/ddx/cfb32/cfbsetsp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbsetsp.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbsetsp.c'\" \(7056 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbsetsp.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X#include "X.h"
+X#include "Xmd.h"
+X#include "servermd.h"
+X
+X#include "misc.h"
+X#include "regionstr.h"
+X#include "gcstruct.h"
+X#include "windowstr.h"
+X#include "pixmapstr.h"
+X#include "scrnintstr.h"
+X
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X#include <mergerop.h>
+X
+X/* cfbSetScanline -- copies the bits from psrc to the drawable starting at
+X * (xStart, y) and continuing to (xEnd, y).  xOrigin tells us where psrc 
+X * starts on the scanline. (I.e., if this scanline passes through multiple
+X * boxes, we may not want to start grabbing bits at psrc but at some offset
+X * further on.) 
+X */
+XcfbSetScanline(y, xOrigin, xStart, xEnd, psrc, alu, pdstBase, widthDst, planemask)
+X    int			y;
+X    int			xOrigin;	/* where this scanline starts */
+X    int			xStart;		/* first bit to use from scanline */
+X    int			xEnd;		/* last bit to use from scanline + 1 */
+X    register int	*psrc;
+X    register int	alu;		/* raster op */
+X    int			*pdstBase;	/* start of the drawable */
+X    int			widthDst;	/* width of drawable in words */
+X    unsigned long	planemask;
+X{
+X    int			w;		/* width of scanline in bits */
+X    register int	*pdst;		/* where to put the bits */
+X    register int	tmpSrc;		/* scratch buffer to collect bits in */
+X    int			dstBit;		/* offset in bits from beginning of 
+X					 * word */
+X    register int	nstart; 	/* number of bits from first partial */
+X    register int	nend; 		/* " " last partial word */
+X    int			offSrc;
+X    int		startmask, endmask, nlMiddle, nl;
+X    DeclareMergeRop()
+X
+X    InitializeMergeRop(alu,planemask);
+X    pdst = pdstBase + (y * widthDst) + (xStart >> PWSH); 
+X    psrc += (xStart - xOrigin) >> PWSH;
+X    offSrc = (xStart - xOrigin) & PIM;
+X    w = xEnd - xStart;
+X    dstBit = xStart & PIM;
+X
+X    if (dstBit + w <= PPW) 
+X    { 
+X	maskpartialbits(dstBit, w, startmask);
+X	endmask = 0;
+X	nlMiddle = 0;
+X    } 
+X    else 
+X    { 
+X	maskbits(xStart, w, startmask, endmask, nlMiddle);
+X    }
+X    if (startmask) 
+X	nstart = PPW - dstBit; 
+X    else 
+X	nstart = 0; 
+X    if (endmask) 
+X	nend = xEnd & PIM; 
+X    else 
+X	nend = 0; 
+X    if (startmask) 
+X    { 
+X	getbits(psrc, offSrc, nstart, tmpSrc);
+X	putbitsmropshort(tmpSrc, dstBit, nstart, pdst);
+X	pdst++; 
+X	offSrc += nstart;
+X	if (offSrc > PLST)
+X	{
+X	    psrc++;
+X	    offSrc -= PPW;
+X	}
+X    } 
+X    nl = nlMiddle; 
+X    while (nl--) 
+X    { 
+X	getbits(psrc, offSrc, PPW, tmpSrc);
+X	*pdst = DoMergeRop(tmpSrc, *pdst);
+X	pdst++; 
+X	psrc++; 
+X    } 
+X    if (endmask) 
+X    { 
+X	getbits(psrc, offSrc, nend, tmpSrc);
+X	putbitsmropshort(tmpSrc, 0, nend, pdst);
+X    } 
+X}
+X
+X
+X
+X/* SetSpans -- for each span copy pwidth[i] bits from psrc to pDrawable at
+X * ppt[i] using the raster op from the GC.  If fSorted is TRUE, the scanlines
+X * are in increasing Y order.
+X * Source bit lines are server scanline padded so that they always begin
+X * on a word boundary.
+X */ 
+Xvoid
+XcfbSetSpans(pDrawable, pGC, psrc, ppt, pwidth, nspans, fSorted)
+X    DrawablePtr		pDrawable;
+X    GCPtr		pGC;
+X    unsigned long	*psrc;
+X    register DDXPointPtr ppt;
+X    int			*pwidth;
+X    int			nspans;
+X    int			fSorted;
+X{
+X    unsigned long	*pdstBase;	/* start of dst bitmap */
+X    int 		widthDst;	/* width of bitmap in words */
+X    register BoxPtr 	pbox, pboxLast, pboxTest;
+X    register DDXPointPtr pptLast;
+X    int 		alu;
+X    RegionPtr 		prgnDst;
+X    int			xStart, xEnd;
+X    int			yMax;
+X
+X    alu = pGC->alu;
+X    prgnDst = ((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip;
+X
+X    pptLast = ppt + nspans;
+X
+X    cfbGetLongWidthAndPointer (pDrawable, widthDst, pdstBase)
+X
+X    yMax = (int) pDrawable->y + (int) pDrawable->height;
+X
+X    pbox = REGION_RECTS(prgnDst);
+X    pboxLast = pbox + REGION_NUM_RECTS(prgnDst);
+X
+X    if(fSorted)
+X    {
+X    /* scan lines sorted in ascending order. Because they are sorted, we
+X     * don't have to check each scanline against each clip box.  We can be
+X     * sure that this scanline only has to be clipped to boxes at or after the
+X     * beginning of this y-band 
+X     */
+X	pboxTest = pbox;
+X	while(ppt < pptLast)
+X	{
+X	    pbox = pboxTest;
+X	    if(ppt->y >= yMax)
+X		break;
+X	    while(pbox < pboxLast)
+X	    {
+X		if(pbox->y1 > ppt->y)
+X		{
+X		    /* scanline is before clip box */
+X		    break;
+X		}
+X		else if(pbox->y2 <= ppt->y)
+X		{
+X		    /* clip box is before scanline */
+X		    pboxTest = ++pbox;
+X		    continue;
+X		}
+X		else if(pbox->x1 > ppt->x + *pwidth) 
+X		{
+X		    /* clip box is to right of scanline */
+X		    break;
+X		}
+X		else if(pbox->x2 <= ppt->x)
+X		{
+X		    /* scanline is to right of clip box */
+X		    pbox++;
+X		    continue;
+X		}
+X
+X		/* at least some of the scanline is in the current clip box */
+X		xStart = max(pbox->x1, ppt->x);
+X		xEnd = min(ppt->x + *pwidth, pbox->x2);
+X		cfbSetScanline(ppt->y, ppt->x, xStart, xEnd, psrc, alu,
+X		    pdstBase, widthDst, pGC->planemask);
+X		if(ppt->x + *pwidth <= pbox->x2)
+X		{
+X		    /* End of the line, as it were */
+X		    break;
+X		}
+X		else
+X		    pbox++;
+X	    }
+X	    /* We've tried this line against every box; it must be outside them
+X	     * all.  move on to the next point */
+X	    ppt++;
+X	    psrc += PixmapWidthInPadUnits(*pwidth, PSZ);
+X	    pwidth++;
+X	}
+X    }
+X    else
+X    {
+X    /* scan lines not sorted. We must clip each line against all the boxes */
+X	while(ppt < pptLast)
+X	{
+X	    if(ppt->y >= 0 && ppt->y < yMax)
+X	    {
+X		
+X		for(pbox = REGION_RECTS(prgnDst); pbox< pboxLast; pbox++)
+X		{
+X		    if(pbox->y1 > ppt->y)
+X		    {
+X			/* rest of clip region is above this scanline,
+X			 * skip it */
+X			break;
+X		    }
+X		    if(pbox->y2 <= ppt->y)
+X		    {
+X			/* clip box is below scanline */
+X			pbox++;
+X			break;
+X		    }
+X		    if(pbox->x1 <= ppt->x + *pwidth &&
+X		       pbox->x2 > ppt->x)
+X		    {
+X			xStart = max(pbox->x1, ppt->x);
+X			xEnd = min(pbox->x2, ppt->x + *pwidth);
+X			cfbSetScanline(ppt->y, ppt->x, xStart, xEnd, psrc, alu,
+X			    pdstBase, widthDst, pGC->planemask);
+X		    }
+X
+X		}
+X	    }
+X	psrc += PixmapWidthInPadUnits(*pwidth, PSZ);
+X	ppt++;
+X	pwidth++;
+X	}
+X    }
+X}
+X
+END_OF_FILE
+if test 7056 -ne `wc -c <'server/ddx/cfb32/cfbsetsp.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbsetsp.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbsetsp.c'
+fi
+if test -f 'server/ddx/cfb32/cfbwindow.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbwindow.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbwindow.c'\" \(6938 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbwindow.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X#include "X.h"
+X#include "scrnintstr.h"
+X#include "windowstr.h"
+X#include "cfb.h"
+X#include "mistruct.h"
+X#include "regionstr.h"
+X#include "cfbmskbits.h"
+X
+Xextern WindowPtr *WindowTable;
+X
+XBool
+XcfbCreateWindow(pWin)
+X    WindowPtr pWin;
+X{
+X    cfbPrivWin *pPrivWin;
+X
+X    pPrivWin = (cfbPrivWin *)(pWin->devPrivates[cfbWindowPrivateIndex].ptr);
+X    pPrivWin->pRotatedBorder = NullPixmap;
+X    pPrivWin->pRotatedBackground = NullPixmap;
+X    pPrivWin->fastBackground = FALSE;
+X    pPrivWin->fastBorder = FALSE;
+X
+X    return TRUE;
+X}
+X
+XBool
+XcfbDestroyWindow(pWin)
+X    WindowPtr pWin;
+X{
+X    cfbPrivWin *pPrivWin;
+X
+X    pPrivWin = (cfbPrivWin *)(pWin->devPrivates[cfbWindowPrivateIndex].ptr);
+X
+X    if (pPrivWin->pRotatedBorder)
+X	cfbDestroyPixmap(pPrivWin->pRotatedBorder);
+X    if (pPrivWin->pRotatedBackground)
+X	cfbDestroyPixmap(pPrivWin->pRotatedBackground);
+X    return(TRUE);
+X}
+X
+X/*ARGSUSED*/
+XBool
+XcfbMapWindow(pWindow)
+X    WindowPtr pWindow;
+X{
+X    return(TRUE);
+X}
+X
+X/* (x, y) is the upper left corner of the window on the screen 
+X   do we really need to pass this?  (is it a;ready in pWin->absCorner?)
+X   we only do the rotation for pixmaps that are 32 bits wide (padded
+Xor otherwise.)
+X   cfbChangeWindowAttributes() has already put a copy of the pixmap
+Xin pPrivWin->pRotated*
+X*/
+X/*ARGSUSED*/
+XBool
+XcfbPositionWindow(pWin, x, y)
+X    WindowPtr pWin;
+X    int x, y;
+X{
+X    cfbPrivWin *pPrivWin;
+X    int setxy = 0;
+X
+X    pPrivWin = (cfbPrivWin *)(pWin->devPrivates[cfbWindowPrivateIndex].ptr);
+X    if (pWin->backgroundState == BackgroundPixmap && pPrivWin->fastBackground)
+X    {
+X	cfbXRotatePixmap(pPrivWin->pRotatedBackground,
+X		      pWin->drawable.x - pPrivWin->oldRotate.x);
+X	cfbYRotatePixmap(pPrivWin->pRotatedBackground,
+X		      pWin->drawable.y - pPrivWin->oldRotate.y);
+X	setxy = 1;
+X    }
+X
+X    if (!pWin->borderIsPixel &&	pPrivWin->fastBorder)
+X    {
+X	cfbXRotatePixmap(pPrivWin->pRotatedBorder,
+X		      pWin->drawable.x - pPrivWin->oldRotate.x);
+X	cfbYRotatePixmap(pPrivWin->pRotatedBorder,
+X		      pWin->drawable.y - pPrivWin->oldRotate.y);
+X	setxy = 1;
+X    }
+X    if (setxy)
+X    {
+X	pPrivWin->oldRotate.x = pWin->drawable.x;
+X	pPrivWin->oldRotate.y = pWin->drawable.y;
+X    }
+X    return (TRUE);
+X}
+X
+X/*ARGSUSED*/
+XBool
+XcfbUnmapWindow(pWindow)
+X    WindowPtr pWindow;
+X{
+X    return (TRUE);
+X}
+X
+X/* UNCLEAN!
+X   this code calls the bitblt helper code directly.
+X
+X   cfbCopyWindow copies only the parts of the destination that are
+Xvisible in the source.
+X*/
+X
+X
+Xvoid 
+XcfbCopyWindow(pWin, ptOldOrg, prgnSrc)
+X    WindowPtr pWin;
+X    DDXPointRec ptOldOrg;
+X    RegionPtr prgnSrc;
+X{
+X    DDXPointPtr pptSrc;
+X    register DDXPointPtr ppt;
+X    RegionPtr prgnDst;
+X    register BoxPtr pbox;
+X    register int dx, dy;
+X    register int i, nbox;
+X    WindowPtr pwinRoot;
+X
+X    pwinRoot = WindowTable[pWin->drawable.pScreen->myNum];
+X
+X    prgnDst = (* pWin->drawable.pScreen->RegionCreate)(NULL, 1);
+X
+X    dx = ptOldOrg.x - pWin->drawable.x;
+X    dy = ptOldOrg.y - pWin->drawable.y;
+X    (* pWin->drawable.pScreen->TranslateRegion)(prgnSrc, -dx, -dy);
+X    (* pWin->drawable.pScreen->Intersect)(prgnDst, &pWin->borderClip, prgnSrc);
+X
+X    pbox = REGION_RECTS(prgnDst);
+X    nbox = REGION_NUM_RECTS(prgnDst);
+X    if(!(pptSrc = (DDXPointPtr )ALLOCATE_LOCAL(nbox * sizeof(DDXPointRec))))
+X	return;
+X    ppt = pptSrc;
+X
+X    for (i = nbox; --i >= 0; ppt++, pbox++)
+X    {
+X	ppt->x = pbox->x1 + dx;
+X	ppt->y = pbox->y1 + dy;
+X    }
+X
+X    cfbDoBitbltCopy((DrawablePtr)pwinRoot, (DrawablePtr)pwinRoot,
+X		GXcopy, prgnDst, pptSrc, ~0L);
+X    DEALLOCATE_LOCAL(pptSrc);
+X    (* pWin->drawable.pScreen->RegionDestroy)(prgnDst);
+X}
+X
+X
+X
+X/* swap in correct PaintWindow* routine.  If we can use a fast output
+Xroutine (i.e. the pixmap is paddable to 32 bits), also pre-rotate a copy
+Xof it in devPrivates[cfbWindowPrivateIndex].ptr.
+X*/
+XBool
+XcfbChangeWindowAttributes(pWin, mask)
+X    WindowPtr pWin;
+X    unsigned long mask;
+X{
+X    register unsigned long index;
+X    register cfbPrivWin *pPrivWin;
+X    int width;
+X
+X    pPrivWin = (cfbPrivWin *)(pWin->devPrivates[cfbWindowPrivateIndex].ptr);
+X    while(mask)
+X    {
+X	index = lowbit (mask);
+X	mask &= ~index;
+X	switch(index)
+X	{
+X	  case CWBackPixmap:
+X	      if (pWin->backgroundState == None)
+X	      {
+X		  pPrivWin->fastBackground = FALSE;
+X	      }
+X	      else if (pWin->backgroundState == ParentRelative)
+X	      {
+X		  pPrivWin->fastBackground = FALSE;
+X	      }
+X	      else if (((width = (pWin->background.pixmap->drawable.width * PSZ)) <= 32) &&
+X		       !(width & (width - 1)))
+X	      {
+X		  cfbCopyRotatePixmap(pWin->background.pixmap,
+X				      &pPrivWin->pRotatedBackground,
+X				      pWin->drawable.x,
+X				      pWin->drawable.y);
+X		  if (pPrivWin->pRotatedBackground)
+X		  {
+X		      pPrivWin->fastBackground = TRUE;
+X		      pPrivWin->oldRotate.x = pWin->drawable.x;
+X		      pPrivWin->oldRotate.y = pWin->drawable.y;
+X		  }
+X		  else
+X		  {
+X		      pPrivWin->fastBackground = FALSE;
+X		  }
+X	      }
+X	      else
+X	      {
+X		  pPrivWin->fastBackground = FALSE;
+X	      }
+X	      break;
+X
+X	  case CWBackPixel:
+X	      pPrivWin->fastBackground = FALSE;
+X	      break;
+X
+X	  case CWBorderPixmap:
+X	      if (((width = (pWin->border.pixmap->drawable.width * PSZ)) <= 32) &&
+X		  !(width & (width - 1)))
+X	      {
+X		  cfbCopyRotatePixmap(pWin->border.pixmap,
+X				      &pPrivWin->pRotatedBorder,
+X				      pWin->drawable.x,
+X				      pWin->drawable.y);
+X		  if (pPrivWin->pRotatedBorder)
+X		  {
+X		      pPrivWin->fastBorder = TRUE;
+X		      pPrivWin->oldRotate.x = pWin->drawable.x;
+X		      pPrivWin->oldRotate.y = pWin->drawable.y;
+X		  }
+X		  else
+X		  {
+X		      pPrivWin->fastBorder = FALSE;
+X		  }
+X	      }
+X	      else
+X	      {
+X		  pPrivWin->fastBorder = FALSE;
+X	      }
+X	      break;
+X	    case CWBorderPixel:
+X	      pPrivWin->fastBorder = FALSE;
+X	      break;
+X
+X	}
+X    }
+X    return (TRUE);
+X}
+X
+END_OF_FILE
+if test 6938 -ne `wc -c <'server/ddx/cfb32/cfbwindow.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbwindow.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbwindow.c'
+fi
+if test -f 'server/ddx/dec/tx/xfbcmap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/tx/xfbcmap.c'\"
+else
+echo shar: Extracting \"'server/ddx/dec/tx/xfbcmap.c'\" \(7068 characters\)
+sed "s/^X//" >'server/ddx/dec/tx/xfbcmap.c' <<'END_OF_FILE'
+X#ifndef lint	/* BuildSystemHeader added automatically */
+Xstatic char *BuildSystemHeader= "$Header$";	/* BuildSystemHeader */
+X#endif		/* BuildSystemHeader */
+X/************************************************************
+XCopyright 1987 by Sun Microsystems, Inc. Mountain View, CA.
+X
+X                    All Rights Reserved
+X
+XPermission  to  use,  copy,  modify,  and  distribute   this
+Xsoftware  and  its documentation for any purpose and without
+Xfee is hereby granted, provided that the above copyright no-
+Xtice  appear  in all copies and that both that copyright no-
+Xtice and this permission notice appear in  supporting  docu-
+Xmentation,  and  that the names of Sun or MIT not be used in
+Xadvertising or publicity pertaining to distribution  of  the
+Xsoftware  without specific prior written permission. Sun and
+XM.I.T. make no representations about the suitability of this
+Xsoftware for any purpose. It is provided "as is" without any
+Xexpress or implied warranty.
+X
+XSUN DISCLAIMS ALL WARRANTIES WITH REGARD TO  THIS  SOFTWARE,
+XINCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FIT-
+XNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL SUN BE  LI-
+XABLE  FOR  ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,  DATA  OR
+XPROFITS,  WHETHER  IN  AN  ACTION OF CONTRACT, NEGLIGENCE OR
+XOTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION  WITH
+XTHE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X********************************************************/
+X
+X
+X#include "X.h"
+X#include "scrnintstr.h"
+X#include "colormapst.h"
+X#include "resource.h"
+X
+X#ifdef	STATIC_COLOR
+X
+Xstatic ColormapPtr InstalledMaps[MAXSCREENS];
+X
+Xint
+XxfbListInstalledColormaps(pScreen, pmaps)
+X    ScreenPtr	pScreen;
+X    Colormap	*pmaps;
+X{
+X    /* By the time we are processing requests, we can guarantee that there
+X     * is always a colormap installed */
+X    *pmaps = InstalledMaps[pScreen->myNum]->mid;
+X    return (1);
+X}
+X
+X
+Xvoid
+XxfbInstallColormap(pmap)
+X    ColormapPtr	pmap;
+X{
+X    int index = pmap->pScreen->myNum;
+X    ColormapPtr oldpmap = InstalledMaps[index];
+X
+X    if(pmap != oldpmap)
+X    {
+X	/* Uninstall pInstalledMap. No hardware changes required, just
+X	 * notify all interested parties. */
+X	if(oldpmap != (ColormapPtr)None)
+X	    WalkTree(pmap->pScreen, TellLostMap, (char *)&oldpmap->mid);
+X	/* Install pmap */
+X	InstalledMaps[index] = pmap;
+X	WalkTree(pmap->pScreen, TellGainedMap, (char *)&pmap->mid);
+X
+X    }
+X}
+X
+Xvoid
+XxfbUninstallColormap(pmap)
+X    ColormapPtr	pmap;
+X{
+X    int index = pmap->pScreen->myNum;
+X    ColormapPtr curpmap = InstalledMaps[index];
+X
+X    if(pmap == curpmap)
+X    {
+X	if (pmap->mid != pmap->pScreen->defColormap)
+X	{
+X	    curpmap = (ColormapPtr) LookupIDByType(pmap->pScreen->defColormap,
+X						   RT_COLORMAP);
+X	    (*pmap->pScreen->InstallColormap)(curpmap);
+X	}
+X    }
+X}
+X
+X#endif
+X
+Xvoid
+XxfbResolveColor(pred, pgreen, pblue, pVisual)
+X    unsigned short	*pred, *pgreen, *pblue;
+X    register VisualPtr	pVisual;
+X{
+X    int shift = 16 - pVisual->bitsPerRGBValue;
+X    unsigned lim = (1 << pVisual->bitsPerRGBValue) - 1;
+X
+X    if ((pVisual->class == PseudoColor) || (pVisual->class == DirectColor))
+X    {
+X	/* rescale to rgb bits */
+X	*pred = ((*pred >> shift) * 65535) / lim;
+X	*pgreen = ((*pgreen >> shift) * 65535) / lim;
+X	*pblue = ((*pblue >> shift) * 65535) / lim;
+X    }
+X    else if (pVisual->class == GrayScale)
+X    {
+X	/* rescale to gray then rgb bits */
+X	*pred = (30L * *pred + 59L * *pgreen + 11L * *pblue) / 100;
+X	*pblue = *pgreen = *pred = ((*pred >> shift) * 65535) / lim;
+X    }
+X    else if (pVisual->class == StaticGray)
+X    {
+X	unsigned limg = pVisual->ColormapEntries - 1;
+X	/* rescale to gray then [0..limg] then [0..65535] then rgb bits */
+X	*pred = (30L * *pred + 59L * *pgreen + 11L * *pblue) / 100;
+X	*pred = ((((*pred * (limg + 1))) >> 16) * 65535) / limg;
+X	*pblue = *pgreen = *pred = ((*pred >> shift) * 65535) / lim;
+X    }
+X    else
+X    {
+X	unsigned limr, limg, limb;
+X
+X	limr = pVisual->redMask >> pVisual->offsetRed;
+X	limg = pVisual->greenMask >> pVisual->offsetGreen;
+X	limb = pVisual->blueMask >> pVisual->offsetBlue;
+X	/* rescale to [0..limN] then [0..65535] then rgb bits */
+X	*pred = ((((((*pred * (limr + 1)) >> 16) *
+X		    65535) / limr) >> shift) * 65535) / lim;
+X	*pgreen = ((((((*pgreen * (limg + 1)) >> 16) *
+X		      65535) / limg) >> shift) * 65535) / lim;
+X	*pblue = ((((((*pblue * (limb + 1)) >> 16) *
+X		     65535) / limb) >> shift) * 65535) / lim;
+X    }
+X}
+X
+XBool
+XxfbInitializeColormap(pmap)
+X    register ColormapPtr	pmap;
+X{
+X    register unsigned i;
+X    register VisualPtr pVisual;
+X    unsigned lim, maxent, shift;
+X
+X    pVisual = pmap->pVisual;
+X    lim = (1 << pVisual->bitsPerRGBValue) - 1;
+X    shift = 16 - pVisual->bitsPerRGBValue;
+X    maxent = pVisual->ColormapEntries - 1;
+X    if (pVisual->class == TrueColor)
+X    {
+X	unsigned limr, limg, limb;
+X
+X	limr = pVisual->redMask >> pVisual->offsetRed;
+X	limg = pVisual->greenMask >> pVisual->offsetGreen;
+X	limb = pVisual->blueMask >> pVisual->offsetBlue;
+X	for(i = 0; i <= maxent; i++)
+X	{
+X	    /* rescale to [0..65535] then rgb bits */
+X	    pmap->red[i].co.local.red =
+X		((((i * 65535) / limr) >> shift) * 65535) / lim;
+X	    pmap->green[i].co.local.green =
+X		((((i * 65535) / limg) >> shift) * 65535) / lim;
+X	    pmap->blue[i].co.local.blue =
+X		((((i * 65535) / limb) >> shift) * 65535) / lim;
+X	}
+X    }
+X    else if (pVisual->class == StaticColor)
+X    {
+X	unsigned limr, limg, limb;
+X
+X	limr = pVisual->redMask >> pVisual->offsetRed;
+X	limg = pVisual->greenMask >> pVisual->offsetGreen;
+X	limb = pVisual->blueMask >> pVisual->offsetBlue;
+X	for(i = 0; i <= maxent; i++)
+X	{
+X	    /* rescale to [0..65535] then rgb bits */
+X	    pmap->red[i].co.local.red =
+X		((((((i & pVisual->redMask) >> pVisual->offsetRed)
+X		    * 65535) / limr) >> shift) * 65535) / lim;
+X	    pmap->red[i].co.local.green =
+X		((((((i & pVisual->greenMask) >> pVisual->offsetGreen)
+X		    * 65535) / limg) >> shift) * 65535) / lim;
+X	    pmap->red[i].co.local.blue =
+X		((((((i & pVisual->blueMask) >> pVisual->offsetBlue)
+X		    * 65535) / limb) >> shift) * 65535) / lim;
+X	}
+X    }
+X    else if (pVisual->class == StaticGray)
+X    {
+X	for(i = 0; i <= maxent; i++)
+X	{
+X	    /* rescale to [0..65535] then rgb bits */
+X	    pmap->red[i].co.local.red = ((((i * 65535) / maxent) >> shift)
+X					 * 65535) / lim;
+X	    pmap->red[i].co.local.green = pmap->red[i].co.local.red;
+X	    pmap->red[i].co.local.blue = pmap->red[i].co.local.red;
+X	}
+X    }
+X    return TRUE;
+X}
+X
+XBool
+XxfbCreateDefColormap(pScreen)
+X    ScreenPtr pScreen;
+X{
+X    unsigned short	zero = 0, ones = ~0;
+X    VisualPtr	pVisual;
+X    ColormapPtr	cmap;
+X    
+X    for (pVisual = pScreen->visuals;
+X	 pVisual->vid != pScreen->rootVisual;
+X	 pVisual++)
+X	;
+X
+X    if (CreateColormap(pScreen->defColormap, pScreen, pVisual, &cmap,
+X		       (pVisual->class & DynamicClass) ? AllocNone : AllocAll,
+X		       0)
+X	!= Success)
+X	return FALSE;
+X    if ((AllocColor(cmap, &ones, &ones, &ones, &(pScreen->whitePixel), 0) !=
+X       	   Success) ||
+X    	(AllocColor(cmap, &zero, &zero, &zero, &(pScreen->blackPixel), 0) !=
+X       	   Success))
+X	return FALSE;
+X    (*pScreen->InstallColormap)(cmap);
+X    return TRUE;
+X}
+END_OF_FILE
+if test 7068 -ne `wc -c <'server/ddx/dec/tx/xfbcmap.c'`; then
+    echo shar: \"'server/ddx/dec/tx/xfbcmap.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/tx/xfbcmap.c'
+fi
+if test -f 'server/ddx/dec/tx/xfbwindow.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/tx/xfbwindow.c'\"
+else
+echo shar: Extracting \"'server/ddx/dec/tx/xfbwindow.c'\" \(6727 characters\)
+sed "s/^X//" >'server/ddx/dec/tx/xfbwindow.c' <<'END_OF_FILE'
+X/****************************************************************************
+X**                                                                          *
+X**                  COPYRIGHT (c) 1988, 1989, 1990 BY                       *
+X**             DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.                *
+X**			   ALL RIGHTS RESERVED                              *
+X**                                                                          *
+X**  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED  *
+X**  ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE  *
+X**  INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER  *
+X**  COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY  *
+X**  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY  *
+X**  TRANSFERRED.                                                            *
+X**                                                                          *
+X**  THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE  *
+X**  AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT  *
+X**  CORPORATION.                                                            *
+X**                                                                          *
+X**  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS  *
+X**  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.                 *
+X**                                                                          *
+X****************************************************************************/
+X
+X/*
+XUpdated edg 18sep91:
+X    The select plane is painted in three places: CopyWindow, PaintWindow, and
+X    WindowExposures.  (For an analysis showing that this is sufficient ask
+X    Ed Goei.)  This is done by ropSetSelect().  The value written to the
+X    select plane depends on which hardware colormap a window's colormap will
+X    be installed into.  See ropcolor.c for more info.
+X*/
+X
+X#include "X.h"
+X#include "scrnintstr.h"
+X#include "windowstr.h"
+X#include "mistruct.h"
+X#include "regionstr.h"
+X
+X#include "xfbstruct.h"
+X#include "tfb.h"
+X
+X/*
+XFigure out which hardware colormap to use with this window.  This should
+Xagree with HardwareMap() in ropcolor.c.
+X*/
+X#define xfbGetHardwareCmap(pWin) \
+X    ((wVisual(pWin) == pWin->drawable.pScreen->rootVisual) ? 0 : 1)
+X
+XBool
+XxfbCreateWindow(pWin)
+X    WindowPtr pWin;
+X{
+X    if (pWin->drawable.depth == 8) {
+X	return (cfbCreateWindow(pWin));
+X    } else {
+X	return (tfbCreateWindow(pWin));
+X    }
+X}
+X
+XBool
+XxfbDestroyWindow(pWin)
+X    WindowPtr pWin;
+X{
+X    if (pWin->drawable.depth == 8) {
+X	return (cfbDestroyWindow(pWin));
+X    } else {
+X	return (tfbDestroyWindow(pWin));
+X    }
+X}
+X
+XBool
+XxfbMapWindow(pWin)
+X    WindowPtr pWin;
+X{
+X    if (pWin->drawable.depth == 8) {
+X	return (cfbMapWindow(pWin));
+X    } else {
+X	return (tfbMapWindow(pWin));
+X    }
+X}
+X
+XBool
+XxfbPositionWindow(pWin, x, y)
+X    WindowPtr pWin;
+X    int x, y;
+X{
+X    if (pWin->drawable.depth == 8) {
+X	return (cfbPositionWindow(pWin, x, y));
+X    } else {
+X	return (tfbPositionWindow(pWin, x, y));
+X    }
+X}
+X
+XBool
+XxfbUnmapWindow(pWin)
+X    WindowPtr pWin;
+X{
+X    if (pWin->drawable.depth == 8) {
+X	return (cfbUnmapWindow(pWin));
+X    } else {
+X	return (tfbUnmapWindow(pWin));
+X    }
+X}
+X
+X/*
+XLook at pWin and all viewable children to see if they all have the same
+Xdepth and hardware colormap.
+XOutputs:
+X    pDepth:
+X	8 = all are depth 8
+X	24 = all are depth 24
+X	-1 = windows have different depths
+X    pHwCmap:
+X	if > 0 = hardware colormap number to use
+X	-1 = windows have different hardware colormaps
+X*/
+Xvoid
+XxfbFindDepthAndHwCmap(pWin, pDepth, pHwCmap)
+X    WindowPtr pWin;
+X    int *pDepth;
+X    int *pHwCmap;
+X{
+X    WindowPtr pChild;
+X    int depth = pWin->drawable.depth;
+X    int hwCmap = xfbGetHardwareCmap(pWin);
+X
+X    pChild = pWin;
+X    while (1) {
+X	if (pChild->viewable) {
+X
+X	    if (depth != pChild->drawable.depth) {
+X		depth = -1;  /* windows are different depths */
+X	    }
+X	    if (hwCmap != xfbGetHardwareCmap(pChild)) {
+X		hwCmap = -1;  /* windows have different hardware cmaps */
+X	    }
+X	    if (depth < 0 && hwCmap < 0) {
+X		break;
+X	    }
+X
+X	    if (pChild->firstChild) {
+X		pChild = pChild->firstChild;
+X		continue;
+X	    }
+X	}
+X	while (!pChild->nextSib && (pChild != pWin))
+X	    pChild = pChild->parent;
+X	if (pChild == pWin)
+X	    break;
+X	pChild = pChild->nextSib;
+X    }
+X    *pDepth = depth;
+X    *pHwCmap = hwCmap;
+X    return;
+X}
+X
+X/*
+XPaint the appropriate select plane region corresponding to the window pWin.
+XThe appropriate region is the clipped border plus the clipList region.
+X*/
+Xstatic void
+XxfbCopyWindowSetCmap(pWin)
+X    WindowPtr pWin;
+X{
+X    ScreenPtr pScreen = pWin->drawable.pScreen;
+X    RegionPtr ptmpReg;
+X    
+X    ptmpReg = NotClippedByChildren(pWin);
+X    (*pScreen->Subtract)(ptmpReg, &pWin->borderClip, ptmpReg);
+X    (*pScreen->Union)(ptmpReg, ptmpReg, &pWin->clipList);
+X    ropSetSelect(pScreen, ptmpReg, xfbGetHardwareCmap(pWin));
+X    (*pScreen->RegionDestroy)(ptmpReg);
+X}
+X
+Xvoid
+XxfbCopyWindowSetCmaps(pWin)
+X    WindowPtr pWin;
+X{
+X    WindowPtr pChild;
+X
+X    pChild = pWin;
+X    while (1) {
+X	if (pChild->viewable) {
+X
+X	    xfbCopyWindowSetCmap(pChild);
+X
+X	    if (pChild->firstChild) {
+X		pChild = pChild->firstChild;
+X		continue;
+X	    }
+X	}
+X	while (!pChild->nextSib && (pChild != pWin))
+X	    pChild = pChild->parent;
+X	if (pChild == pWin)
+X	    break;
+X	pChild = pChild->nextSib;
+X    }
+X}
+X
+Xvoid 
+XxfbCopyWindow(pWin, ptOldOrg, prgnSrc)
+X    WindowPtr pWin;
+X    DDXPointRec ptOldOrg;
+X    RegionPtr prgnSrc;
+X{
+X    int depth, hwCmap;
+X
+X    xfbFindDepthAndHwCmap(pWin, &depth, &hwCmap);
+X    if (hwCmap != -1) {
+X	/* easy case: windows all have the same hardware cmap */
+X	ropSetSelect(pWin->drawable.pScreen, &pWin->borderClip, hwCmap);
+X    } else {
+X	xfbCopyWindowSetCmaps(pWin);
+X    }
+X    if (depth == 8) {
+X	cfbCopyWindow(pWin, ptOldOrg, prgnSrc);
+X    } else {
+X	tfbCopyWindow(pWin, ptOldOrg, prgnSrc);
+X    }
+X}
+X
+XBool
+XxfbChangeWindowAttributes(pWin, mask)
+X    WindowPtr pWin;
+X    unsigned long mask;
+X{
+X    if (pWin->drawable.depth == 8) {
+X	return (cfbChangeWindowAttributes(pWin, mask));
+X    } else {
+X	return (tfbChangeWindowAttributes(pWin, mask));
+X    }
+X}
+X
+Xvoid
+XxfbPaintWindow(pWin, pRegion, what)
+X    WindowPtr	pWin;
+X    RegionPtr	pRegion;
+X    int		what;
+X{
+X    if (what == PW_BORDER) {
+X	ropSetSelect(pWin->drawable.pScreen, pRegion, xfbGetHardwareCmap(pWin));
+X    }
+X    if (pWin->drawable.depth == 8) {
+X	cfbPaintWindow(pWin, pRegion, what);
+X    } else {
+X	tfbPaintWindow(pWin, pRegion, what);
+X    }
+X    return;
+X}
+X
+Xvoid 
+XxfbWindowExposures(pWin, prgn, other_exposed)
+X    WindowPtr pWin;
+X    RegionPtr prgn, other_exposed;
+X{
+X    ropSetSelect(pWin->drawable.pScreen, prgn, xfbGetHardwareCmap(pWin));
+X    miWindowExposures(pWin, prgn, other_exposed);
+X}
+END_OF_FILE
+if test 6727 -ne `wc -c <'server/ddx/dec/tx/xfbwindow.c'`; then
+    echo shar: \"'server/ddx/dec/tx/xfbwindow.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/tx/xfbwindow.c'
+fi
+if test -f 'server/ddx/sun/xfbscrinit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/sun/xfbscrinit.c'\"
+else
+echo shar: Extracting \"'server/ddx/sun/xfbscrinit.c'\" \(6516 characters\)
+sed "s/^X//" >'server/ddx/sun/xfbscrinit.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X#include "X.h"
+X#include "Xmd.h"
+X#include "servermd.h"
+X#include "scrnintstr.h"
+X#include "pixmapstr.h"
+X#include "resource.h"
+X#include "colormap.h"
+X#include "colormapst.h"
+X#include "cfb.h"
+X#include "xfbstruct.h"
+X#include "mi.h"
+X#include "mistruct.h"
+X#include "dix.h"
+X#include "mibstore.h"
+X
+Xextern RegionPtr mfbPixmapToRegion();
+Xextern RegionPtr xfbCopyPlane();
+Xextern Bool mfbAllocatePrivates();
+X
+Xstatic unsigned long xfbGeneration = 0;
+Xint xfbScreenPrivateIndex;
+Xint xfbGCPrivateIndex;
+Xint xfbWindowPrivateIndex;
+X
+X/* mi backing store support functions */
+XmiBSFuncRec xfbBSFuncRec = {
+X    xfbSaveAreas,
+X    xfbRestoreAreas,
+X    (void (*)()) 0,
+X    (PixmapPtr (*)()) 0,
+X    (PixmapPtr (*)()) 0,
+X};
+X
+X
+Xstatic Bool
+XxfbCloseScreen (index, pScreen)
+X    int		index;
+X    ScreenPtr	pScreen;
+X{
+X  xfbScreenPrivPtr pxfbs = 
+X    (xfbScreenPrivPtr)pScreen->devPrivates[xfbScreenPrivateIndex].ptr;
+X
+X  if (!pxfbs) return TRUE;
+X
+X  if (pxfbs->cfb8_1) cfbDrawClose(pScreen);
+X  if (pxfbs->cfb32_1) cfb32DrawClose(pScreen);
+X
+X  xfree(pxfbs);
+X
+X  pScreen->devPrivates[xfbScreenPrivateIndex].ptr = (pointer)NULL;
+X
+X  return TRUE;
+X}
+X
+X/*
+X  General purpose function to do equivalent of XMatchVisualInfo().
+X  */
+Xstatic VisualPtr
+X  xfbMatchVisual(pScreen, depth, visualClass)
+XScreenPtr pScreen;
+Xint depth, visualClass;
+X{
+X  int i, j;
+X  DepthPtr pDepth;
+X  VisualPtr pVisual;
+X  unsigned long vid;
+X  
+X  pDepth = pScreen->allowedDepths;
+X  for (i = 0; i < pScreen->numDepths; i++) {
+X    if (pDepth->depth == depth) {
+X      for (j = 0; j < pDepth->numVids; j++) {
+X	vid = pDepth->vids[j];
+X	for (pVisual = pScreen->visuals; pVisual->vid != vid; pVisual++)
+X	  ;
+X	if (pVisual->class == visualClass) {
+X	  return (pVisual);
+X	}
+X      }
+X      return (NULL);
+X    }
+X    pDepth++;
+X  }
+X  return (NULL);
+X}
+X
+XBool xfbScreenInit(pScreen, pbits, xsize, ysize, dpix, dpiy, width,
+X		rootDepth, numDepths, depths, rootVisual, numVisuals, visuals,
+X		pbitsd, setDepthFunc)
+Xregister ScreenPtr pScreen;
+Xpointer pbits;		/* pointer to screen bits */
+Xint xsize, ysize;		/* in pixels */
+Xint dpix, dpiy;		/* dots per inch */
+Xint width;			/* pixel width of frame buffer */
+Xint rootDepth;		/* depth of root window */
+Xint numDepths;		/* number of depths supported */
+XDepthRec *depths;		/* supported depths */
+XVisualID rootVisual;	/* root visual */
+Xint numVisuals;		/* number of visuals supported */
+XVisualRec *visuals;		/* supported visuals */
+Xpointer *pbitsd;        /* screen per depth pixmap pointers */
+Xvoid (* setDepthFunc)();
+X
+X{
+X  int	i;
+X  VisualPtr pVisual;
+X  xfbScreenPrivPtr pxfbs;
+X
+X  if (xfbGeneration != serverGeneration)
+X    {
+X      xfbScreenPrivateIndex = AllocateScreenPrivateIndex();
+X      pxfbs = (xfbScreenPrivPtr)xalloc(sizeof(xfbScreenPrivRec));
+X      pxfbs->SetDepth = setDepthFunc;
+X      pxfbs->cfb1_1 = FALSE;
+X      pxfbs->cfb8_1 = FALSE;
+X      pxfbs->cfb32_1 = FALSE;
+X      pScreen->devPrivates[xfbScreenPrivateIndex].ptr = (pointer)pxfbs;
+X      if (!mfbAllocatePrivates(pScreen,
+X			       &xfbWindowPrivateIndex, &xfbGCPrivateIndex))
+X	return FALSE;
+X      xfbGeneration = serverGeneration;
+X    }
+X
+X  /* SEE WHICH ALTERNATIVE SCREEN PIXMAPS NEED TO BE INITIALIZED */
+X
+X  for (i=0; i<numDepths; i++)
+X    {
+X      if (pbitsd[i] && depths[i].depth != rootDepth)
+X	{
+X	  if (depths[i].depth == 1)
+X	    {
+X	      printf("Error: xfbScreenInit: mfb must be root depth\n");
+X	      return FALSE;
+X	    }
+X	  else if (depths[i].depth == 8)
+X	    {
+X	      if (!cfbDrawInit(pScreen, pbitsd[i], 
+X			       xsize, ysize, width,
+X			       xfbWindowPrivateIndex, xfbGCPrivateIndex)) 
+X		return FALSE;
+X	      pxfbs->cfb8_1 = TRUE;
+X	    }
+X	  else if (depths[i].depth == 24 || depths[i].depth == 32)
+X	    {
+X	      if (!cfb32DrawInit(pScreen, pbitsd[i], 
+X				 xsize, ysize, width,
+X				 xfbWindowPrivateIndex, xfbGCPrivateIndex)) 
+X		{
+X		  return FALSE;
+X		}
+X	      pxfbs->cfb32_1 = TRUE;
+X	    }
+X	}
+X    }
+X
+X  if (!miScreenInit(pScreen, pbits,
+X		    xsize, ysize,
+X		    dpix, dpiy,
+X		    width,
+X		    rootDepth, numDepths, depths,
+X		    rootVisual, numVisuals, visuals,
+X		    &xfbBSFuncRec))
+X    return FALSE;
+X  
+X  pScreen->CreateWindow = xfbCreateWindow;
+X  pScreen->DestroyWindow = xfbDestroyWindow;
+X  pScreen->PositionWindow = xfbPositionWindow;
+X  pScreen->ChangeWindowAttributes = xfbChangeWindowAttributes;
+X  pScreen->RealizeWindow = xfbMapWindow;
+X  pScreen->UnrealizeWindow = xfbUnmapWindow;
+X  
+X  pScreen->RealizeFont = mfbRealizeFont;
+X  pScreen->UnrealizeFont = mfbUnrealizeFont;
+X  pScreen->CloseScreen = xfbCloseScreen;
+X  pScreen->QueryBestSize = mfbQueryBestSize;
+X  pScreen->GetImage = xfbGetImage;
+X  pScreen->GetSpans = xfbGetSpans;
+X  pScreen->SourceValidate = (void (*)()) 0;
+X  pScreen->CreateGC = xfbCreateGC;
+X  pScreen->CreatePixmap = xfbCreatePixmap;
+X  pScreen->DestroyPixmap = xfbDestroyPixmap;
+X
+X  pScreen->BitmapToRegion = mfbPixmapToRegion;
+X
+X#ifdef	STATIC_COLOR
+X  pScreen->InstallColormap = cfbInstallColormap;
+X  pScreen->UninstallColormap = cfbUninstallColormap;
+X  pScreen->ListInstalledColormaps = cfbListInstalledColormaps;
+X  pScreen->StoreColors = NoopDDA;
+X#endif
+X  pScreen->ResolveColor = cfbResolveColor;
+X
+X  pScreen->WindowExposures = xfbWindowExposures;
+X  pScreen->PaintWindowBackground = xfbPaintWindow;
+X  pScreen->PaintWindowBorder = xfbPaintWindow;
+X  pScreen->CopyWindow = xfbCopyWindow;
+X  pScreen->ClipNotify = (void (*)()) 0;
+X  
+X  return TRUE;
+X  
+X}
+X
+END_OF_FILE
+if test 6516 -ne `wc -c <'server/ddx/sun/xfbscrinit.c'`; then
+    echo shar: \"'server/ddx/sun/xfbscrinit.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/sun/xfbscrinit.c'
+fi
+echo shar: End of archive 24 \(of 29\).
+cp /dev/null ark24isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

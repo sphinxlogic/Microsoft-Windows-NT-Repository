@@ -1,0 +1,2604 @@
+Newsgroups: comp.sources.misc
+From: art@cs.ualberta.ca (Art Mulder)
+Subject: v35i089:  ss - Simple Spreadsheet program, v1.2b, Part03/11
+Message-ID: <1993Feb22.152754.21383@sparky.imd.sterling.com>
+X-Md4-Signature: d87ea6db33a21d8285fc2907cde5f37a
+Date: Mon, 22 Feb 1993 15:27:54 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: art@cs.ualberta.ca (Art Mulder)
+Posting-number: Volume 35, Issue 89
+Archive-name: ss/part03
+Environment: curses, sunos, sysv, ultrix, sgi, dec, mips, sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ss_12b/cmds.c ss_12b/screen.c
+# Wrapped by kent@sparky on Sat Feb 20 16:01:01 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 11)."'
+if test -f 'ss_12b/cmds.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/cmds.c'\"
+else
+  echo shar: Extracting \"'ss_12b/cmds.c'\" \(42376 characters\)
+  sed "s/^X//" >'ss_12b/cmds.c' <<'END_OF_FILE'
+X/*	SC	A Spreadsheet Calculator
+X *		Command routines
+X *
+X *		original by James Gosling, September 1982
+X *		modifications by Mark Weiser and Bruce Israel,
+X *			University of Maryland
+X *
+X *              More mods Robert Bond, 12/86
+X *
+X *		$Revision: 6.19 $
+X */
+X /* patched in some of the sc Rev 6.21 stuff.  Art Mulder, 5/92 */
+X
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include Files
+X */
+X#include <sys/types.h>
+X#if defined(BSD42) || defined(BSD43)
+X#  include <strings.h>
+X#else
+X#  ifndef SYSIII
+X#    include <string.h>
+X#  endif
+X#endif
+X
+X#include "curses_stuff.h"
+X
+X#if defined(BSD42) || defined(BSD43) || defined(VMS)
+X#  include <sys/file.h>
+X#else
+X#  include <fcntl.h>
+X#endif
+X
+X#include <signal.h>
+X#include <errno.h>
+X
+X#include "ss.h"
+X#include "keys.h"
+X
+X/*
+X * Function Prototypes
+X */
+X
+X#ifdef SYSV3
+Xextern void exit();
+X#else
+Xextern int exit();
+X#endif
+X
+Xvoid	openrow();
+Xvoid	syncref();
+Xvoid	unspecial();
+X
+Xextern	int	errno;
+X
+X/* a linked list of free [struct ent]'s, uses .next as the pointer */
+Xextern	struct ent *freeents;
+X
+X/* a linked list of free [struct enodes]'s, uses .e.o.left as the pointer */
+Xextern	struct enode *freeenodes;
+X
+X#define DEFCOLDELIM ':'
+X
+X/* copy the current row (currow) and place the cursor in the new row */
+Xvoid
+Xduprow()
+X{
+X    if (currow >= maxrows - 1 || maxrow >= maxrows - 1) {
+X	if (!growtbl(GROWROW, 0, 0))
+X		return;
+X    }
+X    modflg++;
+X    currow++;
+X    openrow (currow);
+X    for (curcol = 0; curcol <= maxcol; curcol++) {
+X	register struct ent *p = *ATBL(tbl, currow - 1, curcol);
+X	if (p) {
+X	    register struct ent *n;
+X	    n = lookat (currow, curcol);
+X	    copyent ( n, p, 1, 0);
+X	}
+X    }
+X    for (curcol = 0; curcol <= maxcol; curcol++) {
+X	register struct ent *p = *ATBL(tbl, currow, curcol);
+X	if (p && (p -> flags & is_valid) && !p -> expr)
+X	    break;
+X    }
+X    if (curcol > maxcol)
+X	curcol = 0;
+X}
+X
+X/* copy the current column (curcol) and place the cursor in the new column */
+Xvoid
+Xdupcol() 
+X{
+X    if (curcol >= maxcols - 1 || maxcol >= maxcols - 1) {
+X	if (!growtbl(GROWCOL, 0, 0))
+X		return;
+X    }
+X    modflg++;
+X    curcol++;
+X    opencol (curcol, 1);
+X    for (currow = 0; currow <= maxrow; currow++) {
+X	register struct ent *p = *ATBL(tbl, currow, curcol - 1);
+X	if (p) {
+X	    register struct ent *n;
+X	    n = lookat (currow, curcol);
+X	    copyent ( n, p, 0, 1);
+X	}
+X    }
+X    for (currow = 0; currow <= maxrow; currow++) {
+X	register struct ent *p = *ATBL(tbl, currow, curcol);
+X	if (p && (p -> flags & is_valid) && !p -> expr)
+X	    break;
+X    }
+X    if (currow > maxrow)
+X	currow = 0;
+X}
+X
+X/* insert 'arg' rows before currow */
+Xvoid
+Xinsertrow(arg)
+Xregister int arg;
+X{
+X    while (--arg>=0) openrow (currow);
+X}
+X
+Xvoid deleterow(startrow,endrow)
+X/*----------------------------------------------------------------------
+X** Delete the rows from 'startrow' to 'endrow'.  (startrow must be
+X** <= endrow.)
+X*/
+X    register int startrow,endrow;
+X{
+X    if (any_locked_cells(startrow, 0, endrow, maxcol))
+X	error("Locked cells encountered. Nothing changed");
+X    else {
+X    	flush_saved();
+X    	erase_area(startrow, 0, endrow, maxcol);
+X/*    	currow += arg;
+X**    	while (--arg>=0) closerow (--currow);
+X*/
+X    	currow = startrow;
+X	while (startrow <= endrow) 
+X	    closerow(endrow--);
+X    	sync_refs();
+X    }
+X}
+X
+Xvoid
+Xerase_area(sr, sc, er, ec)
+Xint sr, sc, er, ec;
+X{
+X    register int r, c;
+X    register struct ent **pp;
+X
+X    if (sr > er) {
+X	r = sr; sr = er; er= r;	
+X    }
+X
+X    if (sc > ec) {
+X	c = sc; sc = ec; ec= c;	
+X    }
+X
+X    if (sr < 0)
+X	sr = 0; 
+X    if (sc < 0)
+X	sc = 0;
+X    checkbounds(&er, &ec);
+X
+X    for (r = sr; r <= er; r++) {
+X	for (c = sc; c <= ec; c++) {
+X	    pp = ATBL(tbl, r, c);
+X	    if (*pp && !((*pp)->flags&is_locked)) {
+X		free_ent(*pp);
+X		*pp = (struct ent *)0;
+X	    }
+X	}
+X    }
+X}
+X
+X/*
+X * deletes the expression associated w/ a cell and turns it into a constant
+X * containing whatever was on the screen
+X */
+Xvoid
+Xvalueize_area(sr, sc, er, ec)
+Xint sr, sc, er, ec;
+X{
+X    register int r, c;
+X    register struct ent *p;
+X
+X    if (sr > er) {
+X	r = sr; sr = er; er= r;	
+X    }
+X
+X    if (sc > ec) {
+X	c = sc; sc = ec; ec= c;	
+X    }
+X
+X    if (sr < 0)
+X	sr = 0; 
+X    if (sc < 0)
+X	sc = 0;
+X    checkbounds(&er, &ec);
+X
+X    for (r = sr; r <= er; r++) {
+X	for (c = sc; c <= ec; c++) {
+X	    p = *ATBL(tbl, r, c);
+X	    if (p && p->flags&is_locked) {
+X		error(" Cell %s%d is locked", coltoa(c), r);
+X		continue;
+X	    }
+X	    if (p && p->expr) {
+X		efree(p->expr);
+X		p->expr = (struct enode *)0;
+X		p->flags &= ~is_strexpr;
+X	    }
+X	}
+X    }
+X
+X}
+X
+Xvoid
+Xpullcells(to_insert)
+Xint to_insert;
+X{
+X    register struct ent *p, *n;
+X    register int deltar, deltac;
+X    int minrow, mincol;
+X    int mxrow, mxcol;
+X    int numrows, numcols;
+X
+X    if (! to_fix)
+X    {
+X	error ("No data to pull");
+X	return;
+X    }
+X
+X    minrow = maxrows; 
+X    mincol = maxcols;
+X    mxrow = 0;
+X    mxcol = 0;
+X
+X    for (p = to_fix; p; p = p->next) {
+X	if (p->row < minrow)
+X	    minrow = p->row;
+X	if (p->row > mxrow)
+X	    mxrow = p->row;
+X	if (p->col < mincol)
+X	    mincol = p->col;
+X	if (p->col > mxcol)
+X	    mxcol = p->col;
+X    }
+X
+X    numrows = mxrow - minrow + 1;
+X    numcols = mxcol - mincol + 1;
+X    deltar = currow - minrow;
+X    deltac = curcol - mincol;
+X
+X    if (to_insert == 'r') {
+X	insertrow(numrows);
+X	deltac = 0;
+X    } else if (to_insert == 'c') {
+X	opencol(curcol, numcols);
+X	deltar = 0;
+X    }
+X
+X    FullUpdate++;
+X    modflg++;
+X
+X    for (p = to_fix; p; p = p->next) {
+X	n = lookat (p->row + deltar, p->col + deltac);
+X	clearent(n);
+X	copyent( n, p, deltar, deltac);
+X	n -> flags = p -> flags & ~is_deleted;
+X    }
+X}
+X
+X/* 
+X** ** ** ** ** ** ** ** ** ** ** ** ** ** **
+X** Art Mulder Modified:  See "rowcolumn.c"
+X** ** ** ** ** ** ** ** ** ** ** ** ** ** **
+X**
+X** void
+X** colshow_op()
+X** {
+X**     register int i,j;
+X**     for (i=0; i<maxcols; i++)
+X** 	if (col_hidden[i]) 
+X** 	    break;
+X**     for(j=i; j<maxcols; j++)
+X** 	if (!col_hidden[j])
+X** 	    break;
+X**     j--;
+X**     if (i>=maxcols)
+X** 	error ("No hidden columns to show");
+X**     else {
+X** 	Sprintf(line,"show %s:", coltoa(i));
+X** 	Sprintf(line + strlen(line),"%s",coltoa(j));
+X** 	linelim = strlen (line);
+X**     }
+X** }
+X** 
+X** void
+X** rowshow_op()
+X** {
+X**     register int i,j;
+X**     for (i=0; i<maxrows; i++)
+X** 	if (row_hidden[i]) 
+X** 	    break;
+X**     for(j=i; j<maxrows; j++)
+X** 	if (!row_hidden[j]) {
+X** 	    break;
+X** 	}
+X**     j--;
+X** 
+X**     if (i>=maxrows)
+X** 	error ("No hidden rows to show");
+X**     else {
+X** 	Sprintf(line,"show %d:%d", i, j);
+X**         linelim = strlen (line);
+X**     }
+X** }
+X*/ 
+X
+X/*
+X * Given a row/column command letter, emit a small menu, then read a qualifier
+X * character for a row/column command and convert it to 'r' (row), 'c'
+X * (column), or 0 (unknown).  If ch is 'p', an extra qualifier 'm' is allowed.
+X */
+X
+X/* 
+X** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
+X** Art Mulder Modified:  No Longer Used.  Jan 25/93
+X** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
+X** int
+X** get_rcqual (ch)
+X**     int ch;
+X** {
+X**     error ("%sow/column:  r: row  c: column%s",
+X** 	    (ch == 'i') ? "Insert r" :
+X** 	    (ch == 'a') ? "Append r" :
+X** 	    (ch == 'd') ? "Delete r" :
+X** 	    (ch == 'p') ? "Pull r" :
+X** 	    (ch == 'v') ? "Values r" :
+X** 	    (ch == 'z') ? "Zap r" :
+X** 	    (ch == 's') ? "Show r" : "R",
+X** 
+X** 	    (ch == 'p') ? "  m: merge" : "");
+X** 
+X**     switch (nmgetch())
+X**     {
+X** 	case 'r':
+X** 	case 'l':
+X** 	case 'h':
+X** 	case ctl('f'):
+X** 	case ctl('b'):	return ('r');
+X** 
+X** 	case 'c':
+X** 	case 'j':
+X** 	case 'k':
+X** 	case ctl('p'):
+X** 	case ctl('n'):	return ('c');
+X** 
+X** 	case 'm':	return ((ch == 'p') ? 'm' : 0);
+X** 
+X** 	case ESC:
+X** 	case ctl('g'):	return (ESC);
+X** 
+X** 	default:	return (0);
+X**     }
+X** 
+X** }
+X*/ 
+X
+Xvoid
+Xopenrow (rs)
+Xint	rs;
+X{
+X    register	r, c;
+X    struct ent	**tmprow, **pp;
+X
+X    if (rs > maxrow) maxrow = rs;
+X    if (maxrow >= maxrows - 1 || rs > maxrows - 1) {
+X	if (!growtbl(GROWROW, rs, 0))
+X		return;
+X    }
+X	/*
+X	 * save the last active row+1, shift the rows downward, put the last
+X	 * row in place of the first
+X	 */
+X    tmprow = tbl[++maxrow];
+X    for (r = maxrow; r > rs; r--) {
+X	row_hidden[r] = row_hidden[r-1];
+X	tbl[r] = tbl[r-1];
+X	pp = ATBL(tbl, r, 0);
+X	for (c = 0; c < maxcols; c++, pp++)
+X		if (*pp)
+X			(*pp)->row = r;
+X    }
+X    tbl[r] = tmprow;	/* the last row was never used.... */
+X    FullUpdate++;
+X    modflg++;
+X}
+X
+X/* delete row r */
+Xvoid
+Xcloserow (r)
+Xregister r;
+X{
+X    register struct ent **pp;
+X    register c;
+X    struct ent	**tmprow;
+X
+X    if (r > maxrow) return;
+X
+X    /* save the row and empty it out */
+X    tmprow = tbl[r];
+X    pp = ATBL(tbl, r, 0);
+X    for (c=maxcol+1; --c>=0; pp++) {
+X	if (*pp)
+X	{	free_ent(*pp);
+X		*pp = (struct ent *)0;
+X	}
+X    }
+X
+X    /* move the rows, put the deleted, but now empty, row at the end */
+X    for (; r < maxrows - 1; r++) {
+X	row_hidden[r] = row_hidden[r+1];
+X	tbl[r] = tbl[r+1];
+X	pp = ATBL(tbl, r, 0);
+X	for (c = 0; c < maxcols; c++, pp++)
+X		if (*pp)
+X			(*pp)->row = r;
+X    }
+X    tbl[r] = tmprow;
+X
+X    maxrow--;
+X    FullUpdate++;
+X    modflg++;
+X}
+X
+Xvoid
+Xopencol (cs, numcol)
+Xint	cs;
+Xint	numcol;
+X{
+X    register r;
+X    register struct ent **pp;
+X    register c;
+X    register lim = maxcol-cs+1;
+X    int i;
+X
+X    if (cs > maxcol)
+X	maxcol = cs;
+X    maxcol += numcol;
+X
+X    if ((maxcol >= maxcols - 1) && !growtbl(GROWCOL, 0, maxcol))
+X		return;
+X
+X    for (i = maxcol; i > cs; i--) {
+X	fwidth[i] = fwidth[i-numcol];
+X	precision[i] = precision[i-numcol];
+X	realfmt[i] = realfmt[i-numcol];
+X	col_hidden[i] = col_hidden[i-numcol];
+X    }
+X    for (c = cs; c - cs < numcol; c++)
+X    {	fwidth[c] = DEFWIDTH;
+X	precision[c] =  DEFPREC;
+X	realfmt[c] = DEFREFMT;
+X    }
+X	
+X    for (r=0; r<=maxrow; r++) {
+X	pp = ATBL(tbl, r, maxcol);
+X	for (c=lim; --c>=0; pp--)
+X	    if (pp[0] = pp[-numcol])
+X		pp[0]->col += numcol;
+X
+X	pp = ATBL(tbl, r, cs);
+X	for (c = cs; c - cs < numcol; c++, pp++)
+X		*pp = (struct ent *)0;
+X    }
+X    FullUpdate++;
+X    modflg++;
+X}
+X
+X/** void closecol (cs, numcol) **/
+Xvoid closecol (startcol, endcol)
+X/*----------------------------------------------------------------------
+X** Delete the cols from 'startcol' to 'endcol'.  (startcol must be
+X** <= endcol.)
+X*/
+X    int startcol,endcol;
+X{
+X    int cs = startcol;				/** Old var's **/
+X    int numcol = (endcol - startcol + 1);	/** Old var's **/
+X
+X    register r;
+X    register struct ent **pp;
+X    register struct ent *q;
+X    register c;
+X    register lim = maxcol-cs;
+X    int i;
+X    char buf[50];
+X
+X
+X/* Check for errors */
+X    if (endcol > maxcol) {
+X	error("Ending Column exceeds Max column, No Change.");
+X	return;
+X    }
+X    if (any_locked_cells(0, startcol, maxrow, endcol)) {
+X	error("Locked cells encountered. Nothing changed");
+X	return;
+X    }
+X
+X/* Clear the columns */
+X    flush_saved();
+X    erase_area(0, startcol, maxrow, endcol);
+X    sync_refs();
+X
+X/* clear then copy the block left */
+X    lim = maxcols - numcol - 1; 		/* ?? */
+X    for (r=0; r<=maxrow; r++) {
+X	for (c = startcol; c <= endcol; c++)
+X		if (q = *ATBL(tbl, r, c))
+X			free_ent(q);
+X
+X/** NOT sure how this works **/
+X	pp = ATBL(tbl, r, startcol);
+X	for (c=startcol; c <= lim; c++, pp++)
+X	{   if (c > lim)
+X		*pp = (struct ent *)0;
+X	    else
+X	    if (pp[0] = pp[numcol])
+X		pp[0]->col -= numcol;
+X	}
+X
+X	c = numcol;
+X	for (; --c >= 0; pp++)		
+X		*pp = (struct ent *)0;
+X    }
+X
+X    for (i = cs; i < maxcols - numcol - 1; i++) {
+X	fwidth[i] = fwidth[i+numcol];
+X	precision[i] = precision[i+numcol];
+X	realfmt[i] = realfmt[i+numcol];
+X	col_hidden[i] = col_hidden[i+numcol];
+X    }
+X    for (; i < maxcols - 1; i++) {
+X	fwidth[i] = DEFWIDTH;
+X	precision[i] = DEFPREC;
+X	realfmt[i] = DEFREFMT;
+X	col_hidden[i] = FALSE;
+X    }
+X
+X    maxcol -= numcol;
+X    curcol = startcol;
+X    FullUpdate++;
+X    modflg++;
+X}
+X
+Xvoid
+Xdoend(rowinc, colinc)
+Xint rowinc, colinc;
+X{
+X    register struct ent *p;
+X    int r, c;
+X
+X    if (VALID_CELL(p, currow, curcol)) {
+X	r = currow + rowinc;
+X	c = curcol + colinc;
+X	if (r >= 0 && r < maxrows && 
+X	    c >= 0 && c < maxcols &&
+X	    !VALID_CELL(p, r, c)) {
+X		currow = r;
+X		curcol = c;
+X	}
+X    }
+X
+X    if (!VALID_CELL(p, currow, curcol)) {
+X        switch (rowinc) {
+X        case -1:
+X	    while (!VALID_CELL(p, currow, curcol) && currow > 0)
+X		currow--;
+X	    break;
+X        case  1:
+X	    while (!VALID_CELL(p, currow, curcol) && currow < maxrows-1)
+X		currow++;
+X	    break;
+X        case  0:
+X            switch (colinc) {
+X 	    case -1:
+X	        while (!VALID_CELL(p, currow, curcol) && curcol > 0)
+X		    curcol--;
+X	        break;
+X 	    case  1:
+X	        while (!VALID_CELL(p, currow, curcol) && curcol < maxcols-1)
+X		    curcol++;
+X	        break;
+X	    }
+X            break;
+X        }
+X
+X	error ("");	/* clear line */
+X	return;
+X    }
+X
+X    switch (rowinc) {
+X    case -1:
+X	while (VALID_CELL(p, currow, curcol) && currow > 0)
+X	    currow--;
+X	break;
+X    case  1:
+X	while (VALID_CELL(p, currow, curcol) && currow < maxrows-1)
+X	    currow++;
+X	break;
+X    case  0:
+X	switch (colinc) {
+X	case -1:
+X	    while (VALID_CELL(p, currow, curcol) && curcol > 0)
+X		curcol--;
+X	    break;
+X	case  1:
+X	    while (VALID_CELL(p, currow, curcol) && curcol < maxcols-1)
+X		curcol++;
+X	    break;
+X	}
+X	break;
+X    }
+X    if (!VALID_CELL(p, currow, curcol)) {
+X        currow -= rowinc;
+X        curcol -= colinc;
+X    }
+X}
+X
+X/* Modified 9/17/90 THA to handle more formats */
+Xvoid
+Xdoformat(c1,c2,w,p,r)
+Xint c1,c2,w,p,r;
+X{
+X    register int i;
+X    int crows = 0;
+X    int ccols = c2;
+X
+X    if (c1 >= maxcols && !growtbl(GROWCOL, 0, c1)) c1 = maxcols-1 ;
+X    if (c2 >= maxcols && !growtbl(GROWCOL, 0, c2)) c2 = maxcols-1 ;
+X
+X    if (w > COLS - RESCOL - 2) {
+X	error("Format too large - Maximum = %d", COLS - RESCOL - 2);
+X	w = COLS-RESCOL-2;
+X    }
+X
+X    if (p > w) {
+X	error("Precision too large");
+X	p = w;
+X    }
+X
+X    checkbounds(&crows, &ccols);
+X    if (ccols < c2) {
+X	error("Format statement failed to create implied column %d", c2);
+X	return;
+X    }
+X
+X    for(i = c1; i<=c2; i++)
+X		fwidth[i] = w, precision[i] = p, realfmt[i] = r;
+X
+X    FullUpdate++;
+X    modflg++;
+X}
+X
+Xvoid
+Xprint_options(f)
+XFILE *f;
+X{
+X    if(
+X       autocalc &&
+X       propagation == 10 &&
+X       calc_order == BYROWS &&
+X       prescale == 1.0 &&
+X       !extfunc &&
+X       showcell &&
+X       showtop &&
+X       tbl_style == 0 &&
+X       craction == 0 &&
+X       rowlimit == -1 &&
+X       collimit == -1
+X      )
+X		return;		/* No reason to do this */
+X
+X    Fprintf(f, "set");
+X    if(!autocalc) 
+X	Fprintf(f," !autocalc");
+X    if(propagation != 10)
+X	Fprintf(f, " iterations = %d", propagation);
+X    if(calc_order != BYROWS )
+X	Fprintf(f, " bycols");
+X    if (prescale != 1.0)
+X	Fprintf(f, " prescale");
+X    if (extfunc)
+X	Fprintf(f, " extfun");
+X    if (!showcell)
+X	Fprintf(f, " !cellcur");
+X    if (!showtop)
+X	Fprintf(f, " !toprow");
+X    if (tbl_style)
+X	Fprintf(f, " tblstyle = %s", tbl_style == TBL ? "tbl" :
+X				    tbl_style == LATEX   ? "latex"   :
+X				    tbl_style == SLATEX  ? "slatex"  :
+X				    tbl_style == TEX     ? "tex"     : 
+X				    tbl_style == FRAME   ? "frame"   : "0" );
+X    if (craction)
+X	Fprintf(f, " craction = %d", craction);
+X    if (rowlimit >= 0)
+X	Fprintf(f, " rowlimit = %d", rowlimit);
+X    if (collimit >= 0)
+X	Fprintf(f, " collimit = %d", collimit);
+X    Fprintf(f, "\n");
+X}
+X
+Xvoid
+Xprintfile (fname, r0, c0, rn, cn)
+Xchar *fname;
+Xint r0, c0, rn, cn;
+X{
+X    FILE *f;
+X    static char *pline = NULL;		/* only malloc once, malloc is slow */
+X    static unsigned fbufs_allocated = 0;
+X    int plinelim;
+X    int pid;
+X    int fieldlen, nextcol;
+X    register row, col;
+X    register struct ent **pp;
+X
+X    if ((strcmp(fname, curfile) == 0) &&
+X	!yn_ask("Confirm that you want to destroy the data base: (y,n)")) {
+X	return;
+X    }
+X
+X    if (!pline && (pline = Malloc((unsigned)(FBUFLEN *
+X					++fbufs_allocated))) == (char *)NULL)
+X    {   error("Malloc failed in printfile()");
+X        return;
+X    }
+X
+X    if ((f = openout(fname, &pid)) == (FILE *)0)
+X    {	error ("Can't create file \"%s\"", fname);
+X	return;
+X    }
+X    for (row=r0;row<=rn; row++) {
+X	register c = 0;
+X
+X	if (row_hidden[row])
+X	    continue;
+X
+X	pline[plinelim=0] = '\0';
+X	for (pp = ATBL(tbl, row, col=c0); col<=cn;
+X	        pp += nextcol-col, col = nextcol, c += fieldlen) {
+X
+X	    nextcol = col+1;
+X	    if (col_hidden[col]) {
+X		fieldlen = 0;
+X		continue;
+X	    }
+X
+X	    fieldlen = fwidth[col];
+X	    if (*pp) {
+X		char *s;
+X
+X		/* 
+X		 * dynamically allocate pline, making sure we are not 
+X		 * attempting to write 'out of bounds'.
+X		 */
+X		while(c > (fbufs_allocated * FBUFLEN)) {
+X		  if((pline = Realloc((char *)pline, 
+X				(unsigned)(FBUFLEN * ++fbufs_allocated)) )
+X		     == NULL) {
+X		    error ("Realloc failed in printfile()");
+X		    return;
+X		  }
+X		}		  
+X		while (plinelim<c) pline[plinelim++] = ' ';
+X		plinelim = c;
+X		if ((*pp)->flags&is_valid) {
+X		    while(plinelim + fwidth[col] > 
+X			  (fbufs_allocated * FBUFLEN)) {
+X		      if((pline = ((char *)Realloc((char *)pline, 
+X				    (unsigned)(FBUFLEN * ++fbufs_allocated))))
+X			 == NULL) {
+X			error ("Realloc failed in printfile()");
+X			return;
+X		      }
+X		    }
+X		    if ((*pp)->cellerror)
+X			Sprintf (pline+plinelim, "%*s",
+X				fwidth[col],
+X			((*pp)->cellerror == CELLERROR ? "ERROR" : "INVALID"));
+X		    else
+X		    {
+X		      if ((*pp)->format) {
+X	   	        char field[FBUFLEN];
+X			format ((*pp)->format, (*pp)->v, field,
+X				       sizeof(field));
+X			Sprintf (pline+plinelim, "%*s", fwidth[col],
+X					field);
+X		      } else {
+X	   	        char field[FBUFLEN];
+X			(void) engformat(realfmt[col], fwidth[col],
+X                                             precision[col], (*pp) -> v,
+X                                             field, sizeof(field));
+X			Sprintf (pline+plinelim, "%*s", fwidth[col],
+X				       field);
+X		      }
+X		    }
+X		    plinelim += strlen (pline+plinelim);
+X		}
+X		if (s = (*pp)->label) {
+X		    int slen;
+X		    char *start, *last;
+X		    register char *fp;
+X		    struct ent *nc;
+X
+X		    /*
+X		     * Figure out if the label slops over to a blank field. A
+X		     * string started with backslah is defining repition char
+X		     */
+X		    slen = strlen(s);
+X		    if ( *s == '\\' && *(s+1)!= '\0' )
+X			slen = fwidth[col];
+X		    while (slen > fieldlen && nextcol <= cn &&
+X			    !((nc = lookat(row,nextcol))->flags & is_valid) &&
+X			    !(nc->label)) {
+X			
+X	                if (!col_hidden[nextcol])
+X		 	    fieldlen += fwidth[nextcol];
+X
+X			nextcol++;
+X		    }
+X		    if (slen > fieldlen)
+X			slen = fieldlen;
+X		    
+X		    while(c + fieldlen + 2 > (fbufs_allocated * FBUFLEN)) {
+X		      if((pline = ((char *)Realloc((char *)pline, 
+X				    (unsigned)(FBUFLEN * ++fbufs_allocated))))
+X			 == NULL) {
+X			error ("Realloc failed in printfile()");
+X			return;
+X		      }
+X		    }		  
+X
+X		    /* Now justify and print */
+X		    start = (*pp)->flags & is_leftflush ? pline + c
+X					: pline + c + fieldlen - slen;
+X		    if( (*pp)->flags & is_label )
+X			start = pline + (c + ((fwidth[col]>slen)?(fwidth[col]-slen)/2:0));
+X		    last = pline + c + fieldlen;
+X		    fp = plinelim < c ? pline + plinelim : pline + c;
+X		    while (fp < start)
+X			*fp++ = ' ';
+X		    if( *s == '\\' && *(s+1)!= '\0' ) {
+X			char *strt;
+X			strt = ++s;
+X
+X			while(slen--) {
+X				*fp++ = *s++; if( *s == '\0' ) s = strt;
+X			}
+X		    }
+X		    else
+X		    while (slen--)
+X			*fp++ = *s++;
+X
+X		    if (!((*pp)->flags & is_valid) || fieldlen != fwidth[col])
+X			while(fp < last)
+X			    *fp++ = ' ';
+X		    if (plinelim < fp - pline)
+X			plinelim = fp - pline;
+X		}
+X	    }
+X	}
+X	pline[plinelim++] = '\n';
+X	pline[plinelim] = '\0';
+X	Fputs (pline, f);
+X    }
+X
+X    closeout(f, pid);
+X}
+X
+Xvoid
+Xtblprintfile (fname, r0, c0, rn, cn)
+Xchar *fname;
+Xint r0, c0, rn, cn;
+X{
+X    FILE *f;
+X    int pid;
+X    register row, col;
+X    register struct ent **pp;
+X    char coldelim = DEFCOLDELIM;
+X
+X    if ((strcmp(fname, curfile) == 0) &&
+X	!yn_ask("Confirm that you want to destroy the data base: (y,n)"))
+X	    return;
+X
+X    if ((f = openout(fname, &pid)) == (FILE *)0)
+X    {	error ("Can't create file \"%s\"", fname);
+X	return;
+X    }
+X
+X    if ( tbl_style == TBL ) {
+X	fprintf(f,".\\\" ** %s spreadsheet output \n.TS\n",progname);
+X	fprintf(f,"tab(%c);\n",coldelim);
+X	for (col=c0;col<=cn; col++) fprintf(f," n");
+X	fprintf(f, ".\n");
+X    }
+X    else if ( tbl_style == LATEX ) {
+X	fprintf(f,"%% ** %s spreadsheet output\n\\begin{tabular}{",progname);
+X	for (col=c0;col<=cn; col++) fprintf(f,"c");
+X	fprintf(f, "}\n");
+X	coldelim = '&';
+X    }
+X    else if ( tbl_style == SLATEX ) {
+X	fprintf(f,"%% ** %s spreadsheet output\n!begin<tabular><",progname);
+X	for (col=c0;col<=cn; col++) fprintf(f,"c");
+X	fprintf(f, ">\n");
+X	coldelim = '&';
+X    }
+X    else if ( tbl_style == TEX ) {
+X	fprintf(f,"{\t%% ** %s spreadsheet output\n\\settabs %d \\columns\n",
+X		progname, cn-c0+1);
+X	coldelim = '&';
+X    }
+X    else if ( tbl_style == FRAME ) {
+X      fprintf(f,
+X	"<MIFFile 3.00> # generated by the sc spreadsheet calculator\n ");
+X      fprintf(f,"<Tbls\n");
+X      fprintf(f," <Tbl \n");
+X      fprintf(f,"  <TblID 1> # This table's ID is 1\n");
+X      fprintf(f,"  <TblFormat \n");
+X      fprintf(f,"   <TblTag `Format A'> # Table Format Catalog\n");
+X      fprintf(f,"  > # end of TblFormat\n");
+X      fprintf(f,"  <TblNumColumns %d> # Has %d columns\n",cn-c0+1,cn-c0+1);
+X      fprintf(f,"  <TblTitleContent\n");
+X      fprintf(f,"   <Para\n");
+X      fprintf(f,"    <PgfTag `TableTitle'> # Forces lookup in Paragraph Format Catalog\n");
+X      fprintf(f,"    <ParaLine\n");
+X      fprintf(f,"     <String `%s'>\n",fname);
+X      fprintf(f,"    > # end of ParaLine\n");
+X      fprintf(f,"   > # end of Para\n");
+X      fprintf(f,"  > # end of TblTitleContent\n");
+X      fprintf(f,"  <TblH # The heading\n");
+X      fprintf(f,"   <Row # The heading row\n");
+X      for (col=c0; col <= cn; col++) {
+X          fprintf(f,"    <Cell <CellContent <Para # Cell in column \n");
+X          fprintf(f,
+X	    "       <PgfTag `CellHeading'> # in Paragraph Format Catal og\n");
+X          fprintf(f,"       <ParaLine <String `%c'>>\n",'A'+col);
+X          fprintf(f,"    >>> # end of Cell\n");
+X      }
+X      fprintf(f,"   > # end of Row\n");
+X      fprintf(f,"  > # end of TblH\n");
+X      fprintf(f,"  <TblBody # The body\n");
+X    }	/* tbl_style == Frame */
+X
+X
+X    for (row=r0; row<=rn; row++) {
+X	if ( tbl_style == TEX )
+X	    Fprintf (f, "\\+");
+X        else if ( tbl_style == FRAME ) {
+X            fprintf(f,"   <Row # The next body row\n");
+X        }
+X
+X	for (pp = ATBL(tbl, row, col=c0); col<=cn; col++, pp++) {
+X            if ( tbl_style == FRAME ) {
+X	      fprintf(f,"    <Cell <CellContent <Para\n");
+X	      fprintf(f,
+X		"       <PgfTag `CellBody'> # in Paragraph Format Cata log\n");
+X	      fprintf(f,"       <ParaLine <String `");
+X	    }
+X	    if (*pp) {
+X		char *s;
+X		if ((*pp)->flags&is_valid) {
+X		    if ((*pp)->cellerror) {
+X			Fprintf (f, "%*s",
+X					fwidth[col],
+X			((*pp)->cellerror == CELLERROR ? "ERROR" : "INVALID"));
+X		    }
+X		    else
+X		    if ((*pp)->format) {
+X		        char field[FBUFLEN];
+X			
+X			(void) format ((*pp)->format, (*pp)->v, field,
+X				       sizeof(field));
+X			unspecial (f, field, coldelim);
+X		    } else {
+X		        char field[FBUFLEN];
+X                        (void) engformat(realfmt[col], fwidth[col],
+X                                             precision[col], (*pp) -> v,
+X                                             field, sizeof(field));
+X			unspecial (f, field, coldelim);
+X		    }
+X		}
+X		if (s = (*pp)->label) {
+X	            unspecial (f, s, coldelim);
+X		}
+X	    }
+X            if (tbl_style == FRAME) {
+X                fprintf(f, "'>>\n");
+X                fprintf(f,"    >>> # end of Cell\n");
+X            }
+X	    if ( col < cn )
+X		if (tbl_style != FRAME)
+X		    Fprintf(f,"%c", coldelim);
+X	}
+X	if ( tbl_style == LATEX ) {
+X		if ( row < rn ) Fprintf (f, "\\\\");
+X	}
+X	else if ( tbl_style == SLATEX ) {
+X		if ( row < rn ) Fprintf (f, "!!");
+X	}
+X	else if ( tbl_style == TEX ) {
+X		Fprintf (f, "\\cr");
+X	}
+X	else if ( tbl_style == FRAME ) {
+X            fprintf(f,"   > # end of Row\n");
+X        }
+X	Fprintf (f,"\n");
+X    }
+X
+X    if ( tbl_style == TBL )
+X      Fprintf (f,
+X	".TE\n.\\\" ** end of %s spreadsheet output\n", progname);
+X    else if ( tbl_style == LATEX )
+X      Fprintf (f,
+X	"\\end{tabular}\n%% ** end of %s spreadsheet output\n", progname);
+X    else if ( tbl_style == SLATEX )
+X      Fprintf (f,
+X	"!end<tabular>\n%% ** end of %s spreadsheet output\n", progname);
+X    else if ( tbl_style == TEX )
+X      Fprintf (f,"}\n%% ** end of %s spreadsheet output\n", progname);
+X    else if ( tbl_style == FRAME ) {
+X      fprintf(f,"  > # end of TblBody\n");
+X      fprintf(f," ># end of Tbl\n");
+X      fprintf(f,"> # end of Tbls\n");
+X      fprintf(f,"<TextFlow <Para \n");
+X      fprintf(f,"  <PgfTag Body> \n");
+X      fprintf(f,"  <ParaLine <ATbl 1>> # Reference to table ID 1\n");
+X      fprintf(f,">>\n");
+X    }
+X
+X    closeout(f, pid);
+X}
+X
+X/* unspecial (backquote) things that are special chars in a table */
+Xvoid
+Xunspecial(f, str, delim)
+XFILE	*f;
+Xchar	*str;
+Xint	delim;
+X{
+X	if( *str == '\\' ) str++; /* delete wheeling string operator, OK? */
+X	while (*str)
+X	{	if (((tbl_style == LATEX) || (tbl_style == SLATEX) ||
+X		    (tbl_style == TEX)) &&
+X		    ((*str == delim) || (*str == '$') || (*str == '#') ||
+X		    (*str == '%') || (*str == '{') || (*str == '}') ||
+X		    (*str == '[') || (*str == ']') || (*str == '&')))
+X			putc('\\', f);
+X		putc(*str, f);
+X		str++;
+X	}
+X}
+X
+Xstruct enode *
+Xcopye (e, Rdelta, Cdelta)
+Xregister struct enode *e;
+Xint Rdelta, Cdelta;
+X{
+X    register struct enode *ret;
+X
+X    if (e == (struct enode *)0) {
+X        ret = (struct enode *)0;
+X    } else if (e->op & REDUCE) {
+X	int newrow, newcol;
+X	if (freeenodes)
+X	{	ret = freeenodes;
+X		freeenodes = ret->e.o.left;
+X	}
+X	else
+X		ret = (struct enode *) Malloc((unsigned) sizeof (struct enode));
+X	ret->op = e->op;
+X	newrow=e->e.r.left.vf & FIX_ROW ? e->e.r.left.vp->row :
+X					  e->e.r.left.vp->row+Rdelta;
+X	newcol=e->e.r.left.vf & FIX_COL ? e->e.r.left.vp->col :
+X					  e->e.r.left.vp->col+Cdelta;
+X	ret->e.r.left.vp = lookat (newrow, newcol);
+X	ret->e.r.left.vf = e->e.r.left.vf;
+X	newrow=e->e.r.right.vf & FIX_ROW ? e->e.r.right.vp->row :
+X					   e->e.r.right.vp->row+Rdelta;
+X	newcol=e->e.r.right.vf & FIX_COL ? e->e.r.right.vp->col :
+X					   e->e.r.right.vp->col+Cdelta;
+X	ret->e.r.right.vp = lookat (newrow, newcol);
+X	ret->e.r.right.vf = e->e.r.right.vf;
+X    } else {
+X	if (freeenodes)
+X	{	ret = freeenodes;
+X		freeenodes = ret->e.o.left;
+X	}
+X	else
+X		ret = (struct enode *) Malloc((unsigned) sizeof (struct enode));
+X	ret->op = e->op;
+X	switch (ret->op) {
+X	case 'v':
+X		{
+X		    int newrow, newcol;
+X		    newrow=e->e.v.vf & FIX_ROW ? e->e.v.vp->row :
+X						 e->e.v.vp->row+Rdelta;
+X		    newcol=e->e.v.vf & FIX_COL ? e->e.v.vp->col :
+X						 e->e.v.vp->col+Cdelta;
+X		    ret->e.v.vp = lookat (newrow, newcol);
+X		    ret->e.v.vf = e->e.v.vf;
+X		    break;
+X		}
+X	case 'k':
+X		ret->e.k = e->e.k;
+X		break;
+X	case 'f':
+X		ret->e.o.right = copye (e->e.o.right,0,0);
+X		ret->e.o.left = (struct enode *)0;
+X 		break;
+X	case '$':
+X		ret->e.s = Malloc((unsigned) strlen(e->e.s)+1);
+X		Strcpy(ret->e.s, e->e.s);
+X		break;
+X	default:
+X		ret->e.o.right = copye (e->e.o.right,Rdelta,Cdelta);
+X		ret->e.o.left = copye (e->e.o.left,Rdelta,Cdelta);
+X		break;
+X	}
+X    }
+X    return ret;
+X}
+X
+X/*
+X * sync_refs and syncref are used to remove references to
+X * deleted struct ents.  Note that the deleted structure must still
+X * be hanging around before the call, but not referenced by an entry
+X * in tbl.  Thus the free_ent calls in sc.c
+X */
+Xvoid
+Xsync_refs ()
+X{
+X    register i,j;
+X    register struct ent *p;
+X    sync_ranges();
+X    for (i=0; i<=maxrow; i++)
+X	for (j=0; j<=maxcol; j++)
+X	    if ((p = *ATBL(tbl, i, j)) && p->expr)
+X		syncref(p->expr);
+X}
+X
+Xvoid
+Xsyncref(e)
+Xregister struct enode *e;
+X{
+X    if (e == (struct enode *)0)
+X	return;
+X    else if (e->op & REDUCE) {
+X 	e->e.r.right.vp = lookat(e->e.r.right.vp->row, e->e.r.right.vp->col);
+X 	e->e.r.left.vp = lookat(e->e.r.left.vp->row, e->e.r.left.vp->col);
+X    } else {
+X	switch (e->op) {
+X	case 'v':
+X		e->e.v.vp = lookat(e->e.v.vp->row, e->e.v.vp->col);
+X		break;
+X	case 'k':
+X		break;
+X	case '$':
+X		break;
+X	default:
+X		syncref(e->e.o.right);
+X		syncref(e->e.o.left);
+X		break;
+X	}
+X    }
+X}
+X
+Xvoid hiderow(startrow,endrow)
+X/*----------------------------------------------------------------------
+X** Mark the rows from 'startrow' to 'endrow' (inclusive) as hidden.
+X*/
+X    register int startrow,endrow;
+X{
+X    currow = startrow;
+X
+X    if (startrow < 0 || startrow > endrow) {
+X	error ("Invalid range");
+X	return;
+X    }
+X    if (endrow >= maxrows-1) {
+X	if (!growtbl(GROWROW, (endrow - startrow +1), 0)) {
+X	    error("You can't hide the last row");
+X	    return;
+X	}
+X    }
+X    FullUpdate++;
+X    modflg++;
+X    while (startrow <= endrow)
+X	row_hidden[startrow++] = 1;
+X}
+X
+Xvoid hidecol(startcol,endcol)
+X/*----------------------------------------------------------------------
+X** Mark the cols from 'startcol' to 'endcol' (inclusive) as hidden.
+X*/
+X    register int startcol,endcol;
+X{
+X    curcol = startcol;
+X
+X    if (startcol < 0 || startcol > endcol) {
+X	error ("Invalid range");
+X	return;
+X    }
+X    if (endcol >= maxcols-1) {
+X	if ((endcol >= ABSMAXCOLS) ||
+X	    	!growtbl(GROWCOL, 0, (endcol-startcol +1))) {
+X	    error("You can't hide the last col");
+X	    return;
+X	}
+X    }
+X    FullUpdate++;
+X    modflg++;
+X    while (startcol <= endcol)
+X	col_hidden[startcol++] = TRUE;
+X}
+X
+X/* mark a row as not-hidden */
+Xvoid
+Xshowrow(r1, r2)
+Xint r1, r2;
+X{
+X    if (r1 < 0 || r1 > r2) {
+X	error ("Invalid range");
+X	return;
+X    }
+X    if (r2 > maxrows-1) {
+X	r2 = maxrows-1;
+X    }
+X    FullUpdate++;
+X    modflg++;
+X    while (r1 <= r2)
+X	row_hidden[r1++] = 0;
+X}
+X
+X/* mark a column as not-hidden */
+Xvoid
+Xshowcol(c1, c2)
+Xint c1, c2;
+X{
+X    if (c1 < 0 || c1 > c2) {
+X	error ("Invalid range");
+X	return;
+X    }
+X    if (c2 > maxcols-1) {
+X	c2 = maxcols-1;
+X    }
+X    FullUpdate++;
+X    modflg++;
+X    while (c1 <= c2)
+X	col_hidden[c1++] = FALSE;
+X}
+X
+X/* Open the output file, setting up a pipe if needed */
+XFILE *
+Xopenout(fname, rpid)
+Xchar *fname;
+Xint *rpid;
+X{
+X    int pipefd[2];
+X    int pid;
+X    FILE *f;
+X    char *efname;
+X
+X    while (*fname && (*fname == ' '))  /* Skip leading blanks */
+X	fname++;
+X
+X    if (*fname != '|') {		/* Open file if not pipe */
+X	*rpid = 0;
+X	
+X	efname = findhome(fname);
+X#ifdef DOBACKUPS
+X	if (!backup_file(efname) &&
+X	    (yn_ask("Could not create backup copy, Save anyhow?: (y,n)") != 1))
+X		return(0);
+X#endif
+X	return(fopen(efname, "w"));
+X    }
+X
+X#if defined(MSDOS)
+X    error("Piping not available under MS-DOS\n");
+X    return(0);
+X#else
+X    fname++;				/* Skip | */
+X    if ( pipe (pipefd) < 0) {
+X	error("Can't make pipe to child");
+X	*rpid = 0;
+X	return(0);
+X    }
+X
+X    deraw();
+X#ifdef VMS
+X    fprintf(stderr, "No child tasks available yet under VMS--sorry\n");
+X#else /* not VMS */
+X
+X    if ((pid=fork()) == 0)			  /* if child  */
+X    {
+X	Close (0);			  /* close stdin */
+X	Close (pipefd[1]);
+X	Dup (pipefd[0]);		  /* connect to pipe input */
+X	Signal (SIGINT, SIG_DFL);	  /* reset */
+X	Execl ("/bin/sh", "sh", "-c", fname, 0);
+X	exit (-127);
+X    }
+X    else				  /* else parent */
+X    {
+X	*rpid = pid;
+X	if ((f = fdopen (pipefd[1], "w")) == (FILE *)0)
+X	{
+X	    Kill (pid, -9);
+X	    error ("Can't fdopen output");
+X	    Close (pipefd[1]);
+X	    *rpid = 0;
+X	    return(0);
+X	}
+X    }
+X#endif /* VMS */
+X    return(f);
+X#endif /* MSDOS */
+X}
+X
+X/* close a file opened by openout(), if process wait for return */
+Xvoid
+Xcloseout(f, pid)
+XFILE *f;
+Xint pid;
+X{
+X    int temp;
+X
+X    Fclose (f);
+X#if !defined(MSDOS)
+X    if (pid) {
+X         while (pid != wait(&temp)) /**/;
+X	 Printf("Press RETURN to continue ");
+X	 Fflush(stdout);
+X	 (void) nmgetch();
+X	 goraw();
+X    }
+X#endif /* MSDOS */
+X}
+X
+Xvoid
+Xcopyent(n,p,dr,dc)
+X	    register struct ent *n, *p;
+X	    int dr, dc;
+X{
+X    if(!n||!p){error("internal error");return;}
+X    n -> v = p -> v;
+X    n -> flags = p -> flags;
+X    n -> expr = copye (p -> expr, dr, dc);
+X    n -> label = (char *)0;
+X    if (p -> label) {
+X	n -> label = Malloc((unsigned) (strlen (p -> label) + 1));
+X	Strcpy (n -> label, p -> label);
+X    }
+X    n -> format = 0;
+X    if (p -> format) {
+X        n -> format = Malloc((unsigned) (strlen (p -> format) + 1));
+X	Strcpy (n -> format, p -> format);
+X    }
+X}
+X
+Xvoid
+Xwrite_fd (f, r0, c0, rn, cn)
+Xregister FILE *f;
+Xint r0, c0, rn, cn;
+X{
+X    register struct ent **pp;
+X    register r, c;
+X    extern char *v_name();
+X
+X    Fprintf (f, "# This data file was generated by the Spreadsheet ");
+X    Fprintf (f, "Calculator.\n");
+X    Fprintf (f, "# You almost certainly shouldn't edit it.\n\n");
+X    print_options(f);
+X    for (c=0; c<maxcols; c++)
+X	if (fwidth[c] != DEFWIDTH || precision[c] != DEFPREC || realfmt[c] != DEFREFMT )
+X	    Fprintf (f, "format %s %d %d %d\n",coltoa(c),fwidth[c],precision[c],realfmt[c]);
+X    for (c=c0; c<cn; c++) {
+X        if (col_hidden[c]) {
+X            Fprintf(f, "hide %s\n", coltoa(c));
+X        }
+X    }
+X    for (r=r0; r<=rn; r++) {
+X	if (row_hidden[r]) {
+X	    Fprintf(f, "hide %d\n", r);
+X	}
+X    }
+X
+X    write_range(f);
+X
+X    if (mdir) 
+X	    Fprintf(f, "mdir \"%s\"\n", mdir);
+X    for (r=r0; r<=rn; r++) {
+X	pp = ATBL(tbl, r, c0);
+X	for (c=c0; c<=cn; c++, pp++)
+X	    if (*pp) {
+X		if ((*pp)->label) {
+X		    edits(r,c);
+X		    Fprintf(f, "%s\n",line);
+X		}
+X		if ((*pp)->flags&is_valid) {
+X		    editv (r, c);
+X		    Fprintf (f, "%s\n",line);
+X		}
+X		if ((*pp)->format) {
+X		    editfmt (r, c);
+X		    Fprintf (f, "%s\n",line);
+X		}
+X		if ((*pp)->flags&is_locked)
+X		    Fprintf(f, "lock %s%d\n", coltoa((*pp)->col),
+X						     (*pp)->row) ;
+X	    }
+X    }
+X    if (rndinfinity)
+X	fprintf(f, "set rndinfinity\n");
+X    fprintf(f, "goto %s\n", v_name( currow, curcol ) );
+X}
+X
+Xint
+Xwritefile (fname, r0, c0, rn, cn)
+Xchar *fname;
+Xint r0, c0, rn, cn;
+X{
+X    register FILE *f;
+X    char save[PATHLEN];
+X    int pid;
+X
+X#if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+X    if (Crypt) {
+X	return (cwritefile(fname, r0, c0, rn, cn));
+X    }
+X#endif /* VMS */
+X
+X    if (*fname == '\0') fname = curfile;
+X
+X    Strcpy(save,fname);
+X
+X    if ((f= openout(fname, &pid)) == (FILE *)0)
+X    {	error ("Can't create file \"%s\"", fname);
+X	return (-1);
+X    }
+X
+X    write_fd(f, r0, c0, rn, cn);
+X    
+X    closeout(f, pid);
+X
+X    if (!pid) {
+X        Strcpy(curfile, save);
+X        modflg = 0;
+X        error("File \"%s\" written.",curfile);
+X    }
+X
+X    return (0);
+X}
+X
+Xvoid
+Xreadfile (fname,eraseflg)
+Xchar *fname;
+Xint eraseflg;
+X{
+X    register FILE *f;
+X    char save[PATHLEN];
+X    int tempautolabel;
+X
+X    tempautolabel = autolabel;		/* turn off auto label when */
+X    autolabel = 0;			/* when reading a file  */
+X
+X    if (*fname == '*' && mdir) { 
+X       Strcpy(save, mdir);
+X       *fname = '/';
+X       Strcat(save, fname);
+X    } else {
+X        if (*fname == '\0')
+X	    fname = curfile;
+X        Strcpy(save,fname);
+X    }
+X
+X#if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+X    if (Crypt)  {
+X	creadfile(save, eraseflg);
+X	return;
+X    }
+X#endif /* VMS */
+X
+X    if (eraseflg && strcmp(fname,curfile) && modcheck(" first")) return;
+X
+X    if ((f = fopen(findhome(save), "r")) == (FILE *)0)
+X    {	error ("Can't read file \"%s\"", save);
+X	return;
+X    }
+X
+X    if (eraseflg) erasedb ();
+X
+X    loading++;
+X    while (fgets(line, sizeof(line), f)) {
+X	linelim = 0;
+X	if (line[0] != '#') Yyparse ();
+X    }
+X    --loading;
+X    Fclose (f);
+X    linelim = -1;
+X    modflg++;
+X    if (eraseflg) {
+X	Strcpy(curfile,save);
+X	modflg = 0;
+X    }
+X    autolabel = tempautolabel;
+X    EvalAll();
+X}
+X
+X/* erase the database (tbl, etc.) */
+Xvoid
+Xerasedb ()
+X{
+X    register r, c;
+X    for (c = 0; c<=maxcol; c++) {
+X	fwidth[c] = DEFWIDTH;
+X	precision[c] = DEFPREC;
+X	realfmt[c] = DEFREFMT;
+X    }
+X
+X    for (r = 0; r<=maxrow; r++) {
+X	register struct ent **pp = ATBL(tbl, r, 0);
+X	for (c=0; c++<=maxcol; pp++)
+X	    if (*pp) {
+X		if ((*pp)->expr)  efree ((*pp) -> expr);
+X		if ((*pp)->label) Free ((char *)((*pp) -> label));
+X		(*pp)->next = freeents;	/* save [struct ent] for reuse */
+X		freeents = *pp;
+X		*pp = (struct ent *)0;
+X	    }
+X    }
+X    maxrow = 0;
+X    maxcol = 0;
+X    clean_range();
+X    FullUpdate++;
+X}
+X
+X/* moves curcol back one displayed column */
+Xvoid
+Xbackcol(arg)
+X	int arg;
+X{
+X    while (--arg>=0) {
+X	if (curcol)
+X	    curcol--;
+X	else
+X	    {error ("At column A"); break;}
+X	while(col_hidden[curcol] && curcol)
+X	    curcol--;
+X    }
+X}
+X
+X/* moves curcol forward one displayed column */
+Xvoid
+Xforwcol(arg)
+X	int arg;
+X{
+X    while (--arg>=0) {
+X	if (curcol < maxcols - 1)
+X	    curcol++;
+X	else
+X	if (!growtbl(GROWCOL, 0, arg))	/* get as much as needed */
+X		break;
+X	else
+X		curcol++;
+X	while(col_hidden[curcol]&&(curcol<maxcols-1))
+X	    curcol++;
+X    }
+X}
+X
+X/* moves currow forward one displayed row */
+Xvoid
+Xforwrow(arg)
+X	int arg;
+X{
+X    while (--arg>=0) {
+X	if (currow < maxrows - 1)
+X	    currow++;
+X	else
+X	if (!growtbl(GROWROW, arg, 0))	/* get as much as needed */
+X		break;
+X	else
+X		currow++;
+X	while (row_hidden[currow]&&(currow<maxrows-1))
+X	    currow++;
+X    }
+X}
+X
+X/* moves currow backward one displayed row */
+Xvoid
+Xbackrow(arg)
+X	int arg;
+X{
+X    while (--arg>=0) {
+X	if (currow)
+X	    currow--;
+X	else
+X	    {error ("At row zero"); break;}
+X	while (row_hidden[currow] && currow)
+X	    currow--;
+X    }
+X}
+X
+X
+X/*
+X * Show a cell's label string or expression value.  May overwrite value if
+X * there is one already displayed in the cell.  Created from old code in
+X * update(), copied with minimal changes.
+X */
+X
+Xvoid
+Xshowstring (string, dirflush, hasvalue, row, col, nextcolp, mxcol, fieldlenp, r, c)
+X    char *string;	/* to display */
+X    int dirflush;	/* or rightflush or centered */
+X    int hasvalue;	/* is there a numeric value? */
+X    int row, col;	/* spreadsheet location */
+X    int *nextcolp;	/* value returned through it */
+X    int mxcol;		/* last column displayed? */
+X    int *fieldlenp;	/* value returned through it */
+X    int r, c;		/* screen row and column */
+X{
+X    register int nextcol  = *nextcolp;
+X    register int fieldlen = *fieldlenp;
+X
+X    char field[FBUFLEN];
+X    int  slen;
+X    char *start, *last;
+X    register char *fp;
+X    struct ent *nc;
+X
+X    /* This figures out if the label is allowed to
+X       slop over into the next blank field */
+X
+X    slen = strlen (string);
+X    if( *string == '\\' && *(string+1)!= '\0' )
+X	slen = fwidth[col];
+X    while ((slen > fieldlen) && (nextcol <= mxcol) &&
+X	   !((nc = lookat (row, nextcol)) -> flags & is_valid) &&
+X	   !(nc->label)) {
+X
+X	if (! col_hidden [nextcol])
+X	    fieldlen += fwidth [nextcol];
+X
+X	nextcol++;
+X    }
+X    if (slen > fieldlen)
+X	slen = fieldlen;
+X
+X    /* Now justify and print */
+X    start = (dirflush&is_leftflush) ? field : field + fieldlen - slen;
+X    if( dirflush & is_label )
+X	start = field + ((slen<fwidth[col])?(fieldlen-slen)/2:0);
+X    last = field+fieldlen;
+X    fp = field;
+X    while (fp < start)
+X	*fp++ = ' ';
+X    if( *string == '\\'  && *(string+1)!= '\0') {
+X	char *strt;
+X	strt = ++string;
+X
+X	while(slen--) {
+X		*fp++ = *string++;
+X		if( *string == '\0' )
+X			string = strt;
+X	}
+X    }
+X    else
+X    while (slen--)
+X	*fp++ = *string++;
+X
+X    if ((! hasvalue) || fieldlen != fwidth[col]) 
+X	while (fp < last)
+X	    *fp++ = ' ';
+X    *fp = '\0';
+X#ifdef VMS
+X    mvaddstr(r, c, field);	/* this is a macro */
+X#else
+X    (void) mvaddstr(r, c, field);
+X#endif
+X
+X    *nextcolp  = nextcol;
+X    *fieldlenp = fieldlen;
+X}
+X
+Xint
+Xetype(e)
+Xregister struct enode *e;
+X{
+X    if (e == (struct enode *)0)
+X	return NUM;
+X    switch (e->op) {
+X    case UPPER: case LOWER: case CAPITAL:
+X    case O_SCONST: case '#': case DATE: case FMT: case STINDEX:
+X    case EXT: case SVAL: case SUBSTR:
+X        return (STR);
+X
+X    case '?':
+X    case IF:
+X        return(etype(e->e.o.right->e.o.left));
+X
+X    case 'f':
+X        return(etype(e->e.o.right));
+X
+X    case O_VAR: {
+X	register struct ent *p;
+X	p = e->e.v.vp;
+X	if (p->expr) 
+X	    return(p->flags & is_strexpr ? STR : NUM);
+X	else if (p->label)
+X	    return(STR);
+X	else
+X	    return(NUM);
+X	}
+X
+X    default:
+X	return(NUM);
+X    }
+X}
+X
+X/* return 1 if yes given, 0 otherwise */
+Xint
+Xyn_ask(msg)
+Xchar	*msg;
+X{	char ch;
+X
+X	Move (0, 0);
+X	Clrtoeol ();
+X	Addstr (msg);
+X	ch = nmgetch();
+X	if ( ch != 'y' && ch != 'Y' && ch != 'n' && ch != 'N' ) {
+X		if (ch == ctl('g') || ch == ESC)
+X			return(-1);
+X		error("y or n response required");
+X		return (-1);
+X	}
+X	if (ch == 'y' || ch == 'Y')
+X		return(1);
+X	else
+X		return(0);
+X}
+X
+X/* expand a ~ in a path to your home directory */
+X#if !defined(MSDOS) && !defined(VMS)
+X#include <pwd.h>
+X#endif
+Xchar	*
+Xfindhome(path)
+Xchar	*path;
+X{
+X	static	char	*HomeDir = NULL;
+X	extern	char	*getenv();
+X
+X	if (*path == '~')
+X	{	char	*pathptr;
+X		char	tmppath[PATHLEN];
+X
+X		if (HomeDir == NULL)
+X		{	HomeDir = getenv("HOME");
+X			if (HomeDir == NULL)
+X				HomeDir = "/";
+X		}
+X		pathptr = path + 1;
+X		if ((*pathptr == '/') || (*pathptr == '\0'))
+X		{	strcpy(tmppath, HomeDir);
+X		}
+X#if !defined(MSDOS) && !defined(VMS)
+X		else
+X		{	struct	passwd *pwent;
+X			extern	struct	passwd *getpwnam();
+X			char	*namep;
+X			char	name[50];
+X
+X			namep = name;
+X			while ((*pathptr != '\0') && (*pathptr != '/'))
+X				*(namep++) = *(pathptr++);
+X			*namep = '\0';
+X			if ((pwent = getpwnam(name)) == NULL)
+X			{	Sprintf(path, "Can't find user %s", name);
+X				return(NULL);
+X			}
+X			strcpy(tmppath, pwent->pw_dir);
+X		}
+X#endif
+X		strcat(tmppath, pathptr);
+X		strcpy(path, tmppath);
+X	}
+X	return(path);
+X}
+X
+X#ifdef DOBACKUPS
+X#include <sys/stat.h>
+X
+X/*
+X * make a backup copy of a file, use the same mode and name in the format
+X * [path/]#file~
+X * return 1 if we were successful, 0 otherwise
+X */
+Xint
+Xbackup_file(path)
+Xchar	*path;
+X{
+X	struct	stat	statbuf;
+X	char	fname[PATHLEN];
+X	char	tpath[PATHLEN];
+X#ifdef sequent
+X	static	char	*buf = NULL;
+X	static	unsigned buflen = 0;
+X#else
+X	char	buf[BUFSIZ];
+X#endif
+X	char	*tpp;
+X	int	infd, outfd;
+X	int	count;
+X
+X	/* tpath will be the [path/]file ---> [path/]#file~ */
+X	strcpy(tpath, path);
+X	if ((tpp = strrchr(tpath, '/')) == NULL)
+X		tpp = tpath;
+X	else
+X		tpp++;
+X	strcpy(fname, tpp);
+X	Sprintf(tpp, "#%s~", fname);
+X
+X	if (stat(path, &statbuf) == 0)
+X	{
+X		/* if we know the optimum block size, use it */
+X#ifdef sequent
+X		if ((statbuf.st_blksize > buflen) || (buf == NULL))
+X		{	buflen = statbuf.st_blksize;
+X			if ((buf = Realloc(buf, buflen)) == (char *)0)
+X			{	buflen = 0;
+X				return(0);
+X			}
+X		}
+X#endif
+X
+X		if ((infd = open(path, O_RDONLY, 0)) < 0)
+X			return(0);
+X
+X		if ((outfd = open(tpath, O_TRUNC|O_WRONLY|O_CREAT,
+X					statbuf.st_mode)) < 0)
+X			return(0);
+X
+X#ifdef sequent
+X		while((count = read(infd, buf, statbuf.st_blksize)) > 0)
+X#else
+X		while((count = read(infd, buf, sizeof(buf))) > 0)
+X#endif
+X		{	if (write(outfd, buf, count) != count)
+X			{	count = -1;
+X				break;
+X			}
+X		}
+X		close(infd);
+X		close(outfd);
+X
+X		return((count < 0) ? 0 : 1);
+X	}
+X	else
+X	if (errno == ENOENT)
+X		return(1);
+X	return(0);
+X}
+X#endif
+X
+Xstatic int day_month_starts[12] = {0,31,59,90,120,151,181,212,243,273,304,334};
+X
+Xdouble convert_date(d, m, y)
+Xint d;
+Xint m;
+Xint y;
+X{
+X  /* Convert to years since 1970. (or 2000, fix by 2070) */
+X  if (y > 1970) y -= 1970;	/* Full year given */
+X  else if (y >= 70) y -= 70;	/* Years since 1900 */
+X  else y += 30;			/* Years since 2000 */
+X  /* Use quarter days to compensate for leap years. */
+X  return (double)((y * (365 * 4 + 1) + day_month_starts[m-1] * 4 + d * 4 - 2) *
+X		  6 * 60 * 60);
+X}
+X
+END_OF_FILE
+  if test 42376 -ne `wc -c <'ss_12b/cmds.c'`; then
+    echo shar: \"'ss_12b/cmds.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/cmds.c'
+fi
+if test -f 'ss_12b/screen.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/screen.c'\"
+else
+  echo shar: Extracting \"'ss_12b/screen.c'\" \(14726 characters\)
+  sed "s/^X//" >'ss_12b/screen.c' <<'END_OF_FILE'
+X/*	SC	A Spreadsheet Calculator
+X *		Curses based Screen driver
+X *
+X *		original by James Gosling, September 1982
+X *		modifications by Mark Weiser and Bruce Israel,
+X *			University of Maryland
+X *
+X *              More mods Robert Bond, 12/86
+X *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+X *		Currently supported by sequent!sawmill!buhrt (Jeff Buhrt)
+X *		$Revision: 6.21 $
+X *
+X */
+X
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X#include "curses_stuff.h"
+X#include "ss.h"
+X
+X#ifdef VMS
+Xextern int VMS_read_raw;   /*sigh*/
+X    VMS_read_raw = 1;
+X#endif
+X
+X#ifdef BROKENCURSES
+X		/* nl/nonl bug fix */
+X#undef nl
+X#undef nonl
+X#define nl()	 (_tty.sg_flags |= CRMOD,_pfast = _rawmode,stty(_tty_ch, &_tty))
+X#define nonl()	 (_tty.sg_flags &= ~CRMOD, _pfast = TRUE, stty(_tty_ch, &_tty))
+X#endif
+X
+Xvoid	repaint();
+X
+Xchar	under_cursor = ' '; /* Data under the < cursor */
+Xchar	mode_ind = '.';
+Xextern	char    revmsg[];
+X
+Xint	rows, lcols;
+Xint	lastmx, lastmy;	/* Screen address of the cursor */
+Xint	lastcol;	/* Spreadsheet Column the cursor was in last */
+Xextern	int *fwidth;
+Xextern	int showrange;	/* Causes ranges to be highlighted	*/
+Xextern	int showneed;	/* Causes cells needing values to be highlighted */
+Xextern	int showexpr;	/* Causes cell exprs to be displayed, highlighted */
+X#ifdef RIGHT_CBUG
+Xextern	int wasforw;	/* Causes screen to be redisplay if on lastcol */
+X#endif
+X
+X/*
+X * update() does general screen update
+X *
+X * standout last time in update()?
+X *	At this point we will let curses do work
+X */
+Xint	standlast	= FALSE;
+X
+Xvoid
+Xupdate (anychanged)
+Xint	anychanged;	/* did any cell really change in value? */
+X{
+X    register    row, col;
+X    register struct ent **pp;
+X    int	mxrow, mxcol;
+X    int	minsr = 0, minsc = 0, maxsr = 0, maxsc = 0;
+X    register r;
+X    register i;
+X    static	int	lastcurcol = -1, lastcurrow = -1;
+X
+X    /*
+X     * place the cursor on the screen, set col, curcol, stcol, lastcol as
+X     * needed
+X     */
+X    if ((curcol != lastcurcol) || FullUpdate)
+X    {
+X	while (col_hidden[curcol])   /* You can't hide the last row or col */
+X		curcol++;
+X
+X	/* First see if the last display still covers curcol */
+X	if (stcol <= curcol) { 
+X		for (i = stcol, lcols = 0, col = RESCOL;
+X			   (col + fwidth[i]) < COLS-1 && i < maxcols; i++) {
+X			lcols++;
+X
+X			if (col_hidden[i])
+X				continue;
+X			col += fwidth[i];
+X		}
+X	}
+X	while (stcol + lcols - 1 < curcol || curcol < stcol) {
+X		FullUpdate++;
+X		if (stcol - 1 == curcol) {    /* How about back one? */
+X			stcol--;
+X		} else if (stcol + lcols == curcol) {   /* Forward one? */
+X			stcol++;
+X		} else {
+X			/* Try to put the cursor in the center of the screen */
+X			col = (COLS - RESCOL - fwidth[curcol]) / 2 + RESCOL; 
+X			stcol = curcol;
+X			for (i=curcol-1; i >= 0 && col-fwidth[i] > RESCOL; i--)
+X			{	stcol--;
+X				if (col_hidden[i])
+X					continue;
+X				col -= fwidth[i];
+X			}
+X		}
+X		/* Now pick up the counts again */
+X		for (i = stcol, lcols = 0,col = RESCOL;
+X			(col + fwidth[i]) < COLS-1 && i < maxcols; i++) {
+X			lcols++;
+X			if (col_hidden[i])
+X				continue;
+X			col += fwidth[i];
+X		}
+X	}
+X	lastcurcol = curcol;
+X    }
+X
+X    /* Now - same process on the rows as the columns */
+X    if ((currow != lastcurrow) || FullUpdate)
+X    {
+X	while (row_hidden[currow])   /* You can't hide the last row or col */
+X		currow++;
+X	if (strow <= currow) { 
+X		for (i = strow, rows = 0, row=RESROW; row<LINES && i<maxrows; i++)
+X		{	rows++;
+X			if (row_hidden[i])
+X				continue;
+X			row++;
+X		}
+X	}
+X
+X	while (strow + rows - 1 < currow || currow < strow) {
+X		FullUpdate++;
+X		if (strow - 1 == currow) {    /* How about up one? */
+X			strow--;
+X		} else if (strow + rows == currow) {   /* Down one? */
+X			strow++;
+X		} else {
+X			/* Try to put the cursor in the center of the screen */
+X			row = (LINES - RESROW) / 2 + RESROW; 
+X			strow = currow;
+X			for (i=currow-1; i >= 0 && row-1 > RESROW; i--) {
+X				strow--;
+X				if (row_hidden[i])
+X					continue;
+X				row--;
+X			}
+X		}
+X		/* Now pick up the counts again */
+X		for (i = strow, rows = 0, row=RESROW; row<LINES && i<maxrows; i++) {
+X			rows++;
+X			if (row_hidden[i])
+X				continue;
+X			row++;
+X		}
+X	}
+X	lastcurrow = currow;
+X    }
+X    mxcol = stcol + lcols - 1;
+X    mxrow = strow + rows - 1;
+X
+X    /* Get rid of cursor standout on the cell at previous cursor position */
+X    if (!FullUpdate)
+X    {	if (showcell)
+X		repaint(lastmx, lastmy, fwidth[lastcol]);
+X
+X	(void) move(lastmy, lastmx+fwidth[lastcol]);
+X
+X	if ((inch() & A_CHARTEXT ) == '<')
+X		(void) addch(under_cursor);
+X    }
+X
+X    /* where is the the cursor now? */
+X    lastmy =  RESROW;
+X    for (row = strow; row < currow; row++)
+X	if (!row_hidden[row])
+X		lastmy++;
+X
+X    lastmx = RESCOL;
+X    for (col = stcol; col < curcol; col++)
+X	if (!col_hidden[col])
+X		lastmx += fwidth[col];
+X    lastcol = curcol;
+X
+X    if (FullUpdate || standlast) {
+X	(void) move(2, 0);
+X	(void) clrtobot();
+X	(void) standout();
+X
+X	for (row=RESROW, i=strow; i <= mxrow; i++) {
+X	    if (row_hidden[i]) 
+X		continue;
+X	    (void) move(row,0);
+X	    if (maxrows < 1000)
+X		(void) printw("%-*d", RESCOL-1, i);
+X	    else
+X		(void) printw("%-*d", RESCOL, i);
+X	    row++;
+X	}
+X#ifdef RIGHT_CBUG
+X	if(wasforw) {
+X		clearok(stdscr, TRUE);
+X		wasforw = 0;
+X	}
+X#endif
+X	(void) move(2,0);
+X	(void) printw("%*s", RESCOL, " ");
+X
+X	for (col=RESCOL, i = stcol; i <= mxcol; i++) {
+X	    register int k;
+X	    if (col_hidden[i])
+X		continue;
+X	    (void) move(2, col);
+X	    k = fwidth[i]/2;
+X	    if (k == 0)
+X		(void) printw("%1s", coltoa(i));
+X	    else
+X	        (void) printw("%*s%-*s", k, " ", fwidth[i]-k, coltoa(i));
+X	    col += fwidth[i];
+X	}
+X	(void) standend();
+X    }
+X
+X    if (showrange) {
+X	minsr = showsr < currow ? showsr : currow;
+X	minsc = showsc < curcol ? showsc : curcol;
+X	maxsr = showsr > currow ? showsr : currow;
+X	maxsc = showsc > curcol ? showsc : curcol;
+X
+X	if (showtop) {
+X	    (void) move(1,0);
+X	    (void) clrtoeol();
+X	    (void) printw("Default range:  %s",
+X			    r_name(minsr, minsc, maxsr, maxsc));
+X	}
+X    }
+X
+X
+X    /* Repaint the visible screen */
+X    if (showrange || anychanged || FullUpdate || standlast)
+X    {
+X	/* may be reset in loop, if not next time we will do a FullUpdate */
+X      if (standlast)
+X      {	FullUpdate = TRUE;
+X	standlast = FALSE;
+X      }
+X
+X      for (row = strow, r = RESROW; row <= mxrow; row++) {
+X	register c = RESCOL;
+X	int do_stand = 0;
+X	int fieldlen;
+X	int nextcol;
+X
+X	if (row_hidden[row])
+X	    continue;
+X	for (pp = ATBL(tbl, row, col = stcol); col <= mxcol;
+X	         pp += nextcol - col,  col = nextcol, c += fieldlen) {
+X
+X	    nextcol = col+1;
+X	    if (col_hidden[col]) {
+X		fieldlen = 0;
+X		continue;
+X	    }
+X
+X	    fieldlen = fwidth[col];
+X
+X	    /*
+X	     * Set standout if:
+X	     *
+X	     * - showing ranges, and not showing cells which need to be filled
+X	     *	 in, and not showing cell expressions, and in a range, OR
+X	     *
+X	     * - if showing cells which need to be filled in and this one is
+X	     *	 of that type (has a value and doesn't have an expression,
+X	     *	 or it is a string expression), OR
+X	     *
+X	     * - if showing cells which have expressions and this one does.
+X	     */
+X	    if ((showrange && (! showneed) && (! showexpr)
+X			   && (row >= minsr) && (row <= maxsr)
+X			   && (col >= minsc) && (col <= maxsc))
+X		    || (showneed && (*pp) && ((*pp) -> flags & is_valid) &&
+X			  (((*pp) -> flags & is_strexpr) || !((*pp) -> expr)))
+X		    || (showexpr && (*pp) && ((*pp) -> expr)))
+X	    {
+X		(void) move(r, c);
+X		(void) standout();
+X		standlast++;
+X		if (!*pp)	/* no cell, but standing out */
+X		{	(void) printw("%*s", fwidth[col], " ");
+X			(void) standend();
+X			continue;
+X		}
+X		else
+X			do_stand = 1;
+X	    }
+X	    else
+X		do_stand = 0;
+X
+X	    if ((*pp) && (((*pp) -> flags & is_changed || FullUpdate) || do_stand)) {
+X		if (do_stand) {
+X		    (*pp) -> flags |= is_changed; 
+X		} else {
+X		    (void) move(r, c);
+X		    (*pp) -> flags &= ~is_changed;
+X		}
+X
+X		/*
+X		 * Show expression; takes priority over other displays:
+X		 */
+X
+X		if ((*pp)->cellerror)
+X			(void) printw("%*.*s", fwidth[col], fwidth[col],
+X			  (*pp)->cellerror == CELLERROR ? "ERROR" : "INVALID");
+X		else
+X		if (showexpr && ((*pp) -> expr)) {
+X		    linelim = 0;
+X		    editexp(row, col);		/* set line to expr */
+X		    linelim = -1;
+X		    showstring(line, /* leftflush = */ 1, /* hasvalue = */ 0,
+X				row, col, & nextcol, mxcol, & fieldlen, r, c);
+X		} else {
+X		    /*
+X		     * Show cell's numeric value:
+X                     */
+X
+X		    if ((*pp) -> flags & is_valid) {
+X			char field[FBUFLEN];
+X
+X			if ((*pp) -> format) {
+X				(void) format((*pp) -> format, (*pp) -> v,
+X					     field, sizeof(field));
+X			} else {
+X				(void) engformat(realfmt[col], fwidth[col], 
+X                                             precision[col], (*pp) -> v, 
+X                                             field, sizeof(field));
+X			}
+X			if (strlen(field) > fwidth[col]) {
+X				for(i = 0; i<fwidth[col]; i++)
+X					(void)addch('*');
+X			} else {
+X				for(i = 0; i < fwidth[col] - strlen(field);i++)
+X					(void)addch(' ');
+X				(void)addstr(field);
+X			}
+X		    }
+X
+X		    /*
+X		     * Show cell's label string:
+X		     */
+X
+X		    if ((*pp) -> label) {
+X			showstring((*pp) -> label,
+X				    (*pp) -> flags & (is_leftflush|is_label),
+X				    (*pp) -> flags & is_valid,
+X				    row, col, & nextcol, mxcol,
+X				    & fieldlen, r, c);
+X		    }
+X		    else	/* repaint a blank cell: */
+X		    if ((do_stand || !FullUpdate) &&
+X				((*pp)->flags & is_changed) &&
+X				!((*pp)->flags & is_valid) && !(*pp)->label) {
+X			(void) printw("%*s", fwidth[col], " ");
+X		    }
+X		} /* else */
+X
+X		if (do_stand) {
+X		    (void) standend();
+X		    do_stand = 0;
+X		}
+X	    }
+X	}
+X	r++;
+X      }
+X    }
+X
+X    /* place 'cursor marker' */
+X    if (showcell && (! showneed) && (! showexpr)) {
+X	(void) move(lastmy, lastmx);
+X        (void) standout();
+X        repaint(lastmx, lastmy, fwidth[lastcol]);
+X        (void) standend();
+X    }
+X    (void) move(lastmy, lastmx+fwidth[lastcol]);
+X    under_cursor = (inch() & A_CHARTEXT);
+X    (void) addch('<');
+X
+X    (void) move(0, 0);
+X    (void) clrtoeol();
+X    if (linelim >= 0) {
+X	(void) addch(mode_ind);
+X	(void) addstr("> ");
+X	(void) addstr(line);
+X	(void) move((linelim + 3) / COLS, (linelim+3) % COLS);
+X    } else {
+X	if (showtop) {			/* show top line */
+X	    register struct ent *p1;
+X
+X	    int printed = 0;		/* printed something? */
+X
+X	    /* show the current cell's format */
+X	    (void) printw("%s%d ", coltoa(curcol), currow);
+X	    if ((p1 = *ATBL(tbl, currow, curcol)) && p1->format)
+X		printw("(%s) ", p1->format);
+X	    else
+X		printw("(%d %d %d) ", fwidth[curcol], precision[curcol],
+X				realfmt[curcol]);
+X
+X	    if (p1) {
+X		if (p1 -> expr) {
+X		    /* has expr of some type */
+X		    linelim = 0;
+X		    editexp(currow, curcol);	/* set line to expr */
+X		    linelim = -1;
+X		}
+X
+X		/*
+X		 * Display string part of cell:
+X		 */
+X
+X		if ((p1 -> expr) && (p1 -> flags & is_strexpr)) {
+X 		    if( (p1-> flags & is_label) )
+X			(void) addstr("|{");
+X		    else
+X			(void) addstr((p1 -> flags & is_leftflush) ? "<{" : ">{");
+X		    (void) addstr(line);
+X		    (void) addstr("} ");	/* and this '}' is for vi % */
+X		    printed = 1;
+X
+X		} else if (p1 -> label) {
+X		    /* has constant label only */
+X		    if( (p1-> flags & is_label) )
+X			(void) addstr("|\"");
+X		    else
+X			(void) addstr ((p1 -> flags & is_leftflush) ? "<\"" : ">\"");
+X		    (void) addstr (p1 -> label);
+X		    (void) addstr ("\" ");
+X		    printed = 1;
+X		}
+X
+X		/*
+X		 * Display value part of cell:
+X		 */
+X
+X		if (p1 -> flags & is_valid) {
+X		    /* has value or num expr */
+X		    if ((! (p1 -> expr)) || (p1 -> flags & is_strexpr))
+X			(void) sprintf (line, "%.15g", p1 -> v);
+X
+X		    (void) addch ('[');
+X		    (void) addstr (line);
+X		    (void) addch (']');
+X		    *line = '\0'; /* this is the input buffer ! */
+X		    printed = 1;
+X		}
+X	    }
+X	    if (! printed)
+X		(void) addstr ("[]");
+X	    /* Display if cell is locked */
+X	    if (p1 && p1->flags&is_locked)
+X		(void) addstr(" locked");
+X	}
+X	(void) move(lastmy, lastmx+fwidth[lastcol]);
+X    }
+X
+X    if (revmsg[0]) {
+X	(void) move(0, 0);
+X	(void) clrtoeol ();	/* get rid of topline display */
+X	(void) printw(revmsg);
+X	*revmsg = '\0';		/* don't show it again */
+X	(void) move (lastmy, lastmx + fwidth[lastcol]);
+X    }
+X
+X    FullUpdate = FALSE;
+X}
+X
+X/* redraw what is under the cursor from curses' idea of the screen */
+Xvoid
+Xrepaint(x, y, len)
+Xint x, y, len;
+X{
+X    int c;
+X
+X    while(len-- > 0) {
+X	(void) move(y, x);
+X	c = inch() & A_CHARTEXT;
+X	(void) addch(c);
+X	x++;
+X    }
+X}
+X
+Xint seenerr;
+X
+X/* error routine for yacc (gram.y) */
+Xvoid
+Xyyerror(err)
+Xchar *err; {
+X    if (seenerr) return;
+X    seenerr++;
+X    (void) move(1,0);
+X    (void) clrtoeol();
+X    (void) printw("%s: %.*s<=%s",err,linelim,line,line+linelim);
+X}
+X
+X#ifdef XENIX2_3
+Xstruct termio tmio;
+X#endif
+X
+Xvoid
+Xstartdisp()
+X{
+X#if sun
+X    int	 fd;
+X    fd = dup(0);
+X#endif
+X#ifdef TIOCGSIZE
+X    {	struct ttysize size;
+X	if (ioctl(0, TIOCGSIZE, &size) == 0)
+X	{ 
+X		LINES = size.ts_lines;
+X		COLS = size.ts_cols;
+X	}
+X    }
+X#endif
+X
+X#ifdef XENIX2_3
+X    (void) ioctl (fileno (stdin), TCGETA, & tmio);
+X#endif
+X    (void) initscr();
+X#if sun
+X    close(0);
+X    dup(fd);
+X    close(fd);
+X#endif
+X    (void) clear();
+X#ifdef VMS
+X    VMS_read_raw = 1;
+X#else
+X    cbreak();
+X    nonl();
+X    noecho ();
+X#endif
+X    initkbd();
+X    scrollok(stdscr, 1);
+X
+X#if defined(SYSV3) && !defined(NOIDLOK)
+X# ifndef IDLOKBAD
+X    /*
+X     * turn hardware insert/delete on, if possible.
+X     * turn on scrolling for systems with SYSVr3.{1,2} (SYSVr3.0 has this set
+X     * as the default)
+X     */
+X     idlok(stdscr,TRUE);
+X# else	/*
+X	 * This seems to fix (with an empty spreadsheet):
+X	 *	a) Redrawing the bottom half of the screen when you
+X	 *		move between row 9 <-> 10
+X	 *	b) the highlighted row labels being trash when you
+X	 *		move between row 9 <-> 10
+X	 *	c) On an xterm on Esix Rev. D+ from eating lines
+X	 *	 -goto (or move) a few lines (or more) past the bottom
+X	 *	 of the screen, goto (or move) to the top line on the
+X	 *	 screen, move upward and the current line is deleted, the
+X	 *	 others move up even when they should not, check by
+X	 *	 noticing the rows become 2, 3, 40, 41, 42... (etc).
+X	 */
+X     idlok(stdscr,FALSE);
+X# endif
+X#endif
+X
+X    FullUpdate++;
+X}
+X
+Xvoid
+Xstopdisp()
+X{
+X    deraw();
+X    resetkbd();
+X    endwin();
+X#ifdef XENIX2_3
+X    (void) ioctl (fileno (stdin), TCSETAW, & tmio);
+X#endif
+X}
+X
+X/* init curses */
+X#ifdef VMS
+X
+Xgoraw()
+X{
+X    VMS_read_raw = 1;
+X    FullUpdate++;
+X}
+X
+Xderaw()
+X{
+X    (void) move (LINES - 1, 0);
+X    (void) clrtoeol();
+X    (void) refresh();
+X    VMS_read_raw = 0;
+X}
+X
+X#else /* VMS */
+Xvoid
+Xgoraw()
+X{
+X#if SYSV2 || SYSV3
+X    fixterm();
+X#else /* SYSV2 || SYSV3 */
+X    cbreak();
+X    nonl();
+X    noecho ();
+X#endif /* SYSV2 || SYSV3 */
+X    kbd_again();
+X    (void) clear();
+X    FullUpdate++;
+X}
+X
+X/* clean up curses */
+Xvoid
+Xderaw()
+X{
+X    (void) move (LINES - 1, 0);
+X    (void) clrtoeol();
+X    (void) refresh();
+X#if SYSV2 || SYSV3
+X    resetterm();
+X#else
+X    nocbreak();
+X    nl();
+X    echo();
+X#endif
+X    resetkbd();
+X}
+X
+X#endif /* VMS */
+END_OF_FILE
+  if test 14726 -ne `wc -c <'ss_12b/screen.c'`; then
+    echo shar: \"'ss_12b/screen.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/screen.c'
+fi
+echo shar: End of archive 3 \(of 11\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

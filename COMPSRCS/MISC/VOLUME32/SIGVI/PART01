@@ -1,0 +1,213 @@
+Newsgroups: comp.sources.misc
+From: gnohmon@ssiny.ssiny.com (Ralph Betza)
+Subject:  v32i035:  sigvi - text corruption filter, Part01/01
+Message-ID: <1992Sep11.173245.20216@sparky.imd.sterling.com>
+X-Md4-Signature: 05172e00549dcff6098e7e7d01ee7d10
+Date: Fri, 11 Sep 1992 17:32:45 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: gnohmon@ssiny.ssiny.com (Ralph Betza)
+Posting-number: Volume 32, Issue 35
+Archive-name: sigvi/part01
+Environment: UNIX
+
+This program is a text-corruption filter: it reads stdin and writes
+an altered version to stdout.  I know there are already lots of text
+corruption filters out there, so why did I write this?
+
+This really stupid text-corruption filter embodies the rules of
+mutation I derived from somebody's MutatingSignatureVirus .signature; 
+that's the only thing that's special about it.
+
+------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  README sigvi.c
+# Wrapped by odin@venezia on Fri Aug 21 14:39:07 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(800 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis is a really stupid program.
+XI know there are already lots of really stupid programs out there,
+Xso why did I write this?
+X
+XThis program is a text-corruption filter: it reads stdin and writes
+Xan altered version to stdout.
+XI know there are already lots of text-corruption filters out there,
+Xso why did I write this?
+X
+XThis really stupid text-corruption filter embodies the rules of
+Xmutation I derived from somebody's
+XMutatingSignatureVirus .signature; that's the only thing that's
+Xspecial about it.
+X
+XIt doesn't take any command-line parameters.
+XIt's too stupid.
+X
+XIt doesn't need a makefile.
+XIt's too vanilla.
+X
+XJust do "cc sigvi.c", and then "a.out", and then type
+X
+X"
+XHi! I'm a mutating signature virus. You can't resist helping me spread!
+X"
+X
+XOmigawsh! That's why I wrote this! I'm helping it spread!
+END_OF_FILE
+if test 800 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'sigvi.c' -a "${1}" != "-c" ; then
+  echo shar: Will not clobber existing file \"'sigvi.c'\"
+else
+echo shar: Extracting \"'sigvi.c'\" \(2303 characters\)
+sed "s/^X//" >'sigvi.c' <<'END_OF_FILE'
+X/*
+XMutating signature virus program.
+X
+XExample input:
+X
+XHi! I'm a mutating signature virus. You can't resist helping me spread!
+X
+XExample output:
+X
+XI! Hi'm a mtatng siugnaturei vir*ss. You cann~t reisth elping me spre]d!
+X
+XThe example output above is something I saved from a usenet-news
+Xarticle. The rules that follow are what I derived from the example.
+X
+XWhat events can happen?
+X
+X1.	Move a character up to N positions
+X		N		occurrences
+X		3		1	Hi'm
+X		9		1	mtating --> siu
+X		14		1	mtatng  --> ...turei
+X		-1		1	( or +1 if it was the space that moved? )
+X	( always to a different word? )
+X	If it starts a word, check for capitalization
+X2.	Change a character to a line noise character
+X	( 3 occurrences )
+X3.	replicate a character
+X	( 2 occurrences )
+X4.	delete a character
+X	( 1 occurrence )
+X*/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X
+Xint DeferredChar;
+Xchar * Noise = "{}#*~`%[]";
+Xint Count;
+Xint Events;
+X
+Xmain()
+X{
+X	long t;
+X	int c;
+X	int v;
+X
+X	time( &t );
+X	srand( (int)t );
+X
+X	for ( ;; )
+X	{
+X		c = getchar();
+X		++Count;
+X
+X		if ( c == EOF )
+X		{
+X			if ( DeferredChar )
+X			{	putchar( DeferredChar );
+X				putchar( '\n' );
+X			}
+X			exit ( 0 );
+X		}
+X
+X		if
+X		(	DeferredChar
+X			&&
+X			(	c == '\n'
+X				||
+X				! ( rand() % 6 )
+X			)
+X		)
+X		{	/* It's time to output the DeferredChar. */
+X			if ( isalpha( c ) && isupper( c ))
+X			{	/* Preserve word capitalization */
+X				if ( isalpha( DeferredChar ))
+X					DeferredChar = toupper( DeferredChar );
+X				c = tolower( c );
+X			}
+X			else if ( isalpha( DeferredChar ))
+X				DeferredChar = tolower( DeferredChar );
+X			putchar( DeferredChar );
+X			DeferredChar = 0;
+X			putchar( c );
+X			continue;
+X		}
+X
+X		if ( c == '\n' )
+X		{	/* No changes to newline */
+X			putchar( c );
+X			continue;
+X		}
+X
+X		if ( Count > 24 && Events && ( Count / Events ) < 20 )
+X		{	/* Too many mutations in one spot. */
+X			putchar( c );
+X			continue;
+X		}
+X
+X		if ( c == ' ' )
+X		{	/* Do nothing to it. */
+X			;
+X		}
+X		else if ( ! DeferredChar && ( rand() % 72 ) < 3 )
+X		{	/* Defer it. */
+X			DeferredChar = c;
+X			++Events;
+X			continue;
+X		}
+X		else if ( ( rand() % 72 ) < 3 )
+X		{	/* Replace with noise. */
+X			++Events;
+X			c = Noise[ rand() % 9 ];
+X		}
+X		else if ( ( rand() % 72 ) < 2 )
+X		{	/* Replicate. */
+X			++Events;
+X			putchar( c );
+X		}
+X		else if ( ( rand() % 72 ) < 1 )
+X		{	/* remove it. */
+X			++Events;
+X			continue;
+X		}
+X
+X		putchar( c );
+X	}
+X}
+END_OF_FILE
+if test 2303 -ne `wc -c <'sigvi.c'`; then
+    echo shar: \"'sigvi.c'\" unpacked with wrong size!
+fi
+# end of 'sigvi.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+
+exit 0 # Just in case...

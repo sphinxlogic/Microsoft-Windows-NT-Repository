@@ -1,0 +1,2493 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject: v39i054:  ncftp - Alternative User Interface for FTP, v1.5.0, Part02/05
+Message-ID: <1993Aug26.000429.24270@sparky.sterling.com>
+X-Md4-Signature: a4a578101b3e21f79c7e83d2c104b615
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: NCEMRSoft
+Date: Thu, 26 Aug 1993 00:04:29 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 39, Issue 54
+Archive-name: ncftp/part02
+Environment: UNIX, ANSI-C, !SVR4
+Supersedes: ncftp: Volume 35, Issue 4-7
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Blurb ftp.c getpass.c open.c
+# Wrapped by kent@sparky on Wed Aug 25 18:59:16 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 5)."'
+if test -f 'Blurb' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Blurb'\"
+else
+  echo shar: Extracting \"'Blurb'\" \(1753 characters\)
+  sed "s/^X//" >'Blurb' <<'END_OF_FILE'
+XSubject:  NcFTP 1.5.0 - Alternative User Interface for FTP
+X
+XArchive-name: ncftp/part01
+XEnvironment: UNIX, ANSI-C, !SVR4
+X
+XNcFTP - Alternative user interface for FTP
+XVersion 1.5.0 by Mike Gleason, NCEMRSoft.
+X
+XI used to list the features of ncftp in this blurb, but there are just
+Xtoo many to list.  Even if you only ftp occasionally, it is worth your
+Xtime to install ncftp (or atleast bug your sysadmin to).  If you won't take
+Xmy word for it, just ask around, or extract this archive and read the
+Xman page.
+X
+XNote:  May not work correctly with System V R 4 (and Solaris 2.2).
+X
+XMajor changes since 1.0.2:
+X
+X* Supports the Getline (input-edit) and GNU Readline command-line
+X  editing and history libraries.
+X
+X* Supports the Socks firewall library, and another firewall gateway
+X  implementation.
+X
+X* Terrific new "recent-sites" file that automatically saves the
+X  sites you call;  when you open a site in the recent-sites file
+X  (of course you can abbreviate the names), you start in the
+X  same directory you were in last time.
+X
+X* Improved on-line help, and tips on how to use the program better
+X  are printed each time you run the program.
+X
+X* Rewritten man page.
+X
+X* Faster ascii transfers.
+X
+X* Typing 'open' by itself lists all the sites the program knows
+X  about (the ones in your .netrc and the recent-sites list) so
+X  you can just pick one.
+X
+X* Enhanced colon-mode, that can dump a file to stdout (ftpcat mode)
+X  or to a pager.  (i.e. ncftp -c wu:/README >/dev/null).
+X
+X* You can choose whether an open is anonymous by default (like it
+X  had always been) or a user login by default by setting a new
+X  program variable.
+X
+X* Bugs fixed.
+X
+XRead the enclosed file, v2_Notes, which explains why I won't be
+Xable to work on the nearly finished, and much improved v2.0.
+X
+END_OF_FILE
+  if test 1753 -ne `wc -c <'Blurb'`; then
+    echo shar: \"'Blurb'\" unpacked with wrong size!
+  fi
+  # end of 'Blurb'
+fi
+if test -f 'ftp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftp.c'\"
+else
+  echo shar: Extracting \"'ftp.c'\" \(35792 characters\)
+  sed "s/^X//" >'ftp.c' <<'END_OF_FILE'
+X/* ftp.c */
+X
+X/*  $RCSfile: ftp.c,v $
+X *  $Revision: 14020.12 $
+X *  $Date: 93/07/09 11:30:28 $
+X */
+X
+X#include "sys.h"
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <setjmp.h>
+X#include <sys/stat.h>
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X#include <sys/file.h>
+X#include <string.h>
+X#include <time.h>
+X
+X#ifdef NO_UTIMEH
+Xstruct	utimbuf {time_t actime; time_t modtime;};
+X#else
+X#	include <utime.h>
+X#endif
+X
+X#ifdef SYSLOG
+X#	include <syslog.h>
+X#endif
+X
+X/* You may need this for declarations of fd_set, etc. */
+X#ifdef SYSSELECTH
+X#   include <sys/select.h>
+X#else
+X#ifdef STRICT_PROTOS
+Xextern int select (int, void *, void *, void *, struct timeval *);
+X#endif
+X#endif
+X
+X#ifndef NO_UNISTDH		/* for prototypes only. */
+X#	include <unistd.h>
+X#endif
+X
+X#include <netinet/in.h>
+X#include <arpa/ftp.h>
+X#include <arpa/inet.h>
+X#include <arpa/telnet.h>
+X#include <string.h>
+X#include <signal.h>
+X#include <errno.h>
+X#include <netdb.h>
+X#include <fcntl.h>
+X#include <pwd.h>
+X#include <ctype.h>
+X#include "util.h"
+X#include "ftp.h"
+X#include "cmds.h"
+X#include "main.h"
+X#include "ftprc.h"
+X#include "getpass.h"
+X#include "defaults.h"
+X#include "copyright.h"
+X
+X/* ftp.c globals */
+Xstruct				sockaddr_in hisctladdr;
+Xstruct				sockaddr_in data_addr;
+Xint					data = -1;
+Xint					abrtflag = 0;
+Xstruct sockaddr_in	myctladdr;
+XFILE				*cin = NULL, *cout = NULL;
+Xchar				*reply_string = NULL;
+Xjmp_buf				sendabort, recvabort;
+Xint					progress_meter = dPROGRESS;
+Xint					cur_progress_meter;
+Xint					sendport = -1;		/* use PORT cmd for each data connection */
+Xint					code;				/* return/reply code for ftp command */
+Xstring				indataline;			
+Xint     			cpend;				/* flag: if != 0, then pending server reply */
+Xchar				*xferbuf;			/* buffer for local and remote I/O */
+Xsize_t				xferbufsize;		/* size in bytes, of the transfer buffer. */
+Xlong				next_report;
+Xlong				bytes;
+Xlong				now_sec;
+Xlong				file_size;
+Xstruct timeval		start, stop;
+Xint					buffer_only = 0;	/* True if reading into redir line
+X										 * buffer only (not echoing to
+X										 * stdout).
+X										 */
+X
+X/* ftp.c externs */
+Xextern FILE					*logf;
+Xextern string				cwd, anon_password;
+Xextern Hostname				hostname;
+Xextern int					verbose, debug, macnum, margc;
+Xextern int					curtype, creating;
+Xextern int					options, activemcmd, paging;
+Xextern int					ansi_escapes, logged_in, macnum;
+Xextern char					*line, *margv[];
+Xextern char					*tcap_normal, *tcap_boldface;
+Xextern char					*tcap_underline, *tcap_reverse;
+Xextern struct userinfo		uinfo;
+Xextern struct macel			macros[];
+Xextern struct lslist		*lshead, *lstail;
+Xextern int					is_ls;
+X
+X#ifdef GATEWAY
+Xextern string				gateway;
+Xextern string				gate_login;
+X#endif
+X
+X
+Xint hookup(char *host, unsigned int port)
+X{
+X	register struct hostent *hp = 0;
+X	int s, len, hErr = -1;
+X	string errstr;
+X
+X	bzero((char *)&hisctladdr, sizeof (hisctladdr));
+X#ifdef BAD_INETADDR
+X	hisctladdr.sin_addr = inet_addr(host);
+X#else
+X 	hisctladdr.sin_addr.s_addr = inet_addr(host);
+X#endif
+X	if (hisctladdr.sin_addr.s_addr != -1) {
+X		hisctladdr.sin_family = AF_INET;
+X		(void) Strncpy(hostname, host);
+X	} else {
+X		hp = gethostbyname(host);
+X		if (hp == NULL) {
+X#ifdef HERROR
+X			extern int h_errno;
+X			if (h_errno == HOST_NOT_FOUND)
+X				(void) printf("%s: unknown host\n", host);
+X			else (void) fprintf(stderr, "%s: gethostbyname herror (%d):  ",
+X				host, h_errno);
+X			herror(NULL);
+X#else
+X			(void) printf("%s: unknown host\n", host);
+X#endif
+X			goto done;
+X		}
+X		hisctladdr.sin_family = hp->h_addrtype;
+X		bcopy(hp->h_addr_list[0],
+X		    (caddr_t)&hisctladdr.sin_addr, hp->h_length);
+X		(void) Strncpy(hostname, hp->h_name);
+X	}
+X	s = socket(hisctladdr.sin_family, SOCK_STREAM, 0);
+X	if (s < 0) {
+X		PERROR("hookup", "socket");
+X		goto done;
+X	}
+X	hisctladdr.sin_port = port;
+X#ifdef SOCKS
+X	while (Rconnect(s, (struct sockaddr *) &hisctladdr, (int) sizeof (hisctladdr)) < 0) {
+X#else
+X	while (connect(s, (struct sockaddr *) &hisctladdr, (int) sizeof (hisctladdr)) < 0) {
+X#endif
+X		if (hp && hp->h_addr_list[1]) {
+X			(void) sprintf(errstr, "connect error to address %s",
+X				inet_ntoa(hisctladdr.sin_addr));
+X			PERROR("hookup", errstr);
+X			hp->h_addr_list++;
+X			bcopy(hp->h_addr_list[0],
+X			     (caddr_t)&hisctladdr.sin_addr, hp->h_length);
+X			(void) fprintf(stdout, "Trying %s...\n",
+X				inet_ntoa(hisctladdr.sin_addr));
+X			(void) close(s);
+X			s = socket(hisctladdr.sin_family, SOCK_STREAM, 0);
+X			if (s < 0) {
+X				PERROR("hookup", "socket");
+X				goto done;
+X			}
+X			continue;
+X		}
+X		PERROR("hookup", "connect");
+X		switch (errno) {
+X			case ENETDOWN:
+X			case ENETUNREACH:
+X			case ECONNABORTED:
+X			case ETIMEDOUT:
+X			case ECONNREFUSED:
+X			case EHOSTDOWN:
+X				hErr = -2;	/* we can re-try later. */
+X		}
+X		goto bad;
+X	}
+X	len = sizeof (myctladdr);
+X	if (Getsockname(s, (char *)&myctladdr, &len) < 0) {
+X		PERROR("hookup", "getsockname");
+X		goto bad;
+X	}
+X	cin = fdopen(s, "r");
+X	cout = fdopen(s, "w");
+X	if (cin == NULL || cout == NULL) {
+X		(void) fprintf(stderr, "ftp: fdopen failed.\n");
+X		close_streams(0);
+X		goto bad;
+X	}
+X	if (IS_VVERBOSE)
+X		(void) printf("Connected to %s.\n", hostname);
+X	if (getreply(0) > 2) { 	/* read startup message from server */
+X		close_streams(0);
+X		if (code == 421)
+X			hErr = -2;	/* We can try again later. */
+X		goto bad;
+X	}
+X#ifdef SO_OOBINLINE
+X	{
+X	int on = 1;
+X
+X	if (setsockopt(s, SOL_SOCKET, SO_OOBINLINE, (char *) &on, sizeof(on))
+X		< 0 && debug) {
+X			PERROR("hookup", "setsockopt");
+X		}
+X	}
+X#endif /* SO_OOBINLINE */
+X
+X	hErr = 0;
+X	goto done;
+X
+Xbad:
+X	(void) close(s);
+Xdone:
+X	return (hErr);
+X}	/* hookup */
+X
+X
+X
+X/* This registers the user's username, password, and account with the remote
+X * host which validates it.  If we get on, we also do some other things, like
+X * enter a log entry and execute the startup macro.
+X */
+Xint Login(char *userNamePtr, char *passWordPtr, char *accountPtr, int doInit)
+X{
+X	string userName;
+X	string str;
+X	int n;
+X	int sentAcct = 0;
+X	int userWasPrompted = 0;
+X	int result = CMDERR;
+X	time_t now;
+X
+X	if (userNamePtr == NULL) {
+X		/* Prompt for a username. */
+X		(void) sprintf(str, "Login Name (%s): ", uinfo.username);
+X		++userWasPrompted;
+X		if (Gets(str, userName, sizeof(userName)) == NULL)
+X			goto done;
+X		else if (userName[0]) {
+X			/* User didn't just hit return. */
+X			userNamePtr = userName;
+X		} else {
+X			/*
+X			 * User can hit return if he wants to enter his username
+X			 * automatically.
+X			 */
+X			if (*uinfo.username != '\0')
+X				userNamePtr = uinfo.username;
+X			else
+X				goto done;
+X		}
+X	}
+X
+X	if (passWordPtr == NULL) {
+X		if ((strcmp("anonymous", userName) == 0) && (*anon_password))
+X			passWordPtr = anon_password;
+X		else {
+X			/* Prompt for a password. */
+X			++userWasPrompted;
+X			passWordPtr = Getpass("Password:");
+X		}
+X	}
+X
+X#ifdef GATEWAY
+X	if (*gateway)
+X		(void) sprintf(str, "USER %s@%s",
+X				(*gate_login ? gate_login : dGATEWAY_LOGIN),
+X				hostname);
+X	else
+X#endif
+X		(void) sprintf(str, "USER %s", userNamePtr);
+X
+X	/* Send the user name. */
+X	n = command(str);
+X	if (n == CONTINUE) {
+X		/* The remote site is requesting us to send the password now. */
+X		(void) sprintf(str, "PASS %s", passWordPtr);
+X		n = command(str);
+X		if (n == CONTINUE) {
+X			/* The remote site is requesting us to send the account now. */
+X			(void) sprintf(str, "ACCT %s", Getpass("Account:"));
+X			++sentAcct;	/* Keep track that we've sent the account already. */
+X			++userWasPrompted;
+X			n = command(str);
+X		}
+X	}
+X
+X	if (n != COMPLETE) {
+X		(void) printf("Login failed.\n");
+X		goto done;
+X	}
+X	
+X	/* If you specified an account, and the remote-host didn't request it
+X	 * (maybe it's optional), we will send the account information.
+X	 */
+X	if (!sentAcct && accountPtr != NULL) {
+X		(void) sprintf(str, "ACCT %s", accountPtr);
+X		(void) command(str);
+X	}
+X
+X	/* See if remote host dropped connection.  Some sites will let you log
+X	 * in anonymously, only to tell you that they already have too many
+X	 * anon users, then drop you.  We do a no-op here to see if they've
+X	 * ditched us.
+X	 */
+X	n = quiet_command("NOOP");
+X	if (n == 4)
+X		goto done;
+X
+X#ifdef SYSLOG
+X	syslog(LOG_INFO, "%s connected to %s as %s.",
+X		   uinfo.username, hostname, userNamePtr);
+X#endif
+X
+X	/* Save which sites we opened to the user's logfile. */
+X	if (logf != NULL) {
+X		(void) time(&now);
+X		(void) fprintf(logf, "%s opened at %s",
+X					   hostname,
+X					   ctime(&now));
+X	}
+X
+X	/* Let the user know we are logged in, unless he was prompted for some
+X	 * information already.
+X	 */
+X	if (!userWasPrompted)
+X		if (NOT_VQUIET)
+X			(void) printf("Logged into %s.\n", hostname);
+X
+X	if ((doInit) && (macnum > 0)) {
+X		/* Run the startup macro, if any. */
+X		/* If macnum is non-zero, the init macro was defined from
+X		 * ruserpass.  It would be the only macro defined at this
+X		 * point.
+X		 */
+X		(void) strcpy(line, "$init");
+X		makeargv();
+X		(void) domacro(margc, margv);
+X	}
+X
+X	_cd(NULL);	/* Init cwd variable. */
+X
+X	result = NOERR;
+X	logged_in = 1;
+X
+Xdone:
+X	return (result);
+X}									   /* Login */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid cmdabort SIG_PARAMS
+X{
+X	(void) printf("\n");
+X	(void) fflush(stdout);
+X	abrtflag++;
+X}	/* cmdabort */
+X
+X
+X
+X
+Xint command(char *cmd)
+X{
+X	int r;
+X	sig_t oldintr;
+X	string str;
+X
+X	abrtflag = 0;
+X	dbprintf("cmd: \"%s\" (length %d)\n", cmd, (int) strlen(cmd));
+X	if (cout == NULL) {
+X		(void) sprintf(str, "%s: No control connection for command", cmd);
+X		PERROR("command", str);
+X		return (0);
+X	}
+X	oldintr = Signal(SIGINT, /* cmdabort */ SIG_IGN);
+X#ifndef BROKEN_MEMCPY
+X	if (cout != NULL)
+X		(void) fprintf(cout, "%s\r\n", cmd);
+X#else
+X	{
+X		/*
+X		 * The fprintf() above gives me a core-dump in memcpy()...
+X		 * This does the trick though...
+X		 */
+X
+X		char *p = cmd;
+X		while (*p)
+X			fputc(*p++, cout);
+X		fputc('\r', cout);
+X		fputc('\n', cout);
+X	}
+X#endif /* !SCO324 */
+X	(void) fflush(cout);
+X	cpend = 1;
+X	r = getreply(strcmp(cmd, "QUIT") == 0);
+X	if (abrtflag && oldintr != SIG_IGN && oldintr != NULL)
+X		(*oldintr)(0);
+X	(void) Signal(SIGINT, oldintr);
+X	return(r);
+X}	/* command */
+X
+X
+X
+X
+Xint quiet_command(char *cmd)
+X{
+X	register int oldverbose, result;
+X	
+X	oldverbose = verbose;
+X	verbose = V_QUIET;
+X	result = command(cmd);
+X	verbose = oldverbose;
+X	return (result);
+X}	/* quiet_command */
+X
+X
+X
+X
+Xint verbose_command(char *cmd)
+X{
+X	register int oldverbose, result;
+X	
+X	oldverbose = verbose;
+X	verbose = V_VERBOSE;
+X	result = command(cmd);
+X	verbose = oldverbose;
+X	return (result);
+X}	/* quiet_command */
+X
+X
+X
+X
+Xint getreply(int expecteof)
+X{
+X	register int c, n;
+X	int dig;
+X	char *cp, *end, *dp;
+X	int thiscode, originalcode = 0, continuation = 0;
+X	sig_t oldintr;
+X
+X	if (cin == NULL)
+X		return (-1);
+X	/* oldintr = Signal(SIGINT, SIG_IGN); */
+X	oldintr = Signal(SIGINT, cmdabort);
+X	end = reply_string + RECEIVEDLINELEN - 2;
+X	for (;abrtflag==0;) {
+X		dig = n = thiscode = code = 0;
+X		cp = reply_string;
+X		for (;abrtflag==0;) {
+X			c = fgetc(cin);
+X			if (c == IAC) {     /* handle telnet commands */
+X				switch (c = fgetc(cin)) {
+X				case WILL:
+X				case WONT:
+X					c = fgetc(cin);
+X					(void) fprintf(cout, "%c%c%c",IAC,DONT,c);
+X					(void) fflush(cout);
+X					break;
+X				case DO:
+X				case DONT:
+X					c = fgetc(cin);
+X					(void) fprintf(cout, "%c%c%c",IAC,WONT,c);
+X					(void) fflush(cout);
+X					break;
+X				default:
+X					break;
+X				}
+X				continue;
+X			}
+X			dig++;
+X			if (c == EOF) {
+X				if (expecteof) {
+X					(void) Signal(SIGINT, oldintr);
+X					code = 221;
+X					return (0);
+X				}
+X				lostpeer(0);
+X				if (NOT_VQUIET) {
+X					(void) printf("421 Service not available, remote server has closed connection\n");
+X					(void) fflush(stdout);
+X				}
+X				code = 421;
+X				return(4);
+X			}
+X			if (cp < end && c != '\r')
+X				*cp++ = c;
+X
+X			if (c == '\n')
+X				break;
+X			if (dig < 4 && isdigit(c))
+X				code = thiscode = code * 10 + (c - '0');
+X			else if (dig == 4 && c == '-') {
+X				if (continuation)
+X					code = 0;
+X				continuation++;
+X			}
+X			if (n == 0)
+X				n = c;
+X		}	/* end for(;;) #2 */
+X		
+X		*cp = '\0';
+X		switch (verbose) {
+X			case V_QUIET:
+X				/* Don't print anything. */
+X				break;
+X			case V_ERRS:
+X				if (n == '5') {
+X					dp = reply_string;
+X					goto stripCode;
+X				}
+X				break;	
+X			case V_IMPLICITCD:
+X			case V_TERSE:
+X				dp = NULL;
+X				if (n == '5' && verbose == V_TERSE)
+X					dp = reply_string;
+X				else {
+X					switch (thiscode) {
+X						case 230:
+X						case 214:
+X						case 332:
+X						case 421:	/* For ftp.apple.com, etc. */
+X							dp = reply_string;
+X							break;
+X						case 220:
+X							/*
+X							 * Skip the foo FTP server ready line.
+X							 */
+X							if (strstr(reply_string, "ready.") == NULL)
+X								dp = reply_string;
+X							break;
+X						case 250:
+X							/*
+X							 * Print 250 lines if they aren't
+X							 * "250 CWD command successful."
+X							 */
+X							if (strncmp(reply_string + 4, "CWD ", (size_t) 4))
+X								dp = reply_string;
+X					}
+X				}
+X				if (dp == NULL) break;			
+XstripCode:
+X				/* Try to strip out the code numbers, etc. */
+X				if (isdigit(*dp++) && isdigit(*dp++) && isdigit(*dp++)) {
+X					if (*dp == ' ' || *dp == '-') {
+X						dp++;
+X						if (*dp == ' ') dp++;
+X					} else dp = reply_string;			
+X				} else {
+X					int spaces;
+X					dp = reply_string;
+X					for (spaces = 0; spaces < 4; ++spaces)
+X						if (dp[spaces] != ' ')
+X							break;
+X					if (spaces == 4)
+X						dp += spaces;
+X				}					
+X				goto printLine;
+X			case V_VERBOSE:
+X				dp = reply_string;
+XprintLine:		(void) fputs(dp, stdout);
+X		}	/* end switch */
+X
+X		if (continuation && code != originalcode) {
+X			if (originalcode == 0)
+X				originalcode = code;
+X			continue;
+X		}
+X		if (n != '1')
+X			cpend = 0;
+X		(void) Signal(SIGINT,oldintr);
+X		if (code == 421 || originalcode == 421)
+X			lostpeer(0);
+X		if (abrtflag && oldintr != cmdabort && oldintr != SIG_IGN && oldintr)
+X			(*oldintr)(0);
+X		return (n - '0');
+X	}	/* end for(;;) #1 */
+X}	/* getreply */
+X
+X
+X
+X
+Xstatic int empty(struct fd_set *mask, int sec)
+X{
+X	struct timeval t;
+X
+X	t.tv_sec = (long) sec;
+X	t.tv_usec = 0;
+X
+X	return(Select(32, mask, NULL, NULL, &t));
+X}	/* empty */
+X
+X
+X
+X
+Xstatic void tvsub(struct timeval *tdiff, struct timeval *t1, struct timeval *t0)
+X{
+X	tdiff->tv_sec = t1->tv_sec - t0->tv_sec;
+X	tdiff->tv_usec = t1->tv_usec - t0->tv_usec;
+X	if (tdiff->tv_usec < 0)
+X		tdiff->tv_sec--, tdiff->tv_usec += 1000000;
+X}	/* tvsub */
+X
+X
+X/* Variables private to progress_report code. */
+Xstatic int barlen;
+Xstatic long last_dot;
+Xstatic int dots;
+X
+Xint start_progress(int sending, char *local)
+X{
+X	long s;
+X	str32 spec;
+X
+X	cur_progress_meter = progress_meter;
+X	if ((cur_progress_meter > pr_last) || (cur_progress_meter < 0))
+X		cur_progress_meter = dPROGRESS;
+X	if ((file_size <= 0) && ((cur_progress_meter == pr_percent) || (cur_progress_meter == pr_philbar) || (cur_progress_meter == pr_last)))
+X		cur_progress_meter = pr_kbytes;
+X	if (!ansi_escapes && (cur_progress_meter == pr_philbar))
+X		cur_progress_meter = pr_dots;
+X
+X	(void) gettimeofday(&start, (struct timezone *)0);
+X	now_sec = start.tv_sec;
+X
+X	switch (cur_progress_meter) {
+X		case pr_none:
+X			break;
+X		case pr_percent:
+X			(void) printf("%s:     ", local);
+X			goto zz;
+X		case pr_kbytes:
+X			(void) printf("%s:       ", local);
+X			goto zz;
+X		case pr_philbar:
+X			(void) printf("%s%s file: %s %s\n", 
+X				tcap_boldface,
+X				sending ? "Sending" : "Receiving",
+X				local,
+X				tcap_normal
+X			);
+X			barlen = 64;
+X			for (s = file_size; s > 0; s /= 10L) barlen--;
+X			(void) sprintf(spec, "      0 %%%ds %%ld bytes.\r", barlen);
+X			(void) printf(spec, " ", file_size);
+X			goto zz;
+X		case pr_dots:
+X			last_dot = (file_size / 10) + 1;
+X			dots = 0;
+X			(void) printf("%s: ", local);
+X		zz:
+X			(void) fflush(stdout);
+X			echo(stdin, 0);
+X	}	/* end switch */
+X	return (cur_progress_meter);
+X}	/* start_progress */
+X
+X
+X
+X
+Xint progress_report(int finish_up)
+X{
+X	int size;
+X	long perc;
+X	str32 spec;
+X
+X	next_report += xferbufsize;
+X	(void) gettimeofday(&stop, (struct timezone *)0);
+X	if ((stop.tv_sec > now_sec) || finish_up && file_size) {
+X		switch (cur_progress_meter) {
+X			case pr_none:
+X				break;
+X			case pr_percent:
+X				perc = 100L * bytes / file_size;
+X				if (perc > 100L) perc = 100L;
+X				(void) printf("\b\b\b\b%3ld%%", perc);
+X				(void) fflush(stdout);
+X				break;
+X			case pr_philbar:
+X				size = (int) ((float)barlen * ((float) (bytes > file_size ?
+X					file_size : bytes)/file_size));
+X				(void) sprintf(spec, "%%3ld%%%%  0 %%s%%%ds%%s\r", size);
+X				(void) printf(
+X					spec,
+X					100L * (bytes > file_size ? file_size : bytes) / file_size,
+X					tcap_reverse,
+X					" ",
+X					tcap_normal
+X				);
+X				(void) fflush(stdout);
+X				break;
+X			case pr_kbytes:
+X				if ((bytes / 1024) > 0) {
+X					(void) printf("\b\b\b\b\b\b%5ldK", bytes / 1024);
+X					(void) fflush(stdout);
+X				}
+X				break;
+X			case pr_dots:
+X				if (bytes > last_dot) {
+X					(void) fputc('.', stdout);
+X					(void) fflush(stdout);
+X					last_dot += (file_size / 10) + 1;
+X					dots++;
+X				}	
+X		}	/* end switch */
+X		now_sec = stop.tv_sec;
+X	}	/* end if we updated */
+X	return (UserLoggedIn());
+X}	/* progress_report */
+X
+X
+X
+X
+Xvoid end_progress(char *direction, char *local, char *remote)
+X{
+X    struct timeval			td;
+X    float					s, bs = 0.0;
+X    char					*cp, *bsstr;
+X	string					str;
+X
+X	if (bytes <= 0)
+X		return;
+X	(void) progress_report(1);		/* tell progress proc to cleanup. */
+X
+X	tvsub(&td, &stop, &start);
+X	s = td.tv_sec + (td.tv_usec / 1000000.0);
+X	if (s != 0.0)
+X		bs = bytes / s;
+X	if (bs > 1024.0) {
+X		bs /= 1024.0;
+X		bsstr = "K/s.\n";
+X	} else
+X		bsstr = "Bytes/s.\n";
+X
+X	if (NOT_VQUIET) switch(cur_progress_meter) {
+X		case pr_none:
+X		zz:
+X			(void) printf("%s: %ld bytes %s in %.2f seconds, %.2f %s", local, bytes, direction, s, bs, bsstr);
+X			break;
+X		case pr_kbytes:
+X		case pr_percent:
+X			(void) printf("%s%ld bytes %s in %.2f seconds, %.2f %s",
+X			cur_progress_meter == pr_kbytes ? "\b\b\b\b\b\b" : "\b\b\b\b",
+X			bytes, direction, s, bs, bsstr);
+X			echo(stdin, 1);
+X			break;
+X		case pr_philbar:
+X			(void) printf("\n");
+X			echo(stdin, 1);
+X			break;
+X		case pr_dots:
+X			for (; dots < 10; dots++)
+X				(void) fputc('.', stdout);
+X			(void) fputc('\n', stdout);
+X			echo(stdin, 1);
+X			goto zz;
+X	}
+X	
+X	/* Save transfers to the logfile. */
+X    if (logf != NULL) {
+X		/* if a simple path is given, try to log the full path */
+X		if (rindex(remote, '/') == NULL && cwd != NULL) {
+X			(void) sprintf(str, "%s/%s", cwd, remote);
+X			 cp = str;
+X		} else
+X			cp = remote;
+X		(void) fprintf(logf, "\t-> \"%s\" %s, %.2f %s", cp, direction, bs, bsstr);
+X    } 
+X#ifdef SYSLOG
+X	if (direction[0] == 'r')
+X		syslog (LOG_INFO, "%s %s %s as %s from %s (%ld bytes).",
+X			uinfo.username, direction, remote, local, hostname, bytes);
+X	else
+X		syslog (LOG_INFO, "%s %s %s as %s to %s (%ld bytes).",
+X			uinfo.username, direction, local, remote, hostname, bytes);
+X#endif
+X}   /* end_progress */
+X
+X
+X
+Xvoid close_file(FILE **fin, int filetype)
+X{
+X	if (*fin != NULL) {
+X		if (filetype == IS_FILE) {
+X			(void) fclose(*fin);
+X			*fin = NULL;
+X		} else if (filetype == IS_PIPE) {
+X			(void) pclose(*fin);
+X			*fin = NULL;
+X		}
+X	}
+X}	/* close_file */
+X
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid abortsend SIG_PARAMS
+X{
+X	activemcmd = 0;
+X	abrtflag = 0;
+X	(void) fprintf(stderr, "\nSend aborted.\n");
+X	echo(stdin, 1);
+X	longjmp(sendabort, 1);
+X}	/* abortsend */
+X
+X
+X
+Xint sendrequest(char *cmd, char *local, char *remote)
+X{
+X	FILE					*fin, *dout = NULL;
+X	sig_t					oldintr, oldintp;
+X	string					str;
+X	register int			c, d;
+X	struct stat				st;
+X	int						filetype, result = NOERR;
+X	int						do_reports = 0;
+X	char					*mode;
+X	register char			*bufp;
+X
+X	dbprintf("cmd: %s;  rmt: %s;  loc: %s.\n", cmd, remote, local);
+X	oldintr = NULL;
+X	oldintp = NULL;
+X	mode = "w";
+X	bytes = file_size = 0L;
+X	if (setjmp(sendabort)) {
+X		while (cpend) {
+X			(void) getreply(0);
+X		}
+X		if (data >= 0) {
+X			(void) close(data);
+X			data = -1;
+X		}
+X		if (oldintr)
+X			(void) Signal(SIGINT, oldintr);
+X		if (oldintp)
+X			(void) Signal(SIGPIPE, oldintp);
+X		result = -1;
+X		goto xx;
+X	}
+X	oldintr = Signal(SIGINT, abortsend);
+X	file_size = -1;
+X	if (strcmp(local, "-") == 0)  {
+X		fin = stdin;
+X		filetype = IS_STREAM;
+X	} else if (*local == '|') {
+X		filetype = IS_PIPE;
+X		oldintp = Signal(SIGPIPE,SIG_IGN);
+X		fin = popen(local + 1, "r");
+X		if (fin == NULL) {
+X			PERROR("sendrequest", local + 1);
+X			(void) Signal(SIGINT, oldintr);
+X			(void) Signal(SIGPIPE, oldintp);
+X			result = -1;
+X			goto xx;
+X		}
+X	} else {
+X		filetype = IS_FILE;
+X		fin = fopen(local, "r");
+X		if (fin == NULL) {
+X			PERROR("sendrequest", local);
+X			(void) Signal(SIGINT, oldintr);
+X			result = -1;
+X			goto xx;
+X		}
+X		if (fstat(fileno(fin), &st) < 0 ||
+X		    (st.st_mode&S_IFMT) != S_IFREG) {
+X			(void) fprintf(stdout, "%s: not a plain file.\n", local);
+X			(void) Signal(SIGINT, oldintr);
+X			(void) fclose(fin);
+X			result = -1;
+X			goto xx;
+X		}
+X		file_size = st.st_size;
+X	}
+X	if (initconn()) {
+X		(void) Signal(SIGINT, oldintr);
+X		if (oldintp)
+X			(void) Signal(SIGPIPE, oldintp);
+X		result = -1;
+X		close_file(&fin, filetype);
+X		goto xx;
+X	}
+X	if (setjmp(sendabort))
+X		goto Abort;
+X
+X	if (remote) {
+X		(void) sprintf(str, "%s %s", cmd, remote);
+X		if (command(str) != PRELIM) {
+X			(void) Signal(SIGINT, oldintr);
+X			if (oldintp)
+X				(void) Signal(SIGPIPE, oldintp);
+X			close_file(&fin, filetype);
+X			goto xx;
+X		}
+X	} else
+X		if (command(cmd) != PRELIM) {
+X			(void) Signal(SIGINT, oldintr);
+X			if (oldintp)
+X				(void) Signal(SIGPIPE, oldintp);
+X			close_file(&fin, filetype);
+X			goto xx;
+X		}
+X	dout = dataconn(mode);
+X	if (dout == NULL)
+X		goto Abort;
+X	(void) gettimeofday(&start, (struct timezone *)0);
+X	oldintp = Signal(SIGPIPE, SIG_IGN);
+X	if (do_reports = (filetype == IS_FILE && NOT_VQUIET))
+X		do_reports = start_progress(1, local);
+X
+X	switch (curtype) {
+X
+X	case TYPE_I:
+X	case TYPE_L:
+X		errno = d = 0;
+X		while ((c = read(fileno(fin), xferbuf, (int)xferbufsize)) > 0) {
+X			bytes += c;
+X			for (bufp = xferbuf; c > 0; c -= d, bufp += d)
+X				if ((d = write(fileno(dout), bufp, c)) <= 0)
+X					break;
+X			/* Print progress indicator. */
+X			if (do_reports)
+X				do_reports = progress_report(0);
+X		}
+X		if (c < 0)
+X			PERROR("sendrequest", local);
+X		if (d <= 0) {
+X			if (d == 0 && !creating)
+X				(void) fprintf(stderr, "netout: write returned 0?\n");
+X			else if (errno != EPIPE) 
+X				PERROR("sendrequest", "netout");
+X			bytes = -1;
+X		}
+X		break;
+X
+X	case TYPE_A:
+X		next_report = xferbufsize;
+X		while ((c = getc(fin)) != EOF) {
+X			if (c == '\n') {
+X				if (ferror(dout))
+X					break;
+X				(void) putc('\r', dout);
+X				bytes++;
+X			}
+X			(void) putc(c, dout);
+X			bytes++;
+X
+X			/* Print progress indicator. */
+X			if (do_reports && bytes > next_report)
+X				do_reports = progress_report(0);
+X		}
+X		if (ferror(fin))
+X			PERROR("sendrequest", local);
+X		if (ferror(dout)) {
+X			if (errno != EPIPE)
+X				PERROR("sendrequest", "netout");
+X			bytes = -1;
+X		}
+X		break;
+X	}
+XDone:
+X	close_file(&fin, filetype);
+X	if (dout)
+X		(void) fclose(dout);
+X	(void) getreply(0);
+X	(void) Signal(SIGINT, oldintr);
+X	if (oldintp)
+X		(void) Signal(SIGPIPE, oldintp);
+X	if (do_reports)
+X		end_progress("sent", local, remote);
+Xxx:
+X	return (result);
+XAbort:
+X	result = -1;
+X	if (!cpend)
+X		goto xx;
+X	if (data >= 0) {
+X		(void) close(data);
+X		data = -1;
+X	}
+X	goto Done;
+X}	/* sendrequest */
+X
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid abortrecv SIG_PARAMS
+X{
+X	activemcmd = 0;
+X	abrtflag = 0;
+X	(void) fprintf(stderr, 
+X#ifdef TryAbort
+X	"(abort)\n");
+X#else
+X	"\nAborting, please wait...");
+X#endif
+X	(void) fflush(stderr);
+X	echo(stdin, 1);
+X	longjmp(recvabort, 1);
+X}	/* abortrecv */
+X
+X
+X
+X
+Xvoid GetLSRemoteDir(char *remote, char *remote_dir)
+X{
+X	char *cp;
+X
+X	/*
+X	 * The ls() function can specify a directory to list along with ls flags,
+X	 * if it sends the flags first followed by the directory name.
+X	 *
+X	 * So far, we don't care about the remote directory being listed.  I put
+X	 * it now so I won't forget in case I need to do something with it later.
+X	 */
+X	remote_dir[0] = 0;
+X	if (remote != NULL) {
+X		cp = index(remote, LS_FLAGS_AND_FILE);
+X		if (cp == NULL)
+X			(void) Strncpy(remote_dir, remote);
+X		else {
+X			*cp++ = ' ';
+X			(void) Strncpy(remote_dir, cp);
+X		}
+X	}
+X}	/* GetLSRemoteDir */
+X
+X
+X
+X
+Xint AdjustLocalFileName(char *local)
+X{
+X	char *dir;
+X
+X	/*
+X	 * Make sure we are writing to a valid local path.
+X	 * First check the local directory, and see if we can write to it.
+X	 */
+X	if (access(local, 2) < 0) {
+X		dir = rindex(local, '/');
+X
+X		if (errno != ENOENT && errno != EACCES) {
+X			/* Report an error if it's one we can't handle. */
+X			PERROR("AdjustLocalFileName", local);
+X			return -1;
+X		}
+X		/* See if we have write permission on this directory. */
+X		if (dir != NULL) {
+X			/* Special case: /filename. */
+X			if (dir != local)
+X				*dir = 0;
+X			if (access(dir == local ? "/" : local, 2) < 0) {
+X				/*
+X				 *	We have a big long pathname, like /a/b/c/d,
+X				 *	but see if we can write into the current
+X				 *	directory and call the file ./d.
+X				 */
+X				if (access(".", 2) < 0) {
+X					(void) strcpy(local, " and .");
+X					goto noaccess;
+X				}
+X				(void) strcpy(local, dir + 1);	/* use simple filename. */
+X			} else
+X				*dir = '/';
+X		} else {
+X			/* We have a simple path name (file name only). */
+X			if (access(".", 2) < 0) {
+Xnoaccess:		PERROR("AdjustLocalFileName", local);
+X				return -1;
+X			}
+X		}
+X	}
+X	return (NOERR);
+X}	/* AdjustLocalFileName */
+X	
+X
+X
+Xint SetToAsciiForLS(int is_retr, int currenttype)
+X{
+X	int oldt = 0, oldv;
+X
+X	if (!is_retr) {
+X		if (currenttype != TYPE_A) {
+X			oldt = currenttype;
+X			oldv = verbose;
+X			if (!debug)
+X				verbose = V_QUIET;
+X			(void) setascii(0, NULL);
+X			verbose = oldv;
+X		}
+X	}
+X	return oldt;
+X}	/* SetToAsciiForLS */
+X
+X
+X
+Xint IssueCommand(char *ftpcmd, char *remote)
+X{
+X	string str;
+X	int result = NOERR;
+X
+X	if (remote)
+X		(void) sprintf(str, "%s %s", ftpcmd, remote);
+X	else
+X		(void) Strncpy(str, ftpcmd);
+X		
+X	if (command(str) != PRELIM)
+X		result = -1;
+X	return (result);
+X}	/* IssueCommand */
+X
+X
+X
+XFILE *OpenOutputFile(int filetype, char *local, char *mode, sig_t *oldintp)
+X{
+X	FILE *fout;
+X
+X	if (filetype == IS_STREAM) {
+X		fout = stdout;
+X	} else if (filetype == IS_PIPE) {
+X		/* If it is a pipe, the pipecmd will have a | as the first char. */
+X		++local;
+X		fout = popen(local, "w");
+X		*oldintp = Signal(SIGPIPE, abortrecv);
+X	} else {
+X		fout = fopen(local, mode);
+X	}
+X	if (fout == NULL)
+X		PERROR("OpenOutputFile", local);
+X	return (fout);
+X}	/* OpenOutputFile */
+X
+X
+X
+Xvoid ReceiveBinary(FILE *din, FILE *fout, int *do_reports, char *localfn)
+X{
+X	int							c, d, do2;
+X
+X	errno = 0;			/* Clear any old error left around. */
+X	do2 = *do_reports;	/* A slight optimization :-) */
+X	bytes = 0;			/* Init the byte-transfer counter. */
+X
+X	for (;;) {
+X		/* Read a block from the input stream. */
+X		c = read(fileno(din), xferbuf, (int)xferbufsize);
+X
+X		/* If c is zero, then we've read the whole file. */
+X		if (c == 0)
+X			break;
+X
+X		/* Check for errors that may have occurred while reading. */
+X		if (c < 0) {
+X			/* Error occurred while reading. */
+X			if (errno != EPIPE)
+X				PERROR("ReceiveBinary", "netin");
+X			bytes = -1;
+X			break;
+X		}
+X
+X		/* Write out the same block we just read in. */
+X		d = write(fileno(fout), xferbuf, c);
+X
+X		/* Check for write errors. */
+X		if ((d < 0) || (ferror(fout))) {
+X			/* Error occurred while writing. */
+X			PERROR("ReceiveBinary", "outfile");
+X			break;
+X		}
+X		if (d < c) {
+X			(void) fprintf(stderr, "%s: short write\n", localfn);
+X			break;
+X		}
+X
+X		/* Update the byte counter. */
+X		bytes += (long) c;
+X
+X		/* Print progress indicator. */
+X		if (do2 != 0)
+X			do2 = progress_report(0);
+X	}
+X
+X	*do_reports = do2;	/* Update the real do_reports variable. */
+X}	/* ReceiveBinary */
+X
+X
+X
+Xvoid AddRedirLine(char *str2)
+X{
+X	register struct lslist *new;
+X
+X	(void) Strncpy(indataline, str2);
+X	new = (struct lslist *) malloc((size_t) sizeof(struct lslist));
+X	if (new != NULL) {
+X		if ((new->string = NewString(str2)) != NULL) {
+X	   		new->next = NULL;
+X			if (lshead == NULL)
+X				lshead = lstail = new;
+X			else {
+X				lstail->next = new;
+X				lstail = new;
+X			}
+X		}
+X	}
+X}	/* AddRedirLine */
+X
+X
+X
+Xvoid ReceiveAscii(FILE *din, FILE *fout, int *do_reports, char *localfn, int
+XlineMode)
+X{
+X	string str2;
+X	int nchars = 0, c;
+X	char *linePtr;
+X	int do2 = *do_reports, stripped;
+X
+X	next_report = xferbufsize;
+X	bytes = errno = 0;
+X	if (lineMode) {
+X		while ((linePtr = FGets(str2, din)) != NULL) {
+X			bytes += (long) RemoveTrailingNewline(linePtr, &stripped);
+X			if (is_ls || debug > 0)
+X				AddRedirLine(linePtr);
+X
+X			/* Shutup while getting remote size and mod time. */
+X			if (!buffer_only) {
+X				c = fputs(linePtr, fout);
+X
+X				if (c != EOF) {
+X					if (stripped > 0)
+X						c = fputc('\n', fout);
+X				}
+X				if ((c == EOF) || (ferror(fout))) {
+X					PERROR("ReceiveAscii", "outfile");
+X					break;
+X				}
+X			}
+X
+X			/* Print progress indicator. */
+X			if (do2 && bytes > next_report)
+X				do2 = progress_report(0);
+X		}
+X	} else while ((c = getc(din)) != EOF) {
+X		linePtr = str2;
+X		while (c == '\r') {
+X			bytes++;
+X			if ((c = getc(din)) != '\n') {
+X				if (ferror(fout))
+X					goto break2;
+X				/* Shutup while getting remote size and mod time. */
+X				if (!buffer_only)
+X					(void) putc('\r', fout);
+X				if (c == '\0') {
+X					bytes++;
+X					goto contin2;
+X				}
+X				if (c == EOF)
+X					goto contin2;
+X			}
+X		}
+X		/* Shutup while getting remote size and mod time. */
+X		if (!buffer_only)
+X			(void) putc(c, fout);
+X		bytes++;
+X		
+X		/* Print progress indicator. */
+X		if (do2 && bytes > next_report)
+X			do2 = progress_report(0);
+X
+X		/* No seg violations, please */
+X		if (nchars < sizeof(str2) - 1) {
+X         	*linePtr++ = c;  /* build redir string */
+X			nchars++;
+X		}
+X
+X   contin2:
+X		/* Save the input line in the buffer for recall later. */
+X		if (c == '\n' && is_ls) {
+X			*--linePtr = 0;
+X			AddRedirLine(str2);
+X			nchars = 0;
+X		}
+X       
+X	}	/* while ((c = getc(din)) != EOF) */
+Xbreak2:
+X	if (ferror(din)) {
+X		if (errno != EPIPE)
+X			PERROR("ReceiveAscii", "netin");
+X		bytes = -1;
+X	}
+X	if (ferror(fout)) {
+X		if (errno != EPIPE)
+X			PERROR("ReceiveAscii", localfn);
+X	}
+X	*do_reports = do2;
+X}	/* ReceiveAscii */
+X
+X
+X
+Xvoid CloseOutputFile(FILE *f, int filetype, char *name, time_t mt)
+X{
+X	struct utimbuf				ut;
+X
+X	if (f != NULL) {
+X		(void) fflush(f);
+X		if (filetype == IS_FILE) {
+X			(void) fclose(f);
+X			if (mt != (time_t)0) {
+X				ut.actime = ut.modtime = mt;
+X				(void) utime(name, &ut);
+X			}
+X		} else if (filetype == IS_PIPE) {
+X			(void)pclose(f);
+X		}
+X	}
+X}	/* close_file */
+X
+X
+X
+Xvoid ResetOldType(int oldtype)
+X{
+X	int oldv;
+X
+X	if (oldtype) {
+X		oldv = verbose;
+X		if (!debug)
+X			verbose = V_QUIET;
+X		if (oldtype == TYPE_I)
+X			(void) setbinary(0, NULL);
+X		verbose = oldv;
+X	}
+X}	/* ResetOldType */
+X
+X
+X
+Xint FileType(char *fname)
+X{
+X	int ft = IS_FILE;
+X
+X	if (strcmp(fname, "-") == 0)
+X		ft = IS_STREAM;
+X	else if (*fname == '|')
+X		ft = IS_PIPE;
+X	return (ft);
+X}	/* FileType */
+X
+X
+X
+X
+Xvoid CloseData(void) {
+X	if (data >= 0) {
+X		(void) close(data);
+X		data = -1;
+X	}
+X}	/* CloseData */
+X
+X
+X
+X
+Xint recvrequest(char *cmd, char *local, char *remote, char *mode)
+X{
+X	FILE						*fout = NULL, *din = NULL;
+X	sig_t						oldintr = NULL, oldintp = NULL;
+X	int							oldtype = 0, is_retr;
+X	int							nfnd;
+X	char						msg;
+X	struct fd_set				mask;
+X	int							filetype, do_reports = 0;
+X	string						remote_dir;
+X	time_t						remfTime = 0;
+X	int							result = -1;
+X
+X	dbprintf("---> cmd: %s;  rmt: %s;  loc: %s;  mode: %s.\n",
+X		cmd, remote, local, mode);
+X	is_retr = strcmp(cmd, "RETR") == 0;
+X
+X	GetLSRemoteDir(remote, remote_dir);
+X	if ((filetype = FileType(local)) == IS_FILE) {
+X		if (AdjustLocalFileName(local))
+X			goto xx;
+X	}
+X
+X	file_size = -1;
+X	if (filetype == IS_FILE)
+X		file_size = GetDateAndSize(remote, (unsigned long *) &remfTime);
+X
+X	if (initconn())
+X		goto xx;
+X
+X	oldtype = SetToAsciiForLS(is_retr, curtype);
+X
+X	if (IssueCommand(cmd, remote))
+X		goto xx;
+X	
+X	if ((fout = OpenOutputFile(filetype, local, mode, &oldintp)) == NULL)
+X		goto xx;
+X
+X	if ((din = dataconn("r")) == NULL)
+X		goto Abort;
+X
+X	do_reports = NOT_VQUIET && is_retr && filetype == IS_FILE;
+X	if (do_reports)
+X		do_reports = start_progress(0, local);
+X
+X	if (setjmp(recvabort)) {
+X#ifdef TryAbort
+X		goto Abort;
+X#else
+X		/* Just read the rest of the stream without doing anything with
+X		 * the results.
+X		 */
+X		(void) Signal(SIGINT, SIG_IGN);
+X		(void) Signal(SIGPIPE, SIG_IGN);	/* Don't bug us while aborting. */
+X		while (read(fileno(din), xferbuf, (int)xferbufsize) > 0)
+X			;
+X		(void) fprintf(stderr, "\rAborted.                   \n");
+X#endif
+X	} else {
+X		oldintr = Signal(SIGINT, abortrecv);
+X
+X		if (curtype == TYPE_A)
+X			ReceiveAscii(din, fout, &do_reports, local, 1);
+X		else
+X			ReceiveBinary(din, fout, &do_reports, local);
+X		result = NOERR;
+X		/* Don't interrupt us now, since we finished successfully. */
+X		(void) Signal(SIGPIPE, SIG_IGN);
+X		(void) Signal(SIGINT, SIG_IGN);
+X	}	
+X	(void) getreply(0);
+X	ResetOldType(oldtype);
+X
+X	goto xx;
+X
+XAbort:
+X
+X/* Abort using RFC959 recommended IP,SYNC sequence  */
+X
+X	(void) Signal(SIGPIPE, SIG_IGN);	/* Don't bug us while aborting. */
+X	(void) Signal(SIGINT, SIG_IGN);
+X	ResetOldType(oldtype);
+X	if (!cpend || !cout) goto xx;
+X	(void) fprintf(cout,"%c%c",IAC,IP);
+X	(void) fflush(cout); 
+X	msg = IAC;
+X/* send IAC in urgent mode instead of DM because UNIX places oob mark */
+X/* after urgent byte rather than before as now is protocol            */
+X	if (send(fileno(cout),&msg,1,MSG_OOB) != 1)
+X		PERROR("recvrequest", "abort");
+X	(void) fprintf(cout,"%cABOR\r\n",DM);
+X	(void) fflush(cout);
+X	FD_ZERO(&mask);
+X	FD_SET(fileno(cin), &mask);
+X	if (din)
+X		FD_SET(fileno(din), &mask);
+X	if ((nfnd = empty(&mask,10)) <= 0) {
+X		if (nfnd < 0)
+X			PERROR("recvrequest", "abort");
+X		lostpeer(0);
+X	}
+X	if (din && FD_ISSET(fileno(din), &mask)) {
+X		while ((read(fileno(din), xferbuf, xferbufsize)) > 0)
+X			;
+X	}
+X	if ((getreply(0)) == ERROR && code == 552) { /* needed for nic style abort */
+X		CloseData();
+X		(void) getreply(0);
+X	}
+X	(void) getreply(0);
+X	result = -1;
+X	CloseData();
+X
+Xxx:
+X	CloseOutputFile(fout, filetype, local, remfTime);
+X	dbprintf("outfile closed.\n");
+X	if (din)
+X		(void) fclose(din);
+X	if (do_reports)
+X		end_progress("received", local, remote);
+X	if (oldintr)
+X		(void) Signal(SIGINT, oldintr);
+X	if (oldintp)
+X		(void) Signal(SIGPIPE, oldintp);
+X	dbprintf("recvrequest result = %d.\n", result);
+X	return (result);
+X}	/* recvrequest */
+X
+X
+X
+X
+X/*
+X * Need to start a listen on the data channel
+X * before we send the command, otherwise the
+X * server's connect may fail.
+X */
+X
+Xint initconn(void)
+X{
+X	register char		*p, *a;
+X	int					result, len, tmpno = 0;
+X	int					on = 1, rval;
+X	string				str;
+X	sig_t				oldintr;
+X
+X	oldintr = Signal(SIGINT, SIG_IGN);
+Xnoport:
+X	data_addr = myctladdr;
+X	if (sendport)
+X		data_addr.sin_port = 0;	/* let system pick one */ 
+X	if (data != -1)
+X		(void) close (data);
+X	data = socket(AF_INET, SOCK_STREAM, 0);
+X	if (data < 0) {
+X		PERROR("initconn", "socket");
+X		if (tmpno)
+X			sendport = 1;
+X		rval = 1;  goto Return;
+X	}
+X	if (!sendport)
+X		if (setsockopt(data, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof (on)) < 0) {
+X			PERROR("initconn", "setsockopt (reuse address)");
+X			goto bad;
+X		}
+X#ifdef SOCKS
+X	if (Rbind(data, (struct sockaddr *)&data_addr, sizeof (data_addr), hisctladdr.sin_addr.s_addr) < 0) {
+X#else
+X	if (bind(data, (struct sockaddr *)&data_addr, sizeof (data_addr)) < 0) {
+X#endif
+X		PERROR("initconn", "bind");
+X		goto bad;
+X	}
+X	if (options & SO_DEBUG &&
+X	    setsockopt(data, SOL_SOCKET, SO_DEBUG, (char *)&on, sizeof (on)) < 0)
+X		PERROR("initconn", "setsockopt (ignored)");
+X	len = sizeof (data_addr);
+X	if (Getsockname(data, (char *)&data_addr, &len) < 0) {
+X		PERROR("initconn", "getsockname");
+X		goto bad;
+X	}
+X#ifdef SOCKS 
+X	if (Rlisten(data, 1) < 0)
+X#else
+X	if (listen(data, 1) < 0)
+X#endif
+X		PERROR("initconn", "listen");
+X	if (sendport) {
+X		a = (char *)&data_addr.sin_addr;
+X		p = (char *)&data_addr.sin_port;
+X#define UC(x) (int) (((int) x) & 0xff)
+X		(void) sprintf(str, "PORT %d,%d,%d,%d,%d,%d",
+X			UC(a[0]), UC(a[1]), UC(a[2]), UC(a[3]), UC(p[0]), UC(p[1]));
+X        result = command(str);
+X		if (result == ERROR && sendport == -1) {
+X			sendport = 0;
+X			tmpno = 1;
+X			goto noport;
+X		}
+X		rval = (result != COMPLETE);  goto Return;
+X	}
+X	if (tmpno)
+X		sendport = 1;
+X	rval = 0;  goto Return;
+Xbad:
+X	(void) close(data), data = -1;
+X	if (tmpno)
+X		sendport = 1;
+X	rval = 1;
+XReturn:
+X	(void) Signal(SIGINT, oldintr);
+X	return (rval);
+X}	/* initconn */
+X
+X
+X
+X
+XFILE *
+Xdataconn(char *mode)
+X{
+X	struct sockaddr_in from;
+X	FILE *fp;
+X	int s, fromlen = sizeof (from);
+X
+X#ifdef SOCKS
+X	s = Raccept(data, (struct sockaddr *) &from, &fromlen);
+X#else
+X	s = accept(data, (struct sockaddr *) &from, &fromlen);
+X#endif
+X	if (s < 0) {
+X		PERROR("dataconn", "accept");
+X		(void) close(data), data = -1;
+X		fp = NULL;
+X	} else {
+X		(void) close(data);
+X		data = s;
+X		fp = fdopen(data, mode);
+X	}
+X	return (fp);
+X}	/* dataconn */
+X
+X/* eof ftp.c */
+END_OF_FILE
+  if test 35792 -ne `wc -c <'ftp.c'`; then
+    echo shar: \"'ftp.c'\" unpacked with wrong size!
+  fi
+  # end of 'ftp.c'
+fi
+if test -f 'getpass.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getpass.c'\"
+else
+  echo shar: Extracting \"'getpass.c'\" \(2638 characters\)
+  sed "s/^X//" >'getpass.c' <<'END_OF_FILE'
+X/* Getpass.c */
+X
+X/*  $RCSfile: getpass.c,v $
+X *  $Revision: 14020.11 $
+X *  $Date: 93/05/21 05:44:36 $
+X */
+X
+X#include "sys.h"
+X#include <stdio.h>
+X#include <signal.h>
+X
+X#include "util.h"
+X#include "cmds.h"
+X#include "getpass.h"
+X#include "copyright.h"
+X
+X#ifndef GETPASS
+X
+X#ifndef NO_UNISTDH
+X#	include <unistd.h>
+X#endif
+X
+X#include <sys/ioctl.h>
+X
+X#ifdef TERMIOS
+X#		include <termios.h>
+X#else
+X#	ifdef SGTTYB
+X#		include <sgtty.h>
+X#	else
+X#		include <termio.h>
+X#	endif
+X#endif /* !TERMIOS */
+X
+X#ifdef STRICT_PROTOS
+Xint ioctl(int, int, ...);
+X#endif
+X
+X#endif	/* GETPASS */
+X
+X
+X
+X
+Xvoid echo(FILE *fp, int on)
+X{
+X#ifndef GETPASS		/* Otherwise just do nothing which is ok. */
+X
+X#ifdef TERMIOS
+X	static struct termios orig, noecho, *tp;
+X#else
+X#	ifdef SGTTYB
+X	static struct sgttyb orig, noecho, *tp;
+X#	else
+X	static struct termio orig, noecho, *tp;
+X#	endif
+X#endif
+X	static int state = 0;
+X	int fd = fileno(fp);
+X	
+X	if (!isatty(fd))
+X		return;
+X
+X	if (state == 0) {
+X#ifdef TERMIOS
+X		if (tcgetattr(fd, &orig) < 0)
+X			PERROR("echo", "tcgetattr");
+X		noecho = orig;
+X		noecho.c_lflag &= ~ECHO;
+X#else
+X#	ifdef SGTTYB
+X		if (ioctl(fd, TIOCGETP, &orig) < 0)
+X			PERROR("echo", "ioctl");
+X		noecho = orig;
+X		noecho.sg_flags &= ~ECHO;
+X#	else
+X		if (ioctl(fd, TCGETA, &orig) < 0)
+X			PERROR("echo", "ioctl");
+X		noecho = orig;
+X		noecho.c_lflag &= ~ECHO;
+X#	endif
+X#endif
+X		state = 1;
+X	}
+X	tp = NULL;
+X	if (on && state == 2) {
+X		/* Turn echo back on. */
+X		tp = &orig;
+X		state = 1;
+X	} else if (!on && state == 1) {
+X		/* Turn echo off. */
+X		tp = &noecho;
+X		state = 2;
+X	}
+X	if (tp != NULL) {
+X#ifdef TERMIOS
+X		if (tcsetattr(fd, TCSAFLUSH, tp) < 0)
+X			PERROR("echo", "tcsetattr");
+X#else
+X#	ifdef SGTTYB
+X		if (ioctl(fd, TIOCSETP, tp) < 0)
+X			PERROR("echo", "ioctl");
+X#	else
+X		if (ioctl(fd, TCSETA, tp) < 0)
+X			PERROR("echo", "ioctl");
+X#	endif
+X#endif	/* !TERMIOS */
+X	}
+X
+X#endif	/* GETPASS */
+X}	/* echo */
+X
+X
+X
+X#ifndef GETPASS
+X
+Xchar *Getpass(char *promptstr)
+X{
+X	register int ch;
+X	register char *p;
+X	FILE *fp, *outfp;
+X	sig_t oldintr;
+X	static char buf[kMaxPassLen + 1];
+X
+X	/*
+X	 * read and write to /dev/tty if possible; else read from
+X	 * stdin and write to stderr.
+X	 */
+X	if ((outfp = fp = fopen("/dev/tty", "w+")) == NULL) {
+X		outfp = stderr;
+X		fp = stdin;
+X	}
+X	oldintr = Signal(SIGINT, SIG_IGN);
+X	echo(fp, 0);		/* Turn echoing off. */
+X	(void) fputs(promptstr, outfp);
+X	(void) rewind(outfp);			/* implied flush */
+X	for (p = buf; (ch = getc(fp)) != EOF && ch != '\n';)
+X		if (p < buf + kMaxPassLen)
+X			*p++ = ch;
+X	*p = '\0';
+X	(void)write(fileno(outfp), "\n", 1);
+X	echo(fp, 1);
+X	(void) Signal(SIGINT, oldintr);
+X	if (fp != stdin)
+X		(void)fclose(fp);
+X	return(buf);
+X}	/* Getpass */
+X
+X#endif /* GETPASS */
+X
+X/* eof Getpass.c */
+END_OF_FILE
+  if test 2638 -ne `wc -c <'getpass.c'`; then
+    echo shar: \"'getpass.c'\" unpacked with wrong size!
+  fi
+  # end of 'getpass.c'
+fi
+if test -f 'open.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'open.c'\"
+else
+  echo shar: Extracting \"'open.c'\" \(16396 characters\)
+  sed "s/^X//" >'open.c' <<'END_OF_FILE'
+X/* open.c */
+X
+X/*  $RCSfile: open.c,v $
+X *  $Revision: 1.1 $
+X *  $Date: 93/07/09 11:27:07 $
+X */
+X
+X#include "sys.h"
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <netdb.h>
+X#include <netinet/in.h>
+X#include <arpa/ftp.h>
+X
+X#include <string.h>
+X#include <errno.h>
+X
+X#ifndef NO_UNISTDH
+X#	include <unistd.h>
+X#endif
+X
+X#include "util.h"
+X#include "open.h"
+X#include "cmds.h"
+X#include "ftp.h"
+X#include "ftprc.h"
+X#include "main.h"
+X#include "defaults.h"
+X#include "copyright.h"
+X
+X/* open.c globals */
+Xint					remote_is_unix;		/* TRUE if remote host is unix. */
+Xint					auto_binary = dAUTOBINARY;
+Xint					anon_open = dANONOPEN;
+X										/* Anonymous logins by default? */
+Xint					connected = 0;		/* TRUE if connected to server */
+X										/* If TRUE, set binary each connection. */
+XHostname			hostname;			/* Name of current host */
+X#ifdef GATEWAY
+Xstring				gateway;			/* node name of firewall gateway */
+Xstring				gate_login;			/* login at firewall gateway */
+X#endif
+X
+X/* open.c externs */
+Xextern char					*reply_string, *line, *Optarg, *margv[];
+Xextern int					Optind, margc, verbose;
+Xextern long					eventnumber;
+Xextern struct servent		serv;
+Xextern FILE					*cout;
+Xextern string				anon_password;
+X
+X/* Given a pointer to an OpenOptions (structure containing all variables
+X * that can be set from the command line), this routine makes sure all
+X * the variables have valid values by setting them to their defaults.
+X */
+X 
+Xint InitOpenOptions(OpenOptions *openopt)
+X{
+X	/* How do you want to open a site if neither -a or -u are given?
+X	 * anon_open is true (default to anonymous login), unless
+X	 * defaults.h was edited to set dANONOPEN to 0 instead.
+X	 */
+X	openopt->openmode = anon_open ? openImplicitAnon : openImplicitUser;
+X
+X	/* Normally you don't want to ignore the entry in your netrc. */
+X	openopt->ignore_rc = 0;
+X
+X	/* Set the default delay if the user specifies redial mode without
+X	 * specifying the redial delay.
+X	 */
+X	openopt->redial_delay = dREDIALDELAY;
+X
+X	/* Normally, you only want to try once. If you specify redial mode,
+X	 * this is changed.
+X	 */
+X	openopt->max_dials = 1;
+X	
+X	/* You don't want to cat the file to stdout by default. */
+X	openopt->ftpcat = NO_FTPCAT;
+X
+X	/* Setup the port number to try. */
+X#ifdef dFTP_PORT
+X	/* If dFTP_PORT is defined, we use a different port number by default
+X	 * than the one supplied in the servent structure.
+X	 */
+X	openopt->port = dFTP_PORT;
+X	/* Make sure the correct byte order is supplied! */
+X	openopt->port = htons(openopt->port);
+X#else
+X	/* Use the port number supplied by the operating system's servent
+X	 * structure.
+X	 */
+X	openopt->port = serv.s_port;
+X#endif
+X
+X	/* We are not in colon-mode (yet). */
+X	openopt->colonmodepath[0] = 0;
+X
+X	/* Set the hostname to a null string, since there is no default host. */
+X	openopt->hostname[0] = 0;
+X	
+X	/* Set the opening directory path to a null string. */
+X	openopt->cdpath[0] = 0;
+X}	/* InitOpenOptions */
+X
+X
+X
+X
+X/* This is responsible for parsing the command line and setting variables
+X * in the OpenOptions structure according to the user's flags.
+X */
+X
+Xint GetOpenOptions(int argc, char **argv, OpenOptions *openopt)
+X{
+X	int					opt;
+X
+X	/* First setup the openopt variables. */
+X	InitOpenOptions(openopt);
+X
+X	/* Tell Getopt() that we want to start over with a new command. */
+X	Getopt_Reset();
+X	while ((opt = Getopt(argc, argv, "aiup:rd:g:cm")) >= 0) {
+X		switch (opt) {		
+X			case 'a':
+X				/* User wants to open anonymously. */
+X				openopt->openmode = openExplicitAnon;
+X				break;
+X				
+X			case 'u':
+X				/* User wants to open with a login and password. */
+X				openopt->openmode = openExplicitUser;
+X				break;
+X				
+X			case 'i':
+X				/* User wants to ignore the entry in the netrc. */
+X				openopt->ignore_rc = 1;
+X				break;
+X				
+X			case 'p':
+X				/* User supplied a port number different from the default
+X				 * ftp port.
+X				 */
+X				openopt->port = atoi(Optarg);
+X				if (openopt->port <= 0) {
+X					/* Probably never happen, but just in case. */
+X					(void) printf("%s: bad port number (%s).\n", argv[0], Optarg);
+X					goto usage;
+X				}
+X				/* Must ensure that the port is in the correct byte order! */
+X				openopt->port = htons(openopt->port);
+X				break;
+X				
+X			case 'd':
+X				/* User supplied a delay (in seconds) that differs from
+X				 * the default.
+X				 */
+X				openopt->redial_delay = atoi(Optarg);
+X				break;
+X				
+X			case 'g':
+X				/* User supplied an upper-bound on the number of redials
+X				 * to try.
+X				 */
+X				openopt->max_dials = atoi(Optarg);
+X				break;
+X
+X			case 'r':
+X				openopt->max_dials = -1;
+X				break;
+X
+X			case 'm':
+X				/* ftpcat mode is only available from your shell command-line,
+X				 * not from the ncftp shell.  Do that yourself with 'more zz'.
+X				 */
+X				if (eventnumber == 0L) {
+X					/* If eventnumber is zero, then we were called directly
+X					 * from main(), and before the ftp shell has started.
+X					 */
+X					openopt->ftpcat = FTPMORE;
+X					/* ftpcat mode is really ftpmore mode. */
+X					break;
+X				} else {
+X					fprintf(stderr,
+X"You can only use this form of colon-mode (-m) from your shell command line.\n\
+XTry 'ncftp -m wuarchive.wustl.edu:/README'\n");
+X					goto usage;
+X				}
+X				break;
+X
+X			case 'c':
+X				/* ftpcat mode is only available from your shell command-line,
+X				 * not from the ncftp shell.  Do that yourself with 'get zz -'.
+X				 */
+X				if (eventnumber == 0L) {
+X					/* If eventnumber is zero, then we were called directly
+X					 * from main(), and before the ftp shell has started.
+X					 */
+X					openopt->ftpcat = FTPCAT;
+X					break;
+X				} else {
+X					fprintf(stderr,
+X"You can only use ftpcat/colon-mode from your shell command line.\n\
+XTry 'ncftp -c wuarchive.wustl.edu:/README > file.'\n");
+X					goto usage;
+X				}
+X				break;
+X				
+X			default:
+X			usage:
+X				return USAGE;
+X		}
+X	}
+X
+X	if (argv[Optind] == NULL) {
+X		/* No host was supplied.  Print out the list of sites we know
+X		 * about and ask the user for one.
+X		 */
+X		PrintSiteList();
+X		(void) Gets("(site to open) ", openopt->hostname, sizeof(openopt->hostname));
+X		/* Make sure the user just didn't hit return, in which case we
+X		 * just give up and go home.
+X		 */
+X		if (openopt->hostname[0] == 0)
+X			goto usage;
+X	} else {
+X		/* The user gave us a host to open.  */
+X		(void) Strncpy(openopt->hostname, argv[Optind]);
+X	}
+X	return NOERR;
+X}	/* GetOpenOptions */
+X
+X
+X
+X
+X/* This examines the format of the string stored in the hostname
+X * field of the OpenOptions, and sees if has to strip out a colon-mode
+X * pathname (to store in the colonmodepath field).  Since colon-mode
+X * is run quietly (without any output being generated), we init the
+X * login_verbosity variable here to quiet if we are running colon-mode.
+X */
+Xint CheckForColonMode(OpenOptions *openopt, int *login_verbosity)
+X{
+X	char *path;
+X
+X	/* Usually the user doesn't supply hostname in colon-mode format,
+X	 * and wants to interactively browse the remote host, so set the
+X	 * login_verbosity to whatever it is set to now.
+X	 */
+X	*login_verbosity = verbose;
+X
+X	if ((path = index(openopt->hostname, ':')) != NULL) {
+X		*path++ = 0;
+X		(void) Strncpy(openopt->colonmodepath, path);
+X		
+X		/* But if the user does use colon-mode, we want to do our business
+X		 * and leave, without all the login messages, etc., so set
+X		 * login_verbosity to quiet so we won't print anything until
+X		 * we finish.  Colon-mode can be specified from the shell command
+X		 * line, so we would like to be able to execute ncftp as a one
+X		 * line command from the shell without spewing gobs of output.
+X		 */
+X		*login_verbosity = V_QUIET;
+X	} else if (openopt->ftpcat != 0) {
+X		/* User specified ftpcat mode, but didn't supply the host:file. */
+X		(void) fprintf(stderr, "You didn't use colon mode correctly.\n\
+XIf you use -c or -m, you need to do something like this:\n\
+X	ncftp -c wuarchive.wustl.edu:/pub/README (to cat this file to stdout).\n");
+X		return USAGE;
+X	}
+X	return NOERR;
+X}	/* CheckForColonMode */
+X
+X
+X
+X
+X/* All this short routine does is to hookup a socket to either the
+X * remote host or the firewall gateway host.
+X */
+Xint HookupToRemote(OpenOptions *openopt)
+X{
+X	int hErr;
+X
+X#ifdef GATEWAY
+X	/* Try connecting to the gateway host. */
+X	if (*gateway)
+X		hErr = hookup(gateway, openopt->port);
+X	else
+X#endif
+X		hErr = hookup(openopt->hostname, openopt->port);
+X	
+X	return hErr;
+X}	/* HookupToRemote */
+X
+X
+X
+X
+Xvoid CheckRemoteSystemType(OpenOptions *openopt)
+X{
+X	int tmpverbose;
+X	char *cp, c;
+X
+X	/* As of this writing, UNIX is pretty much standard. */
+X	remote_is_unix = 1;
+X
+X	/* Do a SYSTem command quietly. */
+X	tmpverbose = verbose;
+X	verbose = V_QUIET;
+X	if (command("SYST") == COMPLETE) {
+X		if (tmpverbose == V_VERBOSE) {		
+X			/* Find the system type embedded in the reply_string,
+X			 * and separate it from the rest of the junk.
+X			 */
+X			cp = index(reply_string+4, ' ');
+X			if (cp == NULL)
+X				cp = index(reply_string+4, '\r');
+X			if (cp) {
+X				if (cp[-1] == '.')
+X					cp--;
+X				c = *cp;
+X				*cp = '\0';
+X			}
+X
+X			(void) printf("Remote system type is %s.\n",
+X				reply_string+4);
+X			if (cp)
+X				*cp = c;
+X		}
+X		remote_is_unix = !strncmp(reply_string + 4, "UNIX", (size_t) 4);
+X	}
+X
+X	/* Set to binary mode if any of the following are true:
+X	 * (a) The user has auto-binary set;
+X	 * (b) The user is using colon-mode;
+X	 * (c) The reply-string from SYST said it was UNIX with 8-bit chars.
+X	 */
+X	if (auto_binary || openopt->colonmodepath[0]
+X		|| !strncmp(reply_string, "215 UNIX Type: L8", (size_t) 17)) {
+X		(void) _settype("binary");
+X		if (tmpverbose > V_TERSE)
+X		    (void) printf("Using binary mode to transfer files.\n");
+X	}
+X
+X	/* Print a warning for that (extremely) rare Tenex machine. */
+X	if (tmpverbose >= V_ERRS && 
+X	    !strncmp(reply_string, "215 TOPS20", (size_t) 10)) {
+X		(void) printf(
+X"Remember to set tenex mode when transfering _binary_ files from this machine.\n");
+X	}
+X	verbose = tmpverbose;
+X}	/* CheckRemoteSystemType */
+X
+X
+X
+X/* This is called if the user opened the host with a file appended to
+X * the host's name, like "wuarchive.wustl.edu:/pub/readme," or
+X * "wuarchive.wustl.edu:/pub."  In the former case, we open wuarchive,
+X * and fetch "readme."  In the latter case, we open wuarchive, then set
+X * the current remote directory to "/pub."  If we are fetching a file,
+X * we can do some other tricks if "ftpcat mode" is enabled.  This mode
+X * must be selected from your shell's command line, and this allows you
+X * to use the program as a one-liner to pipe a remote file into something,
+X * like "ncftp -c wu:/pub/README | wc."  If the user uses ftpcat mode,
+X * the program immediately quits instead of going into it's own command
+X * shell.
+X */
+Xvoid ColonMode(OpenOptions *openopt)
+X{
+X	int tmpverbose;
+X
+X	/* How do we tell if colonmodepath is a file or a directory?
+X	 * We first try cd'ing to the path first.  If we can, then it
+X	 * was a directory.  If we could not, we'll assume it was a file.
+X	 */
+X
+X	/* Shut up, so cd won't print 'foobar: Not a directory.' */
+X	tmpverbose = verbose;
+X	verbose = V_QUIET;
+X
+X	/* If we are using ftpcat|more mode, or we couldn't cd to the
+X	 * colon-mode path (then it must be a file to fetch), then
+X	 * we need to fetch a file.
+X	 */
+X	if (openopt->ftpcat || ! _cd(openopt->colonmodepath)) {
+X		/* We call the appropriate fetching routine, so we have to
+X		 * have the argc and argv set up correctly.  To do this,
+X		 * we just make an entire command line, then let makeargv()
+X		 * convert it to argv/argc.
+X		 */
+X		if (openopt->ftpcat == FTPCAT)
+X			(void) sprintf(line, "get %s -", openopt->colonmodepath);
+X		else if (openopt->ftpcat == FTPMORE)
+X			(void) sprintf(line, "more %s", openopt->colonmodepath);
+X		else {
+X			/* Regular colon-mode, where we fetch the file, putting the
+X			 * copy in the current local directory.
+X			 */
+X			(void) sprintf(line, "mget %s", openopt->colonmodepath);
+X		}
+X		makeargv();
+X
+X		/* Turn on messaging if we aren't catting. */
+X		if (openopt->ftpcat == 0)
+X			verbose = tmpverbose;
+X		
+X		/* get() also handles 'more'. */
+X		if (openopt->ftpcat)
+X			(void) get(margc, margv);
+X		else
+X			(void) mget(margc, margv);
+X
+X		/* If we were invoked from the command line, quit
+X		 * after we got this file.
+X		 */
+X		if (eventnumber == 0L) {
+X			(void) quit(0, NULL);
+X		}
+X	}
+X	verbose = tmpverbose;
+X}	/* ColonMode */
+X
+X
+X
+X
+X/* Given a properly set up OpenOptions, we try connecting to the site,
+X * redialing if necessary, and do some initialization steps so the user
+X * can send commands.
+X */
+Xint Open(OpenOptions *openopt)
+X{
+X	int					tmpverbose, hErr;
+X	int					dials;
+X	char *ruser, *rpass, *racct;
+X	int siteInRC;
+X	char *user, *pass, *acct;	
+X	int					login_verbosity;
+X
+X	/* If there is already a site open, close that one so we can
+X	 * open a new one.
+X	 */
+X	if (connected && NOT_VQUIET && hostname[0]) {
+X		(void) printf("Closing %s...\n", hostname);
+X		(void) disconnect(0, NULL);
+X	}
+X
+X	ruser = rpass = racct = NULL;
+X	/* This also loads the init macro. */
+X	siteInRC = ruserpass2(openopt->hostname, &ruser, &rpass, &racct);
+X	if (ISANONOPEN(openopt->openmode)) {
+X		user = "anonymous";
+X		pass = anon_password;
+X	} else {
+X		user = NULL;
+X		pass = NULL;
+X	}
+X	acct = NULL;
+X	
+X	if (siteInRC && !openopt->ignore_rc) {
+X		acct = racct;
+X		if (ruser != NULL) {
+X			/* We were given a username.  If we were given explicit
+X			 * instructions from the command line, follow those and
+X			 * ignore what the RC had.  Otherwise if no -a or -u
+X			 * was specified, we use whatever was in the RC.
+X			 */
+X			if (ISIMPLICITOPEN(openopt->openmode)) {
+X				user = ruser;
+X				pass = rpass;
+X			}
+X		}		
+X	}
+X
+X
+X	/* If the hostname supplied is in the form host.name.str:/path/file,
+X	 * then colon mode was used, and we need to fix the hostname to be
+X	 * just the hostname, copy the /path/file to colonmode path, and init
+X	 * the login_verbosity variable.
+X	 */
+X	if (CheckForColonMode(openopt, &login_verbosity) == USAGE)
+X		return USAGE;
+X
+X#ifdef GATEWAY
+X	/* Make sure the gateway host name is a full name and not an
+X	 * abbreviation.
+X	 */
+X	if (*gateway)
+X		GetFullSiteName(gateway, NULL);
+X#endif
+X
+X	/* If the hostname supplied was an abbreviation, such as just
+X	 * "wu" (wuarchive.wustl.edu), look through the list of sites
+X	 * we know about and get the whole name.  We also would like
+X	 * the path we want to start out in, if it is available.
+X	 */
+X	GetFullSiteName(openopt->hostname, openopt->cdpath);
+X
+X	for (
+X			dials = 0;
+X			openopt->max_dials < 0 || dials < openopt->max_dials;
+X			dials++)
+X	{
+X		if (dials > 0) {
+X			/* If this is the second dial or higher, sleep a bit. */
+X			(void) sleep(openopt->redial_delay);
+X			(void) fprintf(stderr, "Retry Number: %d\n", dials + 1);
+X		}
+X
+X		if ((hErr = HookupToRemote(openopt)) == -2)	
+X			/* Recoverable, so we can try re-dialing. */
+X			continue;
+X		else if (hErr == NOERR) {
+X			/* We were hookup'd successfully. */
+X			connected = 1;
+X
+X#ifdef GATEWAY
+X			if (*gateway) {
+X				if ((Login(
+X					user,
+X					pass,
+X					acct,
+X					(!openopt->ignore_rc && !openopt->colonmodepath[0])
+X				) != NOERR) || cout == NULL)
+X					goto nextdial;		/* error! */
+X			}
+X#endif
+X
+X			/* We need to check for unix and see if we should set binary
+X			 * mode automatically.
+X			 */
+X			CheckRemoteSystemType(openopt);
+X
+X#ifdef GATEWAY
+X			if (!*gateway) {
+X#endif
+X				/* We don't want to run the init macro for colon-mode. */
+X				if ((Login(
+X						user,
+X						pass,
+X						acct,
+X						(!openopt->ignore_rc && !openopt->colonmodepath[0])
+X					) != NOERR) || cout == NULL)
+X				{
+X					goto nextdial;		/* error! */
+X				}
+X#ifdef GATEWAY
+X			}
+X#endif
+X
+X			if (openopt->colonmodepath[0]) {
+X				ColonMode(openopt);
+X			} else if (openopt->cdpath[0]) {
+X				/* If we didn't have a colon-mode path, we try setting
+X				 * the current remote directory to cdpath.  cdpath is
+X				 * usually the last directory we were in the previous
+X				 * time we called this site.
+X				 */
+X				(void) _cd(openopt->cdpath);
+X			} else {
+X				/* Freshen 'cwd' variable for the prompt. 
+X				 * We have to do atleast one 'cd' so our variable
+X				 * cwd (which is saved by _cd()) is set to something
+X				 * valid.
+X				 */
+X				(void) _cd(NULL);
+X			}
+X			break;	/* we are connected, so break the redial loop. */
+X			/* end if we are connected */
+X		} else {
+X			/* Irrecoverable error, so don't bother redialing. */
+X			/* The error message should have already been printed
+X			 * from Hookup().
+X			 */
+X			break;
+X		}
+Xnextdial: continue;	/* Try re-dialing. */
+X	}
+X	return (NOERR);
+X}	/* Open */
+X
+X
+X
+X/* This stub is called by our command parser. */
+Xint cmdOpen(int argc, char **argv)
+X{
+X	OpenOptions			openopt;
+X
+X	if ((GetOpenOptions(argc, argv, &openopt) == USAGE) ||
+X		(Open(&openopt) == USAGE))
+X		return USAGE;
+X	return NOERR;
+X}	/* cmdOpen */
+X
+X/* eof open.c */
+END_OF_FILE
+  if test 16396 -ne `wc -c <'open.c'`; then
+    echo shar: \"'open.c'\" unpacked with wrong size!
+  fi
+  # end of 'open.c'
+fi
+echo shar: End of archive 2 \(of 5\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

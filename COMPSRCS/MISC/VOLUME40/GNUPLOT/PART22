@@ -1,0 +1,3362 @@
+Newsgroups: comp.sources.misc
+From: woo@playfair.stanford.edu ("Alexander Woo")
+Subject: v40i034:  gnuplot - interactive function plotting utility, Part22/33
+Message-ID: <1993Oct22.163817.24586@sparky.sterling.com>
+X-Md4-Signature: fee931668b85cf77b0e11163acfe85f4
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 22 Oct 1993 16:38:17 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: woo@playfair.stanford.edu ("Alexander Woo")
+Posting-number: Volume 40, Issue 34
+Archive-name: gnuplot/part22
+Environment: UNIX, MS-DOS, VMS
+Supersedes: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  gnuplot/parse.c gnuplot/plot.c gnuplot/term/aed.trm
+#   gnuplot/term/gpr.trm gnuplot/term/next.trm gnuplot/util.c
+#   gnuplot/win/wgnuplot.mnu
+# Wrapped by kent@sparky on Wed Oct 20 17:14:55 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 22 (of 33)."'
+if test -f 'gnuplot/parse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/parse.c'\"
+else
+  echo shar: Extracting \"'gnuplot/parse.c'\" \(11722 characters\)
+  sed "s/^X//" >'gnuplot/parse.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char    *RCSid = "$Id: parse.c%v 3.50.1.8 1993/07/27 05:37:15 woo Exp $";
+X#endif
+X
+X
+X/* GNUPLOT - parse.c */
+X/*
+X * Copyright (C) 1986 - 1993   Thomas Williams, Colin Kelley 
+X *
+X * Permission to use, copy, and distribute this software and its documentation
+X * for any purpose with or without fee is hereby granted, provided that the
+X * above copyright notice appear in all copies and that both that copyright
+X * notice and this permission notice appear in supporting documentation. 
+X *
+X * Permission to modify the software is granted, but not the right to distribute
+X * the modified code.  Modifications are to be distributed as patches to
+X * released version. 
+X *
+X * This software is provided "as is" without express or implied warranty. 
+X *
+X *
+X * AUTHORS 
+X *
+X * Original Software: Thomas Williams,  Colin Kelley. 
+X *
+X * Gnuplot 2.0 additions: Russell Lang, Dave Kotz, John Campbell. 
+X *
+X * Gnuplot 3.0 additions: Gershon Elber and many others. 
+X *
+X */
+X
+X#include <stdio.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X#include <errno.h>
+X#include <math.h>
+X#include "plot.h"
+X
+X#ifndef vms
+X#if !defined(__ZTC__) && !defined(__MSC__)
+Xextern int      errno;
+X#endif
+X#endif
+X
+Xextern int      num_tokens, c_token;
+Xextern struct lexical_unit token[];
+Xextern char     c_dummy_var[MAX_NUM_VAR][MAX_ID_LEN + 1];	/* name of current dummy
+X								 * vars */
+Xextern struct udft_entry *dummy_func;	/* pointer to dummy variable's func */
+X
+Xstruct value   *
+Xpop(), *Ginteger(), *Gcomplex();
+Xstruct at_type *
+Xtemp_at(), *perm_at();
+Xstruct udft_entry *add_udf();
+Xstruct udvt_entry *add_udv();
+Xunion argument *add_action();
+X
+Xstruct at_type  at;
+X#ifdef _Windows
+Xstatic jmp_buf far fpe_env;
+X#else
+Xstatic jmp_buf  fpe_env;
+X#endif
+X
+X#define dummy (struct value *) 0
+X
+X#if defined(__TURBOC__) || defined(DJGPP) || defined(SOLARIS)
+Xvoid
+Xfpe()
+X#else
+X#if defined( __ZTC__ ) || defined( _CRAY ) || defined( sgi )|| defined( OS2 ) || defined(__EMX__) || defined( __alpha)
+Xvoid
+Xfpe(an_int)
+X	int             an_int;
+X#else
+X#if defined( NEXT ) || defined( VMS)
+Xvoid
+Xfpe(int an_int)
+X#else
+X#ifdef sgi
+Xvoid
+Xfpe(int sig, int code, struct sigcontext * sc)
+X/*
+X * void fpe(an_int) int an_int; 
+X */
+X#else
+Xfpe()
+X#endif
+X#endif
+X#endif				/* __ZTC__ || _CRAY */
+X#endif				/* __TURBOC__ */
+X{
+X#if defined(MSDOS) && !defined(__EMX__) && !defined(DJGPP) && !defined(_Windows) || defined(DOS386)
+X	/* thanks to lotto@wjh12.UUCP for telling us about this  */
+X	_fpreset();
+X#endif
+X#if defined(MSDOS) && defined(__EMX__)
+X	(void)signal(SIGFPE, (void *)fpe);
+X#else
+X#ifdef DJGPP
+X	(void)signal(SIGFPE, (SignalHandler)fpe);
+X#else
+X#ifdef OS2
+X	(void) signal(an_int, SIG_ACK);
+X#else
+X	(void)signal(SIGFPE, fpe);
+X#endif
+X#endif
+X#endif
+X#ifdef ATARI
+X	/* do we need this ? (AL) */
+X	fprintf(stderr, "floating point exception!\n");
+X#endif
+X	undefined = TRUE;
+X	longjmp(fpe_env, TRUE);
+X}
+X
+X
+X#ifdef apollo
+X#include <apollo/base.h>
+X#include <apollo/pfm.h>
+X#include <apollo/fault.h>
+X
+X/*
+X * On an Apollo, the OS can signal a couple errors that are not mapped into
+X * SIGFPE, namely signalling NaN and branch on an unordered comparison.  I
+X * suppose there are others, but none of these are documented, so I handle
+X * them as they arise. 
+X *
+X * Anyway, we need to catch these faults and signal SIGFPE. 
+X */
+X
+Xpfm_$fh_func_val_t apollo_sigfpe(pfm_$fault_rec_t & fault_rec)
+X{
+X	kill(getpid(), SIGFPE);
+X	return pfm_$continue_fault_handling;
+X}
+X
+Xapollo_pfm_catch()
+X{
+X	status_$t status;
+X	pfm_$establish_fault_handler(fault_$fp_bsun, pfm_$fh_backstop,
+X				       apollo_sigfpe, &status);
+X	pfm_$establish_fault_handler(fault_$fp_sig_nan, pfm_$fh_backstop,
+X				       apollo_sigfpe, &status);
+X}
+X#endif
+X
+X
+Xevaluate_at(at_ptr, val_ptr)
+X	struct at_type *at_ptr;
+X	struct value   *val_ptr;
+X{
+X	double          temp, real();
+X
+X	undefined = FALSE;
+X	errno = 0;
+X	reset_stack();
+X
+X#ifndef DOSX286
+X	if (setjmp(fpe_env))
+X		return(0);		/* just bail out */
+X#if defined(MSDOS) && defined(__EMX__)
+X	(void)signal(SIGFPE, (void *)fpe);
+X#else
+X#if DJGPP
+X	(void)signal(SIGFPE, (SignalHandler)fpe);
+X#else
+X	(void)signal(SIGFPE, fpe);	/* catch core dumps on FPEs */
+X#endif
+X#endif
+X#endif
+X
+X	execute_at(at_ptr);
+X
+X#ifndef DOSX286
+X	(void)signal(SIGFPE, SIG_DFL);
+X#endif
+X
+X	if (errno == EDOM || errno == ERANGE) {
+X		undefined = TRUE;
+X	} else {
+X		(void)pop(val_ptr);
+X		check_stack();
+X	}
+X	/* At least one machine (ATT 3b1) computes Inf without a SIGFPE */
+X	temp = real(val_ptr);
+X	if (temp > VERYLARGE || temp < -VERYLARGE) {
+X		undefined = TRUE;
+X	}
+X}
+X
+X
+Xstruct value   *
+Xconst_express(valptr)
+X	struct value   *valptr;
+X{
+X	register int    tkn = c_token;
+X	if (END_OF_COMMAND)
+X		int_error("constant expression required", c_token);
+X	evaluate_at(temp_at(), valptr);	/* run it and send answer back */
+X	if (undefined) {
+X		int_error("undefined value", tkn);
+X	}
+X	return (valptr);
+X}
+X
+X
+Xstruct at_type *
+Xtemp_at()
+X{				/* build a static action table and return its
+X				 * pointer */
+X	at.a_count = 0;		/* reset action table !!! */
+X	express();
+X	return (&at);
+X}
+X
+X
+X/* build an action table, put it in dynamic memory, and return its pointer */
+X
+Xstruct at_type *
+Xperm_at()
+X{
+X	register struct at_type *at_ptr;
+X	unsigned int len;
+X
+X	(void)temp_at();
+X	len = sizeof(struct at_type) -
+X		(MAX_AT_LEN - at.a_count) * sizeof(struct at_entry);
+X	at_ptr = (struct at_type *) alloc((unsigned long)len, "action table");
+X	(void)memcpy(at_ptr, &at, len);
+X	return (at_ptr);
+X}
+X
+X
+X#ifdef NOCOPY
+X/*
+X * cheap and slow version of memcpy() in case you don't have one 
+X */
+Xmemcpy(dest, src, len)
+X	char           *dest, *src;
+X	unsigned int    len;
+X{
+X	while (len--)
+X		*dest++ = *src++;
+X}
+X#endif				/* NOCOPY */
+X
+X
+Xexpress()
+X{				/* full expressions */
+X	xterm();
+X	xterms();
+X}
+X
+Xxterm()
+X{				/* ? : expressions */
+X	aterm();
+X	aterms();
+X}
+X
+X
+Xaterm()
+X{
+X	bterm();
+X	bterms();
+X}
+X
+X
+Xbterm()
+X{
+X	cterm();
+X	cterms();
+X}
+X
+X
+Xcterm()
+X{
+X	dterm();
+X	dterms();
+X}
+X
+X
+Xdterm()
+X{
+X	eterm();
+X	eterms();
+X}
+X
+X
+Xeterm()
+X{
+X	fterm();
+X	fterms();
+X}
+X
+X
+Xfterm()
+X{
+X	gterm();
+X	gterms();
+X}
+X
+X
+Xgterm()
+X{
+X	hterm();
+X	hterms();
+X}
+X
+X
+Xhterm()
+X{
+X	unary();		/* - things */
+X	iterms();		/* * / % */
+X}
+X
+X
+Xfactor()
+X{
+X	register int    value;
+X
+X	if (equals(c_token, "(")) {
+X		c_token++;
+X		express();
+X		if (!equals(c_token, ")"))
+X			int_error("')' expected", c_token);
+X		c_token++;
+X	} else if (isnumber(c_token)) {
+X		convert(&(add_action(PUSHC)->v_arg), c_token);
+X		c_token++;
+X	} else if (isletter(c_token)) {
+X		if ((c_token + 1 < num_tokens) && equals(c_token + 1, "(")) {
+X			value = standard(c_token);
+X			if (value) {	/* it's a standard function */
+X				c_token += 2;
+X				express();
+X				if (equals(c_token, ",")) {
+X					while (equals(c_token, ",")) {
+X						c_token += 1;
+X						express();
+X					}
+X				}
+X				if (!equals(c_token, ")"))
+X					int_error("')' expected", c_token);
+X				c_token++;
+X				(void)add_action(value);
+X			} else {
+X				int             call_type = (int)CALL;
+X				value = c_token;
+X				c_token += 2;
+X				express();
+X				if (equals(c_token, ",")) {
+X					struct value    num_params;
+X					num_params.type = INTGR;
+X					num_params.v.int_val = 1;
+X					while (equals(c_token, ",")) {
+X						num_params.v.int_val += 1;
+X						c_token += 1;
+X						express();
+X					}
+X					add_action(PUSHC)->v_arg = num_params;
+X					call_type = (int)CALLN;
+X				}
+X				if (!equals(c_token, ")"))
+X					int_error("')' expected", c_token);
+X				c_token++;
+X				add_action(call_type)->udf_arg = add_udf(value);
+X			}
+X		} else {
+X			if (equals(c_token, c_dummy_var[0])) {
+X				c_token++;
+X				add_action(PUSHD1)->udf_arg = dummy_func;
+X			} else if (equals(c_token, c_dummy_var[1])) {
+X				c_token++;
+X				add_action(PUSHD2)->udf_arg = dummy_func;
+X			} else {
+X				int             i, param = 0;
+X				for (i = 2; i < MAX_NUM_VAR; i++) {
+X					if (equals(c_token, c_dummy_var[i])) {
+X						struct value    num_params;
+X						num_params.type = INTGR;
+X						num_params.v.int_val = i;
+X						param = 1;
+X						c_token++;
+X						add_action(PUSHC)->v_arg = num_params;
+X						add_action(PUSHD)->udf_arg = dummy_func;
+X						break;
+X					}
+X				}
+X				if (!param) {	/* defined variable */
+X					add_action(PUSH)->udv_arg = add_udv(c_token);
+X					c_token++;
+X				}
+X			}
+X		}
+X	}
+X	/* end if letter */
+X	else
+X		int_error("invalid expression ", c_token);
+X
+X	/* add action code for ! (factorial) operator */
+X	while (equals(c_token, "!")) {
+X		c_token++;
+X		(void)add_action(FACTORIAL);
+X	}
+X	/* add action code for ** operator */
+X	if (equals(c_token, "**")) {
+X		c_token++;
+X		unary();
+X		(void)add_action(POWER);
+X	}
+X}
+X
+X
+X
+Xxterms()
+X{				/* create action code for ? : expressions */
+X
+X	if (equals(c_token, "?")) {
+X		register int    savepc1, savepc2;
+X		register union argument *argptr1, *argptr2;
+X		c_token++;
+X		savepc1 = at.a_count;
+X		argptr1 = add_action(JTERN);
+X		express();
+X		if (!equals(c_token, ":"))
+X			int_error("expecting ':'", c_token);
+X		c_token++;
+X		savepc2 = at.a_count;
+X		argptr2 = add_action(JUMP);
+X		argptr1->j_arg = at.a_count - savepc1;
+X		express();
+X		argptr2->j_arg = at.a_count - savepc2;
+X	}
+X}
+X
+X
+Xaterms()
+X{				/* create action codes for || operator */
+X
+X	while (equals(c_token, "||")) {
+X		register int    savepc;
+X		register union argument *argptr;
+X		c_token++;
+X		savepc = at.a_count;
+X		argptr = add_action(JUMPNZ);	/* short-circuit if already
+X						 * TRUE */
+X		aterm();
+X		argptr->j_arg = at.a_count - savepc;	/* offset for jump */
+X		(void)add_action(BOOLE);
+X	}
+X}
+X
+X
+Xbterms()
+X{				/* create action code for && operator */
+X
+X	while (equals(c_token, "&&")) {
+X		register int    savepc;
+X		register union argument *argptr;
+X		c_token++;
+X		savepc = at.a_count;
+X		argptr = add_action(JUMPZ);	/* short-circuit if already
+X						 * FALSE */
+X		bterm();
+X		argptr->j_arg = at.a_count - savepc;	/* offset for jump */
+X		(void)add_action(BOOLE);
+X	}
+X}
+X
+X
+Xcterms()
+X{				/* create action code for | operator */
+X
+X	while (equals(c_token, "|")) {
+X		c_token++;
+X		cterm();
+X		(void)add_action(BOR);
+X	}
+X}
+X
+X
+Xdterms()
+X{				/* create action code for ^ operator */
+X
+X	while (equals(c_token, "^")) {
+X		c_token++;
+X		dterm();
+X		(void)add_action(XOR);
+X	}
+X}
+X
+X
+Xeterms()
+X{				/* create action code for & operator */
+X
+X	while (equals(c_token, "&")) {
+X		c_token++;
+X		eterm();
+X		(void)add_action(BAND);
+X	}
+X}
+X
+X
+Xfterms()
+X{				/* create action codes for == and !=
+X				 * operators */
+X
+X	while (TRUE) {
+X		if (equals(c_token, "==")) {
+X			c_token++;
+X			fterm();
+X			(void)add_action(EQ);
+X		} else if (equals(c_token, "!=")) {
+X			c_token++;
+X			fterm();
+X			(void)add_action(NE);
+X		} else
+X			break;
+X	}
+X}
+X
+X
+Xgterms()
+X{				/* create action code for < > >= or <=
+X				 * operators */
+X
+X	while (TRUE) {
+X		/* I hate "else if" statements */
+X		if (equals(c_token, ">")) {
+X			c_token++;
+X			gterm();
+X			(void)add_action(GT);
+X		} else if (equals(c_token, "<")) {
+X			c_token++;
+X			gterm();
+X			(void)add_action(LT);
+X		} else if (equals(c_token, ">=")) {
+X			c_token++;
+X			gterm();
+X			(void)add_action(GE);
+X		} else if (equals(c_token, "<=")) {
+X			c_token++;
+X			gterm();
+X			(void)add_action(LE);
+X		} else
+X			break;
+X	}
+X
+X}
+X
+X
+X
+Xhterms()
+X{				/* create action codes for + and - operators */
+X
+X	while (TRUE) {
+X		if (equals(c_token, "+")) {
+X			c_token++;
+X			hterm();
+X			(void)add_action(PLUS);
+X		} else if (equals(c_token, "-")) {
+X			c_token++;
+X			hterm();
+X			(void)add_action(MINUS);
+X		} else
+X			break;
+X	}
+X}
+X
+X
+Xiterms()
+X{				/* add action code for * / and % operators */
+X
+X	while (TRUE) {
+X		if (equals(c_token, "*")) {
+X			c_token++;
+X			unary();
+X			(void)add_action(MULT);
+X		} else if (equals(c_token, "/")) {
+X			c_token++;
+X			unary();
+X			(void)add_action(DIV);
+X		} else if (equals(c_token, "%")) {
+X			c_token++;
+X			unary();
+X			(void)add_action(MOD);
+X		} else
+X			break;
+X	}
+X}
+X
+X
+Xunary()
+X{				/* add code for unary operators */
+X	if (equals(c_token, "!")) {
+X		c_token++;
+X		unary();
+X		(void)add_action(LNOT);
+X	} else if (equals(c_token, "~")) {
+X		c_token++;
+X		unary();
+X		(void)add_action(BNOT);
+X	} else if (equals(c_token, "-")) {
+X		c_token++;
+X		unary();
+X		(void)add_action(UMINUS);
+X	} else
+X		factor();
+X}
+END_OF_FILE
+  if test 11722 -ne `wc -c <'gnuplot/parse.c'`; then
+    echo shar: \"'gnuplot/parse.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/parse.c'
+fi
+if test -f 'gnuplot/plot.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/plot.c'\"
+else
+  echo shar: Extracting \"'gnuplot/plot.c'\" \(13195 characters\)
+  sed "s/^X//" >'gnuplot/plot.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: plot.c%v 3.50.1.8 1993/07/27 05:37:15 woo Exp $";
+X#endif
+X
+X
+X/* GNUPLOT - plot.c */
+X/*
+X * Copyright (C) 1986 - 1993   Thomas Williams, Colin Kelley
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHORS
+X * 
+X *   Original Software:
+X *     Thomas Williams,  Colin Kelley.
+X * 
+X *   Gnuplot 2.0 additions:
+X *       Russell Lang, Dave Kotz, John Campbell.
+X *
+X *   Gnuplot 3.0 additions:
+X *       Gershon Elber and many others.
+X * 
+X * There is a mailing list for gnuplot users. Note, however, that the
+X * newsgroup 
+X *	comp.graphics.gnuplot 
+X * is identical to the mailing list (they
+X * both carry the same set of messages). We prefer that you read the
+X * messages through that newsgroup, to subscribing to the mailing list.
+X * (If you can read that newsgroup, and are already on the mailing list,
+X * please send a message info-gnuplot-request@dartmouth.edu, asking to be
+X * removed from the mailing list.)
+X *
+X * The address for mailing to list members is
+X *	   info-gnuplot@dartmouth.edu
+X * and for mailing administrative requests is 
+X *	   info-gnuplot-request@dartmouth.edu
+X * The mailing list for bug reports is 
+X *	   bug-gnuplot@dartmouth.edu
+X * The list of those interested in beta-test versions is
+X *	   info-gnuplot-beta@dartmouth.edu
+X */
+X
+X#include <stdio.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X#ifdef XPG3_LOCALE
+X#include <locale.h>
+X#endif
+X#include "plot.h"
+X#include "setshow.h"
+X#if defined(MSDOS) || defined(DOS386)
+X#include <io.h>
+X#endif
+X#ifdef vms
+X#include <unixio.h>
+X#include <smgdef.h>
+Xextern int vms_vkid;
+Xextern smg$create_virtual_keyboard();
+Xunsigned int status[2] = {1, 0};
+X#endif
+X#ifdef AMIGA_SC_6_1
+X#include <proto/dos.h>
+X#endif
+X
+X#ifdef _Windows
+X#include <windows.h>
+X#ifndef SIGINT
+X#define SIGINT 2	/* for MSC */
+X#endif
+X#else
+X# ifdef __TURBOC__
+X# include <graphics.h>
+X# endif
+X#endif
+X
+X#ifndef AMIGA_SC_6_1
+Xextern char *getenv(),*strcat(),*strcpy(),*strncpy();
+X#endif /* !AMIGA_SC_6_1 */
+X
+Xextern char input_line[];
+Xextern int c_token;
+Xextern FILE *outfile;
+Xextern int term;
+X
+XTBOOLEAN interactive = TRUE;	/* FALSE if stdin not a terminal */
+XTBOOLEAN noinputfiles = TRUE;	/* FALSE if there are script files */
+Xchar *infile_name = NULL;	/* name of command file; NULL if terminal */
+X
+X#ifndef STDOUT
+X#define STDOUT 1
+X#endif
+X
+X#ifdef _Windows
+Xjmp_buf far env;
+X#else
+Xjmp_buf env;
+X#endif
+X
+Xstruct value *Ginteger(),*Gcomplex();
+X
+X
+Xextern f_push(),f_pushc(),f_pushd1(),f_pushd2(),f_pushd(),f_call(),f_calln(),
+X	f_lnot(),f_bnot(),f_uminus(),f_lor(),f_land(),f_bor(),f_xor(),
+X	f_band(),f_eq(),f_ne(),f_gt(),f_lt(),
+X	f_ge(),f_le(),f_plus(),f_minus(),f_mult(),f_div(),f_mod(),f_power(),
+X	f_factorial(),f_bool(),f_jump(),f_jumpz(),f_jumpnz(),f_jtern();
+X
+Xextern f_real(),f_imag(),f_arg(),f_conjg(),f_sin(),f_cos(),f_tan(),f_asin(),
+X	f_acos(),f_atan(),f_sinh(),f_cosh(),f_tanh(),f_int(),f_abs(),f_sgn(),
+X	f_sqrt(),f_exp(),f_log10(),f_log(),f_besj0(),f_besj1(),f_besy0(),f_besy1(),
+X	f_erf(), f_erfc(), f_gamma(), f_lgamma(), f_ibeta(), f_igamma(), f_rand(),
+X	f_floor(),f_ceil(),
+X	f_normal(), f_inverse_erf(), f_inverse_normal();   /* XXX - JG */
+X
+X
+Xstruct ft_entry GPFAR ft[] = {	/* built-in function table */
+X
+X/* internal functions: */
+X	{"push", f_push},	{"pushc", f_pushc},
+X	{"pushd1", f_pushd1},	{"pushd2", f_pushd2},	{"pushd", f_pushd},
+X	{"call", f_call},	{"calln", f_calln},	{"lnot", f_lnot},
+X	{"bnot", f_bnot},	{"uminus", f_uminus},	{"lor", f_lor},
+X	{"land", f_land},	{"bor", f_bor},		{"xor", f_xor},
+X	{"band", f_band},	{"eq", f_eq},		{"ne", f_ne},
+X	{"gt", f_gt},		{"lt", f_lt},		{"ge", f_ge},
+X	{"le", f_le},		{"plus", f_plus},	{"minus", f_minus},
+X	{"mult", f_mult},	{"div", f_div},		{"mod", f_mod},
+X	{"power", f_power}, {"factorial", f_factorial},
+X	{"bool", f_bool},	{"jump", f_jump},	{"jumpz", f_jumpz},
+X	{"jumpnz",f_jumpnz},{"jtern", f_jtern},
+X
+X/* standard functions: */
+X	{"real", f_real},	{"imag", f_imag},	{"arg", f_arg},
+X	{"conjg", f_conjg}, {"sin", f_sin},		{"cos", f_cos},
+X	{"tan", f_tan},		{"asin", f_asin},	{"acos", f_acos},
+X	{"atan", f_atan},	{"sinh", f_sinh},	{"cosh", f_cosh},
+X	{"tanh", f_tanh},	{"int", f_int},		{"abs", f_abs},
+X	{"sgn", f_sgn},		{"sqrt", f_sqrt},	{"exp", f_exp},
+X	{"log10", f_log10},	{"log", f_log},		{"besj0", f_besj0},
+X	{"besj1", f_besj1},	{"besy0", f_besy0},	{"besy1", f_besy1},
+X        {"erf", f_erf},         {"erfc", f_erfc},       {"gamma", f_gamma},     {"lgamma", f_lgamma},
+X        {"ibeta", f_ibeta},     {"igamma", f_igamma},   {"rand", f_rand},
+X        {"floor", f_floor},     {"ceil", f_ceil},
+X
+X    {"norm",        f_normal},              /* XXX-JG */
+X    {"inverf",      f_inverse_erf},         /* XXX-JG */
+X    {"invnorm",     f_inverse_normal},      /* XXX-JG */
+X
+X	{NULL, NULL}
+X};
+X
+Xstatic struct udvt_entry udv_pi = {NULL, "pi",FALSE};
+X									/* first in linked list */
+Xstruct udvt_entry *first_udv = &udv_pi;
+Xstruct udft_entry *first_udf = NULL;
+X
+X
+X
+X#ifdef vms
+X
+X#define HOME "sys$login:"
+X
+X#else /* vms */
+X#if defined(MSDOS) ||  defined(AMIGA_AC_5) || defined(AMIGA_SC_6_1) || defined(ATARI) || defined(OS2) || defined(_Windows) || defined(DOS386)
+X
+X#define HOME "GNUPLOT"
+X
+X#else /* MSDOS || AMIGA || ATARI || OS2 || _Windows || defined(DOS386)*/
+X
+X#define HOME "HOME"
+X
+X#endif /* MSDOS || AMIGA || ATARI || OS2 || _Windows || defined(DOS386)*/
+X#endif /* vms */
+X
+X#if defined(unix) || defined(AMIGA_AC_5) || defined(AMIGA_SC_6_1)
+X#define PLOTRC ".gnuplot"
+X#else /* AMIGA || unix */
+X#define PLOTRC "gnuplot.ini"
+X#endif /* AMIGA || unix */
+X
+X#if defined (__TURBOC__) || defined (__PUREC__)
+Xvoid tc_interrupt()
+X#else
+X#ifdef __ZTC__
+Xvoid ztc_interrupt()
+X#else
+X#if defined( _CRAY ) || defined( sgi ) || defined( __alpha )
+Xvoid inter(an_int)
+Xint an_int;
+X#else
+X#if defined( NEXT ) || defined( OS2 ) || defined( VMS )
+Xvoid inter(int an_int)
+X#else
+X#ifdef sgi
+Xvoid inter(int sig, int code, struct sigcontext *sc)
+X#else
+X#if defined(SOLARIS)
+Xvoid inter()
+X#else
+Xinter()
+X#endif
+X#endif
+X#endif
+X#endif
+X#endif
+X#endif
+X{
+X#if defined (MSDOS) || defined(_Windows) || (defined (ATARI) && defined(__PUREC__)) || defined(DOS386)
+X#if defined (__TURBOC__) || defined (__PUREC__)
+X#ifndef DOSX286
+X	(void) signal(SIGINT, tc_interrupt);
+X#endif
+X#else
+X#ifdef __ZTC__
+X   (void) signal(SIGINT, ztc_interrupt);
+X#else
+X#ifdef __EMX__
+X	(void) signal(SIGINT, (void *)inter);
+X#else
+X#ifdef DJGPP
+X	(void) signal(SIGINT, (SignalHandler)inter);
+X#else
+X#if defined __MSC__
+X	(void) signal(SIGINT, inter);
+X#endif	/* __MSC__ */
+X
+X#endif	/* DJGPP */
+X#endif  /* __EMX__ */
+X#endif	/* ZTC */
+X#endif  /* __TURBOC__ */
+X
+X#else  /* MSDOS */
+X#ifdef OS2
+X	(void) signal(an_int, SIG_ACK);
+X#else
+X	(void) signal(SIGINT, inter);
+X#endif  /* OS2 */
+X#endif  /* MSDOS */
+X#ifndef DOSX286
+X	(void) signal(SIGFPE, SIG_DFL);	/* turn off FPE trapping */
+X#endif
+X	if (term && term_init)
+X		(*term_tbl[term].text)();	/* hopefully reset text mode */
+X	(void) fflush(outfile);
+X	(void) putc('\n',stderr);
+X	longjmp(env, TRUE);		/* return to prompt */
+X}
+X
+X
+X#ifdef _Windows
+Xgnu_main(argc, argv)
+X#else
+Xmain(argc, argv)
+X#endif
+X	int argc;
+X	char **argv;
+X{
+X#ifdef XPG3_LOCALE
+X	(void) setlocale(LC_CTYPE, "");
+X#endif
+X/* Register the Borland Graphics Interface drivers. If they have been */
+X/* included by the linker.                                            */
+X
+X#ifndef DOSX286
+X#ifndef _Windows
+X#if defined (__TURBOC__) && defined (MSDOS)
+Xregisterfarbgidriver(EGAVGA_driver_far);
+Xregisterfarbgidriver(CGA_driver_far);
+Xregisterfarbgidriver(Herc_driver_far);
+Xregisterfarbgidriver(ATT_driver_far);
+X# endif
+X#endif
+X#endif
+X#ifdef X11
+X     { int n = X11_args(argc, argv); argv += n; argc -= n; }
+X#endif 
+X
+X#ifdef apollo
+X    apollo_pfm_catch();
+X#endif
+X
+X	setbuf(stderr,(char *)NULL);
+X#ifdef UNIX
+X	setlinebuf(stdout);
+X#endif
+X	outfile = stdout;
+X	(void) Gcomplex(&udv_pi.udv_value, Pi, 0.0);
+X
+X     interactive = FALSE;
+X     init_terminal();		/* can set term type if it likes */
+X
+X#ifdef AMIGA_SC_6_1
+X     if (IsInteractive(Input()) == DOSTRUE) interactive = TRUE;
+X     else interactive = FALSE;
+X#else
+X#if defined(__MSC__) && defined(_Windows)
+X     interactive = TRUE;
+X#else
+X     interactive = isatty(fileno(stdin));
+X#endif
+X#endif
+X     if (argc > 1)
+X	  interactive = noinputfiles = FALSE;
+X     else
+X	  noinputfiles = TRUE;
+X
+X     if (interactive)
+X	  show_version();
+X#ifdef vms   /* initialise screen management routines for command recall */
+X          if (status[1] = smg$create_virtual_keyboard(&vms_vkid) != SS$_NORMAL)
+X               done(status[1]);
+X#endif
+X
+X	if (!setjmp(env)) {
+X	    /* first time */
+X	    interrupt_setup();
+X	    load_rcfile();
+X
+X	    if (interactive && term != 0)	/* not unknown */
+X		 fprintf(stderr, "\nTerminal type set to '%s'\n", 
+X			    term_tbl[term].name);
+X	} else {	
+X	    /* come back here from int_error() */
+X	    load_file_error();	/* if we were in load_file(), cleanup */
+X#ifdef _Windows
+X	SetCursor(LoadCursor((HINSTANCE)NULL, IDC_ARROW));
+X#endif
+X#ifdef vms
+X	    /* after catching interrupt */
+X	    /* VAX stuffs up stdout on SIGINT while writing to stdout,
+X		  so reopen stdout. */
+X	    if (outfile == stdout) {
+X		   if ( (stdout = freopen("SYS$OUTPUT","w",stdout))  == NULL) {
+X			  /* couldn't reopen it so try opening it instead */
+X			  if ( (stdout = fopen("SYS$OUTPUT","w"))  == NULL) {
+X				 /* don't use int_error here - causes infinite loop! */
+X				 fprintf(stderr,"Error opening SYS$OUTPUT as stdout\n");
+X			  }
+X		   }
+X		   outfile = stdout;
+X	    }
+X#endif					/* VMS */
+X	    if (!interactive && !noinputfiles) {
+X			if (term && term_init)
+X				(*term_tbl[term].reset)();
+X#ifdef vms
+X			vms_reset();
+X#endif
+X			return(IO_ERROR);	/* exit on non-interactive error */
+X 		}
+X	}
+X
+X     if (argc > 1) {
+X	    /* load filenames given as arguments */
+X	    while (--argc > 0) {
+X		   ++argv;
+X		   c_token = NO_CARET; /* in case of file not found */
+X		   load_file(fopen(*argv,"r"), *argv);	
+X	    }
+X	} else {
+X	    /* take commands from stdin */
+X	    while(!com_line());
+X	}
+X
+X	if (term && term_init)
+X		(*term_tbl[term].reset)();
+X#ifdef vms
+X	vms_reset();
+X#endif
+X    return(IO_SUCCESS);
+X}
+X
+X#if defined(ATARI) && defined(__PUREC__)
+X#include <math.h>
+Xint purec_matherr(struct exception *e)
+X{	char *c;
+X	switch (e->type) {
+X	    case DOMAIN:    c = "domain error"; break;
+X	    case SING  :    c = "argument singularity"; break;
+X	    case OVERFLOW:  c = "overflow range"; break;
+X	    case UNDERFLOW: c = "underflow range"; break;
+X	    default:		c = "(unknown error"; break;
+X	}
+X	fprintf(stderr, "math exception : %s\n", c);
+X	fprintf(stderr, "    name : %s\n", e->name);
+X	fprintf(stderr, "    arg 1: %e\n", e->arg1);
+X	fprintf(stderr, "    arg 2: %e\n", e->arg2);
+X	fprintf(stderr, "    ret  : %e\n", e->retval);
+X	return 1;
+X}
+X#endif
+X
+X/* Set up to catch interrupts */
+Xinterrupt_setup()
+X{
+X#if defined (MSDOS) || defined(_Windows) || (defined (ATARI) && defined(__PUREC__)) || defined(DOS386)
+X#ifdef __PUREC__
+X	setmatherr(purec_matherr);
+X#endif
+X#if defined (__TURBOC__) || defined (__PUREC__)
+X#if !defined(DOSX286) && !defined(BROKEN_SIGINT)
+X		(void) signal(SIGINT, tc_interrupt);	/* go there on interrupt char */
+X#endif
+X#else
+X#ifdef __ZTC__
+X        (void) signal(SIGINT, ztc_interrupt);
+X#else
+X#ifdef __EMX__
+X		(void) signal(SIGINT, (void *)inter);	/* go there on interrupt char */
+X#else
+X#ifdef DJGPP
+X		(void) signal(SIGINT, (SignalHandler)inter);	/* go there on interrupt char */
+X#else
+X               (void) signal(SIGINT, inter);
+X#endif
+X#endif
+X#endif
+X#endif
+X#else /* MSDOS */
+X		(void) signal(SIGINT, inter);	/* go there on interrupt char */
+X#endif /* MSDOS */
+X}
+X
+X
+X/* Look for a gnuplot start-up file */
+Xload_rcfile()
+X{
+X    register FILE *plotrc;
+X    char home[80]; 
+X    char rcfile[sizeof(PLOTRC)+80];
+X
+X    /* Look for a gnuplot init file in . or home directory */
+X#ifdef vms
+X    (void) strcpy(home,HOME);
+X#else /* vms */
+X    char *tmp_home=getenv(HOME);
+X    char *p;	/* points to last char in home path, or to \0, if none */
+X    char c='\0';/* character that should be added, or \0, if none */
+X
+X
+X    if(tmp_home) {
+X    	strcpy(home,tmp_home);
+X	if( strlen(home) ) p = &home[strlen(home)-1];
+X	else		   p = home;
+X#if defined(MSDOS) || defined(ATARI) || defined( OS2 ) || defined(_Windows) || defined(DOS386)
+X	if( *p!='\\' && *p!='\0' ) c='\\';
+X#else
+X#if defined(AMIGA_AC_5)
+X	if( *p!='/' && *p!=':' && *p!='\0' ) c='/';
+X#else /* that leaves unix */
+X	c='/';
+X#endif
+X#endif
+X	if(c) {
+X	    if(*p) p++;
+X	    *p++=c;
+X	    *p='\0';
+X	}
+X    }
+X#endif /* vms */
+X
+X#ifdef NOCWDRC
+X    /* inhibit check of init file in current directory for security reasons */
+X    {
+X#else
+X    (void) strcpy(rcfile, PLOTRC);
+X    plotrc = fopen(rcfile,"r");
+X    if (plotrc == (FILE *)NULL) {
+X#endif
+X#ifndef vms
+X	if( tmp_home ) {
+X#endif
+X	   (void) sprintf(rcfile, "%s%s", home, PLOTRC);
+X	   plotrc = fopen(rcfile,"r");
+X#ifndef vms
+X	} else
+X	    plotrc=NULL;
+X#endif
+X    }
+X    if (plotrc)
+X	 load_file(plotrc, rcfile);
+X}
+END_OF_FILE
+  if test 13195 -ne `wc -c <'gnuplot/plot.c'`; then
+    echo shar: \"'gnuplot/plot.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/plot.c'
+fi
+if test -f 'gnuplot/term/aed.trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/term/aed.trm'\"
+else
+  echo shar: Extracting \"'gnuplot/term/aed.trm'\" \(2382 characters\)
+  sed "s/^X//" >'gnuplot/term/aed.trm' <<'END_OF_FILE'
+X/*
+X * $Id: aed.trm%v 3.50 1993/07/09 05:35:24 woo Exp $
+X *
+X */
+X
+X/* GNUPLOT - aed.trm */
+X/*
+X * Copyright (C) 1990 - 1993
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software  is provided "as is" without express or implied warranty.
+X * 
+X * This file is included by ../term.c.
+X *
+X * This terminal driver supports:
+X *   AED terminals
+X *
+X * AUTHORS
+X *     Colin Kelley, Thomas Williams, Russell Lang
+X *
+X * send your comments or suggestions to (info-gnuplot@dartmouth.edu).
+X * 
+X */
+X
+X#define AED_XMAX 768
+X#define AED_YMAX 575
+X
+X#define AED_XLAST (AED_XMAX - 1)
+X#define AED_YLAST (AED_YMAX - 1)
+X
+X#define AED_VCHAR	13
+X#define AED_HCHAR	8
+X#define AED_VTIC	8
+X#define AED_HTIC	7
+X
+X/* slightly different for AED 512 */
+X#define AED5_XMAX 512
+X#define AED5_XLAST (AED5_XMAX - 1)
+X
+XAED_init()
+X{
+X	fprintf(outfile,
+X	"\033SEN3DDDN.SEC.7.SCT.0.1.80.80.90.SBC.0.AAV2.MOV.0.9.CHR.0.FFD");
+X/*   2            3     4                5     7    6       1
+X	1. Clear Screen
+X	2. Set Encoding
+X	3. Set Default Color
+X	4. Set Backround Color Table Entry
+X	5. Set Backround Color
+X	6. Move to Bottom Lefthand Corner
+X	7. Anti-Alias Vectors
+X*/
+X}
+X
+X
+XAED_graphics()
+X{
+X	fprintf(outfile,"\033FFD\033");
+X}
+X
+X
+XAED_text()
+X{
+X	fprintf(outfile,"\033MOV.0.9.SEC.7.XXX");
+X}
+X
+X
+X
+XAED_linetype(linetype)
+Xint linetype;
+X{
+Xstatic int color[2+9] = { 7, 1, 6, 2, 3, 5, 1, 6, 2, 3, 5 };
+Xstatic int type[2+9] = { 85, 85, 255, 255, 255, 255, 255, 85, 85, 85, 85 };
+X
+X	if (linetype >= 10)
+X		linetype %= 10;
+X	fprintf(outfile,"\033SLS%d.255.",type[linetype+2]);
+X	fprintf(outfile,"\033SEC%d.",color[linetype+2]);
+X}
+X
+X
+X
+XAED_move(x,y)
+Xint x,y;
+X{
+X	fprintf(outfile,"\033MOV%d.%d.",x,y);
+X}
+X
+X
+XAED_vector(x,y)
+Xint x,y;
+X{
+X	fprintf(outfile,"\033DVA%d.%d.",x,y);
+X}
+X
+X
+XAED_put_text(x,y,str)
+Xint x,y;
+Xchar str[];
+X{
+X	AED_move(x,y - AED_VCHAR/2 + 2);
+X	fprintf(outfile,"\033XXX%s\033",str);
+X}
+X
+X
+X#define hxt (AED_HTIC/2)
+X#define hyt (AED_VTIC/2)
+X
+XAED_reset()
+X{
+X	fprintf(outfile,"\033SCT0.1.0.0.0.SBC.0.FFD");
+X}
+X
+END_OF_FILE
+  if test 2382 -ne `wc -c <'gnuplot/term/aed.trm'`; then
+    echo shar: \"'gnuplot/term/aed.trm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/term/aed.trm'
+fi
+if test -f 'gnuplot/term/gpr.trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/term/gpr.trm'\"
+else
+  echo shar: Extracting \"'gnuplot/term/gpr.trm'\" \(11708 characters\)
+  sed "s/^X//" >'gnuplot/term/gpr.trm' <<'END_OF_FILE'
+X/*
+X * $Id: gpr.trm%v 3.50 1993/07/09 05:35:24 woo Exp $
+X *
+X */
+X
+X/* GNUPLOT - gpr.trm */
+X/*
+X * Copyright (C) 1990 - 1993   
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software  is provided "as is" without express or implied warranty.
+X * 
+X * This file is included by ../term.c.
+X *
+X * This terminal driver supports:
+X *   APOLLO's GPR windowing system
+X *
+X * AUTHORS
+X *  Michael Aramini
+X *  Roque D Oliveira , oliveria@caen.engin.umich.edu
+X * 
+X * send your comments or suggestions to (info-gnuplot@dartmouth.edu).
+X * 
+X */
+X#include <apollo/base.h>
+X#include <apollo/error.h>
+X#include <apollo/gpr.h>
+X#include <apollo/pad.h>
+X/* landscape window */
+X/*
+X#define GPR_XMAX 720
+X#define GPR_YMAX 450
+X*/
+X/* portrait window */
+X#define GPR_XMAX 585
+X#define GPR_YMAX 735
+X
+X#define GPR_XLAST (GPR_XMAX - 1)
+X#define GPR_YLAST (GPR_YMAX - 1)
+X
+X#define GPR_VCHAR 19
+X#define GPR_HCHAR 10
+X#define GPR_VTIC (GPR_YMAX/80)
+X#define GPR_HTIC (GPR_XMAX/80)
+X
+Xgpr_$direction_t  gpr_path=gpr_$right;
+Xint               gpr_ang=0;            /* text angle, 0=horizontal, 1=vertical */
+Xenum JUSTIFY      gpr_justify=LEFT;     /* text is flush left */
+X
+Xstatic status_$t  status;
+Xunsigned int      Debug    = 0;         /* set it to 1 when debugging program */
+X
+X
+Xstatic void check(messagex)
+Xchar *messagex;
+X{
+X  if (status.all = status_$ok)
+X  {
+X    error_$print(status);
+X    printf("Error occurred while %s.\n", messagex);
+X  }
+X}
+X
+X/* return whether stdout is a DM pad . Called by term.c */
+Xgpr_isa_pad()
+X{
+X    pad_$isa(1, &status);
+X    return (status.all == status_$ok);
+X}
+X
+X
+XGPR_init()
+X{
+X  gpr_$offset_t dm_bitmap_size;
+X  gpr_$bitmap_desc_t dm_bitmap_desc;
+X  pad_$window_desc_t window;
+X  short font_id;
+X  stream_$id_t stream_id;
+X  static gpr_$rgb_plane_t  hi_plane;
+X  static gpr_$disp_char_t  display_characteristics;
+X  static float             screen_size_r_width,screen_size_r_height ;
+X  static short int         disp_len = sizeof(gpr_$disp_char_t);
+X  static short int         disp_len_returned;
+X
+X
+X  /* open a pad to do graphics in */
+X  window.top    = 0;
+X  window.left   = 0;
+X  window.width  = GPR_XMAX + 10; /* 10 accounts for width of window border */
+X  window.height = GPR_YMAX + 35; /* 35 accounts for height of window border */
+X  pad_$create_window("",(short)0,pad_$transcript,(short)1,window,&stream_id,&status);
+X  check("pad_$create_window");
+X
+X/*  pad_$set_full_window(stream_id,(short) 1,&window, &status); */
+X/*  pad_$set_border (stream_id,(short) 1, true, &status); */
+X  pad_$set_scale (stream_id,(short) 1,(short) 1, &status);
+X  pad_$set_auto_close(stream_id, (short) 1, true, &status );
+X
+X  gpr_$inq_disp_characteristics(gpr_$direct,stream_id,disp_len,&display_characteristics,&disp_len_returned,&status);
+X  check("in gpr_$inq_display_characteristics");
+X  screen_size_r_width    = (float) display_characteristics.x_window_size;    /*x_window_size in pixels */
+X  screen_size_r_height   = (float) display_characteristics.y_window_size;    /*y_window_size in pixels */
+X  hi_plane  = display_characteristics.n_planes - 1;  
+X  if(Debug) printf("width=%f height=%f \n",screen_size_r_width,screen_size_r_height);
+X
+X  dm_bitmap_size.x_size = 1280;
+X  dm_bitmap_size.y_size = 1024;
+X  gpr_$init(gpr_$direct,stream_id,dm_bitmap_size,hi_plane,&dm_bitmap_desc,&status); 
+X  check("in gpr_$init");
+X/*
+X  gpr_$set_obscured_opt(gpr_$pop_if_obs, &status); 
+X  check("in gpr_$set_obscured_opt");
+X*/
+X  gpr_$set_auto_refresh(true, &status); 
+X  check("in gpr_$set_auto_refresh");
+X
+X  /* load a font and make it current */
+X  gpr_$load_font_file("f7x13", 5, &font_id, &status);
+X  check("in gpr_$load_font_file");
+X  gpr_$set_text_font(font_id, &status);
+X  check("in gpr_$set_text_font");
+X
+X  /* set up color values */
+X  gpr_$set_draw_value((gpr_$pixel_value_t)7, &status);  /* white */
+X  check("in gpr_set_draw_value");
+X  gpr_$set_text_background_value((gpr_$pixel_value_t)(-1), &status); /* trans */
+X  check("in gpr_$set_text_background_value");
+X  gpr_$set_text_value((gpr_$pixel_value_t)7, &status);  /* white */
+X  check("in gpr_$set_text_value");
+X}
+X
+X
+XGPR_graphics()
+X{
+X  gpr_$coordinate_t locx,locy,marker_size;
+X
+X  (void) gpr_$acquire_display(&status);
+X  check("in gpr_$acquire display");
+X  gpr_$clear((gpr_$pixel_value_t)0, &status);  /* black */
+X  check("in gpr_$clear");
+X
+X  if(Debug) 
+X   {
+X    marker_size = (short) 10;  
+X
+X    locx = (short) 5;
+X    locy = (short) 5;
+X    gpr_$set_draw_value((gpr_$pixel_value_t)2, &status);  /* white */
+X    gpr_$move( (locx - marker_size/2) ,locy,&status);
+X    gpr_$line( (locx + marker_size/2) ,locy,&status);
+X    gpr_$move( locx, (locy + marker_size/2),&status);
+X    gpr_$line( locx, (locy - marker_size/2),&status);
+X    
+X    locx = (short) (GPR_XMAX -1 - 5);
+X    locy = (short) 5;
+X    gpr_$set_draw_value((gpr_$pixel_value_t)3, &status);  /* white */
+X    gpr_$move( (locx - marker_size/2) ,locy,&status);
+X    gpr_$line( (locx + marker_size/2) ,locy,&status);
+X    gpr_$move( locx, (locy + marker_size/2),&status);
+X    gpr_$line( locx, (locy - marker_size/2),&status);
+X    
+X    locx = (short) 5;
+X    locy = (short) (GPR_YMAX -1 - 5);
+X    gpr_$set_draw_value((gpr_$pixel_value_t)4, &status);  /* white */
+X    gpr_$move( (locx - marker_size/2) ,locy,&status);
+X    gpr_$line( (locx + marker_size/2) ,locy,&status);
+X    gpr_$move( locx, (locy + marker_size/2),&status);
+X    gpr_$line( locx, (locy - marker_size/2),&status);
+X    
+X    locx = (short) (GPR_XMAX -1 - 5);
+X    locy = (short) (GPR_YMAX -1 - 5);
+X    gpr_$set_draw_value((gpr_$pixel_value_t)5, &status);  /* white */
+X    gpr_$move( (locx - marker_size/2) ,locy,&status);
+X    gpr_$line( (locx + marker_size/2) ,locy,&status);
+X    gpr_$move( locx, (locy + marker_size/2),&status);
+X    gpr_$line( locx, (locy - marker_size/2),&status);
+X    
+X    gpr_$set_draw_value((gpr_$pixel_value_t)7, &status);  /* white */
+X    check("in gpr_$set_draw_value");
+X   } /* end if(Debug) */
+X
+X}
+X
+X
+XGPR_text()
+X{
+X  gpr_$release_display(&status);
+X  check("gpr_$release_display");
+X}
+X
+X
+XGPRold_linetype(linetype)
+Xint linetype;
+X{
+X  static gpr_$line_pattern_t patterns[2+5] = {
+X      { 0xFFFF },   /* solid              1111111111111111 */
+X      { 0x3FFF },   /* very long dashed   0011111111111111 */
+X      { 0xFFFF },   /* solid              1111111111111111 */
+X      { 0x5555 },   /* dotted             0101010101010101 */
+X      { 0x3333 },   /* short dashed       0011001100110011 */
+X      { 0xB5AD },   /* dot short-dashed   1011010110101101 */
+X      { 0x3FFF }    /* very long dashed   0011111111111111 */
+X                                             };
+X  if (linetype >= 5) linetype %= 5;
+X  gpr_$set_line_pattern((short)1, patterns[linetype+2], (short)16, &status);
+X  check("in gpr_$set_line_pattern");
+X}
+X
+XGPR_linetype(linetype)
+Xint linetype;
+X{
+X  static gpr_$line_pattern_t patterns[2+7] = {
+X      { 0xFFFF },   /* solid              1111111111111111 */
+X      { 0x1111 },   /* long-spaced dotted 0001000100010001 */
+X      { 0xFFFF },   /* solid              1111111111111111 */
+X      { 0x5555 },   /* dotted             0101010101010101 */
+X      { 0x3333 },   /* short  dashed      0011001100110011 */
+X      { 0x7777 },   /* medium dashed      0111011101110111 */
+X      { 0x3F3F },   /* long   dashed      0011111100111111 */
+X      { 0x0F0F },   /* long-spaced dashed 0000111100001111 */
+X      { 0x5F5F }    /* dot dashed         0101111101011111 */
+X                                             };
+X  if (linetype >= 7) linetype %= 7;
+X  gpr_$set_line_pattern((short)1, patterns[linetype+2], (short)16, &status);
+X  check("in gpr_$set_line_pattern");
+X
+X/*
+X  gpr_$set_draw_value((gpr_$pixel_value_t)(linetype + 1), &status);
+X  check("in gpr_$set_draw_value");
+X*/
+X}
+X
+X
+XGPR_move(x, y)
+Xunsigned int x, y;
+X{
+X  gpr_$move((short)x, (short)(GPR_YMAX -1 - y), &status);
+X  check("in gpr_$move");
+X}
+X
+X
+XGPR_vector(x, y)
+Xunsigned int x, y;
+X{
+X  gpr_$line((short)x, (short)(GPR_YMAX -1 - y), &status);
+X  check("in gpr_$line");
+X}
+X
+X
+XGPR_put_text(x,y,str)
+Xunsigned int x,y;        /* reference point of string */
+Xchar str[];              /* the text */
+X{
+X  gpr_$coordinate_t xgpr,ygpr;
+X  gpr_$offset_t     str_size_in_pixels;
+X  short int         str_len;     
+X
+X  gpr_$coordinate_t locx,locy,marker_size;
+X
+X  if(Debug) 
+X   {
+X    locx = (short) x;
+X    locy = (short) (GPR_YMAX -1 - y);
+X    marker_size = (short) 20;  
+X    gpr_$set_draw_value((gpr_$pixel_value_t)1, &status);  /* white */
+X    gpr_$move( (locx - marker_size/2) ,locy,&status);
+X    gpr_$line( (locx + marker_size/2) ,locy,&status);
+X    gpr_$move( locx, (locy + marker_size/2),&status);
+X    gpr_$line( locx, (locy - marker_size/2),&status);
+X    gpr_$set_draw_value((gpr_$pixel_value_t)7, &status);  /* white */
+X   }
+X
+X  xgpr = (short) x;
+X  ygpr = (short) (GPR_YMAX -1 - y); 
+X  gpr_$set_text_path(gpr_path, &status); 
+X  check("gpr_$set_text_path");
+X
+X  str_len = (short) strlen(str);
+X  gpr_$inq_text_extent(str,str_len,&str_size_in_pixels,&status); /* Calculate how much space (in pixels) the string requires */    
+X  check("in gpr_$inq_text_extent");
+X
+X  switch (gpr_justify) 
+X   {
+X    case LEFT :
+X        {
+X         switch (gpr_path) 
+X          {
+X           case gpr_$up :           /* vertical */
+X               {
+X                if(Debug) printf("LEFT and up , str=%s\n",str);
+X                break;
+X               }
+X           case gpr_$right :        /* horizontal */
+X               {
+X                ygpr = ygpr + str_size_in_pixels.y_size/2;
+X                if(Debug) printf("LEFT and right, str=%s \n",str);
+X                break;
+X               }
+X          }
+X         break;
+X        }
+X
+X    case CENTRE :
+X        {  
+X         switch (gpr_path) 
+X          {
+X           case gpr_$up :           /* vertical */
+X               {
+X                xgpr = xgpr + str_size_in_pixels.x_size/2;
+X                ygpr = ygpr + str_size_in_pixels.y_size/2;
+X                if(Debug) printf("CENTRE and up, str=%s \n",str);
+X                break;
+X               }
+X           case gpr_$right :        /* horizontal */
+X               {
+X                xgpr = xgpr - str_size_in_pixels.x_size/2;
+X                ygpr = ygpr + str_size_in_pixels.y_size/2;
+X                if(Debug) printf("CENTRE and right, str=%s \n",str);
+X                break;
+X               }
+X          }
+X         break;
+X        }
+X    case RIGHT :
+X        {
+X         switch (gpr_path) 
+X          {
+X           case gpr_$up :           /* vertical */
+X               {
+X                ygpr = ygpr + str_size_in_pixels.y_size;
+X                if(Debug) printf("RIGHT and up, str=%s \n",str);
+X                break;
+X               }
+X           case gpr_$right :        /* horizontal */
+X               {
+X                xgpr = xgpr - str_size_in_pixels.x_size;
+X                ygpr = ygpr + str_size_in_pixels.y_size/2;
+X                if(Debug) printf("RIGHT and right, str=%s \n",str);
+X                break;
+X               }
+X          }
+X         break;
+X        }
+X   }
+X
+X  gpr_$move(xgpr,ygpr,&status);
+X  check("in gpr_$move");
+X  gpr_$text(str, str_len, &status);
+X  check("in gpr_$text");
+X}
+X
+Xint GPR_text_angle(ang)
+Xint ang;
+X{   
+X    if (gpr_ang != ang)
+X      {
+X        gpr_ang  = ang;
+X        gpr_path = (gpr_ang == 1 ? gpr_$up : gpr_$right);
+X      }
+X    return (TRUE);
+X}
+X
+Xint GPR_justify_text(mode)
+Xenum JUSTIFY mode;
+X{
+X    gpr_justify = mode;
+X    return (TRUE);
+X}
+X
+XGPR_reset()
+X{
+X  gpr_$terminate(false, &status);
+X  check("in gpr_$terminate");
+X}
+END_OF_FILE
+  if test 11708 -ne `wc -c <'gnuplot/term/gpr.trm'`; then
+    echo shar: \"'gnuplot/term/gpr.trm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/term/gpr.trm'
+fi
+if test -f 'gnuplot/term/next.trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/term/next.trm'\"
+else
+  echo shar: Extracting \"'gnuplot/term/next.trm'\" \(11383 characters\)
+  sed "s/^X//" >'gnuplot/term/next.trm' <<'END_OF_FILE'
+X/*
+X * $Id: next.trm%v 3.50 1993/07/09 05:35:24 woo Exp $
+X *
+X */
+X
+X/* GNUPLOT - next.trm */
+X/*
+X * Copyright (C) 1991, 1992   
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software  is provided "as is" without express or implied warranty.
+X * 
+X * This file is included by ../term.c.
+X *
+X * This terminal driver supports:
+X *     next
+X *
+X * AUTHORS
+X *  Nick Strobel from Russell Lang's post.trm
+X * 
+X * send your comments or suggestions to (info-gnuplot@dartmouth.edu).
+X *
+X * The 'postscript' driver produces landscape output 10" wide and 7" high.  
+X * To get a smaller epsf output use 'set size 0.5,0.5', 
+X * 'set term postscript portrait', make only one plot per file
+X * and change the first line of the postscript file from
+X * '%!PS-Adobe-2.0' to '%!PS-Adobe-2.0 EPSF-2.0'
+X * To change font to Times-Roman and font size to 20pts use 
+X * 'set term postscript "Times-Roman" 20'.
+X */
+X
+X
+X/* NeXT driver by Nick Strobel, strobel@phast.phys.washington.edu */
+X#import <math.h>
+X#import <dpsclient/dpsclient.h>
+X#import <dpsclient/dpsNeXT.h>
+X#import <stdlib.h>
+X#import "../epsviewe.h"
+X
+XDPSContext d;
+Xstatic void window_create(float width, float height);
+Xfloat width,height;	
+Xfloat xsize_orig,ysize_orig;  
+X
+Xchar next_font[MAX_ID_LEN+1] = "Helvetica" ; /* name of font */
+Xint next_fontsize = 14;					 /* size of font in pts */
+XTBOOLEAN next_portrait = FALSE;				 /* vertical page */
+XTBOOLEAN next_color = FALSE;
+XTBOOLEAN init_called = FALSE;
+XTBOOLEAN initframe_called = FALSE;
+X
+Xint next_page=0;			/* page count */
+Xint next_path_count=0; 	/* count of lines in path */
+Xint next_ang=0;			/* text angle */
+Xenum JUSTIFY next_justify=LEFT;	/* text is flush left */
+X
+Xchar *NEXT_header[] = {
+X"/vpt2 vpt 2 mul def\n",
+X"/hpt2 hpt 2 mul def\n",
+X/* flush left show */
+X"/Lshow { currentpoint stroke moveto\n",
+X"  0 vshift rmoveto show } def\n", 
+X/* flush right show */
+X"/Rshow { currentpoint stroke moveto\n",
+X"  dup stringwidth pop neg vshift rmoveto show } def\n", 
+X/* centred show */
+X"/Cshow { currentpoint stroke moveto\n",
+X"  dup stringwidth pop -2 div vshift rmoveto show } def\n", 
+X/* Dash or Color Line */
+X"/DL { Color {setrgbcolor [] 0 setdash pop}\n",
+X" {pop pop pop 0 setdash} ifelse } def\n",
+X/* Border Lines */
+X"/BL { stroke gnulinewidth 2 mul setlinewidth } def\n",
+X/* Axes Lines */
+X"/AL { stroke gnulinewidth 2 div setlinewidth } def\n",
+X/* Plot Lines */
+X"/PL { stroke gnulinewidth setlinewidth } def\n",
+X/* Line Types */
+X"/LTb { BL [] 0 0 0 DL } def\n", /* border */
+X"/LTa { AL [1 dl 2 dl] 0 setdash 0 0 0 setrgbcolor } def\n", /* axes */
+X"/LT0 { PL [] 0 1 0 DL } def\n",
+X"/LT1 { PL [4 dl 2 dl] 0 0 1 DL } def\n",
+X"/LT2 { PL [2 dl 3 dl] 1 0 0 DL } def\n",
+X"/LT3 { PL [1 dl 1.5 dl] 1 0 1 DL } def\n",
+X"/LT4 { PL [5 dl 2 dl 1 dl 2 dl] 0 1 1 DL } def\n",
+X"/LT5 { PL [4 dl 3 dl 1 dl 3 dl] 1 1 0 DL } def\n",
+X"/LT6 { PL [2 dl 2 dl 2 dl 4 dl] 0 0 0 DL } def\n",
+X"/LT7 { PL [2 dl 2 dl 2 dl 2 dl 2 dl 4 dl] 1 0.3 0 DL } def\n",
+X"/LT8 { PL [2 dl 2 dl 2 dl 2 dl 2 dl 2 dl 2 dl 4 dl] 0.5 0.5 0.5 DL } def\n",
+X"/M {moveto} def\n",
+X"/L {lineto} def\n",
+X"/P { stroke [] 0 setdash\n", /* Point */
+X"  currentlinewidth 2 div sub moveto\n",
+X"  0 currentlinewidth rlineto  stroke } def\n",
+X"/D { stroke [] 0 setdash  2 copy  vpt add moveto\n", /* Diamond */
+X"  hpt neg vpt neg rlineto  hpt vpt neg rlineto\n",
+X"  hpt vpt rlineto  hpt neg vpt rlineto  closepath  stroke\n",
+X"  P  } def\n",
+X"/A { stroke [] 0 setdash  vpt sub moveto  0 vpt2 rlineto\n", /* Plus (Add) */
+X"  currentpoint stroke moveto\n",
+X"  hpt neg vpt neg rmoveto  hpt2 0 rlineto stroke\n",
+X"  } def\n",
+X"/B { stroke [] 0 setdash  2 copy  exch hpt sub exch vpt add moveto\n", /* Box */
+X"  0 vpt2 neg rlineto  hpt2 0 rlineto  0 vpt2 rlineto\n",
+X"  hpt2 neg 0 rlineto  closepath  stroke\n",
+X"  P  } def\n",
+X"/C { stroke [] 0 setdash  exch hpt sub exch vpt add moveto\n", /* Cross */
+X"  hpt2 vpt2 neg rlineto  currentpoint  stroke  moveto\n",
+X"  hpt2 neg 0 rmoveto  hpt2 vpt2 rlineto stroke  } def\n",
+X"/T { stroke [] 0 setdash  2 copy  vpt 1.12 mul add moveto\n", /* Triangle */
+X"  hpt neg vpt -1.62 mul rlineto\n",
+X"  hpt 2 mul 0 rlineto\n",
+X"  hpt neg vpt 1.62 mul rlineto  closepath  stroke\n",
+X"  P  } def\n",
+X"/S { 2 copy A C} def\n", /* Star */
+XNULL
+X};
+X
+X#define NEXT_XOFF	50	/* page offset in pts */
+X#define NEXT_YOFF	50
+X
+X#define NEXT_XMAX 7200
+X#define NEXT_YMAX 5040
+X
+X#define NEXT_XLAST (NEXT_XMAX - 1)
+X#define NEXT_YLAST (NEXT_YMAX - 1)
+X
+X#define NEXT_VTIC (NEXT_YMAX/80)
+X#define NEXT_HTIC (NEXT_YMAX/80)
+X
+X#define NEXT_SC (10)				/* scale is 1pt = 10 units */
+X#define	NEXT_LW (0.5*NEXT_SC)		/* linewidth = 0.5 pts */
+X
+X#define NEXT_VCHAR (14*NEXT_SC)		/* default is 14 point characters */
+X#define NEXT_HCHAR (14*NEXT_SC*6/10)
+X
+XNEXT_options()
+X{
+X	extern struct value *const_express();
+X	extern double real();
+X
+X	if (!END_OF_COMMAND) {
+X		if (almost_equals(c_token,"p$ortrait")) {
+X			next_portrait=TRUE;
+X			c_token++;
+X		}
+X		else if (almost_equals(c_token,"l$andscape")) {
+X			next_portrait=FALSE;
+X			c_token++;
+X		}
+X		else if (almost_equals(c_token,"d$efault")) {
+X			next_portrait=FALSE;
+X			next_color=FALSE;
+X			strcpy(next_font,"Helvetica");
+X			next_fontsize = 14;
+X			c_token++;
+X		}
+X	}
+X
+X	if (!END_OF_COMMAND) {
+X		if (almost_equals(c_token,"m$onochrome")) {
+X			next_color=FALSE;
+X			c_token++;
+X		}
+X		else if (almost_equals(c_token,"c$olor")) {
+X			next_color=TRUE;
+X			c_token++;
+X		}
+X	}
+X
+X	if (!END_OF_COMMAND && isstring(c_token)) {
+X		quote_str(next_font,c_token);
+X		c_token++;
+X	}
+X
+X	if (!END_OF_COMMAND) {
+X		/* We have font size specified */
+X		struct value a;
+X		next_fontsize = (int)real(const_express(&a));
+X		c_token++;
+X		term_tbl[term].v_char = (unsigned int)(next_fontsize*NEXT_SC);
+X		term_tbl[term].h_char = (unsigned int)(next_fontsize*NEXT_SC*6/10);
+X	}
+X
+X	sprintf(term_options,"%s %s \"%s\" %d",
+X		next_portrait ? "portrait" : "landscape",
+X		next_color ? "color" : "monochrome",next_font,next_fontsize);
+X}
+X
+X
+XNEXT_init()
+X{
+Xstruct termentry *t = &term_tbl[term];
+Xint i;
+Xfloat llx,lly,urx,ury;
+X/* I commented out the postscript comment fields because they are not really 
+X*  needed (even the bounding box). However, if you'd like to send all the
+X*  postscript to the context d, they're still there for you
+X*/
+X
+X		llx=NEXT_XOFF;
+X		lly=NEXT_YOFF;
+X
+X	if(!initframe_called) {
+X		if(!next_portrait){
+X			urx=(xsize*(NEXT_XMAX)/NEXT_SC+0.5+NEXT_XOFF);
+X			ury=(ysize*(NEXT_YMAX)/NEXT_SC+0.5+NEXT_YOFF);
+X		} else {
+X			urx=(ysize*(NEXT_YMAX)/NEXT_SC+0.5+NEXT_XOFF);
+X			ury=(xsize*(NEXT_XMAX)/NEXT_SC+0.5+NEXT_YOFF);
+X		}
+X		  width=urx-llx;	
+X		  height=ury-lly;
+X		  xsize_orig=xsize;
+X		  ysize_orig=ysize;	
+X		  window_create(width,height);
+X	   	  d=DPSGetCurrentContext();
+X	   DPSPrintf(d,"/showpage {initgraphics} bind def\n");
+X  	}
+X		DPSPrintf(d,"1 setgray\n");
+X		DPSPrintf(d,"0 1 %g %g rectfill\n",rint(width),rint(height));
+X		DPSPrintf(d,"0 setgray\n");
+X		DPSPrintf(d,"0 1 %g %g rectstroke\n",rint(width),rint(height));
+X//       	DPSPrintf(d,"/_the_saved_vm_ save def\n");
+X		DPSPrintf(d,"%g %g translate\n",-llx,-lly); /* KEEP this IN! */
+X
+X//		DPSPrintf(d,"%%!PS-ADOBE-2.0 EPSF-2.0\n");
+X//		DPSPrintf(d,"%%%%Creator: gnuplot\n");
+X//		DPSPrintf(d,"%%%%DocumentFonts: %s\n", next_font);
+X//		DPSPrintf(d,"%%%%BoundingBox: %d %d ", NEXT_XOFF,NEXT_YOFF);
+X//		if (!next_portrait)
+X//			DPSPrintf(d,"%d %d\n",(int)width, (int)height);
+X//		else 
+X//			DPSPrintf(d,"%d %d\n",(int)width, (int)height);
+X//		DPSPrintf(d,"%%%%Pages: (atend)\n");
+X//		DPSPrintf(d,"%%%%EndComments\n");
+X		DPSPrintf(d,"/gnudict 40 dict def\ngnudict begin\n");
+X		DPSPrintf(d,"/Color %s def\n",next_color ? "true" : "false");
+X		DPSPrintf(d,"/gnulinewidth %.3f def\n",NEXT_LW);
+X		DPSPrintf(d,"/vshift %d def\n", (int)(t->v_char)/(-3));
+X		DPSPrintf(d,"/dl {%d mul} def\n",NEXT_SC); /* dash length */
+X		DPSPrintf(d,"/hpt %.1f def\n",NEXT_HTIC/2.0);
+X		DPSPrintf(d,"/vpt %.1f def\n",NEXT_VTIC/2.0);
+X		for ( i=0; NEXT_header[i] != NULL; i++)
+X			DPSPrintf(d,"%s",NEXT_header[i]);
+X		DPSPrintf(d,"end\n");
+X//		DPSPrintf(d,"%%%%EndProlog\n");
+X		init_called=TRUE;
+X}
+X
+Xstatic void window_create(float width, float height)
+X{
+X	initframe_called=TRUE;
+X	
+X	NXApp=[EpsViewer new];
+X	[NXApp windowCreate:width Height:height];
+X}
+X
+XNEXT_graphics()
+X{
+Xstruct termentry *t = &term_tbl[term];
+X	next_page++;
+X	if(!init_called)
+X		NEXT_init();	/* set up the frame properly */
+X	init_called=FALSE;
+X//	DPSPrintf(d,"%%%%Page: %d %d\n",next_page,next_page);
+X	DPSPrintf(d,"gnudict begin\n");
+X	DPSPrintf(d,"gsave\n");
+X	DPSPrintf(d,"%d %d translate\n",NEXT_XOFF,NEXT_YOFF);
+X	if (!next_portrait) {
+X/* keep plot entirely in the window */
+X		if(xsize>xsize_orig)
+X			xsize=xsize_orig;
+X		if(ysize>ysize_orig)
+X			ysize=ysize_orig;
+X	    DPSPrintf(d,"%.3f %.3f scale\n", xsize/NEXT_SC, ysize/NEXT_SC);
+X	}
+X	else {
+X		if(xsize>xsize_orig)
+X			xsize=xsize_orig;
+X		if(ysize>ysize_orig)
+X			ysize=ysize_orig;
+X	    DPSPrintf(d,"%.3f %.3f scale\n", ysize/NEXT_SC, xsize/NEXT_SC);
+X	    DPSPrintf(d,"90 rotate\n0 %d translate\n", -NEXT_YMAX);
+X	}
+X	DPSPrintf(d,"0 setgray\n");
+X	DPSPrintf(d,"/%s findfont %d ", next_font, (t->v_char) );
+X	DPSPrintf(d,"scalefont setfont\n");
+X	DPSPrintf(d,"newpath\n");
+X	next_path_count = 0;	
+X}
+X
+X
+XNEXT_text()
+X{
+X	next_path_count = 0;
+X	DPSPrintf(d,"stroke\ngrestore\nend\nshowpage\n");
+X//	DPSPrintf(d,"\ngrestoreall _the_saved_vm_ restore\n");
+X		
+X	DPSFlushContext(d);
+X	
+X	
+X}
+X
+X
+XNEXT_reset()
+X{	
+X	DPSPrintf(d,"currentwindow termwindow\n");
+X	DPSPrintf(d,"nulldevice\n");
+X
+X	DPSFlushContext(d);
+X	initframe_called=FALSE;
+X}
+X
+X
+XNEXT_linetype(linetype)
+Xint linetype;
+X{
+Xchar *line = "ba012345678"; 
+X	DPSPrintf(d,"LT%c\n", line[(linetype%9)+2]);
+X	next_path_count = 0;
+X}
+X
+X
+XNEXT_move(x,y)
+Xunsigned int x,y;
+X{
+X	DPSPrintf(d,"%d %d M\n", x, y);
+X	next_path_count += 1;
+X}
+X
+X
+XNEXT_vector(x,y)
+Xunsigned int x,y;
+X{
+X	DPSPrintf(d,"%d %d L\n", x, y);
+X	next_path_count += 1;
+X	if (next_path_count >= 400) {
+X		DPSPrintf(d,"currentpoint stroke moveto\n");
+X		next_path_count = 0;
+X	}
+X}
+X
+X
+XNEXT_put_text(x,y,str)
+Xunsigned int x, y;
+Xchar *str;
+X{
+Xchar ch;
+X	NEXT_move(x,y);
+X	if (next_ang != 0)
+X		DPSPrintf(d,"currentpoint gsave translate %d rotate 0 0 moveto\n"
+X			,next_ang*90);
+X/*	NXPutc(psStream,'(');			*/
+X	DPSPrintf(d,"%c",'(');
+X	ch = *str++;
+X	while(ch!='\0') {
+X		if ( (ch=='(') || (ch==')') || (ch=='\\') )
+X/*			NXPutc(psStream,'\\');
+X		NXPutc(psStream,ch);			*/
+X			DPSPrintf(d,"%c",'\\');
+X		DPSPrintf(d,"%c",ch);
+X		ch = *str++;
+X	}
+X	switch(next_justify) {
+X		case LEFT : DPSPrintf(d,") Lshow\n");
+X			break;
+X		case CENTRE : DPSPrintf(d,") Cshow\n");
+X			break;
+X		case RIGHT : DPSPrintf(d,") Rshow\n");
+X			break;
+X	}
+X	if (next_ang != 0)
+X		DPSPrintf(d,"grestore\n");
+X	next_path_count = 0;
+X}
+X
+Xint NEXT_text_angle(ang)
+Xint ang;
+X{
+X	next_ang=ang;
+X	return TRUE;
+X}
+X
+Xint NEXT_justify_text(mode)
+Xenum JUSTIFY mode;
+X{
+X	next_justify=mode;
+X	return TRUE;
+X}
+X
+X/* postscript point routines */
+XNEXT_point(x,y,number)
+Xint x,y;
+Xint number;
+X{
+Xchar *point = "PDABCTS";
+X	number %= POINT_TYPES;
+X 	if (number < -1)
+X		number = -1;		/* negative types are all 'dot' */
+X	DPSPrintf(d,"%d %d %c\n", x, y, point[number+1]);
+X	next_path_count = 0;
+X}
+X
+END_OF_FILE
+  if test 11383 -ne `wc -c <'gnuplot/term/next.trm'`; then
+    echo shar: \"'gnuplot/term/next.trm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/term/next.trm'
+fi
+if test -f 'gnuplot/util.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/util.c'\"
+else
+  echo shar: Extracting \"'gnuplot/util.c'\" \(12972 characters\)
+  sed "s/^X//" >'gnuplot/util.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: util.c%v 3.50 1993/07/09 05:35:24 woo Exp $";
+X#endif
+X
+X
+X/* GNUPLOT - util.c */
+X/*
+X * Copyright (C) 1986 - 1993   Thomas Williams, Colin Kelley
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHORS
+X * 
+X *   Original Software:
+X *     Thomas Williams,  Colin Kelley.
+X * 
+X *   Gnuplot 2.0 additions:
+X *       Russell Lang, Dave Kotz, John Campbell.
+X *
+X *   Gnuplot 3.0 additions:
+X *       Gershon Elber and many others.
+X * 
+X */
+X
+X#include <ctype.h>
+X#include <setjmp.h>
+X#include <stdio.h>
+X#include <errno.h>
+X#include "plot.h"
+X
+XTBOOLEAN screen_ok;
+X	/* TRUE if command just typed; becomes FALSE whenever we
+X		send some other output to screen.  If FALSE, the command line
+X		will be echoed to the screen before the ^ error message. */
+X
+X#ifndef vms
+X#if !defined(__ZTC__) && !defined(__PUREC__)
+X#if !defined(__MSC__)
+Xextern int errno;
+X#endif
+Xextern int sys_nerr;
+Xextern char *sys_errlist[];
+X#endif
+X#endif /* vms */
+X
+Xextern char input_line[];
+Xextern struct lexical_unit token[];
+X#ifdef _Windows
+Xextern jmp_buf far env;	/* from plot.c */
+X#else
+Xextern jmp_buf env;	/* from plot.c */
+X#endif
+Xextern int inline_num;		/* from command.c */
+Xextern TBOOLEAN interactive;	/* from plot.c */
+Xextern char *infile_name;	/* from plot.c */
+X
+X#ifdef sequent
+Xextern char *index();
+X#else
+Xextern char *strchr();
+X#endif
+X
+X#ifndef AMIGA_AC_5
+Xextern double sqrt(), atan2();
+X#endif
+X
+X/*
+X * chr_in_str() compares the characters in the string of token number t_num
+X * with c, and returns TRUE if a match was found.
+X */
+Xchr_in_str(t_num, c)
+Xint t_num;
+Xchar c;
+X{
+Xregister int i;
+X
+X	if (!token[t_num].is_token)
+X		return(FALSE);				/* must be a value--can't be equal */
+X	for (i = 0; i < token[t_num].length; i++) {
+X		if (input_line[token[t_num].start_index+i] == c)
+X			return(TRUE);
+X		}
+X	return FALSE;
+X}
+X
+X
+X/*
+X * equals() compares string value of token number t_num with str[], and
+X *   returns TRUE if they are identical.
+X */
+Xequals(t_num, str)
+Xint t_num;
+Xchar *str;
+X{
+Xregister int i;
+X
+X	if (!token[t_num].is_token)
+X		return(FALSE);				/* must be a value--can't be equal */
+X	for (i = 0; i < token[t_num].length; i++) {
+X		if (input_line[token[t_num].start_index+i] != str[i])
+X			return(FALSE);
+X		}
+X	/* now return TRUE if at end of str[], FALSE if not */
+X	return(str[i] == '\0');
+X}
+X
+X
+X
+X/*
+X * almost_equals() compares string value of token number t_num with str[], and
+X *   returns TRUE if they are identical up to the first $ in str[].
+X */
+Xalmost_equals(t_num, str)
+Xint t_num;
+Xchar *str;
+X{
+Xregister int i;
+Xregister int after = 0;
+Xregister start = token[t_num].start_index;
+Xregister length = token[t_num].length;
+X
+X	if (!token[t_num].is_token)
+X		return(FALSE);				/* must be a value--can't be equal */
+X	for (i = 0; i < length + after; i++) {
+X		if (str[i] != input_line[start + i]) {
+X			if (str[i] != '$')
+X				return(FALSE);
+X			else {
+X				after = 1;
+X				start--;	/* back up token ptr */
+X				}
+X			}
+X		}
+X
+X	/* i now beyond end of token string */
+X
+X	return(after || str[i] == '$' || str[i] == '\0');
+X}
+X
+X
+X
+Xisstring(t_num)
+Xint t_num;
+X{
+X	
+X	return(token[t_num].is_token &&
+X		   (input_line[token[t_num].start_index] == '\'' ||
+X		   input_line[token[t_num].start_index] == '\"'));
+X}
+X
+X
+Xisnumber(t_num)
+Xint t_num;
+X{
+X	return(!token[t_num].is_token);
+X}
+X
+X
+Xisletter(t_num)
+Xint t_num;
+X{
+X	return(token[t_num].is_token &&
+X			((isalpha(input_line[token[t_num].start_index]))||
+X			 (input_line[token[t_num].start_index] == '_')));
+X}
+X
+X
+X/*
+X * is_definition() returns TRUE if the next tokens are of the form
+X *   identifier =
+X *		-or-
+X *   identifier ( identifer {,identifier} ) =
+X */
+Xis_definition(t_num)
+Xint t_num;
+X{
+X	/* variable? */
+X	if(isletter(t_num) && equals(t_num+1,"="))
+X		return 1;
+X
+X	/* function? */
+X	/* look for dummy variables */
+X	if(isletter(t_num) && equals(t_num+1,"(") && isletter(t_num+2)) {
+X		t_num += 3;  /* point past first dummy */
+X		while(equals(t_num,",")) {
+X			if(!isletter(++t_num))
+X				return 0;
+X			t_num += 1;
+X		}
+X		return(equals(t_num,")") && equals(t_num+1,"="));
+X	}
+X
+X	/* neither */
+X	return 0;
+X}
+X
+X
+X
+X/*
+X * copy_str() copies the string in token number t_num into str, appending
+X *   a null.  No more than MAX_ID_LEN chars are copied.
+X */
+Xcopy_str(str, t_num)
+Xchar str[];
+Xint t_num;
+X{
+Xregister int i = 0;
+Xregister int start = token[t_num].start_index;
+Xregister int count;
+X
+X	if ((count = token[t_num].length) > MAX_ID_LEN)
+X		count = MAX_ID_LEN;
+X	do {
+X		str[i++] = input_line[start++];
+X		} while (i != count);
+X	str[i] = '\0';
+X}
+X
+X
+X/*
+X * quote_str() does the same thing as copy_str, except it ignores the
+X *   quotes at both ends.  This seems redundant, but is done for
+X *   efficency.
+X */
+Xquote_str(str, t_num)
+Xchar str[];
+Xint t_num;
+X{
+Xregister int i = 0;
+Xregister int start = token[t_num].start_index + 1;
+Xregister int count;
+X
+X	if ((count = token[t_num].length - 2) > MAX_ID_LEN)
+X		count = MAX_ID_LEN;
+X	if (count>0) {
+X		do {
+X			str[i++] = input_line[start++];
+X			} while (i != count);
+X	}
+X	str[i] = '\0';
+X}
+X
+X
+X/*
+X * quotel_str() does the same thing as quote_str, except it uses
+X * MAX_LINE_LEN instead of MAX_ID_LEN. 
+X */ 
+Xquotel_str(str, t_num) 
+Xchar str[]; 
+Xint t_num; 
+X{
+Xregister int i = 0;
+Xregister int start = token[t_num].start_index + 1;
+Xregister int count;
+X
+X	if ((count = token[t_num].length - 2) > MAX_LINE_LEN)
+X		count = MAX_LINE_LEN;
+X	if (count>0) {
+X		do {
+X			str[i++] = input_line[start++];
+X			} while (i != count);
+X	}
+X	str[i] = '\0';
+X}
+X
+X
+X/*
+X *	capture() copies into str[] the part of input_line[] which lies between
+X *	the begining of token[start] and end of token[end].
+X */
+Xcapture(str,start,end)
+Xchar str[];
+Xint start,end;
+X{
+Xregister int i,e;
+X
+X	e = token[end].start_index + token[end].length;
+X	for (i = token[start].start_index; i < e && input_line[i] != '\0'; i++)
+X		*str++ = input_line[i];
+X	*str = '\0';
+X}
+X
+X
+X/*
+X *	m_capture() is similar to capture(), but it mallocs storage for the
+X *  string.
+X */
+Xm_capture(str,start,end)
+Xchar **str;
+Xint start,end;
+X{
+Xregister int i,e;
+Xregister char *s;
+X
+X	if (*str)		/* previous pointer to malloc'd memory there */
+X		free(*str);
+X	e = token[end].start_index + token[end].length;
+X	*str = alloc((unsigned long)(e - token[start].start_index + 1), "string");
+X     s = *str;
+X     for (i = token[start].start_index; i < e && input_line[i] != '\0'; i++)
+X	  *s++ = input_line[i];
+X     *s = '\0';
+X}
+X
+X
+X/*
+X *	m_quote_capture() is similar to m_capture(), but it removes
+X	quotes from either end if the string.
+X */
+Xm_quote_capture(str,start,end)
+Xchar **str;
+Xint start,end;
+X{
+Xregister int i,e;
+Xregister char *s;
+X
+X	if (*str)		/* previous pointer to malloc'd memory there */
+X		free(*str);
+X	e = token[end].start_index + token[end].length-1;
+X	*str = alloc((unsigned long)(e - token[start].start_index + 1), "string");
+X     s = *str;
+X    for (i = token[start].start_index + 1; i < e && input_line[i] != '\0'; i++)
+X	 *s++ = input_line[i];
+X    *s = '\0';
+X}
+X
+X
+Xconvert(val_ptr, t_num)
+Xstruct value *val_ptr;
+Xint t_num;
+X{
+X	*val_ptr = token[t_num].l_val;
+X}
+X
+Xstatic char *num_to_str(r)
+Xdouble r;
+X{
+X	static i = 0;
+X	static char s[4][20];
+X	int j = i++;
+X
+X	if ( i > 3 ) i = 0;
+X
+X	sprintf( s[j], "%g", r );
+X#ifdef sequent
+X	if ( index( s[j], '.' ) == NULL &&
+X	     index( s[j], 'e' ) == NULL &&
+X	     index( s[j], 'E' ) == NULL )
+X#else
+X	if ( strchr( s[j], '.' ) == NULL &&
+X	     strchr( s[j], 'e' ) == NULL &&
+X	     strchr( s[j], 'E' ) == NULL )
+X#endif
+X		strcat( s[j], ".0" );
+X
+X	return s[j];
+X} 
+X
+Xdisp_value(fp,val)
+XFILE *fp;
+Xstruct value *val;
+X{
+X	switch(val->type) {
+X		case INTGR:
+X			fprintf(fp,"%d",val->v.int_val);
+X			break;
+X		case CMPLX:
+X			if (val->v.cmplx_val.imag != 0.0 )
+X				fprintf(fp,"{%s, %s}",
+X					num_to_str(val->v.cmplx_val.real),
+X					num_to_str(val->v.cmplx_val.imag));
+X			else
+X				fprintf(fp,"%s",
+X					num_to_str(val->v.cmplx_val.real));
+X			break;
+X		default:
+X			int_error("unknown type in disp_value()",NO_CARET);
+X	}
+X}
+X
+X
+Xdouble
+Xreal(val)		/* returns the real part of val */
+Xstruct value *val;
+X{
+X	switch(val->type) {
+X		case INTGR:
+X			return((double) val->v.int_val);
+X		case CMPLX:
+X			return(val->v.cmplx_val.real);
+X	}
+X	int_error("unknown type in real()",NO_CARET);
+X	/* NOTREACHED */
+X	return((double)0.0);
+X}
+X
+X
+Xdouble
+Ximag(val)		/* returns the imag part of val */
+Xstruct value *val;
+X{
+X	switch(val->type) {
+X		case INTGR:
+X			return(0.0);
+X		case CMPLX:
+X			return(val->v.cmplx_val.imag);
+X	}
+X	int_error("unknown type in imag()",NO_CARET);
+X	/* NOTREACHED */
+X	return((double)0.0);
+X}
+X
+X
+X
+Xdouble
+Xmagnitude(val)		/* returns the magnitude of val */
+Xstruct value *val;
+X{
+X	switch(val->type) {
+X		case INTGR:
+X			return((double) abs(val->v.int_val));
+X		case CMPLX:
+X			return(sqrt(val->v.cmplx_val.real*
+X				    val->v.cmplx_val.real +
+X				    val->v.cmplx_val.imag*
+X				    val->v.cmplx_val.imag));
+X	}
+X	int_error("unknown type in magnitude()",NO_CARET);
+X	/* NOTREACHED */
+X	return((double)0.0);
+X}
+X
+X
+X
+Xdouble
+Xangle(val)		/* returns the angle of val */
+Xstruct value *val;
+X{
+X	switch(val->type) {
+X		case INTGR:
+X			return((val->v.int_val > 0) ? 0.0 : Pi);
+X		case CMPLX:
+X			if (val->v.cmplx_val.imag == 0.0) {
+X				if (val->v.cmplx_val.real >= 0.0)
+X					return(0.0);
+X				else
+X					return(Pi);
+X			}
+X			return(atan2(val->v.cmplx_val.imag,
+X				     val->v.cmplx_val.real));
+X	}
+X	int_error("unknown type in angle()",NO_CARET);
+X	/* NOTREACHED */
+X	return((double)0.0);
+X}
+X
+X
+Xstruct value *
+XGcomplex(a,realpart,imagpart)
+Xstruct value *a;
+Xdouble realpart, imagpart;
+X{
+X	a->type = CMPLX;
+X	a->v.cmplx_val.real = realpart;
+X	a->v.cmplx_val.imag = imagpart;
+X	return(a);
+X}
+X
+X
+Xstruct value *
+XGinteger(a,i)
+Xstruct value *a;
+Xint i;
+X{
+X	a->type = INTGR;
+X	a->v.int_val = i;
+X	return(a);
+X}
+X
+X
+X
+Xos_error(str,t_num)
+Xchar str[];
+Xint t_num;
+X{
+X#ifdef vms
+Xstatic status[2] = {1, 0};		/* 1 is count of error msgs */
+X#endif
+X
+Xregister int i;
+X
+X	/* reprint line if screen has been written to */
+X
+X	if (t_num != NO_CARET) {		/* put caret under error */
+X		if (!screen_ok)
+X			fprintf(stderr,"\n%s%s\n", PROMPT, input_line);
+X
+X		for (i = 0; i < sizeof(PROMPT) - 1; i++)
+X			(void) putc(' ',stderr);
+X		for (i = 0; i < token[t_num].start_index; i++) {
+X			(void) putc((input_line[i] == '\t') ? '\t' : ' ',stderr);
+X			}
+X		(void) putc('^',stderr);
+X		(void) putc('\n',stderr);
+X	}
+X
+X	for (i = 0; i < sizeof(PROMPT) - 1; i++)
+X		(void) putc(' ',stderr);
+X	fprintf(stderr,"%s\n",str);
+X
+X	for (i = 0; i < sizeof(PROMPT) - 1; i++)
+X		(void) putc(' ',stderr);
+X     if (!interactive)
+X	  if (infile_name != NULL)
+X	    fprintf(stderr,"\"%s\", line %d: ", infile_name, inline_num);
+X	  else
+X	    fprintf(stderr,"line %d: ", inline_num);
+X
+X
+X#ifdef vms
+X	status[1] = vaxc$errno;
+X	sys$putmsg(status);
+X	(void) putc('\n',stderr);
+X#else
+X#ifdef __ZTC__
+X	fprintf(stderr,"error number %d\n\n",errno);
+X#else
+X	if (errno >= sys_nerr)
+X		fprintf(stderr, "unknown errno %d\n\n", errno);
+X	else
+X		fprintf(stderr,"(%s)\n\n",sys_errlist[errno]);
+X#endif
+X#endif
+X
+X	longjmp(env, TRUE);	/* bail out to command line */
+X}
+X
+X
+Xint_error(str,t_num)
+Xchar str[];
+Xint t_num;
+X{
+Xregister int i;
+X
+X	/* reprint line if screen has been written to */
+X
+X	if (t_num != NO_CARET) {		/* put caret under error */
+X		if (!screen_ok)
+X			fprintf(stderr,"\n%s%s\n", PROMPT, input_line);
+X
+X		for (i = 0; i < sizeof(PROMPT) - 1; i++)
+X			(void) putc(' ',stderr);
+X		for (i = 0; i < token[t_num].start_index; i++) {
+X			(void) putc((input_line[i] == '\t') ? '\t' : ' ',stderr);
+X			}
+X		(void) putc('^',stderr);
+X		(void) putc('\n',stderr);
+X	}
+X
+X	for (i = 0; i < sizeof(PROMPT) - 1; i++)
+X		(void) putc(' ',stderr);
+X     if (!interactive)
+X	  if (infile_name != NULL)
+X	    fprintf(stderr,"\"%s\", line %d: ", infile_name, inline_num);
+X	  else
+X	    fprintf(stderr,"line %d: ", inline_num);
+X     fprintf(stderr,"%s\n\n", str);
+X
+X	longjmp(env, TRUE);	/* bail out to command line */
+X}
+X
+X/* Lower-case the given string (DFK) */
+X/* Done in place. */
+Xvoid
+Xlower_case(s)
+X     char *s;
+X{
+X  register char *p = s;
+X
+X  while (*p != '\0') {
+X    if (isupper(*p))
+X	 *p = tolower(*p);
+X    p++;
+X  }
+X}
+X
+X/* Squash spaces in the given string (DFK) */
+X/* That is, reduce all multiple white-space chars to single spaces */
+X/* Done in place. */
+Xvoid
+Xsquash_spaces(s)
+X     char *s;
+X{
+X  register char *r = s;		/* reading point */
+X  register char *w = s;		/* writing point */
+X  TBOOLEAN space = FALSE;		/* TRUE if we've already copied a space */
+X
+X  for (w = r = s; *r != '\0'; r++) {
+X	 if (isspace(*r)) {
+X		/* white space; only copy if we haven't just copied a space */
+X		if (!space) {
+X		    space = TRUE;
+X		    *w++ = ' ';
+X		}				/* else ignore multiple spaces */
+X	 } else {
+X		/* non-space character; copy it and clear flag */
+X		*w++ = *r;
+X		space = FALSE;
+X	 }
+X  }
+X  *w = '\0';				/* null terminate string */
+X}
+END_OF_FILE
+  if test 12972 -ne `wc -c <'gnuplot/util.c'`; then
+    echo shar: \"'gnuplot/util.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/util.c'
+fi
+if test -f 'gnuplot/win/wgnuplot.mnu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/win/wgnuplot.mnu'\"
+else
+  echo shar: Extracting \"'gnuplot/win/wgnuplot.mnu'\" \(11011 characters\)
+  sed "s/^X//" >'gnuplot/win/wgnuplot.mnu' <<'END_OF_FILE'
+X; Menu file for Windows gnuplot
+X; Roger Hadgraft, 26-5-92
+X; Russell Lang, 30 Nov 1992
+X
+X[Menu]
+X&File
+X	&Open ...
+X		load '[OPEN]load[EOS]*.plt[EOS]'{ENTER}
+X	&Save ...
+X		save '[SAVE]save[EOS]*.plt[EOS]'{ENTER}
+X	&Demos ...
+X		load '[OPEN]load[EOS]*.dem[EOS]'{ENTER}
+X	--
+X	&Change Directory ...
+X		cd '[INPUT]New directory?[EOS]'{ENTER}
+X	show Current &Directory
+X		pwd{ENTER}
+X	--
+X	O&utput ...
+X		set output "[INPUT]Output filename?[EOS]"{ENTER}
+X	&Printer Output
+X		set output "PRN"{ENTER}
+X	&Window Output
+X		 set output{ENTER}set terminal win{ENTER} 
+X	Show Output
+X		show output{ENTER}
+X	Ou&tput Device ...
+X		set terminal [INPUT]Terminal type?{ENTER}
+X	Show Output Devices
+X		set terminal{ENTER}show terminal{ENTER}
+X	--
+X	[Menu]
+X	History
+X		Previous command	^P
+X			{^P}
+X		Next command	^N
+X			{^N}
+X		--
+X		Back one character	^B
+X			{^B}
+X		Forward one character	^F
+X			{^F}
+X		--
+X		Beginning of the line	^A
+X			{^A}
+X		End of the line	^E
+X			{^E}
+X		--
+X		Delete previous character	^H
+X			{^H}
+X		Delete current character	^D
+X			{^D}
+X		Delete last word	^W
+X			{^W}
+X		Delete to end of line	^K
+X			{^K}
+X		Delete entire line	^U
+X			{^U}
+X		--
+X		Redraw the line	^L
+X			{^L}
+X		[EndMenu]
+X		open DOS window
+X			shell{ENTER}
+X		run DOS command ...
+X			![INPUT]DOS command?{ENTER}
+X		--
+X		E&xit
+X		quit{ENTER}
+X[EndMenu]
+X
+X[Menu]
+X&Plot
+X	Plot
+X		plot 
+X	3D Plot
+X		splot 
+X	Replot
+X		replot{ENTER}
+X	Clear device
+X		clear{ENTER}
+X	--
+X	Simple Range
+X		[[INPUT]Lower bound?[EOS]:[INPUT]Upper bound?[EOS]] [EOS]
+X	Named Range
+X		[[INPUT]Variable name?[EOS]=[INPUT]Lower bound?[EOS]:[INPUT]Upper bound?[EOS]] [EOS]
+X	--
+X	Data filename ...
+X		'[OPEN]Open[EOS]*.dat[EOS]' [EOS]
+X	using x,y columns
+X		using [INPUT]X column?[EOS]:[INPUT]Y column?[EOS] [EOS]
+X	using x,y,ydelta columns
+X		using [INPUT]X column?[EOS]:[INPUT]Y column?[EOS]:[INPUT]Ydelta column?[EOS] [EOS]
+X	using x,y,ylow,yhigh columns
+X		using [INPUT]X column?[EOS]:[INPUT]Y column?[EOS]:[INPUT]Ylow column?[EOS]:[INPUT]Yhigh column?[EOS] [EOS]
+X	--
+X	[Menu]
+X	with Style
+X		Lines
+X			with lines
+X		Points
+X			with points
+X		Lines and Points
+X			with linespoints
+X		Impulses
+X			with impulses
+X		Dots
+X			with dots
+X		Error Bars
+X			with errorbars
+X		Boxes
+X			with boxes
+X		Box Error Bars
+X			with boxerrorbars
+X	[EndMenu]
+X[EndMenu]
+X
+X[Menu]
+X&Expressions
+X	Evaluate
+X		print 
+X	Complex number ...
+X		{[INPUT]Real part?[EOS],[INPUT]Imaginary part?[EOS]}
+X	--
+X	Exponentiation	**
+X		**
+X;	Multiply	*
+X;		*
+X;	Divide	/
+X;		/
+X;	Add	+
+X;		+
+X;	Subtract	-
+X;		-
+X	--
+X	Modulo	%
+X		%
+X	Equality	==
+X		==
+X	Inequality	!=
+X		!=
+X	--
+X	Bitwise AND	&
+X		&
+X	Bitwise exclusive OR	^
+X		^
+X	Bitwise inclusive OR	|
+X		|
+X	--
+X	Logical AND	&&
+X		&&
+X	Logical OR	||
+X		||
+X;	--
+X;	Ternary operator 1	?
+X;		?
+X;	Ternary operator 2	:
+X;		:
+X[EndMenu]
+X
+X[Menu]
+XFu&nctions
+X	abs
+X		abs
+X	arg
+X		arg
+X	imag
+X		imag
+X	real
+X		real
+X	sgn
+X		sgn
+X	--
+X	ceil
+X		ceil
+X	floor
+X		floor
+X	int
+X		int
+X	--
+X	sqrt
+X		sqrt
+X	exp
+X		exp
+X	log
+X		log
+X	log10
+X		log10
+X	|
+X	acos
+X		acos
+X	asin
+X		asin
+X	atan
+X		atan
+X	--
+X	cos
+X		cos
+X	sin
+X		sin
+X	tan
+X		tan
+X	--
+X	cosh
+X		cosh
+X	sinh
+X		sinh
+X	tanh
+X		tanh
+X	--
+X	pi
+X		pi
+X	gamma
+X		gamma
+X	(x)
+X		(x)
+X	|
+X	besj0
+X		besj0
+X	besj1
+X		besj1
+X	--
+X	besy0
+X		besy0
+X	besy1
+X		besy1
+X	--
+X	Define User Function ...
+X		[INPUT]Name for function?[EOS][INPUT]Variable/s, eg. (a,b) ?[EOS]=
+X	Show User Functions
+X		show functions{ENTER}
+X	--
+X	Define User Variable ...
+X		[INPUT]Name for variable?[EOS]=[INPUT]Value, eg. 9.81 ?{ENTER}
+X	Show User Variables
+X		show variables{ENTER}
+X	--
+X	x Dummy variable
+X		set dummy [INPUT]Variable name?{ENTER}
+X	x,y Dummy variables
+X		set dummy [INPUT]Variable names (eg. u,v)?{ENTER}
+X	Show Dummy variables
+X		show dummy{ENTER}
+X[EndMenu]
+X
+X[Menu]
+X&General
+X	Border on
+X		set border{ENTER}
+X	Border off
+X		set noborder{ENTER}
+X	Show Border
+X		show border{ENTER}
+X	--
+X	Box width
+X		set boxwidth [INPUT]Box Width?{ENTER}
+X	Auto Box Width
+X		set boxwidth{ENTER}
+X	Show Box width
+X		show boxwidth{ENTER}
+X	--
+X	Show Line Types
+X		test{ENTER}
+X	--
+X	[Menu]
+X	Parametric
+X		Set Parametric
+X			set parametric{ENTER}
+X		Not Parametric
+X			set noparametric{ENTER}
+X		Show Parametric
+X			show parametric{ENTER}
+X		--
+X		t Range
+X			set trange [[INPUT]Lower bound?[EOS]:[INPUT]Upper bound?[EOS]]{ENTER}
+X		u Range
+X			set urange [[INPUT]Lower bound?[EOS]:[INPUT]Upper bound?[EOS]]{ENTER}
+X		v Range
+X			set vrange [[INPUT]Lower bound?[EOS]:[INPUT]Upper bound?[EOS]]{ENTER}
+X	[EndMenu]
+X	--
+X	[Menu]
+X	Clipping
+X	Clip near points
+X		set clip points{ENTER}
+X	Clip one point
+X		set clip one{ENTER}
+X	Clip two points
+X		set clip two{ENTER}
+X	No Clipping
+X		set noclip{ENTER}
+X	Show Clip type
+X		show clip{ENTER}
+X	[EndMenu]
+X	--
+X	[Menu]
+X	Polar
+X	Polar
+X		set polar{ENTER}
+X	Not Polar
+X		set nopolar{ENTER}
+X	Show Polar
+X		show polar{ENTER}
+X	Radial Range
+X		set rrange [[INPUT]Lower bound?[EOS]:[INPUT]Upper bound?[EOS]]{ENTER}
+X	Angles in Degrees
+X		set angles degrees{ENTER}
+X	Angles in Radians
+X		set angles radians{ENTER}
+X	Show Angle units
+X		show angles{ENTER}
+X	[EndMenu]
+X	--
+X	Set Plot Size
+X		set size [INPUT]Xscale?[EOS],[INPUT]Yscale?{ENTER}
+X	Show Plot Size
+X		show size{ENTER}
+X	--
+X	Sampling Rate
+X		set sample [INPUT]Sampling rate (default=100)?{ENTER}
+X	Show Sampling Rate
+X		show sample{ENTER}
+X[EndMenu]
+X
+X[Menu]
+X&Axes
+X	Autoscale xy
+X		set autoscale [INPUT]Which axes (eg. xy)?{ENTER}
+X	No Autoscale xy
+X		set noautoscale [INPUT]Which axes (eg. xy)?{ENTER}
+X	Show Autoscale
+X		show autoscale{ENTER}
+X	--
+X	Logscale xyz
+X		set logscale [INPUT]Which axes (eg. xy)?{ENTER}
+X	No Logscale xyz
+X		set nologscale [INPUT]Which axes (eg. xy)?{ENTER}
+X	Show Logscale
+X		show logscale{ENTER}
+X	--
+X	[Menu]
+X	Tics
+X		Tic format string
+X			set format [INPUT]Axes?[EOS] "[INPUT]Format string?[EOS]"{ENTER}
+X		Tic marks format
+X			show format{ENTER}
+X		--
+X		Inward facing tics (default)
+X			set tics in{ENTER}
+X		Outward facing tics
+X			set tics out{ENTER}
+X		Show tics
+X			show tics{ENTER}
+X		--
+X		Tics level
+X			set ticslevel [INPUT]Level (default=0.5)?{ENTER}
+X		--
+X		Tic interval
+X			set [INPUT]Axis: x, y or z ?[EOS]tics [INPUT]Start, Increment, End (eg. 0,0.5,10) ?{ENTER}
+X		--
+X		Tic labels start
+X			set [INPUT]Axis: x, y or z ?[EOS]tics ("[INPUT]Label text?[EOS]" [INPUT]Position?[EOS]
+X		another Tic label
+X			,"[INPUT]Label text?[EOS]" [INPUT]Position?[EOS]
+X		Tic labels finish
+X			){ENTER}
+X	[EndMenu]
+X	--
+X	X Range
+X		set xrange [[INPUT]Lower bound?[EOS]:[INPUT]Upper bound?[EOS]]{ENTER}
+X	Y Range
+X		set yrange [[INPUT]Lower bound?[EOS]:[INPUT]Upper bound?[EOS]]{ENTER}
+X	Z Range
+X		set zrange [[INPUT]Lower bound?[EOS]:[INPUT]Upper bound?[EOS]]{ENTER}
+X	--
+X	X Label
+X		set xlabel "[INPUT]Label text?[EOS]" [INPUT]X offset, Y offset (eg. 2,3) ?{ENTER}
+X	Y Label
+X		set ylabel "[INPUT]Label text?[EOS]" [INPUT]X offset, Y offset (eg. 2,3) ?{ENTER}
+X	Z Label
+X		set zlabel "[INPUT]Label text?[EOS]" [INPUT]X offset, Y offset (eg. 2,3) ?{ENTER}
+X	Show axis Labels
+X		show xlabel{ENTER}show ylabel{ENTER}show zlabel{ENTER}
+X	--
+X	No X zero axis
+X		set noxzeroaxis{ENTER}
+X	No Y zero axis
+X		set noyzeroaxis{ENTER}
+X	X,Y zero axes on
+X		set zeroaxis{ENTER}
+X	Show zero axis status
+X		show zeroaxis{ENTER}
+X[EndMenu]
+X
+X[Menu]
+X&Chart
+X	Grid on
+X		set grid{ENTER}
+X	Grid off
+X		set nogrid{ENTER}
+X	Show Grid
+X		show grid{ENTER}
+X	--
+X	Add Arrow
+X		set arrow [INPUT]Tag (1-99)?[EOS] from [INPUT]From coordinate?[EOS] to [INPUT]To coordinate?{ENTER}
+X	Remove arrow
+X		set noarrow [INPUT]Tag (1-99)?{ENTER}
+X	Show Arrows
+X		show arrow{ENTER}
+X	--
+X	Add Label
+X		set label [INPUT]Tag?[EOS] "[INPUT]Label?[EOS]" at [INPUT]Coordinate?[EOS] [INPUT]Justification (l,c,r)?{ENTER}
+X	Remove Label
+X		set nolabel [INPUT]Tag?{ENTER}
+X	Show Labels
+X		show label{ENTER}
+X	--
+X	Set Title
+X		set title "[INPUT]Title text?[EOS]" [INPUT]X position, Y position (eg. 2,4)?{ENTER}
+X	Show Title
+X		show title{ENTER}
+X	|
+X	Key (legend) position
+X		set key [INPUT]Key position?{ENTER}
+X	Default Key position
+X		set key{ENTER}
+X	No Key
+X		set nokey{ENTER}
+X	Show Key position
+X		show key{ENTER}
+X	--
+X	Offsets
+X		set offsets [INPUT]Offsets left,right,top,bottom ?{ENTER}
+X	Show Offsets
+X		show offsets{ENTER}
+X	--
+X	Time location
+X		set time [INPUT]Location (eg. 1,1)?{ENTER}
+X	No Time
+X		set notime{ENTER}
+X	Show Time Location
+X		show time{ENTER}
+X[EndMenu]
+X
+X[Menu]
+X&Styles
+X	[Menu]
+X	Data Style
+X	Lines
+X		set data style lines{ENTER}
+X	Points
+X		set data style points{ENTER}
+X	Lines + Points
+X		set data style linespoints{ENTER}
+X	Dots
+X		set data style dots{ENTER}
+X	Impulses
+X		set data style impulses{ENTER}
+X	--
+X	Error Bars
+X		set data style errorbars{ENTER}
+X	Boxes
+X		set data style boxes{ENTER}
+X	Box Error Bars
+X		set data style boxerrorbars{ENTER}
+X	[EndMenu]
+X	Show Data Style
+X		show data style{ENTER}
+X	--
+X	[Menu]
+X	Function Style
+X	Lines
+X		set function style lines{ENTER}
+X	Points
+X		set function style points{ENTER}
+X	Lines + Points
+X		set function style linespoints{ENTER}
+X	Dots
+X		set function style dots{ENTER}
+X	Impulses
+X		set function style impulses{ENTER}
+X	--
+X	Error Bars
+X		set function style errorbars{ENTER}
+X	Boxes
+X		set function style boxes{ENTER}
+X	Box Error Bars
+X		set function style boxerrorbars{ENTER}
+X	[EndMenu]
+X	Show Function style
+X		show function style{ENTER}
+X[EndMenu]
+X
+X[Menu]
+X&3D
+X	[Menu]
+X	Contours
+X		Linear Contours
+X			set cntrparam linear{ENTER}
+X		Cubic Spline Contours
+X			set cntrparam cubicspline{ENTER}
+X		B-spline Contours
+X			set cntrparam bspline{ENTER}
+X		Number of Contours
+X			set cntrparam levels [INPUT]How many contours?{ENTER}
+X		Points for Contours
+X			set cntrparam points [INPUT]How many points for the contours?{ENTER}
+X		Order of B-splines
+X			set cntrparam order [INPUT]Order of B-splines (2-10)?{ENTER}
+X		--
+X		Contours on Base
+X			set contour base{ENTER}
+X		Contours on Surfaces
+X			set contour surface{ENTER}
+X		Contours on Both
+X			set contour both{ENTER}
+X		No Contours
+X			set nocontour{ENTER}
+X		Show Contour
+X			show contour{ENTER}
+X		--
+X		Number of Isosamples
+X			set isosamples [INPUT]Number of isosamples?{ENTER}
+X		Show Isosamples
+X			show isosamples{ENTER}
+X	[EndMenu]
+X	--
+X	Cartesian Mapping
+X		set mapping cartesian{ENTER}
+X	Spherical Mapping
+X		set mapping spherical{ENTER}
+X	Cylindrical Mapping
+X		set mapping cylindrical{ENTER}
+X	Show Mapping
+X		show mapping{ENTER}
+X	--
+X	Hidden line removal
+X		set hidden3d{ENTER}
+X	No Hidden line removal
+X		set nohidden3d{ENTER}
+X	Show Hidden line removal
+X		show hidden3d{ENTER}
+X	--
+X	Display Surface mesh
+X		set surface{ENTER}
+X	No Surface mesh
+X		set nosurface{ENTER}
+X	Show Surface status
+X		show surface{ENTER}
+X	--
+X	Set View
+X		set view [INPUT]X rotation (degrees)?[EOS],[INPUT]Z rotation?[EOS],[INPUT]Scale?[EOS],[INPUT]Z scale?{ENTER}
+X	Show View
+X		show view{ENTER}
+X[EndMenu]
+X
+X[Menu]
+X&Help
+X	&Index
+X		help{ENTER}
+X	Introduction
+X		help introduction{ENTER}
+X	&Topic
+X		help [INPUT]Help Topic?{ENTER}
+X	&Windows
+X		help windows{ENTER}
+X[EndMenu]
+X
+X; now some buttons
+X; DON'T put a shortcut key (&) on any of these because
+X; it doesn't work with Windows 3.1 and it HANGS Windows 3.0.
+X[Button]
+X	Replot
+X		replot{ENTER}
+X[Button]
+X	Open
+X		load '[OPEN]load[EOS]*.plt[EOS]'{ENTER}
+X[Button]
+X	Save
+X		save '[SAVE]save[EOS]*.plt[EOS]'{ENTER}
+X[Button]
+X	ChDir
+X		cd '[INPUT]New directory?[EOS]'{ENTER}
+X[Button]
+X	Print
+X		set terminal [INPUT]Terminal type?{ENTER}set output "PRN"{ENTER}replot{ENTER}set terminal win{ENTER}set output{ENTER}
+X[Button]
+X	PrtSc
+X		screendump{ENTER}
+X[Button]
+X	Prev
+X		{^P}
+X[Button]
+X	Next
+X		{^N}
+END_OF_FILE
+  if test 11011 -ne `wc -c <'gnuplot/win/wgnuplot.mnu'`; then
+    echo shar: \"'gnuplot/win/wgnuplot.mnu'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/win/wgnuplot.mnu'
+fi
+echo shar: End of archive 22 \(of 33\).
+cp /dev/null ark22isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 33 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

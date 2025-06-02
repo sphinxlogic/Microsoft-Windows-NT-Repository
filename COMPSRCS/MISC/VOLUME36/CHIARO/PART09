@@ -1,0 +1,1675 @@
+Newsgroups: comp.sources.misc
+From: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Subject: v36i079:  chiaro - Image Utilities, Part09/18
+Message-ID: <1993Mar25.181210.20498@sparky.imd.sterling.com>
+X-Md4-Signature: 7cafa7059c40e27e147fb8c1957f3bef
+Date: Thu, 25 Mar 1993 18:12:10 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Posting-number: Volume 36, Issue 79
+Archive-name: chiaro/part09
+Environment: UNIX, Sun, DECstation, 3B1
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  src/Shorten src/gif.c.B src/jfif.c
+# Wrapped by kent@sparky on Thu Mar 25 11:20:04 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 18)."'
+if test -f 'src/Shorten' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/Shorten'\"
+else
+  echo shar: Extracting \"'src/Shorten'\" \(706 characters\)
+  sed "s/^X//" >'src/Shorten' <<'END_OF_FILE'
+X#
+X# Makefile for shortening long #define'd names.
+X#
+X
+Xall:	startup final
+X
+X
+Xstartup:
+X	chmod u+w *.c *.h
+X
+X
+Xfoo:
+X	grep "^#[ 	]*[Dd][Ee][Ff][Ii][Nn][Ee]" *.h *.c | \
+X	sed -e 's/#[ 	][ 	]*define/#define/g' | \
+X	awk '{print $$2}' | sed -e 's/(.*)//g' | awk 'length > 8' | \
+X	sort -r | uniq > foo
+X
+Xfoo2:	foo shorten.awk
+X	awk -f shorten.awk foo > foo2
+X	split -50 foo2 foo2.
+X
+Xfinal:	foo2
+X	for i in *.h; do \
+X		echo "Processing $$i..."; \
+X		for j in foo2.*; do \
+X			echo "  with $$j..."; \
+X			sed -f $$j < $$i > foo3; \
+X			mv foo3 $$i; \
+X		done \
+X	done
+X	for i in *.c; do \
+X		echo "Processing $$i..."; \
+X		for j in foo2.*; do \
+X			echo "  with $$j..."; \
+X			sed -f $$j < $$i > foo3; \
+X			mv foo3 $$i; \
+X		done \
+X	done
+END_OF_FILE
+  if test 706 -ne `wc -c <'src/Shorten'`; then
+    echo shar: \"'src/Shorten'\" unpacked with wrong size!
+  fi
+  # end of 'src/Shorten'
+fi
+if test -f 'src/gif.c.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/gif.c.B'\"
+else
+  echo shar: Extracting \"'src/gif.c.B'\" \(34397 characters\)
+  sed "s/^X//" >'src/gif.c.B' <<'END_OF_FILE'
+X
+X/***************************************************************************
+X*   FUNCTION: gif_skipsection                                              *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Reads data blocks until it reaches a zero-length block.             *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes the file is positioned correctly. Repositions the file      *
+X*      pointer; leaves the file pointer pointing to the byte after the     *
+X*      zero-length block.                                                  *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_skipsection(FB *infile)
+X#else
+Xgif_skipsection(infile)
+XFB *infile;
+X#endif
+X{
+X#ifndef NO_FB
+X    int length;
+X    UCHAR *data;
+X    ULONG status;
+X
+X    /* Read first block, return on error. */
+X
+X    if ((status = gif_readblock(infile, &data, &length)) != 0)
+X    {
+X        return status;
+X    }
+X    if (data != (UCHAR *) NULL)
+X    {
+X        free(data);
+X    }
+X
+X    /* Loop until hit zero length. */
+X
+X    while (length != 0)
+X    {
+X        /* Read block, return on error. */
+X
+X        if ((status = gif_readblock(infile, &data, &length)) != 0)
+X        {
+X            return status;
+X        }
+X        if (data != (UCHAR *) NULL)
+X        {
+X            free(data);
+X        }
+X    }
+X
+X    /* Return OK. */
+X    return 0;
+X
+X#else
+X
+X    return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_skipsection() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_grafctrlext                                              *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Reads and parses a GIF89a graphic control extension block, and      *
+X*      returns the results.                                                *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*      gce    - pointer to GIF_GCE structure in which to return results    *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes the file is positioned correctly. Leaves file pointer       *
+X*      pointing to byte after graphic control extension section.           *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_grafctrlext(FB *infile, GIF_GCE *gce)
+X#else
+Xgif_grafctrlext(infile, gce)
+XFB *infile;
+XGIF_GCE *gce;
+X#endif
+X{
+X#ifndef NO_FB
+X    int length;
+X    UCHAR *rawgce;
+X    ULONG status;
+X
+X    /* Read data block, return on error. */
+X
+X    if ((status = gif_readblock(infile, &rawgce, &length)) != 0)
+X    {
+X        return status;
+X    }
+X
+X    /* Check length. */
+X
+X    if (length != GIF_GCE_LEN)
+X    {
+X        free(rawgce);
+X        return GIF_BADSECTION_E;
+X    }
+X
+X    /* Parse. */
+X
+X    gce->delay = CONSTRUCT_I_UINT(rawgce + GIF_GCE_DELAY_OFF);
+X    gce->transparent = (((int) *(rawgce + GIF_GCE_TRANSPARENT_OFF)) & 0x00FF);
+X
+X    /* Break out packed fields. */
+X
+X    gce->raw_packed = *(rawgce + GIF_GCE_PACKED_OFF);
+X    gce->disposal = ((((int) gce->raw_packed) &
+X                      GIF_GCE_DISPOSAL_MASK) >> GIF_GCE_DISPOSAL_SHIFT);
+X    gce->userinflag = ((gce->raw_packed & GIF_GCE_USERINFLAG_MASK) ? 1 : 0);
+X    gce->transflag = ((gce->raw_packed & GIF_GCE_TRANSFLAG_MASK) ? 1 : 0);
+X
+X    /* Clean up. */
+X
+X    free(rawgce);
+X
+X    /* Check next block -- should be zero-length. */
+X
+X    if ((status = gif_readblock(infile, &rawgce, &length)) != 0)
+X    {
+X        return status;
+X    }
+X    if (length != 0)
+X    {
+X        free(rawgce);
+X        return GIF_BADSECTION_E;
+X    }
+X
+X    /* Return OK. */
+X
+X    return 0;
+X
+X#else
+X
+X    return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_grafctrlext() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_commentext                                               *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Reads and parses a GIF89a comment extension block and returns the   *
+X*      results.                                                            *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*      text   - pointer to pointer in which pointer to buffer containing   *
+X*               comment text is returned.                                  *
+X*      textln - pointer to unsigned int in which text buffer length is     *
+X*               returned                                                   *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes the file is positioned correctly. Leaves file pointer       *
+X*      pointing to byte after comment extension section.                   *
+X*                                                                          *
+X*      The text buffer returned must be free()'ed.                         *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_commentext(FB *infile, char **text, unsigned int *textln)
+X#else
+Xgif_commentext(infile, text, textln)
+XFB *infile;
+Xchar **text;
+Xunsigned int *textln;
+X#endif
+X{
+X#ifndef NO_FB
+X
+X    /* Read text block. */
+X    return (gif_gbytes(infile, text, textln));
+X
+X#else
+X
+X    return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_commentext() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_plaintextext                                             *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Reads and parses a GIF89a plain text extension block and returns    *
+X*      the results.                                                        *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*      pte    - pointer to GIF_PTE structure in which to return results    *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes the file is positioned correctly. Leaves file pointer       *
+X*      pointing to byte after comment extension section.                   *
+X*                                                                          *
+X*      The text buffer returned within the GIF_PTE must be free()'ed.      *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_plaintextext(FB *infile, GIF_PTE *pte)
+X#else
+Xgif_plaintextext(infile, pte)
+XFB *infile;
+XGIF_PTE *pte;
+X#endif
+X{
+X#ifndef NO_FB
+X    int length;
+X    UCHAR *rawptehead;
+X    ULONG status;
+X
+X    /* Read data block, return on error. */
+X
+X    if ((status = gif_readblock(infile, &rawptehead, &length)) != 0)
+X    {
+X        return status;
+X    }
+X
+X    /* Check length. */
+X
+X    if (length != GIF_PTEHEAD_LEN)
+X    {
+X        free(rawptehead);
+X        return GIF_BADSECTION_E;
+X    }
+X
+X    /* Parse. */
+X
+X    pte->left = CONSTRUCT_I_UINT(rawptehead + GIF_PTEHEAD_LEFT_OFF);
+X    pte->top = CONSTRUCT_I_UINT(rawptehead + GIF_PTEHEAD_TOP_OFF);
+X    pte->wid = CONSTRUCT_I_UINT(rawptehead + GIF_PTEHEAD_WID_OFF);
+X    pte->hi = CONSTRUCT_I_UINT(rawptehead + GIF_PTEHEAD_HI_OFF);
+X    pte->cellwid = (unsigned int) *(rawptehead + GIF_PTEHEAD_CELLWID_OFF);
+X    pte->cellhi = (unsigned int) *(rawptehead + GIF_PTEHEAD_CELLHI_OFF);
+X    pte->forecolor = (((int) *(rawptehead + GIF_PTEHEAD_FORECLR_OFF)) & 0x00FF);
+X    pte->backcolor = (((int) *(rawptehead + GIF_PTEHEAD_BACKCLR_OFF)) & 0x00FF);
+X
+X    /* Clean up. */
+X
+X    free(rawptehead);
+X
+X    /* Read text block and return. */
+X
+X    return (gif_gbytes(infile, &(pte->text), &(pte->textln)));
+X
+X#else
+X
+X    return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_plaintextext() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_applext                                                  *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Reads and parses a GIF89a application extension block and returns   *
+X*      the results.                                                        *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*      appl   - pointer to GIF_APPL structure in which to return results   *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes the file is positioned correctly. Leaves file pointer       *
+X*      pointing to byte after the application extension section.           *
+X*                                                                          *
+X*      The data buffer returned within the GIF_APPL must be free()'ed.     *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_applext(FB *infile, GIF_APPL *appl)
+X#else
+Xgif_applext(infile, appl)
+XFB *infile;
+XGIF_APPL *appl;
+X#endif
+X{
+X#ifndef NO_FB
+X    int length;
+X    UCHAR *rawapplhead;
+X    ULONG status;
+X
+X    /* Read data block, return on error. */
+X
+X    if ((status = gif_readblock(infile, &rawapplhead, &length)) != 0)
+X    {
+X        return status;
+X    }
+X
+X    /* Check length. */
+X
+X    if (length != GIF_APPL_LEN)
+X    {
+X        free(rawapplhead);
+X        return GIF_BADSECTION_E;
+X    }
+X
+X    /* Parse. */
+X    memcpy(appl->appl_id, (rawapplhead + GIF_APPL_APPLID_OFF),
+X           GIF_APPL_APPLID_LEN);
+X    memcpy(appl->appl_auth, (rawapplhead + GIF_APPL_AUTH_OFF),
+X           GIF_APPL_AUTH_LEN);
+X
+X    /* Clean up. */
+X
+X    free(rawapplhead);
+X
+X    /* Read data block and return. */
+X
+X    return (gif_gbytes(infile, (char **) &(appl->appldata),
+X                       &(appl->appldatlen)));
+X
+X#else
+X
+X    return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_applext() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_readblock                                                *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Reads and returns a single data block.                              *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*      data   - pointer to pointer in which pointer to buffer is returned  *
+X*      length - pointer to int in which length of data block is returned   *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes the file is positioned correctly. Leaves file pointer       *
+X*      pointing to byte after block.                                       *
+X*                                                                          *
+X*      Memory block returned in data must be free()'ed.                    *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_readblock(FB *infile, UCHAR **data, int *length)
+X#else
+Xgif_readblock(infile, data, length)
+XFB *infile;
+XUCHAR **data;
+Xint *length;
+X#endif
+X{
+X#ifndef NO_FB
+X
+X    /* Read length byte. */
+X
+X    if ((*length = fb_getc(infile)) == -1)
+X    {
+X        /* 
+X        ** If not end of file, just pass error code along. Otherwise,
+X        ** is unexpected EOF.
+X        */
+X
+X        return ((fb_error != FB_EOF_W) ? fb_error : GIF_UNEOF_E);
+X    }
+X
+X    /* If zero-length block, set *data to NULL and return OK. */
+X
+X    if (*length == 0)
+X    {
+X        *data = (UCHAR *) NULL;
+X        return 0L;
+X    }
+X
+X    /* Allocate memory for data. */
+X
+X    if ((*data = (UCHAR *) malloc(*length)) == (UCHAR *) NULL)
+X    {
+X        return GIF_NOMEM_E;
+X    }
+X
+X    /* Read data. */
+X
+X    if (fb_read(infile, *data, *length) != *length)
+X    {
+X        /* Clean up. */
+X
+X        free(*data);
+X
+X        /* 
+X        ** If not end of file, just pass error code along. Otherwise,
+X        ** is unexpected EOF.
+X        */
+X
+X        return ((fb_error != FB_EOF_W) ? fb_error : GIF_UNEOF_E);
+X    }
+X
+X    /* Return OK. */
+X
+X    return 0;
+X
+X#else
+X
+X    return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_readblock() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_errstring                                                *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Returns a string corresponding to an error code.                    *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      errcode - error code to be translated                               *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns a pointer to the appropriate string, or NULL if there is    *
+X*      no appropriate string.                                              *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xchar *
+X#ifdef __STDC__
+Xgif_errstring(ULONG errcode)
+X#else
+Xgif_errstring(errcode)
+XULONG errcode;
+X#endif
+X{
+X    char *temp;
+X
+X    /* If error code not from this module, return NULL. */
+X
+X    if (MODULE(errcode) != MODULE(GIF_MODULE))
+X    {
+X        return NULL;
+X    }
+X
+X    /* Process by code. */
+X
+X    switch (ERRSEV(errcode))
+X    {
+X        case ERRSEV(GIF_NOFILE_E):
+X            temp = "Cannot find named file.";
+X            break;
+X        case ERRSEV(GIF_FILEERR_E):
+X            temp = "Error accessing file.";
+X            break;
+X        case ERRSEV(GIF_NOTGIF_E):
+X            temp = "File is not a GIF format file.";
+X            break;
+X        case ERRSEV(GIF_UNEOF_E):
+X            temp = "Unexpected End of File";
+X            break;
+X        case ERRSEV(GIF_NOMEM_E):
+X            temp = "Out of memory in GIF module.";
+X            break;
+X        case ERRSEV(GIF_BADSECTION_E):
+X            temp = "Section data does not match format.";
+X            break;
+X
+X        case ERRSEV(GIF_UNSUPRT_F):
+X            temp = "This function not supported without FB module.";
+X            break;
+X        case ERRSEV(GIF_BUG_F):
+X            temp = "Internal error, should never happen.";
+X            break;
+X
+X        default:
+X            temp = NULL;
+X            break;
+X    }
+X
+X    return temp;
+X} /* end of gif_errstring() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_vget STATIC                                              *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function obtains and parses the GIF version signature and      *
+X*      returns which GIF version, if any, the file is.                     *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile  - handle of file                                            *
+X*      version - pointer to unsigned long in which to return version info  *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Leaves file pointer pointing to byte after version signature.       *
+X*      Assumes file is positioned correctly.                               *
+X*                                                                          *
+X***************************************************************************/
+Xstatic ULONG
+X#ifdef __STDC__
+Xgif_vget(FILE *infile, ULONG *version)
+X#else
+Xgif_vget(infile, version)
+XFILE *infile;
+XULONG *version;
+X#endif
+X{
+X    char sigspace[GIF_SIG_LEN_MAX];      /* buffer for reading signatures */
+X    int bytesread;                       /* chars read in */
+X    ULONG retval;
+X
+X    /* Read in format signature. */
+X
+X    bytesread = fread(sigspace, 1, GIF_SIGNATURE_LEN, infile);
+X    if (bytesread != GIF_SIGNATURE_LEN)
+X    {
+X        if (feof(infile))
+X        {
+X            /* 
+X            ** If file is shorter than GIF signature, obviously not
+X            ** a GIF file. And since we hit EOF, the short read was
+X            ** caused by that and not a real error.
+X            */
+X
+X            *version = GIF_NOT;
+X
+X            return ST_SUCCESS;
+X        }
+X
+X        /* Otherwise, was a real error. */
+X
+X        return GIF_FILEERR_E;
+X    }
+X
+X    /* Check format signature. */
+X
+X    if (strncmp(GIF_SIGNATURE, sigspace, GIF_SIGNATURE_LEN))
+X    {
+X        /* Signature not OK. */
+X
+X        *version = GIF_NOT;
+X
+X        return 0L;
+X    }
+X
+X    /* Format signature OK. Read in version signature. */
+X
+X    bytesread = fread(sigspace, 1, GIF_VERS_SIG_LEN, infile);
+X    if (bytesread != GIF_VERS_SIG_LEN)
+X    {
+X        return GIF_FILEERR_E;
+X    }
+X
+X    /* Check version signature. */
+X
+X    if (strncmp(GIF_VERS87A_SIG, sigspace, GIF_VERS_SIG_LEN) == 0)
+X    {
+X        /* Version 87a. */
+X
+X        *version = GIF_87A;
+X    }
+X    else if (strncmp(GIF_VERS89A_SIG, sigspace, GIF_VERS_SIG_LEN) == 0)
+X    {
+X        /* Version 89a. */
+X
+X        *version = GIF_89A;
+X    }
+X    else
+X    {
+X        /* Unknown version -- oops. */
+X
+X        *version = GIF_NOT;
+X    }
+X
+X    /* Return OK. */
+X
+X    return 0;
+X} /* end of static gif_vget() */
+X
+X
+X#ifndef NO_FB
+X
+X/***************************************************************************
+X*   FUNCTION: gif_fgetvers STATIC                                          *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function obtains and parses the GIF version signature and      *
+X*      returns which GIF version, if any, the file is.                     *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile  - FB handle of file                                         *
+X*      version - pointer to unsigned long in which to return version info  *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Leaves file pointer pointing to byte after version signature.       *
+X*      Assumes file is positioned correctly.                               *
+X*                                                                          *
+X***************************************************************************/
+Xstatic ULONG
+X#ifdef __STDC__
+Xgif_fgetvers(FB *infile, ULONG *version)
+X#else
+Xgif_fgetvers(infile, version)
+XFB *infile;
+XULONG *version;
+X#endif
+X{
+X    char sigspace[GIF_SIG_LEN_MAX];    /* buffer for signatures */
+X    int bytesread;                     /* number of chars read in */
+X
+X    /* Read in format signature. */
+X
+X    bytesread = fb_read(infile, (UCHAR *) sigspace, GIF_SIGNATURE_LEN);
+X    if (bytesread != GIF_SIGNATURE_LEN)
+X    {
+X        return fb_error;
+X    }
+X
+X    /* Check format signature. */
+X
+X    if (strncmp(GIF_SIGNATURE, sigspace, GIF_SIGNATURE_LEN))
+X    {
+X        /* Signature not OK. */
+X
+X        *version = GIF_NOT;
+X
+X        return 0;
+X    }
+X
+X    /* Format signature OK. Read in version signature. */
+X
+X    bytesread = fb_read(infile, (unsigned char *) sigspace, GIF_VERS_SIG_LEN);
+X    if (bytesread != GIF_VERS_SIG_LEN)
+X    {
+X        fb_close(infile);
+X        return GIF_FILEERR_E;
+X    }
+X
+X    /* Check version signature. */
+X
+X    if (strncmp(GIF_VERS87A_SIG, sigspace, GIF_VERS_SIG_LEN) == 0)
+X    {
+X        /* Version 87a. */
+X
+X        *version = GIF_87A;
+X    }
+X    else if (strncmp(GIF_VERS89A_SIG, sigspace, GIF_VERS_SIG_LEN) == 0)
+X    {
+X        /* Version 89a. */
+X
+X        *version = GIF_89A;
+X    }
+X    else
+X    {
+X        /* Unknown version -- oops. */
+X
+X        *version = GIF_NOT;
+X    }
+X
+X    /* Return OK. */
+X
+X    return 0;
+X} /* end of static gif_fgetvers() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_tblget STATIC                                            *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function reads and processes a GIF color table. The color      *
+X*      table is assumed to be the next thing in the file.                  *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*      colors - pointer to array of RGB_TRIPLET in which to return colors  *
+X*      size   - size of color table, in triplets                           *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes file is positioned correctly. Leaves file pointer pointing  *
+X*      to byte after end of color table.                                   *
+X*                                                                          *
+X***************************************************************************/
+Xstatic ULONG
+X#ifdef __STDC__
+Xgif_tblget(FB *infile, RGB_TRIPLET *colors, int size)
+X#else
+Xgif_tblget(infile, colors, size)
+XFB *infile;
+XRGB_TRIPLET *colors;
+Xint size;
+X#endif
+X{
+X    UCHAR *tempbuf;
+X    int i;
+X
+X    /* Allocate temporary buffer to hold raw color table. */
+X
+X    tempbuf = (UCHAR *) malloc(3 * size);
+X    if (tempbuf == (UCHAR *) NULL)
+X    {
+X        return GIF_NOMEM_E;
+X    }
+X
+X    /* Read into temporary buffer. */
+X
+X    if (fb_read(infile, tempbuf, (size * 3)) != (size * 3))
+X    {
+X        return fb_error;
+X    }
+X
+X    /* Extract colors from temporary buffer. */
+X
+X    for (i = 0; i < size; i++)
+X    {
+X        colors[i].red = *(tempbuf + (i * 3));
+X        colors[i].green = *(tempbuf + (i * 3) + 1);
+X        colors[i].blue = *(tempbuf + (i * 3) + 2);
+X    }
+X
+X    /* Free temporary buffer. */
+X
+X    free(tempbuf);
+X
+X    /* Return OK. */
+X
+X    return 0;
+X} /* end of static gif_tblget() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_gbytes STATIC                                            *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Accumulates data blocks into a buffer until reaching a zero-length  *
+X*      block. Does this by first determining number of data bytes, then    *
+X*      resetting position of file, allocating a buffer of the appropriate  *
+X*      size, then reading from file again but into buffer this time.       *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*      bytes  - pointer to pointer in which pointer to buffer containing   *
+X*               data is returned        .                                  *
+X*      length - pointer to unsigned int in which data buffer length is     *
+X*               returned                                                   *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes the file is positioned correctly. Leaves file pointer       *
+X*      pointing to byte after the zero-length data block.                  *
+X*                                                                          *
+X*      The data buffer returned in bytes must be free()'ed.                *
+X*                                                                          *
+X***************************************************************************/
+Xstatic ULONG
+X#ifdef __STDC__
+Xgif_gbytes(FB *infile, char **bytes, unsigned int *length)
+X#else
+Xgif_gbytes(infile, bytes, length)
+XFB *infile;
+Xchar **bytes;
+Xunsigned int *length;
+X#endif
+X{
+X    long filepos;
+X    int blocks;
+X    int blocklen;
+X    UCHAR *datablock;
+X    ULONG status;
+X
+X    /* Save current position in file. */
+X
+X    filepos = fb_tell(infile);
+X    if (fb_error != 0)
+X    {
+X        return fb_error;
+X    }
+X
+X    /* Read first block -- return on error. */
+X
+X    if ((status = gif_readblock(infile, &datablock, &blocklen)) != 0)
+X    {
+X        return status;
+X    }
+X
+X    /* If zero length, return. */
+X
+X    if (blocklen == 0)
+X    {
+X        *length = 0;
+X        *bytes = NULL;
+X        return 0;
+X    }
+X    free(datablock);
+X
+X
+X    /* Loop until terminator. */
+X
+X    *length = blocklen;
+X    blocks = 1;
+X    while (blocklen != 0)
+X    {
+X        /* Read next block -- return on error. */
+X
+X        if ((status = gif_readblock(infile, &datablock, &blocklen)) != 0)
+X        {
+X            return status;
+X        }
+X
+X        /* Update length. */
+X
+X        (*length) += blocklen;
+X
+X        /* Increment number of blocks. */
+X
+X        blocks++;
+X
+X        /* Clean up. */
+X
+X        if (datablock != (UCHAR *) NULL)
+X        {
+X            free(datablock);
+X        }
+X    }
+X
+X    /* Reset file position -- return on error. */
+X
+X    if ((status = fb_seek(infile, filepos)) != 0)
+X    {
+X        return status;
+X    }
+X
+X    /* Allocate text buffer. */
+X
+X    if ((*bytes = (char *) malloc(*length)) == NULL)
+X    {
+X        return GIF_NOMEM_E;
+X    }
+X
+X    /* Read all over again, starting with first block. */
+X
+X    *length = 0;
+X    for (blocks--; blocks > 0; blocks--)
+X    {
+X        /* Read block. */
+X
+X        if ((status = gif_readblock(infile, &datablock, &blocklen)) != 0)
+X        {
+X            free(*bytes);
+X            return status;
+X        }
+X
+X        /* Copy into text buffer. */
+X
+X        memcpy(((*bytes) + *length), datablock, blocklen);
+X        (*length) += blocklen;
+X
+X        /* Clean up. */
+X
+X        free(datablock);
+X    }
+X
+X    /* Read terminator block. */
+X
+X    if ((status = gif_readblock(infile, &datablock, &blocklen)) != 0)
+X    {
+X        free(*bytes);
+X        return status;
+X    }
+X
+X    /* One last check. */
+X
+X    if (blocklen != 0)
+X    {
+X        /* Oops. */
+X
+X        if (datablock != (UCHAR *) NULL)
+X        {
+X            free(datablock);
+X        }
+X        free(*bytes);
+X        return GIF_BUG_F;
+X    }
+X
+X    /* Return OK. */
+X
+X    return 0;
+X} /* end of gif_gbytes() */
+X
+X#endif /* !NO_FB */
+X
+END_OF_FILE
+  if test 34397 -ne `wc -c <'src/gif.c.B'`; then
+    echo shar: \"'src/gif.c.B'\" unpacked with wrong size!
+  elif test -f 'src/gif.c.A'; then
+    echo shar: Combining  \"'src/gif.c'\" \(63060 characters\)
+    cat 'src/gif.c.A' 'src/gif.c.B' > 'src/gif.c'
+    if test 63060 -ne `wc -c <'src/gif.c'`; then
+      echo shar: \"'src/gif.c'\" combined with wrong size!
+    else
+      rm src/gif.c.A src/gif.c.B
+    fi
+  fi
+  # end of 'src/gif.c.B'
+fi
+if test -f 'src/jfif.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/jfif.c'\"
+else
+  echo shar: Extracting \"'src/jfif.c'\" \(17689 characters\)
+  sed "s/^X//" >'src/jfif.c' <<'END_OF_FILE'
+X/***************************************************************************
+X*   JFIF.C                                                                 *
+X*   MODULE:  JFIF                                                          *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1993 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   $Id: jfif.c,v 1.6 1993/03/02 00:56:24 jwbirdsa Exp $
+X*                                                                          *
+X*   This file contains functions to process JFIF format files.             *
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X#ifndef NO_STR_INC
+X#ifdef STRING_PLURAL
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X#endif
+X
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X
+X#include "fb.h"
+X#include "formats.h"
+X#include "jfif.h"
+X
+X
+X/*
+X** local #defines
+X*/
+X
+X#define CHECK_FB()       if (fb_error != 0) return fb_error
+X
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+X/*
+X** typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+X/*
+X** static globals
+X*/
+X
+Xstatic char CONST rcsid[] = "$Id: jfif.c,v 1.6 1993/03/02 00:56:24 jwbirdsa Exp $";
+X
+X
+X/*
+X** function prototypes
+X*/
+X
+X#ifdef  __STDC__
+X# define P_(s) s
+X#else
+X# define P_(s) ()
+X#endif
+X
+Xstatic ULONG jfif_app0get P_((FB *jfif_file, JFIF_HDR *results));
+X
+X#undef P_
+X
+X#ifdef NO_STR_INC
+Xextern char *strrchr();
+Xextern int strcmp();
+X#endif
+X
+X
+X/*
+X** functions
+X*/
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    jfif_verify                                               *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Verifies that a file is a JFIF file by checking filename against   *
+X*       list of extensions. Searches JFIF file for JFIF version number.    *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filename - name of file to be verified                             *
+X*       version  - pointer to unsigned long in which format/version value  *
+X*                  is returned                                             *
+X*       exts     - array of string pointers, list of extensions for JFIF   *
+X*                  files                                                   *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xjfif_verify(char *filename, ULONG *version, char **exts)
+X#else
+Xjfif_verify(filename, version, exts)
+Xchar *filename;
+XULONG *version;
+Xchar **exts;
+X#endif
+X{
+X    char *extptr;
+X    int loop;
+X    FB *jfif_file;
+X    JFIF_HDR results;
+X    long junk;
+X    ULONG status;
+X
+X    /* Search for '.' marking extension. */
+X
+X    extptr = strrchr(filename, '.');
+X    if (NULL == extptr)
+X    {
+X        /* No extension, cannot classify. */
+X
+X        *version = JFIF_NOT;
+X        return 0;
+X    }
+X    extptr++;
+X
+X    /* Now we have the extension, check against list. */
+X
+X    for (loop = 0; exts[loop] != NULL; loop++)
+X    {
+X        /* Case-sensitive string compare. */
+X
+X        if (strcmp(extptr, exts[loop]) == 0)
+X        {
+X            /*  Match, so break out of loop. */
+X
+X            break;
+X        }
+X    }
+X
+X    /* Check exit from loop. */
+X
+X    if (NULL == exts[loop])
+X    {
+X        /* No match, return. */
+X
+X        *version = JFIF_NOT;
+X        return 0;
+X    }
+X
+X    /* Extension is valid for type JFIF, so process accordingly. */
+X
+X    if ((jfif_file = fb_open(filename, 'r', &junk)) == (FB *) NULL)
+X    {
+X        *version = JFIF_NOT;
+X        return fb_error;
+X    }
+X    if ((status = jfif_app0get(jfif_file, &results)) != ST_SUCCESS)
+X    {
+X        *version = JFIF_NOT;
+X        fb_close(jfif_file);
+X        return ((FB_EOF_W == status) ? ST_SUCCESS : status);
+X    }
+X    *version = results.version;
+X    if ((status = fb_close(jfif_file)) != ST_SUCCESS)
+X    {
+X        return status;
+X    }
+X
+X    /* All done, return OK. */
+X
+X    return 0;
+X} /* end of jfif_verify() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    jfif_headerget                                            *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Assumes that file is a JFIF file. Searches file for header         *
+X*       information, extracts into JFIF_HDR structure.                     *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       jfif_file - file to be processed                                   *
+X*       results   - pointer to JFIF_HDR structure in which data from APP0  *
+X*                   and SOF0 is returned                                   *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*       Leaves file pointing wherever.                                     *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xjfif_headerget(FB *jfif_file, JFIF_HDR *results)
+X#else
+Xjfif_headerget(jfif_file, results)
+XFB *jfif_file;
+XJFIF_HDR *results;
+X#endif
+X{
+X    ULONG status;
+X    long work, repos;
+X    int c;
+X    UCHAR buffer[JFIF_SOF0_LEN];
+X
+X    /* Make sure we're at beginning of file. */
+X
+X    fb_seek(jfif_file, 0L);
+X    CHECK_FB();
+X
+X    /* Get APP0 stuff. */
+X
+X    if ((status = jfif_app0get(jfif_file, results)) != 0)
+X    {
+X        return status;
+X    }
+X
+X    /* Search forward by blocks. */
+X
+X    c = 0;
+X    while (1)
+X    {
+X        /* Search forward to next block. */
+X
+X        while (c != JFIF_SEPARATOR)
+X        {
+X            c = fb_getc(jfif_file);
+X            CHECK_FB();
+X        }
+X        c = fb_getc(jfif_file);
+X        CHECK_FB();
+X
+X        /* If c is 0, crud -- skip. */
+X
+X        if (0 == c)
+X        {
+X            continue;
+X        }
+X
+X        if (c != JFIF_SOF0)
+X        {
+X            /* Not a SOF0 block, skip. */
+X
+X            work = fb_getc(jfif_file);
+X            CHECK_FB();
+X            work <<= 8;
+X            work |= (fb_getc(jfif_file) & 0xFF);
+X            CHECK_FB();
+X            work -= 2;
+X
+X            /* Work now contains length of rest of block. */
+X
+X            repos = fb_tell(jfif_file);
+X            CHECK_FB();
+X
+X            /* Add work to current position and reposition file pointer. */
+X
+X            fb_seek(jfif_file, (repos + work));
+X            CHECK_FB();
+X            continue;
+X        }
+X
+X        /* Block is SOF0 -- but is it the right SOF0? Get length. */
+X
+X        work = fb_getc(jfif_file);
+X        CHECK_FB();
+X        work <<= 8;
+X        work |= (fb_getc(jfif_file) & 0xFF);
+X        CHECK_FB();
+X        if (work < JFIF_SOF0_LEN)
+X        {
+X            /* Is wrong SOF0, skip. */
+X            
+X            work -= 2;
+X            repos = fb_tell(jfif_file);
+X            CHECK_FB();
+X
+X            /* Add work to current position and reposition file pointer. */
+X
+X            fb_seek(jfif_file, (repos + work));
+X            CHECK_FB();
+X            continue;
+X        }
+X
+X        /* Read beginning into buffer. */
+X
+X        if (fb_read(jfif_file, (buffer + JFIF_SOF0_PREC_OFF),
+X                    (JFIF_SOF0_LEN - JFIF_SOF0_PREC_OFF)) !=
+X            (JFIF_SOF0_LEN - JFIF_SOF0_PREC_OFF))
+X        {
+X            return ((ST_SUCCESS == fb_error) ? JFIF_FILEERR_E : fb_error);
+X        }
+X
+X        /* Check length one more time. */
+X
+X        results->components = (0x00FF & (int)(*(buffer + JFIF_SOF0_COMP_OFF)));
+X        if (((results->components * 3) + JFIF_SOF0_STUFF_OFF) != work)
+X        {
+X            /* Bogus length, try again. */
+X
+X            work -= JFIF_SOF0_LEN;
+X            repos = fb_tell(jfif_file);
+X            CHECK_FB();
+X
+X            /* Add work to current position and reposition file pointer. */
+X
+X            fb_seek(jfif_file, (repos + work));
+X            CHECK_FB();
+X            continue;
+X        }
+X
+X        /* Is the correct SOF0! */
+X
+X        break;
+X    }
+X
+X    /* Extract data -- components already set, above. */
+X
+X    results->bits = (0x00FF & (int)(*(buffer + JFIF_SOF0_PREC_OFF)));
+X    results->height = CONSTRUCT_M_UINT(buffer + JFIF_SOF0_HI_OFF);
+X    results->width = CONSTRUCT_M_UINT(buffer + JFIF_SOF0_WID_OFF);
+X
+X    /* All OK. */
+X
+X    return 0;
+X} /* end of jfif_headerget() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    jfif_errstring                                            *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Returns a string corresponding to an error code.                   *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       errcode - error code to be translated                              *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns a pointer to the appropriate string, or NULL if there is   *
+X*       no appropriate string.                                             *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xchar *
+X#ifdef __STDC__
+Xjfif_errstring(ULONG errcode)
+X#else
+Xjfif_errstring(errcode)
+XULONG errcode;
+X#endif
+X{
+X    char *temp;
+X
+X    /* If error code not from this module, return NULL. */
+X
+X    if (MODULE(errcode) != MODULE(JFIF_MODULE))
+X    {
+X        return NULL;
+X    }
+X
+X    /* Process by code. */
+X
+X    switch (ERRSEV(errcode))
+X    {
+X        case ERRSEV(JFIF_NOTJFIF_E):
+X            temp = "File is not a JFIF format file.";
+X            break;
+X        case ERRSEV(JFIF_FILEERR_E):
+X            temp = "Error accessing file.";
+X            break;
+X
+X        default:
+X            temp = NULL;
+X            break;
+X    }
+X
+X    return temp;
+X} /* end of jfif_errstring() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    jfif_app0get  STATIC                                      *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       This function searches through the JFIF file looking for the JFIF  *
+X*       APP0 block and extracts data from it into JFIF_HDR structure.      *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       jfif_file - file to be processed                                   *
+X*       results   - pointer to JFIF_HDR structure in which data from APP0  *
+X*                   is returned                                            *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*       Assumes the file points to before the JFIF APP0 block.             *
+X*                                                                          *
+X*       Leaves the file pointing wherever.                                 *
+X*                                                                          *
+X***************************************************************************/
+Xstatic ULONG
+X#ifdef __STDC__
+Xjfif_app0get(FB *jfif_file, JFIF_HDR *results)
+X#else
+Xjfif_app0get(jfif_file, results)
+XFB *jfif_file;
+XJFIF_HDR *results;
+X#endif
+X{
+X    int c;
+X    long work;
+X    long repos;
+X    UCHAR buffer[JFIF_APP0_LEN];
+X
+X    /* Search forward for SOI. */
+X
+X    c = 0;
+X    while (c != JFIF_SOI)
+X    {
+X        while (c != JFIF_SEPARATOR)
+X        {
+X            c = fb_getc(jfif_file);
+X            CHECK_FB();
+X        }
+X        c = fb_getc(jfif_file);
+X        CHECK_FB();
+X    }
+X
+X    /* Search forward by blocks. */
+X
+X    while (1)
+X    {
+X        /* Search forward to next block. */
+X
+X        while (c != JFIF_SEPARATOR)
+X        {
+X            c = fb_getc(jfif_file);
+X            CHECK_FB();
+X        }
+X        c = fb_getc(jfif_file);
+X        CHECK_FB();
+X
+X        /* If c is 0, crud -- skip. */
+X
+X        if (0 == c)
+X        {
+X            continue;
+X        }
+X        if (c != JFIF_APP0)
+X        {
+X            /* Not an APP0 block, skip. */
+X
+X            work = fb_getc(jfif_file);
+X            CHECK_FB();
+X            work <<= 8;
+X            work |= (fb_getc(jfif_file) & 0xFF);
+X            CHECK_FB();
+X            work -= 2;
+X            repos = fb_tell(jfif_file);
+X            CHECK_FB();
+X
+X            /* Add work to current position and reposition file pointer. */
+X
+X            fb_seek(jfif_file, (repos + work));
+X            CHECK_FB();
+X            continue;
+X        }
+X
+X        /* Block is APP0 -- but is it the right APP0? Get length. */
+X
+X        work = fb_getc(jfif_file);
+X        CHECK_FB();
+X        work <<= 8;
+X        work |= (fb_getc(jfif_file) & 0xFF);
+X        CHECK_FB();
+X        if (work < JFIF_APP0_LEN)
+X        {
+X            /* Is wrong APP0, skip. */
+X
+X            work -= 2;
+X            repos = fb_tell(jfif_file);
+X            CHECK_FB();
+X
+X            /* Add work to current position and reposition file pointer. */
+X
+X            fb_seek(jfif_file, (repos + work));
+X            CHECK_FB();
+X            continue;
+X        }
+X
+X        /* Check signature -- read into buffer. */
+X
+X        if (fb_read(jfif_file, (buffer + JFIF_APP0_SIGNATURE_OFF),
+X                    (JFIF_APP0_LEN - JFIF_APP0_SIGNATURE_OFF)) !=
+X            (JFIF_APP0_LEN - JFIF_APP0_SIGNATURE_OFF))
+X        {
+X            return ((ST_SUCCESS == fb_error) ? JFIF_FILEERR_E : fb_error);
+X        }
+X        if (memcmp((buffer + JFIF_APP0_SIGNATURE_OFF), JFIF_SIGNATURE,
+X                   JFIF_SIGNATURE_LEN) != 0)
+X        {
+X            /* Wrong APP0, skip. */
+X
+X            work -= JFIF_APP0_LEN;
+X            repos = fb_tell(jfif_file);
+X            CHECK_FB();
+X
+X            /* Add work to current position and reposition file pointer. */
+X
+X            fb_seek(jfif_file, (repos + work));
+X            CHECK_FB();
+X            continue;
+X        }
+X
+X        /* Is the correct APP0! */
+X
+X        break;
+X    }
+X
+X    /* Extract data. */
+X
+X    if (*(buffer + JFIF_APP0_VERS_OFF) != 1)
+X    {
+X        /* Wrong version! */
+X
+X        return JFIF_NOTJFIF_E;
+X    }
+X    if ((*(buffer + JFIF_APP0_VERS_OFF + 1) != 1) &&
+X        (*(buffer + JFIF_APP0_VERS_OFF + 1) != 0))
+X    {
+X        /* Wrong version! */
+X
+X        return JFIF_NOTJFIF_E;
+X    }
+X    results->version = JFIF_VER101;
+X    results->densunit = (0x00FF & (int)(*(buffer + JFIF_APP0_DENSUNIT_OFF)));
+X    results->xdens = CONSTRUCT_M_UINT(buffer + JFIF_APP0_XDENS_OFF);
+X    results->ydens = CONSTRUCT_M_UINT(buffer + JFIF_APP0_YDENS_OFF);
+X    results->xthumb = (0x00FF & (int)(*(buffer + JFIF_APP0_XTHUMB_OFF)));
+X    results->ythumb = (0x00FF & (int)(*(buffer + JFIF_APP0_YTHUMB_OFF)));
+X
+X    /* All done. */
+X
+X    return 0;
+X} /* end of static jfif_app0get() */
+X
+END_OF_FILE
+  if test 17689 -ne `wc -c <'src/jfif.c'`; then
+    echo shar: \"'src/jfif.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/jfif.c'
+fi
+echo shar: End of archive 9 \(of 18\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

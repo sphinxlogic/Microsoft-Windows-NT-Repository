@@ -1,0 +1,1502 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 19/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.051850.10362@klaava.Helsinki.FI>
+Date: 14 Jun 92 05:18:50 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1490
+
+Archieve-name: monster_helsinki_104/part19
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 19/32
+
+-+-+-+-+-+-+-+-+ START OF PART 19 -+-+-+-+-+-+-+-+
+Xprocedure fix_p_passwd(n: integer; s: string);
+Xlabel exit_label;
+Xvar key: shortstring;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X   if s = '' then grab_line('Player''s password? ',s,eof_handler := leave);
+X   if length(s) > shortlen then`032
+X      writeln('Limit password to ',shortlen:1,' characters.')
+X   else begin
+X      key := s;
+X      encrypt(key,n);
+X      getpasswd;
+X      passwd.idents`091n`093 := key;
+X      putpasswd;
+X      writeln('Database updated.');
+X   end;
+X   exit_label:
+Xend; `123 fix_p_passwd `125
+X
+Xprocedure fix_p_pers(n: integer; s: string);
+Xlabel exit_label;
+Xvar dummy: integer;
+X    ok: boolean;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X   if s = '' then grab_line('Player''s personal name? ',s,
+X      eof_handler := leave);
+X   s := slead(s);
+X   if s = '' then
+X      writeln('No changes.')
+X   else if length(s) > shortlen then`032
+X      writeln('Limit password to ',shortlen:1,' characters.')
+X   else begin
+X      if exact_pers(dummy,s) then`032
+X         if dummy = n then ok := true
+X         else ok := false
+X      else ok := true;
+X      if not ok then`032
+X         writeln('That persoanal name is already in use.')
+X      else begin
+X         getpers;
+X         pers.idents`091n`093 := s;
+X         putpers;
+X         writeln('Database updated.');
+X      end;
+X   end;
+X   exit_label:
+Xend; `123 fix_p_pers `125
+X
+Xprocedure fix_p_health(n: integer; s: string);
+Xlabel exit_label;
+Xvar exp,lev, top: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X   getint(N_EXPERIENCE);
+X   freeint;
+X   exp := anint.int`091n`093;
+X   lev := level(exp);
+X   top := leveltable`091lev`093.health;
+X
+X   if s = '' then begin
+X      writeln('Enter health 0 - ',top:1);
+X      grab_line('Player''s health? ',s,eof_handler := leave);
+X   end;
+X
+X   if s = '' then writeln ('No changes.')
+X   else if not isnum(s) then
+X      writeln('No such health.')
+X   else if (number(s) < 0) or (number(s)> top) then
+X      writeln('Out of range.')
+X   else begin
+X      getint(N_HEALTH);
+X      anint.int`091n`093 := number(s);
+X      putint;
+X      writeln('Database updated.');
+X   end;
+X   exit_label:
+Xend; `123 fix_p_health `125
+X
+X
+Xprocedure fix_p_quota(n: integer; s: string);
+Xlabel exit_label;
+Xvar exp,lev, top: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X
+X   if s = '' then begin
+X      writeln('Enter quota 0 - ',maxroom:1);
+X      grab_line('Player''s room quota? ',s,eof_handler := leave);
+X   end;
+X
+X   if s = '' then writeln ('No changes.')
+X   else if not isnum(s) then
+X      writeln('No such quota.')
+X   else if (number(s) < 0) or (number(s)> maxroom) then
+X      writeln('Out of range.')
+X   else begin
+X      getint(N_ALLOW);
+X      anint.int`091n`093 := number(s);
+X      putint;
+X      writeln('Database updated.');
+X   end;
+X   exit_label:
+Xend; `123 fix_p_quota `125
+X
+X
+X
+Xprocedure fix_p_level(n: integer; s: string);
+Xlabel exit_label;
+Xvar exp,lev,i: integer;
+X    ok : boolean;
+X    prevlevel,nextlevel: integer;
+X    prevpriv,nextpriv: unsigned;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X  if s = '' then begin
+X     writeln('Enter player''s level ',leveltable`0911`093.name,
+X        ' - ',leveltable`091levels`093.name);
+X     writeln('or enter player experience 0 - ',maxexperience:1);
+X     grab_line('Player''s level or experience? ',s,eof_handler := leave);
+X  end;
+X
+X  if s = '' then writeln('No changes.')
+X  else begin
+X     ok := true;
+X     if lookup_level(lev,s) then exp := leveltable`091lev`093.exp
+X     else if not isnum(s) then begin
+X        writeln('No such level or experience.');
+X        ok := false;
+X     end else begin`032
+X        exp := number(s);
+X        if (exp < 0) or (exp > maxexperience) then begin
+X           writeln('Out of range.');
+X           ok := false;
+X        end;
+X     end;
+X
+X     getint(N_EXPERIENCE);
+X     freeint;
+X     prevlevel := level(anint.int`091n`093);
+X     nextlevel := level(exp);
+X     if ok and (leveltable`091prevlevel`093.hidden or leveltable`091nextleve
+Vl`093.hidden)`032
+X         and (userid <> MM_userid) then begin
+X            writeln('Only Monster Manager can make this change.');
+X            ok := false;
+X     end;
+X
+X     if ok then begin
+X        getint(N_PRIVILEGES);
+X        freeint;
+X        prevpriv := uint(anint.int`091n`093);
+X       `032
+X        nextpriv := 0;
+X        for i := 1 to nextlevel do nextpriv := uor(nextpriv,
+X            leveltable`091i`093.priv);
+X
+X        getint(N_PRIVILEGES);
+X        anint.int`091n`093 := int(nextpriv);
+X        putint;
+X
+X        if (prevpriv <> nextpriv) then begin
+X           write('Privileges changed from: '); list_privileges(int(prevpriv)
+V);
+X           write('to:                      '); list_privileges(int(nextpriv)
+V);
+X        end;
+X
+X`009if (prevlevel <> nextlevel) then begin
+X`009    getint(N_HEALTH);
+X`009    anint.int`091n`093 := leveltable`091nextlevel`093.health * 7 div 10;
+X`009    putint;
+X`009    writeln('Health database updated.');
+X`009end;
+X
+X        getint(N_EXPERIENCE);
+X        anint.int`091n`093 := exp;
+X        putint;
+X        writeln('Experience database updated.');
+X     end;
+X  end;
+X  exit_label:
+Xend; `123 fix_p_level `125
+X
+Xprocedure fix_p_view(n: integer);
+Xvar exp,lev: integer;
+Xbegin
+X   getpers;
+X   freepers;
+X   getuser;
+X   freeuser;
+X   writeln('Player''s personal name : ',pers.idents`091n`093);
+X   writeln('         userident     : ',user.idents`091n`093);
+X   getint(N_EXPERIENCE);
+X   freeint;
+X   writeln('         experience    : ',anint.int`091n`093:1);
+X   writeln('         level         : ',leveltable`091level(anint.int`091n`09
+V3)`093.name);
+X   getint(N_HEALTH);
+X   freeint;
+X   writeln('         health        : ',anint.int`091n`093:1);
+X   getint(N_PRIVILEGES);
+X   freeint;
+X   write  ('         privileges    : '); list_privileges(anint.int`091n`093)
+V;
+X   writeln('         room quota    : ',get_counter(N_ALLOW,n):1);
+X   writeln('         rooms         : ',get_counter(N_NUMROOMS,n):1);
+X   writeln('         accepts       : ',get_counter(N_ACCEPT,n):1);
+Xend; `123 fix_p_view `125
+X
+Xprocedure fix_stuff(s: string);
+Xlabel exit_label;
+Xvar player_id: integer;
+X    param,raw: string;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X  if s = '' then grab_line('Player''s (user)name? ',s,
+X    eof_handler := leave);
+X  if (s = '') or (s = '?') then`032
+X     writeln('To customize player data in database, type 1 <player''s name>'
+V)
+X  else if not lookup_user(player_id,s,true) then
+X     writeln ('No such player name.')
+X  else begin
+X     getindex(I_ASLEEP);
+X     freeindex;
+X     if s`0911`093 = ':' then
+X        writeln('That isn''t player.')
+X     else if not indx.free`091player_id`093 then
+X        writeln('This player playing now.')
+X     else repeat
+X        grab_line('Custom player> ',s,eof_handler := leave);
+X
+X        raw := slead(s); if bite(raw) > '' then;
+X
+X        param := slead(lowcase(s));
+X        s := bite(param);
+X
+X        if s = '' then writeln ('Type ? for help.')
+X        else case s`0911`093 of
+X          '?','h' : command_help('*fix p help*');
+X          'a'     : fix_p_health(player_id,param);
+X          'l'     : fix_p_level(player_id,param);
+X          'v'     : fix_p_view(player_id);
+X          'p'     : fix_p_passwd(player_id,raw);
+X`009  'r'`009  : fix_p_quota(player_id,param);
+X          'n'     : fix_p_pers(player_id,raw);
+X          'e','q' : ;
+X          otherwise writeln ('Type ? for help.');
+X        end
+X     until (s = 'e') or ( s = 'q');
+X  end;
+X  exit_label:
+Xend;`032
+X
+Xprocedure system_2(s: string); forward;
+X
+X
+Xprocedure throw_player(s: string); forward;
+X
+Xfunction complete(s: string; n: integer): string;
+Xbegin
+X   while length(s) < n do s := s + ' ';
+X   complete := s
+Xend;
+X
+Xprocedure system_who;
+Xlabel 1;
+Xvar i,count: integer;
+X    more: string;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009goto 1;
+X    end;
+X
+Xbegin
+X    getindex(I_PLAYER);`009`123 Rec of valid player log records  `125
+X    freeindex;`009`009`123 False if a valid player log `125
+X
+X    getpers;`009`009`123 player names `125
+X    freepers;
+X
+X    getuser;`009`009`123 userids `125
+X    freeuser;
+X
+X    getreal_user;`009`123 real userids for virtual userid `125
+X    freereal_user;
+X
+X    getint(N_EXPERIENCE);
+X    freeint;
+X
+X    write(complete('Username',15));
+X    write(complete('Real userid',15));
+X    write(complete('Personal name',20));
+X    writeln ('Level');
+X
+X            `032
+X    count := 1;
+X    for i := 1 to indx.top do if not indx.free`091i`093 then begin
+X`009if user.idents`091i`093`0911`093 <> ':' then begin
+X`009    write(complete(user.idents`091i`093,15));
+X`009    if user.idents`091i`093`0911`093 = '"' then`032
+X`009`009write(complete(real_user.idents`091i`093,15))
+X`009    else
+X`009`009write(complete('',15));
+X`009    write(complete(pers.idents`091i`093,20));
+X`009    writeln(leveltable`091level(anint.int`091i`093)`093.name);
+X`009    count := count +1;
+X`009    if count > terminal_page_len -2 then begin
+X`009`009grab_line('-more-',more,erase := true,
+X`009`009    eof_handler := leave);
+X`009`009if more > '' then goto 1;
+X`009`009count := 0;
+X`009    end;
+X`009end;
+X    end;
+X    1:
+Xend;
+X
+Xprocedure do_system(s: string);
+Xvar
+X`009prompt: string;
+X`009done: boolean;
+X`009cmd: char;
+X`009n: integer;
+X`009p: string;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009s := 'e';
+X    end;
+X
+Xbegin
+X`009if (manager_priv) or (wizard `123 and privd `125) then begin `123 minor
+V change by leino@finuha `125
+X`009`009log_action(c_system,0);
+X`009`009prompt := 'System> ';
+X`009`009done := false;
+X`009`009repeat
+X`009`009`009repeat
+X`009`009`009`009grab_line(prompt,s,eof_handler := leave);
+X`009`009`009`009s := slead(s);
+X`009`009`009until length(s) > 0;
+X`009`009`009s := lowcase(s);
+X`009`009`009cmd := s`0911`093;
+X
+X`009`009`009n := 0;
+X`009`009`009p := '';
+X`009`009`009if length(s) > 1 then begin
+X`009`009`009`009p := slead( substr(s,2,length(s)-1) );
+X`009`009`009`009n := number(p)
+X`009`009`009end;
+X`009`009`009if debug then begin
+X`009`009       `009`009writeln('p = ',p);
+X`009`009`009end;
+X      `032
+X`009`009`009case cmd of
+X`009  `009`009`009'?': command_help('*system help*');
+X`009  `009`009`009'1': fix_stuff(p);
+X  `009`009`009`009'a': authorize(p); `123 leino@finuha `125
+X`123remove a user`125`009`009`009'k': kill_user(p);
+X`009`009`009`009'c': system_2(p);
+X`123disown`125`009`009`009'd': disown_user(p);
+X`123dist list of players`125`009`009'p': dist_list;
+X`123move where user will wakeup`125`009'm': move_asleep (p);
+X`123add rooms`125`009`009`009'r': begin
+X`009  `009`009`009`009if n > 0 then begin
+X`009`009`009`009`009`009addrooms(n);
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('To add rooms, say R <# to add>');
+X`009`009`009`009     end;
+X`123add ints`125`009   `123`009`009'i': begin
+X`009`009`009`009`009if n > 0 then begin
+X`009`009`009`009`009`009addints(n);
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('To add integers, say I <# to add>');
+X`009`009`009`009     end;`009`125
+X`123add description blocks`125`009'b': begin
+X`009`009`009`009`009if n > 0 then begin
+X`009`009`009`009`009`009addblocks(n);
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('To add description blocks, say B <# to add>
+V');
+X`009`009`009`009     end;
+X`123add objects`125`009`009`009'o': begin
+X`009`009`009`009`009if n > 0 then begin
+X`009`009`009`009`009`009addobjects(n);
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('To add object records, say O <# to add>');
+X`009`009`009`009     end;
+X`123add one-liners`125`009`009'l': begin
+X`009`009`009`009`009if n > 0 then begin
+X`009`009`009`009`009`009addlines(n);
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('To add one liner records, say L <# to add>'
+V);
+X`009  `009`009`009     end;
+X`123add header records `125`009`009'h': begin
+X`009`009`009`009`009if n > 0 then begin
+X`009`009`009`009`009`009addheaders(n)
+X`009`009`009`009`009end else`032
+X`009`009`009`009`009`009writeln('To add header records, say H <# to add>.');
+X                                     end;
+X`123view current stats`125`009`009'v': begin
+X`009`009`009`009`009system_view;
+X`009`009`009`009     end;
+X`009`009`009`009't': begin
+X`009`009`009`009`009throw_player(p);
+X`009`009`009`009     end;
+X`009`009`009`009'w': system_who;
+X`123quit`125`009`009`009`009'q','e': done := true;
+X`009`009`009otherwise writeln('-- bad command, type ? for a list.');
+X`009`009`009end;
+X`009`009until done;
+X`009`009log_event(myslot,E_SYSDONE,0,0);
+X`009end else
+X`009`009writeln('Only the Monster Manager may enter system maintenance mode.
+V');
+Xend;
+X
+X
+Xprocedure do_version(s: string);
+Xbegin
+X`009monster_version;
+Xend;
+X
+X
+X
+Xprocedure do_score(s: string);
+Xlabel 1; `123 for out `125
+Xvar n: integer;
+X    header_printed: boolean;
+X    print_count: integer;
+X    short_line: boolean;
+X
+X    sort_table : array `091 1 .. maxplayers `093 of 0 .. maxplayers;
+X    used : 0 .. maxplayers;
+X
+X    scorerec: intrec;
+X
+X    procedure sort_score;
+X    var i,j,sco,loc: integer;
+X`009break: boolean;
+X    begin
+X`009used := 0;
+X`009for i := 1 to indx.top do if not indx.free`091i`093 then`032
+X`009    if user.idents`091i`093 > '' then if user.idents`091i`093`0911`093 <
+V> ':' then begin
+X`009`009sco := scorerec.int`091i`093;
+X`009`009loc := 1;
+X`009`009break := false;
+X`009`009while ( loc < used ) and not break do begin
+X`009`009    if scorerec.int`091sort_table`091loc`093`093 >= sco then break :
+V= true
+X`009`009    else loc := loc +1;
+X`009`009end;
+X`009`009for j := used downto loc do sort_table`091j+1`093 := sort_table`091j
+V`093;
+X`009`009used := used +1;
+X`009`009sort_table`091loc`093 := i;
+X`009    end;
+X    end; `123 sort_score `125     `032
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009goto 1;
+X    end;
+X
+X   procedure write_line(i: integer);
+X   var s: string;
+X       c: char;
+X   begin
+X      if not header_printed then begin
+X         if not short_line then write('  Level                 ');
+X`009 writeln('Name                   Score');
+X         header_printed := true;        `032
+X      end;         `032
+X      if scorerec.int`091i`093 > protect_exp then c := '*'
+X      else c := ' ';
+X      if not short_line then`032
+X`009write(c,' ',complete(leveltable`091level(scorerec.int`091i`093)`093.name
+V,22));
+X      write(complete(pers.idents`091i`093,20));
+X      if scorerec.int`091i`093 > maxexperience then writeln('-':8)
+X      else writeln(scorerec.int`091i`093:8);
+X      print_count := print_count +1;
+X      if print_count > terminal_page_len -2 then begin
+X`009    grab_line('-more-',s,erase := true,eof_handler := leave);
+X`009    if s > '' then goto 1;
+X`009    print_count := 0;
+X      end;
+X   end;
+X
+X   procedure write_level(l: integer);
+X   var i,j : integer;
+X   begin
+X      for j := used downto 1 do begin
+X`009i := sort_table`091j`093;
+X        if (level(scorerec.int`091i`093) = l) and (user.idents`091i`093`0911
+V`093 <> ':') then
+X           write_line(i);
+X      end;
+X   end;
+X
+Xbegin
+X  short_line := terminal_line_len < 54;
+X  print_count := 0;
+X  header_printed := false;
+X  getint(N_EXPERIENCE); freeint; scorerec := anint;
+X  getuser;
+X  freeuser;
+X  if s = '?' then begin
+X    command_help('score');
+X  end else if s = '' then begin
+X      getpers;
+X      freepers;
+X      write_line(mylog);
+X   end else if (s = '*') or (s = 'all') then begin
+X      getpers;
+X      freepers;
+X      getindex(I_PLAYER);
+X      freeindex;
+X      sort_score;
+X      for n := used downto 1 do write_line(sort_table`091n`093);
+X   end else if length(s) > shortlen then`032
+X      writeln('Limit name and level to ',shortlen:1,' characters.')
+X   else if lookup_pers(n,s) then
+X      write_line(n)
+X   else if lookup_level(n,s) then begin
+X      sort_score;
+X      write_level(n);
+X      if not header_printed then writeln('No players on this level.')
+X   end else writeln('No such player or level.');
+X   1:
+Xend;
+X
+X`091global`093
+Xprocedure rebuild_system;
+Xvar
+X`009i,j: integer;
+X
+Xbegin
+X`009mylog := 0;
+X`009writeln('Creating index file 1-10');
+X`009for i := 1 to 10 do begin
+X`009`009`009`123 1 is blocklist
+X`009`009`009  2 is linelist
+X`009`009`009  3 is roomlist
+X`009`009`009  4 is playeralloc
+X`009`009`009  5 is player awake (playing game)
+X`009`009`009  6 are objects
+X`009`009`009  7 is intfile`032
+X`009`009`009  8 is headerfile
+X`009`009`009  9 is ???
+X`009`009`009  10 is spells
+X`009`009`009`125
+X
+X`009`009locate(indexfile,i);
+X`009`009for j := 1 to maxindex do
+X`009`009`009indexfile`094.free`091j`093 := true;
+X`009`009indexfile`094.indexnum := i;
+X`009`009indexfile`094.top := 0; `123 none of each to start `125
+X`009`009indexfile`094.inuse := 0;
+X`009`009put(indexfile);
+X`009end;
+X         `032
+X
+X`009writeln('Initializing roomfile with 10 rooms');
+X`009addrooms(10);
+X
+X`009writeln('Initializing block file with 10 description blocks');
+X`009addblocks(10);
+X
+X`009writeln('Initializing line file with 10 lines');
+X`009addlines(10);
+X
+X`009writeln('Initializing object file with 10 objects');
+X`009addobjects(10);  `032
+X
+X`009writeln('Initializing header file for monsters with 5 headers');
+X`009addheaders(5);
+X
+X`009writeln('Initializing namfile 1-',T_MAX:1);
+X`009for j := 1 to T_MAX do begin
+X`009`009locate(namfile,j);
+X`009`009namfile`094.validate := j;
+X`009`009namfile`094.loctop := 0;
+X`009`009for i := 1 to maxroom do begin
+X`009`009`009namfile`094.idents`091i`093 := '';
+X`009`009end;
+X`009`009put(namfile);
+X`009end;
+X
+X`009writeln('Initializing eventfile');
+X`009for i := 1 to numevnts + 1 do begin
+X`009`009locate(eventfile,i);
+X`009`009eventfile`094.validat := i;
+X`009`009eventfile`094.point := 1;
+X`009`009put(eventfile);
+X`009end;
+X
+X`009writeln('Initializing intfile'); `123 minor changes by leino@finuha, `12
+V5
+X `009for i := 1 to 10 do begin`009`123 hurtta@finuh `125
+X`009`009locate(intfile,i);
+X `009`009intfile`094.intnum := i;
+X`009`009put(intfile);
+X`009end;
+X
+X`009getindex(I_INT);
+X`009for i := 1 to 10 do
+X`009`009indx.free`091i`093 := false;
+X`009indx.top := 10;
+X`009indx.inuse := 10;
+X`009putindex;
+X
+X`009writeln('Initializing global values.'); `123 Record #10 in intfile `125
+X`009getglobal;
+X`009for I := 1 to GF_MAX do global.int`091i`093 := 0;
+X`009putglobal;
+X`009set_global_flag(GF_VALID, TRUE); `123 Database is valid now `125
+X`009set_global_flag(GF_ACTIVE, TRUE); `123 Database is open `125
+X`009set_global_flag(GF_WARTIME, TRUE); `123 Violance is allowed `125
+X
+X`009`123 Player log records should have all their slots initially,
+X`009  they don't have to be allocated because they use namrec
+X`009  and intfile for their storage; they don't have their own
+X`009  file to allocate
+X`009`125
+X`009getindex(I_PLAYER);
+X`009indx.top := maxplayers;
+X`009putindex;
+X`009getindex(I_ASLEEP);
+X`009indx.top := maxplayers;
+X`009putindex;
+X
+X`009writeln('Creating the Great Hall');
+X`009createroom('Great Hall');
+X`009getroom(1);
+X`009here.owner := public_id;
+X`009putroom;
+X`009getown;
+X`009own.idents`0911`093 := public_id;
+X`009putown;
+X
+X`009writeln('Creating the Void');
+X`009createroom('Void');`009`009`009`123 loc 2 `125
+X`009getroom(2);
+X`009here.owner := system_id;
+X`009putroom;
+X`009getown;
+X`009own.idents`0912`093 := system_id;
+X`009putown;
+X
+X`009writeln('Creating the Pit of Fire');
+X`009createroom('Pit of Fire');`009`009`123 loc 3 `125
+X`009getroom(3);
+X`009here.owner := system_id;
+X`009putroom;
+X`009getown;
+X`009own.idents`0913`093 := system_id;
+X`009putown;
+X
+X`009  `009`009`123 note that these are NOT public locations `125
+X
+X`009`123 spells have constant amount `125
+X`009getindex(I_SPELL);
+X`009indx.top := maxspells;
+X`009putindex;
+X
+X
+X`009writeln('Use the SYSTEM command to view and add capacity to the database
+V');
+X`009writeln;
+Xend;                      `032
+X
+Xprocedure fix_help;     `123 fix -subsystem by hurtta@finuh `125
+Xbegin `032
+X
+X   writeln ('A        Clear/create privileges database.');
+X   writeln ('B        Clear/create health database.');
+X   writeln ('C        Create event file.');
+X   writeln ('D        Reallocate describtins');
+X   writeln ('E        (Exit subsystem) Start monster playing.');
+X   writeln ('F        Clear/create experience database.');
+X   writeln ('G        Calculate objects'' number in existence.');
+X   writeln ('GL       Clear/create global database.');
+X   writeln ('GS       Mark moster shutdown to global database.');
+X   writeln ('GU       Mark monster active to global database.');
+X   writeln ('GV       Show global database.');
+X   writeln ('G-       Mark monster database as invalid.');
+X   writeln ('G+       Mark monster database as valid.');
+X   writeln ('H        This list');
+X   writeln ('I        Repair index file.');
+X   writeln ('J        Repair paths.');
+X   writeln ('K        Reallocate MDL codes.');
+X   writeln ('L        Repair monsters'' location.');
+X   writeln ('M        Clear/create MDL database.');
+X   writeln ('N        Clear/create and recount quota database.');
+X   writeln ('O        Clear/create object database.');
+X   writeln ('OW       Check owners of objects, rooms and monsters.');
+X   writeln ('P        Clear/create player database.');
+X   writeln ('Q        (Quit) Leave monster.');
+X   writeln ('R        Clear/create room database.');
+X   writeln ('S        Clear/create password database.');
+X   writeln ('SP       Clear/create spell database.');
+X   writeln ('V        View database capacity.');
+X   writeln ('?        This list');`032
+X   writeln;
+X   writeln ('Use SYSTEM command to add database capacity.');
+Xend; `123 fix_help `125
+X         `032
+Xfunction fix_sure (s: string; batch: boolean): boolean;
+Xvar a: string;
+Xbegin
+X  if batch then begin
+X    writeln(s,'yes');
+X    fix_sure := true
+X  end else begin
+X    write (s); readln (a); writeln; `032
+X    a := lowcase(a);
+X    fix_sure := (a = 'y') or (a = 'yes');       `032
+X  end;
+Xend;
+X
+Xprocedure fix_initialize_event (batch: boolean);
+XVar i: integer;
+Xbegin
+X   writeln('Initializing eventfile');
+X   for i := 1 to numevnts + 1 do begin
+X      locate(eventfile,i);
+X      eventfile`094.validat := i;
+X      eventfile`094.point := 1;
+X      put(eventfile);
+X   end;
+X   writeln ('Ready.');
+Xend; `123 fix_initialize_event `125
+X
+X
+Xprocedure fix_clear_monster (batch: boolean);`032
+Xvar i,j,apu: integer;
+Xbegin `032
+X   if fix_sure ('Do you want clear monster (NPC) database ?',batch) then beg
+Vin
+X      writeln ('Clearing monster database...');
+X    `032
+X      locate(indexfile,I_HEADER);
+X      indexfile`094.indexnum := I_HEADER;
+X      indexfile`094.top := 0;
+X      indexfile`094.inuse := 0; `032
+X      for i := 1 to maxindex do indexfile`094.free`091i`093 := true;
+X      put(indexfile);   `032
+X `032
+X      writeln ('Deleting code files...');
+X      DELETE_FILE (coderoot+'CODE*.MON.*'); `123 deleteing all codefiles `12
+V5
+X
+X      writeln('Initializing header file for monsters with 5 headers');
+X      addheaders(5);
+X `032
+X      getindex (I_ROOM);
+X      freeindex;
+X                  `032
+X      writeln ('Clearing monsters from room database...');
+X      for i := 1 to maxroom do
+X         if not indx.free`091i`093 then begin
+X  `032
+X            getroom (i);
+X            here.hook := 0;
+X`009
+X`009    for j := 1 to maxpeople do with here.people`091j`093 do `032
+X               if kind = P_MONSTER then begin
+X                  kind := 0;
+X                  username := '';
+X                  name := '';
+X                  parm := 0;
+X                end;
+X            putroom;
+X         end;         `032
+X        `032
+X      getuser;
+X      freeuser;
+X      getindex(I_player);
+X      freeindex;
+X   `032
+X      Writeln ('Clearing monsters from player list...');
+X      for i := 1 to maxplayers do`032
+X         if not indx.free`091i`093 then if user.idents`091i`093 = '' then be
+Vgin`032
+X              apu := i;
+X              delete_log(apu)     `123 delete_log also command `125`032
+X                                  `123 getindex(I_PLAYER)      `125
+X         end else if user.idents`091i`093`0911`093 = ':' then begin
+X             apu := i;
+X             delete_log (apu);
+X         end;
+X
+X      writeln('Clearing hook from objects...');
+X      getindex(I_OBJECT);
+X      freeindex;
+X      for i := 1 to maxroom do
+X         if not indx.free`091i`093 then begin
+X            getobj(i);
+X            obj.actindx := 0;
+X            putobj;
+X         end;
+X
+X      writeln('Clearing spells...');
+X      getindex(I_SPELL);
+X      getint(N_SPELL);
+X      for i := 1 to maxspells do
+X          if not indx.free`091i`093 then begin
+X`009    anint.int`091i`093 := 0;
+X`009    indx.free`091i`093 := true;
+X`009    indx.inuse := indx.inuse -1;
+X`009  end;
+X      putindex;
+X      putint;
+X
+X      writeln('Clearing global codes...');
+X      getglobal;
+X      for i := 1 to GF_Max do if GF_Types `091i`093 = G_Code then
+X`009 global.int`091i`093 := 0;
+X      freeglobal;
+X
+X      writeln ('Ready.');
+X   end;
+Xend;               `032
+X
+Xprocedure int_in_use (n:integer);
+Xvar i: integer;
+X    free: boolean;
+Xbegin
+X   getindex(I_INT);
+X   free := false;
+X   if indx.top < n then begin
+X      for i := indx.top +1 to n do begin
+X         locate(intfile,i);
+X         intfile`094.intnum := i;
+X         put(intfile);
+X         indx.free`091i`093 := true;
+X      end;
+X      indx.top := n;
+X   end;
+X   if indx.free`091n`093 then begin
+X      indx.free`091n`093 := false;
+X      indx.inuse := indx.inuse +1
+X   end;
+X   putindex;
+Xend; `123 int_in_use `125
+X
+Xprocedure fix_clear_spell (batch: boolean);
+Xvar i,j: integer;
+Xbegin
+X    if fix_sure ('Do you want clear spell database ?',batch) then begin
+X`009writeln('Clearing spell levels...');
+X`009for i := 1 to maxplayers do begin
+X`009    locate(spellfile,i);
+X`009    spellfile`094.recnum := i;
+X`009    for j := 1 to maxspells do spellfile`094.level`091j`093 := 0;
+X`009    put(spellfile);
+X`009end;
+X`009
+X`009writeln('Clearing spell using database...');
+X`009locate(indexfile,I_SPELL);
+X`009indexfile`094.indexnum := I_SPELL;
+X`009indexfile`094.top := maxspells;
+X`009indexfile`094.inuse := 0;
+X`009for i := 1 to maxindex do indexfile`094.free`091i`093 := true;
+X`009put(indexfile);
+X
+X`009writeln ('Clearing spellname database...');
+X`009locate(namfile,T_SPELL_NAME);  `032
+X`009namfile`094.validate := T_SPELL_NAME;
+X`009namfile`094.loctop := 0;
+X`009for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X`009put(namfile);        `032
+X
+X`009writeln ('Clearing spell link database....');
+X`009int_in_use(N_SPELL);
+X`009getint(N_SPELL);
+X`009for i := 1 to maxspells do anint.int`091i`093 := 0;
+X`009putint;
+X
+X`009writeln('Ready. Reallocate code file.');
+X
+X    end;
+Xend;
+X
+Xprocedure fix_clear_player (batch: boolean);  `123 don't handle monsters `12
+V5
+Xvar i,j: integer;
+Xbegin
+X  if fix_sure ('Do you want clear player file ?',batch) then begin
+X     writeln  ('Clearing player database ...');
+X
+X     locate(indexfile,I_PLAYER);
+X     indexfile`094.indexnum := I_PLAYER;
+X     indexfile`094.top := maxplayers;
+X     indexfile`094.inuse := 0;
+X     for i := 1 to maxindex do indexfile`094.free`091i`093 := true;
+X     put(indexfile);
+X
+X     locate(indexfile,I_ASLEEP);
+X     indexfile`094.indexnum := I_ASLEEP;
+X     indexfile`094.top := maxplayers;
+X     indexfile`094.inuse := 0;
+X     for i := 1 to maxindex do indexfile`094.free`091i`093 := true;
+X     put(indexfile);
+X
+X     getindex(I_ROOM);
+X     freeindex;
+X
+X     writeln ('Reset player names');
+X     locate(namfile,T_USER);    `123 players' userids `125
+X     namfile`094.validate := T_USER;
+X     namfile`094.loctop := 0;
+X     for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X     put(namfile);         `123 players' personal names `125
+X     locate(namfile,T_PERS);
+X     namfile`094.validate := T_PERS;
+X     namfile`094.loctop := 0;
+X     for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X     put(namfile);
+X
+X     writeln ('Disowning rooms...');
+X     for i := 1 to maxroom do
+X        if not indx.free`091i`093 then begin
+X           getown;
+X`009   if own.idents`091i`093 <> system_id then
+X`009       own.idents`091i`093 := disowned_id;
+X           putown;
+X  `032
+X           getroom (i);
+X`009   if here.owner <> system_id then
+X`009       here.owner := disowned_id;
+X`009   putroom;
+X        end;         `032
+X
+X               `032
+X     getindex(I_OBJECT);
+X     freeindex;
+X    `032
+X                          `032
+X     writeln ('Disowning objects ...');
+X     for i:= 1 to maxroom do if not indx.free`091i`093 then begin
+X
+X        getobjown;
+X`009if objown.idents`091i`093 <> system_id then
+X`009    objown.idents`091i`093 := disowned_id;
+X        putobjown;
+X
+X     end;
+X
+X     writeln ('Ready.');
+X     writeln ('Clear monster database and reallocate usage of line and block
+V descriptions.');
+X    `032
+X  end else writeln ('Cancel.');
+Xend;   `032
+X
+Xprocedure fix_owner (batch: boolean);
+Xvar i,num: integer;
+X    rm,ob,code: indexrec;
+X    s: shortstring;
+Xbegin
+X
+X    getindex(I_ROOM);
+X    freeindex;
+X    rm := indx;
+X
+X     writeln ('Checking rooms ...');
+X     for i := 1 to maxroom do if not rm.free`091i`093 then begin
+X`009getown;  `123 locked `125
+X`009if (own.idents`091i`093 <> system_id) and`032
+X`009      (own.idents`091i`093 <> disowned_id) and
+X`009      (own.idents`091i`093 <> public_id) then
+X`009`009if not exact_user(num,own.idents`091i`093) then begin
+X`009`009    getroom(i); `123 locked `125
+X`009`009    writeln('Invalid owner of ',here.nicename,': ',
+X`009`009`009own.idents`091i`093,', disowning.');
+X`009`009    own.idents`091i`093 := disowned_id;
+X`009`009    here.owner := disowned_id;
+X`009`009    putroom;`009`123 freed `125
+X`009`009end;
+X`009putown; `123 freed `125
+X    end;
+X
+X     getindex(I_OBJECT);
+X     freeindex; ob := indx;
+X     getobjnam; freeobjnam;
+X           `032
+X     writeln ('Checking objects ...');
+X     for i:= 1 to maxroom do if not ob.free`091i`093 then begin
+X        getobjown; `123 locked `125
+X`009if (objown.idents`091i`093 <> system_id) and`032
+X`009    (objown.idents`091i`093 <> disowned_id) and
+X`009    (objown.idents`091i`093 <> public_id) then
+X`009    if not exact_user(num,objown.idents`091i`093) then begin
+X`009`009writeln('Invalid owner of ',objnam.idents`091i`093,': ',
+X`009`009    objown.idents`091i`093,', disowning.');
+X`009`009objown.idents`091i`093 := disowned_id;
+X`009    end;
+X`009putobjown; `123 freed `125
+X    end;
+X
+X
+X    getindex(I_HEADER);
+X    freeindex; code := indx;
+X
+X    writeln ('Checking MDL codes (monsters and hooks) ...');
+X    for i := 1 to code.top do if not code.free`091i`093 then begin
+X`009s := monster_owner(i);
+X`009if (s <> system_id) and  (s <> disowned_id) and (s <> public_id) then
+X`009    if not exact_user(num,s) then begin
+X`009`009writeln('Invalid owner of MDL code #',i:1,': ',
+X`009`009    s,', disowning (author: ',monster_owner(i,1),').');
+X`009`009set_owner(i,0,disowned_id); `123 don't change author of code `125
+X`009    end;
+X    end;
+X
+X    writeln('Ready.');
+Xend; `123 fix_owner `125
+X
+Xprocedure fix_clear_room (batch: boolean);
+Xvar i: integer;
+Xbegin
+X  mylog := 0;
+X  if fix_sure('Do you want clear room database ? ',batch) then begin
+X
+X     Writeln ('Creating index record for room database.');
+X     locate(indexfile, I_ROOM);
+X     for i := 1 to maxindex do indexfile`094.free`091i`093 := true;
+X     indexfile`094.indexnum := I_ROOM;
+X     indexfile`094.top := 0; `123 none of each to start `125
+X     indexfile`094.inuse := 0;
+X     put(indexfile);
+X
+X     writeln ('Reseting room names');
+X     locate(namfile,T_NAM);
+X     namfile`094.validate := T_NAM;
+X     namfile`094.loctop := 0;
+X     for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X     put(namfile);
+X
+X     writeln ('Reset room owners');
+X     locate(namfile,T_OWN);
+X     namfile`094.validate := T_OWN;
+X     namfile`094.loctop := 0;
+X     for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X     put(namfile);
+X
+X     writeln('Initializing roomfile with 10 rooms');
+X     addrooms(10);
+X
+X     writeln('Creating the Great Hall');
+X     createroom('Great Hall');
+X     getroom(1);
+X     here.owner := public_id; `123 public location `125
+X     putroom;
+X     getown;
+X     own.idents`0911`093 := public_id;
+X     putown;
+X
+X     writeln('Creating the Void');
+X     createroom('Void');`009`009`009`123 loc 2 `125
+X     getroom(2);
+X     here.owner := system_id;
+X     putroom;
+X     getown;
+X     own.idents`0912`093 := system_id;
+X     putown;
+X
+X
+X     writeln('Creating the Pit of Fire');
+X     createroom('Pit of Fire');`009`009`123 loc 3 `125
+X     getroom(3);
+X     here.owner := system_id;
+X     putroom;
+X     getown;
+X     own.idents`0913`093 := system_id;
+X     putown;
+X
+X`009  `009`009`123 note that these are NOT public locations `125
+X
+X     writeln ('Put all players to Great Hall');
+X     locate(intfile,N_LOCATION);
+X     intfile`094.intnum := N_LOCATION;
+X     for i := 1 to maxplayers do intfile`094.int`091i`093 := 1;
+X     put(intfile);
+X
+X     writeln ('Set existence of object to zero.');
+X     getindex(I_OBJECT);
+X     freeindex;
+X     for i := 1 to indx.top do if not indx.free`091i`093 then begin
+X       getobj(i);
+X       obj.numexist := 0;
+X       putobj;
+X     end;
+X     writeln ('Ready.');
+X     writeln ('Clear monster (NPC) database and reallocate block and line de
+Vscriptions');
+X
+X  end else writeln ('Cancel.');
+Xend;
+X
+Xprocedure fix_clear_global (batch: boolean);
+Xvar i: integer;
+Xbegin
+X   if fix_sure ('Do you want clear global value database ? ',batch) then beg
+Vin
+X`009writeln ('Clearing global value database ...');
+X
+X`009int_in_use(N_GLOBAL);
+X`009locate(intfile,N_GLOBAL);
+X`009intfile`094.intnum := N_GLOBAL;
+X`009for i := 1 to GF_MAX do intfile`094.int`091i`093 := 0;
+X`009put(intfile);
+X
+X`009writeln('Ready.');
+X`009writeln('Reallocate code file (NPC database) and desciptions.');
+X    end;
+Xend; `123 fix_clear_global `125
+X
+X
+Xprocedure fix_clear_object (batch: boolean);
+Xvar i: integer;
+Xbegin
+X   if fix_sure ('Do you want clear object database ? ',batch) then begin
+X      writeln ('Clearing object database ...');
+X
+X      locate(indexfile,I_OBJECT);
+X      indexfile`094.indexnum := I_OBJECT;
+X      indexfile`094.top := 0;
+X      indexfile`094.inuse := 0;
+X      for i := 1 to maxindex do indexfile`094.free`091i`093 := true;
+X      put(indexfile);
+X
+X     writeln ('Reseting object names');
+X     locate(namfile,T_OBJNAM);
+X     namfile`094.validate := T_OBJNAM;
+X     namfile`094.loctop := 0;
+X     for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X     put(namfile);
+X
+X     writeln ('Reset object owners');
+X     locate(namfile,T_OBJOWN);
+X     namfile`094.validate := T_OBJOWN;
+X     namfile`094.loctop := 0;
+X     for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X     put(namfile);
+X
+X      writeln('Initializing object file with 10 objects');
+X      addobjects(10);  `032
+X
+X      writeln ('Ready.');
+X      writeln ('Reallocate usage of block and line descriptions.');
+X   end;
+Xend;                           `032
+X
+Xprocedure fix_repair_index (batch: boolean);
+Xvar i,j,count,old: integer;
+Xbegin
+X   writeln ('Repairing index file...');
+X   for i := 1 to 10 do begin
+X      getindex(i); `032
+X      count := 0;
+X      for j := 1 to indx.top do`032
+X         if not indx.free`091j`093 then count := count +1;
+X      old := indx.inuse;
+X      indx.inuse := count;
+X      putindex;
+X      if old <> count then writeln('In index record #',i:1,
+X         ' is wrong allocation counter. Repaired.');
+X   end;
+X   writeln('Ready.');
+Xend;                        `032
+X
+X
+Xprocedure fix_codes (batch: boolean);   `032
+Xvar ro,ob,cd,sp: indexrec;
+X    i,j: integer;`032
+X
+X    procedure alloc(n: integer);
+X    begin
+X      if n > 0 then begin
+X        cd.free`091n`093 := false;
+X        cd.inuse := cd.inuse +1
+X      end;
+X    end;
+X
+Xbegin
+X  writeln ('Reallacation MDL codes...');
+X  getindex(I_HEADER);
+X  freeindex;
+X  cd := indx;
+X  cd.inuse := 0;
+X  for i := 1 to maxindex do cd.free`091i`093 := true;
+X
+X  getindex(I_ROOM);
+X  freeindex;
+X  ro := indx;
+X
+X  getindex(I_OBJECT);
+X  freeindex;
+X  ob := indx;
+X
+X  getindex(I_SPELL);
+X  freeindex;
+X  sp := indx;
+X
+X  writeln('Scan object file');
+X  for i := 1 to ob.top do if not ob.free`091i`093 then begin
+X    getobj(i);
+X    freeobj;
+X    with obj do begin
+X      alloc (actindx);
+X    end
+X  end;
+X `032
+X  writeln ('Scan room file');
+X  for i := 1 to ro.top do if not ro.free`091i`093 then begin
+X    getroom(i);
+X    freeroom;
+X    alloc (here.hook);
+X    for j := 1 to maxpeople do with here.people`091j`093 do begin
+X`009if (kind = P_MONSTER) then alloc (parm);
+X    end
+X  end;              `032
+X
+X  writeln('Scan spell database');
+X  getint(N_SPELL);
+X  freeint;
+X  for i := 1 to sp.top do if not sp.free`091i`093 then`032
+X    if anint.int`091i`093 > 0 then alloc(anint.int`091i`093);
+X
+X  locate(indexfile,I_HEADER);
+X  indexfile`094 := cd;
+X  put(indexfile);
+X
+X  writeln('Scan global codes');
+X  getglobal;
+X  freeglobal;
+X  for i := 1 to GF_MAX do if GF_Types`091i`093 = G_Code then
+X    if global.int`091i`093 > 0 then alloc(global.int`091i`093);
+X `032
+X  writeln ('Ready.');
+Xend;
+X
+Xprocedure fix_descriptions (batch: boolean);   `032
+Xvar pe,ro,ob,ln,bl: indexrec;
+X    i,j: integer;`032
+X
+X    procedure alloc(n: integer);
+X    begin
+X      if (abs(n) = DEFAULT_LINE) or (n = 0) then `123 no allocate `125
+X      else if n < 0 then begin
+X        ln.free`091-n`093 := false;
+X        ln.inuse := ln.inuse +1
+X      end else begin
+X        bl.free`091n`093 := false;
+X        bl.inuse := bl.inuse +1
+X      end;
+X    end;
+X
+Xbegin
+X  writeln ('Reallocation descriptions...');
+X  getindex(I_LINE);
+X  freeindex;
+X  ln := indx;
+X
+X  ln.inuse := 0;
+X  for i := 1 to maxindex do ln.free`091i`093 := true;
+X
+X  getindex(I_BLOCK);
+X  freeindex;
+X  bl := indx;
+X
+X  bl.inuse := 0;
+X  for i := 1 to maxindex do bl.free`091i`093 := true;
+X       `032
+X
+X  getindex (I_PLAYER);
+X  freeindex;
+X  pe := indx;
+X
+X  getindex(I_ROOM);
+X  freeindex;
+X  ro := indx;
+X
+X  getindex(I_OBJECT);
+X  freeindex;
+X  ob := indx;
+X
+X  writeln ('Scan self descriptions');
+X  getint(N_SELF);
+X  freeint;
+X  for i := 1 to pe.top do if not pe.free`091i`093 then alloc (anint.int`091i
+V`093);
+X
+X  writeln('Scan object file');
+X  for i := 1 to ob.top do if not ob.free`091i`093 then begin
+X    getobj(i);
+X    freeobj;
+X    with obj do begin
+X      alloc (-linedesc);
+X      alloc (homedesc);
+X      alloc (examine);
+X      alloc (getfail);
+X      alloc (getsuccess);`032
+X      alloc (usefail);
+X      alloc (usesuccess);
+X      alloc (d1);
+X      alloc (d2);
+X    end
+X  end;
+X `032
+X  writeln ('Scan room file');
+X  for i := 1 to ro.top do if not ro.free`091i`093 then begin
+X    getroom(i);
+X    freeroom;
+X    with here do begin
+X      for j := 1 to maxexit do with exits`091j`093 do begin
+X        alloc(-exitdesc);
+X        `123 alloc(-closed); This isn't use yet `125
+X        alloc(fail);
+X        alloc(success);`032
+X        alloc(goin);
+X        alloc(comeout);    `032
+X        alloc(hidden);      `123 is this in use ? `125
+X      end;                                   `032
+X      for j := 1 to maxdetail do alloc(here.detaildesc`091j`093);
+X      alloc(primary);
+X      alloc(secondary);
+X      alloc(-objdesc); `032
+X      alloc(-objdest);
+X      alloc(-rndmsg);                      `032
+X      alloc(xmsg2);
+X      alloc(exitfail);
+X      alloc(ofail);
+X    end
+X  end;              `032
+X
+X  writeln('Scan global codes');
+X  getglobal;
+X  freeglobal;
+X  for i := 1 to GF_MAX do if GF_Types`091i`093 = G_Text then alloc(global.in
+Vt`091i`093);
+X`032
+X  locate(indexfile,I_LINE);
+X  indexfile`094 := ln;
+X  put(indexfile);
+X
+X  locate(indexfile,I_BLOCK);
+X  indexfile`094 := bl;
+X  put(indexfile);
+X `032
+X  writeln ('Ready.');
+Xend;
+X
+Xprocedure fix_clear_privileges (batch: boolean);
+Xvar i,mm: integer;
+Xbegin
+X  if fix_sure('Do you want clear privileges database ? ',batch) then begin
+X     if not exact_user(mm,MM_userid) then mm := 0;
+X     int_in_use(N_PRIVILEGES);
+X     getint(N_PRIVILEGES);
+X     for i := 1 to maxplayers do anint.int`091i`093 := 0;
+X     if mm > 0 then anint.int`091mm`093 := all_privileges;`032
+X`009`123 more privilege for Monster Manager `125
+X     putint;
+X     writeln ('Ready.');
+X  end;
+Xend; `123 fix_clear_privileges `125
+X
+Xprocedure fix_clear_experience (batch: boolean);
+Xvar i,mm: integer;
+Xbegin
+X  if fix_sure('Do you want clear experience database ? ',batch) then begin
+X     if not exact_user(mm,MM_userid) then mm := 0;
+X     int_in_use(N_EXPERIENCE);
+X     getint(N_EXPERIENCE);
+X     for i := 1 to maxplayers do anint.int`091i`093 := 0;
+X     if mm > 0 then anint.int`091mm`093 := MaxInt;`032
+X        `123 Monster Manager is Archwizard `125
+X     putint;
+X     writeln ('Ready.');
+X  end;
+Xend; `123 fix_clear_privileges `125
+X
+Xprocedure fix_clear_health (batch: boolean);
+Xvar i: integer;
+X    exp: intrec;
+Xbegin
+X  if fix_sure('Do you want clear health database ? ',batch) then begin
+X     getint(N_EXPERIENCE);
+X     freeint;
+X     exp := anint;
+X     int_in_use(N_HEALTH);
+X     getint(N_HEALTH);
+X     for i := 1 to maxplayers do anint.int`091i`093 :=`032
+X         leveltable`091level(exp.int`091i`093)`093.health * goodhealth div 1
+V0;
+X     putint;
+X     writeln ('Ready.');
+X  end;
+Xend; `123 fix_clear_health `125
+X
+X
+Xprocedure fix_clear_password (batch: boolean);
+Xvar password: shortstring;
+X    i: integer;
+Xbegin
+X     if fix_sure('Want you really clear password database ? ',batch) then be
+Vgin
+X
+X        writeln('Intializing password record...');
+X        locate(namfile,T_PASSWD);
+X        namfile`094.validate := T_PASSWD;
+X        namfile`094.loctop := 0;
+X        for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X`009put(namfile);
+X
+X        writeln('Initializing real name record ...');
+X        locate(namfile,T_REAL_USER);
+X        namfile`094.validate := T_REAL_USER;
+X        namfile`094.loctop := 0;
+X        for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X`009put(namfile);
+X
+X`009getuser;
+X`009freeuser;
+X
+X`009writeln ('Making pseudo passowords... (same as virtual userid)');
+X        for i := 1 to maxplayers do begin
+X            password := user.idents`091i`093;
+X            if password > '' then if password`0911`093 = '"' then begin
+X               encrypt(password,i);
+X               getpasswd;
+X               passwd.idents`091i`093 := password;
+X               putpasswd;
+X               getreal_user;
++-+-+-+-+-+-+-+-  END  OF PART 19 +-+-+-+-+-+-+-+-

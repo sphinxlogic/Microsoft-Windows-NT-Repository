@@ -1,0 +1,2129 @@
+Newsgroups: comp.sources.misc
+From: fitz@rpi.edu (Brian P. Fitzgerald)
+Subject: v39i070:  rperf - performance monitoring of network hosts, v2.1, Part02/03
+Message-ID: <1993Aug30.211736.20556@sparky.sterling.com>
+X-Md4-Signature: f687243d58734e939907ff2b13a0df04
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Rensselaer Polytechnic Institute, Troy NY
+Date: Mon, 30 Aug 1993 21:17:36 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: fitz@rpi.edu (Brian P. Fitzgerald)
+Posting-number: Volume 39, Issue 70
+Archive-name: rperf/part02
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  The tool that generated this
+# shell archive is called "shar", and is available by anonymous ftp
+# from ftp.uu.net in subdirectory /usenet/comp.sources.unix, and from many
+# other places. Check 'archie' for the latest locations.  If this archive
+# is complete, you will see the following message at the end:
+#		"End of archive 2 (of 3)."
+# Contents:  rperf.c termcap.c
+# Wrapped by fitzgb@mml0.meche.rpi.edu on Mon Aug 30 15:01:24 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'rperf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rperf.c'\"
+else
+echo shar: Extracting \"'rperf.c'\" \(41113 characters\)
+sed "s/^X//" >'rperf.c' <<'END_OF_FILE'
+X#ifndef lint
+X/**
+X * This program may be copied, redistributed in any form,
+X * source or binary, and used for any purpose, provided
+X * this copyright notice is retained.
+X **/
+Xstatic char    *sccsid[] = {
+X    "@(#)rperf.c	2.1 8/30/93 (c) Copyright Brian P. Fitzgerald",
+X    "Rensselaer Polytechnic Institute"
+X};
+X#endif
+X/**
+X
+Xrperf.c -- print system performance statistics.
+X
+Xby Brian P. Fitzgerald
+XMechanics of Materials Laboratory
+XRensselaer Polytechnic Institute
+XTroy, New York
+X
+Xusage: rperf [ options ] [ interval [ count ] ] [ +sortkey ] [ host ... ]
+X       rup [ options ] [ interval ] [ host ... ]
+X
+XSend comments and bug fixes to fitz@rpi.edu
+X
+XTested:
+XSunOS 4.1.1, 4.1.2, 4.1.3
+XIBM AIX 3.1, 3.2
+XHP-UX 8.0
+XNeXT Mach 20
+XAlliant FX/2800
+XSGI PI Iris 4.0.1, 4.0.2
+XSCO Unix 3.2.2
+XMIPS RISCos
+XDEC Ultrix 4.2
+XESIX
+XAmiga 4.0 2.1c
+X
+XNot supported:
+XAIX 1.2.1 on aix370
+X
+XSend reports of successful compilation on other platforms to
+Xfitz@rpi.edu
+X
+XHistory:
+X
+X5/6/92	beta	posted to alt.sources
+X5/18/92	1.1	Added multiple hosts, uptime display.  Improved output
+X		format.
+X5/25/92	1.2	Added signal handler.
+X
+X1/6/93	1.3	Added broadcast mode
+X
+X2/6/93	1.4	Added output sorting options.
+X		Added rup alias.
+X
+X2/10/93	1.5	Corrected rpc version mismatch.  Now if_opackets right.
+X		Plugged some memory leaks.
+X
+X3/5/93	1.6	Variable number of disks and cpu states.
+X		Fixed a line wrap problem.  Added termcap routine.
+X
+X8/26/93	2.1	posted to comp.sources.misc
+X
+X**/
+X
+X#ifdef STDC_HEADERS
+X#include <stddef.h>
+X#endif
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <sys/time.h>
+X
+X#include <time.h>
+X
+X#include <sys/ioctl.h>
+X#ifndef TIOCGWINSZ
+X#ifdef HAVE_SYS_TERMIO_H
+X#include <sys/termio.h>
+X#endif
+X#endif
+X#ifdef HAVE_SYS_BSD_TTY_H
+X#include <sys/bsd_tty.h>
+X#endif
+X
+X#include <arpa/inet.h>
+X#include <netdb.h>
+X#include <rpc/rpc.h>
+X#include <rpc/pmap_clnt.h>
+X#include "rstat.h"
+X#include <stdio.h>
+X#include <signal.h>
+X#include <string.h>
+X#include <assert.h>
+X#include <errno.h>
+X
+X/* <unistd.h> */
+X#define STDOUT_FILENO   1
+X
+X/* <sys/dk.h> */
+X#define CP_USER         0
+X#define CP_NICE         1
+X#define CP_SYS          2
+X#define CP_IDLE         3
+X
+X/* <sys/ioctl.h> or <sys/ttycom.h> */
+Xstruct Winsize {
+X    unsigned short  ws_row;	/* rows, in characters */
+X    unsigned short  ws_col;	/* columns, in characters */
+X    unsigned short  ws_xpixel;	/* horizontal size, pixels - not used */
+X    unsigned short  ws_ypixel;	/* vertical size, pixels - not used */
+X};
+X
+X#define O_CP	0x01
+X#define O_DK	0x02
+X#define O_VM	0x04
+X#define O_IF	0x08
+X#define O_TIME	0x10
+X#define O_DATE	0x20
+X#define O_SECS	0x40
+X#define O_ALL	( O_CP | O_DK | O_VM | O_IF )
+X#define O_DEFL	( O_CP | O_VM | O_IF )
+X#define O_DEFL1	( O_CP | O_DK | O_VM | O_IF )
+X#define O_UP	0x100
+X#define O_BCST	0x200
+X#define O_BARE	0x400
+X#define O_DBG	0x800
+X#define O_SHOST	0x1000
+X#define O_NHOST 0x8000
+X#define O_SORT 0x10000
+X#define O_RVRS 0x20000
+X
+X#define cpu(dt) (dcpu ? ((dt) * 100 + hdcpu ) / dcpu : 0)
+X#define loadav(nrun) ( (float) (nrun) / FSCALE )
+X#define delta(x) ((*dpp)->sn.x - (*dpp)->so.x)	/* use this macro with care */
+X#define rate(x)	(dt ? ((x) * 1000L + hdt ) / dt : 0)
+X
+X#ifndef abs
+X#define abs(a) ((a)>= 0 ? (a) : -(a))
+X#endif /* abs */
+X
+X#ifndef max
+X#define max(a, b) ((a) > (b) ? (a) : (b))
+X#endif /* max */
+X
+X#define RSTATVERS_BCST RSTATVERS_TIME
+Xtypedef statstime stats_broadcast;
+X#define RSTATVERS_DEFAULT RSTATVERS_VAR
+Xtypedef statsvar stats_default;
+X
+Xchar           *getenv();
+Xvoid            exit();
+Xlong            strtol();
+Xextern char    *strdup();
+X
+Xstats_default  *from_stats();
+Xstats_default  *from_statsswtch();
+Xstats_default  *from_statstime();
+Xstats_default  *from_statsvar();
+X
+Xstats_default  *((*stats_convert[]) ()) =
+X{
+X    from_stats,
+X    from_statsswtch,
+X    from_statstime,
+X    from_statsvar,
+X};
+X#define STATS_CONVERT(version) (stats_convert[(version)-1])
+X
+Xbool_t(*xdr_statsproc[]) () =
+X{
+X    xdr_stats,
+X	xdr_statsswtch,
+X	xdr_statstime,
+X	xdr_statsvar,
+X};
+X#define XDR_STATSPROC(version) (xdr_statsproc[(version)-1])
+X
+Xunion stats_all {
+X    struct stats    s1;
+X    struct statsswtch s2;
+X    struct statstime s3;
+X    struct statsvar s4;
+X};
+Xtypedef union stats_all stats_all;
+X
+Xstruct data {
+X    struct data    *datap;
+X    unsigned long   nn;
+X    unsigned long   no;
+X    struct in_addr  addr;
+X    char           *host;
+X    CLIENT         *cl;
+X    u_long          cl_vers;
+X    stats_default   sn;
+X    stats_default   so;
+X    stats_default   sd;		/* delta or rate.  uptime = sd.boottime */
+X};
+X
+Xstruct key {
+X    char           *k_name;
+X    int             k_offset;
+X    int             k_flag;
+X    int             k_index;
+X};
+Xtypedef struct key key;
+X
+X#define		K_DELTA 0x1	/* need delta before sorting */
+X#define		K_ARRAY	0x2	/* the member is an xdr_array */
+X
+X/* C faq */
+X#ifndef offsetof
+X#define offsetof(type, mem) ((size_t) \
+X        ((char *)&((type *) 0)->mem - (char *)((type *) 0)))
+X#endif				/* offsetof */
+X#define sd_offset(mem) offsetof(struct data,sd.mem)
+X#define sn_offset(mem) offsetof(struct data,sn.mem)
+X
+X#define AV1	0
+X#define AV5	1
+X#define AV15	2
+X
+Xkey             keys[] = {
+X    {"avg", sn_offset(avenrun[AV1]), 0, 0},
+X    {"ave", sn_offset(avenrun[AV1]), 0, 0},
+X    {"loadavg", sn_offset(avenrun[AV1]), 0, 0},
+X    {"loadave", sn_offset(avenrun[AV1]), 0, 0},
+X    {"avenrun", sn_offset(avenrun[AV1]), 0, 0},
+X    {"av1", sn_offset(avenrun[AV1]), 0, 0},
+X    {"av5", sn_offset(avenrun[AV5]), 0, 0},
+X    {"av15", sn_offset(avenrun[AV15]), 0, 0},
+X
+X    {"boottime", sn_offset(boottime.tv_sec), 0, 0},
+X    {"uptime", sd_offset(boottime.tv_sec), 0, 0},
+X
+X    {"user", sd_offset(cp_time), K_DELTA | K_ARRAY, 0},
+X    {"us", sd_offset(cp_time), K_DELTA | K_ARRAY, 0},
+X    {"nice", sd_offset(cp_time), K_DELTA | K_ARRAY, 1},
+X    {"ni", sd_offset(cp_time), K_DELTA | K_ARRAY, 1},
+X    {"sys", sd_offset(cp_time), K_DELTA | K_ARRAY, 2},
+X    {"system", sd_offset(cp_time), K_DELTA | K_ARRAY, 2},
+X    {"sy", sd_offset(cp_time), K_DELTA | K_ARRAY, 2},
+X    {"idle", sd_offset(cp_time), K_DELTA | K_ARRAY, 3},
+X    {"id", sd_offset(cp_time), K_DELTA | K_ARRAY, 3},
+X
+X    {"intr", sd_offset(v_intr), K_DELTA, 0},
+X    {"swtch", sd_offset(v_swtch), K_DELTA, 0},
+X    {"cxsw", sd_offset(v_swtch), K_DELTA, 0},
+X    {"csw", sd_offset(v_swtch), K_DELTA, 0},
+X
+X    {"pgpgin", sd_offset(v_pgpgin), K_DELTA, 0},
+X    {"pgin", sd_offset(v_pgpgin), K_DELTA, 0},
+X    {"pgpgout", sd_offset(v_pgpgout), K_DELTA, 0},
+X    {"pgout", sd_offset(v_pgpgout), K_DELTA, 0},
+X    {"pgo", sd_offset(v_pgpgout), K_DELTA, 0},
+X
+X    {"pswpin", sd_offset(v_pswpin), K_DELTA, 0},
+X    {"swpin", sd_offset(v_pswpin), K_DELTA, 0},
+X    {"swin", sd_offset(v_pswpin), K_DELTA, 0},
+X    {"pswpout", sd_offset(v_pswpout), K_DELTA, 0},
+X    {"swpout", sd_offset(v_pswpout), K_DELTA, 0},
+X    {"swo", sd_offset(v_pswpout), K_DELTA, 0},
+X
+X    {"dk_xfer", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 0},
+X    {"sd0", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 0},
+X    {"disk0", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 0},
+X    {"d0", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 0},
+X    {"sd1", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 1},
+X    {"disk1", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 1},
+X    {"d1", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 1},
+X    {"sd2", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 2},
+X    {"disk2", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 2},
+X    {"d2", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 2},
+X    {"sd3", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 3},
+X    {"disk3", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 3},
+X    {"d3", sd_offset(dk_xfer), K_DELTA | K_ARRAY, 3},
+X
+X    {"ipackets", sd_offset(if_ipackets), K_DELTA, 0},
+X    {"ipk", sd_offset(if_ipackets), K_DELTA, 0},
+X    {"ierrors", sd_offset(if_ierrors), K_DELTA, 0},
+X    {"ier", sd_offset(if_ierrors), K_DELTA, 0},
+X    {"oerrors", sd_offset(if_oerrors), K_DELTA, 0},
+X    {"oer", sd_offset(if_oerrors), K_DELTA, 0},
+X    {"opackets", sd_offset(if_opackets), K_DELTA, 0},
+X    {"opk", sd_offset(if_opackets), K_DELTA, 0},
+X    {"collisions", sd_offset(if_collisions), K_DELTA, 0},
+X    {"coll", sd_offset(if_collisions), K_DELTA, 0},
+X    {0, 0, 0, 0}
+X};
+X
+Xkey            *key_ptr = NULL;
+X
+Xstruct datatbl {
+X    int             val;
+X    struct data    *dp;
+X};
+X
+Xchar           *keyhelp[] = {
+X    "The sort keys are:\n",
+X    "\n",
+X    "loadavg     user      pgpgin      disk0      boottime    ipackets\n",
+X    "av1         nice      pgpgout     disk1      uptime      ierrors\n",
+X    "av5         sys       pswpin      disk2                  oerrors\n",
+X    "av15        idle      pswpout     disk3                  opackets\n",
+X    "                      intr                               collisions\n",
+X    "                      swtch\n",
+X    0
+X};
+X
+X#define	P_DATA	0
+X#define	P_UP	1
+X
+Xstatic struct timeval TIMEOUT = {25, 0};
+X
+Xstatic struct data *dp;		/* link list head */
+Xstatic unsigned nhosts = 0;	/* multiple hosts idea from Larry McVoy */
+Xint             h_seen = 0;	/**
+X				 * one or more host arguments was supplied.
+X				 *  > 0 is client (non-broadcast) mode
+X				 * == 0 is broadcast mode
+X				 **/
+Xstatic bool_t   bcst_timo;
+Xlong            opts = 0;
+Xstatic unsigned long thiscount = 0;
+Xunsigned        nresp = 0;
+X
+X/* terminal characteristics */
+Xint             term_rows;
+Xint             term_cols;
+X
+Xstruct timeval  starttime;
+Xstruct timezone tz;
+X
+Xchar           *f1_cp = "%-15s ";
+Xchar           *f2_cp = "%3s %3s %3s %3s ";
+Xchar           *fo_cp = "%3d %3d %3d %3d ";
+X
+Xchar           *f1_av = "%-14s ";
+Xchar           *f2_av = "%4s %4s %4s ";
+Xchar           *fo_av = "%4.1f %4.1f %4.1f ";
+Xchar           *fo_a0 = "%4.2f %4.2f %4.2f ";
+X
+Xchar           *f1_dk = "%-12s";
+Xchar           *f2_dk = "%2s %2s %2s %2s ";
+Xchar           *fo_dk = "%2d %2d %2d %2d ";
+X
+Xchar           *f1_vm = "%2s %2s %2s %2s %3s %3s ";
+Xchar           *f2_vm = "%2s %2s %2s %2s %3s %3s ";
+Xchar           *fo_vm = "%2u %2u %2u %2u %3u %3u ";
+X
+Xchar           *f1_if = " %2s %2s %2s %2s %2s";
+Xchar           *f2_if = " %2s %2s %2s %2s %2s";
+Xchar           *fo_if = " %2d %2d %2d %2d %2d";
+X
+Xchar           *f_time = "%-9.9s ";
+Xchar           *fo_time = "%9d ";
+X
+Xchar           *f_date = "%-24.24s ";
+X
+Xchar           *f_secs = "%-5.5s ";
+Xchar           *fo_secs = "%5.2f ";
+X
+Xchar           *f_h = "%12.12s ";
+X
+Xchar            title1[160];
+Xchar            title2[160];
+Xchar            ruler[160];
+X
+Xstruct array {
+X    u_int           len;
+X    int            *val;
+X};
+Xtypedef struct array array;
+X
+X/*
+X * allocate an int array struct, size n and from a if non-null
+X */
+Xvoid
+Xcreate_array(a, p, n)
+X    array          *a;
+X    int            *p;
+X    int             n;
+X{
+X    int             i;
+X
+X    a->len = n;
+X    a->val = (int *) malloc((unsigned) n * sizeof(int));
+X    if (a->val == NULL) {
+X	perror("malloc");
+X	exit(1);
+X    }
+X    if (p)
+X	for (i = 0; i < n; i++)
+X	    a->val[i] = p[i];
+X}
+X
+X/*
+X * convert and store the received data
+X */
+Xstats_default  *
+Xfrom_stats(s)
+X    stats_all      *s;
+X{
+X    static stats_default r;
+X
+X    bzero((char *) &r, sizeof(r));
+X    create_array((array *) & r.cp_time, s->s1.cp_time, CPUSTATES_ORIG);
+X    create_array((array *) & r.dk_xfer, s->s1.dk_xfer, DK_NDRIVE_ORIG);
+X    r.v_pgpgin = s->s1.v_pgpgin;
+X    r.v_pgpgout = s->s1.v_pgpgout;
+X    r.v_pswpin = s->s1.v_pswpin;
+X    r.v_pswpout = s->s1.v_pswpout;
+X    r.v_intr = s->s1.v_intr;
+X    r.if_ipackets = s->s1.if_ipackets;
+X    r.if_ierrors = s->s1.if_ierrors;
+X    r.if_opackets = s->s1.if_opackets;
+X    r.if_oerrors = s->s1.if_oerrors;
+X    r.if_collisions = s->s1.if_collisions;
+X    if (gettimeofday((struct timeval *) & r.curtime,
+X		     (struct timezone *) NULL) == -1) {
+X	perror("gettimeofday");
+X	exit(1);
+X    }
+X    return &r;
+X}
+X
+Xstats_default  *
+Xfrom_statsswtch(s)
+X    stats_all      *s;
+X{
+X    static stats_default r;
+X    int             i;
+X
+X    bzero((char *) &r, sizeof(r));
+X    create_array((array *) & r.cp_time, s->s2.cp_time, CPUSTATES_ORIG);
+X    create_array((array *) & r.dk_xfer, s->s2.dk_xfer, DK_NDRIVE_ORIG);
+X    r.v_pgpgin = s->s2.v_pgpgin;
+X    r.v_pgpgout = s->s2.v_pgpgout;
+X    r.v_pswpin = s->s2.v_pswpin;
+X    r.v_pswpout = s->s2.v_pswpout;
+X    r.v_intr = s->s2.v_intr;
+X    r.if_ipackets = s->s2.if_ipackets;
+X    r.if_ierrors = s->s2.if_ierrors;
+X    r.if_opackets = s->s2.if_opackets;
+X    r.if_oerrors = s->s2.if_oerrors;
+X    r.if_collisions = s->s2.if_collisions;
+X    r.v_swtch = s->s2.v_swtch;
+X    for (i = 0; i < 3; i++)
+X	r.avenrun[i] = s->s2.avenrun[i];
+X    r.boottime = s->s2.boottime;
+X    if (gettimeofday((struct timeval *) & r.curtime,
+X		     (struct timezone *) NULL) == -1) {
+X	perror("gettimeofday");
+X	exit(1);
+X    }
+X    return &r;
+X}
+X
+Xstats_default  *
+Xfrom_statstime(s)
+X    stats_all      *s;
+X{
+X    static stats_default r;
+X    int             i;
+X
+X    bzero((char *) &r, sizeof(r));
+X    create_array((array *) & r.cp_time, s->s3.cp_time, CPUSTATES_ORIG);
+X    create_array((array *) & r.dk_xfer, s->s3.dk_xfer, DK_NDRIVE_ORIG);
+X    r.v_pgpgin = s->s3.v_pgpgin;
+X    r.v_pgpgout = s->s3.v_pgpgout;
+X    r.v_pswpin = s->s3.v_pswpin;
+X    r.v_pswpout = s->s3.v_pswpout;
+X    r.v_intr = s->s3.v_intr;
+X    r.if_ipackets = s->s3.if_ipackets;
+X    r.if_ierrors = s->s3.if_ierrors;
+X    r.if_opackets = s->s3.if_opackets;
+X    r.if_oerrors = s->s3.if_oerrors;
+X    r.if_collisions = s->s3.if_collisions;
+X    r.v_swtch = s->s3.v_swtch;
+X    for (i = 0; i < 3; i++)
+X	r.avenrun[i] = s->s3.avenrun[i];
+X    r.boottime = s->s3.boottime;
+X    r.curtime = s->s3.curtime;
+X    return &r;
+X}
+X
+Xstats_default  *
+Xfrom_statsvar(s)
+X    stats_all      *s;
+X{
+X    static stats_default r;
+X    int             i;
+X
+X    bzero((char *) &r, sizeof(r));
+X    create_array((array *) & r.cp_time, s->s4.cp_time.cp_time_val,
+X		 (int) s->s4.cp_time.cp_time_len);
+X    create_array((array *) & r.dk_xfer, s->s4.dk_xfer.dk_xfer_val,
+X		 (int) s->s4.dk_xfer.dk_xfer_len);
+X    r.v_pgpgin = s->s4.v_pgpgin;
+X    r.v_pgpgout = s->s4.v_pgpgout;
+X    r.v_pswpin = s->s4.v_pswpin;
+X    r.v_pswpout = s->s4.v_pswpout;
+X    r.v_intr = s->s4.v_intr;
+X    r.if_ipackets = s->s4.if_ipackets;
+X    r.if_ierrors = s->s4.if_ierrors;
+X    r.if_opackets = s->s4.if_opackets;
+X    r.if_oerrors = s->s4.if_oerrors;
+X    r.if_collisions = s->s4.if_collisions;
+X    r.v_swtch = s->s4.v_swtch;
+X    for (i = 0; i < 3; i++)
+X	r.avenrun[i] = s->s4.avenrun[i];
+X    r.boottime = s->s4.boottime;
+X    r.curtime = s->s4.curtime;
+X    return &r;
+X}
+X
+X/*
+X * free the cp_time and dk_xfer array in a stats_default struct
+X */
+Xvoid
+Xfree_stats(s)
+X    stats_default  *s;
+X{
+X    free((char *) s->cp_time.cp_time_val);
+X    free((char *) s->dk_xfer.dk_xfer_val);
+X}
+X
+X/*
+X * save the results in a data structure
+X */
+Xvoid
+Xsave_res(d, res)
+X    struct data    *d;
+X    stats_default  *res;
+X{
+X    if (d->nn == thiscount)
+X	return;			/* duplicate.  ignore */
+X    d->no = d->nn;
+X    d->nn = thiscount;
+X
+X    free_stats(&d->so);
+X    d->so = d->sn;
+X    d->sn = *res;
+X    return;
+X}
+X
+X/*
+X * handle lack of communication with client.
+X */
+Xvoid
+Xdrop_from_list(dpp)
+X    struct data   **dpp;
+X{
+X    struct data    *tdp;
+X
+X    if ((*dpp)->cl)
+X	clnt_destroy((*dpp)->cl);
+X    free((*dpp)->host);
+X
+X    tdp = *dpp;
+X    *dpp = (*dpp)->datap;
+X
+X    free_stats(&tdp->so);
+X    free((char *) tdp);
+X    (void) putc('d', stdout);
+X    (void) fflush(stdout);
+X    nhosts--;
+X    return;
+X}
+X
+X/**
+X * this function may be called after (*dpp)->addr
+X * has been filled with a valid in_addr
+X **/
+Xint
+Xmake_client(dpp)
+X    struct data   **dpp;
+X{
+X    struct sockaddr_in server_addr;
+X    struct timeval  p_timo;
+X    int             sock = RPC_ANYSOCK;
+X
+X    p_timo.tv_sec = 3;
+X    p_timo.tv_usec = 0;
+X
+X    server_addr.sin_family = AF_INET;
+X    server_addr.sin_port = 0;
+X    server_addr.sin_addr = (*dpp)->addr;
+X
+X    /**
+X     * clntudp_create only determines whether the
+X     * program is registered.  It does not actually check
+X     * whether the host supports the requested version.
+X     * see the pamp_getport man page.
+X     **/
+X    (*dpp)->cl = clntudp_create(&server_addr,
+X				RSTATPROG,
+X				(*dpp)->cl_vers,
+X				p_timo,
+X				&sock);
+X
+X    if ((*dpp)->cl == NULL) {
+X	(void) fprintf(stderr, "Can't contact rstatd on %s because%s\n",
+X		       (*dpp)->host, clnt_spcreateerror(""));
+X	return 0;
+X    }
+X    if (opts & O_DBG) {
+X	(void) putc('m', stdout);
+X	(void) fflush(stdout);
+X    }
+X    return 1;
+X}
+X
+X/**
+X * for each host on the linked list that still needs data:
+X * loop over the rpc prog versions,
+X *	starting with the highest known version,
+X *	or highest previously successful version
+X *	    make a client, if necessary
+X *	    call the client
+X **/
+Xvoid
+Xdoclnt_calls()
+X{
+X    stats_all       res;
+X    stats_default  *sn;
+X    static enum clnt_stat clnt_stat;
+X    struct data   **dpp;
+X    int             good = 0;
+X    int             bad = 0;
+X    u_long          vers;
+X
+X    for (dpp = &dp; *dpp;) {
+X	if (opts & O_DBG)
+X	    (void) fprintf(stdout, "%s ", inet_ntoa((*dpp)->addr));
+X	if ((*dpp)->nn == thiscount) {
+X	    dpp = &(*dpp)->datap;
+X	    if (opts & O_DBG) {
+X		(void) fputs("-\n", stdout);
+X	    }
+X	    continue;		/* already have data */
+X	}
+X	if (!(*dpp)->cl_vers)
+X	    (*dpp)->cl_vers = RSTATVERS_DEFAULT;	/* highest version */
+X	bzero((char *) &res, sizeof(res));
+X	for (vers = (*dpp)->cl_vers; vers > 0; vers--) {
+X	    (*dpp)->cl_vers = vers;
+X	    if (!(*dpp)->cl)
+X		if (!make_client(dpp)) {
+X		    drop_from_list(dpp);
+X		    bad++;
+X		    break;	/* vers */
+X		}
+X	    if (opts & O_DBG) {
+X		(void) fprintf(stdout, "v%d", vers);
+X		(void) fflush(stdout);
+X	    }
+X	    clnt_stat = clnt_call((*dpp)->cl,
+X				  RSTATPROC_STATS,
+X				  xdr_void,
+X				  NULL,
+X				  XDR_STATSPROC((*dpp)->cl_vers),
+X				  &res,
+X				  TIMEOUT);
+X	    if (clnt_stat == RPC_SUCCESS) {
+X		sn = STATS_CONVERT((*dpp)->cl_vers) (&res);
+X		xdr_free(XDR_STATSPROC((*dpp)->cl_vers), (char *) &res);
+X		save_res(*dpp, sn);
+X		if (opts & O_DBG) {
+X		    (void) fputs("c\n", stdout);
+X		}
+X		good++;
+X		dpp = &(*dpp)->datap;
+X		break;		/* vers */
+X	    }
+X	    if (clnt_stat == RPC_PROGVERSMISMATCH && vers > 1) {
+X		if (opts & O_DBG) {
+X		    (void) fputs("M ", stdout);
+X		    (void) fflush(stdout);
+X		}
+X		clnt_destroy((*dpp)->cl);
+X		(*dpp)->cl = NULL;
+X		continue;	/* vers-- */
+X	    }
+X	    (void) fprintf(stderr, "clnt_call: %s %s\n",
+X			   (*dpp)->host, clnt_sperrno(clnt_stat));
+X	    drop_from_list(dpp);
+X	    bad++;
+X	    break;		/* vers */
+X	}			/* for(vers ... */
+X    }
+X
+X    if (opts & O_DBG) {
+X	(void) fprintf(stdout, "done clnt calls good=%d bad=%d\n", good, bad);
+X    }
+X    if (!nhosts)
+X	exit(1);
+X    return;
+X}
+X
+X/**
+X * given an internet address,
+X *	get the hostname,
+X *	or the ascii internet address
+X **/
+Xchar           *
+Xget_hostname(addr)
+X    struct in_addr  addr;
+X{
+X    struct hostent *host_entry;
+X
+X    host_entry = NULL;
+X    if (opts & O_NHOST) {
+X	return inet_ntoa(addr);
+X    } else {
+X	host_entry = gethostbyaddr((char *) &addr, 4, AF_INET);
+X	if (!host_entry && opts & O_DBG)
+X	    (void) fputs("byaddr failed\n", stdout);
+X	return host_entry ? host_entry->h_name : inet_ntoa(addr);
+X    }
+X}
+X
+X/*
+X * create a new data structure
+X */
+Xstruct data    *
+Xnew_host(addr, hostname)
+X    struct in_addr *addr;
+X    char           *hostname;
+X{
+X    struct data    *newdpp;
+X
+X    newdpp = (struct data *) calloc(1, sizeof(struct data));
+X    if (newdpp == NULL) {
+X	perror("calloc");
+X	exit(1);
+X    }
+X    newdpp->addr = *addr;
+X    newdpp->host = strdup(hostname);
+X    if (!newdpp->host) {
+X	perror("strdup");
+X	exit(1);
+X    }
+X    nhosts++;
+X    if (!h_seen) {
+X	(void) putc('+', stdout);
+X	(void) fflush(stdout);
+X    }
+X    return newdpp;
+X}
+X
+X/*
+X * handle each reply to the broadcast
+X */
+Xbool_t
+Xeach_result(resp, raddr)
+X    stats_broadcast *resp;
+X    struct sockaddr_in *raddr;
+X{
+X    char           *hostname;
+X    struct data   **dpp;
+X    stats_default  *sn;
+X
+X    sn = STATS_CONVERT(RSTATVERS_BCST) (resp);
+X    xdr_free(XDR_STATSPROC(RSTATVERS_BCST), (char *) resp);
+X
+X    hostname = NULL;
+X    for (dpp = &dp; *dpp; dpp = &(*dpp)->datap) {
+X	if (raddr->sin_addr.s_addr == (*dpp)->addr.s_addr) {
+X	    /* duplicate */
+X	    save_res(*dpp, sn);
+X	    (void) putc('.', stdout);
+X	    (void) fflush(stdout);
+X	    return bcst_timo;
+X	}
+X	if (!hostname)
+X	    hostname = get_hostname(raddr->sin_addr);
+X
+X	if (opts & O_SHOST ?
+X	    strcmp(hostname, (*dpp)->host) < 0 :
+X	    raddr->sin_addr.s_addr < (*dpp)->addr.s_addr) {
+X	    /* insert */
+X	    struct data    *tdp;
+X	    tdp = *dpp;
+X	    *dpp = new_host(&raddr->sin_addr, hostname);
+X	    save_res(*dpp, sn);
+X	    (*dpp)->datap = tdp;
+X	    return bcst_timo;
+X	}
+X    }
+X    /* append */
+X    if (!hostname)
+X	hostname = get_hostname(raddr->sin_addr);
+X    *dpp = new_host(&raddr->sin_addr, hostname);
+X    save_res(*dpp, sn);
+X    (*dpp)->datap = NULL;
+X    return bcst_timo;
+X}
+X
+X/*
+X * handle termination signals
+X */
+XRETSIGTYPE
+Xcleanup()
+X{
+X    exit(0);			/* flush and close stdout */
+X}
+X
+X/*
+X * force end of broadcasting
+X */
+XRETSIGTYPE
+Xbcst_done()
+X{
+X    bcst_timo = TRUE;
+X}
+X
+X/*
+X * see if display will wrap.  Try to fix.
+X */
+Xchar           *
+Xcheckwrap(cols, obuf)
+X    int             cols;
+X    char           *obuf;
+X{
+X    int             olen = strlen(obuf);
+X    int             rlen = strlen(ruler);
+X    char           *rp, *op, *tp, *sp, *cp;
+X    int             rpos = 0, opos;
+X    int             nsp, err = 0;
+X
+X    if (olen <= rlen || rlen > cols)
+X	return obuf;		/* leave alone */
+X
+X    if (opts & O_DBG) {
+X	(void) fprintf(stdout, "wrap terminal=%d ruler=%d output%d\n",
+X		       cols, rlen, olen);
+X	(void) fputs(ruler, stdout);
+X	(void) putc('\n', stdout);
+X    }
+X    op = obuf;
+X    for (rp = ruler; *rp;) {
+X	tp = op;
+X	for (; *rp && *rp == ' '; rp++);
+X	for (; *op && *op == ' '; op++);
+X	nsp = op - tp;
+X	for (; *rp && *rp != ' '; rp++);
+X	for (; *op && *op != ' '; op++);
+X
+X	if (!*rp || nsp > 1) {
+X	    rpos = rp - ruler;
+X	    opos = op - obuf;
+X	    err = opos - rpos;
+X	}
+X	if (err > 0) {
+X	    if (opts & O_DBG) {
+X		(void) fputs(obuf, stdout);
+X		(void) putc('\n', stdout);
+X		(void) fprintf(stdout, "rpos=%d err=%d\n", rpos, err);
+X	    }
+X	    for (sp = op; sp != obuf; sp--) {
+X		if (*sp == ' ')
+X		    sp--;
+X		if (*sp == ' ') {	/* shift left one char */
+X		    sp++;
+X		    for (cp = sp; *cp; cp++)
+X			*cp = *(cp + 1);
+X		    op--;
+X		    if (!--err)
+X			break;
+X		}
+X	    }
+X	}
+X	rpos = rp - ruler;
+X	opos = op - obuf;
+X	err = opos - rpos;
+X    }
+X
+X    if (opts & O_DBG)
+X	(void) fputs(" . . . . 1 . . . . 2 . . . . 3 . . . . 4 . . . . 5 . . . . 6 . . . . 7 . . . .\n", stdout);
+X    return obuf;
+X}
+X
+X/*
+X * qsort comparison routine
+X */
+Xstatic int
+Xdatacompare(i, j)
+X    struct datatbl *i, *j;
+X{
+X    return opts & O_RVRS ?
+X	i->val - j->val :
+X	j->val - i->val;
+X}
+X
+X/*
+X * calculate deltas and other items, for later sorting
+X */
+Xstruct datatbl *
+Xcompute_data(tbl)
+X    struct datatbl *tbl;
+X{
+X    struct data   **dpp;
+X    int             i;
+X    long            dt, hdt;	/* msec */
+X    int             dcpu, hdcpu;
+X
+X    nresp = 0;
+X    for (dpp = &dp; *dpp; dpp = &(*dpp)->datap) {
+X	/* this data is current */
+X	if ((*dpp)->nn == thiscount) {
+X
+X	    (*dpp)->sd.boottime.tv_sec =	/* uptime */
+X		(*dpp)->sn.curtime.tv_sec
+X		- (*dpp)->sn.boottime.tv_sec;
+X
+X	    nresp++;
+X	    if ((*dpp)->no) {
+X		/* this data is not the first response from that host */
+X
+X		/* time in milliseconds, since last call */
+X		dt = (((*dpp)->sn.curtime.tv_sec -
+X		       (*dpp)->so.curtime.tv_sec) * 1000000 +
+X		      ((*dpp)->sn.curtime.tv_usec -
+X		       (*dpp)->so.curtime.tv_usec) + 500) / 1000;
+X		hdt = (dt + 1) / 2;
+X
+X		/* first reply from aix3.1 may have wrong cp_time[] */
+X		dcpu = 0;
+X		if (!(*dpp)->sd.cp_time.cp_time_val)
+X		    create_array((array *) & (*dpp)->sd.cp_time, (int *) NULL,
+X				 (int) (*dpp)->sn.cp_time.cp_time_len);
+X
+X		for (i = 0; i < (*dpp)->sn.cp_time.cp_time_len; i++) {
+X		    (*dpp)->sd.cp_time.cp_time_val[i]
+X			= delta(cp_time.cp_time_val[i]);
+X		    dcpu += (*dpp)->sd.cp_time.cp_time_val[i];
+X		}
+X
+X		/**
+X	         * From vmstat.c 5.31 (Berkeley)
+X	         * We round upward to avoid losing low-frequency events
+X	         * (i.e., >= 1 per interval but < 1 per second).
+X	         **/
+X		hdcpu = dcpu / 2;
+X		for (i = 0; i < (*dpp)->sn.cp_time.cp_time_len; i++)
+X		    (*dpp)->sd.cp_time.cp_time_val[i]
+X			= cpu((*dpp)->sd.cp_time.cp_time_val[i]);
+X
+X		if (!(*dpp)->sd.dk_xfer.dk_xfer_val)
+X		    create_array((array *) & (*dpp)->sd.dk_xfer, (int *) NULL,
+X				 (int) (*dpp)->sn.dk_xfer.dk_xfer_len);
+X
+X		for (i = 0; i < (*dpp)->sn.dk_xfer.dk_xfer_len; i++)
+X		    (*dpp)->sd.dk_xfer.dk_xfer_val[i]
+X			= rate(delta(dk_xfer.dk_xfer_val[i]));
+X
+X		(*dpp)->sd.v_pgpgin = rate(delta(v_pgpgin));
+X		(*dpp)->sd.v_pgpgout = rate(delta(v_pgpgout));
+X		(*dpp)->sd.v_pswpin = rate(delta(v_pswpin));
+X		(*dpp)->sd.v_pswpout = rate(delta(v_pswpout));
+X		(*dpp)->sd.v_swtch = rate(delta(v_swtch));
+X		/* Why does v_intr count down on aix370? */
+X		(*dpp)->sd.v_intr = rate(abs((int) (delta(v_intr))));
+X
+X		(*dpp)->sd.if_ipackets = rate(delta(if_ipackets));
+X		(*dpp)->sd.if_ierrors = rate(delta(if_ierrors));
+X		(*dpp)->sd.if_opackets = rate(delta(if_opackets));
+X		(*dpp)->sd.if_oerrors = rate(delta(if_oerrors));
+X		(*dpp)->sd.if_collisions = rate(delta(if_collisions));
+X	    }			/* (*dpp)->no */
+X	}			/* (*dpp)->nn == thiscount */
+X    }
+X
+X    if (tbl)
+X	free((char *) tbl);
+X    tbl = (struct datatbl *) malloc(nresp * sizeof(struct datatbl));
+X    if (tbl == NULL) {
+X	perror("malloc");
+X	exit(1);
+X    }
+X    i = 0;
+X    for (dpp = &dp; *dpp; dpp = &(*dpp)->datap) {
+X	if ((*dpp)->nn == thiscount) {
+X
+X	    tbl[i].dp = *dpp;
+X	    if (opts & O_SORT &&
+X		(thiscount > 1 || !(key_ptr->k_flag & K_DELTA)))
+X		if (key_ptr->k_flag & K_ARRAY) {
+X		    array           arr;
+X
+X		    arr = *(array *) ((char *) (*dpp) + key_ptr->k_offset);
+X		    tbl[i].val = arr.val[key_ptr->k_index];
+X		} else {
+X		    tbl[i].val = *(int *) ((char *) (*dpp) + key_ptr->k_offset);
+X		}
+X	    i++;
+X	}
+X    }
+X
+X    if (opts & O_SORT)
+X	qsort((char *) tbl, (int) nresp, sizeof(struct datatbl), datacompare);
+X    return tbl;
+X}
+X
+X/*
+X * get screen size from termcap entry
+X */
+Xcheck_termcap()
+X{
+X    char           *term;
+X    static int      status;
+X    static int      seen;
+X    static int      t_rows;
+X    static int      t_cols;
+X    char            termcap_buf[1024];
+X    char           *efmt = "Can't get terminal size because\n%s";
+X
+X    if (seen) {
+X	if (status == 1) {
+X	    term_rows = t_rows;
+X	    term_cols = t_cols;
+X	}
+X	return;
+X    }
+X    seen = 1;
+X
+X    term = getenv("TERM");
+X    if (!term) {
+X	(void) fprintf(stderr, efmt, "TERM environment variable not set.\n");
+X	return;
+X    }
+X    status = tgetent(termcap_buf, term);
+X    switch (status) {
+X    case -1:
+X	(void) fprintf(stderr, efmt, "can't open termcap file.\n");
+X	return;
+X    case 0:
+X	(void) fprintf(stderr, efmt, "no termcap entry for a ");
+X	(void) fprintf(stderr, "`%s' terminal\n", term);
+X	return;
+X    case 1:
+X	t_rows = tgetnum("li");
+X	if (t_rows == -1)
+X	    t_rows = 0;
+X	t_cols = tgetnum("co");
+X	if (t_cols == -1)
+X	    t_cols = 0;
+X	term_rows = t_rows;
+X	term_cols = t_cols;
+X	if (opts & O_DBG)
+X	    (void) fprintf(stdout, "check_termcap: tgetnum: %d %d\n",
+X			   term_rows, term_cols);
+X    }
+X}
+X
+X/*
+X * get terminal size
+X */
+Xvoid
+Xcheck_term()
+X{
+X    struct Winsize  winsize;
+X
+X    winsize.ws_row = 0;
+X    winsize.ws_col = 0;
+X    term_rows = 0;
+X    term_cols = 0;
+X    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, (char *) &winsize) == -1) {
+X	if (opts & O_DBG)
+X	    perror("ioctl: TIOCGWINSZ");
+X	return;			/* assume not a terminal */
+X    }
+X    term_rows = winsize.ws_row;
+X    term_cols = winsize.ws_col;
+X    if (term_rows == 0 || term_cols == 0)
+X	check_termcap();
+X}
+X
+X/*
+X * print the statistics or the uptime
+X */
+Xvoid
+Xprint_data(tbl, flag)
+X    struct datatbl *tbl;
+X    int             flag;
+X{
+X    char            obuf[160];
+X    int             i;
+X    long            up, upd, uph, upm;
+X    float           s;
+X
+X    if (opts & O_SECS) {
+X	struct timeval  now;
+X	if (gettimeofday(&now, (struct timezone *) 0) == -1) {
+X	    perror("gettimeofday");
+X	    exit(1);
+X	}
+X	s = (now.tv_sec - starttime.tv_sec) +
+X	    ((now.tv_usec - starttime.tv_usec) + 5000)
+X	    / 10000 / 100.;
+X    }
+X    for (i = 0; i < nresp; i++) {
+X	switch (flag) {
+X	case P_DATA:
+X	    if (!tbl[i].dp->no)	/* do we have delta? */
+X		break;
+X	    obuf[0] = '\0';
+X	    if (opts & O_TIME)
+X		(void) sprintf(obuf + strlen(obuf), fo_time,
+X			       tbl[i].dp->sn.curtime.tv_sec);
+X	    if (opts & O_DATE) {
+X		char            buf[30];
+X		struct tm      *tp;
+X
+X		tp = localtime((long *) &tbl[i].dp->sn.curtime.tv_sec);
+X		if (!strftime(buf, 30, "%a %b %d %H:%M:%S %Y ", tp)) {
+X		    (void) fputs("can't convert date\n", stderr);
+X		    exit(1);
+X		}
+X		(void) sprintf(obuf + strlen(obuf), f_date, buf);
+X	    }
+X	    if (opts & O_SECS)
+X		(void) sprintf(obuf + strlen(obuf), fo_secs, s);
+X	    if (nhosts > 1 || !h_seen)
+X		(void) sprintf(obuf + strlen(obuf), f_h, tbl[i].dp->host);
+X	    if (opts & O_CP) {
+X		(void) sprintf(obuf + strlen(obuf), fo_cp,
+X			       tbl[i].dp->sd.cp_time.cp_time_val[CP_USER],
+X			       tbl[i].dp->sd.cp_time.cp_time_val[CP_NICE],
+X			       tbl[i].dp->sd.cp_time.cp_time_val[CP_SYS],
+X			       tbl[i].dp->sd.cp_time.cp_time_val[CP_IDLE]);
+X		/* average run queue lengths */
+X		(void) sprintf(obuf + strlen(obuf), fo_av,
+X			       loadav(tbl[i].dp->sn.avenrun[AV1]),
+X			       loadav(tbl[i].dp->sn.avenrun[AV5]),
+X			       loadav(tbl[i].dp->sn.avenrun[AV15]));
+X	    }
+X	    if (opts & O_DK)
+X		(void) sprintf(obuf + strlen(obuf), fo_dk,
+X			       tbl[i].dp->sd.dk_xfer.dk_xfer_val[0],
+X			       tbl[i].dp->sd.dk_xfer.dk_xfer_val[1],
+X			       tbl[i].dp->sd.dk_xfer.dk_xfer_val[2],
+X			       tbl[i].dp->sd.dk_xfer.dk_xfer_val[3]);
+X
+X	    if (opts & O_VM)
+X		(void) sprintf(obuf + strlen(obuf), fo_vm,
+X			       tbl[i].dp->sd.v_pgpgin,
+X			       tbl[i].dp->sd.v_pgpgout,
+X			       tbl[i].dp->sd.v_pswpin,
+X			       tbl[i].dp->sd.v_pswpout,
+X			       tbl[i].dp->sd.v_swtch,
+X			       tbl[i].dp->sd.v_intr);
+X
+X	    if (opts & O_IF)
+X		(void) sprintf(obuf + strlen(obuf), fo_if,
+X			       tbl[i].dp->sd.if_ipackets,
+X			       tbl[i].dp->sd.if_ierrors,
+X			       tbl[i].dp->sd.if_opackets,
+X			       tbl[i].dp->sd.if_oerrors,
+X			       tbl[i].dp->sd.if_collisions);
+X
+X	    check_term();
+X	    (void) fputs(checkwrap(term_cols > 0 ? term_cols - 1 : 0,
+X				   obuf), stdout);
+X	    (void) putc('\n', stdout);
+X
+X	    if (opts & O_DK) {
+X		int             d, dhigh = -1;
+X		int             moredisks;
+X
+X		for (d = tbl[i].dp->sn.dk_xfer.dk_xfer_len - 1; d >= 0; d--) {
+X		    if (tbl[i].dp->sn.dk_xfer.dk_xfer_val[d]) {
+X			dhigh = d;
+X			break;
+X		    }
+X		}
+X		moredisks = dhigh - DK_NDRIVE_ORIG + 1;
+X		if (moredisks > 0) {
+X		    (void) fprintf(stdout, "%d more disk%s... ",
+X				   moredisks, moredisks == 1 ? "" : "s");
+X		    for (d = DK_NDRIVE_ORIG; d <= dhigh; d++)
+X			(void) fprintf(stdout, "%d ",
+X				       tbl[i].dp->sd.dk_xfer.dk_xfer_val[d]);
+X		    (void) putc('\n', stdout);
+X		}
+X	    }
+X	    break;
+X
+X	case P_UP:
+X	    if (tbl[i].dp->no)	/* have we already printed the uptime? */
+X		break;
+X	    up = tbl[i].dp->sd.boottime.tv_sec;	/* uptime stored here */
+X	    upd = up / 86400;
+X	    up = abs(up - upd * 86400);
+X	    uph = up / 3600;
+X	    up -= uph * 3600;
+X	    upm = up / 60;
+X	    (void) fprintf(stdout, f_h, tbl[i].dp->host);
+X	    switch (upd) {
+X	    case 0:
+X		(void) fputs("up           ", stdout);
+X		break;
+X	    case 1:
+X		(void) fprintf(stdout, "up %3d day,  ", upd);
+X		break;
+X	    default:
+X		(void) fprintf(stdout, "up %3d days, ", upd);
+X		break;
+X	    }
+X	    (void) fprintf(stdout, "%2d:%02d,", uph, upm);
+X	    (void) fputs("     load average: ", stdout);
+X	    /* average run queue lengths */
+X	    (void) fprintf(stdout, fo_a0,
+X			   loadav(tbl[i].dp->sn.avenrun[AV1]),
+X			   loadav(tbl[i].dp->sn.avenrun[AV5]),
+X			   loadav(tbl[i].dp->sn.avenrun[AV15]));
+X	    (void) putc('\n', stdout);
+X	    break;
+X	}			/* switch (flag) */
+X    }
+X}
+X
+X/*
+X * make the titles for the columns, depending on the options selected
+X */
+Xvoid
+Xbuild_title()
+X{
+X    title1[0] = '\0';
+X    title2[0] = '\0';
+X    ruler[0] = '\0';
+X    if (opts & O_BARE) {
+X	return;
+X    }
+X    if (opts & O_TIME) {
+X	(void) sprintf(title1 + strlen(title1), f_time, "unix time");
+X	(void) sprintf(title2 + strlen(title2), f_time, "(seconds)");
+X	(void) sprintf(ruler + strlen(ruler), fo_time, 100000000);
+X    }
+X    if (opts & O_DATE) {
+X	(void) sprintf(title1 + strlen(title1), f_date, "Date");
+X	(void) sprintf(title2 + strlen(title2), f_date, "(local time)");
+X	(void) sprintf(ruler + strlen(ruler), f_date,
+X		       "Thu Jan  1 00:00:00 1970");
+X    }
+X    if (opts & O_SECS) {
+X	(void) sprintf(title1 + strlen(title1), f_secs, "time");
+X	(void) sprintf(title2 + strlen(title2), f_secs, "(sec)");
+X	(void) sprintf(ruler + strlen(ruler), fo_secs, 10.01);
+X    }
+X    if (nhosts > 1) {
+X	(void) sprintf(title1 + strlen(title1), f_h, "");
+X	(void) sprintf(title2 + strlen(title2), f_h, "hostname");
+X	(void) sprintf(ruler + strlen(ruler), f_h,
+X		       "127.000.000.001");
+X    }
+X    if (opts & O_CP) {
+X	(void) sprintf(title1 + strlen(title1), f1_cp, "%cpu");
+X	(void) sprintf(title1 + strlen(title1), f1_av, "loadavg (nrun)");
+X	(void) sprintf(title2 + strlen(title2), f2_cp, "us", "ni", "sy", "id");
+X	(void) sprintf(title2 + strlen(title2), f2_av, "1m", "5m", "15m");
+X	(void) sprintf(ruler + strlen(ruler), fo_cp, 100, 100, 100, 100);
+X	(void) sprintf(ruler + strlen(ruler), fo_av, 10.00, 10.00, 10.00);
+X    }
+X    if (opts & O_DK) {
+X	(void) sprintf(title1 + strlen(title1), f1_dk, "disk xfers");
+X	(void) sprintf(title2 + strlen(title2), f2_dk,
+X		       "d0", "d1", "d2", "d3");
+X	(void) sprintf(ruler + strlen(ruler), fo_dk, 10, 10, 10, 10);
+X    }
+X    if (opts & O_VM) {
+X	(void) sprintf(title1 + strlen(title1), f1_vm,
+X		       "pg", "pg", "sw", "sw", "cx", "in");
+X	(void) sprintf(title2 + strlen(title2), f2_vm,
+X		       "in", "o", "in", "o", "sw", "tr");
+X	(void) sprintf(ruler + strlen(ruler), fo_vm, 10, 10, 10, 10, 100, 100);
+X    }
+X    if (opts & O_IF) {
+X	(void) sprintf(title1 + strlen(title1), f1_if,
+X		       "i", "i", "o", "o", "co");
+X	(void) sprintf(title2 + strlen(title2), f2_if,
+X		       "pk", "er", "pk", "er", "ll");
+X	(void) sprintf(ruler + strlen(ruler), fo_if, 10, 10, 10, 10, 10);
+X    }
+X    (void) sprintf(title1 + strlen(title1), "\n");
+X    (void) sprintf(title2 + strlen(title2), "\n");
+X    return;
+X}
+X
+X/**
+X * initialize signal handlers
+X * parse options
+X * loop endlessly. either:
+X *	resolve host names, do client calls
+X *	or do broadcasts
+X**/
+Xmain(argc, argv)
+X    int             argc;
+X    char           *argv[];
+X{
+X    int             c, do_usage = 0;
+X    int             i_seen = 0;
+X    int             c_seen = 0;
+X    unsigned        interval = 10;
+X    char           *optstring;
+X    char           *basename;
+X    char           *usage;
+X    extern int      opterr, optind;
+X    extern char    *optarg;
+X    int             opti;
+X    unsigned        hdrcnt;
+X    unsigned        count;
+X    struct data   **dpp;
+X    struct datatbl *tbl;
+X
+X    tbl = NULL;
+X    if (gettimeofday(&starttime, &tz) == -1) {
+X	perror("gettimeofday");
+X	exit(1);
+X    }
+X    (void) signal(SIGHUP, cleanup);
+X    (void) signal(SIGINT, cleanup);
+X    (void) signal(SIGTERM, cleanup);
+X
+X#ifdef HAVE_SETLINEBUF
+X    /**
+X     * line-buffer the output
+X     * permits "tail -f" of a growing log file
+X     **/
+X    (void) setlinebuf(stdout);
+X#endif
+X    basename = strrchr(argv[0], '/');
+X    basename = basename ? ++basename : argv[0];
+X
+X    opterr = 1;
+X    if (strcmp(basename, "rup") == 0) {
+X	optstring = "hltn";
+X	usage = "usage: %s [ -%s ] [ interval ] [ host ... ]\n";
+X	while ((c = getopt(argc, argv, optstring)) != -1) {
+X	    switch (c) {
+X	    case 'h':
+X		opts |= O_SHOST;
+X		break;
+X	    case 'l':
+X		opts |= O_SORT | O_RVRS;
+X		key_ptr = (key *) calloc(1, sizeof(key));
+X		key_ptr->k_offset = sn_offset(avenrun[AV1]);
+X		break;
+X	    case 't':
+X		opts |= O_SORT;
+X		key_ptr = (key *) calloc(1, sizeof(key));
+X		key_ptr->k_offset = sd_offset(boottime.tv_sec);	/* uptime */
+X		break;
+X	    case 'n':
+X		opts |= O_NHOST;
+X		break;
+X	    case '?':
+X		do_usage++;
+X	    }
+X	}
+X	c_seen = 1;
+X	count = 0;
+X	opts |= O_UP;
+X    } else {			/* rperf */
+X	optstring = "acdivhnSTsbBDr";
+X	usage = "usage: %s [ -%s ] [ interval [ count ] ] [ +sortkey ] [ host ... ]\n";
+X	while ((c = getopt(argc, argv, optstring)) != -1)
+X	    switch (c) {
+X	    case 'a':
+X		opts |= O_ALL;
+X		break;
+X	    case 'c':
+X		opts |= O_CP;
+X		break;
+X	    case 'd':
+X		opts |= O_DK;
+X		break;
+X	    case 'i':
+X		opts |= O_IF;
+X		break;
+X	    case 'S':
+X		opts |= O_TIME;
+X		break;
+X	    case 'T':
+X		opts |= O_DATE;
+X		break;
+X	    case 's':
+X		opts |= O_SECS;
+X		break;
+X	    case 'h':
+X		opts |= O_SHOST;
+X		break;
+X	    case 'n':
+X		opts |= O_NHOST;
+X		break;
+X	    case 'v':
+X		opts |= O_VM;
+X		break;
+X	    case 'b':
+X		opts |= O_BCST;
+X		break;
+X	    case 'B':
+X		opts |= O_BARE;
+X		break;
+X	    case 'r':
+X		opts |= O_RVRS;
+X		break;
+X	    case 'D':
+X		opts |= O_DBG;
+X		break;
+X	    case '?':
+X		do_usage++;
+X	    }
+X
+X	if (!(opts & O_BARE))
+X	    opts |= O_UP;
+X    }
+X    if (opts & O_NHOST)
+X	f_h = "%15.15s ";
+X
+X    opti = optind;
+X    while (argv[opti]) {
+X	char           *oa;
+X	unsigned        l;
+X
+X	l = strtol(argv[opti], &oa, 0);
+X	if (argv[opti] == oa || *oa) {
+X	    /* "mml0.meche.rpi.edu" or "128.113.14.20" or "+idle" */
+X	    if (*argv[opti] == '+') {
+X		char           *sortkey;
+X		key            *kp;
+X
+X		sortkey = argv[opti] + sizeof(char);
+X		for (kp = keys; kp->k_name != NULL; kp++) {
+X		    if (strcmp(sortkey, kp->k_name) == 0) {
+X			key_ptr = kp;
+X			break;
+X		    }
+X		}
+X		if (key_ptr) {
+X		    opts |= O_SORT;
+X		} else {
+X		    int             i;
+X		    char           *p;
+X
+X		    (void) fprintf(stderr, "unknown sort key: %s\n", sortkey);
+X		    for (i = 0; p = keyhelp[i]; i++)
+X			(void) fputs(p, stdout);
+X		}
+X	    } else {
+X		h_seen++;
+X	    }
+X	} else {
+X	    if (!i_seen) {
+X		interval = l;
+X		i_seen++;
+X	    } else if (!c_seen) {
+X		count = l;
+X		c_seen++;
+X	    }
+X	}
+X	opti++;
+X    }
+X
+X    if (do_usage)
+X	(void) fprintf(stderr, usage, basename, optstring);
+X
+X    if (h_seen) {		/* do client calls */
+X	if (opts & O_DBG)
+X	    (void) fputs("resolving host names\n", stderr);
+X	opti = optind;
+X	dpp = &dp;
+X
+X	while (argv[opti]) {
+X	    char           *oa;
+X	    unsigned long   host_address;
+X
+X	    (void) strtol(argv[opti], &oa, 0);
+X	    if ((argv[opti] == oa || *oa) && *argv[opti] != '+') {
+X		/* "mml0.meche.rpi.edu" or "128.113.14.20" */
+X		struct in_addr  addr;
+X		char           *hostname;
+X		struct hostent *host_entry;
+X
+X		hostname = argv[opti];
+X		host_entry = gethostbyname(hostname);
+X		if (!host_entry) {	/* maybe he typed an address */
+X		    if (opts & O_DBG)
+X			(void) fputs("byname failed\n", stderr);
+X		    host_address = inet_addr(hostname);
+X		    if (host_address != -1) {
+X			host_entry =
+X			    gethostbyaddr((char *) &host_address, 4, AF_INET);
+X			if (!host_entry && opts & O_DBG)
+X			    (void) fputs("byaddr failed\n", stderr);
+X		    } else if (opts & O_DBG)
+X			(void) fputs("inet_addr failed\n", stderr);
+X		}
+X		if (host_entry) {
+X		    bcopy(host_entry->h_addr,
+X			  (char *) &addr.s_addr,
+X			  host_entry->h_length);
+X		}
+X		/*
+X		 * maybe he typed a valid address anyway --
+X		 */
+X		if (!host_entry && (host_address != -1))
+X		    addr.s_addr = host_address;
+X
+X		if (host_entry || (host_address != -1)) {
+X		    /* host ok.  add to list */
+X		    if (opts & O_DBG)
+X			(void) fprintf(stdout, "%s\n", inet_ntoa(addr));
+X		    (*dpp) = new_host(&addr, hostname);
+X		    (*dpp)->datap = NULL;
+X		    dpp = &(*dpp)->datap;
+X		} else {
+X		    (void) fprintf(stderr, "can't get address for %s\n",
+X				   hostname);
+X		}
+X	    }			/* a host argument */
+X	    opti++;
+X	}
+X	if (opts & O_DBG)
+X	    (void) fprintf(stderr, "%d hosts\n", nhosts);
+X
+X	if (!nhosts)
+X	    exit(1);
+X
+X	if (!(opts & O_ALL)) {
+X	    if (nhosts == 1)
+X		opts |= O_DEFL1;
+X	    else
+X		opts |= O_DEFL;
+X	}
+X	thiscount++;
+X	doclnt_calls();
+X	tbl = compute_data(tbl);
+X
+X	if (opts & O_UP) {
+X	    print_data(tbl, P_UP);
+X	}
+X	build_title();
+X
+X	for (hdrcnt = 1;;) {
+X
+X	    if (c_seen && !count--)
+X		exit(0);
+X
+X	    (void) sleep(interval);
+X
+X	    if (!--hdrcnt || nhosts > 1) {
+X		(void) fputs(title1, stdout);
+X		(void) fputs(title2, stdout);
+X		check_term();
+X		hdrcnt = term_rows ? term_rows - 2 : 20;
+X	    }
+X	    thiscount++;
+X	    doclnt_calls();
+X	    tbl = compute_data(tbl);
+X	    if (opts & O_DBG)
+X		(void) fprintf(stdout,
+X			     "%d host%s\n", nhosts, nhosts == 1 ? "" : "s");
+X	    print_data(tbl, P_DATA);
+X	}
+X
+X    } else {			/* do broadcasts */
+X	if (!(opts & O_ALL)) {
+X	    opts |= O_DEFL;
+X	}
+X	nhosts = 2;
+X	build_title();
+X	nhosts = 0;
+X
+X	for (;;) {
+X	    thiscount++;
+X
+X	    if (thiscount == 1 || opts & O_BCST) {
+X		stats_broadcast resbuf;
+X		static enum clnt_stat clnt_stat;
+X
+X		(void) signal(SIGALRM, bcst_done);
+X		(void) alarm(interval);	/* broadcast interval.  >54 ignored */
+X		bcst_timo = FALSE;
+X		(void) fputs("broadcasting ", stdout);
+X		(void) fflush(stdout);
+X		bzero((char *) &resbuf, sizeof resbuf);
+X		clnt_stat = clnt_broadcast(RSTATPROG,
+X					   RSTATVERS_BCST,
+X					   RSTATPROC_STATS,
+X					   xdr_void,
+X					   (char *) NULL,
+X					   XDR_STATSPROC(RSTATVERS_BCST),
+X					   (char *) &resbuf,
+X					   each_result);
+X		if (clnt_stat != RPC_SUCCESS && clnt_stat != RPC_TIMEDOUT) {
+X		    (void) fprintf(stderr, "\nclnt_broadcast: %s\n",
+X				   clnt_sperrno(clnt_stat));
+X		    exit(1);
+X		}
+X		(void) putc('\n', stdout);
+X	    }			/* thiscount == 1 || opts & O_BCST */
+X	    doclnt_calls();
+X	    tbl = compute_data(tbl);
+X	    if (opts & O_DBG)
+X		(void) fprintf(stdout,
+X			     "%d host%s\n", nhosts, nhosts == 1 ? "" : "s");
+X
+X	    if (opts & O_UP) {
+X		print_data(tbl, P_UP);
+X	    }
+X	    if (thiscount > 1) {
+X		(void) fputs(title1, stdout);
+X		(void) fputs(title2, stdout);
+X		print_data(tbl, P_DATA);
+X	    }
+X	    if (c_seen && !count--)
+X		exit(0);
+X
+X	    if (!(opts & O_BCST))
+X		(void) sleep(interval);
+X	}
+X    }
+X}
+END_OF_FILE
+if test 41113 -ne `wc -c <'rperf.c'`; then
+    echo shar: \"'rperf.c'\" unpacked with wrong size!
+fi
+# end of 'rperf.c'
+fi
+if test -f 'termcap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'termcap.c'\"
+else
+echo shar: Extracting \"'termcap.c'\" \(11444 characters\)
+sed "s/^X//" >'termcap.c' <<'END_OF_FILE'
+X/*-
+X * Copyright (c) 1980 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+Xstatic char     sccsid[] = "@(#)termcap.c	5.5 (Berkeley) 6/1/90";
+X#endif				/* not lint */
+X
+X#define	BUFSIZ		1024
+X#define MAXHOP		32	/* max number of tc= indirections */
+X#define	PBUFSIZ		512	/* max length of filename path */
+X#define	PVECSIZ		32	/* max number of names in path */
+X
+X#include <string.h>
+X#include <ctype.h>
+X#include "pathnames.h"
+X
+X/*-
+X * termcap - routines for dealing with the terminal capability data base
+X *
+X * BUG:		Should use a "last" pointer in tbuf, so that searching
+X *		for capabilities alphabetically would not be a n**2/2
+X *		process when large numbers of capabilities are given.
+X * Note:	If we add a last pointer now we will screw up the
+X *		tc capability. We really should compile termcap.
+X *
+X * Essentially all the work here is scanning and decoding escapes
+X * in string capabilities.  We don't use stdio because the editor
+X * doesn't, and because living w/o it is not hard.
+X */
+X
+Xstatic char    *tbuf;
+Xstatic int      hopcount;	/* detect infinite loops in termcap, init 0 */
+Xstatic char     pathbuf[PBUFSIZ];	/* holds raw path of filenames */
+Xstatic char    *pathvec[PVECSIZ];	/* to point to names in pathbuf */
+Xstatic char   **pvec;		/* holds usable tail of path vector */
+Xchar           *tskip();
+Xchar           *tgetstr();
+Xchar           *tdecode();
+Xchar           *getenv();
+X
+X/*
+X * Get an entry for terminal name in buffer bp from the termcap file.
+X */
+Xtgetent(bp, name)
+X    char           *bp, *name;
+X{
+X    register char  *p;
+X    register char  *cp;
+X    register int    c;
+X    char           *home, *termpath;
+X    char          **fname = pathvec;
+X
+X    pvec = pathvec;
+X    tbuf = bp;
+X    p = pathbuf;
+X    cp = getenv("TERMCAP");
+X    /*-
+X     * TERMCAP can have one of two things in it. It can be the
+X     * name of a file to use instead of /etc/termcap. In this
+X     * case it better start with a "/". Or it can be an entry to
+X     * use so we don't have to read the file. In this case it
+X     * has to already have the newlines crunched out.  If TERMCAP
+X     * does not hold a file name then a path of names is searched
+X     * instead.  The path is found in the TERMPATH variable, or
+X     * becomes "$HOME/.termcap /etc/termcap" if no TERMPATH exists.
+X     */
+X    if (!cp || *cp != '/') {	/* no TERMCAP or it holds an entry */
+X	if (termpath = getenv("TERMPATH"))
+X	    (void) strncpy(pathbuf, termpath, PBUFSIZ);
+X	else {
+X	    if (home = getenv("HOME")) {	/* set up default */
+X		p += strlen(home);	/* path, looking in */
+X		(void) strcpy(pathbuf, home);	/* $HOME first */
+X		*p++ = '/';
+X	    }			/* if no $HOME look in current directory */
+X	    (void) strncpy(p, _PATH_DEF, PBUFSIZ - (p - pathbuf));
+X	}
+X    } else			/* user-defined name in TERMCAP */
+X	(void) strncpy(pathbuf, cp, PBUFSIZ);	/* still can be tokenized */
+X
+X    *fname++ = pathbuf;		/* tokenize path into vector of names */
+X    while (*++p)
+X	if (*p == ' ' || *p == ':') {
+X	    *p = '\0';
+X	    while (*++p)
+X		if (*p != ' ' && *p != ':')
+X		    break;
+X	    if (*p == '\0')
+X		break;
+X	    *fname++ = p;
+X	    if (fname >= pathvec + PVECSIZ) {
+X		fname--;
+X		break;
+X	    }
+X	}
+X    *fname = (char *) 0;	/* mark end of vector */
+X    if (cp && *cp && *cp != '/') {
+X	tbuf = cp;
+X	c = tnamatch(name);
+X	tbuf = bp;
+X	if (c) {
+X	    (void) strcpy(bp, cp);
+X	    return (tnchktc());
+X	}
+X    }
+X    return (tfindent(bp, name));/* find terminal entry in path */
+X}
+X
+X/*-
+X * tfindent - reads through the list of files in pathvec as if they were one
+X * continuous file searching for terminal entries along the way.  It will
+X * participate in indirect recursion if the call to tnchktc() finds a tc=
+X * field, which is only searched for in the current file and files ocurring
+X * after it in pathvec.  The usable part of this vector is kept in the global
+X * variable pvec.  Terminal entries may not be broken across files.  Parse is
+X * very rudimentary; we just notice escaped newlines.
+X */
+Xtfindent(bp, name)
+X    char           *bp, *name;
+X{
+X    register char  *cp;
+X    register int    c;
+X    register int    i, cnt;
+X    char            ibuf[BUFSIZ];
+X    int             opencnt = 0;
+X    int             tf;
+X
+X    tbuf = bp;
+Xnextfile:
+X    i = cnt = 0;
+X    while (*pvec && (tf = open(*pvec, 0)) < 0)
+X	pvec++;
+X    if (!*pvec)
+X	return (opencnt ? 0 : -1);
+X    opencnt++;
+X    for (;;) {
+X	cp = bp;
+X	for (;;) {
+X	    if (i == cnt) {
+X		cnt = read(tf, ibuf, BUFSIZ);
+X		if (cnt <= 0) {
+X		    (void) close(tf);
+X		    pvec++;
+X		    goto nextfile;
+X		}
+X		i = 0;
+X	    }
+X	    c = ibuf[i++];
+X	    if (c == '\n') {
+X		if (cp > bp && cp[-1] == '\\') {
+X		    cp--;
+X		    continue;
+X		}
+X		break;
+X	    }
+X	    if (cp >= bp + BUFSIZ) {
+X		(void) write(2, "Termcap entry too long\n", 23);
+X		break;
+X	    } else
+X		*cp++ = c;
+X	}
+X	*cp = 0;
+X
+X	/*
+X	 * The real work for the match.
+X	 */
+X	if (tnamatch(name)) {
+X	    (void) close(tf);
+X	    return (tnchktc());
+X	}
+X    }
+X}
+X
+X/*-
+X * tnchktc: check the last entry, see if it's tc=xxx. If so,
+X * recursively find xxx and append that entry (minus the names)
+X * to take the place of the tc=xxx entry. This allows termcap
+X * entries to say "like an HP2621 but doesn't turn on the labels".
+X * Note that this works because of the left to right scan.
+X */
+Xtnchktc()
+X{
+X    register char  *p, *q;
+X    char            tcname[16];	/* name of similar terminal */
+X    char            tcbuf[BUFSIZ];
+X    char           *holdtbuf = tbuf;
+X    int             l;
+X
+X    p = tbuf + strlen(tbuf) - 2;/* before the last colon */
+X    while (*--p != ':')
+X	if (p < tbuf) {
+X	    (void) write(2, "Bad termcap entry\n", 18);
+X	    return (0);
+X	}
+X    p++;
+X    /* p now points to beginning of last field */
+X    if (p[0] != 't' || p[1] != 'c')
+X	return (1);
+X    (void) strcpy(tcname, p + 3);
+X    q = tcname;
+X    while (*q && *q != ':')
+X	q++;
+X    *q = 0;
+X    if (++hopcount > MAXHOP) {
+X	(void) write(2, "Infinite tc= loop\n", 18);
+X	return (0);
+X    }
+X    if (tfindent(tcbuf, tcname) != 1) {
+X	hopcount = 0;		/* unwind recursion */
+X	return (0);
+X    }
+X    for (q = tcbuf; *q != ':'; q++);
+X    l = p - holdtbuf + strlen(q);
+X    if (l > BUFSIZ) {
+X	(void) write(2, "Termcap entry too long\n", 23);
+X	q[BUFSIZ - (p - tbuf)] = 0;
+X    }
+X    (void) strcpy(p, q + 1);
+X    tbuf = holdtbuf;
+X    hopcount = 0;		/* unwind recursion */
+X    return (1);
+X}
+X
+X/*-
+X * Tnamatch deals with name matching.  The first field of the termcap
+X * entry is a sequence of names separated by |'s, so we compare
+X * against each such name.  The normal : terminator after the last
+X * name (before the first field) stops us.
+X */
+Xtnamatch(np)
+X    char           *np;
+X{
+X    register char  *Np, *Bp;
+X
+X    Bp = tbuf;
+X    if (*Bp == '#')
+X	return (0);
+X    for (;;) {
+X	for (Np = np; *Np && *Bp == *Np; Bp++, Np++)
+X	    continue;
+X	if (*Np == 0 && (*Bp == '|' || *Bp == ':' || *Bp == 0))
+X	    return (1);
+X	while (*Bp && *Bp != ':' && *Bp != '|')
+X	    Bp++;
+X	if (*Bp == 0 || *Bp == ':')
+X	    return (0);
+X	Bp++;
+X    }
+X}
+X
+X/*-
+X * Skip to the next field.  Notice that this is very dumb, not
+X * knowing about \: escapes or any such.  If necessary, :'s can be put
+X * into the termcap file in octal.
+X */
+Xstatic char    *
+Xtskip(bp)
+X    register char  *bp;
+X{
+X
+X    while (*bp && *bp != ':')
+X	bp++;
+X    if (*bp == ':')
+X	bp++;
+X    return (bp);
+X}
+X
+X/*-
+X * Return the (numeric) option id.
+X * Numeric options look like
+X *	li#80
+X * i.e. the option string is separated from the numeric value by
+X * a # character.  If the option is not found we return -1.
+X * Note that we handle octal numbers beginning with 0.
+X */
+Xtgetnum(id)
+X    char           *id;
+X{
+X    register int    i, base;
+X    register char  *bp = tbuf;
+X
+X    for (;;) {
+X	bp = tskip(bp);
+X	if (*bp == 0)
+X	    return (-1);
+X	if (*bp++ != id[0] || *bp == 0 || *bp++ != id[1])
+X	    continue;
+X	if (*bp == '@')
+X	    return (-1);
+X	if (*bp != '#')
+X	    continue;
+X	bp++;
+X	base = 10;
+X	if (*bp == '0')
+X	    base = 8;
+X	i = 0;
+X	while (isdigit(*bp))
+X	    i *= base, i += *bp++ - '0';
+X	return (i);
+X    }
+X}
+X
+X/*-
+X * Handle a flag option.
+X * Flag options are given "naked", i.e. followed by a : or the end
+X * of the buffer.  Return 1 if we find the option, or 0 if it is
+X * not given.
+X */
+Xtgetflag(id)
+X    char           *id;
+X{
+X    register char  *bp = tbuf;
+X
+X    for (;;) {
+X	bp = tskip(bp);
+X	if (!*bp)
+X	    return (0);
+X	if (*bp++ == id[0] && *bp != 0 && *bp++ == id[1]) {
+X	    if (!*bp || *bp == ':')
+X		return (1);
+X	    else if (*bp == '@')
+X		return (0);
+X	}
+X    }
+X}
+X
+X/*-
+X * Get a string valued option.
+X * These are given as
+X *	cl=^Z
+X * Much decoding is done on the strings, and the strings are
+X * placed in area, which is a ref parameter which is updated.
+X * No checking on area overflow.
+X */
+Xchar           *
+Xtgetstr(id, area)
+X    char           *id, **area;
+X{
+X    register char  *bp = tbuf;
+X
+X    for (;;) {
+X	bp = tskip(bp);
+X	if (!*bp)
+X	    return (0);
+X	if (*bp++ != id[0] || *bp == 0 || *bp++ != id[1])
+X	    continue;
+X	if (*bp == '@')
+X	    return (0);
+X	if (*bp != '=')
+X	    continue;
+X	bp++;
+X	return (tdecode(bp, area));
+X    }
+X}
+X
+X/*-
+X * Tdecode does the grung work to decode the
+X * string capability escapes.
+X */
+Xstatic char    *
+Xtdecode(str, area)
+X    register char  *str;
+X    char          **area;
+X{
+X    register char  *cp;
+X    register int    c;
+X    register char  *dp;
+X    int             i;
+X
+X    cp = *area;
+X    while ((c = *str++) && c != ':') {
+X	switch (c) {
+X
+X	case '^':
+X	    c = *str++ & 037;
+X	    break;
+X
+X	case '\\':
+X	    dp = "E\033^^\\\\::n\nr\rt\tb\bf\f";
+X	    c = *str++;
+X    nextc:
+X	    if (*dp++ == c) {
+X		c = *dp++;
+X		break;
+X	    }
+X	    dp++;
+X	    if (*dp)
+X		goto nextc;
+X	    if (isdigit(c)) {
+X		c -= '0', i = 2;
+X		do
+X		    c <<= 3, c |= *str++ - '0';
+X		while (--i && isdigit(*str));
+X	    }
+X	    break;
+X	}
+X	*cp++ = c;
+X    }
+X    *cp++ = 0;
+X    str = *area;
+X    *area = cp;
+X    return (str);
+X}
+END_OF_FILE
+if test 11444 -ne `wc -c <'termcap.c'`; then
+    echo shar: \"'termcap.c'\" unpacked with wrong size!
+fi
+# end of 'termcap.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    echo "Now do 'sh ./configure'"
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

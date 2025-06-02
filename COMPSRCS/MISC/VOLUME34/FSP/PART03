@@ -1,0 +1,2222 @@
+Newsgroups: comp.sources.misc
+From: wen-king@vlsi.cs.caltech.edu (Wen-King Su)
+Subject:  v34i077:  fsp - Internet archive server and client software, Part03/04
+Message-ID: <1992Dec18.164016.11453@sparky.imd.sterling.com>
+X-Md4-Signature: d75dc12edea050136785277b3585f4b5
+Date: Fri, 18 Dec 1992 16:40:16 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wen-king@vlsi.cs.caltech.edu (Wen-King Su)
+Posting-number: Volume 34, Issue 77
+Archive-name: fsp/part03
+Environment: UNIX, Sockets
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bsd_src/glob.c bsd_src/ls.h bsd_src/print.c client_lib.c
+#   common_def.h fcdcmd.1 fgrabcmd.1 fprocmd.c fspd.1 server_def.h
+#   server_host.c server_main.c udp_io.c
+# Wrapped by kent@sparky on Fri Dec 18 10:21:25 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 4)."'
+if test -f 'bsd_src/glob.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bsd_src/glob.c'\"
+else
+  echo shar: Extracting \"'bsd_src/glob.c'\" \(10233 characters\)
+  sed "s/^X//" >'bsd_src/glob.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1980 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)glob.c	5.4 (Berkeley) 6/29/88";
+X#endif /* not lint */
+X
+X/*
+X * C-shell glob for random programs.
+X */
+X
+X#include "../client_def.h"
+X#include "tweak.h"
+X
+X#define	QUOTE 0200
+X#define	TRIM 0177
+X#define	eq(a,b)		(strcmp(a, b)==0)
+X#define	GAVSIZ		(NCARGS/6)
+X#define	isdir(d)	((d.st_mode & S_IFMT) == S_IFDIR)
+X
+Xstatic	char **gargv;		/* Pointer to the (stack) arglist */
+Xstatic	int gargc;		/* Number args in gargv */
+Xstatic	int gnleft;
+Xstatic	int gflag;
+Xstatic	int tglob();
+Xchar	**glob();
+Xchar	*globerr;
+Xchar	*home;
+Xstruct	passwd *getpwnam();
+Xextern	int errno;
+Xstatic	char *strspl(), *strend();
+Xchar	*malloc(), *strcpy(), *strcat();
+Xchar	**copyblk();
+X
+Xstatic	int globcnt;
+X
+Xchar	*globchars = "`{[*?";
+X
+Xstatic	char *gpath, *gpathp, *lastgpathp;
+Xstatic	int globbed;
+Xstatic	char *entp;
+Xstatic	char **sortbas;
+X
+Xstatic  rscan(), ginit(), collect(), Gcat(), sort(), acollect(), expand(),
+X	addpath(), execbrc(), matchdir(), match(), amatch();
+X
+Xchar **
+Xglob(v)
+X	register char *v;
+X{
+X	char agpath[BUFSIZ];
+X	char *agargv[GAVSIZ];
+X	char *vv[2];
+X	vv[0] = v;
+X	vv[1] = 0;
+X	gflag = 0;
+X	rscan(vv, tglob);
+X	if (gflag == 0)
+X		return (copyblk(vv));
+X
+X	globerr = 0;
+X	gpath = agpath; gpathp = gpath; *gpathp = 0;
+X	lastgpathp = &gpath[sizeof agpath - 2];
+X	ginit(agargv); globcnt = 0;
+X	collect(v);
+X	if (globcnt == 0 && (gflag&1)) {
+X		blkfree(gargv), gargv = 0;
+X		return (0);
+X	} else
+X		return (gargv = copyblk(gargv));
+X}
+X
+Xstatic
+Xginit(agargv)
+X	char **agargv;
+X{
+X
+X	agargv[0] = 0; gargv = agargv; sortbas = agargv; gargc = 0;
+X	gnleft = NCARGS - 4;
+X}
+X
+Xstatic
+Xcollect(as)
+X	register char *as;
+X{
+X	if (eq(as, "{") || eq(as, "{}")) {
+X		Gcat(as, "");
+X		sort();
+X	} else
+X		acollect(as);
+X}
+X
+Xstatic
+Xacollect(as)
+X	register char *as;
+X{
+X	register int ogargc = gargc;
+X
+X	gpathp = gpath; *gpathp = 0; globbed = 0;
+X	expand(as);
+X	if (gargc != ogargc)
+X		sort();
+X}
+X
+Xstatic
+Xsort()
+X{
+X	register char **p1, **p2, *c;
+X	char **Gvp = &gargv[gargc];
+X
+X	p1 = sortbas;
+X	while (p1 < Gvp-1) {
+X		p2 = p1;
+X		while (++p2 < Gvp)
+X			if (strcmp(*p1, *p2) > 0)
+X				c = *p1, *p1 = *p2, *p2 = c;
+X		p1++;
+X	}
+X	sortbas = Gvp;
+X}
+X
+Xstatic
+Xexpand(as)
+X	char *as;
+X{
+X	register char *cs;
+X	register char *sgpathp, *oldcs;
+X	struct stat stb;
+X
+X	sgpathp = gpathp;
+X	cs = as;
+X	if (*cs == '~' && gpathp == gpath) {
+X		addpath('~');
+X		for (cs++; letter(*cs) || digit(*cs) || *cs == '-';)
+X			addpath(*cs++);
+X		if (!*cs || *cs == '/') {
+X			if (gpathp != gpath + 1) {
+X				*gpathp = 0;
+X				if (gethdir(gpath + 1))
+X					globerr = "Unknown user name after ~";
+X				(void) strcpy(gpath, gpath + 1);
+X			} else
+X				(void) strcpy(gpath, home);
+X			gpathp = strend(gpath);
+X		}
+X	}
+X	while (!any(*cs, globchars)) {
+X		if (*cs == 0) {
+X			if (!globbed)
+X				Gcat(gpath, "");
+X			else if (util_stat(gpath, &stb) >= 0) {
+X				Gcat(gpath, "");
+X				globcnt++;
+X			}
+X			goto endit;
+X		}
+X		addpath(*cs++);
+X	}
+X	oldcs = cs;
+X	while (cs > as && *cs != '/')
+X		cs--, gpathp--;
+X	if (*cs == '/')
+X		cs++, gpathp++;
+X	*gpathp = 0;
+X	if (*oldcs == '{') {
+X		(void) execbrc(cs, ((char *)0));
+X		return;
+X	}
+X	matchdir(cs);
+Xendit:
+X	gpathp = sgpathp;
+X	*gpathp = 0;
+X}
+X
+Xstatic
+Xmatchdir(pattern)
+X	char *pattern;
+X{
+X	struct stat stb;
+X	register struct rdirent *dp;
+X	RDIR *dirp;
+X
+X	dirp = util_opendir(gpath);
+X	if (dirp == NULL) {
+X		if (globbed)
+X			return;
+X		goto patherr2;
+X	}
+X	if (util_stat(gpath, &stb) < 0)
+X		goto patherr1;
+X	if (!isdir(stb)) {
+X		errno = ENOTDIR;
+X		goto patherr1;
+X	}
+X	while ((dp = util_readdir(dirp)) != NULL) {
+X		if (dp->d_ino == 0)
+X			continue;
+X		if (match(dp->d_name, pattern)) {
+X			Gcat(gpath, dp->d_name);
+X			globcnt++;
+X		}
+X	}
+X	util_closedir(dirp);
+X	return;
+X
+Xpatherr1:
+X	util_closedir(dirp);
+Xpatherr2:
+X	globerr = "Bad directory components";
+X}
+X
+Xstatic
+Xexecbrc(p, s)
+X	char *p, *s;
+X{
+X	char restbuf[BUFSIZ + 2];
+X	register char *pe, *pm, *pl;
+X	int brclev = 0;
+X	char *lm, savec, *sgpathp;
+X
+X	for (lm = restbuf; *p != '{'; *lm++ = *p++)
+X		continue;
+X	for (pe = ++p; *pe; pe++)
+X	switch (*pe) {
+X
+X	case '{':
+X		brclev++;
+X		continue;
+X
+X	case '}':
+X		if (brclev == 0)
+X			goto pend;
+X		brclev--;
+X		continue;
+X
+X	case '[':
+X		for (pe++; *pe && *pe != ']'; pe++)
+X			continue;
+X		continue;
+X	}
+Xpend:
+X	brclev = 0;
+X	for (pl = pm = p; pm <= pe; pm++)
+X	switch (*pm & (QUOTE|TRIM)) {
+X
+X	case '{':
+X		brclev++;
+X		continue;
+X
+X	case '}':
+X		if (brclev) {
+X			brclev--;
+X			continue;
+X		}
+X		goto doit;
+X
+X	case ','|QUOTE:
+X	case ',':
+X		if (brclev)
+X			continue;
+Xdoit:
+X		savec = *pm;
+X		*pm = 0;
+X		(void) strcpy(lm, pl);
+X		(void) strcat(restbuf, pe + 1);
+X		*pm = savec;
+X		if (s == 0) {
+X			sgpathp = gpathp;
+X			expand(restbuf);
+X			gpathp = sgpathp;
+X			*gpathp = 0;
+X		} else if (amatch(s, restbuf))
+X			return (1);
+X		sort();
+X		pl = pm + 1;
+X		if (brclev)
+X			return (0);
+X		continue;
+X
+X	case '[':
+X		for (pm++; *pm && *pm != ']'; pm++)
+X			continue;
+X		if (!*pm)
+X			pm--;
+X		continue;
+X	}
+X	if (brclev)
+X		goto doit;
+X	return (0);
+X}
+X
+Xstatic
+Xmatch(s, p)
+X	char *s, *p;
+X{
+X	register int c;
+X	register char *sentp;
+X	char sglobbed = globbed;
+X
+X	if (*s == '.' && *p != '.')
+X		return (0);
+X	sentp = entp;
+X	entp = s;
+X	c = amatch(s, p);
+X	entp = sentp;
+X	globbed = sglobbed;
+X	return (c);
+X}
+X
+Xstatic
+Xamatch(s, p)
+X	register char *s, *p;
+X{
+X	register int scc;
+X	int ok, lc;
+X	char *sgpathp;
+X	struct stat stb;
+X	int c, cc;
+X
+X	globbed = 1;
+X	for (;;) {
+X		scc = *s++ & TRIM;
+X		switch (c = *p++) {
+X
+X		case '{':
+X			return (execbrc(p - 1, s - 1));
+X
+X		case '[':
+X			ok = 0;
+X			lc = 077777;
+X			while (cc = *p++) {
+X				if (cc == ']') {
+X					if (ok)
+X						break;
+X					return (0);
+X				}
+X				if (cc == '-') {
+X					if (lc <= scc && scc <= *p++)
+X						ok++;
+X				} else
+X					if (scc == (lc = cc))
+X						ok++;
+X			}
+X			if (cc == 0)
+X				if (ok)
+X					p--;
+X				else
+X					return 0;
+X			continue;
+X
+X		case '*':
+X			if (!*p)
+X				return (1);
+X			if (*p == '/') {
+X				p++;
+X				goto slash;
+X			}
+X			s--;
+X			do {
+X				if (amatch(s, p))
+X					return (1);
+X			} while (*s++);
+X			return (0);
+X
+X		case 0:
+X			return (scc == 0);
+X
+X		default:
+X			if (c != scc)
+X				return (0);
+X			continue;
+X
+X		case '?':
+X			if (scc == 0)
+X				return (0);
+X			continue;
+X
+X		case '/':
+X			if (scc)
+X				return (0);
+Xslash:
+X			s = entp;
+X			sgpathp = gpathp;
+X			while (*s)
+X				addpath(*s++);
+X			addpath('/');
+X			if (util_stat(gpath, &stb) == 0 && isdir(stb))
+X				if (*p == 0) {
+X					Gcat(gpath, "");
+X					globcnt++;
+X				} else
+X					expand(p);
+X			gpathp = sgpathp;
+X			*gpathp = 0;
+X			return (0);
+X		}
+X	}
+X}
+X
+Xstatic
+XGmatch(s, p)
+X	register char *s, *p;
+X{
+X	register int scc;
+X	int ok, lc;
+X	int c, cc;
+X
+X	for (;;) {
+X		scc = *s++ & TRIM;
+X		switch (c = *p++) {
+X
+X		case '[':
+X			ok = 0;
+X			lc = 077777;
+X			while (cc = *p++) {
+X				if (cc == ']') {
+X					if (ok)
+X						break;
+X					return (0);
+X				}
+X				if (cc == '-') {
+X					if (lc <= scc && scc <= *p++)
+X						ok++;
+X				} else
+X					if (scc == (lc = cc))
+X						ok++;
+X			}
+X			if (cc == 0)
+X				if (ok)
+X					p--;
+X				else
+X					return 0;
+X			continue;
+X
+X		case '*':
+X			if (!*p)
+X				return (1);
+X			for (s--; *s; s++)
+X				if (Gmatch(s, p))
+X					return (1);
+X			return (0);
+X
+X		case 0:
+X			return (scc == 0);
+X
+X		default:
+X			if ((c & TRIM) != scc)
+X				return (0);
+X			continue;
+X
+X		case '?':
+X			if (scc == 0)
+X				return (0);
+X			continue;
+X
+X		}
+X	}
+X}
+X
+Xstatic
+XGcat(s1, s2)
+X	register char *s1, *s2;
+X{
+X	register int len = strlen(s1) + strlen(s2) + 1;
+X
+X	if (len >= gnleft || gargc >= GAVSIZ - 1)
+X		globerr = "Arguments too long";
+X	else {
+X		gargc++;
+X		gnleft -= len;
+X		gargv[gargc] = 0;
+X		gargv[gargc - 1] = strspl(s1, s2);
+X	}
+X}
+X
+Xstatic
+Xaddpath(c)
+X	char c;
+X{
+X
+X	if (gpathp >= lastgpathp)
+X		globerr = "Pathname too long";
+X	else {
+X		*gpathp++ = c;
+X		*gpathp = 0;
+X	}
+X}
+X
+Xstatic
+Xrscan(t, f)
+X	register char **t;
+X	int (*f)();
+X{
+X	register char *p, c;
+X
+X	while (p = *t++) {
+X		if (f == tglob)
+X			if (*p == '~')
+X				gflag |= 2;
+X			else if (eq(p, "{") || eq(p, "{}"))
+X				continue;
+X		while (c = *p++)
+X			(*f)(c);
+X	}
+X}
+X/*
+Xstatic
+Xscan(t, f)
+X	register char **t;
+X	int (*f)();
+X{
+X	register char *p, c;
+X
+X	while (p = *t++)
+X		while (c = *p)
+X			*p++ = (*f)(c);
+X} */
+X
+Xstatic
+Xtglob(c)
+X	register char c;
+X{
+X
+X	if (any(c, globchars))
+X		gflag |= c == '{' ? 2 : 1;
+X	return (c);
+X}
+X/*
+Xstatic
+Xtrim(c)
+X	char c;
+X{
+X
+X	return (c & TRIM);
+X} */
+X
+X
+Xletter(c)
+X	register char c;
+X{
+X
+X	return (c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_');
+X}
+X
+Xdigit(c)
+X	register char c;
+X{
+X
+X	return (c >= '0' && c <= '9');
+X}
+X
+Xany(c, s)
+X	register int c;
+X	register char *s;
+X{
+X
+X	while (*s)
+X		if (*s++ == c)
+X			return(1);
+X	return(0);
+X}
+Xblklen(av)
+X	register char **av;
+X{
+X	register int i = 0;
+X
+X	while (*av++)
+X		i++;
+X	return (i);
+X}
+X
+Xchar **
+Xblkcpy(oav, bv)
+X	char **oav;
+X	register char **bv;
+X{
+X	register char **av = oav;
+X
+X	while (*av++ = *bv++)
+X		continue;
+X	return (oav);
+X}
+X
+Xblkfree(av0)
+X	char **av0;
+X{
+X	register char **av = av0;
+X
+X	while (*av)
+X		free(*av++);
+X/*	free((char *)av0);			BAD BAD BAD BAD */
+X}
+X
+Xstatic
+Xchar *
+Xstrspl(cp, dp)
+X	register char *cp, *dp;
+X{
+X	register char *ep = malloc((unsigned)(strlen(cp) + strlen(dp) + 1));
+X
+X	if (ep == (char *)0)
+X		{ perror("Out of memory 1"); exit(1); }
+X	(void) strcpy(ep, cp);
+X	(void) strcat(ep, dp);
+X	return (ep);
+X}
+X
+Xchar **
+Xcopyblk(v)
+X	register char **v;
+X{
+X	register char **nv = (char **)malloc((unsigned)((blklen(v) + 1) *
+X						sizeof(char **)));
+X	if (nv == (char **)0)
+X		{ perror("Out of memory 2"); exit(2); }
+X
+X	return (blkcpy(nv, v));
+X}
+X
+Xstatic
+Xchar *
+Xstrend(cp)
+X	register char *cp;
+X{
+X
+X	while (*cp)
+X		cp++;
+X	return (cp);
+X}
+X/*
+X * Extract a home directory from the password file
+X * The argument points to a buffer where the name of the
+X * user whose home directory is sought is currently.
+X * We write the home directory of the user back there.
+X */
+Xgethdir(home)
+X	char *home;
+X{
+X}
+END_OF_FILE
+  if test 10233 -ne `wc -c <'bsd_src/glob.c'`; then
+    echo shar: \"'bsd_src/glob.c'\" unpacked with wrong size!
+  fi
+  # end of 'bsd_src/glob.c'
+fi
+if test -f 'bsd_src/ls.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bsd_src/ls.h'\"
+else
+  echo shar: Extracting \"'bsd_src/ls.h'\" \(2175 characters\)
+  sed "s/^X//" >'bsd_src/ls.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Michael Fischbein.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that: (1) source distributions retain this entire copyright
+X * notice and comment, and (2) distributions including binaries display
+X * the following acknowledgement:  ``This product includes software
+X * developed by the University of California, Berkeley and its contributors''
+X * in the documentation or other materials provided with the distribution
+X * and in all advertising materials mentioning features or use of this
+X * software. Neither the name of the University nor the names of its
+X * contributors may be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X *
+X *	@(#)ls.h	5.10 (Berkeley) 4/8/90
+X */
+X
+Xtypedef struct _lsstruct {
+X	char *name;			/* file name */
+X	int len;			/* file name length */
+X	struct stat lstat;		/* lstat(2) for file */
+X} LS;
+X
+X/*
+X * overload -- we probably have to save blocks and/or maxlen with the lstat
+X * array, so tabdir() stuffs it into unused fields in the first stat structure.
+X * If there's ever a type larger than u_long, fix this.  Any calls to qsort
+X * must save and restore the values.
+X */
+X#define	st_btotal	st_dev
+X#define	st_maxlen	st_rdev
+X
+Xextern int errno;
+X
+Xextern int f_accesstime;	/* use time of last access */
+Xextern int f_group;		/* show group ownership of a file */
+Xextern int f_inode;		/* print inode */
+Xextern int f_kblocks;		/* print size in kilobytes */
+Xextern int f_longform;		/* long listing format */
+Xextern int f_singlecol;		/* use single column output */
+Xextern int f_size;		/* list size in short listing */
+Xextern int f_statustime;	/* use time of last mode change */
+Xextern int f_total;		/* if precede with "total" line */
+Xextern int f_type;		/* add type character for non-regular files */
+END_OF_FILE
+  if test 2175 -ne `wc -c <'bsd_src/ls.h'`; then
+    echo shar: \"'bsd_src/ls.h'\" unpacked with wrong size!
+  fi
+  # end of 'bsd_src/ls.h'
+fi
+if test -f 'bsd_src/print.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bsd_src/print.c'\"
+else
+  echo shar: Extracting \"'bsd_src/print.c'\" \(4381 characters\)
+  sed "s/^X//" >'bsd_src/print.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Michael Fischbein.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that: (1) source distributions retain this entire copyright
+X * notice and comment, and (2) distributions including binaries display
+X * the following acknowledgement:  ``This product includes software
+X * developed by the University of California, Berkeley and its contributors''
+X * in the documentation or other materials provided with the distribution
+X * and in all advertising materials mentioning features or use of this
+X * software. Neither the name of the University nor the names of its
+X * contributors may be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)print.c	5.22 (Berkeley) 5/10/90";
+X#endif /* not lint */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include <grp.h>
+X#include <pwd.h>
+X#include <utmp.h>
+X#include "ls.h"
+X#include "tweak.h"
+X
+X#define BLK(A) (((A)+1023)/1024)
+X
+Xprintscol(stats, num)
+X	register LS *stats;
+X	register int num;
+X{
+X	for (; num--; ++stats) {
+X		(void)printaname(stats);
+X		(void)putchar('\n');
+X	}
+X}
+X
+Xprintlong(stats, num)
+X	LS *stats;
+X	register int num;
+X{
+X	extern int errno;
+X	char *modep;
+X
+X	if (f_total)
+X		(void)printf("total %lu\n", stats[0].lstat.st_btotal);
+X	for (; num--; ++stats) {
+X		if (f_inode) (void)printf("%6lu ", stats->lstat.st_ino);
+X		if (f_size ) (void)printf("%4ld ", BLK(stats->lstat.st_size));
+X		modep = ((S_IFDIR & stats->lstat.st_mode)) ? "drwxrwxrwx"
+X							: "-rw-rw-rw-" ;
+X
+X		(void)printf("%s %3u %-*s ",
+X			modep, stats->lstat.st_nlink, 8, "nobody");
+X		if (f_group)
+X			(void)printf("%-*s ", 8, "nobody");
+X		else
+X			(void)printf("%8ld ", stats->lstat.st_size);
+X		if (f_accesstime)
+X			printtime(stats->lstat.st_atime);
+X		else if (f_statustime)
+X			printtime(stats->lstat.st_ctime);
+X		else
+X			printtime(stats->lstat.st_mtime);
+X		(void)printf("%s", stats->name);
+X		if (f_type)
+X			(void)printtype(stats->lstat.st_mode);
+X		(void)putchar('\n');
+X	}
+X}
+X
+X#define	TAB	8
+X
+Xprintcol(stats, num)
+X	LS *stats;
+X	int num;
+X{
+X	extern int termwidth;
+X	register int base, chcnt, cnt, col, colwidth;
+X	int endcol, numcols, numrows, row;
+X
+X	colwidth = stats[0].lstat.st_maxlen;
+X	if (f_inode)
+X		colwidth += 6;
+X	if (f_size)
+X		colwidth += 5;
+X	if (f_type)
+X		colwidth += 1;
+X
+X	colwidth = (colwidth + TAB) & ~(TAB - 1);
+X	if (termwidth < 2 * colwidth) {
+X		printscol(stats, num);
+X		return;
+X	}
+X
+X	numcols = termwidth / colwidth;
+X	numrows = num / numcols;
+X	if (num % numcols)
+X		++numrows;
+X
+X	if (f_size && f_total)
+X		(void)printf("total %lu\n", stats[0].lstat.st_btotal);
+X	for (row = 0; row < numrows; ++row) {
+X		endcol = colwidth;
+X		for (base = row, chcnt = col = 0; col < numcols; ++col) {
+X			chcnt += printaname(stats + base);
+X			if ((base += numrows) >= num)
+X				break;
+X			while ((cnt = (chcnt + TAB & ~(TAB - 1))) <= endcol) {
+X				(void)putchar('\t');
+X				chcnt = cnt;
+X			}
+X			endcol += colwidth;
+X		}
+X		putchar('\n');
+X	}
+X}
+X
+X/*
+X * print [inode] [size] name
+X * return # of characters printed, no trailing characters
+X */
+Xprintaname(lp)
+X	LS *lp;
+X{
+X	int chcnt;
+X
+X	chcnt = 0;
+X
+X	if (f_inode)
+X	{
+X	    printf("%5lu ", lp->lstat.st_ino);
+X	    chcnt += 6;
+X	}
+X
+X	if (f_size)
+X	{
+X	    printf("%4ld ", BLK(lp->lstat.st_size));
+X	    chcnt += 5;
+X	}
+X
+X	printf("%s", lp->name); chcnt += strlen(lp->name);
+X
+X	if (f_type)
+X	{
+X	    chcnt += printtype(lp->lstat.st_mode);
+X	}
+X
+X	return(chcnt);
+X}
+X
+Xprinttime(ftime)
+X	time_t ftime;
+X{
+X	int i;
+X	char *longstring, *ctime();
+X	time_t time();
+X
+X	longstring = ctime((long *)&ftime);
+X	for (i = 4; i < 11; ++i)
+X		(void)putchar(longstring[i]);
+X
+X#define	SIXMONTHS	((365 / 2) * 24 * 60 * 60)
+X	if (ftime + SIXMONTHS > time((time_t *)NULL))
+X		for (i = 11; i < 16; ++i)
+X			(void)putchar(longstring[i]);
+X	else {
+X		(void)putchar(' ');
+X		for (i = 20; i < 24; ++i)
+X			(void)putchar(longstring[i]);
+X	}
+X	(void)putchar(' ');
+X}
+X
+Xprinttype(mode)
+X	mode_t mode;
+X{
+X	switch(mode & S_IFMT) {
+X	case S_IFDIR:
+X		(void)putchar('/');
+X		return(1);
+X	}
+X	return(0);
+X}
+END_OF_FILE
+  if test 4381 -ne `wc -c <'bsd_src/print.c'`; then
+    echo shar: \"'bsd_src/print.c'\" unpacked with wrong size!
+  fi
+  # end of 'bsd_src/print.c'
+fi
+if test -f 'client_lib.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'client_lib.c'\"
+else
+  echo shar: Extracting \"'client_lib.c'\" \(4057 characters\)
+  sed "s/^X//" >'client_lib.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xextern int errno;
+X
+Xstatic int myfd;
+Xstatic struct sockaddr_in server_addr;
+Xstatic unsigned short myseq = 0;
+Xstatic unsigned short key;
+X
+Xint client_trace      = 0;
+Xint client_intr_state = 0;
+Xunsigned long target_delay	= 3000L;	/* expected max delay	 */
+Xunsigned long busy_delay        = 3000L;	/* busy retransmit timer */
+Xunsigned long idle_delay	= 3000L;	/* idle retransmit timer */
+Xunsigned long udp_sent_time;
+X
+XUBUF *client_interact(cmd,pos,l1,p1,l2,p2)
+X    unsigned cmd, l1, l2;
+X    unsigned long pos;
+X    unsigned char *p1, *p2;
+X{
+X    struct sockaddr_in from;
+X    UBUF sbuf;
+X    static UBUF rbuf;
+X    unsigned char *s, *t, *d;
+X    unsigned u, n, sum, mask, mlen;
+X    int retval, bytes, retry_send, retry_recv;
+X    unsigned long w_delay;
+X
+X    sbuf.cmd = cmd;
+X    sbuf.len = htons(l1);
+X    sbuf.pos = htonl(pos);
+X
+X    client_intr_state = 1;
+X
+X    for(u = l1, d = (unsigned char *) sbuf.buf; u--; *d++ = *p1++);
+X    for(u = l2				      ; u--; *d++ = *p2++);
+X    mlen = d - (unsigned char *) &sbuf;
+X
+X    key = client_get_key();
+X
+X    for(retry_send = 0; ; retry_send++)
+X    {
+X	sbuf.key = key;
+X	sbuf.seq = (myseq & 0xfffc) | (retry_send & 0x0003);
+X	sbuf.sum = 0;
+X
+X	for(t = (unsigned char *) &sbuf, sum = n = mlen; n--; sum += *t++);
+X	sbuf.sum = sum + (sum >> 8);
+X
+X	switch(retry_send)	/* adaptive retry delay adjustments */
+X	{
+X	    case  0: busy_delay = (target_delay+(busy_delay<<3)-busy_delay)>>3;
+X		     w_delay = busy_delay;
+X		     break;
+X
+X	    case  1: busy_delay = busy_delay + (busy_delay >> 1);
+X		     w_delay = busy_delay;
+X		     if(client_trace) write(2,"R",1);
+X		     break;
+X
+X	    default: if(idle_delay < 5*60*1000) idle_delay = idle_delay << 1;
+X		     w_delay = idle_delay;
+X		     if(client_trace) write(2,"I",1);
+X		     break;
+X	}
+X
+X	if(sendto(myfd,&sbuf,mlen,0,&server_addr,sizeof(server_addr)) == -1)
+X						{ perror("sendto"); exit(1); }
+X	udp_sent_time = time((time_t *) 0);
+X	mask = 1 << myfd;
+X
+X	for(retry_recv = 0; ; retry_recv++)
+X	{
+X	    if(retry_recv) write(2,"E",1);
+X
+X	    retval = _x_select(&mask, w_delay);
+X
+X	    if((retval == -1) && (errno == EINTR)) continue;
+X
+X	    if(retval == 1)    /* an incoming message is waiting */
+X	    {
+X		bytes = sizeof(from);
+X		if((bytes = recvfrom(myfd,(char*)&rbuf,sizeof(rbuf),0,
+X					&from,&bytes)) < UBUF_HSIZE) continue;
+X
+X		s = (unsigned char *) &rbuf;
+X		d = s + bytes;
+X		u = rbuf.sum; rbuf.sum = 0;
+X		for(t = s, sum = 0; t < d; sum += *t++);
+X		sum = (sum + (sum >> 8)) & 0xff;
+X		if(sum != u) continue;  /* wrong check sum */
+X
+X		rbuf.len = htons(rbuf.len);
+X		rbuf.pos = htonl(rbuf.pos);
+X
+X		if((rbuf.seq & 0xfffc) != myseq) continue;  /* wrong seq # */
+X		if(rbuf.len+UBUF_HSIZE  > bytes) continue;  /* truncated.  */
+X
+X		myseq = (myseq + 0x0004) & 0xfffc;  /* seq for next request */
+X		key   = rbuf.key;		    /* key for next request */
+X
+X		client_put_key(key);
+X
+X		if(client_intr_state == 2)
+X		{
+X		    if(!key_persists) client_done();
+X		    exit(1);
+X		}
+X
+X		return(&rbuf);
+X
+X	    } else break;   /* go back to re-transmit buffer again */
+X	}
+X    }
+X}
+X
+Xinit_client(host,port,myport)
+X    char *host;
+X    int   port;
+X    int myport;
+X{
+X    busy_delay = idle_delay = target_delay;
+X
+X    if((myfd = _x_udp(&myport)) == -1)
+X		{ perror("socket open"); exit(1); }
+X
+X    if(_x_adr(host,port,&server_addr) == -1)
+X		{ perror("server addr"); exit(1); } 
+X
+X    client_init_key(server_addr.sin_addr.s_addr,port,getpid());
+X}
+X
+Xclient_done()
+X{
+X    (void) client_interact(CC_BYE,0L,0,NULLP,0,NULLP);
+X}
+END_OF_FILE
+  if test 4057 -ne `wc -c <'client_lib.c'`; then
+    echo shar: \"'client_lib.c'\" unpacked with wrong size!
+  fi
+  # end of 'client_lib.c'
+fi
+if test -f 'common_def.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'common_def.h'\"
+else
+  echo shar: Extracting \"'common_def.h'\" \(5145 characters\)
+  sed "s/^X//" >'common_def.h' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include <stdio.h>
+X#include <sys/param.h>
+X#include <sys/types.h>
+X#include <errno.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <sys/stat.h>
+X#include <sys/time.h>
+X#include <fcntl.h>
+X#include <signal.h>
+X
+X#ifdef DIRENT
+X#include <dirent.h>
+X#else
+X#include <sys/dir.h>
+X#endif
+X
+X/****************************************************************************
+X*  UBUF is the structure of message exchanged between server and clients. 
+X*
+X*    The 'buf' part of the buffer is variable lenght up to max of 1024.
+X*    The 'key' field is used by the server for sequence identification.
+X*    The 'seq' field is used by the client for sequence identification.
+X*
+X*  Client's message to server contain a key value that is the same as the
+X*  key value of the previous message received from the server.  Similarly,
+X*  the server's message to client contains a seq value that is the same
+X*  as the seq value of the previous message from the client. 
+X*
+X*  The buf field is logically partitioned into two parts by the len field.
+X*  The len field indicate the size of the first part of the buffer starting
+X*  at buf[0].  The rest of the buffer is the second field.  In some cases
+X*  both fields can contain information.
+X*
+X****************************************************************************/
+X
+X#define UBUF_HSIZE 12                           /* 12 bytes for the header */
+X#define UBUF_SPACE 1024			        /* maximum payload.        */
+X
+Xtypedef struct UBUF {            char   cmd;  /* message code.             */
+X                        unsigned char   sum;  /* message checksum.         */
+X                        unsigned short  key;  /* message key.              */
+X                        unsigned short  seq;  /* message sequence number.  */
+X                        unsigned short  len;  /* number of bytes in buf 1. */
+X                        unsigned long   pos;  /* location in the file.     */
+X
+X                        char   buf[UBUF_SPACE];
+X                    } UBUF;
+X
+X/* definition of cmd */
+X
+X#define CC_VERSION	0x10	/* return server's version string.	*/
+X#define CC_ERR          0x40    /* error response from server.          */
+X#define CC_GET_DIR      0x41    /* get a directory listing.             */
+X#define CC_GET_FILE     0x42    /* get a file.                          */
+X#define CC_UP_LOAD      0x43    /* open a file for writing.             */
+X#define CC_INSTALL      0x44    /* close a file opened for writing.     */
+X#define CC_DEL_FILE     0x45    /* delete a file.                       */
+X#define CC_DEL_DIR      0x46    /* delete a directory.                  */
+X#define CC_GET_PRO      0x47    /* get directory protection.            */
+X#define CC_SET_PRO      0x48    /* set directory protection.            */
+X#define CC_MAKE_DIR     0x49    /* create a directory.                  */
+X#define CC_BYE          0x4A    /* finish a session.                    */
+X#define CC_GRAB_FILE    0x4B	/* atomic get+delete a file.		*/
+X#define CC_GRAB_DONE    0x4C	/* atomic get+delete a file done.	*/
+X#define CC_LIMIT	0x80	/* # > 0x7f for future cntrl blk ext.   */
+X
+X/****************************************************************************
+X*  RDIRENT is the structure of a directory entry contained in a .FSP_CONTENT
+X*  file.  Each entry contains a 4 bytes quantity 'time', a 4 bytes quentity
+X*  'size', and 1 byte of 'type'.  Then followed by x number of bytes of
+X*  'name'.  'name' is null terminated.  Then followed by enough number of
+X*  padding to fill to an 4-byte boundary.  At this point, if the next entry
+X*  to follow will spread across 1k boundary, then two possible things will
+X*  happen.  1) if the header fits between this entry and the 1k boundary,
+X*  a complete header will be filled in with a 'type' set to RDTYPE_SKIP.
+X*  And then enough bytes to padd to 1k boundary.  2) if the header does
+X*  not fit, then simply pad to the 1k boundary.  This will make sure that
+X*  messages carrying directory information carry only complete directory
+X*  entries and no fragmented entries.  The last entry is type RDTYPE_END.
+X****************************************************************************/
+X
+X#define RDHSIZE (2*sizeof(unsigned long)+sizeof(unsigned char))
+X
+Xtypedef struct RDIRENT { unsigned long  time;
+X                         unsigned long  size;
+X                         unsigned char  type;
+X                         char        name[1]; } RDIRENT;
+X
+X#define RDTYPE_END      0x00
+X#define RDTYPE_FILE     0x01
+X#define RDTYPE_DIR      0x02
+X#define RDTYPE_SKIP     0x2A
+X
+X#define NULLP ((char *) 0)
+END_OF_FILE
+  if test 5145 -ne `wc -c <'common_def.h'`; then
+    echo shar: \"'common_def.h'\" unpacked with wrong size!
+  fi
+  # end of 'common_def.h'
+fi
+if test -f 'fcdcmd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fcdcmd.1'\"
+else
+  echo shar: Extracting \"'fcdcmd.1'\" \(2145 characters\)
+  sed "s/^X//" >'fcdcmd.1' <<'END_OF_FILE'
+X.TH FCD 1 "8 December 1991"
+X.SH NAME
+Xfcdcmd, fcd \- change client's current working directory in the FSP database
+X.SH SYNOPSIS
+X.B fcdcmd
+X.I path
+X.LP
+X.B fcd
+X.I path
+X.SH DESCRIPTION
+X.LP
+XIf no paths are given, / is used as the current working directory.  If
+X.I path
+Xbegins with a /,
+X.B fcdcmd
+Xuses it as the current working directory.  Otherwise,
+X.B fcdcmd
+Xappends
+X.I path
+Xto the end of the current working directory.  In both cases,
+X.B fcdcmd
+Xsimplifies the new path and writes it to the
+X.I stdout.
+XIn order for the effect of
+X.B fcdcmd
+Xto be felt in subsequent FSP transactions, user needs to save the
+X.I stdout
+Xoutput in the
+X.I FSP_DIR
+Xvariable.  If the change is successful,
+X.B fcdcmd
+Xwill display the protection setting of the new working directory.
+X.LP
+X.B fcdcmd
+Xwill perform
+X.B csh
+Xfile name globbing based on file and directory information
+Xobtained from the FSP database.
+X.LP
+XSince user's command shells generally cannot do the proper globbing for
+Xthis program, it is recommended that user defines a shell alias or
+Xfucntion to turns off command shell globbing before running this program.
+X.B csh
+Xexample:
+X.LP
+X.nf
+Xalias fcd setenv FSP_DIR \e`\e(set noglob\e; exec fcdcmd \e!\e*\e)\e`
+X.fi
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+X.br
+X.ne 5
+X.SH BUGS
+X.LP
+XIf more than one
+X.B paths
+Xare given, only the first one will be used.
+XThe rest will be silently ignored.
+END_OF_FILE
+  if test 2145 -ne `wc -c <'fcdcmd.1'`; then
+    echo shar: \"'fcdcmd.1'\" unpacked with wrong size!
+  fi
+  # end of 'fcdcmd.1'
+fi
+if test -f 'fgrabcmd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fgrabcmd.1'\"
+else
+  echo shar: Extracting \"'fgrabcmd.1'\" \(2112 characters\)
+  sed "s/^X//" >'fgrabcmd.1' <<'END_OF_FILE'
+X.TH FGET 1 "8 December 1991"
+X.SH NAME
+Xfgrabcmd, fgrab \- download files from the FSP database
+X.SH SYNOPSIS
+X.B fgrabcmd
+X.br
+X.B fgrabcmd
+X.I filename
+X\&.\|.\|.
+X.LP
+X.B fgrab
+X.br
+X.B fgrab
+X.I filename
+X\&.\|.\|.
+X.SH DESCRIPTION
+X.LP
+XWhen used without arguments, a list of file names is read from the
+Xstandard input.  When arguments are given, the arguments are taken
+Xto be the list of file names.  For each file named in the list,
+X.B fgrabcmd
+Xcopies the file to the client's current working directory in the
+Xclient machine, and deletes it from the FSP database.
+XIt is guaranteed that multiple concurrent grab actions appear to be
+Xmutually exclusive.
+X.B fgrabcmd
+Xwill perform
+X.B csh
+Xfile name globbing based on file and directory information
+Xobtained from the FSP database.
+X.LP
+XSince user's command shells generally cannot do the proper globbing for
+Xthis program, it is recommended that user defines a shell alias or
+Xfucntion to turns off command shell globbing before running this program.
+X.B csh
+Xexample:
+X.LP
+X.nf
+Xalias fgrab \e(set noglob\e; exec fgrabcmd \e!\e*\e)
+X.fi
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.TP
+X.B FSP_TRACE
+XIf this variable is set,   
+X.B fgrabcmd
+Xwill display the number of kilo-byte blocks transfered as transfer 
+Xprogresses. 
+X.SH "BUGS"
+XIf
+X.B fgrab
+Xis interrupted, the file being copied is deleted nonetheless.
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+END_OF_FILE
+  if test 2112 -ne `wc -c <'fgrabcmd.1'`; then
+    echo shar: \"'fgrabcmd.1'\" unpacked with wrong size!
+  fi
+  # end of 'fgrabcmd.1'
+fi
+if test -f 'fprocmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fprocmd.c'\"
+else
+  echo shar: Extracting \"'fprocmd.c'\" \(1689 characters\)
+  sed "s/^X//" >'fprocmd.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xextern char **glob(), *util_abs_path();
+X
+Xstatic print_pro(p)
+X    char *p;
+X{
+X    char *op;
+X    UBUF *ub;
+X
+X    op = util_abs_path(p);
+X
+X    ub = client_interact(CC_GET_PRO,0L, strlen(op),op+1, 0,NULLP);
+X
+X    printf("%s\t: %s\n",p,ub->buf);
+X
+X    return(0);
+X}
+X
+Xstatic set_pro(p,key)
+X    char *p, *key;
+X{
+X    char *op;
+X    UBUF *ub;
+X
+X    op = util_abs_path(p);
+X
+X    ub = client_interact(CC_SET_PRO,0L, strlen(op),op+1, strlen(key)+1,key);
+X
+X    printf("%s\t: %s\n",p,ub->buf);
+X
+X    return(0);
+X}
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv,**envp;
+X{
+X    char **av, *av2[2], *key;
+X
+X    env_client();
+X
+X    if(argv[1]	&& (argv[1][0] == '+' || argv[1][0] == '-') && !argv[1][2])
+X    {
+X        key = *++argv;
+X
+X	while(*++argv)
+X	{
+X	    if(!(av = glob(*argv))) { av = av2; av2[0] = *argv; av2[1] = 0; }
+X	    while(*av) set_pro(*av++,key);
+X	}
+X
+X    } else
+X    {
+X	if(argv[1]) while(*++argv)
+X	{
+X	    if(!(av = glob(*argv))) { av = av2; av2[0] = *argv; av2[1] = 0; }
+X	    while(*av) print_pro(*av++);
+X
+X	} else print_pro(".");
+X    }
+X
+X    client_done();
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1689 -ne `wc -c <'fprocmd.c'`; then
+    echo shar: \"'fprocmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'fprocmd.c'
+fi
+if test -f 'fspd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fspd.1'\"
+else
+  echo shar: Extracting \"'fspd.1'\" \(2370 characters\)
+  sed "s/^X//" >'fspd.1' <<'END_OF_FILE'
+X.TH FSPD 1 "8 December 1991"
+X.SH NAME
+Xfspd, in.fspd \- server for the FSP database
+X.SH SYNOPSIS
+X.B fspd
+X[
+X.B -h path
+X.B |
+X.B -p port
+X.B |
+X.B -u uid
+X]
+X.LP
+X.B in.fspd
+X.SH DESCRIPTION
+X.B fspd
+Xis the server for an anonymous-ftp style archive called FSP. The main
+Xfeatures of this service are: connection-less model, communication
+Xrobustness, server resource protection, inter-client protection, and user
+Xfriendly interface. Please read the INFO file bundled with the FSP source
+Xfor more information. 
+X.LP
+X.SH FILES
+X.PD 0
+X.TP 20
+X.B .OWN.XXXXXXXX
+XUsed to indicate the ownership of a directory.  If this file is
+Xpresent in a directory, the directory is owned by the machine whose
+Xinet number is XXXXXXXX when printed as an 8-digit hex number.
+X
+X.TP
+X.B .FSP_OK_DEL
+XExistence of this file in a directory grants non-owner machines
+Xthe permission to delete items from this directory.
+X
+X.TP
+X.B .FSP_OK_ADD
+XExistence of this file in a directory grants non-owner machines
+Xthe permission to add items to this directory.
+X
+X.TP
+X.B .TXXXXXXXXXXXX
+XTransient temporary file in the FSP directory cache directory used for file
+Xuploading.
+X
+X.TP
+X.B .GXXXXXXXXXXXX
+XTransient temporary file in the FSP directory used for file
+Xdownloading through the
+X.B fgrab
+Xcommand.
+X
+X.TP
+X.B .HTAB_DUMP
+XA file created in the top directory when
+X.B fspd
+Xreceives an alarm signal.  It contains a listing of the active
+Xclients in
+X.B fspd's
+Xclient table.
+X
+X.TP
+X.B .ROGUE_HOSTS
+XA file containing a list of inet numbers in the normal 4-part format.
+X.B fspd
+Xwill not respond to messages from machines named in this file.
+X
+X.TP
+X.B .FSP_CONTENT
+XFile used to cache directory listing.  Such files are normally created
+Xon demand in each directory that
+X.B fspd
+Xexports.  If a
+X.B .FSP_CONTENT
+Xfile exists in a directory, but is not writable by the
+X.B fspd
+Xprocess, then the directory cannot be listed.  If it does not exist and
+X.B fspd
+Xfails in its attempt to create a
+X.B .FSP_CONTENT
+Xfile, then
+X.B fspd
+Xwill create one with a hashed name in a cache directory specified during
+Xcompile time.  Options can be set at compile time such that 
+X.B fspd
+Xwill create a cache file in the cache directory even if a
+X.B .FSP_CONTENT
+Xfile could have been created in the directory to be listed.
+X
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+END_OF_FILE
+  if test 2370 -ne `wc -c <'fspd.1'`; then
+    echo shar: \"'fspd.1'\" unpacked with wrong size!
+  fi
+  # end of 'fspd.1'
+fi
+if test -f 'server_def.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server_def.h'\"
+else
+  echo shar: Extracting \"'server_def.h'\" \(2399 characters\)
+  sed "s/^X//" >'server_def.h' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "common_def.h"
+X
+X/****************************************************************************
+X*  HTAB is structure for storing client information for one client machine.
+X*  They makes it easy to reuse regular unix tool's source for new purposes.
+X****************************************************************************/
+X
+Xtypedef struct HTAB HTAB;
+X
+Xstruct HTAB {	unsigned long	inet_num;	/* inet number of client     */
+X		unsigned long   last_acc;	/* last sucessful access time*/
+X		unsigned short	next_key;	/* next key client should use*/
+X		unsigned short	last_key;	/* previous key client used  */
+X		unsigned short   acc_cnt;	/* number of successful acc  */
+X		unsigned short  active:1;   	/* session continuing.	     */
+X		unsigned short inhibit:1; };	/* deny access permission.   */
+X
+X/*****************************************************************************
+X* The PPATH structure is filled in by the function check_path when given a
+X* path string.  See server_file.c for more info.
+X*****************************************************************************/
+X
+Xtypedef struct { char *fullp;
+X		 char *f_ptr;
+X		 int   f_len;
+X		 char *d_ptr;
+X		 int   d_len; } PPATH;
+X
+Xextern init_htab();
+Xextern HTAB *find_host();
+Xextern char *check_path();
+X
+Xextern char *server_make_dir();
+Xextern char *server_del_dir();
+Xextern char *server_del_file();
+Xextern char *server_get_dir();
+Xextern char *server_get_file();
+Xextern char *server_get_pro();
+Xextern char *server_set_pro();
+Xextern char *server_up_load();
+Xextern char *server_install();
+Xextern char *server_secure_file();
+Xextern char *server_grab_file();
+Xextern char *server_grab_done();
+X
+Xextern int dbug;
+Xextern char *home_dir;
+Xextern int max_nlen;
+Xextern int always_use_cache_dir;
+Xextern int dir_cache_limit;
+Xextern char *dir_cache_dir;
+END_OF_FILE
+  if test 2399 -ne `wc -c <'server_def.h'`; then
+    echo shar: \"'server_def.h'\" unpacked with wrong size!
+  fi
+  # end of 'server_def.h'
+fi
+if test -f 'server_host.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server_host.c'\"
+else
+  echo shar: Extracting \"'server_host.c'\" \(4144 characters\)
+  sed "s/^X//" >'server_host.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "server_def.h"
+X
+X/****************************************************************************
+X* This file contains routines to maintain client database.
+X****************************************************************************/
+X
+Xextern char *realloc(), *malloc(), *ctime();
+X
+Xstatic HTAB     *htab;		/* client data base.			*/
+Xstatic unsigned  hcnt;		/* number of clients.			*/
+Xstatic unsigned  htot = 0;	/* available entries in the data base.	*/
+Xstatic HTAB     hzero;
+X
+X#define HALLOC_SIZE 30
+X
+X/****************************************************************************
+X* Returns an entry from the database corresponding to to the inet number.
+X* A new entry is created is it is not found.
+X* The database is a linear array of sorted structures.
+X* Entries are searched using binary search on the array.
+X****************************************************************************/
+X
+XHTAB *find_host(inet_num)
+X    unsigned long inet_num;
+X{
+X    unsigned	  l, h, m, i;
+X    unsigned long inum;
+X    HTAB	  *hs, *hd;
+X
+X    for(l = 0, h = hcnt-1; (m = (l + h) >> 1) != l; )	/* binary search */
+X    {
+X	inum = htab[m].inet_num;
+X	if(inum > inet_num) h = m; else
+X	if(inum < inet_num) l = m; else { htab[m].acc_cnt++; return(htab+m); }
+X    }
+X
+X    if(htab[m].inet_num < inet_num) m++;  /* locate first entry that is > */
+X
+X    if((hcnt+1) > htot)			/* need more space */
+X    {
+X	htot += HALLOC_SIZE;		/* add HALLOC_SIZE entries at a time */
+X
+X	if(!(htab = (HTAB *) realloc(htab,sizeof(HTAB)*htot)))
+X				    { perror("grow_htab realloc"); exit(1); }
+X    }
+X
+X    for(i = hcnt-m, hs = htab+hcnt, hd=htab+hcnt+1; i--; *--hd = *--hs);
+X
+X    htab[m]=hzero;
+X    htab[m].inet_num = inet_num;
+X    htab[m].last_key = get_next_key()  ;
+X    htab[m].next_key = get_next_key()+1;
+X    hcnt++;
+X    return(htab+m);
+X}
+X
+X/****************************************************************************
+X* Write out the client table in the .HTAB_DUMP file.
+X****************************************************************************/
+X
+Xdump_htab()
+X{
+X    int i;
+X    FILE *fp;
+X    HTAB *hp;
+X
+X    if(!(fp = fopen(".HTAB_DUMP","w"))) return;
+X
+X    for(i = hcnt-2, hp = htab+1; i--; hp++)
+X    {
+X	fprintf(fp,"%d.%d.%d.%d\t%5d %c %s",
+X			    ((unsigned char *)(&hp->inet_num))[0],
+X			    ((unsigned char *)(&hp->inet_num))[1],
+X			    ((unsigned char *)(&hp->inet_num))[2],
+X			    ((unsigned char *)(&hp->inet_num))[3],
+X			    hp->acc_cnt,
+X			    (hp->inhibit) ? '*' : ((hp->active) ? '+' : ' '),
+X			    ctime((time_t *) &(hp->last_acc)));
+X    }
+X
+X    fclose(fp);
+X}
+X
+X/****************************************************************************
+X* Client database initialization routine.  Reads in .ROGUE_HOSTS.
+X****************************************************************************/
+X
+Xinit_htab()		/* always have 2 entries -- 0, MAXINT */
+X{
+X    FILE *fp;
+X    HTAB	*hp;
+X    char  buf[1024];
+X    unsigned int i1,i2,i3,i4;
+X    unsigned long hnum;
+X
+X    if(!(htab = (HTAB *) malloc(sizeof(HTAB)*HALLOC_SIZE)))
+X				{ perror("grow_htab malloc"); exit(1); }
+X    htab[0] = hzero;
+X    htab[1] = hzero;
+X    htab[1].inet_num = ~0;
+X    hcnt = 2;
+X    htot = HALLOC_SIZE;
+X
+X    if(fp = fopen(".ROGUE_HOSTS","r"))
+X    {
+X	while(fgets(buf,sizeof(buf),fp))
+X	{
+X	    if(*buf < '0' || *buf > '9') continue;
+X
+X	    sscanf(buf,"%d.%d.%d.%d",&i1,&i2,&i3,&i4);
+X	    ((unsigned char *) (&hnum))[0] = i1;
+X	    ((unsigned char *) (&hnum))[1] = i2;
+X	    ((unsigned char *) (&hnum))[2] = i3;
+X	    ((unsigned char *) (&hnum))[3] = i4;
+X	    hp = find_host(hnum);
+X	    hp->inhibit = 1;
+X	}
+X	fclose(fp);
+X    }
+X}
+END_OF_FILE
+  if test 4144 -ne `wc -c <'server_host.c'`; then
+    echo shar: \"'server_host.c'\" unpacked with wrong size!
+  fi
+  # end of 'server_host.c'
+fi
+if test -f 'server_main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server_main.c'\"
+else
+  echo shar: Extracting \"'server_main.c'\" \(6467 characters\)
+  sed "s/^X//" >'server_main.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "server_def.h"
+X
+X#define ERR(S) { send_error(from,ub,S); return; }
+X
+Xint max_nlen   = FILE_NAME_LIMIT;
+Xint inetd_mode =               0;
+Xint dbug       =               0;
+Xint   udp_port =    DEF_FSP_PORT;
+Xchar *home_dir =    DEF_FSP_HOME;
+Xchar *run_uid  =               0;
+X
+Xint always_use_cache_dir = ALWAYS_USE_CACHE_DIR;
+Xint dir_cache_limit      = MAX_DIR_CACHE_COUNT;
+Xchar *dir_cache_dir      = DEF_DIRECTORY_CACHE;
+X
+X/****************************************************************************
+X*  This is the dispatch loop for message that has been accepted.
+X*    bytes: size of the message received.
+X*       ub: pointer to the message buffer.
+X*      old: true if this message contains old sequence number (retransmit).
+X*       hp: pointer to the entry for the client host who sent this message.
+X*     from: pointer to the socket address structure of the client host.
+X****************************************************************************/
+X
+Xserver_get_packet(bytes,ub,old,hp,from)
+X    int   bytes,old;
+X    UBUF *ub;
+X    HTAB *hp;
+X    struct sockaddr_in *from;
+X{
+X    unsigned long  inet_num;
+X    unsigned short port_num;
+X    unsigned l1, l2;
+X    char *s1, *s2, *pe;
+X    FILE *fp;
+X    PPATH pp;
+X
+X    l1 = ub->len;
+X    l2 = bytes - l1 - UBUF_HSIZE;
+X    s1 = ub->buf;
+X    s2 = ub->buf + l1;
+X
+X    if(dbug) fprintf(stderr,"rcv (%c,%d,%d,%lu) <--- %d.%d.%d.%d\n",
+X		ub->cmd, l1, l2, ub->pos,
+X		((unsigned char *)(&hp->inet_num))[0],
+X		((unsigned char *)(&hp->inet_num))[1],
+X		((unsigned char *)(&hp->inet_num))[2],
+X		((unsigned char *)(&hp->inet_num))[3]);
+X
+X    if(!old) { hp->last_key = hp->next_key;
+X	       hp->next_key = get_next_key() + ((hp->last_key+1) & 0x00ff); }
+X
+X    ub->key  = hp->next_key;
+X    inet_num = hp->inet_num;
+X    port_num = from->sin_port;
+X
+X    switch(ub->cmd)
+X    {
+X      case CC_VERSION : { ERR(VERSION_STR); }
+X
+X      case CC_BYE     : { if(!old) hp->active = 0;
+X			  server_reply(from,ub,0,0);
+X			  return; }
+X			
+X      case CC_GET_DIR : { if((pe = check_path(s1,l1,&pp)) ||
+X			     (pe = server_get_dir(&pp,&fp))) ERR(pe);
+X			  send_file(from,ub,fp,l2,s2);
+X			  fclose(fp);
+X			  return; }
+X
+X      case CC_GET_FILE: { if((pe = check_path(s1,l1,&pp)) ||
+X		             (pe = server_get_file(&pp,&fp))) ERR(pe);
+X			  send_file(from,ub,fp,l2,s2);
+X			  fclose(fp);
+X			  return; }
+X
+X      case CC_DEL_FILE: { if(!old)
+X			    if((pe = check_path(s1,l1,&pp)) ||
+X			       (pe = server_del_file(&pp,inet_num))) ERR(pe);
+X			  server_reply(from,ub,0,0);
+X			  return; }
+X
+X      case CC_DEL_DIR : { if(!old)
+X			    if((pe = check_path(s1,l1,&pp)) ||
+X			       (pe = server_del_dir(&pp,inet_num))) ERR(pe);
+X			  server_reply(from,ub,0,0);
+X			  return; }
+X
+X      case CC_UP_LOAD : { if(!old)
+X			    if(pe = server_up_load(s1,l1,ub->pos,
+X						   inet_num,port_num)) ERR(pe);
+X			  server_reply(from,ub,0,0);
+X			  return; }
+X
+X      case CC_INSTALL : { if(!old)
+X			    if((pe = check_path(s1,l1,&pp)) ||
+X			       (pe = server_install(&pp,inet_num,port_num)))
+X								       ERR(pe);
+X			  server_reply(from,ub,0,0);
+X			  return; }
+X
+X      case CC_MAKE_DIR: { if(!old)
+X			    if((pe = check_path(s1,l1,&pp)) ||
+X			       (pe = server_make_dir(&pp,inet_num))) ERR(pe);
+X			  if(pe = server_get_pro(&pp,s1,inet_num)) ERR(pe);
+X			  server_reply(from,ub,strlen(ub->buf)+1,0);
+X			  return; }
+X
+X      case CC_GET_PRO : { if((pe = check_path(s1,l1,&pp)) ||
+X			     (pe = server_get_pro(&pp,s1,inet_num))) ERR(pe);
+X			  server_reply(from,ub,strlen(ub->buf)+1,0);
+X			  return; }
+X
+X      case CC_SET_PRO : { if(!old)
+X			    if((pe = check_path(s1,l1,&pp)) ||
+X			       (pe = server_set_pro(&pp,s2,inet_num))) ERR(pe);
+X			  if(pe = server_get_pro(&pp,s1,inet_num)) ERR(pe);
+X			  server_reply(from,ub,strlen(ub->buf)+1,0);
+X			  return; }
+X
+X      case CC_GRAB_FILE: { if(pe = check_path(s1,l1,&pp)) ERR(pe);
+X			   if(!old && !ub->pos)
+X			     if(pe = server_secure_file(&pp,inet_num,port_num))
+X								       ERR(pe);
+X			   if(pe = server_grab_file(&pp,&fp,inet_num,port_num))
+X								       ERR(pe);
+X			   send_file(from,ub,fp,l2,s2);
+X			   fclose(fp);
+X			   return; }
+X
+X      case CC_GRAB_DONE: { if(pe = check_path(s1,l1,&pp)) ERR(pe);
+X			   if(!old)
+X			     if(pe = server_grab_done(&pp,inet_num,port_num))
+X								       ERR(pe);
+X			   server_reply(from,ub,0,0);
+X			   return; }
+X
+X    }
+X}
+X
+Xarg_err()
+X{
+X    fputs("arg: -h absolute_path    set home directory.\n",stderr);
+X    fputs("     -p udp_port_number  set port number.\n",stderr);
+X    fputs("     -u uid_number       assume this uid after startup.\n",stderr);
+X    fputs("     -d                  turn on debug mode.\n",stderr);
+X    exit(1);
+X}
+X
+Xmain(argc,argv)
+X    int argc;
+X    char **argv;
+X{
+X    int t;
+X
+X    inetd_mode = !strcmp(argv[0],"in.fspd");
+X
+X    if(inetd_mode)
+X    {
+X	init_inetd();
+X	freopen("/dev/null","r",stdin);
+X	freopen("/dev/null","w",stdout);
+X	freopen("/dev/null","w",stderr);
+X    }
+X
+X    for(t = 1; t < argc; t++)
+X    {
+X	if(argv[t][0] == '-') switch(argv[t][1])
+X	{
+X	    case 'd':	dbug++; break;
+X
+X	    case 'h':	if(argv[t][2]) home_dir = argv[t]+2; else
+X			if(argv[t+1] ) home_dir = argv[++t]; else
+X								arg_err();
+X			break;
+X
+X	    case 'u':	if(argv[t][2]) run_uid = argv[t]+2; else
+X			if(argv[t+1] ) run_uid = argv[++t]; else
+X								arg_err();
+X			break;
+X
+X	    case 'p':	if(argv[t][2]) udp_port = atoi(argv[t]+2); else
+X			if(argv[t+1] ) udp_port = atoi(argv[++t]); else
+X								arg_err();
+X			break;
+X
+X	    default : arg_err();
+X
+X	} else arg_err();
+X    }
+X
+X    if(!inetd_mode)
+X    {
+X	init_network(udp_port);
+X	if(!dbug) { freopen("/dev/null","r",stdin);
+X		    freopen("/dev/null","w",stdout);
+X		    freopen("/dev/null","w",stderr); }
+X    }
+X
+X    if(run_uid) if(setuid(atoi(run_uid)) != 0) exit(1);
+X    init_home_dir();
+X    init_htab();
+X
+X    srandom(getpid());
+X
+X    if(inetd_mode) {	      server_loop(120*1000L); }  /* 2 minutes */
+X	      else { while(1) server_loop(      -1L); }
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 6467 -ne `wc -c <'server_main.c'`; then
+    echo shar: \"'server_main.c'\" unpacked with wrong size!
+  fi
+  # end of 'server_main.c'
+fi
+if test -f 'udp_io.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'udp_io.c'\"
+else
+  echo shar: Extracting \"'udp_io.c'\" \(4025 characters\)
+  sed "s/^X//" >'udp_io.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "common_def.h"
+X
+Xstatic struct sockaddr_in INET_ZERO = { AF_INET };
+X
+Xextern int errno;
+X#define DSIZE (sizeof(int)*8)
+X#define SAVE(A) { int sav; sav = errno; A; errno = sav; }
+X
+X#ifndef EXOS_IPC
+X
+X#include <netdb.h>
+X
+Xextern unsigned long inet_addr();
+X
+X_x_udp(port)
+X    int *port;
+X{
+X    int f, len, zz;
+X    struct sockaddr_in me ;
+X    struct sockaddr_in sin;
+X
+X    me = sin = INET_ZERO;
+X
+X    me.sin_port = htons((unsigned short) *port);
+X    me.sin_family = AF_INET;
+X 
+X    if((f=socket(AF_INET,SOCK_DGRAM,0)) == -1) return(-1);
+X 
+X    if( setsockopt(f,SOL_SOCKET,SO_REUSEADDR,(char *)&zz,sizeof(zz)) < 0 ||
+X        bind(f,(struct sockaddr *) &me,(len = sizeof(me))) < 0 ||
+X        getsockname(f,(char *)&sin,&len) < 0)
+X                                { SAVE(((void) close(f))); return(-1); }
+X    if(!*port) *port = ntohs((unsigned short) sin.sin_port); return(f);
+X}      
+X
+X_x_adr(host,port,his)
+X    struct sockaddr_in *his;
+X    char *host;
+X    int port;
+X{
+X    char myhost[128];
+X    struct hostent *H;
+X    int    i;
+X    char *s, *d;
+X 
+X    *his = INET_ZERO;
+X    if(!host) (void) gethostname(host = myhost,sizeof(myhost));
+X 
+X    if((his->sin_addr.s_addr = inet_addr(host)) != -1)
+X    {   his->sin_family = AF_INET;
+X    } else
+X    if(H = gethostbyname(host))
+X    {   for(s = (char *)H->h_addr, d = (char *)&his->sin_addr, i = H->h_length;
+X						i--; *d++ = *s++);
+X        his->sin_family = H->h_addrtype;
+X    } else return(-1);
+X    his->sin_port = htons((unsigned short) port);
+X 
+X    return(0);
+X}
+X
+X_x_select(rf, tt)       /* tt is in unit of ms */
+X    int *rf;
+X    long tt;
+X{
+X    struct timeval timeout;
+X 
+X    if(tt != -1)
+X    {
+X        timeout.tv_sec  =  tt / 1000;
+X        timeout.tv_usec = (tt % 1000)*1000;
+X        return(select(DSIZE, rf, (int *) 0, (int *) 0, &timeout));
+X    }
+X       
+X    return(select(DSIZE, rf, (int *) 0, (int *) 0, (struct timeval *) 0));
+X}
+X#endif  /* not EXOS_IPC */
+X
+X#ifdef EXOS_IPC
+X
+Xextern long rhost();
+X
+X_x_udp(port)
+X    int *port;
+X{
+X    struct sockaddr_in sin; int f;
+X
+X    sin = INET_ZERO;
+X    sin.sin_family = AF_INET;
+X    sin.sin_port   = htons((unsigned short) *port);
+X    if((f = socket(SOCK_DGRAM, (struct sockproto *) 0, &sin, SO_REUSEADDR))
+X							== -1) return(-1);
+X    sin = INET_ZERO;
+X    if(socketaddr(f,&sin) == -1) { SAVE(((void) close(f))); return(-1); }
+X    if(!*port) *port = ntohs((unsigned short) sin.sin_port); return(f);
+X}
+X
+X_x_adr(host,port,his)
+X    char *host;
+X    int port;
+X    struct sockaddr_in *his;
+X{
+X    char myhost[128];
+X    int f;
+X
+X    *his = INET_ZERO;
+X    if(!host) (void) gethostname(host = myhost,sizeof(myhost));
+X
+X    his->sin_family = AF_INET;
+X    his->sin_port   = htons((unsigned short) port);
+X
+X    if((his->sin_addr.s_addr = rhost(&host)) == -1) return(-1);
+X
+X    return(0);
+X}
+X
+X_x_select(readfds, tt)
+X    int *readfds;
+X    long tt;				/* Time to wait in miniseconds. */
+X{
+X    int  code;
+X    long mask = *readfds;
+X
+X    if(tt & 0xc0000000) tt = 0x3fffffff;/* It does not like 0x7fffffff. */
+X
+X    code = select(DSIZE, &mask, (long *) 0, tt);
+X
+X    *readfds = mask;
+X
+X    return(code);
+X}
+X
+Xrecvfrom(s, msg, len, flags, from, fromlen)
+X    char *msg;
+X    int s, len, flags, *fromlen;
+X    struct sockaddr_in *from;
+X{
+X    return(receive(s,from,msg,len));
+X}
+X
+Xsendto(s, msg, len, flags, to, tolen)
+X    char *msg;
+X    int s, len, flags, tolen;
+X    struct sockaddr_in *to;
+X{
+X     to->sin_family = AF_INET;
+X     return(send(s,to,msg,len));
+X}
+X
+X#endif /* EXOS_IPC */
+END_OF_FILE
+  if test 4025 -ne `wc -c <'udp_io.c'`; then
+    echo shar: \"'udp_io.c'\" unpacked with wrong size!
+  fi
+  # end of 'udp_io.c'
+fi
+echo shar: End of archive 3 \(of 4\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

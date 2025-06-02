@@ -1,0 +1,1075 @@
+From gww@beatnix.UUCP Sat Mar 12 19:00:52 1988
+Path: uunet!lll-winken!lll-tis!elxsi!beatnix!gww
+From: gww@beatnix.UUCP (Gary Winiger)
+Newsgroups: alt.sources
+Subject: Password aging package for 4.3BSD Part 2 of 3.
+Message-ID: <744@elxsi.UUCP>
+Date: 13 Mar 88 00:00:52 GMT
+Sender: nobody@elxsi.UUCP
+Reply-To: gww@beatnix.UUCP (Gary Winiger)
+Organization: ELXSI Super Computers, San Jose
+Lines: 1060
+
+
+#	This is a shell archive.
+#	Remove everything above and including the cut line.
+#	Then run the rest of the file through sh.
+-----cut here-----cut here-----cut here-----cut here-----
+#!/bin/sh
+# shar:	Shell Archiver
+#	Run the following text with /bin/sh to create:
+#	ftpd.c.diff
+#	login.c.diff
+#	passwd.c.diff
+#	su.c.diff
+#	uucpd.c.diff
+#	vipw.c.diff
+# This archive created: Sat Mar 12 14:58:22 1988
+echo shar: extracting ftpd.c.diff '(1032 characters)'
+sed 's/^XX//' << \SHAR_EOF > ftpd.c.diff
+XX*** /tmp/,RCSt1007467	Thu Dec 24 11:59:54 1987
+XX--- ftpd.c	Thu Dec 24 11:59:36 1987
+XX***************
+XX*** 1,5 ****
+XX--- 1,8 ----
+XX  /*
+XX   * $Log:	ftpd.c,v $
+XX+  * Revision 1.5  87/12/24  11:59:22  gww
+XX+  * Add shadow password file support.
+XX+  * 
+XX   * Revision 1.4  87/07/31  12:15:56  gww
+XX   * Enable remote command execution if RMTCMD defined.
+XX   * 
+XX***************
+XX*** 27,33 ****
+XX  #endif not lint
+XX  
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: ftpd.c,v 1.4 87/07/31 12:15:56 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)ftpd.c	5.7 (Berkeley) 5/28/86";
+XX  #endif not lint
+XX  
+XX--- 30,36 ----
+XX  #endif not lint
+XX  
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: ftpd.c,v 1.5 87/12/24 11:59:22 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)ftpd.c	5.7 (Berkeley) 5/28/86";
+XX  #endif not lint
+XX  
+XX***************
+XX*** 186,191 ****
+XX--- 189,198 ----
+XX  	/*
+XX  	 * Set up default state
+XX  	 */
+XX+ #ifdef	elxsi
+XX+ 	if (access(SHADOWPW, F_OK) == 0)
+XX+ 		setpwfile(SHADOWPW);
+XX+ #endif	elxsi
+XX  	logged_in = 0;
+XX  	data = -1;
+XX  	type = TYPE_A;
+SHAR_EOF
+if test 1032 -ne "`wc -c ftpd.c.diff`"
+then
+echo shar: error transmitting ftpd.c.diff '(should have been 1032 characters)'
+fi
+echo shar: extracting login.c.diff '(4455 characters)'
+sed 's/^XX//' << \SHAR_EOF > login.c.diff
+XX*** /tmp/,RCSt1002049	Thu Mar 10 09:33:08 1988
+XX--- login.c	Mon Mar  7 17:01:59 1988
+XX***************
+XX*** 1,5 ****
+XX--- 1,8 ----
+XX  /*
+XX   * $Log:	login.c,v $
+XX+  * Revision 1.2  88/03/07  15:52:53  gww
+XX+  * Add shadow password file and password aging support.
+XX+  * 
+XX   * Revision 1.1  86/12/17  18:14:13  gww
+XX   * Initial revision
+XX   * 
+XX***************
+XX*** 17,23 ****
+XX  #endif not lint
+XX  
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: login.c,v 1.1 86/12/17 18:14:13 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)login.c	5.15 (Berkeley) 4/12/86";
+XX  #endif not lint
+XX  
+XX--- 20,26 ----
+XX  #endif not lint
+XX  
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: login.c,v 1.2 88/03/07 15:52:53 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)login.c	5.15 (Berkeley) 4/12/86";
+XX  #endif not lint
+XX  
+XX***************
+XX*** 99,104 ****
+XX--- 102,110 ----
+XX  char	rpassword[NMAX+1];
+XX  char	name[NMAX+1];
+XX  char	*rhost;
+XX+ #ifdef	elxsi
+XX+ int	spwflag=0;		/* is a shadow password file present */
+XX+ #endif	elxsi
+XX  
+XX  main(argc, argv)
+XX  	char *argv[];
+XX***************
+XX*** 117,122 ****
+XX--- 123,132 ----
+XX  	signal(SIGINT, SIG_IGN);
+XX  	setpriority(PRIO_PROCESS, 0, 0);
+XX  	quota(Q_SETUID, 0, 0, 0);
+XX+ #ifdef	elxsi
+XX+ 	if (spwflag = (access(SHADOWPW, F_OK) == 0))
+XX+ 		setpwfile(SHADOWPW);
+XX+ #endif	elxsi
+XX  	/*
+XX  	 * -p is used by getty to tell login not to destroy the environment
+XX  	 * -r is used by rlogind to cause the autologin protocol;
+XX***************
+XX*** 308,313 ****
+XX--- 318,327 ----
+XX  		write(f, (char *)&utmp, sizeof(utmp));
+XX  		close(f);
+XX  	}
+XX+ #ifdef	elxsi
+XX+ 	if (spwflag)
+XX+ 		check_age(pwd, tty);
+XX+ #endif	elxsi
+XX  	if ((f = open("/usr/adm/wtmp", O_WRONLY|O_APPEND)) >= 0) {
+XX  		write(f, (char *)&utmp, sizeof(utmp));
+XX  		close(f);
+XX***************
+XX*** 592,594 ****
+XX--- 606,694 ----
+XX  
+XX  	return (gid);
+XX  }
+XX+ 
+XX+ #ifdef	elxsi
+XX+ /*	check_age - Check the password aging for this user.
+XX+  *
+XX+  *	Entry	pwd = User's shadow password file entry.
+XX+  *		tty = User's tty name.
+XX+  *
+XX+  *	Exit	To caller, if no password change needed.
+XX+  *		To caller, if password change needed and successfully made.
+XX+  *		To exit(1), to abort the login if password change needed and 
+XX+  *			    not made.
+XX+  *
+XX+  *	Messages
+XX+  *		
+XX+  *		"Please change your password." = The password aging schema has
+XX+  *			been implemented.  Please change your password.
+XX+  *
+XX+  *		"You have not changed your password in the last password aging
+XX+  *		 period."
+XX+  *		"Please do so now." = Your password has become too old and must
+XX+  *			be changed before you will be permitted to login.
+XX+  *
+XX+  *		"You may not login because you have not changed your 
+XX+  *		 password." = You did not change your password when you were 
+XX+  *			required to do so, thus you may not login.  The process
+XX+  *			is aborted by hanging up the phone.
+XX+  *
+XX+  *	Calls	close, exit, fflush, ioctl, printf, sleep, sscanf, syslog,
+XX+  *		system(PASSWD_PROG), time.
+XX+  *
+XX+  */
+XX+ 
+XX+ check_age(pwd, tty)
+XX+ 
+XX+ struct passwd *pwd;
+XX+ char *tty;
+XX+ 
+XX+ {
+XX+ 	int  type;		/* type of password criteria */
+XX+ 	long age_limit;		/* time limit a password is good for */
+XX+ 	long last_time;		/* time of last change */
+XX+ 	long current_time;	/* right now */
+XX+ 	int tries = 0;
+XX+ 
+XX+ 	sscanf(pwd->pw_gecos, "%d,%ld,%ld,", &type, &age_limit, &last_time);
+XX+ 	if ((age_limit != 0) &&
+XX+ 	    ((long)time(&current_time) > (last_time + age_limit))) {
+XX+ 		if (last_time == 0) {
+XX+ 			printf("\nPlease change your password.\n\n");
+XX+ 		} else {
+XX+ 			printf("\nYou have not changed your password ");
+XX+ 			printf("in the last %d days.\n",
+XX+ 			       (current_time - last_time)/(60*60*24));
+XX+ 			printf("Please do so now.\n\n");
+XX+ 		}
+XX+ 		fflush(stdout);
+XX+ 
+XX+ 		while (system(PASSWD_PROG)) {  /* require password change */
+XX+ 			if (++tries >= CHANGE_TRIES) {
+XX+ 				printf("You may not login because you have ");
+XX+ 				printf("not changed your password.\n");
+XX+ 				fflush(stdout);
+XX+ 				if (utmp.ut_host[0])
+XX+ 					syslog(LOG_CRIT,
+XX+ 					    "EXPIRED PASSWORD UNCHANGED ON %s FROM %.*s, %.*s",
+XX+ 					    tty, HMAX, utmp.ut_host,
+XX+ 					    NMAX, utmp.ut_name);
+XX+ 				else
+XX+ 					syslog(LOG_CRIT,
+XX+ 					    "EXPIRED PASSWORD UNCHANGED ON %s, %.*s",
+XX+ 						tty, NMAX, utmp.ut_name);
+XX+ 				ioctl(0, TIOCHPCL, (struct sgttyb *) 0);
+XX+ 				close(0);
+XX+ 				close(1);
+XX+ 				close(2);
+XX+ 				sleep(10);
+XX+ 				exit(1);
+XX+ 			} else {
+XX+ 				printf("You did not sucessfully change your ");
+XX+ 				printf("password, try again.\n");
+XX+ 				fflush(stdout);
+XX+ 			}
+XX+ 		}
+XX+ 	}
+XX+ }
+XX+ #endif	elxsi
+SHAR_EOF
+if test 4455 -ne "`wc -c login.c.diff`"
+then
+echo shar: error transmitting login.c.diff '(should have been 4455 characters)'
+fi
+echo shar: extracting passwd.c.diff '(9615 characters)'
+sed 's/^XX//' << \SHAR_EOF > passwd.c.diff
+XX*** /tmp/,RCSt1002150	Thu Mar 10 09:41:14 1988
+XX--- passwd.c	Mon Mar  7 18:20:48 1988
+XX***************
+XX*** 1,5 ****
+XX--- 1,8 ----
+XX  /*
+XX   * $Log:	passwd.c,v $
+XX+  * Revision 1.4  88/03/07  18:19:19  gww
+XX+  * Add shadow password file, password aging, strong password criteria.
+XX+  * 
+XX   * Revision 1.3  87/11/17  17:22:01  gww
+XX   * Update chfn examples to read Office information rather than UCB example.
+XX   * 
+XX***************
+XX*** 23,29 ****
+XX  #endif not lint
+XX  
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: passwd.c,v 1.3 87/11/17 17:22:01 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)passwd.c	4.24 (Berkeley) 5/28/86";
+XX  #endif not lint
+XX  
+XX--- 26,32 ----
+XX  #endif not lint
+XX  
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: passwd.c,v 1.4 88/03/07 18:19:19 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)passwd.c	4.24 (Berkeley) 5/28/86";
+XX  #endif not lint
+XX  
+XX***************
+XX*** 62,67 ****
+XX--- 65,75 ----
+XX  char	*malloc();
+XX  char	*getusershell();
+XX  extern	int errno;
+XX+ #ifdef	elxsi
+XX+ int	spwflag=0;		/* is a shadow password file present */
+XX+ char 	new_gecos[BUFSIZ]='\0';	/* updated gecos field */
+XX+ char	*getstrpasswd();	/* strict password criteria */
+XX+ #endif	elxsi
+XX  
+XX  main(argc, argv)
+XX  	char *argv[];
+XX***************
+XX*** 120,125 ****
+XX--- 128,137 ----
+XX  		    uname);
+XX  	} else
+XX  		uname = *argv++;
+XX+ #ifdef	elxsi
+XX+ 	if ((spwflag = (access(SHADOWPW, F_OK) == 0)) && !dochfn)
+XX+ 		setpwfile(SHADOWPW);
+XX+ #endif	elxsi
+XX  	pwd = getpwnam(uname);
+XX  	if (pwd == NULL) {
+XX  		fprintf(stderr, "passwd: %s: unknown user.\n", uname);
+XX***************
+XX*** 135,140 ****
+XX--- 147,170 ----
+XX  	else if (dochsh)
+XX  		cp = getloginshell(pwd, u, *argv);
+XX  	else
+XX+ #ifdef	elxsi
+XX+ 	     if (spwflag) {
+XX+ 		int  type;	/* type of password criteria */
+XX+ 
+XX+ 		sscanf(pwd->pw_gecos, "%d", &type);
+XX+ 		switch (type) {
+XX+ 
+XX+ 		default:
+XX+ 		case BSD_CRIT:
+XX+ 			cp = getnewpasswd(pwd, u, argc);
+XX+ 			break;
+XX+ 
+XX+ 		case STR_CRIT:
+XX+ 			cp = getstrpasswd(pwd, u, argc);
+XX+ 			break;
+XX+ 		}
+XX+ 	     } else
+XX+ #endif	elxsi
+XX  		cp = getnewpasswd(pwd, u);
+XX  	(void) signal(SIGHUP, SIG_IGN);
+XX  	(void) signal(SIGINT, SIG_IGN);
+XX***************
+XX*** 141,147 ****
+XX--- 171,185 ----
+XX  	(void) signal(SIGQUIT, SIG_IGN);
+XX  	(void) signal(SIGTSTP, SIG_IGN);
+XX  	(void) umask(0);
+XX+ #ifndef	elxsi
+XX  	fd = open(temp, O_WRONLY|O_CREAT|O_EXCL, 0644);
+XX+ #else
+XX+ 	if (spwflag && !dochfn)
+XX+ 		fd = open(temp, O_WRONLY|O_CREAT|O_EXCL, 0600);
+XX+ 	else
+XX+ 		fd = open(temp, O_WRONLY|O_CREAT|O_EXCL, 0644);
+XX+ updatesh:
+XX+ #endif	!elxsi
+XX  	if (fd < 0) {
+XX  		err = errno;
+XX  
+XX***************
+XX*** 158,168 ****
+XX--- 196,216 ----
+XX  		fprintf(stderr, "passwd: fdopen failed?\n");
+XX  		exit(1);
+XX  	}
+XX+ #ifndef	elxsi
+XX  	if ((dp = dbm_open(passwd, O_RDWR, 0644)) == NULL) {
+XX+ #else
+XX+ 	if ((dp = dbm_open((spwflag&&!dochfn) ? SHADOWPW : passwd,
+XX+ 			   O_RDWR,
+XX+ 			   (spwflag&&!dochfn) ? 0600 : 0644)) == NULL) {
+XX+ #endif	!elxsi
+XX  		err = errno;
+XX  		fprintf(stderr, "Warning: dbm_open failed: ");
+XX  		errno = err;
+XX+ #ifndef	elxsi
+XX  		perror(passwd);
+XX+ #else
+XX+ 		perror((spwflag&&!dochfn)? SHADOWPW : passwd);
+XX+ #endif	!elxsi
+XX  	} else if (flock(dp->dbm_dirf, LOCK_EX) < 0) {
+XX  		perror("Warning: lock failed");
+XX  		dbm_close(dp);
+XX***************
+XX*** 184,193 ****
+XX--- 232,249 ----
+XX  				pwd->pw_gecos = cp;
+XX  			else if (dochsh)
+XX  				pwd->pw_shell = cp;
+XX+ #ifndef	elxsi
+XX  			else
+XX  				pwd->pw_passwd = cp;
+XX  			if (pwd->pw_gecos[0] == '*')	/* ??? */
+XX  				pwd->pw_gecos++;
+XX+ #else
+XX+ 			else {
+XX+ 				pwd->pw_passwd = cp;
+XX+ 				if (new_gecos[0] != '\0')
+XX+ 					pwd->pw_gecos  = new_gecos;
+XX+ 			}
+XX+ #endif	!elxsi
+XX  			replace(dp, pwd);
+XX  		}
+XX  		fprintf(tf,"%s:%s:%d:%d:%s:%s:%s\n",
+XX***************
+XX*** 211,222 ****
+XX--- 267,290 ----
+XX  	(void) fclose(tf);
+XX  	if (dp != NULL)
+XX  		dbm_close(dp);
+XX+ #ifndef	elxsi
+XX  	if (rename(temp, passwd) < 0) {
+XX+ #else
+XX+ 	if (rename(temp, (spwflag&&!dochfn) ? SHADOWPW : passwd) < 0) {
+XX+ #endif	!elxsi
+XX  		perror("passwd: rename");
+XX  	out:
+XX  		(void) unlink(temp);
+XX  		exit(1);
+XX  	}
+XX+ #ifdef	elxsi
+XX+ 	if (spwflag && dochsh) {   /* change shell is user password file also */
+XX+ 		spwflag = 0;
+XX+ 		setpwfile(passwd);
+XX+ 		fd = open(temp, O_WRONLY|O_CREAT|O_EXCL, 0644);
+XX+ 		goto updatesh;
+XX+ 	}
+XX+ #endif	elxsi
+XX  	exit(0);
+XX  }
+XX  
+XX***************
+XX*** 267,275 ****
+XX--- 335,350 ----
+XX  }
+XX  
+XX  char *
+XX+ #ifndef	elxsi
+XX  getnewpasswd(pwd, u)
+XX  	register struct passwd *pwd;
+XX  	int u;
+XX+ #else
+XX+ getnewpasswd(pwd, u, argc)
+XX+ 	register struct passwd *pwd;
+XX+ 	int u;
+XX+ 	int argc;
+XX+ #endif	!elxsi
+XX  {
+XX  	char saltc[2];
+XX  	long salt;
+XX***************
+XX*** 342,351 ****
+XX--- 417,532 ----
+XX  			c += 6;
+XX  		saltc[i] = c;
+XX  	}
+XX+ 
+XX+ #ifdef	elxsi
+XX+ 	if (spwflag && (u != 0 || argc < 1))
+XX+ 		check_aging(pwd, pwbuf);
+XX+ #endif	elxsi
+XX  	return (crypt(pwbuf, saltc));
+XX  }
+XX  
+XX+ #ifdef	elxsi
+XX+ /*	getstrpasswd - Get strong password
+XX+  *
+XX+  *	Entry	pwd  = Current password structure.
+XX+  *		u    = UID executing as.
+XX+  *		argc = Program call arg count - 1.
+XX+  *
+XX+  *	Exit	Encrypted password returned.
+XX+  *
+XX+  *	Uses	None.
+XX+  *
+XX+  *	Calls	check_aging, crypt, exit, getpass, getpid, isdigit, islower,
+XX+  *		isupper, printf, strcmp, strcpy, strlen, time.
+XX+  */
+XX+ 
+XX  char *
+XX+ getstrpasswd(pwd, u, argc)
+XX+ 	register struct passwd *pwd;
+XX+ 	int u;
+XX+ 	int argc;
+XX+ {
+XX+ 	char saltc[2];
+XX+ 	long salt;
+XX+ 	int i, insist = 0;
+XX+ 	int lower, upper, special;
+XX+ 	int c, pwlen;
+XX+ 	static char pwbuf[10];
+XX+ 	long time();
+XX+ 	char *crypt(), *pw, *p;
+XX+ 
+XX+ 	if (pwd->pw_passwd[0] && u != 0) {
+XX+ 		(void) strcpy(pwbuf, getpass("Old password:"));
+XX+ 		pw = crypt(pwbuf, pwd->pw_passwd);
+XX+ 		if (strcmp(pw, pwd->pw_passwd) != 0) {
+XX+ 			printf("Sorry.\n");
+XX+ 			exit(1);
+XX+ 		}
+XX+ 	}
+XX+ tryagain:
+XX+ 	lower = upper = special = 0;
+XX+ 	(void) strcpy(pwbuf, getpass("New password:"));
+XX+ 	pwlen = strlen(pwbuf);
+XX+ 	if (pwlen == 0) {
+XX+ 		printf("Password unchanged.\n");
+XX+ 		exit(1);
+XX+ 	}
+XX+ 
+XX+ 	/* If called by login, u == 0 and argc == 0, don't bypass check */
+XX+ 
+XX+ 	if (u != 0 || argc < 1) {
+XX+ 		p = pwbuf;
+XX+ 		while (c = *p++) {
+XX+ 			if (islower(c))
+XX+ 				lower++;
+XX+ 			else if (isupper(c))
+XX+ 				upper++;
+XX+ 			else 
+XX+ 				special++;
+XX+ 		}
+XX+ 
+XX+ 		if (insist++ >= 3) {
+XX+ 			printf("Sorry.\n");
+XX+ 			exit(1);
+XX+ 		}
+XX+     		if (pwlen < 7) {
+XX+ 			printf("Password must contain at least seven characters.\n");
+XX+ 			goto tryagain;
+XX+     		}
+XX+     		if ((lower > 4) || (lower < 1) || (upper > 4) || (upper < 1) ||
+XX+ 		    (special > 4) || (special < 1)) {
+XX+ 			printf("%s%s%s%s",
+XX+ 			       "Password must be chosen from a larger alphabet,\n",
+XX+ 			       "try at least 1 but no more than 4 characters ",
+XX+ 			       "from lower case, upper case,\n",
+XX+ 			       "and digits and special characters.\n");
+XX+ 			goto tryagain;
+XX+     		}
+XX+ 	}
+XX+ 	if (strcmp(pwbuf, getpass("Retype new password:")) != 0) {
+XX+ 		printf("Mismatch - password unchanged.\n");
+XX+ 		exit(1);
+XX+ 	}
+XX+ 	(void) time(&salt);
+XX+ 	salt = 9 * getpid();
+XX+ 	saltc[0] = salt & 077;
+XX+ 	saltc[1] = (salt>>6) & 077;
+XX+ 	for (i = 0; i < 2; i++) {
+XX+ 		c = saltc[i] + '.';
+XX+ 		if (c > '9')
+XX+ 			c += 7;
+XX+ 		if (c > 'Z')
+XX+ 			c += 6;
+XX+ 		saltc[i] = c;
+XX+ 	}
+XX+ 
+XX+ 	if (u != 0 || argc < 1)
+XX+ 		check_aging(pwd, pwbuf);
+XX+ 	return (crypt(pwbuf, saltc));
+XX+ }
+XX+ #endif	elxsi
+XX+ 
+XX+ char *
+XX  getloginshell(pwd, u, arg)
+XX  	struct passwd *pwd;
+XX  	int u;
+XX***************
+XX*** 699,701 ****
+XX--- 880,956 ----
+XX  	*str = '\0';
+XX  	return (1);
+XX  }
+XX+ 
+XX+ #ifdef	elxsi
+XX+ /*	check_aging - Check for password aging.
+XX+  *
+XX+  *	Entry	pwd = User password file entry.
+XX+  *		pwbuf = New password.
+XX+  *
+XX+  *	Exit	No action if user's password aging not enabled.
+XX+  *		new_gecos = updated if new password is different from 
+XX+  *			old and saved.
+XX+  *		Process aborted if passwords the same.
+XX+  *
+XX+  *	Messages
+XX+  *
+XX+  *		"New password must be different from old password - password
+XX+  *		 unchanged." = The password that is trying to be set is the
+XX+  *			current password and may not be used again.
+XX+  *
+XX+  *		"That password was used in the last aging period - password
+XX+  *		 unchanged." = The password that is trying to be set was 
+XX+  *			already used in the last aging period and may not be
+XX+  *			used again.
+XX+  *
+XX+  *	Calls	crypt, exit, fflush, printf, sprintf, sscanf, strcmp.
+XX+  */
+XX+ 
+XX+ check_aging(pwd, pwbuf)
+XX+ struct passwd *pwd;
+XX+ char *pwbuf;		/* new password */
+XX+ 
+XX+ {
+XX+ 	int  type;		/* type of password criteria */
+XX+ 	long limit;		/* aging limit, 0 if no password aging */
+XX+ 	long last_time;		/* time of last password change */
+XX+ 	long old_time;		/* time old password was saved */
+XX+ 	char old_passwd[20];	/* saved old password (encrypted) */
+XX+ 	long current_time;	/* time right now */
+XX+ 
+XX+ 	sscanf(pwd->pw_gecos, "%d,%ld,%ld,%ld,%20s", &type, &limit, &last_time,
+XX+ 		&old_time, old_passwd);
+XX+ 
+XX+ 	if (limit == 0)		/* no password aging for this user */
+XX+ 		return;
+XX+ 
+XX+ 	if (*pwd->pw_passwd && 
+XX+ 	    (strcmp(crypt(pwbuf, pwd->pw_passwd), pwd->pw_passwd) == 0)) {
+XX+ 		printf("\nNew password must be different from old password");
+XX+ 		printf(" - password unchanged.\n");
+XX+ 		fflush(stdout);
+XX+ 		exit(1);
+XX+ 	}
+XX+ 
+XX+ 	if (strcmp(crypt(pwbuf, old_passwd), old_passwd) == 0) {
+XX+ 		printf("\nThat password was used in the last aging period");
+XX+ 		printf(" - password unchanged.\n\n");
+XX+ 		fflush(stdout);
+XX+ 		exit(1);
+XX+ 	}
+XX+ 
+XX+ 	(void)time(&current_time);  /* set new password aging period */
+XX+ 
+XX+ 	if(current_time > (old_time + limit))
+XX+ 	/* save old password for next aging period to prevent reuse */
+XX+ 		sprintf(new_gecos, "%d,%ld,%ld,%ld,%s", type, limit,
+XX+ 				   current_time,
+XX+ 				   current_time,
+XX+ 				   *pwd->pw_passwd ? pwd->pw_passwd : "*******");
+XX+ 	else
+XX+ 		sprintf(new_gecos, "%d,%ld,%ld,%ld,%s", type, limit,
+XX+ 					current_time,
+XX+ 					old_time,
+XX+ 					old_passwd);
+XX+ }
+XX+ #endif	elxsi
+SHAR_EOF
+if test 9615 -ne "`wc -c passwd.c.diff`"
+then
+echo shar: error transmitting passwd.c.diff '(should have been 9615 characters)'
+fi
+echo shar: extracting su.c.diff '(1275 characters)'
+sed 's/^XX//' << \SHAR_EOF > su.c.diff
+XX*** /tmp/,RCSt1007109	Thu Dec 24 11:36:10 1987
+XX--- su.c	Thu Dec 24 11:35:48 1987
+XX***************
+XX*** 1,5 ****
+XX--- 1,8 ----
+XX  /*
+XX   * $Log:	su.c,v $
+XX+  * Revision 1.2  87/12/24  11:35:38  gww
+XX+  * Add shadow password file support.
+XX+  * 
+XX   * Revision 1.1  86/12/17  18:14:45  gww
+XX   * Initial revision
+XX   * 
+XX***************
+XX*** 17,23 ****
+XX  #endif not lint
+XX  
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: su.c,v 1.1 86/12/17 18:14:45 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)su.c	5.4 (Berkeley) 1/13/86";
+XX  #endif not lint
+XX  
+XX--- 20,26 ----
+XX  #endif not lint
+XX  
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: su.c,v 1.2 87/12/24 11:35:38 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)su.c	5.4 (Berkeley) 1/13/86";
+XX  #endif not lint
+XX  
+XX***************
+XX*** 28,33 ****
+XX--- 31,39 ----
+XX  #include <sys/types.h>
+XX  #include <sys/time.h>
+XX  #include <sys/resource.h>
+XX+ #ifdef	elxsi
+XX+ #include <sys/file.h>
+XX+ #endif	elxsi
+XX  
+XX  char	userbuf[16]	= "USER=";
+XX  char	homebuf[128]	= "HOME=";
+XX***************
+XX*** 72,77 ****
+XX--- 78,87 ----
+XX  		user = argv[1];
+XX  		argc--, argv++;
+XX  	}
+XX+ #ifdef	elxsi
+XX+ 	if (access(SHADOWPW, F_OK) == 0)
+XX+ 		setpwfile(SHADOWPW);
+XX+ #endif	elxsi
+XX  	if ((pwd = getpwuid(getuid())) == NULL) {
+XX  		fprintf(stderr, "Who are you?\n");
+XX  		exit(1);
+SHAR_EOF
+if test 1275 -ne "`wc -c su.c.diff`"
+then
+echo shar: error transmitting su.c.diff '(should have been 1275 characters)'
+fi
+echo shar: extracting uucpd.c.diff '(1363 characters)'
+sed 's/^XX//' << \SHAR_EOF > uucpd.c.diff
+XX*** /tmp/,RCSt1002936	Mon Jan  4 14:05:23 1988
+XX--- uucpd.c	Mon Jan  4 14:04:59 1988
+XX***************
+XX*** 1,11 ****
+XX  /*
+XX   * $Log:	uucpd.c,v $
+XX   * Revision 1.1  87/06/23  16:58:30  gww
+XX   * Initial revision
+XX   * 
+XX   */
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: uucpd.c,v 1.1 87/06/23 16:58:30 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)uucpd.c	5.4 (Berkeley) 6/23/85";
+XX  #endif
+XX  
+XX--- 1,14 ----
+XX  /*
+XX   * $Log:	uucpd.c,v $
+XX+  * Revision 1.2  88/01/04  14:04:48  gww
+XX+  * Add shadow password file support.
+XX+  * 
+XX   * Revision 1.1  87/06/23  16:58:30  gww
+XX   * Initial revision
+XX   * 
+XX   */
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: uucpd.c,v 1.2 88/01/04 14:04:48 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)uucpd.c	5.4 (Berkeley) 6/23/85";
+XX  #endif
+XX  
+XX***************
+XX*** 28,33 ****
+XX--- 31,39 ----
+XX  #include <sys/ioctl.h>
+XX  #include <pwd.h>
+XX  #include <lastlog.h>
+XX+ #ifdef	elxsi
+XX+ #include <sys/file.h>
+XX+ #endif	elxsi
+XX  
+XX  #if !defined(BSD4_2) && !defined(BSD2_9)
+XX  --- You must have either BSD4_2 or BSD2_9 defined for this to work
+XX***************
+XX*** 158,163 ****
+XX--- 164,173 ----
+XX  	char *xpasswd, *crypt();
+XX  	struct passwd *pw, *getpwnam();
+XX  
+XX+ #ifdef	elxsi
+XX+ 	if (access(SHADOWPW, F_OK) == 0)
+XX+ 		setpwfile(SHADOWPW);
+XX+ #endif	elxsi
+XX  	alarm(60);
+XX  	printf("login: "); fflush(stdout);
+XX  	if (readline(user, sizeof user) < 0) {
+SHAR_EOF
+if test 1363 -ne "`wc -c uucpd.c.diff`"
+then
+echo shar: error transmitting uucpd.c.diff '(should have been 1363 characters)'
+fi
+echo shar: extracting vipw.c.diff '(6653 characters)'
+sed 's/^XX//' << \SHAR_EOF > vipw.c.diff
+XX*** /tmp/,RCSt1002304	Thu Mar 10 10:06:24 1988
+XX--- vipw.c	Thu Mar 10 10:05:54 1988
+XX***************
+XX*** 1,5 ****
+XX--- 1,8 ----
+XX  /*
+XX   * $Log:	vipw.c,v $
+XX+  * Revision 1.2  87/12/24  12:16:11  gww
+XX+  * Add shadow password file support.
+XX+  * 
+XX   * Revision 1.1  87/03/25  13:31:04  gww
+XX   * Initial revision
+XX   * 
+XX***************
+XX*** 17,23 ****
+XX  #endif not lint
+XX  
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: vipw.c,v 1.1 87/03/25 13:31:04 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)vipw.c	5.1 (Berkeley) 5/28/85";
+XX  #endif not lint
+XX  
+XX--- 20,26 ----
+XX  #endif not lint
+XX  
+XX  #ifndef lint
+XX! static char *ERcsId = "$Header: vipw.c,v 1.2 87/12/24 12:16:11 gww Exp $ ENIX BSD";
+XX  static char sccsid[] = "@(#)vipw.c	5.1 (Berkeley) 5/28/85";
+XX  #endif not lint
+XX  
+XX***************
+XX*** 24,29 ****
+XX--- 27,35 ----
+XX  #include <sys/types.h>
+XX  #include <sys/stat.h>
+XX  #include <sys/file.h>
+XX+ #ifdef	elxsi
+XX+ #include <pwd.h>
+XX+ #endif	elxsi
+XX  
+XX  #include <stdio.h>
+XX  #include <errno.h>
+XX***************
+XX*** 38,43 ****
+XX--- 44,58 ----
+XX  char	passwd[] = "/etc/passwd";
+XX  char	passwd_pag[] = "/etc/passwd.pag";
+XX  char	passwd_dir[] = "/etc/passwd.dir";
+XX+ #ifdef	elxsi
+XX+ char	stemp[] = "/etc/sptmp";
+XX+ char	stemp_pag[] = "/etc/sptmp.pag";
+XX+ char	stemp_dir[] = "/etc/sptmp.dir";
+XX+ char	shadow[] = SHADOWPW;
+XX+ char	shadow_pag[] = SHADOWPW_PAG;
+XX+ char	shadow_dir[] = SHADOWPW_DIR;
+XX+ char	temps[] = "/etc/ptmps";
+XX+ #endif	elxsi
+XX  char	buf[BUFSIZ];
+XX  char	*getenv();
+XX  char	*index();
+XX***************
+XX*** 147,152 ****
+XX--- 162,218 ----
+XX  		}
+XX  		fclose(ft);
+XX  		if (ok) {
+XX+ #ifdef	elxsi
+XX+ 			if (access(SHADOWPW, F_OK) == 0) {
+XX+ 				/* sort temp file by uid */
+XX+ 
+XX+ 				sprintf(buf, "sort -t: +2n -3 +0 -1 %s > %s",
+XX+ 						temp, temps);
+XX+ 				if (system(buf) != 0) {
+XX+ 					fprintf(stderr, "vipw: sort failed\n");
+XX+ 					goto bad;
+XX+ 				}
+XX+ 				if (rename(temps, temp) < 0) {
+XX+ 					fprintf(stderr, "vipw: ");
+XX+ 					perror(temps);
+XX+ 					goto bad;
+XX+ 				}
+XX+ 			
+XX+ 				/* merge edited passwd file with shadow file */
+XX+ 			
+XX+ 				if (merg_pw() < 0)
+XX+ 					goto bad;
+XX+ 
+XX+ 				if (makedb(stemp) < 0) {
+XX+ 					fprintf(stderr,
+XX+ 						"vipw: shadow mkpasswd failed\n");
+XX+ 					goto bad;
+XX+ 				}
+XX+ 			
+XX+ 				/* set correct modes */
+XX+ 
+XX+ 				chmod(temp, 0644);
+XX+ 				chmod(stemp, 0600);
+XX+ 				chmod(stemp_pag, 0600);
+XX+ 				chmod(stemp_dir, 0600);
+XX+ 
+XX+ 				/* remake shadow hash files and rename temps */
+XX+ 
+XX+ 				if (rename(stemp_pag, shadow_pag) < 0) {
+XX+ 					fprintf(stderr, "vipw: ");
+XX+ 					perror(stemp_pag);
+XX+ 					goto bad;
+XX+ 				} else if (rename(stemp_dir, shadow_dir) < 0) {
+XX+ 					fprintf(stderr, "vipw: ");
+XX+ 					perror(stemp_dir);
+XX+ 					goto bad;
+XX+ 				} else if (rename(stemp, shadow) < 0) {
+XX+ 					fprintf(stderr, "vipw: ");
+XX+ 					perror("shadow file");
+XX+ 					goto bad;
+XX+ 				}
+XX+ 			}
+XX+ #endif	elxsi
+XX  			if (makedb(temp) < 0)
+XX  				fprintf(stderr, "vipw: mkpasswd failed\n");
+XX  			else if (rename(temp_pag, passwd_pag) < 0)
+XX***************
+XX*** 163,168 ****
+XX--- 229,240 ----
+XX  			    passwd);
+XX  	}
+XX  bad:
+XX+ #ifdef	elxsi
+XX+ 	unlink(stemp_pag);
+XX+ 	unlink(stemp_dir);
+XX+ 	unlink(stemp);
+XX+ 	unlink(temps);
+XX+ #endif	elxsi
+XX  	unlink(temp_pag);
+XX  	unlink(temp_dir);
+XX  	unlink(temp);
+XX***************
+XX*** 184,186 ****
+XX--- 256,414 ----
+XX  		status = -1;
+XX  	return(status);
+XX  }
+XX+ 
+XX+ #ifdef	elxsi
+XX+ struct 	passwd tmpent;	/* passwd temp file entry */
+XX+ int	fd;
+XX+ FILE	*ft, *fp;
+XX+ 
+XX+ /*	pskip - Skip to next password file entry field.
+XX+  *
+XX+  *	Entry	p = Pointer to current field.
+XX+  *
+XX+  *	Exit	Pointer to next field.
+XX+  *
+XX+  */
+XX+ 
+XX+ static char *
+XX+ pskip(p)
+XX+ 
+XX+ register char *p;
+XX+ {
+XX+ 	while (*p && *p != ':' && *p != '\n')
+XX+ 		++p;
+XX+ 	if (*p)
+XX+ 		*p++ = 0;
+XX+ 	return(p);
+XX+ }
+XX+ 
+XX+ /* 	getmpent - Get temp passwd entry (modeled off of getpwent(3)).
+XX+  *
+XX+  *
+XX+  *	Entry	fp = Temp passwd stream.
+XX+  *
+XX+  *	Exit	0 = End of stream.
+XX+  *		&tmpent = struct passwd for this temp passwd entry.
+XX+  *
+XX+  *	Uses	buf.
+XX+  *
+XX+  *	Calls	fgets, pskip.
+XX+  *
+XX+  */
+XX+ 
+XX+ static struct passwd *
+XX+ getmpent()
+XX+ {
+XX+ 	register char *p;
+XX+ 
+XX+ 	if ((p=fgets(buf, BUFSIZ, fp)) == NULL)
+XX+ 		return(0);
+XX+ 
+XX+ 	tmpent.pw_name = p;
+XX+ 	p = pskip(p);
+XX+ 	tmpent.pw_passwd = p;
+XX+ 	p = pskip(p);
+XX+ 	tmpent.pw_uid = atoi(p);
+XX+ 	p = pskip(p);
+XX+ 	tmpent.pw_gid = atoi(p);
+XX+ 	p = pskip(p);
+XX+ 	tmpent.pw_gecos = p;
+XX+ 	p = pskip(p);
+XX+ 	tmpent.pw_dir = p;
+XX+ 	p = pskip(p);
+XX+ 	tmpent.pw_shell = p;
+XX+ 	while (*p && *p != '\n')
+XX+ 		p++;
+XX+ 	*p = '\0';
+XX+ 	return(&tmpent);
+XX+ }
+XX+ 
+XX+ /* 	merg_pw - Merge updated passwd with shadow file.
+XX+  *
+XX+  *	Entry	stemp = Shadow passwd temp file name.
+XX+  *		shadow = Shadow passwd file name.
+XX+  *		temp = Updated passwd temp file name.
+XX+  *
+XX+  *	Exit	0 = Merge completed, stemp created.
+XX+  *		-1 = Error, message displayed.
+XX+  *
+XX+  *	Uses	errno, fd, ft, fp.
+XX+  *
+XX+  *	Calls	fclose, fdopen, fopen, fprintf, getmpent, getpwent, open,
+XX+  *		perror, setpwfile.
+XX+  *
+XX+  */
+XX+ 
+XX+ static
+XX+ merg_pw ()
+XX+ {
+XX+ 	struct	passwd *pwd,	/* passwd temp file entries */
+XX+ 	       	       *spwd;	/* shadow passwd entries */
+XX+ 
+XX+ 	if ((fd = open(stemp, O_WRONLY|O_CREAT|O_EXCL, 0644)) < 0) {
+XX+ 		if (errno == EEXIST)
+XX+ 			fprintf(stderr, "vipw: password file busy\n");
+XX+ 		else
+XX+ 			fprintf(stderr, "vipw: "),
+XX+ 			perror(stemp);
+XX+ 		exit(1);
+XX+ 	}
+XX+ 
+XX+ 	if ((ft = fdopen(fd, "w")) == NULL) {
+XX+ 		fprintf(stderr, "vipw: "); perror(stemp);
+XX+ 		return(-1);
+XX+ 	}
+XX+ 
+XX+ 	if ((fp = fopen(temp, "r")) == NULL) {
+XX+ 		fprintf(stderr, "vipw: "); perror(temp);
+XX+ 		return(-1);
+XX+ 	}
+XX+ 
+XX+ 	setpwfile(shadow);  spwd = getpwent();  /* initialize shadow passwd */
+XX+ 
+XX+ 	while ((pwd = getmpent()) != NULL) {
+XX+ 	loop:
+XX+ 		if ((spwd == NULL) ||			/* add new user */ 
+XX+ 		    (pwd->pw_uid < spwd->pw_uid) ||
+XX+ 		    (pwd->pw_uid == spwd->pw_uid &&
+XX+ 		     (strcmp(pwd->pw_name, spwd->pw_name) < 0))) {
+XX+ 			fprintf(ft, "%s:%s:%d:%d:%d,0,0,0,*******:%s:%s\n",
+XX+ 				pwd->pw_name,
+XX+ 				pwd->pw_passwd,
+XX+ 				pwd->pw_uid,
+XX+ 				pwd->pw_gid,
+XX+ 				BSD_CRIT,
+XX+ 				pwd->pw_dir,
+XX+ 				pwd->pw_shell);
+XX+ 			continue;
+XX+ 		}
+XX+ 		if ((pwd->pw_uid == spwd->pw_uid) &&   /* update current user */
+XX+ 		    (strcmp(pwd->pw_name, spwd->pw_name) == 0)) {
+XX+ 			fprintf(ft, "%s:%s:%d:%d:%s:%s:%s\n",
+XX+ 				pwd->pw_name,
+XX+ 				spwd->pw_passwd,
+XX+ 				pwd->pw_uid,
+XX+ 				pwd->pw_gid,
+XX+ 				spwd->pw_gecos,
+XX+ 				pwd->pw_dir,
+XX+ 				pwd->pw_shell);
+XX+ 			spwd = getpwent();
+XX+ 			continue;
+XX+ 		}
+XX+ 
+XX+ 		/* advance shadow passwd to skip removed users */
+XX+ 
+XX+ 		while (((spwd = getpwent()) != NULL) && 
+XX+ 		       ((pwd->pw_uid > spwd->pw_uid) ||
+XX+ 			(pwd->pw_uid == spwd->pw_uid &&
+XX+ 			 (strcmp(pwd->pw_name, spwd->pw_name) > 0))))
+XX+ 			continue;
+XX+ 		goto loop;
+XX+ 	}
+XX+ 
+XX+ 	endpwent();
+XX+ 	fclose(ft);
+XX+ 	fclose(fp);
+XX+ 	return(0);
+XX+ }
+XX+ #endif	elxsi
+SHAR_EOF
+if test 6653 -ne "`wc -c vipw.c.diff`"
+then
+echo shar: error transmitting vipw.c.diff '(should have been 6653 characters)'
+fi
+#	End of shell archive
+exit 0
+
+

@@ -1,0 +1,1776 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i060:  imagemagic - X11 image processing and display, Part04/38
+Message-ID: <1993Jul14.175318.781@sparky.sterling.com>
+X-Md4-Signature: bd4d7ab9a920fc55b6a0e5848adef5ef
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:53:18 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 60
+Archive-name: imagemagic/part04
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.04 (part 4 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/utilities/segment.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 4; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/utilities/segment.c'
+else
+echo 'x - continuing file ImageMagick/utilities/segment.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/utilities/segment.c' &&
+%    -display server     obtain image or font from this X server
+%    -font name          X11 font for displaying text
+%    -geometry geometry  width and height of the image
+%    -interlace type     NONE, LINE, or PLANE
+%    -page geometry      size and location of the Postscript page
+%    -quality value      JPEG quality setting
+%    -scene value        image scene number
+%    -treedepth value    depth of the color classification tree
+%    -verbose            print detailed information about the image
+%
+%  Change '-' to '+' in any option above to reverse its effect.  For
+%  example,  specify +alpha to store the image without its alpha channel.
+%
+%  By default, the image format of `file' is determined by its magic
+%  number.  To specify a particular image format, precede the filename
+%  with an image format name and a colon (i.e. ps:image) or specify the
+%  image type as the filename suffix (i.e. image.ps).  Specify 'file' as
+%  '-' for standard input or output.
+%
+%
+*/
+X
+#include "display.h"
+#include "image.h"
+#include "X.h"
+X
+/*
+X  Define declarations.
+*/
+#define Blue  2
+#define Dimension  3
+#define Green  1
+#define Red  0
+#define SafeMargin  3
+X
+/*
+X  Typedef declarations.
+*/
+typedef struct _ExtentPacket
+{
+X  short
+X    index,
+X    left,
+X    right;
+X
+X  long
+X    center;
+} ExtentPacket;
+X
+typedef struct _IntervalTree
+{
+X  float
+X    tau;
+X
+X  short
+X    left,
+X    right;
+X
+X  float
+X    mean_stability,
+X    stability;
+X
+X  struct _IntervalTree
+X    *sibling,
+X    *child;
+} IntervalTree;
+X
+typedef struct _ZeroCrossing
+{
+X  float
+X    tau,
+X    histogram[MaxRGB+1];
+X
+X  short
+X    crossings[MaxRGB+1];
+} ZeroCrossing;
+X
+/*
+X  Forward declarations.
+*/
+static int
+X  DefineRegion _Declare((short *,ExtentPacket *));
+X
+static void
+X  ScaleSpace _Declare((long *,double,float *)),
+X  ZeroCrossHistogram _Declare((float *,double,short *));
+X
+void
+X  Error _Declare((char *,char *));
+X
+/*
+X  Global declarations.
+*/
+char
+X  *client_name;
+X
+int
+X  number_nodes;
+X
+IntervalTree
+X  *list[600];
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   C l a s s i f y                                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Function Classify defines on ore more classes.  Each pixel is thresholded
+%  to determine which class it belongs to.  If not class is identified it
+%  is assigned to the closest class based on the fuzzy c-Means technique.
+%
+%  The format of the Classify routine is:
+%
+%      Classify(image,extrema,cluster_threshold,weighting_exponent,verbose)
+%
+%  A description of each parameter follows.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%    o extrema:  Specifies a pointer to an array of shortegers.  They
+%      represent the peaks and valleys of the histogram for each color
+%      component.
+%
+%    o cluster_threshold:  This float represents the minimum number of pixels
+%      contained in a hexahedra before it can be considered valid (expressed
+%      as a percentage).
+%
+%    o weighting_exponent: Specifies the membership weighting exponent.
+%
+%    o verbose:  A value greater than zero prints detailed information about
+%      the identified classes.
+%
+%
+*/
+static void Classify(image,extrema,cluster_threshold,weighting_exponent,verbose)
+Image
+X  *image;
+X
+short
+X  **extrema;
+X
+float
+X  cluster_threshold,
+X  weighting_exponent;
+X
+unsigned int
+X  verbose;
+{
+X  typedef struct _Cluster
+X  {
+X    short
+X      id;
+X
+X    ExtentPacket
+X      red,
+X      green,
+X      blue;
+X
+X    long
+X      count;
+X
+X    struct _Cluster
+X      *next;
+X  } Cluster;
+X
+X  Cluster
+X    *cluster,
+X    *head,
+X    *last_cluster,
+X    *next_cluster;
+X
+X  double
+X    distance,
+X    local_minima,
+X    numerator,
+X    ratio,
+X    sum;
+X
+X  ExtentPacket
+X    blue,
+X    green,
+X    red;
+X
+X  int
+X    blue_distance,
+X    count,
+X    green_distance,
+X    red_distance;
+X
+X  register int
+X    i,
+X    j,
+X    k;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  unsigned int
+X    number_clusters;
+X
+X  /*
+X    Form clusters.
+X  */
+X  cluster=(Cluster *) NULL;
+X  head=(Cluster *) NULL;
+X  red.index=0;
+X  while (DefineRegion(extrema[Red],&red))
+X  {
+X    green.index=0;
+X    while (DefineRegion(extrema[Green],&green))
+X    {
+X      blue.index=0;
+X      while (DefineRegion(extrema[Blue],&blue))
+X      {
+X        /*
+X          Allocate a new class.
+X        */
+X        if (head != (Cluster *) NULL)
+X          {
+X            cluster->next=(Cluster *) malloc(sizeof(Cluster));
+X            cluster=cluster->next;
+X          }
+X        else
+X          {
+X            cluster=(Cluster *) malloc(sizeof(Cluster));
+X            head=cluster;
+X          }
+X        if (cluster == (Cluster *) NULL)
+X          {
+X            (void) fprintf(stderr,"duCMeans: unable to allocate memory\n");
+X            exit(1);
+X          }
+X        /*
+X          Initialize a new class.
+X        */
+X        cluster->count=0;
+X        cluster->red=red;
+X        cluster->green=green;
+X        cluster->blue=blue;
+X        cluster->next=(Cluster *) NULL;
+X      }
+X    }
+X  }
+X  if (head == (Cluster *) NULL)
+X    {
+X      /*
+X        No classes were identified-- create one.
+X      */
+X      cluster=(Cluster *) malloc(sizeof(Cluster));
+X      if (cluster == (Cluster *) NULL)
+X        Error("unable to allocate memory",(char *) NULL);
+X      /*
+X        Initialize a new class.
+X      */
+X      cluster->count=0;
+X      cluster->red=red;
+X      cluster->green=green;
+X      cluster->blue=blue;
+X      cluster->next=(Cluster *) NULL;
+X      head=cluster;
+X    }
+X  /*
+X    Count the pixels for each cluster.
+X  */
+X  count=0;
+X  p=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (cluster=head; cluster != (Cluster *) NULL; cluster=cluster->next)
+X      if (((int) p->red >= (cluster->red.left-SafeMargin)) &&
+X          ((int) p->red <= (cluster->red.right+SafeMargin)) &&
+X          ((int) p->green >= (cluster->green.left-SafeMargin)) &&
+X          ((int) p->green <= (cluster->green.right+SafeMargin)) &&
+X          ((int) p->blue >= (cluster->blue.left-SafeMargin)) &&
+X          ((int) p->blue <= (cluster->blue.right+SafeMargin)))
+X        {
+X          /*
+X            Count this pixel.
+X          */
+X          count+=(p->length+1);
+X          cluster->count+=(p->length+1);
+X          cluster->red.center+=(p->red*(p->length+1));
+X          cluster->green.center+=(p->green*(p->length+1));
+X          cluster->blue.center+=(p->blue*(p->length+1));
+X          break;
+X        }
+X    p++;
+X  }
+X  /*
+X    Remove clusters that do not meet minimum cluster threshold.
+X  */
+X  cluster_threshold*=(float) count*0.01;
+X  count=0;
+X  last_cluster=head;
+X  for (cluster=head; cluster != (Cluster *) NULL; cluster=next_cluster)
+X  {
+X    next_cluster=cluster->next;
+X    if (cluster->count >= cluster_threshold)
+X      {
+X        /*
+X          Initialize cluster.
+X        */
+X        cluster->id=count;
+X        cluster->red.center=(cluster->red.center+(cluster->count >> 1))/
+X          cluster->count;
+X        cluster->green.center=(cluster->green.center+(cluster->count >> 1))/
+X          cluster->count;
+X        cluster->blue.center=(cluster->blue.center+(cluster->count >> 1))/
+X          cluster->count;
+X        count++;
+X        last_cluster=cluster;
+X      }
+X    else
+X      {
+X        /*
+X          Delete cluster.
+X        */
+X        if (cluster == head)
+X          head=next_cluster;
+X        (void) free((char *) cluster);
+X        last_cluster->next=next_cluster;
+X      }
+X  }
+X  number_clusters=count;
+X  if (verbose)
+X    {
+X      /*
+X        Print cluster statistics.
+X      */
+X      (void) fprintf(stderr,"Fuzzy c-Means Statistics\n");
+X      (void) fprintf(stderr,"===================\n\n");
+X      (void) fprintf(stderr,"\tTotal Number of Clusters = %d\n\n",
+X        number_clusters);
+X      /*
+X        Print the total number of points per cluster.
+X      */
+X      (void) fprintf(stderr,"\n\nNumber of Vectors Per Cluster\n");
+X      (void) fprintf(stderr,"=============================\n\n");
+X      for (cluster=head; cluster != (Cluster *) NULL; cluster=cluster->next)
+X        (void) fprintf(stderr,"Cluster #%d = %ld\n",cluster->id,cluster->count);
+X      /*
+X        Print the cluster extents.
+X      */
+X      (void) fprintf(stderr,
+X        "\n\n\nCluster Extents:        (Vector Size: %d)\n",Dimension);
+X      (void) fprintf(stderr, "================");
+X      for (cluster=head; cluster != (Cluster *) NULL; cluster=cluster->next)
+X      {
+X        (void) fprintf(stderr,"\n\nCluster #%d\n\n",cluster->id);
+X        (void) fprintf(stderr,"%d-%d  %d-%d  %d-%d\n",
+X          cluster->red.left,cluster->red.right,
+X          cluster->green.left,cluster->green.right,
+X          cluster->blue.left,cluster->blue.right);
+X      }
+X      /*
+X        Print the cluster center values.
+X      */
+X      (void) fprintf(stderr,
+X        "\n\n\nCluster Center Values:        (Vector Size: %d)\n",Dimension);
+X      (void) fprintf(stderr, "=====================");
+X      for (cluster=head; cluster != (Cluster *) NULL; cluster=cluster->next)
+X      {
+X        (void) fprintf(stderr,"\n\nCluster #%d\n\n",cluster->id);
+X        (void) fprintf(stderr,"%ld  %ld  %ld\n",cluster->red.center,
+X          cluster->green.center,cluster->blue.center);
+X      }
+X      (void) fprintf(stderr,"\n");
+X    }
+X  /*
+X    Allocate image colormap.
+X  */
+X  image->alpha=False;
+X  image->class=PseudoClass;
+X  if (image->colormap != (ColorPacket *) NULL)
+X    (void) free((char *) image->colormap);
+X  image->colormap=(ColorPacket *)
+X    malloc((unsigned int) number_clusters*sizeof(ColorPacket));
+X  if (image->colormap == (ColorPacket *) NULL)
+X    Error("unable to allocate memory",(char *) NULL);
+X  if (image->signature != (char *) NULL)
+X    (void) free((char *) image->signature);
+X  image->signature=(char *) NULL;
+X  image->colors=number_clusters;
+X  i=0;
+X  for (cluster=head; cluster != (Cluster *) NULL; cluster=cluster->next)
+X  {
+X    image->colormap[i].red=(unsigned char) cluster->red.center;
+X    image->colormap[i].green=(unsigned char) cluster->green.center;
+X    image->colormap[i].blue=(unsigned char) cluster->blue.center;
+X    i++;
+X  }
+X  /*
+X    Do course grain classification.
+X  */
+X  q=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (cluster=head; cluster != (Cluster *) NULL; cluster=cluster->next)
+X      if (((int) q->red >= (cluster->red.left-SafeMargin)) &&
+X          ((int) q->red <= (cluster->red.right+SafeMargin)) &&
+X          ((int) q->green >= (cluster->green.left-SafeMargin)) &&
+X          ((int) q->green <= (cluster->green.right+SafeMargin)) &&
+X          ((int) q->blue >= (cluster->blue.left-SafeMargin)) &&
+X          ((int) q->blue <= (cluster->blue.right+SafeMargin)))
+X        {
+X          /*
+X            Classify this pixel.
+X          */
+X          q->index=cluster->id;
+X          break;
+X        }
+X    if (cluster == (Cluster *) NULL)
+X      {
+X        /*
+X          Compute fuzzy membership.
+X        */
+X        local_minima=0.0;
+X        for (j=0; j < image->colors; j++)
+X        {
+X          sum=0.0;
+X          red_distance=image->colormap[j].red-(int) q->red;
+X          green_distance=image->colormap[j].green-(int) q->green;
+X          blue_distance=image->colormap[j].blue-(int) q->blue;
+X          distance=red_distance*red_distance+green_distance*green_distance+
+X            blue_distance*blue_distance;
+X          numerator=sqrt(distance);
+X          for (k=0; k < image->colors; k++)
+X          {
+X            red_distance=image->colormap[k].red-(int) q->red;
+X            green_distance=image->colormap[k].green-(int) q->green;
+X            blue_distance=image->colormap[k].blue-(int) q->blue;
+X            distance=red_distance*red_distance+green_distance*green_distance+
+X            blue_distance*blue_distance;
+X            ratio=numerator/sqrt(distance);
+X            sum+=pow(ratio,(double) (2.0/(weighting_exponent-1.0)));
+X          }
+X          if ((1.0/sum) > local_minima)
+X            {
+X              /*
+X                Classify this pixel.
+X              */
+X              local_minima=1.0/sum;
+X              q->index=j;
+X            }
+X        }
+X      }
+X    q++;
+X  }
+X  /*
+X    Free memory.
+X  */
+X  for (cluster=head; cluster != (Cluster *) NULL; cluster=next_cluster)
+X  {
+X    next_cluster=cluster->next;
+X    (void) free((char *) cluster);
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   C o n s o l i d a t e C r o s s i n g s                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Function ConsolidateCrossings guarentees that an even number of zero
+%  crossings always lie between two crossings.
+%
+%  The format of the ConsolidateCrossings routine is:
+%
+%      ConsolidateCrossings(zero_crossing,number_crossings)
+%
+%  A description of each parameter follows.
+%
+%    o zero_crossing: Specifies an array of structures of type ZeroCrossing.
+%
+%    o number_crossings: This unsigned int specifies the number of elements
+%      in the zero_crossing array.
+%
+%
+*/
+static void ConsolidateCrossings(zero_crossing,number_crossings)
+ZeroCrossing
+X  *zero_crossing;
+X
+unsigned int
+X  number_crossings;
+{
+X  int
+X    center,
+X    correct,
+X    count,
+X    left,
+X    right;
+X
+X  register int
+X    i,
+X    j,
+X    k,
+X    l;
+X
+X  /*
+X    Consolidate zero crossings.
+X  */
+X  for (i=number_crossings-1; i >= 0; i--)
+X    for (j=0; j <= MaxRGB; j++)
+X      if (zero_crossing[i].crossings[j] != 0)
+X        {
+X          /*
+X            Find the entry that is closest to j and still preserves the
+X            property that there are an even number of crossings between
+X            intervals.
+X          */
+X          for (k=j-1; k > 0; k--)
+X            if (zero_crossing[i+1].crossings[k] != 0)
+X              break;
+X          left=Max(k,0);
+X          center=j;
+X          for (k=j+1; k < MaxRGB; k++)
+X            if (zero_crossing[i+1].crossings[k] != 0)
+X              break;
+X          right=Min(k,MaxRGB);
+X          /*
+X            K is the zero crossing just left of j.
+X          */
+X          for (k=j-1; k > 0; k--)
+X            if (zero_crossing[i].crossings[k] != 0)
+X              break;
+X          if (k < 0)
+X            k=0;
+X          /*
+X            Check center for an even number of crossings between k and j.
+X          */
+X          correct=(-1);
+X          if (zero_crossing[i+1].crossings[j] != 0)
+X            {
+X              count=0;
+X              for (l=k+1; l < center; l++)
+X                if (zero_crossing[i+1].crossings[l] != 0)
+X                  count++;
+X              if ((count % 2) == 0)
+X                if (center != k)
+X                  correct=center;
+X            }
+X          /*
+X            Check left for an even number of crossings between k and j.
+X          */
+X          if (correct == -1)
+X            {
+X              count=0;
+X              for (l=k+1; l < left; l++)
+X                if (zero_crossing[i+1].crossings[l] != 0)
+X                  count++;
+X              if ((count % 2) == 0)
+X                if (left != k)
+X                  correct=left;
+X            }
+X          /*
+X            Check right for an even number of crossings between k and j.
+X          */
+X          if (correct == -1)
+X            {
+X              count=0;
+X              for (l=k+1; l < right; l++)
+X                if (zero_crossing[i+1].crossings[l] != 0)
+X                  count++;
+X              if ((count % 2) == 0)
+X                if (right != k)
+X                  correct=right;
+X            }
+X          l=zero_crossing[i].crossings[j];
+X          zero_crossing[i].crossings[j]=0;
+X          if (correct != -1)
+X            zero_crossing[i].crossings[correct]=l;
+X        }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   D e f i n e R e g i o n                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Function DefineRegion defines the left and right boundaries of a peak
+%  region.
+%
+%  The format of the DefineRegion routine is:
+%
+%      status=DefineRegion(extrema,extents)
+%
+%  A description of each parameter follows.
+%
+%    o extrema:  Specifies a pointer to an array of shortegers.  They
+%      represent the peaks and valleys of the histogram for each color
+%      component.
+%
+%    o extents:  This pointer to an ExtentPacket represent the extends
+%      of a particular peak or valley of a color component.
+%
+%
+*/
+static int DefineRegion(extrema,extents)
+short
+X  *extrema;
+X
+ExtentPacket
+X  *extents;
+{
+X  /*
+X    Initialize to default values.
+X  */
+X  extents->left=0;
+X  extents->center=0;
+X  extents->right=MaxRGB;
+X  /*
+X    Find the left side (maxima).
+X  */
+X  for ( ; extents->index <= MaxRGB; extents->index++)
+X    if (extrema[extents->index] > 0)
+X      break;
+X  if (extents->index > MaxRGB)
+X    return(False);  /* no left side - no region exists */
+X  extents->left=extents->index;
+X  /*
+X    Find the right side (minima).
+X  */
+X  for ( ; extents->index <= MaxRGB; extents->index++)
+X    if (extrema[extents->index] < 0)
+X      break;
+X  extents->right=extents->index-1;
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   D e r i v a t i v e H i s t o g r a m                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Function DerivativeHistogram determines the derivative of the histogram
+%  using central differencing.
+%
+%  The format of the DerivativeHistogram routine is:
+%
+%      DerivativeHistogram(histogram,derivative)
+%
+%  A description of each parameter follows.
+%
+%    o histogram: Specifies an array of floats representing the number of
+%      pixels for each intensity of a paritcular color component.
+%
+%    o derivative: This array of floats is initialized by DerivativeHistogram
+%      to the derivative of the histogram using centeral differencing.
+%
+%
+*/
+static void DerivativeHistogram(histogram,derivative)
+float
+X  *histogram,
+X  *derivative;
+{
+X  register int
+X    i,
+X    n;
+X
+X  /*
+X    Compute endpoints using second order polynomial interpolation.
+X  */
+X  n=MaxRGB;
+X  derivative[0]=(-1.5*histogram[0]+2.0*histogram[1]-0.5*histogram[2]);
+X  derivative[n]=(0.5*histogram[n-2]-2.0*histogram[n-1]+1.5*histogram[n]);
+X  /*
+X    Compute derivative using central differencing.
+X  */
+X  for (i=1; i < n; i++)
+X    derivative[i]=(histogram[i+1]-histogram[i-1])/2;
+X  return;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E r r o r                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Error displays an error message and then terminates the program.
+%
+%  The format of the Error routine is:
+%
+%      Error(message,qualifier)
+%
+%  A description of each parameter follows:
+%
+%    o message: Specifies the message to display before terminating the
+%      program.
+%
+%    o qualifier: Specifies any qualifier to the message.
+%
+%
+*/
+void Error(message,qualifier)
+char
+X  *message,
+X  *qualifier;
+{
+X  (void) fprintf(stderr,"%s: %s",client_name,message);
+X  if (qualifier != (char *) NULL)
+X    (void) fprintf(stderr," (%s)",qualifier);
+X  (void) fprintf(stderr,".\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  I n i t i a l i z e H i s t o g r a m                                      %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function InitializeHistogram computes the histogram for an image.
+%
+%  The format of the InitializeHistogram routine is:
+%
+%      InitializeHistogram(image,histogram)
+%
+%  A description of each parameter follows.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%    o histogram: Specifies an array of longegers representing the number
+%      of pixels for each intensity of a paritcular color component.
+%
+%
+*/
+static void InitializeHistogram(image,histogram)
+Image
+X  *image;
+X
+long
+X  **histogram;
+{
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  /*
+X    Initialize histogram.
+X  */
+X  for (i=0; i <= MaxRGB; i++)
+X  {
+X    histogram[Red][i]=0;
+X    histogram[Green][i]=0;
+X    histogram[Blue][i]=0;
+X  }
+X  p=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    histogram[Red][p->red]+=(p->length+1);
+X    histogram[Green][p->green]+=(p->length+1);
+X    histogram[Blue][p->blue]+=(p->length+1);
+X    p++;
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   I n i t i a l i z e I n t e r v a l T r e e                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Function InitializeIntervalTree initializes an interval tree from the
+%  lists of zero crossings.
+%
+%  The format of the InitializeIntervalTree routine is:
+%
+%      InitializeIntervalTree(zero_crossing,number_crossings)
+%
+%  A description of each parameter follows.
+%
+%    o zero_crossing: Specifies an array of structures of type ZeroCrossing.
+%
+%    o number_crossings: This unsigned int specifies the number of elements
+%      in the zero_crossing array.
+%
+%
+*/
+static void InitializeList(node)
+IntervalTree
+X  *node;
+{
+X  if (node == (IntervalTree *) NULL)
+X    return;
+X  if (node->child == (IntervalTree *) NULL)
+X    list[number_nodes++]=node;
+X  InitializeList(node->sibling);
+X  InitializeList(node->child);
+}
+X
+static void MeanStability(node)
+IntervalTree
+X  *node;
+{
+X  register IntervalTree
+X    *child;
+X
+X  if (node == (IntervalTree *) NULL)
+X    return;
+X  node->mean_stability=0.0;
+X  child=node->child;
+X  if (child != (IntervalTree *) NULL)
+X    {
+X      register double
+X        sum;
+X
+X      register int
+X        count;
+X
+X      sum=0.0;
+X      count=0;
+X      for ( ; child != (IntervalTree *) NULL; child=child->sibling)
+X      {
+X        sum+=child->stability;
+X        count++;
+X      }
+X      node->mean_stability=sum/(double) count;
+X    }
+X  MeanStability(node->sibling);
+X  MeanStability(node->child);
+}
+X
+static void Stability(node)
+IntervalTree
+X  *node;
+{
+X  if (node == (IntervalTree *) NULL)
+X    return;
+X  if (node->child == (IntervalTree *) NULL)
+X    node->stability=0.0;
+X  else
+X    node->stability=node->tau-(node->child)->tau;
+X  Stability(node->sibling);
+X  Stability(node->child);
+}
+X
+static IntervalTree *InitializeIntervalTree(zero_crossing,number_crossings)
+ZeroCrossing
+X  *zero_crossing;
+X
+unsigned int
+X  number_crossings;
+{
+X  int
+X    left;
+X
+X  IntervalTree
+X    *head,
+X    *node,
+X    *root;
+X
+X  register int
+X    i,
+X    j,
+X    k;
+X
+X  /*
+X    The root is the entire histogram.
+X  */
+X  root=(IntervalTree *) malloc(sizeof(IntervalTree));
+X  root->child=(IntervalTree *) NULL;
+X  root->sibling=(IntervalTree *) NULL;
+X  root->tau=0.0;
+X  root->left=0;
+X  root->right=MaxRGB;
+X  for (i=(-1); i < (int) number_crossings; i++)
+X  {
+X    /*
+X      Initialize list with all nodes with no children.
+X    */
+X    for (j=0; j < 600; j++)
+X      list[j]=(IntervalTree *) NULL;
+X    number_nodes=0;
+X    InitializeList(root);
+X    /*
+X      Split list.
+X    */
+X    for (j=0; j < number_nodes; j++)
+X    {
+X      head=list[j];
+X      left=head->left;
+X      node=head;
+X      for (k=head->left+1; k < head->right; k++)
+X      {
+X        if (zero_crossing[i+1].crossings[k] != 0)
+X          {
+X            if (node == head)
+X              {
+X                node->child=(IntervalTree *) malloc(sizeof(IntervalTree));
+X                node=node->child;
+X              }
+X            else
+X              {
+X                node->sibling=(IntervalTree *) malloc(sizeof(IntervalTree));
+X                node=node->sibling;
+X              }
+X            node->tau=zero_crossing[i+1].tau;
+X            node->child=(IntervalTree *) NULL;
+X            node->sibling=(IntervalTree *) NULL;
+X            node->left=left;
+X            node->right=k;
+X            left=k;
+X          }
+X        }
+X        if (left != head->left)
+X          {
+X            node->sibling=(IntervalTree *) malloc(sizeof(IntervalTree));
+X            node=node->sibling;
+X            node->tau=zero_crossing[i+1].tau;
+X            node->child=(IntervalTree *) NULL;
+X            node->sibling=(IntervalTree *) NULL;
+X            node->left=left;
+X            node->right=head->right;
+X          }
+X      }
+X    }
+X  /*
+X    Determine the stability: difference between a nodes tau and its child.
+X  */
+X  Stability(root->child);
+X  MeanStability(root->child);
+X  return(root);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   O p t i m a l T a u                                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Function OptimalTau finds the optimal tau for each band of the histogram.
+%
+%  The format of the OptimalTau routine is:
+%
+%      OptimalTau(histogram,max_tau,min_tau,delta_tau,smoothing_threshold,
+%        extrema)
+%
+%  A description of each parameter follows.
+%
+%    o histogram: Specifies an array of longegers representing the number
+%      of pixels for each intensity of a paritcular color component.
+%
+%    o extrema:  Specifies a pointer to an array of shortegers.  They
+%      represent the peaks and valleys of the histogram for each color
+%      component.
+%
+%
+*/
+static void ActiveNodes(node)
+IntervalTree
+X  *node;
+{
+X  if (node == (IntervalTree *) NULL)
+X    return;
+X  if (node->stability >= node->mean_stability)
+X    {
+X      list[number_nodes++]=node;
+X      ActiveNodes(node->sibling);
+X    }
+X  else
+X    {
+X      ActiveNodes(node->sibling);
+X      ActiveNodes(node->child);
+X    }
+}
+X
+static void FreeNodes(node)
+IntervalTree
+X  *node;
+{
+X  if (node == (IntervalTree *) NULL)
+X    return;
+X  FreeNodes(node->sibling);
+X  FreeNodes(node->child);
+X  (void) free((char *) node);
+}
+X
+static float OptimalTau(histogram,max_tau,min_tau,delta_tau,smoothing_threshold,
+X  extrema)
+long
+X  *histogram;
+X
+float
+X  max_tau,
+X  min_tau,
+X  delta_tau,
+X  smoothing_threshold;
+X
+short
+X  *extrema;
+{
+X  float
+X    average_tau,
+X    derivative[MaxRGB+1],
+X    second_derivative[MaxRGB+1],
+X    tau,
+X    value;
+X
+X  int
+X    index,
+X    peak,
+X    x;
+X
+X  IntervalTree
+X    *node,
+X    *root;
+X
+X  register int
+X    i,
+X    j,
+X    k;
+X
+X  ZeroCrossing
+X    *zero_crossing;
+X
+X  unsigned int
+X    count,
+X    number_crossings;
+X
+X  /*
+X    Allocate zero crossing list.
+X  */
+X  count=((max_tau-min_tau)/delta_tau)+2;
+X  zero_crossing=(ZeroCrossing *) malloc(count*sizeof(ZeroCrossing));
+X  if (zero_crossing == (ZeroCrossing *) NULL)
+X    {
+X      (void) fprintf(stderr,"duCMeans: unable to allocate memory\n");
+X      exit(1);
+X    }
+X  for (i=0; i < count; i++)
+X    zero_crossing[i].tau=(-1);
+X  /*
+X    Initialize zero crossing list.
+X  */
+X  i=0;
+X  for (tau=max_tau; tau >= min_tau; tau-=delta_tau)
+X  {
+X    zero_crossing[i].tau=tau;
+X    ScaleSpace(histogram,tau,zero_crossing[i].histogram);
+X    DerivativeHistogram(zero_crossing[i].histogram,derivative);
+X    DerivativeHistogram(derivative,second_derivative);
+X    ZeroCrossHistogram(second_derivative,smoothing_threshold,
+X      zero_crossing[i].crossings);
+X    i++;
+X  }
+X  /*
+X    Add an entry for the original histogram.
+X  */
+X  zero_crossing[i].tau=0.0;
+X  for (j=0; j <= MaxRGB; j++)
+X    zero_crossing[i].histogram[j]=histogram[j];
+X  DerivativeHistogram(zero_crossing[i].histogram,derivative);
+X  DerivativeHistogram(derivative,second_derivative);
+X  ZeroCrossHistogram(second_derivative,smoothing_threshold,
+X    zero_crossing[i].crossings);
+X  number_crossings=i;
+X  /*
+X    Ensure the scale-space fingerprints form lines in scale-space, not loops.
+X  */
+X  ConsolidateCrossings(zero_crossing,number_crossings);
+X  /*
+X    Force endpoints to be included in the interval.
+X  */
+X  for (i=0; i <= number_crossings; i++)
+X  {
+X    for (j=0; j < MaxRGB; j++)
+X      if (zero_crossing[i].crossings[j] != 0)
+X        break;
+X    zero_crossing[i].crossings[0]=(-zero_crossing[i].crossings[j]);
+X    for (j=MaxRGB; j > 0; j--)
+X      if (zero_crossing[i].crossings[j] != 0)
+X        break;
+X    zero_crossing[i].crossings[MaxRGB]=(-zero_crossing[i].crossings[j]);
+X  }
+X  /*
+X    Initialize interval tree.
+X  */
+X  root=InitializeIntervalTree(zero_crossing,number_crossings);
+X  /*
+X    Find active nodes:  stabilty is greater (or equal) to the mean stability of
+X    its children.
+X  */
+X  for (i = 0; i < 600; i++)
+X    list[i]=(IntervalTree *) NULL;
+X  number_nodes=0;
+X  ActiveNodes(root->child);
+X  /*
+X    Initialize extrema.
+X  */
+X  for (i=0; i <= MaxRGB; i++)
+X    extrema[i]=0;
+X  for (i=0; i < number_nodes; i++)
+X  {
+X    /*
+X      Find this tau in zero crossings list.
+X    */
+X    k=0;
+X    node=list[i];
+X    for (j=0; j <= number_crossings; j++)
+X      if (zero_crossing[j].tau == node->tau)
+X        k=j;
+X    /*
+X      Find the value of the peak.
+X    */
+X    peak=zero_crossing[k].crossings[node->right] == -1;
+X    index=node->left;
+X    value=zero_crossing[k].histogram[index];
+X    for (x=node->left; x <= node->right; x++)
+X    {
+X      if (peak)
+X        {
+X          if (zero_crossing[k].histogram[x] > value)
+X            {
+X              value=zero_crossing[k].histogram[x];
+X              index=x;
+X            }
+X        }
+X      else
+X        if (zero_crossing[k].histogram[x] < value)
+X          {
+X            value=zero_crossing[k].histogram[x];
+X            index=x;
+X          }
+X    }
+X    for (x=node->left; x <= node->right; x++)
+X    {
+X      if (index == 0)
+X        index=MaxRGB+1;
+X      if (peak)
+X        extrema[x]=index;
+X      else
+X        extrema[x]=(-index);
+X    }
+X  }
+X  /*
+X    Free memory.
+X  */
+X  FreeNodes(root);
+X  (void) free((char *) zero_crossing);
+X  /*
+X    Determine the average tau.
+X  */
+X  average_tau=0.0;
+X  for (i=0; i < number_nodes; i++)
+X    average_tau+=list[i]->tau;
+X  average_tau/=(float) number_nodes;
+X  return(average_tau);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   S c a l e S p a c e                                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Function ScaleSpace performs a scale-space filter on the 1D histogram.
+%
+%  The format of the ScaleSpace routine is:
+%
+%      ScaleSpace(histogram,tau,scaled_histogram)
+%
+%  A description of each parameter follows.
+%
+%    o histogram: Specifies an array of floats representing the number of
+%      pixels for each intensity of a paritcular color component.
+%
+%
+*/
+static void ScaleSpace(histogram,tau,scaled_histogram)
+long
+X  *histogram;
+X
+double
+X  tau;
+X
+float
+X  *scaled_histogram;
+{
+#define PI 3.14159265358979323846
+X
+X  float
+X    alpha,
+X    beta;
+X
+X  double
+X    sum;
+X
+X  register int
+X    u,
+X    x;
+X
+X  alpha=1.0/(tau*sqrt((double) (2.0*PI)));
+X  beta=(-1.0/(2.0*tau*tau));
+X  for (x=0; x <= MaxRGB; x++)
+X  {
+X    sum=0.0;
+X    for (u=0; u <= MaxRGB; u++)
+X      sum+=histogram[u]*exp((double) (beta*(x-u)*(x-u)));
+X    scaled_histogram[x]=alpha*sum;
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s a g e                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Usage displays the program usage;
+%
+%  The format of the Usage routine is:
+%
+%      Usage()
+%
+%
+*/
+static void Usage()
+{
+X  char
+X    **p;
+X
+X  static char
+X    *options[]=
+X    {
+X      "-alpha              store alpha channel if the image has one",
+X      "-colorspace type    GRAY, RGB, XYZ, YCbCr, YIQ, or YUV",
+X      "-compress type      RunlengthEncoded or QEncoded",
+X      "-density geometry   vertical and horizonal density of the image",
+X      "-display server     obtain image or font from this X server",
+X      "-font name          X11 font for displaying text",
+X      "-geometry geometry  width and height of the image",
+X      "-interlace type     NONE, LINE, or PLANE",
+X      "-page geometry      size and location of the Postscript page",
+X      "-quality value      JPEG quality setting",
+X      "-scene value        image scene number",
+X      "-treedepth value    depth of the color classification tree",
+X      "-verbose            print detailed information about the image",
+X      (char *) NULL
+X    };
+X  (void) fprintf(stderr,"Usage: %s [options ...] input_file output_file\n",
+X    client_name);
+X  (void) fprintf(stderr,"\nWhere options include:\n");
+X  for (p=options; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  (void) fprintf(stderr,
+X    "\nChange '-' to '+' in any option above to reverse its effect.  For\n");
+X  (void) fprintf(stderr,
+X    "example,  specify +alpha to store the image without an alpha channel.\n");
+X  (void) fprintf(stderr,
+X    "\nBy default, the image format of `file' is determined by its magic\n");
+X  (void) fprintf(stderr,
+X    "number.  To specify a particular image format, precede the filename\n");
+X  (void) fprintf(stderr,
+X    "with an image format name and a colon (i.e. ps:image) or specify the\n");
+X  (void) fprintf(stderr,
+X    "image type as the filename suffix (i.e. image.ps).  Specify 'file' as\n");
+X  (void) fprintf(stderr,"'-' for standard input or output.\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   Z e r o C r o s s H i s t o g r a m                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Function ZeroCrossHistogram find the zero crossings in a histogram and
+%  marks directions as:  1 is negative to positive; 0 is zero crossing; and
+%  -1 is positive to negative.
+%
+%  The format of the ZeroCrossHistogram routine is:
+%
+%      ZeroCrossHistogram(second_derivative,smoothing_threshold,crossings)
+%
+%  A description of each parameter follows.
+%
+%    o second_derivative: Specifies an array of floats representing the
+%      second derivative of the histogram of a particular color component.
+%
+%    o crossings:  This array of shortegers is initialized with
+%      -1, 0, or 1 representing the slope of the first derivative of the
+%      of a particular color component.
+%
+%
+*/
+static void ZeroCrossHistogram(second_derivative,smoothing_threshold,crossings)
+float
+X  *second_derivative;
+X
+double
+X  smoothing_threshold;
+X
+short
+X  *crossings;
+{
+X  int
+X    parity;
+X
+X  register int
+X    i;
+X
+X  /*
+X    Merge low numbers to zero to help prevent noise.
+X  */
+X  for (i=0; i <= MaxRGB; i++)
+X    if ((second_derivative[i] < smoothing_threshold) &&
+X        (second_derivative[i] > -smoothing_threshold))
+X      second_derivative[i]=0.0;
+X  /*
+X    Mark zero crossings.
+X  */
+X  parity=0;
+X  for (i=0; i <= MaxRGB; i++)
+X  {
+X    crossings[i]=0;
+X    if (second_derivative[i] < 0.0)
+X      {
+X        if (parity > 0)
+X          crossings[i]=(-1);
+X        parity=1;
+X      }
+X    else
+X      if (second_derivative[i] > 0.0)
+X        {
+X          if (parity < 0)
+X            crossings[i]=1;
+X          parity=(-1);
+X        }
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  S e g m e n t I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function SegmentImage analyzes the colors within a reference image and
+%
+%  The format of the SegmentImage routine is:
+%
+%      colors=SegmentImage(image,colorspace,verbose)
+%
+%  A description of each parameter follows.
+%
+%    o colors: The SegmentImage function returns this integer
+%      value.  It is the actual number of colors allocated in the
+%      colormap.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%    o colorspace: An unsigned integer value that indicates the colorspace.
+%      Empirical evidence suggests that distances in YUV or YIQ correspond to
+%      perceptual color differences more closely than do distances in RGB
+%      space.  The image is then returned to RGB colorspace after color
+%      reduction.
+%
+%    o verbose:  A value greater than zero prints detailed information about
+%      the identified classes.
+%
+%
+*/
+static void SegmentImage(image,colorspace,verbose)
+Image
+X  *image;
+X
+unsigned int
+X  colorspace,
+X  verbose;
+{
+#define ClusterThreshold  1.0
+#define DeltaTau  0.5
+#define SmoothingThreshold  5.0
+#define Tau  5.2
+#define WeightingExponent  2.0
+X
+X  long
+X    *histogram[Dimension];
+X
+X  register int
+X    i;
+X
+X  short
+X    *extrema[Dimension];
+X
+X  /*
+X    Allocate histogram and extrema.
+X  */
+X  for (i=0; i < Dimension; i++)
+X  {
+X    histogram[i]=(long *) malloc((MaxRGB+1)*sizeof(long));
+X    extrema[i]=(short *) malloc((MaxRGB+1)*sizeof(short));
+X    if ((histogram[i] == (long *) NULL) ||
+X        (extrema[i] == (short *) NULL))
+X      Error("unable to allocate memory",(char *) NULL);
+X  }
+X  if (colorspace != RGBColorspace)
+X    RGBTransformImage(image,colorspace);
+X  /*
+X    Initialize histogram.
+X  */
+X  InitializeHistogram(image,histogram);
+X  (void) OptimalTau(histogram[Red],Tau,0.2,DeltaTau,SmoothingThreshold,
+X    extrema[Red]);
+X  (void) OptimalTau(histogram[Green],Tau,0.2,DeltaTau,SmoothingThreshold,
+X    extrema[Green]);
+X  (void) OptimalTau(histogram[Blue],Tau,0.2,DeltaTau,SmoothingThreshold,
+X    extrema[Blue]);
+X  /*
+X    Classify using the fuzzy c-Means technique.
+X  */
+X  Classify(image,extrema,ClusterThreshold,WeightingExponent,verbose);
+X  if (colorspace != RGBColorspace)
+X    TransformRGBImage(image,colorspace);
+X  /*
+X    Free memory.
+X  */
+X  for (i=0; i < Dimension; i++)
+X  {
+X    (void) free((char *) extrema[i]);
+X    (void) free((char *) histogram[i]);
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  M a i n                                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+int main(argc,argv)
+int
+X  argc;
+X
+char
+X  *argv[];
+{
+#define NotInitialized  (unsigned int) (~0)
+X
+X  char
+X    *border_color,
+X    *density,
+X    *filename,
+X    *font,
+X    *image_geometry,
+X    *option,
+X    *page_geometry,
+X    *server_name;
+X
+X  double
+X    normalized_maximum_error,
+X    normalized_mean_error;
+X
+X  Image
+X    *image,
+X    *next_image;
+X
+X  ImageInfo
+X    image_info;
+X
+X  int
+X    i,
+X    status,
+X    x;
+X
+X  time_t
+X    start_time;
+X
+X  unsigned int
+X    alpha,
+X    colorspace,
+X    compression,
+X    interlace,
+X    mean_error_per_pixel,
+X    quality,
+X    scene,
+X    verbose;
+X
+X  unsigned long
+X    total_colors;
+X
+X  /*
+X    Initialize program variables.
+X  */
+X  client_name=argv[0];
+X  if (argc < 3)
+X    Usage();
+X  /*
+X    Read image and convert to MIFF format.
+X  */
+X  alpha=NotInitialized;
+X  border_color=(char *) NULL;
+X  colorspace=RGBColorspace;
+X  compression=UndefinedCompression;
+X  density=(char *) NULL;
+X  font=(char *) NULL;
+X  image=(Image *) NULL;
+X  image_geometry=(char *) NULL;
+X  interlace=NoneInterlace;
+X  page_geometry=(char *) NULL;
+X  quality=75;
+X  scene=0;
+X  server_name=(char *) NULL;
+X  start_time=time((time_t *) NULL);
+X  verbose=False;
+X  /*
+X    Check command syntax.
+X  */
+X  filename=(char *) NULL;
+X  for (i=1; i < (argc-1); i++)
+X  {
+X    option=argv[i];
+X    if (((int) strlen(option) < 2) || ((*option != '-') && (*option != '+')))
+X      {
+X        /*
+X          Read input image.
+X        */
+X        filename=option;
+X        GetImageInfo(&image_info);
+X        (void) strcpy(image_info.filename,filename);
+X        image_info.server_name=server_name;
+X        image_info.font=font;
+X        image_info.geometry=image_geometry;
+X        image_info.page=page_geometry;
+X        image_info.density=density;
+X        image_info.border_color=border_color;
+X        image_info.interlace=interlace;
+X        image_info.quality=quality;
+X        image_info.verbose=verbose;
+X        if (image != (Image *) NULL)
+X          Error("input image already specified",filename);
+X        image=ReadImage(&image_info);
+X        if (image == (Image *) NULL)
+X          exit(1);
+X      }
+X    else
+X      switch(*(option+1))
+X      {
+X        case 'a':
+X        {
+X          alpha=(*option == '-');
+X          break;
+X        }
+X        case 'b':
+X        {
+X          if (strncmp("bordercolor",option+1,7) == 0)
+X            {
+X              border_color=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing color on -bordercolor",(char *) NULL);
+X                  border_color=argv[i];
+X                }
+X              break;
+X            }
+X          break;
+X        }
+X        case 'c':
+X        {
+X          if (strncmp("colorspace",option+1,7) == 0)
+X            {
+X              colorspace=RGBColorspace;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -colorspace",(char *) NULL);
+X                  option=argv[i];
+X                  colorspace=UndefinedColorspace;
+X                  if (Latin1Compare("gray",option) == 0)
+X                    colorspace=GRAYColorspace;
+X                  if (Latin1Compare("rgb",option) == 0)
+X                    colorspace=RGBColorspace;
+X                  if (Latin1Compare("xyz",option) == 0)
+X                    colorspace=XYZColorspace;
+X                  if (Latin1Compare("ycbcr",option) == 0)
+X                    colorspace=YCbCrColorspace;
+X                  if (Latin1Compare("yiq",option) == 0)
+X                    colorspace=YIQColorspace;
+X                  if (Latin1Compare("yuv",option) == 0)
+X                    colorspace=YUVColorspace;
+X                  if (colorspace == UndefinedColorspace)
+X                    Error("invalid colorspace type on -colorspace",option);
+X                }
+X              break;
+X            }
+X          if (strncmp("compress",option+1,3) == 0)
+X            {
+X              compression=NoCompression;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -compress",(char *) NULL);
+X                  option=argv[i];
+X                  if (Latin1Compare("runlengthencoded",option) == 0)
+X                    compression=RunlengthEncodedCompression;
+X                  else
+X                    if (Latin1Compare("qencoded",option) == 0)
+X                      compression=QEncodedCompression;
+X                    else
+X                      Error("invalid compression type on -compress",option);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'd':
+X        {
+X          if (strncmp("density",option+1,3) == 0)
+X            {
+X              density=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -density",(char *) NULL);
+X                  density=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("display",option+1,3) == 0)
+X            {
+X              server_name=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing server name on -display",(char *) NULL);
+X                  server_name=argv[i];
+X                }
+X              break;
+X            }
+SHAR_EOF
+true || echo 'restore of ImageMagick/utilities/segment.c failed'
+fi
+echo 'End of ImageMagick part 4'
+echo 'File ImageMagick/utilities/segment.c is continued in part 5'
+echo 5 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

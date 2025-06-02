@@ -1,0 +1,1743 @@
+Newsgroups: comp.sources.misc
+From: wen-king@vlsi.cs.caltech.edu (Wen-King Su)
+Subject:  v34i078:  fsp - Internet archive server and client software, Part04/04
+Message-ID: <1992Dec18.164053.11528@sparky.imd.sterling.com>
+X-Md4-Signature: a83319d39750b1ed36319d810ad735b5
+Date: Fri, 18 Dec 1992 16:40:53 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wen-king@vlsi.cs.caltech.edu (Wen-King Su)
+Posting-number: Volume 34, Issue 78
+Archive-name: fsp/part04
+Environment: UNIX, Sockets
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bsd_src/Makefile bsd_src/cmp.c bsd_src/tweak.h
+#   bsd_src/util.c client_def.h fcat.1 fcatcmd.1 fcatcmd.c fcd.1
+#   fcdcmd.c fget.1 fgetcmd.1 fgetcmd.c fgrab.1 fgrabcmd.c fls.1
+#   flscmd.1 flscmd.c fmkdir.1 fmkdir.c fpro.1 fprocmd.1 fput.1 fput.c
+#   frm.1 frmcmd.1 frmcmd.c frmdir.1 frmdircmd.1 frmdircmd.c fver.1
+#   fver.c merge.c setup
+# Wrapped by kent@sparky on Fri Dec 18 10:21:26 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 4)."'
+if test -f 'bsd_src/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bsd_src/Makefile'\"
+else
+  echo shar: Extracting \"'bsd_src/Makefile'\" \(721 characters\)
+  sed "s/^X//" >'bsd_src/Makefile' <<'END_OF_FILE'
+X# This subdirectory contains modified version of files obtained from the
+X# uunet.uu.net archive.  You need to do 'make' in this directory first.
+X# You may have to edit tweak.h to get things to them to properly on your
+X# system.
+X
+X# The bsd glob.c file has a bug in blkfree function in that it tries to
+X# free something that is actually on the stack of the glob function.
+X# The last call to free has been commented out to fix the bug.
+X
+XCFLAGS=-g
+X
+Xall: cmp.o glob.o ls.o print.o util.o random.o
+X
+Xcmp.o: cmp.c ls.h tweak.h
+Xglob.o: glob.c ../client_def.h ../common_def.h tweak.h
+Xls.o: ls.c ../client_def.h ../common_def.h ls.h tweak.h
+Xprint.o: print.c ls.h tweak.h
+Xutil.o: util.c tweak.h
+Xrandom.o: random.c
+X
+Xclean:
+X	rm -f *.o
+END_OF_FILE
+  if test 721 -ne `wc -c <'bsd_src/Makefile'`; then
+    echo shar: \"'bsd_src/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'bsd_src/Makefile'
+fi
+if test -f 'bsd_src/cmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bsd_src/cmp.c'\"
+else
+  echo shar: Extracting \"'bsd_src/cmp.c'\" \(1934 characters\)
+  sed "s/^X//" >'bsd_src/cmp.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Michael Fischbein.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that: (1) source distributions retain this entire copyright
+X * notice and comment, and (2) distributions including binaries display
+X * the following acknowledgement:  ``This product includes software
+X * developed by the University of California, Berkeley and its contributors''
+X * in the documentation or other materials provided with the distribution
+X * and in all advertising materials mentioning features or use of this
+X * software. Neither the name of the University nor the names of its
+X * contributors may be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)cmp.c	5.2 (Berkeley) 4/8/90";
+X#endif /* not lint */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include "ls.h"
+X#include "tweak.h"
+X
+Xnamecmp(a, b)
+X	LS *a, *b;
+X{
+X	return(strcmp(a->name, b->name));
+X}
+X
+Xrevnamecmp(a, b)
+X	LS *a, *b;
+X{
+X	return(strcmp(b->name, a->name));
+X}
+X
+Xmodcmp(a, b)
+X	LS *a, *b;
+X{
+X	return(-(int)(a->lstat.st_mtime - b->lstat.st_mtime));
+X}
+X
+Xrevmodcmp(a, b)
+X	LS *a, *b;
+X{
+X	return(-(int)(b->lstat.st_mtime - a->lstat.st_mtime));
+X}
+X
+Xacccmp(a, b)
+X	LS *a, *b;
+X{
+X	return(-(int)(a->lstat.st_atime - b->lstat.st_atime));
+X}
+X
+Xrevacccmp(a, b)
+X	LS *a, *b;
+X{
+X	return(-(int)(b->lstat.st_atime - a->lstat.st_atime));
+X}
+X
+Xstatcmp(a, b)
+X	LS *a, *b;
+X{
+X	return(-(int)(a->lstat.st_ctime - b->lstat.st_ctime));
+X}
+X
+Xrevstatcmp(a, b)
+X	LS *a, *b;
+X{
+X	return(-(int)(b->lstat.st_ctime - a->lstat.st_ctime));
+X}
+END_OF_FILE
+  if test 1934 -ne `wc -c <'bsd_src/cmp.c'`; then
+    echo shar: \"'bsd_src/cmp.c'\" unpacked with wrong size!
+  fi
+  # end of 'bsd_src/cmp.c'
+fi
+if test -f 'bsd_src/tweak.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bsd_src/tweak.h'\"
+else
+  echo shar: Extracting \"'bsd_src/tweak.h'\" \(681 characters\)
+  sed "s/^X//" >'bsd_src/tweak.h' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X/* #define d_ino d_fileno		/* */
+X/* #define mode_t unsigned short	/* */
+END_OF_FILE
+  if test 681 -ne `wc -c <'bsd_src/tweak.h'`; then
+    echo shar: \"'bsd_src/tweak.h'\" unpacked with wrong size!
+  fi
+  # end of 'bsd_src/tweak.h'
+fi
+if test -f 'bsd_src/util.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bsd_src/util.c'\"
+else
+  echo shar: Extracting \"'bsd_src/util.c'\" \(1739 characters\)
+  sed "s/^X//" >'bsd_src/util.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Michael Fischbein.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that: (1) source distributions retain this entire copyright
+X * notice and comment, and (2) distributions including binaries display
+X * the following acknowledgement:  ``This product includes software
+X * developed by the University of California, Berkeley and its contributors''
+X * in the documentation or other materials provided with the distribution
+X * and in all advertising materials mentioning features or use of this
+X * software. Neither the name of the University nor the names of its
+X * contributors may be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)util.c	5.7 (Berkeley) 4/8/90";
+X#endif /* not lint */
+X
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <ctype.h>
+X#include "tweak.h"
+X
+Xprcopy(src, dest, len)
+X	register char *src, *dest;
+X	register int len;
+X{
+X	register int ch;
+X
+X	while(len--) {
+X		ch = *src++;
+X		*dest++ = isprint(ch) ? ch : '?';
+X	}
+X}
+X
+Xchar
+X*emalloc(size)
+X	unsigned int size;
+X{
+X	char *retval, *malloc();
+X
+X	if (!(retval = malloc(size)))
+X		nomem();
+X	return(retval);
+X}
+X
+Xnomem()
+X{
+X	(void)fprintf(stderr, "ls: out of memory.\n");
+X	ls_bad(1);
+X}
+X
+Xusage()
+X{
+X	(void)fprintf(stderr, "usage: ls [-1ACFLRacdfgiklqrstu] [file ...]\n");
+X	ls_bad(1);
+X}
+END_OF_FILE
+  if test 1739 -ne `wc -c <'bsd_src/util.c'`; then
+    echo shar: \"'bsd_src/util.c'\" unpacked with wrong size!
+  fi
+  # end of 'bsd_src/util.c'
+fi
+if test -f 'client_def.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'client_def.h'\"
+else
+  echo shar: Extracting \"'client_def.h'\" \(1632 characters\)
+  sed "s/^X//" >'client_def.h' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "common_def.h"
+X
+X/****************************************************************************
+X* These structures are used to implement a opendir/readdir mechanism similar
+X* to that of the normal opendir/reader mechanism in unix.
+X****************************************************************************/
+X
+Xtypedef struct DDLIST {	struct DDLIST *next;
+X			char          *path;
+X			RDIRENT  **dep_root;
+X			int         ref_cnt; } DDLIST;
+X
+Xtypedef struct RDIR { DDLIST   *ddp;
+X		      RDIRENT **dep; } RDIR;
+X
+Xtypedef struct rdirent { unsigned long  d_fileno;
+X			 unsigned short d_reclen;
+X			 unsigned short d_namlen;
+X			 char          *d_name; } rdirent;
+X
+Xextern UBUF     *client_interact();
+Xextern RDIRENT **get_dir_blk();
+Xextern rdirent  *util_readdir();
+Xextern RDIR     *util_opendir();
+X
+Xextern int client_trace;
+Xextern int client_intr_state;
+Xextern int key_persists;
+Xextern unsigned long target_delay;
+Xextern unsigned long udp_sent_time;
+Xextern unsigned short client_buf_len;
+Xextern unsigned short client_net_len;
+END_OF_FILE
+  if test 1632 -ne `wc -c <'client_def.h'`; then
+    echo shar: \"'client_def.h'\" unpacked with wrong size!
+  fi
+  # end of 'client_def.h'
+fi
+if test -f 'fcat.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fcat.1'\"
+else
+  echo shar: Extracting \"'fcat.1'\" \(27 characters\)
+  sed "s/^X//" >'fcat.1' <<'END_OF_FILE'
+X.so man1/fcatcmd.1
+X.SP
+X.I0
+END_OF_FILE
+  if test 27 -ne `wc -c <'fcat.1'`; then
+    echo shar: \"'fcat.1'\" unpacked with wrong size!
+  fi
+  # end of 'fcat.1'
+fi
+if test -f 'fcatcmd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fcatcmd.1'\"
+else
+  echo shar: Extracting \"'fcatcmd.1'\" \(1766 characters\)
+  sed "s/^X//" >'fcatcmd.1' <<'END_OF_FILE'
+X.TH FCAT 1 "8 December 1991"
+X.SH NAME
+Xfcatcmd, fcat \- copy files in the FSP database to stdout
+X.SH SYNOPSIS
+X.B fcatcmd
+X.I filename
+X\&.\|.\|.
+X.LP
+X.B fcat
+X.I filename
+X\&.\|.\|.
+X.SH DESCRIPTION
+X.LP
+XFor each file named in the argument list,
+X.B fcatcmd
+Xreads the file and writes the content of the file to its
+X.B stdout.
+X.LP
+X.B fcatcmd
+Xwill perform
+X.B csh
+Xfile name globbing based on file and directory information
+Xobtained from the FSP database.
+X.LP
+XSince user's command shells generally cannot do the proper globbing for
+Xthis program, it is recommended that user defines a shell alias or
+Xfucntion to turns off command shell globbing before running this program.
+X.B csh
+Xexample:
+X.LP
+X.nf
+Xalias fcat \e(set noglob\e; exec fcatcmd \e!\e*\e)
+X.fi
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.TP
+X.B FSP_TRACE
+XIf this variable is set,
+X.B fcatcmd
+Xwill display the number of kilo-byte blocks transfered as transfer
+Xprogresses.  This variable has no effect when the standard output
+Xis a terminal.
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+END_OF_FILE
+  if test 1766 -ne `wc -c <'fcatcmd.1'`; then
+    echo shar: \"'fcatcmd.1'\" unpacked with wrong size!
+  fi
+  # end of 'fcatcmd.1'
+fi
+if test -f 'fcatcmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fcatcmd.c'\"
+else
+  echo shar: Extracting \"'fcatcmd.c'\" \(1196 characters\)
+  sed "s/^X//" >'fcatcmd.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xextern char **glob();
+X
+Xstatic void dont_die(){}
+X
+Xstatic get_file(path)
+X    char *path;
+X{
+X    char *name, *t2;
+X    FILE *fp;
+X
+X    for(name = t2 = path; *t2; t2++) if(*t2 == '/') name = t2 + 1;
+X    util_download(path,stdout);
+X}
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv,**envp;
+X{
+X    char **av, *av2[2];
+X
+X    env_client();
+X
+X    signal(SIGPIPE,dont_die);
+X    if(isatty(1)) client_trace = 0;
+X
+X    while(*++argv)
+X    {
+X	if(!(av = glob(*argv))) { av = av2; av2[0] = *argv; av2[1] = 0; }
+X	while(*av) get_file(*av++);
+X    }
+X
+X    client_done();
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1196 -ne `wc -c <'fcatcmd.c'`; then
+    echo shar: \"'fcatcmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'fcatcmd.c'
+fi
+if test -f 'fcd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fcd.1'\"
+else
+  echo shar: Extracting \"'fcd.1'\" \(26 characters\)
+  sed "s/^X//" >'fcd.1' <<'END_OF_FILE'
+X.so man1/fcdcmd.1
+X.SP
+X.I0
+END_OF_FILE
+  if test 26 -ne `wc -c <'fcd.1'`; then
+    echo shar: \"'fcd.1'\" unpacked with wrong size!
+  fi
+  # end of 'fcd.1'
+fi
+if test -f 'fcdcmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fcdcmd.c'\"
+else
+  echo shar: Extracting \"'fcdcmd.c'\" \(1379 characters\)
+  sed "s/^X//" >'fcdcmd.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xextern char **glob();
+Xextern char *env_dir;
+Xextern char *util_abs_path();
+X
+Xstatic print_pro(p)
+X    char *p;
+X{
+X    UBUF *ub;
+X
+X    ub = client_interact(CC_GET_PRO,0L, strlen(p),p+1, 0,NULLP);
+X
+X    if(ub->cmd == CC_ERR)
+X    {
+X	fprintf(stderr,"ERR: %s\n",ub->buf);
+X	return(0);
+X
+X    } else
+X    {
+X	fprintf(stderr,"directory mode: %s\n",ub->buf);
+X	return(1);
+X    }
+X}
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv, **envp;
+X{
+X    char *np;
+X    char **av, *av2[2];
+X
+X    env_client();
+X    if(argc == 1)
+X    {
+X	print_pro("/");
+X	puts("/");
+X    }
+X    else
+X    {
+X        if(!(av = glob(argv[1]))) { av = av2; av2[0] = *argv; av2[1] = 0; }
+X	np = util_abs_path(*av);
+X	if(print_pro(np)) puts(np); else puts(env_dir);
+X    }
+X    client_done();
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1379 -ne `wc -c <'fcdcmd.c'`; then
+    echo shar: \"'fcdcmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'fcdcmd.c'
+fi
+if test -f 'fget.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fget.1'\"
+else
+  echo shar: Extracting \"'fget.1'\" \(27 characters\)
+  sed "s/^X//" >'fget.1' <<'END_OF_FILE'
+X.so man1/fgetcmd.1
+X.SP
+X.I0
+END_OF_FILE
+  if test 27 -ne `wc -c <'fget.1'`; then
+    echo shar: \"'fget.1'\" unpacked with wrong size!
+  fi
+  # end of 'fget.1'
+fi
+if test -f 'fgetcmd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fgetcmd.1'\"
+else
+  echo shar: Extracting \"'fgetcmd.1'\" \(1890 characters\)
+  sed "s/^X//" >'fgetcmd.1' <<'END_OF_FILE'
+X.TH FGET 1 "8 December 1991"
+X.SH NAME
+Xfgetcmd, fget \- download files from the FSP database
+X.SH SYNOPSIS
+X.B fgetcmd
+X.br
+X.B fgetcmd
+X.I filename
+X\&.\|.\|.
+X.LP
+X.B fget
+X.br
+X.B fget
+X.I filename
+X\&.\|.\|.
+X.SH DESCRIPTION
+X.LP
+XWhen used without arguments, a list of file names is read from the
+Xstandard input.  When arguments are given, the arguments are taken
+Xto be the list of file names.  For each file named in the list,
+X.B fgetcmd
+Xcopies the file to the client's current working directory in the
+Xclient machine.
+X.B fgetcmd
+Xwill perform
+X.B csh
+Xfile name globbing based on file and directory information
+Xobtained from the FSP database.
+X.LP
+XSince user's command shells generally cannot do the proper globbing for
+Xthis program, it is recommended that user defines a shell alias or
+Xfucntion to turns off command shell globbing before running this program.
+X.B csh
+Xexample:
+X.LP
+X.nf
+Xalias fget \e(set noglob\e; exec fgetcmd \e!\e*\e)
+X.fi
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.TP
+X.B FSP_TRACE
+XIf this variable is set,   
+X.B fgetcmd
+Xwill display the number of kilo-byte blocks transfered as transfer 
+Xprogresses. 
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+END_OF_FILE
+  if test 1890 -ne `wc -c <'fgetcmd.1'`; then
+    echo shar: \"'fgetcmd.1'\" unpacked with wrong size!
+  fi
+  # end of 'fgetcmd.1'
+fi
+if test -f 'fgetcmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fgetcmd.c'\"
+else
+  echo shar: Extracting \"'fgetcmd.c'\" \(1580 characters\)
+  sed "s/^X//" >'fgetcmd.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xextern char **glob();
+X
+Xstatic get_file(path)
+X    char *path;
+X{
+X    char *name, *t2;
+X    FILE *fp;
+X
+X    for(name = t2 = path; *t2; t2++) if(*t2 == '/') name = t2 + 1;
+X
+X    if(fp = fopen(name,"w"))
+X    {
+X	if(util_download(path,fp) == -1) { fclose(fp); unlink(name); }
+X				    else { fclose(fp);               }
+X
+X    } else fprintf(stderr,"Cannot write %s\n",name);
+X}
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv,**envp;
+X{
+X    char **av, *av2[2], n[1024];
+X    int prompt;
+X
+X    env_client();
+X
+X    if(argc > 1)
+X    {
+X	while(*++argv)
+X	{
+X	    if(!(av = glob(*argv))) { av = av2; av2[0] = *argv; av2[1] = 0; }
+X	    while(*av) get_file(*av++);
+X	}
+X    } else
+X    {
+X	prompt = isatty(0);
+X
+X	while(1)
+X	{
+X	    if(prompt) { fputs("fget: ",stdout); fflush(stdout); }
+X	    if(!gets(n)) break;
+X	    if(!*n) continue;
+X	    if(!(av = glob(n))) { av = av2; av2[0] = n; av2[1] = 0; }
+X	    while(*av) get_file(*av++);
+X	}
+X    }
+X
+X    client_done();
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1580 -ne `wc -c <'fgetcmd.c'`; then
+    echo shar: \"'fgetcmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'fgetcmd.c'
+fi
+if test -f 'fgrab.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fgrab.1'\"
+else
+  echo shar: Extracting \"'fgrab.1'\" \(28 characters\)
+  sed "s/^X//" >'fgrab.1' <<'END_OF_FILE'
+X.so man1/fgrabcmd.1
+X.SP
+X.I0
+END_OF_FILE
+  if test 28 -ne `wc -c <'fgrab.1'`; then
+    echo shar: \"'fgrab.1'\" unpacked with wrong size!
+  fi
+  # end of 'fgrab.1'
+fi
+if test -f 'fgrabcmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fgrabcmd.c'\"
+else
+  echo shar: Extracting \"'fgrabcmd.c'\" \(1586 characters\)
+  sed "s/^X//" >'fgrabcmd.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xextern char **glob();
+X
+Xstatic grab_file(path)
+X    char *path;
+X{
+X    char *name, *t2;
+X    FILE *fp;
+X
+X    for(name = t2 = path; *t2; t2++) if(*t2 == '/') name = t2 + 1;
+X
+X    if(fp = fopen(name,"w"))
+X    {
+X	if(util_grab_file(path,fp) == -1) { fclose(fp); unlink(name); }
+X				     else { fclose(fp);               }
+X
+X    } else fprintf(stderr,"Cannot write %s\n",name);
+X}
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv,**envp;
+X{
+X    char **av, *av2[2], n[1024];
+X    int prompt;
+X
+X    env_client();
+X
+X    if(argc > 1)
+X    {
+X	while(*++argv)
+X	{
+X	    if(!(av = glob(*argv))) { av = av2; av2[0] = *argv; av2[1] = 0; }
+X	    while(*av) grab_file(*av++);
+X	}
+X    } else
+X    {
+X	prompt = isatty(0);
+X
+X	while(1)
+X	{
+X	    if(prompt) { fputs("fgrab: ",stdout); fflush(stdout); }
+X	    if(!gets(n)) break;
+X	    if(!*n) continue;
+X	    if(!(av = glob(n))) { av = av2; av2[0] = n; av2[1] = 0; }
+X	    while(*av) grab_file(*av++);
+X	}
+X    }
+X
+X    client_done();
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1586 -ne `wc -c <'fgrabcmd.c'`; then
+    echo shar: \"'fgrabcmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'fgrabcmd.c'
+fi
+if test -f 'fls.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fls.1'\"
+else
+  echo shar: Extracting \"'fls.1'\" \(26 characters\)
+  sed "s/^X//" >'fls.1' <<'END_OF_FILE'
+X.so man1/flscmd.1
+X.SP
+X.I0
+END_OF_FILE
+  if test 26 -ne `wc -c <'fls.1'`; then
+    echo shar: \"'fls.1'\" unpacked with wrong size!
+  fi
+  # end of 'fls.1'
+fi
+if test -f 'flscmd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'flscmd.1'\"
+else
+  echo shar: Extracting \"'flscmd.1'\" \(1939 characters\)
+  sed "s/^X//" >'flscmd.1' <<'END_OF_FILE'
+X.TH FLS 1 "8 December 1991"
+X.SH NAME
+Xflscmd, fls \- list the contents of a FSP database
+X.SH SYNOPSIS
+X.B flscmd
+X[
+X.B unix ls flags
+X]
+X.I filename
+X\&.\|.\|.
+X.LP
+X.B fls
+X[
+X.B unix ls flags
+X]
+X.I filename
+X\&.\|.\|.
+X.SH DESCRIPTION
+X.LP
+X.B flscmd
+Xlists the content of the FSP database.  All usual
+Xflags and usages for the unix
+X.B ls
+Xcommand are accepted.
+X.LP
+X.B flscmd
+Xwill perform
+X.B csh
+Xfile name globbing based on file and directory information
+Xobtained from the FSP database.
+X.LP
+XSince user's command shells generally cannot do the proper globbing for
+Xthis program, it is recommended that user defines a shell alias or
+Xfucntion to turns off command shell globbing before running this program.
+X.B csh
+Xexample:
+X.LP
+X.nf
+Xalias fls \e(set noglob\e; exec flscmd \e!\e*\e)
+X.fi
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+X.br
+X.ne 5
+X.SH BUGS
+X.LP
+X.B flscmd
+Xis based on 4.3
+X.B ls
+Xcode.  It inherits any bugs found in 4.3
+X.B ls.
+XIn addition, only four pieces of information for each file and directory
+Xare available through FSP:
+X.B name,
+X.B time,
+X.B size,
+Xand
+X.B type.
+XAll other information that
+X.B flscmd
+Xdisplay are for compatibility purposes only
+Xand are forged locally.
+END_OF_FILE
+  if test 1939 -ne `wc -c <'flscmd.1'`; then
+    echo shar: \"'flscmd.1'\" unpacked with wrong size!
+  fi
+  # end of 'flscmd.1'
+fi
+if test -f 'flscmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'flscmd.c'\"
+else
+  echo shar: Extracting \"'flscmd.c'\" \(880 characters\)
+  sed "s/^X//" >'flscmd.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xls_bad(n)
+X    int n;
+X{
+X    client_done();
+X    exit(n);
+X}
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv,**envp;
+X{
+X    unsigned long pos;
+X    RDIRENT **dp;
+X
+X    env_client();
+X
+X    fls_main(argc,argv,envp);
+X
+X    client_done();
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 880 -ne `wc -c <'flscmd.c'`; then
+    echo shar: \"'flscmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'flscmd.c'
+fi
+if test -f 'fmkdir.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fmkdir.1'\"
+else
+  echo shar: Extracting \"'fmkdir.1'\" \(1351 characters\)
+  sed "s/^X//" >'fmkdir.1' <<'END_OF_FILE'
+X.TH FMKDIR 1 "8 December 1991"
+X.SH NAME
+Xfmkdir \- create directories in the FSP database
+X.SH SYNOPSIS
+X.B fmkdir
+X.I name
+X\&.\|.\|.
+X.SH DESCRIPTION
+X.LP
+XFor each
+X.I name
+Xappearing in the argument list,
+X.B fmkdir
+Xcreates a directory in the client's current working directory
+Xin the FSP database.  The new directories are owned by the
+Xclient machine, and permission for other machines to create or
+Xdelete items in these directories are initially turned off.
+XThe client may alter the permission states with the
+X.B fprocmd
+Xcommand.
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+END_OF_FILE
+  if test 1351 -ne `wc -c <'fmkdir.1'`; then
+    echo shar: \"'fmkdir.1'\" unpacked with wrong size!
+  fi
+  # end of 'fmkdir.1'
+fi
+if test -f 'fmkdir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fmkdir.c'\"
+else
+  echo shar: Extracting \"'fmkdir.c'\" \(1193 characters\)
+  sed "s/^X//" >'fmkdir.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xextern char **glob(), *util_abs_path();
+X
+Xstatic make_dir(p)
+X    char *p;
+X{
+X    char *op;
+X    UBUF *ub;
+X
+X    op = util_abs_path(p);
+X
+X    ub = client_interact(CC_MAKE_DIR,0L, strlen(op),op+1, 0,NULLP);
+X
+X    if(ub->cmd == CC_ERR)
+X    {
+X	fprintf(stderr,"Can't create %s: %s\n",p,ub->buf);
+X	free(op); return(-1);
+X    }
+X
+X    printf("%s\t: %s\n",p,ub->buf);
+X
+X    free(op);
+X    return(0);
+X}
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv,**envp;
+X{
+X    char **av, *av2[2];
+X
+X    env_client();
+X    while(*++argv) make_dir(*argv);
+X    client_done();
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1193 -ne `wc -c <'fmkdir.c'`; then
+    echo shar: \"'fmkdir.c'\" unpacked with wrong size!
+  fi
+  # end of 'fmkdir.c'
+fi
+if test -f 'fpro.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fpro.1'\"
+else
+  echo shar: Extracting \"'fpro.1'\" \(27 characters\)
+  sed "s/^X//" >'fpro.1' <<'END_OF_FILE'
+X.so man1/fprocmd.1
+X.SP
+X.I0
+END_OF_FILE
+  if test 27 -ne `wc -c <'fpro.1'`; then
+    echo shar: \"'fpro.1'\" unpacked with wrong size!
+  fi
+  # end of 'fpro.1'
+fi
+if test -f 'fprocmd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fprocmd.1'\"
+else
+  echo shar: Extracting \"'fprocmd.1'\" \(2035 characters\)
+  sed "s/^X//" >'fprocmd.1' <<'END_OF_FILE'
+X.TH FPRO 1 "8 December 1991"
+X.SH NAME
+Xfprocmd, fpro \- get or set permissions for directories in the FSP database
+X.SH SYNOPSIS
+X.B fprocmd
+X[
+X.B +c|-c|+d|-d
+X]
+X.I directory
+X\&.\|.\|.
+X.LP
+X.B fpro
+X[
+X.B +c|-c|+d|-d
+X]
+X.I directory
+X\&.\|.\|.
+X.SH DESCRIPTION
+X.LP
+XIf no flags are specified, for each file named in the argument list,
+X.B fprocmd
+Xdisplays the current permission settings for each directory named.
+XIf a flag is present (only one may be specified each time),
+X.B fprocmd
+Xwill perform the following operations
+Xand display the resulting settings for each named directory:
+X.TP
+X.B +c
+XGive others permission to create new items.
+X.TP
+X.B -c
+XDeny others permission to create new items.
+X.TP
+X.B +d
+XGive others permission to delete old items.
+X.TP
+X.B -d
+XDeny others permission to delete old items.
+X.LP
+X.B fprocmd
+Xwill perform
+X.B csh
+Xfile name globbing based on file and directory information
+Xobtained from the FSP database.
+X.LP
+XSince user's command shells generally cannot do the proper globbing for
+Xthis program, it is recommended that user defines a shell alias or
+Xfucntion to turns off command shell globbing before running this program.
+X.B csh
+Xexample:
+X.LP
+X.nf
+Xalias fpro \e(set noglob\e; exec fprocmd \e!\e*\e)
+X.fi
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+END_OF_FILE
+  if test 2035 -ne `wc -c <'fprocmd.1'`; then
+    echo shar: \"'fprocmd.1'\" unpacked with wrong size!
+  fi
+  # end of 'fprocmd.1'
+fi
+if test -f 'fput.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fput.1'\"
+else
+  echo shar: Extracting \"'fput.1'\" \(1423 characters\)
+  sed "s/^X//" >'fput.1' <<'END_OF_FILE'
+X.TH FPUT 1 "8 December 1991"
+X.SH NAME
+Xfput \- upload files to the FSP database
+X.SH SYNOPSIS
+X.B fput
+X.br
+X.B fput
+X.I filename
+X\&.\|.\|.
+X.SH DESCRIPTION
+X.LP
+XWhen used without arguments, a list of file names is read from the
+Xstandard input.  When arguments are given, the arguments are taken
+Xto be the list of file names.  For each file named in the list,
+X.B fput
+Xcopies the file from the client's current working directory in the
+Xclient machine to the FSP database.
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.TP
+X.B FSP_TRACE
+XIf this variable is set,   
+X.B fput
+Xwill display the number of kilo-byte blocks transfered as transfer 
+Xprogresses. 
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+END_OF_FILE
+  if test 1423 -ne `wc -c <'fput.1'`; then
+    echo shar: \"'fput.1'\" unpacked with wrong size!
+  fi
+  # end of 'fput.1'
+fi
+if test -f 'fput.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fput.c'\"
+else
+  echo shar: Extracting \"'fput.c'\" \(1450 characters\)
+  sed "s/^X//" >'fput.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xstatic put_file(path)
+X    char *path;
+X{
+X    struct stat sb;
+X    char *name, *t2;
+X    FILE *fp;
+X
+X    if(stat(path,&sb) != 0) { perror(path); return; }
+X    if(!(S_IFREG & sb.st_mode)) { fprintf(stderr,"%s: not a file\n",path);
+X				return; }
+X
+X    for(name = t2 = path; *t2; t2++) if(*t2 == '/') name = t2 + 1;
+X
+X    if(fp = fopen(path,"r"))
+X    {
+X	util_upload(name,fp);
+X	fclose(fp);
+X
+X    } else fprintf(stderr,"Cannot read %s\n",path);
+X}
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv,**envp;
+X{
+X    char n[1024];
+X    int prompt;
+X
+X    env_client();
+X
+X    if(argc > 1) while(*++argv) put_file(*argv); else
+X    {
+X	prompt = isatty(0);
+X
+X	while(1)
+X	{
+X	    if(prompt) { fputs("fput: ",stdout); fflush(stdout); }
+X	    if(!gets(n)) break;
+X	    if(!*n) continue;
+X	    put_file(n);
+X	}
+X    }
+X
+X    client_done();
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1450 -ne `wc -c <'fput.c'`; then
+    echo shar: \"'fput.c'\" unpacked with wrong size!
+  fi
+  # end of 'fput.c'
+fi
+if test -f 'frm.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'frm.1'\"
+else
+  echo shar: Extracting \"'frm.1'\" \(26 characters\)
+  sed "s/^X//" >'frm.1' <<'END_OF_FILE'
+X.so man1/frmcmd.1
+X.SP
+X.I0
+END_OF_FILE
+  if test 26 -ne `wc -c <'frm.1'`; then
+    echo shar: \"'frm.1'\" unpacked with wrong size!
+  fi
+  # end of 'frm.1'
+fi
+if test -f 'frmcmd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'frmcmd.1'\"
+else
+  echo shar: Extracting \"'frmcmd.1'\" \(1483 characters\)
+  sed "s/^X//" >'frmcmd.1' <<'END_OF_FILE'
+X.TH FRM 1 "8 December 1991"
+X.SH NAME
+Xfrmcmd, frm \- remove files from the FSP database
+X.SH SYNOPSIS
+X.B frmcmd
+X.I filename
+X\&.\|.\|.
+X.LP
+X.B frm
+X.I filename
+X\&.\|.\|.
+X.SH DESCRIPTION
+X.LP
+X.B frmcmd
+Xdeletes the named files from the FSP database.
+X.B frmcmd
+Xwill perform
+X.B csh
+Xfile name globbing based on file and directory information
+Xobtained from the FSP database.
+X.LP
+XSince user's command shells generally cannot do the proper globbing for
+Xthis program, it is recommended that user defines a shell alias or
+Xfucntion to turns off command shell globbing before running this program.
+X.B csh
+Xexample:
+X.LP
+X.nf
+Xalias frm \e(set noglob\e; exec frmcmd \e!\e*\e)
+X.fi
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+END_OF_FILE
+  if test 1483 -ne `wc -c <'frmcmd.1'`; then
+    echo shar: \"'frmcmd.1'\" unpacked with wrong size!
+  fi
+  # end of 'frmcmd.1'
+fi
+if test -f 'frmcmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'frmcmd.c'\"
+else
+  echo shar: Extracting \"'frmcmd.c'\" \(1237 characters\)
+  sed "s/^X//" >'frmcmd.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xextern char **glob(), *util_abs_path();
+X
+Xstatic remove_it(p)
+X    char *p;
+X{
+X    char *op;
+X    UBUF *ub;
+X
+X    op = util_abs_path(p);
+X
+X    ub = client_interact(CC_DEL_FILE,0L, strlen(op),op+1, 0,NULLP);
+X
+X    if(ub->cmd == CC_ERR)
+X    {
+X	fprintf(stderr,"Can't remove %s: %s\n",p,ub->buf);
+X	free(op); return(-1);
+X    }
+X
+X    return(0);
+X}
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv,**envp;
+X{
+X    char **av, *av2[2];
+X
+X    env_client();
+X
+X    while(*++argv)
+X    {
+X	if(!(av = glob(*argv))) { av = av2; av2[0] = *argv; av2[1] = 0; }
+X	while(*av) remove_it(*av++);
+X    }
+X
+X    client_done();
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1237 -ne `wc -c <'frmcmd.c'`; then
+    echo shar: \"'frmcmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'frmcmd.c'
+fi
+if test -f 'frmdir.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'frmdir.1'\"
+else
+  echo shar: Extracting \"'frmdir.1'\" \(29 characters\)
+  sed "s/^X//" >'frmdir.1' <<'END_OF_FILE'
+X.so man1/frmdircmd.1
+X.SP
+X.I0
+END_OF_FILE
+  if test 29 -ne `wc -c <'frmdir.1'`; then
+    echo shar: \"'frmdir.1'\" unpacked with wrong size!
+  fi
+  # end of 'frmdir.1'
+fi
+if test -f 'frmdircmd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'frmdircmd.1'\"
+else
+  echo shar: Extracting \"'frmdircmd.1'\" \(1524 characters\)
+  sed "s/^X//" >'frmdircmd.1' <<'END_OF_FILE'
+X.TH FRMDIR 1 "8 December 1991"
+X.SH NAME
+Xfrmdircmd, frmdir \- remove directories from the FSP database
+X.SH SYNOPSIS
+X.B frmdircmd
+X.I directory
+X\&.\|.\|.
+X.LP
+X.B frmdir
+X.I directory
+X\&.\|.\|.
+X.SH DESCRIPTION
+X.LP
+X.B frmdircmd
+Xdeletes the named directories from the FSP database.
+X.B frmdircmd
+Xwill perform
+X.B csh
+Xfile name globbing based on file and directory information
+Xobtained from the FSP database.
+X.LP
+XSince user's command shells generally cannot do the proper globbing for
+Xthis program, it is recommended that user defines a shell alias or
+Xfucntion to turns off command shell globbing before running this program.
+X.B csh
+Xexample:
+X.LP
+X.nf
+Xalias frmdir \e(set noglob\e; exec frmdircmd \e!\e*\e)
+X.fi
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+END_OF_FILE
+  if test 1524 -ne `wc -c <'frmdircmd.1'`; then
+    echo shar: \"'frmdircmd.1'\" unpacked with wrong size!
+  fi
+  # end of 'frmdircmd.1'
+fi
+if test -f 'frmdircmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'frmdircmd.c'\"
+else
+  echo shar: Extracting \"'frmdircmd.c'\" \(1236 characters\)
+  sed "s/^X//" >'frmdircmd.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "client_def.h"
+X
+Xextern char **glob(), *util_abs_path();
+X
+Xstatic remove_it(p)
+X    char *p;
+X{
+X    char *op;
+X    UBUF *ub;
+X
+X    op = util_abs_path(p);
+X
+X    ub = client_interact(CC_DEL_DIR,0L, strlen(op),op+1, 0,NULLP);
+X
+X    if(ub->cmd == CC_ERR)
+X    {
+X	fprintf(stderr,"Can't remove %s: %s\n",p,ub->buf);
+X	free(op); return(-1);
+X    }
+X
+X    return(0);
+X}
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv,**envp;
+X{
+X    char **av, *av2[2];
+X
+X    env_client();
+X
+X    while(*++argv)
+X    {
+X	if(!(av = glob(*argv))) { av = av2; av2[0] = *argv; av2[1] = 0; }
+X	while(*av) remove_it(*av++);
+X    }
+X
+X    client_done();
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1236 -ne `wc -c <'frmdircmd.c'`; then
+    echo shar: \"'frmdircmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'frmdircmd.c'
+fi
+if test -f 'fver.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fver.1'\"
+else
+  echo shar: Extracting \"'fver.1'\" \(1120 characters\)
+  sed "s/^X//" >'fver.1' <<'END_OF_FILE'
+X.TH FVER 1 "8 December 1991"
+X.SH NAME
+Xfver \- displays the version number string of the FSP database
+X.SH SYNOPSIS
+X.B fver
+X.I [-l]
+X.SH DESCRIPTION
+X.LP
+XWithout arguments,
+X.B fver
+Xdisplays the version string of the FSP database.
+XOtherwise, the version string of the client utilities is displayed.
+X.SH ENVIRONMENT
+X.LP
+XThe following variables associate this program with a FSP database:
+X.TP
+X.B FSP_HOST
+XThe name or internet number of the machine with the FSP server.
+X.TP
+X.B FSP_PORT
+XThe port number of the UDP socket used by the FSP server.
+X.TP
+X.B FSP_LOCALPORT
+XThe port number of the UDP socket used by FSP client utilities.
+XThe only reason to define this varable is to ensure mutual
+Xexclusion of client commands when none of the udp packet
+Xmultiplexing mechanisms are enabled during compile time.
+XYou may pick any number not currently used for other purposes.
+X.TP
+X.B FSP_DIR
+XThe current working directory of the client in the FSP database.
+XThe root of the database is /.
+X.SH "SEE ALSO"
+X.PD
+Xfcatcmd(1), fcdcmd(1), fgetcmd(1), fgrabcmd(1), flscmd(1), fmkdir(1),
+Xfprocmd(1), fput(1), frmcmd(1), frmdircmd(1), fver(1), fspd(1)
+END_OF_FILE
+  if test 1120 -ne `wc -c <'fver.1'`; then
+    echo shar: \"'fver.1'\" unpacked with wrong size!
+  fi
+  # end of 'fver.1'
+fi
+if test -f 'fver.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fver.c'\"
+else
+  echo shar: Extracting \"'fver.c'\" \(1018 characters\)
+  sed "s/^X//" >'fver.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include <stdio.h>
+X#include "client_def.h"
+X
+Xmain(argc,argv,envp)
+X    int argc;
+X    char **argv,**envp;
+X{
+X    UBUF *ub;
+X
+X    if(argc == 1)	/* no arg supplied, get version string of server */
+X    {
+X	env_client();
+X	ub = client_interact(CC_VERSION,0L, 0,NULLP, 0,NULLP);
+X	printf("FSP version: %s\n",ub->buf);
+X	client_done();
+X
+X    } else
+X    {
+X	printf("Local FSP version: %s\n",VERSION_STR);
+X    }
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1018 -ne `wc -c <'fver.c'`; then
+    echo shar: \"'fver.c'\" unpacked with wrong size!
+  fi
+  # end of 'fver.c'
+fi
+if test -f 'merge.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'merge.c'\"
+else
+  echo shar: Extracting \"'merge.c'\" \(1620 characters\)
+  sed "s/^X//" >'merge.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1992 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include <stdio.h>
+X
+Xmain(argc,argv,envp)
+X    int    argc;
+X    char **argv;
+X    char **envp;
+X{
+X    char *p, *q;
+X
+X    for(p = q = argv[0]; *p; p++) if(*p == '/') q = p+1;
+X
+X    if(!strcmp(q,"fcatcmd"  )) fcatcmd_main  (argc,argv,envp); else
+X    if(!strcmp(q,"fcdcmd"   )) fcdcmd_main   (argc,argv,envp); else
+X    if(!strcmp(q,"fgetcmd"  )) fgetcmd_main  (argc,argv,envp); else
+X    if(!strcmp(q,"fgrabcmd" )) fgrabcmd_main (argc,argv,envp); else
+X    if(!strcmp(q,"flscmd"   )) flscmd_main   (argc,argv,envp); else
+X    if(!strcmp(q,"fmkdir"   )) fmkdir_main   (argc,argv,envp); else
+X    if(!strcmp(q,"fprocmd"  )) fprocmd_main  (argc,argv,envp); else
+X    if(!strcmp(q,"fput"     )) fput_main     (argc,argv,envp); else
+X    if(!strcmp(q,"frmcmd"   )) frmcmd_main   (argc,argv,envp); else
+X    if(!strcmp(q,"frmdircmd")) frmdircmd_main(argc,argv,envp); else
+X    if(!strcmp(q,"fver"     )) fver_main     (argc,argv,envp); else
+X    {
+X	fprintf(stderr,"Unknown FSP client command: %s\n",q);
+X	exit(1);
+X    }
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1620 -ne `wc -c <'merge.c'`; then
+    echo shar: \"'merge.c'\" unpacked with wrong size!
+  fi
+  # end of 'merge.c'
+fi
+if test -f 'setup' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'setup'\"
+else
+  echo shar: Extracting \"'setup'\" \(673 characters\)
+  sed "s/^X//" >'setup' <<'END_OF_FILE'
+X
+X# Sample csh initialization file.
+X
+Xsetenv FSP_PORT 21
+Xsetenv FSP_HOST 131.215.131.148
+Xsetenv FSP_DIR  /
+Xsetenv FSP_TRACE
+Xsetenv FSP_DELAY 3000
+X
+Xalias fcd setenv FSP_DIR \`\(set noglob\; exec fcdcmd \!\*\)\`
+Xalias fls    \(set noglob\; exec flscmd    \!\*\)
+Xalias fget   \(set noglob\; exec fgetcmd   \!\*\)
+Xalias fgrab  \(set noglob\; exec fgrabcmd  \!\*\)
+Xalias fcat   \(set noglob\; exec fcatcmd   \!\*\)
+Xalias fmore  \(set noglob\; exec fcatcmd   \!\* \| less \)
+Xalias frm    \(set noglob\; exec frmcmd    \!\*\)
+Xalias frmdir \(set noglob\; exec frmdircmd \!\*\)
+Xalias fpro   \(set noglob\; exec fprocmd   \!\*\)
+Xalias fpwd echo \$FSP_DIR on \$FSP_HOST port \$FSP_PORT
+END_OF_FILE
+  if test 673 -ne `wc -c <'setup'`; then
+    echo shar: \"'setup'\" unpacked with wrong size!
+  fi
+  # end of 'setup'
+fi
+echo shar: End of archive 4 \(of 4\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

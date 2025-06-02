@@ -1,0 +1,1526 @@
+Newsgroups: comp.sources.misc
+From: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Subject:  v31i111:  unzip50 - Info-ZIP portable UnZip, version 5.0, Part08/14
+Message-ID: <1992Aug24.025609.24832@sparky.imd.sterling.com>
+X-Md4-Signature: 9b7db4696753d88ac9695a11405b9708
+Date: Mon, 24 Aug 1992 02:56:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Posting-number: Volume 31, Issue 111
+Archive-name: unzip50/part08
+Supersedes: unzip: Volume 29, Issue 31-42
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, COHERENT AMIGA?, !ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  funzip.c unzip.c.A zipinfo.doc
+# Wrapped by kent@sparky on Sun Aug 23 21:09:34 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 14)."'
+if test -f 'funzip.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'funzip.c'\"
+else
+  echo shar: Extracting \"'funzip.c'\" \(11324 characters\)
+  sed "s/^X//" >'funzip.c' <<'END_OF_FILE'
+X/* funzip.c -- Not copyrighted 1992 by Mark Adler
+X   version 1.3, 16 August 1992 */
+X
+X
+X/* You can do whatever you like with this source file, though I would
+X   prefer that if you modify it and redistribute it that you include
+X   comments to that effect with your name and the date.  Thank you.
+X
+X   History:
+X   vers    date          who           what
+X   ----  ---------  --------------  ------------------------------------
+X    1.0  13 Aug 92  M. Adler        really simple unzip filter.
+X    1.1  13 Aug 92  M. Adler        cleaned up somewhat, give help if
+X                                    stdin not redirected, warn if more
+X                                    zip file entries after the first.
+X    1.2  15 Aug 92  M. Adler        added check of lengths for stored
+X                                    entries, added more help.
+X    1.3  16 Aug 92  M. Adler        removed redundant #define's, added
+X                                    decryption.
+X
+X */
+X
+X
+X/*
+X
+X   All funzip does is take a zip file from stdin and decompress the
+X   first entry to stdout.  The entry has to be either deflated or
+X   stored.  If the entry is encrypted, then the decryption password
+X   must be supplied on the command line as the first argument.
+X
+X   funzip needs to be linked with inflate.o compiled from the unzip
+X   source.  If decryption is desired, then it needs to be compiled
+X   with -DCRYPT and linked also with crypt.o.
+X
+X */
+X
+X#include "unzip.h"
+X
+X/* enforce binary i/o if recognized */
+X#ifdef __STDC__
+X#  define FOPR "rb"
+X#  define FOPW "w+b"
+X#else
+X#  define FOPR "r"
+X#  define FOPW "w+"
+X#endif
+X
+X/* PKZIP header definitions */
+X#define LOCSIG 0x04034b50L      /* four byte lead-in (lsb first) */
+X#define LOCFLG 6                /* offset of bit flag */
+X#define  CRPFLG 1               /*  bit for encrypted entry */
+X#define  EXTFLG 8               /*  bit for extended local header */
+X#define LOCHOW 8                /* offset of compression method */
+X#define LOCTIM 10               /* file mod time (for decryption) */
+X#define LOCCRC 14               /* offset of crc */
+X#define LOCSIZ 18               /* offset of compressed size */
+X#define LOCLEN 22               /* offset of uncompressed length */
+X#define LOCFIL 26               /* offset of file name field length */
+X#define LOCEXT 28               /* offset of extra field length */
+X#define LOCHDR 30               /* size of local header, including sig */
+X#define EXTHDR 16               /* size of extended local header, inc sig */
+X
+X/* Macros for getting two byte and four byte header values */
+X#define SH(p) ((UWORD)(byte)((p)[0]) | ((UWORD)(byte)((p)[1]) << 8))
+X#define LG(p) ((ULONG)(SH(p)) | ((ULONG)(SH((p)+2)) << 16))
+X
+X/* Function prototypes */
+XULONG updcrc OF((byte *, int));
+Xint inflate_entry OF((void));
+Xvoid err OF((int, char *));
+Xvoid main OF((int, char **));
+X
+X/* Globals */
+XFILE *in, *out;                 /* input and output files */
+Xunion work area;                /* inflate sliding window */
+Xbyte *outbuf;                   /* malloc'ed output buffer */
+Xbyte *outptr;                   /* points to next byte in output buffer */
+Xint outcnt;                     /* bytes in output buffer */
+XULONG outsiz;                   /* total bytes written to out */
+Xint decrypt;                    /* flag to turn on decryption */
+Xchar *key;                      /* not used--needed to link crypt.c */
+X
+X/* Masks for inflate.c */
+XUWORD mask_bits[] = {
+X    0x0000,
+X    0x0001, 0x0003, 0x0007, 0x000f, 0x001f, 0x003f, 0x007f, 0x00ff,
+X    0x01ff, 0x03ff, 0x07ff, 0x0fff, 0x1fff, 0x3fff, 0x7fff, 0xffff
+X};
+X
+X
+X/* Table of CRC-32's of all single byte values (made by makecrc.c) */
+XULONG crc_32_tab[] = {
+X  0x00000000L, 0x77073096L, 0xee0e612cL, 0x990951baL, 0x076dc419L,
+X  0x706af48fL, 0xe963a535L, 0x9e6495a3L, 0x0edb8832L, 0x79dcb8a4L,
+X  0xe0d5e91eL, 0x97d2d988L, 0x09b64c2bL, 0x7eb17cbdL, 0xe7b82d07L,
+X  0x90bf1d91L, 0x1db71064L, 0x6ab020f2L, 0xf3b97148L, 0x84be41deL,
+X  0x1adad47dL, 0x6ddde4ebL, 0xf4d4b551L, 0x83d385c7L, 0x136c9856L,
+X  0x646ba8c0L, 0xfd62f97aL, 0x8a65c9ecL, 0x14015c4fL, 0x63066cd9L,
+X  0xfa0f3d63L, 0x8d080df5L, 0x3b6e20c8L, 0x4c69105eL, 0xd56041e4L,
+X  0xa2677172L, 0x3c03e4d1L, 0x4b04d447L, 0xd20d85fdL, 0xa50ab56bL,
+X  0x35b5a8faL, 0x42b2986cL, 0xdbbbc9d6L, 0xacbcf940L, 0x32d86ce3L,
+X  0x45df5c75L, 0xdcd60dcfL, 0xabd13d59L, 0x26d930acL, 0x51de003aL,
+X  0xc8d75180L, 0xbfd06116L, 0x21b4f4b5L, 0x56b3c423L, 0xcfba9599L,
+X  0xb8bda50fL, 0x2802b89eL, 0x5f058808L, 0xc60cd9b2L, 0xb10be924L,
+X  0x2f6f7c87L, 0x58684c11L, 0xc1611dabL, 0xb6662d3dL, 0x76dc4190L,
+X  0x01db7106L, 0x98d220bcL, 0xefd5102aL, 0x71b18589L, 0x06b6b51fL,
+X  0x9fbfe4a5L, 0xe8b8d433L, 0x7807c9a2L, 0x0f00f934L, 0x9609a88eL,
+X  0xe10e9818L, 0x7f6a0dbbL, 0x086d3d2dL, 0x91646c97L, 0xe6635c01L,
+X  0x6b6b51f4L, 0x1c6c6162L, 0x856530d8L, 0xf262004eL, 0x6c0695edL,
+X  0x1b01a57bL, 0x8208f4c1L, 0xf50fc457L, 0x65b0d9c6L, 0x12b7e950L,
+X  0x8bbeb8eaL, 0xfcb9887cL, 0x62dd1ddfL, 0x15da2d49L, 0x8cd37cf3L,
+X  0xfbd44c65L, 0x4db26158L, 0x3ab551ceL, 0xa3bc0074L, 0xd4bb30e2L,
+X  0x4adfa541L, 0x3dd895d7L, 0xa4d1c46dL, 0xd3d6f4fbL, 0x4369e96aL,
+X  0x346ed9fcL, 0xad678846L, 0xda60b8d0L, 0x44042d73L, 0x33031de5L,
+X  0xaa0a4c5fL, 0xdd0d7cc9L, 0x5005713cL, 0x270241aaL, 0xbe0b1010L,
+X  0xc90c2086L, 0x5768b525L, 0x206f85b3L, 0xb966d409L, 0xce61e49fL,
+X  0x5edef90eL, 0x29d9c998L, 0xb0d09822L, 0xc7d7a8b4L, 0x59b33d17L,
+X  0x2eb40d81L, 0xb7bd5c3bL, 0xc0ba6cadL, 0xedb88320L, 0x9abfb3b6L,
+X  0x03b6e20cL, 0x74b1d29aL, 0xead54739L, 0x9dd277afL, 0x04db2615L,
+X  0x73dc1683L, 0xe3630b12L, 0x94643b84L, 0x0d6d6a3eL, 0x7a6a5aa8L,
+X  0xe40ecf0bL, 0x9309ff9dL, 0x0a00ae27L, 0x7d079eb1L, 0xf00f9344L,
+X  0x8708a3d2L, 0x1e01f268L, 0x6906c2feL, 0xf762575dL, 0x806567cbL,
+X  0x196c3671L, 0x6e6b06e7L, 0xfed41b76L, 0x89d32be0L, 0x10da7a5aL,
+X  0x67dd4accL, 0xf9b9df6fL, 0x8ebeeff9L, 0x17b7be43L, 0x60b08ed5L,
+X  0xd6d6a3e8L, 0xa1d1937eL, 0x38d8c2c4L, 0x4fdff252L, 0xd1bb67f1L,
+X  0xa6bc5767L, 0x3fb506ddL, 0x48b2364bL, 0xd80d2bdaL, 0xaf0a1b4cL,
+X  0x36034af6L, 0x41047a60L, 0xdf60efc3L, 0xa867df55L, 0x316e8eefL,
+X  0x4669be79L, 0xcb61b38cL, 0xbc66831aL, 0x256fd2a0L, 0x5268e236L,
+X  0xcc0c7795L, 0xbb0b4703L, 0x220216b9L, 0x5505262fL, 0xc5ba3bbeL,
+X  0xb2bd0b28L, 0x2bb45a92L, 0x5cb36a04L, 0xc2d7ffa7L, 0xb5d0cf31L,
+X  0x2cd99e8bL, 0x5bdeae1dL, 0x9b64c2b0L, 0xec63f226L, 0x756aa39cL,
+X  0x026d930aL, 0x9c0906a9L, 0xeb0e363fL, 0x72076785L, 0x05005713L,
+X  0x95bf4a82L, 0xe2b87a14L, 0x7bb12baeL, 0x0cb61b38L, 0x92d28e9bL,
+X  0xe5d5be0dL, 0x7cdcefb7L, 0x0bdbdf21L, 0x86d3d2d4L, 0xf1d4e242L,
+X  0x68ddb3f8L, 0x1fda836eL, 0x81be16cdL, 0xf6b9265bL, 0x6fb077e1L,
+X  0x18b74777L, 0x88085ae6L, 0xff0f6a70L, 0x66063bcaL, 0x11010b5cL,
+X  0x8f659effL, 0xf862ae69L, 0x616bffd3L, 0x166ccf45L, 0xa00ae278L,
+X  0xd70dd2eeL, 0x4e048354L, 0x3903b3c2L, 0xa7672661L, 0xd06016f7L,
+X  0x4969474dL, 0x3e6e77dbL, 0xaed16a4aL, 0xd9d65adcL, 0x40df0b66L,
+X  0x37d83bf0L, 0xa9bcae53L, 0xdebb9ec5L, 0x47b2cf7fL, 0x30b5ffe9L,
+X  0xbdbdf21cL, 0xcabac28aL, 0x53b39330L, 0x24b4a3a6L, 0xbad03605L,
+X  0xcdd70693L, 0x54de5729L, 0x23d967bfL, 0xb3667a2eL, 0xc4614ab8L,
+X  0x5d681b02L, 0x2a6f2b94L, 0xb40bbe37L, 0xc30c8ea1L, 0x5a05df1bL,
+X  0x2d02ef8dL
+X};
+X
+X
+XULONG updcrc(s, n)
+Xbyte *s;                /* pointer to bytes to pump through */
+Xint n;                  /* number of bytes in s[] */
+X/* Run a set of bytes through the crc shift register.  If s is a NULL
+X   pointer, then initialize the crc shift register contents instead.
+X   Return the current crc in either case. */
+X{
+X  register ULONG c;       /* temporary variable */
+X
+X  static ULONG crc = 0xffffffffL; /* shift register contents */
+X
+X  if (s == NULL)
+X    c = 0xffffffffL;
+X  else
+X  {
+X    c = crc;
+X    while (n--)
+X      c = crc_32_tab[((int)c ^ (*s++)) & 0xff] ^ (c >> 8);
+X  }
+X  crc = c;
+X  return c ^ 0xffffffffL;       /* (instead of ~c for 64-bit machines) */
+X}
+X
+X
+Xvoid err(n, m)
+Xint n;
+Xchar *m;
+X/* Exit on error with a message and a code */
+X{
+X  fprintf(stderr, "funzip error: %s\n", m);
+X  exit(n);
+X}
+X
+X
+Xint ReadByte(b)
+XUWORD *b;
+X/* Used by inflate.c to get a byte (archaism from unzip) */
+X{
+X  register int c = getc(in);
+X
+X  if (c == EOF)
+X    return 0;
+X#ifdef CRYPT
+X  if (decrypt)
+X    update_keys(c ^= decrypt_byte());
+X#endif /* CRYPT */
+X  *b = (UWORD)c;
+X  return 8;
+X}
+X
+X
+Xint FlushOutput()
+X/* Empty output buffer */
+X{
+X  if (outcnt)
+X  {
+X    updcrc(outbuf, outcnt);
+X    if (fwrite(outbuf, 1, outcnt, out) != outcnt)
+X      err(9, "out of space on stdout");
+X    outsiz += outcnt;
+X    outptr = outbuf;
+X    outcnt = 0;
+X  }
+X  return 0;
+X}
+X
+X
+Xvoid main(argc, argv)
+Xint argc;
+Xchar **argv;
+X/* Given a zip file on stdin, decompress the first entry to stdout. */
+X{
+X  byte h[LOCHDR];               /* first local header */
+X
+X  /* if stdin not redirected, give the user help */
+X  if (isatty(0))
+X  {
+X    fprintf(stderr,
+X#ifdef CRYPT
+X      "usage: funzip [password] < infile.zip > outfile\n");
+X#else /* !CRYPT */
+X      "usage: funzip < infile.zip > outfile\n");
+X#endif /* ?CRYPT */
+X    fprintf(stderr,
+X      "       extracts to stdout the first zip entry of stdin.\n");
+X    exit(3);
+X  }
+X
+X  /* prepare to be a binary filter */
+X  if ((outbuf = (byte *)malloc(OUTBUFSIZ)) == NULL)
+X    err(1, "out of memory");
+X  if ((in = fdopen(0, FOPR)) == NULL)
+X    err(2, "cannot find stdin");
+X  if ((out = fdopen(1, FOPW)) == NULL)
+X    err(2, "cannot write to stdout");
+X
+X  /* read local header, check validity, and skip name and extra fields */
+X  if (fread((char *)h, 1, LOCHDR, in) != LOCHDR || LG(h) != LOCSIG)
+X    err(3, "input not a zip file or empty");
+X  if (SH(h + LOCHOW) != STORED && SH(h + LOCHOW) != DEFLATED)
+X    err(3, "first entry not deflated or stored--can't funzip");
+X  fseek(in, (long)(SH(h + LOCFIL)) + (long)(SH(h + LOCEXT)), 1);
+X
+X  /* if entry encrypted, decrypt and validate encryption header */
+X  if ((decrypt = h[LOCFLG] & CRPFLG) != 0)
+X#ifdef CRYPT
+X  {
+X    UWORD i, e;
+X
+X    if (argc < 2)
+X      err(3, "need password on command line for encrypted entry");
+X    init_keys(argv[1]);
+X    for (i = 0; i < 10; i++)
+X      ReadByte(&e);
+X    ReadByte(&e);
+X    ReadByte(&i);
+X    e += i << 8;
+X    if (e != (h[LOCFLG] & EXTFLG ? SH(h + LOCTIM) : SH(h + LOCCRC + 2)))
+X      err(3, "incorrect password for first entry");
+X  }
+X#else /* !CRYPT */
+X    err(3, "cannot decrypt entry (need to recompile funzip with crypt.c)");
+X#endif /* ?CRYPT */
+X
+X  /* prepare output buffer and crc */
+X  outptr = outbuf;
+X  outcnt = 0;
+X  outsiz = 0L;
+X  updcrc(NULL, 0);
+X
+X  /* decompress */
+X  if (h[LOCHOW])
+X  {                             /* deflated entry */
+X    if (inflate_entry())
+X      err(4, "invalid compressed data or out of memory");
+X  }
+X  else
+X  {                             /* stored entry */
+X    register ULONG n;
+X
+X    n = LG(h + LOCLEN);
+X    if (n != LG(h + LOCSIZ))
+X      err(4, "invalid compressed data--length mismatch");
+X    while (n--)
+X      OUTB(getc(in));
+X  }
+X  FlushOutput();
+X  fflush(out);
+X
+X  /* if extended header, get it */
+X  if ((h[LOCFLG] & EXTFLG) &&
+X      fread((char *)h + LOCCRC - 4, 1, EXTHDR, in) != EXTHDR)
+X    err(3, "zip file ended prematurely");
+X
+X  /* validate decompression */
+X  if (LG(h + LOCCRC) != updcrc(outbuf, 0))
+X    err(4, "invalid compressed data--crc error");
+X  if (LG(h + LOCLEN) != outsiz)
+X    err(4, "invalid compressed data--length error");
+X
+X  /* check if there are more entries */
+X  if (fread((char *)h, 1, 4, in) == 4 && LG(h) == LOCSIG)
+X    fprintf(stderr,
+X      "funzip warning: zip file has more than one entry--rest ignored\n");
+X}
+END_OF_FILE
+  if test 11324 -ne `wc -c <'funzip.c'`; then
+    echo shar: \"'funzip.c'\" unpacked with wrong size!
+  fi
+  # end of 'funzip.c'
+fi
+if test -f 'unzip.c.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unzip.c.A'\"
+else
+  echo shar: Extracting \"'unzip.c.A'\" \(29228 characters\)
+  sed "s/^X//" >'unzip.c.A' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  unzip.c
+X
+X  UnZip - a zipfile extraction utility.  See below for make instructions, or
+X  read the comments in Makefile and the various Contents files for more de-
+X  tailed explanations.  To report a bug, send a *complete* description to
+X  zip-bugs@cs.ucla.edu; include machine type, operating system and version,
+X  compiler and version, and reasonably detailed error messages or problem
+X  report.  To join Info-ZIP, send a message to info-zip-request@cs.ucla.edu.
+X
+X  UnZip 5.x is a greatly expanded and partially rewritten successor to 4.x,
+X  which in turn was almost a complete rewrite of version 3.x.  For a detailed
+X  revision history, see UnzpHist.zip at Info-ZIP headquarters (below).  For a 
+X  (partial) list of the many (near infinite) contributors, see "CONTRIBS" in
+X  the UnZip source distribution.
+X
+X  ---------------------------------------------------------------------------
+X
+X  To compile (partial instructions):
+X
+X     under Unix (cc):  make <system name>
+X       (type "make list" for a list of valid names, or read Makefile for 
+X       details.  "make unzip" works for most systems.  If you have a NEW
+X       system, not covered by any of the existing targets, send FULL infor-
+X       mation--hardware, OS, versions, etc.--to zip-bugs@cs.ucla.edu)
+X
+X     under MS-DOS (MSC, Turbo C, or Borland C++):  use the makefiles or
+X       project files in the MSDOS sub-archive; edit or otherwise modify
+X       as appropriate.  For MSC, use NMAKE.
+X
+X     under MS Windows 3.x:  get wunz12sr.{zip | zoo | whatever} and use
+X       the included makefile
+X
+X     under OS/2 (MSC, gcc, IBM C Set/2, Watcom C):  make -f makefile.os2
+X       (from OS2 sub-archive; for MSC, use NMAKE)
+X
+X     under VMS (VAX C or GNU C):  @make_unzip_vaxc  or  @make_unzip_gcc
+X       (from VMS sub-archive; can also use MMS or MAKE/VMS; see VMS.notes)
+X
+X     under Macintosh OS:  Double click on unzip.make.  Press <Command>-M.
+X       (from MAC sub-archive)
+X
+X     under Windows NT:  use makefile.nt (from NT sub-archive)
+X
+X     under AmigaDOS:  try one of the makefiles in the AMIGA sub-archive;
+X       may need some work yet...
+X
+X     under Atari TOS:  needs considerable work yet...
+X
+X  ---------------------------------------------------------------------------
+X
+X  Version:  unzip50.{tar.Z | zip | zoo} for Unix, VMS, OS/2, MS-DOS, Windows,
+X              Windows NT, Macintosh and Amiga.  Decryption requires sources
+X              in zcrypt19.zip, and Windows (not NT) support requires sources
+X              in wunz12sr.zip.  See accompanying file "Where" in the main
+X              source distribution for ftp, uucp and mail-server sites.
+X  Copyrights:  see accompanying file "COPYING" in UnZip source distribution.
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X
+X
+X
+X#include "unzip.h"               /* includes, defines, and macros */
+X#ifdef MSWIN
+X#  include "wizunzip.h"          /* see History.500 for version history */
+X#endif
+X
+X#define VERSION  "v5.0 of 21 August 1992"
+X/* #define VERSION  "v5.0p BETA of 8-21-92" */   /* internal beta level */
+X#define PAKFIX   /* temporary(?) solution to PAK-created zipfiles */
+X
+X
+X
+X
+X
+X/**********************/
+X/*  Global Variables  */
+X/**********************/
+X
+Xint aflag=0;          /* -a: do ASCII to EBCDIC translation, or CR-LF  */
+X                      /*     to CR or LF conversion of extracted files */
+X/* int bflag=0; RESERVED for -b: extract as binary */
+Xint cflag=0;          /* -c: output to stdout */
+Xint fflag=0;          /* -f: "freshen" (extract only newer files) */
+Xint jflag=0;          /* -j: junk pathnames */
+Xint overwrite_none=0; /* -n: never overwrite files (no prompting) */
+Xint overwrite_all=0;  /* -o: OK to overwrite files without prompting */
+Xint force_flag=0;     /* (shares -o for now): force to override errors, etc. */
+Xint quietflg=0;       /* -q: produce a lot less output */
+X#ifdef DOS_OS2
+X   int sflag=1;       /* -s: allow spaces (blanks) in filenames */
+X#endif /* DOS_OS2 */
+Xint tflag=0;          /* -t: test */
+Xint uflag=0;          /* -u: "update" (extract only newer & brand-new files) */
+Xstatic int U_flag=0;  /* -U: leave filenames in upper or mixed case */
+Xstatic int vflag=0;   /* -v: view directory (only used in unzip.c) */
+Xint V_flag=0;         /* -V: don't strip VMS version numbers */
+X#ifdef VMS
+X   int secinf=0;      /* -X: keep owner/protection */
+X#endif /* VMS */
+Xint zflag=0;          /* -z: display only the archive comment */
+Xint process_all_files=0;
+X
+Xlongint csize;        /* used by list_files(), ReadByte(): must be signed */
+Xlongint ucsize;       /* used by list_files(), unReduce(), explode() */
+X
+Xchar *fnames[2] = {"*", NULL};   /* default filenames vector */
+Xchar **fnv = fnames;
+Xchar sig[5];
+Xchar answerbuf[10];
+X
+Xmin_info info[DIR_BLKSIZ], *pInfo=info;
+X
+X#ifdef OS2
+X   int longname;              /* used in extract.c, mapname.c and file_io.c */
+X   char longfilename[FILNAMSIZ];
+X#endif /* OS2 */
+X
+X#ifdef CRYPT
+X   char *key = (char *)NULL;  /* password with which to decrypt data, or NULL */
+X#endif /* CRYPT */
+X
+X/*---------------------------------------------------------------------------
+X    unShrink/unReduce/explode/inflate working storage and globals:
+X  ---------------------------------------------------------------------------*/
+X
+Xunion work area;              /* see unzip.h for the definition of work */
+XULONG crc32val;
+X
+XUWORD mask_bits[] = {
+X    0x0000,
+X    0x0001, 0x0003, 0x0007, 0x000f, 0x001f, 0x003f, 0x007f, 0x00ff,
+X    0x01ff, 0x03ff, 0x07ff, 0x0fff, 0x1fff, 0x3fff, 0x7fff, 0xffff
+X};
+X
+X/*---------------------------------------------------------------------------
+X    Input file variables:
+X  ---------------------------------------------------------------------------*/
+X
+Xbyte *inbuf, *inptr;     /* input buffer (any size is legal) and pointer */
+Xint incnt;
+X
+XULONG bitbuf;
+Xint bits_left;
+Xboolean zipeof;
+X
+Xint zipfd;               /* zipfile file handle */
+X#ifdef MSWIN
+X   char *zipfn;
+X#else
+X   char zipfn[FILNAMSIZ];
+X#endif
+X
+Xchar local_hdr_sig[5] = "\120";    /* remaining signature bytes come later   */
+Xchar central_hdr_sig[5] = "\120";  /*  (must initialize at runtime so unzip  */
+Xchar end_central_sig[5] = "\120";  /*  executable won't look like a zipfile) */
+X/* char extd_local_sig[5] = "\120";  NOT USED YET */
+X
+Xcdir_file_hdr crec;      /* used in unzip.c, extract.c, misc.c */
+Xlocal_file_hdr lrec;     /* used in unzip.c, extract.c */
+Xecdir_rec ecrec;         /* used in unzip.c, extract.c */
+Xstruct stat statbuf;     /* used by main(), mapped_name(), check_for_newer() */
+X
+Xlongint extra_bytes = 0;        /* used in unzip.c, misc.c */
+Xlongint cur_zipfile_bufstart;   /* extract_or_test_files, readbuf, ReadByte */
+X  
+X#ifdef MACOS
+X   short  gnVRefNum;
+X   long  glDirID;
+X   OSType  gostCreator;
+X   OSType  gostType;
+X   boolean  fMacZipped;
+X   boolean  macflag;
+X   CursHandle  rghCursor[4];    /* status cursors */
+X   short  giCursor = 0;
+X#endif
+X
+X/*---------------------------------------------------------------------------
+X    Output stream variables:
+X  ---------------------------------------------------------------------------*/
+X
+Xbyte *outbuf;                   /* buffer for rle look-back */
+Xbyte *outptr;
+X#ifdef MSWIN
+X   byte __far *outout;
+X   char *filename;
+X#else /* !MSWIN */
+X   byte *outout;                /* scratch pad for ASCII-native trans */
+X   char filename[FILNAMSIZ];
+X#endif /* ?MSWIN */
+Xbyte *extra_field = (byte *)NULL;  /* used by VMS, Mac and OS/2 versions */
+Xlongint outpos;                 /* absolute position in outfile */
+Xint outcnt;                     /* current position in outbuf */
+Xint outfd;
+Xint mem_mode = 0;
+Xint disk_full;
+X
+X/*---------------------------------------------------------------------------
+X    unzip.c static global variables (visible only within this file):
+X  ---------------------------------------------------------------------------*/
+X
+Xstatic byte *hold;
+Xstatic char unkn[10];
+Xstatic longint ziplen;
+Xstatic UWORD methnum;
+X
+X/*---------------------------------------------------------------------------
+X    unzip.c repeated error messages (we use all of these at least twice)
+X  ---------------------------------------------------------------------------*/
+X
+Xchar *EndSigMsg = "\nwarning:\
+X  didn't find end-of-central-dir signature at end of central dir.\n";
+Xchar *CentSigMsg =
+X  "error:  expected central file header signature not found (file #%u).\n";
+Xchar *SeekMsg =
+X  "error:  attempt to seek before beginning of zipfile\n%s";
+X
+X#ifdef VMS
+Xchar *ReportMsg = "\
+X  (please check that you have transferred or created the zipfile in the\n\
+X  appropriate BINARY mode--this includes ftp, Kermit, AND unzip'd zipfiles)\n";
+X#else /* !VMS */
+Xchar *ReportMsg = "\
+X  (please check that you have transferred or created the zipfile in the\n\
+X  appropriate BINARY mode and that you have compiled unzip properly)\n";
+X#endif /* ?VMS */
+X
+X
+X#ifdef MSWIN
+X/* MS Windows Setup  and Take-Down functions bracket calls to 
+X * process_zipfile().
+X * These functions allocate and free the necessary buffers, set and clear
+X * any global variables so that  process_zipfile()  can be called multiple
+X * times in the same session of WizUnzip. You'll recognize some of the 
+X * code from main() in SetUpToProcessZipFile().
+X */
+XHANDLE hOutBuf;
+XHANDLE hOutOut;   /* added 04/03/92 for version 1.1 */
+XHANDLE hInBuf;
+XHANDLE hZipFN;
+XHANDLE hFileName;
+X
+XBOOL FSetUpToProcessZipFile(int ncflag, int ntflag, int nvflag, int nUflag, 
+X       int nzflag, int ndflag, int noflag, int naflag, int argc,
+X       LPSTR lpszZipFN, PSTR *FNV)
+X{
+X    /* clear all global flags -- need to or not. */
+X
+X    tflag = vflag=cflag=aflag=U_flag=quietflg=zflag = 0;
+X    overwrite_all=overwrite_none=0;
+X    fnv = &fnames[0];       /* assign default file name vector */
+X
+X    cflag = ncflag ; overwrite_all = noflag;
+X    tflag = ntflag ; vflag = nvflag; zflag = nzflag; U_flag = nUflag;
+X    aflag = naflag;
+X    sflag = 1;
+X
+X    local_hdr_sig[0] = central_hdr_sig[0] = end_central_sig[0] = '\120';
+X    local_hdr_sig[1] = central_hdr_sig[1] = end_central_sig[1] = '\0';
+X
+X    if (!(hZipFN = LocalAlloc(LMEM_MOVEABLE, FILNAMSIZ)))
+X        return FALSE;
+X
+X    zipfn = (char *)LocalLock(hZipFN);
+X    lstrcpy(zipfn, lpszZipFN);
+X    if (stat(zipfn, &statbuf) || (statbuf.st_mode & S_IFMT) == S_IFDIR)
+X        strcat(zipfn, ZSUFX);
+X
+X    if (stat(zipfn, &statbuf)) {  /* try again */
+X        fprintf(stderr, "error:  can't find zipfile [ %s ]\n", zipfn);
+X        return TRUE;              /* 9:  file not found */
+X    } else
+X        ziplen = statbuf.st_size;
+X
+X    if (argc != 0) {
+X        fnv = FNV;
+X        process_all_files = FALSE;
+X    } else
+X        process_all_files = TRUE;       /* for speed */
+X
+X/*---------------------------------------------------------------------------
+X    Okey dokey, we have everything we need to get started.  Let's roll.
+X  ---------------------------------------------------------------------------*/
+X
+X    if (hInBuf = LocalAlloc(LMEM_MOVEABLE, INBUFSIZ+4)) {  /* 4 extra: hold[] */
+X        inbuf = (byte *) LocalLock(hInBuf);
+X        WinAssert(inbuf);
+X    }
+X    if (hOutBuf = LocalAlloc(LMEM_MOVEABLE, OUTBUFSIZ+1)) {  /* extra: ASCIIZ */
+X        outbuf = (byte *)LocalLock(hOutBuf);
+X        WinAssert(outbuf);
+X        if (aflag) {   /* if LF => CR,LF translation */
+X            if (hOutOut = GlobalAlloc(GMEM_MOVEABLE,OUTBUFSIZ)) {
+X                outout = (byte _far *)GlobalLock(hOutOut);
+X                WinAssert(outout);
+X            }
+X        } else    /* no translation; just re-use output buffer */
+X            outout = (byte _far *)outbuf;  /*  point to outbuf */
+X    }
+X    if ( hFileName = LocalAlloc(LMEM_MOVEABLE, FILNAMSIZ)) {
+X        filename = (char *)LocalLock(hFileName);
+X        WinAssert(filename);
+X    }
+X
+X    if ((inbuf == NULL) || (outbuf == NULL) || (outout == NULL) ||
+X        (zipfn == NULL) || (filename == NULL))
+X        return FALSE;
+X
+X    hold = &inbuf[INBUFSIZ];   /* to check for boundary-spanning signatures */
+X
+X    return TRUE;    /* set up was OK */
+X}
+X
+Xvoid TakeDownFromProcessZipFile(void)
+X{
+X    if (inbuf) {
+X        LocalUnlock(hInBuf);
+X        inbuf = NULL;
+X    }
+X    if (hInBuf)
+X        hInBuf = LocalFree(hInBuf);
+X
+X    if (outbuf) {
+X        LocalUnlock(hOutBuf);
+X        outbuf = NULL;
+X    }
+X    if (hOutBuf)
+X        hOutBuf = LocalFree(hOutBuf);
+X
+X    if (aflag && outout)    /* if doing LF => CR,LF translation */
+X        GlobalUnlock(hOutOut);
+X    outout = NULL;          /* free now, translation or not     */
+X    if (hOutOut)
+X        hOutOut = GlobalFree(hOutOut);  /* mark buffer as freed */
+X
+X    if (zipfn) {
+X        LocalUnlock(hZipFN);
+X        zipfn = NULL;
+X    }
+X    if (hZipFN)
+X        hZipFN = LocalFree(hZipFN);
+X
+X    if (filename) {
+X        LocalUnlock(hFileName);
+X        filename = NULL;
+X    }
+X    if (hFileName)
+X        hFileName = LocalFree(hFileName);
+X}
+X
+X#else /* !MSWIN */
+X
+X/******************/
+X/*  Main program  */
+X/******************/
+X
+Xint main(argc, argv)   /* return PK-type error code (except under VMS) */
+X    int argc;
+X    char *argv[];
+X{
+X    char *s;
+X    int c, error=FALSE, negative=0;
+X
+X
+X/*---------------------------------------------------------------------------
+X    Macintosh initialization code.
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef MACOS
+X#ifdef THINK_C
+X#   include <console.h>
+X    static char *argstr[30], args[30*64];
+X    Point p;
+X    SFTypeList sfT;
+X    EventRecord theEvent;
+X    short eMask;
+X    SFReply fileRep;
+X#endif /* THINK_C */
+X    int a;
+X
+X    for (a = 0;  a < 4;  ++a)
+X        rghCursor[a] = GetCursor(a+128);
+X    giCursor = 0;
+X
+X    area.Slide = (byte *)calloc(8193, sizeof(short)+sizeof(char)+sizeof(char));
+X    area.shrink.Prefix_of = (short *)area.Slide;
+X    area.shrink.Suffix_of = area.Slide + (sizeof(short)*(HSIZE+1));
+X    area.shrink.Stack = area.Slide + (sizeof(short) + sizeof(char))*(HSIZE+1);
+X
+X#ifdef THINK_C   
+X    for (a = 0;  a < 30;  ++a)
+X        argstr[a] = &args[a*64];
+Xstart:
+X    tflag=vflag=cflag=aflag=jflag=U_flag=quietflg=fflag=uflag=zflag = 0;
+X    local_hdr_sig[1] = central_hdr_sig[1] = end_central_sig[1] = '\0';
+X/*  extd_local_sig[1] = '\0';  */
+X    error = FALSE;
+X
+X    argc = ccommand(&argv);
+X    SetPt(&p, 40, 40);
+X
+X    SFGetFile(p, "\pSpecify ZIP file:", 0L, -1, sfT, 0L, &fileRep);
+X    if (fileRep.good) {
+X        macfstest(fileRep.vRefNum);
+X        ResolveMacVol(fileRep.vRefNum, &gnVRefNum, &glDirID, NULL);
+X        for (a = 1;  a < argc;  ++a)
+X            if (argv[a][0] == '-')
+X                BlockMove(argv[a], argstr[a], (strlen(argv[a]) > 63) ? 64 :
+X                   strlen(argv[a])+1);
+X            else
+X                break;
+X        PtoCstr((char *)fileRep.fName);
+X        strcpy(argstr[a], (char *)fileRep.fName);
+X        for (;  a < argc;  ++a)
+X            BlockMove(argv[a], argstr[a+1], (strlen(argv[a]) > 63) ? 64 :
+X               strlen(argv[a])+1);
+X        ++argc;
+X        argv = argstr;
+X
+X        if (hfsflag == FALSE)  /* can't support directories:  junk pathnames */
+X            jflag = 1;
+X    }
+X#endif /* THINK_C */
+X#endif /* MACOS */
+X
+X/*---------------------------------------------------------------------------
+X    Set signal handler for restoring echo, warn of zipfile corruption, etc.
+X  ---------------------------------------------------------------------------*/
+X
+X    signal(SIGINT, handler);
+X    signal(SIGTERM, handler);
+X#ifdef SIGBUS
+X    signal(SIGBUS, handler);
+X#endif
+X#ifdef SIGSEGV
+X    signal(SIGSEGV, handler);
+X#endif
+X
+X/*---------------------------------------------------------------------------
+X    Debugging info for checking on structure padding:
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef DEBUG_STRUC
+X    printf("local_file_hdr size: %X\n",
+X           sizeof(local_file_hdr));
+X    printf("local_byte_hdr size: %X\n",
+X           sizeof(local_byte_hdr));
+X    printf("actual size of local headers: %X\n", LREC_SIZE);
+X
+X    printf("central directory header size: %X\n",
+X           sizeof(cdir_file_hdr));
+X    printf("central directory byte header size: %X\n",
+X           sizeof(cdir_byte_hdr));
+X    printf("actual size of central dir headers: %X\n", CREC_SIZE);
+X
+X    printf("end central dir record size: %X\n",
+X           sizeof(ecdir_rec));
+X    printf("end central dir byte record size: %X\n",
+X           sizeof(ec_byte_rec));
+X    printf("actual size of end-central-dir record: %X\n", ECREC_SIZE);
+X#endif /* DEBUG_STRUC */
+X
+X/*---------------------------------------------------------------------------
+X    Put environment-variable options into the queue, then rip through any
+X    command-line options lurking about...
+X  ---------------------------------------------------------------------------*/
+X
+X    envargs(&argc, &argv, ENV_UNZIP);
+X
+X    while (--argc > 0 && (*++argv)[0] == '-') {
+X        s = argv[0] + 1;
+X        while ((c = *s++) != 0) {    /* "!= 0":  prevent Turbo C warning */
+X            switch (c) {
+X                case ('-'):
+X                    ++negative;
+X                    break;
+X                case ('a'):
+X                    if (negative)
+X                        aflag = FALSE, negative = 0;
+X                    else
+X                        aflag = TRUE;
+X                    break;
+X#if 0
+X                case ('b'):    /* force binary mode */
+X                    if (negative)
+X                        bflag = FALSE, negative = 0;
+X                    else
+X                        bflag = TRUE;
+X                    break;
+X#endif
+X                case ('c'):
+X                    if (negative) {
+X                        cflag = FALSE, negative = 0;
+X#ifdef NATIVE
+X                        aflag = FALSE;
+X#endif
+X                    } else {
+X                        cflag = TRUE;
+X#ifdef NATIVE
+X                        aflag = TRUE;  /* so you can read it on the screen */
+X#endif
+X                    }
+X                    break;
+X                case ('d'):    /* re-create directory structure (default) */
+X                    if (negative)
+X                        jflag = TRUE, negative = 0;
+X                    break;
+X                case ('e'):    /* just ignore -e, -x options (extract) */
+X                    break;
+X                case ('f'):    /* "freshen" (extract only newer files) */
+X                    if (negative)
+X                        fflag = uflag = FALSE, negative = 0;
+X                    else
+X                        fflag = uflag = TRUE;
+X                    break;
+X                case ('j'):    /* junk pathnames/directory structure */
+X                    if (negative)
+X                        jflag = FALSE, negative = 0;
+X                    else
+X                        jflag = TRUE;
+X                    break;
+X                case ('l'):
+X                    if (negative) {
+X                        vflag = MAX(vflag-negative,0);
+X                        negative = 0;
+X                    } else
+X                        ++vflag;
+X                    break;
+X                case ('n'):    /* don't overwrite any files */
+X                    if (negative)
+X                        overwrite_none = FALSE, negative = 0;
+X                    else
+X                        overwrite_none = TRUE;
+X                    break;
+X                case ('o'):    /* OK to overwrite files without prompting */
+X                    if (negative) {
+X                        overwrite_all = MAX(overwrite_all-negative,0);
+X                        force_flag = MAX(force_flag-negative,0);
+X                        negative = 0;
+X                    } else {
+X                        ++overwrite_all;
+X                        ++force_flag;  /* (share -o for now) force to cont. */
+X                    }
+X                    break;
+X                case ('p'):    /* pipes:  stdout, no tranlation, no messages */
+X                    if (negative) {
+X                        cflag = FALSE;
+X                        quietflg = MAX(quietflg-999,0);
+X                        negative = 0;
+X                    } else {
+X                        cflag = TRUE;
+X                        quietflg += 999;
+X                    }
+X                    break;
+X                case ('q'):    /* quiet:  fewer comments/messages */
+X                    if (negative) {
+X                        quietflg = MAX(quietflg-negative,0);
+X                        negative = 0;
+X                    } else
+X                        ++quietflg;
+X                    break;
+X#ifdef DOS_OS2
+X                case ('s'):    /* spaces in filenames:  allow by default */
+X                    if (negative)
+X                        sflag = TRUE, negative = 0;
+X                    else
+X                        sflag = FALSE;
+X                    break;
+X#endif
+X                case ('t'):
+X                    if (negative)
+X                        tflag = FALSE, negative = 0;
+X                    else
+X                        tflag = TRUE;
+X                    break;
+X                case ('U'):    /* Uppercase (don't convert to all-lower) */
+X                    if (negative)
+X                        U_flag = FALSE, negative = 0;
+X                    else
+X                        U_flag = TRUE;
+X                    break;
+X                case ('u'):    /* update (extract only new and newer files) */
+X                    if (negative)
+X                        uflag = FALSE, negative = 0;
+X                    else
+X                        uflag = TRUE;
+X                    break;
+X                case ('V'):    /* Version (retain VMS/DEC-20 file versions) */
+X                    if (negative)
+X                        V_flag = FALSE, negative = 0;
+X                    else
+X                        V_flag = TRUE;
+X                    break;
+X                case ('v'):    /* verbose */
+X                    if (negative) {
+X                        vflag = MAX(vflag-negative,0);
+X                        negative = 0;
+X                    } else if (vflag)
+X                        ++vflag;
+X                    else
+X                        vflag = 2;
+X                    break;
+X#ifdef VMS
+X                case ('X'):   /* restore owner/protection info (need privs?) */
+X                    if (negative)
+X                        secinf = FALSE, negative = 0;
+X                    else
+X                        secinf = TRUE;
+X                    break;
+X#endif /* VMS */
+X                case ('x'):    /* extract:  default */
+X                    break;
+X                case ('z'):    /* display only the archive comment */
+X                    if (negative) {
+X                        zflag = MAX(zflag-negative,0);
+X                        negative = 0;
+X                    } else
+X                        ++zflag;
+X                    break;
+X                default:
+X                    error = TRUE;
+X                    break;
+X
+X            } /* end switch */
+X        } /* end while (not end of argument string) */
+X    } /* end while (not done with switches) */
+X
+X/*---------------------------------------------------------------------------
+X    Make sure we aren't trying to do too many things here.  [This seems like
+X    kind of a brute-force way to do things; but aside from that, isn't the
+X    -a option useful when listing the directory (i.e., for reading zipfile
+X    comments)?  It's a modifier, not an action in and of itself, so perhaps
+X    it should not be included in the test--certainly, in the case of zipfile
+X    testing, it can just be ignored.]
+X  ---------------------------------------------------------------------------*/
+X
+X    if ((aflag && tflag) || (aflag && vflag) || (cflag && tflag) ||
+X        (cflag && uflag) || (cflag && vflag) || (tflag && uflag) ||
+X        (tflag && vflag) || (uflag && vflag) || (fflag && overwrite_none)) {
+X        fprintf(stderr, "error:\
+X  -at, -av, -ct, -cu, -cv, -fn, -tu, -tv, -uv combinations not allowed\n");
+X        error = TRUE;
+X    }
+X    if (quietflg && zflag)
+X        quietflg = 0;
+X    if (overwrite_all && overwrite_none) {
+X        fprintf(stderr, "caution:  both -n and -o specified; ignoring -o\n");
+X        overwrite_all = FALSE;
+X    }
+X    if ((argc-- == 0) || error)
+X        RETURN(usage(error));
+X
+X/*---------------------------------------------------------------------------
+X    Now get the zipfile name from the command line and see if it exists as a
+X    regular (non-directory) file.  If not, append the ".zip" suffix.  We don't
+X    immediately check to see if this results in a good name, but we will do so
+X    later.  In the meantime, see if there are any member filespecs on the com-
+X    mand line, and if so, set the filename pointer to point at them.
+X  ---------------------------------------------------------------------------*/
+X
+X    strcpy(zipfn, *argv++);
+X    if (stat(zipfn, &statbuf) || (statbuf.st_mode & S_IFMT) == S_IFDIR)
+X        strcat(zipfn, ZSUFX);
+X#if (defined(UNIX) && !defined(VMS)) /* Unix executables have no extension-- */
+X    else if (statbuf.st_mode & S_IXUSR)  /* might find zip, not zip.zip; etc */
+X        fprintf(stderr, "\nnote:  file [ %s ] may be an executable\n\n", zipfn);
+X#endif /* UNIX && !VMS */
+X
+X    if (stat(zipfn, &statbuf)) {/* try again */
+X        fprintf(stderr, "error:  can't find zipfile [ %s ]\n", zipfn);
+X        RETURN(9);              /* 9:  file not found */
+X    } else
+X        ziplen = statbuf.st_size;
+X
+X    if (argc != 0) {
+X        fnv = argv;
+X        process_all_files = FALSE;
+X    } else
+X        process_all_files = TRUE;       /* for speed */
+X
+X/*---------------------------------------------------------------------------
+X    Okey dokey, we have everything we need to get started.  Let's roll.
+X  ---------------------------------------------------------------------------*/
+X
+X    inbuf = (byte *) malloc(INBUFSIZ + 4);     /* 4 extra for hold[] (below) */
+X    outbuf = (byte *) malloc(OUTBUFSIZ + 1);   /* 1 extra for string termin. */
+X#ifndef DOS_OS2
+X    if (aflag)                  /* if need an ascebc scratch, */
+X        outout = (byte *) malloc(OUTBUFSIZ);
+X    else                        /*  allocate it... */
+X#endif /* !DOS_OS2 */
+X        outout = outbuf;        /*  else just point to outbuf */
+X
+X    if ((inbuf == (byte *)NULL) || (outbuf == (byte *)NULL) ||
+X        (outout == (byte *)NULL)) {
+X        fprintf(stderr, "error:  can't allocate unzip buffers\n");
+X        RETURN(4);              /* 4-8:  insufficient memory */
+X    }
+X    hold = &inbuf[INBUFSIZ];    /* to check for boundary-spanning signatures */
+X
+X    RETURN(process_zipfile());  /* keep passing errors back... */
+X
+X} /* end main() */
+X
+X
+X
+X
+X
+X/**********************/
+X/*  Function usage()  */
+X/**********************/
+X
+Xint usage(error)   /* return PK-type error code */
+X    int error;
+X{
+X#ifdef NATIVE
+X#ifdef EBCDIC
+X    char *astring = "-a  convert ASCII to EBCDIC";
+X#else /* !EBCDIC */
+X    char *astring = "-a  convert ASCII to native chars";
+X#endif /* ?EBCDIC */
+X/*  char *astring = "-a  convert ASCII to " NATIVE;  (ANSI C concatenation)  */
+X    char *loc_str = "";
+X#else /* !NATIVE */
+X#ifdef DOS_OS2
+X    char *astring = "-a  convert text (LF => CR LF)";
+X    char *loc_str = "-s  spaces in filenames => _";
+X#else /* !DOS_OS2 */
+X#ifdef MACOS
+X    char *astring = "-a  convert text (CR LF => CR)";
+X    char *loc_str = "";
+X#else /* !MACOS:  UNIX, VMS */
+X    char *astring = "-a  convert text (CR LF => LF)";
+X#ifdef VMS
+X    char *loc_str = "-X  restore owner/protection info";
+X#else /* !VMS */
+X    char *loc_str = "";
+X#endif /* ?VMS */
+X#endif /* ?MACOS */
+X#endif /* ?DOS_OS2 */
+X#endif /* ?NATIVE */
+X    FILE *usagefp;
+X
+X
+X/*---------------------------------------------------------------------------
+X    If user requested usage, send it to stdout; else send to stderr.
+X  ---------------------------------------------------------------------------*/
+X
+X    if (error)
+X        usagefp = (FILE *) stderr;
+X    else
+X        usagefp = (FILE *) stdout;
+X
+X    fprintf(usagefp, "\
+XUnZip:  Zipfile Extract %s;  (c) 1989 S.H.Smith and others\n\
+XVersions 3.0 and later by Info-ZIP.  Bug reports ONLY to zip-bugs@cs.ucla.edu\
+X\n\n", VERSION);
+X
+X    fprintf(usagefp, "\
+XUsage: unzip [ -options[modifiers] ] file[.zip] [filespec...]\n\
+X  -x  extract files (default)                -l  list files (short format)\n\
+X  -c  extract files to stdout/screen (CRT)   -v  list files (verbose format)\n\
+X  -f  freshen existing files, create none    -p  extract to pipe, no messages\n\
+X  -u  update files, create if necessary      -t  test archive integrity\n\
+X                                             -z  display archive comment\n\
+Xmodifiers:\n\
+X  -n  never overwrite existing files         %s\n", loc_str);
+X    fprintf(usagefp, "\
+X  -o  overwrite files WITHOUT prompting      %s\n\
+X  -j  junk paths (don't make directories)    -U  don't make names lowercase\n\
+X  -q  quiet mode (-qq => quieter)            -V  retain VMS version numbers\
+X\n\n\
+XExamples: (See manual for more information)\n\
+X  unzip data1 Readme   => extracts file Readme from zipfile data1.zip\n\
+X  unzip -p foo | more  => send contents of foo.zip via pipe into program more\n\
+X  unzip -fo foo        => quietly replace existing files if archive files newer\
+X\n", astring);
+X
+X#ifdef VMS
+X    fprintf(usagefp, "\
+X  unzip \"-V\" foo \"Bar\" => must quote uppercase options and filenames in VMS\
+X\n");
+X#endif
+X
+X    if (error)
+X        return 10;    /* 10:  bad or illegal parameters specified */
+X    else
+X        return 0;     /* just wanted usage screen: no error */
+X
+X} /* end function usage() */
+X
+X#endif /* ?MSWIN */
+X
+X
+X
+END_OF_FILE
+ if test 29228 -ne `wc -c <'unzip.c.A'`; then
+    echo shar: \"'unzip.c.A'\" unpacked with wrong size!
+ elif test -f 'unzip.c.B'; then
+    echo shar: Combining  \"'unzip.c'\" \(60418 characters\)
+    cat 'unzip.c.A' 'unzip.c.B' > 'unzip.c'
+    if test 60418 -ne `wc -c <'unzip.c'`; then
+      echo shar: \"'unzip.c'\" combined with wrong size!
+    else
+      rm unzip.c.A unzip.c.B
+    fi
+  fi
+  # end of 'unzip.c.A'
+fi
+if test -f 'zipinfo.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zipinfo.doc'\"
+else
+  echo shar: Extracting \"'zipinfo.doc'\" \(15236 characters\)
+  sed "s/^X//" >'zipinfo.doc' <<'END_OF_FILE'
+X
+XZIPINFO(1)               USER COMMANDS                 ZIPINFO(1)
+X
+XNAME
+X     zipinfo - list detailed information about a ZIP archive file
+X
+XSYNOPSIS
+X     zipinfo [-1smlvht] file[.zip] [filespec ...]
+X
+XARGUMENTS
+X     file[.zip]  Path of the ZIP archive.  The suffix ``.zip'' is
+X                 applied  if  the  file specified does not exist.
+X                 Note that self-extracting  ZIP  files  are  sup-
+X                 ported;  just  specify the ``.exe'' suffix your-
+X                 self.
+X
+X     [filespec]  An optional list of archive members to  be  pro-
+X                 cessed.  Expressions may be used to match multi-
+X                 ple members; be sure to quote  expressions  that
+X                 contain   characters  interpreted  by  the  Unix
+X                 shell. See PATTERN  MATCHING  (below)  for  more
+X                 details.
+X
+XOPTIONS
+X     -1  list filenames only, one per line (useful for pipes)
+X     -s  list zipfile  info  in  short  Unix  ``ls  -l''  format:
+X         default
+X     -m  list zipfile info in medium Unix ``ls -l'' format
+X     -l  list zipfile info in long Unix ``ls -l'' format
+X     -v  list zipfile information in verbose, multi-page format
+X     -h  list header line
+X     -t  list totals for files listed or for all files
+X
+XPATTERN MATCHING
+X     All archive members are listed unless a filespec is provided
+X     to specify a subset of the archive members.  The filespec is
+X     similar to an egrep expression, and may contain:
+X
+X     *      matches a sequence of 0 or more characters
+X     ?      matches exactly 1 character
+X     \nnn   matches the character having octal code nnn
+X     [...]  matches any single character found inside the  brack-
+X            ets; ranges are specified by a beginning character, a
+X            hyphen, and an ending character.  If  an  exclamation
+X            point  or  a  carat  (`!'  or  `^')  follows the left
+X            bracket, then the range of characters matched is com-
+X            plemented  with  respect  to  the ASCII character set
+X            (that is, anything except the characters  inside  the
+X            brackets is considered a match).
+X
+XDESCRIPTION
+X     ZipInfo lists technical information  about  a  ZIP  archive,
+X     including  information  file  access permissions, encryption
+X     status, type of compression, version and operating system of
+X     compressing program, and the like.  The default option is to
+X
+XInfo-ZIP          Last change: 19 Aug 92 (v1.0)                 1
+X
+XZIPINFO(1)               USER COMMANDS                 ZIPINFO(1)
+X
+X     list files in the following format:
+X
+X-rw-rwl---  1.5 unx    2802 t- defX 11-Aug-91 13:48 perms.2660
+X
+X     The last three fields are clearly the modification date  and
+X     time of the file, and its name.  The case of the filename is
+X     respected; thus files  which  come  from  MS-DOS  PKZIP  are
+X     always  capitalized.   If  the file was zipped with a stored
+X     directory name, that  is  also  displayed  as  part  of  the
+X     filename.
+X
+X     The second and third  fields  indicate  that  the  file  was
+X     zipped  under Unix with version 1.5 of Zip (a beta version).
+X     Since it comes from Unix, the file permissions at the begin-
+X     ning   of   the  line  are  printed  in  Unix  format.   The
+X     uncompressed file-size (2802 in this example) is the  fourth
+X     field.
+X
+X     The fifth field consists of two characters, either of  which
+X     may  take  on  several  values.   The first character may be
+X     either `t' or `b', indicating that Zip believes the file  to
+X     be  text  or  binary,  respectively;  but  if  the  file  is
+X     encrypted, ZipInfo notes this fact by capitalizing the char-
+X     acter  (`T'  or `B').  The second character may also take on
+X     four values, depending on whether there is an extended local
+X     header  and/or  an  ``extra field'' associated with the file
+X     (explained in PKWare's APPNOTE.TXT).  If neither exists, the
+X     character  will  be  a hyphen (`-'); if there is an extended
+X     local header but no extra field, `l'; if the  reverse,  `x';
+X     and  if  both  exist, `X'.  Thus the file in this example is
+X     (apparently) a text file, is not encrypted, and has  neither
+X     an  extra field nor an extended local header associated with
+X     it.  The example below, on the other hand, is  an  encrypted
+X     binary file with an extra field:
+X
+XRWD,R,R     0.9 vms     168 Bx shrk  9-Aug-91 19:15 perms.0644
+X
+X     Extra fields are used by PKWare for  authenticity  verifica-
+X     tion(?)  and  possibly other purposes, and by Info-ZIP's Zip
+X     1.6 and later to store OS/2, Macintosh and VMS  file  attri-
+X     butes.  This example presumably falls into the latter class,
+X     then.  Note that the file attributes are listed in VMS  for-
+X     mat.   Other  possibilities  for  the  host operating system
+X     include OS/2 with High Performance File System  (HPFS),  DOS
+X     or  OS/2  with  File Allocation Table (FAT) file system, and
+X     Macintosh, denoted as follows:
+X
+Xarc,,rw,    1.0 os2    5358 Tl i4:3  4-Dec-91 11:33 longfilename.hpfs
+Xarc,hid,rdo,sys dos    4096 b- i4:2 14-Jul-91 12:58 EA DATA. SF
+X--w-------  1.0 mac   17357 bx i8:2  4-May-92 04:02 unzip.macr
+X
+XInfo-ZIP          Last change: 19 Aug 92 (v1.0)                 2
+X
+XZIPINFO(1)               USER COMMANDS                 ZIPINFO(1)
+X
+X     File attributes in the first two cases are  indicated  in  a
+X     DOS-like  format,  where  the  file  may or may not have its
+X     archive bit set; may be hidden or not; may be read-write  or
+X     read-only;  and  may be a system file or not.  If the attri-
+X     butes are too long,  the  version  number  of  the  encoding
+X     software is omitted.  (The information is still available in
+X     the verbose listing, however.)  Interpretation of  Macintosh
+X     file attributes needs some work yet.
+X
+X     Finally, the sixth field indicates  the  compression  method
+X     and  possible  sub-method used.  There are six methods known
+X     at present:  storing (no compression), reducing,  shrinking,
+X     imploding,  tokenizing,  and  deflating.  In addition, there
+X     are four levels of reducing (1 through  4);  four  types  of
+X     imploding  (4K or 8K sliding dictionary, and 2 or 3 Shannon-
+X     Fano trees); and three levels of  deflating  (fast,  normal,
+X     maximum  compression).  ZipInfo represents these methods and
+X     their sub-methods as follows:  ``stor''; ``re:1,'' ``re:2,''
+X     etc.;  ``shrk'';  ``i4:2,''  ``i8:3,''  etc.;  ``tokn''; and
+X     ``defF,'' ``defN,'' and ``defX.''
+X
+X     The medium and long listings are  almost  identical  to  the
+X     short  format except that they add information on the file's
+X     compression.   The  medium  format  indicates   the   file's
+X     compression factor as a percentage:
+X
+X-rw-rwl---  1.5 unx    2802 t- 81% defX 11-Aug-91 13:48 perms.2660
+X
+X     In this example, the file has been compressed by more than a
+X     factor of five; the compressed data are only 19% of the ori-
+X     ginal size.  The long format  gives  the  compressed  file's
+X     size in bytes, instead:
+X
+X-rw-rwl---  1.5 unx    2802 t-     538 defX 11-Aug-91 13:48 perms.2660
+X
+X     In addition to individual file information, a  default  zip-
+X     file listing also includes header and trailer lines:
+X
+XArchive:  OS2.zip   5453 bytes   5 files
+X,,rw,       1.0 os2     730 b- i4:3 26-Jun-92 23:40 Contents
+X,,rw,       1.0 os2    3710 b- i4:3 26-Jun-92 23:33 makefile.os2
+X,,rw,       1.0 os2    8753 b- i8:3 26-Jun-92 15:29 os2unzip.c
+X,,rw,       1.0 os2      98 b- stor 21-Aug-91 15:34 unzip.def
+X,,rw,       1.0 os2      95 b- stor 21-Aug-91 17:51 zipinfo.def
+X5 files, 13386 bytes uncompressed, 4951 bytes compressed:  63%
+X
+X     The header line gives the name of  the  archive,  its  total
+X     size,  and  the total number of files; the trailer gives the
+X     number of files listed, their total uncompressed  size,  and
+X     their  total  compressed  size  (not  including any of Zip's
+X     internal overhead).  If, however, one or more filespecs  are
+X     provided, the header and trailer lines are not listed.  This
+X
+XInfo-ZIP          Last change: 19 Aug 92 (v1.0)                 3
+X
+XZIPINFO(1)               USER COMMANDS                 ZIPINFO(1)
+X
+X     behavior is also similar to that of Unix's ``ls -l''; it may
+X     be  overridden  by  specifying  the -h and -t options expli-
+X     citly.  In such a case  the  listing  format  must  also  be
+X     specified  explicitly,  since  -h  or  -t  (or  both) in the
+X     absence of other options implies that  ONLY  the  header  or
+X     trailer  line (or both) is listed.  See the EXAMPLES section
+X     below for a semi-intelligible translation of this nonsense.
+X
+X     The verbose listing is self-explanatory.  It also lists file
+X     comments  and the zipfile comment, if any, and the number of
+X     bytes of OS/2 extended attributes  stored.   Note  that  the
+X     latter  number will in general NOT match the number given by
+X     OS/2's ``dir'' command; OS/2 always reports  the  number  of
+X     bytes  required  in  16-bit  format,  whereas ZipInfo always
+X     reports the 32-bit storage.
+X
+XENVIRONMENT OPTIONS
+X     Modifying ZipInfo's default behavior via options  placed  in
+X     an environment variable can be a bit complicated to explain,
+X     due to ZipInfo's attempts to handle various defaults  in  an
+X     intuitive,  yet  Unix-like,  manner.  Nevertheless, there is
+X     some underlying logic.  In brief, there are three ``priority
+X     levels''  of  options:   the  default  options;  environment
+X     options, which can override or  add  to  the  defaults;  and
+X     explicit  options  given  by the user, which can override or
+X     add to either of the above.
+X
+X     The default listing  format,  as  noted  above,  corresponds
+X     roughly  to  the "zipinfo -hst" command (except when indivi-
+X     dual zipfile members are specified).  A user who prefers the
+X     long-listing  format  (-l)  can  make  use  of  the  ZIPINFO
+X     environment variable to change this default:
+X
+X           setenv ZIPINFO -l            Unix C shell
+X
+X           ZIPINFO=-l; export ZIPINFO   Unix Bourne shell
+X
+X           set ZIPINFO=-l               OS/2 or MS-DOS
+X
+X           define ZIPINFO_OPTS "-l"     VMS (quotes for LOWERCASE)
+X
+X     If,  in  addition,  the  user  dislikes  the  trailer  line,
+X     ZipInfo's concept of ``negative options''  may  be  used  to
+X     override  the default inclusion of the line.  This is accom-
+X     plished by preceding the undesired option with one  or  more
+X     minuses:   e.g., ``-l-t'' or ``--tl'', in this example.  The
+X     first hyphen is the regular switch character,  but  the  one
+X     before the `t' is a minus sign.  The dual use of hyphens may
+X     seem  a  little  awkward,  but  it's  reasonably   intuitive
+X     nonetheless:   simply  ignore  the  first hyphen and go from
+X     there.  It is also consistent with the behavior of the  Unix
+X     command nice(1).
+X
+XInfo-ZIP          Last change: 19 Aug 92 (v1.0)                 4
+X
+XZIPINFO(1)               USER COMMANDS                 ZIPINFO(1)
+X
+XEXAMPLES
+X     To get a basic, short-format listing of  the  complete  con-
+X     tents of a ZIP archive ``storage.zip,'' with both header and
+X     totals lines, use only the archive name as  an  argument  to
+X     zipinfo:
+X
+X           zipinfo storage
+X
+X     To produce  a  basic,  long-format  listing  (not  verbose),
+X     including header and totals lines, use -l:
+X
+X           zipinfo -l storage
+X
+X     To list the complete contents of the archive without  header
+X     and  totals  lines,  either  negate the -h and -t options or
+X     else specify the contents explicitly:
+X
+X           zipinfo --h-t storage
+X
+X           zipinfo storage \*
+X
+X     (where the backslash is required only  if  the  shell  would
+X     otherwise  expand the `*' wildcard, as in Unix when globbing
+X     is turned on--double quotes around the asterisk  would  have
+X     worked  as  well).   To turn off the totals line by default,
+X     use the environment variable (C shell is assumed here):
+X
+X           setenv ZIPINFO --t
+X
+X           zipinfo storage
+X
+X     To get the full, short-format listing of the  first  example
+X     again,  given that the environment variable is set as in the
+X     previous example, it is necessary to specify the  -s  option
+X     explicitly,  since the -t option by itself implies that ONLY
+X     the footer line is to be printed:
+X
+X           setenv ZIPINFO --t
+X
+X           zipinfo -t storage           [only totals line]
+X
+X           zipinfo -st storage          [full listing]
+X
+X     The -s option, like -m and -l, includes headers and  footers
+X     by  default, unless otherwise specified.  Since the environ-
+X     ment variable specified no footers and  that  has  a  higher
+X     precedence  than  the default behavior of -s, an explicit -t
+X     option was necessary to produce the full  listing.   Nothing
+X     was  indicated  about  the header, however, so the -s option
+X     was sufficient.  Note that both the -h and -t options,  when
+X     used  by themselves or with each other, override any default
+X     listing of member files; only the header and/or  footer  are
+X
+XInfo-ZIP          Last change: 19 Aug 92 (v1.0)                 5
+X
+XZIPINFO(1)               USER COMMANDS                 ZIPINFO(1)
+X
+X     printed.   This  behavior  will  be more useful when ZipInfo
+X     accepts wildcards for the zipfile name; one may then summar-
+X     ize the contents of all zipfiles with a single command.
+X
+X     To list information on a single file within the archive,  in
+X     medium format, specify the filename explicitly:
+X
+X           zipinfo -m storage unshrink.c
+X
+X     The specification of any member file, as  in  this  example,
+X     will  override the default header and totals lines; only the
+X     single line of information about the requested file will  be
+X     printed.   This  is  intuitively  what one would expect when
+X     requesting information about a single  file.   For  multiple
+X     files,  it  is often useful to know the total compressed and
+X     uncompressed size; in such cases -t may be specified  expli-
+X     citly:
+X
+X           zipinfo -mt storage "*.[ch] Mak\*
+X
+X     Finally, to get maximal information about the  ZIP  archive,
+X     use the verbose option.  It is usually wise to pipe the out-
+X     put into a filter such as more(1):
+X
+X           zipinfo -v storage | more
+X
+XTIPS
+X     The author finds it convenient to set up an alias ``ii'' for
+X     ZipInfo  on systems which allow aliases, or else to set up a
+X     batch  file  ``ii.bat''  or  to  rename  the  executable  to
+X     ``ii.exe'' on systems such as MS-DOS which have no provision
+X     for aliases.  The ``ii'' usage parallels the  common  ``ll''
+X     alias  for long listings in Unix, and the similarity between
+X     the outputs of the two commands was intentional.
+X
+XSEE ALSO
+X     funzip(1),  unzip(1),   zip(1),   zipcloak(1),   zipnote(1),
+X     zipsplit(1)
+X
+XAUTHOR
+X     Greg Roelofs (also known as Cave Newt).  ZipInfo  is  partly
+X     based  on  S. H. Smith's unzip and contains pattern-matching
+X     code by  J.  Kercheval,  but  mostly  it  was  written  from
+X     scratch.  The OS/2 extra-field code is by Kai Uwe Rommel.
+X
+XInfo-ZIP          Last change: 19 Aug 92 (v1.0)                 6
+X
+END_OF_FILE
+  if test 15236 -ne `wc -c <'zipinfo.doc'`; then
+    echo shar: \"'zipinfo.doc'\" unpacked with wrong size!
+  fi
+  # end of 'zipinfo.doc'
+fi
+echo shar: End of archive 8 \(of 14\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1581 @@
+Newsgroups: comp.sources.misc
+From: root@candle.uucp (Bruce Momjian)
+Subject:  v32i105:  pol - a poll() and select() for System Vr3, Part01/01
+Message-ID: <1992Oct16.143106.9325@sparky.imd.sterling.com>
+X-Md4-Signature: cea0fb6f51e6a32ef8192f5c8dda20f8
+Date: Fri, 16 Oct 1992 14:31:06 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: root@candle.uucp (Bruce Momjian)
+Posting-number: Volume 32, Issue 105
+Archive-name: pol/part01
+Environment: SYSVR3
+
+Poll() and select() are Unix C library functions that allow programs to
+determine if a number of file descriptors are ready for reading or
+writing.
+
+Many early Unix versions, and even some later ones do not have these
+functions.  I have written a device driver called pol that performs
+these functions for Unix System Vr3 versions that lack them.  It may
+work on other Unix versions, I haven't tested them.
+
+A pty device driver is also included in this shar file, assuming that
+now that you have poll()/select(), you are going to want pty's too.
+
+----------------------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README MANIFEST CHANGELOG INSTALL Makefile patchlevel.h
+#   pol.c pol.h pol.lib.c poltest.c pty.c selec.h
+# Wrapped by kent@sparky on Fri Oct 16 09:24:18 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1881 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XINSTALL		- this file
+XMakefile	- Makefile to compile pol and poltest
+XREADME 		- readme file
+Xpol.c		- device driver
+Xpol.lib.c	- C library module
+Xpol.h		- /usr/include/sys/pol.h file
+Xselec.h		- /usr/include/sys/selec.h file
+Xpoltest.c	- used to test the device driver
+Xpty.c		- the PD sys5 pty device driver, with modifications
+X
+X----------------------------------------------------------------------
+XBasically, this package implements poll() and select() as a device
+Xdriver.  It is called pol() and selec() so as not to be confused with
+Xthe real thing.
+X
+XIt operates on standard tty devices, pty devices, pipes, and sxt devices.
+X
+XThe driver accepts bit masks of read and write file descriptors.  It
+Xfollows the descriptors to the file, then inode tables and gets the
+Xmajor and minor device numbers.  It then finds the tty structures
+Xassociated with those devices and stores their addresses.
+X
+XIt scans through the addresses once, looking for read or written
+Xcharacters, then either returns or goes to sleep.  Upon invocation, it
+Xreplaces the standard tty input/output functions with its own functions,
+Xwhich wake up the driver and call the usual tty functions.  In this way,
+Xthe driver is woken up when tty activity occurs.  When pol is closed,
+Xthe standard tty functions are reinstalled.
+X
+XA C library library is provided to translate the normal poll() and
+Xselect() parameters into pol device driver parameters, and then call the
+Xdevice driver.
+X
+XI have also provided a file called pty.c that is a modified version of
+Xthe  PD System V pty device driver written by Jens-Uwe Mager, with
+XSystem V changes by Michael Bloom.  To build this, you should follow the
+Xdirections in the second part of the INSTALL file.  Several PD pty
+Xdrivers are available in pub/micro/sysv-386 on gatekeeper.dec.com, or in
+Xpub/sysvX86 on ftp.win.tue.nl.
+X
+XBruce Momjian, root@candle.uucp (root%candle.uucp@bts.com)
+END_OF_FILE
+  if test 1881 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+  echo shar: Extracting \"'MANIFEST'\" \(359 characters\)
+  sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+XCHANGELOG	- version changes
+XINSTALL		- installation instructions
+XMANIFEST	- this file
+XMakefile	- Makefile to compile pol and poltest
+XREADME 		- readme file
+Xpol.c		- device driver
+Xpol.lib.c	- C library module
+Xpol.h		- /usr/include/sys/pol.h file
+Xselec.h		- /usr/include/sys/selec.h file
+Xpoltest.c	- used to test the device driver
+Xpty.c 		- a pty device driver
+END_OF_FILE
+  if test 359 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+  fi
+  # end of 'MANIFEST'
+fi
+if test -f 'CHANGELOG' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CHANGELOG'\"
+else
+  echo shar: Extracting \"'CHANGELOG'\" \(382 characters\)
+  sed "s/^X//" >'CHANGELOG' <<'END_OF_FILE'
+XVersion		Description
+X-------		-----------
+X1.00 		first general release, posted to comp.unix.internals
+X1.02		many bug fixes to pol.c, one to pol.lib.c
+X1.03		added comments to pol.c
+X1.04		changes to pol.c to fix possible pol character loss with
+X		rapid keyboard input, streamlined code, added code to
+X		detect hangup; added code and installation instructions
+X		for the PD pty package
+END_OF_FILE
+  if test 382 -ne `wc -c <'CHANGELOG'`; then
+    echo shar: \"'CHANGELOG'\" unpacked with wrong size!
+  fi
+  # end of 'CHANGELOG'
+fi
+if test -f 'INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALL'\"
+else
+  echo shar: Extracting \"'INSTALL'\" \(3076 characters\)
+  sed "s/^X//" >'INSTALL' <<'END_OF_FILE'
+X                   Installing the pol device driver
+X
+XBasically, pol.c is installed as a device driver with this line in 
+Xthe /etc/conf/cf.d/mdevice file:
+X
+Xpol	oci	iHc	pol	0	12	1	1	-1
+X					^
+X					| major number of your choice
+X
+XCreate an appropriate file called /etc/conf/sdevice.d/pol like this:
+X
+Xpol	Y	1	0	0	0	0	0	0	0
+X
+XCreate a file called /etc/conf/node.d/pol so a character device called
+X/dev/pol gets created:
+X
+Xpol	pol	c	0
+X
+XOnly one entry is needed, even though many programs can pol at the same
+Xtime. 
+X
+XAdd a subdirectory under /etc/conf/pack.d called pol and compile pol.c
+Xand copy it to /etc/conf/pack.d/pol/Driver.o.
+X
+XCompile pol.lib.c and install it in your personal C library.  It will be
+Xthe link points for pol() and selec().
+X
+XInstall pol.h and selec.h in /usr/include/sys.
+X
+X
+X--------------------------------------------------------------------------
+X                 Installing the PD System V pty driver
+X
+XAdd this to /etc/conf/cf.d/mdevice:
+X
+Xpts	ocrwi	ict	pts	0	10	1	1	-1
+Xptm	ocrwi	icG	ptm	0	11	1	1	-1
+X					^
+X					| two major numbers of your choice
+X
+XCreate an appropriate file called /etc/conf/sdevice.d/pts like this:
+X
+Xpts	Y	1	0	0	0	0	0	0	0
+X
+XCreate an appropriate file called /etc/conf/sdevice.d/ptm like this:
+X
+Xptm	Y	1	0	0	0	0	0	0	0
+X
+XCreate a file called /etc/conf/node.d/pts so slave pty's get created:
+X
+Xpts	ttyp0	c	0
+Xpts	ttyp1	c	1
+Xpts	ttyp2	c	2
+Xpts	ttyp3	c	3
+Xpts	ttyp4	c	4
+Xpts	ttyp5	c	5
+Xpts	ttyp6	c	6
+Xpts	ttyp7	c	7
+Xpts	ttyp8	c	8
+Xpts	ttyp9	c	9
+Xpts	ttypa	c	10
+Xpts	ttypb	c	11
+Xpts	ttypc	c	12
+Xpts	ttypd	c	13
+Xpts	ttype	c	14
+Xpts	ttypf	c	15
+Xpts	ttyq0	c	16
+Xpts	ttyq1	c	17
+Xpts	ttyq2	c	18
+Xpts	ttyq3	c	19
+Xpts	ttyq4	c	20
+Xpts	ttyq5	c	21
+Xpts	ttyq6	c	22
+Xpts	ttyq7	c	23
+Xpts	ttyq8	c	24
+Xpts	ttyq9	c	25
+Xpts	ttyqa	c	26
+Xpts	ttyqb	c	27
+Xpts	ttyqc	c	28
+Xpts	ttyqd	c	29
+Xpts	ttyqe	c	30
+Xpts	ttyqf	c	31
+X
+XCreate a file called /etc/conf/node.d/ptm so master pty's gets created:
+X
+Xptm	ptyp0	c	0
+Xptm	ptyp1	c	1
+Xptm	ptyp2	c	2
+Xptm	ptyp3	c	3
+Xptm	ptyp4	c	4
+Xptm	ptyp5	c	5
+Xptm	ptyp6	c	6
+Xptm	ptyp7	c	7
+Xptm	ptyp8	c	8
+Xptm	ptyp9	c	9
+Xptm	ptypa	c	10
+Xptm	ptypb	c	11
+Xptm	ptypc	c	12
+Xptm	ptypd	c	13
+Xptm	ptype	c	14
+Xptm	ptypf	c	15
+Xptm	ptyq0	c	16
+Xptm	ptyq1	c	17
+Xptm	ptyq2	c	18
+Xptm	ptyq3	c	19
+Xptm	ptyq4	c	20
+Xptm	ptyq5	c	21
+Xptm	ptyq6	c	22
+Xptm	ptyq7	c	23
+Xptm	ptyq8	c	24
+Xptm	ptyq9	c	25
+Xptm	ptyqa	c	26
+Xptm	ptyqb	c	27
+Xptm	ptyqc	c	28
+Xptm	ptyqd	c	29
+Xptm	ptyqe	c	30
+Xptm	ptyqf	c	31
+X
+X
+XAdd a subdirectory under /etc/conf/pack.d called pts and compile pty.c
+Xand copy it to /etc/conf/pack.d/pts/Driver.o.
+X
+XCopy the file below to /etc/conf/pack.d/pts/space.c.  I have configured
+Xthe system for 32 pty's.  If you want more or less, change the two
+Xnode.d files above and the definitions in space.c below.
+X
+X/*
+X * space.c for pts
+X */
+X#include <sys/types.h>
+X#include <sys/tty.h>
+Xstruct tty pts_tty[32];
+X
+Xint pts_state[32];
+Xint pts_cnt = 32;
+X
+XAdd a subdirectory under /etc/conf/pack.d called ptm and compile an
+Xempty source file and copy it to /etc/conf/pack.d/ptm/Driver.o.
+X
+X
+XThis works for AT&T 386 Unix System Vr3.1.  With both pol and the PD pty
+Xdriver, I can run pcomm2.0, iscreen 3.2, and ptyshl.  I hope it works
+Xfor you too. 
+X
+END_OF_FILE
+  if test 3076 -ne `wc -c <'INSTALL'`; then
+    echo shar: \"'INSTALL'\" unpacked with wrong size!
+  fi
+  # end of 'INSTALL'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(258 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Makefile
+X#
+X#
+XTARGET = pol
+XXFLAGS = 
+XCFLAGS = -O
+XLIBS = 
+X
+Xpol.o	: pol.c 
+X	$(CC) -c $(XFLAGS) $(CFLAGS) pol.c
+X
+Xclean:
+X	rm -f *.o pol log core
+X
+Xinstall:
+X	cp pol.o /etc/conf/pack.d/pol/Driver.o
+Xpoltest: poltest.c poltest.o
+X	cc -opoltest poltest.c -lcandle
+X	
+END_OF_FILE
+  if test 258 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+  echo shar: Extracting \"'patchlevel.h'\" \(13 characters\)
+  sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+Xversion 1.04
+END_OF_FILE
+  if test 13 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlevel.h'
+fi
+if test -f 'pol.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pol.c'\"
+else
+  echo shar: Extracting \"'pol.c'\" \(11229 characters\)
+  sed "s/^X//" >'pol.c' <<'END_OF_FILE'
+X /*
+X	pol.c	- poll/select() implemented as a device driver
+X	version 1.04	9/17/92
+X	
+X	Bruce Momjian (root%candle.uucp@bts.com)
+X
+X*/
+X
+X/* tabs = 4 */
+X/* Include files */
+X
+X#ifdef DEBUG
+X#define	DB(x)	x
+X#else
+X#define DB(x)
+X#endif
+X
+X#include <errno.h>
+X#include <limits.h>
+X#include <sys/pol.h>
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/ioctl.h>
+X#include <sys/dir.h>
+X#include <sys/signal.h>
+X#include <sys/user.h>
+X#include <sys/file.h>
+X#include <sys/inode.h>
+X#include <sys/conf.h>
+X#include <sys/tty.h>
+X#include <sys/termio.h>
+X#include <sys/sxt.h>
+X#include <sys/sysmacros.h>
+X
+X#define TTIN_FUNCT		ttin
+X#define TTWRITE_FUNCT	ttwrite
+X
+X#define POL_READ_FLAG		0
+X#define POL_WRITE_FLAG		1
+X
+X#define IS_PTM				1
+X#define IS_PIPE				4
+X
+X#define TBUF_CNT_OFF	(int)&(((struct tty *)0)->t_tbuf.c_count)
+X#define TOUTQ_CC_OFF   	(int)&(((struct tty *)0)->t_outq.c_cc)
+X#define TCANQ_CC_OFF   	(int)&(((struct tty *)0)->t_canq.c_cc)
+X#define TRAWQ_CC_OFF   	(int)&(((struct tty *)0)->t_rawq.c_cc)
+X#define T_CFLAG_OFF   	(int)&(((struct tty *)0)->t_cflag)
+X#define T_STATE_OFF   	(int)&(((struct tty *)0)->t_state)
+X
+Xint	pol_in_use = 0;					/* is pol opened, also sleep addr. */
+Xint pol_intr = 0;					/* was pol interupted during scan */
+X
+X/* pty and sxt external symbols */
+Xextern struct tty sxt_tty[], pts_tty[];
+Xextern int sxtopen(), ptmopen();
+Xextern char sxt_buf[];
+X
+X/* kernel symbols */
+Xextern int ttin(), ttwrite();
+X
+X/* my function symbols */
+Xint ttinpol(), ttwrpol(), poltimeo();
+X
+Xextern time_t lbolt;					/* ticks since boot */
+X
+Xstruct pol_table {
+X		caddr_t addr;					/* usually struct tty pointer */
+X		short	fd;
+X		short	ttyflags;
+X};
+X
+X/*---------------------------------------------------------------------------
+X**
+X**	polopen - called for each open() call
+X**
+X**--------------------------------------------------------------------------*/
+Xpolopen(fdev, flags)
+Xint	fdev, flags;
+X{
+X	if (pol_in_use == 0)
+X	{
+X		if (linesw[0].l_input != TTIN_FUNCT)	/* is linesw[] ok? */
+X		{
+X			printf("pol error:  linesw structure corrupted.\n");
+X		  	u.u_error = ENOMSG;
+X  			u.u_rval1 = -1;
+X			return -1;
+X		}
+X		if (linesw[0].l_write != TTWRITE_FUNCT)
+X		{
+X			printf("pol error:  linesw structure corrupted.\n");
+X			u.u_error = ENOMSG;
+X			u.u_rval1 = -1;
+X			return -1;
+X		}
+X		spltty();					/* don't let anyone use them yet */ 
+X		linesw[0].l_input = ttinpol;/* substitute our own functions */
+X		linesw[0].l_write = ttwrpol;
+X		spl0();
+X		pol_in_use = 1;				/* mark pol in use */
+X	}		
+X	return 0;
+X}
+X
+X/*---------------------------------------------------------------------------
+X**
+X**	polclose - called only for last close() call
+X**
+X**--------------------------------------------------------------------------*/
+Xpolclose(fdev)
+Xint	fdev;
+X{
+X	pol_in_use = 0;
+X	if (linesw[0].l_input != ttinpol)	/* is linesw[] ok? */
+X	{
+X		printf("pol error:  linesw structure corrupted.\n");
+X		u.u_error = ENOMSG;
+X		u.u_rval1 = -1;
+X	}
+X	else if (linesw[0].l_write != ttwrpol)
+X	{
+X		printf("pol error:  linesw structure corrupted.\n");
+X		u.u_error = ENOMSG;
+X		u.u_rval1 = -1;
+X	}
+X	else	u.u_rval1 = 0;
+X	spltty();					/* don't let anyone use them */
+X	linesw[0].l_input = ttin;	/* replace the originals */
+X	linesw[0].l_write = ttwrite;
+X	spl0();
+X	return u.u_rval1;
+X}
+X
+X/*---------------------------------------------------------------------------
+X**
+X**	polioctl - called for each ioctl() call
+X**
+X**--------------------------------------------------------------------------*/
+Xpolioctl(fdev, command, polfd_p, mode) 
+Xint	fdev, command, mode;
+Xstruct polfd *polfd_p;
+X{
+X	int 	i,
+X			rfds_num = 0,
+X			wfds_num = 0,
+X			hits = 0,
+X			char_cnt,
+X			timeout_idx = 0;
+X	time_t	start_ticks = lbolt,
+X			timeout_ticks;
+X	struct polfd pol_s;
+X	struct pol_table rfds_pol[NPOLFILE],
+X					 wfds_pol[NPOLFILE];
+X	
+X	DB(printf("Start func\n"));
+X	if (copyin(polfd_p, &pol_s, sizeof(struct polfd)) != 0)
+X	{
+X		u.u_error = EFAULT;
+X		u.u_rval1 = -1;
+X		return -1;
+X	}
+X	if (command != POL_FDS)		/* illegal ioctl() request */
+X	{
+X		u.u_error = EINVAL;		
+X		u.u_rval1 = -1;
+X		return -1;
+X	}
+X	
+X	if (pol_s.timeout != -1 && pol_s.timeout != 0)	/* is there a timeout? */
+X	{
+X		timeout_ticks = start_ticks + pol_s.timeout * (HZ)/1000;
+X		timeout_idx = timeout(	poltimeo,		/* wake us up later */
+X								(caddr_t)NULL,
+X								pol_s.timeout * (HZ)/1000);
+X	}
+X
+X	DB(printf("Start for loop.\n"));	
+X	DB(printf("Start while loop.\n"));
+X
+X				/* COLLECT READ AND WRITE ADDRESSES TO SCAN */
+X				
+X	if (poladdr( pol_s.rfds, rfds_pol, &rfds_num, POL_READ_FLAG) == -1)
+X	{
+X		if (timeout_idx != 0 && lbolt < timeout_ticks)
+X			untimeout(timeout_idx);
+X		return -1;
+X	}
+X	if (poladdr( pol_s.wfds, wfds_pol, &wfds_num, POL_WRITE_FLAG) == -1)
+X	{
+X		if (timeout_idx != 0 && lbolt < timeout_ticks)
+X			untimeout(timeout_idx);
+X		return -1;
+X	}
+X
+X	pol_s.rfds = pol_s.wfds = 0;
+X
+X						/* MAIN POLLING LOOP */
+X	while(1)
+X	{
+X		do
+X		{
+X			pol_intr = 0;
+X			spl0();
+X					/* READS */
+X			for (i=0; i < rfds_num; i++)
+X			{
+X				if (rfds_pol[i].ttyflags != IS_PIPE &&
+X					!(*(short *)(rfds_pol[i].addr + T_CFLAG_OFF) & CLOCAL) &&
+X					!(*(short *)(rfds_pol[i].addr + T_STATE_OFF) & CARR_ON))
+X						char_cnt = 1;
+X				else
+X					switch (rfds_pol[i].ttyflags)
+X					{
+X					case IS_PTM	  :	char_cnt =
+X								  *(int *)(rfds_pol[i].addr + TOUTQ_CC_OFF) +
+X								*(short *)(rfds_pol[i].addr + TBUF_CNT_OFF);
+X									break;
+X					case IS_PIPE  :	char_cnt = *(int *)(rfds_pol[i].addr);
+X									break;
+X					default		  :
+X									char_cnt =
+X								 *(int *)(rfds_pol[i].addr + TCANQ_CC_OFF);
+X						   		if ((((struct tty *)rfds_pol->addr)->t_lflag
+X															& ICANON) == 0)
+X									char_cnt +=
+X								 *(int *)(rfds_pol[i].addr + TRAWQ_CC_OFF);
+X								break;
+X					}				
+X				if (char_cnt != 0)
+X				{
+X					pol_s.rfds |= (1 << rfds_pol[i].fd);
+X					hits++;
+X				}
+X			}
+X
+X					/* WRITES */
+X			for (i=0; i < wfds_num; i++)
+X			{
+X				char_cnt = 0;
+X				if (wfds_pol[i].ttyflags != IS_PIPE &&
+X					!(*(short *)(wfds_pol[i].addr + T_CFLAG_OFF) & CLOCAL) &&
+X					!(*(short *)(wfds_pol[i].addr + T_STATE_OFF) & CARR_ON))
+X						char_cnt = 1;
+X				else
+X					switch (wfds_pol[i].ttyflags)
+X					{
+X						case IS_PIPE  :
+X							if (*(int *)(wfds_pol[i].addr) < PIPE_MAX)
+X								char_cnt = 1;
+X						default		  :
+X							if (!(*(short *)(wfds_pol[i].addr + T_STATE_OFF)
+X															& TBLOCK))
+X								char_cnt = 1;
+X					}
+X
+X				if (char_cnt != 0)
+X				{
+X					pol_s.wfds |= (1 << wfds_pol[i].fd);
+X					hits++;
+X				}
+X			}
+X						/* DO WE HAVE SOMETHING TO REPORT? */
+X						
+X			if (hits != 0)
+X			{
+X				if (timeout_idx != 0 && lbolt < timeout_ticks)
+X					untimeout(timeout_idx);
+X				DB(printf("got result\n"));
+X				if (copyout(&pol_s, polfd_p, sizeof(struct polfd)) != 0)
+X				{
+X					u.u_error = EFAULT;
+X					u.u_rval1 = -1;
+X				}
+X				else u.u_rval1 = hits;
+X				return u.u_rval1;
+X			}
+X			
+X			spltty();
+X		} while (pol_intr != 0);	/* was there activity during scan */
+X
+X							/* GO TO SLEEP */
+X
+X		DB(printf("Going to sleep\n"));
+X		if (pol_s.timeout == 0 || (
+X			pol_s.timeout != -1 && lbolt >= timeout_ticks))
+X		{
+X				spl0();
+X				if (timeout_idx != 0 && lbolt < timeout_ticks)
+X					untimeout(timeout_idx);
+X				u.u_rval1 = 0;
+X				return 0;
+X		}
+X		sleep((caddr_t *)&pol_in_use, PSLEP);
+X		spl0();
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------
+X**
+X**	wakepl - this is our wakeup substitute
+X**
+X**--------------------------------------------------------------------------*/
+Xwakepl(caddr)
+Xcaddr_t caddr;
+X{
+X	if (pol_in_use > 0)
+X	{
+X		DB(printf("wakepl called\n"));
+X		wakeup((caddr_t)&pol_in_use);
+X	}
+X	return wakeup(caddr);		/* call original wakeup() */
+X}
+X
+X/*---------------------------------------------------------------------------
+X**
+X**	poltimeo - this is our timeout() wakeup so we can return on timeout
+X**
+X**--------------------------------------------------------------------------*/
+Xpoltimeo()
+X{
+X	if (pol_in_use > 0)
+X	{
+X		DB(printf("timedout wakeup\n"));
+X		wakeup((caddr_t)&pol_in_use);		/* wake up all pol's */
+X	}
+X}
+X	
+X/*---------------------------------------------------------------------------
+X**
+X**	ttinpol - out ttin() substitute
+X**
+X**--------------------------------------------------------------------------*/
+Xttinpol(tty_p, flag)
+Xstruct tty *tty_p;
+Xint flag;
+X{
+X	if (pol_in_use > 0)
+X	{
+X		DB(printf("ttinpol called\n"));
+X		wakeup((caddr_t)&pol_in_use);
+X	}
+X	pol_intr = 1;
+X	return ttin(tty_p, flag);		/* call original ttin() */
+X}
+X
+X/*---------------------------------------------------------------------------
+X**
+X**	ttwrpol - out ttwrite() substitute
+X**
+X**--------------------------------------------------------------------------*/
+Xttwrpol(tty_p)
+Xstruct tty *tty_p;
+X{
+X	if (pol_in_use > 0)
+X	{
+X		DB(printf("ttwrpol called\n"));
+X		wakeup((caddr_t)&pol_in_use);
+X	}
+X	pol_intr = 1;
+X	return ttwrite(tty_p);			/* call original ttwrite() */
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X**
+X**	poladdr - collects addresses to scan after each char in or out
+X**
+X**--------------------------------------------------------------------------*/
+Xpoladdr(fmask, fds_pol, num_fds, flag)
+Xint fmask, *num_fds, flag;
+Xstruct pol_table *fds_pol;
+X{
+X	int i, j;
+X	struct inode *fd_inode;
+X	struct tty *major_tty;
+X	struct Link *fd_link;
+X	
+X	for (i = 0; i != -1 && i <= NPOLFILE; i++)	/* for each fd */
+X	{        
+X		if ( (fmask & (1 << i)) == 0)			/* is it marked? */
+X			continue;
+X		DB(printf("Found fd\n"));
+X		fds_pol->fd = i;
+X		fds_pol->ttyflags = 0;
+X		if (u.u_ofile[i] == NULL)				/* is it active? */
+X		{
+X			u.u_error = EBADF;		
+X			u.u_rval1 = -1;
+X			return -1;
+X		}
+X 		fd_inode = (u.u_ofile[i])->f_up.f_uinode; /*is it active? */
+X		if (fd_inode == NULL)
+X		{
+X			u.u_error = EBADF;		
+X			u.u_rval1 = -1;
+X			return -1;
+X		}
+X
+X
+X					/* IS IT A CHARACTER SPECIAL DEVICE? */
+X					
+X		if ( (fd_inode->i_ftype & IFMT) == IFCHR)
+X		{
+X			DB(printf("char device\n"));
+X			DB(printf("major %d\n",major(fd_inode->i_rdev)));
+X			DB(printf("minor %d\n",minor(fd_inode->i_rdev)));
+X			
+X				/* DOES THIS MAJOR NUMBER LACK A TTY STRUCTURE? */
+X
+X			if ( (major_tty=cdevsw[major(fd_inode->i_rdev)].d_ttys) == 0)
+X							/* IS IT AN SXT DEVICE */
+X				if (cdevsw[major(fd_inode->i_rdev)].d_open == sxtopen)
+X					fds_pol->addr = (char *)sxt_buf +
+X							(long)LINK(minor(fd_inode->i_rdev)) *
+X							(long)(sizeof(struct Link) +
+X							 sizeof(struct Channel) * (MAXPCHAN-1)) +
+X							(long)&((struct Link *)0)->chans[0] +
+X							    CHAN(minor(fd_inode->i_rdev)) *
+X								sizeof(struct Channel) +
+X								(long)&((struct Channel *)0)->tty;
+X						/* IS IT A MASTER PTY DEVICE? */
+X				else if (cdevsw[major(fd_inode->i_rdev)].d_open == ptmopen)
+X				{			/* master ptys */
+X						fds_pol->addr = (char *)pts_tty +
+X							minor(fd_inode->i_rdev) * sizeof(struct tty);
+X						fds_pol->ttyflags = IS_PTM;
+X				}					
+X				else
+X				{
+X					u.u_error = ENXIO;		
+X					u.u_rval1 = -1;
+X					return -1;
+X				}
+X			else		/* it has a tty structure */
+X				fds_pol->addr = (char *)major_tty +
+X					minor(fd_inode->i_rdev) * sizeof(struct tty);
+X		}
+X		else if ( (fd_inode->i_ftype & IFMT) == IFIFO)	/* is it a pipe? */
+X		{
+X					fds_pol->addr = (char *)&fd_inode->i_size;
+X 					fds_pol->ttyflags = IS_PIPE;
+X		}					
+X		else
+X		{
+X			u.u_error = EBADF;		
+X			u.u_rval1 = -1;
+X			return -1;
+X		}
+X		DB(printf("Got address\n"));
+X		(*num_fds)++;
+X		fds_pol++;
+X		if ( (fmask &= ~(1 <<i)) == 0)	/* remove bit from mask */
+X			break;
+X	}
+X	return 0;
+X}
+END_OF_FILE
+  if test 11229 -ne `wc -c <'pol.c'`; then
+    echo shar: \"'pol.c'\" unpacked with wrong size!
+  fi
+  # end of 'pol.c'
+fi
+if test -f 'pol.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pol.h'\"
+else
+  echo shar: Extracting \"'pol.h'\" \(521 characters\)
+  sed "s/^X//" >'pol.h' <<'END_OF_FILE'
+X/* sys/pol.h */
+X
+X#define POL_FDS	0x1234dcba
+X
+Xstruct polfd {
+X	int rfds, wfds;				/* file desc to poll */
+X	int timeout;			/* events of interest on fd */
+X};
+X
+X#define NPOLFILE	20
+X
+X/*#define DONT_HAVE_POLL  /* uncomment this out if you don't have poll.h */
+X
+X#ifdef DONT_HAVE_POLL
+X/*
+X * Structure of file descriptor/event pairs supplied in
+X * the poll arrays.
+X */
+Xstruct pollfd {
+X	int fd;					/* file desc to poll */
+X	short events;			/* events of interest on fd */
+X	short revents;			/* events that occurred on fd */
+X};
+X#endif
+X
+END_OF_FILE
+  if test 521 -ne `wc -c <'pol.h'`; then
+    echo shar: \"'pol.h'\" unpacked with wrong size!
+  fi
+  # end of 'pol.h'
+fi
+if test -f 'pol.lib.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pol.lib.c'\"
+else
+  echo shar: Extracting \"'pol.lib.c'\" \(2700 characters\)
+  sed "s/^X//" >'pol.lib.c' <<'END_OF_FILE'
+X/*
+X	pol.c	- poll/select() C interface
+X
+X	Bruce Momjian (root%candle.uucp@bts.com
+X
+X*/
+X
+X/* tabs = 4 */
+X/* Include files */
+X#include <fcntl.h>
+X
+X#include <sys/pol.h>
+X#include <sys/selec.h>
+X#include <poll.h>
+X
+Xstatic int pol_fd = -1;
+X
+X
+X/*---------------------------------------------------------------------------
+X**
+X**	pol()
+X**
+X**--------------------------------------------------------------------------*/
+Xpol(fds, nfds, timeout)
+Xstruct pollfd *fds;
+Xunsigned long nfds;
+Xint timeout;
+X{
+X	struct polfd	pl;
+X	int i, ret;
+X	
+X	if ( pol_fd == -1 && (pol_fd=open("/dev/pol",O_RDONLY)) == -1)
+X		return -1;
+X
+X	pl.rfds = pl.wfds = 0;
+X	pl.timeout = timeout;
+X
+X	for (i = 0; i < nfds; i++)
+X	{
+X		if ((fds[i].events & POLLIN) != 0)
+X			pl.rfds |= (1 << fds[i].fd);
+X		if ((fds[i].events & POLLOUT) != 0)
+X			pl.wfds |= (1 << fds[i].fd);
+X	}
+X	
+X	if ((ret=ioctl(pol_fd, POL_FDS, &pl)) == -1)
+X 		return -1;
+X
+X	if (ret == 0 || ret == -1)
+X		pl.rfds = pl.wfds = 0;
+X	
+X	for (i=0; i < nfds; i++)
+X	{
+X		fds[i].revents = 0;
+X		if ( (pl.rfds & (1 << fds[i].fd)) != 0)
+X			fds[i].revents |= POLLIN;
+X		if ( (pl.wfds & (1 << fds[i].fd)) != 0)
+X			fds[i].revents |= POLLOUT;
+X	}
+X	return ret;
+X}
+X	
+X/*---------------------------------------------------------------------------
+X**
+X**	selec()
+X**
+X**--------------------------------------------------------------------------*/
+Xselec(nfds, rfds, wfds, expfds, timeout)
+Xunsigned long nfds, *rfds, *wfds, *expfds; /* exceptions not implemented */
+Xstruct timeval *timeout;
+X{
+X	struct polfd	pl;
+X	int i, ored, ret;
+X	
+X	if ( pol_fd == -1 && (pol_fd=open("/dev/pol",O_RDONLY)) == -1)
+X		return -1;
+X
+X	pl.rfds = pl.wfds = 0;
+X	if (timeout == 0L)
+X		pl.timeout = -1;
+X	else
+X		pl.timeout = timeout->tv_sec * 1000 + timeout->tv_usec / 1000;
+X
+X	for (i = 0; i < nfds; i++)
+X	{
+X		if ( (*rfds & (1 << i)) != 0)
+X			pl.rfds |= 1 << i;
+X		if ( (*wfds & (1 << i)) != 0)
+X			pl.wfds |= 1 << i;
+X	}
+X	
+X	if ((ret=ioctl(pol_fd, POL_FDS, &pl)) == -1)
+X 		return -1;
+X
+X	*rfds = *wfds = *expfds = 0;
+X
+X	if (ret != 0 && ret != -1)
+X	{
+X		ret = 0;
+X		ored = pl.rfds | pl.wfds;
+X		for (i=0; i < nfds; i++)
+X		{
+X			if ( (pl.rfds & (1 << i)) != 0)
+X				(*rfds) |= (1 << i);
+X			if ( (pl.wfds & (1 << i)) != 0)
+X				(*wfds) |= (1 << i);
+X			if ( (ored & (1 << i)) != 0)
+X				ret++;
+X		}
+X	}
+X	return ret;
+X}
+X	
+X/*---------------------------------------------------------------------------
+X**
+X**	polclose()
+X**
+X**--------------------------------------------------------------------------*/
+Xpolclose()
+X{
+X	if (pol_fd != -1)
+X		return close(pol_fd);
+X	return 0;
+X}
+X/*---------------------------------------------------------------------------
+X**
+X**	selecclose()
+X**
+X**--------------------------------------------------------------------------*/
+Xselecclose()
+X{
+X	return polclose();
+X}
+END_OF_FILE
+  if test 2700 -ne `wc -c <'pol.lib.c'`; then
+    echo shar: \"'pol.lib.c'\" unpacked with wrong size!
+  fi
+  # end of 'pol.lib.c'
+fi
+if test -f 'poltest.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'poltest.c'\"
+else
+  echo shar: Extracting \"'poltest.c'\" \(305 characters\)
+  sed "s/^X//" >'poltest.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <poll.h>
+X
+Xmain()
+X{
+X	int fd;
+X	struct pollfd pl;
+X	int x;
+X	
+X
+X	printf("fd = %d\n",fd);
+X	pl.fd = 0;
+X	pl.events = POLLIN;
+X	printf("Begin ioctl, return\n");
+X	if ((x=pol(&pl, 1, 5000)) == -1)
+X 		halt("PERROR : ioctl fail\n");
+X	printf("End ioctl\n");
+X	close(fd);
+X} 	
+END_OF_FILE
+  if test 305 -ne `wc -c <'poltest.c'`; then
+    echo shar: \"'poltest.c'\" unpacked with wrong size!
+  fi
+  # end of 'poltest.c'
+fi
+if test -f 'pty.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pty.c'\"
+else
+  echo shar: Extracting \"'pty.c'\" \(9846 characters\)
+  sed "s/^X//" >'pty.c' <<'END_OF_FILE'
+X/*
+X * pty.c - Berkeley style pseudo tty driver for system V
+X *
+X * Copyright (c) 1987, Jens-Uwe Mager, FOCUS Computer GmbH
+X * Not derived from licensed software.
+X *
+X * Permission is granted to freely use, copy, modify, and redistribute
+X * this software, provided that no attempt is made to gain profit from it,
+X * the author is not construed to be liable for any results of using the
+X * software, alterations are clearly marked as such, and this notice is
+X * not modified.
+X */
+X#define TTI			/* comment this define out for the original
+X				 * posted code
+X				 */
+X#ifndef TTI
+X/*
+X * the following are arbitrary 3 unused bits from t_state
+X * in sys/tty.h
+X */
+X#endif TTI
+X
+X#ifndef TTI
+X#define MRWAIT	01000000	/* master waiting in read */
+X#else TTI
+X#define MRWAIT	01		/* master waiting in read */
+X#endif TTI
+X#define t_rloc	t_cc[0]		/* rchannel */
+X
+X#ifndef TTI
+X#define MWWAIT	02000000	/* master waiting in write */
+X#else TTI
+X#define MWWAIT	02		/* master waiting in write */
+X#endif TTI
+X#define t_wloc	t_cc[1]		/* wchannel */
+X
+X#ifndef TTI
+X#define MOPEN	04000000	/* master is open */
+X#else TTI
+X#define MOPEN	04		/* master is open */
+X#endif TTI
+X
+X#include "sys/param.h"
+X#include "sys/types.h"
+X#include "sys/sysmacros.h"
+X#include "sys/seg.h"
+X#include "sys/page.h"
+X#include "sys/systm.h"
+X#include "sys/file.h"
+X#include "sys/conf.h"
+X
+X#ifndef tower
+X#ifdef TTI
+X#include "sys/immu.h"
+X#endif TTI
+X#include "sys/region.h"
+X#endif
+X
+X#include "sys/proc.h"
+X#include "sys/dir.h"
+X#include "sys/tty.h"
+X#include "sys/signal.h"
+X#include "sys/user.h"
+X#include "sys/errno.h"
+X#include "sys/termio.h"
+X#include "sys/ttold.h"
+X
+X/*
+X * from config
+X */
+Xextern struct tty pts_tty[];
+X
+X#ifdef TTI
+Xextern int pts_state[];
+X#endif TTI
+Xextern int pts_cnt;
+X
+Xint	ptsflush = 0;
+X/*
+X * slave side is a fairly standard system V tty driver
+X */
+X#ifndef TTI
+Xptsopen(dev, flag)
+X#else TTI
+Xptsopen(fdev, flag)
+X#endif TTI
+X{
+X#ifdef TTI
+X	register dev = minor(fdev);
+X#endif TTI
+X	register struct tty *tp = &pts_tty[dev];
+X	extern int ptsproc();
+X
+X	if (dev >= pts_cnt) {
+X		u.u_error = ENXIO;
+X		return;
+X	}
+X	if ((tp->t_state & (ISOPEN|WOPEN)) == 0) {
+X		ttinit(tp);
+X		tp->t_proc = ptsproc;
+X	}
+X	/*
+X	 * if master is still open, don't wait for carrier
+X	 */
+X#ifndef TTI
+X	if (tp->t_state & MOPEN)
+X#else TTI
+X	if (pts_state[dev] & MOPEN)
+X#endif TTI
+X		tp->t_state |= CARR_ON;
+X	if (!(flag & FNDELAY)) {
+X		while ((tp->t_state & CARR_ON) == 0) {
+X			tp->t_state |= WOPEN;
+X			sleep((caddr_t)&tp->t_canq, TTIPRI);
+X		}
+X	}
+X	(*linesw[tp->t_line].l_open)(tp);
+X}
+X
+X#ifndef TTI
+Xptswrite(dev)
+X#else TTI
+Xptswrite(fdev)
+X#endif TTI
+X{
+X#ifdef TTI
+X	register dev = minor(fdev);
+X#endif TTI
+X	register struct tty *tp = &pts_tty[dev];
+X
+X#ifdef TTI
+X#ifdef DEBUG
+X		printf("T_TIME\n");
+X#endif
+X
+X#endif TTI
+X	(*linesw[tp->t_line].l_write)(tp);
+X}
+X
+X#ifndef TTI
+Xptsread(dev)
+X#else TTI
+Xptsread(fdev)
+X#endif TTI
+X{
+X#ifdef TTI
+X	register dev = minor(fdev);
+X#endif TTI
+X	register struct tty *tp = &pts_tty[dev];
+X
+X	(*linesw[tp->t_line].l_read)(tp);
+X}
+X
+X#ifndef TTI
+Xptsclose(dev)
+X#else TTI
+Xptsclose(fdev)
+X#endif TTI
+X{
+X#ifdef TTI
+X	register dev = minor(fdev);
+X#endif TTI
+X	register struct tty *tp = &pts_tty[dev];
+X	
+X	(*linesw[tp->t_line].l_close)(tp);
+X	tp->t_state &= ~CARR_ON;
+X}
+X
+X#ifndef TTI
+Xptsioctl(dev, cmd, arg, mode)
+X#else TTI
+Xptsioctl(fdev, cmd, arg, mode)
+X#endif TTI
+X{
+X#ifdef TTI
+X	register dev = minor(fdev);
+X#endif TTI
+X	register struct tty *tp = &pts_tty[dev];
+X
+X		/* the driver hung on TCSETAF/W, so I have to do it myself, bjm */
+X	if (cmd == TCSETAW || cmd == TCSETAF) 
+X	{
+X		ptsflush++;
+X		while ( tp->t_tbuf.c_ptr != NULL && tp->t_tbuf.c_count != 0 &&
+X				tp->t_outq.c_cc != 0)
+X			sleep((caddr_t *)&ptsflush, PSLEP);
+X		if (cmd == TCSETAF)
+X			ttyflush(tp, FREAD);
+X		cmd = TCSETA;
+X		ptsflush--;
+X	}
+X	ttiocom(tp, cmd, arg, mode);
+X}
+X
+Xptsproc(tp, cmd)
+Xregister struct tty *tp;
+X{
+X	register struct ccblock *tbuf;
+X	extern ttrstrt();
+X
+X	switch (cmd) {
+X	case T_TIME:
+X#ifdef DEBUG
+X		printf("T_TIME\n");
+X#endif
+X		tp->t_state &= ~TIMEOUT;
+X		goto start;
+X	case T_WFLUSH:
+X#ifdef DEBUG
+X		printf("T_WFLUSH\n");
+X#endif
+X		tp->t_tbuf.c_size  -= tp->t_tbuf.c_count;
+X		tp->t_tbuf.c_count = 0;
+X		if (ptsflush)
+X			wakeup((caddr_t)&ptsflush);
+X		/* fall through */
+X	case T_RESUME:
+X#ifdef DEBUG
+X		printf("T_RESUME\n");
+X#endif
+X		tp->t_state &= ~TTSTOP;
+X		/* fall through */
+X	case T_OUTPUT:
+X#ifdef DEBUG
+X		printf("T_OUTPUT\n");
+X#endif
+Xstart:
+X		if (tp->t_state & (TTSTOP|TIMEOUT))
+X			break;
+X		tbuf = &tp->t_tbuf;
+X		if (tbuf->c_ptr == NULL || tbuf->c_count == 0) {
+X			if (tbuf->c_ptr)
+X				tbuf->c_ptr -= tbuf->c_size;
+X			if (!(CPRES & (*linesw[tp->t_line].l_output)(tp)))
+X				break;
+X		}
+X#ifndef TTI
+X		if (tbuf->c_count && (tp->t_state & MRWAIT)) {
+X			tp->t_state &= ~MRWAIT;
+X#else TTI
+X		if (tbuf->c_count && (pts_state[tp-pts_tty] & MRWAIT)) {
+X			pts_state[tp-pts_tty] &= ~MRWAIT;
+X#endif TTI
+X			wakeup((caddr_t)&tp->t_rloc);
+X		}
+X		break;
+X	case T_SUSPEND:
+X#ifdef DEBUG
+X		printf("T_SUSPEND\n");
+X#endif
+X		tp->t_state |= TTSTOP;
+X		break;
+X	case T_BLOCK:
+X#ifdef DEBUG
+X		printf("T_BLOCK\n");
+X#endif
+X		/*
+X		 * the check for ICANON appears to be neccessary
+X		 * to avoid a hang when overflowing input
+X		 */
+X		if ((tp->t_iflag & ICANON) == 0)
+X			tp->t_state |= TBLOCK;
+X		break;
+X	case T_BREAK:
+X#ifdef DEBUG
+X		printf("T_BREAK\n");
+X#endif
+X		tp->t_state |= TIMEOUT;
+X		timeout(ttrstrt, tp, HZ/4);
+X		break;
+X#ifdef T_LOG_FLUSH
+X	case T_LOG_FLUSH:
+X#ifdef DEBUG
+X		printf("T_LOG_FLUSH\n");
+X#endif
+X#endif
+X	case T_RFLUSH:
+X#ifdef DEBUG
+X		printf("T_RFLUSH\n");
+X#endif
+X		if (!(tp->t_state & TBLOCK))
+X			break;
+X		/* fall through */
+X	case T_UNBLOCK:
+X#ifdef DEBUG
+X		printf("T_UNBLOCK\n");
+X#endif
+X		tp->t_state &= ~(TTXOFF|TBLOCK);
+X		/* fall through */
+X	case T_INPUT:
+X#ifdef DEBUG
+X		printf("T_INPUT\n");
+X#endif
+X#ifndef TTI
+X		if (tp->t_state & MWWAIT) {
+X			tp->t_state &= ~MWWAIT;
+X#else TTI
+X		if (pts_state[tp-pts_tty] & MWWAIT) {
+X			pts_state[tp-pts_tty] &= ~MWWAIT;
+X#endif TTI
+X			wakeup((caddr_t)&tp->t_wloc);
+X		}
+X		break;
+X#ifdef DEBUG
+X	default:
+X		printf("ptsproc: cmd %d\n",cmd);
+X#endif
+X	}
+X}
+X
+X/*
+X * master part - not actually like a tty
+X */
+X
+X#ifndef TTI
+Xptmopen(dev, flag)
+X#else TTI
+Xptmopen(fdev, flag)
+X#endif TTI
+X{
+X#ifdef TTI
+X	register dev = minor(fdev);
+X#endif TTI
+X	register struct tty *tp = &pts_tty[dev];
+X
+X#ifdef DEBUG
+X	printf("ptmopen(%d)\n",dev);
+X#endif
+X	if (dev >= pts_cnt) {
+X		u.u_error = ENXIO;
+X		return;
+X	}
+X	/*
+X	 * allow only one controlling process
+X	 */
+X#ifndef TTI
+X	if (tp->t_state & MOPEN) {
+X#else TTI
+X	if (pts_state[dev] & MOPEN) {
+X#endif TTI
+X		u.u_error = EBUSY;
+X		return;
+X	}
+X	if (tp->t_state & WOPEN)
+X		wakeup((caddr_t)&tp->t_canq);
+X#ifndef TTI
+X	tp->t_state |= CARR_ON|MOPEN;
+X#else TTI
+X	tp->t_state |= CARR_ON;
+X	pts_state[dev] |= MOPEN;
+X#endif TTI
+X}
+X
+X#ifndef TTI
+Xptmread(dev)
+X#else TTI
+Xptmread(fdev)
+X#endif TTI
+X{
+X#ifdef TTI
+X	register dev = minor(fdev);
+X#endif TTI
+X	register struct tty *tp = &pts_tty[dev];
+X	register n;
+X
+X#ifndef TTI
+X	if ((tp->t_state & ISOPEN) == 0) {
+X#else TTI
+X	if ((tp->t_state & (ISOPEN|TTIOW)) == 0) {
+X#ifdef DEBUG
+X	printf("ptmread(%d) EIO\n",dev);
+X#endif
+X#endif TTI
+X		u.u_error = EIO;
+X		return;
+X	}
+X#ifdef DEBUG
+X	printf("ptmread(%d)\n",dev);
+X#endif
+X#ifndef TTI
+X	while (u.u_count) {
+X#else TTI
+X	while (u.u_count>0) {
+X#endif TTI
+X		ptsproc(tp, T_OUTPUT);
+X		if ((tp->t_state & (TTSTOP|TIMEOUT))
+X		    || tp->t_tbuf.c_ptr == NULL || tp->t_tbuf.c_count == 0) {
+X			if (u.u_fmode & FNDELAY)
+X				break;
+X#ifndef TTI
+X			tp->t_state |= MRWAIT;
+X#else TTI
+X			pts_state[dev] |= MRWAIT;
+X#endif TTI
+X			sleep((caddr_t)&tp->t_rloc, TTIPRI);
+X			continue;
+X		}
+X		n = min(u.u_count, tp->t_tbuf.c_count);
+X		if (n) {
+X			if (copyout(tp->t_tbuf.c_ptr, u.u_base, n)) {
+X				u.u_error = EFAULT;
+X				break;
+X			}
+X			tp->t_tbuf.c_count -= n;
+X			tp->t_tbuf.c_ptr += n;
+X			u.u_base += n;
+X			u.u_count -= n;
+X			if (ptsflush)
+X				wakeup((caddr_t)&ptsflush);
+X			break; 	 /* bjm and jrm */
+X		}
+X	}
+X}
+X
+X#ifndef TTI
+Xptmwrite(dev)
+X#else TTI
+Xptmwrite(fdev)
+X#endif TTI
+X{
+X#ifdef TTI
+X	register dev = minor(fdev);
+X#endif TTI
+X	register struct tty *tp = &pts_tty[dev];
+X	register n;
+X
+X	if ((tp->t_state & ISOPEN) == 0) {
+X		u.u_error = EIO;
+X		return;
+X	}
+X#ifdef DEBUG
+X	printf("ptmwrite(%d)\n",dev);
+X#endif
+X#ifndef TTI
+X	while (u.u_count) {
+X#else TTI
+X	while (u.u_count>0) {
+X#endif TTI
+X		if ((tp->t_state & TBLOCK) || tp->t_rbuf.c_ptr == NULL) {
+X			if (u.u_fmode & FNDELAY)
+X				break;
+X#ifndef TTI
+X			tp->t_state |= MWWAIT;
+X#else TTI
+X			pts_state[dev] |= MWWAIT;
+X#endif TTI
+X			sleep((caddr_t)&tp->t_wloc, TTOPRI);
+X			continue;
+X		}
+X		n = min(u.u_count, tp->t_rbuf.c_count);
+X		if (n) {
+X			if (copyin(u.u_base,tp->t_rbuf.c_ptr, n)) {
+X				u.u_error = EFAULT;
+X				break;
+X			}
+X			tp->t_rbuf.c_count -= n;
+X			u.u_base += n;
+X			u.u_count -= n;
+X		}
+X#ifdef vax || m68k
+X		/*
+X		 * somebody told me this is necessary on the vax
+X		 */
+X		(*linesw[tp->t_line].l_input)(tp, L_BUF);
+X#else
+X		(*linesw[tp->t_line].l_input)(tp);
+X#endif
+X	}
+X}
+X
+X#ifndef TTI
+Xptmclose(dev)
+X#else TTI
+Xptmclose(fdev)
+X#endif TTI
+X{
+X#ifdef TTI
+X	register dev = minor(fdev);
+X#endif TTI
+X	register struct tty *tp = &pts_tty[dev];
+X
+X#ifdef DEBUG
+X	printf("ptmclose(%d)\n",dev);
+X#endif
+X	if (tp->t_state & ISOPEN) {
+X		signal(tp->t_pgrp, SIGHUP);
+X		ttyflush(tp, FREAD|FWRITE);
+X	}
+X	/*
+X	 * virtual carrier gone
+X	 */
+X#ifndef TTI
+X	tp->t_state &= ~(CARR_ON|MOPEN);
+X#else TTI
+X	tp->t_state &= ~CARR_ON;
+X	pts_state[dev] &= ~MOPEN;
+X#endif TTI
+X}
+X
+X#ifndef TTI
+Xptmioctl(dev, cmd, arg, mode)
+X#else TTI
+Xptmioctl(fdev, cmd, arg, mode)
+X#endif TTI
+X{
+X#ifdef TTI
+X	register dev = minor(fdev);
+X#endif TTI
+X	register struct tty *tp = &pts_tty[dev];
+X
+X	/*
+X	 * sorry, but we can't fiddle with the tty struct without
+X	 * having done LDOPEN
+X	 */
+X	if (tp->t_state & ISOPEN) {
+X		if (cmd == TCSBRK && arg ==  NULL) {
+X			signal(tp->t_pgrp, SIGINT);
+X			if ((tp->t_iflag & NOFLSH) == 0)
+X				ttyflush(tp, FREAD|FWRITE);
+X		} else {
+X			/*
+X			 * we must flush output to avoid hang in ttywait
+X			 */
+X			if (cmd == TCSETAW || cmd == TCSETAF || cmd == TCSBRK
+X			    || cmd == TIOCSETP)
+X				ttyflush(FWRITE);
+X			ttiocom(tp, cmd, arg, mode);
+X		}
+X	}
+X}
+X
+END_OF_FILE
+  if test 9846 -ne `wc -c <'pty.c'`; then
+    echo shar: \"'pty.c'\" unpacked with wrong size!
+  fi
+  # end of 'pty.c'
+fi
+if test -f 'selec.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'selec.h'\"
+else
+  echo shar: Extracting \"'selec.h'\" \(62 characters\)
+  sed "s/^X//" >'selec.h' <<'END_OF_FILE'
+X/* sys/selec.h */
+Xstruct timeval {
+X		long tv_usec, tv_sec;
+X};
+END_OF_FILE
+  if test 62 -ne `wc -c <'selec.h'`; then
+    echo shar: \"'selec.h'\" unpacked with wrong size!
+  fi
+  # end of 'selec.h'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

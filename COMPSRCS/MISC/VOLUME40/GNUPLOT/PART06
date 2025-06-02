@@ -1,0 +1,2934 @@
+Newsgroups: comp.sources.misc
+From: woo@playfair.stanford.edu ("Alexander Woo")
+Subject: v40i018:  gnuplot - interactive function plotting utility, Part06/33
+Message-ID: <1993Oct21.144351.1696@sparky.sterling.com>
+X-Md4-Signature: 2b77879b8223dcedeb7c865dac58c2a9
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 21 Oct 1993 14:43:51 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: woo@playfair.stanford.edu ("Alexander Woo")
+Posting-number: Volume 40, Issue 18
+Archive-name: gnuplot/part06
+Environment: UNIX, MS-DOS, VMS
+Supersedes: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  gnuplot/command.c.B gnuplot/help.c
+# Wrapped by kent@sparky on Wed Oct 20 17:14:39 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 33)."'
+if test -f 'gnuplot/command.c.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/command.c.B'\"
+else
+  echo shar: Extracting \"'gnuplot/command.c.B'\" \(57750 characters\)
+  sed "s/^X//" >'gnuplot/command.c.B' <<'END_OF_FILE'
+X	if (autoscale_lx) {
+X	    fprintf(stderr, "Warning: empty %c range [%g:%g], ",
+X		    parametric ? 't' : 'x', xmin, xmax);
+X	    if (fabs(xmin) < zero) {
+X		/* completely arbitary */
+X		xmin = -1.;
+X		xmax = 1.;
+X	    } else {
+X		/* expand range by 10% in either direction */
+X		xmin = xmin * 0.9;
+X		xmax = xmax * 1.1;
+X	    }
+X	    fprintf(stderr, "adjusting to [%g:%g]\n", xmin, xmax);
+X	} else {
+X	    int_error("x range is less than `zero`", c_token);
+X	}
+X
+X    /* give error if xrange badly set from missing datafile error */
+X    if (xmin == VERYLARGE || xmax == -VERYLARGE) {
+X	int_error("x range is invalid", c_token);
+X    }
+X    if (is_log_x) {
+X	if (xmin <= 0.0 || xmax <= 0.0)
+X	    int_error("x range must be greater than 0 for log scale!", NO_CARET);
+X	x_min = log(xmin)/log_base_log_x;
+X	x_max = log(xmax)/log_base_log_x;
+X    } else {
+X	x_min = xmin;
+X	x_max = xmax;
+X    }
+X
+X    xdiff = (x_max - x_min) / (samples - 1);
+X
+X    tp_ptr = &(first_plot);
+X    plot_num = 0;
+X    this_plot = first_plot;
+X    c_token = begin_token;	/* start over */
+X
+X    /* Read through functions */
+X    while (TRUE) {
+X	if (is_definition(c_token)) {
+X	    define();
+X	} else {
+X	    plot_num++;
+X	    if (isstring(c_token)) {	/* data file to plot */
+X		/* ignore this now */
+X		c_token++;
+X
+X		/*
+X		 * jev -- support for passing data from file thru user
+X		 * function
+X		 */
+X		if (almost_equals(c_token, "thru$")) {
+X		    struct udft_entry tmp;
+X		    c_token++;
+X		    dummy_func = &tmp;
+X		    (void) temp_at();
+X		}
+X		if (almost_equals(c_token, "u$sing")) {
+X		    c_token++;	/* skip "using" */
+X		    if (!isstring(c_token)) {
+X			struct value    a;
+X			(void) magnitude(const_express(&a));	/* skip xcol */
+X			if (equals(c_token, ":")) {
+X			    c_token++;	/* skip ":" */
+X			    (void) magnitude(const_express(&a));	/* skip ycol */
+X			}
+X			if (equals(c_token, ":")) {
+X			    c_token++;	/* skip ":" */
+X			    (void) magnitude(const_express(&a));	/* skip yemin */
+X			}
+X			if (equals(c_token, ":")) {
+X			    c_token++;	/* skip ":" */
+X			    (void) magnitude(const_express(&a));	/* skip yemax */
+X			}
+X			if (equals(c_token, ":")) {
+X			    c_token++;	/* skip ":" */
+X			    (void) magnitude(const_express(&a));	/* skip wcol */
+X			}
+X		    }
+X		    if (isstring(c_token))
+X			c_token++;	/* skip format string */
+X		}
+X	    } else {		/* function to plot */
+X		if (parametric)	/* working on x parametric function */
+X		    xparam = 1 - xparam;
+X		dummy_func = &plot_func;
+X		plot_func.at = temp_at();	/* reparse function */
+X
+X		is_log_func=parametric?(xparam?is_log_x:is_log_y):is_log_y;
+X		for (i = 0; i < samples; i++) {
+X		    x = x_min + i * xdiff;
+X		    /* if (is_log_x) PEM fix logscale x axis */
+X		    /* x = pow(base_log_x,x); 26-Sep-89 */
+X		    (void) Gcomplex(&plot_func.dummy_values[0],
+X				   is_log_x ? pow(base_log_x, x) : x,
+X				   0.0);
+X
+X		    evaluate_at(plot_func.at, &a);
+X
+X		    if (undefined || (fabs(imag(&a)) > zero)) {
+X			this_plot->points[i].type = UNDEFINED;
+X			continue;
+X		    }
+X		    temp = real(&a);
+X		    
+X		    if (is_log_func && temp < 0.0) {
+X			this_plot->points[i].type = UNDEFINED;
+X			continue;
+X		    }
+X		    this_plot->points[i].x = x;
+X		    this_plot->points[i].z = -1.0;  /* width of box not specified */
+X
+X		    if (is_log_func) {
+X			if (temp == 0.0) {
+X			    this_plot->points[i].type = OUTRANGE;
+X			    this_plot->points[i].y = -VERYLARGE;
+X			    continue;
+X			} else {
+X			    this_plot->points[i].y = log(temp)/log_base_log_y;
+X			}
+X		    } else
+X			this_plot->points[i].y = temp;
+X
+X		    if (autoscale_ly || polar
+X			|| inrange(temp, ymin, ymax)) {
+X			this_plot->points[i].type = INRANGE;
+X			/* When xparam is 1 we are not really computing y's! */
+X			if (!xparam && autoscale_ly) {
+X			    if (temp < ymin)
+X				ymin = temp;
+X			    if (temp > ymax)
+X				ymax = temp;
+X			}
+X		    } else
+X			this_plot->points[i].type = OUTRANGE;
+X		}
+X		this_plot->p_count = i;	/* samples */
+X	    }
+X
+X	    /* title was handled above */
+X	    if (almost_equals(c_token, "t$itle")) {
+X		c_token++;
+X		c_token++;
+X	    } else if (almost_equals(c_token, "not$itle")) {
+X	        c_token++;
+X	    }
+X	    /* style was handled above */
+X	    if (almost_equals(c_token, "w$ith")) {
+X		c_token++;
+X		c_token++;
+X	    }
+X	    /* line and point types were handled above */
+X	    if (!equals(c_token, ",") && !END_OF_COMMAND) {
+X		struct value    t;
+X		(void) real(const_express(&t));
+X	    }
+X	    if (!equals(c_token, ",") && !END_OF_COMMAND) {
+X		struct value    t;
+X		(void) real(const_express(&t));
+X	    }
+X	    tp_ptr = &(this_plot->next_cp);	/* used below */
+X	    this_plot = this_plot->next_cp;
+X	}
+X
+X	if (equals(c_token, ","))
+X	    c_token++;
+X	else
+X	    break;
+X    }
+X
+X    /* throw out all curve_points at end of list, that we don't need  */
+X    cp_free(*tp_ptr);
+X    *tp_ptr = NULL;
+X
+X    /* if first_plot is NULL, we have no functions or data at all. This can
+X       happen, if you type "plot x=5", since x=5 is a variable assignment */
+X
+X    if(first_plot==NULL) {
+X	int_error("no functions or data to plot", c_token);
+X    }
+X
+X    if (fabs(ymax - ymin) < zero)
+X	/* if autoscale, widen range */
+X	if (autoscale_ly) {
+X	    fprintf(stderr, "Warning: empty y range [%g:%g], ", ymin, ymax);
+X	    if (fabs(ymin) < zero) {
+X		ymin = -1.;
+X		ymax = 1.;
+X	    } else {
+X		/* expand range by 10% in either direction */
+X		ymin = ymin * 0.9;
+X		ymax = ymax * 1.1;
+X	    }
+X	    fprintf(stderr, "adjusting to [%g:%g]\n", ymin, ymax);
+X	} else {
+X	    int_error("y range is less than `zero`", c_token);
+X	}
+X
+X    /* Now we finally know the real ymin and ymax */
+X    if (is_log_y) {
+X	y_min = log(ymin)/log_base_log_y;
+X	y_max = log(ymax)/log_base_log_y;
+X    } else {
+X	y_min = ymin;
+X	y_max = ymax;
+X    }
+X
+X    /* Set a flag so capture is not invoked  by replot itself. -hmh */
+X    if (plot_token != -1) {
+X        capture(replot_line, plot_token, c_token);
+X        plot_token = -1;		
+X    }
+X  
+X    if (parametric) {
+X	/* Now put t and x ranges back before we actually plot anything. */
+X	ltmp = autoscale_lx;
+X	autoscale_lx = autoscale_lt;
+X	autoscale_lt = ltmp;
+X	temp = xmin;
+X	xmin = tmin;
+X	tmin = temp;
+X	temp = xmax;
+X	xmax = tmax;
+X	tmax = temp;
+X	if (some_data_files && autoscale_lx) {
+X	    /*
+X	     * Stop any further autoscaling in this case (may be a mistake,
+X	     * have to consider what is really wanted some day in the
+X	     * future--jdc).
+X	     */
+X	    autoscale_lx = 0;
+X	}
+X	/* Now actually fix the plot pairs to be single plots. */
+X	parametric_fixup(first_plot, &plot_num, &x_min, &x_max);
+X    }
+X    if (strcmp(term_tbl[term].name, "table") == 0)
+X	print_table();
+X    else
+X	do_plot(first_plot, plot_num, x_min, x_max, y_min, y_max);
+X    cp_free(first_plot);
+X    first_plot = NULL;
+X}
+X
+Xstatic void 
+Xparse_title(crnt_param, start_token, end_token,
+X	    xtitle, ytitle, this_plot, do_parse)
+Xint crnt_param, start_token, end_token;
+Xchar **xtitle, **ytitle;
+Xstruct surface_points *this_plot;
+XTBOOLEAN do_parse;
+X{
+X    static char title[256];
+X
+X    if (do_parse) {
+X	if (almost_equals(c_token, "t$itle")) {
+X	    if (parametric) {
+X		if (crnt_param)
+X		    int_error("\"title\" allowed only after parametric function fully specified",
+X			      c_token);
+X		else {
+X		    /* Remove default title */
+X		    if (*xtitle != NULL)
+X			(*xtitle)[0] = '\0';
+X		    if (*ytitle != NULL)
+X			(*ytitle)[0] = '\0';
+X		}
+X	    }
+X	    c_token++;
+X	    if (isstring(c_token)) {
+X		m_quote_capture(&(this_plot->title), c_token, c_token);
+X	    } else {
+X		int_error("expecting \"title\" for plot", c_token);
+X	    }
+X	    c_token++;
+X	}  else if (almost_equals(c_token, "not$itle")) {
+X	    c_token++;
+X	}  else {
+X	    m_capture(&(this_plot->title), start_token, end_token);
+X	    if (crnt_param == 1)
+X		*xtitle = this_plot->title;
+X	    if (crnt_param == 2)
+X		*ytitle = this_plot->title;
+X	}
+X    }
+X    else {
+X	this_plot->title = alloc(strlen(title) + 1);
+X	strcpy(this_plot->title, title);
+X    }
+X}
+X
+X/*
+X * This parses the splot command after any range specifications. To support
+X * autoscaling on the x/z axis, we want any data files to define the x/y
+X * range, then to plot any functions using that range. We thus parse the
+X * input twice, once to pick up the data files, and again to pick up the
+X * functions. Definitions are processed twice, but that won't hurt.
+X */
+Xeval_3dplots()
+X{
+X    register int    i, j;
+X    register struct surface_points *this_plot=NULL, **tp_3d_ptr;
+X    register int    start_token, end_token;
+X    register int    begin_token;
+X    double          x_min, x_max, y_min, y_max, z_min, z_max;
+X    register double x, xdiff, xisodiff, y, ydiff, yisodiff, temp;
+X    static struct value a;
+X    TBOOLEAN         ltmp, some_data_files = FALSE,is_log_func = FALSE;
+X    int             plot_num, line_num, point_num, crnt_param = 0;	/* 0=z, 1=x, 2=y */
+X    char           *xtitle;
+X    char           *ytitle;
+X    void            parametric_3dfixup();
+X
+X    /* Reset first_3dplot. This is usually done at the end of this function.
+X       If there is an error within this function, the memory is left allocated,
+X       since we cannot call sp_free if the list is incomplete */
+X    first_3dplot=NULL;
+X
+X    if (autoscale_lz) {
+X	zmin = VERYLARGE;
+X	zmax = -VERYLARGE;
+X    } else if (is_log_z && (zmin <= 0.0 || zmax <= 0.0))
+X	int_error("z range must be above 0 for log scale!",
+X		  NO_CARET);
+X
+X    tp_3d_ptr = &(first_3dplot);
+X    plot_num = 0;
+X    line_num = 0;		/* default line type */
+X    point_num = 0;		/* default point type */
+X
+X    xtitle = NULL;
+X    ytitle = NULL;
+X
+X    begin_token = c_token;
+X
+X    /*** First Pass: Read through data files ***/
+X    /*
+X     * This pass serves to set the x/yranges and to parse the command, as
+X     * well as filling in every thing except the function data. That is done
+X     * after the x/yrange is defined.
+X     */
+X    while (TRUE) {
+X	if (END_OF_COMMAND)
+X	    int_error("function to plt3d expected", c_token);
+X
+X	start_token = c_token;
+X
+X	if (is_definition(c_token)) {
+X	    define();
+X	} else {
+X	    plot_num++;
+X
+X	    if (isstring(c_token)) {	/* data file to plot */
+X		int line_type = line_num,
+X		    point_type = point_num,
+X		    plot_style = data_style,
+X		    first_mesh = TRUE;
+X
+X		if (parametric && crnt_param != 0)
+X		    int_error("previous parametric function not fully specified",
+X			      c_token);
+X
+X		if (!some_data_files) {
+X		    if (autoscale_lx) {
+X			xmin = VERYLARGE;
+X			xmax = -VERYLARGE;
+X		    }
+X		    if (autoscale_ly) {
+X			ymin = VERYLARGE;
+X			ymax = -VERYLARGE;
+X		    }
+X		}
+X		some_data_files = TRUE;
+X
+X		do {
+X		    if (*tp_3d_ptr)
+X			this_plot = *tp_3d_ptr;
+X		    else {		/* no memory malloc()'d there yet */
+X			/* Allocate enough isosamples and samples */
+X			this_plot = sp_alloc(0, 0, 0, 0);
+X			*tp_3d_ptr = this_plot;
+X		    }
+X
+X		    this_plot->plot_type = DATA3D;
+X		    end_token = c_token;
+X		    /* this also parses index/using option */
+X		    get_3ddata(this_plot);
+X
+X		    parse_title(crnt_param, start_token, end_token,
+X				&xtitle, &ytitle, this_plot, first_mesh);
+X		    if (!first_mesh) plot_num++;
+X
+X		    if (first_mesh) {
+X			if (almost_equals(c_token, "w$ith")) {
+X			    plot_style = this_plot->plot_style = get_style();
+X			}
+X			if (!equals(c_token, ",") && !END_OF_COMMAND) {
+X			    struct value    t;
+X			    line_type = (int) real(const_express(&t)) - 1;
+X			}
+X			if (!equals(c_token, ",") && !END_OF_COMMAND) {
+X			    struct value    t;
+X			    point_type = (int) real(const_express(&t)) - 1;
+X			}
+X			first_mesh = FALSE;
+X		    }
+X
+X		    this_plot->line_type = line_type;
+X		    this_plot->point_type = point_type;
+X		    this_plot->plot_style = plot_style;
+X
+X		    tp_3d_ptr = &(this_plot->next_sp);
+X		}
+X		while (more_data_fp);
+X	    } else {		/* function to plot */
+X		if (parametric)	/* Rotate between x/y/z axes */
+X		    crnt_param = (crnt_param + 1) % 3;
+X		if (*tp_3d_ptr) {
+X		    this_plot = *tp_3d_ptr;
+X		    if (!hidden3d)
+X			sp_replace(this_plot, samples_1, iso_samples_1,
+X                                   samples_2, iso_samples_2);
+X		    else
+X			sp_replace(this_plot, iso_samples_1, 0,
+X                                   0, iso_samples_2);
+X		} else {	/* no memory malloc()'d there yet */
+X		    /* Allocate enough isosamples and samples */
+X		    if (!hidden3d)
+X			this_plot = sp_alloc(samples_1, iso_samples_1,
+X                                             samples_2, iso_samples_2);
+X		    else
+X			this_plot = sp_alloc(iso_samples_1, 0,
+X                                             0, iso_samples_2);
+X		    *tp_3d_ptr = this_plot;
+X		}
+X
+X		this_plot->plot_type = FUNC3D;
+X		this_plot->has_grid_topology = TRUE;
+X		this_plot->plot_style = func_style;
+X		dummy_func = &plot_func;
+X		plot_func.at = temp_at();
+X		/* ignore it for now */
+X		end_token = c_token - 1;
+X
+X		parse_title(crnt_param, start_token, end_token,
+X			    &xtitle, &ytitle, this_plot, TRUE);
+X
+X		this_plot->line_type = line_num;
+X		this_plot->point_type = point_num;
+X
+X		if (almost_equals(c_token, "w$ith")) {
+X		    this_plot->plot_style = get_style();
+X		}
+X		if (!equals(c_token, ",") && !END_OF_COMMAND) {
+X		    struct value    t;
+X		    this_plot->line_type = (int) real(const_express(&t)) - 1;
+X		}
+X		if (!equals(c_token, ",") && !END_OF_COMMAND) {
+X		    struct value    t;
+X		    this_plot->point_type = (int) real(const_express(&t)) - 1;
+X		}
+X
+X		tp_3d_ptr = &(this_plot->next_sp);
+X	    }
+X
+X	    if ((this_plot->plot_style == POINTSTYLE) ||
+X		(this_plot->plot_style == LINESPOINTS) ||
+X		(this_plot->plot_style == ERRORBARS))
+X		if (crnt_param == 0)
+X		    point_num +=
+X			1 + (draw_contour != 0)
+X			+ (hidden3d != 0);
+X	    if (crnt_param == 0)
+X		line_num += 1 + (draw_contour != 0)
+X		    + (hidden3d != 0);
+X	}
+X
+X	if (equals(c_token, ","))
+X	    c_token++;
+X	else
+X	    break;
+X    }
+X
+X    if (parametric && crnt_param != 0)
+X	int_error("parametric function not fully specified", NO_CARET);
+X
+X    if (parametric) {
+X	/*
+X	 * Swap u/v and x/y ranges for duration of these eval_plot
+X	 * computations.
+X	 */
+X	ltmp = autoscale_lx;
+X	autoscale_lx = autoscale_lu;
+X	autoscale_lu = ltmp;
+X	ltmp = autoscale_ly;
+X	autoscale_ly = autoscale_lv;
+X	autoscale_lv = ltmp;
+X	temp = xmin;
+X	xmin = umin;
+X	umin = temp;
+X	temp = xmax;
+X	xmax = umax;
+X	umax = temp;
+X	temp = ymin;
+X	ymin = vmin;
+X	vmin = temp;
+X	temp = ymax;
+X	ymax = vmax;
+X	vmax = temp;
+X    }
+X    /*** Second Pass: Evaluate the functions ***/
+X    /*
+X     * Everything is defined now, except the function data. We expect no
+X     * syntax errors, etc, since the above parsed it all. This makes the code
+X     * below simpler. If autoscale_ly, the yrange may still change.
+X     */
+X    if (xmin == xmax)
+X	if (autoscale_lx) {
+X	    fprintf(stderr, "Warning: empty x range [%g:%g], ",
+X		    xmin, xmax);
+X	    if (xmin == 0.0) {
+X		/* completely arbitary */
+X		xmin = -1.;
+X		xmax = 1.;
+X	    } else {
+X		/* expand range by 10% in either direction */
+X		xmin = xmin * 0.9;
+X		xmax = xmax * 1.1;
+X	    }
+X	    fprintf(stderr, "adjusting to [%g:%g]\n", xmin, xmax);
+X	} else {
+X	    int_error("x range is empty", c_token);
+X	}
+X
+X    if (ymin == ymax)
+X	if (autoscale_ly) {
+X	    fprintf(stderr, "Warning: empty y range [%g:%g], ",
+X		    ymin, ymax);
+X	    if (ymin == 0.0) {
+X		/* completely arbitary */
+X		ymin = -1.;
+X		ymax = 1.;
+X	    } else {
+X		/* expand range by 10% in either direction */
+X		ymin = ymin * 0.9;
+X		ymax = ymax * 1.1;
+X	    }
+X	    fprintf(stderr, "adjusting to [%g:%g]\n", ymin, ymax);
+X	} else {
+X	    int_error("y range is empty", c_token);
+X	}
+X
+X    /* give error if xrange badly set from missing datafile error */
+X    if (xmin == VERYLARGE || xmax == -VERYLARGE) {
+X	int_error("x range is invalid", c_token);
+X    }
+X    if (is_log_x) {
+X	if (xmin <= 0.0 || xmax <= 0.0)
+X	    int_error("x range must be greater than 0 for log scale!", NO_CARET);
+X	x_min = log(xmin)/log_base_log_x;
+X	x_max = log(xmax)/log_base_log_x;
+X    } else {
+X	x_min = xmin;
+X	x_max = xmax;
+X    }
+X
+X    /* give error if yrange badly set from previous error */
+X    if (ymin == VERYLARGE || ymax == -VERYLARGE) {
+X	int_error("y range is invalid", c_token);
+X    }
+X    if (is_log_y) {
+X	if (ymin <= 0.0 || ymax <= 0.0)
+X	    int_error("y range must be greater than 0 for log scale!", NO_CARET);
+X	y_min = log(ymin)/log_base_log_y;
+X	y_max = log(ymax)/log_base_log_y;
+X    } else {
+X	y_min = ymin;
+X	y_max = ymax;
+X    }
+X
+X    if (samples_1 < 2 || samples_2 < 2 || iso_samples_1 < 2 || iso_samples_2 < 2)
+X	int_error("samples or iso_samples < 2. Must be at least 2.", NO_CARET);
+X
+X    if (this_plot && this_plot->has_grid_topology && hidden3d) {
+X	xdiff = (x_max - x_min) / (iso_samples_1 - 1);
+X	ydiff = (y_max - y_min) / (iso_samples_2 - 1);
+X    } else {
+X	xdiff = (x_max - x_min) / (samples_1 - 1);
+X	ydiff = (y_max - y_min) / (samples_2 - 1);
+X    }
+X    xisodiff = (x_max - x_min) / (iso_samples_1 - 1);
+X    yisodiff = (y_max - y_min) / (iso_samples_2 - 1);
+X
+X    this_plot = first_3dplot;
+X    c_token = begin_token;	/* start over */
+X
+X    /* Read through functions */
+X    while (TRUE) {
+X	if (is_definition(c_token)) {
+X	    define();
+X	} else {
+X	    if (isstring(c_token)) {	/* data file to plot */
+X		/* ignore this now */
+X		c_token++;
+X		if (almost_equals(c_token, "i$ndex")) {
+X		    struct value a;
+X		    int index;
+X
+X		    c_token++;		/* skip "index" */
+X		    index = (int) magnitude(const_express(&a));
+X		}
+X		if (almost_equals(c_token, "u$sing")) {
+X		    c_token++;	/* skip "using" */
+X		    if (!isstring(c_token)) {
+X			struct value    a;
+X			(void) magnitude(const_express(&a));	/* skip xcol */
+X			if (equals(c_token, ":")) {
+X			    c_token++;	/* skip ":" */
+X			    (void) magnitude(const_express(&a));	/* skip ycol */
+X			    if (equals(c_token, ":")) {
+X				c_token++;	/* skip ":" */
+X				(void) magnitude(const_express(&a));	/* skip zcol */
+X			    }
+X			}
+X		    }
+X		    if (isstring(c_token))
+X			c_token++;	/* skip format string */
+X		}
+X	    } else {		/* function to plot */
+X		struct iso_curve *this_iso = this_plot->iso_crvs;
+X		struct coordinate GPHUGE *points = this_iso->points;
+X		int num_sam_to_use, num_iso_to_use;
+X
+X		if (parametric)
+X		    crnt_param = (crnt_param + 1) % 3;
+X		dummy_func = &plot_func;
+X		plot_func.at = temp_at();	/* reparse function */
+X
+X		num_iso_to_use = iso_samples_2;
+X		if (!(this_plot->has_grid_topology && hidden3d))
+X		    num_sam_to_use = samples_1;
+X		else
+X		    num_sam_to_use = iso_samples_1;
+X
+X		is_log_func=(!parametric)||(crnt_param==0)?is_log_z:(crnt_param==1?is_log_x:is_log_y);
+X		for (j = 0; j < num_iso_to_use; j++) {
+X		    y = y_min + j * yisodiff;
+X		    /* if (is_log_y) PEM fix logscale y axis */
+X		    /* y = pow(log_base_log_y,y); 26-Sep-89 */
+X		    (void) Gcomplex(&plot_func.dummy_values[1],
+X				   is_log_y ? pow(base_log_y, y) : y,
+X				   0.0);
+X
+X		    for (i = 0; i < num_sam_to_use; i++) {
+X			x = x_min + i * xdiff;
+X			/* if (is_log_x) PEM fix logscale x axis */
+X			/* x = pow(base_log_x,x); 26-Sep-89 */
+X			(void) Gcomplex(&plot_func.dummy_values[0],
+X				       is_log_x ? pow(base_log_x, x) : x,
+X				       0.0);
+X
+X			points[i].x = x;
+X			points[i].y = y;
+X
+X			evaluate_at(plot_func.at, &a);
+X
+X			if (undefined || (fabs(imag(&a)) > zero)) {
+X			    points[i].type = UNDEFINED;
+X			    continue;
+X			}
+X			temp = real(&a);
+X
+X			if (is_log_func && temp < 0.0) {
+X			    points[i].type = UNDEFINED;
+X			    continue;
+X			}
+X			if (is_log_func) {
+X			    if (temp == 0.0) {
+X				points[i].type = OUTRANGE;
+X				points[i].z = -VERYLARGE;
+X				continue;
+X			    } else {
+X				points[i].z = log(temp)/log_base_log_z;
+X			    }
+X			} else
+X			    points[i].z = temp;
+X
+X			if (autoscale_lz || inrange(temp, zmin, zmax)) {
+X			    points[i].type = INRANGE;
+X			    if (autoscale_lz) {
+X				if (temp < zmin)
+X				    zmin = temp;
+X				if (temp > zmax)
+X				    zmax = temp;
+X			    }
+X			} else
+X			    points[i].type = OUTRANGE;
+X		    }
+X		    this_iso->p_count = num_sam_to_use;
+X		    this_iso = this_iso->next;
+X		    points = this_iso? this_iso->points: NULL;
+X		}
+X
+X		if (!(this_plot->has_grid_topology && hidden3d)) {
+X		    num_iso_to_use = iso_samples_1;
+X		    num_sam_to_use = samples_2;
+X		    is_log_func=(!parametric)||(crnt_param==0)?is_log_z:(crnt_param==1?is_log_x:is_log_y);
+X		    for (i = 0; i < num_iso_to_use; i++) {
+X			x = x_min + i * xisodiff;
+X			/* if (is_log_x) PEM fix logscale x axis */
+X			/* x = pow(base_log_x,x); 26-Sep-89 */
+X			(void) Gcomplex(&plot_func.dummy_values[0],
+X				       is_log_x ? pow(base_log_x, x) : x,
+X				       0.0);
+X
+X			for (j = 0; j < num_sam_to_use; j++) {
+X			    y = y_min + j * ydiff;
+X			    /* if (is_log_y) PEM fix logscale y axis */
+X			    /* y = pow(base_log_y,y); 26-Sep-89 */
+X			    (void) Gcomplex(&plot_func.dummy_values[1],
+X					   is_log_y ? pow(base_log_y, y) : y,
+X					   0.0);
+X
+X			    points[j].x = x;
+X			    points[j].y = y;
+X
+X			    evaluate_at(plot_func.at, &a);
+X
+X			    if (undefined || (fabs(imag(&a)) > zero)) {
+X				points[j].type = UNDEFINED;
+X				continue;
+X			    }
+X			    temp = real(&a);
+X
+X			    if (is_log_func && temp < 0.0) {
+X				points[j].type = UNDEFINED;
+X				continue;
+X			    }
+X			    if (is_log_func) {
+X				if (temp == 0.0) {
+X				    points[j].type = OUTRANGE;
+X				    points[j].z = -VERYLARGE;
+X				    continue;
+X				} else {
+X				    points[j].z = log(temp)/log_base_log_z;
+X				}
+X			    } else
+X				points[j].z = temp;
+X
+X			    if (autoscale_lz
+X				|| inrange(temp, zmin, zmax)) {
+X				points[j].type = INRANGE;
+X				if (autoscale_lz) {
+X				    if (temp < zmin)
+X					zmin = temp;
+X				    if (temp > zmax)
+X					zmax = temp;
+X				}
+X			    } else
+X				points[j].type = OUTRANGE;
+X			}
+X			this_iso->p_count = num_sam_to_use;
+X			this_iso = this_iso->next;
+X			points = this_iso ? this_iso->points : NULL;
+X		    }
+X		}
+X	    }
+X
+X	    /* title was handled above */
+X	    if (almost_equals(c_token, "t$itle")) {
+X		c_token++;
+X		c_token++;
+X	    } else if (almost_equals(c_token, "not$itle")) {
+X	        c_token++;
+X	    }
+X	    /* style was handled above */
+X	    if (almost_equals(c_token, "w$ith")) {
+X		c_token++;
+X		c_token++;
+X	    }
+X	    /* line and point types were handled above */
+X	    if (!equals(c_token, ",") && !END_OF_COMMAND) {
+X		struct value    t;
+X		(void) real(const_express(&t));
+X	    }
+X	    if (!equals(c_token, ",") && !END_OF_COMMAND) {
+X		struct value    t;
+X		(void) real(const_express(&t));
+X	    }
+X	    this_plot = this_plot->next_sp;
+X	}
+X
+X	if (equals(c_token, ","))
+X	    c_token++;
+X	else
+X	    break;
+X    }
+X
+X    /* if first_3dplot is NULL, we have no functions or data at all. This can
+X       happen, if you type "splot x=5", since x=5 is a variable assignment */
+X
+X    if(first_3dplot==NULL) {
+X	int_error("no functions or data to plot", c_token);
+X    }
+X
+X    if (fabs(zmax - zmin) < zero)
+X	/* if autoscale, widen range */
+X	if (autoscale_lz) {
+X	    fprintf(stderr, "Warning: empty z range [%g:%g], ", zmin, zmax);
+X	    if (fabs(zmin) < zero) {
+X		zmin = -1.;
+X		zmax = 1.;
+X	    } else {
+X		/* expand range by 10% in either direction */
+X		zmin = zmin * 0.9;
+X		zmax = zmax * 1.1;
+X	    }
+X	    fprintf(stderr, "adjusting to [%g:%g]\n", zmin, zmax);
+X	} else {
+X	    int_error("z range is less than `zero`", c_token);
+X	}
+X
+X    /* Now we finally know the real zmin and zmax */
+X    if (is_log_z) {
+X	if (zmin <= 0.0 || zmax <= 0.0)
+X	    int_error("z range must be greater than 0 for log scale!", NO_CARET);
+X	z_min = log(zmin)/log_base_log_z;
+X	z_max = log(zmax)/log_base_log_z;
+X    } else {
+X	z_min = zmin;
+X	z_max = zmax;
+X    }
+X
+X    /* Set a flag so capture is not invoked by replot itself. -hmh */
+X    if (plot_token != -1) {
+X	capture(replot_line, plot_token, c_token);
+X	plot_token = -1;
+X    }
+X
+X    if (parametric) {
+X	/* Now put u/v and x/y ranges back before we actually plot anything. */
+X	ltmp = autoscale_lx;
+X	autoscale_lx = autoscale_lu;
+X	autoscale_lu = ltmp;
+X	ltmp = autoscale_ly;
+X	autoscale_ly = autoscale_lv;
+X	autoscale_lv = ltmp;
+X	temp = xmin;
+X	xmin = umin;
+X	umin = temp;
+X	temp = xmax;
+X	xmax = umax;
+X	umax = temp;
+X	temp = ymin;
+X	ymin = vmin;
+X	vmin = temp;
+X	temp = ymax;
+X	ymax = vmax;
+X	vmax = temp;
+X
+X	/* Now actually fix the plot triplets to be single plots. */
+X	parametric_3dfixup(first_3dplot, &plot_num,
+X			   &x_min, &x_max, &y_min, &y_max,
+X			   &z_min, &z_max);
+X	if (is_log_x) {
+X	    if (x_min <= 0.0 || x_max <= 0.0)
+X		int_error("x range must be greater than 0 for log scale!", NO_CARET);
+X	    x_min = log(x_min)/log_base_log_x;
+X	    x_max = log(x_max)/log_base_log_x;
+X	}
+X	if (is_log_y) {
+X	    if (y_min <= 0.0 || y_max <= 0.0)
+X		int_error("y range must be greater than 0 for log scale!", NO_CARET);
+X	    y_min = log(y_min)/log_base_log_y;
+X	    y_max = log(y_max)/log_base_log_y;
+X	}
+X	if (is_log_z) {
+X	    if (z_min <= 0.0 || z_max <= 0.0)
+X		int_error("z range must be greater than 0 for log scale!", NO_CARET);
+X	    z_min = log(z_min)/log_base_log_z;
+X	    z_max = log(z_max)/log_base_log_z;
+X	}
+X    }
+X
+X    /* Filter out empty meshes. */
+X    while (first_3dplot &&
+X	   first_3dplot->num_iso_read == 0 &&
+X	   first_3dplot->plot_type == DATA3D) {
+X	struct surface_points *plt = first_3dplot->next_sp;
+X
+X	first_3dplot->next_sp = NULL;
+X	sp_free(first_3dplot);
+X	plot_num--;
+X	first_3dplot = plt;
+X    }
+X    if (first_3dplot != NULL) {
+X	struct surface_points *plt1, *plt2;
+X	
+X	for (plt1 = first_3dplot, plt2 = plt1->next_sp; plt2 != NULL; ) {
+X	    if (plt2->num_iso_read == 0 && plt2->plot_type == DATA3D) {
+X		plt2 = plt2->next_sp;
+X		plt1->next_sp->next_sp = NULL;
+X		sp_free(plt1->next_sp);
+X		plot_num--;
+X		plt1->next_sp = plt2;
+X	    }
+X	    else {
+X		plt1 = plt2;
+X		plt2 = plt2->next_sp;
+X	    }
+X	}
+X    }
+X    if (first_3dplot == NULL)
+X	int_error("no data found in file", NO_CARET);
+X
+X    /* Creates contours if contours are to be plotted as well. */
+X    if (draw_contour) {
+X	for (this_plot = first_3dplot, i = 0;
+X	     i < plot_num;
+X	     this_plot = this_plot->next_sp, i++) {
+X	    if (this_plot->contours) {
+X		struct gnuplot_contours *cntr, *cntrs = this_plot->contours;
+X
+X		while (cntrs) {
+X		    cntr = cntrs;
+X		    cntrs = cntrs->next;
+X		    gpfarfree(cntr->coords);
+X		    free(cntr);
+X		}
+X	    }
+X	    /* Make sure this one can be contoured. */
+X	    if (!this_plot->has_grid_topology) {
+X		this_plot->contours = NULL;
+X		fprintf(stderr,"Notice: cannot contour non grid data!\n");
+X		/* changed from int_error by recommendation of rkc@xn.ll.mit.edu */
+X	    }
+X	    else if (this_plot->plot_type == DATA3D)
+X		this_plot->contours = contour(
+X						 this_plot->num_iso_read,
+X						 this_plot->iso_crvs,
+X						 contour_levels, contour_pts,
+X						 contour_kind, contour_order,
+X						 levels_kind, levels_list);
+X	    else
+X		this_plot->contours = contour(iso_samples_2,
+X					      this_plot->iso_crvs,
+X					      contour_levels, contour_pts,
+X					      contour_kind, contour_order,
+X					      levels_kind, levels_list);
+X	}
+X    }
+X    if (strcmp(term_tbl[term].name, "table") == 0)
+X	print_3dtable(plot_num);
+X    else
+X	do_3dplot(first_3dplot, plot_num, x_min, x_max, y_min, y_max, z_min, z_max);
+X    sp_free(first_3dplot);
+X    first_3dplot = NULL;
+X}
+X
+Xdone(status)
+X    int             status;
+X{
+X    if (term && term_init)
+X	(*term_tbl[term].reset) ();
+X#ifdef vms
+X    vms_reset();
+X#endif
+X    exit(status);
+X}
+X
+Xvoid 
+Xparametric_fixup(start_plot, plot_num, x_min, x_max)
+X    struct curve_points *start_plot;
+X    int            *plot_num;
+X    double         *x_min, *x_max;
+X/*
+X * The hardest part of this routine is collapsing the FUNC plot types in the
+X * list (which are gauranteed to occur in (x,y) pairs while preserving the
+X * non-FUNC type plots intact.  This means we have to work our way through
+X * various lists.  Examples (hand checked): start_plot:F1->F2->NULL ==>
+X * F2->NULL start_plot:F1->F2->F3->F4->F5->F6->NULL ==> F2->F4->F6->NULL
+X * start_plot:F1->F2->D1->D2->F3->F4->D3->NULL ==> F2->D1->D2->F4->D3->NULL
+X * 
+X * Of course, the more interesting work is to move the y values of the x
+X * function to become the x values of the y function (checking the mins and
+X * maxs as we go along).
+X */
+X{
+X    struct curve_points *xp, *new_list, *yp = start_plot, *tmp, *free_list,
+X                   *free_head = NULL;
+X    int             i, tlen, curve;
+X    char           *new_title;
+X    double          lxmin, lxmax, temp;
+X
+X    if (autoscale_lx) {
+X	lxmin = VERYLARGE;
+X	lxmax = -VERYLARGE;
+X    } else {
+X	lxmin = xmin;
+X	lxmax = xmax;
+X    }
+X
+X    /*
+X     * Ok, go through all the plots and move FUNC types together.  Note: this
+X     * originally was written to look for a NULL next pointer, but gnuplot
+X     * wants to be sticky in grabbing memory and the right number of items in
+X     * the plot list is controlled by the plot_num variable.
+X     * 
+X     * Since gnuplot wants to do this sticky business, a free_list of
+X     * curve_points is kept and then tagged onto the end of the plot list as
+X     * this seems more in the spirit of the original memory behavior than
+X     * simply freeing the memory.  I'm personally not convinced this sort of
+X     * concern is worth it since the time spent computing points seems to
+X     * dominate any garbage collecting that might be saved here...
+X     */
+X    new_list = xp = start_plot;
+X    yp = xp->next_cp;
+X    curve = 0;
+X
+X    for (; curve < *plot_num; xp = xp->next_cp, yp = yp ? yp->next_cp : yp, curve++) {
+X	if (xp->plot_type != FUNC) {
+X	    continue;
+X	}
+X	/* Here's a FUNC parametric function defined as two parts. */
+X	--(*plot_num);
+X	/*
+X	 * Go through all the points assigning the y's from xp to be the x's
+X	 * for yp.  Check max's and min's as you go.
+X	 */
+X	for (i = 0; i < yp->p_count; ++i) {
+X	    /*
+X	     * Throw away excess xp points, mark excess yp points as
+X	     * OUTRANGE.
+X	     */
+X	    if (i > xp->p_count) {
+X		yp->points[i].type = OUTRANGE;
+X		continue;
+X	    }
+X	    /*
+X	     * Just as we had to do when we computed y values--now check that
+X	     * x's (computed parametrically) are in the permitted ranges as
+X	     * well.
+X	     */
+X	    temp = xp->points[i].y;	/* New x value for yp function. */
+X	    yp->points[i].x = temp;
+X	    /* Handle undefined values differently from normal ranges. */
+X	    if (xp->points[i].type == UNDEFINED)
+X		yp->points[i].type = xp->points[i].type;
+X	    if (autoscale_lx || polar
+X		|| inrange(temp, lxmin, lxmax)) {
+X		if (autoscale_lx && temp < lxmin)
+X		    lxmin = temp;
+X		if (autoscale_lx && temp > lxmax)
+X		    lxmax = temp;
+X	    } else
+X		yp->points[i].type = OUTRANGE;	/* Due to x value. */
+X	}
+X	/* Ok, fix up the title to include both the xp and yp plots. */
+X	if (xp->title && xp->title[0] != '\0') {
+X	    tlen = strlen(yp->title) + strlen(xp->title) + 3;
+X	    new_title = alloc((unsigned long) tlen, "string");
+X	    strcpy(new_title, xp->title);
+X	    strcat(new_title, ", ");	/* + 2 */
+X	    strcat(new_title, yp->title);	/* + 1 = + 3 */
+X	    free(yp->title);
+X	    yp->title = new_title;
+X	}
+X	/* Eliminate the first curve (xparam) and just use the second. */
+X	if (xp == start_plot) {
+X	    /* Simply nip off the first element of the list. */
+X	    new_list = first_plot = yp;
+X	    xp = xp->next_cp;
+X	    if (yp->next_cp != NULL)
+X		yp = yp->next_cp;
+X	    /* Add start_plot to the free_list. */
+X	    if (free_head == NULL) {
+X		free_list = free_head = start_plot;
+X		free_head->next_cp = NULL;
+X	    } else {
+X		free_list->next_cp = start_plot;
+X		start_plot->next_cp = NULL;
+X		free_list = start_plot;
+X	    }
+X	} else {
+X	    /* Here, remove the xp node and replace it with the yp node. */
+X	    tmp = xp;
+X	    /* Pass over any data files that might have been in place. */
+X	    while (new_list->next_cp && new_list->next_cp != xp)
+X		new_list = new_list->next_cp;
+X	    new_list->next_cp = yp;
+X	    new_list = new_list->next_cp;
+X	    xp = xp->next_cp;
+X	    if (yp->next_cp != NULL)
+X		yp = yp->next_cp;
+X	    /* Add tmp to the free_list. */
+X	    tmp->next_cp = NULL;
+X	    if (free_head == NULL) {
+X		free_list = free_head = tmp;
+X	    } else {
+X		free_list->next_cp = tmp;
+X		free_list = tmp;
+X	    }
+X	}
+X    }
+X    /* Ok, stick the free list at the end of the curve_points plot list. */
+X    while (new_list->next_cp != NULL)
+X	new_list = new_list->next_cp;
+X    new_list->next_cp = free_head;
+X
+X    /* Report the overall graph mins and maxs. */
+X    *x_min = lxmin;
+X    *x_max = lxmax;
+X}
+X
+Xvoid 
+Xparametric_3dfixup(start_plot, plot_num, x_min, x_max, y_min, y_max,
+X		   z_min, z_max)
+X    struct surface_points *start_plot;
+X    int            *plot_num;
+X    double         *x_min, *x_max, *y_min, *y_max, *z_min, *z_max;
+X/*
+X * The hardest part of this routine is collapsing the FUNC plot types in the
+X * list (which are gauranteed to occur in (x,y,z) triplets while preserving
+X * the non-FUNC type plots intact.  This means we have to work our way
+X * through various lists.  Examples (hand checked):
+X * start_plot:F1->F2->F3->NULL ==> F3->NULL
+X * start_plot:F1->F2->F3->F4->F5->F6->NULL ==> F3->F6->NULL
+X * start_plot:F1->F2->F3->D1->D2->F4->F5->F6->D3->NULL ==>
+X * F3->D1->D2->F6->D3->NULL
+X */
+X{
+X    struct surface_points *xp, *yp, *zp, *new_list, *tmp, *free_list, *free_head = NULL;
+X    struct iso_curve *icrvs, *xicrvs, *yicrvs, *zicrvs;
+X    int             i, tlen, surface;
+X    char           *new_title;
+X    double          lxmin, lxmax, lymin, lymax, lzmin, lzmax;
+X
+X    if (autoscale_lx) {
+X	lxmin = VERYLARGE;
+X	lxmax = -VERYLARGE;
+X    } else {
+X	lxmin = xmin;
+X	lxmax = xmax;
+X    }
+X
+X    if (autoscale_ly) {
+X	lymin = VERYLARGE;
+X	lymax = -VERYLARGE;
+X    } else {
+X	lymin = ymin;
+X	lymax = ymax;
+X    }
+X
+X    if (autoscale_lz) {
+X	lzmin = VERYLARGE;
+X	lzmax = -VERYLARGE;
+X    } else {
+X	lzmin = zmin;
+X	lzmax = zmax;
+X    }
+X
+X    /*
+X     * Ok, go through all the plots and move FUNC3D types together.  Note:
+X     * this originally was written to look for a NULL next pointer, but
+X     * gnuplot wants to be sticky in grabbing memory and the right number of
+X     * items in the plot list is controlled by the plot_num variable.
+X     * 
+X     * Since gnuplot wants to do this sticky business, a free_list of
+X     * surface_points is kept and then tagged onto the end of the plot list
+X     * as this seems more in the spirit of the original memory behavior than
+X     * simply freeing the memory.  I'm personally not convinced this sort of
+X     * concern is worth it since the time spent computing points seems to
+X     * dominate any garbage collecting that might be saved here...
+X     */
+X    new_list = xp = start_plot;
+X    for (surface = 0; surface < *plot_num; surface++) {
+X	if (xp->plot_type != FUNC3D) {
+X	    icrvs = xp->iso_crvs;
+X
+X	    while (icrvs) {
+X		struct coordinate GPHUGE *points = icrvs->points;
+X
+X		for (i = 0; i < icrvs->p_count; ++i) {
+X		    if (lxmin > points[i].x)
+X			lxmin = points[i].x;
+X		    if (lxmax < points[i].x)
+X			lxmax = points[i].x;
+X		    if (lymin > points[i].y)
+X			lymin = points[i].y;
+X		    if (lymax < points[i].y)
+X			lymax = points[i].y;
+X		    if (lzmin > points[i].z)
+X			lzmin = points[i].z;
+X		    if (lzmax < points[i].z)
+X			lzmax = points[i].z;
+X		}
+X
+X		icrvs = icrvs->next;
+X	    }
+X	    xp = xp->next_sp;
+X	    continue;
+X	}
+X	yp = xp->next_sp;
+X	zp = yp->next_sp;
+X
+X	/* Here's a FUNC3D parametric function defined as three parts. */
+X	(*plot_num) -= 2;
+X	/*
+X	 * Go through all the points and assign the x's and y's from xp and
+X	 * yp to zp.  Check max's and min's as you go.
+X	 */
+X	xicrvs = xp->iso_crvs;
+X	yicrvs = yp->iso_crvs;
+X	zicrvs = zp->iso_crvs;
+X	while (zicrvs) {
+X	    struct coordinate GPHUGE *xpoints = xicrvs->points, GPHUGE *ypoints = yicrvs->points, GPHUGE *zpoints = zicrvs->points;
+X	    for (i = 0; i < zicrvs->p_count; ++i) {
+X		zpoints[i].x = xpoints[i].z;
+X		zpoints[i].y = ypoints[i].z;
+X
+X		if (lxmin > zpoints[i].x)
+X		    lxmin = zpoints[i].x;
+X		if (lxmax < zpoints[i].x)
+X		    lxmax = zpoints[i].x;
+X		if (lymin > zpoints[i].y)
+X		    lymin = zpoints[i].y;
+X		if (lymax < zpoints[i].y)
+X		    lymax = zpoints[i].y;
+X		if (lzmin > zpoints[i].z)
+X		    lzmin = zpoints[i].z;
+X		if (lzmax < zpoints[i].z)
+X		    lzmax = zpoints[i].z;
+X	    }
+X	    xicrvs = xicrvs->next;
+X	    yicrvs = yicrvs->next;
+X	    zicrvs = zicrvs->next;
+X	}
+X
+X	/* Ok, fix up the title to include xp and yp plots. */
+X	if ((xp->title && xp->title[0] != '\0') ||
+X	    (yp->title && yp->title[0] != '\0')) {
+X	    tlen = (xp->title ? strlen(xp->title) : 0) +
+X		(yp->title ? strlen(yp->title) : 0) +
+X		(zp->title ? strlen(zp->title) : 0) + 5;
+X	    new_title = alloc((unsigned long) tlen, "string");
+X	    new_title[0] = 0;
+X	    if (xp->title) {
+X		strcat(new_title, xp->title);
+X		strcat(new_title, ", ");	/* + 2 */
+X	    }
+X	    if (yp->title) {
+X		strcat(new_title, yp->title);
+X		strcat(new_title, ", ");	/* + 2 */
+X	    }
+X	    if (zp->title) {
+X		strcat(new_title, zp->title);
+X	    }
+X	    free(zp->title);
+X	    zp->title = new_title;
+X	}
+X	/*
+X	 * Eliminate the first two surfaces (xp and yp) and just use the
+X	 * third.
+X	 */
+X	if (xp == start_plot) {
+X	    /* Simply nip off the first two elements of the list. */
+X	    new_list = first_3dplot = zp;
+X	    xp = zp->next_sp;
+X	    /* Add xp and yp to the free_list. */
+X	    if (free_head == NULL) {
+X		free_head = start_plot;
+X	    } else {
+X		free_list->next_sp = start_plot;
+X	    }
+X	    free_list = start_plot->next_sp;
+X	    free_list->next_sp = NULL;
+X	} else {
+X	    /*
+X	     * Here, remove the xp,yp nodes and replace them with the zp
+X	     * node.
+X	     */
+X	    tmp = xp;
+X	    /* Pass over any data files that might have been in place. */
+X	    while (new_list->next_sp && new_list->next_sp != xp)
+X		new_list = new_list->next_sp;
+X	    new_list->next_sp = zp;
+X	    new_list = zp;
+X	    xp = zp->next_sp;
+X	    /* Add tmp to the free_list. */
+X	    if (free_head == NULL) {
+X		free_head = tmp;
+X	    } else {
+X		free_list->next_sp = tmp;
+X	    }
+X	    free_list = tmp->next_sp;
+X	    free_list->next_sp = NULL;
+X	}
+X    }
+X    /* Ok, stick the free list at the end of the surface_points plot list. */
+X    while (new_list->next_sp != NULL)
+X	new_list = new_list->next_sp;
+X    new_list->next_sp = free_head;
+X    if (lxmax - lxmin < zero) {
+X	if (fabs(lxmax) < zero) {
+X	    lxmin = -1.0;
+X	    lxmax = 1.0;
+X	} else {
+X	    lxmin *= 0.9;
+X	    lxmax *= 1.1;
+X	}
+X    }
+X    if (lymax - lymin < zero) {
+X	if (fabs(lymax) < zero) {
+X	    lymin = -1.0;
+X	    lymax = 1.0;
+X	} else {
+X	    lymin *= 0.9;
+X	    lymax *= 1.1;
+X	}
+X    }
+X    if (lzmax - lzmin < zero) {
+X	if (fabs(lzmax) < zero) {
+X	    lzmin = -1.0;
+X	    lzmax = 1.0;
+X	} else {
+X	    lzmin *= 0.9;
+X	    lzmax *= 1.1;
+X	}
+X    }
+X    /* Report the overall graph mins and maxs. */
+X    if (autoscale_lx) {
+X	*x_min = (is_log_x ? pow(base_log_x, lxmin) : lxmin);
+X	*x_max = (is_log_x ? pow(base_log_x, lxmax) : lxmax);
+X    } else {
+X	*x_min = xmin;
+X	*x_max = xmax;
+X    }
+X    if (autoscale_ly) {
+X	*y_min = (is_log_y ? pow(base_log_y, lymin) : lymin);
+X	*y_max = (is_log_y ? pow(base_log_y, lymax) : lymax);
+X    } else {
+X	*y_min = ymin;
+X	*y_max = ymax;
+X    }
+X    if (autoscale_lz) {
+X	*z_min = (is_log_z ? pow(base_log_z, lzmin) : lzmin);
+X	*z_max = (is_log_z ? pow(base_log_z, lzmax) : lzmax);
+X    } else {
+X	*z_min = zmin;
+X	*z_max = zmax;
+X    }
+X}
+X
+X#ifdef AMIGA_SC_6_1
+Xvoid 
+Xsleep(delay)
+X    unsigned int    delay;
+X{
+X    Delay(50 * delay);
+X}
+X#endif
+X
+X#ifdef AMIGA_AC_5
+Xvoid 
+Xsleep(delay)
+X    unsigned int    delay;
+X{
+X    unsigned long   time_is_up;
+X    time_is_up = time(NULL) + (unsigned long) delay;
+X    while (time(NULL) < time_is_up)
+X	 /* wait */ ;
+X}
+X#endif
+X
+X#if defined(MSDOS) || defined(_Windows) || defined(DOS386)
+X#if (!defined(__TURBOC__) && !defined(__EMX__) && !defined(DJGPP)) || defined(_Windows) /* Turbo C already has sleep() */
+X#ifndef __ZTC__			/* ZTC already has usleep() */
+X/* kludge to provide sleep() for msc 5.1 */
+Xvoid 
+Xsleep(delay)
+X    unsigned int    delay;
+X{
+X    unsigned long   time_is_up;
+X    time_is_up = time(NULL) + (unsigned long) delay;
+X    while (time(NULL) < time_is_up)
+X	 /* wait */ ;
+X}
+X#endif				/* not ZTC */
+X#endif				/* (!TURBOC && !__EMX__ && !DJGPP) or _Windows */
+X#endif				/* MSDOS || _Windows*/
+X
+X
+X/* Support for input, shell, and help for various systems */
+X
+X#ifdef vms
+X
+X#include <descrip.h>
+X#include <rmsdef.h>
+X#include <errno.h>
+X#include <smgdef.h>
+X#include <smgmsg.h>
+X
+Xextern          lib$get_input(), lib$put_output();
+Xextern          smg$read_composed_line();
+X
+Xint             vms_len;
+X
+Xunsigned int    status[2] =
+X{1, 0};
+X
+Xstatic char     help[MAX_LINE_LEN + 1] = "gnuplot";
+X
+X$DESCRIPTOR(prompt_desc, PROMPT);
+X$DESCRIPTOR(line_desc, input_line);
+X
+X$DESCRIPTOR(help_desc, help);
+X$DESCRIPTOR(helpfile_desc, "GNUPLOT$HELP");
+X
+X
+Xread_line(prompt)
+X    char           *prompt;
+X{
+X    int             more, start = 0;
+X    char            expand_prompt[40];
+X
+X    prompt_desc.dsc$w_length = strlen(prompt);
+X    prompt_desc.dsc$a_pointer = prompt;
+X    (void) strcpy(expand_prompt, "_");
+X    (void) strncat(expand_prompt, prompt, 38);
+X    do {
+X	line_desc.dsc$w_length = MAX_LINE_LEN - start;
+X	line_desc.dsc$a_pointer = &input_line[start];
+X	switch (status[1] = smg$read_composed_line(&vms_vkid, 0, &line_desc, &prompt_desc, &vms_len)) {
+X	case SMG$_EOF:
+X	    done(IO_SUCCESS);	/* ^Z isn't really an error */
+X	    break;
+X	case RMS$_TNS:		/* didn't press return in time */
+X	    vms_len--;		/* skip the last character */
+X	    break;		/* and parse anyway */
+X	case RMS$_BES:		/* Bad Escape Sequence */
+X	case RMS$_PES:		/* Partial Escape Sequence */
+X	    sys$putmsg(status);
+X	    vms_len = 0;	/* ignore the line */
+X	    break;
+X	case SS$_NORMAL:
+X	    break;		/* everything's fine */
+X	default:
+X	    done(status[1]);	/* give the error message */
+X	}
+X	start += vms_len;
+X	input_line[start] = '\0';
+X	inline_num++;
+X	if (input_line[start - 1] == '\\') {
+X	    /* Allow for a continuation line. */
+X	    prompt_desc.dsc$w_length = strlen(expand_prompt);
+X	    prompt_desc.dsc$a_pointer = expand_prompt;
+X	    more = 1;
+X	    --start;
+X	} else {
+X	    line_desc.dsc$w_length = strlen(input_line);
+X	    line_desc.dsc$a_pointer = input_line;
+X	    more = 0;
+X	}
+X    } while (more);
+X	return 0;
+X}
+X
+X
+Xdo_help()
+X{
+X    help_desc.dsc$w_length = strlen(help);
+X    if ((vaxc$errno = lbr$output_help(lib$put_output, 0, &help_desc,
+X			   &helpfile_desc, 0, lib$get_input)) != SS$_NORMAL)
+X	os_error("can't open GNUPLOT$HELP", NO_CARET);
+X}
+X
+X
+Xdo_shell()
+X{
+X    if ((vaxc$errno = lib$spawn()) != SS$_NORMAL) {
+X	os_error("spawn error", NO_CARET);
+X    }
+X}
+X
+X
+Xdo_system()
+X{
+X    input_line[0] = ' ';	/* an embarrassment, but... */
+X
+X    if ((vaxc$errno = lib$spawn(&line_desc)) != SS$_NORMAL)
+X	os_error("spawn error", NO_CARET);
+X
+X    (void) putc('\n', stderr);
+X}
+X
+X#else				/* vms */
+X
+X#ifdef _Windows
+Xdo_help()
+X{
+X	if (END_OF_COMMAND)
+X		WinHelp(textwin.hWndParent,(LPSTR)winhelpname,HELP_INDEX,(DWORD)NULL);
+X	else {
+X		char buf[128];
+X		int start = c_token++;
+X		while (!(END_OF_COMMAND))
+X			c_token++;
+X		capture(buf, start, c_token-1);
+X		WinHelp(textwin.hWndParent,(LPSTR)winhelpname,HELP_PARTIALKEY,(DWORD)buf);
+X	}
+X}
+X#else
+X
+X/*
+X * do_help: (not VMS, although it would work) Give help to the user. It
+X * parses the command line into helpbuf and supplies help for that string.
+X * Then, if there are subtopics available for that key, it prompts the user
+X * with this string. If more input is given, do_help is called recursively,
+X * with the argument the index of null character in the string. Thus a more
+X * specific help can be supplied. This can be done repeatedly. If null input
+X * is given, the function returns, effecting a backward climb up the tree.
+X * David Kotz (David.Kotz@Dartmouth.edu) 10/89
+X */
+X
+Xdo_help()
+X{
+X    static char    *helpbuf = NULL;
+X    static char    *prompt = NULL;
+X    int             base;	/* index of first char AFTER help string */
+X    int             len;	/* length of current help string */
+X    TBOOLEAN         more_help;
+X    TBOOLEAN         only;	/* TRUE if only printing subtopics */
+X    int             subtopics;	/* 0 if no subtopics for this topic */
+X    int             start;	/* starting token of help string */
+X    char           *help_ptr;	/* name of help file */
+X#ifdef ATARI
+X    static char    help_fname[256]=""; /* keep helpfilename across calls */
+X#endif
+X
+X    if ((help_ptr = getenv("GNUHELP")) == (char *) NULL)
+X#ifndef ATARI
+X	/* if can't find environment variable then just use HELPFILE */
+X	help_ptr = HELPFILE;
+X#else
+X	/* try whether we can find the helpfile via shell_find. If not, just
+X	   use the default. (tnx Andreas) */
+X
+X#ifdef sequent
+X	if( !index( HELPFILE, ':' ) && !index( HELPFILE, '/' ) &&
+X	    !index( HELPFILE, '\\' ) ) {
+X#else
+X	if( !strchr( HELPFILE, ':' ) && !strchr( HELPFILE, '/' ) &&
+X	    !strchr( HELPFILE, '\\' ) ) {
+X#endif
+X	    if( strlen(help_fname)==0 ) {
+X		strcpy( help_fname, HELPFILE );
+X		if( shel_find( help_fname )==0 ) {
+X		    strcpy( help_fname, HELPFILE );
+X		}
+X	    }
+X	    help_ptr=help_fname;
+X	} else {
+X	    help_ptr=HELPFILE;
+X	}
+X#endif /* ATARI */
+X
+X    /* Since MSDOS DGROUP segment is being overflowed we can not allow such  */
+X    /* huge static variables (1k each). Instead we dynamically allocate them */
+X    /* on the first call to this function...				     */
+X    if (helpbuf == NULL) {
+X	helpbuf = alloc((unsigned long)MAX_LINE_LEN, "help buffer");
+X	prompt = alloc((unsigned long)MAX_LINE_LEN, "help prompt");
+X	helpbuf[0] = prompt[0] = 0;
+X    }
+X    len = base = strlen(helpbuf);
+X
+X    /* find the end of the help command */
+X    for (start = c_token; !(END_OF_COMMAND); c_token++);
+X    /* copy new help input into helpbuf */
+X    if (len > 0)
+X	helpbuf[len++] = ' ';	/* add a space */
+X    capture(helpbuf + len, start, c_token - 1);
+X    squash_spaces(helpbuf + base);	/* only bother with new stuff */
+X    lower_case(helpbuf + base);	/* only bother with new stuff */
+X    len = strlen(helpbuf);
+X
+X    /* now, a lone ? will print subtopics only */
+X    if (strcmp(helpbuf + (base ? base + 1 : 0), "?") == 0) {
+X	/* subtopics only */
+X	subtopics = 1;
+X	only = TRUE;
+X	helpbuf[base] = '\0';	/* cut off question mark */
+X    } else {
+X	/* normal help request */
+X	subtopics = 0;
+X	only = FALSE;
+X    }
+X
+X    switch (help(helpbuf, help_ptr, &subtopics)) {
+X    case H_FOUND:{
+X	    /* already printed the help info */
+X	    /* subtopics now is true if there were any subtopics */
+X	    screen_ok = FALSE;
+X
+X	    do {
+X		if (subtopics && !only) {
+X		    /* prompt for subtopic with current help string */
+X		    if (len > 0)
+X			(void) sprintf(prompt, "Subtopic of %s: ", helpbuf);
+X		    else
+X			(void) strcpy(prompt, "Help topic: ");
+X		    read_line(prompt);
+X		    num_tokens = scanner(input_line);
+X		    c_token = 0;
+X		    more_help = !(END_OF_COMMAND);
+X		    if (more_help)
+X			/* base for next level is all of current helpbuf */
+X			do_help();
+X		} else
+X		    more_help = FALSE;
+X	    } while (more_help);
+X
+X	    break;
+X	}
+X    case H_NOTFOUND:{
+X	    printf("Sorry, no help for '%s'\n", helpbuf);
+X	    break;
+X	}
+X    case H_ERROR:{
+X	    perror(help_ptr);
+X	    break;
+X	}
+X    default:{			/* defensive programming */
+X	    int_error("Impossible case in switch", NO_CARET);
+X	    /* NOTREACHED */
+X	}
+X    }
+X
+X    helpbuf[base] = '\0';	/* cut it off where we started */
+X}
+X#endif  /* _Windows */
+X
+X#ifdef AMIGA_AC_5
+Xchar            strg0[256];
+X#endif
+X
+Xdo_system()
+X{
+X#ifdef AMIGA_AC_5
+X    char           *parms[80];
+X    void            getparms();
+X
+X    getparms(input_line + 1, parms);
+X    if (fexecv(parms[0], parms) < 0)
+X#else
+X#if defined(ATARI)&&defined(__GNUC__)
+X    /* use preloaded shell, if available */
+X    short           (*shell_p) (char *command);
+X    void           *ssp;
+X
+X    ssp = (void *) Super(NULL);
+X    shell_p = *(short (**) (char *)) 0x4f6;
+X    Super(ssp);
+X
+X    /* this is a bit strange, but we have to have a single if */
+X    if ((shell_p ? (*shell_p) (input_line + 1) : system(input_line + 1)))
+X#else
+X#ifdef _Windows
+X    if (winsystem(input_line + 1))
+X#else
+X    if (system(input_line + 1))
+X#endif
+X#endif
+X#endif
+X	os_error("system() failed", NO_CARET);
+X}
+X
+X#ifdef AMIGA_AC_5
+X
+X/******************************************************************************/
+X/* */
+X/* Parses the command string (for fexecv use) and  converts the first token  */
+X/* to lower case                                                          */
+X/* */
+X/******************************************************************************/
+X
+Xvoid 
+Xgetparms(command, parms)
+X    char           *command;
+X    char          **parms;
+X{
+X    register int    i = 0;	/* A bunch of indices          */
+X    register int    j = 0;
+X    register int    k = 0;
+X
+X    while (*(command + j) != '\0') {	/* Loop on string characters   */
+X	parms[k++] = strg0 + i;
+X	while (*(command + j) == ' ')
+X	    ++j;
+X	while (*(command + j) != ' ' && *(command + j) != '\0') {
+X	    if (*(command + j) == '"')	/* Get quoted string           */
+X		for (*(strg0 + (i++)) = *(command + (j++));
+X		     *(command + j) != '"';
+X		     *(strg0 + (i++)) = *(command + (j++)));
+X	    *(strg0 + (i++)) = *(command + (j++));
+X	}
+X	*(strg0 + (i++)) = '\0';/* NUL terminate every token   */
+X    }
+X    parms[k] = '\0';
+X
+X    for (k = strlen(strg0) - 1; k >= 0; --k)	/* Convert to lower case       */
+X	*(strg0 + k) >= 'A' && *(strg0 + k) <= 'Z' ? *(strg0 + k) |= 32 : *(strg0 + k);
+X}
+X
+X#endif				/* AMIGA_AC_5 */
+X
+X#ifdef READLINE
+Xchar           *
+Xrlgets(s, n, prompt)
+X    char           *s;
+X    int             n;
+X    char           *prompt;
+X{
+X    char           *readline();
+X    static char    *line = (char *) NULL;
+X
+X    /* If we already have a line, first free it */
+X    if (line != (char *) NULL)
+X	free(line);
+X
+X    line = readline((interactive) ? prompt : "");
+X
+X    /* If it's not an EOF */
+X    if (line) {
+X	if (*line)
+X	    add_history(line);
+X	strncpy(s, line, n);
+X	return s;
+X    }
+X    return line;
+X}
+X#endif				/* READLINE */
+X
+X#if defined(MSDOS) || defined(_Windows) || defined(DOS386)
+X
+X#ifndef _Windows
+X#ifdef __TURBOC__ 
+X/* cgets implemented using dos functions */
+X/* Maurice Castro 22/5/91 */
+Xchar           *
+Xdoscgets(s)
+X    char           *s;
+X{
+X    long            datseg;
+X
+X    /* protect and preserve segments - call dos to do the dirty work */
+X    datseg = _DS;
+X
+X    _DX = FP_OFF(s);
+X    _DS = FP_SEG(s);
+X    _AH = 0x0A;
+X    geninterrupt(33);
+X    _DS = datseg;
+X
+X    /* check for a carriage return and then clobber it with a null */
+X    if (s[s[1] + 2] == '\r')
+X	s[s[1] + 2] = 0;
+X
+X    /* return the input string */
+X    return (&(s[2]));
+X}
+X#endif				/* __TURBOC__ */
+X#endif				/* !_Windows */
+X
+X#ifdef __ZTC__
+Xvoid cputs(char *s)
+X{
+X   register int i = 0;
+X   while (s[i] != '\0')  bdos(0x02, s[i++], NULL);
+X}
+Xchar *cgets(char *s)
+X{
+X   bdosx(0x0A, s, NULL);
+X
+X   if (s[s[1]+2] == '\r')
+X      s[s[1]+2] = 0;
+X
+X   /* return the input string */
+X   return(&(s[2]));
+X}
+X#endif   /* __ZTC__ */
+X
+X
+Xread_line(prompt)
+X    char           *prompt;
+X{
+X    register int    i;
+X    int             start = 0, ilen = 0;
+X    TBOOLEAN         more;
+X    int             last;
+X    char           *p, *crnt_prompt = prompt;
+X
+X	if (interactive) {		/* if interactive use console IO so CED will
+X                 * work */
+X#ifndef READLINE
+X#if defined(_Windows) || defined(__EMX__) || defined(DJGPP) || defined(__ZTC__)
+X	printf("%s", prompt);
+X#else
+X	cputs(prompt);
+X#endif
+X#endif				/* READLINE */
+X	do {
+X	    ilen = MAX_LINE_LEN - start - 1;
+X	    input_line[start] = ilen > 126 ? 126 : ilen;
+X#ifdef READLINE
+X	    input_line[start + 2] = 0;
+X	    (void) rlgets(&(input_line[start + 2]), ilen, crnt_prompt);
+X#ifdef sequent
+X	    if ((p = index(&(input_line[start + 2]), '\r'))!=NULL)
+X		*p = 0;
+X	    if ((p = index(&(input_line[start + 2]), '\n'))!=NULL)
+X		*p = 0;
+X#else
+X	    if ((p = strchr(&(input_line[start + 2]), '\r'))!=NULL)
+X		*p = 0;
+X	    if ((p = strchr(&(input_line[start + 2]), '\n'))!=NULL)
+X		*p = 0;
+X#endif
+X	    input_line[start + 1] = strlen(&(input_line[start + 2]));
+X#else				/* READLINE */
+X#if defined(_Windows) || defined(__EMX__) || defined(DJGPP)
+X	    (void) gets(&(input_line[start+2]));
+X#else
+X#ifdef __TURBOC__
+X	    (void) doscgets(&(input_line[start]));
+X#else				/* __TURBOC__ */
+X	    (void) cgets(&(input_line[start]));
+X#endif				/* __TURBOC__ */
+X#endif				/* _Windows || __EMX__ || DJGPP*/
+X	    (void) putc('\n', stderr);
+X#endif				/* READLINE */
+X	    if (input_line[start + 2] == 26) {
+X		/* end-of-file */
+X		(void) putc('\n', stderr);
+X		input_line[start] = '\0';
+X		inline_num++;
+X		if (start > 0)	/* don't quit yet - process what we have */
+X		    more = FALSE;
+X		else {
+X		    (void) putc('\n', stderr);
+X		    return(1); /* exit gnuplot */
+X		    /* NOTREACHED */
+X		}
+X	    } else {
+X		/* normal line input */
+X		register        i = start;
+X		while ((input_line[i] = input_line[i + 2]) != (char) NULL)
+X		    i++;	/* yuck!  move everything down two characters */
+X
+X		inline_num++;
+X		last = strlen(input_line) - 1;
+X		if (last<0) last=0;  /* stop UAE in Windows */
+X		if (last + 1 >= MAX_LINE_LEN)
+X		    int_error("Input line too long", NO_CARET);
+X
+X		if (input_line[last] == '\\') {	/* line continuation */
+X		    start = last;
+X		    more = TRUE;
+X		} else
+X		    more = FALSE;
+X	    }
+X#ifndef READLINE
+X	    if (more)
+X#if defined(_Windows) || defined(__EMX__) || defined(DJGPP) || defined(__ZTC__)
+X		printf("> ");
+X#else
+X		cputs("> ");
+X#endif
+X#else
+X	    crnt_prompt = "> ";
+X#endif				/* READLINE */
+X	} while (more);
+X    } else {			/* not interactive */
+X	if (interactive)
+X	    fputs(prompt, stderr);
+X	do {
+X	    /* grab some input */
+X	    if (fgets(&(input_line[start]), MAX_LINE_LEN - start, stdin)
+X		== (char *) NULL) {
+X		/* end-of-file */
+X		if (interactive)
+X		    (void) putc('\n', stderr);
+X		input_line[start] = '\0';
+X		inline_num++;
+X		if (start > 0)	/* don't quit yet - process what we have */
+X		    more = FALSE;
+X		else
+X		    return(1);  /* exit gnuplot */
+X	    } else {
+X		/* normal line input */
+X		last = strlen(input_line) - 1;
+X		if (input_line[last] == '\n') {	/* remove any newline */
+X		    input_line[last] = '\0';
+X		    /* Watch out that we don't backup beyond 0 (1-1-1) */
+X		    if (last > 0)
+X			--last;
+X		    inline_num++;
+X		} else if (last + 1 >= MAX_LINE_LEN)
+X		    int_error("Input line too long", NO_CARET);
+X
+X		if (input_line[last] == '\\') {	/* line continuation */
+X		    start = last;
+X		    more = TRUE;
+X		} else
+X		    more = FALSE;
+X	    }
+X	    if (more && interactive)
+X		fputs("> ", stderr);
+X	} while (more);
+X    }
+X    return(0);
+X}
+X
+X
+Xdo_shell()
+X{
+X    register char  *comspec;
+X    if ((comspec = getenv("COMSPEC")) == (char *) NULL)
+X	comspec = "\\command.com";
+X#ifdef _Windows
+X    if (WinExec(comspec, SW_SHOWNORMAL) <= 32)
+X#else
+X#ifdef DJGPP
+X	if (system(comspec) == -1)
+X#else
+X    if (spawnl(P_WAIT, comspec, NULL) == -1)
+X#endif
+X#endif
+X	os_error("unable to spawn shell", NO_CARET);
+X}
+X
+X#else				/* MSDOS */
+X/* plain old Unix */
+X
+Xread_line(prompt)
+X    char           *prompt;
+X{
+X    int             start = 0;
+X    TBOOLEAN         more = FALSE;
+X    int             last = 0;
+X
+X#ifndef READLINE
+X    if (interactive)
+X	fputs(prompt, stderr);
+X#endif				/* READLINE */
+X    do {
+X	/* grab some input */
+X#ifdef READLINE
+X	if (((interactive)
+X	     ? rlgets(&(input_line[start]), MAX_LINE_LEN - start,
+X		      ((more) ? "> " : prompt))
+X	     : fgets(&(input_line[start]), MAX_LINE_LEN - start, stdin))
+X	    == (char *) NULL) {
+X#else
+X	if (fgets(&(input_line[start]), MAX_LINE_LEN - start, stdin)
+X	    == (char *) NULL) {
+X#endif				/* READLINE */
+X	    /* end-of-file */
+X	    if (interactive)
+X		(void) putc('\n', stderr);
+X	    input_line[start] = '\0';
+X	    inline_num++;
+X	    if (start > 0)	/* don't quit yet - process what we have */
+X		more = FALSE;
+X	    else
+X		return(1); /* exit gnuplot */
+X	} else {
+X	    /* normal line input */
+X	    last = strlen(input_line) - 1;
+X	    if (input_line[last] == '\n') {	/* remove any newline */
+X		input_line[last] = '\0';
+X		/* Watch out that we don't backup beyond 0 (1-1-1) */
+X		if (last > 0)
+X		    --last;
+X	    } else if (last + 1 >= MAX_LINE_LEN)
+X		int_error("Input line too long", NO_CARET);
+X
+X	    if (input_line[last] == '\\') {	/* line continuation */
+X		start = last;
+X		more = TRUE;
+X	    } else
+X		more = FALSE;
+X	}
+X#ifndef READLINE
+X	if (more && interactive)
+X	    fputs("> ", stderr);
+X#endif
+X    } while (more);
+X    return(0);
+X}
+X
+X#ifdef VFORK
+X
+Xdo_shell()
+X{
+X    register char  *shell;
+X    register int    p;
+X    static int      execstat;
+X    if (!(shell = getenv("SHELL")))
+X	shell = SHELL;
+X#ifdef AMIGA_AC_5
+X    execstat = fexecl(shell, shell, NULL);
+X#else
+X    if ((p = vfork()) == 0) {
+X	execstat = execl(shell, shell, NULL);
+X	_exit(1);
+X    } else if (p == -1)
+X	os_error("vfork failed", c_token);
+X    else
+X	while (wait(NULL) != p)
+X#endif
+X	    ;
+X    if (execstat == -1)
+X	os_error("shell exec failed", c_token);
+X    (void) putc('\n', stderr);
+X}
+X#else				/* VFORK */
+X
+X#ifdef AMIGA_SC_6_1
+Xdo_shell()
+X{
+X    register char  *shell;
+X    if (!(shell = getenv("SHELL")))
+X	shell = SHELL;
+X
+X    if (system(shell))
+X	os_error("system() failed", NO_CARET);
+X
+X    (void) putc('\n', stderr);
+X}
+X#else				/* AMIGA_SC_6_1 */
+X#ifdef OS2
+Xdo_shell()
+X{
+X    register char  *shell;
+X    if (!(shell = getenv("COMSPEC")))
+X	shell = SHELL;
+X
+X    if (system(shell) == -1 )
+X	os_error("system() failed", NO_CARET);
+X
+X    (void) putc('\n', stderr);
+X}
+X#else                           /* ! OS2 */
+X#define EXEC "exec "
+Xdo_shell()
+X{
+X    static char     exec[100] = EXEC;
+X    register char  *shell;
+X    if (!(shell = getenv("SHELL")))
+X	shell = SHELL;
+X
+X    if (system(strncpy(&exec[sizeof(EXEC) - 1], shell,
+X		       sizeof(exec) - sizeof(EXEC) - 1)))
+X	os_error("system() failed", NO_CARET);
+X
+X    (void) putc('\n', stderr);
+X}
+X#endif                          /* OS2 */
+X#endif				/* AMIGA_SC_6_1 */
+X#endif				/* VFORK */
+X#endif				/* MSDOS */
+X#endif				/* vms */
+X
+X#ifdef _Windows
+X/* there is a system like call on MS Windows but it is a bit difficult to 
+X   use, so we will invoke the command interpreter and use it to execute the 
+X   commands */
+Xint winsystem(s)
+Xchar *s;
+X{
+X	LPSTR comspec;
+X	LPSTR execstr;
+X	LPSTR p;
+X
+X	/* get COMSPEC environment variable */
+X#ifdef WIN32
+X	char envbuf[81];
+X	GetEnvironmentVariable("COMSPEC", envbuf, 80);
+X	if (*envbuf == '\0')
+X		comspec = "\\command.com";
+X	else
+X		comspec = envbuf;
+X#else
+X	p = GetDOSEnvironment();
+X	comspec = "\\command.com";
+X	while (*p) {
+X		if (!strncmp(p,"COMSPEC=",8)) {
+X			comspec=p+8;
+X			break;
+X		}
+X		p+=strlen(p)+1;
+X	}
+X#endif
+X	/* if the command is blank we must use command.com */
+X	p = s;
+X	while ((*p == ' ') || (*p == '\n') || (*p == '\r'))
+X		p++;
+X	if (*p == '\0')
+X	{
+X		WinExec(comspec, SW_SHOWNORMAL);
+X		}
+X	else
+X	{
+X		/* attempt to run the windows/dos program via windows */
+X		if (WinExec(s, SW_SHOWNORMAL) <= 32)
+X		{
+X			/* attempt to run it as a dos program from command line */
+X			execstr = (char *) malloc(strlen(s) + strlen(comspec) + 6);
+X			strcpy(execstr, comspec);
+X			strcat(execstr, " /c ");
+X			strcat(execstr, s);
+X			WinExec(execstr, SW_SHOWNORMAL);
+X			free(execstr);
+X			}
+X		}
+X
+X	/* regardless of the reality return OK - the consequences of */
+X	/* failure include shutting down Windows */
+X	return(0);		/* success */
+X	}
+X#endif
+END_OF_FILE
+  if test 57750 -ne `wc -c <'gnuplot/command.c.B'`; then
+    echo shar: \"'gnuplot/command.c.B'\" unpacked with wrong size!
+  elif test -f 'gnuplot/command.c.A' ; then
+    echo shar: Combining  \"'gnuplot/command.c'\" \(116680 characters\)
+    cat 'gnuplot/command.c.A' 'gnuplot/command.c.B' > 'gnuplot/command.c'
+    if test 116680 -ne `wc -c <'gnuplot/command.c'`; then
+      echo shar: \"'gnuplot/command.c'\" combined with wrong size!
+    else
+      rm gnuplot/command.c.A gnuplot/command.c.B
+    fi
+  fi
+  # end of 'gnuplot/command.c.B'
+fi
+if test -f 'gnuplot/help.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/help.c'\"
+else
+  echo shar: Extracting \"'gnuplot/help.c'\" \(19348 characters\)
+  sed "s/^X//" >'gnuplot/help.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: help.c%v 3.50.1.16 1993/08/27 05:04:42 woo Exp $";
+X#endif
+X
+X
+X/* GNUPLOT - help.c */
+X/*
+X * Copyright (C) 1986 - 1993   Thomas Williams, Colin Kelley
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHORS
+X * 
+X *   Original Software:
+X *     Thomas Williams,  Colin Kelley.
+X * 
+X *   Gnuplot 2.0 additions:
+X *       Russell Lang, Dave Kotz, John Campbell.
+X *
+X *   Gnuplot 3.0 additions:
+X *       Gershon Elber and many others.
+X * 
+X * There is a mailing list for gnuplot users. Note, however, that the
+X * newsgroup 
+X *	 comp.graphics.gnuplot 
+X * is identical to the mailing list (they
+X * both carry the same set of messages). We prefer that you read the
+X * messages through that newsgroup, to subscribing to the mailing list.
+X * (If you can read that newsgroup, and are already on the mailing list,
+X * please send a message info-gnuplot-request@dartmouth.edu, asking to be
+X * removed from the mailing list.)
+X *
+X * The address for mailing to list members is
+X *	   info-gnuplot@dartmouth.edu
+X * and for mailing administrative requests is 
+X *	   info-gnuplot-request@dartmouth.edu
+X * The mailing list for bug reports is 
+X *	   bug-gnuplot@dartmouth.edu
+X * The list of those interested in beta-test versions is
+X *	   info-gnuplot-beta@dartmouth.edu
+X */
+X
+X#include <stdio.h>
+X#if defined (ATARI)
+X#include "plot.h"
+X#else
+X
+Xextern int strcmp();
+Xextern int      strlen();
+Xextern char *strcpy();
+Xextern char *strncpy();
+Xextern char *strcat();
+Xextern char *strncat();
+Xextern char *getenv();
+Xextern FILE *fopen();
+Xextern char *malloc();
+X#endif
+X
+X#include <errno.h>
+Xextern int errno;
+X
+Xextern int instring();
+X
+X#define	SAME	0	/* for strcmp() */
+X
+X#include "help.h"	/* values passed back */
+X
+X#if defined(__EMX__) || defined(DJGPP) || defined(DOS386)
+X#ifdef MSDOS
+X#undef MSDOS	/* we have plenty of memory under __EMX__ or DJGPP */
+X#endif
+X#ifdef unix
+X#undef unix	/* we are not unix */
+X#endif
+X#endif
+X
+X#ifdef OS2
+X  /* GCC defines unix, but no PAGER, so... */
+X#ifdef unix
+X#undef unix
+X#endif
+X#endif  /* OS2 */
+X
+X/* help -- help subsystem that understands defined keywords
+X**
+X** Looks for the desired keyword in the help file at runtime, so you
+X** can give extra help or supply local customizations by merely editing
+X** the help file.
+X**
+X** The original (single-file) idea and algorithm is by John D. Johnson,
+X** Hewlett-Packard Company.  Thanx and a tip of the Hatlo hat!
+X**
+X** Much extension by David Kotz for use in gnutex, and then in gnuplot.
+X** Added output paging support, both unix and builtin. Rewrote completely
+X** to read helpfile into memory, avoiding reread of help file. 12/89.
+X**
+X** Modified by Russell Lang to avoid reading completely into memory
+X** if MSDOS defined.  This uses much less memory.  6/91
+X**
+X** The help file looks like this (the question marks are really in column 1):
+X**
+X** 	?topic
+X** 	This line is printed when the user wants help on "topic".
+X** 	?keyword
+X** 	?Keyword
+X** 	?KEYWORD
+X** 	These lines will be printed on the screen if the user wanted
+X** 	help on "keyword", "Keyword", or "KEYWORD".  No casefolding is
+X**	done on the keywords.
+X** 	?subject
+X** 	?alias
+X** 	This line is printed for help on "subject" and "alias".
+X** 	?
+X**	??
+X** 	Since there is a null keyword for this line, this section
+X** 	is printed when the user wants general help (when a help
+X** 	keyword isn't given).  A command summary is usually here.
+X**	Notice that the null keyword is equivalent to a "?" keyword
+X**	here, because of the '?' and '??' topic lines above.
+X**   If multiple keywords are given, the first is considered the 
+X**   'primary' keyword. This affects a listing of available topics.
+X** 	?last-subject
+X** 	Note that help sections are terminated by the start of the next
+X** 	'?' entry or by EOF.  So you can't have a leading '?' on a line
+X** 	of any help section.  You can re-define the magic character to
+X**	recognize in column 1, though, if '?' is too useful.  (Try ^A.)
+X*/
+X
+X#define	KEYFLAG	'?'	/* leading char in help file topic lines */
+X
+X/*
+X** Calling sequence:
+X**	int result;		# 0 == success
+X**	char *keyword;		# topic to give help on
+X**	char *pathname;		# path of help file
+X**      int subtopics;		# set to TRUE if only subtopics to be listed
+X**				# returns TRUE if subtopics were found
+X**	result = help(keyword, pathname, &subtopics);
+X** Sample:
+X**	cmd = "search\n";
+X**	helpfile = "/usr/local/lib/program/program.help";
+X**	subtopics = FALSE;
+X**	if (help(cmd, helpfile, &subtopics) != H_FOUND)
+X**		printf("Sorry, no help for %s", cmd);
+X**
+X**
+X** Speed this up by replacing the stdio calls with open/close/read/write.
+X*/
+X#ifdef	WDLEN
+X#  define	PATHSIZE	WDLEN
+X#else
+X#  define	PATHSIZE	BUFSIZ
+X#endif
+X
+Xtypedef int boolean;
+X#ifndef TRUE
+X#define TRUE (1)
+X#define FALSE (0)
+X#endif
+X
+Xtypedef struct line_s LINEBUF;
+Xstruct line_s {
+X    char *line;			/* the text of this line */
+X    LINEBUF *next;			/* the next line */
+X};
+X
+Xtypedef struct linkey_s LINKEY;
+Xstruct linkey_s {
+X    char *key;				/* the name of this key */
+X    long pos;			    /* ftell position */
+X    LINEBUF *text;			/* the text for this key */
+X    boolean primary;		/* TRUE -> is a primary name for a text block */
+X    LINKEY *next;			/* the next key in linked list */
+X};
+X
+Xtypedef struct key_s KEY;
+Xstruct key_s {
+X    char *key;				/* the name of this key */
+X    long pos;			    /* ftell position */
+X    LINEBUF *text;			/* the text for this key */
+X    boolean primary;		/* TRUE -> is a primary name for a text block */
+X};
+Xstatic LINKEY *keylist = NULL;	/* linked list of keys */
+Xstatic KEY *keys = NULL;		/* array of keys */
+Xstatic int keycount = 0;		/* number of keys */
+Xstatic FILE *helpfp = NULL;
+X
+Xstatic int LoadHelp();
+Xstatic void sortkeys();
+Xstatic int keycomp();
+Xstatic LINEBUF *storeline();
+Xstatic LINKEY *storekey();
+Xstatic KEY *FindHelp();
+Xstatic boolean Ambiguous();
+X
+X/* Help output */
+Xstatic void PrintHelp();
+Xstatic void ShowSubtopics();
+Xstatic void StartOutput();
+Xstatic void OutLine();
+Xstatic void EndOutput();
+Xstatic FILE *outfile;		/* for unix pager, if any */
+Xstatic int pagelines;		/* count for builtin pager */
+X#define SCREENSIZE 24		/* lines on screen (most have at least 24) */
+X
+X/* help:
+X * print a help message 
+X * also print available subtopics, if subtopics is TRUE
+X */
+Xhelp(keyword, path, subtopics)
+X	char *keyword;		/* on this topic */
+X	char *path;			/* from this file */
+X	boolean *subtopics;	/* (in) - subtopics only? */
+X						/* (out) - are there subtopics? */
+X{
+X    static char oldpath[PATHSIZE] = "";	/* previous help file */
+X    int status;			/* result of LoadHelp */
+X    KEY *key;			/* key that matches keyword */
+X
+X    /*
+X	** Load the help file if necessary (say, first time we enter this routine,
+X	** or if the help file changes from the last time we were called).
+X	** Also may occur if in-memory copy was freed.
+X	** Calling routine may access errno to determine cause of H_ERROR.
+X	*/
+X    errno = 0;
+X    if (strncmp(oldpath, path, PATHSIZE) != SAME)
+X	 FreeHelp();
+X    if (keys == NULL) {
+X	   status = LoadHelp(path);
+X	   if (status == H_ERROR)
+X		return(status);
+X
+X	   /* save the new path in oldpath */
+X	   if (strlen(path) < PATHSIZE)
+X		(void) strcpy(oldpath, path);
+X	   else {				/* not enough room in oldpath, sigh */
+X		  (void) strncpy(oldpath, path, PATHSIZE - 1);
+X		  oldpath[PATHSIZE - 1] = '\0';
+X	   }
+X    }
+X
+X    /* look for the keyword in the help file */
+X    key = FindHelp(keyword);
+X    if (key != NULL) {
+X	   /* found the keyword: print help and return */
+X	   PrintHelp(key, subtopics);
+X	   status = H_FOUND;
+X    } else {
+X	   status = H_NOTFOUND;
+X    }
+X
+X    return(status);
+X}
+X
+X/* we only read the file once, into memory
+X * except for MSDOS when we don't read all the file -
+X * just the keys and location of the text
+X */
+Xstatic int
+XLoadHelp(path)
+X	char *path;
+X{
+X    LINKEY *key;			/* this key */
+X    long pos;				/* ftell location within help file */
+X    char buf[BUFSIZ];		/* line from help file */
+X    LINEBUF *head;			/* head of text list  */
+X    LINEBUF *firsthead = NULL;
+X    boolean primary;		/* first ? line of a set is primary */
+X    boolean flag;
+X
+X    if ((helpfp = fopen(path, "r")) == NULL) {
+X	   /* can't open help file, so error exit */
+X	   return (H_ERROR);
+X    }
+X
+X    /*
+X	** The help file is open.  Look in there for the keyword.
+X	*/
+X    (void) fgets(buf, BUFSIZ - 1, helpfp);
+X    while (!feof(helpfp)) {
+X	   /*
+X	    ** Make an entry for each synonym keyword
+X	    */
+X	   primary = TRUE;
+X	   while (buf[0] == KEYFLAG) {
+X		  key = storekey(buf+1);	/* store this key */
+X	      key->primary = primary;
+X	      key->text = NULL;			/* fill in with real value later */
+X	      key->pos = 0;				/* fill in with real value later */
+X		  primary = FALSE;
+X		  pos = ftell(helpfp);
+X		  if (fgets(buf, BUFSIZ - 1, helpfp) == (char *)NULL)
+X		    break;
+X	   }
+X	   /*
+X	    ** Now store the text for this entry.
+X	    ** buf already contains the first line of text.
+X	    */
+X#ifndef MSDOS
+X	   firsthead = storeline(buf);
+X	   head = firsthead;
+X#endif
+X	   while ( (fgets(buf, BUFSIZ - 1, helpfp) != (char *)NULL)
+X		&& (buf[0] != KEYFLAG) ){
+X#ifndef MSDOS
+X		  /* save text line */
+X		  head->next = storeline(buf);
+X		  head = head->next;
+X#endif
+X	   }
+X	   /* make each synonym key point to the same text */
+X	   do {
+X	      key->pos = pos;
+X	      key->text = firsthead;
+X	      flag = key->primary;
+X	      key = key->next;
+X	   } while ( flag!=TRUE  &&  key!=NULL );
+X    }
+X#ifndef MSDOS
+X    (void) fclose(helpfp);
+X#endif
+X
+X    /* we sort the keys so we can use binary search later */
+X    sortkeys();
+X	return(H_FOUND); /* ok */
+X}
+X
+X/* make a new line buffer and save this string there */
+Xstatic LINEBUF *
+Xstoreline(text)
+X	char *text;
+X{
+X    LINEBUF *new;
+X
+X    new = (LINEBUF *)malloc(sizeof(LINEBUF));
+X    if (new == NULL)
+X	 int_error("not enough memory to store help file", -1);
+X    if (text != NULL) {
+X	   new->line = (char *) malloc((unsigned int)(strlen(text)+1));
+X	   if (new->line == NULL)
+X		int_error("not enough memory to store help file", -1);
+X	   (void) strcpy(new->line, text);
+X    } else
+X	 new->line = NULL;
+X
+X    new->next = NULL;
+X
+X    return(new);
+X}
+X
+X/* Add this keyword to the keys list, with the given text */
+Xstatic LINKEY *
+Xstorekey(key)
+X	char *key;
+X{
+X    LINKEY *new;
+X
+X    key[strlen(key)-1] = '\0'; /* cut off \n  */
+X
+X    new = (LINKEY *)malloc(sizeof(LINKEY));
+X    if (new == NULL)
+X	 int_error("not enough memory to store help file", -1);
+X    new->key = (char *) malloc((unsigned int)(strlen(key)+1));
+X    if (new->key == NULL)
+X	 int_error("not enough memory to store help file", -1);
+X    (void) strcpy(new->key, key);
+X
+X    /* add to front of list */
+X    new->next = keylist;
+X    keylist = new;
+X    keycount++;
+X	return(new);
+X}
+X
+X/* we sort the keys so we can use binary search later */
+X/* We have a linked list of keys and the number.
+X * to sort them we need an array, so we reform them into an array,
+X * and then throw away the list.
+X */
+Xstatic void
+Xsortkeys()
+X{
+X    LINKEY *p,*n;			/* pointers to linked list */
+X    int i;				/* index into key array */
+X    
+X    /* allocate the array */
+X    keys = (KEY *)malloc((unsigned int)((keycount+1) * sizeof(KEY)));
+X    if (keys == NULL)
+X	 int_error("not enough memory to store help file", -1);
+X    
+X    /* copy info from list to array, freeing list */
+X    for (p = keylist, i = 0; p != NULL; p = n, i++) {
+X	   keys[i].key = p->key;
+X	   keys[i].pos = p->pos;
+X	   keys[i].text = p->text;
+X	   keys[i].primary = p->primary;
+X	   n = p->next;
+X	   free( (char *)p );
+X    }
+X
+X    /* a null entry to terminate subtopic searches */
+X    keys[keycount].key = NULL;
+X    keys[keycount].pos = 0;
+X    keys[keycount].text = NULL;
+X
+X    /* sort the array */
+X    /* note that it only moves objects of size (two pointers + long + int) */
+X    /* it moves no strings */
+X    qsort((char *)keys, keycount, sizeof(KEY), keycomp);
+X}
+X
+Xstatic int
+Xkeycomp(a, b)
+X	KEY *a,*b;
+X{
+X    return (strcmp(a->key, b->key));
+X}
+X
+X/* Free the help file from memory. */
+X/* May be called externally if space is needed */
+Xvoid
+XFreeHelp()
+X{
+X    int i;				/* index into keys[] */
+X    LINEBUF *t, *next;
+X
+X    if (keys == NULL)
+X	 return;
+X
+X    for (i = 0; i < keycount; i++) {
+X	   free( (char *)keys[i].key );
+X	   if (keys[i].primary)   /* only try to release text once! */
+X	   for (t = keys[i].text; t != NULL; t = next) {
+X		  free( (char *)t->line );
+X		  next = t->next;
+X		  free( (char *)t );
+X	   }
+X    }
+X    free( (char *)keys );
+X    keys = NULL;
+X    keycount = 0;
+X#ifdef MSDOS
+X    (void) fclose(helpfp);
+X#endif
+X}
+X
+X/* FindHelp:
+X *  Find the key that matches the keyword.
+X *  The keys[] array is sorted by key.
+X *  We could use a binary search, but a linear search will aid our
+X *  attempt to allow abbreviations. We search for the first thing that
+X *  matches all the text we're given. If not an exact match, then
+X *  it is an abbreviated match, and there must be no other abbreviated
+X *  matches -- for if there are, the abbreviation is ambiguous. 
+X *  We print the ambiguous matches in that case, and return not found.
+X */
+Xstatic KEY *				/* NULL if not found */
+XFindHelp(keyword)
+X	char *keyword;			/* string we look for */
+X{
+X    KEY *key;
+X    int len = strlen(keyword);
+X    int compare;
+X
+X    for (key = keys, compare = 1; key->key != NULL && compare > 0; key++) {
+X	   compare = strncmp(keyword, key->key, len);
+X	   if (compare == 0)	/* we have a match! */
+X		if (!Ambiguous(key, len)) {
+X		    /* non-ambiguous abbreviation */
+X		    (void) strcpy(keyword, key->key); /* give back the full spelling */
+X		    return(key);		/* found!! */
+X		}
+X    }
+X
+X    /* not found, or ambiguous */
+X    return(NULL);
+X}
+X
+X/* Ambiguous:
+X * Check the key for ambiguity up to the given length.
+X * It is ambiguous if it is not a complete string and there are other
+X * keys following it with the same leading substring.
+X */
+Xstatic boolean
+XAmbiguous(key, len)
+X	KEY *key;
+X	int len;
+X{
+X    char *first;
+X    char *prev;
+X    boolean status = FALSE;	/* assume not ambiguous */
+X    int compare;
+X    int sublen;
+X
+X    if (key->key[len] == '\0')
+X	 return(FALSE);
+X    
+X    for (prev = first = key->key, compare = 0, key++;
+X	    key->key != NULL && compare == 0; key++) {
+X	   compare = strncmp(first, key->key, len);
+X	   if (compare == 0) {
+X		  /* So this key matches the first one, up to len.
+X		   * But is it different enough from the previous one
+X		   * to bother printing it as a separate choice?
+X		   */
+X		  sublen = instring(prev+len, ' ');
+X		  if (strncmp(key->key, prev, len+sublen) != 0) {
+X			 /* yup, this is different up to the next space */
+X			 if (!status) {
+X				/* first one we have printed is special */
+X				fprintf(stderr, 
+X					   "Ambiguous request '%.*s'; possible matches:\n",
+X					   len, first);
+X				fprintf(stderr, "\t%s\n", prev);
+X				status = TRUE;
+X			 }
+X			 fprintf(stderr, "\t%s\n", key->key);
+X			 prev = key->key;
+X		  }
+X	   }
+X    }
+X    
+X    return(status);
+X}
+X
+X/* PrintHelp:
+X * print the text for key
+X */
+Xstatic void
+XPrintHelp(key, subtopics)
+X	KEY *key;
+X	boolean *subtopics;		/* (in) - subtopics only? */
+X						/* (out) - are there subtopics? */
+X{
+X    LINEBUF *t;
+X#ifdef MSDOS
+X    char buf[BUFSIZ];		/* line from help file */
+X#endif
+X
+X    StartOutput();
+X
+X    if (subtopics == NULL || !*subtopics) {
+X#ifdef MSDOS
+X	   fseek(helpfp,key->pos,0);
+X	   while ( (fgets(buf, BUFSIZ - 1, helpfp) != (char *)NULL)
+X			&& (buf[0] != KEYFLAG) ) {
+X		  OutLine(buf);
+X	   }
+X#else
+X	   for (t = key->text; t != NULL; t = t->next)
+X		OutLine(t->line);		/* print text line */
+X#endif
+X    }
+X
+X    ShowSubtopics(key, subtopics);
+X    OutLine("\n");
+X
+X    EndOutput();
+X}
+X
+X/* ShowSubtopics:
+X *  Print a list of subtopic names
+X */
+X#define PER_LINE 4
+X
+Xstatic void
+XShowSubtopics(key, subtopics)
+X	KEY *key;				/* the topic */
+X	boolean *subtopics;		/* (out) are there any subtopics */
+X{
+X    int subt = 0;			/* printed any subtopics yet? */
+X    KEY *subkey;			/* subtopic key */
+X    int len;				/* length of key name */
+X    char line[BUFSIZ];		/* subtopic output line */
+X    char *start;			/* position of subname in key name */
+X    int sublen;			/* length of subname */
+X    int pos;
+X    char *prev = NULL;		/* the last thing we put on the list */
+X
+X    *line = '\0';
+X    len = strlen(key->key);
+X
+X    for (subkey = key+1; subkey->key != NULL; subkey++) {
+X	   if (strncmp(subkey->key, key->key, len) == 0) {
+X		  /* find this subtopic name */
+X		  start = subkey->key + len;
+X		  if (len > 0)
+X		    if (*start == ' ')
+X			 start++;		/* skip space */
+X		    else
+X			 break;		/* not the same topic after all  */
+X		  else			/* here we are looking for main topics */
+X		    if (!subkey->primary)
+X			 continue;	/* not a main topic */
+X		  sublen = instring(start, ' ');
+X		  if (prev == NULL || strncmp(start, prev, sublen) != 0) {
+X			 if (subt == 0) {
+X				subt++;
+X				if (len)
+X				  (void) sprintf(line, "\nSubtopics available for %s:\n", 
+X						key->key);
+X				else
+X				  (void) sprintf(line, "\nHelp topics available:\n");
+X				OutLine(line);
+X				*line = '\0';
+X				pos = 0;
+X			 }
+X			 if (pos == PER_LINE) {
+X				(void) strcat(line, "\n");
+X				OutLine(line);
+X				*line = '\0';
+X				pos = 0;
+X			 }
+X			 /* adapted by DvdSchaaf */
+X			 {
+X#define FIRSTCOL	6
+X#define COLLENGTH	15
+X				int spacelen, ispacelen;
+X
+X			 	if( pos == 0 )
+X					spacelen = FIRSTCOL;
+X			 	for( ispacelen = 0;
+X					ispacelen < spacelen; ispacelen++ )
+X					(void) strcat(line, " ");
+X			 	/* commented out *
+X			 	(void) strcat(line, "\t");
+X			 	*/
+X			 	(void) strncat(line, start, sublen);
+X			 	spacelen = COLLENGTH - sublen;
+X			 	if( spacelen <= 0 )
+X					spacelen = 1;
+X			 }
+X			 pos++;
+X			 prev = start;
+X		  }
+X	   } else {
+X		  /* new topic */
+X		  break;
+X	   }
+X    }
+X    
+X    /* put out the last line */
+X    if (subt > 0 && pos > 0) {
+X	   (void) strcat(line, "\n");
+X	   OutLine(line);
+X    }
+X    
+X/*
+X    if (subt == 0) {
+X	   OutLine("\n");
+X	   OutLine("No subtopics available\n");
+X    }
+X*/
+X    
+X    if (subtopics)
+X	 *subtopics = (subt != 0);
+X}
+X
+X
+X/* StartOutput:
+X * Open a file pointer to a pipe to user's $PAGER, if there is one,
+X * otherwise use our own pager.
+X */
+Xstatic void
+XStartOutput()
+X{
+X#ifdef unix
+X    char *pager_name = getenv("PAGER");
+X    extern FILE *popen();
+X
+X    if (pager_name != NULL && *pager_name != '\0')
+X	 if ((outfile = popen(pager_name, "w")) != (FILE *)NULL)
+X	   return;			/* success */
+X    outfile = stderr;
+X    /* fall through to built-in pager */
+X#endif
+X
+X    /* built-in pager */
+X    pagelines = 0;
+X}
+X
+X/* write a line of help output  */
+X/* line should contain only one \n, at the end */
+Xstatic void
+XOutLine(line)
+X	char *line;
+X{
+X    int c;				/* dummy input char */
+X#ifdef unix
+X    if (outfile != stderr) {
+X	   fputs(line, outfile);
+X	   return;
+X    }
+X#endif
+X
+X    /* built-in dumb pager */
+X    /* leave room for prompt line */
+X    if (pagelines >= SCREENSIZE - 2) {
+X	   fprintf(stderr,"Press return for more: ");
+X	   do 
+X		c = getchar();
+X	   while (c != EOF && c != '\n');
+X	   pagelines = 0;
+X    }
+X    fputs(line, stderr);
+X    pagelines++;
+X}
+X
+Xstatic void
+XEndOutput()
+X{
+X#ifdef unix
+X    extern int pclose();
+X
+X    if (outfile != stderr)
+X	 (void) pclose(outfile);
+X#endif
+X}
+END_OF_FILE
+  if test 19348 -ne `wc -c <'gnuplot/help.c'`; then
+    echo shar: \"'gnuplot/help.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/help.c'
+fi
+echo shar: End of archive 6 \(of 33\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 33 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

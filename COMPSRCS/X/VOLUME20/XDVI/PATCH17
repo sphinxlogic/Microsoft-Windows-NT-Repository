@@ -1,0 +1,1532 @@
+Newsgroups: comp.sources.x
+From: vojta@math.berkeley.edu (Paul Vojta)
+Subject: v20i055:  xdvi - dvi previewer, Patch17
+Message-ID: <1993Jun28.145004.7783@sparky.imd.sterling.com>
+X-Md4-Signature: c7f8813b55f21558451304b8298a7a85
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Mon, 28 Jun 1993 14:50:04 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: vojta@math.berkeley.edu (Paul Vojta)
+Posting-number: Volume 20, Issue 55
+Archive-name: xdvi/patch17
+Environment: X10, X11
+Patch-To: xdvi: Volume 17, Issue 23-25,27,40-41,53,106-107, Volume 18 Issue 53-54
+
+This patch:
+  o  Fixes some bugs in the greyscaling code.
+  o  Allows you to specify the script for making pk fonts, and have some
+     control over its arguments.
+  o  Rewrites mksedscript in /bin/sh instead of /bin/csh (not all sites have
+     csh, it seems).
+
+It is also likely to be the last version of xdvi to support X10 (which has
+been untested for quite some time anyway), and the last to support .pxl
+files.
+
+--Paul Vojta, vojta@math.berkeley.edu
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xdvi.p17
+# Wrapped by chris@sparky on Mon Jun 28 09:26:50 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'xdvi.p17' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xdvi.p17'\"
+else
+  echo shar: Extracting \"'xdvi.p17'\" \(40142 characters\)
+  sed "s/^X//" >'xdvi.p17' <<'END_OF_FILE'
+XPrereq: 16
+Xdiff -cr xdvi_old/patchlevel.h xdvi_new/patchlevel.h
+X*** xdvi_old/patchlevel.h	Tue Aug 25 12:22:44 1992
+X--- xdvi_new/patchlevel.h	Fri May  7 19:46:10 1993
+X***************
+X*** 1 ****
+X! #define PATCHLEVEL 16
+X--- 1 ----
+X! #define PATCHLEVEL 17
+Xdiff -cr xdvi_old/MakeTeXPK xdvi_new/MakeTeXPK
+X*** xdvi_old/MakeTeXPK	Fri Jun 19 13:32:07 1992
+X--- xdvi_new/MakeTeXPK	Sun Dec 20 21:00:27 1992
+X***************
+X*** 36,42 ****
+X  BDPI=$3
+X  MAG=$4
+X  MODE=$5
+X! 
+X  umask 0
+X  
+X  if test "$MODE" = ""
+X--- 36,48 ----
+X  BDPI=$3
+X  MAG=$4
+X  MODE=$5
+X! #
+X! #   Prevent X-windows from displaying.  Except it doesn't always work;
+X! #   some sh'ells don't seem to understand unset.  There are also some
+X! #   versions of METAFONT that don't work if the DISPLAY isn't set and
+X! #   the term type is set to xterm.
+X! #
+X! # unset DISPLAY
+X  umask 0
+X  
+X  if test "$MODE" = ""
+X***************
+X*** 56,61 ****
+X--- 62,70 ----
+X     elif test $BDPI = 100
+X     then
+X        MODE=nextscreen
+X+    elif test $BDPI = 72
+X+    then
+X+       MODE=seventwo
+X     elif test $BDPI = 635
+X     then
+X        MODE=linolo
+X***************
+X*** 84,89 ****
+X--- 93,99 ----
+X  if test ! -d $DESTDIR
+X  then
+X     mkdir $DESTDIR
+X+    chmod 777 $DESTDIR
+X  fi
+X  
+X  if test "$6" != ""
+X***************
+X*** 92,100 ****
+X--- 102,116 ----
+X     if test ! -d $DESTDIR
+X     then
+X        mkdir $DESTDIR
+X+       chmod 777 $DESTDIR
+X     fi
+X  fi
+X  
+X+ # added by gwb, to allow searching in current dir before cd'ing
+X+ if test "$MFINPUTS" != ""
+X+ then
+X+    MFINPUTS=$MFINPUTS:`pwd`; export MFINPUTS
+X+ fi
+X  mkdir $TEMPDIR
+X  cd $TEMPDIR
+X  
+X***************
+X*** 121,126 ****
+X--- 137,143 ----
+X     fi
+X  fi
+X  
+X+ unset DISPLAY
+X  echo "mf \"\\mode:=$MODE; mag:=$MAG; scrollmode; input $NAME\" < /dev/null"
+X  mf "\mode:=$MODE; mag:=$MAG; scrollmode; input $NAME" < /dev/null
+X  if test ! -r $GFNAME
+X***************
+X*** 137,141 ****
+X--- 154,159 ----
+X  mv $PKNAME $DESTDIR/pktmp.$$
+X  cd $DESTDIR
+X  mv pktmp.$$ $PKNAME
+X+ chmod a+r $PKNAME
+X  
+X  exit 0
+Xdiff -cr xdvi_old/README xdvi_new/README
+X*** xdvi_old/README	Wed Sep 16 17:34:48 1992
+X--- xdvi_new/README	Tue May 11 16:20:58 1993
+X***************
+X*** 8,14 ****
+X--- 8,22 ----
+X  	If your site uses virtual fonts, do the same thing with the
+X  	DEFAULT_VF_PATH variable.  Note that support of virtual fonts in xdvi
+X  	does not include support of built-in Postscript<tm> fonts.
+X+ 	Usually you will want to use the same font files as your printer;
+X+ 	given a choice, however, it has been suggested that write-white
+X+ 	fonts look better.
+X  
+X+ 	(Note:  If you are using both imake and the "/*" or "/**" syntax for
+X+ 		recursive searching of subdirectories, you should enclose
+X+ 		the string in quotes, since /* marks the beginning of a C
+X+ 		comment, and the Imakefile is processed by cpp.)
+X+ 
+X  	(Note:  for X10 compilation, use Makefile_10 instead of Makefile.)
+X  
+X  	You may also wish to change other compilation options; they are
+X***************
+X*** 72,77 ****
+X--- 80,88 ----
+X  			paragraph in xdvi_man.sed for more details.  This
+X  			option turns off that paragraph.
+X  	NOTOOL		(X11 only; xdvi.c)  Compile using raw X calls.
+X+ 			If you use this, you should also change the LIBS=
+X+ 			line in the Makefile or the DEPLIBS and LOCAL_LIBRARIES
+X+ 			line in the Imakefile.
+X  	BUTTONS		(xdvi.c)  Put radio buttons on the right side of the
+X  			window for commonly used commands.
+X  	A4		(xdvi.c)  Use European size paper by default.
+X***************
+X*** 80,85 ****
+X--- 91,98 ----
+X  	TEXXET		(everything)  Enables op-codes 250 and 251 (used for
+X  			right-to-left languages).
+X  	BDPI		(xdvi.c) Default number of pixels per inch to use.
+X+ 			Don't forget to make corresponding changes to
+X+ 			DEFAULT_FONT_SIZES.
+X  	GREY		(everything)  Use greyscale anti-aliasing for
+X  			displaying shrunken bitmaps.
+X  	MAKEPK		(font_open.c)  If a font is not found, then try to
+X***************
+X*** 264,268 ****
+X--- 277,285 ----
+X     34.	In the code for greyscale anti-aliasing, try to allocate a colormap
+X  	so that GXor operations can be used for drawing.  Also interpolate
+X  	between foreground and background colors.
+X+ --  Patchlevel 17: --
+X+    35.	Fixed some bugs in the greyscale code.
+X+    36.	Implemented an environment variable for the MakeTeXPK script.
+X+    37.	Replaced mksedscript with a script using /bin/sh.
+X  
+X  Paul Vojta, vojta@math.berkeley.edu
+Xdiff -cr xdvi_old/README.VMS xdvi_new/README.VMS
+X*** xdvi_old/README.VMS	Wed Sep 16 17:19:08 1992
+X--- xdvi_new/README.VMS	Mon May 31 15:55:03 1993
+X***************
+X*** 344,350 ****
+X     XDVI also recognizes the "PKFONTS" logical name, which is checked after
+X     "XDVIFONTS" but before "TEXFONTS".
+X  
+X!    The logical name "XDVISIZES" must be set to indicate which sizes of fonts are
+X     available.  It should consist of a list of numbers separated by slashes.  If
+X     the list begins with a slash, the system default sizes are used, as well.
+X     Sizes are expressed in dots per inch; decimals may be used for "pxl" files:
+X--- 344,350 ----
+X     XDVI also recognizes the "PKFONTS" logical name, which is checked after
+X     "XDVIFONTS" but before "TEXFONTS".
+X  
+X!    The logical name "XDVISIZES" may be set to indicate which sizes of fonts are
+X     available.  It should consist of a list of numbers separated by slashes.  If
+X     the list begins with a slash, the system default sizes are used, as well.
+X     Sizes are expressed in dots per inch; decimals may be used for "pxl" files:
+Xdiff -cr xdvi_old/XDVI.RNH xdvi_new/XDVI.RNH
+X*** xdvi_old/XDVI.RNH	Wed Sep 16 17:19:10 1992
+X--- xdvi_new/XDVI.RNH	Mon May 31 15:55:03 1993
+X***************
+X*** 11,16 ****
+X--- 11,17 ----
+X  .! Added new switches for patchlevel 11.  Scott Allendorf.
+X  .! Added new switches for patchlevel 14.  Scott Allendorf.
+X  .! Added new switches for patchlevel 16.  Scott Allendorf.
+X+ .! Updated for patchlevel 17.             Scott Allendorf.
+X  .!
+X  .NO PAGING
+X  .NO FLAGS ALL
+X***************
+X*** 578,584 ****
+X  .INDENT -1
+X  3 XDVISIZES
+X  .BREAK
+X! The logical name "XDVISIZES" must be set to indicate which
+X  sizes of fonts are available.  It should consists of a list of numbers
+X  separated by slashes.  If the list begins with a slash, the system
+X  default sizes are used, as well.  Sizes are expressed in dots per
+X--- 579,585 ----
+X  .INDENT -1
+X  3 XDVISIZES
+X  .BREAK
+X! The logical name "XDVISIZES" may be set to indicate which
+X  sizes of fonts are available.  It should consists of a list of numbers
+X  separated by slashes.  If the list begins with a slash, the system
+X  default sizes are used, as well.  Sizes are expressed in dots per
+Xdiff -cr xdvi_old/dvi_draw.c xdvi_new/dvi_draw.c
+X*** xdvi_old/dvi_draw.c	Mon Aug 24 18:44:34 1992
+X--- xdvi_new/dvi_draw.c	Mon Feb 22 15:27:43 1993
+X***************
+X*** 508,515 ****
+X  	for (tnp = currinf.tn_head; tnp != NULL; tnp = tnp->next)
+X  	    if (tnp->TeXnumber == n) {
+X  		currinf.fontp = tnp->fontp;
+X- 		if (!(currinf.fontp->flags & FONT_LOADED))
+X- 		    load_font(currinf.fontp);
+X  		break;
+X  	    }
+X  	if (currinf.fontp == NULL) tell_oops("non-existent font #%d", n);
+X--- 508,513 ----
+X***************
+X*** 616,623 ****
+X--- 614,670 ----
+X  }
+X  
+X  
+X+ /* ARGSUSED */
+X  #ifndef	TEXXET
+X  long
+X+ set_empty_char(ch)
+X+ #else
+X+ void
+X+ set_empty_char(cmd, ch)
+X+ 	WIDEARG(ubyte, int)	cmd;
+X+ #endif
+X+ 	WIDEARG(ubyte, int)	ch;
+X+ {
+X+ #ifndef	TEXXET
+X+ 	return 0;
+X+ #else
+X+ 	return;
+X+ #endif
+X+ }
+X+ 
+X+ 
+X+ #ifndef	TEXXET
+X+ long
+X+ load_n_set_char(ch)
+X+ #else
+X+ void
+X+ load_n_set_char(cmd, ch)
+X+ 	WIDEARG(ubyte, int)	cmd;
+X+ #endif
+X+ 	WIDEARG(ubyte, int)	ch;
+X+ {
+X+ 	if (load_font(currinf.fontp)) {	/* if not found */
+X+ 	    Fputs("Character(s) will be left blank.\n", stderr);
+X+ 	    currinf.set_char_p = currinf.fontp->set_char_p = set_empty_char;
+X+ #ifndef	TEXXET
+X+ 	    return 0;
+X+ #else
+X+ 	    return;
+X+ #endif
+X+ 	}
+X+ 	maxchar = currinf.fontp->maxchar;
+X+ 	currinf.set_char_p = currinf.fontp->set_char_p;
+X+ #ifndef	TEXXET
+X+ 	return (*currinf.set_char_p)(ch);
+X+ #else
+X+ 	(*currinf.set_char_p)(cmd, ch);
+X+ 	return;
+X+ #endif
+X+ }
+X+ 
+X+ 
+X+ #ifndef	TEXXET
+X+ long
+X  set_vf_char(ch)
+X  #else
+X  void
+X***************
+X*** 684,691 ****
+X  	if (currinf.virtual) {
+X  	    currinf.fontp = currinf.virtual->first_font;
+X  	    if (currinf.fontp != NULL) {
+X- 		if (!(currinf.fontp->flags & FONT_LOADED))
+X- 		    load_font(currinf.fontp);
+X  		maxchar = currinf.fontp->maxchar;
+X  		currinf.set_char_p = currinf.fontp->set_char_p;
+X  #ifndef	TEXXET
+X--- 731,736 ----
+Xdiff -cr xdvi_old/dvi_init.c xdvi_new/dvi_init.c
+X*** xdvi_old/dvi_init.c	Mon Aug 24 18:44:44 1992
+X--- xdvi_new/dvi_init.c	Sun Feb 28 17:30:13 1993
+X***************
+X*** 169,175 ****
+X   *	plus whatever other preprocessing is done (depending on the format).
+X   */
+X  
+X! void
+X  load_font(fontp)
+X  	struct font *fontp;
+X  {
+X--- 169,175 ----
+X   *	plus whatever other preprocessing is done (depending on the format).
+X   */
+X  
+X! Boolean
+X  load_font(fontp)
+X  	struct font *fontp;
+X  {
+X***************
+X*** 185,192 ****
+X  	    &fontp->filename);
+X  	if (fontp->file == NULL) {
+X  	    Fprintf(stderr, "Can't find font %s.\n", fontp->fontname);
+X! 	    font_not_found = True;
+X! 	    return;
+X  	}
+X  	--n_files_left;
+X  	if (font_found != NULL) {
+X--- 185,191 ----
+X  	    &fontp->filename);
+X  	if (fontp->file == NULL) {
+X  	    Fprintf(stderr, "Can't find font %s.\n", fontp->fontname);
+X! 	    return True;
+X  	}
+X  	--n_files_left;
+X  	if (font_found != NULL) {
+X***************
+X*** 233,238 ****
+X--- 232,238 ----
+X  	    if (maxchar < 255)
+X  		realloc_font(fontp, WIDEARG(,(int)) maxchar);
+X  	}
+X+ 	return False;
+X  }
+X  
+X  
+X***************
+X*** 331,337 ****
+X  	(void) four(file);	/* checksum */
+X  	scale = four(file);
+X  	design = four(file);
+X! 	len = one(file) + one(file);
+X  	fontname = xmalloc((unsigned) len + 1, "font name");
+X  	Fread(fontname, sizeof(char), len, file);
+X  	fontname[len] = '\0';
+X--- 331,337 ----
+X  	(void) four(file);	/* checksum */
+X  	scale = four(file);
+X  	design = four(file);
+X! 	len = one(file); len += one(file); /* sequence point in the middle */
+X  	fontname = xmalloc((unsigned) len + 1, "font name");
+X  	Fread(fontname, sizeof(char), len, file);
+X  	fontname[len] = '\0';
+X***************
+X*** 365,376 ****
+X  		    Printf("%s at %d dpi\n", fontname, (int) (fsize + 0.5));
+X  		fontp = (struct font *) xmalloc((unsigned) sizeof(struct font),
+X  		    "font structure");
+X- 		fontp->dimconv = scale * scale_dimconv / (1<<20);
+X  		fontp->fontname = fontname;
+X  		fontp->fsize = fsize;
+X  		fontp->magstepval = magstepval;
+X  		fontp->flags = FONT_IN_USE;
+X! 		if (vfparent == NULL) load_font(fontp);
+X  		fontp->next = font_head;
+X  		font_head = fontp;
+X  		break;
+X--- 365,377 ----
+X  		    Printf("%s at %d dpi\n", fontname, (int) (fsize + 0.5));
+X  		fontp = (struct font *) xmalloc((unsigned) sizeof(struct font),
+X  		    "font structure");
+X  		fontp->fontname = fontname;
+X  		fontp->fsize = fsize;
+X  		fontp->magstepval = magstepval;
+X  		fontp->flags = FONT_IN_USE;
+X! 		fontp->dimconv = scale * scale_dimconv / (1<<20);
+X! 		fontp->set_char_p = load_n_set_char;
+X! 		if (vfparent == NULL) font_not_found |= load_font(fontp);
+X  		fontp->next = font_head;
+X  		font_head = fontp;
+X  		break;
+X***************
+X*** 562,575 ****
+X  }
+X  
+X  /*
+X!  *	init_dvi_file is the main subroutine for reading the startup information
+X!  *	from the dvi file.
+X   */
+X  
+X! static	void
+X  init_dvi_file()
+X  {
+X  	(void) fstat(fileno(dvi_file), &fstatbuf);
+X  	dvi_time = fstatbuf.st_mtime;
+X  	process_preamble();
+X  	find_postamble();
+X--- 563,578 ----
+X  }
+X  
+X  /*
+X!  *	init_dvi_file is the main subroutine for reading the startup
+X!  *	information from the dvi file.  Returns True on success.
+X   */
+X  
+X! static	Boolean
+X  init_dvi_file()
+X  {
+X  	(void) fstat(fileno(dvi_file), &fstatbuf);
+X+ 	if (S_ISDIR(fstatbuf.st_mode))
+X+ 	    return False;
+X  	dvi_time = fstatbuf.st_mtime;
+X  	process_preamble();
+X  	find_postamble();
+X***************
+X*** 578,583 ****
+X--- 581,587 ----
+X  	init_page();
+X  	if (current_page >= total_pages) current_page = total_pages - 1;
+X  	hush_spec_now = hush_spec;
+X+ 	return True;
+X  }
+X  
+X  /**
+X***************
+X*** 588,613 ****
+X  void
+X  open_dvi_file()
+X  {
+X! 	char *errmsg;
+X  
+X! 	if ((dvi_file = fopen(dvi_name, OPEN_MODE)) == NULL) {
+X! 	    int n = strlen(dvi_name);
+X! 	    char *file = dvi_name;
+X  
+X! 	    if (strcmp(dvi_name + n - sizeof(".dvi") + 1, ".dvi") == 0) {
+X! 		perror(dvi_name);
+X! 		exit(1);
+X! 	    }
+X! 	    dvi_name = xmalloc((unsigned) n + sizeof(".dvi"), "dvi file name");
+X! 	    Sprintf(dvi_name, "%s.dvi", file);
+X! 	    if ((dvi_file = fopen(dvi_name, OPEN_MODE)) == NULL) {
+X! 		perror(dvi_name);
+X! 		exit(1);
+X! 	    }
+X! 	}
+X  
+X! 	if (errmsg = (char *) setjmp(dvi_env)) oops(errmsg);
+X! 	init_dvi_file();
+X  }
+X  
+X  /**
+X--- 592,620 ----
+X  void
+X  open_dvi_file()
+X  {
+X! 	char	*errmsg;
+X! 	int	n;
+X! 	char	*file;
+X  
+X! 	if ((errmsg = (char *) setjmp(dvi_env)) != NULL) oops(errmsg);
+X  
+X! 	if ((dvi_file = fopen(dvi_name, OPEN_MODE)) != NULL && init_dvi_file())
+X! 	    return;
+X  
+X! 	n = strlen(dvi_name);
+X! 	file = dvi_name;
+X! 
+X! 	if (strcmp(dvi_name + n - sizeof(".dvi") + 1, ".dvi") == 0) {
+X! 	    perror(dvi_name);
+X! 	    exit(1);
+X! 	}
+X! 	dvi_name = xmalloc((unsigned) n + sizeof(".dvi"), "dvi file name");
+X! 	Sprintf(dvi_name, "%s.dvi", file);
+X! 	if ((dvi_file = fopen(dvi_name, OPEN_MODE)) == NULL
+X! 		|| !init_dvi_file()) {
+X! 	    perror(dvi_name);
+X! 	    exit(1);
+X! 	}
+X  }
+X  
+X  /**
+X***************
+X*** 621,637 ****
+X  
+X  	if (dvi_file == NULL || fstat(fileno(dvi_file), &fstatbuf) != 0
+X  	    || fstatbuf.st_mtime != dvi_time) {
+X! 		if (dvi_file) Fclose(dvi_file);
+X  		free((char *) page_offset);
+X- 		dvi_file = fopen(dvi_name, OPEN_MODE);
+X- 		if (dvi_file == NULL)
+X- 		    dvi_oops("Cannot reopen dvi file.");
+X- 		if (list_fonts) Putchar('\n');
+X  		free_vf_chain(tn_head);
+X  		tn_head = NULL;
+X  		for (fontp = font_head; fontp != NULL; fontp = fontp->next)
+X  		    fontp->flags &= ~FONT_IN_USE;
+X! 		init_dvi_file();
+X  		redraw_page();
+X  		return False;
+X  	}
+X--- 628,646 ----
+X  
+X  	if (dvi_file == NULL || fstat(fileno(dvi_file), &fstatbuf) != 0
+X  	    || fstatbuf.st_mtime != dvi_time) {
+X! 		if (dvi_file) {
+X! 		    Fclose(dvi_file);
+X! 		    if (list_fonts) Putchar('\n');
+X! 		}
+X  		free((char *) page_offset);
+X  		free_vf_chain(tn_head);
+X  		tn_head = NULL;
+X  		for (fontp = font_head; fontp != NULL; fontp = fontp->next)
+X  		    fontp->flags &= ~FONT_IN_USE;
+X! 		if ((dvi_file = fopen(dvi_name, OPEN_MODE)) == NULL
+X! 			|| !init_dvi_file())
+X! 		    dvi_oops("Cannot reopen dvi file.");
+X! 		reconfig();
+X  		redraw_page();
+X  		return False;
+X  	}
+Xdiff -cr xdvi_old/font_open.c xdvi_new/font_open.c
+X*** xdvi_old/font_open.c	Fri Jul 24 14:28:54 1992
+X--- xdvi_new/font_open.c	Fri May  7 19:50:23 1993
+X***************
+X*** 63,72 ****
+X--- 63,80 ----
+X  #define	DEFAULT_VF_TAIL	":%f.vf"
+X  #endif	/* VMS */
+X  
+X+ #ifdef	MAKEPKCMD
+X+ #undef	MAKEPK
+X+ #define	MAKEPK
+X+ #endif
+X+ 
+X  static	_Xconst char	*font_path;
+X  static	_Xconst char	*default_font_path	= DEFAULT_FONT_PATH;
+X  static	_Xconst char	*vf_path;
+X  static	_Xconst char	*default_vf_path	= DEFAULT_VF_PATH;
+X+ #ifdef	MAKEPK
+X+ static	_Xconst	char	*makepkcmd		= NULL;
+X+ #endif
+X  #ifdef	SEARCH_SUBDIRECTORIES
+X  static	char	default_subdir_path[]	= DEFAULT_SUBDIR_PATH;
+X  #endif
+X***************
+X*** 600,618 ****
+X  	return NULL;
+X  }
+X  
+X- #ifdef	MAKEPKCMD
+X- #undef	MAKEPK
+X- #define	MAKEPK
+X- #endif
+X- 
+X  #ifdef	MAKEPK
+X  #ifndef	MAKEPKCMD
+X  #define	MAKEPKCMD	"MakeTeXPK"
+X  #endif
+X  
+X- #define	NOBUILD	29999
+X- #endif
+X- 
+X  /*
+X   *	Try a given font name
+X   */
+X--- 608,621 ----
+X  	return NULL;
+X  }
+X  
+X  #ifdef	MAKEPK
+X  #ifndef	MAKEPKCMD
+X  #define	MAKEPKCMD	"MakeTeXPK"
+X  #endif
+X+ #define	NOBUILD		29999
+X+ #define	MKPKSIZE 	256
+X+ #endif	/* MAKEPK */
+X  
+X  /*
+X   *	Try a given font name
+X   */
+X***************
+X*** 642,650 ****
+X  	_Xconst char	*path_to_use;
+X  	_Xconst char	*vf_path_to_use;
+X  #endif
+X- #ifdef	MAKEPK
+X- 	char	mkpk[80];
+X- #endif
+X  
+X  	/*
+X  	 * Loop over sizes.  Try actual size first, then closest sizes.
+X--- 645,650 ----
+X***************
+X*** 689,709 ****
+X  #ifdef	MAKEPK
+X  	/* Try to create the font. */
+X  	if (magstepval != NOBUILD) {
+X! 	    char str[24];
+X  	    int	dpi	= (mag + 2) / 5;
+X  
+X! 	    if (magstepval == NOMAGSTP)
+X! 		Sprintf(str, "%d+%d/%d", dpi / pixels_per_inch,
+X! 		    dpi % pixels_per_inch, pixels_per_inch);
+X! 	    else if (magstepval < 0)
+X! 		Sprintf(str, "magstep\\(-%d%s\\)", (-magstepval) / 2,
+X! 		    magstepval % 2 ? ".5" :"");
+X! 	    else
+X! 		Sprintf(str, "magstep\\(%d%s\\)", magstepval / 2,
+X! 		    magstepval % 2 ? ".5" :"");
+X  
+X- 	    Sprintf(mkpk, "%s %s %d %d %s", MAKEPKCMD, font, dpi,
+X- 		pixels_per_inch, str);
+X  	    Printf("- %s\n", mkpk);
+X  	    if (system(mkpk) == 0
+X  		&& (f = try_size(font, mag, name, path_to_use,
+X--- 689,756 ----
+X  #ifdef	MAKEPK
+X  	/* Try to create the font. */
+X  	if (magstepval != NOBUILD) {
+X! 	    char mkpk[MKPKSIZE];
+X  	    int	dpi	= (mag + 2) / 5;
+X+ 	    Boolean used_fontname = False;
+X+ 	    _Xconst char *p;
+X+ 	    char *q;
+X  
+X! 	    if (makepkcmd == NULL) {
+X! 		makepkcmd = getenv("XDVIMAKEPK");
+X! 		if (makepkcmd == NULL) makepkcmd = MAKEPKCMD;
+X! 	    }
+X! 	    p = makepkcmd;
+X! 	    q = mkpk;
+X! 	    for (;;) {
+X! 		if (*p == '%') {
+X! 		    switch (*++p) {
+X! 		    case 'n':
+X! 			Strcpy(q, font);
+X! 			used_fontname = True;
+X! 			break;
+X! 		    case 'd':
+X! 			Sprintf(q, "%d", dpi);
+X! 			break;
+X! 		    case 'b':
+X! 			Sprintf(q, "%d", pixels_per_inch);
+X! 			break;
+X! 		    case 'm':
+X! 			if (magstepval == NOMAGSTP)
+X! 			    Sprintf(q, "%d+%d/%d", dpi / pixels_per_inch,
+X! 				dpi % pixels_per_inch, pixels_per_inch);
+X! 			else if (magstepval < 0)
+X! 			    Sprintf(q, "magstep\\(-%d%s\\)", -magstepval / 2,
+X! 				magstepval % 2 ? ".5" :"");
+X! 			else
+X! 			    Sprintf(q, "magstep\\(%d%s\\)", magstepval / 2,
+X! 				magstepval % 2 ? ".5" :"");
+X! 			break;
+X! 		    case '%':
+X! 			*q++ = '%';
+X! 			*q = '\0';
+X! 			break;
+X! 		    case '\0':
+X! 			--p;
+X! 			*q = '\0';
+X! 			break;
+X! 		    default:
+X! 			*q++ = '%';
+X! 			*q++ = *p;
+X! 			*q = '\0';
+X! 			break;
+X! 		    }
+X! 		    q += strlen(q);
+X! 		}
+X! 		else if (*p == '\0')
+X! 		    if (used_fontname) break;
+X! 		    else {
+X! 			p = " %n %d %b %m";
+X! 			continue;
+X! 		    }
+X! 		else *q++ = *p;
+X! 		++p;
+X! 	    }
+X  
+X  	    Printf("- %s\n", mkpk);
+X  	    if (system(mkpk) == 0
+X  		&& (f = try_size(font, mag, name, path_to_use,
+X***************
+X*** 774,780 ****
+X  	    }
+X  	}
+X  	if (alt_font != NULL) {
+X! 	    f = PRE_FONT_OPEN(alt_font, mag, mag_ret, name, NOBUILD);
+X  	    if (f != NULL)
+X  		*font_ret = strcpy(xmalloc((unsigned) strlen(alt_font) + 1,
+X  		    "name of font used"), alt_font);
+X--- 821,827 ----
+X  	    }
+X  	}
+X  	if (alt_font != NULL) {
+X! 	    f = PRE_FONT_OPEN(alt_font, mag, mag_ret, name, magstepval);
+X  	    if (f != NULL)
+X  		*font_ret = strcpy(xmalloc((unsigned) strlen(alt_font) + 1,
+X  		    "name of font used"), alt_font);
+Xdiff -cr xdvi_old/mksedscript xdvi_new/mksedscript
+X*** xdvi_old/mksedscript	Fri Jun 19 13:01:57 1992
+X--- xdvi_new/mksedscript	Fri May  7 20:00:20 1993
+X***************
+X*** 1,44 ****
+X! #! /bin/csh -f
+X! unset	x10 buttons a4
+X! set	noglob
+X! foreach x ($argv[4-])
+X! 	if ($x == -DX10)	set x10
+X! 	if ($x == -DBUTTONS)	set buttons
+X! 	if ($x == -DA4)		set a4
+X! 	if ($x == -DSEARCH_SUBDIRECTORIES) set subdir
+X! 	if ($x == -DXDVIFONTS_ONLY) set texfonts
+X! 	if ($x == -DGREY)	set grey
+X! 	if ($x =~ -DMAKEPK*)	set makepk
+X! end
+X! if ($?x10) then
+X! 	echo	/^\#ifx11/,/^\#/d
+X! 	echo	s/%%dot%%//
+X  else
+X! 	echo	/^\#ifx10/,/^\#/d
+X! 	echo	s/%%dot%%/./
+X! endif
+X! if (! $?buttons)	echo /^\#ifbuttons/,/^\#/d
+X! if (! $?subdir)		echo /^\#ifsubdir/,/^\#/d
+X! if ($?texfonts)		echo /^\#iftexfonts/,/^\#/d
+X! if (! $?grey)		echo /^\#ifgrey/,/^\#/d
+X! if (! $?makepk)		echo /^\#ifmakepk/,/^\#/d
+X! echo	/^\#/d
+X! if ($?a4) then
+X  	echo	's/%%defaultpagesize%%/21 x 29.7 cm (A4 size)/'
+X  else
+X! 	echo	s/%%defaultpagesize%%/8.5 x 11 inches/
+X! endif
+X! echo	"s@%%DEFAULT_FONT_PATH%%@.TP\\
+X! $1@" | sed -e "s@:@\\\\
+X! .TP\\\\
+X! @g"
+X! echo	s/%%DEFAULT_FONT_SIZES%%/$2/ | sed -e "s/:/ :\\\\
+X  /g"
+X! if ($3 != "") then
+X! 	echo	"s@%%DEFAULT_VF_PATH%%@.TP\\
+X! $3@" | sed -e "s@:@\\\\
+X! .TP\\\\
+X! @g"
+X  else
+X! 	echo	's@%%DEFAULT_VF_PATH%%.*$@@'
+X! endif
+X--- 1,81 ----
+X! #!/bin/sh
+X! FONTPATH=$1
+X! FONTSIZES=$2
+X! VFPATH=$3
+X! shift 3
+X! 
+X! X10=
+X! BUTTONS=
+X! A4=
+X! SUBDIR=
+X! TEXFONTS=
+X! GREY=
+X! MAKEPK=
+X! BDPI=
+X! 
+X! while test $# -gt 0
+X! do
+X! 	case $1 in
+X! 	-DX10)			X10=y;;
+X! 	-DBUTTONS)		BUTTONS=y;;
+X! 	-DA4)			A4=y;;
+X! 	-DSEARCH_SUBDIRECTORIES) SUBDIR=y;;
+X! 	-DXDVIFONTS_ONLY)	TEXFONTS=y;;
+X! 	-DGREY)			GREY=y;;
+X! 	-DMAKEPK)		MAKEPK=-DMAKEPKCMD=\\\"MakeTeXPK\\\";;
+X! 	-DMAKEPKCMD*)		MAKEPK=$1;;
+X! 	-DBDPI=*)		BDPI=$1;;
+X! 	esac
+X! 	shift
+X! done
+X! 
+X! if test -n "$X10"
+X! then
+X! 	echo	'/^#ifx11/,/^#/d'
+X! 	echo	's/%%dot%%//'
+X  else
+X! 	echo	'/^#ifx10/,/^#/d'
+X! 	echo	's/%%dot%%/./'
+X! fi
+X! 
+X! if test -z "$BUTTONS";	then	echo	'/^#ifbuttons/,/^#/d';	fi
+X! if test -z "$SUBDIR";	then	echo	'/^#ifsubdir/,/^#/d';	fi
+X! if test -n "$TEXFONTS";	then	echo	'/^#iftexfonts/,/^#/d';	fi
+X! if test -z "$GREY";	then	echo	'/^#ifgrey/,/^#/d';	fi
+X! if test -z "$MAKEPK";	then	echo	'/^#ifmakepk/,/^#/d'
+X! 	else	echo	"s/%%mkpk%%/`echo $MAKEPK | sed s/-DMAKEPKCMD=//`/"
+X! 	fi
+X! echo	'/^#/d'
+X! 
+X! if test -n "$A4"
+X! then
+X  	echo	's/%%defaultpagesize%%/21 x 29.7 cm (A4 size)/'
+X  else
+X! 	echo	's/%%defaultpagesize%%/8.5 x 11 inches/'
+X! fi
+X! 
+X! if test -n "$BDPI"
+X! then
+X! 	echo	"s/%%bdpi%%/`echo $BDPI | sed s/-DBDPI=//`/"
+X! else
+X! 	echo	's/%%bdpi%%/300/'
+X! fi
+X! 
+X! echo	"s@%%DEFAULT_FONT_PATH%%   @.B $FONTPATH\\
+X! @" | sed -e "s@:@\\\\\\
+X! .TP\\\\\\
+X! .B @g"
+X! 
+X! echo	"s/%%DEFAULT_FONT_SIZES%%/$FONTSIZES/" | sed -e "s/:/ :\\\\\\
+X  /g"
+X! 
+X! if test -n "$VFPATH"
+X! then
+X! 	echo	"s@%%DEFAULT_VF_PATH%%   @.TP\\
+X! .B $VFPATH\\
+X! @" | sed -e "s@:@\\\\\\
+X! .TP\\\\\\
+X! .B @g"
+X  else
+X! 	echo	'/%%DEFAULT_VF_PATH%%/d'
+X! fi
+Xdiff -cr xdvi_old/tpic.c xdvi_new/tpic.c
+X*** xdvi_old/tpic.c	Sat Jul 25 15:39:01 1992
+X--- xdvi_new/tpic.c	Mon Dec 14 18:28:48 1992
+X***************
+X*** 309,314 ****
+X--- 309,315 ----
+X  	int	xp, yp;
+X  	int	N;
+X  	int	lastx, lasty;
+X+ 	Boolean	lastvalid = False;
+X  	int	t1, t2, t3;
+X  	int	steps;
+X  	int	j;
+X***************
+X*** 334,342 ****
+X  		t3 = w * w / 20;
+X  		xp = (t1*xx[i+2] + t2*xx[i+1] + t3*xx[i] + 50000) / 100000;
+X  		yp = (t1*yy[i+2] + t2*yy[i+1] + t3*yy[i] + 50000) / 100000;
+X! 		if (i != 0 || j != 0) line_btw(lastx, lasty, xp, yp);
+X  		lastx = xp;
+X  		lasty = yp;
+X  	    }
+X  	}
+X  	path_len = 0;
+X--- 335,344 ----
+X  		t3 = w * w / 20;
+X  		xp = (t1*xx[i+2] + t2*xx[i+1] + t3*xx[i] + 50000) / 100000;
+X  		yp = (t1*yy[i+2] + t2*yy[i+1] + t3*yy[i] + 50000) / 100000;
+X! 		if (lastvalid) line_btw(lastx, lasty, xp, yp);
+X  		lastx = xp;
+X  		lasty = yp;
+X+ 		lastvalid = True;
+X  	    }
+X  	}
+X  	path_len = 0;
+Xdiff -cr xdvi_old/util.c xdvi_new/util.c
+X*** xdvi_old/util.c	Mon Aug 24 18:45:15 1992
+X--- xdvi_new/util.c	Fri Dec 11 19:12:45 1992
+X***************
+X*** 33,39 ****
+X  
+X  #include "xdvi.h"
+X  #include <errno.h>
+X- int	errno;
+X  
+X  #ifdef VMS
+X  #include <rmsdef.h>
+X--- 33,38 ----
+Xdiff -cr xdvi_old/xdvi.c xdvi_new/xdvi.c
+X*** xdvi_old/xdvi.c	Sat Sep 12 15:25:42 1992
+X--- xdvi_new/xdvi.c	Mon Jun  7 12:06:44 1993
+X***************
+X*** 289,294 ****
+X--- 289,295 ----
+X  #ifndef X10
+X  static	Position	main_x, main_y;
+X  static	XImage	*image;
+X+ static	int	backing_store;
+X  #else	/* X10 */
+X  #define	main_x	0
+X  #define	main_y	0
+X***************
+X*** 314,320 ****
+X  #ifdef	TOOLKIT
+X  static	Widget	top_level, vport_widget, draw_widget, clip_widget;
+X  #ifdef	BUTTONS
+X! static	Widget	form_widget, line_widget, right_widget;
+X  #endif
+X  static	Widget	x_bar, y_bar;	/* horizontal and vertical scroll bars */
+X  
+X--- 315,321 ----
+X  #ifdef	TOOLKIT
+X  static	Widget	top_level, vport_widget, draw_widget, clip_widget;
+X  #ifdef	BUTTONS
+X! static	Widget	form_widget, line_widget, panel_widget;
+X  #endif
+X  static	Widget	x_bar, y_bar;	/* horizontal and vertical scroll bars */
+X  
+X***************
+X*** 335,340 ****
+X--- 336,344 ----
+X  static	Arg	draw_args[] = {
+X  	{XtNwidth,	(XtArgVal) 0},
+X  	{XtNheight,	(XtArgVal) 0},
+X+ #ifdef	GREY
+X+ 	{XtNbackground,	(XtArgVal) 0},
+X+ #endif
+X  	{XtNx,		(XtArgVal) 0},
+X  	{XtNy,		(XtArgVal) 0},
+X  	{XtNlabel,	(XtArgVal) ""},
+X***************
+X*** 358,364 ****
+X  	{XtNright,	(XtArgVal) XtChainRight},
+X  };
+X  
+X! static	Arg	right_args[] = {
+X  	{XtNfromHoriz,	(XtArgVal) NULL},
+X  	{XtNwidth,	(XtArgVal) (XTRA_WID - 1)},
+X  	{XtNheight,	(XtArgVal) 0},
+X--- 362,368 ----
+X  	{XtNright,	(XtArgVal) XtChainRight},
+X  };
+X  
+X! static	Arg	panel_args[] = {
+X  	{XtNfromHoriz,	(XtArgVal) NULL},
+X  	{XtNwidth,	(XtArgVal) (XTRA_WID - 1)},
+X  	{XtNheight,	(XtArgVal) 0},
+X***************
+X*** 415,424 ****
+X  	line_args[3].value = (XtArgVal) vport_widget;
+X  	line_widget = XtCreateManagedWidget("line", widgetClass, form_widget,
+X  		line_args, XtNumber(line_args));
+X! 	right_args[0].value = (XtArgVal) line_widget;
+X! 	right_args[2].value = h;
+X! 	right_widget = XtCreateManagedWidget("right", compositeWidgetClass,
+X! 		form_widget, right_args, XtNumber(right_args));
+X  
+X  	command_args[2].value = (XtArgVal) vport_widget;
+X  	for (i = 0; i < XtNumber(command_table); ++i) {
+X--- 419,428 ----
+X  	line_args[3].value = (XtArgVal) vport_widget;
+X  	line_widget = XtCreateManagedWidget("line", widgetClass, form_widget,
+X  		line_args, XtNumber(line_args));
+X! 	panel_args[0].value = (XtArgVal) line_widget;
+X! 	panel_args[2].value = h;
+X! 	panel_widget = XtCreateManagedWidget("panel", compositeWidgetClass,
+X! 		form_widget, panel_args, XtNumber(panel_args));
+X  
+X  	command_args[2].value = (XtArgVal) vport_widget;
+X  	for (i = 0; i < XtNumber(command_table); ++i) {
+X***************
+X*** 426,432 ****
+X  	    command_args[2].value = (XtArgVal) command_table[i].y_pos;
+X  	    command_call[0].closure = (caddr_t) command_table[i].closure;
+X  	    (void) XtCreateManagedWidget(command_table[i].name,
+X! 		commandWidgetClass, right_widget,
+X  		command_args, XtNumber(command_args));
+X  	}
+X  }
+X--- 430,436 ----
+X  	    command_args[2].value = (XtArgVal) command_table[i].y_pos;
+X  	    command_call[0].closure = (caddr_t) command_table[i].closure;
+X  	    (void) XtCreateManagedWidget(command_table[i].name,
+X! 		commandWidgetClass, panel_widget,
+X  		command_args, XtNumber(command_args));
+X  	}
+X  }
+X***************
+X*** 560,566 ****
+X  	    Pixel pixel;
+X  	    XColor color, fc, bc;
+X  	    XGCValues	values;
+X- 	    int i;
+X  
+X  	    if (RESOURCE(gamma) == 0.0) RESOURCE(gamma) = 1.0;
+X  
+X--- 564,569 ----
+X***************
+X*** 610,615 ****
+X--- 613,620 ----
+X  	    /* Make sure fore_ and back_Pixel are a part of the palette */
+X  	    RESOURCE(fore_Pixel) = palette[15];
+X  	    RESOURCE(back_Pixel) = palette[0];
+X+ 	    if (WINDOW(mane) != (Window) 0)
+X+ 		XSetWindowBackground(DISP, WINDOW(mane), palette[0]);
+X  
+X  #define	MakeGC(fcn, fg, bg)	(values.function = fcn, values.foreground=fg,\
+X  		values.background=bg,\
+X***************
+X*** 618,623 ****
+X--- 623,629 ----
+X  
+X  	    foreGC = ruleGC = MakeGC(RESOURCE(copy) ? GXcopy : GXor,
+X  		RESOURCE(fore_Pixel), RESOURCE(back_Pixel));
+X+ 	    foreGC2 = NULL;
+X  
+X  	    colors_allocated = True;
+X  	    if (RESOURCE(copy) && warn)
+X***************
+X*** 794,805 ****
+X  	    	    0, 0,
+X  		    x - currwin.base_x, y - currwin.base_y,
+X  		    img->width, img->height);
+X- 
+X- 	    if (foreGC2)
+X- 		XPutImage(DISP, WINDOW(currwin), foreGC2, img,
+X- 			0, 0,
+X- 			x - currwin.base_x, y - currwin.base_y,
+X- 			img->width, img->height);
+X  	}
+X  }
+X  #endif	/* GREY */
+X--- 800,805 ----
+X***************
+X*** 1014,1019 ****
+X--- 1014,1028 ----
+X  }
+X  #endif	/* BUTTONS */
+X  
+X+ void
+X+ reconfig()
+X+ {
+X+ 	draw_args[0].value = (XtArgVal) page_w;
+X+ 	draw_args[1].value = (XtArgVal) page_h;
+X+ 	XtSetValues(draw_widget, draw_args, (Cardinal) 2);
+X+ 	get_geom();
+X+ }
+X+ 
+X  #else	/* !TOOLKIT */
+X  
+X  /*
+X***************
+X*** 1083,1089 ****
+X  	if (old_base_y != mane.base_y && y_bar) paint_y_bar();
+X  }
+X  
+X! static	void
+X  reconfig()
+X  {
+X  	int	x_thick = 0;
+X--- 1092,1098 ----
+X  	if (old_base_y != mane.base_y && y_bar) paint_y_bar();
+X  }
+X  
+X! void
+X  reconfig()
+X  {
+X  	int	x_thick = 0;
+X***************
+X*** 1105,1115 ****
+X  		/* process drawing (clip) window */
+X  	if (mane.win == NULL) {	/* initial creation */
+X  #ifndef X10
+X  	    mane.win = XCreateSimpleWindow(DISP, top_level, y_thick, x_thick,
+X  			(unsigned int) clip_w, (unsigned int) clip_h, 0,
+X  			brdr_Pixel, back_Pixel);
+X! 	    XSelectInput(DPY WINDOW(mane), ExposureMask |
+X  			ButtonPressMask | ButtonMotionMask | ButtonReleaseMask);
+X  #else
+X  	    mane.win = XCreateWindow(top_level, y_thick, x_thick,
+X  			clip_w, clip_h, 0, bdrmap, backmap);
+X--- 1114,1128 ----
+X  		/* process drawing (clip) window */
+X  	if (mane.win == NULL) {	/* initial creation */
+X  #ifndef X10
+X+ 	    XWindowAttributes attrs;
+X+ 
+X  	    mane.win = XCreateSimpleWindow(DISP, top_level, y_thick, x_thick,
+X  			(unsigned int) clip_w, (unsigned int) clip_h, 0,
+X  			brdr_Pixel, back_Pixel);
+X! 	    XSelectInput(DISP, WINDOW(mane), ExposureMask |
+X  			ButtonPressMask | ButtonMotionMask | ButtonReleaseMask);
+X+ 	    XGetWindowAttributes(DISP, WINDOW(mane), &attrs);
+X+ 	    backing_store = attrs.backing_store;
+X  #else
+X  	    mane.win = XCreateWindow(top_level, y_thick, x_thick,
+X  			clip_w, clip_h, 0, bdrmap, backmap);
+X***************
+X*** 1539,1545 ****
+X  		else {		/* destroy buttons */
+X  		    XtResizeWidget(vport_widget, window_w += XTRA_WID, window_h,
+X  			0);
+X! 		    XtDestroyWidget(right_widget);
+X  		    XtDestroyWidget(line_widget);
+X  		    resource.expert = True;
+X  		}
+X--- 1552,1558 ----
+X  		else {		/* destroy buttons */
+X  		    XtResizeWidget(vport_widget, window_w += XTRA_WID, window_h,
+X  			0);
+X! 		    XtDestroyWidget(panel_widget);
+X  		    XtDestroyWidget(line_widget);
+X  		    resource.expert = True;
+X  		}
+X***************
+X*** 1607,1622 ****
+X  #endif
+X  		    reset_fonts();
+X  		}
+X- #ifdef	TOOLKIT
+X- 		draw_args[0].value = (XtArgVal) page_w;
+X- 		draw_args[1].value = (XtArgVal) page_h;
+X- 		XtSetValues(draw_widget, draw_args, (Cardinal) 2);
+X- 		get_geom();
+X- 		home(False);
+X- #else	/* TOOLKIT */
+X  		reconfig();
+X  		home(False);
+X- #endif	/* TOOLKIT */
+X  		break;
+X  	    case 'S':
+X  		if (!arg0) goto bad;
+X--- 1620,1627 ----
+X***************
+X*** 1895,1901 ****
+X  		max_y - min_y, min_x, min_y, currwin.base_x, currwin.base_y);
+X  	SetCursor(redraw_cursor);
+X  	Flush();
+X! 	if (errtext = (char *) setjmp(dvi_env)) {
+X  	    ClearPage(mane);
+X  #ifndef X10
+X  	    get_xy();
+X--- 1900,1906 ----
+X  		max_y - min_y, min_x, min_y, currwin.base_x, currwin.base_y);
+X  	SetCursor(redraw_cursor);
+X  	Flush();
+X! 	if ((errtext = (char *) setjmp(dvi_env)) != NULL) {
+X  	    ClearPage(mane);
+X  #ifndef X10
+X  	    get_xy();
+X***************
+X*** 1922,1933 ****
+X  redraw_page()
+X  {
+X  	if (debug & DBG_EVENT) Fputs("Redraw page:  ", stdout);
+X- 	get_xy();
+X  	ClearPage(mane);
+X! 	mane.min_x = -window_x;
+X! 	mane.max_x = -window_x + clip_w;
+X! 	mane.min_y = -window_y;
+X! 	mane.max_y = -window_y + clip_h;
+X  	redraw(&mane);
+X  }
+X  
+X--- 1927,1949 ----
+X  redraw_page()
+X  {
+X  	if (debug & DBG_EVENT) Fputs("Redraw page:  ", stdout);
+X  	ClearPage(mane);
+X! #ifndef	X10
+X! 	if (backing_store != NotUseful) {
+X! 	    mane.min_x = mane.min_y = 0;
+X! 	    mane.max_x = page_w;
+X! 	    mane.max_y = page_h;
+X! 	}
+X! 	else {
+X! #endif
+X! 	    get_xy();
+X! 	    mane.min_x = -window_x;
+X! 	    mane.max_x = -window_x + clip_w;
+X! 	    mane.min_y = -window_y;
+X! 	    mane.max_y = -window_y + clip_h;
+X! #ifndef	X10
+X! 	}
+X! #endif
+X  	redraw(&mane);
+X  }
+X  
+X***************
+X*** 1959,1964 ****
+X--- 1975,1981 ----
+X  	windowrec->max_x = windowrec->max_y = 0;
+X  }
+X  
+X+ #ifdef	HAS_SIGIO
+X  static	void
+X  handle_intr() {
+X  	event_counter = 1;
+X***************
+X*** 1965,1971 ****
+X  	event_freq = -1;	/* forget Plan B */
+X  }
+X  
+X- #ifdef	HAS_SIGIO
+X  static	void
+X  enable_intr() {
+X  	int	socket	= ConnectionNumber(DISP);
+X--- 1982,1987 ----
+X***************
+X*** 2765,2771 ****
+X  #endif
+X  
+X  #ifdef	TOOLKIT
+X! 	if (resource.copy_arg)
+X  #else
+X  	if (copy == 2)
+X  #endif
+X--- 2781,2787 ----
+X  #endif
+X  
+X  #ifdef	TOOLKIT
+X! 	if (!resource.copy_arg)
+X  #else
+X  	if (copy == 2)
+X  #endif
+X***************
+X*** 2896,2901 ****
+X--- 2912,2920 ----
+X  	clip_widget = XtNameToWidget(vport_widget, "clip");
+X  	draw_args[0].value = (XtArgVal) page_w;
+X  	draw_args[1].value = (XtArgVal) page_h;
+X+ #ifdef	GREY
+X+ 	draw_args[2].value = (XtArgVal) resource.back_Pixel;
+X+ #endif
+X  	draw_widget = XtCreateManagedWidget("drawing", drawWidgetClass,
+X  		vport_widget, draw_args, XtNumber(draw_args));
+X  	{	/* set default window size */
+X***************
+X*** 2967,2972 ****
+X--- 2986,2998 ----
+X  	XtRealizeWidget(top_level);
+X  
+X  	currwin.win = mane.win = XtWindow(draw_widget);
+X+ 
+X+ 	{
+X+ 	    XWindowAttributes attrs;
+X+ 
+X+ 	    XGetWindowAttributes(DISP, WINDOW(mane), &attrs);
+X+ 	    backing_store = attrs.backing_store;
+X+ 	}
+X  
+X  #else	/* !TOOLKIT */
+X  
+Xdiff -cr xdvi_old/xdvi.h xdvi_new/xdvi.h
+X*** xdvi_old/xdvi.h	Mon Jul 27 10:41:53 1992
+X--- xdvi_new/xdvi.h	Mon May 31 15:55:04 1993
+X***************
+X*** 38,43 ****
+X--- 38,44 ----
+X  #define	rindex	strrchr
+X  #define	bzero(a, b)	(void) memset ((void *) (a), 0, (size_t) (b))
+X  #define bcopy(a, b, c)  (void) memmove ((void *) (b), (void *) (a), (size_t) (c))
+X+ #define S_ISDIR(m)      (((m)&S_IFMT) == S_IFDIR)
+X  #endif
+X  
+X  #include <stdio.h>
+X***************
+X*** 419,424 ****
+X--- 420,426 ----
+X  extern	void	put_image(XImage *, int, int);
+X  #endif
+X  extern	void	put_rectangle(int, int, int, int, WIDEARG(Boolean, int));
+X+ extern	void	reconfig(void);
+X  extern	void	redraw_page(void);
+X  #if	NeedVarargsPrototypes
+X  extern	NORETURN void	oops(_Xconst char *, ...);
+X***************
+X*** 433,439 ****
+X  extern	void	reset_fonts(void);
+X  extern	void	realloc_font(struct font *, WIDEARG(ubyte, int));
+X  extern	void	realloc_virtual_font(struct font *, WIDEARG(ubyte, int));
+X! extern	void	load_font(struct font *);
+X  extern	void	define_font(FILE *, WIDEARG(ubyte, unsigned int), struct font *,
+X  			struct tn **);
+X  extern	void	init_page(void);
+X--- 435,441 ----
+X  extern	void	reset_fonts(void);
+X  extern	void	realloc_font(struct font *, WIDEARG(ubyte, int));
+X  extern	void	realloc_virtual_font(struct font *, WIDEARG(ubyte, int));
+X! extern	Boolean	load_font(struct font *);
+X  extern	void	define_font(FILE *, WIDEARG(ubyte, unsigned int), struct font *,
+X  			struct tn **);
+X  extern	void	init_page(void);
+X***************
+X*** 441,449 ****
+X--- 443,453 ----
+X  extern	Boolean	check_dvi_file(void);
+X  #ifndef	TEXXET
+X  extern	long	set_char(WIDEARG(ubyte, int));
+X+ extern	long	load_n_set_char(WIDEARG(ubyte, int));
+X  extern	long	set_vf_char(WIDEARG(ubyte, int));
+X  #else
+X  extern	void	set_char(WIDEARG(ubyte, int), WIDEARG(ubyte, int));
+X+ extern	void	load_n_set_char(WIDEARG(ubyte, int), WIDEARG(ubyte, int));
+X  extern	void	set_vf_char(WIDEARG(ubyte, int), WIDEARG(ubyte, int));
+X  #endif
+X  extern	void	draw_page(void);
+X***************
+X*** 466,471 ****
+X--- 470,476 ----
+X  extern	void	put_image();
+X  #endif
+X  extern	void	put_rectangle();
+X+ extern	void	reconfig();
+X  extern	void	redraw_page();
+X  extern	NORETURN void	oops();
+X  extern	char	*xmalloc();
+X***************
+X*** 476,482 ****
+X  extern	void	reset_fonts();
+X  extern	void	realloc_font();
+X  extern	void	realloc_virtual_font();
+X! extern	void	load_font();
+X  extern	void	define_font();
+X  extern	void	init_page();
+X  extern	void	open_dvi_file();
+X--- 481,487 ----
+X  extern	void	reset_fonts();
+X  extern	void	realloc_font();
+X  extern	void	realloc_virtual_font();
+X! extern	Boolean	load_font();
+X  extern	void	define_font();
+X  extern	void	init_page();
+X  extern	void	open_dvi_file();
+X***************
+X*** 483,491 ****
+X--- 488,498 ----
+X  extern	Boolean	check_dvi_file();
+X  #ifndef	TEXXET
+X  extern	long	set_char();
+X+ extern	long	load_n_set_char();
+X  extern	long	set_vf_char();
+X  #else
+X  extern	void	set_char();
+X+ extern	void	load_n_set_char();
+X  extern	void	set_vf_char();
+X  #endif
+X  extern	void	draw_page();
+Xdiff -cr xdvi_old/xdvi_man.sed xdvi_new/xdvi_man.sed
+X*** xdvi_old/xdvi_man.sed	Sat Sep 12 15:31:34 1992
+X--- xdvi_new/xdvi_man.sed	Mon Jun  7 12:18:45 1993
+X***************
+X*** 1,7 ****
+X  #ifx11
+X! .TH XDVI 1 "27 March 1990" "X Version 11"
+X  #ifx10
+X! .TH XDVI 1 "27 March 1990" "X Version 10"
+X  #endif
+X  .SH NAME
+X  xdvi \- DVI Previewer for the X Window System
+X--- 1,7 ----
+X  #ifx11
+X! .TH XDVI 1 "7 June 1993" "X Version 11"
+X  #ifx10
+X! .TH XDVI 1 "7 June 1993" "X Version 10"
+X  #endif
+X  .SH NAME
+X  xdvi \- DVI Previewer for the X Window System
+X***************
+X*** 89,95 ****
+X  .BI \-p " pixels"
+X  (%%dot%%pixelsPerInch)
+X  Defines the size of the fonts to use, in pixels per inch.  The
+X! default value is 300.
+X  .TP
+X  .BI \-altfont " font"
+X  (%%dot%%altFont)
+X--- 89,95 ----
+X  .BI \-p " pixels"
+X  (%%dot%%pixelsPerInch)
+X  Defines the size of the fonts to use, in pixels per inch.  The
+X! default value is %%bdpi%%.
+X  .TP
+X  .BI \-altfont " font"
+X  (%%dot%%altFont)
+X***************
+X*** 428,435 ****
+X  fonts in the following manner.  The string consists of one or more strings
+X  separated by colons.  In each such string, the substring ``%f'' is
+X  changed to the font name; ``%d'' is changed to the magnification; and
+X! ``%p'' is changed to the font family (``gf'', ``pk'', or ``pxl'').  If no
+X! ``%f'' appears in the string, then the string ``/%f.%d%p'' is added on
+X  the end.  For example, if the string is ``/usr/local/tex/fonts'' and the font is
+X  cmr10 at 300dpi, then it searches for /usr/local/tex/fonts/cmr10.300gf,
+X  /usr/local/tex/fonts/cmr10.300pk, and /usr/local/tex/fonts/cmr10.1500pxl,
+X--- 428,435 ----
+X  fonts in the following manner.  The string consists of one or more strings
+X  separated by colons.  In each such string, the substring ``%f'' is
+X  changed to the font name; ``%d'' is changed to the magnification; and
+X! ``%p'' is changed to the font file format (``gf'', ``pk'', or ``pxl'').
+X! If no ``%f'' appears in the string, then the string ``/%f.%d%p'' is added on
+X  the end.  For example, if the string is ``/usr/local/tex/fonts'' and the font is
+X  cmr10 at 300dpi, then it searches for /usr/local/tex/fonts/cmr10.300gf,
+X  /usr/local/tex/fonts/cmr10.300pk, and /usr/local/tex/fonts/cmr10.1500pxl,
+X***************
+X*** 462,467 ****
+X--- 462,480 ----
+X  \fIxdvi\fR also recognizes the PKFONTS variable, which is checked after
+X  XDVIFONTS but before TEXFONTS.
+X  #endif
+X+ #ifmakepk
+X+ .PP
+X+ The script used to create fonts may be controlled by the environment
+X+ variable ``XDVIMAKEPK.''  Usually this variable would be set to the name of
+X+ the script.  In that case the script is called with the following options:
+X+ (1) the font name, (2) the requested resolution in dots per inch,
+X+ (3) the base resolution in dots per inch, and (4) a (possibly more accurate)
+X+ indication of the magnification using magsteps (if possible).
+X+ Optionally, the variable may include specifiers ``%n,'' ``%d,'' ``%b,''
+X+ and ``%m'' to indicate each of the above arguments, respectively.
+X+ This is compatible with the font creation mechanism used in dvips.
+X+ By default, XDVIMAKEPK equals %%mkpk%%.
+X+ #endif
+X  #ifsubdir
+X  .PP
+X  You can also enable recursive searching in the font path by using the ``*''
+X***************
+X*** 476,482 ****
+X  in any path component.
+X  #endif
+X  .PP
+X! The ``XDVISIZES'' variable must be set to indicate which sizes of fonts are
+X  available.  It should consist of a list of numbers separated by colons.  If
+X  the list begins with a colon, the system default sizes are used, as well.
+X  Sizes are expressed in dots per inch; decimals may be used for ``pxl'' files:
+X--- 489,495 ----
+X  in any path component.
+X  #endif
+X  .PP
+X! The ``XDVISIZES'' variable may be set to indicate which sizes of fonts are
+X  available.  It should consist of a list of numbers separated by colons.  If
+X  the list begins with a colon, the system default sizes are used, as well.
+X  Sizes are expressed in dots per inch; decimals may be used for ``pxl'' files:
+X***************
+X*** 496,506 ****
+X  Virtual fonts are searched for immediately after looking for the font
+X  as a normal font in the exact size specified.
+X  .SH FILES
+X! .br
+X  %%DEFAULT_FONT_PATH%%   Font pixel files.
+X  %%DEFAULT_VF_PATH%%   Virtual font files.
+X  .SH "SEE ALSO"
+X! X(1).
+X  .SH AUTHORS
+X  Eric Cooper, CMU, did a version for direct output to a QVSS.
+X  Modified for X by
+X--- 509,521 ----
+X  Virtual fonts are searched for immediately after looking for the font
+X  as a normal font in the exact size specified.
+X  .SH FILES
+X! .PD 0
+X! .TP 40
+X  %%DEFAULT_FONT_PATH%%   Font pixel files.
+X  %%DEFAULT_VF_PATH%%   Virtual font files.
+X+ .PD
+X  .SH "SEE ALSO"
+X! .BR X (1).
+X  .SH AUTHORS
+X  Eric Cooper, CMU, did a version for direct output to a QVSS.
+X  Modified for X by
+X
+END_OF_FILE
+  if test 40142 -ne `wc -c <'xdvi.p17'`; then
+    echo shar: \"'xdvi.p17'\" unpacked with wrong size!
+  fi
+  # end of 'xdvi.p17'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

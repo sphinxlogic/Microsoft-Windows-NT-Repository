@@ -1,0 +1,2087 @@
+Newsgroups: comp.sources.misc
+From: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Subject: v37i109:  lout - Lout document formatting system, v2, Part11/30
+Message-ID: <1993Jun1.051859.25788@sparky.imd.sterling.com>
+X-Md4-Signature: 154a6fcfa8b9e41a867dbfc0f76526b0
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 1 Jun 1993 05:18:59 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Posting-number: Volume 37, Issue 109
+Archive-name: lout/part11
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lout/doc/tr.lout/ch1.01 lout/z02.c lout/z15.c lout/z29.c
+# Wrapped by kent@sparky on Sun May 30 19:43:56 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 11 (of 30)."'
+if test -f 'lout/doc/tr.lout/ch1.01' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/doc/tr.lout/ch1.01'\"
+else
+  echo shar: Extracting \"'lout/doc/tr.lout/ch1.01'\" \(6589 characters\)
+  sed "s/^X//" >'lout/doc/tr.lout/ch1.01' <<'END_OF_FILE'
+X@Section
+X  @Title { Objects }
+X  @Tag { objects }
+X@Begin
+X@PP
+XSince our aim is to produce neatly formatted documents, we should begin by
+Xlooking at a typical example of such a document:
+X@ID {
+Xnohyphen @Break @LittleDocument
+X//
+X@LittleText {
+X@DP
+X|0.5rt {@B PURCELL}{ 0.8f @Font 1 ^//0.2v}
+X@LittleFootNote
+X{ { 0.8f @Font 1 ^//0.2v}Blom, Eric.  @I {Some Great Composers.}  Oxford, 1944.
+X}
+X@DP
+XIn the world of music England is supposed to be a mere province.  If she
+Xproduces an indifferent composer or performer, that is regarded
+Xelsewhere as perfectly normal and natural; but if foreign students of
+Xmusical history have to acknowledge a British musical genius, he is
+Xconsidered a freak.
+X@PP
+XSuch a freak is Henry Purcell.  Yet if we make a choice of fifteen of
+Xthe world's musical classics, as here, we find that we cannot omit this
+XEnglish master.
+X}
+X//
+X@LittleEndRun
+X}
+XIt is a large rectangle made from three smaller rectangles -- its
+Xpages.  Each page is made of lines; each line is made of words,
+Xalthough it makes sense for any rectangle (even a complete document) to
+Xbe part of a line, provided it is not too large.
+X@PP
+XLout deals with something a little more complicated than rectangles:
+X@I objects.  An object
+Xobjec @Index { Object }
+Xis a rectangle with at least one @I {column mark}
+Xcolumn.mark @Index { Column mark }
+Xmark.alignment @Index { Mark alignment }
+Xalignment @RawIndex { Alignment @I see mark alignment }
+Xprotruding above and below it, and at least one @I {row mark}
+Xrow.mark @Index { Row mark }
+Xprotruding to the left and right.  The simplest objects contain words like
+Xmetempsychosis, and have one mark of each type:
+X@ID {
+X@ShowMarks metempsychosis
+X}
+XThe rectangle exactly encloses the word; its column mark is at the left
+Xedge, and its row mark passes through the middle of the lower-case
+Xletters.  The rectangle and marks do not appear on the printed page, but
+Xto understand what Lout is doing you have to imagine them.
+X@PP
+XTo place two objects side by side, we separate them by the
+Xsymbol @Code "|", which denotes the act of @I {horizontal
+Xconcatenation}.  So, if we write
+X@ID {
+X@Code "USA  |  Australia"
+X}
+Xthe result will be the object
+X@ID {
+X@ShowMarks USA | @ShowMarks Australia
+X}
+XNotice that this object has two column marks, but still only one row mark,
+Xbecause @Code "|" merges the two row marks
+Xtogether.  This merging of row marks fixes the vertical
+Xposition of each object with respect to the other, but it does not
+Xdetermine how far apart they are.  This distance, or {@I gap},
+Xmay be given just after the symbol, as in @Code "|0.5i" for example,
+Xwhich specifies horizontal concatenation with a gap of half an inch.  If
+Xno gap is given, it is assumed to be {@Code "0i"}.
+X@PP
+X@I {Vertical concatenation} & , denoted by the symbol {@Code "/"},
+Xis the same apart from the change of direction:
+X@ID {
+X@Code "Australia  /0.1i  USA"
+X}
+Xhas result
+X@ID {
+X@ShowMarks Australia /0.1i
+X@ShowMarks USA
+X}
+XThe usual merging of marks occurs, and now the gap determines the
+Xvertical separation.  Horizontal and vertical can be combined:
+X@ID  @Code {
+X             |1m  USA         |1m  "|0.2i" |1m   Australia
+X/1vx "/0.1i" |    Washington  |    "|"     |     Canberra
+X}
+Xhas result
+X@ID {
+X      @ShowMarks USA &
+X      { 0 ymark moveto xsize 10 pt add ymark lineto [ 3 pt ] 0 setdash stroke }
+X      @Graphic {1c @Wide }
+X      |0.2i @ShowMarks Australia
+X/0.1i @ShowMarks Washington  |     @ShowMarks Canberra
+X}
+Xtables @Index { Tables }
+XThere are several things to note carefully here.  White space (including
+Xtabs and newlines) adjacent to a concatenation symbol is ignored, so
+Xit may be used freely to lay out the expression clearly.  The symbol
+X@Code "|" takes precedence over {@Code "/"}, which means that the rows
+Xare formed first, then vertically concatenated.  The symbol @Code "/" will
+Xmerge two or more column marks, creating multiple
+Xcolumns (and @Code "|" will merge two or more row marks).  This
+Ximplies that the gap @Code "0.2i" used above is between
+Xcolumns, not individual items in columns; a gap in the second row
+Xwould therefore be redundant, and so is omitted.
+X@PP
+XA variant of @Code "/" called @Code "//" left-justifies
+Xtwo objects instead of merging their marks.
+X@PP
+XBy enclosing an object in braces, it is possible to override the
+Xbraces @Index { Braces }
+Xset precedences.  Here is another expression for the table
+Xabove, in which the columns are formed first:
+X@ID  @Code {
+X             |1m "{ USA"       |1m "/0.1i" |1m "Washington }"
+X/1vx "|0.2i" |   "{ Australia" |   "/"     |   "Canberra }"
+X}
+XBraces have no effect other than to alter the grouping.
+X@PP
+X@I {Paragraph breaking} occurs when an object is too wide to fit
+Xparagraph.breaking @Index { Paragraph breaking }
+Xinto the space available to it; by breaking its paragraphs into lines,
+Xits width is reduced to an acceptable amount.  The available
+Xspace is determined by the @@Wide symbol, whose form is
+X@ID  {
+X@I length  @@Wide  @I object
+X}
+Xand whose result is the given object modified to have exactly the given
+Xlength.  For example, the expression
+X@ID  @Code {
+X"5i @Wide {"
+X"Macbeth was very ambitious.  This led him to wish to become"
+X"king of Scotland.  The witches told him that this wish of"
+X"his would come true.  The king of Scotland at this time was"
+X"Duncan.  Encouraged by his wife, Macbeth murdered Duncan.  He"
+X"was thus enabled to succeed Duncan as king.  (51 words)"
+X"|0.5i"
+X"Encouraged by his wife, Macbeth achieved his ambition and"
+X"realized the prediction of the witches by murdering Duncan"
+X"and becoming king of Scotland in his place.  (26 words)"
+X"}"
+X}
+Xhas for its result the following five inch wide object [{@Ref strunk79}]:
+X@ID {
+X5i @Wide {
+XMacbeth was very ambitious.  This led him to wish to become king
+Xof Scotland.  The witches told him that this wish of his would
+Xcome true.  The king of Scotland at this time was Duncan.  Encouraged
+Xby his wife, Macbeth murdered Duncan.  He was thus enabled to succeed
+XDuncan as king.  (51 words)
+X|0.5i
+XEncouraged by his wife, Macbeth achieved his ambition and realized
+Xthe prediction of the witches by murdering Duncan and becoming king of
+XScotland in his place.  (26 words)
+X}
+X}
+XA paragraph of text can be included anywhere, and it will be broken
+Xautomatically if necessary to fit the available space.  The spaces
+Xbetween words are converted by Lout into concatenation symbols.
+X@PP
+XThese are the most significant of Lout's object-building symbols.  There
+Xare others, for changing fonts, controlling paragraph breaking, printing
+Xgraphical objects like boxes and circles, and so on, but
+Xthey do not add anything new in principle.
+X@End @Section
+END_OF_FILE
+  if test 6589 -ne `wc -c <'lout/doc/tr.lout/ch1.01'`; then
+    echo shar: \"'lout/doc/tr.lout/ch1.01'\" unpacked with wrong size!
+  fi
+  # end of 'lout/doc/tr.lout/ch1.01'
+fi
+if test -f 'lout/z02.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/z02.c'\"
+else
+  echo shar: Extracting \"'lout/z02.c'\" \(23481 characters\)
+  sed "s/^X//" >'lout/z02.c' <<'END_OF_FILE'
+X/*@z02.c:Lexical Analyser:LexInit(), LexGetToken()@***************************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.03)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z02.c                                                      */
+X/*  MODULE:       Lexical Analyser                                           */
+X/*  EXTERNS:      LexLegalName(), LexInit(), LexPush(), LexPop(),            */
+X/*                LexNextTokenPos(), LexGetToken()                           */
+X/*                                                                           */
+X/*  Implementation note:  this fast and cryptic lexical analyser is adapted  */
+X/*  from Waite, W. M.: The Cost of Lexical Analysis, in Software - Practice  */
+X/*  and Experience, v16, pp473-488 (May 1986).                               */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X
+X#define	BUFFER_SIZE    8192		/* size of buffer for block read     */
+X
+X#define	WEIRD		0		/* unknown character type            */
+X#define	LETTER		1		/* letter type                       */
+X#define	SPECIAL		2		/* special type                      */
+X#define	QUOTE		3		/* quoted string delimiter type      */
+X#define	ESCAPE		4		/* escape character inside strings   */
+X#define	COMMENT		5		/* comment delimiter type            */
+X#define	CSPACE		6		/* space character type              */
+X#define	TAB		7		/* tab character type                */
+X#define	NEWLINE		8		/* newline character type            */
+X#define	ENDFILE		9		/* end of file character type        */
+X
+Xstatic	unsigned char	chtbl[256];	/* character type table              */
+X
+X/* state variables of lexical analyser */
+Xstatic	unsigned char	*chpt;		/* pointer to current text character */
+Xstatic	unsigned char	*frst;		/* address of buffer's 1st character */
+Xstatic	unsigned char	*limit;		/* just past last char in buffer     */
+Xstatic	unsigned char	*buf;		/* the character buffer start pos    */
+Xstatic	int		blksize;	/* size of block read; others too    */
+Xstatic	unsigned char   *startline;	/* position in buff of last newline  */
+Xstatic	FILE_NUM	this_file;	/* number of currently open file     */
+Xstatic	FILE		*fp;		/* current input file                */
+Xstatic	FILE_POS	file_pos;	/* current file position             */
+Xstatic	short		ftype;		/* the type of the current file      */
+Xstatic	OBJECT		next_token;	/* next token if already read	     */
+Xstatic	int		offset;		/* where to start reading in file    */
+Xstatic	unsigned char	*mem_block;	/* file buffer                       */
+X
+Xstatic int top_stack;		/* top of lexical analyser stack     */
+Xstatic struct {
+X  unsigned char	*chpt;		/* pointer to current text character */
+X  unsigned char	*frst;		/* address of buffer's 1st character */
+X  unsigned char	*limit;		/* just past last char in buffer     */
+X  unsigned char	*buf;		/* the character buffer start pos    */
+X  int		blksize;	/* size of block read; others too    */
+X  unsigned char	*startline;	/* position in buff of last newline  */
+X  FILE_NUM	this_file;	/* number of currently open file     */
+X  FILE		*fp;		/* current input file                */
+X  FILE_POS	file_pos;	/* current file position             */
+X  short		ftype;		/* the type of the current file      */
+X  OBJECT	next_token;	/* next token if already read	     */
+X  int		offset;		/* where to start reading in file    */
+X  unsigned char	*mem_block;	/* file buffer                       */
+X} lex_stack[MAX_LEX_STACK];
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  BOOLEAN LexLegalName(str)                                                */
+X/*                                                                           */
+X/*  Check whether str is a valid name for a symbol table entry.              */
+X/*  Valid names have the BNF form                                            */
+X/*                                                                           */
+X/*       <name> ::= <letter>  { <letter> }                                   */
+X/*       <name> ::= <special> { <special> }                                  */
+X/*       <name> ::= <escape>  { <letter> }                                   */
+X/*                                                                           */
+X/*  The third form is inaccessible to users and is for internal use only.    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XBOOLEAN LexLegalName(str)
+Xunsigned char *str;
+X{ int i;  BOOLEAN res;
+X  debug1(DLA, DDD, "LexLegalName( %s )", str);
+X  if( chtbl[str[0]] == QUOTE )  FontStripQuotes(str, no_fpos);
+X  switch( chtbl[str[0]] )
+X  {
+X    case ESCAPE:
+X    case LETTER:
+X    
+X      for( i = 1;  chtbl[str[i]] == LETTER;  i++ );
+X      res = str[i] == '\0';
+X      break;
+X
+X
+X    case SPECIAL:
+X    
+X      for( i = 1;  chtbl[str[i]] == SPECIAL;  i++ );
+X      res = str[i] == '\0';
+X      break;
+X
+X
+X    default:
+X    
+X      res = FALSE;
+X      break;
+X
+X  }
+X  debug1(DLA, DDD, "LexLegalName returning %s", bool(res));
+X  return res;
+X} /* end LexLegalName */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  LexInit()                                                                */
+X/*                                                                           */
+X/*  Initialise character types.  Those not touched are 0 (WEIRD).            */
+X/*  The function initchtbl() assists in initializing the chtbl.              */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic initchtbl(val, str)
+Xint val;  unsigned char *str;
+X{ int i;
+X  for( i = 0;  str[i] != '\0';  i++ )
+X	chtbl[ str[i] ] = val;
+X} /* end initchtbl */
+X
+XLexInit()
+X{ initchtbl( LETTER,     "abcdefghijklmnopqrstuvwxyz"   );
+X  initchtbl( LETTER,     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"   );
+X  initchtbl( LETTER,     "@"                            );
+X  initchtbl( SPECIAL,    "!$%^&*()_-+=~`{[}]:;'|<,.>?/" );
+X  initchtbl( SPECIAL,    "0123456789"                   );
+X  initchtbl( QUOTE,      "\""                           );
+X  initchtbl( ESCAPE,     "\\"                           );
+X  initchtbl( COMMENT,    "#"                            );
+X  initchtbl( CSPACE,      " "                            );
+X  initchtbl( TAB,        "\t"                           );
+X  initchtbl( NEWLINE,    "\n"                           );
+X  chtbl['\0'] = ENDFILE;
+X} /* end LexInit */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  setword(res, file_pos, str, len)                                         */
+X/*                                                                           */
+X/*  Set variable res to a WORD token containing string str, etc.             */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define setword(res, file_pos, str, len)				\
+X{ res = NewWord(len, &file_pos);					\
+X  FposCopy(fpos(res), file_pos);					\
+X  for( c = 0;  c < len;  c++ ) string(res)[c] = str[c];			\
+X  string(res)[c] = '\0';						\
+X}
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  LexPush(x, offs, ftype)                                                  */
+X/*  LexPop()                                                                 */
+X/*                                                                           */
+X/*  Switch lexical analyser to or from (LexPop) reading from the file        */
+X/*  sequence whose first file is x (the other files are obtained from        */
+X/*  NextFile).  The first file of the sequence is to be fseeked to offs.     */
+X/*  When the sequence is exhausted, ftype determines how to continue:        */
+X/*                                                                           */
+X/*      ftype          action                                                */
+X/*                                                                           */
+X/*      SOURCE_FILE    last input file ends, return @End \Input              */
+X/*      DATABASE_FILE  database file, return @End \Input                     */
+X/*      INCLUDE_FILE   include file, must pop lexical analyser and continue  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XLexPush(x, offs, ftyp)
+XFILE_NUM x;  int offs;  int ftyp;
+X{ char *malloc();
+X  debug3(DLA, D, "LexPush(%s, %d, %s)", FileName(x), offs,
+X    ftyp==SOURCE_FILE ? "source" : ftyp==INCLUDE_FILE ? "include" : "database");
+X  if( top_stack >= MAX_LEX_STACK - 1 )
+X    Error(FATAL, PosOfFile(x), "%s or %s file %s too deeply nested",
+X      KW_INCLUDE, KW_DATABASE, FileName(x));
+X  if( top_stack >= 0 )  /* save current state */
+X  { lex_stack[top_stack].chpt		= chpt;
+X    lex_stack[top_stack].frst		= frst;
+X    lex_stack[top_stack].limit		= limit;
+X    lex_stack[top_stack].buf		= buf;
+X    lex_stack[top_stack].blksize	= blksize;
+X    lex_stack[top_stack].startline	= startline;
+X    lex_stack[top_stack].this_file	= this_file;
+X    lex_stack[top_stack].fp		= fp;
+X    lex_stack[top_stack].ftype		= ftype;
+X    lex_stack[top_stack].next_token	= next_token;
+X    lex_stack[top_stack].offset		= offset;
+X    lex_stack[top_stack].mem_block	= mem_block;
+X    FposCopy( lex_stack[top_stack].file_pos, file_pos );
+X  }
+X  top_stack += 1;
+X  mem_block = (unsigned char *) malloc(MAX_LINE + BUFFER_SIZE + 2);
+X  if( mem_block == NULL )  Error(FATAL, PosOfFile(x),
+X      "run out of memory when opening file %s", FileName(x));
+X  buf = chpt = &mem_block[MAX_LINE];
+X  this_file = x;
+X  offset = offs;
+X  ftype = ftyp;
+X  next_token = nil;
+X  *chpt = '\0';
+X  fp = null;
+X} /* end LexPush */
+X
+XLexPop()
+X{ debug0(DLA, D, "LexPop()");
+X  assert( top_stack > 0, "LexPop: top_stack <= 0!" );
+X  if( fp != null )  fclose(fp);
+X  top_stack--;
+X  free(mem_block);
+X  mem_block    = lex_stack[top_stack].mem_block;
+X  chpt         = lex_stack[top_stack].chpt;
+X  frst         = lex_stack[top_stack].frst;
+X  limit        = lex_stack[top_stack].limit;
+X  buf          = lex_stack[top_stack].buf;
+X  blksize      = lex_stack[top_stack].blksize;
+X  startline    = lex_stack[top_stack].startline;
+X  this_file    = lex_stack[top_stack].this_file;
+X  fp           = lex_stack[top_stack].fp;
+X  ftype        = lex_stack[top_stack].ftype;
+X  next_token   = lex_stack[top_stack].next_token;
+X  offset       = lex_stack[top_stack].offset;
+X  FposCopy( file_pos, lex_stack[top_stack].file_pos );
+X} /* end LexPop */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  long LexNextTokenPos()                                                   */
+X/*                                                                           */
+X/*  Equivalent to ftell() on the current lex file.  Complicated because      */
+X/*  the file is buffered.                                                    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xlong LexNextTokenPos()
+X{ long res;
+X  if( next_token != nil )
+X    Error(FATAL, &fpos(next_token), "illegal macro invokation in database");
+X  res = ftell(fp) - (limit - chpt) - (buf - frst);
+X  debug1(DLA, D, "LexNextTokenPos() returning %ld", res);
+X  return res;
+X}
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static srcnext()                                                         */
+X/*                                                                           */
+X/*  Move to new line of input file.  May need to recharge buffer.            */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic srcnext()
+X{ register unsigned char *col;
+X  debug4(DLA, DDD, "srcnext();  buf: %d, chpt: %d, frst: %d, limit: %d",
+X    buf - mem_block, chpt - mem_block, frst - mem_block, limit - mem_block);
+X
+X  /* if time to transfer last line to area preceding buffer, do so */
+X  if( blksize != 0 && chpt < limit )
+X  { debug0(DLA, DDD, "srcnext: transferring.");
+X    col = buf;
+X    while( (*--col = *--limit) != '\n' );
+X    frst = col + 1;
+X    limit++;
+X    blksize = 0;
+X  }
+X
+X  /* if buffer is empty, read next block */
+X  /*** changed by JK 9/92 from "if( chpt == limit )" to fix long lines bug */
+X  if( chpt >= limit )
+X  { if( chpt > limit )
+X    { col_num(file_pos) = 1;
+X      Error(FATAL, &file_pos, "line is too long (or final newline missing)");
+X    }
+X    chpt = frst;
+X    blksize = fread( (char *) buf, sizeof(char), BUFFER_SIZE, fp);
+X    debug4(DLA, D, "srcnext: %d = fread(0x%x, %d, %d, fp)",
+X      blksize, buf, sizeof(char), BUFFER_SIZE);
+X    frst = buf;
+X    limit = buf + blksize;
+X    *limit = '\n';
+X  }
+X
+X  /* if nothing more to read, make this clear */
+X  if( chpt >= limit )
+X  { debug0(DLA, DDD, "srcnext: nothing more to read");
+X    chpt = limit = buf;
+X    *limit = '\0';
+X  }
+X  debug4(DLA, DDD, "srcnext returning;  buf: %d, chpt: %d, frst: %d, limit: %d",
+X    buf - mem_block, chpt - mem_block, frst - mem_block, limit - mem_block);
+X} /* end srcnext */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  OBJECT LexGetToken()                                                     */
+X/*                                                                           */
+X/*  Get next token from input.  Look it up in symbol table.                  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT LexGetToken()
+X{
+X	   unsigned char *startpos;	/* where the latest token started    */
+X  register unsigned char *p;		/* pointer to current input char     */
+X  register int      c;			/* temporary character (really char) */
+X  OBJECT   res;				/* result token                      */
+X  int vcount, hcount;			/* no. of newlines and spaces seen   */
+X
+X  if( next_token != nil )
+X  { next_token = Delete(res = next_token, PARENT);
+X    debug2(DLA, DD, "LexGetToken%s (in macro) returning %s",
+X      EchoFilePos(&file_pos), EchoToken(res));
+X    return res;
+X  }
+X
+X  res = nil;  p = chpt;
+X  vcount = hcount = 0;
+X  do switch( chtbl[*p++] )
+X  {
+X      case WEIRD:
+X      
+X	debug1(DLA, DDD, "LexGetToken%s: WEIRD", EchoFilePos(&file_pos) );
+X	col_num(file_pos) = (startpos = p-1) - startline;
+X	Error(WARN, &file_pos, "unknown character (%o octal)", *startpos);
+X	break;
+X
+X
+X      case ESCAPE:
+X      
+X	col_num(file_pos) = (startpos = p-1) - startline;
+X	Error(WARN, &file_pos, "character %c outside quoted string", *startpos);
+X	break;
+X
+X
+X      case COMMENT:
+X      
+X	debug1(DLA, DDD, "LexGetToken%s: comment", EchoFilePos(&file_pos));
+X	while( (c = *p++) != '\n' && c != '\0' );
+X	--p;
+X	break;
+X
+X
+X      case CSPACE:
+X
+X	hcount++;
+X	break;
+X
+X
+X      case TAB:
+X
+X	hcount += 8;
+X	break;
+X
+X
+X      case NEWLINE:
+X      
+X	chpt = p;  srcnext();
+X	line_num(file_pos)++;
+X	col_num(file_pos) = 0;
+X	vcount++;  hcount = 0;
+X	startline = (p = chpt) - 1;
+X	break;
+X
+X
+X      case ENDFILE:
+X      
+X	/* close current file, if any */
+X	debug0(DLA, DDD, "LexGetToken: endfile");
+X	if( fp != null )
+X	{ fclose(fp);  fp = null;
+X	  this_file = ftype == SOURCE_FILE ? NextFile(this_file) : NO_FILE;
+X	}
+X
+X	/* open next file */
+X	while( this_file != NO_FILE )
+X	{ file_num(file_pos) = this_file;
+X	  line_num(file_pos) = 1;
+X	  col_num(file_pos) = 0;
+X	  fp = OpenFile(this_file, FALSE);
+X	  if( fp != null )  break;
+X	  Error(WARN, &file_pos, "cannot open %s", FileName(this_file));
+X	  this_file = ftype == SOURCE_FILE ? NextFile(this_file) : NO_FILE;
+X	}
+X	if( fp != null )
+X	{ if( offset != 0 )
+X	  { fseek(fp, (long) offset, 0);
+X	    offset = 0L;
+X	  }
+X	  frst = limit = chpt = buf;
+X	  blksize = 0;  srcnext();
+X	  startline = (p = chpt) - 1;
+X	  hcount = 0;
+X	}
+X
+X	/* no next file, so take continuation */
+X	else switch( ftype )
+X	{
+X	  case SOURCE_FILE:
+X	  case DATABASE_FILE:
+X	  
+X	    /* input ends with "@End \Input" */
+X	    res = NewToken(END, &file_pos, 0, 0, END_PREC, nil);
+X	    next_token = NewToken(CLOSURE, &file_pos, 0,0, NO_PREC, StartSym);
+X	    --p;  startline = p;
+X	    break;
+X
+X	  case INCLUDE_FILE:
+X
+X	    LexPop();
+X	    (p = chpt) - 1;
+X	    hcount = 0;
+X	    break;
+X
+X	  default:  Error(INTERN, no_fpos, "ftype!");
+X
+X	} /* end switch */
+X	break;
+X
+X
+X      case SPECIAL:
+X      
+X	col_num(file_pos) = (startpos = p-1) - startline;
+X	while( chtbl[*p++] == SPECIAL );
+X	c = p - startpos - 1;
+X	do
+X	{ res = SearchSym(startpos, c);
+X	  --c; --p;
+X	} while( c > 0 && res == nil );
+X	goto MORE;  /* 7 lines down */
+X	break;
+X
+X
+X      case LETTER:
+X      
+X	col_num(file_pos) = (startpos = p-1) - startline;
+X	while( chtbl[*p++] == LETTER );  --p;
+X	res = SearchSym(startpos, p - startpos);
+X
+X	MORE: if( res == nil )
+X	{ setword(res, file_pos, startpos, p-startpos);
+X	}
+X	else if( type(res) == MACRO )
+X	{ if( recursive(res) )
+X	  { Error(WARN, &file_pos, "recursion in macro");
+X	    setword(res, file_pos, startpos, p-startpos);
+X	  }
+X	  else
+X	  { res = CopyTokenList( sym_body(res), &file_pos );
+X	    if( res != nil ) next_token = Delete(res, PARENT);
+X	    else hcount = 0;
+X	  }
+X	}
+X	else if( predefined(res) == 0 )
+X	{ res = NewToken(CLOSURE, &file_pos, 0, 0, precedence(res), res);
+X	}
+X	else if( is_filecom(predefined(res)) )
+X	{ OBJECT t, fname, symbs = nil;  FILE_NUM fnum;
+X	  chpt = p;
+X	  t = LexGetToken();
+X	  p = chpt;
+X	  if( predefined(res)==DATABASE || predefined(res) == SYS_DATABASE )
+X	  { symbs = New(ACAT);
+X	    while( type(t) == CLOSURE )
+X	    { Link(symbs, t);
+X	      chpt = p;  t = LexGetToken();  p = chpt;
+X	    }
+X	  }
+X	  if( type(t) != LBR )
+X	  { Error(WARN, &fpos(t), "%s expected after %s", KW_LBR, SymName(res));
+X	    Dispose(t);
+X	    res = nil;
+X	    break;
+X	  }
+X	  Dispose(t);
+X	  chpt = p; fname = LexGetToken(); p = chpt;
+X	  if( type(fname) != WORD )
+X	  { Error(WARN, &fpos(fname), "name of %s file expected here",
+X		    SymName(res));
+X	    Dispose(fname);
+X	    res = nil;
+X	    break;
+X	  }
+X	  chpt = p; t = LexGetToken(); p = chpt;
+X	  if( type(t) != RBR )
+X	  { Error(WARN, &fpos(t), "%s expected here", KW_RBR);
+X	    Dispose(t);
+X	    res = nil;
+X	    break;
+X	  }
+X	  Dispose(t);
+X	  if( string(fname)[0] == '"' )
+X	    FontStripQuotes(string(fname), &fpos(fname));
+X	  if( predefined(res)==INCLUDE  || predefined(res) == SYS_INCLUDE )
+X	  { fnum = DefineFile(fname, INCLUDE_FILE,
+X		    predefined(res)==INCLUDE ? INCLUDE_PATH : SYSINCLUDE_PATH);
+X	    chpt = p;
+X	    LexPush(fnum, 0, INCLUDE_FILE);
+X	    res = LexGetToken();
+X	    p = chpt;
+X	  }
+X	  else if( predefined(res)==DATABASE || predefined(res)==SYS_DATABASE )
+X	  { OBJECT db, ifname;
+X	    if( Down(symbs) == symbs )
+X	      Error(FATAL, &fpos(fname), "symbols missing after %s",
+X	        predefined(res) == DATABASE ? KW_DATABASE : KW_SYSDATABASE);
+X	    if( strlen(string(fname)) + strlen(INDEX_SUFFIX) >= MAX_LINE )
+X	      Error(FATAL,&file_pos, "file name %s is too long", string(fname));
+X	    ifname = MakeWordTwo(string(fname), INDEX_SUFFIX, &fpos(fname));
+X	    Dispose(fname);
+X	    fnum = DefineFile(ifname, INDEX_FILE,
+X	      predefined(res)==DATABASE ? DATABASE_PATH : SYSDATABASE_PATH );
+X	    db = DbLoad(fnum, string(ifname), &fpos(ifname), TRUE, symbs);
+X	    res = nil;
+X	  }
+X	  else if( predefined(res)==PREPEND || predefined(res)==SYS_PREPEND )
+X	  { fnum = DefineFile(fname, PREPEND_FILE,
+X	      predefined(res) == PREPEND ? INCLUDE_PATH : SYSINCLUDE_PATH);
+X	    res = nil;
+X	  }
+X	  else Error(INTERN, &file_pos, "filecom!");
+X	}
+X	else res = NewToken(predefined(res), &file_pos,0,0,precedence(res),res);
+X	break;
+X
+X
+X      case QUOTE:
+X      
+X	col_num(file_pos) = (startpos = p-1) - startline;
+X	do switch( chtbl[*p++] )
+X	{
+X	  case WEIRD:	Error(FATAL, &file_pos, "unknown character (%c octal)",
+X				*(p-1));
+X			break;
+X
+X	  case ESCAPE:	if( chtbl[*p] == NEWLINE || chtbl[*p] == ENDFILE )
+X			{ Error(WARN, &file_pos, "unterminated string");
+X			  *(p-1) = '"';
+X			  setword(res, file_pos, startpos, p-startpos);
+X			}
+X			else p++;
+X			break;
+X
+X	  case NEWLINE:
+X	  case ENDFILE:	--p;
+X			Error(WARN, &file_pos, "unterminated string");
+X			setword(res, file_pos, startpos, p-startpos);
+X			break;
+X
+X	  case TAB:	Error(WARN, &file_pos, "tab character in string");
+X			*(p-1) = ' ';
+X			break;
+X
+X	  case CSPACE:
+X	  case COMMENT:
+X	  case SPECIAL:
+X	  case LETTER:	break;
+X
+X	  case QUOTE:	setword(res, file_pos, startpos, p-startpos);
+X			break;
+X
+X	  default:	Error(INTERN, &file_pos, "LexGetToken: quoted string");
+X			break;
+X
+X	} while( res == nil );
+X	break;
+X
+X
+X      default:
+X      
+X	Error(INTERN, &file_pos, "LexGetToken: bad chtbl[]");
+X	break;
+X
+X  } while( res == nil );
+X
+X  if( p - startline >= MAX_LINE )
+X  { col_num(file_pos) = 1;
+X    Error(FATAL, &file_pos, "line is too long (or final newline missing)");
+X  }
+X
+X  chpt = p;
+X  vspace(res) = vcount;
+X  hspace(res) = hcount;
+X  debug4(DLA, DD, "LexGetToken%s returning %s %s (@%d)",
+X	EchoFilePos(&file_pos), Image(type(res)), EchoToken(res), (int) res);
+X  return res;
+X} /* end LexGetToken */
+END_OF_FILE
+  if test 23481 -ne `wc -c <'lout/z02.c'`; then
+    echo shar: \"'lout/z02.c'\" unpacked with wrong size!
+  fi
+  # end of 'lout/z02.c'
+fi
+if test -f 'lout/z15.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/z15.c'\"
+else
+  echo shar: Extracting \"'lout/z15.c'\" \(23826 characters\)
+  sed "s/^X//" >'lout/z15.c' <<'END_OF_FILE'
+X/*@z15.c:Size Constraints:EchoConstraint(), Constrained()@********************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.03)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z15.c                                                      */
+X/*  MODULE:       Size Constraints                                           */
+X/*  EXTERNS:      EchoConstraint(), Constrained(), DebugConstrained()        */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include <math.h>
+X#ifndef M_PI
+X#define M_PI       3.1415926535897931160E0
+X#endif
+X
+X#include "externs"
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  MinConstraint(xc, yc)                                                    */
+X/*                                                                           */
+X/*  Replace *xc by the minimum of the two constraints *xc and *yc.           */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XMinConstraint(xc, yc)
+XCONSTRAINT *xc, *yc;
+X{ bc(*xc)  = min(bc(*xc),  bc(*yc));
+X  bfc(*xc) = min(bfc(*xc), bfc(*yc));
+X  fc(*xc)  = min(fc(*xc),  fc(*yc));
+X} /* end MinConstraint */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  EnlargeToConstraint(b, f, c)                                             */
+X/*                                                                           */
+X/*  Enlarge *b,*f to its largest possible value within constraint *c.        */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XEnlargeToConstraint(b, f, c)
+XLENGTH *b, *f;  CONSTRAINT *c;
+X{
+X  *f = min(bfc(*c) - *b, fc(*c));
+X} /* end EnlargeToConstraint */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  ReflectConstraint(xc, yc)                                                */
+X/*                                                                           */
+X/*  Set xc to the constraint which is yc with its back and forward reversed. */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define ReflectConstraint(xc, yc)  SetConstraint(xc, fc(yc), bfc(yc), bc(yc))
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  static SemiRotateConstraint(xc, u, v, angle, yc)                         */
+X/*                                                                           */
+X/*  Used by RotateConstraint to calculate one rotated constraint.            */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic SemiRotateConstraint(xc, u, v, angle, yc)
+XCONSTRAINT *xc;  LENGTH u, v;  float angle; CONSTRAINT *yc;
+X{ float cs, sn;  unsigned char buff[20];
+X  ifdebug(DSC, D, sprintf(buff, "%.1f", angle * 360.0 / (2 * M_PI)));
+X  debug4(DSC, D, "SemiRotateConstraint(xc, %s, %s, %sd, %s",
+X    EchoLength(u), EchoLength(v), buff, EchoConstraint(yc));
+X  cs = cos(angle);  sn = sin(angle);
+X  if( fabs(cs) < 1e-6 )
+X    SetConstraint(*xc, MAX_LEN, MAX_LEN, MAX_LEN);
+X  else
+X    SetConstraint(*xc,
+X      min(MAX_LEN, (bc(*yc) - u * sn) / cs),
+X      min(MAX_LEN, (bfc(*yc) - u * sn - v * sn) / cs),
+X      min(MAX_LEN, (fc(*yc) - v * sn) / cs) );
+X  debug1(DSC, D, "SemiRotateConstraint returning %s", EchoConstraint(xc));
+X} /* end SemiRotateConstraint */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  RotateConstraint(c, y, angle, hc, vc, dim)                               */
+X/*                                                                           */
+X/*  Take the object angle @Rotate y, which is supposed to be constrained     */
+X/*  horizontally by hc and vertically by vc, and determine a constraint      */
+X/*  (either horizontal or vertical, depending on dim) for y.                 */
+X/*                                                                           */
+X/*  The constraint returned is a trigonometric function of all these         */
+X/*  parameters, including the present size of y in dimension 1-dim.          */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XRotateConstraint(c, y, angle, hc, vc, dim)
+XCONSTRAINT *c;  OBJECT y;  LENGTH angle;  CONSTRAINT *hc, *vc;  int dim;
+X{ CONSTRAINT c1, c2, c3, dc;  float theta, psi;
+X  unsigned char buff[20];
+X  ifdebug(DSC, D, sprintf(buff, "%.1f", (float) angle / DG ));
+X  debug4(DSC, D, "RotateConstraint(c, y, %sd, %s, %s, %s)",
+X	buff, EchoConstraint(hc), EchoConstraint(vc), dimen(dim));
+X
+X  /* work out angle in radians between 0 and 2*PI */
+X  theta = (float) angle * 2 * M_PI / (float) (DG * 360);
+X  while( theta < 0 ) theta += 2 * M_PI;
+X  while( theta >= 2 * M_PI ) theta -= 2 * M_PI;
+X  assert( 0 <= theta && theta <= 2 * M_PI, "RotateConstraint: theta!" );
+X
+X  /* determine theta, c1, and c2 depending on which quadrant we're in */
+X  if( theta <= M_PI / 2.0 )   /* first quadrant */
+X  { theta = theta;
+X    CopyConstraint(c1, *hc);
+X    CopyConstraint(c2, *vc);
+X  }
+X  else if ( theta <= M_PI )   /* second quadrant */
+X  { theta -= M_PI / 2.0;
+X    ReflectConstraint(c1, *vc);
+X    CopyConstraint(c2, *hc);
+X  }
+X  else if ( theta <= 3.0 * M_PI / 2.0 )   /* third quadrant */
+X  { theta -= M_PI;
+X    ReflectConstraint(c1, *hc);
+X    ReflectConstraint(c2, *vc);
+X  }
+X  else /* fourth quadrant */
+X  { theta -= 3.0 * M_PI / 2.0;
+X    CopyConstraint(c1, *vc);
+X    ReflectConstraint(c2, *hc);
+X  }
+X  psi = M_PI / 2.0 - theta;
+X  debug2(DSC, D, "  c1: %s;  c2: %s", EchoConstraint(&c1), EchoConstraint(&c2));
+X
+X  /* return the minimum of the two constraints, rotated */
+X  if( dim == COL )
+X  { SemiRotateConstraint(c, back(y, ROW), fwd(y, ROW), theta, &c1);
+X    ReflectConstraint(c3, c2);
+X    SemiRotateConstraint(&dc, fwd(y, ROW), back(y, ROW), psi, &c3);
+X    MinConstraint(c, &dc);
+X  }
+X  else
+X  { SemiRotateConstraint(c, back(y, COL), fwd(y, COL), psi, &c1);
+X    SemiRotateConstraint(&dc, fwd(y, COL), back(y, COL), theta, &c2);
+X    MinConstraint(c, &dc);
+X  }
+X
+X  debug1(DSC, D, "RotateConstraint returning %s", EchoConstraint(c));
+X} /* end RotateConstraint */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  InvScaleConstraint(yc, sf, xc)                                           */
+X/*                                                                           */
+X/*  Scale constraint xc to the inverse of the scale factor sf.               */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XInvScaleConstraint(yc, sf, xc)
+XCONSTRAINT *yc;  LENGTH sf;  CONSTRAINT *xc;
+X{ unsigned char buff[10];
+X  ifdebug(DSC, D, sprintf(buff, "%.3f", (float) sf / SF));
+X  debug2(DSC, D, "InvScaleConstraint(yc, %s, %s)", buff, EchoConstraint(xc));
+X  assert( sf > 0, "InvScaleConstraint: sf <= 0!" );
+X  bc(*yc)  = bc(*xc)  == MAX_LEN ? MAX_LEN : min(MAX_LEN, bc(*xc)  * SF / sf);
+X  bfc(*yc) = bfc(*xc) == MAX_LEN ? MAX_LEN : min(MAX_LEN, bfc(*xc) * SF / sf);
+X  fc(*yc)  = fc(*xc)  == MAX_LEN ? MAX_LEN : min(MAX_LEN, fc(*xc)  * SF / sf);
+X  debug1(DSC, D, "InvScaleConstraint returning %s", EchoConstraint(yc));
+X} /* end InvScaleConstraint */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  static CatConstrained(x, xc, ratm, y, dim)                               */
+X/*                                                                           */
+X/*  Calculate the size constraint of object x, as for Constrained below.     */
+X/*  y is the enclosing VCAT etc. object;  ratm is TRUE if a ^ lies after     */
+X/*  x anywhere.  dim is COL or ROW.                                          */
+X/*                                                                           */
+X/*  The meaning of the key variables is as follows:                          */
+X/*                                                                           */
+X/*  be       The amount by which back(x, dim) can increase from zero         */
+X/*           without having any impact on size(y, dim).  Thereafter,         */
+X/*           any increase causes an equal increase in size(y, dim).          */
+X/*                                                                           */
+X/*  fe       The amount by which fwd(x, dim) can increase from zero          */
+X/*           without having any impact on size(y, dim).  Thereafter,         */
+X/*           any increase causes an equal increase in size(y, dim).          */
+X/*                                                                           */
+X/*  backy,   The value that back(y, dim) and fwd(y, dim) would have if x     */
+X/*  fwdy     was definite with size 0,0.  They will in general be larger     */
+X/*           than the present values if x is indefinite, and smaller         */
+X/*           if x is definite, although it depends on marks and gaps.        */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic CatConstrained(x, xc, ratm, y, dim)
+XOBJECT x;  CONSTRAINT *xc; BOOLEAN ratm;  OBJECT y;  int dim;
+X{ int side;			/* x's side of add-set y: BACK, ON or FWD    */
+X  CONSTRAINT yc;		/* constraints on y                          */
+X  LENGTH backy, fwdy;		/* back(y), fwd(y) would be if x was (0, 0)  */
+X  LENGTH be, fe;		/* amount back(x), fwd(x) can be for free    */
+X  LENGTH beffect, feffect;	/* scratch variables for calculations        */
+X  LENGTH seffect;		/* scratch variables for calculations        */
+X  OBJECT link, sg, pg;	/* link to x, its successor and predecessor  */
+X  OBJECT prec_def, sd;	/* definite object preceding (succeeding) x  */
+X  int tb, tbf, tf, tbc, tbfc, tfc, mxy, myz;
+X
+X  Constrained(y, &yc, dim);
+X  if( constrained(yc) )
+X  {
+X    /* find x's link, and its neighbours and their links */
+X    link = UpDim(x, dim);
+X
+X    /* find neighbouring definite objects, if any */
+X    SetNeighbours(link, ratm, &pg, &prec_def, &sg, &sd, &side);
+X
+X    /* amount of space available at x without changing the size of y */
+X    be = pg == nil ? 0 : ExtraGap(fwd(prec_def, dim), 0, &gap(pg), BACK);
+X    fe = sg == nil ? 0 : ExtraGap(0, back(sd, dim),      &gap(sg), FWD);
+X
+X    if( is_indefinite(type(x)) )
+X    {
+X      /* insert two lengths and delete one */
+X      beffect = pg == nil ? 0 : MinGap(fwd(prec_def, dim), 0, 0, &gap(pg));
+X      feffect = sg == nil ? 0 : MinGap(0, back(sd,dim), fwd(sd,dim), &gap(sg));
+X      seffect = pg == nil ?
+X	  sg == nil ? 0 : back(sd, dim) :
+X	  sg == nil ? fwd(prec_def, dim) :
+X	    MinGap(fwd(prec_def, dim), back(sd, dim), fwd(sd, dim), &gap(sg));
+X
+X      switch( side )
+X      {
+X	case BACK:	backy = back(y, dim) + beffect + feffect - seffect;
+X			fwdy  = fwd(y, dim);
+X			break;
+X
+X	case ON:	/* must be first, other cases prohibited */
+X			backy = 0;
+X			fwdy = fwd(y, dim) + feffect;
+X			break;
+X
+X	case FWD:	backy = back(y, dim);
+X			fwdy  = fwd(y, dim) + beffect + feffect - seffect;
+X			break;
+X      }
+X    }
+X
+X    else /* x is definite */
+X
+X    { beffect = pg == nil ? back(x, dim) :
+X	MinGap(fwd(prec_def, dim), back(x,dim), fwd(x,dim), &gap(pg)) -
+X	MinGap(fwd(prec_def, dim), 0,           0,          &gap(pg));
+X
+X      feffect = sg == nil ? fwd(x, dim) :
+X	MinGap(fwd(x, dim), back(sd, dim), fwd(sd, dim), &gap(sg)) -
+X	MinGap(0,           back(sd, dim), fwd(sd, dim), &gap(sg));
+X
+X      switch( side )
+X      {
+X	case BACK:	backy = back(y, dim) - beffect - feffect;
+X			fwdy  = fwd(y, dim);
+X			break;
+X
+X	case ON:	backy = back(y, dim) - beffect;
+X			fwdy  = fwd(y, dim)  - feffect;
+X			break;
+X
+X	case FWD:	backy = back(y, dim);
+X			fwdy  = fwd(y, dim) - beffect - feffect;
+X			break;
+X      }
+X    }
+X
+X    debug5(DSC, DDD, "side: %s, backy: %s, fwdy: %s, be: %s, fe: %s",
+X		Image(side), EchoLength(backy), EchoLength(fwdy),
+X		EchoLength(be), EchoLength(fe) );
+X
+X    if( !FitsConstraint(backy, fwdy, yc) )
+X      SetConstraint(*xc, -1, -1, -1);
+X    else switch( side )
+X    {
+X
+X      case BACK:
+X	
+X	tbc = bc(yc) == MAX_LEN ? MAX_LEN : bc(yc) - backy;
+X	tbfc = bfc(yc) == MAX_LEN ? MAX_LEN : bfc(yc) - backy - fwdy;
+X	mxy = min(tbc, tbfc);
+X	tb  = min(MAX_LEN, be + mxy);
+X	tbf = min(MAX_LEN, be + fe + mxy);
+X	tf  = min(MAX_LEN, fe + mxy);
+X	SetConstraint(*xc, tb, tbf, tf);
+X	break;
+X
+X
+X      case ON:
+X	
+X	tbc = bc(yc) == MAX_LEN ? MAX_LEN : bc(yc) - backy;
+X	tbfc = bfc(yc) == MAX_LEN ? MAX_LEN : bfc(yc) - backy - fwdy;
+X	tfc = fc(yc) == MAX_LEN ? MAX_LEN : fc(yc) - fwdy;
+X	mxy = min(tbc, tbfc);
+X	myz = min(tfc, tbfc);
+X	tb  = min(MAX_LEN, be + mxy);
+X	tbf = min(MAX_LEN, be + fe + tbfc);
+X	tf  = min(MAX_LEN, fe + myz);
+X	SetConstraint(*xc, tb, tbf, tf);
+X	break;
+X	
+X
+X      case FWD:
+X
+X	tfc = fc(yc) == MAX_LEN ? MAX_LEN : fc(yc) - fwdy;
+X	tbfc = bfc(yc) == MAX_LEN ? MAX_LEN : bfc(yc) - backy - fwdy;
+X	mxy = min(tfc, tbfc);
+X	tb  = min(MAX_LEN, be + mxy);
+X	tbf = min(MAX_LEN, be + fe + mxy);
+X	tf  = min(MAX_LEN, fe + mxy);
+X	SetConstraint(*xc, tb, tbf, tf);
+X	break;
+X	
+X    }
+X  } /* end if( constrained ) */
+X  else SetConstraint(*xc, MAX_LEN, MAX_LEN, MAX_LEN);
+X} /* end CatConstrained */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  Constrained(x, xc, dim)                                                  */
+X/*                                                                           */
+X/*  Calculate the size constraint of object x, and return it in *xc.         */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XConstrained(x, xc, dim)
+XOBJECT x;  CONSTRAINT *xc;  int dim;
+X{ OBJECT y, link, lp, rp, z, tlink, g;
+X  CONSTRAINT yc, hc, vc;
+X  BOOLEAN ratm;
+X  LENGTH xback, xfwd;
+X  int tb, tf, tbf, tbc, tfc;
+X  debug2(DSC, DD, "[ Constrained( %s, xc, %s )", EchoObject(null,x),dimen(dim));
+X  assert( Up(x) != x, "Constrained: x has no parent!" );
+X
+X  /* find x's parent, y */
+X  link = UpDim(x, dim);  ratm = FALSE;
+X  for( tlink = NextDown(link);  type(tlink) == LINK;  tlink = NextDown(tlink) )
+X  { Child(g, tlink);
+X    if( type(g) == GAP_OBJ && mark(gap(g)) )  ratm = TRUE;
+X  }
+X  y = tlink;
+X  debug1(DSC, DDD, "x's parent y = %s", Image(type(y)));
+X  ifdebug(DSC, DDD, EchoObject(stderr, y));
+X
+X  switch( type(y) )
+X  {
+X
+X    case GRAPHIC:
+X    case ONE_COL:
+X    case ONE_ROW:
+X    case HCONTRACT:
+X    case VCONTRACT:
+X    case HEXPAND:
+X    case VEXPAND:
+X    case PADJUST:
+X    case HADJUST:
+X    case VADJUST:
+X    case SPLIT:
+X    
+X      Constrained(y, xc, dim);
+X      break;
+X
+X
+X    case VSCALE:
+X    case HSCALE:
+X    
+X      if( (dim == COL) == (type(y) == HSCALE) )
+X	SetConstraint(*xc, MAX_LEN, MAX_LEN, MAX_LEN);
+X      else Constrained(y, xc, dim);
+X      break;
+X
+X
+X    case SCALE:
+X
+X      Constrained(y, &yc, dim);
+X      InvScaleConstraint(xc,
+X	dim == COL ? bc(constraint(y)) : fc(constraint(y)), &yc);
+X      break;
+X
+X
+X    case ROTATE:
+X    
+X      Constrained(y, &hc, COL);
+X      Constrained(y, &vc, ROW);
+X      RotateConstraint(xc, x, sparec(constraint(y)), &hc, &vc, dim);
+X      break;
+X
+X
+X    case WIDE:
+X    case HIGH:
+X    
+X      Constrained(y, xc, dim);
+X      if( (type(y)==WIDE) == (dim==COL) )
+X        MinConstraint(xc, &constraint(y));
+X      break;
+X
+X
+X    case HEAD:
+X    
+X      if( dim == ROW ) SetConstraint(*xc, MAX_LEN, MAX_LEN, MAX_LEN);
+X      else
+X      {	CopyConstraint(yc, constraint(y));
+X	debug1(DSC, DD, "  head: %s; val is:", EchoConstraint(&yc));
+X	ifdebug(DSC, DD, EchoObject(stderr, y));
+X	goto REST_OF_HEAD;   /* a few lines down */
+X      }
+X      break;
+X
+X
+X    case COL_THR:
+X    case ROW_THR:
+X
+X      assert( (type(y)==COL_THR) == (dim==COL), "Constrained: COL_THR!" );
+X      Constrained(y, &yc, dim);
+X      tb = bfc(yc) == MAX_LEN ? MAX_LEN : bfc(yc) - fwd(y, dim);
+X      tb = min(bc(yc), tb);
+X      tf = bfc(yc) == MAX_LEN ? MAX_LEN : bfc(yc) - back(y, dim);
+X      tf = min(fc(yc), tf);
+X      SetConstraint(*xc, tb, bfc(yc), tf);
+X      break;
+X
+X
+X    case VCAT:
+X    case HCAT:
+X    case ACAT:
+X    
+X      if( (type(y)==VCAT) == (dim==ROW) )
+X      {	CatConstrained(x, xc, ratm, y, dim);
+X	break;
+X      }
+X      Constrained(y, &yc, dim);
+X      if( !constrained(yc) )  SetConstraint(*xc, MAX_LEN, MAX_LEN, MAX_LEN);
+X      else
+X      {
+X	REST_OF_HEAD:
+X	/* let lp and rp be the links of the gaps delimiting */
+X	/* the components joined to x (or parent if no such) */
+X	for( lp = PrevDown(link);  lp != y;  lp = PrevDown(lp) )
+X	{ Child(z, lp);
+X	  if( type(z) == GAP_OBJ && !join(gap(z)) )  break;
+X	}
+X	for( rp = NextDown(link);  rp != y;  rp = NextDown(rp) )
+X	{ Child(z, rp);
+X	  if( type(z) == GAP_OBJ && !join(gap(z)) )  break;
+X	}
+X	if( lp == y && rp == y && !(type(y) == HEAD && seen_nojoin(y)) )
+X	{
+X	  /* if whole object is joined, do this */
+X          tb = bfc(yc) == MAX_LEN ? MAX_LEN : bfc(yc) - fwd(y, dim);
+X          tb = min(bc(yc), tb);
+X          tf = bfc(yc) == MAX_LEN ? MAX_LEN : bfc(yc) - back(y, dim);
+X          tf = min(fc(yc), tf);
+X          SetConstraint(*xc, tb, bfc(yc), tf);
+X	}
+X	else
+X	{
+X	  /* if // or || is present, do this */
+X	  xback = xfwd = 0;
+X	  for(link = NextDown(lp); link != rp;  link = NextDown(link) )
+X	  { Child(z, link);
+X	    if( type(z) == GAP_OBJ || is_index(type(z)) )  continue;
+X	    xback = max(xback, back(z, dim));
+X	    xfwd  = max(xfwd,  fwd(z, dim));
+X	  }
+X	  debug2(DSC, DD, "  lp != rp; xback,xfwd = %s,%s",
+X			EchoLength(xback), EchoLength(xfwd));
+X	  tbf = min(bfc(yc), fc(yc));
+X	  tbc = tbf == MAX_LEN ? MAX_LEN : tbf - xfwd;
+X	  tfc = tbf == MAX_LEN ? MAX_LEN : tbf - xback;
+X	  SetConstraint(*xc, tbc, tbf, tfc);
+X	}
+X      }
+X      break;
+X
+X
+X    default:
+X    
+X      Error(INTERN, &fpos(y), "Constrained: %s", Image(type(y)) );
+X      break;
+X
+X  }
+X
+X  debug1(DSC, DD, "] Constrained returning %s", EchoConstraint(xc));
+X} /* end Constrained */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  unsigned char *EchoConstraint(c)                                         */
+X/*                                                                           */
+X/*  Returns a string showing constraint *c, in centimetres.                  */
+X/*                                                                           */
+X/*****************************************************************************/
+X#if DEBUG_ON
+X
+Xunsigned char *EchoConstraint(c)
+XCONSTRAINT *c;
+X{ static unsigned char str[2][40];
+X  static int i = 0;
+X  i = (i+1) % 2;
+X  sprintf(str[i], "<");
+X  if( bc(*c)==MAX_LEN )  sprintf(&str[i][strlen(str[i])], "INF, ");
+X  else sprintf(&str[i][strlen(str[i])], "%.3fc, ", (float) bc(*c)/CM);
+X  if( bfc(*c)==MAX_LEN )  sprintf(&str[i][strlen(str[i])], "INF, ");
+X  else sprintf(&str[i][strlen(str[i])], "%.3fc, ", (float) bfc(*c)/CM);
+X  if( fc(*c)==MAX_LEN )  sprintf(&str[i][strlen(str[i])], "INF>");
+X  else sprintf(&str[i][strlen(str[i])], "%.3fc>", (float) fc(*c)/CM);
+X  return str[i];
+X} /* end EchoConstraint */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  DebugConstrained(x)                                                      */
+X/*                                                                           */
+X/*  Calculate and print the constraints of all closures lying within         */
+X/*  object x.                                                                */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XDebugConstrained(x)
+XOBJECT x;
+X{ OBJECT y, link;
+X  CONSTRAINT c;
+X  debug1(DSC, DDD, "DebugConstrained( %s )", EchoObject(null, x) );
+X  switch( type(x) )
+X  {
+X
+X    case CROSS:
+X    case ROTATE:
+X    case INCGRAPHIC:
+X    case SINCGRAPHIC:
+X    case GRAPHIC:
+X    case WORD:
+X    
+X      break;
+X
+X
+X    case CLOSURE:
+X    
+X      Constrained(x, &c, COL);
+X      debug2(DSC, D, "Constrained( %s, &c, COL ) = %s",
+X	EchoObject(null, x), EchoConstraint(&c));
+X      Constrained(x, &c, ROW);
+X      debug2(DSC, D, "Constrained( %s, &c, ROW ) = %s",
+X	EchoObject(null, x), EchoConstraint(&c));
+X      break;
+X
+X
+X    case SPLIT:
+X    
+X      link = DownDim(x, COL);  Child(y, link);
+X      DebugConstrained(y);
+X      break;
+X
+X
+X    case HEAD:
+X    case ONE_COL:
+X    case ONE_ROW:
+X    case HCONTRACT:
+X    case VCONTRACT:
+X    case HEXPAND:
+X    case VEXPAND:
+X    case PADJUST:
+X    case HADJUST:
+X    case VADJUST:
+X    case HSCALE:
+X    case VSCALE:
+X    case SCALE:
+X    case WIDE:
+X    case HIGH:
+X    
+X      link = Down(x);  Child(y, link);
+X      DebugConstrained(y);
+X      break;
+X
+X
+X    case COL_THR:
+X    case VCAT:
+X    case HCAT:
+X    case ACAT:
+X    
+X      for( link = Down(x);  link != x;  link =NextDown(link) )
+X      {	Child(y, link);
+X	if( type(y) != GAP_OBJ && !is_index(type(y)) )  DebugConstrained(y);
+X      }
+X      break;
+X
+X
+X    default:
+X    
+X      Error(INTERN, &fpos(x), "DebugConstrained: type(x)= %s", Image(type(x)) );
+X      break;
+X
+X  }
+X  debug0(DSC, DDD, "DebugConstrained returning.");
+X} /* end DebugConstrained */
+X#endif
+END_OF_FILE
+  if test 23826 -ne `wc -c <'lout/z15.c'`; then
+    echo shar: \"'lout/z15.c'\" unpacked with wrong size!
+  fi
+  # end of 'lout/z15.c'
+fi
+if test -f 'lout/z29.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/z29.c'\"
+else
+  echo shar: Extracting \"'lout/z29.c'\" \(23936 characters\)
+  sed "s/^X//" >'lout/z29.c' <<'END_OF_FILE'
+X/*@z29.c:Symbol Table:SearchSym(), InsertSym(), PushScope()@******************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.03)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z29.c                                                      */
+X/*  MODULE:       Symbol Table                                               */
+X/*  EXTERNS:      PushScope(), PopScope(), BodyParAllowed(), BodyParNotAll() */
+X/*                InitSym(), SearchSym(), InsertSym(), DeleteEverySym(),     */
+X/*                SymName(), FullSymName(), ChildSym()                       */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X
+X#define	MAX_STACK	 40		/* size of scope stack               */
+X#define	MAX_TAB		1024		/* size of hash table                */
+X#define	TAB_MASK	0x3FF		/* i & TAB_MASK == i % MAX_TAB       */
+X
+X#define	length(x)	word_font(x)
+X
+Xstatic	OBJECT		scope[MAX_STACK];		/* the scope stack   */
+Xstatic	BOOLEAN		npars_only[MAX_STACK];		/* look for NPAR exc */
+Xstatic	BOOLEAN		vis_only[MAX_STACK];		/* look for visibles */
+Xstatic	BOOLEAN		body_ok[MAX_STACK];		/* look for body par */
+Xstatic	BOOLEAN		suppress_scope;			/* suppress scoping  */
+Xstatic	BOOLEAN		suppress_visible;		/* suppress visible  */
+Xstatic	int		scope_top;			/* scope stack top   */
+Xstatic	struct { OBJECT f1, f2; } symtab[MAX_TAB];	/* the hash table    */
+X#if DEBUG_ON
+Xstatic	int		sym_spread[MAX_TAB] = { 0 };	/* hash table spread */
+Xstatic	int		sym_count = 0;			/* symbol count      */
+X#endif
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  #define hash(str, len, val)                                              */
+X/*                                                                           */
+X/*  Set val to the hash value of string str, which has length len.           */
+X/*  The hash function is just the character sum mod MAX_TAB.                 */
+X/*  This definition assumes that working variables rlen and x exist.         */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define hash(str, len, val)						\
+X{ rlen = len;								\
+X  x    = str;								\
+X  val  = *x++;								\
+X  while( --rlen )  val += *x++;						\
+X  val  &= TAB_MASK;							\
+X}
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  InitSym()                                                                */
+X/*                                                                           */
+X/*  Initialize the symbol table to empty.                                    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XInitSym()
+X{ int i;
+X  scope_top = 0;
+X  suppress_scope = FALSE;
+X  suppress_visible = FALSE;
+X  for( i = 0;  i < MAX_TAB;  i++ )
+X    symtab[i].f1 = symtab[i].f2 = (OBJECT) &symtab[i];
+X} /* end InitSym */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  PushScope(x, npars, vis)                                                 */
+X/*  PopScope()                                                               */
+X/*                                                                           */
+X/*  Add or remove an OBJECT x (which must be in the symbol table) to or from */
+X/*  the scope stack.  If npars is TRUE, only the named parameters of x are   */
+X/*  added to scope.  If vis is TRUE, only visible locals and parameters are  */
+X/*  added.                                                                   */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XPushScope(x, npars, vis)
+XOBJECT x;  BOOLEAN npars, vis;
+X{ debug2(DST, DD, "[ PushScope( %s, %s )", SymName(x), bool(npars));
+X  assert( suppress_scope == FALSE, "PushScope: suppress_scope!" );
+X  if( scope_top >= MAX_STACK )
+X  { int i;
+X    for( i = 0; i < scope_top; i++ )
+X      debug2(DST, D, "  scope[%2d] = %s", i, SymName(scope[i]));
+X    Error(INTERN, &fpos(x), "scope depth limit exceeded");
+X  }
+X  scope[scope_top]      = x;
+X  npars_only[scope_top] = npars;
+X  vis_only[scope_top]   = vis;
+X  body_ok[scope_top]    = FALSE;
+X  scope_top++;
+X} /* end PushScope */
+X
+XPopScope()
+X{ debug0(DST, DD, "] PopScope()");
+X  assert( scope_top > 0, "tried to pop empty scope stack");
+X  assert( suppress_scope == FALSE, "PopScope: suppress_scope!" );
+X  scope_top--;
+X} /* end PopScope */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  SuppressVisible()                                                        */
+X/*  UnSuppressVisible()                                                      */
+X/*                                                                           */
+X/*  Suppress all scopes (so that all calls to SearchSym fail); and undo it.  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XSuppressVisible()
+X{ debug0(DST, DD, "[ SuppressVisible()");
+X  suppress_visible = TRUE;
+X} /* end SuppressVisible */
+X
+XUnSuppressVisible()
+X{ debug0(DST, DD, "] UnSuppressVisible()");
+X  suppress_visible = FALSE;
+X} /* end UnSuppressVisible */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  SuppressScope()                                                          */
+X/*  UnSuppressScope()                                                        */
+X/*                                                                           */
+X/*  Suppress all scopes (so that all calls to SearchSym fail); and undo it.  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X
+XSuppressScope()
+X{ debug0(DST, DD, "[ SuppressScope()");
+X  suppress_scope = TRUE;
+X} /* end SuppressScope */
+X
+XUnSuppressScope()
+X{ debug0(DST, DD, "] UnSuppressScope()");
+X  suppress_scope = FALSE;
+X} /* end UnSuppressScope */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  SwitchScope(sym)                                                         */
+X/*  UnSwitchScope(sym)                                                       */
+X/*                                                                           */
+X/*  Switch to the scope of sym (if nil, StartSym); and switch back again.    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XSwitchScope(sym)
+XOBJECT sym;
+X{ int i;
+X  OBJECT new_scopes[MAX_STACK];
+X  if( sym == nil )  PushScope(StartSym, FALSE, FALSE);
+X  else
+X  { i = 0;
+X    while( sym != StartSym )
+X    { new_scopes[i++] = enclosing(sym);
+X      sym = enclosing(sym);
+X    }
+X    while( i > 0 )  PushScope(new_scopes[--i], FALSE, FALSE);
+X  }
+X}
+X
+XUnSwitchScope(sym)
+XOBJECT sym;
+X{ if( sym == nil )  PopScope();
+X  else
+X  { while( sym != StartSym )
+X    { PopScope();
+X      sym = enclosing(sym);
+X    }
+X  }
+X}
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  BodyParAllowed()                                                         */
+X/*  BodyParNotAllowed()                                                      */
+X/*                                                                           */
+X/*  Allow or disallow invokations of the body parameter of the current tos.  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XBodyParAllowed()
+X{ debug0(DST, DD, "BodyParAllowed()");
+X  body_ok[scope_top-1] = TRUE;
+X} /* end BodyParAllowed */
+X
+XBodyParNotAllowed()
+X{ debug0(DST, DD, "BodyParNotAllowed()");
+X  body_ok[scope_top-1] = FALSE;
+X} /* end BodyParNotAllowed */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  OBJECT InsertSym(str, xtype, xfpos, xprecedence, indefinite, xrecursive, */
+X/*                                         xpredefined, xenclosing, xbody)   */
+X/*                                                                           */
+X/*  Insert a new symbol into the table.  Its string value is str.            */
+X/*  Initialise the symbol as the parameters indicate.                        */
+X/*  Return a pointer to the new symbol.                                      */
+X/*  If str is not a valid symbol name, InsertSym prints an error             */
+X/*  message and does not insert the symbol.                                  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT InsertSym(str, xtype, xfpos, xprecedence, xindefinite, xrecursive,
+X					     xpredefined, xenclosing, xbody)
+Xunsigned char *str;  unsigned char xtype;
+XFILE_POS *xfpos; unsigned char xprecedence;
+XBOOLEAN xindefinite, xrecursive;  unsigned xpredefined;
+XOBJECT xenclosing, xbody;
+X{ register int sum, rlen;
+X  register unsigned char *x;
+X  OBJECT p, q, s, link, entry, plink;  int len;
+X
+X  debug3(DST, DD, "InsertSym( %s, %s, in %s )",
+X	Image(xtype), str, SymName(xenclosing));
+X  if( !LexLegalName(str) ) Error(WARN, xfpos, "invalid symbol name %s", str);
+X
+X  s = New(xtype);
+X  FposCopy(fpos(s), *xfpos);
+X  has_body(s)    = FALSE;
+X  right_assoc(s) = TRUE;
+X  precedence(s)  = xprecedence;
+X  indefinite(s)  = xindefinite;
+X  recursive(s)   = xrecursive;
+X  predefined(s)  = xpredefined;
+X  enclosing(s)   = xenclosing;
+X  sym_body(s)    = xbody;
+X  base_uses(s)   = nil;
+X  uses(s)        = nil;
+X  marker(s)      = nil;
+X  cross_sym(s)   = nil;
+X  is_extern_target(s) = FALSE;
+X  uses_extern_target(s) = FALSE;
+X  visible(s)     = FALSE;
+X  uses_galley(s) = FALSE;
+X
+X  uses_count(s)  = 0;
+X  dirty(s)       = FALSE;
+X  if( enclosing(s) != nil && type(enclosing(s)) == NPAR )
+X    dirty(enclosing(s)) = TRUE;
+X
+X  has_par(s)     = FALSE;
+X  has_lpar(s)    = FALSE;
+X  has_rpar(s)    = FALSE;
+X  if( is_par(type(s)) )  has_par(enclosing(s))  = TRUE;
+X  if( type(s) == LPAR )  has_lpar(enclosing(s)) = TRUE;
+X  if( type(s) == RPAR )  has_rpar(enclosing(s)) = TRUE;
+X
+X  has_target(s)  = FALSE;
+X  force_target(s) = FALSE;
+X  if( strcmp(str, KW_TARGET) != 0 ) is_target(s) = FALSE;
+X  else
+X  { is_target(s) = has_target(enclosing(s)) = TRUE;
+X    if( has_key(enclosing(s)) && xbody != nil && type(xbody) == CROSS )
+X    { if( LastDown(xbody) != Down(xbody) )
+X      { OBJECT sym;
+X	Child(sym, Down(xbody));
+X	if( type(sym) == CLOSURE )
+X	{ is_extern_target(actual(sym)) = TRUE;
+X	  uses_extern_target(actual(sym)) = TRUE;
+X	}
+X      }
+X    }
+X  }
+X
+X  has_tag(s)  = FALSE;
+X  if( strcmp(str, KW_TAG) != 0 ) is_tag(s) = FALSE;
+X  else is_tag(s) = has_tag(enclosing(s)) = dirty(enclosing(s)) = TRUE;
+X
+X  has_key(s)  = FALSE;
+X  if( strcmp(str, KW_KEY) != 0 ) is_key(s) = FALSE;
+X  else is_key(s) = has_key(enclosing(s)) = TRUE;
+X
+X  if( type(s) == RPAR && has_body(enclosing(s)) && (is_tag(s) || is_key(s)) )
+X    Error(WARN, &fpos(s), "a body parameter may not be named %s", str);
+X
+X  len = strlen(str);
+X  hash(str, len, sum);
+X
+X  ifdebug(DST, D, sym_spread[sum]++;  sym_count++);
+X  entry = (OBJECT) &symtab[sum];
+X  for( plink = Down(entry);  plink != entry;  plink = NextDown(plink) )
+X  { Child(p, plink);
+X    if( length(p) == len && strcmp(str, string(p)) == 0 )
+X    { for( link = Down(p);  link != p;  link = NextDown(link) )
+X      {	Child(q, link);
+X	if( enclosing(s) == enclosing(q) )
+X	{ Error(WARN, &fpos(s), "symbol %s previously defined at%s",
+X	    str, EchoFilePos(&fpos(q)) );
+X	  break;
+X	}
+X      }
+X      goto wrapup;
+X    }
+X  }
+X
+X  /* need a new OBJECT as well as s */
+X  p = NewWord(len, xfpos);
+X  length(p) = len;
+X  strcpy(string(p), str);
+X  Link(entry, p);
+X
+X wrapup:
+X  Link(p, s);
+X  if( enclosing(s) != nil ) Link(enclosing(s), s);
+X  debug2(DST, DD, "InsertSym Link(%s, %s) and returning.",
+X		SymName(enclosing(s)), SymName(s));
+X  return s;
+X} /* end InsertSym */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  OBJECT SearchSym(str, len)                                               */
+X/*                                                                           */
+X/*  Search the symbol table for str, with length len, and return an          */
+X/*  OBJECT referencing the entry if found.  Otherwise return nil.            */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT SearchSym(str, len)
+Xunsigned char *str;  int len;
+X{ register int rlen, sum;
+X  register unsigned char *x, *y;
+X  OBJECT p, q, link, plink, entry;
+X  int s;
+X
+X  debug2(DST, DDD, "SearchSym( %c..., %d )", str[0], len);
+X
+X  hash(str, len, sum);
+X  rlen = len;
+X  entry = (OBJECT) &symtab[sum];
+X  for( plink = Down(entry);  plink != entry;  plink = NextDown(plink) )
+X  { Child(p, plink);
+X    if( rlen == length(p) )
+X    { x = str;  y = string(p);
+X      do; while( *x++ == *y++ && --rlen );
+X      if( rlen == 0 )
+X      {	s = scope_top;
+X	do
+X	{ s--;
+X	  for( link = Down(p);  link != p;  link = NextDown(link) )
+X	  { Child(q, link);
+X	    if( enclosing(q) == scope[s]
+X	      && (!npars_only[s] || type(q) == NPAR)
+X	      && (!vis_only[s] || visible(q) || suppress_visible )
+X	      && (body_ok[s] || type(q)!=RPAR || !has_body(enclosing(q)) )
+X	      && !suppress_scope )
+X	    {	debug1(DST, DDD, "SearchSym returning %s", Image(type(q)));
+X		return q;
+X	    }
+X	  }
+X	} while( scope[s] != StartSym );
+X      }
+X    }
+X    rlen = len;
+X  }
+X  debug0(DST, DDD, "SearchSym returning <nil>");
+X  return nil;
+X} /* end SearchSym */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  unsigned char *SymName(s)                                                */
+X/*                                                                           */
+X/*  Return the string value of the name of symbol s.                         */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xunsigned char *SymName(s)
+XOBJECT s;
+X{ OBJECT p;
+X  if( s == nil )  return (unsigned char *) "<nil>";
+X  Parent(p, Up(s));
+X  assert( type(p) == WORD, "SymName: type(p) != WORD!" );
+X  return string(p);
+X} /* end SymName */
+X	
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  unsigned char *FullSymName(x, str)                                       */
+X/*                                                                           */
+X/*  Return the path name of symbol x. with str separating each entry.        */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xunsigned char *FullSymName(x, str)
+XOBJECT x;  unsigned char *str;
+X{ OBJECT stack[20];  int i;
+X  static unsigned char buff[MAX_LINE], *sname;
+X  if( x == nil )  return (unsigned char *) "<nil>";
+X  assert( enclosing(x) != nil, "FullSymName: enclosing(x) == nil!" );
+X  for( i = 0;  enclosing(x) != nil && i < 20;  i++ )
+X  { stack[i] = x;
+X    x = enclosing(x);
+X  }
+X  strcpy(buff, "");
+X  for( i--;  i > 0;  i-- )
+X  { sname = SymName(stack[i]);
+X    if( strlen(sname) + strlen(str) + strlen(buff) >= MAX_LINE )
+X      Error(FATAL, &fpos(x), "full name of symbol is too long");
+X    strcat(buff, sname);
+X    strcat(buff, str);
+X  }
+X  sname = SymName(stack[0]);
+X  if( strlen(sname) + strlen(buff) >= MAX_LINE )
+X    Error(FATAL, &fpos(x), "full name of symbol is too long");
+X  strcat(buff, sname);
+X  return buff;
+X} /* end FullSymName */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  OBJECT ChildSym(s, typ)                                                  */
+X/*                                                                           */
+X/*  Find the child of symbol s of type typ, either LPAR or RPAR.             */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT ChildSym(s, typ)
+XOBJECT s;  unsigned typ;
+X{ OBJECT link, y;
+X  for( link = Down(s);  link != s;  link = NextDown(link) )
+X  { Child(y, link);
+X    if( type(y) == typ && enclosing(y) == s )  return y;
+X  }
+X  Error(INTERN, &fpos(s), "Symbol %s has missing %s", SymName(s), Image(typ));
+X  return nil;
+X} /* end ChildSym */
+X
+X
+X#if DEBUG_ON
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  CheckSymSpread()                                                         */
+X/*                                                                           */
+X/*  Check the spread of symbols through the hash table.                      */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XCheckSymSpread()
+X{ int i, j, sum, usum;  OBJECT entry, plink;
+X  debug2(DST, D, "Symbol table spread (table size = %d, symbols = %d):",
+X    MAX_TAB, sym_count);
+X  usum = sum = 0;
+X  for( i = 0;  i < MAX_TAB;  i++ )
+X  { fprintf(stderr, "%4d: ", i);
+X    for( j = 1;  j <= sym_spread[i];  j++ )
+X    { fprintf(stderr, ".");
+X      sum += j;
+X    }
+X    entry = (OBJECT) &symtab[i];
+X    for( plink=Down(entry), j=1;  plink != entry;  plink=NextDown(plink), j++ )
+X    { fprintf(stderr, "+");
+X      usum += j;
+X    }
+X    fprintf(stderr, "\n");
+X  }
+X  fprintf(stderr, "average length counting duplicate names = %.1f\n",
+X	(float) sum / sym_count);
+X  fprintf(stderr, "average length not counting duplicate names = %.1f\n",
+X	(float) usum / sym_count);
+X} /* end CheckSymSpread */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static DeleteSymBody(s)                                                  */
+X/*                                                                           */
+X/*  Delete the body of symbol s.                                             */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic DeleteSymBody(s)
+XOBJECT s;
+X{ debug1(DST, DDD, "DeleteSymBody( %s )", SymName(s));
+X  switch( type(s) )
+X  {
+X    case MACRO:	while( sym_body(s) != nil )
+X		  sym_body(s) = DeleteAndDispose(sym_body(s), PARENT);
+X		break;
+X	
+X    case LPAR:
+X    case NPAR:
+X    case RPAR:
+X    case LOCAL:	if( sym_body(s) != nil ) DisposeObject(sym_body(s));
+X		break;
+X
+X    default:	Error(INTERN,no_fpos, "unknown symbol type %s",Image(type(s)));
+X		break;
+X  }
+X  debug0(DST, DDD, "DeleteSymBody returning.");
+X} /* end DeleteSymBody */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  DeleteEverySym()                                                         */
+X/*                                                                           */
+X/*  Delete every symbol in the symbol table.                                 */
+X/*  Note that we first delete all bodies, then the symbols themselves.       */
+X/*  This is so that the closures within the bodies have well-defined         */
+X/*  actual() pointers, even while the symbol table is being disposed.        */
+X/*  If this is not done, debug output during the disposal gets confused.     */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XDeleteEverySym()
+X{ int i, j, load, cost;  OBJECT p, plink, link, x, entry;
+X  debug0(DST, D, "DeleteEverySym()");
+X
+X  /* dispose the bodies of all symbols */
+X  for( i = 0;  i < MAX_TAB;  i++ )
+X  { entry = (OBJECT) &symtab[i];
+X    for( plink = Down(entry);  plink != entry;  plink = NextDown(plink) )
+X    { Child(p, plink);
+X      for( link = Down(p);  link != p;  link = NextDown(link) )
+X      {	Child(x, link);  DeleteSymBody(x);
+X	/* *** won't work now
+X	while( base_uses(x) != nil )
+X	{ tmp = base_uses(x);  base_uses(x) = next(tmp);
+X	  PutMem(tmp, USES_SIZE);
+X	}
+X	while( uses(x) != nil )
+X	{ tmp = uses(x);  uses(x) = next(tmp);
+X	  PutMem(tmp, USES_SIZE);
+X	}
+X	*** */
+X      }
+X    }
+X  }
+X
+X  /* dispose the symbol name strings, gather statistics, and print them */
+X  load = cost = 0;
+X  for( i = 0;  i < MAX_TAB;  i++ )
+X  { j = 1; entry = (OBJECT) &symtab[i];
+X    while( Down(entry) != entry )
+X    { load += 1;  cost += j;  j += 1;
+X      DisposeChild(Down(entry));
+X    }
+X  }
+X  if( load > 0 ) debug4(DST, D, "size = %d, items = %d (%d%%), probes = %.1f",
+X    MAX_TAB, load, (100*load)/MAX_TAB, (float) cost/load);
+X  else debug1(DST, D, "table size = %d, no entries in table", MAX_TAB);
+X  debug0(DST, D, "DeleteEverySym returning.");
+X} /* end DeleteEverySym */
+X#endif
+END_OF_FILE
+  if test 23936 -ne `wc -c <'lout/z29.c'`; then
+    echo shar: \"'lout/z29.c'\" unpacked with wrong size!
+  fi
+  # end of 'lout/z29.c'
+fi
+echo shar: End of archive 11 \(of 30\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 30 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1525 @@
+Newsgroups: comp.sources.misc
+From: astrolog@u.washington.edu (Astrolog)
+Subject: v37i076:  astrolog - Generation of astrology charts v3.05, Part07/12
+Message-ID: <1993May19.061909.12161@sparky.imd.sterling.com>
+X-Md4-Signature: 09d87774c5049b8f6237f2b36a3c9ded
+Date: Wed, 19 May 1993 06:19:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: astrolog@u.washington.edu (Astrolog)
+Posting-number: Volume 37, Issue 76
+Archive-name: astrolog/part07
+Environment: UNIX, DOS, VMS
+Supersedes: astrolog: Volume 30, Issue 62-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 7 (of 12)."
+# Contents:  formulas.c Helpfile.p3
+# Wrapped by pul@hardy on Sun May 16 22:23:17 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'formulas.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'formulas.c'\"
+else
+echo shar: Extracting \"'formulas.c'\" \(28398 characters\)
+sed "s/^X//" >'formulas.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 3.05) File: formulas.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IN ADDITION: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1993 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+Xreal MC, Asc, Vtx, OB,
+X  A, R, B, Q, L, G, O, RA, R1, R2, AZ, FF, LO, OA,
+X  S, S1, S2, AP, IN, AN, XX, YY, ZZ, NU, BR, AB, C, P, T0[4];
+X
+Xreal geo[TOTAL+1], geoalt[TOTAL+1], georet[TOTAL+1],
+X  helio[TOTAL+1], helioalt[TOTAL+1], helioret[TOTAL+1],
+X  planet1[TOTAL+1], planet2[TOTAL+1], planetalt1[TOTAL+1], planetalt2[TOTAL+1],
+X  house1[SIGNS+1], house2[SIGNS+1], ret1[TOTAL+1], ret2[TOTAL+1];
+X
+X
+X/*
+X*******************************************************************************
+X** Specific calculations
+X*******************************************************************************
+X*/
+X
+X/* Given a month, day, and year, convert it into a single Julian day value, */
+X/* i.e. the number of days passed since a fixed reference date.             */
+X
+Xreal MdyToJulian(mon, day, yea)
+Xreal mon, day, yea;
+X{
+X  long im, j;
+X
+X  im = 12*((long)yea+4800)+(long)mon-3;
+X  j = (2*(im%12) + 7 + 365*im)/12;
+X  j += (long)day + im/48 - 32083;
+X  if (j > 2299171)                   /* Take care of dates in */
+X    j += im/4800 - im/1200 + 38;     /* Gregorian calendar.   */
+X  return (real)j;
+X}
+X
+X
+X/* Integer division - like the "/" operator but always rounds result down. */
+X
+Xlong dvd(x, y)
+Xlong x, y;
+X{
+X  long z;
+X
+X  if (y == 0)
+X    return x;
+X  z = x / y;
+X  if ((x >= 0 == y >= 0) || x-z*y == 0)
+X    return z;
+X  return z - 1;
+X}
+X
+X
+X/* Take a Julian day value, and convert it back into the corresponding */
+X/* month, day, and year.                                               */
+X
+Xvoid JulianToMdy(JD, mon, day, yea)
+Xreal JD, *mon, *day, *yea;
+X{
+X  long L, N, IT, JT, K, IK;
+X
+X  L  = (long)floor(JD+0.5)+68569L;
+X  N  = dvd(4L*L, 146097L);
+X  L  -= dvd(146097L*N + 3L, 4L);
+X  IT = dvd(4000L*(L+1L), 1461001L);
+X  L  -= dvd(1461L*IT, 4L) - 31L;
+X  JT = dvd(80L*L, 2447L);
+X  K  = L-dvd(2447L*JT, 80L);
+X  L  = dvd(JT, 11L);
+X  JT += 2L - 12L*L;
+X  IK = 100L*(N-49L) + IT + L;
+X  *mon = (real)JT; *day = (real)K; *yea = (real)IK;
+X}
+X
+X
+X/* This is a subprocedure of CastChart(). Once we have the chart parameters, */
+X/* calculate a few important things related to the date, i.e. the Greenwich  */
+X/* time, the Julian day and fractional part of the day, the offset to the    */
+X/* sidereal, and a couple of other things.                                   */
+X
+Xreal ProcessInput(var)
+Xint var;
+X{
+X  real Off, Ln;
+X
+X  F = Sgn(F)*floor(dabs(F))+FRACT(dabs(F))*100.0/60.0+DecToDeg(X);
+X  L5 = DecToDeg(L5);
+X  LA = DTOR(DecToDeg(LA));
+X  LA = MIN(LA, 89.9999);      /* Make sure the chart isn't being cast */
+X  LA = MAX(LA, -89.9999);     /* on the precise north or south pole.  */
+X
+X  /* if parameter 'var' isn't set, then we can assume that the true time   */
+X  /* has already been determined (as in a -rm switch time midpoint chart). */
+X
+X  if (var) {
+X    JD = MdyToJulian(M, D, Y);
+X    if (!progress || (operation & DASHp0) > 0)
+X      T = ((JD-2415020.0)+F/24.0-0.5)/36525.0;
+X    else
+X
+X      /* Determine actual time that a progressed chart is to be cast for. */
+X
+X      T = (((Jdp-JD)/progday+JD)-2415020.0+F/24.0-0.5)/36525.0;
+X  }
+X
+X  /* Compute angle that the ecliptic is inclined to the Celestial Equator */
+X  OB = DTOR(23.452294-0.0130125*T);
+X
+X  Ln = Mod((933060-6962911*T+7.5*T*T)/3600.0);    /* Mean lunar node */
+X  Off = (259205536.0*T+2013816.0)/3600.0;         /* Mean Sun        */
+X  Off = 17.23*sin(DTOR(Ln))+1.27*sin(DTOR(Off))-(5025.64+1.11*T)*T;
+X  Off = (Off-84038.27)/3600.0;
+X  SD = operation & DASHs ? Off : 0.0;
+X  return Off;
+X}
+X
+X
+X/* Convert polar to rectangular coordinates. */
+X
+Xvoid PolToRec(A, R, X, Y)
+Xreal A, R, *X, *Y;
+X{
+X  if (A == 0.0)
+X    A = 1.7453E-09;
+X  *X = R*cos(A);
+X  *Y = R*sin(A);
+X}
+X
+X
+X/* Convert rectangular to polar coordinates. */
+X
+Xvoid RecToPol(X, Y, A, R)
+Xreal X, Y, *A, *R;
+X{
+X  if (Y == 0.0)
+X    Y = 1.7453E-09;
+X  *R = sqrt(X*X+Y*Y);
+X  *A = atan(Y/X);
+X  if (*A < 0.0)
+X    *A += PI;
+X  if (Y < 0.0)
+X    *A += PI;
+X}
+X
+X
+X/* Convert rectangular to spherical coordinates. */
+X
+Xvoid RecToSph()
+X{
+X  A = B; R = 1.0;
+X  PolToRec(A, R, &X, &Y);
+X  Q = Y; R = X; A = L;
+X  PolToRec(A, R, &X, &Y);
+X  G = X; X = Y; Y = Q;
+X  RecToPol(X, Y, &A, &R);
+X  A += O;
+X  PolToRec(A, R, &X, &Y);
+X  Q = ASIN(Y);
+X  Y = X; X = G;
+X  RecToPol(X, Y, &A, &R);
+X  if (A < 0.0)
+X    A += 2*PI;
+X  G = A;
+X}
+X
+X
+X/* Do a coordinate transformation: Given a longitude and latitude value,    */
+X/* return the new longitude and latitude values that the same location      */
+X/* would have, were the equator tilted by a specified number of degrees.    */
+X/* In other words, do a pole shift! This is used to convert among ecliptic, */
+X/* equatorial, and local coordinates, each of which have zero declination   */
+X/* in different planes. In other words, take into account the Earth's axis. */
+X
+Xvoid CoorXform(azi, alt, tilt)
+Xreal *azi, *alt, tilt;
+X{
+X  real x, y, a1, l1;
+X
+X  x = cos(*alt)*sin(*azi)*cos(tilt);
+X  y = sin(*alt)*sin(tilt);
+X  x -= y;
+X  a1 = cos(*alt);
+X  y = cos(*alt)*cos(*azi);
+X  l1 = (y == 0.0 ? Sgn(x)*PI/2.0 : atan(x/y));
+X  if (l1 < 0.0)
+X    l1 += PI;
+X  if (x < 0.0)
+X    l1 += PI;
+X  a1 = a1*sin(*azi)*sin(tilt)+sin(*alt)*cos(tilt);
+X  a1 = ASIN(a1);
+X  *azi = l1; *alt = a1;
+X}
+X
+X
+X/* This is another subprocedure of CastChart(). Calculate a few variables */
+X/* corresponding to the chart parameters that are used later on. The      */
+X/* astrological vertex (object number twenty) is also calculated here.    */
+X
+Xvoid ComputeVariables()
+X{
+X  RA = DTOR(Mod((6.6460656+2400.0513*T+2.58E-5*T*T+F)*15.0-L5));
+X  R2 = RA; O = -OB; B = LA; A = R2; R = 1.0;
+X  PolToRec(A, R, &X, &Y);
+X  X *= cos(O);
+X  RecToPol(X, Y, &A, &R);
+X  MC = Mod(SD+RTOD(A));            /* Midheaven */
+X  L = R2;
+X  RecToSph();
+X  AZ = Mod(SD+Mod(G+PI/2.0));      /* Ascendant */
+X  L= R2+PI; B = PI/2.0-dabs(B);
+X  if (LA < 0.0)
+X    B = -B;
+X  RecToSph();
+X  Vtx = Mod(SD+RTOD(G+PI/2.0));    /* Vertex */
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** House cusp calculations
+X*******************************************************************************
+X*/
+X
+X
+X/* This is a subprocedure of HousePlace(). Given a zodiac position, return */
+X/* which of the twelve houses it falls in. Remember that a special check   */
+X/* has to be done for the house that spans 0 degrees Aries.                */
+X
+Xint HousePlaceIn(point)
+Xreal point;
+X{
+X  int i = 0;
+X
+X  point = Mod(point + 0.5/60.0);
+X  do {
+X    i++;
+X  } while (!(i >= SIGNS ||
+X      (point >= house[i] && point < house[Mod12(i+1)]) ||
+X      (house[i] > house[Mod12(i+1)] &&
+X      (point >= house[i] || point < house[Mod12(i+1)]))));
+X  return i;
+X}
+X
+X
+X/* For each object in the chart, determine what house it belongs in. */
+X
+Xvoid HousePlace()
+X{
+X  int i;
+X
+X  for (i = 1; i <= total; i++)
+X    inhouse[i] = HousePlaceIn(planet[i]);
+X}
+X
+X
+X/* The following two functions calculate the midheaven and ascendant of  */
+X/* the chart in question, based on time and location. They are also used */
+X/* in some of the house cusp calculation routines as a quick way to get  */
+X/* the 10th and 1st house cusps.                                         */
+X
+Xreal CuspMidheaven()
+X{
+X  real MC;
+X
+X  MC = atan(tan(RA)/cos(OB));
+X  if (MC < 0.0)
+X    MC += PI;
+X  if (RA > PI)
+X    MC += PI;
+X  return Mod(RTOD(MC)+SD);
+X}
+X
+Xreal CuspAscendant()
+X{
+X  real Asc;
+X
+X  Asc = atan(cos(RA)/(-sin(RA)*cos(OB)-tan(LA)*sin(OB)));
+X  if (Asc < 0.0)
+X    Asc += PI;
+X  if (cos(RA) < 0.0)
+X    Asc += PI;
+X  return Mod(RTOD(Asc)+SD);
+X}
+X
+X
+X/* These are various different algorithms for calculating the house cusps: */
+X
+Xvoid CuspPlacidus()
+X{
+X  int i;
+X
+X  if (Y == 1.0)
+X    X = 1.0;
+X  else
+X    X = -1.0;
+X  for (i = 1; i <= 10; i++) {
+X
+X    /* This formula works except at 0 latitude (LA == 0.0). */
+X
+X    XX = X*sin(R1)*tan(OB)*tan(LA == 0.0 ? 0.0001 : LA);
+X    XX = ACOS(XX);
+X    if (XX < 0.0)
+X      XX += PI;
+X    if (Y == 1.0)
+X      R2 = RA+PI-(XX/FF);
+X    else
+X      R2 = RA+(XX/FF);
+X    R1 = R2;
+X  }
+X  LO = atan(tan(R1)/cos(OB));
+X  if (LO < 0.0)
+X    LO += PI;
+X  if (sin(R1) < 0.0)
+X    LO += PI;
+X  LO = RTOD(LO);
+X}
+X
+Xvoid HousePlacidus()
+X{
+X  int i;
+X
+X  Y = 0.0;
+X  house[4] = Mod(MC+180.0-SD);
+X  house[1] = Mod(Asc-SD);
+X  R1 = RA+DTOR(30.0);  FF=3.0; CuspPlacidus(); house[5]=Mod(LO+180.0);
+X  R1 = RA+DTOR(60.0);  FF=1.5; CuspPlacidus(); house[6]=Mod(LO+180.0);
+X  R1 = RA+DTOR(120.0); Y=1.0;  CuspPlacidus(); house[2]=LO;
+X  R1 = RA+DTOR(150.0); FF=3.0; CuspPlacidus(); house[3]=LO;
+X  for (i = 1; i <= SIGNS; i++) {
+X    if (i > 6)
+X      house[i] = Mod(house[i-6]+180.0);
+X    else
+X      house[i] = Mod(house[i]+SD);
+X  }
+X}
+X
+Xvoid HouseKoch()
+X{
+X  real A1, A2, A3, KN;
+X  int i;
+X
+X  A1 = sin(RA)*tan(LA)*tan(OB);
+X  A1 = ASIN(A1);
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = Mod(60.0+30.0*(real)i);
+X    A2 = D/90.0-1.0; KN = 1.0;
+X    if (D >= 180.0) {
+X      KN = -1.0;
+X      A2 = D/90.0-3.0;
+X    }
+X    A3 = DTOR(Mod(RTOD(RA)+D+A2*RTOD(A1)));
+X    X = atan(sin(A3)/(cos(A3)*cos(OB)-KN*tan(LA)*sin(OB)));
+X    if (X < 0.0)
+X      X += PI;
+X    if (sin(A3) < 0.0)
+X      X += PI;
+X    house[i] = Mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xvoid HouseEqual()
+X{
+X  int i;
+X
+X  for (i = 1; i <= SIGNS; i++) {
+X    house[i] = Mod(Asc-30.0+30.0*(real)i);
+X  }
+X}
+X
+Xvoid HouseCampanus()
+X{
+X  real KO, DN;
+X  int i;
+X
+X  for (i = 1; i <= SIGNS; i++) {
+X    KO = DTOR(60.000001+30.0*(real)i);
+X    DN = atan(tan(KO)*cos(LA));
+X    if (DN < 0.0)
+X      DN += PI;
+X    if (sin(KO) < 0.0)
+X      DN += PI;
+X    Y = sin(RA+DN);
+X    X = cos(RA+DN)*cos(OB)-sin(DN)*tan(LA)*sin(OB);
+X    X = atan(Y/X);
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = Mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xvoid HouseMeridian()
+X{
+X  int i;
+X
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = DTOR(60.0+30.0*(real)i);
+X    Y = sin(RA+D);
+X    X = atan(Y/(cos(RA+D)*cos(OB)));
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = Mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xvoid HouseRegiomontanus()
+X{
+X  int i;
+X
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = DTOR(60.0+30.0*i);
+X    Y = sin(RA+D);
+X    X = atan(Y/(cos(RA+D)*cos(OB)-sin(D)*tan(LA)*sin(OB)));
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = Mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xvoid HousePorphyry()
+X{
+X  int i;
+X
+X  X = Asc-MC;
+X  if (X < 0.0)
+X    X += 360;
+X  Y = X/3.0;
+X  for (i = 1; i <= 2; i++)
+X    house[i+4] = Mod(180.0+MC+i*Y);
+X  X = Mod(180.0+MC)-Asc;
+X  if (X < 0.0)
+X    X += 360;
+X  house[1]=Asc;
+X  Y = X/3.0;
+X  for (i = 1; i <= 3; i++)
+X    house[i+1] = Mod(Asc+i*Y);
+X  for (i = 1; i <= 6; i++)
+X    house[i+6] = Mod(house[i]+180.0);
+X}
+X
+Xvoid HouseMorinus()
+X{
+X  int i;
+X
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = DTOR(60.0+30.0*(real)i);
+X    Y = sin(RA+D)*cos(OB);
+X    X = atan(Y/cos(RA+D));
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = Mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xvoid CuspTopocentric()
+X{
+X  X = atan(tan(LA)/cos(OA));
+X  Y = X+OB;
+X  LO = atan(cos(X)*tan(OA)/cos(Y));
+X  if (LO < 0.0)
+X    LO += PI;
+X  if (sin(OA) < 0.0)
+X    LO += PI;
+X}
+X
+Xvoid HouseTopocentric()
+X{
+X  real TL, P1, P2, LT;
+X  int i;
+X
+X  modulus = 2.0*PI;
+X  house[4] = Mod(DTOR(MC+180.0-SD));
+X  TL = tan(LA); P1 = atan(TL/3.0); P2 = atan(TL/1.5); LT = LA;
+X  LA = P1; OA = Mod(RA+DTOR(30.0)); CuspTopocentric(); house[5] = Mod(LO+PI);
+X  LA = P2; OA = Mod(OA+DTOR(30.0)); CuspTopocentric(); house[6] = Mod(LO+PI);
+X  LA = LT; OA = Mod(OA+DTOR(30.0)); CuspTopocentric(); house[1] = LO;
+X  LA = P2; OA = Mod(OA+DTOR(30.0)); CuspTopocentric(); house[2] = LO;
+X  LA = P1; OA = Mod(OA+DTOR(30.0)); CuspTopocentric(); house[3] = LO;
+X  LA = LT; modulus = DEGREES;
+X  for (i = 1; i <= 6; i++) {
+X    house[i] = Mod(RTOD(house[i])+SD);
+X    house[i+6] = Mod(house[i]+180.0);
+X  }
+X}
+X
+X
+X/* In "null" houses, the cusps are always fixed to start at their            */
+X/* corresponding sign, i.e. the 1st house is always at 0 degrees Aries, etc. */
+X
+Xvoid HouseNull()
+X{
+X  int i;
+X
+X  for (i = 1; i <= SIGNS; i++)
+X    house[i] = Mod((real)(i-1)*30.0+SD);
+X}
+X
+X
+X/* Calculate the house cusp positions, using the specified algorithm. */
+X
+Xvoid Houses(housesystem)
+Xint housesystem;
+X{
+X  switch (housesystem) {
+X  case  1: HouseKoch();          break;
+X  case  2: HouseEqual();         break;
+X  case  3: HouseCampanus();      break;
+X  case  4: HouseMeridian();      break;
+X  case  5: HouseRegiomontanus(); break;
+X  case  6: HousePorphyry();      break;
+X  case  7: HouseMorinus();       break;
+X  case  8: HouseTopocentric();   break;
+X  case  9: HouseNull();          break;
+X  default: HousePlacidus();
+X  }
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Planetary position calculations
+X*******************************************************************************
+X*/
+X
+X/* Read the next three values from the planet data stream, and return them */
+X/* combined as the coefficients of a quadratic equation in the chart time. */
+X
+Xreal ReadThree()
+X{
+X  S = ReadPlanetData(FALSE); S1 = ReadPlanetData(FALSE);
+X  S2 = ReadPlanetData(FALSE);
+X  return S = DTOR(S+S1*T+S2*T*T);
+X}
+X
+X
+X/* Another coordinate transformation. This one is used by the planets() */
+X/* procedure to rotate rectangular coordinates by a certain amount.     */
+X
+Xvoid RecToSph2()
+X{
+X  RecToPol(X, Y, &A, &R); A += AP; PolToRec(A, R, &X, &Y);
+X  D = X; X = Y; Y = 0.0; RecToPol(X, Y, &A, &R);
+X  A += IN; PolToRec(A, R, &X, &Y);
+X  G = Y; Y = X; X = D; RecToPol(X, Y, &A, &R); A += AN;
+X  if (A < 0.0)
+X    A += 2.0*PI;
+X  PolToRec(A, R, &X, &Y);
+X}
+X
+X
+X/* Calculate some harmonic delta error correction factors to add onto the */
+X/* coordinates of Jupiter through Pluto, for better accuracy.             */
+X
+Xvoid ErrorCorrect(ind)
+Xint ind;
+X{
+X  real U, V, W;
+X  int IK, IJ, errorindex;
+X
+X  errorindex = errorcount[ind];
+X  for (IK = 1; IK <= 3; IK++) {
+X    if (ind == 6 && IK == 3) {
+X      T0[3] = 0;
+X      return;
+X    }
+X    if (IK == 3)
+X      errorindex--;
+X    ReadThree(); A = 0.0;
+X    for (IJ = 1; IJ <= errorindex; IJ++) {
+X      U = ReadPlanetData(FALSE); V = ReadPlanetData(FALSE);
+X      W = ReadPlanetData(FALSE);
+X      A = A+DTOR(U)*cos((V*T+W)*PI/180.0);
+X    }
+X    T0[IK] = RTOD(S+A);
+X  }
+X}
+X
+X
+X/* Another subprocedure of the planets() routine. Convert the final        */
+X/* rectangular coordinates of a planet to zodiac position and declination. */
+X
+Xvoid ProcessPlanet(ind)
+Xint ind;
+X{
+X  X = XX; Y = YY; RecToPol(X, Y, &A, &R);
+X  C = RTOD(A)+NU-BR;
+X  if (ind == 1 && AB == 1.0)
+X    C = Mod(C+180.0);
+X  C = Mod(C+SD); Y = ZZ; X = R; RecToPol(X, Y, &A, &R);
+X  P = RTOD(A);
+X}
+X
+X
+X/* This is probably the heart of the whole program of Astrolog. Calculate  */
+X/* the position of each body that orbits the Sun. A heliocentric chart is  */
+X/* most natural; extra calculation is needed to have other central bodies. */
+X
+Xvoid Planets()
+X{
+X  real AU, E, EA, E1, XK, XW, YW, XH[BASE+1], YH[BASE+1], ZH[BASE+1];
+X  int ind = 1, i;
+X
+X  ReadPlanetData(TRUE);
+X  while (ind <= (operation & DASHu ? BASE : PLANETS+1)) {
+X    modulus = 2.0*PI;
+X    EA = M = Mod(ReadThree());     /* Calculate mean anomaly */
+X    E = RTOD(ReadThree());         /* Calculate eccentricity */
+X    for (i = 1; i <= 5; i++)
+X      EA = M+E*sin(EA);            /* Solve Keplar's equation */
+X    AU = ReadPlanetData(FALSE);    /* Semi-major axis         */
+X    E1 = 0.01720209/(pow(AU,1.5)*
+X      (1.0-E*cos(EA)));                    /* Begin velocity coordinates */
+X    XW = -AU*E1*sin(EA);                   /* Perifocal coordinates      */
+X    YW = AU*E1*pow(1.0-E*E,0.5)*cos(EA);
+X    AP = ReadThree(); AN = ReadThree();
+X    IN = ReadThree();                      /* Calculate inclination       */
+X    X = XW; Y = YW; RecToSph2();           /* Rotate velocity coordinates */
+X    XH[ind] = X; YH[ind] = Y; ZH[ind] = G; /* Helio ecliptic rectangtular */
+X    modulus = DEGREES;
+X    if (ind > 1) {
+X      XW = XH[ind]-XH[1]; YW = YH[ind]-YH[1];
+X    }
+X    X = AU*(cos(EA)-E);                 /* Perifocal coordinates for        */
+X    Y = AU*sin(EA)*pow(1.0-E*E,0.5);    /* rectangular position coordinates */
+X    RecToSph2();                        /* Rotate for rectangular */
+X    XX = X; YY = Y; ZZ = G;             /* position coordinates   */
+X    if (ind >= 6 && ind <= 10) {
+X      ErrorCorrect(ind); XX += T0[2]; YY += T0[1]; ZZ += T0[3];
+X    }
+X    helioret[ind] = XK =                        /* Helio daily motion */
+X      (XX*YH[ind]-YY*XH[ind])/(XX*XX+YY*YY);
+X    spacex[ind] = XX; spacey[ind] = YY; spacez[ind] = ZZ;
+X    BR = 0.0; ProcessPlanet(ind); AB = 1.0;  /* Convert helio rectangular */
+X    helio[ind] = C; helioalt[ind] = P;       /* to spherical coords.      */
+X    if (ind > 1) {
+X      XX -= spacex[1]; YY -= spacey[1]; ZZ -= spacez[1];  /* Helio to geo */
+X      XK = (XX*YW-YY*XW)/(XX*XX+YY*YY);                   /* Geo daily    */
+X    }
+X    BR = 0.0057756*sqrt(XX*XX+YY*YY+ZZ*ZZ)*RTOD(XK);      /* Aberration     */
+X    georet[ind] = XK; ProcessPlanet(ind);                 /* Rectangular to */
+X    geo[ind] = C; geoalt[ind] = P;                        /* Spherical      */
+X    if (!centerplanet) {
+X      planet[ind] = helio[ind]; planetalt[ind] = helioalt[ind];
+X      ret[ind] = helioret[ind];
+X    } else {
+X      planet[ind] = geo[ind]; planetalt[ind] = geoalt[ind];
+X      ret[ind] = georet[ind];
+X    }
+X    if (!(exdisplay & DASHv0))                    /* Use relative velocity   */
+X      ret[ind] = DTOR(ret[ind]/helioret[ind]);    /* unless -v0 is in effect */
+X    ind += (ind == 1 ? 2 : (ind != PLANETS+1 ? 1 : 10));
+X  }
+X  spacex[0] = spacey[0] = spacez[0] = 0.0;
+X
+X  /* A second loop is needed for central bodies other than the Sun or Earth. */
+X  /* For example, we can't find the position of Mercury in relation to Pluto */
+X  /* until we know the position of Pluto in relation to the Sun, and since   */
+X  /* Mercury is calculated before Pluto, another pass needed. (Since Earth   */
+X  /* is the first object, a geocentric chart can be done "on the fly".)      */
+X
+X  if (ind = centerplanet) {
+X    for (i = 0; i <= BASE; i++) if (i != 2 && i != ind) {
+X      spacex[i] -= spacex[ind]; spacey[i] -= spacey[ind];
+X      spacez[i] -= spacez[ind];
+X    }
+X    spacex[ind] = spacey[ind] = spacez[ind] = 0.0;
+X    SwapReal(&spacex[0], &spacex[ind]);
+X    SwapReal(&spacey[0], &spacey[ind]);    /* Do some swapping - we want   */
+X    SwapReal(&spacez[0], &spacez[ind]);    /* the central body to be in    */
+X    SwapReal(&spacex[1], &spacex[ind]);    /* object position number zero. */
+X    SwapReal(&spacey[1], &spacey[ind]);
+X    SwapReal(&spacez[1], &spacez[ind]);
+X  }
+X  if (ind > 2)
+X    for (i = 1; i <= (operation & DASHu ? BASE : PLANETS+1);
+X         i += (i == 1 ? 2 : (i != PLANETS+1 ? 1 : 10))) {
+X      XX = spacex[i]; YY = spacey[i]; ZZ = spacez[i];
+X      AB = 0.0; BR = 0.0; ProcessPlanet(i);
+X      planet[i] = C; planetalt[i] = P;
+X      ret[i] = (XX*(YH[i]-YH[ind])-YY*(XH[i]-XH[ind]))/(XX*XX+YY*YY);
+X    }
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Lunar position calculations
+X*******************************************************************************
+X*/
+X
+X/* Calculate the position and declination of the Moon, and the Moon's North  */
+X/* Node. This has to be done separately from the other planets, because they */
+X/* all orbit the Sun, while the Moon orbits the Earth.                       */
+X
+Xvoid Lunar(moonlo, moonla, nodelo, nodela)
+Xreal *moonlo, *moonla, *nodelo, *nodela;
+X{
+X  real LL, G, N, G1, D, L, ML, L1, MB, M = 3600.0 /*, TN*/;
+X
+X  LL = 973563.0+1732564379.0*T-4.0*T*T;  /* Compute mean lunar longitude     */
+X  G = 1012395.0+6189.0*T;                /* Sun's mean longitude of perigee  */
+X  N = 933060.0-6962911.0*T+7.5*T*T;      /* Compute mean lunar node          */
+X  G1 = 1203586.0+14648523.0*T-37.0*T*T;  /* Mean longitude of lunar perigee  */
+X  D = 1262655.0+1602961611.0*T-5.0*T*T;  /* Mean elongation of Moon from Sun */
+X  L = (LL-G1)/M; L1 = ((LL-D)-G)/M;      /* Some auxiliary angles            */
+X  F = (LL-N)/M; D = D/M; Y = 2.0*D;
+X
+X  /* Compute Moon's perturbations. */
+X
+X  ML = 22639.6*SIND(L)-4586.4*SIND(L-Y)+2369.9*SIND(Y)+769.0*SIND(2.0*L)-
+X    669.0*SIND(L1)-411.6*SIND(2.0*F)-212.0*SIND(2.0*L-Y)-206.0*SIND(L+L1-Y);
+X  ML += 192.0*SIND(L+Y)-165.0*SIND(L1-Y)+148.0*SIND(L-L1)-125.0*SIND(D)-
+X    110.0*SIND(L+L1)-55.0*SIND(2.0*F-Y)-45.0*SIND(L+2.0*F)+40.0*SIND(L-2.0*F);
+X
+X  *moonlo = G = Mod((LL+ML)/M+SD);       /* Lunar longitude */
+X
+X  /* Compute lunar latitude. */
+X
+X  MB = 18461.5*SIND(F)+1010.0*SIND(L+F)-999.0*SIND(F-L)-624.0*SIND(F-Y)+
+X    199.0*SIND(F+Y-L)-167.0*SIND(L+F-Y);
+X  MB += 117.0*SIND(F+Y)+62.0*SIND(2.0*L+F)-
+X    33.0*SIND(F-Y-L)-32.0*SIND(F-2.0*L)-30.0*SIND(L1+F-Y);
+X  *moonla = MB =
+X    Sgn(MB)*((dabs(MB)/M)/DEGREES-floor((dabs(MB)/M)/DEGREES))*DEGREES;
+X
+X  /* Compute position of the north node. One can compute the true North */
+X  /* Node here if they like, but the Mean Node seems to be the one used */
+X  /* in astrology, so that's the one Astrolog returns.                  */
+X
+X  /*TN = N+5392.0*SIND(2.0*F-Y)-541.0*SIND(L1)-442.0*SIND(Y)+423.0*SIND(2.0*F)-
+X    291.0*SIND(2.0*L-2.0*F);
+X  TN = Mod(TN/M);*/
+X  *nodelo = N = Mod(N/M+SD);
+X  *nodela = 0.0;
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Star position calculations
+X*******************************************************************************
+X*/
+X
+X/* Return whether one string is greater than another. */
+X
+Xint StrCmp(s1, s2)
+Xchar *s1, *s2;
+X{
+X  while (*s1 == *s2)
+X    s1++, s2++;
+X  return *s1 > *s2;
+X}
+X
+X
+X/* This is used by the chart calculation routine to calculate the positions */
+X/* of the fixed stars. Since the stars don't move in the sky over time,     */
+X/* getting their positions is mostly just reading in a data stream and      */
+X/* converting it to the correct reference frame. However, we have to add in */
+X/* the correct precession for the tropical zodiac, and sort the final index */
+X/* list based on what order the stars are supposed to be printed in.        */
+X
+Xvoid CastStar(SD)
+Xreal SD;
+X{
+X  int i, j;
+X  real x, y, z;
+X  ReadStarData(TRUE);
+X
+X  /* Read in star positions. */
+X
+X  for (i = 1; i <= STARS; i++) {
+X    x = ReadStarData(FALSE); y = ReadStarData(FALSE); z = ReadStarData(FALSE);
+X    planet[BASE+i] = DTOR(x*DEGREES/24.0+y*15.0/60.0+z*0.25/60.0);
+X    x = ReadStarData(FALSE); y = ReadStarData(FALSE); z = ReadStarData(FALSE);
+X    planetalt[BASE+i] = DTOR(x+y/60.0+z/60.0/60.0);
+X    equtoecl(&planet[BASE+i], &planetalt[BASE+i]);           /* Convert to */
+X    planet[BASE+i] = Mod(RTOD(planet[BASE+i])+SD2000+SD);    /* ecliptic.  */
+X    planetalt[BASE+i] = RTOD(planetalt[BASE+i]);
+X    starname[i] = i;
+X  }
+X
+X  /* Sort the index list if -Uz, -Ul, -Un, or -Ub switch in effect. */
+X
+X  if (universe > 1) for (i = 2; i <= STARS; i++) {
+X    j = i-1;
+X
+X    /* Compare star names for -Un switch. */
+X
+X    if (universe == 'n') while (j > 0 && StrCmp(
+X      objectname[BASE+starname[j]], objectname[BASE+starname[j+1]])) {
+X      SWAP(starname[j], starname[j+1]);
+X      j--;
+X
+X    /* Compare star brightnesses for -Ub switch. */
+X
+X    } else if (universe == 'b') while (j > 0 &&
+X      starbright[starname[j]] > starbright[starname[j+1]]) {
+X      SWAP(starname[j], starname[j+1]);
+X      j--;
+X
+X    /* Compare star zodiac locations for -Uz switch. */
+X
+X    } else if (universe == 'z') while (j > 0 &&
+X      planet[BASE+starname[j]] > planet[BASE+starname[j+1]]) {
+X      SWAP(starname[j], starname[j+1]);
+X      j--;
+X
+X    /* Compare star declinations for -Ul switch. */
+X
+X    } else if (universe == 'l') while (j > 0 &&
+X      planetalt[BASE+starname[j]] < planetalt[BASE+starname[j+1]]) {
+X      SWAP(starname[j], starname[j+1]);
+X      j--;
+X    }
+X  }
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Calculate chart for specific time
+X*******************************************************************************
+X*/
+X
+X/* This is probably the main routine in all of Astrolog. It generates a   */
+X/* chart, calculating the positions of all the celestial bodies and house */
+X/* cusps, based on the current chart information, and saves them for use  */
+X/* by any of the display routines.                                        */
+X
+Xreal CastChart(var)
+Xint var;
+X{
+X  int i, k;
+X
+X  real housetemp[SIGNS+1], Off = 0.0, j;
+X  if (M == -1.0) {
+X
+X    /* Hack: If month is negative, then we know chart was read in through a  */
+X    /* -o0 position file, so the planet positions are already in the arrays. */
+X
+X    MC = planet[18]; Asc = planet[19]; Vtx = planet[20];
+X  } else {
+X    Off = ProcessInput(var);
+X    ComputeVariables();
+X    if (operation & DASHG)          /* Check for -G geodetic chart. */
+X      RA = DTOR(Mod(-L5));
+X    MC  = CuspMidheaven();          /* Calculate our Ascendant & Midheaven. */
+X    Asc = CuspAscendant();
+X    Houses(housesystem);            /* Go calculate house cusps. */
+X    for (i = 1; i <= total; i++)
+X      ret[i] = 1.0;                 /* Assume direct until we say otherwise. */
+X
+X    /* Go calculate planet, Moon, and North Node positions. */
+X
+X    Planets();
+X    Lunar(&planet[2], &planetalt[2], &planet[16], &planetalt[16]);
+X    ret[16] = -1.0;
+X
+X    /* Calculate position of Part of Fortune. */
+X
+X    j = planet[2]-planet[1];
+X    j = dabs(j) < 90.0 ? j : j - Sgn(j)*DEGREES;
+X    planet[17] = Mod(j+Asc);
+X
+X    /* Fill in "planet" positions corresponding to house cusps. */
+X
+X    planet[18] = MC; planet[19] = Asc; planet[20] = Vtx;
+X    planet[21] = house[11]; planet[22] = house[12];
+X    planet[23] = house[2];  planet[24] = house[3];
+X  }
+X  if (universe)                               /* Go calculate star positions */
+X    CastStar(operation & DASHs ? 0.0 : -Off); /* if -U switch in effect.     */
+X
+X  /* Now, we may have to modify the base positions we calculated above based */
+X  /* on what type of chart we are generating.                                */
+X
+X  if (operation & DASHp0) {         /* Are we doing a -p0 solar arc chart?   */
+X    for (i = 1; i <= total; i++)
+X      planet[i] = Mod(planet[i] + (Jdp - JD) / progday);
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i]  = Mod(house[i]  + (Jdp - JD) / progday);
+X    }
+X  if (multiplyfactor > 1)           /* Are we doing a -x harmonic chart?     */
+X    for (i = 1; i <= total; i++)
+X      planet[i] = Mod(planet[i] * (real)multiplyfactor);
+X  if (onasc) {
+X    if (onasc > 0)                  /* Is -1 put on Ascendant in effect?     */
+X      j = planet[onasc]-Asc;
+X    else                            /* Or -2 put object on Midheaven switch? */
+X      j = planet[-onasc]-MC;
+X    for (i = 1; i <= SIGNS; i++)    /* If so, rotate the houses accordingly. */
+X      house[i] = Mod(house[i]+j);
+X  }
+X
+X  /* Check to see if we are -F forcing any objects to be particular values. */
+X
+X  for (i = 1; i <= total; i++)
+X    if (force[i] != 0.0) {
+X      planet[i] = force[i]-DEGREES;
+X      planetalt[i] = ret[i] = 0.0;
+X    }
+X  HousePlace();                /* Figure out what house everything falls in. */
+X
+X  /* If -f domal chart switch in effect, switch planet and house positions. */
+X
+X  if (operation & DASHf) {
+X    for (i = 1; i <= total; i++) {
+X      k = inhouse[i];
+X      inhouse[i] = (int) (planet[i]/30.0)+1;
+X      planet[i] = (real)(k-1)*30.0+MinDistance(house[k], planet[i])/
+X        MinDistance(house[k], house[Mod12(k+1)])*30.0;
+X    }
+X    for (i = 1; i <= SIGNS; i++) {
+X      k = HousePlaceIn((real) (i-1)*30.0);
+X      housetemp[i] = (real)(k-1)*30.0+MinDistance(house[k],
+X        (real) (i-1)*30.0)/MinDistance(house[k], house[Mod12(k+1)])*30.0;
+X    }
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = housetemp[i];
+X  }
+X
+X  /* If -3 decan chart switch in effect, edit planet positions accordingly. */
+X
+X  if (operation & DASH3)
+X    for (i = 1; i <= total; i++) {
+X      k = (int) (planet[i]/30.0)+1;
+X      j = planet[i] - (real)((k-1)*30);
+X      k = Mod12(k + 4*((int)floor(j/10.0)));
+X      j = (j - floor(j/10.0)*10.0)*3.0;
+X      planet[i] = (real)(k-1)*30.0+j;
+X      HousePlace();
+X    }
+X  return T;
+X}
+X
+X/* formulas.c */
+END_OF_FILE
+if test 28398 -ne `wc -c <'formulas.c'`; then
+    echo shar: \"'formulas.c'\" unpacked with wrong size!
+fi
+# end of 'formulas.c'
+fi
+if test -f 'Helpfile.p3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Helpfile.p3'\"
+else
+echo shar: Extracting \"'Helpfile.p3'\" \(29711 characters\)
+sed "s/^X//" >'Helpfile.p3' <<'END_OF_FILE'
+X**************************************
+XDATA DEFAULTS AND COMPILE TIME OPTIONS
+X**************************************
+X
+X     Astrolog includes the ability to search an input file for
+Xvarious default parameters to use in the program. This allows one to
+Xeasily change major defaults without having to recompile the program,
+Xwhich is useful if, say, one receives a compiled executable from a
+Xfriend who had a different configuration. The program looks for the
+Xfile "astrolog.dat" in the current directory, and if not there, looks
+Xfor it in the default directory. Parameters in this file will
+Xoverride any defaults compiled into the program, although the highest
+Xpriority is still given to the command line options. Note one doesn't
+X*have* to have this file in order to run the program - if not found
+XAstrolog will still run as before using the compile time defaults.
+X
+X     Presently, the parameters one can change in this file are:
+Xdefault time zone (as indicated with -z option), default longitude
+Xand latitude (as in -l option), number of aspects (-A option), and
+Xdefault house system to use (values as in -c option). Next is whether
+Xthe -k Ansi graphics should always be in effect. If the value here is
+Xnon-zero, then it is assumed -k is always in affect, and one needs
+Xthen to use the -k switch to return to normal. This is recommended
+Xfor PC users who display charts on the screen more often than they
+Xprint one out. After this is the default number of rows per house to
+Xpass to the -w wheel chart option. Next, the value of the minor
+Xcompile time variable DIVISIONS may be changed in the file. This
+Xvalue tells how many "segments" we should divide each day, etc, when
+Xdoing aspect or transit searches (-d or -T). More segments is slower
+Xbut can be more accurate by a minute or two. I suggest a value of 24
+Xhere for Unix systems and 8 for PC's, but now it is easy to
+Xexperiment to see what would be best for you.
+X
+X     Then in the astrolog.dat file come default restriction values
+X(as with the -R option) for the first 20 objects (0 = active, 1 =
+Xrestricted). Some people just don't like or care about the various
+Xminor bodies such as the asteroids, Chiron, Part of Fortune, etc.,
+Xand think that they clutter up the various charts. This is a good way
+Xto keep them from showing up by default (one can still use the -R
+Xoption to get back any objects eliminated here.) This is immediately
+Xfollowed by a similar restriction list for planets when transiting in
+Xthe -T charts. Next come the default orbs (as with the -Ao option)
+Xfor the 18 aspects. Then comes a list of the maximum orbs of any
+Xaspect allowed to the first 20 objects (as with the -Am option), and
+Xafter this is a list of the amount to widen aspect orbs to the first
+X20 objects (as with the -Ad option.) Then, for the -j influence
+Xinterpretation chart, four values indicating the power given to
+Xplanets in ruling sign, planets exalted in sign, planets in ruling
+Xhouse, and planets exalted in house, may be specified. Finally in the
+Xfile, comes a long list of the main influence values used by the -j
+Xoption, i.e. the power values of each of the first 20 planet objects,
+Xof the 12 houses, and of the 18 aspects.
+X
+X"Smart cusps" feature: This is a yet another setting, a simple yes/no
+Xoption that will only affect the way -T transit lists are displayed.
+XIt can only be set in this astrolog.dat file. If the value there is
+Xnon-zero, then transits to minor house cusps will be processed in a
+Xmore intuitive manner. First of all, aspects other than conjunctions
+Xor oppositions to minor cusps will be ignored, e.g. a trine to the
+X11th house is redundant and isn't really useful; we are more
+Xinterested in the conjunction to the 3rd house cusp. Minor aspects
+Xto the Ascendant and Midheaven, and all other objects, are left
+Xalone. In addition, with smart cusps active, oppositions to minor
+Xhouse cusps will be printed as conjunctions to the opposing cusp,
+Xe.g. instead of "Jupiter Opp 3rd Cusp", we have the more logical
+X"Jupiter Con 9th Cusp". This is just another way to make transits
+Xcharts clearer and less confusing.
+X
+X"80 column clip" feature: This is another yes/no option that can only
+Xbe set in astrolog.dat. If set to non-zero, then we guarantee that no
+Xtext chart when displayed will overflow 80 columns. By default, with
+Xall objects unrestricted, certain charts will have rows more than 80
+Xcolumns long, breaking up the chart making it very difficult to read.
+XThe -r0 -g relationship aspect grid, and the -E ephemeris listing,
+Xwill normally go beyond the 80th column. With this feature however,
+Xthese and other charts that can go beyond column 80, such as -L when
+Xuranians are unrestricted, will always be displayed on one line, with
+Xcolumns that would go beyond the 80th not getting printed.
+X
+X     About the only major thing that one *can't* change in the file
+Xis the default directory path in which the program looks in for input
+Xfiles if not in the current directory, since Astrolog needs the
+Xdefault directory in order to be able to locate the file in the first
+Xplace! The standard "astrolog.dat" file included with the release of
+Xthe program has some "comment lines" describing what is contained in
+Xeach line. One can chance or delete comments as long as they make
+Xsure that an equals sign ('=') immediately proceeds any value or list
+Xof values, since the program uses this character to determine where
+Xcomments end.
+X
+X     Astrolog.dat files for versions 2.40 and before won't work with
+Xversion 3.00, because there are additional definable parameters and
+Xtables inserted in this file for 3.00. Attempting to read in such an
+Xold file into version 3.00 will result in an error message saying one
+Xshould upgrade the old file or delete it.
+X
+X--
+X
+X     I often use Astrolog to look at and compare files containing
+Xcharts of various people. I have many chart files, so I keep them in
+Xa separate directory. Since it is always a pain to have to cd into
+Xthis special directory all the time, there is a DEFAULT_DIR string to
+Xbe set at compile time. Whenever the program reads in a chart file
+Xwith the -i option, it will first look in the current directory for
+Xit. If it's not found there, Astrolog will then look for a file of
+Xthe same name in the special default directory.
+X
+X     A couple of Astrolog users have said to me that their computer
+X(for example, Mac's) won't accept command switches on the command
+Xline (like they boot Astrolog from a menu for instance.) Therefore,
+Xthey aren't able to access many features in the normal way. If this
+Xis the case with your system (or if you just don't like command line
+Xoptions), then comment out the '#define SWITCHES' line at the
+Xbeginning of the astrolog.h file. If you do this, then the program
+Xwill ignore any switches and prompt you to enter them manually at the
+Xvery beginning of program execution.
+X
+X     A couple of other compile time option variables are in the
+Xinclude file astrolog.h: For those people who don't like Placidus, a
+Xdefault house system can be set by changing the value of
+XDEFAULT_SYSTEM to the value from 0..9 indicating what system to use
+Xif the user doesn't explicitly specify it with -c. Another thing: It
+Xshould be mentioned that although the accuracy of Sun..Pluto, Chiron,
+Xand the Uranians are to the nearest minute (for years 1900-2000), the
+Xfour asteroids are relatively inaccurate and can even be a couple of
+Xdegrees off in the worst case.
+X
+X     There is a special compile time variable dealing with graphics
+X(in addition to the "X11" one) called "GRAPH". One comments out the
+X#define GRAPH line if they don't want graphics, and not just if they
+Xdon't have X windows. In other words, one can generate most of
+XAstrolog's graphics charts even if they don't have X windows. Now,
+Xwhen GRAPH is defined but X11 isn't, the program will generate the
+Xcharts, but just never try to bring up a window; it will simply
+Xalways assume that you are writing a bitmap file. The bitmap file
+Xwill contain a (unfortunately always black and white) image of what
+Xwould normally be in the window, just as the -Xb switch does. One can
+Xthen use various graphics utilities to convert the image into
+Xsomething they can display on their system if they can't do so using
+Xany of the available bitmap modes. (Any system that can compile
+XAstrolog should be able to compile in the non X window graphics
+Xfeatures as well.)
+X
+X     A bitmap output mode other than the Windows .bmp bitmaps and
+Xstandard ones that can be read with the Unix X11 xsetroot command is
+Xallowed in the graphics routines. If one changes the BITMAPMODE
+Xcompile time option in astrolog.h to the character 'A' when
+Xcompiling, or invokes the -Xb switch as -Xba, then all bitmaps output
+Xwill be in a straight Ascii form, with one character corresponding to
+Xeach pixel. This format is identical to the result produced by the
+XUnix command bmtoa, and it can be converted back into a bitmap with
+Xthe Unix command atobm. Although not as efficient spacewise, this is
+Xa simpler format, and is recommended for those without X windows who
+Xare still using Astrolog's graphics, if they want to write their own
+Xconversion program.
+X
+X
+X********************************
+XDESCRIPTION OF X WINDOW FEATURES
+X********************************
+X
+X     One of the most impressive features of the program are the X
+Xwindows features, which are generally accessed in the program via the
+X-X switch and derivatives of it on the command line. There are five
+Xdifferent types of chart displays: A standard graphic display of a
+Xwheel chart in a window (with glyphs, aspects in the center, etc),
+Xgraphic displays of the Astro-graph charts (which look almost
+Xidentical to the Astro*Carto*Graphy maps from Jim Lewis) complete
+Xwith all the labeled lines drawn on a map of the world (like the -L
+Xoption), aspect/midpoint grids showing the aspects and orbs in effect
+Xbetween every body in a chart (like -g option), a local sky chart
+Xshowing where each planet is located on a map of the local horizon
+Xarea (as in -Z), and a space chart showing an aerial view of the
+Xsolar system (as in -S). The X wheel and aspect grid charts can
+Xdisplayed in a different form to accommodate relationship comparison
+Xcharts. There are also other commands that can be given to the
+Xwindow once it is up and running, which can do other things, such as
+Xcontinually update the window every few seconds to the current status
+X(i.e. an extended version of the -n option) as well as other forms of
+Xanimation. Note that the program is still text based, and one can
+Xeasily turn off all the X features by commenting out the #define X11
+Xin astrolog.h if they don't have X windows.
+X
+X     Probably the only thing more impressive than the X window
+Xfeatures are the X window features displayed on color monitors. (The
+Xcharts displayed in color are *much* more eye catching than the B/W
+Xones, IMHO.) Here is how the colors have been assigned for the
+Xvarious charts: Four colors have been allocated for the four elements
+X- Fire = Red, Earth = Brown, Air = Green, Water = Blue. The various
+Xsign glyphs (and the corresponding house labels) are in the color of
+Xtheir element. Planets are in the color of the sign of their main
+Xruler. Chiron and the four asteroids are Gold, while the north node,
+Xand other non-physical objects like the fortune and vertex are
+XViolet. Representations of the Ascendant/ Descendant/ Midheaven/
+XNadir (in the astro-graph map lines and elsewhere) are in the element
+Xcolor of the corresponding sign/house that the angular lines refer
+Xto, i.e. Ascendant = Red, Midheaven = Brown, Descendant = Green,
+XNadir = Blue. A few extra things have been added for color wheel
+Xcharts only: dark gray lines marking off each house (in addition to
+Xthe main lines on the horizon and meridian), and each degree instead
+Xof every 5th degree being marked in dark gray on the outer circle
+X(every 5th degree being white). Aspects lines are colored too, as
+Xfollows: Conjunctions = Yellow, Sextiles = Light Blue, Squares = Red,
+XTrines = Green, Oppositions = Dark Blue. For the minor aspects we
+Xhave: Inconjuncts/Semisextiles = Brown, Semisquares/
+XSesquiquadratures = Orange, (Bi/Semi)Quintiles = Violet,
+X(Bi/Tri)Septiles = Gold, (Bi/Quatro)Noviles = Pink.
+X
+X     For color X terminals, the -XG globe display and -XW world map
+Xdisplay are done with the continents in different colors! This makes
+Xthem look much better than monochrome maps. Each of the seven
+Xcontinents is in a different color of the rainbow, and the colors are
+Xchosen to correspond to the appropriate chakra (etheric energy vortex
+Xalong the human spine) that goes with each land mass. They are:
+XAfrica - red - Root chakra, Australia - orange - Navel chakra, South
+XAmerica - yellow - Solar plexus chakra, North America - green - Heart
+Xchakra, Europe - blue - Throat chakra, Asia - indigo - Third Eye
+Xchakra, Antarctica - violet - Crown chakra. Major lakes are, of
+Xcourse, colored navy blue.
+X
+X--
+X
+X-v -X: The X wheel charts have their graphic information organized as
+Xfollows: There's an outer circle showing the signs and sign glyphs,
+Xinside of which is a smaller circle divided up into 5 degree
+Xincrements to make determining exact degrees easier. Inside of this
+Xis a circle divided up into the 12 houses labeled with numbers. The
+Xentire chart is divided by two dashed lines through the Ascendant/
+XDescendant (which is always horizontal of course) and the
+XMidheaven/Nadir. Inside the house circle are the planet glyphs in
+Xtheir appropriate positions. Small pointer lines run from each glyph
+Xto just before single dots. These dots indicate the precise locations
+Xin the zodiac of each object. The pointer lines (which are dashed if
+Xthe object is retrograde and solid otherwise) are necessary so as not
+Xto have to draw planet glyphs on top of one another when planets are
+Xconjunct. Inside the ring of the single dots, are the aspect lines
+Xconnecting these positions. Since the default number of aspects to
+Xuse is just the 5 majors, one can determine which aspect is in place
+Xjust by looking at the aspect line. The accuracy of the aspect is
+Xdetermined by the dashedness of the line: A solid line means the orb
+Xis < 2 degrees; a dashed line means the orb is < 4 degrees; a really
+Xdashed line mean the orb is < 6 degrees, etc.
+X
+X-L -X: The X astro-graph charts are organized as follows: A map of
+Xthe world is shown. The edges of the map are labeled with ruler lines
+Xthat are 5 degrees apart (with longer ruler lines for more important
+Xlongitudes and latitudes, like those that are multiples of 10, 30,
+Xetc.) The equator is labeled with a dashed line. The polar regions of
+Xthe world aren't shown; the map shown ranges from 60 degrees S
+Xlatitude to 75 degrees N latitude. Note that each pixel on the screen
+Xrepresents exactly one half a degree on the world. (For -Xs 100 the
+Xratio is one pixel to one degree, and for -Xs 300 the ratio is one
+Xpixel to 1/3 degree.) On this map are drawn the lines indicating
+Xwhere on the world the various planets are angular at the time in
+Xquestion. (Note: you might want to -R restrict some objects because
+Xotherwise the map tends to get pretty cluttered with lines.) As
+Xexpected, Midheaven and Nadir lines are vertical, and the Ascendant
+Xand Descendant lines are curved. Little square boxes on the Midheaven
+Xlines indicate the exact zenith latitude location. Each line is
+Xlabeled at the top or the bottom of the screen, showing what planet
+Xis in question and (sometimes) what angle is in question. All
+XAscendant and Midheaven lines are labeled at the bottom of the
+Xscreen, and all Descendant and Nadir lines are labeled at the top.
+XEach line goes a bit beyond to the top or bottom of the world map,
+Xand then another pointer segment (which is again dashed of the object
+Xin question is retrograde) goes and points to the planet glyph. There
+Xis a capital "A" or "M" under each of the glyphs at the bottom of the
+Xscreen, explicitly indicating whether the line is an Ascendant or
+XMidheaven line. At the top of the screen, however, there are only the
+Xglyphs, but one can still determine whether these lines are
+XDescendant or Nadir lines based on whether they are curved or not.
+XNote that not all the Descendant lines are labeled; this is because
+Xsome of the Ascendant/Descendant lines actually connect near the top
+Xof the screen and don't actually cross it. This graphic astro-graph
+Xchart will display a small purple dot at the precise point on the
+Xworld map for which the chart in question is being generated. This is
+Xuseful to help see how close the various planetary lines are to you,
+Xif you live in the middle of the continent or someplace not easily
+Xdeterminable on the compact map of the world.
+X
+X-g -X: Aspect grid windows with the appropriate aspect glyphs can be
+Xdisplayed by combining the -g option with the -X option (astrolog -g
+X-X). Both the split aspect/midpoint grids labeled down the diagonal,
+Xas well as the relationship aspect grids between two charts (astrolog
+X-r <file1> <file2> -g -X) are supported. The aspects glyphs, objects,
+Xand the signs in the grids are in their colors as defined earlier.
+XLike the astro-graph windows, these charts can't be resized in the
+Xnormal way unless one uses the '>' and '<' keys. For anything less
+Xthan the largest scale size (achieved with the switch -Xs 300, or by
+Xpressing '>' within a window) all that will be displayed in each
+Xaspect grid cell is the glyphs of the aspect in effect, the planet
+Xbeing aspected, or the sign of the midpoint. However, once the
+Xlargest scale size is reached, there is room in each cell to display
+Xthe aspect orb to the nearest minute off of exact (with a plus or
+Xminus sign indicating whether the actual angle is slightly greater
+Xthan or less than exact); the degree and minute in addition to the
+Xsign for midpoints; and the degree and sign location for each planet
+Xthat's in the grid. Remember, the ASCII aspect grids in the text
+Xoptions are rather limited, only displaying orbs to the nearest 0.1
+Xdegree, midpoints to the nearest degree, as well as the confusing '.'
+Xvs. ',' for angles slightly greater or less than exact (not to
+Xmention leaving the vertex out for the relationship grids between two
+Xcharts). Well no longer: with X11, we can see *real* aspect grids
+Xwith Astrolog!
+X
+X-Z -X: The -Z local horizon feature can be displayed in an X window
+Xas well (e.g. astrolog -Z -X), in which all the planets will be
+Xdisplayed in a window depicting the sky. The small dot above or below
+Xeach glyph indicates exactly where each planet is. (Some of the
+Xglyphs may be overlapping, although the program tries to cut down on
+Xthis.) There is a horizontal line dividing the window representing
+Xthe local horizon; planets above this line are visible, while planets
+Xbelow it are set. There are three vertical lines dividing the window
+Xas well: The middle line represents the due south direction, the one
+Xto the left is due east, the one to the right is due west, and the
+Xedges of the window are due north. Like the standard chart display,
+Xthis window may be resized to any proportion. One can press the 'Z'
+Xkey in any window to enter this display type in that window at any
+Xtime.
+X
+X-Z0 -X: An additional graphics chart is available through the -Z0
+Xswitch: local horizon charts suitable for stargazing. As we know, the
+Xnormal -Z switch generates a listing of the planets with respect to
+Xthe local horizon, and the -Z combined with the -X switch generates a
+Xgraphic image of the planets and stars on the local horizon. This
+Xchart assumes one is facing due south, and is divided left to right
+Xby the horizon line, with straight up being toward the top of the
+Xscreen and straight down toward the bottom. This is a good chart,
+Xespecially for noticing the rising and setting of planets and other
+Xobjects, but the fact that the meridian is split up causes distortion
+Xwhen trying to view objects high up in the sky. Therefore, if one
+Xcombines this -Z0 switch with the -X switch, a new differently
+Xoriented local horizon chart will be displayed. Here, the zenith
+Xpoint straight up is in the center of the screen, and the horizon
+Xline is a surrounding circle. Due north is along the line from the
+Xcenter to the top of the screen, due south is on the line from the
+Xcenter to the bottom, east is to the left, and west is to the right.
+XIn other words, this is just like what one would see if they were
+Xlying on their back looking straight up with their feet to the south,
+Xso this should be better for stargazing. Outside the circle marks
+Xwhat's below the horizon, and the extreme corners of the screen mark
+Xthe nadir - what's straight down. As with the normal -Z graphic
+Xchart, this one has the various axes marked at five degree
+Xincrements.
+X
+X-S -X: The -S switch can be combined with -X to give an X window
+Xchart of the solar system. This will be displayed as an aerial view
+Xof the entire solar system, with 0 degrees Aries to the left of the
+Xscreen, and 0 degrees Cancer to the bottom. Note that this chart
+Xincludes all possible planets, including the Earth (whose glyph is a
+Xcross inside a circle). Whatever object is chosen to be the central
+Xbody is at the center of the screen, with all the others around it.
+XThis is a fun chart to animate - watch the planets go around the Sun,
+Xand *see* how they turn retrograde with respect to the Earth. In
+Xaddition to the bodies themselves, twelve spokes are drawn from the
+Xcenter body to the edge of the screen, which delineate the zodiac
+Xwith respect to it. Note that the scale of the solar system is large;
+Xattempting to fit all the planets out to Pluto on the screen at once
+Xwill cause all the inner planets to be crammed together near the
+Xmiddle of the screen. To deal with this, the scale size as indicated
+Xwith the -Xs switch and the '<' and '>' keys will affect how much of
+Xthe solar system is viewed at once (in addition to the glyph sizes).
+XFor a scale size of 300, the viewport will have a radius of 6 AU
+X(about out to the orbit of Jupiter; useful for viewing the inner
+Xplanets). For a scale size of 200 (default), it will have a radius of
+X30 AU (enough to include Neptune, and Pluto most of the time).
+XFinally, a scale size of 100 will result in a radius of 90 AU, enough
+Xto easily include the entire solar system, as well as the orbits of
+Xthe alleged Uranian bodies beyond Pluto.
+X
+X-r0 -X: True relationship wheel charts can be displayed in a window,
+Xi.e. where the planets of both charts are displayed in separate rings
+Xof the same wheel. Use the -r0 option to display this comparison
+Xtype. For example, for the command "astrolog -r0 person1 person2 -X",
+Xthe following is displayed: The signs and houses as in person1's
+Xchart are drawn in the outermost part of the wheel. Inside this is a
+Xring of person2's planets as displayed in person1's houses, and
+Xinside of this are person1's own planets. Finally at the very middle
+Xis an aspect grid, which shows those aspects that are occurring
+Xbetween the objects in the two charts. Basically this is just the
+Xstandard wheel chart for person1, except that person2's planets are
+Xin an outer ring of objects and the aspect grid shows the aspects of
+Xthe relationship. Putting such a chart in animation mode only affects
+Xperson2's planets, so this is a great way to analyze transits: Doing
+X"astrolog -t yourchartfile -X" will show all your current transits,
+Xand allow you to easily animate the transiting planets through your
+Xnatal signs and houses.
+X
+X--
+X
+X     A couple of conveniences for the graphics features exist. Note
+Xthat the -Xo <bitmapfilename> option is only used in conjunction with
+Xthe -Xb write output to bitmap switch. Therefore, -Xo automatically
+Xassumes -Xb is set. (Invoking -Xb itself without -Xo will have the
+Xprogram prompt the user for the bitmap filename.) In other words,
+Xastrolog -Xb -Xo 'file' is the same as just astrolog -Xo 'file'.
+XAlso, I should mention that Astrolog includes its own appropriate
+Xbitmap (a rainbow over an opened Third Eye) if one iconifies the
+Xwindow, instead of reverting to the braindead UnknownIcon :)
+X
+X
+X***********************************
+XDESCRIPTION OF PC GRAPHICS FEATURES
+X***********************************
+X
+X     Astrolog's PC graphics charts look and feel and are displayed
+Xjust like the X window graphics already described. When compiling,
+Xone has a choice between four options: (1) choose no graphics
+Xabilities at all, (2) compile so that graphic chart bitmaps can be
+Xgenerated and output to a file, (3) compile allowing file graphics in
+Xaddition to direct screen graphics in X windows, and now (4) compile
+Xwith file graphics and direct graphics on the screen of a PC. The
+Xaddition of PC graphics in no way inhibit or affect the X window
+Xgraphics already in place; it's merely a matter of which compile time
+Xoptions are set. Unix users don't need to look at this section.
+X
+X     Astrolog uses the Microsoft PC graphics library as defined in
+Xthe file graph.h included with their C7 "C" language compiler. This
+Xfile and the graphics.lib library is needed in order to be able to
+Xcompile with these graphics options set, just as the X window
+Xlibraries are needed to compile with those graphics included. If
+Xunavailable, one can still access these PC graphics with the library
+Xlinked in, in the already compiled executable posted.
+X
+X     PC Astrolog is a DOS program and should be run from a DOS
+Xprompt, outside of any Windows system. To generate a graphics chart
+Xinstead of a text one, include the -X switch just as one would do to
+Xbring up an X window. The expected graphic chart will be displayed on
+Xthe screen unless the -Xb write bitmap to file switch is in effect.
+XThe colors chosen for the graphics are basically identical to those
+Xchosen in X window charts, and both of these in turn are now based on
+Xthe Ansi colors used in the Ansi text charts.
+X
+X     Now, there are many various types of PC monitors and
+Xresolutions. Astrolog will automatically try to determine and pick
+Xthe highest resolution mode available on your system, so this need
+Xnot be worried about.
+X
+X     The PC Astrolog charts may be animated in all the various ways,
+Xand the animation will usually be flicker free! Now, PC's do have
+Xlimited memory, therefore there might not be room for more than one
+Xpage of graphics at the highest resolution. Hence, animation at the
+Xhighest (default) mode, may flicker; however, graphics at a slightly
+Xlower resolution may take enough less memory to allow enough to do
+Xflicker free animation. A special PC only feature for this has been
+Xadded: Pressing the 'tab' key while the PC graphics are up will try
+Xto pick a lower resolution, where flicker free animation can be done.
+XSpecifically, we'll toggle to a 640x350 EGA mode. On my own system,
+Xthe highest resolution I get is a 640x480 16 color VGA mode, however
+Xthe charts can't be animated without flicker. When I hit 'tab', I
+Xdrop from 480 lines of graphics to 350, but now the animation will be
+Xperfectly smooth. The results with whatever graphics system you have
+Xmay be different.
+X
+X     The chart that comes up will use as many pixels as is defined by
+Xthe chart's size as specified with the -Xw and -Xs switches. The 'Q'
+Xchange chart size to square key works just as before. However, on PC
+Xscreens we will try to take in account the pixel size ratio. On EGA
+Xscreens where the pixels are long and narrow, meaning a true "square"
+Xchart looks tall and thin, we compensate by increasing the horizontal
+Xsize of the chart. The 'B' key, which on X window graphics will blast
+Xthe current window contents to the root background, is a meaningless
+Xfeature for a PC. This key, for PC graphics systems, will instead
+Xresize the chart to be the full size of the screen. When the graphics
+Xmode is changed through 'tab', the chart size will be modified to be
+Xthe largest "square" that will fit on the screen (as if the computer
+Xpresses 'B' followed by 'Q' for you.)
+X
+X     If the size of the chart is less than the size of the screen, it
+Xwill be displayed centered in the middle of the screen. If however
+Xthe chart size is greater than the screen size, then the chart will
+Xtake up the whole screen, and part of it will be clipped. By default
+Xwe show the upper left corner of the chart if this is the case. Now,
+Xone can define and change which part of the chart gets shown. On PC's
+Xthe meaning of pressing the number keys have been enhanced. Normally,
+Xnumber keys set the animation speed; they still do, but now only when
+Xanimation is actually being done. If not in animation, the number
+Xkeys from 1..9 will define which "quadrant" or area of the chart gets
+Xshown. It's best to think of and use the number pad for this feature
+X(make sure num lock is on!) Pressing the '7' key, i.e. the upper left
+Xnumber on the number pad, will set it so the default upper left part
+Xof the chart is seen. Pressing the '3' key, on the lower right corner
+Xof the pad, will show the lower right corner of charts larger than
+Xthe screen size. Pressing '5' will show the middle area of the chart,
+Xwith equal amounts of the chart clipped from left and right, and top
+Xand bottom. Pressing '6' will show the right end of the chart,
+Xvertically centered on the screen, and so on. Basically, we have a
+Xsimple implementation of something like scroll bars, allowing viewing
+Xof all parts of the "window"! One can generate and display on the
+Xscreen even the largest charts producible with Astrolog. (Bitmap
+Xfiles are still limited to, i.e. will be clipped to, a maximum size
+Xof 728x720 pixels, however). Even on an 640x350 EGA, one can use this
+Xto generate and view all parts of a 300% scaled relationship aspect
+Xgrid (883x883), or even a 300% scaled world map display (1082x545)!
+X
+X--
+X
+X#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#
+X+     Walter D. "Cruiser1" Pullen    |    astrolog@byron.u.washington.edu     +
+X#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#+#
+END_OF_FILE
+if test 29711 -ne `wc -c <'Helpfile.p3'`; then
+    echo shar: \"'Helpfile.p3'\" unpacked with wrong size!
+fi
+# end of 'Helpfile.p3'
+fi
+echo shar: End of archive 7 \(of 12\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

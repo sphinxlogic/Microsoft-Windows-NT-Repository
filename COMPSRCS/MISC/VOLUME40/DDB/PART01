@@ -1,0 +1,2264 @@
+Newsgroups: comp.sources.misc
+From: pefv700@hermes.chpc.utexas.edu (Christopher Phillips)
+Subject: v40i082:  ddb - dynamic memory database library, Part01/01
+Message-ID: <1993Nov2.233314.7646@sparky.sterling.com>
+X-Md4-Signature: 28e0a59e351dba847e67961601e2229b
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: pefv700@utpe.pe.utexas.edu
+Organization: Sterling Software
+Date: Tue, 2 Nov 1993 23:33:14 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: pefv700@hermes.chpc.utexas.edu (Christopher Phillips)
+Posting-number: Volume 40, Issue 82
+Archive-name: ddb/part01
+Environment: ANSI-C
+
+ddb is a library of database routines that are kept in dynamic memory
+and are designed to be simple to use and flexible.  Its functions are
+loosely modeled after normal UNIX I/O functions.  Currently, there is
+support for binary trees, bit vectors, hash tables, linked lists,
+queues, and stacks.
+
+Chris
+---
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  ddb ddb/Makefile ddb/README ddb/binary.c ddb/bit.c
+#   ddb/ddb.3 ddb/ddb.h ddb/hash.c ddb/list.c ddb/new.c
+#   ddb/patchlevel.h ddb/queue.c ddb/stack.c
+# Wrapped by pefv700@hermes on Mon Nov  1 23:59:58 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test ! -d 'ddb' ; then
+    echo shar: Creating directory \"'ddb'\"
+    mkdir 'ddb'
+fi
+if test -f 'ddb/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/Makefile'\"
+else
+echo shar: Extracting \"'ddb/Makefile'\" \(232 characters\)
+sed "s/^X//" >'ddb/Makefile' <<'END_OF_FILE'
+XOPT=-O
+XCFLAGS=$(OPT) -I.
+XCDBS=hash.c list.c queue.c stack.c binary.c bit.c
+XCSRCS=new.c $(CDBS)
+XCOBJS=$(CSRCS:.c=.o)
+X
+Xlibddb.a: $(COBJS)
+X	-rm -f $@
+X	ar rv $@ $(COBJS)
+X	ranlib $@
+X
+Xclean:
+X	rm -f $(COBJS) libddb.a
+X
+X$(CDBS:.c=.o): ddb.h
+END_OF_FILE
+if test 232 -ne `wc -c <'ddb/Makefile'`; then
+    echo shar: \"'ddb/Makefile'\" unpacked with wrong size!
+fi
+# end of 'ddb/Makefile'
+fi
+if test -f 'ddb/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/README'\"
+else
+echo shar: Extracting \"'ddb/README'\" \(661 characters\)
+sed "s/^X//" >'ddb/README' <<'END_OF_FILE'
+XDDB - dynamic memory database routines
+X
+Xddb is a library of database routines that are kept in dynamic memory
+Xand are designed to be simple to use and flexible.  Its functions are
+Xloosely modeled after normal UNIX I/O functions.  Currently, there is
+Xsupport for binary trees, bit vectors, hash tables, linked lists,
+Xqueues, and stacks.
+X
+XTo make the library, just use make.  You may want to use whatever flags
+Xyour compiler wants for ANSI C source (or your favorite translator to
+XK&R C if you are so disadvantaged).  Then place libddb.a, ddb.h, and
+Xddb.3 in appropriate places.
+X
+X
+XChris
+X
+X-----------------------
+XChristopher G. Phillips
+Xpefv700@utpe.pe.utexas.edu
+END_OF_FILE
+if test 661 -ne `wc -c <'ddb/README'`; then
+    echo shar: \"'ddb/README'\" unpacked with wrong size!
+fi
+# end of 'ddb/README'
+fi
+if test -f 'ddb/binary.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/binary.c'\"
+else
+echo shar: Extracting \"'ddb/binary.c'\" \(8251 characters\)
+sed "s/^X//" >'ddb/binary.c' <<'END_OF_FILE'
+X/*
+X *                 Author:  Christopher G. Phillips
+X *              Copyright (C) 1993 All Rights Reserved
+X *
+X *                              NOTICE
+X *
+X * Permission to use, copy, modify, and distribute this software and
+X * its documentation for any purpose and without fee is hereby granted
+X * provided that the above copyright notice appear in all copies and
+X * that both the copyright notice and this permission notice appear in
+X * supporting documentation.
+X *
+X * The author makes no representations about the suitability of this
+X * software for any purpose.  This software is provided ``as is''
+X * without express or implied warranty.
+X */
+X
+X#define SEQUENTIAL
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <ddb.h>
+X
+X#define MIN(a,b)	((a) < (b) ? (a) : (b))
+X
+Xtypedef struct bent {
+X	DATUM		key;
+X	DATUM		data;
+X	struct bent	*left;
+X	struct bent	*right;
+X#ifdef SEQUENTIAL
+X	struct bent	*parent;
+X#endif
+X} BELEM;
+Xtypedef struct {
+X	int	used;
+X	BELEM	*root;
+X#ifdef SEQUENTIAL
+X	BELEM	*lastkey;
+X	int	startover;
+X#endif
+X} BINARY;
+X
+Xstatic BINARY	*binary = NULL;
+Xstatic int	maxbinaries = 0;
+X
+Xextern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X
+Xint
+Xddb_memcmp(const DATUM *dp1, const DATUM *dp2)
+X{
+X	int	c;
+X
+X	if ((c = memcmp(dp1->addr, dp2->addr, MIN(dp1->size, dp2->size))) == 0)
+X		if (dp1->size < dp2->size)
+X			return -1;
+X		else if (dp1->size > dp2->size)
+X			return 1;
+X		
+X	return c;
+X}
+X
+Xstatic int
+Xvalidbd(int bd)
+X{
+X	return binary && bd < maxbinaries && binary[bd].used;
+X}
+X
+Xstatic int
+Xvalidmode(int mode)
+X{
+X	switch (mode & DDB_MODE_MASK) {
+X	case DDB_INSERT:
+X	case DDB_REPLACE:
+X	case DDB_DUPLICATE:
+X		return 1;
+X	default:
+X		return 0;
+X	}
+X}
+X
+Xstatic BELEM *
+X#ifdef SEQUENTIAL
+Xfind(int bd, const DATUM *key, ddb_cmp_t cmp, BELEM ***prevp, BELEM **parent)
+X#else
+Xfind(int bd, const DATUM *key, ddb_cmp_t cmp, BELEM ***prevp)
+X#endif
+X{
+X	int	c;
+X	BELEM	*bp;
+X
+X	bp = binary[bd].root;
+X	if (prevp) {
+X		*prevp = &binary[bd].root;
+X#ifdef SEQUENTIAL
+X		*parent = NULL;
+X#endif
+X	}
+X
+X	while (bp) {
+X		if ((c = (*cmp)(key, &bp->key)) == 0)
+X			return bp;
+X		else if (c < 0) {
+X			if (prevp) {
+X				*prevp = &bp->left;
+X#ifdef SEQUENTIAL
+X				*parent = bp;
+X#endif
+X			}
+X			bp = bp->left;
+X		} else {
+X			if (prevp) {
+X				*prevp = &bp->right;
+X#ifdef SEQUENTIAL
+X				*parent = bp;
+X#endif
+X			}
+X			bp = bp->right;
+X		}
+X	}
+X
+X	return NULL;
+X}
+X
+Xstatic void
+Xbfree(BELEM *bp)
+X{
+X	BELEM	*right;
+X
+X	if (bp) {
+X		bfree(bp->left);
+X		right = bp->right;
+X		free(bp->key.addr);
+X		free(bp->data.addr);
+X		bfree(right);
+X	}
+X}
+X
+Xint
+Xddb_bwrite(int bd, const DATUM *key, const DATUM *data, ddb_cmp_t cmp, int mode)
+X{
+X	BELEM	*bp;
+X	BELEM	*bp_new;
+X	BELEM	**prev;
+X
+X	if (!validbd(bd) || !validmode(mode)
+X	  || (bp_new = ddb_new(key, data, sizeof(*bp_new))) == NULL)
+X		return -1;
+X	if (!cmp)
+X		cmp = ddb_memcmp;
+X	bp_new->left = bp_new->right = NULL;
+X
+X#ifdef SEQUENTIAL
+X	if (bp = find(bd, key, cmp, &prev, &bp_new->parent)) {
+X#else
+X	if (bp = find(bd, key, cmp, &prev)) {
+X#endif
+X		if (mode & DDB_REPLACE) {
+X			free(bp->data.addr);
+X			bp->data = bp_new->data;
+X			bp_new->data.addr = NULL;
+X			bfree(bp_new);
+X		} else if (mode & DDB_DUPLICATE) {
+X			bp_new->left = bp->left;
+X			bp->left = bp_new;
+X		} else /* DDB_INSERT */ {
+X			bfree(bp_new);
+X			return -1;
+X		}
+X	} else
+X		*prev = bp_new;
+X
+X	return 0;
+X}
+X
+XDATUM *
+Xddb_bread(int bd, const DATUM *key, ddb_cmp_t cmp)
+X{
+X	BELEM	*bp;
+X
+X	if (!validbd(bd))
+X		return NULL;
+X	if (!cmp)
+X		cmp = ddb_memcmp;
+X
+X#ifdef SEQUENTIAL
+X	if (bp = find(bd, key, cmp, NULL, NULL))
+X#else
+X	if (bp = find(bd, key, cmp, NULL))
+X#endif
+X		return &bp->data;
+X	else
+X		return NULL;
+X}
+X
+Xint
+Xddb_bdelete(int bd, const DATUM *key, ddb_cmp_t cmp)
+X{
+X	BELEM	*bp;
+X	BELEM	**prev;
+X	BELEM	*q;
+X#ifdef SEQUENTIAL
+X	BELEM	*parent;
+X#endif
+X
+X	if (!validbd(bd))
+X		return NULL;
+X	if (!cmp)
+X		cmp = ddb_memcmp;
+X
+X#ifdef SEQUENTIAL
+X	if (bp = find(bd, key, cmp, &prev, &parent)) {
+X#else
+X	if (bp = find(bd, key, cmp, &prev)) {
+X#endif
+X		free(bp->key.addr);
+X		free(bp->data.addr);
+X		if (bp->left && bp->right) {
+X			BELEM	*qprev;
+X
+X			for (qprev = bp->right, q = bp->right; q->left;
+X			  qprev = q, q = q->left)
+X				;
+X			bp->key.addr = q->key.addr;
+X			bp->key.size = q->key.size;
+X			bp->data.addr = q->data.addr;
+X			bp->data.size = q->data.size;
+X			if (q == bp->right) {
+X				bp->right = q->right;
+X#ifdef SEQUENTIAL
+X				if (q->right)
+X					q->right->parent = bp;
+X#endif
+X			} else {
+X				qprev->left = q->right;
+X#ifdef SEQUENTIAL
+X				if (q->right)
+X					q->right->parent = qprev;
+X#endif
+X			}
+X			free(q);
+X		} else {
+X			if (bp->right)
+X				q = bp->right;
+X			else
+X				q = bp->left;
+X			*prev = q;
+X#ifdef SEQUENTIAL
+X			if (q)
+X				q->parent = bp->parent;
+X#endif
+X			free(bp);
+X		}
+X		return 0;
+X	} else
+X		return -1;
+X}
+X
+Xstatic void
+Xinit(int bd)
+X{
+X	binary[bd].used = 0;
+X	binary[bd].root = NULL;
+X#ifdef SEQUENTIAL
+X	binary[bd].lastkey = NULL;
+X	binary[bd].startover = 0;
+X#endif
+X}
+X
+Xint
+Xddb_bclose(int bd)
+X{
+X	if (!validbd(bd))
+X		return -1;
+X
+X	bfree(binary[bd].root);
+X	init(bd);
+X
+X	return 0;
+X}
+X
+X#define ADDBINARIES	1
+X
+Xint
+Xddb_bopen(void)
+X{
+X	int	i;
+X	int	j;
+X	BINARY	*btmp;
+X
+X	for (i = 0; i < maxbinaries && binary[i].used; i++)
+X		;
+X	if (i == maxbinaries) {
+X		if ((btmp = realloc(binary,
+X		  (maxbinaries + ADDBINARIES) * sizeof(BINARY))) == NULL)
+X			return -1;
+X		binary = btmp;
+X		for (j = maxbinaries; j < maxbinaries + ADDBINARIES; j++)
+X			init(j);
+X		maxbinaries += ADDBINARIES;
+X	}
+X
+X	binary[i].used = 1;
+X
+X	return i;
+X}
+X
+X#ifdef SEQUENTIAL
+Xstatic DATUM *
+Xgetnext(int bd)
+X{
+X	BELEM	*bp;
+X
+X	if (!binary[bd].lastkey) {
+X		if (binary[bd].startover) {
+X			if (bp = binary[bd].root) {
+X				while (bp->left)
+X					bp = bp->left;
+X			}
+X		} else
+X			bp = NULL;
+X	} else if (bp = binary[bd].lastkey->right) {
+X		while (bp->left)
+X			bp = bp->left;
+X	} else {
+X		bp = binary[bd].lastkey;
+X		while (bp->parent && bp == bp->parent->right)
+X			bp = bp->parent;
+X		if (bp->parent)
+X			bp = bp->parent;
+X		else
+X			bp = NULL;
+X	}
+X
+X	if (bp) {
+X		binary[bd].lastkey = bp;
+X		return &bp->key;
+X	} else
+X		return NULL;
+X}
+X
+XDATUM *
+Xddb_bfirst(int bd)
+X{
+X	DATUM	*dp;
+X
+X	if (!validbd(bd))
+X		return NULL;
+X	binary[bd].lastkey = NULL;
+X	binary[bd].startover = 1;
+X	dp = getnext(bd);
+X	binary[bd].startover = 0;
+X	return dp;
+X}
+X
+XDATUM *
+Xddb_bnext(int bd)
+X{
+X	if (!validbd(bd))
+X		return NULL;
+X	return getnext(bd);
+X}
+X#endif
+X
+Xstatic void
+Xrecurse(BELEM *bp, void (*f)(const DATUM *, const DATUM *), int order)
+X{
+X	if (bp) {
+X		if (order != DDB_PREORDER)
+X			recurse(bp->left, f, order);
+X		if (order == DDB_POSTORDER)
+X			recurse(bp->right, f, order);
+X		(*f)(&bp->key, &bp->data);
+X		if (order == DDB_PREORDER)
+X			recurse(bp->left, f, order);
+X		if (order != DDB_POSTORDER)
+X			recurse(bp->right, f, order);
+X	}
+X}
+X
+Xvoid
+Xddb_bfunc(int bd, void (*f)(const DATUM *, const DATUM *), int order)
+X{
+X	if (validbd(bd))
+X		recurse(binary[bd].root, f, order);
+X}
+X
+XDATUM *
+Xddb_blargestkey(int bd)
+X{
+X	BELEM	*bp;
+X
+X	if (!validbd(bd))
+X		return NULL;
+X
+X	if (bp = binary[bd].root) {
+X		while (bp->right)
+X			bp = bp->right;
+X		return &bp->key;
+X	} else
+X		return NULL;
+X}
+X
+XDATUM *
+Xddb_bsmallestkey(int bd)
+X{
+X	BELEM	*bp;
+X
+X	if (!validbd(bd))
+X		return NULL;
+X
+X	if (bp = binary[bd].root) {
+X		while (bp->left)
+X			bp = bp->left;
+X		return &bp->key;
+X	} else
+X		return NULL;
+X}
+X
+X#ifdef DEBUG
+Xstatic void
+Xdef_print(const DATUM *dp)
+X{
+X	printf("%*.*s", dp->size, dp->size, dp->addr);
+X}
+X
+Xstatic void
+Xughprint(const DATUM *dp)
+X{
+X	def_print(dp);
+X	putchar('\n');
+X}
+X
+Xstatic void
+Xbprint(BELEM *bp, void (*kprint)(const DATUM *), void (*dprint)(const DATUM *),
+X  int order)
+X{
+X	if (bp) {
+X		if (order != DDB_PREORDER)
+X			bprint(bp->left, kprint, dprint, order);
+X		if (order == DDB_POSTORDER)
+X			bprint(bp->right, kprint, dprint, order);
+X		printf("key: ");
+X		(*kprint)(&bp->key);
+X		printf("\tdata: ");
+X		(*dprint)(&bp->data);
+X		putchar('\n');
+X		if (order == DDB_PREORDER)
+X			bprint(bp->left, kprint, dprint, order);
+X		if (order != DDB_POSTORDER)
+X			bprint(bp->right, kprint, dprint, order);
+X	}
+X}
+X
+Xvoid
+Xddb_bdump(int bd, void (*kprint)(const DATUM *), void (*dprint)(const DATUM *),
+X  int order)
+X{
+X	if (!kprint)
+X		kprint = def_print;
+X	if (!dprint)
+X		dprint = def_print;
+X
+X	if (validbd(bd))
+X		switch (order) {
+X		case DDB_PREORDER:
+X			bprint(binary[bd].root, kprint, dprint, order);
+X			break;
+X		case DDB_INORDER:
+X			bprint(binary[bd].root, kprint, dprint, order);
+X			break;
+X		case DDB_POSTORDER:
+X			bprint(binary[bd].root, kprint, dprint, order);
+X			break;
+X		}
+X}
+X#endif
+END_OF_FILE
+if test 8251 -ne `wc -c <'ddb/binary.c'`; then
+    echo shar: \"'ddb/binary.c'\" unpacked with wrong size!
+fi
+# end of 'ddb/binary.c'
+fi
+if test -f 'ddb/bit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/bit.c'\"
+else
+echo shar: Extracting \"'ddb/bit.c'\" \(5839 characters\)
+sed "s/^X//" >'ddb/bit.c' <<'END_OF_FILE'
+X/*
+X *                 Author:  Christopher G. Phillips
+X *              Copyright (C) 1993 All Rights Reserved
+X *
+X *                              NOTICE
+X *
+X * Permission to use, copy, modify, and distribute this software and
+X * its documentation for any purpose and without fee is hereby granted
+X * provided that the above copyright notice appear in all copies and
+X * that both the copyright notice and this permission notice appear in
+X * supporting documentation.
+X *
+X * The author makes no representations about the suitability of this
+X * software for any purpose.  This software is provided ``as is''
+X * without express or implied warranty.
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <limits.h>
+X#include <sys/types.h>
+X#include <ddb.h>
+X
+X#define MIN(a,b)	((a) < (b) ? (a) : (b))
+X
+X#ifndef WORD_BIT
+X#define WORD_BIT	(sizeof(int) * CHAR_BIT)
+X#endif
+X#define setbit(a,b)	((a)[(b) / WORD_BIT] |= 1 << ((b) % WORD_BIT))
+X#define clrbit(a,b)	((a)[(b) / WORD_BIT] &= ~(1 << ((b) % WORD_BIT)))
+X#define isset(a,b)	((a)[(b) / WORD_BIT] & (1 << ((b) % WORD_BIT)))
+X#define isclr(a,b)	(((a)[(b) / WORD_BIT] & (1 << ((b) % WORD_BIT))) == 0)
+X
+Xtypedef struct {
+X	int		used;
+X	unsigned long	maxbit;
+X	unsigned int	*bits;
+X	long		lastbit;
+X} BIT;
+X
+Xstatic BIT	*vector = NULL;
+Xstatic int	maxvectors = 0;
+X
+X#define CHECK_MAXBIT	1
+X
+Xstatic int
+Xvalidbd(int bd, unsigned long bit, int check)
+X{
+X	return vector && bd < maxvectors && vector[bd].used
+X	  && (check != CHECK_MAXBIT || bit <= vector[bd].maxbit);
+X}
+X
+Xstatic int
+Xvalidmode(int mode)
+X{
+X	switch (mode & DDB_MODE_MASK) {
+X	case DDB_INSERT:
+X	case DDB_REPLACE:
+X	case DDB_DUPLICATE:
+X		return 1;
+X	default:
+X		return 0;
+X	}
+X}
+X
+Xstatic int
+Xenlarge(int bd, unsigned long maxbit)
+X{
+X	unsigned int	*newbits;
+X	unsigned long	nints1, nints2;
+X	unsigned long	bit;
+X
+X	if (maxbit > (unsigned long)LONG_MAX)
+X		return -1;
+X
+X	nints1 = vector[bd].maxbit / WORD_BIT + 1;
+X	nints2 = maxbit / WORD_BIT + 1;
+X	for (bit = vector[bd].maxbit + 1; bit / WORD_BIT + 1 == nints1; bit++)
+X		clrbit(vector[bd].bits, bit);
+X	if (nints2 > nints1) {
+X		if ((newbits = realloc(vector[bd].bits, nints2 * sizeof(int)))
+X		  == NULL)
+X			return -1;
+X		(void)memset(newbits + nints1, '\0',
+X		  (nints2 - nints1) * sizeof(int));
+X	}
+X	
+X	vector[bd].maxbit = maxbit;
+X
+X	return 0;
+X}
+X
+Xint
+Xddb_bitwrite(int bd, unsigned long bit, int mode)
+X{
+X	if (!validbd(bd, bit, !CHECK_MAXBIT) || !validmode(mode))
+X		return -1;
+X	if (bit > vector[bd].maxbit && enlarge(bd, bit) == -1)
+X		return -1;
+X
+X	if (!isset(vector[bd].bits, bit))
+X		setbit(vector[bd].bits, bit);
+X	else if (mode & DDB_INSERT)
+X		return -1;
+X
+X	return 0;
+X}
+X
+Xint
+Xddb_bitread(int bd, unsigned long bit)
+X{
+X	if (!validbd(bd, bit, !CHECK_MAXBIT))
+X		return -1;
+X
+X	if (bit > vector[bd].maxbit)
+X		return 0;
+X	return isset(vector[bd].bits, bit) != 0;
+X}
+X
+Xint
+Xddb_bitdelete(int bd, unsigned long bit)
+X{
+X	if (!validbd(bd, bit, CHECK_MAXBIT))
+X		return -1;
+X
+X	if (isset(vector[bd].bits, bit)) {
+X		clrbit(vector[bd].bits, bit);
+X		return 0;
+X	} else
+X		return -1;
+X}
+X
+Xint
+Xddb_bitclose(int bd)
+X{
+X	if (!validbd(bd, 0, !CHECK_MAXBIT))
+X		return -1;
+X
+X	vector[bd].used = 0;
+X	free(vector[bd].bits);
+X	vector[bd].bits = NULL;
+X
+X	return 0;
+X}
+X
+Xint
+Xddb_bitset(int bd, int on)
+X{
+X	if (!validbd(bd, 0, !CHECK_MAXBIT))
+X		return -1;
+X
+X	(void)memset(vector[bd].bits, on ? ~0 : '\0',
+X	  (vector[bd].maxbit / WORD_BIT + 1) * sizeof(int));
+X	return 0;
+X}
+X
+X#define ADDVECTORS	1
+X
+Xint
+Xddb_bitopen(unsigned long maxbit)
+X{
+X	int		i;
+X	int		j;
+X	BIT		*vtmp;
+X
+X	if (maxbit > (unsigned long)LONG_MAX)
+X		return -1;
+X
+X	for (i = 0; i < maxvectors && vector[i].used; i++)
+X		;
+X	if (i == maxvectors) {
+X		if ((vtmp = realloc(vector,
+X		  (maxvectors + ADDVECTORS) * sizeof(BIT))) == NULL)
+X			return -1;
+X		vector = vtmp;
+X		for (j = maxvectors; j < maxvectors + ADDVECTORS; j++) {
+X			vector[j].used = 0;
+X			vector[j].bits = NULL;
+X		}
+X		maxvectors += ADDVECTORS;
+X	} else
+X		free(vector[i].bits);
+X
+X	if ((vector[i].bits = malloc((maxbit / WORD_BIT + 1) * sizeof(int)))
+X	  == NULL)
+X		return -1;
+X
+X	vector[i].used = 1;
+X	vector[i].maxbit = maxbit;
+X	(void)ddb_bitset(i, 0);
+X
+X	return i;
+X}
+X
+Xstatic long
+Xfindword(unsigned int *bits, unsigned long first, unsigned long last,
+X  unsigned int firstmask)
+X{
+X	unsigned long	i;
+X
+X	if (bits[first] & ~firstmask)
+X		return (long)first;
+X	if (last >= first) {
+X		for (i = first + 1; i <= last; i++)
+X			if (bits[i])
+X				return (long)i;
+X	} else {
+X		for (i = first - 1; i >= last; i--)
+X			if (bits[i])
+X				return (long)i;
+X	}
+X
+X	return -1;
+X}
+X
+X#if 0
+Xstatic long
+Xfindhighset(unsigned int word, unsigned int mask)
+X{
+X	long	bit;
+X
+X	word &= ~mask;
+X	for (bit = WORD_BIT - 1; (word & (1 << bit)) == 0; bit--)
+X		;
+X	return bit;
+X}
+X#endif
+X
+Xstatic long
+Xfindlowset(unsigned int word, unsigned int mask)
+X{
+X	long	bit;
+X
+X	word &= ~mask;
+X	for (bit = 0; (word & (1 << bit)) == 0; bit++)
+X		;
+X	return bit;
+X}
+X
+Xlong
+Xddb_bitfirst(int bd)
+X{
+X	unsigned long	index;
+X
+X	if (!validbd(bd, 0, !CHECK_MAXBIT) || (index = findword(vector[bd].bits,
+X	  0, vector[bd].maxbit / WORD_BIT, 0)) == -1)
+X		return -1;
+X	else
+X		return vector[bd].lastbit = findlowset(vector[bd].bits[index],
+X		  0) + index * WORD_BIT;
+X}
+X
+X#define wordmask(n)	((1 << (n + 1)) - 1)
+X
+Xlong
+Xddb_bitnext(int bd)
+X{
+X	unsigned int	mask;
+X	unsigned long	index;
+X
+X	if (!validbd(bd, 0, !CHECK_MAXBIT))
+X		return -1;
+X	mask = wordmask(vector[bd].lastbit % WORD_BIT);
+X	if ((index = findword(vector[bd].bits, vector[bd].lastbit / WORD_BIT,
+X	  vector[bd].maxbit / WORD_BIT, mask)) == -1)
+X		return -1;
+X	else {
+X		if (index != vector[bd].lastbit / WORD_BIT)
+X			mask = 0;
+X		return vector[bd].lastbit = findlowset(vector[bd].bits[index],
+X		  mask) + index * WORD_BIT;
+X	}
+X}
+X
+X#ifdef DEBUG
+Xvoid
+Xddb_bitdump(int bd)
+X{
+X	long	result;
+X
+X	printf("BITS SET:");
+X	if ((result = ddb_bitfirst(bd)) >= 0) {
+X		printf("\n%ld\n", result);
+X		while ((result = ddb_bitnext(bd)) >= 0)
+X			printf("%ld\n", result);
+X		putchar('\n');
+X	} else
+X		printf("\tnone\n");
+X
+X}
+X#endif
+END_OF_FILE
+if test 5839 -ne `wc -c <'ddb/bit.c'`; then
+    echo shar: \"'ddb/bit.c'\" unpacked with wrong size!
+fi
+# end of 'ddb/bit.c'
+fi
+if test -f 'ddb/ddb.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/ddb.3'\"
+else
+echo shar: Extracting \"'ddb/ddb.3'\" \(6659 characters\)
+sed "s/^X//" >'ddb/ddb.3' <<'END_OF_FILE'
+X.\" ddb.3
+X.TH DDB 3 "October 31, 1993"
+X.SH NAME
+Xddb \- dynamic memory database library
+X.SH SYNOPSIS
+X.LP
+X.nf
+X.ft B
+X#include "ddb.h"
+Xtypedef struct {
+X	void	*addr;
+X	size_t	size;
+X} DATUM;
+X.sp
+Xtypedef int	(*ddb_cmp_t)(const DATUM *key1, const DATUM *key2);
+Xtypedef size_t	(*ddb_hash_t)(const char *addr, size_t size, size_t buckets);
+X.ft
+X.fi
+X.LP
+X.nf
+X.ft B
+XBinary Tree Interface
+Xint	ddb_bopen(void);
+Xint	ddb_bclose(int dbd);
+Xint	ddb_bwrite(int dbd, const DATUM *key, const DATUM *data,
+X	  ddb_cmp_t cmp, int flag);
+Xint	ddb_bdelete(int dbd, const DATUM *key, ddb_cmp_t cmp);
+XDATUM	*ddb_bread(int dbd, const DATUM *key, ddb_cmp_t cmp);
+XDATUM	*ddb_bfirst(int dbd);
+XDATUM	*ddb_bnext(int dbd);
+Xvoid	ddb_bfunc(int dbd, void (*f)(const DATUM *key, const DATUM *data),
+X	  int order);
+X.ft
+X.fi
+X.LP
+X.nf
+X.ft B
+XBit Vector Interface
+Xint	ddb_bitopen(unsigned long maxbit);
+Xint	ddb_bitclose(int dbd);
+Xint	ddb_bitwrite(int dbd, unsigned long bit, int flag);
+Xint	ddb_bitdelete(int dbd, unsigned long bit);
+Xint	ddb_bitread(int dbd, unsigned long bit);
+Xlong	ddb_bitfirst(int dbd);
+Xlong	ddb_bitnext(int dbd);
+Xint	ddb_bitset(int dbd, int on);
+X.ft
+X.fi
+X.LP
+X.nf
+X.ft B
+XHash Table Interface
+Xint	ddb_hopen(size_t buckets);
+Xint	ddb_hclose(int dbd);
+Xint	ddb_hwrite(int dbd, const DATUM *key, const DATUM *data,
+X	  ddb_cmp_t cmp, int flag, ddb_hash_t hash);
+Xint	ddb_hdelete(int dbd, const DATUM *key, ddb_cmp_t cmp,
+X	  ddb_hash_t hash);
+XDATUM	*ddb_hread(int dbd, const DATUM *key, ddb_cmp_t cmp,
+X	  ddb_hash_t hash);
+XDATUM	*ddb_hfirst(int dbd);
+XDATUM	*ddb_hnext(int dbd);
+X.ft
+X.fi
+X.LP
+X.nf
+X.ft B
+XLinked List Interface
+Xint	ddb_lopen(void);
+Xint	ddb_lclose(int dbd);
+Xint	ddb_lwrite(int dbd, const DATUM *key, const DATUM *data,
+X	  ddb_cmp_t cmp, int flag);
+Xint	ddb_ldelete(int dbd, const DATUM *key, ddb_cmp_t cmp);
+XDATUM	*ddb_lread(int dbd, const DATUM *key, ddb_cmp_t cmp);
+XDATUM	*ddb_lfirst(int dbd);
+XDATUM	*ddb_lnext(int dbd);
+X.ft
+X.fi
+X.LP
+X.nf
+X.ft B
+XQueue Interface
+Xint	ddb_qopen(void);
+Xint	ddb_qclose(int dbd);
+Xint	ddb_qwrite(int dbd, const DATUM *key);
+XDATUM	*ddb_qread(int dbd);
+X.ft
+X.fi
+X.LP
+X.nf
+X.ft B
+XStack Interface
+Xint	ddb_sopen(void);
+Xint	ddb_sclose(int dbd);
+Xint	ddb_swrite(int dbd, const DATUM *key);
+XDATUM	*ddb_sread(int dbd);
+X.ft
+X.fi
+X.SH PARAMETERS
+X.IP \fIdbd\fP
+XSpecifies a small nonnegative database descriptor previously returned
+Xby one of the
+X.BR open(\|)
+Xfunctions.
+X.IP \fIkey\fP
+XSpecifies the key.
+X.IP \fIdata\fP
+XSpecifies the data associated with
+X.IR key .
+X.IP \fIcmp\fP
+XSpecifies a function used to compare two keys.
+XThe function
+X.IR cmp
+Xshould return zero if the keys compare equal, less than zero if
+Xthe first key compares less than the second, else greater than zero.
+XIf
+X.IR cmp
+Xis NULL, a default function is used.
+XThis function returns zero if the two keys are identical and of the same size.
+XIf they are identical up to the length of the shorter, the shorter is
+Xassumed to precede the longer.
+XOtherwise, the order is as returned by
+X.BR memcmp (3).
+X.IP \fIflag\fP
+XSpecifies the mode that the
+X.BR write(\|)
+Xfunctions use to add to the databases.
+XMust include only one of the following values:
+X.IP DDB_INSERT
+XInsert the pair only if the key is not currently in the database.
+X.IP DDB_REPLACE
+XAdd the pair to the database.
+XIf the key is already in the database, delete that entry.
+X.IP DDB_DUPLICATE
+XAdd the pair to the database.
+XIf the key is already in the database, do not delete that entry.
+X
+XFor the
+X.BR ddb_lwrite(\|)
+Xfunction, the value
+X.IR DDB_TAIL
+Xcan be inclusively OR'ed into
+X.IR flag
+Xto specify writing at the tail of the list.
+X.IP \fIf\fP
+XSpecifies a function called for each entry in a binary tree database
+Xin the order given by parameter
+X.IR order .
+XThe function takes two arguments: a key in the database and its associated data.
+X.IP \fIorder\fP
+XSpecifies the order that the entries in a binary tree database
+Xare operated on by function
+X.IR f
+Xand must be DDB_PREORDER, DDB_INORDER, or DDB_POSTORDER.
+X.IP \fImaxbit\fP
+XSpecifies the maximum bit which may be used by a bit vector database.
+XThis value is changed as necessary to grow the database although the ultimate
+Xmaximum bit is LONG_MAX.
+XThe minimum bit which may be used is bit 0.
+X.IP \fIon\fP
+XSpecifies whether all valid bits of a bit vector database should be set or
+Xunset.
+XInitially, all bits are cleared.
+XWhenever the database is grown, all new bits are cleared.
+X.IP \fIbuckets\fP
+XSpecifies the number of buckets used for a hash table database.
+X.IP \fIhash\fP
+XSpecifies the hashing function used by the
+X.BR hash(\|)
+Xfunctions.
+XThe function takes three arguments: the address and size of the key
+Xand the number of buckets used in the hash table.
+XIf NULL, a default function is used.
+X.SH DESCRIPTION
+X.LP
+XThis package provides a simple interface to flexible database routines.
+XData structures supported are binary trees, bit vectors, hash tables,
+Xlinked lists, queues, and stacks.
+XAll key\-data pairs are copied into the databases using
+X.BR malloc(3) .
+X.LP
+XTo create a database, the
+X.BR open(\|)
+Xfunctions are used.
+XAdding and deleting are respectively done with the
+X.BR write(\|)
+Xand
+X.BR delete(\|)
+Xfunctions and reading is done with the
+X.BR read(\|)
+Xfunctions.
+X.LP
+XMost database types may have all keys (or bits) in a database examined
+Xby calling the
+X.BR first(\|)
+Xfunction once followed by repeated calls to the
+X.BR next(\|)
+Xfunction.
+XFailure indicates that all keys have been returned.
+XThe keys are returned in unspecified order.
+X.LP
+XDatabases are destroyed (and all associated memory freed) with the
+X.BR close(\|)
+Xfunctions.
+X.SH RETURN VALUES
+XThe
+X.BR open(\|)
+Xfunctions return nonnegative if successful and -1 otherwise.
+XThe
+X.BR close(\|) ,
+X.BR write(\|) ,
+Xand
+X.BR delete(\|)
+Xfunctions return 0 on success and -1 otherwise.
+X.LP
+XThe
+X.BR first(\|)
+Xfunctions indicate failure (-1 for
+X.BR ddb_bitfirst(\|)
+Xand NULL otherwise) if the database is empty.
+X.BR ddb_bitfirst(\|)
+Xreturns nonnegative and the other
+X.BR first(\|)
+Xfunctions return non-NULL to indicate success.
+XThe
+X.BR next(\|)
+Xfunctions denote success and failure identically to the
+X.BR first(\|)
+Xfunctions.
+X.LP
+XFunctions returning type pointer\-to\-DATUM return NULL on failure.
+X.SH NOTES
+XAll of the
+X.BR read(\|)
+Xfunctions except
+X.BR ddb_bitread(\|)
+Xreturn pointers to memory which should be freed when unneeded.
+X.LP
+XAltering a database and then calling a
+X.BR next(\|)
+Xfunction without an intervening
+X.BR first(\|)
+Xcall results in undefined behavior.
+X.LP
+XIf the
+X.IR key
+Xargument to
+X.BR ddb_bread(\|)
+Xis NULL, the head of the list is implied.
+XWriting to a linked list may be at the head or tail of the list.
+X.SH SEE ALSO
+X.BR bsearch (3),
+X.BR hsearch (3),
+X.BR ndbm (3),
+X.BR tsearch (3).
+X.SH AUTHOR
+X.nf
+XChristopher G. Phillips
+Xpefv700@utpe.pe.utexas.edu
+END_OF_FILE
+if test 6659 -ne `wc -c <'ddb/ddb.3'`; then
+    echo shar: \"'ddb/ddb.3'\" unpacked with wrong size!
+fi
+# end of 'ddb/ddb.3'
+fi
+if test -f 'ddb/ddb.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/ddb.h'\"
+else
+echo shar: Extracting \"'ddb/ddb.h'\" \(3258 characters\)
+sed "s/^X//" >'ddb/ddb.h' <<'END_OF_FILE'
+X/*
+X *                 Author:  Christopher G. Phillips
+X *              Copyright (C) 1993 All Rights Reserved
+X *
+X *                              NOTICE
+X *
+X * Permission to use, copy, modify, and distribute this software and
+X * its documentation for any purpose and without fee is hereby granted
+X * provided that the above copyright notice appear in all copies and
+X * that both the copyright notice and this permission notice appear in
+X * supporting documentation.
+X *
+X * The author makes no representations about the suitability of this
+X * software for any purpose.  This software is provided ``as is''
+X * without express or implied warranty.
+X */
+X
+X#ifndef H_DDB
+X#define H_DDB
+X
+X#include <sys/types.h>
+X
+Xtypedef struct {
+X	void	*addr;
+X	size_t	size;
+X} DATUM;
+X
+Xtypedef int	(*ddb_cmp_t)(const DATUM *, const DATUM *);
+Xtypedef size_t	(*ddb_hash_t)(const char *, size_t, size_t);
+X
+X#define DDB_INSERT	1
+X#define DDB_REPLACE	2
+X#define DDB_DUPLICATE	4
+X#define DDB_MODE_MASK	(DDB_INSERT | DDB_REPLACE | DDB_DUPLICATE)
+X#define DDB_TAIL	8
+X
+X/* Binary tree interface */
+Xextern int	ddb_bopen(void);
+Xextern int	ddb_bclose(int);
+Xextern int	ddb_bwrite(int, const DATUM *, const DATUM *, ddb_cmp_t, int);
+Xextern int	ddb_bdelete(int, const DATUM *, ddb_cmp_t);
+Xextern DATUM	*ddb_bread(int, const DATUM *, ddb_cmp_t);
+X#define DDB_PREORDER	0
+X#define DDB_INORDER	1
+X#define DDB_POSTORDER	2
+Xextern DATUM	*ddb_bfirst(int);
+Xextern DATUM	*ddb_bnext(int);
+Xextern void	ddb_bfunc(int, void (*)(const DATUM *, const DATUM *), int);
+Xextern DATUM	*ddb_blargestkey(int);
+Xextern DATUM	*ddb_bsmallestkey(int);
+X#ifdef DEBUG
+Xextern void	ddb_bdump(int, void (*)(const DATUM *), void (*)(const DATUM *),
+X		  int);
+X#endif
+X
+X/* Bit vector interface */
+Xextern int	ddb_bitopen(unsigned long);
+Xextern int	ddb_bitclose(int);
+Xextern int	ddb_bitwrite(int, unsigned long, int);
+Xextern int	ddb_bitdelete(int, unsigned long);
+Xextern int	ddb_bitread(int, unsigned long);
+Xextern long	ddb_bitfirst(int);
+Xextern long	ddb_bitnext(int);
+Xextern long	ddb_bitlargestkey(int);
+Xextern long	ddb_bitsmallestkey(int);
+Xextern int	ddb_bitset(int, int);
+X#ifdef DEBUG
+Xextern void	ddb_bitdump(int);
+X#endif
+X
+X/* Hash table interface */
+Xextern int	ddb_hopen(size_t);
+Xextern int	ddb_hclose(int);
+Xextern int	ddb_hwrite(int, const DATUM *, const DATUM *, ddb_cmp_t, int,
+X		  ddb_hash_t);
+Xextern int	ddb_hdelete(int, const DATUM *, ddb_cmp_t, ddb_hash_t);
+Xextern DATUM	*ddb_hread(int, const DATUM *, ddb_cmp_t, ddb_hash_t);
+Xextern DATUM	*ddb_hfirst(int);
+Xextern DATUM	*ddb_hnext(int);
+X#ifdef DEBUG
+Xextern void	ddb_hdump(int, void (*)(const DATUM *),
+X		  void (*)(const DATUM *));
+X#endif
+X
+X/* Linked list interface */
+Xextern int	ddb_lopen(void);
+Xextern int	ddb_lclose(int);
+Xextern int	ddb_lwrite(int, const DATUM *, const DATUM *, ddb_cmp_t, int);
+Xextern int	ddb_ldelete(int, const DATUM *, ddb_cmp_t);
+Xextern DATUM	*ddb_lread(int, const DATUM *, ddb_cmp_t);
+Xextern DATUM	*ddb_lfirst(int);
+Xextern DATUM	*ddb_lnext(int);
+X
+X/* Queue interface */
+Xextern int	ddb_qopen(void);
+Xextern int	ddb_qclose(int);
+Xextern int	ddb_qwrite(int, const DATUM *);
+Xextern DATUM	*ddb_qread(int);
+X
+X/* Stack interface */
+Xextern int	ddb_sopen(void);
+Xextern int	ddb_sclose(int);
+Xextern int	ddb_swrite(int, const DATUM *);
+Xextern DATUM	*ddb_sread(int);
+X
+X#endif /* H_DDB */
+END_OF_FILE
+if test 3258 -ne `wc -c <'ddb/ddb.h'`; then
+    echo shar: \"'ddb/ddb.h'\" unpacked with wrong size!
+fi
+# end of 'ddb/ddb.h'
+fi
+if test -f 'ddb/hash.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/hash.c'\"
+else
+echo shar: Extracting \"'ddb/hash.c'\" \(6175 characters\)
+sed "s/^X//" >'ddb/hash.c' <<'END_OF_FILE'
+X/*
+X *                 Author:  Christopher G. Phillips
+X *              Copyright (C) 1993 All Rights Reserved
+X *
+X *                              NOTICE
+X *
+X * Permission to use, copy, modify, and distribute this software and
+X * its documentation for any purpose and without fee is hereby granted
+X * provided that the above copyright notice appear in all copies and
+X * that both the copyright notice and this permission notice appear in
+X * supporting documentation.
+X *
+X * The author makes no representations about the suitability of this
+X * software for any purpose.  This software is provided ``as is''
+X * without express or implied warranty.
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <ddb.h>
+X
+Xtypedef struct hashent {
+X	DATUM		key;
+X	DATUM		data;
+X	struct hashent	*next;
+X} HASHENT;
+Xtypedef HASHENT *BUCKET;
+Xtypedef struct {
+X	short	used;
+X	size_t	nbuckets;
+X	BUCKET	*bucket;
+X	size_t	which_bucket;
+X	HASHENT	*lastkey;
+X} HASHTAB;
+X
+X#define NBUCKETS	43
+X
+X#define H_READ		0
+X#define H_DELETE	3
+X
+Xstatic HASHTAB	*hashtable = NULL;
+Xstatic int	maxtables = 0;
+X
+Xextern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+Xextern int	ddb_memcmp(const DATUM *, const DATUM *);
+X
+Xstatic size_t
+Xdef_hash(const char *key, size_t keysize, size_t nbuckets)
+X{
+X	size_t	c;
+X	size_t	i;
+X
+X	for (c = i = 0; i < keysize; i++, key++)
+X		c = *key + 33 * c;
+X	return c % nbuckets;
+X}
+X
+Xstatic int
+Xvalidhd(int hd)
+X{
+X	return hashtable && hd < maxtables && hashtable[hd].used;
+X}
+X
+Xstatic DATUM *
+Xhashop(int hd, int action, const DATUM *key, const DATUM *data, ddb_cmp_t cmp,
+X  ddb_hash_t hash)
+X{
+X	size_t	hashval;
+X	HASHENT	*ptr, *oldptr = NULL;
+X
+X	if (!validhd(hd))
+X		return NULL;
+X
+X	if (hash == NULL)
+X		hash = def_hash;
+X	if (cmp == NULL)
+X		cmp = ddb_memcmp;
+X
+X	hashval = hash(key->addr, key->size, hashtable[hd].nbuckets)
+X	  % hashtable[hd].nbuckets;
+X
+X	if (ptr = hashtable[hd].bucket[hashval])
+X		while (ptr && (*cmp)(key, &ptr->key)) {
+X			oldptr = ptr;
+X			ptr = ptr->next;
+X		}
+X
+X	if (action == H_READ)
+X		return ptr ? &ptr->data : NULL;
+X
+X	if (ptr && action == DDB_INSERT)
+X		return NULL;
+X
+X	if (!ptr && action == H_DELETE)
+X		return NULL;
+X
+X	if (ptr && action != DDB_DUPLICATE) {	/* H_DELETE || DDB_REPLACE */
+X		free(ptr->data.addr);
+X		if (action == H_DELETE) {
+X			free(ptr->key.addr);
+X			if (oldptr)
+X				oldptr->next = ptr->next;
+X			else {
+X				oldptr = ptr->next;
+X				hashtable[hd].bucket[hashval] = oldptr;
+X			}
+X			return &oldptr->data;
+X		} else {	/* DDB_REPLACE */
+X			if ((ptr->data.addr = malloc(data->size)) == NULL)
+X				return NULL;
+X			(void)memcpy(ptr->data.addr, data->addr,
+X			  (int)data->size);
+X			ptr->data.size = data->size;
+X			return &ptr->data;
+X		}
+X	}
+X
+X	if (ptr && action == DDB_DUPLICATE) {
+X		oldptr = ptr;
+X		if ((ptr = ddb_new(key, data, sizeof(*ptr))) == NULL)
+X			return NULL;
+X		ptr->next = oldptr->next;
+X		oldptr->next = ptr;
+X		return &ptr->data;
+X	}
+X
+X	/* DDB_INSERT || DDB_REPLACE || DDB_DUPLICATE */
+X	if (oldptr)
+X		oldptr = hashtable[hd].bucket[hashval];
+X	if ((ptr = hashtable[hd].bucket[hashval]
+X	  = ddb_new(key, data, sizeof(*ptr))) == NULL)
+X		return NULL;
+X	ptr->next = oldptr;
+X	return &ptr->data;
+X}
+X
+Xint
+Xddb_hwrite(int hd, const DATUM *key, const DATUM *data, ddb_cmp_t cmp, int mode,
+X  ddb_hash_t hash)
+X{
+X	if (mode != DDB_INSERT && mode != DDB_REPLACE && mode != DDB_DUPLICATE)
+X		return -1;
+X	else if (hashop(hd, mode, key, data, cmp, hash))
+X		return 0;
+X	else
+X		return -1;
+X}
+X
+XDATUM *
+Xddb_hread(int hd, const DATUM *key, ddb_cmp_t cmp, ddb_hash_t hash)
+X{
+X	return hashop(hd, H_READ, key, NULL, cmp, hash);
+X}
+X
+Xint
+Xddb_hdelete(int hd, const DATUM *key, ddb_cmp_t cmp, ddb_hash_t hash)
+X{
+X	if (hashop(hd, H_DELETE, key, NULL, cmp, hash))
+X		return 0;
+X	else
+X		return -1;
+X}
+X
+Xstatic void
+Xhfree(HASHENT *hp)
+X{
+X	if (hp->next)
+X		hfree(hp->next);
+X	free(hp->data.addr);
+X	free(hp->key.addr);
+X	free(hp);
+X}
+X
+Xint
+Xddb_hclose(int hd)
+X{
+X	int	bucket;
+X
+X	if (!validhd(hd))
+X		return -1;
+X
+X	for (bucket = 0; bucket < hashtable[hd].nbuckets; bucket++)
+X		if (hashtable[hd].bucket[bucket])
+X			hfree(hashtable[hd].bucket[bucket]);
+X
+X	hashtable[hd].used = 0;
+X
+X	return 0;
+X}
+X
+X#define ADDTABLES	1
+X
+Xstatic int
+Xgetbuckets(size_t nbuckets)
+X{
+X	int	i, j;
+X
+X	for (i = maxtables; i < maxtables + ADDTABLES; i++) {
+X		if ((hashtable[i].bucket = malloc(nbuckets * sizeof(BUCKET)))
+X		  == NULL) {
+X			for (j = maxtables; j <= i; j++)
+X				free(hashtable[j].bucket);
+X			return -1;
+X		}
+X		for (j = 0; j < nbuckets; j++)
+X			hashtable[i].bucket[j] = NULL;
+X	}
+X	return 0;
+X}
+X
+Xint
+Xddb_hopen(size_t nbuckets)
+X{
+X	int	i;
+X	HASHTAB	*hashtmp;
+X
+X	if (nbuckets == 0)
+X		nbuckets = NBUCKETS;
+X
+X	for (i = 0; i < maxtables && hashtable[i].used; i++)
+X		;
+X	if (i == maxtables) {
+X		if ((hashtmp = realloc(hashtable,
+X		  (maxtables + ADDTABLES) * sizeof(HASHTAB))) == NULL)
+X			return -1;
+X		hashtable = hashtmp;
+X		if (getbuckets(nbuckets) == -1)
+X			return -1;
+X		maxtables += ADDTABLES;
+X	}
+X
+X	hashtable[i].used = 1;
+X	hashtable[i].nbuckets = nbuckets;
+X
+X	return i;
+X}
+X
+XDATUM *
+Xddb_hnext(int hd)
+X{
+X	HASHTAB	*hp;
+X
+X	if (!validhd(hd))
+X		return NULL;
+X
+X	hp = &hashtable[hd];
+X
+X	if (!hp->lastkey)
+X		return NULL;
+X
+X	if (hp->lastkey = hp->lastkey->next)
+X		return &hp->lastkey->key;
+X
+X	for (hp->which_bucket++; hp->which_bucket < hp->nbuckets;
+X	  hp->which_bucket++)
+X		if (hp->lastkey = hp->bucket[hp->which_bucket])
+X			return &hp->lastkey->key;
+X
+X	return NULL;
+X}
+X
+XDATUM *
+Xddb_hfirst(int hd)
+X{
+X	HASHTAB	*hp;
+X
+X	if (!validhd(hd))
+X		return NULL;
+X
+X	hp = &hashtable[hd];
+X
+X	for (hp->which_bucket = 0; hp->which_bucket < hp->nbuckets;
+X	  hp->which_bucket++)
+X		if (hp->lastkey = hp->bucket[hp->which_bucket])
+X			return &hp->lastkey->key;
+X
+X	return NULL;
+X}
+X
+X#ifdef DEBUG
+Xstatic void
+Xdef_print(const DATUM *dp)
+X{
+X	printf("%*.*s", dp->size, dp->size, dp->addr);
+X}
+X
+Xvoid
+Xddb_hdump(int hd, void (*kprint)(const DATUM *), void (*dprint)(const DATUM *))
+X{
+X	int		index;
+X	HASHENT		*ptr, *oldptr = NULL;
+X
+X	if (!validhd(hd))
+X		return;
+X
+X	if (kprint == NULL)
+X		kprint = def_print;
+X	if (dprint == NULL)
+X		dprint = def_print;
+X
+X	for (index = 0; index < hashtable[hd].nbuckets; index++)
+X		for (ptr = hashtable[hd].bucket[index]; ptr; ptr = ptr->next) {
+X			printf("key: ");
+X			(*kprint)(&ptr->key);
+X			printf("\tdata: ");
+X			(*dprint)(&ptr->data);
+X			putchar('\n');
+X		}
+X}
+X#endif
+END_OF_FILE
+if test 6175 -ne `wc -c <'ddb/hash.c'`; then
+    echo shar: \"'ddb/hash.c'\" unpacked with wrong size!
+fi
+# end of 'ddb/hash.c'
+fi
+if test -f 'ddb/list.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/list.c'\"
+else
+echo shar: Extracting \"'ddb/list.c'\" \(4347 characters\)
+sed "s/^X//" >'ddb/list.c' <<'END_OF_FILE'
+X/*
+X *                 Author:  Christopher G. Phillips
+X *              Copyright (C) 1993 All Rights Reserved
+X *
+X *                              NOTICE
+X *
+X * Permission to use, copy, modify, and distribute this software and
+X * its documentation for any purpose and without fee is hereby granted
+X * provided that the above copyright notice appear in all copies and
+X * that both the copyright notice and this permission notice appear in
+X * supporting documentation.
+X *
+X * The author makes no representations about the suitability of this
+X * software for any purpose.  This software is provided ``as is''
+X * without express or implied warranty.
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <ddb.h>
+X
+Xextern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+Xextern int	ddb_memcmp(const DATUM *, const DATUM *);
+X
+Xtypedef struct lent {
+X	DATUM		key;
+X	DATUM		data;
+X	struct lent	*next;
+X} LELEM;
+Xtypedef struct {
+X	int	used;
+X	LELEM	*head;
+X	LELEM	*nextkey;
+X} LIST;
+X
+Xstatic LIST	*list = NULL;
+Xstatic int	maxlists = 0;
+X
+Xstatic int
+Xvalidld(int ld)
+X{
+X	return list && ld < maxlists && list[ld].used;
+X}
+X
+Xstatic int
+Xvalidmode(int mode)
+X{
+X	switch (mode & DDB_MODE_MASK) {
+X	case DDB_INSERT:
+X	case DDB_REPLACE:
+X	case DDB_DUPLICATE:
+X		return 1;
+X	default:
+X		return 0;
+X	}
+X}
+X
+Xstatic LELEM *
+Xfind(int ld, const DATUM *key, ddb_cmp_t cmp, LELEM **prevp)
+X{
+X	LIST	*lp;
+X	LELEM	*le;
+X	LELEM	*le_prev;
+X	LELEM	*result = NULL;
+X
+X	lp = &list[ld];
+X
+X	for (le_prev = NULL, le = lp->head; le; le_prev = le, le = le->next)
+X		if (key && (*cmp)(key, &le->key) == 0) {
+X			result = le;
+X			break;
+X		}
+X
+X	if (prevp)
+X		*prevp = le_prev;
+X	return result;
+X}
+X
+Xint
+Xddb_lwrite(int ld, const DATUM *key, const DATUM *data, ddb_cmp_t cmp, int mode)
+X{
+X	LIST	*lp;
+X	LELEM	*le;
+X	LELEM	*le_prev;
+X	LELEM	*le_new;
+X
+X	if (!validld(ld) || !validmode(mode)
+X	  || (le_new = ddb_new(key, data, sizeof(*le_new))) == NULL)
+X		return -1;
+X
+X	if (cmp == NULL)
+X		cmp = ddb_memcmp;
+X
+X	lp = &list[ld];
+X
+X	if (mode & DDB_DUPLICATE) {
+X		if (mode & DDB_TAIL)
+X			(void)find(ld, NULL, cmp, &le_prev);
+X	} else if (le = find(ld, key, cmp, NULL))
+X		if (mode & DDB_INSERT)
+X			return -1;
+X		else /* DDB_REPLACE */ {
+X			free(le->key.addr);
+X			free(le->data.addr);
+X			le->key = le_new->key;
+X			le->data = le_new->data;
+X			free(le_new);
+X			return 0;
+X		}
+X
+X	if (mode & DDB_TAIL) {
+X		le_new->next = NULL;
+X		if (le_prev)
+X			le_prev->next = le_new;
+X		else
+X			lp->head = le_new;
+X	} else {
+X		le_new->next = lp->head;
+X		lp->head = le_new;
+X	}
+X
+X	return 0;
+X}
+X
+XDATUM *
+Xddb_lread(int ld, const DATUM *key, ddb_cmp_t cmp)
+X{
+X	LIST	*lp;
+X	LELEM	*le;
+X
+X	if (!validld(ld))
+X		return NULL;
+X
+X	if (cmp == NULL)
+X		cmp = ddb_memcmp;
+X
+X	lp = &list[ld];
+X
+X	if (key == NULL)
+X		return lp->head ? &lp->head->data : NULL;
+X
+X	if (le = find(ld, key, cmp, NULL))
+X		return &le->data;
+X
+X	return NULL;
+X}
+X
+Xint
+Xddb_ldelete(int ld, const DATUM *key, ddb_cmp_t cmp)
+X{
+X	LIST	*lp;
+X	LELEM	*le;
+X	LELEM	*le_prev;
+X
+X	if (!validld(ld))
+X		return NULL;
+X
+X	if (cmp == NULL)
+X		cmp = ddb_memcmp;
+X
+X	lp = &list[ld];
+X
+X	if (le = find(ld, key, cmp, &le_prev)) {
+X		if (le_prev)
+X			le_prev->next = le->next;
+X		else
+X			lp->head = le->next;
+X		free(le->key.addr);
+X		free(le->data.addr);
+X		free(le);
+X		return 0;
+X	}
+X
+X	return -1;
+X}
+X
+Xstatic void
+Xinit(int ld)
+X{
+X	list[ld].used = 0;
+X	list[ld].head = list[ld].nextkey = NULL;
+X}
+X
+Xint
+Xddb_lclose(int ld)
+X{
+X	LIST	*lp;
+X	LELEM	*le;
+X
+X	if (!validld(ld))
+X		return -1;
+X
+X	lp = &list[ld];
+X
+X	for (le = lp->head; le; le = le->next) {
+X		free(le->key.addr);
+X		free(le->data.addr);
+X		free(le);
+X	}
+X
+X	init(ld);
+X
+X	return 0;
+X}
+X
+X#define ADDLISTS	1
+X
+Xint
+Xddb_lopen(void)
+X{
+X	int	i;
+X	int	j;
+X	LIST	*ltmp;
+X
+X	for (i = 0; i < maxlists && list[i].used; i++)
+X		;
+X	if (i == maxlists) {
+X		if ((ltmp = realloc(list,
+X		  (maxlists + ADDLISTS) * sizeof(LIST))) == NULL)
+X			return -1;
+X		list = ltmp;
+X		for (j = maxlists; j < maxlists + ADDLISTS; j++)
+X			init(j);
+X		maxlists += ADDLISTS;
+X	}
+X
+X	list[i].used = 1;
+X
+X	return i;
+X}
+X
+XDATUM *
+Xddb_lfirst(int ld)
+X{
+X	LIST	*lp;
+X
+X	if (!validld(ld))
+X		return NULL;
+X
+X	lp = &list[ld];
+X
+X	if (lp->head) {
+X		lp->nextkey = lp->head->next;
+X		return &lp->head->key;
+X	} else {
+X		lp->nextkey = NULL;
+X		return NULL;
+X	}
+X}
+X
+XDATUM *
+Xddb_lnext(int ld)
+X{
+X	LIST	*lp;
+X	LELEM	*le;
+X
+X	if (!validld(ld))
+X		return NULL;
+X
+X	lp = &list[ld];
+X
+X	if (le = lp->nextkey) {
+X		lp->nextkey = lp->nextkey->next;
+X		return &le->data;
+X	} else
+X		return NULL;
+X}
+END_OF_FILE
+if test 4347 -ne `wc -c <'ddb/list.c'`; then
+    echo shar: \"'ddb/list.c'\" unpacked with wrong size!
+fi
+# end of 'ddb/list.c'
+fi
+if test -f 'ddb/new.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/new.c'\"
+else
+echo shar: Extracting \"'ddb/new.c'\" \(1406 characters\)
+sed "s/^X//" >'ddb/new.c' <<'END_OF_FILE'
+X/*
+X *                 Author:  Christopher G. Phillips
+X *              Copyright (C) 1993 All Rights Reserved
+X *
+X *                              NOTICE
+X *
+X * Permission to use, copy, modify, and distribute this software and
+X * its documentation for any purpose and without fee is hereby granted
+X * provided that the above copyright notice appear in all copies and
+X * that both the copyright notice and this permission notice appear in
+X * supporting documentation.
+X *
+X * The author makes no representations about the suitability of this
+X * software for any purpose.  This software is provided ``as is''
+X * without express or implied warranty.
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <sys/types.h>
+X#include <string.h>
+X#include <ddb.h>
+X
+Xvoid *
+Xddb_new(const DATUM *key, const DATUM *data, size_t size)
+X{
+X	DATUM	(*ptr)[2];
+X
+X	if ((ptr = malloc(size)) == NULL
+X	  || ((*ptr)[0].addr = malloc(key->size)) == NULL
+X	  || (data && ((*ptr)[1].addr = malloc(data->size)) == NULL)) {
+X		if (ptr) {
+X			if ((*ptr)[0].addr) {
+X				free((*ptr)[0].addr);
+X				if (data && (*ptr)[1].addr)
+X					free((*ptr)[1].addr);
+X			}
+X			free(ptr);
+X		}
+X		return NULL;
+X	}
+X
+X	(void)memcpy((*ptr)[0].addr, key->addr, key->size);
+X	(*ptr)[0].size = key->size;
+X	if (data) {
+X		(void)memcpy((*ptr)[1].addr, data->addr, data->size);
+X		(*ptr)[1].size = data->size;
+X	} else {
+X		(*ptr)[1].addr = NULL;
+X		(*ptr)[1].size = 0;
+X	}
+X
+X	return ptr;
+X}
+END_OF_FILE
+if test 1406 -ne `wc -c <'ddb/new.c'`; then
+    echo shar: \"'ddb/new.c'\" unpacked with wrong size!
+fi
+# end of 'ddb/new.c'
+fi
+if test -f 'ddb/patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/patchlevel.h'\"
+else
+echo shar: Extracting \"'ddb/patchlevel.h'\" \(21 characters\)
+sed "s/^X//" >'ddb/patchlevel.h' <<'END_OF_FILE'
+X#define PATCHLEVEL	0
+END_OF_FILE
+if test 21 -ne `wc -c <'ddb/patchlevel.h'`; then
+    echo shar: \"'ddb/patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'ddb/patchlevel.h'
+fi
+if test -f 'ddb/queue.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/queue.c'\"
+else
+echo shar: Extracting \"'ddb/queue.c'\" \(2464 characters\)
+sed "s/^X//" >'ddb/queue.c' <<'END_OF_FILE'
+X/*
+X *                 Author:  Christopher G. Phillips
+X *              Copyright (C) 1993 All Rights Reserved
+X *
+X *                              NOTICE
+X *
+X * Permission to use, copy, modify, and distribute this software and
+X * its documentation for any purpose and without fee is hereby granted
+X * provided that the above copyright notice appear in all copies and
+X * that both the copyright notice and this permission notice appear in
+X * supporting documentation.
+X *
+X * The author makes no representations about the suitability of this
+X * software for any purpose.  This software is provided ``as is''
+X * without express or implied warranty.
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <sys/types.h>
+X#include <ddb.h>
+X
+Xtypedef struct qent {
+X	DATUM		data;
+X	struct qent	*next;
+X} QELEM;
+Xtypedef struct {
+X	int	used;
+X	QELEM	*head;
+X	QELEM	*tail;
+X} QUEUE;
+X
+Xstatic QUEUE	*queue = NULL;
+Xstatic int	maxqueues = 0;
+X
+Xextern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X
+Xstatic int
+Xvalidqd(int qd)
+X{
+X	return queue && qd < maxqueues && queue[qd].used;
+X}
+X
+Xint
+Xddb_qwrite(int qd, const DATUM *data)
+X{
+X	QUEUE	*qp;
+X	QELEM	*qe;
+X
+X	if (!validqd(qd) || (qe = ddb_new(data, NULL, sizeof(*qe))) == NULL)
+X		return -1;
+X
+X	qe->next = NULL;
+X	qp = &queue[qd];
+X
+X	if (qp->tail) {
+X		qp->tail->next = qe;
+X		qp->tail = qe;
+X	} else
+X		qp->head = qp->tail = qe;
+X
+X	return 0;
+X}
+X
+XDATUM *
+Xddb_qread(int qd)
+X{
+X	QUEUE	*qp;
+X	QELEM	*qe;
+X	DATUM	*dp;
+X
+X	if (!validqd(qd))
+X		return NULL;
+X
+X	qp = &queue[qd];
+X
+X	if (qe = qp->head) {
+X		qp->head = qp->head->next;
+X		if (qp->tail == qe)
+X			qp->tail = NULL;
+X		if ((dp = malloc(sizeof(*dp))) == NULL)
+X			return NULL;
+X		*dp = qe->data;
+X		free(qe);
+X		return dp;
+X	} else
+X		return NULL;
+X}
+X
+Xint
+Xddb_qclose(int qd)
+X{
+X	QELEM	*qp;
+X	QELEM	*next;
+X
+X	if (!validqd(qd))
+X		return -1;
+X
+X	if (qp = queue[qd].head)
+X		while (1) {
+X			free(qp->data.addr);
+X			next = qp->next;
+X			free(qp);
+X			if (qp == queue[qd].tail)
+X				break;
+X			qp = next;
+X		}
+X
+X	queue[qd].used = 0;
+X	queue[qd].head = queue[qd].tail = NULL;
+X
+X	return 0;
+X}
+X
+X#define ADDQUEUES	1
+X
+Xint
+Xddb_qopen(void)
+X{
+X	int	i;
+X	int	j;
+X	QUEUE	*qtmp;
+X
+X	for (i = 0; i < maxqueues && queue[i].used; i++)
+X		;
+X	if (i == maxqueues) {
+X		if ((qtmp = realloc(queue,
+X		  (maxqueues + ADDQUEUES) * sizeof(QUEUE))) == NULL)
+X			return -1;
+X		queue = qtmp;
+X		for (j = maxqueues; j < maxqueues + ADDQUEUES; j++) {
+X			queue[j].used = 0;
+X			queue[j].head = queue[j].tail = NULL;
+X		}
+X		maxqueues += ADDQUEUES;
+X	}
+X
+X	queue[i].used = 1;
+X
+X	return i;
+X}
+END_OF_FILE
+if test 2464 -ne `wc -c <'ddb/queue.c'`; then
+    echo shar: \"'ddb/queue.c'\" unpacked with wrong size!
+fi
+# end of 'ddb/queue.c'
+fi
+if test -f 'ddb/stack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ddb/stack.c'\"
+else
+echo shar: Extracting \"'ddb/stack.c'\" \(2548 characters\)
+sed "s/^X//" >'ddb/stack.c' <<'END_OF_FILE'
+X/*
+X *                 Author:  Christopher G. Phillips
+X *              Copyright (C) 1993 All Rights Reserved
+X *
+X *                              NOTICE
+X *
+X * Permission to use, copy, modify, and distribute this software and
+X * its documentation for any purpose and without fee is hereby granted
+X * provided that the above copyright notice appear in all copies and
+X * that both the copyright notice and this permission notice appear in
+X * supporting documentation.
+X *
+X * The author makes no representations about the suitability of this
+X * software for any purpose.  This software is provided ``as is''
+X * without express or implied warranty.
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <sys/types.h>
+X#include <ddb.h>
+X
+Xtypedef struct {
+X	int	used;
+X	DATUM	**stack;
+X	long	top;		/* -1 implies empty */
+X} STACK;
+X
+Xstatic STACK	*stack = NULL;
+Xstatic int	maxstacks = 0;
+X
+Xextern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X
+Xstatic int
+Xvalidsd(int sd)
+X{
+X	return stack && sd < maxstacks && stack[sd].used;
+X}
+X
+Xint
+Xddb_swrite(int sd, const DATUM *data)
+X{
+X	STACK	*sp;
+X	DATUM	**stmp;
+X	DATUM	*dp;
+X
+X	sp = &stack[sd];
+X	if (!validsd(sd) || (dp = ddb_new(data, NULL, sizeof(*dp))) == NULL
+X	  || (stmp = realloc(sp->stack, (sp->top + 2) * sizeof(*sp->stack)))
+X	  == NULL)
+X		return -1;
+X
+X	sp->stack = stmp;
+X	sp->stack[++sp->top] = dp;
+X
+X	return 0;
+X}
+X
+XDATUM *
+Xddb_sread(int sd)
+X{
+X	STACK	*sp;
+X
+X	if (!validsd(sd))
+X		return NULL;
+X
+X	sp = &stack[sd];
+X
+X	if (sp->top >= 0)
+X		return sp->stack[sp->top--];
+X	else
+X		return NULL;
+X}
+X
+Xint
+Xddb_sclose(int sd)
+X{
+X	long	i;
+X
+X	if (!validsd(sd))
+X		return -1;
+X
+X	for (i = 0; i <= stack[sd].top; i++) {
+X		free(stack[sd].stack[i]->addr);
+X		free(stack[sd].stack[i]);
+X	}
+X	free(stack[sd].stack);
+X
+X	stack[sd].used = 0;
+X	stack[sd].stack = NULL;
+X
+X	return 0;
+X}
+X
+X#define ADDSTACKS	1
+X
+Xint
+Xddb_sopen(void)
+X{
+X	int	i;
+X	int	j;
+X	STACK	*stmp;
+X
+X	for (i = 0; i < maxstacks && stack[i].used; i++)
+X		;
+X	if (i == maxstacks) {
+X		if ((stmp = realloc(stack,
+X		  (maxstacks + ADDSTACKS) * sizeof(STACK))) == NULL)
+X			return -1;
+X		stack = stmp;
+X		for (j = maxstacks; j < maxstacks + ADDSTACKS; j++) {
+X			stack[j].used = 0;
+X			stack[j].top = -1;
+X			stack[j].stack = NULL;
+X		}
+X		maxstacks += ADDSTACKS;
+X	}
+X
+X	stack[i].used = 1;
+X
+X	return i;
+X}
+X
+X#ifdef DEBUG
+Xvoid
+Xddb_sdump(int sd)
+X{
+X	STACK	*sp;
+X	long	i;
+X
+X	sp = &stack[sd];
+X	if (validsd(sd)) {
+X		if (sp->top < 0)
+X			printf("empty\n");
+X		for (i = sp->top; i >= 0; i--)
+X			printf("%d: %p, %ld (%ld)\n", i, sp->stack[i]->addr,
+X			  (long)sp->stack[i]->size,
+X			  (long)*(unsigned *)sp->stack[i]->addr);
+X	}
+X}
+X#endif
+END_OF_FILE
+if test 2548 -ne `wc -c <'ddb/stack.c'`; then
+    echo shar: \"'ddb/stack.c'\" unpacked with wrong size!
+fi
+# end of 'ddb/stack.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

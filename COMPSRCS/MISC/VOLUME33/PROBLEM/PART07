@@ -1,0 +1,1293 @@
+Newsgroups: comp.sources.misc
+From: lijewski@rosserv.gsfc.nasa.gov (Mike Lijewski)
+Subject:  v33i009:  problem - A Problem Database Manager, Part07/07
+Message-ID: <1992Oct19.170002.4440@sparky.imd.sterling.com>
+X-Md4-Signature: 18c20c789d6cac6846a95c932a8ce770
+Date: Mon, 19 Oct 1992 17:00:02 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lijewski@rosserv.gsfc.nasa.gov (Mike Lijewski)
+Posting-number: Volume 33, Issue 9
+Archive-name: problem/part07
+Environment: UNIX, GDBM, C++, termcap
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 7 (of 7)."
+# Contents:  utilities.C
+# Wrapped by lijewski@xtesoc2 on Mon Oct 19 11:05:56 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'utilities.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'utilities.C'\"
+else
+echo shar: Extracting \"'utilities.C'\" \(36043 characters\)
+sed "s/^X//" >'utilities.C' <<'END_OF_FILE'
+X/*
+X** utilities.C - utility functions
+X**
+X** utilities.C utilities.C 1.51   Delta\'d: 15:10:14 10/9/92   Mike Lijewski, CNSF
+X**
+X** Copyright \(c\) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: \(1\) source distributions retain this entire copyright
+X** notice and comment, and \(2\) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University\'\' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS\'\' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#include <ctype.h>
+X
+X#ifndef _IBMR2
+X#include <libc.h>
+X#endif
+X
+X#include <fcntl.h>
+X#include <osfcn.h>
+X#include <pwd.h>
+X#include <signal.h>
+X#include <stdarg.h>
+X#include <stdlib.h>
+X#include <stdio.h>
+X
+X#ifndef _IBMR2
+X#include <unistd.h>
+X#endif
+X
+X// access\(2\) is prototyped in <sys/access.h> on RS/6000s
+X#ifdef _IBMR2
+X#include <sys/access.h>
+X#include <sys/lockf.h>
+X#endif
+X
+X#include <sys/stat.h>
+X#include <sys/types.h>
+X#ifdef ESIX
+Xtypedef int pid_t;
+X#endif /*ESIX*/
+X#include <sys/wait.h>
+X#include <string.h>
+X#include <sys/errno.h>
+X
+X// this header file is badly busted on RS/6000s
+X#ifndef _IBMR2
+X#include <unistd.h>
+X#endif
+X
+X#include "classes.h"
+X#include "display.h"
+X#include "lister.h"
+X#include "problem.h"
+X#include "utilities.h"
+X
+X/* remove this once GNU gets it fixed -- this stuff should be in <unistd.h> */
+X#ifdef __GNUG__
+Xextern "C" int lockf(int, int, long);
+Xextern "C" int flock(int, int);
+X#ifndef LOCK_UN
+X#define LOCK_UN 8
+X#endif
+X#ifndef LOCK_EX
+X#define LOCK_EX 2
+X#endif
+X#ifndef F_LOCK
+X#define F_LOCK   1
+X#endif
+X#ifndef F_ULOCK
+X#define F_ULOCK  0
+X#endif
+X#endif /*__GNUG__*/
+X
+Xconst int KEY_CR    = '\r';  // carriage return
+Xconst int KEY_BKSP  = '\b';  // backslash
+Xconst int KEY_CTL_L = '\f';  // repaint screen -- CTR-L
+X
+X/*
+X** fgetline - returns a pointer to the start of a line read from fp,
+X**            or the null pointer if we hit eof or get an error from
+X**            fgets\(\). Exits if new\(\) fails. Strips the newline from
+X**            the line. Caller should free memory if desired. `size\'
+X**            is the expected length of the line to be read.
+X*/
+X
+Xchar *fgetline(FILE *fp, int size)
+X{
+X    char *buffer = new char[size];
+X
+X    char *result= fgets(buffer, size, fp);
+X    if (result == 0)
+X    {
+X        //
+X        // Either error or at eof.
+X        //
+X        DELETE buffer;
+X        return 0;
+X    }
+X
+X    if (buffer[strlen(buffer) - 1] != '\n' && !feof(fp))
+X    {
+X        //
+X        // Longer line than buffer can hold.
+X        //
+X        char *restofline = fgetline(fp, size);
+X
+X        if (restofline == 0) return 0; // eof or error
+X
+X        char *longline = new char[strlen(buffer) + strlen(restofline) + 1];
+X        (void)strcat(strcpy(longline, buffer), restofline);
+X
+X        DELETE restofline;
+X        DELETE buffer;
+X
+X        if (longline[strlen(longline) - 1] == '\n')
+X            longline[strlen(longline) - 1] = '\0';
+X
+X        return longline;
+X    }
+X    else
+X    {
+X        if (buffer[strlen(buffer) - 1] == '\n')
+X            buffer[strlen(buffer) - 1] = '\0';
+X        return buffer;
+X    }
+X}
+X
+X/*
+X** display_string - prints a string to the given the display, guaranteeing not
+X**                  to print more than columns\(\) characters.  If the string
+X**                  exceeds the width of the window, a `!\' is placed in
+X**                  the final column.  `len\' is the length of the string,
+X**                  if known, which defaults to zero. `offset\', which
+X**                  defaults to zero, is non-zero in those cases where we\'ve
+X**                  already printed `offset\' characters to the screen line.
+X**                  We never call this when trying to write to the last
+X**                  row on the screen.  That is the dominion of message\(\).
+X*/
+X
+Xvoid display_string(const char *str, int length, int offset)
+X{
+X    int len = (length == 0 ? (int) strlen(str) : length) + offset;
+X
+X    if (len < columns())
+X    {
+X        (void)fputs(str, stdout);
+X        cursor_wrap();
+X    }
+X    else if (len > columns())
+X    {
+X        (void)printf("%*.*s%c", columns() - offset - 1, columns() - offset - 1,
+X                     str, '!');
+X        if (!AM || XN) cursor_wrap();
+X    }
+X    else
+X    {
+X        (void)fputs(str, stdout);
+X        if (!AM || XN) cursor_wrap();
+X    }
+X}
+X
+X/*
+X** error - Prints error message so it can be read.  This is the error
+X**         function we call once we\'ve initialized the display.
+X*/
+X
+Xvoid error(const char *format, ...)
+X{
+X    va_list ap;
+X    va_start(ap, format);
+X    clear_message_line();
+X    (void) vfprintf(stdout, format, ap);
+X    cursor_wrap();
+X    va_end(ap);
+X    synch_display();
+X    term_display();
+X    exit(1);
+X}
+X
+X/*
+X** eat_a_character - prints a message and then reads and
+X**                   discards a character from the keyboard.
+X**                   signals interrupt read\(2\); in fact we rely on this to
+X**                   correctly deal with SIGTSTP and SIGWINCH.  If we get
+X**                   an EINTR, we reprint the message and keep trying to
+X**                   read a character.  if `standout\' is true, the message
+X**                   is printed in standout mode; it defaults to false.
+X*/
+X
+Xvoid eat_a_character(const char *msg, void (*redisplay)(), int standout)
+X{
+X    char c;
+X    while (1)
+X    {
+X        // read a character dealing with interruption
+X        if (standout) enter_standout_mode();
+X        message(msg);
+X        if (standout) end_standout_mode();
+X        if (resumingAfterSuspension ||
+X#ifdef SIGWINCH
+X            windowSizeChanged       ||
+X#endif
+X            read(0, &c, 1) < 0      || // assume only fails when errno==EINTR
+X            c == KEY_CTL_L)
+X        {
+X#ifdef SIGWINCH
+X            if (windowSizeChanged) { windowSizeChanged = 0; adjust_window(); }
+X#endif
+X            resumingAfterSuspension = 0;
+X            redisplay();
+X            if (standout) enter_standout_mode();
+X            message(msg);
+X            if (standout) end_standout_mode();
+X        }
+X        else
+X            return;
+X    }
+X}
+X
+X/*
+X** execute - executes command using exec\(2\).  Returns 1 if the exec
+X**           went OK, otherwise it returns 0.  Assumes that the exec\'d
+X**           program wants our open file descriptors.
+X**           Forces the effective uid to the real uid in the child.
+X*/
+X
+Xint execute(const char *file, const char *argv[])
+X{
+X    unsetraw();
+X    unset_signals();
+X    int status;
+X    pid_t pid = fork();
+X    switch(pid)
+X    {
+X      case -1: // error
+X        return 0;
+X      case 0:  // in the child
+X        if (setuid(getuid()) < 0)
+X            error("file %s, line %d, setuid() failed" __FILE__, __LINE__);
+X        execvp(file, (char *const *)argv);
+X        // exec failed
+X        exit(1);
+X      default: // in the parent
+X        waitpid(pid, &status, 0);
+X        set_signals();
+X        setraw();
+X        return status == 0 ? 1 : 0;
+X    }
+X}
+X
+X#ifdef SIGWINCH
+X
+X/*
+X** winch - set flag indicating window size changed.
+X*/
+X
+Xint windowSizeChanged;  // should be a sig_atomic_t
+X
+Xvoid winch(int)
+X{
+X    (void)signal(SIGWINCH, SIG_IGN);
+X    windowSizeChanged = 1;
+X    (void)signal(SIGWINCH, winch);
+X}
+X
+X#include <sys/ioctl.h>
+X
+X/*
+X** adjust_window - called to adjust our window after getting a SIGWINCH
+X*/
+X
+Xvoid adjust_window()
+X{
+X#ifdef TIOCGWINSZ
+X    struct winsize w;
+X    if (ioctl(2, TIOCGWINSZ, (char *)&w) == 0 && w.ws_row > 0) LI = w.ws_row;
+X    if (ioctl(2, TIOCGWINSZ, (char *)&w) == 0 && w.ws_col > 0) CO = w.ws_col;
+X#endif
+X    if (LI < 5 || CO < 20)
+X        error("screen too small to be useful");
+X}
+X
+X#endif
+X
+X/*
+X** prompt - displays `msg\' prompt and then collects the response.
+X**          The keys of the response are echoed as they\'re collected.
+X**          The response should be delete\'d when no longer needed.
+X**          A response can contain any graphical character. Backspace
+X**          works as expected. Carriage return indicates the end of
+X**          response. Non-graphical characters are ignored.  If we
+X**          get suspended and resumed in prompt\(\), `redisplay\' is
+X**          the function to call to fixed up all but the message lines
+X**          of the display.  We rely on signals interrupting read\(2\).
+X*/
+X
+Xchar *prompt(const char *msg, void (*redisplay)())
+X{
+X    size_t written = 0;  // number of characters written to message line
+X    size_t len = strlen(msg);
+X    String nmsg(msg);
+X
+X    clear_message_line();
+X
+X    if (len < columns())
+X    {
+X        (void)fputs(nmsg, stdout);
+X        written = len;
+X    }
+X    else
+X    {
+X        // Leave space for columns\(\)/2 + 1 characters.
+X        (void)fputs((const char *)nmsg + (len-columns()/2+1), stdout);
+X        written = columns()/2 - 1;
+X    }
+X    synch_display();
+X
+X    //
+X    // We never echo into the last position in the message window.
+X    //
+X    size_t space_available = columns() - written; // available spaces in line
+X    char *response = new char[space_available + 1];
+X    size_t pos = 0;  // index of next character in `response\'
+X
+X    char key;
+X    for (;;)
+X    {
+X        if (resumingAfterSuspension ||
+X#ifdef SIGWINCH
+X            windowSizeChanged       ||
+X#endif
+X            read(0, &key, 1) < 0    || // assume only fails when errno == EINTR
+X            key == KEY_CTL_L)
+X        {
+X#ifdef SIGWINCH
+X            if (windowSizeChanged) { windowSizeChanged = 0; adjust_window(); }
+X#endif
+X            resumingAfterSuspension = 0;
+X            redisplay();
+X            clear_message_line();  // make sure we\'re on the message line
+X            response[pos] = 0;
+X            if (pos + len < columns())
+X            {
+X                //
+X                // Output message and response-to-date.
+X                //
+X                (void)fputs(nmsg, stdout);
+X                (void)fputs(response, stdout);
+X                space_available = columns() - pos - len;
+X            }
+X            else if (pos < columns())
+X            {
+X                //
+X                // Display the response.
+X                //
+X                (void)fputs(response, stdout);
+X                space_available = columns() - strlen(response);
+X            }
+X            else
+X            {
+X                //
+X                // Display the backend of the response.
+X                //
+X                (void)fputs(&response[pos - columns()/2 + 1], stdout);
+X                space_available = columns()/2 + 1;
+X            }
+X            synch_display();
+X        }
+X        else if (isprint(key))
+X        {
+X            //
+X            // echo character to message window and wait for another
+X            //
+X            response[pos++] = key;
+X            space_available--;
+X            if (!space_available)
+X            {
+X                //
+X                // Need to allocate more room for the response.
+X                // Note that strlen\(response\) == pos
+X                //
+X                space_available = columns()/2 + 1;
+X                char *nresponse = new char[pos + space_available + 1];
+X                response[pos] = 0;  // stringify response
+X                (void)strcpy(nresponse, response);
+X
+X                DELETE response;
+X                response = nresponse;
+X
+X                //
+X                // Shift prompt in message window so we
+X                // always have the end in view to which we\'re
+X                // adding characters as they\'re typed.
+X                //
+X                clear_message_line();
+X                (void)fputs(&response[pos - columns()/2 + 1], stdout);
+X                key = 0;  // nullify key
+X            }
+X            else
+X            {
+X                putchar(key);
+X                key = 0;  // nullify key
+X            }
+X            synch_display();
+X        }
+X        else
+X            switch (key)
+X            {
+X              case KEY_CR: // we have the complete response
+X                response[pos] = 0;
+X                clear_message_line();
+X                synch_display();
+X                return response;
+X              case KEY_BKSP: // back up one character
+X                if (pos == 0) { ding(); break; }
+X                backspace();
+X                DC ? delete_char_at_cursor() : clear_to_end_of_line();
+X                --pos;
+X                ++space_available;
+X                if (space_available == columns())
+X                {
+X                    //
+X                    // The only way this can happen is if we
+X                    // had previously shifted the response to the left.
+X                    // Now we must shift the response to the right.
+X                    //
+X                    clear_message_line();
+X                    response[pos] = 0;
+X                    if (pos + len < columns())
+X                    {
+X                        //
+X                        // Output message and response-to-date.
+X                        //
+X                        (void)fputs(nmsg, stdout);
+X                        (void)fputs(response, stdout);
+X                        space_available = columns() - pos - len;
+X                    }
+X                    else if (pos < columns())
+X                    {
+X                        //
+X                        // Display the response.
+X                        //
+X                        (void)fputs(response, stdout);
+X                        space_available = columns() - strlen(response);
+X                    }
+X                    else
+X                    {
+X                        //
+X                        // Display the backend of the response
+X                        //
+X                        (void)fputs(&response[pos - columns()/2 + 1], stdout);
+X                        space_available = columns()/2 + 1;
+X                    }
+X                }
+X                synch_display();
+X                break;
+X              default: ding(); break; // ignore other characters
+X            }
+X    }
+X}
+X
+X/*
+X** message - prints a message on the last line of the screen.
+X**           It is up to the calling process to put the cursor
+X**           back where it belongs.  Synchs the display.  It can
+X**           be called as either:
+X**
+X**                message\(msg\);
+X**           or
+X**                message\(fmt, str\);
+X**
+X**           In the later case it must be the case that the format `fmt\'
+X**           has exactly one `%\' into which the `str\' will be substituted
+X**           as in the ?printf\(\) functions.  Prints in standout mode.
+X*/
+X
+X// the definition -- declared in utilities.h
+Xint message_window_dirty = 0;
+X
+Xvoid message(const char *fmt, const char *str)
+X{
+X    char *msg;          // the complete message to be output
+X    int allocated = 0;  // was `msg\' allocated in new\(\) space?
+X
+X    clear_message_line();
+X
+X    if (str)
+X    {
+X        msg = new char[strlen(fmt) + strlen(str) + 1];
+X        const char *token = strchr(fmt, '%');
+X        if (token == 0)
+X            //
+X            // This shouldn\'t happen.  But if it does, let\'s
+X            // just print the format `fmt\'.
+X            //
+X            msg = (char *)fmt;
+X        else
+X        {
+X            (void)strncpy(msg, fmt, token - fmt);
+X            msg[token - fmt] = 0;  // strncpy doesn\'t nullify the string
+X            (void)strcat(msg, str);
+X            (void)strcat(msg, token + 1);
+X            allocated = 1;
+X        }
+X    }
+X    else
+X        msg = (char *)fmt;
+X
+X    if (strlen(msg) < columns())
+X        (void)fputs(msg, stdout);
+X    else
+X        (void)printf("%*.*s", columns() - 1, columns() - 1, msg);
+X
+X    synch_display();
+X    message_window_dirty = 1;
+X    if (allocated) DELETE msg;
+X}
+X
+X/*
+X** yes_or_no - returns true if a \'y\' or \'Y\' is typed in response to
+X**             the msg. We deal with being suspended and resumed.
+X**
+X**             defResponse is the assumed default response.
+X**
+X**                 defResponse == Yes ==> that return value is true unless
+X**                                        \'n\' or \'N\' is typed; else it
+X**                                        returns false.
+X**
+X**                 defResponse == No  ==> that return value is true only if
+X**                                        \'y\' or \'Y\' is typed; else it
+X**                                        return false.
+X**
+X**             If standout is true the message is displayed in standout mode.
+X**
+X**             It is assumed that the message that is printed somehow indicates
+X**             whether the default response is true or false.
+X*/
+X
+Xint yes_or_no(const char *msg,
+X              void (*redisplay)(),
+X              Response defResponse,
+X              int standout)
+X{
+X    if (standout) enter_standout_mode();
+X    message(msg);
+X    if (standout) end_standout_mode();
+X
+X    char key;
+X    while (1)
+X        //
+X        // read a character dealing with interruption
+X        //
+X        if (resumingAfterSuspension ||
+X#ifdef SIGWINCH
+X            windowSizeChanged       ||
+X#endif
+X            read(0, &key, 1) < 0    || // assume only fails when errno==EINTR 
+X            key == KEY_CTL_L)
+X        {
+X#ifdef SIGWINCH
+X            if (windowSizeChanged)
+X            {
+X                windowSizeChanged = 0;
+X                adjust_window();
+X            }
+X#endif
+X            resumingAfterSuspension = 0;
+X            redisplay();
+X            if (standout) enter_standout_mode();
+X            message(msg);
+X            if (standout) end_standout_mode();
+X        }
+X        else
+X            break;
+X    clear_message_line();
+X    synch_display();
+X
+X    switch (defResponse)
+X    {
+X      case Yes:
+X        return !(key == 'n' || key == 'N');
+X      case No:
+X        return   key == 'y' || key == 'Y';
+X    }
+X}
+X
+X/*
+X** lock_file - lock the file opened with file descriptor `fd\'.
+X**             Exits on error.
+X*/
+X
+Xvoid lock_file(int fd)
+X{
+X    if (lseek(fd, 0, 0) < 0) error("lseek() failed");
+X#ifdef FLOCK
+X    if (flock(fd, LOCK_EX) < 0) error("flock - LOCK_EX");
+X#else
+X    if (lockf(fd, F_LOCK, 0) < 0) error("lockf - F_LOCK");
+X#endif
+X}
+X
+X/*
+X** unlock_file - unlock file with file descriptor `fd\'.
+X**               Exits on error.
+X*/
+X
+Xvoid unlock_file(int fd)
+X{
+X    if (lseek(fd, 0, 0) < 0) error("lseek() failed");
+X#ifdef FLOCK
+X    if (flock(fd, LOCK_UN) < 0) error("flock - LOCK_UN");
+X#else
+X    if (lockf(fd, F_ULOCK, 0) < 0) error("lockf - F_ULOCK");
+X#endif
+X}
+X
+X/*
+X** cleanup - cleanup and exit after a SIGHUP, SIGTERM, SIGQUIT or SIGINT
+X*/
+X
+Xvoid cleanup(int) { term_display(); exit(0); }
+X
+X/*
+X** username - returns the username pertaining to the real uid.
+X**            Exits on error;
+X*/
+X
+Xconst char *username()
+X{
+X    static String user;
+X    if (user == "")
+X    {
+X        struct passwd *entry = getpwuid(getuid());
+X        if (!entry)
+X            error("file %s, line %d, getpwuid() failed", __FILE__, __LINE__);
+X        user =  entry->pw_name;
+X    }
+X    return user;
+X}
+X
+X/*
+X** write_to_pipe - writes the data to the pipe on the file descriptor.
+X**                 Exits on error. 
+X*/
+X
+Xvoid write_to_pipe(int fd, const char *data, int size)
+X{
+X    int nwritten = 0;
+X    while (size > 0)
+X    {
+X        nwritten = write(fd, data, size);
+X        if (nwritten <= 0)
+X            error("file %s, line %d, write() failed", __FILE__, __LINE__);
+X        size -= nwritten;
+X        data += nwritten;
+X    }
+X
+X}
+X
+X/*
+X** read_file - reads the file pointed to by `fp\' into the array `lines\'.
+X**             `lines\' must have been previously allocated in the caller,
+X**             to size `size\'. `len\' is the expected length of the lines
+X**             in the file. `pos\' is the position in `lines\'
+X**             to which we start adding the lines; it defaults to zero.
+X**             In general, this will be zero, but in one case when I\'m
+X**             building an argv for an execvp\(\), I want a non-zero offset.
+X**             Returns the number of lines in `lines\' or -1 on error.
+X**             `lines\' is null-terminated.
+X**
+X**             This is used only for reading files containing 
+X**             relatively few lines.
+X*/
+X
+Xint read_file(FILE *fp, char** &lines, int size, int linelen, int pos)
+X{
+X    const int chunksize = 20;  // chunksize to `grow\' by
+X    int nlines = 0;            // number of lines added to `lines\'
+X
+X    char *line = fgetline(fp, linelen);
+X    for (; line; line = fgetline(fp, linelen))
+X    {
+X        // skip comment lines
+X        if (*line == '#') { DELETE line; continue; }
+X        // strip off newline
+X        if (line[strlen(line) - 1] == '\n') line[strlen(line) - 1] = 0;
+X        lines[pos++] = line;
+X        nlines++;
+X        if (pos == size)
+X        {
+X            // grow `Areas\'
+X            char **newspace = new char*[size += chunksize];
+X            for (int i = 0; i < pos; i++) newspace[i] = lines[i];
+X            DELETE lines;
+X            lines = newspace;
+X        }
+X    }
+X    if (feof(fp) && !ferror(fp))
+X    {
+X        // null terminate `lines\'
+X        if (pos == size)
+X        {
+X            // got to grow one more
+X            char **newspace = new char*[size + 1];
+X            for (int i = 0; i < pos; i++) newspace[i] = lines[i];
+X            DELETE lines;
+X            lines = newspace;
+X        }
+X        lines[pos] = 0;
+X        return nlines;
+X    }
+X    else
+X        return -1;
+X}
+X
+X/*
+X** tokenize - returns a null-terminated vector of the words in `line\'
+X**            The vector and its elements are in volatile storage
+X**            which we manage here.
+X*/
+X
+Xconst char **tokenize(const char *line, const char *separators)
+X{
+X    //
+X    // Since strtok modifies it\'s argument, we use a copy of `line\'.
+X    //
+X    static char *newline;     // volatile storage of vector elements
+X    DELETE newline;
+X    newline = new char[strlen(line) + 1];
+X    (void)strcpy(newline, line);
+X
+X    const int chunksize = 5;  // chunksize to `grow\' by
+X    int size   = chunksize;   // total size of vector
+X    int nwords = 0;           // number of words in vector
+X    static char **words;      // volatile storage for the word pointers
+X    DELETE words;
+X    words = new char*[chunksize];
+X
+X    if ((words[nwords++] = strtok(newline, separators)) == 0)
+X        return (const char **)words;
+X
+X    while (words[nwords++] = strtok(0, separators))
+X        if (nwords == size)
+X        {
+X            // Grow "words".
+X            char **newspace = new char*[size += chunksize];
+X            for (int i = 0; i < nwords; i++) newspace[i] = words[i];
+X            DELETE words;
+X            words = newspace;
+X        }
+X    return (const char **)words;
+X}
+X
+X/*
+X** read_and_exec_perm - returns non-zero if we have read and execute
+X**                      permission on the file, otherwise 0.
+X**                      Returns 0 on error.
+X*/
+X
+Xint read_and_exec_perm(const char *file)
+X{
+X    return access(file, R_OK | X_OK) == -1 ? 0 : 1;
+X}
+X
+X/*
+X** expand_tilde - expects a string of the form "~ ...".
+X**                Returns a new string in volatile storage
+X**                with the user\'s home directory in place of the `~\'.
+X**                The user\'s home directory is always appended
+X**                in the form: "/usr/staff/mjlx"; a slash is not added to
+X**                the end of the home directory string.  Returns the original
+X**                string if we cannot get the user\'s home directory.
+X*/
+X
+Xconst char *expand_tilde(char *str)
+X{
+X    static char *home = getenv("HOME");
+X    if (home == NULL)
+X    {
+X        struct passwd *user = getpwuid(getuid());
+X        if (user == NULL) return str;
+X        home = user->pw_dir;
+X    }
+X    if (*str != '~') return str;
+X    static String expansion;
+X    expansion = String(home) + (str + 1);
+X    return expansion;
+X}
+X
+X/*
+X** update_screen_line
+X**
+X**     `oldline\' is what is currently on the screen in row `y\'
+X**     `newline\' is what we want on the screen in row `y\'
+X**
+X**     We make a good attempt to optimize the output of characters to
+X**     the screen.  We want to display `newline\' on the screen,
+X**     assuming `oldline\' is what is currently displayed.  This
+X**     will be "good" if `oldline\' and `newline\' are quite similar.
+X**     That is to say, this should only be called when there is an
+X**     expectation that `oldline\' and `newline\' are "almost" the same.
+X*/
+X
+Xvoid update_screen_line(const char *oldline, const char *newline, int y)
+X{
+X    if (strcmp(oldline, newline) == 0) return;
+X
+X    size_t olen = strlen(oldline);
+X    size_t nlen = strlen(newline);
+X    size_t  len = olen < nlen ? olen : nlen;
+X
+X    //
+X    // Never display more than columns\(\) characters.
+X    //
+X    int chop = 0;  // do we need to chop off the tail?
+X    if (len > columns()) { chop = 1; len = columns(); }
+X
+X    char *equal = new char[len];
+X
+X    //
+X    // How similar are the two strings?
+X    //
+X    int differences = 0;
+X    for (int i = 0; i < len; i++) equal[i] = 1;
+X    for (i = 0; i < len; i++)
+X        if (oldline[i] != newline[i]) { differences++; equal[i] = 0; }
+X
+X    if (differences > columns()/2)
+X    {
+X        //
+X        // We just display the new line.
+X        //
+X        clear_to_end_of_line();
+X        (void)fputs(newline, stdout);
+X        DELETE equal;
+X        return;
+X    }
+X
+X    if (!OS)
+X    {
+X        //
+X        // We can just overwrite the old with the new.
+X        //
+X        int last = -2;  // position of last character written
+X        for (i = 0; i < len; i++)
+X        {
+X            if (equal[i]) continue;
+X            if (i - 1 != last) move_cursor(y, i);
+X            (i == len - 1 && chop) ? putchar('!') : putchar(newline[i]);
+X            last = i;
+X        }
+X        if (nlen > olen)
+X        {
+X            //
+X            // Have more characters to output.
+X            //
+X            chop = len > columns();
+X            move_cursor(y, i);
+X            for (i = (int)len; i < nlen && i < columns(); i++)
+X                (i == columns()-1 && chop) ? putchar('!') : putchar(newline[i]);
+X        }
+X        else if (nlen < olen)
+X        {
+X            move_cursor(y, i);
+X            clear_to_end_of_line();
+X        }
+X    }
+X    else
+X    {
+X        //
+X        // We can\'t overwrite.  Truncate at first difference.
+X        //
+X        int first = 0;
+X        for (i = 0; i < len; i++)
+X            if (!equal[i]) { first = i; break; }
+X        move_cursor(y, i);
+X        clear_to_end_of_line();
+X        for (; i < nlen && i < columns(); i++)
+X            (i == columns() - 1) ? putchar('!') : putchar(newline[i]);
+X    }
+X    DELETE equal;
+X}
+X
+X/*
+X** update_modeline - this routine concatenates the two strings
+X**                   into the modeline.  The modeline
+X**                   is displayed in standout mode if possible.
+X**                   We never put more than columns\(\) characters into
+X**                   the modeline.  The modeline is the penultimate
+X**                   line on the terminal screen.  It does not
+X**                   synch the display.  If head == tail == 0, we
+X**                   just display the old modeline.  This happens
+X**                   if for some reason we had to clear the screen.
+X*/
+X
+X// the current modeline
+Xchar *current_modeline;
+X
+Xvoid update_modeline(const char *head, const char *tail)
+X{
+X    move_to_modeline();
+X    enter_standout_mode();
+X
+X    if (head == 0)   // actually, head == tail == 0
+X    {
+X        // Redisplay old modeline.
+X        (void)fputs(current_modeline, stdout);
+X        end_standout_mode();
+X        return;
+X    }
+X
+X    int len = (int) strlen(head);
+X    char *new_modeline = new char[columns() + 1];
+X    (void)strncpy(new_modeline, head, columns());
+X    new_modeline[columns()] = 0;  // ensure it\'s null-terminated
+X    
+X    if (len < columns())
+X    {
+X        //
+X        // Write exactly columns\(\) characters to modeline.
+X        //
+X        for (int i = len; i < columns() - 1 && tail && *tail; i++, tail++)
+X            new_modeline[i] = *tail;
+X        if (i < columns() - 1)
+X        {
+X            new_modeline[i++] = ' ';
+X            for (; i < columns(); i++) new_modeline[i] = '-';
+X        }
+X        else if (tail && *tail)
+X            //
+X            // The tail was overly long.  Put a \'!\' in the last space
+X            // on the modeline to signify truncation.
+X            //
+X            new_modeline[columns() - 1] = '!';
+X        else
+X            //
+X            // Here len == columns\(\)-1 && there is nothing else in tail.
+X            //
+X            new_modeline[columns() - 1] = ' ';
+X    }
+X    else if (len > columns())
+X        new_modeline[columns() - 1] = '!';
+X
+X    if (current_modeline)
+X    {
+X        update_screen_line(current_modeline, new_modeline, rows() - 2);
+X        DELETE current_modeline;
+X    }
+X    else
+X        (void)fputs(new_modeline, stdout);
+X
+X    current_modeline = new_modeline;
+X    end_standout_mode();
+X}
+X
+X/*
+X** lines_displayed - returns the number of lines in the DList
+X**                   currently displayed on the screen.
+X*/
+X
+Xint lines_displayed(DList *dl)
+X{
+X    DLink *ln = dl->firstLine();
+X    for (int i = 1; ln != dl->lastLine(); i++, ln = ln->next()) ;
+X    return i;
+X}
+X
+X/*
+X** get_prob_number - returns the prob# of the current line of the DList
+X**                   in volatile storage.  The line is of the form:
+X**
+X**                       prob# ...
+X**
+X**                   We must know INTIMATELY how summary_lines\(\)
+X**                   formats the output.
+X*/
+X
+Xchar *get_prob_number(const DList *dl)
+X{
+X    static char* number = 0; // our volatile storage
+X    DELETE number;           // release our volatile storage
+X    const char* begin = dl->currLine()->line();
+X
+X    // step over any spaces preceding Prob #
+X    while (*begin == ' ') begin++;
+X
+X    const char* end = strchr(begin, ' ');
+X    int len = end - begin;
+X    number  = new char[len + 1];
+X    (void)strncpy(number, begin, len);
+X    number[len] = 0; // stringify it
+X
+X    return number;
+X}
+X
+X/*
+X** leftshift_current_line - shifts the current line in DList left until
+X**                          its tail is visible.
+X*/
+X
+Xvoid leftshift_current_line(DList *dl)
+X{
+X    int inc = dl->currLine()->length()-columns()+1;
+X    move_cursor(dl->savedYPos(), 0);
+X    clear_to_end_of_line();
+X    display_string(&(dl->currLine()->line())[inc],columns()-1);
+X    dl->saveYXPos(dl->savedYPos(), max(goal_column(dl)-inc, 0));
+X    move_cursor(dl->savedYPos(), dl->savedXPos());
+X}
+X
+X/*
+X** rightshift_current_line - rightshifts current line to "natural" position.
+X*/
+X
+Xvoid rightshift_current_line(DList *dl)
+X{
+X    move_cursor(dl->savedYPos(), 0);
+X    clear_to_end_of_line();
+X    display_string(dl->currLine()->line(), dl->currLine()->length());
+X    dl->saveYXPos(dl->savedYPos(), goal_column(dl));
+X    move_cursor(dl->savedYPos(), dl->savedXPos());
+X}
+X
+X/*
+X** initial_listing - prints the initial listing screen.
+X**                   Adjusts firstLine\(\), lastLine\(\) and currLine\(\).
+X*/
+X
+Xvoid initial_listing(DList *dl)
+X{
+X    DLink *ln = dl->head();
+X    dl->setFirst(ln);
+X    dl->setCurrLine(ln);
+X    cursor_home();
+X    for (int i = 0; i < rows() - 2 && ln; ln = ln->next(), i++)
+X    {
+X        clear_to_end_of_line();
+X        display_string(ln->line(), ln->length());
+X    }
+X
+X    ln ? dl->setLast(ln->prev()) : dl->setLast(dl->tail());
+X
+X    //
+X    // Don\'t forget to clear any remaining lines in those
+X    // cases when the screen hasn\'t already been cleared and
+X    // there are potentially dirty lines remaining.
+X    //
+X    move_cursor(i, 0);
+X    for (; i < rows() - 2; i++) { clear_to_end_of_line(); cursor_down(); }
+X}
+X
+X/*
+X** seconds_in_date - returns the number of seconds in a date string
+X**                   of the form:
+X**
+X**                       "mmm dd mm:hh:ss yyyy"
+X**
+X**                   This is the format returned by ctime\(3\), with
+X**                   the leading "day" name chopped off.  According to ANSI C,
+X**                   a long must be able to hold values up to at least
+X**                   2147483647.  This will keep this function working for
+X**                   many years into the future.  Eventually, CurrentYear will
+X**                   have to be incremented.
+X*/
+X
+Xlong seconds_in_date(const char *date)
+X{
+X    //
+X    // days\[i\] is the number of days preceding month `i\',
+X    // where 0 <= i <= 11
+X    //
+X    static const int days[] = { 0,31,59,90,120,151,181,212,243,273,304,334 };
+X
+X    //
+X    // mhash\[*date + *\(date+1\) + *\(date+2\) - 268\] hashes to an integer
+X    // in the range 0-11 signifying the month.
+X    //
+X    static char mhash[] = { 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+X                            0, 0, 7, 0, 0, 2, 0, 0, 3, 0, 0, 9, 4, 8, 0,
+X                            0, 6, 0, 5, 0, 0, 0, 0, 0, 0, 10 };
+X
+X    const long SecondsPerDay  = 86400L;
+X    const long SecondsPerYear = 31536000L;
+X    const int CurrentYear = 1992;
+X    const char *const fmt = "%d";
+X    long total = 0;
+X    int tmp, mon = mhash[*date + *(date + 1) + *(date + 2) - 268];
+X
+X    (void)sscanf(date + 13, fmt, &tmp);   // seconds
+X    total += tmp;
+X    (void)sscanf(date + 10, fmt, &tmp);   // minutes
+X    total += tmp * 60;
+X    (void)sscanf(date + 7 , fmt, &tmp);   // hours
+X    total += tmp * 3600;
+X    (void)sscanf(date + 4 , fmt, &tmp);   // day of the month
+X    total += (tmp - 1) * SecondsPerDay;
+X    // days in months preceding this one
+X    total += days[mon] * SecondsPerDay;
+X    (void)sscanf(date + 16, fmt, &tmp);   // the year
+X    // leap year adjustment
+X    if (tmp % 4 == 0 && tmp % 100 != 0 && mon >= 2) total += SecondsPerDay;
+X    total += (tmp - CurrentYear) * SecondsPerYear;
+X    return total;
+X}
+X
+X/*
+X** temporary_file - returns the name of a temporary file.  The temporary
+X**                  is forced to have permission 666.  Note that
+X**                  we force tmpnam\(3\) to store the name for us in
+X**                  volatile storage.
+X*/
+X
+Xconst char *temporary_file()
+X{
+X    char *file = tmpnam(0);
+X    if (file == 0)
+X        error("file %s, line %d, tmpnam() failed", __FILE__, __LINE__);
+X    int fd;
+X    if ((fd = open(file, O_RDWR|O_CREAT, 0666)) < 0)
+X        error("file %s, line %d, open(%s) failed",
+X              __FILE__, __LINE__, file);
+X    (void)close(fd);
+X    return file;
+X}
+X
+X/*
+X** set_signals - set up our signal handlers
+X*/
+X
+Xvoid set_signals()
+X{
+X    (void)signal(SIGHUP,  cleanup);
+X    (void)signal(SIGINT,  cleanup);
+X    (void)signal(SIGQUIT, cleanup);
+X    (void)signal(SIGTERM, cleanup);
+X#ifdef SIGTSTP
+X    (void)signal(SIGTSTP, termstop);
+X#endif
+X#ifdef SIGWINCH
+X    (void)signal(SIGWINCH, winch);
+X#endif
+X}
+X
+X/*
+X** unset_signals - set signals back to defaults
+X*/
+X
+Xvoid unset_signals()
+X{
+X    (void)signal(SIGHUP,  SIG_DFL);
+X    (void)signal(SIGINT,  SIG_DFL);
+X    (void)signal(SIGQUIT, SIG_DFL);
+X    (void)signal(SIGTERM, SIG_DFL);
+X#ifdef SIGTSTP
+X    (void)signal(SIGTSTP, SIG_DFL);
+X#endif
+X#ifdef SIGWINCH
+X    (void)signal(SIGWINCH, SIG_DFL);
+X#endif
+X}
+X
+X/*
+X** block_tstp_and_winch - block SIGTSTP and SIGWINCH
+X*/
+X
+X#ifdef BSDSIGNALS
+Xstatic int oldmask;
+X#elif POSIXSIGNALS
+Xstatic sigset_t oldset;
+X#endif
+X
+Xvoid block_tstp_and_winch()
+X{
+X#ifdef BSDSIGNALS
+X    int oldmask = sigblock(sigmask(SIGTSTP)
+X#ifdef SIGWINCH
+X                           | sigmask(SIGWINCH)
+X#endif
+X                           );
+X#elif POSIXSIGNALS
+X    sigset_t newset;
+X    sigemptyset(&newset);
+X#ifdef SIGTSTP
+X    sigaddset(&newset, SIGTSTP);
+X#endif
+X#ifdef SIGWINCH
+X    sigaddset(&newset, SIGWINCH);
+X#endif
+X    if (sigprocmask(SIG_BLOCK, &newset, &oldset) < 0)
+X        error("file %s, line %d, sigprocmask(SIG_BLOCK) failed\n",
+X              __FILE__, __LINE__);
+X#else
+X    //
+X    // We use ANSI C signals.  These can be "lost" but it\'s the
+X    // best we can do.
+X    //
+X#ifdef SIGTSTP
+X    (void)signal(SIGTSTP, SIG_IGN);
+X#endif
+X#ifdef SIGWINCH
+X    (void)signal(SIGWINCH, SIG_IGN);
+X#endif
+X#endif
+X}
+X
+X/*
+X** unblock_tstp_and_winch - unblock SIGTSTP and SIGWINCH
+X*/
+X
+Xvoid unblock_tstp_and_winch()
+X{
+X#ifdef BSDSIGNALS
+X    (void)sigsetmask(oldmask);
+X#elif POSIXSIGNALS
+X    if (sigprocmask(SIG_SETMASK, &oldset, 0) < 0)
+X        error("file %s, line %d, sigprocmask(SIG_SETMASK) failed\n",
+X              __FILE__, __LINE__);
+X#else
+X#ifdef SIGTSTP
+X    (void)signal(SIGTSTP, termstop);
+X#endif
+X#ifdef SIGWINCH
+X    (void)signal(SIGWINCH, winch);
+X#endif
+X#endif
+X}
+X
+END_OF_FILE
+if test 36043 -ne `wc -c <'utilities.C'`; then
+    echo shar: \"'utilities.C'\" unpacked with wrong size!
+fi
+# end of 'utilities.C'
+fi
+echo shar: End of archive 7 \(of 7\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

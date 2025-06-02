@@ -1,0 +1,1450 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F Haugh II)
+Subject:  v28i010:  shadow - Shadow Login Suite, Patch03
+Message-ID: <1992Feb2.042319.27986@sparky.imd.sterling.com>
+X-Md4-Signature: 6463ab6ff7db32231731c54060320de3
+Date: Sun, 2 Feb 1992 04:23:19 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F Haugh II)
+Posting-number: Volume 28, Issue 10
+Archive-name: shadow/patch03
+Environment: UNIX
+Patch-To: shadow: Volume 26, Issue 54-64
+
+This is the promised patch for SunOS 4.1.1 changes.  It includes a number of
+files ending in .sun4 which should be read if you are using that O/S.  A few
+non-SunOS related changes were made also, so you must apply this patch even
+if you are not using SunOS 4.1.1.  You must have the 3.1.2 version of source
+code to make these changes.  You will have version 3.1.3 after applying this
+patch.
+
+The changes were -
+
+	Added rules to create SunOS related files
+	Added credit for SVR4 related work
+	Added #defines to support sulogin RUNLEVEL changes
+	Added support for MAIL_FILE configuration option
+	Added documentation for passwd command options
+	Added documentation for new sulogin options
+	Created Makefile.sun4 file
+	Created README.sun4 file
+	Created config.h.sun4 file
+	Fixed utmp file handling by login
+
+Patch and enjoy!
+
+Prereq: "3.1.2"
+Index: patchlevel.h
+*** rel3/patchlevel.h	Mon Jan 20 10:16:45 1992
+--- patchlevel.h	Mon Jan 20 10:17:08 1992
+***************
+*** 13,20 ****
+   *		Added "login.defs" to Makefile
+   *	12/02/91	3.1.2	patchlevel 15
+   *		Bugs found by users
+   */
+  
+  #define	RELEASE		3
+! #define	PATCHLEVEL	15
+! #define	VERSION		"3.1.2"
+--- 13,22 ----
+   *		Added "login.defs" to Makefile
+   *	12/02/91	3.1.2	patchlevel 15
+   *		Bugs found by users
++  *	12/28/91	3.1.3	patchlevel 16
++  *		Changes for SunOS 4.1.1
+   */
+  
+  #define	RELEASE		3
+! #define	PATCHLEVEL	16
+! #define	VERSION		"3.1.3"
+Index: Makefile.sun4
+*** /dev/null	Mon Jan 20 10:07:06 1992
+--- Makefile.sun4	Mon Jan 20 10:17:11 1992
+***************
+*** 0 ****
+--- 1,551 ----
++ #
++ # Copyright 1988,1989,1990,1991, John F. Haugh II
++ # All rights reserved.
++ #
++ # Permission is granted to copy and create derivative works for any
++ # non-commercial purpose, provided this copyright notice is preserved
++ # in all copies of source code, or included in human readable form
++ # and conspicuously displayed on all copies of object code or
++ # distribution media.
++ #
++ #	@(#)Makefile.sun4	3.1	19:49:25  - Shadow password system (SunOS 4.1.1 version)
++ #
++ #	@(#)Makefile.sun4	3.1	19:49:25	12/28/91
++ #
++ SHELL = /bin/sh
++ 
++ #
++ # Set this flag to decide what level of code "get" returns.
++ # The base USENET release was release 1.  It is no longer supported.
++ # The version with the utilities added was release 2.
++ # The version with database-like file access is release 3.
++ RELEASE = 3
++ GFLAGS = -t -r$(RELEASE)
++ 
++ # SunOS 4.1.1 uses /usr/bin
++ LOGINDIR = /usr/bin
++ 
++ # SunOS 4.1.1 requires no extra libraries
++ NDIR = 
++ 
++ # Pick your favorite C compiler and tags command
++ CC = /bin/cc
++ TAGS = ctags
++ 
++ # SunOS 4.1.1 is SUN4
++ OS = -DSUN4
++ 
++ # SunOS 4.1.1 uses ranlib
++ RANLIB = ranlib
++ 
++ # Configuration Flags
++ #
++ #	LIBS - system libraries
++ #		-lsocket - needed for TCP/IP and possibly SYSLOG
++ #		-ldbm or -lndbm - needed for DBM support
++ #		-lcrypt - needed for SCO crypt() functions
++ #	CFLAGS - C compiler flags
++ #		-DLAI_TCP - needed for SCO Xenix Lachman TCP/IP
++ 
++ # Flags for SunOS 4.1.1
++ CFLAGS = -O2 $(OS)
++ LIBS =
++ LDFLAGS = 
++ 
++ # Names for root user and group, and bin user and group.  See your
++ # /etc/passwd and /etc/group files.
++ RUID = root
++ RGID = wheel
++ BUID = bin
++ BGID = bin
++ 
++ # Rules for .L (lint) files.
++ .SUFFIXES: .L
++ LINT = lint
++ LINTFLAGS = $(OS) -Dlint
++ 
++ .c.L:
++ 	$(LINT) -pxu $(LINTFLAGS) $*.c > $*.L
++ 
++ LOBJS = lmain.o login.o env.o valid.o setup.o shell.o age.o \
++ 	utmp.o sub.o mail.o motd.o log.o ttytype.o failure.o \
++ 	tz.o console.o hushed.o
++ 
++ LSRCS = lmain.c login.c env.c valid.c setup.c shell.c age.c \
++ 	utmp.c sub.c mail.c motd.c log.c ttytype.c failure.c \
++ 	tz.c console.c hushed.c
++ 
++ SOBJS = smain.o env.o entry.o susetup.o shell.o \
++ 	sub.o mail.o motd.o sulog.o age.o tz.o hushed.o
++ 
++ SSRCS = smain.c env.c entry.c setup.c shell.c \
++ 	pwent.c sub.c mail.c motd.c sulog.c shadow.c age.c pwpack.c rad64.c \
++ 	tz.c hushed.c
++ 
++ POBJS = passwd.o obscure.o
++ PSRCS = passwd.c obscure.c
++ 
++ GPSRCS = gpmain.c
++ 
++ GPOBJS = gpmain.o
++ 
++ PWOBJS = pwconv.o
++ 
++ PWSRCS = pwconv.c pwent.c shadow.c pwpack.c rad64.c
++ 
++ PWUNOBJS = pwunconv.o
++ 
++ PWUNSRCS = pwunconv.c pwent.c shadow.c pwpack.c rad64.c
++ 
++ SULOGOBJS = sulogin.o entry.o env.o age.o setup.o \
++ 	valid.o shell.o tz.o
++ 
++ SULOGSRCS = sulogin.c entry.c env.c age.c pwent.c setup.c \
++ 	shadow.c shell.c valid.c pwpack.c tz.c
++ 
++ MKPWDOBJS = mkpasswd.o
++ 
++ MKPWDSRCS = mkpasswd.c
++ 
++ NGSRCS = newgrp.c env.c shell.c
++ 
++ NGOBJS = newgrp.o env.o shell.o
++ 
++ CHFNSRCS = chfn.c fields.c
++ CHFNOBJS = chfn.o fields.o
++ CHSHSRCS = chsh.c fields.c
++ CHSHOBJS = chsh.o fields.o
++ CHAGEOBJS = chage.o fields.o
++ CHAGESRCS = chage.c fields.c
++ CHPASSOBJS = chpasswd.o
++ CHPASSSRCS = chpasswd.c
++ DPSRCS = dpmain.c
++ DPOBJS = dpmain.o
++ 
++ ALLSRCS = age.c dialchk.c dialup.c entry.c env.c lmain.c log.c login.c mail.c \
++ 	motd.c obscure.c passwd.c pwconv.c pwent.c pwunconv.c getpass.c \
++ 	setup.c shadow.c shell.c smain.c sub.c sulog.c sulogin.c ttytype.c \
++ 	utmp.c valid.c port.c newgrp.c gpmain.c grent.c mkpasswd.c pwpack.c \
++ 	chfn.c chsh.c chage.c rad64.c encrypt.c chpasswd.c shadowio.c pwio.c \
++ 	newusers.c groupio.c fields.c pwdbm.c grpack.c grdbm.c sppack.c \
++ 	spdbm.c dpmain.c gshadow.c gsdbm.c gspack.c sgroupio.c useradd.c \
++ 	userdel.c patchlevel.h usermod.c copydir.c mkrmdir.c groupadd.c \
++ 	groupdel.c groupmod.c tz.c console.c hushed.c getdef.c scologin.c \
++ 	logoutd.c groups.c
++ 
++ FILES1 = README patchlevel.h newgrp.c Makefile config.h pwunconv.c obscure.c \
++ 	age.c id.c
++ 
++ FILES2 = passwd.c port.c lmain.c sulogin.c pwpack.c dialup.c
++ 
++ FILES3 = chfn.c chsh.c smain.c faillog.c pwconv.c shadow.c
++ 
++ FILES4 = gpmain.c chage.c pwent.c valid.c setup.c entry.c ttytype.c port.h
++ 
++ FILES5 = pwio.c encrypt.c chpasswd.c newusers.c rad64.c dialchk.c faillog.h \
++ 	pwdbm.c grdbm.c gshadow.c sppack.c
++ 
++ FILES6 = gspack.c spdbm.c lastlog.h shell.c login.c sub.c dpmain.c mail.c \
++ 	env.c pwd.h.m4 grpack.c shadow.h log.c grent.c motd.c dialup.h \
++ 	fields.c gsdbm.c utmp.c failure.c
++ 
++ FILES7 = groupio.c shadowio.c sgroupio.c groups.c copydir.c mkrmdir.c \
++ 	mkpasswd.c
++ 
++ FILES8 = useradd.c usermod.c login.defs
++ 
++ FILES9 = groupadd.c groupdel.c groupmod.c tz.c console.c hushed.c getdef.c \
++ 	scologin.c logoutd.c sulog.c getpass.c userdel.c
++ 
++ MAN_1 = chage.1 chfn.1 chsh.1 id.1 login.1 newgrp.1 passwd.1 su.1 \
++ 	useradd.1 userdel.1 usermod.1 groupadd.1 groupdel.1 groupmod.1 \
++ 	groups.1
++ MAN_3 = shadow.3
++ MAN_4 = faillog.4 passwd.4 porttime.4 shadow.4
++ MAN_5 = login.5
++ MAN_8 = chpasswd.8 dpasswd.8 faillog.8 newusers.8 pwconv.8 pwunconv.8 \
++ 	sulogin.8 mkpasswd.8 logoutd.8
++ 
++ DOCS1 = $(MAN_1) $(MAN_3) $(MAN_4)
++ DOCS2 = $(MAN_5) $(MAN_8)
++ DOCS = $(DOCS1) $(DOCS2)
++ 
++ BINS = su login pwconv pwunconv passwd sulogin faillog newgrp gpasswd \
++ 	mkpasswd chfn chsh chage chpasswd newusers dpasswd id useradd \
++ 	userdel usermod groupadd groupdel groupmod logoutd groups
++ 
++ all:	$(BINS) $(DOCS)
++ 
++ .PRECIOUS: libshadow.a
++ 
++ libshadow.a: \
++ 	libshadow.a(dialchk.o) \
++ 	libshadow.a(dialup.o) \
++ 	libshadow.a(encrypt.o) \
++ 	libshadow.a(getdef.o) \
++ 	libshadow.a(getpass.o) \
++ 	libshadow.a(grdbm.o) \
++ 	libshadow.a(grent.o) \
++ 	libshadow.a(groupio.o) \
++ 	libshadow.a(grpack.o) \
++ 	libshadow.a(gshadow.o) \
++ 	libshadow.a(gsdbm.o) \
++ 	libshadow.a(gspack.o) \
++ 	libshadow.a(sgroupio.o) \
++ 	libshadow.a(port.o) \
++ 	libshadow.a(pwdbm.o) \
++ 	libshadow.a(pwent.o) \
++ 	libshadow.a(pwio.o) \
++ 	libshadow.a(pwpack.o) \
++ 	libshadow.a(rad64.o) \
++ 	libshadow.a(spdbm.o) \
++ 	libshadow.a(shadow.o) \
++ 	libshadow.a(shadowio.o) \
++ 	libshadow.a(sppack.o)
++ 	$(RANLIB) libshadow.a
++ 
++ libsec: $(LIBSEC)(shadow.o)
++ 	$(RANLIB) $(LIBSEC)
++ 
++ install: all
++ 	strip $(BINS)
++ 	cp login $(LOGINDIR)/login
++ 	cp mkpasswd /etc 
++ 	cp pwconv /etc 
++ 	cp pwunconv /etc 
++ 	cp sulogin /etc 
++ 	cp chpasswd /etc 
++ 	cp newusers /etc 
++ 	cp useradd /etc 
++ 	cp userdel /etc 
++ 	cp usermod /etc 
++ 	cp groupadd /etc 
++ 	cp groupdel /etc 
++ 	cp groupmod /etc 
++ 	cp logoutd /etc
++ 	cp su /bin
++ 	cp passwd /bin
++ 	cp gpasswd /bin
++ 	cp dpasswd /bin
++ 	cp faillog /bin
++ 	cp newgrp /bin
++ 	cp chfn /bin
++ 	cp chsh /bin
++ 	cp chage /bin
++ 	cp id /bin
++ 	cp dialup.h shadow.h pwd.h /usr/include
++ 	chown $(RUID) $(LOGINDIR)/login /etc/pwconv /etc/pwunconv /etc/sulogin \
++ 		/bin/su /bin/passwd /bin/gpasswd /bin/newgrp /etc/mkpasswd \
++ 		/bin/dpasswd /bin/chsh /bin/chfn /bin/chage /etc/useradd \
++ 		/etc/userdel /etc/usermod /etc/groupadd /etc/groupdel \
++ 		/etc/groupmod /etc/logoutd
++ 	chgrp $(RGID) $(LOGINDIR)/login /etc/pwconv /etc/pwunconv /etc/sulogin \
++ 		/bin/su /bin/passwd /bin/gpasswd /bin/newgrp /etc/mkpasswd \
++ 		/bin/dpasswd /bin/chsh /bin/chfn /bin/chage /etc/useradd \
++ 		/etc/userdel /etc/usermod /etc/groupadd /etc/groupdel \
++ 		/etc/groupmod /etc/logoutd
++ 	chown $(BUID) /bin/faillog /bin/id /usr/include/shadow.h \
++ 		/usr/include/dialup.h /usr/include/pwd.h
++ 	chgrp $(BGID) /bin/faillog /bin/id /usr/include/shadow.h \
++ 		/usr/include/dialup.h /usr/include/pwd.h
++ 	chmod 700 /etc/pwconv /etc/pwunconv /etc/sulogin /etc/mkpasswd \
++ 		/etc/chpasswd /etc/newusers /bin/dpasswd /bin/chage \
++ 		/etc/useradd /etc/userdel /etc/usermod /etc/groupadd \
++ 		/etc/groupdel /etc/groupmod /etc/logoutd
++ 	chmod 4711 $(LOGINDIR)/login /bin/su /bin/passwd /bin/gpasswd \
++ 		/bin/newgrp /bin/chfn /bin/chsh
++ 	chmod 711 /bin/faillog /bin/id
++ 	chmod 444 /usr/include/shadow.h /usr/include/dialup.h \
++ 		/usr/include/pwd.h
++ 	[ -f /etc/login.defs ] || (cp login.defs /etc ; \
++ 		chown $(RUID) /etc/login.defs ; \
++ 		chgrp $(RGID) /etc/login.defs ; \
++ 		chmod 600 /etc/login.defs )
++ 
++ lint:	su.lint login.lint pwconv.lint pwunconv.lint passwd.lint sulogin.lint \
++ 	faillog.lint newgrp.lint gpasswd.lint mkpasswd.lint chfn.lint \
++ 	chsh.lint chage.lint dpasswd.lint id.lint useradd.lint userdel.lint \
++ 	usermod.lint groupadd.lint groupdel.lint groupmod.lint $(ALLSRCS:.c=.L)
++ 	logoutd.lint
++ 
++ tags:	$(ALLSRCS)
++ 	$(TAGS) $(ALLSRCS)
++ 
++ README:
++ 	[ -f s.README ] && get -t -r$(RELEASE) s.README
++ 	
++ $(DOCS):
++ 	[ -f s.$@ ] && get -t -r$(RELEASE) s.$@
++ 
++ login:	$(LOBJS) libshadow.a
++ 	$(CC) -o login $(LDFLAGS) $(LOBJS) libshadow.a $(LIBS)
++ 
++ login.lint: $(LSRCS)
++ 	$(LINT) $(LINTFLAGS) $(LSRCS) > login.lint
++ 
++ su:	$(SOBJS) libshadow.a
++ 	$(CC) -o su $(LDFLAGS) $(SOBJS) libshadow.a $(LIBS)
++ 
++ su.lint:	$(SSRCS)
++ 	$(LINT) $(LINTFLAGS) -DSU $(SSRCS) > su.lint
++ 
++ passwd:	$(POBJS) libshadow.a
++ 	$(CC) -o passwd $(LDFLAGS) $(POBJS) libshadow.a $(LIBS)
++ 
++ passwd.lint: $(PSRCS)
++ 	$(LINT) $(LINTFLAGS) -DPASSWD $(PSRCS) > passwd.lint
++ 
++ gpasswd: $(GPOBJS) libshadow.a
++ 	$(CC) -o gpasswd $(LDFLAGS) $(GPOBJS) libshadow.a $(LIBS)
++ 
++ gpasswd.lint: $(GPSRCS)
++ 	$(LINT) $(LINTFLAGS) $(GPSRCS) > gpasswd.lint
++ 
++ dpasswd: $(DPOBJS) libshadow.a
++ 	$(CC) -o dpasswd $(LDFLAGS) $(DPOBJS) libshadow.a $(LIBS)
++ 
++ dpasswd.lint: $(DPSRCS)
++ 	$(LINT) $(LINTFLAGS) $(DPSRCS) > dpasswd.lint
++ 
++ pwconv:	$(PWOBJS) libshadow.a config.h
++ 	$(CC) -o pwconv $(LDFLAGS) $(PWOBJS) libshadow.a $(LIBS)
++ 
++ pwconv.lint: $(PWSRCS) config.h
++ 	$(LINT) $(LINTFLAGS) -DPASSWD $(PWSRCS) > pwconv.lint
++ 
++ pwunconv: $(PWUNOBJS) libshadow.a config.h
++ 	$(CC) -o pwunconv $(LDFLAGS) $(PWUNOBJS) libshadow.a $(LIBS)
++ 
++ pwunconv.lint: $(PWUNSRCS)
++ 	$(LINT) $(LINTFLAGS) -DPASSWD $(PWUNSRCS) > pwunconv.lint
++ 
++ sulogin: $(SULOGOBJS) libshadow.a
++ 	$(CC) -o sulogin $(LDFLAGS) $(SULOGOBJS) libshadow.a $(LIBS)
++ 
++ sulogin.lint: $(SULOGSRCS)
++ 	$(LINT) $(LINTFLAGS) $(SULOGSRCS) > sulogin.lint
++ 
++ faillog: faillog.o
++ 	$(CC) -o faillog $(LDFLAGS) faillog.o $(LIBS)
++ 
++ faillog.lint: faillog.c faillog.h config.h
++ 	$(LINT) $(LINTFLAGS) faillog.c > faillog.lint
++ 
++ mkpasswd: $(MKPWDOBJS) libshadow.a
++ 	$(CC) -o mkpasswd $(LDFLAGS) $(MKPWDOBJS) libshadow.a $(LIBS)
++ 
++ mkpasswd.lint: $(MKPWDSRCS)
++ 	$(LINT) $(LINTFLAGS) $(MKPWDSRCS) > mkpasswd.lint
++ 
++ newgrp: $(NGOBJS) libshadow.a
++ 	$(CC) -o newgrp $(LDFLAGS) $(NGOBJS) libshadow.a $(LIBS)
++ 
++ newgrp.lint: $(NGSRCS)
++ 	$(LINT) $(LINTFLAGS) $(NGSRCS) > newgrp.lint
++ 
++ chfn:	$(CHFNOBJS) libshadow.a
++ 	$(CC) -o chfn $(LDFLAGS) $(CHFNOBJS) libshadow.a $(LIBS)
++ 
++ chfn.lint:	$(CHFNSRCS)
++ 	$(LINT) $(LINTFLAGS) $(CHFNSRCS) > chfn.lint
++ 
++ chsh:	$(CHSHOBJS) libshadow.a
++ 	$(CC) -o chsh $(LDFLAGS) $(CHSHOBJS) libshadow.a $(LIBS)
++ 
++ chsh.lint: $(CHSHSRCS)
++ 	$(LINT) $(LINTFLAGS) $(CHSHSRCS) > chsh.lint
++ 
++ chage:	$(CHAGEOBJS) libshadow.a
++ 	$(CC) -o chage $(LDFLAGS) $(CHAGEOBJS) libshadow.a $(LIBS)
++ 
++ chage.lint: $(CHAGESRCS)
++ 	$(LINT) $(LINTFLAGS) -DPASSWD $(CHAGESRCS) > chage.lint
++ 
++ chpasswd: $(CHPASSOBJS) libshadow.a
++ 	$(CC) -o chpasswd $(LDFLAGS) $(CHPASSOBJS) libshadow.a $(LIBS)
++ 
++ chpasswd.lint: $(CHPASSSRCS)
++ 	$(LINT) $(LINTFLAGS) $(CHPASSSRCS) > chpasswd.lint
++ 
++ newusers: newusers.o libshadow.a
++ 	$(CC) -o newusers $(LDFLAGS) newusers.o libshadow.a $(LIBS)
++ 
++ newusers.lint: newusers.c
++ 	$(LINT) $(LINTFLAGS) newusers.c > newusers.lint
++ 	
++ id: id.o libshadow.a
++ 	$(CC) -o id $(LDFLAGS) id.o libshadow.a $(LIBS)
++ 
++ id.lint: id.c
++ 	$(LINT) $(LINTFLAGS) id.c > id.lint
++ 
++ groups: groups.o libshadow.a
++ 	$(CC) -c $(CFLAGS) groups.o libshadow.a $(LIBS)
++ 	$(CC) -o groups $(LDFLAGS) groups.o libshadow.a $(LIBS)
++ 
++ groups.lint: groups.c
++ 	$(LINT) $(LINTFLAGS) groups.c > groups.lint
++ 
++ useradd: useradd.o copydir.o mkrmdir.o libshadow.a
++ 	$(CC) -o useradd $(LDFLAGS) useradd.o copydir.o mkrmdir.o \
++ 		libshadow.a $(LIBS) $(NDIR)
++ 
++ useradd.lint: useradd.c copydir.c mkrmdir.c
++ 	$(LINT) $(LINTFLAGS) useradd.c copydir.c mkrmdir.c > useradd.lint
++ 
++ userdel: userdel.o copydir.o mkrmdir.o libshadow.a
++ 	$(CC) -o userdel $(LDFLAGS) userdel.o copydir.o mkrmdir.o \
++ 		libshadow.a $(LIBS) $(NDIR)
++ 
++ userdel.lint: userdel.c copydir.c mkrmdir.c
++ 	$(LINT) $(LINTFLAGS) userdel.c copydir.c mkrmdir.c > userdel.lint
++ 
++ usermod: usermod.o copydir.o mkrmdir.o libshadow.a
++ 	$(CC) -o usermod $(LDFLAGS) usermod.o copydir.o mkrmdir.o \
++ 		libshadow.a $(LIBS) $(NDIR)
++ 
++ usermod.lint: usermod.c copydir.c mkrmdir.c
++ 	$(LINT) $(LINTFLAGS) usermod.c copydir.c mkrmdir.c > usermod.lint
++ 
++ groupadd: groupadd.o libshadow.a
++ 	$(CC) -o groupadd $(LDFLAGS) groupadd.o libshadow.a $(LIBS)
++ 
++ groupadd.lint: groupadd.c
++ 	$(LINT) $(LINTFLAGS) groupadd.c > groupadd.lint
++ 
++ groupdel: groupdel.o libshadow.a
++ 	$(CC) -o groupdel $(LDFLAGS) groupdel.o libshadow.a $(LIBS)
++ 
++ groupdel.lint: groupdel.c
++ 	$(LINT) $(LINTFLAGS) groupdel.c > groupdel.lint
++ 
++ groupmod: groupmod.o libshadow.a
++ 	$(CC) -o groupmod $(LDFLAGS) groupmod.o libshadow.a $(LIBS)
++ 
++ groupmod.lint: groupmod.c
++ 	$(LINT) $(LINTFLAGS) groupmod.c > groupmod.lint
++ 
++ pwd.h.m4:
++ 	[ -f s.pwd.h.m4 ] && get -t -r$(RELEASE) s.pwd.h.m4
++ 
++ pwd.h: pwd.h.m4
++ 	m4 $(OS) pwd.h.m4 >pwd.h
++ 
++ logoutd: logoutd.o libshadow.a
++ 	$(CC) -o logoutd $(LDFLAGS) logoutd.o libshadow.a
++ 
++ logoutd.lint: logoutd.c
++ 	$(LINT) $(LINTFLAGS) logoutd.c > logoutd.lint
++ 
++ sulog.o: config.h
++ 
++ susetup.c: setup.c
++ 	cp setup.c susetup.c
++ 
++ susetup.o: config.h setup.c pwd.h
++ 	$(CC) -c $(CFLAGS) -DSU susetup.c
++ 
++ scologin: scologin.o
++ 	$(CC) -o scologin $(LDFLAGS) scologin.o -lsocket
++ 
++ passwd.o: config.h shadow.h pwd.h
++ lmain.o: config.h lastlog.h faillog.h pwd.h
++ smain.o: config.h lastlog.h pwd.h shadow.h
++ sub.o: pwd.h
++ setup.o: config.h pwd.h
++ mkrmdir.o: config.h
++ utmp.o: config.h
++ mail.o: config.h
++ motd.o: config.h
++ age.o: config.h pwd.h
++ log.o: config.h lastlog.h pwd.h
++ shell.o: config.h
++ entry.o: config.h shadow.h pwd.h
++ hushed.o: config.h pwd.h
++ valid.o: config.h pwd.h
++ failure.o: faillog.h config.h
++ faillog.o: faillog.h config.h pwd.h
++ newgrp.o: config.h shadow.h pwd.h
++ mkpasswd.o: config.h shadow.h pwd.h
++ gpmain.o: config.h pwd.h
++ chfn.o: config.h pwd.h
++ chsh.o: config.h pwd.h
++ chage.o: config.h shadow.h pwd.h
++ pwconv.o: config.h shadow.h
++ pwunconv.o: config.h shadow.h pwd.h
++ chpasswd.o: config.h shadow.h pwd.h
++ id.o: pwd.h
++ newusers.o: config.h shadow.h pwd.h
++ dpmain.o: dialup.h
++ useradd.o: config.h shadow.h pwd.h
++ userdel.o: config.h shadow.h pwd.h
++ usermod.o: config.h shadow.h pwd.h
++ groupadd.o: config.h shadow.h
++ groupdel.o: config.h shadow.h
++ groupmod.o: config.h shadow.h
++ logoutd.o:
++ 
++ libshadow.a(shadow.o): shadow.h config.h
++ libshadow.a(shadowio.o): shadow.h
++ libshadow.a(grent.o): config.h shadow.h
++ libshadow.a(sgroupio.o): shadow.h
++ libshadow.a(dialup.o): dialup.h
++ libshadow.a(dialchk.o): dialup.h config.h
++ libshadow.a(getdef.o): config.h
++ libshadow.a(pwdbm.o): config.h pwd.h
++ libshadow.a(pwpack.o): config.h pwd.h
++ libshadow.a(pwent.o): config.h pwd.h
++ libshadow.a(pwio.o): pwd.h
++ libshadow.a(getpass.o): config.h
++ libshadow.a(encrypt.o): config.h
++ libshadow.a(port.o): port.h
++ 
++ clean:
++ 	-rm -f susetup.c *.o a.out core npasswd nshadow *.pag *.dir
++ 
++ clobber: clean
++ 	-rm -f $(BINS) *.lint *.L libshadow.a
++ 
++ nuke:	clobber
++ 	-for file in * ; do \
++ 		if [ -f s.$$file -a ! -f p.$$file ] ; then \
++ 			rm -f $$file ;\
++ 		fi ;\
++ 	done
++ 
++ shar:	login.sh.01 login.sh.02 login.sh.03 login.sh.04 login.sh.05 \
++ 	login.sh.06 login.sh.07 login.sh.08 login.sh.09 login.sh.10 \
++ 	login.sh.11
++ 
++ login.sh.01: $(FILES1) Makefile
++ 	shar -a $(FILES1) > login.sh.01
++ 
++ login.sh.02: $(FILES2) Makefile
++ 	shar -a $(FILES2) > login.sh.02
++ 
++ login.sh.03: $(FILES3) Makefile
++ 	shar -a $(FILES3) > login.sh.03
++ 
++ login.sh.04: $(FILES4) Makefile
++ 	shar -a $(FILES4) > login.sh.04
++ 
++ login.sh.05: $(FILES5) Makefile
++ 	shar -a $(FILES5) > login.sh.05
++ 
++ login.sh.06: $(FILES6) Makefile
++ 	shar -a $(FILES6) > login.sh.06
++ 
++ login.sh.07: $(FILES7) Makefile
++ 	shar -a $(FILES7) > login.sh.07
++ 
++ login.sh.08: $(FILES8) Makefile
++ 	shar -a $(FILES8) > login.sh.08
++ 
++ login.sh.09: $(FILES9) Makefile
++ 	shar -a $(FILES9) > login.sh.09
++ 
++ login.sh.10: $(DOCS1) Makefile
++ 	shar -a $(DOCS1) > login.sh.10
++ 
++ login.sh.11: $(DOCS2) Makefile
++ 	shar -a $(DOCS2) > login.sh.11
+Index: config.h.sun4
+*** /dev/null	Mon Jan 20 10:07:06 1992
+--- config.h.sun4	Mon Jan 20 10:17:17 1992
+***************
+*** 0 ****
+--- 1,125 ----
++ /*
++  * Copyright 1989, 1990, 1991, John F. Haugh II
++  * All rights reserved.
++  *
++  * Permission is granted to copy and create derivative works for any
++  * non-commercial purpose, provided this copyright notice is preserved
++  * in all copies of source code, or included in human readable form
++  * and conspicuously displayed on all copies of object code or
++  * distribution media.
++  */
++ 
++ /*
++  * Configuration file for login.
++  *
++  *	@(#)config.h.sun4	3.1	19:49:35	12/28/91 (SunOS 4.1.1)
++  */
++ 
++ 
++ /*
++  * Pathname to the run-time configuration definitions file.
++  */
++ 
++ #define LOGINDEFS "/etc/login.defs"
++ 
++ /*
++  * Define SHADOWPWD to use shadow [ unreadable ] password file.
++  * Release 3 has a requirement that SHADOWPWD always be defined.
++  */
++ 
++ #define	SHADOWPWD
++ 
++ /*
++  * Define AUTOSHADOW to have root always copy sp_pwdp to pw_passwd
++  * for getpwuid() and getpwnam().  This provides compatibility for
++  * privileged applications which are shadow-ignorant.  YOU ARE
++  * ENCOURAGED TO NOT USE THIS OPTION UNLESS ABSOLUTELY NECESSARY.
++  */
++ 
++ #undef	AUTOSHADOW
++ 
++ /*
++  * Define SHADOWGRP to user shadowed group files.  This feature adds
++  * the concept of a group administrator.
++  */
++ 
++ #define	SHADOWGRP /**/
++ 
++ /*
++  * Define DOUBLESIZE to use 16 character passwords
++  */
++ 
++ #define DOUBLESIZE
++ 
++ /*
++  * Define AGING if you want the password aging checks made.
++  * Release 3 has a requirement that AGING always be defined.
++  */
++ 
++ #define	AGING
++ 
++ /*
++  * Pick your version of DBM.  If you define either DBM or NDBM, you must
++  * define GETPWENT.  If you define NDBM you must define GETGRENT as well.
++  */
++ 
++ /* #define	DBM	/**/
++ #define	NDBM	/**/
++ 
++ /*
++  * Define USE_SYSLOG if you want to have SYSLOG functions included in your code.
++  */
++ 
++ #define	USE_SYSLOG
++ 
++ /*
++  * Enable RLOGIN to support the "-r" and "-h" options.
++  * Also enable UT_HOST if your /etc/utmp provides for a host name.
++  */
++ 
++ #define RLOGIN
++ #define UT_HOST
++ 
++ /*
++  * Select one of the following
++  */
++ 
++ /* #define DIR_XENIX	/* include <sys/ndir.h>, use (struct direct)	*/
++ /* #define DIR_BSD	/* include <ndir.h>, use (struct direct)	*/
++ #define DIR_SYSV	/* include <dirent.h>, use (struct dirent)	*/
++ 
++ /*
++  * Various system environment definitions.
++  */
++ 
++ #define	HAVE_ULIMIT	/* Define if your UNIX supports ulimit()	*/
++ #define	GETPWENT	/* Define if you want my GETPWENT(3) routines	*/
++ #define	GETGRENT	/* Define if you want my GETGRENT(3) routines	*/
++ #undef	NEED_AL64	/* Define if library does not include a64l()	*/
++ #undef	NEED_MKDIR	/* Define if system does not have mkdir()	*/
++ #undef	NEED_RMDIR	/* Define if system does not have rmdir()	*/
++ #undef	NEED_RENAME	/* Define if system does not have rename()	*/
++ #define	NEED_STRSTR	/* Define if library does not include strstr()	*/
++ #define	SIGTYPE	void	/* Type returned by signal()                    */
++ 
++ /*
++  * These definitions MUST agree with the values defined in <pwd.h>.
++  */
++ 
++ #undef	BSD_QUOTA	/* the pw_quota field exists */
++ #define	ATT_AGE		/* the pw_age field exists */
++ #define	ATT_COMMENT	/* the pw_comment field exists */
++ 
++ /*
++  * Define NDEBUG for production versions
++  */
++ 
++ #define	NDEBUG
++ 
++ /*
++  * Define PWDFILE and GRPFILE to the names of the password and
++  * group files.
++  */
++ 
++ #define	PWDFILE	"/etc/passwd"
++ #define	GRPFILE	"/etc/group"
+Index: README.sun4
+*** /dev/null	Mon Jan 20 10:07:06 1992
+--- README.sun4	Mon Jan 20 10:17:18 1992
+***************
+*** 0 ****
+--- 1,39 ----
++ [ @(#)README.sun4	3.1	19:49:15	12/28/91 ]
++ 
++ You'll need to do the following to get the shadow password dist to
++ compile on a sun 4.1.1 system.
++ 
++ copy Makefile.sun4 to Makefile, and make any system specific changes.
++ 
++ copy config.h.sun4 config.h, and make any system specific changes.
++ 
++ You may have to edit the pwd.h.m4 file by hand, as the sunos m4 may
++ not grok the pwd.h.m4 file corectly.  If you have the /usr/5bin/m4,
++ substitute that.  Be sure to delete the pwd.h file before typeing 
++ 'make' again, as there will be an empty one left from the failed attempt
++ to use the standard sunos m4.
++ 
++ type 'make'.  If everything goes well, then type 'make install'
++ 
++ If using csh, then type 'rehash'.  cd to the /etc directory and type
++ 'pwconv'.  This will create two files,  nshadow and npasswd.
++ now type 'mkpasswd -f nshadow' and 'mkpasswd -f npasswd'.  This will
++ create the shadow password file.
++ 
++ Note: The shadow group stuff does not work with sunos.  
++ 
++ Note: ftp will still use the old password file.
++ 
++ Note: if you run suns pcnfs, be aware that it will still be looking at the
++       old password file as well.  I may work out a patch for this, as I am
++       fairly certain the stuff on the sun side comes with source.
++ 
++ Note: I have compiled this package with the standard c compiler and
++       suns unbundled c compiler at an optomization level of 2 in
++       both casses.  Haven't tried gcc yet, so I don't know wether it
++       works.  Same goes for suns C++ compiler.
++ 
++ Note: has been compiled on a sun 3/75 running sunos 4.1.1.  Should compile
++       fine on sun 4's running 4.1.1, and may compile on suns running
++       4.1.  Have no idea what sort of success people will have that
++       are running 4.03 and older versions.
+Index: getdef.c
+*** rel3/getdef.c	Mon Jan 20 10:16:08 1992
+--- getdef.c	Mon Jan 20 10:17:19 1992
+***************
+*** 10,16 ****
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)getdef.c	3.2	20:54:06	9/18/91";
+  #endif
+  
+  #include <stdio.h>
+--- 10,16 ----
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)getdef.c	3.3	19:51:46	12/28/91";
+  #endif
+  
+  #include <stdio.h>
+***************
+*** 61,66 ****
+--- 61,67 ----
+  	{ "LOG_UNKFAIL_ENAB",		NULL },
+  	{ "MAIL_CHECK_ENAB",		NULL },
+  	{ "MAIL_DIR",			NULL },
++ 	{ "MAIL_FILE",			NULL },
+  	{ "MOTD_FILE",			NULL },
+  	{ "NOLOGINS_FILE",		NULL },
+  	{ "NOLOGIN_STR",		NULL },
+Index: login.defs
+*** rel3/login.defs	Mon Jan 20 10:16:37 1992
+--- login.defs	Mon Jan 20 10:17:21 1992
+***************
+*** 1,7 ****
+  #
+  # /etc/login.defs - Configuration control definitions for the login package.
+  #
+! #	@(#)login.defs	3.1	07:47:58	9/17/91
+  #
+  # Three items must be defined:  MAIL_DIR, ENV_SUPATH, and ENV_PATH.
+  # If unspecified, some arbitrary (and possibly incorrect) value will
+--- 1,7 ----
+  #
+  # /etc/login.defs - Configuration control definitions for the login package.
+  #
+! #	@(#)login.defs	3.2	19:51:49	12/28/91
+  #
+  # Three items must be defined:  MAIL_DIR, ENV_SUPATH, and ENV_PATH.
+  # If unspecified, some arbitrary (and possibly incorrect) value will
+***************
+*** 94,102 ****
+  NOLOGINS_FILE	/etc/nologins
+  
+  #
+! # *REQUIRED*  Directory where mailboxes reside, to set MAIL env parameter.
+  #
+  MAIL_DIR	/usr/spool/mail
+  
+  #
+  # If defined, file which inhibits all the usual chatter during the login
+--- 94,105 ----
+  NOLOGINS_FILE	/etc/nologins
+  
+  #
+! # *REQUIRED*
+! #   Directory where mailboxes reside, _or_ name of file, relative to the
+! #   home directory.  If you _do_ define both, MAIL_DIR takes precedence.
+  #
+  MAIL_DIR	/usr/spool/mail
++ #MAIL_FILE	.mail
+  
+  #
+  # If defined, file which inhibits all the usual chatter during the login
+Index: passwd.1
+*** rel3/passwd.1	Mon Jan 20 10:16:21 1992
+--- passwd.1	Mon Jan 20 10:17:22 1992
+***************
+*** 1,10 ****
+! .\" Copyright 1989, 1990, John F. Haugh II
+  .\" All rights reserved.
+  .\"
+! .\" Use, duplication, and disclosure prohibited without
+! .\" the express written permission of the author.
+  .\"
+! .\"	@(#)passwd.1	3.1	09:34:23	11/21/90
+  .\"
+  .TH PASSWD 1
+  .SH NAME
+--- 1,13 ----
+! .\" Copyright 1989, 1990, 1991, John F. Haugh II
+  .\" All rights reserved.
+  .\"
+! .\" Permission is granted to copy and create derivative works for any
+! .\" non-commercial purpose, provided this copyright notice is preserved
+! .\" in all copies of source code, or included in human readable form
+! .\" and conspicuously displayed on all copies of object code or
+! .\" distribution media.
+  .\"
+! .\"	@(#)passwd.1	3.2	19:51:19	12/28/91
+  .\"
+  .TH PASSWD 1
+  .SH NAME
+***************
+*** 13,22 ****
+  \fBpasswd\fR [ \fB-f\fR ] [ \fIname\fR ]
+  .br
+  \fBpasswd\fR [ \fB-g\fR ] [ \fB-r\fR ] \fIgroup\fR
+  .SH DESCRIPTION
+! \fIpasswd\f changes passwords for user accounts.
+  A normal user may only change the password for their own account,
+  the super user may change the password for any account.
+  .PP
+  The user is first prompted for their old password,
+  if one is present.
+--- 16,31 ----
+  \fBpasswd\fR [ \fB-f\fR ] [ \fIname\fR ]
+  .br
+  \fBpasswd\fR [ \fB-g\fR ] [ \fB-r\fR ] \fIgroup\fR
++ .br
++ \fBpasswd\fR [ \fB-x\fR \fImax\fR ] [ \fB-n\fR \fImin\fR ]
++ [ \fB-w\fR \fIwarn\fR ] [ \fB-i\fR \fIinact\fR ] \fIname\fR
++ .br
++ \fBpasswd\fR { \fB-l\fR | \fB-u\fR | \fB-d\fR | \fB-S\fR } \fIname\fR
+  .SH DESCRIPTION
+! \fIpasswd\f changes passwords for user and group accounts.
+  A normal user may only change the password for their own account,
+  the super user may change the password for any account.
++ The administrator of a group may change the password for the group.
+  .PP
+  The user is first prompted for their old password,
+  if one is present.
+***************
+*** 26,32 ****
+  The super user is permitted to bypass this step so that forgotten
+  passwords may be changed.
+  .PP
+! After the password has been entered password aging information
+  is checked to see if the user is permitted to change their password
+  at this time.
+  If not, \fIpasswd\fR refuses to change the password and exits.
+--- 35,41 ----
+  The super user is permitted to bypass this step so that forgotten
+  passwords may be changed.
+  .PP
+! After the password has been entered, password aging information
+  is checked to see if the user is permitted to change their password
+  at this time.
+  If not, \fIpasswd\fR refuses to change the password and exits.
+***************
+*** 58,68 ****
+  .PP
+  When the \fB-g\f option is used, the password for the named
+  group is changed.
+! The user must either be the super user, or the first group
+! member listed for the named group.
+  The current group password is not prompted for.
+  The \fB-r\f option is used with the \fB-g\f option to remove
+  the current password from the named group.
+  .SH Hints for user passwords
+  The security of a password depends upon the strength of the
+  encryption algorithm and the size of the key space.
+--- 67,110 ----
+  .PP
+  When the \fB-g\f option is used, the password for the named
+  group is changed.
+! The user must either be the super user, or a group administrator
+! for the named group.
+  The current group password is not prompted for.
+  The \fB-r\f option is used with the \fB-g\f option to remove
+  the current password from the named group.
++ .PP
++ The password aging information may be changed by the super
++ user with the \fB-x\fR, \fB-n\fR, \fB-w\fR, and \fB-i\fR options.
++ The \fB-x\fR option is used to set the maximum number of days
++ a password remains valid.
++ After \fImax\fR days, the password is required to be changed.
++ The \fB-n\fR option is used to set the minimum number of days
++ before a password may be changed.
++ The user will not be permitted to change the password until
++ \fImin\fR days have elapsed.
++ The \fB-w\fR option is used to set the number of days of warning
++ the user will receive before their password will expire.
++ The warning occurs \fIwarn\fR days before the expiration, telling
++ the user how many days until the password is set to expire.
++ The \fB-i\fR option is used to disable an account after the
++ password has been expired for a number of days.
++ After a user account has had an expired password for \fIinact\fR
++ days, the user may no longer sign on to the account.
++ .PP
++ User accounts may be locked and unlocked with the \fB-l\fR and
++ \fB-u\fR flags.
++ The \fB-l\fR option disables an account by changing the password to a
++ value which matches no possible encrypted value.
++ The \fB-u\fR option re-enables an account by changing the password
++ back to its previous value.
++ .PP
++ The account status may be given with the \fB-S\fR option.
++ The status information consists of 6 parts.
++ The first part indicates if the user account is locked (L), has no
++ password (NP), or has a usable password (P).
++ The second part gives the date of the last password change.
++ The next four parts are the minimum age, maximum age, warning period,
++ and inactivity period for the password.
+  .SH Hints for user passwords
+  The security of a password depends upon the strength of the
+  encryption algorithm and the size of the key space.
+Index: lmain.c
+*** rel3/lmain.c	Mon Jan 20 10:16:50 1992
+--- lmain.c	Mon Jan 20 10:17:24 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1989, 1990, 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1989, 1990, 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 47,53 ****
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)lmain.c	3.17	19:39:58	12/28/91";
+  #endif
+  
+  					/* danger - side effects */
+--- 47,53 ----
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)lmain.c	3.18	21:49:57	1/19/92";
+  #endif
+  
+  					/* danger - side effects */
+***************
+*** 265,271 ****
+  	 * file if there are no additional flags on the command line.
+  	 */
+  
+! 	checkutmp (argc > 1 && argv[1][0] != '-');
+  	STRFCPY (tty, utent.ut_line);
+  
+  	if (Prog = strrchr (argv[0], '/'))
+--- 265,271 ----
+  	 * file if there are no additional flags on the command line.
+  	 */
+  
+! 	checkutmp (argc == 1 || argv[1][0] != '-');
+  	STRFCPY (tty, utent.ut_line);
+  
+  	if (Prog = strrchr (argv[0], '/'))
+Index: README
+*** rel3/README	Mon Jan 20 10:16:45 1992
+--- README	Mon Jan 20 10:17:27 1992
+***************
+*** 1,10 ****
+! [	@(#)README	3.7	11:58:37	12/28/91	]
+  
+  This is the explanatory document for John F. Haugh II's login replacement,
+! release 3.  This document was last updated 12/28/91.
+  
+! This software is copyright 1988, 1989, 1990, 1991, John F. Haugh II.  All
+! rights reserved.  Use, duplication and disclosure is permitted according
+  to the guidelines listed below.
+  
+  This software is being provided as a freely redistributable login clone.
+--- 1,10 ----
+! [	@(#)README	3.8	21:49:26	1/19/92	]
+  
+  This is the explanatory document for John F. Haugh II's login replacement,
+! release 3.  This document was last updated 1/19/92.
+  
+! This software is copyright 1988, 1989, 1990, 1991, 1992, John F. Haugh II.
+! All rights reserved.  Use, duplication and disclosure is permitted according
+  to the guidelines listed below.
+  
+  This software is being provided as a freely redistributable login clone.
+***************
+*** 30,36 ****
+  information and to Tony Walton (olapw@olgb1.oliv.co.uk) for the System
+  V Release 4 changes.  Effort in porting to SunOS has been contributed
+  by Dr. Michael Newberry (miken@cs.adfa.oz.au) and Micheal J. Miller, Jr.
+! (mke@kaberd.rain.com)
+  
+  New for Release 3:
+  	The objects are being combined into libraries to make maintenance
+--- 30,37 ----
+  information and to Tony Walton (olapw@olgb1.oliv.co.uk) for the System
+  V Release 4 changes.  Effort in porting to SunOS has been contributed
+  by Dr. Michael Newberry (miken@cs.adfa.oz.au) and Micheal J. Miller, Jr.
+! (mke@kaberd.rain.com).  Effort in porting to AT&T UNIX System V Release
+! 4 has been provided by Andrew Herbert (andrew@werple.pub.uu.oz.au).
+  
+  New for Release 3:
+  	The objects are being combined into libraries to make maintenance
+Index: config.h
+*** rel3/config.h	Mon Jan 20 10:17:04 1992
+--- config.h	Mon Jan 20 10:17:29 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1989, 1990, 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1989, 1990, 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 12,18 ****
+  /*
+   * Configuration file for login.
+   *
+!  *	@(#)config.h	3.15	12:43:13	12/28/91
+   */
+  
+  
+--- 12,18 ----
+  /*
+   * Configuration file for login.
+   *
+!  *	@(#)config.h	3.16	09:42:44	1/20/92
+   */
+  
+  
+***************
+*** 151,153 ****
+--- 151,163 ----
+  #define USG_UTMP
+  #endif	/* BSD || SYS3 || SUN */
+  #endif /* !USG_UTMP || !BSD_UTMP */
++ 
++ /*
++  * Telinit program.  If your system uses /etc/telinit to change run
++  * level, define TELINIT and then define the RUNLEVEL macro to be the
++  * run-level to switch INIT to.  This is used by sulogin to change
++  * from single user to multi-user mode.
++  */
++ 
++ #define	TELINIT		/**/
++ #define	RUNLEVEL	"2"	/**/
+Index: sulogin.c
+*** rel3/sulogin.c	Mon Jan 20 10:15:04 1992
+--- sulogin.c	Mon Jan 20 10:17:31 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1989, 1990, 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1989, 1990, 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 13,18 ****
+--- 13,19 ----
+  #include <stdio.h>
+  #include "pwd.h"
+  #include <utmp.h>
++ #include <fcntl.h>
+  #ifdef	BSD
+  #include <strings.h>
+  #define	strchr	index
+***************
+*** 23,30 ****
+  #endif
+  #include "config.h"
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)sulogin.c	3.7	07:43:27	9/17/91";
+  #endif
+  
+  char	name[BUFSIZ];
+--- 24,39 ----
+  #endif
+  #include "config.h"
+  
++ #ifdef	USE_SYSLOG
++ #include <syslog.h>
++ 
++ #ifndef	LOG_WARN
++ #define	LOG_WARN	LOG_WARNING
++ #endif
++ #endif
++ 
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)sulogin.c	3.8	09:42:53	1/20/92";
+  #endif
+  
+  char	name[BUFSIZ];
+***************
+*** 68,80 ****
+  	char	*tz ();
+  	char	*cp;
+  
+  	if (access (PWDFILE, 0) == -1) { /* must be a password file! */
+  		printf ("No password file\n");
+  		exit (1);
+  	}
+! #ifdef	NDEBUG
+! 	if (getppid () != 1)		/* parent must be INIT */
+  		exit (1);
+  #endif
+  	if (! isatty (0) || ! isatty (1) || ! isatty (2))
+  		exit (1);		/* must be a terminal */
+--- 77,114 ----
+  	char	*tz ();
+  	char	*cp;
+  
++ #ifdef	USE_SYSLOG
++ 	openlog ("sulogin", LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
++ #endif
++ 	if (argc > 1) {
++ 		close (0);
++ 		close (1);
++ 		close (2);
++ 
++ 		if (open (argv[1], O_RDWR) >= 0) {
++ 			dup (0);
++ 			dup (0);
++ 		} else {
++ #ifdef	USE_SYSLOG
++ 			syslog (LOG_WARN, "cannot open %s\n", argv[1]);
++ #endif
++ 			exit (1);
++ 		}
++ 	}
+  	if (access (PWDFILE, 0) == -1) { /* must be a password file! */
+  		printf ("No password file\n");
++ #ifdef	USE_SYSLOG
++ 		syslog (LOG_WARN, "No password file\n");
++ #endif
+  		exit (1);
+  	}
+! #ifndef	DEBUG
+! 	if (getppid () != 1) {		/* parent must be INIT */
+! #ifdef	USE_SYSLOG
+! 		syslog (LOG_WARN, "Pid == %d, not 1\n", getppid ());
+! #endif
+  		exit (1);
++ 	}
+  #endif
+  	if (! isatty (0) || ! isatty (1) || ! isatty (2))
+  		exit (1);		/* must be a terminal */
+***************
+*** 93,98 ****
+--- 127,135 ----
+  		entry (name, &pwent);	/* get entry from password file */
+  		if (pwent.pw_name == (char *) 0) {
+  			printf ("No password entry for 'root'\n");
++ #ifdef	USE_SYSLOG
++ 			syslog (LOG_WARN, "No password entry for 'root'\n");
++ #endif
+  			exit (1);
+  		}
+  
+***************
+*** 103,111 ****
+  
+  					/* get a password for root */
+  		if (! (cp = getpass ("Type control-d for normal startup,\n\
+! (or give root password for system maintenance):")))
+  			exit (0);
+! 		else
+  			strcpy (pass, cp);
+  
+  		if (valid (pass, &pwent)) /* check encrypted passwords ... */
+--- 140,154 ----
+  
+  					/* get a password for root */
+  		if (! (cp = getpass ("Type control-d for normal startup,\n\
+! (or give root password for system maintenance):"))) {
+! #ifdef	USE_SYSLOG
+! 			syslog (LOG_INFO, "Normal startup\n");
+! #endif
+! #ifdef	TELINIT
+! 			execl ("/etc/telinit", "telinit", RUNLEVEL, (char *) 0);
+! #endif
+  			exit (0);
+! 		} else
+  			strcpy (pass, cp);
+  
+  		if (valid (pass, &pwent)) /* check encrypted passwords ... */
+***************
+*** 112,122 ****
+--- 155,171 ----
+  			break;		/* ... encrypted passwords matched */
+  
+  		puts ("Login incorrect");
++ #ifdef	USE_SYSLOG
++ 		syslog (LOG_WARN, "Incorrect root password\n");
++ #endif
+  	}
+  	alarm (0);
+  	environ = newenvp;		/* make new environment active */
+  
+  	puts ("Entering System Maintenance Mode");
++ #ifdef	USE_SYSLOG
++ 	syslog (LOG_INFO, "System Maintenance Mode\n");
++ #endif
+  
+  	/*
+  	 * Normally there would be a utmp entry for login to mung on
+Index: sulogin.8
+*** rel3/sulogin.8	Mon Jan 20 10:16:34 1992
+--- sulogin.8	Mon Jan 20 10:17:32 1992
+***************
+*** 1,14 ****
+! .\" Copyright 1989, 1990, John F. Haugh II
+  .\" All rights reserved.
+  .\"
+! .\" Use, duplication, and disclosure prohibited without
+! .\" the express written permission of the author.
+  .\"
+! .\"	@(#)sulogin.8	3.2	07:50:00	7/13/91
+  .\"
+  .TH SULOGIN 8
+  .SH NAME
+  sulogin \- Single-user login
+  .SH DESCRIPTION
+  .I sulogin
+  is invoked by \fB/etc/init\fR prior to allowing the user
+--- 1,19 ----
+! .\" Copyright 1989, 1990, 1992, John F. Haugh II
+  .\" All rights reserved.
+  .\"
+! .\" Permission is granted to copy and create derivative works for any
+! .\" non-commercial purpose, provided this copyright notice is preserved
+! .\" in all copies of source code, or included in human readable form
+! .\" and conspicuously displayed on all copies of object code or
+! .\" distribution media.
+  .\"
+! .\"	@(#)sulogin.8	3.3	09:42:50	1/20/92
+  .\"
+  .TH SULOGIN 8
+  .SH NAME
+  sulogin \- Single-user login
++ .SH SYNTAX
++ \fBsulogin\fR [ \fItty-device\fR ]
+  .SH DESCRIPTION
+  .I sulogin
+  is invoked by \fB/etc/init\fR prior to allowing the user
+***************
+*** 23,28 ****
+--- 28,36 ----
+  .br
+  (or give root password for system maintenance):
+  .PP
++ Input and output will be performed with the standard file
++ descriptors unless the optional device name argument is provided.
++ .PP
+  If the user enters the correct root password, a login session
+  is initiated.
+  When \fBEOF\fR is pressed instead, the system enters multi-user
+***************
+*** 40,46 ****
+  For example, the line
+  .br
+  .sp 1
+! co:s:respawn:/etc/sulogin < /dev/console > /dev/console 2>&1
+  .br
+  .sp 1
+  should execute the sulogin command in single user mode.
+--- 48,54 ----
+  For example, the line
+  .br
+  .sp 1
+! co:s:respawn:/etc/sulogin /dev/console
+  .br
+  .sp 1
+  should execute the sulogin command in single user mode.
+Index: lastlog.h
+*** rel3/lastlog.h	Mon Jan 20 10:15:38 1992
+--- lastlog.h	Mon Jan 20 10:17:33 1992
+***************
+*** 9,15 ****
+  /*
+   * lastlog.h - structure of lastlog file
+   *
+!  *	@(#)lastlog.h	2.3	19:23:49	7/29/90
+   *
+   *	This file defines a lastlog file structure which should be sufficient
+   *	to hold the information required by login.  It should only be used if
+--- 9,15 ----
+  /*
+   * lastlog.h - structure of lastlog file
+   *
+!  *	@(#)lastlog.h	3.1	11:30:22	12/3/91
+   *
+   *	This file defines a lastlog file structure which should be sufficient
+   *	to hold the information required by login.  It should only be used if
+Index: Makefile
+*** rel3/Makefile	Mon Jan 20 10:16:46 1992
+--- Makefile	Mon Jan 20 10:17:36 1992
+***************
+*** 8,16 ****
+  # and conspicuously displayed on all copies of object code or
+  # distribution media.
+  #
+! #	@(#)Makefile	3.25.1.3	19:39:43  - Shadow password system
+  #
+! #	@(#)Makefile	3.25.1.3	19:39:43	12/28/91
+  #
+  SHELL = /bin/sh
+  
+--- 8,16 ----
+  # and conspicuously displayed on all copies of object code or
+  # distribution media.
+  #
+! #	@(#)Makefile	3.25.1.4	10:13:51  - Shadow password system
+  #
+! #	@(#)Makefile	3.25.1.4	10:13:51	1/20/92
+  #
+  SHELL = /bin/sh
+  
+***************
+*** 307,312 ****
+--- 307,324 ----
+  	
+  $(DOCS):
+  	[ -f s.$@ ] && get -t -r$(RELEASE) s.$@
++ 
++ login.defs:
++ 	[ -f s.login.defs ] && get -t -r$(RELEASE) s.login.defs
++ 
++ Makefile.sun4:
++ 	[ -f s.Makefile.sun4 ] && get -t -r$(RELEASE) s.Makefile.sun4
++ 
++ README.sun4:
++ 	[ -f s.README.sun4 ] && get -t -r$(RELEASE) s.README.sun4
++ 
++ config.h.sun4:
++ 	[ -f s.config.h.sun4 ] && get -t -r$(RELEASE) s.config.h.sun4
+  
+  login:	$(LOBJS) libshadow.a
+  	$(CC) -o login $(LDFLAGS) $(LOBJS) libshadow.a $(LIBS)
+-- 
+John F. Haugh II        | Every 56 days.   | UUCP: ...!cs.utexas.edu!rpp386!jfh
+Ma Bell: (512) 251-2151 | Give Blood, often.    | Domain: jfh@rpp386.cactus.org
+
+HI ! I'm a mutating signature virus. You cannot resist helping me spread !
+
+exit 0 # Just in case...

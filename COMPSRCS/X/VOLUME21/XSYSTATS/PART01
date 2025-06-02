@@ -1,0 +1,1751 @@
+Newsgroups: comp.sources.x
+From: master@rahul.net (Mark Wedel)
+Subject: v21i045:  xsysstats2 - A partial perfmeter clone, Part01/01
+Message-ID: <1993Nov23.163325.15246@sparky.sterling.com>
+X-Md4-Signature: b76d93a690e1cf67fce03700611330e6
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 23 Nov 1993 16:33:25 GMT
+Approved: chris@sterling.com
+
+Submitted-by: master@rahul.net (Mark Wedel)
+Posting-number: Volume 21, Issue 45
+Archive-name: xsysstats2/part01
+Environment: X11, ANSI
+Supersedes: xsysstats: Volume 21, Issue 11
+
+
+XSysStats is a system information display tool similar to perfmeter.  It
+displays its information in the form of a strip chart.  It can also display
+information about remote hosts, as perfmeter can do.
+
+XSysStats can display any number of graphs at one time in the same window.
+Information being displayed in the window need not be all of the same host.
+For example, you could have it display the percentage of cpu being utilized
+of half a dozen (or more) different hosts.
+
+As of this writing, the only system this has been tested on is a Sun 3/60
+running SunOs 4.1.1 and X11R5.  It should run on most any sun with SunOs
+4.1.1.  For other systems, some porting may be required for it to work.
+XSysStats use the 'rstat' function to get information.  This probably
+does not exist on all machines, and the structure it uses may vary
+between different machines.  See the PORTING file for more information
+on how to port to different systems.
+
+XSysStats require an ANSI capable compiler.  Gcc works fine, and
+Sun's acc also work (but may result in warnings at compile time.)
+
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  CHANGES Imakefile Makefile.noIm PORTING README TODO
+#   headers.h patchlevel.h porting.c xsysstats.c xsysstats.h
+#   xsysstats.man
+# Wrapped by master@sleipner on Wed Oct 27 17:50:55 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'CHANGES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CHANGES'\"
+else
+echo shar: Extracting \"'CHANGES'\" \(1817 characters\)
+sed "s/^X//" >'CHANGES' <<'END_OF_FILE'
+XChanges from 1.10 to 1.11
+X    Now handles MappingNotify events.
+X    -geometry flag now works properly with negative X or Y positions
+X	and non default sized window.
+X
+X
+XChanges from 1.01 to 1.10
+X    All malloc calls are now cast to prevent warnings with acc.
+X    Width and Height parametes to XParseGeometry now cast to prevent
+X	warnings with acc.
+X    Scale is now displayed properly when displaying load.  Before, the
+X	graph was accurate, but the scale was high. (Thanks for patch
+X	from Gvran Larsson (hoh@lorelei.approve.se)
+X    Changed code to handle the possibility interrupt total being less than
+X	the previously reported value.  Previously, when this happened,
+X	XSysStats got into an infinite loop.
+X    XCOMM line removed from Imakefile
+X    Window type now requests a backing store.  This fixes a display problem
+X	if the right side of the window is obscured.
+X    -allnames arguement added to force display of all host names, including
+X	the local host.
+X    -same_scale arguement added to force graphs of the same type to be
+X	displayed with the same scale.
+X    graph type load has been renamed to load1.  Graph type load5 and load15
+X	have been added.  load1 corresponds to load average for last minute,
+X	load5 for last 5 minutes, and load15 for last 15 minutes.
+X    -hidelabels option added to prevent labels with scale from being
+X	drawn at bottom of screen.  Label display can also be toggled
+X	by pressing 'l' in the XSysStats window.
+X    fixed minor bug that would cause double thick lines to be drawn at
+X	times when a graph changed scale.
+X    fixed bug in which all the graph labels were not displayed.  The
+X	size of the window determined if things were displayed properly
+X	or not.
+X    -scale arguement added to draw dotted horizontal lines.  Can make
+X	it easier to tell when a graph goes beyond a certain value.
+END_OF_FILE
+if test 1817 -ne `wc -c <'CHANGES'`; then
+    echo shar: \"'CHANGES'\" unpacked with wrong size!
+fi
+# end of 'CHANGES'
+fi
+if test -f 'Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Imakefile'\"
+else
+echo shar: Extracting \"'Imakefile'\" \(697 characters\)
+sed "s/^X//" >'Imakefile' <<'END_OF_FILE'
+X/* Change BINDIR and MANDIR (uncomment them first) if you want to install
+X * XSysStats other than the standard BINDIR and MANDIR, as defined by
+X * X11, on your system.
+X */
+X
+X/* XSysStats require an ansi capable compiler.  Change and uncomment CFLAGS and
+X * CC below to override default values used to compile X programs on your
+X * system as required.
+X */
+X
+X/*
+XCFLAGS = -g
+XCC = gcc -Wall
+X*/
+X
+X        DEPLIBS = $(DEPXLIB)
+XLOCAL_LIBRARIES = $(XLIB)
+X           SRCS = porting.c xsysstats.c
+X           OBJS = porting.o xsysstats.o
+X
+XAllTarget(xsysstats)
+XNormalProgramTarget(xsysstats,$(OBJS),$(DEPLIBS),$(LOCAL_LIBRARIES),-lrpcsvc)
+XInstallProgram(xsysstats,$(BINDIR))
+XInstallManPage(xsysstats, $(MANDIR))
+END_OF_FILE
+if test 697 -ne `wc -c <'Imakefile'`; then
+    echo shar: \"'Imakefile'\" unpacked with wrong size!
+fi
+# end of 'Imakefile'
+fi
+if test -f 'Makefile.noIm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.noIm'\"
+else
+echo shar: Extracting \"'Makefile.noIm'\" \(631 characters\)
+sed "s/^X//" >'Makefile.noIm' <<'END_OF_FILE'
+XCC = gcc
+XCFLAGS = -g -O -Wall
+XLDFLAGS = 
+X
+XSRCS = xsysstats.c porting.c
+XOBJS = xsysstats.o porting.o
+XHDRS = xsysstats.h
+X
+XLIBS = -lX11 -lrpcsvc
+X
+X# program to install with.  cp would probably work
+XINSTALL = install
+X
+X#where to install the program
+XBINDIR = /usr/bin/X11
+X
+X#where to put the man page, and its extension
+XMANDIR = /usr/local/man/man1
+XMANEXT = 1
+X
+Xxsysstats: ${HDRS} ${OBJS} ${SRCS}
+X	$(CC) $(CFLAGS) $(LDFLAGS) ${OBJS} -o xsysstats ${LIBS} 
+X
+Xinstall:
+X	$(INSTALL) xsysstats ${BINDIR}/xsysstats
+X	$(INSTALL) xsysstats.man ${MANDIR}/xsysstats.${MANEXT}
+X
+Xdepend:
+X	makedepend -- $(SRCS) -- $(HDRS)
+X
+Xclean:
+X	rm -f *.o core xsysstats
+END_OF_FILE
+if test 631 -ne `wc -c <'Makefile.noIm'`; then
+    echo shar: \"'Makefile.noIm'\" unpacked with wrong size!
+fi
+# end of 'Makefile.noIm'
+fi
+if test -f 'PORTING' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PORTING'\"
+else
+echo shar: Extracting \"'PORTING'\" \(3192 characters\)
+sed "s/^X//" >'PORTING' <<'END_OF_FILE'
+XThe default version uses the rstat call to get information.  The
+Xformat of the rstat call is:
+X
+Xrstat(host, stats)
+X
+Xwhere host is a string, and stats is a pointer to a statstime structure.
+X
+XProbably the easiest way to port to a new system that lacks rstat
+Xwould be to a new version of rstat.  In this file, I try to document
+Xthe members of the statstime structure, and how the program uses
+Xthe information.  Note that gathering of this information takes
+Xplace in the porting.c file.
+X
+XAfter that information is gathered (via rstat), it is then processed.
+XSince rstat reports the total number of events since the system started
+Xup, the number of events since the last time we updated the graph
+Xis the value just returned minus the value that was returned last.
+XThis is why there are two statstime structures in porting.c.  A variable
+X(new_stat) is used to keep track of which structure the new information
+Xwill be loaded into.
+X
+XThis data is then put into the points[][] array. Values should never
+Xbe less than zero.  The values are integers.  CPU time being used
+Xshould range from 0 to 100.  Number of disk transfers can be anything
+Xabove zero.
+X
+XXSysStats averages most information per second.  This means that if the
+Xupdate time is every 5 seconds, the number of events since the last
+Xgraph will be divided by 5 before.
+X
+XSTATSTIME STRUCTURE:
+X
+Xstats.cp_time[0]	user time
+Xstats.cp_time[1]	nice time
+Xstats.cp_time[2]	system time
+Xstats.cp_time[3]	idle time
+X
+Xthese are cumulative totals.  To find the percentage any one of
+Xthese is using, first find the difference between the new value
+Xand the old value.  Then, sum them all up.  The percentage any one of
+Xthem is using since the last request is the element divided by
+Xthe total.  XStatsTime uses the idle time (cp_time[3]) to determine
+Xthe amount being utilized.  Let delta[0-3] represent the difference
+Xsince the last update of the values above.  This means that for
+XXSysStat, the percent of cpu being used is 100 - 100*k[3]/(sum(k[0-3]).
+X
+X
+X
+Xstats.avenrun[0]	Divide value by 256 and this is the load
+Xstats.avenrun[1]	average over the last 1,5, and 15 minutes.
+Xstats.avenrun[2]
+X
+Xstats.v_swtch		total context switches
+X
+Xstats.if_collisions	ethernet activity - cumulative totals.
+Xstats.if_oerrors	XSysStat uses the ierrors and ipackets
+Xstats.if_opackets	elements. it might be better to sum
+Xstats.if_ierrors	ipackets+opackets and ierrors+oerrors for
+Xstats.if_ipackets	reporting.
+X
+Xstats.v_pgpgin		page in/out, swap in/out cumulative totals
+Xstats.v_pgpgout		XSysStat uses the pgpgin and pswpin elements.
+Xstats.v_pswpin		XSysStat does not average these over times.  IT will
+Xstats.v_pswpout		instead plot the total number of occurances of these
+X			since the last update.  Since these are usually
+X			fairly low occuring events, I prefered it this way.
+X
+Xstats.v_intr		cumulative # of interrupts.  Although it
+X			probably should no happen, at times a more
+X			recently reported value is less than the
+X			previous reported value.
+X
+Xstats.dk_xfer[0]	disk transfers.  Only the first seems to have
+Xstats.dk_xfer[1]	any real useful (nonzero) value?  If these are
+Xstats.dk_xfer[2]	similiar to what vmstat reports, these can
+Xstats.dk_xfer[3]	be for different disks.
+X
+END_OF_FILE
+if test 3192 -ne `wc -c <'PORTING'`; then
+    echo shar: \"'PORTING'\" unpacked with wrong size!
+fi
+# end of 'PORTING'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(3882 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XXSysStats README:
+X
+XDESCRIPTION:
+X
+XXSysStats is a system information display tool similar to perfmeter.  It
+Xdisplays its information in the form of a strip chart.  It can also display
+Xinformation about remote hosts, as perfmeter can do.
+X
+XXSysStats can display any number of graphs at one time in the same window.
+XInformation being displayed in the window need not be all of the same host.
+XFor example, you could have it display the percentage of cpu being utilized
+Xof half a dozen (or more) different hosts.
+X
+XAs of this writing, the only system this has been tested on is a Sun 3/60
+Xrunning SunOs 4.1.1 and X11R5.  It should run on most any sun with SunOs
+X4.1.1.  For other systems, some porting may be required for it to work.
+XXSysStats use the 'rstat' function to get information.  This probably
+Xdoes not exist on all machines, and the structure it uses may vary
+Xbetween different machines.  See the PORTING file for more information
+Xon how to port to different systems.
+X
+XXSysStats require an ANSI capable compiler.  Gcc works fine, and
+XSun's acc also work (but may result in warnings at compile time.)
+X
+XThere are some things that perfmeter (Openwindows 2 version) is able to do
+Xthat XSysStats can not do.  Perfmeter in its iconic form displays a meter
+Xwith hands. XSysStats only displays information while in its open state.
+XAlso, perfmeter allows the user to change what information it displays, or
+Xhow frequently it updates it.  Once XSysStats has been run, what it displays
+Xis locked into place.
+X
+XHowever, XSysStats has the advantage that the only X library it uses is
+Xthe base X11 library.  This means the resident size is smaller than
+Xperfmeter (a lot of space can be saved if you run several perfmeters,
+Xas these could then be combined into one XSysStats window)
+XXSysStats in general consumes less CPU time than perfmeter does (an
+XXSysStat program displaying four graphs about one machine takes less than
+Xhalf the time a perfmeter took displaying just one graph.)
+XHowever, for reasons I have not figured out, it seems to consume more
+XCPU time than perfmeter if reporting on remote hosts.  Even with this
+Xincreased cost, it only accounted for about 1.5% of the cpu time on
+Xmy sun 3/60.
+X
+XNote:  The multiple graphs in one window will probably not be of much
+Xuse on a black/white system.  You really need to have the graphs different
+Xcolor (or perhaps scale of gray) to make much sense of them.
+X
+XLICENSE:
+X
+XXSysStats is Copyright (C) 1993 by Mark Wedel.
+X
+XXSysStats can be redistributed provided it is done free of charge.
+XXSysStats can also be modified, but original credit must be given to
+XMark Wedel.
+X
+XXSysStats is provided as is.  I take no responsibility for damage
+Xor problems caused by the use of XSysStats.
+X
+XTO BUILD:
+X
+X    Note:  An ANSI C compiler is required.  Changes to the Imakefile
+X    or Makefile may be needed depending on what the default compiler on
+X    your system can handle.
+X
+X    If using imake, the following should work fine:
+X
+X	1) xmkmf
+X	2) make
+X	3) make install
+X	4) make install.man
+X
+X    If you are instead using make, try:
+X
+X	1) cp Makefile.noIm Makefile
+X	2) Edit the Makefile.  Most things are pretty standard and clear.
+X	3) make
+X	4) make install
+X
+XBUGS/PROBLEMS/FIXES:
+X
+XIf you have fixed some problem, or added support for another machine,
+Xyou can send me the patch at master@rahul.net.
+X
+XIf you notice a bug, you can send me mail at the same address.  Please
+Xdo not send bug reports of it not compiling on a specific machine because
+Xrstat does not exist (or most other problems if they are in the porting.c
+Xfile.)  I likely will not have access to the hardware necessary to track
+Xthem down, so I will be able to do nothing about it.
+X
+XNOTES:
+X
+XIf you send me mail, please include a valid mail address I can reach
+Xyou at.
+X
+X Looking for a C/C++/X11 programmer in preferable the Silicon Valley?
+XSend me some mail.
+X
+XMark Wedel
+Xmaster@rahul.net
+XOctober 18, 1993
+END_OF_FILE
+if test 3882 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'TODO' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'TODO'\"
+else
+echo shar: Extracting \"'TODO'\" \(954 characters\)
+sed "s/^X//" >'TODO' <<'END_OF_FILE'
+XThings that would be nice to have done, but may be difficult to do.
+X
+XSome way to tell in the window what the scale division lines (as
+Xselected by the -scale) arguement are.  Writing them along the left
+Xedge would require that the entire graph be redrawn, or a smart way to
+Xerase the values and then redraw them.  Perhaps they can be written at
+Xthe bottom of the screen, as another number after the scale of the graph.
+XIe, "disk	20/5" would should that the scale of the graph is 20,
+Xbut the division lines are drawn in increments of 5.
+X
+XStoring all -type values for all hosts, and allow switching of the graph
+Xtype (by keyboard).  This will cause more memory use and probably also
+Xmore cpu use to set and store all these values.
+X
+XAbility to have one XSysStats program control several windows or split
+Xthe one window into several subwindows.  In this way, a mininum amount
+Xof space and rstats calls would be used to display possibly all the
+Xdata gathered.
+END_OF_FILE
+if test 954 -ne `wc -c <'TODO'`; then
+    echo shar: \"'TODO'\" unpacked with wrong size!
+fi
+# end of 'TODO'
+fi
+if test -f 'headers.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'headers.h'\"
+else
+echo shar: Extracting \"'headers.h'\" \(502 characters\)
+sed "s/^X//" >'headers.h' <<'END_OF_FILE'
+X/* These are really included so that I can use gcc -Wall and not see
+X * warnings that these are undefined.  If your system has function
+X * prototypes, this is unneeded.
+X */
+X
+X#ifdef __GNUC__
+X/* These do not seem to be needed with gcc-2.5.0.  In fact, having
+X * them declared causes errors.
+X */
+X
+X/*
+Xvoid    printf(char* , ...);
+Xvoid    puts(char *);
+Xvoid    fprintf(FILE*, char *, ...);
+X*/
+Xint     sleep(unsigned);
+Xint     atoi(char *);
+Xint	gethostname(char *, int);
+Xchar 	*strcat(char *, char*);
+X#endif
+END_OF_FILE
+if test 502 -ne `wc -c <'headers.h'`; then
+    echo shar: \"'headers.h'\" unpacked with wrong size!
+fi
+# end of 'headers.h'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(33 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define VERSION "XSysStats 1.10"
+END_OF_FILE
+if test 33 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'porting.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'porting.c'\"
+else
+echo shar: Extracting \"'porting.c'\" \(6896 characters\)
+sed "s/^X//" >'porting.c' <<'END_OF_FILE'
+X#include <rpcsvc/rstat.h>
+X#include "xsysstats.h"
+X#include "headers.h"
+X
+X/* add a function prototype for clean compiles with -Wall */
+X#ifdef __GNUC__
+Xint	rstat(char *, struct statstime *);
+X#endif
+X
+Xstruct statstime	*our_stats;
+Xstatic int new_stat=0;
+X
+X/* set_first_values allocates the space to actually store the values,
+X * add then reads in a first set into them.
+X */
+Xvoid set_first_values()
+X{
+X	int	i;
+X
+X	our_stats = (struct statstime *)
+X		malloc(sizeof(struct statstime) * num_hosts * 2);
+X	for (i=0; i<num_hosts; i++)
+X		rstat(hosts[i], &our_stats[i*2 + new_stat]);
+X
+X	new_stat++;
+X	new_stat %=2;
+X}
+X
+X/* This sets the scale of similiar graphs to the same value.  The highest
+X * scale value is used.  The graph arguement that is passed is the graph
+X * value that has just changed.  It may or may not be more efficient to wait
+X * until all the graphs have changed scale before going through and 
+X * synchronizing the other graphs to match.  It depends on the circumstances.
+X * of rescaling.
+X * Since any call to this function means that the scale has changed,
+X * a redraw will happen at some point after the return.
+X * It may also be better to make it so that a re-draw will only be done
+X * if the scale actually changes.  Right now, a downscale attempt may
+X * be made, but because the scales are synchronized, the scale does not
+X * change.  However, it will re-draw the window when there was no need
+X * to.
+X */
+Xstatic void sync_scales(struct graph_info graph)
+X{
+X	int max=0,num_match=0,i;
+X
+X	for (i=0; i<num_graphs; i++) 
+X	    if (graphs[i].type == graph.type) {
+X		num_match++;
+X		if (graphs[i].true_scale>max)
+X		    max=graphs[i].true_scale;
+X	    }
+X	if (num_match>1) {
+X		for (i=0; i<num_graphs; i++)
+X		    if (graphs[i].type == graph.type)
+X			graphs[i].scale = max;
+X	}
+X}
+X
+X/* return value is if we redrew the graph (true if we did) */
+Xint set_values()
+X{
+X	int i,graph_redraw_needed=FALSE,newstat,oldstat;
+X	static int num_ticks=0;
+X
+X	num_ticks++;
+X	for (i=0; i<num_hosts; i++)
+X		rstat(hosts[i], &our_stats[i*2 + new_stat]);
+X
+X	new_stat++;
+X	new_stat %= 2;
+X	point_pos++;
+X	point_pos %= width;
+X	for (i=0; i<num_graphs; i++) {
+X	    newstat = graphs[i].host_offset * 2 + ((1 + new_stat) % 2);
+X	    oldstat = graphs[i].host_offset * 2 + new_stat;
+X
+X	    switch (graphs[i].type) {
+X		case CPU: {
+X			int	j[4],k;
+X
+X			for (k=0; k<4; k++)
+X				j[k] = our_stats[newstat].cp_time[k] - our_stats[oldstat].cp_time[k];
+X			points[i][point_pos] = 100 - 
+X			(100 * j[3]) / (j[0]+j[1]+j[2]+j[3]);
+X			break;
+X		}
+X		case PACKETS:
+X			points[i][point_pos] = (our_stats[newstat].if_ipackets
+X				 - our_stats[oldstat].if_ipackets) / sleep_time;
+X			break;
+X		case PAGE:
+X			points[i][point_pos] = our_stats[newstat].v_pgpgin
+X				 - our_stats[oldstat].v_pgpgin;
+X			break;
+X		case SWAP:
+X			points[i][point_pos] = our_stats[newstat].v_pswpin
+X				 - our_stats[oldstat].v_pswpin;
+X			break;
+X		case INT:
+X			points[i][point_pos] = ((signed)our_stats[newstat].v_intr
+X				 - (signed)our_stats[oldstat].v_intr)/sleep_time;
+X			if (points[i][point_pos] < 0)
+X				points[i][point_pos] = 0;
+X			break;
+X		case DISK:
+X			points[i][point_pos] = (our_stats[newstat].dk_xfer[0]
+X				+our_stats[newstat].dk_xfer[1]
+X				+our_stats[newstat].dk_xfer[2]
+X				+our_stats[newstat].dk_xfer[3]
+X				-our_stats[oldstat].dk_xfer[0]
+X				-our_stats[oldstat].dk_xfer[1]
+X				-our_stats[oldstat].dk_xfer[2]
+X				-our_stats[oldstat].dk_xfer[3])
+X				/sleep_time;
+X			break;
+X		case CONTEXT:
+X			points[i][point_pos] = (our_stats[newstat].v_swtch
+X				 - our_stats[oldstat].v_swtch)/sleep_time;
+X			break;
+X
+X		/* Load averages get handles a bit differently.  By default,
+X		 * dividign the avenrun[] by 256 gets you the load average.
+X		 * However, often load average is fairly low - under 5.
+X		 * This does not give very good resolution in decimal form.
+X		 * So it is multiplied by LOAD_FACTOR and then divided.
+X		 * For scale, the same thing is true.  When display the
+X		 * legend at the bottom of the screen, scale is then
+X		 * divided by LOAD_FACTOR.  If LOAD_FACTOR is 100, is
+X		 * effectively keeps two decimal points, making for
+X		 * a fairly fine graph.
+X		 * graphs[i].scale_mult has the same value as LOAD_FACTOR
+X		 * for the load average graphs.
+X		 */
+X		case LOAD1:
+X			points[i][point_pos] =
+X			    (our_stats[newstat].avenrun[0] * LOAD_FACTOR) / 256;
+X			break;
+X		case LOAD5:
+X			points[i][point_pos] =
+X			    (our_stats[newstat].avenrun[1] * LOAD_FACTOR) / 256;
+X			break;
+X		case LOAD15:
+X			points[i][point_pos] =
+X			    (our_stats[newstat].avenrun[2] * LOAD_FACTOR) / 256;
+X			break;
+X		case COLL:
+X			points[i][point_pos] = our_stats[newstat].if_collisions
+X				 - our_stats[oldstat].if_collisions;
+X			break;
+X		case ERRORS:
+X			points[i][point_pos] = our_stats[newstat].if_ierrors
+X				 - our_stats[oldstat].if_ierrors;
+X			break;
+X		default:
+X			fprintf(stderr,"Unknown graph type: %d, graph %d\n",graphs[i].type, i);
+X		
+X	    }
+X	    if (points[i][point_pos]<0) points[i][point_pos]=0;
+X	    graphs[i].running_avg += points[i][point_pos] -
+X			graphs[i].running_avg;
+X
+X	    /* Check to see if the graph needs to be downscaled.  Only actually
+X	     * attempt to do downscaling once every 10 ticks.  This is to
+X	     * prevent excessive runthroughs of the points array, finding
+X	     * the max value it holds.
+X	     * We do the check on true_scale.  IF graphs are synchronized,
+X	     * there is no point seeing if we can downscale when we know
+X	     * that we should, but another graph has a higher scale.
+X	     */
+X		
+X	    if (!(num_ticks % DOWNSCALE_OCCURANCE) &&
+X		graphs[i].running_avg<graphs[i].true_scale*graphs[i].scale_mult
+X		&& graphs[i].true_scale>graphs[i].min_scale) {
+X		    int	k,max=0;
+X
+X		    for (k=0; k<width; k++)
+X			if (points[i][k]>max) max=points[i][k];
+X		    if (graphs[i].true_scale*graphs[i].scale_mult / 2 > max) {
+X			while (graphs[i].running_avg<graphs[i].true_scale * graphs[i].scale_mult &&
+X			    graphs[i].true_scale * graphs[i].scale_mult/2 > max &&
+X			    graphs[i].true_scale > graphs[i].min_scale)
+X				graphs[i].true_scale /=2;
+X
+X			if (graphs[i].true_scale < graphs[i].min_scale)
+X				graphs[i].true_scale = graphs[i].min_scale;
+X			graphs[i].scale = graphs[i].true_scale;
+X			graph_redraw_needed = TRUE;
+X			if (scale_sync) sync_scales(graphs[i]);
+X		    }
+X		}
+X
+X	    if (points[i][point_pos]>graphs[i].true_scale*graphs[i].scale_mult &&
+X		graphs[i].true_scale<graphs[i].max_scale) {
+X		    do {
+X			graphs[i].true_scale *= 2;
+X		    } while (points[i][point_pos]>=graphs[i].true_scale * graphs[i].scale_mult &&
+X			graphs[i].true_scale < graphs[i].max_scale);
+X		    if (graphs[i].true_scale>graphs[i].max_scale)
+X			graphs[i].true_scale = graphs[i].max_scale;
+X		graphs[i].scale = graphs[i].true_scale;
+X		graph_redraw_needed = TRUE;
+X		if (scale_sync) sync_scales(graphs[i]);
+X	    }
+X	}
+X	
+X	/* Only re-draw it once.  That is why graph_redraw_needed is set
+X	 * above, and not just a call to redraw_graph
+X	 */
+X	if (graph_redraw_needed)
+X		redraw_graph();
+X
+X	return graph_redraw_needed;
+X}
+END_OF_FILE
+if test 6896 -ne `wc -c <'porting.c'`; then
+    echo shar: \"'porting.c'\" unpacked with wrong size!
+fi
+# end of 'porting.c'
+fi
+if test -f 'xsysstats.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xsysstats.c'\"
+else
+echo shar: Extracting \"'xsysstats.c'\" \(22822 characters\)
+sed "s/^X//" >'xsysstats.c' <<'END_OF_FILE'
+X#include "xsysstats.h"
+X#include "headers.h"
+X#include "patchlevel.h"
+X
+Xstruct base_types {
+X	char	*cmd_option;	/* how it is called on the command line */
+X	char	*window_name;	/* what we call it on the window */
+X	int	def_scale;	/* default scale for that graph type */
+X};
+X
+X/* It is important that the n'th placement of this array corresponds
+X * to the n'th value type in xsysstats.h (ie, 9'th value corresponds to errors)
+X */
+Xstruct base_types types[NUM_TYPES+1] = {
+X{"cpu", "cpu", 100}, {"packets", "pkts",32}, {"page", "page",16},
+X{"swap", "swap",16},{"interrupts", "intr",200}, {"disk", "disk",40},
+X{"context", "ctxt",128},
+X{"load1", "load1",2},
+X{"load5", "load5", 2},
+X{"load15", "load15", 2},
+X{"collisions", "coll",8},
+X{"errors", "errs",8}
+X};
+X
+X
+X/* Various notes:
+X * we store the values in the 'points' variable.  They are stored in the
+X * form we get from rstat.  To figure out where the point should be plotted,
+X * it is rstat_value * vertical_size / scale.
+X */
+X
+Xint		screen_num, num_graphs=0, **points,point_pos=-1,sleep_time=2,
+X		height,width, xpos,font_height=0, num_info_lines,
+X		draw_baseline=FALSE,scale_sync=FALSE,allnames=FALSE,
+X		num_hosts=0,localhost=-1,hide_labels=FALSE;
+Xunsigned long	whitepixel,blackpixel;
+XDisplay	*display;
+XWindow	win;
+XXFontStruct	*font_info;
+XGC	gc;
+XXColor	background, foreground,baseline;
+XPixmap	new_win;	/* used for scrolling */
+Xchar	**hosts;
+X
+X
+X
+XXSizeHints size_hints = { PMinSize | PWinGravity,0,0,DEFAULT_SIZE,
+X	DEFAULT_SIZE,DEFAULT_SIZE, DEFAULT_SIZE, 0,0,0,0,{0,0},{0,0},0,0,
+X	NorthWestGravity};
+X
+Xvoid redraw_graph()
+X{
+X	int	i,pp,x,max_x,font_line=0,fontx=0,fonts_per_line,deltax,pp1;
+X	char	tmp[256];
+X	XCharStruct	scale_info;
+X
+X	XClearWindow(display, win);
+X	if (draw_baseline) {
+X		XSetForeground(display, gc, baseline.pixel);
+X		XDrawLine(display, win, gc, INSIDE_BORDER_WIDTH,
+X			height+INSIDE_BORDER_WIDTH, xpos, height + INSIDE_BORDER_WIDTH);
+X	}
+X	fonts_per_line = width / TEXT_WIDTH;
+X	deltax = width / fonts_per_line;
+X
+X	for (i=0; i<num_graphs; i++) {
+X	    XSetForeground(display, gc, graphs[i].color_pixel);
+X	    if (!hide_labels) {
+X		XDrawImageString(display, win, gc, fontx * deltax + 
+X			INSIDE_BORDER_WIDTH, height + 2 + font_height*font_line +
+X			INSIDE_BORDER_WIDTH + font_info->max_bounds.ascent,
+X			graphs[i].name, graphs[i].name_len);
+X
+X		sprintf(tmp, "%d", graphs[i].scale);
+X
+X		XTextExtents(font_info, tmp, strlen(tmp), 
+X			&x, &x, &x, &scale_info);
+X		XDrawImageString(display, win, gc, (fontx + 1) * deltax -
+X			INSIDE_BORDER_WIDTH - scale_info.width, height + 2 +
+X			font_height * font_line + INSIDE_BORDER_WIDTH +
+X			font_info->max_bounds.ascent,
+X			tmp, strlen(tmp));
+X		fontx++;
+X		if (fontx==fonts_per_line) {
+X			fontx=0;
+X			font_line++;
+X		}
+X	    }
+X	    if (xpos<width) {
+X		pp=0;
+X		max_x = xpos-1;
+X	    }
+X	    else {
+X		pp = (point_pos + 1) % width;
+X		max_x = width;
+X	    }
+X	    for (x=INSIDE_BORDER_WIDTH; x<max_x; x++) {
+X		pp1 = (pp +1) % width;
+X		XDrawLine(display,win, gc, x, INSIDE_BORDER_WIDTH+
+X		    height-points[i][pp] * height/(graphs[i].scale *
+X		    graphs[i].scale_mult), x+1,
+X		    INSIDE_BORDER_WIDTH +height -
+X		    (points[i][pp1] * height) / (graphs[i].scale *
+X		    graphs[i].scale_mult));
+X		pp = pp1;
+X		/* point_pos %2 is to draw it every other point. */
+X		if (graphs[i].scale_lines>0 && !(pp % 2) &&
+X		    graphs[i].scale_lines<graphs[i].scale) {
+X			int	sline,slineinc=1;
+X
+X			while ((graphs[i].scale_lines*slineinc*height / graphs[i].scale) < PTSSCALELINE)
+X				slineinc*=2;
+X			sline = slineinc;
+X			/* Yes, it is supposed to be just less than scale,
+X			 * not less than equal.  No point drawing a line at
+X			 * the top of the window.
+X			 */
+X			while (sline*graphs[i].scale_lines < graphs[i].scale) {
+X			    XDrawPoint(display, win, gc, x,
+X				height - (sline * graphs[i].scale_lines * height) /
+X				graphs[i].scale + INSIDE_BORDER_WIDTH);
+X			    sline+=slineinc;
+X			}
+X		    }
+X	    }
+X	}
+X	XFlush(display);
+X}
+X
+Xvoid resize_window(XEvent event)
+X{
+X	int redraw_needed = FALSE,i, redo_height = FALSE;
+X
+X	/* Width changes are a little tricky.  We need
+X	 * malloc new structures, copy the data into
+X	 * it, and the free the old ones.
+X	 */
+X
+X	if (event.xconfigure.width !=size_hints.width &&
+X	    event.xconfigure.width>=DEFAULT_SIZE) {
+X		int	new_width,*new_points,q,new_info_lines,fonts_per_line;
+X
+X		size_hints.width = event.xconfigure.width;
+X		new_width = size_hints.width - 2*INSIDE_BORDER_WIDTH;
+X		for (i=0; i<num_graphs; i++) {
+X			int	z=0;
+X
+X			new_points =  (int *) malloc(sizeof(int) *new_width);
+X
+X			/* If the window is larger, we need to copy all
+X			 * the old points.
+X			 */
+X
+X			if (new_width>width) {
+X			    if (xpos<width) {
+X				for (q=0; q<=point_pos; q++)
+X					new_points[q] = points[i][q];
+X			    }
+X			    else {
+X				for (q=point_pos+1; q<=point_pos+width; q++)
+X					new_points[z++]=points[i][q%width];
+X			    }
+X			}
+X			/* if the new window is smaller, we only want to
+X			 * copy the newest points.
+X			 */
+X			else {
+X			    if (xpos<width) {
+X				int xstart;
+X
+X				if (point_pos>new_width)
+X					xstart=point_pos-new_width;
+X				else xstart=0;
+X				for (q=xstart; q<=point_pos; q++)
+X					new_points[z++]=points[i][q];
+X			    }
+X			    else {
+X				for (q=0; q<new_width; q++)
+X				    new_points[z++]=
+X					points[i][(q+width-new_width)%width];
+X			    }
+X			}
+X			free(points[i]);
+X			points[i] = new_points;
+X		}
+X
+X		/* If we had more points than the new window can display,
+X		 * then set the number of points we have to the max the
+X		 * window can handle. 
+X		 * Otherwise, if the old window was filled up, set the
+X		 * next point to be drawn at the end of the old window.
+X		 * Remember, after the copy, the oldest point will be point
+X		 * #0.
+X		 * Otherwise, if the old window wasn't filled up and
+X		 * the number of points would not fill up the new
+X		 * window, keep the point_pos value the same.
+X		 */
+X
+X		if (point_pos > new_width) point_pos = new_width-1;
+X		else if (xpos>=width) point_pos=width-1;
+X
+X		if (new_width<xpos) xpos=new_width;
+X		width = new_width;
+X		redraw_needed = TRUE;
+X		fonts_per_line = width/TEXT_WIDTH;
+X		new_info_lines = num_graphs / fonts_per_line;
+X		if (new_info_lines * fonts_per_line < num_graphs)
+X			new_info_lines ++;
+X		if (new_info_lines != num_info_lines) {
+X			num_info_lines = new_info_lines;
+X			redo_height = TRUE;
+X			if (event.xconfigure.height < DEFAULT_SIZE) 
+X				event.xconfigure.height = DEFAULT_SIZE;
+X		}
+X
+X	    }
+X
+X	/* height change is simple.  Just update our
+X	 * values, and the re-draw function will scale
+X	 * everything to the new height.
+X	 */
+X	if ((event.xconfigure.height !=size_hints.height &&
+X	    event.xconfigure.height>=DEFAULT_SIZE) || (redo_height)) {
+X		size_hints.height = event.xconfigure.height;
+X		if (hide_labels)
+X			height = size_hints.height - INSIDE_BORDER_WIDTH*2;
+X		else
+X			height = size_hints.height- font_height*num_info_lines
+X				 - INSIDE_BORDER_WIDTH*2;
+X		redraw_needed = TRUE;
+X	    }
+X
+X	/* This is true only if width or height actually
+X	 * changed in any way.
+X	 */
+X	if (redraw_needed) {
+X		redraw_graph();
+X		XFreePixmap(display, new_win);
+X		new_win = XCreatePixmap(display, win, width-1,size_hints.height+INSIDE_BORDER_WIDTH,
+X			DefaultDepth(display, screen_num));
+X	}
+X}
+X
+X/* This function process various keypresses.  If an unknown/unsupported
+X * key is pressed, it is just ignored.  As of now, only 1 character
+X * codes are used, so only the first character of keypress holds any
+X * relevance.
+X */
+Xvoid process_keypress(char *keypress)
+X{
+X    switch (keypress[0]) {
+X	case 'l':
+X	case 'L':
+X		if (hide_labels) {
+X			height = size_hints.height- font_height*num_info_lines
+X				 - INSIDE_BORDER_WIDTH*2;
+X			hide_labels = FALSE;
+X		}
+X		else {
+X			height = size_hints.height - INSIDE_BORDER_WIDTH*2;
+X			hide_labels = TRUE;
+X		}
+X		redraw_graph();
+X		break;
+X    }
+X}
+X
+Xvoid check_events()
+X{
+X	XEvent	event;
+X	char	keystring[10];
+X
+X	while (XEventsQueued(display,QueuedAfterFlush)) {
+X	    XNextEvent(display, &event);
+X
+X	    switch (event.type) {
+X		case Expose:
+X			if (event.xexpose.count==0)
+X				redraw_graph();
+X			break;
+X
+X		case ConfigureNotify:
+X			resize_window(event);
+X			break;
+X
+X		case KeyPress:
+X			XLookupString((XKeyEvent *) &event, keystring,10, NULL, NULL);
+X			process_keypress(keystring);
+X			break;
+X
+X		/* We don't really care about these, but they might
+X		 * be generated with the StructureNotifyMask.
+X		 */
+X		case CirculateNotify:
+X		case GravityNotify:
+X		case MapNotify:
+X		case ReparentNotify:
+X		case UnmapNotify:
+X		case MappingNotify:
+X			break;
+X
+X		default:
+X			printf("unknown event: %d\n", event.type);
+X	    }
+X	}
+X}
+X
+X
+Xvoid graph_loop()
+X{
+X	int	i,*lasty,fonts_per_line;
+X
+X	width = size_hints.width - 2*INSIDE_BORDER_WIDTH;
+X	fonts_per_line = width/TEXT_WIDTH;
+X	num_info_lines = num_graphs / fonts_per_line;
+X	if (num_info_lines * fonts_per_line < num_graphs)
+X			num_info_lines ++;
+X
+X	if (hide_labels)
+X		height = size_hints.height - INSIDE_BORDER_WIDTH*2;
+X	else
+X		height = size_hints.height- font_height*num_info_lines -
+X			 INSIDE_BORDER_WIDTH*2;
+X
+X	points =(int **)  malloc(sizeof(int * )  * num_graphs);
+X	lasty = (int *) malloc(sizeof(int) * num_graphs);
+X
+X	for (i=0; i<num_graphs; i++) {
+X		points[i] =  (int *) malloc(sizeof(int) *width);
+X		graphs[i].running_avg = (graphs[i].scale+1)*width *
+X			graphs[i].scale_mult;
+X		if (graphs[i].host_offset != localhost || allnames) {
+X			strcat(graphs[i].name,"@");
+X			strcat(graphs[i].name,hosts[graphs[i].host_offset]);
+X		}
+X		graphs[i].name_len = strlen(graphs[i].name);
+X	}
+X
+X	/* Create a pixmap for scrolling just about the size of the
+X	 * window. size_hints.height is used instead of the height
+X	 * variable because the labels can be turned on and off.  So
+X	 * we create a pixmap that is large enough in case the labels
+X	 * are turned off.
+X	 */
+X	new_win = XCreatePixmap(display, win, width-1,size_hints.height+
+X		INSIDE_BORDER_WIDTH, DefaultDepth(display, screen_num));
+X
+X	set_first_values();
+X	sleep(sleep_time);
+X	set_values();		/* this call sets the starting point */
+X	sleep(sleep_time);
+X	if (draw_baseline) {
+X		XSetForeground(display,gc, baseline.pixel);
+X		XDrawPoint(display,win,gc, xpos,INSIDE_BORDER_WIDTH + height);
+X	}
+X	xpos=INSIDE_BORDER_WIDTH + 1;
+X	for (i=0; i<num_graphs; i++)
+X		lasty[i] = points[i][0];
+X
+X	while (1) {
+X	    /* set_values returns true if the graph has been re-drawn.
+X	     * If a the graph has been re-drawn and we are at the
+X	     * edge of the screen, decrease xpos.  We do not need to
+X	     * to scroll over, however, because that will have been taken
+X	     * care of by the redraw function.
+X	     */
+X	    if (set_values() && xpos>width)
+X		xpos--;
+X	    if (xpos>width) {
+X		XCopyArea(display, win, new_win, gc,
+X			 INSIDE_BORDER_WIDTH+1,0,
+X			 width-1, height+INSIDE_BORDER_WIDTH*2, 0,0);
+X		XClearArea(display, win, width-1 - INSIDE_BORDER_WIDTH,0,
+X			width-INSIDE_BORDER_WIDTH, height+INSIDE_BORDER_WIDTH, False);
+X		XCopyArea(display, new_win, win, gc, 0, 0, width-1,
+X			height+INSIDE_BORDER_WIDTH*2,
+X			INSIDE_BORDER_WIDTH,0);
+X		xpos--;
+X	    }
+X	    if (draw_baseline) {
+X		XSetForeground(display,gc, baseline.pixel);
+X		XDrawPoint(display,win,gc, xpos,INSIDE_BORDER_WIDTH + height);
+X	    }
+X	    for (i=0; i<num_graphs; i++) {
+X		XSetForeground(display, gc, graphs[i].color_pixel);
+X
+X		XDrawLine(display,win, gc, xpos-1, INSIDE_BORDER_WIDTH +
+X		    height- lasty[i] * height/(graphs[i].scale *
+X		    graphs[i].scale_mult), xpos,
+X		    INSIDE_BORDER_WIDTH +height - (points[i][point_pos] *
+X		    height) / (graphs[i].scale * graphs[i].scale_mult));
+X		lasty[i] = points[i][point_pos];
+X		/* point_pos %2 is to draw it every other point. */
+X		if (graphs[i].scale_lines>0 && !(point_pos % 2) &&
+X		    graphs[i].scale_lines<graphs[i].scale) {
+X			int	sline,slineinc=1;
+X
+X			/* Keep is so that the number of horizontal lines is
+X			 * at least somewhat reasonable.
+X			 */
+X			while ((graphs[i].scale_lines*slineinc*height / graphs[i].scale) < PTSSCALELINE)
+X				slineinc*=2;
+X			sline = slineinc;
+X
+X			/* Yes, it is supposed to be just less than scale,
+X			 * not less than equal.  No point drawing a line at
+X			 * the top of the window.
+X			 */
+X			while (sline*graphs[i].scale_lines < graphs[i].scale) {
+X			    XDrawPoint(display, win, gc, xpos -1,
+X				height - (sline * graphs[i].scale_lines * height) /
+X				graphs[i].scale + INSIDE_BORDER_WIDTH);
+X			    sline+=slineinc;
+X			}
+X		    }
+X	    }
+X	    xpos++;
+X	    /* Sleep for 1 second at a time, then check for events.
+X	     * This is done so that there will never be more than
+X	     * 1 second before events are handled.  The program does
+X	     * assume that all other processing time is negligable
+X	     * in respect to the sleep amount
+X	     */
+X	    for (i=0; i<sleep_time; i++) {
+X		sleep(1);
+X		check_events();
+X	    }
+X	}
+X}
+X
+Xvoid set_up_graph(char *graphtype)
+X{
+X	int	i;
+X
+X	for (i=0; i <= NUM_TYPES; i++) {
+X	    if (!strcmp(graphtype, types[i].cmd_option)) {
+X		if (num_graphs==0)
+X			graphs = (struct graph_info *)
+X				malloc(sizeof(struct graph_info));
+X		else
+X			graphs = (struct graph_info *)
+X			    realloc(graphs, sizeof(struct graph_info)*
+X				(num_graphs+1));
+X		graphs[num_graphs].type = i;
+X		graphs[num_graphs].scale = types[i].def_scale;
+X		graphs[num_graphs].true_scale = types[i].def_scale;
+X		graphs[num_graphs].color_pixel = foreground.pixel;
+X		strcpy(graphs[num_graphs].name,types[i].window_name);
+X		graphs[num_graphs].host_offset = -1;
+X		graphs[num_graphs].scale_lines = 0;
+X		if (i==CPU) {
+X			graphs[num_graphs].max_scale = 100;
+X			graphs[num_graphs].min_scale = 100;
+X		}
+X		else {
+X			graphs[num_graphs].max_scale = 0x7fffffff;
+X			graphs[num_graphs].min_scale = 2;
+X		}
+X		if (i>=LOAD1 && i<=LOAD15)
+X			graphs[num_graphs].scale_mult = LOAD_FACTOR;
+X		else
+X			graphs[num_graphs].scale_mult = 1;
+X
+X		break;
+X	    }
+X	}
+X	if (i>NUM_TYPES) {
+X		fprintf(stderr,"Unknown graph type: %s\n", graphtype);
+X		exit(1);
+X	}
+X	else num_graphs++;
+X}
+X
+Xvoid usage()
+X{
+X	printf("%s Usage:\n",VERSION);
+X	puts("-allnames		Display names of all hosts, even localhost");
+X	puts("-background color 	background color");
+X	puts("-baseline color		draw baseline of color 'color'");
+X	puts("-color color		color of last graph specified by -type");
+X	puts("-display displayname	X server to contact");
+X	puts("-foreground color	foreground color");
+X	puts("-geometry geom		size (in pixels) and position");
+X	puts("-hidelabels		do not display labels at bottom of graph.");
+X	puts("-host string		machine to report statistics on");
+X	puts("-min number		minimum scale of last graph specified by -type");
+X	puts("-max number		maximum scale of last graph specified by -type");
+X	puts("-samescale		Synchronize scales of similar graphs");
+X	puts("-sample number		how many seconds between each update");
+X	puts("-scale number		draw dotted horizontal lines of the last graph");
+X	puts("			at value specified.");
+X	puts("-type string		type of graph to display: Choices of cpu,");
+X	puts("			packets, page, swap, interrupts, disk, context, load,");
+X	puts("			collisions, or errors.");
+X	
+X	exit(1);
+X}
+X
+Xvoid parse_args(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X
+X	int	i=1;
+X	XColor		exact,screen_def;
+X
+X	while (i<argc) {
+X
+X		/* Display has been processed in main.  Just ignore it here */
+X		if (!strcmp(argv[i],"-display"))
+X			i++;
+X		else if (!strcmp(argv[i],"-geometry")) {
+X		    int	geomask;
+X		    /* Would be nice if in the size_hints structure
+X		     * declaration in the X11 header files that width
+X		     * and height would be declared the same as what
+X		     * most calls use..
+X		     */
+X		    geomask = XParseGeometry(argv[++i], &size_hints.x,
+X			&size_hints.y, (unsigned *)&size_hints.width,
+X			(unsigned *)&size_hints.height);
+X		    if (size_hints.width<DEFAULT_SIZE) size_hints.width=DEFAULT_SIZE;
+X		    if (size_hints.height<DEFAULT_SIZE) size_hints.height=DEFAULT_SIZE;
+X		    if (geomask & XNegative)
+X			size_hints.x += WidthOfScreen(ScreenOfDisplay(display,screen_num))
+X			 - size_hints.width;
+X		    if (geomask & YNegative)
+X			size_hints.y += HeightOfScreen(ScreenOfDisplay(display,screen_num))
+X			 - size_hints.height;
+X		    if (geomask & (XValue | YValue))
+X			size_hints.flags |= USPosition;
+X		    if ((geomask & XNegative) && (geomask & YNegative))
+X			size_hints.win_gravity = SouthEastGravity;
+X		    else if (geomask & XNegative)
+X			size_hints.win_gravity = NorthEastGravity;
+X		    else if (geomask & YNegative)
+X			size_hints.win_gravity = SouthWestGravity;
+X		}
+X
+X		else if (!strcmp(argv[i],"-background") || !strcmp(argv[i],"-bg")) {
+X		    if (!XAllocNamedColor(display, DefaultColormap(display, screen_num),
+X			argv[++i], &background,&exact))
+X			    fprintf(stderr,"Could not allocated color %s\n",argv[i]);
+X		}
+X		else if (!strcmp(argv[i],"-foreground") || !strcmp(argv[i],"-fg"))  {
+X		    if (!XAllocNamedColor(display, DefaultColormap(display, screen_num),
+X			argv[++i], &foreground,&exact))
+X			    fprintf(stderr,"Could not allocated color %s\n",argv[i]);
+X		}
+X		else if (!strcmp(argv[i],"-sample")) {
+X			sleep_time = atoi(argv[++i]);
+X			if (sleep_time < 1)
+X				usage();
+X		}
+X		else if (!strcmp(argv[i],"-baseline"))  {
+X		    if (!XAllocNamedColor(display, DefaultColormap(display, screen_num),
+X			argv[++i], &baseline,&exact))
+X			    fprintf(stderr,"Could not allocated color %s\n",argv[i]);
+X		    else draw_baseline = TRUE;
+X		}
+X		else if (!strcmp(argv[i],"-type")) {
+X			set_up_graph(argv[++i]);
+X		}
+X		else if (!strcmp(argv[i],"-color")) {
+X		    if (!XAllocNamedColor(display, DefaultColormap(display, screen_num),
+X			argv[++i], &screen_def,&exact))
+X			    fprintf(stderr,"Could not allocated color %s\n",argv[i]);
+X		    else {
+X			if (!num_graphs) {
+X				fprintf(stderr,"No graphs have been specified");
+X				exit(1);
+X			}
+X			else
+X				graphs[num_graphs-1].color_pixel =
+X					screen_def.pixel;
+X		    }
+X		}
+X		else if (!strcmp(argv[i],"-min")) {
+X			if (!num_graphs) {
+X				fprintf(stderr, "No graphs have been specified\n");
+X				exit(1);
+X			}
+X			else {
+X				graphs[num_graphs-1].min_scale = atoi(argv[++i]);
+X				if (graphs[num_graphs-1].min_scale < 2)
+X					graphs[num_graphs-1].min_scale = 2;
+X			}
+X		}
+X		else if (!strcmp(argv[i],"-max")) {
+X			if (!num_graphs) {
+X				fprintf(stderr, "No graphs have been specified\n");
+X				exit(1);
+X			}
+X			else {
+X				graphs[num_graphs-1].max_scale = atoi(argv[++i]);
+X				if (graphs[num_graphs-1].max_scale < graphs[num_graphs-1].min_scale)
+X					graphs[num_graphs-1].max_scale =
+X						graphs[num_graphs-1].min_scale;
+X			}
+X		}
+X		else if (!strcmp(argv[i],"-host")) {
+X		    if (!num_graphs) {
+X			fprintf(stderr, "No graphs have been specified\n");
+X			exit(1);
+X		    }
+X		    else {
+X			i++;
+X			if (!num_hosts) {
+X				hosts = (char **) malloc(sizeof(char *));
+X				hosts[0] = argv[i];
+X				
+X				graphs[num_graphs-1].host_offset = 0;
+X				num_hosts++;
+X			}
+X			else {
+X				int s;
+X
+X				for (s=0; s<num_hosts; ++s)
+X					if (!strcmp(hosts[s],argv[i])) break;
+X				if (s==num_hosts) {
+X					hosts =(char**)realloc(hosts, (num_hosts+1) * sizeof(char *));
+X					hosts[num_hosts++] = argv[i];
+X				}
+X				graphs[num_graphs-1].host_offset = s;
+X			}
+X		    }
+X		}
+X		else if (!strcmp(argv[i],"-samescale")) {
+X			scale_sync = TRUE;
+X		}
+X		else if (!strcmp(argv[i],"-allnames")) {
+X			allnames = TRUE;
+X		}
+X		else if (!strcmp(argv[i],"-hidelabels")) {
+X			hide_labels = TRUE;
+X		}
+X		else if (!strcmp(argv[i], "-scale")) {
+X			if (!num_graphs) {
+X				fprintf(stderr, "No graphs have been specified\n");
+X				exit(1);
+X			}
+X			else {
+X				graphs[num_graphs-1].scale_lines = atoi(argv[++i]);
+X			}
+X		}
+X		else usage();
+X		i++;
+X	}
+X}
+X
+X
+X
+Xvoid main( argc, argv )
+X	int             argc;
+X	char           *argv[];
+X
+X{
+X	XGCValues	xgcvalues;
+X	XWMHints	wm_hints;
+X	XClassHint	class_hints;
+X	XTextProperty	window_name;
+X	XSetWindowAttributes	window_attributes;
+X	int		i;
+X	char		*disp="",*prog_name=VERSION;
+X
+X	/* localhost needs to be static because we set a pointer to it. */
+X	static char	localhostname[MAXHOSTNAMELEN];
+X
+X	if (argc==1) usage();
+X
+X	/* Find the display (and screen number) first.  Once we have that
+X	 * information, we can process the other arguements better as
+X	 * we read them.
+X	 */
+X
+X	for (i=1; i<(argc-1); i++)
+X	    if (!strcmp(argv[i],"-display")) {
+X		disp = argv[i+1];
+X		break;
+X	    }
+X	if ((display=XOpenDisplay(disp))==NULL) {
+X		fprintf(stderr, "Unable to open display: %s\n",
+X			XDisplayName(disp));
+X		exit(1);
+X	}
+X	screen_num = DefaultScreen(display);
+X
+X	whitepixel = WhitePixel(display, screen_num);
+X	blackpixel = BlackPixel(display, screen_num);
+X
+X	foreground.pixel = blackpixel;
+X	foreground.red = foreground.blue = foreground.green = 0;
+X	background.pixel = whitepixel;
+X	background.red = foreground.blue = foreground.green = 65535;
+X	parse_args(argc, argv);
+X
+X	if (!num_graphs) {
+X		fprintf(stderr,"At least one graph type needs to be specified\n");
+X		exit(1);
+X	}
+X
+X
+X/* Following sets up the graphs where a hostname was not specified.  First
+X * find out if the local host was specified for at least one graph.
+X * Then, go through the graph types.  If there are graphs in which a
+X * host has not been specified, then set it the localhost, and allocate
+X * the space for it, if that is required.
+X */
+X
+X	gethostname(localhostname, MAXHOSTNAMELEN);
+X	for (i=0; i<num_hosts; i++) {
+X		if (!strcmp(hosts[i],localhostname)) {
+X			localhost = i;
+X			break;
+X		}
+X	}
+X	for (i=0; i<num_graphs; i++) {
+X		if (graphs[i].host_offset == -1) {
+X			if (localhost==-1) {
+X				if (num_hosts==0)
+X					hosts = (char **)malloc(sizeof(char *));
+X				else 
+X					hosts=(char**)realloc(hosts, (1+num_hosts) * sizeof(char *));
+X				hosts[num_hosts] = localhostname;
+X				localhost = num_hosts++;
+X			}
+X			graphs[i].host_offset = localhost;
+X		}
+X	}
+X
+X	window_attributes.background_pixel = background.pixel;
+X	window_attributes.backing_store = WhenMapped;
+X	win = XCreateWindow(display, RootWindow(display, screen_num),
+X		size_hints.x, size_hints.y, size_hints.width, size_hints.height,
+X		0, CopyFromParent, InputOutput,  CopyFromParent,
+X		CWBackPixel | CWBackingStore, &window_attributes);
+X
+X	XSelectInput(display, win, StructureNotifyMask | ExposureMask |
+X		KeyPressMask);
+X
+X
+X	if ((font_info = XLoadQueryFont(display, FONT))==NULL) {
+X		fprintf(stderr,"Unable to load font %s\n",FONT);
+X		exit(1);
+X	}
+X	font_height=font_info->max_bounds.ascent +
+X		font_info->max_bounds.descent;
+X
+X	xgcvalues.foreground = foreground.pixel;
+X	xgcvalues.background = background.pixel;
+X	xgcvalues.line_width = 1;
+X	
+X	xgcvalues.graphics_exposures = False;
+X	xgcvalues.font = font_info->fid;
+X
+X	/* create the various graphic contexts we need. gc and gc_color
+X	differ only in the we only change the colors on the gc_color context,
+X	and thus, it is only used for brick drawing.  gc_color really has no
+X	use on a black & white system */
+X
+X	gc = XCreateGC(display, win, GCFont | GCLineWidth |
+X		GCForeground | GCBackground | GCGraphicsExposures, &xgcvalues);
+X
+X	wm_hints.flags = InputHint;
+X	wm_hints.input = False;
+X
+X	class_hints.res_name = "XSysStats";
+X	class_hints.res_class =  "XSysStats";
+X
+X	XStringListToTextProperty(&prog_name, 1, &window_name);
+X	XSetWMProperties(display, win, &window_name, &window_name,
+X		argv,argc, &size_hints, &wm_hints, &class_hints);
+X
+X
+X	XMapWindow(display, win);
+X	XFlush(display);
+X
+X	/* initialize random (used to determine next stage) */
+X	graph_loop();
+X
+X}
+X
+END_OF_FILE
+if test 22822 -ne `wc -c <'xsysstats.c'`; then
+    echo shar: \"'xsysstats.c'\" unpacked with wrong size!
+fi
+# end of 'xsysstats.c'
+fi
+if test -f 'xsysstats.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xsysstats.h'\"
+else
+echo shar: Extracting \"'xsysstats.h'\" \(2710 characters\)
+sed "s/^X//" >'xsysstats.h' <<'END_OF_FILE'
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <stdio.h>
+X#include <sys/param.h>
+X#include <malloc.h>
+X
+X
+X/* Font is a nice small font. */
+X#define FONT "-adobe-times-medium-r-normal--10-100-75-75-p-54-iso8859-1"
+X#define	DEFAULT_SIZE	64	/* default width & height of the window */
+X#define	TEXT_WIDTH	60	/* How many pixels (width) is the minimum
+X				 * to display the text at the bottom.
+X				 * Number is sort of arbitrarily chosen.
+X				 * It must be less than DEFAULT_SIZE however.
+X				 */
+X#define PTSSCALELINE	5	/* If scale lines (by -scale arguement)
+X				 * are closer than this many pixels together,
+X				 * fewer scale lines are drawn.  If you always
+X				 * want scale lines drawn, even if they are
+X				 * right next to each other, set this to 0.
+X				 * If the lines would be within this range,
+X				 * -scale value is doubled, then quadrapuled,
+X				 * and so on until it it can be drawn properly.
+X				 */
+X
+X#define CPU		0	/* % of cpu being used */
+X#define PACKETS		1	/* average number of incoming packets */
+X#define PAGE		2
+X#define SWAP		3
+X#define INT		4
+X#define DISK		5
+X#define CONTEXT		6
+X#define LOAD1		7	/* LOAD1, LOAD5 and LOAD15 need to be */
+X#define LOAD5		8	/* number consecutively. */
+X#define LOAD15		9
+X#define COLL		10
+X#define ERRORS		11
+X#define NUM_TYPES	11	/* should be the same as the last graph type
+X				 * above
+X				 */
+X#define INSIDE_BORDER_WIDTH	1
+X#define DOWNSCALE_OCCURANCE	30	/* How many ticks between each
+X					 * downscale attempt */
+X#define LOAD_FACTOR 100               /* internal representation of load is
+X				       * this many times bigger */
+X
+X#ifndef TRUE
+X#define TRUE 1
+X#endif
+X#ifndef FALSE
+X#define FALSE 0
+X#endif
+X
+Xstruct graph_info {
+X	int	scale,true_scale;	/* true_scale is the scale that would
+X					 * be used if this graph was not
+X					 * synced with another graph.
+X					 */
+X	unsigned char	type;
+X	unsigned long	color_pixel;
+X	char	name[MAXHOSTNAMELEN + 10];
+X	short	name_len;
+X	int	max_scale;
+X	int	min_scale;
+X	int	scale_mult;		/* How much to multiply the
+X					 * scale by for it to correspond
+X					 * to the point values.  This is used
+X					 * only for load to give good
+X					 * resolution.
+X					 */
+X	int	scale_lines;	/* Dashed horizontal lines.  will be
+X				 * drawn at the value this variable
+X				 * holds.  Ie, if this is 32, and the
+X				 * scale of the graph is 64, there will
+X				 * be 1 line in the center of the window.
+X				 * if the scale is 128, there will be
+X				 * 3 lines, equally spaced.
+X				 */
+X	int	running_avg;	/* use this as a guide for re-sizes */
+X	short	host_offset;
+X} *graphs;
+X
+Xextern int	num_hosts,point_pos,width,num_graphs,**points,sleep_time,
+X	scale_sync,hide_labels;
+Xextern char	**hosts;
+X
+Xvoid set_first_values();
+Xint set_values();
+Xvoid redraw_graph();
+END_OF_FILE
+if test 2710 -ne `wc -c <'xsysstats.h'`; then
+    echo shar: \"'xsysstats.h'\" unpacked with wrong size!
+fi
+# end of 'xsysstats.h'
+fi
+if test -f 'xsysstats.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xsysstats.man'\"
+else
+echo shar: Extracting \"'xsysstats.man'\" \(6369 characters\)
+sed "s/^X//" >'xsysstats.man' <<'END_OF_FILE'
+X.TH XSysStats 1 "August 26, 1993"
+X.br
+X.SH NAME
+Xxsysstats
+X.SH SYNOPSIS
+X.B xsysstats -type \fItype\fR -geometry \fIgeometry\fR
+X-display \fIdisplay\fR
+X-background \fIcolor\fR -baseline \fIcolor\fR -color \fIcolor\fR 
+X-foreground \fIcolor\fR -host \fIhostname\fR -min \fImin\fR 
+X-max \fImax\fR -sample \fIsample_time\fR -allnames -samescale
+X-hidelabels -scale \fIvalue\fR
+X
+X.SH DESCRIPTION
+XXSysStats is a tool to show various system statistics.  It shows them in
+Xthe form of a strip graph in a window.
+X
+XIt can show multiple graphs in one window, and the graphs can be
+Xdetailing information about several machines.
+X
+XAt the bottom of the window, what graph types and their scale is displayed.
+XThese are displayed in the color of the graph.
+X
+XWhile XSysStats is running, graphs will be downscaled and upscaled
+Xas require.  And upscale doubles the graph scale, and only occurs when
+Xa new point is beyond the graph bounds.
+X
+XDownscaling occurs when the running average falls below the scale, and
+Xall points on the graph are less than half the present scale.  Downscaling
+Xhalves the scale of the graph.
+X
+XUpscaling and Downscaling by default do not occur on graphs of cpu time.
+XScaling can further be controlled by the -min and -max arguments.
+X
+XA black and white display system will not likely be able to make much sense
+Xof multiple graphs in the same window.  However, several xsysstats
+Xprograms could be run, each detailing a different statistic.
+X
+X.SH COMMAND LINE OPTIONS
+XNote: unlike many programs, the order the command line arguments are
+Xgiven in is relevant.  The -host, -color, -min and -max operate on the last
+X-type argument given.  Only graphs specified given after -foreground
+Xwill inherit that color.  Also, at least one -type arguements needs to be
+Xsupplied before -host, -color, -min or -max can be used, otherwise an
+Xerror will result.
+X.TP 8
+X-type \fItype\fR
+XThis is the type of graph to display. The types are:
+X
+Xcollisions: number of incoming ethernet collisions since last update
+X
+Xcontext: number of context switches per second
+X
+Xcpu: percentage of cpu time being used
+X
+Xdisk: number of disk transfers per second
+X
+Xerrors: number of incoming ethernet errors since last update
+X
+Xinterrupts: average number of device interrupts, per second
+X
+Xload1, load5, load15: The average number of jobs in the load queue for the
+Xlast 1, 5, and 15 minutes.
+X
+Xpackets: number of incoming ethernet packets per second
+X
+Xpage: page ins since last update
+X
+Xswap: swap ins since last update
+X
+XMultiple graphs are selected by specifying multiple -type arguments.
+XThe graphs are graphed in the order of the -type arguments.  This means
+Xthat the first -type graph given will be drawn first, which means it
+Xcan be overwritten with graph data from later graphs.  The graph
+Xwhich you want to see most clearly should be the last -type argument.
+X.TP
+X-geometry \fIgeometry\fR
+XThe geometry of the window.
+X.TP
+X-display \fIdisplay\fR
+Xwhat screen/system to display the window on.
+X.TP
+X-background \fIcolor\fR
+Xbackground color of the window.
+X.TP
+X-baseline \fIcolor\fR
+Xthis tells XSysStats to draw a baseline of color \fIcolor\fR.  The baseline
+Xis a zero line, the minimum value any graph can have.
+X.TP
+X-color \fIcolor\fR
+Xthis sets the color of the last graph specified with the -type argument.
+X.TP
+X-foreground \fIcolor\fR
+Xthis sets the default foreground color.  Any graphs specified after
+Xthis argument in which a -color argument
+Xis not set for it will have this color.
+X.TP
+X-host \fIhost\fR
+Xthis specifies the host to report information on.  It applies to the last
+X-type argument given.  There is no checking done to see if this is a valid
+Xhost.  If no hosts exists with the \fIhost\fR name, then the graph for
+Xwhich this host applied will not be graphed in any reasonable fashion.
+X.TP
+X-min \fImin\fR
+Xthis is the minimum value the last graph specified by -type will downscale to.
+X.TP
+X-max \fImax\fR
+Xthis is the maximum value the graph specified by -type will scale to.
+XIf points are beyond
+Xthis scale, they will be drawn out of bounds.
+X
+XIf both min and max are the same, the graph will never change scale.  By
+Xdefault, most graphs have a min value of 2 and a very large max value.
+XThe cpu graph is the one exception, both its min and max value is 100.
+X.TP
+X-sample \fIsample_time\fR
+XThis is how long the program sleeps between each update.  The minimum
+Xvalue is 1.  By default, it is 2.
+X.TP
+X-allnames
+XThis forces the hostname for all hosts to be displayed along with the
+Xgraph type at the bottom of the window, including the localhost.
+X.TP
+X-samescale
+XGraphs of similar type will always have the same scale.  This can be useful
+Xif the same -type is being used to graph information on multiple hosts.  It
+Xallows for easy comparison of the graph data.
+X.TP
+X-hidelabels
+XPrevent all graph labels and scale from being drawn at the bottom of the screen.
+XMakes better use of space.  Limited use if you need to know the scale of
+Xthe graph and the graphs scale changes.  Certain keys can toggle the labels
+Xon or off while running.  See the section below on KEYBOARD CONTROL
+Xfor more information.
+X.TP
+X-scale \fIvalue\fR
+XCauses dotted horizontal scale lines every \fIvalue\fR points on the graph.
+XThus, if \fIvalue\fR is 32 and the scale of the graph is 64, a dotted
+Xline will be drawn in the middle of the window.  This operates on the
+Xlast -type arguement given.  If scale lines become too close together
+Xin the window, \fIvalue\fR will doubled until the lines are adequately
+Xspread out.  The threshold value is about 5 pixels.  If two of these
+Xlines would be drawn closer together than that, the doubling will
+Xoccur.  The value of the lines are not drawn anyplace in the window.
+X
+X.SH X DEFAULTS
+XXSysStats does not support any standard resource values.  This is based
+Xsome on ease of programming and on usefulness of having resources.
+X
+XIt seems to me that very seldom will people want to have XSysStats run
+Xwith all the same resources more than once.  If X Defaults were supported,
+Xthen there would also need to be a way not to use them.
+X
+X.SH KEYBOARD CONTROL
+XWhile XSysStats is running, the following keys will cause various
+Xevents to happen:
+X.TP
+Xl,L: This will toggle the labels on or off.  This is the same behaviour
+Xas the -hidelabels command line option.
+X
+X.SH BUGS
+XValid host name checking should be done when the -host argument
+Xis specified.
+X
+XTimeouts of rstat on remote hosts will pretty much stop all the graphs.
+END_OF_FILE
+if test 6369 -ne `wc -c <'xsysstats.man'`; then
+    echo shar: \"'xsysstats.man'\" unpacked with wrong size!
+fi
+# end of 'xsysstats.man'
+fi
+echo shar: End of shell archive.
+exit 0
+
+   Mark Wedel
+master@rahul.net
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

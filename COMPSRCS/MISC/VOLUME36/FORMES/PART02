@@ -1,0 +1,2469 @@
+Newsgroups: comp.sources.misc
+From: 0001729221@mcimail.com (Jeffrey Chilton)
+Subject: v36i090:  formes - French verb drill v1.5, Part02/03
+Message-ID: <1993Apr2.022237.20299@sparky.imd.sterling.com>
+X-Md4-Signature: 8e0e0c4ca533046d90155110a09a1ce5
+Date: Fri, 2 Apr 1993 02:22:37 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: 0001729221@mcimail.com (Jeffrey Chilton)
+Posting-number: Volume 36, Issue 90
+Archive-name: formes/part02
+Environment: DOS, SUNOS, ULTRIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 3)."
+# Contents:  collect.c exstr.c formes.c quiz.c quizstep.c report.c
+#   verb.h verbset.c
+# Wrapped by chiltj@ois on Fri Mar 26 14:21:20 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'collect.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'collect.c'\"
+else
+echo shar: Extracting \"'collect.c'\" \(4921 characters\)
+sed "s/^X//" >'collect.c' <<'END_OF_FILE'
+X
+X/*
+X *  Copyright (C) 1992-1993 Jeffrey Chilton
+X *
+X *  Permission is granted to anyone to make or distribute copies of
+X *  this program, in any medium, provided that the copyright notice
+X *  and permission notice are preserved, and that the distributor
+X *  grants the recipient permission for further redistribution as
+X *  permitted by this notice.
+X *  
+X *  Author's E-mail address:  172-9221@mcimail.com
+X *  
+X */
+X
+Xstatic char *whatstring = "@(#)collect.c	2.3 JWC";
+X
+X#include <stdio.h>
+X
+X#include "class.h"
+X#include "collect.h"
+X
+X#define C_ALLOCATION 64  /* Bytes */
+X
+X/* Collection_new - create a new collection object */
+X
+X/* 
+X *  This method creates a new, empty collection of pointers with an initial
+X *  allocation of item storage determined by C_ALLOCATION.  Two optional
+X *  function-pointer arguments may be provided.  The first, match, is used
+X *  by Collection_atKeyPut and Collection_atKekGet to identify that item of
+X *  a Collection which matches a specified key.  If a non-null function-
+X *  pointer is provided as the second argument, destroy, Collection_destroy
+X *  will call it for each item of the Collection.
+X */
+X
+XCollection *
+XCollection_new(match, destroy)
+Xint (*match)();
+Xvoid (*destroy)();
+X{
+X    register int i;
+X    Collection *self;
+X    register int n;
+X    char **t;
+X
+X    self = (Collection *)malloc(sizeof (Collection));
+X    if (!self)
+X    {
+X	fprintf(stderr, "Collection_new: object malloc");
+X	goto out;
+X    }
+X
+X    n = 1 + C_ALLOCATION / sizeof (char *);
+X    t = (char **)malloc(n * sizeof (char *));
+X    if (!t)
+X    {
+X	free(self);
+X	fprintf(stderr, "Collection_new: items malloc");
+X	self = (Collection *)0;
+X	goto out;
+X    }
+X
+X    for (i = 0; i < n; i++)
+X    {
+X	t[i] = (char *)0;
+X    }
+X
+X    self->items = t;
+X    self->currentLimit = n;
+X    self->destroy = destroy;
+X    self->match = match;
+X    self->nOfItems = 0;
+X
+Xout:
+X
+X    return self;
+X
+X}
+X
+X/* Collection_atPut - store a pointer value at the specified index */
+X
+Xint
+XCollection_atPut(self, index, value)
+XCollection *self;
+Xint index;
+Xchar *value;
+X{
+X    register int i, n;
+X    int oldLimit;
+X    char **t;
+X    int rc;
+X
+X    n = index - self->currentLimit;
+X    if (n >= 0)
+X    {
+X	oldLimit = self->currentLimit;
+X	self->currentLimit += n + C_ALLOCATION / sizeof (char *) + 1;
+X	t = (char **)realloc(self->items, self->currentLimit * sizeof (char *));
+X	if (!t)
+X	{
+X	    fprintf(stderr, "Collection_atPut: items realloc");
+X	    rc = FAILURE;
+X	    goto out;
+X	}
+X	n = self->currentLimit;
+X	for (i = oldLimit; i < n; i++)
+X	{
+X	    t[i] = (char *)0;
+X	}
+X	self->items = t;
+X    }
+X
+X    if (index >= self->nOfItems)
+X    {
+X	self->nOfItems = index + 1;
+X    }
+X
+X    t = self->items;
+X    if (self->destroy && t[index])
+X    {
+X	(*self->destroy)(t[index]);
+X    }
+X    t[index] = value;
+X
+X    rc = PERFECT;
+X
+Xout:
+X
+X    return rc;
+X
+X}
+X
+X/* Collection_atKeyPut - store a pointer value where key matches or in empty */
+X
+Xint
+XCollection_atKeyPut(self, key, value)
+XCollection *self;
+Xchar *key;
+Xchar *value;
+X{
+X    register int i;
+X    int emptyCell;
+X    char *t;
+X    int rc;
+X
+X    emptyCell = -1;
+X    for (i = 0; i < self->nOfItems; i++)
+X    {
+X	t = Collection_atGet(self, i);
+X	if (t == (char *)0)
+X	{
+X	    emptyCell = i;
+X	    continue;
+X	}
+X	if ((*self->match)(t, key) == 0)
+X	{
+X    	    rc = Collection_atPut(self, i, value);
+X	    goto out;
+X	}
+X    }
+X
+X    rc = Collection_atPut(self, emptyCell > -1 ? emptyCell : i, value);
+X
+Xout:
+X
+X    return rc;
+X
+X}
+X
+X/* Collection_atKeyGet - search for the specified key and return a value */
+X
+Xchar *
+XCollection_atKeyGet(self, key)
+XCollection *self;
+Xchar *key;
+X{
+X    register int i;
+X    char *t;
+X
+X    for (i = 0; i < self->nOfItems; i++)
+X    {
+X	t = Collection_atGet(self, i);
+X	if (t && (*self->match)(t, key) == 0)
+X	{
+X	    goto out;
+X	}
+X    }
+X
+X    t = (char *)0;
+X
+Xout:
+X
+X    return t;
+X
+X}
+X
+X/* Collection_atKeyGetIndex - search for specified key and return index */
+X
+Xint
+XCollection_atKeyGetIndex(self, key)
+XCollection *self;
+Xchar *key;
+X{
+X    register int i;
+X    char *t;
+X
+X    for (i = 0; i < self->nOfItems; i++)
+X    {
+X	t = Collection_atGet(self, i);
+X	if (t && (*self->match)(t, key) == 0)
+X	{
+X	    goto out;
+X	}
+X    }
+X
+X    i = -1;
+X
+Xout:
+X
+X    return i;
+X
+X}
+X
+X/* Collection_do - invoke supplied method on each non-null item */
+X
+Xint
+XCollection_do(self, block, arg)
+XCollection *self;
+Xint (*block)();
+Xchar *arg;
+X{
+X    register int i;
+X    char *t;
+X    int rc;
+X
+X    rc = PERFECT;
+X
+X    for (i = 0; i < self->nOfItems; i++)
+X    {
+X	t = Collection_atGet(self, i);
+X	if (t)
+X	{
+X	    rc = (*block)(t, arg);
+X	    if (rc < PERFECT)
+X	    {
+X		goto out;
+X	    }
+X	}
+X    }
+X
+Xout:
+X
+X    return rc;
+X
+X}
+X
+X
+X/* Collection_destroy - free memory associated with the collection */
+X
+Xvoid
+XCollection_destroy(self)
+XCollection *self;
+X{
+X    register int i;
+X    char *t;
+X
+X    if (!self)
+X    {
+X	return;
+X    }
+X
+X    if (self->destroy)
+X    {
+X	for (i = 0; i < self->nOfItems; i++)
+X	{
+X	    t = Collection_atGet(self, i);
+X	    if (t)
+X	    {
+X		(*self->destroy)(t);
+X	    }
+X	}
+X    }
+X
+X    free(self->items);
+X    free(self);
+X
+X}
+X
+END_OF_FILE
+if test 4921 -ne `wc -c <'collect.c'`; then
+    echo shar: \"'collect.c'\" unpacked with wrong size!
+fi
+# end of 'collect.c'
+fi
+if test -f 'exstr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'exstr.c'\"
+else
+echo shar: Extracting \"'exstr.c'\" \(4564 characters\)
+sed "s/^X//" >'exstr.c' <<'END_OF_FILE'
+X
+X/*
+X *  Copyright (C) 1992-1993 Jeffrey Chilton
+X *
+X *  Permission is granted to anyone to make or distribute copies of
+X *  this program, in any medium, provided that the copyright notice
+X *  and permission notice are preserved, and that the distributor
+X *  grants the recipient permission for further redistribution as
+X *  permitted by this notice.
+X *  
+X *  Author's E-mail address:  172-9221@mcimail.com
+X *  
+X */
+X
+Xstatic char *whatstring = "@(#)exstr.c	2.4 JWC";
+X
+X#include <string.h>
+X#include <malloc.h>
+X
+X#include "class.h"
+X#include "exstr.h"
+X
+X/* Special character translation */
+X
+X#define NLETTERS 10
+X#define NMARKS 5
+X
+Xchar Letters[NLETTERS + 1] = "ACEIOaceio";
+Xchar Marks[NMARKS + 1] = "`'^,~";
+X
+X#if DOS
+X
+X/* IBM/PC (note idiotic display adapter lacks most accented capitals) */
+X
+Xunsigned char MarkedLetters[NLETTERS][NMARKS] =
+X{
+X/*           `     '     ^     ,     ~   */
+X/*         ----  ----  ----  ----  ----  */
+X/* A */     'A',  'A',  'A',    0,    0,
+X/* C */      0,    0,    0,  0x80,    0,
+X/* E */     'E', 0x90,  'E',    0,    0,
+X/* I */     'I',  'I',  'I',    0,  'I',
+X/* O */     'O',  'O',  'O',    0,    0,
+X/* a */    0x85, 0xA0, 0x83,    0,    0,
+X/* c */       0,    0,    0, 0x87,    0,
+X/* e */    0x8A, 0x82, 0x88,    0,    0,
+X/* i */    0x8D, 0xA1, 0x8C,    0, 0x8B,
+X/* o */    0x95, 0xA2, 0x93,    0,    0
+X};
+X
+X#else
+X
+X/* Sun/SPARC (ANSI standard extended characters) */
+X
+Xunsigned char MarkedLetters[NLETTERS][NMARKS] =
+X{
+X/*          `    '    ^    ,    ~   */
+X/*         ---  ---  ---  ---  ---  */
+X/* A */    192, 193, 194,   0,   0,
+X/* C */      0,   0,   0, 199,   0,
+X/* E */    200, 201, 202,   0,   0,
+X/* I */    204, 205, 206,   0, 207,
+X/* O */    210, 211, 212,   0,   0,
+X/* a */    224, 225, 226,   0,   0,
+X/* c */      0,   0,   0, 231,   0,
+X/* e */    232, 233, 234,   0,   0,
+X/* i */    236, 237, 238,   0, 239,
+X/* o */    242, 243, 244,   0,   0
+X};
+X
+X#endif
+X
+X/* ExtendString_newFromString - convert from external form */
+X
+XExtendString *
+XExtendString_newFromString(str)
+Xchar *str;
+X{
+X    register int i, j;
+X    ExtendString *result;
+X    ExtendString *dest;
+X    unsigned char c;
+X    char *t, *u;
+X
+X    if (str[0] == '\0')
+X    {
+X	result = (ExtendString *)"";
+X	goto out;
+X    }
+X
+X    result = (ExtendString *)malloc(1 + strlen(str));
+X
+X    dest = result;
+X    while (*str)
+X    {
+X	t = strchr(Letters, *str);
+X	if (t && *(str + 1))
+X	{
+X	    u = strchr(Marks, *(str + 1));
+X	    if (u)
+X	    {
+X		c = MarkedLetters[t - Letters][u - Marks];
+X		if (c)
+X		{
+X		    *dest++ = c;
+X		    str += 2;
+X		    continue;
+X		}
+X	    }
+X	}
+X	*dest++ = *str++;
+X    }
+X    *dest = '\0';
+X
+Xout:
+X
+X    return result;
+X
+X}
+X
+X/* ExtendString_externalFormat - convert to external form */
+X
+Xchar *
+XExtendString_externalFormat(self)
+XExtendString *self;
+X{
+X    register int i, j;
+X    int length, found;
+X    ExtendString *t;
+X    char *result;
+X    char *out;
+X
+X    length = 0;
+X    t = self;
+X    while (*t)
+X    {
+X	found = FALSE;
+X	for (i = 0; i < NLETTERS; i++)
+X	{
+X	    for (j = 0; j < NMARKS; j++)
+X	    {
+X		if (MarkedLetters[i][j] == *t)
+X		{
+X		    found = TRUE;
+X		    break;
+X		}
+X	    }
+X	    if (found)
+X	    {
+X		break;
+X	    }
+X	}
+X	length += found ? 2 : 1;
+X	t++;
+X    }
+X
+X    result = (char *)malloc(1 + length);
+X    out = result;
+X
+X    t = self;
+X    while (*t)
+X    {
+X	found = FALSE;
+X	for (i = 0; i < NLETTERS; i++)
+X	{
+X	    for (j = 0; j < NMARKS; j++)
+X	    {
+X		if (MarkedLetters[i][j] == *t)
+X		{
+X		    t++;
+X		    found = TRUE;
+X		    *out++ = Letters[i];
+X		    *out++ = Marks[j];
+X		    break;
+X		}
+X	    }
+X	    if (found)
+X	    {
+X		break;
+X	    }
+X	}
+X	if (found)
+X	{
+X	    continue;
+X	}
+X	*out++ = *t++;
+X    }
+X    *out = '\0';
+X
+X    return result;
+X
+X}
+X
+X/* ExtendString_compareSansAccent - is external form close enough */
+X
+Xint
+XExtendString_compareSansAccent(self, str)
+XExtendString *self;
+Xchar *str;
+X{
+X    register int i;
+X    register int r, c;
+X    ExtendString *vert;
+X    int length;
+X    int found;
+X    int rc;
+X
+X    rc = strcmp((char *)self, str);
+X    if (rc == 0)
+X    {
+X	goto out;
+X    }
+X
+X    vert = ExtendString_newFromString(str);
+X    rc = strcmp((char *)self, (char *)vert);
+X    ExtendString_destroy(vert);
+X    if (rc == 0)
+X    {
+X	goto out;
+X    }
+X
+X    length = strlen((char *)self) + 1;
+X
+X    for (i = 0; i < length; i++)
+X    {
+X	if (self[i] == str[i])
+X	{
+X	    continue;
+X	}
+X	found = FALSE;
+X	for (r = 0; r < NLETTERS; r++)
+X	{
+X	    for (c = 0; c < NMARKS; c++)
+X	    {
+X		if (MarkedLetters[r][c] == self[i])
+X		{
+X		    found = TRUE;
+X		    break;
+X		}
+X	    }
+X	    if (found)
+X	    {
+X		break;
+X	    }
+X	}
+X	if (!found || str[i] != Letters[r])
+X	{
+X	    rc = 1;
+X	    goto out;
+X	}
+X    }
+X
+X    rc = 0;
+X
+Xout:
+X
+X    return rc;
+X
+X}
+X
+END_OF_FILE
+if test 4564 -ne `wc -c <'exstr.c'`; then
+    echo shar: \"'exstr.c'\" unpacked with wrong size!
+fi
+# end of 'exstr.c'
+fi
+if test -f 'formes.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'formes.c'\"
+else
+echo shar: Extracting \"'formes.c'\" \(8019 characters\)
+sed "s/^X//" >'formes.c' <<'END_OF_FILE'
+X
+Xstatic char *copyright = 
+X{
+X        " FORMES 1.5  Copyright (C) 1992-1993 Jeffrey Chilton \
+X\
+X    Permission is granted to anyone to make or distribute copies of   \
+X    this program, in any medium, provided that the copyright notice   \
+X    and permission notice are preserved, and that the distributor     \
+X    grants the recipient permission for further redistribution as     \
+X    permitted by this notice.                                         \
+X\
+X    Author's E-mail address:  172-9221@mcimail.com "
+X};
+X
+Xstatic char *whatstring = "@(#)formes.c	2.6 JWC";
+X
+X#include <stdio.h>
+X
+X#include "class.h"
+X#include "exstr.h"
+X#include "form.h"
+X#include "subject.h"
+X#include "subjset.h"
+X#include "quiz.h"
+X#include "quizset.h"
+X#include "random.h"
+X#include "report.h"
+X#include "verb.h"
+X#include "verbset.h"
+X
+XSubjectSet *AllSubjects;
+XVerbSet *AllVerbs;
+XQuizSet *AllQuizzes;
+XReportCard *VerbScores;
+XReportCard *QuizScores;
+XRandom *Squizzer;
+Xint GotRight;
+X
+Xextern Verb *Aller;
+X
+X#define SETS 5
+X#define REPS 5
+X
+Xstatic void loadObjects();
+Xstatic void loadScores();
+Xstatic void displayReport();
+Xstatic void saveScores();
+X
+Xmain()
+X{
+X    register int i, j;
+X    int erreurs;
+X    int questions;
+X    Quiz *oneQuiz;
+X    int quizClass;
+X    int lastClass;
+X    float percentage;
+X    char *t;
+X    int rc;
+X
+X    /* Initialize globals */
+X
+X    Squizzer = Random_new();
+X
+X    VerbScores = ReportCard_new("VERBSCORES");
+X    QuizScores = ReportCard_new("QUIZSCORES");
+X
+X    AllSubjects = SubjectSet_new();
+X    AllVerbs = VerbSet_new();
+X    AllQuizzes = QuizSet_new();
+X
+X    /* Load up! */
+X
+X    printf("\n");
+X
+X    loadObjects();
+X    loadScores();
+X
+X    displayReport(VerbScores);
+X
+X    /* Present questions */
+X
+X    printf("\n");
+X    lastClass = -1;
+X    questions = 0;
+X    erreurs = 0;
+X    for (j = 0; j < SETS; j++)
+X    {
+X	quizClass = ReportCard_pickClass(QuizScores);
+X	oneQuiz = QuizSet_getOneFromClass(AllQuizzes, quizClass);
+X	t = quizClass == lastClass ? " (encore!)" : "";
+X	printf("\n%s%s:\n\n", Quiz_getName(oneQuiz), t);
+X	for (i = 0; i < REPS; i++)
+X	{
+X	    questions++;
+X	    rc = Quiz_perform(oneQuiz);
+X	    ReportCard_record(QuizScores, quizClass, rc == PERFECT ? 1 : 0);
+X	    if (rc < PERFECT)
+X	    {
+X		erreurs++;
+X	    }
+X	}
+X	lastClass = quizClass;
+X    }
+X
+X    /* Dump out */
+X
+X    saveScores();
+X
+X    /* Calculate and report score */
+X
+X    percentage = ((float )questions - (float )erreurs) / (float )questions;
+X    printf("\nVotre compte est %3.1f par cent.  ", percentage * 100.0);
+X    if (percentage > 0.95)
+X    {
+X	printf("Fantastique!\n");
+X    }
+X    else if (percentage > 0.80)
+X    {
+X	printf("Tres bien!\n");
+X    }
+X    else if (percentage > 0.70)
+X    {
+X	printf("Pas tres bien.\n");
+X    }
+X    else if (percentage > 0.55)
+X    {
+X	printf("Pauvre, pauvre.\n");
+X    }
+X    else /* rilly low */
+X    {
+X	printf("Un compte affreux!\n");
+X    }
+X
+X}
+X
+Xstatic void
+XloadScores()
+X{
+X    FILE *sfp;
+X    char line[128];
+X    char class[32];
+X    int zoneTotal;
+X
+X    sfp = fopen("xscores", "r");
+X    if (!sfp)
+X    {
+X	printf("No score file yet...");
+X	goto out;
+X    }
+X
+X    printf("Loading scores...\n");
+X
+X    fgets(line, 128, sfp);
+X    while (!feof(sfp))
+X    {
+X	if (line[0] == '\n' || line[0] == '#')
+X	{
+X	    fgets(line, 128, sfp);
+X	    continue;
+X	}
+X
+X	sscanf(line, "%[^:]: (%d)", class, &zoneTotal);
+X
+X	if (0 == strcmp(class, "VERBSCORES"))
+X	{
+X	    ReportCard_loadFromFile(VerbScores, sfp, zoneTotal);
+X	}
+X	else if (0 == strcmp(class, "QUIZSCORES"))
+X	{
+X	    ReportCard_loadFromFile(QuizScores, sfp, zoneTotal);
+X	}
+X	else
+X	{
+X	    fprintf(stderr, "loadScores: unknown: %s\n", class);
+X	    exit(1);
+X	}
+X
+X	fgets(line, 128, sfp);
+X
+X    }
+X
+X    fclose(sfp);
+X
+Xout:
+X
+X    return;
+X
+X}
+X
+Xstatic void
+XloadObjects()
+X{
+X    register int i, j;
+X    char line[128];
+X    char class[32];
+X    char type[128];
+X    char text[128];
+X    Form *conjug;
+X    int contype;
+X    Verb *verb;
+X    Subject *subj;
+X    Quiz *quiz;
+X    FILE *sfp;
+X    int rc;
+X
+X    sfp = fopen("xobjects", "r");
+X    if (!sfp)
+X    {
+X	printf("xobjects file is missing (cannot continue)\n\n");
+X	exit(1);
+X    }
+X
+X    printf("Loading objects...\n");
+X
+X    fgets(line, 128, sfp);
+X    while (!feof(sfp))
+X    {
+X	if (line[0] == '\n' || line[0] == '#')
+X	{
+X	    fgets(line, 128, sfp);
+X	    continue;
+X	}
+X
+X	sscanf(line, "%[^:]", class);
+X
+X	if (0 == strcmp(class, "VERB"))
+X	{
+X	    j = sscanf(line, "%[^:]: %s (%d)", class, text, &contype);
+X	    verb = Verb_newFromFile(text, sfp);
+X	    if (!verb)
+X	    {
+X		fprintf(stderr, "loadObjects: Verb_newFromFile fails\n");
+X		goto out;
+X	    }
+X	    Verb_setConjugationClass(verb, contype);
+X	    ReportCard_enroll(VerbScores, contype);
+X	    VerbSet_addOne(AllVerbs, verb);
+X	}
+X	else if (0 == strcmp(class, "SUBJECT"))
+X	{
+X	    j = sscanf(line, "%[^:]: %s %[^\n]", class, type, text);
+X	    conjug = Form_newFromImage(type);
+X	    subj = Subject_new((ExtendString *)text, conjug);
+X	    if (!subj)
+X	    {
+X		fprintf(stderr, "loadObjects: Subject_new fails\n");
+X		goto out;
+X	    }
+X	    SubjectSet_addOne(AllSubjects, subj);
+X	}
+X	else if (0 == strcmp(class, "QUIZ"))
+X	{
+X	    j = sscanf(line, "%[^:]: <%[^>]> (%d)", class, text, &contype);
+X	    quiz = Quiz_newFromFile(text, sfp);
+X	    if (!quiz)
+X	    {
+X		fprintf(stderr, "loadObjects: Quiz_newFromFile fails\n");
+X		goto out;
+X	    }
+X	    Quiz_setClass(quiz, contype);
+X	    ReportCard_enroll(QuizScores, contype);
+X	    QuizSet_addOne(AllQuizzes, quiz);
+X	}
+X	else if (0 == strcmp(class, "END\n"))
+X	{
+X	    goto out;
+X	}
+X	else
+X	{
+X	    fprintf(stderr, "loadObjects: unknown class: %s\n", class);
+X	    goto out;
+X	}
+X
+X	fgets(line, 128, sfp);
+X
+X#if MDEBUG
+Xif (!malloc_verify())
+X{
+X    printf("loadObjects: the heap has been corrupted\n");
+X    exit(7);
+X}
+X#endif
+X
+X    }
+X
+X    rc = VerbSet_locateRequired(AllVerbs);
+X    if (rc < PERFECT)
+X    {
+X	exit(1);
+X    }
+X
+Xout:
+X
+X    fclose(sfp);
+X
+X}
+X
+Xstatic void
+XsaveScores()
+X{
+X    FILE *dfp;
+X
+X    dfp = fopen("xscores", "w");
+X    if (dfp)
+X    {
+X	printf("\nSaving scores...\n");
+X	ReportCard_printOn(VerbScores, dfp);
+X	ReportCard_printOn(QuizScores, dfp);
+X    }
+X
+X}
+X
+Xstatic int compareGrade();
+X
+Xstatic void
+XdisplayReport(report)
+XReportCard *report;
+X{
+X    register int i, j;
+X    int nInList;
+X    long tries, hits;
+X    long totalTries;
+X    long totalMissed;
+X    struct oneGrade **sortList;
+X    struct oneGrade *t;
+X    int missed;
+X    int bar, col;
+X    Verb *example;
+X    ExtendString *text;
+X    int n;
+X
+X    nInList = 0;
+X    totalTries = 0;
+X    totalMissed = 0;
+X    n = Collection_size(report->allGrades);
+X    sortList = (struct oneGrade **)malloc(n * sizeof (struct oneGrade *));
+X    for (i = 0; i < n; i++)
+X    {
+X	t = (struct oneGrade *)Collection_atGet(report->allGrades, i);
+X	if (t)
+X	{
+X	    t->class = i;
+X	    tries = hits = 0;
+X	    for (j = 0; j < NBUCKETS; j++)
+X	    {
+X		tries += t->tries[j];
+X		hits += t->hits[j];
+X	    }
+X	    totalTries += tries;
+X	    totalMissed += tries - hits;
+X	    sortList[nInList] = t;
+X	    nInList++;
+X	}
+X    }
+X
+X    qsort((char *)sortList, nInList, sizeof (struct oneGrade *), compareGrade);
+X
+X    printf("\n");
+X    for (i = 0; i < nInList; i++)
+X    {
+X	t = sortList[i];
+X	tries = hits = 0;
+X	for (j = 0; j < NBUCKETS; j++)
+X	{
+X	    tries += t->tries[j];
+X	    hits += t->hits[j];
+X	}
+X	missed = tries - hits;
+X	if (missed == 0)
+X	{
+X	    break;
+X	}
+X	printf("#%-3d ", t->class);
+X	bar = missed * 25 / tries;
+X	for (n = 0; n < bar; n++)
+X	{
+X	    printf("X");
+X	}
+X	col = 10 + bar;
+X	printf(" (%ld/%ld)", hits, tries);
+X	for (n = 0; n < Collection_size(VerbSet_getAll(AllVerbs)); n++)
+X	{
+X	    example = (Verb *)Collection_atGet(VerbSet_getAll(AllVerbs), n);
+X	    if (Verb_getConjugationClass(example) != t->class)
+X	    {
+X		continue;
+X	    }
+X	    text = Verb_infinitive(example);
+X	    if (col > 60)
+X	    {
+X		printf("...");
+X		break;
+X	    }
+X	    printf(" %s", text);
+X	    col += strlen(text) + 1;
+X	}
+X	printf("\n"); 
+X    }
+X
+X    if (totalTries > 0)
+X    {
+X	printf("\n"); 
+X	printf("Tout ");
+X	bar = totalMissed * 25 / totalTries;
+X	for (n = 0; n < bar; n++)
+X	{
+X	    printf("X");
+X	}
+X	printf(" (%ld/%ld)", totalTries - totalMissed, totalTries);
+X    }
+X
+X}
+X
+Xstatic int
+XcompareGrade(a, b)
+Xstruct oneGrade **a;
+Xstruct oneGrade **b;
+X{
+X    return (*b)->zone - (*a)->zone;
+X}
+END_OF_FILE
+if test 8019 -ne `wc -c <'formes.c'`; then
+    echo shar: \"'formes.c'\" unpacked with wrong size!
+fi
+# end of 'formes.c'
+fi
+if test -f 'quiz.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'quiz.c'\"
+else
+echo shar: Extracting \"'quiz.c'\" \(3093 characters\)
+sed "s/^X//" >'quiz.c' <<'END_OF_FILE'
+X
+X/*
+X *  Copyright (C) 1992-1993 Jeffrey Chilton
+X *
+X *  Permission is granted to anyone to make or distribute copies of
+X *  this program, in any medium, provided that the copyright notice
+X *  and permission notice are preserved, and that the distributor
+X *  grants the recipient permission for further redistribution as
+X *  permitted by this notice.
+X *  
+X *  Author's E-mail address:  172-9221@mcimail.com
+X *  
+X */
+X
+Xstatic char *whatstring = "@(#)quiz.c	2.4 JWC";
+X
+X#include <stdio.h>
+X
+X#include "class.h"
+X#include "quiz.h"
+X#include "assoc.h"
+X#include "collect.h"
+X#include "quizstep.h"
+X
+Xextern int GotRight;
+X
+X/* Quiz_new - Create an empty quiz style */
+X
+Xstatic int matchSymbol();
+X
+XQuiz *
+XQuiz_new(name)
+Xchar *name;
+X{
+X    Quiz *self;
+X
+X    self = (Quiz *)malloc(sizeof (Quiz));
+X    if (!self)
+X    {
+X	fprintf(stderr, "Quiz_new: malloc fails\n");
+X	goto out;
+X    }
+X
+X    self->symbols = Collection_new(matchSymbol, Association_destroy);
+X    if (!self->symbols)
+X    {
+X	fprintf(stderr, "Quiz_new: Collection_new fails\n");
+X	self = (Quiz *)0;
+X	goto out;
+X    }
+X
+X    self->actions = Collection_new(NULLMATCH, QuizStep_destroy);
+X    if (!self->actions)
+X    {
+X	fprintf(stderr, "Quiz_new: Collection_new fails\n");
+X	Collection_destroy(self->symbols);
+X	self = (Quiz *)0;
+X	goto out;
+X    }
+X
+X    self->name = ExtendString_newFromString(name);
+X
+Xout:
+X
+X    return self;
+X
+X}
+X
+Xstatic int
+XmatchSymbol(symbol, key)
+XAssociation *symbol;
+Xchar *key;
+X{
+X    return strcmp(Association_getKey(symbol), key);
+X}
+X
+X
+X/* Quiz_newFromFile - Create one from file stream */
+X
+XQuiz *
+XQuiz_newFromFile(name, stream)
+Xchar *name;
+XFILE *stream;
+X{
+X    Quiz *self;
+X    char oneLine[80];
+X    QuizStep *step;
+X    int rc;
+X
+X    self = Quiz_new(name);
+X
+X    fgets(oneLine, 80, stream);
+X    while (TRUE)
+X    {
+X	if (oneLine[0] == '\n' || oneLine[0] == '{')
+X	{
+X	    fgets(oneLine, 80, stream);
+X	    continue;
+X	}
+X
+X	if (0 == strcmp(oneLine, "}\n"))
+X	{
+X	    break;
+X	}
+X
+X	step = QuizStep_newFromString(oneLine, self->symbols);
+X	if (!step)
+X	{
+X	    fprintf(stderr, "Quiz_newFromFile: QuizStep_newString fails\n");
+X	    goto out;
+X	}
+X
+X	rc = Collection_add(self->actions, (char *)step);
+X	if (rc < PERFECT)
+X	{
+X	    fprintf(stderr, "Quiz_newFromFile: Collection_add fails\n");
+X	    goto out;
+X	}
+X
+X	fgets(oneLine, 80, stream);
+X    }
+X
+Xout:
+X
+X    return self;
+X
+X}
+X
+X/* Quiz_perform - make up and ask a question */
+X
+Xint
+XQuiz_perform(self)
+XQuiz *self;
+X{
+X    Collection *ts;
+X    int rc;
+X
+X    rc = TRUE;
+X    while (rc)
+X    {
+X	ts = Collection_new(NULLMATCH, (void (*)())free);
+X	if (!ts)
+X	{
+X	    fprintf(stderr, "Quiz_perform: Collection_new fails\n");
+X	    goto out;
+X	}
+X	rc = Collection_do(self->actions, QuizStep_perform, (char *)ts);
+X	Collection_destroy(ts);
+X    }
+X
+Xout:
+X
+X    return GotRight;
+X
+X}
+X
+X/* Quiz_destroy */
+X
+Xvoid
+XQuiz_destroy(self)
+XQuiz *self;
+X{
+X    Collection_destroy(self->symbols);
+X    Collection_destroy(self->actions);
+X    free(self);
+X}
+X
+X#ifndef PRODUCTION
+X
+X/* Quiz_display - */
+X
+Xvoid
+XQuiz_display(self)
+XQuiz *self;
+X{
+X
+X    printf("%s (%d symbols):\n", self->name, Collection_size(self->symbols));
+X    Collection_do(self->actions, QuizStep_display, 0);
+X
+X}
+X
+X#endif
+END_OF_FILE
+if test 3093 -ne `wc -c <'quiz.c'`; then
+    echo shar: \"'quiz.c'\" unpacked with wrong size!
+fi
+# end of 'quiz.c'
+fi
+if test -f 'quizstep.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'quizstep.c'\"
+else
+echo shar: Extracting \"'quizstep.c'\" \(11609 characters\)
+sed "s/^X//" >'quizstep.c' <<'END_OF_FILE'
+X
+X/*
+X *  Copyright (C) 1992-1993 Jeffrey Chilton
+X *
+X *  Permission is granted to anyone to make or distribute copies of
+X *  this program, in any medium, provided that the copyright notice
+X *  and permission notice are preserved, and that the distributor
+X *  grants the recipient permission for further redistribution as
+X *  permitted by this notice.
+X *  
+X *  Author's E-mail address:  172-9221@mcimail.com
+X *  
+X */
+X
+Xstatic char *whatstring = "@(#)quizstep.c	2.7 JWC";
+X
+X#include <ctype.h>
+X#include <stdio.h>
+X
+X#include "class.h"
+X#include "quizstep.h"
+X
+X#include "assoc.h"
+X#include "collect.h"
+X#include "exstr.h"
+X#include "subject.h"
+X#include "subjset.h"
+X#include "random.h"
+X#include "report.h"
+X#include "verb.h"
+X#include "verbset.h"
+X
+Xextern Random *Squizzer;
+Xextern VerbSet *AllVerbs;
+Xextern SubjectSet *AllSubjects;
+Xextern ReportCard *VerbScores;
+Xextern int GotRight;
+X
+Xstatic int matchStep();
+X
+XQuizStep *
+XQuizStep_new()
+X{
+X    QuizStep *self;
+X
+X    self = (QuizStep *)malloc(sizeof (QuizStep));
+X    if (!self)
+X    {
+X	fprintf(stderr, "QuizStep_new: malloc fails\n");
+X	goto out;
+X    }
+X
+X    self->detail = Collection_new(matchStep, NULLDESTROY);
+X    if (!self->detail)
+X    {
+X	fprintf(stderr, "QuizStep_new: Collection_new fails\n");
+X	self = (QuizStep *)0;
+X	goto out;
+X    }
+X
+X    self->type = STEP_NONE;
+X
+Xout:
+X
+X    return self;
+X
+X}
+X
+Xstatic int
+XmatchStep(symbol, key)
+XAssociation *symbol;
+Xchar *key;
+X{
+X    return strcmp(Association_getKey(symbol), key);
+X}
+X
+X
+Xchar *Opers[N_STEPTYPES] =
+X{
+X    "NONE", "VERB", "PERSON", "TEXT-OF", "CONJUGATE", "QUIZ", "SCORE"
+X};
+X
+Xvoid cutOneWord();
+X
+XQuizStep *
+XQuizStep_newFromString(string, symbols)
+Xchar *string;
+XCollection *symbols;
+X{
+X    register int i;
+X    QuizStep *self;
+X    char operation[32];
+X    char detail[80];
+X    char *start, *word;
+X    char copy[80];
+X    Association *sym;
+X    ExtendString *t;
+X    int length;
+X    int rc;
+X
+X    self = QuizStep_new();
+X    if (!self)
+X    {
+X	fprintf(stderr, "QuizStep_newFromString: QuizStep_new fails\n");
+X	goto out;
+X    }
+X
+X    sscanf(string, "%s %[^\n]", operation, detail);
+X
+X    /* Look up step type */
+X
+X    rc = FALSE;
+X    for (i = STEP_VERB; i < N_STEPTYPES; i++)
+X    {
+X	if (0 == strcmp(operation, Opers[i]))
+X	{
+X	    self->type = i;
+X	    rc = TRUE;
+X	    break;
+X	}
+X    }
+X    if (!rc)
+X    {
+X	fprintf(stderr, "QuizStep_newFromString: unknown: %s\n", operation);
+X	goto out;
+X    }
+X
+X    /* Parse detail section and look up symbols */
+X
+X    start = &detail[0];
+X    cutOneWord(&start, &word, &length);
+X    while (word)
+X    {
+X	strncpy(copy, word, length);
+X	copy[length] = '\0';
+X
+X	sym = (Association *)Collection_atKeyGet(symbols, copy);
+X	if (!sym)
+X	{
+X	    t = ExtendString_newFromString(copy);
+X	    sym = Association_newWithKey(t);
+X	    Collection_add(symbols, sym);
+X	}
+X
+X	Collection_add(self->detail, (char *)sym);
+X	cutOneWord(&start, &word, &length);
+X    }
+X
+Xout:
+X
+X    return self;
+X
+X}
+X
+Xvoid
+XcutOneWord(start, word, length)
+Xchar **start;
+Xchar **word;
+Xint *length;
+X{
+X    char *t, *u;
+X
+X    t = *start;				/* skip over any leading spaces	*/
+X    while (*t == ' ' || *t == '>')
+X    {
+X	t++;
+X    }
+X    if (*t == '\0')			/* indicate done if at the end	*/
+X    {
+X	*word = NULL;
+X	goto out;
+X    }
+X
+X    if (*t == '<')			/* special case quoted text	*/
+X    {
+X	u = t++;
+X	while (*t && *t != '>')		/* which ends only on end quote	*/
+X	{
+X	    t++;
+X	}
+X	t++;
+X    }
+X    else if (*t == '{' || *t == '}')	/* or special case "{" & "}"	*/
+X    {
+X	u = t++;
+X    }
+X    else				/* else end on "<", " ", or "}"	*/
+X    {
+X	u = t++;
+X	while (*t && *t != '<' && *t != ' ' && *t != '}')
+X	{
+X	    t++;
+X	}
+X    }
+X
+X    *word = u;				/* send out the results		*/
+X    *start = t;
+X    *length = t - u;
+X
+Xout:
+X
+X    return;
+X
+X}
+X
+X/* QuizStep_display - display one step */
+X
+Xint
+XQuizStep_display(self)
+XQuizStep *self;
+X{
+X    register int i;
+X    Association *sym;
+X
+X    printf("  %s: ", Opers[self->type]);
+X    for (i = 0; i < Collection_size(self->detail); i++)
+X    {
+X	sym = (Association *)Collection_atGet(self->detail, i);
+X	printf("%s(%x) ", Association_getKey(sym), Association_getValue(sym));
+X    }
+X    printf("\n");
+X
+X    return PERFECT;
+X
+X}
+X
+X/* QuizStep_perform - do whatever this step does */
+X
+X#define SAMEFORM(a, b) ( \
+X    Form_isEquivalent(Subject_getForm(a), Subject_getForm(b)) \
+X    )
+X
+Xchar *tenses[N_OF_TENSES] = {
+X    "INFINITIVE", 
+X    "PRESENT", 
+X    "IMPERFECT", 
+X    "SIMPLE-PAST",
+X    "FUTURE", 
+X    "CONDITIONAL", 
+X    "SUBJUNCTIVE", 
+X    "IMPERFECT-SUBJUNCTIVE",
+X    "PAST", 
+X    "PLUPERFECT",
+X    "PAST-ANTERIOR",
+X    "FUTURE-ANTERIOR",
+X    "CONDITIONAL-PERFECT",
+X    "PAST-SUBJUNCTIVE",
+X    "PLUPERFECT-SUBJUNCTIVE",
+X    "IMPERATIVE"
+X    };
+X
+Xstatic char *punctuateLine();
+Xstatic int askQuiz();
+X
+Xint
+XQuizStep_perform(self, temps)
+XQuizStep *self;
+XCollection *temps;
+X{
+X    register int i;
+X    static int lastTry;
+X    int class;
+X    Verb *verb;
+X    Subject *subj;
+X    Form *form;
+X    ExtendString *text;
+X    Association *op;
+X    Association *lhs;
+X    ExtendString line[256];
+X    char *t;
+X    int rc;
+X
+X    rc = PERFECT;
+X    switch (self->type)
+X    {
+X	case STEP_VERB:
+X
+X	    op = (Association *)Collection_atGet(self->detail, 1);
+X	    text = Association_getKey(op);
+X	    if (strcmp(text, "<random>") == 0)
+X	    {
+X		class = ReportCard_pickClass(VerbScores);
+X		verb = VerbSet_getOneFromClass(AllVerbs, class);
+X	    }
+X	    else
+X	    {
+X		verb = VerbSet_getOneByName(AllVerbs, text);
+X		class = Verb_getConjugationClass(verb);
+X	    }
+X	    lhs = (Association *)Collection_atGet(self->detail, 0);
+X	    Association_setValue(lhs, verb);
+X
+X#if XDEBUG
+Xprintf("QuizStep_perform: verb: %s\n", Verb_infinitive(verb));
+X#endif
+X
+X	    break;
+X
+X	case STEP_PSUBJ:
+X
+X	    op = (Association *)Collection_atGet(self->detail, 1);
+X	    text = Association_getKey(op);
+X	    if (strcmp(text, "<random>") == 0)
+X	    {
+X		subj = SubjectSet_getOneAtRandom(AllSubjects);
+X		if (Collection_size(self->detail) > 2)
+X		{
+X		    op = (Association *)Collection_atGet(self->detail, 2);
+X		    while (SAMEFORM(subj, (Subject *)Association_getValue(op)))
+X		    {
+X			subj = SubjectSet_getOneAtRandom(AllSubjects);
+X		    }
+X		}
+X	    }
+X	    else
+X	    {
+X		subj = SubjectSet_getOneByName(AllSubjects, text);
+X	    }
+X	    lhs = (Association *)Collection_atGet(self->detail, 0);
+X	    Association_setValue(lhs, subj);
+X
+X#if XDEBUG
+Xprintf("QuizStep_perform: subj: %s\n", Subject_getText(subj));
+X#endif
+X
+X	    break;
+X
+X	case STEP_TEXTOF:
+X
+X	    op = (Association *)Collection_atGet(self->detail, 1);
+X	    text = Subject_getText((Subject *)Association_getValue(op));
+X	    lhs = (Association *)Collection_atGet(self->detail, 0);
+X	    Association_setValue(lhs, text);
+X
+X#if XDEBUG
+Xprintf("QuizStep_perform: text: %s\n", text);
+X#endif
+X
+X	    break;
+X
+X	case STEP_CONJUGATE:
+X
+X	    op = (Association *)Collection_atGet(self->detail, 2);
+X	    t = Association_getKey(op);
+X	    for (i = 0; i < N_OF_TENSES; i++)
+X	    {
+X		if (0 == strcmp(tenses[i], t))
+X		{
+X		    break;
+X		}
+X	    }
+X	    if (i == N_OF_TENSES)
+X	    {
+X		fprintf(stderr, "QuizStep_perform: unknown: %s\n", t);
+X		i = TENSE_INFINITIVE;
+X	    }
+X	    if (i != TENSE_INFINITIVE)
+X	    {
+X		op = (Association *)Collection_atGet(self->detail, 3);
+X		form = Subject_getForm((Subject *)Association_getValue(op));
+X	    }
+X	    op = (Association *)Collection_atGet(self->detail, 1);
+X	    verb = Association_getValue(op);
+X	    text = Verb_conjugate(verb, form, i);
+X	    if (!text)
+X	    {
+X		rc = FAILURE;
+X		goto out;
+X	    }
+X	    Collection_add(temps, (char *)text);
+X	    lhs = (Association *)Collection_atGet(self->detail, 0);
+X	    Association_setValue(lhs, text);
+X
+X#if XDEBUG
+Xprintf("QuizStep_perform: conjugate: %s\n", text);
+X#endif
+X
+X	    break;
+X
+X	case STEP_QUIZ:
+X
+X	    line[0] = '\0';
+X	    for (i = 0; i < Collection_size(self->detail); i++)
+X	    {
+X		op = (Association *)Collection_atGet(self->detail, i);
+X		text = (ExtendString *)Association_getValue(op);
+X		if (text)
+X		{
+X		    strcat(line, text);
+X		    continue;
+X		}
+X		text = (ExtendString *)Association_getKey(op);
+X		if (text[0] == '{' || text[0] == '}')
+X		{
+X		    strcat(line, text);
+X		    continue;
+X		}
+X		strcat(line, text + 1);
+X		line[strlen(line) - 1] = '\0';
+X	    }
+X
+X#if XDEBUG
+Xprintf("QuizStep_perform: line: %s\n", line);
+X#endif
+X
+X	    t = punctuateLine(line);
+X	    lastTry = askQuiz(t);
+X	    break;
+X
+X	case STEP_SCORE:
+X
+X	    op = (Association *)Collection_atGet(self->detail, 0);
+X	    verb = Association_getValue(op);
+X	    class = Verb_getConjugationClass(verb);
+X	    ReportCard_record(VerbScores, class, lastTry);
+X	    GotRight = lastTry ? PERFECT : FAILURE;
+X	    break;
+X
+X	default:
+X
+X	    fprintf(stderr, "QuizStep_perform: unknown: %d\n", self->type);
+X	    rc = FAILURE;
+X	    break;
+X
+X    }
+X
+Xout:
+X
+X    return rc;
+X
+X}
+X
+X/* puncuateLine - A simple punctuator */
+X
+X#define upperize(c) (islower(c) ? toupper(c) : (c))
+X
+Xstatic char *
+XpunctuateLine(line)
+Xchar *line;
+X{
+X    register int i, j;
+X    static ExtendString *vowels;
+X    static char result[256];
+X    int preSentence;
+X    int holdingBrace;
+X    int alreadyGlommed;
+X    int postEorI;
+X    int preWord;
+X    int length;
+X    char c;
+X
+X    if (!vowels)
+X    {
+X	vowels = ExtendString_newFromString("AaEeE'e'IiOoUuHh");
+X    }
+X
+X    preSentence = TRUE;
+X    holdingBrace = FALSE;
+X    alreadyGlommed = 0;
+X    postEorI = FALSE;
+X    length = 0;
+X
+X    j = 0;
+X    for (i = 0; line[i]; i++)
+X    {
+X	c = line[i];
+X	if (c == '{')
+X	{
+X	    holdingBrace = TRUE;
+X	    continue;
+X	}
+X	if (c == ' ')
+X	{
+X	    result[j++] = c;
+X	    preWord = TRUE;
+X	    alreadyGlommed -= 1;
+X	    length = 0;
+X	    continue;
+X	}
+X	if (preWord && postEorI && alreadyGlommed < 1)
+X	{
+X	    if (strchr(vowels, c))
+X	    {
+X		j -= 2;
+X		result[j++] = '\'';
+X		alreadyGlommed = 2;
+X		if (holdingBrace)
+X		{
+X		    result[j++] = '{';
+X		    holdingBrace = FALSE;
+X		}
+X		result[j++] = c;
+X		preWord = FALSE;
+X		continue;
+X	    }
+X	}
+X	length++;
+X	preWord = FALSE;
+X	postEorI = length < 4 && strchr("ei", c);
+X	if (holdingBrace)
+X	{
+X	    result[j++] = '{';
+X	    holdingBrace = FALSE;
+X	}
+X	if (preSentence)
+X	{
+X	    result[j++] = upperize(c);
+X	    preSentence = FALSE;
+X	    continue;
+X	}
+X	result[j++] = c;
+X    }
+X
+X    result[j] = '\0';
+X
+X    return result;
+X
+X}
+X
+X/* askQuiz */
+X
+Xint QuestionNumber = 0;
+X
+Xstatic int
+XaskQuiz(line)
+XExtendString *line;
+X{
+X    register int i, j;
+X    ExtendString blank[132];
+X    ExtendString answer[132];
+X    int lineLength;
+X    char guess[80];
+X    int spaceBack;
+X    int tries;
+X
+X    /* Copy answer part of line to answer and blank it out */
+X
+X    lineLength = 0;
+X    spaceBack = -1;
+X    i = j = 0;
+X    while (*line)
+X    {
+X	if (lineLength > 45 && spaceBack < 0 && *line == ' ')
+X	{
+X	    line++;
+X	    lineLength = 0;
+X	    strcpy(&blank[j], "\n    ");
+X	    j = j + 5;
+X	    continue;
+X	}
+X	if (*line == '{' && i == 0)	/* hit start of answer section	*/
+X	{
+X	    line++;
+X	    spaceBack = lineLength;
+X	    while (*line != '}')	/* copy & blank up to end mark	*/
+X	    {
+X		answer[i++] = *line++;
+X		blank[j++] = '_';
+X		lineLength++;
+X	    }
+X	    line++;
+X	    while (j % 5)		/* add additional blanking	*/
+X	    {
+X		blank[j++] = '_';
+X		lineLength++;
+X	    }
+X	}
+X	blank[j++] = *line++;
+X	lineLength++;
+X    }
+X    answer[i] = '\0';
+X    blank[j] = '\0';
+X
+X    /* Present the blanked question until _notre ami_ gets it right */
+X
+X    QuestionNumber++;
+X    tries = 1;
+X    while (TRUE)
+X    {
+X	printf("%2d. ", QuestionNumber);
+X	printf("%s", blank);
+X	i = lineLength - spaceBack;
+X	for (j = 0; j < i; j++)
+X	{
+X	    printf("%c", '\b');
+X	}
+X
+X	gets(guess);
+X
+X	if (ExtendString_compareSansAccent(answer, guess) == 0)
+X	{
+X	    break;
+X	}
+X
+X	tries++;
+X	printf("\nMais non! C'est %c%s%c\n\n",
+X	    QUOTE_GAUCHE, answer, QUOTE_DROIGT);
+X    }
+X
+X    return tries == 1;			/* TRUE for right on first try	*/
+X
+X}
+X
+X/* QuizStep_destroy */
+X
+Xvoid
+XQuizStep_destroy(self)
+XQuizStep *self;
+X{
+X    Collection_destroy(self->detail);
+X    free(self);
+X}
+X
+END_OF_FILE
+if test 11609 -ne `wc -c <'quizstep.c'`; then
+    echo shar: \"'quizstep.c'\" unpacked with wrong size!
+fi
+# end of 'quizstep.c'
+fi
+if test -f 'report.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'report.c'\"
+else
+echo shar: Extracting \"'report.c'\" \(5535 characters\)
+sed "s/^X//" >'report.c' <<'END_OF_FILE'
+X
+X/*
+X *  Copyright (C) 1992-1993 Jeffrey Chilton
+X *
+X *  Permission is granted to anyone to make or distribute copies of
+X *  this program, in any medium, provided that the copyright notice
+X *  and permission notice are preserved, and that the distributor
+X *  grants the recipient permission for further redistribution as
+X *  permitted by this notice.
+X *  
+X *  Author's E-mail address:  172-9221@mcimail.com
+X *  
+X */
+X
+Xstatic char *whatstring = "@(#)report.c	2.2 JWC";
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include "class.h"
+X#include "report.h"
+X#include "random.h"
+X
+Xextern Random *Squizzer;
+X
+XReportCard *
+XReportCard_new(name)
+Xchar *name;
+X{
+X    ReportCard *self;
+X
+X    self = (ReportCard *)malloc(sizeof (ReportCard));
+X    if (!self)
+X    {
+X	fprintf(stderr, "ReportCard_new: malloc fails\n");
+X	goto out;
+X    }
+X
+X    self->name = (char *)malloc(1 + strlen(name));
+X    if (!self->name)
+X    {
+X	fprintf(stderr, "ReportCard_new: malloc fails\n");
+X	free(self);
+X	self = (ReportCard *)0;
+X	goto out;
+X    }
+X    strcpy(self->name, name);
+X
+X    self->allGrades = Collection_new(NULLMATCH, (void (*)())free);
+X    if (!self->allGrades)
+X    {
+X	fprintf(stderr, "ReportCard_new: Collection new fails\n");
+X	free(self->name);
+X	free(self);
+X	self = (ReportCard *)0;
+X	goto out;
+X    }
+X
+X    self->zoneTotal = 0;
+X
+Xout:
+X
+X    return self;
+X
+X}
+X
+X#define ALPHA 75
+X#define BETA 74
+X
+Xstatic void
+XcalculateZone(grade)
+Xstruct oneGrade *grade;
+X{
+X    register int i;
+X    long tries;
+X    long hits;
+X
+X    hits = tries = 0L;
+X    for (i = 0; i < NBUCKETS; i++)
+X    {
+X	tries += grade->tries[i];
+X	hits += grade->hits[i];
+X    }
+X
+X    if (tries == 0)
+X    {
+X	grade->zone = ALPHA - BETA;
+X    }
+X    else
+X    {
+X	grade->zone = ALPHA - (hits * BETA / tries);
+X    }
+X
+X}
+X
+XReportCard *
+XReportCard_loadFromFile(self, stream, checkTotal)
+XReportCard *self;
+XFILE *stream;
+Xint checkTotal;
+X{
+X    register int i, j;
+X    struct oneGrade *grade;
+X    char line[80];
+X    int zoneTotal;
+X    char op[32];
+X    int class;
+X    long hits;
+X    long tries;
+X    char *t;
+X
+X    zoneTotal = 0;
+X    fgets(line, 80, stream);
+X    while (TRUE)
+X    {
+X	if (line[0] == '\n' || line[0] == '{')
+X	{
+X	    fgets(line, 80, stream);
+X	    continue;
+X	}
+X
+X	if (0 == strcmp(line, "}\n"))
+X	{
+X	    break;
+X	}
+X
+X	grade = (struct oneGrade *)malloc(sizeof (struct oneGrade));
+X	if (!grade)
+X	{
+X	    fprintf(stderr, "ReportCard_loadFromFile: malloc fails\n");
+X	    goto out;
+X	}
+X
+X	sscanf(line, "%s %d:", op, &class);
+X	if (strcmp(op, "CLASS"))
+X	{
+X	    fprintf(stderr, "ReportCard_loadFromFile: unknown: %s\n", op);
+X	    goto out;
+X	}
+X
+X	t = strchr(line, ':') + 1;
+X	for (i = 0; i < NBUCKETS; i++)
+X	{
+X	    while (isspace(*t))
+X	    {
+X		t++;
+X	    }
+X	    sscanf(t, " %ld/%ld ", &hits, &tries);
+X	    grade->tries[i] = tries;
+X	    grade->hits[i] = hits;
+X	    while (!isspace(*t))
+X	    {
+X		t++;
+X	    }
+X	}
+X
+X	calculateZone(grade);
+X	zoneTotal += grade->zone;
+X
+X	Collection_atPut(self->allGrades, class, (char *)grade);
+X
+X	fgets(line, 80, stream);
+X    }
+X
+X    self->zoneTotal = zoneTotal;
+X    if (zoneTotal != checkTotal)
+X    {
+X	fprintf(stderr, "ReportCard_loadFromFile: warning: zone total wrong\n");
+X    }
+X
+Xout:
+X
+X    return self;
+X
+X}
+X
+Xvoid
+XReportCard_enroll(self, class)
+XReportCard *self;
+Xint class;
+X{
+X    register int i, j;
+X    struct oneGrade *grade;
+X
+X    grade = (struct oneGrade *)Collection_atGet(self->allGrades, class);
+X    if (!grade)
+X    {
+X	grade = (struct oneGrade *)malloc(sizeof (struct oneGrade));
+X	if (!grade)
+X	{
+X	    fprintf(stderr, "ReportCard_enroll: malloc fails\n");
+X	    goto out;
+X	}
+X	Collection_atPut(self->allGrades, class, (char *)grade);
+X	for (i = 0; i < NBUCKETS; i++)
+X	{
+X	    grade->tries[i] = 0;
+X	    grade->hits[i] = 0;
+X	}
+X	calculateZone(grade);
+X	self->zoneTotal += grade->zone;
+X    }
+X
+Xout:
+X
+X    return;
+X
+X}
+X
+Xvoid
+XReportCard_record(self, class, gotIt)
+XReportCard *self;
+Xint class;
+Xint gotIt;
+X{
+X    register int i, j;
+X    struct oneGrade *grade;
+X
+X    grade = (struct oneGrade *)Collection_atGet(self->allGrades, class);
+X
+X    self->zoneTotal -= grade->zone;
+X
+X    if (grade->tries[0] > TRIESPER - 1)
+X    {
+X	for (i = NBUCKETS - 1; i > 0; i--)
+X	{
+X	    grade->tries[i] = grade->tries[i - 1];
+X	    grade->hits[i] = grade->hits[i - 1];
+X	}
+X	grade->tries[0] = 0;
+X	grade->hits[0] = 0;
+X    }
+X    grade->hits[0] += gotIt ? 1 : 0;
+X    grade->tries[0] += 1;
+X
+X    calculateZone(grade);
+X
+X    self->zoneTotal += grade->zone;
+X
+X}
+X
+Xint
+XReportCard_pickClass(self)
+XReportCard *self;
+X{
+X    register int i, n;
+X    struct oneGrade *t;
+X    int target;
+X    int total;
+X
+X    target = Random_long(Squizzer) % self->zoneTotal;
+X
+X    total = 0;
+X    n = Collection_size(self->allGrades);
+X    for (i = 0; i < n; i++)
+X    {
+X	t = (struct oneGrade *)Collection_atGet(self->allGrades, i);
+X	if (t)
+X	{
+X	    total += t->zone;
+X	    if (total > target)
+X	    {
+X		break;
+X	    }
+X	}
+X    }
+X
+X    return i;
+X
+X}
+X
+Xvoid
+XReportCard_printOn(self, stream)
+XReportCard *self;
+XFILE *stream;
+X{
+X    register int i, j;
+X    struct oneGrade *t;
+X    int n;
+X
+X    fprintf(stream, "%s: (%d)\n", self->name, self->zoneTotal);
+X    fprintf(stream, "{\n");
+X    n = Collection_size(self->allGrades);
+X    for (i = 0; i < n; i++)
+X    {
+X	t = (struct oneGrade *)Collection_atGet(self->allGrades, i);
+X	if (t)
+X	{
+X	    fprintf(stream, "    CLASS %d: ", i);
+X	    for (j = 0; j < NBUCKETS; j++)
+X	    {
+X		fprintf(stream, "%d/%d ", t->hits[j], t->tries[j]);
+X	    }
+X	    fprintf(stream, "(%d)\n", t->zone);
+X	}
+X    }
+X    fprintf(stream, "}\n\n");
+X}
+X
+X/* ReportCard_destroy - */
+X
+Xvoid
+XReportCard_destroy(self)
+XReportCard *self;
+X{
+X    Collection_destroy(self->allGrades);
+X    free(self->name);
+X    free(self);
+X}
+X
+END_OF_FILE
+if test 5535 -ne `wc -c <'report.c'`; then
+    echo shar: \"'report.c'\" unpacked with wrong size!
+fi
+# end of 'report.c'
+fi
+if test -f 'verb.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'verb.h'\"
+else
+echo shar: Extracting \"'verb.h'\" \(2848 characters\)
+sed "s/^X//" >'verb.h' <<'END_OF_FILE'
+X
+X/*
+X *  Copyright (C) 1992-1993 Jeffrey Chilton
+X *
+X *  Permission is granted to anyone to make or distribute copies of
+X *  this program, in any medium, provided that the copyright notice
+X *  and permission notice are preserved, and that the distributor
+X *  grants the recipient permission for further redistribution as
+X *  permitted by this notice.
+X *  
+X *  Author's E-mail address:  172-9221@mcimail.com
+X *  
+X */
+X
+X/* static char *whatstring = "@(#)verb.h	2.6 JWC"; */
+X
+X#ifndef VERB_H
+X#define VERB_H
+X
+X/*
+X *  Verb - A verb
+X */
+X
+Xtypedef struct Verb Verb;
+X
+X#include "collect.h"
+X#include "exstr.h"
+X#include "form.h"
+X
+X/* I know, some of these are ``moods'' and not tenses... */
+X
+X#define TENSE_INFINITIVE 0	/* infinitive		    [x]	*/
+X#define TENSE_PRESENT 1		/* present indicative	    [x]	*/
+X#define TENSE_IMPERFECT 2	/* imperfect indicative	    [x]	*/
+X#define TENSE_PASTSIMP 3	/* simple past 		    [ ]	*/
+X#define TENSE_FUTURE  4		/* future		    [x]	*/
+X#define TENSE_CONDITION  5	/* conditional		    [x]	*/
+X#define TENSE_SUBJUNCT  6	/* present subjunctive	    [x]	*/
+X#define TENSE_IMPSUBJ  7	/* imperfect subjunctive    [ ]	*/
+X#define TENSE_PASTCOMP 8	/* compound past	    [x]	*/
+X#define TENSE_PLUPERFECT 9	/* pluperfect		    [x]	*/
+X#define TENSE_PASTANT 10	/* past anterior	    [ ]	*/
+X#define TENSE_FUTUREANT 11	/* future anterior	    [ ]	*/
+X#define TENSE_CONDPERF 12	/* conditional perfect	    [ ]	*/
+X#define TENSE_PASTSUBJ 13	/* past subjunctive	    [x]	*/
+X#define TENSE_PLUPSUBJ 14	/* pluperfect subjunctive   [ ]	*/
+X#define TENSE_IMPERATIVE  15	/* imperative		    [x]	*/
+X
+X#define N_OF_TENSES 16
+X
+X#define AUX_AVOIR 0
+X#define AUX_ETRE 1
+X
+Xstruct Verb
+X{
+X    int conjugationClass;
+X    int thirdPersonOnly;
+X    int auxiliary;
+X    ExtendString *infinitive;
+X    ExtendString *presIndStem;
+X    ExtendString *presSubjStem;
+X    ExtendString *imperativeStem;
+X    ExtendString *imperfectStem;
+X    ExtendString *futureStem;
+X    ExtendString *presentParticipal;
+X    ExtendString *pastParticipal;
+X    ExtendString *presIndEndings[N_OF_PERSON][N_OF_PLURAL];
+X    ExtendString *imperfectEndings[N_OF_PERSON][N_OF_PLURAL];
+X    ExtendString *presSubjEndings[N_OF_PERSON][N_OF_PLURAL];
+X    ExtendString *imperativeEndings[N_OF_PLURAL + 1];
+X};
+X
+X#if __STDC__
+X
+Xextern Verb *Verb_new(char *infinitive);
+Xextern Verb *Verb_newFromFile(char *infinitive, FILE *stream);
+Xextern ExtendString *Verb_conjugate(Verb *self, Form *form, int tense);
+Xextern void Verb_printOn(Verb *self, FILE *stream);
+Xextern void Verb_destroy(Verb *self);
+X
+X#else
+X
+Xextern Verb *Verb_new();
+Xextern Verb *Verb_newFromFile();
+Xextern ExtendString *Verb_conjugate();
+Xextern void Verb_printOn();
+Xextern void Verb_destroy();
+X
+X#endif
+X
+X#define Verb_setConjugationClass(s, n) (s)->conjugationClass = n
+X#define Verb_getConjugationClass(s) ((s)->conjugationClass)
+X#define Verb_infinitive(s) ((s)->infinitive)
+X
+X#endif
+END_OF_FILE
+if test 2848 -ne `wc -c <'verb.h'`; then
+    echo shar: \"'verb.h'\" unpacked with wrong size!
+fi
+# end of 'verb.h'
+fi
+if test -f 'verbset.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'verbset.c'\"
+else
+echo shar: Extracting \"'verbset.c'\" \(2883 characters\)
+sed "s/^X//" >'verbset.c' <<'END_OF_FILE'
+X
+X/*
+X *  Copyright (C) 1992-1993 Jeffrey Chilton
+X *
+X *  Permission is granted to anyone to make or distribute copies of
+X *  this program, in any medium, provided that the copyright notice
+X *  and permission notice are preserved, and that the distributor
+X *  grants the recipient permission for further redistribution as
+X *  permitted by this notice.
+X *  
+X *  Author's E-mail address:  172-9221@mcimail.com
+X *  
+X */
+X
+Xstatic char *whatstring = "@(#)verbset.c	2.5 JWC";
+X
+X#include <stdio.h>
+X#include <time.h>
+X
+X#include "class.h"
+X#include "verbset.h"
+X#include "random.h"
+X
+Xextern VerbSet *AllVerbs;
+Xextern Random *Squizzer;
+X
+XVerb *Aller;
+XVerb *Avoir;
+XVerb *Etre;
+XVerb *Venir;
+X
+Xstatic int matchVerb();
+X
+XVerbSet *
+XVerbSet_new()
+X{
+X    VerbSet *self;
+X
+X    self = (VerbSet *)malloc(sizeof (VerbSet));
+X    if (!self)
+X    {
+X	fprintf(stderr, "VerbSet_new: malloc fails\n");
+X	goto out;
+X    }
+X
+X    self->allVerbs = Collection_new(matchVerb, Verb_destroy);
+X    if (!self->allVerbs)
+X    {
+X	free(self);
+X	self = (VerbSet *)0;
+X	fprintf(stderr, "VerbSet_new: Collection new fails\n");
+X	goto out;
+X    }
+X
+Xout:
+X
+X    return self;
+X
+X}
+X
+Xstatic int
+XmatchVerb(verb, key)
+XVerb *verb;
+Xchar *key;
+X{
+X    return strcmp(Verb_infinitive(verb), key);
+X}
+X
+Xvoid
+XVerbSet_addOne(self, verb)
+XVerbSet *self;
+XVerb *verb;
+X{
+X    Collection_add(self->allVerbs, (char *)verb);
+X
+X}
+X
+XVerb *
+XVerbSet_getOneByName(self, name)
+XVerbSet *self;
+Xchar *name;
+X{
+X    return (Verb *)Collection_atKeyGet(self->allVerbs, name);
+X}
+X
+XVerb *
+XVerbSet_getOneAtRandom(self)
+XVerbSet *self;
+X{
+X    unsigned long n;
+X    Verb *verb;
+X
+X    n = Random_long(Squizzer) % Collection_size(self->allVerbs);
+X    verb = (Verb *)Collection_atGet(self->allVerbs, (int )n);
+X
+X    return verb;
+X
+X}
+X
+XVerb *
+XVerbSet_getOneFromClass(self, class)
+XVerbSet *self;
+Xint class;
+X{
+X    Verb *verb;
+X
+X    /* TEMPORARY [crude beyond words] */
+X
+X    verb = VerbSet_getOneAtRandom(self);
+X    while (Verb_getConjugationClass(verb) != class)
+X    {
+X	verb = VerbSet_getOneAtRandom(self);
+X    }
+X
+X    return verb;
+X
+X}
+X
+Xint
+XVerbSet_locateRequired(self)
+XVerbSet *self;
+X{
+X    int rc;
+X
+X    rc = FAILURE;
+X
+X    Aller = VerbSet_getOneByName(AllVerbs, "aller");
+X    if (!Aller)
+X    {
+X	fprintf(stderr, "VerbSet_locateRequired: missing <<aller>>\n");
+X	goto out;
+X    }
+X    Avoir = VerbSet_getOneByName(AllVerbs, "avoir");
+X    if (!Avoir)
+X    {
+X	fprintf(stderr, "VerbSet_locateRequired: missing <<avoir>>\n");
+X	goto out;
+X    }
+X    Etre = VerbSet_getOneByName(AllVerbs, ExtendString_newFromString("e^tre"));
+X    if (!Etre)
+X    {
+X	fprintf(stderr, "VerbSet_locateRequired: missing <<etre>>\n");
+X	goto out;
+X    }
+X    Venir = VerbSet_getOneByName(AllVerbs, "venir");
+X    if (!Venir)
+X    {
+X	fprintf(stderr, "VerbSet_locateRequired: missing <<venir>>\n");
+X	goto out;
+X    }
+X
+X    rc = PERFECT;
+X
+Xout:
+X
+X    return rc;
+X}
+X
+Xvoid
+XVerbSet_destroy(self)
+XVerbSet *self;
+X{
+X
+X    Collection_destroy(self->allVerbs);
+X    free(self);
+X
+X}
+X
+END_OF_FILE
+if test 2883 -ne `wc -c <'verbset.c'`; then
+    echo shar: \"'verbset.c'\" unpacked with wrong size!
+fi
+# end of 'verbset.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

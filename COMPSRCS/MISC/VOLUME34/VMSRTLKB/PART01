@@ -1,0 +1,1977 @@
+Newsgroups: comp.sources.misc
+From: vicente@cenaath.cena.dgac.fr (Martin VICENTE)
+Subject: v34i081:  vms_rtl_kbd - single keypress under VMS, Part01/02
+Message-ID: <csm-v34i081=vms_rtl_kbd.154140@sparky.IMD.Sterling.COM>
+X-Md4-Signature: ca1aca038d8265f1dbc47635f0ff43ac
+Date: Fri, 18 Dec 1992 21:44:02 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: vicente@cenaath.cena.dgac.fr (Martin VICENTE)
+Posting-number: Volume 34, Issue 81
+Archive-name: vms_rtl_kbd/part01
+Environment: VMS, C, Pascal, ADA
+
+How to detect a single keystroke under VMS (without RETURN) ?
+*************************************************************
+Perhaps many of you have had to solve this problem, and have found
+solutions: SMG$ libraries, system calls.
+
+Calling an SMG Run-Time Library's routine effectively solves it (polling 
+on SMG$READ_KEYSTROKE with no time-out), but has disastrous consequences 
+CPU load.
+
+The system call solution is certainly the best one, but this needs to
+be initiated.
+
+So we developed this RTL's extension which offers users an interface 
+much easier to manipulate.  It is accessible to the C, Pascal and Ada 
+developer.
+
+Martin VICENTE (vicente@cenaath.cena.dgac.fr)
+---------------------------- CUT HERE -------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README build.com kbd$routines.pas kbd_.ada kbdmsg.msg
+#   pascal$kbd_routines.pas
+# Wrapped by kent@sparky on Fri Dec 18 15:30:48 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(3508 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XREADME								       18/12/92
+X
+X
+X                            K B D $ R O U T I N E S
+X
+X
+X             << Single keypress under VMS in C, Pascal and Ada >>
+X
+X
+X Copyright (C) 1992 Centre d'Etudes de la Navigation Aerienne.
+X   Author: Martin VICENTE (DGAC/CENA/SID)
+X   E-mail: vicente@cenaath.cena.dgac.fr
+X   Mail:   C.E.N.A. - Orly Sud 205 - 94 542 ORLY AEROGARE CEDEX, FRANCE
+X
+X
+XHow to detect a single keystroke under VMS (without RETURN) ?
+X*************************************************************
+X
+X	Perhaps many of you did have to solve this problem, and had found 
+X    solutions: SMG$ libraries, system calls.
+X
+X	Calling a SMG Run-Time Library's routine permit effectively to solve
+X    it (polling on SMG$READ_KEYSTROKE with no time-out), but it has a 
+X    disastrous consequences over CPU load.
+X
+X	the system call solution is certainly the best one, but this need to
+X    be initiate.
+X
+X	So we developped this RTL's extension which thus offers to users an
+X    interface much easier to manipulate.
+X    It is accessible to C, Pascal and Ada developer. 
+X
+X
+XThe package contains these files:
+X*********************************
+X
+X    In C:
+X
+X		KBD$ROUTINES.H		  Header file
+X		DEMO_KBD$ROUTINES.C	  Demonstration program
+X
+X    In Pascal:
+X
+X		PASCAL$KBD_ROUTINES.PAS	  Routine declaration
+X		DEMO_KBD$ROUTINES.PAS	  Demonstration program
+X
+X    In Ada:
+X
+X		KBD_.ADA		  Specification declaration
+X		DEMO_KBD_ROUTINES.ADA	  Demonstration program
+X
+X
+XThe KBD library is made of 6 routines:
+X**************************************
+X
+X    KBD$CLOSE_KEYBOARD:	 Free memory from data-structures associated to this 
+X			 unit.
+X
+X    KBD$CVT_ANSI_SMG:	 Convert the ANSI sequence of a key into a SMG code.
+X
+X    KBD$FLUSH_KEYBOARD:  Empty the keyboard buffer.
+X
+X    KBD$KEY_PRESSED:	 Indicate if at least one key is present in the buffer.
+X
+X    KBD$OPEN_KEYBOARD:	 Creation and initialization of the data-structures 
+X			 associated to the unit.
+X
+X    KBD$READ_KEYSTROKE:  Extract the next key from the buffer; if the latter is
+X			 empty, wait for an action onto the keyboard.
+X
+X
+Ximplementation's description
+X****************************
+X
+X	This unit is based on the producer-consumer algorithm, uses VAX/VMS
+X    primaries (System Services: $GETDVI, $QIO, etc), a breaking subroutine
+X    (AST) and the PASCAL$PPL_ROUTINES library.
+X    
+X	The producer is a breaking subroutine activated by an action onto 
+X    the keyboard, feeding a buffer memory. The consumer is the 
+X    KBD$READ_KEYSTROKE which take, each call, an ANSI sequence from buffer
+X    memory. The keyboard's buffer is managed in a circle.
+X
+X	When the buffer is full, the user is warned by a sound beep.
+X 
+X
+XPRACTICAL USE:
+X**************
+X
+X    1/ Create your own object library:
+X
+X		$ LIBRARY/CREATE/OBJECT MYLIB
+X
+X       If you want do give another name to the library, or if you have already
+X       got one, you've got to modify the "LIB" variable in the BUILD.COM file.
+X
+X    2/ Compile and insert KBD$ROUTINES unit into the library:
+X
+X		$ @BUILD
+X		$ @BUILD 3  (ou KP3)
+X
+X    3/ Compile and insert error messages into the library:
+X
+X		$ MESSAGE KBDMSG
+X		$ LIBRARY/REPLACE MYLIB KBDMSG
+X
+X    4/ In Pascal
+X
+X		$ PASCAL DEMO_KBD$ROUTINES
+X		$ LINK DEMO_KBD$ROUTINES, MYLIB/LIBRARY
+X		$ RUN DEMO_KBD$ROUTINES
+X
+X    5/ In C
+X
+X		$ CC DEMO_KBD$ROUTINES
+X		$ LINK DEMO_KBD$ROUTINES, MYLIB/LIBRARY, LINK_CC.OPT/OPTION
+X		$ RUN DEMO_KBD$ROUTINES
+X
+X    6/ In Ada
+X
+X		$ ACS SET LIBRARY MYLIBADA
+X		$ ADA KBD_
+X		$ ADA DEMO_KBD_ROUTINES
+X		$ DEFINE LNK$LIBRARY MYLIB
+X		$ ACS LINK DEMO_KBD_ROUTINES
+X		$ DEASSIGN LNK$LIBRARY
+END_OF_FILE
+  if test 3508 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'build.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'build.com'\"
+else
+  echo shar: Extracting \"'build.com'\" \(6511 characters\)
+  sed "s/^X//" >'build.com' <<'END_OF_FILE'
+X
+X$!------------------ Distribution and Copyright -----------------
+X$!--
+X$!- This software is copyright by the CENA/DGAC/FRANCE
+X$!-- All rights reserved.
+X$!--
+X$!-- No part of the material protected by this copyright notice
+X$!-- may be reproduced or utilized for commercial use in any form
+X$!-- without written permission of the copyright owner.
+X$!--
+X$!-- It may be reproduced or utilized for R&D use in Non Profit
+X$!-- Organization
+X$!--
+X$!---------------------------------------------------------------
+X
+X
+X$!------------------ Disclaimer ---------------------------------
+X$!--
+X$!-- This software and its documentation are provided "AS IS" and
+X$!-- without any expressed or implied warranties whatsoever.
+X$!-- No warranties as to performance, merchantability, or fitness
+X$!-- for a particular purpose exist.
+X$!--
+X$!-- Because of the diversity of conditions and hardware under
+X$!-- which this software may be used, no warranty of fitness for
+X$!-- a particular purpose is offered.  The user is advised to
+X$!-- test the software thoroughly before relying on it.  The user
+X$!-- must assume the entire risk and liability of using this
+X$!-- software.
+X$!--
+X$!-- In no event shall any person or organization of people be
+X$!-- held responsible for any direct, indirect, consequential
+X$!-- or inconsequential damages or lost profits.
+X$!--                                                           
+X$!-------------------END-PROLOGUE--------------------------------
+X
+X
+X
+X
+X$!++
+X$!
+X$! Titre:	   BUILD
+X$!
+X$! Sujet:	   Fichier de procedure pour la reconstruction d'un module
+X$!		   Pascal (interface + implementation) et son insertion dans
+X$!		   une librarie d'objets.
+X$!
+X$! Version:	   1.3
+X$!
+X$! Description:	   Le module doit en fait se decomposer en 2 fichiers, un pour
+X$!		   la partie interface et l'autre pour la partie
+X$!		   implementation.
+X$!		   Ils doivent respecter le format suivant: file_V_x_x.PAS
+X$!
+X$!		   Si P1 = 1, alors compilation de l'interface
+X$!		   Si P1 = 2, alors compilation de l'implementation
+X$!		   Si P1 = 3, alors compilation de tout
+X$!
+X$!		   Si P2 = F, alors phase finale
+X$!
+X$! Langage:	   DCL
+X$!
+X$! Fichier:	   BUILD.COM
+X$!
+X$! Environnement:  Machine cible:          VAX
+X$!		   Systeme d'exploitation: VMS Version 5.4-3
+X$!
+X$! Auteur:	   Martin VICENTE (DGAC/CENA/SID)
+X$!
+X$!		   E-mail: vicente@cenaath.cena.dgac.fr
+X$!
+X$!		   Mail:   C.E.N.A.
+X$!			   Div. Support Informatique & Developpement
+X$!			   Orly Sud 205
+X$!			   94 542 ORLY AEROGARE CEDEX, FRANCE
+X$!
+X$! Creation:	   19/05/92
+X$!
+X$! Modification:   01/07/92
+X$!
+X$!--
+X$
+X$
+X$!====  PARAMETRES DU PROGRAMME  ==============================================
+X$
+X$ TIT     = "KBD$ROUTINES"		! Titre
+X$ FIC_INT = "PASCAL$KBD_ROUTINES"	! Nom du fichier interface
+X$ FIC_IMP = "KBD$ROUTINES"		! Nom du fichier implementation
+X$ VER     = ""				! Version (respectez le format)
+X$ LIB     = "MYLIB"			! Librairie
+X$
+X$!====  LISTE DES ETIQUETTES  =================================================
+X$!
+X$! afp  AFFICHER PAVE NUMERIQUE
+X$! gtm  GET TIME
+X$! int  COMPILER INTERFACE
+X$! imp  COMPILER IMPLEMENTATION
+X$! tou  TOUT COMPILER
+X$! cin  COMPILER INTERFACE
+X$! cim  COMPILER IMPLEMENTATION
+X$!
+X$!====  DEFINITION DES SYMBOLES  ==============================================
+X$
+X$ AFFICHER   := write sys$output
+X$ LIGNE_VIDE := "''AFFICHER' """
+X$
+X$ VC = "''VIDEO_C'"
+X$ VI = "''VIDEO_I'"
+X$ VB = "''VIDEO_B'"
+X$ VN = "''VIDEO_N'"
+X$
+X$!====  DEBUT DU PROGRAMME  ===================================================
+X$
+X$ if p1 .eqs. "" then goto afp!AFFICHER PAVE NUMERIQUE
+X$
+X$ gosub gtm!GET TIME
+X$
+X$ DATE  = f$extract(0,11,TIME)
+X$ HEURE = f$extract(12,5,TIME)
+X$ TITRE = "''VI'BUILD DE ''TIT' LE ''DATE' A ''HEURE'''VN'"
+X$
+X$ EFFACER := delete/since='TIME'
+X$
+X$ if p2 .eqs. "F"
+X$   then
+X$     SOUSTITRE = "Version ''VER' - Phase finale"
+X$     COMPILER := pascal/warning/nocheck/optimize=all
+X$   else
+X$     SOUSTITRE = "Version ''VER' - Phase de developpement"
+X$     COMPILER := pascal/warning/check=all/nooptimize
+X$ endif
+X$
+X$ if p1 .eqs. "1"
+X$   then
+X$     gosub int!COMPILER INTERFACE
+X$   else
+X$     if p1 .eqs. "2"
+X$	then
+X$         gosub imp!COMPILER IMPLEMENTATION
+X$	else
+X$         if p1 .eqs. "3"
+X$	    then
+X$             gosub tou!TOUT COMPILER
+X$	    else
+X$             AFFICHER "%BUILD-E-PARINV, parametre invalide"
+X$	      AFFICHER " \''p1'\"
+X$	  endif
+X$     endif
+X$ endif
+X$
+X$ exit
+X$
+X$ afp:!AFFICHER PAVE NUMERIQUE
+X$
+X$	DEF := define/key/terminate/nolog
+X$
+X$	DEF help "@ BUILD"
+X$	DEF kp1  "@ BUILD 1"
+X$	DEF kp2  "@ BUILD 2"
+X$	DEF kp3  "@ BUILD 3"
+X$
+X$	set terminal/application_keypad
+X$
+X$	LIGNE_VIDE
+X$	AFFICHER  "DEFINITION DU PAVE NUMERIQUE"
+X$	LIGNE_VIDE
+X$
+X$	AFFICHER "	HELP -> DEFINITION DU PAVE NUMERIQUE"
+X$	AFFICHER "	KP1  -> COMPILER L'INTERFACE"
+X$	AFFICHER "	KP2  -> COMPILER L'IMPLEMENTATION"
+X$	AFFICHER "	KP3  -> COMPILER TOUT"
+X$
+X$	LIGNE_VIDE
+X$
+X$	exit
+X$
+X$!====  FIN DU PROGRAMME  =====================================================
+X$
+X$ int:!COMPILER INTERFACE
+X$
+X$	AFFICHER  TITRE
+X$	AFFICHER  SOUSTITRE
+X$	LIGNE_VIDE
+X$
+X$	gosub cin!COMPILER INTERFACE
+X$
+X$ return
+X$
+X$ imp:!COMPILER IMPLEMENTATION
+X$
+X$	AFFICHER  TITRE
+X$	AFFICHER  SOUSTITRE
+X$	LIGNE_VIDE
+X$
+X$	gosub cim!COMPILER IMPLEMENTATION
+X$
+X$ return
+X$
+X$ tou:!TOUT COMPILER
+X$
+X$	AFFICHER  TITRE
+X$	AFFICHER  SOUSTITRE
+X$	LIGNE_VIDE
+X$
+X$	gosub cin!COMPILER INTERFACE
+X$	gosub cim!COMPILER IMPLEMENTATION
+X$
+X$ return
+X$
+X$ cin:!COMPILER INTERFACE
+X$
+X$	AFFICHER  "''VB'COMPILATION DU MODULE ''FIC_INT'''VN'"
+X$
+X$	SRC = "''FIC_INT'''VER'.PAS"
+X$	INT = "''FIC_INT'"
+X$
+X$	purge 'SRC'
+X$
+X$	AFFICHER "Compilation"
+X$
+X$	COMPILER/environment='INT'/object='INT'/nodiagnostics 'SRC'
+X$
+X$	purge 'INT'.PEN
+X$	purge 'INT'.OBJ
+X$
+X$	define sys$output nl:
+X$	define sys$error  nl:
+X$	delete 'INT'.DIA;*
+X$	deassign sys$error
+X$	deassign sys$output
+X$
+X$	AFFICHER "Insertion dans la librairie"
+X$
+X$	library/replace 'LIB' 'FIC_INT'
+X$
+X$ return
+X$
+X$ cim:!COMPILER IMPLEMENTATION
+X$
+X$	AFFICHER "''VB'COMPILATION DU MODULE ''FIC_IMP'''VN'"
+X$
+X$	SRC = "''FIC_IMP'''VER'.PAS"
+X$	IMP = "''FIC_IMP'"
+X$
+X$	purge 'SRC'
+X$
+X$	AFFICHER "Compilation"
+X$
+X$	COMPILER/noenvironment/object='IMP'/nodiagnostics 'SRC'
+X$
+X$	purge 'IMP'.OBJ
+X$
+X$	define sys$output nl:
+X$	define sys$error  nl:
+X$	delete 'INT'.DIA;*
+X$	deassign sys$error
+X$	deassign sys$output
+X$
+X$	AFFICHER "Insertion dans la librairie"
+X$
+X$	library/replace 'LIB' 'FIC_IMP'
+X$
+X$ return
+X$
+X$ gtm:!GET TIME
+X$
+X$	TIME  = f$time ()
+X$	DATE  = f$extract(0,11,TIME)
+X$	HEURE = f$extract(12,11,TIME)
+X$
+X$!	Conversion du format de time de  DD-MMM-YYYY HH:MM:SS.CC
+X$!				     en  DD-MMM-YYYY:HH:MM:SS.CC
+X$
+X$	TIME = "''DATE':''HEURE'"
+X$
+X$ return
+X$
+END_OF_FILE
+  if test 6511 -ne `wc -c <'build.com'`; then
+    echo shar: \"'build.com'\" unpacked with wrong size!
+  fi
+  # end of 'build.com'
+fi
+if test -f 'kbd$routines.pas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'kbd$routines.pas'\"
+else
+  echo shar: Extracting \"'kbd$routines.pas'\" \(21759 characters\)
+  sed "s/^X//" >'kbd$routines.pas' <<'END_OF_FILE'
+X(*
+X------------------ Distribution and Copyright -----------------
+X--
+X-- This software is copyright by the CENA/DGAC/FRANCE
+X-- All rights reserved.
+X--
+X-- No part of the material protected by this copyright notice
+X-- may be reproduced or utilized for commercial use in any form
+X-- without written permission of the copyright owner.
+X--
+X-- It may be reproduced or utilized for R&D use in Non Profit
+X-- Organization
+X--
+X---------------------------------------------------------------
+X
+X
+X------------------ Disclaimer ---------------------------------
+X--
+X-- This software and its documentation are provided "AS IS" and
+X-- without any expressed or implied warranties whatsoever.
+X-- No warranties as to performance, merchantability, or fitness
+X-- for a particular purpose exist.
+X--
+X-- Because of the diversity of conditions and hardware under
+X-- which this software may be used, no warranty of fitness for
+X-- a particular purpose is offered.  The user is advised to
+X-- test the software thoroughly before relying on it.  The user
+X-- must assume the entire risk and liability of using this
+X-- software.
+X--
+X-- In no event shall any person or organization of people be
+X-- held responsible for any direct, indirect, consequential
+X-- or inconsequential damages or lost profits.
+X--                                                           
+X-------------------END-PROLOGUE--------------------------------
+X*)
+X
+X
+X
+X
+X(*****************************************************************************)
+X(*****************************************************************************)
+X(**									    **)
+X(**                K B D $ R O U T I N E S   Implementation                 **)
+X(**		    							    **)
+X(******* Copyright (C) 1992 Centre d'Etudes de la Navigation Aerienne ********)
+X(*****************************************************************************)
+X
+X
+X
+X
+X(*
+X * Titre:	   KBD$ROUTINES Implementation
+X *
+X * Sujet:	   Implementation des routines KBD$xxx ("Keyboard Routines").
+X *
+X * Version:	   1.0
+X *
+X * Description:	       Ce module contient l'implementation de la fonction
+X *                 KBD$READ_KEYSTROKE permettant d'attendre une action au
+X *		   clavier et renvoyant la sequence ANSI correspondant a la
+X *		   touche actionnee.
+X *
+X *                     Le module repose sur l'algorithme producteur-
+X *                 consommateur, l'utilisation de primitives de VAX/VMS (System
+X *                 Services: $GETDVI, $QIO, etc), d'un sous-programme
+X *                 d'interruption (AST) et de la librairie PASCAL$PPL_ROUTINES.
+X *
+X *                     Le producteur est un sous-programme d'interruption
+X *                 active par une action au clavier, alimentant une memoire
+X *                 tampon. Le consommateur est la fonction KBD$READ_KEYSTROKE
+X *		   qui preleve a chaque appel une sequence ANSI de la memoire
+X *                 tampon.
+X *
+X *                     Lorsque le tampon est plein, l'utilisateur est prevenu
+X *                 par un beep sonore emit par le sous-programme d'IT.
+X *
+X *		       La fonction KBD$FLUSH_KEYBOARD permet de vider le
+X *		   tampon clavier.
+X *
+X *                    Afin de pouvoir recuperer les codes emis par CTRL/C,
+X *                 CTRL/O, CTRL/Q, CTRL/S, CTRL/T, CTRL/X, CTRL/Y et F6, il est
+X *                 necessaire d'entrer la commande DCL "SET TERMINAL/PASTHRU
+X *                 /NOTTSYNC".
+X *
+X *                     Pour utiliser KBD$READ_KEYSTROKE, il necessaire
+X *		   d'appeler au prealable la fonction KBD$OPEN_KEYBOARD et de
+X *		   terminer par KBD$CLOSE_KEYBOARD.
+X *                 La routine KBD$OPEN_KEYBOARD permet, entre autres, de ne
+X *		   creer la zone tampon que si l'on desire reellement utiliser
+X *                 KBD$READ_KEYSTROKE.
+X *
+X * Langage:	   PASCAL NON STANDARD
+X *
+X * Fichier:	   KBD$ROUTINES.PAS
+X *
+X * Environnement:  Machine cible:          VAX
+X *		   Systeme d'exploitation: VAX/VMS Version 5.4-3
+X *		   Compilateur:            VAX Pascal Version 4.3
+X *
+X * Auteur:	   Martin VICENTE (DGAC/CENA/SID)
+X *
+X *		   E-mail: vicente@cenaath.cena.dgac.fr
+X *
+X *		   Mail:   C.E.N.A.
+X *			   Div. Support Informatique & Developpement
+X *			   Orly Sud 205
+X *			   94 542 ORLY AEROGARE CEDEX, FRANCE
+X *
+X * Creation:	   19/05/92
+X *
+X * Modification:   26/05/92
+X *
+X *)
+X
+X
+X
+X
+X[INHERIT( 'sys$library:starlet',
+X          'sys$library:pascal$lib_routines',
+X          'sys$library:pascal$ppl_routines',
+X          'vic$library:pascal$kbd_routines'  )]
+X
+X
+XMODULE  kbd$routines (G_screen);
+X
+X
+X
+X
+X(*================================================================= 19/05/92 *)
+X	[HIDDEN] CONST
+X(*===========================================================================*)
+X
+X
+X    NUL = Chr ( 0);
+X    BEL = Chr ( 7);
+X    ESC = Chr (27);
+X
+X
+X(*================================================================= 19/05/92 *)
+X	[HIDDEN] TYPE
+X(*===========================================================================*)
+X
+X
+X    $WORD  = [WORD] -32768..32767;
+X    $UWORD = [WORD] 0..65535;
+X
+X
+X    T_item_list_cell = PACKED RECORD
+X                          CASE INTEGER OF
+X			  1: ( (* Normal Cell -----*)
+X                          bufferLength  : $UWORD;
+X			  itemCode      : $UWORD;
+X			  bufferAddress : UNSIGNED;
+X			  returnAddress : UNSIGNED  );
+X                          2: ( (* Terminator Cell -*)
+X			  terminator    : UNSIGNED  )
+X                       END;
+X
+X    T_item_list_template (count : INTEGER) = PACKED ARRAY [1..count] OF
+X                                                T_item_list_cell;
+X
+X
+X    T_IOSB = RECORD
+X                ioStatus   : $UWORD;
+X		transCount : $UWORD;
+X	        deviceInfo : UNSIGNED
+X             END;
+X
+X    T_device_name = PACKED ARRAY [1..64] OF CHAR;
+X
+X
+X(*================================================================= 19/05/92 *)
+X	[HIDDEN] CONST
+X(*===========================================================================*)
+X
+X
+X    C_ESCOVERBUF_EMPTY = kbd$t_escape_overflow_buffer [1..4 : Chr (0)];
+X
+X
+X(*================================================================= 20/05/92 *)
+X	[HIDDEN] VAR
+X(*===========================================================================*)
+X
+X
+X    G_keyboard_open : BOOLEAN VALUE FALSE;
+X    G_screen        : [VOLATILE] TEXT;    { Pour emettre le caractere BEL    }
+X    G_channel       : [VOLATILE] $UWORD;  { Canal d'E/S affecte a SYS$INPUT  }
+X    G_iosb          : [VOLATILE] T_IOSB;  { Bloc de status rempli par la QIO }
+X    G_qio_buffer    : [VOLATILE] kbd$t_ansi_sequence;
+X
+X
+X(*================================================================= 19/05/92 *)
+X(*           DEFINITIONS POUR L'ALGORITHME PRODUCTEUR/CONSOMMATEUR           *)
+X(*===========================================================================*)
+X
+X
+X[HIDDEN] CONST
+X
+X   C_TAILLE_MAX = 32;  { taille maximale du tampon clavier }
+X
+X[HIDDEN] TYPE
+X
+X   T_tampon_clavier = ARRAY [0..C_TAILLE_MAX-1] OF kbd$t_ansi_sequence;
+X
+X[HIDDEN] VAR
+X
+X   G_TAMPON_CLAVIER      : [VOLATILE] ^T_tampon_clavier;
+X   G_NB_A_CONSOMMER      : [VOLATILE] UNSIGNED;
+X   G_NB_PLACE_DISPONIBLE : [VOLATILE] 0 .. C_TAILLE_MAX;
+X   G_INDICE_PRODUCTEUR   : [VOLATILE] 0 .. C_TAILLE_MAX - 1;
+X   G_INDICE_CONSOMMATEUR : 0 .. C_TAILLE_MAX - 1;
+X
+X
+X
+X
+X(*****************************************************************************)
+X(*****************************************************************************)
+X(**                     S O U S  -  P R O G R A M M E S                     **)
+X(*****************************************************************************)
+X(*****************************************************************************)
+X
+X
+X
+X
+X(****************************************************************** 22/05/92 *)
+X(*	perform								     *)
+X(*****************************************************************************)
+X
+X[HIDDEN,ASYNCHRONOUS,UNBOUND] PROCEDURE  perform (cond_value : UNSIGNED);
+X
+XBEGIN
+X
+X   IF NOT Odd (cond_value) THEN LIB$STOP (cond_value)
+X
+XEND (* perform *);
+X
+X
+X(****************************************************************** 19/05/92 *)
+X(*	SS_get_device_name						     *)
+X(*****************************************************************************)
+X
+X[HIDDEN] FUNCTION  SS_get_device_name (
+X
+X   device   : PACKED ARRAY [l..u:INTEGER] OF CHAR;
+X   VAR name : T_device_name ) : UNSIGNED;
+X
+XVAR
+X
+X   item_list   : T_item_list_template (2);
+X   device_name : T_device_name;
+X   cond_value  : UNSIGNED;
+X
+XBEGIN
+X
+X   WITH item_list[1] DO BEGIN
+X
+X      itemCode      := DVI$_ALLDEVNAM;
+X      bufferLength  := size     (device_name);
+X      bufferAddress := iAddress (device_name);
+X      returnAddress := 0
+X
+X   END {WITH};
+X
+X   item_list [2].terminator := 0;
+X
+X   cond_value := $GETDVI (itmlst := item_list, devnam := device);
+X
+X   IF cond_value = SS$_NORMAL THEN name := device_name;
+X
+X   SS_get_device_name := cond_value
+X
+XEND (* SS_get_device_name *);
+X
+X
+X(****************************************************************** 22/05/92 *)
+X  [HIDDEN,ASYNCHRONOUS,UNBOUND] FUNCTION  SS_qio_read : UNSIGNED;  FORWARD;
+X(*****************************************************************************)
+X
+X
+X(****************************************************************** 22/05/92 *)
+X(*	SS_interrupt_keyboard						     *)
+X(*****************************************************************************)
+X
+X[HIDDEN,ASYNCHRONOUS,UNBOUND] PROCEDURE  interrupt_keyboard;
+X
+XVAR
+X
+X   cond_value : UNSIGNED;
+X
+XBEGIN
+X
+X   (***************************)
+X   (* DEBUT BOUCLE PRODUCTEUR *)
+X   (***************************)
+X
+X   IF (G_iosb.ioStatus = SS$_NORMAL)    OR
+X      (G_iosb.ioStatus = SS$_BADESCAPE) THEN BEGIN
+X
+X      {+}
+X      { La condition BADESCAPE permet de traiter la touche F10 (ESC).
+X      {-}
+X
+X      IF G_NB_PLACE_DISPONIBLE = 0 THEN
+X
+X         Writeln (G_screen, BEL)  { Le tampon clavier est plein ! }
+X
+X      ELSE BEGIN
+X
+X         G_NB_PLACE_DISPONIBLE := G_NB_PLACE_DISPONIBLE - 1;
+X
+X         G_TAMPON_CLAVIER^ [G_INDICE_PRODUCTEUR] := G_qio_buffer;
+X
+X         IF G_INDICE_PRODUCTEUR = C_TAILLE_MAX - 1
+X            THEN G_INDICE_PRODUCTEUR := 0
+X	    ELSE G_INDICE_PRODUCTEUR := G_INDICE_PRODUCTEUR + 1;
+X
+X         perform (PPL$INCREMENT_SEMAPHORE (G_NB_A_CONSOMMER))
+X
+X      END {IF};
+X
+X      perform (SS_qio_read)
+X
+X   END
+X   ELSE IF G_iosb.ioStatus <> SS$_ABORT THEN BEGIN
+X
+X      LIB$STOP (G_iosb.ioStatus)
+X
+X   END {IF}
+X
+X   (*************************)
+X   (* FIN BOUCLE PRODUCTEUR *)
+X   (*************************)
+X
+XEND (* interrupt_keyboard *);
+X
+X
+X(****************************************************************** 22/05/92 *)
+X(*	SS_qio_read							     *)
+X(*****************************************************************************)
+X
+XFUNCTION  SS_qio_read;
+X
+XCONST
+X
+X   IO_FUNCTION_CODE = IO$_READVBLK + IO$M_EXTEND;
+X
+XVAR
+X
+X   item_list : T_item_list_template (2);
+X
+XBEGIN
+X
+X   WITH item_list[1] DO BEGIN
+X
+X      itemCode      := TRM$_ESCTRMOVR;
+X      bufferLength  := 0;
+X      bufferAddress := size (G_qio_buffer.escOverBuffer);
+X      returnAddress := 0
+X
+X   END {WITH};
+X
+X   WITH item_list[2] DO BEGIN
+X
+X      itemCode      := TRM$_MODIFIERS;
+X      bufferLength  := 0;
+X      bufferAddress := uOR (uOR ( TRM$M_TM_ESCAPE,
+X				  TRM$M_TM_NOECHO ),
+X				  TRM$M_TM_NOFILTR );
+X      returnAddress := 0
+X
+X   END {WITH};
+X
+X   G_qio_buffer.escOverBuffer := C_ESCOVERBUF_EMPTY;
+X
+X   SS_QIO_read := $QIO ( chan   := G_channel,
+X			 func   := IO_FUNCTION_CODE,
+X			 iosb   := G_iosb,
+X			 astadr := interrupt_keyboard,
+X			 p1     := G_qio_buffer,
+X			 p2     := size (G_qio_buffer),
+X			 p5     := iAddress (item_list),
+X			 p6     := size (item_list) )
+X
+XEND (* SS_qio_read *);
+X
+X
+X(****************************************************************** 19/05/92 *)
+X(*	KBD$OPEN_KEYBOARD						     *)
+X(*****************************************************************************)
+X
+X[GLOBAL] FUNCTION  kbd$open_keyboard : UNSIGNED;
+X
+XVAR
+X
+X   cond_value : UNSIGNED;
+X   device     : T_device_name;
+X
+XBEGIN
+X
+X   IF G_keyboard_open THEN kbd$open_keyboard := KBD$_ALREADYOPEN
+X   ELSE BEGIN
+X
+X      (********************************)
+X      (* DEBUT INITIALISATION COMMUNE *)
+X      (********************************)
+X
+X      {+}
+X      { Creation du tampon AVANT l'installation du S/P d'IT.
+X      {-}
+X      
+X      New (G_TAMPON_CLAVIER);
+X
+X      cond_value := PPL$CREATE_SEMAPHORE (
+X		       semaphore_id      := G_NB_A_CONSOMMER,
+X		       semaphore_maximum := C_TAILLE_MAX,
+X		       semaphore_initial := 0 );
+X
+X      IF NOT Odd (cond_value) THEN kbd$open_keyboard := KBD$_OPENERROR
+X      ELSE BEGIN
+X
+X	 G_NB_PLACE_DISPONIBLE := C_TAILLE_MAX;
+X
+X	 (******************************)
+X	 (* FIN INITIALISATION COMMUNE *)
+X	 (******************************)
+X
+X	 (***********************************)
+X	 (* DEBUT INITIALISATION PRODUCTEUR *)
+X	 (***********************************)
+X
+X	 {+}
+X	 { Pour emettre le caractere BEL lorsque le tampon sera plein.
+X	 {-}
+X
+X	 open (G_screen, 'SYS$OUTPUT', carriage_control := NONE);
+X
+X	 Rewrite (G_screen);
+X
+X         G_INDICE_PRODUCTEUR := 0;
+X
+X	 cond_value := SS_get_device_name ('SYS$INPUT', device);
+X
+X	 IF NOT Odd (cond_value) THEN kbd$open_keyboard := KBD$_OPENERROR
+X	 ELSE BEGIN
+X
+X	    cond_value := $ASSIGN (devnam := device, chan := G_channel);
+X
+X	    IF NOT Odd (cond_value) THEN kbd$open_keyboard := KBD$_OPENERROR
+X	    ELSE BEGIN
+X
+X               {+}
+X               { Premiere mise en place du S/P d'interruption.
+X               {-}
+X
+X               cond_value := SS_qio_read;
+X
+X	       IF NOT Odd (cond_value) THEN kbd$open_keyboard := KBD$_OPENERROR
+X	       ELSE BEGIN
+X
+X	          (*********************************)
+X	          (* FIN INITIALISATION PRODUCTEUR *)
+X	          (*********************************)
+X
+X					       (*******************************)
+X	          G_INDICE_CONSOMMATEUR := 0;  (* INITIALISATION CONSOMMATEUR *)
+X					       (*******************************)
+X
+X	          G_keyboard_open := TRUE;
+X
+X	          kbd$open_keyboard := KBD$_NORMAL
+X
+X	       END {IF}
+X
+X	    END {IF}
+X
+X	 END {IF}
+X
+X      END {IF}
+X
+X   END {IF}
+X
+XEND (* KBD$OPEN_KEYBOARD *);
+X
+X
+X(****************************************************************** 26/05/92 *)
+X(*	KBD$FLUSH_KEYBOARD						     *)
+X(*****************************************************************************)
+X
+X[GLOBAL] FUNCTION  kbd$flush_keyboard : UNSIGNED;
+X
+XVAR
+X
+X   cond_value : UNSIGNED;
+X
+XBEGIN
+X
+X   IF NOT G_keyboard_open THEN kbd$flush_keyboard := KBD$_NOTOPEN
+X   ELSE BEGIN
+X
+X      cond_value := PPL$CREATE_SEMAPHORE (
+X		       semaphore_id      := G_NB_A_CONSOMMER,
+X		       semaphore_maximum := C_TAILLE_MAX,
+X		       semaphore_initial := 0 );
+X
+X      IF NOT Odd (cond_value) THEN kbd$flush_keyboard := KBD$_FLUSHERROR
+X      ELSE BEGIN
+X
+X	 G_NB_PLACE_DISPONIBLE := C_TAILLE_MAX;
+X
+X         G_INDICE_PRODUCTEUR   := 0;
+X	 G_INDICE_CONSOMMATEUR := 0;
+X
+X	 kbd$flush_keyboard := KBD$_NORMAL
+X
+X      END {IF}
+X
+X   END {IF}
+X
+XEND (* KBD$FLUSH_KEYBOARD *);
+X
+X
+X(****************************************************************** 19/05/92 *)
+X(*	KBD$CLOSE_KEYBOARD						     *)
+X(*****************************************************************************)
+X
+X[GLOBAL] FUNCTION  kbd$close_keyboard : UNSIGNED;
+X
+XVAR
+X
+X   cond_value : UNSIGNED;
+X
+XBEGIN
+X
+X   IF NOT G_keyboard_open THEN kbd$close_keyboard := KBD$_ALREADYCLOSE
+X   ELSE BEGIN
+X
+X      G_keyboard_open := FALSE;
+X
+X      cond_value := $CANCEL (chan := G_channel);
+X
+X      IF NOT Odd (cond_value) THEN kbd$close_keyboard := KBD$_CLOSEERROR
+X      ELSE BEGIN
+X
+X         Close (G_screen);
+X
+X         Dispose (G_TAMPON_CLAVIER);
+X
+X         kbd$close_keyboard := KBD$_NORMAL
+X
+X      END {IF}
+X
+X   END {IF}
+X
+XEND (* KBD$CLOSE_KEYBOARD *);
+X
+X
+X(****************************************************************** 19/05/92 *)
+X(*	KBD$READ_KEYSTROKE						     *)
+X(*****************************************************************************)
+X
+X[GLOBAL] FUNCTION  kbd$read_keystroke (
+X
+X   VAR key : kbd$t_ansi_sequence) : UNSIGNED;
+X
+X{+}
+X{ Cette fonction se met en attente d'une action au clavier et renvoie la
+X{ sequence ANSI de la touche qui vient d'etre actionnee.
+X{-}
+X
+XVAR
+X
+X   cond_value : UNSIGNED;
+X
+XBEGIN
+X
+X   IF NOT G_keyboard_open THEN kbd$read_keystroke := KBD$_NOTOPEN
+X   ELSE BEGIN
+X
+X      (*****************************)
+X      (* DEBUT BOUCLE CONSOMMATEUR *)
+X      (*****************************)
+X
+X      cond_value := PPL$DECREMENT_SEMAPHORE (G_NB_A_CONSOMMER);
+X
+X      IF NOT Odd (cond_value) THEN kbd$read_keystroke := KBD$_READERROR
+X      ELSE BEGIN
+X
+X         key := G_TAMPON_CLAVIER^ [G_INDICE_CONSOMMATEUR];
+X
+X         IF G_INDICE_CONSOMMATEUR = C_TAILLE_MAX - 1
+X            THEN G_INDICE_CONSOMMATEUR := 0
+X            ELSE G_INDICE_CONSOMMATEUR := G_INDICE_CONSOMMATEUR + 1;
+X
+X         G_NB_PLACE_DISPONIBLE := G_NB_PLACE_DISPONIBLE + 1;
+X
+X         kbd$read_keystroke := KBD$_NORMAL
+X
+X         (***************************)
+X         (* FIN BOUCLE CONSOMMATEUR *)
+X         (***************************)
+X
+X      END {IF}
+X
+X   END {IF}
+X
+XEND (* KBD$READ_KEYSTROKE *);
+X
+X
+X(****************************************************************** 25/05/92 *)
+X(*	KBD$KEY_PRESSED							     *)
+X(*****************************************************************************)
+X
+X[GLOBAL] FUNCTION  kbd$key_pressed (VAR yes : BOOLEAN) : UNSIGNED;
+X
+XVAR
+X
+X   nombre     : $WORD;
+X   cond_value : UNSIGNED;
+X
+XBEGIN
+X
+X   IF NOT G_keyboard_open THEN kbd$key_pressed := KBD$_NOTOPEN
+X   ELSE BEGIN
+X
+X      cond_value := PPL$READ_SEMAPHORE (G_NB_A_CONSOMMER, nombre);
+X
+X      IF NOT Odd (cond_value) THEN kbd$key_pressed := KBD$_KEYPRESERROR
+X      ELSE BEGIN
+X
+X         yes := nombre <> 0;
+X
+X         kbd$key_pressed := KBD$_NORMAL
+X
+X      END {IF}
+X
+X   END {IF}
+X
+XEND (* KBD$KEY_PRESSED *);
+X
+X
+X(****************************************************************** 19/05/92 *)
+X(*	KBD$CVT_ANSI_SMG						     *)
+X(*****************************************************************************)
+X
+X[GLOBAL] FUNCTION  kbd$cvt_ansi_smg (sequence : kbd$t_ansi_sequence) : $UWORD;
+X
+XBEGIN
+X
+X   WITH sequence DO BEGIN
+X
+X      IF escOverBuffer = C_ESCOVERBUF_EMPTY THEN BEGIN
+X
+X         (********************)
+X	 (* ASCII Characters *)
+X         (********************)
+X
+X         kbd$cvt_ansi_smg := Ord (ascii)
+X
+X      END
+X      ELSE IF ascii = ESC THEN BEGIN
+X
+X         (********************)
+X	 (* Escape Sequences *)
+X         (********************)
+X
+X	 IF escOverBuffer [1] = 'O' THEN BEGIN  (* SS3 *)
+X
+X	    CASE escOverBuffer [2] OF
+X
+X	       (* Arrow Keys - Application *)
+X
+X	       'A' : kbd$cvt_ansi_smg := SMG$K_TRM_UP;
+X	       'B' : kbd$cvt_ansi_smg := SMG$K_TRM_DOWN;
+X	       'C' : kbd$cvt_ansi_smg := SMG$K_TRM_RIGHT;
+X	       'D' : kbd$cvt_ansi_smg := SMG$K_TRM_LEFT;
+X
+X	       (* Numeric Keypad Keys - Application *)
+X
+X	       'M' : kbd$cvt_ansi_smg := SMG$K_TRM_ENTER;
+X	       'P' : kbd$cvt_ansi_smg := SMG$K_TRM_PF1;
+X	       'Q' : kbd$cvt_ansi_smg := SMG$K_TRM_PF2;
+X	       'R' : kbd$cvt_ansi_smg := SMG$K_TRM_PF3;
+X	       'S' : kbd$cvt_ansi_smg := SMG$K_TRM_PF4;
+X	       'l' : kbd$cvt_ansi_smg := SMG$K_TRM_COMMA;
+X	       'm' : kbd$cvt_ansi_smg := SMG$K_TRM_MINUS;
+X	       'n' : kbd$cvt_ansi_smg := SMG$K_TRM_PERIOD;
+X	       'p' : kbd$cvt_ansi_smg := SMG$K_TRM_KP0;
+X	       'q' : kbd$cvt_ansi_smg := SMG$K_TRM_KP1;
+X	       'r' : kbd$cvt_ansi_smg := SMG$K_TRM_KP2;
+X	       's' : kbd$cvt_ansi_smg := SMG$K_TRM_KP3;
+X	       't' : kbd$cvt_ansi_smg := SMG$K_TRM_KP4;
+X	       'u' : kbd$cvt_ansi_smg := SMG$K_TRM_KP5;
+X	       'v' : kbd$cvt_ansi_smg := SMG$K_TRM_KP6;
+X	       'w' : kbd$cvt_ansi_smg := SMG$K_TRM_KP7;
+X	       'x' : kbd$cvt_ansi_smg := SMG$K_TRM_KP8;
+X	       'y' : kbd$cvt_ansi_smg := SMG$K_TRM_KP9
+X
+X	       OTHERWISE kbd$cvt_ansi_smg := SMG$K_TRM_UNKNOWN
+X
+X	    END {CASE}
+X
+X	 END
+X	 ELSE IF escOverBuffer [1] = '[' THEN BEGIN  (* CSI *)
+X
+X	    IF escOverBuffer [3] = '~' THEN BEGIN
+X
+X	       CASE escOverBuffer [2] OF
+X
+X		  (* Editing Keys *)
+X
+X		  '1' : kbd$cvt_ansi_smg := SMG$K_TRM_FIND;
+X		  '2' : kbd$cvt_ansi_smg := SMG$K_TRM_INSERT_HERE;
+X		  '3' : kbd$cvt_ansi_smg := SMG$K_TRM_REMOVE;
+X		  '4' : kbd$cvt_ansi_smg := SMG$K_TRM_SELECT;
+X		  '5' : kbd$cvt_ansi_smg := SMG$K_TRM_PREV_SCREEN;
+X		  '6' : kbd$cvt_ansi_smg := SMG$K_TRM_NEXT_SCREEN
+X
+X		  OTHERWISE kbd$cvt_ansi_smg := SMG$K_TRM_UNKNOWN
+X
+X	       END {CASE}
+X
+X	    END
+X	    ELSE IF escOverBuffer [4] = '~' THEN BEGIN
+X
+X	       CASE escOverBuffer [2] OF
+X
+X		  '1' : CASE escOverBuffer [3] OF
+X			   '7' : kbd$cvt_ansi_smg := SMG$K_TRM_F6;
+X			   '8' : kbd$cvt_ansi_smg := SMG$K_TRM_F7;
+X			   '9' : kbd$cvt_ansi_smg := SMG$K_TRM_F8
+X			   OTHERWISE kbd$cvt_ansi_smg := SMG$K_TRM_UNKNOWN
+X			END {CASE};
+X		  '2' : CASE escOverBuffer [3] OF
+X			   '0' : kbd$cvt_ansi_smg := SMG$K_TRM_F9;
+X			   '1' : kbd$cvt_ansi_smg := SMG$K_TRM_F10;
+X			   '3' : kbd$cvt_ansi_smg := SMG$K_TRM_F11;
+X			   '4' : kbd$cvt_ansi_smg := SMG$K_TRM_F12;
+X			   '5' : kbd$cvt_ansi_smg := SMG$K_TRM_F13;
+X			   '6' : kbd$cvt_ansi_smg := SMG$K_TRM_F14;
+X			   '8' : kbd$cvt_ansi_smg := SMG$K_TRM_HELP;
+X			   '9' : kbd$cvt_ansi_smg := SMG$K_TRM_DO
+X			   OTHERWISE kbd$cvt_ansi_smg := SMG$K_TRM_UNKNOWN
+X			END {CASE};
+X		  '3' : CASE escOverBuffer [3] OF
+X			   '1' : kbd$cvt_ansi_smg := SMG$K_TRM_F17;
+X			   '2' : kbd$cvt_ansi_smg := SMG$K_TRM_F18;
+X			   '3' : kbd$cvt_ansi_smg := SMG$K_TRM_F19;
+X			   '4' : kbd$cvt_ansi_smg := SMG$K_TRM_F20
+X			   OTHERWISE kbd$cvt_ansi_smg := SMG$K_TRM_UNKNOWN
+X			END {CASE}
+X
+X		  OTHERWISE kbd$cvt_ansi_smg := SMG$K_TRM_UNKNOWN
+X
+X	       END {CASE}
+X
+X	    END
+X	    ELSE BEGIN
+X
+X	       CASE escOverBuffer [2] OF
+X
+X		  (* Arrow Keys - Normal *)
+X
+X		  'A' : kbd$cvt_ansi_smg := SMG$K_TRM_UP;
+X		  'B' : kbd$cvt_ansi_smg := SMG$K_TRM_DOWN;
+X		  'C' : kbd$cvt_ansi_smg := SMG$K_TRM_RIGHT;
+X		  'D' : kbd$cvt_ansi_smg := SMG$K_TRM_LEFT
+X
+X		  OTHERWISE kbd$cvt_ansi_smg := SMG$K_TRM_UNKNOWN
+X
+X	       END {CASE}
+X
+X	    END {IF}
+X
+X	 END
+X	 ELSE BEGIN
+X
+X	    kbd$cvt_ansi_smg := SMG$K_TRM_UNKNOWN
+X
+X	 END {IF}
+X
+X      END
+X      ELSE BEGIN
+X
+X	 kbd$cvt_ansi_smg := SMG$K_TRM_UNKNOWN
+X
+X      END {IF}
+X
+X   END {WITH}
+X
+XEND (* KBD$CVT_ANSI_SMG *);
+X
+X
+X
+X
+X(*****************************************************************************)
+X
+XEND (* KBD$ROUTINES Implementation *).
+X
+END_OF_FILE
+  if test 21759 -ne `wc -c <'kbd$routines.pas'`; then
+    echo shar: \"'kbd$routines.pas'\" unpacked with wrong size!
+  fi
+  # end of 'kbd$routines.pas'
+fi
+if test -f 'kbd_.ada' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'kbd_.ada'\"
+else
+  echo shar: Extracting \"'kbd_.ada'\" \(7343 characters\)
+  sed "s/^X//" >'kbd_.ada' <<'END_OF_FILE'
+X
+X------------------ Distribution and Copyright -----------------
+X--
+X-- This software is copyright by the CENA/DGAC/FRANCE
+X-- All rights reserved.
+X--
+X-- No part of the material protected by this copyright notice
+X-- may be reproduced or utilized for commercial use in any form
+X-- without written permission of the copyright owner.
+X--
+X-- It may be reproduced or utilized for R&D use in Non Profit
+X-- Organization
+X--
+X---------------------------------------------------------------
+X
+X
+X------------------ Disclaimer ---------------------------------
+X--
+X-- This software and its documentation are provided "AS IS" and
+X-- without any expressed or implied warranties whatsoever.
+X-- No warranties as to performance, merchantability, or fitness
+X-- for a particular purpose exist.
+X--
+X-- Because of the diversity of conditions and hardware under
+X-- which this software may be used, no warranty of fitness for
+X-- a particular purpose is offered.  The user is advised to
+X-- test the software thoroughly before relying on it.  The user
+X-- must assume the entire risk and liability of using this
+X-- software.
+X--
+X-- In no event shall any person or organization of people be
+X-- held responsible for any direct, indirect, consequential
+X-- or inconsequential damages or lost profits.
+X--                                                           
+X-------------------END-PROLOGUE--------------------------------
+X
+X
+X
+X
+X--*****************************************************************************
+X--*****************************************************************************
+X--**									     **
+X--**               D E M O   D E S   R O U T I N E S   K B D $               **
+X--**									     **
+X--******** Copyright (C) 1992 Centre d'Etudes de la Navigation Aerienne *******
+X--*****************************************************************************
+X
+X
+X
+X
+X-- ++
+X--
+X-- Titre:	   Paquetage KBD
+X--
+X-- Sujet:	   Declarations des routines KBD$xxx ("Keyboard Routines").
+X--
+X-- Version:	   1.0
+X--
+X-- Description:	       Ce paquetage contient la declaration de la procedure
+X--                 READ_KEYSTROKE permettant d'attendre une action au clavier
+X--		   et renvoyant la sequence ANSI correspondant a la touche
+X--		   actionnee.
+X--
+X--                     Pour utiliser READ_KEYSTROKE, il necessaire d'appeler au
+X--		   prealable la procedure OPEN_KEYBOARD et de terminer par
+X--		   CLOSE_KEYBOARD.
+X--                 La routine OPEN_KEYBOARD permet, entre autres, de ne creer
+X--		   le tampon clavier que si l'on desire reellement utiliser
+X--		   READ_KEYSTROKE.
+X--
+X--                     Lorsque le tampon est plein, l'utilisateur est prevenu
+X--                 par un beep sonore.
+X--
+X--		       La procedure FLUSH_KEYBOARD permet de vider le tampon
+X--		   clavier.
+X--
+X--                    Afin de pouvoir recuperer les codes emis par CTRL/C,
+X--                 CTRL/O, CTRL/Q, CTRL/S, CTRL/T, CTRL/X, CTRL/Y et F6, il est
+X--                 necessaire d'entrer la commande DCL "SET TERMINAL/PASTHRU
+X--                 /NOTTSYNC".
+X--
+X-- Langage:	   ADA
+X--
+X-- Fichier:	   KBD_.ADA
+X--
+X-- Paquetage:	   KBD
+X--
+X-- Environnement:  Machine cible:          VAX
+X--		   Systeme d'exploitation: VAX/VMS Version 5.4
+X--		   Compilateur:            VAX Ada Version 2.1-28
+X--
+X-- Auteur:	   Martin VICENTE (DGAC/CENA/SID)
+X--
+X--		   E-mail: vicente@cenaath.cena.dgac.fr
+X--
+X--		   Mail:   C.E.N.A.
+X--			   Div. Support Informatique & Developpement
+X--			   Orly Sud 205
+X--			   94 542 ORLY AEROGARE CEDEX, FRANCE
+X--
+X-- Creation:	   19/05/92
+X--
+X-- Modification:   26/05/92
+X--
+X-- --
+X
+X
+X
+X
+Xwith CONDITION_HANDLING;
+Xwith SYSTEM;
+X
+X
+Xuse CONDITION_HANDLING;
+Xuse SYSTEM;
+X
+X
+X
+X
+Xpackage KBD is
+X
+X
+X
+X
+X-- ============================================================================
+X--  TYPE
+X-- ============================================================================
+X
+X
+X    type T_ESCAPE_OVERFLOW_BUFFER is array (1..4) of character;
+X
+X    type T_ANSI_SEQUENCE is record
+X        ASCII         : character;
+X        ESCOVERBUFFER : T_ESCAPE_OVERFLOW_BUFFER;
+X    end record;
+X
+X
+X
+X
+X-- ****************************************************************************
+X-- ****************************************************************************
+X-- **                        KBD$ ROUTINE DECLARATION                        **
+X-- ****************************************************************************
+X-- ****************************************************************************
+X
+X
+X
+X
+X--
+X-- KBD$CLOSE_KEYBOARD
+X--
+X--   Libere la memoire des structures de donnees associees a ce module.
+X--
+X
+X    procedure CLOSE_KEYBOARD (COND_VALUE : out COND_VALUE_TYPE);
+X
+X
+X--
+X-- KBD$CVT_ANSI_SMG
+X--
+X--   Convertit la sequence ANSI d'une touche en un code SMG.
+X--
+X--   Liste des codes pouvant etre renvoyes (ils sont definis dans le paquetage
+X--   SMG):
+X--
+X--	ascii (0 - 255)		K_TRM_UP		K_TRM_DOWN
+X--	K_TRM_RIGHT		K_TRM_LEFT		K_TRM_ENTER
+X--	K_TRM_PF1		K_TRM_PF2		K_TRM_PF3
+X--	K_TRM_PF4		K_TRM_COMMA		K_TRM_MINUS
+X--	K_TRM_PERIOD		K_TRM_KP0		K_TRM_KP1
+X--	K_TRM_KP2		K_TRM_KP3		K_TRM_KP4
+X--	K_TRM_KP5		K_TRM_KP6		K_TRM_KP7
+X--	K_TRM_KP8		K_TRM_KP9		K_TRM_FIND
+X--	K_TRM_INSERT_HERE	K_TRM_REMOVE		K_TRM_SELECT
+X--	K_TRM_PREV_SCREEN	K_TRM_NEXT_SCREEN	K_TRM_F6
+X--	K_TRM_F7		K_TRM_F8		K_TRM_F9
+X--	K_TRM_F10		K_TRM_F11		K_TRM_F12
+X--	K_TRM_F13		K_TRM_F14		K_TRM_HELP
+X--	K_TRM_DO		K_TRM_F17		K_TRM_F18
+X--	K_TRM_F19		K_TRM_F20		K_TRM_UP
+X--	K_TRM_DOWN		K_TRM_RIGHT		K_TRM_LEFT
+X--	K_TRM_UNKNOWN
+X--
+X
+X    procedure CVT_ANSI_SMG (
+X        SMG_CODE : out UNSIGNED_WORD;
+X	SEQUENCE : in  T_ANSI_SEQUENCE );
+X
+X
+X--
+X-- KBD$FLUSH_KEYBOARD
+X--
+X--   Vide le tampon clavier.
+X--
+X
+X    procedure FLUSH_KEYBOARD (COND_VALUE : out COND_VALUE_TYPE);
+X
+X
+X--
+X-- KBD$KEY_PRESSED
+X--
+X--   Indique si au moins une touche est presente dans le tampon.
+X--
+X
+X    procedure KEY_PRESSED (
+X        COND_VALUE : out COND_VALUE_TYPE;
+X	YES        : out BOOLEAN );
+X
+X
+X--
+X-- KBD$OPEN_KEYBOARD
+X--
+X--   Creation et initialisation des structures de donnees associees au module.
+X--
+X
+X    procedure OPEN_KEYBOARD (COND_VALUE : out COND_VALUE_TYPE);
+X
+X
+X--
+X-- KBD$READ_KEYSTROKE
+X--
+X--   Extrait la touche suivante du tampon; si ce dernier est vide, se met en
+X--   attente d'une action au clavier.
+X--
+X
+X    procedure READ_KEYSTROKE (
+X        COND_VALUE : out    COND_VALUE_TYPE;
+X        KEY        : in out T_ANSI_SEQUENCE );
+X
+X
+X
+X
+X-- ****************************************************************************
+X
+X
+Xprivate
+X
+X
+X    pragma INTERFACE (external, CLOSE_KEYBOARD);
+X
+X    pragma IMPORT_VALUED_PROCEDURE ( CLOSE_KEYBOARD, "KBD$CLOSE_KEYBOARD",
+X        (COND_VALUE_TYPE) );
+X
+X
+X    pragma INTERFACE (external, CVT_ANSI_SMG);
+X
+X    pragma IMPORT_VALUED_PROCEDURE ( CVT_ANSI_SMG, "KBD$CVT_ANSI_SMG",
+X        (UNSIGNED_WORD, T_ANSI_SEQUENCE) );
+X
+X
+X    pragma INTERFACE (external, FLUSH_KEYBOARD);
+X
+X    pragma IMPORT_VALUED_PROCEDURE ( FLUSH_KEYBOARD, "KBD$FLUSH_KEYBOARD",
+X        (COND_VALUE_TYPE) );
+X
+X
+X    pragma INTERFACE (external, KEY_PRESSED);
+X
+X    pragma IMPORT_VALUED_PROCEDURE ( KEY_PRESSED, "KBD$KEY_PRESSED",
+X        (cond_value_type, BOOLEAN) );
+X
+X
+X    pragma INTERFACE (external, OPEN_KEYBOARD);
+X
+X    pragma IMPORT_VALUED_PROCEDURE ( OPEN_KEYBOARD, "KBD$OPEN_KEYBOARD",
+X        (COND_VALUE_TYPE) );
+X
+X
+X    pragma INTERFACE (external, READ_KEYSTROKE);
+X
+X    pragma IMPORT_VALUED_PROCEDURE ( READ_KEYSTROKE, "KBD$READ_KEYSTROKE",
+X        (COND_VALUE_TYPE, T_ANSI_SEQUENCE) );
+X
+X
+Xend KBD;
+END_OF_FILE
+  if test 7343 -ne `wc -c <'kbd_.ada'`; then
+    echo shar: \"'kbd_.ada'\" unpacked with wrong size!
+  fi
+  # end of 'kbd_.ada'
+fi
+if test -f 'kbdmsg.msg' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'kbdmsg.msg'\"
+else
+  echo shar: Extracting \"'kbdmsg.msg'\" \(3427 characters\)
+  sed "s/^X//" >'kbdmsg.msg' <<'END_OF_FILE'
+X
+X!------------------ Distribution and Copyright -----------------
+X!--
+X!-- This software is copyright by the CENA/DGAC/FRANCE
+X!-- All rights reserved.
+X!--
+X!-- No part of the material protected by this copyright notice
+X!-- may be reproduced or utilized for commercial use in any form
+X!-- without written permission of the copyright owner.
+X!--
+X!-- It may be reproduced or utilized for R&D use in Non Profit
+X!-- Organization
+X!--
+X!---------------------------------------------------------------
+X
+X
+X!------------------ Disclaimer ---------------------------------
+X!--
+X!-- This software and its documentation are provided "AS IS" and
+X!-- without any expressed or implied warranties whatsoever.
+X!-- No warranties as to performance, merchantability, or fitness
+X!-- for a particular purpose exist.
+X!--
+X!-- Because of the diversity of conditions and hardware under
+X!-- which this software may be used, no warranty of fitness for
+X!-- a particular purpose is offered.  The user is advised to
+X!-- test the software thoroughly before relying on it.  The user
+X!-- must assume the entire risk and liability of using this
+X!-- software.
+X!--
+X!-- In no event shall any person or organization of people be
+X!-- held responsible for any direct, indirect, consequential
+X!-- or inconsequential damages or lost profits.
+X!--                                                           
+X!-------------------END-PROLOGUE--------------------------------
+X
+X
+X
+X
+X!*****************************************************************************
+X!*****************************************************************************
+X!**                                                                         **
+X!**           M E S S A G E S   P O U R   K B D $ R O U T I N E S           **
+X!**                                                                         **
+X!******** Copyright (C) 1992 Centre d'Etudes de la Navigation Aerienne *******
+X!*****************************************************************************
+X
+X
+X
+X
+X!++
+X!
+X! Titre:	  MESSAGES POUR KBD$ROUTINES
+X!
+X! Sujet:	  Definition des messages pour KBD$ROUTINES.
+X!
+X! Version:	  1.0
+X!
+X! Description:	      Ce fichier contient les messages d'erreur utilises par la
+X!		  bibliotheque de routines KBD$ROUTINES.
+X!		      Il doit etre compile a travers la commande MESSAGE. Le
+X!		  fichier objet obtenu peut etre soit lie directement a
+X!		  l'application, soit etre utilise pour generer une image
+X!		  partageable: ce sera alors un fichier vecteur qui sera lie
+X!		  a l'application.
+X!
+X! Fichier:	  KBDMSG.MSG
+X!
+X! Environnement:  VAX/VMS Version 5.4-3
+X!                 VAX/VMS Message Utility
+X!
+X! Auteur:	  Martin VICENTE (DGAC/CENA/SID)
+X! 
+X! 		  E-mail: vicente@cenaath.cena.dgac.fr
+X! 
+X! 		  Mail:   C.E.N.A.
+X! 			  Div. Support Informatique & Developpement
+X! 			  Orly Sud 205
+X! 			  94 542 ORLY AEROGARE CEDEX, FRANCE
+X!
+X! Creation:	  19/05/92
+X!
+X! Modification:	  26/05/92
+X!
+X!--
+X
+X
+X.title Messages for KBD$ utility
+X
+X.ident "Version 1.0"
+X
+X.facility KBD, 1 /prefix=KBD$_
+X
+X
+X.severity success
+X
+XNORMAL		<normal successful completion>
+X
+X
+X.severity informational
+X
+XALREADYOPEN	<keyboard already open>
+XALREADYCLOSE	<keyboard already close>
+X
+X
+X.severity warning
+X
+XNOTOPEN		<keyboard not open>
+X
+X
+X.severity error
+X
+XCLOSEERROR	<error during close operation>
+XFLUSHERROR	<error during flush operation>
+XKEYPRESERROR	<error during key pressed operation>
+XOPENERROR	<error during open operation>
+XREADERROR	<error during read operation>
+X
+END_OF_FILE
+  if test 3427 -ne `wc -c <'kbdmsg.msg'`; then
+    echo shar: \"'kbdmsg.msg'\" unpacked with wrong size!
+  fi
+  # end of 'kbdmsg.msg'
+fi
+if test -f 'pascal$kbd_routines.pas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pascal$kbd_routines.pas'\"
+else
+  echo shar: Extracting \"'pascal$kbd_routines.pas'\" \(7178 characters\)
+  sed "s/^X//" >'pascal$kbd_routines.pas' <<'END_OF_FILE'
+X(*
+X------------------ Distribution and Copyright -----------------
+X--
+X-- This software is copyright by the CENA/DGAC/FRANCE
+X-- All rights reserved.
+X--
+X-- No part of the material protected by this copyright notice
+X-- may be reproduced or utilized for commercial use in any form
+X-- without written permission of the copyright owner.
+X--
+X-- It may be reproduced or utilized for R&D use in Non Profit
+X-- Organization
+X--
+X---------------------------------------------------------------
+X
+X
+X------------------ Disclaimer ---------------------------------
+X--
+X-- This software and its documentation are provided "AS IS" and
+X-- without any expressed or implied warranties whatsoever.
+X-- No warranties as to performance, merchantability, or fitness
+X-- for a particular purpose exist.
+X--
+X-- Because of the diversity of conditions and hardware under
+X-- which this software may be used, no warranty of fitness for
+X-- a particular purpose is offered.  The user is advised to
+X-- test the software thoroughly before relying on it.  The user
+X-- must assume the entire risk and liability of using this
+X-- software.
+X--
+X-- In no event shall any person or organization of people be
+X-- held responsible for any direct, indirect, consequential
+X-- or inconsequential damages or lost profits.
+X--                                                           
+X-------------------END-PROLOGUE--------------------------------
+X*)
+X
+X
+X
+X
+X(*****************************************************************************)
+X(*****************************************************************************)
+X(**									    **)
+X(**                           PASCAL$KBD_ROUTINES                           **)
+X(**									    **)
+X(******** Copyright (C) 1992 Centre d'Etudes de la Navigation Aerienne *******)
+X(*****************************************************************************)
+X
+X
+X
+X
+X(*
+X * Titre:	   PASCAL$KBD_ROUTINES
+X *
+X * Sujet:	   Declarations des routines KBD$xxx ("Keyboard Routines").
+X *
+X * Version:	   1.0
+X *
+X * Description:	       Ce module contient la declaration de la fonction
+X *                 KBD$READ_KEYSTROKE permettant d'attendre une action au
+X *		   clavier et renvoyant la sequence ANSI correspondant a la
+X *		   touche actionnee.
+X *
+X *                     Pour utiliser KBD$READ_KEYSTROKE, il necessaire
+X *		   d'appeler au prealable la fonction KBD$OPEN_KEYBOARD et de
+X *		   terminer par KBD$CLOSE_KEYBOARD.
+X *                 La routine KBD$OPEN_KEYBOARD permet, entre autres, de ne
+X *		   creer le tampon clavier que si l'on desire reellement
+X *		   utiliser KBD$READ_KEYSTROKE.
+X *
+X *                     Lorsque le tampon est plein, l'utilisateur est prevenu
+X *                 par un beep sonore.
+X *
+X *		       La fonction KBD$FLUSH_KEYBOARD permet de vider le
+X *		   tampon clavier.
+X *
+X *                    Afin de pouvoir recuperer les codes emis par CTRL/C,
+X *                 CTRL/O, CTRL/Q, CTRL/S, CTRL/T, CTRL/X, CTRL/Y et F6, il est
+X *                 necessaire d'entrer la commande DCL "SET TERMINAL/PASTHRU
+X *                 /NOTTSYNC".
+X *
+X * Langage:	   PASCAL NON STANDARD
+X *
+X * Fichier:	   PASCAL$KBD_ROUTINES_V_1_0.PAS
+X *
+X * Module:	   PASCAL$KBD_ROUTINES
+X *
+X * Environnement:  Machine cible:          VAX
+X *		   Systeme d'exploitation: VAX/VMS Version 5.4-3
+X *		   Compilateur:            VAX Pascal Version 4.3
+X *
+X * Auteur:	   Martin VICENTE (DGAC/CENA/SID)
+X *
+X *		   E-mail: vicente@cenaath.cena.dgac.fr
+X *
+X *		   Mail:   C.E.N.A.
+X *			   Div. Support Informatique & Developpement
+X *			   Orly Sud 205
+X *			   94 542 ORLY AEROGARE CEDEX, FRANCE
+X *
+X *
+X * Creation:	   19/05/92
+X *
+X * Modification:   26/05/92
+X *
+X *)
+X
+X
+X
+X
+XMODULE  pascal$kbd_routines;
+X
+X
+X
+X
+X(*===========================================================================*)
+X	[HIDDEN] TYPE
+X(*===========================================================================*)
+X
+X
+X    $UWORD = [WORD] 0..65535;
+X
+X
+X(*===========================================================================*)
+X	TYPE
+X(*===========================================================================*)
+X
+X
+X    KBD$T_ESCAPE_OVERFLOW_BUFFER = PACKED ARRAY [1..4] OF CHAR;
+X
+X    KBD$T_ANSI_SEQUENCE = PACKED RECORD
+X		             ascii         : CHAR;
+X			     escOverBuffer : KBD$T_ESCAPE_OVERFLOW_BUFFER
+X		          END;
+X
+X
+X(*===========================================================================*)
+X(*                         CONDITION VALUE RETURNED                          *)
+X(*===========================================================================*)
+X
+X
+XVAR  KBD$_NORMAL,
+X     KBD$_ALREADYOPEN,
+X     KBD$_OPENERROR,
+X     KBD$_ALREADYCLOSE,
+X     KBD$_CLOSEERROR,
+X     KBD$_NOTOPEN,
+X     KBD$_READERROR,
+X     KBD$_KEYPRESERROR,
+X     KBD$_FLUSHERROR
+X
+X     : [EXTERNAL,VALUE] UNSIGNED;
+X
+X
+X
+X
+X(*****************************************************************************)
+X(*****************************************************************************)
+X(**                        KBD$ FUNCTION DECLARATION                        **)
+X(*****************************************************************************)
+X(*****************************************************************************)
+X
+X
+X
+X
+X(*
+X * KBD$CLOSE_KEYBOARD
+X *
+X *   Libere la memoire des structures de donnees associees a ce module.
+X *)
+X
+XFUNCTION  kbd$close_keyboard : UNSIGNED;
+X
+XEXTERNAL;
+X
+X
+X(*
+X * KBD$CVT_ANSI_SMG
+X *
+X *   Convertit la sequence ANSI d'une touche en un code SMG.
+X *
+X *   Liste des codes pouvant etre renvoyes (ils sont definis dans
+X *   SYS$LIBRARY:PASCAL$SMG_ROUTINES):
+X *
+X *	ascii (0 - 255)		SMG$K_TRM_UP		SMG$K_TRM_DOWN
+X *	SMG$K_TRM_RIGHT		SMG$K_TRM_LEFT		SMG$K_TRM_ENTER
+X *	SMG$K_TRM_PF1		SMG$K_TRM_PF2		SMG$K_TRM_PF3
+X *	SMG$K_TRM_PF4		SMG$K_TRM_COMMA		SMG$K_TRM_MINUS
+X *	SMG$K_TRM_PERIOD	SMG$K_TRM_KP0		SMG$K_TRM_KP1
+X *	SMG$K_TRM_KP2		SMG$K_TRM_KP3		SMG$K_TRM_KP4
+X *	SMG$K_TRM_KP5		SMG$K_TRM_KP6		SMG$K_TRM_KP7
+X *	SMG$K_TRM_KP8		SMG$K_TRM_KP9		SMG$K_TRM_FIND
+X *	SMG$K_TRM_INSERT_HERE	SMG$K_TRM_REMOVE	SMG$K_TRM_SELECT
+X *	SMG$K_TRM_PREV_SCREEN	SMG$K_TRM_NEXT_SCREEN	SMG$K_TRM_F6
+X *	SMG$K_TRM_F7		SMG$K_TRM_F8		SMG$K_TRM_F9
+X *	SMG$K_TRM_F10		SMG$K_TRM_F11		SMG$K_TRM_F12
+X *	SMG$K_TRM_F13		SMG$K_TRM_F14		SMG$K_TRM_HELP
+X *	SMG$K_TRM_DO		SMG$K_TRM_F17		SMG$K_TRM_F18
+X *	SMG$K_TRM_F19		SMG$K_TRM_F20		SMG$K_TRM_UP
+X *	SMG$K_TRM_DOWN		SMG$K_TRM_RIGHT		SMG$K_TRM_LEFT
+X *	SMG$K_TRM_UNKNOWN
+X *)
+X
+XFUNCTION  kbd$cvt_ansi_smg (sequence : kbd$t_ansi_sequence) : $UWORD;
+X
+XEXTERNAL;
+X
+X
+X(*
+X * KBD$FLUSH_KEYBOARD
+X *
+X *   Vide le tampon clavier.
+X *)
+X
+XFUNCTION  kbd$flush_keyboard : UNSIGNED;
+X
+XEXTERNAL;
+X
+X
+X(*
+X * KBD$KEY_PRESSED
+X *
+X *   Indique si au moins une touche est presente dans le tampon.
+X *)
+X
+XFUNCTION  kbd$key_pressed (VAR yes : BOOLEAN) : UNSIGNED;
+X
+XEXTERNAL;
+X
+X
+X(*
+X * KBD$OPEN_KEYBOARD
+X *
+X *   Creation et initialisation des structures de donnees associees au module.
+X *)
+X
+XFUNCTION  kbd$open_keyboard : UNSIGNED;
+X
+XEXTERNAL;
+X
+X
+X(*
+X * KBD$READ_KEYSTROKE
+X *
+X *   Extrait la touche suivante du tampon; si ce dernier est vide, se met en
+X *   attente d'une action au clavier.
+X *)
+X
+XFUNCTION  kbd$read_keystroke (VAR key : kbd$t_ansi_sequence) : UNSIGNED;
+X
+XEXTERNAL;
+X
+X
+X
+X
+X(*****************************************************************************)
+X
+XEND (* PASCAL$KBD_ROUTINES *).
+END_OF_FILE
+  if test 7178 -ne `wc -c <'pascal$kbd_routines.pas'`; then
+    echo shar: \"'pascal$kbd_routines.pas'\" unpacked with wrong size!
+  fi
+  # end of 'pascal$kbd_routines.pas'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

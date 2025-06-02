@@ -1,0 +1,1982 @@
+Newsgroups: comp.sources.misc
+From: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Subject:  v31i109:  unzip50 - Info-ZIP portable UnZip, version 5.0, Part06/14
+Message-ID: <1992Aug24.025521.24680@sparky.imd.sterling.com>
+X-Md4-Signature: 2d257ec1bd0a912be20ed43f93069654
+Date: Mon, 24 Aug 1992 02:55:21 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Posting-number: Volume 31, Issue 109
+Archive-name: unzip50/part06
+Supersedes: unzip: Volume 29, Issue 31-42
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, COHERENT AMIGA?, !ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  MSDOS/tcc/unzip.prj VMS/vms.c zipinfo.c.B
+# Wrapped by kent@sparky on Sun Aug 23 21:09:33 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 14)."'
+if test -f 'MSDOS/tcc/unzip.prj' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MSDOS/tcc/unzip.prj'\"
+else
+  echo shar: Extracting \"'MSDOS/tcc/unzip.prj'\" \(279 characters\)
+  sed "s/^X//" >'MSDOS/tcc/unzip.prj' <<'END_OF_FILE'
+Xunzip.c		(unzip.h)
+Xexplode.c       (unzip.h)
+Xextract.c       (unzip.h)
+Xfile_io.c       (unzip.h)
+Xinflate.c       (unzip.h)
+Xmapname.c       (unzip.h)
+Xmatch.c         (unzip.h)
+Xmisc.c          (unzip.h)
+Xunreduce.c      (unzip.h)
+Xunshrink.c      (unzip.h)
+Xenvargs.c       (unzip.h)
+END_OF_FILE
+  if test 279 -ne `wc -c <'MSDOS/tcc/unzip.prj'`; then
+    echo shar: \"'MSDOS/tcc/unzip.prj'\" unpacked with wrong size!
+  fi
+  # end of 'MSDOS/tcc/unzip.prj'
+fi
+if test -f 'VMS/vms.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/vms.c'\"
+else
+  echo shar: Extracting \"'VMS/vms.c'\" \(25481 characters\)
+  sed "s/^X//" >'VMS/vms.c' <<'END_OF_FILE'
+X/*************************************************************************
+X *                                                                       *
+X * Copyright (C) 1992 Igor Mandrichenko.                                 *
+X * Permission is granted to any individual or institution to use, copy,  *
+X * or redistribute this software so long as all of the original files    *
+X * are included unmodified, that it is not sold for profit, and that     *
+X * this copyright notice is retained.                                    *
+X *                                                                       *
+X *************************************************************************/
+X
+X/*
+X *    vms.c  by Igor Mandrichenko
+X *    version 1.2-1
+X *
+X *    This module contains routines to extract VMS file attributes
+X *    from extra field and create file with these attributes.  This
+X *    source is mainly based on sources of file_io.c from UNZIP 4.1
+X *    by Info-ZIP.  [Info-ZIP note:  very little of this code is from
+X *    file_io.c; it has virtually been written from the ground up.
+X *    Of the few lines which are from the older code, most are mine
+X *    (G. Roelofs) and I make no claims upon them.  On the contrary,
+X *    my/our thanks to Igor for his contributions!]
+X */
+X
+X/*
+X *      Revision history:
+X *      1.0-1   Mandrichenko    16-feb-1992
+X *              Recognize -c option
+X *      1.0-2   Mandrichenko    17-feb-1992
+X *              Do not use ASYnchroneous mode.
+X *      1.0-3   Mandrichenko    2-mar-1992
+X *              Make code more standard
+X *              Use lrec instead of crec -- unzip4.2p does not provide
+X *              crec now.
+X *      1.1     Mandrichenko    5-mar-1992
+X *              Make use of asynchronous output.
+X *              Be ready to extract RMS blocks of invalid size (because diff
+X *              VMS version used to compress).
+X *      1.1-1   Mandrichenko    11-mar-1992
+X *              Use internal file attributes saved in pInfo to decide
+X *              if the file is text.  [GRR:  temporarily disabled, since
+X *              no way to override and force binary extraction]
+X *      1.1-2   Mandrichenko    13-mar-1992
+X *              Do not restore owner/protection info if -X not specified.
+X *      1.1-3   Mandrichenko    30-may-1992
+X *              Set revision date/time to creation date/time if none specified
+X *              Take quiet flag into account.
+X *      1.1-4   Cave Newt       14-jun-1992
+X *              Check zipfile for variable-length format (unzip and zipinfo).
+X *	1.2	Mandrichenko	21-jun-1992
+X *		Use deflation/inflation for compression of extra blocks
+X *		Free all allocated space
+X *	1.2-1	Mandrichenko	23-jun-1992
+X *		Interactively select an action when file exists
+X */
+X
+X#ifdef VMS			/*      VMS only !      */
+X
+X#ifndef SYI$_VERSION
+X#define SYI$_VERSION 4096	/* VMS 5.4 definition */
+X#endif
+X
+X#ifndef VAXC
+X				/* This definition may be missed */
+Xstruct XAB {
+X    unsigned char xab$b_cod;
+X    unsigned char xab$b_bln;
+X    short int xabdef$$_fill_1;
+X    char *xab$l_nxt;
+X};
+X
+X#endif
+X
+X#include "unzip.h"
+X#include <ctype.h>
+X#include <descrip.h>
+X#include <syidef.h>
+X
+X#define ERR(s) !((s) & 1)
+X
+X#define BUFS512 8192*2		/* Must be a multiple of 512 */
+X
+X/*
+X*   Local static storage
+X*/
+Xstatic struct FAB fileblk;
+Xstatic struct XABDAT dattim;
+Xstatic struct XABRDT rdt;
+Xstatic struct RAB rab;
+X
+Xstatic struct FAB *outfab = 0;
+Xstatic struct RAB *outrab = 0;
+Xstatic struct XABFHC *xabfhc = 0;
+Xstatic struct XABDAT *xabdat = 0;
+Xstatic struct XABRDT *xabrdt = 0;
+Xstatic struct XABPRO *xabpro = 0;
+Xstatic struct XABKEY *xabkey = 0;
+Xstatic struct XABALL *xaball = 0;
+Xstruct XAB *first_xab = 0L, *last_xab = 0L;
+X
+Xstatic char query = 0;
+Xstatic int text_file = 0;
+X
+Xstatic char locbuf[BUFS512];
+Xstatic int loccnt = 0;
+Xstatic char *locptr;
+X
+Xstatic int WriteBuffer();
+Xstatic int _flush_blocks();
+Xstatic int _flush_records();
+Xstatic byte *extract_block();
+Xstatic void message();
+Xstatic int get_vms_version();
+Xstatic void free_up();
+Xstatic int replace();
+X
+Xstruct bufdsc
+X{
+X    struct bufdsc *next;
+X    byte *buf;
+X    int bufcnt;
+X};
+X
+Xstatic struct bufdsc b1, b2, *curbuf;
+Xstatic byte buf1[BUFS512], buf2[BUFS512];
+X
+X
+Xint check_format()		/* return non-0 if format is variable-length */
+X{
+X    int rtype;
+X    struct FAB fab;
+X
+X    fab = cc$rms_fab;
+X    fab.fab$l_fna = zipfn;
+X    fab.fab$b_fns = strlen(zipfn);
+X    sys$open(&fab);
+X    rtype = fab.fab$b_rfm;
+X    sys$close(&fab);
+X
+X    if (rtype == FAB$C_VAR || rtype == FAB$C_VFC)
+X    {
+X	fprintf(stderr,
+X		"\n     Error:  zipfile is in variable-length record format.  Please\n\
+X     run \"bilf l %s\" to convert the zipfile to stream-LF\n\
+X     record format.  (Bilf.exe, bilf.c and make_bilf.com are included\n\
+X     in the VMS UnZip source distribution.)\n\n", zipfn);
+X	return 2;		/* 2:  error in zipfile */
+X    }
+X
+X    return 0;
+X}
+X
+X
+X#ifndef ZIPINFO
+X
+Xint create_output_file()
+X{				/* return non-0 if sys$create failed */
+X    int ierr, yr, mo, dy, hh, mm, ss;
+X    char timbuf[24];		/* length = first entry in "stupid" + 1 */
+X    int attr_given = 0;		/* =1 if VMS attributes are present in
+X				*     extra_field */
+X
+X    rab = cc$rms_rab;		/* fill FAB & RAB with default values */
+X    fileblk = cc$rms_fab;
+X
+X    text_file =/* pInfo->text || */aflag || cflag;
+X
+X    if (attr_given = find_vms_attrs())
+X    {
+X	text_file = 0;
+X	if (cflag)
+X	{
+X	    printf("Cannot put VMS file %s to stdout.\n",
+X		   filename);
+X	    free_up();
+X	    return 50;
+X	}
+X    }
+X
+X    if (!attr_given)
+X    {
+X	outfab = &fileblk;
+X	outfab->fab$l_xab = 0L;
+X	if (text_file)
+X	{
+X	    outfab->fab$b_rfm = FAB$C_VAR;	/* variable length records */
+X	    outfab->fab$b_rat = FAB$M_CR;	/* carriage-return carriage ctrl */
+X	}
+X	else
+X	{
+X	    outfab->fab$b_rfm = FAB$C_STMLF;	/* stream-LF record format */
+X	    outfab->fab$b_rat = FAB$M_CR;	/* carriage-return carriage ctrl */
+X	}
+X    }
+X
+X    if (!cflag)
+X	outfab->fab$l_fna = filename;
+X    else
+X	outfab->fab$l_fna = "sys$output:";
+X
+X    outfab->fab$b_fns = strlen(outfab->fab$l_fna);
+X
+X    if ((!attr_given) || xabdat == 0 || xabrdt == 0)	/* Use date/time info
+X							 *  from zipfile if
+X							 *  no attributes given
+X							 */
+X    {
+X	static char *month[] =
+X	    {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+X	     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+X
+X	/*  fixed-length string descriptor: */
+X	struct dsc$descriptor stupid =
+X	    {23, DSC$K_DTYPE_T, DSC$K_CLASS_S, timbuf};
+X
+X	yr = ((lrec.last_mod_file_date >> 9) & 0x7f) + 1980;
+X	mo = ((lrec.last_mod_file_date >> 5) & 0x0f) - 1;
+X	dy = (lrec.last_mod_file_date & 0x1f);
+X	hh = (lrec.last_mod_file_time >> 11) & 0x1f;
+X	mm = (lrec.last_mod_file_time >> 5) & 0x3f;
+X	ss = (lrec.last_mod_file_time & 0x1f) * 2;
+X
+X	dattim = cc$rms_xabdat;	/* fill XABs with default values */
+X	rdt = cc$rms_xabrdt;
+X	sprintf(timbuf, "%02d-%3s-%04d %02d:%02d:%02d.00", dy, month[mo], yr,
+X		hh, mm, ss);
+X	sys$bintim(&stupid, &dattim.xab$q_cdt);
+X	memcpy(&rdt.xab$q_rdt, &dattim.xab$q_cdt, sizeof(rdt.xab$q_rdt));
+X
+X	if ((!attr_given) || xabdat == 0L)
+X	{
+X	    dattim.xab$l_nxt = outfab->fab$l_xab;
+X	    outfab->fab$l_xab = &dattim;
+X	}
+X    }
+X
+X    outfab->fab$w_ifi = 0;	/* Clear IFI. It may be nonzero after ZIP */
+X
+X    ierr = sys$create(outfab);
+X    if (ierr == RMS$_FEX)
+X	ierr = replace();
+X
+X    if (ierr == 0)		/* Canceled */
+X	return free_up(), 1;
+X
+X    if (ERR(ierr))
+X    {
+X	char buf[256];
+X
+X	sprintf(buf, "[ Cannot create output file %s ]\n", filename);
+X	message(buf, ierr);
+X	message("", outfab->fab$l_stv);
+X	free_up();
+X	return (1);
+X    }
+X
+X    if (!text_file && !cflag)	/* Do not reopen text files and stdout
+X				*  Just open them in right mode         */
+X    {
+X	/*
+X	*       Reopen file for Block I/O with no XABs.
+X	*/
+X	if ((ierr = sys$close(outfab)) != RMS$_NORMAL)
+X	{
+X#ifdef DEBUG
+X	    message("[ create_output_file: sys$close failed ]\n", ierr);
+X	    message("", outfab->fab$l_stv);
+X#endif
+X	    fprintf(stderr, "Can't create output file:  %s\n", filename);
+X	    free_up();
+X	    return (1);
+X	}
+X
+X
+X	outfab->fab$b_fac = FAB$M_BIO | FAB$M_PUT;	/* Get ready for block
+X							 * output */
+X	outfab->fab$l_xab = 0L;	/* Unlink all XABs */
+X
+X	if ((ierr = sys$open(outfab)) != RMS$_NORMAL)
+X	{
+X	    char buf[256];
+X
+X	    sprintf(buf, "[ Cannot open output file %s ]\n", filename);
+X	    message(buf, ierr);
+X	    message("", outfab->fab$l_stv);
+X	    free_up();
+X	    return (1);
+X	}
+X    }
+X
+X    outrab = &rab;
+X    rab.rab$l_fab = outfab;
+X    if (!text_file) rab.rab$l_rop |= RAB$M_BIO;
+X    if (!text_file) rab.rab$l_rop |= RAB$M_ASY;
+X    rab.rab$b_rac = RAB$C_SEQ;
+X
+X    if ((ierr = sys$connect(outrab)) != RMS$_NORMAL)
+X    {
+X#ifdef DEBUG
+X	message("create_output_file: sys$connect failed.\n", ierr);
+X	message("", outfab->fab$l_stv);
+X#endif
+X	fprintf(stderr, "Can't create output file:  %s\n", filename);
+X	free_up();
+X	return (1);
+X    }
+X
+X    locptr = &locbuf[0];
+X    loccnt = 0;
+X
+X    b1.buf = &buf1[0];
+X    b1.bufcnt = 0;
+X    b1.next = &b2;
+X    b2.buf = &buf2[0];
+X    b2.bufcnt = 0;
+X    b2.next = &b1;
+X    curbuf = &b1;
+X
+X    return (0);
+X}
+X
+Xstatic int replace()
+X{				/*
+X				*	File exists. Inquire user about futher action.
+X				*/
+X    char answ[10];
+X    struct NAM nam;
+X    int ierr;
+X
+X    if (query == 0)
+X    {
+X	do
+X	{
+X	    fprintf(stderr,
+X		    "Replace %s : [o]verwrite, new [v]ersion or [c]ancel (O,V,C - all) ? ",
+X		    filename);
+X	    fflush(stderr);
+X	} while (fgets(answ, 9, stderr) == NULL && !isalpha(answ[0])
+X		 && tolower(answ[0]) != 'o'
+X		 && tolower(answ[0]) != 'v'
+X		 && tolower(answ[0]) != 'c');
+X
+X	if (isupper(answ[0]))
+X	    query = answ[0] = tolower(answ[0]);
+X    }
+X    else
+X	answ[0] = query;
+X
+X    switch (answ[0])
+X    {
+X	case 'c':
+X	    ierr = 0;
+X	    break;
+X	case 'v':
+X	    nam = cc$rms_nam;
+X	    nam.nam$l_rsa = filename;
+X	    nam.nam$b_rss = FILNAMSIZ - 1;
+X
+X	    outfab->fab$l_fop |= FAB$M_MXV;
+X	    outfab->fab$l_nam = &nam;
+X
+X	    ierr = sys$create(outfab);
+X	    if (!ERR(ierr))
+X	    {
+X		outfab->fab$l_nam = 0L;
+X		filename[outfab->fab$b_fns = nam.nam$b_rsl] = 0;
+X	    }
+X	    break;
+X	case 'o':
+X	    outfab->fab$l_fop |= FAB$M_SUP;
+X	    ierr = sys$create(outfab);
+X	    break;
+X    }
+X    return ierr;
+X}
+X
+X/*
+X*   Extra record format
+X*   ===================
+X*   signature       (2 bytes)   = 'I','M'
+X*   size            (2 bytes)
+X*   block signature (4 bytes)
+X*   flags           (2 bytes)
+X*   uncomprssed size(2 bytes)
+X*   reserved        (4 bytes)
+X*   data            ((size-12) bytes)
+X*   ....
+X*/
+X
+X#define BC_MASK 	07	/* 3 bits for compression type */
+X#define BC_STORED	0	/* Stored */
+X#define BC_00		1	/* 0byte -> 0bit compression */
+X#define BC_DEFL		2	/* Deflated */
+X
+Xstruct extra_block
+X{
+X    UWORD sig;			/* Extra field block header structure */
+X    UWORD size;
+X    ULONG bid;
+X    UWORD flags;
+X    UWORD length;
+X    ULONG reserved;
+X    byte body[1];
+X};
+X
+X/*
+X *   Extra field signature and block signatures
+X */
+X
+X#define SIGNATURE "IM"
+X#define FABL    (cc$rms_fab.fab$b_bln)
+X#define RABL    (cc$rms_rab.rab$b_bln)
+X#define XALLL   (cc$rms_xaball.xab$b_bln)
+X#define XDATL   (cc$rms_xabdat.xab$b_bln)
+X#define XFHCL   (cc$rms_xabfhc.xab$b_bln)
+X#define XKEYL   (cc$rms_xabkey.xab$b_bln)
+X#define XPROL   (cc$rms_xabpro.xab$b_bln)
+X#define XRDTL   (cc$rms_xabrdt.xab$b_bln)
+X#define XSUML   (cc$rms_xabsum.xab$b_bln)
+X#define EXTBSL  4		/* Block signature length   */
+X#define RESL    8		/* Rserved 8 bytes  */
+X#define EXTHL   (4+EXTBSL)
+X#define FABSIG  "VFAB"
+X#define XALLSIG "VALL"
+X#define XFHCSIG "VFHC"
+X#define XDATSIG "VDAT"
+X#define XRDTSIG "VRDT"
+X#define XPROSIG "VPRO"
+X#define XKEYSIG "VKEY"
+X#define XNAMSIG "VNAM"
+X#define VERSIG  "VMSV"
+X
+X
+X
+X#define W(p)    (*(unsigned short*)(p))
+X#define L(p)    (*(unsigned long*)(p))
+X#define EQL_L(a,b)      ( L(a) == L(b) )
+X#define EQL_W(a,b)      ( W(a) == W(b) )
+X
+X/****************************************************************
+X * Function find_vms_attrs scans ZIP entry extra field if any   *
+X * and looks for VMS attribute records. Returns 0 if either no  *
+X * attributes found or no fab given.                            *
+X ****************************************************************/
+Xint find_vms_attrs()
+X{
+X    byte *scan = extra_field;
+X    struct extra_block *blk;
+X    int len;
+X
+X    outfab = xabfhc = xabdat = xabrdt = xabpro = first_xab = last_xab = 0L;
+X
+X    if (scan == NULL)
+X	return 0;
+X    len = lrec.extra_field_length;
+X
+X#define LINK(p) {	/* Link xaballs and xabkeys into chain */	\
+X                if( first_xab == 0L )                   \
+X                        first_xab = p;                  \
+X                if( last_xab != 0L )                    \
+X                        last_xab -> xab$l_nxt = p;      \
+X                last_xab = p;                           \
+X                p -> xab$l_nxt = 0;                     \
+X        }
+X    /* End of macro LINK */
+X
+X    while (len > 0)
+X    {
+X	blk = (struct block *) scan;
+X	if (EQL_W(&blk->sig, SIGNATURE))
+X	{
+X	    byte *block_id;
+X
+X	    block_id = &blk->bid;
+X	    if (EQL_L(block_id, FABSIG))
+X	    {
+X		outfab = (struct FAB *) extract_block(blk, 0,
+X						      &cc$rms_fab, FABL);
+X	    }
+X	    else if (EQL_L(block_id, XALLSIG))
+X	    {
+X		xaball = (struct XABALL *) extract_block(blk, 0,
+X							 &cc$rms_xaball, XALLL);
+X		LINK(xaball);
+X	    }
+X	    else if (EQL_L(block_id, XKEYSIG))
+X	    {
+X		xabkey = (struct XABKEY *) extract_block(blk, 0,
+X							 &cc$rms_xabkey, XKEYL);
+X		LINK(xabkey);
+X	    }
+X	    else if (EQL_L(block_id, XFHCSIG))
+X	    {
+X		xabfhc = (struct XABFHC *) extract_block(blk, 0,
+X							 &cc$rms_xabfhc, XFHCL);
+X	    }
+X	    else if (EQL_L(block_id, XDATSIG))
+X	    {
+X		xabdat = (struct XABDAT *) extract_block(blk, 0,
+X							 &cc$rms_xabdat, XDATL);
+X	    }
+X	    else if (EQL_L(block_id, XRDTSIG))
+X	    {
+X		xabrdt = (struct XABRDT *) extract_block(blk, 0,
+X							 &cc$rms_xabrdt, XRDTL);
+X	    }
+X	    else if (EQL_L(block_id, XPROSIG))
+X	    {
+X		xabpro = (struct XABPRO *) extract_block(blk, 0,
+X							 &cc$rms_xabpro, XPROL);
+X	    }
+X	    else if (EQL_L(block_id, VERSIG))
+X	    {
+X		char verbuf[80];
+X		int verlen = 0;
+X		byte *vers;
+X		char *m;
+X
+X		get_vms_version(verbuf, 80);
+X		vers = extract_block(blk, &verlen, 0, 0);
+X		if ((m = strrchr(vers, '-')) != NULL)
+X		    *m = 0;	/* Cut out release number */
+X		if (strcmp(verbuf, vers) && quietflg == 0)
+X		{
+X		    printf("[ Warning: VMS version mismatch.");
+X
+X		    printf("   This version %s --", verbuf);
+X		    strncpy(verbuf, vers, verlen);
+X		    verbuf[verlen] = 0;
+X		    printf(" version made by %s ]\n", verbuf);
+X		}
+X		free(vers);
+X	    }
+X	    else if (quietflg == 0)
+X		fprintf(stderr, "[ Warning: Unknown block signature %s ]\n",
+X			block_id);
+X	}
+X	len -= blk->size + 4;
+X	scan += blk->size + 4;
+X    }
+X
+X
+X    if (outfab != 0)
+X    {				/* Do not link XABPRO,XABRDT now. Leave them for sys$close() */
+X
+X	outfab->fab$l_xab = 0L;
+X	if (xabfhc != 0L)
+X	{
+X	    xabfhc->xab$l_nxt = outfab->fab$l_xab;
+X	    outfab->fab$l_xab = xabfhc;
+X	}
+X	if (xabdat != 0L)
+X	{
+X	    xabdat->xab$l_nxt = outfab->fab$l_xab;
+X	    outfab->fab$l_xab = xabdat;
+X	}
+X	if (first_xab != 0L)	/* Link xaball,xabkey subchain */
+X	{
+X	    last_xab->xab$l_nxt = outfab->fab$l_xab;
+X	    outfab->fab$l_xab = first_xab;
+X	}
+X	return 1;
+X    }
+X    else
+X	return 0;
+X}
+X
+Xstatic void free_up()
+X{				/*
+X				*	Free up all allocated xabs
+X				*/
+X    if (xabdat != 0L) free(xabdat);
+X    if (xabpro != 0L) free(xabpro);
+X    if (xabrdt != 0L) free(xabrdt);
+X    if (xabfhc != 0L) free(xabfhc);
+X    while (first_xab != 0L)
+X    {
+X	struct XAB *x;
+X
+X	x = first_xab->xab$l_nxt;
+X	free(first_xab);
+X	first_xab = x;
+X    }
+X    if (outfab != 0L && outfab != &fileblk)
+X	free(outfab);
+X}
+X
+Xstatic int get_vms_version(verbuf, len)
+X    char *verbuf;
+Xint len;
+X{
+X    int i = SYI$_VERSION;
+X    int verlen = 0;
+X    struct dsc$descriptor version;
+X    char *m;
+X
+X    version.dsc$a_pointer = verbuf;
+X    version.dsc$w_length = len - 1;
+X    version.dsc$b_dtype = DSC$K_DTYPE_B;
+X    version.dsc$b_class = DSC$K_CLASS_S;
+X
+X    if (ERR(lib$getsyi(&i, 0, &version, &verlen, 0, 0)) || verlen == 0)
+X	return 0;
+X
+X    /* Cut out trailing spaces "V5.4-3   " -> "V5.4-3" */
+X    for (m = verbuf + verlen, i = verlen - 1; i > 0 && verbuf[i] == ' '; --i)
+X	--m;
+X    *m = 0;
+X
+X    /* Cut out release number "V5.4-3" -> "V5.4" */
+X    if ((m = strrchr(verbuf, '-')) != NULL)
+X	*m = 0;
+X    return strlen(verbuf) + 1;	/* Transmit ending 0 too */
+X}
+X
+X/******************************
+X *   Function extract_block   *
+X ******************************/
+X/*
+X * Extracts block from p. If resulting length is less then needed, fill
+X * extra space with corresponding bytes from 'init'.
+X * Currently understands 3 formats of block compression:
+X * - Simple storing
+X * - Compression of zero bytes to zero bits
+X * - Deflation. See memextract() from extract.c
+X */
+Xstatic byte *extract_block(p, retlen, init, needlen)
+X    struct extra_block *p;
+Xint *retlen;
+Xbyte *init;
+Xint needlen;
+X{
+X    byte *block;		/* Pointer to block allocated */
+X    int cmptype;
+X    int usiz, csiz, max;
+X
+X    cmptype = p->flags & BC_MASK;
+X    csiz = p->size - EXTBSL - RESL;
+X    usiz = (cmptype == BC_STORED ? csiz : p->length);
+X
+X    if (needlen == 0)
+X	needlen = usiz;
+X
+X    if (retlen)
+X	*retlen = usiz;
+X
+X#ifndef MAX
+X#define MAX(a,b)	( (a) > (b) ? (a) : (b) )
+X#endif
+X
+X    if ((block = (byte *) malloc(MAX(needlen, usiz))) == NULL)
+X	return NULL;
+X
+X    if (init && (usiz < needlen))
+X	memcpy(block, init, needlen);
+X
+X    switch (cmptype)
+X    {
+X	case BC_STORED:	/* The simplest case */
+X	    memcpy(block, &(p->body[0]), usiz);
+X	    break;
+X	case BC_00:
+X	    decompress_bits(block, usiz, &(p->body[0]));
+X	    break;
+X	case BC_DEFL:
+X	    memextract(block, usiz, &(p->body[0]), csiz);
+X	    break;
+X	default:
+X	    free(block);
+X	    block = NULL;
+X    }
+X    return block;
+X}
+X
+X/*
+X *  Simple uncompression routine. The compression uses bit stream.
+X *  Compression scheme:
+X *
+X *  if(byte!=0)
+X *      putbit(1),putbyte(byte)
+X *  else
+X *      putbit(0)
+X */
+Xstatic void decompress_bits(outptr, needlen, bitptr)
+X    byte *bitptr;
+X
+X/* Pointer into compressed data */
+Xbyte *outptr;			/* Pointer into output block */
+Xint needlen;			/* Size of uncompressed block */
+X{
+X    ULONG bitbuf = 0;
+X    int bitcnt = 0;
+X
+X#define _FILL   if(bitcnt+8 <= 32)                      \
+X                {       bitbuf |= (*bitptr++) << bitcnt;\
+X                        bitcnt += 8;                    \
+X                }
+X
+X    while (needlen--)
+X    {
+X	if (bitcnt <= 0)
+X	    _FILL;
+X
+X	if (bitbuf & 1)
+X	{
+X	    bitbuf >>= 1;
+X	    if ((bitcnt -= 1) < 8)
+X		_FILL;
+X	    *outptr++ = (byte) bitbuf;
+X	    bitcnt -= 8;
+X	    bitbuf >>= 8;
+X	}
+X	else
+X	{
+X	    *outptr++ = 0;
+X	    bitcnt -= 1;
+X	    bitbuf >>= 1;
+X	}
+X    }
+X}
+X
+X/***************************/
+X/*  Function FlushOutput() */
+X/***************************/
+X
+Xint FlushOutput()
+X{
+X    if (mem_mode)
+X    {				/* Hope, mem_mode stays constant during
+X				 * extraction */
+X	int rc = FlushMemory();	/* For mem_extract() */
+X
+X	outpos += outcnt;
+X	outcnt = 0;
+X	outptr = outbuf;
+X	return rc;
+X    }
+X
+X    /* return PK-type error code */
+X    /* flush contents of output buffer */
+X    if (tflag)
+X    {				/* Do not output. Update CRC only */
+X	UpdateCRC(outbuf, outcnt);
+X	outpos += outcnt;
+X	outcnt = 0;
+X	outptr = outbuf;
+X	return 0;
+X    }
+X    else
+X	return text_file ? _flush_records(0) : _flush_blocks(0);
+X}
+X
+Xstatic int _flush_blocks(final_flag)	/* Asynchronous version */
+X    int final_flag;
+X
+X/* 1 if this is the final flushout */
+X{
+X    int round;
+X    int rest;
+X    int off = 0;
+X    int out_count = outcnt;
+X    int status;
+X
+X    while (out_count > 0)
+X    {
+X	if (curbuf->bufcnt < BUFS512)
+X	{
+X	    int ncpy;
+X
+X	    ncpy = out_count > (BUFS512 - curbuf->bufcnt) ?
+X			    BUFS512 - curbuf->bufcnt :
+X			    out_count;
+X	    memcpy(curbuf->buf + curbuf->bufcnt, outbuf + off, ncpy);
+X	    out_count -= ncpy;
+X	    curbuf->bufcnt += ncpy;
+X	    off += ncpy;
+X	}
+X	if (curbuf->bufcnt == BUFS512)
+X	{
+X	    status = WriteBuffer(curbuf->buf, curbuf->bufcnt);
+X	    if (status)
+X		return status;
+X	    curbuf = curbuf->next;
+X	    curbuf->bufcnt = 0;
+X	}
+X    }
+X
+X    UpdateCRC(outbuf, outcnt);
+X    outpos += outcnt;
+X    outcnt = 0;
+X    outptr = outbuf;
+X
+X    return (final_flag && (curbuf->bufcnt > 0)) ?
+X	WriteBuffer(curbuf->buf, curbuf->bufcnt) :
+X	0;
+X    /* 0:  no error */
+X}
+X
+X#define RECORD_END(c) ((c) == CR || (c) == LF || (c) == CTRLZ)
+X
+Xstatic int _flush_records(final_flag)
+X    int final_flag;
+X
+X/* 1 if this is the final flushout */
+X{
+X    int rest;
+X    int end = 0, start = 0;
+X    int off = 0;
+X
+X    if (outcnt == 0 && loccnt == 0)
+X	return 0;		/* Nothing to do ... */
+X
+X    if (loccnt)
+X    {
+X	for (end = 0; end < outcnt && !RECORD_END(outbuf[end]);)
+X	    ++end;
+X
+X	if (end >= outcnt && !final_flag)
+X	{
+X	    if (WriteRecord(locbuf, loccnt))
+X		return (50);
+X	    fprintf(stderr, "[ Warning: Record too long (%d) ]\n",
+X		    outcnt + loccnt);
+X	    memcpy(locbuf, outbuf, outcnt);
+X	    locptr = &locbuf[loccnt = outcnt];
+X	}
+X	else
+X	{
+X	    memcpy(locptr, outbuf, end);
+X	    if (WriteRecord(locbuf, loccnt + end))
+X		return (50);
+X	    loccnt = 0;
+X	    locptr = &locbuf;
+X	}
+X	start = end + 1;
+X
+X	if (start < outcnt && outbuf[end] == CR && outbuf[start] == LF)
+X	    ++start;
+X    }
+X
+X    do
+X    {
+X	while (start < outcnt && outbuf[start] == CR)	/* Skip CR's at the
+X							*  beginning of rec. */
+X	    ++start;
+X	/* Find record end */
+X	for (end = start; end < outcnt && !RECORD_END(outbuf[end]);)
+X	    ++end;
+X
+X	if (end < outcnt)
+X	{			/* Record end found, write the record */
+X	    if (WriteRecord(outbuf + start, end - start))
+X		return (50);
+X	    /* Shift to the begining of the next record */
+X	    start = end + 1;
+X	}
+X
+X	if (start < outcnt && outbuf[end] == CR && outbuf[start] == LF)
+X	    ++start;
+X
+X    } while (start < outcnt && end < outcnt);
+X
+X    rest = outcnt - start;
+X
+X    if (rest > 0)
+X	if (final_flag)
+X	{
+X	    /* This is a final flush. Put out all remaining in
+X	    *  the buffer                               */
+X	    if (loccnt && WriteRecord(locbuf, loccnt))
+X		return (50);
+X	}
+X	else
+X	{
+X	    memcpy(locptr, outbuf + start, rest);
+X	    locptr += rest;
+X	    loccnt += rest;
+X	}
+X    UpdateCRC(outbuf, outcnt);
+X    outpos += outcnt;
+X    outcnt = 0;
+X    outptr = outbuf;
+X    return (0);			/* 0:  no error */
+X}
+X
+X/***************************/
+X/*  Function WriteBuffer() */
+X/***************************/
+X
+Xstatic int WriteBuffer(buf, len)/* return 0 if successful, 1 if not */
+X    unsigned char *buf;
+Xint len;
+X{
+X    int status;
+X
+X    status = sys$wait(outrab);
+X#ifdef DEBUG
+X    if (ERR(status))
+X    {
+X	message("[ WriteBuffer: sys$wait failed ]\n", status);
+X	message("", outrab->rab$l_stv);
+X    }
+X#endif
+X    outrab->rab$w_rsz = len;
+X    outrab->rab$l_rbf = buf;
+X
+X    if (ERR(status = sys$write(outrab)))
+X    {
+X	message("[ WriteBuffer: sys$write failed ]\n", status);
+X	message("", outrab->rab$l_stv);
+X	return 50;
+X    }
+X    return (0);
+X}
+X
+X/***************************/
+X/*  Function WriteRecord() */
+X/***************************/
+X
+Xstatic int WriteRecord(rec, len)/* return 0 if successful, 1 if not */
+X    unsigned char *rec;
+Xint len;
+X{
+X    int status;
+X
+X    sys$wait(outrab);
+X#ifdef DEBUG
+X    if (ERR(status))
+X    {
+X	message("[ WriteRecord: sys$wait faled ]\n", status);
+X	message("", outrab->rab$l_stv);
+X    }
+X#endif
+X    outrab->rab$w_rsz = len;
+X    outrab->rab$l_rbf = rec;
+X
+X    if (ERR(status = sys$put(outrab)))
+X    {
+X	message("[ WriteRecord: sys$put failed ]\n", status);
+X	message("", outrab->rab$l_stv);
+X	return 50;
+X    }
+X    return (0);
+X}
+X
+X/********************************/
+X/*  Function CloseOutputFile()  */
+X/********************************/
+X
+Xint CloseOutputFile()
+X{
+X    int status;
+X
+X    if (text_file) _flush_records(1);
+X    else
+X	_flush_blocks(1);
+X    /* Link XABRDT,XABDAT and optionaly XABPRO */
+X    if (xabrdt != 0L)
+X    {
+X	xabrdt->xab$l_nxt = 0L;
+X	outfab->fab$l_xab = xabrdt;
+X    }
+X    else
+X    {
+X	rdt.xab$l_nxt = 0L;
+X	outfab->fab$l_xab = &rdt;
+X    }
+X    if (xabdat != 0L)
+X    {
+X	xabdat->xab$l_nxt = outfab->fab$l_xab;
+X	outfab->fab$l_xab = xabdat;
+X    }
+X    if (secinf && xabpro != 0L)
+X    {
+X	xabpro->xab$l_nxt = outfab->fab$l_xab;
+X	outfab->fab$l_xab = xabpro;
+X    }
+X
+X    sys$wait(outrab);
+X
+X    status = sys$close(outfab);
+X#ifdef DEBUG
+X    if (ERR(status))
+X    {
+X	message("\r[ Warning: cannot set owner/protection/time attributes ]\n", status);
+X	message("", outfab->fab$l_stv);
+X    }
+X#endif
+X    free_up();
+X}
+X
+X#ifdef DEBUG
+Xdump_rms_block(p)
+X    unsigned char *p;
+X{
+X    unsigned char bid, len;
+X    int err;
+X    char *type;
+X    char buf[132];
+X    int i;
+X
+X    err = 0;
+X    bid = p[0];
+X    len = p[1];
+X    switch (bid)
+X    {
+X	case FAB$C_BID:
+X	    type = "FAB";
+X	    break;
+X	case XAB$C_ALL:
+X	    type = "xabALL";
+X	    break;
+X	case XAB$C_KEY:
+X	    type = "xabKEY";
+X	    break;
+X	case XAB$C_DAT:
+X	    type = "xabDAT";
+X	    break;
+X	case XAB$C_RDT:
+X	    type = "xabRDT";
+X	    break;
+X	case XAB$C_FHC:
+X	    type = "xabFHC";
+X	    break;
+X	case XAB$C_PRO:
+X	    type = "xabPRO";
+X	    break;
+X	default:
+X	    type = "Unknown";
+X	    err = 1;
+X	    break;
+X    }
+X    printf("Block @%08X of type %s (%d).", p, type, bid);
+X    if (err)
+X    {
+X	printf("\n");
+X	return;
+X    }
+X    printf(" Size = %d\n", len);
+X    printf(" Offset - Hex - Dec\n");
+X    for (i = 0; i < len; i += 8)
+X    {
+X	int j;
+X
+X	printf("%3d - ", i);
+X	for (j = 0; j < 8; j++)
+X	    if (i + j < len)
+X		printf("%02X ", p[i + j]);
+X	    else
+X		printf("   ");
+X	printf(" - ");
+X	for (j = 0; j < 8; j++)
+X	    if (i + j < len)
+X		printf("%03d ", p[i + j]);
+X	    else
+X		printf("    ");
+X	printf("\n");
+X    }
+X}
+X
+X#endif				/* DEBUG */
+X
+Xstatic void message(string, status)
+X    int status;
+Xchar *string;
+X{
+X    char msgbuf[256];
+X
+X    $DESCRIPTOR(msgd, msgbuf);
+X    int msglen = 0;
+X
+X    if (ERR(lib$sys_getmsg(&status, &msglen, &msgd, 0, 0)))
+X	fprintf(stderr, "%s[ VMS status = %d ]\n", string, status);
+X    else
+X    {
+X	msgbuf[msglen] = 0;
+X	fprintf(stderr, "%s[ %s ]\n", string, msgbuf);
+X    }
+X}
+X
+X
+X#endif				/* !ZIPINFO */
+X#endif				/* VMS */
+END_OF_FILE
+  if test 25481 -ne `wc -c <'VMS/vms.c'`; then
+    echo shar: \"'VMS/vms.c'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/vms.c'
+fi
+if test -f 'zipinfo.c.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zipinfo.c.B'\"
+else
+  echo shar: Extracting \"'zipinfo.c.B'\" \(29824 characters\)
+  sed "s/^X//" >'zipinfo.c.B' <<'END_OF_FILE'
+X
+X/************************************/
+X/*  Function process_central_dir()  */
+X/************************************/
+X
+Xint process_central_dir()   /* return PK-type error code */
+X{
+X    char    **fnamev;
+X    int     do_this_file=FALSE, none_found=TRUE, error, error_in_archive=0;
+X    UWORD   j, members=0;
+X    ULONG   c=0L, uc=0L;
+X
+X
+X/*---------------------------------------------------------------------------
+X    Set file pointer to start of central directory, then loop through cen-
+X    tral directory entries.  Check that directory-entry signature bytes are
+X    actually there (just a precaution), then process the entry.  We know
+X    the entire central directory is on this disk:  we wouldn't have any of
+X    this information unless the end-of-central-directory record was on this
+X    disk, and we wouldn't have gotten to this routine unless this is also
+X    the disk on which the central directory starts.  In practice, this had
+X    better be the *only* disk in the archive, but maybe someday we'll add
+X    multi-disk support.
+X  ---------------------------------------------------------------------------*/
+X
+X    pInfo->lcflag = 0;   /* match(), do_string():  never TRUE in zipinfo */
+X
+X    for (j = 0;  j < ecrec.total_entries_central_dir;  ++j) {
+X        if (readbuf(sig, 4) <= 0)
+X            return 51;          /* 51:  unexpected EOF */
+X        if (strncmp(sig, central_hdr_sig, 4)) {  /* just to make sure */
+X            fprintf(stderr, CentSigMsg, j);  /* sig not found */
+X            return 3;           /* 3:  error in zipfile */
+X        }
+X        if ((error = process_cdir_file_hdr()) != 0)
+X            return error;       /* only 51 (EOF) defined */
+X        if ((error = do_string(crec.filename_length, FILENAME)) != 0) {
+X          error_in_archive = error;   /* might be warning */
+X          if (error > 1)        /* fatal */
+X              return error;
+X        }
+X
+X        if (!process_all_files) {   /* check if specified on command line */
+X            do_this_file = FALSE;
+X            fnamev = fnv;       /* don't destroy permanent filename ptr */
+X            for (--fnamev;  *++fnamev; )
+X                if (match(filename, *fnamev)) {
+X                    do_this_file = TRUE;
+X                    none_found = FALSE;
+X                    break;      /* found match, so stop looping */
+X                }
+X        }
+X
+X    /*-----------------------------------------------------------------------
+X        If current file was specified on command line, or if no names were
+X        specified, do the listing for this file.  Otherwise, get rid of the
+X        file comment and go back for the next file.
+X      -----------------------------------------------------------------------*/
+X
+X        if (process_all_files || do_this_file) {
+X            switch (lflag) {
+X                case 1:
+X                    printf("%s\n", filename);
+X                    SKIP_(crec.extra_field_length)
+X                    SKIP_(crec.file_comment_length)
+X                    break;
+X
+X                case 3:
+X                case 4:
+X                case 5:
+X                    if ((error = short_info()) != 0) {
+X                        error_in_archive = error;   /* might be warning */
+X                        if (error > 1)              /* fatal */
+X                            return error;
+X                    }
+X                    break;
+X
+X                case 10:
+X#ifdef VMS   /* GRR: FIX THIS (no pipes:  add cbreak-style "more" function) */
+X                    printf("\nCentral directory entry #%d:\n", j);
+X#else /* !VMS */
+X                    /* formfeed/CR for piping to "more": */
+X                    printf("%s\nCentral directory entry #%d:\n", "\014", j);
+X#endif /* ?VMS */
+X                    printf("---------------------------\n\n");
+X
+X                    if ((error = long_info()) != 0) {
+X                      error_in_archive = error;   /* might be warning */
+X                      if (error > 1)              /* fatal */
+X                          return error;
+X                    }
+X                    break;
+X
+X                default:
+X                    SKIP_(crec.extra_field_length)
+X                    SKIP_(crec.file_comment_length)
+X                    break;
+X
+X            } /* end switch (lflag) */
+X
+X            uc += crec.uncompressed_size;
+X            c += crec.compressed_size;
+X            if (crec.general_purpose_bit_flag & 1)
+X                c -= 12;    /* if encrypted, don't count encryption header */
+X            ++members;
+X
+X        } else {   /* not listing */
+X            SKIP_(crec.extra_field_length)
+X            SKIP_(crec.file_comment_length)
+X
+X        } /* end if (list member?) */
+X
+X    } /* end for-loop (j: member files) */
+X
+X/*---------------------------------------------------------------------------
+X    Double check that we're back at the end-of-central-directory record.
+X  ---------------------------------------------------------------------------*/
+X
+X    readbuf(sig, 4);
+X    if (strncmp(sig, end_central_sig, 4)) {     /* just to make sure again */
+X        fprintf(stderr, EndSigMsg);  /* didn't find end-of-central-dir sig */
+X        error_in_archive = 1;        /* 1:  warning error */
+X    }
+X
+X/*---------------------------------------------------------------------------
+X    Check that we actually found requested files; if so, print totals.
+X  ---------------------------------------------------------------------------*/
+X
+X    if (none_found && !process_all_files) {
+X        fnamev = fnv;       /* don't destroy permanent filename ptr */
+X        for (--fnamev;  *++fnamev; )
+X            printf("zipinfo:  %s not found in %s\n", *fnamev, zipfn);
+X    } else if (tflag)
+X        printf(
+X          "%d file%s, %lu bytes uncompressed, %lu bytes compressed:  %d%%\n",
+X          members, (members==1)? "":"s", uc, c, (uc==0)? 0 : ((uc>2000000L)?
+X          ((int)((uc-c)/(uc/1000L))+5)/10 : ((int)((1000L*(uc-c))/uc)+5)/10) );
+X
+X    return error_in_archive;
+X
+X} /* end function process_central_dir() */
+X
+X
+X
+X
+X
+X/**************************************/
+X/*  Function process_cdir_file_hdr()  */
+X/**************************************/
+X
+Xint process_cdir_file_hdr()   /* return PK-type error code */
+X{
+X    cdir_byte_hdr   byterec;
+X
+X
+X/*---------------------------------------------------------------------------
+X    Read the next central directory entry and do any necessary machine-type
+X    conversions (byte ordering, structure padding compensation--do so by
+X    copying the data from the array into which it was read (byterec) to the
+X    usable struct (crec)).
+X  ---------------------------------------------------------------------------*/
+X
+X    if (readbuf((char *) byterec, CREC_SIZE) <= 0)
+X        return 51;   /* 51:  unexpected EOF */
+X
+X    crec.version_made_by[0] = byterec[C_VERSION_MADE_BY_0];
+X    crec.version_made_by[1] = byterec[C_VERSION_MADE_BY_1];
+X    crec.version_needed_to_extract[0] = byterec[C_VERSION_NEEDED_TO_EXTRACT_0];
+X    crec.version_needed_to_extract[1] = byterec[C_VERSION_NEEDED_TO_EXTRACT_1];
+X
+X    crec.general_purpose_bit_flag =
+X        makeword(&byterec[C_GENERAL_PURPOSE_BIT_FLAG]);
+X    crec.compression_method =
+X        makeword(&byterec[C_COMPRESSION_METHOD]);
+X    crec.last_mod_file_time =
+X        makeword(&byterec[C_LAST_MOD_FILE_TIME]);
+X    crec.last_mod_file_date =
+X        makeword(&byterec[C_LAST_MOD_FILE_DATE]);
+X    crec.crc32 =
+X        makelong(&byterec[C_CRC32]);
+X    crec.compressed_size =
+X        makelong(&byterec[C_COMPRESSED_SIZE]);
+X    crec.uncompressed_size =
+X        makelong(&byterec[C_UNCOMPRESSED_SIZE]);
+X    crec.filename_length =
+X        makeword(&byterec[C_FILENAME_LENGTH]);
+X    crec.extra_field_length =
+X        makeword(&byterec[C_EXTRA_FIELD_LENGTH]);
+X    crec.file_comment_length =
+X        makeword(&byterec[C_FILE_COMMENT_LENGTH]);
+X    crec.disk_number_start =
+X        makeword(&byterec[C_DISK_NUMBER_START]);
+X    crec.internal_file_attributes =
+X        makeword(&byterec[C_INTERNAL_FILE_ATTRIBUTES]);
+X    crec.external_file_attributes =
+X        makelong(&byterec[C_EXTERNAL_FILE_ATTRIBUTES]); /* LONG, not word! */
+X    crec.relative_offset_local_header =
+X        makelong(&byterec[C_RELATIVE_OFFSET_LOCAL_HEADER]);
+X
+X    return 0;
+X
+X} /* end function process_cdir_file_hdr() */
+X
+X
+X
+X
+X/**************************/
+X/*  Function long_info()  */
+X/**************************/
+X
+Xint long_info()   /* return PK-type error code */
+X{
+X    int           error, error_in_archive=0;
+X    UWORD         hostver, extver, xattr;
+X    char          workspace[12], attribs[22];
+X    static char   unkn[16];
+X    static char   *os[NUM_HOSTS+1] = {"MS-DOS or OS/2 FAT", "Amiga", "VAX VMS",
+X                      "Unix", "VM/CMS", "Atari ST", "OS/2 HPFS", "Macintosh",
+X                      "Z-System", "CP/M", "unknown" };
+X    static char   *method[NUM_METHODS+1] = {"none (stored)", "shrunk",
+X                      "reduced (factor 1)", "reduced (factor 2)",
+X                      "reduced (factor 3)", "reduced (factor 4)",
+X                      "imploded", "tokenized", "deflated", unkn};
+X    static char   *dtype[4] = {"normal", "maximum", "fastest", "undefined"};
+X
+X
+X/*---------------------------------------------------------------------------
+X    Print out various interesting things about the compressed file.
+X  ---------------------------------------------------------------------------*/
+X
+X    hostnum = MIN(crec.version_made_by[1], NUM_HOSTS);
+X    hostver = crec.version_made_by[0];
+X    extnum = MIN(crec.version_needed_to_extract[1], NUM_HOSTS);
+X    extver = crec.version_needed_to_extract[0];
+X    methnum = MIN(crec.compression_method, NUM_METHODS);
+X    if (methnum == NUM_METHODS)
+X        sprintf(unkn, "unknown (%d)", crec.compression_method);
+X
+X    printf("  %s\n", filename);
+X
+X    printf("\n  host operating system (created on):               %s\n",
+X      os[hostnum]);
+X    printf("  version of encoding software:                     %d.%d\n",
+X      hostver/10, hostver%10);
+X    printf("  minimum operating system compatibility required:  %s\n",
+X      os[extnum]);
+X    printf("  minimum software version required to extract:     %d.%d\n",
+X      extver/10, extver%10);
+X    printf("  compression method:                               %s\n",
+X      method[methnum]);
+X    if (methnum == IMPLODED) {
+X        printf("  size of sliding dictionary (implosion):           %cK\n",
+X          (crec.general_purpose_bit_flag & 2)? '8' : '4');
+X        printf("  number of Shannon-Fano trees (implosion):         %c\n",
+X          (crec.general_purpose_bit_flag & 4)? '3' : '2');
+X    } else if (methnum == DEFLATED) {
+X        UWORD  dnum=(crec.general_purpose_bit_flag>>1) & 3;
+X        printf("  compression sub-type (deflation):                 %s\n",
+X          dtype[dnum]);
+X    }
+X    printf("  file security status:                             %sencrypted\n",
+X      (crec.general_purpose_bit_flag & 1)? "" : "not ");
+X    printf("  extended local header:                            %s\n",
+X      (crec.general_purpose_bit_flag & 8)? "yes" : "no");
+X    /* print upper 3 bits for amusement? */
+X    printf("  file last modified on:                            %s\n",
+X      zipinfo_time(&crec.last_mod_file_date, &crec.last_mod_file_time));
+X    printf("  32-bit CRC value (hex):                           %.8lx\n",
+X      crec.crc32);
+X    printf("  compressed size:                                  %lu bytes\n",
+X      crec.compressed_size);
+X    printf("  uncompressed size:                                %lu bytes\n",
+X      crec.uncompressed_size);
+X    printf("  length of filename:                               %u characters\n",
+X      crec.filename_length);
+X    printf("  length of extra field:                            %u bytes\n",
+X      crec.extra_field_length);
+X    printf("  length of file comment:                           %u characters\n",
+X      crec.file_comment_length);
+X    printf("  disk number on which file begins:                 disk %u\n",
+X      crec.disk_number_start);
+X    printf("  apparent file type:                               %s\n",
+X      (crec.internal_file_attributes & 1)? "text" : "binary");
+X/*
+X    printf("  external file attributes (hex):                   %.8lx\n",
+X      crec.external_file_attributes);
+X */
+X    xattr = (UWORD) ((crec.external_file_attributes >> 16) & 0xFFFF);
+X    if (hostnum == VMS_) {
+X        char   *p=attribs, *q=attribs+1;
+X        int    i, j, k;
+X
+X        for (k = 0;  k < 12;  ++k)
+X            workspace[k] = 0;
+X        if (xattr & S_IRUSR)
+X            workspace[0] = 'R';
+X        if (xattr & S_IWUSR) {
+X            workspace[1] = 'W';
+X            workspace[3] = 'D';
+X        }
+X        if (xattr & S_IXUSR)
+X            workspace[2] = 'E';
+X        if (xattr & S_IRGRP)
+X            workspace[4] = 'R';
+X        if (xattr & S_IWGRP) {
+X            workspace[5] = 'W';
+X            workspace[7] = 'D';
+X        }
+X        if (xattr & S_IXGRP)
+X            workspace[6] = 'E';
+X        if (xattr & S_IROTH)
+X            workspace[8] = 'R';
+X        if (xattr & S_IWOTH) {
+X            workspace[9] = 'W';
+X            workspace[11] = 'D';
+X        }
+X        if (xattr & S_IXOTH)
+X            workspace[10] = 'E';
+X
+X        *p++ = '(';
+X        for (k = j = 0;  j < 3;  ++j) {    /* loop over groups of permissions */
+X            for (i = 0;  i < 4;  ++i, ++k)  /* loop over perms within a group */
+X                if (workspace[k])
+X                    *p++ = workspace[k];
+X            *p++ = ',';                      /* group separator */
+X            if (j == 0)
+X                while ((*p++ = *q++) != ','); /* system, owner perms are same */
+X        }
+X        *p-- = 0;
+X        *p = ')';   /* overwrite last comma */
+X        printf("  VMS file attributes (%06o octal):               %s\n",
+X          xattr, attribs);
+X
+X    } else if ((hostnum != DOS_OS2_FAT_) && (hostnum != OS2_HPFS_)) {
+X        /* assume Unix-like */
+X        switch (xattr & S_IFMT) {
+X            case S_IFREG:   attribs[0] = '-';  break;
+X            case S_IFLNK:   attribs[0] = 'l';  break;
+X            case S_IFBLK:   attribs[0] = 'b';  break;
+X            case S_IFCHR:   attribs[0] = 'c';  break;
+X            case S_IFIFO:   attribs[0] = 'p';  break;
+X            case S_IFSOCK:  attribs[0] = 's';  break;
+X            case S_IFDIR:   attribs[0] = 'd';  break;
+X            default:        attribs[0] = '?';  break;
+X        }
+X        if (xattr & S_IRUSR)        /* no read-permission: user */
+X            attribs[1] = 'r';
+X        else
+X            attribs[1] = '-';
+X        if (xattr & S_IWUSR)        /* no write-permission: user */
+X            attribs[2] = 'w';
+X        else
+X            attribs[2] = '-';
+X        if (xattr & S_IXUSR)        /* no execute-permission: user */
+X            if (xattr & S_ISUID)
+X                attribs[3] = 's';
+X            else
+X                attribs[3] = 'x';
+X        else
+X            if (xattr & S_ISUID)
+X                attribs[3] = 'S';   /* undefined state */
+X            else
+X                attribs[3] = '-';
+X        if (xattr & S_IRGRP)        /* no read-permission: group */
+X            attribs[4] = 'r';
+X        else
+X            attribs[4] = '-';
+X        if (xattr & S_IWGRP)        /* no write-permission: group */
+X            attribs[5] = 'w';
+X        else
+X            attribs[5] = '-';
+X        if (xattr & S_IXGRP)        /* no execute-permission: group */
+X            if (xattr & S_ISGID)
+X                attribs[6] = 's';
+X            else
+X                attribs[6] = 'x';
+X        else
+X            if (xattr & S_ISGID)    /* or could use S_ENFMT (same) */
+X                attribs[6] = 'l';
+X            else
+X                attribs[6] = '-';
+X        if (xattr & S_IROTH)        /* no read-permission: other */
+X            attribs[7] = 'r';
+X        else
+X            attribs[7] = '-';
+X        if (xattr & S_IWOTH)        /* no write-permission: other */
+X            attribs[8] = 'w';
+X        else
+X            attribs[8] = '-';
+X        if (xattr & S_IXOTH)        /* no execute-permission: other */
+X            if (xattr & S_ISVTX)    /* "sticky bit" */
+X                attribs[9] = 't';
+X            else
+X                attribs[9] = 'x';
+X        else
+X            if (xattr & S_ISVTX)
+X                attribs[9] = 'T';   /* undefined state */
+X            else
+X                attribs[9] = '-';
+X        attribs[10] = 0;
+X        printf("  Unix file attributes (%06o octal):              %s\n",
+X          xattr, attribs);
+X
+X    } /* endif (hostnum: external attributes format) */
+X
+X    if ((xattr=(UWORD)(crec.external_file_attributes & 0xFF)) == 0)
+X        printf("  MS-DOS file attributes (%02X hex):                  none\n",
+X          xattr);
+X    else if (xattr == 1)
+X        printf(
+X          "  MS-DOS file attributes (%02X hex):                  read-only\n",
+X          xattr);
+X    else
+X        printf(
+X         "  MS-DOS file attributes (%02X hex):                  %s%s%s%s%s%s\n",
+X          xattr, (xattr&1)?"rdo ":"", (xattr&2)?"hid ":"", (xattr&4)?"sys ":"",
+X          (xattr&8)?"lab ":"", (xattr&16)?"dir ":"", (xattr&32)?"arc":"");
+X    printf(
+X     "  offset of local header from start of archive:     %lu (%.8lXh) bytes\n",
+X      crec.relative_offset_local_header, crec.relative_offset_local_header);
+X
+X/*---------------------------------------------------------------------------
+X    Skip the extra field, if any, and print the file comment, if any (the
+X    filename has already been printed, above).  That finishes up this file
+X    entry...
+X  ---------------------------------------------------------------------------*/
+X
+X    if (crec.extra_field_length > 0) {
+X/* #ifdef OS2 */
+X#if TRUE
+X        ULONG ea_size;
+X        if ((error = do_string(crec.extra_field_length, EXTRA_FIELD)) != 0) {
+X            error_in_archive = error;
+X            if (error > 1)      /* fatal:  can't continue */
+X                return (error);
+X        }
+X        if ((ea_size = SizeOfEAs(extra_field)) != 0)
+X            printf("\n\
+X  This file has %lu bytes of OS/2 EA's in the local extra field.\n\
+X  (May not match OS/2 \"dir\" amount due to storage method.)\n\n",
+X              ea_size);
+X        else
+X            printf("\n  There is an unknown extra field (skipping).\n");
+X#else
+X        printf("\n  There is an extra field (skipping).\n");
+X        SKIP_(crec.extra_field_length)
+X#endif
+X    } else
+X        printf("\n");
+X
+X    if (!crec.file_comment_length)
+X        printf("  There is no file comment.\n");
+X    else {
+X        printf("\
+X------------------------- file comment begins ----------------------------\n");
+X        if ((error = do_string(crec.file_comment_length, DISPLAY)) != 0) {
+X          error_in_archive = error;   /* might be warning */
+X          if (error > 1)      /* fatal */
+X              return error;
+X        }
+X        printf("\n\
+X-------------------------- file comment ends -----------------------------\n");
+X    }
+X
+X    return error_in_archive;
+X
+X} /* end function long_info() */
+X
+X
+X
+X
+X
+X/**************************/
+X/*  Function SizeOfEAs()  */
+X/**************************/
+X
+XULONG SizeOfEAs(extra_field)   /* Author: Kai Uwe Rommel */
+X    void   *extra_field;
+X{
+X    EAHEADER *pEAblock = (PEAHEADER) extra_field;
+X
+X    if ( extra_field != NULL && pEAblock -> nID == EAID )
+X      return pEAblock -> lSize;
+X
+X    return 0L;
+X}
+X
+X
+X
+X
+X
+X/***************************/
+X/*  Function short_info()  */
+X/***************************/
+X
+Xint short_info()   /* return PK-type error code */
+X{
+X    int           k, error, error_in_archive=0;
+X    UWORD         hostver, xattr;
+X    char          workspace[12], attribs[16];
+X    static char   impl[5]="i#:#", defl[5]="def#", unkn[8];
+X    static char   dtype[5]="NXF?";  /* normal, maximum, fastest, undefined */
+X    static char   *os[NUM_HOSTS+1] = {"dos", "ami", "vms", "unx", "cms",
+X                      "atr", "os2", "mac", "zzz", "cpm", "???" };
+X    static char   *method[NUM_METHODS+1] = {"stor", "shrk", "re:1", "re:2",
+X                      "re:3", "re:4", impl, "tokn", defl, unkn};
+X
+X
+X/*---------------------------------------------------------------------------
+X    Print out various interesting things about the compressed file.
+X  ---------------------------------------------------------------------------*/
+X
+X    methnum = MIN(crec.compression_method, NUM_METHODS);
+X    hostnum = MIN(crec.version_made_by[1], NUM_HOSTS);
+X    hostver = crec.version_made_by[0];
+X/*
+X    extnum = MIN(crec.version_needed_to_extract[1], NUM_HOSTS);
+X    extver = crec.version_needed_to_extract[0];
+X */
+X
+X    if (methnum == IMPLODED) {
+X        impl[1] = (crec.general_purpose_bit_flag & 2)? '8' : '4';
+X        impl[3] = (crec.general_purpose_bit_flag & 4)? '3' : '2';
+X    } else if (methnum == DEFLATED) {
+X        UWORD  dnum=(crec.general_purpose_bit_flag>>1) & 3;
+X        defl[3] = dtype[dnum];
+X    } else if (methnum == NUM_METHODS) {   /* unknown */
+X        sprintf(unkn, "u%03d", crec.compression_method);
+X    }
+X
+X    for (k = 0;  k < 15;  ++k)
+X        attribs[k] = ' ';
+X    attribs[15] = 0;
+X
+X    xattr = (UWORD) ((crec.external_file_attributes >> 16) & 0xFFFF);
+X    switch (hostnum) {
+X      case VMS_:
+X          {   char   *p=attribs;
+X              int    i, j;
+X
+X              for (k = 0;  k < 12;  ++k)
+X                  workspace[k] = 0;
+X              if (xattr & S_IRUSR)
+X                  workspace[0] = 'R';
+X              if (xattr & S_IWUSR) {
+X                  workspace[1] = 'W';
+X                  workspace[3] = 'D';
+X              }
+X              if (xattr & S_IXUSR)
+X                  workspace[2] = 'E';
+X              if (xattr & S_IRGRP)
+X                  workspace[4] = 'R';
+X              if (xattr & S_IWGRP) {
+X                  workspace[5] = 'W';
+X                  workspace[7] = 'D';
+X              }
+X              if (xattr & S_IXGRP)
+X                workspace[6] = 'E';
+X              if (xattr & S_IROTH)
+X                  workspace[8] = 'R';
+X              if (xattr & S_IWOTH) {
+X                  workspace[9] = 'W';
+X                  workspace[11] = 'D';
+X              }
+X              if (xattr & S_IXOTH)
+X                  workspace[10] = 'E';
+X
+X              for (k = j = 0;  j < 3;  ++j) {     /* groups of permissions */
+X                  for (i = 0;  i < 4;  ++i, ++k)  /* perms within a group */
+X                      if (workspace[k])
+X                          *p++ = workspace[k];
+X                  *p++ = ',';                     /* group separator */
+X              }
+X              *--p = ' ';   /* overwrite last comma */
+X              if ((p - attribs) < 12)
+X                  sprintf(&attribs[12], "%d.%d", hostver/10, hostver%10);
+X          }
+X          break;
+X
+X      case DOS_OS2_FAT_:
+X      case OS2_HPFS_:
+X          xattr = (UWORD) (crec.external_file_attributes & 0xFF);
+X          sprintf(attribs, "%s,%s,%s,%s", (xattr&32)?"arc":"",
+X            (xattr&2)?"hid":"", (xattr&1)?"rdo":"rw", (xattr&4)?"sys":"");
+X          if ((k = strlen(attribs)) < 15)
+X              attribs[k] = ' ';   /* overwrite '\0' */
+X          if (k < 12)
+X              sprintf(&attribs[12], "%d.%d", hostver/10, hostver%10);
+X          break;
+X
+X      default:   /* assume Unix-like */
+X          switch (xattr & S_IFMT) {
+X              case S_IFREG:   attribs[0] = '-';  break;
+X              case S_IFLNK:   attribs[0] = 'l';  break;
+X              case S_IFBLK:   attribs[0] = 'b';  break;
+X              case S_IFCHR:   attribs[0] = 'c';  break;
+X              case S_IFIFO:   attribs[0] = 'p';  break;
+X              case S_IFSOCK:  attribs[0] = 's';  break;
+X              case S_IFDIR:   attribs[0] = 'd';  break;
+X              default:        attribs[0] = '?';  break;
+X          }
+X          if (xattr & S_IRUSR)        /* no read-permission: user */
+X              attribs[1] = 'r';
+X          else
+X              attribs[1] = '-';
+X          if (xattr & S_IWUSR)        /* no write-permission: user */
+X              attribs[2] = 'w';
+X          else
+X              attribs[2] = '-';
+X          if (xattr & S_IXUSR)        /* no execute-permission: user */
+X              if (xattr & S_ISUID)
+X                  attribs[3] = 's';
+X              else
+X                  attribs[3] = 'x';
+X          else
+X              if (xattr & S_ISUID)
+X                  attribs[3] = 'S';   /* undefined state */
+X              else
+X                  attribs[3] = '-';
+X          if (xattr & S_IRGRP)        /* no read-permission: group */
+X              attribs[4] = 'r';
+X          else
+X              attribs[4] = '-';
+X          if (xattr & S_IWGRP)        /* no write-permission: group */
+X              attribs[5] = 'w';
+X          else
+X              attribs[5] = '-';
+X          if (xattr & S_IXGRP)        /* no execute-permission: group */
+X              if (xattr & S_ISGID)
+X                  attribs[6] = 's';
+X              else
+X                  attribs[6] = 'x';
+X          else
+X              if (xattr & S_ISGID)    /* or could use S_ENFMT (same) */
+X                  attribs[6] = 'l';
+X              else
+X                  attribs[6] = '-';
+X          if (xattr & S_IROTH)        /* no read-permission: other */
+X              attribs[7] = 'r';
+X          else
+X              attribs[7] = '-';
+X          if (xattr & S_IWOTH)        /* no write-permission: other */
+X              attribs[8] = 'w';
+X          else
+X              attribs[8] = '-';
+X          if (xattr & S_IXOTH)        /* no execute-permission: other */
+X              if (xattr & S_ISVTX)    /* "sticky bit" */
+X                  attribs[9] = 't';
+X              else
+X                  attribs[9] = 'x';
+X          else
+X              if (xattr & S_ISVTX)
+X                  attribs[9] = 'T';   /* undefined state */
+X              else
+X                  attribs[9] = '-';
+X          sprintf(&attribs[12], "%d.%d", hostver/10, hostver%10);
+X          break;
+X
+X    } /* end switch (hostnum: external attributes format) */
+X
+X    printf("%s %s %7lu %c%c", attribs, os[hostnum], crec.uncompressed_size,
+X      (crec.general_purpose_bit_flag & 1)?
+X      ((crec.internal_file_attributes & 1)? 'T' : 'B') :   /* encrypted */
+X      ((crec.internal_file_attributes & 1)? 't' : 'b'),    /* plaintext */
+X      (crec.general_purpose_bit_flag & 8)? (crec.extra_field_length? 'X' : 'l')
+X                                        : (crec.extra_field_length? 'x' : '-'));
+X    if (lflag == 4) {
+X        longint c = (longint) crec.compressed_size;
+X        longint uc = (longint) crec.uncompressed_size;
+X
+X        if (crec.general_purpose_bit_flag & 1)
+X            c -= 12;    /* if encrypted, don't count encryption header */
+X        /* risk signed overflow if blindly multiply: */
+X        printf("%3d%%", (uc==0)? 0 : ((uc>2000000L)?
+X          ((int)((uc-c)/(uc/1000L))+5)/10 : ((int)((1000L*(uc-c))/uc)+5)/10) );
+X    } else if (lflag == 5)
+X        printf(" %7lu", crec.compressed_size);
+X
+X    printf(" %s %s %s\n", method[methnum],
+X      zipinfo_time(&crec.last_mod_file_date, &crec.last_mod_file_time),
+X      filename);
+X
+X/*---------------------------------------------------------------------------
+X    Skip the extra field and/or the file comment, if any (the filename has
+X    already been printed, above).  That finishes up this file entry...
+X  ---------------------------------------------------------------------------*/
+X
+X    SKIP_(crec.extra_field_length)
+X    SKIP_(crec.file_comment_length)
+X
+X    return error_in_archive;
+X
+X} /* end function short_info() */
+X
+X
+X
+X
+X
+X/*****************************/
+X/*  Function zipinfo_time()  */
+X/*****************************/
+X
+Xchar *zipinfo_time(datez, timez)
+X    UWORD   *datez, *timez;
+X{
+X    UWORD         yr, mo, dy, hh, mm, ss;
+X    static char   d_t_str[21];
+X    static char   *month[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+X                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+X
+X
+X
+X/*---------------------------------------------------------------------------
+X    Convert the file-modification date and time info to a string of the form 
+X    "23 Feb 1990 17:15:00" or "23-Feb-91 17:15," depending on value of lflag.
+X  ---------------------------------------------------------------------------*/
+X
+X    yr = ((*datez >> 9) & 0x7f) + 80;     /* dissect date */
+X    mo = ((*datez >> 5) & 0x0f) - 1;
+X    dy = *datez & 0x1f;
+X
+X    hh = (*timez >> 11) & 0x1f;           /* dissect time */
+X    mm = (*timez >> 5) & 0x3f;
+X    ss = (*timez & 0x1f) * 2;
+X
+X    if ((lflag >= 3) && (lflag <= 5))
+X        sprintf(d_t_str, "%2u-%s-%u %02u:%02u", dy, month[mo], yr, hh, mm);
+X    else if (lflag > 9)  /* verbose listing format */
+X        sprintf(d_t_str, "%u %s %u %02u:%02u:%02u", dy, month[mo], yr+1900,
+X          hh, mm, ss);
+X
+X    return d_t_str;
+X
+X} /* end function zipinfo_time() */
+X
+X
+X
+X
+X
+X/********************************/
+X/*  Function open_input_file()  */
+X/********************************/
+X
+Xint open_input_file()   /* return 1 if open failed */
+X{
+X    /*
+X     *  open the zipfile for reading and in BINARY mode to prevent cr/lf
+X     *  translation, which would corrupt the bitstreams
+X     */
+X
+X#ifdef VMS
+X    zipfd = open(zipfn, O_RDONLY, 0, "ctx=stm");
+X#else /* !VMS */
+X#ifdef UNIX
+X    zipfd = open(zipfn, O_RDONLY);
+X#else /* !UNIX */
+X#ifdef MACOS
+X    zipfd = open(zipfn, 0);
+X#else /* !MACOS */
+X    zipfd = open(zipfn, O_RDONLY | O_BINARY);
+X#endif /* ?MACOS */
+X#endif /* ?UNIX */
+X#endif /* ?VMS */
+X    if (zipfd < 1) {
+X        fprintf(stderr, "error:  can't open zipfile [ %s ]\n", zipfn);
+X        return 1;
+X    }
+X    return 0;
+X
+X} /* end function open_input_file() */
+X
+X
+X
+X
+X
+X/************************/
+X/*  Function readbuf()  */
+X/************************/
+X
+Xint readbuf(buf, size)   /* return number of bytes read into buf */
+X    char *buf;
+X    register unsigned size;
+X{
+X    register int count;
+X    int n;
+X
+X    n = size;
+X    while (size) {
+X        if (incnt == 0) {
+X            if ((incnt = read(zipfd, inbuf, INBUFSIZ)) <= 0)
+X                return (n-size);
+X            /* buffer ALWAYS starts on a block boundary:  */
+X            cur_zipfile_bufstart += INBUFSIZ;
+X            inptr = inbuf;
+X        }
+X        count = MIN(size, (unsigned)incnt);
+X        memcpy(buf, inptr, count);
+X        buf += count;
+X        inptr += count;
+X        incnt -= count;
+X        size -= count;
+X    }
+X    return n;
+X
+X} /* end function readbuf() */
+END_OF_FILE
+ if test 29824 -ne `wc -c <'zipinfo.c.B'`; then
+    echo shar: \"'zipinfo.c.B'\" unpacked with wrong size!
+ elif test -f 'zipinfo.c.A'; then
+    echo shar: Combining  \"'zipinfo.c'\" \(59337 characters\)
+    cat 'zipinfo.c.A' 'zipinfo.c.B' > 'zipinfo.c'
+    if test 59337 -ne `wc -c <'zipinfo.c'`; then
+      echo shar: \"'zipinfo.c'\" combined with wrong size!
+    else
+      rm zipinfo.c.A zipinfo.c.B
+    fi
+  fi
+  # end of 'zipinfo.c.B'
+fi
+echo shar: End of archive 6 \(of 14\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

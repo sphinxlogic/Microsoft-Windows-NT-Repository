@@ -1,0 +1,1001 @@
+From: Lutz Prechelt <prechelt@ira.uka.de>
+Subject: v02i018: crefine - (Ver. 3.0) C language extension, Part05/06
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Lutz Prechelt <prechelt@ira.uka.de>
+Posting-number: Volume 2, Issue 18
+Archive-name: crefine/part05
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  crefine.c
+# Wrapped by prechelt@Sansibar on Fri Jun 12 13:13:44 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'crefine.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'crefine.c'\"
+else
+echo shar: Extracting \"'crefine.c'\" \(33034 characters\)
+sed "s/^X//" >'crefine.c' <<'END_OF_FILE'
+X#line 1 "crefine.cr"
+X/*************************************************************************
+XProject : C-Refine Precompiler
+XModule  : main module
+XAuthor  : Lutz Prechelt, Karlsruhe
+XDate    : 12.06.92  Version 17
+XCompiler: C, C-Refine
+X**************************************************************************/
+X/*
+X    Copyright (C) 1988,89,90,91 by Lutz Prechelt, Karlsruhe
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X*/
+X
+X/************************************************************************
+X*********************** C - R e f i n e *********************************
+X*************************************************************************/
+X
+X#if 0
+XREMARK:
+X  This program was originally written using german identifiers and
+X  comments. I worked through it to change this (at least in most parts)
+X  but please do not flame me if there are relicts from this state.
+X  I did not find a sensible replacement for the german word 'Klammer' that
+X  may stand for any of the characters ( ) [ ] { }  so sometimes I still
+X  use the german one.
+X
+XVariants:
+X#define deutsch   fuer deutsche Meldungen statt englische
+X#define ms_dos    for  MS-DOS "Operating System"
+X#define __STDC__  for  ANSI-C Compiler (as opposed to K&R-C)
+X
+XFor version changes see refinement startup message and file cr_texts.h
+X
+X============================== History: ====================================
+X
+X
+XVersion 1.0  (Alpha)    (0, 1)
+X
+X1987
+X  procedural refinements only
+X  not comfortable, few error messages
+X
+X
+XVersion 2.0  (Alpha)    (2, 3)
+X
+XFeb. 88
+X  value-returning refinements,
+X  improved error handling,
+X  Options comment, feedback, list, numbering, refinementsymbol, small
+X
+X
+XVersion 2.1  (Beta)     (4, 5)
+X
+X09.04.88  ( --> Martin, Ihno, Volker, Beat)
+X  improved error handling
+X  triple error messages (german, english, german nonsense),
+X  Context description in error messages,
+X  Options anyway, feedback, ibm chars, message type, tabsize, warning level
+X  Expires 31.07.88
+X
+X
+XVersion 2.2             (6, 7, 8)
+X
+X08.07.88   ( --> Martin)
+X  corr: Changes blanks in namen to underscrores again (like in Version 1.0)
+X        (otherwise error in goto occur)
+X  corr: Removed semicolon after value-returning refinements kept
+X        (via introduction of refcallr)
+X  improved error handling: Warning for "often used" only for
+X  "big" refinements.
+X03.08.88
+X  corr: When inserting file names in "#line"-commands, backslashes
+X        are doubled (backslash is Escape symbol in C string denoters)
+X13.09.88
+X  corr: empty refinements will not give syntax errors anymore.
+X
+X
+XVersion 2.3             (9, 10, 11, 12, 13)
+X
+X29.09.88 ( --> Martin, Ihno)
+X  corr: refinements with just 1 semicolon are enclosed in braces also
+X        (to avoid "else"-conflict)
+X  C++ Mode (i.e. // Kommentare) as option p
+X17.03.89
+X  "std.h" introduced,  #ifdefs for environment switches introduced.
+X  Look-through, further "refinementized", several small corrections
+X  ported to SUN-OS (Berkeley-Unix)
+X  Size restrictions released (500 -> 800 lines, 50 -> 100 Refinements)
+X18.03.89
+X  dito, expires 31.07.89
+X11.09.89
+X  ported to PCS maschine under Munix 5.3 (System V)
+X  further #ifdefs for deutsch, expire
+X  The switches are given in the Makefile
+X11.09.89
+X  dito, expires 31.10.89
+X
+X
+XVersion 2.4             (14, 15, 16)
+X
+X27.08.90 ( --> Uni)
+X  Line numbering switchable in 4 levels.
+X  Quiet-Option
+X  Buffersizes selectable via option.
+X  New name handling for input/output files
+X
+X23.01.91 ( --> Uni, Usenet announcement, iraun1)
+X  Names and Comments changed to english (was german before)
+X  error in level switching of line numbering fixed.
+X
+X10.06.91 (comp.sources.misc)
+X  History translated to english
+X  some small corrections
+X  corr: REF_INFO storage has to be 0-initialized,
+X        so use calloc instead of malloc
+X  Eliminated duplication of function declarations for ansi and non-ansi
+X  by introduction of the A(a) macro in std.h
+X
+X
+XVersion 3.0             (17)
+X
+X15.11.91
+X  Getargs deeply changed: disallow mixing of options and normal args but
+X  allow values for options to be in separate argument.
+X  Handle multiple input file names.
+X  Introduced -o option for explicit output filename, all other are built
+X  by deleting a trailing r from input filename.
+X  Handle "-" for stdin and stdout in filenames.
+X  React on #line commands in input file.  !!!INCOMPLETE!!!
+X  Changed #include commands in sourcess for better portability
+X  Replaced 'ansi' #define with '__STDC__'
+X12.06.92 (comp.sources.reviewed)
+X  replaced -q (quiet) flag with a -v (verbose) flag with inverse meaning.
+X  added humorous messages for english, changed -m option appropriately.
+X
+X=============================================================================
+X#endif
+X
+X#include <stdio.h>
+X
+X#if __STDC__
+X#include <stdlib.h>
+X#else
+Xextern char* malloc();  /* some systems don't have malloc.h or the like */
+Xextern char* calloc();
+X#endif
+X
+X#include <time.h>
+X
+X#define DATA_HERE     /* Here the data declarations are NOT extern */
+X#include "cr_decl.h"  /* global Functions, Types and Data */
+X#include "getargs.h"
+X
+X
+X/******************* lokal Functions ************************************/
+X
+Xextern int  main A((int argc,  charp argv[]));
+Xstatic int  crefine A(());
+Xstatic void process_c_refine A((FILE *in, FILE *out));
+Xstatic void process_line A((FILE *out, int semicolons));
+Xstatic void insert_refinements A((FILE *out));
+Xstatic void insert_refinement A((FILE *out, LINE_INFO *l, int startindent,
+X                               int recursive_level));
+Xstatic void line_cmd A((FILE* out, int nr, int indent, int min_level));
+Xstatic void put_indent A((FILE *out, int how_much));
+Xstatic void put_line A((FILE *out, LINE_INFO *line, int additional_indent,
+X                      int min_linenumbering_level));
+Xstatic int  refinement_nr A((char *refinementname));
+Xstatic void reset_l_r_s A(());
+X
+X/*********************** Lokal Data ************************************/
+X
+X/***** line info, refinement info *****/
+Xstatic LINES l;           /* line info */
+Xstatic int   l_pos;
+X
+Xstatic REFS  r;           /* refinement info */
+Xstatic int   r_pos;
+X
+X/***** Status *****/
+Xstatic int   old_level;          /* level at line before */
+X
+X/***** Sonstiges *****/
+Xstatic char  blanks[] =  /* indents are made from this. */
+X  "                                                                       ";
+X/* "blanks" is taken as  72 Blanks long (see put_indent) */
+X
+Xstatic char *outputfilename = "";
+Xstatic int   option_msg;
+X
+X#define refdecl_line_nr(i)  /* line number of refinement head of r[i] */\
+X                          (l [r[i].firstentry].line_no)
+X
+X/******************************** crefine *********************************/
+X
+Xstatic ARG argtab[] = {
+X#if  deutsch
+X  {'a', BOOLEAN, &option_anyway,
+X   "alle: Ausgabedatei trotz Fehlern nicht loeschen" },
+X  {'c', BOOLEAN, &option_comment,  "Refinementnamen-Kommentare in Ausgabe" },
+X  {'e', BOOLEAN, &option_indent,   "#line Kommandos einruecken" },
+X#if ms_dos
+X  {'I', BOOLEAN, &option_ibmchars,
+X   "erlaube IBM internationale Zeichen fuer Namen" },
+X#endif
+X  {'k', BOOLEAN, &option_comment,  "Refinementnamen-Kommentare in Ausgabe" },
+X  {'l', BOOLEAN, &option_list,     "liste alle Refinementnamen" },
+X  {'m', CHARACTER, &option_msg,
+X   "Meldungen in: d=deutsch, e=english, Grossbuchstabe -> humorig" },
+X  {'n', INTEGER, &numbering_level,
+X   "Stufe der Numerierung mit #line Kommandos" },
+X  {'o', STRING,  &outputfilename,  "setze Name der Ausgabedatei" },
+X  {'p', BOOLEAN, &option_cplusplus,"C++ Modus" },
+X  {'v', BOOLEAN, &option_verbose,    "Versionsmeldung ausgeben" },
+X  {'r', CHARACTER, &refinementsymbol, "Refinementsymbol (als Zeichen)" },
+X  {'R', INTEGER, &refinementsymbol, "Refinementsymbol (als Zahl)" },
+X  {'s', BOOLEAN, &option_small,    "strippen: Kompaktifizierte Ausgabe" },
+X  {'w', INTEGER, &warning_level,   "Warnstufe (0 - 3)" }
+X  {'A', INTEGER, &feedback_interval, "Intervall der Fortschrittsanzeige" },
+X  {'F', INTEGER, &maxerrors,       "Max. Anzahl Fehler" },
+X  {'L', INTEGER, &(int*)b_size,    "Max. Zeilenlaenge in Byte" },
+X  {'N', INTEGER, &maxref,          "Max. Refinements je Funktion" },
+X  {'P', INTEGER, &(int*)s_size,    "Codepuffer in Bytes" },
+X  {'T', INTEGER, &tabsize,         "Tabulatorgroesse" },
+X  {'W', INTEGER, &maxwarnings,     "Max. Anzahl Warnungen" },
+X  {'Z', INTEGER, &maxline,         "Max. Anzahl Zeilen je Funktion" },
+X#else
+X  {'a', BOOLEAN, &option_anyway,   "anyway: don't delete output on errors" },
+X  {'c', BOOLEAN, &option_comment,  "comment refinement names in output" },
+X  {'i', BOOLEAN, &option_indent,   "indent the #line commands" },
+X#if ms_dos
+X  {'I', BOOLEAN, &option_ibmchars,
+X   "enable IBM International Charset for names" },
+X#endif
+X  {'l', BOOLEAN, &option_list,     "list all refinement names" },
+X  {'m', CHARACTER, &option_msg,
+X   "Messages in: g=german, e=english, G,E=humorous" },
+X  {'n', INTEGER, &numbering_level,
+X   "level of numbering with #line commands" },
+X  {'o', STRING,  (int*)&outputfilename,  "set output filename" },
+X  {'p', BOOLEAN, &option_cplusplus,"C++ mode" },
+X  {'v', BOOLEAN, &option_verbose,    "verbose mode (startup message)" },
+X  {'r', CHARACTER, &refinementsymbol, "refinementsymbol (character form)" },
+X  {'R', INTEGER, &refinementsymbol, "refinementsymbol (decimal form)" },
+X  {'s', BOOLEAN, &option_small,    "small compactified output" },
+X  {'w', INTEGER, &warning_level,   "warning level (0 - 3)" },
+X  {'B', INTEGER, (int*)&s_size,    "code buffer in bytes" },
+X  {'E', INTEGER, &maxerrors,       "max errors" },
+X  {'L', INTEGER, (int*)&maxline,   "max lines per function" },
+X  {'M', INTEGER, (int*)&b_size,    "max length of a line" },
+X  {'N', INTEGER, (int*)&maxref,    "max refinements per function" },
+X  {'P', INTEGER, &feedback_interval, "interval of progress display" },
+X  {'T', INTEGER, &tabsize,         "tab size" },
+X  {'W', INTEGER, &maxwarnings,     "max warnings" },
+X#endif
+X};
+X
+X
+Xextern int main (argc, argv)
+X  int   argc;
+X  charp argv[];
+X{
+X  /* Analyses options and generates pairs of input/output filenames.
+X     Then calls  crefine with each of these pairs.
+X     Returns the number of errors that have been found totally.
+X  */
+X  int  wrong_options, total_errors = 0;
+X  int  i;
+X  FILE *in, *out;
+X  bool explicit_outputfilename_given;
+X  {   /* analysis_of_options  (Level 1) */
+X#line 297 "crefine.cr"
+X  option_anyway = option_indent = option_comment
+X                = option_list = option_ibmchars = option_cplusplus
+X                = false;
+X  option_small = true;
+X  numbering_level = 3;
+X#if deutsch
+X  option_msg  = 'd';   /* deutsche Meldungen als Standard */
+X#else
+X  option_msg  = 'e';   /* english warnings and errors as default */
+X#endif
+X  refinementsymbol = std_refinementsymbol;
+X  outputfilename   = "";
+X  tabsize          = 1;
+X  warning_level    = 3;
+X  maxline          = STD_MAXLINE;
+X  maxref           = STD_MAXREF;
+X  b_size           = STD_MAXLINELENGTH;
+X  s_size           = STD_S_SIZE;
+X  feedback_interval= 0;  /* feedback off */
+X  maxerrors        = STD_MAXERRORS;
+X  maxwarnings      = STD_MAXWARNINGS;
+X  wrong_options = getargs (&argc, &argv, argtab, ARGTABSIZE (argtab));
+X  if (option_small) {
+X     tabsize = 1;
+X  }
+X  switch (option_msg) {
+X    case 'd':
+X    case 'g':  msg_type = 0;  break;
+X    case 'e':  msg_type = 1;  break;
+X    case 'D':
+X    case 'G':  msg_type = 2;  break;
+X    case 'E':  msg_type = 3;  break;
+X  }
+X  }
+X#line 282 "crefine.cr"
+X  if (wrong_options || argc <= 1) {
+X     print_usage (argv[0], usagestring[msg_type],
+X                  argtab, ARGTABSIZE (argtab));
+X    {   /* startup_message  (Level 1) */
+X#line 332 "crefine.cr"
+X    fprintf (stderr,
+X             "C-Refine Precompiler   %s\n", versionstring[msg_type]);
+X    fprintf (stderr,
+X             "Copyright (C) 1988-1992  Lutz Prechelt, Karlsruhe\n");
+X    }
+X#line 286 "crefine.cr"
+X     exit (100);
+X  }
+X  if (option_verbose)
+X    {   /* startup_message  (Level 1) */
+X#line 332 "crefine.cr"
+X    fprintf (stderr,
+X             "C-Refine Precompiler   %s\n", versionstring[msg_type]);
+X    fprintf (stderr,
+X             "Copyright (C) 1988-1992  Lutz Prechelt, Karlsruhe\n");
+X    }
+X  {   /* reserve_memory_and_complain_if_necessary  (Level 1) */
+X  b      = malloc (b_size);
+X  r      = (REFS)calloc ((maxref+1), sizeof (REF_INFO));
+X  l      = (LINES)malloc ((maxline+1) * sizeof (LINE_INFO));
+X  s_root = malloc (s_size);
+X  if (!(b && s_root && r && l)) {
+X     fprintf (stderr, Ememory[msg_type]);
+X     exit (100);
+X  }
+X  }
+X#line 291 "crefine.cr"
+X  explicit_outputfilename_given = (outputfilename[0] != 0);
+X  for (i = 1; i < argc; i++)
+X    {   /* generate_filename_pair_and_call_crefine  (Level 1) */
+X#line 348 "crefine.cr"
+X    strcpy (name_in, argv[i]);
+X    copy_with_doubled_backslashes (name_in, modified_name_in);
+X    if (explicit_outputfilename_given)
+X       {   /* use_explicit_filename  (Level 2) */
+X#line 358 "crefine.cr"
+X       strcpy (name_out, outputfilename);
+X       total_errors += crefine ();
+X       }
+X#line 352 "crefine.cr"
+X    else if (!strcmp (name_in, "-"))
+X       {   /* use_standard_out  (Level 2) */
+X#line 362 "crefine.cr"
+X       strcpy (name_out, "-");
+X       total_errors += crefine ();
+X       }
+X#line 354 "crefine.cr"
+X    else
+X       {   /* use_input_file_name_and_strip_r  (Level 2) */
+X#line 366 "crefine.cr"
+X       strcpy (name_out, argv[i]);
+X       if ((
+X#line 377 "crefine.cr"
+X       name_out[strlen(name_out)-1] == 'r')
+X#line 367 "crefine.cr"
+X       ) {
+X         name_out[strlen(name_out)-1] = 0; /* remove 'r' from end */
+X         total_errors += crefine ();
+X       }
+X       else {
+X         fprintf (stderr, Emissing_r[msg_type], name_in);
+X         total_errors++;
+X       }
+X       }
+X    }
+X#line 294 "crefine.cr"
+X  return (total_errors);
+X#line 379 "crefine.cr"
+X}
+X
+X
+Xstatic int crefine ()    /* C-REFINE */
+X{
+X  /* Opens files name_in and name_out.
+X     Then calls  process_c_refine and closes files again.
+X     Returns the number of errors that have been found
+X  */
+X  FILE *in, *out;
+X  {   /* open_files_and_complain_if_necessary  (Level 1) */
+X#line 419 "crefine.cr"
+X  if (!strcmp (name_in, "-"))
+X    in = stdin;
+X  else {
+X#if ms_dos
+X  in = fopen (name_in, "rt");  /* read, translated mode */
+X#else
+X  in = fopen (name_in, "r");  /* read */
+X#endif
+X  }
+X  if (in == NULL || ferror (in)) {
+X     fprintf (stderr, Eopen[msg_type], name_in);
+X     exit (100);
+X  }
+X  if (!strcmp (name_out, "-"))
+X    out = stdout;
+X  else {
+X#if ms_dos
+X  out = fopen (name_out, "wt");  /* write, translated mode */
+X#else
+X  out = fopen (name_out, "w");  /* write */
+X#endif
+X  }
+X  if (out == NULL || ferror (out)) {
+X     fprintf (stderr, Eopen[msg_type], name_out);
+X     exit (100);
+X  }
+X  }
+X#line 390 "crefine.cr"
+X  /* here we go: */
+X  rewind (in);  /* Begin at the beginning, then proceed until you come */
+X                /* to the end, there stop.   (from: Alice in Wonderland) */
+X  process_c_refine (in, out);
+X  if (in != stdin)
+X    fclose (in);
+X  if (out != stdout) {
+X    fclose (out);   /* Schliessen vor unlink noetig ! */
+X    if (errors && !option_anyway) /* don't produce errorneous outputfiles */
+X       unlink (name_out);         /* delete file if possible */
+X  }
+X  if (errors || warnings)
+X#if deutsch
+X     fprintf (stderr, "%d Fehler%s   %d Warnung%s   Ausgabedatei %s\n",
+X              errors,   errors   != 1 ? "" : "",
+X              warnings, warnings != 1 ? "en" : "",
+X              errors && !option_anyway ?
+X                 "geloescht" : (errors ? "dennoch erhalten"
+X                                       : "ist fragwuerdig"));
+X#else
+X     fprintf (stderr, "%d error%s   %d warning%s   Output %s\n",
+X              errors,   errors   != 1 ? "s" : "",
+X              warnings, warnings != 1 ? "s" : "",
+X              errors && !option_anyway ?
+X                 "deleted" : (errors ? "kept anyway" : "is doubtful"));
+X#endif
+X  return (errors);
+X#line 446 "crefine.cr"
+X}
+X
+X/************************ process_c_refine *********************************/
+X
+Xstatic void process_c_refine (in, out)
+X  FILE *in, *out;
+X{
+X  /* Reads the file 'in' to the end line by line via 'get_line' and
+X     generates the C source code by inserting the refinement bodies for
+X     the calls.
+X     Generates error messages for undeclares refinements and warnings for
+X     unused or often used ones.
+X     Uses the variables stop_processing, errors, warnings,
+X     s, l, r and the option indicators.
+X  */
+X  commanded_line_no = line_no = 0;
+X  errors = warnings = 0;
+X  stop_processing = error_in_this_function = false;
+X  reset_l_r_s ();
+X  init_scanner ();
+X  if (numbering_level > 0)
+X    /* we get a linefeed anyway! */
+X    fprintf (out, "#line 1 \"%s\"", modified_name_in);
+X  while (!stop_processing)
+X     {   /* handle_next_line  (Level 1) */
+X#line 475 "crefine.cr"
+X     int semicolons = 0;
+X     if (feedback_interval && line_no % feedback_interval == 0)
+X        cout (line_no);
+X     if (ferror (in))
+X        fatal_error (Ereadinput, l[l_pos-1].start, line_no);
+X     if (ferror (out))
+X        fatal_error (Ewriteoutput, NULL, line_no);
+X#undef  test_
+X#ifdef test_
+X  usleep (5000);
+X#endif
+X     get_line (in, l+l_pos, &semicolons);
+X     process_line (out, semicolons);
+X     }
+X#line 471 "crefine.cr"
+X  if (feedback_interval)
+X     cout (line_no);
+X#line 488 "crefine.cr"
+X}
+X
+X/************************** process_line ************************************/
+X
+Xstatic void process_line (out, semicolons)
+X  FILE *out;
+X  int   semicolons;
+X{
+X  /* Works on the lines up to the current line l[l_pos] in the way that
+X     it decides whether a function has ended and thus the insertion of
+X     refinements has to be started.
+X     On level 0 all lines are copied from in to out immediately.
+X     After a state change from level 0 to level 1 all lines (along with
+X     a lineinfo) are kept until the next transition to level 0 and the
+X     refinement info is being built.
+X     If necessary, error messages for overflow or refinement errors and
+X     warnings for not or multiply used refinements are generated.
+X  */
+X  if (r_pos > 0)
+X     r[r_pos - 1].semicolons += semicolons;
+X  if (old_level == 0)
+X     {   /* we_came_from_level_0  (Level 1) */
+X#line 514 "crefine.cr"
+X     assert (l_pos == 0);   /* nothing can be stored from level 0 */
+X     if (l[0].level == 0 || stop_processing)
+X        {   /* remains_on_level_0_so_just_copy_it  (Level 2) */
+X#line 521 "crefine.cr"
+X        if (l[0].type != normal_line && l[0].type != empty_line)
+X           error (Elevel0_ref, l[0].start, line_no);
+X        put_line (out, &l[0], 0, 1);
+X        reset_l_r_s ();
+X        }
+X#line 517 "crefine.cr"
+X     else
+X        {   /* function_has_begun  (Level 2) */
+X#line 527 "crefine.cr"
+X        error_in_this_function = false;
+X        old_level = l[0].level;    /* neuen Level merken */
+X        if (l[0].type == refdecl_line && r_pos < maxref) {  /* empty function */
+X           r[r_pos].name         = l[0].start;
+X           r[r_pos].firstentry   = 0;
+X           r[r_pos].active       = false;
+X           r[r_pos++].semicolons = 0;
+X           warning (Wempty_function, NULL, line_no - 1, 3);
+X        }
+X        l_pos++;                   /* store line */
+X        }
+X     }
+X#line 510 "crefine.cr"
+X  else
+X     {   /* we_were_inside_a_function_or_so  (Level 1) */
+X#line 539 "crefine.cr"
+X     if (l[l_pos].level == 0 || stop_processing)
+X        {   /* but_now_we_are_outside  (Level 2) */
+X#line 545 "crefine.cr"
+X        insert_refinements (out);
+X        put_line (out, &l[l_pos-1], 0, 1);  /* last line (Blockklammer) */
+X        put_line (out, &l[l_pos], 0, 1);    /* the level 0 line */
+X        error_in_this_function = false;
+X        reset_l_r_s ();
+X        }
+X#line 541 "crefine.cr"
+X     else
+X        {   /* and_still_keep_being_in  (Level 2) */
+X#line 552 "crefine.cr"
+X        if (l[l_pos].type == refdecl_line && r_pos < maxref) {
+X           r[r_pos].name         = l[l_pos].start;   /* enter Refinement */
+X           r[r_pos].active       = false;
+X           r[r_pos].firstentry   = l_pos;
+X           r[r_pos++].semicolons = 0;
+X        }
+X        old_level = l[l_pos].level;/* store new level */
+X        l_pos++;                   /* store line */
+X        if (l_pos >= maxline)
+X           fatal_error (Elines_in_func, l[l_pos].start, line_no);
+X        if (s - s_root >= s_size - 150)  /* Reserve too small */
+X           fatal_error (Ebytes_in_func, l[l_pos].start, line_no);
+X        }
+X     }
+X#line 564 "crefine.cr"
+X}
+X
+X/************************ insert_refinements ******************************/
+X
+Xstatic void insert_refinements (out)
+X  FILE *out;
+X{
+X  /* Replaces the refinement calls with the bodies, after the whole function
+X     has been read in.
+X     In the output #line statements are generated, except if option
+X     numbering_level is zero.
+X     Comments and indentations are thrown away if option_small is true.
+X     Comments stating the refinement names are inserted in the output if
+X     option_comment is true.
+X  */
+X  int  i, end;
+X  bool extern_stop = stop_processing;  /* Protect last function against */
+X  stop_processing  = false;            /* local use of this variable */
+X  r[r_pos].firstentry = l_pos-1;       /* line of Blockklammer */
+X  r[r_pos].name       = NULL;
+X  {   /* generate_refinement_list_if_necessary  (Level 1) */
+X#line 611 "crefine.cr"
+X  if (option_list && r_pos > 0) {
+X     fputc ('\n', stdout);
+X     for (i = 0; i < r_pos; i++)
+X         fprintf (stdout, "(%d) %s\n", refdecl_line_nr (i), r[i].name);
+X  }
+X  }
+X  {   /* find_last_line_to_insert  (Level 1) */
+X  end = r[0].firstentry - 1;
+X  while (l[end].type == empty_line)   /* suppress trailing empty lines */
+X     end--;
+X  }
+X#line 586 "crefine.cr"
+X  for (i = 0; i <= end; i++) {  /* lines up to first ref. declaration */
+X      switch (l[i].type) {
+X         case refcall_line  :
+X         case refcallr_line :
+X                {   /* insert_refinement  (Level 1) */
+X#line 623 "crefine.cr"
+X                insert_refinement (out, l+i, l[i].indent, 1);
+X                if (stop_processing)
+X                   return;
+X                }
+X#line 591 "crefine.cr"
+X                break;
+X         case leave_line    :
+X                {   /* whatshallthatbe  (Level 1) */
+X#line 628 "crefine.cr"
+X                assert (false);
+X                }
+X#line 594 "crefine.cr"
+X                break;
+X         case normal_line   :
+X                {   /* insert_normal_line  (Level 1) */
+X#line 631 "crefine.cr"
+X                put_line (out, &l[i], 0, 1);
+X                }
+X#line 597 "crefine.cr"
+X                break;
+X         case empty_line    :
+X                putc ('\n', out);
+X                commanded_line_no++;
+X                break;
+X         case refdecl_line  :
+X         default       :
+X                 assert (false);
+X      }
+X  }
+X  {   /* maybe_give_sermon_on_refinements  (Level 1) */
+X#line 634 "crefine.cr"
+X  for (i = 0; i < r_pos; i++)
+X      if (r[i].semicolons > 50)
+X         warning (Wlong_ref, l[r[i].firstentry].start,
+X                  refdecl_line_nr (i), 3);
+X      else if (r[i].calls > 5 && r[i].semicolons > 2)
+X         warning (Wref_often_used, l[r[i].firstentry].start,
+X                  refdecl_line_nr (i), 3);
+X      else if (r[i].calls == 0)
+X         warning (Wref_unused, l[r[i].firstentry].start,
+X                  refdecl_line_nr (i), 1);
+X  }
+X#line 608 "crefine.cr"
+X  stop_processing = stop_processing || extern_stop;  /* Merging-Restore */
+X#line 644 "crefine.cr"
+X}
+X
+X/************************* insert_refinement ******************************/
+X
+Xstatic void insert_refinement (out, z, startindent, recursive_level)
+X  FILE *out;
+X  LINE_INFO *z;
+X  int  startindent, recursive_level;
+X{
+X  /* Looks for the refinement to insert by its name, computes the range
+X     of lines to work on and does then do the same as insert_refinements
+X     does.
+X     If necessary the refinement name is given as a comment before the
+X     body is inserted.
+X     The refinement body is enclosed in delimiters:
+X       if ref.semicolons == 0 in parentheses (on first and last line)
+X       if ref.semicolons >= 1 in curly braces (on separate lines)
+X     The refinement calls are counted and maybe messages generated.
+X     In case of leave-statements the refinement that shall be leave'd is
+X     marked, so a label can be generated.
+X     Errors:
+X       1. Refinement is not declared
+X       2. recursive call to refinement
+X       3. leave is impossible because the refinement is not
+X          present in static call hierarchy
+X  */
+X  int i;
+X  int  nr, ref_startindent, end;
+X  assert (startindent > 0);
+X  nr = refinement_nr ((
+X#line 780 "crefine.cr"
+X  z->start)
+X#line 673 "crefine.cr"
+X  );  /* search for refinement */
+X  if (nr == -1) {
+X     error (Eref_not_decl, (
+X#line 780 "crefine.cr"
+X     z->start)
+X#line 675 "crefine.cr"
+X     , z->line_no);
+X     return;
+X  }
+X  else if (r[nr].active)
+X     {   /* complain_for_recursive_refinement_call  (Level 1) */
+X#line 697 "crefine.cr"
+X     error (Erecursive_ref, (
+X#line 780 "crefine.cr"
+X     z->start)
+X#line 697 "crefine.cr"
+X     , z->line_no);
+X     stop_processing = true;
+X     return;
+X     }
+X#line 680 "crefine.cr"
+X  else {
+X     r[nr].calls++;           /* register the call */
+X     r[nr].active   = true;
+X     r[nr].leave_it = false;
+X  }
+X  end = r[nr+1].firstentry - 1;
+X  while (l[end].type == empty_line)   /* suppress trailing empty lines */
+X     end--;
+X  i = r[nr].firstentry + 1;
+X  if (i > end)
+X     warning (Wref_empty, l[r[nr].firstentry].start, refdecl_line_nr (nr), 2);
+X  else
+X     {   /* insert_the_refinement  (Level 1) */
+X#line 702 "crefine.cr"
+X     /* for an empty refinement, this is not called at all! */
+X     {   /* write_indentation_and_opening_klammer  (Level 2) */
+X#line 731 "crefine.cr"
+X     int sc = r[nr].semicolons;
+X     if (sc > 0)
+X        put_indent (out, startindent);
+X     putc (sc > 0 ? '{' : '(', out);  /* Klammer auf */
+X     if (option_comment && sc > 0)
+X        fprintf (out, Tlistline[msg_type], (
+X#line 780 "crefine.cr"
+X        z->start)
+X#line 736 "crefine.cr"
+X        , recursive_level);
+X     }
+X#line 704 "crefine.cr"
+X     ref_startindent = l[i].indent;
+X     for ( ; i <= end; i++) {
+X         switch (l[i].type) {
+X            case refcall_line  :
+X            case refcallr_line :
+X                   {   /* insert_refinement  (Level 2) */
+X#line 739 "crefine.cr"
+X                   insert_refinement (out, l+i,
+X                                      startindent + l[i].indent
+X                                                  - ref_startindent,
+X                                      recursive_level+1);
+X                   }
+X#line 710 "crefine.cr"
+X                   break;
+X            case leave_line    :
+X                   {   /* insert_goto_statement  (Level 2) */
+X#line 745 "crefine.cr"
+X                   int leave_nr = refinement_nr (l[i].start);
+X                   if (leave_nr == -1)
+X                      error (Eunknown_leave, l[i].start, l[i].line_no);
+X                   else if (!r[leave_nr].active)
+X                      error (Eleave_unpresent, l[i].start, l[i].line_no);
+X                   else {
+X                      r[leave_nr].leave_it = true;
+X                      put_indent (out, startindent);
+X                      fprintf (out, "goto %s_%d;",
+X                               l[i].start, r[leave_nr].calls);
+X                   }
+X                   }
+X#line 713 "crefine.cr"
+X                   break;
+X            case normal_line   :
+X                   {   /* insert_normal_line  (Level 2) */
+X#line 758 "crefine.cr"
+X                   put_line (out, &l[i], startindent - ref_startindent, (
+X#line 761 "crefine.cr"
+X                   r[nr].semicolons == 0 ? 3 : 2)
+X#line 758 "crefine.cr"
+X                   );
+X                   }
+X#line 716 "crefine.cr"
+X                   break;
+X            case empty_line    :
+X                   putc ('\n', out);
+X                   commanded_line_no++;
+X                   break;
+X            case refdecl_line  :
+X            default       :
+X                    assert (false);
+X         }
+X     }
+X     if (r[nr].leave_it)
+X        {   /* generate_label  (Level 2) */
+X#line 764 "crefine.cr"
+X        fprintf (out, "\n%s_%d: ;", (
+X#line 780 "crefine.cr"
+X        z->start)
+X#line 764 "crefine.cr"
+X        , r[nr].calls);
+X        commanded_line_no++;
+X        }
+X     {   /* write_closing_klammer  (Level 2) */
+X     int sc = r[nr].semicolons;
+X     if (sc > 0) {
+X        put_indent (out, startindent);
+X        putc ('}', out);
+X     }
+X     else {
+X        putc (')', out);
+X        if (z->type == refcallr_line)  /* semicolon has been removed illegaly */
+X           putc (';', out);
+X     }
+X     }
+X     }
+X#line 693 "crefine.cr"
+X  r[nr].active = false;
+X  return;
+X#line 781 "crefine.cr"
+X}
+X
+X/************************* line_cmd **************************************/
+X
+Xstatic void line_cmd (out, nr, indent, min_level)
+X  FILE *out;
+X  int  nr;
+X  int  indent;
+X  int  min_level;
+X{
+X  /* Writes a "preprocessor #line directive" including file name if
+X     requested.
+X     Is suppressed, if min_level is less than numbering_level.
+X     Using numbering_level, option_indent, commanded_line_no and name_in
+X  */
+X  if (numbering_level >= min_level) {
+X     if (option_indent)
+X        put_indent (out, indent);
+X     else
+X        putc ('\n', out);
+X     fprintf (out, "#line %d \"%s\"", nr, modified_name_in);
+X     commanded_line_no = nr-1; /* #line 3  means: next comes line 3 ! */
+X  }
+X}
+X
+X/********************** put_indent **************************************/
+X
+Xstatic void put_indent (out, how_far)
+X  FILE *out;
+X  int how_far;
+X{
+X  putc ('\n', out);      /* begin newline */
+X  commanded_line_no++;
+X  if (!option_small)
+X     fwrite (blanks, how_far > 72 ? 72 : (how_far < 0 ? 0 : how_far),
+X             1, out);
+X}
+X
+X/*************************** put_line ***********************************/
+X
+Xstatic void put_line (out, line, additional_indent, min_level)
+X  FILE       *out;
+X  LINE_INFO  *line;    /* pointer for efficiency (is big object) */
+X  int        additional_indent;
+X  int        min_level;
+X{
+X  /* Writes the line 'line' to 'out' with the appropriate indentation
+X     (which is the line's indentation plus additional_indent).
+X     If the current line numbering is not right a line_cmd is made before.
+X  */
+X  if (line->line_no != commanded_line_no + 1)
+X     line_cmd (out, line->line_no, line->indent + additional_indent,
+X               min_level);
+X  if (line->type == empty_line) {    /* for empty lines: nothing */
+X     putc ('\n', out);
+X     commanded_line_no++;
+X     return;
+X  }
+X  else if (option_small || (!option_indent && *line->start == '#')) {
+X     putc ('\n', out);
+X     commanded_line_no++;
+X  }
+X  else
+X     put_indent (out,
+X                 line->indent + additional_indent);  /* starts new line */
+X  assert (line->start != NULL);
+X  fputs (line->start, out);
+X#if debug
+X  fprintf (stdout, "put:\"%s\"\n", line->start);
+X#endif
+X}
+X
+X/********************** refinement_nr ************************************/
+X
+Xstatic int refinement_nr (name)
+X  char *name;
+X{
+X  /* computes the number of a refinement from its name 'name'.
+X     Uses r from 0 to r_pos. Returns the number or -1 if undeclared.
+X     If the refinement is declared more than once an error message is
+X     generated.
+X  */
+X  int i, match = -1, matches = 0;
+X  assert (name != NULL);
+X  for (i = 0; i < r_pos; i++)
+X      if (!strcmp (name, r[i].name)) {
+X         match = i;
+X         matches++;
+X      }
+X  if (matches > 1)
+X     error (Eref_multi_decl, r[match].name, refdecl_line_nr (match));
+X  return (match);
+X}
+X
+X/********************* Auxiliary functions ******************************/
+X
+Xextern void copy_with_doubled_backslashes (string, copy)
+X  char *string, *copy;
+X{
+X  /* copies the string string to the location copy. All backslash
+X     characters (code 92) in string are copied twice, so for example
+X     "back\slas\\h" is copied to "back\\slas\\\\h".
+X     The purpose of this is to make the copy usable as a C string denoter,
+X     in which the backslash is interpreted as an escape symbol.
+X     No checks are made, thus there must be enough memory allocated
+X     to make the copy.
+X  */
+X  assert (string != NULL);
+X  assert (copy != NULL);
+X  while (*string != 0) {
+X     *copy = *string;
+X     string++;
+X     if (*copy == 92) {      /* is backslash ? */
+X       *(copy + 1) = 92;     /* then put another and */
+X       copy += 2;            /* proceed two bytes */
+X     }
+X     else                    /* else */
+X       copy++;               /* proceed one byte */
+X  }
+X  *copy = 0;
+X}
+X
+X
+Xstatic void reset_l_r_s ()
+X{
+X  /* Sets LINE_INFO- and REF_INFO-Arrays 'l' and 'r' into
+X     their empty state.
+X  */
+X  int i;
+X  for (i = 0; i <= r_pos; i++) { /* Alle Refinements loeschen */
+X      r[i].name  = NULL;
+X      r[i].calls = 0;
+X  }
+X  s = s_root;                    /* Zeilenspeicher loeschen */
+X  l_pos = r_pos = old_level = 0;
+X}
+X
+X
+END_OF_FILE
+if test 33034 -ne `wc -c <'crefine.c'`; then
+    echo shar: \"'crefine.c'\" unpacked with wrong size!
+fi
+# end of 'crefine.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

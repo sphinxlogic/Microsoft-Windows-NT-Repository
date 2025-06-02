@@ -1,0 +1,1970 @@
+Newsgroups: comp.sources.misc
+From: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Subject:  v33i115:  u386mon - SVR3 performance/status monitor v2.60, Part06/09
+Message-ID: <1992Nov22.020232.24328@sparky.imd.sterling.com>
+X-Md4-Signature: 1e9cf01b341b8419416fd06cfa6d6fb2
+Date: Sun, 22 Nov 1992 02:02:32 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Posting-number: Volume 33, Issue 115
+Archive-name: u386mon/part06
+Environment: SYSVR3
+Supersedes: u386mon: Volume 22, Issue 3-9
+
+#!/bin/sh
+# This is part 06 of u386mon.2.60
+# ============= libpanel.c ==============
+if test -f 'libpanel.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping libpanel.c (File already exists)'
+else
+echo 'x - extracting libpanel.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'libpanel.c' &&
+X/* CHK=0x65C3 */
+X/*LINTLIBRARY*/
+X/*+-------------------------------------------------------------------------
+X	libpanel.c - panel support for u386mon
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  This module is not an efficient replacement for the SVR3.2 panel
+X  facility.  It is, however, fully featured and serves the needs of
+X  u386mon, assisting a port to SVR3.1.  It seems efficient enough to
+X  use in lieu of native (vendor-supplied) panels.
+X
+X  To use a native panels library, use -DNATIVE_PANELS, omit libpanel.o
+X  from OBJ, and compile the whole of u386mon, linking with -lpanel.
+X
+X  Some auld curses do not have is_linetouched() and is_wintouched().
+X  Defining NO_ISTOUCH will turn on some brain-damaged attempts at
+X  supplying these routines.
+X
+X  Defined functions:
+X	Touchline(pan,start,count)
+X	Touchpan(pan)
+X	Wnoutrefresh(pan)
+X	__calculate_obscure()
+X	__free_obscure(pan)
+X	__override(pan,show)
+X	__panel_is_linked(pan)
+X	__panel_link_bottom(pan)
+X	__panel_link_top(pan)
+X	__panel_unlink(pan)
+X	__panels_overlapped(pan1,pan2)
+X	bottom_panel(pan)
+X	dPanel(text,pan)
+X	dStack(fmt,num,pan)
+X	del_panel(pan)
+X	hide_panel(pan)
+X	is_linetouched(win,line)
+X	is_wintouched(win)
+X	move_panel(pan,starty,startx)
+X	new_panel(win)
+X	open_dfp()
+X	panel_above(pan)
+X	panel_below(pan)
+X	panel_hidden(pan)
+X	panel_userptr(pan)
+X	panel_window(pan)
+X	replace_panel(pan,win)
+X	set_panel_userptr(pan,uptr)
+X	show_panel(pan)
+X	top_panel(pan)
+X	update_panels()
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:08-02-1990-14:55-wht@n4hgf-add is_linetouched/is_wintouched hacks */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:07-23-1990-05:25-wht@n4hgf-needed __override call in update_panels */
+X/*:07-23-1990-00:56-wht@n4hgf-full library working */
+X/*:07-21-1990-22:37-wht@n4hgf-flush out rest of routines */
+X/*:07-20-1990-18:58-wht-creation */
+X
+X#include "config.h"
+X
+X#if !defined(NATIVE_PANELS)
+X
+X#include <curses.h>
+X# include "libpanel.h"
+X#ifdef U386MON
+X#include "u386mon.h"
+X#endif
+X
+X#ifdef __STDC__
+X#ifdef LINT_ARGS	/* use Microsoft "ANSI" prototypes
+X					 * (the "best" divination of the "standard")
+X					 */
+Xvoid *malloc(int);
+Xvoid free(void *);
+X#else	/* LINT_ARGS */
+Xvoid *malloc();
+Xvoid free();
+X#endif	/* LINT_ARGS */
+X#else	/* __STDC__ */
+Xchar *malloc();
+Xvoid free();
+X#endif	/* __STDC__ */
+X
+XPANEL *__bottom_panel = (PANEL *)0;
+XPANEL *__top_panel = (PANEL *)0;
+XPANEL __stdscr_pseudo_panel = { (WINDOW *)0 };
+X
+X#ifndef lint
+X/*
+X * I don't like lint, but some do, so we try to calm the
+X * nervous bastard (lint, that is); I only get the notorious
+X * "warning: possible pointer alignment problem" on two
+X * usages of malloc.
+X */
+Xstatic char pident[] = "@(#) wht@n4hgf libpanel.c 1.2 07/23/90";
+X#endif
+X
+X#define STATIC static
+X
+X#ifdef PANEL_DEBUG
+XFILE *dfp = (FILE *)0;
+XFILE *open_dfp()
+X{
+X	if(!dfp)
+X	{
+X		dfp = fopen("p.log","w");
+X		fputs("-------\n",dfp);
+X	}
+X	return(dfp);
+X}
+X#define dBug(fmt,p1,p2) fprintf(open_dfp(),(fmt),(p1),(p2))
+X#else
+X#define dBug(fmt,p1,p2)
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	dPanel(text,pan)
+X--------------------------------------------------------------------------*/
+X#ifdef PANEL_DEBUG
+XdPanel(text,pan)
+Xchar *text;
+XPANEL *pan;
+X{
+X	open_dfp();
+X	fprintf(dfp,"%s id=%s b=%s a=%s y=%d x=%d\n",
+X		text,pan->user,
+X		(pan->below) ? pan->below->user : "--",
+X		(pan->above) ? pan->above->user : "--",
+X		pan->wstarty, pan->wstartx);
+X	fflush(dfp);
+X}	/* end of dPanel */
+X#else
+X#define dPanel(text,pan)
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	dStack(fmt,num,pan)
+X--------------------------------------------------------------------------*/
+X#ifdef PANEL_DEBUG
+Xvoid
+XdStack(fmt,num,pan)
+Xchar *fmt;
+Xint num;
+XPANEL *pan;
+X{
+Xchar s80[80];
+X
+X	open_dfp();
+X	sprintf(s80,fmt,num,pan);
+X	fprintf(dfp,"%s b=%s t=%s\n",s80,
+X		(__bottom_panel) ? __bottom_panel->user : "--",
+X		(__top_panel)    ? __top_panel->user    : "--");
+X	if(pan)
+X		fprintf(dfp,"pan id=%s\n",pan->user);
+X	pan = __bottom_panel;
+X	while(pan)
+X	{
+X		dPanel("stk",pan);
+X		pan = pan->above;
+X	}
+X	if(num == 9)
+X		fprintf(dfp,"\n");
+X
+X	fflush(dfp);
+X}	/* end of dStack */
+X#else
+X#define dStack(fmt,num,pan)
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	Wnoutrefresh(pan) - debugging hook for wnoutrefresh
+X--------------------------------------------------------------------------*/
+X#ifdef PANEL_DEBUG
+XSTATIC int
+XWnoutrefresh(pan)
+XPANEL *pan;
+X{
+X	dPanel("wnoutrefresh",pan);
+X	wnoutrefresh(pan->win);
+X}	/* end of Wnoutrefresh */
+X#else
+X#define Wnoutrefresh(pan) wnoutrefresh((pan)->win)
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	Touchpan(pan)
+X--------------------------------------------------------------------------*/
+X#ifdef PANEL_DEBUG
+XSTATIC int
+XTouchpan(pan)
+XPANEL *pan;
+X{
+X	dPanel("Touchpan",pan);
+X	touchwin(pan->win);
+X}	/* end of Touchpan */
+X#else
+X#define Touchpan(pan) touchwin((pan)->win)
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	Touchline(pan,start,count)
+X--------------------------------------------------------------------------*/
+X#ifdef PANEL_DEBUG
+XSTATIC int
+XTouchline(pan,start,count)
+XPANEL *pan;
+Xint start;
+Xint count;
+X{
+Xchar s80[80];
+X	sprintf(s80,"Touchline s=%d c=%d",start,count);
+X	dPanel(s80,pan);
+X	touchline(pan->win,start,count);
+X}	/* end of Touchline */
+X#else
+X#define Touchline(pan,start,count) touchline((pan)->win,start,count)
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	is_linetouched(win,line) - check to see if line has been touched
+XI don't know much about this - no guarantees - comments appreciated
+X--------------------------------------------------------------------------*/
+X#ifdef NO_ISTOUCH
+Xint
+Xis_linetouched(win,line)
+XWINDOW *win;
+Xint line;
+X{
+X	if(!win || (getmaxy(win) <= line) || (line < 0))
+X		return(ERR);
+X#ifdef _INFINITY
+X    return((win->_firstch[line] == _INFINITY) ? FALSE : TRUE);
+X#else /* _INFINITY */
+X#ifdef _NOCHANGE
+X    return(((win->_lastch[line] == _NOCHANGE) ||
+X    		(win->_firstch[line] == _NOCHANGE))
+X			? FALSE : TRUE);
+X#else /* _NOCHANGE */
+X    return((win->_firstch[line] >= getmaxx(win)) ? FALSE : TRUE);
+X#endif /* _NOCHANGE */
+X#endif	/* _INFINITY */
+X}	/* end of is_linetouched */
+X#endif /* NO_ISTOUCH */
+X
+X/*+-------------------------------------------------------------------------
+X	is_wintouched(win) - check to see if window has been touched
+XI don't know much about this - no guarantees - comments appreciated
+X--------------------------------------------------------------------------*/
+X#ifdef NO_ISTOUCH
+Xint
+Xis_wintouched(win)
+XWINDOW *win;
+X{
+X#ifdef _WINCHANGED
+X	if(!win)
+X		return(ERR);
+X	return((win->_flags & _WINCHANGED) ? TRUE : FALSE);
+X#else /* _WINCHANGED */
+Xregister int line;
+X
+X	if(!win)
+X		return(ERR);
+X	/*
+X	 * could not discover a _WINCHANGED analog in old curses
+X	 */
+X	for(line = 0; line < getmaxy(win); line++)
+X	{
+X		if(is_linetouched(win,line))
+X			return(TRUE);
+X	}
+X	return(FALSE);
+X#endif /* _WINCHANGED */
+X
+X}	/* end of is_wintouched */
+X#endif /* NO_ISTOUCH */
+X
+X/*+-------------------------------------------------------------------------
+X	__panels_overlapped(pan1,pan2) - check panel overlapped
+X--------------------------------------------------------------------------*/
+XSTATIC int
+X__panels_overlapped(pan1,pan2)
+Xregister PANEL *pan1;
+Xregister PANEL *pan2;
+X{
+X	if(!pan1 || !pan2)
+X		return(0);
+X	dBug("__panels_overlapped %s %s\n",pan1->user,pan2->user);
+X	if((pan1->wstarty >= pan2->wstarty) && (pan1->wstarty < pan2->wendy) &&
+X		(pan1->wstartx >= pan2->wstartx) && (pan1->wstartx < pan2->wendx))
+X		return(1);
+X	if((pan1->wstarty >= pan1->wstarty) && (pan2->wstarty < pan1->wendy) &&
+X		(pan1->wstartx >= pan1->wstartx) && (pan2->wstartx < pan1->wendx))
+X		return(1);
+X	dBug("  no\n",0,0);
+X	return(0);
+X}	/* end of __panels_overlapped */
+X
+X/*+-------------------------------------------------------------------------
+X	__free_obscure(pan)
+X--------------------------------------------------------------------------*/
+XSTATIC void
+X__free_obscure(pan)
+XPANEL *pan;
+X{
+XPANELOBS *tobs = pan->obscure;				/* "this" one */
+XPANELOBS *nobs;								/* "next" one */
+X
+X	while(tobs)
+X	{
+X		nobs = tobs->above;
+X		free((char *)tobs);
+X		tobs = nobs;
+X	}
+X	pan->obscure = (PANELOBS *)0;
+X}	/* end of __free_obscure */
+X
+X/*+-------------------------------------------------------------------------
+X	__override(pan,show)
+X--------------------------------------------------------------------------*/
+XSTATIC void
+X__override(pan,show)
+XPANEL *pan;
+Xint show;
+X{
+Xregister y;
+Xregister PANEL *pan2;
+XPANELOBS *tobs = pan->obscure;				/* "this" one */
+X
+X	dBug("__override %s,%d\n",pan->user,show);
+X
+X	if(show == 1)
+X		Touchpan(pan);
+X	else if(!show)
+X	{
+X		Touchpan(pan);
+X/*
+X		Touchline(&__stdscr_pseudo_panel,pan->wendy,getmaxy(pan->win));
+X*/
+X		Touchpan(&__stdscr_pseudo_panel);
+X	}
+X	else if(show == -1)
+X	{
+X		while(tobs && (tobs->pan != pan))
+X			tobs = tobs->above;
+X	}
+X
+X	while(tobs)
+X	{
+X		if((pan2 = tobs->pan) != pan)
+X		{
+X			dBug("test obs pan=%s pan2=%s\n",pan->user,pan2->user);
+X			for(y = pan->wstarty; y < pan->wendy; y++)
+X			{
+X				if( (y >= pan2->wstarty) && (y < pan2->wendy) &&
+X					((is_linetouched(pan->win,y - pan->wstarty) == 1) ||
+X					(is_linetouched(stdscr,y) == 1)))
+X				{
+X					Touchline(pan2,y - pan2->wstarty,1);
+X				}
+X			}
+X		}
+X		tobs = tobs->above;
+X	}
+X}	/* end of __override */
+X
+X/*+-------------------------------------------------------------------------
+X	__calculate_obscure()
+X--------------------------------------------------------------------------*/
+XSTATIC void
+X__calculate_obscure()
+X{
+XPANEL *pan;
+Xregister PANEL *pan2;
+Xregister PANELOBS *tobs;			/* "this" one */
+XPANELOBS *lobs = (PANELOBS *)0;		/* last one */
+X
+X	pan = __bottom_panel;
+X	while(pan)
+X	{
+X		if(pan->obscure)
+X			__free_obscure(pan);
+X		dBug("--> __calculate_obscure %s\n",pan->user,0);
+X		lobs = (PANELOBS *)0;		/* last one */
+X		pan2 = __bottom_panel;
+X		while(pan2)
+X		{
+X			if(__panels_overlapped(pan,pan2))
+X			{
+X				if(!(tobs = (PANELOBS *)malloc(sizeof(PANELOBS))))
+X					return;
+X				tobs->pan = pan2;
+X				dPanel("obscured",pan2);
+X				tobs->above = (PANELOBS *)0;
+X				if(lobs)
+X					lobs->above = tobs;
+X				else
+X					pan->obscure = tobs;
+X				lobs  = tobs;
+X			}
+X			pan2 = pan2->above;
+X		}
+X		__override(pan,1);
+X		pan = pan->above;
+X	}
+X
+X}	/* end of __calculate_obscure */
+X
+X/*+-------------------------------------------------------------------------
+X	__panel_is_linked(pan) - check to see if panel is in the stack
+X--------------------------------------------------------------------------*/
+XSTATIC int
+X__panel_is_linked(pan)
+XPANEL *pan;
+X{
+Xregister PANEL *pan2 = __bottom_panel;
+X
+X	while(pan2)
+X	{
+X		if(pan2 == pan)
+X			return(1);
+X		pan2 = pan2->above;
+X	}
+X	return(OK);
+X}	/* end of __panel_is_linked */
+X
+X/*+-------------------------------------------------------------------------
+X	__panel_link_top(pan) - link panel into stack at top
+X--------------------------------------------------------------------------*/
+XSTATIC void
+X__panel_link_top(pan)
+XPANEL *pan;
+X{
+X
+X#ifdef PANEL_DEBUG
+X	dStack("<lt%d>",1,pan);
+X	if(__panel_is_linked(pan))
+X		return;
+X#endif
+X
+X	pan->above = (PANEL *)0;
+X	pan->below = (PANEL *)0;
+X	if(__top_panel)
+X	{
+X		__top_panel->above = pan;
+X		pan->below = __top_panel;
+X	}
+X	__top_panel = pan;
+X	if(!__bottom_panel)
+X		__bottom_panel = pan;
+X	__calculate_obscure();
+X	dStack("<lt%d>",9,pan);
+X
+X}	/* end of __panel_link_top */
+X
+X/*+-------------------------------------------------------------------------
+X	__panel_link_bottom(pan) - link panel into stack at bottom
+X--------------------------------------------------------------------------*/
+XSTATIC void
+X__panel_link_bottom(pan)
+XPANEL *pan;
+X{
+X
+X#ifdef PANEL_DEBUG
+X	dStack("<lb%d>",1,pan);
+X	if(__panel_is_linked(pan))
+X		return;
+X#endif
+X
+X	pan->above = (PANEL *)0;
+X	pan->below = (PANEL *)0;
+X	if(__bottom_panel)
+X	{
+X		__bottom_panel->below = pan;
+X		pan->above = __bottom_panel;
+X	}
+X	__bottom_panel = pan;
+X	if(!__top_panel)
+X		__top_panel = pan;
+X	__calculate_obscure();
+X	dStack("<lb%d>",9,pan);
+X
+X}	/* end of __panel_link_bottom */
+X
+X/*+-------------------------------------------------------------------------
+X	__panel_unlink(pan) - unlink panel from stack
+X--------------------------------------------------------------------------*/
+XSTATIC void
+X__panel_unlink(pan)
+XPANEL *pan;
+X{
+Xregister PANEL *prev;
+Xregister PANEL *next;
+X
+X#ifdef PANEL_DEBUG
+X	dStack("<u%d>",1,pan);
+X	if(!__panel_is_linked(pan))
+X		return;
+X#endif
+X
+X	__override(pan,0);
+X	__free_obscure(pan);
+X
+X	prev = pan->below;
+X	next = pan->above;
+X
+X	if(prev)		/* if non-zero, we will not update the list head */
+X	{
+X		prev->above = next;
+X		if(next)
+X			next->below = prev;
+X	}
+X	else if(next)
+X		next->below = prev;
+X	if(pan == __bottom_panel)
+X		__bottom_panel = next;
+X	if(pan == __top_panel)
+X		__top_panel = prev;
+X
+X	__calculate_obscure();
+X
+X	pan->above = (PANEL *)0;
+X	pan->below = (PANEL *)0;
+X	dStack("<u%d>",9,pan);
+X
+X}	/* end of __panel_unlink */
+X
+X/*+-------------------------------------------------------------------------
+X	panel_window(pan) - get window associated with panel
+X--------------------------------------------------------------------------*/
+XWINDOW *
+Xpanel_window(pan)
+XPANEL *pan;
+X{
+X	return(pan->win);
+X}	/* end of panel_window */
+X
+X/*+-------------------------------------------------------------------------
+X	update_panels() - wnoutrefresh windows in an orderly fashion
+X--------------------------------------------------------------------------*/
+Xvoid
+Xupdate_panels()
+X{
+XPANEL *pan;
+X
+X	dBug("--> update_panels\n",0,0);
+X	pan = __bottom_panel;
+X	while(pan)
+X	{
+X		__override(pan,-1);
+X		pan = pan->above;
+X	}
+X
+X	if(is_wintouched(stdscr))
+X		Wnoutrefresh(&__stdscr_pseudo_panel);
+X	
+X	if(pan = __bottom_panel)
+X	{
+X		while(pan)
+X		{
+X			if(is_wintouched(pan->win))
+X				Wnoutrefresh(pan);
+X			pan = pan->above;
+X		}
+X	}
+X}	/* end of update_panels */
+X
+X/*+-------------------------------------------------------------------------
+X	hide_panel(pan) - remove a panel from stack
+X--------------------------------------------------------------------------*/
+Xint
+Xhide_panel(pan)
+Xregister PANEL *pan;
+X{
+X
+X	if(!pan)
+X		return(ERR);
+X
+X	dBug("--> hide_panel %s\n",pan->user,0);
+X
+X	if(!__panel_is_linked(pan))
+X	{
+X		pan->above = (PANEL *)0;
+X		pan->below = (PANEL *)0;
+X		return(ERR);
+X	}
+X
+X	__panel_unlink(pan);
+X
+X	return(OK);
+X}	/* end of hide_panel */
+X
+X/*+-------------------------------------------------------------------------
+X	show_panel(pan) - place a panel on top of stack
+Xmay already be in stack
+X--------------------------------------------------------------------------*/
+Xint
+Xshow_panel(pan)
+Xregister PANEL *pan;
+X{
+X
+X	if(!pan)
+X		return(ERR);
+X	if(pan == __top_panel)
+X		return(OK);
+X	dBug("--> show_panel %s\n",pan->user,0);
+X	if(__panel_is_linked(pan))
+X		(void)hide_panel(pan);
+X	__panel_link_top(pan);
+X	return(OK);
+X}	/* end of show_panel */
+X
+X/*+-------------------------------------------------------------------------
+X	top_panel(pan) - place a panel on top of stack
+X--------------------------------------------------------------------------*/
+Xint
+Xtop_panel(pan)
+Xregister PANEL *pan;
+X{
+X	return(show_panel(pan));
+X}	/* end of top_panel */
+X
+X/*+-------------------------------------------------------------------------
+X	del_panel(pan) - remove a panel from stack, if in it, and free struct
+X--------------------------------------------------------------------------*/
+Xint
+Xdel_panel(pan)
+Xregister PANEL *pan;
+X{
+X	if(pan)
+X	{
+X		dBug("--> del_panel %s\n",pan->user,0);
+X		if(__panel_is_linked(pan))
+X			(void)hide_panel(pan);
+X		free((char *)pan);
+X		return(OK);
+X	}
+X	return(ERR);
+X}	/* end of del_panel */
+X
+X/*+-------------------------------------------------------------------------
+X	bottom_panel(pan) - place a panel on bottom of stack
+Xmay already be in stack
+X--------------------------------------------------------------------------*/
+Xint
+Xbottom_panel(pan)
+Xregister PANEL *pan;
+X{
+X	if(!pan)
+X		return(ERR);
+X	if(pan == __bottom_panel)
+X		return(OK);
+X	dBug("--> bottom_panel %s\n",pan->user,0);
+X	if(__panel_is_linked(pan))
+X		(void)hide_panel(pan);
+X	__panel_link_bottom(pan);
+X	return(OK);
+X}	/* end of bottom_panel */
+X
+X/*+-------------------------------------------------------------------------
+X	new_panel(win) - create a panel and place on top of stack
+X--------------------------------------------------------------------------*/
+XPANEL *
+Xnew_panel(win)
+XWINDOW *win;
+X{
+XPANEL *pan = (PANEL *)malloc(sizeof(PANEL));
+X
+X	if(!__stdscr_pseudo_panel.win)
+X	{
+X		__stdscr_pseudo_panel.win = stdscr;
+X		__stdscr_pseudo_panel.wstarty = 0;
+X		__stdscr_pseudo_panel.wstartx = 0;
+X		__stdscr_pseudo_panel.wendy = LINES;
+X		__stdscr_pseudo_panel.wendx = COLS;
+X		__stdscr_pseudo_panel.user = "stdscr";
+X		__stdscr_pseudo_panel.obscure = (PANELOBS *)0;
+X	}
+X
+X	if(pan)
+X	{
+X		pan->win = win;
+X		pan->above = (PANEL *)0;
+X		pan->below = (PANEL *)0;
+X		pan->wstarty = getbegy(win);
+X		pan->wstartx = getbegx(win);
+X		pan->wendy = pan->wstarty + getmaxy(win);
+X		pan->wendx = pan->wstartx + getmaxx(win);
+X#ifdef PANEL_DEBUG
+X		pan->user = "new";
+X#else
+X		pan->user = (char *)0;
+X#endif
+X		pan->obscure = (PANELOBS *)0;
+X		(void)show_panel(pan);
+X	}
+X
+X	return(pan);
+X}	/* end of new_panel */
+X
+X/*+-------------------------------------------------------------------------
+X	panel_above(pan)
+X--------------------------------------------------------------------------*/
+XPANEL *
+Xpanel_above(pan)
+XPANEL *pan;
+X{
+X	if(!pan)
+X		return(__bottom_panel);
+X	else
+X		return(pan->above);
+X}	/* end of panel_above */
+X
+X/*+-------------------------------------------------------------------------
+X	panel_below(pan)
+X--------------------------------------------------------------------------*/
+XPANEL *
+Xpanel_below(pan)
+XPANEL *pan;
+X{
+X	if(!pan)
+X		return(__top_panel);
+X	else
+X		return(pan->below);
+X}	/* end of panel_below */
+X
+X/*+-------------------------------------------------------------------------
+X	set_panel_userptr(pan,uptr)
+X--------------------------------------------------------------------------*/
+Xint
+Xset_panel_userptr(pan,uptr)
+XPANEL *pan;
+Xchar *uptr;
+X{
+X	if(!pan)
+X		return(ERR);
+X	pan->user = uptr;
+X	return(OK);
+X}	/* end of set_panel_userptr */
+X
+X/*+-------------------------------------------------------------------------
+X	panel_userptr(pan)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xpanel_userptr(pan)
+XPANEL *pan;
+X{
+X	if(!pan)
+X		return((char *)0);
+X	return(pan->user);
+X}	/* end of panel_userptr */
+X
+X/*+-------------------------------------------------------------------------
+X	move_panel(pan,starty,startx)
+X--------------------------------------------------------------------------*/
+Xint
+Xmove_panel(pan,starty,startx)
+XPANEL *pan;
+Xint starty;
+Xint startx;
+X{
+XWINDOW *win;
+X
+X	if(!pan)
+X		return(ERR);
+X	if(__panel_is_linked(pan))
+X		__override(pan,0);
+X	win = pan->win;
+X	if(mvwin(win,starty,startx))
+X		return(ERR);
+X	pan->wstarty = getbegy(win);
+X	pan->wstartx = getbegx(win);
+X	pan->wendy = pan->wstarty + getmaxy(win);
+X	pan->wendx = pan->wstartx + getmaxx(win);
+X	if(__panel_is_linked(pan))
+X		__calculate_obscure();
+X	return(OK);
+X}	/* end of move_panel */
+X
+X/*+-------------------------------------------------------------------------
+X	replace_panel(pan,win)
+X--------------------------------------------------------------------------*/
+Xint
+Xreplace_panel(pan,win)
+XPANEL *pan;
+XWINDOW *win;
+X{
+X	if(!pan)
+X		return(ERR);
+X	if(__panel_is_linked(pan))
+X		__override(pan,0);
+X	pan->win = win;
+X	if(__panel_is_linked(pan))
+X		__calculate_obscure();
+X	return(OK);
+X}	/* end of replace_panel */
+X
+X/*+-------------------------------------------------------------------------
+X	panel_hidden(pan)
+X--------------------------------------------------------------------------*/
+Xint
+Xpanel_hidden(pan)
+XPANEL *pan;
+X{
+X	if(!pan)
+X		return(ERR);
+X	return(__panel_is_linked(pan) ? ERR : OK);
+X}	/* end of panel_hidden */
+X
+X#endif /* !defined(NATIVE_PANELS) */
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of libpanel.c */
+SHAR_EOF
+chmod 0644 libpanel.c ||
+echo 'restore of libpanel.c failed'
+Wc_c="`wc -c < 'libpanel.c'`"
+test 20097 -eq "$Wc_c" ||
+	echo 'libpanel.c: original size 20097, current size' "$Wc_c"
+fi
+# ============= libswap.c ==============
+if test -f 'libswap.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping libswap.c (File already exists)'
+else
+echo 'x - extracting libswap.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'libswap.c' &&
+X/* CHK=0xFE62 */
+X/*LINTLIBRARY*/
+X/*+-------------------------------------------------------------------------
+X	libswap.c -- /dev/swap routines for SCO UNIX/386 (maybe other *NIX)
+X	...!{gatech,emory}!n4hgf!wht
+X
+X  Defined functions:
+X	sinit()
+X	sread(caddr,maddr,len)
+X
+X routines were originally written by Mike "Ford" Ditto: kudos!!!
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-22-1990-02:00-root@n4hgf-creation from libmem */
+X
+X#include <sys/types.h>
+X#include <fcntl.h>
+X#include "libswap.h"
+X
+Xvoid leave_text();
+X
+Xextern int errno;
+X
+Xstatic int fdswap = -2;
+Xdaddr_t lseek();
+X
+X/*+-------------------------------------------------------------------------
+X	sinit()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsinit()
+X{
+X	if(fdswap >= 0)
+X		return;
+X	if((fdswap=open("/dev/swap",O_RDONLY)) < 0)
+X#ifdef M_SYS5
+X		leave_text("can't open /dev/swap (chgrp mem /dev/swap)",1);
+X#else
+X		leave_text("can't open /dev/swap (chgrp sys /dev/swap)",1);
+X#endif
+X
+X}	/* end of sinit */
+X
+X/*+-------------------------------------------------------------------------
+X	sread(caddr,maddr,len)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsread(caddr,maddr,len)
+Xcaddr_t caddr;
+Xdaddr_t maddr;
+Xint len;
+X{
+Xchar s80[80];
+Xextern daddr_t myreadlen;
+Xextern int myreadcnt;
+X
+X#if defined(M_I286)
+X	maddr &= 0xFFFFL;
+X#endif
+X
+X	if(fdswap == -2)
+X		leave_text("sinit() not called",1);
+X
+X	if(lseek(fdswap,maddr,0) == -1L)
+X	{
+X		(void)sprintf(s80,"swap seek error addr %08lx",maddr);
+X		leave_text(s80,1);
+X	}
+X
+X	if(read(fdswap,caddr,len) != len)
+X	{
+X		(void)sprintf(s80,"swap read error len %d addr %08lx",len,maddr);
+X		leave_text(s80,255);
+X	}
+X	myreadlen += len;
+X	myreadcnt++;
+X}	/* end of sread */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 libswap.c ||
+echo 'restore of libswap.c failed'
+Wc_c="`wc -c < 'libswap.c'`"
+test 2421 -eq "$Wc_c" ||
+	echo 'libswap.c: original size 2421, current size' "$Wc_c"
+fi
+# ============= libnlsym.c ==============
+if test -f 'libnlsym.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping libnlsym.c (File already exists)'
+else
+echo 'x - extracting libnlsym.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'libnlsym.c' &&
+X/* CHK=0xBEA7 */
+X/*LINTLIBRARY*/
+X/*+-------------------------------------------------------------------------
+X	libnlsym.c -- common runtime for nlsym users
+X	...!{gatech,emory}!n4hgf!wht
+X
+X  Defined functions:
+X	nlsym_error(text)
+X	nlsym_read()
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:07-15-1990-01:41-wht@n4hgf-keep indicator nlsym has been read */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-27-1990-01:55-wht@n4hgf-use 64 bits of unique check */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:10-27-1988-11:44-wht-creation */
+X
+X#include "config.h"
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <fcntl.h>
+X#include <nlist.h>
+X#if defined(mips)
+X#define n_sclass n_type
+X#endif
+X
+Xvoid leave_text();
+X
+X#define DEFINE_NLSYM
+X#include "nlsym.h"
+X#include "libnlsym.h"
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+Xint nlsym_has_been_read = 0;
+X
+X/*+-------------------------------------------------------------------------
+X	nlsym_error(text)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xnlsym_error(text)
+Xchar *text;
+X{
+Xchar s128[128];
+X
+X	(void)strcpy(s128,text);
+X	(void)strcat(s128,": run nlsym");
+X	leave_text(s128,(errno) ? 255 : 1);
+X}	/* end of nlsym_error */
+X
+X/*+-------------------------------------------------------------------------
+X	nlsym_read()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xnlsym_read()
+X{
+Xchar s80[80];
+Xint fdnlsym;
+Xstruct stat curstat;	/* current /unix status */
+Xstruct stat unixstat;		/* /unix status at nlsym run (void)time */
+Xlong unique1 = 0;
+Xlong unique2 = 0;
+X
+X	if(nlsym_has_been_read)
+X		return;
+X
+X	if(stat(UNIX_KERNEL,&curstat) < 0)
+X	{
+X		(void)sprintf(s80,"cannot stat %s",UNIX_KERNEL);
+X		nlsym_error(s80);
+X	}
+X
+X	errno = 0;
+X	if((fdnlsym = open(UNIX_NLSYM,O_RDONLY,0)) < 0)
+X	{
+X		(void)sprintf(s80,"%s open error\n",UNIX_NLSYM);
+X		nlsym_error(s80);
+X	}
+X
+X	if(read(fdnlsym,(char *)&unixstat,sizeof(unixstat)) != sizeof(unixstat))
+X		nlsym_error("nlsym_read: /unix stat read error");
+X
+X	if(read(fdnlsym,(char *)nlsym,sizeof(nlsym)) != sizeof(nlsym))
+X		nlsym_error("nlsym_read: nlsym read error");
+X
+X	if(read(fdnlsym,(char *)&unique1,sizeof(unique1)) != sizeof(unique1))
+X		nlsym_error("nlsym_read: `unique' read error");
+X
+X	if(read(fdnlsym,(char *)&unique2,sizeof(unique2)) != sizeof(unique2))
+X		nlsym_error("nlsym_read: `unique' read error");
+X
+X	(void)close(fdnlsym);
+X
+X	if( (unique1 != NLSYM_UNIQUE1) ||
+X		(unique2 != NLSYM_UNIQUE2) ||
+X		(unixstat.st_ino != curstat.st_ino) ||
+X		(unixstat.st_mtime != curstat.st_mtime) ||
+X		(unixstat.st_size != curstat.st_size))
+X	{
+X		(void)sprintf(s80,"%s out of date",UNIX_NLSYM);
+X		nlsym_error(s80);
+X	}
+X	nlsym_has_been_read = 1;
+X
+X}	/* end of nlsym_read */
+SHAR_EOF
+chmod 0644 libnlsym.c ||
+echo 'restore of libnlsym.c failed'
+Wc_c="`wc -c < 'libnlsym.c'`"
+test 3346 -eq "$Wc_c" ||
+	echo 'libnlsym.c: original size 3346, current size' "$Wc_c"
+fi
+# ============= nlsym.c ==============
+if test -f 'nlsym.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping nlsym.c (File already exists)'
+else
+echo 'x - extracting nlsym.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'nlsym.c' &&
+X/* CHK=0x8A22 */
+X/*+-------------------------------------------------------------------------
+X	nlsym.c -- utility nlist - fast access to kernel /dev/kmem offsets
+X	...!{gatech,emory}!n4hgf!wht
+X
+X  Defined functions:
+X	main(argc,argv,envp)
+X	nlsym_write_error(code)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:32-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-27-1990-01:55-wht@n4hgf-use 64 bits of unique check */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:05-12-1989-18:27-wht-fix endless loop error on cannot nlist */
+X/*:10-27-1988-10:58-wht-creation */
+X
+X#include "config.h"
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <fcntl.h>
+X#include <nlist.h>
+X#if defined(mips)
+X#define n_sclass n_type
+X#endif
+X
+X#define DEFINE_NLSYM
+X#include "nlsym.h"
+X
+X/*+-------------------------------------------------------------------------
+X	nlsym_write_error(code)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xnlsym_write_error(code)
+Xint code;
+X{
+X	(void)fprintf(stderr,"code %d: ",code);
+X	perror(UNIX_NLSYM);
+X	exit(1);
+X}	/* end of nlsym_write_error */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv,envp)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xmain(argc,argv,envp)
+Xint argc;
+Xchar **argv;
+Xchar **envp;
+X{
+Xregister int itmp;
+Xregister struct nlist *nn;
+Xstruct stat unixstat;		/* /unix status at nlsym run (void)time */
+Xint fdnlsym;
+Xint nlist_error = 0;
+Xlong unique;
+X
+X	(void)nlist(UNIX_KERNEL,nlsym);
+X
+X	nn = nlsym;
+X	while(nn->n_name)
+X	{
+X		if(!nn->n_sclass)
+X		{
+X			if (strcmp (nn->n_name, "dummy") != 0) {
+X				(void)printf("%s: can't nlist\n", nn->n_name);
+X				nlist_error = 1;
+X			}
+X		}
+X		else
+X			(void)printf("%-12.12s  storage class: %04x value: %08lx\n",
+X						nn->n_name, nn->n_sclass, nn->n_value);
+X		nn++;
+X	}
+X
+X#if 0
+X	if(nlist_error > 0)
+X	{
+X		(void)fprintf(stderr,"%s NOT produced\n",UNIX_NLSYM);
+X		exit(1);
+X	}
+X#endif
+X
+X	if((fdnlsym = open(UNIX_NLSYM,O_WRONLY|O_CREAT|O_TRUNC,0660)) < 0)
+X		nlsym_write_error(fdnlsym);
+X
+X	if(stat(UNIX_KERNEL,&unixstat) < 0)
+X	{
+X		(void)fputs("cannot stat ",stderr);
+X		perror(UNIX_KERNEL);
+X		exit(1);
+X	}
+X
+X	if((itmp = write(fdnlsym,&unixstat,sizeof(unixstat))) != sizeof(unixstat))
+X		nlsym_write_error(itmp);
+X
+X	if((itmp = write(fdnlsym,nlsym,sizeof(nlsym))) != sizeof(nlsym))
+X		nlsym_write_error(itmp);
+X
+X	unique = NLSYM_UNIQUE1;
+X	if((itmp = write(fdnlsym,&unique,sizeof(unique))) != sizeof(unique))
+X		nlsym_write_error(itmp);
+X
+X	unique = NLSYM_UNIQUE2;
+X	if((itmp = write(fdnlsym,&unique,sizeof(unique))) != sizeof(unique))
+X		nlsym_write_error(itmp);
+X
+X	(void)close(fdnlsym);
+X	exit(0);
+X	/*NOTREACHED*/
+X}	/* end of main */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 nlsym.c ||
+echo 'restore of nlsym.c failed'
+Wc_c="`wc -c < 'nlsym.c'`"
+test 3435 -eq "$Wc_c" ||
+	echo 'nlsym.c: original size 3435, current size' "$Wc_c"
+fi
+# ============= proc.c ==============
+if test -f 'proc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping proc.c (File already exists)'
+else
+echo 'x - extracting proc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'proc.c' &&
+X/* CHK=0xCC01 */
+X/*+-------------------------------------------------------------------------
+X	proc.c - u386mon proc table functions
+X
+X  Defined functions:
+X	display_proc(win,y,x)
+X	grok_proc()
+X	pstat_text(pstat)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:32-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:35-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:07-11-1990-03:45-root@n4hgf-faster proc table manipulation */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:06-17-1990-16:46-wht-creation */
+X
+X#include "config.h"
+X
+X#include <curses.h>
+X#undef reg     /* per nba@sysware.dk */
+X#include "libpanel.h"
+X#include <sys/types.h>
+X#undef NGROUPS_MAX
+X#undef NULL
+X#include <sys/param.h>
+X#include <sys/immu.h>
+X#include <sys/region.h>
+X#if defined(mips)
+X#include <sys/sbd.h>
+X#endif
+X#include <sys/proc.h>
+X#include <sys/var.h>
+X#include <nlist.h>
+X#include "nlsym.h"
+X#include "libkmem.h"
+X#include "libnlsym.h"
+X#include "u386mon.h"
+X
+Xextern struct var v;
+X
+Xstruct proc *procs = (struct proc *)0;
+Xstruct proc *oldprocs = (struct proc *)0;
+Xstruct proc **pprocs = (struct proc **)0;
+Xstruct proc **poldprocs = (struct proc **)0;
+X
+Xint procs_per_pstat[SXBRK + 1];
+Xint procs_in_core;
+Xint procs_alive;
+X
+X/*+-------------------------------------------------------------------------
+X	pstat_text(pstat)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xpstat_text(pstat)
+Xchar pstat;
+X{
+Xstatic char errant[10];
+X
+X	switch(pstat)
+X	{
+X		case SSLEEP:   return("sleep ");
+X		case SRUN:     return("run   ");
+X		case SZOMB:    return("zombie");
+X		case SSTOP:    return("stop  ");
+X		case SIDL:     return("idle  ");
+X		case SONPROC:  return("onproc");
+X		case SXBRK:    return("xbrk  ");
+X	}
+X	(void)sprintf(errant,"%06u?",(unsigned char)pstat);
+X	return(errant);
+X
+X}	/* end of pstat_text */
+X
+X/*+-------------------------------------------------------------------------
+X	grok_proc() - read and examine kernel process table
+X--------------------------------------------------------------------------*/
+Xvoid
+Xgrok_proc()
+X{
+Xregister iproc;
+Xregister struct proc *tproc;
+Xstatic char *memfail = "cannot alloc memory for proc table";
+X
+X	if(!procs)
+X	{
+X		if(!(procs = (struct proc *)malloc(sizeof(struct proc) * v.v_proc)))
+X			leave_text(memfail,1);
+X		if(!(oldprocs = (struct proc *)malloc(sizeof(struct proc) * v.v_proc)))
+X			leave_text(memfail,1);
+X		if(!(pprocs = (struct proc **)malloc(sizeof(struct proc *) * v.v_proc)))
+X			leave_text(memfail,1);
+X		if(!(poldprocs=(struct proc **)malloc(sizeof(struct proc *)*v.v_proc)))
+X			leave_text(memfail,1);
+X	}
+X	kread((caddr_t)procs,procaddr,sizeof(struct proc) * v.v_proc);
+X	for(iproc = 0; iproc < SXBRK + 1; iproc++)
+X		procs_per_pstat[iproc] = 0;
+X	procs_in_core = 0;
+X	procs_alive = 0;
+X
+X	for(iproc = 0; iproc < v.v_proc; iproc++)
+X	{
+X		tproc = pprocs[iproc] = (procs + iproc);
+X
+X		if(tproc->p_stat)
+X			procs_alive++;
+X
+X		procs_per_pstat[tproc->p_stat]++;	/* count # procs in each state */
+X
+X		if(tproc->p_flag & SLOAD)			/* count # procs in memory */
+X			procs_in_core++;
+X	}
+X
+X}	/* end of grok_proc */
+X
+X/*+-------------------------------------------------------------------------
+X	display_proc(win,y,x)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_proc(win,y,x)
+XWINDOW *win;
+Xint y;
+Xint x;
+X{
+X	register char istat;
+X
+X	grok_proc();
+X
+X	use_cp(win,cpBANNER);
+X	wmove(win,y++,x);
+X	waddstr(win,"-- Proc ---");
+X	for(istat = SSLEEP; istat <= SXBRK; istat++)
+X	{
+X		wmove(win,y++,x);
+X		disp_info_int(win,pstat_text(istat),"  %3d",procs_per_pstat[istat]);
+X	}
+X	wmove(win,y++,x);
+X	disp_info_int(win,"total ","  %3d",procs_alive);
+X	wmove(win,y++,x);
+X	disp_info_int(win,"in mem","  %3d",procs_in_core);
+X}	/* end of display_proc */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of proc.c */
+SHAR_EOF
+chmod 0644 proc.c ||
+echo 'restore of proc.c failed'
+Wc_c="`wc -c < 'proc.c'`"
+test 4380 -eq "$Wc_c" ||
+	echo 'proc.c: original size 4380, current size' "$Wc_c"
+fi
+# ============= tune.c ==============
+if test -f 'tune.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping tune.c (File already exists)'
+else
+echo 'x - extracting tune.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'tune.c' &&
+X/* CHK=0x92D2 */
+X/*+-------------------------------------------------------------------------
+X	tune.c - u386mon tune struct display
+X
+X  Defined functions:
+X	display_tune(win,y,x)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:06-21-1992-00:34-root@n4hgf-needed extern for 3.2v4 */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:35-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-17:33-wht@n4hgf-alpha sort identifiers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:06-17-1990-14:59-wht-creation */
+X
+X#include "config.h"
+X
+X#include <curses.h>
+X#undef reg     /* per nba@sysware.dk */
+X#include "libpanel.h"
+X#include <sys/types.h>
+X#include <sys/tuneable.h>
+Xextern struct tune tune;
+X#if defined(mips)
+X#define t_gpgsmsk  t_gpgslmsk
+X#endif
+X#include "u386mon.h"
+X
+X/*+-------------------------------------------------------------------------
+X	display_tune(win,y,x)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_tune(win,y,x)
+XWINDOW *win;
+Xint y;
+Xint x;
+X{
+X
+X	use_cp(win,cpBANNER);
+X	wmove(win,y++,x);
+X	waddstr(win,"-- Tune ---------");
+X#ifdef	SVR32
+X	wmove(win,y++,x);
+X	disp_static_int(win,"t_ageintvl  ","%5d",tune.t_ageinterval);
+X#endif
+X	wmove(win,y++,x);
+X	disp_static_int(win,"t_bdflushr  ","%5d",tune.t_bdflushr);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"t_gpgshi    ","%5d",tune.t_gpgshi);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"t_gpgslo    ","%5d",tune.t_gpgslo);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"t_gpgsmsk   ","0x%03lx",tune.t_gpgsmsk);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"t_maxfc     ","%5d",tune.t_maxfc);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"t_maxsc     ","%5d",tune.t_maxsc);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"t_maxumem   ","%5d",tune.t_maxumem);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"t_minarmem  ","%5d",tune.t_minarmem);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"t_minasmem  ","%5d",tune.t_minasmem);
+X
+X}	/* end of display_tune */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of tune.c */
+SHAR_EOF
+chmod 0644 tune.c ||
+echo 'restore of tune.c failed'
+Wc_c="`wc -c < 'tune.c'`"
+test 2627 -eq "$Wc_c" ||
+	echo 'tune.c: original size 2627, current size' "$Wc_c"
+fi
+# ============= var.c ==============
+if test -f 'var.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping var.c (File already exists)'
+else
+echo 'x - extracting var.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'var.c' &&
+X/* CHK=0x3115 */
+X/*+-------------------------------------------------------------------------
+X	var.c - u386mon var struct display
+X
+X  Defined functions:
+X	display_var(win,y,x)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:34-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:06-21-1992-00:34-root@n4hgf-needed extern for 3.2v4 */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:35-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:13-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-17:33-wht@n4hgf-alpha sort identifiers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:27-r@n4hgf-version x0.12 seems bug free */
+X/*:06-17-1990-14:59-wht-creation */
+X
+X#include "config.h"
+X
+X#include <curses.h>
+X#undef reg     /* per nba@sysware.dk */
+X#include "libpanel.h"
+X#include <sys/types.h>
+X#include <sys/var.h>
+X#include "u386mon.h"
+X
+Xextern struct var v;
+X
+X/*+-------------------------------------------------------------------------
+X	display_var(win,y,x)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_var(win,y,x)
+XWINDOW *win;
+Xint y;
+Xint x;
+X{
+X	use_cp(win,cpBANNER);
+X	wmove(win,y++,x);
+X	waddstr(win,"-- Var ---------");
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_autoup   ","%5d",v.v_autoup);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_buf      ","%5d",v.v_buf);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_clist    ","%5d",v.v_clist);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_file     ","%5d",v.v_file);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_hbuf     ","%5d",v.v_hbuf);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_inode    ","%5d",v.v_inode);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_maxpmem  ","%5d",v.v_maxpmem);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_maxup    ","%5d",v.v_maxup);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_mount    ","%5d",v.v_mount);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_pbuf     ","%5d",v.v_pbuf);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_proc     ","%5d",v.v_proc);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_region   ","%5d",v.v_region);
+X	wmove(win,y++,x);
+X	disp_static_int(win,"v_vhndfrac ","%5d",v.v_vhndfrac);
+X
+X}	/* end of display_var */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of var.c */
+SHAR_EOF
+chmod 0644 var.c ||
+echo 'restore of var.c failed'
+Wc_c="`wc -c < 'var.c'`"
+test 2687 -eq "$Wc_c" ||
+	echo 'var.c: original size 2687, current size' "$Wc_c"
+fi
+# ============= config.h ==============
+if test -f 'config.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping config.h (File already exists)'
+else
+echo 'x - extracting config.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'config.h' &&
+X/* CHK=0xEF8D */
+X/*+-------------------------------------------------------------------------
+X	config.h - u386mon system monitor configuration
+X
+XHopefully, we will hide most of the Machiavellian version-hackery
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:03-09-1992-11:54-wht@n4hgf-p_sid addition per rw@namu01.gwdg.de */
+X/*:08-20-1991-14:00-root@n4hgf-add ESIX per info from jdm1@esd1.esd.com */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:35-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:08-01-1990-19:24-jdc@dell.com-add DELL config */
+X/*:08-01-1990-12:24-wht@n4hgf-2.11-try to support ISC 1.x.x */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:07-26-1990-17:51-wht-creation */
+X
+X#ifndef _config_h
+X#define _config_h
+X
+X#define U386MON
+X
+X#if defined(M_UNIX)
+X#define HAS_RDCHK
+X#define HAS_P_SID		/* has proc->p_sid (job control) */
+X#define HAS_NAP
+X#define M_TERMINFO
+X#if !defined(SVR32)
+X#define SVR32
+X#endif
+X#if !defined(SCO320) && !defined(USIZE_FIXED)	/* you want USIZE_FIXED */
+X#define USIZE_FIXED					/* unless you are using SCO 3.2.0 */
+X#endif
+X/* The next two lines may speed up other True S5R3 versions, but I can't say */
+X#define PERFORMANCE /* see u386mon.c, kludge.c, /usr/include/tinfo.h */
+X#define CURSES_MACROS
+X#endif
+X
+X#if defined(DELL)
+X#define ISC
+X#if !defined(SVR32)
+X#define SVR32
+X#endif
+X#endif
+X
+X/*
+X * no offense to ESIX or ISC, but this is what works
+X * see undef of NATIVE_PANELS below
+X */
+X#if defined(ESIX532)
+X#define ISC
+X#define ISC22
+X#endif
+X
+X#ifdef ISC_1
+X#define ISC
+X#if !defined(SVR31)
+X#define SVR31
+X#endif
+X#ifndef NO_ISTOUCH
+X#define NO_ISTOUCH
+X#endif
+X#else /* !ISC 1.x.x */
+X#if defined(ISC)
+X#define HAS_RDCHK
+X#define HAS_NAP
+X#if !defined(SVR32)
+X#define SVR32
+X#endif
+X#endif
+X#endif
+X
+X#if defined(SVR32)
+X#define NATIVE_PANELS
+X#define HAS_BOOTINFO
+X#define HAS_TIMEB
+X#endif
+X
+X/*
+X * ESIX panels not existent or don't work (unclear, but this works)
+X */
+X#if defined(ESIX532)
+X#undef NATIVE_PANELS
+X#endif
+X
+X/*
+X * some old curses do not have is_wintouched() or is_linetouched()
+X * ... sigh ... This makes our homebrew panel object severely
+X * disappointed, maybe useless ... but define NO_ISTOUCH to try
+X * it if you get undefined externs for these two work saver functions.
+X */
+X#ifdef SVR31
+X#ifndef NO_ISTOUCH
+X/* #define NO_ISTOUCH */
+X#endif
+X#endif
+X
+X#if defined(mips)
+X#if !defined(SVR31)
+X#define SVR31
+X#endif
+X#if !defined(NO_ISTOUCH)
+X#define NO_ISTOUCH
+X#endif
+X#endif
+X
+X#define DPT_NONE	0
+X#define DPT_PS		1
+X#define DPT_PS_LONG	2
+X#define DPT_EXTRA	3
+X#ifdef M_UNIX
+X#define DPT_SIO		4
+X#endif
+X#if defined(M_UNIX) || defined(SVR31) || defined(ISC22)
+X#define DPT_STREAMS	5
+X#define DPT_TABLE	6
+X#endif
+X#ifdef SCO322
+X#define DPT_WD		7
+X#endif
+X
+X#endif /* _config_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of config.h */
+SHAR_EOF
+chmod 0644 config.h ||
+echo 'restore of config.h failed'
+Wc_c="`wc -c < 'config.h'`"
+test 3105 -eq "$Wc_c" ||
+	echo 'config.h: original size 3105, current size' "$Wc_c"
+fi
+# ============= libkmem.h ==============
+if test -f 'libkmem.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping libkmem.h (File already exists)'
+else
+echo 'x - extracting libkmem.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'libkmem.h' &&
+X/* CHK=0x7E11 */
+X/*+-----------------------------------------------------------------------
+X	libkmem.h
+X	...!{gatech,emory}!n4hgf!wht
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:10-28-1988-14:46-afterlint-creation */
+X
+X#ifndef _libkmem_h
+X#define _libkmem_h
+X
+X#ifndef BUILDING_LINT_ARGS
+X#ifdef LINT_ARGS
+X
+X/* libkmem.c */
+Xvoid kinit(int );
+Xvoid kread(char  *,long ,int );
+Xvoid kwrite(long ,char  *,int );
+X
+X#else		/* compiler doesn't know about prototyping */
+X
+X/* libkmem.c */
+Xvoid kinit();
+Xvoid kread();
+Xvoid kwrite();
+X
+X#endif /* LINT_ARGS */
+X#endif /* BUILDING_LINT_ARGS */
+X#endif /* _libkmem_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of libkmem.h */
+SHAR_EOF
+chmod 0644 libkmem.h ||
+echo 'restore of libkmem.h failed'
+Wc_c="`wc -c < 'libkmem.h'`"
+test 1381 -eq "$Wc_c" ||
+	echo 'libkmem.h: original size 1381, current size' "$Wc_c"
+fi
+# ============= libmem.h ==============
+if test -f 'libmem.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping libmem.h (File already exists)'
+else
+echo 'x - extracting libmem.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'libmem.h' &&
+X/* CHK=0x2D54 */
+X/*+-----------------------------------------------------------------------
+X	libmem.h
+X	...!{gatech,emory}!n4hgf!wht
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:10-28-1988-14:46-afterlint-creation */
+X
+X#ifndef _libmem_h
+X#define _libmem_h
+X
+X#ifndef BUILDING_LINT_ARGS
+X#ifdef LINT_ARGS
+X
+X/* libmem.c */
+Xvoid minit(int );
+Xvoid mread(char  *,long ,int );
+Xvoid mwrite(long ,char  *,int );
+X
+X#else		/* compiler doesn't mnow about prototyping */
+X
+X/* libmem.c */
+Xvoid minit();
+Xvoid mread();
+Xvoid mwrite();
+X
+X#endif /* LINT_ARGS */
+X#endif /* BUILDING_LINT_ARGS */
+X#endif /* _libmem_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of libmem.h */
+SHAR_EOF
+chmod 0644 libmem.h ||
+echo 'restore of libmem.h failed'
+Wc_c="`wc -c < 'libmem.h'`"
+test 1374 -eq "$Wc_c" ||
+	echo 'libmem.h: original size 1374, current size' "$Wc_c"
+fi
+# ============= libpanel.h ==============
+if test -f 'libpanel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping libpanel.h (File already exists)'
+else
+echo 'x - extracting libpanel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'libpanel.h' &&
+X/* CHK=0xDDDE */
+X/*+-------------------------------------------------------------------------
+X	libpanel.h - libpanel.c <panel.h> surrogate
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-31-1990-08:18-wht@n4hgf-some cpps wont take #error even in untrue ifdef */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:07-23-1990-00:56-wht@n4hgf-full library working */
+X/*:07-21-1990-15:42-wht-creation */
+X
+X
+X#ifndef _libpanel_h
+X#define _libpanel_h
+X
+X#ifdef NATIVE_PANELS
+X# include <panel.h>
+X#else
+X
+Xtypedef struct panelobs
+X{
+X	struct panelobs *above;
+X	struct panel *pan;
+X} PANELOBS;
+X
+Xtypedef struct panel
+X{
+X	WINDOW *win;
+X	int wstarty;
+X	int wendy;
+X	int wstartx;
+X	int wendx;
+X	struct panel *below;
+X	struct panel *above;
+X	char *user;
+X	struct panelobs *obscure;
+X} PANEL;
+X
+X#ifndef BUILDING_LINT_ARGS
+X#ifdef LINT_ARGS
+X
+Xextern  WINDOW *panel_window(PANEL *pan);
+Xextern  void update_panels(void );
+Xextern  int hide_panel(PANEL *pan);
+Xextern  int show_panel(PANEL *pan);
+Xextern  int del_panel(PANEL *pan);
+Xextern  int top_panel(PANEL *pan);
+Xextern  int bottom_panel(PANEL *pan);
+Xextern  PANEL *new_panel(WINDOW *win);
+Xextern  PANEL *panel_above(PANEL *pan);
+Xextern  PANEL *panel_below(PANEL *pan);
+Xextern  int set_panel_userptr(PANEL *pan,char *uptr);
+Xextern  char *panel_userptr(PANEL *pan);
+Xextern  int move_panel(PANEL *pan,int starty,int startx);
+Xextern  int replace_panel(PANEL *pan,WINDOW *win);
+X
+X#else		/* compiler doesn't know about prototyping */
+X
+Xextern  WINDOW *panel_window();
+Xextern  void update_panels();
+Xextern  int hide_panel();
+Xextern  int show_panel();
+Xextern  int del_panel();
+Xextern  int top_panel();
+Xextern  int bottom_panel();
+Xextern  PANEL *new_panel();
+Xextern  PANEL *panel_above();
+Xextern  PANEL *panel_below();
+Xextern  int set_panel_userptr();
+Xextern  char *panel_userptr();
+Xextern  int move_panel();
+Xextern  int replace_panel();
+X
+X#endif /* LINT_ARGS */
+X#endif /* BUILDING_LINT_ARGS */
+X
+X#endif	/* NATIVE_PANELS */
+X
+X#endif /* _libpanel_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of libpanel.h */
+SHAR_EOF
+chmod 0644 libpanel.h ||
+echo 'restore of libpanel.h failed'
+Wc_c="`wc -c < 'libpanel.h'`"
+test 2432 -eq "$Wc_c" ||
+	echo 'libpanel.h: original size 2432, current size' "$Wc_c"
+fi
+# ============= libswap.h ==============
+if test -f 'libswap.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping libswap.h (File already exists)'
+else
+echo 'x - extracting libswap.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'libswap.h' &&
+X/* CHK=0x1230 */
+X/*+-----------------------------------------------------------------------
+X	libswap.h
+X	...!{gatech,emory}!n4hgf!wht
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-22-1990-02:03-root@n4hgf-creation from libmem */
+X
+X#ifndef _libswap_h
+X#define _libswap_h
+X
+X#ifndef BUILDING_LINT_ARGS
+X#ifdef LINT_ARGS
+X
+X/* libswap.c */
+Xvoid sinit(void );
+Xvoid sread(char  *,long ,int );
+X
+X#else		/* compiler doesn't mnow about prototyping */
+X
+X/* libswap.c */
+Xvoid sinit();
+Xvoid sread();
+Xvoid swrite();
+X
+X#endif /* LINT_ARGS */
+X#endif /* BUILDING_LINT_ARGS */
+X#endif /* _libswap_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of libswap.h */
+SHAR_EOF
+chmod 0644 libswap.h ||
+echo 'restore of libswap.h failed'
+Wc_c="`wc -c < 'libswap.h'`"
+test 1302 -eq "$Wc_c" ||
+	echo 'libswap.h: original size 1302, current size' "$Wc_c"
+fi
+true || echo 'restore of libnlsym.h failed'
+echo End of part 6, continue with part 7
+exit 0
+
+exit 0 # Just in case...

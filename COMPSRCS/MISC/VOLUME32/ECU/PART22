@@ -1,0 +1,1851 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i057:  ecu - ECU Asynchronous Communications v3.20, Part22/40
+Message-ID: <1992Sep14.143731.20634@sparky.imd.sterling.com>
+X-Md4-Signature: 94159be11d312a0b5e6e929766b8fd8c
+Date: Mon, 14 Sep 1992 14:37:31 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 57
+Archive-name: ecu/part22
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.22 (part 22 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file var.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 22; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping var.c'
+else
+echo 'x - continuing file var.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'var.c' &&
+X
+Xtypedef union mkvu_type
+X{
+X	ESD	*sv;
+X	long iv;
+X} MKVU;
+X
+Xtypedef struct mkv_type
+X{
+X	MKVU item;				/* pointer to esd if sv or long if iv */
+X	struct mkv_type *next;	/* next MKV in chain; if NULL, no more in chain */
+X	struct mkv_type *prev;	/* previous MKV in chain; if NULL, top of chain */
+X	char *name;				/* name of variable */
+X} MKV;
+X
+XMKV *mkvi_last = (MKV *)0;
+XMKV *mkvs_last = (MKV *)0;
+X
+X/*+-------------------------------------------------------------------------
+X	var_init()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xvar_init()
+X{
+Xregister itmp;
+X
+X	for(itmp = 0; itmp < SVQUAN; itmp++)
+X	{
+X		if((sv[itmp] = esdalloc(SVLEN)) == (ESD *)0)
+X		{
+X			pputs("out of memory during variable initialization\n");
+X			termecu(TERMECU_MALLOC);
+X		}
+X	}
+X
+X	for(itmp = 0; itmp < IVQUAN; itmp++)
+X		iv[itmp] = 0;
+X
+X}	/* end of var_init */
+X
+X/*+-------------------------------------------------------------------------
+X	alloc_MKV(name)
+X--------------------------------------------------------------------------*/
+XMKV *
+Xalloc_MKV(name)
+Xchar *name;
+X{
+XMKV *mkv;
+X	if(!(mkv = (MKV *)malloc(sizeof(MKV))))
+X		return((MKV *)0);
+X	if(!(mkv->name = malloc(strlen(name) + 1)))
+X	{
+X		free((char *)mkv);
+X		return((MKV *)0);
+X	}
+X	strcpy(mkv->name,name);
+X	mkv->item.iv = 0;
+X	return(mkv);
+X}	/* end of alloc_MKV */
+X
+X/*+-------------------------------------------------------------------------
+X	build_mkvi_primitive(name)
+X--------------------------------------------------------------------------*/
+Xbuild_mkvi_primitive(name)
+Xchar *name;
+X{
+XMKV *mkv;
+X
+X	if((mkv = alloc_MKV(name)) == (MKV *)0)
+X		return(eNoMemory);
+X	if(mkvi_last)
+X		mkvi_last->next = mkv;
+X	mkv->prev = mkvi_last;
+X	mkv->next = (MKV *)0;
+X	mkvi_last = mkv;
+X	return(0);
+X}	/* end of build_mkvi_primitive */
+X
+X/*+-------------------------------------------------------------------------
+X	build_mkvi(param)
+X--------------------------------------------------------------------------*/
+Xbuild_mkvi(param)
+XESD *param;
+X{
+Xregister erc;
+Xchar name[16];
+X
+X	if(erc = get_alphanum_zstr(param,name,sizeof(name)))
+X		return(erc);
+X	return(build_mkvi_primitive(name));
+X
+X}	/* end of build_mkvi */
+X
+X/*+-------------------------------------------------------------------------
+X	build_mkvs_primitive(name,length)
+X
+Xtrusts caller not to exceed ESD_MAXSIZE
+X--------------------------------------------------------------------------*/
+Xbuild_mkvs_primitive(name,length)
+Xchar *name;
+Xint length;
+X{
+XMKV *mkv;
+XESD *text;
+X
+X	if((text = esdalloc((int)length)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if((mkv = alloc_MKV(name)) == (MKV *)0)
+X	{
+X		esdfree(text);
+X		return(eNoMemory);
+X	}
+X
+X	mkv->item.sv = text;
+X
+X	if(mkvs_last)
+X		mkvs_last->next = mkv;
+X	mkv->prev = mkvs_last;
+X	mkv->next = (MKV *)0;
+X	mkvs_last = mkv;
+X	return(0);
+X
+X}	/* end of build_mkvs_primitive */
+X
+X/*+-------------------------------------------------------------------------
+X	build_mkvs(param)
+X--------------------------------------------------------------------------*/
+Xbuild_mkvs(param)
+XESD *param;
+X{
+Xregister erc;
+Xchar name[16];
+Xulong length;
+X
+X	if(erc = get_alphanum_zstr(param,name,sizeof(name)))
+X		return(erc);
+X
+X	if(erc = skip_paren(param,1))
+X		return(erc);
+X	if(erc = gint(param,&length))
+X		return(erc);
+X	if(length > ESD_MAXSIZE)
+X	{
+X		pprintf("max string size is %d ... cannot make %lu byte string\n",
+X			ESD_MAXSIZE,length);
+X		return(eFATAL_ALREADY);
+X	}
+X	if(erc = skip_paren(param,0))
+X		return(erc);
+X
+X	return(build_mkvs_primitive(name,(int)length));
+X
+X}	/* end of build_mkvs */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_mkvar(param)
+X
+Xmkvar i<name>
+Xmkvar s<name>(<size-int>)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_mkvar(param)
+XESD *param;
+X{
+Xregister erc;
+Xchar vartype;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	do {
+X		if(erc = get_cmd_char(param,&vartype))
+X			return(erc);
+X		if(vartype == '$')
+X		{
+X			if(erc = get_cmd_char(param,&vartype))
+X				return(erc);
+X		}
+X		vartype = to_lower(vartype);
+X		switch(vartype)
+X		{
+X			case 'i':
+X				erc = build_mkvi(param);
+X				break;
+X			case 's':
+X				erc = build_mkvs(param);
+X				break;
+X			default:
+X				return(eIllegalVarType);
+X		}
+X		if(erc)
+X			return(erc);
+X	} while(!skip_comma(param));
+X
+X	if(!end_of_cmd(param))
+X		return(eSyntaxError);
+X
+X	return(0);
+X
+X}	/* end of pcmd_mkvar */
+X
+X/*+-------------------------------------------------------------------------
+X	free_mkvi(mkv)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xfree_mkvi(mkv)
+XMKV *mkv;
+X{
+X	free(mkv->name);
+X	free((char *)mkv);
+X}	/* end of free_mkvi */
+X
+X/*+-------------------------------------------------------------------------
+X	free_mkvs(mkv)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xfree_mkvs(mkv)
+XMKV *mkv;
+X{
+X	esdfree(mkv->item.sv);
+X	free(mkv->name);
+X	free((char *)mkv);
+X}	/* end of free_mkvs */
+X
+X/*+-------------------------------------------------------------------------
+X	mkv_proc_starting(pcb)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xmkv_proc_starting(pcb)
+XPCB *pcb;
+X{
+X	pcb->mkvs_last = (char *)mkvs_last;
+X	pcb->mkvi_last = (char *)mkvi_last;
+X}	/* end of mkv_proc_starting */
+X
+X/*+-------------------------------------------------------------------------
+X	mkv_proc_terminating(pcb)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xmkv_proc_terminating(pcb)
+XPCB *pcb;
+X{
+XMKV *pmkv;
+X
+X	while(mkvi_last != (MKV *)pcb->mkvi_last)
+X	{
+X		pmkv = mkvi_last->prev;
+X		free_mkvi(mkvi_last);
+X		mkvi_last = pmkv;
+X	}
+X	while(mkvs_last != (MKV *)pcb->mkvs_last)
+X	{
+X		pmkv = mkvs_last->prev;
+X		free_mkvs(mkvs_last);
+X		mkvs_last = pmkv;
+X	}
+X
+X}	/* end of mkv_proc_terminating */
+X
+X/*+-------------------------------------------------------------------------
+X	find_mkvs(name,ppesd,auto_create)
+X--------------------------------------------------------------------------*/
+Xint
+Xfind_mkvs(name,ppesd,auto_create)
+Xchar *name;
+XESD **ppesd;
+Xint auto_create;
+X{
+Xint erc;
+XMKV *mkv = mkvs_last;
+X
+X	while(mkv)
+X	{
+X		if(!strcmp(name,mkv->name))
+X		{
+X			*ppesd = mkv->item.sv;
+X			return(0);
+X		}
+X		mkv = mkv->prev;
+X	}
+X
+X	if(auto_create)
+X	{
+X		if(proctrace)
+X			pprintf("automatic creation $s%s(256)\n",name);
+X		if(erc = build_mkvs_primitive(name,256))
+X			return(erc);
+X		*ppesd = mkvs_last->item.sv;
+X		return(0);
+X	}
+X
+X	return(eNoSuchVariable);
+X
+X}	/* end of find_mkvs */
+X
+X/*+-------------------------------------------------------------------------
+X	find_mkvi(name,pplong,auto_create)
+X--------------------------------------------------------------------------*/
+Xint
+Xfind_mkvi(name,pplong,auto_create)
+Xchar *name;
+Xlong **pplong;
+Xint auto_create;
+X{
+Xint erc;
+XMKV *mkv = mkvi_last;
+X
+X	while(mkv)
+X	{
+X		if(!strcmp(name,mkv->name))
+X		{
+X			*pplong = &mkv->item.iv;
+X			return(0);
+X		}
+X		mkv = mkv->prev;
+X	}
+X
+X	if(auto_create)
+X	{
+X		if(proctrace)
+X			pprintf("creating $i%s\n",name);
+X		if(erc = build_mkvi_primitive(name))
+X			return(erc);
+X		*pplong = &mkvi_last->item.iv;
+X		return(0);
+X	}
+X
+X	return(eNoSuchVariable);
+X
+X}	/* end of find_mkvi */
+X
+X/*+-------------------------------------------------------------------------
+X	get_subscript(param,psubscript)
+Xonly called when '[' at pb + index
+X--------------------------------------------------------------------------*/
+Xget_subscript(param,psubscript)
+XESD *param;
+Xulong *psubscript;
+X{
+Xregister erc;
+X
+X	param->index++;
+X	if(erc = gint(param,psubscript))
+X		return(erc);
+X	if(skip_cmd_char(param,']'))
+X		return(eSyntaxError);
+X	return(0);
+X}	/* end of get_subscript */
+X
+X/*+-------------------------------------------------------------------------
+X	get_ivptr(param,ppiv,auto_create)
+Xcalled with index set to $i.....
+X                           ^
+X--------------------------------------------------------------------------*/
+Xget_ivptr(param,ppiv,auto_create)
+XESD *param;
+Xlong **ppiv;
+Xint auto_create;
+X{
+Xregister erc;
+Xulong varnum;
+Xchar name[16];
+X
+X	if(end_of_cmd(param))
+X		return(eSyntaxError);
+X	else if(!get_numeric_value(param,&varnum))
+X		goto TEST_VARNUM;
+X	else if(*(param->pb + param->index) == '[')
+X	{
+X		if(erc = get_subscript(param,&varnum))
+X			return(erc);
+XTEST_VARNUM:
+X		if(varnum >= IVQUAN)
+X			return(eIllegalVarNumber);
+X		*ppiv = &iv[(int)varnum];
+X		return(0);
+X	}
+X	else if(get_alphanum_zstr(param,name,sizeof(name)))
+X		return(eInvalidVarName);
+X
+X	return(find_mkvi(name,ppiv,auto_create));
+X
+X}	/* end of get_ivptr */
+X
+X/*+-------------------------------------------------------------------------
+X	get_svptr(param,ppsv,auto_create)
+Xcalled with index set to $s.....
+X--------------------------------------------------------------------------*/
+Xint
+Xget_svptr(param,ppsv,auto_create)
+XESD *param;
+XESD **ppsv;
+Xint auto_create;
+X{
+Xregister erc;
+Xulong varnum;
+Xchar name[16];
+X
+X	if(end_of_cmd(param))
+X		return(eSyntaxError);
+X	else if(!get_numeric_value(param,&varnum))
+X		goto TEST_VARNUM;
+X	else if(*(param->pb + param->index) == '[')
+X	{
+X		if(erc = get_subscript(param,&varnum))
+X			return(erc);
+XTEST_VARNUM:
+X		if(varnum >= SVQUAN)
+X			return(eIllegalVarNumber);
+X		*ppsv = sv[(int)varnum];
+X		return(0);
+X	}
+X	if(get_alphanum_zstr(param,name,sizeof(name)))
+X		return(eInvalidVarName);
+X	return(find_mkvs(name,ppsv,auto_create));
+X
+X}	/* end of get_svptr */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of var.c */
+SHAR_EOF
+echo 'File var.c is complete' &&
+chmod 0644 var.c ||
+echo 'restore of var.c failed'
+Wc_c="`wc -c < 'var.c'`"
+test 10234 -eq "$Wc_c" ||
+	echo 'var.c: original size 10234, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= var.h ==============
+if test -f 'var.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping var.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting var.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'var.h' &&
+X/*+-------------------------------------------------------------------------
+X	var.h - ecu user variable declarations
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _var_h
+X#define _var_h
+X
+X#if !defined(VDECL)
+X#define VDECL extern
+X#endif
+X
+X#define SVLEN	256
+X#define SVQUAN	50
+X#define IVQUAN	50
+X
+XVDECL ESD *sv[SVQUAN];
+XVDECL long iv[SVQUAN];
+X
+X#endif /* _var_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of var.h */
+SHAR_EOF
+chmod 0644 var.h ||
+echo 'restore of var.h failed'
+Wc_c="`wc -c < 'var.h'`"
+test 784 -eq "$Wc_c" ||
+	echo 'var.h: original size 784, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= bperr/bperr.c ==============
+if test ! -d 'bperr'; then
+    echo 'x - creating directory bperr'
+    mkdir 'bperr'
+fi
+if test -f 'bperr/bperr.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping bperr/bperr.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting bperr/bperr.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'bperr/bperr.c' &&
+X/*+-------------------------------------------------------------------------
+X	bperr.c - build proc_error .c from ecuerror.h
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:39-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <stdio.h>
+X#include <time.h>
+X
+X#define MAXLINE 256
+X#define MAXFLDS 50
+X
+Xchar *strchr();
+X
+Xchar line[MAXLINE];
+Xchar copy[MAXLINE];
+Xchar *fields[MAXFLDS + 1];
+X
+Xchar *bc = 
+X"/*+-------------------------------------------------------------------------";
+Xchar *ec = 
+X"--------------------------------------------------------------------------*/";
+X/*+-------------------------------------------------------------------------
+X	splitter(sep)
+X--------------------------------------------------------------------------*/
+Xsplitter(sep)
+Xchar *sep;
+X{
+Xchar *tmp = copy;
+Xregister int fld;
+X
+X	for (fld = 1; fld <= MAXFLDS; fld++)
+X		fields[fld] = NULL;
+X	if (!strlen(sep) || !strlen(line))
+X		return(0);
+X	fld = 1;
+X	sprintf(copy, "%s", line);
+X	while (fld < MAXFLDS)
+X	{
+X		while (strchr(sep, *tmp))
+X			if (!*++tmp) return fld;
+X		fields[fld++] = tmp++;
+X		while (!strchr(sep, *tmp))
+X			if (!*++tmp) return fld;
+X		*tmp++ = '\0';
+X	}
+X	return(fld);
+X}	/* end of splitter */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+Xregister field_count;
+Xregister itmp;
+Xlong time();
+Xstruct tm *localtime();
+Xlong cur_time;
+Xstruct tm *ltime;
+XFILE *fp;
+Xchar cmd[256];
+X
+X	freopen("proc_error.c","w",stdout);
+X
+X	puts(bc);
+X	puts("\tproc_error.c - print ecu procedure error");
+X	puts(ec);
+X	puts("/*+:EDITS:*/");
+X
+X	cur_time = time((long *)0);
+X	ltime = localtime(&cur_time);
+X	printf(
+X	"/*:%02d-%02d-%04d-%02d:%02d-build_err-creation from ecuerror.h */\n",
+X	    ltime->tm_mon+1,ltime->tm_mday,ltime->tm_year + 1900,
+X	    ltime->tm_hour,ltime->tm_min);
+X	puts("");
+X	puts("#include \"ecu.h\"");
+X	puts("#include \"ecuerror.h\"");
+X	puts("");
+X	puts(bc);
+X	puts("\tproc_error(erc) - print error message");
+X	puts(ec);
+X	puts("void");
+X	puts("proc_error(erc)");
+X	puts("int erc;");
+X	puts("{");
+X	puts("\tswitch(erc)");
+X	puts("\t{");
+X
+X	for(itmp = 0; itmp <= MAXFLDS; itmp++)
+X		fields[itmp] = NULL;
+X
+X	fp = fopen("ecuerror.h","r");
+X
+X	while(fgets(line,sizeof(line),fp))
+X	{
+X		line[strlen(line) - 1] = 0;
+X		fields[0] = line;
+X		field_count = splitter(" \t");
+X		if(!field_count || (strcmp(fields[1],"#define")))
+X			continue;
+X		if((!strcmp(fields[2],"eFATAL_ALREADY")) ||
+X			(!strcmp(fields[2],"eWARNING_ALREADY")) ||
+X			(!strncmp(fields[2],"_e",2)) ||
+X			(!strncmp(fields[2],"e_",2)))
+X			continue;
+X		printf("\t\tcase %s:\n",fields[2]);
+X		fputs("\t\t\tpputs(\"",stdout);
+X
+X		for(itmp = 1; itmp < field_count - 1; itmp++)
+X			if(!strcmp(fields[itmp],"/*"))
+X				break;
+X		itmp++;
+X
+X		for(; itmp < field_count - 1; itmp++)
+X		{
+X			fputs(fields[itmp],stdout);
+X			if(itmp != field_count - 2)
+X				fputc(' ',stdout);
+X		}
+X		fputs("\\n\");\n",stdout);
+X		puts("\t\t\tbreak;");
+X	}
+X	puts("\t\tcase eFATAL_ALREADY:");
+X	puts("\t\tcase eWARNING_ALREADY:");
+X	puts("\t\t\tbreak;");
+X	puts("\t\tdefault:");
+X	puts("\t\t\tpprintf(\"unknown error %x\\n\",erc);");
+X	puts("\t\t\tbreak;");
+X
+X	puts("\t}");
+X	puts("} /* end of proc_error */\n");
+X	puts("/* vi: set tabstop=4 shiftwidth=4: */");
+X	puts("/* end of proc_error.c */");
+X	freopen("/dev/tty","a",stdout);
+X	sprintf(cmd,"fcrc -u proc_error.c");
+X	system(cmd);
+X	exit(0);
+X}	/* end of main */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of bperr.c */
+SHAR_EOF
+chmod 0644 bperr/bperr.c ||
+echo 'restore of bperr/bperr.c failed'
+Wc_c="`wc -c < 'bperr/bperr.c'`"
+test 3724 -eq "$Wc_c" ||
+	echo 'bperr/bperr.c: original size 3724, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= help/helpgen.c ==============
+if test -f 'help/helpgen.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping help/helpgen.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting help/helpgen.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'help/helpgen.c' &&
+X/*+-------------------------------------------------------------------------
+X	helpgen.c -- ecu command help file maker
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	build_ecudoc()
+X	build_ecuhelp()
+X	main(argc,argv,envp)
+X	search_cmd_list(cmd)
+X	show_cmds()
+X	test_help()
+X	usage()
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:07-12-1991-14:50-wht@n4hgf-remove obsolete ecuhelp.txt generator */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X
+X#if defined(M_SYSV)
+X#if !defined(LINT_ARGS)
+X#define LINT_ARGS
+X#endif
+X#endif
+X#include "../ecu_types.h"
+X#include <termio.h>
+X
+X#define DECLARE_P_CMD
+X#define HELPGEN
+Xtypedef int(*PFI)();	/* pointer to function returning integer */
+X#include "../ecucmd.h"
+X
+X#include "../esd.h"
+X
+X#define PSRC	"ecuhelp.src"
+X#define PDAT	"ecuhelp.data"
+X#define PDOC	"ecuhelp.doc"
+X
+Xlong start_pos[TOKEN_QUAN];
+Xint token_line[TOKEN_QUAN];
+XFILE	*fpsrc;		/* help source file */
+XFILE	*fpdat;		/* help data file */
+XFILE	*fpdoc;		/* help doc file */
+XFILE	*fptxt;		/* help nroff file */
+XP_CMD	*pcmd;
+Xint src_line = 0;
+Xchar buf[128];
+X
+X/*+-------------------------------------------------------------------------
+X	usage()
+X--------------------------------------------------------------------------*/
+Xusage()
+X{
+X	fprintf(stderr,"usage: helpgen [-b] [-d] [-s] [-t]\n");
+X	fprintf(stderr," -b build %s from %s\n",PDAT,PSRC);
+X	fprintf(stderr," -d build %s from %s\n",PDOC,PDAT);
+X	fprintf(stderr," -s show list of commands\n");
+X	fprintf(stderr," -t test help\n");
+X	fprintf(stderr,"At least one switch must be issued.  They are executed\n");
+X	fprintf(stderr,"in the order shown on the usage line.\n");
+X	exit(1);
+X}	/* end of usage */
+X
+X/*+-------------------------------------------------------------------------
+X	search_cmd_list(cmd)
+X--------------------------------------------------------------------------*/
+XP_CMD *
+Xsearch_cmd_list(cmd)
+Xregister char *cmd;
+X{
+Xregister P_CMD	*cmd_list = icmd_cmds;
+X
+X	while(cmd_list->token != -1)
+X	{
+X		if(strcmp(cmd_list->cmd,cmd) == 0)
+X			break;
+X		cmd_list++;
+X	}
+X	if(cmd_list->token == -1)
+X		return((P_CMD *)0);
+X	else
+X		return(cmd_list);
+X
+X}	/* end of search_cmd_list */
+X
+X/*+-------------------------------------------------------------------------
+X	show_cmds()
+Xcommands with null descriptions are "undocumented"
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshow_cmds()
+X{
+Xregister int itmp;
+Xregister P_CMD *this = icmd_cmds;
+Xregister int longest_cmd = 0;
+Xregister int longest_descr = 0;
+Xregister int nl_flag = 0;
+Xchar s80[80];
+XP_CMD *longest_cmd_p = 0;
+XP_CMD *longest_descr_p = 0;
+X
+X	while(this->token != -1)
+X	{
+X		if(!*this->descr)
+X		{
+X			this++;
+X			continue;
+X		}
+X		itmp = strlen(this->cmd);
+X		if(itmp > longest_cmd)
+X		{
+X			longest_cmd = itmp;
+X			longest_cmd_p = this;
+X		}
+X		itmp = strlen(this->descr);
+X		if(itmp > longest_descr)
+X		{
+X			longest_descr = itmp;
+X			longest_descr_p = this;
+X		}
+X		this++;
+X	}
+X	this = icmd_cmds;
+X	while(this->token != -1)
+X	{
+X		if((!this->min_ch) || (!*this->descr))
+X		{
+X			this++;
+X			continue;
+X		}
+X		strcpy(s80,this->cmd);
+X		pad_zstr_to_len(s80,longest_cmd + 2);
+X		for(itmp = 0; itmp < this->min_ch; itmp++)
+X			s80[itmp] = to_upper(s80[itmp]);
+X		fputs(s80,stderr);
+X
+X		strcpy(s80,this->descr);
+X		pad_zstr_to_len(s80,longest_descr + 1);
+X		fputs(s80,stderr);
+X
+X		if(nl_flag)
+X			fputs("\r\n",stderr);
+X		else
+X			fputs("| ",stderr);
+X		nl_flag = (nl_flag) ? 0 : 1;
+X
+X		this++;
+X	}
+X	if(nl_flag)
+X		fputs("\r\n",stderr);
+X
+X	itmp = longest_cmd + longest_descr + 5;
+X	sprintf(s80,"recwidth = %d\r\n",itmp);
+X	fprintf(stderr,s80);
+X	this = longest_cmd_p;
+X	sprintf(s80,"longest cmd: %s: %s\r\n",this->cmd,this->descr);
+X	fprintf(stderr,s80);
+X	this = longest_descr_p;
+X	sprintf(s80,"longest dsc: %s: %s\r\n",this->cmd,this->descr);
+X	fprintf(stderr,s80);
+X
+X}	/* end of show_cmds */
+X
+X/*+-------------------------------------------------------------------------
+X	build_ecuhelp()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xbuild_ecuhelp()
+X{
+Xregister int itmp;
+Xregister char *cptr;
+XP_CMD *this;
+X
+X	printf("\nBuilding %s\n",PDAT);
+X
+X/* use proc cmd entry for flag */
+X	this = icmd_cmds;
+X	while(this->token != -1)
+X	{
+X		this->proc = (PFI)0;
+X		this++;
+X	}
+X
+X	for(itmp = 0; itmp < TOKEN_QUAN; itmp++)
+X	{
+X		start_pos[itmp] = 0L;
+X		token_line[itmp] = 0;
+X	}
+X
+X	if((fpsrc = fopen(PSRC,"r")) == NULL)
+X	{
+X		perror(PSRC);
+X		exit(1);
+X	}
+X
+X	if((fpdat = fopen(PDAT,"w")) == NULL)
+X	{
+X		perror(PDAT);
+X		exit(1);
+X	}
+X
+X	fwrite((char *)start_pos,sizeof(long),	/* write null table */
+X			TOKEN_QUAN,fpdat);
+X
+X	while(fgets(buf,sizeof(buf),fpsrc) != NULL)
+X	{
+X		src_line++;
+X		itmp = strlen(buf);
+X		buf[--itmp] = 0;		/* kill trailing nl */
+X		if(buf[0] == '#')		/* ignore comments */
+X			continue;
+X		if(buf[0] == '%')		/* command indication */
+X		{
+XSEARCH_CMD_LIST:
+X			if(!(this = search_cmd_list(&buf[1])))
+X			{
+X#ifdef notdef	/* primarily because of 'eto' and 'fasi' */
+X				printf("line %d: '%s' not in command table\n",
+X						src_line,&buf[1]);
+X#endif
+X				while(fgets(buf,sizeof(buf),fpsrc) != NULL)
+X				{
+X					src_line++;
+X					itmp = strlen(buf);
+X					buf[--itmp] = 0;					/* kill trailing nl */
+X					if(buf[0] == '%')		/* command indication */
+X						goto SEARCH_CMD_LIST;
+X				}
+X				break;
+X			}
+X			if(start_pos[this->token])
+X			{
+X				printf("line %d: '%s' already found on line %d\n",
+X						src_line,&buf[1],token_line[this->token]);
+X				exit(1);
+X			}
+X			fputs("\n",fpdat);	/* terminate previous command description */
+X			start_pos[this->token] = ftell(fpdat);
+X			token_line[this->token] = src_line;
+X			fputs("   ",fpdat);
+X			cptr = &buf[1];	/* command text */
+X			itmp = 0;
+X			this->proc = (PFI)1;	/* indicate we save command info */
+X			while(*cptr)		/* show cmd and min chars required */
+X			{
+X				if(itmp < this->min_ch)
+X					fputc(to_upper(*cptr++),fpdat);
+X				else
+X					fputc(to_lower(*cptr++),fpdat);
+X				itmp++;
+X			}
+X			if(*this->descr)		/* if description present */
+X				fprintf(fpdat," : %s\n \n",this->descr);
+X			else
+X				fputs("\n \n",fpdat);
+X			continue;
+X		}
+X		fprintf(fpdat," %s\n",buf);
+X	}
+X
+X	fseek(fpdat,0L,0);	/* back to position table */
+X	fwrite((char *)start_pos,sizeof(long),	/* write actual table */
+X		TOKEN_QUAN,fpdat);
+X	fclose(fpsrc);
+X	fputs("\n",fpdat);	/* terminate last command */
+X	fclose(fpdat);
+X
+X/* say which commands weren't in the help source */
+X	this = icmd_cmds;
+X	while(this->token != -1)
+X	{
+X		if(this->min_ch && !this->proc)
+X			fprintf(stderr,"'%s' not in help source\n",this->cmd);
+X		this++;
+X	}
+X
+X
+X}	/* end of build_ecuhelp */
+X
+X/*+-------------------------------------------------------------------------
+X	build_ecudoc()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xbuild_ecudoc()
+X{
+Xregister int itmp;
+X
+X	printf("\nBuilding %s\n",PDOC);
+X	if((fpdat = fopen(PDAT,"r")) == NULL)
+X	{
+X		perror(PDAT);
+X		exit(1);
+X	}
+X	if((fpdoc = fopen(PDOC,"w")) == NULL)
+X	{
+X		perror(PDOC);
+X		exit(1);
+X	}
+X	fprintf(fpdoc,
+X		"\n     ECU  Command  Help  Documentation  (PRELIMINARY)\n\n");
+X	fprintf(fpdoc,
+X		"Commands are accessed by pressing the HOME key followed by one\n");
+X	fprintf(fpdoc,
+X		"of the following commands (capitalized portions are sufficient\n");
+X	fprintf(fpdoc,
+X		"to invoke the command):\n");
+X	fprintf(fpdoc,"\n");
+X	fprintf(fpdoc,
+X"---------------------------------------------------------------------\n");
+X	fread((char *)start_pos,sizeof(long),TOKEN_QUAN,fpdat);
+X	pcmd = icmd_cmds;
+X	while(pcmd->token != -1)
+X	{
+X		if(!pcmd->token)
+X		{
+X			pcmd++;
+X			continue;
+X		}
+X		if(pcmd->min_ch && !start_pos[pcmd->token])
+X		{
+X			printf("no help available for '%s'\n",pcmd->cmd);
+X			pcmd++;
+X			continue;
+X		}
+X		fseek(fpdat,start_pos[pcmd->token],0);
+X		while(fgets(buf,sizeof(buf),fpdat) != NULL)
+X		{
+X			itmp = strlen(buf);
+X			buf[--itmp] = 0;
+X			if(itmp == 0)
+X				break;
+X			fprintf(fpdoc,"%s\n",buf);
+X		}
+X		fprintf(fpdoc,
+X"---------------------------------------------------------------------\n");
+X		pcmd++;
+X	}
+X	fclose(fpdat);
+X	fclose(fpdoc);
+X}	/* end of build_ecudoc */
+X
+X/*+-------------------------------------------------------------------------
+X	test_help()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtest_help()
+X{
+Xregister int itmp;
+X
+X/* test code */
+X	printf("\nNow to test\n");
+X	if((fpdat = fopen(PDAT,"r")) == NULL)
+X	{
+X		perror(PDAT);
+X		exit(1);
+X	}
+X	fread((char *)start_pos,sizeof(long),TOKEN_QUAN,fpdat);
+X	while(1)
+X	{
+X		printf("\ncommand: ");
+X		fgets(buf,sizeof(buf),stdin);
+X		itmp = strlen(buf);
+X		buf[--itmp] = 0;
+X		if(itmp == 0)
+X			break;
+X		if(!(pcmd = search_cmd_list(buf)))
+X		{
+X			printf("'%s' not found in ecu cmd table\n",buf);
+X			continue;
+X		}
+X		if(pcmd->min_ch && !start_pos[pcmd->token])
+X		{
+X			printf("no help available for '%s'\n",buf);
+X			continue;
+X		}
+X		fseek(fpdat,start_pos[pcmd->token],0);
+X		while(fgets(buf,sizeof(buf),fpdat) != NULL)
+X		{
+X			itmp = strlen(buf);
+X			buf[--itmp] = 0;
+X			if(itmp == 0)
+X				break;
+X			printf("%s\n",buf);
+X		}
+X	}
+X}	/* end of test_help */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv,envp)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv,envp)
+Xint argc;
+Xchar **argv;
+Xchar **envp;
+X{
+Xregister int itmp;
+Xint iargv;
+Xint b_flag = 0;
+Xint s_flag = 0;
+Xint t_flag = 0;
+Xint f_flag = 0;
+Xint d_flag = 0;
+X
+X	setbuf(stdout,NULL);
+X	setbuf(stderr,NULL);
+X
+X	if(argc < 1)
+X		usage();
+X	for(iargv = 1; iargv < argc; iargv++)
+X	{
+X		if(argv[iargv][0] == '-')
+X		{
+X			switch(itmp = (argv[iargv][1]))
+X			{
+X				case 'b': b_flag = 1; break;
+X				case 's': s_flag = 1; break;
+X				case 't': t_flag = 1; break;
+X				case 'd': d_flag = 1; break;
+X				default:
+X					usage();
+X					break;
+X			}
+X		}
+X		else
+X			usage();
+X	}
+X	if(!b_flag && !s_flag && !t_flag && !d_flag && !f_flag)
+X		usage();
+X
+X	if(b_flag)
+X		build_ecuhelp();
+X	if(d_flag)
+X		build_ecudoc();
+X	if(s_flag)
+X		show_cmds();
+X	if(t_flag)
+X		test_help();
+X
+X	exit(0);
+X}	/* end of main */
+X/* end of helpgen.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 help/helpgen.c ||
+echo 'restore of help/helpgen.c failed'
+Wc_c="`wc -c < 'help/helpgen.c'`"
+test 10101 -eq "$Wc_c" ||
+	echo 'help/helpgen.c: original size 10101, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= help/util.c ==============
+if test -f 'help/util.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping help/util.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting help/util.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'help/util.c' &&
+X/*+-------------------------------------------------------------------------
+X	util.c
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X/*+-------------------------------------------------------------------------
+X	all touuper/tolower not created equally, so this works!
+X--------------------------------------------------------------------------*/
+Xchar to_upper(ch)
+Xregister int    ch;
+X{ return( ((ch >= 'a') && (ch <= 'z')) ? ch - 0x20 : ch);
+X}   /* end of to_upper() */
+X
+Xchar to_lower(ch)
+Xregister int ch;
+X{ return( ((ch >= 'A') && (ch <= 'Z')) ? ch + 0x20 : ch);
+X}   /* end of to_lower() */
+X
+X
+X/*+-----------------------------------------------------------------------
+X	pad_zstr_to_len(zstr,len)
+X
+X  pads with spaces to specified length, unless already longer than
+X  len in which case the string is truncated to 'len' characters.
+X------------------------------------------------------------------------*/
+Xvoid
+Xpad_zstr_to_len(zstr,len)
+Xchar	*zstr;
+Xint		len;
+X{
+Xregister int	izstr;
+X
+X	izstr = strlen(zstr);
+X	if(izstr >= len)
+X		zstr[len] = 0;
+X	else
+X	{
+X		while(izstr < len)
+X			zstr[izstr++] = 0x20;
+X		zstr[izstr] = 0;
+X	}
+X}	/* end of pad_zstr_to_len */
+X
+SHAR_EOF
+chmod 0644 help/util.c ||
+echo 'restore of help/util.c failed'
+Wc_c="`wc -c < 'help/util.c'`"
+test 1432 -eq "$Wc_c" ||
+	echo 'help/util.c: original size 1432, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= help/ecuhelp.src ==============
+if test -f 'help/ecuhelp.src' -a X"$1" != X"-c"; then
+	echo 'x - skipping help/ecuhelp.src (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting help/ecuhelp.src (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'help/ecuhelp.src' &&
+X# ecu help source file
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X#:04-19-1992-20:41-wht@n4hgf-upgrade kbdtest entry
+X#:04-28-1991-04:45-wht@n4hgf-add eto and nice
+X#:11-03-1989-16:21-wht------ unet2 -----
+X#:06-17-1988-11:10-wht-add 'exit' command
+X#:06-13-1988-15:38-wht-creation
+X#--------------------------------------------------------------------
+X%ax
+XUsage: ax [<param>]
+X
+X<param> may be a single ASCII character, a standard ASCII identifier
+X(such as ETX), or a two-character control character identifier (such as
+X^C, typed as a caret followed by a C).
+X
+XIf no parameter is supplied, a table of control characters is printed
+Xcontaining decimal, octal, hex, ASCII identifiers and two-character
+Xcontrol character identifier.
+X#--------------------------------------------------------------------
+X%xa
+XUsage: xa [<hex-val>]
+X
+X<hex-val> is a hexadecimal value between 0 and FF; the parity (sign) bit
+Xis stripped and the equivalent ASCII character value is displayed.
+X
+XIf no parameter is supplied, a table of control characters is printed
+Xcontaining decimal, octal, hex, ASCII identifiers and two-character
+Xcontrol character identifier.
+X#--------------------------------------------------------------------
+X%oa
+XUsage: oa [<octal-val>]
+X
+X<octal-val> is a octal value between 0 and 0377; the parity (sign) bit
+Xis stripped and the equivalent ASCII character value is displayed.
+X
+XIf no parameter is supplied, a table of control characters is printed
+Xcontaining decimal, octal, hex, ASCII identifiers and two-character
+Xcontrol character identifier.
+X#--------------------------------------------------------------------
+X%da
+XUsage: da [<decimal-val>]
+X
+X<decimal-val> is a decimal value between 0 and 0377; the parity (sign)
+Xbit is stripped and the equivalent ASCII character value is displayed.
+X
+XIf no parameter is supplied, a table of control characters is printed
+Xcontaining decimal, octal, hex, ASCII identifiers and two-character
+Xcontrol character identifier.
+X#--------------------------------------------------------------------
+X%autorz
+XUsage: autorz [off | on | ]
+X
+XECU in the interactive mode (no procedure executing) can interpret a
+XSUB, 'B', '0', '0' receive data sequence as a ZMODEM ZRQINIT frame and
+Xautomatically begin a ZMODEM receive operation.  This command controls
+Xor displays this feature.  By default, this feature is turned on.
+X#--------------------------------------------------------------------
+X%baud
+XUsage: baud [<baud-rate>]
+X
+X<baud-rate>, if specified, must be taken from the values 110, 300, 600,
+X1200, 2400, 4800, 9600, 19200 and 38400.  On some systems, 19200 and
+X38400 may not be supported.  If a baud rate less than 300 is selected, 2
+Xstop bits are automatically specified; other baud rates set 1 stop bit.
+XIf <baud-rate> is not supplied, the current baud rate is displayed.
+X
+XThe setting may be automatically changed as the result of a 'dial'
+Xcommand.  See also the 'dial' and 'parity' command descriptions.
+X#--------------------------------------------------------------------
+X%bn
+XUsage: bn [ off | on | alert ]
+X       bn [ 0 | 1 | 2 ]
+X
+X"bell notify": If no parameter is supplied, the current setting is
+Xdisplayed.  Specifying 0 or off disables the facility; 1 or on causes
+Xan audible alarm to be sounded upon receipt of a bell (0x07)
+Xcharacter from the remote system; 2 or alert causes an audible alarm
+Xupon receipt of ANY characters.  This command may not be functional
+Xin the version for your system.
+X#--------------------------------------------------------------------
+X%break
+XUsage: break
+X
+XThis command sends a break signal to the remote system.
+X#--------------------------------------------------------------------
+X%cd
+XUsage: cd [<dir-path>]
+X
+XThis command allows you to change the working directory of the ecu
+Xprocess.  If <dir-path> is supplied, the previous working directory is
+Xdisplayed, and <dir-path> is made the new working directory.  A history
+Xof previous directory changes is maintained.  Entering the 'cd' command
+Xshows the numbered history list and allows you to select a new directory
+Xby entering the number.  Other commands allow deletion of directories
+Xfrom the list or saving the list to file ~/.ecu/dir.  This file is
+Xautomatically read at ecu startup, providing a convenient list of
+Xdirectories available for quick selection.
+X#--------------------------------------------------------------------
+X%dcdwatch
+XUsage: dcdwatch [<dcdwatch-param>]
+X
+XThis command controls the DCD watcher.  The optional parameter may be:
+X   y  yes - enable DCD watcher
+X   n  no - disable DCD watcher
+X   t  terminate - terminate ECU on loss of DCD
+XEntering the command without an argument shows the current status.
+X
+XThe DCD watcher when enabled causes ECU to monitor the DCD line (within
+Xthe limits imposed by the OS with its CLOCAL=0 functionality).  When the
+Xwatcher is on and DCD drops, ecu automatically performs the action of
+Xthe interactive or procedure hangup command.  If the 't'erminate option
+Xis chosen, then after hangup processing is complete, the ECU program
+Xwill terminate.
+X
+XThe state of the watcher may be changed by the use of the dial command
+Xwhich uses a directory entry that changes the DCD watcher status.  See
+Xthe manual sections on the interactive commands 'dcdwatch' and 'dial'.
+X#--------------------------------------------------------------------
+X%dial
+XUsage: dial [<dial-param>]
+X
+X<dial-param> may take one of two forms, a telephone number to dial or a
+Xlogical name which can be found in the user phone directory (in file
+X~/.ecu/phone).
+X
+XIf a telephone number is supplied, the phone number is dialed; you must
+Xfirst have set the desired baud rate and parity using the 'baud' and
+X'parity' commands.  If a logical name is entered, the phone directory is
+Xsearched; if the entry is found, the baud rate and parity is
+Xautomatically set and the number dialed.
+X
+XIf <dial-param> is not supplied, then a screen-oriented self-documenting
+Xdirectory manager is executed; you may scan the the directory to select
+Xa number to dial, as well as add, remove and edit entries.  See also
+X'baud' and 'parity'.
+X#--------------------------------------------------------------------
+X%do
+XUsage: do <procname> [<arg> ... ]
+X
+XPerform ecu procedure.  Ecu searches for <procname>.ep in the current
+Xdirectory.  If the file is not found, the program looks for the file in
+Xthe ~/.ecu directory.  One or more arguments may be passed to the
+Xprocedure.
+X#--------------------------------------------------------------------
+X%duplex
+XUsage: duplex [ Full | Half ]
+X
+XThis command specifies whether or not ecu is to locally echo characters
+Xtyped by you at the keyboard.  The overwhelming majority of remote
+Xsystems provide the echo function, in which case full duplex must be
+Xused.  For the rare occasions when the remote system does not echo your
+Xkeyboard input, setting half duplex will allow you to see what you are
+Xtyping.
+X
+XWhen communicating with another terminal in a "teletype conver- sation",
+Xsetting half duplex is generally required.  In such cases, use of the
+X'nl', 'nlin' and 'nlout' commands may also be required.
+X
+XThe default setting for duplex is full.
+X#--------------------------------------------------------------------
+X#%esc
+X#Usage esc <hex-constant>
+X#"command escape ": This command is used only on non-XENIX systems.
+X#It specifies the equivalent character for the HOME key used
+X#by XENIX versions of ecu to enter the commands being described
+X#by this help function.  The default setting for this command escape
+X#s '%'.  To change the value, you must enter the hexadecimal value
+X#of the desired character; it must be in the range 01 through 7F.
+X#You may use the 'ax' command to aid in converting an ASCII
+X#character to the appropriate hexadecimal value.
+X#--------------------------------------------------------------------
+X%fasi
+XUsage: fasi [reset]
+X
+XThis command displays or resets the FAS/i tty driver statistics.
+XThe command is found only in versions compiled for FAS/i support.
+X#--------------------------------------------------------------------
+X%fi
+XUsage: fi [<filename>]
+X
+X"file insert": This command causes file characters to be inserted into
+Xthe transmit data stream as though they had been entered at the
+Xkeyboard.  If <filename> is not entered on the command line, a prompt
+Xfor the filename is made.  Once the filename has been entered and file
+Xhas been opened, you are asked whether the file should be transmitted at
+Xfull speed, by "echo pacing" or by a single line at a time.  You may
+Xalso append an 'f', 'e' or 's' argument to the command line.  If your
+Xremote can tolerate it, full speed transmission is the fastest.
+XPressing the interrupt key (DEL) stops a full speed transmission.  By
+Xspecifying echo pacing, it is possible to increase the likelihood of
+Xproper receipt.  Pressing the interrupt key (DEL) stops an echo paced
+Xtransmission.  As a last resort, if echo pacing is not working for you,
+X(i.e., you are using the command in an environment where the remote does
+Xnot echo your characters), use single line at a time transmission.  You
+Xmust press the space key to initiate sending each line.  Pressing 'ESC'
+Xor 's' stops the transfer.
+X#--------------------------------------------------------------------
+X%fkey
+XUsage: fkey [<keyset_name>]
+X
+XThis command allows the mapping of function keys F1-F12, PgUp, PgDn, End
+Xand Ins and the cursor up, down, left and right keys to emit a desired
+Xsequence of characters when a function key is pressed.  <keyset_name>
+Xspecifies which key set in ~/.ecu/keys is to be selected: Sample entry
+Xin ~/.ecu/keys:
+X
+Xhayes
+X	F1:escape:+ + +
+X	F2:autoans:A T S 0 = 1 cr
+X	F3:dial:A T D T
+Xbbs
+X	F1:cancel:^K
+X	F2:yes:y cr
+X
+XIf a keyset_name matches a logical dial directory name, it is loaded
+Xwhen the number is dialed.
+X#--------------------------------------------------------------------
+X%fkmap
+XUsage: fkmap                           display current mapping
+X       fkmap <keyname>                 display single key mapping
+X       fkmap <keyname> <keylist>       modify a key's mapping
+X       fkmap -r                        reset to original mapping
+X       fkmap -s <file>                 append current to file
+X
+XThis command manages the mechanism ECU uses to recognize function keys
+Xwhen they are entered at the console.  If supplied, the first argument to
+Xthe command must be the recognized name of a function key from the list:
+X
+XF1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 Home End PgUp PgDn CUP CUL CU5 CUR CUD
+X
+XIf only one argument is supplied, the mapping for the specified key is
+Xdisplayed.  If more than one argument is supplied, the keyboard mapping is
+Xchanged.  Arguments 2-n are character code specifiers in the format used
+Xto define a funckeymap entry.
+X
+XWARNING: If found to be syntactically correct, a mapping change is
+Xinstalled immediately.  If incorrect mapping of the HOME key is requested,
+Xyou may lose control of ECU.
+X#--------------------------------------------------------------------
+X%hangup
+XUsage: hangup
+X
+XThis causes DTR to be momentarily interrupted, terminating any
+Xoutstanding connection.  Your DCE (modem) must be able to drop carrier
+Xupon loss of DTR.
+X#--------------------------------------------------------------------
+X%help
+XUsage: help [<cmd-name>]
+X
+XIssuing this command with no argument displays a list of commands
+Xfollowed by a request for a command for further information.
+X#--------------------------------------------------------------------
+X%kbdtest
+XUsage: kbdtest
+X
+XThis command runs a keyboard test which asks you to press function keys
+X(e.g., F1).  For each key pressed, ECU gives you the actual character
+Xsequence generated by the key.  It also tells you which function key it
+Xrecognizes (if any).  mapping of keyboard generated character sequences
+Xto ECU internal key codes.  The command is useful for verifying and
+Xdebugging a "funckeymap" entry.  To exit the test at any time, press the
+Xescape key.
+X#--------------------------------------------------------------------
+X%llp
+XUsage: llp
+X
+XThis command is a shorthand version of 'log /dev/lp'.
+X/dev/lp must not be under the control of a print spooler.
+X#--------------------------------------------------------------------
+X%loff
+XUsage: loff
+X
+XThis command is shorthand for 'log off'.  If session logging
+Xis active, it is turned off.
+X#--------------------------------------------------------------------
+X%log
+XUsage: log [-s] [-r] [ | off | filename ]
+X       -s "scratch" previous file contents; otherwise append
+X       -r "raw" logging; otherwise non-printable characters
+X          other than tab and newline are omitted from the log
+X
+XThis command controls session logging; issuing the command with no
+Xargument causes the status of session logging to be displayed.  The
+Xspecial argument 'off' causes active logging to be terminated.  Other
+Xargument values cause logging to start using the argument as a filename.
+XIssuing a 'log filename' command when logging is already active causes
+Xthe previous file to be closed and the new file to be opened.  Switches
+Xare meaningful only when used in conjunction with a filename to start
+Xlogging.
+X#--------------------------------------------------------------------
+X%memstat
+XUsage: memstat
+X
+XExperimental malloc display.  -lmalloc bug may report erroneous data.
+X#--------------------------------------------------------------------
+X%nl
+XUsage: nl
+X
+XDisplay the current setting of CR/LF mapping.  For more information,
+Xrefer to the 'nlin' and 'nlout' command descriptions.
+X#--------------------------------------------------------------------
+X%nlin
+XUsage: nlin [<y-n>]
+X
+XThis command controls whether or not a newline (NL/LF) character is sent
+Xto the screen upon receipt of a carriage return (CR) from the remote
+Xsystem.  Most remote computers supply a NL after CR.  When communicating
+Xwith another terminal in a "teletype conversation", this is generally
+Xnot the case (see also the 'duplex' command).
+X
+XIssuing the command without <y-n> causes the current setting to be
+Xdisplayed.  The format of <y-n> is flexible: 'y' or '1' enables
+Xappending NL to CR, 'n' or '0' causes the feature to be disabled.
+X#--------------------------------------------------------------------
+X%nlout
+XUsage: nlout [<y-n>]
+X
+XThis command controls whether or not a newline (NL/LF) character is sent
+Xto the remote system upon transmission of a carriage return (CR) entered
+Xby the keyboard.  Most remote computers do not require (indeed
+X"dislike") a NL after CR.  When communicating with another terminal in a
+X"teletype conversation", this is generally not the case (see also the
+X'duplex' command).
+X
+XIssuing the command without <y-n> causes the current setting to be
+Xdisplayed.  The format of <y-n> is flexible: 'y' or '1' enables
+Xappending NL to CR, 'n' or '0' causes the feature to be disabled.
+X#--------------------------------------------------------------------
+X%parity
+XUsage: parity [ None | Even | Odd ]
+X
+XThis command controls the parity of characters transmitted by the
+Xkeyboard.  Issuing the command with no parameter displays the current
+Xsetting.  When the parameter is supplied, only the first character is
+Xrequired.  Even or odd parity implies seven data bits; no parity implies
+Xeight data bits.  Parity of incoming characters is not checked.
+X
+XThe setting may be automatically changed as the result of a 'dial'
+Xcommand.  See also the 'baud' and 'dial' command descriptions.
+X#--------------------------------------------------------------------
+X%pid
+XUsage: pid
+X
+XThis command displays the process id of the ecu transmitter process, the
+Xecu receiver process and the process ids of ecu's parent and group.
+X#--------------------------------------------------------------------
+X%ptrace
+XUsage: ptrace [ 0 | 1 | on | off]
+X
+XThis command controls whether or not procedure execution is to be
+Xtraced.
+X#--------------------------------------------------------------------
+X%pwd
+XUsage: pwd
+X
+XThis command prints the current working directory of the ecu process.
+X#--------------------------------------------------------------------
+X%rk
+XUsage: rk
+X
+XThis command searches the PATH list for 'ckermit' (Columbia University
+XC-Kermit) and invokes it to receive files.  See the ecu documentation
+Xfor modifications necessary to ckermit for ecu operation.  The file
+X~/.kermrc must be set up to have any desired initialization parameters
+Xyou desire.  Refer to C-Kermit documentation for more information.
+X#--------------------------------------------------------------------
+X%rs
+XUsage: rs
+X
+XThis command invokes a SEAlink receive protocol.
+X#--------------------------------------------------------------------
+X%redial
+XUsage: redial [<retry-count> [<pause-interval>]]
+X
+XThis command redials a number previously dialed with the 'dial' command.
+XModem status is tested and multiple retries may be made.  <retry-count>
+Xspecifies how many retries are to be made.  <pause-interval> specifies
+Xhow many seconds the program pauses after a failure to connect.  You
+Xmust specify <retry-count> in order to specify <pause-interval>.  The
+Xdefault value for <retry-count> is 10, for <pause-interval> is 60.
+X
+XYou should know that in some jurisdictions, it is ILLEGAL to dial the
+Xsame telephone number more than a specified number of times during some
+Xinterval of time.  In any case, specifying <pause-interval> less than 15
+Xseconds is silently changed to 15 seconds.
+X#--------------------------------------------------------------------
+X%rev
+XUsage: rev
+X
+XThis command displays ecu's revision, the transmitter process id and the
+Xdate and time ecu was made.
+X#--------------------------------------------------------------------
+X%rx
+XUsage: rx
+X
+XThis command invokes a modified version of Chuck Forsberg's rz program
+X(version 1.31) to receive files from the remote system using XMODEM/CRC.
+X
+XAfter entering the command, you are prompted as to whether or not file
+XCR/LF characters are to be converted to newlines.  If you are
+Xtransferring text files from a system which contain CR/LF line
+Xterminators, you must answer yes to this question.  You should answer no
+Xwhen transferring binary files, such as executables, .arc files and the
+Xlike.  File transfer progress is presented on a visual display.  To
+Xabort the transfer, press your interrupt key (usually DEL unless reset
+Xwith stty(C)).
+X#--------------------------------------------------------------------
+X%ry
+XUsage: ry
+X
+XThis command invokes a modified version of Chuck Forsberg's rz program
+X(version 1.31) to receive files from the remote system using YMODEM
+Xbatch with CRC-16 error correction.  The YMODEM is "true YMODEM", not
+XXMODEM-1k.  File transfer progress is presented on a visual display.  To
+Xabort the transfer, press your interrupt key (usually DEL unless reset
+Xwith stty(C)).
+X#--------------------------------------------------------------------
+X%rz
+XUsage: rz
+X
+XThis command invokes a modified version of Chuck Forsberg's rz program
+X(version 1.44) to receive files from the remote system using
+XZMODEM/CRC32.  File transfer progress is presented on a visual display.
+XTo abort the transfer, press your interrupt key (usually DEL unless
+Xreset with stty(C)).
+X#--------------------------------------------------------------------
+X%sk
+XUsage: sk [<file-list>]
+X
+XThis command searches the PATH list for 'ckermit' (Columbia University
+XC-Kermit) and invokes it to send files.  The file ~/.kermrc must be set
+Xup to have any desired initialization paraeters you desire.  See the ecu
+Xdocumentation for modifications necessary to ckermit for ecu operation.
+X
+XAfter entering the command, you are prompted as to whether or not file
+Xnewline characters are to be converted to CR/LF.  If you are
+Xtransferring text files to a system which requires CR/LF line
+Xterminators, you must answer yes to this question.  You should answer no
+Xwhen transferring binary files, such as executables, .arc files and the
+Xlike.  You are prompted to enter a list of files to send, which may
+Xcontain one or more wildcard specifications.
+X
+XThe file ~/.kermrc must be set up to have any desired initialization
+Xparameters you desire.  Refer to C-Kermit documentation for more
+Xinformation.
+X#--------------------------------------------------------------------
+X%ss
+XUsage: ss [<file-list>]
+X
+XThis command invokes a SEAlink file transmission protocol.
+X#--------------------------------------------------------------------
+X%stat
+XUsage: stat
+X
+XThis command displays statistics about ecu usage.
+X
+XExample display when not connected to a remote system:
+XDate/time: 06-14-1988 11:40:35 (UTC 15:40)
+XTotal chars transmitted: 178
+XTotal chars received:    3681
+X
+XDate/time: 06-14-1988 14:41:24 (UTC 18:41)
+XConnected to CompuHost (555-1234) at 14:40:57
+XParameters: 2400-N-1 Connect time: 00:01:27
+XTotal chars transmitted: 234 (since CONNECT 142)
+XTotal chars received:    2278 (since CONNECT 1478)
+X#--------------------------------------------------------------------
+X%sx
+XUsage: sx [<file-name>]
+X
+XThis command invokes a modified version of Chuck Forsberg's sz program
+X(version 1.44) to send a file to the remote system using XMODEM/CRC.
+X
+XAfter entering the command, you are prompted as to whether or not file
+XCR/LF characters are to be converted to newlines.  If you are
+Xtransferring text files from a system which contain CR/LF line termi-
+Xnators, you must answer yes to this question.  You should answer no when
+Xtransferring binary files, such as executables, .arc files and the like.
+X
+XYou are prompted to enter a filename to send.  File transfer progress is
+Xpresented on a visual display.  To abort the transfer, press your
+Xinterrupt key (usually DEL unless reset with stty(C)).
+X#--------------------------------------------------------------------
+X%sy
+XUsage: sy [<file-list>]
+X
+XThis command invokes a modified version of Chuck Forsberg's sz program
+X(version 1.44) to send file(s) to the remote system using YMODEM/CRC.
+X
+XYou are prompted to enter filename(s) to send, which may consist of one
+Xor more wildcard specifications.  File transfer progress is presented on
+Xa visual display.  To abort the transfer, press your interrupt key
+X(usually DEL unless reset with stty(C)).
+X#--------------------------------------------------------------------
+X%sz
+XUsage: sz [<file-list>]
+X
+XThis command invokes a modified version of Chuck Forsberg's sz program
+X(version 1.44) to send file(s) to the remote system using ZMODEM/CRC32.
+X
+XYou are prompted to enter filename(s) to send, which may consist of one
+Xor more wildcard specifications.  File transfer progress is presented on
+Xa visual display.  To abort the transfer, press your interrupt key
+X(usually DEL unless reset with stty(C)).
+X
+XNote: if you specify sending only newer files and the remote receiver
+Xdoes not support the feature, it may skip (reject) all your files.
+XRetry the transfer specifying 'N' to 'Transfer only newer files'.
+X#--------------------------------------------------------------------
+X%time
+XUsage: time
+X
+XThis command displays the local date and time as well as the current UTC.
+X#--------------------------------------------------------------------
+X%tty
+XUsage: tty
+X
+XThis command displays the current console tty name.
+X#--------------------------------------------------------------------
+X%exit
+XUsage: exit
+X
+XThis command terminates ecu promptly.  If your modem does not drop
+Xcarrier upon loss of Data Terminal Ready (DTR), you must use the
+X'hangup' command prior to issuing the 'exit' command.  It is strongly
+Xrecommended that you configure your modem to hang up the phone line when
+XDTR drops.  A shorthand version of this command exists: '.' is
+Xequivalent to 'exit'.
+X#--------------------------------------------------------------------
+X%xon
+XUsage: xon [<arg>]
+Xwhere <arg> is on    input and output flow control
+X               off   no flow control
+X               in    input flow control
+X               out   output flow control
+X
+XThis command enables or disables xon/xoff flow control.  If the
+Xargument is omitted, the current flow control state is displayed.
+X#--------------------------------------------------------------------
+X%!
+XUsage: !
+X       !<command>
+X
+XThe '!' command is a shell escape.  The environment variable SHELL is
+Xread to determine what shell program to execute (e.g., /bin/sh, etc).
+XIf '!' is entered by itself, an interactive shell is started; press ^D
+Xto exit back to ecu.  If <command> is supplied, it is executed by the
+Xshell with an immediate return to ecu.
+X
+XSimilarly,
+X  '$' causes the communications line to be stdin and stdout
+X      for the spawned shell
+X  '-' is similar to '>', except the command is executed directly
+X      without going through a shell.
+X#--------------------------------------------------------------------
+X%$
+XUsage: $
+X       $<command>
+X
+XThe '$' command is a shell escape causing the communications line to be
+Xthe stand input and output.  The environment variable SHELL is read to
+Xdetermine what shell program to execute (e.g., /bin/sh, etc).  If '$' is
+Xentered by itself, an interactive shell is started; a ^D received from
+Xthe communications line causes the shell to terminate and control to be
+Xpassed back to ecu.  If <command> is supplied, it is executed by the
+Xshell with an immediate return to ecu.
+X#--------------------------------------------------------------------
+X%-
+XUsage: -<command>
+X
+XThe '-' command causes <command> to be executed directly without
+Xpassing through a shell (no wildcard expansion or other shell
+Xprocessing occurs).  Standard input, output and error all are
+Xopened to the console.  In addition, all other files (including
+Xthe communications line) opened by ecu remain open.
+X#--------------------------------------------------------------------
+X%?
+XUsage: ?
+X
+XThis is an alias for the help command.
+X#--------------------------------------------------------------------
+X%clrx
+XUsage: clrx
+X
+XThe 'clrx' command simulates receipt of an XON by ECU.  It is useful
+Xin the rare circumstances that an XOFF is received by ECU from a 
+Xremote system and no later XON is received.
+X#--------------------------------------------------------------------
+X%pcmd
+XUsage: pcmd <procedure command>
+X
+XThe 'pcmd' command allows a procedure command to be issued from the
+Xinteractive command prompt.  It is primarily intended for debugging
+Xprocedure commands, but it is available for any use.
+X#--------------------------------------------------------------------
+X%plog
+XUsage: plog [<filename> | off | ]
+X
+XThe 'plog' command turns on or off procedure logging.  If the
+Xargument to the command is 'off', logging is turned off, otherwise
+Xlogging is started on the specified file.  If no argument is specified,
+Xthe status of procedure logging is displayed.
+X#--------------------------------------------------------------------
+X%rtscts
+Xusage: rtscts [ off | on | no | yes | 0..7 ]
+X
+XThis command turns on or off the driver RTS and CTS flow control if
+Xsupport is provided by the OS. This is a complex subject
+Xand you should refer to the manual and the UNIX oral/net
+Xtradition if you are confused.
+X
+XFor SCO:
+Xargument | RTSFLOW | CTSFLOW   argument | RTSFLOW | CTSFLOW | CRTSFL
+X---------+---------+---------  ---------+---------+---------+--------
+X  off    |   0     |   0         0      |   0     |   0     |
+X  on     |   0     |   1         1      |   0     |   1     |
+X  no     |   0     |   0         2      |   1     |   0     |
+X  yes    |   0     |   1         3      |   1     |   1     |
+X                                 4      |   0     |   0     |   1
+X
+XChoice 4 only works on SCO 3.2v4 and ODT 2.0.  As you can see, numeric
+Xvalues are masks.  If the 4 bit is present in the numeric value, it
+Xoverrides the lower-order bits: Specifying 7 as an argument specifies
+XCRTSFL is to be used if it is supported, otherwise RTSFLOW and CTSFLOW.
+SHAR_EOF
+true || echo 'restore of help/ecuhelp.src failed'
+fi
+echo 'End of ecu320 part 22'
+echo 'File help/ecuhelp.src is continued in part 23'
+echo 23 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

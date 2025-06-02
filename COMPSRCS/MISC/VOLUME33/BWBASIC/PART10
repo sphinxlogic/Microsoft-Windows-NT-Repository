@@ -1,0 +1,1915 @@
+Newsgroups: comp.sources.misc
+From: tcamp@acpub.duke.edu (Ted A. Campbell)
+Subject:  v33i046:  bwbasic - Bywater BASIC interpreter version 1.10, Part10/11
+Message-ID: <1992Nov5.041024.20880@sparky.imd.sterling.com>
+X-Md4-Signature: 1108c20fb309f84bbb936de803581217
+Date: Thu, 5 Nov 1992 04:10:24 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tcamp@acpub.duke.edu (Ted A. Campbell)
+Posting-number: Volume 33, Issue 46
+Archive-name: bwbasic/part10
+Environment: ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwb_mth.c bwbasic.h
+# Wrapped by kent@sparky on Wed Nov  4 21:34:29 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 11)."'
+if test -f 'bwb_mth.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwb_mth.c'\"
+else
+  echo shar: Extracting \"'bwb_mth.c'\" \(27902 characters\)
+  sed "s/^X//" >'bwb_mth.c' <<'END_OF_FILE'
+X/****************************************************************
+X
+X        bwb_mth.c       Mathematical Functions
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1992, Ted A. Campbell
+X
+X                        Bywater Software
+X                        P. O. Box 4023
+X                        Duke Station
+X                        Durham, NC  27706
+X
+X                        email: tcamp@acpub.duke.edu
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international copyrights are claimed by the
+X        author. The author grants permission to use this code
+X        and software based on it under the following conditions:
+X        (a) in general, the code and software based upon it may be
+X        used by individuals and by non-profit organizations; (b) it
+X        may also be utilized by governmental agencies in any country,
+X        with the exception of military agencies; (c) the code and/or
+X        software based upon it may not be sold for a profit without
+X        an explicit and specific permission from the author, except
+X        that a minimal fee may be charged for media on which it is
+X        copied, and for copying and handling; (d) the code must be
+X        distributed in the form in which it has been released by the
+X        author; and (e) the code and software based upon it may not
+X        be used for illegal activities.
+X
+X****************************************************************/
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <ctype.h>
+X#include <string.h>
+X#include <math.h>
+X#include <time.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+Xunion un_integer
+X   {
+X   int the_integer;
+X   unsigned char the_chars[ sizeof( int ) ];
+X   } an_integer;
+X
+Xunion un_single
+X   {
+X   float the_float;
+X   unsigned char the_chars[ sizeof( float) ];
+X   } a_float;
+X
+Xunion un_double
+X   {
+X   double the_double;
+X   unsigned char the_chars[ sizeof( double ) ];
+X   } a_double;
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_abs()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined ABS function, returning the
+X                        absolute value of the argument.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_abs( int argc, struct bwb_variable *argv  )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_abs(): entered function" );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      strncpy( nvar.name, "(abs var)", MAXVARNAMESIZE );
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in fnc_abs(): ready to make local variable <%s>",
+X         nvar.name );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X      var_make( &nvar, SINGLE );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_abs(): received f_arg <%f> nvar type <%c>",
+X      var_getdval( &( argv[ 0 ] ) ), nvar.type );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function ABS().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function ABS().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_abs(): nvar type <%c>; calling findval()",
+X      nvar.type );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   * var_findfval( &nvar, nvar.array_pos ) = 
+X      (float) fabs( var_getdval( &( argv[ 0 ] ) ) );
+X
+X   return &nvar;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_atn()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X
+X                        predefined ATN function, returning the
+X                        arctangent of the argument.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_atn( int argc, struct bwb_variable *argv  )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, DOUBLE );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_atn(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function ATN().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function ATN().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   * var_finddval( &nvar, nvar.array_pos ) 
+X      = atan( var_getdval( &( argv[ 0 ] ) ) );
+X
+X   return &nvar;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_cos()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined COS function, returning the
+X                        cosine of the argument.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_cos( int argc, struct bwb_variable *argv  )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, DOUBLE );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_cos(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function COS().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function COS().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   * var_finddval( &nvar, nvar.array_pos ) 
+X      = cos( var_getdval( &( argv[ 0 ] ) ) );
+X
+X   return &nvar;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_log()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined LOG function, returning the
+X                        natural logarithm of the argument.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_log( int argc, struct bwb_variable *argv  )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, DOUBLE );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_log(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function LOG().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function LOG().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   * var_finddval( &nvar, nvar.array_pos ) 
+X      = log( var_getdval( &( argv[ 0 ] ) ) );
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_sin()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined SIN function, returning
+X                        the sine of the argument.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_sin( int argc, struct bwb_variable *argv  )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, DOUBLE );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_sin(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function SIN().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function SIN().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   * var_finddval( &nvar, nvar.array_pos ) 
+X      = sin( var_getdval( &( argv[ 0 ] ) ) );
+X
+X   return &nvar;
+X
+X   }
+X
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_sqr()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined SQR function, returning
+X                        the square root of the argument.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_sqr( int argc, struct bwb_variable *argv  )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, DOUBLE );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_sqr(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function SQR().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function SQR().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   * var_finddval( &nvar, nvar.array_pos ) 
+X      = sqrt( var_getdval( &( argv[ 0 ] ) ) );
+X
+X   return &nvar;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_tan()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined TAN function, returning the
+X                        tangent of the argument.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_tan( int argc, struct bwb_variable *argv  )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, DOUBLE );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_tan(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function TAN().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function TAN().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   * var_finddval( &nvar, nvar.array_pos ) 
+X      = tan( var_getdval( &( argv[ 0 ] ) ) );
+X
+X   return &nvar;
+X
+X   }
+X
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_sgn()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined SGN function, returning 0
+X                        if the argument is 0, -1 if the argument
+X                        is less than 0, or 1 if the argument
+X                        is more than 0.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_sgn( int argc, struct bwb_variable *argv  )
+X   {
+X   static struct bwb_variable nvar;
+X   double dval;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, INTEGER );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_sgn(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function SGN().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function SGN().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   dval = var_getdval( &( argv[ 0 ] ));
+X
+X   if ( dval == 0.0 )
+X      {
+X      * var_findival( &nvar, nvar.array_pos ) = 0;
+X      }
+X   else if ( dval > 0.0 )
+X      {
+X      * var_findival( &nvar, nvar.array_pos ) = 1;
+X      }
+X   else
+X      {
+X      * var_findival( &nvar, nvar.array_pos ) = -1;
+X      }
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_int()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined INT function, returning an
+X                        less than or equal to the argument.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_int( int argc, struct bwb_variable *argv  )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, SINGLE );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_int(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function INT().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function INT().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   * var_findfval( &nvar, nvar.array_pos ) 
+X      = (float) floor( var_getdval( &( argv[ 0 ] ) ) );
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_mki()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined MKI$() function.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_mki( int argc, struct bwb_variable *argv  )
+X   {
+X   register int i;
+X   static struct bwb_variable nvar;
+X   bstring *b;
+X   static char tbuf[ sizeof( int ) ];
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, STRING );
+X      }
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function MKI$().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function MKI$().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   an_integer.the_integer = var_getival( &( argv[ 0 ] ) );
+X
+X   for ( i = 0; i < sizeof( int ); ++i )
+X      {
+X      tbuf[ i ] = an_integer.the_chars[ i ];
+X      }
+X   b = var_getsval( &nvar );
+X   b->length = sizeof( int );
+X   b->buffer = tbuf;
+X   b->rab = FALSE;   
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_mkd()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined MKD$() function.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_mkd( int argc, struct bwb_variable *argv  )
+X   {
+X   register int i;
+X   static struct bwb_variable nvar;
+X   bstring *b;
+X   char tbuf[ sizeof ( double ) ];
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, STRING );
+X      }
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function MKD$().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function MKD$().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   a_double.the_double = var_getdval( &( argv[ 0 ] ) );
+X
+X   for ( i = 0; i < sizeof ( double ); ++i )
+X      {
+X      tbuf[ i ] = a_double.the_chars[ i ];
+X      tbuf[ i + 1 ] = '\0';
+X      }
+X   b = var_getsval( &nvar );
+X   b->length = sizeof( double );
+X   b->buffer = tbuf;
+X   b->rab = FALSE;
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_mks()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined MKS$() function.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_mks( int argc, struct bwb_variable *argv  )
+X   {
+X   register int i;
+X   static struct bwb_variable nvar;
+X   static unsigned char tbuf[ 5 ];
+X   bstring *b;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, STRING );
+X      }
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function MKS$().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function MKS$().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   a_float.the_float = var_getfval( &( argv[ 0 ] ) );
+X
+X   for ( i = 0; i < sizeof( float ); ++i )
+X      {
+X      tbuf[ i ] = a_float.the_chars[ i ];
+X      }
+X   b = var_getsval( &nvar );
+X   b->length = sizeof( float );
+X   b->buffer = tbuf;
+X   b->rab = FALSE;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_mks(): string <%s> hex vals <%X><%X><%X><%X>",
+X      tbuf, tbuf[ 0 ], tbuf[ 1 ], tbuf[ 2 ], tbuf[ 3 ] );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_cvi()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined CVI() function.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_cvi( int argc, struct bwb_variable *argv  )
+X   {
+X   register int i;
+X   struct bwb_variable *v;
+X   bstring *b;
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, INTEGER );
+X      }
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function CVI().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function CVI().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   v = &( argv[ 0 ] );
+X   b = var_findsval( v, v->array_pos );
+X
+X   for ( i = 0; i < sizeof( int ); ++i )
+X      {
+X      an_integer.the_chars[ i ] = b->buffer[ i ];
+X      }
+X
+X   * var_findival( &nvar, nvar.array_pos ) = an_integer.the_integer;
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_cvd()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined CVD() function.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_cvd( int argc, struct bwb_variable *argv  )
+X   {
+X   register int i;
+X   struct bwb_variable *v;
+X   bstring *b;
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, DOUBLE );
+X      }
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function CVD().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function CVD().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   v = &( argv[ 0 ] );
+X   b = var_findsval( v, v->array_pos );
+X
+X   for ( i = 0; i < sizeof( double ); ++i )
+X      {
+X      a_double.the_chars[ i ] = b->buffer[ i ];
+X      }
+X
+X   * var_finddval( &nvar, nvar.array_pos ) = a_double.the_double;
+X
+X   return &nvar;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_cvs()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X                        predefined CVS() function.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_cvs( int argc, struct bwb_variable *argv  )
+X   {
+X   register int i;
+X   struct bwb_variable *v;
+X   bstring *b;
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, SINGLE );
+X      }
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function CVS().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function CVS().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   v = &( argv[ 0 ] );
+X   b = var_findsval( v, v->array_pos );
+X
+X   for ( i = 0; i < sizeof( float ); ++i )
+X      {
+X      a_float.the_chars[ i ] = b->buffer[ i ];
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_cvs(): string <%s> hex vals <%X><%X><%X><%X>",
+X      a_float.the_chars, a_float.the_chars[ 0 ], a_float.the_chars[ 1 ], 
+X      a_float.the_chars[ 2 ], a_float.the_chars[ 3 ] );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   * var_findfval( &nvar, nvar.array_pos ) = a_float.the_float;
+X
+X   return &nvar;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_csng()
+X
+X        DESCRIPTION:    
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_csng( int argc, struct bwb_variable *argv )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, SINGLE );
+X      }
+X
+X   /* check parameters */
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function CINT().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function CINT().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* get truncated integer value */
+X
+X   * var_findfval( &nvar, nvar.array_pos )
+X      = (float) var_getfval( &( argv[ 0 ] ) );
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_exp()
+X
+X        DESCRIPTION:    
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_exp( int argc, struct bwb_variable *argv )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, DOUBLE );
+X      }
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function EXP().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function EXP().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* assign values */
+X
+X   * var_finddval( &nvar, nvar.array_pos ) 
+X      = exp( var_getdval( &( argv[ 0 ] ) ) );
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_cint()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_cint( int argc, struct bwb_variable *argv )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize the variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, SINGLE );
+X      }
+X
+X   /* check parameters */
+X
+X   #if PROG_ERRORS
+X   if ( argc < 1 )
+X      {
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function CINT().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function CINT().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      return NULL;
+X      }
+X   #else
+X   if ( fnc_checkargs( argc, argv, 1, 1 ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* get truncated integer value */
+X
+X   * var_findfval( &nvar, nvar.array_pos )
+X      = (float) trnc_int( (double) var_getfval( &( argv[ 0 ] )) );
+X
+X   return &nvar;
+X   }
+X
+Xdouble
+Xtrnc_int( double x )
+X   {
+X   double sign;
+X
+X   if ( x < 0.0 )
+X      {
+X      sign = -1.0;
+X      }
+X   else
+X      {
+X      sign = 1.0;
+X      }
+X
+X   return ( floor( fabs( x )) * sign );
+X   }
+X
+X
+END_OF_FILE
+  if test 27902 -ne `wc -c <'bwb_mth.c'`; then
+    echo shar: \"'bwb_mth.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwb_mth.c'
+fi
+if test -f 'bwbasic.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic.h'\"
+else
+  echo shar: Extracting \"'bwbasic.h'\" \(29508 characters\)
+  sed "s/^X//" >'bwbasic.h' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwbasic.h       Header File
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1992, Ted A. Campbell
+X
+X                        Bywater Software
+X                        P. O. Box 4023
+X                        Duke Station
+X                        Durham, NC  27706
+X
+X                        email: tcamp@acpub.duke.edu
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international copyrights are claimed by the
+X        author. The author grants permission to use this code
+X        and software based on it under the following conditions:
+X        (a) in general, the code and software based upon it may be
+X        used by individuals and by non-profit organizations; (b) it
+X        may also be utilized by governmental agencies in any country,
+X        with the exception of military agencies; (c) the code and/or
+X        software based upon it may not be sold for a profit without
+X        an explicit and specific permission from the author, except
+X        that a minimal fee may be charged for media on which it is
+X        copied, and for copying and handling; (d) the code must be
+X        distributed in the form in which it has been released by the
+X        author; and (e) the code and software based upon it may not
+X        be used for illegal activities.
+X
+X***************************************************************/
+X
+X
+X#ifndef TRUE
+X#define TRUE    -1
+X#define FALSE   0
+X#endif
+X
+X/* Version number */
+X
+X#define VERSION         "1.10"          /* Current version number */
+X
+X/* Definitions controlling program features */
+X
+X#define DIRECTORY_CMDS	TRUE 		/* implement CHDIR, MKDIR, and RMDIR */
+X					/* requires chdir() mkdir() rmdir() */
+X#define COMMAND_SHELL   TRUE		/* allow command shell processing */
+X
+X/* definitions controlling debugging options */
+X
+X#define DEBUG           FALSE 		/* current debugging */
+X#define PROG_ERRORS     FALSE		/* identify serious programming errors */
+X					/* and print extensive error messages */
+X					/* This will override messages defined in */
+X					/* bwb_mes.h, and almost all messages will be in English */
+X#define CHECK_RECURSION FALSE		/* check for recursion violation in expression parser */
+X#define INTENSIVE_DEBUG FALSE           /* old debugging; might be useful later */
+X#define REDIRECT_STDERR FALSE           /* Redirect stderr to file ERRFILE */
+X#define TEST_BSTRING	FALSE		/* test bstring integrity */
+X#define ERRFILE         "err.out"       /* Filename for redirected error messages */
+X
+X/* define number of commands */
+X
+X#define CMDS_BASE       55              /* number of base commands defined */
+X#if DIRECTORY_CMDS
+X#define CMDS_DIR	3
+X#else
+X#define CMDS_DIR	0
+X#endif
+X#if DEBUG
+X#define CMDS_DEBUG      3               /* number of debugging cmds */
+X#else
+X#define CMDS_DEBUG      0               /* no debugging cmds */
+X#endif
+X#define COMMANDS        (CMDS_BASE+CMDS_DEBUG+CMDS_DIR)	/* total number of cmds */
+X
+X#define FUNCS_BASE      43              /* number of basic functions */
+X#ifdef DEBUG
+X#define FUNCS_DEBUG	1		/* number of debugging functions */
+X#else
+X#define FUNCS_DEBUG	0		/* number of debugging functions */
+X#endif
+X#define FUNCTIONS	(FUNCS_BASE+FUNCS_DEBUG)	/* total number of functions implemented */
+X
+X#define MAXARGSIZE      128             /* maximum size of argument */
+X#define MAXREADLINESIZE 256             /* size of read_line buffer */
+X#define MAXCMDNAMESIZE  64              /* maximum size for command name */
+X#define MAXLINENO       32767           /* maximum line number */
+X#define MAXVARNAMESIZE  40              /* maximum size for variable name */
+X#define MAXFILENAMESIZE 40              /* maximum size for file name */
+X#define MAXSTRINGSIZE   255             /* maximum string length */
+X#define GOSUBLEVELS     36              /* GOSUB stack levels */
+X#define WHILELEVELS     36              /* WHILE stack levels */
+X#define FORLEVELS       36              /* FOR stack levels */
+X#define MAX_GOLINES     12              /* Maximum # of lines for ON...GOTO statements */
+X#define MAX_FARGS       4               /* maximum # arguments to function */
+X#define MAX_DIMS	64		/* maximum # of dimensions */
+X#define ESTACKSIZE      64              /* elements in expression stack */
+X#define UFNCSTACKSIZE   64              /* elements in user-defined function stack */
+X#define XLSTACKSIZE     16              /* elements in xline stack */
+X#define XTXTSTACKSIZE   16              /* elements in eXecute TeXT stack */
+X#define N_OPERATORS     24              /* number of operators defined */
+X#define N_ERRORS	23		/* number of errors defined */
+X#define MAX_PRECEDENCE  19              /* highest (last) level of precedence */
+X#define MININTSIZE      -32767          /* minimum integer size */
+X#define MAXINTSIZE       32767          /* maximum integer size */
+X#define DEF_SUBSCRIPT   11              /* default subscript */
+X#define DEF_DEVICES     16              /* default number of devices available */
+X#define DEF_WIDTH	128		/* default width for devices */
+X#define PRN_TAB		0x02		/* send TAB followed by col number to output device */
+X
+X#if DEBUG
+X#define PERMANENT_DEBUG TRUE
+X#else
+X#define PERMANENT_DEBUG FALSE
+X#endif
+X
+X/* define variable types based on first character */
+X
+X#define INTEGER         '%'
+X#define DOUBLE          '#'
+X#define SINGLE          '!'
+X#define STRING          '$'
+X
+X/* define mathematical operations */
+X
+X#define MULTIPLY        '*'
+X#define DIVIDE          '/'
+X#define ADD             '+'
+X#define SUBTRACT        '-'
+X#define ARGUMENT        'A'
+X
+X/* absence of one of these marks denotes a single-precision
+X   (i.e., float) variable */
+X
+X/* Operations defined */
+X
+X#define OP_ERROR        -255		/* operation error (break out) */
+X#define OP_NULL         0               /* null: operation not defined yet */
+X#define NUMBER          1               /* number held as internal variable in uvar */
+X#define CONST_STRING    2               /* string constant */
+X#define CONST_NUMERICAL 3               /* numerical constant */
+X#define FUNCTION        4               /* function header */
+X#define VARIABLE        5               /* external variable pointed to by xvar */
+X#define PARENTHESIS     6               /* begin parenthetical expression */
+X#define OP_ADD          7               /* addition sign '+' */
+X#define OP_SUBTRACT     8               /* subtraction sign '-' */
+X#define OP_MULTIPLY     9               /* multiplication sign '*' */
+X#define OP_DIVIDE       10              /* division sign '/' */
+X#define OP_MODULUS      11              /* modulus "MOD" */
+X#define OP_EXPONENT     12              /* exponentiation '^' */
+X#define OP_INTDIVISION  13              /* integer division sign '\' */
+X#define OP_NEGATION     14              /* negation '-' ??? */
+X#define OP_STRJOIN      15              /* string join ';' */
+X#define OP_STRTAB       16              /* string tab ',' */
+X#define OP_EQUALS       17              /* either logical equal operator */
+X#define OP_ASSIGN       18              /* assignment operator */
+X#define OP_NOTEQUAL     20              /* inequality */
+X#define OP_LESSTHAN     21              /* less than */
+X#define OP_GREATERTHAN  22              /* greater than */
+X#define OP_LTEQ         23              /* less than or equal to */
+X#define OP_GTEQ         24              /* greater than or equal to */
+X#define OP_NOT          25              /* negation */
+X#define OP_AND          26              /* conjunction */
+X#define OP_OR           27              /* disjunction */
+X#define OP_XOR          28              /* exclusive or */
+X#define OP_IMPLIES      29              /* implication */
+X#define OP_EQUIV        30              /* equivalence */
+X#define OP_TERMINATE    31              /* terminate expression parsing */
+X
+X/* Device input/output modes */
+X
+X#define DEVMODE_AVAILABLE  -1
+X#define DEVMODE_CLOSED     0
+X#define DEVMODE_OUTPUT     1
+X#define DEVMODE_INPUT      2
+X#define DEVMODE_APPEND     3
+X#define DEVMODE_RANDOM     4
+X
+Xextern char bwb_progfile[ MAXARGSIZE ];
+Xextern char *bwb_ebuf;
+Xextern int bwb_trace;
+Xextern int bwb_number;			/* current line number */
+Xextern struct bwb_line *bwb_l;		/* current line pointer */
+Xextern int exp_esc;			/* expression stack counter */
+Xextern int dim_base;			/* set by OPTION BASE */
+X
+X/* Typdef structure for strings under Bywater BASIC */
+X
+Xstruct bstr
+X   {
+X   unsigned char length;		/* length of string */
+X   char *buffer;			/* pointer to string buffer */
+X   int rab;				/* is it a random-access buffer? */
+X   #if TEST_BSTRING
+X   char name[ MAXVARNAMESIZE + 1 ];	/* name for test purposes */
+X   #endif
+X   };
+X
+Xtypedef struct bstr bstring;
+X
+X/* Structure used for all variables under Bywater BASIC */
+X
+Xstruct bwb_variable
+X   {
+X   char name[ MAXVARNAMESIZE + 1 ];	/* name */
+X   int type;                            /* type, i.e., STRING, DOUBLE,
+X                                           SINGLE, or INTEGER */
+X   char *array;				/* pointer to array memory */
+X   size_t array_units;			/* total number of units of memory */
+X   int  *array_sizes;			/* pointer to array of <dimensions>
+X                                           integers, with sizes of each
+X                                           dimension */
+X   int *array_pos;                      /* current position in array */
+X   int dimensions;                      /* number of dimensions,
+X                                           0 = not an array */
+X   struct bwb_variable *next;           /* next variable in chain */
+X   int common;				/* should this variable be common to chained programs? */
+X   };
+X
+Xextern struct bwb_variable var_start, var_end;
+X
+X/* Structure to represent program lines under Bywater BASIC */
+X
+Xstruct bwb_line
+X   {
+X   struct bwb_line *next;               /* pointer to next line in chain */
+X   int number;                          /* line number */
+X   char *buffer;			/* buffer to hold the line */
+X   int position;                        /* current position in line */
+X   int lnpos;                           /* line number position in buffer */
+X   int lnum;                            /* line number read from buffer */
+X   int cmdpos;                          /* command position in buffer */
+X   int cmdnum;                          /* number of command in command table
+X                                           read from buffer */
+X   int startpos;                        /* start of rest of line read from buffer */
+X   int marked;                          /* has line been checked yet? */
+X   };
+X
+Xextern struct bwb_line bwb_start, bwb_end;
+Xextern struct bwb_line *data_line;      /* current line to read data */
+X
+X/* Structure defining user-defined function in Bywater BASIC:
+X   note that this structure is appended to an existing bwb_function
+X   structure (see below) and cannot be used apart from its host
+X   bwb_function structure. */
+X
+Xstruct user_fnc
+X   {
+X   char user_vns[ MAX_FARGS ][ MAXVARNAMESIZE + 1 ]; /* array of variable names: user_vns[ 0 ] is argv[ 0 ], etc. */
+X   struct bwb_line *line;		/* line on which the function definition occurs */
+X   char int_line[ MAXSTRINGSIZE + 1 ];	/* line to be interpreted */
+X   };
+X
+X/* Structure used for all functions under Bywater BASIC.  Note that
+X   user-defined functions should have an attached user_fnc structure
+X   pointed to by the ufnc field; if ufnc is set to NULL, then the
+X   function is predefined. */
+X
+Xstruct bwb_function
+X   {
+X   char name[ MAXVARNAMESIZE + 1 ];     /* name */
+X   int type;                            /* type, i.e., STRING, DOUBLE,
+X                                           SINGLE, or INTEGER */
+X   int arguments;                       /* number of args passed */
+X   struct user_fnc *ufnc;               /* pointer to structure for a user-defined function (or NULL) */
+X   struct bwb_variable * (*vector) ( int argc, struct bwb_variable *argv );  /* vector to function to call */
+X   struct bwb_function *next;           /* next function in chain */
+X   };
+X
+Xextern struct bwb_function fnc_start, fnc_end;
+Xextern struct bwb_function * fnc_find();
+X
+Xextern int data_pos;                    /* position in data_line */
+X
+X/* Structure to represent all command statements under Bywater BASIC */
+X
+Xstruct bwb_command
+X   {
+X   char name[ MAXCMDNAMESIZE + 1 ];
+X   struct bwb_line * (*vector) (struct bwb_line *);
+X   int arg_offset;
+X   };
+X
+Xextern struct bwb_command bwb_cmdtable[ COMMANDS ];
+X
+X/* Structure to define device stack for Bywater BASIC */
+X
+Xstruct dev_element
+X   {
+X   int mode;                            /* DEVMODE_ item */
+X   int width;				/* width for output control */
+X   int col;				/* current column */
+X   int reclen;                          /* record length for random access */
+X   int next_record;			/* next record to read/write */
+X   int loc;				/* location in file */
+X   char filename[ MAXFILENAMESIZE + 1 ];/* filename */
+X   FILE *cfp;                           /* C file pointer for this device */
+X   char *buffer;			/* pointer to character buffer for random access */
+X   };
+X
+Xextern struct dev_element *dev_table;          /* table of devices */
+X
+X/* Structure to define expression stack elements under Bywater BASIC */
+X
+Xstruct exp_ese
+X   {
+X   int operation;                       /* operation at this level */
+X   char type;				/* type of operation at this level:
+X   					   STRING, INTEGER, SINGLE, or DOUBLE */
+X   bstring sval;			/* string */
+X   int ival;				/* integer value */
+X   float fval;				/* float value */
+X   double dval;				/* double value */
+X   char string[ MAXSTRINGSIZE + 1 ]; 	/* string for writing */
+X   struct bwb_variable *xvar;           /* pointer to external variable */
+X   struct bwb_function *function;       /* pointer to function structure */
+X   int array_pos[ MAX_DIMS ];		/* array for variable positions */
+X   int pos_adv;                         /* position advanced in string */
+X   int rec_pos;                         /* position marker for recursive calls */
+X   };
+X
+X/* Structure to define user-defined function stack elements */
+X
+Xstruct ufsel                            /* user function stack element */
+X   {
+X   char args[ MAX_FARGS ][ MAXARGSIZE + 1 ];
+X   char l_buffer[ MAXSTRINGSIZE + 1 ];
+X   int position;
+X   };
+X
+X/* Structure to define FOR-NEXT stack elements */
+X
+Xstruct fse                                       	/* FOR stack element */
+X   {
+X   struct bwb_line     *nextline;                       /* next line after FOR */
+X   struct bwb_variable *variable;                       /* variable to be incremented */
+X   int                 target;                          /* target value */
+X   int                 step;                            /* step increment */
+X   int                 position;                        /* position for reset */
+X   };
+X
+X/* Structure to define GOSUB-RETURN stack elements */
+X
+Xstruct gsse                                       	/* GOSUB stack element */
+X   {
+X   int                 position;                        /* position marker */
+X   };
+X
+Xextern FILE *errfdevice;                /* output device for error messages */
+X
+Xextern struct exp_ese *exp_es;  	/* expression stack */
+Xextern struct ufsel *ufs;              	/* user function stack */
+Xextern struct fse *fs;                  /* FOR stack */
+Xextern struct gsse *bwb_gss;            /* GOSUB stack */
+X
+Xextern int bwb_gssc;                    /* GOSUB stack counter */
+Xextern int ufsc;                        /* user function stack counter */
+Xextern int ws_counter;                  /* WHILE stack counter */
+Xextern int fs_counter;                  /* FOR stack counter */
+Xextern int err_line;			/* line in which error occurred */
+Xextern int err_number;			/* number of last error */
+Xextern int err_gosubn;			/* number for error GOSUB */
+Xextern char *err_table[ N_ERRORS ];	/* table of error messages */
+X
+X/* Operator Table */
+X
+Xstatic struct
+X   {
+X   char symbol[ 8 ];                    /* BASIC symbol for the operator */
+X   int operation;                       /* internal code for the operator */
+X   int precedence;                      /* level of precedence, 0 = highest */
+X   } exp_ops[ N_OPERATORS ] =
+X   {
+X   { "NOT",     OP_NOT,         12 },   /* multiple-character operators */
+X   { "AND",     OP_AND,         13 },   /* should be tested first because */
+X   { "OR",      OP_OR,          14 },   /* e.g. a ">=" would be matched */
+X   { "XOR",     OP_XOR,         15 },   /* as "=" if the single-character */
+X   { "IMP",     OP_IMPLIES,     16 },   /* operator came first */
+X   { "EQV",     OP_EQUIV,       17 },
+X   { "MOD",     OP_MODULUS,     4  },
+X   { "<>",      OP_NOTEQUAL,    7  },
+X   { "<=",      OP_LTEQ,        10 },
+X   { "=<",      OP_LTEQ,        10 },   /* allow either form */
+X   { ">=",      OP_GTEQ,        11 },
+X   { "=>",      OP_GTEQ,        11 },   /* allow either form */
+X   { "<",       OP_LESSTHAN,    8  },
+X   { ">",       OP_GREATERTHAN, 9  },
+X   { "^",       OP_EXPONENT,    0  },
+X   { "*",       OP_MULTIPLY,    2  },
+X   { "/",       OP_DIVIDE,      2  },
+X   { "\\",      OP_INTDIVISION, 3  },
+X   { "+",       OP_ADD,         5  },
+X   { "-",       OP_SUBTRACT,    5  },
+X   { "=",       OP_EQUALS,      6  },
+X   { "=",       OP_ASSIGN,      6  },   /* don't worry: OP_EQUALS will be converted to OP_ASSIGN if necessary */
+X   { ";",       OP_STRJOIN,     18 },
+X   { ",",       OP_STRTAB,      19 }
+X   };
+X
+X/* Prototypes for publicly available functions and data */
+X
+Xextern int bwb_fload( FILE *file );
+Xextern int bwb_ladd( char *buffer, int replace );
+Xextern int bwb_findcmd( int argc, int a, struct bwb_line *l );
+Xextern struct bwb_line *bwb_xtxtline( char *buffer );
+Xextern struct bwb_line *bwb_xline( struct bwb_line *l );
+Xextern int bwb_gets( char *buffer );
+Xextern int bwb_error( char *message );
+Xextern void break_handler( void );
+Xextern void break_mes( int x );
+Xextern struct bwb_line *bwb_null( struct bwb_line *l );
+Xextern struct bwb_line *bwb_rem( struct bwb_line *l );
+Xextern struct bwb_line *bwb_lerror( struct bwb_line *l );
+Xextern struct bwb_line *bwb_run( struct bwb_line *l );
+Xextern struct bwb_line *bwb_let( struct bwb_line *l );
+Xextern struct bwb_line *bwb_load( struct bwb_line *l );
+Xextern struct bwb_line *bwb_merge( struct bwb_line *l );
+Xextern struct bwb_line *bwb_chain( struct bwb_line *l );
+Xextern struct bwb_line *bwb_common( struct bwb_line *l );
+Xextern struct bwb_line *bwb_xload( struct bwb_line *l );
+Xextern struct bwb_line *bwb_new( struct bwb_line *l );
+Xextern struct bwb_line *bwb_save( struct bwb_line *l );
+Xextern struct bwb_line *bwb_list( struct bwb_line *l );
+Xextern struct bwb_line *bwb_xlist( struct bwb_line *l, FILE *file );
+Xextern struct bwb_line *bwb_goto( struct bwb_line *l );
+Xextern struct bwb_line *bwb_gosub( struct bwb_line *l );
+Xextern struct bwb_line *bwb_return( struct bwb_line *l );
+Xextern struct bwb_line *bwb_xend( struct bwb_line *l );
+Xextern struct bwb_line *bwb_system( struct bwb_line *l );
+Xextern struct bwb_line *bwb_tron( struct bwb_line *l );
+Xextern struct bwb_line *bwb_troff( struct bwb_line *l );
+Xextern struct bwb_line *bwb_randomize( struct bwb_line *l );
+Xextern struct bwb_line *bwb_stop( struct bwb_line *l );
+Xextern struct bwb_line *bwb_data( struct bwb_line *l );
+Xextern struct bwb_line *bwb_read( struct bwb_line *l );
+Xextern struct bwb_line *bwb_restore( struct bwb_line *l );
+Xextern struct bwb_line *bwb_delete( struct bwb_line *l );
+Xextern struct bwb_line *bwb_if( struct bwb_line *l );
+Xextern struct bwb_line *bwb_while( struct bwb_line *l );
+Xextern struct bwb_line *bwb_wend( struct bwb_line *l );
+Xextern struct bwb_line *bwb_for( struct bwb_line *l );
+Xextern struct bwb_line *bwb_next( struct bwb_line *l );
+Xextern struct bwb_line *bwb_dim( struct bwb_line *l );
+Xextern struct bwb_line *bwb_option( struct bwb_line *l );
+Xextern struct bwb_line *bwb_open( struct bwb_line *l );
+Xextern struct bwb_line *bwb_close( struct bwb_line *l );
+Xextern struct bwb_line *bwb_get( struct bwb_line *l );
+Xextern struct bwb_line *bwb_put( struct bwb_line *l );
+Xextern struct bwb_line *bwb_rmdir( struct bwb_line *l );
+Xextern struct bwb_line *bwb_chdir( struct bwb_line *l );
+Xextern struct bwb_line *bwb_mkdir( struct bwb_line *l );
+Xextern struct bwb_line *bwb_kill( struct bwb_line *l );
+Xextern struct bwb_line *bwb_name( struct bwb_line *l );
+Xextern struct bwb_line *bwb_rset( struct bwb_line *l );
+Xextern struct bwb_line *bwb_lset( struct bwb_line *l );
+Xextern struct bwb_line *bwb_field( struct bwb_line *l );
+Xextern struct bwb_line *bwb_on( struct bwb_line *l );
+Xextern struct bwb_line *bwb_line( struct bwb_line *l );
+Xextern struct bwb_line *bwb_ddbl( struct bwb_line *l );
+Xextern struct bwb_line *bwb_dint( struct bwb_line *l );
+Xextern struct bwb_line *bwb_dsng( struct bwb_line *l );
+Xextern struct bwb_line *bwb_dstr( struct bwb_line *l );
+Xextern struct bwb_line *bwb_clear( struct bwb_line *l );
+Xextern struct bwb_line *bwb_erase( struct bwb_line *l );
+Xextern struct bwb_line *bwb_swap( struct bwb_line *l );
+Xextern struct bwb_line *bwb_environ( struct bwb_line *l );
+Xextern struct bwb_line *bwb_width( struct bwb_line *l );
+Xextern struct bwb_line *bwb_write( struct bwb_line *l );
+Xextern int bwb_getcnd( char *lb, char *lhs, char *rhs, char *op, int *n );
+Xextern int bwb_getlhs( char *lb, char *lhs, int *n );
+Xextern int bwb_getop( char *lb, char *op, int *n );
+Xextern int bwb_getrhs( char *lb, char *rhs, int *n );
+Xextern int bwb_evalcnd( char *lhs, char *rhs, char *op );
+Xextern int bwb_isstr( char *b );
+Xextern int eval_int( int l, int r, char *op );
+Xextern int eval_sng( float l, float r, char *op );
+Xextern int eval_dbl( double l, double r, char *op );
+Xextern struct exp_ese *bwb_exp( char *expression, int assignment, int *position );
+Xextern int exp_getvfname( char *source, char *destination );
+Xextern int exp_operation( int entry_level );
+Xextern int inc_esc( void );
+Xextern int dec_esc( void );
+Xextern int fnc_init( void );
+Xextern struct bwb_function *fnc_find( char *buffer );
+Xextern struct bwb_variable *fnc_intufnc( int argc, struct bwb_variable *argv,
+X   struct bwb_function *f );
+Xextern struct bwb_line *bwb_deffn( struct bwb_line *l );
+Xextern int bwb_getargs( char *buffer );
+Xextern int bwb_stripcr( char *s );
+Xextern int bwb_numseq( char *buffer, int *start, int *end );
+Xextern int bwb_freeline( struct bwb_line *l );
+Xextern struct bwb_line *bwb_print( struct bwb_line *l );
+Xextern int bwb_xprint( struct bwb_line *l, FILE *f );
+Xextern int bwb_eltype( char *l_buffer, int p );
+Xextern int var_init( void );
+Xextern int var_delcvars( void );
+Xextern int bwb_strel( char *lb, char *sb, int *n );
+Xextern struct bwb_variable *bwb_numel( char *lb, int *n );
+Xextern int bwb_const( char *lb, char *sb, int *n );
+Xextern int bwb_getvarname( char *lb, char *sb, int *n );
+Xextern struct bwb_variable *var_find( char *buffer );
+Xextern int bwb_isvar( char *buffer );
+Xextern struct bwb_line *bwb_input( struct bwb_line *l );
+Xextern int inp_adv( char *b, int *c );
+Xextern double var_getdval( struct bwb_variable *nvar );
+Xextern float var_getfval( struct bwb_variable *nvar );
+Xextern int var_getival( struct bwb_variable *nvar );
+Xextern bstring *var_getsval( struct bwb_variable *nvar );
+Xextern bstring *var_findsval( struct bwb_variable *v, int *pp );
+Xextern int *var_findival( struct bwb_variable *v, int *pp );
+Xextern float *var_findfval( struct bwb_variable *v, int *pp );
+Xextern double *var_finddval( struct bwb_variable *v, int *pp );
+Xextern int var_make( struct bwb_variable *v, int type );
+Xextern int dim_getparams( char *buffer, int *pos, int *n_params, int **pp );
+Xextern double exp_getdval( struct exp_ese *e );
+Xextern float exp_getfval( struct exp_ese *e );
+Xextern int exp_getival( struct exp_ese *e );
+Xextern bstring * exp_getsval( struct exp_ese *e );
+Xextern double * exp_finddval( struct exp_ese *e );
+Xextern float * exp_findfval( struct exp_ese *e );
+Xextern int * exp_findival( struct exp_ese *e );
+Xextern int is_numconst( char *buffer );
+Xextern int adv_element( char *buffer, int *pos, char *element );
+Xextern int adv_ws( char *buffer, int *pos );
+Xextern int line_start( char *buffer, int *pos, int *lnpos, int *lnum,
+X   int *cmdpos, int *cmdnum, int *startpos );
+Xextern int is_cmd( char *buffer, int *cmdnum );
+Xextern int is_let( char *buffer, int *cmdnum );
+Xextern int int_qmdstr( char *buffer_a, char *buffer_b );
+Xextern struct bwb_line * cnd_xpline( struct bwb_line *l, char *buffer );
+X
+Xextern int prn_precision( struct bwb_variable *v );
+Xextern int * prn_getcol( FILE *f );
+Xextern int prn_getwidth( FILE *f );
+Xextern int xprintf( FILE *f, char *buffer );
+Xextern int bwb_strtoupper( char *buffer );
+Xextern int getcmdnum( char *cmdstr );
+X
+Xextern struct bwb_variable * fnc_tab( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_spc( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_space( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_environ( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_pos( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_err( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_erl( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_loc( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_lof( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_eof( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_csng( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_exp( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_instr( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable * fnc_str( int argc, struct bwb_variable *argv );
+Xextern int str_btoc( char *buffer, bstring *s );
+Xextern int str_btob( bstring *d, bstring *s );
+Xextern int str_ctob( bstring *s, char *buffer );
+Xextern int str_cmp( bstring *s, bstring *t );
+Xextern char * str_cat( bstring *s, bstring *t );
+Xextern int exp_findop( char *expression );
+Xextern int exp_isop( char *expression );
+Xextern int exp_isfn( char *expression );
+Xextern int exp_isnc( char *expression );
+Xextern int exp_isvn( char *expression );
+Xextern int exp_iscmd( char *expression );
+Xextern int exp_paren( char *expression );
+Xextern int exp_strconst( char *expression );
+Xextern int exp_numconst( char *expression );
+Xextern int exp_function( char *expression );
+Xextern int exp_variable( char *expression );
+Xextern int exp_validarg( char *expression );
+Xextern int ln_asbuf( struct bwb_line *l, char *s );
+Xextern int xputc( FILE *f, char c );
+X
+X#if DEBUG
+Xextern int bwb_debug( char *message );
+Xextern struct bwb_line *bwb_cmds( struct bwb_line *l );
+Xextern struct bwb_line *bwb_vars( struct bwb_line *l );
+Xextern struct bwb_line *bwb_fncs( struct bwb_line *l );
+X#endif
+X
+X#ifdef ALLOW_RENUM
+Xextern struct bwb_line *bwb_renum( struct bwb_line *l );
+X#endif
+X
+X#if DIRECTORY_CMDS
+Xextern int rmdir( char *path );
+Xextern int chdir( char *path );
+Xextern int mkdir( char *path );
+X#endif
+X
+X/* declarations of function commands */
+X
+Xextern struct bwb_variable *fnc_null( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_abs( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_date( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_time( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_atn( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_cos( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_log( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_sin( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_sqr( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_tan( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_sgn( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_int( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_rnd( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_chr( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_mid( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_left( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_right( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_timer( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_val( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_len( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_hex( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_oct( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_cint( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_asc( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_mkd( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_mki( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_mks( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_cvi( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_cvd( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_cvs( int argc, struct bwb_variable *argv );
+Xextern struct bwb_variable *fnc_string( int argc, struct bwb_variable *argv );
+Xextern double trnc_int( double x );
+Xextern int fnc_checkargs( int argc, struct bwb_variable *argv,
+X   int min, int max );
+Xextern int ufsc;			/* user function stack counter */
+X
+X#if DEBUG
+Xextern struct bwb_variable *fnc_test( int argc, struct bwb_variable *argv );
+X#endif
+X
+X
+X
+END_OF_FILE
+  if test 29508 -ne `wc -c <'bwbasic.h'`; then
+    echo shar: \"'bwbasic.h'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic.h'
+fi
+echo shar: End of archive 10 \(of 11\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

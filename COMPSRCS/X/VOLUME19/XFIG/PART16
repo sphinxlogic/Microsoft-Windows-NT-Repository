@@ -1,0 +1,1922 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb9.lbl.gov (Brian V. Smith)
+Subject: v19i128:  xfig - Draw amd manipulate objects in an X-Window, Part16/27
+Message-ID: <1993May21.021612.6699@sparky.imd.sterling.com>
+X-Md4-Signature: e6f62b323df83edec580a78cd74c4d96
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Fri, 21 May 1993 02:16:12 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: envbvs@epb9.lbl.gov (Brian V. Smith)
+Posting-number: Volume 19, Issue 128
+Archive-name: xfig/part16
+Environment: X11
+Supersedes: xfig: Volume 16, Issue 6-30,39
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 16 (of 27)."
+# Contents:  e_scale.c main.c
+# Wrapped by envbvs@epb9.lbl.gov.lbl.gov on Mon May  3 12:06:00 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'e_scale.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'e_scale.c'\"
+else
+echo shar: Extracting \"'e_scale.c'\" \(26235 characters\)
+sed "s/^X//" >'e_scale.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_create.h"
+X#include "u_draw.h"
+X#include "u_elastic.h"
+X#include "u_search.h"
+X#include "u_undo.h"
+X#include "w_canvas.h"
+X#include "w_mousefun.h"
+X
+Xstatic int	init_box_scale();
+Xstatic Boolean	init_boxscale_ellipse();
+Xstatic Boolean	init_boxscale_line();
+Xstatic Boolean	init_boxscale_compound();
+Xstatic int	assign_newboxpoint();
+Xstatic int	boxrelocate_ellipsepoint();
+X
+Xstatic int	init_center_scale();
+Xstatic int	init_scale_arc();
+Xstatic int	init_scale_compound();
+Xstatic int	init_scale_ellipse();
+Xstatic int	init_scale_line();
+Xstatic int	init_scale_spline();
+Xstatic int	rescale_points();
+Xstatic int	relocate_ellipsepoint();
+Xstatic int	relocate_arcpoint();
+X
+Xstatic int	fix_scale_arc();
+Xstatic int	fix_scale_spline();
+Xstatic int	fix_scale_line();
+Xstatic int	fix_scale_ellipse();
+Xstatic int	fix_boxscale_ellipse();
+Xstatic int	fix_boxscale_line();
+Xstatic int	fix_scale_compound();
+Xstatic int	fix_boxscale_compound();
+X
+Xstatic int	cancel_scale_arc();
+Xstatic int	cancel_scale_spline();
+Xstatic int	cancel_scale_line();
+Xstatic int	cancel_scale_ellipse();
+Xstatic int	cancel_boxscale_ellipse();
+Xstatic int	cancel_boxscale_line();
+Xstatic int	cancel_scale_compound();
+Xstatic int	cancel_boxscale_compound();
+Xstatic int	prescale_compound();
+X
+Xscale_selected()
+X{
+X    set_mousefun("scale box", "scale about center", "");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    init_searchproc_left(init_box_scale);
+X    init_searchproc_middle(init_center_scale);
+X    canvas_leftbut_proc = object_search_left;
+X    canvas_middlebut_proc = object_search_middle;
+X    canvas_rightbut_proc = null_proc;
+X    set_cursor(pick15_cursor);
+X    reset_action_on();
+X}
+X
+Xstatic
+Xinit_box_scale(obj, type, x, y, px, py)
+X    char	   *obj;
+X    int		    type, x, y;
+X    int		    px, py;
+X{
+X    switch (type) {
+X    case O_POLYLINE:
+X	cur_l = (F_line *) obj;
+X	if (!init_boxscale_line(px, py))	/* non-box line */
+X	    return;
+X	break;
+X    case O_ELLIPSE:
+X	cur_e = (F_ellipse *) obj;
+X	if (!init_boxscale_ellipse(px, py))	/* selected center, ignore */
+X	    return;
+X	break;
+X    case O_COMPOUND:
+X	cur_c = (F_compound *) obj;
+X	if (!init_boxscale_compound(px, py))	/* non-box compound */
+X	    return;
+X	break;
+X    default:
+X	return;
+X    }
+X    set_mousefun("new posn", "", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_middlebut_proc = null_proc;
+X}
+X
+Xstatic
+Xinit_center_scale(obj, type, x, y, px, py)
+X    char	   *obj;
+X    int		    type, x, y, px, py;
+X{
+X    double	    dx, dy, l;
+X
+X    cur_x = from_x = px;
+X    cur_y = from_y = py;
+X    constrained = BOX_SCALE;
+X    switch (type) {
+X    case O_POLYLINE:
+X	cur_l = (F_line *) obj;
+X	if (!init_scale_line()) /* selected center */
+X	    return;
+X	break;
+X    case O_SPLINE:
+X	cur_s = (F_spline *) obj;
+X	if (!init_scale_spline())	/* selected center */
+X	    return;
+X	break;
+X    case O_ELLIPSE:
+X	cur_e = (F_ellipse *) obj;
+X	if (!init_scale_ellipse())	/* selected center */
+X	    return;
+X	break;
+X    case O_ARC:
+X	cur_a = (F_arc *) obj;
+X	if (!init_scale_arc())	/* selected center */
+X	    return;
+X	break;
+X    case O_COMPOUND:
+X	cur_c = (F_compound *) obj;
+X	init_scale_compound();
+X	break;
+X    }
+X
+X    dx = (double) (from_x - fix_x);
+X    dy = (double) (from_y - fix_y);
+X    l = sqrt(dx * dx + dy * dy);
+X    cosa = fabs(dx / l);
+X    sina = fabs(dy / l);
+X
+X    set_mousefun("", "new posn", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_leftbut_proc = null_proc;
+X}
+X
+Xstatic
+Xwrapup_scale()
+X{
+X    reset_action_on();
+X    scale_selected();
+X    draw_mousefun_canvas();
+X}
+X
+X/*************************  ellipse  *******************************/
+X
+Xstatic		Boolean
+Xinit_boxscale_ellipse(x, y)
+X    int		    x, y;
+X{
+X    double	    dx, dy, l;
+X
+X    if (cur_e->type == T_ELLIPSE_BY_RAD ||
+X	cur_e->type == T_CIRCLE_BY_RAD) {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    if (x == cur_e->start.x && y == cur_e->start.y) {
+X	fix_x = cur_e->end.x;
+X	fix_y = cur_e->end.y;
+X	cur_x = from_x = x;
+X	cur_y = from_y = y;
+X    } else if (x == cur_e->end.x && y == cur_e->end.y) {
+X	fix_x = cur_e->start.x;
+X	fix_y = cur_e->start.y;
+X	cur_x = from_x = x;
+X	cur_y = from_y = y;
+X    } else {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    cur_angle = cur_e->angle;
+X
+X    if (cur_x == fix_x || cur_y == fix_y) {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_ellipsemarker(cur_e);
+X    constrained = BOX_SCALE;
+X    dx = (double) (cur_x - fix_x);
+X    dy = (double) (cur_y - fix_y);
+X    l = sqrt(dx * dx + dy * dy);
+X    cosa = fabs(dx / l);
+X    sina = fabs(dy / l);
+X
+X    set_temp_cursor(crosshair_cursor);
+X    if (cur_e->type == T_CIRCLE_BY_DIA) {
+X	canvas_locmove_proc = constrained_resizing_cbd;
+X	elastic_cbd();
+X    } else {
+X	canvas_locmove_proc = constrained_resizing_ebd;
+X	elastic_ebd();
+X    }
+X    canvas_leftbut_proc = fix_boxscale_ellipse;
+X    canvas_rightbut_proc = cancel_boxscale_ellipse;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_boxscale_ellipse()
+X{
+X    if (cur_e->type == T_CIRCLE_BY_DIA)
+X	elastic_cbd();
+X    else
+X	elastic_ebd();
+X    toggle_ellipsemarker(cur_e);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_boxscale_ellipse(x, y)
+X    int		    x, y;
+X{
+X    if (cur_e->type == T_CIRCLE_BY_DIA)
+X	elastic_cbd();
+X    else
+X	elastic_ebd();
+X    adjust_box_pos(x, y, from_x, from_y, &cur_x, &cur_y);
+X    new_e = copy_ellipse(cur_e);
+X    boxrelocate_ellipsepoint(new_e, cur_x, cur_y);
+X    change_ellipse(cur_e, new_e);
+X    toggle_ellipsemarker(new_e);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xboxrelocate_ellipsepoint(ellipse, x, y)
+X    F_ellipse	   *ellipse;
+X    int		    x, y;
+X{
+X    int		    dx, dy;
+X
+X    set_temp_cursor(wait_cursor);
+X    draw_ellipse(ellipse, ERASE);
+X    if (ellipse->start.x == fix_x)
+X	ellipse->end.x = x;
+X    if (ellipse->start.y == fix_y)
+X	ellipse->end.y = y;
+X    if (ellipse->end.x == fix_x)
+X	ellipse->start.x = x;
+X    if (ellipse->end.y == fix_y)
+X	ellipse->start.y = y;
+X    if (ellipse->type == T_CIRCLE_BY_DIA) {
+X	dx = ellipse->center.x = (fix_x + x) / 2 + .5;
+X	dy = ellipse->center.y = (fix_y + y) / 2 + .5;
+X	dx -= x;
+X	dy -= y;
+X	ellipse->radiuses.x = sqrt((double) (dx * dx + dy * dy)) + .5;
+X	ellipse->radiuses.y = ellipse->radiuses.x;
+X    } else {
+X	ellipse->center.x = (fix_x + x) / 2;
+X	ellipse->center.y = (fix_y + y) / 2;
+X	ellipse->radiuses.x = abs(ellipse->center.x - fix_x);
+X	ellipse->radiuses.y = abs(ellipse->center.y - fix_y);
+X    }
+X    draw_ellipse(ellipse, PAINT);
+X    reset_cursor();
+X}
+X
+Xstatic
+Xinit_scale_ellipse()
+X{
+X    fix_x = cur_e->center.x;
+X    fix_y = cur_e->center.y;
+X    cur_angle = cur_e->angle;
+X    if (from_x == fix_x && from_y == fix_y) {
+X	put_msg("Center point selected, ignored");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_ellipsemarker(cur_e);
+X    set_temp_cursor(crosshair_cursor);
+X    canvas_locmove_proc = scaling_ellipse;
+X    elastic_scaleellipse(cur_e);
+X    canvas_middlebut_proc = fix_scale_ellipse;
+X    canvas_rightbut_proc = cancel_scale_ellipse;
+X    return True;		/* all is Ok */
+X}
+X
+Xstatic
+Xcancel_scale_ellipse()
+X{
+X    elastic_scaleellipse(cur_e);
+X    toggle_ellipsemarker(cur_e);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_scale_ellipse(x, y)
+X    int		    x, y;
+X{
+X    elastic_scaleellipse(cur_e);
+X    adjust_box_pos(x, y, from_x, from_y, &cur_x, &cur_y);
+X    new_e = copy_ellipse(cur_e);
+X    relocate_ellipsepoint(new_e, cur_x, cur_y);
+X    change_ellipse(cur_e, new_e);
+X    toggle_ellipsemarker(new_e);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xrelocate_ellipsepoint(ellipse, x, y)
+X    F_ellipse	   *ellipse;
+X    int		    x, y;
+X{
+X    int		    newx, newy, oldx, oldy;
+X    float	    newd, oldd, scalefact;
+X
+X    set_temp_cursor(wait_cursor);
+X    draw_ellipse(ellipse, ERASE);
+X
+X    newx = x - fix_x;
+X    newy = y - fix_y;
+X    newd = sqrt((double) (newx * newx + newy * newy));
+X    oldx = from_x - fix_x;
+X    oldy = from_y - fix_y;
+X    oldd = sqrt((double) (oldx * oldx + oldy * oldy));
+X    scalefact = newd / oldd;
+X
+X    ellipse->radiuses.x = ellipse->radiuses.x * scalefact;
+X    ellipse->radiuses.y = ellipse->radiuses.y * scalefact;
+X    ellipse->end.x = fix_x + (ellipse->end.x - fix_x) * scalefact;
+X    ellipse->end.y = fix_y + (ellipse->end.y - fix_y) * scalefact;
+X    ellipse->start.x = fix_x + (ellipse->start.x - fix_x) * scalefact;
+X    ellipse->start.y = fix_y + (ellipse->start.y - fix_y) * scalefact;
+X    draw_ellipse(ellipse, PAINT);
+X    reset_cursor();
+X}
+X
+X/***************************  arc  *********************************/
+X
+Xstatic
+Xinit_scale_arc()
+X{
+X    fix_x = cur_a->center.x;
+X    fix_y = cur_a->center.y;
+X    if (from_x == fix_x && from_y == fix_y) {
+X	put_msg("Center point selected, ignored");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_arcmarker(cur_a);
+X    elastic_scalearc(cur_a);
+X    set_temp_cursor(crosshair_cursor);
+X    canvas_locmove_proc = scaling_arc;
+X    canvas_middlebut_proc = fix_scale_arc;
+X    canvas_rightbut_proc = cancel_scale_arc;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_scale_arc()
+X{
+X    elastic_scalearc(cur_a);
+X    toggle_arcmarker(cur_a);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_scale_arc(x, y)
+X    int		    x, y;
+X{
+X    elastic_scalearc(cur_a);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    new_a = copy_arc(cur_a);
+X    relocate_arcpoint(new_a, x, y);
+X    change_arc(cur_a, new_a);
+X    toggle_arcmarker(new_a);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xrelocate_arcpoint(arc, x, y)
+X    F_arc	   *arc;
+X    int		    x, y;
+X{
+X    int		    newx, newy, oldx, oldy;
+X    float	    newd, oldd, scalefact, xx, yy;
+X    F_pos	    p0, p1, p2;
+X
+X    newx = x - fix_x;
+X    newy = y - fix_y;
+X    newd = sqrt((double) (newx * newx + newy * newy));
+X
+X    oldx = from_x - fix_x;
+X    oldy = from_y - fix_y;
+X    oldd = sqrt((double) (oldx * oldx + oldy * oldy));
+X
+X    scalefact = newd / oldd;
+X
+X    p0 = arc->point[0];
+X    p1 = arc->point[1];
+X    p2 = arc->point[2];
+X    p0.x = fix_x + (p0.x - fix_x) * scalefact;
+X    p0.y = fix_y + (p0.y - fix_y) * scalefact;
+X    p1.x = fix_x + (p1.x - fix_x) * scalefact;
+X    p1.y = fix_y + (p1.y - fix_y) * scalefact;
+X    p2.x = fix_x + (p2.x - fix_x) * scalefact;
+X    p2.y = fix_y + (p2.y - fix_y) * scalefact;
+X    if (compute_arccenter(p0, p1, p2, &xx, &yy)) {
+X	set_temp_cursor(wait_cursor);
+X	draw_arc(arc, ERASE);	/* erase old arc */
+X	arc->point[0].x = p0.x;
+X	arc->point[0].y = p0.y;
+X	arc->point[1].x = p1.x;
+X	arc->point[1].y = p1.y;
+X	arc->point[2].x = p2.x;
+X	arc->point[2].y = p2.y;
+X	arc->center.x = xx;
+X	arc->center.y = yy;
+X	arc->direction = compute_direction(p0, p1, p2);
+X	draw_arc(arc, PAINT);	/* draw new arc */
+X	reset_cursor();
+X    }
+X    set_modifiedflag();
+X}
+X
+X/**************************  spline  *******************************/
+X
+Xstatic
+Xinit_scale_spline()
+X{
+X    int		    sumx, sumy, cnt;
+X    F_point	   *p;
+X
+X    p = cur_s->points;
+X    if (closed_spline(cur_s))
+X	p = p->next;
+X    for (sumx = 0, sumy = 0, cnt = 0; p != NULL; p = p->next) {
+X	sumx = sumx + p->x;
+X	sumy = sumy + p->y;
+X	cnt++;
+X    }
+X    fix_x = sumx / cnt;
+X    fix_y = sumy / cnt;
+X    if (from_x == fix_x && from_y == fix_y) {
+X	put_msg("Center point selected, ignored");
+X	return False;
+X    }
+X    set_action_on();
+X    set_temp_cursor(crosshair_cursor);
+X    toggle_splinemarker(cur_s);
+X    draw_spline(cur_s, ERASE);
+X    elastic_scalepts(cur_s->points);
+X    canvas_locmove_proc = scaling_spline;
+X    canvas_middlebut_proc = fix_scale_spline;
+X    canvas_rightbut_proc = cancel_scale_spline;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_scale_spline()
+X{
+X    elastic_scalepts(cur_s->points);
+X    draw_spline(cur_s, PAINT);
+X    toggle_splinemarker(cur_s);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_scale_spline(x, y)
+X    int		    x, y;
+X{
+X    elastic_scalepts(cur_s->points);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    /* make a copy of the original and save as unchanged object */
+X    old_s = copy_spline(cur_s);
+X    clean_up();
+X    set_latestspline(old_s);
+X    set_action_object(F_CHANGE, O_SPLINE);
+X    old_s->next = cur_s;
+X    /* now change the original to become the new object */
+X    rescale_points(cur_s->points, x, y);
+X    if (int_spline(cur_s))
+X	remake_control_points(cur_s);
+X    draw_spline(cur_s, PAINT);
+X    toggle_splinemarker(cur_s);
+X    wrapup_scale();
+X}
+X
+X/***************************  compound	********************************/
+X
+Xstatic		Boolean
+Xinit_boxscale_compound(x, y)
+X    int		    x, y;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X    double	    dx, dy, l;
+X
+X    xmin = min2(cur_c->secorner.x, cur_c->nwcorner.x);
+X    ymin = min2(cur_c->secorner.y, cur_c->nwcorner.y);
+X    xmax = max2(cur_c->secorner.x, cur_c->nwcorner.x);
+X    ymax = max2(cur_c->secorner.y, cur_c->nwcorner.y);
+X
+X    if (xmin == xmax || ymin == ymax) {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_compoundmarker(cur_c);
+X    draw_compoundelements(cur_c, ERASE);
+X    set_temp_cursor(crosshair_cursor);
+X
+X    if (x == xmin) {
+X	fix_x = xmax;
+X	from_x = x;
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else if (y == ymax) {
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else {
+X	    fix_y = ymax;
+X	    from_y = ymin;
+X	    constrained = BOX_HSTRETCH;
+X	}
+X    } else if (x == xmax) {
+X	fix_x = xmin;
+X	from_x = x;
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else if (y == ymax) {
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else {
+X	    fix_y = ymax;
+X	    from_y = ymin;
+X	    constrained = BOX_HSTRETCH;
+X	}
+X    } else {
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    fix_x = xmax;
+X	    from_x = xmin;
+X	    constrained = BOX_VSTRETCH;
+X	} else {		/* y == ymax */
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    fix_x = xmax;
+X	    from_x = xmin;
+X	    constrained = BOX_VSTRETCH;
+X	}
+X    }
+X
+X    cur_x = from_x;
+X    cur_y = from_y;
+X
+X    if (constrained == BOX_SCALE) {
+X	dx = (double) (cur_x - fix_x);
+X	dy = (double) (cur_y - fix_y);
+X	l = sqrt(dx * dx + dy * dy);
+X	cosa = fabs(dx / l);
+X	sina = fabs(dy / l);
+X    }
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    canvas_locmove_proc = constrained_resizing_box;
+X    canvas_leftbut_proc = fix_boxscale_compound;
+X    canvas_rightbut_proc = cancel_boxscale_compound;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_boxscale_compound()
+X{
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    draw_compoundelements(cur_c, PAINT);
+X    toggle_compoundmarker(cur_c);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_boxscale_compound(x, y)
+X    int		    x, y;
+X{
+X    float	    scalex, scaley;
+X
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    new_c = copy_compound(cur_c);
+X    scalex = ((float) (x - fix_x)) / (from_x - fix_x);
+X    scaley = ((float) (y - fix_y)) / (from_y - fix_y);
+X    scale_compound(new_c, scalex, scaley, fix_x, fix_y);
+X    change_compound(cur_c, new_c);
+X    draw_compoundelements(new_c, PAINT);
+X    toggle_compoundmarker(new_c);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xinit_scale_compound()
+X{
+X    fix_x = (cur_c->nwcorner.x + cur_c->secorner.x) / 2;
+X    fix_y = (cur_c->nwcorner.y + cur_c->secorner.y) / 2;
+X    set_action_on();
+X    toggle_compoundmarker(cur_c);
+X    set_temp_cursor(crosshair_cursor);
+X    draw_compoundelements(cur_c, ERASE);
+X    elastic_scalecompound(cur_c);
+X    canvas_locmove_proc = scaling_compound;
+X    canvas_middlebut_proc = fix_scale_compound;
+X    canvas_rightbut_proc = cancel_scale_compound;
+X}
+X
+Xstatic
+Xcancel_scale_compound()
+X{
+X    elastic_scalecompound(cur_c);
+X    draw_compoundelements(cur_c, PAINT);
+X    toggle_compoundmarker(cur_c);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_scale_compound(x, y)
+X    int		    x, y;
+X{
+X    elastic_scalecompound(cur_c);
+X    adjust_box_pos(x, y, from_x, from_y, &cur_x, &cur_y);
+X    /* make a copy of the original and save as unchanged object */
+X    old_c = copy_compound(cur_c);
+X    clean_up();
+X    set_latestcompound(old_c);
+X    set_action_object(F_CHANGE, O_COMPOUND);
+X    old_c->next = cur_c;
+X    /* now change the original to become the new object */
+X    prescale_compound(cur_c, cur_x, cur_y);
+X    draw_compoundelements(cur_c, PAINT);
+X    toggle_compoundmarker(cur_c);
+X    wrapup_scale();
+X}
+X
+Xstatic int
+Xprescale_compound(c, x, y)
+X    F_compound	   *c;
+X    int		    x, y;
+X{
+X    int		    newx, newy, oldx, oldy;
+X    float	    newd, oldd, scalefact;
+X
+X    newx = x - fix_x;
+X    newy = y - fix_y;
+X    newd = sqrt((double) (newx * newx + newy * newy));
+X    oldx = from_x - fix_x;
+X    oldy = from_y - fix_y;
+X    oldd = sqrt((double) (oldx * oldx + oldy * oldy));
+X    scalefact = newd / oldd;
+X    scale_compound(c, scalefact, scalefact, fix_x, fix_y);
+X}
+X
+Xscale_compound(c, sx, sy, refx, refy)
+X    F_compound	   *c;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    F_line	   *l;
+X    F_spline	   *s;
+X    F_ellipse	   *e;
+X    F_text	   *t;
+X    F_arc	   *a;
+X    F_compound	   *c1;
+X    int		    x1, y1, x2, y2;
+X
+X    x1 = round(refx + (c->nwcorner.x - refx) * sx);
+X    y1 = round(refy + (c->nwcorner.y - refy) * sy);
+X    x2 = round(refx + (c->secorner.x - refx) * sx);
+X    y2 = round(refy + (c->secorner.y - refy) * sy);
+X    c->nwcorner.x = min2(x1, x2);
+X    c->nwcorner.y = min2(y1, y2);
+X    c->secorner.x = max2(x1, x2);
+X    c->secorner.y = max2(y1, y2);
+X
+X    for (l = c->lines; l != NULL; l = l->next) {
+X	scale_line(l, sx, sy, refx, refy);
+X    }
+X    for (s = c->splines; s != NULL; s = s->next) {
+X	scale_spline(s, sx, sy, refx, refy);
+X    }
+X    for (a = c->arcs; a != NULL; a = a->next) {
+X	scale_arc(a, sx, sy, refx, refy);
+X    }
+X    for (e = c->ellipses; e != NULL; e = e->next) {
+X	scale_ellipse(e, sx, sy, refx, refy);
+X    }
+X    for (t = c->texts; t != NULL; t = t->next) {
+X	scale_text(t, sx, sy, refx, refy);
+X    }
+X    for (c1 = c->compounds; c1 != NULL; c1 = c1->next) {
+X	scale_compound(c1, sx, sy, refx, refy);
+X    }
+X}
+X
+Xscale_line(l, sx, sy, refx, refy)
+X    F_line	   *l;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    F_point	   *p;
+X
+X    for (p = l->points; p != NULL; p = p->next) {
+X	p->x = round(refx + (p->x - refx) * sx);
+X	p->y = round(refy + (p->y - refy) * sy);
+X    }
+X}
+X
+Xscale_spline(s, sx, sy, refx, refy)
+X    F_spline	   *s;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    F_point	   *p;
+X    F_control	   *c;
+X
+X    for (p = s->points; p != NULL; p = p->next) {
+X	p->x = round(refx + (p->x - refx) * sx);
+X	p->y = round(refy + (p->y - refy) * sy);
+X    }
+X    for (c = s->controls; c != NULL; c = c->next) {
+X	c->lx = refx + (c->lx - refx) * sx;
+X	c->ly = refy + (c->ly - refy) * sy;
+X	c->rx = refx + (c->rx - refx) * sx;
+X	c->ry = refy + (c->ry - refy) * sy;
+X    }
+X}
+X
+Xscale_arc(a, sx, sy, refx, refy)
+X    F_arc	   *a;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    int		    i;
+X
+X    for (i = 0; i < 3; i++) {
+X	a->point[i].x = round(refx + (a->point[i].x - refx) * sx);
+X	a->point[i].y = round(refy + (a->point[i].y - refy) * sy);
+X    }
+X    compute_arccenter(a->point[0], a->point[1], a->point[2],
+X		      &a->center.x, &a->center.y);
+X    a->direction = compute_direction(a->point[0], a->point[1], a->point[2]);
+X}
+X
+Xscale_ellipse(e, sx, sy, refx, refy)
+X    F_ellipse	   *e;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    e->center.x = round(refx + (e->center.x - refx) * sx);
+X    e->center.y = round(refy + (e->center.y - refy) * sy);
+X    e->start.x = round(refx + (e->start.x - refx) * sx);
+X    e->start.y = round(refy + (e->start.y - refy) * sy);
+X    e->end.x = round(refx + (e->end.x - refx) * sx);
+X    e->end.y = round(refy + (e->end.y - refy) * sy);
+X    e->radiuses.x = abs(round(e->radiuses.x * sx));
+X    e->radiuses.y = abs(round(e->radiuses.y * sy));
+X    /* if this WAS a circle and is NOW an ellipse, change type to reflect */
+X    if (e->type == T_CIRCLE_BY_RAD || e->type == T_CIRCLE_BY_DIA) {
+X	if (e->radiuses.x != e->radiuses.y)
+X	    e->type -= 2;
+X    }
+X    /* conversely, if this WAS an ellipse and is NOW a circle, change type */
+X    else if (e->type == T_ELLIPSE_BY_RAD || e->type == T_ELLIPSE_BY_DIA) {
+X	if (e->radiuses.x == e->radiuses.y)
+X	    e->type += 2;
+X    }
+X}
+X
+Xscale_text(t, sx, sy, refx, refy)
+X    F_text	   *t;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    t->base_x = round(refx + (t->base_x - refx) * sx);
+X    t->base_y = round(refy + (t->base_y - refy) * sy);
+X    if (!rigid_text(t)) {
+X	t->size = round(t->size * sx);
+X	t->height = round(t->height * sx);
+X	t->length = round(t->length * sx);
+X    }
+X    /* rescale font */
+X    reload_text_fstruct(t);
+X}
+X
+X
+X/***************************  line  ********************************/
+X
+Xstatic		Boolean
+Xinit_boxscale_line(x, y)
+X    int		    x, y;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X    F_point	   *p0, *p1, *p2;
+X    double	    dx, dy, l;
+X
+X    if (cur_l->type != T_BOX &&
+X	cur_l->type != T_ARC_BOX &&
+X	cur_l->type != T_EPS_BOX) {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    p0 = cur_l->points;
+X    p1 = p0->next;
+X    p2 = p1->next;
+X    xmin = min3(p0->x, p1->x, p2->x);
+X    ymin = min3(p0->y, p1->y, p2->y);
+X    xmax = max3(p0->x, p1->x, p2->x);
+X    ymax = max3(p0->y, p1->y, p2->y);
+X
+X    if (xmin == xmax || ymin == ymax) {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_linemarker(cur_l);
+X
+X    if (x == xmin) {
+X	fix_x = xmax;
+X	from_x = x;
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else if (y == ymax) {
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else {
+X	    fix_y = ymax;
+X	    from_y = ymin;
+X	    constrained = BOX_HSTRETCH;
+X	}
+X    } else if (x == xmax) {
+X	fix_x = xmin;
+X	from_x = x;
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else if (y == ymax) {
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else {
+X	    fix_y = ymax;
+X	    from_y = ymin;
+X	    constrained = BOX_HSTRETCH;
+X	}
+X    } else {
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    fix_x = xmax;
+X	    from_x = xmin;
+X	    constrained = BOX_VSTRETCH;
+X	} else {		/* y == ymax */
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    fix_x = xmax;
+X	    from_x = xmin;
+X	    constrained = BOX_VSTRETCH;
+X	}
+X    }
+X
+X    cur_x = from_x;
+X    cur_y = from_y;
+X    set_temp_cursor(crosshair_cursor);
+X    draw_line(cur_l, ERASE);
+X
+X    if (constrained == BOX_SCALE) {
+X	dx = (double) (cur_x - fix_x);
+X	dy = (double) (cur_y - fix_y);
+X	l = sqrt(dx * dx + dy * dy);
+X	cosa = fabs(dx / l);
+X	sina = fabs(dy / l);
+X    }
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    canvas_locmove_proc = constrained_resizing_box;
+X    canvas_leftbut_proc = fix_boxscale_line;
+X    canvas_rightbut_proc = cancel_boxscale_line;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_boxscale_line()
+X{
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    draw_line(cur_l, PAINT);
+X    toggle_linemarker(cur_l);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_boxscale_line(x, y)
+X    int		    x, y;
+X{
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    new_l = copy_line(cur_l);
+X    draw_line(cur_l, ERASE);
+X    assign_newboxpoint(new_l, fix_x, fix_y, x, y);
+X    if (new_l->type == T_EPS_BOX) {
+X	if (signof(fix_x - from_x) != signof(fix_x - x))
+X	    new_l->eps->flipped = 1 - new_l->eps->flipped;
+X	if (signof(fix_y - from_y) != signof(fix_y - y))
+X	    new_l->eps->flipped = 1 - new_l->eps->flipped;
+X    }
+X    change_line(cur_l, new_l);
+X    draw_line(new_l, PAINT);
+X    toggle_linemarker(new_l);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xassign_newboxpoint(b, x1, y1, x2, y2)
+X    F_line	   *b;
+X    int		    x1, y1, x2, y2;
+X{
+X    F_point	   *p;
+X
+X    p = b->points;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X}
+X
+Xstatic
+Xinit_scale_line()
+X{
+X    int		    sumx, sumy, cnt;
+X    F_point	   *p;
+X
+X    p = cur_l->points;
+X    if (cur_l->type != T_POLYLINE)
+X	p = p->next;
+X    for (sumx = 0, sumy = 0, cnt = 0; p != NULL; p = p->next) {
+X	sumx = sumx + p->x;
+X	sumy = sumy + p->y;
+X	cnt++;
+X    }
+X    fix_x = sumx / cnt;
+X    fix_y = sumy / cnt;
+X    if (from_x == fix_x && from_y == fix_y) {
+X	put_msg("Center point selected, ignored");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_linemarker(cur_l);
+X    set_temp_cursor(crosshair_cursor);
+X    draw_line(cur_l, ERASE);
+X    elastic_scalepts(cur_l->points);
+X    canvas_locmove_proc = scaling_line;
+X    canvas_middlebut_proc = fix_scale_line;
+X    canvas_rightbut_proc = cancel_scale_line;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_scale_line()
+X{
+X    elastic_scalepts(cur_l->points);
+X    draw_line(cur_l, PAINT);
+X    toggle_linemarker(cur_l);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_scale_line(x, y)
+X    int		    x, y;
+X{
+X    elastic_scalepts(cur_l->points);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    /* make a copy of the original and save as unchanged object */
+X    old_l = copy_line(cur_l);
+X    clean_up();
+X    set_latestline(old_l);
+X    set_action_object(F_CHANGE, O_POLYLINE);
+X    old_l->next = cur_l;
+X    /* now change the original to become the new object */
+X    rescale_points(cur_l->points, x, y);
+X    draw_line(cur_l, PAINT);
+X    toggle_linemarker(cur_l);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xrescale_points(pts, x, y)
+X    F_point	   *pts;
+X    int		    x, y;
+X{
+X    F_point	   *p;
+X    int		    newx, newy, oldx, oldy;
+X    float	    newd, oldd, scalefact;
+X
+X    p = pts;
+X    newx = x - fix_x;
+X    newy = y - fix_y;
+X    newd = sqrt((double) (newx * newx + newy * newy));
+X
+X    oldx = from_x - fix_x;
+X    oldy = from_y - fix_y;
+X    oldd = sqrt((double) (oldx * oldx + oldy * oldy));
+X
+X    scalefact = newd / oldd;
+X    for (p = pts; p != NULL; p = p->next) {
+X	p->x = fix_x + (p->x - fix_x) * scalefact;
+X	p->y = fix_y + (p->y - fix_y) * scalefact;
+X    }
+X    set_modifiedflag();
+X}
+END_OF_FILE
+if test 26235 -ne `wc -c <'e_scale.c'`; then
+    echo shar: \"'e_scale.c'\" unpacked with wrong size!
+fi
+# end of 'e_scale.c'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+echo shar: Extracting \"'main.c'\" \(26813 characters\)
+sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "figx.h"
+X#include "version.h"
+X#include "patchlevel.h"
+X#include "resources.h"
+X#include "object.h"
+X#include "mode.h"
+X#include "u_fonts.h"
+X#include "w_drawprim.h"
+X#include "w_mousefun.h"
+X#include "w_setup.h"
+X#include "w_util.h"
+X
+X/************** EXTERNAL functions **************/
+X
+Xextern void	quit(), undo(), paste(), redisplay_canvas(), delete_all_cmd();
+Xextern void	popup_print_panel(), popup_file_panel(), popup_export_panel();
+Xextern void	do_load(), do_save(), popup_unit_panel();
+X
+Xextern void	setup_cmd_panel();
+Xextern		X_error_handler();
+Xextern void	error_handler();
+Xextern void	my_quit();
+Xextern int	ignore_exp_cnt;
+Xextern int	psfontnum();
+Xextern int	latexfontnum();
+X
+X#include "fig.icon.X"
+XPixmap		fig_icon;
+X
+Xstatic char	tool_name[100];
+Xstatic		sigwinched();
+X
+X/************** FIG options ******************/
+X
+Xstatic char    *filename = NULL;
+X
+Xstatic Boolean	true = True;
+Xstatic Boolean	false = False;
+Xstatic int	zero = 0;
+Xstatic float	one = 1.0;
+X
+X/* actions so that we may install accelerators at the top level */
+Xstatic XtActionsRec	main_actions[] =
+X{
+X    {"Quit", (XtActionProc) quit},
+X    {"Delete_all", (XtActionProc) delete_all_cmd},
+X    {"Undo", (XtActionProc) undo},
+X    {"Redraw", (XtActionProc) redisplay_canvas},
+X    {"Paste", (XtActionProc) paste},
+X    {"File", (XtActionProc) popup_file_panel},
+X      {"LoadFile", (XtActionProc) do_load},
+X      {"SaveFile", (XtActionProc) do_save},
+X    {"Export", (XtActionProc) popup_export_panel},
+X    {"Print", (XtActionProc) popup_print_panel},
+X    {"Units", (XtActionProc) popup_unit_panel},
+X};
+X
+Xstatic XtResource application_resources[] = {
+X    {"iconGeometry",  "IconGeometry",  XtRString,  sizeof(char *),
+X    XtOffset(appresPtr,iconGeometry), XtRString, (caddr_t) NULL},
+X    {"showallbuttons", "ShowAllButtons", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, ShowAllButtons), XtRBoolean, (caddr_t) & false},
+X    {XtNjustify, XtCJustify, XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, RHS_PANEL), XtRBoolean, (caddr_t) & false},
+X    {"landscape", XtCOrientation, XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, landscape), XtRBoolean, (caddr_t) & true},
+X    {"debug", "Debug", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, DEBUG), XtRBoolean, (caddr_t) & false},
+X    {"pwidth", XtCWidth, XtRFloat, sizeof(float),
+X    XtOffset(appresPtr, tmp_width), XtRInt, (caddr_t) & zero},
+X    {"pheight", XtCHeight, XtRFloat, sizeof(float),
+X    XtOffset(appresPtr, tmp_height), XtRInt, (caddr_t) & zero},
+X    {XtNreverseVideo, XtCReverseVideo, XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, INVERSE), XtRBoolean, (caddr_t) & false},
+X    {"trackCursor", "Track", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, TRACKING), XtRBoolean, (caddr_t) & true},
+X    {"inches", "Inches", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, INCHES), XtRBoolean, (caddr_t) & true},
+X    {"boldFont", "Font", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, boldFont), XtRString, (caddr_t) NULL},
+X    {"normalFont", "Font", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, normalFont), XtRString, (caddr_t) NULL},
+X    {"buttonFont", "Font", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, buttonFont), XtRString, (caddr_t) NULL},
+X    {"startlatexFont", "StartlatexFont", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, startlatexFont), XtRString, (caddr_t) NULL},
+X    {"startpsFont", "StartpsFont", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, startpsFont), XtRString, (caddr_t) NULL},
+X    {"startfontsize", "StartFontSize", XtRInt, sizeof(int),
+X    XtOffset(appresPtr, startfontsize), XtRInt, (caddr_t) & zero},
+X    {"internalborderwidth", "InternalBorderWidth", XtRInt, sizeof(int),
+X    XtOffset(appresPtr, internalborderwidth), XtRInt, (caddr_t) & zero},
+X    {"latexfonts", "Latexfonts", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, latexfonts), XtRBoolean, (caddr_t) & false},
+X    {"specialtext", "SpecialText", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, specialtext), XtRBoolean, (caddr_t) & false},
+X    {"scalablefonts", "ScalableFonts", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, SCALABLEFONTS), XtRBoolean, (caddr_t) & false},
+X    {"color0", "Color0", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[0]), XtRString, (caddr_t) "black"},
+X    {"color1", "Color1", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[1]), XtRString, (caddr_t) "blue"},
+X    {"color2", "Color2", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[2]), XtRString, (caddr_t) "green"},
+X    {"color3", "Color3", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[3]), XtRString, (caddr_t) "cyan"},
+X    {"color4", "Color4", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[4]), XtRString, (caddr_t) "red"},
+X    {"color5", "Color5", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[5]), XtRString, (caddr_t) "magenta"},
+X    {"color6", "Color6", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[6]), XtRString, (caddr_t) "yellow"},
+X    {"color7", "Color7", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[7]), XtRString, (caddr_t) "white"},
+X    {"monochrome", "Monochrome", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, monochrome), XtRBoolean, (caddr_t) & false},
+X    {"latexfonts", "Latexfonts", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, latexfonts), XtRBoolean, (caddr_t) & false},
+X    {"keyFile", "KeyFile", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, keyFile), XtRString, (caddr_t) "CompKeyDB"},
+X    {"exportLanguage", "ExportLanguage", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, exportLanguage), XtRString, (caddr_t) "eps"},
+X    {"flushleft", "FlushLeft", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, flushleft), XtRBoolean, (caddr_t) & false},
+X    {"textoutline", "TextOutline", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, textoutline), XtRBoolean, (caddr_t) & false},
+X    {"userscale", "UserScale", XtRFloat, sizeof(float),
+X    XtOffset(appresPtr, user_scale), XtRFloat, (caddr_t) & one},
+X    {"userunit", "UserUnit", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, user_unit), XtRString, (caddr_t) ""},
+X};
+X
+Xstatic XrmOptionDescRec options[] =
+X{
+X    {"-iconGeometry", ".iconGeometry", XrmoptionSepArg, (caddr_t) NULL},
+X    {"-showallbuttons", ".showallbuttons", XrmoptionNoArg, "True"},
+X    {"-right", ".justify", XrmoptionNoArg, "True"},
+X    {"-left", ".justify", XrmoptionNoArg, "False"},
+X    {"-debug", ".debug", XrmoptionNoArg, "True"},
+X    {"-landscape", ".landscape", XrmoptionNoArg, "True"},
+X    {"-Landscape", ".landscape", XrmoptionNoArg, "True"},
+X    {"-portrait", ".landscape", XrmoptionNoArg, "False"},
+X    {"-Portrait", ".landscape", XrmoptionNoArg, "False"},
+X    {"-pwidth", ".pwidth", XrmoptionSepArg, 0},
+X    {"-pheight", ".pheight", XrmoptionSepArg, 0},
+X    {"-inverse", ".reverseVideo", XrmoptionNoArg, "True"},
+X    {"-notrack", ".trackCursor", XrmoptionNoArg, "False"},
+X    {"-track", ".trackCursor", XrmoptionNoArg, "True"},
+X    {"-inches", ".inches", XrmoptionNoArg, "True"},
+X    {"-imperial", ".inches", XrmoptionNoArg, "True"},
+X    {"-centimeters", ".inches", XrmoptionNoArg, "False"},
+X    {"-metric", ".inches", XrmoptionNoArg, "False"},
+X    {"-boldFont", ".boldFont", XrmoptionSepArg, 0},
+X    {"-normalFont", ".normalFont", XrmoptionSepArg, 0},
+X    {"-buttonFont", ".buttonFont", XrmoptionSepArg, 0},
+X    {"-startpsFont", ".startpsFont", XrmoptionSepArg, 0},
+X    {"-startlatexFont", ".startlatexFont", XrmoptionSepArg, 0},
+X    {"-startFontSize", ".startfontsize", XrmoptionSepArg, 0},
+X    {"-startfontsize", ".startfontsize", XrmoptionSepArg, 0},
+X    {"-latexfonts", ".latexfonts", XrmoptionNoArg, "True"},
+X    {"-specialtext", ".specialtext", XrmoptionNoArg, "True"},
+X    {"-scalablefonts", ".scalablefonts", XrmoptionNoArg, "True"},
+X    {"-noscalablefonts", ".scalablefonts", XrmoptionNoArg, "False"},
+X    {"-monochrome", ".monochrome", XrmoptionNoArg, "True"},
+X    {"-internalBW", ".internalborderwidth", XrmoptionSepArg, 0},
+X    {"-internalBorderWidth", ".internalborderwidth", XrmoptionSepArg, 0},
+X    {"-keyFile", ".keyFile", XrmoptionSepArg, 0},
+X    {"-exportLanguage", ".exportLanguage", XrmoptionSepArg, 0},
+X    {"-flushleft", ".flushleft", XrmoptionNoArg, "True"},
+X    {"-textoutline", ".textoutline", XrmoptionNoArg, "True"},
+X    {"-userscale", ".userscale", XrmoptionSepArg, 0},
+X    {"-userunit", ".userunit", XrmoptionSepArg, 0},
+X};
+X
+XAtom wm_delete_window;
+X
+Xstatic XtCallbackRec callbacks[] =
+X{
+X    {NULL, NULL},
+X};
+X
+Xstatic Arg	form_args[] =
+X{
+X    {XtNcallback, (XtArgVal) callbacks},
+X    {XtNinput, (XtArgVal) True},
+X    {XtNdefaultDistance, (XtArgVal) 0},
+X    {XtNresizable, (XtArgVal) False},
+X};
+X
+Xstatic void	check_for_resize();
+Xstatic void	check_colors();
+XXtActionsRec	form_actions[] =
+X{
+X    {"ResizeForm", (XtActionProc) check_for_resize},
+X    {"Quit", (XtActionProc) my_quit},
+X};
+X
+Xextern void clear_text_key();
+Xextern void paste_panel_key();
+Xstatic XtActionsRec text_panel_actions[] =
+X{
+X    {"PastePanelKey", (XtActionProc) paste_panel_key} ,
+X    {"EmptyTextKey", (XtActionProc) clear_text_key} ,
+X};
+X
+Xstatic String	form_translations =
+X			"<ConfigureNotify>:ResizeForm()\n";
+Xstatic String	tool_translations =
+X			"<Message>WM_PROTOCOLS:Quit()\n";
+X
+X#define NCHILDREN	9
+Xstatic TOOL	form;
+X
+Xmain(argc, argv)
+X    int		    argc;
+X    char	   *argv[];
+X
+X{
+X    TOOL	    children[NCHILDREN];
+X    int		    ichild;
+X    int		    init_canv_wd, init_canv_ht;
+X    XWMHints	   *wmhints;
+X    char	    i;
+X    char	   *userhome;
+X    Dimension	    w, h;
+X
+X    DeclareArgs(5);
+X
+X    /* we are not writing the figure to the bitmap */
+X    writing_bitmap = False;
+X
+X    /* get the TMPDIR environment variable for temporary files */
+X    if ((TMPDIR = getenv("XFIGTMPDIR"))==NULL)
+X	TMPDIR = "/tmp";
+X
+X    (void) sprintf(tool_name, " XFIG %s(.%s) (Protocol %s)",
+X		   FIG_VERSION, PATCHLEVEL, PROTOCOL_VERSION);
+X    (void) strcat(file_header, PROTOCOL_VERSION);
+X    tool = XtAppInitialize(&tool_app, (String) "Fig", (XrmOptionDescList) options,
+X			   (Cardinal) XtNumber(options),
+X#if XtSpecificationRelease < 5
+X			   (Cardinal *) & argc,
+X			   (String *) argv,
+X#else
+X			   &argc,
+X			   argv,
+X#endif
+X			   (String *) NULL,
+X#if XtSpecificationRelease < 5
+X			   (String *) NULL, 
+X#else
+X			   (ArgList) NULL,
+X#endif
+X			   (Cardinal) 0);
+X
+X
+X    /* install actions to get to the functions with accelerators */
+X    XtAppAddActions(tool_app, main_actions, XtNumber(main_actions));
+X
+X    fix_converters();
+X    XtGetApplicationResources(tool, &appres, application_resources,
+X			      XtNumber(application_resources), NULL, 0);
+X
+X    i = 1;
+X    while (argc-- > 1) {
+X	if (*argv[i] != '-') {	/* search for non - name */
+X	    filename = argv[i];
+X	    break;
+X	}
+X	i++;
+X    }
+X
+X    tool_d = XtDisplay(tool);
+X    tool_s = XtScreen(tool);
+X    tool_sn = DefaultScreen(tool_d);
+X
+X    if (appres.iconGeometry != (char *) 0) {
+X        int scr, x, y, junk;
+X        Arg args[2];
+X
+X        for(scr = 0;
+X            tool_s != ScreenOfDisplay(tool_d, scr);
+X            scr++);
+X
+X        XGeometry(tool_d, scr, appres.iconGeometry,
+X                  "", 0, 0, 0, 0, 0, &x, &y, &junk, &junk);
+X        XtSetArg(args[0], XtNiconX, x);
+X        XtSetArg(args[1], XtNiconY, y);
+X        XtSetValues(tool, args, XtNumber(args));
+X    }
+X
+X    print_flushleft = export_flushleft = appres.flushleft;	/* set both resources */
+X    print_landscape = appres.landscape; /* match print and screen format to start */
+X
+X    /* turn off PSFONT_TEXT flag if user specified -latexfonts */
+X    if (appres.latexfonts)
+X	cur_textflags = cur_textflags & (~PSFONT_TEXT);
+X    if (appres.specialtext)
+X	cur_textflags = cur_textflags | SPECIAL_TEXT;
+X
+X    /* turn off PSFONT_TEXT flag if user specified -latexfonts */
+X    if (appres.latexfonts)
+X	cur_textflags = cur_textflags & (~PSFONT_TEXT);
+X
+X    if (appres.user_unit)
+X	strncpy(cur_fig_units, appres.user_unit, sizeof(cur_fig_units));
+X    else
+X	cur_fig_units[0] = '\0';
+X
+X    if (CellsOfScreen(tool_s) == 2 && appres.INVERSE) {
+X	XrmValue	value;
+X	XrmDatabase	newdb = (XrmDatabase) 0, old;
+X
+X	value.size = sizeof("White");
+X	value.addr = "White";
+X	XrmPutResource(&newdb, "xfig*borderColor", "String",
+X		       &value);
+X	value.size = sizeof("White");
+X	value.addr = "White";
+X	XrmPutResource(&newdb, "xfig*foreground", "String",
+X		       &value);
+X	value.size = sizeof("Black");
+X	value.addr = "Black";
+X	XrmPutResource(&newdb, "xfig*background", "String",
+X		       &value);
+X	old = XtDatabase(tool_d);
+X	XrmMergeDatabases(newdb, &old);
+X
+X	/* now set the tool part, since its already created */
+X	FirstArg(XtNborderColor, WhitePixelOfScreen(tool_s));
+X	NextArg(XtNforeground, WhitePixelOfScreen(tool_s));
+X	NextArg(XtNbackground, BlackPixelOfScreen(tool_s));
+X	SetValues(tool);
+X    }
+X    init_font();
+X
+X    gc = DefaultGC(tool_d, tool_sn);
+X    bold_gc = DefaultGC(tool_d, tool_sn);
+X    button_gc = DefaultGC(tool_d, tool_sn);
+X
+X    /* set the roman and bold fonts for the message windows */
+X    XSetFont(tool_d, gc, roman_font->fid);
+X    XSetFont(tool_d, bold_gc, bold_font->fid);
+X    XSetFont(tool_d, button_gc, button_font->fid);
+X
+X    /*
+X     * check if the NUMCOLORS drawing colors could be allocated and have
+X     * different palette entries
+X     */
+X    check_colors();
+X
+X    init_cursor();
+X    form = XtCreateManagedWidget("form", formWidgetClass, tool,
+X				 form_args, XtNumber(form_args));
+X
+X    if (cur_fontsize == 0)
+X	cur_fontsize = (int) appres.startfontsize;
+X    if (cur_fontsize == 0)
+X	cur_fontsize = DEF_FONTSIZE;
+X
+X    if (cur_latex_font == 0)
+X	cur_latex_font = latexfontnum (appres.startlatexFont);
+X
+X    if (cur_ps_font == 0)
+X	cur_ps_font = psfontnum (appres.startpsFont);
+X
+X    if (INTERNAL_BW == 0)
+X	INTERNAL_BW = (int) appres.internalborderwidth;
+X    if (INTERNAL_BW <= 0)
+X	INTERNAL_BW = DEF_INTERNAL_BW;
+X
+X    SW_PER_ROW = SW_PER_ROW_PORT;
+X    SW_PER_COL = SW_PER_COL_PORT;
+X    init_canv_wd = appres.tmp_width *
+X	(appres.INCHES ? PIX_PER_INCH : PIX_PER_CM);
+X    init_canv_ht = appres.tmp_height *
+X	(appres.INCHES ? PIX_PER_INCH : PIX_PER_CM);
+X
+X    if (init_canv_wd == 0)
+X	init_canv_wd = appres.landscape ? DEF_CANVAS_WD_LAND :
+X	    DEF_CANVAS_WD_PORT;
+X
+X    if (init_canv_ht == 0)
+X	init_canv_ht = appres.landscape ? DEF_CANVAS_HT_LAND :
+X	    DEF_CANVAS_HT_PORT;
+X
+X    if ((init_canv_ht < DEF_CANVAS_HT_PORT) ||
+X	(HeightOfScreen(tool_s) < DEF_CANVAS_HT_PORT)) {
+X	SW_PER_ROW = SW_PER_ROW_LAND;
+X	SW_PER_COL = SW_PER_COL_LAND;
+X    }
+X    setup_sizes(init_canv_wd, init_canv_ht);
+X    (void) init_cmd_panel(form);
+X    (void) init_msg(form,filename);
+X    (void) init_mousefun(form);
+X    (void) init_mode_panel(form);
+X    (void) init_topruler(form);
+X    (void) init_canvas(form);
+X    (void) init_fontmenu(form); /* printer font menu */
+X    (void) init_unitbox(form);
+X    (void) init_sideruler(form);
+X    (void) init_ind_panel(form);
+X
+X    ichild = 0;
+X    children[ichild++] = cmd_panel;	/* command buttons */
+X    children[ichild++] = mousefun;	/* labels for mouse fns */
+X    children[ichild++] = msg_form;	/* message window form */
+X    children[ichild++] = mode_panel;	/* current mode */
+X    children[ichild++] = topruler_sw;	/* top ruler */
+X    children[ichild++] = unitbox_sw;	/* box containing units */
+X    children[ichild++] = sideruler_sw;	/* side ruler */
+X    children[ichild++] = canvas_sw;	/* main drawing canvas */
+X    children[ichild++] = ind_viewp;	/* current settings indicators */
+X
+X    /*
+X     * until the following XtRealizeWidget() is called, there are NO windows
+X     * in existence
+X     */
+X
+X    XtManageChildren(children, NCHILDREN);
+X    XtRealizeWidget(tool);
+X
+X    wm_delete_window = XInternAtom(XtDisplay(tool), "WM_DELETE_WINDOW", False);
+X    (void) XSetWMProtocols(XtDisplay(tool), XtWindow(tool),
+X			   &wm_delete_window, 1);
+X
+X    fig_icon = XCreateBitmapFromData(tool_d, XtWindow(tool),
+X				     (char *) fig_bits, fig_width, fig_height);
+X
+X    FirstArg(XtNtitle, tool_name);
+X    NextArg(XtNiconPixmap, fig_icon);
+X    SetValues(tool);
+X    /* Set the input field to true to allow keyboard input */
+X    wmhints = XGetWMHints(tool_d, XtWindow(tool));
+X    wmhints->flags |= InputHint;/* add in input hint */
+X    wmhints->input = True;
+X    XSetWMHints(tool_d, XtWindow(tool), wmhints);
+X    XFree((char *) wmhints);
+X
+X    if (appres.RHS_PANEL) {	/* side button panel is on right size */
+X	FirstArg(XtNfromHoriz, 0);
+X	NextArg(XtNhorizDistance, SIDERULER_WD + INTERNAL_BW);
+X	SetValues(topruler_sw);
+X
+X	FirstArg(XtNfromHoriz, 0);
+X	NextArg(XtNhorizDistance, 0);
+X	NextArg(XtNfromVert, topruler_sw);
+X	NextArg(XtNleft, XtChainLeft);	/* chain to left of form */
+X	NextArg(XtNright, XtChainLeft);
+X	SetValues(sideruler_sw);
+X
+X	FirstArg(XtNfromHoriz, 0);
+X	NextArg(XtNhorizDistance, 0);
+X	NextArg(XtNfromVert, msg_form);
+X	NextArg(XtNleft, XtChainLeft);	/* chain to left of form */
+X	NextArg(XtNright, XtChainLeft);
+X	SetValues(unitbox_sw);
+X
+X	/* relocate the side button panel */
+X	XtUnmanageChild(mode_panel);
+X	XtUnmanageChild(canvas_sw);
+X	FirstArg(XtNfromHoriz, canvas_sw);	/* panel right of canvas */
+X	NextArg(XtNhorizDistance, -INTERNAL_BW);
+X	NextArg(XtNfromVert, mousefun);
+X	NextArg(XtNleft, XtChainRight);
+X	NextArg(XtNright, XtChainRight);
+X	SetValues(mode_panel);
+X	FirstArg(XtNfromHoriz, sideruler_sw);	/* panel right of canvas */
+X	SetValues(canvas_sw);
+X	XtManageChild(canvas_sw);
+X	XtManageChild(mode_panel);
+X    }
+X
+X    init_gc();
+X    setup_cmd_panel();
+X    setup_msg();
+X    setup_canvas();
+X    setup_rulers();
+X    setup_mode_panel();
+X    setup_mousefun();
+X    setup_fontmenu();		/* setup bitmaps in printer font menu */
+X    setup_ind_panel();
+X    get_directory(cur_dir);
+X
+X    /* parse the export language resource */
+X    for (i=0; i<NUM_EXP_LANG; i++)
+X	if (strcmp(appres.exportLanguage, lang_items[i])==0)
+X	    break;
+X    /* found it set the language number */
+X    if (i < NUM_EXP_LANG)
+X	cur_exp_lang = i;
+X    else
+X	file_msg("Unknown export language: %s, using default: %s",
+X		appres.exportLanguage, lang_items[cur_exp_lang]);
+X
+X    /* install the accelerators - cmd_panel, ind_panel and mode_panel
+X	accelerators are installed in their respective setup_xxx procedures */
+X    XtInstallAllAccelerators(canvas_sw, tool);
+X    XtInstallAllAccelerators(mousefun, tool);
+X    XtInstallAllAccelerators(msg_form, tool);
+X    XtInstallAllAccelerators(topruler_sw, tool);
+X    XtInstallAllAccelerators(sideruler_sw, tool);
+X    XtInstallAllAccelerators(unitbox_sw, tool);
+X
+X    FirstArg(XtNwidth, &w);
+X    NextArg(XtNheight, &h);
+X    GetValues(tool);
+X    TOOL_WD = (int) w;
+X    TOOL_HT = (int) h;
+X    XtAppAddActions(tool_app, form_actions, XtNumber(form_actions));
+X    XtAppAddActions(tool_app, text_panel_actions, XtNumber(text_panel_actions));
+X    XtOverrideTranslations(tool, XtParseTranslationTable(tool_translations));
+X    XtOverrideTranslations(form, XtParseTranslationTable(form_translations));
+X
+X    XSetErrorHandler(X_error_handler);
+X    XSetIOErrorHandler((XIOErrorHandler) X_error_handler);
+X    (void) signal(SIGHUP, error_handler);
+X    (void) signal(SIGFPE, error_handler);
+X#ifndef NO_SIBGUS
+X    (void) signal(SIGBUS, error_handler);
+X#endif
+X    (void) signal(SIGSEGV, error_handler);
+X    (void) signal(SIGINT, SIG_IGN);	/* in case user accidentally types
+X					 * ctrl-c */
+X
+X    put_msg("READY, please select a mode or load a file");
+X
+X    /*
+X     * decide on filename for cut buffer: first try users HOME directory to
+X     * allow cutting and pasting between sessions, if this fails create
+X     * unique filename in /tmp dir
+X     */
+X
+X    userhome = getenv("HOME");
+X    if (userhome != NULL && *strcpy(cut_buf_name, userhome) != '\0') {
+X	strcat(cut_buf_name, "/.xfig");
+X    } else {
+X	sprintf(cut_buf_name, "%s%06d", "/tmp/xfig", getpid());
+X    }
+X
+X    if (filename == NULL)
+X	strcpy(cur_filename, DEF_NAME);
+X    else
+X	load_file(filename);
+X    update_cur_filename(cur_filename);
+X
+X    app_flush();
+X
+X    XtAppMainLoop(tool_app);
+X}
+X
+Xstatic void
+Xcheck_for_resize(tool, event, params, nparams)
+X    TOOL	    tool;
+X    XButtonEvent   *event;
+X    String	   *params;
+X    Cardinal	   *nparams;
+X{
+X    XConfigureEvent *xc = (XConfigureEvent *) event;
+X    Dimension	    b;
+X    int		    dx, dy;
+X
+X    DeclareArgs(3);
+X
+X    if (xc->width == TOOL_WD && xc->height == TOOL_HT)
+X	return;			/* no size change */
+X    dx = xc->width - TOOL_WD;
+X    dy = xc->height - TOOL_HT;
+X    TOOL_WD = xc->width;
+X    TOOL_HT = xc->height;
+X    setup_sizes(CANVAS_WD + dx, CANVAS_HT + dy);
+X
+X    XawFormDoLayout(form, False);
+X    ignore_exp_cnt++;		/* canvas is resized twice - redraw only once */
+X
+X    FirstArg(XtNborderWidth, &b);
+X    /* first redo the top panels */
+X    GetValues(cmd_panel);
+X    XtResizeWidget(cmd_panel, CMDPANEL_WD, CMDPANEL_HT, b);
+X    GetValues(mousefun);
+X    XtResizeWidget(mousefun, MOUSEFUN_WD, MOUSEFUN_HT, b);
+X    XtUnmanageChild(mousefun);
+X    resize_mousefun();
+X    XtManageChild(mousefun);	/* so that it shifts with msg_panel */
+X    /* resize the message form by setting the current filename */
+X    update_cur_filename(cur_filename);
+X
+X    /* now redo the center area */
+X    XtUnmanageChild(mode_panel);
+X    FirstArg(XtNheight, (MODEPANEL_SPACE + 1) / 2);
+X    SetValues(d_label);
+X    FirstArg(XtNheight, (MODEPANEL_SPACE) / 2);
+X    SetValues(e_label);
+X    XtManageChild(mode_panel);	/* so that it adjusts properly */
+X
+X    FirstArg(XtNborderWidth, &b);
+X    GetValues(canvas_sw);
+X    XtResizeWidget(canvas_sw, CANVAS_WD, CANVAS_HT, b);
+X    GetValues(topruler_sw);
+X    XtResizeWidget(topruler_sw, TOPRULER_WD, TOPRULER_HT, b);
+X    resize_topruler();
+X    GetValues(sideruler_sw);
+X    XtResizeWidget(sideruler_sw, SIDERULER_WD, SIDERULER_HT, b);
+X    resize_sideruler();
+X    XtUnmanageChild(sideruler_sw);
+X    XtManageChild(sideruler_sw);/* so that it shifts with canvas */
+X    XtUnmanageChild(unitbox_sw);
+X    XtManageChild(unitbox_sw);	/* so that it shifts with canvas */
+X
+X    XawFormDoLayout(form, True);
+X}
+X
+X
+Xstatic void
+Xcheck_colors()
+X{
+X    int		    i, j;
+X
+X    /* if monochrome resource is set, do not even check for colors */
+X    if (appres.monochrome) {
+X	all_colors_available = false;
+X	return;
+X    }
+X    all_colors_available = true;
+X
+X    /* check if the drawing colors have different palette entries */
+X    for (i = 0; i < NUMCOLORS - 1; i++) {
+X	for (j = i + 1; j < NUMCOLORS; j++) {
+X	    if (appres.color[i] == appres.color[j]) {
+X		all_colors_available = false;
+X		break;
+X	    }
+X	}
+X	if (!all_colors_available)
+X	    break;
+X    }
+X}
+X
+X/* useful when using ups */
+XXSyncOn()
+X{
+X	XSynchronize(tool_d, True);
+X	XFlush(tool_d);
+X}
+X
+XXSyncOff()
+X{
+X	XSynchronize(tool_d, False);
+X	XFlush(tool_d);
+X}
+X
+X#ifdef NOSTRSTR
+X
+Xchar *strstr(s1, s2)
+X    char *s1, *s2;
+X{
+X    int len2;
+X    char *stmp;
+X
+X    len2 = strlen(s2);
+X    for (stmp = s1; *stmp != NULL; stmp++)
+X	if (strncmp(stmp, s2, len2)==0)
+X	    return stmp;
+X    return NULL;
+X}
+X#endif
+X 
+X#ifdef NOSTRTOL
+X/*-
+X * Copyright (c) 1990 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that: (1) source distributions retain this entire copyright
+X * notice and comment, and (2) distributions including binaries display
+X * the following acknowledgement:  ``This product includes software
+X * developed by the University of California, Berkeley and its contributors''
+X * in the documentation or other materials provided with the distribution
+X * and in all advertising materials mentioning features or use of this
+X * software. Neither the name of the University nor the names of its
+X * contributors may be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)strtol.c	5.3 (Berkeley) 5/17/90";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <ctype.h>
+X#include <errno.h>
+X
+X#define	ULONG_MAX	0xffffffff	/* max value for an unsigned long */
+X#define	LONG_MAX	0x7fffffff	/* max value for a long */
+X#define	LONG_MIN	0x80000000	/* min value for a long */
+X
+X/*
+X * Convert a string to a long integer.
+X *
+X * Ignores `locale' stuff.  Assumes that the upper and lower case
+X * alphabets and digits are each contiguous.
+X */
+Xlong
+Xstrtol(nptr, endptr, base)
+X	char *nptr, **endptr;
+X	register int base;
+X{
+X	register char *s = nptr;
+X	register unsigned long acc;
+X	register int c;
+X	register unsigned long cutoff;
+X	register int neg = 0, any, cutlim;
+X
+X	/*
+X	 * Skip white space and pick up leading +/- sign if any.
+X	 * If base is 0, allow 0x for hex and 0 for octal, else
+X	 * assume decimal; if base is already 16, allow 0x.
+X	 */
+X	do {
+X		c = *s++;
+X	} while (isspace(c));
+X	if (c == '-') {
+X		neg = 1;
+X		c = *s++;
+X	} else if (c == '+')
+X		c = *s++;
+X	if ((base == 0 || base == 16) &&
+X	    c == '0' && (*s == 'x' || *s == 'X')) {
+X		c = s[1];
+X		s += 2;
+X		base = 16;
+X	}
+X	if (base == 0)
+X		base = c == '0' ? 8 : 10;
+X
+X	/*
+X	 * Compute the cutoff value between legal numbers and illegal
+X	 * numbers.  That is the largest legal value, divided by the
+X	 * base.  An input number that is greater than this value, if
+X	 * followed by a legal input character, is too big.  One that
+X	 * is equal to this value may be valid or not; the limit
+X	 * between valid and invalid numbers is then based on the last
+X	 * digit.  For instance, if the range for longs is
+X	 * [-2147483648..2147483647] and the input base is 10,
+X	 * cutoff will be set to 214748364 and cutlim to either
+X	 * 7 (neg==0) or 8 (neg==1), meaning that if we have accumulated
+X	 * a value > 214748364, or equal but the next digit is > 7 (or 8),
+X	 * the number is too big, and we will return a range error.
+X	 *
+X	 * Set any if any `digits' consumed; make it negative to indicate
+X	 * overflow.
+X	 */
+X	cutoff = neg ? -(unsigned long)LONG_MIN : LONG_MAX;
+X	cutlim = cutoff % (unsigned long)base;
+X	cutoff /= (unsigned long)base;
+X	for (acc = 0, any = 0; c = *s++) {
+X		if (isdigit(c))
+X			c -= '0';
+X		else if (isalpha(c))
+X			c -= isupper(c) ? 'A' - 10 : 'a' - 10;
+X		else
+X			break;
+X		if (c >= base)
+X			break;
+X		if (any < 0 || acc > cutoff || acc == cutoff && c > cutlim)
+X			any = -1;
+X		else {
+X			any = 1;
+X			acc *= base;
+X			acc += c;
+X		}
+X	}
+X	if (any < 0) {
+X		acc = neg ? LONG_MIN : LONG_MAX;
+X		errno = ERANGE;
+X	} else if (neg)
+X		acc = -acc;
+X	if (endptr != 0)
+X		*endptr = any ? s - 1 : nptr;
+X	return (acc);
+X}
+X#endif
+END_OF_FILE
+if test 26813 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+fi
+# end of 'main.c'
+fi
+echo shar: End of archive 16 \(of 27\).
+cp /dev/null ark16isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 27 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

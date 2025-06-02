@@ -1,0 +1,1464 @@
+Newsgroups: comp.sources.misc
+From: tom@travis.csd.harris.com (Tom Horsley)
+Subject: v37i065:  assist7g - 7th Guest Assistant programs, Part01/02
+Message-ID: <csm-v37i065=assist7g.214943@sparky.IMD.Sterling.COM>
+X-Md4-Signature: e08d3018b3242c110f5a9bd3c6cd0888
+Date: Tue, 18 May 1993 02:49:57 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tom@travis.csd.harris.com (Tom Horsley)
+Posting-number: Volume 37, Issue 65
+Archive-name: assist7g/part01
+Environment: UNIX, Perl
+
+This is a set of small programs I wrote to solve or help solve puzzles in
+the 7th Guest game (a terrific CDROM based PC multimedia game). I have
+gotten several requests for these, and since I have now finished the game,
+the set of programs is as complete as it will ever get, so I am submitting
+it to comp.sources.misc.
+---------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 2)."
+# Contents:  MANIFEST README cans cell.c knight.c queen.c tile.c tiles
+# Wrapped by tom@amber on Mon May 17 08:22:23 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(393 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X MANIFEST                   1	This shipping list
+X README                     1	
+X bishop.c                   2	
+X cans                       1	
+X cell.c                     1	
+X knight.c                   1	
+X queen.c                    1	
+X tile.c                     1	
+X tiles                      1	
+END_OF_FILE
+if test 393 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(1982 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis is the 7th Guest Assistant family of programs. These tools can be
+Xused to solve (or help solve) many of the puzzles in the 7th Guest game.
+XAs I have now managed to finish the game, this is the final release
+Xof these tools. If there are other programs you want, you'll have to
+Xwrite them yourself :-). I found the cell.c program to be by far the
+Xmost useful and the tile.c program to be close to useless.
+X
+XThere are loads of puzzles not represented here. I solved all of them by
+Xhand, most without too much difficulty (although there are still things I
+Xwould like to know about the picture box puzzle in the doll room).
+X
+XREADME         This file.
+Xbishop.c       Computes shortest solution to the bishop exchange problem.
+Xcans           Perl script to generate potential solutions for the cans
+Xcell.c         Plays Blue for the microscope game well enough to beat Green
+Xknight.c       Computes a solution to the knight exchange problem.
+Xqueen.c        Computes a solution to the 8 queens problem.
+Xtile.c         Walks floor tiles (to very little avail).
+Xtiles          Listing of color<->number permutations (it didn't help me :-).
+X
+XWARNING: Many of these programs don't simply help you play, but compute the
+Xactual solution. Running them will be a spolier. You have been warned...
+X
+XAll of these have been of use to me in solving the puzzles in 7th Guest
+X(sometimes only accidentally). The cell game require two computers, since
+Xyou have to interact with the game as well as the assistant program.
+X
+XI ran all of these programs on a U**x workstation, so I didn't pay too much
+Xattention to how much memory they used, I don't know if they are likely to
+Xfit on DOS without a 32 bit compiler and a 386 or better (but they might, I
+Xjust don't know).
+X
+XIf you want support for these programs, you've got to be joking :-).
+X
+XAll these programs are in the public domain (You'll notice I didn't put my
+Xname in any of them, in the hope that no one would send me email asking for
+Xchanges :-).
+END_OF_FILE
+if test 1982 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'cans' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cans'\"
+else
+echo shar: Extracting \"'cans'\" \(5332 characters\)
+sed "s/^X//" >'cans' <<'END_OF_FILE'
+X#!/usr/bin/perl
+X#
+X# NOTE: Be sure you edit the definition of $dictfile below.
+X#
+X# This is a perl script to find the sentence spelled by the cans in the
+X# kitchen. It looks horrid with an umpteen deep nested loop, but there are
+X# not a lot of words with no vowels but 'y' in them, so it doesn't have too
+X# many choices to iterate through. With my dictionary, it still finds a lot
+X# of potential sentences (about 500 or 600), but many of them are just the
+X# same 5 letter words arranged differently, and only one of the sentences
+X# really fits the hint from the library book.
+X#
+X# You can probably cut down on excess sentence generation if you edit your
+X# dictionary to remove words that match sometimes, but are unlikely to be
+X# part of a sentence (for instance, I discovered I have the word 'yb' in my
+X# dictionary, whatever that is :-).
+X
+Xsub rarity {
+X   local($arg)=@_;
+X   local($bcghm,$lprt,$s,$y);
+X   $bcghm=($arg=~tr/bcghm/bcghm/);
+X   $lprt=($arg=~tr/lprt/lprt/);
+X   $s=($arg=~tr/s/s/);
+X   $y=($arg=~tr/y/y/);
+X   $bcghm * 2048 + $lptr * 512 + $s * 32 + $y;
+X}
+X
+Xsub byrarity {
+X   local($acop)=$a;
+X   local($bcop)=$b;
+X   &rarity($bcop) <=> &rarity($acop);
+X}
+X
+X# You will need to point this at a good dictionary (the kind that is likely
+X# to have lots of funny words with lots of y's in them).
+X
+X$dictfile="/usr2/spell/wsp.orig";
+X
+X$con{'b'}=1;
+X$con{'c'}=1;
+X$con{'g'}=1;
+X$con{'h'}=1;
+X$con{'m'}=1;
+X$con{'l'}=3;
+X$con{'p'}=3;
+X$con{'r'}=3;
+X$con{'t'}=3;
+X$con{'s'}=5;
+X$con{'y'}=11;
+Xopen(DICT,"<$dictfile") || die "Cannot read dictionary $dictfile\n";
+Xmainloop: while (<DICT>) {
+X   chop;
+X   y/A-Z/a-z/;
+X   next if (/[\. adefijknoquvwxz-]/);
+X   s/\'//g;
+X   next if (/^[aeiouy]+$/);
+X   next if (/^[bcdfghjklmnpqrstvwxz]+$/);
+X   $len=length($_);
+X   if ($len==3 || $len == 5 || $len == 6 || $len == 2) {
+X      undef %cnt;
+X      for ($i = 0; $i < $len; ++$i) {
+X         $cnt{substr($_,$i,1)} ++;
+X      }
+X      foreach $chk (keys(%con)) {
+X         next mainloop if ($cnt{$chk} > $con{$chk});
+X      }
+X      if ($len == 2) {
+X         push(@two,$_);
+X      } elsif ($len == 3) {
+X         push(@three,$_);
+X      } elsif ($len == 5) {
+X         push(@five,$_);
+X      } elsif ($len == 6) {
+X         push(@six,$_);
+X      }
+X   }
+X}
+X$|=1;
+Xprint "Sorting by rarity value...\n";
+X@three=sort byrarity @three;
+X@five=sort byrarity @five;
+X@six=sort byrarity @six;
+X@two=sort byrarity @two;
+Xprint "Sort completed.\n";
+Xsix1loop: foreach $six1 (@six) {
+X   print "Trying 6 character word $six1.\n";
+X   five1loop: foreach $five1 (@five) {
+X      $combo=$six1 . $five1;
+X      undef %cnt;
+X      for ($i = 0; $i < 11; ++$i) {
+X         $cnt{substr($combo,$i,1)} ++;
+X      }
+X      foreach $chk (keys(%con)) {
+X         next five1loop if ($cnt{$chk} > $con{$chk});
+X      }
+X      five2loop: foreach $five2 (@five) {
+X         $combo = $six1 . $five1 . $five2;
+X         undef %cnt;
+X         for ($i = 0; $i < 16; ++$i) {
+X            $cnt{substr($combo,$i,1)} ++;
+X         }
+X         foreach $chk (keys(%con)) {
+X            next five2loop if ($cnt{$chk} > $con{$chk});
+X         }
+X         five3loop: foreach $five3 (@five) {
+X            $combo = $six1 . $five1 . $five2 . $five3;
+X            undef %cnt;
+X            for ($i = 0; $i < 21; ++$i) {
+X               $cnt{substr($combo,$i,1)} ++;
+X            }
+X            foreach $chk (keys(%con)) {
+X               next five3loop if ($cnt{$chk} > $con{$chk});
+X            }
+X            five4loop: foreach $five4 (@five) {
+X               $combo = $six1 . $five1 . $five2 . $five3 . $five4;
+X               undef %cnt;
+X               for ($i = 0; $i < 26; ++$i) {
+X                  $cnt{substr($combo,$i,1)} ++;
+X               }
+X               foreach $chk (keys(%con)) {
+X                  next five4loop if ($cnt{$chk} > $con{$chk});
+X               }
+X               three1loop: foreach $three1 (@three) {
+X                  $combo = $six1 . $five1 . $five2 . $five3 . $five4 . $three1;
+X                  undef %cnt;
+X                  for ($i = 0; $i < 29; ++$i) {
+X                     $cnt{substr($combo,$i,1)} ++;
+X                  }
+X                  foreach $chk (keys(%con)) {
+X                     next three1loop if ($cnt{$chk} > $con{$chk});
+X                  }
+X                  two1loop: foreach $two1 (@two) {
+X                     $combo = $six1 . $five1 . $five2 . $five3 . $five4 .
+X                              $three1 . $two1;
+X                     undef %cnt;
+X                     for ($i = 0; $i < 31; ++$i) {
+X                        $cnt{substr($combo,$i,1)} ++;
+X                     }
+X                     foreach $chk (keys(%con)) {
+X                        next two1loop if ($cnt{$chk} > $con{$chk});
+X                     }
+X                     two2loop: foreach $two2 (@two) {
+X                        $combo = $six1 . $five1 . $five2 . $five3 . $five4 .
+X                                 $three1 . $two1 . $two2;
+X                        undef %cnt;
+X                        for ($i = 0; $i < 33; ++$i) {
+X                           $cnt{substr($combo,$i,1)} ++;
+X                        }
+X                        foreach $chk (keys(%con)) {
+X                           next two2loop if ($cnt{$chk} != $con{$chk});
+X                        }
+X                        print "$three1 $five1 $five2 $six1 $five3 $two1 $two2 $five4.\n";
+X                     }
+X                  }
+X               }
+X            }
+X         }
+X      }
+X   }
+X}
+END_OF_FILE
+if test 5332 -ne `wc -c <'cans'`; then
+    echo shar: \"'cans'\" unpacked with wrong size!
+fi
+chmod +x 'cans'
+# end of 'cans'
+fi
+if test -f 'cell.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cell.c'\"
+else
+echo shar: Extracting \"'cell.c'\" \(12268 characters\)
+sed "s/^X//" >'cell.c' <<'END_OF_FILE'
+X/* OK. Here it is. The most ridiculous program yet. It uses the minimax
+X * algorithm to play the silly microscope game (I hope I can get a good
+X * enough solution in a reasonable time with minimax - I would hate to have
+X * to code up alpha-beta pruning as well).
+X *
+X * NOTE: This program uses the non-portable routine alloca() to allocate
+X * space on the stack. If you don't have alloca() (or you don't have much
+X * stack space), you may have to change the routines that call alloca() to
+X * call malloc() and free() appropriately.
+X *
+X * The difference between this game and the one in the microscope is that
+X * this game moves first and plays the blue blood cells, and the user
+X * (really the 7th Guest Game) plays the green viruses (you need two
+X * computers at the same time for this, or maybe 7th Guest will run in a DOS
+X * box under OS/2 :-).
+X *
+X * The rules:
+X *
+X * Played on a 7x7 board.
+X *
+X * Blue starts in top left and bottom right.
+X *
+X * Green starts in bottom left and top right.
+X *
+X * Blue moves first.
+X *
+X * Players take turns until one player cannot move, then the other fills
+X * any remaining cells.
+X *
+X * Player with most cells filled wins.
+X *
+X * Moves consist of moving any cell of your color 1 or 2 squares in any
+X * direction. If the move is only 1 square, the cell divides and fills both
+X * cells. If the move lands adjacent to any cells of the opposite color, the
+X * cell takes over all adjacent cells.
+X *
+X * This game seems to be working now. It even plays well enough to beat
+X * the nasty ol' viruses by 25 to 24 (which is plenty good enough :-).
+X * It doesn't run as fast as it could, but it does run fast enough to
+X * make it possible to play (at least the combination of my machine
+X * and my patience is not strained too much). Several things could speed
+X * it up, but since it works I am not going to do them.
+X *
+X *    * Smarter move generation. Sometimes any number of cells can move to
+X *      the same spot, but the end result will be identical. If these
+X *      duplicate moves were eliminated, the tree size would be cut down
+X *      quite a bit. (This could probably best be done by keeping a record
+X *      of the positions of the pieces after each call to MakeMove in the
+X *      recursive eval move routines, then checking to see if it is
+X *      identical to a move already evaluated).
+X *
+X *    * Enhancing the straight minimax algorithm do do alpha-beta pruning
+X *      could also cut down the size of the tree a lot, possibly allowing
+X *      a deeper tree walk (but the default tree walk depth currently
+X *      built into the program would not be able to take much advantage
+X *      of alpha-beta pruning).
+X *
+X * I suspect it would run quite fast with these changes, but since I only
+X * had to run it once, the changes are not worth it.
+X *
+X * Other possible enhancements:
+X *
+X *    * Teach it to recognize when the game is over. (Probably should add a
+X *      new bit to the Move struct and return a special "game over" move
+X *      from the eval routine when it can't move anymore).
+X *    * Teach it to be able to backup move in case you make a mistake.
+X *    * Add options to play blue or green, or both (for the computer to play
+X *      against itself, you definitely need to teach it to recognize the end
+X *      of the game :-).
+X */
+X
+X#include <stdio.h>
+X#include <limits.h>
+X
+Xint max_level = 2; /* max level to search in the game tree */
+X
+Xtypedef enum {
+X   Green,
+X   Blue,
+X   Open
+X} Pieces;
+X
+X/* There is only one copy of the board. Each move stores enough information
+X * to put the board back the way it was, so as we walk up and down the tree,
+X * we change the board back and forth.
+X */
+XPieces board [7] [7] = {
+X   {Blue,  Open, Open, Open, Open, Open, Green},
+X   {Open,  Open, Open, Open, Open, Open, Open},
+X   {Open,  Open, Open, Open, Open, Open, Open},
+X   {Open,  Open, Open, Open, Open, Open, Open},
+X   {Open,  Open, Open, Open, Open, Open, Open},
+X   {Open,  Open, Open, Open, Open, Open, Open},
+X   {Green, Open, Open, Open, Open, Open, Blue},
+X};
+X
+X/* The following defines are used to make a bit mask for each move
+X * indicating which directions around the destination cell had opposite
+X * color cells that were eaten.
+X */
+X#define ATE_N   0x01
+X#define ATE_NE  0x02
+X#define ATE_E   0x04
+X#define ATE_SE  0x08
+X#define ATE_S   0x10
+X#define ATE_SW  0x20
+X#define ATE_W   0x40
+X#define ATE_NW  0x80
+X
+Xtypedef struct mv {
+X   unsigned int food :8; /* Mask indicating directions we ate cells in */
+X   int from_row :4;      /* moved cell from this row & col */
+X   int from_col :4;
+X   int to_row :4;        /* moved to this row & col */
+X   int to_col :4;
+X} Move;
+X
+Xtypedef struct mi {
+X   int row_delta;
+X   int col_delta;
+X   unsigned int food_bit;
+X} MoveInfo;
+X
+XMoveInfo moves[8] = {
+X   {-1, 0, ATE_N},
+X   {-1, 1, ATE_NE},
+X   {0, 1, ATE_E},
+X   {1, 1, ATE_SE},
+X   {1, 0, ATE_S},
+X   {1, -1, ATE_SW},
+X   {0, -1, ATE_W},
+X   {-1, -1, ATE_NW}
+X};
+X
+X/* MakeMove makes a move on the board, clearing the source cell if the
+X * distance moved was greater than 1 and eating any adjacent cells.  It also
+X * records eaten cells in the food field of the input Move struct.
+X */
+Xvoid
+XMakeMove(Move * mp)
+X{
+X   int fr = mp->from_row;
+X   int tr = mp->to_row;
+X   int fc = mp->from_col;
+X   int tc = mp->to_col;
+X   int dr = fr - tr;
+X   int dc = fc - tc;
+X   Pieces pc = board[fr][fc];
+X   Pieces np = ((pc == Green) ? Blue : Green);
+X   int i;
+X
+X   if (dr < 0) dr = - dr;
+X   if (dc < 0) dc = - dc;
+X   board[tr][tc] = pc;
+X   if (dr > 1 || dc > 1) {
+X      board[fr][fc] = Open;
+X   }
+X   for (i = 0; i < 8; ++i) {
+X      int nr = moves[i].row_delta + tr;
+X      int nc = moves[i].col_delta + tc;
+X      if (nr >= 0 && nr < 7 && nc >= 0 && nc < 7) {
+X         if (board[nr][nc] == np) {
+X            board[nr][nc] = pc;
+X            mp->food |= moves[i].food_bit;
+X         }
+X      }
+X   }
+X}
+X
+X/* UnMakeMove reverses what MakeMove did and puts the board back the way it
+X * was before the move happened.
+X */
+Xvoid
+XUnMakeMove(Move * mp)
+X{
+X   int fr = mp->from_row;
+X   int tr = mp->to_row;
+X   int fc = mp->from_col;
+X   int tc = mp->to_col;
+X   Pieces pc = board[tr][tc];
+X   Pieces np = ((pc == Green) ? Blue : Green);
+X   int i;
+X
+X   board[tr][tc] = Open;
+X   board[fr][fc] = pc;
+X   for (i = 0; i < 8; ++i) {
+X      if ((mp->food & moves[i].food_bit) != 0) {
+X         board[tr + moves[i].row_delta][tc + moves[i].col_delta] = np;
+X      }
+X   }
+X}
+X
+X/* EvaluateBoard comes up with an estimate of how Blue is doing (positive is
+X * good for blue, negative is good for green).  Just to get this working I
+X * made this simply count numbers of cells, blue counts 1, green counts -1.
+X *
+X * It turns out that evaluation routine is good enough to win, which
+X * is also good enough for me.
+X */
+X
+Xint
+XBoardValue()
+X{
+X   int i,j;
+X   int value;
+X
+X   value = 0;
+X   for (i = 0; i < 7; ++i) {
+X      for (j = 0; j < 7; ++j) {
+X         if (board[i][j] == Green) {
+X            value -= 1;
+X         } else if (board[i][j] == Blue) {
+X            value += 1;
+X         }
+X      }
+X   }
+X   return value;
+X}
+X
+XMove movelist[1176]; /* Definite upper bound on number of legal moves :-) */
+X
+X/* The ListMoves function goes through the board finding all pieces of
+X * the given color and listing all possible moves in the movelist array,
+X * returning the number of moves found.
+X */
+Xint
+XListMoves(Pieces color)
+X{
+X   int i,j,dr,dc,row,col;
+X   int movecount;
+X
+X   movecount = 0;
+X   for (i = 0; i < 7; ++i) {
+X      for (j = 0; j < 7; ++j) {
+X         if (board[i][j] == color) {
+X            for (dr = -2; dr <= 2; ++dr) {
+X               for (dc = -2; dc <= 2; ++dc) {
+X                  if ((dr != 0) || (dc != 0)) {
+X                     row = i + dr;
+X                     col = j + dc;
+X                     if (row >= 0 && row < 7 && col >= 0 && col < 7) {
+X                        if (board[row][col] == Open) {
+X                           movelist[movecount].food = 0;
+X                           movelist[movecount].from_row = i;
+X                           movelist[movecount].from_col = j;
+X                           movelist[movecount].to_row = row;
+X                           movelist[movecount].to_col = col;
+X                           ++movecount;
+X                        }
+X                     }
+X                  }
+X               }
+X            }
+X         }
+X      }
+X   }
+X   return movecount;
+X}
+X
+X/* EvalBlueMove looks for the best move for Blue. It returns the value of
+X * the best move, and fills in the move itself in the best_move struct.
+X *
+X * If no move is possible, or the max level is exceeded, it simply returns
+X * the value of the current board, but does not pick a move.
+X *
+X * This routine does not make the move, it simply computes it. The board
+X * is unchanged following this call.
+X *
+X * Because positive numbers are good for blue, this looks for the highest
+X * value move.
+X */
+Xint
+XEvalBlueMove(Move * best_move, int level)
+X{
+X   Move * ml;
+X   int    mc;
+X   int    bestval, bestmove;
+X   Move   dummy;
+X   int    mval;
+X   int    i;
+X
+X   if ((level > max_level) || ((mc = ListMoves(Blue)) == 0)) {
+X      return BoardValue();
+X   }
+X   ml = (Move *)alloca(sizeof(Move) * mc);
+X   memcpy((void *)ml, (void *)&movelist[0], sizeof(Move) * mc);
+X   bestval = INT_MIN;
+X   bestmove = -1;
+X   for (i = 0; i < mc; ++i) {
+X      MakeMove(ml + i);
+X      mval = EvalGreenMove(&dummy, level + 1);
+X      if (mval > bestval) {
+X         bestval = mval;
+X         bestmove = i;
+X      }
+X      UnMakeMove(ml + i);
+X   }
+X   *best_move = ml[bestmove];
+X   return bestval;
+X}
+X
+X/* EvalGreenMove is the mirror image routine to EvalBlueMove. It looks for the
+X * smallest value as the best move for Green.
+X */
+Xint
+XEvalGreenMove(Move * best_move, int level)
+X{
+X   Move * ml;
+X   int    mc;
+X   int    bestval, bestmove;
+X   Move   dummy;
+X   int    mval;
+X   int    i;
+X
+X   if ((level > max_level) || ((mc = ListMoves(Green)) == 0)) {
+X      return BoardValue();
+X   }
+X   ml = (Move *)alloca(sizeof(Move) * mc);
+X   memcpy((void *)ml, (void *)&movelist[0], sizeof(Move) * mc);
+X   bestval = INT_MAX;
+X   bestmove = -1;
+X   for (i = 0; i < mc; ++i) {
+X      MakeMove(ml + i);
+X      mval = EvalBlueMove(&dummy, level + 1);
+X      if (mval < bestval) {
+X         bestval = mval;
+X         bestmove = i;
+X      }
+X      UnMakeMove(ml + i);
+X   }
+X   *best_move = ml[bestmove];
+X   return bestval;
+X}
+X
+Xvoid
+XPrintBoard()
+X{
+X   int i,j;
+X
+X   printf("  a b c d e f g\n");
+X   for (i = 0; i < 7; ++i) {
+X      printf("%d", i+1);
+X      for (j = 0; j < 7; ++j) {
+X         if (board[i][j] == Green) {
+X            printf(" G");
+X         } else if (board[i][j] == Blue) {
+X            printf(" B");
+X         } else {
+X            printf(" .");
+X         }
+X      }
+X      printf("\n");
+X   }
+X   fflush(stdout);
+X}
+X
+X/* ReadMove asks for and verifies a move for a piece of the given color.
+X */
+XMove
+XReadMove(Pieces color)
+X{
+X   char buf[80];
+X   int mc = ListMoves(color);
+X   Move rval;
+X   int from_row, to_row, i;
+X   char from_col, to_col;
+X
+X   rval.food = 0;
+X   for ( ; ; ) {
+X      printf("Move? ");
+X      fflush(stdout);
+X      if (fgets(buf, sizeof(buf), stdin) == NULL) {
+X         printf("\n");
+X         exit(0);
+X      }
+X      if (buf[0] == 'q') {
+X         exit(0);
+X      }
+X      if (4 == sscanf(buf,"%c%d%c%d",&from_col,&from_row,&to_col,&to_row)) {
+X         from_col -= 'a';
+X         to_col -= 'a';
+X         from_row -= 1;
+X         to_row -= 1;
+X         for (i = 0; i < mc; ++i) {
+X            if (movelist[i].from_col == from_col &&
+X                movelist[i].from_row == from_row &&
+X                movelist[i].to_col == to_col &&
+X                movelist[i].to_row == to_row) {
+X               rval.from_row = from_row;
+X               rval.from_col = from_col;
+X               rval.to_row = to_row;
+X               rval.to_col = to_col;
+X               return rval;
+X            }
+X         }
+X         printf("Not a valid move: %s", buf);
+X         printf("Please input from col from row to col to row as in: b2c2\n");
+X         printf("Or type q to quit.\n");
+X      }
+X   }
+X}
+X
+Xint
+Xmain(int argc, char ** argv)
+X{
+X   if (argc > 1) {
+X      max_level = atoi(argv[1]);
+X   }
+X   for ( ; ; ) {
+X      Move tm;
+X      printf("Thinking...");
+X      fflush(stdout);
+X      EvalBlueMove(&tm, 0);
+X      MakeMove(&tm);
+X      printf("My move is %c%d%c%d\n", tm.from_col + 'a', tm.from_row + 1,
+X         tm.to_col + 'a', tm.to_row + 1);
+X      PrintBoard();
+X      tm = ReadMove(Green);
+X      MakeMove(&tm);
+X      PrintBoard();
+X   }
+X}
+END_OF_FILE
+if test 12268 -ne `wc -c <'cell.c'`; then
+    echo shar: \"'cell.c'\" unpacked with wrong size!
+fi
+# end of 'cell.c'
+fi
+if test -f 'knight.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'knight.c'\"
+else
+echo shar: Extracting \"'knight.c'\" \(11900 characters\)
+sed "s/^X//" >'knight.c' <<'END_OF_FILE'
+X/* Yet another program in the 7th guest collection. This one solves the
+X * knights problem which I have done by hand, but I want to see if I can get
+X * a program to work as well.
+X *
+X * Pieces of this were cut and pasted from bishop.c, but a breadth first
+X * search doesn't work here - there are way too many moves.  I need to do a
+X * depth first search with a move ordering algorithm that orders the moves
+X * first that put the most white knights in the black positions and
+X * vice-versa.
+X *
+X * Here's the deal. There are 12 black knights and 12 white knights arranged
+X * on a 5 x 5 chessboard like so:
+X *
+X *   a b c d e
+X * 1 B B B B W
+X * 2 B B B W W
+X * 3 B B . W W
+X * 4 B B W W W
+X * 5 B W W W W
+X *
+X * The idea is to swap the white and black knights.
+X *
+X * This program tackles the problem with a depth first search operating
+X * like so:
+X *
+X * A hash table is kept of all board positions examined, computing legal
+X * moves from one board position involves both checking for knights that are
+X * free to move to the empty square as well as checking to see if we were
+X * ever at this board configuration before. Repeated configurations are not
+X * allowed.
+X *
+X * The hash table (in addition to being keyed off the board configuration)
+X * keeps a pointer to the board configuration which was the parent of this
+X * one (since repeated configurations are not allowed, duplicate parents
+X * will not be possible, so only one pointer is needed).
+X *
+X * Moves are ordered by the simple criteria of counting white knights
+X * in black positions and black knights in white positions and adding
+X * the two together. The highest scoring moves are tried first and the
+X * algorithm proceeds recursively doing a depth first walk.
+X *
+X * When the desired configuration is created, the algorithm terminates, and
+X * back-tracks through the hash table entry pointers to trace out the
+X * sequence of moves from the initial to the final configuration.
+X *
+X * Just for the heck of it, I put in some code to allow it to continue
+X * searching for a shorter solution than the original one it finds, but
+X * it takes too long and eats too much space, so I have it automatically
+X * cut itself off after a certain amount of work.
+X */
+X
+X#include <stdio.h>
+X
+X#define HASH_MAX 2063
+X
+X/* The BoardConfiguration struct records a particular board configuration.
+X * it is also the element kept in the hash table.
+X *
+X * The board is stored as two words, each holding 25 bits. One mask
+X * represents the white knight positions, the other the black positions.
+X *
+X * If you imagine the board squares numbered as follows:
+X *
+X *   0  1  2  3  4
+X *   5  6  7  8  9
+X *  10 11 12 13 14
+X *  15 16 17 18 19
+X *  20 21 22 23 24
+X *
+X * Then the bit masks store knight positions by shifting 1 left by the
+X * board position number, then oring it into the mask for the appropriate
+X * color. For example, the initial board configuration is:
+X */
+X#define START_BLACK ((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5) | \
+X                     (1 << 6) | (1 << 7) | (1 << 10) | (1 << 11) | (1 << 15) | \
+X                     (1 << 16) | (1 << 20))
+X#define START_WHITE ((1 << 4) | (1 << 8) | (1 << 9) | (1 << 13) | (1 << 14) | \
+X                     (1 << 17) | (1 << 18) | (1 << 19) | (1 << 21) | \
+X                     (1 << 22) | (1 << 23) | (1 << 24))
+X
+Xtypedef struct bc {
+X   struct bc *    next;        /* identical hash codes linked through this */
+X   struct bc *    parent;      /* points to board config this derived from */
+X   unsigned long  black_mask;  /* black knight positions */
+X   unsigned long  white_mask;  /* white knight positions */
+X   int            depth;       /* depth in tree where this was found */
+X} BoardConfiguration;
+X
+X/* hash_tab is the hash table of moves already seen
+X */
+XBoardConfiguration * hash_tab[HASH_MAX];
+X
+X/* Each row is a list of positions you can move to from a given position.
+X * (each row is terminated with 25 to mark the end of the list.
+X */
+Xchar move_to[25][9] = {
+X   {7, 11, 25},
+X   {8, 12, 10, 25},
+X   {9, 13, 11, 5, 25},
+X   {14, 12, 6, 25},
+X   {13, 7, 25},
+X   {2, 12, 16, 25},
+X   {3, 13, 17, 15, 25},
+X   {4, 14, 18, 16, 10, 0, 25},
+X   {19, 17, 11, 1, 25},
+X   {18, 12, 2, 25},
+X   {1, 7, 17, 21, 25},
+X   {2, 8, 18, 22, 20, 0, 25},
+X   {3, 9, 19, 23, 21, 15, 5, 1, 25},
+X   {4, 24, 22, 16, 6, 2, 25},
+X   {23, 17, 7, 3, 25},
+X   {6, 12, 22, 25},
+X   {7, 13, 23, 5, 25},
+X   {8, 14, 24, 20, 10, 6, 25},
+X   {9, 21, 11, 7, 25},
+X   {22, 12, 8, 25},
+X   {11, 17, 25},
+X   {12, 18, 10, 25},
+X   {13, 19, 15, 11, 25},
+X   {14, 16, 12, 25},
+X   {17, 13, 25}
+X};
+X
+Xint board_count = 0;
+Xint mod_count = 0;
+X
+X/* NewBoardConfiguration looks up a proposed new board configuration in the
+X * hash table. If it is not already there, it creates the new object and
+X * installs it in the table, returning a pointer to it. Otherwise it just
+X * returns NULL.
+X */
+XBoardConfiguration *
+XNewBoardConfiguration(
+X   BoardConfiguration * parent,
+X   unsigned long black_mask,
+X   unsigned long white_mask)
+X{
+X   /* xor is a terrible hash here since almost all but one of the bits are
+X    * always set in the union of both masks.
+X    */
+X   unsigned long hash = (black_mask * white_mask) % HASH_MAX;
+X   BoardConfiguration * ptr = hash_tab[hash];
+X   while (ptr != NULL) {
+X      if ((ptr->black_mask == black_mask) && (ptr->white_mask == white_mask)) {
+X         return NULL;
+X      }
+X      ptr = ptr->next;
+X   }
+X   ptr = (BoardConfiguration *)malloc(sizeof(BoardConfiguration));
+X   ptr->next = hash_tab[hash];
+X   ptr->parent = parent;
+X   if (parent == NULL) {
+X      ptr->depth = 0;
+X   } else {
+X      ptr->depth = parent->depth + 1;
+X   }
+X   ptr->black_mask = black_mask;
+X   ptr->white_mask = white_mask;
+X   hash_tab[hash] = ptr;
+X   ++board_count;
+X   ++mod_count;
+X   if (mod_count == 1000) {
+X      printf("At %d positions and counting...\n", board_count);
+X      fflush(stdout);
+X      mod_count = 0;
+X   }
+X   return ptr;
+X}
+X
+Xint
+XCountBits(unsigned long m)
+X{
+X   int c = 0;
+X   while (m > 0) {
+X      c += (m & 1);
+X      m >>= 1;
+X   }
+X   return c;
+X}
+X
+Xint
+XBoardValue(BoardConfiguration * bp)
+X{
+X   return CountBits(bp->white_mask & START_BLACK) +
+X          CountBits(bp->black_mask & START_WHITE);
+X}
+X
+Xint
+XCompareBoards(void * a, void * b)
+X{
+X   BoardConfiguration * ba = *(BoardConfiguration **)a;
+X   BoardConfiguration * bb = *(BoardConfiguration **)b;
+X   return BoardValue(bb) - BoardValue(ba);
+X}
+X
+X/* FindSolution runs the depth first algorithm, returning the first solution
+X * it finds (I suppose I could keep looking until I find a shorter and shorter
+X * solution, but that would probably take awhile).
+X *
+X * Actually, I just ran this, and it found a 160 move solution in practically
+X * zero time, so I think maybe I will have it keep searching for the shortest
+X * path, perhaps it really won't take very long...
+X *
+X * OK. It does take too long. I added a cutoff to make it stop after looking
+X * at 10000 different board configurations.
+X */
+XBoardConfiguration *
+XFindSolution(BoardConfiguration * hp, int depth, BoardConfiguration * sp)
+X{
+X   BoardConfiguration * moves[8];
+X   int move_count = 0;
+X   int i;
+X   unsigned long mask;
+X
+X   if ((sp != NULL) && ((board_count > 10000) || (depth >= sp->depth))) {
+X      return sp;
+X   }
+X   /* Compute all the legal moves I can make from this board configuration.
+X    */
+X   for (i = 0, mask = (1 << 0); i < 25; ++i, mask <<= 1) {
+X      if ((hp->black_mask & mask) != 0) {
+X         /* There is a black knight at position i, check each move it
+X          * can make.
+X          */
+X         int j, d;
+X         for (j = 0; ((d = move_to[i][j]) != 25); ++j) {
+X            unsigned long dmask = (1 << d);
+X            /* Make sure I don't move on top of a another piece.
+X             */
+X            if ((dmask & (hp->black_mask | hp->white_mask)) == 0) {
+X               BoardConfiguration * np =
+X                  NewBoardConfiguration(hp,
+X                     (hp->black_mask ^ mask) | dmask,
+X                     hp->white_mask);
+X               if (np != NULL) {
+X                  /* If this is what we have been looking for, return
+X                   * it now.
+X                   */
+X                  if ((np->black_mask == START_WHITE) &&
+X                      (np->white_mask == START_BLACK)) {
+X                     printf("Found solution at depth %d\n", np->depth);
+X                     return np;
+X                  }
+X                  moves[move_count++] = np;
+X               }
+X            }
+X         }
+X      }
+X      if ((hp->white_mask & mask) != 0) {
+X         /* There is a white knight at position i, check each move it
+X          * can make.
+X          */
+X         int j, d;
+X         for (j = 0; ((d = move_to[i][j]) != 25); ++j) {
+X            unsigned long dmask = (1 << d);
+X            /* Make sure I don't move on top of a another piece.
+X             */
+X            if ((dmask & (hp->black_mask | hp->white_mask)) == 0) {
+X               BoardConfiguration * np =
+X                  NewBoardConfiguration(hp,
+X                     hp->black_mask,
+X                     (hp->white_mask ^ mask) | dmask);
+X               if (np != NULL) {
+X                  /* If this is what we have been looking for, return
+X                   * it now.
+X                   */
+X                  if ((np->black_mask == START_WHITE) &&
+X                      (np->white_mask == START_BLACK)) {
+X                     printf("Found solution at depth %d\n", np->depth);
+X                     return np;
+X                  }
+X                  moves[move_count++] = np;
+X               }
+X            }
+X         }
+X      }
+X   }
+X   if (move_count == 0) {
+X      return sp;
+X   }
+X   qsort((void *)&moves[0], move_count, sizeof(moves[0]), CompareBoards);
+X   for (i = 0; i < move_count; ++i) {
+X      sp = FindSolution(moves[i], depth + 1, sp);
+X      if ((sp != NULL) && (board_count > 10000)) {
+X         /* If the hash table is starting to get really full, just give up
+X          * and go with the solution we already have...
+X          */
+X         return sp;
+X      }
+X   }
+X   return sp;
+X}
+X
+Xchar * bit_names[25] = {
+X   "a1", "b1", "c1", "d1", "e1",
+X   "a2", "b2", "c2", "d2", "e2",
+X   "a3", "b3", "c3", "d3", "e3",
+X   "a4", "b4", "c4", "d4", "e4",
+X   "a5", "b5", "c5", "d5", "e5"
+X};
+X
+Xvoid
+XPrintBit(unsigned long mask)
+X{
+X   unsigned long t;
+X   int i;
+X   for (i = 0, t = (1 << 0); i < 25; ++i, t <<= 1) {
+X      if (mask & t) {
+X         printf(bit_names[i]);
+X         return;
+X      }
+X   }
+X   printf("??");
+X   return;
+X}
+X
+Xstatic int move_num = 0;
+X
+Xvoid
+XPrintSolution(BoardConfiguration * bp)
+X{
+X   int i,j;
+X   unsigned long mask;
+X
+X   if (bp == NULL) {
+X      return;
+X   }
+X   PrintSolution(bp->parent);
+X   printf("Board %d:\tvalue = %d\n", move_num++, BoardValue(bp));
+X   printf("  a b c d e ");
+X   if (bp->parent == NULL) {
+X      printf("starting position\n");
+X   } else {
+X      /* Figure out what the move was in algebraic notation and print that.
+X       */
+X      unsigned long old_mask = (bp->parent->black_mask |
+X                                bp->parent->white_mask);
+X      unsigned long new_mask = (bp->black_mask | bp->white_mask);
+X      unsigned long changed_mask = old_mask ^ new_mask;
+X      unsigned long old_bit = old_mask & changed_mask;
+X      unsigned long new_bit = new_mask & changed_mask;
+X      PrintBit(old_bit);
+X      printf("-");
+X      PrintBit(new_bit);
+X      printf("\n");
+X   }
+X   mask = (1 << 0);
+X   for (i = 0; i < 5; ++i) {
+X      printf("%d", i + 1);
+X      for (j = 0; j < 5; ++j) {
+X         if (bp->black_mask & mask) {
+X            printf(" B");
+X         } else if (bp->white_mask & mask) {
+X            printf(" W");
+X         } else {
+X            printf(" .");
+X         }
+X         mask <<= 1;
+X      }
+X      printf("\n");
+X   }
+X}
+X
+Xint
+Xmain(int argc, char ** argv)
+X{
+X   BoardConfiguration * bp =
+X      FindSolution(NewBoardConfiguration(NULL, START_BLACK, START_WHITE),
+X      0,
+X      NULL);
+X   if (bp == NULL) {
+X      printf("Failed to find solution.\n");
+X      exit(2);
+X   }
+X   PrintSolution(bp);
+X   printf("The total board count examined was %d.\n",board_count);
+X}
+END_OF_FILE
+if test 11900 -ne `wc -c <'knight.c'`; then
+    echo shar: \"'knight.c'\" unpacked with wrong size!
+fi
+# end of 'knight.c'
+fi
+if test -f 'queen.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'queen.c'\"
+else
+echo shar: Extracting \"'queen.c'\" \(1188 characters\)
+sed "s/^X//" >'queen.c' <<'END_OF_FILE'
+X/* This is just a quickie program to compute a solution to the 8 queens
+X * problem (which shows up in the game room).
+X */
+X#include <stdio.h>
+X
+Xstatic char board[8][8];
+X
+Xint
+Xsumline(int start_row, int start_col, int row_inc, int col_inc)
+X{
+X   int sum = 0;
+X   while ((start_row >= 0) && (start_row <= 7) &&
+X          (start_col >= 0) && (start_col <= 7)) {
+X      sum += board[start_row][start_col];
+X      start_row += row_inc;
+X      start_col += col_inc;
+X   }
+X   return sum;
+X}
+X
+Xvoid
+Xtryrow(int rownum)
+X{
+X   int i,j,col,row;
+X   if (rownum >= 8) {
+X      printf("Solution:\n");
+X      for (i = 0; i < 8; ++i) {
+X         for (j = 0; j < 8; ++j) {
+X            if (board[i][j]) {
+X               printf(" Q");
+X            } else {
+X               printf(" .");
+X            }
+X         }
+X         printf("\n");
+X      }
+X      return;
+X   }
+X   for (col = 0; col < 8; ++col) {
+X      board[rownum][col] = 1;
+X      if ((sumline(rownum, col, -1, 0) +
+X          sumline(rownum, col, -1, 1) +
+X          sumline(rownum, col, -1, -1)) == 3) {
+X         tryrow(rownum + 1);
+X      }
+X      board[rownum][col] = 0;
+X   }
+X}
+X
+Xint
+Xmain(int argc, char ** argv)
+X{
+X   memset((void *)board, 0, sizeof(board));
+X   tryrow(0);
+X}
+END_OF_FILE
+if test 1188 -ne `wc -c <'queen.c'`; then
+    echo shar: \"'queen.c'\" unpacked with wrong size!
+fi
+# end of 'queen.c'
+fi
+if test -f 'tile.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tile.c'\"
+else
+echo shar: Extracting \"'tile.c'\" \(6331 characters\)
+sed "s/^X//" >'tile.c' <<'END_OF_FILE'
+X/* The floor tiles in the basement make no sense even trying all possible
+X * color->number assignments and taking the hint into account. So I am
+X * writing this program to simply enumerate all possible paths so I can
+X * try them one at a time...
+X *
+X * I did accidentally solve the puzzle once by going up the left side and
+X * across the top, but I am not sure what I did. This will allow me to
+X * eliminate a large class of the possible paths and may keep the list
+X * down to a manageable size.
+X *
+X * Tiles are assigned numbers starting with 0 at the bottom left corner and
+X * numbering up each column ending with 30 at the top right corner. Because
+X * of my previous accidental solution, I know I must go through tile 16
+X * and I must not go through tile 24 (I can achieve this effect by simply
+X * not listing any paths through 24 which means all valid paths must wind
+X * up going through 16).
+X *
+X * Yeech! There turn out to be way too many combinations. I need to look for
+X * patterns again (maybe I can teach this program to look for patterns).
+X *
+X * I can help some by making the tile cutoff at 15 and 14 instead of just
+X * 24.
+X *
+X * I am also going to record the colors of the tiles and eliminate sequences 
+X * that duplicate the same color sequence even if they don't do the same
+X * tile sequence.
+X *
+X * Well, it's getting smaller. Its down to 431 possible sequences. I am now
+X * going to print all six possible numeric color mappings for each path to
+X * see if any of them look like obvious patterns...
+X *
+X * [Why do I get the feeling that if I ever figure this out, I will look
+X * like an idiot for going to all this trouble :-].
+X *
+X * Sigh. I still see no patterns of any kind, but it turns out that if I
+X * just start trying the 400 or so patterns this program generates, the
+X * second one does the trick (I hope prior state doesn't determine what
+X * works - if so, the second pattern probably *isn't* what really worked,
+X * but all the random attempts leading up to it :-).
+X */
+X
+X#include <stdio.h>
+X
+Xtypedef enum {
+X   Finish,
+X   Purple,
+X   Yellow,
+X   Blue,
+X   Start
+X} TileColor;
+X
+Xchar color_names[] = "FPYBS";
+X
+Xint number_perms[6][5] = {
+X   {0, 1, 2, 3, 4},
+X   {0, 1, 3, 2, 4},
+X   {0, 2, 1, 3, 4},
+X   {0, 2, 3, 1, 4},
+X   {0, 3, 1, 2, 4},
+X   {0, 3, 2, 1, 4}
+X};
+X
+Xchar number_names[] = "B123A";
+X
+Xtypedef struct ft {
+X   int         prev;  /* Number of the tile I was on before this */
+X   int         mark;  /* Set TRUE if I have seen this tile already */
+X   TileColor   color; /* Color of this tile */
+X} FloorTile;
+X
+XFloorTile tile[31] = {
+X/*  0 */   {0,0,Start},
+X/*  1 */   {0,0,Yellow},
+X/*  2 */   {0,0,Purple},
+X/*  3 */   {0,0,Purple},
+X/*  4 */   {0,0,Purple},
+X/*  5 */   {0,0,Purple},
+X/*  6 */   {0,0,Blue},
+X/*  7 */   {0,0,Blue},
+X/*  8 */   {0,0,Yellow},
+X/*  9 */   {0,0,Purple},
+X/* 10 */   {0,0,Yellow},
+X/* 11 */   {0,0,Purple},
+X/* 12 */   {0,0,Blue},
+X/* 13 */   {0,0,Blue},
+X/* 14 */   {0,0,Yellow},
+X/* 15 */   {0,0,Purple},
+X/* 16 */   {0,0,Yellow},
+X/* 17 */   {0,0,Blue},
+X/* 18 */   {0,0,Yellow},
+X/* 19 */   {0,0,Purple},
+X/* 20 */   {0,0,Blue},
+X/* 21 */   {0,0,Yellow},
+X/* 22 */   {0,0,Purple},
+X/* 23 */   {0,0,Purple},
+X/* 24 */   {0,0,Blue},
+X/* 25 */   {0,0,Blue},
+X/* 26 */   {0,0,Yellow},
+X/* 27 */   {0,0,Blue},
+X/* 28 */   {0,0,Purple},
+X/* 29 */   {0,0,Blue},
+X/* 30 */   {0,0,Finish}
+X};
+X
+Xint step[31][6] = {
+X/*  0 */   {4, 31},
+X/*  1 */   {5, 6, 31},
+X/*  2 */   {7, 8, 31},
+X/*  3 */   {9, 31},
+X/*  4 */   {0, 10, 5, 31},
+X/*  5 */   {1, 6, 11, 10, 4, 31},
+X/*  6 */   {7, 11, 5, 1, 31},
+X/*  7 */   {2, 8, 31},
+X/*  8 */   {7, 2, 9, 12, 31},
+X/*  9 */   {3, 13, 12, 8, 31},
+X/* 10 */   {4, 5, 11, /*15, 14,*/ 31},
+X/* 11 */   {/*15,*/ 10, 5, 6, 31},
+X/* 12 */   {8, 9, 13, 16, 31},
+X/* 13 */   {9, 12, 16, 31},
+X/* 14 */   {10, 15, 17, 31},
+X/* 15 */   {18, 17, 14, 10, 11, 31},
+X/* 16 */   {12, 13, 20, 19, 31},
+X/* 17 */   {14, 15, 18, 22, 21, 31},
+X/* 18 */   {15, 17, 22, 23, 31},
+X/* 19 */   {16, 20, 26, 25, 31},
+X/* 20 */   {16, 19, 26, 31},
+X/* 21 */   {27, 17, 22, 31},
+X/* 22 */   {21, 17, 18, 23, 28, 31},
+X/* 23 */   {18, 22, 28, /*24,*/ 31},
+X/* 24 */   {/*23, 25, 29,*/ 31},
+X/* 25 */   {19, 26, /*24,*/ 29, 31},
+X/* 26 */   {25, 19, 20, 30, 31},
+X/* 27 */   {21, 31},
+X/* 28 */   {22, 23, 31},
+X/* 29 */   {/*24,*/ 25, 31},
+X/* 30 */   {26, 31}
+X};
+X
+Xint max_len = 19;
+X
+Xvoid
+XPrintPath(int this_tile)
+X{
+X   if (this_tile == 0) {
+X      printf("  Path: 0");
+X   } else {
+X      PrintPath(tile[this_tile].prev);
+X      printf("-%d",this_tile);
+X   }
+X}
+X
+X#define HASH_MAX 2063
+X
+Xtypedef struct he {
+X   struct he * next;
+X   char        name[1];
+X} HashEntry;
+X
+XHashEntry * hash_tab[HASH_MAX];
+X
+Xvoid
+XCheckSequence()
+X{
+X   char seq_name[32];
+X   int i;
+X   int p;
+X   char * namep;
+X   unsigned long hash = 0;
+X   HashEntry * hep;
+X
+X   seq_name[31] = '\0';
+X   for (i = 30, p = 30; p != -1; --i, p = tile[p].prev) {
+X      int c = (int)(tile[p].color);
+X      seq_name[i] = (char)c;
+X      hash = ((hash << 2) ^ c);
+X   }
+X   ++i;
+X   namep = &seq_name[i];
+X   hash = hash % HASH_MAX;
+X   for (hep = hash_tab[hash]; hep != NULL; hep = hep->next) {
+X      if (strcmp(hep->name, namep) == 0) {
+X         /* Return without printing anything - we already saw this
+X          * sequence of colors.
+X          */
+X         return;
+X      }
+X   }
+X   hep = (HashEntry *)malloc(sizeof(HashEntry) + strlen(namep));
+X   strcpy(hep->name, namep);
+X   hep->next = hash_tab[hash];
+X   hash_tab[hash] = hep;
+X   PrintPath(30);
+X   printf("\n");
+X   printf("Colors:");
+X   while ((*namep) != '\0') {
+X      printf(" %c", color_names[*namep]);
+X      ++namep;
+X   }
+X   printf(" %c\n", color_names[0]);
+X   for (p = 0; p < 6; ++p) {
+X      namep = &seq_name[i];
+X      printf("Perm %d:", p);
+X      while ((*namep) != '\0') {
+X         printf(" %c", number_names[number_perms[p][*namep]]);
+X         ++namep;
+X      }
+X      printf(" %c\n", number_names[number_perms[p][0]]);
+X   }
+X}
+X
+Xvoid
+XWalkTile(int this_tile, int prev_tile, int len)
+X{
+X   int i, d;
+X
+X   tile[this_tile].mark = 1;
+X   tile[this_tile].prev = prev_tile;
+X   if (this_tile == 30) {
+X      CheckSequence();
+X   } else if (len < max_len) {
+X      for (i = 0; (d = step[this_tile][i]) != 31; ++i) {
+X         if (tile[d].mark == 0) {
+X            WalkTile(d, this_tile, len + 1);
+X         }
+X      }
+X   }
+X   tile[this_tile].mark = 0;
+X}
+X
+Xint
+Xmain(int argc, char ** argv)
+X{
+X   if (argc > 1) {
+X      max_len = atoi(argv[1]);
+X   }
+X   WalkTile(0, -1, 1);
+X}
+END_OF_FILE
+if test 6331 -ne `wc -c <'tile.c'`; then
+    echo shar: \"'tile.c'\" unpacked with wrong size!
+fi
+# end of 'tile.c'
+fi
+if test -f 'tiles' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tiles'\"
+else
+echo shar: Extracting \"'tiles'\" \(873 characters\)
+sed "s/^X//" >'tiles' <<'END_OF_FILE'
+XJust looking for patterns in the permutations of color to number assignments
+X(I can't find any).
+X
+XP=1      P=3      P=1      P=2      P=2      P=3
+XB=2      B=2      B=3      B=3      B=1      B=1
+XY=3      Y=1      Y=2      Y=1      Y=3      Y=2
+X
+X1 2 2 O  3 2 2 O  1 3 3 O  2 3 3 O  2 1 1 O  3 1 1 O
+X 1 3 3    3 1 1    1 2 2    2 1 1    2 3 3    3 2 2
+X  2 1      2 3      3 1      3 2      1 2      1 3
+X 3   2    1   2    2   3    1   3    3   1    2   1
+X1     2  3     2  1     3  2     3  2     1  3     1
+X 2   2    2   2    3   3    3   3    1   1    1   1
+X
+X 2   1    2   3    3   1    3   2    1   2    1   3
+X3 1 3 1  1 3 1 3  2 1 2 1  1 2 1 2  3 2 3 2  2 3 2 3
+X 1 1 1    3 3 3    1 1 1    2 2 2    2 2 2    3 3 3
+X  3 2      1 2      2 3      1 3      3 1      2 1
+X 1 3 3    3 1 1    1 2 2    2 1 1    2 3 3    3 2 2
+XI     2  I     2  I     3  I     3  I     1  I     1
+END_OF_FILE
+if test 873 -ne `wc -c <'tiles'`; then
+    echo shar: \"'tiles'\" unpacked with wrong size!
+fi
+# end of 'tiles'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+--
+======================================================================
+domain: tahorsley@csd.harris.com       USMail: Tom Horsley
+  uucp: ...!uunet!hcx1!tahorsley               511 Kingbird Circle
+                                               Delray Beach, FL  33444
++==== Censorship is the only form of Obscenity ======================+
+|     (Wait, I forgot government tobacco subsidies...)               |
++====================================================================+
+
+exit 0 # Just in case...

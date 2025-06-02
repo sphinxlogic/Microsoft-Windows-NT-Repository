@@ -1,0 +1,2779 @@
+Newsgroups: comp.sources.x
+From: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Subject: v19i107:  xephem - astronomical ephemeris program, Part19/21
+Message-ID: <1993May10.221325.9664@sparky.imd.sterling.com>
+X-Md4-Signature: 3ebabe619858e48d6fcc3b6b6f754654
+Date: Mon, 10 May 1993 22:13:25 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 19, Issue 107
+Archive-name: xephem/part19
+Environment: X11r4, OSF/Motif
+Supersedes: xephem: Volume 16, Issue 112-134
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  anomaly.c compiler.c db.c plans.c skyfiltmenu.c
+# Wrapped by chris@nova on Mon May 10 16:41:53 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 19 (of 21)."'
+if test -f 'anomaly.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'anomaly.c'\"
+else
+  echo shar: Extracting \"'anomaly.c'\" \(905 characters\)
+  sed "s/^X//" >'anomaly.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X
+X#define	TWOPI	(2*PI)
+X
+X/* given the mean anomaly, ma, and the eccentricity, s, of elliptical motion,
+X * find the true anomaly, *nu, and the eccentric anomaly, *ea.
+X * all angles in radians.
+X */
+Xvoid
+Xanomaly (ma, s, nu, ea)
+Xdouble ma, s;
+Xdouble *nu, *ea;
+X{
+X	double m, fea;
+X
+X	m = ma-TWOPI*(long)(ma/TWOPI);
+X	if (m > PI) m -= TWOPI;
+X	if (m < -PI) m += TWOPI;
+X	fea = m;
+X
+X	if (s < 1.0) {
+X	    /* elliptical */
+X	    double dla;
+X	    for (;;) {
+X		dla = fea-(s*sin(fea))-m;
+X		if (fabs(dla)<1e-6)
+X		    break;
+X		dla /= 1-(s*cos(fea));
+X		fea -= dla;
+X	    }
+X	    *nu = 2*atan(sqrt((1+s)/(1-s))*tan(fea/2));
+X        } else {
+X	    /* hyperbolic */
+X	    double corr = 1;
+X	    while (fabs(corr) > 0.000001) {
+X	      corr = (m - s * sinh(fea) + fea) / (s*cosh(fea) - 1);
+X	      fea += corr;
+X	    }
+X	    *nu = 2*atan(sqrt((s+1)/(s-1))*tanh(fea/2));
+X	}
+X	*ea = fea;
+X}
+END_OF_FILE
+  if test 905 -ne `wc -c <'anomaly.c'`; then
+    echo shar: \"'anomaly.c'\" unpacked with wrong size!
+  fi
+  # end of 'anomaly.c'
+fi
+if test -f 'compiler.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'compiler.c'\"
+else
+  echo shar: Extracting \"'compiler.c'\" \(16650 characters\)
+  sed "s/^X//" >'compiler.c' <<'END_OF_FILE'
+X/* module to compile and execute a c-style arithmetic expression.
+X * public entry points are compile_expr() and execute_expr().
+X * 
+X * field names are defined to be anything in double quotes when compiling.
+X * the compiler will build a table of names it sees; indexes into this table
+X * are part of the opcode. Field names are resolved when the expression is
+X * evaluated to avoid restricting when the fields are named and defined.
+X *
+X * one reason this is so nice and tight is that all opcodes are the same size
+X * (an int) and the tokens the parser returns are directly usable as opcodes.
+X * constants and variables are compiled as an opcode with an offset into the
+X *  auxiliary consts and vars arrays.
+X */
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <ctype.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <Xm/Xm.h>
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xint compile_expr P_((char *ex, char *errbuf));
+Xint execute_expr P_((double *vp, char *errbuf));
+Xint prog_isgood P_((void));
+Xvoid compiler_log P_((char *name, double value));
+Xstatic next_token P_((void));
+Xstatic chk_funcs P_((void));
+Xstatic void skip_double P_((void));
+Xstatic compile P_((int prec));
+Xstatic execute P_((double *result));
+Xstatic parse_fieldname P_((char name[], int len));
+X
+X#undef P_
+X
+X/* parser tokens and opcodes, as necessary */
+X#define	HALT	0	/* good value for HALT since program is inited to 0 */
+X/* binary operators (precedences in table, below) */
+X#define	ADD	1
+X#define	SUB	2
+X#define	MULT	3
+X#define	DIV	4
+X#define	AND	5
+X#define	OR	6
+X#define	GT	7
+X#define	GE	8
+X#define	EQ	9
+X#define	NE	10
+X#define	LT	11
+X#define	LE	12
+X/* unary op, precedence in NEG_PREC #define, below */
+X#define	NEG	13
+X/* symantically operands, ie, constants, variables and all functions */
+X#define	CONST	14	
+X#define	VAR	15
+X#define	ABS	16	/* add functions if desired just like this is done */
+X#define	SIN	17
+X#define	COS	18
+X#define	TAN	19
+X#define	ASIN	20
+X#define	ACOS	21
+X#define	ATAN	22
+X#define	PITOK	23	/* built-in constant, pi */
+X#define	DEGRAD	24
+X#define	RADDEG	25
+X#define	LOG	26
+X#define	LOG10	27
+X#define	EXP	28
+X#define	SQRT	29
+X#define	POW	30
+X#define	ATAN2	31
+X/* purely tokens - never get compiled as such */
+X#define	LPAREN	255
+X#define	RPAREN	254
+X#define	COMMA	253
+X#define	ERR	(-1)
+X
+X/* precedence of each of the binary operators.
+X * in case of a tie, compiler associates left-to-right.
+X * N.B. each entry's index must correspond to its #define!
+X */
+Xstatic int precedence[] = {0,5,5,6,6,2,1,4,4,3,3,4,4};
+X#define	NEG_PREC	7	/* negation is highest */
+X
+X/* execute-time operand stack */
+X#define	MAX_STACK	16
+Xstatic double stack[MAX_STACK], *sp;
+X
+X/* space for compiled opcodes - the "program".
+X * opcodes go in lower 8 bits.
+X * when an opcode has an operand (as CONST and VAR) it is really an array
+X *   index in the remaining upper bits.
+X */
+X#define	MAX_PROG 32
+Xstatic int program[MAX_PROG], *pc;
+X#define	OP_SHIFT	8
+X#define	OP_MASK		0xff
+X
+X/* auxiliary operand info.
+X * the operands (all but lower 8 bits) of CONST and VAR are really indeces
+X * into these arrays. thus, no point in making them any longer than you have
+X * bits more than 8 in your machine's int to index into it, ie, make
+X *    MAX_OPX <= 1 << ((sizeof(int)-1)*8)
+X */
+X#define	MAX_OPX		16
+X#define	MAXFLDLEN	32	/* longest allowed field name */
+Xtypedef struct {
+X    char v_name[MAXFLDLEN];	/* name of field */
+X    double v_v;			/* last known value of this field */
+X} Var;
+Xstatic Var vars[MAX_OPX];
+Xstatic int nvars;		/* number of vars[] in actual use */
+Xstatic double consts[MAX_OPX];
+Xstatic int nconsts;		/* number of consts[] in actual use */
+X
+X
+X/* these are global just for easy/rapid access */
+Xstatic int parens_nest;	/* to check that parens end up nested */
+Xstatic char *err_msg;	/* caller provides storage; we point at it with this */
+Xstatic char *cexpr, *lcexpr; /* pointers that move along caller's expression */
+Xstatic int good_prog;	/* != 0 when program appears to be good */
+X
+X/* compile the given c-style expression.
+X * return 0 and set good_prog if ok,
+X * else return -1 and a reason message in errbuf.
+X */
+Xcompile_expr (ex, errbuf)
+Xchar *ex;
+Xchar *errbuf;
+X{
+X	/* init the globals.
+X	 * also delete any flogs used in the previous program.
+X	 */
+X	cexpr = ex;
+X	err_msg = errbuf;
+X	pc = program;
+X	nvars = nconsts = 0;
+X	parens_nest = 0;
+X
+X	pc = program;
+X	if (compile(0) == ERR) {
+X	    (void) sprintf (err_msg + strlen(err_msg), " near `%.10s'", lcexpr);
+X	    good_prog = 0;
+X	    return (-1);
+X	}
+X	if (pc == program) {
+X	    (void) sprintf (err_msg, "null program");
+X	    good_prog = 0;
+X	    return (-1);
+X	}
+X	*pc++ = HALT;
+X	good_prog = 1;
+X	return (0);
+X}
+X
+X/* execute the expression previously compiled with compile_expr().
+X * return 0 with *vp set to the answer if ok, else return -1 with a reason
+X * why not message in errbuf.
+X */
+Xexecute_expr (vp, errbuf)
+Xdouble *vp;
+Xchar *errbuf;
+X{
+X	int s;
+X
+X	err_msg = errbuf;
+X	sp = stack + MAX_STACK;	/* grows towards lower addresses */
+X	pc = program;
+X	s = execute(vp);
+X	if (s < 0)
+X	    good_prog = 0;
+X	return (s);
+X}
+X
+X/* this is a way for the outside world to ask whether there is currently a
+X * reasonable program compiled and able to execute.
+X */
+Xprog_isgood()
+X{
+X	return (good_prog);
+X}
+X
+X/* called when each different field is written.
+X * this is just called by srch_log() to hide the fact from users of srch*
+X * that srch is really using our vars array to store values.
+X * since this gets called for all fields, it's not an error to not find name.
+X * don't stop when see the first one because a term might appear more than once.
+X */
+Xvoid
+Xcompiler_log (name, value)
+Xchar *name;
+Xdouble value;
+X{
+X	Var *vp;
+X
+X	for (vp = vars; vp < &vars[nvars]; vp++)
+X	    if (vp->v_name && strcmp (vp->v_name, name) == 0)
+X		vp->v_v = value;
+X}
+X
+X/* get and return the opcode corresponding to the next token.
+X * leave with lcexpr pointing at the new token, cexpr just after it.
+X * also watch for mismatches parens and proper operator/operand alternation.
+X */
+Xstatic
+Xnext_token ()
+X{
+X	static char toomv[] = "More than %d variables";
+X	static char toomc[] = "More than %d constants";
+X	static char badop[] = "Illegal operator";
+X	int tok = ERR;	/* just something illegal */
+X	char c;
+X
+X	while ((c = *cexpr) == ' ')
+X	    cexpr++;
+X	lcexpr = cexpr++;
+X
+X	/* mainly check for a binary operator */
+X	switch (c) {
+X	case ',': tok = COMMA; break;
+X	case '\0': --cexpr; tok = HALT; break; /* keep returning HALT */
+X	case '+': tok = ADD; break; /* compiler knows when it's really unary */
+X	case '-': tok = SUB; break; /* compiler knows when it's really negate */
+X	case '*': tok = MULT; break;
+X	case '/': tok = DIV; break;
+X	case '(': parens_nest++; tok = LPAREN; break;
+X	case ')':
+X	    if (--parens_nest < 0) {
+X	        (void) sprintf (err_msg, "Too many right parens");
+X		return (ERR);
+X	    } else
+X		tok = RPAREN;
+X	    break;
+X	case '|':
+X	    if (*cexpr == '|') { cexpr++; tok = OR; }
+X	    else { (void) sprintf (err_msg, badop); return (ERR); }
+X	    break;
+X	case '&':
+X	    if (*cexpr == '&') { cexpr++; tok = AND; }
+X	    else { (void) sprintf (err_msg, badop); return (ERR); }
+X	    break;
+X	case '=':
+X	    if (*cexpr == '=') { cexpr++; tok = EQ; }
+X	    else { (void) sprintf (err_msg, badop); return (ERR); }
+X	    break;
+X	case '!':
+X	    if (*cexpr == '=') { cexpr++; tok = NE; }
+X	    else { (void) sprintf (err_msg, badop); return (ERR); }
+X	    break;
+X	case '<':
+X	    if (*cexpr == '=') { cexpr++; tok = LE; }
+X	    else tok = LT;
+X	    break;
+X	case '>':
+X	    if (*cexpr == '=') { cexpr++; tok = GE; }
+X	    else tok = GT;
+X	    break;
+X	}
+X
+X	if (tok != ERR)
+X	    return (tok);
+X
+X	/* not op so check for a constant, variable or function */
+X	if (isdigit(c) || c == '.') {
+X	    /* looks like a constant.
+X	     * leading +- already handled
+X	     */
+X	    if (nconsts > MAX_OPX) {
+X		(void) sprintf (err_msg, toomc, MAX_OPX);
+X		return (ERR);
+X	    }
+X	    consts[nconsts] = atof (lcexpr);
+X	    tok = CONST | (nconsts++ << OP_SHIFT);
+X	    skip_double();
+X	} else if (isalpha(c)) {
+X	    /* check list of functions */
+X	    tok = chk_funcs();
+X	    if (tok == ERR) {
+X		(void) sprintf (err_msg, "bad function");
+X		return (ERR);
+X	    }
+X	} else if (c == '"') {
+X	    /* a variable */
+X	    if (nvars > MAX_OPX) {
+X		(void) sprintf (err_msg, toomv, MAX_OPX);
+X		return (ERR);
+X	    }
+X	    if (parse_fieldname (vars[nvars].v_name, MAXFLDLEN) < 0) {
+X		(void) sprintf (err_msg, "bad field");
+X		return (ERR);
+X	    } else
+X		tok = VAR | (nvars++ << OP_SHIFT);
+X	}
+X
+X	if (tok != ERR)
+X	    return (tok);
+X
+X	/* what the heck is it? */
+X	(void) sprintf (err_msg, "syntax error");
+X	return (ERR);
+X}
+X
+X/* return funtion token, else ERR.
+X * if find one, update cexpr too.
+X */
+Xstatic
+Xchk_funcs()
+X{
+X	static struct {
+X	    char *st_name;
+X	    int st_tok;
+X	} symtab[] = {
+X	     /* be sure to put short names AFTER longer ones */
+X	     {"abs", ABS},	 {"acos", ACOS},   {"asin", ASIN},
+X	     {"atan2", ATAN2},	 {"atan", ATAN},   {"cos", COS},
+X	     {"degrad", DEGRAD}, {"exp", EXP},	   {"log10", LOG10},
+X	     {"log", LOG},	 {"pi", PITOK},	   {"pow", POW},
+X	     {"raddeg", RADDEG}, {"sin", SIN},	   {"sqrt", SQRT},
+X	     {"tan", TAN}
+X	};
+X	int i;
+X
+X	for (i = 0; i < sizeof(symtab)/sizeof(symtab[0]); i++) {
+X	    int l = strlen (symtab[i].st_name);
+X	    if (strncmp (lcexpr, symtab[i].st_name, l) == 0) {
+X		cexpr += l-1;
+X		return (symtab[i].st_tok);
+X	    }
+X	}
+X	return (ERR);
+X}
+X
+X/* move cexpr on past a double.
+X * allow sci notation.
+X * no need to worry about a leading '-' or '+' but allow them after an 'e'.
+X * TODO: this handles all the desired cases, but also admits a bit too much
+X *   such as things like 1eee2...3. geeze; to skip a double right you almost
+X *   have to go ahead and crack it!
+X */
+Xstatic void
+Xskip_double()
+X{
+X	int sawe = 0;	/* so we can allow '-' or '+' right after an 'e' */
+X
+X	for (;;) {
+X	    char c = *cexpr;
+X	    if (isdigit(c) || c=='.' || (sawe && (c=='-' || c=='+'))) {
+X		sawe = 0;
+X		cexpr++;
+X	    } else if (c == 'e') {
+X		sawe = 1;
+X		cexpr++;
+X	    } else
+X		break;
+X	}
+X}
+X
+X/* call this whenever you want to dig out the next (sub)expression.
+X * keep compiling instructions as long as the operators are higher precedence
+X * than prec (or until see HALT, COMMA or RPAREN) then return that
+X * "look-ahead" token.
+X * if error, fill in a message in err_msg[] and return ERR.
+X */
+Xstatic
+Xcompile (prec)
+Xint prec;
+X{
+X	int expect_binop = 0;	/* set after we have seen any operand.
+X				 * used by SUB so it can tell if it really 
+X				 * should be taken to be a NEG instead.
+X				 */
+X	int tok = next_token ();
+X	int *oldpc;
+X
+X	for (;;) {
+X	    int p;
+X	    if (tok == ERR)
+X		return (ERR);
+X	    if (pc - program >= MAX_PROG) {
+X		(void) sprintf (err_msg, "program is too long");
+X		return (ERR);
+X	    }
+X
+X	    /* check for special things like functions, constants and parens */
+X            switch (tok & OP_MASK) {
+X	    case COMMA: return (tok);
+X            case HALT: return (tok);
+X	    case ADD:
+X		if (expect_binop)
+X		    break;	/* procede with binary addition */
+X		/* just skip a unary positive(?) */
+X		tok = next_token();
+X		if (tok == HALT) {
+X		    (void) sprintf (err_msg, "term expected");
+X		    return (ERR);
+X		}
+X		continue;
+X	    case SUB:
+X		if (expect_binop)
+X		    break;	/* procede with binary subtract */
+X		oldpc = pc;
+X		tok = compile (NEG_PREC);
+X		if (oldpc == pc) {
+X		    (void) sprintf (err_msg, "term expected");
+X		    return (ERR);
+X		}
+X		*pc++ = NEG;
+X		expect_binop = 1;
+X		continue;
+X	    /* one-arg functions */
+X            case ABS: case SIN: case COS: case TAN: case ASIN: case ACOS:
+X	    case ATAN: case DEGRAD: case RADDEG: case LOG: case LOG10:
+X	    case EXP: case SQRT:
+X		/* eat up the function's parenthesized argument */
+X		if (next_token() != LPAREN) {
+X		    (void) sprintf (err_msg, "saw a built-in function: expecting (");
+X		    return (ERR);
+X		}
+X		oldpc = pc;
+X		if (compile (0) != RPAREN || oldpc == pc) {
+X		    (void) sprintf (err_msg, "1-arg function arglist error");
+X		    return (ERR);
+X		}
+X		*pc++ = tok;
+X		tok = next_token();
+X		expect_binop = 1;
+X		continue;
+X	    /* two-arg functions */
+X	    case POW: case ATAN2:
+X		/* eat up the function's parenthesized arguments */
+X		if (next_token() != LPAREN) {
+X		    (void) sprintf (err_msg, "saw a built-in function: expecting (");
+X		    return (ERR);
+X		}
+X		oldpc = pc;
+X		if (compile (0) != COMMA || oldpc == pc) {
+X		    (void) sprintf (err_msg, "1st of 2-arg function arglist error");
+X		    return (ERR);
+X		}
+X		oldpc = pc;
+X		if (compile (0) != RPAREN || oldpc == pc) {
+X		    (void) sprintf (err_msg, "2nd of 2-arg function arglist error");
+X		    return (ERR);
+X		}
+X		*pc++ = tok;
+X		tok = next_token();
+X		expect_binop = 1;
+X		continue;
+X	    /* constants and variables are just like 0-arg functions w/o ()'s */
+X            case CONST:
+X	    case PITOK:
+X	    case VAR:
+X		*pc++ = tok;
+X		tok = next_token();
+X		expect_binop = 1;
+X		continue;
+X            case LPAREN:
+X		oldpc = pc;
+X		if (compile (0) != RPAREN) {
+X		    (void) sprintf (err_msg, "unmatched left paren");
+X		    return (ERR);
+X		}
+X		if (oldpc == pc) {
+X		    (void) sprintf (err_msg, "null expression");
+X		    return (ERR);
+X		}
+X		tok = next_token();
+X		expect_binop = 1;
+X		continue;
+X            case RPAREN:
+X		return (RPAREN);
+X            }
+X
+X	    /* everything else is a binary operator */
+X	    p = precedence[tok];
+X            if (p > prec) {
+X                int newtok;
+X		oldpc = pc;
+X                newtok = compile (p);
+X		if (newtok == ERR)
+X		    return (ERR);
+X		if (oldpc == pc) {
+X		    (void) strcpy (err_msg, "term or factor expected");
+X		    return (ERR);
+X		}
+X                *pc++ = tok;
+X		expect_binop = 1;
+X                tok = newtok;
+X            } else
+X                return (tok);
+X        }
+X}
+X
+X/* "run" the program[] compiled with compile().
+X * if ok, return 0 and the final result,
+X * else return -1 with a reason why not message in err_msg.
+X */
+Xstatic
+Xexecute(result)
+Xdouble *result;
+X{
+X	int instr; 
+X
+X	do {
+X	    instr = *pc++;
+X	    switch (instr & OP_MASK) {
+X	    /* put these in numberic order so hopefully even the dumbest
+X	     * compiler will choose to use a jump table, not a cascade of ifs.
+X	     */
+X	    case HALT:	break;	/* outer loop will stop us */
+X	    case ADD:	sp[1] = sp[1] +  sp[0]; sp++; break;
+X	    case SUB:	sp[1] = sp[1] -  sp[0]; sp++; break;
+X	    case MULT:	sp[1] = sp[1] *  sp[0]; sp++; break;
+X	    case DIV:	sp[1] = sp[1] /  sp[0]; sp++; break;
+X	    case AND:	sp[1] = sp[1] && sp[0] ? 1 : 0; sp++; break;
+X	    case OR:	sp[1] = sp[1] || sp[0] ? 1 : 0; sp++; break;
+X	    case GT:	sp[1] = sp[1] >  sp[0] ? 1 : 0; sp++; break;
+X	    case GE:	sp[1] = sp[1] >= sp[0] ? 1 : 0; sp++; break;
+X	    case EQ:	sp[1] = sp[1] == sp[0] ? 1 : 0; sp++; break;
+X	    case NE:	sp[1] = sp[1] != sp[0] ? 1 : 0; sp++; break;
+X	    case LT:	sp[1] = sp[1] <  sp[0] ? 1 : 0; sp++; break;
+X	    case LE:	sp[1] = sp[1] <= sp[0] ? 1 : 0; sp++; break;
+X	    case NEG:	*sp = -*sp; break;
+X	    case CONST:	*--sp = consts[instr >> OP_SHIFT]; break;
+X	    case VAR:	*--sp = vars[instr>>OP_SHIFT].v_v; break;
+X	    case PITOK:	*--sp = 4.0*atan(1.0); break;
+X	    case ABS:	*sp = fabs (*sp); break;
+X	    case SIN:	*sp = sin (*sp); break;
+X	    case COS:	*sp = cos (*sp); break;
+X	    case TAN:	*sp = tan (*sp); break;
+X	    case ASIN:	*sp = asin (*sp); break;
+X	    case ACOS:	*sp = acos (*sp); break;
+X	    case ATAN:	*sp = atan (*sp); break;
+X	    case DEGRAD:*sp *= atan(1.0)/45.0; break;
+X	    case RADDEG:*sp *= 45.0/atan(1.0); break;
+X	    case LOG:	*sp = log (*sp); break;
+X	    case LOG10:	*sp = log10 (*sp); break;
+X	    case EXP:	*sp = exp (*sp); break;
+X	    case SQRT:	*sp = sqrt (*sp); break;
+X	    case POW:	sp[1] = pow (sp[1], sp[0]); sp++; break;
+X	    case ATAN2:	sp[1] = atan2 (sp[1], sp[0]); sp++; break;
+X	    default:
+X		(void) sprintf (err_msg, "Bug! bad opcode: 0x%x", instr);
+X		return (-1);
+X	    }
+X	    if (sp < stack) {
+X		(void) sprintf (err_msg, "Runtime stack overflow");
+X		return (-1);
+X	    } else if (sp - stack > MAX_STACK) {
+X		(void) sprintf (err_msg, "Bug! runtime stack underflow");
+X		return (-1);
+X	    }
+X	} while (instr != HALT);
+X
+X	/* result should now be on top of stack */
+X	if (sp != &stack[MAX_STACK - 1]) {
+X	    (void) sprintf (err_msg, "Bug! stack has %d items",
+X							MAX_STACK - (sp-stack));
+X	    return (-1);
+X	}
+X	*result = *sp;
+X	return (0);
+X}
+X
+X/* starting with lcexpr pointing at a string expected to be a field name,
+X * ie, at a '"', fill into up to the next '"' into name[], including trailing 0.
+X * if there IS no '"' within len-1 chars, return -1, else 0.
+X * when return, leave lcexpr alone but move cexpr to just after the second '"'.
+X */
+Xstatic
+Xparse_fieldname (name, len)
+Xchar name[];
+Xint len;
+X{
+X	char c;
+X
+X	cexpr = lcexpr + 1;
+X	while (--len > 0 && (c = *cexpr++) != '"' && c)
+X	    *name++ = c;
+X	if (len == 0 || c != '"')
+X	    return (-1);
+X	*name = '\0';
+X	return (0);
+X}
+END_OF_FILE
+  if test 16650 -ne `wc -c <'compiler.c'`; then
+    echo shar: \"'compiler.c'\" unpacked with wrong size!
+  fi
+  # end of 'compiler.c'
+fi
+if test -f 'db.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'db.c'\"
+else
+  echo shar: Extracting \"'db.c'\" \(18368 characters\)
+  sed "s/^X//" >'db.c' <<'END_OF_FILE'
+X/* code to manage what the outside world sees as the db_ interface.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <malloc.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#include <string.h>
+X#endif
+X#include "astro.h"
+X#include "circum.h"
+X#include "preferences.h"
+X
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern Now *mm_get_now P_((void));
+Xextern int obj_cir P_((Now *np, Obj *op));
+Xextern void cal_mjd P_((int mn, double dy, int yr, double *Mjd));
+Xextern void f_dec_sexsign P_((double x, int *h, int *m, int *s));
+Xextern void f_sscandate P_((char *bp, int pref, int *m, double *d, int *y));
+Xextern void f_sscansex P_((char *bp, int *d, int *m, int *s));
+Xextern void mjd_cal P_((double Mjd, int *mn, double *dy, int *yr));
+Xextern void sex_dec P_((int hd, int m, int s, double *d));
+Xextern void xe_msg P_((char *msg, int app_modal));
+Xextern void zero_mem P_((char *loc, unsigned len));
+X
+Xint db_n P_((void));
+XObj *db_basic P_((int id));
+Xvoid db_setuserobj P_((int id, Obj *op));
+Xvoid db_invalidate P_((void));
+XObj *db_next P_((Obj *op, HowNext how));
+Xvoid db_update P_((Obj *op));
+Xint db_read P_((FILE *fp, int append));
+Xint db_set_field P_((char bp[], int id, PrefDateFormat pref, Obj *op));
+Xstatic Obj *db_new P_((int t));
+Xstatic db_crack_line P_((char *s));
+Xstatic void db_init P_((void));
+Xstatic int nxt_db P_((char buf[], int blen, FILE *fp));
+Xstatic void crack_year P_((char *bp, PrefDateFormat pref, double *p));
+X/* don't know why but my compiler complains with this one in here
+Xstatic get_fields P_((char *s, char delim, char *fields[]));
+X*/
+Xstatic get_fields ();
+X
+X#undef P_
+X
+X#define	MAXDBLINE	256	/* longest allowable database file line */
+X#define	FLDSEP		','	/* major field separator */
+X#define	SUBFLD		'|'	/* subfield separator */
+X
+X#define	ASIZ(a)	(sizeof(a)/sizeof(a[0]))
+X
+X/* This counter is incremented when we want to mark all the Obj derived entries
+X * as being out-of-date. This works because then each of the age's will be !=
+X * db_age. This is to eliminate ever calling obj_cir() under the same
+X * circumstances for a given db object.
+X * N.B. For this to work, call db_update() before using a Obj *.
+X */
+Xstatic Objage_t db_age;
+X
+X/* the "database".
+X * there is a malloced array of each each type of object.
+X * N.B. first NOBJ (see astro.h) objects are kept as a special case.
+X * each array has nmem entries, nobj of which are valid; we realloc in groups
+X * of DBMEMCHUNKS as a malloc cache.
+X */
+X#define	DBMEMCHUNKS	200	/* number of things we realloc more at once */
+Xstatic char *db[NOBJTYPES];	/* actually arrays of each subtype */
+Xstatic int nobj[NOBJTYPES];	/* number of entries in db[type] valid */
+Xstatic int nmem[NOBJTYPES];	/* total number of entries in db[type] */
+Xstatic Obj basic[NOBJ];		/* special storage for the basic objects */
+Xstatic int totnobj;		/* grand total number of objects */
+Xstatic int objsize[NOBJTYPES];	/* sizeof each type */
+X
+X/* return number of objects in the database.
+X * N.B. this is expected to be very inexpensive to call.
+X */
+Xint
+Xdb_n()
+X{
+X	if (!totnobj)
+X	    db_init();
+X	return (totnobj);
+X}
+X
+X/* given one of the basic ids in astro.h return pointer to its Obj in the
+X * database.
+X */
+XObj *
+Xdb_basic(id)
+Xint id;
+X{
+X	Obj *op;
+X
+X	if (!totnobj)
+X	    db_init();
+X
+X	if (id < 0 || id >= NOBJ) {
+X	    printf ("db_basic(): bad id: %d\n", id);
+X	    exit (1);
+X	}
+X
+X	op = &basic[id];
+X	if (op->type != UNDEFOBJ)
+X	    db_update(op);
+X	return (op);
+X}
+X
+X/* the user defined object named by id to op.
+X */
+Xvoid
+Xdb_setuserobj(id, op)
+Xint id;	/* OBJX or OBJY */
+XObj *op;
+X{
+X	if (id == OBJX || id == OBJY)
+X	    basic[id] = *op;
+X	else {
+X	    printf ("db_setuserobj(): bad id: %d\n", id);
+X	    exit (1);
+X	}
+X}
+X
+X/* mark all db objects as old
+X */
+Xvoid
+Xdb_invalidate()
+X{
+X	if (!totnobj)
+X	    db_init();
+X
+X	db_age++;
+X}
+X
+X/* given an Obj * into the the db storage, return the "next" one.
+X * the idea is to call this function repeatedly to scan for all objects.
+X * if op is NULL, return the "first" one.
+X * return NULL if there are no more.
+X * the series can be limited as to how the basic (NOBJ) set should be included
+X *   by adjusting the how parameter.
+X * N.B. nothing should be assumed as to the order these are returned.
+X * N.B. the s_ fields are *not* updated -- all db_update() when you need that.
+X */
+XObj *
+Xdb_next (op, how)
+XObj *op;
+XHowNext how;
+X{
+X	static char me[] = "db_next()";
+X	int i;
+X
+X	if (!totnobj)
+X	    db_init();
+X
+X	switch (how) {
+X	case OBJS_JUST_BASIC:
+X	    if (op == NULL)
+X		return (&basic[0]);
+X	    if (op >= &basic[0] && op < &basic[NOBJ-1])
+X		return (&basic[op-basic+1]);
+X	    if (op == &basic[NOBJ-1])
+X		return (NULL);
+X	    break;
+X	case OBJS_ALL:
+X	    if (op == NULL)
+X		return (&basic[0]);
+X	    if (op >= &basic[0] && op < &basic[NOBJ-1])
+X		return (&basic[op-basic+1]);
+X	    /* continue on to remaining stuff ... */
+X	case OBJS_ALLBUT_BASIC:
+X	    if (op == NULL || op == &basic[NOBJ-1]) {
+X		for (i = 0; i < NOBJTYPES; i++)
+X		    if (nobj[i] > 0)
+X			return ((Obj *)db[i]);
+X		return (NULL);
+X	    }
+X	    for (i = 0; i < NOBJTYPES; i++) {
+X		char *cp, *lastp;
+X		if (nobj[i] == 0)
+X		    continue;
+X		lastp = db[i] + objsize[i]*(nobj[i]-1);
+X		cp = (char *)op;
+X		if (cp >= db[i] && cp < lastp)
+X		    return ((Obj *)(cp + objsize[i]));
+X		if (cp == lastp) {
+X		    while (++i < NOBJTYPES)
+X			if (nobj[i] > 0)
+X			    return ((Obj *)db[i]);
+X		    return (NULL);
+X		}
+X	    }
+X	    break;
+X	default:
+X	    printf ("%s: bad how: %d\n", me, how);
+X	    exit (1);
+X	}
+X
+X	printf ("%s: bad op = 0x%x\n", me, (unsigned) op);
+X	exit(1);
+X	return (NULL);	/* just for lint */
+X}
+X	
+X
+X/* see that all the s_* fields in the given object are up to date.
+X * always recompute the user defined objects because we don't know when
+X * they might have been changed.
+X * N.B. it is ok to call this even if op is not actually in the database
+X *   although we guarante an actual update occurs if it't not.
+X */
+Xvoid
+Xdb_update(op)
+XObj *op;
+X{
+X	static char me[] = "db_update()";
+X
+X	if (!totnobj)
+X	    db_init();
+X
+X	if (op->type == UNDEFOBJ) {
+X	    printf ("%s: called with UNDEFOBJ pointer\n", me);
+X	    exit (1);
+X	} 
+X	if (op->type <= 0 || op->type >= NOBJTYPES) {
+X	    printf ("%s: called with bad pointer\n", me);
+X	    exit (1);
+X	} 
+X
+X	if (op->o_age != db_age || op == &basic[OBJX] || op == &basic[OBJY]) {
+X	    if (obj_cir (mm_get_now(), op) < 0) {
+X		printf ("%s: bad object\n", me);
+X		exit(1);
+X	    }
+X	    op->o_age = db_age;
+X	}
+X}
+X
+X/* read the given database file into memory.
+X * if append is set, add to the existing list, else discard all but the
+X * basic NOBJ set first.
+X * return 0 if all ok, else -1.
+X */
+Xdb_read (fp, append)
+XFILE *fp;
+Xint append;
+X{
+X	char buf[MAXDBLINE];
+X	int nobjsave[NOBJTYPES];
+X	int nnew;
+X	int i;
+X
+X	if (!totnobj)
+X	    db_init();
+X
+X	if (!append) {
+X	    /* not appending so discard all existing objects */
+X	    for (i = 0; i < NOBJTYPES; i++) {
+X		if (db[i]) {
+X		    free (db[i]);
+X		    db[i] = NULL;
+X		}
+X		nmem[i] = 0;
+X		nobj[i] = 0;
+X	    }
+X	    totnobj = NOBJ;
+X	}
+X
+X	/* save the current number of objects in case we have trouble so
+X	 * we can effectively reset the db back to what it is before.
+X	 */
+X	for (i = 0; i < NOBJTYPES; i++)
+X	    nobjsave[i] = nobj[i];
+X
+X	/* read each line from the file and add to the db */
+X	for (nnew = 0;
+X		nxt_db (buf, sizeof(buf), fp) == 0 && db_crack_line (buf) == 0;
+X		nnew++)
+X	    continue;
+X	
+X	if (!feof(fp)) {
+X	    /* couldn't read entire file -- discard everything we've added.
+X	     * ok to leave the raw memory allocated.
+X	     */
+X	    for (i = 0; i < NOBJTYPES; i++)
+X		nobj[i] = nobjsave[i];
+X	    return (-1);
+X	}
+X
+X	totnobj += nnew;
+X	return (0);
+X}
+X
+X/* given a text buffer and a field id, and a PREF_DATE_FORMAT,
+X *   set the corresponding member in *op.
+X * return 0 if ok, else -1.
+X */
+Xdb_set_field (bp, id, pref, op)
+Xchar bp[];
+XPrefDateFormat pref;
+XObj *op;
+X{
+X	switch (id) {
+X	case O_NAME: {
+X	    (void) strncpy (op->o_name, bp, sizeof(op->o_name)-1);
+X	    op->o_name[sizeof(op->o_name)-1] = '\0';
+X	    break;
+X	}
+X	case F_RA: {
+X	    int h, m, s;
+X	    double f_ra;
+X	    f_dec_sexsign (radhr(op->f_RA), &h, &m, &s);
+X	    f_sscansex (bp, &h, &m, &s);
+X	    f_ra = op->f_RA;
+X	    sex_dec (h, m, s, &f_ra);
+X	    op->f_RA = hrrad(f_ra);
+X	    break;
+X	}
+X	case F_DEC: {
+X	    int dg, m, s;
+X	    double tdec;
+X	    f_dec_sexsign (raddeg(op->f_dec), &dg, &m, &s);
+X	    f_sscansex (bp, &dg, &m, &s);
+X	    tdec = op->f_dec;
+X	    sex_dec (dg, m, s, &tdec);
+X	    op->f_dec = degrad(tdec);
+X	    break;
+X	}
+X	case F_MAG:
+X	    op->f_mag = atof (bp) * MAGSCALE;
+X	    break;
+X	case F_SIZE:
+X	    op->f_size = atof (bp);
+X	    break;
+X	case F_EPOCH: {
+X	    double fepoch;
+X	    fepoch = op->f_epoch;
+X	    crack_year (bp, pref, &fepoch);
+X	    op->f_epoch = fepoch;
+X	    break;
+X	}
+X	case F_CLASS:
+X	    switch (bp[0]) {
+X	    case 'C': case 'U': case 'O': case 'G': case 'H': case 'A':
+X	    case 'N': case 'F': case 'K': case 'P': case 'Q': case 'T':
+X	    case 'B': case 'D': case 'M': case 'S': case 'V':
+X		op->f_class = bp[0];
+X		break;
+X	    default:
+X		return (-1);
+X	    }
+X	    break;
+X	case F_SPECT: {
+X	    int i, j;
+X	    /* fill f_spect all the way */
+X	    for (i = j = 0; i < sizeof(op->f_spect); i++)
+X		if ((op->f_spect[i] = bp[j]) != 0)
+X		    j++;
+X	    break;
+X	}
+X
+X	case E_INC:
+X	    op->e_inc = atof (bp);
+X	    break;
+X	case E_LAN:
+X	    op->e_Om = atof (bp);
+X	    break;
+X	case E_AOP:
+X	    op->e_om = atof (bp);
+X	    break;
+X	case E_A:
+X	    op->e_a = atof (bp);
+X	    break;
+X	case E_N:
+X	    op->e_n = atof (bp);
+X	    break;
+X	case E_E:
+X	    op->e_e = atof (bp);
+X	    break;
+X	case E_M:
+X	    op->e_M = atof (bp);
+X	    break;
+X	case E_CEPOCH:
+X	    crack_year (bp, pref, &op->e_cepoch);
+X	    break;
+X	case E_EPOCH:
+X	    crack_year (bp, pref, &op->e_epoch);
+X	    break;
+X	case E_M1:
+X	    switch (bp[0]) {
+X	    case 'g':
+X		op->e_mag.whichm = MAG_gk;
+X		bp++;
+X		break;
+X	    case 'H':
+X		op->e_mag.whichm = MAG_HG;
+X		bp++;
+X		break;
+X	    default:
+X		/* leave type unchanged if no or unrecognized prefix */
+X		break;
+X	    }
+X	    op->e_mag.m1 = atof(bp);
+X	    break;
+X	case E_M2:
+X	    switch (bp[0]) {
+X	    case 'k':
+X		op->e_mag.whichm = MAG_gk;
+X		bp++;
+X		break;
+X	    case 'G':
+X		op->e_mag.whichm = MAG_HG;
+X		bp++;
+X		break;
+X	    default:
+X		/* leave type unchanged if no or unrecognized prefix */
+X		break;
+X	    }
+X	    op->e_mag.m2 = atof(bp);
+X	    break;
+X	case E_SIZE:
+X	    op->e_size = atof (bp);
+X	    break;
+X
+X	case H_EP:
+X	    crack_year (bp, pref, &op->h_ep);
+X	    break;
+X	case H_INC:
+X	    op->h_inc = atof (bp);
+X	    break;
+X	case H_LAN:
+X	    op->h_Om = atof (bp);
+X	    break;
+X	case H_AOP:
+X	    op->h_om = atof (bp);
+X	    break;
+X	case H_E:
+X	    op->h_e = atof (bp);
+X	    break;
+X	case H_QP:
+X	    op->h_qp = atof (bp);
+X	    break;
+X	case H_EPOCH:
+X	    crack_year (bp, pref, &op->h_epoch);
+X	    break;
+X	case H_G:
+X	    op->h_g = atof (bp);
+X	    break;
+X	case H_K:
+X	    op->h_k = atof (bp);
+X	    break;
+X	case H_SIZE:
+X	    op->h_size = atof (bp);
+X	    break;
+X
+X	case P_EP:
+X	    crack_year (bp, pref, &op->p_ep);
+X	    break;
+X	case P_INC:
+X	    op->p_inc = atof (bp);
+X	    break;
+X	case P_AOP:
+X	    op->p_om = atof (bp);
+X	    break;
+X	case P_QP:
+X	    op->p_qp = atof (bp);
+X	    break;
+X	case P_LAN:
+X	    op->p_Om = atof (bp);
+X	    break;
+X	case P_EPOCH:
+X	    crack_year (bp, pref, &op->p_epoch);
+X	    break;
+X	case P_G:
+X	    op->p_g = atof (bp);
+X	    break;
+X	case P_K:
+X	    op->p_k = atof (bp);
+X	    break;
+X	case P_SIZE:
+X	    op->p_size = atof (bp);
+X	    break;
+X	default:
+X	    printf ("BUG! db_set_field: bad id: %d\n", id);
+X	    exit (1);
+X	}
+X
+X	return (0);
+X}
+X
+X/* allocate and return zero'd room for a new object with the given type.
+X * N.B we do *not* validate t.
+X * reurn NULL if can't get more room.
+X */
+Xstatic Obj *
+Xdb_new (t)
+Xint t;
+X{
+X	int size = objsize[t];
+X	int newidx;
+X
+X	/* allocate more room if this type can't hold another one */
+X	if (nobj[t] >= nmem[t]) {
+X	    int oldn = nmem[t];
+X	    int newn = oldn + DBMEMCHUNKS;
+X	    char *newp = db[t] ? realloc (db[t], size*newn)
+X			       : malloc (size*newn);
+X	    if (!newp)
+X		return (NULL);
+X	    zero_mem (newp + size*oldn, size*DBMEMCHUNKS);
+X	    nmem[t] = newn;
+X	    db[t] = newp;
+X	}
+X
+X	/* the next index to use is the current number of entries */
+X	newidx = nobj[t]++;
+X
+X	/* find the address of the new entry */
+X	return ((Obj *)(db[t] + size*newidx));
+X}
+X
+X/* crack the given database line and add to corresponding db list.
+X * return 0 if ok else put up a message and return -1.
+X */
+Xstatic
+Xdb_crack_line (s)
+Xchar *s;
+X{
+X	static char nomem[] = "Insufficient memory to load this database\n";
+X#define	MAXFLDS	20		/* must be more than on any expected line */
+X	char *flds[MAXFLDS];	/* point to each field for easy reference */
+X	char *sflds[MAXFLDS];	/* point to each sub field for easy reference */
+X	char copy[MAXDBLINE];	/* work copy; leave s untouched */
+X	char msg[512];		/* misc message buffer */
+X	int nf, nsf;		/* number of fields and subfields */
+X	Obj *op;
+X	int i;
+X
+X	/* do all the parsing on a copy */
+X	(void) strcpy (copy, s);
+X
+X	/* parse into main fields */
+X	nf = get_fields (copy, FLDSEP, flds);
+X
+X	/* need at least 2: name and type */
+X	if (nf < 2) {
+X	    (void)sprintf(msg, "Too few fields in Database line: `%.480s'\n",s);
+X	    xe_msg (msg, 0);
+X	    return (-1);
+X	}
+X
+X	/* switch out on type of object - the second field */
+X	switch (flds[1][0]) {
+X	case 'f': {
+X	    static int ids[] = {F_RA, F_DEC, F_MAG, F_EPOCH};
+X	    if (nf != 6 && nf != 7) {
+X		(void)sprintf(msg,
+X		    "Need ra,dec,mag,[epoch][,siz] for fixed object `%.460s'\n",
+X								    flds[0]);
+X		xe_msg (msg, 0);
+X		return (-1);
+X	    }
+X	    op = db_new(FIXED);
+X	    if (!op) {
+X		xe_msg (nomem, 1);
+X		return (-1);
+X	    }
+X	    op->type = FIXED;
+X	    nsf = get_fields(flds[1], SUBFLD, sflds);
+X	    if (nsf > 1 && db_set_field (sflds[1], F_CLASS, PREF_MDY, op) < 0) {
+X		(void) sprintf(msg,"Bad class `%c' for fixed object `%.450s'\n",
+X							    *sflds[1], flds[0]);
+X		xe_msg (msg, 0);
+X		return (-1);
+X	    }
+X	    if (nsf > 2)
+X		(void) db_set_field (sflds[2], F_SPECT, PREF_MDY, op);
+X	    for (i = 2; i < ASIZ(ids)+2; i++)
+X		(void) db_set_field (flds[i], ids[i-2], PREF_MDY, op);
+X	    if (nf == 7)
+X		(void) db_set_field (flds[6], F_SIZE, PREF_MDY, op);
+X	    break;
+X	}
+X
+X	case 'e': {
+X	    static int ids[] = {E_INC, E_LAN, E_AOP, E_A, E_N, E_E, E_M,
+X						E_CEPOCH, E_EPOCH, E_M1, E_M2
+X	    };
+X	    if (nf != 13 && nf != 14) {
+X		(void)sprintf (msg,
+X		    "Need i,O,o,a,n,e,M,E,D,H/g,G/k[,siz] for elliptical object `%.450s'\n",
+X								    flds[0]);
+X		xe_msg(msg, 0);
+X		return (-1);
+X	    }
+X	    op = db_new(ELLIPTICAL);
+X	    if (!op) {
+X		xe_msg (nomem, 1);
+X		return (-1);
+X	    }
+X	    op->type = ELLIPTICAL;
+X	    for (i = 2; i < ASIZ(ids)+2; i++)
+X		(void) db_set_field (flds[i], ids[i-2], PREF_MDY, op);
+X	    if (nf == 14)
+X		(void) db_set_field (flds[13], E_SIZE, PREF_MDY, op);
+X	    break;
+X	}
+X
+X	case 'h': {
+X	    static int ids[]= {H_EP,H_INC,H_LAN,H_AOP,H_E,H_QP,H_EPOCH,H_G,H_K};
+X	    if (nf != 11 && nf != 12) {
+X		(void)sprintf (msg,
+X		    "Need T,i,O,o,e,q,D,g,k[,siz] for hyperbolic object `%.450s'\n",
+X								    flds[0]);
+X		xe_msg(msg, 0);
+X		return (-1);
+X	    }
+X	    op = db_new(HYPERBOLIC);
+X	    if (!op) {
+X		xe_msg (nomem, 1);
+X		return (-1);
+X	    }
+X	    op->type = HYPERBOLIC;
+X	    for (i = 2; i < ASIZ(ids)+2; i++)
+X		(void) db_set_field (flds[i], ids[i-2], PREF_MDY, op);
+X	    if (nf == 12)
+X		(void) db_set_field (flds[11], H_SIZE, PREF_MDY, op);
+X	    break;
+X	}
+X
+X	case 'p': {
+X	    static int ids[] = {P_EP,P_INC,P_AOP,P_QP,P_LAN,P_EPOCH,P_G,P_K};
+X	    if (nf != 10 && nf != 11) {
+X		(void)sprintf (msg,
+X		    "Need T,i,o,q,O,D,g,k[,siz] for parabolic object `%.450s'\n",
+X								    flds[0]);
+X		xe_msg(msg, 0);
+X		return (-1);
+X	    }
+X	    op = db_new(PARABOLIC);
+X	    if (!op) {
+X		xe_msg (nomem, 1);
+X		return (-1);
+X	    }
+X	    op->type = PARABOLIC;
+X	    for (i = 2; i < ASIZ(ids)+2; i++)
+X		(void) db_set_field (flds[i], ids[i-2], PREF_MDY, op);
+X	    if (nf == 11)
+X		(void) db_set_field (flds[10], P_SIZE, PREF_MDY, op);
+X	    break;
+X	}
+X
+X	default:
+X	    (void)sprintf (msg,
+X		"Unknown type for Object %s: `%.480s'\n", flds[0], flds[1]);
+X	    xe_msg(msg, 0);
+X	    return (-1);
+X	}
+X
+X	/* load up name */
+X	(void) db_set_field (flds[0], O_NAME, PREF_MDY, op);
+X
+X	return (0);
+X}
+X
+X/* set up the basic database.
+X */
+Xstatic void
+Xdb_init()
+X{
+X	/* these must match the order in astro.h */
+X	static char *planet_names[] = {
+X	    "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
+X	    "Uranus", "Neptune", "Pluto", "Sun", "Moon",
+X	};
+X
+X	int i;
+X
+X	/* init the planets */
+X	for (i = MERCURY; i <= MOON; i++) {
+X	    Obj *op = &basic[i];
+X	    op->type = PLANET;
+X	    (void) strncpy (op->o_name, planet_names[i], sizeof(op->o_name)-1);
+X	    op->pl.code = i;
+X	}
+X
+X	/* the total includes the planets and the 2 undefined user objs too */
+X	totnobj = NOBJ;
+X
+X	/* init the object size array */
+X	objsize[UNDEFOBJ] =	0;
+X	objsize[FIXED] =	sizeof(ObjF);
+X	objsize[ELLIPTICAL] =	sizeof(ObjE);
+X	objsize[HYPERBOLIC] =	sizeof(ObjH);
+X	objsize[PARABOLIC] =	sizeof(ObjP);
+X	objsize[PLANET] =	sizeof(ObjPl);
+X}
+X
+X/* read database file fp and put next valid entry (sans trailing \n) into buf.
+X * we only count those lines that begin with alpha or numeric chars.
+X * return 0 if ok.
+X * if eof: return -1; caller will find that feof(fp) is true;
+X * other errors: print a message and return -1.
+X */
+Xstatic int
+Xnxt_db (buf, blen, fp)
+Xchar buf[];
+Xint blen;
+XFILE *fp;
+X{
+X	char c;
+X	int l;
+X
+X	for (;;) {
+X	    if (fgets (buf, blen, fp) == 0)
+X		return (-1);
+X	    l = strlen(buf);
+X	    if (buf[l-1] != '\n') {
+X		xe_msg ("Databse file line length is too long\n", 1);
+X		return (-1);
+X	    }
+X	    c = buf[0];
+X	    if (isalpha(c) || isdigit(c)) {
+X		buf[l-1] = '\0';
+X		return (0);
+X	    }
+X	}
+X}
+X
+X/* given either a decimal year (xxxx[.xxx]) or a calendar (x/x/x)
+X * and a DateFormat preference convert it to an mjd and store it at *p.
+X */
+Xstatic void
+Xcrack_year (bp, pref, p)
+Xchar *bp;
+XPrefDateFormat pref;
+Xdouble *p;
+X{
+X	int m, y;
+X	double d;
+X
+X	mjd_cal (*p, &m, &d, &y);	/* init with current */
+X	f_sscandate (bp, pref, &m, &d, &y);
+X	cal_mjd (m, d, y, p);
+X}
+X
+X/* given a null-terminated string, fill in fields[] with the starting addresses
+X * of each field delimited by delim or '\0'.
+X * N.B. each character matching delim is REPLACED BY '\0' IN PLACE.
+X * N.B. 0-length fields count, so even if *s=='\0' we return 1.
+X * return the number of fields.
+X */
+Xstatic
+Xget_fields (s, delim, fields)
+Xchar *s;
+Xchar delim;
+Xchar *fields[];
+X{
+X	int n;
+X	char c;
+X
+X	*fields = s;
+X	n = 0;
+X	do {
+X	    c = *s++;
+X	    if (c == delim || c == '\0') {
+X		s[-1] = '\0';
+X		*++fields = s;
+X		n++;
+X	    }
+X	} while (c);
+X
+X	return (n);
+X}
+END_OF_FILE
+  if test 18368 -ne `wc -c <'db.c'`; then
+    echo shar: \"'db.c'\" unpacked with wrong size!
+  fi
+  # end of 'db.c'
+fi
+if test -f 'plans.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'plans.c'\"
+else
+  echo shar: Extracting \"'plans.c'\" \(19091 characters\)
+  sed "s/^X//" >'plans.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern void anomaly P_((double ma, double s, double *nu, double *ea));
+Xextern void pelement P_((double Mjd, double plan[8][9]));
+Xextern void range P_((double *v, double r));
+Xextern void sunpos P_((double Mjd, double *lsn, double *rsn));
+X
+Xvoid plans P_((double mjd, int p, double *lpd0, double *psi0, double *rp0, double *rho0, double *lam, double *bet, double *dia, double *mag));
+Xstatic void aux_jsun P_((double t, double *x1, double *x2, double *x3, double *x4, double *x5, double *x6));
+Xstatic void masun P_((double mjd, double *mas));
+Xstatic void p_mercury P_((double map[], double *dl, double *dr));
+Xstatic void p_venus P_((double t, double mas, double map[], double *dl, double *dr, double *dml, double *dm));
+Xstatic void p_mars P_((double mas, double map[], double *dl, double *dr, double *dml, double *dm));
+Xstatic void p_jupiter P_((double t, double s, double *dml, double *ds, double *dm, double *da));
+Xstatic void p_saturn P_((double t, double s, double *dml, double *ds, double *dm, double *da, double *dhl));
+Xstatic void p_uranus P_((double t, double s, double *dl, double *dr, double *dml, double *ds, double *dm, double *da, double *dhl));
+Xstatic void p_neptune P_((double t, double s, double *dl, double *dr, double *dml, double *ds, double *dm, double *da, double *dhl));
+X
+X#undef P_
+X
+X#define	TWOPI		(2*PI)
+X#define	mod2PI(x)	((x) - (long)((x)/TWOPI)*TWOPI)
+X
+X/* given a modified Julian date, mjd, and a planet, p, find:
+X *   lpd0: heliocentric longitude, 
+X *   psi0: heliocentric latitude,
+X *   rp0:  distance from the sun to the planet, 
+X *   rho0: distance from the Earth to the planet,
+X *         none corrected for light time, ie, they are the true values for the
+X *         given instant.
+X *   lam:  geocentric ecliptic longitude, 
+X *   bet:  geocentric ecliptic latitude,
+X *         each corrected for light time, ie, they are the apparent values as
+X *	   seen from the center of the Earth for the given instant.
+X *   dia:  angular diameter in arcsec at 1 AU, 
+X *   mag:  visual magnitude when 1 AU from sun and earth at 0 phase angle.
+X *
+X * all angles are in radians, all distances in AU.
+X * the mean orbital elements are found by calling pelement(), then mutual
+X *   perturbation corrections are applied as necessary.
+X *
+X * corrections for nutation and abberation must be made by the caller. The RA 
+X *   and DEC calculated from the fully-corrected ecliptic coordinates are then
+X *   the apparent geocentric coordinates. Further corrections can be made, if
+X *   required, for atmospheric refraction and geocentric parallax although the
+X *   intrinsic error herein of about 10 arcseconds is usually the dominant
+X *   error at this stage.
+X * TODO: combine the several intermediate expressions when get a good compiler.
+X */
+Xvoid
+Xplans (mjd, p, lpd0, psi0, rp0, rho0, lam, bet, dia, mag)
+Xdouble mjd;
+Xint p;
+Xdouble *lpd0, *psi0, *rp0, *rho0, *lam, *bet, *dia, *mag;
+X{
+X	static double plan[8][9];
+X	static double lastmjd = -10000;
+X	double dl;	/* perturbation correction for longitude */
+X	double dr;	/*  "   orbital radius */
+X	double dml;	/*  "   mean longitude */
+X	double ds;	/*  "   eccentricity */
+X	double dm;	/*  "   mean anomaly */
+X	double da;	/*  "   semi-major axis */
+X	double dhl;	/*  "   heliocentric longitude */
+X	double lsn, rsn;/* true geocentric longitude of sun and sun-earth rad */
+X	double mas;	/* mean anomaly of the sun */
+X	double re;	/* radius of earth's orbit */
+X	double lg;	/* longitude of earth */
+X	double map[8];	/* array of mean anomalies for each planet */
+X	double lpd, psi, rp, rho;
+X	double ll, sll, cll;
+X	double t;
+X	double dt;
+X	int pass;
+X	int j;
+X	double s, ma;
+X	double nu, ea;
+X	double lp, om;
+X	double lo, slo, clo;
+X	double inc, y;
+X	double spsi, cpsi;
+X	double rpd;
+X
+X	/* only need to fill in plan[] once for a given mjd */
+X	if (mjd != lastmjd) {
+X	    pelement (mjd, plan);
+X	    lastmjd = mjd;
+X	}
+X
+X	dt = 0;
+X	t = mjd/36525.;
+X	sunpos (mjd, &lsn, &rsn);
+X	masun (mjd, &mas);
+X        re = rsn;
+X	lg = lsn+PI;
+X
+X	/* first find the true position of the planet at mjd.
+X	 * then repeat a second time for a slightly different time based
+X	 * on the position found in the first pass to account for light-travel
+X	 * time.
+X	 */
+X	for (pass = 0; pass < 2; pass++) {
+X
+X	    for (j = 0; j < 8; j++)
+X		map[j] = degrad(plan[j][0]-plan[j][2]-dt*plan[j][1]);
+X
+X	    /* set initial corrections to 0.
+X	     * then modify as necessary for the planet of interest.
+X	     */
+X	    dl = 0;
+X	    dr = 0;
+X	    dml = 0;
+X	    ds = 0;
+X	    dm = 0;
+X	    da = 0;
+X	    dhl = 0;
+X
+X	    switch (p) {
+X
+X	    case MERCURY:
+X		p_mercury (map, &dl, &dr);
+X		break;
+X
+X	    case VENUS:
+X		p_venus (t, mas, map, &dl, &dr, &dml, &dm);
+X		break;
+X
+X	    case MARS:
+X		p_mars (mas, map, &dl, &dr, &dml, &dm);
+X		break;
+X
+X	    case JUPITER:
+X		p_jupiter (t, plan[p][3], &dml, &ds, &dm, &da);
+X		break;
+X
+X	    case SATURN:
+X		p_saturn (t, plan[p][3], &dml, &ds, &dm, &da, &dhl);
+X		break;
+X
+X	    case URANUS:
+X		p_uranus (t, plan[p][3], &dl, &dr, &dml, &ds, &dm, &da, &dhl);
+X		break;
+X
+X	    case NEPTUNE:
+X		p_neptune (t, plan[p][3], &dl, &dr, &dml, &ds, &dm, &da, &dhl);
+X		break;
+X
+X	    case PLUTO:
+X		/* no perturbation theory for pluto */
+X		break;
+X	    }
+X
+X	    s = plan[p][3]+ds;
+X	    ma = map[p]+dm;
+X	    anomaly (ma, s, &nu, &ea);
+X	    rp = (plan[p][6]+da)*(1-s*s)/(1+s*cos(nu));
+X	    lp = raddeg(nu)+plan[p][2]+raddeg(dml-dm);
+X	    lp = degrad(lp);
+X	    om = degrad(plan[p][5]);
+X	    lo = lp-om;
+X	    slo = sin(lo);
+X	    clo = cos(lo);
+X	    inc = degrad(plan[p][4]);
+X	    rp = rp+dr;
+X	    spsi = slo*sin(inc);
+X	    y = slo*cos(inc);
+X	    psi = asin(spsi)+dhl;
+X	    spsi = sin(psi);
+X	    lpd = atan(y/clo)+om+degrad(dl);
+X	    if (clo<0) lpd += PI;
+X	    range (&lpd, TWOPI);
+X	    cpsi = cos(psi);
+X	    rpd = rp*cpsi;
+X	    ll = lpd-lg;
+X	    rho = sqrt(re*re+rp*rp-2*re*rp*cpsi*cos(ll));
+X
+X	    /* when we view a planet we see it in the position it occupied
+X	     * dt days ago, where rho is the distance between it and earth,
+X	     * in AU. use this as the new time for the next pass.
+X	     */
+X	    dt = rho*5.775518e-3;
+X
+X	    if (pass == 0) {
+X		/* save heliocentric coordinates after first pass since, being
+X		 * true, they are NOT to be corrected for light-travel time.
+X		 */
+X		*lpd0 = lpd;
+X		range (lpd0, TWOPI);
+X		*psi0 = psi;
+X		*rp0 = rp;
+X		*rho0 = rho;
+X	    }
+X	}
+X
+X        sll = sin(ll);
+X	cll = cos(ll);
+X        if (p < MARS) 
+X	    *lam = atan(-1*rpd*sll/(re-rpd*cll))+lg+PI;
+X	else
+X	    *lam = atan(re*sll/(rpd-re*cll))+lpd;
+X	range (lam, TWOPI);
+X        *bet = atan(rpd*spsi*sin(*lam-lpd)/(cpsi*re*sll));
+X	*dia = plan[p][7];
+X	*mag = plan[p][8];
+X}
+X
+X/* set auxilliary variables used for jupiter, saturn, uranus, and neptune */
+Xstatic void
+Xaux_jsun (t, x1, x2, x3, x4, x5, x6)
+Xdouble t;
+Xdouble *x1, *x2, *x3, *x4, *x5, *x6;
+X{
+X        *x1 = t/5+0.1;
+X        *x2 = mod2PI(4.14473+5.29691e1*t);
+X        *x3 = mod2PI(4.641118+2.132991e1*t);
+X        *x4 = mod2PI(4.250177+7.478172*t);
+X        *x5 = 5 * *x3 - 2 * *x2;
+X	*x6 = 2 * *x2 - 6 * *x3 + 3 * *x4;
+X}
+X
+X/* find the mean anomaly of the sun at mjd.
+X * this is the same as that used in sun() but when it was converted to C it
+X * was not known it would be required outside that routine.
+X * TODO: add an argument to sun() to return mas and eliminate this routine.
+X */
+Xstatic void
+Xmasun (mjd, mas)
+Xdouble mjd;
+Xdouble *mas;
+X{
+X	double t, t2;
+X	double a, b;
+X
+X	t = mjd/36525;
+X	t2 = t*t;
+X	a = 9.999736042e1*t;
+X	b = 360.*(a-(long)a);
+X	*mas = degrad (3.5847583e2-(1.5e-4+3.3e-6*t)*t2+b);
+X}
+X
+X/* perturbations for mercury */
+Xstatic void
+Xp_mercury (map, dl, dr)
+Xdouble map[];
+Xdouble *dl, *dr;
+X{
+X	*dl = 2.04e-3*cos(5*map[2-1]-2*map[1-1]+2.1328e-1)+
+X	     1.03e-3*cos(2*map[2-1]-map[1-1]-2.8046)+
+X	     9.1e-4*cos(2*map[3]-map[1-1]-6.4582e-1)+
+X	     7.8e-4*cos(5*map[2-1]-3*map[1-1]+1.7692e-1);
+X
+X	*dr = 7.525e-6*cos(2*map[3]-map[1-1]+9.25251e-1)+
+X	     6.802e-6*cos(5*map[2-1]-3*map[1-1]-4.53642)+
+X	     5.457e-6*cos(2*map[2-1]-2*map[1-1]-1.24246)+
+X	     3.569e-6*cos(5*map[2-1]-map[1-1]-1.35699);
+X}
+X
+X/* ....venus */
+Xstatic void
+Xp_venus (t, mas, map, dl, dr, dml, dm)
+Xdouble t, mas, map[];
+Xdouble *dl, *dr, *dml, *dm;
+X{
+X	*dml = degrad (7.7e-4*sin(4.1406+t*2.6227));
+X	*dm = *dml;
+X
+X	*dl = 3.13e-3*cos(2*mas-2*map[2-1]-2.587)+
+X	     1.98e-3*cos(3*mas-3*map[2-1]+4.4768e-2)+
+X	     1.36e-3*cos(mas-map[2-1]-2.0788)+
+X	     9.6e-4*cos(3*mas-2*map[2-1]-2.3721)+
+X	     8.2e-4*cos(map[3]-map[2-1]-3.6318);
+X
+X	*dr = 2.2501e-5*cos(2*mas-2*map[2-1]-1.01592)+
+X	     1.9045e-5*cos(3*mas-3*map[2-1]+1.61577)+
+X	     6.887e-6*cos(map[3]-map[2-1]-2.06106)+
+X	     5.172e-6*cos(mas-map[2-1]-5.08065e-1)+
+X	     3.62e-6*cos(5*mas-4*map[2-1]-1.81877)+
+X	     3.283e-6*cos(4*mas-4*map[2-1]+1.10851)+
+X	     3.074e-6*cos(2*map[3]-2*map[2-1]-9.62846e-1);
+X}
+X
+X/* ....mars */
+Xstatic void
+Xp_mars (mas, map, dl, dr, dml, dm)
+Xdouble mas, map[];
+Xdouble *dl, *dr, *dml, *dm;
+X{
+X	double a;
+X
+X	a = 3*map[3]-8*map[2]+4*mas;
+X	*dml = degrad (-1*(1.133e-2*sin(a)+9.33e-3*cos(a)));
+X	*dm = *dml;
+X
+X	*dl = 7.05e-3*cos(map[3]-map[2]-8.5448e-1)+
+X	     6.07e-3*cos(2*map[3]-map[2]-3.2873)+
+X	     4.45e-3*cos(2*map[3]-2*map[2]-3.3492)+
+X	     3.88e-3*cos(mas-2*map[2]+3.5771e-1)+
+X	     2.38e-3*cos(mas-map[2]+6.1256e-1)+
+X	     2.04e-3*cos(2*mas-3*map[2]+2.7688)+
+X	     1.77e-3*cos(3*map[2]-map[2-1]-1.0053)+
+X	     1.36e-3*cos(2*mas-4*map[2]+2.6894)+
+X	     1.04e-3*cos(map[3]+3.0749e-1);
+X
+X	*dr = 5.3227e-5*cos(map[3]-map[2]+7.17864e-1)+
+X	     5.0989e-5*cos(2*map[3]-2*map[2]-1.77997)+
+X	     3.8278e-5*cos(2*map[3]-map[2]-1.71617)+
+X	     1.5996e-5*cos(mas-map[2]-9.69618e-1)+
+X	     1.4764e-5*cos(2*mas-3*map[2]+1.19768)+
+X	     8.966e-6*cos(map[3]-2*map[2]+7.61225e-1);
+X	 *dr += 7.914e-6*cos(3*map[3]-2*map[2]-2.43887)+
+X	     7.004e-6*cos(2*map[3]-3*map[2]-1.79573)+
+X	     6.62e-6*cos(mas-2*map[2]+1.97575)+
+X	     4.93e-6*cos(3*map[3]-3*map[2]-1.33069)+
+X	     4.693e-6*cos(3*mas-5*map[2]+3.32665)+
+X	     4.571e-6*cos(2*mas-4*map[2]+4.27086)+
+X	     4.409e-6*cos(3*map[3]-map[2]-2.02158);
+X}
+X
+X/* ....jupiter */
+Xstatic void
+Xp_jupiter (t, s, dml, ds, dm, da)
+Xdouble t, s;
+Xdouble *dml, *ds, *dm, *da;
+X{
+X	double dp;
+X	double x1, x2, x3, x4, x5, x6, x7;
+X	double sx3, cx3, s2x3, c2x3;
+X        double sx5, cx5, s2x5;
+X	double sx6;
+X        double sx7, cx7, s2x7, c2x7, s3x7, c3x7, s4x7, c4x7, c5x7;
+X
+X	aux_jsun (t, &x1, &x2, &x3, &x4, &x5, &x6);
+X        x7 = x3-x2;
+X	sx3 = sin(x3);
+X	cx3 = cos(x3);
+X        s2x3 = sin(2*x3);
+X	c2x3 = cos(2*x3);
+X        sx5 = sin(x5);
+X	cx5 = cos(x5);
+X        s2x5 = sin(2*x5);
+X	sx6 = sin(x6);
+X        sx7 = sin(x7);
+X	cx7 = cos(x7);
+X        s2x7 = sin(2*x7);
+X	c2x7 = cos(2*x7);
+X        s3x7 = sin(3*x7);
+X	c3x7 = cos(3*x7);
+X        s4x7 = sin(4*x7);
+X	c4x7 = cos(4*x7);
+X        c5x7 = cos(5*x7);
+X
+X	*dml = (3.31364e-1-(1.0281e-2+4.692e-3*x1)*x1)*sx5+
+X	      (3.228e-3-(6.4436e-2-2.075e-3*x1)*x1)*cx5-
+X	      (3.083e-3+(2.75e-4-4.89e-4*x1)*x1)*s2x5+
+X	      2.472e-3*sx6+1.3619e-2*sx7+1.8472e-2*s2x7+6.717e-3*s3x7+
+X	      2.775e-3*s4x7+6.417e-3*s2x7*sx3+
+X	      (7.275e-3-1.253e-3*x1)*sx7*sx3+
+X	      2.439e-3*s3x7*sx3-(3.5681e-2+1.208e-3*x1)*sx7*cx3;
+X        *dml += -3.767e-3*c2x7*sx3-(3.3839e-2+1.125e-3*x1)*cx7*sx3-
+X	      4.261e-3*s2x7*cx3+
+X	      (1.161e-3*x1-6.333e-3)*cx7*cx3+
+X	      2.178e-3*cx3-6.675e-3*c2x7*cx3-2.664e-3*c3x7*cx3-
+X	      2.572e-3*sx7*s2x3-3.567e-3*s2x7*s2x3+2.094e-3*cx7*c2x3+
+X	      3.342e-3*c2x7*c2x3;
+X	*dml = degrad(*dml);
+X
+X	*ds = (3606+(130-43*x1)*x1)*sx5+(1289-580*x1)*cx5-6764*sx7*sx3-
+X	     1110*s2x7*sx3-224*s3x7*sx3-204*sx3+(1284+116*x1)*cx7*sx3+
+X	     188*c2x7*sx3+(1460+130*x1)*sx7*cx3+224*s2x7*cx3-817*cx3+
+X	     6074*cx3*cx7+992*c2x7*cx3+
+X	     508*c3x7*cx3+230*c4x7*cx3+108*c5x7*cx3;
+X	*ds += -(956+73*x1)*sx7*s2x3+448*s2x7*s2x3+137*s3x7*s2x3+
+X	     (108*x1-997)*cx7*s2x3+480*c2x7*s2x3+148*c3x7*s2x3+
+X	     (99*x1-956)*sx7*c2x3+490*s2x7*c2x3+
+X	     158*s3x7*c2x3+179*c2x3+(1024+75*x1)*cx7*c2x3-
+X	     437*c2x7*c2x3-132*c3x7*c2x3;
+X	*ds *= 1e-7;
+X
+X	dp = (7.192e-3-3.147e-3*x1)*sx5-4.344e-3*sx3+
+X	     (x1*(1.97e-4*x1-6.75e-4)-2.0428e-2)*cx5+
+X	     3.4036e-2*cx7*sx3+(7.269e-3+6.72e-4*x1)*sx7*sx3+
+X	     5.614e-3*c2x7*sx3+2.964e-3*c3x7*sx3+3.7761e-2*sx7*cx3+
+X	     6.158e-3*s2x7*cx3-
+X	     6.603e-3*cx7*cx3-5.356e-3*sx7*s2x3+2.722e-3*s2x7*s2x3+
+X	     4.483e-3*cx7*s2x3-2.642e-3*c2x7*s2x3+4.403e-3*sx7*c2x3-
+X	     2.536e-3*s2x7*c2x3+5.547e-3*cx7*c2x3-2.689e-3*c2x7*c2x3;
+X
+X	*dm = *dml-(degrad(dp)/s);
+X
+X	*da = 205*cx7-263*cx5+693*c2x7+312*c3x7+147*c4x7+299*sx7*sx3+
+X	     181*c2x7*sx3+204*s2x7*cx3+111*s3x7*cx3-337*cx7*cx3-
+X	     111*c2x7*cx3;
+X	*da *= 1e-6;
+X}
+X
+X/* ....saturn */
+Xstatic void
+Xp_saturn (t, s, dml, ds, dm, da, dhl)
+Xdouble t, s;
+Xdouble *dml, *ds, *dm, *da, *dhl;
+X{
+X	double dp;
+X	double x1, x2, x3, x4, x5, x6, x7, x8;
+X	double sx3, cx3, s2x3, c2x3, s3x3, c3x3, s4x3, c4x3;
+X        double sx5, cx5, s2x5, c2x5;
+X	double sx6;
+X        double sx7, cx7, s2x7, c2x7, s3x7, c3x7, s4x7, c4x7, c5x7, s5x7;
+X	double s2x8, c2x8, s3x8, c3x8;
+X
+X	aux_jsun (t, &x1, &x2, &x3, &x4, &x5, &x6);
+X        x7 = x3-x2;
+X	sx3 = sin(x3);
+X	cx3 = cos(x3);
+X        s2x3 = sin(2*x3);
+X	c2x3 = cos(2*x3);
+X        sx5 = sin(x5);
+X	cx5 = cos(x5);
+X        s2x5 = sin(2*x5);
+X	sx6 = sin(x6);
+X        sx7 = sin(x7);
+X	cx7 = cos(x7);
+X        s2x7 = sin(2*x7);
+X	c2x7 = cos(2*x7);
+X        s3x7 = sin(3*x7);
+X	c3x7 = cos(3*x7);
+X        s4x7 = sin(4*x7);
+X	c4x7 = cos(4*x7);
+X        c5x7 = cos(5*x7);
+X
+X	s3x3 = sin(3*x3);
+X	c3x3 = cos(3*x3);
+X	s4x3 = sin(4*x3);
+X	c4x3 = cos(4*x3);
+X	c2x5 = cos(2*x5);
+X	s5x7 = sin(5*x7);
+X	x8 = x4-x3;
+X	s2x8 = sin(2*x8);
+X	c2x8 = cos(2*x8);
+X	s3x8 = sin(3*x8);
+X	c3x8 = cos(3*x8);
+X
+X	*dml = 7.581e-3*s2x5-7.986e-3*sx6-1.48811e-1*sx7-4.0786e-2*s2x7-
+X	      (8.14181e-1-(1.815e-2-1.6714e-2*x1)*x1)*sx5-
+X	      (1.0497e-2-(1.60906e-1-4.1e-3*x1)*x1)*cx5-1.5208e-2*s3x7-
+X	      6.339e-3*s4x7-6.244e-3*sx3-1.65e-2*s2x7*sx3+
+X	      (8.931e-3+2.728e-3*x1)*sx7*sx3-5.775e-3*s3x7*sx3+
+X	      (8.1344e-2+3.206e-3*x1)*cx7*sx3+1.5019e-2*c2x7*sx3;
+X	*dml += (8.5581e-2+2.494e-3*x1)*sx7*cx3+1.4394e-2*c2x7*cx3+
+X	      (2.5328e-2-3.117e-3*x1)*cx7*cx3+
+X	      6.319e-3*c3x7*cx3+6.369e-3*sx7*s2x3+9.156e-3*s2x7*s2x3+
+X	      7.525e-3*s3x8*s2x3-5.236e-3*cx7*c2x3-7.736e-3*c2x7*c2x3-
+X	      7.528e-3*c3x8*c2x3;
+X	*dml = degrad(*dml);
+X
+X	*ds = (-7927+(2548+91*x1)*x1)*sx5+(13381+(1226-253*x1)*x1)*cx5+
+X	     (248-121*x1)*s2x5-(305+91*x1)*c2x5+412*s2x7+12415*sx3+
+X	     (390-617*x1)*sx7*sx3+(165-204*x1)*s2x7*sx3+26599*cx7*sx3-
+X	     4687*c2x7*sx3-1870*c3x7*sx3-821*c4x7*sx3-
+X	     377*c5x7*sx3+497*c2x8*sx3+(163-611*x1)*cx3;
+X	*ds += -12696*sx7*cx3-4200*s2x7*cx3-1503*s3x7*cx3-619*s4x7*cx3-
+X	     268*s5x7*cx3-(282+1306*x1)*cx7*cx3+(-86+230*x1)*c2x7*cx3+
+X	     461*s2x8*cx3-350*s2x3+(2211-286*x1)*sx7*s2x3-
+X	     2208*s2x7*s2x3-568*s3x7*s2x3-346*s4x7*s2x3-
+X	     (2780+222*x1)*cx7*s2x3+(2022+263*x1)*c2x7*s2x3+248*c3x7*s2x3+
+X	     242*s3x8*s2x3+467*c3x8*s2x3-490*c2x3-(2842+279*x1)*sx7*c2x3;
+X	*ds += (128+226*x1)*s2x7*c2x3+224*s3x7*c2x3+
+X	     (-1594+282*x1)*cx7*c2x3+(2162-207*x1)*c2x7*c2x3+
+X	     561*c3x7*c2x3+343*c4x7*c2x3+469*s3x8*c2x3-242*c3x8*c2x3-
+X	     205*sx7*s3x3+262*s3x7*s3x3+208*cx7*c3x3-271*c3x7*c3x3-
+X	     382*c3x7*s4x3-376*s3x7*c4x3;
+X	*ds *= 1e-7;
+X
+X	dp = (7.7108e-2+(7.186e-3-1.533e-3*x1)*x1)*sx5-7.075e-3*sx7+
+X	     (4.5803e-2-(1.4766e-2+5.36e-4*x1)*x1)*cx5-7.2586e-2*cx3-
+X	     7.5825e-2*sx7*sx3-2.4839e-2*s2x7*sx3-8.631e-3*s3x7*sx3-
+X	     1.50383e-1*cx7*cx3+2.6897e-2*c2x7*cx3+1.0053e-2*c3x7*cx3-
+X	     (1.3597e-2+1.719e-3*x1)*sx7*s2x3+1.1981e-2*s2x7*c2x3;
+X	dp += -(7.742e-3-1.517e-3*x1)*cx7*s2x3+
+X	     (1.3586e-2-1.375e-3*x1)*c2x7*c2x3-
+X	     (1.3667e-2-1.239e-3*x1)*sx7*c2x3+
+X	     (1.4861e-2+1.136e-3*x1)*cx7*c2x3-
+X	     (1.3064e-2+1.628e-3*x1)*c2x7*c2x3;
+X
+X	*dm = *dml-(degrad(dp)/s);
+X
+X	*da = 572*sx5-1590*s2x7*cx3+2933*cx5-647*s3x7*cx3+33629*cx7-
+X	     344*s4x7*cx3-3081*c2x7+2885*cx7*cx3-1423*c3x7+
+X	     (2172+102*x1)*c2x7*cx3-671*c4x7+296*c3x7*cx3-320*c5x7-
+X	     267*s2x7*s2x3+1098*sx3-778*cx7*s2x3-2812*sx7*sx3;
+X	*da += 495*c2x7*s2x3+688*s2x7*sx3+250*c3x7*s2x3-393*s3x7*sx3-
+X	     856*sx7*c2x3-228*s4x7*sx3+441*s2x7*c2x3+2138*cx7*sx3+
+X	     296*c2x7*c2x3-999*c2x7*sx3+211*c3x7*c2x3-642*c3x7*sx3-
+X	     427*sx7*s3x3-325*c4x7*sx3+398*s3x7*s3x3-890*cx3+
+X	     344*cx7*c3x3+2206*sx7*cx3-427*c3x7*c3x3;
+X	*da *= 1e-6;
+X
+X	*dhl = 7.47e-4*cx7*sx3+1.069e-3*cx7*cx3+2.108e-3*s2x7*s2x3+
+X	      1.261e-3*c2x7*s2x3+1.236e-3*s2x7*c2x3-2.075e-3*c2x7*c2x3;
+X	*dhl = degrad(*dhl);
+X}
+X
+X/* ....uranus */
+Xstatic void
+Xp_uranus (t, s, dl, dr, dml, ds, dm, da, dhl)
+Xdouble t, s;
+Xdouble *dl, *dr, *dml, *ds, *dm, *da, *dhl;
+X{
+X	double dp;
+X	double x1, x2, x3, x4, x5, x6;
+X	double x8, x9, x10, x11, x12;
+X	double sx4, cx4, s2x4, c2x4;
+X	double sx9, cx9, s2x9, c2x9;
+X	double sx11, cx11;
+X
+X	aux_jsun (t, &x1, &x2, &x3, &x4, &x5, &x6);
+X
+X        x8 = mod2PI(1.46205+3.81337*t);
+X        x9 = 2*x8-x4;
+X	sx9 = sin(x9);
+X	cx9 = cos(x9);
+X        s2x9 = sin(2*x9);
+X	c2x9 = cos(2*x9);
+X
+X	x10 = x4-x2;
+X	x11 = x4-x3;
+X	x12 = x8-x4;
+X
+X	*dml = (8.64319e-1-1.583e-3*x1)*sx9+(8.2222e-2-6.833e-3*x1)*cx9+
+X	      3.6017e-2*s2x9-3.019e-3*c2x9+8.122e-3*sin(x6);
+X	*dml = degrad(*dml);
+X
+X	dp = 1.20303e-1*sx9+6.197e-3*s2x9+(1.9472e-2-9.47e-4*x1)*cx9;
+X	*dm = *dml-(degrad(dp)/s);
+X
+X	*ds = (163*x1-3349)*sx9+20981*cx9+1311*c2x9;
+X	*ds *= 1e-7;
+X
+X	*da = -3.825e-3*cx9;
+X
+X	*dl = (1.0122e-2-9.88e-4*x1)*sin(x4+x11)+
+X	     (-3.8581e-2+(2.031e-3-1.91e-3*x1)*x1)*cos(x4+x11)+
+X	     (3.4964e-2-(1.038e-3-8.68e-4*x1)*x1)*cos(2*x4+x11)+
+X	     5.594e-3*sin(x4+3*x12)-1.4808e-2*sin(x10)-
+X	     5.794e-3*sin(x11)+2.347e-3*cos(x11)+9.872e-3*sin(x12)+
+X	     8.803e-3*sin(2*x12)-4.308e-3*sin(3*x12);
+X
+X	sx11 = sin(x11);
+X	cx11 = cos(x11);
+X	sx4 = sin(x4);
+X	cx4 = cos(x4);
+X	s2x4 = sin(2*x4);
+X	c2x4 = cos(2*x4);
+X	*dhl = (4.58e-4*sx11-6.42e-4*cx11-5.17e-4*cos(4*x12))*sx4-
+X	      (3.47e-4*sx11+8.53e-4*cx11+5.17e-4*sin(4*x11))*cx4+
+X	      4.03e-4*(cos(2*x12)*s2x4+sin(2*x12)*c2x4);
+X	*dhl = degrad(*dhl);
+X
+X	*dr = -25948+4985*cos(x10)-1230*cx4+3354*cos(x11)+904*cos(2*x12)+
+X	     894*(cos(x12)-cos(3*x12))+(5795*cx4-1165*sx4+1388*c2x4)*sx11+
+X	     (1351*cx4+5702*sx4+1388*s2x4)*cos(x11);
+X	*dr *= 1e-6;
+X}
+X
+X/* ....neptune */
+Xstatic void
+Xp_neptune (t, s, dl, dr, dml, ds, dm, da, dhl)
+Xdouble t, s;
+Xdouble *dl, *dr, *dml, *ds, *dm, *da, *dhl;
+X{
+X	double dp;
+X	double x1, x2, x3, x4, x5, x6;
+X	double x8, x9, x10, x11, x12;
+X	double sx8, cx8;
+X	double sx9, cx9, s2x9, c2x9;
+X	double s2x12, c2x12;
+X
+X	aux_jsun (t, &x1, &x2, &x3, &x4, &x5, &x6);
+X
+X        x8 = mod2PI(1.46205+3.81337*t);
+X        x9 = 2*x8-x4;
+X	sx9 = sin(x9);
+X	cx9 = cos(x9);
+X        s2x9 = sin(2*x9);
+X	c2x9 = cos(2*x9);
+X
+X	x10 = x8-x2;
+X	x11 = x8-x3;
+X	x12 = x8-x4;
+X
+X	*dml = (1.089e-3*x1-5.89833e-1)*sx9+(4.658e-3*x1-5.6094e-2)*cx9-
+X	      2.4286e-2*s2x9;
+X	*dml = degrad(*dml);
+X
+X	dp = 2.4039e-2*sx9-2.5303e-2*cx9+6.206e-3*s2x9-5.992e-3*c2x9;
+X
+X	*dm = *dml-(degrad(dp)/s);
+X
+X	*ds = 4389*sx9+1129*s2x9+4262*cx9+1089*c2x9;
+X	*ds *= 1e-7;
+X
+X	*da = 8189*cx9-817*sx9+781*c2x9;
+X	*da *= 1e-6;
+X
+X	s2x12 = sin(2*x12);
+X	c2x12 = cos(2*x12);
+X	sx8 = sin(x8);
+X	cx8 = cos(x8);
+X	*dl = -9.556e-3*sin(x10)-5.178e-3*sin(x11)+2.572e-3*s2x12-
+X	     2.972e-3*c2x12*sx8-2.833e-3*s2x12*cx8;
+X
+X	*dhl = 3.36e-4*c2x12*sx8+3.64e-4*s2x12*cx8;
+X	*dhl = degrad(*dhl);
+X
+X	*dr = -40596+4992*cos(x10)+2744*cos(x11)+2044*cos(x12)+1051*c2x12;
+X	*dr *= 1e-6;
+X}
+END_OF_FILE
+  if test 19091 -ne `wc -c <'plans.c'`; then
+    echo shar: \"'plans.c'\" unpacked with wrong size!
+  fi
+  # end of 'plans.c'
+fi
+if test -f 'skyfiltmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'skyfiltmenu.c'\"
+else
+  echo shar: Extracting \"'skyfiltmenu.c'\" \(16767 characters\)
+  sed "s/^X//" >'skyfiltmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the sky view filter display.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/DrawingA.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/Text.h>
+X#include <Xm/Scale.h>
+X#include <Xm/Separator.h>
+X#include "astro.h"
+X#include "circum.h"
+X
+X/* info for each filter option toggle */
+Xtypedef struct {
+X    char *label;	/* label on the toggle button */
+X    char *name;		/* name of toggle button, for resource setting */
+X    int type;		/* as in Obj.type */
+X    char class;		/* as in Obj.f.f_class */
+X    char state;		/* 0 or 1 depending on whether this class is on */
+X    Widget tbw;		/* the toggle button widget */
+X} FilterTB;
+X
+X/* info for a set of filters forming a category */
+Xtypedef struct {
+X    char *label;	/* label for this category */
+X    FilterTB *ftb;	/* array of toggle button filters in this class */
+X    int nftb;		/* entries in ftb[] */
+X    Widget pbw;		/* the category "toggle" pushbutton */
+X} FilterCat;
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern Now *mm_get_now P_((void));
+Xextern void get_something P_((Widget w, char *resource, char *value));
+Xextern void prompt_map_cb P_((Widget w, XtPointer client, XtPointer call));
+Xextern void sv_all P_((Now *np, int preclr));
+Xextern void sv_draw_obj P_((Display *dsp, Drawable win, GC gc, Obj *op, int x, int y, int diam, int dotsonly));
+X
+Xvoid svf_create P_((void));
+Xvoid svf_manage_toggle P_((void));
+Xvoid svf_manage P_((void));
+Xvoid svf_unmanage P_((void));
+Xint svf_filter_ok P_((Obj *op));
+Xvoid svf_cursor P_((Cursor c));
+Xstatic void svf_create_filter P_((Widget mainrc, FilterCat *fcp));
+Xstatic void svf_reset P_((void));
+Xstatic void svf_apply P_((void));
+Xstatic void svf_da_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void svf_draw_symbol P_((FilterTB *ftbp, Widget daw));
+Xstatic void svf_apply_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void svf_ok_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void svf_close_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void svf_toggle_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void svf_all_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void svf_reset_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void svf_cat_toggle_cb P_((Widget w, XtPointer client, XtPointer call));
+X
+X#undef P_
+X
+Xextern Widget toplevel_w;
+X#define	XtD	XtDisplay(toplevel_w)
+X
+Xstatic FilterTB solsys_f[] = {
+X    {"Planets",		"Planets",	PLANET,		0},
+X    {"Elliptical",	"Elliptical",	ELLIPTICAL,	0},
+X    {"Hyperbolic",	"Hyperbolic",	HYPERBOLIC,	0},
+X    {"Parabolic",	"Parabolic",	PARABOLIC,	0}
+X};
+X
+Xstatic FilterTB other_f[] = {
+X    {"Q Quasars", 	"Quasars",	FIXED,		'Q'},
+X    {"T Stellar",	"Stellar",	FIXED,		'T'},
+X    {"Undefined",	"Undefined",	FIXED,		'\0'}
+X};
+X
+Xstatic FilterTB stars_f[] = {
+X    {"S Single",	"Stars",	FIXED,		'S'},
+X    {"B Binary",	"Binary",	FIXED,		'B'},
+X    {"D Double",	"Double",	FIXED,		'D'},
+X    {"M Multiple",	"Multiple",	FIXED,		'M'},
+X    {"V Variable",	"Variable",	FIXED,		'V'}
+X};
+X
+Xstatic FilterTB nebulea_f[] = {
+X    {"N Bright",	"BrightNeb",	FIXED,		'N'},
+X    {"F Diffuse",	"DiffuseNeb",	FIXED,		'F'},
+X    {"K Dark",		"DarkNeb",	FIXED,		'K'},
+X    {"P Planetary",	"PlanetaryNeb",	FIXED,		'P'}
+X};
+X
+Xstatic FilterTB galaxies_f[] = {
+X    {"G Spiral",	"SpiralGal",	FIXED,		'G'},
+X    {"H Spherical",	"SphericalGal",	FIXED,		'H'},
+X    {"A Clusters",	"GalClusters",	FIXED,		'A'}
+X};
+X
+Xstatic FilterTB clusters_f[] = {
+X    {"C Globular",	"GlobularCl",	FIXED,		'C'},
+X    {"O Open",		"OpenCl",	FIXED,		'O'},
+X    {"U in Nebula",	"ClInNeb",	FIXED,		'U'}
+X};
+X
+Xstatic FilterCat filters[] = {
+X    {"Solar System:",	solsys_f,	XtNumber(solsys_f)},
+X    {"Clusters:",	clusters_f,	XtNumber(clusters_f)},
+X    {"Galaxies:",	galaxies_f,	XtNumber(galaxies_f)},
+X    {"Nebulea:",	nebulea_f,	XtNumber(nebulea_f)},
+X    {"Stars:",		stars_f,	XtNumber(stars_f)},
+X    {"Other:",		other_f,	XtNumber(other_f)}
+X};
+X
+X/* these form rapid lookup tables for the state of an object.
+X * they can be directly indexed by Obj.type and Obj.f.f_class, respectively.
+X */
+Xstatic char fclass_table[128];
+Xstatic char type_table[10];
+X
+Xstatic Widget filter_w;
+X
+X/* create, but do not manage, the filter dialog.
+X * we also apply its state info immediately to the initial resource
+X * settings of the toggle buttons are used to set up the real filter
+X * right away.
+X */
+Xvoid
+Xsvf_create()
+X{
+X	static struct {
+X	    char *name;
+X	    void (*cb)();
+X	} ctls[] = {
+X	    {"Ok", svf_ok_cb},
+X	    {"Apply", svf_apply_cb},
+X	    {"All", svf_all_cb},
+X	    {"Toggle All", svf_toggle_cb},
+X	    {"Reset", svf_reset_cb},
+X	    {"Close", svf_close_cb}
+X	};
+X	Arg args[20];
+X	XmString str;
+X	Widget w;
+X	Widget ctlf_w;
+X	Widget topsep_w, botsep_w;
+X	Widget hrc_w;
+X	int n;
+X	int i;
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	filter_w = XmCreateFormDialog (toplevel_w, "SkyFilter", args, n);
+X	XtAddCallback (filter_w, XmNmapCallback, prompt_map_cb, NULL);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Sky view Filter"); n++;
+X	XtSetValues (XtParent(filter_w), args, n);
+X
+X	/* make a separator across the top */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	topsep_w = XmCreateSeparator (filter_w, "TopSep", args, n);
+X	XtManageChild (topsep_w);
+X
+X	/* make a form for bottom control panel */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNfractionBase, 25); n++;
+X	XtSetArg (args[n], XmNverticalSpacing, 5); n++;
+X	ctlf_w = XmCreateForm (filter_w, "SVControlF", args, n);
+X	XtManageChild (ctlf_w);
+X
+X	    /* add the control buttons */
+X
+X	    for (i = 0; i < XtNumber(ctls); i++) {
+X		str = XmStringCreateLtoR(ctls[i].name,XmSTRING_DEFAULT_CHARSET);
+X		n = 0;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, 1+i*4); n++;
+X		XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNrightPosition, 4+i*4); n++;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		w = XmCreatePushButton (ctlf_w, "FilterCB", args, n);
+X		XtManageChild(w);
+X		XmStringFree (str);
+X		XtAddCallback (w, XmNactivateCallback, ctls[i].cb, NULL);
+X	    }
+X
+X	/* put a separator on top of the control panel */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ctlf_w); n++;
+X	botsep_w = XmCreateSeparator (filter_w, "BotSep", args, n);
+X	XtManageChild (botsep_w);
+X
+X	/* make a horizontal rowcol to contain each column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, botsep_w); n++;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, topsep_w); n++;
+X	XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	XtSetArg (args[n], XmNpacking, XmPACK_TIGHT); n++;
+X	XtSetArg (args[n], XmNspacing, 0); n++;
+X	XtSetArg (args[n], XmNmarginWidth, 0); n++;
+X	hrc_w = XmCreateRowColumn (filter_w, "CategoryTableRC", args, n);
+X	XtManageChild (hrc_w);
+X
+X	/* fill the horizontal rc with each FilterCat */
+X
+X	for (i = 0; i < XtNumber(filters); i++)
+X	    svf_create_filter (hrc_w, &filters[i]);
+X
+X	/* set the real filter according to the state of the toggle buttons */
+X	svf_apply();
+X}
+X
+X/* called to toggle whether the filter dialog is up.
+X * whenever we are managed, reset the state of the toggle buttons back
+X * to the way the real filter is.
+X */
+Xvoid
+Xsvf_manage_toggle ()
+X{
+X	if (XtIsManaged(filter_w))
+X	    svf_unmanage();
+X	else
+X	    svf_manage();
+X}
+X
+X/* called to manage the filer dialog.
+X * whenever we are managed, reset the state of the toggle buttons back
+X * to the way the real filter is.
+X */
+Xvoid
+Xsvf_manage()
+X{
+X	svf_reset();
+X	XtManageChild(filter_w);
+X}
+X
+Xvoid
+Xsvf_unmanage()
+X{
+X	XtUnmanageChild(filter_w);
+X}
+X
+X/* return 1 if p satisfies the stuff in the filter dialog, else 0.
+X * N.B. because svf_apply() has to have already been called we do not need
+X *   to range check the type and class.
+X */
+Xsvf_filter_ok (op)
+XObj *op;
+X{
+X	int t = op->type;
+X
+X	if (t == FIXED)
+X	    return (fclass_table[op->f_class]);
+X	else
+X	    return (type_table[t]);
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xsvf_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (filter_w && (win = XtWindow(filter_w))) {
+X	    Display *dsp = XtDisplay(filter_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+X/* create one FilterCat filter category in the given RowColumn */
+Xstatic void
+Xsvf_create_filter (mainrc, fcp)
+XWidget mainrc;
+XFilterCat *fcp;
+X{
+X	Arg args[20];
+X	Widget l_w;
+X	Widget rc_w;	/* rc for the label and controls */
+X	Widget fr_w, da_w;
+X	Widget w;
+X	int n;
+X	int i;
+X
+X	/* make a rc within a frame for the tb rowcol */
+X
+X	n = 0;
+X	fr_w = XmCreateFrame (mainrc, "Frame", args, n);
+X	XtManageChild (fr_w);
+X	n = 0;
+X	XtSetArg (args[n], XmNmarginWidth, 0); n++;
+X	XtSetArg (args[n], XmNisAligned, False); n++;
+X	rc_w = XmCreateRowColumn (fr_w, "CategoryRC", args, n);
+X	XtManageChild (rc_w);
+X
+X	/* make a label for the category */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	l_w = XmCreateLabel (rc_w, fcp->label, args, n);
+X	XtManageChild (l_w);
+X
+X	/* make a pushbutton used to toggle all entries in this category */
+X	n = 0;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	w = XmCreatePushButton (rc_w, "Toggle", args, n);
+X	XtAddCallback (w, XmNactivateCallback, svf_cat_toggle_cb,
+X								(XtPointer)fcp);
+X	XtManageChild (w);
+X
+X	/* add each filter */
+X
+X	for (i = 0; i < fcp->nftb; i++) {
+X	    Widget f_w;
+X	    Widget tb_w;
+X	    FilterTB *ftbp = &fcp->ftb[i];
+X	    XmString str;
+X
+X	    n = 0;
+X	    f_w = XmCreateForm (rc_w, "FTBF", args, n);
+X	    XtManageChild (f_w);
+X
+X		/* create a frame around a drawing area in which to show the
+X		 * object symbol
+X		 */
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNshadowType, XmSHADOW_ETCHED_OUT); n++;
+X		fr_w = XmCreateFrame (f_w, "SymbolF", args, n);
+X		XtManageChild (fr_w);
+X		n = 0;
+X		da_w = XmCreateDrawingArea (fr_w, "SymbolDA", args, n);
+X		XtAddCallback (da_w, XmNexposeCallback, svf_da_cb,
+X							    (XtPointer)ftbp);
+X		XtManageChild (da_w);
+X
+X		/* create the filter selection toggle button */
+X
+X		str = XmStringCreateLtoR (ftbp->label,XmSTRING_DEFAULT_CHARSET);
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X		XtSetArg (args[n], XmNleftWidget, fr_w); n++;
+X		XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X		tb_w = XmCreateToggleButton (f_w, ftbp->name, args, n);
+X		XmStringFree(str);
+X		XtManageChild (tb_w);
+X		ftbp->tbw = tb_w;
+X	}
+X}
+X
+X/* set the toggle button states according to the real filter states.
+X */
+Xstatic void
+Xsvf_reset()
+X{
+X	int i, j;
+X
+X	for (i = 0; i < XtNumber(filters); i++) {
+X	    FilterCat *fcp = &filters[i];
+X	    for (j = 0; j < fcp->nftb; j++) {
+X		FilterTB *ftbp = &fcp->ftb[j];
+X		XmToggleButtonSetState (ftbp->tbw, ftbp->state, True);
+X	    }
+X	}
+X}
+X
+X/* set the filter according to the present state of the toggle buttons.
+X */
+Xstatic void
+Xsvf_apply()
+X{
+X	int i, j;
+X
+X	for (i = 0; i < XtNumber(filters); i++) {
+X	    FilterCat *fcp = &filters[i];
+X	    for (j = 0; j < fcp->nftb; j++) {
+X		FilterTB *ftbp = &fcp->ftb[j];
+X		int t = ftbp->type;
+X		if (t < 0 || t >= XtNumber(type_table)) {
+X		    printf ("svf_apply: type out of range: %d\n", t);
+X		    exit (1);
+X		}
+X		ftbp->state = XmToggleButtonGetState (ftbp->tbw);
+X		if (ftbp->type == FIXED) {
+X		    int c = ftbp->class;
+X		    if (c < 0 || c >= XtNumber(fclass_table)) {
+X			printf ("svf_apply: FIXED class out of range: %d\n", c);
+X			exit (1);
+X		    }
+X		    fclass_table[c] = ftbp->state;
+X		} else
+X		    type_table[t] = ftbp->state;
+X	    }
+X	}
+X}
+X
+X/* called when a symbol drawing area is exposed.
+X * client is a pointer to the FilterTB.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsvf_da_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X	FilterTB *ftbp = (FilterTB *) client;
+X
+X	switch (c->reason) {
+X	case XmCR_EXPOSE: {
+X	    /* turn off gravity so we get expose events for either shrink or
+X	     * expand.
+X	     */
+X	    static before;
+X	    XExposeEvent *e = &c->event->xexpose;
+X
+X	    if (!before) {
+X		XSetWindowAttributes swa;
+X		swa.bit_gravity = ForgetGravity;
+X		XChangeWindowAttributes (e->display, e->window, 
+X							    CWBitGravity, &swa);
+X		before = 1;
+X	    }
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    }
+X	    break;
+X	default:
+X	    return;
+X	}
+X
+X	svf_draw_symbol(ftbp, w);
+X}
+X
+X/* draw the symbol used for the object described by ftbp into the
+X * DrawingArea widget daw.
+X */
+Xstatic void
+Xsvf_draw_symbol(ftbp, daw)
+XFilterTB *ftbp;
+XWidget daw;
+X{
+X	static GC gc;
+X	Display *dsp = XtDisplay(daw);
+X	Window win = XtWindow(daw);
+X	Obj obj;
+X	Dimension w, h;
+X	int diam;
+X
+X	obj.type = ftbp->type;
+X	if (ftbp->type == FIXED)
+X	    obj.f_class = ftbp->class;
+X
+X	get_something (daw, XmNwidth, (char *)&w);
+X	get_something (daw, XmNheight, (char *)&h);
+X	diam = (w > h ? h : w) - 2;
+X
+X	if (!gc) {
+X	    XGCValues gcv;
+X	    unsigned gcm;
+X	    Pixel p;
+X
+X	    gcm = GCForeground;
+X	    get_something (daw, XmNforeground, (char *)&p);
+X	    gcv.foreground = p;
+X	    gc = XCreateGC (dsp, win, gcm, &gcv);
+X	}
+X
+X	/* use diam-2 to allow for a little overflow on some symbols */
+X	sv_draw_obj (dsp, win, gc, &obj, (int)w/2, (int)h/2, diam-2, 0);
+X	sv_draw_obj (dsp, win, gc, NULL, 0, 0, 0, 0);	/* flush */
+X}
+X
+X/* called when Apply is pushed on the filter dialog */
+X/* ARGSUSED */
+Xstatic void
+Xsvf_apply_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	svf_apply();
+X	sv_all(mm_get_now(), 1);
+X}
+X
+X/* called when Ok is pushed on the filter dialog */
+X/* ARGSUSED */
+Xstatic void
+Xsvf_ok_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	svf_apply();
+X	sv_all(mm_get_now(), 1);
+X	XtUnmanageChild (filter_w);
+X}
+X
+X/* called when Close is pushed on the filter dialog */
+X/* ARGSUSED */
+Xstatic void
+Xsvf_close_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XtUnmanageChild (filter_w);
+X}
+X
+X/* called when Toggle is pushed on the filter dialog */
+X/* ARGSUSED */
+Xstatic void
+Xsvf_toggle_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int i, j;
+X
+X	for (i = 0; i < XtNumber(filters); i++) {
+X	    FilterCat *fcp = &filters[i];
+X	    for (j = 0; j < fcp->nftb; j++) {
+X		FilterTB *ftbp = &fcp->ftb[j];
+X		XmToggleButtonSetState (ftbp->tbw, 
+X		    !XmToggleButtonGetState(ftbp->tbw), True);
+X	    }
+X	}
+X}
+X
+X/* called when All is pushed on the filter dialog */
+X/* ARGSUSED */
+Xstatic void
+Xsvf_all_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int i, j;
+X
+X	for (i = 0; i < XtNumber(filters); i++) {
+X	    FilterCat *fcp = &filters[i];
+X	    for (j = 0; j < fcp->nftb; j++) {
+X		FilterTB *ftbp = &fcp->ftb[j];
+X		XmToggleButtonSetState (ftbp->tbw, True, True);
+X	    }
+X	}
+X}
+X
+X/* called when Reset is pushed on the filter dialog */
+X/* ARGSUSED */
+Xstatic void
+Xsvf_reset_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	svf_reset();
+X}
+X
+X/* called when the "Toggle" button is activated on a particular category.
+X * client is the FilterCat pointer.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsvf_cat_toggle_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	FilterCat *fcp = (FilterCat *) client;
+X	int i;
+X
+X	for (i = 0; i < fcp->nftb; i++) {
+X	    FilterTB *ftbp = &fcp->ftb[i];
+X	    XmToggleButtonSetState (ftbp->tbw, 
+X		!XmToggleButtonGetState(ftbp->tbw), True);
+X	}
+X}
+END_OF_FILE
+  if test 16767 -ne `wc -c <'skyfiltmenu.c'`; then
+    echo shar: \"'skyfiltmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'skyfiltmenu.c'
+fi
+echo shar: End of archive 19 \(of 21\).
+cp /dev/null ark19isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 21 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Building ephem.db
+    cat > ephem.db.Z.uu ephem.db.Z.uu.?
+    uudecode ephem.db.Z.uu
+    rm ephem.db.Z.uu ephem.db.Z.uu.?
+    uncompress ephem.db.Z
+    echo Building skyviewmenu.c
+    cat > skyviewmenu.c skyviewmenu.c.?
+    rm skyviewmenu.c.?
+    echo Building smallfm.xbm
+    cat > smallfm.xbm smallfm.xbm.?
+    rm smallfm.xbm.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

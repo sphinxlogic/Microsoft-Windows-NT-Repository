@@ -1,0 +1,2642 @@
+Newsgroups: comp.sources.misc
+From: Kevin Stock <kstock@encore.com>
+Subject:  v30i087:  oraperl-v2 - Extensions to Perl to access Oracle database, Part01/05
+Message-ID: <csm-v30i087=oraperl-v2.133559@sparky.IMD.Sterling.COM>
+X-Md4-Signature: c6c232bb80a50c24de94debfee394c9a
+Date: Mon, 29 Jun 1992 18:37:20 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Kevin Stock <kstock@encore.com>
+Posting-number: Volume 30, Issue 87
+Archive-name: oraperl-v2/part01
+Environment: Perl, Oracle with OCI, optionally Curses
+Supersedes: oraperl: Volume 18, Issue 10
+
+This is version 2 of Oraperl, a set of usersubs which allow Perl
+to access Oracle databases. You need Perl (v3.0.27 or better) and
+Oracle (including the Oracle Call Interface) to build Oraperl. If
+you can build Larry's Curseperl, then you can also build Coraperl,
+which is Oraperl with Curses.
+
+The first version of Oraperl appeared in comp.sources.misc Volume
+18, Issue 10, and was followed by five patches. This is a complete
+new release, not a patch.
+
+  Principal changes:
+  ------------------
+The debugging code has been redone (again). I've finally done
+what I should have done long ago, and replaced all my debugging
+code with Fred Fish' excellent DBUG package. From now on, you can
+fine tune debugging traces.  See the file Debugging for details.
+
+[ DBUG is in the public domain, and I highly recommend it. It's in ]
+[ the dbug/ subdirectory so you can install and use it separately. ]
+
+The &ora_open() function now takes an optional third parameter which
+is the number of rows to cache from an SQL SELECT statement. Caching
+rows can lead to a significant increase in speed - see the file
+Row_cache for information regarding my tests. A new variable $ora_cache
+specifies the default cache size and may be set and tested in a program.
+
+A bug in the &ora_open() function has been fixed. Previously, if the
+open failed for any reason, the memory allocated to the cursor was
+freed, but the Oracle library was not informed that the cursor had
+been released.  If this occurred several times in a program, it could
+lead to Oracle error 1000: "maximum open cursors exceeded". Now
+oclose() is called before freeing the cursor, removing the problem.
+
+The first parameter to &ora_login() may now be an empty string
+(it may not be omitted) in which case Oraperl will work like
+other Oracle applications, and use the current value of ORACLE_SID
+to determine the database to use.
+
+There is now support for LONG and LONGRAW datatypes. The variable
+$ora_long may be set to the buffer size to allocate for a LONG
+field - the default is 80, for compatibility with Oracle tools.
+An optional second parameter to &ora_fetch specifies whether a
+LONG field is allowed to be truncated. A new variable, $ora_trunc
+provides a default setting.
+
+  Other changes:
+  --------------
+Since the OCI function obind requires that all bound values to be
+non-empty, ora_bind now replaces empty strings with a single
+space. If you do not want this behaviour, (ie, you prefer
+ora_bind to report an error for an empty string) define the
+symbol NO_BIND_PADDING during compilation.
+
+A new function, &ora_autocommit, allows autocommit to be enabled
+or disabled per login.
+
+A new function, &ora_lengths, returns an array containing the
+maximum length of each field returned by the specified query.
+
+A new function, &ora_types, returns an array containing the Oracle
+datatype code for each field returned by the specified query.
+
+A new variable, $ora_verno, reports the version number and
+patchlevel as (VERSION + PATCHLEVEL/1000); thus this version
+reports 2. This will allow scripts to distinguish between future
+versions. The format is chosen to be compatible with Perl's $]
+variable.
+
+Fixed bugs when assigning and freeing cursors - I forgot to add
+code to initialise and free new fields which were introduced by
+various patches.
+
+The &ora_version() function now reports the state of the following
+compile-time options: debugging, row cache size, bind padding.
+
+If Oraperl is compiled without debugging code and run with the -w
+flag, an attempt to use or set $ora_debug will provoke a warning.
+
+The Makefile now includes a test target. The tests are contained
+in testdir, and, to be honest, are far from exhaustive. However,
+if they work, it's a good sign!
+
+The Makefile now also includes an install target, which runs the
+install.pl script provided. This is a hacked version of Larry's
+installperl, so it will install oraperl (and coraperl if it exists)
+in the same place as Perl. The sql script is also installed.
+
+The Oracle-v5 file has been merged into the Hints file.
+
+The files have been reorganised into a set of subdirectories.
+
+&ora_login now uses Perl's my_setenv() function to choose the database.
+
+The documentation has been rewritten.
+
+(My thanks to Brian Brogmus for the inspiration behind several
+of these changes and additions.)
+
+  What to do
+  ----------
+Unshar these files somewhere convenient and look through the
+README file for configuration information. Set up the
+configuration you want in Makefile, then run make. Have a read
+through the documentation while you're waiting.
+----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  dbug dbug/dbug.c dbug/dbug.qr doc examples oracle.mus
+#   testdir
+# Wrapped by kent@sparky on Mon Jun 29 13:23:36 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 5)."'
+if test ! -d 'dbug' ; then
+    echo shar: Creating directory \"'dbug'\"
+    mkdir 'dbug'
+fi
+if test -f 'dbug/dbug.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbug/dbug.c'\"
+else
+  echo shar: Extracting \"'dbug/dbug.c'\" \(44504 characters\)
+  sed "s/^X//" >'dbug/dbug.c' <<'END_OF_FILE'
+X/******************************************************************************
+X *									      *
+X *	                           N O T I C E				      *
+X *									      *
+X *	              Copyright Abandoned, 1987, Fred Fish		      *
+X *									      *
+X *									      *
+X *	This previously copyrighted work has been placed into the  public     *
+X *	domain  by  the  author  and  may be freely used for any purpose,     *
+X *	private or commercial.						      *
+X *									      *
+X *	Because of the number of inquiries I was receiving about the  use     *
+X *	of this product in commercially developed works I have decided to     *
+X *	simply make it public domain to further its unrestricted use.   I     *
+X *	specifically  would  be  most happy to see this material become a     *
+X *	part of the standard Unix distributions by AT&T and the  Berkeley     *
+X *	Computer  Science  Research Group, and a standard part of the GNU     *
+X *	system from the Free Software Foundation.			      *
+X *									      *
+X *	I would appreciate it, as a courtesy, if this notice is  left  in     *
+X *	all copies and derivative works.  Thank you.			      *
+X *									      *
+X *	The author makes no warranty of any kind  with  respect  to  this     *
+X *	product  and  explicitly disclaims any implied warranties of mer-     *
+X *	chantability or fitness for any particular purpose.		      *
+X *									      *
+X ******************************************************************************
+X */
+X
+X
+X/*
+X *  FILE
+X *
+X *	dbug.c   runtime support routines for dbug package
+X *
+X *  SCCS
+X *
+X *	@(#)dbug.c	1.19 9/5/87
+X *
+X *  DESCRIPTION
+X *
+X *	These are the runtime support routines for the dbug package.
+X *	The dbug package has two main components; the user include
+X *	file containing various macro definitions, and the runtime
+X *	support routines which are called from the macro expansions.
+X *
+X *	Externally visible functions in the runtime support module
+X *	use the naming convention pattern "_db_xx...xx_", thus
+X *	they are unlikely to collide with user defined function names.
+X *
+X *  AUTHOR(S)
+X *
+X *	Fred Fish		(base code)
+X *	(Currently at Motorola Computer Division, Tempe, Az.)
+X *	hao!noao!mcdsun!fnf
+X *	(602) 438-3614
+X *
+X *	Binayak Banerjee	(profiling enhancements)
+X *	seismo!bpa!sjuvax!bbanerje
+X */
+X
+X
+X#include <stdio.h>
+X#ifdef amiga
+X#define AMIGA
+X#endif
+X
+X#ifdef AMIGA
+X#define HZ (50)			/* Probably in some header somewhere */
+X#endif
+X
+X/*
+X *	Manifest constants that should not require any changes.
+X */
+X
+X#define FALSE		0	/* Boolean FALSE */
+X#define TRUE		1	/* Boolean TRUE */
+X#define EOS		'\000'	/* End Of String marker */
+X
+X/*
+X *	Manifest constants which may be "tuned" if desired.
+X */
+X
+X#define PRINTBUF	1024	/* Print buffer size */
+X#define INDENT		4	/* Indentation per trace level */
+X#define MAXDEPTH	200	/* Maximum trace depth default */
+X
+X/*
+X *	The following flags are used to determine which
+X *	capabilities the user has enabled with the state
+X *	push macro.
+X */
+X
+X#define TRACE_ON	000001	/* Trace enabled */
+X#define DEBUG_ON	000002	/* Debug enabled */
+X#define FILE_ON 	000004	/* File name print enabled */
+X#define LINE_ON		000010	/* Line number print enabled */
+X#define DEPTH_ON	000020	/* Function nest level print enabled */
+X#define PROCESS_ON	000040	/* Process name print enabled */
+X#define NUMBER_ON	000100	/* Number each line of output */
+X#define PROFILE_ON	000200	/* Print out profiling code */
+X
+X#define TRACING (stack -> flags & TRACE_ON)
+X#define DEBUGGING (stack -> flags & DEBUG_ON)
+X#define PROFILING (stack -> flags & PROFILE_ON)
+X#define STREQ(a,b) (strcmp(a,b) == 0)
+X
+X/*
+X *	Typedefs to make things more obvious.
+X */
+X
+X#define VOID void		/* Can't use typedef for most compilers */
+Xtypedef int BOOLEAN;
+X
+X/*
+X *	Make it easy to change storage classes if necessary.
+X */
+X
+X#define LOCAL static		/* Names not needed by outside world */
+X#define IMPORT extern		/* Names defined externally */
+X#define EXPORT			/* Allocated here, available globally */
+X#define AUTO auto		/* Names to be allocated on stack */
+X#define REGISTER register	/* Names to be placed in registers */
+X
+X/*
+X *	The following define is for the variable arguments kluge, see
+X *	the comments in _db_doprnt_().
+X *
+X *	Also note that the longer this list, the less prone to failing
+X *	on long argument lists, but the more stuff that must be moved
+X *	around for each call to the runtime support routines.  The
+X *	length may really be critical if the machine convention is
+X *	to pass arguments in registers.
+X *
+X *	Note that the default define allows up to 16 integral arguments,
+X *	or 8 floating point arguments (doubles), on most machines.
+X *
+X *	Someday this may be replaced with true varargs support, when
+X *	ANSI C has had time to take root.
+X */
+X
+X#define ARGLIST a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15
+X
+X/*
+X * The default file for profiling.  Could also add another flag
+X * (G?) which allowed the user to specify this.
+X */
+X
+X#define PROF_FILE	"dbugmon.out"
+X
+X/*
+X *	Variables which are available externally but should only
+X *	be accessed via the macro package facilities.
+X */
+X
+XEXPORT FILE *_db_fp_ = stderr;		/* Output stream, default stderr */
+XEXPORT FILE *_db_pfp_ = (FILE *)0;	/* Profile stream, 'dbugmon.out' */
+XEXPORT char *_db_process_ = "dbug";	/* Pointer to process name; argv[0] */
+XEXPORT BOOLEAN _db_on_ = FALSE;		/* TRUE if debugging currently on */
+XEXPORT BOOLEAN _db_pon_ = FALSE;	/* TRUE if debugging currently on */
+X
+X/*
+X *	Externally supplied functions.
+X */
+X
+X#ifdef unix			/* Only needed for unix */
+XIMPORT VOID perror ();		/* Print system/library error */
+XIMPORT int chown ();		/* Change owner of a file */
+XIMPORT int getgid ();		/* Get real group id */
+XIMPORT int getuid ();		/* Get real user id */
+XIMPORT int access ();		/* Test file for access */
+X#else
+X#if !(AMIGA || LATTICE || __TURBOC__)
+XLOCAL VOID perror ();		/* Fake system/library error print routine */
+X#endif
+X#endif
+X
+X# if BSD4_3 || sun
+XIMPORT int getrusage ();
+X#endif
+X
+XIMPORT int atoi ();		/* Convert ascii to integer */
+XIMPORT VOID exit ();		/* Terminate execution */
+XIMPORT int fclose ();		/* Close a stream */
+XIMPORT FILE *fopen ();		/* Open a stream */
+X#if !defined(__BORLANDC__)
+XIMPORT int fprintf ();		/* Formatted print on file */
+X#endif
+XIMPORT VOID free ();
+XIMPORT char *malloc ();		/* Allocate memory */
+XIMPORT int strcmp ();		/* Compare strings */
+XIMPORT char *strcpy ();		/* Copy strings around */
+XIMPORT int strlen ();		/* Find length of string */
+X
+X#ifndef fflush			/* This is sometimes a macro */
+XIMPORT int fflush ();		/* Flush output for stream */
+X#endif
+X
+X
+X/*
+X *	The user may specify a list of functions to trace or 
+X *	debug.  These lists are kept in a linear linked list,
+X *	a very simple implementation.
+X */
+X
+Xstruct link {
+X    char *string;		/* Pointer to link's contents */
+X    struct link *next_link;	/* Pointer to the next link */
+X};
+X
+X
+X/*
+X *	Debugging states can be pushed or popped off of a
+X *	stack which is implemented as a linked list.  Note
+X *	that the head of the list is the current state and the
+X *	stack is pushed by adding a new state to the head of the
+X *	list or popped by removing the first link.
+X */
+X
+Xstruct state {
+X    int flags;				/* Current state flags */
+X    int maxdepth;			/* Current maximum trace depth */
+X    unsigned int delay;			/* Delay after each output line */
+X    int level;				/* Current function nesting level */
+X    FILE *out_file;			/* Current output stream */
+X    FILE *prof_file;			/* Current profiling stream */
+X    struct link *functions;		/* List of functions */
+X    struct link *p_functions;		/* List of profiled functions */
+X    struct link *keywords;		/* List of debug keywords */
+X    struct link *processes;		/* List of process names */
+X    struct state *next_state;		/* Next state in the list */
+X};
+X
+XLOCAL struct state *stack = NULL;	/* Linked list of stacked states */
+X
+X/*
+X *	Local variables not seen by user.
+X */
+X
+XLOCAL int lineno = 0;		/* Current debugger output line number */
+XLOCAL char *func = "?func";	/* Name of current user function */
+XLOCAL char *file = "?file";	/* Name of current user file */
+XLOCAL BOOLEAN init_done = FALSE;/* Set to TRUE when initialization done */
+X
+X/*#if unix || AMIGA || M_I86*/
+XLOCAL int jmplevel;		/* Remember nesting level at setjmp () */
+XLOCAL char *jmpfunc;		/* Remember current function for setjmp */
+XLOCAL char *jmpfile;		/* Remember current file for setjmp */
+X/*#endif*/
+X
+XLOCAL struct link *ListParse ();/* Parse a debug command string */
+XLOCAL char *StrDup ();		/* Make a fresh copy of a string */
+XLOCAL VOID OpenFile ();		/* Open debug output stream */
+XLOCAL VOID OpenProfile ();	/* Open profile output stream */
+XLOCAL VOID CloseFile ();	/* Close debug output stream */
+XLOCAL VOID PushState ();	/* Push current debug state */
+XLOCAL VOID ChangeOwner ();	/* Change file owner and group */
+XLOCAL BOOLEAN DoTrace ();	/* Test for tracing enabled */
+XLOCAL BOOLEAN Writable ();	/* Test to see if file is writable */
+XLOCAL unsigned long Clock ();	/* Return current user time (ms) */
+XLOCAL char *DbugMalloc ();	/* Allocate memory for runtime support */
+XLOCAL char *BaseName ();	/* Remove leading pathname components */
+XLOCAL VOID DoPrefix ();		/* Print debugger line prefix */
+XLOCAL VOID FreeList ();		/* Free memory from linked list */
+XLOCAL VOID Indent ();		/* Indent line to specified indent */
+X
+X				/* Supplied in Sys V runtime environ */
+XLOCAL char *strtok ();		/* Break string into tokens */
+XLOCAL char *strrchr ();		/* Find last occurance of char */
+X
+X/*
+X *	The following local variables are used to hold the state information
+X *	between the call to _db_pargs_() and _db_doprnt_(), during
+X *	expansion of the DBUG_PRINT macro.  This is the only macro
+X *	that currently uses these variables.  The DBUG_PRINT macro
+X *	and the new _db_doprnt_() routine replace the older DBUG_N macros
+X *	and their corresponding runtime support routine _db_printf_().
+X *
+X *	These variables are currently used only by _db_pargs_() and
+X *	_db_doprnt_().
+X */
+X
+XLOCAL int u_line = 0;		/* User source code line number */
+XLOCAL char *u_keyword = "?";	/* Keyword for current macro */
+X
+X/*
+X *	Miscellaneous printf format strings.
+X */
+X 
+X#define ERR_MISSING_RETURN "%s: missing DBUG_RETURN or DBUG_VOID_RETURN macro in function \"%s\"\n"
+X#define ERR_OPEN "%s: can't open debug output stream \"%s\": "
+X#define ERR_CLOSE "%s: can't close debug file: "
+X#define ERR_ABORT "%s: debugger aborting because %s\n"
+X#define ERR_CHOWN "%s: can't change owner/group of \"%s\": "
+X#define ERR_PRINTF "%s: obsolete object file for '%s', please recompile!\n"
+X
+X/*
+X *	Macros and defines for testing file accessibility under UNIX.
+X */
+X
+X#ifdef unix
+X#  define A_EXISTS	00		/* Test for file existance */
+X#  define A_EXECUTE	01		/* Test for execute permission */
+X#  define A_WRITE	02		/* Test for write access */
+X#  define A_READ	03		/* Test for read access */
+X#  define EXISTS(pathname) (access (pathname, A_EXISTS) == 0)
+X#  define WRITABLE(pathname) (access (pathname, A_WRITE) == 0)
+X#else
+X#  define EXISTS(pathname) (FALSE)	/* Assume no existance */
+X#endif
+X
+X/*
+X *	Translate some calls among different systems.
+X */
+X
+X#ifdef unix
+X# define XDelay sleep
+XIMPORT unsigned int sleep ();	/* Pause for given number of seconds */
+X#endif
+X
+X#ifdef AMIGA
+XIMPORT int XDelay ();		/* Pause for given number of ticks */
+X#endif
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	_db_push_    push current debugger state and set up new one
+X *
+X *  SYNOPSIS
+X *
+X *	VOID _db_push_ (control)
+X *	char *control;
+X *
+X *  DESCRIPTION
+X *
+X *	Given pointer to a debug control string in "control", pushes
+X *	the current debug state, parses the control string, and sets
+X *	up a new debug state.
+X *
+X *	The only attribute of the new state inherited from the previous
+X *	state is the current function nesting level.  This can be
+X *	overridden by using the "r" flag in the control string.
+X *
+X *	The debug control string is a sequence of colon separated fields
+X *	as follows:
+X *
+X *		<field_1>:<field_2>:...:<field_N>
+X *
+X *	Each field consists of a mandatory flag character followed by
+X *	an optional "," and comma separated list of modifiers:
+X *
+X *		flag[,modifier,modifier,...,modifier]
+X *
+X *	The currently recognized flag characters are:
+X *
+X *		d	Enable output from DBUG_<N> macros for
+X *			for the current state.  May be followed
+X *			by a list of keywords which selects output
+X *			only for the DBUG macros with that keyword.
+X *			A null list of keywords implies output for
+X *			all macros.
+X *
+X *		D	Delay after each debugger output line.
+X *			The argument is the number of tenths of seconds
+X *			to delay, subject to machine capabilities.
+X *			I.E.  -#D,20 is delay two seconds.
+X *
+X *		f	Limit debugging and/or tracing, and profiling to the
+X *			list of named functions.  Note that a null list will
+X *			disable all functions.  The appropriate "d" or "t"
+X *			flags must still be given, this flag only limits their
+X *			actions if they are enabled.
+X *
+X *		F	Identify the source file name for each
+X *			line of debug or trace output.
+X *
+X *		g	Enable profiling.  Create a file called 'dbugmon.out'
+X *			containing information that can be used to profile
+X *			the program.  May be followed by a list of keywords
+X *			that select profiling only for the functions in that
+X *			list.  A null list implies that all functions are
+X *			considered.
+X *
+X *		L	Identify the source file line number for
+X *			each line of debug or trace output.
+X *
+X *		n	Print the current function nesting depth for
+X *			each line of debug or trace output.
+X *	
+X *		N	Number each line of dbug output.
+X *
+X *		p	Limit debugger actions to specified processes.
+X *			A process must be identified with the
+X *			DBUG_PROCESS macro and match one in the list
+X *			for debugger actions to occur.
+X *
+X *		P	Print the current process name for each
+X *			line of debug or trace output.
+X *
+X *		r	When pushing a new state, do not inherit
+X *			the previous state's function nesting level.
+X *			Useful when the output is to start at the
+X *			left margin.
+X *
+X *		t	Enable function call/exit trace lines.
+X *			May be followed by a list (containing only
+X *			one modifier) giving a numeric maximum
+X *			trace level, beyond which no output will
+X *			occur for either debugging or tracing
+X *			macros.  The default is a compile time
+X *			option.
+X *
+X *	Some examples of debug control strings which might appear
+X *	on a shell command line (the "-#" is typically used to
+X *	introduce a control string to an application program) are:
+X *
+X *		-#d:t
+X *		-#d:f,main,subr1:F:L:t,20
+X *		-#d,input,output,files:n
+X *
+X *	For convenience, any leading "-#" is stripped off.
+X *
+X */
+X
+X
+XVOID _db_push_ (control)
+Xchar *control;
+X{
+X    REGISTER char *scan;
+X    REGISTER struct link *temp;
+X
+X    if (control && *control == '-') {
+X	if (*++control == '#') {
+X	    control++;
+X	}	
+X    }
+X    control = StrDup (control);
+X    PushState ();
+X    scan = strtok (control, ":");
+X    for (; scan != NULL; scan = strtok ((char *)NULL, ":")) {
+X	switch (*scan++) {
+X	    case 'd': 
+X		_db_on_ = TRUE;
+X		stack -> flags |= DEBUG_ON;
+X		if (*scan++ == ',') {
+X		    stack -> keywords = ListParse (scan);
+X		}
+X	    	break;
+X	    case 'D': 
+X		stack -> delay = 0;
+X		if (*scan++ == ',') {
+X		    temp = ListParse (scan);
+X		    stack -> delay = DelayArg (atoi (temp -> string));
+X		    FreeList (temp);
+X		}
+X		break;
+X	    case 'f': 
+X		if (*scan++ == ',') {
+X		    stack -> functions = ListParse (scan);
+X		}
+X		break;
+X	    case 'F': 
+X		stack -> flags |= FILE_ON;
+X		break;
+X	    case 'g': 
+X		_db_pon_ = TRUE;
+X		OpenProfile(PROF_FILE);
+X		stack -> flags |= PROFILE_ON;
+X		if (*scan++ == ',') {
+X		    stack -> p_functions = ListParse (scan);
+X		}
+X		break;
+X	    case 'L': 
+X		stack -> flags |= LINE_ON;
+X		break;
+X	    case 'n': 
+X		stack -> flags |= DEPTH_ON;
+X		break;
+X	    case 'N':
+X		stack -> flags |= NUMBER_ON;
+X		break;
+X	    case 'o': 
+X		if (*scan++ == ',') {
+X		    temp = ListParse (scan);
+X		    OpenFile (temp -> string);
+X		    FreeList (temp);
+X		} else {
+X		    OpenFile ("-");
+X		}
+X		break;
+X	    case 'p':
+X		if (*scan++ == ',') {
+X		    stack -> processes = ListParse (scan);
+X		}
+X		break;
+X	    case 'P': 
+X		stack -> flags |= PROCESS_ON;
+X		break;
+X	    case 'r': 
+X		stack -> level = 0;
+X		break;
+X	    case 't': 
+X		stack -> flags |= TRACE_ON;
+X		if (*scan++ == ',') {
+X		    temp = ListParse (scan);
+X		    stack -> maxdepth = atoi (temp -> string);
+X		    FreeList (temp);
+X		}
+X		break;
+X	}
+X    }
+X    free (control);
+X}
+X
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	_db_pop_    pop the debug stack
+X *
+X *  DESCRIPTION
+X *
+X *	Pops the debug stack, returning the debug state to its
+X *	condition prior to the most recent _db_push_ invocation.
+X *	Note that the pop will fail if it would remove the last
+X *	valid state from the stack.  This prevents user errors
+X *	in the push/pop sequence from screwing up the debugger.
+X *	Maybe there should be some kind of warning printed if the
+X *	user tries to pop too many states.
+X *
+X */
+X
+XVOID _db_pop_ ()
+X{
+X    REGISTER struct state *discard;
+X
+X    discard = stack;
+X    if (discard != NULL && discard -> next_state != NULL) {
+X	stack = discard -> next_state;
+X	_db_fp_ = stack -> out_file;
+X	_db_pfp_ = stack -> prof_file;
+X	if (discard -> keywords != NULL) {
+X	    FreeList (discard -> keywords);
+X	}
+X	if (discard -> functions != NULL) {
+X	    FreeList (discard -> functions);
+X	}
+X	if (discard -> processes != NULL) {
+X	    FreeList (discard -> processes);
+X	}
+X	if (discard -> p_functions != NULL) {
+X	    FreeList (discard -> p_functions);
+X	}
+X	CloseFile (discard -> out_file);
+X	CloseFile (discard -> prof_file);
+X	free ((char *) discard);
+X    }
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	_db_enter_    process entry point to user function
+X *
+X *  SYNOPSIS
+X *
+X *	VOID _db_enter_ (_func_, _file_, _line_, _sfunc_, _sfile_, _slevel_)
+X *	char *_func_;		points to current function name
+X *	char *_file_;		points to current file name
+X *	int _line_;		called from source line number
+X *	char **_sfunc_;		save previous _func_
+X *	char **_sfile_;		save previous _file_
+X *	int *_slevel_;		save previous nesting level
+X *
+X *  DESCRIPTION
+X *
+X *	Called at the beginning of each user function to tell
+X *	the debugger that a new function has been entered.
+X *	Note that the pointers to the previous user function
+X *	name and previous user file name are stored on the
+X *	caller's stack (this is why the ENTER macro must be
+X *	the first "executable" code in a function, since it
+X *	allocates these storage locations).  The previous nesting
+X *	level is also stored on the callers stack for internal
+X *	self consistency checks.
+X *
+X *	Also prints a trace line if tracing is enabled and
+X *	increments the current function nesting depth.
+X *
+X *	Note that this mechanism allows the debugger to know
+X *	what the current user function is at all times, without
+X *	maintaining an internal stack for the function names.
+X *
+X */
+X
+XVOID _db_enter_ (_func_, _file_, _line_, _sfunc_, _sfile_, _slevel_)
+Xchar *_func_;
+Xchar *_file_;
+Xint _line_;
+Xchar **_sfunc_;
+Xchar **_sfile_;
+Xint *_slevel_;
+X{
+X    if (!init_done) {
+X	_db_push_ ("");
+X    }
+X    *_sfunc_ = func;
+X    *_sfile_ = file;
+X    func = _func_;
+X    file = BaseName (_file_);
+X    stack -> level++;
+X    *_slevel_ = stack -> level;
+X    if (DoProfile ()) {
+X	(VOID) fprintf (_db_pfp_, "%s\tE\t%ld\n",func, Clock());
+X	(VOID) fflush (_db_pfp_);
+X    }
+X    if (DoTrace ()) {
+X	DoPrefix (_line_);
+X	Indent (stack -> level);
+X	(VOID) fprintf (_db_fp_, ">%s\n", func);
+X	(VOID) fflush (_db_fp_);
+X	(VOID) XDelay (stack -> delay);
+X    }
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	_db_return_    process exit from user function
+X *
+X *  SYNOPSIS
+X *
+X *	VOID _db_return_ (_line_, _sfunc_, _sfile_, _slevel_)
+X *	int _line_;		current source line number
+X *	char **_sfunc_;		where previous _func_ is to be retrieved
+X *	char **_sfile_;		where previous _file_ is to be retrieved
+X *	int *_slevel_;		where previous level was stashed
+X *
+X *  DESCRIPTION
+X *
+X *	Called just before user function executes an explicit or implicit
+X *	return.  Prints a trace line if trace is enabled, decrements
+X *	the current nesting level, and restores the current function and
+X *	file names from the defunct function's stack.
+X *
+X */
+X
+XVOID _db_return_ (_line_, _sfunc_, _sfile_, _slevel_)
+Xint _line_;
+Xchar **_sfunc_;
+Xchar **_sfile_;
+Xint *_slevel_;
+X{
+X    if (!init_done) {
+X	_db_push_ ("");
+X    }
+X    if (stack -> level != *_slevel_ && (TRACING || DEBUGGING || PROFILING)) {
+X	(VOID) fprintf (_db_fp_, ERR_MISSING_RETURN, _db_process_, func);
+X        (VOID) XDelay (stack -> delay);
+X    } else if (DoProfile ()) {
+X	(VOID) fprintf (_db_pfp_, "%s\tX\t%ld\n", func, Clock());
+X        (VOID) XDelay (stack -> delay);
+X    } else if (DoTrace ()) {
+X	DoPrefix (_line_);
+X	Indent (stack -> level);
+X	(VOID) fprintf (_db_fp_, "<%s\n", func);
+X        (VOID) XDelay (stack -> delay);
+X    }
+X    (VOID) fflush (_db_fp_);
+X    stack -> level = *_slevel_ - 1;
+X    func = *_sfunc_;
+X    file = *_sfile_;
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	_db_pargs_    log arguments for subsequent use by _db_doprnt_()
+X *
+X *  SYNOPSIS
+X *
+X *	VOID _db_pargs_ (_line_, keyword)
+X *	int _line_;
+X *	char *keyword;
+X *
+X *  DESCRIPTION
+X *
+X *	The new universal printing macro DBUG_PRINT, which replaces
+X *	all forms of the DBUG_N macros, needs two calls to runtime
+X *	support routines.  The first, this function, remembers arguments
+X *	that are used by the subsequent call to _db_doprnt_().
+X*
+X */
+X
+XVOID _db_pargs_ (_line_, keyword)
+Xint _line_;
+Xchar *keyword;
+X{
+X    u_line = _line_;
+X    u_keyword = keyword;
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	_db_doprnt_    handle print of debug lines
+X *
+X *  SYNOPSIS
+X *
+X *	VOID _db_doprnt_ (format, ARGLIST)
+X *	char *format;
+X *	long ARGLIST;
+X *
+X *  DESCRIPTION
+X *
+X *	When invoked via one of the DBUG macros, tests the current keyword
+X *	set by calling _db_pargs_() to see if that macro has been selected
+X *	for processing via the debugger control string, and if so, handles
+X *	printing of the arguments via the format string.  The line number
+X *	of the DBUG macro in the source is found in u_line.
+X *
+X *	Note that the format string SHOULD NOT include a terminating
+X *	newline, this is supplied automatically.
+X *
+X *  NOTES
+X *
+X *	This runtime support routine replaces the older _db_printf_()
+X *	routine which is temporarily kept around for compatibility.
+X *
+X *	The rather ugly argument declaration is to handle some
+X *	magic with respect to the number of arguments passed
+X *	via the DBUG macros.  The current maximum is 3 arguments
+X *	(not including the keyword and format strings).
+X *
+X *	The new <varargs.h> facility is not yet common enough to
+X *	convert to it quite yet...
+X *
+X */
+X
+X/*VARARGS1*/
+XVOID _db_doprnt_ (format, ARGLIST)
+Xchar *format;
+Xlong ARGLIST;
+X{
+X    if (_db_keyword_ (u_keyword)) {
+X	DoPrefix (u_line);
+X	if (TRACING) {
+X	    Indent (stack -> level + 1);
+X	} else {
+X	    (VOID) fprintf (_db_fp_, "%s: ", func);
+X	}
+X	(VOID) fprintf (_db_fp_, "%s: ", u_keyword);
+X	(VOID) fprintf (_db_fp_, format, ARGLIST);
+X	(VOID) fprintf (_db_fp_, "\n");
+X	(VOID) fflush (_db_fp_);
+X	(VOID) XDelay (stack -> delay);
+X    }
+X}
+X
+X/*
+X *	The following routine is kept around temporarily for compatibility
+X *	with older objects that were compiled with the DBUG_N macro form
+X *	of the print routine.  It will print a warning message on first
+X *	usage.  It will go away in subsequent releases...
+X */
+X
+X/*VARARGS3*/
+XVOID _db_printf_ (_line_, keyword, format, ARGLIST)
+Xint _line_;
+Xchar *keyword,  *format;
+Xlong ARGLIST;
+X{
+X    static BOOLEAN firsttime = TRUE;
+X
+X    if (firsttime) {
+X	(VOID) fprintf (stderr, ERR_PRINTF, _db_process_, file);
+X	firsttime = FALSE;
+X    }
+X    _db_pargs_ (_line_, keyword);
+X    _db_doprnt_ (format, ARGLIST);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	ListParse    parse list of modifiers in debug control string
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL struct link *ListParse (ctlp)
+X *	char *ctlp;
+X *
+X *  DESCRIPTION
+X *
+X *	Given pointer to a comma separated list of strings in "cltp",
+X *	parses the list, building a list and returning a pointer to it.
+X *	The original comma separated list is destroyed in the process of
+X *	building the linked list, thus it had better be a duplicate
+X *	if it is important.
+X *
+X *	Note that since each link is added at the head of the list,
+X *	the final list will be in "reverse order", which is not
+X *	significant for our usage here.
+X *
+X */
+X
+XLOCAL struct link *ListParse (ctlp)
+Xchar *ctlp;
+X{
+X    REGISTER char *start;
+X    REGISTER struct link *new;
+X    REGISTER struct link *head;
+X
+X    head = NULL;
+X    while (*ctlp != EOS) {
+X	start = ctlp;
+X	while (*ctlp != EOS && *ctlp != ',') {
+X	    ctlp++;
+X	}
+X	if (*ctlp == ',') {
+X	    *ctlp++ = EOS;
+X	}
+X	new = (struct link *) DbugMalloc (sizeof (struct link));
+X	new -> string = StrDup (start);
+X	new -> next_link = head;
+X	head = new;
+X    }
+X    return (head);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	InList    test a given string for member of a given list
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL BOOLEAN InList (linkp, cp)
+X *	struct link *linkp;
+X *	char *cp;
+X *
+X *  DESCRIPTION
+X *
+X *	Tests the string pointed to by "cp" to determine if it is in
+X *	the list pointed to by "linkp".  Linkp points to the first
+X *	link in the list.  If linkp is NULL then the string is treated
+X *	as if it is in the list (I.E all strings are in the null list).
+X *	This may seem rather strange at first but leads to the desired
+X *	operation if no list is given.  The net effect is that all
+X *	strings will be accepted when there is no list, and when there
+X *	is a list, only those strings in the list will be accepted.
+X *
+X */
+X
+XLOCAL BOOLEAN InList (linkp, cp)
+Xstruct link *linkp;
+Xchar *cp;
+X{
+X    REGISTER struct link *scan;
+X    REGISTER BOOLEAN accept;
+X
+X    if (linkp == NULL) {
+X	accept = TRUE;
+X    } else {
+X	accept = FALSE;
+X	for (scan = linkp; scan != NULL; scan = scan -> next_link) {
+X	    if (STREQ (scan -> string, cp)) {
+X		accept = TRUE;
+X		break;
+X	    }
+X	}
+X    }
+X    return (accept);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	PushState    push current state onto stack and set up new one
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL VOID PushState ()
+X *
+X *  DESCRIPTION
+X *
+X *	Pushes the current state on the state stack, and initializes
+X *	a new state.  The only parameter inherited from the previous
+X *	state is the function nesting level.  This action can be
+X *	inhibited if desired, via the "r" flag.
+X *
+X *	The state stack is a linked list of states, with the new
+X *	state added at the head.  This allows the stack to grow
+X *	to the limits of memory if necessary.
+X *
+X */
+X
+XLOCAL VOID PushState ()
+X{
+X    REGISTER struct state *new;
+X
+X    new = (struct state *) DbugMalloc (sizeof (struct state));
+X    new -> flags = 0;
+X    new -> delay = 0;
+X    new -> maxdepth = MAXDEPTH;
+X    if (stack != NULL) {
+X	new -> level = stack -> level;
+X    } else {
+X	new -> level = 0;
+X    }
+X    new -> out_file = stderr;
+X    new -> functions = NULL;
+X    new -> p_functions = NULL;
+X    new -> keywords = NULL;
+X    new -> processes = NULL;
+X    new -> next_state = stack;
+X    stack = new;
+X    init_done = TRUE;
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	DoTrace    check to see if tracing is current enabled
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL BOOLEAN DoTrace ()
+X *
+X *  DESCRIPTION
+X *
+X *	Checks to see if tracing is enabled based on whether the
+X *	user has specified tracing, the maximum trace depth has
+X *	not yet been reached, the current function is selected,
+X *	and the current process is selected.  Returns TRUE if
+X *	tracing is enabled, FALSE otherwise.
+X *
+X */
+X
+XLOCAL BOOLEAN DoTrace ()
+X{
+X    REGISTER BOOLEAN trace;
+X
+X    trace = FALSE;
+X    if (TRACING) {
+X	if (stack -> level <= stack -> maxdepth) {
+X	    if (InList (stack -> functions, func)) {
+X		if (InList (stack -> processes, _db_process_)) {
+X		    trace = TRUE;
+X		}
+X	    }
+X	}
+X    }
+X    return (trace);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	DoProfile    check to see if profiling is current enabled
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL BOOLEAN DoProfile ()
+X *
+X *  DESCRIPTION
+X *
+X *	Checks to see if profiling is enabled based on whether the
+X *	user has specified profiling, the maximum trace depth has
+X *	not yet been reached, the current function is selected,
+X *	and the current process is selected.  Returns TRUE if
+X *	profiling is enabled, FALSE otherwise.
+X *
+X */
+X
+XLOCAL BOOLEAN DoProfile ()
+X{
+X    REGISTER BOOLEAN profile;
+X
+X    profile = FALSE;
+X    if (PROFILING) {
+X	if (stack -> level <= stack -> maxdepth) {
+X	    if (InList (stack -> p_functions, func)) {
+X		if (InList (stack -> processes, _db_process_)) {
+X		    profile = TRUE;
+X		}
+X	    }
+X	}
+X    }
+X    return (profile);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	_db_keyword_    test keyword for member of keyword list
+X *
+X *  SYNOPSIS
+X *
+X *	BOOLEAN _db_keyword_ (keyword)
+X *	char *keyword;
+X *
+X *  DESCRIPTION
+X *
+X *	Test a keyword to determine if it is in the currently active
+X *	keyword list.  As with the function list, a keyword is accepted
+X *	if the list is null, otherwise it must match one of the list
+X *	members.  When debugging is not on, no keywords are accepted.
+X *	After the maximum trace level is exceeded, no keywords are
+X *	accepted (this behavior subject to change).  Additionally,
+X *	the current function and process must be accepted based on
+X *	their respective lists.
+X *
+X *	Returns TRUE if keyword accepted, FALSE otherwise.
+X *
+X */
+X
+XBOOLEAN _db_keyword_ (keyword)
+Xchar *keyword;
+X{
+X    REGISTER BOOLEAN accept;
+X
+X    if (!init_done) {
+X	_db_push_ ("");
+X    }
+X    accept = FALSE;
+X    if (DEBUGGING) {
+X	if (stack -> level <= stack -> maxdepth) {
+X	    if (InList (stack -> functions, func)) {
+X		if (InList (stack -> keywords, keyword)) {
+X		    if (InList (stack -> processes, _db_process_)) {
+X			accept = TRUE;
+X		    }
+X		}
+X	    }
+X	}
+X    }
+X    return (accept);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	Indent    indent a line to the given indentation level
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL VOID Indent (indent)
+X *	int indent;
+X *
+X *  DESCRIPTION
+X *
+X *	Indent a line to the given level.  Note that this is
+X *	a simple minded but portable implementation.
+X *	There are better ways.
+X *
+X *	Also, the indent must be scaled by the compile time option
+X *	of character positions per nesting level.
+X *
+X */
+X
+XLOCAL VOID Indent (indent)
+Xint indent;
+X{
+X    REGISTER int count;
+X    AUTO char buffer[PRINTBUF];
+X
+X    indent *= INDENT;
+X    for (count = 0; (count < (indent - INDENT)) && (count < (PRINTBUF - 1)); count++) {
+X	if ((count % INDENT) == 0) {
+X	    buffer[count] = '|';
+X	} else {
+X	    buffer[count] = ' ';
+X	}
+X    }
+X    buffer[count] = EOS;
+X    (VOID) fprintf (_db_fp_, buffer);
+X    (VOID) fflush (_db_fp_);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	FreeList    free all memory associated with a linked list
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL VOID FreeList (linkp)
+X *	struct link *linkp;
+X *
+X *  DESCRIPTION
+X *
+X *	Given pointer to the head of a linked list, frees all
+X *	memory held by the list and the members of the list.
+X *
+X */
+X
+XLOCAL VOID FreeList (linkp)
+Xstruct link *linkp;
+X{
+X    REGISTER struct link *old;
+X
+X    while (linkp != NULL) {
+X	old = linkp;
+X	linkp = linkp -> next_link;
+X	if (old -> string != NULL) {
+X	    free (old -> string);
+X	}
+X	free ((char *) old);
+X    }
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	StrDup   make a duplicate of a string in new memory
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL char *StrDup (string)
+X *	char *string;
+X *
+X *  DESCRIPTION
+X *
+X *	Given pointer to a string, allocates sufficient memory to make
+X *	a duplicate copy, and copies the string to the newly allocated
+X *	memory.  Failure to allocated sufficient memory is immediately
+X *	fatal.
+X *
+X */
+X
+X
+XLOCAL char *StrDup (string)
+Xchar *string;
+X{
+X    REGISTER char *new;
+X
+X    new = DbugMalloc (strlen (string) + 1);
+X    (VOID) strcpy (new, string);
+X    return (new);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	DoPrefix    print debugger line prefix prior to indentation
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL VOID DoPrefix (_line_)
+X *	int _line_;
+X *
+X *  DESCRIPTION
+X *
+X *	Print prefix common to all debugger output lines, prior to
+X *	doing indentation if necessary.  Print such information as
+X *	current process name, current source file name and line number,
+X *	and current function nesting depth.
+X *
+X */
+X  
+X 
+XLOCAL VOID DoPrefix (_line_)
+Xint _line_;
+X{
+X    lineno++;
+X    if (stack -> flags & NUMBER_ON) {
+X	(VOID) fprintf (_db_fp_, "%5d: ", lineno);
+X    }
+X    if (stack -> flags & PROCESS_ON) {
+X	(VOID) fprintf (_db_fp_, "%s: ", _db_process_);
+X    }
+X    if (stack -> flags & FILE_ON) {
+X	(VOID) fprintf (_db_fp_, "%14s: ", file);
+X    }
+X    if (stack -> flags & LINE_ON) {
+X	(VOID) fprintf (_db_fp_, "%5d: ", _line_);
+X    }
+X    if (stack -> flags & DEPTH_ON) {
+X	(VOID) fprintf (_db_fp_, "%4d: ", stack -> level);
+X    }
+X    (VOID) fflush (_db_fp_);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	OpenFile    open new output stream for debugger output
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL VOID OpenFile (name)
+X *	char *name;
+X *
+X *  DESCRIPTION
+X *
+X *	Given name of a new file (or "-" for stdout) opens the file
+X *	and sets the output stream to the new file.
+X *
+X */
+X
+XLOCAL VOID OpenFile (name)
+Xchar *name;
+X{
+X    REGISTER FILE *fp;
+X    REGISTER BOOLEAN newfile;
+X
+X    if (name != NULL) {
+X	if (strcmp (name, "-") == 0) {
+X	    _db_fp_ = stdout;
+X	    stack -> out_file = _db_fp_;
+X	} else {
+X	    if (!Writable (name)) {
+X		(VOID) fprintf (_db_fp_, ERR_OPEN, _db_process_, name);
+X		perror ("");
+X		(VOID) fflush (_db_fp_);
+X		(VOID) XDelay (stack -> delay);
+X	    } else {
+X		if (EXISTS (name)) {
+X		    newfile = FALSE;
+X		} else {
+X		    newfile = TRUE;
+X		}
+X		fp = fopen (name, "a");
+X		if (fp == NULL) {
+X 		    (VOID) fprintf (_db_fp_, ERR_OPEN, _db_process_, name);
+X		    perror ("");
+X		    (VOID) fflush (_db_fp_);
+X		    (VOID) XDelay (stack -> delay);
+X		} else {
+X		    _db_fp_ = fp;
+X		    stack -> out_file = fp;
+X		    if (newfile) {
+X			ChangeOwner (name);
+X		    }
+X		}
+X	    }
+X	}
+X    }
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	OpenProfile    open new output stream for profiler output
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL VOID OpenProfile (name)
+X *	char *name;
+X *
+X *  DESCRIPTION
+X *
+X *	Given name of a new file, opens the file
+X *	and sets the profiler output stream to the new file.
+X *
+X *	It is currently unclear whether the prefered behavior is
+X *	to truncate any existing file, or simply append to it.
+X *	The latter behavior would be desirable for collecting
+X *	accumulated runtime history over a number of separate
+X *	runs.  It might take some changes to the analyzer program
+X *	though, and the notes that Binayak sent with the profiling
+X *	diffs indicated that append was the normal mode, but this
+X *	does not appear to agree with the actual code. I haven't
+X *	investigated at this time [fnf; 24-Jul-87].
+X */
+X
+XLOCAL VOID OpenProfile (name)
+Xchar *name;
+X{
+X    REGISTER FILE *fp;
+X    REGISTER BOOLEAN newfile;
+X
+X    if (name != NULL) {
+X	if (!Writable (name)) {
+X	    (VOID) fprintf (_db_fp_, ERR_OPEN, _db_process_, name);
+X	    perror ("");
+X	    (VOID) fflush (_db_fp_);
+X	    (VOID) XDelay (stack -> delay);
+X	} else {
+X	    if (EXISTS (name)) {
+X		newfile = FALSE;
+X	    } else {
+X		newfile = TRUE;
+X	    }
+X	    fp = fopen (name, "w");
+X	    if (fp == NULL) {
+X		(VOID) fprintf (_db_fp_, ERR_OPEN, _db_process_, name);
+X		perror ("");
+X		(VOID) fflush (_db_fp_);
+X		(VOID) XDelay (stack -> delay);
+X	    } else {
+X		_db_pfp_ = fp;
+X		stack -> prof_file = fp;
+X		if (newfile) {
+X		    ChangeOwner (name);
+X		}
+X	    }
+X	}
+X    }
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	CloseFile    close the debug output stream
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL VOID CloseFile (fp)
+X *	FILE *fp;
+X *
+X *  DESCRIPTION
+X *
+X *	Closes the debug output stream unless it is standard output
+X *	or standard error.
+X *
+X */
+X
+XLOCAL VOID CloseFile (fp)
+XFILE *fp;
+X{
+X    if (fp != stderr && fp != stdout) {
+X	if (fclose (fp) == EOF) {
+X	    (VOID) fprintf (stderr, ERR_CLOSE, _db_process_);
+X	    perror ("");
+X	    (VOID) fflush (stderr);
+X	    (VOID) XDelay (stack -> delay);
+X	}
+X    }
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	DbugExit    print error message and exit
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL VOID DbugExit (why)
+X *	char *why;
+X *
+X *  DESCRIPTION
+X *
+X *	Prints error message using current process name, the reason for
+X *	aborting (typically out of memory), and exits with status 1.
+X *	This should probably be changed to use a status code
+X *	defined in the user's debugger include file.
+X *
+X */
+X 
+XLOCAL VOID DbugExit (why)
+Xchar *why;
+X{
+X    (VOID) fprintf (stderr, ERR_ABORT, _db_process_, why);
+X    (VOID) fflush (stderr);
+X    (VOID) XDelay (stack -> delay);
+X    exit (1);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	DbugMalloc    allocate memory for debugger runtime support
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL char *DbugMalloc (size)
+X *	int size;
+X *
+X *  DESCRIPTION
+X *
+X *	Allocate more memory for debugger runtime support functions.
+X *	Failure to to allocate the requested number of bytes is
+X *	immediately fatal to the current process.  This may be
+X *	rather unfriendly behavior.  It might be better to simply
+X *	print a warning message, freeze the current debugger state,
+X *	and continue execution.
+X *
+X */
+X 
+XLOCAL char *DbugMalloc (size)
+Xint size;
+X{
+X    register char *new;
+X
+X    new = malloc ( size );
+X    if (new == NULL) {
+X	DbugExit ("out of memory");
+X    }
+X    return (new);
+X}
+X
+X
+X/*
+X *	This function may be eliminated when strtok is available
+X *	in the runtime environment (missing from BSD4.1).
+X */
+X
+XLOCAL char *strtok (s1, s2)
+Xchar *s1, *s2;
+X{
+X    static char *end = NULL;
+X    REGISTER char *rtnval;
+X
+X    rtnval = NULL;
+X    if (s2 != NULL) {
+X	if (s1 != NULL) {
+X	    end = s1;
+X	    rtnval = strtok ((char *) NULL, s2);
+X	} else if (end != NULL) {
+X	    if (*end != EOS) {
+X		rtnval = end;
+X		while (*end != *s2 && *end != EOS) {end++;}
+X		if (*end != EOS) {
+X		    *end++ = EOS;
+X		}
+X	    }
+X	}
+X    }
+X    return (rtnval);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	BaseName    strip leading pathname components from name
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL char *BaseName (pathname)
+X *	char *pathname;
+X *
+X *  DESCRIPTION
+X *
+X *	Given pointer to a complete pathname, locates the base file
+X *	name at the end of the pathname and returns a pointer to
+X *	it.
+X *
+X */
+X
+XLOCAL char *BaseName (pathname)
+Xchar *pathname;
+X{
+X    register char *base;
+X
+X    base = strrchr (pathname, '/');
+X    if (base++ == NULL) {
+X	base = pathname;
+X    }
+X    return (base);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	Writable    test to see if a pathname is writable/creatable
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL BOOLEAN Writable (pathname)
+X *	char *pathname;
+X *
+X *  DESCRIPTION
+X *
+X *	Because the debugger might be linked in with a program that
+X *	runs with the set-uid-bit (suid) set, we have to be careful
+X *	about opening a user named file for debug output.  This consists
+X *	of checking the file for write access with the real user id,
+X *	or checking the directory where the file will be created.
+X *
+X *	Returns TRUE if the user would normally be allowed write or
+X *	create access to the named file.  Returns FALSE otherwise.
+X *
+X */
+X
+XLOCAL BOOLEAN Writable (pathname)
+Xchar *pathname;
+X{
+X    REGISTER BOOLEAN granted;
+X#ifdef unix
+X    REGISTER char *lastslash;
+X#endif
+X
+X#ifndef unix
+X    granted = TRUE;
+X#else
+X    granted = FALSE;
+X    if (EXISTS (pathname)) {
+X	if (WRITABLE (pathname)) {
+X	    granted = TRUE;
+X	}
+X    } else {
+X	lastslash = strrchr (pathname, '/');
+X	if (lastslash != NULL) {
+X	    *lastslash = EOS;
+X	} else {
+X	    pathname = ".";
+X	}
+X	if (WRITABLE (pathname)) {
+X	    granted = TRUE;
+X	}
+X	if (lastslash != NULL) {
+X	    *lastslash = '/';
+X	}
+X    }
+X#endif
+X    return (granted);
+X}
+X
+X
+X/*
+X *	This function may be eliminated when strrchr is available
+X *	in the runtime environment (missing from BSD4.1).
+X *	Alternately, you can use rindex() on BSD systems.
+X */
+X
+XLOCAL char *strrchr (s, c)
+Xchar *s;
+Xchar c;
+X{
+X    REGISTER char *scan;
+X
+X    for (scan = s; *scan != EOS; scan++) {;}
+X    while (scan > s && *--scan != c) {;}
+X    if (*scan != c) {
+X	scan = NULL;
+X    }
+X    return (scan);
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	ChangeOwner    change owner to real user for suid programs
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL VOID ChangeOwner (pathname)
+X *
+X *  DESCRIPTION
+X *
+X *	For unix systems, change the owner of the newly created debug
+X *	file to the real owner.  This is strictly for the benefit of
+X *	programs that are running with the set-user-id bit set.
+X *
+X *	Note that at this point, the fact that pathname represents
+X *	a newly created file has already been established.  If the
+X *	program that the debugger is linked to is not running with
+X *	the suid bit set, then this operation is redundant (but
+X *	harmless).
+X *
+X */
+X
+XLOCAL VOID ChangeOwner (pathname)
+Xchar *pathname;
+X{
+X#ifdef unix
+X    if (chown (pathname, getuid (), getgid ()) == -1) {
+X	(VOID) fprintf (stderr, ERR_CHOWN, _db_process_, pathname);
+X	perror ("");
+X	(VOID) fflush (stderr);
+X	(VOID) XDelay (stack -> delay);
+X    }
+X#endif
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	_db_setjmp_    save debugger environment
+X *
+X *  SYNOPSIS
+X *
+X *	VOID _db_setjmp_ ()
+X *
+X *  DESCRIPTION
+X *
+X *	Invoked as part of the user's DBUG_SETJMP macro to save
+X *	the debugger environment in parallel with saving the user's
+X *	environment.
+X *
+X */
+X
+XVOID _db_setjmp_ ()
+X{
+X   jmplevel = stack -> level;
+X   jmpfunc = func;
+X   jmpfile = file;
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	_db_longjmp_    restore previously saved debugger environment
+X *
+X *  SYNOPSIS
+X *
+X *	VOID _db_longjmp_ ()
+X *
+X *  DESCRIPTION
+X *
+X *	Invoked as part of the user's DBUG_LONGJMP macro to restore
+X *	the debugger environment in parallel with restoring the user's
+X *	previously saved environment.
+X *
+X */
+X
+XVOID _db_longjmp_ ()
+X{
+X    stack -> level = jmplevel;
+X    if (jmpfunc) {
+X	func = jmpfunc;
+X    }
+X    if (jmpfile) {
+X	file = jmpfile;
+X    }
+X}
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	DelayArg   convert D flag argument to appropriate value
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL int DelayArg (value)
+X *	int value;
+X *
+X *  DESCRIPTION
+X *
+X *	Converts delay argument, given in tenths of a second, to the
+X *	appropriate numerical argument used by the system to delay
+X *	that that many tenths of a second.  For example, on the
+X *	AMIGA, there is a system call "Delay()" which takes an
+X *	argument in ticks (50 per second).  On unix, the sleep
+X *	command takes seconds.  Thus a value of "10", for one
+X *	second of delay, gets converted to 50 on the amiga, and 1
+X *	on unix.  Other systems will need to use a timing loop.
+X *
+X */
+X
+XLOCAL int DelayArg (value)
+Xint value;
+X{
+X    int delayarg = 0;
+X    
+X#ifdef unix
+X    delayarg = value / 10;		/* Delay is in seconds for sleep () */
+X#endif
+X#ifdef AMIGA
+X    delayarg = (HZ * value) / 10;	/* Delay in ticks for XDelay () */
+X#endif
+X    return (delayarg);
+X}
+X
+X
+X/*
+X *	A dummy delay stub for systems that do not support delays.
+X *	With a little work, this can be turned into a timing loop.
+X */
+X
+X#ifndef unix
+X#ifndef AMIGA
+XXDelay ()
+X{
+X}
+X#endif
+X#endif
+X
+X
+X/*
+X *  FUNCTION
+X *
+X *	perror    perror simulation for systems that don't have it
+X *
+X *  SYNOPSIS
+X *
+X *	LOCAL VOID perror (s)
+X *	char *s;
+X *
+X *  DESCRIPTION
+X *
+X *	Perror produces a message on the standard error stream which
+X *	provides more information about the library or system error
+X *	just encountered.  The argument string s is printed, followed
+X *	by a ':', a blank, and then a message and a newline.
+X *
+X *	An undocumented feature of the unix perror is that if the string
+X *	's' is a null string (NOT a NULL pointer!), then the ':' and
+X *	blank are not printed.
+X *
+X *	This version just complains about an "unknown system error".
+X *
+X */
+X
+X#if !unix && !(AMIGA || LATTICE || __TURBOC__ )
+XLOCAL VOID perror (s)
+X#if __STDC__
+Xconst char *s;
+X#else
+Xchar *s;
+X#endif
+X{
+X    if (s && *s != EOS) {
+X	(VOID) fprintf (stderr, "%s: ", s);
+X    }
+X    (VOID) fprintf (stderr, "<unknown system error>\n");
+X}
+X#endif	/* !unix && !(AMIGA && LATTICE) */
+X
+X/*
+X * Here we need the definitions of the clock routine.  Add your
+X * own for whatever system that you have.
+X */
+X
+X#if unix
+X
+X# include <sys/param.h>
+X# if BSD4_3 || sun
+X
+X/*
+X * Definition of the Clock() routine for 4.3 BSD.
+X */
+X
+X#include <sys/time.h>
+X#include <sys/resource.h>
+X
+X/*
+X * Returns the user time in milliseconds used by this process so
+X * far.
+X */
+X
+XLOCAL unsigned long Clock ()
+X{
+X    struct rusage ru;
+X
+X    (VOID) getrusage (RUSAGE_SELF, &ru);
+X    return ((ru.ru_utime.tv_sec * 1000) + (ru.ru_utime.tv_usec / 1000));
+X}
+X
+X#else
+X
+XLOCAL unsigned long Clock ()
+X{
+X    return (0);
+X}
+X
+X# endif
+X
+X#else
+X
+X#if AMIGA
+X
+Xstruct DateStamp {		/* Yes, this is a hack, but doing it right */
+X	long ds_Days;		/* is incredibly ugly without splitting this */
+X	long ds_Minute;		/* off into a separate file */
+X	long ds_Tick;
+X};
+X
+Xstatic int first_clock = TRUE;
+Xstatic struct DateStamp begin;
+Xstatic struct DateStamp elapsed;
+X
+XLOCAL unsigned long Clock ()
+X{
+X    register struct DateStamp *now;
+X    register unsigned long millisec = 0;
+X    extern VOID *AllocMem ();
+X
+X    now = (struct DateStamp *) AllocMem ((long) sizeof (struct DateStamp), 0L);
+X    if (now != NULL) {
+X	if (first_clock == TRUE) {
+X	    first_clock = FALSE;
+X	    (VOID) DateStamp (now);
+X	    begin = *now;
+X	}
+X	(VOID) DateStamp (now);
+X	millisec = 24 * 3600 * (1000 / HZ) * (now -> ds_Days - begin.ds_Days);
+X	millisec += 60 * (1000 / HZ) * (now -> ds_Minute - begin.ds_Minute);
+X	millisec += (1000 / HZ) * (now -> ds_Tick - begin.ds_Tick);
+X	(VOID) FreeMem (now, (long) sizeof (struct DateStamp));
+X    }
+X    return (millisec);
+X}
+X
+X#else
+X
+XLOCAL unsigned long Clock ()
+X{
+X    return (0);
+X}
+X
+X#endif	/* AMIGA */
+X
+X#endif	/* unix */
+X
+X#ifdef AMIGA
+XXDelay(x)
+Xint x;
+X{
+X	if (x) Delay(x);	/* fix Delay bug in AmigaDOS */
+X}
+X#endif
+X
+END_OF_FILE
+  if test 44504 -ne `wc -c <'dbug/dbug.c'`; then
+    echo shar: \"'dbug/dbug.c'\" unpacked with wrong size!
+  fi
+  # end of 'dbug/dbug.c'
+fi
+if test -f 'dbug/dbug.qr' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbug/dbug.qr'\"
+else
+  echo shar: Extracting \"'dbug/dbug.qr'\" \(2232 characters\)
+  sed "s/^X//" >'dbug/dbug.qr' <<'END_OF_FILE'
+X.\"	Quick reference list for the DBUG package, from dbug.p, pp 15-19
+X.\"	First group is of interest to programmers, second to users.
+X.\"
+X.pl 1
+X.ll 80
+X.lt 80
+X
+X.ti -5
+X\fBDBUG_OFF\fP
+X.br
+Xif defined during compilation, removes all debugging from the program
+X
+X.ti -5
+X\fBDBUG_ENTER\fP(char *\fIfname\fP)
+X.br
+Xmarks entry to the function \fIfname\fP
+X
+X.ti -5
+X\fBDBUG_RETURN\fP(int \fIvalue\fP)
+X.ti -5
+X\fBDBUG_VOID_RETURN\fP
+X.br
+Xmarks the return from the current function
+X
+X.ti -5
+X\fBDBUG_PROCESS\fP(char *\fIpname\fP)
+X.br
+Xmarks the beginning of the process \fIpname\fP
+X
+X.ti -5
+X\fBDBUG_PUSH\fP(char *\fIstate\fP)
+X.br
+Xsets up a new debugging state (see \fIDebugging States\fP below)
+X
+X.ti -5
+X\fBDBUG_POP\fP(void)
+X.br
+Xrestores the previous debugging state
+X
+X.ti -5
+X\fBDBUG_FILE\fP
+X.br
+Xa file pointer which may be used to add output to the debugging trace
+X
+X.ti -5
+X\fBDBUG_EXECUTE\fP(char *\fIkey\fP, \fIC_code\fP)
+X.br
+Xif debugging is active for \fIkey\fP, executes the \fIC_code\fP
+X
+X.ti -5
+X\fBDBUG_PRINT\fP(char *\fIformat\fP, \fIarg ...\fP)
+X.br
+Xif debugging is active for \fIkey\fP,
+Xexecutes \fBfprintf\fP to \fBDBUG_FILE\fP
+Xusing the \fIformat\fP and \fIarg\fPs specified
+X
+X.ti -5
+X\fBDBUG_SETJMP\fP(\fIsetjmp_args\fP)
+X.ti -5
+X\fBDBUG_LONGJMP\fP(\fIlongjmp_args\fP)
+X.br
+Xreplace \fBsetjmp\fP() and \fBlongjmp\fP(),
+Xallowing the debugging state to be restored properly
+X
+X
+X
+X.ti -5
+X\fBd\fP[,\fIkey\fP...]
+X.br
+Xenable debugging for the \fIkey\fPs specified
+X
+X.ti -5
+X\fBF\fP[,\fItime\fP]
+X.br
+Xdelay for \fItime\fP tenths of a second after each output
+X
+X.ti -5
+X\fBf\fP[,\fIfunction\fP ...]
+X.br
+Xlimit debugging to the specified \fIfunction\fPs
+X
+X.ti -5
+X\fBF\fP	mark debugger output with the source file name
+X
+X.ti -5
+X\fBL\fP	mark debugger output with the source file line number
+X
+X.ti -5
+X\fBn\fP	mark debugger output with the function nesting depth
+X
+X.ti -5
+X\fBN\fP	number debugger output lines sequentially
+X
+X.ti -5
+X\fBo\fP[,\fIfile\fP]
+X.br
+Xwrite debugger output to \fIfile\fP
+X
+X.ti -5
+X\fBp\fP[,\fIprocesses\fP ...]
+X.br
+Xlimit debugging to the specified \fIprocess\fPes
+X
+X.ti -5
+X\fBP\fP	mark debugger output with the process name
+X
+X.ti -5
+X\fBr\fP	reset indentation level to zero
+X
+X.ti -5
+X\fBt\fP[,N]
+X.br
+Xenable function control flow tracing
+Xto a maximum depth of \fIN\fP
+END_OF_FILE
+  if test 2232 -ne `wc -c <'dbug/dbug.qr'`; then
+    echo shar: \"'dbug/dbug.qr'\" unpacked with wrong size!
+  fi
+  # end of 'dbug/dbug.qr'
+fi
+if test ! -d 'doc' ; then
+    echo shar: Creating directory \"'doc'\"
+    mkdir 'doc'
+fi
+if test ! -d 'examples' ; then
+    echo shar: Creating directory \"'examples'\"
+    mkdir 'examples'
+fi
+if test -f 'oracle.mus' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'oracle.mus'\"
+else
+  echo shar: Extracting \"'oracle.mus'\" \(11035 characters\)
+  sed "s/^X//" >'oracle.mus' <<'END_OF_FILE'
+X/* oracle.mus
+X *
+X * User subroutine interface to Oracle functions
+X *
+X * NOTE: Do not modify oracle.c as it is created automagically from oracle.mus.
+X *	 Modify oracle.mus instead, or your changes will be lost.
+X */
+X/* Copyright 1991, 1992 Kevin Stock.
+X *
+X * You may copy this under the terms of the GNU General Public License,
+X * or the Artistic License, copies of which should have accompanied your
+X * Perl kit.
+X */
+X
+X#include <ctype.h>
+X
+X#include "EXTERN.h"
+X#include "perl.h"
+X#include "orafns.h"
+X#include "patchlevel.h"
+X
+X
+Xstatic enum uservars {
+X	UV_ora_cache,
+X	UV_ora_debug,
+X	UV_ora_errno,
+X	UV_ora_errstr,
+X	UV_ora_long,
+X	UV_ora_trunc,
+X	UV_ora_verno,
+X};
+X
+Xstatic enum usersubs {
+X	US_ora_version,
+X	US_ora_login,
+X	US_ora_open,
+X	US_ora_titles,
+X	US_ora_lengths,
+X	US_ora_types,
+X	US_ora_bind,
+X	US_ora_fetch,
+X	US_ora_close,
+X	US_ora_do,
+X	US_ora_logoff,
+X	US_ora_commit,
+X	US_ora_rollback,
+X	US_ora_autocommit,
+X};
+X
+Xstatic int usersub();
+Xstatic int userset();
+Xstatic int userval();
+X
+Xint
+Xinit_oracle()
+X{
+X    struct ufuncs uf;
+X    char *filename = "oracle.c";
+X
+X    uf.uf_set = userset;
+X    uf.uf_val = userval;
+X
+X#define MAGICVAR(name, ix) uf.uf_index = ix, magicname(name, &uf, sizeof uf)
+X
+X    MAGICVAR("ora_cache",	UV_ora_cache);
+X    MAGICVAR("ora_debug",	UV_ora_debug);
+X    MAGICVAR("ora_errno",	UV_ora_errno);
+X    MAGICVAR("ora_errstr",	UV_ora_errstr);
+X    MAGICVAR("ora_trunc",	UV_ora_trunc);
+X    MAGICVAR("ora_long",	UV_ora_long);
+X    MAGICVAR("ora_verno",	UV_ora_verno);
+X
+X    make_usub("ora_version",	US_ora_version,	    usersub, filename);
+X    make_usub("ora_login",	US_ora_login,	    usersub, filename);
+X    make_usub("ora_open",	US_ora_open,	    usersub, filename);
+X    make_usub("ora_titles",	US_ora_titles,	    usersub, filename);
+X    make_usub("ora_lengths",	US_ora_lengths,	    usersub, filename);
+X    make_usub("ora_types",	US_ora_types,	    usersub, filename);
+X    make_usub("ora_bind",	US_ora_bind,	    usersub, filename);
+X    make_usub("ora_fetch",	US_ora_fetch,	    usersub, filename);
+X    make_usub("ora_close",	US_ora_close,	    usersub, filename);
+X    make_usub("ora_do",		US_ora_do,	    usersub, filename);
+X    make_usub("ora_logoff",	US_ora_logoff,	    usersub, filename);
+X    make_usub("ora_commit",	US_ora_commit,	    usersub, filename);
+X    make_usub("ora_rollback",	US_ora_rollback,    usersub, filename);
+X    make_usub("ora_autocommit",	US_ora_autocommit,  usersub, filename);
+X};
+X
+X
+Xstatic int
+Xusersub(ix, sp, items)
+Xint ix;
+Xregister int sp;
+Xregister int items;
+X{
+X    STR **st = stack->ary_array + sp;
+X    register int i;
+X    register char *tmps;
+X    register STR *Str;		/* used in str_get and str_gnum macros */
+X
+X    switch (ix) {
+X
+XCASE	void	ora_version
+XEND
+X
+XCASE	char *	ora_login
+XI	char *	database
+XI	char *	name
+XI	char *	password
+XEND
+X
+X    case US_ora_open:
+X	if ((items < 2) || (items > 3))
+X	    fatal("Usage: &ora_open($lda, $stmt [, $cache])");
+X	else {
+X	    char * retval;
+X	    char * lda		      = (char *) str_get(st[1]);
+X	    char * stmt		      = (char *) str_get(st[2]);
+X	    int	 cache = (items == 2) ?	ora_cache
+X				      : (int)	 str_gnum(st[3]);
+X
+X	    retval = ora_open(lda, stmt, cache);
+X	    str_set(st[0], (char*) retval);
+X	}
+X	return sp;
+X
+X    case US_ora_titles:
+X	if (items != 1) {
+X	    fatal("Usage: @array = &ora_titles($csr)");
+X	} else {
+X	    char *csr		      = (char *) str_get(st[1]);
+X	    int  retval;
+X
+X	    retval = ora_titles(csr);
+X	    astore(stack, sp + retval, Nullstr);
+X	    st = stack->ary_array + sp;
+X	    for (i = 0 ; i < retval ; i++) {
+X		tmps = ora_result[i];
+X		st[i] = str_2mortal(str_make(tmps, strlen(tmps)));
+X	    }
+X	    return sp + retval - 1;
+X	}
+X	/* NOTREACHED */
+X
+X    case US_ora_lengths:
+X	if (items != 1) {
+X	    fatal("Usage: @array = &ora_lengths($csr)");
+X	} else {
+X	    char *csr		      = (char *) str_get(st[1]);
+X	    int  retval, length;
+X
+X	    retval = ora_lengths(csr);
+X	    astore(stack, sp + retval, Nullstr);
+X	    st = stack->ary_array + sp;
+X	    for (i = 0 ; i < retval ; i++) {
+X		    length = atoi(ora_result[i]);
+X		    st[i] = str_2mortal(str_make("", 0));
+X		    str_numset(st[i], (double) length);
+X	    }
+X	    return sp + retval - 1;
+X	}
+X	/* NOTREACHED */
+X
+X    case US_ora_types:
+X	if (items != 1) {
+X	    fatal("Usage: @array = &ora_types($csr)");
+X	} else {
+X	    char *csr		      = (char *) str_get(st[1]);
+X	    int  retval, type;
+X
+X	    retval = ora_types(csr);
+X	    astore(stack, sp + retval, Nullstr);
+X	    st = stack->ary_array + sp;
+X	    for (i = 0 ; i < retval ; i++) {
+X		    type = atoi(ora_result[i]);
+X		    st[i] = str_2mortal(str_make("", 0));
+X		    str_numset(st[i], (double) type);
+X	    }
+X	    return sp + retval - 1;
+X	}
+X	/* NOTREACHED */
+X
+X    case US_ora_fetch:
+X	if ((items < 1) || (items > 2)) {
+X	    if (curcsv->wantarray)
+X	        fatal("Usage: @array = &ora_fetch($csr[, $trunc])");
+X	    else
+X	        fatal("Usage: $nfields = &ora_fetch($csr)");
+X	} else {
+X	    char *csr		      = (char *) str_get(st[1]);
+X	    int	 trunc = (items == 2) ? (int)	 str_gnum(st[2])
+X				      : ora_trunc;
+X
+X	    if (curcsv->wantarray) {	/* in array context, return the data */
+X		int  retval;
+X
+X		retval = ora_fetch(csr, trunc);
+X		astore(stack, sp + retval, Nullstr);
+X		st = stack->ary_array + sp;
+X		for (i = 0 ; i < retval ; i++) {
+X			tmps = ora_result[i];
+X			st[i] = str_2mortal(str_make(tmps, strlen(tmps)));
+X		}
+X		return sp + retval - 1;
+X	    } else {	/* in scalar context, return the number of fields */
+X		struct cursor *csrp;
+X		extern int check_csr();
+X
+X		csrp = (struct cursor *) strtoul(csr, (char *) NULL, 0);
+X		if (check_csr(csrp))
+X		    str_numset(st[0], (double) csrp->nfields);
+X		else
+X		    str_set(st[0], (char *) NULL);
+X		return sp;
+X	    }
+X	}
+X	/* NOTREACHED */
+X
+X    case US_ora_bind:
+X	if (items < 2)
+X	    fatal("Usage: &ora_bind($csr, $var ...)");
+X	else {
+X	    char *csr		= (char *) str_get(st[1]);
+X	    char **vars		= (char **) malloc((items-1) * sizeof(char *));
+X	    int retval;
+X
+X	    if (vars == NULL)
+X	    {
+X		ora_errno = ORAP_NOMEM;
+X		retval = 0;
+X	    }
+X	    else
+X	    {
+X		for (i = 0 ; i < items - 1 ; i++)
+X		{
+X		    vars[i] = (char *) str_get(st[i+2]);
+X		}
+X		retval = ora_bind(csr, vars, items - 1);
+X		free(vars);
+X	    }
+X
+X	    str_numset(st[0], (double) retval);
+X	}
+X	return sp;
+X
+XCASE	char *	ora_do
+XI	char *	lda
+XI	char *	stmt
+XEND
+X
+XCASE	char *	ora_close
+XI	char *	csr
+XEND
+X
+XCASE	char *	ora_logoff
+XI	char *	lda
+XEND
+X
+XCASE	char *	ora_commit
+XI	char *	lda
+XEND  
+X
+XCASE	char *	ora_rollback
+XI	char *	lda
+XEND
+X
+XCASE	char *	ora_autocommit
+XI	char *	lda
+XI	int	on_off
+XEND
+X
+X    default:
+X	fatal("Unimplemented user-defined subroutine");
+X    }
+X    return sp;
+X}
+X
+Xstatic int
+Xuserset(ix, str)
+Xint ix;
+XSTR *str;
+X{
+X    int n;
+X#ifdef	DEBUGGING
+X    register char *s;
+X#endif
+X
+X    switch (ix) {
+X
+X    case UV_ora_long:
+X	if ((n = (int) str_gnum(str)) <= 0)
+X	    warn("Cannot set a negative or zero LONG size");
+X	else
+X	    ora_long = n;
+X	DBUG_PRINT("info", ("ora_long set to %d", ora_long));
+X	break;
+X
+X    case UV_ora_trunc:
+X	if (n = (int) str_gnum(str))
+X	    ora_trunc = 1;
+X	else
+X	    ora_trunc = 0;
+X	DBUG_PRINT("info", ("ora_trunc set to %d", ora_trunc));
+X	break;
+X
+X    case UV_ora_cache:
+X	if ((n = (int) str_gnum(str)) < 0)
+X		warn("Cannot set a negative cache size!");
+X	else if (n == 0)
+X		ora_cache = CACHE_SIZE;		/* restore default value */
+X	else
+X		ora_cache = n;
+X	DBUG_PRINT("info", ("ora_cache set to %d", ora_cache));
+X	break;
+X
+X    case UV_ora_debug:
+X
+X#ifdef	DEBUGGING
+X
+X    /* An assignment to ora_debug pops off the old debugging state and
+X     * pushes the new one converting from numeric to string debugging
+X     * if necessary. Nested debugging is not supported.
+X     *
+X     * However, there is an interesting dilemma:
+X     *   What form of debugging should be in force during the assignment?
+X     *
+X     * The choices are:
+X     *   1  The old debugging state before the assignment
+X     *   2  No debugging
+X     *   3  An mixture of the old and new debugging states.
+X     *
+X     * I have chosen [1], on the following basis:
+X     *   Any debugging is better than none
+X     *   Consistent debugging is better than mixed
+X     *   DBUG_POP doesn't mind if the stack is empty
+X     * but I would be grateful for any comments concerning this.
+X     */
+X
+X	if ((*(s = str_get(str)) == '-') && (s[1] == '#'))
+X	{
+X		/* skip over -# so that it can be used as a flag */
+X		s += 2;
+X	}
+X
+X	if (ora_debug != NULL)
+X	{
+X		DBUG_PRINT("free", ("freeing ora_debug (%lx)",(long)ora_debug));
+X		free(ora_debug);
+X	}
+X
+X	if (*s == '\0')
+X	{
+X		ora_debug = NULL;
+X	}
+X	else
+X	{
+X		if (isdigit(*s))
+X		{
+X			/* numeric value, convert it to something usable */
+X			s = convert_debug(atoi(s));
+X		}
+X
+X		if ((ora_debug = malloc(strlen(s) + 1)) == NULL)
+X		{
+X			DBUG_PRINT("malloc",
+X			    ("no memory (%d bytes) for ora_debug",
+X			    strlen(s) + 1));
+X			warn("cannot set ora_debug: out of memory");
+X		}
+X		else
+X		{
+X			DBUG_PRINT("malloc", ("got ora_debug %d bytes at %lx",
+X			    strlen(s) + 1, (long) ora_debug));
+X			strcpy(ora_debug, s);
+X		}
+X	}
+X
+X	DBUG_POP();			/* remove the previous state, if any */
+X	if (ora_debug != NULL)
+X	{
+X		DBUG_PUSH(ora_debug);	/* set up the new state		     */
+X		DBUG_PRINT("info", ("ora_debug set to %s", ora_debug));
+X	}
+X	else
+X	{
+X		DBUG_PRINT("info", ("ora_debug set to NULL"));
+X	}
+X#else
+X	if (warn_on_debug)
+X	{
+X		warn("oraperl debugging not available");
+X		warn_on_debug = 0;	/* so we only get one warning */
+X	}
+X#endif
+X
+X	break;
+X
+X    case UV_ora_errno:
+X	fatal("ora_errno is read-only");
+X	break;
+X
+X    case UV_ora_errstr:
+X	fatal("ora_errstr is read-only");
+X	break;
+X
+X    case UV_ora_verno:
+X	fatal("ora_verno is read-only");
+X	break;
+X    }
+X    return 0;
+X}
+X
+X
+X/* ora_errlist[] contains error messages corresponding to Oraperl's own
+X * error codes. These do not include Oracle errors.
+X */
+X
+Xchar *ora_errlist[] =
+X{
+X	"",	/* not used */
+X	"insufficient memory",
+X	"invalid cursor",
+X	"invalid login data area",
+X	"couldn't set ORACLE_SID",
+X	"bad colon variable sequence",
+X	"wrong number of variables",
+X	"statement does not return data",
+X};
+X
+X
+Xstatic int
+Xuserval(ix, str)
+Xint ix;
+XSTR *str;
+X{
+X    switch (ix) {
+X
+X    case UV_ora_cache:
+X	str_numset(str, (double) ora_cache);
+X	break;
+X
+X    case UV_ora_long:
+X	str_numset(str, (double) ora_long);
+X	break;
+X
+X    case UV_ora_trunc:
+X	str_numset(str, (double) ora_trunc);
+X	break;
+X
+X    case UV_ora_debug:
+X#ifdef	DEBUGGING
+X	str_set(str, (ora_debug == NULL) ? "" : ora_debug);
+X#else
+X	if (warn_on_debug)
+X	{
+X		warn("oraperl debugging not available");
+X		warn_on_debug = 0;
+X	}
+X	str_set(str, "");	/* so the variable appears anyway */
+X#endif
+X	break;
+X
+X    case UV_ora_errno:
+X	str_numset(str, (double) ora_errno);
+X	break;
+X
+X    case UV_ora_verno:
+X	str_numset(str, (double) (VERSION + (double) PATCHLEVEL / 1000));
+X	break;
+X
+X    case UV_ora_errstr:
+X	{
+X		int len;
+X		char ertxt[132];
+X
+X		if (ora_errno < ORAP_ERRMIN)
+X		{
+X			oermsg(ora_errno, ertxt);
+X			if (ertxt[len = (strlen(ertxt) - 1)] == '\n')
+X			{
+X				ertxt[len] = '\0';
+X			}
+X			str_set(str, ertxt);
+X		}
+X		else if((ora_errno == ORAP_ERRMIN) || (ora_errno > ORAP_ERRMAX))
+X		{
+X			sprintf(ertxt, "unknown error %d", ora_errno);
+X			str_set(str, ertxt);
+X		}
+X		else
+X		{
+X			str_set(str, ora_errlist[ora_errno - ORAP_ERRMIN]);
+X		}
+X	}
+X	break;
+X    }
+X    return 0;
+X}
+END_OF_FILE
+  if test 11035 -ne `wc -c <'oracle.mus'`; then
+    echo shar: \"'oracle.mus'\" unpacked with wrong size!
+  fi
+  # end of 'oracle.mus'
+fi
+if test ! -d 'testdir' ; then
+    echo shar: Creating directory \"'testdir'\"
+    mkdir 'testdir'
+fi
+echo shar: End of archive 1 \(of 5\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

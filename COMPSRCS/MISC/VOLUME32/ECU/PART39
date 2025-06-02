@@ -1,0 +1,1844 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i074:  ecu - ECU Asynchronous Communications v3.20, Part39/40
+Message-ID: <1992Sep15.153841.21070@sparky.imd.sterling.com>
+X-Md4-Signature: 062d37cc4cd62445675dcaa58612bb3b
+Date: Tue, 15 Sep 1992 15:38:41 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 74
+Archive-name: ecu/part39
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.39 (part 39 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file doc/_startup.txt continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 39; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping doc/_startup.txt'
+else
+echo 'x - continuing file doc/_startup.txt'
+sed 's/^X//' << 'SHAR_EOF' >> 'doc/_startup.txt' &&
+Xtitled "Choosing a Dialout Line" and "DCDwatch".
+X
+XThe 'duplex' field may be used to select a
+Xduplex value other than the default 'F' (full).
+X
+XThe 'baud' field may be used to select a
+Xbaud rate value other than the default selected at Configure time.
+X
+XThe 'parity' field may be used to select a
+Xparity value other than the default selected at Configure time.
+X
+X
+XThe 'Add NL to transmitted CR' and 'Add NL to received CR'
+Xfields are usually left defaulted to 'N' (no).  If you
+Xwill be communicating with a terminal (as in a chat with a human), you
+Xwill usually need to set both of these fields to 'Y' as
+Xwell as to select 'H'alf duplex.
+X
+X.*s 3 "Keyboard Functions"
+X
+XSpecial keyboard characters while filling in the
+Xstartup screen are:
+X
+X
+X.DS I
+X Enter        terminate entry in a field (or skip to
+X              the next field if you do not modify it)
+X
+X ^B           back up to previous field
+X
+X Cursor Up    same as ^B (if the key is available on
+X              your terminal and environment).
+X
+X TAB          move to next field ... if nothing typed in
+X              the field, do not disturb contents
+X
+X Cursor Down  same as TAB (if the key is available on
+X              your terminal and environment).
+X
+X END          proceed with session, dialing remote if
+X              logical directory entry name or literal
+X              telephone number enetered
+X
+X ^D           enter phone directory
+X
+X ESC          quit ecu without starting a session
+X.DE
+X
+XWhen editing a multicharacter field, such as "tty", you may use the
+Xbackspace key in the traditional fashion.  Depending on the
+Xterminal, ECU version in use (OS in use), and configuration,
+Xyou may also be able to use the cursor left and right keys
+Xand the insert key (to toggle insert mode).
+X
+X.*s 2 "Command Line Switches and Arguments"
+X
+XECU can be started in a number of ways:
+X.DS I
+Xo  with no switches or arguments
+X       select options interactively; manual command to begin
+X       connection
+X
+Xo  with switches (excluding -p) and no arguments
+X       override some defaults for options but still enter
+X       interactive option selection; manual command to begin
+X       connection
+X
+Xo  zero or more switches (excluding -p) and one argument
+X       fully automatic startup to connect to the remote
+X       specified by the argument (a telephone number
+X       or dialing directory entry)
+X
+Xo  zero or more switches, with -p the last switch
+X       fully automatic startup by executing procedure whose
+X       name is specified by the first argument; the initial
+X       procedure receives the remainder of the command line
+X       arguments
+X.DE
+X
+X.*s 3 "Usage Summary"
+X
+X.DS I
+Xusage: ecu [-l <ttyname>] [-b <baud_rate>] [-eon]
+X           [-h] [-t] [-P <phonedir>]
+X           [-F name] [-T <trace-level>]
+X           [-p <initial_proc> [-d] [-D] | <phone_number>]
+X-D unconditionally stop execution when -p initial
+X   procedure is done
+X-F sets an alternate funckeymap name for the *keyboard*
+X-P choose alternate phone directory (<phonedir> must be
+X   a full pathname)
+X-T set procedure tracing to level: 0=none, 1=standard,
+X   2=ECU-debugging
+X-b choose baud rate (any UNIX rate 110-38400)
+X-d stop execution if -p initial procedure fails
+X-e even parity   -o odd parity   -n no parity
+X-h half duplex ... default is full duplex
+X-l choose line (/dev/<ttyname>)
+X-p execute an initial procedure
+X-t append NL to incoming and outgoing CR characters
+X<phone_number> is either an actual number or a dialing
+X   directory entry name
+X.DE
+X
+X.*s 3 "Switches"
+X
+XMany switches are used to override defaults specified
+Xat the time the Confifgure procedure was used.
+XNote these defaults may also be overriden interactively if the command
+Xdoes not specify automatic startup option (-p or dialing argument).
+XAlso, the value chosen by a dialing directory entry or an
+Xinitial procedure will override
+Xthe Configured default and/or the value specified by this switch.
+X
+X.*s 4 "-b <baud>"
+X
+XThis switch overrides the default baud rate.
+XAny valid UNIX rate may be chosen.  
+XECU chooses the number of stop bits based on the baud rate.  Rates below
+X300 baud get 2 stop bits.  Rates 300 baud and above get one stop bit.
+X
+X.*s 4 "-d"
+X
+XThe
+X.B
+X-d switch
+X.R
+Xinstructs ECU to "die" (terminate with error status) if
+Xan initial procedure (-p) fails.  This switch ensures a batch
+XECU execution will hang up any connection and terminate if
+Xa procedure error occurs. See also -D below.
+X
+XAbsence of the
+X.B -d
+Xand
+X.B -D
+Xswitches
+Xcauses ecu (upon any completion of the
+Xinitial procedure) to enter the 1) interactive mode if a line
+Xwas successfully attached by the procedure or 2) the setup screen
+Xif no line was attached. 
+X
+X.*s 4 "-e, -o, -n"
+X
+XNormally, ECU starts up with data bits and parity chosen at
+XConfigure time.  The 
+X.B -e ,
+X.B -o 
+Xand
+X.B -n 
+X.B switches
+Xallow you to override the default.
+X
+XSince combinations like eight data bit and even parity or
+Xseven data bits and no parity are not in  ECU's
+Xcapability to use, the parity selection also dictates the
+Xchoice of data bits. Even or odd parity implies seven data bits.
+XNo parity implies eight data bits.
+X
+X.*s 4 "-h"
+X
+XNormally, ECU starts up in the full duplex mode.
+XIf half duplex is desired, the
+X.B
+X-h switch
+X.R
+Xis used.
+X
+X.*s 4 "-l ttyspec"
+X
+XWhen ECU starts up, it normally chooses a line as described later
+Xin the section titled "Choosing a Dialout Line".
+XSpecifying the
+X.B -l
+X.B switch
+Xoverrides the default tty specified
+Xat Configure time.  Depending upon other command line options,
+Xthis switch may be nothing more than a hint.
+X
+XThe argument to the switch is the base name
+Xof the tty (e.g., "tty1a" or "acu0").  On SCO, since ttys are all
+Xnamed consistently according to the "/dev/ttyxx" form, you may
+Xomit the "tty" (e.g., "1a" or "4g").
+X
+XFor important considerations on line choice, see the sections
+Xtitled "Choosing a Dialout Line" and "DCDwatch".
+X
+X.*s 4 "-p <proc>"
+X
+XThe 
+X.B
+X-p switch
+X.R
+Xcauses ECU to execute the procedure <proc> ("<proc>.ep")
+Ximmediately upon startup.  Such a procedure is termed the
+X.B
+Xinitial procedure.
+X.R
+XIt is recommended that, when used, -p be the last switch on the
+Xcommand line.  All non-switch arguments after <proc> are passed
+Xas arguments to the initial procedure (see the descriptions of
+Xthe integer function
+X.B %argc
+Xand the string function
+X.B %argv 
+Xin the Procedure Manual).
+X
+XFor example,
+X.DS L
+X    ecu -p batchjob remsys 22
+Xautomatically executes the procedure command equivalent
+X    do 'batchjob' 'remsys' '22'
+X.DE
+X
+XThe initial procedure may read command line options
+Xwith functions like
+X.B %line ,
+X.B %baud
+Xand
+X.B %parity .
+XIt is also free to override any of these values it wishes.
+XSee the procedure manual for more information.
+X
+X.*s 4 "-t"
+X
+XThe
+X.B
+X-t switch
+X.R
+Xinstructs ECU to map incoming and outgoing carriage
+Xreturns to carriage return/line feed pairs.
+XThis is helpful if the remote connection will be to a
+Xdisplay terminal rather than a computer.  Use of the
+X.B
+X-h switch
+X.R
+Xmay also be necessary.
+X
+XThe interactive commands
+X.B nlin
+Xand
+X.B nlout
+Xalso control this feature.
+X
+X.*s 4 "-D"
+X
+XThe
+X.B
+X-D switch
+X.R
+Xinstructs ECU to unconditionally terminate when an
+Xinitial procedure finishes.  Contrast with the
+X.B -d
+X.B switch .
+X
+X.*s 4 "-F name"
+X
+XNormally, the TERM environment variable is used to determine the
+Xfunckeymap entry (keyboard configuration) to be used.  Sometimes,
+Xthe TERM variable is not adequate for identifying your keyboard
+Xarrangement.  The 
+X.B
+X-F switch
+X.R
+Xswitch, like the $ECUFUNCKEY environment variable, allows you to
+Xuse override the funckeymap entry used.  For more information,
+Xsee the section titled "Function Key Mapping (Recognition)".
+X
+X.*s 4 "-P phonedir"
+X
+XThe
+X.B
+X-P switch
+X.R
+Xcauses ECU to begin execution using an alternate 
+Xphone directory.  The default is ~/.ecu/phone.  You should
+Xspecify a full pathname if you anticipate using the change directory
+Xcommand once ecu starts.
+X
+X.*s 4 "-T level"
+X
+XThe
+X.B
+X-T switch
+X.R
+Xsets the procedure language trace level.  <level> is a decimal
+Xdigit.  0 is for no tracing (the default) and 1 is for tracing.
+XValues higher than 1 are for debugging ECU and have varying effects
+Xfrom revision to revision.
+X
+X.*s 3 "Non-Switch Arguments"
+X
+XAguments are optional.
+X<tel-number> or <logical> may appear when the -p switch is absent.
+XOne or more <arg> arguments may appear when the -p switch is used.
+XThese arguments are handled as described by "-p" above.
+X
+X.*s 4 "<tel-number>"
+X
+XThis type of argument has a digit as its initial character and
+Xrepresents an actual telephone number to be passed to a modem
+Xdialer program or Dialers chat script.  The string may contain
+Xnon-numeric characters if appropriate for a dialer program,
+Xsuch as dialTBIT or dialgT2500 (see the gendial subdirectory).
+XFor example:
+X.DS L
+X    ecu -ltty2a -b 19200 -e 5551212C
+X.DE
+Xuses tty2a (assumed to be connected to a Trailblazer modem because
+Xof the dialer-specific telephone number) and
+Xestablishes a 19200 baud, even parity PEP Compressed connection
+Xafter dialing 5551212.
+X
+X.*s 4 "<logical>"
+X
+XThis type of argument has an alphabetic initial character and
+Xcauses the dialing directory entry by that name to be dialed.
+XThe line may be specified by '-l', but if the dialing directory
+Xspecifies a line (tty field contains other than 'Any'), the
+Xdialing directory entry will override it.  The '-b', '-e' and '-o'
+Xswitches are ignored; the values specified by the dialing directory
+Xentry are used.  The '-t' and '-h' switches are valid and honored
+Xif present.
+X
+X.*s 4 "<arg>"
+X
+XThis type of argument is passed to an initial procedure when
+Xthe -p switch is present.
+X
+X.DS L
+Xecu -p unixlogin user pwd ansi43
+X.DE
+Xexecutes unixlogin.ep with arguments 'user' 'pwd' 'ansi43'
+X
+XFor more detail, refer to the description of -p, -d and -D below.
+X
+X.*s 2 "Environment Variables"
+X
+XPrior to starting ECU, it is useful, but not necessary,
+Xto establish two environment variables, ECUPROMPT and ECUHELP.
+X
+X.*s 3 "ECUPROMPT"
+X
+XThe ECUPROMPT environment variable determines the prompt printed
+Xby ECU when the interactive command key ("HOME") is pressed.
+XWhen you first run ECU, try setting it to your name, e. g.,
+X.DS I
+Xsetenv ECUPROMPT Ralph    if you use csh
+X
+XECUPROMPT=Ralph           if you use sh, ksh, etc.
+Xexport ECUPROMPT
+X.DE
+XThen, when you see how it used, you may wish to
+Xestablish a more permanent choice in your .login or .profile.
+X
+X.*s 3 "ECUHELP"
+X
+XOrdinarily, ECU looks for interactive command help information
+Xin "ecuhelp.data"
+X(in the ecu library directory, normally /usr/local/lib/ecu).
+XThe ECUHELP environment may be set to the complete
+Xpathname of the ecu help file if an alternate file
+Xis to be used.
+X
+XThe help file is explained later in the section
+Xtitled "Online Command Dictionary".
+X
+X.*s 3 "ECUFUNCKEY"
+X
+XSee the description of the 
+X.B -F
+Xcommand line switch and the section titled
+X"Function Key Mapping (Recognition)".
+X
+SHAR_EOF
+echo 'File doc/_startup.txt is complete' &&
+chmod 0644 doc/_startup.txt ||
+echo 'restore of doc/_startup.txt failed'
+Wc_c="`wc -c < 'doc/_startup.txt'`"
+test 13572 -eq "$Wc_c" ||
+	echo 'doc/_startup.txt: original size 13572, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/_top.txt ==============
+if test -f 'doc/_top.txt' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/_top.txt (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/_top.txt (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/_top.txt' &&
+X.de *s
+X.H "\\$1" "\\$2" \\$3 \\$4 \\$5 \\$6 \\$7 \\$8
+X.br
+X..
+X.po 4
+X.ll 7.2i
+X.ls 1
+X.nh
+X.tp
+X.sp 1.0i
+X.ft B
+X.ce 10
+XECU
+X
+X(Extended Call Utility)
+X.ce 0
+X.sp 1i
+X.ce 100
+XResearch and Engineering
+XAsynchronous Communications Package
+Xfor SCO UNIX 3.2 and XENIX System V,
+XISC 386/ix 2.2 (or later),
+XSunOS 4.1, ISC System V Release 4
+Xand ESIX System V Release 4
+X.ce 0
+X.ft P
+X.sp 1i
+X.lp
+X.ce 1
+XWarren H. Tucker, III <wht@n4hgf.Mt-Park.GA.US>
+X.sp .5i
+X.ce 100
+XTechnical Description
+XRevision 3.20
+X\n(mo/\n(dy/\n(yr
+X.ce 0
+X.sp 1i
+X.ls 1
+XNOTE: Many sections of the manual are likely to be inaccurate or
+Xobsolete at any given time until the writer get lots of free
+Xtime.  Much of it was written when the program was supported only
+Xon SCO XENIX and UNIX.  Usually, I took the extra time to throw
+X-something- in the manual and online help.  I did not always go
+Xback and indicate which features are not supported by a later`
+Xport.
+X
+XMany of the features of ECU were written under extreme time
+Xpressure.  While the program code is usually reliable, the manual
+Xis a joke from many points of view, organization, consistency,
+Xcontent -- you name it.  You'll see comma splices, incomplete
+Xsentences or even incorrect information.  You may find the
+Xcorrect information in a README or in RELEASENOTES, or in another
+Xpart of the manual.  Of course, there is the code!  If you find
+Xinformation that seems incorrect, PLEASE mail a report to the
+Xauthor.
+X
+X.PH "'ECU Technical Description''%'"
+X.PF "'Public Domain by wht@n4hgf''\n(mo/\n(dy/\n(yr'"
+X.nr si 2n
+X.nr Cl 9
+X.nr Ej 1
+X.nr U 1
+X.SA 0
+X.ul
+X.bp 2
+X
+SHAR_EOF
+chmod 0644 doc/_top.txt ||
+echo 'restore of doc/_top.txt failed'
+Wc_c="`wc -c < 'doc/_top.txt'`"
+test 1560 -eq "$Wc_c" ||
+	echo 'doc/_top.txt: original size 1560, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/ecu.txt ==============
+if test -f 'doc/ecu.txt' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/ecu.txt (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/ecu.txt (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/ecu.txt' &&
+X.so _top.txt
+X
+X.so _intro.txt
+X
+X.so _basic.txt
+X
+X.so _features.txt
+X
+X.so _startup.txt
+X
+X.so _icmd.txt
+X
+X.so _hdb.txt
+X
+X.so _exits.txt
+X
+X.so _end.txt
+SHAR_EOF
+chmod 0644 doc/ecu.txt ||
+echo 'restore of doc/ecu.txt failed'
+Wc_c="`wc -c < 'doc/ecu.txt'`"
+test 141 -eq "$Wc_c" ||
+	echo 'doc/ecu.txt: original size 141, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/proc.txt ==============
+if test -f 'doc/proc.txt' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/proc.txt (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/proc.txt (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/proc.txt' &&
+X
+X.de *s
+X.H "\\$1" "\\$2" \\$3 \\$4 \\$5 \\$6 \\$7 \\$8
+X.br
+X..
+X.po 4
+X.ll 7.2i
+X.ls 1
+X.nh
+X.tp
+X.sp 2i
+X.ft B
+X.ce 10
+XECU
+X
+X(Extended Call Utility)
+X.ce 0
+X.sp 1i
+X.ce 100
+XResearch and Engineering
+XAsynchronous Communications Package
+Xfor SCO UNIX 3.2 and XENIX System V,
+XISC 386/ix 2.2 (or later),
+XSunOS 4.1, ISC System V Release 4
+Xand ESIX System V Release 4
+X.ce 0
+X.ft P
+X.sp 2i
+X.lp
+X.ce 1
+XWarren H. Tucker, III <wht@n4hgf.Mt-Park.GA.US>
+X.sp 1i
+X.ce 100
+XProcedure Language
+XRevision 3.20
+X\n(mo/\n(dy/\n(yr
+X.ce 0
+X.sp 1i
+X.ls 1
+XNOTE: Many sections of the manual are likely to be obsolete at any given
+Xtime until the writer get lots of free time.  Much of it was written when
+Xthe program was supported only on SCO XENIX and UNIX. 
+X
+X.PH "'ECU Procedure Language''%'"
+X.PF "'Public Domain by wht@n4hgf''\n(mo/\n(dy/\n(yr'"
+X.nr si 2n
+X.nr Cl 9
+X.nr Ej 1
+X.nr U 1
+X.SA 0
+X.ul
+X.bp 2
+X
+X.*s 1 Introduction
+X
+XProcedures are "programs" or "scripts" written in an addled but
+Xadequate language which ECU executes upon demand.
+XThe documentation refers to procedures as files on the disk
+Xor as in-memory copies under execution.
+X
+XAn "initial procedure" may be executed when ECU starts up (see
+Xthe description of the -p command line switch).  Certain special
+Xprocedures are executed automatically as described below in the
+Xsection "Special Procedures."
+X
+XThe procedures themselves are source files consisting of
+Xthe procedure "name" with an extension of ".ep".
+XWhen executing a procedure by name,
+X.DS I
+Xdo name       interactive
+X-or-
+Xdo 'name'     from inside a procedure
+X.DE
+Xis sufficient if the procedure is in the current directory,
+Xthe user's ~/.ecu directory or in the ECU library
+Xsubdirectory "ep" (normally /usr/local/lib/ecu/ep).
+XProcedure files
+Xare searched for in the above order, so you may have
+Xa system default in the lib directory, a user default
+Xin the ~/.ecu directory and a specific version in the current
+Xdirectory all by the same name.
+X
+XYou may execute a procedure by specifying it's full pathname
+X(minus the .ep extension).  For example:
+X.DS I
+Xdo /tmp/doit       interactive invocation of /tmp/doit.ep
+X-or-
+Xdo '/tmp/doit'     from inside a procedure
+X.DE
+X
+XMany example procedures, some quite useful, some not so,
+Xare found in the models subdirectory of the release.
+XThere are also many fragments
+Xused as examples throughout the following sections.
+X
+X.*s 1 "Line Syntax (Labels, Commands and Comments)"
+XLines in a procedure 
+Xconsist of an optional label, followed by optional commands and
+Xarguments.  Anything on a line after an octothorpe (#) outside
+Xof quote marks is ignored (read "# is the comment character").
+X
+X.DS L
+XExample:
+X----------------------------------------------------------------------
+X# example procedure
+X    echo 'Hello.  Please tell me your name.'
+X    $s0 = %cgets  # read string from console into string variable $s0
+X    ifs $s0 == 'foo' goto label
+X    echo 'Hello there, '+$s0
+X    return
+X
+Xlabel echo 'You must be kidding.'
+X----------------------------------------------------------------------
+X.DE
+X
+XLabels must begin in column one.
+XA label may appear on a line by itself or with a comment
+Xappended.  A common mistake I make (from writing too much C) is
+Xto append a colon to a label declaration; this does not work unless
+Xyou also "goto label:".  
+XLabels are not allowed inside braces
+X(inside of compound statements); you may get away with it sometimes
+Xbecause the procedure language processor is written for speed, not
+Xpolitical correctness.
+X
+XCommands must have white space before them and
+Xwhite space before each argument.
+X
+X.so _p_param.txt
+X
+X.so _p_ifunc.txt
+X
+X.so _p_sfunc.txt
+X
+X.so _p_cmd.txt
+X
+X.*s 1 "Special Procedures"
+X
+XECU provides for special "hook" procedures to be executed
+Xat certain times.  Their use is encouraged, but you must
+Xtake precautions not to excecute any unreasoable commands
+Xin them, for the are rather "raw" hooks and it is easily possible
+Xto confuse ECU by performing illogical operations in them.  
+XJudicious use can, however, be quite productive.
+X
+XThey are searched for in the same manner
+Xas any other procedure, so you can have a
+Xcustomised version of them in a working directory and a default
+Xin your ~/.ecu subdirectory.  No error is reported if they are not found.
+X
+X.*s 2 "_rc.ep"
+X
+XAfer ECU is initialized, but before it presents the setup
+Xscreen or executes a -p initial procedure,
+Xprocedure '_rc' is executed with no arguments.
+X(It is named in the tradition of /etc/rc, .mailrc, etc..)
+XThis procedure can be used to customize the ecu environment
+Xprior to beginning the usual operation.  This is not a place
+Xto do any dialing or long-lived operations, nor is it possible to
+Xbypass the setup screen: for this, use the -p initial procedure.
+X
+XThe %getenv() function may be useful in here (Am I running on an
+Xxterm?  Do I want to change the prompt string from
+Xthe default environment variable $ECUPROMPT?).
+X
+XProcedure commands likely to be of interest here:
+X.DS I
+X  autorz
+X* baud
+X  color
+X  dcdwatch
+X* duplex
+X  prompt
+X  rtscts
+X* setline
+X.DE
+X
+XCommands marked with an asterisk affect the initial (default)
+Xvalues presented on the setup screen.
+X
+XIf _rc.ep returns a non-zero status or fails (due to syntax or
+Xother error), ecu terminates immediately.
+X
+X.*s 2 "_connect.ep"
+X
+XThis procedure is executed after every connection success
+Xafter the CONNECT message ("result code") is printed.
+XIt is passed one argument, the "result code" string
+Xgenerated by the dialer function (e.g., "CONNECT 19200").
+X
+XYou may use %rname and other functions and features to customize
+Xthis function based on the particular system just reached.  Note
+Xthat integer variable $i0 and string variable $s0 set zero prior
+Xto executing the function.  This function may modify the behavior
+Xof coorperating dialer functions by setting the value of numbered
+Xstring or integer variables.  In particular, the dialer function
+Xwill inherit the values of $i0 and $s0 when this special function
+Xterminates.
+X.B
+XBe careful of what you do in here since MANY ecu procedure commands
+Xaffect $i0 and $s0 as a side effect of their operation.
+X.R
+XEven if you know what you do in _connect.ep does not modify $i0
+Xor $s0, use of the preservation technique shown in the example
+Xbelow may save you headaches if you add to the function in the
+Xfuture (long after you have forgotten this pedantic admonition).
+X
+XIf this procedure fails (abnormal procedure termination
+Xor non-zero return code), ECU hangs up on the line and proceeds
+Xas if the connection failed.
+X
+X.DS L
+XExample:
+X#+------------------------------------------------------------------
+X#  _connect.ep - post-CONNECT special "hook" procedure
+X#-------------------------------------------------------------------
+X#+:EDITS:*/
+X#:09-10-1992-13:58-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA
+X#:07-13-1991-14:47-wht@n4hgf-creation
+X
+X  $iv0_save = $i0  # it is a VERY good idea to save the dialer
+X  $sv0_save = $s0  # function return status
+X                   # since gobs of functions and commands modify $i0
+X                   # and/or $s0 as a side effect of their operation
+X
+X  $s30 = '_connect '+%rname+' ('+%argv(1)+')'
+X  echo $s30        # this still will also live to be visible by
+X                   # the dialer function
+X
+X  ifi %baud > 2400
+X  {
+X     xon    off    # turn XON/XOFF off first, then ...
+X     rtscts on     # turn on RTS/CTS
+X  }
+X  else
+X  {
+X     rtscts off    # turn off RTS/CTS, then ...
+X     xon    on     # turn XON/XOFF on
+X  }
+X
+X  $i0 = $iv0_save  # restore dialer return status
+X  $s0 = $sv0_save
+X.DE
+X
+X.*s 2 "_connfail.ep"
+X
+XThis procedure is executed after every connection failure after
+Xthe failure message ("result code") is printed.  It is passed two
+Xarguments, the logical system name (the dial directory
+Xentry name or the phone number)
+Xand the "result code" string generated by the dialer
+Xfunction (e.g., "BUSY").  The function is called after $i0 has
+Xbeen set to 1 and $s0 has been set to the result code.  This
+Xfunction may modify the behavior of coorperating dialer functions
+Xby setting the value of numbered string or integer variables.  In
+Xparticular, the dialer function will inherit the values of $i0
+Xand $s0 when this special function terminates.
+X.B
+XBe careful of what you do in here since MANY ecu procedure commands
+Xaffect $i0 and/or $s0 as a side effect of their operation.
+X.R
+XSee _connect.ep above for further screams and moans.
+X
+X]If you get very involved with using this procedure, you'll sooner
+Xor later run into some undocumented $so values.  You'll have to
+Xtake a look at ecuDCE.c and hdbintf.c
+Xfor an authoritative reference, but perhaps
+Xyou can get along by knowing that result codes with an exclamation point
+Xas their first character are generated by ECU.
+X
+XECU ignores any failure (abnormal procedure termination
+Xor non-zero return code) resulting from the execution of this procedure.
+X
+X.*s 2 "_hangup.ep"
+X
+XThis procedure is executed after every connection termination.
+XIt is passed one argument, a string representation
+Xof the number of seconds you were connected.
+XYou may use %rname and other functions and features
+Xto customize this function based on the particular system
+Xjust reached.  ECU ignores any error
+Xreturned by the procedure.
+XECU ignores any failure (abnormal procedure termination
+Xor non-zero return code) resulting from the execution of this procedure.
+X
+X.br
+X.nr si 0n
+X.af % i
+X.ls 1
+X.TC 1 1 3
+SHAR_EOF
+chmod 0644 doc/proc.txt ||
+echo 'restore of doc/proc.txt failed'
+Wc_c="`wc -c < 'doc/proc.txt'`"
+test 9296 -eq "$Wc_c" ||
+	echo 'doc/proc.txt: original size 9296, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/_connect.ep ==============
+if test ! -d 'models'; then
+    echo 'x - creating directory models'
+    mkdir 'models'
+fi
+if test -f 'models/_connect.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/_connect.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/_connect.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/_connect.ep' &&
+X#+------------------------------------------------------------------
+X#  _connect.ep - CONNECT special "hook" procedure
+X#
+X# %argv(1) - result code
+X#-------------------------------------------------------------------
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X#:07-13-1991-14:47-wht@n4hgf-creation
+X
+X    $iv0_save = $i0  # it is a VERY good idea to save the dialer
+X    $sv0_save = $s0  # function return status
+X                     # since gobs of functions and commands modify $i0
+X                     # as a side effect of their operation
+X	ifs %envvar('WINDOWID') != ''
+X		echo %chr(0x1B)+']0ECU ('+%uname+'->'+%rname+') '+%logname+%chr(0x07)
+X
+X	prompt %uname+'->'+%rname+'%'
+X    $i0 = $iv0_save  # restore dialer return status
+X    $s0 = $sv0_save
+SHAR_EOF
+chmod 0644 models/_connect.ep ||
+echo 'restore of models/_connect.ep failed'
+Wc_c="`wc -c < 'models/_connect.ep'`"
+test 811 -eq "$Wc_c" ||
+	echo 'models/_connect.ep: original size 811, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/_hangup.ep ==============
+if test -f 'models/_hangup.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/_hangup.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/_hangup.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/_hangup.ep' &&
+X#+------------------------------------------------------------------
+X#  _hangup.ep - hangup special "hook" procedure
+X#
+X# %argv(1) - connect time in seconds
+X#-------------------------------------------------------------------
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X#:07-13-1991-14:47-wht@n4hgf-creation
+X
+X    $i0 = %stoi(%argv(1))
+X	$s0 = %etime($i0)
+X	echo '_hangup on '+%rname+' after '+$s0+' connect'
+X	ifs %envvar('WINDOWID') != ''
+X		echo %chr(0x1B)+']0ECU disconnected ('+%logname+')'+%chr(0x07)
+X	prompt %uname+'%'
+SHAR_EOF
+chmod 0644 models/_hangup.ep ||
+echo 'restore of models/_hangup.ep failed'
+Wc_c="`wc -c < 'models/_hangup.ep'`"
+test 585 -eq "$Wc_c" ||
+	echo 'models/_hangup.ep: original size 585, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/_rc.ep ==============
+if test -f 'models/_rc.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/_rc.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/_rc.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/_rc.ep' &&
+X#+------------------------------------------------------------------
+X#  _rc.ep - ecu "rc" procedure
+X#-------------------------------------------------------------------
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X#:07-13-1991-14:47-wht@n4hgf-creation
+X
+X	echo '_rc shmid='+%itos(%shmid)
+X	ifs %envvar('WINDOWID') != ''
+X		echo %chr(0x1B)+']0ECU ('+%logname+')'+%chr(0x07)
+SHAR_EOF
+chmod 0644 models/_rc.ep ||
+echo 'restore of models/_rc.ep failed'
+Wc_c="`wc -c < 'models/_rc.ep'`"
+test 433 -eq "$Wc_c" ||
+	echo 'models/_rc.ep: original size 433, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/_terminate.ep ==============
+if test -f 'models/_terminate.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/_terminate.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/_terminate.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/_terminate.ep' &&
+X#+------------------------------------------------------------------
+X#  _terminate.ep - ecu termination procedure
+X#-------------------------------------------------------------------
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X#:07-13-1991-14:47-wht@n4hgf-creation
+X
+X	ifs %envvar('WINDOWID') != ''
+X		echo %chr(0x1B)+']0xterm('+%logname+')'+%chr(0x07)
+SHAR_EOF
+chmod 0644 models/_terminate.ep ||
+echo 'restore of models/_terminate.ep failed'
+Wc_c="`wc -c < 'models/_terminate.ep'`"
+test 415 -eq "$Wc_c" ||
+	echo 'models/_terminate.ep: original size 415, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/bsd_uname.ep ==============
+if test -f 'models/bsd_uname.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/bsd_uname.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/bsd_uname.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/bsd_uname.ep' &&
+X#  CHK=0xFD46
+X#--------------------------------------------------------------
+X# bsd_uname.ep - get remote username from bsd system
+X# return: $s0 = username
+X#         $i0 = 1 if success, else 0
+X#--------------------------------------------------------------
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X#:07-11-1989-16:55-wht-get cmd became lgets
+X#:06-28-1989-19:36-wht-use named variables
+X#:06-25-1989-13:56-wht-new do command syntax
+X#:06-25-1989-12:33-wht-new if/while syntax
+X#:06-22-1989-13:30-wht-creation
+X
+X	set $s0='whoami'	# send command
+X	do 'oneline'		# get $s0=username
+X	ifi $i0 == 0 		# we bombed?
+X	{
+X		set $i0=%colors; color red
+X		echo 'bsd_uname: get user name failed'
+X		icolor $i0
+X		$i0 = 0
+X	}
+X
+SHAR_EOF
+chmod 0644 models/bsd_uname.ep ||
+echo 'restore of models/bsd_uname.ep failed'
+Wc_c="`wc -c < 'models/bsd_uname.ep'`"
+test 770 -eq "$Wc_c" ||
+	echo 'models/bsd_uname.ep: original size 770, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/colors ==============
+if test -f 'models/colors' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/colors (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/colors (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/colors' &&
+X#colors - ecu color file
+Xnormal lt_cyan black
+Xreverse red white
+Xnotify black gray
+Xsuccess lt_green black
+Xalert yellow black
+Xerror red black
+SHAR_EOF
+chmod 0644 models/colors ||
+echo 'restore of models/colors failed'
+Wc_c="`wc -c < 'models/colors'`"
+test 140 -eq "$Wc_c" ||
+	echo 'models/colors: original size 140, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/dir ==============
+if test -f 'models/dir' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/dir (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/dir (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/dir' &&
+X/tmp
+X/usr/tmp
+SHAR_EOF
+chmod 0644 models/dir ||
+echo 'restore of models/dir failed'
+Wc_c="`wc -c < 'models/dir'`"
+test 14 -eq "$Wc_c" ||
+	echo 'models/dir: original size 14, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/f.ep ==============
+if test -f 'models/f.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/f.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/f.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/f.ep' &&
+X#  CHK=0x1C17
+X#+------------------------------------------------------
+X# f.eq - colorful finger on remote BSD system
+X#-------------------------------------------------------
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X#:07-11-1989-16:55-wht-get cmd became lgets
+X#:06-30-1989-18:53-wht-creation
+X
+X	mkvar $icolor; $icolor = %colors
+X	mkvar $itimeout; $itimeout = 50
+X	send %argv(0)
+X	lookfor '\n' 40
+X	$s0 = ''
+X	whilei 1==1
+X	{
+X		lgets $s00 $itimeout 5 '\n'
+X		ifi $i0 == 0 continue
+X		ifi %instr($s0,'% ') >= 0 break # prompt ends it
+X		$itimeout = 20
+X		color cyan
+X		ifi %instr($s0,'Login') == 0 color gray
+X		ifi %instr($s0,' i29 ') > 0 color green
+X		ifi %instr($s0,' i13 ') > 0 color red
+X		ifi %instr($s0,'cma') == 0 color yellow
+X		ifi %instr($s0,'gfp') == 0 color lt_blue
+X		ifi %instr($s0,'jts') == 0 color lt_blue
+X		echo $s0
+X	}
+X	icolor $icolor
+X	send ''
+X
+SHAR_EOF
+chmod 0644 models/f.ep ||
+echo 'restore of models/f.ep failed'
+Wc_c="`wc -c < 'models/f.ep'`"
+test 912 -eq "$Wc_c" ||
+	echo 'models/f.ep: original size 912, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/file_test.ep ==============
+if test -f 'models/file_test.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/file_test.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/file_test.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/file_test.ep' &&
+X#  CHK=0xA2AF
+X#------------------------------------------------------------
+X#  ftst.ep - test ecu procedure file functions
+X#------------------------------------------------------------
+X
+X ptrace off         # turn off trace mode
+X fdel 'ftst.log'    # kill any previous file
+X plog 'ftst.log'    # turn on logging
+X
+X echo ''
+X echo 'ftst '+%date+' '+%time
+X echo ''
+X
+X ptrace on                  # turn on trace mode
+X
+X set $s10 = '/tmp/ftst.tmp' # temp file name
+X fdel $s10                  # test proc trace warning
+X fopen -w 0 $s10            # open file 0 for write
+X set i0=%ftell(0)           # should produce 0
+X fputs 0 'abcdefghijk'      # put a line in the file
+X set i0=%ftell(0)           # should produce 12
+X fclose 0 n                 # close the file
+X
+X fopen -r 0 $s10    # open again for reading
+X fgets 0 $s0        # should produce 'abcdefghijk'
+X fseek 0 0          # rewind to read again
+X fgets 0 $s0        # should produce 'abcdefghijk'
+X fgets 0 $s0        # should produce null string
+X set $i0=%fmode(0)  # test file mode function
+X fclose 0           # close the file
+X
+X fchmod 'rw-rw-r-x' $s10 # set mode using string
+X set $i0=%fmode($s10)
+X
+X fchmod 0777 $s10        # set mode using constant
+X set $i0=%fmode($s10)
+X
+X ptrace off              # show file attributes
+X echo ''
+X echo -n $s10+' has '+%itos(%fsize($s10),06d)
+X echo    ' (0x'+%itos(%fsize($s10),x  )+') bytes'
+X echo 'accessed '+%edate(%fatime($s10))
+X echo 'modified '+%edate(%fmtime($s10))
+X echo ''
+X ptrace on
+X
+X # demonstrate "is directory", "is character",
+X # "is regular file" functions
+X set i0=%isdir($s10),i1=%ischr($s10),i2=%isreg($s10)
+X
+X fdel $s10 # should say 'deleted'
+X ptrace off
+X plog off
+SHAR_EOF
+chmod 0644 models/file_test.ep ||
+echo 'restore of models/file_test.ep failed'
+Wc_c="`wc -c < 'models/file_test.ep'`"
+test 1667 -eq "$Wc_c" ||
+	echo 'models/file_test.ep: original size 1667, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/frame_test.ep ==============
+if test -f 'models/frame_test.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/frame_test.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/frame_test.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/frame_test.ep' &&
+X#  CHK=0xAB0B
+X
+X	set $i0 = 10
+XLABEL
+X	ifi $i0 > 0
+X	{
+X		set $i0,$i0=$i0-1
+X		ifi $i0 = 5
+X		{
+X			echo 'nesting works!'
+X		}
+X		else ifi $i0 == 4
+X		{
+X			echo 'else works!'
+X		}
+X		goto LABEL
+X	}
+X
+X	set $s0 = ''
+X	whiles $s0 != 'aaaaa'
+X	{
+X		set $s0=$s0+'a'
+X		ifs $s0 == 'aaaa' break
+X		else echo '$s0=\''+$s0+'\''
+X	}
+X
+X	echo 'done!'
+SHAR_EOF
+chmod 0644 models/frame_test.ep ||
+echo 'restore of models/frame_test.ep failed'
+Wc_c="`wc -c < 'models/frame_test.ep'`"
+test 317 -eq "$Wc_c" ||
+	echo 'models/frame_test.ep: original size 317, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/funckeymap ==============
+if test -f 'models/funckeymap' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/funckeymap (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/funckeymap (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/funckeymap' &&
+X#+------------------------------------------------------------------------
+X# ECU 3.20 funckeymap
+X#
+X# This file contains mapping information to convert non-ANSI
+X# keyboard function keys to an internal ECU function key
+X# representation
+X# 
+X# The format of an entry is shown below in the 'ansilike' example (used
+X# to ansilike ECU from the console by defining an ansi terminal type
+X# nevertheless equivalent to ansi).
+X# 
+X# The first line(s) in a terminal keyboard description begin in
+X# column 1 and contain the terminal types (a la $TERM) for which
+X# the keyboard description are valid.  The example entry contains
+X# several references to terminal types containing the substring
+X# 'ansi'.  These are included only as an example of one keyboard
+X# description servicing multiple terminal types.
+X# 
+X# ECU determines whether a terminal meets the ansi vs.  ANSI
+X# distinction by searching for 'ansi' in the $TERM environment
+X# variable (without regard to case: 'AnSi' will match as well as
+X# 'ansi').  If your keyboard matches the ANSI specification even
+X# though your $TERM environment variable does not contain 'ansi'
+X# (such as 'sun'), then you may add the terminal type to the 'ansilike'
+X# entry rather than create a separate entry.
+X# 
+X# Following the "first lines" are key definition entries, each
+X# preceded by at least one tab or space.  Each entry is composed of
+X# three fields delimited by commas.  The first field of an entry is
+X# the internal ECU function key name and must be chosen from the
+X# following strings (with no regard to case): "F1", "F2", "F3",
+X# "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "Home",
+X# "End", "PgUp", "PgDn", "CUP", "CUL", "CU5", "CUR" and "CUD" The
+X# second field contains the name of the key as it appears on the
+X# non-ANSI keyboard (such as "Send" for End on the Wyse 60).  The
+X# third field is a description of the character sequence generated
+X# by the non-ANSI keyboard when the chosen key is pressed; it is a
+X# string of one or more tokens separated by spaces or tabs.
+X# The tokens are described in full in the ECU manual sections titled
+X# "Function Key Recognition" and "Function Key Mapping."
+X#
+X# << LOOK >> NOTE:
+X# Compile and run 'kbdtest3.c' (see the source file for information)
+X# to build a file containing the emitted sequences for each supported
+X# function key.  Looking at the file, you will see it is a funckeymap
+X# formatted keyboard description complete with the TERM terminal type.
+X# I would appreciate your mailing me any files you
+X# create describing non-SCO/non-ISC main console keyboards.
+X#
+X# If you like, compile the older 'kbdtest.c' module released with 3.0
+X# and run it. Press any key you like and hex for the emitted
+X# sequence will appear on the screen.  Press ^D to exit the program.
+X#
+X#-------------------------------------------------------------------------
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X#:05-14-1992-02:07-wht@n4hgf-make note of Metro Link R5 compatibility
+X#:04-19-1992-01:37-wht@n4hgf-add ESIX SVR4 console
+X#:10-03-1991-04:56-wht@n4hgf-add X386 1.1b Roell X11R4 xterm entry
+X#:08-26-1991-05:06-wht@n4hgf2-add sun console and xterm entry
+X#:08-10-1991-16:07-wht@n4hgf-add new Metro Link server entry
+X#:05-06-1991-02:31-wht@n4hgf-add tandem terminal "ansi-terminal"
+X#:05-05-1991-17:37-root@n4hgf-add ISC at386 tnx to dug@kd4nc
+X#:05-02-1991-04:53-wht@n4hgf-document kbdtest3
+X#:03-26-1991-00:00-wht@n4hgf-more Metro Link work
+X#:03-19-1991-21:04-root@n4hgf-add Metro Link MetroX X11R4 xterm
+X#:12-20-1990-23:50-wht@n4hgf-"correct" wyse entry
+X#:12-18-1990-19:43-wht@n4hgf-add xterm and wy60
+X#:12-02-1990-13:34-wht@n4hgf-creation
+X
+X#+-------------------------------------------------------------------
+X#   SCO multiscreen (and other ANSI for F1-F10, cursor keys)
+X#--------------------------------------------------------------------
+Xsco
+Xansi
+Xansi43
+Xmsdos
+Xdos
+Xdosansi
+Xtest
+X    F1:F1:          esc [ M 
+X    F2:F2:          esc [ N 
+X    F3:F3:          esc [ O 
+X    F4:F4:          esc [ P 
+X    F5:F5:          esc [ Q 
+X    F6:F6:          esc [ R 
+X    F7:F7:          esc [ S 
+X    F8:F8:          esc [ T 
+X    F9:F9:          esc [ U 
+X    F10:F10:        esc [ V 
+X    F11:F11:        esc [ W 
+X    F12:F12:        esc [ X 
+X    Home:Home:      esc [ H 
+X    End:End:        esc [ F 
+X    PgUp:PgUp:      esc [ I 
+X    PgDn:PgDn:      esc [ G 
+X    CUU:CUU:        esc [ A 
+X    CUL:CUL:        esc [ D 
+X    CU5:CU5:        esc [ E 
+X    CUR:CUR:        esc [ C 
+X    CUD:CUD:        esc [ B 
+X    Ins:Ins:        esc [ L
+X    BkTab:BackTab:  esc [ Z
+X
+X#+-------------------------------------------------------------------
+X#   SCO ODT 1.0/1.1 console xterm (as released, unmodified)
+X#--------------------------------------------------------------------
+Xxterm
+X    F1:F1:          esc [ 1 1 ~
+X    F2:F2:          esc [ 1 2 ~
+X    F3:F3:          esc [ 1 3 ~
+X    F4:F4:          esc [ 1 4 ~
+X    F5:F5:          esc [ 1 5 ~
+X    F6:F6:          esc [ 1 7 ~
+X    F7:F7:          esc [ 1 8 ~
+X    F8:F8:          esc [ 1 9 ~
+X    F9:F9:          esc [ 2 0 ~
+X    F10:F10:        esc [ 2 1 ~
+X#   F11:F11:        esc [ 2 3 ~   # decommitted to provide a CU5
+X#   F12:F12:        esc [ 2 4 ~   # decommitted to provide a BkTab
+X    Home:Home:      esc [ 8 ~
+X    End:End:        esc [ 7 ~
+X    PgUp:PgUp:      esc [ 5 ~
+X    PgDn:PgDn:      esc [ 6 ~
+X    CUU:CUU:        esc [ A 
+X    CUL:CUL:        esc [ D 
+X#   CU5:CU5:        esc [ 8 ~     # same as HOME unfortunately
+X    CU5:F11:        esc [ 2 3 ~
+X    CUR:CUR:        esc [ C 
+X    CUD:CUD:        esc [ B 
+X    Ins:Ins:        esc [ 2 ~
+X#   BkTab:BackTab:  tab           # same as TAB unfortunately
+X    BkTab:F12:      esc [ 2 4 ~
+X
+X#+-------------------------------------------------------------------
+X#   SCO ODT 2.0 console xterm (with translations shown below)
+X#
+X#XTerm*VT100*Translations: #override\
+X#     Shift <Key>Tab:  string(0x1b) string("[Z") \n \
+X#     <Key>KP_Insert:  string(0x1b) string("[L") \n \
+X#     <Key>KP_Home:    string(0x1b) string("[H") \n \
+X#     <Key>KP_End:     string(0x1b) string("[F") \n \
+X#     <Key>KP_Prior:   string(0x1b) string("[I") \n \
+X#     <Key>KP_Next:    string(0x1b) string("[G") \n \
+X#     <Key>KP_Begin:   string(0x1b) string("[E") \n \
+X#
+X#--------------------------------------------------------------------
+Xxterm
+X    BkTab:BkTab:    esc [ Z
+X    CU5:CU5:        esc [ E
+X    F1:F1:          esc [ 1 1 ~
+X    F2:F2:          esc [ 1 2 ~
+X    F3:F3:          esc [ 1 3 ~
+X    F4:F4:          esc [ 1 4 ~
+X    F5:F5:          esc [ 1 5 ~
+X    F6:F6:          esc [ 1 7 ~
+X    F7:F7:          esc [ 1 8 ~
+X    F8:F8:          esc [ 1 9 ~
+X    F9:F9:          esc [ 2 0 ~
+X    F10:F10:        esc [ 2 1 ~
+X    F11:F11:        esc [ 2 3 ~
+X    F12:F12:        esc [ 2 4 ~
+X    Ins:Ins:        esc [ L
+X    Home:Home:      esc [ H
+X    End:End:        esc [ F
+X    PgUp:PgUp:      esc [ I
+X    PgDn:PgDn:      esc [ G
+X    CUU:CUU:        esc [ A
+X    CUD:CUD:        esc [ B
+X    CUL:CUL:        esc [ D
+X    CUR:CUR:        esc [ C
+X
+X#+-------------------------------------------------------------------
+X# ~wht/.Xdefaults on a networked SCO and Sun boxes
+X# has these xterm translations: allows
+X# me to be able to run ECU on n4hgf from 
+X#
+X#  a local xterm with the Roell X386 1.1b, Metro Link X11R4 and X11R5
+X#    or SCO ODT 1.1 servers or
+X#  a remote Sparc IPX MIT X11R4 xterm running under
+X#    news/open windows 2.0 or the MIT X11R4 server
+X#
+X# and vice versa on the Sun box
+X#
+X# This translation set demonstrates two different servers'
+X# keyboard-to-keysym mappings being accommodated by one 'xterm'
+X# funckey entry
+X#
+X#XTerm*VT100*Translations: #override\
+X#     Shift <Key>Tab:  string(0x1b) string("[Z") \n \
+X#     <Key>Insert:     string(0x1b) string("[L") \n \
+X#     <Key>Home:       string(0x1b) string("[H") \n \
+X#     <Key>End:        string(0x1b) string("[F") \n \
+X#     <Key>Begin:      string(0x1b) string("[E") \n \
+X#     <Key>F27:        string(0x1b) string("[H") \n \
+X#     <Key>R13:        string(0x1b) string("[F") \n \
+X#     <Key>F29:        string(0x1b) string("[I") \n \
+X#     <Key>F31:        string(0x1b) string("[E") \n \
+X#     <Key>F35:        string(0x1b) string("[G") \n
+X#
+X#--------------------------------------------------------------------
+Xxterm
+X    BkTab:BkTab:    esc [ Z
+X    CU5:CU5:        esc [ E
+X    F1:F1:          esc [ 1 1 ~
+X    F2:F2:          esc [ 1 2 ~
+X    F3:F3:          esc [ 1 3 ~
+X    F4:F4:          esc [ 1 4 ~
+X    F5:F5:          esc [ 1 5 ~
+X    F6:F6:          esc [ 1 7 ~
+X    F7:F7:          esc [ 1 8 ~
+X    F8:F8:          esc [ 1 9 ~
+X    F9:F9:          esc [ 2 0 ~
+X    F10:F10:        esc [ 2 1 ~
+X    F11:F11:        esc [ 2 3 ~
+X    F12:F12:        esc [ 2 4 ~
+X    Ins:Ins:        esc [ 2 ~
+X    Home:Home:      esc [ H
+X    End:End:        esc [ F
+X    PgUp:PgUp:      esc [ 5 ~
+X    PgDn:PgDn:      esc [ 6 ~
+X    CUU:CUU:        esc [ A
+X    CUD:CUD:        esc [ B
+X    CUL:CUL:        esc [ D
+X    CUR:CUR:        esc [ C
+X
+X#+-------------------------------------------------------------------
+X#   Sun Sparc xterm using MIT X11R4 server (pl18)
+X#
+X# Place in .Xdefaults or whatever:
+X#
+X# XTerm*VT100*Translations: #override\
+X#     Shift <Key>Tab:   string(0x1b) string("[Z") \n \
+X#     <Key>F27:         string(0x1b) string("[H") \n \
+X#     <Key>R13:         string(0x1b) string("[F") \n \
+X#     <Key>F29:         string(0x1b) string("[I") \n \
+X#     <Key>F31:         string(0x1b) string("[E") \n \
+X#     <Key>F35:         string(0x1b) string("[G") \n \
+X#     <Key>Insert:      string(0x1b) string("[L") \n \
+X#
+X# funckeymap for 'xterm' under SunOS
+X# built by kbdtest3 1.02 Mon Aug 26 04:55:24 1991
+X# keyboard parity required = even
+X#--------------------------------------------------------------------
+Xxterm
+X    BkTab:BkTab:    esc [ Z
+X    CU5:CU5:        esc [ E
+X    F1:F1:          esc [ 1 1 ~
+X    F2:F2:          esc [ 1 2 ~
+X    F3:F3:          esc [ 1 3 ~
+X    F4:F4:          esc [ 1 4 ~
+X    F5:F5:          esc [ 1 5 ~
+X    F6:F6:          esc [ 1 7 ~
+X    F7:F7:          esc [ 1 8 ~
+X    F8:F8:          esc [ 1 9 ~
+X    F9:F9:          esc [ 2 0 ~
+X    F10:F10:        esc [ 2 1 ~
+X    F11:F11:        esc [ 2 3 ~
+X    F12:F12:        esc [ 2 4 ~
+X    Ins:Ins:        esc [ L		# Ins generates Insert
+X    Home:Home:      esc [ H 	# Home generates F27
+X    End:End:        esc [ F		# End generates R13
+X    PgUp:PgUp:      esc [ I		# PgUp generates F29
+X    PgDn:PgDn:      esc [ G		# PgDn generates F35
+X    CUU:CUU:        esc [ A
+X    CUD:CUD:        esc [ B
+X    CUL:CUL:        esc [ D
+X    CUR:CUR:        esc [ C
+X
+X#+-------------------------------------------------------------------
+X#    Sun Console
+X#
+X# funckeymap for 'sun' (native console) under SunOS 4.1
+X# built by kbdtest3 1.02 Mon Aug 26 16:21:57 1991
+X# keyboard parity required = even
+X#--------------------------------------------------------------------
+Xsun
+X#   BkTab:BkTab:    ht                   # does not work
+X    CU5:CU5:        esc [ 2 1 8 z
+X    F1:F1:          esc [ 2 2 4 z
+X    F2:F2:          esc [ 2 2 5 z
+X    F3:F3:          esc [ 2 2 6 z
+X    F4:F4:          esc [ 2 2 7 z
+X    F5:F5:          esc [ 2 2 8 z
+X    F6:F6:          esc [ 2 2 9 z
+X    F7:F7:          esc [ 2 3 0 z
+X    F8:F8:          esc [ 2 3 1 z
+X    F9:F9:          esc [ 2 3 2 z
+X    F10:F10:        esc [ 2 3 3 z
+X    F11:F11:        esc [ 2 3 4 z
+X    F12:F12:        esc [ 2 3 5 z
+X    Ins:Ins:        esc [ 2 4 7 z
+X    Home:Home:      esc [ 2 1 4 z
+X    End:End:        esc [ 2 2 0 z
+X    PgUp:PgUp:      esc [ 2 1 6 z
+X    PgDn:PgDn:      esc [ 2 2 2 z
+X    CUU:CUU:        esc [ A
+X    CUD:CUD:        esc [ B
+X    CUL:CUL:        esc [ D
+X    CUR:CUR:        esc [ C
+X
+X#+-------------------------------------------------------------------
+X#   ISC 'AT386' keyboard
+X#--------------------------------------------------------------------
+XAT386
+Xat386
+X    F1:F1:          esc O P 
+X    F2:F2:          esc O Q 
+X    F3:F3:          esc O R 
+X    F4:F4:          esc O S 
+X    F5:F5:          esc O T 
+X    F6:F6:          esc O U 
+X    F7:F7:          esc O V 
+X    F8:F8:          esc O W 
+X    F9:F9:          esc O X 
+X    F10:F10:        esc O Y 
+X    F11:F11:        esc O Z 
+X    F12:F12:        esc O A 
+X    Home:Home:      esc [ H 
+X    End:End:        esc [ Y 
+X    PgUp:PgUp:      esc [ V 
+X    PgDn:PgDn:      esc [ U 
+X    CUU:CUU:        esc [ A 
+X    CUL:CUL:        esc [ D 
+X    CU5:CU5:        esc [ G 
+X    CUR:CUR:        esc [ C 
+X    CUD:CUD:        esc [ B 
+X    Ins:Ins:        esc [ @
+X    BkTab:BackTab:  gs
+X
+X#+-------------------------------------------------------------------
+X#       ESIX SVR4 console
+X#
+X# funckeymap for 'AT386-M' under ESIX SVR4
+X# built by kbdtest3 3.20 Thu Apr 16 23:16:22 1992
+X# keyboard parity required = none
+X# stty -a at kbdtest3 execution time:
+X# speed 9600 baud; 
+X# intr = DEL; quit = ^|; erase = ^h; kill = @;
+X# eof = ^d; eol = <undef>; eol2 = <undef>; swtch = <undef>;
+X# start = <undef>; stop = <undef>; susp = ^z; dsusp = <undef>;
+X# rprnt = ^r; flush = ^o; werase = ^w; lnext = ^v;
+X# -parenb -parodd cs8 -cstopb -hupcl cread -clocal -loblk -parext 
+X# -ignbrk brkint ignpar -parmrk -inpck istrip -inlcr -igncr icrnl -iuclc 
+X# ixon ixany -ixoff -imaxbel 
+X# isig icanon -xcase echo echoe echok -echonl -noflsh 
+X# -tostop -echoctl -echoprt -echoke -defecho -flusho -pendin -iexten 
+X# opost -olcuc onlcr -ocrnl -onocr -onlret -ofill -ofdel tab3 
+X#
+X# supplied by Joseph H Buehler <jhpb@sarto.budd-lake.nj.us>
+X#+-------------------------------------------------------------------
+XAT386-M
+X    BkTab:BkTab:    gs 
+X    CU5:CU5:        esc [ G
+X    F1:F1:          esc O P
+X    F2:F2:          esc O Q
+X    F3:F3:          esc O R
+X    F4:F4:          esc O S
+X    F5:F5:          esc O T
+X    F6:F6:          esc O U
+X    F7:F7:          esc O V
+X    F8:F8:          esc O W
+X    F9:F9:          esc O X
+X    F10:F10:        esc O Y
+X    F11:F11:        esc O Z
+X    F12:F12:        esc O A
+X    Ins:Ins:        esc [ @
+X    Home:Home:      esc [ H
+X    End:End:        esc [ Y
+X    PgUp:PgUp:      esc [ V
+X    PgDn:PgDn:      esc [ U
+X    CUU:CUU:        esc [ A
+X    CUD:CUD:        esc [ B
+X    CUL:CUL:        esc [ D
+X    CUR:CUR:        esc [ C
+X
+X#+-------------------------------------------------------------------
+X#    Wyse 60 Native Mode (no reprogrammed function keys)
+X#    (matching the keyboard tops I have, anyway)
+X#
+X# The following is for native mode Wyse 60 with no function keys
+X# programmed for emitting alternate sequences.  This is such a
+X# nice terminal in so many ways.  Too bad they cocked up the left
+X# and down function keys by making them indistinguishable from
+X# backspace and newline. You may wish to study the SCO /etc/termcap
+X# 'wy60ak' entry for a way around this.
+X#
+X# Note there is a kludge in the terminal initialization code
+X# to force a Wyse 60's *arrow keys* to use ANSI sequences.
+X# This entry as shipped counts on this.  If you don't have SCO, try
+X# the termcap entry in README.WY60
+X#
+X# If you really want to avoid this, comment out the IS strings below.
+X#--------------------------------------------------------------------
+Xwy60
+Xwyse60
+Xwy60ak
+Xwyse60ak
+Xwy60-43
+Xwyse60-43
+Xwyse60ak-43
+Xwy60ak-43
+X	IS:1:           esc Z 1 + esc [ A del
+X	IS:2:			esc Z 1 , esc [ B del
+X	IS:3:			esc Z 1 - esc [ D del
+X	IS:4:			esc Z 1 . esc [ C del
+X	IS:5:			esc Z 1 \ esc [ F del
+X	IS:6:			esc Z 1 q esc [ L del 
+X    F1:F1:          soh @ cr
+X    F2:F1:          soh A cr
+X    F3:F1:          soh B cr
+X    F4:F1:          soh C cr
+X    F5:F1:          soh D cr
+X    F6:F1:          soh E cr
+X    F7:F1:          soh F cr
+X    F8:F1:          soh G cr
+X    F9:F1:          soh H cr
+X    F10:F10:        soh I cr
+X    F11:F11:        soh J cr
+X    F12:F12:        soh K cr
+X    Home:Home:      rs
+X    PgUp:PrevPg:    esc J
+X    PgDn:NextPg:    esc K
+X    BkTab:F14:      soh M cr
+X    Ins:InsChar:    esc Q
+X    End:Send:       esc 7
+X#comment these out if you DO comment the IS strings
+X   CUU:CUU:        esc [ A 
+X   CUL:CUL:        esc [ D 
+X   CU5:CU5:        esc [ E 
+X   CUR:CUR:        esc [ C 
+X   CUD:CUD:        esc [ B 
+X#   Home:Home:      esc [ H 
+X#   End:End:        esc [ F 
+X#uncomment the if you DO NOT comment the IS strings
+X#    CUU:CUU:        vt
+X#    CUR:CUR:        ff
+X
+X#+-------------------------------------------------------------------
+X#    Tandem Integrity S2
+X#
+X# From: rootk@tdmsou (Admin) [John Dashner]
+X# Date: Mon, 6 May 91 2:23:56 EDT
+X# funckeymap definition for TERM='ansi-tandem'
+X# built by kbdtest3.c Mon May  6 02:17:13 1991
+X#--------------------------------------------------------------------
+Xansi-tandem
+X    BkTab:BkTab:    esc [ Z
+X    CU5:CU5:        esc [ T
+X    F1:F1:          soh @ cr 
+X    F2:F2:          soh A cr 
+X    F3:F3:          soh B cr 
+X    F4:F4:          soh C cr 
+X    F5:F5:          soh D cr 
+X    F6:F6:          soh E cr 
+X    F7:F7:          soh F cr 
+X    F8:F8:          soh G cr 
+X    F9:F9:          soh H cr 
+X    F10:F10:        soh I cr 
+X    F11:F11:        soh J cr 
+X    F12:F12:        soh K cr 
+X    Ins:Ins:        esc [ @
+X    Home:Home:      esc [ H
+X    End:End:        esc [ 2 4 H
+X    PgUp:PgUp:      esc [ V
+X    PgDn:PgDn:      esc [ U
+X    CUU:CUU:        esc [ A
+X    CUD:CUD:        esc [ B
+X    CUL:CUL:        esc [ D
+X    CUR:CUR:        esc [ C
+X
+SHAR_EOF
+chmod 0644 models/funckeymap ||
+echo 'restore of models/funckeymap failed'
+Wc_c="`wc -c < 'models/funckeymap'`"
+test 17163 -eq "$Wc_c" ||
+	echo 'models/funckeymap: original size 17163, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/gosub.ep ==============
+if test -f 'models/gosub.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/gosub.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/gosub.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/gosub.ep' &&
+X#---------------------
+X# gosub.ep
+X#---------------------
+X
+X	echo 'main'; gosub SUB; echo 'back to main'
+X	return
+X
+XSUB
+X	echo 'sub'
+X	gosub SUB2
+X	echo 'back to sub'
+X	return
+X
+X
+XSUB2
+X	echo 'sub2'
+X	return
+X
+X
+SHAR_EOF
+chmod 0644 models/gosub.ep ||
+echo 'restore of models/gosub.ep failed'
+Wc_c="`wc -c < 'models/gosub.ep'`"
+test 198 -eq "$Wc_c" ||
+	echo 'models/gosub.ep: original size 198, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/goto_test.ep ==============
+if test -f 'models/goto_test.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/goto_test.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/goto_test.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/goto_test.ep' &&
+X#  CHK=0xE30F
+X# goto_test.ep
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X#:06-07-1989-22:31-wht-creation
+X	echo '... TRY1 goto test'; goto TRY1
+X	echo '... TRY1 goto failed'
+X	return
+X
+XBACK1	echo '... gotob succeeded'
+X	gotob COMP
+X
+XTRY1	echo '... TRY1 goto succeeded'
+X	gotob BACK1
+X
+XCOMP	echo '... COMPuted goto test'; set $s0='COMP'+'UTED',$s0
+X	goto $s0
+X	echo '... COMP failed'
+X	return
+X
+XCOMPUTED
+X	echo '... computed goto worked'
+X	echo '... test complete'
+X	return
+X
+X# vi:set tabstop=8:
+SHAR_EOF
+chmod 0644 models/goto_test.ep ||
+echo 'restore of models/goto_test.ep failed'
+Wc_c="`wc -c < 'models/goto_test.ep'`"
+test 544 -eq "$Wc_c" ||
+	echo 'models/goto_test.ep: original size 544, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/if_test.ep ==============
+if test -f 'models/if_test.ep' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/if_test.ep (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/if_test.ep (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/if_test.ep' &&
+X
+X	ifz 0
+X		echo 'ifz works'
+X	else
+X		echo 'ifz broken'
+X
+X	ifnz 1
+X		echo 'ifnz works'
+X	else
+X		echo 'ifnz broken'
+X
+X	iflt -5
+X		echo 'iflt works'
+X	else
+X		echo 'iflt broken'
+X
+X	ifgt 50
+X		echo 'ifgt works'
+X	else
+X		echo 'ifgt broken'
+X
+X
+X	ifz 34
+X		echo 'bad news 1'
+X	else ifgt -5
+X		echo 'bad news 2'
+X	else ifge -5
+X		echo 'bad news 3'
+X	else iflt 5
+X		echo 'bad news 4'
+X	else ifle 5
+X		echo 'bad news 5'
+X	else
+X		echo 'compound if works'
+SHAR_EOF
+chmod 0644 models/if_test.ep ||
+echo 'restore of models/if_test.ep failed'
+Wc_c="`wc -c < 'models/if_test.ep'`"
+test 420 -eq "$Wc_c" ||
+	echo 'models/if_test.ep: original size 420, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= models/keys ==============
+if test -f 'models/keys' -a X"$1" != X"-c"; then
+	echo 'x - skipping models/keys (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting models/keys (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'models/keys' &&
+Xstratus
+SHAR_EOF
+true || echo 'restore of models/keys failed'
+fi
+echo 'End of ecu320 part 39'
+echo 'File models/keys is continued in part 40'
+echo 40 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

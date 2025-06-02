@@ -1,0 +1,2030 @@
+Newsgroups: comp.sources.misc
+From: steveh@orbital.demon.co.uk (Stephen Hebditch)
+Subject: v39i037:  slurp - A passive NNTP transfer client, v1.08, Part01/03
+Message-ID: <csm-v39i037=slurp.203136@sparky.Sterling.COM>
+X-Md4-Signature: 6fe75fa2542d5203e350bbb4395214fc
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 22 Aug 1993 01:31:54 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: steveh@orbital.demon.co.uk (Stephen Hebditch)
+Posting-number: Volume 39, Issue 37
+Archive-name: slurp/part01
+Environment: ANSI-C, UNIX
+Supersedes: slurp: Volume 36, Issue 13-14
+
+Slurp is an advanced passive NNTP client for UNIX. It will connect to a
+remote NNTP server and retrieve articles in a specified set of Usenet
+newsgroups that have arrived after a particular date (typically the
+last time it was invoked) for processing by your local news system or
+forwarding on via UUCP to another news system. It replaces nntpxfer
+from the NNTP 1.5.11 reference implementation and nntpget from the INN
+distribution.
+
+Slurp was written in ANSI C under Dell's SVR4/386, but ports easily to
+SunOs 4.x, Linux, BSDI BSD/386, HPUX, NeXT, SCO, ISC, Ultrix and most
+other recent versions of UNIX.
+
+If you are running a previous version of Slurp it is *strongly*
+recommended that you upgrade to this new version. Full details of
+changes are given in the HISTORY file included in this archive.
+----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile articles.c newnews.c slurp.c
+# Wrapped by kent@sparky on Sat Aug 21 20:28:14 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(8690 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X                SLURP - An advanced passive NNTP client
+X                =======================================
+X
+X                             Version 1.08
+X                      Written by Stephen Hebditch
+X                     (C) 1992/3 TQM Communications
+X                                    
+X                                 ------
+X
+XSlurp is an advanced passive NNTP client for UNIX. It will connect to a
+Xremote NNTP server and retrieve articles in a specified set of Usenet
+Xnewsgroups that have arrived after a particular date (typically the
+Xlast time it was invoked) for processing by your local news system or
+Xforwarding on via UUCP to another news system. It replaces nntpxfer
+Xfrom the NNTP 1.5.11 reference implementation and nntpget from the INN
+Xdistribution.
+X
+X
+XThe Feature List.
+X
+X- No restriction on the number of newsgroups that can be retrieved in a
+X  session. The client does a series of NEWNEWS requests if necessary to
+X  build up a list of articles which need to be retrieved from the
+X  server.
+X
+X- Compatible with C News and INN.
+X
+X- No lost articles due to unsynchronised clocks. By default, the time
+X  for the next NEWNEWS is set by a call to the tcp time service on the
+X  remote machine. This fixes a problem in nntpxfer and nntpget where
+X  articles can be missed if the clock on the server is behind that on
+X  the client.
+X
+X- Faster article throughput. If configured to do so, slurp stacks up
+X  the next article request before the current article is received,
+X  decreasing the total article transfer time by around 30%. Unlike
+X  nntpget, article batches can be written to the rnews spool directory
+X  for processing with 'rnews -U' later, rather than being offered to
+X  innd in turn. When used with C News, batches are written to the
+X  in.coming directory. This provides a big speedup over nntpxfer which
+X  created a new pipe to rnews for each article, lowering the transfer
+X  speed and increasing the load on the client machine. These speed
+X  improvements are of most use to the growing number of people
+X  retrieving news over a dialup SLIP/PPP connection.
+X
+X- Error recovery. In the event of an error occurring while articles are
+X  being fetched, the message IDs of unretrieved articles are dumped to
+X  a file. The next session can then retrieve the remaining articles
+X  without having to restart from the previous start time.
+X
+X- Easy configuration.
+X
+X  slurp.sys defines which groups you wish to get from which server in a
+X  similar way to the normal C News sys file, e.g.
+X
+X	news.demon.co.uk:demon.*,!demon.msdos.announce,uk.*,\
+X	!uk.net.maps/world,uk
+X
+X  slurp.<hostname> contains the time to be used for the NEWNEWS request
+X  at each server.
+X
+X  The newsgroups list, start time and distributions can be overridden
+X  on the command line. There are also settings to enable debugging
+X  output, prevent writing the time for the next NEWNEWS to
+X  slurp.<hostname>, issue a 'MODE READER' command to switch innd to
+X  nnrpd, not dump unfetched message IDs in the event of an error, and
+X  use the local time for the next NEWNEWS rather than the time at the
+X  server.
+X
+X- Support for the NNTP simple authorisation protocol.
+X
+X- Logging to syslog of the number of new, missing and duplicate
+X  articles at the end of a session plus, if required, the transfer
+X  speed of the article fetching stage.
+X
+X- Independent of the NNTP 1.5.11 code.
+X
+XSlurp was written in ANSI C under Dell's SVR4/386, but ports easily to
+XSunOs 4.x, Linux, BSDI BSD/386, HPUX, SCO, ISC, NeXT, Ultrix and most
+Xother recent versions of UNIX.
+X
+X
+X
+XCONTENTS
+X--------
+X
+XIn this archive you should have the following files:-
+X
+XHISTORY		How we got from there to here.
+XMakefile	The Makefile (yes, really!)
+XREADME		What you're reading now
+Xarticles.c	Routines for reading articles and batching them up
+Xconf.h		Compilation configuration file
+Xfakesyslog.c	Fake version of syslog for those without
+Xfakesyslog.h	Definitions needed for the above
+Xhistory.c	Routines to open and interrogate the news history file
+Xmisc.c		Miscellaneous routines
+Xnewnews.c	Routines to retrieve new message ids from the server
+Xnntp.h		Definitions of nntp response codes
+Xslurp.1		Slurp manual page
+Xslurp.c		Main program
+Xslurp.h		Definitions used by everything
+Xslurp.sys	Configuration file for groups to take from a server
+Xsockets.c	Server interface routines
+Xspace.c		Determines space available on news disk
+Xtime.c		Retrieves current time at remote server
+X
+X
+X
+XCOMPILATION AND INSTALLATION
+X----------------------------
+X
+X1. Edit conf.h to reflect your reflect your local configuration. This
+Xfile contains full details about each item that you may need to change.
+X
+X2. Edit Makefile. If you have not installed dbz.h in /usr/include then
+Xyou will need to add -Ipathname to CFLAGS so that the compiler does a
+Xsearch of the directory where it can be found. LIBS will need to
+Xcontain entries to pick up the dbz library and possibly the sockets
+Xlibrary depending on your system. If you don't have syslog then you
+Xwill need to uncomment the FAKESRC and FAKEOBJ lines.
+X
+X3. Type 'make' and hopefully you will get the slurp executable.
+X
+X4. Copy slurp to wherever it is that you store your news binaries.
+X
+X5. Copy slurp.sys to whichever location you selected for it in conf.h.
+X
+X6. Copy the manual page to wherever you keep your manual pages.
+X
+X
+X
+XQUICK START
+X-----------
+X
+XThe slurp manual page contains full details on how to operate slurp. As
+Xa quick start all you need to do is:-
+X
+X1. Edit slurp.sys to set the hostname of the server you wish to connect
+Xto for retrieving articles and the groups you wish to receive.
+X
+X2. Edit slurp.<hostname> and enter a single line containing the time a
+Xcouple of days previously, say, in 'YYMMDD HHMMSS' format.
+X
+X3. Run 'slurp <hostname>' and sit back while the articles flood into
+Xyour local news system.
+X
+XIf you are running C News, then the next time that newsrun is invoked
+Xfrom cron, the articles in the in.coming directory will be added to the
+Xnews system.
+X
+XIf you are running INN and do not have RNEWS defined, then it will be
+Xnecessary to run 'rnews -U' to have the files from the rnews spool
+Xdirectory processed by the news system. If RNEWS is defined then they
+Xwill be piped to innd as they arrive - doing this will lower the speed
+Xat which articles are transferred from the remote server.
+X
+XPatches for the NNTP 1.5.11 server are available on request which
+Ximplement caching of article locations during a NEWNEWS so that a
+Xfurther access of the history file is not required when an article is
+Xretrieved. I hope to have an equivalent patch available for INN soon.
+X
+X
+X
+XCONDITIONS OF USE
+X-----------------
+X
+XThe Slurp package and individual code as detailed is Copyright 1992/3
+XTQM Communications, BCM Box 225, London, WC1N 3XX. All rights reserved.
+X
+XThis package may be freely distributed provided the following
+Xconditions are met. The files detailed in the contents section of this
+Xfile must all be included. No charge, other than basic online charges
+Xor media costs, may be levied. You are permitted to make alterations to
+Xthe code for your own personal use, but please feed back any bug fixes
+Xor enhancements to us so they may be included in any future releases.
+X
+X
+X
+XDISCLAIMER
+X----------
+X
+XTQM Communications makes no warranty of any kind in respect to this
+Xdocumentation and the software described. The user assumes any risk as
+Xto the quality and performance of this product. In no event will TQM
+XCommunications be liable for direct, indirect, incidental or
+Xconsequential damages arising from any defect in the performance and
+Xuse of this product.
+X
+XAll trademarks acknowledged.
+X
+X
+X
+XACKNOWLEDGEMENTS
+X----------------
+X
+XThe original inspiration for slurp came from nntpxfer, written by Brian
+XKantor. The article batching code is inspired by batch.c in the NNTP
+X1.5.11 package, written by Stan Barber and 'based on work by Henry
+XSpencer and Geoff Collyer'. The fakesyslog code is taken from the NNTP
+X1.5.11 package where it is credited to John Robert LoVerso and Paul
+XMcKenny. The space code to determine whether there is enough space on
+Xthe news disk was originally taken from the NNTP 1.5.11 package where
+Xit is credited to Stan Barber, Tad Guy, Chris Jepeway and Tom Lane.
+XRegular expression expansion courtesy of Nick Lai. Network knowledge
+Xthanks to W. Richard Stevens, author of the most readable UNIX books
+Xaround. For bug fixing, porting and enhancement ideas, thanks go to Tim
+XRylance, Pete Bentley, Stefan Schwarz, David Clunie, David Boyce,
+XBarrie Spence and Philip Shearer.
+X
+X
+X
+XCONTACT INFORMATION
+X-------------------
+X
+XAll comments, bug reports, bug fixes, etc. should be sent to
+Xsteveh@orbital.demon.co.uk. I'm also available for consultancy work if
+Xyou want help in getting news and mail working.
+X
+X
+X---- END OF DOCUMENTATION
+END_OF_FILE
+  if test 8690 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1398 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Makefile for slurp
+X#
+X
+X# C compiler
+XCC=cc
+X
+X# C compilation flags
+XCFLAGS= -O -Xa -I/usr/local/src/cnews/dbz
+X
+X# Loader flags
+XLDFLAGS=
+X
+X# Libraries needed
+XLIBS= /usr/local/src/cnews/dbz/dbz.o -lnsl -lsocket
+X
+X# If you don't have syslog then uncomment these two lines
+X#FAKESRC=fakesyslog.c
+X#FAKEOBJ=fakesyslog.o
+X
+X
+X# Everything else probably doesn't need changing
+X
+XSOURCE = slurp.c newnews.c articles.c history.c time.c sockets.c misc.c \
+X	 space.c ${FAKESRC}
+X
+XOBJECT = slurp.o newnews.o articles.o history.o time.o sockets.o misc.o \
+X	 space.o ${FAKEOBJ}
+X
+XMANIFEST = README slurp.c newnews.c articles.c history.c time.c sockets.c \
+X	   misc.c space.c fakesyslog.c conf.h slurp.h nntp.h fakesyslog.h \
+X	   Makefile slurp.sys slurp.1 HISTORY
+X
+X
+Xslurp: ${OBJECT}
+X	${CC} ${LDFLAGS} ${OBJECT} -o slurp ${LIBS}
+X
+Xslurp.o: slurp.c slurp.h conf.h nntp.h
+Xnewnews.o: newnews.c slurp.h conf.h nntp.h
+Xarticles.o: articles.c slurp.h conf.h nntp.h
+Xhistory.o: history.c slurp.h conf.h nntp.h
+Xtime.o: time.c slurp.h conf.h
+Xsockets.o: sockets.c slurp.h conf.h nntp.h
+Xmisc.o: misc.c slurp.h conf.h
+Xspace.o: space.c slurp.h conf.h
+Xfakesyslog.o: fakesyslog.c slurp.h conf.h
+X
+Xlint:
+X	lint -p ${CFLAGS} ${SOURCE} > slurp.lint
+X
+Xclean:
+X	-rm -f *.o slurp
+X
+Xshar:
+X	shar -v -s -l60 -oslurp.shar ${MANIFEST}
+X
+Xtaz:
+X	tar -cf - ${MANIFEST} | compress > slurp.tar.Z
+X
+Xdiff:
+X	rcsdiff -q -r1.7 -C 1 ${MANIFEST} > slurp.diff
+X
+X# END-OF-FILE
+END_OF_FILE
+  if test 1398 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'articles.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'articles.c'\"
+else
+  echo shar: Extracting \"'articles.c'\" \(9558 characters\)
+  sed "s/^X//" >'articles.c' <<'END_OF_FILE'
+X/*
+X * articles - handle retrieval and batching of articles
+X *
+X * Copyright (C) 1992/93 Stephen Hebditch. All rights reserved.
+X * TQM Communications, BCM Box 225, London, WC1N 3XX.
+X * steveh@orbital.demon.co.uk  +44 836 825962
+X *
+X * See README for more information and disclaimers
+X *
+X * This file provides a set of routines to retrieve articles from the
+X * remote NNTP server and add to a batch of articles being piped to
+X * the local news system via rnews.
+X *
+X * $Id: articles.c,v 1.7 1993/06/14 15:20:52 root Exp $
+X *
+X * $Log: articles.c,v $
+X * Revision 1.7  1993/06/14  15:20:52  root
+X * Removed some unnecessary initialisation.
+X *
+X * Revision 1.6  1993/04/22  18:24:21  root
+X * Treat ERR_ACCESS result code when retrieving an article the same
+X * as if the article was missing.
+X *
+X * Revision 1.5  1993/03/01  17:36:51  root
+X * Removed stray text after an endif.
+X *
+X * Revision 1.4  1993/02/14  14:44:25  root
+X * Fixed problem with newline being added to article line buffer which
+X * could already be at its maximum length.
+X * Support for writing out batch files as well as piping batches to
+X * rnews.
+X * If BATCHSIZE is zero then keep pipe open to rnews indefinitely.
+X * If error occurs then submit batch and dump unretrieved ids.
+X *
+X * Revision 1.3  1992/12/15
+X * Minor tidy-ups, plus fixed flushing of tfp every time after it had
+X * been opened once.
+X *
+X * Revision 1.1  1992/12/04
+X * Print line before it is sent to server when debugging is on.
+X *
+X * Revision 1.0  1992/11/27
+X * Adapted from nntpxfer-e code.
+X * Pipe batches to rnews instead of creating in in.coming directory,
+X * so can be used with INN.
+X *
+X */
+X
+X#include "slurp.h"
+X
+X
+Xstatic struct mnode *last_article = NULL; /* last article requested */
+Xstatic char artbuf [COPYSIZE];		/* temp storage for article in memory */
+Xstatic char *endart = artbuf;		/* points to just past end of article */
+Xstatic int incore = TRUE;			/* article in memory, not temp file */
+Xstatic FILE *tfp;					/* temporary file descriptor */
+X
+Xstatic FILE *batchfp = NULL;		/* file descriptor for batch */
+Xstatic size_t batchsize = 0;		/* size of current batch */
+Xstatic char batchname [PATH_MAX];	/* name of current batch */
+X
+Xstatic void new_batch ();
+Xstatic void read_article ();
+Xstatic void batch_article ();
+Xstatic void fetch_article ();
+Xstatic void get_article ();
+Xstatic void request_article (char *msgid);
+Xstatic void traverse_tree ();
+X
+X
+X/*
+X * new_batch - Determines if there is enough room for the batch on the
+X * disk containing the news spool directories. If there is, then a pipe
+X * is opened to rnews and the batch variable initialised with the
+X * details.
+X */
+X
+X	static void
+Xnew_batch ()
+X	{
+X	/* Make sure there is enough room for batch */
+X#ifdef MINFREE
+X	if (!space (MINFREE))
+X		{
+X		log_msg ("new_batch: Not enough space for incoming batch");
+X		if ((root != NULL) && (!no_time_flag) && (!no_id_load_flag))
+X			set_ntime ();
+X		exit (5);
+X		}
+X#endif
+X
+X#ifdef RNEWS
+X	/* Open a pipe to rnews for the batch */
+X	if ((batchfp = popen (RNEWS, "w")) == NULL)
+X		log_sys ("new_batch: Can't open pipe to %s", RNEWS);
+X#else
+X	/* Open a file in incoming news directory with temporary name */
+X	(void) strcpy (batchname, BATCHNAME);
+X	(void) mktemp (batchname);
+X	if ((batchfp = fopen (batchname, "w")) == NULL)
+X		log_sys ("new_batch: Can't open file %s", batchname);
+X#endif
+X	}
+X
+X
+X/*
+X * read_article - Read an article into artbuf or, if too large, into a
+X * temporary file from the currently open NNTP server socket, reading up
+X * to the end-of-article marker, a '.' on a single line. If it is stored
+X * in memory, then incore will be TRUE, otherwise it will be FALSE and the
+X * temporary file name will be stored in tempfile.
+X */
+X
+X	static void
+Xread_article ()
+X	{
+X	char *realline;
+X	char line [NNTP_STRLEN];
+X	int lines = 0;
+X	int len;
+X
+X	incore = TRUE;
+X	endart = artbuf;
+X
+X	/* Read in the article */
+X	for (;;)
+X		{
+X		get_server (line, sizeof (line));
+X
+X		/* Dot on its own means article end reached */
+X		if (!strcmp (line, "."))
+X			break;
+X
+X		/* remove hidden dot if present */
+X		realline = (line [0] == '.' ? line + 1 : line);
+X
+X		/* Article is currently stored in memory */
+X		if (incore)
+X			{
+X			/* If no room in artbuf, open tempfile and copy article there */
+X			len = strlen (realline);
+X			if ((endart + len + 2 ) > (artbuf + sizeof (artbuf)))
+X				{
+X				if ((tfp = tmpfile ()) == NULL)
+X					log_sys ("read_article: Can't create temporary file");
+X				(void) fwrite (artbuf, 1, endart - artbuf, tfp);
+X				if (ferror (tfp))
+X					log_sys ("read_article: Can't write to tempfile");
+X				(void) fputs (realline, tfp);
+X				(void) putc ('\n', tfp);
+X				if (ferror (tfp))
+X					log_sys ("read_article: Can't write to tempfile");
+X				incore = FALSE;
+X				}
+X			else
+X				{
+X				/* If fits, append realline to artbuf at endart */
+X				(void) strcpy (endart, realline);
+X				endart += len;
+X				*endart++ = '\n';
+X				*endart = '\0';
+X				}
+X			}
+X
+X		/* Already writing article to temp file */
+X		else
+X			{
+X			(void) fputs (realline, tfp);
+X			(void) putc ('\n', tfp);
+X			if (ferror (tfp))
+X				log_sys ("read_article: Can't write to tempfile");
+X			}
+X
+X		lines++;
+X		}
+X
+X	/* Article successfully read in */
+X	if (debug_flag)
+X		(void) fprintf (stderr, "-> %d lines\n", lines);
+X	}
+X
+X
+X/* batch_article - Append "#! rnews <count>" and the article from artbuf
+X * or temporary file to the batch file.
+X */
+X
+X	static void
+Xbatch_article ()
+X	{
+X	size_t bytes;
+X	size_t size;
+X
+X	/* Find article size */
+X	if (incore)
+X		size = endart - artbuf;
+X	else
+X		size = ftell (tfp);
+X
+X	totalsize += size;
+X	batchsize += size;
+X
+X	/* Print the article header */
+X	(void) fprintf (batchfp, "#! rnews %ld %s\n", (long) size, hostname);
+X
+X	/* Copy the article to the batch file */
+X	if (incore)
+X		{
+X		(void) fwrite (artbuf, 1, size, batchfp);
+X		if (ferror (batchfp))
+X			log_sys ("batch_article: Can't write to batch");
+X		}
+X	else
+X		{
+X		rewind (tfp);
+X		while ((bytes = fread (artbuf, 1, sizeof (artbuf), tfp)) > 0)
+X			{
+X			(void) fwrite (artbuf, 1, bytes, batchfp);
+X			if (ferror (batchfp))
+X				log_sys ("batch_article: Can't write to batch");
+X			}
+X		(void) fclose (tfp);
+X
+X		}
+X	}
+X
+X
+X/*
+X * fetch_article - Retrieve an article from the currently open NNTP
+X * server socket which has already been requested. The article is written
+X * to the end of the current batch. If there is not already a batch
+X * then a new pipe to rnews for the batch will be opened. If the current
+X * batch is too large or has too many articles then the pipe will be
+X * closed so that the batch may be submitted to the news system.
+X */
+X
+X	static void
+Xfetch_article ()
+X	{
+X	/* Open a new batch if required */
+X	if (batchfp == NULL)
+X		new_batch ();
+X
+X	/* Read in article */
+X	read_article ();
+X
+X	/* Add it to the batch */
+X	batch_article ();
+X
+X	/* Submit batch if ready */
+X	if ((batchsize > BATCHSIZEMAX) && (BATCHSIZEMAX != 0))
+X		enqueue_batch ();
+X	}
+X
+X
+X/*
+X * get_article
+X */
+X
+X	static void
+Xget_article ()
+X	{
+X	char status [NNTP_STRLEN];
+X
+X	/* Read status line from server */
+X	get_server (status, sizeof (status));
+X	if (debug_flag)
+X		(void) fprintf (stderr, "-> %s\n", status);
+X
+X	switch (atoi (status))
+X		{
+X		/* If missing, then add to missing list */
+X		case ERR_NOART:
+X		case ERR_ACCESS:
+X			misart++;
+X			newart--;
+X			return;
+X
+X		/* If present, then fetch and add to batch */
+X		case OK_ARTICLE:
+X			fetch_article ();
+X			break;
+X
+X		/* Otherwise must be a protocol error */
+X		default:
+X			log_msg ("get_article: NNTP protocol error: got '%s'", status);
+X			if ((root != NULL) && (!no_time_flag) && (!no_id_load_flag))
+X				set_ntime ();
+X			exit (4);
+X		}
+X	}
+X
+X
+X/*
+X * request_article - Request an article with specified id from the server
+X */
+X
+X	static void
+Xrequest_article (char *msgid)
+X	{
+X	char request [NNTP_STRLEN];
+X
+X	(void) sprintf (request, "ARTICLE %s", msgid);
+X	if (debug_flag)
+X		(void) fprintf (stderr, "<- %s\n", request);
+X	put_server (request);
+X	}
+X
+X
+X/*
+X * traverse_tree - Traverse the tree requesting and getting each article
+X */
+X
+X	static void
+Xtraverse_tree (struct mnode *p)
+X	{
+X	if (p != NULL)	
+X    	{
+X		traverse_tree (p->left);
+X		request_article (p->msgid);
+X#ifdef SPEEDUP
+X		if (last_article != NULL)
+X			{
+X			get_article ();
+X			last_article->used = TRUE;
+X			}
+X    	last_article = p;
+X#else
+X		get_article ();
+X		p->used = TRUE;
+X#endif /* SPEEDUP */
+X		traverse_tree (p->right);
+X    	}
+X	}
+X
+X
+X/*
+X * get_articles - Get the articles from the server whose message ids
+X * were previously collected with do_newnews.
+X */
+X
+X	void
+Xget_articles ()
+X	{
+X	traverse_tree (root);
+X#ifdef SPEEDUP
+X	get_article ();
+X	last_article->used = TRUE;
+X#endif
+X	}
+X
+X
+X/*
+X * enqueue_batch - Submit the batch to the new system by closing the
+X * currently open pipe to rnews or renaming the temporary file in the
+X * incoming news directory so it can be seen by the news system.
+X */
+X
+X	void
+Xenqueue_batch ()
+X	{
+X#ifndef RNEWS
+X	char permname [PATH_MAX];
+X	time_t now;
+X#endif
+X
+X	/* Return if there is no currently open batch */
+X	if (batchfp == NULL)
+X		return;
+X
+X#ifdef RNEWS
+X	/* Close the pipe to rnews */
+X	if (pclose (batchfp))
+X		log_sys ("enqueue_batch: Can't close pipe to %s", RNEWS);
+X#else
+X	/* Close the temporary file */
+X	if (fclose (batchfp))
+X		log_sys ("enqueue_batch: Can't close %s", batchname);
+X
+X	/* Rename it so it can be seen by news */
+X	for (;;)
+X		{
+X		(void) sprintf (permname, "%ld.t", (long) time (&now));
+X		if (link (batchname, permname) == 0)
+X			break;
+X		if (errno != EEXIST)
+X			log_sys ("enqueue_batch: Error linking %s to %s", batchname, permname);
+X		(void) sleep (2);
+X		}
+X	if (unlink (batchname))
+X			log_sys ("enqueue_batch: Error unlinking %s", batchname);
+X#endif /* RNEWS */
+X
+X	/* Reset the batch descriptor for a new batch */
+X	batchfp = NULL;
+X	batchsize = 0;
+X	}
+X
+X/* END-OF-FILE */
+END_OF_FILE
+  if test 9558 -ne `wc -c <'articles.c'`; then
+    echo shar: \"'articles.c'\" unpacked with wrong size!
+  fi
+  # end of 'articles.c'
+fi
+if test -f 'newnews.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newnews.c'\"
+else
+  echo shar: Extracting \"'newnews.c'\" \(9772 characters\)
+  sed "s/^X//" >'newnews.c' <<'END_OF_FILE'
+X/*
+X * newnews - Read in list of ids of new articles
+X *
+X * Copyright (C) 1992/93 Stephen Hebditch. All rights reserved.
+X * TQM Communications, BCM Box 225, London, WC1N 3XX.
+X * steveh@orbital.demon.co.uk  +44 836 825962
+X *
+X * See README for more information and disclaimers
+X *
+X * Using a previously initialised list of newsgroups, carries out a series
+X * of NEWNEWS requests to the connected NNTP server, storing the message
+X * ids of new articles in a binary tree in memory.
+X *
+X * $Id: newnews.c,v 1.7 1993/06/14 15:22:24 root Exp $
+X *
+X * $Log: newnews.c,v $
+X * Revision 1.7  1993/06/14  15:22:24  root
+X * Modified parse_groups to only malloc enough space for arrays.
+X * Rewrote get_ids, incorporating the get_not_groups function. This
+X * makes the algorithm neater, fixes a problem with using memset on a
+X * zero length block, and fixes a problem whereby with certain
+X * newsgroup combinations a line could overflow its buffer.
+X * In process_id when in debug mode print after a message ID if ID
+X * discarded due to hitting maximum number of articles or was already
+X * present in the tree.
+X *
+X * Revision 1.5  1993/03/01  17:45:16  root
+X * Added cast to bzeroing of used_not_group_array.
+X *
+X * Revision 1.4  1993/02/14  14:55:41  root
+X * Malloc msgid space separately from mnode.
+X * Split-out process_id from do_newnews so it can be used in get_ntime
+X * to load the tree with the unretrieved message ids.
+X *
+X * Revision 1.3  1992/12/14
+X * Only malloc enough space for msgid, not whole mnode structure.
+X * Minor tidy-ups.
+X *
+X * Revision 1.1  1992/12/06
+X * Set no_time_flag if hit max no of messages
+X * Print line before it is sent to server when debugging is on.
+X * No longer need to handle null nn_distributions.
+X *
+X * Revision 1.0  1992/11/30
+X * Transferred functions from slurp.c
+X *
+X */
+X
+X#include "slurp.h"
+X
+Xstatic int hit_max = FALSE;
+X
+Xstatic char **group_array;
+Xstatic char **not_group_array;
+Xstatic int  *used_not_group_array;
+X
+Xstatic int  groups_no = 1;
+Xstatic int  not_groups_no = 0;
+X
+X
+Xstatic void parse_groups ();
+Xstatic int  add_id (char *msgid);
+Xstatic void do_newnews (char *line);
+Xstatic int  restreql (register char *w, register char *s);
+X
+X
+X/*
+X * parse_groups - Turn list of groups into two arrays containing 
+X * pointers to groups to include and groups to exclude.
+X */
+X
+X	static void
+Xparse_groups ()
+X	{
+X	int g = 0;
+X	int n = 0;
+X	int got = TRUE;
+X	int not = FALSE;
+X	char *cp;
+X
+X	/* Calculate number of group entries */
+X	for (cp = nn_newsgroups; *cp != '\0'; cp++)
+X		{
+X		if (*cp == ',')
+X			groups_no++;
+X		if (*cp == '!')
+X			{
+X		 	not_groups_no++;
+X		 	groups_no--;
+X		 	}
+X		 }
+X
+X	/* Malloc space for include and exclude group arrays */
+X	if ((group_array = (char **) malloc ((size_t) groups_no * sizeof (char *))) == NULL)
+X		log_sys ("parse_groups: malloc %d bytes", groups_no * sizeof (char **));
+X
+X	if (not_groups_no > 0)
+X		{
+X		if ((not_group_array = (char **) malloc ((size_t) not_groups_no * sizeof (char *))) == NULL)
+X			log_sys ("parse_groups: malloc %d bytes", not_groups_no * sizeof (char **));
+X
+X		if ((used_not_group_array = (int *) malloc ((size_t) not_groups_no * sizeof (int))) == NULL)
+X			log_sys ("parse_groups: malloc %d bytes", not_groups_no * sizeof (int));
+X		}
+X
+X	/* Now start parsing the newsgroup list */
+X	for (cp = nn_newsgroups; *cp != '\0'; cp++)
+X		{
+X		if (*cp == '!')
+X			got = FALSE;
+X
+X		if (got)
+X			{
+X			group_array [g++] = cp;
+X			got = FALSE;
+X			}
+X
+X		if (not)
+X			{
+X			not_group_array [n++] = cp;
+X			not = FALSE;
+X			}
+X
+X		if (*cp == ',')
+X			{
+X			*cp = '\0';
+X			got = TRUE;
+X			}
+X
+X		if (*cp == '!')
+X			not = TRUE;
+X		}
+X	}
+X
+X
+X/*
+X * store_node - Store a new node in the binary tree
+X */
+X
+X	static struct mnode *
+Xstore_node (char *msgid)
+X	{
+X	struct mnode *node;
+X
+X	if ((node = (struct mnode *) malloc (sizeof (struct mnode))) == NULL)
+X		log_sys ("add_id: malloc %d bytes", sizeof (struct mnode));
+X	node->left = NULL;
+X	node->right = NULL;
+X	node->used = FALSE;
+X	if ((node->msgid = (char *) malloc (strlen (msgid) + sizeof (char))) == NULL)
+X		log_sys ("store_node: malloc %d bytes", strlen (msgid) + sizeof (char));
+X	(void) strcpy (node->msgid, msgid);
+X	entries++;
+X	return (node);
+X	}
+X
+X
+X/*
+X * add_id - Add a message id to the binary tree if not already present.
+X * Returns -1 if the maximum number of entries in the tree has been
+X * reached, 0 if the item is added okay, 1 if an entry with that 
+X * particular message id already exists.
+X */
+X
+X	static int
+Xadd_id (char *msgid)
+X	{
+X	struct mnode *current;
+X	int test;
+X
+X	/* Test if hit the maximum number of entries in the cache */
+X	if (entries >= MAXCACHE)
+X		return (-1);
+X
+X	/* Handle the case when the tree is empty */
+X	if (root == NULL)
+X		{
+X		root = store_node (msgid);
+X		return (0);
+X		}
+X
+X	/* Search the tree for correct position to insert node */
+X	current = root;
+X	
+X	for (;;)
+X		{
+X		test = strcmp (msgid, current->msgid);
+X		if (test < 0)
+X			{
+X			if (current->left == NULL)
+X				{
+X				current->left = store_node (msgid);
+X				return (0);
+X				}
+X			else
+X				current = current->left;
+X			}
+X		else if (test > 0)
+X			{
+X			if (current->right == NULL)
+X				{
+X				current->right = store_node (msgid);
+X				return (0);
+X				}
+X			else
+X				current = current->right;
+X			}
+X		else
+X			return (1);
+X		}
+X	}
+X
+X
+X/*
+X * process_id - Check if id already exists in local history file, if not
+X * then add it to the message id tree if it isn't already in there.
+X */
+X
+X	void
+Xprocess_id (char *msgid)
+X	{
+X	char *cp;
+X
+X	/* Modify the message id appropriate to C-News history files */
+X	if ((cp = strchr (msgid, '@')) != NULL)
+X		{
+X		for (; *cp != '\0'; cp++)
+X			if (isupper (*cp))
+X				*cp = tolower (*cp);
+X		}
+X
+X	if (debug_flag)
+X		(void) fprintf (stderr, "-> %s", msgid);
+X
+X	if (check_id (msgid))
+X		{
+X		switch (add_id (msgid))
+X			{
+X			case -1 :
+X				hit_max = TRUE;
+X				if (debug_flag)
+X					(void) fprintf (stderr, " discarded\n");
+X				break;
+X			case  0 :
+X				newart++;
+X				if (debug_flag)
+X					(void) fprintf (stderr, " new\n");
+X				break;
+X			default :
+X				if (debug_flag)
+X					(void) fprintf (stderr, " present\n");
+X				break;
+X			}
+X		}
+X	else
+X		{
+X		dupart++;
+X		if (debug_flag)
+X			(void) fprintf (stderr, " duplicate\n");
+X		}
+X	}
+X
+X
+X/*
+X * do_newnews - Process a newnews for supplied list of groups, adding the
+X * resultant data to the message id tree.
+X */
+X
+X	static void
+Xdo_newnews (char *line)
+X	{
+X	char buf [NNTP_STRLEN];
+X
+X	/* Create a full string to send to the server */
+X	(void) sprintf (buf, "NEWNEWS %s %s GMT %s", line, nn_time,
+X					nn_distributions);
+X
+X	/* Do the actual NEWNEWS */
+X	if (debug_flag)
+X		(void) fprintf (stderr, "<- %s\n", buf);
+X	put_server (buf);
+X	
+X	/* Get the response and check it's okay */
+X	get_server (buf, sizeof (buf));
+X	if (debug_flag)
+X		(void) fprintf (stderr, "-> %s\n", buf);
+X	if (atoi (buf) != OK_NEWNEWS)
+X		{
+X		log_msg ("do_newnews: NNTP protocol error: got '%s'", buf);
+X		exit (4);
+X		}
+X	                
+X	/* Now get the data and stick it in the tree */
+X	for (;;)
+X		{
+X		get_server (buf, sizeof (buf));
+X		if (!strcmp (buf, "."))
+X			break;
+X
+X		process_id (buf);
+X		}
+X	}
+X
+X
+X/*
+X * restreql -- A small regular expression string equivalence routine
+X * purloined from nntp 1.5.11 which credits <lai@shadow.berkeley.edu>
+X * for its creation. Returns 1 if the string pointed to by 's' matches
+X * the asterisk-broadened regexp string pointed to by 'w', otherwise
+X * returns 0.
+X */
+X
+X	static int
+Xrestreql (register char *w, register char *s)
+X	{
+X	while (*s && *w)
+X		{
+X		switch (*w)
+X			{
+X			case '*':
+X				for (w++; *s; s++)
+X					if (restreql(w, s))
+X						return (1);
+X				break;
+X			default:
+X				if (*w != *s)
+X					return (0);
+X				w++, s++;
+X				break;
+X			}
+X		}
+X	if (*s)
+X		return (0);
+X	while (*w)
+X		if (*w++ != '*')
+X			return 0;
+X
+X	return (1);
+X	}
+X
+X
+X/*
+X * get_ids - Store in memory a tree of the message ids of new article at
+X * the server which match the specified set of groups and distributions
+X * for the currently connected host.
+X */
+X
+X	void
+Xget_ids ()
+X	{
+X	char line [NNTP_STRLEN];
+X	char newgroups [NNTP_STRLEN];
+X	int i, j, add_comma;
+X	size_t newlen, linelen;
+X	size_t startlen = 30 + strlen (nn_distributions);
+X
+X	/* Turn comma-separated list of groups into 2 arrays */
+X	parse_groups ();
+X
+X	/* Initialiase for first list of groups to send to server */
+X	*line = '\0';
+X	linelen = startlen;
+X	if (not_groups_no)
+X		(void) memset (used_not_group_array, 0, not_groups_no * sizeof (int));
+X	add_comma = FALSE;
+X
+X	for (i = 0 ; i < groups_no ; i++)
+X		{
+X		/* Check group isn't so big it doesn't fit at all */
+X		newlen = strlen (group_array [i]);
+X		if ((newlen + startlen) > NNTP_STRLEN)
+X			{
+X			log_msg ("get_ids: Not enough room in NNTP line for newsgroup %s",
+X					 group_array [i]);
+X			exit (2);
+X			}
+X
+X		/* Get list containing new group and matching ! groups */
+X		(void) strcpy (newgroups, group_array [i]);
+X		for (j = 0 ; j < not_groups_no ; j++)
+X			if (!used_not_group_array [j])
+X				if (restreql (group_array [i], not_group_array [j]))
+X					{
+X					newlen += strlen (not_group_array [j]) + 2;
+X					if ((newlen + startlen) > NNTP_STRLEN)
+X						{
+X						log_msg ("get_ids: Not enough room in NNTP line for exclusion list %s",
+X								 newgroups);
+X						exit (2);
+X						}
+X					(void) strcat (newgroups, ",!");
+X					(void) strcat (newgroups, not_group_array [j]);
+X					used_not_group_array [j] = TRUE;
+X					}
+X
+X		/* If can't add new groups to existing list, then do a newnews */
+X		if ((linelen + newlen + add_comma) > NNTP_STRLEN)
+X			{
+X			do_newnews (line);
+X			*line = '\0';
+X			linelen = startlen;
+X			if (not_groups_no)
+X				(void) memset (used_not_group_array, 0, not_groups_no * sizeof (int));
+X			add_comma = FALSE;
+X			}
+X
+X		linelen += newlen + add_comma;
+X		if (add_comma)
+X			(void) strcat (line, ",");
+X		else
+X			add_comma = TRUE;
+X		(void) strcat (line, newgroups);
+X		}
+X
+X	do_newnews (line);
+X
+X	/* Report if couldn't fit everything in the tree */
+X	if (hit_max)
+X		{
+X		log_msg ("Maximum limit of %d messages hit", MAXCACHE);
+X		no_time_flag++;
+X		}
+X	}
+X
+X/* END-OF-FILE */
+END_OF_FILE
+  if test 9772 -ne `wc -c <'newnews.c'`; then
+    echo shar: \"'newnews.c'\" unpacked with wrong size!
+  fi
+  # end of 'newnews.c'
+fi
+if test -f 'slurp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'slurp.c'\"
+else
+  echo shar: Extracting \"'slurp.c'\" \(18680 characters\)
+  sed "s/^X//" >'slurp.c' <<'END_OF_FILE'
+X/*
+X * slurp - a passive nntp news client
+X *
+X * Copyright (C) 1992/93 Stephen Hebditch. All rights reserved.
+X * TQM Communications, BCM Box 225, London, WC1N 3XX.
+X * steveh@orbital.demon.co.uk  +44 836 825962
+X *
+X * See README for more information and disclaimers
+X *
+X * This is the main routine for slurp together with the routines to
+X * handle the configuration files and command line arguments.
+X *
+X *
+X * $Id: slurp.c,v 1.8 1993/08/20 10:34:50 root Exp root $
+X *
+X * $Log: slurp.c,v $
+X * Revision 1.8  1993/08/20  10:34:50  root
+X * Unlink backup time file before renaming or an error occurs
+X * with the rename under SVR3.
+X *
+X * Revision 1.7  1993/06/07  11:15:00  root
+X * Added support for users to supply a filename for the time file
+X * on the command line, for use with machines with short filenames.
+X * Rewrote read_sys (again!) for a much cleaner implementation.
+X * Fixed problem of time file being wrongly set if slurp was
+X * interrupted before the newnews phase had completed.
+X * If can't rename time file then don't abort, just write the new
+X * file.
+X *
+X * Revision 1.6  1993/04/22  18:22:20  root
+X * Added signal handler to catch SIGHUP, SIGINT, SIGQUIT and SIGTERM.
+X * If occur then report signal in syslog and possibly submit open
+X * batch to news and dump message ids of uncollected articles to
+X * slurp.<hostname>
+X *
+X * Revision 1.5  1993/03/01  17:51:33  root
+X * read_sys can cope with lines longer than BUFSIZ.
+X * report when attempting to load unretrieved message ids.
+X * Move sublist to a parameter after the hostname, separate by a slash.
+X * Changed some system error checking.
+X *
+X * Revision 1.4  1993/02/14  14:57:43  root
+X * Added support for simple authorisation protocol.
+X * Added support for INN's 'MODE READER' command.
+X * Re-arranged command line options.
+X * Rewrote read_sys and added flags and authorisation options to it.
+X * Rewrote get_ntime and set_ntime to use a filename of slurp.<hostname>
+X * instead of slurp.tim, solving lack of locking and allowing the file
+X * to contain a list of unretrieved message ids on the lines following
+X * the time.
+X * Don't care if slurp.<hostname> doesn't exist already.
+X * If RNEWS is not defined, then change to INDIR for writing out batch
+X * files.
+X *
+X * Revision 1.3  1992/12/15
+X * Open syslog *before* we start doing things that might write to it.
+X * Informational messages logged as LOG_INFO.
+X * Assorted minor tidy-ups.
+X *
+X * Revision 1.2  1992/12/07
+X * Corrected test for 4.2/4.3 BSD syslog open.
+X *
+X * Revision 1.1  1992/12/06
+X * Made no_time_flag global.
+X * Fixed null dereferencing of nn_distributions.
+X *
+X * Revision 1.0  1992/08/07
+X * Initial coding.
+X *
+X */
+X
+X#include "slurp.h"
+X#include <signal.h>
+X
+Xchar *hostname = NULL;
+Xchar *pname;
+X
+Xint debug_flag = FALSE;
+Xint no_time_flag = FALSE;
+Xint no_id_load_flag = FALSE;
+Xstatic int local_time_flag = FALSE;
+Xstatic int mode_reader_flag = FALSE;
+X
+Xint  dupart = 0;
+Xint  misart = 0;
+Xint  newart = 0;
+Xlong totalsize = 0;
+X
+Xchar *nn_newsgroups    = NULL;
+Xchar *nn_time          = NULL;
+Xchar *nn_distributions = NULL;
+X
+Xstatic char *ai_username = NULL;
+Xstatic char *ai_password = NULL;
+X
+Xstatic char *sublist = NULL;
+Xstatic char *timefile = NULL;
+X
+Xstruct mnode *root = NULL;
+Xint entries = 0;
+X
+Xstatic long newdate, newtime;
+X
+X
+X/*
+X * test_time - Check NEWNEWS time string is in the right format (ish)
+X */
+X
+X	static int
+Xtest_time ()
+X	{
+X	return (!(isdigit (nn_time [0]) &&
+X	          isdigit (nn_time [1]) &&
+X	          isdigit (nn_time [2]) &&
+X	          isdigit (nn_time [3]) &&
+X	          isdigit (nn_time [4]) &&
+X	          isdigit (nn_time [5]) &&
+X	          isspace (nn_time [6]) &&
+X	          isdigit (nn_time [7]) &&
+X	          isdigit (nn_time [8]) &&
+X	          isdigit (nn_time [9]) &&
+X	          isdigit (nn_time [10]) &&
+X	          isdigit (nn_time [11]) &&
+X	          isdigit (nn_time [12])));
+X	}
+X
+X
+X/*
+X * parse_args - Parse the command line arguments. Returns 1 if there is
+X * an error, otherwise returns 0.
+X */
+X
+X	static int
+Xparse_args (int argc, char **argv)
+X	{
+X	int c;
+X	extern int optind;
+X	extern char *optarg;
+X	char *pos;
+X	
+X	while ((c = getopt (argc, argv, "a:g:t:dilrw")) != EOF)
+X		switch (c)
+X			{
+X			case 'a':	/* Do an authinfo */
+X				if (pos = strchr (optarg, '/'))
+X					{
+X					ai_username = optarg;
+X					*pos++ = '\0';
+X					ai_password = pos;
+X					}
+X				else
+X					{
+X					(void) fprintf (stderr, "Invalid authinfo username/password");
+X					return (1);
+X					}
+X				break;
+X			case 'g':	/* Newsgroups list */
+X				if (pos = strchr (optarg, '/'))
+X					{
+X					*pos++ = '\0';
+X					nn_distributions = pos;
+X					}
+X				else
+X					nn_distributions = "";
+X				nn_newsgroups = optarg;
+X				no_time_flag++;
+X				break;
+X			case 't':	/* Start time */
+X				nn_time = optarg;
+X				break;
+X			case 'd':	/* Debugging on */
+X				debug_flag++;
+X				break;
+X			case 'i':	/* Don't load unprocessed ids */
+X				no_id_load_flag++;
+X				break;
+X			case 'l':	/* Use local time */
+X				local_time_flag++;
+X				break;
+X			case 'r':	/* Do a 'MODE READER' */
+X				mode_reader_flag++;
+X				break;
+X			case 'w':	/* Don't set next time */
+X				no_time_flag++;
+X				break;
+X			default:
+X				return (1);
+X			}
+X
+X	/* Get server name */
+X	if (optind < argc)
+X		{
+X		hostname = argv [optind];
+X		if (pos = strchr (hostname, ':'))
+X			{
+X			*pos++ = '\0';
+X			timefile = pos;
+X			}
+X		if (pos = strchr (hostname, '/'))
+X			{
+X			*pos++ = '\0';
+X			sublist = pos;
+X			}
+X		}
+X	else
+X		{
+X		(void) fprintf (stderr, "No server name supplied\n");
+X		return (1);
+X		}
+X
+X	/* If groups are specified, then must have a time */
+X	if ((nn_newsgroups != NULL) && (nn_time == NULL))
+X		{
+X		(void) fprintf (stderr, "Time must be specified for -g option\n");
+X		return (1);
+X		}
+X
+X	/* Verify that the time is in something like the right format */
+X	if (nn_time)
+X		if (test_time ())
+X			{
+X			(void) fprintf (stderr, "Invalid time specification - should be 'YYMMDD HHMMSS'\n");
+X			return (1);
+X			}
+X
+X	return (0);
+X	}
+X
+X
+X/*
+X * read_sys_line - Read a line from the slurp.sys file, skipping lines
+X * which are blank or all comments, truncating lines at comments.
+X * If the line has not yet all been read or the continued-on-next-line
+X * token '\' is present, then returns 1; if eof then returns -1, otherwise
+X * returns 0.
+X */
+X
+X	static int
+Xread_sys_line (char *line, int size, FILE *sysfp)
+X	{
+X	int status;
+X	char *pos;
+X
+X	for (;;)
+X		{
+X		status = 0;
+X
+X		(void) fgets (line, size, sysfp);
+X		if (feof (sysfp))
+X			return (-1);
+X		if (ferror (sysfp))
+X			log_sys ("read_sys_line: Error reading %s", SYSFILE);
+X
+X		if (pos = strchr (line, '\n'))
+X			*pos = '\0';
+X		else
+X			status = 1;
+X
+X		if (pos = strchr (line, '\\'))
+X			{
+X			*pos = '\0';
+X			status = 1;
+X			}
+X
+X		if (pos = strchr (line, '#'))
+X			*pos = '\0';
+X
+X		if (strlen (line))
+X			return (status);
+X		}
+X	}
+X
+X
+X/*
+X * read_sys - Read in the appropriate entry from the slurp.sys file
+X * for the specified hostname. Stores the relevant newsgroups for that
+X * host in nn_newsgroups and the relevant distribution in nn_distributions.
+X * Returns 0 if an appropriate entry for the current host is found, 
+X * otherwise returns 1.
+X */
+X
+X	static int
+Xread_sys ()
+X	{
+X	FILE *sysfp;
+X	char buf [BUFSIZ];
+X	char searchname [BUFSIZ];
+X	size_t tlen;
+X	char *pos;
+X	int status;
+X	int object;
+X
+X	/* Attempt to open the sys file */
+X	if ((sysfp = fopen (SYSFILE, "r")) == NULL)
+X		log_sys ("read_sys: Error opening %s", SYSFILE);
+X
+X	/* Create pattern to search for in the sys file */
+X	(void) strcpy (searchname, hostname);
+X	if (sublist)
+X		{
+X		(void) strcat (searchname, "/");
+X		(void) strcat (searchname, sublist);
+X		}
+X	(void) strcat (searchname, ":");
+X	tlen = strlen (searchname);
+X
+X	/* Read in file until we find hostname */
+X	for (;;)
+X		{
+X		if ((status = read_sys_line (buf, sizeof (buf), sysfp)) == -1)
+X			{
+X			log_msg ("read_sys: Host %s not found in %s",
+X					 hostname, SYSFILE);
+X			return (1);
+X			}
+X		if (strncmp (buf, searchname, tlen) == 0)
+X			break;
+X		}
+X
+X	/* Strip off hostname stuff from front of line */
+X	(void) strcpy (buf, buf + tlen);
+X
+X	/* Start with the newsgroups list */
+X	object = 1;
+X
+X	/* Loop through entry */
+X	for (;;)
+X		{
+X		/* Currently adding newsgroups */
+X		if (object == 1)
+X			{
+X			if (pos = strchr (buf, '/'))		/* Distributions next */
+X				{
+X				*pos++ = '\0';
+X				nn_newsgroups = stradd (nn_newsgroups, buf);
+X				(void) strcpy (buf, pos);
+X				object = 2;
+X				}
+X			else if (pos = strchr (buf, ':'))	/* Flags next */
+X				{
+X				*pos++ = '\0';
+X				nn_newsgroups = stradd (nn_newsgroups, buf);
+X				(void) strcpy (buf, pos);
+X				object = 3;
+X				}
+X			else								/* Nothing else this line */
+X				nn_newsgroups = stradd (nn_newsgroups, buf);
+X			}
+X
+X		/* Currently adding distributions */
+X		if (object == 2)
+X			{
+X			if (pos = strchr (buf, ':'))		/* Flags next */
+X				{
+X				*pos++ = '\0';
+X				nn_distributions = stradd (nn_distributions, buf);
+X				(void) strcpy (buf, pos);
+X				object = 3;
+X				}
+X			else								/* Nothing else this line */
+X				nn_distributions = stradd (nn_distributions, buf);
+X			}
+X
+X		/* Currently setting flags */
+X		if (object == 3)
+X			{
+X			if (pos = strchr (buf, ':'))		/* authinfo user next */
+X				*pos++ = '\0';
+X			if (strchr (buf, 'i'))
+X				no_id_load_flag++;
+X			if (strchr (buf, 'l'))
+X				local_time_flag++;
+X			if (strchr (buf, 'r'))
+X				mode_reader_flag++;
+X			if (pos)
+X				{
+X				(void) strcpy (buf, pos);
+X				object = 4;
+X				}
+X			}
+X
+X		/* Currently setting username */
+X		if (object == 4)
+X			{
+X			if (pos = strchr (buf, '/'))		/* authinfo pass next */
+X				{
+X				*pos++ = '\0';
+X				ai_username = stradd (ai_username, buf);
+X				(void) strcpy (buf, pos);
+X				object = 5;
+X				}
+X			else
+X				{
+X				ai_username = stradd (ai_username, buf);
+X				break;
+X				}
+X			}
+X
+X		/* Currently setting password */
+X		if (object == 5)
+X			{
+X			ai_password = stradd (ai_password, buf);
+X			}
+X
+X		if (status != 1)
+X			break;
+X
+X		status = read_sys_line (buf, sizeof (buf), sysfp);
+X		}
+X
+X	(void) fclose (sysfp);
+X
+X	if (nn_distributions == NULL)
+X		nn_distributions = "";
+X
+X	return (0);
+X	}
+X
+X
+X/*
+X * get_ntime - Get the start time for this NEWNEWS for system. Returns 0
+X * if an appropriate entry for the current host is found, otherwise 1.
+X */
+X
+X	static int
+Xget_ntime ()
+X	{
+X	FILE *timefp;
+X	char buf [BUFSIZ];
+X	char filename [PATH_MAX];
+X	char *pos;
+X
+X	/* Attempt to open the time file */
+X	(void) strcpy (filename, TIMFILE);
+X	if (timefile == NULL)
+X		(void) strcat (filename, hostname);
+X	else
+X		(void) strcat (filename, timefile);
+X	if (sublist)
+X		{
+X		(void) strcat (filename, ".");
+X		(void) strcat (filename, sublist);
+X		}
+X	if ((timefp = fopen (filename, "r")) == NULL)
+X		log_sys ("get_ntime: error opening %s", filename);
+X
+X	/* Read in the time and store it */
+X	if ((nn_time = (char *) malloc ((size_t) 14)) == NULL)
+X		log_sys ("get_ntime: malloc 14 bytes");
+X	(void) fgets (nn_time, (size_t) 14, timefp);
+X	if (ferror (timefp))
+X		log_sys ("get_ntime: Error reading %s", filename);
+X	
+X	/* Return if time doesn't look ok */
+X	if (test_time ())
+X		return (1);
+X
+X	/* Load in any message ids following */
+X	if (!no_id_load_flag)
+X		{
+X		if (debug_flag)
+X			(void) fprintf (stderr, "Loading any unretrieved message IDs\n");
+X		for (;;)
+X			{
+X			(void) fgets (buf, sizeof (buf), timefp);
+X			if (feof (timefp))
+X				break;
+X			if (ferror (timefp))
+X				log_sys ("get_ntime: Error reading %s", filename);
+X			if (pos = strchr (buf, '\n'))
+X				*pos = '\0';
+X			if (strlen (buf))
+X				if ((buf [0] == '<') && (buf [strlen (buf) - 1] == '>'))
+X					process_id (buf);
+X			}
+X		}
+X
+X	(void) fclose (timefp);
+X	return (0);
+X	}
+X
+X
+X/*
+X * write_tree - Traverse the tree writing out ids of articles that were
+X * not successfully retrieved.
+X */
+X
+X	static void
+Xwrite_tree (struct mnode *p, FILE *timefp)
+X	{
+X	if (p != NULL)	
+X    	{
+X		write_tree (p->left, timefp);
+X		if (!p->used)
+X			{
+X			(void) fprintf (timefp, "%s\n", p->msgid);
+X			if (ferror (timefp))
+X				log_sys ("write_tree: Error writing ids");
+X			}
+X		write_tree (p->right, timefp);
+X    	}
+X	}
+X
+X
+X/*
+X * set_ntime - Set the start time for the next NEWNEWS for system
+X */
+X
+X	void
+Xset_ntime ()
+X	{
+X	FILE *timefp;
+X	char filename [PATH_MAX];
+X	char backup [PATH_MAX];
+X
+X	/* Copy the file to a backup */
+X	(void) strcpy (filename, TIMFILE);
+X	if (timefile == NULL)
+X		(void) strcat (filename, hostname);
+X	else
+X		(void) strcat (filename, timefile);
+X	if (sublist)
+X		{
+X		(void) strcat (filename, ".");
+X		(void) strcat (filename, sublist);
+X		}
+X	(void) strcpy (backup, filename);
+X	(void) strcat (backup, ".o");
+X	if (unlink (backup))
+X		if (errno != ENOENT)
+X			log_ret ("set_ntime: Error unlinking %s", backup);
+X	if (rename (filename, backup))
+X		if (errno != ENOENT)
+X			log_ret ("set_ntime: Error renaming %s to %s", filename, backup);
+X
+X	/* Open new file */
+X	if ((timefp = fopen (filename, "w")) == NULL)
+X		{
+X		log_ret ("get_ntime: Error opening %s", filename);
+X		exit (1);
+X		}
+X
+X	/* Write the new time for current host */
+X	(void) fprintf (timefp, "%06ld %06ld\n", newdate, newtime);
+X	if (ferror (timefp))
+X		{
+X		log_ret ("set_ntime: Error writing %s", filename);
+X		exit (1);
+X		}
+X
+X	/* Write out any message ids not read in */
+X	write_tree (root, timefp);
+X
+X	(void) fclose (timefp);
+X	}
+X
+X
+X/*
+X * do_authinfo - Check in the authinfo username and password with the
+X * server.
+X */
+X
+X	static void
+Xdo_authinfo ()
+X	{
+X	char buf [NNTP_STRLEN];
+X
+X	/* Send the username to the server */
+X	(void) sprintf (buf, "AUTHINFO USER %s", ai_username);
+X	if (debug_flag)
+X		(void) fprintf (stderr, "<- %s\n", buf);
+X	put_server (buf);
+X
+X	/* Get the response and check it's okay */
+X	get_server (buf, sizeof (buf));
+X	if (debug_flag)
+X		(void) fprintf (stderr, "-> %s\n", buf);
+X	if (atoi (buf) != NEED_AUTHDATA)
+X		{
+X		log_msg ("do_authinfo: NNTP protocol error: got '%s'", buf);
+X		exit (4);
+X		}
+X	                
+X	/* Send the password to the server */
+X	(void) sprintf (buf, "AUTHINFO PASS %s", ai_password);
+X	if (debug_flag)
+X		(void) fprintf (stderr, "<- %s\n", buf);
+X	put_server (buf);
+X
+X	/* Get the response and check it's okay */
+X	get_server (buf, sizeof (buf));
+X	if (debug_flag)
+X		(void) fprintf (stderr, "-> %s\n", buf);
+X	if (atoi (buf) != OK_AUTH)
+X		{
+X		log_msg ("do_authinfo: NNTP protocol error: got '%s'", buf);
+X		exit (4);
+X		}
+X	}
+X
+X
+X/*
+X * do_mode_reader - Send mode reader command to INN to switch to nnrpd
+X * so we can do a NEWNEWS.
+X */
+X
+X	static void
+Xdo_mode_reader ()
+X	{
+X	char buf [NNTP_STRLEN];
+X
+X	/* Send the command to the server */
+X	if (debug_flag)
+X		(void) fprintf (stderr, "<- MODE reader\n");
+X	put_server ("MODE READER");
+X
+X	/* Get the response and check it's okay */
+X	get_server (buf, sizeof (buf));
+X	if (debug_flag)
+X		(void) fprintf (stderr, "-> %s\n", buf);
+X	switch (atoi (buf))
+X		{
+X		case OK_CANPOST :
+X		case OK_NOPOST :
+X			break;
+X		default :
+X			log_msg ("do_authinfo: NNTP protocol error: got '%s'", buf);
+X			exit (4);
+X		}
+X	}
+X
+X
+X/*
+X * interrupt - signal handler to report signal in log and possibly
+X * submit remaining batch to news and dump uncollected message ids.
+X */
+X
+X	static void
+Xinterrupt (int signo)
+X	{
+X	log_msg ("interrupt: received signal %d", signo);
+X
+X	enqueue_batch ();
+X	if ((!no_time_flag) && (!no_id_load_flag))
+X		set_ntime ();
+X	exit (1);
+X	}
+X
+X
+X/*
+X * set_signals - set up signal handler to catch appropriate signals.
+X */
+X
+X	static void
+Xset_signals ()
+X	{
+X	if (signal (SIGHUP, interrupt) == SIG_ERR)
+X		log_sys ("set_signals: can't catch SIGHUP");
+X	if (signal (SIGINT, interrupt) == SIG_ERR)
+X		log_sys ("set_signals: can't catch SIGINT");
+X	if (signal (SIGQUIT, interrupt) == SIG_ERR)
+X		log_sys ("set_signals: can't catch SIGQUIT");
+X	if (signal (SIGTERM, interrupt) == SIG_ERR)
+X		log_sys ("set_signals: can't catch SIGTERM");
+X	}
+X
+X
+X/*
+X * MAIN PROCEDURE
+X */
+X
+X	int
+Xmain (int argc, char **argv)
+X	{
+X    int ret;
+X	time_t clock, starttime, endtime;
+X	struct tm *now;
+X
+X	/* Set the name of the program and parse the args */
+X	pname = (pname = (char *) strrchr (argv [0], '/')) ? pname + 1 : argv [0];
+X	if (parse_args (argc, argv))
+X		{
+X		(void) fprintf (stderr, "Usage: %s [-g newsgroups/distribution] [-t time] [-a username/password]\n", pname);
+X		(void) fprintf (stderr, "       [-d] [-i] [-l] [-r] [-w] server[/sublist][:timefile]\n");
+X		exit (2);
+X		}
+X
+X	/* Open syslog if required with appropriate BSD 4.2/4.3 call */
+X#ifdef SYSLOG
+X#ifdef LOG_AUTH
+X	openlog(pname, LOG_PID, SYSLOG);
+X#else
+X	openlog(pname, LOG_PID);
+X#endif
+X#endif
+X
+X	/* If groups not supplied in args, then get from slurp.sys file */
+X	if (nn_newsgroups == NULL)
+X		if (read_sys ())
+X			exit (2);
+X
+X	/* If start time not supplied in args, then get from slurp.tim file */
+X	if (nn_time == NULL)
+X		if (get_ntime ())
+X			exit (2);
+X
+X	if (debug_flag)
+X		{
+X		(void) fprintf (stderr, "server: %s\n", hostname);
+X		(void) fprintf (stderr, "time: %s\n", nn_time);
+X		(void) fprintf (stderr, "newsgroups: '%s'\n", nn_newsgroups);
+X		(void) fprintf (stderr, "distributions: '%s'\n", nn_distributions);
+X		}
+X
+X	/* Unless don't write flag set, get time for next NEWNEWS */
+X	if (!no_time_flag)
+X		{
+X		if (local_time_flag)
+X			clock = time ((time_t *) 0);
+X		else
+X			if ((clock = server_time (hostname)) == 0)
+X				exit (3);
+X
+X		now = gmtime (&clock);
+X		newdate = (now->tm_year * 10000) +
+X				 ((now->tm_mon + 1) * 100) +
+X				   now->tm_mday;
+X		newtime = (now->tm_hour * 10000) +
+X				  (now->tm_min * 100) +
+X				   now->tm_sec;
+X		}
+X
+X	/* Open the history file */
+X	if (open_history ())
+X		log_sys ("Can't open history file %s", HISTORY_FILE);
+X
+X#ifndef RNEWS
+X	/* Change to the incoming batch directory */
+X	if (chdir (INDIR))
+X		log_sys ("Can't change directory to %s", INDIR);
+X#endif
+X
+X	/* Set up the connection to the server */
+X	switch (ret = server_init (hostname))
+X		{
+X		case -1 :
+X			exit (3);
+X		case OK_CANPOST :
+X		case OK_NOPOST :
+X			break;
+X		default :
+X			log_msg ("Can't talk to %s: got response code %d", hostname, ret);
+X			exit (4);
+X		}
+X
+X	/* If authinfo details supplied, then use 'em */
+X	if (ai_username)
+X		do_authinfo ();
+X
+X	/* Switch INN to nnrpd instead of innd if needed */
+X	if (mode_reader_flag)
+X		do_mode_reader ();
+X
+X	/* Get a list of the new articles */
+X	get_ids ();
+X
+X	/* Now get the actual articles */
+X	starttime = time ((time_t *) 0);
+X	if (entries > 0)
+X		{
+X		set_signals ();
+X		get_articles ();
+X		}
+X	endtime = time ((time_t *) 0);
+X
+X	/* Time to say goodbye */
+X	close_server ();
+X	close_history ();
+X
+X	/* Submit the remaining batch, if present */
+X	enqueue_batch ();
+X
+X	/* do we want to update the timestamp file? */
+X	if (!no_time_flag)
+X		set_ntime ();
+X
+X#ifdef SYSLOG
+X	if (!debug_flag)
+X		syslog (LOG_INFO,"Processed %d new, %d duplicate, %d missing articles",
+X				newart, dupart, misart);
+X	else
+X#endif
+X		(void) fprintf (stderr, "Processed %d new, %d duplicate, %d missing articles\n",
+X						newart, dupart, misart);
+X
+X#ifdef SPEEDSTATS
+X  #ifdef SYSLOG
+X	if (!debug_flag)
+X		syslog (LOG_INFO, "Average transfer speed %ld cps",
+X				totalsize / (starttime == endtime ? 1 : endtime - starttime));
+X	else
+X  #endif
+X		(void) fprintf (stderr, "Average transfer speed %ld cps\n",
+X				totalsize / (starttime == endtime ? 1 : endtime - starttime));
+X#endif
+X
+X	exit (0);
+X	}
+X
+X/* END-OF-FILE */
+END_OF_FILE
+  if test 18680 -ne `wc -c <'slurp.c'`; then
+    echo shar: \"'slurp.c'\" unpacked with wrong size!
+  fi
+  # end of 'slurp.c'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

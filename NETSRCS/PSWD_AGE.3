@@ -1,0 +1,1312 @@
+From gww@beatnix.UUCP Sat Mar 12 19:01:59 1988
+Path: uunet!lll-winken!lll-tis!elxsi!beatnix!gww
+From: gww@beatnix.UUCP (Gary Winiger)
+Newsgroups: alt.sources
+Subject: Password aging package for 4.3BSD  Part 3 of 3.
+Message-ID: <745@elxsi.UUCP>
+Date: 13 Mar 88 00:01:59 GMT
+Sender: nobody@elxsi.UUCP
+Reply-To: gww@beatnix.UUCP (Gary Winiger)
+Organization: ELXSI Super Computers, San Jose
+Lines: 1297
+
+
+#	This is a shell archive.
+#	Remove everything above and including the cut line.
+#	Then run the rest of the file through sh.
+-----cut here-----cut here-----cut here-----cut here-----
+#!/bin/sh
+# shar:	Shell Archiver
+#	Run the following text with /bin/sh to create:
+#	mkshadow.c
+#	pwadm.c
+# This archive created: Sat Mar 12 14:58:23 1988
+echo shar: extracting mkshadow.c '(6629 characters)'
+sed 's/^XX//' << \SHAR_EOF > mkshadow.c
+XX/*
+XX * $Log:	mkshadow.c,v $
+XX * Revision 1.1  87/12/24  12:21:31  gww
+XX * Initial revision
+XX * 
+XX */
+XX
+XX/*	mkshadow - Make a shadow password file from a password file.
+XX *
+XX *		G.Winiger	ELXSI	87/12/25.
+XX *
+XX *	Copyright (c) 1987 by ELXSI.
+XX *
+XX *	This software was written by Gary Winiger at ELXSI. It may be
+XX *	distributed within the following restrictions:
+XX *		(1) It may not be sold at a profit.
+XX *		(2) This credit and Copyright notice must remain intact.
+XX *	This software may be distributed with other software by a commercial
+XX *	vendor, provided that it is included at no additional charge.
+XX *
+XX *	Please report bugs to "...!{sun,uunet}!elxsi!gww".
+XX *
+XX */
+XX
+XX/*
+XX *		Mkshadow will take a normal BSD password file and create a
+XX *	shadow password file from it.  The user passwords are removed from
+XX *	/etc/passwd and placed in the shadow password file.  The shadow
+XX *	password file is read only by root.
+XX *		This program is meant to be used once when setting up the
+XX *	shadow password file.  A guard is made against subsequent use which
+XX *	would destroy the password information in the shadow password file.
+XX *
+XX *	Entry	/etc/passwd = Normal BSD password file.
+XX *
+XX *	Exit	1 = Unsuccessful.
+XX *		0 = Successful and:
+XX *		/etc/passwd = Password file sorted by uid and username with
+XX *			      password removed.
+XX *		SHADOWPW = Shadow password file sorted by uid and username
+XX *			   with the passwords extracted from /etc/passwd and
+XX *			   the GECOS field formated for different password 
+XX *			   criteria and password aging.
+XX *
+XX *	Messages
+XX *		"A shadow password file already exists, remaking will destroy
+XX *		 existing passwords"
+XX *		"Mkshadow aborted" = A shadow password file already exists,
+XX *				     if mkshadow were to run, it would loose
+XX *				     the existing passwords.
+XX */
+XX
+XX#ifndef	lint
+XXstatic char *ERcsId = "$Header: mkshadow.c,v 1.1 87/12/24 12:21:31 gww Exp $ ENIX BSD";
+XX#endif	lint
+XX
+XX#include <sys/types.h>
+XX#include <sys/stat.h>
+XX#include <sys/file.h>
+XX
+XX#include <stdio.h>
+XX#include <errno.h>
+XX#include <signal.h>
+XX#include <pwd.h>
+XX
+XXchar	*passwd = "/etc/passwd";
+XXchar	*passwd_pag = "/etc/passwd.pag";
+XXchar	*passwd_dir = "/etc/passwd.dir";
+XXchar	*temp = "/etc/ptmp";
+XXchar	*temp_pag = "/etc/ptmp.pag";
+XXchar	*temp_dir = "/etc/ptmp.dir";
+XXchar	*shadow = SHADOWPW;
+XXchar	*shadow_pag = SHADOWPW_PAG;
+XXchar	*shadow_dir = SHADOWPW_DIR;
+XXchar	*stemp = "/etc/sptmp";
+XXchar	*stemp_pag = "/etc/sptmp.pag";
+XXchar	*stemp_dir = "/etc/sptmp.dir";
+XXchar	*temps = "/etc/ptmps";
+XXchar	sort[80];	/* command line to sort password files into uid order */
+XX
+XXFILE 	*ft, *sft;  /* passwd temp, shadow temp */
+XX
+XXextern	int errno;
+XX
+XXmain ()
+XX{
+XX
+XX	struct	passwd *pwd;
+XX
+XX	if (access(SHADOWPW, F_OK) == 0) {
+XX		fprintf(stderr, "%s%s%s",
+XX			"\nA shadow password file already exists, ",
+XX			"remaking will destroy existing passwords\n",
+XX			"Mkshadow aborted\n");
+XX		exit(1);
+XX	}
+XX
+XX	if (mk_tmp(temp, stemp) != 0)
+XX		goto abort;
+XX
+XX	/* copy passwd to temp files modifying desired fields */
+XX
+XX	setpwfile(passwd);
+XX	while ((pwd = getpwent()) != NULL) {
+XX		fprintf(ft, "%s:***:%d:%d:%s:%s:%s\n",
+XX			pwd->pw_name,
+XX			pwd->pw_uid,
+XX			pwd->pw_gid,
+XX			pwd->pw_gecos,
+XX			pwd->pw_dir,
+XX			pwd->pw_shell);
+XX
+XX		fprintf(sft, "%s:%s:%d:%d:%d,0,0,0,*******:%s:%s\n",
+XX			pwd->pw_name,
+XX			pwd->pw_passwd,
+XX			pwd->pw_uid,
+XX			pwd->pw_gid,
+XX			BSD_CRIT,
+XX			pwd->pw_dir,
+XX			pwd->pw_shell);
+XX
+XX	}
+XX	fclose(ft);
+XX	fclose(sft);
+XX
+XX	/* sort password files into uid order */
+XX
+XX	sprintf(sort, "sort -t: +2n -3 +0 -1 %s > %s", temp, temps);
+XX	system(sort);
+XX	if (rename(temps, temp) < 0) {
+XX		fprintf(stderr, "mkshadow: "), perror(temps);
+XX		unlink(temps);
+XX		goto abort;
+XX	}
+XX	sprintf(sort, "sort -t: +2n -3 +0 -1 %s > %s", stemp, temps);
+XX	system(sort);
+XX	if (rename(temps, stemp) < 0) {
+XX		fprintf(stderr, "mkshadow: "), perror(temps);
+XX		unlink(temps);
+XX		goto abort;
+XX	}
+XX
+XX	/* make hash files and rename temp files */
+XX
+XX	if (make_db(temp) < 0)
+XX		fprintf(stderr, "mkshadow: mkpasswd failed\n");
+XX	else if (make_db(stemp) < 0)
+XX		fprintf(stderr, "mkshadow: smkpasswd failed\n");
+XX	else if (rename(temp_pag, passwd_pag) < 0)
+XX		fprintf(stderr, "mkshadow: "), perror(temp_pag);
+XX	else if (rename(stemp_pag, shadow_pag) < 0)
+XX		fprintf(stderr, "mkshadow: "), perror(stemp_pag);
+XX	else if (rename(temp_dir, passwd_dir) < 0)
+XX		fprintf(stderr, "mkshadow: "), perror(temp_dir);
+XX	else if (rename(stemp_dir, shadow_dir) < 0)
+XX		fprintf(stderr, "mkshadow: "), perror(stemp_dir);
+XX	else if (rename(temp, passwd) < 0)
+XX		fprintf(stderr, "mkshadow: "), perror("rename");
+XX	else if (rename(stemp, shadow) < 0)
+XX		fprintf(stderr, "mkshadow: "), perror("shadow rename");
+XX	else  {
+XX		chmod(passwd_pag, 0644);
+XX		chmod(passwd_dir, 0644);
+XX		chmod(passwd, 0644);
+XX		chmod(shadow_pag, 0600);
+XX		chmod(shadow_dir, 0600);
+XX		chmod(shadow, 0600);
+XX		
+XX		exit(0);
+XX	}
+XX
+XX	/* unsuccessful password file change */
+XX
+XXabort:
+XX	unlink(stemp_pag);
+XX	unlink(stemp_dir);
+XX	unlink(stemp);
+XX	unlink(temp_pag);
+XX	unlink(temp_dir);
+XX	unlink(temp);
+XX	exit(1);
+XX
+XX}
+XX
+XX/*	mk_tmp - Make temporary files for password file.
+XX *
+XX *	Entry	temp = Name of passwd temporary file to be created.
+XX *		stemp = Name of shadow temporary file to be created.
+XX *
+XX *	Exit	0 = ft and sft created as passwd and shadow temp files.
+XX *		-1 = Error, message displayed.
+XX *		To exit(1), if unable to lock temp file.  Message
+XX *			displayed.
+XX *	
+XX *	Uses	ft, sft.
+XX *
+XX *	Calls	exit, fclose, fdopen, fgets, fprintf, fputs, open.
+XX *
+XX */
+XX
+XXstatic
+XXmk_tmp(temp, stemp)
+XXchar	*temp,		/* name of passwd temp file */
+XX	*stemp;		/* name of shadow temp file */
+XX
+XX{
+XX
+XX	int fd;
+XX
+XX	if ((fd = open(temp, O_WRONLY|O_CREAT|O_EXCL, 0644)) < 0) {
+XX		if (errno == EEXIST) {
+XX			fprintf(stderr, "mkshadow: password file busy\n");
+XX		} else {
+XX			fprintf(stderr, "mkshadow: "); perror(temp);
+XX		}
+XX		exit(1);
+XX	}
+XX	if ((ft = fdopen(fd, "w")) == NULL) {
+XX		fprintf(stderr, "mkshadow: "); perror(temp);
+XX		return(-1);
+XX	}
+XX	if ((fd = open(stemp, O_WRONLY|O_CREAT|O_EXCL, 0644)) < 0) {
+XX		if (errno == EEXIST) {
+XX			fprintf(stderr, "mkshadow: shadow file busy\n");
+XX		} else {
+XX			fprintf(stderr, "mkshadow: "); perror(stemp);
+XX		}
+XX		return(-1);
+XX	}
+XX	if ((sft = fdopen(fd, "w")) == NULL) {
+XX		fprintf(stderr, "mkshadow: "); perror(stemp);
+XX		return(-1);
+XX	}
+XX
+XX	return(0);
+XX}
+XX
+XX/*	make_db - Make the ndbm data base files for a password file.
+XX *
+XX *	Entry	file = File to be turned into an ndbm data base.
+XX *
+XX *	Exit	0, If successful.
+XX *		!=0, If failure.
+XX *
+XX *	Uses	None.
+XX *
+XX *	Calls	/etc/mkpasswd, execl, _exit, fork, wait.
+XX */
+XX
+XXstatic
+XXmake_db(file)
+XXchar *file;
+XX
+XX{
+XX	int status, pid, w;
+XX
+XX	if ((pid = vfork()) == 0) {
+XX		execl("/etc/mkpasswd", "mkpasswd", file, 0);
+XX		_exit(127);
+XX	}
+XX	while ((w = wait(&status)) != pid && w != -1)
+XX		continue;
+XX	if (w == -1 || status != 0)
+XX		status = -1;
+XX	return(status);
+XX}
+SHAR_EOF
+if test 6629 -ne "`wc -c mkshadow.c`"
+then
+echo shar: error transmitting mkshadow.c '(should have been 6629 characters)'
+fi
+echo shar: extracting pwadm.c '(21694 characters)'
+sed 's/^XX//' << \SHAR_EOF > pwadm.c
+XX/*
+XX * $Log:	pwadm.c,v $
+XX * Revision 1.2  88/01/13  16:46:50  gww
+XX * Ignore exempt users in multi user range, only query if single user range.
+XX * 
+XX * Revision 1.1  87/12/24  12:21:34  gww
+XX * Initial revision
+XX * 
+XX */
+XX
+XX/*	pwadm - Administer the shadow password file.
+XX *
+XX *		G.Winiger	ELXSI	87/12/25.
+XX *
+XX *	Copyright (c) 1987 by ELXSI.
+XX *
+XX *	This software was written by Gary Winiger at ELXSI. It may be
+XX *	distributed within the following restrictions:
+XX *		(1) It may not be sold at a profit.
+XX *		(2) This credit and Copyright notice must remain intact.
+XX *	This software may be distributed with other software by a commercial
+XX *	vendor, provided that it is included at no additional charge.
+XX *
+XX *	Please report bugs to "...!{sun,uunet}!elxsi!gww".
+XX *
+XX */
+XX
+XX/*		Pwadm allows a system administrator to list or modify the
+XX *	contents of the shadow password file.  It operates on the specified
+XX *	user range (the default is all users, except those listed in the exempt
+XX *	file, EXEMPTPW - /etc/exemptpw, if no exempt file exists, ``root'' and
+XX *	``uucp'' are declared exempt) providing an interface to the password
+XX *	criteria that are maintained in the GECOS field of the shadow password
+XX *	file.  The available commands are:
+XX *
+XX *		-c	 	Clear the password aging history.
+XX *		-l		List shadow password file contents.
+XX *		-r		Reset the last password changed time to 
+XX *				force a change at next login.
+XX *		-s		Set (enable) password aging.
+XX *		-p days		Define the aging period to be ``days'' days.
+XX *		-t criteria	Define the valid password criteria to be of
+XX *				``criteria'' type (b=BSD_CRIT, s=SRT_CRIT).
+XX *
+XX *	Only one of -c, -l, -r, or -s may be specified at a time.  An aging
+XX *	period of zero (0) days disables password aging.  The default aging
+XX *	period is 90 days for the -s (Set) command, for all other commands it
+XX *	is the aging period currently specified.  The password criteria will
+XX *	only be changed if the -t command is used, the default is the normal
+XX *	BSD criteria.
+XX *
+XX *	The user range to be acted on may be specified as a single user or 
+XX *	user1-user2.  Where user is either a ``uid'' or ``user name''.  If
+XX *	more than one user has the same ``uid'', and ``uid'' is specified,
+XX *	all users with that ``uid'' will be effected.
+XX *
+XX *	Entry	SHADOWPW = Shadow password file.
+XX *
+XX *	Exit	SHADOWPW = Updated.
+XX */
+XX
+XX#ifndef	lint
+XXstatic char *ERcsId = "$Header: pwadm.c,v 1.2 88/01/13 16:46:50 gww Exp $ ENIX BSD";
+XX#endif	lint
+XX
+XX#include <sys/types.h>
+XX#include <sys/file.h>
+XX#include <pwd.h>
+XX#include <errno.h>
+XX#include <setjmp.h>
+XX#include <signal.h>
+XX#include <stdio.h>
+XX#include <strings.h>
+XX
+XXchar	*temp = "/etc/ptmp";
+XXchar	*shadow = SHADOWPW;
+XXchar	*shadow_pag = SHADOWPW_PAG;
+XXchar	*shadow_dir = SHADOWPW_DIR;
+XXchar	*stemp = "/etc/sptmp";
+XXchar	*stemp_pag = "/etc/sptmp.pag";
+XXchar	*stemp_dir = "/etc/sptmp.dir";
+XX
+XXFILE 	*ft, *sft;  /* passwd temp, shadow temp */
+XX
+XX#define	LINELEN  80
+XX
+XXint	minuid;			/* minimum uid to act on */
+XXchar	minname[LINELEN];	/* minimum user name to act on */
+XXint	maxuid;			/* maximum uid to act on */
+XXchar	maxname[LINELEN];	/* maximum user name to act on */
+XXint	range_type;		/* type of action range         */
+XX				/* 0, all password file entries */
+XX				/* 1, minuid only               */
+XX 				/* 2, minname only              */
+XX 				/* 3, minuid through maxuid     */
+XX 				/* 4, minname through maxuid    */
+XX 				/* 5, minuid through maxname    */
+XX 				/* 6, minname through maxname   */
+XXint	maxname_found;		/* 0, max name not found for this user range */
+XXint	minname_found; 		/* 0, min name not found for this user range */
+XXjmp_buf	sigret;			/* return from caught signal */
+XX
+XXextern	int errno;
+XX
+XX#define CLEARSFT 0
+XX#define	CLEARFLG 1<<CLEARSFT
+XX#define CRITSFT  1
+XX#define CRITFLG  1<<CRITSFT
+XX#define RESETSFT 2
+XX#define	RESETFLG 1<<RESETSFT
+XX#define SETSFT   3
+XX#define SETFLG   1<<SETSFT
+XX#define LIMSFT   4
+XX#define LIMFLG   1<<LIMSFT
+XX#define	FLGMASK  CLEARFLG||CRITFLG||RESETFLG||SETFLG
+XX
+XXmain(argc,argv)
+XXint	argc;
+XXchar	**argv;
+XX
+XX{
+XX
+XXint	i;			/* loop index */
+XXint	actionflg = 0;		/* action to take on aging entries */
+XXint	listflg	  = 0;		/* list aging entries */
+XXint	criteria  = BSD_CRIT;	/* type of password criteria */
+XXlong	period	  = 90*24*60*60;/* default aging period, 90 days */
+XXstruct	passwd *pwd;		/* a shadow password file entry */
+XXchar	*exempt[MAX_EXEMPT+1];	/* exempt user names */
+XXint	exempt_lim;		/* number of entries in exempt[] */
+XX
+XXint	catch();
+XX
+XX	/* Parse switches */
+XX
+XX	argc--; argv++;
+XX
+XX	while (argc && argv[0][0] == '-' ) {
+XX
+XX		switch (argv[0][1]) {
+XX
+XX		case 'c':
+XX			actionflg |= CLEARFLG;
+XX			break;
+XX
+XX		case 'l':
+XX			listflg = 1;
+XX			break;
+XX
+XX		case 'p':
+XX			argc--;
+XX			if ((argc < 1) || (period = atol(*++argv)) < 0) {
+XX				fprintf(stderr, "Bad aging period %s.\n",
+XX						*argv);
+XX				exit(1);
+XX			}
+XX			period *= 24*60*60;	/* days to seconds */
+XX			actionflg |= LIMFLG;
+XX			break;
+XX
+XX		case 'r':
+XX			actionflg |= RESETFLG;
+XX			break;
+XX
+XX		case 's':
+XX			actionflg |= SETFLG;
+XX			break;
+XX
+XX		case 't':
+XX			actionflg |= CRITFLG;
+XX			argc--;
+XX			if (argc < 1)
+XX				goto bad_crit;
+XX			argv++;
+XX			switch (argv[0][0]) {
+XX
+XX			case 'b':
+XX				criteria = BSD_CRIT;
+XX				break;
+XX
+XX			case 's':
+XX				criteria = STR_CRIT;
+XX				break;
+XX
+XX			default:
+XXbad_crit:			fprintf(stderr, "Bad password criteria %s.\n",
+XX						*argv);
+XX				exit(1);
+XX			}
+XX			break;
+XX
+XX		default:
+XX			fprintf(stderr, "Unrecognized switch %s.\n", *argv);
+XX			exit(1);
+XX		}
+XX		argc--; argv++;
+XX	}
+XX
+XX	if (!actionflg && !listflg) {
+XX		fprintf(stderr,
+XX			"Usage: pwadm [-c | -l | -r | -s] [-p days] [-t criteria] [user[-user] ...]\n");
+XX		exit(1);
+XX	}
+XX	if (((actionflg&CLEARFLG)>>CLEARSFT) +
+XX	    ((actionflg&RESETFLG)>>RESETSFT) +
+XX	    ((actionflg&SETFLG)>>SETSFT)     +
+XX	    listflg > 1) {
+XX		fprintf(stderr, "Conflicting actions requested.\n");
+XX		exit(1);
+XX	}
+XX
+XX	if (access(shadow, F_OK) != 0) {
+XX		fprintf(stderr, "No shadow password file exists.\n");
+XX		exit(1);
+XX	}
+XX	setpwfile(shadow);
+XX
+XX	get_exempt(exempt, &exempt_lim);  /* get list of exempt user names */
+XX
+XX	/* Catch all signals so we can unlock the lock files. */
+XX
+XX	for (i = 1; i < NSIG; i++)
+XX		if (!(i == SIGTSTP || i == SIGCONT || i == SIGCHLD))
+XX			signal(i, catch);
+XX	
+XX	if (setjmp(sigret))
+XX		unlink_files(1);
+XX
+XX	/* May modify shadow password file, lock passwd and shadow */
+XX
+XX	mk_tmp(temp, stemp);
+XX
+XX    do {
+XX	get_user_range(argc, argv);
+XX
+XX	argc--; argv++;
+XX
+XX	/* Check validity of range */
+XX
+XX	switch (range_type) {
+XX
+XX	case 0:
+XX	case 1:
+XX	case 2:
+XX		break;
+XX
+XX	case 3:
+XX		if (minuid > maxuid) {
+XX			int t;
+XX
+XX			fprintf(stderr,
+XX				"End of range less than beginning, range reversed.\n");
+XX			t = minuid;
+XX			minuid = maxuid;
+XX			maxuid = t;
+XX		}
+XX		break;
+XX
+XX	case 4:
+XX		pwd = getpwnam(minname);
+XX		if (pwd->pw_uid > maxuid) {
+XX			fprintf(stderr,
+XX				"End of range less than beginning, range reversed.\n");
+XX			range_type = 5;
+XX			minuid = maxuid;
+XX			strcpy(maxname, minname);
+XX		}
+XX		break;
+XX
+XX	case 5:
+XX		pwd = getpwnam(maxname);
+XX		if (minuid > pwd->pw_uid) {
+XX			fprintf(stderr,
+XX				"End of range less than beginning, range reversed.\n");
+XX			range_type = 4;
+XX			maxuid = minuid;
+XX			strcpy(minname, maxname);
+XX		}
+XX		break;
+XX	case 6:
+XX		{ char t[sizeof(minname)];
+XX			pwd = getpwnam(minname);
+XX			minuid = pwd->pw_uid;
+XX			pwd = getpwnam(maxname);
+XX			if (minuid > pwd->pw_uid) {
+XX				fprintf(stderr,
+XX					"End of range less than beginning, range reversed.\n");
+XX				strcpy(t, minname);
+XX				strcpy(minname, maxname);
+XX				strcpy(maxname, t);
+XX			}
+XX		}
+XX		break;
+XX	}
+XX
+XX	if (listflg) {		/* Just list the current aging information. */
+XX		list_aging();
+XX		continue;
+XX	}
+XX
+XX	if (period == 0) {
+XX		char line[LINELEN];
+XX
+XX		switch (range_type) {
+XX
+XX		case 0:
+XX			sprintf(line, "all users");
+XX			break;
+XX		case 1:
+XX			sprintf(line, "userid %d", minuid);
+XX			break;
+XX		case 2:
+XX			sprintf(line, "user %s", minname);
+XX			break;
+XX		case 3:
+XX			sprintf(line, "userid %d through userid %d", minuid,
+XX					maxuid);
+XX			break;
+XX		case 4:
+XX			sprintf(line, "user %s through userid %d", minname,
+XX					maxuid);
+XX			break;
+XX		case 5:
+XX			sprintf(line, "userid %d through user %s", minuid, 
+XX					maxname);
+XX			break;
+XX		case 6:
+XX			sprintf(line, "user %s through user %s", minname,
+XX					maxname);
+XX			break;
+XX		}
+XX		fprintf(stderr,
+XX			"An aging period of zero (0) days is requested.\n");
+XX		fprintf(stderr,
+XX			"This will disable password aging for %s.\n",
+XX			line);
+XX		fprintf(stderr, "Do it anyway [yn] (n) ");
+XX
+XX		fgets(line, LINELEN, stdin);
+XX
+XX		switch(line[0]) {
+XX
+XX		case 'y':
+XX		case 'Y':
+XX			break;
+XX		default:
+XX			unlink_files(1);
+XX		}
+XX	}
+XX
+XX	/* Copy shadow password to stemp while updating entries */
+XX
+XX	while ((pwd = getpwent()) != NULL) {
+XX		if (check_action(pwd)) {
+XX			switch (check_exempt(pwd, exempt, exempt_lim)) {
+XX
+XX			case 0:
+XX				change_aging(&pwd->pw_gecos, criteria, period,
+XX					     actionflg);
+XX				break;
+XX
+XX			case 1:
+XX				if (yesno(pwd, actionflg))
+XX					change_aging(&pwd->pw_gecos, criteria,
+XX						     period, actionflg);
+XX				break;
+XX
+XX			case 2:
+XX			default:
+XX				break;
+XX			}
+XX		}
+XX
+XX		fprintf(sft, "%s:%s:%d:%d:%s:%s:%s\n",
+XX			pwd->pw_name,
+XX			pwd->pw_passwd,
+XX			pwd->pw_uid,
+XX			pwd->pw_gid,
+XX			pwd->pw_gecos,
+XX			pwd->pw_dir,
+XX			pwd->pw_shell);
+XX	}
+XX	endpwent();
+XX	rewind(sft);
+XX    } while (argc > 0);
+XX
+XX	if (listflg)		/* all done, just exit */
+XX		unlink_files(0);
+XX
+XX	fclose(sft);
+XX
+XX	/* make hash shadow password files and rename temp files */
+XX
+XX	if (make_db(stemp) < 0)
+XX		fprintf(stderr, "pwadm: smkpasswd failed\n");
+XX	else if (rename(stemp_pag, shadow_pag) < 0)
+XX		fprintf(stderr, "pwadm: "), perror(stemp_pag);
+XX	else if (rename(stemp_dir, shadow_dir) < 0)
+XX		fprintf(stderr, "pwadm: "), perror(stemp_dir);
+XX	else if (rename(stemp, shadow) < 0)
+XX		fprintf(stderr, "pwadm: "), perror("shadow rename");
+XX	else  {
+XX		chmod(shadow_pag, 0600);
+XX		chmod(shadow_dir, 0600);
+XX		chmod(shadow, 0600);
+XX		unlink(temp);
+XX		
+XX		exit(0);
+XX	}
+XX}
+XX
+XX/*	get_exempt - Get list of exempt user names.
+XX *
+XX *	Entry	exempt = Array of exempt user names to be filled in.
+XX *		exempt_lim = Limit index on exempt to be filled in.
+XX *
+XX *	Exit	exempt = Array filled in from EXEMPTPW file.
+XX *		exempt_lim = Limit of entries made in exempt.
+XX *
+XX *	Uses	exempt, exempt_lim.
+XX *
+XX *	Calls	fclose, fopen, malloc, strcpy, strlen.
+XX */
+XX
+XXextern char *malloc();
+XX
+XXstatic
+XXget_exempt(exempt, exempt_lim)
+XXchar	**exempt;
+XXint	*exempt_lim;
+XX
+XX{
+XX	FILE 	*eft;
+XX	char	line[LINELEN];
+XX	char	*lp;
+XX
+XX	*exempt_lim = 0;
+XX
+XX	if ((eft = fopen(EXEMPTPW, "r")) == NULL) { /* No file, set defaults */
+XX		exempt[0] = malloc(sizeof("root")+1);
+XX		strcpy(exempt[0], "root");
+XX		exempt[1] = malloc(sizeof("uucp")+1);
+XX		strcpy(exempt[1], "uucp");
+XX		exempt[2] = (char *)0;	/* for safety */
+XX		*exempt_lim = 2;
+XX		return;
+XX	}
+XX
+XX	while (fgets(line, LINELEN, eft) != NULL) {
+XX		if (lp = index(line, '\n'))	/* remove newline */
+XX			*lp = '\0';
+XX		if (line[0] != '#') {	/* not a comment line */
+XX			if (!(exempt[*exempt_lim] = malloc(strlen(line)+1))) {
+XX				fprintf(stderr,
+XX					"Out of memory after %d exempt users, remainder ignored.\n",
+XX					*exempt_lim);
+XX				break;
+XX			}
+XX			strcpy(exempt[*exempt_lim], line);
+XX			*exempt_lim += 1;
+XX			if (*exempt_lim >= MAX_EXEMPT) {
+XX				fprintf(stderr,
+XX					"More than %d exempt users, remainder ignored.\n",
+XX					MAX_EXEMPT);
+XX				break;
+XX			}
+XX		}
+XX	}
+XX
+XX	fclose(eft);
+XX
+XX	exempt[*exempt_lim] = (char *)0;	/* for safety */
+XX}
+XX
+XX/*	mk_tmp - Make temporary files for password file.
+XX *
+XX *	Entry	temp = Name of passwd temporary file to be created.
+XX *		stemp = Name of shadow temporary file to be created.
+XX *
+XX *	Exit	ft and sft created as passwd and shadow temp files.
+XX *		To exit(1), if unable to lock temp file.  Message
+XX *			displayed.
+XX *	
+XX *	Uses	ft, sft.
+XX *
+XX *	Calls	exit, fclose, fdopen, fgets, fprintf, fputs, open, unlink.
+XX *
+XX */
+XX
+XXstatic
+XXmk_tmp(temp, stemp)
+XXchar	*temp,		/* name of passwd temp file */
+XX	*stemp;	/* name of shadow temp file */
+XX
+XX{
+XX
+XX	int fd;
+XX
+XX	if ((fd = open(temp, O_WRONLY|O_CREAT|O_EXCL, 0644)) < 0) {
+XX		if (errno == EEXIST) {
+XX			fprintf(stderr, "pwadm: password file busy\n");
+XX		} else {
+XX			fprintf(stderr, "pwadm: "); perror(temp);
+XX		}
+XX		exit(1);
+XX	}
+XX	if ((ft = fdopen(fd, "w")) == NULL) {
+XX		fprintf(stderr, "pwadm: "); perror(temp);
+XX		unlink(temp);
+XX		exit(1);
+XX	}
+XX	if ((fd = open(stemp, O_WRONLY|O_CREAT|O_EXCL, 0644)) < 0) {
+XX		if (errno == EEXIST) {
+XX			fprintf(stderr, "pwadm: shadow file busy\n");
+XX		} else {
+XX			fprintf(stderr, "pwadm: "); perror(stemp);
+XX		}
+XX		unlink(temp);
+XX		exit(1);
+XX	}
+XX	if ((sft = fdopen(fd, "w")) == NULL) {
+XX		fprintf(stderr, "pwadm: "); perror(stemp);
+XX		unlink(temp);
+XX		unlink(stemp);
+XX		exit(1);
+XX	}
+XX}
+XX
+XX/*	get_user_range - Get range of users to modify.
+XX *
+XX *	Entry	argc = Number of command line arguments remaining.
+XX *		argv = Remaining argument vector.
+XX *
+XX *	Exit	minuid  = Minimum uid to modify, 0 if none specified.
+XX *		minname = Minimum user name to modify, 0 if none specified.
+XX *		maxuid  = Maximum uid to modify, 0 if none specified.
+XX *		maxname = Maximum user name to modify, 0 if none specified.
+XX *		minname_found = 0, reset.
+XX *		maxname_found = 0, reset.
+XX *		range_type = 0, all password file entries;
+XX *			     1, minuid only;
+XX *			     2, minname only;
+XX *			     3, minuid through maxuid;
+XX *			     4, minname through maxuid;
+XX *			     5, minuid through maxname;
+XX *			     6, minname through maxname.
+XX *
+XX *	Uses	maxname, maxname_found, maxuid, minname, minname_found,
+XX *		minuid, range_type.
+XX *
+XX *	Calls	atoi, index, strncpy, unlink_files.
+XX */
+XX
+XXstatic
+XXget_user_range(argc, argv)
+XXint	argc;
+XXchar	**argv;
+XX
+XX{
+XX	char	*max;
+XX	struct	passwd *pwd;
+XX
+XX	minuid = maxuid = 0;
+XX	minname[0] = maxname[0] = '\0';
+XX	range_type = 0;
+XX	minname_found = maxname_found = 0;
+XX
+XX	if (argc <= 0)
+XX		return;
+XX	
+XX	if ((max = index(argv[0], '-')) != 0)
+XX		*max = '\0';
+XX	
+XX	if ((pwd = getpwnam(argv[0])) != NULL) {
+XX		strncpy(minname, pwd->pw_name, sizeof(minname));
+XX		range_type = 2;
+XX	} else {
+XX		minuid = atoi(argv[0]);
+XX		range_type = 1;
+XX	}
+XX	if (pwd == NULL && (minuid == 0 && *argv[0] != '0')) {
+XX		fprintf(stderr, "Unknown user specification %s.\n", argv[0]);
+XX		unlink_files(1);
+XX	}
+XX
+XX	if ((int)max == 0)
+XX		return;
+XX
+XX	max++;
+XX	if ((pwd = getpwnam(max)) != NULL) {
+XX		strncpy(maxname, pwd->pw_name, sizeof(maxname));
+XX		range_type += 4;
+XX	} else {
+XX		maxuid = atoi(max);
+XX		range_type += 2;
+XX	}
+XX	if (pwd == NULL && (maxuid == 0 && *max != '0')) {
+XX		fprintf(stderr, "Unknown user specification %s.\n", max);
+XX		unlink_files(1);
+XX	}
+XX	return;
+XX}
+XX
+XX/*	list_aging - List the password aging information.
+XX *
+XX *	Entry	setpwfile  = Initialized.
+XX *		range_type = Type of user range to list.
+XX *		minuid, maxuid, minname, maxname = User range information.
+XX *
+XX *	Exit	Password aging information listed.
+XX *
+XX *	Uses	None.
+XX *
+XX *	Calls	check_action, endpwent, getpwent, printf, sscanf.
+XX */
+XX
+XXstatic
+XXlist_aging()
+XX
+XX{
+XX	struct	passwd *pwd;
+XX	int	criteria;
+XX	long	age_limit;
+XX	long	last_time;
+XX	long	old_time;
+XX	long	current_time;
+XX
+XX	(void)time(&current_time);
+XX
+XX	printf("User Name  Uid Criteria Period Current Password Expires   Old Password Expires\n");
+XX
+XX	while ((pwd = getpwent()) != NULL) {
+XX		if (!check_action(pwd))
+XX			continue;
+XX
+XX		/* User Name and Uid */
+XX
+XX		printf("%-9s%5d", pwd->pw_name, pwd->pw_uid);
+XX
+XX		sscanf(pwd->pw_gecos, "%d,%ld,%ld,%ld,", &criteria, &age_limit,
+XX				&last_time, &old_time);
+XX
+XX		/* Password Criteria */
+XX
+XX		switch (criteria) {
+XX
+XX		case BSD_CRIT:
+XX			printf(" %-8s", "BSD");
+XX			break;
+XX
+XX		case STR_CRIT:
+XX			printf(" %-8s", "STRICT");
+XX			break;
+XX
+XX		default:
+XX			printf(" %-8s", "Unknown");
+XX			break;
+XX		}
+XX
+XX		/* Aging Period */
+XX
+XX		if (age_limit == 0) {
+XX			printf(" No aging set\n");
+XX			continue;
+XX		}
+XX		printf("%7ld", age_limit/(24*60*60));
+XX
+XX		/* Password aging information */
+XX
+XX		if (last_time == 0) {
+XX			printf(" Password Never Changed\n");
+XX			continue;
+XX		}
+XX
+XX		if (current_time > (last_time += age_limit)) {
+XX			printf(" Password Expired\n");
+XX			continue;
+XX		}
+XX
+XX		old_time += age_limit;
+XX		printf(" %.24s", ctime(&last_time));
+XX		printf(" %.24s\n", ctime(&old_time));
+XX	}
+XX	endpwent();
+XX}
+XX
+XX/*	check_action - Check to see if this user is to be acted upon.
+XX *
+XX *	Entry	pwd = Password entry.
+XX *		range_type, minuid, maxuid, minname, maxname = User range
+XX *			information.
+XX *		maxname_found = 0, Max user name not found for this range.
+XX *		minname_found = 0, Min user name not found for this range.
+XX *
+XX *	Exit	1, if user to be acted upon.
+XX *		0, if user is not to be acted upon.
+XX *		maxname_found, minname_found = Updated when found.
+XX *	
+XX *	Uses	maxname_found, minname_found.
+XX *	
+XX *	Calls	strcmp.
+XX */
+XX
+XXstatic
+XXcheck_action(pwd)
+XXstruct passwd *pwd;
+XX
+XX{
+XX	switch (range_type) {
+XX
+XX	case 0:
+XX		return(1);
+XX
+XX	case 1:
+XX		if (pwd->pw_uid == minuid)
+XX			return(1);
+XX		return(0);
+XX
+XX	case 2:
+XX		if (strcmp(pwd->pw_name, minname) == 0)
+XX			return(1);
+XX		return(0);
+XX
+XX	case 3:
+XX		if (minuid <= pwd->pw_uid && pwd->pw_uid <= maxuid)
+XX			return(1);
+XX		return(0);
+XX
+XX	case 4:
+XX		if (minname_found && pwd->pw_uid <= maxuid)
+XX			return(1);
+XX		else if (strcmp(pwd->pw_name, minname) == 0) {
+XX			minname_found++;
+XX			return(1);
+XX		}
+XX		return(0);
+XX
+XX	case 5:
+XX		if (maxname_found)
+XX			return(0);
+XX		if (minuid <= pwd->pw_uid) {
+XX			if (strcmp(pwd->pw_name, maxname) == 0)
+XX				maxname_found++;
+XX			return(1);
+XX		}
+XX		return(0);
+XX
+XX	case 6:
+XX		if (minname_found && maxname_found)
+XX			return(0);
+XX		if (minname_found) {
+XX			if (strcmp(pwd->pw_name, maxname) == 0)
+XX				maxname_found++;
+XX			return(1);
+XX		} else if (strcmp(pwd->pw_name, minname) == 0) {
+XX			minname_found++;
+XX			return(1);
+XX		}
+XX		return(0);
+XX	}
+XX}
+XX
+XX/*	check_exempt - Check user for aging exemption.
+XX *
+XX *	Entry	pwd = Password entry.
+XX *		exempt = List of exempt user names.
+XX *		exempt_lim = Limit on exemption list.
+XX *		range_type = Type of user range being processed.
+XX *
+XX *	Exit	0, if user not in exemption list.
+XX *		1, if user in exemption list and to be queried.
+XX *		2, if user in exemption list and skipped.
+XX *
+XX *	Uses	None.
+XX *
+XX *	Calls	strcmp.
+XX */
+XX
+XXstatic
+XXcheck_exempt(pwd, exempt, exempt_lim)
+XXstruct passwd *pwd;
+XXchar	*exempt[];
+XXint	exempt_lim;
+XX
+XX{
+XX	int i;
+XX
+XX	for (i = 0; i < exempt_lim ; i++)
+XX		if(strcmp(pwd->pw_name, exempt[i]) == 0) {
+XX			if (range_type != 1 && range_type != 2) {
+XX				fprintf(stderr,
+XX					"User %s, uid %d in exemption list skipped.\n",
+XX					pwd->pw_name, pwd->pw_uid);
+XX				return(2);
+XX			} else {
+XX				return(1);
+XX			}
+XX		}
+XX	return(0);
+XX}
+XX
+XX/*	yesno - Ask for confirmation of action.
+XX *
+XX *	Entry	pwd = Password entry.
+XX *		flg = Type of action to be taken.
+XX *		      (CLEARFLG, RESETFLG, SETFLG)
+XX *
+XX *	Exit	0, Do not take action.
+XX *		1, Take action.
+XX *
+XX *	Uses	None.
+XX *
+XX *	Calls	fgets, fprintf.
+XX */
+XX
+XXstatic
+XXyesno(pwd, flg)
+XXstruct	passwd *pwd;
+XXint	flg;
+XX
+XX {
+XX	char	line[LINELEN];
+XX
+XX	fprintf(stderr, "User %s, uid %d in exemption list %s anyway [yn] (n) ",
+XX			pwd->pw_name, pwd->pw_uid,
+XX			flg&RESETFLG ? "reset" : flg&CLEARFLG ? "clear" : "set");
+XX	fgets(line, LINELEN, stdin);
+XX
+XX	switch(line[0]) {
+XX
+XX	case 'y':
+XX	case 'Y':
+XX		fprintf(stderr, "User %s modified.\n", pwd->pw_name);
+XX		return(1);
+XX
+XX	default:
+XX		fprintf(stderr, "User %s skipped.\n", pwd->pw_name);
+XX		return(0);
+XX	}
+XX
+XX }
+XX
+XX/*	change_aging - Change the password aging information for this user.
+XX *
+XX *	Entry	aging	= Password aging entry string.
+XX *		period	= Aging period in seconds.
+XX *		flg	= Type of action to be taken.
+XX *			  (CLEARFLG, CRITFLG, LIMFLG, RESETFLG, SETFLG)
+XX *
+XX *	Exit	aging = Updated.
+XX *
+XX *	Uses	None.
+XX *
+XX *	Calls	sprintf, sscanf.
+XX */
+XX
+XXstatic
+XXchange_aging(aging, criteria, period, flg)
+XXchar	**aging;
+XXint	criteria;
+XXlong	period;
+XXint	flg;
+XX
+XX{
+XX	static	char line[LINELEN];
+XX	int	old_criteria;
+XX	long	limit;
+XX	long	last_time;
+XX	long	old_time;
+XX	char	password[LINELEN];
+XX
+XX	sscanf(*aging, "%d,%ld,%ld,%ld,%s", &old_criteria, &limit, &last_time,
+XX			&old_time, password);
+XX
+XX	if (flg&CLEARFLG) {
+XX		last_time = 0;
+XX		old_time = 0;
+XX		strcpy(password, "*******");
+XX	}
+XX	if (flg&CRITFLG)
+XX		old_criteria = criteria;
+XX	if ((flg&LIMFLG) || ((limit == 0) && (flg&SETFLG)))
+XX		limit = period;
+XX	/* order is dependent here, RESETFLG must follow LIMFLG */
+XX	if (flg&RESETFLG)
+XX		last_time -= limit;
+XX
+XX	sprintf(line, "%d,%ld,%ld,%ld,%s",
+XX			old_criteria,
+XX			limit,
+XX			last_time,
+XX			old_time,
+XX			password);
+XX
+XX	*aging = line;
+XX}
+XX
+XX/*	catch - Catch signals so we can clean up.
+XX *
+XX *	Entry	sig    = Signal number caught.
+XX *		sigret = jmpbuf to return to.
+XX *
+XX *	Exit	To sigret to abort pwadm.
+XX *
+XX *	Uses	None.
+XX *	
+XX *	Calls	fflush, fprintf, longjmp.
+XX */
+XX
+XXstatic
+XXcatch(sig)
+XXint	sig;	/* signal number caught */
+XX
+XX{
+XX	static char *sigmsg[] = {
+XX			"",
+XX			"hangup",
+XX			"interrupt",
+XX			"quit",
+XX			"illegal instruction",
+XX			"trace trap",
+XX			"IOT instruction",
+XX			"EMT instruction",
+XX			"floating point exception",
+XX			"kill",
+XX			"bus error",
+XX			"segmentation violation",
+XX			"bad argument to system call",
+XX			"write on a pipe with no one to read it",
+XX			"alarm clock",
+XX			"software termination",
+XX			"urgent condition present on socket",
+XX			"stop",
+XX			"stop from keyboard",
+XX			"continue after stop",
+XX			"child status has changed",
+XX			"background read from control tty",
+XX			"background write to control tty",
+XX			"I/O",
+XX			"cpu time limit",
+XX			"file size limit",
+XX			"virtual time alarm",
+XX			"profiling timer alarm",
+XX			"window size change",
+XX			"user defined 1",
+XX			"user defined 2"
+XX			};
+XX
+XX	fprintf(stderr, "\nCaught %s signal, pwadm aborted.\n", sigmsg[sig]);
+XX	fflush(stderr);
+XX	longjmp(sigret, 1);
+XX}
+XX
+XX/*	make_db - Make the ndbm data base files for a password file.
+XX *
+XX *	Entry	file = File to be turned into an ndbm data base.
+XX *
+XX *	Exit	0, If successful.
+XX *		!=0, If failure.
+XX *
+XX *	Uses	None.
+XX *
+XX *	Calls	/etc/mkpasswd, execl, _exit, fork, wait.
+XX */
+XX
+XXstatic
+XXmake_db(file)
+XXchar *file;
+XX
+XX{
+XX	int status, pid, w;
+XX
+XX	if ((pid = fork()) == 0) {
+XX		execl("/etc/mkpasswd", "mkpasswd", file, 0);
+XX		_exit(127);
+XX	}
+XX	while ((w = wait(&status)) != pid && w != -1)
+XX		continue;
+XX	if (w == -1 || status != 0)
+XX		status = -1;
+XX	return(status);
+XX}
+XX
+XX/*	unlink_files - Unlink possible open files and exit.
+XX *
+XX *	Entry	stemp, stemp_dir, stemp_pag, temp possible open.
+XX *		status = exit status.
+XX *
+XX *	Exit	stemp, stemp_dir, stemp_pag, temp unlinked.
+XX *
+XX *	Uses	None.
+XX *
+XX *	Calls	exit, unlink.
+XX */
+XX
+XXstatic
+XXunlink_files(status)
+XXint status;
+XX{
+XX	unlink(stemp_pag);
+XX	unlink(stemp_dir);
+XX	unlink(stemp);
+XX	unlink(temp);
+XX	exit(status);
+XX}
+SHAR_EOF
+if test 21694 -ne "`wc -c pwadm.c`"
+then
+echo shar: error transmitting pwadm.c '(should have been 21694 characters)'
+fi
+#	End of shell archive
+exit 0
+
+

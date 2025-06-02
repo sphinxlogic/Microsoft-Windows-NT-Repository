@@ -1,0 +1,386 @@
+Newsgroups: comp.sources.misc
+From: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Subject: v35i125:  procmail - mail processing package v2.80, Patch01b/2
+Message-ID: <1993Mar4.212043.13995@sparky.imd.sterling.com>
+X-Md4-Signature: fc2dda904c73e91196b6d68d138bab4e
+Date: Thu, 4 Mar 1993 21:20:43 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Posting-number: Volume 35, Issue 125
+Archive-name: procmail/patch01b
+Environment: sendmail, smail, MMDF, mailsurr, UNIX, POSIX
+Patch-To: procmail: Volume 35, Issue 21-32
+
+To apply this patch:
+
+		cd procmail280; patch -s -p1 <this_file
+
+-----------
+diff -c procmail/src/multigram.c:1.21 procmail/src/multigram.c:1.22
+*** procmail/src/multigram.c:1.21	Fri Feb 19 16:22:41 1993
+--- procmail/src/multigram.c	Fri Feb 19 16:22:41 1993
+***************
+*** 15,23 ****
+   ************************************************************************/
+  #ifdef RCS
+  static /*const*/char rcsid[]=
+!  "$Id: multigram.c,v 1.21 1993/02/02 15:27:19 berg Exp $";
+  #endif
+! static /*const*/char rcsdate[]="$Date: 1993/02/02 15:27:19 $";
+  #include "includes.h"
+  #include "sublib.h"
+  #include "shell.h"
+--- 15,23 ----
+   ************************************************************************/
+  #ifdef RCS
+  static /*const*/char rcsid[]=
+!  "$Id: multigram.c,v 1.22 1993/02/10 17:08:06 berg Exp $";
+  #endif
+! static /*const*/char rcsdate[]="$Date: 1993/02/10 17:08:06 $";
+  #include "includes.h"
+  #include "sublib.h"
+  #include "shell.h"
+***************
+*** 150,156 ****
+     { char*chp;
+       if(!strcmp(chp=lastdirsep(argv[0]),flist))		 /* suid flist prog? */
+        { struct stat stbuf;
+! 	*chp='\0';			    /* security check, 3 hardlinks!? */
+  	if(!chdir(argv[0])&&!lstat(flist,&stbuf)&&S_ISREG(stbuf.st_mode)&&
+  	 stbuf.st_mode&S_ISUID&&stbuf.st_uid==geteuid()&&stbuf.st_nlink==3&&
+  	 !chdir(chPARDIR))
+--- 150,156 ----
+     { char*chp;
+       if(!strcmp(chp=lastdirsep(argv[0]),flist))		 /* suid flist prog? */
+        { struct stat stbuf;
+! 	progname=flist;*chp='\0';	    /* security check, 3 hardlinks!? */
+  	if(!chdir(argv[0])&&!lstat(flist,&stbuf)&&S_ISREG(stbuf.st_mode)&&
+  	 stbuf.st_mode&S_ISUID&&stbuf.st_uid==geteuid()&&stbuf.st_nlink==3&&
+  	 !chdir(chPARDIR))
+***************
+*** 184,189 ****
+--- 184,190 ----
+       setgid(getgid());setuid(getuid());		  /* revoke suid permissions */
+       if(!strcmp(chp,idhash))				  /* idhash program? */
+        { unsigned long hash=0;int i;
++ 	progname=idhash;
+  	if(minweight!=1)
+  	 { elog("Usage: idhash\n");return EX_USAGE;
+  	 }
+***************
+*** 314,323 ****
+  	else if(parens<0&&*echp==')')
+  	   *echp='\0';
+  	if(*(chp=fuzzstr.text)=='<'&&*(echp=strchr(chp,'\0')-1)=='>'
+! 	 &&echp==strpbrk(chp,"([\">,; \t\n"))	      /* strip '<' and '>' ? */
+  	   *echp='\0',tmemmove(chp,chp+1,echp-chp);
+  	if(!(fuzzlen=strlen(chp)))
+! 	   continue;;
+  	if(!curmatch)
+  	   curmatch=malloc(sizeof*curmatch);
+  	curmatch->fuzz=tstrdup(chp);curmatch->hard=malloc(1);
+--- 315,333 ----
+  	else if(parens<0&&*echp==')')
+  	   *echp='\0';
+  	if(*(chp=fuzzstr.text)=='<'&&*(echp=strchr(chp,'\0')-1)=='>'
+! 	 &&!strchr(chp,','))			      /* strip '<' and '>' ? */
+  	   *echp='\0',tmemmove(chp,chp+1,echp-chp);
+  	if(!(fuzzlen=strlen(chp)))
+! 	   continue;
+! 	;{ int i=0;
+! 	   do
+! 	    { if(best[i]->metric==-SCALE_WEIGHT&&!strcmp(best[i]->fuzz,chp))
+! 		 break;
+! 	      if(!strcmp(best[i]->fuzz,chp))	/* already matched this one? */
+! 		 goto dupl_addr;
+! 	    }
+! 	   while(++i<=best_matches);
+! 	 }
+  	if(!curmatch)
+  	   curmatch=malloc(sizeof*curmatch);
+  	curmatch->fuzz=tstrdup(chp);curmatch->hard=malloc(1);
+***************
+*** 378,386 ****
+  	   curmatch->offs1=offs1;curmatch->offs2=offs2;
+  	 }
+        }
+!      free(fuzzstr.itext);
+!      if(curmatch->metric>=0)	 /* maybe this match can be put in the array */
+!       { struct match*mp,**mmp;			   /* of best matches so far */
+  	free((mp= *(mmp=best+best_matches))->fuzz);free(mp->hard);free(mp);
+  	while(--mmp>=best&&(mp= *mmp)->metric<curmatch->metric)
+  	   mmp[1]=mp;					   /* keep it sorted */
+--- 388,396 ----
+  	   curmatch->offs1=offs1;curmatch->offs2=offs2;
+  	 }
+        }
+!      free(fuzzstr.itext);	 /* maybe this match can be put in the array */
+!      if(curmatch->metric>-SCALE_WEIGHT)		   /* of best matches so far */
+!       { struct match*mp,**mmp;
+  	free((mp= *(mmp=best+best_matches))->fuzz);free(mp->hard);free(mp);
+  	while(--mmp>=best&&(mp= *mmp)->metric<curmatch->metric)
+  	   mmp[1]=mp;					   /* keep it sorted */
+***************
+*** 388,393 ****
+--- 398,404 ----
+        }
+       else
+  	free(curmatch->fuzz),free(curmatch->hard);
++ dupl_addr:;
+     }
+    ;{ int i;struct match*mp;
+       for(i=0;i<=best_matches&&(mp=best[i++])->metric>=minweight;)
+diff -c procmail/src/procmail.c:1.25 procmail/src/procmail.c:1.27
+*** procmail/src/procmail.c:1.25	Fri Feb 19 16:22:42 1993
+--- procmail/src/procmail.c	Fri Feb 19 16:22:43 1993
+***************
+*** 12,18 ****
+   ************************************************************************/
+  #ifdef RCS
+  static /*const*/char rcsid[]=
+!  "$Id: procmail.c,v 1.25 1993/02/02 15:27:23 berg Exp $";
+  #endif
+  #include "../patchlevel.h"
+  #include "procmail.h"
+--- 12,18 ----
+   ************************************************************************/
+  #ifdef RCS
+  static /*const*/char rcsid[]=
+!  "$Id: procmail.c,v 1.27 1993/02/11 12:08:41 berg Exp $";
+  #endif
+  #include "../patchlevel.h"
+  #include "procmail.h"
+***************
+*** 30,36 ****
+  
+  static const char fdefault[]="DEFAULT",orgmail[]="ORGMAIL",
+   sendmail[]="SENDMAIL",From_[]=FROM,exflags[]=RECFLAGS,
+!  systm_mbox[]=SYSTEM_MBOX,pmusage[]=PM_USAGE;
+  char*buf,*buf2,*globlock,*loclock,*tolock,*lastfolder;
+  const char shellflags[]="SHELLFLAGS",shell[]="SHELL",lockfile[]="LOCKFILE",
+   shellmetas[]="SHELLMETAS",lockext[]="LOCKEXT",newline[]="\n",binsh[]=BinSh,
+--- 30,36 ----
+  
+  static const char fdefault[]="DEFAULT",orgmail[]="ORGMAIL",
+   sendmail[]="SENDMAIL",From_[]=FROM,exflags[]=RECFLAGS,
+!  systm_mbox[]=SYSTEM_MBOX,pmusage[]=PM_USAGE,DEFdeflock[]=DEFdefaultlock;
+  char*buf,*buf2,*globlock,*loclock,*tolock,*lastfolder;
+  const char shellflags[]="SHELLFLAGS",shell[]="SHELL",lockfile[]="LOCKFILE",
+   shellmetas[]="SHELLMETAS",lockext[]="LOCKEXT",newline[]="\n",binsh[]=BinSh,
+***************
+*** 37,43 ****
+   unexpeof[]="Unexpected EOL\n",*const*gargv,*sgetcp,*rcfile=PROCMAILRC,
+   dirsep[]=DIRSEP,msgprefix[]="MSGPREFIX",devnull[]=DevNull,lgname[]="LOGNAME",
+   executing[]="Executing",oquote[]=" \"",cquote[]="\"\n",procmailn[]="procmail",
+!  whilstwfor[]=" whilst waiting for ",home[]="HOME",maildir[]="MAILDIR";
+  char*Stdout;
+  int retval=EX_CANTCREAT,retvl2=EX_OK,sh,pwait,lcking,rc=rc_INIT,
+   ignwerr,lexitcode=EX_OK,asgnlastf;
+--- 37,44 ----
+   unexpeof[]="Unexpected EOL\n",*const*gargv,*sgetcp,*rcfile=PROCMAILRC,
+   dirsep[]=DIRSEP,msgprefix[]="MSGPREFIX",devnull[]=DevNull,lgname[]="LOGNAME",
+   executing[]="Executing",oquote[]=" \"",cquote[]="\"\n",procmailn[]="procmail",
+!  whilstwfor[]=" whilst waiting for ",home[]="HOME",maildir[]="MAILDIR",
+!  *defdeflock;
+  char*Stdout;
+  int retval=EX_CANTCREAT,retvl2=EX_OK,sh,pwait,lcking,rc=rc_INIT,
+   ignwerr,lexitcode=EX_OK,asgnlastf;
+***************
+*** 237,246 ****
+    ;{ const char*const*kp;
+       for(kp=prestenv;*kp;)  /* preset or wipe selected environment variables */
+  	strcpy((char*)(sgetcp=buf2),*kp++),readparse(buf,sgetc,2),sputenv(buf);
+!    }
+!   strcpy(buf2,strcpy(buf,chp=(char*)getenv(orgmail)));
+!   buf[i=lastdirsep(chp)-chp]='\0';		   /* strip off the basename */
+!   ;{ struct stat stbuf;
+       sgid=gid;						/* presumed innocent */
+      /*
+       *	do we need sgidness to access the mail-spool directory/files?
+--- 238,248 ----
+    ;{ const char*const*kp;
+       for(kp=prestenv;*kp;)  /* preset or wipe selected environment variables */
+  	strcpy((char*)(sgetcp=buf2),*kp++),readparse(buf,sgetc,2),sputenv(buf);
+!    }				 /* find out the name of our system lockfile */
+!   sgetcp=DEFdeflock+STRLEN(lockfile)+1;readparse(buf,sgetc,2);
+!   defdeflock=tstrdup(buf);strcpy(buf,chp=(char*)getenv(orgmail));
+!   buf[i=lastdirsep(chp)-chp]='\0';
+!   ;{ struct stat stbuf;				   /* strip off the basename */
+       sgid=gid;						/* presumed innocent */
+      /*
+       *	do we need sgidness to access the mail-spool directory/files?
+***************
+*** 257,264 ****
+       *	check if the default-mailbox-lockfile is owned by the recipient, if
+       *	not, mark it for further investigation, it might need to be removed
+       */
+!      if(!(Privileged=lstat(strcat(buf2,getenv(lockext)),&stbuf)||
+!       stbuf.st_uid==uid))			/* check for bogus lockfiles */
+  	ultoan((unsigned long)stbuf.st_ino,		  /* i-node numbered */
+  	 strchr(strcpy(buf+i,BOGUSprefix),'\0'));
+      /*
+--- 259,265 ----
+       *	check if the default-mailbox-lockfile is owned by the recipient, if
+       *	not, mark it for further investigation, it might need to be removed
+       */
+!      if(!(Privileged=lstat(defdeflock,&stbuf)||stbuf.st_uid==uid))
+  	ultoan((unsigned long)stbuf.st_ino,		  /* i-node numbered */
+  	 strchr(strcpy(buf+i,BOGUSprefix),'\0'));
+      /*
+***************
+*** 275,281 ****
+        { succeed=1;
+  boglock:
+  	if(!Privileged)	  /* try to rename the bogus lockfile out of the way */
+! 	   rename(buf2,buf);
+        }
+       else
+  	succeed=1;				 /* mailbox a symbolic link? */
+--- 276,282 ----
+        { succeed=1;
+  boglock:
+  	if(!Privileged)	  /* try to rename the bogus lockfile out of the way */
+! 	   rename(defdeflock,buf);
+        }
+       else
+  	succeed=1;				 /* mailbox a symbolic link? */
+***************
+*** 313,319 ****
+       *	really change the uid now, since we are not in explicit
+       *	delivery mode
+       */
+!    { setgid(gid);setuid(uid);
+       if(suppmunreadable=nextrcfile())	  /* any rcfile on the command-line? */
+  #ifndef NO_COMSAT
+  	if(!getenv(scomsat))
+--- 314,320 ----
+       *	really change the uid now, since we are not in explicit
+       *	delivery mode
+       */
+!    { setgid(gid);setuid(uid);rc=rc_NOFILE;
+       if(suppmunreadable=nextrcfile())	  /* any rcfile on the command-line? */
+  #ifndef NO_COMSAT
+  	if(!getenv(scomsat))
+***************
+*** 540,551 ****
+  		     { nlog("Couldn't determine implicit lockfile from");
+  		       logqnl(buf);
+  		     }
+  		  }
+  		 lcllock();
+  		 if(!pwait)		/* try and protect the user from his */
+  		    pwait=2;			   /* blissful ignorance :-) */
+  	       }
+! 	      inittmout(buf);
+  	      if(flags[FILTER])
+  	       { if(startchar==themail&&tobesent!=filled)     /* if only 'h' */
+  		  { if(!pipthrough(buf,startchar,tobesent))
+--- 541,554 ----
+  		     { nlog("Couldn't determine implicit lockfile from");
+  		       logqnl(buf);
+  		     }
++ 		    else if(!strcmp(buf2,devnull))	/* locking /dev/null */
++ 		       goto noloclock;			   /* would be silly */
+  		  }
+  		 lcllock();
+  		 if(!pwait)		/* try and protect the user from his */
+  		    pwait=2;			   /* blissful ignorance :-) */
+  	       }
+! noloclock:    inittmout(buf);
+  	      if(flags[FILTER])
+  	       { if(startchar==themail&&tobesent!=filled)     /* if only 'h' */
+  		  { if(!pipthrough(buf,startchar,tobesent))
+***************
+*** 619,625 ****
+  nomore_rc:
+    concon('\n');succeed=0;
+    if(*(chp=(char*)tgetenv(fdefault)))			     /* DEFAULT set? */
+!    { setuid(uid);firstchd();asenvcpy(DEFdefaultlock);	    /* implicit lock */
+       if(dump(deliver(chp),themail,filled))			  /* default */
+  	writeerr(buf);
+       else
+--- 622,628 ----
+  nomore_rc:
+    concon('\n');succeed=0;
+    if(*(chp=(char*)tgetenv(fdefault)))			     /* DEFAULT set? */
+!    { setuid(uid);firstchd();asenvcpy(DEFdeflock);	    /* implicit lock */
+       if(dump(deliver(chp),themail,filled))			  /* default */
+  	writeerr(buf);
+       else
+diff -c procmail/src/procmail.h:1.8 procmail/src/procmail.h:1.9
+*** procmail/src/procmail.h:1.8	Fri Feb 19 16:22:44 1993
+--- procmail/src/procmail.h	Fri Feb 19 16:22:44 1993
+***************
+*** 1,4 ****
+! /*$Id: procmail.h,v 1.8 1993/01/13 16:17:29 berg Exp $*/
+  
+  #include "includes.h"
+  
+--- 1,4 ----
+! /*$Id: procmail.h,v 1.9 1993/02/10 17:08:12 berg Exp $*/
+  
+  #include "includes.h"
+  
+***************
+*** 56,62 ****
+  extern const char shellflags[],shell[],lockfile[],lockext[],newline[],binsh[],
+   unexpeof[],shellmetas[],*const*gargv,*sgetcp,*rcfile,dirsep[],msgprefix[],
+   devnull[],lgname[],executing[],oquote[],cquote[],whilstwfor[],procmailn[],
+!  Mail[],home[],maildir[];
+  extern long filled;
+  extern sh,pwait,retval,retvl2,lcking,rc,ignwerr,lexitcode,asgnlastf;
+  extern size_t linebuf;
+--- 56,62 ----
+  extern const char shellflags[],shell[],lockfile[],lockext[],newline[],binsh[],
+   unexpeof[],shellmetas[],*const*gargv,*sgetcp,*rcfile,dirsep[],msgprefix[],
+   devnull[],lgname[],executing[],oquote[],cquote[],whilstwfor[],procmailn[],
+!  Mail[],home[],maildir[],*defdeflock;
+  extern long filled;
+  extern sh,pwait,retval,retvl2,lcking,rc,ignwerr,lexitcode,asgnlastf;
+  extern size_t linebuf;
+diff -c procmail/README:1.10 procmail/README:1.12
+*** procmail/README:1.10	Fri Feb 19 16:21:50 1993
+--- procmail/README	Fri Feb 19 16:21:50 1993
+***************
+*** 35,41 ****
+  
+  ------------------------------ DESCRIPTION -----------------------------------
+  
+! The procmail mail processing program. (v2.80 1993/02/04)
+  
+  Can be used to create mail-servers, mailing lists, sort your incoming mail
+  into separate folders/files (real convenient when subscribing to one or more
+--- 35,41 ----
+  
+  ------------------------------ DESCRIPTION -----------------------------------
+  
+! The procmail mail processing program. (v2.81 1993/02/19)
+  
+  Can be used to create mail-servers, mailing lists, sort your incoming mail
+  into separate folders/files (real convenient when subscribing to one or more
+***************
+*** 84,90 ****
+  	David W. Tamkin		An excellent proofreader and betatester
+  	 <dattier@gagme.chi.il.us>
+  	Josh Laff		For stresstesting procmail (and me :-)
+! 	 <smiley@uiuc.edu>
+  	Dan Jacobson		For his many useful suggestions
+  	 <Dan_Jacobson@ATT.COM>
+  
+--- 84,90 ----
+  	David W. Tamkin		An excellent proofreader and betatester
+  	 <dattier@gagme.chi.il.us>
+  	Josh Laff		For stresstesting procmail (and me :-)
+! 	 <jal@uiuc.edu>
+  	Dan Jacobson		For his many useful suggestions
+  	 <Dan_Jacobson@ATT.COM>
+  
+-----------
+-- 
+Sincerely,                                  berg@pool.informatik.rwth-aachen.de
+           Stephen R. van den Berg (AKA BuGless).    berg@physik.tu-muenchen.de
+
+I've never been superstitious!  Knock on wood.
+
+exit 0 # Just in case...

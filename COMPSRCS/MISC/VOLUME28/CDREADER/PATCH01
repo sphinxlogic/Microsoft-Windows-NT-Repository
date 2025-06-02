@@ -1,0 +1,488 @@
+Newsgroups: comp.sources.misc
+From: pwolfe@blizzard.kai.com (Patrick Wolfe)
+Subject:  v28i099:  cdreader - Audio CD player for SGI's, Patch01
+Message-ID: <1992Mar14.221525.3352@sparky.imd.sterling.com>
+X-Md4-Signature: 90770a30788cc7840f041609f6f8c498
+Date: Sat, 14 Mar 1992 22:15:25 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: pwolfe@blizzard.kai.com (Patrick Wolfe)
+Posting-number: Volume 28, Issue 99
+Archive-name: cdreader/patch01
+Environment: SGI
+Patch-To: cdreader: Volume 28, Issue 82
+
+The following patch creates cdreader version 1.5 from version 1.4 as posted to
+comp.sources.misc recently.  Just feed this file to "patch"!
+
+Version 1.5 adds a scrollbar to control the Indigo speaker/headphone volume,
+so you don't have to run the Audio Control Panel just to adjust the volume.
+
+        Patrick Wolfe  (pwolfe@kai.com, uunet!kailand!pwolfe)
+        System Programmer/Operations Manager, Kuck & Associates
+
+--- cut here --- cut here --- cut here --- cut here --- cut here ---
+*** ../cdreader-1.4/cdreader.c	Thu Mar 12 16:36:21 1992
+--- cdreader.c	Wed Mar 11 20:06:05 1992
+***************
+*** 9,15 ****
+   *	See the end of this file for the complete copyright notice.
+   */
+  
+! #define VERSION "1.4"
+  
+  #include <stdio.h>
+  #include <stdlib.h>
+--- 9,15 ----
+   *	See the end of this file for the complete copyright notice.
+   */
+  
+! #define VERSION "1.5"
+  
+  #include <stdio.h>
+  #include <stdlib.h>
+***************
+*** 39,44 ****
+--- 39,45 ----
+  #include <Xm/RowColumn.h>
+  #include <Xm/MessageB.h>
+  #include <Xm/Form.h>
++ #include <Xm/ScrollBar.h>
+  
+  #ifdef WATCH_ABUF
+  	/* for setitimer */
+***************
+*** 48,53 ****
+--- 49,56 ----
+  int total_samps = 0;		/* number of samples the audio buffer will hold */
+  #endif /* WATCH_ABUF */
+  
++ #define MAX_VALUE(a,b) (a > b ? a : b)
++ 
+  /*
+   *	Most of the common messages are here, for easy customization and
+   *	translation for foreign languages.  We're not ALL ignorant bastards.
+***************
+*** 106,120 ****
+  
+  	/* audio stuff */
+  ALport audio_port = NULL;
+  CDPLAYER *cd_device = NULL;
+  CDPARSER *cd_parser = NULL;
+  CDFRAME *cd_buffer = NULL;
+- 
+- 	/* cd stuff */
+  struct cdinformation {
+  	short length_min;			/* track length */
+  	short length_sec;
+  	} track_info[MAX_TRACK_INFO];
+  int first_track = 0;				/* first track on the disk */
+  int last_track = 0;				/* index into track_info for entry AFTER last one we have info for */
+  int current_track = -1;				/* number of track currently playing */
+--- 109,125 ----
+  
+  	/* audio stuff */
+  ALport audio_port = NULL;
++ long audio_param_buf[6];
++ 
++ 	/* cd stuff */
+  CDPLAYER *cd_device = NULL;
+  CDPARSER *cd_parser = NULL;
+  CDFRAME *cd_buffer = NULL;
+  struct cdinformation {
+  	short length_min;			/* track length */
+  	short length_sec;
+  	} track_info[MAX_TRACK_INFO];
++ 
+  int first_track = 0;				/* first track on the disk */
+  int last_track = 0;				/* index into track_info for entry AFTER last one we have info for */
+  int current_track = -1;				/* number of track currently playing */
+***************
+*** 130,135 ****
+--- 135,141 ----
+  XtAppContext	appcon;
+  Widget	main_window,
+  	label,
++ 	volume_scrollbar,
+  	play_button,
+  	prev_button,
+  	pause_button,
+***************
+*** 139,147 ****
+--- 145,160 ----
+  	info_button,
+  	stop_button,
+  	eject_button;
++ 
+  static XmStringCharSet charset = (XmStringCharSet) XmSTRING_DEFAULT_CHARSET;
+  
++ void volume_callback();
++ static XtCallbackRec volume_callback_list[] = {
++ 	{ volume_callback, NULL},
++ 	{ NULL, NULL}
++ 	};
+  
++ 
+  Display_Warning (message)
+  char *message;
+  {
+***************
+*** 597,622 ****
+  register int n;
+  
+  (void) sprintf (message, "\
+! Cdreader V%s plays an audio compact disc loaded in an SGI cdrom drive through\n\
+  the Audio Processor.\n\n\
+! To get started, load an audio CD in the caddy, and insert it into your cd drive\n\
+! with the clear side of the caddy facing up.\n\n\
+  The buttons function as follows:\n\
+! \tPlay    - plays an audio disk\n\
+! \tShuffle - plays the whole disk in a random order\n\
+! \tStop    - stops playback\n\
+! \tPause   - suspends playback - press Play to continue\n\
+! \tNext    - selects the next track\n\
+! \tPrev    - selects the previous track\n\
+! \tTracks  - displays a table of tracks and their lengths\n\n\
+! \tEject   - ejects the disk from the cdrom drive\n\
+  The buttons are context sensitive, for example, the eject button won't function\n\
+  unless the program is in the \"Stopped\" state.  Buttons are are not active will\n\
+  appear dimly shaded.\n\n\
+  Near the top of the window is a menu bar.  On the bar are three buttons:\n\
+! \tQuit    - terminates the program\n\
+! \tInfo    - give the author some credit!\n\
+! \tHelp    - uh, you're looking at it\n\
+  ", VERSION);
+  
+  message_string = XmStringCreateLtoR (message, charset);
+--- 610,639 ----
+  register int n;
+  
+  (void) sprintf (message, "\
+! \tCdreader V%s - Copyright (c) 1992 by Patrick J. Wolfe\n\n\
+! Cdreader plays an audio compact disc loaded in an SGI cdrom drive through\n\
+  the Audio Processor.\n\n\
+! To get started, load an audio CD in the cd caddy, and insert the caddy into \n\
+! your SGI cdrom drive, with the clear side of the caddy facing up.  Wait until\n\
+! the little yellow light stops blinking, and press the Play button.\n\n\
+  The buttons function as follows:\n\
+!     Play    - plays an audio disk\n\
+!     Shuffle - plays the whole disk in a random order\n\
+!     Stop    - stops playback\n\
+!     Pause   - suspends playback - press Play to continue\n\
+!     Next    - selects the next track\n\
+!     Prev    - selects the previous track\n\
+!     Eject   - ejects the disk from the cdrom drive\n\
+!     Tracks  - displays a table of tracks and their lengths\n\n\
+  The buttons are context sensitive, for example, the eject button won't function\n\
+  unless the program is in the \"Stopped\" state.  Buttons are are not active will\n\
+  appear dimly shaded.\n\n\
+  Near the top of the window is a menu bar.  On the bar are three buttons:\n\
+!     Quit    - terminates the program\n\
+!     Info    - give the author some credit!\n\
+!     Help    - uh, you're looking at it\n\n\
+! The scrollbar at the bottom controls the Audio Processor speaker/headphone volume.\n\n\
+!     Enjoy!\n\
+  ", VERSION);
+  
+  message_string = XmStringCreateLtoR (message, charset);
+***************
+*** 639,644 ****
+--- 656,683 ----
+  }
+  
+  
++ /* called by moving the volume scrollbar */
++ void
++ volume_callback (w, client_data, call_data)
++ Widget w;
++ caddr_t client_data;	/* unused */
++ caddr_t call_data;	/* unused */
++ {
++ int volume;
++ Arg arg;
++ 
++ XtSetArg (arg, XmNvalue, &volume);
++ XtGetValues (volume_scrollbar, &arg, 1);
++ 
++ /* set the audio processor output volume */
++ audio_param_buf[0] = AL_LEFT_SPEAKER_GAIN;
++ audio_param_buf[2] = AL_RIGHT_SPEAKER_GAIN;
++ audio_param_buf[1] = audio_param_buf[3] = volume;
++ ALsetparams (AL_DEFAULT_DEVICE, audio_param_buf, 4);
++ }
++ 
++ 
++ 
+  /* called only when the program (track) number changes */
+  void
+  cd_pnum_callback (arg, type, data)
+***************
+*** 683,689 ****
+  init_audio ()
+  {
+  ALconfig aconfig;
+! long pvbuf[6];
+  
+  if (audio_port == NULL) {
+  	/* initialize the audio port */
+--- 722,728 ----
+  init_audio ()
+  {
+  ALconfig aconfig;
+! int volume, slider_size, increment, page_increment;
+  
+  if (audio_port == NULL) {
+  	/* initialize the audio port */
+***************
+*** 717,728 ****
+  		Display_Warning ("Could not open a port to the Audio Processor!");
+  		return (1);
+  		}
+- 
+- 	/* set audio port output sampling rate to 44.1 kHz */
+- 	pvbuf[0] = AL_OUTPUT_RATE;
+- 	pvbuf[1] = AL_RATE_44100;
+- 	ALsetparams (AL_DEFAULT_DEVICE, pvbuf, 2);
+  	}
+  return (0);
+  }
+  
+--- 756,782 ----
+  		Display_Warning ("Could not open a port to the Audio Processor!");
+  		return (1);
+  		}
+  	}
++ 
++ /* set audio port output sampling rate to 44.1 kHz */
++ audio_param_buf[0] = AL_OUTPUT_RATE;
++ audio_param_buf[1] = AL_RATE_44100;
++ ALsetparams (AL_DEFAULT_DEVICE, audio_param_buf, 2);
++ 
++ /* get current scrollbar values */
++ XmScrollBarGetValues (volume_scrollbar, &volume,
++ 	&slider_size, &increment, &page_increment);
++ 
++ /* set the volume scrollbar to the current volume */
++ audio_param_buf[0] = AL_LEFT_SPEAKER_GAIN;
++ audio_param_buf[2] = AL_RIGHT_SPEAKER_GAIN;
++ ALgetparams (AL_DEFAULT_DEVICE, audio_param_buf, 4);
++ volume = MAX_VALUE(audio_param_buf[1], audio_param_buf[3]);
++ 
++ /* set the scrollbar to the current value */
++ XmScrollBarSetValues (volume_scrollbar, volume,
++ 	slider_size, increment, page_increment, 0);
++ 
+  return (0);
+  }
+  
+***************
+*** 744,750 ****
+  	cd_parser = CDcreateparser ();
+  	if (cd_parser == NULL) {
+  		Display_Warning ("SERIOUS ERROR!\nCDcreateparser failed");
+! 		return (1);
+  		}
+  
+  	/* initialize parser structure */
+--- 798,804 ----
+  	cd_parser = CDcreateparser ();
+  	if (cd_parser == NULL) {
+  		Display_Warning ("SERIOUS ERROR!\nCDcreateparser failed");
+! 		return (2);
+  		}
+  
+  	/* initialize parser structure */
+***************
+*** 821,826 ****
+--- 875,881 ----
+  XtSetArg (args[ctr], XmNwidth, 230); ctr++;
+  XtSetArg (args[ctr], XmNheight, 35); ctr++;
+  XtSetArg (args[ctr], XmNrecomputeSize, False); ctr++;
++ /* set location inside the form */
+  XtSetArg (args[ctr], XmNleftAttachment, XmATTACH_FORM); ctr++;
+  XtSetArg (args[ctr], XmNrightAttachment, XmATTACH_FORM); ctr++;
+  XtSetArg (args[ctr], XmNtopAttachment, XmATTACH_FORM); ctr++;
+***************
+*** 833,843 ****
+  XtSetArg (args[ctr], XmNmarginHeight, 2); ctr++;
+  XtSetArg (args[ctr], XmNshadowThickness, 1); ctr++;
+  XtSetArg (args[ctr], XmNshadowType, XmSHADOW_OUT); ctr++;
+  XtSetArg (args[ctr], XmNleftAttachment, XmATTACH_FORM); ctr++;
+  XtSetArg (args[ctr], XmNrightAttachment, XmATTACH_FORM); ctr++;
+  XtSetArg (args[ctr], XmNtopAttachment, XmATTACH_WIDGET); ctr++;
+  XtSetArg (args[ctr], XmNtopWidget, label); ctr++;
+- XtSetArg (args[ctr], XmNbottomAttachment, XmATTACH_FORM); ctr++;
+  frame = XmCreateFrame (form, "frame", args, ctr);
+  XtManageChild (frame);
+  
+--- 888,898 ----
+  XtSetArg (args[ctr], XmNmarginHeight, 2); ctr++;
+  XtSetArg (args[ctr], XmNshadowThickness, 1); ctr++;
+  XtSetArg (args[ctr], XmNshadowType, XmSHADOW_OUT); ctr++;
++ /* set location inside the form */
+  XtSetArg (args[ctr], XmNleftAttachment, XmATTACH_FORM); ctr++;
+  XtSetArg (args[ctr], XmNrightAttachment, XmATTACH_FORM); ctr++;
+  XtSetArg (args[ctr], XmNtopAttachment, XmATTACH_WIDGET); ctr++;
+  XtSetArg (args[ctr], XmNtopWidget, label); ctr++;
+  frame = XmCreateFrame (form, "frame", args, ctr);
+  XtManageChild (frame);
+  
+***************
+*** 912,917 ****
+--- 967,994 ----
+  XtManageChild (eject_button);
+  XtAddCallback (eject_button, XmNarmCallback, eject_callback, NULL);
+  XmStringFree (label_string);
++ 
++ /* get the current volume */
++ audio_param_buf[0] = AL_LEFT_SPEAKER_GAIN;
++ audio_param_buf[2] = AL_RIGHT_SPEAKER_GAIN;
++ ALgetparams (AL_DEFAULT_DEVICE, audio_param_buf, 4);
++ 
++ /* create scrollbar */
++ ctr = 0;
++ XtSetArg (args[ctr], XmNheight, 20); ctr++;
++ XtSetArg (args[ctr], XmNorientation, XmHORIZONTAL); ctr++;
++ XtSetArg (args[ctr], XmNprocessingDirection, XmMAX_ON_RIGHT); ctr++;
++ XtSetArg (args[ctr], XmNmaximum, 255); ctr++;
++ XtSetArg (args[ctr], XmNvalue, MAX_VALUE(audio_param_buf[1], audio_param_buf[3])); ctr++;
++ XtSetArg (args[ctr], XmNvalueChangedCallback, volume_callback_list); ctr++;
++ /* set location inside the form */
++ XtSetArg (args[ctr], XmNleftAttachment, XmATTACH_FORM); ctr++;
++ XtSetArg (args[ctr], XmNrightAttachment, XmATTACH_FORM); ctr++;
++ XtSetArg (args[ctr], XmNtopAttachment, XmATTACH_WIDGET); ctr++;
++ XtSetArg (args[ctr], XmNtopWidget, frame); ctr++;
++ XtSetArg (args[ctr], XmNbottomAttachment, XmATTACH_FORM); ctr++;
++ volume_scrollbar = XmCreateScrollBar (form, "scrollbar", args, ctr);
++ XtManageChild (volume_scrollbar);
+  
+  /* set MainWindow areas */
+  XmMainWindowSetAreas (main_window, menu_bar, NULL, NULL, NULL, form);
+*** ../cdreader-1.4/Makefile	Thu Mar 12 16:36:22 1992
+--- Makefile	Wed Mar 11 20:00:01 1992
+***************
+*** 26,32 ****
+  #XLIBS = -lXm -lXt -lX11 -lPW
+  
+  LIBS = $(XLIBS) $(CDLIBS) $(AUDIOLIBS) -lc_s
+! FILES = Readme cdreader.c Makefile cdreader.icon cdreader.1
+  BIN = /usr/local/bin
+  ICONDIR = /usr/lib/images
+  MANDIR = /usr/catman/local/man1
+--- 26,33 ----
+  #XLIBS = -lXm -lXt -lX11 -lPW
+  
+  LIBS = $(XLIBS) $(CDLIBS) $(AUDIOLIBS) -lc_s
+! SHARFILES = Readme cdreader.c Makefile cdreader.icon cdreader.1
+! TARFILES = README.1st Readme cdreader.c Makefile cdreader.icon cdreader.1 cdreader cdreader.shared_libs
+  BIN = /usr/local/bin
+  ICONDIR = /usr/lib/images
+  MANDIR = /usr/catman/local/man1
+***************
+*** 66,78 ****
+  lint:
+  	lint -uvxz cdreader.c
+  
+! shar: $(FILES)
+  	rm -f cdreader.shar
+! 	shar $(FILES) > cdreader.shar
+  	ls -l cdreader.shar
+  
+  clean:
+! 	rm -f a.out core mklog cdreader cdreader.shar *.o
+  
+  #
+  # Original Author:  Patrick Wolfe  (pwolfe@kai.com, uunet!kailand!pwolfe)
+--- 67,85 ----
+  lint:
+  	lint -uvxz cdreader.c
+  
+! shar: $(SHARFILES)
+  	rm -f cdreader.shar
+! 	shar $(SHARFILES) > cdreader.shar
+  	ls -l cdreader.shar
+  
++ tar: $(TARFILES)
++ 	rm -f cdreader.tar*
++ 	tar cvf cdreader.tar $(TARFILES)
++ 	compress cdreader.tar
++ 	ls -l cdreader.tar*
++ 
+  clean:
+! 	rm -f a.out core mklog cdreader cdreader.shared_libs cdreader.shar *.o
+  
+  #
+  # Original Author:  Patrick Wolfe  (pwolfe@kai.com, uunet!kailand!pwolfe)
+*** ../cdreader-1.4/cdreader.1	Thu Mar 12 16:36:22 1992
+--- cdreader.1	Wed Mar 11 19:39:36 1992
+***************
+*** 1,4 ****
+! .TH CDREADER 1 "V1.4" "Usenet Software" "Usenet software"
+  
+  .SH NAME
+  cdreader \- play an audio compact disc through the audio processor
+--- 1,5 ----
+! ...
+! .TH CDREADER 1 "V1.5" "Usenet Software" "Usenet software"
+  
+  .SH NAME
+  cdreader \- play an audio compact disc through the audio processor
+***************
+*** 14,20 ****
+  It opens a window with several buttons, whose function is similar to those on a
+  audio CD player.  Above the buttons is a message display, where the state of
+  the program is displayed.  When playing music, the track number and length
+! appear here.
+  
+  .B Cdreader
+  performs much better when installed setuid root, or if you
+--- 14,21 ----
+  It opens a window with several buttons, whose function is similar to those on a
+  audio CD player.  Above the buttons is a message display, where the state of
+  the program is displayed.  When playing music, the track number and length
+! appear here.  Below the buttons is a horizontal scrollbar, which is used to
+! control the speaker/headphone volume of the audio processor.
+  
+  .B Cdreader
+  performs much better when installed setuid root, or if you
+*** ../cdreader-1.4/Readme	Thu Mar 12 16:36:20 1992
+--- Readme	Wed Mar 11 19:43:00 1992
+***************
+*** 5,11 ****
+  Audio Processor (the SGI Indigo, for example).  Cdreader compiles only under
+  release 4.0.1 (or later) of the Irix operating system.
+  
+! Version 1.4 sports an X11/Motif interface, and a new "shuffle" function.
+  
+  This is NOT just like SGI's "cdplayer" program, which simply commands the CD
+  drive to play an audio CD, and sits back to watch.  In that case, the digital
+--- 5,11 ----
+  Audio Processor (the SGI Indigo, for example).  Cdreader compiles only under
+  release 4.0.1 (or later) of the Irix operating system.
+  
+! Version 1.5 adds a scrollbar to control the speaker/headphone volume.
+  
+  This is NOT just like SGI's "cdplayer" program, which simply commands the CD
+  drive to play an audio CD, and sits back to watch.  In that case, the digital
+***************
+*** 48,53 ****
+--- 48,57 ----
+  
+  ------------------------------------------------------------------------------
+  			RELEASE NOTES:
++ 
++ VERSION 1.5:
++ 
++ Added horizontal scrollbar to control the Indigo speaker/headphone volume.
+  
+  VERSION 1.4:
+  
+--- cut here --- cut here --- cut here --- cut here --- cut here ---
+
+-- 
+
+        Patrick Wolfe  (pwolfe@kai.com, uunet!kailand!pwolfe)
+        System Programmer/Operations Manager, Kuck & Associates
+
+
+exit 0 # Just in case...

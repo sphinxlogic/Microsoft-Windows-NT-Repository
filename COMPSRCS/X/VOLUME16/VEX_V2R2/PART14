@@ -1,0 +1,2186 @@
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i065: Video Extension for X (v2r2), Part14/29
+Message-ID: <1992Feb6.145652.489@msi.com>
+Date: 6 Feb 92 14:56:52 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2173
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 65
+Archive-name: vex.v2r2/part14
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 14 (of 29)."
+# Contents:  extensions/xv/server/ddx/sunrop/pip_mmap.c
+#   server/ddx/cfb32/cfb8line.c server/ddx/cfb32/cfbbitblt.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:47 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'extensions/xv/server/ddx/sunrop/pip_mmap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/server/ddx/sunrop/pip_mmap.c'\"
+else
+echo shar: Extracting \"'extensions/xv/server/ddx/sunrop/pip_mmap.c'\" \(15705 characters\)
+sed "s/^X//" >'extensions/xv/server/ddx/sunrop/pip_mmap.c' <<'END_OF_FILE'
+X/*
+X *	pip_mmap.c:	Subroutines to memory map RasterOps SPARC (tm) Cards 
+X *
+X *	Copyright (c) 1991, Rasterops, Inc.
+X */
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <sys/ioctl.h>
+X#include <sys/mman.h>
+X#include <pixrect/pr_planegroups.h>
+X#include <pixrect/cg8var.h>
+X#include "pip_mmap.h"
+X#include "pip_impl.h"
+X
+X#define Round_Down(addr) (((addr)/4096)*4096)
+X
+X/*	
+X *  PHYSICAL TO VIRTUAL MEMORY MAPPING FOR DEVICES ON THE SPARC Card
+X *
+X *	SPARC Card TCL (No Eight Bit Buffer):
+X *  ----- ---- --- ---------------------
+X *          VM Offset    SBus Offset 	Description
+X *          -- ------    ---- ------    -----------
+X *          0x00000000   0x00C00000     Monochrome   (PIXPG_OVERLAY)
+X *          0x00020000   0x00D00000     Selection    (PIXPG_SELECTION)
+X *          0x00040000   0x00400000     True Color   (PIXPG_24BIT_COLOR)
+X *          0x00435000   0x00E00000     Video Enable (PIXPG_VIDEO_ENABLE)
+X *          0x00800000   0x00400000     Device Registers 
+X *
+X *	SPARC Card TCL (With Eight Bit Buffer):
+X *  ----- ---- --- -----------------------
+X *          VM Offset    SBus Offset 	Description
+X *          -- ------    ---- ------    -----------
+X *          0x00000000   0x00C00000     Monochrome   (PIXPG_OVERLAY)
+X *          0x00020000   0x00D00000     Selection    (PIXPG_SELECTION)
+X *          0x00040000   0x00400000     True Color   (PIXPG_24BIT_COLOR)
+X *          0x00435000   0x00700000     Eight Bit    (PIXPG_8BIT_COLOR)
+X *          0x00553000   0x00E00000     Video Enable (PIXPG_VIDEO_ENABLE)
+X *          0x00800000   0x00400000     Device Registers 
+X *
+X *	SPARC Card TCS
+X *  ----- ---- ---
+X *          VM Offset    SBus Offset 	Description
+X *          -- ------    ---- ------    -----------
+X *          0x00000000   0x00100000     Monochrome   (PIXPG_OVERLAY)
+X *          0x00040000   0x00140000     Selection    (PIXPG_SELECTION)
+X *          0x00080000   0x00200000     True Color   (PIXPG_24BIT_COLOR)
+X *          0x00800000   0x00040000     Device Registers 
+X *
+X *	SPARC Card TV
+X *  ----- ---- --
+X *          VM Offset    SBus Offset 	Description
+X *          -- ------    ---- ------    -----------
+X *          0x00000000   0x00400000     True Color   (PIXPG_24BIT_COLOR)
+X *          0x00200000   0x00600000     Video Enable (PIXPG_VIDEO_ENABLE)
+X *          0x00240000   0x00100000     Ramdac Registers 
+X *          0x00241000   0x00200000     Pip Registers 
+X *          0x00243000   0x00300000     Venus Registers 
+X */
+X
+X#define Tc_Size_Device_Regs   4096
+X#define Tcl_Size_Monochrome   ROUNDUP(1152*900/8, 4096)
+X#define Tcl_Size_Selection    ROUNDUP(1152*900/8, 4096)
+X#define Tcl_Size_True_Color   ROUNDUP(1152*900*4, 4096)
+X#define Minimum_Tcl_Size \
+X					(Tcl_Size_Monochrome+Tcl_Size_Selection+Tcl_Size_True_Color)
+X
+X#define Tv_Size_Pip           (4096+4096)
+X#define Tv_Size_Ramdac        4096
+X#define Tv_Size_Venus         4096
+X#define Tv_Size_True_Color    0x00200000
+X#define Tv_Size_Video_Enable  0x00040000
+X
+X/*
+X *	Forward function references:
+X */
+Xcaddr_t test_slot_init();
+X
+X/*"mmap_add_devices"
+X *
+X *	Memory map a SPARC Card board's device registers if they have not
+X *	already been mapped. (This is done by using the kernel driver's
+X *	memory mapping function.) 
+X *
+X *		-> memory map object updated on success
+X *		=  0 if failure
+X */
+XMmap_Obj *mmap_add_devices(this)
+X	Mmap_Obj	*this;	/* -> memory map object to check. */
+X{
+X	switch(this->model)
+X	{
+X	  case MODEL_TCL:
+X	  case MODEL_TCS:
+X		if ( !this->device_regs )
+X		{
+X			this->device_regs = (caddr_t)mmap(0, Tc_Size_Device_Regs, 
+X				PROT_READ | PROT_WRITE, MAP_SHARED, this->fd, 0x800000); 
+X			if ( this->device_regs == (caddr_t)-1 )
+X			{
+X				printf(" *** Unable to memory map SPARC Card TC device register\n");
+X				return 0;
+X			}
+X		}
+X		break;
+X	  case MODEL_TV:
+X		printf("mmap_add_devices: SPARC Card TV not supported for this function\n");
+X		return this;
+X	  default:
+X		printf("mmap_add_devices: unrecognized model %d\n", this->model);
+X		return 0;
+X	}
+X	return this;
+X}
+X
+X/*"mmap_init"
+X *
+X *	Memory map a SPARC Card board by using the kernel driver's
+X *	memory mapping function. 
+X *
+X *		= 1 if success
+X *		= 0 if failure
+X */
+XMmap_Obj *mmap_init(fd)
+X	int		fd;		/* = file descriptor for device. */
+X{
+X	caddr_t		base_address;		/* Base virtual address of memory map. */
+X	int			fbi;				/* Index: fb description in "fb_info". */
+X	Pipio_Fb_Info	
+X				fb_info;		   /* Frame buffer description information. */
+X	u_int   	off_eight_bit;     /* Eight bit memory offset. */
+X	u_int   	off_monochrome;    /* Monochrome memory offset. */
+X	u_int   	off_selection;     /* Selection memory offset. */
+X	u_int   	off_true_color;    /* True color memory offset. */
+X	u_int   	off_video_enable;  /* Video enable memory offset. */
+X	Mmap_Obj	*this;				/* Memory map control block to fill in. */
+X	int			total_mmap_size;	/* Size to memory map, w/o device map. */
+X
+X	/*	
+X	 *	Note what plane groups are available.
+X	 */
+X	this = (Mmap_Obj *)malloc(sizeof(Mmap_Obj));
+X
+X	if ( ioctl(fd, PIPIO_G_FB_INFO, &fb_info) != 0 )
+X	{
+X		printf("FB_INFO not supported!!!!\n");
+X		free(this);
+X		return 0;
+X	}
+X	else
+X	{
+X		for (fbi = 0; fbi < fb_info.frame_buffer_count; fbi++)
+X		{
+X			this->pg_available[fb_info.fb_descriptions[fbi].group] = 1;
+X			switch(fb_info.fb_descriptions[fbi].group)
+X			{
+X				case PIXPG_8BIT_COLOR:
+X					off_eight_bit = fb_info.fb_descriptions[fbi].mmap_offset;
+X					break;
+X				case PIXPG_OVERLAY:
+X					off_monochrome = fb_info.fb_descriptions[fbi].mmap_offset;
+X					break;
+X				case PIXPG_OVERLAY_ENABLE:
+X					off_selection = fb_info.fb_descriptions[fbi].mmap_offset;
+X					break;
+X				case PIXPG_24BIT_COLOR:
+X					off_true_color = fb_info.fb_descriptions[fbi].mmap_offset;
+X					break;
+X				case PIXPG_VIDEO_ENABLE:
+X					off_video_enable = fb_info.fb_descriptions[fbi].mmap_offset;
+X					break;
+X			}
+X		}
+X		total_mmap_size = fb_info.total_mmap_size;
+X	}
+X	this->fd = fd;
+X
+X	/*
+X	 *	Determine which model of frame buffer we are mapping in.
+X     */
+X	if ( this->pg_available[PIXPG_OVERLAY] )
+X	{
+X		this->model = ( total_mmap_size >= Minimum_Tcl_Size ) ? 
+X			MODEL_TCL : MODEL_TCS;
+X	}
+X	else if ( this->pg_available[PIXPG_VIDEO_ENABLE] )
+X	{
+X		this->model = MODEL_TV;
+X	}
+X	else
+X	{
+X		printf("Unknown device type detected\n");
+X		return 0;
+X	}
+X		
+X	/*	
+X	 *	Map in the frame buffers and enable memories based on model type.
+X	 */
+X	switch( this->model )
+X	{
+X	  case MODEL_TCL:
+X	  case MODEL_TCS:
+X		/*	Map in memories then map in the device area, which is offset by 
+X		 *	0x800000 from the base address within the virtual address space.
+X		 */
+X		base_address = (caddr_t)mmap(0, total_mmap_size, PROT_READ | PROT_WRITE, 
+X			MAP_SHARED, fd, 0);
+X		if ( base_address == (caddr_t)-1 )
+X		{
+X			printf(" *** Unable to memory map SPARC Card TC frame buffers\n");
+X			return 0;
+X		}
+X
+X		this->eight_bit = (off_eight_bit) ? base_address+off_eight_bit : 0;
+X		this->monochrome = base_address+off_monochrome;
+X		this->selection  = base_address + off_selection;
+X		this->true_color = (off_true_color) ? base_address+off_true_color : 0;
+X		this->video_enable = (off_video_enable) ? 
+X			base_address+off_video_enable : 0;
+X		this->device_regs = (caddr_t)mmap(0, Tc_Size_Device_Regs, 
+X			PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0x800000); 
+X		if ( this->device_regs == (caddr_t)-1 )
+X		{
+X			printf(" *** Unable to memory map SPARC Card TC device register\n");
+X			return 0;
+X		}
+X		break;
+X
+X	  case MODEL_TV:
+X		total_mmap_size += (Tv_Size_Pip+Tv_Size_Ramdac+Tv_Size_Venus);
+X		base_address = (caddr_t)mmap(0, total_mmap_size, PROT_READ | PROT_WRITE, 
+X			MAP_SHARED, fd, 0);
+X		if ( base_address == (caddr_t)-1 )
+X		{
+X			printf(" *** Unable to memory map SPARC Card TV frame buffers\n");
+X			return 0;
+X		}
+X		this->true_color = base_address;
+X		this->video_enable = base_address + Tv_Size_True_Color;
+X		this->device_ramdac = this->video_enable + Tv_Size_Video_Enable;
+X		this->device_pip = this->device_ramdac + Tv_Size_Ramdac;
+X		this->device_venus = this->device_pip + Tv_Size_Pip;
+X		break;
+X	}
+X	return this;
+X}
+X
+X/*"mmap_pip"
+X *
+X *	Create a memory map object suitable for use with the 
+X *	XV video extension.
+X *
+X *		= 1 if success
+X *		= 0 if failure
+X */
+XMmap_Obj *mmap_pip(fd)
+X	int		fd;		/* = file descriptor for device. */
+X{
+X	caddr_t		base_address;		/* Base virtual address of memory map. */
+X	int			fbi;				/* Index: fb description in "fb_info". */
+X	Pipio_Fb_Info	
+X				fb_info;			/* Frame buffer description information. */
+X	u_int   	off_true_color;   	/* True color memory map offset.*/
+X	u_int   	off_video_enable;   /* Video enable memory map offset.*/
+X	u_int   	size_true_color;   	/* True color memory map size.*/
+X	u_int   	size_video_enable;  /* Video enable memory map size.*/
+X	Mmap_Obj	*this;				/* Memory map control block to fill in. */
+X	int			total_mmap_size;	/* Size to memory map, w/o device map. */
+X
+X	/*	
+X	 *	Note what plane groups are available.
+X	 */
+X	this = (Mmap_Obj *)malloc(sizeof(Mmap_Obj));
+X
+X	if ( ioctl(fd, PIPIO_G_FB_INFO, &fb_info) != 0 )
+X	{
+X		printf("FB_INFO not supported!!!!\n");
+X		free(this);
+X		return 0;
+X	}
+X	else
+X	{
+X		for (fbi = 0; fbi < fb_info.frame_buffer_count; fbi++)
+X		{
+X			this->pg_available[fb_info.fb_descriptions[fbi].group] = 1;
+X			switch(fb_info.fb_descriptions[fbi].group)
+X			{
+X				case PIXPG_24BIT_COLOR:
+X					off_true_color = fb_info.fb_descriptions[fbi].mmap_offset;
+X					size_true_color = fb_info.fb_descriptions[fbi].mmap_size;
+X					break;
+X				case PIXPG_VIDEO_ENABLE:
+X					off_video_enable = fb_info.fb_descriptions[fbi].mmap_offset;
+X					size_video_enable = fb_info.fb_descriptions[fbi].mmap_size;
+X					break;
+X			}
+X		}
+X	}
+X
+X	/*
+X	 *	Determine which model of frame buffer we are mapping in.
+X     */
+X	if ( this->pg_available[PIXPG_VIDEO_ENABLE] && 
+X		 this->pg_available[PIXPG_24BIT_COLOR] )
+X	{
+X		this->model = ( this->pg_available[PIXPG_OVERLAY] ) ?
+X			MODEL_TCL : MODEL_TV;
+X	}
+X	else
+X	{
+X#ifdef NOTDEF
+X		printf("Unknown device type detected\n");
+X		return 0;
+X#else NOTDEF
+X		 this->model = MODEL_TEST;
+X#endif NOTDEF
+X	}
+X		
+X	/*	
+X	 *	Map in the frame buffers and enable memories based on model type.
+X	 */
+X	switch( this->model )
+X	{
+X	  case MODEL_TCL:
+X		this->video_enable = (caddr_t)mmap(0, size_video_enable, PROT_READ | PROT_WRITE, 
+X			MAP_SHARED, fd, off_video_enable);
+X		if ( this->video_enable == (caddr_t)-1 )
+X		{
+X			printf(" *** Unable to memory map SPARC Card TC frame buffers\n");
+X			return 0;
+X		}
+X		this->device_regs = (caddr_t)mmap(0, Tc_Size_Device_Regs, 
+X			PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0x800000); 
+X		if ( this->device_regs == (caddr_t)-1 )
+X		{
+X			printf(" *** Unable to memory map SPARC Card TC device register\n");
+X			return 0;
+X		}
+X		break;
+X
+X	  case MODEL_TV:
+X		total_mmap_size = size_true_color + size_video_enable +
+X			 (Tv_Size_Ramdac+Tv_Size_Pip+Tv_Size_Venus);
+X		base_address = (caddr_t)mmap(0, total_mmap_size, PROT_READ | PROT_WRITE, 
+X			MAP_SHARED, fd, off_true_color);
+X		if ( base_address == (caddr_t)-1 )
+X		{
+X			printf(" *** Unable to memory map SPARC Card TV frame buffers\n");
+X			return 0;
+X		}
+X		this->true_color = base_address;
+X		this->video_enable = this->true_color + size_true_color;
+X		this->device_ramdac = this->video_enable + size_video_enable;
+X		this->device_pip = this->device_ramdac + Tv_Size_Ramdac;
+X		this->device_venus = this->device_pip + Tv_Size_Pip;
+X		break;
+X	}
+X	return this;
+X}
+X
+X/*"test_slot_init"
+X *
+X *  Memory map an SBus slot memory region by tagging onto a SPARC(tm) Card
+X *  TC's driver's memory mapping function. The region will always be mapped
+X *  so the driver thinks it starts at offset 0x00900000 in calls to cgeightmmap();
+X *  This routine treats it as if its base address was 0x01000000.
+X *
+X *      -> mapped area if success
+X *      =  0 if failure
+X */
+Xcaddr_t test_slot_init(fd, offset, length)
+X    int    	fd;         	/* =  file descriptor for device when opened. */
+X    u_int   offset;         /* =  offset from base of test slot to map. */
+X    u_int   length;         /* =  length of region to be mapped. */
+X{
+X    u_int   	physical;   /* Physical address of slot. */
+X	caddr_t		test_slot_base;	/* Virt addr for "physical". */
+X
+X    /*  
+X     *  Issue ioctl to make sure slot has been mapped.
+X     */
+X    physical = 0xFE000000 | Round_Down(offset);
+X    length = ( offset != Round_Down(offset) ) ? length + 0x1000 : length;
+X    if ( ioctl(fd, PIPIO_S_MAP_SLOT, &physical) )
+X    {
+X        printf(" *** Unable to get driver to map slot\n");
+X        return 0;
+X    }
+X 
+X    /*  Map in the test memory area ( it will always be at offset 0x900000.)
+X     */
+X    test_slot_base = (caddr_t)mmap(0, length, PROT_READ | PROT_WRITE,
+X                MAP_SHARED, fd, 0x00900000);
+X    if ( test_slot_base == (caddr_t)-1 )
+X    {
+X        printf(" *** Unable to memory map SPARC Card TC test slot area\n");
+X        return 0;
+X    }
+X    return test_slot_base;
+X}
+X 
+X/*"virtual_address"
+X *
+X *	Map a physical address into its virutal address equivalent, given
+X *	our memory mapping of /dev/fb_diag.
+X *
+X *		= virutal address on success
+X *		= -1 if can't map the address
+X */
+Xcaddr_t virtual_address( this, physical )
+X	Mmap_Obj	*this;		/* Memory map object to use in mapping. */
+X	u_int		physical;	/* Physical address to be mapped. */
+X{
+X	caddr_t	vaddress;		/* Virtual address for the physical address. */
+X
+X	vaddress = (caddr_t)-1;
+X	switch( this->model )
+X	{
+X	  case MODEL_TCL:
+X		if ( (physical >= 0x00400000)  && 
+X			 (physical < 0x00400000+Tc_Size_Device_Regs) )
+X		{
+X			vaddress = this->device_regs + (physical - 0x00400000);
+X		}
+X		else if ( this->pg_available[PIXPG_8BIT_COLOR] && 
+X			 (physical >= 0x00700000) && (physical < 0x00800000) )
+X		{
+X			vaddress = this->eight_bit + (physical - 0x00700000);
+X		}
+X		else if ( (physical >= 0x00c00000) && (physical < 0x00d00000) )
+X		{
+X			vaddress = this->monochrome + (physical - 0x00c00000);
+X		}
+X		else if ( (physical >= 0x00d00000) && (physical < 0x00e00000) )
+X		{
+X			vaddress = this->selection + (physical - 0x00d00000);
+X		}   
+X		else if ( (physical >= 0x00800000) && (physical < 0x00c00000) )
+X		{
+X			vaddress = this->true_color + (physical - 0x800000);
+X		}
+X		else if ( this->pg_available[PIXPG_VIDEO_ENABLE] && 
+X			 (physical >= 0x00e00000) && (physical < 0x00f00000) )
+X		{
+X			vaddress = this->video_enable + (physical - 0x00e00000);
+X		}   
+X		else
+X		{
+X			printf("Unable to map TCL address %08x\n", physical);
+X			return 0;
+X		}
+X		break;
+X
+X	  case MODEL_TCS:
+X		if ( (physical >= 0x00040000)  && 
+X			 (physical < 0x00040000+Tc_Size_Device_Regs) )
+X		{
+X			vaddress = this->device_regs + (physical - 0x00040000);
+X		}
+X		else if ( (physical >= 0x00c00000) && (physical < 0x00d00000) )
+X		{
+X			vaddress = this->monochrome + (physical - 0x00c00000);
+X		}
+X		else if ( (physical >= 0x00d00000) && (physical < 0x00e00000) )
+X		{
+X			vaddress = this->selection + (physical - 0x00d00000);
+X		}   
+X		else if ( (physical >= 0x00800000) && (physical < 0x00c00000) )
+X		{
+X			vaddress = this->true_color + (physical - 0x00800000);
+X		}
+X		else
+X		{
+X			printf("Unable to map TCS address %08x\n", physical);
+X			return 0;
+X		}
+X		break;
+X
+X	  case MODEL_TV:
+X	  case MODEL_TEST:
+X		if ( (physical >= 0x00100000) && 
+X			 (physical < 0x00100000+Tv_Size_Ramdac) )
+X		{
+X			vaddress = this->device_ramdac + (physical - 0x00100000);
+X		}
+X		else if ( (physical >= 0x00200000) && 
+X				  (physical < 0x00200000+Tv_Size_Pip) )
+X		{
+X			vaddress = this->device_pip + (physical - 0x00200000);
+X		}
+X		else if ( (physical >= 0x00300000) && 
+X				  (physical < 0x00300000+Tv_Size_Venus) )
+X		{
+X			vaddress = this->device_venus + (physical - 0x00300000);
+X		}
+X		else if ( (physical >= 0x00400000) && (physical < 0x00600000) )
+X		{
+X			vaddress = this->true_color + (physical - 0x00400000);
+X		}
+X		else if ( (physical >= 0x00600000) && (physical < 0x00700000) )
+X		{
+X			vaddress = this->video_enable + (physical - 0x00600000);
+X		}   
+X		else
+X		{
+X			printf("Unable to map TV address %08x\n", physical);
+X			return 0;
+X		}
+X		break;
+X	}
+X
+X	return vaddress;
+X}
+X
+END_OF_FILE
+if test 15705 -ne `wc -c <'extensions/xv/server/ddx/sunrop/pip_mmap.c'`; then
+    echo shar: \"'extensions/xv/server/ddx/sunrop/pip_mmap.c'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/server/ddx/sunrop/pip_mmap.c'
+fi
+if test -f 'server/ddx/cfb32/cfb8line.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfb8line.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfb8line.c'\" \(17344 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfb8line.c' <<'END_OF_FILE'
+X/*
+X * $XConsortium: cfb8line.c,v 1.19 91/07/09 16:07:32 rws Exp $
+X *
+X * Copyright 1990 Massachusetts Institute of Technology
+X *
+X * Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty.
+X *
+X * M.I.T. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL M.I.T.
+X * BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN 
+X * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X *
+X * Author:  Keith Packard, MIT X Consortium
+X */
+X
+X#include "X.h"
+X
+X#include "gcstruct.h"
+X#include "windowstr.h"
+X#include "pixmapstr.h"
+X#include "regionstr.h"
+X#include "scrnintstr.h"
+X#include "mistruct.h"
+X
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X#include "cfbrrop.h"
+X
+X#ifdef PIXEL_ADDR
+X
+X#if defined(__GNUC__) && defined(mc68020)
+X#define STUPID volatile
+X#define REARRANGE
+X#else
+X#define STUPID
+X#endif
+X
+X#ifdef __GNUC__
+X/* lame compiler doesn't even look at 'register' attributes */
+X#define I_H do{
+X#define I_T }while(0);
+X#define IMPORTANT_START I_H I_H I_H I_H I_H I_H I_H I_H I_H I_H
+X#define IMPORTANT_END	I_T I_T I_T I_T I_T I_T I_T I_T I_T I_T
+X#else
+X#define IMPORTANT_START
+X#define IMPORTANT_END
+X#endif
+X
+X#define OUTCODES(result, x, y, box) \
+X    if (x < box->x1) \
+X	result |= OUT_LEFT; \
+X    if (x >= box->x2) \
+X	result |= OUT_RIGHT; \
+X    if (y < box->y1) \
+X	result |= OUT_ABOVE; \
+X    if (y >= box->y2) \
+X	result |= OUT_BELOW;
+X
+X#define isClipped(c,ul,lr)  ((((c) - (ul)) | ((lr) - (c))) & ClipMask)
+X
+X#ifdef POLYSEGMENT
+X
+X# ifdef sun
+X#  define WIDTH_FAST  1152
+X# endif
+X
+X# ifdef ultrix
+X#  define WIDTH_FAST  1024
+X# endif
+X
+X# ifdef Mips
+X#  define WIDTH_FAST 4096
+X# endif
+X# ifdef WIDTH_FAST
+X#  if WIDTH_FAST == 1024
+X#   define FAST_MUL(y)	((y) << 10)
+X#  endif
+X
+X#  if WIDTH_FAST == 1152
+X#   define FAST_MUL(y)	(((y) << 10) + ((y) << 7))
+X#  endif
+X
+X#  if WIDTH_FAST == 1280
+X#   define FAST_MUL(y)	(((y) << 10) + ((y) << 8))
+X#  endif
+X
+X#  if WIDTH_FAST == 2048
+X#   define FAST_MUL(y)	((y) << 11)
+X#  endif
+X
+X#  if WIDTH_FAST == 4096
+X#   define FAST_MUL(y)	((y) << 12)
+X#  endif
+X# endif
+X
+X# if defined(WIDTH_SHIFT)
+X#  ifdef FAST_MUL
+X#   define FUNC_NAME(e)	    RROP_NAME(RROP_NAME_CAT(e,Shift))
+X#   if RROP == GXcopy
+X#    define INCLUDE_OTHERS
+X#    define SERIOUS_UNROLLING
+X#   endif
+X#   define INCLUDE_DRAW
+X#   define NWIDTH(nwidth)   WIDTH_FAST
+X#   define WIDTH_MUL(y,w)   FAST_MUL(y)
+X#  endif
+X# else
+X#  define FUNC_NAME(e)	    RROP_NAME(e)
+X#  define WIDTH_MUL(y,w)    ((y) * (w))
+X#  define NWIDTH(nwidth)    (nwidth)
+X#  define INCLUDE_DRAW
+X#  if !defined (FAST_MUL) && RROP == GXcopy
+X#   define INCLUDE_OTHERS
+X#   define SERIOUS_UNROLLING
+X#  endif
+X# endif
+X#else
+X
+X# define INCLUDE_DRAW
+X# define WIDTH_MUL(y,w)	((y) * (w))
+X# define NWIDTH(nwidth)	nwidth
+X# ifdef PREVIOUS
+X#  define FUNC_NAME(e)	RROP_NAME(RROP_NAME_CAT(e,Previous))
+X# else
+X#  define FUNC_NAME(e)	RROP_NAME(e)
+X#  if RROP == GXcopy
+X#   define INCLUDE_OTHERS
+X#   ifdef PLENTIFUL_REGISTERS
+X#    define SAVE_X2Y2
+X#   endif
+X#   define ORIGIN
+X#   define SERIOUS_UNROLLING
+X#  else
+X#   define EITHER_MODE
+X#  endif
+X# endif
+X#endif
+X
+X#ifdef INCLUDE_DRAW
+X
+Xint
+X#ifdef POLYSEGMENT
+XFUNC_NAME(cfb8SegmentSS1Rect) (pDrawable, pGC, nseg, pSegInit)
+X    DrawablePtr	pDrawable;
+X    GCPtr	pGC;
+X    int		nseg;
+X    xSegment	*pSegInit;
+X#else
+XFUNC_NAME(cfb8LineSS1Rect) (pDrawable, pGC, mode, npt, pptInit)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int	mode;		/* Origin or Previous */
+X    int	npt;		/* number of points */
+X    DDXPointPtr pptInit;
+X#endif
+X{
+X    register int    e;
+X    register int    y1_or_e1;
+X    register PixelType   *addrp;
+X    register int    stepmajor;
+X    register int    stepminor;
+X#ifndef REARRANGE
+X    register int    e3;
+X#endif
+X#ifdef mc68000
+X    register short  x1_or_len;
+X#else
+X    register int    x1_or_len;
+X#endif
+X    RROP_DECLARE
+X
+X#ifdef SAVE_X2Y2
+X# define c2 y2
+X#else
+X    register int    c2;
+X#endif
+X
+X    register int    upperleft, lowerright;
+X#ifdef POLYSEGMENT
+X    register int    capStyle;
+X#endif
+X#ifdef SAVE_X2Y2
+X    register int    x2, y2;
+X# define X1  x1_or_len
+X# define Y1  y1_or_e1
+X# define X2  x2
+X# define Y2  y2
+X#else
+X# ifdef POLYSEGMENT
+X#  define X1  x1_or_len
+X#  define Y1  y1_or_e1
+X# else
+X#  define X1  intToX(y1_or_e1)
+X#  define Y1  intToY(y1_or_e1)
+X# endif
+X# define X2  intToX(c2)
+X# define Y2  intToY(c2)
+X#endif
+X    unsigned long    ClipMask = 0x80008000;
+X    PixelType	    *addr;
+X    int		    nwidth;
+X    cfbPrivGCPtr    devPriv;
+X    BoxPtr	    extents;
+X    int		    *ppt;
+X
+X    devPriv = (cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr); 
+X    cfbGetPixelWidthAndPointer (pDrawable, nwidth, addr);
+X#ifndef REARRANGE
+X    RROP_FETCH_GCPRIV(devPriv);
+X#endif
+X    extents = &devPriv->pCompositeClip->extents;
+X    c2 = *((int *) &pDrawable->x);
+X    c2 -= (c2 & 0x8000) << 1;
+X    upperleft = *((int *) &extents->x1) - c2;
+X    lowerright = *((int *) &extents->x2) - c2 - 0x00010001;
+X    addr = addr + WIDTH_MUL(pDrawable->y,nwidth) + pDrawable->x;
+X#ifdef POLYSEGMENT
+X    capStyle = pGC->capStyle - CapNotLast;
+X    ppt = (int *) pSegInit;
+X    while (nseg--)
+X#else
+X
+X#ifdef EITHER_MODE
+X    mode -= CoordModePrevious;
+X#endif
+X    ppt = (int *) pptInit;
+X    c2 = *ppt++;
+X    if (isClipped (c2, upperleft, lowerright))
+X    {
+X#ifndef ORIGIN
+X#ifdef EITHER_MODE
+X	if (!mode)
+X#endif
+X	{
+X	    e = *ppt;
+X	    *ppt = e + c2 - ((e & 0x8000) << 1);
+X	}
+X#endif	
+X	return 1;
+X    }
+X#ifdef SAVE_X2Y2
+X    intToCoord(c2,x2,y2);
+X#endif
+X    addrp = addr + WIDTH_MUL(Y2, nwidth) + X2;
+X    while (--npt)
+X#endif
+X    {
+X#ifdef POLYSEGMENT
+X	y1_or_e1 = ppt[0];
+X	c2 = ppt[1];
+X	ppt += 2;
+X	if (isClipped(y1_or_e1,upperleft,lowerright)|isClipped(c2,upperleft,lowerright))
+X	    break;
+X	intToCoord(y1_or_e1,x1_or_len,y1_or_e1);
+X	/* compute now to avoid needing x1, y1 later */
+X	addrp = addr + WIDTH_MUL(y1_or_e1, nwidth) + x1_or_len;
+X#else
+X#ifndef SAVE_X2Y2
+X	y1_or_e1 = c2;
+X#else
+X	y1_or_e1 = y2;
+X	x1_or_len = x2;
+X#endif
+X#ifndef ORIGIN
+X	e = c2;
+X	c2 = *ppt++;
+X#ifdef EITHER_MODE
+X	if (!mode)
+X#endif
+X	    c2 = c2 + e - ((c2 & 0x8000) << 1);
+X#else
+X	c2 = *ppt++;
+X#endif
+X	if (isClipped (c2, upperleft, lowerright))
+X	{
+X#ifndef ORIGIN
+X#ifdef EITHER_MODE
+X	    if (!mode)
+X#endif
+X	    {
+X		ppt[-2] = e;
+X		ppt[-1] = c2;
+X	    }
+X#endif
+X	    break;
+X	}
+X#ifdef SAVE_X2Y2
+X	intToCoord(c2,x2,y2);
+X#endif
+X#endif
+X	stepmajor = 1;
+X	if ((x1_or_len = X2 - X1) < 0)
+X	{
+X	    x1_or_len = -x1_or_len;
+X	    stepmajor = -1;
+X	}
+X	stepminor = NWIDTH(nwidth);
+X	if ((y1_or_e1 = Y2 - Y1) < 0)
+X	{
+X	    y1_or_e1 = -y1_or_e1;
+X	    stepminor = -stepminor;
+X	}
+X#ifdef POLYSEGMENT
+X	/*
+X	 * although the horizontal code works for polyline, it
+X	 * slows down 10 pixel lines by 15%.  Thus, this
+X	 * code is optimized for horizontal segments and
+X	 * random orientation lines, which seems like a reasonable
+X	 * assumption
+X	 */
+X	if (y1_or_e1 != 0)
+X	{
+X#endif
+X	if (x1_or_len < y1_or_e1)
+X	{
+X#ifdef REARRANGE
+X	    register int	e3;
+X#endif
+X
+X	    e3 = x1_or_len;
+X	    x1_or_len = y1_or_e1;
+X	    y1_or_e1 = e3;
+X
+X	    e3 = stepminor;
+X	    stepminor = stepmajor;
+X	    stepmajor = e3;
+X	}
+X
+X	e = -x1_or_len;
+X#ifdef POLYSEGMENT
+X	if (!capStyle)
+X	    x1_or_len--;
+X#endif
+X
+X	{
+X#ifdef REARRANGE
+X	register int e3;
+X	RROP_DECLARE
+X	RROP_FETCH_GCPRIV(devPriv);
+X#endif
+X
+X	y1_or_e1 = y1_or_e1 << 1;
+X	e3 = e << 1;
+X
+X#define body {\
+X	    RROP_SOLID(addrp); \
+X	    addrp += stepmajor; \
+X	    e += y1_or_e1; \
+X	    if (e >= 0) \
+X	    { \
+X		addrp += stepminor; \
+X		e += e3; \
+X	     } \
+X	}
+X
+X#ifdef LARGE_INSTRUCTION_CACHE
+X
+X# ifdef SERIOUS_UNROLLING
+X#  define UNROLL	16
+X# else
+X#  define UNROLL	4
+X# endif
+X# define CASE(n)	case -n: body
+X
+X	while ((x1_or_len -= UNROLL) >= 0)
+X	{
+X	    body body body body
+X# if UNROLL >= 8
+X	    body body body body
+X# endif
+X# if UNROLL >= 12
+X	    body body body body
+X# endif
+X# if UNROLL >= 16
+X	    body body body body
+X# endif
+X	}
+X	switch (x1_or_len)
+X	{
+X	CASE(1) CASE(2) CASE(3)
+X# if UNROLL >= 8
+X	CASE(4) CASE(5) CASE(6) CASE(7)
+X# endif
+X# if UNROLL >= 12
+X	CASE(8) CASE(9) CASE(10) CASE(11)
+X# endif
+X# if UNROLL >= 16
+X	CASE(12) CASE(13) CASE(14) CASE(15)
+X# endif
+X	}
+X#else
+X
+X	IMPORTANT_START
+X	IMPORTANT_START
+X
+X	if (x1_or_len & 1)
+X	    body
+X	x1_or_len >>= 1;
+X	while (x1_or_len--) {
+X	    body body
+X	}
+X
+X	IMPORTANT_END
+X	IMPORTANT_END
+X#endif
+X
+X#ifdef POLYSEGMENT
+X	RROP_SOLID(addrp);
+X#endif
+X	}
+X#undef body
+X#ifdef POLYSEGMENT
+X	}
+X	else
+X	{
+X# ifndef POLYSEGMENT
+X	    PixelType    *t;
+X#endif
+X
+X# ifdef REARRANGE
+X	    register int    e3;
+X	    RROP_DECLARE
+X	    RROP_FETCH_GCPRIV(devPriv);
+X# endif
+X	    if (stepmajor < 0)
+X	    {
+X		addrp -= x1_or_len;
+X# ifndef POLYSEGMENT
+X		t = addrp;
+X# else
+X		if (capStyle)
+X		    x1_or_len++;
+X		else
+X# endif
+X		    addrp++;
+X	    }
+X	    else
+X	    {
+X# ifndef POLYSEGMENT
+X		t = addrp + x1_or_len;
+X# else
+X		if (capStyle)
+X		    x1_or_len++;
+X# endif
+X	    }
+X	    y1_or_e1 = ((int) addrp) & PIM;
+X	    addrp = addrp - y1_or_e1;
+X	    if (y1_or_e1 + x1_or_len <= PPW)
+X	    {
+X		if (x1_or_len)
+X		{
+X		    maskpartialbits(y1_or_e1, x1_or_len, e)
+X		    RROP_SOLID_MASK((unsigned long *) addrp, e);
+X		}
+X	    }
+X	    else
+X	    {
+X	    	maskbits(y1_or_e1, x1_or_len, e, e3, x1_or_len)
+X	    	if (e)
+X	    	{
+X		    RROP_SOLID_MASK((unsigned long *) addrp, e);
+X		    addrp += sizeof (unsigned long) / sizeof (PixelType);
+X	    	}
+X		RROP_SPAN(addrp, x1_or_len)
+X	    	if (e3)
+X		    RROP_SOLID_MASK((unsigned long *) addrp, e3);
+X	    }
+X# ifndef POLYSEGMENT
+X	    addrp = t;
+X# endif
+X	}
+X#endif
+X    }
+X#ifdef POLYSEGMENT
+X    if (nseg >= 0)
+X	return (xSegment *) ppt - pSegInit;
+X#else
+X    if (npt)
+X	return ((DDXPointPtr) ppt - pptInit) - 1;
+X#endif
+X
+X#ifndef POLYSEGMENT
+X# ifndef ORIGIN
+X#  define C2  c2
+X# else
+X#  define C2  ppt[-1]
+X# endif
+X    if (pGC->capStyle != CapNotLast && C2 != *((int *) pptInit))
+X    {
+X# ifdef REARRANGE
+X	RROP_DECLARE
+X
+X	RROP_FETCH_GCPRIV(devPriv);
+X# endif
+X	RROP_SOLID (addrp);
+X    }
+X#endif
+X    return -1;
+X}
+X
+X#endif /* INCLUDE_DRAW */
+X
+X
+X#ifdef INCLUDE_OTHERS
+X
+Xextern void cfb8ClippedLineCopy(), cfb8ClippedLineXor(), cfb8ClippedLineGeneral(); 
+X
+X#ifdef POLYSEGMENT
+X
+Xextern int cfb8SegmentSS1RectCopy(), cfb8SegmentSS1RectXor(), cfb8SegmentSS1RectGeneral(); 
+X#ifdef FAST_MUL
+Xextern int cfb8SegmentSS1RectShiftCopy();
+X#endif
+X
+Xvoid
+Xcfb8SegmentSS1Rect (pDrawable, pGC, nseg, pSegInit)
+X    DrawablePtr	    pDrawable;
+X    GCPtr	    pGC;
+X    int		    nseg;
+X    xSegment	    *pSegInit;
+X{
+X    int	    (*func)();
+X    void    (*clip)();
+X    int	    drawn;
+X    cfbPrivGCPtr    devPriv;
+X
+X    devPriv = (cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr); 
+X    switch (devPriv->rop)
+X    {
+X    case GXcopy:
+X	func = cfb8SegmentSS1RectCopy;
+X	clip = cfb8ClippedLineCopy;
+X#ifdef FAST_MUL
+X	if (cfbGetByteWidth (pDrawable) == WIDTH_FAST)
+X	    func = cfb8SegmentSS1RectShiftCopy;
+X#endif
+X	break;
+X    case GXxor:
+X	func = cfb8SegmentSS1RectXor;
+X	clip = cfb8ClippedLineXor;
+X	break;
+X    default:
+X	func = cfb8SegmentSS1RectGeneral;
+X	clip = cfb8ClippedLineGeneral;
+X	break;
+X    }
+X    while (nseg)
+X    {
+X	drawn = (*func) (pDrawable, pGC, nseg, pSegInit);
+X	if (drawn == -1)
+X	    break;
+X	(*clip) (pDrawable, pGC,
+X			 pSegInit[drawn-1].x1, pSegInit[drawn-1].y1,
+X			 pSegInit[drawn-1].x2, pSegInit[drawn-1].y2,
+X			 &devPriv->pCompositeClip->extents,
+X			 pGC->capStyle == CapNotLast);
+X	pSegInit += drawn;
+X	nseg -= drawn;
+X    }
+X}
+X
+X#else /* POLYSEGMENT */
+X
+Xextern int cfb8LineSS1RectCopy(), cfb8LineSS1RectXor(), cfb8LineSS1RectGeneral(); 
+Xextern int cfb8LineSS1RectPreviousCopy();
+X
+Xvoid
+Xcfb8LineSS1Rect (pDrawable, pGC, mode, npt, pptInit)
+X    DrawablePtr	pDrawable;
+X    GCPtr	pGC;
+X    int		mode;
+X    int		npt;
+X    DDXPointPtr	pptInit;
+X{
+X    int	    (*func)();
+X    void    (*clip)();
+X    int	    drawn;
+X    cfbPrivGCPtr    devPriv;
+X
+X    devPriv = (cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr); 
+X    switch (devPriv->rop)
+X    {
+X    case GXcopy:
+X	func = cfb8LineSS1RectCopy;
+X	clip = cfb8ClippedLineCopy;
+X	if (mode == CoordModePrevious)
+X	    func = cfb8LineSS1RectPreviousCopy;
+X	break;
+X    case GXxor:
+X	func = cfb8LineSS1RectXor;
+X	clip = cfb8ClippedLineXor;
+X	break;
+X    default:
+X	func = cfb8LineSS1RectGeneral;
+X	clip = cfb8ClippedLineGeneral;
+X	break;
+X    }
+X    while (npt > 1)
+X    {
+X	drawn = (*func) (pDrawable, pGC, mode, npt, pptInit);
+X	if (drawn == -1)
+X	    break;
+X	(*clip) (pDrawable, pGC,
+X			 pptInit[drawn-1].x, pptInit[drawn-1].y,
+X			 pptInit[drawn].x, pptInit[drawn].y,
+X			 &devPriv->pCompositeClip->extents,
+X			 drawn != npt - 1 || pGC->capStyle == CapNotLast);
+X	pptInit += drawn;
+X	npt -= drawn;
+X    }
+X}
+X
+X#define round(dividend, divisor) \
+X( (((dividend)<<1) + (divisor)) / ((divisor)<<1) )
+X#define ceiling(m,n)  (((m)-1)/(n) + 1)
+X#define SignTimes(sign,n)   (((sign) < 0) ? -(n) : (n))
+X
+XcfbClipPoint (oc, xp, yp, dx, dy, boxp)
+X    int	oc;
+X    int	*xp, *yp;
+X    BoxPtr  boxp;
+X{
+X    int	x, y;
+X    int	adx, ady, signdx, signdy;
+X    int	utmp;
+X    
+X    signdx = 1;
+X    if (dx < 0)
+X    {
+X    	signdx = -1;
+X    	dx = -dx;
+X    }
+X    signdy = 1;
+X    if (dy  < 0)
+X    {
+X    	signdy = -1;
+X    	dy = -dy;
+X    }
+X    if (oc & (OUT_LEFT | OUT_RIGHT))
+X    {
+X    	if (oc & OUT_LEFT)
+X    	{
+X	    x = boxp->x1;
+X	    utmp = x - *xp;
+X    	}
+X    	else
+X    	{
+X	    x = boxp->x2 - 1;
+X	    utmp = *xp - x;
+X    	}
+X    	utmp *= dy;
+X	if (dy > dx)
+X	{
+X	    utmp = (utmp << 1) - dy + 1;
+X	    y = *yp + SignTimes(signdy, ceiling(utmp, (dx << 1)));
+X	}
+X	else
+X	{
+X    	    y = *yp + SignTimes(signdy, round(utmp, dx));
+X	}
+X	oc = 0;
+X	OUTCODES (oc, x, y, boxp);
+X    }
+X    if (oc & (OUT_ABOVE | OUT_BELOW))
+X    {
+X    	if (oc & OUT_ABOVE)
+X    	{
+X    	    y = boxp->y1;
+X    	    utmp = y - *yp;
+X    	}
+X    	else
+X    	{
+X    	    y = boxp->y2 - 1;
+X    	    utmp = *yp - y;
+X    	}
+X	utmp *= dx;
+X	if (dx > dy)
+X	{
+X	    utmp = (utmp << 1) - dx + 1;
+X	    x = *xp + SignTimes(signdx, ceiling(utmp, (dy << 1)));
+X	}
+X	else
+X	{
+X	    x = *xp + SignTimes(signdx, round(utmp, dy));
+X	}
+X	oc = 0;
+X	OUTCODES (oc, x, y, boxp);
+X    }
+X    *xp = x;
+X    *yp = y;
+X    return oc;
+X}
+X
+X#endif /* else POLYSEGMENT */
+X#endif /* INCLUDE_OTHERS */
+X
+X#if !defined(POLYSEGMENT) && !defined (PREVIOUS)
+X
+Xvoid
+XRROP_NAME (cfb8ClippedLine) (pDrawable, pGC, x1, y1, x2, y2, boxp, shorten)
+X    DrawablePtr	pDrawable;
+X    GCPtr	pGC;
+X    int		x1, y1, x2, y2;
+X    BoxPtr	boxp;
+X    Bool	shorten;
+X{
+X    int		    oc1, oc2;
+X    int		    signdx, signdy, axis, e, e1, e3, len;
+X    int		    adx, ady;
+X
+X    PixelType	    *addr;
+X    int		    nwidth;
+X    int		    stepx, stepy;
+X    int		    xorg, yorg;
+X
+X
+X    cfbGetPixelWidthAndPointer(pDrawable, nwidth, addr);
+X
+X    xorg = pDrawable->x;
+X    yorg = pDrawable->y;
+X    x1 += xorg;
+X    y1 += yorg;
+X    x2 += xorg;
+X    y2 += yorg;
+X    oc1 = 0;
+X    oc2 = 0;
+X    OUTCODES (oc1, x1, y1, boxp);
+X    OUTCODES (oc2, x2, y2, boxp);
+X
+X    if (oc1 & oc2)
+X	return;
+X
+X    signdx = 1;
+X    stepx = 1;
+X    if ((adx = x2 - x1) < 0)
+X    {
+X	adx = -adx;
+X	signdx = -1;
+X	stepx = -1;
+X    }
+X    signdy = 1;
+X    stepy = nwidth;
+X    if ((ady = y2 - y1) < 0)
+X    {
+X	ady = -ady;
+X	signdy = -1;
+X	stepy = -nwidth;
+X    }
+X    axis = X_AXIS;
+X    if (adx <= ady)
+X    {
+X	int	t;
+X
+X	t = adx;
+X	adx = ady;
+X	ady = t;
+X
+X	t = stepx;
+X	stepx = stepy;
+X	stepy = t;
+X	
+X	axis = Y_AXIS;
+X    }
+X    e1 = ady << 1;
+X    e3 = - (adx << 1);
+X    e = - adx;
+X    len = adx;
+X    if (oc2)
+X    {
+X	int xt = x2, yt = y2;
+X	int	dx = x2 - x1, dy = y2 - y1;
+X	int change;
+X
+X	oc2 = cfbClipPoint (oc2, &xt, &yt, -dx, -dy, boxp);
+X	if (axis == Y_AXIS)
+X	    change = y2 - yt;
+X	else
+X	    change = x2 - xt;
+X	if (change < 0)
+X	    change = -change;
+X	len -= change;
+X    } else if (shorten)
+X	len--;
+X    if (oc1)
+X    {
+X	int	xt = x1, yt = y1;
+X	int	dx = x2 - x1, dy = y2 - y1;
+X	int	changex, changey;
+X
+X	oc1 = cfbClipPoint (oc1, &xt, &yt, dx, dy, boxp);
+X	changex = x1 - xt;
+X	if (changex < 0)
+X	    changex = -changex;
+X	changey = y1 - yt;
+X	if (changey < 0)
+X	    changey = -changey;
+X	if (axis == X_AXIS)
+X	{
+X	    len -= changex;
+X	    e = e + changey * e3 + changex * e1;
+X	}
+X	else
+X	{
+X	    len -= changey;
+X	    e = e + changex * e3 + changey * e1;
+X	}
+X	x1 = xt;
+X	y1 = yt;
+X    }
+X    if (oc1 | oc2 || len < 0)
+X	return;
+X
+X    {
+X    register PixelType	*addrp;
+X    RROP_DECLARE
+X
+X    RROP_FETCH_GC(pGC);
+X
+X    addrp = addr + (y1 * nwidth) + x1;
+X
+X#ifndef REARRANGE
+X    if (!ady)
+X    {
+X#define body	{ RROP_SOLID(addrp); addrp += stepx; }
+X	while (len >= 4)
+X	{
+X	    body body body body
+X	    len -= 4;
+X	}
+X	switch (len)
+X	{
+X	case  3: body case 2: body case 1: body
+X	}
+X#undef body
+X    }
+X    else
+X#endif
+X    {
+X#define body {\
+X	    RROP_SOLID(addrp); \
+X	    addrp += stepx; \
+X	    e += e1; \
+X	    if (e >= 0) \
+X	    { \
+X		addrp += stepy; \
+X		e += e3; \
+X	     } \
+X	}
+X
+X#ifdef LARGE_INSTRUCTION_CACHE
+X	while ((len -= 4) >= 0)
+X	{
+X	    body body body body
+X	}
+X	switch (len)
+X	{
+X	case  -1: body case -2: body case -3: body
+X	}
+X#else
+X	IMPORTANT_START
+X
+X	while ((len -= 2) >= 0)
+X	{
+X	    body body
+X	}
+X	if (len & 1)
+X	    body;
+X
+X	IMPORTANT_END
+X
+X#endif
+X    }
+X    RROP_SOLID(addrp);
+X#undef body
+X
+X    }
+X}
+X
+X#endif /* !POLYSEGMENT && !PREVIOUS */
+X#endif /* PIXEL_ADDR */
+END_OF_FILE
+if test 17344 -ne `wc -c <'server/ddx/cfb32/cfb8line.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfb8line.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfb8line.c'
+fi
+if test -f 'server/ddx/cfb32/cfbbitblt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbbitblt.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbbitblt.c'\" \(18385 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbbitblt.c' <<'END_OF_FILE'
+X/*
+X * cfb copy area
+X */
+X
+X/*
+XCopyright 1989 by the Massachusetts Institute of Technology
+X
+XPermission to use, copy, modify, and distribute this software and its
+Xdocumentation for any purpose and without fee is hereby granted,
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in
+Xsupporting documentation, and that the name of M.I.T. not be used in
+Xadvertising or publicity pertaining to distribution of the software
+Xwithout specific, written prior permission.  M.I.T. makes no
+Xrepresentations about the suitability of this software for any
+Xpurpose.  It is provided "as is" without express or implied warranty.
+X
+XAuthor: Keith Packard
+X
+X*/
+X/* $XConsortium: cfbbitblt.c,v 5.43 91/07/19 23:20:45 keith Exp $ */
+X
+X#include	"X.h"
+X#include	"Xmd.h"
+X#include	"Xproto.h"
+X#include	"gcstruct.h"
+X#include	"windowstr.h"
+X#include	"scrnintstr.h"
+X#include	"pixmapstr.h"
+X#include	"regionstr.h"
+X#include	"cfb.h"
+X#include	"cfbmskbits.h"
+X#include	"cfb8bit.h"
+X#include	"fastblt.h"
+X
+XRegionPtr
+XcfbBitBlt (pSrcDrawable, pDstDrawable,
+X            pGC, srcx, srcy, width, height, dstx, dsty, doBitBlt, bitPlane)
+X    register DrawablePtr pSrcDrawable;
+X    register DrawablePtr pDstDrawable;
+X    GC *pGC;
+X    int srcx, srcy;
+X    int width, height;
+X    int dstx, dsty;
+X    int	(*doBitBlt)();
+X    unsigned long bitPlane;
+X{
+X    RegionPtr prgnSrcClip;	/* may be a new region, or just a copy */
+X    Bool freeSrcClip = FALSE;
+X
+X    RegionPtr prgnExposed;
+X    RegionRec rgnDst;
+X    DDXPointPtr pptSrc;
+X    register DDXPointPtr ppt;
+X    register BoxPtr pbox;
+X    int i;
+X    register int dx;
+X    register int dy;
+X    xRectangle origSource;
+X    DDXPointRec origDest;
+X    int numRects;
+X    BoxRec fastBox;
+X    int fastClip = 0;		/* for fast clipping with pixmap source */
+X    int fastExpose = 0;		/* for fast exposures with pixmap source */
+X
+X    origSource.x = srcx;
+X    origSource.y = srcy;
+X    origSource.width = width;
+X    origSource.height = height;
+X    origDest.x = dstx;
+X    origDest.y = dsty;
+X
+X    if ((pSrcDrawable != pDstDrawable) &&
+X	pSrcDrawable->pScreen->SourceValidate)
+X    {
+X	(*pSrcDrawable->pScreen->SourceValidate) (pSrcDrawable, srcx, srcy, width, height);
+X    }
+X
+X    srcx += pSrcDrawable->x;
+X    srcy += pSrcDrawable->y;
+X
+X    /* clip the source */
+X
+X    if (pSrcDrawable->type == DRAWABLE_PIXMAP)
+X    {
+X	if ((pSrcDrawable == pDstDrawable) &&
+X	    (pGC->clientClipType == CT_NONE))
+X	{
+X	    prgnSrcClip = ((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip;
+X	}
+X	else
+X	{
+X	    fastClip = 1;
+X	}
+X    }
+X    else
+X    {
+X	if (pGC->subWindowMode == IncludeInferiors)
+X	{
+X	    if (!((WindowPtr) pSrcDrawable)->parent)
+X	    {
+X		/*
+X		 * special case bitblt from root window in
+X		 * IncludeInferiors mode; just like from a pixmap
+X		 */
+X		fastClip = 1;
+X	    }
+X	    else if ((pSrcDrawable == pDstDrawable) &&
+X		(pGC->clientClipType == CT_NONE))
+X	    {
+X		prgnSrcClip = ((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip;
+X	    }
+X	    else
+X	    {
+X		prgnSrcClip = NotClippedByChildren((WindowPtr)pSrcDrawable);
+X		freeSrcClip = TRUE;
+X	    }
+X	}
+X	else
+X	{
+X	    prgnSrcClip = &((WindowPtr)pSrcDrawable)->clipList;
+X	}
+X    }
+X
+X    fastBox.x1 = srcx;
+X    fastBox.y1 = srcy;
+X    fastBox.x2 = min(65535,srcx + width);
+X    fastBox.y2 = min(65535,srcy + height);
+X
+X    /* Don't create a source region if we are doing a fast clip */
+X    if (fastClip)
+X    {
+X	fastExpose = 1;
+X	/*
+X	 * clip the source; if regions extend beyond the source size,
+X 	 * make sure exposure events get sent
+X	 */
+X	if (fastBox.x1 < pSrcDrawable->x)
+X	{
+X	    fastBox.x1 = pSrcDrawable->x;
+X	    fastExpose = 0;
+X	}
+X	if (fastBox.y1 < pSrcDrawable->y)
+X	{
+X	    fastBox.y1 = pSrcDrawable->y;
+X	    fastExpose = 0;
+X	}
+X	if (fastBox.x2 > pSrcDrawable->x + (int) pSrcDrawable->width)
+X	{
+X	    fastBox.x2 = pSrcDrawable->x + (int) pSrcDrawable->width;
+X	    fastExpose = 0;
+X	}
+X	if (fastBox.y2 > pSrcDrawable->y + (int) pSrcDrawable->height)
+X	{
+X	    fastBox.y2 = pSrcDrawable->y + (int) pSrcDrawable->height;
+X	    fastExpose = 0;
+X	}
+X    }
+X    else
+X    {
+X	(*pGC->pScreen->RegionInit)(&rgnDst, &fastBox, 1);
+X	(*pGC->pScreen->Intersect)(&rgnDst, &rgnDst, prgnSrcClip);
+X    }
+X
+X    dstx += pDstDrawable->x;
+X    dsty += pDstDrawable->y;
+X
+X    if (pDstDrawable->type == DRAWABLE_WINDOW)
+X    {
+X	if (!((WindowPtr)pDstDrawable)->realized)
+X	{
+X	    if (!fastClip)
+X		(*pGC->pScreen->RegionUninit)(&rgnDst);
+X	    if (freeSrcClip)
+X		(*pGC->pScreen->RegionDestroy)(prgnSrcClip);
+X	    return NULL;
+X	}
+X    }
+X
+X    dx = srcx - dstx;
+X    dy = srcy - dsty;
+X
+X    /* Translate and clip the dst to the destination composite clip */
+X    if (fastClip)
+X    {
+X	RegionPtr cclip;
+X
+X        /* Translate the region directly */
+X        fastBox.x1 -= dx;
+X        fastBox.x2 -= dx;
+X        fastBox.y1 -= dy;
+X        fastBox.y2 -= dy;
+X
+X	/* If the destination composite clip is one rectangle we can
+X	   do the clip directly.  Otherwise we have to create a full
+X	   blown region and call intersect */
+X
+X	/* XXX because CopyPlane uses this routine for 8-to-1 bit
+X	 * copies, this next line *must* also correctly fetch the
+X	 * composite clip from an mfb gc
+X	 */
+X
+X	cclip = ((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip;
+X        if (REGION_NUM_RECTS(cclip) == 1)
+X        {
+X	    BoxPtr pBox = REGION_RECTS(cclip);
+X
+X	    if (fastBox.x1 < pBox->x1) fastBox.x1 = pBox->x1;
+X	    if (fastBox.x2 > pBox->x2) fastBox.x2 = pBox->x2;
+X	    if (fastBox.y1 < pBox->y1) fastBox.y1 = pBox->y1;
+X	    if (fastBox.y2 > pBox->y2) fastBox.y2 = pBox->y2;
+X
+X	    /* Check to see if the region is empty */
+X	    if (fastBox.x1 >= fastBox.x2 || fastBox.y1 >= fastBox.y2)
+X		(*pGC->pScreen->RegionInit)(&rgnDst, NullBox, 0);
+X	    else
+X		(*pGC->pScreen->RegionInit)(&rgnDst, &fastBox, 1);
+X	}
+X        else
+X	{
+X	    /* We must turn off fastClip now, since we must create
+X	       a full blown region.  It is intersected with the
+X	       composite clip below. */
+X	    fastClip = 0;
+X	    (*pGC->pScreen->RegionInit)(&rgnDst, &fastBox,1);
+X	}
+X    }
+X    else
+X    {
+X        (*pGC->pScreen->TranslateRegion)(&rgnDst, -dx, -dy);
+X    }
+X
+X    if (!fastClip)
+X    {
+X	(*pGC->pScreen->Intersect)(&rgnDst,
+X				   &rgnDst,
+X				 ((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip);
+X    }
+X
+X    /* Do bit blitting */
+X    numRects = REGION_NUM_RECTS(&rgnDst);
+X    if (numRects && width && height)
+X    {
+X	if(!(pptSrc = (DDXPointPtr)ALLOCATE_LOCAL(numRects *
+X						  sizeof(DDXPointRec))))
+X	{
+X	    (*pGC->pScreen->RegionUninit)(&rgnDst);
+X	    if (freeSrcClip)
+X		(*pGC->pScreen->RegionDestroy)(prgnSrcClip);
+X	    return NULL;
+X	}
+X	pbox = REGION_RECTS(&rgnDst);
+X	ppt = pptSrc;
+X	for (i = numRects; --i >= 0; pbox++, ppt++)
+X	{
+X	    ppt->x = pbox->x1 + dx;
+X	    ppt->y = pbox->y1 + dy;
+X	}
+X
+X	(*doBitBlt) (pSrcDrawable, pDstDrawable, pGC->alu, &rgnDst, pptSrc, pGC->planemask, bitPlane);
+X	DEALLOCATE_LOCAL(pptSrc);
+X    }
+X
+X    prgnExposed = NULL;
+X    if (((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->fExpose)
+X    {
+X	extern RegionPtr    miHandleExposures();
+X
+X        /* Pixmap sources generate a NoExposed (we return NULL to do this) */
+X        if (!fastExpose)
+X	    prgnExposed =
+X		miHandleExposures(pSrcDrawable, pDstDrawable, pGC,
+X				  origSource.x, origSource.y,
+X				  (int)origSource.width,
+X				  (int)origSource.height,
+X				  origDest.x, origDest.y, bitPlane);
+X    }
+X    (*pGC->pScreen->RegionUninit)(&rgnDst);
+X    if (freeSrcClip)
+X	(*pGC->pScreen->RegionDestroy)(prgnSrcClip);
+X    return prgnExposed;
+X}
+X
+Xextern int  cfbDoBitbltCopy();
+Xextern int  cfbDoBitbltXor();
+Xextern int  cfbDoBitbltOr();
+Xextern int  cfbDoBitbltGeneral();
+X
+XcfbDoBitblt (pSrc, pDst, alu, prgnDst, pptSrc, planemask)
+X    DrawablePtr	    pSrc, pDst;
+X    int		    alu;
+X    RegionPtr	    prgnDst;
+X    DDXPointPtr	    pptSrc;
+X    unsigned long   planemask;
+X{
+X    int	(*blt)() = cfbDoBitbltGeneral;
+X    if ((planemask & PMSK) == PMSK) {
+X	switch (alu) {
+X	case GXcopy:
+X	    blt = cfbDoBitbltCopy;
+X	    break;
+X	case GXxor:
+X	    blt = cfbDoBitbltXor;
+X	    break;
+X	case GXor:
+X	    blt = cfbDoBitbltOr;
+X	    break;
+X	}
+X    }
+X    return (*blt) (pSrc, pDst, alu, prgnDst, pptSrc, planemask);
+X}
+X
+XRegionPtr
+XcfbCopyArea(pSrcDrawable, pDstDrawable,
+X            pGC, srcx, srcy, width, height, dstx, dsty)
+X    register DrawablePtr pSrcDrawable;
+X    register DrawablePtr pDstDrawable;
+X    GC *pGC;
+X    int srcx, srcy;
+X    int width, height;
+X    int dstx, dsty;
+X{
+X    int	(*doBitBlt) ();
+X    
+X    doBitBlt = cfbDoBitbltCopy;
+X    if (pGC->alu != GXcopy || (pGC->planemask & PMSK) != PMSK)
+X    {
+X	doBitBlt = cfbDoBitbltGeneral;
+X	if ((pGC->planemask & PMSK) == PMSK)
+X	{
+X	    switch (pGC->alu) {
+X	    case GXxor:
+X		doBitBlt = cfbDoBitbltXor;
+X		break;
+X	    case GXor:
+X		doBitBlt = cfbDoBitbltOr;
+X		break;
+X	    }
+X	}
+X    }
+X    return cfbBitBlt (pSrcDrawable, pDstDrawable,
+X            pGC, srcx, srcy, width, height, dstx, dsty, doBitBlt, 0);
+X}
+X
+X#if (PPW == 4)
+X
+XcfbCopyPlane1to8 (pSrcDrawable, pDstDrawable, rop, prgnDst, pptSrc, planemask, bitPlane)
+X    DrawablePtr pSrcDrawable;
+X    DrawablePtr pDstDrawable;
+X    int	rop;
+X    unsigned long planemask;
+X    RegionPtr prgnDst;
+X    DDXPointPtr pptSrc;
+X    unsigned long   bitPlane;
+X{
+X    int	srcx, srcy, dstx, dsty, width, height;
+X    int xoffSrc, xoffDst;
+X    unsigned long *psrcBase, *pdstBase;
+X    int	widthSrc, widthDst;
+X    unsigned long *psrcLine, *pdstLine;
+X    register unsigned long *psrc, *pdst;
+X    register unsigned long bits, tmp;
+X    register int leftShift, rightShift;
+X    unsigned long startmask, endmask;
+X    register int nl, nlMiddle;
+X    int firstoff, secondoff;
+X    unsigned long    src;
+X    int nbox;
+X    BoxPtr  pbox;
+X
+X    cfbGetLongWidthAndPointer (pSrcDrawable, widthSrc, psrcBase)
+X
+X    cfbGetLongWidthAndPointer (pDstDrawable, widthDst, pdstBase)
+X
+X    nbox = REGION_NUM_RECTS(prgnDst);
+X    pbox = REGION_RECTS(prgnDst);
+X    while (nbox--)
+X    {
+X	dstx = pbox->x1;
+X	dsty = pbox->y1;
+X	srcx = pptSrc->x;
+X	srcy = pptSrc->y;
+X	width = pbox->x2 - pbox->x1;
+X	height = pbox->y2 - pbox->y1;
+X	pbox++;
+X	pptSrc++;
+X	psrcLine = psrcBase + srcy * widthSrc + (srcx >> 5);
+X	pdstLine = pdstBase + dsty * widthDst + (dstx >> 2);
+X	xoffSrc = srcx & 0x1f;
+X	xoffDst = dstx & 0x3;
+X	if (xoffDst + width < 4)
+X	{
+X	    maskpartialbits(dstx, width, startmask);
+X	    endmask = 0;
+X	    nlMiddle = 0;
+X	}
+X	else
+X	{
+X	    maskbits(dstx, width, startmask, endmask, nlMiddle);
+X	}
+X	/*
+X	 * compute constants for the first four bits to be
+X	 * copied.  This avoids troubles with partial first
+X	 * writes, and difficult shift computation
+X	 */
+X	if (startmask)
+X	{
+X	    firstoff = xoffSrc - xoffDst;
+X	    if (firstoff > 28)
+X		secondoff = 32 - firstoff;
+X	    if (xoffDst)
+X	    {
+X	    	srcx += (4-xoffDst);
+X	    	dstx += (4-xoffDst);
+X	    	xoffSrc = srcx & 0x1f;
+X	    }
+X	}
+X	leftShift = xoffSrc;
+X	rightShift = 32 - leftShift;
+X	if (cfb8StippleRRop == GXcopy)
+X	{
+X	    while (height--)
+X	    {
+X	    	psrc = psrcLine;
+X	    	pdst = pdstLine;
+X	    	psrcLine += widthSrc;
+X	    	pdstLine += widthDst;
+X	    	bits = *psrc++;
+X	    	if (startmask)
+X	    	{
+X		    if (firstoff < 0)
+X		    	tmp = BitRight (bits, -firstoff);
+X		    else
+X		    {
+X		    	tmp = BitLeft (bits, firstoff);
+X			/*
+X			 * need a more cautious test for partialmask
+X			 * case...
+X			 */
+X		    	if (firstoff >= 28)
+X		    	{
+X			    bits = *psrc++;
+X			    if (firstoff != 28)
+X				tmp |= BitRight (bits, secondoff);
+X		    	}
+X		    }
+X		    *pdst = *pdst & ~startmask | GetFourPixels(tmp) & startmask;
+X		    pdst++;
+X	    	}
+X	    	nl = nlMiddle;
+X	    	while (nl >= 8)
+X	    	{
+X		    nl -= 8;
+X		    tmp = BitLeft(bits, leftShift);
+X		    bits = *psrc++;
+X		    if (rightShift != 32)
+X		    	tmp |= BitRight(bits, rightShift);
+X
+X#ifdef FAST_CONSTANT_OFFSET_MODE
+X# define StorePixels(pdst,o,pixels)	(pdst)[o] = (pixels)
+X# define EndStep(pdst,o)		(pdst) += (o)
+X# define StoreRopPixels(pdst,o,and,xor)	(pdst)[o] = DoRRop((pdst)[o],and,xor);
+X#else
+X# define StorePixels(pdst,o,pixels)	*(pdst)++ = (pixels)
+X# define EndStep(pdst,o)
+X# define StoreRopPixels(pdst,o,and,xor)	*(pdst) = DoRRop(*(pdst),and,xor); (pdst)++;
+X#endif
+X
+X#define Step(c)			NextFourBits(c);
+X#define StoreBitsPlain(o,c)	StorePixels(pdst,o,GetFourPixels(c))
+X#define StoreRopBitsPlain(o,c)	StoreRopPixels(pdst,o,\
+X					cfb8StippleAnd[GetFourBits(c)], \
+X					cfb8StippleXor[GetFourBits(c)])
+X#define StoreBits0(c)		StoreBitsPlain(0,c)
+X#define StoreRopBits0(c)	StoreRopBitsPlain(0,c)
+X
+X#if (BITMAP_BIT_ORDER == MSBFirst)
+X# define StoreBits(o,c)	StoreBitsPlain(o,c)
+X# define StoreRopBits(o,c)  StoreRopBitsPlain(o,c)
+X# define FirstStep(c)	Step(c)
+X#else
+X# define StoreBits(o,c)	StorePixels(pdst,o,*((unsigned long *)\
+X			    (((char *) cfb8Pixels) + (c & 0x3c))))
+X# define StoreRopBits(o,c)  StoreRopPixels(pdst,o, \
+X	    *((unsigned long *) (((char *) cfb8StippleAnd) + (c & 0x3c))), \
+X	    *((unsigned long *) (((char *) cfb8StippleXor) + (c & 0x3c))))
+X# define FirstStep(c)	c = BitLeft (c, 2);
+X#endif
+X
+X		    StoreBits0(tmp);	FirstStep(tmp);
+X		    StoreBits(1,tmp);	Step(tmp);
+X		    StoreBits(2,tmp);	Step(tmp);
+X		    StoreBits(3,tmp);	Step(tmp);
+X		    StoreBits(4,tmp);	Step(tmp);
+X		    StoreBits(5,tmp);	Step(tmp);
+X		    StoreBits(6,tmp);	Step(tmp);
+X		    StoreBits(7,tmp);   EndStep (pdst,8);
+X	    	}
+X	    	if (nl || endmask)
+X	    	{
+X		    tmp = BitLeft(bits, leftShift);
+X		    /*
+X		     * better condition needed -- mustn't run
+X		     * off the end of the source...
+X		     */
+X		    if (rightShift != 32)
+X		    {
+X		    	bits = *psrc++;
+X		    	tmp |= BitRight (bits, rightShift);
+X		    }
+X		    EndStep (pdst, nl);
+X		    switch (nl)
+X		    {
+X		    case 7:
+X			StoreBitsPlain(-7,tmp);	Step(tmp);
+X		    case 6:
+X			StoreBitsPlain(-6,tmp);	Step(tmp);
+X		    case 5:
+X			StoreBitsPlain(-5,tmp);	Step(tmp);
+X		    case 4:
+X			StoreBitsPlain(-4,tmp);	Step(tmp);
+X		    case 3:
+X			StoreBitsPlain(-3,tmp);	Step(tmp);
+X		    case 2:
+X			StoreBitsPlain(-2,tmp);	Step(tmp);
+X		    case 1:
+X			StoreBitsPlain(-1,tmp);	Step(tmp);
+X		    }
+X		    if (endmask)
+X		    	*pdst = *pdst & ~endmask | GetFourPixels(tmp) & endmask;
+X	    	}
+X	    }
+X	}
+X	else
+X	{
+X	    while (height--)
+X	    {
+X	    	psrc = psrcLine;
+X	    	pdst = pdstLine;
+X	    	psrcLine += widthSrc;
+X	    	pdstLine += widthDst;
+X	    	bits = *psrc++;
+X	    	if (startmask)
+X	    	{
+X		    if (firstoff < 0)
+X		    	tmp = BitRight (bits, -firstoff);
+X		    else
+X		    {
+X		    	tmp = BitLeft (bits, firstoff);
+X		    	if (firstoff >= 28)
+X		    	{
+X			    bits = *psrc++;
+X			    if (firstoff != 28)
+X				tmp |= BitRight (bits, secondoff);
+X		    	}
+X		    }
+X		    src = GetFourBits(tmp);
+X		    *pdst = MaskRRopPixels (*pdst, src, startmask);
+X		    pdst++;
+X	    	}
+X	    	nl = nlMiddle;
+X		while (nl >= 8)
+X		{
+X		    nl -= 8;
+X		    tmp = BitLeft(bits, leftShift);
+X		    bits = *psrc++;
+X		    if (rightShift != 32)
+X			tmp |= BitRight(bits, rightShift);
+X		    StoreRopBits0(tmp);	FirstStep(tmp);
+X		    StoreRopBits(1,tmp);	Step(tmp);
+X		    StoreRopBits(2,tmp);	Step(tmp);
+X		    StoreRopBits(3,tmp);	Step(tmp);
+X		    StoreRopBits(4,tmp);	Step(tmp);
+X		    StoreRopBits(5,tmp);	Step(tmp);
+X		    StoreRopBits(6,tmp);	Step(tmp);
+X		    StoreRopBits(7,tmp);	EndStep(pdst,8);
+X		}
+X	    	if (nl || endmask)
+X	    	{
+X		    tmp = BitLeft(bits, leftShift);
+X		    /*
+X		     * better condition needed -- mustn't run
+X		     * off the end of the source...
+X		     */
+X		    if (rightShift != 32)
+X		    {
+X		    	bits = *psrc++;
+X		    	tmp |= BitRight (bits, rightShift);
+X		    }
+X		    while (nl--)
+X		    {
+X			src = GetFourBits (tmp);
+X			*pdst = RRopPixels (*pdst, src);
+X		    	pdst++;
+X			NextFourBits(tmp);
+X		    }
+X		    if (endmask)
+X		    {
+X			src = GetFourBits (tmp);
+X			*pdst = MaskRRopPixels (*pdst, src, endmask);
+X		    }
+X	    	}
+X	    }
+X	}
+X    }
+X}
+X
+X#endif
+X
+XRegionPtr cfbCopyPlane(pSrcDrawable, pDstDrawable,
+X	    pGC, srcx, srcy, width, height, dstx, dsty, bitPlane)
+X    DrawablePtr 	pSrcDrawable;
+X    DrawablePtr		pDstDrawable;
+X    GCPtr		pGC;
+X    int 		srcx, srcy;
+X    int 		width, height;
+X    int 		dstx, dsty;
+X    unsigned long	bitPlane;
+X{
+X    RegionPtr	ret;
+X    extern RegionPtr    miHandleExposures();
+X    int		(*doBitBlt)();
+X
+X#if (PPW == 4)
+X    extern cfbCopyPlane8to1();
+X
+X    if (pSrcDrawable->bitsPerPixel == 1 && pDstDrawable->bitsPerPixel == 8)
+X    {
+X    	if (bitPlane == 1)
+X	{
+X       	    doBitBlt = cfbCopyPlane1to8;
+X	    cfb8CheckOpaqueStipple (pGC->alu,
+X				    pGC->fgPixel, pGC->bgPixel,
+X				    pGC->planemask);
+X    	    ret = cfbBitBlt (pSrcDrawable, pDstDrawable,
+X	    	    pGC, srcx, srcy, width, height, dstx, dsty, doBitBlt, bitPlane);
+X	}
+X	else
+X	    ret = miHandleExposures (pSrcDrawable, pDstDrawable,
+X	    	pGC, srcx, srcy, width, height, dstx, dsty, bitPlane);
+X    }
+X    else if (pSrcDrawable->bitsPerPixel == 8 && pDstDrawable->bitsPerPixel == 1)
+X    {
+X	extern	int InverseAlu[16];
+X	int oldalu;
+X
+X	oldalu = pGC->alu;
+X    	if ((pGC->fgPixel & 1) == 0 && (pGC->bgPixel&1) == 1)
+X	    pGC->alu = InverseAlu[pGC->alu];
+X    	else if ((pGC->fgPixel & 1) == (pGC->bgPixel & 1))
+X	    pGC->alu = mfbReduceRop(pGC->alu, pGC->fgPixel);
+X	ret = cfbBitBlt (pSrcDrawable, pDstDrawable,
+X		    pGC, srcx, srcy, width, height, dstx, dsty, cfbCopyPlane8to1, bitPlane);
+X	pGC->alu = oldalu;
+X    }
+X    else
+X    {
+X	PixmapPtr	pBitmap;
+X	ScreenPtr	pScreen = pSrcDrawable->pScreen;
+X	GCPtr		pGC1;
+X	unsigned long	fg, bg;
+X
+X	pBitmap = (*pScreen->CreatePixmap) (pScreen, width, height, 1);
+X	if (!pBitmap)
+X	    return NULL;
+X	pGC1 = GetScratchGC (1, pScreen);
+X	if (!pGC1)
+X	{
+X	    (*pScreen->DestroyPixmap) (pBitmap);
+X	    return NULL;
+X	}
+X	/*
+X	 * don't need to set pGC->fgPixel,bgPixel as copyPlane8to1
+X	 * ignores pixel values, expecting the rop to "do the
+X	 * right thing", which GXcopy will.
+X	 */
+X	ValidateGC ((DrawablePtr) pBitmap, pGC1);
+X	/* no exposures here, scratch GC's don't get graphics expose */
+X	(void) cfbBitBlt (pSrcDrawable, (DrawablePtr) pBitmap,
+X			    pGC1, srcx, srcy, width, height, 0, 0, cfbCopyPlane8to1, bitPlane);
+X	cfb8CheckOpaqueStipple (pGC->alu,
+X				pGC->fgPixel, pGC->bgPixel,
+X				pGC->planemask);
+X	/* no exposures here, copy bits from inside a pixmap */
+X	(void) cfbBitBlt ((DrawablePtr) pBitmap, pDstDrawable, pGC,
+X			    0, 0, width, height, dstx, dsty, cfbCopyPlane1to8, 1);
+X	FreeScratchGC (pGC1);
+X	(*pScreen->DestroyPixmap) (pBitmap);
+X	/* compute resultant exposures */
+X	ret = miHandleExposures (pSrcDrawable, pDstDrawable, pGC,
+X				 srcx, srcy, width, height,
+X				 dstx, dsty, bitPlane);
+X    }
+X    return ret;
+X#else
+X    return miCopyPlane (pSrcDrawable, pDstDrawable,
+X	    pGC, srcx, srcy, width, height, dstx, dsty, bitPlane);
+X#endif
+X}
+END_OF_FILE
+if test 18385 -ne `wc -c <'server/ddx/cfb32/cfbbitblt.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbbitblt.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbbitblt.c'
+fi
+echo shar: End of archive 14 \(of 29\).
+cp /dev/null ark14isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

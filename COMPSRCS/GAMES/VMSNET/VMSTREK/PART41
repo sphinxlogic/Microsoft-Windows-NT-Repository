@@ -1,0 +1,534 @@
+Path: uunet!cs.utexas.edu!usc!sol.ctr.columbia.edu!destroyer!cs.ubc.ca!bcsystems!spruce.pfc.forestry.ca!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+Newsgroups: vmsnet.sources.games
+Subject: Vmsnetrek 41/47
+Message-ID: <1992Nov20.205601.1@acad2.alaska.edu>
+From: asdmf@acad2.alaska.edu
+Date: Sat, 21 Nov 1992 00:56:01 GMT
+Sender: news@raven.alaska.edu (USENET News System)
+Organization: University of Alaska
+Nntp-Posting-Host: acad2.alaska.edu
+Lines: 522
+Xref: uunet vmsnet.sources.games:541
+
+-+-+-+-+-+-+-+-+ START OF PART 41 -+-+-+-+-+-+-+-+
+X    struct tractor_cpacket tractorReq;
+X
+X    tractorReq.type=CP_TRACTOR;
+X    tractorReq.state=state;
+X    tractorReq.pnum=pnum;
+X    sendServerPacket(&tractorReq);
+X
+X    if (state)
+X`009fTractor = pnum `124 0x40;
+X    else
+X`009fTractor = 0;
+X`125
+X
+XsendRepressReq(state, pnum)
+Xchar state;
+Xchar pnum;
+X`123
+X    struct repress_cpacket repressReq;
+X
+X    repressReq.type=CP_REPRESS;
+X    repressReq.state=state;
+X    repressReq.pnum=pnum;
+X    sendServerPacket(&repressReq);
+X
+X    if (state)
+X`009fRepress = pnum `124 0x40;
+X    else
+X`009fRepress = 0;
+X`125
+X
+XsendDetMineReq(torp)
+Xshort torp;
+X`123
+X    struct det_mytorp_cpacket detReq;
+X
+X    detReq.type=CP_DET_MYTORP;
+X    detReq.tnum=htons(torp);
+X    sendServerPacket(&detReq);
+X`125
+X
+XhandlePlasmaInfo(packet)
+Xstruct plasma_info_spacket *packet;
+X`123
+X    struct plasmatorp *thetorp;
+X
+X    thetorp= &plasmatorps`091ntohs(packet->pnum)`093;
+X    if (packet->status == PTEXPLODE && thetorp->pt_status == PTFREE) `123
+X`009/* FAT: redundant explosion; don't update p_nplasmatorp */
+X`009return;
+X    `125
+X    if (!thetorp->pt_status && packet->status) `123
+X`009players`091thetorp->pt_owner`093.p_nplasmatorp++;
+X    `125
+X    if (thetorp->pt_status && !packet->status) `123
+X`009players`091thetorp->pt_owner`093.p_nplasmatorp--;
+X    `125
+X    thetorp->pt_war=packet->war;
+X    if (thetorp->pt_status != packet->status) `123
+X`009/* FAT: prevent explosion timer from being reset */
+X`009thetorp->pt_status=packet->status;
+X`009if (thetorp->pt_status == PTEXPLODE) `123
+X`009    thetorp->pt_fuse=NUMDETFRAMES;
+X`009`125
+X    `125
+X`125
+X
+XhandlePlasma(packet)
+Xstruct plasma_spacket *packet;
+X`123
+X    struct plasmatorp *thetorp;
+X
+X    thetorp= &plasmatorps`091ntohs(packet->pnum)`093;
+X    thetorp->pt_x=ntohl(packet->x);
+X    thetorp->pt_y=ntohl(packet->y);
+X`125
+X
+XhandleFlags(packet)
+Xstruct flags_spacket *packet;
+X`123
+X    if (players`091packet->pnum`093.p_flags != ntohl(packet->flags) `124`124
+X`009players`091packet->pnum`093.p_tractor != ((short)packet->tractor & (`126
+V0x40)))`123
+X`009/* FAT: prevent redundant player update */
+X
+X`009redrawPlayer`091packet->pnum`093=1;
+X    `125
+X
+X    players`091packet->pnum`093.p_flags=ntohl(packet->flags);
+X#ifdef INCLUDE_VISTRACT
+X    if (packet->tractor & 0x40)
+X`009players`091packet->pnum`093.p_tractor=(short) packet->tractor & (`1260x4
+V0); /* ATM - visible tractors */
+X    else
+X#endif
+X`009players`091packet->pnum`093.p_tractor = -1;
+X    /*redrawPlayer`091packet->pnum`093=1;*/
+X`125
+X
+XhandleKills(packet)
+Xstruct kills_spacket *packet;
+X`123
+X    if (players`091packet->pnum`093.p_kills != ntohl(packet->kills)/100.0) `
+V123
+X`009/* FAT: prevent redundant player update */
+X`009players`091packet->pnum`093.p_kills=ntohl(packet->kills)/100.0;
+X`009updatePlayer`091packet->pnum`093=1;
+X    `125
+X`125
+X
+XhandlePStatus(packet)
+Xstruct pstatus_spacket *packet;
+X`123
+X    if (packet->status==PEXPLODE) `123
+X`009players`091packet->pnum`093.p_explode=0;
+X    `125
+X    /* Ignore DEAD status.
+X     * Instead, we treat it as PEXPLODE.
+X     * This gives us time to animate all the frames necessary for`032
+X     *  the explosions at our own pace.
+X     */
+X    if (packet->status==PDEAD) `123
+X`009packet->status=PEXPLODE;
+X    `125
+X    players`091packet->pnum`093.p_status=packet->status;
+X    redrawPlayer`091packet->pnum`093=1;
+X    updatePlayer`091packet->pnum`093=1;
+X`125
+X
+XhandleMotd(packet)
+Xstruct motd_spacket *packet;
+X`123
+X    newMotdLine(packet->line);
+X`125
+X
+XsendMessage(mes, group, indiv)
+Xchar *mes;
+Xint group, indiv;
+X`123
+X    struct mesg_cpacket mesPacket;
+X
+X    mesPacket.type=CP_MESSAGE;
+X    mesPacket.group=group;
+X    mesPacket.indiv=indiv;
+X    strcpy(mesPacket.mesg, mes);
+X    sendServerPacket(&mesPacket);
+X`125
+X
+XhandleMask(packet)
+Xstruct mask_spacket *packet;
+X`123
+X    tournMask=packet->mask;
+X`125
+X
+XsendOptionsPacket()
+X`123
+X    struct options_cpacket optPacket;
+X
+X    optPacket.type=CP_OPTIONS;
+X    optPacket.flags =`032
+X`009htonl(ST_MAPMODE * (mapmode!=0) +
+X`009ST_NAMEMODE * namemode +
+X`009ST_SHOWSHIELDS * showShields +
+X`009ST_KEEPPEACE * keeppeace +`032
+X`009ST_SHOWLOCAL * showlocal +
+X`009ST_SHOWGLOBAL * showgalactic);
+X    bcopy(mystats->st_keymap, optPacket.keymap, 96);
+X    sendServerPacket(&optPacket);
+X`125
+X
+XpickSocket(old)
+Xint old;
+X`123
+X    int newsocket;
+X    struct socket_cpacket sockPack;
+X
+X    newsocket=(getpid() & 32767);
+X    while (newsocket < 2048 `124`124 newsocket==old) `123
+X`009newsocket=(newsocket + 10687) & 32767;
+X    `125
+X    sockPack.type=CP_SOCKET;
+X    sockPack.socket=htonl(newsocket);
+X    sockPack.version=(char) SOCKVERSION;
+X    sockPack.udp_version=(char) UDPVERSION;
+X    sendServerPacket(&sockPack);
+X    /* Did we get new socket # sent? */
+X    if (serverDead) return;
+X    nextSocket=newsocket;
+X`125
+X
+XhandleBadVersion(packet)
+Xstruct badversion_spacket *packet;
+X`123
+X    switch(packet->why) `123
+X    case 0:
+X`009printf("Sorry, this is an invalid client version.\n");
+X`009printf("You need a new version of the client code.\n");
+X`009break;
+X    default:
+X`009printf("Sorry, but you cannot play xtrek now.\n");
+X`009printf("Try again later.\n");
+X`009break;
+X    `125
+X    exit(1);
+X`125
+X
+Xgwrite(fd, buf, bytes)
+Xint fd;
+Xchar *buf;
+Xregister int bytes;
+X`123
+X    long orig = bytes;
+X    register long n;
+X    while (bytes) `123
+X        n = send(fd, buf, bytes,0);
+X        if (n < 0) `123
+X            if (fd == udpSock) `123
+X                fprintf(stderr, "Tried to write %d, 0x%x, %d (error %d)\n",
+X                    fd, buf, bytes, errno);
+X                printUdpInfo();
+X            `125
+X`009    printf("fd=%d\n", fd);
+X            perror("reason gwrite failed");
+X            return(-1);
+X        `125
+X        bytes -= n;
+X        buf += n;
+X    `125
+X    return(orig);
+X`125
+X
+XhandleHostile(packet)
+Xstruct hostile_spacket *packet;
+X`123
+X    register struct player *pl;
+X
+X    pl= &players`091packet->pnum`093;
+X    if (pl->p_swar != packet->war `124`124
+X`009pl->p_hostile != packet->hostile) `123
+X`009/* FAT: prevent redundant player update & redraw */
+X`009updatePlayer`091packet->pnum`093=1;
+X`009pl->p_swar=packet->war;
+X`009pl->p_hostile=packet->hostile;
+X`009redrawPlayer`091packet->pnum`093=1;
+X    `125
+X`125
+X
+XhandlePlyrLogin(packet)
+Xstruct plyr_login_spacket *packet;
+X`123
+X    register struct player *pl;
+X
+X    updatePlayer`091packet->pnum`093=1;
+X    pl= &players`091packet->pnum`093;
+X
+X    strcpy(pl->p_name, packet->name);
+X    strcpy(pl->p_monitor, packet->monitor);
+X    strcpy(pl->p_login, packet->login);
+X    pl->p_stats.st_rank=packet->rank;
+X    if (packet->pnum == me->p_no) `123
+X`009/* This is me.  Set some stats */
+X`009if (lastRank== -1) `123
+X`009    if (loggedIn) `123
+X`009`009lastRank=packet->rank;
+X`009    `125
+X`009`125 else `123
+X`009    if (lastRank != packet->rank) `123
+X`009`009lastRank=packet->rank;
+X`009`009promoted=1;
+X`009    `125
+X`009`125
+X    `125
+X`125
+X
+XhandleStats(packet)
+Xstruct stats_spacket *packet;
+X`123
+X    register struct player *pl;
+X
+X    updatePlayer`091packet->pnum`093=1;
+X    pl= &players`091packet->pnum`093;
+X    pl->p_stats.st_tkills=ntohl(packet->tkills);
+X    pl->p_stats.st_tlosses=ntohl(packet->tlosses);
+X    pl->p_stats.st_kills=ntohl(packet->kills);
+X    pl->p_stats.st_losses=ntohl(packet->losses);
+X    pl->p_stats.st_tticks=ntohl(packet->tticks);
+X    pl->p_stats.st_tplanets=ntohl(packet->tplanets);
+X    pl->p_stats.st_tarmsbomb=ntohl(packet->tarmies);
+X    pl->p_stats.st_sbkills=ntohl(packet->sbkills);
+X    pl->p_stats.st_sblosses=ntohl(packet->sblosses);
+X    pl->p_stats.st_armsbomb=ntohl(packet->armies);
+X    pl->p_stats.st_planets=ntohl(packet->planets);
+X    pl->p_stats.st_maxkills=ntohl(packet->maxkills) / 100.0;
+X    pl->p_stats.st_sbmaxkills=ntohl(packet->sbmaxkills) / 100.0;
+X`125
+X
+XhandlePlyrInfo(packet)
+Xstruct plyr_info_spacket *packet;
+X`123
+X    register struct player *pl;
+X    static int lastship= -1;
+X
+X    updatePlayer`091packet->pnum`093=1;
+X    pl= &players`091packet->pnum`093;
+X    getship(&pl->p_ship, packet->shiptype);
+X    pl->p_team=packet->team;
+X    pl->p_mapchars`0910`093=teamlet`091pl->p_team`093;
+X    pl->p_mapchars`0911`093=shipnos`091pl->p_no`093;
+X    if (me==pl && lastship!=me->p_ship.s_type) `123
+X`009calibrate_stats();
+X`009redrawTstats();
+X    `125
+X    redrawPlayer`091packet->pnum`093=1;
+X`125
+X
+XsendUpdatePacket(speed)
+Xlong speed;
+X`123
+X    struct updates_cpacket packet;
+X
+X    packet.type=CP_UPDATES;
+X    timerDelay=speed;
+X    packet.usecs=htonl(speed);
+X    sendServerPacket(&packet);
+X`125
+X
+XhandlePlanetLoc(packet)
+Xstruct planet_loc_spacket *packet;
+X`123
+X    struct planet *pl;
+X
+X    pl= &planets`091packet->pnum`093;
+X    pl->pl_x=ntohl(packet->x);
+X    pl->pl_y=ntohl(packet->y);
+X    strcpy(pl->pl_name, packet->name);
+X    pl->pl_namelen=strlen(packet->name);
+X    pl->pl_flags`124=PLREDRAW;
+X    reinitPlanets=1;
+X`125
+X
+XhandleReserved(packet)
+Xstruct reserved_spacket *packet;
+X`123
+X    struct reserved_cpacket response;
+X
+X    encryptReservedPacket(packet, &response, serverName, me->p_no);
+X    sendServerPacket(&response);
+X`125
+X
+X#ifdef INCLUDE_SCAN
+XhandleScan(packet)
+Xstruct scan_spacket *packet;
+X`123
+X    struct player *pp;
+X
+X    if (packet->success) `123
+X`009pp = &players`091packet->pnum`093;
+X`009pp->p_fuel = ntohl(packet->p_fuel);
+X`009pp->p_armies = ntohl(packet->p_armies);
+X`009pp->p_shield = ntohl(packet->p_shield);
+X`009pp->p_damage = ntohl(packet->p_damage);
+X`009pp->p_etemp = ntohl(packet->p_etemp);
+X`009pp->p_wtemp = ntohl(packet->p_wtemp);
+X`009informScan(packet->pnum);
+X    `125
+X`125
+X#endif
+X
+X/*
+X * -------------------------------------------------------------------------
+V--
+X *`009UDP stuff from here on
+X * -------------------------------------------------------------------------
+V--
+X */
+X
+XsendUdpReq(req)
+Xint req;
+X`123
+X    struct udp_req_cpacket packet;
+X
+X    packet.type = CP_UDP_REQ;
+X    packet.request = req;
+X
+X    if (req >= COMM_MODE) `123
+X`009packet.request = COMM_MODE;
+X`009packet.connmode = req - COMM_MODE;
+X`009sendServerPacket(&packet);
+X`009return;
+X    `125
+X
+X    if (req == COMM_UPDATE) `123
+X`009sendServerPacket(&packet);
+X`009warning("Sent request for full update");
+X`009return;
+X    `125
+X
+X    /*
+X     * Past this point, req had better be COMM_TCP or COMM_UDP.
+X     */
+X
+X    if (req == commModeReq) `123
+X`009warning("Request is in progress, do not disturb");
+X`009return;
+X    `125
+X
+X    if (req == COMM_UDP) `123
+X`009/* open UDP port */
+X`009if (openUdpConn() >= 0) `123
+X`009    UDPDIAG(("Bound to local port %d on fd %d\n",udpLocalPort,udpSock));
+X`009`125 else `123
+X`009    UDPDIAG(("Bind to local port %d failed\n", udpLocalPort));
+X`009    commModeReq = COMM_TCP;
+X`009    commStatus = STAT_CONNECTED;
+X`009    commSwitchTimeout = 0;
+X`009    if (udpWin)
+X`009`009udprefresh(UDP_STATUS);
+X`009    warning("Unable to establish UDP connection");
+X
+X`009    return;
+X`009`125
+X    `125
+X
+X    /* send the request */
+X    packet.port = htonl(udpLocalPort);
+X#ifdef GATEWAY
+X    if (!strcmp(serverName, gw_mach)) `123
+X`009packet.port = htons(gw_serv_port); /* gw port that server should call */
+X`009UDPDIAG(("+ Telling server to contact us on %d\n", gw_serv_port));
+X    `125
+X#endif
+X#ifdef USE_PORTSWAP
+X    packet.connmode = CONNMODE_PORT;`009`009/* have him send his port */
+X#else
+X    packet.connmode = CONNMODE_PACKET;`009`009/* we get addr from packet */
+X#endif
+X    sendServerPacket(&packet);
+X
+X    /* update internal state stuff */
+X    commModeReq = req;
+X    if (req == COMM_TCP)
+X`009commStatus = STAT_SWITCH_TCP;
+X    else
+X`009commStatus = STAT_SWITCH_UDP;
+X    commSwitchTimeout = 25;`009/* wait 25 updates (about five seconds) */
+X    UDPDIAG(("Sent request for %s mode\n", (req == COMM_TCP) ?
+X`009"TCP" : "UDP"));
+X
+X#ifndef USE_PORTSWAP
+X    if ((req == COMM_UDP) && recvUdpConn() < 0) `123
+X`009UDPDIAG(("Sending TCP reset message\n"));
+X`009packet.request = COMM_TCP;
+X`009packet.port = 0;
+X`009commModeReq = COMM_TCP;
+X`009sendServerPacket(&packet);
+X`009/* we will likely get a SWITCH_UDP_OK later; better ignore it */
+X`009commModeReq = COMM_TCP;
+X`009commStatus = STAT_CONNECTED;
+X`009commSwitchTimeout = 0;
+X    `125
+X#endif
+X
+X    if (udpWin)
+X`009udprefresh(UDP_STATUS);
+X`125
+X
+XhandleUdpReply(packet)
+Xstruct udp_reply_spacket *packet;
+X`123
+X    struct udp_req_cpacket response;
+X
+X    UDPDIAG(("Received UDP reply %d\n", packet->reply));
+X    commSwitchTimeout = 0;
+X
+X    response.type = CP_UDP_REQ;
+X
+X    switch (packet->reply) `123
+X    case SWITCH_TCP_OK:
+X`009if (commMode == COMM_TCP) `123
+X`009    UDPDIAG(("Got SWITCH_TCP_OK while in TCP mode; ignoring\n"));
+X`009`125 else `123
+X`009    commMode = COMM_TCP;
+X`009    commStatus = STAT_CONNECTED;
+X`009    warning("Switched to TCP-only connection");
+X`009    closeUdpConn();
+X`009    UDPDIAG(("UDP port closed\n"));
+X`009    if (udpWin) `123
+X`009`009udprefresh(UDP_STATUS);
+X`009`009udprefresh(UDP_CURRENT);
+X`009    `125
+X`009`125
+X`009break;
+X    case SWITCH_UDP_OK:
+X`009if (commMode == COMM_UDP) `123
+X`009    UDPDIAG(("Got SWITCH_UDP_OK while in UDP mode; ignoring\n"));
+X`009`125 else `123
+X`009    /* the server is forcing UDP down our throat? */
+X`009    if (commModeReq != COMM_UDP) `123
+X`009`009UDPDIAG(("Got unsolicited SWITCH_UDP_OK; ignoring\n"));
+X`009    `125 else `123
+X#ifdef USE_PORTSWAP
+X`009`009udpServerPort = ntohl(packet->port);
+X`009`009if (connUdpConn() < 0) `123
+X`009`009    UDPDIAG(("Unable to connect, resetting\n"));
+X`009`009    warning("Connection attempt failed");
+X`009`009    commModeReq = COMM_TCP;
+X`009`009    commStatus = STAT_CONNECTED;
+X`009`009    if (udpSock >= 0)
+X`009`009`009closeUdpConn(udpSock);
+X`009`009    if (udpWin) `123
+X`009`009`009udprefresh(UDP_STATUS);
+X`009`009`009udprefresh(UDP_CURRENT);
+X`009`009    `125
+X`009`009    response.request = COMM_TCP;
+X`009`009    response.port = 0;
+X`009`009    goto send;
+X`009`009`125
+X#else
+X`009`009/* this came down UDP, so we MUST be connected */
+X`009`009/* (do the verify thing anyway just for kicks) */
+X#endif
++-+-+-+-+-+-+-+-  END  OF PART 41 +-+-+-+-+-+-+-+-

@@ -1,0 +1,1682 @@
+Newsgroups: comp.sources.misc
+From: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Subject:  v33i124:  mbase - MetalBase 5.0, Portable database engine, Part06/08
+Message-ID: <1992Nov23.233014.9478@sparky.imd.sterling.com>
+X-Md4-Signature: ca7fc6bacc305b01846356db402f7863
+Date: Mon, 23 Nov 1992 23:30:14 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Posting-number: Volume 33, Issue 124
+Archive-name: mbase/part06
+Environment: AMIGA, MS-DOS, HP-UX, XENIX, UNIX, ULTRIX, SGI, SU, Curses
+Supersedes: mbase: Volume 28, Issue 40-44
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  dox/report.dox dox/trouble.dox readme readme.too
+#   src/internal.h src/mbconv.c src/stdinc.h src/timedate.c
+# Wrapped by kent@sparky on Mon Nov 23 16:33:14 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 8)."'
+if test -f 'dox/report.dox' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dox/report.dox'\"
+else
+  echo shar: Extracting \"'dox/report.dox'\" \(3716 characters\)
+  sed "s/^X//" >'dox/report.dox' <<'END_OF_FILE'
+XReport Documentation                                              MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+XSpecial thanks to Bruce Momjian (root%candle.uucp@ls.com) for his input, and
+Xfor the inspiration for this utility.  This whole this is basically a
+Xglorified spin-off of report.c as he sent it to me when he got MB 4.0.
+X
+X                                  Function
+X
+XReport does just that; it produces reports on data found in relations, based
+Xon a format decided by the user in a report template.  These templates are
+Xexpected to have .rpt extensions and are accessed in their native form,
+Xwithout any pre-compilation.
+X
+XCurrently, report does not allow joins; thus, each report may only access
+Xone relation's data.  However, note that in the templates, fields may be
+Xrefered to either by "fieldname" or "relation.fieldname"; when further
+Xfunctionality is added, the latter will become necessary if a fieldname is
+Xused twice in different relations.
+X
+X                              Template Format
+X
+XThe templates are processed "on the fly", and output is produced on the
+Xstandard output, for redirection to a file, viewer, or printer as
+Xappropriate.  Output is performed in 3 stages (repeating as necessary), and
+Xthe template makes use of this; an example (note that spacing is rather
+Xirrelevant--"data test.rel;" is equivalent to what you see below):
+X
+X   Data
+X      test.rel;
+X   Size
+X      Columns      80; # 80-column page, regardless of margins
+X      Rows         66; # 66-row page (standard pagesize)
+X      Top Margin    4; # 4 lines for a top margin        [you don't have to
+X      Left Margin   8; # 8 spaces for a left margin       include any of this
+X      Bottom Margin 2; # 2 lines for a bottom margin      you don't want--they
+X      Right Margin  3; # 3 spaces for a bottom margin     all have defaults]
+X
+X   Page 5;  # Make the first page, page number 5.  Why?  Have no idea.  :)
+X
+X   Header
+X      print centered  : "test -- ages under 30";
+X      print centered  : system        # This just gives me some credits. :)
+X      skip 1 line
+X      print continued : system!date format 1, system!time format 1;
+X      print right     : "Page: ", system!page;
+X   Continue
+X      print centered  : "-Continued-";
+X   On ix_age < 30
+X      print           : name to 40, age, hobby;
+X
+X   Header
+X      print centered  : "test -- ages over 30";
+X      print centered  : system
+X      skip 1 line
+X      print continued : system!date format 1, system!time format 1;
+X      print right     : "Page: ", system!page;
+X   On ix_age >= 30
+X      print           : name to 40, age, hobby;
+X   Last
+X      print centered  : "---";
+X      print centered  : "Average age of all : ", age!rpt_avg;
+X
+XNote that Last and Footer sections should have the same number of lines; else,
+Xthe Last section will be assumed to have the same # as the Footer section, and
+Xyou may end up with slightly skewed paper-alignment.  Hey--it's shareware.
+X
+XThe "On" line indicates that the following instructions (between "On" and
+Xthe next keyword; in this case, "Last") should be executed for each record
+Xwhere the first field referenced by ix_age (age, in this case) is greater than
+Xor equal to thirty; thus, the following operation like the following is
+Xperformed:
+X
+X   for ( mb_sel (rel, idxnum(rel,"ix_age"), &rec, GTEQ, &[30]) ;
+X         mb_errno == MB_OKAY;
+X         mb_sel (rel, idxnum(rel,"ix_age"), &rec, NEXT, NULL) )
+X      {
+X        print  : name to 40, age, hobby;
+X      }
+X
+XWell, that's basically it.  Right now, the "age!rpt_avg" won't work--I
+Xhaven't written it.  But, if there's enough demand...
+X
+XGood luck.
+X
+XPS--If your relation is encrypted, say with the key "test", try:
+X   report -k test sample
+X
+END_OF_FILE
+  if test 3716 -ne `wc -c <'dox/report.dox'`; then
+    echo shar: \"'dox/report.dox'\" unpacked with wrong size!
+  fi
+  # end of 'dox/report.dox'
+fi
+if test -f 'dox/trouble.dox' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dox/trouble.dox'\"
+else
+  echo shar: Extracting \"'dox/trouble.dox'\" \(7704 characters\)
+  sed "s/^X//" >'dox/trouble.dox' <<'END_OF_FILE'
+XTroubleshooting Hints                                             MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+XCan't compile
+X - There are several options you can add to or remove from CFLAGS= in your
+X   makefile.  stdinc.h will look at several compiler-generated settings to
+X   determine your system type and choose defaults, but they may need to be
+X   modified... standard machine definitions are:
+X         -DAMIGA      - Amiga
+X         -DNeXT       - NeXT
+X         -DCOHERENT   - COHERENT
+X         -DMSDOS      - Any MS-DOS compiler
+X         -Dapplec     - Mac Programmer's Workshop
+X         -Dsgi        - SGI
+X         -DM_SYS3     - Xenix
+X         -DM_SYS5     - Xenix
+X         -DM_7        - Xenix
+X   If you have a machine on the right, try adding the thing on the left to
+X   CFLAGS and recompiling.  If that doesn't help, read on:
+X
+X   There are several definitions which define how the code will be set up...
+X   of them, -DSTRUCT_# isn't necessary unless you're compiling the library
+X   itself:
+X
+X      -STRUCT_#........MetalBase uses this to determine which structure-packing
+X                       algorithm you're using; run STRUCT or STRUCT.EXE to find
+X                       out.  It'll tell you what to do with this.
+X
+X      -DLONGARGS.......If your machine screams about your prototypes, this may
+X                       be the problem.  If you don't define this, odds are the
+X                       prototypes MBASE will define will look like
+X                             void main ();
+X                       Define it, and you'll get
+X                             void main (int, char **);
+X
+X      -DSYS_FCNTL......If <fcntl.h> can't be found, try defining this--it'll
+X                       move the search to <sys/fcntl.h>
+X
+X      -DCHAR_IS_UNS....Most compilers define this if the default character type
+X                       is unsigned; some may not.  Try this if you suspect a
+X                       problem.
+X
+X      -DNEED_ULONG.....Most machines don't have the type "ulong"; some do.  Try
+X                       adding this if your compile freaks because of ulongs.
+X
+X      -DNEED_USHORT....Parallel to "ulong"; this makes a typedef for ushort.
+X
+X      -DNOVOIDPTR......Many older compilers still don't recognize "void *x;" as
+X                       a valid instruction--define this to change those kind of
+X                       declaration to "char *x;".
+X
+X      -DNON_ANSI.......If you're not using VT emulation (ANSI.SYS counts as VT
+X                       emulation; Amiga users have it built in to AmigaDOS),
+X                       define this.  Just makes Build a little prettier.
+X
+X      -DNOSYNC.........A few machines don't have fsync() or sync()--if you get
+X                       either as an unresolved external, add this.  MS-DOS
+X                       users: By default, stdinc.h tries some inline assembly.
+X                       If you're not running MB programs under windows, just
+X                       define this and it won't... otherwise, you may want to
+X                       try to get that translated to whatever works for you.
+X
+XMB_BUSY (Relation is too busy--if returned by a call other than mb_inc())
+X - Only thirty operations may be processed simultaneously--and this was
+X   number thirty one.  Try again in a second or two.
+X
+XMB_BUSY (Relation is too busy--if returned by mb_inc()) or
+XMB_LOCKED (Relation is locked by another user)
+X - If you're stuck by one of these, try the utility blast -- it erases the
+X   record of the number of users on a relation.  But the cause is still there:
+X   you may want to check your programs to make sure each terminates with
+X   mb_die() [ MBCloseAllRelations() ] or mb_exit(), or just mb_rmv()'ing all
+X   the relations you've used... if a relation isn't closed properly, its count
+X   will increase each time you use the thing, until it's got 255 users and won't
+X   let you add any more.  Then, you've gotta blast it.
+X
+XMB_NO_OPEN (Cannot open given filename) or
+XMB_NO_READ (Cannot read given filename)
+X - MetalBase does not use any evironment variables to check for possible
+X   directories for relations; it expects a full pathname if one is required.
+X   MB_NO_OPEN usually means the file can't be found; while MB_NO_READ means
+X   mb_inc() can't read the initial signature at all from the relation--possibly
+X   permissions, or a 0-length file.
+X
+XMB_FORMAT (Relation is not in MetalBase 4.0+ format)
+X - Gods.  Good luck.  This is caused if
+X    a) the initial signature (see format.dox) isn't (char)40 or (char)41, or
+X    b) the fields in the relation don't make sense, or
+X    c) the indices....
+X   basically, this is your generic "THIS SHOULDN'T HAVE HAPPENED!!!" error.
+X   If you get it, make _sure_ you're opening the right file, for starters:
+X   always pass mb_inc() the name of the file WITHOUT the extension.  I don't
+X   trust the extension bit...
+X
+XMB_TIMEOUT (Temporary lock has not been removed)
+X - MetalBase sets temporary locks on relations during add/delete/update/search
+X   operations--when a temporary lock has been placed on a relation, other
+X   commands wait for a set amount of time for the relation to be unlocked--
+X   this process is normally transparent to the user.  Though these waiting
+X   periods are kept as small as possible (obviously), under very peculiar
+X   situations, a program may be interrupted while a lock is still in place.
+X   On other occasions, two commands may have been issued nearly simultaneously,
+X   and the lock will be almost ready to remove when the second command gives
+X   up.  If you receive this error, you should try your command again--failing
+X   that, execute mb_rst(1) or use blast to remove the temporary lock.
+X
+XMB_DISKFULL (Not enough disk space left)
+X - mbconv requires again as much free space as the size of the relatation being
+X   converted; if you don't have that much, it'll stop the conversion.  Note
+X   that no check is made for enough free space before conversion so make sure
+X   yourself before you start, or 10 minutes into its work it may stop with this
+X   error.
+X
+XMB_TMPDIR (You must define a TMP directory)
+X - On some systems, MetalBase requires that you have the environment variable
+X   TMP set to an appropriate directory for temporary files; for example,
+X      TMP=/tmp; export TMP
+X   or
+X      set TMP=C:\TMP
+X   If you prefer, you can use the variable "TEMP" instead.
+X
+XMB_TMPERR (Cannot work with TMP directory)
+X - In order to control concurrency problems, MetalBase 5.0 uses a rather
+X   complex system of locking, which involves many busy loops of ReadByte,
+X   CheckByte, ReadByte and so on.  That kind of work really, really slows
+X   down access to a relation, so the locking mechanism has been moved off
+X   to a separate file.  This file is named after the relation, with the
+X   extension replaced with ".LCK", and is placed in the temporary directory
+X   given as per MB_TMPDIR (explained right above this).  This file is
+X   created every time mb_inc() is called, if it does not already exist...
+X   if it cannot be created, or opened for read/write access, this error
+X   is returned.  Try moving the temporary directory to another location.
+X
+XToo many relations--see trouble.dox
+XToo many fields--see trouble.dox
+X - Form has two manifest constants, MAXnREL and MAXnFLD.  These are defined
+X   for 5.0 to be 20 and 40 respectively; if you have more than 20 relations
+X   in a given data-entry template, add -DMAXnREL=30, etc, to CFLAGS in the
+X   Makefile and recompile.
+X
+XReport doesn't quite look like the template
+X - Check your semicolons.  Every print statement, every skip statement;
+X   hell, most statements, will freak if they don't end in a semicolon, and
+X   different systems freak in different ways.  :)
+X
+END_OF_FILE
+  if test 7704 -ne `wc -c <'dox/trouble.dox'`; then
+    echo shar: \"'dox/trouble.dox'\" unpacked with wrong size!
+  fi
+  # end of 'dox/trouble.dox'
+fi
+if test -f 'readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'readme'\"
+else
+  echo shar: Extracting \"'readme'\" \(7107 characters\)
+  sed "s/^X//" >'readme' <<'END_OF_FILE'
+X                              ___                     _____      _____
+X        |  |     |        |  |   )                   /          /    /
+X        |`'|  _ -|-  _   ||  |  '_   _   .-.  _     /          /    /
+X        |  | ( ) |  ( \  `|  |    ) ( \  `-. ( )   `---.      /    /
+X           | -'--`-- - `-' \/ ---' - - `-`- --'--      /  <> /    /
+X___________________________/\_____________________`.__/_____/____/_____________
+X
+X                              Please read the dox  /
+X                                                  '
+X
+X
+XWHAT'S NEW IN THIS RELEASE:
+X
+X    o SPEED
+X         MetalBase 5.0 destroys even 4.1a speed-wise; queries are the same
+X         speed, but adds/updates/deletes are always at least twice as fast, and
+X         often over three times as fast!  Internal caching of index pointers
+X         just makes the whole world turn 'round better...
+X
+X    o CONVERSION
+X         The utility MBCONV will convert 4.0 and 4.1a relations to 5.0 format.
+X         It is absolutely perfectly safe, but requires that you have enough
+X         free space to essentially make a copy of the relation.
+X
+X    o LOCKING
+X         Previously, unless you compiled with -DUNIX_LOCKS (and had a *nix
+X         machine), bad things would happen if a program shut down while
+X         something was being changed.  Now, since all indices are written at
+X         once (caching is so nice), chances of corruption are much smaller; and
+X         if a process does shut down with a system-placed lock in place, the
+X         next process will detect the condition and remove the lock, and
+X         decrement the number of users.  A request queue has also been built
+X         in, so that processes will always get equal timeshares.
+X
+X    o CREATE ON-THE-FLY
+X         You can now design and create a relation at run-time:
+X            rel = mb_new();
+X            mb_addfield (rel, "Customer's last name",  T_CHAR,   15);
+X            mb_addfield (rel, "Customer's first name", T_CHAR,   10);
+X            mb_addfield (rel, "Customer's number",     T_SERIAL, 40);
+X            mb_addindex (rel, "ix_name",   1, "0,1");
+X            mb_addindex (rel, "ix_number", 1, "2");
+X            mb_create (rel, "/usr/joe/simple.rel", 0);
+X         Check out the code for BUILD and MBCONV; they both use it.
+X
+X    o SIMPLE PHONE NUMBERS
+X         The schema type "phone" (C typedef == "mb_phone") has been added to
+X         5.0 to make handling of phone numbers easier; phone types accept area
+X         codes (of course), and extensions up to x99999.  The routines
+X         scn_phone() and fmt_phone() are included for quick handling of phone
+X         numbers, just as scn_ and fmt_ are provided for date and time!
+X
+X    o ENCRYPTION
+X         Encryption is now working for everyone, even MS-DOS users.  Be
+X         careful, though--I'm haphazard enough with encryption that, for
+X         example, a bad encryption key passed to VR under DOS will usually
+X         make you reboot your machine; under *nix it'll usually cause a seg
+X         violation.  Now THAT's encryption.  :)
+X
+X    o DOCUMENTATION
+X         The documentation, though still not perfect, is much more up to date
+X         than it was for the 4.0 release.  Included here are:
+X
+X            dox/mbase.dox   -- General documentation (the important stuff)
+X
+X            dox/author.dox  -- Information on where the hell I can be reached
+X            dox/build.dox   -- Information on schema and their compiler, build
+X            dox/crypt.dox   -- Information on MetalBase's encryption technique
+X            dox/flow.dox    -- Pseudocode for MetalBase's AVL-tree algorithms
+X            dox/format.dox  -- Character-by-character format for relations
+X            dox/lock.dox    -- Information on MetalBase's locking algorithms
+X            dox/struct.dox  -- Information on C structure interface
+X            dox/report.dox  -- Incomplete documentation on the report writer
+X            dox/trouble.dox -- Troubleshooting ideas (not too many--sorry)
+X
+X    o NO DAMNED DEBUGGING TRAILS
+X         If you got this release hoping I'd leave some debugging trails in the
+X         code again, BZZZZZT!  Sorry, but I'm only allowed to fuck up like that
+X         once a year.  I really, really feel stupid about that...
+X
+X
+X
+X
+XHOW TO BUILD THE STUPID THING:
+X
+X    o Go to the SRC directory.
+X
+X    o If you're using *nix.............type "MAKE"
+X      If you're using Microsoft C......type "NMAKE -f makefile.dos"
+X      If you're using something else...pick either makefile and modify it.
+X
+X    o It'll compile and run STRUCT (or STRUCT.EXE), which will tell you that
+X      you're either screwed, or what to change in the makefile to make the
+X      library appropriately for your compiler.  If you're screwed, send me
+X      mail (see dox/author.dox).  If you're not, do as it says.
+X
+X    o Check the makefile to make sure it's going to put the headers, library
+X      and executables wherever you want it to.
+X
+X    o Type "MAKE INSTALL" (or "NMAKE -f makefile.dos INSTALL" for Microsoft C).
+X
+X    o It'll compile the library and executables, and put them where you said
+X      to.
+X
+X    o If you have any relations from MetalBase 4.0 or MetalBase 4.1a, go to
+X      where they are and type "MBCONV relationname".  It'll convert them to
+X      5.0 (and hopefully the final) format and tell you it's done (it's really
+X      quick, but IRREVERSABLE).
+X
+X
+X
+X
+XWHAT TOYS YOU GET:
+X
+X    o BLAST.EXE - Removes locks accidentally left around on a relation; sets
+X      the internal number-of-users-on-this-relation to zero.
+X
+X    o BUILD.EXE - Compiles relations from schema files; erases all records
+X      in a relation.
+X
+X    o FORM.EXE - Builds header files from data-entry templates; the DE
+X      interface is really, really easy to program.  It's not perfect, but
+X      it's nice.
+X
+X    o MBCONV.EXE - Converts pre-5.0 relations to 5.0 format.  Works great!
+X
+X    o REPORT.EXE - Generates reports from template files, interpereted at
+X      run-time.
+X
+X    o VR.EXE - View Relation--one of my favorite toys.  4.0 users, NON-VI
+X      emulation is now the default; it's much, MUCH easier to add and change
+X      records.  The basics of the new DE keys are:
+X            CTRL-A, CTRL-return - Accept a transaction
+X            CTRL-Q, CTRL-C      - Abort a transaction
+X            CTRL-U,             - Undo a change within a field
+X            Arrows, End, Home   - As expected
+X
+X
+X
+X
+XHOW TO PLAY WITH THE STUPID THING:
+X
+X   I've included two programs with this; SAMPLE and BENCH.  BENCH is just a
+X   benchmark utility (see sample/readme), but SAMPLE is meant to be example
+X   code, for hooking up the (suggested) data-entry interface, for adding/
+X   deleting/changing records, etc.
+X
+X   Go to the directory SAMPLE and pick-n-edit a makefile.  Note that you
+X   don't need -DSTRUCT_ in these; that's just for building the library.  But
+X   you WILL need -DNEED_USHORT if your compiler doesn't contain ushort, etc.
+X
+X
+X
+X
+X-------------------------------------------------------------------------------
+X                                                               Richid
+X-------------------------------------------------------------------------------
+X
+END_OF_FILE
+  if test 7107 -ne `wc -c <'readme'`; then
+    echo shar: \"'readme'\" unpacked with wrong size!
+  fi
+  # end of 'readme'
+fi
+if test -f 'readme.too' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'readme.too'\"
+else
+  echo shar: Extracting \"'readme.too'\" \(4877 characters\)
+  sed "s/^X//" >'readme.too' <<'END_OF_FILE'
+XDonateware                                                        MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+X    Hiya.  This is the part where I whine about how our country's going down
+Xthe tubes and it's probably because no one ever pays for shareware anymore.
+X
+X    I have designed and written all the versions of MetalBase.  The database
+Xengine itself is of my own design and implementation, though there are several
+Xpeople to whom I am indebted for input and testing of the engine, and
+Xsuggestions for development of supporting utilites:
+X
+XJohn Steele       -- jsteele@netcom.netcom.com        -- Beta Testing / Input
+XLarry A Keber     -- lak@world.std.com                -- Beta Testing / Input
+XMarlin Sheffield  -- marlin@thelink.rn.com            -- Beta Testing / Input
+XWarlock           -- warlock@coco.ca.rop.edu          -- Beta Testing / Input
+XMike Cuddy        -- mcuddy@fensende.Rational.COM     -- Miscellaneous ideas
+XBruce Momjian     -- jabber!candle!root@dsinc.dsi.com -- Reporting
+XAdrian Corston    -- adrian@internode.com.au          -- Data-entry
+XRobert S          -- roseg@taurus.bitnet              -- 4.1a *nix file locking
+X
+X    I learned most of what I know of programming (such as it is) through
+Xexamples from various people, which were distributed freely.  As such, I feel
+Xit's only right for me to try to contribute this, the only thing I can think
+Xof which anyone might want, to the public.  I would therefore like to
+Xdistribute this freely and without restriction.
+X    HOWEVER, I'm also dead broke... so, I'm releasing this as shareware.  The
+Xconditions are a little unusual, though... hummm.  Not really shareware.  Let's
+Xcall it donateware:
+X
+X  * Don't send any money at all -unless- you truly feel it's worth it.  I think
+X    this is a useful enough package that it should be made more freely
+X    available, and don't wanna limit propogation by putting "send money to
+X    me!" labels on everything.  If you like it, though, and wanna send $$ to
+X    me, I'm certainly not going to complain.  I've made a few hundred off of
+X    all my releases of MetalBase total, over several years... and 4.0 alone is
+X    installed at hundreds of sites literally around the globe (just how many
+X    internet users ARE there in Australia?).  So don't feel compelled at all.
+X
+X  * Give it to as many people as possible.  I mean it--if you like the
+X    distribution, put it up on a local board or ftp site, or post it to a
+X    group.  It's so hard to get good distribution these days...
+X
+X  * Tell me about any bugs you find (God forbid -- you wouldn't _believe_ how
+X    many tests this thing has been through).  This works really well; I still
+X    do support for all MB stuff, and often end up debugging other code.  It's
+X    fine by me, so if you can track me down, lemme know what you've run up
+X    against.
+X
+X  * Leave the existing documentation intact.  Add more if you'd like, but leave
+X    what's already there.  Feel free to add sample programs and relations if
+X    you like--they always help.
+X
+X  * Leave the credits.  I'm vain and I'm poor, and the publicity for me might
+X    do me good; if not for my wallet, at least for my ego.
+X
+X  * Send any modifications to the enclosed code to me.  More importantly, SEND
+X    IDEAS!  If you'd like an improvement, tell me about it!  Whether or not you
+X    modify the code yourself, I'd like to know what's being done to it.  Most
+X    of the additions to MetalBase have come about from things like this (the
+X    report writer, the data-entry interface, etc), so it really works.  Keep
+X    'em coming...
+X
+X  * If you feel an urge to reach into your wallet and send me money, as I
+X    said, I'm going to be the last to complain.  My address is:
+X                   Richid Jernigan IV
+X                   PO Box 827
+X                   Norris, TN  37828   <- Yes, folks, he's from TN! <Speee-it!>
+X    Gimme a name and a mailing address (internet or bitnet account names are
+X    fine -- just so I can distribute code / information), and you'll receive
+X    the following (no guarantees, but I'll try):
+X       - Any new versions of MetalBase, whenever they pop up (provided I don't
+X         lose my stupid registration list like I did after 4.1a--sorry
+X         everyone!)
+X       - The privilege of being able to request modifications or development
+X         of any of the previously-mentioned utilities (which will be sent to
+X         everyone on the list when available)
+X       - The privilege of being able to demand fixes to any bugs you find (now
+X         wouldn't _that_ be fun?)
+X       - A big smiley from me (worth it, isn't it?  Wreeetch!)
+X
+X-------------------------------------------------------------------------------
+X                                                               Richid
+X-------------------------------------------------------------------------------
+X
+END_OF_FILE
+  if test 4877 -ne `wc -c <'readme.too'`; then
+    echo shar: \"'readme.too'\" unpacked with wrong size!
+  fi
+  # end of 'readme.too'
+fi
+if test -f 'src/internal.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/internal.h'\"
+else
+  echo shar: Extracting \"'src/internal.h'\" \(7196 characters\)
+  sed "s/^X//" >'src/internal.h' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#ifndef INTERNAL_H
+X#define INTERNAL_H
+X
+X/*
+X * RELATION FORMAT ----------------------------------------------------------
+X *
+X */
+X
+X#define POS_SIGNATURE  0L   /* This information is described in */
+X#define POS_UNUSED1    1L   /* more detail in the file          */
+X#define POS_UNUSED2    2L   /*    ../dox/format.dox             */
+X#define POS_UNUSED3    4L
+X#define POS_FIELDPTR(x) (x == 40 ? 2L : 6L)  /* For 4.0 compatibility */
+X#define POS_INDEXPTR  10L
+X#define POS_RECZERO   14L
+X#define POS_NUMREC    18L
+X#define POS_NEXTSER   22L
+X#define POS_NUMFIELD  26L
+X#define POS_NUMINDEX  28L
+X#define POS_INDICES   30L
+X
+X#define lckPOS_USERS    0L   /* more detail in the file          */
+X#define lckPOS_ELOCK    2L   /*    ../dox/format.dox             */
+X#define lckPOS_HLOCK    4L
+X#define lckPOS_QUEUE   10L
+X#define lckPOS_STROBE  70L
+X
+X/*
+X * INTERNAL STRUCTURE DEFINITIONS AND UTILITIES -----------------------------
+X *
+X */
+X
+Xtypedef struct
+X   {
+X   long    num;
+X   long    left, right, parent;
+X   char    parbal;
+X   int     changed;
+X   } cache;
+X
+X#define _change_cache(p,f,v)   { p->changed = 1; _changeqcache(p,f,v); }
+X#define _changeqcache(p,f,v)     p->f = v
+X#define _cache_field(p,d) (d==1?p->right: (d==-1?p->left : p->parent))
+X
+X#ifndef BLAST_C
+X#ifdef LONGARGS
+X   extern relation  *_fill_info   (relation *, long, long);
+X   extern long       _append      (relation *, dataptr);
+X   extern mb_err     _balance     (relation *, long,    int,     int);
+X   extern mb_err     _check       (relation *, long,    long,    int);
+X   extern mb_err     _check_dup   (relation *, dataptr, int,     long);
+X   extern void       _close_proc  (relation *);
+X   extern mb_err     _clr_lck     (relation *);
+X   extern int        _comp_double (double *, double *);
+X   extern int        _comp_fld    (relation *, dataptr, dataptr, int);
+X   extern int        _comp_float  (float  *, float  *);
+X   extern int        _comp_long   (long   *, long   *);
+X   extern int        _comp_short  (short  *, short  *);
+X   extern int        _comp_string (char   *, char   *, int);
+X   extern int        _comp_ulong  (ulong  *, ulong  *);
+X   extern int        _comp_ushort (ushort *, ushort *);
+X   extern int        _compare     (relation *, dataptr, dataptr, int);
+X   extern void       _crypt       (relation *, dataptr);
+X   extern void       _cryptf      (dataptr,    int,     int);
+X   extern long       _delete      (relation *, long);
+X   extern void       _dislink     (relation *, long, int,  long);
+X   extern void       _divine_mask (relation *, int);
+X   extern void       _drop        (relation *, long,    int,     long);
+X   extern void       _dumprec     (relation *, dataptr);
+X   extern long       _find_ends   (relation *, int,  int);
+X   extern long       _find_seq    (relation *, long, long, int,  int);
+X   extern mb_err     _format      (relation *, dataptr, int);
+X   extern int        _identify    (relation *);
+X   extern mb_err     _link        (relation *, long);
+X   extern dataptr    _memrec      (relation *, long, dataptr);
+X   extern dataptr    _rec         (relation *, long);
+X   extern void       _remove      (relation *, long);
+X   extern void       _replace     (relation *, long, long, int);
+X   extern long       _search      (relation *, long, int,  mb_action, dataptr);
+X   extern mb_err     _set_lck     (relation *);
+X   extern void       _seterr      (int);
+X   extern void       _strobe      (relation *, int);
+X   extern void       _zero        (relation *, long, int);
+X   extern cache     *_read_cache  (relation *, long, int);  /* CACHE.C */
+X   extern void       _flush_cache (relation *,       int);  /* CACHE.C */
+X   extern cache     *_new_cache   (relation *,       int);  /* CACHE.C */
+X   extern void       _free_cache  (void);                   /* CACHE.C */
+X#else
+X   extern relation  *_fill_info();
+X   extern long       _append();
+X   extern mb_err     _balance();
+X   extern mb_err     _check();
+X   extern mb_err     _check_dup();
+X   extern void       _close_proc();
+X   extern mb_err     _clr_lck();
+X   extern int        _comp_double();
+X   extern int        _comp_fld();
+X   extern int        _comp_float();
+X   extern int        _comp_long();
+X   extern int        _comp_short();
+X   extern int        _comp_string();
+X   extern int        _comp_ulong();
+X   extern int        _comp_ushort();
+X   extern int        _compare();
+X   extern void       _crypt();
+X   extern void       _cryptf();
+X   extern long       _delete();
+X   extern void       _dislink();
+X   extern void       _divine_mask();
+X   extern void       _drop();
+X   extern void       _dumprec();
+X   extern long       _find_ends();
+X   extern long       _find_seq();
+X   extern mb_err     _format();
+X   extern int        _identify();
+X   extern mb_err     _link();
+X   extern dataptr    _memrec();
+X   extern dataptr    _rec();
+X   extern void       _remove();
+X   extern void       _replace();
+X   extern long       _search();
+X   extern mb_err     _set_lck();
+X   extern void       _seterr();
+X   extern void       _strobe();
+X   extern void       _zero();
+X   extern cache     *_read_cache();     /* CACHE.C */
+X   extern void       _flush_cache();    /* CACHE.C */
+X   extern cache     *_new_cache();      /* CACHE.C */
+X   extern void       _free_cache();     /* CACHE.C */
+X#endif
+X
+X#define GO_BASE(rel,rcd,idx,off) \
+X lseek (rel->relcode,          \
+X        rel->recz+(rcd-1)*(rel->rec_len+(long)13*rel->num_i)+(long)13*idx+off,0)
+X#define GO_TOP(rel,idx)  lseek (rel->relcode, POS_INDICES + (long)4*idx, 0)
+X#define GO_NEXTS(rel)    lseek (rel->relcode, POS_NEXTSER, 0)
+X#define GO_INDEX(rel,rcd,idx)    GO_BASE (rel, rcd,        idx,  0L)
+X#define GO_START(rel,rcd)        GO_BASE (rel, rcd,          0,  0L)
+X#define GO_RECID(rel,rcd)        GO_BASE (rel, rcd, rel->num_i,  0L)
+X#define GO_BAL(rel,rcd,idx)      GO_BASE (rel, rcd,        idx, 12L)
+X#define GO_POINT(rel,rcd,idx,d) \
+X                GO_BASE (rel, rcd, idx, (((d)==-1)?0L:((d)==1?4L:8L)) )
+X
+X#define PARDIR (int)0x80
+X#define BAL    (int)0x7F
+X
+X#define BAL_FL ';'    /* Balance == Far Left  (off balance) */
+X#define BAL_LT '<'    /* Balance == Left      (on balance)  */
+X#define BAL_EV '='    /* Balance == Even :-]  (ON balance)  */
+X#define BAL_RT '>'    /* Balance == Right     (on balance)  */
+X#define BAL_FR '?'    /* Balance == Far Right (off balance) */
+X
+X#define VAL_BAL(b)  ((int)(b-BAL_EV))
+X
+X#define NUM_BAL(b)  (b==BAL_FL?-1:(b==BAL_LT?-1:(b==BAL_EV?0:(b==BAL_RT?1:1))))
+X#define BALANCED(b) (b==BAL_LT || b==BAL_EV || b==BAL_RT)
+X
+X#define togg(x) (x = 0-x)
+X
+X#define lckerr(r,e,x)  { _clr_lck(r); _seterr(e); return (mb_err)(x); }
+X#define baderr(x)      {              _seterr(x); return (mb_err)(x); }
+X#define reterr(e,x)    {              _seterr(e); return (mb_err)(x); }
+X#define interr(e,x)    {              _seterr(e); return    (int)(x); }
+X#define longerr(e,x)   {              _seterr(e); return   (long)(x); }
+X#define relerr(e,x)    {              _seterr(e); return (relation *)(x); }
+X
+X#define round2(x) (x%2==0?x:(x+2-(x%2)))
+X#define round4(x) (x%4==0?x:(x+4-(x%4)))
+X#define round8(x) (x%8==0?x:(x+8-(x%8)))
+X#endif
+X
+X#endif
+X
+END_OF_FILE
+  if test 7196 -ne `wc -c <'src/internal.h'`; then
+    echo shar: \"'src/internal.h'\" unpacked with wrong size!
+  fi
+  # end of 'src/internal.h'
+fi
+if test -f 'src/mbconv.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/mbconv.c'\"
+else
+  echo shar: Extracting \"'src/mbconv.c'\" \(7523 characters\)
+  sed "s/^X//" >'src/mbconv.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#include "mbase.h"
+X#include "internal.h"  /* Because we do some non-standard record moving */
+X
+X#ifdef LONGARGS
+X   void   main       (int,        char **);
+X   mb_err convert    (relation *, relation *);
+X   void   finalize   (char *,     char *);
+X   int    renamefile (char *,     char *);
+X#else
+X   void   main();
+X   mb_err convert();
+X   void   finalize();
+X   int    renamefile();
+X#endif
+X
+Xrelation *old;
+Xrelation *new;
+X
+Xchar    tempname[128];
+X
+Xvoid
+Xmain  (argc, argv)
+Xint    argc;
+Xchar **argv;
+X{
+X   char *str;
+X   int   done = 0;
+X
+X   for (--argc,++argv; argc; --argc,++argv)
+X      {
+X      if (*(str = *argv) == '-')
+X         {
+X         fprintf (stderr, "mbconv: option %s unrecognized.%s", 1+str, SNGCR);
+X         continue;
+X         }
+X
+X      done = 1;
+X
+X      if ((old = mb_old (str, 0)) == RNULL)
+X         {
+X         fprintf (stderr, "mbconv: %s: %s.%s", str, mb_error, SNGCR);
+X         continue;
+X         }
+X
+X      if (old->ver == verCURRENT)
+X         {
+X         fprintf (stderr, "mbconv: %s is already in 5.0 format.%s", str,SNGCR);
+X         MB_RemoveRelation (old);
+X         continue;
+X         }
+X
+X      if ((new = mb_new ()) == RNULL)
+X         {
+X         fprintf (stderr, "mbconv: %s.%s", mb_error, SNGCR);
+X         mb_die();
+X         continue;
+X         }
+X
+X      strcpy (tempname, str);
+X      if (! strncmp (&tempname[strlen(tempname)-4], ".rel", 4))
+X         {
+X         tempname[strlen(tempname)-4] = 0;
+X         }
+X      strcat (tempname, ".tmp");
+X
+X      if (convert (new, old) == MB_OKAY)
+X         {
+X         finalize (tempname, str);  /* Removes original and renames new */
+X         }
+X      else
+X         {
+X         fprintf (stderr, "mbconv: %s.%s", mb_error, SNGCR);
+X         }
+X
+X                   /* BECAUSE WE USED MB_NEW(), FREE IT. DON'T DO THIS */
+X      free (new);  /* WITH ANY OTHER RELATION!!!  mb_die() won't free  */
+X                   /* the memory for a relation made with mb_new().    */
+X
+X      MB_RemoveRelation (old);  /* Maybe it's still open, maybe not. */
+X      }
+X
+X   if (! done)
+X      {
+X      fprintf (stderr, "format: mbconv oldrelation [oldrelation...]%s", SNGCR);
+X      mb_exit (1);
+X      }
+X
+X   mb_exit (0);
+X}
+X
+Xmb_err
+Xconvert  (new,  old)
+Xrelation *new, *old;
+X{
+X   long    nexts, numrec, arg;
+X   char    desc[128], temp[5], t2[5];
+X   char   *ptr;
+X   int     i, j, n, len;
+X
+X   lseek (old->relcode, 12L +POS_FIELDPTR(old->ver), 0);
+X   readx (old->relcode, &numrec, 4);
+X   readx (old->relcode, &nexts,  4);
+X
+X/*
+X * First, the fields...
+X *
+X */
+X
+X   for (i = 0; i < old->num_f; i++)
+X      {
+X      arg = 0L;
+X
+X      if (old->type[i] == T_SERIAL)    arg = nexts;
+X      else
+X         if (old->type[i] == T_CHAR)   arg = old->siz[i];
+X
+X      if (mb_addfield (new, old->name[i], old->type[i], arg) != MB_OKAY)
+X         return mb_errno;
+X      }
+X
+X/*
+X * Next, the indices...
+X *
+X */
+X
+X   for (i = 0; i < old->num_i; i++)
+X      {
+X      desc[0] = 0;
+X      strzcpy (temp, old->idxs[i], 3);
+X      n = atoi (temp);
+X
+X      for (j = 0; j < n; j++)
+X         {
+X         strzcpy (temp, &old->idxs[i][3+ j*3], 3);
+X         sprintf (t2, "%d", (int)atoi (temp));
+X
+X         if (j != 0)  strcat (desc, ",");
+X         strcat (desc, t2);
+X         }
+X
+X      if (mb_addindex (new, old->iname[i], old->itype[i], desc) != MB_OKAY)
+X         return mb_errno;
+X      }
+X
+X/*
+X * Now create it, and open the resulting file...
+X *
+X */
+X
+X   if (mb_create (new, tempname, 0) != MB_OKAY)
+X      {
+X      unlink (tempname);
+X      return mb_errno;
+X      }
+X
+X   if ((new->relcode = openx (tempname, OPENMODE)) <= 0)
+X      {
+X      unlink (tempname);
+X      baderr (MB_NO_READ);
+X      }
+X
+X/*
+X * The number of records is reset to zero inside the new relation, so since
+X * we read it from the old relation earlier, write it out where it needs to
+X * be (see why I had to include internal.h?).  Oh, and grab a buffer big
+X * enough to move an entire record, with indices intact...
+X *
+X */
+X
+X   lseek (new->relcode, 12L +POS_FIELDPTR(verCURRENT), 0);
+X   writx (new->relcode, &numrec, 4);
+X
+X   len = (int)(old->rec_len +13L*(old->num_i));
+X
+X   if ((ptr = (char *)malloc (len +1)) == NULL)
+X      {
+X      close (new->relcode);
+X      unlink (tempname);
+X      baderr (MB_NO_MEMORY);
+X      }
+X
+X/*
+X * Great.  Problem is, the new header is bigger than older versions... so
+X * read each record, and write it out at the new place in the new relation.
+X * Record numbers are offsets relative to ->recz, so they won't have to change
+X * this way.
+X *
+X * We also have to initialize the top-of-index pointers, which aren't set
+X * by mb_create() (obviously).
+X *
+X */
+X
+X   lseek (old->relcode, 24+ POS_FIELDPTR(old->ver),   0);
+X   lseek (new->relcode, 24+ POS_FIELDPTR(verCURRENT), 0);
+X
+X   for (i = 0; i < old->num_i; i++)
+X      {
+X      readx (old->relcode, &arg, 4);
+X      writx (new->relcode, &arg, 4);
+X      }
+X
+X
+X   lseek (old->relcode, old->recz, 0);
+X   lseek (new->relcode, new->recz, 0);
+X
+X   for (arg = 0L; arg < numrec; arg++)  /* arg == which number we're moving */
+X      {
+X      if ((readx (old->relcode, ptr, len)) != len)
+X         {
+X         free (ptr);
+X         close (new->relcode);
+X         unlink (tempname);
+X         baderr (MB_CORRUPT);
+X         }
+X      if ((writx (new->relcode, ptr, len)) != len)
+X         {
+X         free (ptr);
+X         close (new->relcode);
+X         unlink (tempname);
+X         baderr (MB_DISKFULL);
+X         }
+X      }
+X
+X   free (ptr);
+X   close (new->relcode);     /* Close this filehandle.  */
+X   MB_RemoveRelation (old);  /* Unnecessary now.        */
+X   baderr (MB_OKAY);
+X}
+X
+Xint
+Xrenamefile (new, old)
+Xchar       *new,*old;
+X{
+X#ifdef MSDOS
+X   return rename(old,new);
+X#else
+X   if (link (old, new) != 0)  return -1;
+X   if (unlink (old) != 0)     return -2;
+X   return 0;
+X#endif
+X}
+X
+Xvoid
+Xfinalize (newname, oldname)
+Xchar     *newname,*oldname;
+X{
+X   long  sizea, sizeb;
+X   int   fh;
+X
+X/*
+X * If we got here, convert() already closed all file pointers, so we can
+X * do this safely.  First come the sanity checks--make sure we can open
+X * and read/write both files, and make sure the new file is larger than
+X * the original (if it isn't, we didn't finish converting, regardless of
+X * what convert() said).
+X *
+X */
+X
+X   if (strncmp (&oldname[strlen(oldname)-4], ".rel", 4))
+X      {
+X      strcat (oldname, ".rel");
+X      }
+X
+X   if ((fh = openx (oldname, OPENMODE)) < 0)
+X      {
+X      fprintf (stderr, "mb_conv: could not open %s.%s", oldname, SNGCR);
+X      return;
+X      }
+X   sizea = lseek (fh, 0L, 2);  /* Find the filesize */
+X   close (fh);
+X
+X   if ((fh = openx (newname, OPENMODE)) < 0)
+X      {
+X      fprintf (stderr, "mb_conv: could not open %s.%s", oldname, SNGCR);
+X      return;
+X      }
+X   sizeb = lseek (fh, 0L, 2);  /* Find the filesize */
+X   close (fh);
+X
+X   if (sizea >= sizeb)
+X      {
+X      fprintf (stderr, "mb_conv: could not finish conversion!%s", SNGCR);
+X      return;
+X      }
+X
+X/*
+X * Fine--looks like we converted it just dandy.  So delete the original
+X * file, and rename our temporary one so it looks like the old one.  Note that
+X * rename() for DOS doesn't exist with almost any *nix compiler, so I use my
+X * own renamefile(); args work like *nix MV would (new=first, old=second).
+X *
+X */
+X
+X   printf ("mb_conv: %s converted to 5.0 successfully.%s", oldname, SNGCR);
+X
+X   unlink (oldname);
+X   if (renamefile (oldname, newname) != 0)
+X      {
+X      fprintf (stderr, "But, the rename didn't work.%s", SNGCR);
+X      fprintf (stderr, "Rename %s to %s yourself.%s", newname, oldname, SNGCR);
+X      }
+X}
+X
+END_OF_FILE
+  if test 7523 -ne `wc -c <'src/mbconv.c'`; then
+    echo shar: \"'src/mbconv.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/mbconv.c'
+fi
+if test -f 'src/stdinc.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/stdinc.h'\"
+else
+  echo shar: Extracting \"'src/stdinc.h'\" \(5130 characters\)
+  sed "s/^X//" >'src/stdinc.h' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#ifndef STDINC_H
+X#define STDINC_H
+X
+X#ifndef XENIX
+X#ifdef M_V7
+X#define XENIX
+X#else
+X#ifdef M_SYS3
+X#define XENIX
+X#else
+X#ifdef M_SYS5
+X#define XENIX
+X#endif
+X#endif /* M_SYS3 */
+X#endif /* M_V7 */
+X#endif /* XENIX */
+X
+X#ifdef applec
+X#define NON_ANSI  /* Define to skip vt100 codes in output      */
+X#endif
+X
+X#ifdef MSDOS
+X#include <io.h>
+X#include <stdlib.h>
+X#include <process.h>
+X#ifndef ANSI_CODES
+X#define NON_ANSI  /* Define to skip vt100 codes in output */
+X#endif
+X#endif /* MSDOS */
+X
+X#ifdef COHERENT
+X#define SYS_FCNTL
+X#endif
+X
+X#ifdef SYS_FCNTL
+X#include <sys/fcntl.h>
+X#else
+X#include <fcntl.h>
+X#endif
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <string.h>    /* May need to change to <strings.h> on some systems */
+X#include <time.h>      /* May need to change to whatever on other systems   */
+X#include <sys/stat.h>
+X
+X#ifdef NeXT
+X#include <dir.h>
+X#endif
+X
+X#ifdef COHERENT   /* Another great thing--isdigit() under COHERENT doesn't */
+X#ifdef isdigit    /* work right: it keeps returning 8.  Odd.  Oh well.  :) */
+X#undef isdigit
+X#endif
+X#define isdigit(x) ((x) >= '0' && (x) <= '9')
+X#endif /* COHERENT */
+X
+X#ifdef MSDOS
+X#define SNGCR    "\r\n"
+X#define DUBCR    "\r\n\r\n"
+X#define NUMCR    2
+X#define DIRSEP   '\\'
+X#else
+X#define SNGCR    "\n"
+X#define DUBCR    "\n\n"
+X#define NUMCR    1
+X#define DIRSEP   '/'
+X#endif
+X
+X#ifdef ESC
+X#undef ESC
+X#endif
+X
+X#define CTRL_A (char)1
+X#define CTRL_B (char)2
+X#define CTRL_C (char)3
+X#define CTRL_D (char)4
+X#define CTRL_E (char)5
+X#define CTRL_F (char)6
+X#define CTRL_G (char)7
+X#define CTRL_H (char)8
+X#define CTRL_I (char)9
+X#define CTRL_J (char)10
+X#define CTRL_K (char)11
+X#define CTRL_L (char)12
+X#define CTRL_M (char)13
+X#define CTRL_N (char)14
+X#define CTRL_O (char)15
+X#define CTRL_P (char)16
+X#define CTRL_Q (char)17
+X#define CTRL_R (char)18
+X#define CTRL_S (char)19
+X#define CTRL_T (char)20
+X#define CTRL_U (char)21
+X#define CTRL_V (char)22
+X#define CTRL_W (char)23
+X#define CTRL_X (char)24
+X#define CTRL_Y (char)25
+X#define CTRL_Z (char)26
+X#define ESC    (char)27
+X
+X#ifdef CHAR_IS_UNS
+X   typedef char uchar;
+X#else
+X   typedef unsigned char uchar;
+X#endif
+X
+Xtypedef char * charptr;
+X
+X/*
+X * STANDARD SYSTEM DEPENDENCIES
+X *
+X */
+X
+X#ifdef COHERENT
+X#ifndef NOVOIDPTR
+X#define NOVOIDPTR
+X#endif
+X#ifndef NEED_USHORT
+X#define NEED_USHORT
+X#endif
+X#ifndef NEED_ULONG
+X#define NEED_ULONG
+X#endif
+X#endif
+X
+X#ifdef applec
+X#ifndef NEED_USHORT
+X#define NEED_USHORT
+X#endif
+X#endif
+X
+X#ifdef sgi
+X#ifdef NEED_ULONG
+X#undef NEED_ULONG
+X#endif
+X#endif
+X
+X#ifdef MSDOS
+X#ifndef LONGARGS
+X#define LONGARGS
+X#endif
+X#ifndef NEED_ULONG
+X#define NEED_ULONG
+X#endif
+X#ifndef NEED_USHORT
+X#define NEED_USHORT
+X#endif
+X#endif
+X
+X/*
+X *
+X */
+X
+X#ifdef NOVOIDPTR
+X   typedef char *dataptr;
+X#else
+X   typedef void *dataptr;
+X#endif
+X
+X#ifdef NEED_ULONG
+X   typedef unsigned long ulong;
+X#endif
+X
+X#ifdef NEED_USHORT
+X   typedef unsigned short ushort;
+X#endif
+X
+X#ifdef AMIGA
+X#define CLS  "\014"            /* amiga std */
+X#else
+X
+X#ifdef COHERENT
+X#define CLS  "\033[2O\033[1;1H"  /* I prefer this one myself */
+X#undef LONGARGS
+X#else
+X
+X#define CLS  "\033[2J\033[1;1H"  /* ansi std */
+X
+X#ifndef MSDOS
+X#ifndef applec
+X#define UNIX
+X
+X#include <unistd.h>
+X
+X#endif /* applec */
+X#endif /* UNIX */
+X
+X#endif /* COHERENT */
+X#endif /* AMIGA */
+X
+X#ifdef NON_ANSI
+X#define ANSI ""
+X#define NORM ""
+X#define BOLD ""
+X#define SUBD ""
+X#define ITAL ""
+X#define UNDR ""
+X#define INVR ""
+X#else
+X#define ANSI "\033["
+X#define NORM "\033[0m"
+X#define BOLD "\033[1m"
+X#define SUBD "\033[2m"
+X#define ITAL "\033[3m"
+X#define UNDR "\033[4m"  /* These are so common, I won't even bother with */
+X#define INVR "\033[7m"  /* tgetstr.  Sorry, non-VT users.  :-)           */
+X#endif
+X
+X#define sendchar(x) putchar ((char)(x))
+X#define until(x)    while (!(x))
+X
+X#define New(x) (x *)malloc (sizeof(x))  /* Borrowed from C++.  So sue me. */
+X
+X#ifdef LONGARGS
+X   extern time_t time(time_t *);
+X#else
+X   extern time_t time();
+X#endif
+X
+X#ifndef min
+X#define min(a,b) ((a)<(b)?(a):(b))
+X#endif
+X#ifndef max
+X#define max(a,b) ((a)>(b)?(a):(b))
+X#endif
+X
+X#ifdef tolower  /* Strange to think, but on most systems, tolower() and */
+X#undef tolower  /* toupper() just don't work as you'd expect.  Humph.   */
+X#endif
+X#ifdef toupper
+X#undef toupper
+X#endif
+X#define tolower(x)  (char)(((x)>='A' && (x)<='Z')?((x)+('a'-'A')):(x))
+X#define toupper(x)  (char)(((x)>='a' && (x)<='z')?((x)+('A'-'a')):(x))
+X
+X/*
+X * Generic, portable low-level file operations --------------------------------
+X *
+X */
+X
+X#define readx(f,b,n) read  (f, (char *)b, n)  /* DO NOT use buffered I/O!!! */
+X#define writx(f,b,n) write (f, (char *)b, n)  /* DO NOT use buffered I/O!!! */
+X#define modex(f,n)   chmod (f, n)
+X
+X#ifndef S_IWRITE
+X#undef modex
+X#define modex(f,n)
+X#endif
+X
+X#ifdef applec
+X#define creatx(x) creat(x)
+X#else
+X#define creatx(x) creat(x,0666)
+X#endif
+X
+X#ifdef MSDOS
+X#define OPENMODE O_RDWR|O_BINARY
+X#define READMODE O_RDONLY|O_BINARY
+X#include <share.h>
+X#define openx(f,m)  sopen (f, m, SH_DENYNO, S_IREAD|S_IWRITE)
+X#else
+X#define OPENMODE O_RDWR
+X#define READMODE O_RDONLY
+X#define openx(f,m)  open (f, m)
+X#endif  /* MSDOS */
+X
+X#endif
+X
+END_OF_FILE
+  if test 5130 -ne `wc -c <'src/stdinc.h'`; then
+    echo shar: \"'src/stdinc.h'\" unpacked with wrong size!
+  fi
+  # end of 'src/stdinc.h'
+fi
+if test -f 'src/timedate.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/timedate.c'\"
+else
+  echo shar: Extracting \"'src/timedate.c'\" \(7468 characters\)
+  sed "s/^X//" >'src/timedate.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#define TIMEDATE_C
+X#include "mbase.h"
+X
+X#define TMsHR(x,n) x|=((((ulong)(n))&   31) << 19)
+X#define TMsMN(x,n) x|=((((ulong)(n))&   63) << 13)
+X#define TMsSC(x,n) x|=((((ulong)(n))&   63) <<  7)
+X#define TMsMI(x,n) x|= (((ulong)(n))&  127)
+X#define DTsYR(x,n) x|=((((ulong)(n))& 8191) <<  9)
+X#define DTsMO(x,n) x|=((((ulong)(n))&   15) <<  5)
+X#define DTsDY(x,n) x|= (((ulong)(n))&   31)
+X#define TMgHR(x)   (int)((x >> 19) &   31)
+X#define TMgMN(x)   (int)((x >> 13) &   63)
+X#define TMgSC(x)   (int)((x >>  7) &   63)
+X#define TMgMI(x)   (int)(x &          127)
+X#define DTgYR(x)   (int)((x >>  9) & 8191)
+X#define DTgMO(x)   (int)((x >>  5) &   15)
+X#define DTgDY(x)   (int)(x & 31)
+X
+Xstruct tm *
+X_getlt ()                 /* == Get LocalTime, in {struct tm *} */
+X{
+X   time_t date;
+X   time (&date);          /* If your compiler complains, try date=time(); */
+X   return localtime (&date);
+X}
+X
+Xlong
+Xelap_t (tme)
+Xmb_time tme;
+X{
+X   long     dif;
+X   mb_time  now;
+X   now = curtime();
+X   dif  = 3600L * (long)(TMgHR(now) - TMgHR(tme));
+X   dif +=   60L * (long)(TMgMN(now) - TMgMN(tme));
+X   dif +=    1L * (long)(TMgSC(now) - TMgSC(tme));
+X   return dif;
+X}
+X
+Xmb_time
+Xtmtotime  (tim)  /* Pass NULL to get current time */
+Xstruct tm *tim;
+X{
+X   struct tm  *ptr;
+X   mb_time     ret;
+X   ptr = (tim == (struct tm *)0) ? _getlt() : tim;
+X   ret = (mb_time)0;
+X   TMsHR(ret, ptr->tm_hour);
+X   TMsMN(ret, ptr->tm_min);
+X   TMsSC(ret, ptr->tm_sec);
+X   TMsMI(ret, 0);
+X   return ret;
+X}
+X
+Xmb_date
+Xtmtodate  (tim)
+Xstruct tm *tim;
+X{
+X   struct tm  *ptr;
+X   mb_date     ret;
+X   ptr = (tim == (struct tm *)0) ? _getlt() : tim;
+X   ret = (mb_date)0;
+X   DTsYR(ret, ptr->tm_year+5996L); /* 1992 : tm_year = 92, ret.year = 6178 */
+X   DTsMO(ret, ptr->tm_mon+1L);
+X   DTsDY(ret, ptr->tm_mday);
+X   return ret;
+X}
+X
+Xstruct tm *
+Xdatetimetotm (dat, tim)
+Xmb_date       dat;
+Xmb_time            tim;
+X{
+X   static struct tm ret, *ptr;
+X   dat = (! dat) ? curdate() : dat;
+X   tim = (! tim) ? curtime() : tim;
+X   ptr = _getlt();
+X   ptr->tm_sec  = TMgSC(tim);
+X   ptr->tm_min  = TMgMN(tim);
+X   ptr->tm_hour = TMgHR(tim);
+X   ptr->tm_mday = DTgDY(dat);
+X   ptr->tm_mon  = DTgMO(dat)-1;
+X   ptr->tm_year = (int)(DTgYR(dat)-5996L);
+X   ptr->tm_wday = ptr->tm_yday = ptr->tm_isdst = 0;
+X   return &ret;
+X}
+X
+Xchar *
+Xfmt_date (dat, opt)
+Xmb_date   dat;
+Xint            opt;
+X{
+X   static char buf[20];
+X   if (DTgYR(dat) < 3096)  DTsYR(dat,4096);
+X   switch (opt)
+X    { case 1: sprintf (buf, "%02d/%02d/%02d", DTgMO(dat),
+X                             DTgDY(dat), DTgYR(dat)-5996L);
+X               break;
+X      case 2: sprintf (buf, "%02d%02d%02d", DTgYR(dat)-5996L,
+X                             DTgMO(dat), DTgDY(dat));
+X               break;
+X      default:sprintf (buf, "%02d/%02d/%04d", DTgMO(dat),
+X                             DTgDY(dat), DTgYR(dat)-4096L);
+X               break;
+X    }
+X   return buf;
+X}
+X
+Xchar *
+Xfmt_time (tim, opt)
+Xmb_time   tim;
+Xint            opt;
+X{
+X   static char buf[20];
+X   switch (opt)
+X    { case  1:  sprintf (buf, "%02d:%02d %s", (TMgHR(tim) % 12),
+X                         TMgMN(tim), (TMgHR(tim) >= 12) ? "pm" : "am");
+X               break;
+X      case  2:  sprintf (buf, "%02d:%02d", TMgHR(tim),
+X                         TMgMN(tim));
+X               break;
+X      default: sprintf (buf,"%02d:%02d:%02d", TMgHR(tim),
+X                         TMgMN(tim), TMgSC(tim));
+X               break;
+X    }
+X   return buf;
+X}
+X
+Xmb_date
+Xscn_date (str)
+Xchar     *str;
+X{
+X   char     buf[80];
+X   char    *a, *b;
+X   long     x;
+X   mb_date  rtn = (mb_date)0;
+X
+X   if (! str || ! *str)  return rtn;
+X   strcpy (buf, str);
+X   if ((a=strchr (buf, '/'))==NULL)
+X    {
+X      strzcpy (buf, &str[0], 2);  DTsYR (rtn, atol (buf)+5996L);
+X      strzcpy (buf, &str[2], 2);  DTsMO (rtn, atol (buf));
+X      strzcpy (buf, &str[4], 2);  DTsDY (rtn, atol (buf));
+X      return rtn;
+X    }
+X   b=strchr(str,'/')+1;
+X
+X   *a = 0;  DTsMO (rtn, atol (buf));  strcpy (buf, b);
+X   if ((b=strchr (b, '/'))==NULL)  return rtn;
+X
+X   a=strchr(buf, '/'); *a = 0; DTsDY(rtn, atol(buf));
+X
+X   strcpy (buf, b+1);  x=atol(buf);
+X   if (strlen (buf) < 3)  x += 1900;
+X   DTsYR (rtn, x + 4096);
+X
+X   return rtn;
+X}
+X
+Xmb_time
+Xscn_time (str)
+Xchar     *str;
+X{
+X   char     buf[80];
+X   char    *a, *b;
+X   long     x;
+X   mb_time  rtn = (mb_time)0;
+X
+X   if (! str || ! *str)  return rtn;
+X   strcpy (buf, str);
+X   if ((a=strchr (buf, ':'))==NULL)  return rtn;
+X   b=strchr(str,':')+1;
+X
+X   *a = 0;  TMsHR(rtn, atol (buf));  strcpy (buf, b);
+X   if ((a=strchr (b, ':'))==NULL)
+X    { x=TMgHR (rtn);  rtn=(mb_time)0;  TMsMN (rtn, atol(buf));
+X      if ((a=strchr (str, 'p'))==NULL)  a=strchr (str, 'P');
+X      if (a)
+X         if ((*(a+1) == 'm' || *(a+1) == 'M') && x < 12)
+X            x += 12;
+X      TMsHR (rtn, x);
+X      return rtn;
+X    }
+X   b=strchr(buf,':');  *b = 0;  TMsMN (rtn, atol (buf));
+X
+X   strcpy (buf, a+1);  TMsSC (rtn, atol (buf));
+X   
+X   return rtn;
+X}
+X
+Xmb_time
+Xadd_time (str)
+Xchar     *str;
+X{
+X   long     s,m,h;
+X   mb_time  now, tmp;
+X
+X   now = curtime  ();
+X   tmp = scn_time (str);
+X
+X   s = TMgSC (now) + TMgSC (tmp);
+X   m = TMgMN (now) + TMgMN (tmp);
+X   h = TMgHR (now) + TMgHR (tmp);
+X
+X   while (s >= 60L)  { s -= 60L; m += 1L; }
+X   while (m >= 60L)  { m -= 60L; h += 1L; }
+X   while (h >= 24L)  { h -= 24L;          }
+X
+X   tmp = 0L;
+X
+X   TMsSC (tmp, s);
+X   TMsMN (tmp, m);
+X   TMsHR (tmp, h);
+X
+X   return tmp;
+X}
+X
+Xchar *
+Xfmt_phone (ac, pre, num, ext, opt)  /* OPT: 1=use () for AC, 0=don't     */
+Xlong       ac, pre, num, ext;       /* (-1==internal use only--tis ugly) */
+Xint                           opt;
+X{
+X   static char buf[25];
+X
+X   buf[0] = 0;
+X
+X   if (!ac && !pre && !num && !ext)
+X      return buf;
+X
+X   if (opt != -1)
+X      {
+X      opt = (opt == 0 || opt == 3) ? 1 : 0;
+X
+X      if (! ext)  opt = (opt == 0) ? 3 : 4;
+X      if (! ac)   opt = (opt <= 1) ? 2 : 5;
+X      }
+X
+X   switch (opt)
+X      {
+X      case -1: sprintf (buf, "%03ld-%03ld-%04ldx%05ld",ac,pre,num, ext); break;
+X      case  1: sprintf (buf, "%ld-%ld-%04ld x%ld",     ac,pre,num, ext); break;
+X      case  2: sprintf (buf, "%ld-%04ld x%ld",            pre,num, ext); break;
+X      case  3: sprintf (buf, "(%ld) %ld-%04ld",        ac,pre,num);      break;
+X      case  4: sprintf (buf, "%ld-%ld-%04ld",          ac,pre,num);      break;
+X      case  5: sprintf (buf, "%ld-%04ld",                 pre,num);      break;
+X      default: sprintf (buf, "(%ld) %ld-%04ld x%ld",   ac,pre,num, ext); break;
+X               break;
+X      }
+X   return buf;
+X}
+X
+Xvoid
+Xscn_phone (ac, pre, num, ext, str)
+Xlong      *ac,*pre,*num,*ext;
+Xchar                            *str;
+X{
+X   char *a, *b, buf[128];
+X
+X   *ac = *pre = *num = *ext = 0L;
+X   strcpy (buf, str);
+X
+X   if ((a = strchr (buf, '(')) != NULL)
+X      {
+X      if ((b = strchr (a, ')')) == NULL)  return;
+X      *b = 0;  b++;
+X      *ac = atol (1+a);
+X      }
+X   else
+X      {
+X      if ((a = strchr (buf, '-')) == NULL)  return;
+X      if (strchr (1+a, '-') != NULL)
+X         {
+X         b = a; *b = 0;  b++;
+X         *ac = atol(buf);
+X         }
+X      else
+X         {
+X         b = &buf[0];  /* No area code */
+X         }
+X      }
+X
+X   if ((a = strchr (b, '-')) == NULL)  { *ac = 0; return; }
+X   *a = 0; a++;
+X   *pre = atol (b);
+X
+X   if ((b = strpbrk (a, " xX")) != NULL)
+X      {
+X      *b = 0;
+X      b++;
+X      }
+X
+X   *num = atol (a);
+X
+X   if (b != NULL)
+X      {
+X      if ((a = strpbrk (b, "xX")) != NULL)
+X         b = 1+a;
+X
+X      *ext = atol (b);
+X      }
+X}
+X
+X
+END_OF_FILE
+  if test 7468 -ne `wc -c <'src/timedate.c'`; then
+    echo shar: \"'src/timedate.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/timedate.c'
+fi
+echo shar: End of archive 6 \(of 8\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

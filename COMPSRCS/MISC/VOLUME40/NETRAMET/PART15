@@ -1,0 +1,2078 @@
+Newsgroups: comp.sources.misc
+From: nevil@ccu1.aukuni.ac.nz (J Nevil Brownlee)
+Subject: v40i103:  netramet - Network Traffic Accounting Meter, Part15/25
+Message-ID: <1993Nov7.221241.12270@sparky.sterling.com>
+X-Md4-Signature: 1d8cadb7370b889a7718f96273ed17ea
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 7 Nov 1993 22:12:41 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: nevil@ccu1.aukuni.ac.nz (J Nevil Brownlee)
+Posting-number: Volume 40, Issue 103
+Archive-name: netramet/part15
+Environment: INET, UNIX, DOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  netramet/src/manager/nm.jul.c netramet/src/manager/nmc.c
+# Wrapped by kent@sparky on Tue Nov  2 18:17:09 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 15 (of 25)."'
+if test -f 'netramet/src/manager/nm.jul.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/manager/nm.jul.c'\"
+else
+  echo shar: Extracting \"'netramet/src/manager/nm.jul.c'\" \(43638 characters\)
+  sed "s/^X//" >'netramet/src/manager/nm.jul.c' <<'END_OF_FILE'
+X/* 1730, Fri 3 Sep 93
+X
+X   NM.C:  First attempt at a manager for the AU Accounting Meter
+X
+X   Copyright (C) 1992,1993 by Nevil Brownlee,
+X   Computer Centre,  University of Auckland */
+X
+X/***********************************************************
+X	Copyright 1988 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/param.h>
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/time.h>
+X#include <errno.h>
+X
+X#include <string.h>
+X#include <malloc.h>
+X
+X#include "snmp.h"
+X#include "snmpimpl.h"
+X#include "asn1.h"
+X#include "snmpclnt.h"
+X#include "snmpapi.h"
+X#include "mib.h"
+X
+X#ifndef BSD4_3
+X#define BSD4_2
+X#endif
+X
+X#define RULEFILE "rules.txt"
+X
+Xextern int  errno;
+Xint	snmp_dump_packet = 0;
+X
+X#define  INT_ACCT  1, 3, 6, 1, 3, 99
+X#define  AUKUNI    1, 3, 6, 1, 4, 1, 411
+X
+Xoid o_sysDescr[]	  = {MIB, 1, 1, 0};
+Xoid o_sysUpTime[]	  = {MIB, 1, 3, 0};
+Xoid o_ifNumber[]	  = {MIB, 2, 1, 0};
+X
+Xoid o_InactivityTimeout[] = {INT_ACCT, 1,  3, 0};
+Xoid o_LastCollectTime[]   = {INT_ACCT, 1,  6, 0};
+Xoid o_riRuleSize[]        = {INT_ACCT, 1,  7, 1, 2, 0xFF};
+Xoid o_riActionSize[]      = {INT_ACCT, 1,  7, 1, 3, 0xFF};
+Xoid o_CurrentRuleSet[]    = {INT_ACCT, 1,  8, 0};
+Xoid o_EmergencyRuleSet[]  = {INT_ACCT, 1,  9, 0};
+X
+Xoid o_ftFlowIndex[]            = {INT_ACCT, 2, 1, 1,  1, 0xFFFF};
+Xoid o_ftFlowStatus[]           = {INT_ACCT, 2, 1, 1,  2, 0xFFFF};
+Xoid o_ftLowInterface[]         = {INT_ACCT, 2, 1, 1,  3, 0xFFFF};
+Xoid o_ftLowAdjacentType[]      = {INT_ACCT, 2, 1, 1,  4, 0xFFFF};
+Xoid o_ftLowAdjacentAddress[]   = {INT_ACCT, 2, 1, 1,  5, 0xFFFF};
+Xoid o_ftLowAdjacentMask[]      = {INT_ACCT, 2, 1, 1,  6, 0xFFFF};
+Xoid o_ftLowPeerType[]          = {INT_ACCT, 2, 1, 1,  7, 0xFFFF};
+Xoid o_ftLowPeerAddress[]       = {INT_ACCT, 2, 1, 1,  8, 0xFFFF};
+Xoid o_ftLowPeerMask[]          = {INT_ACCT, 2, 1, 1,  9, 0xFFFF};
+Xoid o_ftLowDetailType[]        = {INT_ACCT, 2, 1, 1, 10, 0xFFFF};
+Xoid o_ftLowDetailAddress[]     = {INT_ACCT, 2, 1, 1, 11, 0xFFFF};
+Xoid o_ftLowDetailMask[]        = {INT_ACCT, 2, 1, 1, 12, 0xFFFF};
+Xoid o_ftHighInterface[]        = {INT_ACCT, 2, 1, 1, 15, 0xFFFF};
+Xoid o_ftHighAdjacentType[]     = {INT_ACCT, 2, 1, 1, 16, 0xFFFF};
+Xoid o_ftHighAdjacentAddress[]  = {INT_ACCT, 2, 1, 1, 17, 0xFFFF};
+Xoid o_ftHighAdjacentMask[]     = {INT_ACCT, 2, 1, 1, 18, 0xFFFF};
+Xoid o_ftHighPeerType[]         = {INT_ACCT, 2, 1, 1, 19, 0xFFFF};
+Xoid o_ftHighPeerAddress[]      = {INT_ACCT, 2, 1, 1, 20, 0xFFFF};
+Xoid o_ftHighPeerMask[]         = {INT_ACCT, 2, 1, 1, 21, 0xFFFF};
+Xoid o_ftHighDetailType[]       = {INT_ACCT, 2, 1, 1, 22, 0xFFFF};
+Xoid o_ftHighDetailAddress[]    = {INT_ACCT, 2, 1, 1, 23, 0xFFFF};
+Xoid o_ftHighDetailMask[]       = {INT_ACCT, 2, 1, 1, 24, 0xFFFF};
+Xoid o_ftPDUScale[]             = {INT_ACCT, 2, 1, 1, 29, 0xFFFF};
+Xoid o_ftOctetScale[]           = {INT_ACCT, 2, 1, 1, 30, 0xFFFF};
+Xoid o_ftRuleSet[]              = {INT_ACCT, 2, 1, 1, 31, 0xFFFF};
+Xoid o_ftFlowType[]             = {INT_ACCT, 2, 1, 1, 32, 0xFFFF};
+Xoid o_ftUpOctets[]             = {INT_ACCT, 2, 1, 1, 33, 0xFFFF};
+Xoid o_ftUpPDUs[]               = {INT_ACCT, 2, 1, 1, 34, 0xFFFF};
+Xoid o_ftDownOctets[]           = {INT_ACCT, 2, 1, 1, 35, 0xFFFF};
+Xoid o_ftDownPDUs[]             = {INT_ACCT, 2, 1, 1, 36, 0xFFFF};
+Xoid o_ftFirstTime[]            = {INT_ACCT, 2, 1, 1, 37, 0xFFFF};
+Xoid o_ftLastTime[]             = {INT_ACCT, 2, 1, 1, 38, 0xFFFF};
+X
+Xoid o_ftCreateTime[]	  = {INT_ACCT, 2, 2, 1, 1, 0xFFFFFFFF, 0xFFFF};
+Xoid o_ftCreateIndex[]	  = {INT_ACCT, 2, 2, 1, 2, 0xFFFFFFFF, 0xFFFF};
+X
+Xoid o_ftActiveTime[]	  = {INT_ACCT, 2, 3, 1, 1, 0xFFFFFFFF, 0xFFFF};
+Xoid o_ftActiveIndex[]	  = {INT_ACCT, 2, 3, 1, 2, 0xFFFFFFFF, 0xFFFF};
+Xoid o_ftActiveFlowBlob[]  = {INT_ACCT, 2, 3, 1, 3, 0xFFFFFFFF, 0xFFFF};
+X
+Xoid o_rtSelector[]        = {INT_ACCT, 3, 1, 1, 3, 0xFF, 0xFFFF};
+Xoid o_rtRuleMask[]        = {INT_ACCT, 3, 1, 1, 4, 0xFF, 0xFFFF};
+Xoid o_rtMatchedValue[]    = {INT_ACCT, 3, 1, 1, 5, 0xFF, 0xFFFF};
+Xoid o_rtRuleAction[]      = {INT_ACCT, 3, 1, 1, 6, 0xFF, 0xFFFF};
+Xoid o_rtJumpIndex[]       = {INT_ACCT, 3, 1, 1, 7, 0xFF, 0xFFFF};
+X
+Xoid o_atLowInterface[]         = {INT_ACCT, 4, 1, 1,  3, 0xFF, 0xFFFF};
+Xoid o_atLowAdjacentType[]      = {INT_ACCT, 4, 1, 1,  4, 0xFF, 0xFFFF};
+Xoid o_atLowAdjacentAddress[]   = {INT_ACCT, 4, 1, 1,  5, 0xFF, 0xFFFF};
+Xoid o_atLowAdjacentMask[]      = {INT_ACCT, 4, 1, 1,  6, 0xFF, 0xFFFF};
+Xoid o_atLowPeerType[]          = {INT_ACCT, 4, 1, 1,  7, 0xFF, 0xFFFF};
+Xoid o_atLowPeerAddress[]       = {INT_ACCT, 4, 1, 1,  8, 0xFF, 0xFFFF};
+Xoid o_atLowPeerMask[]          = {INT_ACCT, 4, 1, 1,  9, 0xFF, 0xFFFF};
+Xoid o_atLowDetailType[]        = {INT_ACCT, 4, 1, 1, 10, 0xFF, 0xFFFF};
+Xoid o_atLowDetailAddress[]     = {INT_ACCT, 4, 1, 1, 11, 0xFF, 0xFFFF};
+Xoid o_atLowDetailMask[]        = {INT_ACCT, 4, 1, 1, 12, 0xFF, 0xFFFF};
+Xoid o_atHighInterface[]        = {INT_ACCT, 4, 1, 1, 15, 0xFF, 0xFFFF};
+Xoid o_atHighAdjacentType[]     = {INT_ACCT, 4, 1, 1, 16, 0xFF, 0xFFFF};
+Xoid o_atHighAdjacentAddress[]  = {INT_ACCT, 4, 1, 1, 17, 0xFF, 0xFFFF};
+Xoid o_atHighAdjacentMask[]     = {INT_ACCT, 4, 1, 1, 18, 0xFF, 0xFFFF};
+Xoid o_atHighPeerType[]         = {INT_ACCT, 4, 1, 1, 19, 0xFF, 0xFFFF};
+Xoid o_atHighPeerAddress[]      = {INT_ACCT, 4, 1, 1, 20, 0xFF, 0xFFFF};
+Xoid o_atHighPeerMask[]         = {INT_ACCT, 4, 1, 1, 21, 0xFF, 0xFFFF};
+Xoid o_atHighDetailType[]       = {INT_ACCT, 4, 1, 1, 22, 0xFF, 0xFFFF};
+Xoid o_atHighDetailAddress[]    = {INT_ACCT, 4, 1, 1, 23, 0xFF, 0xFFFF};
+Xoid o_atHighDetailMask[]       = {INT_ACCT, 4, 1, 1, 24, 0xFF, 0xFFFF};
+Xoid o_atPDUScale[]             = {INT_ACCT, 4, 1, 1, 29, 0xFF, 0xFFFF};
+Xoid o_atOctetScale[]           = {INT_ACCT, 4, 1, 1, 30, 0xFF, 0xFFFF};
+Xoid o_atRuleSet[]              = {INT_ACCT, 4, 1, 1, 31, 0xFF, 0xFFFF};
+X
+Xoid o_pcNearMem[]         = {AUKUNI, 2, 1, 0};
+Xoid o_pcFarMem[]          = {AUKUNI, 2, 2, 0};
+Xoid o_pcBadPackets[]      = {AUKUNI, 2, 3, 0};
+Xoid o_pcNoBufPackets[]    = {AUKUNI, 2, 4, 0};
+Xoid o_pcLostPackets[]     = {AUKUNI, 2, 5, 0};
+Xoid o_pcPacketBacklog[]   = {AUKUNI, 2, 6, 0};
+Xoid o_pcChkSearches[]     = {AUKUNI, 2, 7, 0};
+Xoid o_pcChkCompares[]     = {AUKUNI, 2, 8, 0};
+X
+X#define MAC_ADDR_LEN     6
+X#define PEER_ADDR_LEN    4
+X#define DETAIL_ADDR_LEN  2
+X
+X#define RULE_ADDR_LEN    6
+X
+Xstruct flow_info {
+X   unsigned char AdjAddrType,
+X      LowAdjAddress[MAC_ADDR_LEN], LowAdjMask[MAC_ADDR_LEN],
+X      HighAdjAddress[MAC_ADDR_LEN], HighAdjMask[MAC_ADDR_LEN];
+X   unsigned char PeerAddrType,
+X      LowPeerAddress[PEER_ADDR_LEN], LowPeerMask[PEER_ADDR_LEN],
+X      HighPeerAddress[PEER_ADDR_LEN], HighPeerMask[PEER_ADDR_LEN];
+X   unsigned char DetailAddrType,
+X      LowDetailAddress[DETAIL_ADDR_LEN], LowDetailMask[DETAIL_ADDR_LEN],
+X      HighDetailAddress[DETAIL_ADDR_LEN], HighDetailMask[DETAIL_ADDR_LEN];
+X   unsigned long
+X      FwdPackets,FwdBytes,  BackPackets,BackBytes,
+X      FirstTime,LastTime;
+X   };
+X
+Xstruct rule_info {
+X   int RuleSet, RuleNbr;
+X   unsigned char RuleSelector,
+X      RuleMask[RULE_ADDR_LEN], RuleMatchedValue[RULE_ADDR_LEN], 
+X      RuleAction, RuleJumpIndex;
+X   };
+X
+Xstruct action_info {
+X   int ActionSet, ActionNbr;
+X   unsigned char AdjAddrType,
+X      LowAdjAddress[MAC_ADDR_LEN], LowAdjMask[MAC_ADDR_LEN],
+X      HighAdjAddress[MAC_ADDR_LEN], HighAdjMask[MAC_ADDR_LEN];
+X   unsigned char PeerAddrType,
+X      LowPeerAddress[PEER_ADDR_LEN], LowPeerMask[PEER_ADDR_LEN],
+X      HighPeerAddress[PEER_ADDR_LEN], HighPeerMask[PEER_ADDR_LEN];
+X   unsigned char DetailAddrType,
+X      LowDetailAddress[DETAIL_ADDR_LEN], LowDetailMask[DETAIL_ADDR_LEN],
+X      HighDetailAddress[DETAIL_ADDR_LEN], HighDetailMask[DETAIL_ADDR_LEN];
+X   };
+X
+X#define AT_IGNORE     0  /* Addr_type values */
+X#define AT_IP         2
+X#define AT_NOVELL     6
+X#define AT_DECNET     5
+X#define AT_ETHERTALK  7
+X
+X#define RS_NULL           0
+X#define RS_LOWPEERTYPE    7
+X#define RS_LOWPEERADDR    8
+X#define RS_HIPEERADDR    20
+X
+X#define RA_COUNT      1
+X#define RA_TALLY      2
+X#define RA_AGGREGATE  3
+X#define RA_SUCCEED    4
+X#define RA_FAIL       5
+X#define RA_PUSHTO     6
+X#define RA_POPTO      7
+X#define RA_GOTO       8
+X
+X#define RF_SET       -1
+X#define RF_RULES     -2
+X#define RF_ACTIONS   -3
+X
+X#define FTFLOWINDEX		1  /* Flow table attribute values */
+X#define FTFLOWSTATUS		2
+X
+X#define FTLOWINTERFACE          3
+X#define FTLOWADJACENTTYPE       4
+X#define FTLOWADJACENTADDRESS    5
+X#define FTLOWADJACENTMASK       6
+X#define FTLOWPEERTYPE		7
+X#define FTLOWPEERADDRESS	8
+X#define FTLOWPEERMASK		9
+X#define FTLOWDETAILTYPE        10
+X#define FTLOWDETAILADDRESS     11
+X#define FTLOWDETAILMASK        12
+X#define FTLOWSUBSCRIBERID      13
+X#define FTLOWSUBSCRIBERMASK    14
+X#define FTHIINTERFACE          15
+X#define FTHIADJACENTTYPE       16
+X#define FTHIADJACENTADDRESS    17
+X#define FTHIADJACENTMASK       18
+X#define FTHIPEERTYPE	       19
+X#define FTHIPEERADDRESS	       20
+X#define FTHIPEERMASK	       21
+X#define FTHIDETAILTYPE         22
+X#define FTHIDETAILADDRESS      23
+X#define FTHIDETAILMASK         24
+X#define FTHISUBSCRIBERID       25
+X#define FTHISUBSCRIBERMASK     26
+X
+X#define FTSUBSCRIBERID         27
+X#define FTSUBSCRIBERMASK       28
+X
+X#define FTPDUSCALE             29
+X#define FTOCTETSCALE           30
+X#define FTRULESET              31
+X#define FTFLOWTYPE             32
+X
+X#define FTUPOCTETS	       33
+X#define FTUPPDUS	       34
+X#define FTDOWNOCTETS	       35
+X#define FTDOWNPDUS	       36
+X
+X#define FTFIRSTTIME	       37
+X#define FTLASTTIME	       38
+X
+X#define ATN  1  /* Number.  Attribute type values */
+X#define ATA  2  /* Address */
+X#define ANI  0  /* Not implemented */
+X
+Xstruct attrib_info {
+X   unsigned char *name;
+X   unsigned char index;
+X   unsigned char type;
+X   unsigned char len;
+X   };
+X
+Xstruct attrib_info attribs[1+FTLASTTIME-FTFLOWINDEX] = {
+X   "flowindex",              FTFLOWINDEX,           ATN, 2,
+X   "flowstatus",             FTFLOWSTATUS,          ATN, 1,
+X   "sourceinterface",        FTLOWINTERFACE,        ATN, 1,
+X   "sourceadjacenttype",     FTLOWADJACENTTYPE,     ATN, 1,
+X   "sourceadjacentaddress",  FTLOWADJACENTADDRESS,  ATA, MAC_ADDR_LEN,
+X   "sourceadjacentmask",     FTLOWADJACENTMASK,     ATA, MAC_ADDR_LEN,
+X   "sourcepeertype",         FTLOWPEERTYPE,         ATN, 1,
+X   "sourcepeeraddress",      FTLOWPEERADDRESS,      ATA, PEER_ADDR_LEN,
+X   "sourcapeermask",         FTLOWPEERMASK,         ATA, PEER_ADDR_LEN,
+X   "sourcedetailtype",       FTLOWDETAILTYPE,       ATN, 1,
+X   "sourcedetailaddress",    FTLOWDETAILADDRESS,    ATA, DETAIL_ADDR_LEN,
+X   "sourcedetailmask",       FTLOWDETAILMASK,       ATA, DETAIL_ADDR_LEN,
+X   "sourcesubscriberid",     FTLOWSUBSCRIBERID,     ANI, 0,
+X   "sourcesubscribermask",   FTLOWSUBSCRIBERMASK,   ANI, 0,
+X   "destinterface",          FTHIINTERFACE,         ATN, 1,
+X   "destadjacenttype",       FTHIADJACENTTYPE,      ATN, 1,
+X   "destadjacentaddress",    FTHIADJACENTADDRESS,   ATA, MAC_ADDR_LEN,
+X   "destadjacentmask",       FTHIADJACENTMASK,      ATA, MAC_ADDR_LEN,
+X   "destpeertype",           FTHIPEERTYPE,          ATN, 1,
+X   "destpeeraddress",        FTHIPEERADDRESS,       ATA, PEER_ADDR_LEN,
+X   "sourcapeermask",         FTHIPEERMASK,          ATA, PEER_ADDR_LEN,
+X   "destdetailtype",         FTHIDETAILTYPE,        ATN, 1,
+X   "destdetailaddress",      FTHIDETAILADDRESS,     ATA, DETAIL_ADDR_LEN,
+X   "destdetailmask",         FTHIDETAILMASK,        ATA, DETAIL_ADDR_LEN,
+X   "destsubscriberid",       FTHISUBSCRIBERID,      ANI, 0,
+X   "destsubscribermask",     FTHISUBSCRIBERMASK,    ANI, 0,
+X   "subscriberid",           FTSUBSCRIBERID,        ANI, 0,
+X   "subscribermask",         FTSUBSCRIBERMASK,      ANI, 0,
+X   "pduscale",               FTPDUSCALE,            ANI, 0,
+X   "octetscale",             FTOCTETSCALE,          ANI, 0,
+X   "flowruleset",            FTRULESET,             ATN, 1,
+X   "flowtype",               FTFLOWTYPE,            ATN, 1,
+X   "tooctets",               FTUPOCTETS,            ATN, 4,
+X   "topdus",                 FTUPPDUS,              ATN, 4,
+X   "fromoctets",             FTDOWNOCTETS,          ATN, 4,
+X   "frompdus",               FTDOWNPDUS,            ATN, 4,
+X   "firsttime",              FTFIRSTTIME,           ATN, 4,
+X   "lasttime",               FTLASTTIME,            ATN, 4
+X   };
+X
+X#define FLOWBLOBSZ  25
+X
+Xunsigned char column_blob[
+X   (FLOWBLOBSZ+2)*(2+RULE_ADDR_LEN)];
+X
+X#ifdef AU_MSDOS  /* PC ntoh routines swap the byte order */
+X#define netshort(x)  x
+X#define netlong(x)   x
+X#else            /* SunOS ntoh routines don't */
+X#define netshort(x)  htons(x)
+X#define netlong(x)   htonl(x)
+X#endif
+X
+X#define NAME_LN  64
+X
+Xstruct meter_status {
+X   struct meter_status *next;
+X
+X   char name[NAME_LN];
+X   char community[NAME_LN];
+X   char rulefile[NAME_LN];
+X
+X   struct snmp_session *ss;
+X
+X   short status;
+X
+X   char descr[NAME_LN];  /* From meter_info() */
+X   unsigned long uptime;
+X   unsigned long LastCollectTime;  /* By any collector, not neccessarily us */
+X   unsigned char LastCollectPeer[PEER_ADDR_LEN];
+X
+X   int ruleset, nrules, nactions;
+X
+X   unsigned long OurLastCollectTime;
+X
+X   FILE *keys;
+X   FILE *flows;
+X   FILE *log;
+X   };
+X
+Xstruct meter_status *first_meter;
+X
+X/* Values for status */
+X
+X#define	MT_MANAGE    0x0001  /* Manage this meter */
+X#define	MT_INFO	     0x0002  /* Have basic info */
+X#define	MT_UP	     0x0004  /* Meter is running */
+X#define	MT_REPORTED  0x0008  /* Current status reported */
+X
+X#ifdef MTR_LIST
+X/* #define  CTLFILE  "/usr/local/src/snmp/manager.cfg" */
+X#define  CTLFILE  "manager.cfg"
+X#endif
+X
+Xunsigned short getshort(unsigned char *ucp);
+Xunsigned long getlong(unsigned char *ucp);
+X
+Xvoid init_meter();
+Xvoid monitor_meter();
+Xvoid monitor(struct meter_status *ms);
+Xvoid print_meters();
+Xvoid meter_print(struct meter_status *ms);
+X
+Xvoid printaddress(FILE *f,unsigned char *a,unsigned char len);
+Xvoid getaddress(unsigned char *a,unsigned char len);
+X
+Xint scan_rulefile(struct meter_status *ms, int doset, int list);
+Xvoid parse_rulefile(struct meter_status *ms, int list);
+Xint add_rule(struct meter_status *ms, struct rule_info *ri);
+Xint add_action(struct meter_status *ms, struct action_info *ai);
+X
+Xint same_acct_oid(oid *a, oid *b);
+Xint blob_info(struct meter_status *ms, unsigned char *fb, 
+X   unsigned long ft, int *fn);
+Xint flow_info(struct meter_status *ms, struct flow_info *fi,
+X   unsigned long ft, int *fn, int getkey);
+X   
+Xchar *uptime_string(unsigned long timeticks, char *buf);
+X
+Xint verbose = 0, testing = 0;
+X
+Xvoid main(argc,argv)
+Xint argc;
+Xchar *argv[];
+X{
+X   struct meter_status *ms;
+X   struct snmp_session session, *ssp;
+X
+X   int arg;
+X   char meter[NAME_LN], community[NAME_LN], rfname[NAME_LN],
+X      filename[NAME_LN*2];
+X   int interval = 0;
+X   int syntax = 0;
+X
+X   meter[0] = community[0] = rfname[0] = NULL;
+X
+X#ifdef MTR_LIST
+X   parse_ctlfile();
+X#endif
+X
+X   init_mib();
+X
+X   /*  usage: nm meter-name community */
+X
+X   for (arg = 1; arg < argc; arg++) {
+X      if (argv[arg][0] == '-') {
+X	 switch (argv[arg][1]) {
+X	 case 'd':
+X	    snmp_dump_packet++;
+X	    break;
+X	 case 'c':
+X	    if ((interval = atoi(argv[arg]+2)) == 0) interval = 120;
+X	    break;
+X	 case 'r':
+X	    strcpy(rfname, argv[++arg]);
+X	    break;
+X	 case 's':
+X	    syntax++;
+X	    break;
+X	 case 't':
+X	    testing++;
+X	    break;
+X	 case 'v':
+X	    verbose++;
+X	    break;
+X	 default:
+X	    printf("Invalid option: -%c\n", argv[arg][1]);
+X	    break;
+X	    }
+X	 continue;
+X	 }
+X      if (meter[0] == NULL) strcpy(meter,argv[arg]);
+X      else if (community[0] == NULL) strcpy(community,argv[arg]);
+X      }
+X
+X   if (meter[0] == NULL) {
+X      printf("nm meter-name community\n\n");
+X      exit(0);
+X      }
+X
+X   ms = (struct meter_status *)calloc(sizeof(struct meter_status), 1);
+X   strcpy(ms->name,meter);
+X   strcpy(ms->community,community);
+X   if (*rfname) strcpy(ms->rulefile, rfname);
+X   else strcpy(ms->rulefile, RULEFILE);
+X
+X   if (syntax) {  /* For testing rule files */
+X      scan_rulefile(ms,0,1);  exit(0);
+X      }
+X
+X   ms->OurLastCollectTime = 2L;
+X
+X   strcpy(filename,meter);
+X   strcat(filename,".log");
+X   if ((ms->log = fopen(filename,"wa")) == NULL) {
+X      printf("Failed to open %s\n",filename);
+X      exit(0);
+X      }
+X   strcpy(filename,meter);
+X   strcat(filename,".keys");
+X   if ((ms->keys = fopen(filename,"wa")) == NULL) {
+X      printf("Failed to open %s\n",filename);
+X      exit(0);
+X      }
+X   strcpy(filename,meter);
+X   strcat(filename,".flows");
+X   if ((ms->flows = fopen(filename,"wa")) == NULL) {
+X      printf("Failed to open %s\n",filename);
+X      exit(0);
+X      }
+X
+X   bzero((char *)&session, sizeof(struct snmp_session));
+X   session.peername = ms->name;
+X   session.community = ms->community;
+X   session.community_len = strlen(ms->community);
+X   session.retries = SNMP_DEFAULT_RETRIES;
+X   session.timeout = SNMP_DEFAULT_TIMEOUT;
+X   session.authenticator = NULL;
+X   snmp_synch_setup(&session);
+X   ssp = snmp_open(&session);
+X   if (ssp == NULL) {
+X      printf("Couldn't open snmp to %s\n", session.peername);
+X      exit(-1);
+X      }
+X   ms->ss = ssp;
+X
+X   ms->status = MT_MANAGE;
+X   first_meter = ms;  /* $$$$$$$ */
+X
+X#ifdef MTR_LIST
+X   if (!explicit) add_all_meters();
+X#endif
+X
+X   init_meter();
+X
+X   if (!interval) {
+X      print_meters();
+X      exit (0);
+X      }
+X
+X   parse_rulefile(ms,TRUE);  /* Download the rules we want to use */
+X
+X   for (;;) {
+X      sleep(interval);
+X
+X      monitor_meter();
+X      if (verbose) print_meters();
+X      }
+X   }
+X
+X#ifdef MTR_LIST
+Xvoid parse_ctlfile()
+X{
+X   struct meter_status *ms, *mp;
+X   FILE *fp;
+X   char linebuffer[256];
+X   char label[128];
+X   char community[128];
+X   int n;
+X
+X   if ((fp = fopen(CTLFILE, "r")) == NULL) {
+X      perror(CTLFILE);
+X      exit(1);
+X      }
+X
+X   while (fgets(linebuffer, sizeof(linebuffer), fp) != NULL) {
+X      if (linebuffer[0] < '0' || linebuffer[0] > 'z') continue;
+X      n = sscanf(linebuffer, "%s %s", label, community);
+X      if (n < 1) continue;
+X      ms = (struct meter_status *)calloc(sizeof(struct meter_status), 1);
+X      ms->name = savestr(label);
+X      ms->community = n > 1 ? savestr(community) : savestr("public");
+X      ms->next = NULL;
+X
+X      if ((mp = first_meter) == NULL) first_meter = ms;
+X      else {
+X	 while (mp->next) mp = mp->next;
+X	 mp->next = ms;
+X	 }
+X      }
+X   }
+X
+Xvoid add_all_meters()
+X{
+X   struct meter_status *ms;
+X   for (ms = first_meter; ms != NULL; ms = ms->next)
+X      ms->status = MT_MANAGE;
+X   }
+X
+Xvoid add_meter(name)
+Xchar *name;
+X{
+X   struct meter_status *ms;
+X
+X   for (ms = first_meter; ms != NULL; ms = ms->next) {
+X      if (strcasecmp(name,ms->name) == 0) break;
+X      }
+X
+X   if (ms == NULL) {
+X      struct hostent *hp;
+X      u_long addr;
+X
+X      if ((addr = (u_long)inet_addr(name)) == (u_long)-1) {
+X	 hp = gethostbyname(name);
+X	 if (hp != NULL) {
+X	    for (ms = first_meter; ms != NULL; ms = ms->next) {
+X#ifdef h_addr
+X	       char **ap;
+X#endif
+X	       if (strcasecmp(hp->h_name, ms->name) == 0) break;
+X#ifdef h_addr
+X	       if (hp->h_addr_list == NULL) continue;
+X
+X	       for (ap = hp->h_addr_list; *ap; ap++) {
+X		  if (addr == *(u_long *)(*ap)) break;
+X		  }
+X	       if (*ap) break;
+X#else
+X	       if (addr == *(u_long *)(hp->h_addr)) break;
+X#endif
+X					
+X	       }
+X	    if (ms == NULL) {
+X	       printf("No config info for %s\n", name);
+X	       return;
+X	       }
+X	    }
+X         else {
+X	    printf("No config info for %s\n", name);
+X	    return;
+X	    }
+X	 }
+X      }
+X
+X   ms->status = MT_MANAGE;
+X   }
+X#endif
+X
+Xvoid init_meter()
+X{
+X   struct meter_status *ms;
+X   int haveone = 0;
+X
+X   for (ms = first_meter; ms; ms = ms->next) {
+X      if (!(ms->status & MT_MANAGE)) continue;
+X      haveone++;
+X      if (meter_info(ms)) {
+X         ms->status |= (MT_UP | MT_INFO);
+X         meter_print(ms);
+X         }
+X      }
+X
+X   if (!haveone) {
+X      printf("No meters to monitor\n");
+X      exit(5);
+X      }
+X   }
+X
+X
+Xvoid monitor_meter()
+X{
+X   struct meter_status *ms;
+X   for (ms = first_meter; ms; ms = ms->next)
+X      if (ms->status & MT_MANAGE) monitor(ms);
+X   }
+X
+X/* CAUTION:  Following struct doesn't work because of alignment on 32-bit words
+X *
+X * struct active_flow_data {  
+X *    unsigned short flow_nbr;
+X *    unsigned long fwd_bytes, back_bytes;
+X *    }; 
+X */
+X
+X#define flow_nbr_x    0
+X#define fwd_bytes_x   (flow_nbr_x + sizeof(unsigned short))
+X#define back_bytes_x  (fwd_bytes_x + sizeof(unsigned long))
+X#define flow_data_sz  (back_bytes_x + sizeof(unsigned long))
+X
+X#define FLOWBLOBSZ  25
+X
+Xunsigned short getshort(ucp)
+Xunsigned char *ucp;
+X{
+X   return ucp[0]<<8 | ucp[1];
+X   }
+X
+Xunsigned long getlong(ucp)
+Xunsigned char *ucp;
+X{
+X   return ucp[0]<<24 | ucp[1]<<16 | ucp[2]<<8 | ucp[3];
+X   }
+X
+Xvoid monitor(ms)  /* Called every interval for each meter */
+Xstruct meter_status *ms;
+X{
+X   time_t t;
+X   char *ts;
+X   unsigned short newflows,activeflows, n;
+X   int fn;
+X   struct flow_info fi;
+X   unsigned char flowblob[FLOWBLOBSZ*flow_data_sz], *afdp;
+X   unsigned long fwd_bytes, back_bytes;
+X
+X   time(&t);  ts = ctime(&t);
+X   if (!(ms->status & MT_INFO)) {  /* No info */
+X      if (meter_info(ms))  /* Got some */
+X	 ms->status |= (MT_UP | MT_INFO);
+X      return;
+X      }
+X   if (meter_info(ms) == 0) {  /* Lost contact */
+X      if (ms->status & MT_UP) {  /* Was up */
+X	 fprintf(ms->log,"%19.19s -- %s: No response\n", ts,ms->name);
+X	 if (verbose) printf("%19.19s -- %s: No response\n", ts,ms->name);
+X	 }
+X      ms->status &= ~MT_UP;  /* Mark as 'down' */
+X      return;
+X      }
+X   if (!(ms->status & MT_UP)) {  /* Have contact now, was down */
+X      fprintf(ms->log,"%19.19s -- %s: Regained contact\n", ts,ms->name);
+X      if (verbose) printf("%19.19s -- %s: Regained contact\n", ts,ms->name);
+X      }
+X   ms->status |= MT_UP;
+X
+X   /* Meter processing .. */
+X
+X   set_collect_time(ms,1);  /* Tell meter we're starting a collection */
+X
+X   fprintf(ms->keys, 
+X      "## %19.19s %s: New flows from %lu to %lu##\n",
+X      ts,ms->name, ms->LastCollectTime,ms->uptime);
+X   fn = 1;  newflows = 0;
+X   while (flow_info(ms, &fi, ms->OurLastCollectTime,&fn, 1)) {
+X      ++newflows;
+X      fprintf(ms->keys, "%u %lu %u", fn, fi.FirstTime,fi.PeerAddrType);
+X      printaddress(ms->keys, fi.LowPeerAddress,PEER_ADDR_LEN);
+X      printaddress(ms->keys, fi.HighPeerAddress,PEER_ADDR_LEN);
+X      fprintf(ms->keys,"\n");
+X      }
+X   fflush(ms->keys);
+X
+X   fprintf(ms->flows, 
+X      "## %19.19s %s: Active flows from %lu to %lu##\n",
+X      ts,ms->name, ms->LastCollectTime,ms->uptime);
+X   fn = 1;  activeflows = 0;
+X   while (blob_info(ms,flowblob, ms->OurLastCollectTime,&fn)) {
+X      for (n = 0, afdp = flowblob;  n != FLOWBLOBSZ; 
+X            ++n, afdp += flow_data_sz) {
+X         fn = ntohs(getshort(afdp + flow_nbr_x));
+X         if (fn == 0) break;  /* No more active flows in blob */
+X         ++activeflows;
+X         fprintf(ms->flows,"%u %lu %lu\n", fn,
+X            ntohl(getlong(afdp + fwd_bytes_x)),
+X            ntohl(getlong(afdp + back_bytes_x)) );
+X         }
+X      if (fn == 0) break;  /* Don't bother to look for more */
+X      }	
+X   fflush(ms->flows);
+X
+X   ms->OurLastCollectTime = ms->uptime - 1;
+X      /* -1 to make sure we don't miss any flows.  We may
+X         collect some of them twice, but we don't mind that */
+X
+X   if (verbose) printf(
+X      "%19.19s %s: %d new and %d active flows from %lu to %lu\n",
+X      ts,ms->name, newflows,activeflows, ms->LastCollectTime,ms->uptime);
+X   fprintf(ms->log, 
+X      "## %19.19s %s: %d new and %d active flows from %ld to %ld##\n",
+X      ts,ms->name, newflows,activeflows, ms->LastCollectTime,ms->uptime);
+X   fflush(ms->log);  
+X   }
+X
+X#define ADD_VAR(v)            snmp_add_null_var(pdu, v, sizeof(v)/sizeof(oid))
+X#define ADD_X_VAR(v,n1)       { v[sizeof(v)/sizeof(oid) - 1] = n1; \
+X            ADD_VAR(v); }
+X#define ADD_X2_VAR(v,n1,n2)   { v[sizeof(v)/sizeof(oid) - 2] = n1; \
+X            v[sizeof(v)/sizeof(oid) - 1] = n2; \
+X            ADD_VAR(v); }
+X
+X#define SET_INT(v)            { vars->type = INTEGER; \
+X  	    vars->val.integer = (long *)malloc(vars->val_len = sizeof(long)); \
+X	    *(vars->val.integer) = (long)v; }
+X#define SET_TIMETICKS(v)      { vars->type = TIMETICKS; \
+X  	    vars->val.integer = (long *)malloc(vars->val_len = sizeof(long)); \
+X	    *(vars->val.integer) = (long)v; }
+X#define SET_STRING(v,len)     { vars->type = STRING; \
+X	    vars->val.string = (u_char *)malloc(RULE_ADDR_LEN) ;\
+X	    bcopy(v, (char *)vars->val.string, vars->val_len = len); }
+X
+X#define STRING_VAL(v)         bcopy(vars->val.string, v, vars->val_len)
+X#define INT_VAL(v)            v = *(vars->val.integer)
+X
+Xint set_collect_time(ms,v)  /* Set LastCollectTime for meter - */
+Xstruct meter_status *ms;    /*    this tells meter a collection is starting */
+Xint v;
+X{
+X   int i, count, status;
+X   struct snmp_pdu *pdu, *response;
+X   struct variable_list *vars;
+X   pdu = snmp_pdu_create(SET_REQ_MSG);
+X   ADD_VAR(o_LastCollectTime);
+X   vars = pdu->variables;
+X   SET_TIMETICKS(v);
+X
+X   status = snmp_synch_response(ms->ss, pdu, &response);
+X   if (status == STAT_SUCCESS) {
+X      if (response->errstat == SNMP_ERR_NOERROR) {
+X         printf("Set %d: starting collection\n", ms->ruleset);
+X	 }
+X      else {
+X	 printf("Error in packet, reason = %s\n",
+X	    snmp_errstring(response->errstat));
+X	 if (response->errstat == SNMP_ERR_NOSUCHNAME) {
+X	    printf("This name does not exist: ");
+X	    for (count=1, vars = response->variables;
+X	       vars && count != response->errindex;
+X		  vars = vars->next_variable, count++) ;
+X	    if (vars) print_objid(vars->name, vars->name_length);
+X	    printf("\n");
+X	    }
+X	 }
+X      }
+X   else return 0;
+X   snmp_free_pdu(response);
+X   return 1;
+X   }
+X
+Xint set_rule_info(ms,setset)  /* 1 to set rule+action set */
+Xstruct meter_status *ms;      /* 0 to set rule and actions tables sizes */
+Xint setset;
+X{
+X   int i, count, status;
+X   struct snmp_pdu *pdu, *response;
+X   struct variable_list *vars;
+X   pdu = snmp_pdu_create(SET_REQ_MSG);
+X   if (setset) {
+X      ADD_VAR(o_CurrentRuleSet);
+X         vars = pdu->variables;
+X         SET_INT(ms->ruleset);
+X      }
+X   else {
+X      ADD_X_VAR(o_riRuleSize, ms->ruleset);
+X         vars = pdu->variables;
+X         SET_INT(ms->nrules);
+X      ADD_X_VAR(o_riActionSize, ms->ruleset);
+X         vars = vars->next_variable;
+X         SET_INT(ms->nactions);
+X      }
+X
+X   status = snmp_synch_response(ms->ss, pdu, &response);
+X   if (status == STAT_SUCCESS) {
+X      if (response->errstat == SNMP_ERR_NOERROR) {
+X         if (setset) ("Meter is now using rule+action set %d\n", ms->ruleset);
+X         else printf("Set %d: sizes set to %d rules + %d actions\n", 
+X            ms->ruleset,ms->nrules,ms->nactions);
+X	 }
+X      else {
+X	 printf("Error in packet, reason = %s\n",
+X	    snmp_errstring(response->errstat));
+X	 if (response->errstat == SNMP_ERR_NOSUCHNAME) {
+X	    printf("This name does not exist: ");
+X	    for (count=1, vars = response->variables;
+X	       vars && count != response->errindex;
+X		  vars = vars->next_variable, count++) ;
+X	    if (vars) print_objid(vars->name, vars->name_length);
+X	    printf("\n");
+X	    }
+X	 }
+X      }
+X   else return 0;
+X   snmp_free_pdu(response);
+X   return 1;
+X   }
+X
+Xint add_rule(ms,ri)
+Xstruct meter_status *ms;
+Xstruct rule_info *ri;
+X{
+X   int i, count, status;
+X   struct snmp_pdu *pdu, *response;
+X   struct variable_list *vars;
+X
+X   pdu = snmp_pdu_create(SET_REQ_MSG);
+X   ADD_X2_VAR(o_rtSelector, ri->RuleSet,ri->RuleNbr);
+X      vars = pdu->variables;
+X      SET_INT(ri->RuleSelector);
+X   ADD_X2_VAR(o_rtRuleMask, ri->RuleSet,ri->RuleNbr);
+X      vars = vars->next_variable;
+X      SET_STRING(ri->RuleMask,RULE_ADDR_LEN);
+X   ADD_X2_VAR(o_rtMatchedValue, ri->RuleSet,ri->RuleNbr);
+X      vars = vars->next_variable;
+X      SET_STRING(ri->RuleMatchedValue,RULE_ADDR_LEN);
+X   ADD_X2_VAR(o_rtRuleAction, ri->RuleSet,ri->RuleNbr);
+X      vars = vars->next_variable;
+X      SET_INT(ri->RuleAction);
+X   ADD_X2_VAR(o_rtJumpIndex, ri->RuleSet,ri->RuleNbr);
+X      vars = vars->next_variable;
+X      SET_INT(ri->RuleJumpIndex);
+X
+X   status = snmp_synch_response(ms->ss, pdu, &response);
+X   if (status == STAT_SUCCESS) {
+X      if (response->errstat == SNMP_ERR_NOERROR) {
+X         printf("Rule %d added to table %d\n", ri->RuleNbr,ri->RuleSet);
+X	 }
+X      else {
+X	 printf("Error in packet, reason = %s\n",
+X	    snmp_errstring(response->errstat));
+X	 if (response->errstat == SNMP_ERR_NOSUCHNAME) {
+X	    printf("This name does not exist: ");
+X	    for (count=1, vars = response->variables;
+X	       vars && count != response->errindex;
+X		  vars = vars->next_variable, count++) ;
+X	    if (vars) print_objid(vars->name, vars->name_length);
+X	    printf("\n");
+X	    }
+X	 }
+X      }
+X   else return 0;
+X   snmp_free_pdu(response);
+X   return 1;
+X   }
+X
+Xint add_action(ms,ai)
+Xstruct meter_status *ms;
+Xstruct action_info *ai;
+X{
+X   int i, count, status;
+X   struct snmp_pdu *pdu, *response;
+X   struct variable_list *vars;
+X
+X   pdu = snmp_pdu_create(SET_REQ_MSG);
+X   ADD_X2_VAR(o_atLowPeerType, ai->ActionSet,ai->ActionNbr);
+X      vars = pdu->variables;
+X      SET_INT(ai->PeerAddrType);
+X   ADD_X2_VAR(o_atLowPeerAddress, ai->ActionSet,ai->ActionNbr);
+X      vars = vars->next_variable;
+X      SET_STRING(ai->LowPeerAddress,PEER_ADDR_LEN);
+X   ADD_X2_VAR(o_atLowPeerMask, ai->ActionSet,ai->ActionNbr);
+X      vars = vars->next_variable;
+X      SET_STRING(ai->LowPeerMask,PEER_ADDR_LEN);
+X   ADD_X2_VAR(o_atHighPeerAddress, ai->ActionSet,ai->ActionNbr);
+X      vars = vars->next_variable;
+X      SET_STRING(ai->HighPeerAddress,PEER_ADDR_LEN);
+X   ADD_X2_VAR(o_atHighPeerMask, ai->ActionSet,ai->ActionNbr);
+X      vars = vars->next_variable;
+X      SET_STRING(ai->HighPeerMask,PEER_ADDR_LEN);
+X
+X   status = snmp_synch_response(ms->ss, pdu, &response);
+X   if (status == STAT_SUCCESS) {
+X      if (response->errstat == SNMP_ERR_NOERROR) {
+X         printf("Action %d added to table %d\n", ai->ActionNbr,ai->ActionSet);
+X	 }
+X      else {
+X	 printf("Error in packet, reason = %s\n",
+X	    snmp_errstring(response->errstat));
+X	 if (response->errstat == SNMP_ERR_NOSUCHNAME) {
+X	    printf("This name does not exist: ");
+X	    for (count=1, vars = response->variables;
+X	       vars && count != response->errindex;
+X		  vars = vars->next_variable, count++) ;
+X	    if (vars) print_objid(vars->name, vars->name_length);
+X	    printf("\n");
+X	    }
+X	 }
+X      }
+X   else return 0;
+X   snmp_free_pdu(response);
+X   return 1;
+X   }
+X
+Xint same_acct_oid(oid *a, oid *b)  
+X   /* Compare oids for equality within internet-accounting MIB */
+X{
+X   int j;
+X   for (j = 6; j != 10; ++j) {
+X      if (a[j] != b[j]) return 0;
+X      }
+X   return 1;
+X   }
+X
+Xint blob_info(struct meter_status *ms, unsigned char *fb,
+X   unsigned long ft, int *fn)
+X{
+X   int i, count, status;
+X   struct snmp_pdu *pdu, *response;
+X   struct variable_list *vars;
+X
+X   if (testing) printf("blob_info(ms,fb,ft=%lu,fn=%d)\n",ft,*fn);
+X   pdu = snmp_pdu_create(GETNEXT_REQ_MSG);
+X   ADD_X2_VAR(o_ftActiveFlowBlob,ft,*fn)
+X   status = snmp_synch_response(ms->ss, pdu, &response);
+X   if (status == STAT_SUCCESS) {
+X      if (response->errstat == SNMP_ERR_NOERROR) {
+X	 vars = response->variables;
+X         if (!same_acct_oid(vars->name,o_ftActiveFlowBlob)) 
+X            return 0;  /* No more flows with last-active time > ft */
+X	 STRING_VAL(fb);
+X	 }
+X      else if (response->errstat == SNMP_ERR_NOSUCHNAME) return 0;
+X      else {
+X	 printf("Error in packet, reason = %s\n",
+X	    snmp_errstring(response->errstat));
+X	 printf("This name does not exist: ");
+X	 for (count=1, vars = response->variables;
+X	    vars && count != response->errindex;
+X	 vars = vars->next_variable, count++) ;
+X	 if (vars) print_objid(vars->name, vars->name_length);
+X	 printf("\n");
+X	 }
+X      }
+X   else return 0;
+X   snmp_free_pdu(response);
+X   return 1;
+X   }
+X
+Xint flow_info(struct meter_status *ms, struct flow_info *fi,
+X   unsigned long ft, int *fn, int getkey)
+X  /* getkey = 1 to get keys created after ft, 
+X              0 to get flows active after ft */
+X{
+X   int j, count, status;
+X   struct snmp_pdu *pdu, *response;
+X   struct variable_list *vars;
+X
+X   if (testing) printf("flow_info(ms,fi,ft=%lu,fn=%d,getkey=%d)\n",
+X      ft,*fn,getkey);
+X
+X   pdu = snmp_pdu_create(GETNEXT_REQ_MSG);
+X   if (getkey) ADD_X2_VAR(o_ftCreateIndex,ft,*fn)
+X   else ADD_X2_VAR(o_ftActiveIndex,ft,*fn)
+X   status = snmp_synch_response(ms->ss, pdu, &response);
+X   if (status == STAT_SUCCESS) {
+X      if (response->errstat == SNMP_ERR_NOERROR) {
+X	 vars = response->variables;
+X         if (getkey) {
+X            if (!same_acct_oid(vars->name,o_ftCreateIndex)) 
+X               return 0;  /* No more flows with create time > ft */
+X            }
+X         else {
+X            if (!same_acct_oid(vars->name,o_ftActiveIndex)) 
+X               return 0;  /* No more flows with last-active time > ft */
+X	    }
+X	 INT_VAL(*fn);  /* Index of next flow created or active after ft */
+X	 }
+X      else if (response->errstat == SNMP_ERR_NOSUCHNAME) return 0;
+X      else {
+X	 printf("Error in packet, reason = %s\n",
+X	    snmp_errstring(response->errstat));
+X	 printf("This name does not exist: ");
+X	 for (count=1, vars = response->variables;
+X	    vars && count != response->errindex;
+X	 vars = vars->next_variable, count++) ;
+X	 if (vars) print_objid(vars->name, vars->name_length);
+X	  printf("\n");
+X	 }
+X      }
+X   else return 0;
+X   snmp_free_pdu(response);
+X
+X   pdu = snmp_pdu_create(GET_REQ_MSG);
+X   if (getkey) {
+X      ADD_X_VAR(o_ftLowPeerType,*fn);
+X      ADD_X_VAR(o_ftLowPeerAddress,*fn);
+X      ADD_X_VAR(o_ftHighPeerAddress,*fn);
+X      ADD_X_VAR(o_ftFirstTime,*fn);
+X      }
+X   else {
+X      ADD_X_VAR(o_ftUpOctets,*fn);
+X      ADD_X_VAR(o_ftDownOctets,*fn);
+X      ADD_X_VAR(o_ftLastTime,*fn);
+X      }
+X   status = snmp_synch_response(ms->ss, pdu, &response);
+X   if (status == STAT_SUCCESS) {
+X      if (response->errstat == SNMP_ERR_NOERROR) {
+X	 vars = response->variables;
+X	 if (getkey) {
+X	    INT_VAL(fi->PeerAddrType);
+X	    vars = vars->next_variable;
+X	    STRING_VAL(fi->LowPeerAddress);
+X	    vars = vars->next_variable;
+X	    STRING_VAL(fi->HighPeerAddress);
+X	    vars = vars->next_variable;
+X	    INT_VAL(fi->FirstTime);
+X	    vars = vars->next_variable;
+X	    }
+X	 else {
+X	    INT_VAL(fi->FwdBytes);
+X	    vars = vars->next_variable;
+X	    INT_VAL(fi->BackBytes);
+X	    vars = vars->next_variable;
+X	    INT_VAL(fi->LastTime);
+X	    }
+X	 }
+X      else {
+X	 printf("Error in packet, reason = %s\n",
+X	    snmp_errstring(response->errstat));
+X	 if (response->errstat == SNMP_ERR_NOSUCHNAME) {
+X	    printf("This name does not exist: ");
+X	    for (count=1, vars = response->variables;
+X	       vars && count != response->errindex;
+X		  vars = vars->next_variable, count++) ;
+X	    if (vars) print_objid(vars->name, vars->name_length);
+X	    printf("\n");
+X	    }
+X	 }
+X      }
+X   else return 0;
+X   snmp_free_pdu(response);
+X   return 1;
+X   }
+X
+Xint meter_info(ms)
+Xstruct meter_status *ms;
+X{
+X   int i, count, status;
+X   struct snmp_pdu *pdu, *response;
+X   struct variable_list *vars;
+X
+X   if (testing) printf("meter_info(ms)\n");
+X   pdu = snmp_pdu_create(GET_REQ_MSG);
+X   ADD_VAR(o_sysDescr);
+X   ADD_VAR(o_sysUpTime);
+X   ADD_VAR(o_LastCollectTime);
+X   status = snmp_synch_response(ms->ss, pdu, &response);
+X   if (status == STAT_SUCCESS) {
+X      if (response->errstat == SNMP_ERR_NOERROR) {
+X	 vars = response->variables;
+X	 STRING_VAL(ms->descr);
+X         vars = vars->next_variable;
+X	 INT_VAL(ms->uptime);
+X         vars = vars->next_variable;
+X	 INT_VAL(ms->LastCollectTime);
+X	 }
+X      else {
+X	 printf("Error in packet, reason = %s\n",
+X	    snmp_errstring(response->errstat));
+X	 if (response->errstat == SNMP_ERR_NOSUCHNAME) {
+X	    printf("This name does not exist: ");
+X	    for (count=1, vars = response->variables;
+X	       vars && count != response->errindex;
+X		  vars = vars->next_variable, count++) ;
+X	    if (vars) print_objid(vars->name, vars->name_length);
+X	    printf("\n");
+X	    }
+X	 }
+X      }
+X   else return 0;
+X   snmp_free_pdu(response);
+X   return 1;
+X   }
+X
+Xvoid print_meters()
+X{
+X   struct meter_status *ms;
+X   for (ms = first_meter; ms; ms = ms->next)
+X      if (ms->status & MT_MANAGE) meter_print(ms);
+X   }
+X
+Xvoid meter_print(ms)
+Xstruct meter_status *ms;
+X{
+X   struct timeval tv;
+X   char buf[32];
+X   time_t t;   char tsbuf[32];
+X
+X   time(&t);  strcpy(tsbuf,ctime(&t));
+X
+X   gettimeofday(&tv, (struct timezone *)0);
+X   tv.tv_sec -= ms->uptime / 100;
+X   if ((ms->uptime % 100)*10000 > tv.tv_usec) {
+X      tv.tv_sec--;
+X      tv.tv_usec += 1000000;
+X      }
+X   tv.tv_usec -= (ms->uptime % 100)*10000;
+X
+X   fprintf(ms->log,
+X      "%19.19s -- %s: %s\n\tUp %s (since %.24s)\n",
+X	 tsbuf,ms->name, ms->descr, uptime_string(ms->uptime, buf),
+X	 ctime(&tv.tv_sec));
+X   if (verbose) printf(
+X      "%19.19s -- %s: %s\n\tUp %s (since %.24s)\n",
+X	 tsbuf,ms->name, ms->descr, uptime_string(ms->uptime, buf),
+X	 ctime(&tv.tv_sec));
+X   }
+X
+X
+Xchar *uptime_string(timeticks, buf)
+Xunsigned long timeticks;
+Xchar *buf;
+X{
+X   int	seconds, minutes, hours, days;
+X
+X   timeticks /= 100;
+X   days = timeticks / (60 * 60 * 24);
+X   timeticks %= (60 * 60 * 24);
+X
+X   hours = timeticks / (60 * 60);
+X   timeticks %= (60 * 60);
+X
+X   minutes = timeticks / 60;
+X   seconds = timeticks % 60;
+X
+X   if (days == 0){
+X      sprintf(buf, "%d:%02d:%02d", hours, minutes, seconds);
+X      }
+X   else if (days == 1) {
+X      sprintf(buf, "%d day, %d:%02d:%02d",
+X	 days, hours, minutes, seconds);
+X      }
+X   else {
+X      sprintf(buf, "%d days, %d:%02d:%02d",
+X	 days, hours, minutes, seconds);
+X      }
+X   return buf;
+X   }
+X
+Xvoid printaddress(f,a,len)
+XFILE *f;
+Xunsigned char *a, len;
+X{
+X   int j;
+X   fprintf(f," %u", a[0]);
+X   for (j = 1; j != len; ++j) fprintf(f,".%u", a[j]);
+X   }
+X
+X
+XFILE *rfp;  /* For rules file */
+Xchar inbuf[256], *ibp;
+Xint lic, ic,  /* Last input char, current input char */
+X   iblisted, rule_line, rferrors;
+X
+Xint nextchar()
+X{
+X   lic = ic;
+X   for (;;) {
+X      if (lic == '\n') {
+X	 if (fgets(inbuf, sizeof(inbuf), rfp) == NULL) return ic = EOF;
+X	 iblisted = 0;  ++rule_line;
+X	 ibp = inbuf;
+X	 }
+X      ic = *ibp++;
+X      if (ic == '#') lic = '\n';  /* Ignore comments */
+X      else return ic;
+X      }
+X   }
+X
+Xint wordis(p,w)
+Xchar *p, *w;
+X{
+X   return strncmp(p,w,strlen(w)) == 0;
+X   }
+X
+Xint getword()
+X{
+X   char wbuf[30], *wp = wbuf;
+X   for (;;) {
+X      *wp++ = tolower(ic);
+X      nextchar(rfp);
+X      if (ic == EOF) return EOF;
+X      if (!isalpha(ic)) break;
+X      }
+X
+X   if (wordis(wbuf,"null")) return RS_NULL;
+X   if (wordis(wbuf,"lowpeertype")) return RS_LOWPEERTYPE;
+X   if (wordis(wbuf,"lowpeeraddress")) return RS_LOWPEERADDR;
+X   if (wordis(wbuf,"highpeeraddress")) return RS_HIPEERADDR;
+X
+X   if (wordis(wbuf,"ip")) return AT_IP;
+X   if (wordis(wbuf,"novell")) return AT_NOVELL;
+X   if (wordis(wbuf,"decnet")) return AT_DECNET;
+X   if (wordis(wbuf,"ethertalk")) return AT_ETHERTALK;
+X
+X   if (wordis(wbuf,"count")) return RA_COUNT;
+X   if (wordis(wbuf,"tally")) return RA_TALLY;
+X   if (wordis(wbuf,"aggregate")) return RA_AGGREGATE;
+X   if (wordis(wbuf,"succeed")) return RA_SUCCEED;
+X   if (wordis(wbuf,"fail")) return RA_FAIL;
+X   if (wordis(wbuf,"pushto")) return RA_PUSHTO;
+X   if (wordis(wbuf,"popto")) return RA_POPTO;
+X   if (wordis(wbuf,"goto")) return RA_GOTO;
+X
+X   if (wordis(wbuf,"set")) return RF_SET;
+X   if (wordis(wbuf,"rules")) return RF_RULES;
+X   if (wordis(wbuf,"actions")) return RF_ACTIONS;
+X
+X   if (!iblisted) {
+X      printf("RULEFILE line %d: %s\n", rule_line,inbuf);
+X      iblisted = 1;
+X      }
+X   printf("Unknown word %s !!!\n", wbuf);
+X   ++rferrors;
+X   return 0;
+X   }
+X
+Xint getnbr()
+X{
+X   int v = 0;
+X   for (;;) {
+X      if (ic == EOF) return EOF;
+X      if (isdigit(ic)) break;
+X      else if (isalpha(ic)) return getword();
+X      else nextchar(rfp);
+X      }
+X   for (;;) {
+X      v = v*10 + ic-'0';
+X      if (nextchar(ic) == EOF) return EOF;
+X      if (!isdigit(ic)) break;
+X      }
+X   if (v > 255) {
+X      if (!iblisted) {
+X	 printf("RULEFILE line %d: %s\n", rule_line,inbuf);
+X	 iblisted = 1;
+X	 }
+X      printf("Number > 255 !!!\n");
+X      ++rferrors;
+X      }
+X   return v;
+X   }
+X
+Xvoid getaddress(a,len)
+Xunsigned char *a, len;
+X{
+X   int j;
+X   for (j = 0; j != len; ++j) {
+X      a[j] = getnbr();
+X      if (ic != '.') {  /* End of address; pad with zeroes */
+X         for (++j; j != len; ++j) a[j] = 0;
+X         return;
+X         }
+X      }
+X   }
+X
+Xint scan_rulefile(ms,doset,list)
+Xstruct meter_status *ms;
+Xint doset,list;
+X{
+X   struct rule_info ri;
+X   struct action_info ai;
+X   int rule_set, nrules, nactions, n, kind;
+X
+X   if ((rfp = fopen(ms->rulefile, "r")) == NULL) {
+X      perror(ms->rulefile);
+X      printf("   -> Using meter's default rules <-\n\n");
+X      return 0;  /* Fail */
+X      }
+X
+X   rferrors = 0;
+X   ic = '\n';  rule_set = 2;  /* Default rule+action set */
+X   nrules = nactions = 0;  kind = RF_RULES;
+X   for (;;) {
+X      do {  /* First char of a line */
+X	 nextchar(rfp);
+X	 if (ic == EOF) break;
+X	 } while (lic != '\n');
+X      if (ic == EOF) break;
+X      n = getnbr();  /* What kind of line is it? */
+X      if (n == RF_SET) {
+X         ri.RuleSet = ai.ActionSet = rule_set = getnbr();
+X         kind = RF_RULES;  
+X         continue;
+X         }
+X      else if (n == RF_RULES) {
+X         kind = RF_RULES;  continue;
+X         }
+X      if (n == RF_ACTIONS) {
+X         kind = RF_ACTIONS;   continue;
+X         }
+X
+X      if (kind == RF_RULES) {
+X         ri.RuleSelector = n;
+X         getaddress(ri.RuleMask,RULE_ADDR_LEN);
+X         if (ic == EOF) break;
+X         getaddress(ri.RuleMatchedValue,RULE_ADDR_LEN);
+X         if (ic == EOF) break;
+X         ri.RuleAction = getnbr();
+X         if (ic == EOF) break;
+X         ri.RuleJumpIndex = getnbr();
+X         if (ic == EOF) break;
+X         ri.RuleNbr = ++nrules;
+X         if (list) {
+X	    printf("Rule %d,%d:  %d  ", rule_set,nrules,ri.RuleSelector);
+X	    printaddress(stdout, ri.RuleMask, RULE_ADDR_LEN);
+X	    printaddress(stdout, ri.RuleMatchedValue,RULE_ADDR_LEN);
+X	    printf(" %d %d\n", ri.RuleAction,ri.RuleJumpIndex);
+X	    }
+X         if (doset) add_rule(ms,&ri);  /* Add rule to meter's rule table */
+X	 }
+X
+X      if (kind == RF_ACTIONS) {
+X         ai.PeerAddrType = n;
+X         if (ic == EOF) break;
+X         getaddress(ai.LowPeerAddress,PEER_ADDR_LEN);
+X         if (ic == EOF) break;
+X         getaddress(ai.LowPeerMask,PEER_ADDR_LEN);
+X         if (ic == EOF) break;
+X         getaddress(ai.HighPeerAddress,PEER_ADDR_LEN);
+X         if (ic == EOF) break;
+X         getaddress(ai.HighPeerMask,PEER_ADDR_LEN);
+X         if (ic == EOF) break;
+X         ai.ActionNbr = ++nactions;
+X         if (list) {
+X	    printf("Action %d,%d:  %d  ", rule_set,nactions,ai.PeerAddrType);
+X	    printaddress(stdout, ai.LowPeerAddress,PEER_ADDR_LEN);
+X	    printaddress(stdout, ai.LowPeerMask,PEER_ADDR_LEN);
+X            printf("  ");
+X	    printaddress(stdout, ai.HighPeerAddress,PEER_ADDR_LEN);
+X	    printaddress(stdout, ai.HighPeerMask,PEER_ADDR_LEN);
+X	    printf("\n");
+X	    }
+X      if (doset) add_action(ms,&ai);  /* Add rule to meter's action table */
+X	 }
+X     }
+X
+X   fclose(rfp);
+X   if (rferrors == 0) {
+X      ms->ruleset = rule_set;  ms->nrules = nrules;  ms->nactions = nactions;
+X      return 1;  /* Succeed */
+X      }
+X   return 0;  /* Fail */
+X   }
+X
+Xvoid parse_rulefile(ms,list)
+Xstruct meter_status *ms;
+Xint list;
+X{
+X   if (scan_rulefile(ms,0,list)) {  /* Rulefile is OK */
+X      if (set_rule_info(ms,0)) {  /* Set rule+action table sizes */
+X         scan_rulefile(ms,1,0);  /* Download the rules and actions */
+X         set_rule_info(ms,1);  /* Tell meter to start using new rules */
+X         }
+X      }
+X   }
+END_OF_FILE
+  if test 43638 -ne `wc -c <'netramet/src/manager/nm.jul.c'`; then
+    echo shar: \"'netramet/src/manager/nm.jul.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/manager/nm.jul.c'
+fi
+if test -f 'netramet/src/manager/nmc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/manager/nmc.c'\"
+else
+  echo shar: Extracting \"'netramet/src/manager/nmc.c'\" \(17129 characters\)
+  sed "s/^X//" >'netramet/src/manager/nmc.c' <<'END_OF_FILE'
+X/* 1430, Wed 13 Oct 93
+X
+X   NMC.C:  First attempt at a manager for the AU Accounting Meter
+X
+X   Copyright (C) 1992,1993 by Nevil Brownlee,
+X   Computer Centre,  University of Auckland */
+X
+X#include <sys/param.h>
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/time.h>
+X#include <errno.h>
+X
+X#include <string.h>
+X#include <malloc.h>
+X
+X#include "ausnmp.h"
+X
+X#include "snmp.h"
+X#include "snmpimpl.h"
+X#include "asn1.h"
+X#include "snmpclnt.h"
+X#include "snmpapi.h"
+X#include "mib.h"
+X
+X#define EXTERN
+X#include "nmc.h"
+X
+Xint create_meter(struct meter_status *ms)
+X{
+X   char filename[NAME_LN*2];
+X   time_t t;  char *ts;
+X   unsigned char a,b, n;
+X
+X   if (ms->name[0] == NULL || ms->community == 0) {
+X      printf("Meter name or community not specified !!!\n");
+X      return 0;
+X      }
+X
+X   if (!start_snmp_session(ms)) return 0;
+X
+X   ms->status = MT_MANAGE;
+X   if (meter_info(ms)) {
+X      ms->status |= (MT_UP | MT_INFO);
+X      meter_print(stdout,ms);
+X      meter_print(log,ms);
+X      fflush(log);
+X      }
+X   else {
+X      printf("Couldn't get meter info from %s\n",ms->name);
+X      fprintf(log,"Couldn't get meter info from %s\n",ms->name);
+X      fflush(log);
+X      return 0;
+X      }
+X
+X   set_meter_params(ms);
+X
+X   if (ms->rulefile[0] == NULL)  /* No rule file specified */
+X      ms->ruleset = ms->CurrentRuleSet;
+X   else {  /* Download the rules we want to use */
+X      parse_rulefile(ms,listrules);
+X      if (rferrors != 0) return 0;
+X      }
+X   ++nmeters;
+X
+X   ms->OurLastCollectTime = 1L;
+X   ms->snmp_delay = 90;  /* Wait 90 ms after an snmp request */
+X
+X   sprintf(filename, "%s.flows", ms->name);  /* Open flows file */
+X   ms->flows = wfopen(filename);
+X
+X   time(&t);  ts = fmt_time(&t);
+X   fprintf(ms->flows, 
+X      "##NeTraMet v2.2:  -c%d -r %s %s  %u flows  starting at %s\n",
+X      interval,ms->rulefile,ms->name, ms->MaxFlows, ts);
+X   fprintf(ms->flows, "#Format: ");
+X   if ((n = ms->format[a = 0]) != NULL) for (;;) {
+X      for (b = 1; attribs[b].index != n; ++b) ;
+X      fprintf(ms->flows,attribs[b].name);
+X      if ((n = ms->format[a+1]) == NULL) break;
+X      fprintf(ms->flows,ms->separator[a++]);
+X      }
+X   fprintf(ms->flows,"\n");
+X   fflush(ms->flows);
+X   }
+X
+Xchar cfname[NAME_LN], rfname[NAME_LN],
+X   meter[NAME_LN], community[NAME_LN];
+X
+Xvoid main(argc,argv)
+Xint argc;
+Xchar *argv[];
+X{
+X   int syntax;
+X   char *ap, arg[NAME_LN];
+X   int a;
+X   time_t t1,t2;  int busy_seconds;
+X   struct meter_status *ms, *nms;
+X
+X   if (argc < 2) {
+X      printf("nm [options] meter-name community\n\n");
+X      exit(0);
+X      }
+X
+X   syntax = verbose = testing = listrules = 0;
+X   interval = 120;  /* Default 2 minutes */
+X   strcpy(cfname, CFGFILE);
+X   rfname[0] = meter[0] = community[0] = NULL;
+X
+X   for (a = 1; a < argc; ++a) {
+X      if (argv[a][0] == '-') {
+X	 switch (argv[a][1]) {
+X	 case 'd':
+X	    snmp_dump_packet++;
+X	    break;
+X	 case 'c':
+X            ap = argv[a]+2;
+X            if (*ap == NULL) ap = argv[++a];
+X	    interval = atoi(ap);
+X	    break;
+X	 case 'l':
+X	    listrules++;
+X	    break;
+X	 case 'r':
+X	    strcpy(rfname, argv[++a]);  /* Rule file name */
+X	    break;
+X	 case 'f':
+X	    strcpy(cfname, argv[++a]);  /* Config file name */
+X	    break;
+X	 case 's':
+X	    syntax++;
+X	    break;
+X	 case 't':
+X	    testing++;
+X	    break;
+X	 case 'v':
+X	    verbose++;
+X	    break;
+X	 default:
+X	    printf("Invalid option: -%c\n", argv[a][1]);
+X	    break;
+X	    }
+X	 continue;
+X	 }
+X      if (meter[0] == NULL) strcpy(meter,argv[a]);
+X      else if (community[0] == NULL) strcpy(community,argv[a]);
+X      }
+X
+X   if (syntax) {  /* Test a rule file */
+X      ms = (struct meter_status *)calloc(sizeof(struct meter_status), 1);
+X      strcpy(ms->rulefile,rfname);
+X      scan_rulefile(ms,0,1);
+X      printf("\n%d errors in rule file %s\n\n", rferrors,rfname);
+X      exit(0);
+X      }
+X
+X   init_mib();  /* Initialise SNMP handler */
+X
+X   log = wfopen(LOGFILE);
+X   time(&t1);
+X   if (!parse_open(cfname)) {  /* No config file */
+X      first_meter = (struct meter_status *)calloc
+X         (sizeof(struct meter_status), 1);
+X      strcpy(first_meter->rulefile,rfname);
+X      strcpy(first_meter->name,meter);
+X      strcpy((char *)first_meter->community,community);
+X      }
+X   else for (first_meter = NULL; ; ) {  /* Parse config file */
+X      ms = (struct meter_status *)calloc(sizeof(struct meter_status), 1);
+X      strcpy(ms->rulefile,rfname);
+X      do {  /* Start with first char of a line */
+X	 nextchar();
+X	 if (ic == EOF) break;
+X	 } while (lic != '\n');
+X      if (ic == EOF) break;
+X      getarg(arg);
+X      for ( ; arg[0] == '-'; ) {
+X         ap = &arg[2];
+X         switch (arg[1]) {
+X         case 'g':
+X            if (*ap == NULL) getarg(ap = arg);
+X	    ms->GCIntervalReqd = atoi(ap);
+X            break;
+X         case 'h':
+X            if (*ap == NULL) getarg(ap = arg);
+X	    ms->HighWaterMark = atoi(ap);
+X            break;
+X         case 'i':
+X            if (*ap == NULL) getarg(ap = arg);
+X	    ms->InactivityTime = atoi(ap);
+X            break;
+X         case 'r':
+X            getarg(ms->rulefile);
+X            break;
+X            }
+X         getarg(arg);
+X         }
+X      strcpy(ms->name,arg);
+X      getarg((char *)ms->community);
+X      if (first_meter == NULL) first_meter = ms;
+X      else for (nms = first_meter; ; nms = nms->next) {
+X         if (nms->next == NULL) {
+X            nms->next = ms;  break;
+X            }
+X         }
+X      }
+X
+X   for (nmeters = 0, ms = first_meter; ms; ms = ms->next)
+X      create_meter(ms);
+X
+X   if (nmeters == 0) {
+X      printf("No meters to monitor !!!\n");
+X      exit(0);
+X      }
+X
+X   for (;;) {
+X      for (ms = first_meter; ms; ms = ms->next)
+X         if (ms->status & MT_MANAGE) monitor(ms);
+X
+X      if (verbose) {
+X         for (ms = first_meter; ms; ms = ms->next)
+X            if (ms->status & MT_MANAGE) meter_print(stdout,ms);
+X         }
+X
+X      if (interval == 0) exit();
+X      time(&t2);  busy_seconds = t2-t1;
+X      if (busy_seconds < interval) sleep(interval-busy_seconds);
+X      time(&t1);
+X      }
+X   }
+X
+X
+Xvoid write_attrib(FILE *f, struct flow_info *fp, unsigned char col)
+X{
+X   switch(col) {
+X   case FTFLOWINDEX:  /* Used to synchronise column blobs */
+X      fprintf(f,"%u",fp->FlowIndex);
+X      break;
+X   case FTFLOWSTATUS:
+X      fprintf(f,"%u",fp->FlowStatus);
+X      break;
+X   case FTLOWINTERFACE:
+X      fprintf(f,"%u",fp->LowInterface);
+X      break;
+X   case FTLOWADJACENTTYPE:
+X      fprintf(f,"%u",fp->LowAdjType);
+X      break;
+X   case FTLOWADJACENTADDRESS:
+X      printaddress(f,fp->LowAdjAddress,MAC_ADDR_LEN);
+X      break;
+X   case FTLOWADJACENTMASK:
+X      printaddress(f,fp->LowAdjMask,MAC_ADDR_LEN);
+X      break;
+X   case FTLOWPEERTYPE:
+X      fprintf(f,"%u",fp->LowPeerType);
+X      break;
+X   case FTLOWPEERTYPEMASK:
+X      fprintf(f,"%u",fp->LowPeerTypeMask);
+X      break;
+X   case FTLOWPEERADDRESS:
+X      printaddress(f,fp->LowPeerAddress,PEER_ADDR_LEN);
+X      break;
+X   case FTLOWPEERMASK:
+X      printaddress(f,fp->LowPeerMask,PEER_ADDR_LEN);
+X      break;
+X   case FTLOWDETAILTYPE:
+X      fprintf(f,"%u",fp->LowDetailType);
+X      break;
+X   case FTLOWDETAILTYPEMASK:
+X      fprintf(f,"%u",fp->LowDetailTypeMask);
+X      break;
+X   case FTLOWDETAILADDRESS:
+X      printaddress(f,fp->LowDetailAddress,DETAIL_ADDR_LEN);
+X      break;
+X   case FTLOWDETAILMASK:
+X      printaddress(f,fp->LowDetailMask,DETAIL_ADDR_LEN);
+X      break;
+X   case FTHIINTERFACE:
+X      fprintf(f,"%u",fp->HighInterface);
+X      break;
+X   case FTHIADJACENTTYPE:
+X      fprintf(f,"%u",fp->HighAdjType);
+X      break;
+X   case FTHIADJACENTADDRESS:
+X      printaddress(f,fp->HighAdjAddress,MAC_ADDR_LEN);
+X      break;
+X   case FTHIADJACENTMASK:
+X      printaddress(f,fp->HighAdjMask,MAC_ADDR_LEN);
+X      break;
+X   case FTHIPEERTYPE:
+X      fprintf(f,"%u",fp->HighPeerType);
+X      break;
+X   case FTHIPEERTYPEMASK:
+X      fprintf(f,"%u",fp->HighPeerTypeMask);
+X      break;
+X   case FTHIPEERADDRESS:
+X      printaddress(f,fp->HighPeerAddress,PEER_ADDR_LEN);
+X      break;
+X   case FTHIPEERMASK:
+X      printaddress(f,fp->HighPeerMask,PEER_ADDR_LEN);
+X      break;
+X   case FTHIDETAILTYPE:
+X      fprintf(f,"%u",fp->HighDetailType);
+X      break;
+X   case FTHIDETAILTYPEMASK:
+X      fprintf(f,"%u",fp->HighDetailTypeMask);
+X      break;
+X   case FTHIDETAILADDRESS:
+X      printaddress(f,fp->HighDetailAddress,DETAIL_ADDR_LEN);
+X      break;
+X   case FTHIDETAILMASK:
+X      printaddress(f,fp->HighDetailMask,DETAIL_ADDR_LEN);
+X      break;
+X   case FTRULESET:
+X      fprintf(f,"%u",fp->FlowRuleSet);
+X      break;
+X   case FTFLOWTYPE:
+X      fprintf(f,"%u",fp->FlowType);
+X      break;
+X   case FTUPOCTETS:
+X      fprintf(f,"%lu",fp->FwdBytes);
+X      break;
+X   case FTUPPDUS:
+X      fprintf(f,"%lu",fp->FwdPackets);
+X      break;
+X   case FTDOWNOCTETS:
+X      fprintf(f,"%lu",fp->BackBytes);
+X      break;
+X   case FTDOWNPDUS:
+X      fprintf(f,"%lu",fp->BackPackets);
+X      break;
+X   case FTFIRSTTIME:
+X      fprintf(f,"%lu",fp->FirstTime);
+X      break;
+X   case FTLASTTIME:
+X      fprintf(f,"%lu",fp->LastTime);
+X      break;
+X      }
+X   }
+X
+Xunsigned short getshort(ucp)
+Xunsigned char *ucp;
+X{
+X   return ucp[0]<<8 | ucp[1];
+X   }
+X
+Xunsigned long getlong(ucp)
+Xunsigned char *ucp;
+X{
+X   return ucp[0]<<24 | ucp[1]<<16 | ucp[2]<<8 | ucp[3];
+X   }
+X
+Xunsigned short get_slice(struct meter_status *ms,
+X   unsigned short first_row, unsigned char col, 
+X   unsigned char first)
+X{
+X   int fn, row, n, r;
+X   struct flow_info *fp;
+X   unsigned char *ucp;
+X   fn = first_row;  row = n = 0;
+X   if (column_info(ms,column_blob, col,ms->OurLastCollectTime,&fn) != 0) {
+X      for (r = 0, ucp = column_blob;  ; ++r) {
+X         fp = &flows[row];
+X         n = ntohs(getshort(ucp));  ucp += 2;  /* Flow nbr */
+X         if (n < 2) break;  /* No more active flows in blob */
+X         switch (col) {
+X	 case FTFLOWINDEX:  /* Used to synchronise column blobs */
+X	    break;
+X	 case FTFLOWSTATUS:
+X            fp->FlowStatus = *ucp;
+X            break;
+X	 case FTLOWINTERFACE:
+X            fp->LowInterface = *ucp;
+X            break;
+X	 case FTLOWADJACENTTYPE:
+X            fp->LowAdjType = *ucp;
+X            break;
+X	 case FTLOWADJACENTADDRESS:
+X	    bcopy(ucp,fp->LowAdjAddress,MAC_ADDR_LEN);
+X	    break;
+X	 case FTLOWADJACENTMASK:
+X	    bcopy(ucp,fp->LowAdjMask,MAC_ADDR_LEN);
+X	    break;
+X	 case FTLOWPEERTYPE:
+X            fp->LowPeerType = *ucp;
+X	    break;
+X	 case FTLOWPEERTYPEMASK:
+X            fp->LowPeerTypeMask = *ucp;
+X	    break;
+X	 case FTLOWPEERADDRESS:
+X	    bcopy(ucp,fp->LowPeerAddress,PEER_ADDR_LEN);
+X	    break;
+X	 case FTLOWPEERMASK:
+X	    bcopy(ucp,fp->LowPeerMask,PEER_ADDR_LEN);
+X	    break;
+X	 case FTLOWDETAILTYPE:
+X            fp->LowDetailType = *ucp;
+X	    break;
+X	 case FTLOWDETAILTYPEMASK:
+X            fp->LowDetailTypeMask = *ucp;
+X	    break;
+X	 case FTLOWDETAILADDRESS:
+X	    bcopy(ucp,fp->LowDetailAddress,DETAIL_ADDR_LEN);
+X	    break;
+X	 case FTLOWDETAILMASK:
+X	    bcopy(ucp,fp->LowDetailMask,DETAIL_ADDR_LEN);
+X	    break;
+X	 case FTHIINTERFACE:
+X            fp->HighInterface = *ucp;
+X            break;
+X	 case FTHIADJACENTTYPE:
+X            fp->HighAdjType = *ucp;
+X	    break;
+X	 case FTHIADJACENTADDRESS:
+X	    bcopy(ucp,fp->HighAdjAddress,MAC_ADDR_LEN);
+X	    break;
+X	 case FTHIADJACENTMASK:
+X	    bcopy(ucp,fp->HighAdjMask,MAC_ADDR_LEN);
+X	    break;
+X	 case FTHIPEERTYPE:
+X            fp->HighPeerType = *ucp;
+X	    break;
+X	 case FTHIPEERTYPEMASK:
+X            fp->HighPeerTypeMask = *ucp;
+X	    break;
+X	 case FTHIPEERADDRESS:
+X	    bcopy(ucp,fp->HighPeerAddress,PEER_ADDR_LEN);
+X	    break;
+X	 case FTHIPEERMASK:
+X	    bcopy(ucp,fp->HighPeerMask,PEER_ADDR_LEN);
+X	    break;
+X	 case FTHIDETAILTYPE:
+X            fp->HighDetailType = *ucp;
+X	    break;
+X	 case FTHIDETAILTYPEMASK:
+X            fp->HighDetailTypeMask = *ucp;
+X	    break;
+X	 case FTHIDETAILADDRESS:
+X	    bcopy(ucp,fp->HighDetailAddress,DETAIL_ADDR_LEN);
+X	    break;
+X	 case FTHIDETAILMASK:
+X	    bcopy(ucp,fp->HighDetailMask,DETAIL_ADDR_LEN);
+X	    break;
+X	 case FTRULESET:
+X            fp->FlowRuleSet = *ucp;
+X	    break;
+X	 case FTFLOWTYPE:
+X            fp->FlowType = *ucp;
+X	    break;
+X         case FTUPOCTETS:
+X            fp->FwdBytes = ntohl(getlong(ucp));
+X            break;
+X	 case FTUPPDUS:
+X            fp->FwdPackets = ntohl(getlong(ucp));
+X	    break;
+X	 case FTDOWNOCTETS:
+X            fp->BackBytes = ntohl(getlong(ucp));
+X	    break;
+X	 case FTDOWNPDUS:
+X            fp->BackPackets = ntohl(getlong(ucp));
+X	    break;
+X	 case FTFIRSTTIME:
+X            fp->FirstTime = ntohl(getlong(ucp));
+X	    break;
+X	 case FTLASTTIME:
+X            fp->LastTime = ntohl(getlong(ucp));
+X	    break;
+X	    }
+X         ucp += attribs[col].len;
+X         if (first) {
+X            fp->FlowIndex = n;  ++row;
+X	    }
+X         else {
+X            if (n == fp->FlowIndex) ++row;
+X            }
+X         }
+X      }	
+X   if (first) flows[row].FlowIndex = n;  /* Return end-of-blob marker */
+X   return row;  /* Nbr of rows may decrease with later columns */
+X   }
+X
+Xvoid monitor(ms)  /* Called every interval for each meter */
+Xstruct meter_status *ms;
+X{
+X   time_t t;  char *ts;
+X   unsigned short activeflows, first_row, nrows, r;
+X   unsigned char a, col, first;
+X   unsigned long aps,apb;
+X   unsigned int i,j;
+X   struct flow_info *fp;
+X
+X   time(&t);  ts = fmt_time(&t);
+X   if (!(ms->status & MT_INFO)) {  /* No info */
+X      if (meter_info(ms))  /* Got some */
+X	 ms->status |= (MT_UP | MT_INFO);
+X      return;
+X      }
+X   if (meter_info(ms) == 0) {  /* Lost contact */
+X      if (ms->status & MT_UP) {  /* Was up */
+X	 fprintf(log,"%s -- %s: No response\n", ts,ms->name);
+X         fflush(log);  
+X	 if (verbose) printf("%s -- %s: No response\n", ts,ms->name);
+X	 }
+X      ms->status &= ~MT_UP;  /* Mark as 'down' */
+X      return;
+X      }
+X   if (!(ms->status & MT_UP)) {  /* Have contact now, was down */
+X      fprintf(log,"%s -- %s: Regained contact\n", ts,ms->name);
+X      fflush(log);  
+X      if (verbose) printf("%s -- %s: Regained contact\n", ts,ms->name);
+X      }
+X   ms->status |= MT_UP;
+X
+X   /* Meter processing .. */
+X
+X   set_collect_time(ms,1);  /* Tell meter we're starti[20~ng a collection */
+X
+X   fprintf(ms->flows, 
+X      "#Time: %s %s Flows from %lu to %lu\n",
+X      ts,ms->name, ms->OurLastCollectTime,ms->uptime);
+X
+X   if (ms->statsreqd) {
+X      if (ms->StatsTime != 0) {
+X         aps = (ms->NbrPackets*10+5L)/(ms->StatsTime*10L);
+X         apb = (ms->TotPktBacklog*10+5L)/(ms->StatsTime*10L);
+X         }
+X      else {
+X         aps = apb = 0;
+X         }
+X      fprintf(ms->flows,"#Stats: aps=%lu apb=%lu mps=%lu mpb=%lu lsp=%lu", 
+X         aps,apb, ms->MaxPktRate,ms->MaxPktBacklog, ms->LostPackets);
+X      fprintf(ms->flows," avi=%u.%u mni=%u.%u",
+X         ms->AvIdle1000/10,ms->AvIdle1000%10,
+X         ms->MinIdle1000/10,ms->MinIdle1000%10);
+X      if (ms->NbrPackets != 0)
+X         i = (ms->RuleMatches*100L+5L)/(ms->NbrPackets*10L);
+X      else i = 0;
+X      fprintf(ms->flows," fiu=%u frc=%lu gci=%u rpp=%u.%u",
+X         ms->NbrFlows,ms->FlowsRecovered,ms->GCInterval, i/10,i%10);
+X      if (ms->NbrPackets != 0)
+X         i = (ms->HashSearches*100L+5L)/(ms->NbrPackets*10L);
+X      else i = 0;
+X      if (ms->HashSearches != 0) {
+X         j = (ms->HashCompares*100L+5L)/(ms->HashSearches*10L);
+X         }
+X      else j = 0;
+X      fprintf(ms->flows," tpp=%u.%u cpt=%u.%u tts=%u tsu=%u\n",
+X	 i/10,i%10, j/10,j%10, ms->TotalHashSize,ms->NbrHashEntries);
+X      }
+X
+X   if (ms->format[0] != 0) {  /* Collect flow data */
+X      activeflows = 0;  first_row = 1;
+X      do {
+X         for (first = 1, a = 0;  (col = col_order[a]) != NULL; ++a) {
+X            if (ms->required[col] == 0) continue;
+X            nrows = get_slice(ms, first_row,col, first);
+X            first = 0;
+X            }
+X         if (testing) fprintf(ms->flows,
+X            "#monitor(): first_row=%u, nrows=%u, next_row=%d, end_mark=%u\n",
+X               first_row, nrows, 
+X               nrows != 0 ? flows[nrows-1].FlowIndex : -1,
+X               flows[nrows].FlowIndex);
+X         activeflows += nrows;
+X         if (nrows != 0) {
+X            first_row = flows[nrows-1].FlowIndex;  /* Last data row */
+X            for (r = 0; r != nrows; ++r) {
+X               for (col = ms->format[a = 0]; ; ) {
+X                  if (col != NULL) write_attrib(ms->flows, &flows[r],col);
+X                  if ((col = ms->format[a+1]) == NULL) break;
+X                  fprintf(ms->flows,ms->separator[a++]);
+X                  }
+X               fprintf(ms->flows,"\n");
+X               }
+X            }
+X         } while (flows[nrows].FlowIndex != 0);
+X      }
+X
+X   fflush(ms->flows);
+X   if (verbose) printf(
+X      "%s %s: %d active flows from %lu to %lu\n",
+X      ts,ms->name, activeflows, ms->OurLastCollectTime,ms->uptime);
+X
+X   ms->OurLastCollectTime = ms->uptime - 1L;
+X      /* -1 to make sure we don't miss any flows.  We may
+X         collect some of them twice, but we don't mind that */
+X   }
+X
+Xvoid meter_print(FILE *f,struct meter_status *ms)
+X{
+X   time_t t;  char tsbuf[32];
+X   struct timeval tv;
+X   char buf[32];
+X
+X   if (!verbose) return;
+X
+X   time(&t);  strcpy(tsbuf,fmt_time(&t));
+X   gettimeofday(&tv, (struct timezone *)0);
+X   tv.tv_sec -= ms->uptime / 100;
+X   if ((ms->uptime % 100)*10000 > tv.tv_usec) {
+X      tv.tv_sec--;
+X      tv.tv_usec += 1000000;
+X      }
+X   tv.tv_usec -= (ms->uptime % 100)*10000;
+X   fprintf(f,"%s -- %s: %s\n\tUp %s (since %s)\n",
+X      tsbuf,ms->name, ms->descr, uptime_string(ms->uptime, buf),
+X      fmt_time(&tv.tv_sec));
+X   }
+END_OF_FILE
+  if test 17129 -ne `wc -c <'netramet/src/manager/nmc.c'`; then
+    echo shar: \"'netramet/src/manager/nmc.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/manager/nmc.c'
+fi
+echo shar: End of archive 15 \(of 25\).
+cp /dev/null ark15isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1041 @@
+Newsgroups: comp.sources.misc
+From: Karl_Kleinpaste@cs.cmu.edu (Karl_Kleinpaste)
+Subject:  v33i033:  anon - Anonymous contact system, a short work in 8 shell scripts, Part01/01
+Message-ID: <1992Nov3.204113.20933@sparky.imd.sterling.com>
+X-Md4-Signature: a5643cb0ced2b2e3dd1a169408777b61
+Date: Tue, 3 Nov 1992 20:41:13 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Karl_Kleinpaste@cs.cmu.edu (Karl_Kleinpaste)
+Posting-number: Volume 33, Issue 33
+Archive-name: anon/part01
+Environment: MMDF, sendmail
+
+This software is what constitutes the anonymous contact system running
+on godiva.nectar.cs.cmu.edu.  It was first created 17 September, when
+it was 4 shell scripts.  Logging and traffic-watching scripts were
+added next for bug-tracking, followed by nickname support and plonk
+capability.  Logging and traffic-watching can be trivially disabled,
+and in fact are disabled as distributed here.  Abusive users can be
+prevented from posting via the fire extinguisher facility (plonking).
+Posting errors are (attempted to be) returned to the user.  The system
+attempts to prevent use by bogus origin addresses, bogosity being
+defined as non-domain addresses and "self-forgeries."  I have
+attempted to make the system as parameterized as possible; most of the
+path- and host-specific information lives in a file ".anonvars" for
+one-stop hacking.  The scripts were initially bash-based, but I have
+since converted to the least common denominator in the interest of
+portability.  (Not incidentally, conversion to /bin/sh caused a
+momentary shutdown of the system while I discovered the inadequacies
+of the default /bin/sh $PATH.)
+
+I live under MMDF as a mail transport, and as such I believe in the
+use of .maildelivery and username+SuffixString.  The MH-provided
+program slocal will do (almost?) identical things for folks living
+under sendmail, but you will probably have to hack things a bit to
+make it work exactly correctly, and you will definitely need access to
+(and understanding of) sendmail.cf.  I have used the suggested
+modifications for username+SuffixString on my home system,
+mesquite.charcoal.com, but have not tried out installing this ACS
+there.  I do know that this use of slocal is adequate to the task of
+my personal mail delivery scheme, which is fairly contorted.
+
+The system mostly runs itself, modulo the need to trim back logs.
+Failure logs cannot be disabled without hacking the scripts
+themselves.  After 6 weeks of usage, traffic being supported on Godiva
+is approximately 500 msgs/day weekdays, 250/day weekends, between 1
+and 3 Mbytes/day.  There are 2200 users known to the system, of which
+6% or so have assigned themselves nicknames.  Godiva's installation
+supports 7 newsgroups.
+
+--karl
+
+#! /bin/sh
+# This is a shell archive, meaning:
+# 1. Remove everything above the #! /bin/sh line.
+# 2. Save the resulting text in a file.
+# 3. Execute the file with /bin/sh (not csh) to create:
+#	.
+# This archive created: Tue Oct 27 08:46:34 1992
+# By:	Anonymous User (-None- (guest at CMU))
+export PATH; PATH=/bin:/usr/bin:$PATH
+echo shar: "extracting 'README'" '(3424 characters)'
+if test -f 'README'
+then
+	echo shar: "will not over-write existing file 'README'"
+else
+sed 's/^KK//' << \ANONYMUS > 'README'
+KKBasic structure of the anonymous contact system...
+KK
+KK1. An "anon" directory in which live the scripts (anon/bin) and the
+KKuser-matching database and nickname files (anon/lib).
+KK2. A "Memos" directory in which the traces of everything the system
+KKdoes are kept.
+KK3. A bunch of setup stuff in the home directory of the anonymous user,
+KKplus a "misc" directory containing a couple of useful documents.
+KK
+KKSetup...
+KK
+KK1. Create the anonymous user.  I use username "anonymus," a known,
+KKsemi-deliberate misspelling.  (If only UNIX allowed longer
+KKusernames...ahwell.)  The name "anonymus" is engraved all over the
+KKplace, so you'll have some serious editing to do if you use something
+KKelse.
+KK2. Put all this stuff in ~anonymus.  Chmod things tightly so that
+KKprying eyes cannot see.  The user-match file is most important.
+KK3. Hack on .anonvars appropriately.  Note THISHOST, for example; use
+KK`/bin/hostname` if you wish.  Most of the rest can probably be left
+KKalone.  head/tail/grep/egrep are there because they're frequently in
+KKplaces that aren't in a default /bin/sh path.  You need a good grep; I
+KKuse GNU grep.  Standard Berkeley grep will complain of "RE error" in
+KKmany cases.
+KK4. Modify .maildelivery for the human who is really in charge, for
+KKthose newsgroup prefixes (e.g., "alt") which you will support, and for
+KKthe absolute pathnames which you will use on your system.
+KK5. Update .trailer to describe your system.
+KK6. Hack on .plan.  It contains the text of .trailer; edit carefully.
+KK7. Edit misc/anonymity, and don't be bashful.  This is the
+KKperiodically-posted blurb you should send out.
+KK8. Edit the set of newsgroups you intend to support in the "case"
+KKstatement of anon/bin/post.
+KK
+KKanon/lib/last-assigned is initialized in this distribution as -1.
+KKThis is useful for you to become anonymus+0 by sending the first
+KKanonymus+ping message.  Also send to anonymus+nick to set your real
+KKname for anonymus+0.  People should know who you are when you are
+KKacting as +0.
+KK
+KKThere needs to be something called /usr/lib/sendmail (even if what you
+KKhave is MMDF) to do person-to-person mailing (see anon/lib/mail).  And
+KKyou need to create an appropriate inews for anon/bin/post.  Note that,
+KKas distributed, the reference to inews in .anonvars is to
+KK~anonymus/bin, not ~anonymus/anon/bin.
+KK
+KKAlthough use of .maildelivery is not typical in a sendmail
+KKenvironment, you can run this software if you have access to
+KKsendmail.cf.  You can get the support you need via changes of this
+KKflavor to .cf:
+KK
+KK1. Add `+' to the set of characters which define token separators ("Do").
+KK2. In S0, just before $#local delivery, insert a rule:
+KK	R$-+$*<@$*$D>	$#plusprog $@$1+$2 $:$1		local "user+suffix"
+KK3. Define a new mailer for $#plusprog:
+KK	Mplusprog, P=/usr/local/lib/mh/slocal, F=DFMSs, A=slocal $u $h $g
+KK4. You may also want to replace the usual /bin/mail definition of
+KK$#local with something similar:
+KK	Mlocal, P=/usr/local/lib/mh/slocal, F=DFMlsn, A=slocal $u $u $g
+KKbut be aware that the latter may cause troubles with transient failures.
+KKEmbellish to taste.  If you don't have MH installed locally, you can
+KKpick it up from louie.udel.edu:portal/mh*.tar.Z.
+KK
+KKEnable the use of Zephyr's zwrite(1) in anon/bin/zeph to watch the
+KKtraffic flow, or use the write(1) line instead.  The scripts use zeph
+KKquite freely.  Zeph is a NOP as distributed.
+KK
+KKWatch the logs in Memos, and trim them back from time to time.
+KK
+KKSuggestions, enhancements, and bug fixes are welcome.
+KK
+KK--karl
+ANONYMUS
+if test 3424 -ne "`wc -c < 'README'`"
+then
+	echo shar: "error transmitting 'README'" '(should have been 3424 characters)'
+fi
+fi
+echo shar: "extracting '.anonvars'" '(632 characters)'
+if test -f '.anonvars'
+then
+	echo shar: "will not over-write existing file '.anonvars'"
+else
+sed 's/^KK//' << \ANONYMUS > '.anonvars'
+KK# Where we are
+KKTHISHOST=godiva.nectar.cs.cmu.edu
+KK# Base dirs.
+KKANON=$HOME/anon
+KKLIB=$ANON/lib
+KKBIN=$ANON/bin
+KKRECORD=$HOME/Memos
+KK# Library files.
+KKLASTASSIGNED=$LIB/last-assigned
+KKUSERS=$LIB/users
+KKNICKNAMES=$LIB/nicknames
+KKEXTINGUISHER=$LIB/fire-extinguisher
+KK# Scripts.
+KKASSIGN=$BIN/assign
+KKPING=$BIN/ping
+KKNICK=$BIN/nick
+KKLOG=$BIN/log
+KKZEPH=$BIN/zeph
+KKMAIL=$BIN/mail
+KKPOST=$BIN/post
+KKPLONK=$BIN/plonk
+KK# Recordings.
+KKMAILREJ=$RECORD/.mail.rej.log
+KKNEWSREJ=$RECORD/.news.rej.log
+KKNICKLOG=$RECORD/.nick.log
+KK# Programs.
+KKBERKMAIL=/usr/ucb/Mail
+KKTAIL=/usr/ucb/tail
+KKHEAD=/usr/ucb/head
+KKGREP=/usr/misc/bin/grep
+KKEGREP=/usr/misc/bin/egrep
+KKINEWS=$HOME/bin/inews
+ANONYMUS
+if test 632 -ne "`wc -c < '.anonvars'`"
+then
+	echo shar: "error transmitting '.anonvars'" '(should have been 632 characters)'
+fi
+chmod +x '.anonvars'
+fi
+echo shar: "extracting '.maildelivery'" '(677 characters)'
+if test -f '.maildelivery'
+then
+	echo shar: "will not over-write existing file '.maildelivery'"
+else
+sed 's/^KK//' << \ANONYMUS > '.maildelivery'
+KK# Log
+KK#*	-		|	R	/usr/anonymus/anon/bin/log $(sender) $(address) >> /usr/anonymus/Memos/.log
+KK# Administrivia
+KKaddr	anonymus+admin	|	?	/usr/misc/bin/resend karl+anonymus+admin
+KK# Ping/assign/verify address
+KKaddr	anonymus+ping	|	?	/usr/anonymus/anon/bin/ping $(sender)
+KK# Set nickname
+KKaddr	anonymus+nick	|	?	/usr/anonymus/anon/bin/nick $(sender)
+KK# Plonk a bogon
+KKaddr	anonymus+plonk	|	?	/usr/anonymus/anon/bin/plonk $(sender)
+KK# Post anon'ly to newsgroup
+KKaddr	anonymus+alt	|	?	/usr/anonymus/anon/bin/post $(sender) $(address)
+KK# Mail to anon user
+KKaddr	anonymus+	|	?	/usr/anonymus/anon/bin/mail $(sender) $(address)
+KK# Administrivia
+KKdefault	-		|	?	/usr/misc/bin/resend karl+anonymus+admin
+ANONYMUS
+if test 677 -ne "`wc -c < '.maildelivery'`"
+then
+	echo shar: "error transmitting '.maildelivery'" '(should have been 677 characters)'
+fi
+fi
+echo shar: "extracting '.mailrc'" '(25 characters)'
+if test -f '.mailrc'
+then
+	echo shar: "will not over-write existing file '.mailrc'"
+else
+sed 's/^KK//' << \ANONYMUS > '.mailrc'
+KKset record=Memos/.record
+ANONYMUS
+if test 25 -ne "`wc -c < '.mailrc'`"
+then
+	echo shar: "error transmitting '.mailrc'" '(should have been 25 characters)'
+fi
+fi
+echo shar: "extracting '.plan'" '(868 characters)'
+if test -f '.plan'
+then
+	echo shar: "will not over-write existing file '.plan'"
+else
+sed 's/^KK//' << \ANONYMUS > '.plan'
+KKThis is the anonymous user.  It is used solely as a mail-forwarding
+KKmechanism.  For details, check in with Karl_Kleinpaste@cs.cmu.edu.
+KKThe short explanation is...
+KK
+KKNo test posting.  To use this service, mail to (note misspelling, "anonymus"):
+KKAnonymous posting:	anonymus+<name.of.news.group>@godiva.nectar.cs.cmu.edu
+KKAnonymous mail:		<user's alias>@godiva.nectar.cs.cmu.edu
+KKTest path/get alias:	anonymus+ping@godiva.nectar.cs.cmu.edu
+KKAssign nickname:	anonymus+nick@godiva.nectar.cs.cmu.edu	(in Subject:)
+KKAnon administrator:	anonymus+0@godiva.nectar.cs.cmu.edu	(anonymously)
+KK			anonymus+admin@godiva.nectar.cs.cmu.edu	(non-anon)
+KK
+KKThe newsgroups supported for anonymous posting are...
+KK	alt.sexual.abuse.recovery	alt.sex.bondage
+KK	alt.personals			alt.personals.ads
+KK	alt.personals.bondage		alt.personals.poly
+KK	alt.polyamory
+KKAny others will reward you with a bounce-o-gram.
+ANONYMUS
+if test 868 -ne "`wc -c < '.plan'`"
+then
+	echo shar: "error transmitting '.plan'" '(should have been 868 characters)'
+fi
+fi
+echo shar: "extracting '.project'" '(10 characters)'
+if test -f '.project'
+then
+	echo shar: "will not over-write existing file '.project'"
+else
+sed 's/^KK//' << \ANONYMUS > '.project'
+KKAnonymity
+ANONYMUS
+if test 10 -ne "`wc -c < '.project'`"
+then
+	echo shar: "error transmitting '.project'" '(should have been 10 characters)'
+fi
+fi
+echo shar: "extracting '.trailer'" '(468 characters)'
+if test -f '.trailer'
+then
+	echo shar: "will not over-write existing file '.trailer'"
+else
+sed 's/^KK//' << \ANONYMUS > '.trailer'
+KK-- 
+KKNo test posting.  To use this service, mail to (note misspelling, "anonymus"):
+KKAnonymous posting:	anonymus+<name.of.news.group>@godiva.nectar.cs.cmu.edu
+KKAnonymous mail:		<user's alias>@godiva.nectar.cs.cmu.edu
+KKTest path/get alias:	anonymus+ping@godiva.nectar.cs.cmu.edu
+KKAssign nickname:	anonymus+nick@godiva.nectar.cs.cmu.edu	(in Subject:)
+KKAnon administrator:	anonymus+0@godiva.nectar.cs.cmu.edu	(anonymously)
+KK			anonymus+admin@godiva.nectar.cs.cmu.edu	(non-anon)
+ANONYMUS
+if test 468 -ne "`wc -c < '.trailer'`"
+then
+	echo shar: "error transmitting '.trailer'" '(should have been 468 characters)'
+fi
+fi
+if test ! -d 'Memos'
+then
+	echo shar: "creating directory 'Memos'"
+	mkdir 'Memos'
+fi
+echo shar: "entering directory 'Memos'"
+cd 'Memos'
+echo shar: "extracting '.log'" '(0 characters)'
+if test -f '.log'
+then
+	echo shar: "will not over-write existing file '.log'"
+else
+sed 's/^KK//' << \ANONYMUS > '.log'
+ANONYMUS
+if test 0 -ne "`wc -c < '.log'`"
+then
+	echo shar: "error transmitting '.log'" '(should have been 0 characters)'
+fi
+fi
+echo shar: "extracting '.mail.rej.log'" '(0 characters)'
+if test -f '.mail.rej.log'
+then
+	echo shar: "will not over-write existing file '.mail.rej.log'"
+else
+sed 's/^KK//' << \ANONYMUS > '.mail.rej.log'
+ANONYMUS
+if test 0 -ne "`wc -c < '.mail.rej.log'`"
+then
+	echo shar: "error transmitting '.mail.rej.log'" '(should have been 0 characters)'
+fi
+fi
+echo shar: "extracting '.news.rej.log'" '(0 characters)'
+if test -f '.news.rej.log'
+then
+	echo shar: "will not over-write existing file '.news.rej.log'"
+else
+sed 's/^KK//' << \ANONYMUS > '.news.rej.log'
+ANONYMUS
+if test 0 -ne "`wc -c < '.news.rej.log'`"
+then
+	echo shar: "error transmitting '.news.rej.log'" '(should have been 0 characters)'
+fi
+fi
+echo shar: "extracting '.nick.log'" '(0 characters)'
+if test -f '.nick.log'
+then
+	echo shar: "will not over-write existing file '.nick.log'"
+else
+sed 's/^KK//' << \ANONYMUS > '.nick.log'
+ANONYMUS
+if test 0 -ne "`wc -c < '.nick.log'`"
+then
+	echo shar: "error transmitting '.nick.log'" '(should have been 0 characters)'
+fi
+fi
+echo shar: "extracting '.record'" '(0 characters)'
+if test -f '.record'
+then
+	echo shar: "will not over-write existing file '.record'"
+else
+sed 's/^KK//' << \ANONYMUS > '.record'
+ANONYMUS
+if test 0 -ne "`wc -c < '.record'`"
+then
+	echo shar: "error transmitting '.record'" '(should have been 0 characters)'
+fi
+fi
+echo shar: "done with directory 'Memos'"
+cd ..
+if test ! -d 'anon'
+then
+	echo shar: "creating directory 'anon'"
+	mkdir 'anon'
+fi
+echo shar: "entering directory 'anon'"
+cd 'anon'
+if test ! -d 'bin'
+then
+	echo shar: "creating directory 'bin'"
+	mkdir 'bin'
+fi
+echo shar: "entering directory 'bin'"
+cd 'bin'
+echo shar: "extracting 'mail'" '(2185 characters)'
+if test -f 'mail'
+then
+	echo shar: "will not over-write existing file 'mail'"
+else
+sed 's/^KK//' << \ANONYMUS > 'mail'
+KK#!/bin/sh
+KKif [ $# != 2 ] ; then
+KK	echo 'Usage: mail <source> <address>'
+KK	exit 1
+KKfi
+KKsource="`echo $1 | sed -e 's/^@.*://' | tr A-Z a-z`"
+KKaddress="`echo $2 | sed -e 's/^@.*://' -e 's/anonymus+//' | tr A-Z a-z`"
+KK. $HOME/.anonvars
+KKcase "$source" in
+KK	*@*.*)	;;
+KK	*)	$ZEPH "$source" "$address"/DROP
+KK		exit 0
+KK		;;
+KKesac
+KKcase "$source" in
+KK	*anonym*)	$ZEPH "$source"/BOGON "$address"
+KK			exit 0
+KK			;;
+KK	*)		;;
+KKesac
+KKall=/tmp/Am.$$
+KKtext="$all"-t
+KKheader="$all"-h
+KKcat - > $all
+KKsed -e '1,/^$/d' -e '/^--/,$d' $all > $text
+KKsed -e '/^$/,$d' $all | $EGREP '^To:|^Date:|^Subject:' > $header
+KK$GREP -i "^$source	" $USERS | $HEAD -1 > $all 2>&1
+KKif [ ! -s $all ] ; then
+KK	$ASSIGN "$source" "which required"
+KK	$TAIL -1 $USERS > $all
+KKfi
+KKuserid="`sed -e 's/^.*	\(.*\)$/\1/' $all`"
+KKecho From: anonymus+"$userid"@$THISHOST >> $header
+KK$GREP -i "^$userid	" $NICKNAMES | $HEAD -1 > $all 2>&1
+KKif [ -s $all ] ; then
+KK	nick="`sed -e 's/^.*	\(.*\)$/\1/' $all`"
+KK	ed - $header <<EOF
+KK/^From:/s/\$/ ($nick)/
+KKw
+KKq
+KKEOF
+KKfi
+KK$GREP -i "^.*	$address$" $USERS | $HEAD -1 > $all 2>&1
+KKif [ ! -s $all ] ; then
+KK    if /bin/test "$address" -le "`cat $LASTASSIGNED`" ; then
+KK	(echo "$source" requested anonymous mail forwarding to ; \
+KK	 echo anonymus+"$address". This was rejected: ; \
+KK	 case "$address" in \
+KK		[a-z]*)	$ZEPH "$source"/"$userid" BADGROUP/"$address" ; \
+KK			echo invalid newsgroup destination. ;; \
+KK		*)	$ZEPH "$source"/"$userid" DELETED/"$address" ; \
+KK			echo entry was deleted at request of the user. ;; \
+KK	 esac ; \
+KK	 echo '' ; \
+KK	 cat $header ; echo '' ; cat $text ; echo '' ) | \
+KK	 tee -a $MAILREJ | \
+KK	$BERKMAIL -s 'Anonymous User rejected your mail.' "$source"
+KK    else
+KK	(echo "$source" requested anonymous mail forwarding to ; \
+KK	 echo anonymus+"$address". This was rejected: address unknown. ; \
+KK	 echo '' ; \
+KK	 cat $header ; echo '' ; cat $text ; echo '' ) | \
+KK	 tee -a $MAILREJ | \
+KK	$BERKMAIL -s 'Anonymous User rejected your mail.' "$source"
+KK	$ZEPH "$source"/"$userid" UNKNOWN/"$address"
+KK    fi
+KKelse
+KK	addr="`sed -e 's/	.*$//' $all`"
+KK	echo X-Anonymously-To: "$addr" >> $header
+KK	$ZEPH "$source"/"$userid" "$addr"/"$address"
+KK	(cat $header ; echo '' ; cat $text ) | /usr/lib/sendmail $addr
+KKfi
+KKrm -f $all $text $header
+KKexit 0
+ANONYMUS
+if test 2185 -ne "`wc -c < 'mail'`"
+then
+	echo shar: "error transmitting 'mail'" '(should have been 2185 characters)'
+fi
+chmod +x 'mail'
+fi
+echo shar: "extracting 'ping'" '(660 characters)'
+if test -f 'ping'
+then
+	echo shar: "will not over-write existing file 'ping'"
+else
+sed 's/^KK//' << \ANONYMUS > 'ping'
+KK#!/bin/sh
+KKif [ $# != 1 ] ; then
+KK	echo 'Usage: ping <source>'
+KK	exit 1
+KKfi
+KKsource="`echo $1 | sed -e 's/^@.*://' | tr A-Z a-z`"
+KK. $HOME/.anonvars
+KKcase "$source" in
+KK	*@*.*)	;;
+KK	*)	$ZEPH "$source" ping/DROP
+KK		exit 0
+KK		;;
+KKesac
+KKcase "$source" in
+KK	*anonym*)	$ZEPH "$source"/BOGON ping
+KK			exit 0
+KK			;;
+KK	*)		;;
+KKesac
+KK$ZEPH "$source" ping
+KKt=/tmp/a-ping.$$
+KK$GREP -i "^$source	" $USERS | $HEAD -1 > $t 2>&1
+KKif [ -s $t ] ; then
+KK	(echo You are already known to this database. ; \
+KK	 echo Your anonymous address is: ; \
+KK	 echo '' ; \
+KK	 sed -e 's/	/	anonymus+/' < $t) | \
+KK	$BERKMAIL -s 'Anonymous User ping reply.' "$source"
+KKelse
+KK	$ASSIGN "$source" requesting
+KKfi
+KKrm -f $t
+KKexit 0
+ANONYMUS
+if test 660 -ne "`wc -c < 'ping'`"
+then
+	echo shar: "error transmitting 'ping'" '(should have been 660 characters)'
+fi
+chmod +x 'ping'
+fi
+echo shar: "extracting 'post'" '(3093 characters)'
+if test -f 'post'
+then
+	echo shar: "will not over-write existing file 'post'"
+else
+sed 's/^KK//' << \ANONYMUS > 'post'
+KK#!/bin/sh
+KKif [ $# != 2 ] ; then
+KK	echo 'Usage: post <source> <address>'
+KK	exit 1
+KKfi
+KKsource="`echo $1 | sed -e 's/^@.*://' | tr A-Z a-z`"
+KKaddress="`echo $2 | sed -e 's/^@.*://' -e 's/anonymus+//' | tr A-Z a-z`"
+KK. $HOME/.anonvars
+KKcase "$source" in
+KK	*@*.*)	;;
+KK	*)	$ZEPH "$source" "$address"/DROP
+KK		exit 0
+KK		;;
+KKesac
+KKcase "$source" in
+KK	*anonym*)	$ZEPH "$source"/BOGON "$address"
+KK			exit 0
+KK			;;
+KK	*)		;;
+KKesac
+KKcase "$address" in
+KK	alt.sex.bondage|alt.personals|alt.personals.ads|alt.personals.bondage|alt.personals.poly|alt.polyamory|alt.sexual.abuse.recovery|cmu.test)
+KK		;;
+KK	*)
+KK		(echo You requested an anonymous posting to newsgroup "$address". ; \
+KK		 echo This was rejected as an invalid newsgroup for anon posts. ; \
+KK		 echo '' ; \
+KK		 cat - ; \
+KK		 echo '' ) | tee -a $NEWSREJ | \
+KK		$BERKMAIL -s 'Anonymous User rejected your posting.' "$source"
+KK		$ZEPH "$source" "$address"/REJECT
+KK		exit 0
+KK		;;
+KKesac
+KKall=/tmp/Ap.$$
+KK$GREP -i "^$source" $EXTINGUISHER > $all
+KKif [ -s $all ] ; then
+KK	(echo You requested an anonymous posting to "$address". However, ; \
+KK	 echo your address appears in this system\'s \"fire extinguisher\" ; \
+KK	 echo file, as a source of irritation not considered worth ; \
+KK	 echo allowing to continue to post anonymously. Your posting ; \
+KK	 echo is thus rejected. If you wish to question this, feel free ; \
+KK	 echo to write to anonymus+0 for an explanation. ; \
+KK	 echo '' ; \
+KK	 echo This restriction does not affect your ability to send ; \
+KK	 echo mail anonymously. ; \
+KK	 echo '' ; \
+KK	 cat - ; \
+KK	 echo '' ) | tee -a $NEWSREJ | \
+KK	$BERKMAIL -s 'Anonymous User extinguished your posting.' "$source"
+KK	rm -f $all
+KK	$ZEPH "$source" "$address"/EXTINGUISHED
+KK	exit 0
+KKfi
+KKtext="$all"-t
+KKheader="$all"-h
+KKcat - > $all
+KKsed -e '1,/^$/d' -e '/^--/,$d' $all > $text
+KKsed -e '/^$/,$d' $all | $EGREP '^Subject:|^References:' > $header
+KKif [ "`$GREP '^Subject:' $header`" = "" ]  ; then
+KK	echo Subject: --none given-- >> $header
+KKfi
+KKecho "Newsgroups: $address" >> $header
+KK$GREP -i "^$source	" $USERS | $HEAD -1 > $all 2>&1
+KKif [ ! -s $all ] ; then
+KK	$ASSIGN "$source" "which required"
+KK	$TAIL -1 $USERS > $all
+KKfi
+KKuserid="`sed -e 's/^.*	\(.*\)$/\1/' $all`"
+KK$ZEPH "$source"/"$userid" "$address"
+KKecho From: anonymus+"$userid"@$THISHOST >> $header
+KK$GREP -i "^$userid	" $NICKNAMES | $HEAD -1 > $all 2>&1
+KKif [ -s $all ] ; then
+KK	nick="`sed -e 's/^.*	\(.*\)$/\1/' $all`"
+KK	ed - $header <<EOF
+KK/^From:/s/\$/ ($nick)/
+KKw
+KKq
+KKEOF
+KKfi
+KKecho Organization: Anonymous contact service >> $header
+KKerrs=/tmp/n.log.$$
+KK(cat $header ; echo '' ; cat $text ; cat $HOME/.trailer ) | $INEWS >>$errs 2>&1
+KKif [ -s $errs ] ; then
+KK	(echo You requested an anonymous posting to newsgroup "$address". ; \
+KK	 echo This failed due to a problem when running inews. ; \
+KK	 echo If the error below is \"Connection timed out\" ; \
+KK	 echo then please try again later when the server is up again. ; \
+KK	 echo '' ; \
+KK	 echo ++ Error log ++ ; \
+KK	 cat $errs ; echo '' ; \
+KK	 echo ++ Article ++ ; \
+KK	 cat $header ; echo '' ; cat $text ; \
+KK	 echo '' ) | tee -a $NEWSREJ | \
+KK	$BERKMAIL -s 'Anonymous User error in post.' "$source"
+KKfi
+KKrm -f $all $text $header $errs
+KKexit 0
+ANONYMUS
+if test 3093 -ne "`wc -c < 'post'`"
+then
+	echo shar: "error transmitting 'post'" '(should have been 3093 characters)'
+fi
+chmod +x 'post'
+fi
+echo shar: "extracting 'assign'" '(522 characters)'
+if test -f 'assign'
+then
+	echo shar: "will not over-write existing file 'assign'"
+else
+sed 's/^KK//' << \ANONYMUS > 'assign'
+KK#!/bin/sh
+KKif [ $# != 2 ] ; then
+KK	echo 'Usage: assign <source> <requesting|which required>'
+KK	exit 1
+KKfi
+KKsource="$1"
+KK. $HOME/.anonvars
+KKx=`cat $LASTASSIGNED`
+KKx=`expr $x + 1`
+KKecho $x > $LASTASSIGNED
+KKecho "$source	$x" >> $USERS
+KK(echo You sent a message to or thru the anonymous user system ; \
+KK echo "$2" assignment of an anonymous userid. ; \
+KK echo Your new id is number $x. ; \
+KK echo This means you are addressed anonymously ; \
+KK echo as anonymus+$x@$THISHOST. ) | \
+KK$BERKMAIL -s 'Anonymous User assignment.' "$source"
+KKexit 0
+ANONYMUS
+if test 522 -ne "`wc -c < 'assign'`"
+then
+	echo shar: "error transmitting 'assign'" '(should have been 522 characters)'
+fi
+chmod +x 'assign'
+fi
+echo shar: "extracting 'zeph'" '(208 characters)'
+if test -f 'zeph'
+then
+	echo shar: "will not over-write existing file 'zeph'"
+else
+sed 's/^KK//' << \ANONYMUS > 'zeph'
+KK#!/bin/sh
+KK# Enable one of the next lines to get ongoing notifications of activity.
+KK#/usr/misc/bin/zwrite -d -q -i ACS karl -m "$1" "=>" "$2." 2>/dev/null
+KK#echo "$1" "=>" "$2." | write karl 2>/dev/null
+KKexit 0
+ANONYMUS
+if test 208 -ne "`wc -c < 'zeph'`"
+then
+	echo shar: "error transmitting 'zeph'" '(should have been 208 characters)'
+fi
+chmod +x 'zeph'
+fi
+echo shar: "extracting 'log'" '(74 characters)'
+if test -f 'log'
+then
+	echo shar: "will not over-write existing file 'log'"
+else
+sed 's/^KK//' << \ANONYMUS > 'log'
+KK#!/bin/sh
+KKecho 
+KKecho From $1
+KKecho X-Envelope-To: $2
+KKcat -
+KKecho ''
+KKexit 0
+ANONYMUS
+echo shar: "1 control character may be missing from 'log'"
+if test 74 -ne "`wc -c < 'log'`"
+then
+	echo shar: "error transmitting 'log'" '(should have been 74 characters)'
+fi
+chmod +x 'log'
+fi
+echo shar: "extracting 'nick'" '(959 characters)'
+if test -f 'nick'
+then
+	echo shar: "will not over-write existing file 'nick'"
+else
+sed 's/^KK//' << \ANONYMUS > 'nick'
+KK#!/bin/sh
+KKif [ $# != 1 ] ; then
+KK	echo 'Usage: nick <source>'
+KK	exit 1
+KKfi
+KKsource="`echo $1 | sed -e 's/^@.*://' | tr A-Z a-z`"
+KK. $HOME/.anonvars
+KKcase "$source" in
+KK	*@*.*)	;;
+KK	*)	$ZEPH "$source" nick/DROP
+KK		exit 0
+KK		;;
+KKesac
+KKcase "$source" in
+KK	*anonym*)	$ZEPH "$source"/BOGON nick
+KK			exit 0
+KK			;;
+KK	*)		;;
+KKesac
+KKnick="`$GREP '^Subject:'|$HEAD -1|sed -e 's/^Subject: //' -e 's/[ 	]*//'`"
+KKall=/tmp/a-nick.$$
+KK$GREP -i "^$source	" $USERS | $HEAD -1 > $all 2>&1
+KKif [ ! -s $all ] ; then
+KK	$ASSIGN "$source" requesting
+KK	$TAIL -1 $USERS > $all
+KKfi
+KKuserid="`sed -e 's/^.*	//' $all`"
+KK$ZEPH "$source"/"$userid" nick/"$nick"
+KK$GREP -v "^$userid	" $NICKNAMES > $NICKNAMES.new
+KKmv $NICKNAMES.new $NICKNAMES
+KKecho "$userid	$nick" >> $NICKNAMES
+KK(echo You requested assignment of a new nickname. ; \
+KK echo The nickname associated with anonymus+"$userid" ; \
+KK echo is now: "$nick". ) | \
+KK tee -a $NICKLOG | \
+KK$BERKMAIL -s 'Anonymous User nickname assignment.' "$source"
+KKrm -f $all
+KKexit 0
+ANONYMUS
+if test 959 -ne "`wc -c < 'nick'`"
+then
+	echo shar: "error transmitting 'nick'" '(should have been 959 characters)'
+fi
+chmod +x 'nick'
+fi
+echo shar: "extracting 'plonk'" '(1123 characters)'
+if test -f 'plonk'
+then
+	echo shar: "will not over-write existing file 'plonk'"
+else
+sed 's/^KK//' << \ANONYMUS > 'plonk'
+KK#!/bin/sh
+KKif [ $# != 1 ] ; then
+KK	echo 'Usage: plonk <source>'
+KK	exit 1
+KKfi
+KKsource="`echo $1 | sed -e 's/^@.*://' | tr A-Z a-z`"
+KK. $HOME/.anonvars
+KKvalid="`$GREP '	0$' $USERS | sed -e 's/	0$//'`"
+KKif [ "$source" != "$valid" ] ; then
+KK	(echo Nice try. ; \
+KK	 echo Do it again and you will be plonked yourself.; \
+KK	 echo '' ; cat - ; echo '' ) | \
+KK	$BERKMAIL -s 'Anonymous User plonk failure.' "$source" "$valid"
+KK	$ZEPH "$source" PLONK-FAILURE
+KK	exit 0
+KKfi
+KKall=/tmp/Aplonk.$$
+KKplonk="`$GREP '^Subject:'|$HEAD -1|sed -e 's/^.*+//' -e 's/@.*$//'`"
+KK$GREP -i "^.*	$plonk$" $USERS | $HEAD -1 > $all 2>&1
+KKif [ ! -s $all ] ; then
+KK	(echo "$source" requested plonking of "$plonk". ; \
+KK	 echo This was rejected: address unknown? ; \
+KK	 echo '' ; cat $header ; echo '' ; cat $text ; echo '' ) | \
+KK	 tee -a $MAILREJ | \
+KK	$BERKMAIL -s 'Anonymous User plonk unknown.' "$source"
+KK	$ZEPH "$source"/"$userid" PLONK-UNKNOWN/"$address"
+KKelse
+KK	addr="`sed -e 's/	.*$//' $all`"
+KK	echo "$addr" >> $EXTINGUISHER
+KK	$ZEPH "$source" PLONKED/"$addr/$plonk"
+KK	echo "$addr/$plonk" plonked. | \
+KK	$BERKMAIL -s 'Anonymous User plonk succeeds' "$source"
+KKfi
+KKrm -f $all
+KKexit 0
+ANONYMUS
+if test 1123 -ne "`wc -c < 'plonk'`"
+then
+	echo shar: "error transmitting 'plonk'" '(should have been 1123 characters)'
+fi
+chmod +x 'plonk'
+fi
+echo shar: "done with directory 'bin'"
+cd ..
+if test ! -d 'lib'
+then
+	echo shar: "creating directory 'lib'"
+	mkdir 'lib'
+fi
+echo shar: "entering directory 'lib'"
+cd 'lib'
+echo shar: "extracting 'last-assigned'" '(3 characters)'
+if test -f 'last-assigned'
+then
+	echo shar: "will not over-write existing file 'last-assigned'"
+else
+sed 's/^KK//' << \ANONYMUS > 'last-assigned'
+KK-1
+ANONYMUS
+if test 3 -ne "`wc -c < 'last-assigned'`"
+then
+	echo shar: "error transmitting 'last-assigned'" '(should have been 3 characters)'
+fi
+fi
+echo shar: "extracting 'users'" '(0 characters)'
+if test -f 'users'
+then
+	echo shar: "will not over-write existing file 'users'"
+else
+sed 's/^KK//' << \ANONYMUS > 'users'
+ANONYMUS
+if test 0 -ne "`wc -c < 'users'`"
+then
+	echo shar: "error transmitting 'users'" '(should have been 0 characters)'
+fi
+fi
+echo shar: "extracting 'nicknames'" '(0 characters)'
+if test -f 'nicknames'
+then
+	echo shar: "will not over-write existing file 'nicknames'"
+else
+sed 's/^KK//' << \ANONYMUS > 'nicknames'
+ANONYMUS
+if test 0 -ne "`wc -c < 'nicknames'`"
+then
+	echo shar: "error transmitting 'nicknames'" '(should have been 0 characters)'
+fi
+fi
+echo shar: "extracting 'fire-extinguisher'" '(0 characters)'
+if test -f 'fire-extinguisher'
+then
+	echo shar: "will not over-write existing file 'fire-extinguisher'"
+else
+sed 's/^KK//' << \ANONYMUS > 'fire-extinguisher'
+ANONYMUS
+if test 0 -ne "`wc -c < 'fire-extinguisher'`"
+then
+	echo shar: "error transmitting 'fire-extinguisher'" '(should have been 0 characters)'
+fi
+fi
+echo shar: "done with directory 'lib'"
+cd ..
+echo shar: "done with directory 'anon'"
+cd ..
+if test ! -d 'misc'
+then
+	echo shar: "creating directory 'misc'"
+	mkdir 'misc'
+fi
+echo shar: "entering directory 'misc'"
+cd 'misc'
+echo shar: "extracting 'anonymity'" '(6580 characters)'
+if test -f 'anonymity'
+then
+	echo shar: "will not over-write existing file 'anonymity'"
+else
+sed 's/^KK//' << \ANONYMUS > 'anonymity'
+KKThe short version:
+KK
+KK_Don't_ post tests.
+KK
+KKAnonymous posting:	anonymus+<name.of.news.group>@godiva.nectar.cs.cmu.edu
+KKAnonymous mail:		<user's alias>@godiva.nectar.cs.cmu.edu
+KKTest path/get alias:	anonymus+ping@godiva.nectar.cs.cmu.edu
+KKAssign a nickname:	anonymus+nick@godiva.nectar.cs.cmu.edu	(in Subject:)
+KKAdministrator:		anonymus+0@godiva.nectar.cs.cmu.edu	(anonymously)
+KK			anonymus+admin@godiva.nectar.cs.cmu.edu	(non-anon)
+KK_Don't_ post tests.
+KK
+KK*** Note misspelling: "anonymus"!!! ***
+KK________________
+KK
+KKThe long version:
+KK
+KKINTRODUCTION TO THE GENERALIZED ANONYMOUS POSTING/CONTACT SERVICE
+KK
+KKLast update: 17 Oct 1992
+KK
+KKThe following newsgroups are supported for anonymous posting:
+KK	alt.sex.bondage		alt.personals
+KK	alt.personals.ads	alt.personals.bondage
+KK	alt.personals.poly	alt.polyamory
+KK	alt.sexual.abuse.recovery
+KKAll postings for any of these groups will leave the user with a single
+KKanonymous contact userid -- the software shares a common database for
+KKthis support.  Other newsgroups may be added; drop me a note and
+KKconvince me.
+KK
+KKBear in mind that alt.sex.bondage != alt.personals.anything.  _Don't_
+KKpost "personals"-style messages to a.s.b.  You shall surely bring down
+KKupon yourself the wrath of them-who-are-not-to-be-messed-with if you
+KKdo so.
+KK
+KKThe anonymous mail support is, of course, double-blind.  You can't see
+KKwhere you're sending beyond the anonymus+### viewpoint; in the same
+KKway, your recipients can't see back to where your messages come.
+KK
+KKThere are no article length restrictions of any kind.  Anything from a
+KKline beginning with 2 dashes ("--") to the end of an article is
+KKperceived as a signature, and is deleted on the way through.
+KK
+KKThe usual disclaimers apply regarding what goes through here...  The
+KKACS admin doesn't see what comes through, he doesn't know who does
+KKwhat, but he'll cancel things which are obviously illegal that are
+KKbrought to his attention.
+KK
+KKA note on the issue of appropriateness...  There has been one incident
+KKin which an ACS user apparently used the veil of ACS anonymity by
+KKwhich to attempt extortion against a former lover.  Real, honest-to-
+KKgoodness legal remedies may be sought by the victim and her family
+KKagainst the perpetrator -- this is not just fun and games.  Generally
+KKspeaking, it is a true statement that the real address associated with
+KKany anonymous userid is strictly private; but understand that
+KKpositively no guarantees are made about maintenance of privacy in the
+KKcase of flagrant abuses like this.
+KK
+KKIf you simply wish to test out the system and get an anonymous userid
+KKassigned to yourself, drop a note to
+KK	anonymus+ping@godiva.nectar.cs.cmu.edu
+KKThe system will respond automatically with a newly-assigned userid.
+KKIf you already have one and send to +ping, you'll get an
+KKacknowledgement with your existing userid.  Subject and body of a
+KKmessage to +ping are irrelevant.
+KK
+KKYou may optionally have a "nickname" assigned to yourself; this will
+KKbe inserted parenthetically in your messages' "From:" headers during
+KKdistribution.  Assignment is done by sending a message to
+KK	anonymus+nick@godiva.nectar.cs.cmu.edu
+KKand the nickname assigned is the contents of your "Subject:" header.
+KKUse good taste, please.
+KK
+KKPosting to one of the supported newsgroups is done via mail to the
+KKaddress
+KK	anonymus+the.group.name@godiva.nectar.cs.cmu.edu
+KKwhereupon the software will do the usual header hacks and post to the
+KKnewsgroup.  Crossposting is explicitly not supported.  "References:"
+KKheaders will pass; I recommend their inclusion to support threading in
+KKyour discussions.
+KK
+KKPLEASE NOTE #1: Posting of tests is NOT WELCOME.  Trust me, the
+KKsoftware works.  If you really must test, then send something,
+KKanything at all, to anonymus+0, which is the anonymous mailbox for
+KKthis system's administrator, who will forward back exactly what he
+KKgets.  Alternatively, send yourself some mail at your anonymus+###
+KKaddress; it'll come back anonymified and you can see that things work.
+KK
+KKPLEASE NOTE #2: The ACS Fire Extinguisher exists.  Users who are
+KKobserved to post test messages via this ACS will find themselves
+KK*plonk*ed.  What does it mean to be *plonk*ed, you ask?  From the
+KKjargon file...
+KK
+KK    <plonk> [USENET] The sound a <newbie> makes as he falls to the bottom
+KK       of a <kill file>.
+KK
+KKThe specific manifestation of being *plonk*ed in this ACS is that
+KKanonymous mail between yourself and individuals will continue to work,
+KKbut attempts to make anonymous postings will be bounced back.  The
+KKfire extinguisher will be used only in extreme cases.
+KK
+KKPLEASE NOTE #3: Delay between arrival at Godiva of mail aimed at a
+KKnewsgroup and its appearance in the newsgroup proper is averaging
+KKabout an hour.  See "Please Note #1" above, and practice patience.
+KK
+KKMail to an anonymous userid works as one expects: Just write to the
+KKFrom: address, and the double-blind mailer will hack headers and
+KKenvelope beyond recognition.
+KK
+KKIn the case of both news postings and mail, if you have not previously
+KKbeen assigned an anonymous userid, one will be assigned when your
+KKfirst posting or mail message passes through; you will get a message
+KKto this effect from the system.
+KK
+KKNotes for mail-intensive people (others, let your eyes sort of glaze
+KKover for this paragraph).  [1] Your address as known to the anonymous
+KKuser database is expected to be in user@host.dom.ain format.  [2]
+KKLeading RFC822 route specifications ("@ho.st1,@ho.st2:") are stripped
+KKoff on arrival, so the specific Internet path by which your mail gets
+KKhere will not affect matters; you should keep a single, consistent
+KKanonymous userid.  [3] NOTE, however, that users whose mail originates
+KKfrom UUCP sites, and hence which use !-paths, may have troubles if
+KKrouting between hither and yon changes, because !-path components of
+KKyour mail address are not managed at all -- new !-paths mean new
+KKanonymous userids.  [4] Godiva is strictly an Internet host, which
+KKmeans its mailer believes in the RFCs, and especially that Godiva's
+KKmailer does _not_ believe in the fake/quasi-domains .uucp and .bitnet.
+KKIt's not even known how people are managing to get such addresses to
+KKGodiva, but the system won't even be able to respond to a ping request
+KKin such cases (as proven by crud landing in dead.letter locally).
+KK
+KKThere is no way to cancel mail you've sent to an alias, so don't even
+KKbother asking.
+KK
+KKYou can reach the ACS administrator at any of these addresses:
+KK	Karl_Kleinpaste@cs.cmu.edu		(but wrong mailbox)
+KK	anonymus+0@godiva.nectar.cs.cmu.edu	(anonymously)
+KK	anonymus+admin@godiva.nectar.cs.cmu.edu	(non-anon, right mailbox)
+KKKeep the quasi-deliberate misspelling "anonymus" in mind.
+KK
+KKcheers,
+KK++karl
+ANONYMUS
+if test 6580 -ne "`wc -c < 'anonymity'`"
+then
+	echo shar: "error transmitting 'anonymity'" '(should have been 6580 characters)'
+fi
+fi
+echo shar: "extracting 'reply.error'" '(258 characters)'
+if test -f 'reply.error'
+then
+	echo shar: "will not over-write existing file 'reply.error'"
+else
+sed 's/^KK//' << \ANONYMUS > 'reply.error'
+KK[...canned reply to misdirected mail...]
+KK
+KKYour mailer replied to the wrong place.  At a guess, it replied to the
+KK"envelope address" (also known as the "UNIX From_ line" or
+KK"Return-Path").  Note lack of "+###" in the To: line below.
+KK
+KK--karl
+KK________________
+KK
+ANONYMUS
+if test 258 -ne "`wc -c < 'reply.error'`"
+then
+	echo shar: "error transmitting 'reply.error'" '(should have been 258 characters)'
+fi
+fi
+echo shar: "done with directory 'misc'"
+cd ..
+exit 0
+#	End of shell archive
+
+exit 0 # Just in case...

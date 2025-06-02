@@ -1,0 +1,1789 @@
+From: eay@psych.psy.uq.oz.au (Eric Young)
+Newsgroups: comp.sources.misc
+Subject: v40i010: libdes - DES encryption library, Part03/05
+Date: 14 Oct 1993 18:01:55 +0100
+Sender: aem@aber.ac.uk
+Approved: aem@aber.ac.uk
+Message-ID: <29k0m3$1m9@uk-usenet.uk.sun.com>
+X-Md4-Signature: 02fc2c5412d63c26bc4187d027d3c8c0
+
+Submitted-by: eay@psych.psy.uq.oz.au (Eric Young)
+Posting-number: Volume 40, Issue 10
+Archive-name: libdes/part03
+Environment: C
+Supersedes: libdes: Volume 29, Issue 43-46
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  VERSION cbc_cksm.c des_crypt.man des_locl.h read_pwd.c
+#   sk.h spr.h testdes.pl
+# Wrapped by alecm@uk-usenet on Wed Oct 13 10:33:49 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 5)."'
+if test -f 'VERSION' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VERSION'\"
+else
+  echo shar: Extracting \"'VERSION'\" \(6824 characters\)
+  sed "s/^X//" >'VERSION' <<'END_OF_FILE'
+XRelease apon comp.sources.misc
+XVersion 3.01 08/10/93
+X	Added des_3cbc_encrypt()
+X
+XVersion 3.00 07/10/93
+X	Fixed up documentation.
+X	quad_cksum definitly compatable with MIT's now.
+X
+XVersion 2.30 24/08/93
+X	Tripple DES now defaults to tripple cbc but can do tripple ecb
+X	 with the -b flag.
+X	Fixed some MSDOS uuen/uudecoding problems, thanks to
+X	Added prototypes.
+X	
+XVersion 2.22 29/06/93
+X	Fixed a bug in des_is_weak_key() which stopped it working :-(
+X	thanks to engineering@MorningStar.Com.
+X
+XVersion 2.21 03/06/93
+X	des(1) with no arguments gives quite a bit of help.
+X	Added -c (generate ckecksum) flag to des(1).
+X	Added -3 (tripple DES) flag to des(1).
+X	Added cfb and ofb routines to the library.
+X
+XVersion 2.20 11/03/93
+X	Added -u (uuencode) flag to des(1).
+X	I have been playing with byte order in quad_cksum to make it
+X	 compatible with MIT's version.  All I can say is aviod this
+X	 function if possible since MIT's output is endian dependent.
+X
+XVersion 2.12 14/10/92
+X	Added MSDOS specific macro in ecb_encrypt which gives a %70
+X	 speed up when the code is compiled with turbo C.
+X
+XVersion 2.11 12/10/92
+X	Speedup in set_key (recoding of PC-1)
+X	 I now do it in 47 simple operations, down from 60.
+X	 Thanks to John Fletcher (john_fletcher@lccmail.ocf.llnl.gov)
+X	 for motivating me to look for a faster system :-)
+X	 The speedup is probably less that 1% but it is still 13
+X	 instructions less :-).
+X
+XVersion 2.10 06/10/92
+X	The code now works on the 64bit ETA10 and CRAY without modifications or
+X	 #defines.  I believe the code should work on any machine that
+X	 defines long, int or short to be 8 bytes long.
+X	Thanks to Shabbir J. Safdar (shabby@mentor.cc.purdue.edu)
+X	 for helping me fix the code to run on 64bit machines (he had
+X	 access to an ETA10).
+X	Thanks also to John Fletcher <john_fletcher@lccmail.ocf.llnl.gov>
+X	 for testing the routines on a CRAY.
+X	read_password.c has been renamed to read_passwd.c
+X	string_to_key.c has been renamed to string2key.c
+X
+XVersion 2.00 14/09/92
+X	Made mods so that the library should work on 64bit CPU's.
+X	Removed all my uchar and ulong defs.  To many different
+X	 versions of unix define them in their header files in too many
+X	 different combinations :-)
+X	IRIX - Sillicon Graphics mods (mostly in read_password.c).
+X	 Thanks to Andrew Daviel (advax@erich.triumf.ca)
+X
+XVersion 1.99 26/08/92
+X	Fixed a bug or 2 in enc_read.c
+X	Fixed a bug in enc_write.c
+X	Fixed a pseudo bug in fcrypt.c (very obscure).
+X
+XVersion 1.98 31/07/92
+X	Support for the ETA10.  This is a strange machine that defines
+X	longs and ints as 8 bytes and shorts as 4 bytes.
+X	Since I do evil things with long * that assume that they are 4
+X	bytes.  Look in the Makefile for the option to compile for
+X	this machine.  quad_cksum appears to have problems but I
+X	will don't have the time to fix it right now, and this is not
+X	a function that uses DES and so will not effect the main uses
+X	of the library.
+X
+XVersion 1.97 20/05/92 eay
+X	Fixed the Imakefile and made some changes to des.h to fix some
+X	problems when building this package with Kerberos v 4.
+X
+XVersion 1.96 18/05/92 eay
+X	Fixed a small bug in string_to_key() where problems could
+X	occur if des_check_key was set to true and the string
+X	generated a weak key.
+X
+XPatch2 posted to comp.sources.misc
+XVersion 1.95 13/05/92 eay
+X	Added an alternative version of the D_ENCRYPT macro in
+X	ecb_encrypt and fcrypt.  Depending on the compiler, one version or the
+X	other will be faster.  This was inspired by 
+X	Dana How <how@isl.stanford.edu>, and her pointers about doing the
+X	*(ulong *)((uchar *)ptr+(value&0xfc))
+X	vs
+X	ptr[value&0x3f]
+X	to stop the C compiler doing a <<2 to convert the long array index.
+X
+XVersion 1.94 05/05/92 eay
+X	Fixed an incompatibility between my string_to_key and the MIT
+X	 version.  When the key is longer than 8 chars, I was wrapping
+X	 with a different method.  To use the old version, define
+X	 OLD_STR_TO_KEY in the makefile.  Thanks to
+X	 viktor@newsu.shearson.com (Viktor Dukhovni).
+X
+XVersion 1.93 28/04/92 eay
+X	Fixed the VMS mods so that echo is now turned off in
+X	 read_password.  Thanks again to brennan@coco.cchs.su.oz.AU.
+X	MSDOS support added.  The routines can be compiled with
+X	 Turbo C (v2.0) and MSC (v5.1).  Make sure MSDOS is defined.
+X
+XPatch1 posted to comp.sources.misc
+XVersion 1.92 13/04/92 eay
+X	Changed D_ENCRYPT so that the rotation of R occurs outside of
+X	 the loop.  This required rotating all the longs in sp.h (now
+X	 called spr.h). Thanks to Richard Outerbridge <71755.204@CompuServe.COM>
+X	speed.c has been changed so it will work without SIGALRM.  If
+X	 times(3) is not present it will try to use ftime() instead.
+X
+XVersion 1.91 08/04/92 eay
+X	Added -E/-D options to des(1) so it can use string_to_key.
+X	Added SVR4 mods suggested by witr@rwwa.COM
+X	Added VMS mods suggested by brennan@coco.cchs.su.oz.AU.  If
+X	anyone knows how to turn of tty echo in VMS please tell me or
+X	implement it yourself :-).
+X	Changed FILE *IN/*OUT to *DES_IN/*DES_OUT since it appears VMS
+X	does not like IN/OUT being used.
+X
+XLibdes posted to comp.sources.misc
+XVersion 1.9 24/03/92 eay
+X	Now contains a fast small crypt replacement.
+X	Added des(1) command.
+X	Added des_rw_mode so people can use cbc encryption with
+X	enc_read and enc_write.
+X
+XVersion 1.8 15/10/91 eay
+X	Bug in cbc_cksum.
+X	Many thanks to Keith Reynolds (keithr@sco.COM) for pointing this
+X	one out.
+X
+XVersion 1.7 24/09/91 eay
+X	Fixed set_key :-)
+X	set_key is 4 times faster and takes less space.
+X	There are a few minor changes that could be made.
+X
+XVersion 1.6 19/09/1991 eay
+X	Finally go IP and FP finished.
+X	Now I need to fix set_key.
+X	This version is quite a bit faster that 1.51
+X
+XVersion 1.52 15/06/1991 eay
+X	20% speedup in ecb_encrypt by changing the E bit selection
+X	to use 2 32bit words.  This also required modification of the
+X	sp table.  There is still a way to speedup the IP and IP-1
+X	(hints from outer@sq.com) still working on this one :-(.
+X
+XVersion 1.51 07/06/1991 eay
+X	Faster des_encrypt by loop unrolling
+X	Fixed bug in quad_cksum.c (thanks to hughes@logos.ucs.indiana.edu)
+X
+XVersion 1.50 28/05/1991 eay
+X	Optimized the code a bit more for the sparc.  I have improved the
+X	speed of the inner des_encrypt by speeding up the initial and
+X	final permutations.
+X
+XVersion 1.40 23/10/1990 eay
+X	Fixed des_random_key, it did not produce a random key :-(
+X
+XVersion 1.30  2/10/1990 eay
+X	Have made des_quad_cksum the same as MIT's, the full package
+X	should be compatible with MIT's
+X	Have tested on a DECstation 3100
+X	Still need to fix des_set_key (make it faster).
+X	Does des_cbc_encrypts at 70.5k/sec on a 3100.
+X
+XVersion 1.20 18/09/1990 eay
+X	Fixed byte order dependencies.
+X	Fixed (I hope) all the word alignment problems.
+X	Speedup in des_ecb_encrypt.
+X
+XVersion 1.10 11/09/1990 eay
+X	Added des_enc_read and des_enc_write.
+X	Still need to fix des_quad_cksum.
+X	Still need to document des_enc_read and des_enc_write.
+X
+XVersion 1.00 27/08/1990 eay
+END_OF_FILE
+  if test 6824 -ne `wc -c <'VERSION'`; then
+    echo shar: \"'VERSION'\" unpacked with wrong size!
+  fi
+  # end of 'VERSION'
+fi
+if test -f 'cbc_cksm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cbc_cksm.c'\"
+else
+  echo shar: Extracting \"'cbc_cksm.c'\" \(1002 characters\)
+  sed "s/^X//" >'cbc_cksm.c' <<'END_OF_FILE'
+X/* cbc_cksm.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include "des_locl.h"
+X
+Xunsigned long des_cbc_cksum(input,output,length,schedule,ivec)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xlong length;
+Xdes_key_schedule schedule;
+Xdes_cblock *ivec;
+X	{
+X	register unsigned long tout0,tout1,tin0,tin1;
+X	register long l=length;
+X	unsigned long tin[2],tout[2];
+X	unsigned char *in,*out,*iv;
+X
+X	in=(unsigned char *)input;
+X	out=(unsigned char *)output;
+X	iv=(unsigned char *)ivec;
+X
+X	c2l(iv,tout0);
+X	c2l(iv,tout1);
+X	for (; l>0; l-=8)
+X		{
+X		if (l >= 8)
+X			{
+X			c2l(in,tin0);
+X			c2l(in,tin1);
+X			}
+X		else
+X			c2ln(in,tin0,tin1,l);
+X			
+X		tin0^=tout0;
+X		tin1^=tout1;
+X		tin[0]=tin0;
+X		tin[1]=tin1;
+X		des_encrypt((unsigned long *)tin,(unsigned long *)tout,
+X			schedule,DES_ENCRYPT);
+X		/* fix 15/10/91 eay - thanks to keithr@sco.COM */
+X		tout0=tout[0];
+X		tout1=tout[1];
+X		}
+X	if (out != NULL)
+X		{
+X		l2c(tout0,out);
+X		l2c(tout1,out);
+X		}
+X	tout0=tin0=tin1=tin[0]=tin[1]=tout[0]=tout[1]=0;
+X	return(tout1);
+X	}
+END_OF_FILE
+  if test 1002 -ne `wc -c <'cbc_cksm.c'`; then
+    echo shar: \"'cbc_cksm.c'\" unpacked with wrong size!
+  fi
+  # end of 'cbc_cksm.c'
+fi
+if test -f 'des_crypt.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'des_crypt.man'\"
+else
+  echo shar: Extracting \"'des_crypt.man'\" \(12459 characters\)
+  sed "s/^X//" >'des_crypt.man' <<'END_OF_FILE'
+X.TH DES_CRYPT 3 
+X.SH NAME
+Xdes_read_password, des_read_2password,
+Xdes_string_to_key, des_string_to_2key, des_read_pw_string,
+Xdes_random_key, des_set_key,
+Xdes_key_sched, des_ecb_encrypt, des_3ecb_encrypt, des_cbc_encrypt,
+Xdes_3cbc_encrypt,
+Xdes_pcbc_encrypt, des_cfb_encrypt, des_ofb_encrypt,
+Xdes_cbc_cksum, des_quad_cksum,
+Xdes_enc_read, des_enc_write, des_set_odd_parity,
+Xdes_is_weak_key, crypt \- (non USA) DES encryption
+X.SH SYNOPSIS
+X.nf
+X.nj
+X.ft B
+X#include <des.h>
+X.PP
+X.B int des_read_password(key,prompt,verify)
+Xdes_cblock *key;
+Xchar *prompt;
+Xint verify;
+X.PP
+X.B int des_read_2password(key1,key2,prompt,verify)
+Xdes_cblock *key1,*key2;
+Xchar *prompt;
+Xint verify;
+X.PP
+X.B int des_string_to_key(str,key)
+Xchar *str;
+Xdes_cblock *key;
+X.PP
+X.B int des_string_to_2keys(str,key1,key2)
+Xchar *str;
+Xdes_cblock *key1,*key2;
+X.PP
+X.B int des_read_pw_string(buf,length,prompt,verify)
+Xchar *buf;
+Xint length;
+Xchar *prompt;
+Xint verify;
+X.PP
+X.B int des_random_key(key)
+Xdes_cblock *key;
+X.PP
+X.B int des_set_key(key,schedule)
+Xdes_cblock *key;
+Xdes_key_schedule schedule;
+X.PP
+X.B int des_key_sched(key,schedule)
+Xdes_cblock *key;
+Xdes_key_schedule schedule;
+X.PP
+X.B int des_ecb_encrypt(input,output,schedule,encrypt)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xdes_key_schedule schedule;
+Xint encrypt;
+X.PP
+X.B int des_3ecb_encrypt(input,output,ks1,ks2,encrypt)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xdes_key_schedule ks1,ks2;
+Xint encrypt;
+X.PP
+X.B int des_cbc_encrypt(input,output,length,schedule,ivec,encrypt)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xlong length;
+Xdes_key_schedule schedule;
+Xdes_cblock *ivec;
+Xint encrypt;
+X.PP
+X.B int des_3cbc_encrypt(input,output,length,sk1,sk2,ivec1,ivec2,encrypt)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xlong length;
+Xdes_key_schedule sk1;
+Xdes_key_schedule sk2;
+Xdes_cblock *ivec1;
+Xdes_cblock *ivec2;
+Xint encrypt;
+X.PP
+X.B int des_pcbc_encrypt(input,output,length,schedule,ivec,encrypt)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xlong length;
+Xdes_key_schedule schedule;
+Xdes_cblock *ivec;
+Xint encrypt;
+X.PP
+X.B int des_cfb_encrypt(input,output,numbits,length,schedule,ivec,encrypt)
+Xunsigned char *input;
+Xunsigned char *output;
+Xint numbits;
+Xlong length;
+Xdes_key_schedule schedule;
+Xdes_cblock *ivec;
+Xint encrypt;
+X.PP
+X.B int des_ofb_encrypt(input,output,numbits,length,schedule,ivec)
+Xunsigned char *input,*output;
+Xint numbits;
+Xlong length;
+Xdes_key_schedule schedule;
+Xdes_cblock *ivec;
+X.PP
+X.B unsigned long des_cbc_cksum(input,output,length,schedule,ivec)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xlong length;
+Xdes_key_schedule schedule;
+Xdes_cblock *ivec;
+X.PP
+X.B unsigned long des_quad_cksum(input,output,length,out_count,seed)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xlong length;
+Xint out_count;
+Xdes_cblock *seed;
+X.PP
+X.B int des_check_key;
+X.PP
+X.B int des_enc_read(fd,buf,len,sched,iv)
+Xint fd;
+Xchar *buf;
+Xint len;
+Xdes_key_schedule sched;
+Xdes_cblock *iv;
+X.PP
+X.B int des_enc_write(fd,buf,len,sched,iv)
+Xint fd;
+Xchar *buf;
+Xint len;
+Xdes_key_schedule sched;
+Xdes_cblock *iv;
+X.PP
+X.B extern int des_rw_mode;
+X.PP
+X.B void des_set_odd_parity(key)
+Xdes_cblock *key;
+X.PP
+X.B int des_is_weak_key(key)
+Xdes_cblock *key;
+X.PP
+X.B char *crypt(passwd,salt)
+Xchar *passwd;
+Xchar *salt;
+X.PP
+X.fi
+X.SH DESCRIPTION
+XThis library contains a fast implementation of the DES encryption
+Xalgorithm.
+X.PP
+XThere are two phases to the use of DES encryption.
+XThe first is the generation of a
+X.I des_key_schedule
+Xfrom a key,
+Xthe second is the actual encryption.
+XA des key is of type
+X.I des_cblock.
+XThis type is made from 8 characters with odd parity.
+XThe least significant bit in the character is the parity bit.
+XThe key schedule is an expanded form of the key; it is used to speed the
+Xencryption process.
+X.PP
+X.I des_read_password
+Xwrites the string specified by prompt to the standard output,
+Xturns off echo and reads an input string from standard input
+Xuntil terminated with a newline.
+XIf verify is non-zero, it prompts and reads the input again and verifies
+Xthat both entered passwords are the same.
+XThe entered string is converted into a des key by using the
+X.I des_string_to_key
+Xroutine.
+XThe new key is placed in the
+X.I des_cblock
+Xthat was passed (by reference) to the routine.
+XIf there were no errors,
+X.I des_read_password
+Xreturns 0,
+X-1 is returned if there was a terminal error and 1 is returned for
+Xany other error.
+X.PP
+X.I des_read_2password
+Xoperates in the same way as
+X.I des_read_password
+Xexcept that it generates 2 keys by using the
+X.I des_string_to_2key
+Xfunction.
+X.PP
+X.I des_read_pw_string
+Xis called by
+X.I des_read_password
+Xto read and verify a string from a terminal device.
+XThe string is returned in
+X.I buf.
+XThe size of
+X.I buf
+Xis passed to the routine via the
+X.I length
+Xparameter.
+X.PP
+X.I des_string_to_key
+Xconverts a string into a valid des key.
+X.PP
+X.I des_string_to_2key
+Xconverts a string into 2 valid des keys.
+XThis routine is best suited for used to generate keys for use with
+X.I des_3ecb_encrypt.
+X.PP
+X.I des_random_key
+Xreturns a random key that is made of a combination of process id,
+Xtime and an increasing counter.
+X.PP
+XBefore a des key can be used it is converted into a
+X.I des_key_schedule
+Xvia the
+X.I des_set_key
+Xroutine.
+XIf the
+X.I des_check_key
+Xflag is non-zero,
+X.I des_set_key
+Xwill check that the key passed is of odd parity and is not a week or
+Xsemi-weak key.
+XIf the parity is wrong,
+Xthen -1 is returned.
+XIf the key is a weak key,
+Xthen -2 is returned.
+XIf an error is returned,
+Xthe key schedule is not generated.
+X.PP
+X.I des_key_sched
+Xis another name for the
+X.I des_set_key
+Xfunction.
+X.PP
+XThe following routines mostly operate on an input and output stream of
+X.I des_cblock's.
+X.PP
+X.I des_ecb_encrypt
+Xis the basic DES encryption routine that encrypts or decrypts a single 8-byte
+X.I des_cblock
+Xin
+X.I electronic code book
+Xmode.
+XIt always transforms the input data, pointed to by
+X.I input,
+Xinto the output data,
+Xpointed to by the
+X.I output
+Xargument.
+XIf the
+X.I encrypt
+Xargument is non-zero (DES_ENCRYPT),
+Xthe
+X.I input
+X(cleartext) is encrypted in to the
+X.I output
+X(ciphertext) using the key_schedule specified by the
+X.I schedule
+Xargument,
+Xpreviously set via
+X.I des_set_key.
+XIf
+X.I encrypt
+Xis zero (DES_DECRYPT),
+Xthe
+X.I input
+X(now ciphertext)
+Xis decrypted into the
+X.I output
+X(now cleartext).
+XInput and output may overlap.
+XNo meaningful value is returned.
+X.PP
+X.I des_3ecb_encrypt
+Xencrypts/decrypts the
+X.I input
+Xblock by using triple ecb DES encryption.
+XThis involves encrypting the input with 
+X.I ks1,
+Xdecryption with the key schedule
+X.I ks2,
+Xand then encryption with the first again.
+XThis routine greatly reduces the chances of brute force breaking of
+XDES and has the advantage of if
+X.I ks1
+Xand
+X.I ks2
+Xare the same, it is equivalent to just encryption using ecb mode and
+X.I ks1
+Xas the key.
+X.PP
+X.I des_cbc_encrypt
+Xencrypts/decrypts using the
+X.I cipher-block-chaining
+Xmode of DES.
+XIf the
+X.I encrypt
+Xargument is non-zero,
+Xthe routine cipher-block-chain encrypts the cleartext data pointed to by the
+X.I input
+Xargument into the ciphertext pointed to by the
+X.I output
+Xargument,
+Xusing the key schedule provided by the
+X.I schedule
+Xargument,
+Xand initialisation vector provided by the
+X.I ivec
+Xargument.
+XIf the
+X.I length
+Xargument is not an integral multiple of eight bytes, 
+Xthe last block is copied to a temporary area and zero filled.
+XThe output is always
+Xan integral multiple of eight bytes.
+XTo make multiple cbc encrypt calls on a large amount of data appear to
+Xbe one 
+X.I des_cbc_encrypt
+Xcall, the
+X.I ivec
+Xof subsequent calls should be the last 8 bytes of the output.
+X.PP
+X.I des_3cbc_encrypt
+Xencrypts/decrypts the
+X.I input
+Xblock by using triple cbc DES encryption.
+XThis involves encrypting the input with key schedule
+X.I ks1,
+Xdecryption with the key schedule
+X.I ks2,
+Xand then encryption with the first again.
+X2 initialisation vectors are required,
+X.I ivec1
+Xand
+X.I ivec2.
+XUnlike
+X.I des_cbc_encrypt,
+Xthese initialisation vectors are modified by the subroutine.
+XThis routine greatly reduces the chances of brute force breaking of
+XDES and has the advantage of if
+X.I ks1
+Xand
+X.I ks2
+Xare the same, it is equivalent to just encryption using cbc mode and
+X.I ks1
+Xas the key.
+X.PP
+X.I des_pcbc_encrypt
+Xencrypt/decrypts using a modified block chaining mode.
+XIt provides better error propagation characteristics than cbc
+Xencryption.
+X.PP
+X.I des_cfb_encrypt
+Xencrypt/decrypts using cipher feedback mode.  This method takes an
+Xarray of characters as input and outputs and array of characters.  It
+Xdoes not require any padding to 8 character groups.  Note: the ivec
+Xvariable is changed and the new changed value needs to be passed to
+Xthe next call to this function.  Since this function runs a complete
+XDES ecb encryption per numbits, this function is only suggested for
+Xuse when sending small numbers of characters.
+X.PP
+X.I des_ofb_encrypt
+Xencrypt using output feedback mode.  This method takes an
+Xarray of characters as input and outputs and array of characters.  It
+Xdoes not require any padding to 8 character groups.  Note: the ivec
+Xvariable is changed and the new changed value needs to be passed to
+Xthe next call to this function.  Since this function runs a complete
+XDES ecb encryption per numbits, this function is only suggested for
+Xuse when sending small numbers of characters.
+X.PP
+X.I des_cbc_cksum
+Xproduces an 8 byte checksum based on the input stream (via cbc encryption).
+XThe last 4 bytes of the checksum is returned and the complete 8 bytes is
+Xplaced in
+X.I output.
+X.PP
+X.I des_quad_cksum
+Xreturns a 4 byte checksum from the input bytes.
+XThe algorithm can be iterated over the input,
+Xdepending on
+X.I out_count,
+X1, 2, 3 or 4 times.
+XIf
+X.I output
+Xis non-NULL,
+Xthe 8 bytes generated by each pass are written into
+X.I output.
+X.PP
+X.I des_enc_write
+Xis used to write
+X.I len
+Xbytes
+Xto file descriptor
+X.I fd
+Xfrom buffer
+X.I buf.
+XThe data is encrypted via
+X.I pcbc_encrypt
+X(default) using
+X.I sched
+Xfor the key and
+X.I iv
+Xas a starting vector.
+XThe actual data send down
+X.I fd
+Xconsists of 4 bytes (in network byte order) containing the length of the
+Xfollowing encrypted data.  The encrypted data then follows, padded with random
+Xdata out to a multiple of 8 bytes.
+X.PP
+X.I des_enc_read
+Xis used to read
+X.I len
+Xbytes
+Xfrom file descriptor
+X.I fd
+Xinto buffer
+X.I buf.
+XThe data being read from
+X.I fd
+Xis assumed to have come from
+X.I des_enc_write
+Xand is decrypted using
+X.I sched
+Xfor the key schedule and
+X.I iv
+Xfor the initial vector.
+XThe
+X.I des_enc_read/des_enc_write
+Xpair can be used to read/write to files, pipes and sockets.
+XI have used them in implementing a version of rlogin in which all
+Xdata is encrypted.
+X.PP
+X.I des_rw_mode
+Xis used to specify the encryption mode to use with 
+X.I des_enc_read
+Xand 
+X.I des_end_write.
+XIf set to
+X.I DES_PCBC_MODE
+X(the default), des_pcbc_encrypt is used.
+XIf set to
+X.I DES_CBC_MODE
+Xdes_cbc_encrypt is used.
+XThese two routines and the variable are not part of the normal MIT library.
+X.PP
+X.I des_set_odd_parity
+Xsets the parity of the passed
+X.I key
+Xto odd.  This routine is not part of the standard MIT library.
+X.PP
+X.I des_is_weak_key
+Xreturns 1 is the passed key is a weak key (pick again :-),
+X0 if it is ok.
+XThis routine is not part of the standard MIT library.
+X.PP
+X.I crypt
+Xis a replacement for the normal system crypt.
+XIt is much faster than the system crypt.
+X.PP
+X.SH FILES
+X/usr/include/des.h
+X.br
+X/usr/lib/libdes.a
+X.PP
+XThe encryption routines have been tested on 16bit, 32bit and 64bit
+Xmachines of various endian and even works under VMS.
+X.PP
+X.SH BUGS
+X.PP
+XIf you think this manual is sparse,
+Xread the des_crypt(3) manual from the MIT kerberos (or bones outside
+Xof the USA) distribution.
+X.PP
+X.I des_cfb_encrypt
+Xand
+X.I des_ofb_encrypt
+Xoperates on input of 8 bits.  What this means is that if you set
+Xnumbits to 12, and length to 2, the first 12 bits will come from the 1st
+Xinput byte and the low half of the second input byte.  The second 12
+Xbits will have the low 8 bits taken from the 3rd input byte and the
+Xtop 4 bits taken from the 4th input byte.  The same holds for output.
+XThis function has been implemented this way because most people will
+Xbe using a multiple of 8 and because once you get into pulling bytes input
+Xbytes apart things get ugly!
+X.PP
+X.I des_read_pw_string
+Xis the most machine/OS dependent function and normally generates the
+Xmost problems when porting this code.
+X.PP
+X.I des_string_to_key
+Xis probably different from the MIT version since there are lots
+Xof fun ways to implement one-way encryption of a text string.
+X.PP
+XThe routines are optimised for 32 bit machines and so are not efficient
+Xon IBM PCs.
+X.SH AUTHOR
+XEric Young (eay@psych.psy.uq.oz.au),
+XPsychology Department,
+XUniversity of Queensland, Australia.
+END_OF_FILE
+  if test 12459 -ne `wc -c <'des_crypt.man'`; then
+    echo shar: \"'des_crypt.man'\" unpacked with wrong size!
+  fi
+  # end of 'des_crypt.man'
+fi
+if test -f 'des_locl.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'des_locl.h'\"
+else
+  echo shar: Extracting \"'des_locl.h'\" \(5949 characters\)
+  sed "s/^X//" >'des_locl.h' <<'END_OF_FILE'
+X/* des_locl.h */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include <stdio.h>
+X#include "des.h"
+X
+X#if defined(__STDC__) || defined(VMS) || defined(M_XENIX) || defined(MSDOS)
+X#include <string.h>
+X#define bcopy(b1,b2,len) memcpy(b2, b1, (size_t)(len))
+X#define bzero(b,len) memset(b, 0, (size_t)(len))
+X#define bcmp(b1,b2,len) memcmp(b1, b2, (size_t)(len))
+X#define index(s1,char) strchr(s1,char)
+X#endif
+X
+X#ifdef MSDOS
+X#define getpid() 2
+X#define RAND
+Xextern int errno;
+X#define PROTO
+X#endif
+X
+X#ifdef __STDC__
+X#define PROTO
+X#endif
+X
+X#ifdef RAND
+X#define random() rand()
+X#define srandom(s) srand(s)
+X#endif
+X
+X#define ITERATIONS 16
+X#define HALF_ITERATIONS 8
+X
+X/* used in des_read and des_write */
+X#define MAXWRITE	(1024*16)
+X#define BSIZE		(MAXWRITE+4)
+X
+X#define c2l(c,l)	(l =((unsigned long)(*((c)++)))    , \
+X			 l|=((unsigned long)(*((c)++)))<< 8, \
+X			 l|=((unsigned long)(*((c)++)))<<16, \
+X			 l|=((unsigned long)(*((c)++)))<<24)
+X
+X/* NOTE - c is not incremented as per c2l */
+X#define c2ln(c,l1,l2,n)	{ \
+X			c+=n; \
+X			l1=l2=0; \
+X			switch (n) { \
+X			case 8: l2|=((unsigned long)(*(--(c))))<<24; \
+X			case 7: l2|=((unsigned long)(*(--(c))))<<16; \
+X			case 6: l2|=((unsigned long)(*(--(c))))<< 8; \
+X			case 5: l2|=((unsigned long)(*(--(c))));     \
+X			case 4: l1|=((unsigned long)(*(--(c))))<<24; \
+X			case 3: l1|=((unsigned long)(*(--(c))))<<16; \
+X			case 2: l1|=((unsigned long)(*(--(c))))<< 8; \
+X			case 1: l1|=((unsigned long)(*(--(c))));     \
+X				} \
+X			}
+X
+X#define l2c(l,c)	(*((c)++)=(unsigned char)(((l)    )&0xff), \
+X			 *((c)++)=(unsigned char)(((l)>> 8)&0xff), \
+X			 *((c)++)=(unsigned char)(((l)>>16)&0xff), \
+X			 *((c)++)=(unsigned char)(((l)>>24)&0xff))
+X
+X/* replacements for htonl and ntohl since I have no idea what to do
+X * when faced with machines with 8 byte longs. */
+X#define HDRSIZE 4
+X
+X#define n2l(c,l)	(l =((unsigned long)(*((c)++)))<<24, \
+X			 l|=((unsigned long)(*((c)++)))<<16, \
+X			 l|=((unsigned long)(*((c)++)))<< 8, \
+X			 l|=((unsigned long)(*((c)++))))
+X
+X#define l2n(l,c)	(*((c)++)=(unsigned char)(((l)>>24)&0xff), \
+X			 *((c)++)=(unsigned char)(((l)>>16)&0xff), \
+X			 *((c)++)=(unsigned char)(((l)>> 8)&0xff), \
+X			 *((c)++)=(unsigned char)(((l)    )&0xff))
+X
+X/* NOTE - c is not incremented as per l2c */
+X#define l2cn(l1,l2,c,n)	{ \
+X			c+=n; \
+X			switch (n) { \
+X			case 8: *(--(c))=(unsigned char)(((l2)>>24)&0xff); \
+X			case 7: *(--(c))=(unsigned char)(((l2)>>16)&0xff); \
+X			case 6: *(--(c))=(unsigned char)(((l2)>> 8)&0xff); \
+X			case 5: *(--(c))=(unsigned char)(((l2)    )&0xff); \
+X			case 4: *(--(c))=(unsigned char)(((l1)>>24)&0xff); \
+X			case 3: *(--(c))=(unsigned char)(((l1)>>16)&0xff); \
+X			case 2: *(--(c))=(unsigned char)(((l1)>> 8)&0xff); \
+X			case 1: *(--(c))=(unsigned char)(((l1)    )&0xff); \
+X				} \
+X			}
+X
+X/* The changes to this macro may help or hinder, depending on the
+X * compiler and the achitecture.  gcc2 always seems to do well :-).
+X * Inspired by Dana How <how@isl.stanford.edu>
+X * DO NOT use the alternative version on machines with 8 byte longs. */
+X#ifdef ALT_ECB
+X#define D_ENCRYPT(L,R,S) \
+X	u=((R^s[S  ])<<2);	\
+X	t= R^s[S+1]; \
+X	t=((t>>2)+(t<<30)); \
+X	L^= \
+X	*(unsigned long *)(des_SP+0x0100+((t    )&0xfc))+ \
+X	*(unsigned long *)(des_SP+0x0300+((t>> 8)&0xfc))+ \
+X	*(unsigned long *)(des_SP+0x0500+((t>>16)&0xfc))+ \
+X	*(unsigned long *)(des_SP+0x0700+((t>>24)&0xfc))+ \
+X	*(unsigned long *)(des_SP+       ((u    )&0xfc))+ \
+X  	*(unsigned long *)(des_SP+0x0200+((u>> 8)&0xfc))+ \
+X  	*(unsigned long *)(des_SP+0x0400+((u>>16)&0xfc))+ \
+X 	*(unsigned long *)(des_SP+0x0600+((u>>24)&0xfc));
+X#else /* original version */
+X#ifdef MSDOS
+X#define D_ENCRYPT(L,R,S)	\
+X	U.l=R^s[S+1]; \
+X	T.s[0]=((U.s[0]>>4)|(U.s[1]<<12))&0x3f3f; \
+X	T.s[1]=((U.s[1]>>4)|(U.s[0]<<12))&0x3f3f; \
+X	U.l=(R^s[S  ])&0x3f3f3f3f; \
+X	L^=	des_SPtrans[1][(T.c[0])]| \
+X		des_SPtrans[3][(T.c[1])]| \
+X		des_SPtrans[5][(T.c[2])]| \
+X		des_SPtrans[7][(T.c[3])]| \
+X		des_SPtrans[0][(U.c[0])]| \
+X		des_SPtrans[2][(U.c[1])]| \
+X		des_SPtrans[4][(U.c[2])]| \
+X		des_SPtrans[6][(U.c[3])];
+X#else
+X#define D_ENCRYPT(L,R,S)	\
+X	u=(R^s[S  ]); \
+X	t=R^s[S+1]; \
+X	t=((t>>4)+(t<<28)); \
+X	L^=	des_SPtrans[1][(t    )&0x3f]| \
+X		des_SPtrans[3][(t>> 8)&0x3f]| \
+X		des_SPtrans[5][(t>>16)&0x3f]| \
+X		des_SPtrans[7][(t>>24)&0x3f]| \
+X		des_SPtrans[0][(u    )&0x3f]| \
+X		des_SPtrans[2][(u>> 8)&0x3f]| \
+X		des_SPtrans[4][(u>>16)&0x3f]| \
+X		des_SPtrans[6][(u>>24)&0x3f];
+X#endif
+X#endif
+X
+X	/* IP and FP
+X	 * The problem is more of a geometric problem that random bit fiddling.
+X	 0  1  2  3  4  5  6  7      62 54 46 38 30 22 14  6
+X	 8  9 10 11 12 13 14 15      60 52 44 36 28 20 12  4
+X	16 17 18 19 20 21 22 23      58 50 42 34 26 18 10  2
+X	24 25 26 27 28 29 30 31  to  56 48 40 32 24 16  8  0
+X
+X	32 33 34 35 36 37 38 39      63 55 47 39 31 23 15  7
+X	40 41 42 43 44 45 46 47      61 53 45 37 29 21 13  5
+X	48 49 50 51 52 53 54 55      59 51 43 35 27 19 11  3
+X	56 57 58 59 60 61 62 63      57 49 41 33 25 17  9  1
+X
+X	The output has been subject to swaps of the form
+X	0 1 -> 3 1 but the odd and even bits have been put into
+X	2 3    2 0
+X	different words.  The main trick is to remember that
+X	t=((l>>size)^r)&(mask);
+X	r^=t;
+X	l^=(t<<size);
+X	can be used to swap and move bits between words.
+X
+X	So l =  0  1  2  3  r = 16 17 18 19
+X	        4  5  6  7      20 21 22 23
+X	        8  9 10 11      24 25 26 27
+X	       12 13 14 15      28 29 30 31
+X	becomes (for size == 2 and mask == 0x3333)
+X	   t =   2^16  3^17 -- --   l =  0  1 16 17  r =  2  3 18 19
+X		 6^20  7^21 -- --        4  5 20 21       6  7 22 23
+X		10^24 11^25 -- --        8  9 24 25      10 11 24 25
+X		14^28 15^29 -- --       12 13 28 29      14 15 28 29
+X
+X	Thanks for hints from Richard Outerbridge - he told me IP&FP
+X	could be done in 15 xor, 10 shifts and 5 ands.
+X	When I finally started to think of the problem in 2D
+X	I first got ~42 operations without xors.  When I remembered
+X	how to use xors :-) I got it to its final state.
+X	*/
+X#define PERM_OP(a,b,t,n,m) ((t)=((((a)>>(n))^(b))&(m)),\
+X	(b)^=(t),\
+X	(a)^=((t)<<(n)))
+X
+END_OF_FILE
+  if test 5949 -ne `wc -c <'des_locl.h'`; then
+    echo shar: \"'des_locl.h'\" unpacked with wrong size!
+  fi
+  # end of 'des_locl.h'
+fi
+if test -f 'read_pwd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'read_pwd.c'\"
+else
+  echo shar: Extracting \"'read_pwd.c'\" \(5215 characters\)
+  sed "s/^X//" >'read_pwd.c' <<'END_OF_FILE'
+X/* read_pwd.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X/* 06-Apr-92 Luke Brennan    Support for VMS */
+X#include "des_locl.h"
+X#include <string.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X
+X#ifndef VMS
+X#ifndef MSDOS
+X#ifndef _IRIX
+X#ifdef CRAY
+X#include <termio.h>
+X#define sgttyb termio
+X#define sg_flags c_lflag
+X#else /* !CRAY */
+X#include <sgtty.h>
+X#endif
+X#include <sys/ioctl.h>
+X#else /* _IRIX */
+Xstruct  sgttyb {
+X	char    sg_ispeed;              /* input speed */
+X	char    sg_ospeed;              /* output speed */
+X	char    sg_erase;               /* erase character */
+X	char    sg_kill;                /* kill character */
+X	short   sg_flags; /* mode flags */
+X	};
+X#endif
+X#else /* MSDOS */
+X#define fgets(a,b,c) noecho_fgets(a,b,c)
+X#ifndef NSIG
+X#define NSIG 32
+X#endif
+X#endif
+X#else /* VMS */
+X#include <ssdef.h>
+X#include <iodef.h>
+X#include <ttdef.h>
+X#include <descrip.h>
+Xstruct IOSB {
+X	short iosb$w_value;
+X	short iosb$w_count;
+X	long  iosb$l_info;
+X	};
+X#endif
+X
+Xstatic void read_till_nl();
+Xstatic int read_pw();
+Xstatic void recsig();
+Xstatic void pushsig();
+Xstatic void popsig();
+X#ifdef MSDOS
+Xstatic int noecho_fgets();
+X#endif
+X
+Xstatic void (*savsig[NSIG])();
+Xstatic jmp_buf save;
+X
+Xint des_read_password(key,prompt,verify)
+Xdes_cblock *key;
+Xchar *prompt;
+Xint verify;
+X	{
+X	int ok;
+X	char buf[BUFSIZ],buff[BUFSIZ];
+X
+X	if ((ok=read_pw(buf,buff,BUFSIZ,prompt,verify)) == 0)
+X		des_string_to_key(buf,key);
+X	bzero(buf,BUFSIZ);
+X	bzero(buff,BUFSIZ);
+X	return(ok);
+X	}
+X
+Xint des_read_2passwords(key1,key2,prompt,verify)
+Xdes_cblock *key1;
+Xdes_cblock *key2;
+Xchar *prompt;
+Xint verify;
+X	{
+X	int ok;
+X	char buf[BUFSIZ],buff[BUFSIZ];
+X
+X	if ((ok=read_pw(buf,buff,BUFSIZ,prompt,verify)) == 0)
+X		des_string_to_2keys(buf,key1,key2);
+X	bzero(buf,BUFSIZ);
+X	bzero(buff,BUFSIZ);
+X	return(ok);
+X	}
+X
+Xint des_read_pw_string(buf,length,prompt,verify)
+Xchar *buf;
+Xint length;
+Xchar *prompt;
+Xint verify;
+X	{
+X	char buff[BUFSIZ];
+X	int ret;
+X
+X	ret=read_pw(buf,buff,(length>BUFSIZ)?BUFSIZ:length,prompt,verify);
+X	bzero(buff,BUFSIZ);
+X	return(ret);
+X	}
+X
+Xstatic void read_till_nl(in)
+XFILE *in;
+X	{
+X#define SIZE 4
+X	char buf[SIZE+1];
+X
+X	do	{
+X		fgets(buf,SIZE,in);
+X		} while (index(buf,'\n') == NULL);
+X	}
+X
+X/* return 0 if ok, 1 (or -1) otherwise */
+Xstatic int read_pw(buf,buff,size,prompt,verify)
+Xchar *buf,*buff;
+Xint size;
+Xchar *prompt;
+Xint verify;
+X	{
+X#ifndef VMS
+X#ifndef MSDOS
+X	struct sgttyb tty_orig,tty_new;
+X#endif /* !MSDOS */
+X#else
+X	struct IOSB iosb;
+X	$DESCRIPTOR(terminal,"TT");
+X	long tty_orig[3], tty_new[3];
+X	long status;
+X	unsigned short channel = 0;
+X#endif
+X	int ok=0;
+X	char *p;
+X	int ps=0;
+X	FILE *tty;
+X
+X#ifndef MSDOS
+X	if ((tty=fopen("/dev/tty","r")) == NULL)
+X		tty=stdin;
+X#else /* MSDOS */
+X	if ((tty=fopen("con","r")) == NULL)
+X		tty=stdin;
+X#endif /* MSDOS */
+X#ifndef VMS
+X#ifdef TIOCGETP
+X	if (ioctl(fileno(tty),TIOCGETP,(char *)&tty_orig) == -1)
+X		return(-1);
+X	bcopy(&(tty_orig),&(tty_new),sizeof(tty_orig));
+X#endif
+X#else /* VMS */
+X	status = SYS$ASSIGN(&terminal,&channel,0,0);
+X	if (status != SS$_NORMAL)
+X		return(-1);
+X	status=SYS$QIOW(0,channel,IO$_SENSEMODE,&iosb,0,0,tty_orig,12,0,0,0,0);
+X	if ((status != SS$_NORMAL) || (iosb.iosb$w_value != SS$_NORMAL))
+X		return(-1);
+X#endif
+X
+X	if (setjmp(save))
+X		{
+X		ok=0;
+X		goto error;
+X		}
+X	pushsig();
+X	ps=1;
+X#ifndef VMS
+X#ifndef MSDOS
+X	tty_new.sg_flags &= ~ECHO;
+X#endif /* !MSDOS */
+X#ifdef TIOCSETP
+X	if (ioctl(fileno(tty),TIOCSETP,(char *)&tty_new) == -1)
+X		return(-1);
+X#endif
+X#else /* VMS */
+X	tty_new[0] = tty_orig[0];
+X	tty_new[1] = tty_orig[1] | TT$M_NOECHO;
+X	tty_new[2] = tty_orig[2];
+X	status = SYS$QIOW(0,channel,IO$_SETMODE,&iosb,0,0,tty_new,12,0,0,0,0);
+X	if ((status != SS$_NORMAL) || (iosb.iosb$w_value != SS$_NORMAL))
+X		return(-1);
+X#endif /* VMS */
+X	ps=2;
+X
+X	while (!ok)
+X		{
+X		fputs(prompt,stderr);
+X		fflush(stderr);
+X
+X		buf[0]='\0';
+X		fgets(buf,size,tty);
+X		if (feof(tty)) goto error;
+X		if ((p=(char *)index(buf,'\n')) != NULL)
+X			*p='\0';
+X		else	read_till_nl(tty);
+X		if (verify)
+X			{
+X			fprintf(stderr,"\nVerifying password %s",prompt);
+X			fflush(stderr);
+X			buff[0]='\0';
+X			fgets(buff,size,tty);
+X			if (feof(tty)) goto error;
+X			if ((p=(char *)index(buff,'\n')) != NULL)
+X				*p='\0';
+X			else	read_till_nl(tty);
+X				
+X			if (strcmp(buf,buff) != 0)
+X				{
+X				fprintf(stderr,"\nVerify failure - try again\n");
+X				fflush(stderr);
+X				continue;
+X				}
+X			}
+X		ok=1;
+X		}
+X
+Xerror:
+X	fprintf(stderr,"\n");
+X	/* What can we do if there is an error? */
+X#ifndef VMS
+X#ifdef TIOCSETP
+X	if (ps >= 2) ioctl(fileno(tty),TIOCSETP,(char *)&tty_orig);
+X#endif
+X#else /* VMS */
+X	if (ps >= 2)
+X		status = SYS$QIOW(0,channel,IO$_SETMODE,&iosb,0,0
+X			,tty_orig,12,0,0,0,0);
+X#endif /* VMS */
+X	
+X	if (ps >= 1) popsig();
+X	if (stdin != tty) fclose(tty);
+X#ifdef VMS
+X	status = SYS$DASSGN(channel);
+X#endif
+X	return(!ok);
+X	}
+X
+Xstatic void pushsig()
+X	{
+X	int i;
+X
+X	for (i=0; i<NSIG; i++)
+X		savsig[i]=signal(i,recsig);
+X	}
+X
+Xstatic void popsig()
+X	{
+X	int i;
+X
+X	for (i=0; i<NSIG; i++)
+X		signal(i,savsig[i]);
+X	}
+X
+Xstatic void recsig()
+X	{
+X	longjmp(save,1);
+X	}
+X
+X#ifdef MSDOS
+Xstatic int noecho_fgets(buf,size,tty)
+Xchar *buf;
+Xint size;
+XFILE *tty;
+X	{
+X	int i;
+X	char *p;
+X
+X	p=buf;
+X	for (;;)
+X		{
+X		if (size == 0)
+X			{
+X			*p='\0';
+X			break;
+X			}
+X		size--;
+X		i=getch();
+X		if (i == '\r') i='\n';
+X		*(p++)=i;
+X		if (i == '\n')
+X			{
+X			*p='\0';
+X			break;
+X			}
+X		}
+X	}
+X#endif
+END_OF_FILE
+  if test 5215 -ne `wc -c <'read_pwd.c'`; then
+    echo shar: \"'read_pwd.c'\" unpacked with wrong size!
+  fi
+  # end of 'read_pwd.c'
+fi
+if test -f 'sk.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sk.h'\"
+else
+  echo shar: Extracting \"'sk.h'\" \(6350 characters\)
+  sed "s/^X//" >'sk.h' <<'END_OF_FILE'
+X/* sk.h */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+Xstatic unsigned long des_skb[8][64]={
+X/* for C bits (numbered as per FIPS 46) 1 2 3 4 5 6 */
+X0x00000000,0x00000010,0x20000000,0x20000010,
+X0x00010000,0x00010010,0x20010000,0x20010010,
+X0x00000800,0x00000810,0x20000800,0x20000810,
+X0x00010800,0x00010810,0x20010800,0x20010810,
+X0x00000020,0x00000030,0x20000020,0x20000030,
+X0x00010020,0x00010030,0x20010020,0x20010030,
+X0x00000820,0x00000830,0x20000820,0x20000830,
+X0x00010820,0x00010830,0x20010820,0x20010830,
+X0x00080000,0x00080010,0x20080000,0x20080010,
+X0x00090000,0x00090010,0x20090000,0x20090010,
+X0x00080800,0x00080810,0x20080800,0x20080810,
+X0x00090800,0x00090810,0x20090800,0x20090810,
+X0x00080020,0x00080030,0x20080020,0x20080030,
+X0x00090020,0x00090030,0x20090020,0x20090030,
+X0x00080820,0x00080830,0x20080820,0x20080830,
+X0x00090820,0x00090830,0x20090820,0x20090830,
+X/* for C bits (numbered as per FIPS 46) 7 8 10 11 12 13 */
+X0x00000000,0x02000000,0x00002000,0x02002000,
+X0x00200000,0x02200000,0x00202000,0x02202000,
+X0x00000004,0x02000004,0x00002004,0x02002004,
+X0x00200004,0x02200004,0x00202004,0x02202004,
+X0x00000400,0x02000400,0x00002400,0x02002400,
+X0x00200400,0x02200400,0x00202400,0x02202400,
+X0x00000404,0x02000404,0x00002404,0x02002404,
+X0x00200404,0x02200404,0x00202404,0x02202404,
+X0x10000000,0x12000000,0x10002000,0x12002000,
+X0x10200000,0x12200000,0x10202000,0x12202000,
+X0x10000004,0x12000004,0x10002004,0x12002004,
+X0x10200004,0x12200004,0x10202004,0x12202004,
+X0x10000400,0x12000400,0x10002400,0x12002400,
+X0x10200400,0x12200400,0x10202400,0x12202400,
+X0x10000404,0x12000404,0x10002404,0x12002404,
+X0x10200404,0x12200404,0x10202404,0x12202404,
+X/* for C bits (numbered as per FIPS 46) 14 15 16 17 19 20 */
+X0x00000000,0x00000001,0x00040000,0x00040001,
+X0x01000000,0x01000001,0x01040000,0x01040001,
+X0x00000002,0x00000003,0x00040002,0x00040003,
+X0x01000002,0x01000003,0x01040002,0x01040003,
+X0x00000200,0x00000201,0x00040200,0x00040201,
+X0x01000200,0x01000201,0x01040200,0x01040201,
+X0x00000202,0x00000203,0x00040202,0x00040203,
+X0x01000202,0x01000203,0x01040202,0x01040203,
+X0x08000000,0x08000001,0x08040000,0x08040001,
+X0x09000000,0x09000001,0x09040000,0x09040001,
+X0x08000002,0x08000003,0x08040002,0x08040003,
+X0x09000002,0x09000003,0x09040002,0x09040003,
+X0x08000200,0x08000201,0x08040200,0x08040201,
+X0x09000200,0x09000201,0x09040200,0x09040201,
+X0x08000202,0x08000203,0x08040202,0x08040203,
+X0x09000202,0x09000203,0x09040202,0x09040203,
+X/* for C bits (numbered as per FIPS 46) 21 23 24 26 27 28 */
+X0x00000000,0x00100000,0x00000100,0x00100100,
+X0x00000008,0x00100008,0x00000108,0x00100108,
+X0x00001000,0x00101000,0x00001100,0x00101100,
+X0x00001008,0x00101008,0x00001108,0x00101108,
+X0x04000000,0x04100000,0x04000100,0x04100100,
+X0x04000008,0x04100008,0x04000108,0x04100108,
+X0x04001000,0x04101000,0x04001100,0x04101100,
+X0x04001008,0x04101008,0x04001108,0x04101108,
+X0x00020000,0x00120000,0x00020100,0x00120100,
+X0x00020008,0x00120008,0x00020108,0x00120108,
+X0x00021000,0x00121000,0x00021100,0x00121100,
+X0x00021008,0x00121008,0x00021108,0x00121108,
+X0x04020000,0x04120000,0x04020100,0x04120100,
+X0x04020008,0x04120008,0x04020108,0x04120108,
+X0x04021000,0x04121000,0x04021100,0x04121100,
+X0x04021008,0x04121008,0x04021108,0x04121108,
+X/* for D bits (numbered as per FIPS 46) 1 2 3 4 5 6 */
+X0x00000000,0x10000000,0x00010000,0x10010000,
+X0x00000004,0x10000004,0x00010004,0x10010004,
+X0x20000000,0x30000000,0x20010000,0x30010000,
+X0x20000004,0x30000004,0x20010004,0x30010004,
+X0x00100000,0x10100000,0x00110000,0x10110000,
+X0x00100004,0x10100004,0x00110004,0x10110004,
+X0x20100000,0x30100000,0x20110000,0x30110000,
+X0x20100004,0x30100004,0x20110004,0x30110004,
+X0x00001000,0x10001000,0x00011000,0x10011000,
+X0x00001004,0x10001004,0x00011004,0x10011004,
+X0x20001000,0x30001000,0x20011000,0x30011000,
+X0x20001004,0x30001004,0x20011004,0x30011004,
+X0x00101000,0x10101000,0x00111000,0x10111000,
+X0x00101004,0x10101004,0x00111004,0x10111004,
+X0x20101000,0x30101000,0x20111000,0x30111000,
+X0x20101004,0x30101004,0x20111004,0x30111004,
+X/* for D bits (numbered as per FIPS 46) 8 9 11 12 13 14 */
+X0x00000000,0x08000000,0x00000008,0x08000008,
+X0x00000400,0x08000400,0x00000408,0x08000408,
+X0x00020000,0x08020000,0x00020008,0x08020008,
+X0x00020400,0x08020400,0x00020408,0x08020408,
+X0x00000001,0x08000001,0x00000009,0x08000009,
+X0x00000401,0x08000401,0x00000409,0x08000409,
+X0x00020001,0x08020001,0x00020009,0x08020009,
+X0x00020401,0x08020401,0x00020409,0x08020409,
+X0x02000000,0x0A000000,0x02000008,0x0A000008,
+X0x02000400,0x0A000400,0x02000408,0x0A000408,
+X0x02020000,0x0A020000,0x02020008,0x0A020008,
+X0x02020400,0x0A020400,0x02020408,0x0A020408,
+X0x02000001,0x0A000001,0x02000009,0x0A000009,
+X0x02000401,0x0A000401,0x02000409,0x0A000409,
+X0x02020001,0x0A020001,0x02020009,0x0A020009,
+X0x02020401,0x0A020401,0x02020409,0x0A020409,
+X/* for D bits (numbered as per FIPS 46) 16 17 18 19 20 21 */
+X0x00000000,0x00000100,0x00080000,0x00080100,
+X0x01000000,0x01000100,0x01080000,0x01080100,
+X0x00000010,0x00000110,0x00080010,0x00080110,
+X0x01000010,0x01000110,0x01080010,0x01080110,
+X0x00200000,0x00200100,0x00280000,0x00280100,
+X0x01200000,0x01200100,0x01280000,0x01280100,
+X0x00200010,0x00200110,0x00280010,0x00280110,
+X0x01200010,0x01200110,0x01280010,0x01280110,
+X0x00000200,0x00000300,0x00080200,0x00080300,
+X0x01000200,0x01000300,0x01080200,0x01080300,
+X0x00000210,0x00000310,0x00080210,0x00080310,
+X0x01000210,0x01000310,0x01080210,0x01080310,
+X0x00200200,0x00200300,0x00280200,0x00280300,
+X0x01200200,0x01200300,0x01280200,0x01280300,
+X0x00200210,0x00200310,0x00280210,0x00280310,
+X0x01200210,0x01200310,0x01280210,0x01280310,
+X/* for D bits (numbered as per FIPS 46) 22 23 24 25 27 28 */
+X0x00000000,0x04000000,0x00040000,0x04040000,
+X0x00000002,0x04000002,0x00040002,0x04040002,
+X0x00002000,0x04002000,0x00042000,0x04042000,
+X0x00002002,0x04002002,0x00042002,0x04042002,
+X0x00000020,0x04000020,0x00040020,0x04040020,
+X0x00000022,0x04000022,0x00040022,0x04040022,
+X0x00002020,0x04002020,0x00042020,0x04042020,
+X0x00002022,0x04002022,0x00042022,0x04042022,
+X0x00000800,0x04000800,0x00040800,0x04040800,
+X0x00000802,0x04000802,0x00040802,0x04040802,
+X0x00002800,0x04002800,0x00042800,0x04042800,
+X0x00002802,0x04002802,0x00042802,0x04042802,
+X0x00000820,0x04000820,0x00040820,0x04040820,
+X0x00000822,0x04000822,0x00040822,0x04040822,
+X0x00002820,0x04002820,0x00042820,0x04042820,
+X0x00002822,0x04002822,0x00042822,0x04042822,
+X};
+END_OF_FILE
+  if test 6350 -ne `wc -c <'sk.h'`; then
+    echo shar: \"'sk.h'\" unpacked with wrong size!
+  fi
+  # end of 'sk.h'
+fi
+if test -f 'spr.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'spr.h'\"
+else
+  echo shar: Extracting \"'spr.h'\" \(6392 characters\)
+  sed "s/^X//" >'spr.h' <<'END_OF_FILE'
+X/* spr.h */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+Xstatic unsigned long des_SPtrans[8][64]={
+X/* nibble 0 */
+X0x00820200, 0x00020000, 0x80800000, 0x80820200,
+X0x00800000, 0x80020200, 0x80020000, 0x80800000,
+X0x80020200, 0x00820200, 0x00820000, 0x80000200,
+X0x80800200, 0x00800000, 0x00000000, 0x80020000,
+X0x00020000, 0x80000000, 0x00800200, 0x00020200,
+X0x80820200, 0x00820000, 0x80000200, 0x00800200,
+X0x80000000, 0x00000200, 0x00020200, 0x80820000,
+X0x00000200, 0x80800200, 0x80820000, 0x00000000,
+X0x00000000, 0x80820200, 0x00800200, 0x80020000,
+X0x00820200, 0x00020000, 0x80000200, 0x00800200,
+X0x80820000, 0x00000200, 0x00020200, 0x80800000,
+X0x80020200, 0x80000000, 0x80800000, 0x00820000,
+X0x80820200, 0x00020200, 0x00820000, 0x80800200,
+X0x00800000, 0x80000200, 0x80020000, 0x00000000,
+X0x00020000, 0x00800000, 0x80800200, 0x00820200,
+X0x80000000, 0x80820000, 0x00000200, 0x80020200,
+X
+X/* nibble 1 */
+X0x10042004, 0x00000000, 0x00042000, 0x10040000,
+X0x10000004, 0x00002004, 0x10002000, 0x00042000,
+X0x00002000, 0x10040004, 0x00000004, 0x10002000,
+X0x00040004, 0x10042000, 0x10040000, 0x00000004,
+X0x00040000, 0x10002004, 0x10040004, 0x00002000,
+X0x00042004, 0x10000000, 0x00000000, 0x00040004,
+X0x10002004, 0x00042004, 0x10042000, 0x10000004,
+X0x10000000, 0x00040000, 0x00002004, 0x10042004,
+X0x00040004, 0x10042000, 0x10002000, 0x00042004,
+X0x10042004, 0x00040004, 0x10000004, 0x00000000,
+X0x10000000, 0x00002004, 0x00040000, 0x10040004,
+X0x00002000, 0x10000000, 0x00042004, 0x10002004,
+X0x10042000, 0x00002000, 0x00000000, 0x10000004,
+X0x00000004, 0x10042004, 0x00042000, 0x10040000,
+X0x10040004, 0x00040000, 0x00002004, 0x10002000,
+X0x10002004, 0x00000004, 0x10040000, 0x00042000,
+X
+X/* nibble 2 */
+X0x41000000, 0x01010040, 0x00000040, 0x41000040,
+X0x40010000, 0x01000000, 0x41000040, 0x00010040,
+X0x01000040, 0x00010000, 0x01010000, 0x40000000,
+X0x41010040, 0x40000040, 0x40000000, 0x41010000,
+X0x00000000, 0x40010000, 0x01010040, 0x00000040,
+X0x40000040, 0x41010040, 0x00010000, 0x41000000,
+X0x41010000, 0x01000040, 0x40010040, 0x01010000,
+X0x00010040, 0x00000000, 0x01000000, 0x40010040,
+X0x01010040, 0x00000040, 0x40000000, 0x00010000,
+X0x40000040, 0x40010000, 0x01010000, 0x41000040,
+X0x00000000, 0x01010040, 0x00010040, 0x41010000,
+X0x40010000, 0x01000000, 0x41010040, 0x40000000,
+X0x40010040, 0x41000000, 0x01000000, 0x41010040,
+X0x00010000, 0x01000040, 0x41000040, 0x00010040,
+X0x01000040, 0x00000000, 0x41010000, 0x40000040,
+X0x41000000, 0x40010040, 0x00000040, 0x01010000,
+X
+X/* nibble 3 */
+X0x00100402, 0x04000400, 0x00000002, 0x04100402,
+X0x00000000, 0x04100000, 0x04000402, 0x00100002,
+X0x04100400, 0x04000002, 0x04000000, 0x00000402,
+X0x04000002, 0x00100402, 0x00100000, 0x04000000,
+X0x04100002, 0x00100400, 0x00000400, 0x00000002,
+X0x00100400, 0x04000402, 0x04100000, 0x00000400,
+X0x00000402, 0x00000000, 0x00100002, 0x04100400,
+X0x04000400, 0x04100002, 0x04100402, 0x00100000,
+X0x04100002, 0x00000402, 0x00100000, 0x04000002,
+X0x00100400, 0x04000400, 0x00000002, 0x04100000,
+X0x04000402, 0x00000000, 0x00000400, 0x00100002,
+X0x00000000, 0x04100002, 0x04100400, 0x00000400,
+X0x04000000, 0x04100402, 0x00100402, 0x00100000,
+X0x04100402, 0x00000002, 0x04000400, 0x00100402,
+X0x00100002, 0x00100400, 0x04100000, 0x04000402,
+X0x00000402, 0x04000000, 0x04000002, 0x04100400,
+X
+X/* nibble 4 */
+X0x02000000, 0x00004000, 0x00000100, 0x02004108,
+X0x02004008, 0x02000100, 0x00004108, 0x02004000,
+X0x00004000, 0x00000008, 0x02000008, 0x00004100,
+X0x02000108, 0x02004008, 0x02004100, 0x00000000,
+X0x00004100, 0x02000000, 0x00004008, 0x00000108,
+X0x02000100, 0x00004108, 0x00000000, 0x02000008,
+X0x00000008, 0x02000108, 0x02004108, 0x00004008,
+X0x02004000, 0x00000100, 0x00000108, 0x02004100,
+X0x02004100, 0x02000108, 0x00004008, 0x02004000,
+X0x00004000, 0x00000008, 0x02000008, 0x02000100,
+X0x02000000, 0x00004100, 0x02004108, 0x00000000,
+X0x00004108, 0x02000000, 0x00000100, 0x00004008,
+X0x02000108, 0x00000100, 0x00000000, 0x02004108,
+X0x02004008, 0x02004100, 0x00000108, 0x00004000,
+X0x00004100, 0x02004008, 0x02000100, 0x00000108,
+X0x00000008, 0x00004108, 0x02004000, 0x02000008,
+X
+X/* nibble 5 */
+X0x20000010, 0x00080010, 0x00000000, 0x20080800,
+X0x00080010, 0x00000800, 0x20000810, 0x00080000,
+X0x00000810, 0x20080810, 0x00080800, 0x20000000,
+X0x20000800, 0x20000010, 0x20080000, 0x00080810,
+X0x00080000, 0x20000810, 0x20080010, 0x00000000,
+X0x00000800, 0x00000010, 0x20080800, 0x20080010,
+X0x20080810, 0x20080000, 0x20000000, 0x00000810,
+X0x00000010, 0x00080800, 0x00080810, 0x20000800,
+X0x00000810, 0x20000000, 0x20000800, 0x00080810,
+X0x20080800, 0x00080010, 0x00000000, 0x20000800,
+X0x20000000, 0x00000800, 0x20080010, 0x00080000,
+X0x00080010, 0x20080810, 0x00080800, 0x00000010,
+X0x20080810, 0x00080800, 0x00080000, 0x20000810,
+X0x20000010, 0x20080000, 0x00080810, 0x00000000,
+X0x00000800, 0x20000010, 0x20000810, 0x20080800,
+X0x20080000, 0x00000810, 0x00000010, 0x20080010,
+X
+X/* nibble 6 */
+X0x00001000, 0x00000080, 0x00400080, 0x00400001,
+X0x00401081, 0x00001001, 0x00001080, 0x00000000,
+X0x00400000, 0x00400081, 0x00000081, 0x00401000,
+X0x00000001, 0x00401080, 0x00401000, 0x00000081,
+X0x00400081, 0x00001000, 0x00001001, 0x00401081,
+X0x00000000, 0x00400080, 0x00400001, 0x00001080,
+X0x00401001, 0x00001081, 0x00401080, 0x00000001,
+X0x00001081, 0x00401001, 0x00000080, 0x00400000,
+X0x00001081, 0x00401000, 0x00401001, 0x00000081,
+X0x00001000, 0x00000080, 0x00400000, 0x00401001,
+X0x00400081, 0x00001081, 0x00001080, 0x00000000,
+X0x00000080, 0x00400001, 0x00000001, 0x00400080,
+X0x00000000, 0x00400081, 0x00400080, 0x00001080,
+X0x00000081, 0x00001000, 0x00401081, 0x00400000,
+X0x00401080, 0x00000001, 0x00001001, 0x00401081,
+X0x00400001, 0x00401080, 0x00401000, 0x00001001,
+X
+X/* nibble 7 */
+X0x08200020, 0x08208000, 0x00008020, 0x00000000,
+X0x08008000, 0x00200020, 0x08200000, 0x08208020,
+X0x00000020, 0x08000000, 0x00208000, 0x00008020,
+X0x00208020, 0x08008020, 0x08000020, 0x08200000,
+X0x00008000, 0x00208020, 0x00200020, 0x08008000,
+X0x08208020, 0x08000020, 0x00000000, 0x00208000,
+X0x08000000, 0x00200000, 0x08008020, 0x08200020,
+X0x00200000, 0x00008000, 0x08208000, 0x00000020,
+X0x00200000, 0x00008000, 0x08000020, 0x08208020,
+X0x00008020, 0x08000000, 0x00000000, 0x00208000,
+X0x08200020, 0x08008020, 0x08008000, 0x00200020,
+X0x08208000, 0x00000020, 0x00200020, 0x08008000,
+X0x08208020, 0x00200000, 0x08200000, 0x08000020,
+X0x00208000, 0x00008020, 0x08008020, 0x08200000,
+X0x00000020, 0x08208000, 0x00208020, 0x00000000,
+X0x08000000, 0x08200020, 0x00008000, 0x00208020};
+END_OF_FILE
+  if test 6392 -ne `wc -c <'spr.h'`; then
+    echo shar: \"'spr.h'\" unpacked with wrong size!
+  fi
+  # end of 'spr.h'
+fi
+if test -f 'testdes.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testdes.pl'\"
+else
+  echo shar: Extracting \"'testdes.pl'\" \(5644 characters\)
+  sed "s/^X//" >'testdes.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X# des.pl tesing code
+X
+Xrequire 'des.pl';
+X
+X$num_tests=34;
+X@key_data=(
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+X	0x30,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0xFE,0xDC,0xBA,0x98,0x76,0x54,0x32,0x10,
+X	0x7C,0xA1,0x10,0x45,0x4A,0x1A,0x6E,0x57,
+X	0x01,0x31,0xD9,0x61,0x9D,0xC1,0x37,0x6E,
+X	0x07,0xA1,0x13,0x3E,0x4A,0x0B,0x26,0x86,
+X	0x38,0x49,0x67,0x4C,0x26,0x02,0x31,0x9E,
+X	0x04,0xB9,0x15,0xBA,0x43,0xFE,0xB5,0xB6,
+X	0x01,0x13,0xB9,0x70,0xFD,0x34,0xF2,0xCE,
+X	0x01,0x70,0xF1,0x75,0x46,0x8F,0xB5,0xE6,
+X	0x43,0x29,0x7F,0xAD,0x38,0xE3,0x73,0xFE,
+X	0x07,0xA7,0x13,0x70,0x45,0xDA,0x2A,0x16,
+X	0x04,0x68,0x91,0x04,0xC2,0xFD,0x3B,0x2F,
+X	0x37,0xD0,0x6B,0xB5,0x16,0xCB,0x75,0x46,
+X	0x1F,0x08,0x26,0x0D,0x1A,0xC2,0x46,0x5E,
+X	0x58,0x40,0x23,0x64,0x1A,0xBA,0x61,0x76,
+X	0x02,0x58,0x16,0x16,0x46,0x29,0xB0,0x07,
+X	0x49,0x79,0x3E,0xBC,0x79,0xB3,0x25,0x8F,
+X	0x4F,0xB0,0x5E,0x15,0x15,0xAB,0x73,0xA7,
+X	0x49,0xE9,0x5D,0x6D,0x4C,0xA2,0x29,0xBF,
+X	0x01,0x83,0x10,0xDC,0x40,0x9B,0x26,0xD6,
+X	0x1C,0x58,0x7F,0x1C,0x13,0x92,0x4F,0xEF,
+X	0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,
+X	0x1F,0x1F,0x1F,0x1F,0x0E,0x0E,0x0E,0x0E,
+X	0xE0,0xFE,0xE0,0xFE,0xF1,0xFE,0xF1,0xFE,
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0xFE,0xDC,0xBA,0x98,0x76,0x54,0x32,0x10,
+X	);
+X
+X@plain_data=(
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+X	0x10,0x00,0x00,0x00,0x00,0x00,0x00,0x01,
+X	0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
+X	0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0x01,0xA1,0xD6,0xD0,0x39,0x77,0x67,0x42,
+X	0x5C,0xD5,0x4C,0xA8,0x3D,0xEF,0x57,0xDA,
+X	0x02,0x48,0xD4,0x38,0x06,0xF6,0x71,0x72,
+X	0x51,0x45,0x4B,0x58,0x2D,0xDF,0x44,0x0A,
+X	0x42,0xFD,0x44,0x30,0x59,0x57,0x7F,0xA2,
+X	0x05,0x9B,0x5E,0x08,0x51,0xCF,0x14,0x3A,
+X	0x07,0x56,0xD8,0xE0,0x77,0x47,0x61,0xD2,
+X	0x76,0x25,0x14,0xB8,0x29,0xBF,0x48,0x6A,
+X	0x3B,0xDD,0x11,0x90,0x49,0x37,0x28,0x02,
+X	0x26,0x95,0x5F,0x68,0x35,0xAF,0x60,0x9A,
+X	0x16,0x4D,0x5E,0x40,0x4F,0x27,0x52,0x32,
+X	0x6B,0x05,0x6E,0x18,0x75,0x9F,0x5C,0xCA,
+X	0x00,0x4B,0xD6,0xEF,0x09,0x17,0x60,0x62,
+X	0x48,0x0D,0x39,0x00,0x6E,0xE7,0x62,0xF2,
+X	0x43,0x75,0x40,0xC8,0x69,0x8F,0x3C,0xFA,
+X	0x07,0x2D,0x43,0xA0,0x77,0x07,0x52,0x92,
+X	0x02,0xFE,0x55,0x77,0x81,0x17,0xF1,0x2A,
+X	0x1D,0x9D,0x5C,0x50,0x18,0xF7,0x28,0xC2,
+X	0x30,0x55,0x32,0x28,0x6D,0x6F,0x29,0x5A,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,
+X	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+X	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF);
+X
+X@cipher_data=(
+X	0x8C,0xA6,0x4D,0xE9,0xC1,0xB1,0x23,0xA7,
+X	0x73,0x59,0xB2,0x16,0x3E,0x4E,0xDC,0x58,
+X	0x95,0x8E,0x6E,0x62,0x7A,0x05,0x55,0x7B,
+X	0xF4,0x03,0x79,0xAB,0x9E,0x0E,0xC5,0x33,
+X	0x17,0x66,0x8D,0xFC,0x72,0x92,0x53,0x2D,
+X	0x8A,0x5A,0xE1,0xF8,0x1A,0xB8,0xF2,0xDD,
+X	0x8C,0xA6,0x4D,0xE9,0xC1,0xB1,0x23,0xA7,
+X	0xED,0x39,0xD9,0x50,0xFA,0x74,0xBC,0xC4,
+X	0x69,0x0F,0x5B,0x0D,0x9A,0x26,0x93,0x9B,
+X	0x7A,0x38,0x9D,0x10,0x35,0x4B,0xD2,0x71,
+X	0x86,0x8E,0xBB,0x51,0xCA,0xB4,0x59,0x9A,
+X	0x71,0x78,0x87,0x6E,0x01,0xF1,0x9B,0x2A,
+X	0xAF,0x37,0xFB,0x42,0x1F,0x8C,0x40,0x95,
+X	0x86,0xA5,0x60,0xF1,0x0E,0xC6,0xD8,0x5B,
+X	0x0C,0xD3,0xDA,0x02,0x00,0x21,0xDC,0x09,
+X	0xEA,0x67,0x6B,0x2C,0xB7,0xDB,0x2B,0x7A,
+X	0xDF,0xD6,0x4A,0x81,0x5C,0xAF,0x1A,0x0F,
+X	0x5C,0x51,0x3C,0x9C,0x48,0x86,0xC0,0x88,
+X	0x0A,0x2A,0xEE,0xAE,0x3F,0xF4,0xAB,0x77,
+X	0xEF,0x1B,0xF0,0x3E,0x5D,0xFA,0x57,0x5A,
+X	0x88,0xBF,0x0D,0xB6,0xD7,0x0D,0xEE,0x56,
+X	0xA1,0xF9,0x91,0x55,0x41,0x02,0x0B,0x56,
+X	0x6F,0xBF,0x1C,0xAF,0xCF,0xFD,0x05,0x56,
+X	0x2F,0x22,0xE4,0x9B,0xAB,0x7C,0xA1,0xAC,
+X	0x5A,0x6B,0x61,0x2C,0xC2,0x6C,0xCE,0x4A,
+X	0x5F,0x4C,0x03,0x8E,0xD1,0x2B,0x2E,0x41,
+X	0x63,0xFA,0xC0,0xD0,0x34,0xD9,0xF7,0x93,
+X	0x61,0x7B,0x3A,0x0C,0xE8,0xF0,0x71,0x00,
+X	0xDB,0x95,0x86,0x05,0xF8,0xC8,0xC6,0x06,
+X	0xED,0xBF,0xD1,0xC6,0x6C,0x29,0xCC,0xC7,
+X	0x35,0x55,0x50,0xB2,0x15,0x0E,0x24,0x51,
+X	0xCA,0xAA,0xAF,0x4D,0xEA,0xF1,0xDB,0xAE,
+X	0xD5,0xD4,0x4F,0xF7,0x20,0x68,0x3D,0x0D,
+X	0x2A,0x2B,0xB0,0x08,0xDF,0x97,0xC2,0xF2);
+X
+Xprint "Doing ecb tests\n";
+Xfor ($i=0; $i<$num_tests; $i++)
+X	{
+X	printf "Doing test $i\n";
+X	$key =pack("C8",splice(@key_data   ,0,8));
+X	$data=pack("C8",splice(@plain_data ,0,8));
+X	$res =pack("C8",splice(@cipher_data,0,8));
+X
+X	@ks=  &des_set_key($key);
+X	$out1= &des_ecb_encrypt(*ks,1,$data);
+X	$out2= &des_ecb_encrypt(*ks,0,$out1);
+X	$out3= &des_ecb_encrypt(*ks,0,$res);
+X	&eprint("encryption failure",$res,$out1)
+X		if ($out1 ne $res);
+X	&eprint("encryption/decryption failure",$data,$out2)
+X		if ($out2 ne $data);
+X	&eprint("decryption failure",$data,$out3)
+X		if ($data ne $out3);
+X	}
+Xprint "Done\n";
+X
+Xprint "doing speed test over 30 seconds\n";
+X$SIG{'ALRM'}='done';
+Xsub done {$done=1;}
+X$done=0;
+X
+X$count=0;
+X$d=pack("C8",0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef);
+X@ks=  &des_set_key($d);
+Xalarm(30);
+X$start=(times)[0];
+Xwhile (!$done)
+X	{
+X	$count++;
+X	$d=&des_ecb_encrypt(*ks,1,$d);
+X	}
+X$end=(times)[0];
+X$t=$end-$start;
+Xprintf "$count DESs in %.2f seconds is %.2f DESs/sec or %.2f bytes/sec\n",
+X	1.0*$t,1.0*$count/$t,$count*8.0/$t;
+X
+Xsub eprint
+X	{
+X	local($s,$c,$e)=@_;
+X	local(@k);
+X
+X	@k=unpack("C8",$c);
+X	printf "%02x%02x%02x%02x %02x%02x%02x%02x - ",unpack("C8",$c);
+X	printf "%02x%02x%02x%02x %02x%02x%02x%02x :",unpack("C8",$e);
+X	print " $s\n";
+X	}
+END_OF_FILE
+  if test 5644 -ne `wc -c <'testdes.pl'`; then
+    echo shar: \"'testdes.pl'\" unpacked with wrong size!
+  fi
+  # end of 'testdes.pl'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

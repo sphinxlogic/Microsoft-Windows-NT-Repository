@@ -1,0 +1,1461 @@
+Newsgroups: comp.sources.misc
+From: jv@squirrel.mh.nl (Johan Vromans)
+Subject: v34i092:  mserv - Squirrel Mail Server Software, version 3.1, Part01/06
+Message-ID: <csm-v34i092=mserv.214515@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 5647340cf8757daf64d577eb8f52762a
+Date: Thu, 7 Jan 1993 03:46:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jv@squirrel.mh.nl (Johan Vromans)
+Posting-number: Volume 34, Issue 92
+Archive-name: mserv/part01
+Environment: Perl
+Supersedes: mserv-3.0: Volume 30, Issue 46-49
+
+    Announcing: Squirrel Mail Server Software, version 3.1
+    ======================================================
+
+ For the user:
+ -------------
+The Squirrel Mail Server is a mail response program. You can send
+email to it, and it will try to react sensible to your message.
+
+Main purpose of the mail server is to obtain files from a local
+archive or FTP servers. It is also possible to search for files and to
+generate directory listings. A powerful index mechanism obsoletes the
+need to transfer huge "ls-lR" files.
+
+While looking for files, the server knows about commonly used
+extensions to filenames (e.g. ".tar.Z" in "foo.tar.Z") and pseudo-
+standard version numbering (e.g. "gcc-2.1.tar.Z").  It is quite well
+possible that a simple request for "emacs" will actually transmit the
+file "gnu/emacs-18/dist/emacs-18.59.tar.Z".
+
+Delivery of information can take place via email or UUCP or both.
+Files are compressed if possible, encoded if necessary, and split into
+pieces if needed. If a transfer fails, it it always possible to
+request retransmission of the failed parts only.
+
+ For the implementor:
+ --------------------
+All written in perl, hence portable and easily maintainable.  Code is
+readable; useful, plentiful comments. Very extentable and easily
+modified. Easy to install. Over 2000 lines of documentation.
+
+Archives can be split over a number of directories or file systems.
+
+Requests are queued and processed by a separate daemon process (e.g.
+from cron) to cut down on the system load. Moreover, the implementor
+can control when the queue is being run.
+
+All transfers are logged. Maintenance procedures include a reporting
+tool.
+
+Files retrieved via FTP are kept on local store for some time, so
+subsequent requests can be honoured from the cache.
+
+ Requirements:
+ -------------
+Perl 4.0 patchlevel 35 or later.
+NOTE that perl 4.0 pl35 contains a bug that can be fixed by an
+(unofficial) patch obtainable from the NLUUG mail server -- see below.
+
+GNU find 3.6 or later (only if you want to exploit the index
+features).
+
+A decent mail system that can deliver mail to a process (sendmail,
+smail3, or smail2.5 w/ mods).
+
+Common tools like compress, zoo, zip, uuencode etc.
+
+ How to get it:
+ --------------
+Send a mail message to <mail-server@nluug.nl> with contents
+
+    begin
+    send mserv-3.1.tar.Z
+    send XPatch-4.035.tar.Z
+    end
+
+The latter file contains some unofficial patches to perl 4.0
+patchlevel 35.
+
+Also available are nicely formatted PostScript versions of the 
+User Guide and Installation Guide:
+
+    send usrguide.ps.Z
+    send mservmgr.ps.Z
+
+The Squirrel Mail Server Software is 
+
+    Copyright 1988,1992,1993 Johan Vromans.
+
+It is distributed under the terms of the GNU Public Licence.
+
+For more information: Johan Vromans <jv@mh.nl> .
+----------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  mserv-3.1 mserv-3.1/INSTALL mserv-3.1/dateconv.pl
+# Wrapped by kent@sparky on Wed Jan  6 21:39:45 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 6)."'
+if test ! -d 'mserv-3.1' ; then
+    echo shar: Creating directory \"'mserv-3.1'\"
+    mkdir 'mserv-3.1'
+fi
+if test -f 'mserv-3.1/INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/INSTALL'\"
+else
+  echo shar: Extracting \"'mserv-3.1/INSTALL'\" \(52619 characters\)
+  sed "s/^X//" >'mserv-3.1/INSTALL' <<'END_OF_FILE'
+XAuthor:     Johan Vromans 
+XCmpny:      SQS 
+XCompany:    Squirrel Software 
+XDept.:      Public Domain 
+XProject:    Squirrel Mail Server 
+XTitle:      Squirrel Mail Server
+X            Installation and Maintenance 
+XVersion:    V3.01 
+X----------------------------------------
+X
+X1.    INTRODUCTION 
+X
+X1.1   The Mail Server 
+X
+X      The mail server is a mail response program. This means that you 
+X      can send it an email message, and the program will read this 
+X      message, extracts commands from it, and execute these commands if 
+X      no errors were encountered. 
+X
+X      The main purpose of the mail server is to handle requests for 
+X      files in archives. By sending a request for a file, the mail 
+X      server will look it up and send the requested file to the 
+X      originator of the request, either via email or via UUCP. 
+X
+X      When files are transferred via email, binary files (e.g. 
+X      compressed archives) are encoded using one of several popular 
+X      encoding schemes. Big files are split into pieces to avoid mailer 
+X      limits and transmission failures due to communication problems. 
+X
+X      The algoritms of the mail server are designed to satisfy user 
+X      requests as much as possible, without taking the risk that 
+X      unwanted information is sent. 
+X
+X1.2   Mail Server Basics 
+X
+X      The Squirrel Mail Server Software consists of a set of perl 
+X      programs, data files and a small wrapper program. The installation 
+X      procedure prepares these files, and stores them at a specific 
+X      location on disk, hereafter named LIBDIR. LIBDIR and the files it 
+X      contains should be owned by the so called 'mail server owner'. 
+X
+X      The mail server itself is driven via an email alias entry in the 
+X      file '/usr/lib/aliases' (or whatever your system uses). 
+X
+X      Default values are 'mserv' for the mail server owner, 
+X      'mail-server' for the mail alias, and '/usr/local/lib/mserv' for 
+X      LIBDIR. Al these (and more) can be configured for a particular 
+X      installation. 
+X
+X2.    PRINCIPLES OF OPERATION 
+X
+X      The main functions of the mail server are executed by the programs 
+X      'process' and 'dorequest'. 
+X
+X      A third program 'listener' is usually used as a wrapper around 
+X      'process'. This little C-program disguises itself as the mail 
+X      server owner and executes 'process'. 
+X
+X      The program 'process' reads an incoming email message, scans the 
+X      mail headers and examines the message body for mail server 
+X      commands. Valid server commands are stored internally until the 
+X      whole message has been read. If any errors were found, a short 
+X      help message is sent back to the sender of the message, and the 
+X      program quits. 
+X
+X      If desired, messages originating from a pre-defined list of users 
+X      may be rejected without notice. The standard configuration defines 
+X      @black_list to a list of system accounts, e.g. 'root', 'news', 
+X      'daemon' etc. 
+X
+X      If all commands appear valid, 'process' enters the second phase. 
+X      The commands are executed one by one. If files are requested 
+X      (which is normally the case) the files are looked up in the mail 
+X      server archives, using one or more search techniques discussed 
+X      below. If the file has been located, it is queued for delivery in 
+X      the mail server queue file. 
+X
+X      If files are requested from remote FTP servers, a connection to 
+X      the server is made and the files are transferred to local storage. 
+X      The local copy of the file is then entered in the mail server 
+X      queue for delivery. 
+X
+X      Finally, the program generates a report and sends it to the sender 
+X      of the message. This report contains (a.o.) details about the FTP 
+X      activities, and a list of files that are queued for delivery. 
+X
+X      At this point 'process' is complete and exits. 
+X
+X      Some other time, program 'dorequest' will be run, either 
+X      automatically from 'process' or via cron. This program handles the 
+X      actual delivery of files. It is also responsible for packing 
+X      directories and removing temporary files. 
+X
+X      For delivery via electronic mail, the requested file is (usually) 
+X      encoded to protect binary information from text-based mail 
+X      programs. The encoded file is chopped into parts (chunks) of a 
+X      specific maximum size, to not exceed mailer limits. The parts are 
+X      then passed to the mail program for delivery. If only some parts 
+X      need to be delivered, only these parts are passed to the mail 
+X      program. 
+X
+X      For delivery via UUCP there is no need to encode, so the actual 
+X      input file is passed, in pieces if necessary, to the delivery 
+X      program 'uucp'. 
+X
+X      An entry is made in the mail server logfile for each (partial) 
+X      delivery. 
+X
+X2.1   Format of the queue file 
+X
+X      Each queue entry takes one record from the queue file, with tab 
+X      separated items as follows: 
+X
+X         type           'M' or 'm' for email delivery,
+X                        'U' or 'u' for UUCP transfer,
+X                        'MP' for packed email,
+X                        'UP' for packed UUCP.
+X                        If the 'm' or 'u' is used instead of 'M' or
+X                        'U', the file is removed after being handled.
+X         recipient      the reply address used
+X         destination    email address (for email), or host!path for UUCP
+X                        transfers.
+X         notify         UUCP notification user
+X         request        the request
+X         file           the real name of the real file
+X         encoding       Encoding:
+X                        'B' = btoa, 'U' = uuencode, 'X' = xxencode,
+X                        'D' = Dumas' uue
+X                        If a 'Z' is appended, the file will be compressed
+X                        before being transferred.
+X         limit          max size (in Kb) per chunk
+X         parts          comma-separated parts list.
+X
+X2.2   Format of the logfile 
+X
+X      If you select logging, all transfers that are sent are logged in 
+X      the logfile. Each record has a number of (space separated) fields 
+X      as follows: 
+X
+X         date           e.g. 920501
+X         time           e.g. 15:22
+X         type           'M' for email, 'U' for UUCP transfer
+X         destination    email address, or host!notify for UUCP transfers
+X         request        the name of the requested file
+X         Xnn/mm         X = encoding;
+X                        nn/mm = part nn of mm parts
+X         size           the size of the transfer
+X
+X      Errors are logged with type 'F'. The remainder of the record 
+X      contains the text of the error message. 
+X
+X      If an error is detected due to a user request, the queue entry for 
+X      this request is entered in the logfile with type 'Q'. If the 
+X      failure is temporary, the queue entry can be extracted from the 
+X      logfile and added to the queue (or better: queue~) file. 
+X
+X      The support programs programs 'report.pl' and 'do_report.pl' can 
+X      be used to generate reports from the logfile. 
+X
+X3.    IMPLEMENTATION DETAILS 
+X
+X      Program 'process' uses the package 'rfc822' to read the incoming 
+X      mail message. This package supports reading header and body of the 
+X      message, and analyzing RFC822 compliant message headers. 
+X
+X      One of the functions of the package is to extract the send 
+X      information from the 'From', 'Sender' and 'Reply-To' headers. 
+X
+X      The commands are parsed by subroutine 'command_loop'. The command 
+X      handling is table driven, %cmd_tbl contains, for each of the 
+X      command verbs, the name of the subroutine to be called to parse 
+X      the command. 
+X
+X      Upon completion subroutine 'index_loop' (required from file 
+X      pr_doindex.pl) is called to handle index requests stored 
+X      internally in @indexq. 
+X
+X      Then subroutine 'search_loop' is called to handle search requests 
+X      stored in @searchq. 
+X
+X      If needed, subroutine 'do_work' (required from file pr_dowork.pl) 
+X      is called to handle the commands stored internally in @workq. This 
+X      will probably result in transfer requests being stored in @queueq. 
+X
+X      Processing @workq is table driven, just like the command loop. 
+X      Therefore is it very easy to add your own commands (and execution 
+X      code) to the mail server program without having to modify the 
+X      source code. See chapter "Advanced Techniques" for more 
+X      information. 
+X
+X      If @queueq contains transfer requests, these requests are reported 
+X      and stored in the queue file for processing by program 
+X      'dorequest'. 
+X
+X      Finally, a help message is generated on demand, or if syntactic 
+X      errors were detected by 'command_loop'. 
+X
+X3.1   Archive file lookup 
+X
+X      One of the advantages of the Squirrel Mail Server is the 
+X      possibility to spread the archives over a number of file trees. 
+X      Another advantage is the ability to search for files in the 
+X      archives, using file- and directory searches and index lookup. 
+X      While searching, a number of known extensions are appended to the 
+X      filename so that a request for 'foo' might result in finding 
+X      'foo.Z' or 'foo.tar'. 
+X
+X      The general principle of searching is: 
+X
+X      -- Use file lookup;
+X      -- if not found; use directory search;
+X      -- if still not found: search the index;
+X      -- unsuccessfull, or multiple possibilities were found,
+X         try automatic packing;
+X      -- if still unsuccessfull, try automatic compression.
+X
+X      When a SEARCH command is issued, all alternatives are tried and a 
+X      list of possibilities is returned. 
+X
+X3.1.1 File search strategy 
+X
+X      This strategy is rather straightforward: for each of the archive 
+X      directories, try to locate the requested file by appending the 
+X      known extensions. E.g. when looking for 'file': 
+X
+X            dir1/file
+X            dir1/file.tar
+X            dir1/file.tar.Z
+X            ...
+X            dir2/file
+X            dir2/file.tar
+X            ... etc ...
+X
+X      If an exact match is found, the search within the directory is 
+X      terminated. This way it is possible to locate 'foo' even if 
+X      'foo.tar' also exists. 
+X
+X3.1.2 Directory search strategy 
+X
+X      The directory search extends the file search. The code is located 
+X      in file 'pr_dsearch.pl'. 
+X
+X      It reads the directories that are specified in @libdirs, and 
+X      searches them for entries that correspond to certain patterns. In 
+X      general, it looks for filenames that start with the search 
+X      argument, optionally followed by something that can be interpreted 
+X      as a version number. If such a filename is found, and it 
+X      corresponds to a directory, the search recurses to this directory. 
+X      If not, the known extensions are tried. 
+X
+X      E.g. when looking for 'file': 
+X
+X            dir1/file-2.3.tar.Z              <-- found
+X            dir1/file/                       <-- recurse
+X            dir1/file/file-2.3.tar.Z         <-- found
+X            dir1/file-2.3/                   <-- recurse
+X            dir1/file-2.3/file.tar.Z         <-- found
+X            dir1/file-2.3/file-2.3.tar.Z     <-- found
+X            ...
+X
+X      This process is repeated for every directory in @libdirs. 
+X
+X3.1.3 Index search strategy 
+X
+X      The final (and most powerful) search strategy uses a list of 
+X      filenames, and searches for every occurrence of the search 
+X      argument. The code is located in file 'pr_isearch.pl'. 
+X
+X      The index strategy is based on the GNU 'locate' program. This 
+X      program provides an extreme fast searching method in a compressed 
+X      list of files. 
+X
+X      When searching the index, the search argument is turned into a 
+X      regular expression pattern and passed to the 'locate' program. The 
+X      output of this program is further analyzed to find filenames using 
+X      the same method as described above (version numbers and known 
+X      extensions). 
+X
+X      For efficiency, the 'locate' database contains the file date and 
+X      size, so no other lookups are needed. 
+X
+X      It is possible to have an index file per archive directory 
+X      (default situation), or one single index file that contains 
+X      information for all archive directories. 
+X
+X      The index information is maintained by the program 'makeindex'. 
+X      This program uses GNU 'find' to traverse the archive directories, 
+X      and GNU 'locate' tools to create the index files. 
+X
+X3.1.4 Automatic Packing 
+X
+X      This section only applies if $auto_packing and $packing_limit have 
+X      been set in the configuration file. 
+X
+X      If the user requests for 'file.XXX', where XXX is a known packing 
+X      extension ('zip', 'zoo', 'tar' or 'tar.Z'), and this file does not 
+X      exist, automatic packing is tried. 
+X
+X      The packing extension is removed from the filename. If the 
+X      resultant name points to a directory it is handled as if the 
+X      request were preceeded with a PACK command. See also the section 
+X      on Packing, below. 
+X
+X      No search strategies will be used when locating this directory. 
+X
+X3.1.5 Automatic Compression 
+X
+X      This section only applies if $auto_compress and $compress have 
+X      been set in the configuration file. 
+X
+X      If the user requests for a file 'foo.Z', which does not exist, but 
+X      a file 'foo' exists in the archives, this file is queued for 
+X      delivery. Before transfer, it will be compressed. 
+X
+X      The strategies file search, directory search and index search will 
+X      be used when locating this file. Normally, no known extensions are 
+X      tried. By setting $auto_compress to a value greater than 1 in the 
+X      config file, known extensions will be tried, so that a request for 
+X      'file.Z' may result in 'file.shar.Z' (or 'file.zoo.Z'). 
+X
+X3.2   FTP file lookup 
+X
+X      The Squirrel Mail Server uses a cached FTP lookup mechanism. The 
+X      code is located in file 'pr_ftp.pl'. 
+X
+X      When a request for a file to be retrieved via FTP is handled, the 
+X      mail server performs the following steps. 
+X
+X      1. A connection is made to the FTP host. 
+X
+X      2. A directory request (LIST command) is used to retrieve 
+X         information about the file that is being requested. 
+X
+X      3. The file is looked up in the FTP cache. If the file exists in 
+X         the cache, the file modification date and size are compared to 
+X         the FTP information from the FTP host. 
+X
+X      4. If the file is not in the cache, or if the info does not match, 
+X         the file is retrieved from the FTP host and placed in the 
+X         cache. 
+X
+X      5. The file in the cache is queued for delivery. 
+X
+X      This caching strategy is based on the assumption that, when a 
+X      piece of interesting software is made available via anonymous FTP 
+X      and announced on the net, several requests for this file will be 
+X      made within a short period of time. 
+X
+X      Special precautions are taken to prevent problems when the cache 
+X      does not exists, or is write-protected, etc. In this case, the 
+X      file is retrieved to temporary storage and transferred from there. 
+X
+X      The filenames for the cache are generated by reversing the 
+X      dot-separated parts of the FTP host name, and prepending these (as 
+X      directories) to the file name, e.g. 
+X
+X            prep.ai.mit.edu:/pub/gnu/emacs-18.59.tar.Z
+X
+X      is stored in the cache as 
+X
+X            edu/mit/ai/prep/gnu/emacs-18.59.tar.Z
+X
+X      A leading directory "pub" is removed from the resultant filename. 
+X      The host info is transformed to all lowercase; the filename is 
+X      not. 
+X
+X      NOTE:  VMS style filenames are recognized and transformed. The
+X             resultant filename is lowcased.
+X             VMS directory info is not handled yet.
+X
+X3.3   Directory listings 
+X
+X      Directory listings are obtained from the server using a local 
+X      "ls -l" command or an FTP "LIST" command, the return info is 
+X      stored in a temporary file. If the size of this file does not 
+X      exceed a specific limit ($fb_limit) it is included in the output. 
+X      Otherwise it is queued for delivery. 
+X
+X3.4   Archie commands 
+X
+X      Archie commands are handled by executing the 'archie' program. The 
+X      output is stored in a temporary file. If the size of this file 
+X      does not exceed a specific limit ($fb_limit) it is included in the 
+X      output. Otherwise it is queued for delivery. 
+X
+X3.5   Packing 
+X
+X      With packing, it is possible to gather the contents of a directory 
+X      into a single file, which is then queued for transfer. Before 
+X      doing so, the size of the resultant file is calculated. If the 
+X      size exceeds a specific limit ($packing_limit) the request is 
+X      rejected, to prevent accidental (or not accidental) retrieval of 
+X      too much information. 
+X
+X      The name of the directory is stored in the queue file, the actual 
+X      packing and delivery is handled by the 'dorequest' program. 
+X
+X3.6   The delivery process 
+X
+X      Upon completion of 'process' all files to be transferred are 
+X      stored somewhere on disk, and their names and destinations are in 
+X      the queue file. 
+X
+X      The delivery is handled by program 'dorequest'. It can be run 
+X      automatically from 'process', from 'cron' or manually. 
+X
+X      Upon invokation, it ensures that there is only one instance of the 
+X      program running. Then it locks the mail server queue, reads it 
+X      into internal storage, writes it out to a special backup version 
+X      on disk, empties the queue on disk and releases it. The queue file 
+X      is not simply removed, since other instances of 'process' may 
+X      already be waiting to store new entries in the queue file. 
+X      (Actually, 'dorequest' picks up an existing backup on disk first, 
+X      since that file results from a previous run of 'dorequest' that 
+X      was not properly finished, most likely due to a system crash.) The 
+X      backup file is hereafter referred to with 'queue~', since its name 
+X      is dereived from the name of the queue file by appending a tilde. 
+X
+X      Next, the program starts to handle the entries that were in the 
+X      queue. First the internal copy of the queue is written to the 
+X      queue~ file. Then an entry is taken from the internal queue, to be 
+X      handled. This way, if the system crashes during a 'dorequest' run, 
+X      no requests will get lost. 
+X
+X      If the request needs packing, the contents of the directory are 
+X      stored into a single file, which is then queued for transfer. 
+X
+X      The following packing methods are supported by the mail server, 
+X      although they need not be present in each implementation. 
+X
+X      *  (Compressed) tar 
+X
+X         The contents of the directory are gathered into a tar-file, 
+X         which is then compressed. If the public domain program 'pdtar' 
+X         is available, it is ised to handle the packing and compressing. 
+X         Otherwise the output of 'tar' is piped to 'compress'. 
+X
+X      *  Zoo 
+X
+X         The popular 'zoo' program is used, in combination with 'find', 
+X         to gather the information. 
+X
+X      *  Zip 
+X
+X         The INFO-ZIP standard 'zip' program is used to handle the 
+X         request. 
+X
+X      If the requested file must be compressed, this is handled now. The 
+X      file is compressed into a temporary file which is further 
+X      processed. If the file to be transferred was a temporary file, it 
+X      is removed. The (freshly created) temporary file is marked for 
+X      deletion so it will be removed upon completion of this request. 
+X
+X      For delivery via electronic mail, the requested file is (usually) 
+X      encoded to protect binary information from text-based mail 
+X      programs. The encoded file is chopped into parts (chunks) of a 
+X      specific maximum size, to not exceed mailer limits. The parts are 
+X      then passed to the mail program for delivery. If only some parts 
+X      need to be delivered, only these parts are passed to the mail 
+X      program. To reduce system load, the 'dorequest' program sleeps a 
+X      bit between parts so the mail delivery can take place. 
+X
+X      For delivery via UUCP there is no need to encode, so the actual 
+X      input file is passed, in pieces if necessary, to the delivery 
+X      program 'uucp'. 
+X
+X      An entry is made in the mail server logfile for each (partial) 
+X      delivery. 
+X
+X      Finally, if the file to be transferred was a temporary file, it is 
+X      removed and processing continues with the next entry in the queue. 
+X
+X      Upon completion, the backup of the queue file (queue~) on disk 
+X      will be removed. 
+X
+X4.    SUPPORT PROGRAMS 
+X
+X4.1   Generating the index files 
+X
+X      The program 'makeindex', as its name suggests, maintains the index 
+X      information. It is based on the 'updatedb' program that comes with 
+X      GNU find. 
+X
+X      The program should be run from cron, as often as needed to keep 
+X      the index file synchronized with the actual contents of the 
+X      archives. Usually once per day (night) is sufficient. 
+X
+X      Sometimes it is not appropriate to include all information in the 
+X      index file, e.g. a specific sub-tree might contain your local news 
+X      spool which is not to be retrieved via the mail server. You can 
+X      set @libprunes in the configuration file to a regular expression 
+X      pattern to exclude certain directories from being traversed. Note 
+X      that this pattern is implicitly anchored, i.e. it behaves as if it 
+X      were placed between '^' and '$'. @libprunes, if used, should 
+X      contain a pattern for each of the directories in @libdirs, in the 
+X      same order. 
+X
+X4.2   Analyzing the log file 
+X
+X      The support programs programs 'report' and 'do_report' can be used 
+X      to generate reports from the logfile. 
+X
+X      'do_report' is a wrapper around 'report', and will usually be the 
+X      only program used. 
+X
+X      When run, 'do_report' gathers logfile information about transfers 
+X      and errors. Both reports are mailed to the mail server owner by 
+X      default. You can specify other recipients on the command line. 
+X
+X      You can specify a cutoff date and time for error reporting by 
+X      supplying the name of a file that is timestamped after the 
+X      previous error report. The 'do_report' program normally updates 
+X      the timestamp of this file, so errors are reported only once. 
+X
+X      A typical usage report looks like: 
+X
+X            Mail Server Report for July 1992 -- by Package                           Page 1
+X            
+X                                                                     1111111111222222222233
+X            Package                              Type Total 1234567890123456789012345678901
+X            -------------------------------------------------------------------------------
+X            /usr/local/lib/mserv/pub/README         M     1                   S
+X            /usr/local/lib/mserv/pub/mserv.tar.Z    M     2                   S
+X            TOTAL                                         4                   S
+X
+X      'Type' will be 'M' for mail transfers, and 'U' for UUCP transfers. 
+X      'Total' denoted the number of times a file has been requested. The 
+X      rest of the information shows on what days requests have been 
+X      issued. In the above example, all requests were issued on July 19 
+X      (a Sunday). 
+X
+X      Likewise, a list will be generated containing the users that have 
+X      requested files. 
+X
+X      Program 'do_report' can also be used to cleanup the logfile. If 
+X      this function is selected, the logfile is renamed to a '.o' 
+X      extension (e.g. 'logfile.o'), and appended to a file with a '.cum' 
+X      extension (e.g. 'logfile.cum'). It is possible to compress the 
+X      accumulating logfile, in this case the program will uncompress is 
+X      before appending the new information, and compress it afterwards. 
+X
+X      Command line options for 'do_report' are: 
+X
+X                -config XX   use alternate config file
+X                -usage       generate usage report
+X                -ftp         show files in FTP cache
+X                -full        generate report for usage, errors and ftp
+X                -ftpclean    cleanup old files in FTP cache (implies -ftp)
+X                -ftpkeep NN  number of days a file is to be kept in the FTP cache
+X                -since FILE  only error messages newer than FILE
+X                             (FILE date will be updated upon successful completion)
+X                -noupdate    do not update FILE date
+X                -collect     collect and cleanup logfile data
+X                -help        this message
+X                -trace       show commands
+X                -ident       print identification
+X            
+X            Default action is to generate a usage report, and to mail it to the
+X            recipients.
+X
+X4.3   The FTP cache 
+X
+X      Program 'do_report' can also be used to report the contents of the 
+X      FTP cache, and to exipre it. 
+X
+X      A typical report, generated with "do_report -ftp", will look like: 
+X
+X            Files in FTP cache /usr/local/lib/mserv/pub
+X            
+X              Timestamp     Age* Size  Filename (* means: file has been removed)
+X            --------------  ---  ----  ------------------------------------
+X            92/12/05 02:24   5   142K  com/foo/ftp/crack-4.1.tar.Z
+X            92/12/01 12:34   9*    2K  com/foo/ftp/pasta/INDEX
+X
+X      'Timestamp' indicates the last modification time of the file as 
+X      dereived from the FTP server. 'Age' is the last access date of the 
+X      file in the cache, in days. The cache expiry time is set in the 
+X      configuration file, but can be overridden with a command line 
+X      option. By using the last access date for expiry, the file will be 
+X      considered 'new' each time it is accessed. An '*' after the file 
+X      age means that this file has exceeded the expiry time and has been 
+X      removed from the cache. 
+X
+X5.    INSTALLING THE SQUIRREL MAIL SERVER SOFTWARE 
+X
+X5.1   Preparation 
+X
+X      As distributed, perl is expected to reside in /usr/local/bin. You 
+X      can change this in the Makefile if your perl resides somewhere 
+X      else. 
+X
+X      The mail server needs a user id to own the programs, and a place 
+X      where the programs and files can be stored. Pre-configured values 
+X      are "mserv" and "/usr/local/lib/mserv" respectively. We'll call 
+X      the library LIBDIR in this document. LIBDIR could be the HOME 
+X      directory of the mail server owner, but it need not. If you prefer 
+X      a different value for LIBDIR, change the appropriate line in the 
+X      Makefile. The name of the mail server owner can be changed in step 
+X      2, as described below. 
+X
+X      Since all messages sent by the mail server are sent under the 
+X      server owner uid, its full name (the GCOS or comment field in 
+X      /etc/passwd) should be descriptive. 
+X
+X      The mail server owner does not need any privileges, except for 
+X      read access to the archives, and read/write access to LIBDIR. 
+X
+X      Do not use the root account for server owner! 
+X
+X5.2   Configure and build 
+X
+X      Tailor 'ms_config.pl' to reflect your specific needs. It has 
+X      extensive descriptions for configuration variables and values. Do 
+X      not forget to tailor the Makefile also, if needed. 
+X
+X      It may be a good habit to generate differences using the 'diff' 
+X      program so you can apply your modifications to a new version of 
+X      the mail server software easily. 
+X
+X      Issue "make" to prepare the programs. 
+X
+X      If you select the index file feature, you need GNU find / locate. 
+X      As of GNU find version 3.6, you can use the locate program 'as 
+X      is'. For version 3.5, change GNUFIND in the Makefile to designate 
+X      where your GNU find sourcetree is, and issue "make ixlookup". This 
+X      will build a customized version of GNU locate, called 'ixlookup'. 
+X
+X      Issue "make listener" to generate and compile the listener 
+X      program. This command uses ms_config.pl (from the current 
+X      directory) to determine how to build the listener program. 
+X
+X5.3   Verify the configuration 
+X
+X      You can now verify the configuration with the 'chkconfig' program. 
+X
+X      You may need to run the perl tool 'h2ph' to supply system include 
+X      files needed for locking and socket IO. Pay attention to the lines 
+X      that got a "Not found" remark. Since the software has not been 
+X      installed yet, some of these remarks must be considered normal. 
+X
+X            % perl chkconfig.pl -current
+X            Squirrel Mail Server Software V3.01 [chkconfig 1.30]
+X            MSERVLIB = (not set, but that's OK)
+X            Program library: /usr/local/lib/mserv/src [OK]
+X            
+X            Server owner: mserv, uid = 50, gid = 8, "Squirrel Mail Server"
+X            Bcc user: mserv, uid = 50, gid = 8, "Squirrel Mail Server"
+X            
+X            The 'listener' program will use the setruid system call
+X              It will change identity to compiled-in uid 50
+X              (setenv will be used to set USER, LOGNAME and HOME)
+X            The 'listener' program is not installed correctly!
+X              It should be installed setuid mserv
+X            
+X            Replies will be sent using "/usr/lib/sendmail" [OK]
+X            Preset mail headers:
+X              From: PRONTO Mail Server <bit-bucket@mh.nl>
+X              X-Server: Squirrel Mail Server Software V3.01 [chkconfig 1.30]
+X              X-Info: Send mail to <postmaster@mh.nl>
+X            
+X            Mail messages from the following users will be rejected:
+X              root uucp mailer MAILER-DAEMON news daemon demon deliver sendmail
+X            
+X            Transfer strategies:
+X              email: "/usr/lib/sendmail -odq" [OK]
+X                     wait 30 seconds between chunks
+X                     limits: 64K (default), 10K (min), 1024K (max)
+X              uucp : "/usr/bin/uucp -ga" [OK]
+X                     check host names using "/usr/bin/uuname" [OK]
+X                     limits: 256K (default), 10K (min), 2048K (max)
+X                     uucp transfer is preferred, if possible
+X            
+X            Search strategies: File Directory Index
+X            
+X            Archives:
+X              /usr/local/src [OK]
+X              /beethoven/arch [OK]
+X              /albinoni/arch [OK]
+X              /usr/local/lib/mserv/src/pub [*** Not found ***]
+X            
+X            Indexfiles:
+X              /usr/local/src/ix.codes [Not found, but that's OK]
+X              /beethoven/arch/ix.codes [Not found, but that's OK]
+X              /albinoni/arch/ix.codes [Not found, but that's OK]
+X              /usr/local/lib/mserv/src/pub/ix.codes [Not found, but that's OK]
+X            Limit per index request: 200 lines.
+X            
+X            Index tools:
+X              gfind      /usr/local/bin/gfind [OK]
+X              ixlookup   /usr/local/bin/locate [OK]
+X              locatelib  /usr/local/lib/locate [OK]
+X            
+X            Server files:
+X              queue      /usr/local/lib/mserv/src/queue [OK]
+X              logfile    /usr/local/lib/mserv/src/logfile [Not found, but that's OK]
+X              lockfile   /usr/local/lib/mserv/src/lockfile [OK]
+X              notes      /usr/local/lib/mserv/src/mserv.notes [OK]
+X              hints      /usr/local/lib/mserv/src/mserv.hints [OK]
+X            
+X            Locking with fcntl(2).
+X            Use the 'testlock' program to verify the locking! (See INSTALL)
+X            
+X            Default encoding is B (btoa)
+X            Encoders:
+X              btoa       /usr/local/bin/btoa [OK]
+X              uuencode   /usr/bin/uuencode [OK]
+X              uue        /usr/local/bin/uue [OK]
+X              xxencode   /usr/local/bin/xxencode [Not found, but that's OK]
+X            
+X            Tools:
+X              dir: "/bin/ls -lL" [OK]
+X              archie: "/usr/local/bin/archie" [OK]
+X              extensions: /usr/local/lib/mserv/src/userdefs.pl [OK]
+X              feedback limit = 8K
+X            
+X            Support for FTP is included.
+X              Limited to uucp only.
+X              Cache dir = /usr/local/lib/mserv/src/ftp [*** Not found ***]
+X              Files are kept for 8 days in the cache.
+X            
+X            Support for packing is included.
+X              Packing limit = 4100 blocks.
+X              Dusk usage obtained using "/bin/du" [OK]
+X              File list obtained using "/usr/local/bin/gfind" [OK]
+X              Methods: tar [OK] zip [OK] zoo [OK]
+X              Compress/Tar using "/usr/local/bin/pdtar" [OK]
+X              Automatic packing of directories is allowed.
+X            
+X            Working storage: /usr/tmp [OK]
+X            
+X            The queue will automatically be run upon completion of process.
+X            The mail server will be niced with 10.
+X
+X5.4   Installation 
+X
+X      Now "su mserv" and execute "make install". 
+X
+X      This will install all programs and files in LIBDIR. It will not 
+X      install programs ixlookup and listener, since they need special 
+X      treatment. 
+X
+X      If you select the index file feature, issue "make 
+X      install-ixlookup" if you need the customized version of GNU locate 
+X      3.5. Note that whoever creates the index files, must have write 
+X      access to the location the index files are stored. 
+X
+X      If you configured the listener to use the setruid/setrgid system 
+X      calls, you need to "su mserv" before executing "make 
+X      install-listener". 
+X
+X      If you do not have setruid/setrgid, the program must be installed 
+X      setuid root. In this case, you have to "su root" before doing 
+X      "make install-listener". Look at the source of the listener.c 
+X      program to verify it will not harm your system security. 
+X
+X      Cd to the LIBDIR directory, and run 'chkconfig' again. Make sure 
+X      that all settings have the expected values. 
+X
+X5.5   Testing interactively 
+X
+X      Run LIBDIR/listener als follows: 
+X
+X            % ~mserv/listener -noqueue
+X
+X      Is should display a friendly banner: 
+X
+X            Mail Server (Squirrel Mail Server Software V3.01) ready.
+X            Local time is Thu Dec 24 20:33:06 1992.
+X            Enter HELP for a list of commands.
+X            
+X            Command>
+X
+X      Type "mail foo", followed by a RETURN: 
+X
+X            Command> mail foo
+X            Command: mail foo
+X            => Transfer via email to "foo"
+X
+X      Try "send HELP", followed by a RETURN: 
+X
+X            Command> send HELP
+X            Command: send HELP
+X            => Send: HELP
+X            Request results:
+X            
+X              Request                   Size  Enc  Limit  Status
+X              -----------------------  -----  ---  -----  ------
+X              HELP                       19K   A     64K  Tested OK
+X            
+X            Encoding A means: not encoded (plain file).
+X            
+X            The requests with status "Queued" will be sent as soon as
+X            the load of the server system permits, usually within 24 hours.
+X
+X      At this point, the basic functions of the mail server are working. 
+X      You can issue SEND and SEARCH commands for files in your archives, 
+X      and verify that the server can find them. 
+X
+X      Terminate this little session with the END command. 
+X
+X5.6   Adding aliases 
+X
+X      Create a suitable alias in /usr/lib/aliases (or wherever your 
+X      aliases are kept): 
+X
+X            mail-server : "|LIBDIR/listener"
+X
+X      To get rid of bounced mail, the mail server fakes 'bit-bucket' as 
+X      its return address. To avoid bounced mails filling your 
+X      filesystems, add another alias: 
+X
+X            bit-bucket: /dev/null
+X
+X5.7   Verification of the installation 
+X
+X      All the following steps should be executed under the mail server 
+X      owner! 
+X
+X      *  Verify your locking strategy. Execute 
+X
+X            % perl -s testlock.pl -test1 &
+X
+X         It should say "Got the lock -- waiting ...". Now execute 
+X
+X            % perl -s testlock.pl -test2 &
+X
+X         It should say "Good. Could not lock -- waiting ...". Now kill 
+X         the first process. The second process should print "ret = 1" 
+X         and exit. 
+X
+X      *  Verify the working of the 'dorequest' program: 
+X
+X            % LIBDIR/dorequest <youraddress> <arealfile>
+X
+X         You should receive mail(s) containing the indicated file. NOTE: 
+X         If your site is running sendmail, the mail(s) are queued for 
+X         delivery. They can take some time before they arrive, depending 
+X         on how often the sendmail queue is run. You may want to inspect 
+X         the sendmail queue to see if your mail(s) are in it. 
+X
+X         If no mail(s) arrive, try 
+X
+X            % LIBDIR/dorequest -debug <youraddress> <arealfile>
+X
+X         and see what happens. 
+X
+X      *  Create a text file containing the following lines: 
+X
+X            From bla
+X            From: <youraddress>
+X            
+X            test
+X            send HELP
+X            end
+X
+X         Now execute the 'process' script by hand: 
+X
+X            % LIBDIR/process < text-file
+X
+X         (The program should terminate after processing the 'end' 
+X         command). Now you should receive a mail (from yourself!) 
+X         telling you that your request has been processed. 
+X
+X         NOTE: If your site is running sendmail, and sendmail is 
+X         configured to use 'queued' delivery, the mail(s) are not 
+X         delivered immediately. You may want to inspect the sendmail 
+X         queue to see if your mail is in it, or run the queue by hand. 
+X
+X         In case of trouble: run LIBDIR/process with "-debug" to find 
+X         out what happens. 
+X
+X      *  Execute the 'process' script again with the same input, but 
+X         remove the line "test" from the text file. 
+X
+X         Again you should receive a mail (from yourself!) telling that 
+X         your request has been processed. It should also tell you that 
+X         your request has been queued. 
+X
+X         If you configured $auto_runrequest, program 'dorequest' will be 
+X         run to handle your request. You should receive a mail with the 
+X         requested file. 
+X
+X         In case of trouble: run LIBDIR/process with "-debug" to find 
+X         out what happens. This will prevent 'dorequest' from being 
+X         invoked, so you can study the contents of LIBDIR/queue. 
+X
+X      *  Execute the 'listener' program with the same input. 
+X
+X         Again you should receive a mail message, but this time it 
+X         should be from the mail server owner. 
+X
+X         If you configured $auto_runrequest, program 'dorequest' will be 
+X         run to handle your request. You should receive a mail with the 
+X         requested file. 
+X
+X      *  As another user, run the 'listener' program with the same 
+X         input. 
+X
+X         Again you should receive a mail, still originating from the 
+X         mail server owner. 
+X
+X      *  Still going strong? Now, as another user, send a mail message 
+X         to your mail server: 
+X
+X            % mail mail-server
+X            send foo bar INDEX
+X            end
+X            ^D
+X
+X         (Mail programs usually do not terminate after reading the 'end' 
+X         line. Issue Control-D or whatever you local EndOfFile setting 
+X         is). 
+X
+X         You will receive a return mail, indicating which archive 
+X         entries were found, and how they would be transmitted. 
+X
+X      *  If you did not configure $auto_runrequest, change back to the 
+X         mail server user, and inspect LIBDIR/queue to see that your 
+X         request is in it. 
+X
+X         Run LIBDIR/dorequest without arguments; the selected file 
+X         should be sent to you by email or UUCP. 
+X
+X      If you receive the requests, your mail server is fully 
+X      operational! 
+X
+X      Likewise, you can test the correct functioning of delivery via 
+X      UUCP. 
+X
+X5.8   The logfile 
+X
+X      If you don't want to keep of log of transactions, remove the file 
+X      LIBDIR/logfile that was created by the Makefile. 
+X
+X      NOTE: This is strongly discouraged, since it will also disable the 
+X      delivery of error messages. 
+X
+X5.9   Helpfiles and other goodies 
+X
+X      As a service: place the files 'HELP' and 'unpack.pl' in one of 
+X      your archives. The Makefile prepares PUBDIR (defaults to 
+X      LIBDIR/pub) for this purpose. 
+X
+X      Also, supply shar-files with the btoa/atob handling programs, 
+X      uudecode/uuencode, and compress/uncompress. 
+X
+X      The contents of file LIBDIR/mserv.notes is prepended to every 
+X      reply the mail server sends. This file can be used to supply a 
+X      daily message about the server, new entries, etc. 
+X
+X      The contents of file LIBDIR/mserv.hints is appended to every reply 
+X      the mail server sends. 
+X
+X      Make sure your archives have a decent copy of Dumas uud/uue and 
+X      xxencode/xxdecode if you intent to support these. Likewise, zoo, 
+X      zip, etc. 
+X
+X      Also, provide a file 'INDEX' that more or less describes what is 
+X      in your archives. People are going to ask for it. 
+X
+X      Since people usually don't read the documentation, link 'help' to 
+X      'HELP', 'index' to 'INDEX', 'atob.shar' to 'btoa.shar', etc. 
+X
+X5.10  Daemon processes 
+X
+X      Install crontab entries for the mail server processes. A sample 
+X      crontab is included in the distribution as CRONTAB.sample. 
+X
+X            30 0,2,4,6,18,20,22 * * * LIBDIR/do_runq
+X            0 3 * * * LIBDIR/makeindex
+X            0 7 * * * LIBDIR/do_report -errors -since .errrun
+X            10 7 * * 7 LIBDIR/do_report -full -collect -ftp -ftpclean
+X
+X      The above example runs the mail server queue every two hours, 
+X      except during working hours. Once a day any mail server errors are 
+X      reported, once a week the logfile data is accumulated and a usage 
+X      report is generated. The FTP cache is reported and cleaned. 
+X
+X      CHECK AND MODIFY THESE SCRIPTS SINCE THEY WILL PROBABLY NOT DO 
+X      WHAT YOU WANT! 
+X
+X      Every night a three o'clock new index files are generated. You may 
+X      leave this line out if you do not use index files. 
+X
+X      If you configured $auto_runrequest in 'ms_common.pl', there is no 
+X      need to run the queue that often; once or twice a day will be 
+X      sufficient. 
+X
+X5.11  Let Me Know 
+X
+X      If you have implemented the mail server on your system, please let 
+X      me <jv@mh.nl> know so I can collect information about the 
+X      implementations. Also let me (and the net!) know what kind of 
+X      archives you are offering. 
+X
+X      And protect your and mine freedom to write programs: join the 
+X      League for Programming Freedom. 
+X
+X            League for Programming Freedom
+X            1 Kendall Square #143
+X            P.O.Box 9171
+X            Cambridge, Massachusetts 02139
+X            E-mail: league@prep.ai.mit.edu
+X
+X6.    ADVANCED TECHNIQUES 
+X
+X6.1   Extending the Mail Server command set 
+X
+X      Both the command parsing and execution are implemented using 
+X      dispatch tables to subroutines. As a result, it is very easy to 
+X      extend the Mail Server command set. 
+X
+X      In the configuration file, $cmd_extend can be defined to the name 
+X      of a (perl) file to load extensions. 
+X
+X      Mail Server extensions can be implemented as follows: 
+X
+X      1. Write a subroutine to parse the command. See 'pr_parse.pl' for 
+X         lots of examples. Any work should be pushed on the @workq. 
+X
+X      2. Add a command verb to $cmd_tbl, pointing to this routine. The 
+X         command verb must be in ALL UPPERCASE. 
+X
+X      3. Write a subroutine to execute the command. See 'pr_dowork.pl' 
+X         for lots of examples. 
+X
+X      4. Add a command verb to $exe_tbl, pointing to this routine. Since 
+X         the Mail Server uses uppercase letters for this purpose, please 
+X         use a lowercase letter or verb. 
+X
+X      5. Provide a short help message for the HELP command. 
+X
+X      As an example, the following code adds the 'REPORT' command to the 
+X      Mail Server. 
+X
+X            sub cmd_report {                         # step 1.
+X                # Check syntax.
+X                # $cmd is the command verb, upcased.
+X                # @cmd has the remainder of the command.
+X                return &errmsg ("Usage: $cmd") unless @cmd == 0;
+X            
+X                # Push exe command on work queue.
+X                push (@workq, &zp ('r'));
+X            
+X                # Feedback.
+X                print STDOUT ("=> Okay\n");
+X                1;
+X            }
+X            
+X            $cmd_tbl{'REPORT'} = 'cmd_report';       # step 2.
+X            
+X            sub exe_report {                         # step 4.
+X                &do_unix ("$libdir/report -usage");
+X                1;
+X            }
+X            
+X            $exe_tbl{'r'} = 'exe_report';            # step 4.
+X            
+X            &add_help ('REPORT',                     # step 5.
+X                'Generate a mail server usage report.');
+X
+X      The source distribution contains a number of extension examples, 
+X      look for the files ud_sample*.pl. 
+X
+X      NOTE:  Extending the Mail Server command set is not supported
+X             and is not garanteed to work in future releases.
+X             However, when implemented as described above, the impact
+X             of a new release will probably be small.
+X
+X6.2   Setting up multiple servers 
+X
+X      You can set up multiple servers sharing the same software. All 
+X      mail server programs support the command line option "-config" to 
+X      specify an alternate configuration file for the program. This file 
+X      can be used to select different archive directories. Depending on 
+X      your needs, you can share the logfile, lockfile and queuefile. 
+X      However, If you wish to share the queuefile, you *NEED* to share 
+X      the lockfile also. 
+X
+X      You can have multiple mail aliases, e.g.: 
+X
+X            mail-server : "|LIBDIR/listener"
+X            debug-server: "|LIBDIR/listener -trace"
+X            info-server : "|LIBDIR/listener -config LIBDIR/info_config.pl"
+X
+X      All I/O to queue and logfile is done while locking the file, so it 
+X      is not possible to get file corruption. The lockfile is used to 
+X      prevent multiple invokations of the delivery program, 'dorequest'. 
+X      But if you configure a common queue, you need to configure a 
+X      common lockfile too. 
+X
+X      The delivery program will deliver requests that are entered in the 
+X      queue. Who is going to receive what is totally determined by the 
+X      'process' program. So it is perfectly safe to have a single queue 
+X      for several flavours of the mail server. Once the information is 
+X      in the queue, it doesn't matter what program is going to deliver 
+X      it. 
+X
+X      NOTE: You need to build the listener program version 3.1 or later. 
+X
+X6.3   Setting up de Mail Server for Interactive Use 
+X
+X      If the program 'process' (or 'listener') is invoked with its input 
+X      to a terminal, it enters interactive mode. Commands can be typed 
+X      in and are executed immediately. Errors are not considered fatal. 
+X      Alternatively, interactive mode can be forced with the 
+X      "-interactive" command line option, and prohibited with "-noi". 
+X
+X      In interactive mode, the program displays a sign-on message, 
+X      followed by the contents of the $notesfile. However, if a file 
+X      exists with the name of the $notesfile followed by 'i', this file 
+X      is used instead. This way you can have different messages for 
+X      interactive and non-interactive use. 
+X
+X      In interactive mode, the $hintsfile, normally included at the end 
+X      of the feedback message, will be appended to the output of the 
+X      HELP command. If a file exists with the name of the $hintsfile 
+X      followed by 'i', this file is used instead. 
+X
+X6.3.1 Via login 
+X
+X      Add a login name to your system to be used for this purpose. 
+X      Supply a dummy HOME directory (e.g. /tmp), and specify 
+X      LIBDIR/listener for login shell. 
+X
+X6.3.2 Via inetd 
+X
+X      Choose a port to be used for this service, e.g. 2000. Add this 
+X      port to /etc/services: 
+X
+X            mserv   2000/tcp
+X
+X      Add the following line to the inet configuration file (usually 
+X      /etc/inetd.conf): 
+X
+X            mserv    stream tcp nowait LIBDIR/listener listener -i0
+X
+X      Depending on your system, you may have to insert a user-id after 
+X      'nowait'. Use whatever is appropriate. The listener program will 
+X      set UID anyway. 
+X
+X      The command line option "-i0" forces interactive mode, and 
+X      attaches standard output and error to standard input (file 
+X      descriptor 0). 
+X
+X7.    DESIGN AND MAINTENANCE OF THE ARCHIVES 
+X
+X      The mail server software can handle multiple archive directories. 
+X      Every directory specified in @libdirs is treated equal. 
+X
+X      Please consider the following points: 
+X
+X      *  Hidden files (filenames starting with '.') and files that are 
+X         not readable to 'mserv' cannot be retrieved. They might show in 
+X         the index, however. 
+X
+X      *  If a file occurs multiple (e.g. 'INDEX') in more than one 
+X         archive directory, the first occurrence is retrieved. 
+X
+X      *  If a directory occurs multiple it can not be retrieved. 
+X
+X      *  For best results: name archives similar to 'foo-XXX.tar.Z', 
+X         where XXX is a version number, e.g. emacs-18.58.tar.Z or 
+X         xdvi-12.zoo. This will aid people in finding the right version 
+X         for a specific archive entry. 
+X
+X8.    THE MAIL SERVER DISTRIBUTION 
+X
+X      This section lists the files in the mail server distribution, with 
+X      a short explanation. Note that lots of functions are contained in 
+X      separate files. These files are only loaded if needed, cutting 
+X      down on the system resources. 
+X
+X      README           A short introduction.
+X      ChangeLog        A log of changes. Relevant for developers only.
+X      INSTALL          The ASCII version of this document.
+X      ms_config.pl     Configuration file.
+X      ms_common.pl     Common information for the mail server constituents.
+X      process.pl       Perl script to parse mail messages, and to
+X                       enqueue the requests.
+X      pr_*.pl          Demand loadable modules for process.pl
+X      pr_doindex.pl    Index lookup (for INDEX command).
+X      pr_dowork.pl     Looking up files.
+X      pr_dsearch.pl    Directory searching (for SEND commands).
+X      pr_ftp.pl        FTP operations.
+X      pr_help.pl       HELP message.
+X      pr_isearch.pl    Index searching (for SEND commands).
+X      pr_parse.pl      Command parsing
+X      rfc822.pl        A package to process rfc822 based messages.
+X      ftp.pl           Modified version of Alan R. Martello's package
+X                       to deal with FTP.
+X      chat2.pl         Modified version of Randal Schwartz' chat2.
+X      dateconv.pl      Date conversions.
+X      dorequest.pl     Perl script to encode and split the files, and sent
+X                       them to the requester.
+X      dr_*.pl          Demand loadable modules for dorequest.pl
+X      dr_mail.pl       Sending files via email.
+X      dr_uucp.pl       Sending files via UUCP.
+X      dr_pack.pl       Packing directories before sending.
+X      ms_lock.pl       Portable file locking package
+X      unpack.pl        Perl script to unpack a concatenated series of parts.
+X      HELP             The ASCII version of the user guide.
+X      mlistener.pl     Generator for a simple wrapper around "process.pl"
+X                       to enable setuid processing.
+X      makeindex.pl     A simple script to aid in maintaining an index
+X                       of archive entries.
+X      chkconfig.pl     A tool to feed back on the configuration file.
+X      testlock.pl      A tool to test the locking package.
+X      report.pl        A tool to generate usage and error reports.
+X      do_report.pl     A script to use report.pl
+X      do_runq.sh       A shell script to run the mail server queue from cron.
+X      CRONTAB.sample   A sample cron tab for the mail server.
+X      mserv.notes      
+X      mserv.hints      
+X      mserv.hintsi     Sample files.
+X      ud_*.pl          Sample Mail Server extensions.
+X      ud_sample1.pl    'REPORT' command.
+X      ud_sample2.pl    'SEND CONFIG' command.
+X      ixlookup.patch   Patch to GNU find 3.5 'locate.c' to create
+X                       the index lookup program.
+X      Makefile         To install the package.
+X      patchlevel.h     Patch version check.
+X      MANIFEST         List of files.
+X
+X      Not included but also available are nicely formatted PostScript 
+X      versions of the User Guide and Installation Guide. To obtain them, 
+X      send a mail message to <mail-server@nluug.nl> with contents: 
+X
+X            begin
+X            send usrguide.ps.Z
+X            send mservmgr.ps.Z
+X            end
+END_OF_FILE
+  if test 52619 -ne `wc -c <'mserv-3.1/INSTALL'`; then
+    echo shar: \"'mserv-3.1/INSTALL'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/INSTALL'
+fi
+if test -f 'mserv-3.1/dateconv.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/dateconv.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/dateconv.pl'\" \(1794 characters\)
+  sed "s/^X//" >'mserv-3.1/dateconv.pl' <<'END_OF_FILE'
+X# dateconv.pl -- date/time conmversions.
+X# SCCS Status     : @(#)@ dateconv.pl	1.2
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sat Dec  5 01:32:31 1992
+X# Update Count    : 1
+X# Status          : OK
+X
+X# Convert a date into a time.
+X
+Xsub lstime_to_standard
+X{
+X	local( $ls ) = @_;
+X
+X	return &time_to_standard( &lstime_to_time( $ls ) );
+X}
+X
+Xpackage dateconv;
+X
+Xrequire 'timelocal.pl';
+X
+X@months = ( "zero", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" );
+X
+X$month_num{ "Jan" } = 0;
+X$month_num{ "Feb" } = 1;
+X$month_num{ "Mar" } = 2;
+X$month_num{ "Apr" } = 3;
+X$month_num{ "May" } = 4;
+X$month_num{ "Jun" } = 5;
+X$month_num{ "Jul" } = 6;
+X$month_num{ "Aug" } = 7;
+X$month_num{ "Sep" } = 8;
+X$month_num{ "Oct" } = 9;
+X$month_num{ "Nov" } = 10;
+X$month_num{ "Dec" } = 11;
+X
+X( $mn, $yr ) = (localtime)[ 4, 5 ];
+X
+X# Convert an 'ls' type date string into a time
+Xsub main'lstime_to_time
+X{
+X	package dateconv;
+X
+X	local( $date ) = @_;
+X
+X	local( $mon, $day, $hours, $mins, $month, $year );
+X
+X	if( $date =~ /^(\w\w\w)\s+(\d+)\s+((\d\d\d\d)|((\d+):(\d+)))$/ ){
+X		($mon, $day, $year, $hours, $mins) = ($1, $2, $4, $6, $7);
+X#print "(mon $mon, day $day, year $year, hours $hours, mins $mins)\n";
+X	}
+X	else {
+X		printf STDERR "invalid date $date\n";
+X		return time;
+X	}
+X	
+X	$month = $month_num{ $mon };
+X
+X	if( $year !~ /\d\d\d\d/ ){
+X		$year = $yr;
+X		$year-- if( $month > $mn );
+X	}
+X	if( $year > 1900 ){
+X		$year -= 1900;
+X	}
+X	 
+X#print " &timegm( 0, $mins, $hours, $day, $month, $year );\n";
+X	return &timegm( 0, $mins, $hours, $day, $month, $year );
+X}
+X
+Xsub main'time_to_standard
+X{
+X	package dateconv;
+X
+X	local( $time ) = @_;
+X
+X	local( $sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst ) =
+X		 gmtime( $time );
+X	return sprintf( "%2d $months[ $mon + 1 ] %2d %02d:%02d", $mday, $year, $hour, $min );
+X}
+X
+X1;
+END_OF_FILE
+  if test 1794 -ne `wc -c <'mserv-3.1/dateconv.pl'`; then
+    echo shar: \"'mserv-3.1/dateconv.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/dateconv.pl'
+fi
+echo shar: End of archive 1 \(of 6\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

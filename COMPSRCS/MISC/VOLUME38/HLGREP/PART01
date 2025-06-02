@@ -1,0 +1,349 @@
+Newsgroups: comp.sources.misc
+From: mfuhr@cwis.unomaha.edu (Michael Fuhr)
+Subject: v38i003:  hlgrep - a highlighting grep, Part01/01
+Message-ID: <1993Jun17.180610.8568@sparky.imd.sterling.com>
+X-Md4-Signature: c16d301fce2395ca3f1e92cc9b584cab
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: University of Nebraska at Omaha
+Date: Thu, 17 Jun 1993 18:06:10 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mfuhr@cwis.unomaha.edu (Michael Fuhr)
+Posting-number: Volume 38, Issue 3
+Archive-name: hlgrep/part01
+Environment: perl
+
+hlgrep is a perl script that works like grep(1), but highlights the
+patterns it finds.  Unlike hgrep(1), hlgrep can highlight patterns with
+metacharacters.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile hlgrep hlgrep.man
+# Wrapped by kent@sparky on Thu Jun 17 12:50:25 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(862 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+Xhlgrep README - 2 Jun 93
+X
+XDESCRIPTION
+X===========
+X
+Xhlgrep is a perl script that works like grep(1), but highlights the
+Xpatterns it finds.  Unlike hgrep(1), hlgrep can highlight patterns with
+Xmetacharacters.
+X
+XHighlighting is done using your terminal's standout capability, but you
+Xcan edit hlgrep to use any capability you want.  The current version is
+Xhardcoded for the vt100, but you can edit it to use tput(1) to get the
+Xcapabilities for any terminal at runtime.
+X
+X
+XINSTALLATION
+X============
+X
+X1.  Edit Makefile if you want to change the default installation
+X    directories (/usr/local/bin and /usr/local/man/man1).
+X
+X2.  Edit hlgrep if you want to add tput capability or use terminal
+X    capabilities other than vt100 standout.  Comments will tell you
+X    how.
+X
+X3.  Run "make install".
+X
+X
+XMichael Fuhr
+Xmfuhr@cwis.unomaha.edu (but probably not after Summer '93).
+END_OF_FILE
+  if test 862 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1267 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#------------------------------------------------------------------------------
+X# Makefile for hlgrep
+X#
+X# Configuration:
+X#
+X#	Change BINDIR to the destination directory for the executable.
+X#	Change MANTOP to the top-level manual directory.
+X#	Change MANEXT to the manual section.
+X#------------------------------------------------------------------------------
+X
+XBINDIR	= /usr/local/bin
+X
+XMANTOP	= /usr/local/man
+XMANEXT	= 1
+X
+X#------------------------------------------------------------------------------
+X# Shouldn't need to change anything below here.
+X#------------------------------------------------------------------------------
+X
+XHLGREP		= hlgrep
+XMANPAGE		= $(HLGREP).man
+XMAKEFILE	= Makefile
+XREADME		= README
+X
+XALLFILES	= $(README) $(MAKEFILE) $(HLGREP) $(MANPAGE)
+X
+XSHARFILE	= $(HLGREP).shar
+X
+XMANDIR		= $(MANTOP)/man$(MANEXT)
+XMANDEST		= $(MANDIR)/$(HLGREP).$(MANEXT)
+X
+X#------------------------------------------------------------------------------
+X# Targets
+X#------------------------------------------------------------------------------
+X
+Xall: $(ALLFILES)
+X
+Xinstall:
+X	install -c -m 755 $(HLGREP) $(BINDIR)
+X	install -c -m 644 $(MANPAGE) $(MANDEST)
+X
+Xshar: $(SHARFILE)
+X
+X$(SHARFILE): $(ALLFILES)
+X	rm -f $(SHARFILE)
+X	shar $(ALLFILES) > $(SHARFILE)
+X
+Xclean:
+X	rm -f $(SHARFILE)
+END_OF_FILE
+  if test 1267 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'hlgrep' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hlgrep'\"
+else
+  echo shar: Extracting \"'hlgrep'\" \(3316 characters\)
+  sed "s/^X//" >'hlgrep' <<'END_OF_FILE'
+X#!/usr/bin/perl
+Xeval 'exec /usr/bin/perl -S $0 ${1+"$@"}'
+X	if 0;
+X#------------------------------------------------------------------------------
+X# hlgrep - highlight grep
+X#
+X# See the manpage for more information.
+X#------------------------------------------------------------------------------
+X
+Xrequire "getopts.pl";
+X
+X($progname = $0) =~ s#.*/##;
+X
+X#------------------------------------------------------------------------------
+X# Define the begin/end standout codes for the terminal.  The hardcoded
+X# values are for the vt100 and its kind.  For other terminals, look up
+X# the so/se capabilities in /etc/termcap or the smso/rmso capabilities
+X# in the terminfo database.  A more robust way would be to get the codes
+X# at runtime with something like
+X#
+X#	$so = `tput smso`;
+X#	$se = `tput rmso`;
+X#
+X# if your system has tput.  The disadvantage of this is the cost of
+X# running the two tput processes.  An even better way would be to read
+X# the values directly from /etc/termcap or the terminfo database.
+X#
+X# Feel free to any terminal capability for highlighting.  Here are a few
+X# capabilities for the vt100 (some may not work on your terminal):
+X#
+X#	Name		Termcap/Terminfo	String
+X#	---------	----------------	------
+X#	Standout	     so/smso		\e[7m
+X#	Underline	     us/smul		\e[4m
+X#	Bold		     md/bold		\e[1m
+X#	Blinking	     mb/blink		\e[5m
+X#------------------------------------------------------------------------------
+X
+X$so = "\e[7m";
+X$se = "\e[m";
+X
+X#------------------------------------------------------------------------------
+X# Get options and pattern from command line.  Check syntax.
+X#------------------------------------------------------------------------------
+X
+X&Getopts("aDhinw") || exit 2;
+X$pattern = shift @ARGV;
+X
+Xdo { $! = 2; die "Usage: $progname [ -aDhinw ] pattern [ filename ... ]\n" }
+X	unless ($pattern);
+X
+X#------------------------------------------------------------------------------
+X# Escape any slashes in the pattern, because we use the slash as the
+X# pattern-matching delimiter.
+X#------------------------------------------------------------------------------
+X
+X$pattern =~ s#/#\\/#;
+X
+X#------------------------------------------------------------------------------
+X# Set some variables to be used when building the command to be eval'd.
+X#------------------------------------------------------------------------------
+X
+X$opt_a || do { $maybe_skip = "next"; };
+X$opt_h || do { $name = "\$ARGV:" if (@ARGV > 1); };
+X$opt_i && do { $sflags = "i"; };
+X$opt_n && do { $linenum = "\$.:"; };
+X$opt_w && do { $pattern = "\\b($pattern)\\b"; };
+X
+X#------------------------------------------------------------------------------
+X# Generate the code.  Explicitly closing each file will reset the line
+X# number ($.) (see eof in the perl manpage).
+X#------------------------------------------------------------------------------
+X
+X$cmd = <<"AMEN";
+X\$exit_status = 1;
+Xwhile (<>) {
+X	if (s/$pattern/$so\$&$se/g$sflags) {
+X		\$exit_status = 0;
+X	}
+X	else {
+X		$maybe_skip;
+X	}
+X	print "$name$linenum\$_";
+X} continue {
+X	close ARGV if eof;
+X}
+Xexit \$exit_status;
+XAMEN
+X
+X#------------------------------------------------------------------------------
+X# Execute the code.  But print it first if the user wanted.
+X#------------------------------------------------------------------------------
+X
+Xprint STDERR $cmd if $opt_D;
+X$| = 1;
+Xeval $cmd;
+END_OF_FILE
+  if test 3316 -ne `wc -c <'hlgrep'`; then
+    echo shar: \"'hlgrep'\" unpacked with wrong size!
+  fi
+  # end of 'hlgrep'
+fi
+if test -f 'hlgrep.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hlgrep.man'\"
+else
+  echo shar: Extracting \"'hlgrep.man'\" \(1923 characters\)
+  sed "s/^X//" >'hlgrep.man' <<'END_OF_FILE'
+X.TH HLGREP 1 "2 Jun 1993"
+X.SH NAME
+Xhlgrep - highlight grep
+X.SH SYNOPSIS
+Xhlgrep [ -aDhinw ]
+X.I pattern
+X[
+X.IR filename " .\|.\|. ]"
+X.SH DESCRIPTION
+X.B hlgrep
+Xsearches the given
+X.I filenames
+X(or the standard input if no files are specified)
+Xfor lines containing the regular expression
+X.IR pattern 
+Xand prints those lines with the matching patterns highlighted.
+X.LP
+XRegular expressions are the same as those used in
+X.BR perl (1).
+X.SH OPTIONS
+X.TP
+X.B \-a
+XPrint all lines, not just those that contain matching patterns.
+XThis is useful for seeing the patterns in context.
+X.TP
+X.B \-D
+XPrint debugging info.
+X.B hlgrep
+Xbuilds a command for perl to
+X.IR eval .
+XThis option causes that command to be printed to standard error before
+Xany processing.
+X.TP
+X.B \-h
+XDon't print filenames when more than one file is given on the command line.
+X.TP
+X.B \-i
+XIgnore case.
+X.TP
+X.B \-n
+XPrint line numbers.
+X.TP
+X.B \-w
+XMatch patterns only as complete words.
+X.LP
+XTypical grep options like
+X.B \-l
+X(print filenames only),
+X.B \-c
+X(print count of matching lines only),
+X.B \-s
+X(set exit status only), and
+X.B \-v
+X(print lines that don't match) defeat the purpose of this program
+X(highlighting) and aren't provided.  Use one of the other greps if
+Xyou need them.
+X.SH NOTES
+X.B hlgrep
+Xis written in perl, so your system must have perl installed.  It uses
+Xthe package
+X.BR getopts.pl ,
+Xwhich some versions of perl earlier than 4.036 don't have.
+X.SH "SEE ALSO"
+X.BR agrep (1),
+X.BR egrep (1),
+X.BR fgrep (1),
+X.BR grep (1),
+X.BR hgrep (1),
+X.BR perl (1),
+X.BR tput (1)
+X.SH BUGS
+XThe current version of
+X.B hlgrep
+Xuses hardcoded values for terminal capability strings, but it can
+Xbe configured to use
+X.BR tput (1)
+Xto get terminal capabilities at runtime.
+X.LP
+XPlease report any other bugs to the author.
+X.SH DIAGNOSTICS
+XExit status 0 if pattern found, 1 if pattern not found, 2 if syntax
+Xerror.
+X.SH AUTHOR
+XMichael Fuhr (mfuhr@cwis.unomaha.edu, but probably not after
+XSummer '93).
+END_OF_FILE
+  if test 1923 -ne `wc -c <'hlgrep.man'`; then
+    echo shar: \"'hlgrep.man'\" unpacked with wrong size!
+  fi
+  # end of 'hlgrep.man'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

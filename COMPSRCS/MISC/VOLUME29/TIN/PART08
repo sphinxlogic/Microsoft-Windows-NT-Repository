@@ -1,0 +1,2254 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@germany.eu.net (Iain J. Lea)
+Subject:  v29i026:  tin - threaded full screen newsreader v1.1P1, Part08/12
+Message-ID: <1992Mar27.033816.3478@sparky.imd.sterling.com>
+X-Md4-Signature: f3d3bf430213fa1c559bd4678fd0a267
+Date: Fri, 27 Mar 1992 03:38:16 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@germany.eu.net (Iain J. Lea)
+Posting-number: Volume 29, Issue 26
+Archive-name: tin/part08
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Supersedes: tin: Volume 28, Issue 45-55
+
+#!/bin/sh
+# this is tin.shar.08 (part 8 of tin1.1)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file open.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 8; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping open.c'
+else
+echo 'x - continuing file open.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'open.c' &&
+X			break;
+X		case ERR_NOGROUP:
+X			text = "411  No such newsgroup";
+X			break;
+X		case ERR_NCING:
+X			text = "412  Not currently in newsgroup";
+X			break;
+X		case ERR_XINDEX:
+X			text = "418  No index file for this group";
+X			break;
+X		case ERR_NOCRNT:
+X			text = "420  No current article selected";
+X			break;
+X		case ERR_NONEXT:
+X			text = "421  No next article in this group";
+X			break;
+X		case ERR_NOPREV:
+X			text = "422  No previous article in this group";
+X			break;
+X		case ERR_NOARTIG:
+X			text = "423  No such article in this group";
+X			break;
+X		case ERR_NOART:
+X			text = "430  No such article at all";
+X			break;
+X		case ERR_GOTIT:
+X			text = "435  Already got that article, don't send";
+X			break;
+X		case ERR_XFERFAIL:
+X			text = "436  Transfer failed";
+X			break;
+X		case ERR_XFERRJCT:
+X			text = "437  Article rejected, don't resend";
+X			break;
+X		case ERR_NOPOST:
+X			text = "440  Posting not allowed";
+X			break;
+X		case ERR_POSTFAIL:
+X			text = "441  Posting failed";
+X			break;
+X		case ERR_COMMAND:
+X			text = "500  Command not recognized";
+X			break;
+X		case ERR_CMDSYN:
+X			text = "501  Command syntax error";
+X			break;
+X		case ERR_ACCESS:
+X			text = "502  Access to server denied";
+X			break;
+X		case ERR_FAULT:
+X			text = "503  Program fault, command not performed";
+X			break;
+X		default:
+X			text = "Unknown NNTP response code";
+X			break;
+X	}
+X	return (text);
+#else
+X	return ("");
+#endif
+}
+SHAR_EOF
+echo 'File open.c is complete' &&
+chmod 0600 open.c ||
+echo 'restore of open.c failed'
+Wc_c="`wc -c < 'open.c'`"
+test 12769 -eq "$Wc_c" ||
+	echo 'open.c: original size 12769, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= page.c ==============
+if test -f 'page.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping page.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting page.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'page.c' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : page.c
+X *  Author    : I.Lea & R.Skrenta
+X *  Created   : 01-04-91
+X *  Updated   : 22-03-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+#include	"tin.h"
+X
+#define		ART_UNAVAILABLE	-1
+X
+extern int cur_groupnum;
+X
+char note_h_path[LEN];			/* Path:	*/
+char note_h_date[LEN];			/* Date:	*/
+char note_h_subj[LEN];			/* Subject:	*/
+char note_h_org[LEN];			/* Organization: */
+char note_h_newsgroups[LEN];	/* Newsgroups:	*/
+char note_h_messageid[LEN];		/* Message-ID:	*/
+char note_h_distrib[LEN];		/* Distribution: */
+char note_h_followup[LEN];		/* Followup-To: */
+X
+char *glob_page_group;
+X
+FILE *note_fp;					/* the body of the current article */
+X
+int glob_respnum;
+int last_resp;					/* current & previous article for - command */
+int	note_end;					/* we're done showing this article */
+int	note_line;
+int	note_page;					/* what page we're on */
+int	rotate;						/* 0=normal, 13=rot13 decode */
+int this_resp;
+X
+long note_mark[MAX_PAGES];		/* ftells on beginnings of pages */
+long note_size;					/* stat size in bytes of article */
+X
+X
+int show_page (respnum, group, group_path)
+X	int respnum;
+X	char *group;
+X	char *group_path;
+{
+#ifndef INDEX_DAEMON
+X
+X	char ch;
+X	int i, n;
+X	int copy_text;
+X	int kill_state = NO_KILLING;
+X	int old_sort_art_type = sort_art_type;
+X	int old_top;
+X	int posted;
+X	int ret_code;
+X	long old_artnum;
+X	long art;
+X
+restart:
+X
+X	glob_respnum = respnum;
+X	glob_page_group = group;
+X
+X	set_signals_page ();
+X	
+X	if (respnum != this_resp) {	   /* remember current & previous */
+X		last_resp = this_resp;	   /* articles for - command */
+X		this_resp = respnum;
+X	}
+X
+X	rotate = 0;			/* normal mode, not rot13 */
+X	art = arts[respnum].artnum;
+X	arts[respnum].unread = ART_READ;	/* mark article as read */
+X
+X	if ((note_page = art_open (art, group_path)) == ART_UNAVAILABLE) {
+X		sprintf (msg, txt_art_unavailable, art);
+X		error_message (msg, "");
+X		return (which_thread (respnum));
+X	} else {
+X		show_note_page (respnum, group);
+X	}
+X
+X	while (TRUE) {
+X		ch = (char) ReadCh();
+X
+X		if (ch >= '0' && ch <= '9') {
+X			n = prompt_response (ch, respnum);
+X			if (n != -1) {
+X				respnum = n;
+X				goto restart;
+X			}
+X			continue;
+X		}
+X		switch (ch) {
+X			case ESC:
+X				switch (get_arrow_key ()) {
+X					case KEYMAP_PAGE_UP:
+X						goto page_up;
+X
+X					case KEYMAP_PAGE_DOWN:
+X						goto page_down;
+X
+X					case KEYMAP_HOME:
+X						goto begin_of_article;
+X
+X					case KEYMAP_END:
+X						goto end_of_article;
+X				}
+X				break;
+X
+#ifndef NO_SHELL_ESCAPE
+X			case '!':
+X				shell_escape ();
+X				redraw_page (respnum, group);
+X				break;
+#endif
+X
+X			case '$':	/* goto end of article */
+X			case 'G':	/* 'less' compatible */
+end_of_article:			
+X				if (show_last_page ()) {
+X					show_note_page (respnum, group);
+X				}
+X				break;
+X
+X			case '-':	/* show last viewed article */
+X				if (last_resp < 0) {
+X					info_message (txt_no_last_message);
+X					break;
+X				}
+X				art_close ();
+X				respnum = last_resp;
+X				goto restart;
+X
+X			case '|':	/* pipe article/thread/tagged arts to command */
+X				set_real_uid_gid ();
+X				feed_articles (FEED_PIPE, PAGE_LEVEL, "Pipe", respnum, group_path);
+X				set_tin_uid_gid ();
+X				break;
+X
+X			case '/':	/* search forwards in article */
+X				if (search_article (TRUE)) {
+X					show_note_page (respnum, group);
+X				}
+X				break;
+X
+X			case '<':	/* goto first article in current thread */
+X				if (arts[respnum].inthread) {
+X					n = which_thread (respnum);
+X					if (n >= 0 && base[n] != respnum) {
+X						assert (n < top_base);
+X						respnum = base[n];
+X						art_close ();
+X						goto restart;
+X					}
+X				}
+X				break;
+X
+X			case '>':	/* goto last article in current thread */
+X				for (i = respnum; i >= 0; i = arts[i].thread) {
+X					n = i;
+X				}
+X				if (n != respnum) {
+X					respnum = n;
+X					art_close ();
+X					goto restart;
+X				}
+X				break;
+X
+X			case ' ': 			/* next page or response */
+X			case ctrl('D'):		/* vi style */
+X			case ctrl('V'):		/* emacs style */
+page_down:
+X				if (note_page == ART_UNAVAILABLE) {
+X					n = next_response (respnum);
+X					if (n == -1) {
+X						return (which_thread (respnum));
+X					}
+X					respnum = n;
+X					goto restart;
+X				} else if (note_end) {
+X					art_close ();
+X					n = next_response (respnum);
+X					if (n == -1) {
+X						return (which_thread (respnum));
+X					}
+X					respnum = n;
+X					goto restart;
+X				} else
+X					show_note_page (respnum, group);
+X				break;
+X
+X			case '\r':
+X			case '\n':	/* go to start of next thread */
+X				art_close ();
+X				n = next_thread (respnum);
+X				if (n == -1)
+X					return (which_thread (respnum));
+X				respnum = n;
+X				goto restart;
+X
+X			case '\t': 	/* goto next unread article */
+#ifndef TAB_GOTO_NEXT_UNREAD
+X				if (note_page == ART_UNAVAILABLE) {
+X					n = next_unread (next_response (respnum));
+X					if (n == -1) {
+X						return (which_thread (respnum));
+X					}
+X					respnum = n;
+X					goto restart;
+X				} else if (note_end) {
+X					art_close();
+X					n = next_unread(next_response(respnum));
+X					if (n == -1) {
+X						return (which_thread (respnum));
+X					}
+X					respnum = n;
+X					goto restart;
+X				} else {
+X					show_note_page(respnum, group);
+X				}	
+#else
+X				if (note_page != ART_UNAVAILABLE) {
+X					art_close();
+X				}
+X				n = next_unread (next_response (respnum));
+X				if (n == -1) {
+X					return (which_thread (respnum));
+X				}
+X				respnum = n;
+X				goto restart;
+#endif
+X				break;
+X
+X			case ctrl('H'):	/* show article headers */
+X				if (note_page == ART_UNAVAILABLE) {
+X					n = next_response (respnum);
+X					if (n == -1)
+X						return (which_thread (respnum));
+X					respnum = n;
+X					goto restart;
+X				} else {
+X					note_page = 0;
+X					note_end = FALSE;
+X					fseek(note_fp, 0L, 0);
+X					show_note_page(respnum, group);
+X				}
+X				break;
+X
+X			case ctrl('K'):		/* kill article */
+X				if (kill_articles) {
+X					if (kill_art_menu (group, respnum)) {
+X						i = which_thread (respnum);
+X						if (kill_any_articles (group)) {
+X							reload_index_file (group, TRUE);
+X							if (i >= top_base)
+X								i = top_base - 1;
+X							respnum = base[i];	
+X						}
+X					}
+X					redraw_page (respnum, group);
+X				} else {
+X					info_message (txt_switch_on_kill_art_menu);
+X				}
+X				break;
+X
+X			case ctrl('L'):		/* redraw current page of article */
+X				redraw_page (respnum, group);
+X				break;
+X
+X			case ctrl('R'):		/* redraw beginning of article */
+X			case 'g':			/* 'less' compatible */
+begin_of_article:			
+X				if (note_page == ART_UNAVAILABLE) {
+X					ClearScreen ();
+X					printf (txt_art_unavailable, arts[respnum].artnum);
+X					fflush (stdout);
+X				} else {
+X					note_page = 0;
+X					note_end = FALSE;
+X					fseek (note_fp, note_mark[0], 0);
+X					show_note_page (respnum, group);
+X				}
+X				break;
+X
+X			case ctrl('X'):
+X			case '%':
+X			case 'd':	/* toggle rot-13 mode */
+X				if (rotate)
+X					rotate = 0;
+X				else
+X					rotate = 13;
+X				redraw_page (respnum, group);
+X				info_message (txt_toggled_rot13);
+X				break;
+X
+X			case 'a':	/* author search forward */
+X			case 'A':	/* author search backward */
+X				i = (ch == 'a');
+X				n = search_author (show_only_unread, respnum, i);
+X				if (n < 0)
+X					break;
+X				respnum = n;
+X				goto restart;
+X				/* NOTREACHED */
+X
+X			case ctrl('U'):
+X			case 'b':		/* back a page */
+page_up:
+X				if (note_page == ART_UNAVAILABLE) {
+X					art_close ();
+X					n = prev_response (respnum);
+X					if (n == -1)
+X						return (which_response (respnum));
+X					respnum = n;
+X					goto restart;
+X
+X				} else {
+X					if (note_page <= 1) {
+X						info_message (txt_begin_of_art);
+X					} else {
+X						note_page -= 2;
+X						note_end = FALSE;
+X						fseek (note_fp, note_mark[note_page], 0);
+X						show_note_page (respnum, group);
+X					}
+X				}
+X				break;
+X
+X			case 'B':	/* bug/gripe/comment mailed to author */
+X				mail_bug_report ();
+X				redraw_page (respnum, group);
+X				break;
+X				
+X			case 'c':	/* catchup--mark all articles as read */
+X				if (prompt_yn (LINES, txt_mark_all_read, 'y')) {
+X					for (n = 0; n < top; n++) {
+X						arts[n].unread = ART_READ;
+X					}
+X					fix_new_highest (cur_groupnum);
+X					if (cur_groupnum + 1 < group_top) {
+X						cur_groupnum++;
+X					}
+X					art_close ();
+X					return -1;
+X				}
+X				break;
+X
+X			case 'C':	/* cancel an article */
+X				if (cancel_article ()) {
+X					redraw_page (respnum, group);
+X				}
+X				break;
+X	
+X			case 'f':	/* post a followup to this article */
+X			case 'F':
+X				if (! can_post) {
+X					info_message (txt_cannot_post);
+X					break;
+X				}
+X				copy_text = (ch == 'f' ? FALSE : TRUE);
+X				ret_code = post_response (group, respnum, copy_text);
+X				redraw_page (respnum, group);
+X				break;
+X
+X			case 'h':	/* help */
+X				show_info_page (HELP_INFO, help_page, txt_art_pager_com);
+X				redraw_page (respnum, group);
+X				break;
+X
+X			case 'i':	/* return to index page */
+return_to_index:
+X				art_close ();
+X				if (kill_state == NO_KILLING &&
+X					sort_art_type != old_sort_art_type) {
+X					make_threads (TRUE);
+X					find_base (show_only_unread);
+X				}
+X				i = which_thread (respnum);
+X				if (kill_state == KILLING) {
+X					old_top = top;
+X					old_artnum = arts[respnum].artnum;
+X					if (kill_articles) {
+X						kill_any_articles (group);
+X						reload_index_file (group, TRUE);	/* kill arts */
+X					} else {
+X						reload_index_file (group, FALSE);	/* unkill arts */
+X					}
+X					i = find_new_pos (old_top, old_artnum, i);
+X				}
+X				return (i);
+X
+X			case 'I':	/* toggle inverse video */
+X				toggle_inverse_video ();
+X				redraw_page (respnum, group);
+X				break;
+X
+X			case 'k':
+X				if (note_page == ART_UNAVAILABLE) {
+X					n = next_unread (next_response(respnum));
+X					if (n == -1)
+X						return (which_thread (respnum));
+X				} else {
+X					art_close ();
+X					n = next_unread (next_response (respnum));
+X					if (n == -1)
+X						return (which_thread (respnum));
+X				}
+X				respnum = n;
+X				goto restart;
+X				/* NOTREACHED */
+X
+X			case 'K':	/* mark rest of thread as read */
+X				for (n = respnum; n >= 0; n = arts[n].thread)
+X					arts[n].unread = ART_READ;
+X				n = next_unread (next_response (respnum));
+X				if (n == -1)
+X					goto return_to_index;
+X				art_close ();
+X				respnum = n;
+X				goto restart;
+X				/* NOTREACHED */
+X
+X			case 'm':	/* mail article/thread/tagged articles to somebody */
+X				set_real_uid_gid ();
+X				feed_articles (FEED_MAIL, PAGE_LEVEL, "Mail", respnum, group_path);
+X				set_tin_uid_gid ();
+X				break;
+X
+X			case 'M':	/* options menu */
+X				if (change_rcfile (group, FALSE) == KILLING) {
+X					kill_state = KILLING;
+X				} 
+X				redraw_page (respnum, group);
+X			    break;
+X
+X			case 'n':	/* skip to next article */
+X				art_close ();
+X				n = next_response (respnum);
+X				if (n == -1)
+X					return (which_thread(respnum));
+X				respnum = n;
+X				goto restart;
+X				/* NOTREACHED */
+X				
+X			case 'N':	/* next unread article */
+X				n = next_unread (next_response (respnum));
+X				if (n == -1)
+X					info_message (txt_no_next_unread_art);
+X				else {
+X					art_close ();
+X					respnum = n;
+X					goto restart;
+X				}
+X				break;
+X
+X			case 'o':	/* output art/thread/tagged arts to printer */
+X				set_real_uid_gid ();
+X				feed_articles (FEED_PRINT, PAGE_LEVEL, "Print", respnum, group_path);
+X				set_tin_uid_gid ();
+X				break;
+X
+X			case 'p':	/* previous article */
+X				art_close ();
+X				n = prev_response (respnum);
+X				if (n == -1)
+X					return (which_response (respnum));
+X				respnum = n;
+X				goto restart;
+X
+X			case 'P':	/* previous unread article */
+X				n = prev_unread (prev_response (respnum));
+X				if (n == -1)
+X				    info_message (txt_no_prev_unread_art);
+X				else {
+X					art_close ();
+X					respnum = n;
+X					goto restart;
+X				}
+X				break;
+X
+X			case 'q':	/* quit */
+X				if (prompt_yn (LINES, txt_quit, 'y')) {
+X					return -2;
+X				}
+X				break;
+X	
+X			case 'r':	/* reply to author through mail */
+X			case 'R':
+X				copy_text = (ch == 'r' ? FALSE : TRUE);
+X				mail_to_author (respnum, copy_text);
+X				redraw_page (respnum, group);
+X				break;
+X
+X			case 's':	/* save article/thread/tagged articles */
+X				set_real_uid_gid ();
+X				feed_articles (FEED_SAVE, PAGE_LEVEL, "Save", respnum, group_path);
+X				set_tin_uid_gid ();
+X				break;
+X
+X			case 't':	/* return to group selection page */
+X				art_close ();
+X				if (kill_state == KILLING) {
+X					if (kill_articles) {
+X						kill_any_articles (group);
+X						reload_index_file (group, TRUE);	/* kill arts */
+X					} else {
+X						reload_index_file (group, FALSE);	/* unkill arts */
+X					}
+X				}
+X				update_newsrc (group, my_group[cur_groupnum], FALSE);
+X				fix_new_highest (cur_groupnum);
+X				return -1;
+X
+X			case 'T':	/* tag/untag article for saving */
+X				if (arts[respnum].tagged) {
+X					arts[respnum].tagged = 0;
+X					info_message (txt_untagged_art);
+X				} else {
+X					arts[respnum].tagged = ++num_of_tagged_files;
+X					info_message (txt_tagged_art);
+X				}
+X				break;
+X
+X			case 'v':
+X				info_message (cvers);
+X				break;
+X
+X			case 'w':	/* post a basenote */
+X				if (! can_post) {
+X					info_message (txt_cannot_post);
+X					break;
+X				}
+X				if (post_base (group, &posted)) {
+X					redraw_page (respnum, group);
+X				}
+X				break;
+X
+X			case 'W':	/* display messages posted by user */
+X				if (user_posted_messages ()) {
+X					redraw_page (respnum, group);
+X				}
+X				break;
+X
+X			case 'z':	/* mark article as unread (to return) */
+X				arts[respnum].unread = ART_WILL_RETURN;
+X				info_message (txt_art_marked_as_unread);
+X				break;
+X
+X			default:
+X			    info_message(txt_bad_command);
+X		}
+X	}
+X
+#endif /* INDEX_DAEMON */
+}
+X
+X
+void redraw_page (respnum, group)
+X	int respnum;
+X	char *group;
+{
+X	if (note_page == ART_UNAVAILABLE) {
+X		ClearScreen ();
+X		printf (txt_art_unavailable, arts[respnum].artnum);
+X		fflush (stdout);
+X	} else if (note_page > 0) {
+X		note_page--;
+X		fseek (note_fp, note_mark[note_page], 0);
+X		show_note_page (respnum, group);
+X	}
+}
+X
+X
+void show_note_page (respnum, group)
+X	int respnum;
+X	char *group;
+{
+#ifndef INDEX_DAEMON
+X
+X	char buf[LEN];
+X	char buf2[LEN+50];
+X	char *p, *q;
+X	int i, j;
+X	int ctrl_L;		/* form feed character detected */
+X	long tmp_pos;
+X
+X	ClearScreen ();
+X
+X	note_line = 1;
+X
+X	if (note_size == 0L) {
+X		tmp_pos = ftell (note_fp);
+X		fseek (note_fp, 0L, 2);			/* goto end of article */
+X		note_size = ftell (note_fp);
+X		fseek (note_fp, tmp_pos, 0);	/* goto old position */
+X	}
+X	
+X	if (note_page == 0)
+X		show_first_header (respnum, group);
+X	else
+X		show_cont_header (respnum);
+X
+X	ctrl_L = FALSE;
+X	while (note_line < LINES) {
+X		if (fgets (buf, sizeof (buf), note_fp) == NULL) {
+X			note_end = TRUE;
+X			break;
+X		}
+X
+X		buf[LEN-1] = '\0';
+X		if (rotate)
+X			for (p = buf, q = buf2; *p && *p != '\n' && q < &buf2[LEN]; p++) {
+X				if (*p == '\b' && q > buf2) {
+X					q--;
+X				} else if (*p == 12) {		/* ^L */
+X					*q++ = '^';
+X					*q++ = 'L';
+X					ctrl_L = TRUE;
+X				} else if (*p == '\t') {
+X					i = q - buf2;
+X					j = (i|7) + 1;
+X
+X					while (i++ < j)
+X						*q++ = ' ';
+X				} else if (((*p) & 0xFF) < ' ') {
+X					*q++ = '^';
+X					*q++ = ((*p) & 0xFF) + '@';
+X				} else if (*p >= 'A' && *p <= 'Z')
+X					*q++ = 'A' + (*p - 'A' + rotate) % 26;
+X				else if (*p >= 'a' && *p <= 'z')
+X					*q++ = 'a' + (*p - 'a' + rotate) % 26;
+X				else
+X					*q++ = *p;
+X			}
+X		else
+X			for (p = buf, q = buf2; *p && *p != '\n' && q < &buf2[LEN]; p++) {
+X				if (*p == '\b' && q > buf2) {
+X					q--;
+X				} else if (*p == 12) {		/* ^L */
+X					*q++ = '^';
+X					*q++ = 'L';
+X					ctrl_L = TRUE;
+X				} else if (*p == '\t') {
+X					i = q - buf2;
+X					j = (i|7) + 1;
+X
+X					while (i++ < j)
+X						*q++ = ' ';
+X				} else if (((*p) & 0xFF) < ' ') {
+X					*q++ = '^';
+X					*q++ = ((*p) & 0xFF) + '@';
+X				} else
+X					*q++ = *p;
+X			}
+X
+X		*q = '\0';
+X
+X		printf("%s\r\n", buf2);
+X
+X		note_line += ((int) strlen (buf2) / COLS) + 1;
+X
+X		if (ctrl_L) {
+X			break;
+X		}
+X	}
+X
+X	note_mark[++note_page] = ftell (note_fp);
+X
+X	if (note_mark[note_page] == note_size) {
+X		note_end = TRUE;
+X	}
+X
+X	if (note_end) {
+X		MoveCursor (LINES, MORE_POS-(5+BLANK_PAGE_COLS));
+X		StartInverse ();	
+X		if (arts[respnum].thread != -1) {
+X			printf (txt_next_resp);
+X			fflush (stdout);
+X		} else {
+X			printf (txt_last_resp);
+X			fflush (stdout);
+X		}
+X		EndInverse ();
+X	} else {
+X		if (note_size > 0) {
+X			draw_percent_mark ((int) note_mark[note_page], (int) note_size);
+X		} else {
+X			MoveCursor (LINES, MORE_POS-BLANK_PAGE_COLS);
+X			StartInverse ();	
+X		    printf (txt_more);
+X			fflush (stdout);
+X			EndInverse ();
+X		}
+X	}
+X	MoveCursor (LINES, 0);
+X
+#endif /* INDEX_DAEMON */
+}
+X
+X
+void show_first_header (respnum, group)
+X	int respnum;
+X	char *group;
+{
+X	int whichresp;
+X	int x_resp;
+X	char buf[LEN];
+X	char tmp[LEN];
+X	int pos, i;
+X	int n;
+X
+X	whichresp = which_response (respnum);
+X	x_resp = num_of_responses (which_thread (respnum));
+X
+X	ClearScreen ();
+X
+X	strcpy (buf, note_h_date);
+X	pos = (COLS - (int) strlen (group)) / 2;
+X	for (i = strlen(buf); i < pos; i++)
+X		buf[i] = ' ';
+X	buf[i] = '\0';
+X
+X	strcat (buf, group);
+X
+X	for (i = strlen(buf); i < RIGHT_POS ; i++)
+X		buf[i] = ' ';
+X	buf[i] = '\0';
+X
+X	printf (txt_thread_x_of_n, buf, which_thread (respnum) + 1, top_base);
+X
+X	sprintf (buf, txt_art, arts[respnum].artnum);
+X	n = strlen (buf);
+X	fputs (buf, stdout);
+X
+X	strcpy (buf, note_h_subj);
+X	buf[RIGHT_POS - 5 - n] = '\0';
+X
+X	pos = ((COLS - (int) strlen (buf)) / 2) - 2;
+X
+X	if (pos > n) {
+X		MoveCursor (1, pos);
+X	} else {
+X		MoveCursor (1, n);
+X	}
+X
+X	StartInverse ();
+X	fputs (buf, stdout);
+X	EndInverse ();
+X
+X	MoveCursor (1, RIGHT_POS);
+X	if (whichresp)
+X		printf (txt_resp_x_of_n, whichresp, x_resp);
+X	else {
+X		if (x_resp == 0)
+X			printf (txt_no_resp);
+X		else if (x_resp == 1)
+X			printf (txt_1_resp);
+X		else
+X			printf (txt_x_resp, x_resp);
+X	}
+X
+X	if (*note_h_org) {
+X		if (strcmp (arts[respnum].from, arts[respnum].name) == 0) {
+X			strcpy (tmp, note_h_org);
+X		} else {
+X			sprintf (tmp, txt_s_at_s, arts[respnum].name, note_h_org);
+X		}
+X	} else {
+X		strcpy (tmp, arts[respnum].name);
+X	}
+X
+X	tmp[LEN-1] = '\0';
+X
+X	sprintf (buf, "%s  ", arts[respnum].from);
+X
+X	pos = COLS - 1 - (int) strlen(tmp);
+X	if ((int) strlen (buf) + (int) strlen (tmp) >= COLS - 1) {
+X		strncat (buf, tmp, COLS - 1 - (int) strlen(buf));
+X		buf[COLS-1] = '\0';
+X	} else {
+X		for (i = strlen(buf); i < pos; i++)
+X			buf[i] = ' ';
+X		buf[i] = '\0';
+X		strcat (buf, tmp);
+X	}
+X	printf ("%s\r\n\r\n", buf);
+X
+X	note_line += 4;
+}
+X
+X
+void show_cont_header (respnum)
+X	int respnum;
+{
+X	int whichresp;
+X	int whichbase;
+X	char buf[LEN];
+X
+X	whichresp = which_response (respnum);
+X	whichbase = which_thread (respnum);
+X
+X	assert (whichbase < top_base);
+X
+X	if (whichresp)
+X		sprintf(buf, txt_thread_resp_page,
+X			whichbase + 1,
+X			top_base,
+X			whichresp,
+X			note_page + 1,
+X			note_h_subj);
+X	else
+X		sprintf(buf, txt_thread_page,
+X			whichbase + 1,
+X			top_base,
+X			note_page + 1,
+X			note_h_subj);
+X
+X	buf[COLS-1] = '\0';
+X	printf("%s\r\n\r\n", buf);
+X
+X	note_line += 2;
+}
+X
+X
+int art_open (art, group_path)
+X	long art;
+X	char *group_path;
+{
+X	char buf[1025];
+X	char *p;
+X
+X	note_page = 0;
+X
+X	art_close ();	/* just in case */
+X
+X	if ((note_fp = open_art_fp (group_path, art)) == NULL) {
+X		return (ART_UNAVAILABLE);
+X	}
+X
+X	note_h_path[0] = '\0';
+X	note_h_subj[0] = '\0';
+X	note_h_org[0] = '\0';
+X	note_h_date[0] = '\0';
+X	note_h_newsgroups[0] = '\0';
+X	note_h_messageid[0] = '\0';
+X	note_h_distrib[0] = '\0';
+X	note_h_followup[0] = '\0';
+X
+X	while (fgets(buf, sizeof buf, note_fp) != NULL) {
+X		buf[1024] = '\0';
+X
+X		for (p=buf ; *p && *p != '\n' ; p++) {
+X			if (((*p) & 0xFF) < ' ')
+X				*p = ' ';
+X		}
+X		*p = '\0';
+X		
+X		if (*buf == '\0')
+X			break;
+X
+X  		if (match_header (buf, "Path", note_h_path, LEN))
+X  			continue;
+X  		if (match_header (buf, "Subject", note_h_subj, LEN))
+X  			continue;
+X  		if (match_header (buf, "Organization", note_h_org, LEN))
+X  			continue;
+X  		if (match_header (buf, "Date", note_h_date, LEN))
+X  			continue;
+X  		if (match_header (buf, "Newsgroups", note_h_newsgroups, LEN))
+X  			continue;
+X  		if (match_header (buf, "Message-ID", note_h_messageid, LEN))
+X  			continue;
+X  		if (match_header (buf, "Message-Id", note_h_messageid, LEN))
+X  			continue;
+X  		if (match_header (buf, "Distribution", note_h_distrib, LEN))
+X  			continue;
+X  		if (match_header (buf, "Followup-To", note_h_followup, LEN))
+X  			continue;
+X	}
+X
+X	note_mark[0] = ftell (note_fp);
+X	note_end = FALSE;
+X
+X	return (0);
+}
+X
+X
+void art_close ()
+{
+X	if (note_fp && note_page != ART_UNAVAILABLE) {
+X		fclose (note_fp);
+X		note_fp = (FILE *) 0;
+X	}
+}
+X
+X
+int prompt_response (ch, respnum)
+X	int ch;
+X	int respnum;
+{
+X	int num;
+X
+X	clear_message ();
+X
+X	if ((num = prompt_num (ch, txt_read_resp)) == -1) {
+X		clear_message ();
+X		return -1;
+X	}
+X
+X	return choose_response (which_thread (respnum), num);
+}
+X
+X
+void yank_to_addr (orig, addr)
+X	char *orig;
+X	char *addr;
+{
+X	char *p;
+X
+X	for (p = orig; *p; p++)
+X		if (((*p) & 0xFF) < ' ')
+X			*p = ' ';
+X
+X	while (*addr)
+X		addr++;
+X
+X	while (*orig) {
+X		while (*orig && (*orig == ' ' || *orig == '"' || *orig == ','))
+X			orig++;
+X		*addr++ = ' ';
+X		while (*orig && (*orig != ' ' && *orig != ',' && *orig != '"'))
+X			*addr++ = *orig++;
+X		while (*orig && (*orig == ' ' || *orig == '"' || *orig == ','))
+X			orig++;
+X		if (*orig == '(') {
+X			while (*orig && *orig != ')')
+X				orig++;
+X			if (*orig == ')')
+X				orig++;
+X		}
+X	}
+X	*addr = '\0';
+}
+X
+X
+int show_last_page ()
+{
+X	char buf[LEN];
+X	char buf2[LEN+50];
+X	char *p, *q;
+X	int ctrl_L;		/* form feed character detected */
+X	int i, j;
+X	long tmp_pos;
+X	
+X	if (note_end) {
+X		return FALSE;
+X	}
+X
+X	if (note_size == 0L) {
+X		tmp_pos = ftell (note_fp);
+X		fseek (note_fp, 0L, 2);			/* goto end of article */
+X		note_size = ftell (note_fp);
+X		fseek (note_fp, tmp_pos, 0);	/* goto old position */
+X	}
+X
+X	while (! note_end) {
+X		note_line = 1;
+X		ctrl_L = FALSE;
+X
+X		if (note_page == 0) {
+X			note_line += 4;
+X		} else {
+X			note_line += 2;
+X		}
+X		while (note_line < LINES) {
+X			if (fgets (buf, sizeof buf, note_fp) == NULL) {
+X				note_end = TRUE;
+X				break;
+X			}
+X			buf[LEN-1] = '\0';
+X			for (p = buf, q = buf2;	*p && *p != '\n' && q<&buf2[LEN]; p++) {
+X				if (*p == '\b' && q > buf2) {
+X					q--;
+X				} else if (*p == 12) {		/* ^L */
+X					*q++ = '^';
+X					*q++ = 'L';
+X					ctrl_L = TRUE;
+X				} else if (*p == '\t') {
+X					i = q - buf2;
+X					j = (i|7) + 1;
+X
+X					while (i++ < j) {
+X						*q++ = ' ';
+X					}
+X				} else if (((*p) & 0xFF) < ' ') {
+X					*q++ = '^';
+X					*q++ = ((*p) & 0xFF) + '@';
+X				} else {
+X					*q++ = *p;
+X				}
+X			}
+X			*q = '\0';
+X			note_line += ((int) strlen (buf2) / COLS) + 1;
+X
+X			if (ctrl_L) {
+X				break;
+X			}
+X		}
+X		if (note_mark[note_page] == note_size) {
+X			note_end = TRUE;
+X			note_page--;
+X			break;
+X		} else if (! note_end) {
+X			note_mark[++note_page] = ftell(note_fp);
+X		}
+X	}
+X	fseek (note_fp, note_mark[note_page], 0);
+X	return TRUE;
+}
+X
+X
+int match_header (buf, pat, body, len)
+X	char *buf;
+X	char *pat;
+X	char *body;
+X	int	len;
+{
+X	int	plen = strlen (pat);
+X
+X	if(strncmp (buf, pat, plen) == 0 && buf[plen] == ':' && buf[plen + 1] == ' ') {
+X		plen += 2;
+X		while (buf[plen] == ' ')
+X			plen++;
+X		strncpy (body, &buf[plen], len);
+X		body[len - 1] = '\0';
+X		return TRUE;
+X	}
+X	return FALSE;
+}
+SHAR_EOF
+chmod 0600 page.c ||
+echo 'restore of page.c failed'
+Wc_c="`wc -c < 'page.c'`"
+test 22692 -eq "$Wc_c" ||
+	echo 'page.c: original size 22692, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= post.c ==============
+if test -f 'post.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping post.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting post.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'post.c' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : post.c
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 22-03-92
+X *  Notes     : mailing/posting/replying/followup & cancel article routines
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+#include	"tin.h"
+X
+extern char note_h_distrib[LEN];		/* Distribution: */
+extern char note_h_followup[LEN];		/* Followup-To: */
+extern char note_h_messageid[LEN];		/* Message-ID:	*/
+extern char note_h_newsgroups[LEN];		/* Newsgroups:	*/
+extern char note_h_subj[LEN];			/* Subject:	*/
+extern FILE *note_fp;					/* the body of the current article */
+extern int cur_groupnum;
+extern long note_mark[MAX_PAGES];		/* ftells on beginnings of pages */
+X
+char default_post_subject[LEN];		/* offers user default choice */
+int unlink_article = TRUE;
+struct posted_t *posted;
+X
+X
+int user_posted_messages ()
+{
+X	char buf[LEN];
+X	FILE *fp;
+X	int i, j, k;
+X	int no_of_lines = 0;
+X
+X	set_real_uid_gid ();
+X		
+X	if ((fp = fopen (postfile, "r")) == NULL) {
+X		clear_message ();
+X		set_tin_uid_gid ();
+X		return FALSE;
+X	} else {
+X		while (fgets (buf, sizeof (buf), fp) != NULL) {
+X			no_of_lines++;
+X		}
+X		if (! no_of_lines) {
+X			fclose (fp);
+X			info_message (txt_no_arts_posted);
+X			return FALSE;
+X		}
+X		rewind (fp);
+X		posted = (struct posted_t *) my_malloc ((unsigned) (no_of_lines+1) * sizeof (struct posted_t));
+X		for (i=0 ; fgets (buf, sizeof (buf), fp) != NULL ; i++) {
+X			for (j=0 ; buf[j] != '|' && buf[j] != '\n' ; j++) {
+X				posted[i].date[j] = buf[j];		/* posted date */
+X			}
+X			if (buf[j] == '\n') {	
+X				error_message ("Corrupted file %s", postfile);
+X				sleep (1);
+X				fclose (fp);
+X				clear_message ();
+X				return FALSE;
+X			}
+X			posted[i].date[j++] = '\0';
+X			for (k=j,j=0 ; buf[k] != '|' && buf[k] != ',' ; k++, j++) {
+X				posted[i].group[j] = buf[k];
+X			}
+X			if (buf[k] == ',') {
+X				while (buf[k] != '|' && buf[k] != '\n') {
+X					k++;
+X				}
+X				posted[i].group[j++] = ',';
+X				posted[i].group[j++] = '.';
+X				posted[i].group[j++] = '.';
+X				posted[i].group[j++] = '.';
+X			}
+X			posted[i].group[j++] = '\0';
+X			k++;
+X			for (j=k,k=0 ; buf[j] != '\n' ; j++, k++) {
+X				posted[i].subj[k] = buf[j];
+X			}
+X			posted[i].subj[k++] = '\0';
+X		}
+X		fclose (fp);
+X		set_tin_uid_gid ();
+X
+X		show_info_page (POST_INFO, (char **) 0, txt_post_history_menu);
+X		if (posted != (struct posted_t *) 0) {
+X			free ((char *) posted);
+X			posted = (struct posted_t *) 0;
+X		}
+X		return TRUE;
+X	}
+}
+X
+X
+void update_art_posted_file (group, subj)
+X	char *group;
+X	char *subj;
+{
+X	char buf[LEN];
+X	char tmp_post[LEN];
+X	FILE *fp, *tmp_fp;
+X	long epoch;
+X	struct tm *tm;
+X
+X	sprintf (tmp_post, "%s.%d", postfile, process_id);
+X
+X	set_real_uid_gid ();
+X
+X	if ((tmp_fp = fopen (tmp_post, "w")) != NULL) {
+X		time (&epoch);
+X		tm = localtime (&epoch);
+X		fprintf (tmp_fp, "%02d-%02d-%02d|%s|%s\n",
+X			tm->tm_mday, tm->tm_mon+1, tm->tm_year, group, subj);
+X		fclose (tmp_fp);
+X	}
+X
+X	if ((tmp_fp = fopen (tmp_post, "a+")) != NULL) {
+X		if ((fp = fopen (postfile, "r")) != NULL) {
+X			while (fgets (buf, sizeof buf, fp) != NULL) {
+X				fprintf (tmp_fp, "%s", buf);
+X			}	
+X			fclose (fp);
+X			rename_file (tmp_post, postfile);
+X		}
+X		fclose (tmp_fp);
+X	}
+X	set_tin_uid_gid ();
+}
+X
+/*
+X *  Post an original article (not a followup)
+X */
+X
+int post_base (group, posted)
+X	char *group;
+X	int *posted;
+{
+X	FILE *fp;
+X	char ch;
+X	char ch_default = 'p';
+X	char subj[LEN];
+X	char buf[LEN];
+X	int redraw_screen = FALSE;
+X
+X	*posted = FALSE;
+X	start_line_offset = 4;
+X
+X	if (active[my_group[cur_groupnum]].moderated == 'm') {
+X		sprintf (msg, "Group %s is moderated. Continue? (y/n): ", group);
+X		if (! prompt_yn (LINES, msg, 'y')) {
+X			clear_message ();
+X			return (redraw_screen);
+X		}
+X	}
+X
+X	sprintf (msg, txt_post_subject, default_post_subject);
+X	
+X	if (! prompt_string (msg, subj)) {
+X		clear_message ();
+X		return (redraw_screen);
+X	}
+X
+X	if (strlen (subj)) {
+X		my_strncpy (default_post_subject, subj, LEN);
+X	} else {
+X		if (default_post_subject[0]) {
+X			my_strncpy (subj, default_post_subject, LEN);
+X		} else {
+X			info_message (txt_no_subject);
+X			return (redraw_screen);
+X		}
+X	}
+X	
+X	wait_message (txt_post_an_article);
+X
+X	set_real_uid_gid ();
+X
+X	if ((fp = fopen (article, "w")) == NULL) {
+X		error_message (txt_cannot_open, article);
+X		set_tin_uid_gid ();
+X		return (redraw_screen);
+X	}
+X	chmod (article, 0600);
+X
+X	fprintf (fp, "Subject: %s\n", subj);
+X	fprintf (fp, "Newsgroups: %s\n", group);
+X	fprintf (fp, "Distribution: \n");
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X	fprintf (fp, "\n");
+X
+X	add_signature (fp, FALSE);
+X	fclose (fp);
+X
+X	ch = 'e';
+X	while (1) {
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (article);
+X 			set_real_uid_gid ();
+X			redraw_screen = TRUE;
+X			break;
+X
+X		case 'a':
+X		case ESC:
+X			if (unlink_article)
+X				unlink (article);
+X			clear_message ();
+X			set_tin_uid_gid ();
+X			return (redraw_screen);
+X
+X		case 'p':
+X			wait_message (txt_posting);
+X			if (submit_file (article)) {
+X				info_message (txt_art_posted);
+X				*posted = TRUE;
+X				goto post_base_done;
+X			} else {
+X				rename_file (article, dead_article);
+X				sprintf (buf, txt_art_rejected, dead_article);
+X				info_message (buf);
+X				sleep (3);
+X				set_tin_uid_gid ();
+X				return (redraw_screen);
+X			}
+X		}
+X
+X		do {
+X			sprintf (msg, "%s%c", txt_abort_edit_post, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (txt_abort_edit_post));
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'a' && ch != 'e' && ch != 'p');
+X	}
+X
+post_base_done:
+X	find_mail_header (HEADER_SUBJECT, article, subj);
+X	if (unlink_article)
+X		unlink (article);
+X	set_tin_uid_gid ();
+X	update_art_posted_file (group, subj);
+X	return (redraw_screen);
+}
+X
+X
+int post_response (group, respnum, copy_text)
+X	char *group;
+X	int respnum;
+X	int copy_text;
+{
+X	FILE *fp;
+X	char ch, *ptr;
+X	char ch_default = 'p';
+X	char buf[LEN];
+X	int ret_code = POSTED_NONE;
+X	
+X	start_line_offset = 4;
+X
+X	wait_message (txt_post_a_followup);
+X	
+X	if (*note_h_followup && strcmp (note_h_followup, "poster") == 0) {
+X		clear_message ();
+X		if (! prompt_yn (LINES, txt_resp_to_poster, 'y')) {
+X			return (ret_code);
+X		}
+X		*note_h_followup = '\0';
+X	} else if (*note_h_followup && strcmp(note_h_followup, group) != 0) {
+X	    MoveCursor (LINES/2, 0);
+X	    CleartoEOS ();
+X		center_line ((LINES/2)+2, TRUE, txt_resp_redirect);
+X	    MoveCursor ((LINES/2)+4, 0);
+X
+X		printf ("    ");
+X		ptr = note_h_followup;
+X		while (*ptr) {
+X			if (*ptr != ',') {
+X				putc (*ptr, stdout);
+X			} else {
+X				printf ("\r\n    ");
+X			}
+X			fflush (stdout);
+X			ptr++;
+X		}
+X
+X		if (! prompt_yn (LINES, txt_continue, 'y')) {
+X			return (ret_code);
+X		}
+X	}
+X
+X	set_real_uid_gid ();
+X
+X	if ((fp = fopen (article, "w")) == NULL) {
+X		error_message (txt_cannot_open, article);
+X		set_tin_uid_gid ();
+X		return (ret_code);
+X	}
+X	chmod (article, 0600);
+X
+X	fprintf (fp, "Subject: Re: %s\n", eat_re (note_h_subj));
+X
+X	if (*note_h_followup && strcmp(note_h_followup, "poster") != 0) {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_followup);
+X	} else {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X	}
+X	if (note_h_distrib != '\0') {
+X		fprintf (fp, "Distribution: %s\n", note_h_distrib);
+X		start_line_offset++;
+X	}
+X	fprintf (fp, "References: %s\n", note_h_messageid);
+X
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X	fprintf (fp, "\n");
+X
+X	if (copy_text) {	/* if "copy_text" */
+X		if (arts[respnum].from != (char *) 0) { 	
+X			if (arts[respnum].name == arts[respnum].from) { 	
+X				fprintf (fp, txt_writes, arts[respnum].from);
+X			} else {
+X				fprintf (fp, txt_writes_name, arts[respnum].from, arts[respnum].name);
+X			}
+X		}
+X		fseek (note_fp, note_mark[0], 0);
+X		copy_fp (note_fp, fp, DEFAULT_COMMENT);
+X	}
+X
+X	add_signature (fp, FALSE);
+X	fclose (fp);
+X
+X	ch = 'e';
+X	while (1) {
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (article);
+X 			set_real_uid_gid ();
+X			ret_code = POSTED_REDRAW;
+X			break;
+X
+X		case 'a':
+X		case ESC:
+X			if (unlink_article)
+X				unlink (article);
+X			clear_message ();
+X			set_tin_uid_gid ();
+X			return (ret_code);
+X
+X		case 'p':
+X			wait_message (txt_posting);
+X			if (submit_file (article)) {
+X				ret_code = POSTED_OK;
+X				info_message (txt_art_posted);
+X				goto post_response_done;
+X			} else {
+X				rename_file (article, dead_article);
+X				sprintf (buf, txt_art_rejected, dead_article);
+X				info_message (buf);
+X				sleep (3);
+X				set_tin_uid_gid ();
+X				return (ret_code);
+X			}
+X		}
+X
+X		do {
+X			sprintf (msg, "%s%c", txt_abort_edit_post, ch_default);
+X			wait_message (msg);
+X			MoveCursor(LINES, (int) strlen (txt_abort_edit_post));
+X			if ((ch = (char) ReadCh()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'a' && ch != 'e' && ch != 'p');
+X	}
+X
+post_response_done:
+X	if (*note_h_followup && strcmp(note_h_followup, "poster") != 0) {
+X		find_mail_header (HEADER_SUBJECT, article, buf);
+X		update_art_posted_file (note_h_followup, buf);
+X	} else {
+X		find_mail_header (HEADER_SUBJECT, article, buf);
+X		update_art_posted_file (note_h_newsgroups, buf);
+X	}
+X
+X	if (unlink_article) {
+X		set_real_uid_gid ();
+X		unlink (article);
+X		set_tin_uid_gid ();
+X	}
+X	
+X	return (ret_code);
+}
+X
+X
+int mail_to_someone (address, confirm_to_mail)
+X	char *address;
+X	int confirm_to_mail;
+{
+X	char nam[100];
+X	char ch = 's';
+X	char ch_default = 's';
+X	char buf[LEN];
+X	char mail_to[LEN];
+X	FILE *fp;
+X	int redraw_screen = FALSE;
+X
+X	start_line_offset = 4;
+X	
+X	strcpy (mail_to, address);
+X	clear_message ();
+X	
+X	set_real_uid_gid ();
+X
+X	sprintf (nam, "%s/.letter", homedir);
+X	if ((fp = fopen (nam, "w")) == NULL) {
+X		error_message (txt_cannot_open, nam);
+X		set_tin_uid_gid ();
+X		return (redraw_screen);
+X	}
+X	chmod (nam, 0600);
+X
+X	fprintf (fp, "To: %s\n", mail_to);
+X	fprintf (fp, "Subject: (fwd) %s\n", note_h_subj);
+X	if (*note_h_followup) {
+X		fprintf (fp, "Newsgroups: %s\n\n", note_h_followup);
+X	} else {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X	}
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X	fputs ("\n", fp);
+X	
+X	fseek (note_fp, 0L, 0);
+X	copy_fp (note_fp, fp, (char *) 0);
+X
+X	add_signature (fp, TRUE);
+X	fclose (fp);
+X	
+X	while (1) {
+X		if (confirm_to_mail) {
+X			do {
+X				my_strncpy (buf, note_h_subj, COLS-30);
+X				sprintf (msg, "%s [%s]: %c", txt_abort_edit_send, buf, ch_default);
+X				wait_message (msg);
+X				MoveCursor (LINES, (int) strlen (msg)-1);
+X				if ((ch = (char) ReadCh ()) == CR)
+X					ch = ch_default;
+X			} while (ch != ESC && ch != 'a' && ch != 'e' && ch != 's');
+X		}
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (nam);
+X			set_real_uid_gid ();
+X			redraw_screen = TRUE;
+X			break;
+X
+X		case 'a':
+X		case ESC:
+X			unlink (nam);
+X			clear_message ();
+X			set_tin_uid_gid ();
+X			return (redraw_screen);
+X
+X		case 's':
+X			/*
+X			 *  Open letter and get the To: line in case they changed
+X			 *  it with the editor
+X			 */
+X			find_mail_header (HEADER_TO, nam, mail_to);
+X			sprintf (msg, txt_mailing_to, mail_to);
+X			wait_message (msg);
+X			sprintf (buf, "%s \"%s\" < %s", mailer, mail_to, nam);
+X			if (invoke_cmd (buf)) {
+X				info_message (txt_message_sent);
+X				goto mail_to_someone_done;
+X			} else {
+X				error_message (txt_command_failed_s, buf);
+X				break;
+X			}
+X		}
+X	}
+X
+mail_to_someone_done:
+X	set_real_uid_gid ();
+X	unlink (nam);
+X	set_tin_uid_gid ();
+X
+X	return (redraw_screen);
+}
+X
+X
+int mail_bug_report ()
+{
+X	char nam[100];
+X	char ch;
+X	char ch_default = 's';
+X	char buf[LEN];
+X	char mail_to[LEN];
+X	FILE *fp;
+X	FILE *fp_uname;
+X	int is_nntp = FALSE;
+X	int is_nntp_only   = FALSE;
+X	int is_nntp_xuser  = FALSE;
+X	int is_nntp_xindex = FALSE;
+X	int is_longfiles   = FALSE;
+X	int is_resync_active = 0;
+X
+X	start_line_offset = 5;
+X	
+X	wait_message (txt_mail_bug_report);
+X	
+X	set_real_uid_gid ();
+X
+X	sprintf (nam, "%s/.bugreport", homedir);
+X	if ((fp = fopen (nam, "w")) == NULL) {
+X		error_message (txt_cannot_open, nam);
+X		set_tin_uid_gid ();
+X		return FALSE;
+X	}
+X	chmod(nam, 0600);
+X
+X	fprintf (fp, "To: %s\n", bug_addr);
+X	fprintf (fp, "Subject: BUG REPORT %s %s PL%d %s\n",	progname,
+X		VERSION, PATCHLEVEL, (compiled_with_nntp ? "(NNTP)" : ""));
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X
+X	if ((fp_uname = popen ("uname -a", "r")) != NULL) {
+X		fprintf (fp, "\n");
+X		start_line_offset++;
+X		while (fgets (buf, sizeof (buf), fp_uname) != NULL) {
+X			fprintf (fp, "%s", buf);
+X			start_line_offset++;
+X		}
+X		fclose (fp_uname);
+X	} else {
+X		fprintf (fp, "\nPlease enter the following information:\n");
+X		fprintf (fp, "1) machine:\n");
+X		fprintf (fp, "2) os type:\n");
+X	}
+#ifndef NO_RESYNC_ACTIVE_FILE
+X	is_resync_active = RESYNC_ACTIVE_SECS;
+#endif
+#ifdef NNTP_ABLE
+X	is_nntp = TRUE;
+#endif
+#ifdef NNTP_ONLY
+X	is_nntp_only = TRUE;
+#endif
+#ifdef NNTP_XUSER
+X	is_nntp_xuser = TRUE;
+#endif
+#ifdef NNTP_XINDEX
+X	is_nntp_xindex = TRUE;
+#endif
+#ifdef USE_LONG_FILENAMES
+X	is_longfiles = TRUE;
+#endif
+X	fprintf (fp, "\nactive=%d  arts=%d  resync=%d  nntp=%d  nntp_only=%d\n\
+nntp_xuser=%d  nntp_xindex=%d  longnames=%d\n",
+X		DEFAULT_ACTIVE_NUM, DEFAULT_ARTICLE_NUM, is_resync_active,
+X		is_nntp, is_nntp_only, is_nntp_xuser, is_nntp_xindex, 
+X		is_longfiles);
+X	start_line_offset += 2;
+X	
+X	fprintf (fp, "\nPlease enter bug report/gripe/comment:\n");
+X
+X	add_signature (fp, TRUE);
+X	fclose (fp);
+X	
+X	ch = 'e';
+X	while (1) {
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (nam);
+X			set_real_uid_gid ();
+X			break;
+X
+X		case 'a':
+X		case ESC:
+X			unlink (nam);
+X			clear_message ();
+X			set_tin_uid_gid ();
+X			return TRUE;
+X
+X		case 's':
+X			sprintf (msg, txt_mail_bug_report_confirm, bug_addr);
+X			if (prompt_yn (LINES, msg, 'y')) {
+X				strcpy (mail_to, bug_addr);
+X				find_mail_header (HEADER_TO, nam, mail_to);
+X				sprintf (msg, txt_mailing_to, mail_to);
+X				wait_message (msg);
+X				sprintf (buf, "%s \"%s\" < %s", mailer, mail_to, nam);
+X				if (invoke_cmd (buf)) {
+X					info_message (txt_message_sent);
+X					goto mail_bug_report_done;
+X				} else {
+X					error_message (txt_command_failed_s, buf);
+X					break;
+X				}
+X			} else {
+X				goto mail_bug_report_done;
+X			}
+X		}
+X
+X		do {
+X			sprintf (msg, "%s: %c", txt_abort_edit_send, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (msg)-1);
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'a' && ch != 'e' && ch != 's');
+X	}
+X
+mail_bug_report_done:
+X	set_real_uid_gid ();
+X	unlink (nam);
+X	set_tin_uid_gid ();
+X
+X	return TRUE;
+}
+X
+X
+int mail_to_author (respnum, copy_text)
+X	int respnum;
+X	int copy_text;
+{
+X	char buf[LEN];
+X	char nam[100];
+X	char mail_to[LEN];
+X	char ch, ch_default = 's';
+X	FILE *fp;
+X	int redraw_screen = FALSE;
+X
+X	start_line_offset = 4;
+X	
+X	wait_message (txt_reply_to_author);
+X
+X	set_real_uid_gid ();
+X
+X	sprintf (nam, "%s/.letter", homedir);
+X	if ((fp = fopen (nam, "w")) == NULL) {
+X		error_message (txt_cannot_open, nam);
+X		set_tin_uid_gid ();
+X		return (redraw_screen);
+X	}
+X	chmod (nam, 0600);
+X
+X	fprintf (fp, "To: %s%s (%s)\n",
+X		arts[respnum].from, add_addr, arts[respnum].name);
+X	fprintf (fp, "Subject: Re: %s\n", eat_re(note_h_subj) );
+X	fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X	fputs ("\n", fp);
+X
+X	if (copy_text) {		/* if "copy_text" */
+X		fprintf (fp, txt_in_art_you_write, note_h_messageid);
+X		fseek (note_fp, note_mark[0], 0);
+X		copy_fp (note_fp, fp, DEFAULT_COMMENT);
+X	}
+X
+X	add_signature (fp, TRUE);
+X	fclose (fp);
+X
+X	ch = 'e';
+X	while (1) {
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (nam);
+X			set_real_uid_gid ();
+X			redraw_screen = TRUE;
+X			break;
+X
+X		case 'a':
+X		case ESC:
+X			unlink (nam);
+X			clear_message ();
+X			set_tin_uid_gid ();
+X			return (redraw_screen);
+X
+X		case 's':
+X			strcpy (mail_to, arts[respnum].from);
+X			find_mail_header (HEADER_TO, nam, mail_to);
+X			sprintf (msg, txt_mailing_to, mail_to);
+X			wait_message (msg);
+X			sprintf (buf, "%s \"%s\" < %s", mailer, mail_to, nam);
+X			if (invoke_cmd (buf)) {
+X				info_message (txt_message_sent);
+X				goto mail_to_author_done;
+X			} else {
+X				error_message (txt_command_failed_s, buf);
+X				break;
+X			}
+X		}
+X
+X		do {
+X			sprintf (msg, "%s: %c", txt_abort_edit_send, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (msg)-1);
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'a' && ch != 'e' && ch != 's');
+X	}
+X
+mail_to_author_done:
+X	set_real_uid_gid ();
+X	unlink (nam);
+X	set_tin_uid_gid ();
+X
+X	return (redraw_screen);
+}
+X
+/*
+X *  Read a file grabbing the value of the specified mail header line
+X */
+X
+void find_mail_header (header, file, value)
+X	int header;
+X	char *file;
+X	char *value;
+{
+X	FILE *fp;
+X	char buf[LEN];
+X	char buf2[LEN];
+X	char new_value[LEN];
+X	char *p;
+X
+X	*new_value = '\0';
+X
+X	if ((fp = fopen (file, "r")) == NULL) {
+X		error_message (txt_cannot_open, file);
+X		return;
+X	}
+X
+X	while (fgets (buf, sizeof (buf), fp) != NULL) {
+X		for (p = buf; *p && *p != '\n'; p++)
+X			continue;
+X		*p = '\0';
+X
+X		if (*buf == '\0')
+X			break;
+X
+X		switch (header) {
+X			case HEADER_TO:
+X				if (strncmp (buf, "To: ", 4) == 0) {
+X					my_strncpy (buf2, &buf[4], LEN);
+X					buf2[LEN-1] = '\0';
+X					yank_to_addr (buf2, new_value);
+X				} else if (strncmp (buf, "Cc: ", 4) == 0) {
+X					my_strncpy (buf2, &buf[4], LEN);
+X					buf2[LEN-1] = '\0';
+X					yank_to_addr (buf2, new_value);
+X				} 
+X				break;
+X
+X			case HEADER_SUBJECT:
+X				if (strncmp (buf, "Subject: ", 9) == 0) {
+X					my_strncpy (new_value, &buf[9], LEN);
+X					new_value[LEN-1] = '\0';
+X				}
+X				break;
+X		}
+X	}
+X
+X	fclose (fp);
+X
+X	if (new_value[0] == ' ') {
+X		my_strncpy (value, &new_value[1], LEN);
+X	} else {
+X		my_strncpy (value, new_value, LEN);
+X	}
+}
+X
+X
+int cancel_article ()
+{
+X	char ch, ch_default = 'c';
+X	char buf[LEN];
+X	char cancel[LEN];
+X	FILE *fp;
+X	int redraw_screen = FALSE;
+X
+X	start_line_offset = 4;
+X	
+X	clear_message ();
+X	
+X	set_real_uid_gid ();
+X
+X	sprintf (cancel, "%s/.cancel", homedir);
+X	if ((fp = fopen (cancel, "w")) == NULL) {
+X		error_message (txt_cannot_open, cancel);
+X		set_tin_uid_gid ();
+X		return (redraw_screen);
+X	}
+X	chmod (cancel, 0600);
+X
+X	fprintf (fp, "Subject: cancel %s\n", note_h_messageid);
+X	if (*note_h_followup) {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_followup);
+X	} else {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X	}
+X	fprintf (fp, "Control: cancel %s\n", note_h_messageid);
+X	if (*my_org) { 
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;	
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;	
+X	}
+X	fputs ("\n", fp);
+X
+X	fprintf (fp, "Article cancelled from within tin\n");
+X	
+X	fclose (fp);
+X	
+X	while (1) {
+X		do {
+X			my_strncpy (buf, note_h_subj, COLS-30);
+X			sprintf (msg, "%s [%s]: %c", txt_abort_edit_cancel, buf, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (msg)-1);
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'a' && ch != 'e' && ch != 'c');
+X
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (cancel);
+X 			set_real_uid_gid ();
+X			redraw_screen = TRUE;
+X			break;
+X
+X		case 'a':
+X		case ESC:
+X			unlink (cancel);
+X			clear_message ();
+X			set_tin_uid_gid ();
+X			return (redraw_screen);
+X
+X		case 'c':
+X			wait_message (txt_cancelling);
+X			if (submit_file (cancel)) {
+X				info_message (txt_art_cancelled);
+X				goto cancel_article_done;
+X			} else {
+X				error_message (txt_command_failed_s, buf);
+X				break;
+X			}
+X		}
+X	}
+X
+cancel_article_done:
+X	set_real_uid_gid ();
+X	unlink (cancel);
+X	set_tin_uid_gid ();
+X
+X	return (redraw_screen);
+}
+X
+X
+int submit_file(name)
+X	char *name;
+{
+X	int ret_code = FALSE;
+X	
+#ifdef NNTP_INEWS
+X	ret_code = submit_inews (name);
+#else
+X	char	buf[LEN];
+X	char*	cp = buf;
+X
+#ifdef INEWSDIR
+X	strcpy (buf, INEWSDIR);
+X	strcat (buf, "/");
+X	cp = &buf[strlen(buf)];
+#endif
+X
+X	sprintf (cp, "inews -h < %s %s", name, redirect_output);
+X	
+X	ret_code = invoke_cmd (buf);
+#endif /* NNTP_INEWS */
+X
+X	set_real_uid_gid ();
+X	return (ret_code);
+}
+X
+X
+void add_signature (fp, flag)
+X	FILE *fp;
+X	int flag;
+{
+X	FILE *sigf;
+X
+X	if ((sigf = fopen (signature, "r")) != NULL) {
+X		if (flag) {
+X			fprintf (fp, "\n--\n");
+X			copy_fp (sigf, fp, (char *) 0);
+X		}
+X		fclose (sigf);
+X		return;
+X	}
+X
+X	if ((sigf = fopen (sig, "r")) != NULL) {
+X		fprintf (fp, "\n--\n");
+X		copy_fp (sigf, fp, (char *) 0);
+X		fclose (sigf);
+X	}
+}
+SHAR_EOF
+chmod 0600 post.c ||
+echo 'restore of post.c failed'
+Wc_c="`wc -c < 'post.c'`"
+test 20624 -eq "$Wc_c" ||
+	echo 'post.c: original size 20624, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= prompt.c ==============
+if test -f 'prompt.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping prompt.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting prompt.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'prompt.c' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : prompt.c
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 01-03-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+#include	"tin.h"
+X
+/*
+X *  prompt_num
+X *  get a number from the user
+X *  Return -1 if missing or bad number typed
+X */
+X
+int prompt_num (ch, prompt)
+X	char ch;
+X	char *prompt;
+{
+X	char *p;
+X	int num;
+X	int time_remaining;
+X
+X	time_remaining = alarm (0);
+X	
+X	clear_message ();
+X
+X	sprintf (msg, "%c", ch);
+X
+X	if ((p = getline (prompt, TRUE, msg)) != (char *) 0) {
+X		strcpy (msg, p);
+X		num = atoi (msg);
+X	} else {
+X		num = -1;
+X	}
+X
+X	clear_message ();
+X
+X	alarm (time_remaining);
+X	
+X	return (num);
+}
+X
+/*
+X *  prompt_string
+X *  get a string from the user
+X *  Return TRUE if a valid string was typed, FALSE otherwise
+X */
+X
+int prompt_string (prompt, buf)
+X	char *prompt;
+X	char *buf;
+{
+X	char *p;
+X	int time_remaining;
+X	
+X	time_remaining = alarm (0);
+X
+X	clear_message ();
+X
+X	if ((p = getline (prompt, FALSE, (char *) 0)) == (char *) 0) {
+X		buf[0] = '\0';
+X		clear_message ();
+X		alarm (time_remaining);
+X		return FALSE;
+X	}
+X	strcpy (buf, p);
+X	
+X	clear_message ();
+X
+X	alarm (time_remaining);
+X	
+X	return TRUE;
+}
+X
+/*
+X *  prompt_menu_string
+X *  get a string from the user
+X *  Return TRUE if a valid string was typed, FALSE otherwise
+X */
+X
+int prompt_menu_string (line, col, var)
+X	int line;
+X	int col;
+X	char *var;
+{
+X	char *p;
+X	int time_remaining;
+X	
+X	time_remaining = alarm (0);
+X
+X	MoveCursor (line, col);
+X
+X	if ((p = getline ("", FALSE, var)) == (char *) 0) {
+SHAR_EOF
+true || echo 'restore of prompt.c failed'
+fi
+echo 'End of tin1.1 part 8'
+echo 'File prompt.c is continued in part 9'
+echo 9 > _shar_seq_.tmp
+exit 0
+
+--
+NAME   Iain Lea 
+EMAIL  iain%anl433.uucp@germany.eu.net
+SNAIL  Siemens AG, ANL A433SZ, Gruendlacher Str. 248, 8510 Fuerth, Germany.
+PHONE  +49-911-3089-407 (work) +49-911-331963 (home) +49-911-3089-290 (FAX)  
+-- 
+ Dr. med. dipl.-math Dieter Becker           Tel.: (0 / +49) 6841 - 16 3046
+ Medizinische Universitaets- und Poliklinik  Fax.: (0 / +49) 6841 - 16 3369
+ Innere Medizin III                         
+ D - 6650 Homburg / Saar                     Email: becker@med-in.uni-sb.de
+exit 0 # Just in case...

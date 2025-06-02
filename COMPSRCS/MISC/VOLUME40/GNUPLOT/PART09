@@ -1,0 +1,2826 @@
+Newsgroups: comp.sources.misc
+From: woo@playfair.stanford.edu ("Alexander Woo")
+Subject: v40i021:  gnuplot - interactive function plotting utility, Part09/33
+Message-ID: <1993Oct21.144458.1933@sparky.sterling.com>
+X-Md4-Signature: 8af1f68792598ced9024ea8f4973f8e3
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 21 Oct 1993 14:44:58 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: woo@playfair.stanford.edu ("Alexander Woo")
+Posting-number: Volume 40, Issue 21
+Archive-name: gnuplot/part09
+Environment: UNIX, MS-DOS, VMS
+Supersedes: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  gnuplot/docs/latextut/eg1.plt gnuplot/misc.c
+#   gnuplot/win/wtext.c
+# Wrapped by kent@sparky on Wed Oct 20 17:14:42 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 33)."'
+if test -f 'gnuplot/docs/latextut/eg1.plt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/docs/latextut/eg1.plt'\"
+else
+  echo shar: Extracting \"'gnuplot/docs/latextut/eg1.plt'\" \(65 characters\)
+  sed "s/^X//" >'gnuplot/docs/latextut/eg1.plt' <<'END_OF_FILE'
+Xset terminal latex
+Xset output "eg1.tex"
+Xplot [-3.14:3.14] sin(x)
+END_OF_FILE
+  if test 65 -ne `wc -c <'gnuplot/docs/latextut/eg1.plt'`; then
+    echo shar: \"'gnuplot/docs/latextut/eg1.plt'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/docs/latextut/eg1.plt'
+fi
+if test -f 'gnuplot/misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/misc.c'\"
+else
+  echo shar: Extracting \"'gnuplot/misc.c'\" \(25786 characters\)
+  sed "s/^X//" >'gnuplot/misc.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: misc.c%v 3.50 1993/07/09 05:35:24 woo Exp $";
+X#endif
+X
+X
+X/* GNUPLOT - misc.c */
+X/*
+X * Copyright (C) 1986 - 1993   Thomas Williams, Colin Kelley
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHORS
+X *
+X *   Original Software:
+X *     Thomas Williams,  Colin Kelley.
+X * 
+X *   Gnuplot 2.0 additions:
+X *       Russell Lang, Dave Kotz, John Campbell.
+X *
+X *   Gnuplot 3.0 additions:
+X *       Gershon Elber and many others.
+X *
+X */
+X
+X#include <stdio.h>
+X#include <math.h>
+X#ifndef __PUREC__
+X#ifndef VMS
+X#ifdef AMIGA_AC_5
+X#include <exec/types.h>
+X#else
+X#include <sys/types.h>
+X#endif /* AMIGA_AC_5 */
+X#else
+X#include <types.h>
+X#endif
+X#endif /* __PUREC__ */
+X#include "plot.h"
+X#include "setshow.h"
+X#ifndef _Windows
+X#include "help.h"
+X#endif
+X
+X#if !defined(__TURBOC__) && !defined (_IBMR2) && !defined (ATARI) && !defined (AMIGA_SC_6_1) && !defined(OSF1)
+Xextern char *malloc();
+Xextern char *realloc();
+X#endif
+X
+X#if defined(__TURBOC__) && (defined(MSDOS) || defined(_Windows))
+X#include <alloc.h>		/* for malloc, farmalloc, farrealloc */
+X#endif
+X#if defined(sequent)
+X#include <sys/types.h>          /* typedef long size_t; */
+X#endif
+X
+Xextern int c_token;
+Xextern char replot_line[];
+Xextern struct at_type at;
+Xextern struct ft_entry ft[];
+Xextern struct udft_entry *first_udf;
+Xextern struct udvt_entry *first_udv;
+X
+Xextern struct at_type *temp_at();
+X
+Xextern TBOOLEAN interactive;
+Xextern char *infile_name;
+Xextern int inline_num;
+X
+X/* State information for load_file(), to recover from errors
+X * and properly handle recursive load_file calls
+X */
+Xtypedef struct lf_state_struct LFS;
+Xstruct lf_state_struct {
+X    FILE *fp;				/* file pointer for load file */
+X    char *name;			/* name of file */
+X    TBOOLEAN interactive;		/* value of interactive flag on entry */
+X    int inline_num;			/* inline_num on entry */
+X    LFS *prev;				/* defines a stack */
+X} *lf_head = NULL;			/* NULL if not in load_file */
+X
+Xstatic TBOOLEAN lf_pop();
+Xstatic void lf_push();
+XFILE *lf_top();
+X
+X
+X/*
+X * instead of <strings.h>
+X */
+X#ifdef _Windows
+X#include <string.h>
+X#else
+X#ifndef AMIGA_SC_6_1
+Xextern int strcmp();
+X#endif /* !AMIGA_SC_6_1 */
+X#endif
+X
+X/* alloc:
+X * allocate memory 
+X * This is a protected version of malloc. It causes an int_error 
+X * if there is not enough memory, but first it tries FreeHelp() 
+X * to make some room, and tries again. If message is NULL, we 
+X * allow NULL return. Otherwise, we handle the error, using the
+X * message to create the int_error string. Note cp/sp_extend uses realloc,
+X * so it depends on this using malloc().
+X */
+X
+Xchar *
+Xalloc(size, message)
+X	unsigned long size;		/* # of bytes */
+X	char *message;			/* description of what is being allocated */
+X{
+X    char *p;				/* the new allocation */
+X    char errbuf[100];		/* error message string */
+X
+X    p = malloc((size_t)size);
+X    if (p == (char *)NULL) {
+X#ifndef vms
+X#ifndef _Windows
+X	   FreeHelp();			/* out of memory, try to make some room */
+X#endif
+X#endif
+X	   p = malloc((size_t)size);		/* try again */
+X	   if (p == (char *)NULL) {
+X		  /* really out of memory */
+X		  if (message != NULL) {
+X			 (void) sprintf(errbuf, "out of memory for %s", message);
+X			 int_error(errbuf, NO_CARET);
+X			 /* NOTREACHED */
+X		  }
+X		  /* else we return NULL */
+X	   }
+X    }
+X    return(p);
+X}
+X
+X/*
+X * cp_alloc() allocates a curve_points structure that can hold 'num'
+X * points.
+X */
+Xstruct curve_points *
+Xcp_alloc(num)
+X	int num;
+X{
+X    struct curve_points *cp;
+X    cp = (struct curve_points *) alloc((unsigned long)sizeof(struct curve_points), "curve");
+X    cp->p_max = (num >= 0 ? num : 0);
+X    if (num > 0) {
+X	   cp->points = (struct coordinate GPHUGE *)
+X		gpfaralloc((unsigned long)num * sizeof(struct coordinate), "curve points");
+X    } else
+X	   cp->points = (struct coordinate GPHUGE *) NULL;
+X    cp->next_cp = NULL;
+X    cp->title = NULL;
+X    return(cp);
+X}
+X
+X
+X/*
+X * cp_extend() reallocates a curve_points structure to hold "num"
+X * points. This will either expand or shrink the storage.
+X */
+Xcp_extend(cp, num)
+X	struct curve_points *cp;
+X	int num;
+X{
+X    struct coordinate GPHUGE *new;
+X
+X#if (defined(MSDOS) || defined(_Windows))  &&  !defined(WIN32)
+X    /* Make sure we do not allocate more than 64k points in msdos since 
+X	 * indexing is done with 16-bit int
+X	 * Leave some bytes for malloc maintainance.
+X     */
+X    if (num > 32700)
+X		int_error("Array index must be less than 32k in msdos", NO_CARET);
+X#endif /* MSDOS */
+X
+X    if (num == cp->p_max) return(0);
+X
+X    if (num > 0) {
+X	   if (cp->points == NULL) {
+X		  cp->points = (struct coordinate GPHUGE *)
+X		    gpfaralloc((unsigned long)num * sizeof(struct coordinate), "curve points");
+X	   } else {
+X		  new = (struct coordinate GPHUGE *)
+X		    gpfarrealloc(cp->points, (unsigned long)num * sizeof(struct coordinate));
+X		  if (new == (struct coordinate GPHUGE *) NULL) {
+X			 int_error("No memory available for expanding curve points",
+X					 NO_CARET);
+X			 /* NOTREACHED */
+X		  }
+X		  cp->points = new;
+X	   }
+X	   cp->p_max = num;
+X    } else {
+X	   if (cp->points != (struct coordinate GPHUGE *) NULL)
+X		gpfarfree(cp->points);
+X	   cp->points = (struct coordinate GPHUGE *) NULL;
+X	   cp->p_max = 0;
+X    }
+X}
+X
+X/*
+X * cp_free() releases any memory which was previously malloc()'d to hold
+X *   curve points (and recursively down the linked list).
+X */
+Xcp_free(cp)
+Xstruct curve_points *cp;
+X{
+X	if (cp) {
+X		cp_free(cp->next_cp);
+X		if (cp->title)
+X			free((char *)cp->title);
+X		if (cp->points)
+X			gpfarfree((char *)cp->points);
+X		free((char *)cp);
+X	}
+X}
+X
+X/*
+X * iso_alloc() allocates a iso_curve structure that can hold 'num'
+X * points.
+X */
+Xstruct iso_curve *
+Xiso_alloc(num)
+X	int num;
+X{
+X    struct iso_curve *ip;
+X    ip = (struct iso_curve *) alloc((unsigned long)sizeof(struct iso_curve), "iso curve");
+X    ip->p_max = (num >= 0 ? num : 0);
+X    if (num > 0) {
+X	   ip->points = (struct coordinate GPHUGE *)
+X		gpfaralloc((unsigned long)num * sizeof(struct coordinate), "iso curve points");
+X    } else
+X	   ip->points = (struct coordinate GPHUGE *) NULL;
+X    ip->next = NULL;
+X    return(ip);
+X}
+X
+X/*
+X * iso_extend() reallocates a iso_curve structure to hold "num"
+X * points. This will either expand or shrink the storage.
+X */
+Xiso_extend(ip, num)
+X	struct iso_curve *ip;
+X	int num;
+X{
+X    struct coordinate GPHUGE *new;
+X
+X    if (num == ip->p_max) return(0);
+X
+X#if (defined(MSDOS) || defined(_Windows))  &&  !defined(WIN32)
+X    /* Make sure we do not allocate more than 64k points in msdos since 
+X	 * indexing is done with 16-bit int
+X	 * Leave some bytes for malloc maintainance.
+X     */
+X    if (num > 32700)
+X		int_error("Array index must be less than 32k in msdos", NO_CARET);
+X#endif /* MSDOS */
+X
+X    if (num > 0) {
+X	   if (ip->points == NULL) {
+X		  ip->points = (struct coordinate GPHUGE *)
+X		    gpfaralloc((unsigned long)num * sizeof(struct coordinate), "iso curve points");
+X	   } else {
+X		  new = (struct coordinate GPHUGE *)
+X		    gpfarrealloc(ip->points, (unsigned long)num * sizeof(struct coordinate));
+X		  if (new == (struct coordinate GPHUGE *) NULL) {
+X			 int_error("No memory available for expanding curve points",
+X					 NO_CARET);
+X			 /* NOTREACHED */
+X		  }
+X		  ip->points = new;
+X	   }
+X	   ip->p_max = num;
+X    } else {
+X	   if (ip->points != (struct coordinate GPHUGE *) NULL)
+X		gpfarfree(ip->points);
+X	   ip->points = (struct coordinate GPHUGE *) NULL;
+X	   ip->p_max = 0;
+X    }
+X}
+X
+X/*
+X * iso_free() releases any memory which was previously malloc()'d to hold
+X *   iso curve points.
+X */
+Xiso_free(ip)
+Xstruct iso_curve *ip;
+X{
+X	if (ip) {
+X		if (ip->points)
+X			gpfarfree((char *)ip->points);
+X		free((char *)ip);
+X	}
+X}
+X
+X/*
+X * sp_alloc() allocates a surface_points structure that can hold 'num_iso_1'
+X * iso-curves with 'num_samp_2' samples and 'num_iso_2' iso-curves with
+X * 'num_samp_1' samples.
+X * If, however num_iso_2 or num_samp_1 is zero no iso curves are allocated.
+X */
+Xstruct surface_points *
+Xsp_alloc(num_samp_1,num_iso_1,num_samp_2,num_iso_2)
+X	int num_samp_1,num_iso_1,num_samp_2,num_iso_2;
+X{
+X    struct surface_points *sp;
+X
+X    sp = (struct surface_points *) alloc((unsigned long)sizeof(struct surface_points), "surface");
+X    sp->next_sp = NULL;
+X    sp->title = NULL;
+X    sp->contours = NULL;
+X    sp->iso_crvs = NULL;
+X    sp->num_iso_read = 0;
+X
+X    if (num_iso_2 > 0 && num_samp_1 > 0) {
+X	int i;
+X	struct iso_curve *icrv;
+X
+X	for (i = 0; i < num_iso_1; i++) {
+X	    icrv = iso_alloc(num_samp_2);
+X	    icrv->next = sp->iso_crvs;
+X	    sp->iso_crvs = icrv;
+X	}
+X	for (i = 0; i < num_iso_2; i++) {
+X	    icrv = iso_alloc(num_samp_1);
+X	    icrv->next = sp->iso_crvs;
+X	    sp->iso_crvs = icrv;
+X	}
+X    } else
+X	sp->iso_crvs = (struct iso_curve *) NULL;
+X
+X    return(sp);
+X}
+X
+X/*
+X * sp_replace() updates a surface_points structure so it can hold 'num_iso_1'
+X * iso-curves with 'num_samp_2' samples and 'num_iso_2' iso-curves with
+X * 'num_samp_1' samples.
+X * If, however num_iso_2 or num_samp_1 is zero no iso curves are allocated.
+X */
+Xsp_replace(sp,num_samp_1,num_iso_1,num_samp_2,num_iso_2)
+X	   struct surface_points *sp;
+X	   int num_samp_1,num_iso_1,num_samp_2,num_iso_2;
+X{
+X    int i;
+X    struct iso_curve *icrv, *icrvs = sp->iso_crvs;
+X
+X    while ( icrvs ) {
+X	icrv = icrvs;
+X	icrvs = icrvs->next;
+X	iso_free( icrv );
+X    }
+X    sp->iso_crvs = NULL;
+X    
+X    if (num_iso_2 > 0 && num_samp_1 > 0) {
+X	for (i = 0; i < num_iso_1; i++) {
+X	    icrv = iso_alloc(num_samp_2);
+X	    icrv->next = sp->iso_crvs;
+X	    sp->iso_crvs = icrv;
+X	}
+X	for (i = 0; i < num_iso_2; i++) {
+X	    icrv = iso_alloc(num_samp_1);
+X	    icrv->next = sp->iso_crvs;
+X	    sp->iso_crvs = icrv;
+X	}
+X    } else
+X	sp->iso_crvs = (struct iso_curve *) NULL;
+X}
+X
+X/*
+X * sp_free() releases any memory which was previously malloc()'d to hold
+X *   surface points.
+X */
+Xsp_free(sp)
+Xstruct surface_points *sp;
+X{
+X	if (sp) {
+X		sp_free(sp->next_sp);
+X		if (sp->title)
+X			free((char *)sp->title);
+X		if (sp->contours) {
+X			struct gnuplot_contours *cntr, *cntrs = sp->contours;
+X
+X			while (cntrs) {
+X				cntr = cntrs;
+X				cntrs = cntrs->next;
+X				gpfarfree(cntr->coords);
+X				free(cntr);
+X			}
+X		}
+X		if (sp->iso_crvs) {
+X			struct iso_curve *icrv, *icrvs = sp->iso_crvs;
+X
+X			while (icrvs) {
+X				icrv = icrvs;
+X				icrvs = icrvs->next;
+X				iso_free(icrv);
+X			}
+X		}
+X		free((char *)sp);
+X	}
+X}
+X
+X
+X
+Xsave_functions(fp)
+XFILE *fp;
+X{
+Xregister struct udft_entry *udf = first_udf;
+X
+X	if (fp) {
+X		while (udf) {
+X			if (udf->definition)
+X				fprintf(fp,"%s\n",udf->definition);
+X			udf = udf->next_udf;
+X		}
+X		(void) fclose(fp);
+X	} else
+X		os_error("Cannot open save file",c_token);			
+X}
+X
+X
+Xsave_variables(fp)
+XFILE *fp;
+X{
+Xregister struct udvt_entry *udv = first_udv->next_udv;	/* skip pi */
+X
+X	if (fp) {
+X		while (udv) {
+X			if (!udv->udv_undef) {
+X				fprintf(fp,"%s = ",udv->udv_name);
+X				disp_value(fp,&(udv->udv_value));
+X				(void) putc('\n',fp);
+X			}
+X			udv = udv->next_udv;
+X		}
+X		(void) fclose(fp);
+X	} else
+X		os_error("Cannot open save file",c_token);			
+X}
+X
+X
+Xsave_all(fp)
+XFILE *fp;
+X{
+Xregister struct udft_entry *udf = first_udf;
+Xregister struct udvt_entry *udv = first_udv->next_udv;	/* skip pi */
+X
+X	if (fp) {
+X		save_set_all(fp);
+X		while (udf) {
+X			if (udf->definition)
+X				fprintf(fp,"%s\n",udf->definition);
+X			udf = udf->next_udf;
+X		}
+X		while (udv) {
+X			if (!udv->udv_undef) {
+X				fprintf(fp,"%s = ",udv->udv_name);
+X				disp_value(fp,&(udv->udv_value));
+X				(void) putc('\n',fp);
+X			}
+X			udv = udv->next_udv;
+X		}
+X		fprintf(fp,"%s\n",replot_line);
+X		(void) fclose(fp);
+X	} else
+X		os_error("Cannot open save file",c_token);			
+X}
+X
+X
+Xsave_set(fp)
+XFILE *fp;
+X{
+X	if (fp) {
+X		save_set_all(fp);
+X		(void) fclose(fp);
+X	} else
+X		os_error("Cannot open save file",c_token);			
+X}
+X
+X
+Xsave_set_all(fp)
+XFILE *fp;
+X{
+Xstruct text_label *this_label;
+Xstruct arrow_def *this_arrow;
+Xchar *quote;
+X	fprintf(fp,"set terminal %s %s\n", term_tbl[term].name, term_options);
+X	fprintf(fp,"set output %s\n",strcmp(outstr,"STDOUT")? outstr : "" );
+X	fprintf(fp,"set %sclip points\n", (clip_points)? "" : "no");
+X	fprintf(fp,"set %sclip one\n", (clip_lines1)? "" : "no");
+X	fprintf(fp,"set %sclip two\n", (clip_lines2)? "" : "no");
+X	fprintf(fp,"set %sborder\n",draw_border ? "" : "no");
+X	if (boxwidth<0.0)
+X		fprintf(fp,"set boxwidth\n");
+X	else
+X		fprintf(fp,"set boxwidth %g\n",boxwidth);
+X	if (dgrid3d)
+X		fprintf(fp,"set dgrid3d %d,%d, %d\n",
+X			dgrid3d_row_fineness,
+X			dgrid3d_col_fineness,
+X			dgrid3d_norm_value);
+X
+X	fprintf(fp,"set dummy %s,%s\n",dummy_var[0], dummy_var[1]);
+X	fprintf(fp,"set format x \"%s\"\n", xformat);
+X	fprintf(fp,"set format y \"%s\"\n", yformat);
+X	fprintf(fp,"set format z \"%s\"\n", zformat);
+X	fprintf(fp,"set %sgrid\n", (grid)? "" : "no");
+X	switch (key) {
+X		case -1 :
+X			fprintf(fp,"set key\n");
+X			break;
+X		case 0 :
+X			fprintf(fp,"set nokey\n");
+X			break;
+X		case 1 :
+X			fprintf(fp,"set key %g,%g,%g\n",key_x,key_y,key_z);
+X			break;
+X	}
+X	fprintf(fp,"set nolabel\n");
+X	for (this_label = first_label; this_label != NULL;
+X			this_label = this_label->next) {
+X		fprintf(fp,"set label %d \"%s\" at %g,%g,%g ",
+X			   this_label->tag,
+X			   this_label->text, this_label->x,
+X						 this_label->y,
+X						 this_label->z);
+X		switch(this_label->pos) {
+X			case LEFT :
+X				fprintf(fp,"left");
+X				break;
+X			case CENTRE :
+X				fprintf(fp,"centre");
+X				break;
+X			case RIGHT :
+X				fprintf(fp,"right");
+X				break;
+X		}
+X		fputc('\n',fp);
+X	}
+X	fprintf(fp,"set noarrow\n");
+X	for (this_arrow = first_arrow; this_arrow != NULL;
+X			this_arrow = this_arrow->next) {
+X		fprintf(fp,"set arrow %d from %g,%g,%g to %g,%g,%g%s\n",
+X			   this_arrow->tag,
+X			   this_arrow->sx, this_arrow->sy, this_arrow->sz,
+X			   this_arrow->ex, this_arrow->ey, this_arrow->ez,
+X			   this_arrow->head ? "" : " nohead");
+X	}
+X	fprintf(fp,"set nologscale\n");
+X	if (is_log_x) fprintf(fp,"set logscale x %g\n", base_log_x);
+X	if (is_log_y) fprintf(fp,"set logscale y %g\n", base_log_y);
+X	if (is_log_z) fprintf(fp,"set logscale z %g\n", base_log_z);
+X	fprintf(fp,"set offsets %g, %g, %g, %g\n",loff,roff,toff,boff);
+X	fprintf(fp,"set %spolar\n", (polar)? "" : "no");
+X	fprintf(fp,"set angles %s\n", (angles_format == ANGLES_RADIANS)?
+X						"radians" : "degrees");
+X	fprintf(fp,"set %sparametric\n", (parametric)? "" : "no");
+X	fprintf(fp,"set view %g, %g, %g, %g\n",
+X		surface_rot_x, surface_rot_z, surface_scale, surface_zscale);
+X	fprintf(fp,"set samples %d, %d\n",samples_1,samples_2);
+X	fprintf(fp,"set isosamples %d, %d\n",iso_samples_1,iso_samples_2);
+X	fprintf(fp,"set %ssurface\n",(draw_surface) ? "" : "no");
+X	fprintf(fp,"set %scontour",(draw_contour) ? "" : "no");
+X	switch (draw_contour) {
+X		case CONTOUR_NONE: fprintf(fp, "\n"); break;
+X		case CONTOUR_BASE: fprintf(fp, " base\n"); break;
+X		case CONTOUR_SRF:  fprintf(fp, " surface\n"); break;
+X		case CONTOUR_BOTH: fprintf(fp, " both\n"); break;
+X	}
+X 	fprintf(fp,"set %sclabel\n",(label_contours) ? "" : "no");
+X	fprintf(fp,"set %shidden3d\n",(hidden3d) ? "" : "no");
+X	fprintf(fp,"set cntrparam order %d\n", contour_order);
+X	fprintf(fp,"set cntrparam ");
+X	switch (contour_kind) {
+X		case CONTOUR_KIND_LINEAR:    fprintf(fp, "linear\n"); break;
+X		case CONTOUR_KIND_CUBIC_SPL: fprintf(fp, "cubicspline\n"); break;
+X		case CONTOUR_KIND_BSPLINE:   fprintf(fp, "bspline\n"); break;
+X	}
+X	fprintf(fp,"set cntrparam levels ");
+X	switch (levels_kind) {
+X		int i;
+X		case LEVELS_AUTO:
+X			fprintf(fp, "auto %d\n", contour_levels);
+X			break;
+X		case LEVELS_INCREMENTAL:
+X			fprintf(fp, "incremental %g,%g,%g\n",
+X				levels_list[0], levels_list[1], 
+X				levels_list[0]+levels_list[1]*contour_levels);
+X			break;
+X		case LEVELS_DISCRETE:
+X			fprintf(fp, "discrete ");
+X		        fprintf(fp, "%g", levels_list[0]);
+X			for(i = 1; i < contour_levels; i++)
+X				fprintf(fp, ",%g ", levels_list[i]);
+X			fprintf(fp, "\n");
+X	}
+X	fprintf(fp,"set cntrparam points %d\n", contour_pts);
+X	fprintf(fp,"set size %g,%g\n",xsize,ysize);
+X	fprintf(fp,"set data style ");
+X	switch (data_style) {
+X		case LINES: fprintf(fp,"lines\n"); break;
+X		case POINTSTYLE: fprintf(fp,"points\n"); break;
+X		case IMPULSES: fprintf(fp,"impulses\n"); break;
+X		case LINESPOINTS: fprintf(fp,"linespoints\n"); break;
+X		case DOTS: fprintf(fp,"dots\n"); break;
+X		case ERRORBARS: fprintf(fp,"errorbars\n"); break;
+X		case BOXES: fprintf(fp,"boxes\n"); break;
+X		case BOXERROR: fprintf(fp,"boxerrorbars\n"); break;
+X		case STEPS: fprintf(fp,"steps\n"); break;       /* JG */
+X	}
+X	fprintf(fp,"set function style ");
+X	switch (func_style) {
+X		case LINES: fprintf(fp,"lines\n"); break;
+X		case POINTSTYLE: fprintf(fp,"points\n"); break;
+X		case IMPULSES: fprintf(fp,"impulses\n"); break;
+X		case LINESPOINTS: fprintf(fp,"linespoints\n"); break;
+X		case DOTS: fprintf(fp,"dots\n"); break;
+X		case ERRORBARS: fprintf(fp,"errorbars\n"); break;
+X		case BOXES: fprintf(fp,"boxes\n"); break;
+X		case BOXERROR: fprintf(fp,"boxerrorbars\n"); break;
+X		case STEPS: fprintf(fp,"steps\n"); break;       /* JG */
+X	}
+X        fprintf(fp,"set %sxzeroaxis\n", (xzeroaxis)? "" : "no");
+X        fprintf(fp,"set %syzeroaxis\n", (yzeroaxis)? "" : "no");
+X        fprintf(fp,"set tics %s\n", (tic_in)? "in" : "out");
+X        fprintf(fp,"set ticslevel %g\n", ticslevel);
+X        save_tics(fp, xtics, 'x', &xticdef);
+X        save_tics(fp, ytics, 'y', &yticdef);
+X        save_tics(fp, ztics, 'z', &zticdef);
+X        for (quote = &(title[0]); quote && *quote && (*quote != '"'); quote++)
+X            ;
+X        fprintf(fp,"set title %c%s%c %d,%d\n",*quote ? '\'' : '"',title,*quote ? '\'' : '"',title_xoffset,title_yoffset);
+X	
+X        if (timedate)
+X	    fprintf(fp,"set time %d,%d\n",time_xoffset,time_yoffset);
+X	else
+X	    fprintf(fp,"set notime\n");
+X 	fprintf(fp,"set rrange [%g : %g]\n",rmin,rmax);
+X	fprintf(fp,"set trange [%g : %g]\n",tmin,tmax);
+X	fprintf(fp,"set urange [%g : %g]\n",umin,umax);
+X	fprintf(fp,"set vrange [%g : %g]\n",vmin,vmax);
+X        for (quote = &(xlabel[0]); quote && *quote && (*quote != '"'); quote++)
+X            ;
+X        fprintf(fp,"set xlabel %c%s%c %d,%d\n",*quote ? '\'' : '"',xlabel,*quote ? '\'' : '"',xlabel_xoffset,xlabel_yoffset);
+X        fprintf(fp,"set xrange [%g : %g]\n",xmin,xmax);
+X        for (quote = &(ylabel[0]); quote && *quote && (*quote != '"'); quote++)
+X            ;
+X        fprintf(fp,"set ylabel %c%s%c %d,%d\n",*quote ? '\'' : '"',ylabel,*quote ? '\'' : '"',ylabel_xoffset,ylabel_yoffset);
+X        fprintf(fp,"set yrange [%g : %g]\n",ymin,ymax);
+X        for (quote = &(zlabel[0]); quote && *quote && (*quote != '"'); quote++)
+X            ;
+X        fprintf(fp,"set zlabel %c%s%c %d,%d\n",*quote ? '\'' : '"',zlabel,*quote ? '\'' : '"',zlabel_xoffset,zlabel_yoffset);
+X	fprintf(fp,"set zrange [%g : %g]\n",zmin,zmax);
+X	fprintf(fp,"set %s %c\n", 
+X		autoscale_r ? "autoscale" : "noautoscale", 'r');
+X	fprintf(fp,"set %s %c\n", 
+X		autoscale_t ? "autoscale" : "noautoscale", 't');
+X	fprintf(fp,"set %s %c%c\n", 
+X		(autoscale_y||autoscale_x) ? "autoscale" : "noautoscale", 
+X		autoscale_x ? 'x' : ' ', autoscale_y ? 'y' : ' ');
+X	fprintf(fp,"set %s %c\n", 
+X		autoscale_z ? "autoscale" : "noautoscale", 'z');
+X	fprintf(fp,"set zero %g\n",zero);
+X}
+X
+Xsave_tics(fp, onoff, axis, tdef)
+X	FILE *fp;
+X	TBOOLEAN onoff;
+X	char axis;
+X	struct ticdef *tdef;
+X{
+X    if (onoff) {
+X	   fprintf(fp,"set %ctics", axis);
+X	   switch(tdef->type) {
+X		  case TIC_COMPUTED: {
+X			 break;
+X		  }
+X		  case TIC_MONTH:{
+X		      fprintf(fp,"\nset %cmtics",axis);
+X			break;
+X		  }
+X		    case TIC_DAY:{
+X			fprintf(fp,"\nset %cdtics",axis);
+X			break;
+X		    }
+X		  case TIC_SERIES: {
+X		         if (tdef->def.series.end >= VERYLARGE)
+X			     fprintf(fp, " %g,%g", tdef->def.series.start,
+X                                        tdef->def.series.incr);
+X                         else
+X			     fprintf(fp, " %g,%g,%g", tdef->def.series.start,
+X                                        tdef->def.series.incr, tdef->def.series.end);
+X			 break;
+X		  }
+X		  case TIC_USER: {
+X			 register struct ticmark *t;
+X			 fprintf(fp, " (");
+X			 for (t = tdef->def.user; t != NULL; t=t->next) {
+X				if (t->label)
+X				  fprintf(fp, "\"%s\" ", t->label);
+X				if (t->next)
+X				  fprintf(fp, "%g, ", t->position);
+X				else
+X				  fprintf(fp, "%g", t->position);
+X			 }
+X			 fprintf(fp, ")");
+X			 break;
+X		  } 
+X	   }
+X	   fprintf(fp, "\n");
+X    } else {
+X	   fprintf(fp,"set no%ctics\n", axis);
+X    }
+X}
+X
+Xload_file(fp, name)
+X	FILE *fp;
+X	char *name;
+X{
+X    register int len;
+X    extern char input_line[];
+X
+X    int start, left;
+X    int more;
+X    int stop = FALSE;
+X
+X    lf_push(fp);			/* save state for errors and recursion */
+X
+X    if (fp == (FILE *)NULL) {
+X	   char errbuf[BUFSIZ];
+X	   (void) sprintf(errbuf, "Cannot open load file '%s'", name);
+X	   os_error(errbuf, c_token);
+X    } else {
+X	   /* go into non-interactive mode during load */
+X	   /* will be undone below, or in load_file_error */
+X	   interactive = FALSE;
+X	   inline_num = 0;
+X	   infile_name = name;
+X
+X	   while (!stop) {		/* read all commands in file */
+X		  /* read one command */
+X		  left = MAX_LINE_LEN;
+X		  start = 0;
+X		  more = TRUE;
+X
+X		  while (more) {
+X			 if (fgets(&(input_line[start]), left, fp) == (char *)NULL) {
+X				stop = TRUE; /* EOF in file */
+X				input_line[start] = '\0';
+X				more = FALSE;	
+X			 } else {
+X				inline_num++;
+X				len = strlen(input_line) - 1;
+X				if (input_line[len] == '\n') { /* remove any newline */
+X				    input_line[len] = '\0';
+X				    /* Look, len was 1-1 = 0 before, take care here! */
+X				    if (len > 0) --len;
+X				} else if (len+1 >= left)
+X				  int_error("Input line too long",NO_CARET);
+X				 
+X				if (input_line[len] == '\\') { /* line continuation */
+X				    start = len;
+X				    left  = MAX_LINE_LEN - start; /* left -=len;*/
+X				} else
+X				  more = FALSE;
+X			 }
+X		  }
+X
+X		  if (strlen(input_line) > 0) {
+X			 screen_ok = FALSE;	/* make sure command line is
+X							   echoed on error */
+X			 do_line();
+X		  }
+X	   }
+X    }
+X
+X    /* pop state */
+X    (void) lf_pop();		/* also closes file fp */
+X}
+X
+X/* pop from load_file state stack */
+Xstatic TBOOLEAN				/* FALSE if stack was empty */
+Xlf_pop()					/* called by load_file and load_file_error */
+X{
+X    LFS *lf;
+X
+X    if (lf_head == NULL)
+X	 return(FALSE);
+X    else {
+X	   lf = lf_head;
+X	   if (lf->fp != (FILE *)NULL)
+X		(void) fclose(lf->fp);
+X	   interactive = lf->interactive;
+X	   inline_num = lf->inline_num;
+X	   infile_name = lf->name;
+X	   lf_head = lf->prev;
+X	   free((char *)lf);
+X	   return(TRUE);
+X    }
+X}
+X
+X/* push onto load_file state stack */
+X/* essentially, we save information needed to undo the load_file changes */
+Xstatic void
+Xlf_push(fp)			/* called by load_file */
+X	FILE *fp;
+X{
+X    LFS *lf;
+X    
+X    lf = (LFS *)alloc((unsigned long)sizeof(LFS), (char *)NULL);
+X    if (lf == (LFS *)NULL) {
+X	   if (fp != (FILE *)NULL)
+X		(void) fclose(fp);		/* it won't be otherwise */
+X	   int_error("not enough memory to load file", c_token);
+X    }
+X	 
+X    lf->fp = fp;			/* save this file pointer */
+X    lf->name = infile_name;	/* save current name */
+X    lf->interactive = interactive;	/* save current state */
+X    lf->inline_num = inline_num; /* save current line number */
+X    lf->prev = lf_head;		/* link to stack */
+X    lf_head = lf;
+X}
+X
+XFILE *lf_top()		/* used for reread  vsnyder@math.jpl.nasa.gov */
+X{   if (lf_head == (LFS *) NULL) return((FILE *)NULL);
+X    return(lf_head->fp);
+X}
+X
+X
+Xload_file_error()			/* called from main */
+X{
+X    /* clean up from error in load_file */
+X    /* pop off everything on stack */
+X    while(lf_pop())
+X	 ;
+X}
+X
+X/* find char c in string str; return p such that str[p]==c;
+X * if c not in str then p=strlen(str)
+X */
+Xint
+Xinstring(str, c)
+X	char *str;
+X	char c;
+X{
+X    int pos = 0;
+X
+X    while (str != NULL && *str != '\0' && c != *str) {
+X	   str++; 
+X	   pos++;
+X    }
+X    return (pos);
+X}
+X
+Xshow_functions()
+X{
+Xregister struct udft_entry *udf = first_udf;
+X
+X	fprintf(stderr,"\n\tUser-Defined Functions:\n");
+X
+X	while (udf) {
+X		if (udf->definition)
+X			fprintf(stderr,"\t%s\n",udf->definition);
+X		else
+X			fprintf(stderr,"\t%s is undefined\n",udf->udf_name);
+X		udf = udf->next_udf;
+X	}
+X}
+X
+X
+Xshow_at()
+X{
+X	(void) putc('\n',stderr);
+X	disp_at(temp_at(),0);
+X}
+X
+X
+Xdisp_at(curr_at, level)
+Xstruct at_type *curr_at;
+Xint level;
+X{
+Xregister int i, j;
+Xregister union argument *arg;
+X
+X	for (i = 0; i < curr_at->a_count; i++) {
+X		(void) putc('\t',stderr);
+X		for (j = 0; j < level; j++)
+X			(void) putc(' ',stderr);	/* indent */
+X
+X			/* print name of instruction */
+X
+X		fputs(ft[(int)(curr_at->actions[i].index)].f_name,stderr);
+X		arg = &(curr_at->actions[i].arg);
+X
+X			/* now print optional argument */
+X
+X		switch(curr_at->actions[i].index) {
+X		  case PUSH:	fprintf(stderr," %s\n", arg->udv_arg->udv_name);
+X					break;
+X		  case PUSHC:	(void) putc(' ',stderr);
+X					disp_value(stderr,&(arg->v_arg));
+X					(void) putc('\n',stderr);
+X					break;
+X		  case PUSHD1:	fprintf(stderr," %c dummy\n",
+X					  arg->udf_arg->udf_name[0]);
+X					break;
+X		  case PUSHD2:	fprintf(stderr," %c dummy\n",
+X					  arg->udf_arg->udf_name[1]);
+X					break;
+X		  case CALL:	fprintf(stderr," %s", arg->udf_arg->udf_name);
+X					if(level < 6) {
+X					if (arg->udf_arg->at) {
+X						(void) putc('\n',stderr);
+X						disp_at(arg->udf_arg->at,level+2); /* recurse! */
+X					} else
+X						fputs(" (undefined)\n",stderr);
+X					} else
+X						(void) putc('\n',stderr);
+X					break;
+X		  case CALLN:	fprintf(stderr," %s", arg->udf_arg->udf_name);
+X					if(level < 6) {
+X					if (arg->udf_arg->at) {
+X						(void) putc('\n',stderr);
+X						disp_at(arg->udf_arg->at,level+2); /* recurse! */
+X					} else
+X						fputs(" (undefined)\n",stderr);
+X					} else
+X						(void) putc('\n',stderr);
+X					break;
+X		  case JUMP:
+X		  case JUMPZ:
+X		  case JUMPNZ:
+X		  case JTERN:
+X					fprintf(stderr," +%d\n",arg->j_arg);
+X					break;
+X		  default:
+X					(void) putc('\n',stderr);
+X		}
+X	}
+X}
+END_OF_FILE
+  if test 25786 -ne `wc -c <'gnuplot/misc.c'`; then
+    echo shar: \"'gnuplot/misc.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/misc.c'
+fi
+if test -f 'gnuplot/win/wtext.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/win/wtext.c'\"
+else
+  echo shar: Extracting \"'gnuplot/win/wtext.c'\" \(49542 characters\)
+  sed "s/^X//" >'gnuplot/win/wtext.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: wtext.c%v 3.50.1.13 1993/08/19 03:21:26 woo Exp $";
+X#endif
+X
+X/* GNUPLOT - win/wtext.c */
+X/*
+X * Copyright (C) 1992   Russell Lang
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHORS
+X * 
+X *   Russell Lang
+X * 
+X * Send your comments or suggestions to 
+X *  info-gnuplot@dartmouth.edu.
+X * This is a mailing list; to join it send a note to 
+X *  info-gnuplot-request@dartmouth.edu.  
+X * Send bug reports to
+X *  bug-gnuplot@dartmouth.edu.
+X */
+X
+X/* WARNING: Do not write to stdout/stderr with functions not listed 
+X   in win/wtext.h */
+X
+X#define STRICT
+X#include <windows.h>
+X#include <windowsx.h>
+X#if WINVER >= 0x030a
+X#include <commdlg.h>
+X#endif
+X#include <string.h>	/* use only far items */
+X#ifndef __MSC__
+X#include <mem.h>
+X#endif
+X#include <stdlib.h>
+X#include <ctype.h>
+X#include <dos.h>
+X
+X#include "wgnuplib.h"
+X#include "wresourc.h"
+X#include "wcommon.h"
+X
+X/* font stuff */
+X#define TEXTFONTSIZE 9
+X#define TEXTFONTNAME "Terminal"
+X
+X#define EOF -1		/* instead of using <stdio.h> */
+X/* limits */
+X#define MAXSTR 256
+XPOINT ScreenMinSize = {16,4};
+XLRESULT CALLBACK _export WndParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+XLRESULT CALLBACK _export WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+Xvoid ReadTextIni(LPTW lptw);
+Xvoid LimitMark(LPTW lptw, POINT FAR *lppt);
+X
+Xchar szNoMemory[] = "out of memory";
+XCOLORREF TextColorTable[16] = { 
+X	RGB(0,0,0),			/* black */
+X	RGB(0,0,128),		/* dark blue */
+X	RGB(0,128,0),		/* dark green */
+X	RGB(0,128,128),		/* dark cyan */
+X	RGB(128,0,0),		/* dark red */
+X	RGB(128,0,128),		/* dark magenta */
+X	RGB(128,128,0),		/* dark yellow */
+X	RGB(128,128,128),	/* dark grey */
+X	RGB(192,192,192),	/* light grey */
+X	RGB(0,0,255),		/* blue */
+X	RGB(0,255,0),		/* green */
+X	RGB(0,255,255),		/* cyan */
+X	RGB(255,0,0),		/* red */
+X	RGB(255,0,255),		/* magenta */
+X	RGB(255,255,0),		/* yellow */
+X	RGB(255,255,255),	/* white */
+X};
+X#define NOTEXT 0xF0
+X#define MARKFORE RGB(255,255,255)
+X#define MARKBACK RGB(0,0,128)
+X#define TextFore(attr) TextColorTable[(attr) & 15]
+X#define TextBack(attr) TextColorTable[(attr>>4) & 15]
+X
+X
+Xvoid WDPROC
+XTextMessage(void)
+X{
+X    MSG msg;
+X
+X    while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
+X        {
+X        TranslateMessage(&msg);
+X        DispatchMessage(&msg);
+X        }
+X    return;
+X}
+X
+X
+X
+Xvoid
+XCreateTextClass(LPTW lptw)
+X{
+XWNDCLASS wndclass;
+X	wndclass.style = CS_HREDRAW | CS_VREDRAW;
+X	wndclass.lpfnWndProc = WndTextProc;
+X	wndclass.cbClsExtra = 0;
+X	wndclass.cbWndExtra = 2 * sizeof(void FAR *);
+X	wndclass.hInstance = lptw->hInstance;
+X	wndclass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+X	wndclass.hCursor = LoadCursor(NULL, IDC_ARROW);
+X	wndclass.hbrBackground = NULL;
+X	lptw->hbrBackground = CreateSolidBrush(lptw->bSysColors ? 
+X		GetSysColor(COLOR_WINDOW) : RGB(0,0,0));
+X	wndclass.lpszMenuName = NULL;
+X	wndclass.lpszClassName = szTextClass;
+X	RegisterClass(&wndclass);
+X
+X	wndclass.style = CS_HREDRAW | CS_VREDRAW;
+X	wndclass.lpfnWndProc = WndParentProc;
+X	wndclass.cbClsExtra = 0;
+X	wndclass.cbWndExtra = 2 * sizeof(void FAR *);
+X	wndclass.hInstance = lptw->hInstance;
+X	if (lptw->hIcon)
+X		wndclass.hIcon = lptw->hIcon;
+X	else
+X		wndclass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+X	wndclass.hCursor = LoadCursor(NULL, IDC_ARROW);
+X	wndclass.hbrBackground = GetStockBrush(WHITE_BRUSH);
+X	wndclass.lpszMenuName = NULL;
+X	wndclass.lpszClassName = szParentClass;
+X	RegisterClass(&wndclass);
+X}
+X
+X
+X/* make text window */
+Xint WDPROC
+XTextInit(LPTW lptw)
+X{
+X	RECT rect;
+X	HMENU sysmenu;
+X	HGLOBAL hglobal;
+X	char buf[80];
+X	
+X	ReadTextIni(lptw);
+X
+X	if (!lptw->hPrevInstance)
+X		CreateTextClass(lptw);
+X
+X	if (lptw->KeyBufSize == 0)
+X		lptw->KeyBufSize = 256;
+X
+X	if (lptw->ScreenSize.x < ScreenMinSize.x)
+X		lptw->ScreenSize.x = ScreenMinSize.x;
+X	if (lptw->ScreenSize.y < ScreenMinSize.y)
+X		lptw->ScreenSize.y = ScreenMinSize.y;
+X
+X	lptw->CursorPos.x = lptw->CursorPos.y = 0;
+X	lptw->bFocus = FALSE;
+X	lptw->bGetCh = FALSE;
+X	lptw->CaretHeight = 0;
+X	if (!lptw->nCmdShow)
+X		lptw->nCmdShow = SW_SHOWNORMAL;
+X	if (!lptw->Attr)
+X		lptw->Attr = 0xf0;	/* black on white */
+X
+X	hglobal = GlobalAlloc(GHND, lptw->ScreenSize.x * lptw->ScreenSize.y);
+X	lptw->ScreenBuffer = (BYTE FAR *)GlobalLock(hglobal);
+X	if (lptw->ScreenBuffer == (BYTE FAR *)NULL) {
+X		MessageBox((HWND)NULL,szNoMemory,(LPSTR)NULL, MB_ICONHAND | MB_SYSTEMMODAL);
+X		return(1);
+X	}
+X	_fmemset(lptw->ScreenBuffer, ' ', lptw->ScreenSize.x * lptw->ScreenSize.y);
+X	hglobal = GlobalAlloc(GHND, lptw->ScreenSize.x * lptw->ScreenSize.y);
+X	lptw->AttrBuffer = (BYTE FAR *)GlobalLock(hglobal);
+X	if (lptw->AttrBuffer == (BYTE FAR *)NULL) {
+X		MessageBox((HWND)NULL,szNoMemory,(LPSTR)NULL, MB_ICONHAND | MB_SYSTEMMODAL);
+X		return(1);
+X	}
+X	_fmemset(lptw->AttrBuffer, NOTEXT, lptw->ScreenSize.x * lptw->ScreenSize.y);
+X	hglobal = GlobalAlloc(LHND, lptw->KeyBufSize);
+X	lptw->KeyBuf = (BYTE FAR *)GlobalLock(hglobal);
+X	if (lptw->KeyBuf == (BYTE FAR *)NULL) {
+X		MessageBox((HWND)NULL,szNoMemory,(LPSTR)NULL, MB_ICONHAND | MB_SYSTEMMODAL);
+X		return(1);
+X	}
+X	lptw->KeyBufIn = lptw->KeyBufOut = lptw->KeyBuf;
+X
+X	lptw->hWndParent = CreateWindow(szParentClass, lptw->Title,
+X		  WS_OVERLAPPEDWINDOW,
+X		  lptw->Origin.x, lptw->Origin.y,
+X		  lptw->Size.x, lptw->Size.y,
+X		  NULL, NULL, lptw->hInstance, lptw);
+X	if (lptw->hWndParent == (HWND)NULL) {
+X		MessageBox((HWND)NULL,"Couldn't open parent text window",(LPSTR)NULL, MB_ICONHAND | MB_SYSTEMMODAL);
+X		return(1);
+X	}
+X	ShowWindow(lptw->hWndParent, lptw->nCmdShow);
+X	GetClientRect(lptw->hWndParent, &rect);
+X
+X	lptw->hWndText = CreateWindow(szTextClass, lptw->Title,
+X		  WS_CHILD | WS_VSCROLL | WS_HSCROLL,
+X		  0, lptw->ButtonHeight,
+X		  rect.right, rect.bottom-lptw->ButtonHeight,
+X		  lptw->hWndParent, NULL, lptw->hInstance, lptw);
+X	if (lptw->hWndText == (HWND)NULL) {
+X		MessageBox((HWND)NULL,"Couldn't open text window",(LPSTR)NULL, MB_ICONHAND | MB_SYSTEMMODAL);
+X		return(1);
+X	}
+X
+X	lptw->hPopMenu = CreatePopupMenu();
+X	AppendMenu(lptw->hPopMenu, MF_STRING, M_COPY_CLIP, "&Copy to Clipboard");
+X	AppendMenu(lptw->hPopMenu, MF_STRING, M_PASTE, "&Paste");
+X#if WINVER >= 0x030a
+X	AppendMenu(lptw->hPopMenu, MF_STRING, M_CHOOSE_FONT, "Choose &Font...");
+X#endif
+X	AppendMenu(lptw->hPopMenu, MF_STRING | (lptw->bSysColors ? MF_CHECKED : MF_UNCHECKED), 
+X		M_SYSCOLORS, "&System Colors");
+X	if (lptw->IniFile != (LPSTR)NULL) {
+X		wsprintf(buf,"&Update %s",lptw->IniFile);
+X		AppendMenu(lptw->hPopMenu, MF_STRING, M_WRITEINI, (LPSTR)buf);
+X	}
+X
+X	sysmenu = GetSystemMenu(lptw->hWndParent,0);	/* get the sysmenu */
+X	AppendMenu(sysmenu, MF_SEPARATOR, 0, NULL);
+X	AppendMenu(sysmenu, MF_POPUP, (UINT)lptw->hPopMenu, "&Options");
+X	AppendMenu(sysmenu, MF_STRING, M_ABOUT, "&About");
+X
+X	if (lptw->lpmw)
+X		LoadMacros(lptw);
+X
+X	ShowWindow(lptw->hWndText, SW_SHOWNORMAL);
+X	BringWindowToTop(lptw->hWndText);
+X	SetFocus(lptw->hWndText);
+X	TextMessage();
+X	return(0);
+X}
+X
+X/* close a text window */
+Xvoid WDPROC
+XTextClose(LPTW lptw)
+X{
+X	HGLOBAL hglobal;
+X
+X	/* close window */
+X	if (lptw->hWndParent)
+X		DestroyWindow(lptw->hWndParent);
+X	TextMessage();
+X
+X	hglobal = (HGLOBAL)GlobalHandle( SELECTOROF(lptw->ScreenBuffer) );
+X	if (hglobal) {
+X		GlobalUnlock(hglobal);
+X		GlobalFree(hglobal);
+X	}
+X	hglobal = (HGLOBAL)GlobalHandle( SELECTOROF(lptw->AttrBuffer) );
+X	if (hglobal) {
+X		GlobalUnlock(hglobal);
+X		GlobalFree(hglobal);
+X	}
+X	hglobal = (HGLOBAL)GlobalHandle( SELECTOROF(lptw->KeyBuf) );
+X	if (hglobal) {
+X		GlobalUnlock(hglobal);
+X		GlobalFree(hglobal);
+X	}
+X
+X	if (lptw->lpmw)
+X		CloseMacros(lptw);
+X	lptw->hWndParent = (HWND)NULL;
+X}
+X	
+Xvoid
+XWriteTextIni(LPTW lptw)
+X{
+X	RECT rect;
+X	LPSTR file = lptw->IniFile;
+X	LPSTR section = lptw->IniSection;
+X	char profile[80];
+X	int iconic;
+X
+X	
+X	if ((file == (LPSTR)NULL) || (section == (LPSTR)NULL))
+X		return;
+X	
+X	iconic = IsIconic(lptw->hWndParent);
+X	if (iconic)
+X		ShowWindow(lptw->hWndParent, SW_SHOWNORMAL);
+X	GetWindowRect(lptw->hWndParent,&rect);
+X	wsprintf(profile, "%d %d", rect.left, rect.top);
+X	WritePrivateProfileString(section, "TextOrigin", profile, file);
+X	wsprintf(profile, "%d %d", rect.right-rect.left, rect.bottom-rect.top);
+X	WritePrivateProfileString(section, "TextSize", profile, file);
+X	wsprintf(profile, "%d", iconic);
+X	WritePrivateProfileString(section, "TextMinimized", profile, file);
+X	wsprintf(profile, "%s,%d", lptw->fontname, lptw->fontsize);
+X	WritePrivateProfileString(section, "TextFont", profile, file);
+X	wsprintf(profile, "%d", lptw->bSysColors);
+X	WritePrivateProfileString(section, "SysColors", profile, file);
+X	if (iconic)
+X		ShowWindow(lptw->hWndParent, SW_SHOWMINIMIZED);
+X	return;
+X}
+X
+Xvoid
+XReadTextIni(LPTW lptw)
+X{
+X	LPSTR file = lptw->IniFile;
+X	LPSTR section = lptw->IniSection;
+X	char profile[81];
+X	LPSTR p;
+X	BOOL bOKINI;
+X
+X	bOKINI = (file != (LPSTR)NULL) && (section != (LPSTR)NULL);
+X	profile[0] = '\0';
+X
+X	if (bOKINI)
+X	  GetPrivateProfileString(section, "TextOrigin", "", profile, 80, file);
+X	if ( (p = GetInt(profile, &lptw->Origin.x)) == NULL)
+X		lptw->Origin.x = CW_USEDEFAULT;
+X	if ( (p = GetInt(p, &lptw->Origin.y)) == NULL)
+X		lptw->Origin.y = CW_USEDEFAULT;
+X	if ( (file != (LPSTR)NULL) && (section != (LPSTR)NULL) )
+X	  GetPrivateProfileString(section, "TextSize", "", profile, 80, file);
+X	if ( (p = GetInt(profile, &lptw->Size.x)) == NULL)
+X		lptw->Size.x = CW_USEDEFAULT;
+X	if ( (p = GetInt(p, &lptw->Size.y)) == NULL)
+X		lptw->Size.y = CW_USEDEFAULT;
+X
+X	if (bOKINI)
+X	  GetPrivateProfileString(section, "TextFont", "", profile, 80, file);
+X	{
+X		char FAR *size;
+X		size = _fstrchr(profile,',');
+X		if (size) {
+X			*size++ = '\0';
+X			if ( (p = GetInt(size, &lptw->fontsize)) == NULL)
+X				lptw->fontsize = TEXTFONTSIZE;
+X		}
+X		_fstrcpy(lptw->fontname, profile);
+X		if (lptw->fontsize == 0)
+X			lptw->fontsize = TEXTFONTSIZE;
+X		if (!(*lptw->fontname))
+X			_fstrcpy(lptw->fontname,TEXTFONTNAME);
+X	}
+X
+X	if (bOKINI) {
+X		int iconic;
+X		GetPrivateProfileString(section, "TextMinimized", "", profile, 80, file);
+X		if ((p = GetInt(profile, &iconic)) == NULL)
+X			iconic = 0;
+X		if (iconic)
+X			lptw->nCmdShow = SW_SHOWMINIMIZED;
+X	}
+X	lptw->bSysColors = FALSE;
+X	GetPrivateProfileString(section, "SysColors", "", profile, 80, file);
+X	if ((p = GetInt(profile, &lptw->bSysColors)) == NULL)
+X		lptw->bSysColors = 0;
+X}
+X
+X
+X/* Bring Cursor into text window */
+Xvoid WDPROC
+XTextToCursor(LPTW lptw)
+X{
+Xint nXinc=0;
+Xint nYinc=0;
+Xint cxCursor;
+Xint cyCursor;
+X	cyCursor = lptw->CursorPos.y * lptw->CharSize.y;
+X	if ( (cyCursor + lptw->CharSize.y > lptw->ScrollPos.y + lptw->ClientSize.y) 
+X	  || (cyCursor < lptw->ScrollPos.y) ) {
+X		nYinc = max(0, cyCursor + lptw->CharSize.y - lptw->ClientSize.y) - lptw->ScrollPos.y;
+X		nYinc = min(nYinc, lptw->ScrollMax.y - lptw->ScrollPos.y);
+X	}
+X	cxCursor = lptw->CursorPos.x * lptw->CharSize.x;
+X	if ( (cxCursor + lptw->CharSize.x > lptw->ScrollPos.x + lptw->ClientSize.x)
+X	  || (cxCursor < lptw->ScrollPos.x) ) {
+X		nXinc = max(0, cxCursor + lptw->CharSize.x - lptw->ClientSize.x/2) - lptw->ScrollPos.x;
+X		nXinc = min(nXinc, lptw->ScrollMax.x - lptw->ScrollPos.x);
+X	}
+X	if (nYinc || nXinc) {
+X		lptw->ScrollPos.y += nYinc;
+X		lptw->ScrollPos.x += nXinc;
+X		ScrollWindow(lptw->hWndText,-nXinc,-nYinc,NULL,NULL);
+X		SetScrollPos(lptw->hWndText,SB_VERT,lptw->ScrollPos.y,TRUE);
+X		SetScrollPos(lptw->hWndText,SB_HORZ,lptw->ScrollPos.x,TRUE);
+X		UpdateWindow(lptw->hWndText);
+X	}
+X}
+X
+Xvoid
+XNewLine(LPTW lptw)
+X{
+X	lptw->CursorPos.x = 0;
+X	lptw->CursorPos.y++;
+X	if (lptw->CursorPos.y >= lptw->ScreenSize.y) {
+X	    int i =  lptw->ScreenSize.x * (lptw->ScreenSize.y - 1);
+X		_fmemmove(lptw->ScreenBuffer, lptw->ScreenBuffer+lptw->ScreenSize.x, i);
+X		_fmemset(lptw->ScreenBuffer + i, ' ', lptw->ScreenSize.x);
+X		_fmemmove(lptw->AttrBuffer, lptw->AttrBuffer+lptw->ScreenSize.x, i);
+X		_fmemset(lptw->AttrBuffer + i, NOTEXT, lptw->ScreenSize.x);
+X		lptw->CursorPos.y--;
+X		ScrollWindow(lptw->hWndText,0,-lptw->CharSize.y,NULL,NULL);
+X		lptw->MarkBegin.y--;
+X		lptw->MarkEnd.y--;
+X		LimitMark(lptw, &lptw->MarkBegin);
+X		LimitMark(lptw, &lptw->MarkEnd);
+X		UpdateWindow(lptw->hWndText);
+X	}
+X	if (lptw->CursorFlag)
+X		TextToCursor(lptw);
+X	TextMessage();
+X}
+X
+X/* Update count characters in window at cursor position */
+X/* Updates cursor position */
+Xvoid
+XUpdateText(LPTW lptw, int count)
+X{
+XHDC hdc;
+Xint xpos, ypos;
+X	xpos = lptw->CursorPos.x*lptw->CharSize.x - lptw->ScrollPos.x;
+X	ypos = lptw->CursorPos.y*lptw->CharSize.y - lptw->ScrollPos.y;
+X	hdc = GetDC(lptw->hWndText);
+X	if (lptw->bSysColors) {
+X	    SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+X	    SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+X	}
+X	else {
+X	    SetTextColor(hdc, TextFore(lptw->Attr));
+X	    SetBkColor(hdc, TextBack(lptw->Attr));
+X	}
+X	SelectFont(hdc, lptw->hfont);
+X	TextOut(hdc,xpos,ypos,
+X		(LPSTR)(lptw->ScreenBuffer + lptw->CursorPos.y*lptw->ScreenSize.x + 
+X		lptw->CursorPos.x), count);
+X	(void)ReleaseDC(lptw->hWndText,hdc);
+X	lptw->CursorPos.x += count;
+X	if (lptw->CursorPos.x >= lptw->ScreenSize.x)
+X		NewLine(lptw);
+X}
+X
+Xint WDPROC
+XTextPutCh(LPTW lptw, BYTE ch)
+X{
+Xint pos;
+X	switch(ch) {
+X		case '\r':
+X			lptw->CursorPos.x = 0;
+X			if (lptw->CursorFlag)
+X				TextToCursor(lptw);
+X			break;
+X		case '\n':
+X			NewLine(lptw);
+X			break;
+X		case 7:
+X			MessageBeep(-1);
+X			if (lptw->CursorFlag)
+X				TextToCursor(lptw);
+X			break;
+X		case '\t':
+X			{
+X			int n;
+X				for ( n = 8 - (lptw->CursorPos.x % 8); n>0; n-- )
+X					TextPutCh(lptw, ' ');
+X			}
+X			break;
+X		case 0x08:
+X		case 0x7f:
+X			lptw->CursorPos.x--;
+X			if (lptw->CursorPos.x < 0) {
+X				lptw->CursorPos.x = lptw->ScreenSize.x - 1;
+X				lptw->CursorPos.y--;
+X			}
+X			if (lptw->CursorPos.y < 0)
+X				lptw->CursorPos.y = 0;
+X			break;
+X		default:
+X			pos = lptw->CursorPos.y*lptw->ScreenSize.x + lptw->CursorPos.x;
+X			lptw->ScreenBuffer[pos] = ch;
+X			lptw->AttrBuffer[pos] = lptw->Attr;
+X			UpdateText(lptw, 1);
+X	}
+X	return ch;
+X}
+X
+Xvoid 
+XTextPutStr(LPTW lptw, LPSTR str)
+X{
+XBYTE FAR *p, FAR *pa;
+Xint count, limit;
+X	while (*str) {
+X		p = lptw->ScreenBuffer + lptw->CursorPos.y*lptw->ScreenSize.x + lptw->CursorPos.x;
+X		pa = lptw->AttrBuffer + lptw->CursorPos.y*lptw->ScreenSize.x + lptw->CursorPos.x;
+X		limit = lptw->ScreenSize.x - lptw->CursorPos.x;
+X		for (count=0; (count < limit) && *str && (isprint(*str) || *str=='\t'); count++) {
+X			if (*str=='\t') {
+X				int n;
+X				for ( n = 8 - ((lptw->CursorPos.x+count) % 8); (count < limit) & (n>0); n--, count++ ) {
+X					*p++ = ' ';
+X					*pa++ = lptw->Attr;
+X				}
+X				str++;
+X				count--;
+X			}
+X			else {
+X				*p++ = *str++;
+X				*pa++ = lptw->Attr;
+X			}
+X		}
+X		if (count>0) {
+X			UpdateText(lptw, count);
+X		}
+X		if (*str=='\n') {
+X			NewLine(lptw);
+X			str++;
+X		}
+X		else if (*str && !isprint(*str) && *str!='\t') {
+X			TextPutCh(lptw, *str++);
+X		}
+X	}
+X}
+X
+X
+Xvoid
+XLimitMark(LPTW lptw, POINT FAR *lppt)
+X{
+X	if (lppt->x < 0)
+X		lppt->x = 0;
+X	if (lppt->y < 0) {
+X		lppt->x = 0;
+X		lppt->y = 0;
+X	}
+X	if (lppt->x > lptw->ScreenSize.x)
+X		lppt->x = lptw->ScreenSize.x;
+X	if (lppt->y >= lptw->ScreenSize.y) {
+X		lppt->x = 0;
+X		lppt->y = lptw->ScreenSize.y;
+X	}
+X}
+X
+Xvoid
+XClearMark(LPTW lptw, POINT pt)
+X{
+XRECT rect1, rect2, rect3;
+Xint tmp;
+X  if ((lptw->MarkBegin.x != lptw->MarkEnd.x) || 
+X      (lptw->MarkBegin.y != lptw->MarkEnd.y) ) {
+X	if (lptw->MarkBegin.x > lptw->MarkEnd.x) {
+X		tmp = lptw->MarkBegin.x;
+X		lptw->MarkBegin.x = lptw->MarkEnd.x;
+X		lptw->MarkEnd.x = tmp;
+X	}
+X	if (lptw->MarkBegin.y > lptw->MarkEnd.y) {
+X		tmp = lptw->MarkBegin.y;
+X		lptw->MarkBegin.y = lptw->MarkEnd.y;
+X		lptw->MarkEnd.y = tmp;
+X	}
+X	/* calculate bounding rectangle in character coordinates */
+X	if (lptw->MarkBegin.y != lptw->MarkEnd.y) {
+X		rect1.left = 0;
+X		rect1.right = lptw->ScreenSize.x;
+X	}
+X	else {
+X		rect1.left = lptw->MarkBegin.x;
+X		rect1.right = lptw->MarkEnd.x + 1;
+X	}
+X	rect1.top = lptw->MarkBegin.y;
+X	rect1.bottom = lptw->MarkEnd.y + 1;
+X	/* now convert to client coordinates */
+X	rect1.left   = rect1.left   * lptw->CharSize.x - lptw->ScrollPos.x;
+X	rect1.right  = rect1.right  * lptw->CharSize.x - lptw->ScrollPos.x;
+X	rect1.top    = rect1.top    * lptw->CharSize.y - lptw->ScrollPos.y;
+X	rect1.bottom = rect1.bottom * lptw->CharSize.y - lptw->ScrollPos.y;
+X	/* get client rect and calculate intersection */
+X	GetClientRect(lptw->hWndText, &rect2);
+X	IntersectRect(&rect3,  &rect1, &rect2);
+X	/* update window if necessary */
+X	if (!IsRectEmpty(&rect3)) {
+X		InvalidateRect(lptw->hWndText, &rect3, TRUE);
+X	}
+X  }
+X  LimitMark(lptw, &pt);
+X  lptw->MarkBegin.x = lptw->MarkEnd.x = pt.x;
+X  lptw->MarkBegin.y = lptw->MarkEnd.y = pt.y;
+X  UpdateWindow(lptw->hWndText);
+X}
+X
+X
+X/* output a line including attribute changes as needed */
+Xvoid
+XDoLine(LPTW lptw, HDC hdc, int xpos, int ypos, int offset, int count)
+X{
+X	BYTE FAR *pa, attr;
+X	int idx, num;
+X	pa = lptw->AttrBuffer + offset;
+Xif ((offset < 0) || (offset >= lptw->ScreenSize.x*lptw->ScreenSize.y))
+XMessageBox((HWND)NULL, "panic", "panic", MB_OK | MB_ICONEXCLAMATION);
+X	idx = 0;
+X	num = count;
+X	while (num > 0) {
+X		attr = *pa;
+X		while ((num > 0) && (attr == *pa)) {
+X			/* skip over bytes with same attribute */
+X			num--;
+X			pa++;
+X		}
+X		if (lptw->bSysColors) {
+X		    SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+X		    SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+X		}
+X		else {
+X		    SetTextColor(hdc, TextFore(attr));
+X		    SetBkColor(hdc, TextBack(attr));
+X		}
+X		TextOut(hdc,xpos,ypos, (LPSTR)(lptw->ScreenBuffer + offset + idx),
+X			count-num-idx);
+X		xpos += lptw->CharSize.x * (count-num-idx);
+X		idx = count-num;
+X	}
+X}
+X
+Xvoid
+XDoMark(LPTW lptw, POINT pt, POINT end, BOOL mark)
+X{
+Xint xpos, ypos;
+XHDC hdc;
+Xint count;
+Xint offset;
+X	offset = lptw->ScreenSize.x * pt.y + pt.x;
+X	hdc = GetDC(lptw->hWndText);
+X	SelectFont(hdc, lptw->hfont);
+X	if (lptw->bSysColors) {
+X	    SetTextColor(hdc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+X	    SetBkColor(hdc, GetSysColor(COLOR_HIGHLIGHT));
+X	}
+X	else {
+X	    SetTextColor(hdc, MARKFORE);
+X	    SetBkColor(hdc, MARKBACK);
+X	}
+X	while (pt.y < end.y) {
+X		/* multiple lines */
+X		xpos = pt.x*lptw->CharSize.x - lptw->ScrollPos.x;
+X		ypos = pt.y*lptw->CharSize.y - lptw->ScrollPos.y;
+X		count = lptw->ScreenSize.x - pt.x;
+X		if (mark)
+X			TextOut(hdc,xpos,ypos, (LPSTR)(lptw->ScreenBuffer + offset), count);
+X		else {
+X			DoLine(lptw, hdc, xpos, ypos, offset, count);
+X			if (lptw->bSysColors) {
+X			    SetTextColor(hdc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+X			    SetBkColor(hdc, GetSysColor(COLOR_HIGHLIGHT));
+X			}
+X			else {
+X			    SetTextColor(hdc, MARKFORE);
+X			    SetBkColor(hdc, MARKBACK);
+X			}
+X		}
+X		offset += count;
+X		pt.y++;
+X		pt.x=0;
+X	}
+X	/* partial line */
+X	xpos = pt.x*lptw->CharSize.x - lptw->ScrollPos.x;
+X	ypos = pt.y*lptw->CharSize.y - lptw->ScrollPos.y;
+X	count = end.x - pt.x;
+X	if (end.y != lptw->ScreenSize.y) {
+X		if (mark)
+X			TextOut(hdc,xpos,ypos, (LPSTR)(lptw->ScreenBuffer + offset), count);
+X		else
+X			DoLine(lptw, hdc, xpos, ypos, offset, count);
+X	}
+X	(void)ReleaseDC(lptw->hWndText,hdc);
+X}
+X
+Xvoid
+XUpdateMark(LPTW lptw, POINT pt)
+X{
+Xint begin, point, end;
+X	LimitMark(lptw, &pt);
+X	begin = lptw->ScreenSize.x*lptw->MarkBegin.y + lptw->MarkBegin.x;
+X	point = lptw->ScreenSize.x*pt.y + pt.x;
+X	end   = lptw->ScreenSize.x*lptw->MarkEnd.y + lptw->MarkEnd.x;
+X
+X	if (begin <= end) {
+X		/* forward mark */
+X		if (point >= end) {
+X			/* extend marked area */
+X			DoMark(lptw, lptw->MarkEnd, pt, TRUE);
+X		}
+X		else if (point >= begin) {
+X			/* retract marked area */
+X			DoMark(lptw, pt, lptw->MarkEnd, FALSE);
+X		}
+X		else {	/* retract and reverse */
+X			DoMark(lptw, lptw->MarkBegin, lptw->MarkEnd, FALSE);
+X			DoMark(lptw, pt, lptw->MarkBegin, TRUE);
+X		}
+X	}
+X	else {
+X		/* reverse mark */
+X		if (point <= end) {
+X			/* extend marked area */
+X			DoMark(lptw, pt, lptw->MarkEnd, TRUE);
+X		}
+X		else if (point <= begin) {
+X			/* retract marked area */
+X			DoMark(lptw, lptw->MarkEnd, pt, FALSE);
+X		}
+X		else {	/* retract and reverse */
+X			DoMark(lptw, lptw->MarkEnd, lptw->MarkBegin, FALSE);
+X			DoMark(lptw, lptw->MarkBegin, pt, TRUE);
+X		}
+X	}
+X	lptw->MarkEnd.x = pt.x;
+X	lptw->MarkEnd.y = pt.y;
+X}
+X
+X
+X#if WINVER >= 0x030a
+X/* Windows 3.1 drag-drop feature */
+Xchar szFile[80];
+Xvoid
+XDragFunc(LPTW lptw, HDROP hdrop)
+X{
+X	int i, cFiles;
+X	LPSTR p;
+X	if ( (lptw->DragPre==(LPSTR)NULL) || (lptw->DragPost==(LPSTR)NULL) )
+X		return;
+X	cFiles = DragQueryFile(hdrop, 0xffff, (LPSTR)NULL, 0);
+X	for (i=0; i<cFiles; i++) {
+X		DragQueryFile(hdrop, i, szFile, 80);
+X		for (p=lptw->DragPre; *p; p++)
+X			SendMessage(lptw->hWndText,WM_CHAR,*p,1L);
+X		for (p=szFile; *p; p++)
+X			SendMessage(lptw->hWndText,WM_CHAR,*p,1L);
+X		for (p=lptw->DragPost; *p; p++)
+X			SendMessage(lptw->hWndText,WM_CHAR,*p,1L);
+X	}
+X	DragFinish(hdrop);
+X}
+X#endif
+X
+X
+Xvoid
+XTextCopyClip(LPTW lptw)
+X{
+X	int size, count;
+X	HGLOBAL hGMem;
+X	LPSTR cbuf, cp;
+X	POINT pt, end;
+X	TEXTMETRIC tm;
+X	UINT type;
+X	HDC hdc;
+X
+X	if ((lptw->MarkBegin.x == lptw->MarkEnd.x) && 
+X	    (lptw->MarkBegin.y == lptw->MarkEnd.y) ) {
+X		/* copy user text */
+X		return;
+X	}
+X
+X	size = (lptw->MarkEnd.y - lptw->MarkBegin.y + 1) 
+X		* (lptw->ScreenSize.x + 2) + 1;
+X	hGMem = GlobalAlloc(GMEM_MOVEABLE, (DWORD)size);
+X	cbuf = cp = (LPSTR)GlobalLock(hGMem);
+X	if (cp == (LPSTR)NULL)
+X		return;
+X	
+X	pt.x = lptw->MarkBegin.x;
+X	pt.y = lptw->MarkBegin.y;
+X	end.x   = lptw->MarkEnd.x;
+X	end.y   = lptw->MarkEnd.y;
+X
+X	while (pt.y < end.y) {
+X		/* copy to global buffer */
+X		count = lptw->ScreenSize.x - pt.x;
+X		_fmemcpy(cp, lptw->ScreenBuffer + lptw->ScreenSize.x*pt.y+pt.x, count);
+X		/* remove trailing spaces */
+X		for (count=count-1; count>=0; count--) {
+X			if (cp[count]!=' ')
+X				break;
+X			cp[count] = '\0';
+X		}
+X		cp[++count] = '\r';
+X		cp[++count] = '\n';
+X		cp[++count] = '\0';
+X		cp += count;
+X		pt.y++;
+X		pt.x=0;
+X	}
+X	/* partial line */
+X	count = end.x - pt.x;
+X	if (end.y != lptw->ScreenSize.y) {
+X		_fmemcpy(cp, lptw->ScreenBuffer + lptw->ScreenSize.x*pt.y+pt.x, count);
+X		cp[count] = '\0';
+X	}
+X	size = _fstrlen(cbuf) + 1;
+X	GlobalUnlock(hGMem);
+X	hGMem = GlobalReAlloc(hGMem, (DWORD)size, GMEM_MOVEABLE);
+X	/* find out what type to put into clipboard */
+X	hdc = GetDC(lptw->hWndText);
+X	SelectFont(hdc, lptw->hfont);
+X	GetTextMetrics(hdc,(TEXTMETRIC FAR *)&tm);
+X	if (tm.tmCharSet == OEM_CHARSET)
+X		type = CF_OEMTEXT;
+X	else
+X		type = CF_TEXT;
+X	ReleaseDC(lptw->hWndText, hdc);
+X	/* give buffer to clipboard */
+X	OpenClipboard(lptw->hWndParent);
+X	EmptyClipboard();
+X	SetClipboardData(type, hGMem);
+X	CloseClipboard();
+X}
+X
+Xvoid
+XTextMakeFont(LPTW lptw)
+X{
+X	LOGFONT lf;
+X	TEXTMETRIC tm;
+X	LPSTR p;
+X	HDC hdc;
+X
+X	hdc = GetDC(lptw->hWndText);
+X	_fmemset(&lf, 0, sizeof(LOGFONT));
+X	_fstrncpy(lf.lfFaceName,lptw->fontname,LF_FACESIZE);
+X	lf.lfHeight = -MulDiv(lptw->fontsize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+X	lf.lfPitchAndFamily = FIXED_PITCH;
+X	lf.lfCharSet = DEFAULT_CHARSET;
+X	if ( (p = _fstrstr(lptw->fontname," Italic")) != (LPSTR)NULL ) {
+X		lf.lfFaceName[ (unsigned int)(p-lptw->fontname) ] = '\0';
+X		lf.lfItalic = TRUE;
+X	}
+X	if ( (p = _fstrstr(lptw->fontname," Bold")) != (LPSTR)NULL ) {
+X		lf.lfFaceName[ (unsigned int)(p-lptw->fontname) ] = '\0';
+X		lf.lfWeight = FW_BOLD;
+X	}
+X	if (lptw->hfont != 0)
+X		DeleteFont(lptw->hfont);
+X	lptw->hfont = CreateFontIndirect((LOGFONT FAR *)&lf);
+X	/* get text size */
+X	SelectFont(hdc, lptw->hfont);
+X	GetTextMetrics(hdc,(TEXTMETRIC FAR *)&tm);
+X	lptw->CharSize.y = tm.tmHeight;
+X	lptw->CharSize.x = tm.tmAveCharWidth;
+X	lptw->CharAscent = tm.tmAscent;
+X	if (lptw->bFocus)
+X		CreateCaret(lptw->hWndText, 0, lptw->CharSize.x, 2+lptw->CaretHeight);
+X	ReleaseDC(lptw->hWndText, hdc);
+X	return;
+X}
+X
+Xvoid
+XTextSelectFont(LPTW lptw) {
+X#if WINVER >= 0x030a
+X	LOGFONT lf;
+X	CHOOSEFONT cf;
+X	HDC hdc;
+X	char lpszStyle[LF_FACESIZE]; 
+X	LPSTR p;
+X
+X	/* Set all structure fields to zero. */
+X	_fmemset(&cf, 0, sizeof(CHOOSEFONT));
+X	_fmemset(&lf, 0, sizeof(LOGFONT));
+X	cf.lStructSize = sizeof(CHOOSEFONT);
+X	cf.hwndOwner = lptw->hWndParent;
+X	_fstrncpy(lf.lfFaceName,lptw->fontname,LF_FACESIZE);
+X	if ( (p = _fstrstr(lptw->fontname," Bold")) != (LPSTR)NULL ) {
+X		_fstrncpy(lpszStyle,p+1,LF_FACESIZE);
+X		lf.lfFaceName[ (unsigned int)(p-lptw->fontname) ] = '\0';
+X	}
+X	else if ( (p = _fstrstr(lptw->fontname," Italic")) != (LPSTR)NULL ) {
+X		_fstrncpy(lpszStyle,p+1,LF_FACESIZE);
+X		lf.lfFaceName[ (unsigned int)(p-lptw->fontname) ] = '\0';
+X	}
+X	else
+X		_fstrcpy(lpszStyle,"Regular");
+X	cf.lpszStyle = lpszStyle;
+X	hdc = GetDC(lptw->hWndText);
+X	lf.lfHeight = -MulDiv(lptw->fontsize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+X	ReleaseDC(lptw->hWndText, hdc);
+X	lf.lfPitchAndFamily = FIXED_PITCH;
+X	cf.lpLogFont = &lf;
+X	cf.nFontType = SCREEN_FONTTYPE;
+X	cf.Flags = CF_SCREENFONTS | CF_FIXEDPITCHONLY | CF_INITTOLOGFONTSTRUCT | CF_USESTYLE;
+X	if (ChooseFont(&cf)) {
+X		RECT rect;
+X		_fstrcpy(lptw->fontname,lf.lfFaceName);
+X		lptw->fontsize = cf.iPointSize / 10;
+X		if (cf.nFontType & BOLD_FONTTYPE)
+X			lstrcat(lptw->fontname," Bold");
+X		if (cf.nFontType & ITALIC_FONTTYPE)
+X			lstrcat(lptw->fontname," Italic");
+X		TextMakeFont(lptw);
+X		/* force a window update */
+X		GetClientRect(lptw->hWndText, (LPRECT) &rect);
+X		SendMessage(lptw->hWndText, WM_SIZE, SIZE_RESTORED, 
+X			MAKELPARAM(rect.right-rect.left, rect.bottom-rect.top));
+X		GetClientRect(lptw->hWndText, (LPRECT) &rect);
+X		InvalidateRect(lptw->hWndText, (LPRECT) &rect, 1);
+X		UpdateWindow(lptw->hWndText);
+X	}
+X#endif
+X}
+X
+X
+X/* parent overlapped window */
+XLRESULT CALLBACK _export
+XWndParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+X{
+X	HDC hdc;
+X	PAINTSTRUCT ps;
+X	RECT rect;
+X	LPTW lptw;
+X
+X	lptw = (LPTW)GetWindowLong(hwnd, 0);
+X
+X	switch(message) {
+X		case WM_SYSCOMMAND:
+X			switch(LOWORD(wParam))
+X			{
+X				case M_COPY_CLIP:
+X				case M_PASTE:
+X				case M_CHOOSE_FONT:
+X				case M_SYSCOLORS:
+X				case M_WRITEINI:
+X				case M_ABOUT:
+X				  SendMessage(lptw->hWndText, WM_COMMAND, wParam, lParam);
+X			}
+X			break;
+X		case WM_SETFOCUS: 
+X			if (IsWindow(lptw->hWndText)) {
+X				SetFocus(lptw->hWndText);
+X				return(0);
+X			}
+X			break;
+X		case WM_GETMINMAXINFO:
+X			{
+X			POINT far * MMinfo = (POINT far *)lParam;
+X			TEXTMETRIC tm;
+X			hdc = GetDC(hwnd);
+X			SelectFont(hdc, GetStockFont(OEM_FIXED_FONT));
+X			GetTextMetrics(hdc,(LPTEXTMETRIC)&tm);
+X			ReleaseDC(hwnd,hdc);
+X			/* minimum size */
+X			MMinfo[3].x = ScreenMinSize.x*tm.tmAveCharWidth
+X				+ GetSystemMetrics(SM_CXVSCROLL) + 2*GetSystemMetrics(SM_CXFRAME);
+X			MMinfo[3].y = ScreenMinSize.y*tm.tmHeight
+X				+ GetSystemMetrics(SM_CYHSCROLL) + 2*GetSystemMetrics(SM_CYFRAME)
+X				+ GetSystemMetrics(SM_CYCAPTION);
+X			}
+X			return(0);
+X		case WM_SIZE:
+X			SetWindowPos(lptw->hWndText, (HWND)NULL, 0, lptw->ButtonHeight,
+X				LOWORD(lParam), HIWORD(lParam)-lptw->ButtonHeight, 
+X				SWP_NOZORDER | SWP_NOACTIVATE);
+X			return(0);
+X		case WM_COMMAND:
+X			if (IsWindow(lptw->hWndText))
+X				SetFocus(lptw->hWndText);
+X			SendMessage(lptw->hWndText, message, wParam, lParam); /* pass on menu commands */
+X			return(0);
+X		case WM_PAINT:
+X			{
+X			hdc = BeginPaint(hwnd, &ps);
+X			if (lptw->ButtonHeight) {
+X				HBRUSH hbrush;
+X				GetClientRect(hwnd, &rect);
+X				hbrush = CreateSolidBrush(GetSysColor(COLOR_BTNSHADOW));
+X				rect.bottom = lptw->ButtonHeight-1;
+X				FillRect(hdc, &rect, hbrush);
+X				DeleteBrush(hbrush);
+X				SelectPen(hdc, GetStockPen(BLACK_PEN));
+X				MoveTo(hdc, rect.left, lptw->ButtonHeight-1);
+X				LineTo(hdc, rect.right, lptw->ButtonHeight-1);
+X			}
+X			EndPaint(hwnd, &ps);
+X			return 0;
+X			}
+X#if WINVER >= 0x030a
+X		case WM_DROPFILES:
+X			{
+X			WORD version = LOWORD(GetVersion());
+X			if ((LOBYTE(version)*100 + HIBYTE(version)) >= 310)
+X				DragFunc(lptw, (HDROP)wParam);
+X			}
+X			break;
+X#endif
+X		case WM_CREATE:
+X			{
+X			RECT crect, wrect;
+X			TEXTMETRIC tm;
+X			lptw = ((CREATESTRUCT FAR *)lParam)->lpCreateParams;
+X			SetWindowLong(hwnd, 0, (LONG)lptw);
+X			lptw->hWndParent = hwnd;
+X			/* get character size */
+X			TextMakeFont(lptw);
+X			hdc = GetDC(hwnd);
+X			SelectFont(hdc, lptw->hfont);
+X			GetTextMetrics(hdc,(LPTEXTMETRIC)&tm);
+X			lptw->CharSize.y = tm.tmHeight;
+X			lptw->CharSize.x = tm.tmAveCharWidth;
+X			lptw->CharAscent = tm.tmAscent;
+X			ReleaseDC(hwnd,hdc);
+X			GetClientRect(hwnd, &crect);
+X			if ( (lptw->CharSize.y*lptw->ScreenSize.y < crect.bottom)
+X			  || (lptw->CharSize.x*lptw->ScreenSize.x < crect.right) ) {
+X				/* shrink size */
+X			    GetWindowRect(lptw->hWndParent,&wrect);
+X			    MoveWindow(lptw->hWndParent, wrect.left, wrect.top,
+X				 wrect.right-wrect.left + (lptw->CharSize.x*lptw->ScreenSize.x - crect.right),
+X				 wrect.bottom-wrect.top + (lptw->CharSize.y*lptw->ScreenSize.y+lptw->ButtonHeight - crect.bottom),
+X				 TRUE);
+X			}
+X			}
+X#if WINVER >= 0x030a
+X			{
+X			WORD version = LOWORD(GetVersion());
+X			if ((LOBYTE(version)*100 + HIBYTE(version)) >= 310)
+X				if ( (lptw->DragPre!=(LPSTR)NULL) && (lptw->DragPost!=(LPSTR)NULL) )
+X					DragAcceptFiles(hwnd, TRUE);
+X			}
+X#endif
+X			break;
+X		case WM_DESTROY:
+X#if WINVER >= 0x030a
+X			{
+X			WORD version = LOWORD(GetVersion());
+X			if ((LOBYTE(version)*100 + HIBYTE(version)) >= 310)
+X				DragAcceptFiles(hwnd, FALSE);
+X			}
+X#endif
+X			DeleteFont(lptw->hfont);
+X			lptw->hfont = 0;
+X			break;
+X		case WM_CLOSE:
+X			if (lptw->shutdown) {
+X				FARPROC lpShutDown = lptw->shutdown;
+X				(*lpShutDown)();
+X			}
+X			break;
+X	}
+X	return DefWindowProc(hwnd, message, wParam, lParam);
+X}
+X
+X/* child text window */
+XLRESULT CALLBACK _export
+XWndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+X{
+X	HDC hdc;
+X	PAINTSTRUCT ps;
+X	RECT rect;
+X	int nYinc, nXinc;
+X	LPTW lptw;
+X
+X	lptw = (LPTW)GetWindowLong(hwnd, 0);
+X
+X	switch(message) {
+X		case WM_SETFOCUS: 
+X			lptw->bFocus = TRUE;
+X			CreateCaret(hwnd, 0, lptw->CharSize.x, 2+lptw->CaretHeight);
+X			SetCaretPos(lptw->CursorPos.x*lptw->CharSize.x - lptw->ScrollPos.x,
+X				lptw->CursorPos.y*lptw->CharSize.y + lptw->CharAscent
+X				 - lptw->CaretHeight - lptw->ScrollPos.y);
+X			if (lptw->bGetCh)
+X				ShowCaret(hwnd);
+X			break;
+X		case WM_KILLFOCUS: 
+X			DestroyCaret();
+X			lptw->bFocus = FALSE;
+X			break;
+X		case WM_SIZE:
+X			lptw->ClientSize.y = HIWORD(lParam);
+X			lptw->ClientSize.x = LOWORD(lParam);
+X
+X			lptw->ScrollMax.y = max(0, lptw->CharSize.y*lptw->ScreenSize.y - lptw->ClientSize.y);
+X			lptw->ScrollPos.y = min(lptw->ScrollPos.y, lptw->ScrollMax.y);
+X
+X			SetScrollRange(hwnd, SB_VERT, 0, lptw->ScrollMax.y, FALSE);
+X			SetScrollPos(hwnd, SB_VERT, lptw->ScrollPos.y, TRUE);
+X
+X			lptw->ScrollMax.x = max(0, lptw->CharSize.x*lptw->ScreenSize.x - lptw->ClientSize.x);
+X			lptw->ScrollPos.x = min(lptw->ScrollPos.x, lptw->ScrollMax.x);
+X
+X			SetScrollRange(hwnd, SB_HORZ, 0, lptw->ScrollMax.x, FALSE);
+X			SetScrollPos(hwnd, SB_HORZ, lptw->ScrollPos.x, TRUE);
+X
+X			if (lptw->bFocus && lptw->bGetCh) {
+X				SetCaretPos(lptw->CursorPos.x*lptw->CharSize.x - lptw->ScrollPos.x,
+X					lptw->CursorPos.y*lptw->CharSize.y + lptw->CharAscent 
+X					- lptw->CaretHeight - lptw->ScrollPos.y);
+X				ShowCaret(hwnd);
+X			}
+X			return(0);
+X		case WM_VSCROLL:
+X			switch(LOWORD(wParam)) {
+X				case SB_TOP:
+X					nYinc = -lptw->ScrollPos.y;
+X					break;
+X				case SB_BOTTOM:
+X					nYinc = lptw->ScrollMax.y - lptw->ScrollPos.y;
+X					break;
+X				case SB_LINEUP:
+X					nYinc = -lptw->CharSize.y;
+X					break;
+X				case SB_LINEDOWN:
+X					nYinc = lptw->CharSize.y;
+X					break;
+X				case SB_PAGEUP:
+X					nYinc = min(-1,-lptw->ClientSize.y);
+X					break;
+X				case SB_PAGEDOWN:
+X					nYinc = max(1,lptw->ClientSize.y);
+X					break;
+X				case SB_THUMBPOSITION:
+X					nYinc = LOWORD(lParam) - lptw->ScrollPos.y;
+X					break;
+X				default:
+X					nYinc = 0;
+X				}
+X			if ( (nYinc = max(-lptw->ScrollPos.y, 
+X				min(nYinc, lptw->ScrollMax.y - lptw->ScrollPos.y)))
+X				!= 0 ) {
+X				lptw->ScrollPos.y += nYinc;
+X				ScrollWindow(hwnd,0,-nYinc,NULL,NULL);
+X				SetScrollPos(hwnd,SB_VERT,lptw->ScrollPos.y,TRUE);
+X				UpdateWindow(hwnd);
+X			}
+X			return(0);
+X		case WM_HSCROLL:
+X			switch(LOWORD(wParam)) {
+X				case SB_LINEUP:
+X					nXinc = -lptw->CharSize.x;
+X					break;
+X				case SB_LINEDOWN:
+X					nXinc = lptw->CharSize.x;
+X					break;
+X				case SB_PAGEUP:
+X					nXinc = min(-1,-lptw->ClientSize.x);
+X					break;
+X				case SB_PAGEDOWN:
+X					nXinc = max(1,lptw->ClientSize.x);
+X					break;
+X				case SB_THUMBPOSITION:
+X					nXinc = LOWORD(lParam) - lptw->ScrollPos.x;
+X					break;
+X				default:
+X					nXinc = 0;
+X				}
+X			if ( (nXinc = max(-lptw->ScrollPos.x, 
+X				min(nXinc, lptw->ScrollMax.x - lptw->ScrollPos.x)))
+X				!= 0 ) {
+X				lptw->ScrollPos.x += nXinc;
+X				ScrollWindow(hwnd,-nXinc,0,NULL,NULL);
+X				SetScrollPos(hwnd,SB_HORZ,lptw->ScrollPos.x,TRUE);
+X				UpdateWindow(hwnd);
+X			}
+X			return(0);
+X		case WM_KEYDOWN:
+X			if (GetKeyState(VK_SHIFT) < 0) {
+X			  switch(wParam) {
+X				case VK_HOME:
+X					SendMessage(hwnd, WM_VSCROLL, SB_TOP, (LPARAM)0);
+X					break;
+X				case VK_END:
+X					SendMessage(hwnd, WM_VSCROLL, SB_BOTTOM, (LPARAM)0);
+X					break;
+X				case VK_PRIOR:
+X					SendMessage(hwnd, WM_VSCROLL, SB_PAGEUP, (LPARAM)0);
+X					break;
+X				case VK_NEXT:
+X					SendMessage(hwnd, WM_VSCROLL, SB_PAGEDOWN, (LPARAM)0);
+X					break;
+X				case VK_UP:
+X					SendMessage(hwnd, WM_VSCROLL, SB_LINEUP, (LPARAM)0);
+X					break;
+X				case VK_DOWN:
+X					SendMessage(hwnd, WM_VSCROLL, SB_LINEDOWN, (LPARAM)0);
+X					break;
+X				case VK_LEFT:
+X					SendMessage(hwnd, WM_HSCROLL, SB_LINEUP, (LPARAM)0);
+X					break;
+X				case VK_RIGHT:
+X					SendMessage(hwnd, WM_HSCROLL, SB_LINEDOWN, (LPARAM)0);
+X					break;
+X			  }
+X			}
+X			else {
+X			  switch(wParam) {
+X				case VK_HOME:
+X				case VK_END:
+X				case VK_PRIOR:
+X				case VK_NEXT:
+X				case VK_UP:
+X				case VK_DOWN:
+X				case VK_LEFT:
+X				case VK_RIGHT:
+X				case VK_DELETE:
+X				{ /* store key in circular buffer */
+X				long count;
+X					count = lptw->KeyBufIn - lptw->KeyBufOut;
+X					if (count < 0) count += lptw->KeyBufSize;
+X					if (count < lptw->KeyBufSize-2) {
+X						*lptw->KeyBufIn++ = 0;
+X						if (lptw->KeyBufIn - lptw->KeyBuf >= lptw->KeyBufSize)
+X							lptw->KeyBufIn = lptw->KeyBuf;	/* wrap around */
+X						*lptw->KeyBufIn++ = HIWORD(lParam) & 0xff;
+X						if (lptw->KeyBufIn - lptw->KeyBuf >= lptw->KeyBufSize)
+X							lptw->KeyBufIn = lptw->KeyBuf;	/* wrap around */
+X					}
+X				}
+X			  }
+X			}
+X			break;
+X		case WM_RBUTTONDOWN:
+X			{
+X			POINT pt;
+X			pt.x = LOWORD(lParam);
+X			pt.y = HIWORD(lParam);
+X			ClientToScreen(hwnd,&pt);
+X			TrackPopupMenu(lptw->hPopMenu, TPM_LEFTALIGN, 
+X				pt.x, pt.y, 0, hwnd, NULL);
+X			}
+X			return(0);
+X		case WM_LBUTTONDOWN:
+X			{ /* start marking text */
+X			POINT pt;
+X			pt.x = LOWORD(lParam);
+X			pt.y = HIWORD(lParam);
+X			pt.x = (pt.x + lptw->ScrollPos.x)/lptw->CharSize.x;
+X			pt.y = (pt.y + lptw->ScrollPos.y)/lptw->CharSize.y;
+X			ClearMark(lptw, pt);
+X			}
+X			SetCapture(hwnd);	/* track the mouse */
+X			lptw->Marking = TRUE;
+X			break;
+X		case WM_LBUTTONUP:
+X			{ /* finish marking text */
+X			/* ensure begin mark is before end mark */
+X			ReleaseCapture();
+X			lptw->Marking = FALSE;
+X			if ((lptw->ScreenSize.x*lptw->MarkBegin.y + lptw->MarkBegin.x) >
+X			    (lptw->ScreenSize.x*lptw->MarkEnd.y   + lptw->MarkEnd.x)) {
+X				POINT tmp;
+X				tmp.x = lptw->MarkBegin.x;
+X				tmp.y = lptw->MarkBegin.y;
+X				lptw->MarkBegin.x = lptw->MarkEnd.x;
+X				lptw->MarkBegin.y = lptw->MarkEnd.y;
+X				lptw->MarkEnd.x   = tmp.x;
+X				lptw->MarkEnd.y   = tmp.y;
+X			}
+X			}
+X			break;
+X		case WM_MOUSEMOVE:
+X			if ( (wParam & MK_LBUTTON) && lptw->Marking ) {
+X			RECT rect;
+X			POINT pt;
+X			pt.x = LOWORD(lParam);
+X			pt.y = HIWORD(lParam);
+X			GetClientRect(hwnd, &rect);
+X			if (PtInRect(&rect, pt)) {
+X				pt.x = (pt.x + lptw->ScrollPos.x)/lptw->CharSize.x;
+X				pt.y = (pt.y + lptw->ScrollPos.y)/lptw->CharSize.y;
+X				UpdateMark(lptw, pt);
+X			}
+X			else {
+X			  int nXinc;
+X			  int nYinc;
+X			  do {
+X				nXinc = 0;
+X				nYinc = 0;
+X				if (pt.x > rect.right) {
+X					nXinc = lptw->CharSize.x * 4;
+X					pt.x = (rect.right + lptw->ScrollPos.x)/lptw->CharSize.x + 2;
+X				}
+X				else if (pt.x < rect.left) {
+X					nXinc = -lptw->CharSize.x * 4;
+X					pt.x = (rect.left + lptw->ScrollPos.x)/lptw->CharSize.x - 2;
+X				}
+X				else
+X					pt.x = (pt.x + lptw->ScrollPos.x)/lptw->CharSize.x;
+X				if (pt.y > rect.bottom) {
+X					nYinc = lptw->CharSize.y;
+X					pt.y = (rect.bottom + lptw->ScrollPos.y)/lptw->CharSize.y + 1;
+X				}
+X				else if (pt.y < rect.top) {
+X					nYinc = -lptw->CharSize.y;
+X					pt.y = (rect.top + lptw->ScrollPos.y)/lptw->CharSize.y - 1;
+X				}
+X				else
+X					pt.y = (pt.y + lptw->ScrollPos.y)/lptw->CharSize.y;
+X				LimitMark(lptw, &pt);
+X				nXinc = max(nXinc, -lptw->ScrollPos.x);
+X				nYinc = max(nYinc, -lptw->ScrollPos.y);
+X				nYinc = min(nYinc, lptw->ScrollMax.y - lptw->ScrollPos.y);
+X				nXinc = min(nXinc, lptw->ScrollMax.x - lptw->ScrollPos.x);
+X				if (nYinc || nXinc) {
+X					lptw->ScrollPos.y += nYinc;
+X					lptw->ScrollPos.x += nXinc;
+X					ScrollWindow(lptw->hWndText,-nXinc,-nYinc,NULL,NULL);
+X					SetScrollPos(lptw->hWndText,SB_VERT,lptw->ScrollPos.y,TRUE);
+X					SetScrollPos(lptw->hWndText,SB_HORZ,lptw->ScrollPos.x,TRUE);
+X					UpdateWindow(lptw->hWndText);
+X				}
+X				UpdateMark(lptw, pt);
+X				GetCursorPos(&pt);
+X				ScreenToClient(hwnd, &pt);
+X			  }
+X			  while( (nYinc || nXinc) && !PtInRect(&rect, pt) &&
+X				(GetAsyncKeyState(VK_LBUTTON) < 0) );
+X			}
+X			}
+X			break;
+X		case WM_CHAR:
+X			{ /* store key in circular buffer */
+X			long count;
+X				count = lptw->KeyBufIn - lptw->KeyBufOut;
+X				if (count < 0) count += lptw->KeyBufSize;
+X				if (count < lptw->KeyBufSize-1) {
+X					*lptw->KeyBufIn++ = wParam;
+X					if (lptw->KeyBufIn - lptw->KeyBuf >= lptw->KeyBufSize)
+X						lptw->KeyBufIn = lptw->KeyBuf;	/* wrap around */
+X				}
+X			}
+X			return(0);
+X		case WM_COMMAND:
+X			if (LOWORD(wParam) < NUMMENU)
+X				SendMacro(lptw, LOWORD(wParam));
+X			else
+X			switch(LOWORD(wParam))
+X			{
+X				case M_COPY_CLIP:
+X					TextCopyClip(lptw);
+X					return 0;
+X				case M_PASTE:
+X					{
+X					HGLOBAL hGMem;
+X					BYTE FAR *cbuf;
+X					TEXTMETRIC tm;
+X					UINT type;
+X					/* find out what type to get from clipboard */
+X					hdc = GetDC(hwnd);
+X					SelectFont(hdc, lptw->hfont);
+X					GetTextMetrics(hdc,(TEXTMETRIC FAR *)&tm);
+X					if (tm.tmCharSet == OEM_CHARSET)
+X						type = CF_OEMTEXT;
+X					else
+X						type = CF_TEXT;
+X					ReleaseDC(lptw->hWndText, hdc);
+X					/* now get it from clipboard */
+X					OpenClipboard(hwnd);
+X					hGMem = GetClipboardData(type);
+X					if (hGMem) {
+X						cbuf = (BYTE FAR *) GlobalLock(hGMem);
+X						while (*cbuf) {
+X							if (*cbuf != '\n')
+X								SendMessage(lptw->hWndText,WM_CHAR,*cbuf,1L);
+X							cbuf++;
+X						}
+X						GlobalUnlock(hGMem);
+X					}
+X					CloseClipboard();
+X					return 0;
+X					}
+X				case M_CHOOSE_FONT:
+X					TextSelectFont(lptw);
+X					return 0;
+X				case M_SYSCOLORS:
+X					lptw->bSysColors = !lptw->bSysColors;
+X					if (lptw->bSysColors) 
+X						CheckMenuItem(lptw->hPopMenu, M_SYSCOLORS, MF_BYCOMMAND | MF_CHECKED);
+X					else
+X						CheckMenuItem(lptw->hPopMenu, M_SYSCOLORS, MF_BYCOMMAND | MF_UNCHECKED);
+X					SendMessage(hwnd, WM_SYSCOLORCHANGE, (WPARAM)0, (LPARAM)0);
+X					InvalidateRect(hwnd, (LPRECT)NULL, 1);
+X					UpdateWindow(hwnd);
+X					return 0;
+X				case M_WRITEINI:
+X					WriteTextIni(lptw);
+X					return 0;
+X				case M_ABOUT:
+X					AboutBox(hwnd,lptw->AboutText);
+X					return 0;
+X			}
+X			return(0);
+X		case WM_SYSCOLORCHANGE:
+X			DeleteBrush(lptw->hbrBackground);
+X			lptw->hbrBackground = CreateSolidBrush(lptw->bSysColors ? 
+X				GetSysColor(COLOR_WINDOW) : RGB(0,0,0));
+X			return(0);
+X		case WM_ERASEBKGND:
+X			return(1);	/* we will erase it ourselves */
+X		case WM_PAINT:
+X			{
+X			POINT source, width, dest;
+X			POINT MarkBegin, MarkEnd;
+X			hdc = BeginPaint(hwnd, &ps);
+X			if (ps.fErase)
+X				FillRect(hdc, &ps.rcPaint, lptw->hbrBackground);
+X			SelectFont(hdc, lptw->hfont);
+X			SetMapMode(hdc, MM_TEXT);
+X			SetBkMode(hdc,OPAQUE);
+X			GetClientRect(hwnd, &rect);
+X			source.x = (rect.left + lptw->ScrollPos.x) / lptw->CharSize.x;		/* source */
+X			source.y = (rect.top + lptw->ScrollPos.y) / lptw->CharSize.y;
+X			dest.x = source.x * lptw->CharSize.x - lptw->ScrollPos.x; 				/* destination */
+X			dest.y = source.y * lptw->CharSize.y - lptw->ScrollPos.y;
+X			width.x = ((rect.right  + lptw->ScrollPos.x + lptw->CharSize.x - 1) / lptw->CharSize.x) - source.x; /* width */
+X			width.y = ((rect.bottom + lptw->ScrollPos.y + lptw->CharSize.y - 1) / lptw->CharSize.y) - source.y;
+X			if (source.x < 0)
+X				source.x = 0;
+X			if (source.y < 0)
+X				source.y = 0;
+X			if (source.x+width.x > lptw->ScreenSize.x)
+X				width.x = lptw->ScreenSize.x - source.x;
+X			if (source.y+width.y > lptw->ScreenSize.y)
+X				width.y = lptw->ScreenSize.y - source.y;
+X			/* ensure begin mark is before end mark */
+X			if ((lptw->ScreenSize.x*lptw->MarkBegin.y + lptw->MarkBegin.x) >
+X			    (lptw->ScreenSize.x*lptw->MarkEnd.y   + lptw->MarkEnd.x)) {
+X				MarkBegin.x = lptw->MarkEnd.x;
+X				MarkBegin.y = lptw->MarkEnd.y;
+X				MarkEnd.x   = lptw->MarkBegin.x;
+X				MarkEnd.y   = lptw->MarkBegin.y;
+X			}
+X			else {
+X				MarkBegin.x = lptw->MarkBegin.x;
+X				MarkBegin.y = lptw->MarkBegin.y;
+X				MarkEnd.x   = lptw->MarkEnd.x;
+X				MarkEnd.y   = lptw->MarkEnd.y;
+X			}
+X			/* for each line */
+X			while (width.y>0) {
+X				if ( (source.y >= MarkBegin.y) && (source.y <= MarkEnd.y) ) {
+X					int start, end;
+X					int count, offset;
+X					if (source.y == MarkBegin.y)
+X						start = MarkBegin.x;
+X					else
+X						start = 0;
+X					if (source.y == MarkEnd.y)
+X						end = MarkEnd.x;
+X					else
+X						end = lptw->ScreenSize.x;
+X					/* do stuff before marked text */
+X					offset = 0;
+X					count = start - source.x;
+X					if (count > 0)
+X					  DoLine(lptw, hdc, dest.x, dest.y, 
+X						source.y*lptw->ScreenSize.x + source.x, count);
+X					/* then the marked text */
+X					offset += count;
+X					count = end - start;
+X					if ((count > 0) && (offset < width.x)){
+X					  if (lptw->bSysColors) {
+X					    SetTextColor(hdc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+X					    SetBkColor(hdc, GetSysColor(COLOR_HIGHLIGHT));
+X					  }
+X					  else {
+X					    SetTextColor(hdc, MARKFORE);
+X					    SetBkColor(hdc, MARKBACK);
+X					  }
+X					  TextOut(hdc, dest.x + lptw->CharSize.x*offset, dest.y, 
+X						(LPSTR)(lptw->ScreenBuffer + source.y*lptw->ScreenSize.x 
+X						+ source.x + offset), count);
+X					}
+X					/* then stuff after marked text */
+X					offset += count;
+X					count = width.x + source.x - end;
+X					if ((count > 0) && (offset < width.x))
+X					  DoLine(lptw, hdc, dest.x + lptw->CharSize.x*offset, dest.y, 
+X						source.y*lptw->ScreenSize.x + source.x + offset, count);
+X				}
+X				else {
+X					DoLine(lptw, hdc, dest.x, dest.y, 
+X						source.y*lptw->ScreenSize.x + source.x, width.x);
+X				}
+X				dest.y += lptw->CharSize.y;
+X				source.y++;
+X				width.y--;
+X			}
+X			EndPaint(hwnd, &ps);
+X			return 0;
+X			}
+X		case WM_CREATE:
+X			lptw = ((CREATESTRUCT FAR *)lParam)->lpCreateParams;
+X			SetWindowLong(hwnd, 0, (LONG)lptw);
+X			lptw->hWndText = hwnd;
+X			break;
+X		case WM_DESTROY:
+X			DeleteBrush(lptw->hbrBackground);
+X			break;
+X	}
+X	return DefWindowProc(hwnd, message, wParam, lParam);
+X}
+X
+X
+X/* ================================== */
+X/* replacement stdio routines */
+X
+X/* TRUE if key hit, FALSE if no key */
+Xint WDPROC
+XTextKBHit(LPTW lptw)
+X{
+X	return (lptw->KeyBufIn != lptw->KeyBufOut);
+X}
+X
+X/* get character from keyboard, no echo */
+X/* need to add extended codes */
+Xint WDPROC
+XTextGetCh(LPTW lptw)
+X{
+X	int ch;
+X	TextToCursor(lptw);
+X	lptw->bGetCh = TRUE;
+X	if (lptw->bFocus) {
+X		SetCaretPos(lptw->CursorPos.x*lptw->CharSize.x - lptw->ScrollPos.x,
+X			lptw->CursorPos.y*lptw->CharSize.y + lptw->CharAscent 
+X			- lptw->CaretHeight - lptw->ScrollPos.y);
+X		ShowCaret(lptw->hWndText);
+X	}
+X	do {
+X		TextMessage();
+X	} while (!TextKBHit(lptw));
+X	ch = *lptw->KeyBufOut++;
+X	if (ch=='\r')
+X		ch = '\n';
+X	if (lptw->KeyBufOut - lptw->KeyBuf >= lptw->KeyBufSize)
+X		lptw->KeyBufOut = lptw->KeyBuf;	/* wrap around */
+X	if (lptw->bFocus)
+X		HideCaret(lptw->hWndText);
+X	lptw->bGetCh = FALSE;
+X	return ch;
+X}
+X
+X/* get character from keyboard, with echo */
+Xint WDPROC
+XTextGetChE(LPTW lptw)
+X{
+Xint ch;
+X	ch = TextGetCh(lptw);
+X	TextPutCh(lptw, (BYTE)ch);
+X	return ch;
+X}
+X
+XLPSTR WDPROC
+XTextGetS(LPTW lptw, LPSTR str, unsigned int size)
+X{
+X	LPSTR next = str;
+X	while (--size>0) {
+X		switch(*next = TextGetChE(lptw)) {
+X			case EOF:
+X				*next = NULL;
+X				if (next == str) return (char *)NULL;
+X				return str;
+X			case '\n':
+X				*(next+1) = NULL;
+X				return str;
+X			case 0x08:
+X			case 0x7f:
+X				if (next > str)
+X					--next;
+X				break;
+X			default:
+X				++next;
+X		}
+X	}
+X	*next = NULL;
+X	return str;
+X}
+X
+Xint WDPROC
+XTextPutS(LPTW lptw, LPSTR str)
+X{
+X	TextPutStr(lptw, str);
+X	return str[_fstrlen(str)-1];
+X}
+X
+X/* ================================== */
+X/* routines added for elvis */
+X
+Xvoid WDPROC
+XTextGotoXY(LPTW lptw, int x, int y)
+X{
+X	lptw->CursorPos.x = x;
+X	lptw->CursorPos.y = y;
+X}
+X
+Xint  WDPROC
+XTextWhereX(LPTW lptw)
+X{
+X	return lptw->CursorPos.x;
+X}
+X
+Xint  WDPROC
+XTextWhereY(LPTW lptw)
+X{
+X	return lptw->CursorPos.y;
+X}
+X
+Xvoid WDPROC
+XTextCursorHeight(LPTW lptw, int height)
+X{
+X	lptw->CaretHeight = height;
+X	if (lptw->bFocus)
+X		CreateCaret(lptw->hWndText, 0, lptw->CharSize.x, 2+lptw->CaretHeight);
+X}
+X
+Xvoid WDPROC
+XTextClearEOL(LPTW lptw)
+X{
+XHDC hdc;
+Xint xpos, ypos;
+Xint from, len;
+XPOINT pt;
+X	pt.x = pt.y = 0;
+X	ClearMark(lptw, pt);
+X	from = lptw->CursorPos.y*lptw->ScreenSize.x + lptw->CursorPos.x;
+X	len = lptw->ScreenSize.x-lptw->CursorPos.x;
+X	_fmemset(lptw->ScreenBuffer + from, ' ', len);
+X	_fmemset(lptw->AttrBuffer + from, NOTEXT, len);
+X	xpos = lptw->CursorPos.x*lptw->CharSize.x - lptw->ScrollPos.x;
+X	ypos = lptw->CursorPos.y*lptw->CharSize.y - lptw->ScrollPos.y;
+X	hdc = GetDC(lptw->hWndText);
+X	if (lptw->bSysColors) {
+X	    SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+X	    SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+X	}
+X	else {
+X	    SetTextColor(hdc, TextFore(lptw->Attr));
+X	    SetBkColor(hdc, TextBack(lptw->Attr));
+X	}
+X	SelectFont(hdc, (lptw->hfont));
+X	TextOut(hdc,xpos,ypos,
+X		(LPSTR)(lptw->ScreenBuffer + lptw->CursorPos.y*lptw->ScreenSize.x + 
+X		lptw->CursorPos.x), lptw->ScreenSize.x-lptw->CursorPos.x);
+X	(void)ReleaseDC(lptw->hWndText,hdc);
+X}
+X
+Xvoid WDPROC
+XTextClearEOS(LPTW lptw)
+X{
+XRECT rect;
+Xint from, len;
+XPOINT pt;
+X	pt.x = pt.y = 0;
+X	ClearMark(lptw, pt);
+X	from = lptw->CursorPos.y*lptw->ScreenSize.x + lptw->CursorPos.x;
+X	len = lptw->ScreenSize.x-lptw->CursorPos.x + 
+X			(lptw->ScreenSize.y-lptw->CursorPos.y-1)*lptw->ScreenSize.x;
+X	_fmemset(lptw->ScreenBuffer + from, ' ', len);
+X	_fmemset(lptw->AttrBuffer + from, NOTEXT, len);
+X	GetClientRect(lptw->hWndText, (LPRECT) &rect);
+X	InvalidateRect(lptw->hWndText, (LPRECT) &rect, 1);
+X	UpdateWindow(lptw->hWndText);
+X}
+X
+Xvoid WDPROC
+XTextInsertLine(LPTW lptw)
+X{
+XRECT rect;
+Xint from, to, len;
+XPOINT pt;
+X	pt.x = pt.y = 0;
+X	ClearMark(lptw, pt);
+X	from = lptw->CursorPos.y*lptw->ScreenSize.x,
+X	to = (lptw->CursorPos.y+1)*lptw->ScreenSize.x;
+X	len = (lptw->ScreenSize.y-lptw->CursorPos.y-1)*lptw->ScreenSize.x;
+X	_fmemmove(lptw->ScreenBuffer + to, lptw->ScreenBuffer + from, len);
+X	_fmemmove(lptw->AttrBuffer + to, lptw->AttrBuffer + from, len);
+X	_fmemset(lptw->ScreenBuffer + from, ' ', lptw->ScreenSize.x);
+X	_fmemset(lptw->AttrBuffer + from, NOTEXT, lptw->ScreenSize.x);
+X	GetClientRect(lptw->hWndText, (LPRECT) &rect);
+X	InvalidateRect(lptw->hWndText, (LPRECT) &rect, 1);
+X	UpdateWindow(lptw->hWndText);
+X	if (lptw->CursorFlag)
+X		TextToCursor(lptw);
+X}
+X
+Xvoid WDPROC
+XTextDeleteLine(LPTW lptw)
+X{
+XRECT rect;
+Xint from, to, len;
+XPOINT pt;
+X	pt.x = pt.y = 0;
+X	ClearMark(lptw, pt);
+X	to = lptw->CursorPos.y*lptw->ScreenSize.x,
+X	from = (lptw->CursorPos.y+1)*lptw->ScreenSize.x;
+X	len = (lptw->ScreenSize.y-lptw->CursorPos.y-1)*lptw->ScreenSize.x;
+X	_fmemmove(lptw->ScreenBuffer + to, lptw->ScreenBuffer + from, len);
+X	_fmemmove(lptw->AttrBuffer + to, lptw->AttrBuffer + from, len);
+X	from = lptw->ScreenSize.x*(lptw->ScreenSize.y -1);
+X	_fmemset(lptw->ScreenBuffer + from, ' ', lptw->ScreenSize.x);
+X	_fmemset(lptw->AttrBuffer + from, NOTEXT, lptw->ScreenSize.x);
+X	GetClientRect(lptw->hWndText, (LPRECT) &rect);
+X	InvalidateRect(lptw->hWndText, (LPRECT) &rect, 1);
+X	UpdateWindow(lptw->hWndText);
+X	if (lptw->CursorFlag)
+X		TextToCursor(lptw);
+X}
+X
+Xvoid WDPROC
+XTextScrollReverse(LPTW lptw)
+X{
+XRECT rect;
+Xint len = lptw->ScreenSize.x * (lptw->ScreenSize.y - 1); 
+X	_fmemmove(lptw->ScreenBuffer+lptw->ScreenSize.x, lptw->ScreenBuffer, len);
+X	_fmemset(lptw->ScreenBuffer, ' ', lptw->ScreenSize.x);
+X	_fmemmove(lptw->AttrBuffer+lptw->ScreenSize.x, lptw->AttrBuffer, len);
+X	_fmemset(lptw->AttrBuffer, NOTEXT, lptw->ScreenSize.x);
+X	if (lptw->CursorPos.y)
+X		lptw->CursorPos.y--;
+X	ScrollWindow(lptw->hWndText,0,+lptw->CharSize.y,NULL,NULL);
+X	GetClientRect(lptw->hWndText, (LPRECT) &rect);
+X	rect.top = lptw->ScreenSize.y*lptw->CharSize.y;
+X	if (rect.top < rect.bottom)
+X		InvalidateRect(lptw->hWndText, (LPRECT) &rect, 1);
+X	lptw->MarkBegin.y++;
+X	lptw->MarkEnd.y++;
+X	LimitMark(lptw, &lptw->MarkBegin);
+X	LimitMark(lptw, &lptw->MarkEnd);
+X	UpdateWindow(lptw->hWndText);
+X}
+X
+Xvoid WDPROC 
+XTextAttr(LPTW lptw, BYTE attr)
+X{
+X	lptw->Attr = attr;
+X}
+X
+X/* About Box */
+XBOOL CALLBACK _export
+XAboutDlgProc(HWND hDlg, UINT wMsg, WPARAM wParam, LPARAM lParam)
+X{
+X	switch (wMsg) {
+X		case WM_INITDIALOG:
+X			{
+X			char buf[80];
+X			GetWindowText(GetParent(hDlg),buf,80);
+X			SetDlgItemText(hDlg, AB_TEXT1, buf);
+X			SetDlgItemText(hDlg, AB_TEXT2, (LPSTR)lParam);
+X#ifdef __DLL__
+X			wsprintf(buf,"WGNUPLOT.DLL Version %s",(LPSTR)WGNUPLOTVERSION);
+X			SetDlgItemText(hDlg, AB_TEXT3, buf);
+X#endif
+X			}
+X			return TRUE;
+X		case WM_DRAWITEM:
+X			{
+X			LPDRAWITEMSTRUCT lpdis = (LPDRAWITEMSTRUCT)lParam;
+X#ifdef WIN32
+X			DrawIcon(lpdis->hDC, 0, 0, (HICON)GetClassLong(GetParent(hDlg), GCL_HICON));
+X#else
+X			DrawIcon(lpdis->hDC, 0, 0, (HICON)GetClassWord(GetParent(hDlg), GCW_HICON));
+X#endif
+X			}
+X			return FALSE;
+X		case WM_COMMAND:
+X			switch (LOWORD(wParam)) {
+X				case IDCANCEL:
+X				case IDOK:
+X					EndDialog(hDlg, LOWORD(wParam));
+X					return TRUE;
+X			}
+X			break;
+X	}
+X	return FALSE;
+X}
+X
+X
+Xvoid WDPROC
+XAboutBox(HWND hwnd, LPSTR str)
+X{
+XDLGPROC lpfnAboutDlgProc;
+X#ifdef __DLL__
+X	lpfnAboutDlgProc = (DLGPROC)GetProcAddress(hdllInstance, "AboutDlgProc");
+X#else
+X	lpfnAboutDlgProc = (DLGPROC)MakeProcInstance((FARPROC)AboutDlgProc, hdllInstance);
+X#endif
+X	DialogBoxParam(hdllInstance,"AboutDlgBox",hwnd,lpfnAboutDlgProc,(LPARAM)str);
+X	EnableWindow(hwnd,TRUE);
+X#ifndef __DLL__
+X	FreeProcInstance((FARPROC)lpfnAboutDlgProc);
+X#endif
+X}
+END_OF_FILE
+  if test 49542 -ne `wc -c <'gnuplot/win/wtext.c'`; then
+    echo shar: \"'gnuplot/win/wtext.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/win/wtext.c'
+fi
+echo shar: End of archive 9 \(of 33\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 33 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1697 @@
+Newsgroups: comp.sources.misc
+From: pullen@cs.washington.edu (Walter D. Pullen)
+Subject:  v28i108:  astrolog - Generation of astrology charts v2.10, Part05/06
+Message-ID: <1992Mar16.025103.13377@sparky.imd.sterling.com>
+X-Md4-Signature: 7faf7413d679886e649e7899d936aad6
+Date: Mon, 16 Mar 1992 02:51:03 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: pullen@cs.washington.edu (Walter D. Pullen)
+Posting-number: Volume 28, Issue 108
+Archive-name: astrolog/part05
+Environment: UNIX, VMS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 6)."
+# Contents:  options.c driver.c
+# Wrapped by pullen@lynx.cs.washington.edu on Sun Mar 15 16:05:15 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'options.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'options.c'\"
+else
+echo shar: Extracting \"'options.c'\" \(31626 characters\)
+sed "s/^X//" >'options.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.10) File: options.c
+X*/
+X
+X#include "astrolog.h"
+X
+Xint wheel[SIGNS][WHEELROWS];
+X
+X/*
+X*******************************************************************************
+X** Display subprograms
+X*******************************************************************************
+X*/
+X
+Xprintlocation()
+X{
+X  int i, j;
+X  int total = 0, elemode[4][3], elem[4], mo[3], pos = 0, abo = 0, lef = 0;
+X  for (i = 0; i < 4; i++)
+X    elem[i] = 0;
+X  for (j = 0; j < 3; j++)
+X    mo[j] = 0;
+X  for (i = 0; i < 4; i++)
+X    for (j = 0; j < 3; j++)
+X      elemode[i][j] = 0;
+X  for (i = 1; i <= objects; i++)
+X    if (!ignore[i]) {
+X      total++;
+X      j = (int) (planet[i]/30.0) + 1;
+X      elemode[(j-1)%4][(j-1)%3]++;
+X      elem[(j-1)%4]++; mo[(j-1)%3]++;
+X      pos += (j & 1);
+X      j = inhouse[i];
+X      abo += (j >= 7);
+X      lef += (j < 4 || j >= 10);
+X    }
+X  i = (int) ((dabs(Tim)-floor(dabs(Tim)))*100.0+0.5);
+X  j = (int) ((dabs(Zon)-floor(dabs(Zon)))*100.0+0.5);
+X  printf("Astrolog (%s) chart ", VERSION);
+X  if (Mon == -1)
+X    printf("(no time or space)\n");
+X  else if (relation == 2)
+X    printf("(composite)\n");
+X  else {
+X    printf("for %d %s %d %.0f:%d%d (%c%.0f:%d%d GMT) ",
+X	   (int) Day, monthname[(int) Mon], (int) Yea, floor(Tim), 
+X	   i/10, i%10, Zon > 0.0 ? '-' : '+', dabs(Zon), j/10, j%10);
+X    i = (int) ((dabs(Lon)-floor(dabs(Lon)))*100.0+0.5);
+X    j = (int) ((dabs(Lat)-floor(dabs(Lat)))*100.0+0.5);
+X    printf("%.0f'%d%d%c ",
+X	   floor(dabs(Lon)), i/10, i%10, Lon < 0.0 ? 'E' : 'W');
+X    printf("%.0f'%d%d%c\n",
+X	   floor(dabs(Lat)), j/10, j%10, Lat < 0.0 ? 'S' : 'N');
+X  }
+X  printf("Body  Locat. Ret. Decl. Rul.      House  Rul.    %s Houses.\n\n",
+X	 systemname[housesystem]);
+X  for (i = 1; i <= objects; i++) {
+X    printf("%c%c%c%c: ", OBJNAM(i), objectname[i][3] ? objectname[i][3] : ' ');
+X    printminute(planet[i]);
+X    printf(" %s ", ret[i] == 0.0 ? " " : "R");
+X    printaltitude(planetalt[i]);
+X    printf(" (%c)", dignify(i, (int) (planet[i]/30.0) +1));
+X    j = inhouse[i];
+X    printf(" [%2d%c%c house]", j, post[j][0], post[j][1]);
+X    printf(" [%c]", dignify(i, j));
+X    if (i <= SIGNS) {
+X      printf("  -  House cusp %2d: ", i);
+X      printminute(house[i]);
+X    }
+X    if (i == SIGNS+2)
+X      printf("     Car Fix Mut TOT");
+X    else if (i > SIGNS+2 && i < SIGNS+7) {
+X      j = i-(SIGNS+2)-1;
+X      printf("  %c%c%c%3d %3d %3d %3d",
+X	     element[j][0], element[j][1], element[j][2],
+X	     elemode[j][0], elemode[j][1], elemode[j][2], elem[j]);
+X    } else if (i == SIGNS+7)
+X      printf("  TOT %2d %3d %3d %3d", mo[0], mo[1], mo[2], total);
+X    switch (i-SIGNS-1) {
+X    case 1: printf("   +:%2d", pos);       break;
+X    case 2: printf("   -:%2d", total-pos); break;
+X    case 3: printf("   M:%2d", abo);       break;
+X    case 4: printf("   N:%2d", total-abo); break;
+X    case 5: printf("   A:%2d", lef);       break;
+X    case 6: printf("   D:%2d", total-lef); break;
+X    }
+X    printf("\n");
+X  }
+X}
+X
+Xvoid creategrid(acc)
+Xint acc;
+X{
+X  int i, j, k;
+X  double l;
+X  for (j = 1; j <= objects; j++) {
+X    for (i = 1; i <= objects; i++) {
+X      if (i < j) {
+X	gridname[i][j] = grid[i][j] = 0;
+X	l = mindistance(planet[i], planet[j]);
+X	for (k = aspects; k >= 1; k--)
+X	  if (dabs(l-aspectangle[k]) <
+X	      MIN(aspectorb[k], MIN(planetorbmax[i], planetorbmax[j]))) {
+X	    gridname[i][j] = k;
+X	    grid[i][j] = (int) ((l-aspectangle[k])*(!acc ? 10.0 : 60.0));
+X	  }
+X      } else if (i > j) {
+X	l = mod(midpoint(planet[i], planet[j])+0.5); k = (int) l;
+X	gridname[i][j] = k/30+1;
+X	grid[i][j] = !acc ? k%30 : (int)((l-(double)(k/30)*30.0)*60.0);
+X      } else {
+X	gridname[i][j] = (int)planet[j]/30+1;
+X	grid[i][j] = (int)(planet[j]-(double)(gridname[i][j]-1)*30.0);
+X      }
+X    }
+X  }
+X}
+X
+Xprintgrid()
+X{
+X  int i, j, k, temp;
+X  for (j = 1; j <= objects; j++) if (!ignore[j])
+X    for (k = 1; k <= 3; k++) {
+X      for (i = 1; i <= objects; i++) if (!ignore[i]) {
+X	if (i > 1 && j+k > 2)
+X	  putchar('|');
+X	if (k > 1) {
+X	  if (i < j) {
+X	    if (k < 3)
+X	      printf("%s", aspectabbrev[gridname[i][j]]);
+X	    else {
+X	      if (gridname[i][j]) {
+X		if (grid[i][j] < 100)
+X		  printf("%d%c%d", abs(grid[i][j])/10,
+X			 grid[i][j] < 0 ? ',' : '.', abs(grid[i][j])%10);
+X		else if (grid[i][j] < 1000)
+X		  printf("%2d%c", abs(grid[i][j])/10,
+X			 grid[i][j] < 0 ? ',' : '.');
+X		else
+X		  printf("%3d", abs(grid[i][j])/10);
+X	      } else
+X		printf("   ");
+X	    }
+X	  } else if (i > j) {
+X	    if (k < 3)
+X	      printf("%d%d'", grid[i][j]/10, grid[i][j]%10);
+X	    else {
+X	      temp = gridname[i][j];
+X	      printf("%c%c%c", SIGNAM(temp));
+X	    }
+X	  } else {
+X	    if (k < 3)
+X	      printf("%c%c%c", OBJNAM(j));
+X	    else
+X	      printf("###");
+X	  }
+X	} else
+X	  if (j > 1)
+X	    printf("---");
+X      }
+X      if (j+k > 2)
+X	putchar('\n');
+X    }
+X}
+X
+Xcreaterelationgrid(acc)
+Xint acc;
+X{
+X  int i, j, k;
+X  double l;
+X  for (j = 1; j <= objects; j++) {
+X    for (i = 1; i <= objects; i++) {
+X      l = mindistance(planet2[i], planet1[j]);
+X      for (k = aspects; k >= 1; k--)
+X	if (dabs(l-aspectangle[k]) <
+X	    MIN(aspectorb[k], MIN(planetorbmax[i], planetorbmax[j]))) {
+X	  gridname[i][j] = k;
+X	  grid[i][j] = (int) ((l-aspectangle[k])*(!acc ? 10.0 : 60.0));
+X	}
+X    }
+X  }
+X}
+X
+Xprintrelationgrid()
+X{
+X  int i, j, k;
+X  printf("AB>");
+X  for (i = 1; i < objects; i++) if (!ignore[i])
+X    printf("|%c%c%c", OBJNAM(i));
+X  printf("\nV  ");
+X  for (i = 1; i < objects; i++) if (!ignore[i])
+X    printf("|###");
+X  putchar('\n');
+X  for (j = 1; j < objects; j++) if (!ignore[j])
+X    for (k = 1; k <= 3; k++) {
+X      if (k < 2)
+X	printf("---");
+X      else if (k == 2)
+X	printf("%c%c%c", OBJNAM(j));
+X      else
+X	printf("###");
+X      for (i = 1; i < objects; i++) if (!ignore[i]) {
+X	putchar('|');
+X        if (k < 2)
+X	  printf("---");
+X	else if (k == 2)
+X	  printf("%s", aspectabbrev[gridname[i][j]]);
+X	else
+X	  if (gridname[i][j]) {
+X	    if (grid[i][j] < 100)
+X	      printf("%d%c%d", abs(grid[i][j])/10, grid[i][j] < 0 ? ',' : '.',
+X		     abs(grid[i][j])%10);
+X	    else if (grid[i][j] < 1000)
+X	      printf("%2d%c", abs(grid[i][j])/10,
+X		     grid[i][j] < 0 ? ',' : '.');
+X	    else
+X	      printf("%3d", abs(grid[i][j])/10);
+X	  } else
+X	    printf("   ");
+X      }
+X      putchar('\n');
+X    }
+X}
+X
+Xprintgrand(nam, i1, i2, i3, i4)
+Xchar nam;
+Xint i1, i2, i3, i4;
+X{
+X  switch (nam) {
+X  case 't': printf("Grand Trine"); break;
+X  case 's': printf("T-Square   "); break;
+X  case 'y': printf("Yod        "); break;
+X  case 'g': printf("Grand Cross"); break;
+X  case 'c': printf("Cradle     "); break;
+X  default: ;
+X  }
+X  printf(" %s ", nam == 't' || nam == 'g' ? "with" : "from");
+X  printf("%c%c%c: ", OBJNAM(i1));
+X  printminute(planet[i1]);
+X  printf(" %s %c%c%c: ", nam == 't' ? "and" : "to ", OBJNAM(i2));
+X  printminute(planet[i2]);
+X  printf(" %s %c%c%c: ", nam == 'g' || nam == 'c' ? "to " : "and", OBJNAM(i3));
+X  printminute(planet[i3]);
+X  if (nam == 'g' || nam == 'c') {
+X    printf(" to %c%c%c: ", OBJNAM(i4));
+X    printminute(planet[i4]);
+X  }
+X  printf("\n");
+X}
+X
+Xdisplaygrands()
+X{
+X  int count = 0, i, j, k, l;
+X  for (i = 1; i <= objects; i++) if (!ignore[i])
+X    for (j = 1; j <= objects; j++) if (j != i && !ignore[j])
+X      for (k = 1; k <= objects; k++) if (k != i && k != j && !ignore[k]) {
+X	if (i < j && j < k && gridname[i][j] == 4 &&
+X	    gridname[i][k] == 4 && gridname[j][k] == 4) {
+X	  count++;
+X	  printgrand('t', i, j, k, l);
+X	} else if (j < k && gridname[j][k] == 2 &&
+X	    gridname[MIN(i, j)][MAX(i, j)] == 3 &&
+X	    gridname[MIN(i, k)][MAX(i, k)] == 3) {
+X	  count++;
+X	  printgrand('s', i, j, k, l);
+X	} else if (j < k && gridname[j][k] == 5 &&
+X	    gridname[MIN(i, j)][MAX(i, j)] == 6 &&
+X	    gridname[MIN(i, k)][MAX(i, k)] == 6) {
+X	  count++;
+X	  printgrand('y', i, j, k, l);
+X	}
+X	for (l = 1; l <= objects; l++) if (!ignore[l]) {
+X	  if (i < j && i < k && i < l && j < l && gridname[i][j] == 3 &&
+X	      gridname[MIN(j, k)][MAX(j, k)] == 3 &&
+X	      gridname[MIN(k, l)][MAX(k, l)] == 3 &&
+X	      gridname[i][l] == 3 && mindistance(planet[i], planet[k]) > 150.0
+X	      && mindistance(planet[j], planet[l]) > 150.0) {
+X	    count++;
+X	    printgrand('g', i, j, k, l);
+X	  } else if (i < l && gridname[MIN(i, j)][MAX(i, j)] == 5 &&
+X	      gridname[MIN(j, k)][MAX(j, k)] == 5 &&
+X	      gridname[MIN(k, l)][MAX(k, l)] == 5 &&
+X	      mindistance(planet[i], planet[l]) > 150.0) {
+X	    count++;
+X	    printgrand('c', i, j, k, l);
+X	  }
+X	}
+X      }
+X  if (!count)
+X    printf("No major configurations in aspect grid.\n");
+X}
+X
+Xprinttab(chr, count)
+Xchar chr;
+Xint count;
+X{
+X  int i;
+X  for (i = 0; i < count; i++)
+X    putchar(chr);
+X}
+X
+Xprintwheelslot(house, row)
+Xint house, row;
+X{
+X  int i;
+X  i = wheel[house-1][row];
+X  if (i) {
+X    printf(" %c%c%c ", OBJNAM(i));
+X    printminute(planet[i]);
+X    printf("%c ", ret[i] ? 'r' : ' ');
+X    printtab(' ', WHEELCOLS-14-1);
+X  } else
+X    printtab(' ', WHEELCOLS-1);
+X}
+X
+Xprintwheel()
+X{
+X  int i, j, k, l;
+X  for (i = 0; i < SIGNS; i++)
+X    for (j = 0; j < WHEELROWS; j++)
+X      wheel[i][j] = 0;
+X  for (i = 1; i <= objects; i++) {
+X    if (!ignore[i] && i != 18 && i != 19)
+X      for (j = inhouse[i]-1; j < SIGNS; j = j < SIGNS ? (j+1)%SIGNS : j) {
+X	l = house[j+1] > house[mod12(j+2)];
+X	for (k = 0; k < WHEELROWS && wheel[j][k] > 0 &&
+X	     (planet[i] >= planet[wheel[j][k]] ||
+X	      (l && planet[i] < 180.0 && planet[wheel[j][k]] > 180.0)) &&
+X	     !(l && planet[i] > 180.0 && planet[wheel[j][k]] < 180.0); k++)
+X	  ;
+X	if (wheel[j][k] <= 0) {
+X	  wheel[j][k] = i;
+X	  j = SIGNS;
+X	} else if (k < WHEELROWS && wheel[j][WHEELROWS-1] <= 0) {
+X	  for (l = WHEELROWS-1; l > k; l--)
+X	    wheel[j][l] = wheel[j][l-1];
+X	  wheel[j][k] = i;
+X	  j = SIGNS;
+X	}
+X      }
+X  }
+X  if (todisplay & 2048)
+X    for (i = 3; i < 9; i++)
+X      for (j = 0; j < WHEELROWS/2; j++) {
+X	k = WHEELROWS-1-j;
+X	l = wheel[i][j]; wheel[i][j] = wheel[i][k]; wheel[i][k] = l;
+X      }
+X  printf("+"); printtab('-', WHEELCOLS-8); printf("<11>");
+X  printminute(house[11]); printtab('-', WHEELCOLS-11); printf("<10>");
+X  printminute(house[10]); printtab('-', WHEELCOLS-10); printf("<9>");
+X  printminute(house[9]); printtab('-', WHEELCOLS-4); printf("+\n");
+X  for (i = 0; i < WHEELROWS; i++) {
+X    for (j = 11; j >= 8; j--) {
+X      printf("|"); printwheelslot(j, i);
+X    }
+X    printf("|\n");
+X  }
+X  printf("<12>"); printminute(house[12]); printtab('-', WHEELCOLS-11);
+X  printf("|"); printtab('-', WHEELCOLS*2-1); printf("|");
+X  printtab('-', WHEELCOLS-10); printminute(house[8]); printf("<8>\n");
+X  for (i = 0; i < WHEELROWS; i++) {
+X    printf("|"); printwheelslot(12, i); printf("|");
+X    printtab(' ', WHEELCOLS*2-1); printf("|"); printwheelslot(7, i);
+X    printf("|\n");
+X  }
+X  printf("<1>"); printminute(house[1]); printtab('-', WHEELCOLS-10);
+X  printf("|"); printtab(' ', WHEELCOLS*2-1); printf("|");
+X  printtab('-', WHEELCOLS-10); printminute(house[7]); printf("<7>\n");
+X  for (i = 0; i < WHEELROWS; i++) {
+X    printf("|"); printwheelslot(1, i); printf("|");
+X    printtab(' ', WHEELCOLS*2-1); printf("|"); printwheelslot(6, i);
+X    printf("|\n");
+X  }
+X  printf("<2>"); printminute(house[2]); printtab('-', WHEELCOLS-10);
+X  printf("|"); printtab('-', WHEELCOLS*2-1); printf("|");
+X  printtab('-', WHEELCOLS-10); printminute(house[6]); printf("<6>\n");
+X  for (i = 0; i < WHEELROWS; i++) {
+X    for (j = 2; j <= 5; j++) {
+X      printf("|"); printwheelslot(j, i);
+X    }
+X    printf("|\n");
+X  }
+X  printf("+"); printtab('-', WHEELCOLS-4); printminute(house[3]);
+X  printf("<3>"); printtab('-', WHEELCOLS-10); printminute(house[4]);
+X  printf("<4>"); printtab('-', WHEELCOLS-10); printminute(house[5]);
+X  printf("<5>"); printtab('-', WHEELCOLS-7); printf("+\n");
+X}
+X
+Xequtolocal(azi, alt, tilt)
+Xdouble *azi, *alt, tilt;
+X{
+X  double x, y, a1, l1;
+X  x = cos(*alt)*sin(*azi)*cos(tilt);
+X  y = sin(*alt)*sin(tilt);
+X  x -= y;
+X  a1 = cos(*alt);
+X  y = cos(*alt)*cos(*azi);
+X  l1 = atan(x/y);
+X  if (l1 < 0.0)
+X    l1 += PI;
+X  if (x < 0.0)
+X    l1 += PI;
+X  a1 = ASIN(a1*sin(*azi)*sin(tilt)+sin(*alt)*cos(tilt));
+X  *azi = l1; *alt = a1;
+X}
+X
+Xprinthorizon()
+X{
+X  double lon, lat, sx, sy, vx, vy,
+X    lonz[OBJECTS+1], latz[OBJECTS+1], azi[OBJECTS+1], alt[OBJECTS+1];
+X  int i, j;
+X  lon = DTOR(mod(Lon)); lat = DTOR(Lat);
+X  for (i = 1; i <= objects; i++) {
+X    lonz[i] = DTOR(planet[i]); latz[i] = DTOR(planetalt[i]);
+X    ecltoequ(&lonz[i], &latz[i]);
+X  }
+X  for (i = 1; i <= objects; i++) {
+X    lonz[i] = DTOR(mod(RTOD(lonz[18]-lonz[i]+lon)));
+X    lonz[i] = DTOR(mod(RTOD(lonz[i]-lon+PI/2.0)));
+X    equtolocal(&lonz[i], &latz[i], PI/2.0-lat);
+X    azi[i] = DEGREES-RTOD(lonz[i]); alt[i] = RTOD(latz[i]);
+X  }
+X  printf("Body Altitude Azimuth  Azi. Vector   %s Vector    Moon Vector\n\n",
+X	 heliocentric ? "Earth" : " Sun");
+X  for (i = 1; i <= THINGS; i++) {
+X    printf("%c%c%c%c: ", OBJNAM(i), objectname[i][3] ? objectname[i][3] : ' ');
+X    printaltitude(alt[i]);
+X    j = (int) ((azi[i]-floor(azi[i]))*60.0);
+X    printf(" %3d %d%d'", (int) azi[i], j/10, j%10);
+X    sx = cos(DTOR(azi[i])); sy = sin(DTOR(azi[i]));
+X    if (dabs(sx) < dabs(sy)) {
+X      vx = dabs(sx / sy); vy = 1.0;
+X    } else {
+X      vy = dabs(sy / sx); vx = 1.0;
+X    }
+X    printf(" (%.2f%c %.2f%c)",
+X	   vy, sy < 0.0 ? 's' : 'n', vx, sx > 0.0 ? 'e' : 'w');
+X    vx = azi[1]-azi[i]; vy = azi[2]-azi[i];
+X    printf(" [%6.1f%6.1f] [%6.1f%6.1f]\n",
+X	   dabs(vx) < 180.0 ? vx : sgn(vx)*(DEGREES-dabs(vx)), alt[1]-alt[i],
+X	   dabs(vy) < 180.0 ? vy : sgn(vy)*(DEGREES-dabs(vy)), alt[2]-alt[i]);
+X  }
+X}
+X
+Xprintastrograph()
+X{
+X  double lat[MAXCROSS], lon[MAXCROSS], mc[OBJECTS+1], ic[OBJECTS+1],
+X    as[OBJECTS+1], ds[OBJECTS+1], as1[OBJECTS+1], ds1[OBJECTS+1],
+X    lo = Lon, longm, w, x, y, z, ad, oa, am, od, dm;
+X  int obj1[MAXCROSS], obj2[MAXCROSS], occurcount = 0, i, j, k, l, m, n;
+X  for (i = 1; i <= objects; i++) {
+X    planet1[i] = DTOR(planet[i]);
+X    planet2[i] = DTOR(planetalt[i]);
+X    ecltoequ(&planet1[i], &planet2[i]);
+X  }
+X  printf("Planet :");
+X  for (i = 1; i <= THINGS; i++)
+X    printf(" %c%c%c", OBJNAM(i));
+X  printf("\n------ :");
+X  for (i = 1; i <= THINGS; i++)
+X    printf(" ###");
+X  printf("\nMidheav: ");
+X  if (lo < 0.0)
+X    lo += 360.0;
+X  for (i = 1; i <= THINGS; i++) {
+X    x = planet1[18]-planet1[i];
+X    if (x < 0.0)
+X      x += 2.0*PI;
+X    if (x > PI)
+X      x -= 2.0*PI;
+X    z = lo+RTOD(x);
+X    if (z > 180.0)
+X      z -= 360.0;
+X    mc[i] = z;
+X    printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X  }
+X  printf("\nNadir  : ");
+X  for (i = 1; i <= THINGS; i++) {
+X    z = mc[i] + 180.0;
+X    if (z > 180.0)
+X      z -= 360.0;
+X    ic[i] = z;
+X    printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X  }
+X  printf("\nZenith : ");
+X  for (i = 1; i <= THINGS; i++) {
+X    y = RTOD(planet2[i]);
+X    printf("%3.0f%c", dabs(y), y < 0.0 ? 's' : 'n');
+X    as[i] = ds[i] = as1[i] = ds1[i] = 1000.0;
+X  }
+X  printf("\n\n");
+X  longm = DTOR(mod(RTOD(planet1[18])+lo));
+X  for (j = 80; j >= -80; j -= 5) {
+X    printf("Asc@%2d%c: ", j >= 0 ? j : -j, j < 0 ? 's' : 'n');
+X    for (i = 1; i <= THINGS; i++) {
+X      ad = tan(planet2[i])*tan(DTOR(j));
+X      if (ad*ad > 1.0) {
+X	printf(" -- ");
+X	as1[i] = ds1[i] = ret2[i] = 1000.0;
+X      } else {
+X	ad = ASIN(ad);
+X	oa = planet1[i]-ad;
+X	if (oa < 0.0)
+X	  oa += 2.0*PI;
+X	am = oa-PI/2.0;
+X	if (am < 0.0)
+X	  am += 2.0*PI;
+X	z = longm-am;
+X	if (z < 0.0)
+X	  z += 2.0*PI;
+X	if (z > PI)
+X	  z -= 2.0*PI;
+X	as1[i] = as[i];
+X	as[i] = z = RTOD(z);
+X	ret2[i] = ad;
+X	printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X      }
+X    }
+X    printf("\nDsc@%2d%c: ", j >= 0 ? j : -j, j < 0 ? 's' : 'n');
+X    for (i = 1; i <= THINGS; i++) {
+X      ad = ret2[i];
+X      if (ad == 1000.0)
+X	printf(" -- ");
+X      else {
+X	od = planet1[i]+ad;
+X	dm = od+PI/2.0;
+X	z = longm-dm;
+X	if (z < 0.0)
+X	  z += 2.0*PI;
+X	if (z > PI)
+X	  z -= 2.0*PI;
+X	ds1[i] = ds[i];
+X	ds[i] = z = RTOD(z);
+X	printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X      }
+X    }
+X    putchar('\n');
+X    if (todisplay & 16384)
+X      for (l = 1; l <= THINGS; l++) if (!ignore[l])
+X	for (k = 1; k <= THINGS; k++) if (!ignore[k])
+X	  for (n = 0; n <= 1; n++) {
+X	    x = n ? ds1[l] : as1[l];
+X	    y = n ? ds[l] : as[l];
+X	    for (m = 0; m <= 1; m++) {
+X	      z = m ? ic[k] : mc[k];
+X	      if (occurcount < MAXCROSS &&
+X		  dabs(x-y) < 180.0 && sgn(z-x) != sgn(z-y)) {
+X		obj1[occurcount] = n ? -l : l;
+X		obj2[occurcount] = m ? -k : k;
+X		lat[occurcount] = (double)j+5.0*dabs(z-y)/dabs(x-y);
+X		lon[occurcount] = z;
+X		occurcount++;
+X	      }
+X	      w = m ? ds1[k] : as1[k];
+X	      z = m ? ds[k] : as[k];
+X	      if (occurcount < MAXCROSS && k > l &&
+X		  dabs(x-y)+dabs(w-z) < 180.0 && sgn(w-x) != sgn(z-y)) {
+X		obj1[occurcount] = n ? -l : l;
+X		obj2[occurcount] = 100+(m ? -k : k);
+X		lat[occurcount] = (double)j+5.0*
+X		  dabs(y-z)/(dabs(x-w)+dabs(y-z));
+X		lon[occurcount] = MIN(x, y)+dabs(x-y)*
+X		  dabs(y-z)/(dabs(x-w)+dabs(y-z));
+X		occurcount++;
+X	      }
+X	    }
+X	  }
+X  }
+X  if ((todisplay & 16384) == 0)
+X    return;
+X  putchar('\n');
+X  for (i = 1; i < occurcount; i++) {
+X    j = i-1;
+X    while (j >= 0 && lat[j] < lat[j+1]) {
+X      swapint(&obj1[j], &obj1[j+1]); swapint(&obj2[j], &obj2[j+1]);
+X      swapdoub(&lat[j], &lat[j+1]); swapdoub(&lon[j], &lon[j+1]);
+X      j--;
+X    }
+X  }
+X  for (i = 1; i < occurcount; i++) {
+X    j = abs(obj1[i]);
+X    printf("%c%c%c %s crosses ", OBJNAM(j),
+X	   obj1[i] > 0 ? "Ascendant " : "Descendant");
+X    j = abs(obj2[i] - (obj2[i] < 50 ? 0 : 100));
+X    printf("%c%c%c %s at ", OBJNAM(j),
+X	   obj2[i] < 50 ? (obj2[i] > 0 ? "Midheaven " :
+X	   "Nadir     ") : (obj2[i] > 100 ? "Ascendant " : "Descendant"));
+X    j = (int) ((dabs(lon[i])-floor(dabs(lon[i])))*60.0);
+X    printf("%3d %d%d'%c, ", (int) dabs(lon[i]),
+X	   j/10, j%10, lon[i] < 0.0 ? 'E' : 'W');
+X    j = (int) ((dabs(lat[i])-floor(dabs(lat[i])))*60.0);
+X    printf("%2d %d%d'%c\n", (int) dabs(lat[i]),
+X	   j/10, j%10, lat[i] < 0.0 ? 'S' : 'N');
+X  }
+X  if (!occurcount)
+X    printf("No latitude crossings.\n");
+X}
+X
+Xprintinday(prog)
+Xint prog;
+X{
+X  int time[MAXINDAY], source[MAXINDAY], aspect[MAXINDAY], dest[MAXINDAY],
+X    sign1[MAXINDAY], sign2[MAXINDAY], occurcount, divisions, div,
+X    i, j, k, s1, s2;
+X  double Day2, D1, D2, divsiz, d1, d2, e1, e2, f1, f2, g;
+X  divisions = prog ? 1 : DIVISIONS;
+X  divsiz = 24.0/ (double) divisions*60.0;
+X  if (todisplay & 256) {
+X    D1 = 1.0;
+X    if (prog && Mon2 == 0.0) {
+X      Mon2 = 1.0; D2 = 365.0-28.0+(double)dayinmonth(2, (int) Yea2);
+X    } else D2 = (double)
+X      dayinmonth((int) (prog ? Mon2 : Mon), (int) (prog ? Yea2 : Yea));
+X  } else
+X    D1 = D2 = Day;
+X  for (Day2 = D1; Day2 <= D2; Day2 += 1.0) {
+X    occurcount = 0;
+X    readplanetdata(TRUE);
+X    M = Mon; D = Day2; Y = Yea; F = 0.0; X = Zon; L5 = Lon; LA = Lat;
+X    if (progress = prog) {
+X      Jdp = mdytojulian(Mon2, D, Yea2);
+X      M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X    }
+X    castchart(TRUE);
+X    for (i = 1; i <= SIGNS; i++) {
+X      house2[i] = house[i];
+X      inhouse2[i] = inhouse[i];
+X    }
+X    for (i = 1; i <= objects; i++) {
+X      planet2[i] = planet[i];
+X      ret2[i] = ret[i];
+X    }
+X    for (div = 1; div <= divisions; div++) {
+X      readplanetdata(TRUE);
+X      M = Mon; D = Day2; Y = Yea; X = Zon; L5 = Lon; LA = Lat;
+X      F = 24.0*div/ (double) divisions;
+X      if (prog) {
+X	Jdp = mdytojulian(Mon2, D+1.0, Yea2);
+X	M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X      }
+X      castchart(TRUE);
+X      for (i = 1; i <= SIGNS; i++) {
+X	house1[i] = house2[i]; inhouse1[i] = inhouse2[i];
+X	house2[i] = house[i];  inhouse2[i] = inhouse[i];
+X      }
+X      for (i = 1; i <= objects; i++) {
+X	planet1[i] = planet2[i]; ret1[i] = ret2[i];
+X	planet2[i] = planet[i];  ret2[i] = ret[i];
+X      }
+X      for (i = 1; i <= THINGS; i++) {
+X	s1 = (int) floor(planet1[i] / 30.0);
+X	s2 = (int) floor(planet2[i] / 30.0);
+X	if (!ignore[i] && s1 != s2) {
+X	  source[occurcount] = i;
+X	  aspect[occurcount] = -1;
+X	  dest[occurcount] = s2+1;
+X	  time[occurcount] = (int) (mindistance(planet1[i],
+X            (double) (ret1[i] == 0.0 ? s2 : s1) * 30.0) /
+X            mindistance(planet1[i], planet2[i])*divsiz) +
+X	    (int) ((double) (div-1)*divsiz);
+X	  sign1[occurcount] = sign2[occurcount] = s1+1;
+X	  occurcount++;
+X	}
+X	if (!ignore[i] && ret1[i] != ret2[i]) {
+X	  source[occurcount] = i;
+X	  aspect[occurcount] = -2;
+X	  dest[occurcount] = (int) ret2[i];
+X	  time[occurcount] = 1441;
+X	  sign1[occurcount] = sign2[occurcount] = s1+1;
+X	  occurcount++;
+X	}
+X	for (j = i+1; j <= THINGS; j++) {
+X	  if (!ignore[i] && !ignore[j])
+X	    for (k = 1; k <= aspects; k++) {
+X	      d1 = planet1[i]; d2 = planet2[i];
+X	      e1 = planet1[j]; e2 = planet2[j];
+X	      if (mindistance(d1, d2) < mindistance(e1, e2)) {
+X		swapdoub(&d1, &e1);
+X		swapdoub(&d2, &e2);
+X	      }
+X	      if (mindistance(e1, mod(d1-aspectangle[k])) <
+X		  mindistance(e2, mod(d2+aspectangle[k]))) {
+X		e1 = mod(e1+aspectangle[k]);
+X		e2 = mod(e2+aspectangle[k]);
+X	      } else {
+X		e1 = mod(e1-aspectangle[k]);
+X		e2 = mod(e2-aspectangle[k]);
+X	      }
+X	      f1 = e1-d1;
+X	      if (dabs(f1) > 180.0)
+X		f1 -= sgn(f1)*DEGREES;
+X	      f2 = e2-d2;
+X	      if (dabs(f2) > 180.0)
+X		f2 -= sgn(f2)*DEGREES;
+X	      if (mindistance(midpoint(d1, d2), midpoint(e1, e2)) < 90.0 &&
+X		  sgn(f1) != sgn(f2)) {
+X		source[occurcount] = i;
+X		aspect[occurcount] = k;
+X		dest[occurcount] = j;
+X		f1 = d2-d1;
+X		if (dabs(f1) > 180.0)
+X		  f1 -= sgn(f1)*DEGREES;
+X		f2 = e2-e1;
+X		if (dabs(f2) > 180.0)
+X		  f2 -= sgn(f2)*DEGREES;
+X		g = (dabs(d1-e1) > 180.0 ?
+X		  (d1-e1)-sgn(d1-e1)*DEGREES : d1-e1)/(f2-f1);
+X		time[occurcount] = (int) (g*divsiz) +
+X		  (int) ((double) (div-1)*divsiz);
+X		sign1[occurcount] = (int) (mod(planet1[i]+
+X		  sgn(planet2[i]-planet1[i])*
+X		  (dabs(planet2[i]-planet1[i]) > 180.0 ? -1 : 1)*
+X                  dabs(g)*mindistance(planet1[i], planet2[i]))/30.0)+1;
+X		sign2[occurcount] = (int) (mod(planet1[j]+
+X		  sgn(planet2[j]-planet1[j])*
+X		  (dabs(planet2[j]-planet1[j]) > 180.0 ? -1 : 1)*
+X                  dabs(g)*mindistance(planet1[j], planet2[j]))/30.0)+1;
+X		occurcount++;
+X	      }
+X	    }
+X	}
+X      }
+X    }
+X    for (i = 1; i < occurcount; i++) {
+X      j = i-1;
+X      while (j >= 0 && time[j] > time[j+1]) {
+X	swapint(&source[j], &source[j+1]);
+X	swapint(&aspect[j], &aspect[j+1]);
+X	swapint(&dest[j], &dest[j+1]);
+X	swapint(&time[j], &time[j+1]);
+X	swapint(&sign1[j], &sign1[j+1]); swapint(&sign2[j], &sign2[j+1]);
+X	j--;
+X      }
+X    }
+X    for (i = 0; i < occurcount; i++) {
+X      s1 = time[i]/60;
+X      s2 = time[i]-s1*60;
+X      s1 = mod12(s1);
+X      j = (int) Day2;
+X      if (prog) {
+X	g = Mon2;
+X	while (j > (k = dayinmonth((int) g, (int) Yea2))) {
+X	  j -= k;
+X	  g += 1.0;
+X	}
+X      }
+X      printf("%2.0f/%d%d/%4.0f ",
+X	     prog ? g : Mon, j/10, j%10, prog ? Yea2 : Yea);
+X      if (aspect[i] != -2)
+X	printf("%2d:%d%d%cm - ",
+X	       s1, s2/10, s2%10, time[i] < 12*60 ? 'a' : 'p');
+X      else
+X	printtab(' ', 10);
+X      if (prog)
+X	printf("progr ");
+X      printtab(' ', 7-stringlen(objectname[source[i]]));
+X      j = (int) (ret1[source[i]]+ret2[source[i]]);
+X      printf("%s %c%c%c%c%c", objectname[source[i]],
+X	     j < 1 ? '(' : (j > 1 ? '[' : '<'), SIGNAM(sign1[i]),
+X	     j < 1 ? ')' : (j > 1 ? ']' : '>'));
+X      if (aspect[i] == -1)
+X	printf(" --> ");
+X      else if (aspect[i] == -2)
+X	printf(" S/%c", dest[i] ? 'R' : 'D');
+X      else
+X	printf(" %s ", aspectabbrev[aspect[i]]);
+X      if (aspect[i] == -1) {
+X	printf("%s", signname[dest[i]]);
+X	if (source[i] == 1) {
+X	  if (dest[i] == 1)
+X	    printf(" (Vernal Equinox)");
+X	  else if (dest[i] == 4)
+X	    printf(" (Summer Solstice)");
+X	  else if (dest[i] == 7)
+X	    printf(" (Autumnal Equinox)");
+X	  else if (dest[i] == 10)
+X	    printf(" (Winter Solstice)");
+X	}
+X      } else if (aspect[i] > 0) {
+X	j = (int) (ret1[dest[i]]+ret2[dest[i]]);
+X	printf("%c%c%c%c%c %s",
+X	       j < 1 ? '(' : (j > 1 ? '[' : '<'), SIGNAM(sign2[i]),
+X	       j < 1 ? ')' : (j > 1 ? ']' : '>'), objectname[dest[i]]);
+X	if (source[i] == 1 && dest[i] == 2) {
+X	  if (aspect[i] == 1)
+X	    printf(" (New Moon)");
+X	  else if (aspect[i] == 2)
+X	    printf(" (Full Moon)");
+X	  else if (aspect[i] == 3)
+X	    printf(" (Half Moon)");
+X	}
+X      }
+X      putchar('\n');
+X    }
+X  }
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Calculation subprograms
+X*******************************************************************************
+X*/
+X
+Xvoid printtransit(prog)
+Xint prog;
+X{
+X  double planet3[OBJECTS+5], house3[SIGNS+1], ret3[OBJECTS+5];
+X  int inhouse3[OBJECTS+1],
+X    time[MAXINDAY], source[MAXINDAY], aspect[MAXINDAY], dest[MAXINDAY],
+X    sign[MAXINDAY], isret[MAXINDAY], occurcount, div, i, j, k, s1, s2, s3;
+X  double M1, M2, divsiz, daysiz, d, e1, e2, f1, f2;
+X  inputdata(filename);
+X  Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X  castchart(TRUE);
+X  for (i = 1; i <= SIGNS; i++) {
+X    house3[i] = house[i];
+X    inhouse3[i] = inhouse[i];
+X  }
+X  for (i = 1; i <= objects; i++) {
+X    planet3[i] = planet[i];
+X    ret3[i] = ret[i];
+X  }
+X  planet3[objects+1] = house[11]; planet3[objects+2] = house[12];
+X  planet3[objects+3] = house[2];  planet3[objects+4] = house[3];
+X  for (i = objects+1; i <= objects+4; i++)
+X    ret3[i] = 0.0;
+X  if (Mon2 == 0.0) {
+X    M1 = 1.0; M2 = 12.0;
+X  } else
+X    M1 = M2 = Mon2;
+X  for (Mon2 = M1; Mon2 <= M2; Mon2 += 1.0) {
+X    daysiz = (double) dayinmonth((int) Mon2, (int) Yea2)*24.0*60.0;
+X    divsiz = daysiz/ (double) DIVISIONS;
+X    readplanetdata(TRUE);
+X    M = Mon2; D = 1.0; Y = Yea2; F = 0.0;
+X    X = defzone; L5 = deflong; LA = deflat;
+X    if (progress = prog) {
+X      Jdp = mdytojulian(M, D, Y);
+X      M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X    }
+X    castchart(TRUE);
+X    for (i = 1; i <= SIGNS; i++) {
+X      house2[i] = house[i];
+X      inhouse2[i] = inhouse[i];
+X    }
+X    for (i = 1; i <= objects; i++) {
+X      planet2[i] = planet[i];
+X      ret2[i] = ret[i];
+X    }
+X    for (div = 1; div <= DIVISIONS; div++) {
+X      occurcount = 0;
+X      readplanetdata(TRUE);
+X      M = Mon2; Y = Yea2; F = 0.0; X = defzone; L5 = deflong; LA = deflat;
+X      D = 1.0+(daysiz/24.0/60.0)*div/ (double) DIVISIONS;
+X      if (prog) {
+X	Jdp = mdytojulian(M, D, Y);
+X	M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X      }
+X      castchart(TRUE);
+X      for (i = 1; i <= SIGNS; i++) {
+X	house1[i] = house2[i]; inhouse1[i] = inhouse2[i];
+X	house2[i] = house[i];  inhouse2[i] = inhouse[i];
+X      }
+X      for (i = 1; i <= objects; i++) {
+X	planet1[i] = planet2[i]; ret1[i] = ret2[i];
+X	planet2[i] = planet[i];  ret2[i] = ret[i];
+X      }
+X      for (i = 1; i <= objects+4; i++) {
+X	for (j = 1; j <= THINGS;
+X	     j += (j != 1 || (todisplay & 512) ? 1 : 2)) {
+X	  if (!ignore[i] && !ignore[j])
+X	    for (k = 1; k <= aspects; k++) {
+X	      d = planet3[i]; e1 = planet1[j]; e2 = planet2[j];
+X	      if (mindistance(e1, mod(d-aspectangle[k])) <
+X		  mindistance(e2, mod(d+aspectangle[k]))) {
+X		e1 = mod(e1+aspectangle[k]);
+X		e2 = mod(e2+aspectangle[k]);
+X	      } else {
+X		e1 = mod(e1-aspectangle[k]);
+X		e2 = mod(e2-aspectangle[k]);
+X	      }
+X	      f1 = e1-d;
+X	      if (dabs(f1) > 180.0)
+X		f1 -= sgn(f1)*DEGREES;
+X	      f2 = e2-d;
+X	      if (dabs(f2) > 180.0)
+X		f2 -= sgn(f2)*DEGREES;
+X	      if (mindistance(d, midpoint(e1, e2)) < 90.0 &&
+X		  sgn(f1) != sgn(f2) && occurcount < MAXINDAY) {
+X		source[occurcount] = j;
+X		aspect[occurcount] = k;
+X                dest[occurcount] = i;
+X		time[occurcount] = (int) (dabs(f1)/(dabs(f1)+dabs(f2))*divsiz)
+X		  + (int) ((double) (div-1)*divsiz);
+X		sign[occurcount] = (int) (mod(
+X		  mindistance(planet1[j], mod(d-aspectangle[k])) <
+X		  mindistance(planet2[j], mod(d+aspectangle[k])) ?
+X		  d-aspectangle[k] : d+aspectangle[k])/30.0)+1;
+X		isret[occurcount] = (int) (ret1[j]+ret2[j]);
+X		occurcount++;
+X	      }
+X	    }
+X	}
+X      }
+X      for (i = 1; i < occurcount; i++) {
+X	j = i-1;
+X	while (j >= 0 && time[j] > time[j+1]) {
+X	  swapint(&source[j], &source[j+1]);
+X	  swapint(&aspect[j], &aspect[j+1]);
+X	  swapint(&dest[j], &dest[j+1]);
+X	  swapint(&time[j], &time[j+1]);
+X	  swapint(&sign[j], &sign[j+1]);
+X	  swapint(&isret[j], &isret[j+1]);
+X	  j--;
+X	}
+X      }
+X      for (i = 0; i < occurcount; i++) {
+X	s1 = time[i]/24/60;
+X	s3 = time[i]-s1*24*60;
+X	s2 = s3/60;
+X	s3 = s3-s2*60;
+X	printf("%2.0f/%d%d/%4.0f %2d:%d%d%cm - %s ",
+X	       Mon2, (s1+1)/10, (s1+1)%10, Yea2, mod12(s2),
+X	       s3/10, s3%10, s2 < 12 ? 'a' : 'p', !prog ? "trans" : "progr");
+X	printtab(' ', 7-stringlen(objectname[source[i]]));
+X	j = (int) (planet3[dest[i]]/30.0)+1;
+X	printf("%s %c%c%c%c%c ", objectname[source[i]],
+X	       isret[i] < 1 ? '(' : (isret[i] > 1 ? '[' : '<'),
+X	       SIGNAM(sign[i]),
+X	       isret[i] < 1 ? ')' : (isret[i] > 1 ? ']' : '>'));
+X	printf("%s natal %c%c%c%c%c %s", aspectabbrev[aspect[i]],
+X	       ret3[dest[i]] == 0.0 ? '(' : '[', SIGNAM(j),
+X	       ret3[dest[i]] == 0.0 ? ')' : ']', objectname[dest[i]]);
+X	if (source[i] == 1 && aspect[i] == 1 && dest[i] == 1)
+X	  printf(" (Solar Return)");
+X	else if (source[i] == 2 && aspect[i] == 1 && dest[i] == 2)
+X	  printf(" (Lunar Return)");
+X	putchar('\n');
+X      }
+X    }
+X  }
+X}
+X
+Xvoid printephemeris()
+X{
+X  double M1, M2;
+X  int daysiz, i, j, k, s, d, m;
+X  k = todisplay & 1024 ? 16 : 10;
+X  if (Mon2 == 0.0) {
+X    M1 = 1.0; M2 = 12.0;
+X  } else
+X    M1 = M2 = Mon2;
+X  for (Mon2 = M1; Mon2 <= M2; Mon2 += 1.0) {
+X    daysiz = dayinmonth((int) Mon2, (int) Yea2);
+X    printf("Mo/Dy/Yr");
+X    for (j = 1; j <= k; j++)
+X      if (!ignore[j])
+X	printf("  %c%c%c%c%c", OBJNAM(j), objectname[j][3] != 0 ?
+X	       objectname[j][3] : ' ', j < k ? ' ' : '\n');
+X    for (i = 1; i <= daysiz; i++) {
+X      readplanetdata(TRUE);
+X      M = Mon2; D = (double) i; Y = Yea2;
+X      F = 0.0; X = defzone; L5 = deflong; LA = deflat;
+X      castchart(TRUE);
+X      printf("%2d/%2d/%2d ", (int) Mon2, i, ((int) Yea2) % 100);
+X      for (j = 1; j <= k; j++)
+X	if (!ignore[j]) {
+X	  s = (int) (planet[j]/30.0) + 1;
+X	  d = (int) planet[j] - (s-1)*30;
+X	  m = (int) ((planet[j]-floor(planet[j]))*60.0);
+X	  printf("%d%d%s%d%d%c", d/10, d%10, signabbrev[s], m/10, m%10,
+X		 ret[j] == 0 ? ' ' : '.');
+X	}
+X      putchar('\n');
+X    }
+X    if (Mon2 < M2)
+X      putchar('\n');
+X  }
+X}
+X
+Xvoid castrelation()
+X{
+X  int i;
+X  inputdata(filename);
+X  castchart(TRUE);
+X  for (i = 1; i <= SIGNS; i++) {
+X    house1[i] = house[i];
+X    inhouse1[i] = inhouse[i];
+X  }
+X  for (i = 1; i <= objects; i++) {
+X    planet1[i] = planet[i];
+X    planetalt1[i] = planetalt[i];
+X    ret1[i] = ret[i];
+X  }
+X  readplanetdata(TRUE);
+X  inputdata(filename2);
+X  Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X  castchart(TRUE);
+X  for (i = 1; i <= SIGNS; i++) {
+X    house2[i] = house[i];
+X    inhouse2[i] = inhouse[i];
+X  }
+X  for (i = 1; i <= objects; i++) {
+X    planet2[i] = planet[i];
+X    planetalt2[i] = planetalt[i];
+X    ret2[i] = ret[i];
+X  }
+X  if (relation == 1)
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = house1[i];
+X  else if (relation == 2) {    
+X    for (i = 1; i <= objects; i++) {
+X      planet[i] = midpoint(planet1[i], planet2[i]);
+X      planetalt[i] = (planetalt1[i]+planetalt2[i])/2.0;
+X      ret[i] = (ret1[i] == 1.0 && ret2[i] == 1.0) ? 1.0 : 0.0;
+X    }
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = midpoint(house1[i], house2[i]);
+X    for (i = 1; i <= SIGNS; i++)
+X      if (mindistance(house[10], mod(house[i]-(double)(i+2)*30.0)) > 90.0)
+X	house[i] = mod(house[i]+180.0);
+X  }
+X  houseplace();
+X}
+X
+Xvoid printchart(prog)
+X{
+X  int todisp;
+X  todisp = todisplay & 255;
+X  if (todisp == 0)
+X    todisp = todisp | 1;
+X  if (todisp & 1) {
+X    printlocation();
+X    if (todisp - (todisp & 1))
+X      printf("\n");
+X  }
+X  if (todisp & 2) {
+X    printwheel();
+X    if (todisp - (todisp & 3))
+X      printf("\n");
+X  }
+X  if (todisp & 4) {
+X    if (relation != 1) {
+X      creategrid(FALSE);
+X      printgrid();
+X      if (todisplay & 8192) {
+X	printf("\n");
+X	displaygrands();
+X      }
+X    } else {
+X      createrelationgrid(FALSE);
+X      printrelationgrid();
+X    }
+X    if (todisp - (todisp & 7))
+X      printf("\n");
+X  }
+X  if (todisp & 8) {
+X    printhorizon();
+X    if (todisp - (todisp & 15))
+X      printf("\n");
+X  }
+X  if (todisp & 16) {
+X    printastrograph();
+X    if (todisp - (todisp & 31))
+X      printf("\n");
+X  }
+X  if (todisp & 32)
+X    printinday(prog);
+X}
+X
+X/**/
+END_OF_FILE
+if test 31626 -ne `wc -c <'options.c'`; then
+    echo shar: \"'options.c'\" unpacked with wrong size!
+fi
+# end of 'options.c'
+fi
+if test -f 'driver.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'driver.c'\"
+else
+echo shar: Extracting \"'driver.c'\" \(16426 characters\)
+sed "s/^X//" >'driver.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.10) File: driver.c
+X*/
+X
+X#include "astrolog.h"
+X
+Xchar *filenameout, **extralines;
+Xint prog = FALSE, extracount = 0;
+X
+X/*
+X*******************************************************************************
+X** Option processing
+X*******************************************************************************
+X*/
+X
+Xoutputdata()
+X{
+X  int i, j;
+X  double k;
+X  data = fopen(filenameout, "w");
+X  if (data == NULL) {
+X    fprintf(stderr, "File %s can not be created.\n", filenameout);
+X    exit(1);
+X  }
+X  if (!(todisplay & 4096)) {
+X    if (Mon < 1) {
+X      fprintf(stderr, "\nCan't output chart with no time/space to file.\n");
+X      fclose(data);
+X      exit(1);
+X    }
+X    fprintf(data, "%.0f\n%.0f\n%.0f\n%.2f\n%.2f\n%.2f\n%.2f\n",
+X	    Mon, Day, Yea, Tim, Zon, Lon, Lat);
+X  } else {
+X    for (i = 1; i <= objects; i++) {
+X      j = (int) planet[i];
+X      fprintf(data, "%c%c%c: %2d %2d %10.7f\n", OBJNAM(i),
+X	      j%30, j/30+1, (planet[i]-floor(planet[i]))*60.0);
+X      k = planetalt[i];
+X      fprintf(data, "[%c]: %3d %12.8f\n",
+X	      ret[i] == 0 ? 'D' : 'R', (int)(sgn(k)*
+X              floor(dabs(k))), (k-(double)(int)k)*60.0);
+X    }
+X    for (i = 1; i <= SIGNS/2; i++) {
+X      j = (int) house[i];
+X      fprintf(data, "H_%c: %2d %2d %10.7f\n",
+X	      'a'+i-1, j%30, j/30+1, (house[i]-floor(house[i]))*60.0);
+X    }
+X  }
+X  for (i = 1; i < extracount; i++) {
+X    extralines++;
+X    fprintf(data, "%s\n", extralines[1]);
+X  }
+X  fclose(data);
+X}
+X
+Xaction()
+X{
+X  if (operation & 2)
+X    printtransit(prog);
+X  else if (operation & 4)
+X    printephemeris();
+X  else {
+X    if (!relation) {
+X      if (!autom)
+X	inputdata("tty");
+X      Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X      castchart(TRUE);
+X    } else
+X      castrelation();
+X#ifdef X11
+X    if (operation & 8)
+X      actionx();
+X    else
+X#endif
+X      printchart(prog);
+X  }
+X  if (operation & 1)
+X    outputdata();
+X}
+X
+Xdisplayswitches()
+X{
+X  printf("Astrolog command switches (version %s) (%s):\n", VERSION, DATE); 
+X  printf(" -H: Display this help message.\n");
+X  printf(" -O: Display available planets and other celestial objects.\n");
+X  printf(" -R [<obj1> [<obj2> ..]: Restrict specific bodies from displays.\n");
+X  printf(" -R0 [<obj1> ..]: Like -R but restrict everything first.\n");
+X  printf(" -A [<0-18>]: Display available aspects or limit their number.\n");
+X  printf(" -Ao <orb1> [<orb2> ..]: Specify max orbs for each aspect.\n");
+X  printf(" -AO [..]: Like -Ao but suspend objects' max orb restrictions.\n");
+X  printf("Switches which affect how a chart is computed:\n");
+X  printf(" -s: Compute siderial instead of the normal tropical chart.\n");
+X  printf(" -h: Compute heliocentric instead of geocentric positions.\n");
+X  printf(" -c <value>: Select a different default system of houses.\n");
+X  printf("     (0 = Placidus, 1 = Koch, 2 = Equal, 3 = Campanus, ");
+X  printf("4 = Meridian,\n     5 = Regiomontanus, 6 = Porphry, ");
+X  printf("7 = Morinus, 8 = Topocentric, 9 = None.)\n");
+X  printf(" -u: Replace Mercury..Pluto with transneptunian/uranian bodies.\n");
+X  printf(" -x <1-360>: Cast harmonic chart based on specified factor.\n");
+X  printf(" -1 [<objnum>]: Cast chart with specified object on ascendant.\n");
+X  printf(" -f: Display houses as sign positions (flip them).\n");
+X  printf(" -3: Display objects in their zodiac decan positions.\n");
+X  printf(" -p <month> <day> <year>: Cast progressed chart based for date.\n");
+X#ifdef TIME
+X  printf(" -pn: Cast progressed chart based on current date now.\n");
+X#endif
+X  printf(" -+ <days>: Cast chart for specified days in the future.\n");
+X  printf("Switches which affect how a chart is displayed:\n");
+X  printf(" -w: Display chart on screen in a graphic house wheel format.\n");
+X  printf(" -w0: Like -w but show objects in houses 4..9 in reverse order.\n");
+X  printf(" -g: Display midpoint & aspect grid instead of positions.\n");
+X  printf(" -g0: Like -g but flag aspect configurations (e.g. Yod's) too.\n");
+X  printf(" -Z: Display planet locations with respect to the local horizon.\n");
+X  printf(" -L: Display astro-graph locations of planet angles on Earth.\n");
+X  printf(" -L0: Like -L but display list of latitude crossings too.\n");
+X  printf(" -d: Print all aspects and changes occuring in a day.\n");
+X  printf(" -d0: Like -d but print all aspects for the entire month.\n");
+X  printf(" -dp <month> <year>: Print aspects within progressed chart.\n");
+X  printf(" -e: Print all options for chart (i.e. normal & -w0-g0-Z-L0-d).\n");
+X  printf("Switches which affect how the chart parameters are obtained:\n");
+X#ifdef TIME
+X  printf(" -n: Compute chart for this exact moment using current time.\n");
+X#endif
+X  printf(" -a <month> <date> <year> <time> <zone> <long> <lat>:\n");
+X  printf("     Compute chart automatically given specified data.\n");
+X  printf(" -z <zone>: Change the default time zone (for -d-q-T-E options).\n");
+X  printf(" -l <long> <lat>: ");
+X  printf("Change the default longitude & latitude.\n");
+X  printf(" -q <month> <date> <year>: Compute chart for noon on date.\n");
+X  printf(" -q0 <month> <date> <year> <time>: Like -q but include time too.\n");
+X  printf(" -i <file>: Compute chart based on info in file.\n");
+X  printf(" -o <file> [..]: Write parameters of current chart to file.\n");
+X  printf(" -o0 <file> [..]: Like -o but output planet/house positions.\n");
+X  printf("Other features or major modes:\n");
+X  printf(" -r <file1> <file2>: Compute a relationship chart.\n");
+X  printf(" -rc <file1> <file2>: Compute a composite chart.\n");
+X#ifdef TIME
+X  printf(" -t <file>: Compute current house transits for particular chart.\n");
+X#endif
+X  printf(" -T <file> <month> <year>: ");
+X  printf("Compute all transits in month for chart.\n");
+X  printf(" -T0 <..>: Like -T but include transits of the Moon as well.\n");
+X  printf(" -Tp <file> <month> <year>: ");
+X  printf("Compute all progressions in month for chart.\n");
+X  printf(" -E <month> <year>: Display ephemeris for given month.\n");
+X  printf(" -E0 <..>: Like -E but include Chiron and the asteroids as well.\n");
+X#ifdef X11
+X  displayswitchesx();
+X#endif
+X}
+X
+X#ifndef SWITCHES
+X#define MAXSWITCHES 20
+Xint inputswitches(argv)
+Xchar argv[MAXSWITCHES][10];
+X{
+X  int argc = 0;
+X  printf("** Astrolog version %s (pullen@lynx.cs.washington.edu) **\n",
+X    VERSION); 
+X  printf("Enter all the switch parameters below. (Enter -H for help.)\n");
+X  printf("Press return after each switch or number parameter input.\n");
+X  printf("Input a '.' on a line by itself when done.\n\n");
+X  do {
+X    argc++;
+X    printf("Input parameter string #%2d: ", argc);
+X    if (gets(argv[argc]) == (char *) NULL) {
+X      printf("\nAstrolog terminated.\n");
+X      exit(1);
+X    }
+X  } while (argc < MAXSWITCHES && (argv[argc][0] != '.' || argv[argc][1] != 0));
+X  printf("\n");
+X  return argc;
+X}
+X#endif
+X
+X
+X/*
+X*******************************************************************************
+X** Main program
+X*******************************************************************************
+X*/
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X#ifdef TIME
+X  struct tm curtime;
+X  long int curtimer;
+X#endif
+X  int i, j;
+X  double k;
+X#ifndef SWITCHES
+X  char strings[MAXSWITCHES][10];
+X  char *pointers[MAXSWITCHES];
+X  for (i = 0; i < MAXSWITCHES; i++)
+X    pointers[i] = strings[i];
+X  argc = inputswitches(strings);
+X  argv = pointers;
+X#endif
+X  argc--; argv++;
+X  while (argc) {
+X    if (argv[0][0] != '-') {
+X      fprintf(stderr, "Option '%s' unknown.\n", argv[0]);
+X      exit(1);
+X    }
+X    switch (argv[0][1]) {
+X    case 'H':
+X      displayswitches();
+X      exit(0);
+X    case 'O':
+X      printf("Astrolog planets and objects:\n");
+X      printf("No. Name    Rule Co-Rule Fall Co-Fall Exalt Debilitate\n\n");
+X      for (i = 1; i <= objects; i++) {
+X	printf("%2d %s", i, objectname[i]);
+X	if (ruler1[i]) {
+X	  printtab(' ', 9-stringlen(objectname[i]));
+X	  j = ruler2[i];
+X	  printf("%c%c%c  %c%c%c     ", SIGNAM(ruler1[i]),
+X		 j ? signname[j][0] : ' ', j ? signname[j][1] : ' ',
+X		 j ? signname[j][2] : ' ');
+X	  printf("%c%c%c  %c%c%c     ", SIGNAM(mod12(ruler1[i]+6)),
+X		 j ? signname[mod12(j+6)][0] : ' ',
+X		 j ? signname[mod12(j+6)][1] : ' ',
+X		 j ? signname[mod12(j+6)][2] : ' ');
+X	  printf("%c%c%c   %c%c%c", SIGNAM(exalt[i]),
+X		 SIGNAM(mod12(exalt[i]+6)));
+X	}
+X	putchar('\n');
+X      }
+X      exit(0);
+X    case 'R':
+X      if (argv[0][2] == '0')
+X	for (i = 1; i <= objects+4; i++)
+X	  ignore[i] = TRUE;
+X      if (argc <= 1 || (!atoi(argv[1]))) {
+X	for (i = 11; i <= 15; i++)
+X	  ignore[i] = 1-ignore[i];
+X	ignore[17] = 1-ignore[17]; ignore[20] = 1-ignore[20];
+X      } else
+X	while (argc > 1 && (i = atoi(argv[1])))
+X	  if (i < 1 || i > objects+4) {
+X	    fprintf(stderr, "Bad value %d to switch -R\n", i);
+X	    exit(1);
+X	  } else {
+X	    ignore[i] = 1-ignore[i];
+X	    argc--; argv++;
+X	  }
+X      break;
+X    case 'A':
+X      if (argc <= 1) {
+X	printf("Astrolog aspects:\nNo. Angle    Orb       Abbrev. Name");
+X	printf("          Description of glyph\n\n");
+X	for (i = 1; i <= ASPECTS; i++) {
+X	  printf("%2d %6.2f +/- %1.0f degrees (%s) %s", i,
+X		 aspectangle[i], aspectorb[i], aspectabbrev[i], aspectname[i]);
+X	  printtab(' ', 15-stringlen(aspectname[i]));
+X	  printf("%s\n", aspectglyph[i]);
+X	}
+X	exit(0);
+X      }
+X      if (argv[0][2] != 'o' && argv[0][2] != 'O') {
+X	aspects = atoi(argv[1]);
+X	if (aspects < 0 || aspects > ASPECTS) {
+X	  fprintf(stderr, "Bad value %d to switch -A\n", aspects);
+X	  exit(1);
+X	}
+X	argc--; argv++;
+X      } else {
+X	if (argv[0][2] == 'O')
+X	  for (i = 1; i <= OBJECTS; i++)
+X	    planetorbmax[i] = DEGREES;
+X	i = 1;
+X	while (argc > 1 && ((k = atof(argv[1])) || argv[1][0] == '0'))
+X	  if (k < -180.0 || k > 180.0 || i > ASPECTS) {
+X	    fprintf(stderr, "Bad value %.1f to switch -Ao\n", k);
+X	    exit(1);
+X	  } else {
+X	    aspectorb[i++] = k;
+X	    argc--; argv++;
+X	  }
+X      }
+X      break;
+X    case 's':
+X      siderial = TRUE;
+X      break;
+X    case 'h':
+X      heliocentric = TRUE;
+X      objectname[1][0] = 'E'; objectname[1][1] = 'a'; objectname[1][2] = 'r'; 
+X      objectname[1][3] = 't'; objectname[1][4] = 'h'; objectname[1][5] = 0;
+X      break;
+X    case 'c':
+X      if (argc <= 1) {
+X	fprintf(stderr, "Too few options to switch -c\n");
+X	exit(1);
+X      }
+X      housesystem = atoi(argv[1]);
+X      if (housesystem < 0 || housesystem >= SYSTEMS) {
+X	fprintf(stderr, "Bad value %d to switch -c\n", housesystem);
+X	exit(1);
+X      }
+X      argc--; argv++;
+X      break;
+X    case 'u':
+X      uranian = TRUE;
+X      for (i = 1; i <= 8; i++)
+X	for (j = 0; j < 10; j++)
+X	  objectname[2+i][j] = uranianname[i][j];
+X      break;
+X    case 'x':
+X      if (argc <= 1) {
+X	fprintf(stderr, "Too few options to switch -x\n");
+X	exit(1);
+X      }
+X      multiplyfactor = atoi(argv[1]);
+X      if (multiplyfactor < 1 || multiplyfactor > DEGREES) {
+X	fprintf(stderr, "Bad value %d to switch -x\n", multiplyfactor);
+X	exit(1);
+X      }
+X      argc--; argv++;
+X      break;
+X    case '1':
+X      if (argc > 1 && (onasc = atoi(argv[1]))) {
+X	argc--; argv++;
+X      } else
+X	onasc = 1;
+X      if (onasc < 1 || onasc > objects) {
+X	fprintf(stderr, "Bad value %d to switch -1\n", onasc);
+X	exit(1);
+X      }
+X      break;
+X    case 'f':
+X      flip = TRUE;
+X      break;
+X    case '3':
+X      decan = TRUE;
+X      break;
+X    case 'p':
+X#ifdef TIME
+X      if (argv[0][2] == 'n') {
+X	progress = TRUE;
+X	curtimer = (long int) time((long int *) 0);
+X	curtime = *localtime(&curtimer);
+X	Mon = (double) curtime.tm_mon + 1.0;
+X	Day = (double) curtime.tm_mday;
+X	Yea = (double) curtime.tm_year + 1900.0;
+X	Jdp = mdytojulian(Mon, Day, Yea);
+X	break;
+X      }
+X#endif
+X      if (argc <= 3) {
+X	fprintf(stderr, "Too few options to switch -p\n");
+X	exit(1);
+X      }
+X      progress = TRUE;
+X      Mon = atof(argv[1]);
+X      Day = atof(argv[2]);
+X      Yea = atof(argv[3]);
+X      if (Mon < 1.0 || Mon > 12.0 || Day < 1.0 || Day > 31.0) {
+X	fprintf(stderr, "Bad date value %.0f,%.0f,%.0f to switch -p\n",
+X		Mon, Day, Yea);
+X	exit(1);
+X      }
+X      Jdp = mdytojulian(Mon, Day, Yea);
+X      argc -= 3; argv += 3;
+X      break;
+X    case '+':
+X      if (argc <= 1) {
+X	fprintf(stderr, "Too few options to switch -+\n");
+X	exit(1);
+X      }
+X      Delta = atof(argv[1]);
+X      argc--; argv++;
+X      break;
+X    case 'w':
+X      if (argv[0][2] == '0')
+X	todisplay = todisplay | 2048;
+X      todisplay = todisplay | 2;
+X      break;
+X    case 'g':
+X      if (argv[0][2] == '0')
+X	todisplay = todisplay | 8192;
+X      todisplay = todisplay | 4;
+X      break;
+X    case 'Z':
+X      todisplay = todisplay | 8;
+X      break;
+X    case 'L':
+X      if (argv[0][2] == '0')
+X	todisplay = todisplay | 16384;
+X      todisplay = todisplay | 16;
+X      break;
+X    case 'd':
+X      if (argv[0][2] == 'p') {
+X	if (argc <= 2) {
+X	  fprintf(stderr, "Too few options to switch -dp\n");
+X	  exit(1);
+X	}
+X	prog = TRUE;
+X	todisplay = todisplay | 256;
+X	Mon2 = atof(argv[1]);
+X	Yea2 = atof(argv[2]);
+X	if (Mon2 < 0.0 || Mon2 > 12.0) {
+X	  fprintf(stderr, "Bad date value %.0f to switch -dp\n", Mon2);
+X	  exit(1);
+X	}
+X	argc -= 2; argv += 2;
+X      } else if (argv[0][2] == '0')
+X	todisplay = todisplay | 256;
+X      todisplay = todisplay | 32;
+X      break;
+X    case 'e':
+X      todisplay = 63 | 2048 | 8192 | 16384;
+X      break;
+X#ifdef TIME
+X    case 'n':
+X      inputdata("now");
+X      break;
+X#endif
+X    case 'l':
+X      if (argc <= 2) {
+X	fprintf(stderr, "Too few options to switch -l\n");
+X	exit(1);
+X      }
+X      deflong = atof(argv[1]);
+X      deflat  = atof(argv[2]);
+X      argc -= 2; argv += 2;
+X      break;
+X    case 'z':
+X      if (argc <= 1) {
+X	fprintf(stderr, "Too few options to switch -z\n");
+X	exit(1);
+X      }
+X      defzone = atof(argv[1]);
+X      if (defzone < -24.0 || defzone > 24.0) {
+X	fprintf(stderr, "Bad value %.0f to switch -z\n", defzone);
+X	exit(1);
+X      }
+X      argc--; argv++;
+X      break;
+X    case 'a':
+X      if (argc <= 7) {
+X	fprintf(stderr, "Too few options to switch -a\n");
+X	exit(1);
+X      }
+X      autom = TRUE;
+X      M = atof(argv[1]); D = atof(argv[2]); Y = atof(argv[3]);
+X      F = atof(argv[4]); X = atof(argv[5]);
+X      L5 = atof(argv[6]); LA = atof(argv[7]);
+X      argc -= 7; argv += 7;
+X      break;
+X    case 'q':
+X      i = (argv[0][2] == '0');
+X      if (argc <= 3+i) {
+X	fprintf(stderr, "Too few options to switch -q\n");
+X	exit(1);
+X      }
+X      autom = TRUE;
+X      M = atof(argv[1]); D = atof(argv[2]); Y = atof(argv[3]);
+X      F = i ? atof(argv[4]) : 12.0; X = defzone; L5 = deflong; LA = deflat;
+X      argc -= 3+i; argv += 3+i;
+X      break;
+X    case 'i':
+X      if (argc <= 1) {
+X	fprintf(stderr, "Too few options to switch -i\n");
+X	exit(1);
+X      }
+X      inputdata(argv[1]);
+X      argc--; argv++;
+X      break;
+X    case 'o':
+X      if (argv[0][2] == '0')
+X	todisplay = todisplay | 4096;
+X      if (argc <= 1) {
+X	fprintf(stderr, "Too few options to switch -o\n");
+X	exit(1);
+X      }
+X      operation = operation | 1;
+X      filenameout = argv[1];
+X      extralines = argv;
+X      do {
+X	argc--; argv++;
+X	extracount++;
+X      } while (argc > 1 && argv[1][0] != '-');
+X      break;
+X    case 'r':
+X      if (argc <= 2) {
+X	fprintf(stderr, "Too few options to switch -r\n");
+X	exit(1);
+X      }
+X      if (argv[0][2] == 'c')
+X	relation = 2;
+X      else
+X	relation = 1;
+X      filename = argv[1]; filename2 = argv[2];
+X      argc -= 2; argv += 2;
+X      break;
+X#ifdef TIME
+X    case 't':
+X      if (argc <= 1) {
+X	fprintf(stderr, "Too few options to switch -t\n");
+X	exit(1);
+X      }
+X      relation = 1;
+X      filename = argv[1]; filename2 = "now";
+X      argc--; argv++;
+X      break;
+X#endif
+X    case 'T':
+X      if (argc <= 3) {
+X	fprintf(stderr, "Too few options to switch -T\n");
+X	exit(1);
+X      }
+X      if (argv[0][2] == 'p') {
+X	prog = TRUE;
+X	todisplay = todisplay | 512;
+X      } else if (argv[0][2] == '0')
+X	todisplay = todisplay | 512;
+X      operation = 2;
+X      filename = argv[1];
+X      Mon2 = atof(argv[2]);
+X      Yea2 = atof(argv[3]);
+X      if (Mon2 < 0.0 || Mon2 > 12.0) {
+X	fprintf(stderr, "Bad date value %.0f to switch -T\n", Mon2);
+X	exit(1);
+X      }
+X      argc -= 3; argv += 3;
+X      break;
+X    case 'E':
+X      if (argc <= 2) {
+X	fprintf(stderr, "Too few options to switch -E\n");
+X	exit(1);
+X      }
+X      if (argv[0][2] == '0')
+X	todisplay = todisplay | 1024;
+X      operation = 4;
+X      Mon2 = atof(argv[1]);
+X      Yea2 = atof(argv[2]);
+X      if (Mon2 < 0.0 || Mon2 > 12.0) {
+X	fprintf(stderr, "Bad date value %.0f to switch -E\n", Mon2);
+X	exit(1);
+X      }
+X      argc -= 2; argv += 2;
+X      break;
+X#ifdef X11
+X    case 'X':
+X      i = processx(argc, argv);
+X      operation = 8;
+X      argc -= i; argv += i;
+X      break;
+X#endif
+X    default:
+X      fprintf(stderr, "Unknown switch -%c\n", argv[0][1]);
+X      exit(1);
+X    }
+X    argc--; argv++;
+X  }
+X  action();
+X}
+X
+X/**/
+END_OF_FILE
+if test 16426 -ne `wc -c <'driver.c'`; then
+    echo shar: \"'driver.c'\" unpacked with wrong size!
+fi
+# end of 'driver.c'
+fi
+echo shar: End of archive 5 \(of 6\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

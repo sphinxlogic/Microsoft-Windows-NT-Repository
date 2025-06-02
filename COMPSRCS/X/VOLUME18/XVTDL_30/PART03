@@ -1,0 +1,1794 @@
+Newsgroups: comp.sources.x
+Path: uunet!uunet!darwin.sura.net!mips!msi!dcmartin
+From: jipping@cs.hope.edu (Mike Jipping)
+Subject: v18i064: XVTDL 3.0, Part03/06
+Message-ID: <1992Jul29.175045.14949@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i062-xvtdl-3.0@uunet.UU.NET>
+Date: Wed, 29 Jul 1992 17:50:45 GMT
+Approved: dcmartin@msi.com
+Lines: 1781
+
+Submitted-by: jipping@cs.hope.edu (Mike Jipping)
+Posting-number: Volume 18, Issue 64
+Archive-name: xvtdl-3.0/part03
+
+#!/bin/sh
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file main.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping main.c'
+else
+echo 'x - continuing file main.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'main.c' &&
+X *
+X * Revision 2.4  1992/07/16  13:31:18  jipping
+X * Implemented two resource values: default_printer and postscriptmode.
+X *
+X * Revision 2.3  1992/07/14  12:31:38  jipping
+X * Added more flexible version notation (using version.h).
+X *
+X * Revision 2.2  1992/07/13  15:52:57  jipping
+X * Changed version number.
+X * Hardcoded initial main window creation size.
+X *
+X * Revision 2.1  1992/07/13  15:15:19  jipping
+X * Cleaned up code to avoid compilation warnings.
+X *
+X * Revision 2.0  1992/07/10  17:31:08  jipping
+X * Initial release
+X *
+X *
+X *
+X * **********************************************************************
+X */
+X
+#include "globaldefs.h"
+#include "patchlevel.h"
+X
+extern FILE *yyin;
+extern Notify_value midnight(), hourly();
+extern Notify_value my_destroy_func();
+X
+int debug=FALSE, verbose=FALSE, changed=FALSE;
+X
+Frame tdlist;
+Canvas calendar;
+X
+struct tm current, *tm, today, *localtime();
+int curr_month, curr_day, curr_year;
+char fname[FILENAMESIZ];
+X
+/*
+X * This routine parses the command line, looking for options.  The only
+X * options possible are
+X *
+X *   -d        -> turns on debugging output
+X *   -f file   -> use "file" as the todo database instead of
+X *                $HOME/.tododb
+X */
+X
+void parse_command_line (argc, argv)
+int argc;
+char **argv;
+{
+X   int argind;
+X   char *tcp;
+X
+X   argind = 1;
+X   while (argind < argc)
+X   {   
+X      tcp = argv[argind];
+X      if (*tcp == '-') {
+X         tcp++;
+X         switch(*tcp){
+X            case 'd':   /* d selects Debug output */
+X                debug = TRUE;
+X                verbose = TRUE;
+X                break;
+X            
+X            case 'f':
+X                argind++;
+X                tcp = argv[argind];
+X                strcpy(fname, tcp);
+X                freopen(tcp, "r", yyin);
+X                break;
+X
+X            default:
+X                printf("%c is not a legal flag\n", *tcp);
+X         }
+X      } else {
+X         printf("Bad argument: %s\n", tcp);
+X      }
+X      argind++;
+X    }
+}
+X
+X
+/*
+X * The main program.
+X */
+X
+void main (argc, argv)
+int argc;
+char **argv;
+{
+X   struct timeval tv;
+X   struct itimerval timer;
+X   char timstr[16], title[20];
+X   long till_midnight;
+X
+X   /* init XView */
+X   xv_init(XV_INIT_ARGC_PTR_ARGV, &argc, argv, 0);
+X
+X   /* set up initial parameters, the parse the command line */
+X   strcpy(fname, getenv("HOME"));
+X   strcat(fname, "/.tododb");
+X   yyin = fopen(fname, "r");
+X   parse_command_line(argc, argv);
+X
+X	/* Process any X resources that we have */
+X	load_xdefaults();
+X
+X   /* set up date-oriented variables */
+X   gettimeofday(&tv, 0);
+X   tm = localtime(&tv.tv_sec);
+X   today = *tm;
+X   curr_month = today.tm_mon+1;
+X   curr_day = today.tm_mday;
+X   curr_year = today.tm_year+1900;
+X
+X   /* create the windows */
+X	sprintf(title, "To Do List %d.%d", VERSION, PATCHLEVEL);
+X   tdlist = xv_create(NULL, FRAME,
+X                      FRAME_LABEL, title,
+X							 XV_WIDTH, 435,
+X							 XV_HEIGHT, 480,
+X                      0);
+X   create_windows();
+X
+X   /* parse the todo database and set up the "current" list */
+X   if (yyin != NULL) {
+X		yyparse();
+X		propagate();
+X	}
+X	if (category_head == NULL)
+X		category_head = (struct category_rec *)new_category("Every Day");
+X
+X   xv_set(categories,
+X          PANEL_CLIENT_DATA, category_head,
+X          PANEL_VALUE, 0,
+X          0);
+X
+X	entry_head = category_head->entry_head;
+X	entry_tail = category_head->entry_tail;
+X	rl_head = category_head->rl_head;
+X	rl_tail = category_head->rl_tail;
+X	display_list(curr_month, curr_day, curr_year);
+X
+X   /* set up the timer alarms to go off every hour */
+X   timer.it_value.tv_sec = 3600;
+X   timer.it_interval.tv_sec = 3600;
+X   timer.it_value.tv_usec = 0;
+X   timer.it_interval.tv_usec = 0;
+X   notify_set_itimer_func(tdlist, hourly, ITIMER_REAL, &timer, NULL);
+X
+X	/* catch window quits... */
+X	notify_interpose_destroy_func(tdlist, my_destroy_func);
+X
+X
+X   /* sit back and watch the show */
+X   xv_main_loop(tdlist);
+}
+SHAR_EOF
+echo 'File main.c is complete' &&
+chmod 0644 main.c ||
+echo 'restore of main.c failed'
+Wc_c="`wc -c < 'main.c'`"
+test 5037 -eq "$Wc_c" ||
+	echo 'main.c: original size 5037, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= print_ui.c ==============
+if test -f 'print_ui.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping print_ui.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting print_ui.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'print_ui.c' &&
+/*
+X * print_ui.c - User interface object initialization functions.
+X * This file was generated by `gxv' from `print.G'.
+X * DO NOT EDIT BY HAND.
+X */
+X
+#include <stdio.h>
+#include <sys/param.h>
+#include <sys/types.h>
+#include <xview/xview.h>
+#include <xview/canvas.h>
+#include <xview/panel.h>
+#include <xview/scrollbar.h>
+#include <xview/svrimage.h>
+#include <xview/termsw.h>
+#include <xview/text.h>
+#include <xview/tty.h>
+#include <xview/xv_xrect.h>
+#include "print_ui.h"
+X
+/*
+X * Initialize an instance of object `print_base'.
+X */
+print_print_base_objects *
+print_print_base_objects_initialize(ip, owner)
+X	print_print_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	if (!ip && !(ip = (print_print_base_objects *) calloc(1, sizeof (print_print_base_objects))))
+X		return (print_print_base_objects *) NULL;
+X	if (!ip->print_base)
+X		ip->print_base = print_print_base_print_base_create(ip, owner);
+X	if (!ip->controls1)
+X		ip->controls1 = print_print_base_controls1_create(ip, ip->print_base);
+X	if (!ip->postscript)
+X		ip->postscript = print_print_base_postscript_create(ip, ip->controls1);
+X	if (!ip->printer)
+X		ip->printer = print_print_base_printer_create(ip, ip->controls1);
+X	if (!ip->scale)
+X		ip->scale = print_print_base_scale_create(ip, ip->controls1);
+X	if (!ip->categories)
+X		ip->categories = print_print_base_categories_create(ip, ip->controls1);
+X	if (!ip->incl_checked_items)
+X		ip->incl_checked_items = print_print_base_incl_checked_items_create(ip, ip->controls1);
+X	if (!ip->cancel_print)
+X		ip->cancel_print = print_print_base_cancel_print_create(ip, ip->controls1);
+X	if (!ip->exec_print)
+X		ip->exec_print = print_print_base_exec_print_create(ip, ip->controls1);
+X	return ip;
+}
+X
+/*
+X * Create object `print_base' in the specified instance.
+X */
+XXv_opaque
+print_print_base_print_base_create(ip, owner)
+X	print_print_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, FRAME_CMD,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_WIDTH, 424,
+X		XV_HEIGHT, 127,
+X		XV_LABEL, "Print To Do List",
+X		FRAME_SHOW_FOOTER, FALSE,
+X		FRAME_SHOW_RESIZE_CORNER, TRUE,
+X		FRAME_CMD_PUSHPIN_IN, FALSE,
+X		NULL);
+X	xv_set(xv_get(obj, FRAME_CMD_PANEL), WIN_SHOW, FALSE, NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `controls1' in the specified instance.
+X */
+XXv_opaque
+print_print_base_controls1_create(ip, owner)
+X	print_print_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_X, 0,
+X		XV_Y, 0,
+X		XV_WIDTH, WIN_EXTEND_TO_EDGE,
+X		XV_HEIGHT, WIN_EXTEND_TO_EDGE,
+X		WIN_BORDER, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `postscript' in the specified instance.
+X */
+XXv_opaque
+print_print_base_postscript_create(ip, owner)
+X	print_print_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	extern void		change_printer_type();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_CHOICE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_X, 234,
+X		XV_Y, 8,
+X		PANEL_CHOICE_NROWS, 1,
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_NOTIFY_PROC, change_printer_type,
+X		PANEL_CHOICE_STRINGS,
+X			"Normal",
+X			"Postscript",
+X			NULL,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `printer' in the specified instance.
+X */
+XXv_opaque
+print_print_base_printer_create(ip, owner)
+X	print_print_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_X, 24,
+X		XV_Y, 15,
+X		PANEL_VALUE_DISPLAY_LENGTH, 8,
+X		PANEL_VALUE_STORED_LENGTH, 80,
+X		PANEL_LABEL_STRING, "Printer:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `scale' in the specified instance.
+X */
+XXv_opaque
+print_print_base_scale_create(ip, owner)
+X	print_print_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_NUMERIC_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_X, 24,
+X		XV_Y, 40,
+X		PANEL_VALUE_DISPLAY_LENGTH, 5,
+X		PANEL_VALUE_STORED_LENGTH, 5,
+X		PANEL_LABEL_STRING, "Scaling Factor:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_MAX_VALUE, 1000,
+X		PANEL_MIN_VALUE, 0,
+X		PANEL_VALUE, 0,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `categories' in the specified instance.
+X */
+XXv_opaque
+print_print_base_categories_create(ip, owner)
+X	print_print_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_CHOICE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_X, 231,
+X		XV_Y, 40,
+X		PANEL_CHOICE_NROWS, 1,
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_LABEL_STRING, "Categories:",
+X		PANEL_CHOICE_STRINGS,
+X			"Current",
+X			"All",
+X			NULL,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `incl_checked_items' in the specified instance.
+X */
+XXv_opaque
+print_print_base_incl_checked_items_create(ip, owner)
+X	print_print_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	extern void		change_checked();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TOGGLE, PANEL_FEEDBACK, PANEL_MARKED,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_X, 24,
+X		XV_Y, 65,
+X		PANEL_CHOICE_NROWS, 1,
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_LABEL_STRING, "Include Checked Items?",
+X		PANEL_NOTIFY_PROC, change_checked,
+X		PANEL_CHOICE_STRINGS,
+X			"Include",
+X			"Do Not Include",
+X			NULL,
+X		PANEL_VALUE, 0,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `cancel_print' in the specified instance.
+X */
+XXv_opaque
+print_print_base_cancel_print_create(ip, owner)
+X	print_print_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	extern void		print_cancel();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_BUTTON,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_X, 130,
+X		XV_Y, 99,
+X		PANEL_LABEL_STRING, "Cancel",
+X		PANEL_NOTIFY_PROC, print_cancel,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `exec_print' in the specified instance.
+X */
+XXv_opaque
+print_print_base_exec_print_create(ip, owner)
+X	print_print_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	extern void		print_list();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_BUTTON,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_X, 249,
+X		XV_Y, 99,
+X		PANEL_LABEL_STRING, "Print",
+X		PANEL_NOTIFY_PROC, print_list,
+X		NULL);
+X	return obj;
+}
+X
+SHAR_EOF
+chmod 0644 print_ui.c ||
+echo 'restore of print_ui.c failed'
+Wc_c="`wc -c < 'print_ui.c'`"
+test 5974 -eq "$Wc_c" ||
+	echo 'print_ui.c: original size 5974, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= properties.c ==============
+if test -f 'properties.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping properties.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting properties.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'properties.c' &&
+/*
+X * $Id: properties.c,v 1.1 1992/07/27 18:43:12 jipping Exp $
+X * **********************************************************************
+X *
+X *  Properties.c ==> Routines that implement the properties window.
+X *
+X * ----------------------------------------------------------------------
+X * Copyright (c) 1992 by Mike Jipping and Hope College
+X *
+X * Permission is granted to copy and distribute this file in modified or
+X * unmodified form, for noncommercial use, provided (a) this copyright notice
+X * is preserved, (b) no attempt is made to restrict redistribution of this
+X * file, and (c) this file is not distributed as part of any collection whose
+X * redistribution is restricted by a compilation copyright.
+X * ----------------------------------------------------------------------
+X *
+X * Revision History:
+X * $Log: properties.c,v $
+X * Revision 1.1  1992/07/27  18:43:12  jipping
+X * Initial revision
+X *
+X */
+X
+#include "globaldefs.h"
+X
+props_props_frame_objects	*props_props_frame;
+X
+/*
+X * **********************************************************************
+X * Initialize the print window...by calling the routine set up by GUIDE.
+X */
+void initialize_props ()
+{
+X	props_props_frame = props_props_frame_objects_initialize(NULL, tdlist);
+}
+X
+/*
+X * **********************************************************************
+X * This routine sets the items that control the property settings --
+X * based on the settings of the global property variables.
+X */
+void set_global_props()
+{
+X	if (logging == 0) {
+X		log_level = LOG_NEVER;
+X		xv_set(props_props_frame->log_preference, PANEL_VALUE, LOG_NEVER, 0);
+X		xv_set(props_props_frame->log_info, PANEL_INACTIVE, TRUE, 0);
+X		xv_set(props_props_frame->log_filename, PANEL_INACTIVE, TRUE, 0);
+X	} else {
+X		if (EQUAL(log_preference, "atquit")) {
+X			log_level = LOG_AT_QUIT;
+X			xv_set(props_props_frame->log_preference, PANEL_VALUE, LOG_AT_QUIT, 0);
+X		   xv_set(props_props_frame->log_info, PANEL_INACTIVE, TRUE, 0);
+X			xv_set(props_props_frame->log_filename, PANEL_INACTIVE, FALSE, 0);
+X		} else {
+X			log_level = LOG_AT_CHECKED;
+X			xv_set(props_props_frame->log_preference, PANEL_VALUE, LOG_AT_CHECKED, 0);
+X		   xv_set(props_props_frame->log_info,
+X					 PANEL_INACTIVE, FALSE,
+X					 PANEL_VALUE,    log_info_level,
+X					 0);
+X			xv_set(props_props_frame->log_filename, PANEL_INACTIVE, FALSE, 0);
+X		}
+X	}
+X	xv_set(props_props_frame->log_filename, PANEL_VALUE, log_file, 0);
+X
+X	if (EQUAL(priority_listing, "ascending")) {
+X		xv_set(props_props_frame->priority_direction, PANEL_VALUE, 0, 0);
+X	} else {
+X		xv_set(props_props_frame->priority_direction, PANEL_VALUE, 1, 0);
+X	}
+X	xv_set(props_props_frame->def_printer, PANEL_VALUE, default_printer, 0);
+X	xv_set(props_props_frame->def_print_mode, PANEL_VALUE, postscriptmode, 0);
+}
+X
+/*
+X * **********************************************************************
+X * Callback routine for the property settings menu item.  Opens the
+X * properties window.
+X */
+X
+Menu_item open_properties(item, op)
+Menu_item	item;
+Menu_generate	op;
+{
+X	set_global_props();
+X	xv_set(props_props_frame->props_frame,
+X			 XV_SHOW, TRUE,
+X			 0);
+X	return(item);
+}
+X
+/*
+X * **********************************************************************
+X * Callback routine for the "Log Preference:" item.  Activates or
+X * deactivates items on the properties window.
+X */
+void set_log_preference(item, value, event)
+Panel_item	item;
+int		value;
+Event		*event;
+{
+X	props_props_frame_objects *ip =
+X		(props_props_frame_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X
+X	switch (value) {
+X	   case LOG_AT_CHECKED:
+X		   xv_set(ip->log_info, PANEL_INACTIVE, FALSE, 0);
+X			xv_set(ip->log_filename, PANEL_INACTIVE, FALSE, 0);
+X			break;
+X			
+X	   case LOG_AT_QUIT:
+X		   xv_set(ip->log_info, PANEL_INACTIVE, TRUE, 0);
+X			xv_set(ip->log_filename, PANEL_INACTIVE, FALSE, 0);
+X			break;
+X			
+X	   case LOG_NEVER:
+X		   xv_set(ip->log_info, PANEL_INACTIVE, TRUE, 0);
+X			xv_set(ip->log_filename, PANEL_INACTIVE, TRUE, 0);
+X			break;
+X	}
+X
+}
+X
+/*
+X * **********************************************************************
+X * This routine sets the values of the global variables that control
+X * the properties to the xvtdl program.  It does so by examining the
+X * values of the window items.
+X */
+void apply_props(ip)
+props_props_frame_objects *ip;
+{
+X	log_level = xv_get(ip->log_preference, PANEL_VALUE);
+X	logging = ! (log_level == LOG_NEVER);
+X	if (logging) {
+X		if (log_level == 0) {
+X			strcpy(log_preference, "atchecked");
+X		} else {
+X			strcpy(log_preference, "atquit");
+X		}
+X	}
+X	log_info_level = xv_get(ip->log_info, PANEL_VALUE);
+X	if (log_info_level == LOG_TIMESTAMP) {
+X		strcpy(log_info_pref, "timestamp");
+X	} else {
+X		strcpy(log_info_pref, "userspec");
+X	}
+X	strcpy(log_file, xv_get(ip->log_filename, PANEL_VALUE));
+X	if (xv_get(ip->priority_direction, PANEL_VALUE) == 0) {
+X
+X		strcpy(priority_listing, "ascending");
+X	} else {
+X		strcpy(priority_listing, "descending");
+X	}
+X	strcpy(default_printer, xv_get(ip->def_printer, PANEL_VALUE));
+X	xv_set(print_print_base->printer, PANEL_VALUE, default_printer, 0);
+X	postscriptmode = xv_get(ip->def_print_mode, PANEL_VALUE);
+X	xv_set(print_print_base->postscript, PANEL_VALUE, 1, 0);
+X	if (postscriptmode) {
+X		xv_set(print_print_base->scale, PANEL_INACTIVE, FALSE, 0);
+X	}
+X
+X	set_xdefaults();
+}
+X
+/*
+X * **********************************************************************
+X * Callback routine for the "Reset" button on the properties window.
+X */
+void reset_props(item, event)
+Panel_item item; 
+Event      *event;
+{
+X	load_xdefaults();
+X	set_global_props();
+}
+X
+/*
+X * **********************************************************************
+X * Callback routine for the Done button on the properties window.
+X */
+void close_props(item, event)
+Panel_item item; 
+Event      *event;
+{
+X	props_props_frame_objects *ip =
+X		(props_props_frame_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X
+X	apply_props(ip);
+X	save_xdefaults();
+X
+X	xv_set(ip->props_frame,
+X			 XV_SHOW, FALSE,
+X			 0);
+}
+SHAR_EOF
+chmod 0644 properties.c ||
+echo 'restore of properties.c failed'
+Wc_c="`wc -c < 'properties.c'`"
+test 5889 -eq "$Wc_c" ||
+	echo 'properties.c: original size 5889, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= todo.y ==============
+if test -f 'todo.y' -a X"$1" != X"-c"; then
+	echo 'x - skipping todo.y (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting todo.y (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'todo.y' &&
+%token NUMBER STRING COMMENT SLASH COLON BAR
+%token BIGD BIGN BIGW BIGM BIGT
+%token LITTLED LITTLEW LITTLEB LITTLEM LITTLEY
+%token CATEGORY
+X
+%start todo_list
+X
+%{ 
+/*
+X * $Id: todo.y,v 2.1 1992/07/13 14:36:58 jipping Exp $
+X * **********************************************************************
+X *
+X * Todo.y ==> YACC description of the ASCII todo database format.  
+X *
+X * ----------------------------------------------------------------------
+X * Copyright (c) 1992 by Mike Jipping and Hope College
+X *
+X * Permission is granted to copy and distribute this file in modified or
+X * unmodified form, for noncommercial use, provided (a) this copyright notice
+X * is preserved, (b) no attempt is made to restrict redistribution of this
+X * file, and (c) this file is not distributed as part of any collection whose
+X * redistribution is restricted by a compilation copyright.
+X * ----------------------------------------------------------------------
+X *
+X * Revision History:
+X *
+X * $Log: todo.y,v $
+X * Revision 2.1  1992/07/13  14:36:58  jipping
+X * Cleaned up code to avoid compilation warnings.
+X *
+X * Revision 2.0  1992/07/06  13:34:47  jipping
+X * Initial release.
+X *
+X *
+X */
+X
+#include "globaldefs.h"
+X
+extern struct entry_list *entry_search();
+X
+int number_value;
+char string_value[80];
+int inquotes;
+int datecode;
+struct day_entry *de, *tmpde;
+struct entry_list *el;
+struct recurrence_list *tmprl;
+struct category_rec *cr, *tmpcr;
+X
+%}
+X
+%%
+X
+todo_list : /* empty */
+X	       | todo_entry todo_list
+X	       | category todo_list
+X	       ;
+X
+todo_entry : date_part {
+X	             el = entry_search(datecode, TRUE, NULL);
+X					 de = el->last;
+X					 tmprl = NULL;
+X	          }
+X             recurring_part
+X	          priority_part
+X	          text_part {
+X					 if (tmprl == NULL) {
+X						 tmpde = NEW(struct day_entry);
+X						 tmpde->recurring_entry = FALSE;
+X						 tmpde->next = NULL;
+X						 string_value[0] = '\0';
+X						 sscanf(yytext, "\"%[^\"]\"", string_value);
+X						 strcpy(tmpde->text, string_value);
+X						 tmpde->priority = number_value;
+X						 tmpde->checked = FALSE;
+X						 if (de == NULL) {
+X							 el->first = el->last = tmpde;
+X							 tmpde->prev = NULL;
+X						 } else {
+X							 de->next = el->last = tmpde;
+X							 tmpde->prev = de;
+X						 }
+X					 } else {
+X						 sscanf(yytext, "\"%[^\"]\"", string_value);
+X						 strcpy(rl_tail->text, string_value);
+X						 rl_tail->priority = number_value;
+X					 }
+X				 }
+X				 ;
+X
+date_part : NUMBER {datecode = number_value;}
+X            SLASH NUMBER {datecode = datecode * 100 + number_value;}
+X            SLASH NUMBER {datecode = (number_value - 90) * 10000 + datecode;}
+X          ;
+X
+recurring_part :
+X	            | BAR {
+X						tmprl = NEW(struct recurrence_list);
+X						if (rl_head == NULL) {
+X							cr->rl_head = rl_head = cr->rl_tail = rl_tail = tmprl;
+X						} else {
+X							cr->rl_tail->next = rl_tail->next = tmprl;
+X							cr->rl_tail = rl_tail = tmprl;
+X						}
+X						tmprl->starting_day_code = datecode;
+X						tmprl->daily = tmprl->weekly = tmprl->biweekly = tmprl->monthly = tmprl->yearly = FALSE;
+X						tmprl->dow = -1;
+X						tmprl->mwf = tmprl->tt = FALSE;
+X						tmprl->week_number = tmprl->number_of_weeks = 0;
+X						tmprl->next = NULL;
+X					}
+X					recur_desc
+X	            ;
+X
+recur_desc : /* empty */
+X           | LITTLED {tmprl->daily = TRUE;} recur_desc
+X           | LITTLEW {tmprl->weekly = TRUE;} recur_desc
+X           | LITTLEB {tmprl->biweekly = TRUE;} recur_desc
+X           | LITTLEM {tmprl->monthly = TRUE;} recur_desc
+X           | LITTLEY {tmprl->yearly = TRUE;} recur_desc
+X           | BIGM {tmprl->mwf = TRUE;} recur_desc
+X           | BIGT {tmprl->tt = TRUE;} recur_desc
+X           | BIGD NUMBER {tmprl->dow = number_value;} recur_desc
+X           | BIGN NUMBER {tmprl->week_number = number_value;} recur_desc
+X           | BIGW NUMBER {tmprl->number_of_weeks = number_value;} recur_desc
+X           ;
+X
+priority_part: COLON NUMBER ;
+X
+text_part : COLON STRING;
+X
+category: CATEGORY COLON STRING {
+X	          string_value[0] = '\0';
+X				 sscanf(yytext, "\"%[^\"]\"", string_value);
+X				 cr = (struct category_rec *)new_category(string_value);
+X				 entry_head = entry_tail = (struct entry_list *) NULL;
+X				 rl_head = rl_tail = (struct recurrence_list *) NULL;
+X			 }
+X        ;
+X
+X 
+%%
+X
+X
+#include "lex.yy.c"
+void yyerror(s)
+char *s;
+{
+X	fprintf(stderr,
+X			  "Error on line %d: %s at or around \"%s\"\n",
+X			  yylineno, s, yytext);
+X   yyerrok;
+}
+X
+X
+SHAR_EOF
+chmod 0644 todo.y ||
+echo 'restore of todo.y failed'
+Wc_c="`wc -c < 'todo.y'`"
+test 4389 -eq "$Wc_c" ||
+	echo 'todo.y: original size 4389, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xdefaults.c ==============
+if test -f 'xdefaults.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xdefaults.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xdefaults.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xdefaults.c' &&
+/*
+X * $Id: xdefaults.c,v 1.1 1992/07/27 18:45:10 jipping Exp $
+X * **********************************************************************
+X *
+X *  Xdefaults.c ==> Routines to control the setting of X defaults.
+X *
+X *   ** Please note:  These routines were shamelessly ripped off from
+X *   ** the Ftptool 4.3 distribution.  This tool was written by Mike 
+X *   ** Sullivan (Mike.Sullivan@Sun.COM) and are governed by the
+X *   ** copyright below.  Thanks, Mike!
+X *
+X * ----------------------------------------------------------------------
+X * 	NOTICE TO USER: The source code, including the glyphs or icons 
+X * 	forming a par of the OPEN LOOK TM Graphic User Interface, on this 
+X * 	tape and in these files is copyrighted under U.S. and international
+X * 	laws. Sun Microsystems, Inc. of Mountain View, California owns
+X * 	the copyright and has design patents pending on many of the icons. 
+X * 	AT&T is the owner of the OPEN LOOK trademark associated with the
+X * 	materials on this tape. Users and possessors of this source code 
+X * 	are hereby granted a nonexclusive, royalty-free copyright and 
+X * 	design patent license to use this code in individual and 
+X * 	commercial software. A royalty-free, nonexclusive trademark
+X * 	license to refer to the code and output as "OPEN LOOK" compatible 
+X * 	is available from AT&T if, and only if, the appearance of the 
+X * 	icons or glyphs is not changed in any manner except as absolutely
+X * 	necessary to accommodate the standard resolution of the screen or
+X * 	other output device, the code and output is not changed except as 
+X * 	authorized herein, and the code and output is validated by AT&T. 
+X * 	Bigelow & Holmes is the owner of the Lucida (R) trademark for the
+X * 	fonts and bit-mapped images associated with the materials on this 
+X * 	tape. Users are granted a royalty-free, nonexclusive license to use
+X * 	the trademark only to identify the fonts and bit-mapped images if, 
+X * 	and only if, the fonts and bit-mapped images are not modified in any
+X * 	way by the user. 
+X *
+X *
+X * 	Any use of this source code must include, in the user documentation 
+X * 	and internal comments to the code, notices to the end user as  
+X * 	follows:
+X *
+X *
+X * 	(c) Copyright 1989 Sun Microsystems, Inc. Sun design patents
+X * 	pending in the U.S. and foreign countries. OPEN LOOK is a 
+X * 	trademark of AT&T. Used by written permission of the owners.
+X *
+X *
+X *  	(c) Copyright Bigelow & Holmes 1986, 1985. Lucida is a registered 
+X * 	trademark of Bigelow & Holmes. Permission to use the Lucida 
+X * 	trademark is hereby granted only in association with the images 
+X * 	and fonts described in this file.
+X *
+X *
+X *
+X * 	SUN MICROSYSTEMS, INC., AT&T, AND BIGELOW & HOLMES 
+X * 	MAKE NO REPRESENTATIONS ABOUT THE SUITABILITY OF
+X *  	THIS SOURCE CODE FOR ANY PURPOSE. IT IS PROVIDED "AS IS" 
+X * 	WITHOUT EXPRESS OR IMPLIED WARRANTY OF ANY KIND. 
+X * 	SUN  MICROSYSTEMS, INC., AT&T AND BIGELOW  & HOLMES, 
+X * 	SEVERALLY AND INDIVIDUALLY, DISCLAIM ALL WARRANTIES 
+X * 	WITH REGARD TO THIS SOURCE CODE, INCLUDING ALL IMPLIED
+X * 	WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+X * 	PARTICULAR PURPOSE. IN NO EVENT SHALL SUN MICROSYSTEMS,
+X * 	INC., AT&T OR BIGELOW & HOLMES BE LIABLE FOR ANY
+X * 	SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+X * 	OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA 	
+X * 	OR PROFITS, WHETHER IN AN ACTION OF  CONTRACT, NEGLIGENCE
+X * 	OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION
+X * 	WITH THE USE OR PERFORMANCE OF THIS SOURCE CODE.
+X * ----------------------------------------------------------------------
+X *
+X * Revision History:
+X * $Log: xdefaults.c,v $
+X * Revision 1.1  1992/07/27  18:45:10  jipping
+X * Initial revision
+X *
+X *
+X *
+X */
+X
+#include "globaldefs.h"
+X
+char default_printer[25], log_preference[10], log_file[LINESIZ];
+char priority_listing[13], log_info_pref[25];
+int postscriptmode,logging;
+X
+char *find_dotfile(dotfile)
+char	*dotfile;
+{
+X	char	*home;
+X	char	*filename=NULL;
+X
+X	home = (char *)getenv("HOME");
+X	if (home != NULL && home[0] != '\0') {
+X		/* try $HOME/dotfile */
+X		filename = malloc((unsigned int)(strlen(home)+1+strlen(dotfile)+1));
+X		if (filename == NULL)
+X			return NULL;
+X		sprintf(filename, "%s/%s", home, dotfile);
+X		if (access(filename, F_OK) == -1) {
+X			free(filename);
+X			return NULL;
+X		}
+X		/* found it */
+X		return filename;
+X	}
+X	filename = strdup(dotfile);
+X	if (filename == NULL)
+X		return NULL;
+X	if (access(filename, F_OK) == -1) {
+X		free(filename);
+X		return NULL;
+X	}
+X
+X	return filename;
+}
+X
+char *create_dotfile(dotfile, mode)
+char    *dotfile;
+int             mode;
+{
+X	char    *home;
+X	char    *filename=NULL;
+X	int             fd;
+X	
+X	home = (char *)getenv("HOME");
+X	if (home != NULL && home[0] != '\0') {
+X		/* try $HOME/dotfile */
+X		filename = malloc((unsigned int)(strlen(home)+1+strlen(dotfile)+1));
+X		if (filename == NULL)
+X			return NULL;
+X		sprintf(filename, "%s/%s", home, dotfile);
+X		if ((fd = creat(filename, mode)) == -1) {
+X			free(filename);
+X			return NULL;
+X		}
+X		close(fd);
+X		/* found it */
+X		return filename;
+X	}
+X	filename = strdup(dotfile);
+X	if (filename == NULL)
+X		return NULL;
+X	if ((fd = creat(filename, mode)) == -1) {
+X		free(filename);
+X		return NULL;
+X	}
+X	close(fd);
+X	
+X	return filename;
+}
+X
+void load_xdefaults()
+{
+X	char	*str;
+X	int		ct;
+X	char	*xapplresdir, res_file[LINESIZ];
+X	char	*xvtdl_defaults;
+X
+X	if ((xapplresdir = (char *)getenv("XAPPLRESDIR")) != NULL) {
+X		sprintf(res_file, "%s/Xvtdl", xapplresdir);
+X		if (access(res_file, R_OK) == 0) {
+X			defaults_load_db(res_file);
+X		}
+X	}
+X	xvtdl_defaults = find_dotfile(".xvtdlrc");
+X	if (xvtdl_defaults) {
+X		defaults_load_db(xvtdl_defaults);
+X		free(xvtdl_defaults);
+X	}
+X
+X	strcpy(default_printer,
+X			 (char *)defaults_get_string("xvtdl.printer",
+X												  "Xvtdl.Printer",
+X												  "lp"));
+X	postscriptmode =
+X		(int)defaults_get_boolean("xvtdl.postscript",
+X										  "Xvtdl.PostScript",
+X										  FALSE);
+X
+X	logging = 
+X		(int)defaults_get_boolean("xvtdl.logging",
+X										  "Xvtdl.Logging",
+X										  FALSE);
+X	if (! logging) log_level = LOG_NEVER;
+X
+X	strcpy(log_preference, 
+X			 (char *)defaults_get_string("xvtdl.logpreference",
+X												  "Xvtdl.LogPreference",
+X												  "atquit"));
+X	if (logging) {
+X		if (EQUAL(log_preference, "atquit")) {
+X			log_level = LOG_AT_QUIT;
+X		} else {
+X			log_level = LOG_AT_CHECKED;
+X		}
+X	}
+X
+X	strcpy(log_info_pref, 
+X			 (char *)defaults_get_string("xvtdl.loginfopreference",
+X												  "Xvtdl.LogInfoPreference",
+X												  "timestamp"));
+X	if (EQUAL(log_info_pref, "timestamp")) {
+X		log_info_level = LOG_TIMESTAMP;
+X	} else {
+X		log_info_level = LOG_USER_SPEC;
+X	}
+X
+X	strcpy(log_file, 
+X			 (char *)defaults_get_string("xvtdl.logfilename",
+X												  "Xvtdl.LogFileName",
+X												  ""));
+X
+X	strcpy(priority_listing,
+X			 (char *)defaults_get_string("xvtdl.prioritylisting",
+X												  "Xvtdl.PriorityListing",
+X												  "descending"));
+}
+X
+void set_xdefaults()
+{
+X	defaults_set_string("Xvtdl.Printer", default_printer);
+X	defaults_set_boolean("Xvtdl.PostScript", postscriptmode);
+X	defaults_set_boolean("Xvtdl.Logging", logging);
+X	defaults_set_string("Xvtdl.LogPreference", log_preference);
+X	defaults_set_string("Xvtdl.LogInfoPreference", log_info_pref);
+X	defaults_set_string("Xvtdl.LogFileName", log_file);
+X	defaults_set_string("Xvtdl.PriorityListing", priority_listing);
+}
+X
+void save_xdefaults()
+{
+X   char  *filename=NULL;
+X	FILE	*fp;
+X	char	*str;
+X	char	*true = "True";
+X	char	*false = "False";
+X
+X	filename = find_dotfile(".xvtdlrc");
+X	if (filename == NULL)
+X		if ((filename = (char *)create_dotfile(".xvtdlrc", 0644)) == NULL)
+X			return;
+X	if ((fp = fopen(filename, "w")) == NULL) {
+X		fprintf(stderr, "Could not write defaults file...\n");
+X		return;
+X	}
+X
+X	fprintf(fp, "Xvtdl.Printer:\t%s\n", default_printer);
+X	fprintf(fp, "Xvtdl.PostScript:\t%s\n", 
+X		(postscriptmode == 0) ? false : true);
+X	fprintf(fp, "Xvtdl.Logging:\t%s\n", 
+X		(logging == 0) ? false : true);
+X	fprintf(fp, "Xvtdl.LogPreference:\t%s\n", log_preference);
+X	fprintf(fp, "Xvtdl.LogInfoPreference:\t%s\n", log_info_pref);
+X	fprintf(fp, "Xvtdl.LogFileName:\t%s\n", log_file);
+X	fprintf(fp, "Xvtdl.PriorityListing:\t%s\n", priority_listing);
+X
+X	fclose(fp);
+X	free(filename);
+}
+SHAR_EOF
+chmod 0644 xdefaults.c ||
+echo 'restore of xdefaults.c failed'
+Wc_c="`wc -c < 'xdefaults.c'`"
+test 8135 -eq "$Wc_c" ||
+	echo 'xdefaults.c: original size 8135, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= print.c ==============
+if test -f 'print.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping print.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting print.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'print.c' &&
+/*
+X * $Id: print.c,v 3.0 1992/07/27 18:42:35 jipping Exp $
+X * *********************************************************************
+X * Print.c --> Routines for printing todo lists.
+X *
+X * The "print" window was constructed using Sun's GUIDE.  These routines
+X * reference window portions through pointer interfaces established by
+X * GUIDE code.  The actual code to construct the interface can be found 
+X * in "print_ui.c" and "print_ui.h".
+X *
+X * ----------------------------------------------------------------------
+X *
+X * Copyright (c) 1992 by Mike Jipping and Hope College
+X *  
+X * Permission is granted to copy and distribute this file in modified or
+X * unmodified form, for noncommercial use, provided (a) this copyright notice
+X * is preserved, (b) no attempt is made to restrict redistribution of this
+X * file, and (c) this file is not distributed as part of any collection whose
+X * redistribution is restricted by a compilation copyright.
+X *
+X * ----------------------------------------------------------------------
+X *
+X * Revision History:
+X *
+X * $Log: print.c,v $
+X * Revision 3.0  1992/07/27  18:42:35  jipping
+X * Release 3.0 includes:
+X * * added a "print_all" routine to print all items in "List All" list
+X * * fixed hard coded temp file name with call to "tempnam"
+X * * fixed some pinning errors
+X * * changed from userid to gecos on output print
+X * `.
+X *
+X * Revision 2.2  1992/07/16  13:38:49  jipping
+X * COmplete rewrote the printing methods to accomodate printing
+X * all categories; see print_category and print_list.
+X *
+X * Revision 2.1  1992/07/15  17:25:47  jipping
+X * Implemented the feature of printing all categories.
+X * (1) added the print_category routine
+X * (2) made print_list call print_category as requested.
+X *
+X * Revision 2.0  1992/07/06  12:42:08  jipping
+X * Initial release.
+X *
+X */
+X
+#include "globaldefs.h"
+X
+Attr_attribute	INSTANCE;
+print_print_base_objects	*print_print_base;
+int incl_checked;
+X
+/*
+X * **********************************************************************
+X * Initialize the print window...by calling the routine set up by GUIDE.
+X */
+X
+void initialize_print ()
+{
+X	print_print_base = print_print_base_objects_initialize(NULL, tdlist);
+X
+X	xv_set(print_print_base->scale,
+X			 PANEL_VALUE, 100,
+X			 PANEL_INACTIVE, TRUE,
+X			 0);
+X	xv_set(print_print_base->incl_checked_items, PANEL_VALUE, 1, 0);
+X	if (default_printer != NULL)
+X		xv_set(print_print_base->printer, PANEL_VALUE, default_printer, 0);
+X	if (postscriptmode) {
+X		xv_set(print_print_base->postscript, PANEL_VALUE, 1, 0);
+X		xv_set(print_print_base->scale, PANEL_INACTIVE, FALSE, 0);
+X	}
+X	
+X	incl_checked = 1;
+}
+X
+/*
+X * **********************************************************************
+X * Notify callback function for the "cancel" button.
+X */
+X
+void print_cancel(item, event)
+Panel_item	item;
+Event		*event;
+{
+X	xv_set(print_print_base->print_base,
+X			 XV_SHOW, FALSE,
+X			 0);
+}
+X
+/*
+X * **********************************************************************
+X * Given a month, day, and year spec, this routine displays the todo
+X * list.  This includes recurring and non-recurring entries.  The list is
+X * sorted by priority.
+X */
+print_category (cr,tmp,ps,incl_checked,scale_factor,name,title)
+struct category_rec *cr;
+FILE *tmp;
+int ps,incl_checked;
+float scale_factor;
+char *name, *title;
+{
+X	struct print_list {
+X		char print_line[80];
+X		int item_checked;
+X		struct print_list *next;
+X	};
+X
+X	struct print_list *position[10], *head[10], *pl, *tpl;
+X	int today_datecode, datecode, count, nrows, entry;
+X	struct entry_list *el;
+X	struct day_entry *de;
+X	struct recurrence_list *rl;
+X	struct day_entry *tmprl, *rl2;
+X	Server_image check;
+X	char txt[80];
+X
+X   /*
+X    *  Initialize and clear the position tally for sorting the list
+X    */
+X	entry_head = cr->entry_head;
+X	entry_tail = cr->entry_tail;
+X	rl_head = cr->rl_head;
+X	rl_tail = cr->rl_tail;
+X
+X	for (count=0; count<10; count++)
+X		position[count] = head[count] = (struct print_list *)NULL;
+X
+X   /*
+X    *  compute the correct datecode and find the entry list for that
+X    *  date.
+X    */
+X	datecode = (curr_year-1990)*10000 + curr_month*100 + curr_day;
+X	today_datecode =
+X		(today.tm_year-90)*10000 + (today.tm_mon+1)*100 + today.tm_mday;
+X	el = (struct entry_list *)entry_search(datecode, FALSE, NULL);
+X
+X   /*
+X    * If we have one, get its entries....
+X    */
+X	if (el != NULL) {
+X		for (de = el->first; de != NULL; de = de->next) {
+X			pl = NEW(struct print_list);
+X			strcpy(pl->print_line, de->text);
+X			pl->item_checked = de->checked;
+X			pl->next = NULL;
+X			if (position[de->priority] != NULL) {
+X				position[de->priority]->next = pl;
+X			} else {
+X				head[de->priority] = pl;
+X			}
+X			position[de->priority] = pl;
+X		}
+X	}
+X
+X	/*
+X	 *  Search the recurrence list for possible candidates to print
+X	 */
+X	el = (struct entry_list *)entry_search(datecode, TRUE, NULL);
+X	for (rl = rl_head; rl != NULL; rl = rl->next) {
+X		if (datecode_matches(datecode, rl)) {
+X			pl = NEW(struct print_list);
+X			strcpy(pl->print_line, rl->text);
+X			pl->item_checked = FALSE;
+X			pl->next = NULL;
+X			if (position[rl->priority] != NULL) {
+X				position[rl->priority]->next = pl;
+X			} else {
+X				head[rl->priority] = pl;
+X			}
+X			position[rl->priority] = pl;
+X		}
+X	}
+X
+X	/* 
+X	 *  And, finally, print the list.
+X    */
+X	if (ps) {
+X		fprintf(tmp, "%%%%Page:\n612 792 0 FMBEGINPAGE\n");
+X		fprintf(tmp, "%f %f scale\n", scale_factor/100.0, scale_factor/100.0);
+X      fprintf(tmp, "72 746 540 756 R\n7 X\n0 K\nV\n72 32.67 540 42.67 R\n");
+X      fprintf(tmp, "V\n99 72 540 720 R\nV\n0 F\n0 X\n(T) 99 708 T\n(o Do List) 110.33 708 T\n1 F\n");
+X		fprintf(tmp, "(for %s) 99 687 T\n", name);
+X		fprintf(tmp, "(Category: %s) 99 668 T\n", cr->name);
+X		fprintf(tmp, "(Date: %s) 99 649 T\n", title);
+X		copyfile2(PRINT_PROLOG2, tmp);
+X	} else {
+X		fprintf(tmp, "*** TO DO LIST ***\n");
+X		fprintf(tmp, "      for %s\n", name);
+X		fprintf(tmp, "      Category: %s\n", cr->name);
+X		fprintf(tmp, "      Date: %s\n\n\n", title);
+X	}
+X
+X	entry = 0;
+X	for (count=9; count >= 0; count--) {
+X		tpl = NULL;
+X		for (pl=head[count]; pl != NULL; tpl = pl,pl = pl->next) {
+X			if (tpl != NULL) free(tpl);
+X			if (! pl->item_checked) {
+X				if (ps) {
+X					fprintf(tmp, "(%s) %d TODOITEM\n", pl->print_line, entry++);
+X				} else {
+X					fprintf(tmp, "  [ ] %s\n\n", pl->print_line);
+X				}
+X			} else {
+X				if (incl_checked == 1) {
+X					if (ps) {
+X						fprintf(tmp, "(%s) %d TODOCHECKEDITEM\n", pl->print_line, entry++);
+X					} else {
+X						fprintf(tmp, "  [X] %s\n\n", pl->print_line);
+X					}
+X				}
+X			}
+X		}
+X	}
+X	if (ps) {
+X		fprintf(tmp, "FMENDPAGE\n%%%%EndPage:\n");		
+X	} else {
+X		fprintf(tmp, "\f");
+X	}
+}
+X
+/*
+X * **********************************************************************
+X * Given a month, day, and year spec, this routine displays the todo
+X * list.  This includes recurring and non-recurring entries.  The list is
+X * sorted by priority.
+X */
+print_all (tmp,ps,incl_checked,scale_factor,name,title)
+FILE *tmp;
+int ps,incl_checked;
+float scale_factor;
+char *name, *title;
+{
+X	struct print_list {
+X		char print_line[80];
+X		int item_checked;
+X		struct print_list *next;
+X	};
+X
+X	struct print_list *position[10], *head[10], *pl, *tpl;
+X	int today_datecode, datecode, count, nrows, entry;
+X	struct entry_list *el;
+X	struct day_entry *de;
+X	struct recurrence_list *rl;
+X	struct day_entry *tmprl, *rl2;
+X	struct category_rec *cr;
+X	Server_image check;
+X	char txt[80];
+X
+X   /*
+X    *  Initialize and clear the position tally for sorting the list
+X    */
+X	for (count=0; count<10; count++)
+X		position[count] = head[count] = (struct print_list *)NULL;
+X
+X   /*
+X    *  compute the correct datecode and find the entry list for that
+X    *  date.
+X    */
+X	datecode = (curr_year-1990)*10000 + curr_month*100 + curr_day;
+X	today_datecode =
+X		(today.tm_year-90)*10000 + (today.tm_mon+1)*100 + today.tm_mday;
+X
+X	cr = category_head;
+X	while (cr != NULL) {
+X		entry_head = cr->entry_head;
+X		entry_tail = cr->entry_tail;
+X		rl_head = cr->rl_head;
+X		rl_tail = cr->rl_tail;
+X		
+X		el = (struct entry_list *)entry_search(datecode, FALSE, NULL);
+X		
+X		/*
+X		 * If we have one, get its entries....
+X		 */
+X		if (el != NULL) {
+X			for (de = el->first; de != NULL; de = de->next) {
+X				pl = NEW(struct print_list);
+X				strcpy(pl->print_line, de->text);
+X				pl->item_checked = de->checked;
+X				pl->next = NULL;
+X				if (position[de->priority] != NULL) {
+X					position[de->priority]->next = pl;
+X				} else {
+X					head[de->priority] = pl;
+X				}
+X				position[de->priority] = pl;
+X			}
+X		}
+X		
+X		/*
+X		 *  Search the recurrence list for possible candidates to print
+X		 */
+X		el = (struct entry_list *)entry_search(datecode, TRUE, NULL);
+X		for (rl = rl_head; rl != NULL; rl = rl->next) {
+X			if (datecode_matches(datecode, rl)) {
+X				pl = NEW(struct print_list);
+X				strcpy(pl->print_line, rl->text);
+X				pl->item_checked = FALSE;
+X				pl->next = NULL;
+X				if (position[rl->priority] != NULL) {
+X					position[rl->priority]->next = pl;
+X				} else {
+X					head[rl->priority] = pl;
+X				}
+X				position[rl->priority] = pl;
+X			}
+X		}
+X		cr = cr->next;
+X	}
+X	cr = (struct category_rec *)xv_get(categories, PANEL_CLIENT_DATA);
+X	entry_head = cr->entry_head;
+X	entry_tail = cr->entry_tail;
+X	rl_head = cr->rl_head;
+X	rl_tail = cr->rl_tail;
+X		
+X	/* 
+X	 *  And, finally, contruct the list.
+X	 */
+X	if (ps) {
+X		fprintf(tmp, "%%%%Page:\n612 792 0 FMBEGINPAGE\n");
+X		fprintf(tmp, "%f %f scale\n", scale_factor/100.0, scale_factor/100.0);
+X		fprintf(tmp, "72 746 540 756 R\n7 X\n0 K\nV\n72 32.67 540 42.67 R\n");
+X		fprintf(tmp, "V\n99 72 540 720 R\nV\n0 F\n0 X\n(T) 99 708 T\n(o Do List) 110.33 708 T\n1 F\n");
+X		fprintf(tmp, "(for %s) 99 687 T\n", name);
+X		fprintf(tmp, "(Category: ALL CATEGORIES) 99 668 T\n");
+X		fprintf(tmp, "(Date: %s) 99 649 T\n", title);
+X		copyfile2(PRINT_PROLOG2, tmp);
+X	} else {
+X		fprintf(tmp, "*** TO DO LIST ***\n");
+X		fprintf(tmp, "      for %s\n", name);
+X		fprintf(tmp, "      Category: ALL CATEGORIES\n");
+X		fprintf(tmp, "      Date: %s\n\n\n", title);
+X	}
+X	
+X	entry = 0;
+X	for (count=9; count >= 0; count--) {
+X		tpl = NULL;
+X		for (pl=head[count]; pl != NULL; tpl = pl,pl = pl->next) {
+X			if (tpl != NULL) free(tpl);
+X			if (! pl->item_checked) {
+X				if (ps) {
+X					fprintf(tmp, "(%s) %d TODOITEM\n", pl->print_line, entry++);
+X				} else {
+X					fprintf(tmp, "  [ ] %s\n\n", pl->print_line);
+X				}
+X			} else {
+X				if (incl_checked == 1) {
+X					if (ps) {
+X						fprintf(tmp, "(%s) %d TODOCHECKEDITEM\n", pl->print_line, entry++);
+X					} else {
+X						fprintf(tmp, "  [X] %s\n\n", pl->print_line);
+X					}
+X				}
+X			}
+X		}
+X	}
+X	if (ps) {
+X		fprintf(tmp, "FMENDPAGE\n%%%%EndPage:\n");		
+X	} else {
+X		fprintf(tmp, "\f");
+X	}
+}
+X
+X
+/*
+X * **********************************************************************
+X * Notify callback function for "Done" button --> actually DO the print,
+X * depending on the setting of the items.
+X *
+X * Note that the current version depends on two prolog files for printing
+X * in PostScript.  These must be set up in the "globaldefs.h" file, and 
+X * are denoted by the PROLOG1 and PROLOG2 macros.
+X */
+X
+void print_list(item, event)
+Panel_item item; 
+Event      *event;
+{
+X	print_print_base_objects
+X		*ip = (print_print_base_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X	char *temp_file;
+X	FILE *tmp;
+X	int ps;
+X	float scale_factor;
+X	struct category_rec *cr;
+X	char day_title[50];
+X	char printercmd[120];
+X	struct tm *now;
+X   struct timeval tv;
+X	struct passwd *pwd;
+X
+X	/* 
+X    *  Open the temp file.
+X    */
+X   if ( (temp_file = tempnam(NULL, "xvtdl")) == NULL) {
+X		fprintf(stderr, "Unable to create temporary file name\n");
+X		return;
+X	}
+X	if ( (tmp = fopen(temp_file, "w")) == NULL) {
+X		fprintf(stderr, "Unable to open temp file %s\n", temp_file);
+X		free(temp_file);
+X		return;
+X	}
+X
+X   /*
+X    * Get set up.  Set up the time variables, and set up the file 
+X    * header.
+X    */
+X   now = localtime(&tv.tv_sec);
+X	now->tm_mon = curr_month - 1;
+X	now->tm_mday = curr_day;
+X	now->tm_year = curr_year-1900;
+X	now->tm_wday = zeller(curr_month, curr_day, curr_year);
+X	strftime(day_title, 50, "%A, %B %e, %Y", now);
+X
+X	ps = (xv_get(ip->postscript, PANEL_VALUE) == 1);
+X	scale_factor = (float)xv_get(ip->scale, PANEL_VALUE);
+X	pwd = getpwuid(getuid());
+X
+X	if (ps) copyfile2(PRINT_PROLOG1, tmp);
+X
+X	if (xv_get(ip->categories, PANEL_INACTIVE) == TRUE) {
+X		print_all(tmp,ps,incl_checked,scale_factor,pwd->pw_gecos,day_title);
+X	} else if (xv_get(ip->categories, PANEL_VALUE) == 1) {
+X		cr = category_head;
+X		while (cr != NULL) {
+X			print_category(cr,tmp,ps,incl_checked,scale_factor,pwd->pw_gecos,day_title);
+X			cr = cr->next;
+X		}
+X		cr = (struct category_rec *)xv_get(categories, PANEL_CLIENT_DATA);
+X		entry_head = cr->entry_head;
+X		entry_tail = cr->entry_tail;
+X		rl_head = cr->rl_head;
+X		rl_tail = cr->rl_tail;
+X	} else {
+X		cr = (struct category_rec *)xv_get(categories, PANEL_CLIENT_DATA);
+X		print_category(cr,tmp,ps,incl_checked,scale_factor,pwd->pw_gecos,day_title);
+X	}
+X
+X	/*
+X    *  And we're done.
+X    */
+X	fclose(tmp);
+X	sprintf(printercmd, "lpr -P%s %s",
+X			  (char *)xv_get(ip->printer, PANEL_VALUE), temp_file);
+X	system(printercmd);
+X
+X	unlink(temp_file);
+X	free(temp_file);
+X
+X	xv_set(print_print_base->print_base,
+X			 XV_SHOW, FALSE,
+X			 0);
+}
+X
+/*
+X * **********************************************************************
+X * Callback function for the "Print..." button on the ToDo List window.
+X */
+X
+void start_print(item, event)
+X	Panel_item	item;
+X	Event		*event;
+{
+X	if (strlen((char *)xv_get(print_print_base->printer, PANEL_VALUE)) == 0)
+X		xv_set(print_print_base->printer, PANEL_VALUE, "lp", 0);
+X	xv_set(print_print_base->print_base,
+X			 XV_SHOW, TRUE,
+X			 0);
+}
+X
+/*
+X * **********************************************************************
+X * Notify callback function for the printer type item.
+X */
+void
+change_printer_type(item, value, event)
+X	Panel_item	item;
+X	int		value;
+X	Event		*event;
+{
+X	print_print_base_objects
+X		*ip = (print_print_base_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X	
+X	if (value == 0) {
+X		xv_set(ip->scale, PANEL_INACTIVE, TRUE, 0);
+X	} else {
+X		xv_set(ip->scale, PANEL_INACTIVE, FALSE, 0);
+X	}
+X		
+}
+X
+/*
+X * **********************************************************************
+X * Notify callback function for the "Include items" widget.  Makes a 
+X * checkbox widget into an "exclusive" checkbox widget ('cause it looks
+X * nice).
+X */
+void change_checked(item, value, event)
+Panel_item	item;
+int		value;
+Event		*event;
+{
+X	print_print_base_objects
+X		*ip = (print_print_base_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X	
+X	if (value != incl_checked) {
+X		incl_checked = incl_checked==1?2:1;
+X		xv_set(ip->incl_checked_items, PANEL_VALUE, incl_checked, 0);
+X	}
+}
+SHAR_EOF
+chmod 0644 print.c ||
+echo 'restore of print.c failed'
+Wc_c="`wc -c < 'print.c'`"
+test 14426 -eq "$Wc_c" ||
+	echo 'print.c: original size 14426, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= props_ui.c ==============
+if test -f 'props_ui.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping props_ui.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting props_ui.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'props_ui.c' &&
+/*
+X * props_ui.c - User interface object initialization functions.
+X * This file was generated by `gxv' from `props.G'.
+X * DO NOT EDIT BY HAND.
+X */
+X
+#include <stdio.h>
+#include <sys/param.h>
+#include <sys/types.h>
+#include <xview/xview.h>
+#include <xview/canvas.h>
+#include <xview/panel.h>
+#include <xview/scrollbar.h>
+#include <xview/svrimage.h>
+#include <xview/termsw.h>
+#include <xview/text.h>
+#include <xview/tty.h>
+#include <xview/xv_xrect.h>
+#include "props_ui.h"
+X
+/*
+X * Initialize an instance of object `props_frame'.
+X */
+props_props_frame_objects *
+props_props_frame_objects_initialize(ip, owner)
+X	props_props_frame_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	if (!ip && !(ip = (props_props_frame_objects *) calloc(1, sizeof (props_props_frame_objects))))
+X		return (props_props_frame_objects *) NULL;
+X	if (!ip->props_frame)
+X		ip->props_frame = props_props_frame_props_frame_create(ip, owner);
+X	if (!ip->logging_panel)
+X		ip->logging_panel = props_props_frame_logging_panel_create(ip, ip->props_frame);
+X	if (!ip->logging_msg)
+X		ip->logging_msg = props_props_frame_logging_msg_create(ip, ip->logging_panel);
+X	if (!ip->log_preference)
+X		ip->log_preference = props_props_frame_log_preference_create(ip, ip->logging_panel);
+X	if (!ip->log_info)
+X		ip->log_info = props_props_frame_log_info_create(ip, ip->logging_panel);
+X	if (!ip->log_filename)
+X		ip->log_filename = props_props_frame_log_filename_create(ip, ip->logging_panel);
+X	if (!ip->other_panel)
+X		ip->other_panel = props_props_frame_other_panel_create(ip, ip->props_frame);
+X	if (!ip->other_msg)
+X		ip->other_msg = props_props_frame_other_msg_create(ip, ip->other_panel);
+X	if (!ip->priority_direction)
+X		ip->priority_direction = props_props_frame_priority_direction_create(ip, ip->other_panel);
+X	if (!ip->def_printer)
+X		ip->def_printer = props_props_frame_def_printer_create(ip, ip->other_panel);
+X	if (!ip->def_print_mode)
+X		ip->def_print_mode = props_props_frame_def_print_mode_create(ip, ip->other_panel);
+X	if (!ip->controls1)
+X		ip->controls1 = props_props_frame_controls1_create(ip, ip->props_frame);
+X	if (!ip->done_button)
+X		ip->done_button = props_props_frame_done_button_create(ip, ip->controls1);
+X	if (!ip->reset_button)
+X		ip->reset_button = props_props_frame_reset_button_create(ip, ip->controls1);
+X	return ip;
+}
+X
+/*
+X * Create object `props_frame' in the specified instance.
+X */
+XXv_opaque
+props_props_frame_props_frame_create(ip, owner)
+X	props_props_frame_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, FRAME_CMD,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_WIDTH, 516,
+X		XV_HEIGHT, 369,
+X		XV_LABEL, "Properties",
+X		FRAME_SHOW_FOOTER, TRUE,
+X		FRAME_SHOW_RESIZE_CORNER, TRUE,
+X		FRAME_CMD_PUSHPIN_IN, FALSE,
+X		NULL);
+X	xv_set(xv_get(obj, FRAME_CMD_PANEL), WIN_SHOW, FALSE, NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `logging_panel' in the specified instance.
+X */
+XXv_opaque
+props_props_frame_logging_panel_create(ip, owner)
+X	props_props_frame_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL,
+SHAR_EOF
+true || echo 'restore of props_ui.c failed'
+fi
+echo 'End of  part 3'
+echo 'File props_ui.c is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

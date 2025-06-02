@@ -1,0 +1,1460 @@
+Newsgroups: comp.sources.misc
+From: clewis@ferret.ocunix.on.ca (Chris Lewis)
+Subject:  REPOST: v28i081:  hp2pbm - HP PCL to Portable Bit Map converter, Patch02
+Message-ID: <1992Mar9.003812.26658@sparky.imd.sterling.com>
+X-Md4-Signature: b3c93d36766a06631346ea38936dc3a0
+Date: Mon, 9 Mar 1992 00:38:12 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: clewis@ferret.ocunix.on.ca (Chris Lewis)
+Posting-number: Volume 28, Issue 81
+Archive-name: hp2pbm/patch02
+Environment: UNIX
+Patch-To: hp2pbm: Volume 26, Issue 102-104
+
+[ I'm not sure how but somehow the patch instructions were not 
+[ included in the first posting.  This is being reposted to assure 
+[ the instructions are available.             -Kent+
+
+This is official patch 02 for Hp2pbm.
+    Please apply it by:
+	cd <hp2pbm source directory>
+	touch g3.h g3.c (some versions of patch don't need this)
+	patch -N -p < <this file>
+    
+    The initial release of hp2pbm was in volume 26 of
+    comp.sources.misc.
+
+This patch introduces direct built-in support for G3 FAX modems.
+Plus performance improvements on the order of 10 to 25%.
+The G3 code was borrowed from Jef Poskanzer's PBMPLUS
+package, written by Paul Haeberli, and integrated
+by Roberto Biancardi.  Roberto also did the performance
+improvements.  The G3 personality is relatively slow, but
+apparently a lot faster than going through a separate
+pbm2g3 step.
+
+./hp2pbm.S
+./Makefile
+./hpfntwrite.c
+./hpp.c
+./hptopbm.h
+./g3.h
+./g3.c
+
+Patchwrapped: 920305022036
+
+Index: ./hp2pbm.S
+*** /tmp/PATCHold/./hp2pbm.S	Thu Mar  5 02:18:57 1992
+--- ./hp2pbm.S	Thu Mar  5 02:18:58 1992
+***************
+*** 1,7 ****
+! .\"Copyright 1989, 1990, 1991 by Chris Lewis 1.2 92/01/05
+  .TH HP2PBM %%MANEXT%% "standalone"
+  .SH NAME
+! hp2pbm,hp2hifax,hp2lofax,hp2sun,hp2e24 \- Translate HPLJ codes to to Postscript or PBM
+  .SH SYNOPSIS
+  .B hp2pbm
+  .B "[\-v]"
+--- 1,7 ----
+! .\"Copyright 1989, 1990, 1991 by Chris Lewis 1.3 92/03/05
+  .TH HP2PBM %%MANEXT%% "standalone"
+  .SH NAME
+! hp2pbm,hp2hifax,hp2lofax,hp2sun,hp2e24,hp2hig3,hp2log3 \- Translate HPLJ codes to PostScript or PBM or G3
+  .SH SYNOPSIS
+  .B hp2pbm
+  .B "[\-v]"
+***************
+*** 18,25 ****
+  (Hewlett Packard Printer Control Language - the language of HP Laserjets)
+  escape code sequences.
+  .B Hp2pbm
+  can then generate an english description of the codes, translate the input
+! into Postscript, or generate PBM files (Jef Poskanzer's Portable Bitmap Format).
+  .P
+  .B "hp2pbm -V"
+  prints the version string.
+--- 18,30 ----
+  (Hewlett Packard Printer Control Language - the language of HP Laserjets)
+  escape code sequences.
+  .B Hp2pbm
++ is intended to be fully compliant with HP's ``PCL4''-level language.
++ Which means it should fully emulate any of HP's printers except for
++ some features of the HP Laserjet III.
++ .B Hp2pbm
+  can then generate an english description of the codes, translate the input
+! into PostScript, or generate PBM files (Jef Poskanzer's Portable Bitmap Format),
+! or generate G3 format files for G3 FAX modems.
+  .P
+  .B "hp2pbm -V"
+  prints the version string.
+***************
+*** 49,60 ****
+  including (some) built in and all downloaded fonts (except
+  compressed ones) and including built in and downloaded graphics and rasters.
+  .B Hp2pbm
+  can be used to drive a number of different configurations, such as
+! Postscript printers, Klaus Schallhorn's
+  .B faxpak
+  (to transmit faxes using a fax modem),
+  or other devices using PBM converters, such as Epson 24 pin printers,
+  Sun displays, 3b1 consoles etc.
+  .P
+  If the
+  .B \-v
+--- 54,73 ----
+  including (some) built in and all downloaded fonts (except
+  compressed ones) and including built in and downloaded graphics and rasters.
+  .B Hp2pbm
++ does not support PCL5 features such as scalable fonts and HPGL.
++ .B Hp2pbm
+  can be used to drive a number of different configurations, such as
+! PostScript printers, Klaus Schallhorn's
+  .B faxpak
+  (to transmit faxes using a fax modem),
+  or other devices using PBM converters, such as Epson 24 pin printers,
+  Sun displays, 3b1 consoles etc.
++ With the G3 variants, such as
++ .B hp2hig3
++ or
++ .BR hp2log3 ,
++ G3 format files can be generated directly without going through an
++ additional PBM step.
+  .P
+  If the
+  .B \-v
+***************
+*** 68,74 ****
+  .B \-p
+  option tells
+  .B hp2pbm
+! to emit Postscript to standard output.
+  Specifying both \-v and \-p at the same time is rather confusing.
+  Note: unless
+  .B hp2pbm
+--- 81,87 ----
+  .B \-p
+  option tells
+  .B hp2pbm
+! to emit PostScript to standard output.
+  Specifying both \-v and \-p at the same time is rather confusing.
+  Note: unless
+  .B hp2pbm
+***************
+*** 106,113 ****
+  If the
+  .BI \-r value
+  option is specified,
+! .B hp2pbm
+! (hp2??fax and hp2e24) creates PBM files.
+  The associated argument is the basename for the generated files.
+  The first page is named ``value.0'', second ``value.1'' etc.
+  If
+--- 119,126 ----
+  If the
+  .BI \-r value
+  option is specified,
+! hp2??fax and hp2e24 create PBM files.
+! hp2??g3 creates G3 files.
+  The associated argument is the basename for the generated files.
+  The first page is named ``value.0'', second ``value.1'' etc.
+  If
+***************
+*** 146,153 ****
+  .B Hp2pbm
+  is also linked to several different names as a convenience
+  for supplying the dots per inch.
+! The names are: hp2hifax (high resolution FAX), hp2lofax (low resolution FAX)
+! hp2sun (Sun mono display) and hp2e24 (Epson 24 pin printer at 180 dpi).
+  .SH FILES
+  .if t .ta 2.5i
+  .if n .ta 3.5i
+--- 159,168 ----
+  .B Hp2pbm
+  is also linked to several different names as a convenience
+  for supplying the dots per inch.
+! The names are: hp2hifax (high resolution PBM FAX), hp2lofax
+! (low resolution PBM FAX)
+! hp2sun (Sun mono display), hp2e24 (Epson 24 pin printer at 180 dpi),
+! hp2log3 (low resolution G3 FAX), and hp2hig3 (high resolution G3 FAX).
+  .SH FILES
+  .if t .ta 2.5i
+  .if n .ta 3.5i
+***************
+*** 158,164 ****
+  %%LIBDIR%%/BITMAPS	rasters, patterns and builtin font clones.
+  .SH "SEE ALSO"
+  Hewlett Packard Laserjet documentation.
+! Adobe Systems Postscript documentation.
+  .SH WARNINGS
+  .P
+  .B "Hp2pbm output can be huge!"
+--- 173,179 ----
+  %%LIBDIR%%/BITMAPS	rasters, patterns and builtin font clones.
+  .SH "SEE ALSO"
+  Hewlett Packard Laserjet documentation.
+! Adobe Systems PostScript documentation.
+  .SH WARNINGS
+  .P
+  .B "Hp2pbm output can be huge!"
+***************
+*** 168,178 ****
+  .P
+  .B "Hp2pbm's"
+  handling of downloaded macros is not fully tested.
+! Compressed fonts (Laserjet II) and scalable built in fonts (Laserjet
+! III) are not supported.
+  Except for these limitations
+  .B Hp2pbm
+! should be fully compatible with Laserjet II printers.
+  .P
+  The
+  .B \-p
+--- 183,193 ----
+  .P
+  .B "Hp2pbm's"
+  handling of downloaded macros is not fully tested.
+! Compressed fonts, scalable built in fonts, and HPGL mode
+! personalities in PCL5 are not supported.
+  Except for these limitations
+  .B Hp2pbm
+! should be fully compatible with all HP Laserjet printers.
+  .P
+  The
+  .B \-p
+***************
+*** 180,186 ****
+  option of
+  .B "psroff \-Tlj"
+  without having a laserjet printer.
+! The Postscript generating code isn't complete, but this will
+  probably be rectified in future.
+  .P
+  .B Hp2pbm
+--- 195,201 ----
+  option of
+  .B "psroff \-Tlj"
+  without having a laserjet printer.
+! The PostScript generating code isn't complete, but this will
+  probably be rectified in future.
+  .P
+  .B Hp2pbm
+***************
+*** 193,203 ****
+  to be radically different from a LJ's), so the widths may be different and
+  the mappings of non-ASCII characters certainly will be.
+  .PP
+! Most Postscript printers have relatively little memory for additional
+  bitmapped fonts.
+! Do not be surprised by VMerrors from your Postscript printer if you've
+  selected more than a few fonts in your Laserjet output.
+  .SH AUTHORS
+  This manual page and the HP PCL parsing code was written by Chris Lewis,
+  as was psroff.
+  The PBM generation code was written by Klaus Schallhorn.
+--- 208,220 ----
+  to be radically different from a LJ's), so the widths may be different and
+  the mappings of non-ASCII characters certainly will be.
+  .PP
+! Most PostScript printers have relatively little memory for additional
+  bitmapped fonts.
+! Do not be surprised by VMerrors from your PostScript printer if you've
+  selected more than a few fonts in your Laserjet output.
+  .SH AUTHORS
+  This manual page and the HP PCL parsing code was written by Chris Lewis,
+  as was psroff.
+  The PBM generation code was written by Klaus Schallhorn.
++ The G3 code was written by Paul Haeberli and Jef Poskanzer and
++ appears in PBMPLUS, and was integrated into hp2pbm by Roberto Biancardi.
+Index: ./Makefile
+*** /tmp/PATCHold/./Makefile	Thu Mar  5 02:19:16 1992
+--- ./Makefile	Thu Mar  5 02:19:17 1992
+***************
+*** 1,4 ****
+! # Makefile for hptopbm standalone release 1.3 92/01/05
+  
+  #	Configuration:
+  
+--- 1,4 ----
+! # Makefile for hptopbm standalone release 1.6 92/03/05
+  
+  #	Configuration:
+  
+***************
+*** 11,16 ****
+--- 11,19 ----
+  #	Compilation flags.  Including strip (-s) if desired
+  #	Add -DBSD if BSD or V7.
+  #	Add -DNOMEM if you don't have memcpy and memset.
++ #	Add -DZYXFAX if you generate g3 fax files to be sent with zyxel mdms.
++ #	Add -DVERBOSE to include dbprint() code.
++ #	Add -fcombine-regs -fpcc-struct-return -finline-functions for gcc
+  CCFLAGS	= -O
+  #	Page size (LETTER, LEGAL, B5, A4)
+  PAGE	= A4
+***************
+*** 24,36 ****
+  #	Dinna touch from here on.
+  
+  SHELL =		/bin/sh
+! CFLAGS	=	$(CCFLAGS) -D'LIBDIR="$(LIBDIR)"' -D$(PAGE) -DPS
+  
+  LIBFILES =	cour.sfp lp.sfp \
+  		hppat1 hppat2 hppat3 hppat4 hppat5 hppat6 \
+  		hprast1 hprast2 hprast3 hprast4 hprast5 hprast6 hprast7 hprast8
+  
+! ALTNAMES	= p2hifax hp2lofax hp2sun hp2e24
+  
+  .SUFFIXES:	.S~ .S
+  
+--- 27,40 ----
+  #	Dinna touch from here on.
+  
+  SHELL =		/bin/sh
+! CFLAGS	=	$(CCFLAGS) -D'LIBDIR="$(LIBDIR)"' -D$(PAGE) -DPS -DG3
+  
+  LIBFILES =	cour.sfp lp.sfp \
+  		hppat1 hppat2 hppat3 hppat4 hppat5 hppat6 \
+  		hprast1 hprast2 hprast3 hprast4 hprast5 hprast6 hprast7 hprast8
+  
+! ALTNAMES	= hp2hifax hp2lofax hp2sun hp2e24 hp2hig3 hp2hig3r hp2log3 hp2log3r
+! HP2OBJ		= hpp.o hpfntwrite.o g3.o mem.o
+  
+  .SUFFIXES:	.S~ .S
+  
+***************
+*** 37,44 ****
+  all:	README hp2pbm pbm2e24 hp2pbm.m $(LIBFILES)
+  
+  # programs
+! hp2pbm:	hpp.o hpfntwrite.o mem.o
+! 		$(CC) $(CFLAGS) -o hp2pbm hpp.o hpfntwrite.o mem.o $(LIBFLAGS)
+  
+  hp2pbm.m:	hp2pbm.S Makefile
+  		sed -e 's;%%LIBDIR%%;$(LIBDIR);' \
+--- 41,48 ----
+  all:	README hp2pbm pbm2e24 hp2pbm.m $(LIBFILES)
+  
+  # programs
+! hp2pbm:		$(HP2OBJ)
+! 		$(CC) $(CFLAGS) -o hp2pbm $(HP2OBJ) $(LIBFLAGS)
+  
+  hp2pbm.m:	hp2pbm.S Makefile
+  		sed -e 's;%%LIBDIR%%;$(LIBDIR);' \
+***************
+*** 60,75 ****
+  		cat $@.S > $@
+  		@chmod 444 $@
+  
+! # components
+! #mem.o:		mem.c
+! #		$(CC) -c $(CFLAGS) mem.c
+  
+! hpp.o:		hptopbm.h # hpp.c
+! #		$(CC) -c $(CFLAGS) hpp.c
+  
+- hpfntwrite.o:	hptopbm.h hpfntwrite.c
+- #		$(CC) -c $(CFLAGS) hpfntwrite.c
+- 
+  pbm2e24:	pbm2e24.o mem.o
+  		$(CC) $(CFLAGS) -o pbm2e24 pbm2e24.o mem.o $(LIBFLAGS)
+  
+--- 64,73 ----
+  		cat $@.S > $@
+  		@chmod 444 $@
+  
+! hpp.o hpfntwrite.o hpp.o g3.o:	hptopbm.h
+  
+! g3.o:		g3.h
+  
+  pbm2e24:	pbm2e24.o mem.o
+  		$(CC) $(CFLAGS) -o pbm2e24 pbm2e24.o mem.o $(LIBFLAGS)
+  
+***************
+*** 87,95 ****
+  
+  regression:	hp2pbm
+  		psroff -t -Tlj testdoc > /tmp/testdoc.lj
+! 		./hp2pbm -r/tmp/new -d80,80 < /tmp/testdoc.lj
+! 		$(BINDIR)/hp2pbm -r/tmp/old -d80,80 < /tmp/testdoc.lj
+! 		./hp2pbm '-r|pbm2e24' -d80,80 > /tmp/pipe < /tmp/testdoc.lj
+  
+  install:	hp2pbm myuid
+  		test "`./myuid`" = 0 || \
+--- 85,97 ----
+  
+  regression:	hp2pbm
+  		psroff -t -Tlj testdoc > /tmp/testdoc.lj
+! 		time $(BINDIR)/hp2pbm -r/tmp/old -d80,80 < /tmp/testdoc.lj 2> /tmp/old.t
+! 		time ./hp2pbm -r/tmp/new -d80,80 < /tmp/testdoc.lj 2> /tmp/new.t
+! 		time $(BINDIR)/hp2pbm '-r|pbm2e24' -d80,80 > /tmp/old.pipe < /tmp/testdoc.lj 2> /tmp/old.pipe.t
+! 		time ./hp2pbm '-r|pbm2e24' -d80,80 > /tmp/new.pipe < /tmp/testdoc.lj 2> /tmp/new.pipe.t
+! 
+! g3test:
+! 		time ./hp2hig3 -r/tmp/FOO < /tmp/testdoc.lj > /tmp/g3 2> /tmp/g3.t
+  
+  install:	hp2pbm myuid
+  		test "`./myuid`" = 0 || \
+***************
+*** 99,104 ****
+--- 101,107 ----
+  		test -d $(LIBDIR)/BITMAPS || mkdir $(LIBDIR)/BITMAPS
+  		cd $(BINDIR) ; rm -f hp2pbm $(ALTNAMES)
+  		cp hp2pbm $(BINDIR)/hp2pbm
++ 		cp pbm2e24 $(BINDIR)/pbm2e24
+  		$(IGNORESH) cd $(BINDIR) ; \
+  		for i in $(ALTNAMES) ; \
+  		do \
+Index: ./hpfntwrite.c
+*** /tmp/PATCHold/./hpfntwrite.c	Thu Mar  5 02:19:28 1992
+--- ./hpfntwrite.c	Thu Mar  5 02:19:32 1992
+***************
+*** 17,24 ****
+  
+  #include "hptopbm.h"
+  
+  #ifndef	lint
+! char SCCSid[] = "@(#)hpfntwrite.c: 1.3 92/01/05 23:16:27";
+  #endif
+  
+  #ifdef	FAXPAK
+--- 17,30 ----
+  
+  #include "hptopbm.h"
+  
++ #ifndef	G3
++ g3start() {}
++ g3write() {}
++ g3stop() {}
++ #endif
++ 
+  #ifndef	lint
+! char SCCSid[] = "@(#)hpfntwrite.c: 1.4 92/03/01 02:04:25";
+  #endif
+  
+  #ifdef	FAXPAK
+***************
+*** 38,43 ****
+--- 44,52 ----
+  
+  #define	ESC		'\033'
+  #define	setpix(y,x)	(block[y][x>>3] |= bit[x&7])
++ static unsigned char *pforsetxpix;
++ #define	setyforsetxpix(y)	(pforsetxpix=block[y])
++ #define	setxpix(x)		(pforsetxpix[x>>3]|=bit[x&7])
+  
+  #ifndef	min
+  #define	min(a,b)	((a<b)?a:b)
+***************
+*** 421,439 ****
+  char *tname;
+  {
+  	int i, j, xmax, pipe;
+! 	FILE *fp;
+  
+! 	if (tname[0] == '|') {
+! 	    fp = popen(tname+1, "w");
+! 	    pipe = 1;
+! 	} else {
+! 	    fp = fopen(tname, "w");
+! 	    pipe = 0;
+  	}
+  
+- 	if (fp == NULL)
+- 		die("cannot create pbm file `%s'\n",tname);
+- 
+  	ymax_used = yscale[max_ln-1];
+  #ifdef	FAXPAK
+  	xmax = min(216, xscale[(max_col+7)/8]);		/* max 1728 pels */
+--- 430,453 ----
+  char *tname;
+  {
+  	int i, j, xmax, pipe;
+! 	static FILE *fp;
+! 	static int g3mode = -1;
+! 	static int zyxelm = 0;
+! 	extern char *PGM;
+  
+! 	if ( g3mode == -1 )
+! 	{
+! 		if ( !strcmp(PGM,"hp2hig3") || !strcmp(PGM,"hp2log3") )
+! 			g3mode = 1;
+! 		else if ( !strcmp(PGM,"hp2hig3r") || !strcmp(PGM,"hp2log3r") )
+! 			g3mode = 2;
+! 		else
+! 			g3mode = 0;
+! #ifdef	ZYXFAX
+! 		zyxelm = 1;
+! #endif
+  	}
+  
+  	ymax_used = yscale[max_ln-1];
+  #ifdef	FAXPAK
+  	xmax = min(216, xscale[(max_col+7)/8]);		/* max 1728 pels */
+***************
+*** 440,460 ****
+  #else
+  	xmax = xscale[(max_col+7)/8];
+  #endif
+! 	if (fprintf(fp,"P4\n%d %d\n",xmax*8,ymax_used) == EOF)
+! 		die("can't init pbmfile %s\n",tname);
+  
+  	for (i=0; i<ymax_used; i++)
+  	{
+! 		if ((j = fwrite((char*)block[i], 1, xmax, fp)) != xmax)
+  			die("premature EOF after %d bytes of %d, line %d of %d\n",
+  				j,xmax,i,ymax_used);
+  		(void)memset((char*)block[i], '\0', xmax);
+  	}
+! 	if (pipe) {
+! 	    if (pclose(fp))
+! 		die("Pipe failure in `%s'\n", tname);
+! 	} else
+! 	    fclose(fp);
+  
+  	ymax_used = xmax_used = 0;
+  	orgenv.top_margin = new_topmargin;
+--- 454,501 ----
+  #else
+  	xmax = xscale[(max_col+7)/8];
+  #endif
+! 
+! 	if ( zyxelm == 0 || fp == NULL )
+! 	{
+! 		if (tname[0] == '|') {
+! 		    fp = popen(tname+1, "w");
+! 		    pipe = 1;
+! 		} else {
+! 		    fp = fopen(tname, "w");
+! 		    pipe = 0;
+! 		}
+! 		if (fp == NULL)
+! 			die("cannot create pbm file `%s'\n",tname);
+! 		if ( g3mode )
+! 			g3start(fp,xmax*8,g3mode==2?1:0);
+! 		else
+! 		    if (fprintf(fp,"P4\n%d %d\n",xmax*8,ymax_used) == EOF)
+! 			die("can't init pbmfile %s\n",tname);
+! 	}
+  
+  	for (i=0; i<ymax_used; i++)
+  	{
+! 		if ( g3mode ) {
+! 			if ( !g3write((char*)block[i]) )
+! 			{
+! 				die("premature EOF at line %d of %d\n",
+! 					i,ymax_used);
+! 			}
+! 		} else if ((j = fwrite((char*)block[i], 1, xmax, fp)) != xmax)
+  			die("premature EOF after %d bytes of %d, line %d of %d\n",
+  				j,xmax,i,ymax_used);
+  		(void)memset((char*)block[i], '\0', xmax);
+  	}
+! 	if ( !zyxelm )
+! 	{
+! 		if ( g3mode )
+! 			g3stop();
+! 		if (pipe) {
+! 		    if (pclose(fp))
+! 			die("Pipe failure in `%s'\n", tname);
+! 		} else
+! 		    fclose(fp);
+! 	}
+  
+  	ymax_used = xmax_used = 0;
+  	orgenv.top_margin = new_topmargin;
+***************
+*** 1103,1109 ****
+  uchar *pels;
+  int len;
+  {
+! 	int i, k, localy, inc, graphx, graphy;
+  
+  	if (see_thru)
+  		return;
+--- 1144,1150 ----
+  uchar *pels;
+  int len;
+  {
+! 	register int i, k, localy, inc, graphx, graphy;
+  
+  	if (see_thru)
+  		return;
+***************
+*** 1116,1122 ****
+  	graphx = (int)(GRAPHX + .5);
+  	if (graphy < 0 || inc+graphy >= max_ln)
+  		return;
+! 	localy = yscale[graphy];
+  
+  	if (graphx + (inc*len*8) > max_col)
+  		len = ((max_col-graphx)/8)/inc;
+--- 1157,1163 ----
+  	graphx = (int)(GRAPHX + .5);
+  	if (graphy < 0 || inc+graphy >= max_ln)
+  		return;
+! 	setyforsetxpix(localy = yscale[graphy]);
+  
+  	if (graphx + (inc*len*8) > max_col)
+  		len = ((max_col-graphx)/8)/inc;
+***************
+*** 1123,1139 ****
+  
+  	switch(curenv->dpi)	/* hey, who says we're trying to be efficient? */
+  	{
+! 	case 300:	for (i=0; i<len; i++, pels++)
+! 				for (k=0; k<8; k++, graphx++)
+! 					if (*pels & bit[k])
+! 						setpix(localy, xscale[graphx]);
+  			break;
+  	case 150:	for (i=0; i<len; i++, pels++)
+  				for (k=0; k<8; k++, graphx += inc)
+  					if (*pels & bit[k])
+  					{
+! 						setpix(localy, xscale[graphx]);
+! 						setpix(localy, xscale[graphx+1]);
+  
+  						setpix(localy+1, xscale[graphx]);
+  						setpix(localy+1, xscale[graphx+1]);
+--- 1164,1190 ----
+  
+  	switch(curenv->dpi)	/* hey, who says we're trying to be efficient? */
+  	{
+! 	case 300:	for (i=len; i-- > 0; )
+! 			{
+! 				register unsigned ch = *pels++;
+! 
+! 				if ( ch == 0 ) {graphx+=8;continue;}
+! 				if ( ch&0x80 ) setxpix(xscale[graphx]);graphx++;
+! 				if ( ch&0x40 ) setxpix(xscale[graphx]);graphx++;
+! 				if ( ch&0x20 ) setxpix(xscale[graphx]);graphx++;
+! 				if ( ch&0x10 ) setxpix(xscale[graphx]);graphx++;
+! 				if ( ch&0x08 ) setxpix(xscale[graphx]);graphx++;
+! 				if ( ch&0x04 ) setxpix(xscale[graphx]);graphx++;
+! 				if ( ch&0x02 ) setxpix(xscale[graphx]);graphx++;
+! 				if ( ch&0x01 ) setxpix(xscale[graphx]);graphx++;
+! 			}
+  			break;
+  	case 150:	for (i=0; i<len; i++, pels++)
+  				for (k=0; k<8; k++, graphx += inc)
+  					if (*pels & bit[k])
+  					{
+! 						setxpix(xscale[graphx]);
+! 						setxpix(xscale[graphx+1]);
+  
+  						setpix(localy+1, xscale[graphx]);
+  						setpix(localy+1, xscale[graphx+1]);
+***************
+*** 1143,1151 ****
+  				for (k=0; k<8; k++, graphx += inc)
+  					if (*pels & bit[k])
+  					{
+! 						setpix(localy, xscale[graphx]);
+! 						setpix(localy, xscale[graphx+1]);
+! 						setpix(localy, xscale[graphx+2]);
+  
+  						setpix(localy+1, xscale[graphx]);
+  						setpix(localy+1, xscale[graphx+1]);
+--- 1194,1202 ----
+  				for (k=0; k<8; k++, graphx += inc)
+  					if (*pels & bit[k])
+  					{
+! 						setxpix(xscale[graphx]);
+! 						setxpix(xscale[graphx+1]);
+! 						setxpix(xscale[graphx+2]);
+  
+  						setpix(localy+1, xscale[graphx]);
+  						setpix(localy+1, xscale[graphx+1]);
+***************
+*** 1160,1169 ****
+  				for (k=0; k<8; k++, graphx += inc)
+  					if (*pels & bit[k])
+  					{
+! 						setpix(localy, xscale[graphx]);
+! 						setpix(localy, xscale[graphx+1]);
+! 						setpix(localy, xscale[graphx+2]);
+! 						setpix(localy, xscale[graphx+3]);
+  
+  						setpix(localy+1, xscale[graphx]);
+  						setpix(localy+1, xscale[graphx+1]);
+--- 1211,1220 ----
+  				for (k=0; k<8; k++, graphx += inc)
+  					if (*pels & bit[k])
+  					{
+! 						setxpix(xscale[graphx]);
+! 						setxpix(xscale[graphx+1]);
+! 						setxpix(xscale[graphx+2]);
+! 						setxpix(xscale[graphx+3]);
+  
+  						setpix(localy+1, xscale[graphx]);
+  						setpix(localy+1, xscale[graphx+1]);
+***************
+*** 1285,1291 ****
+  int c;
+  {
+  	struct CHAR_BITMAP *cbm, *ubm;
+! 	int i, j, k, curx, cury, localy, before,startx,endx,curcol,newcol;
+  	double clen;
+  
+  	if (see_thru)
+--- 1336,1342 ----
+  int c;
+  {
+  	struct CHAR_BITMAP *cbm, *ubm;
+! 	int i, j, curx, cury, localy, before,startx,endx,curcol,newcol;
+  	double clen;
+  
+  	if (see_thru)
+***************
+*** 1336,1348 ****
+  	if (c != ' ' && c != '\b')
+  		for (i=0; i<cbm->hite; i++)
+  		{
+  			curx = before;
+! 			localy = yscale[cury+i];
+  
+! 			for (j=0; j<cbm->len; j++)
+! 				for (k=0; k<8; k++,curx++)
+! 					if (cbm->CH[i][j] & bit[k])
+! 						setpix(localy, xscale[curx]);
+  		}
+  
+  	if (c > ' ')
+--- 1387,1411 ----
+  	if (c != ' ' && c != '\b')
+  		for (i=0; i<cbm->hite; i++)
+  		{
++ 			register unsigned char *chptr = cbm->CH[i];
++ 
+  			curx = before;
+! 			setyforsetxpix(localy = yscale[cury+i]);
+  
+! 			for (j=cbm->len; j-- > 0; )
+! 			{
+! 				register unsigned char ch = *chptr++;
+! 
+! 				if ( ch == 0 )	{curx+=8;continue;}
+! 				if ( ch&0x80 )	setxpix(xscale[curx]);curx++;
+! 				if ( ch&0x40 )	setxpix(xscale[curx]);curx++;
+! 				if ( ch&0x20 )	setxpix(xscale[curx]);curx++;
+! 				if ( ch&0x10 )	setxpix(xscale[curx]);curx++;
+! 				if ( ch&0x08 )	setxpix(xscale[curx]);curx++;
+! 				if ( ch&0x04 )	setxpix(xscale[curx]);curx++;
+! 				if ( ch&0x02 )	setxpix(xscale[curx]);curx++;
+! 				if ( ch&0x01 )	setxpix(xscale[curx]);curx++;
+! 			}
+  		}
+  
+  	if (c > ' ')
+***************
+*** 1365,1373 ****
+  		for (i = 5; i < 8 ; i++)		/* fixed underlining */
+  		{
+  			curx = startx;
+! 			localy = yscale[bmy+i];
+  			for (j=0; curx<endx ; curx++)
+! 				setpix(localy,xscale[curx]);
+  		}
+  	}
+  	dotted = TRUE;
+--- 1428,1436 ----
+  		for (i = 5; i < 8 ; i++)		/* fixed underlining */
+  		{
+  			curx = startx;
+! 			setyforsetxpix(localy = yscale[bmy+i]);
+  			for (j=0; curx<endx ; curx++)
+! 				setxpix(xscale[curx]);
+  		}
+  	}
+  	dotted = TRUE;
+Index: ./hpp.c
+*** /tmp/PATCHold/./hpp.c	Thu Mar  5 02:19:51 1992
+--- ./hpp.c	Thu Mar  5 02:19:54 1992
+***************
+*** 21,27 ****
+  
+  #ifndef	lint
+  static char SCCSID[] =
+!     "@(#)hpp.c 1.4 92/01/05 23:16:48";
+  #endif
+  
+  #include "hptopbm.h"
+--- 21,27 ----
+  
+  #ifndef	lint
+  static char SCCSID[] =
+!     "@(#)hpp.c 1.5 92/03/01 02:04:54";
+  #endif
+  
+  #include "hptopbm.h"
+***************
+*** 29,35 ****
+  #define	XSIZE		(RITE_MARGIN+8)*30
+  #define	YSIZE		(PAGE_LEN*50)+50
+  
+! #define	dbprintf(x)	if (verbose) printf x
+  #define	ESCAPE	0x1b
+  
+  #define	TRANSFER	1
+--- 29,40 ----
+  #define	XSIZE		(RITE_MARGIN+8)*30
+  #define	YSIZE		(PAGE_LEN*50)+50
+  
+! #ifdef	VERBOSE
+! #define	dbprintf(x)	
+! #else
+! #define	dbprintf(x)	
+! #endif
+! 
+  #define	ESCAPE	0x1b
+  
+  #define	TRANSFER	1
+***************
+*** 172,177 ****
+--- 177,187 ----
+  
+  /*	code	name			parnam	exec	rastfunc   */
+  
++     {"*pX",	"Horizontal cursor (dots)",NULL,movex },
++     {"*pY",	"Vertical cursor (dots)",NULL,	movey },
++     {"*cD",	"Font ID" },
++     {"*cE",	"Character Code" },
++     {"*cF",	"Font/Char control",	fchcont,NULL,	rs_fc_ctl },
+      {"&lO",	"Orientation"	/* don't want to go into landscaping */ },
+      {"(sP",	"Primary Spacing",	spcont, spset },
+      {"(sH",	"Primary Pitch",	NULL,	NULL,	rs_pitch },
+***************
+*** 185,198 ****
+      {")sS",	"Secondary Style",	stcont },
+      {")sB",	"Secondary Stroke" },
+      {")sT",	"Secondary Typeface" },
+-     {"&lP",	"Page Length",		NULL,	NULL,	rs_plen },
+-     {"&lE",	"Top Margin",		NULL,	NULL,	rs_mtop },
+-     {"&lF",	"Text Length",		NULL,	NULL,	rs_tlen },
+-     {"&aL",	"Left Margin",		NULL,	NULL,	rs_mleft },
+-     {"&aM",	"Right Margin",		NULL,	NULL,	rs_mright },
+-     {"&lC",	"Motion Index",		NULL,	NULL,	rs_vmi },
+-     {"&lD",	"Lines/Inch",		NULL,	NULL,	rs_lpi },
+-     {"*tR",	"Resolution",		NULL,	NULL,	rs_dpi },
+      {"*rA",	"Start Graphics",	sgcont,	NULL,	rs_graphxy },
+      {"*bW",	"Transfer" },
+      {"*rB",	"End Graphics" },
+--- 195,200 ----
+***************
+*** 202,207 ****
+--- 204,217 ----
+      {"&aV",	"Move to Row (Decipoints)",NULL,movedy },
+      {"&dD",	"Underline on",		NULL,	NULL,	rs_ul },
+      {"&d@",	"Underline off",	NULL,	NULL,	rs_ul_off },
++     {"&lP",	"Page Length",		NULL,	NULL,	rs_plen },
++     {"&lE",	"Top Margin",		NULL,	NULL,	rs_mtop },
++     {"&lF",	"Text Length",		NULL,	NULL,	rs_tlen },
++     {"&aL",	"Left Margin",		NULL,	NULL,	rs_mleft },
++     {"&aM",	"Right Margin",		NULL,	NULL,	rs_mright },
++     {"&lC",	"Motion Index",		NULL,	NULL,	rs_vmi },
++     {"&lD",	"Lines/Inch",		NULL,	NULL,	rs_lpi },
++     {"*tR",	"Resolution",		NULL,	NULL,	rs_dpi },
+      {"&pX",	"Transparent Print",	NULL,	NULL,	rs_thru },
+      {"&lL",	"Perf Skip", 		pscont },
+      {"&kH",	"HMI",			NULL,	NULL,	rs_hmi },
+***************
+*** 210,220 ****
+      {"&sC",	"Line Wrap" },
+      {"&lX",	"Number of Copies" },
+      {"&lH",	"Paper Input Control",	NULL,	papinctrl },
+-     {"*pX",	"Horizontal cursor (dots)",NULL,movex },
+-     {"*pY",	"Vertical cursor (dots)",NULL,	movey },
+-     {"*cD",	"Font ID" },
+-     {"*cE",	"Character Code" },
+-     {"*cF",	"Font/Char control",	fchcont,NULL,	rs_fc_ctl },
+      {")sW",	"Create Font Header" },
+      {"(sW",	"Download Character" },
+      {"&fY",	"Macro ID",		NULL,	NULL,	macro_id },
+--- 220,225 ----
+***************
+*** 769,783 ****
+  		strcpy(pbmname, optarg);
+  		break;
+  	    case '?':
+! 		fprintf(stderr, "usage: hpinterp [-dx[,y]][-p][-v][-c][-rpbm]< file\n");
+  		exit(1);
+  	}
+      
+      if (!resdone) {
+  
+! 	if (!strcmp(PGM,	"hp2hifax"))
+  	    rs_rastsize(	204.15, 195.58);
+! 	else if (!strcmp(PGM,	"hp2lofax"))
+  	    rs_rastsize(	204.15, 97.79);
+  	else if (!strcmp(PGM,	"hp2sun"))
+  	    rs_rastsize(	 84.0,  84.0);
+--- 774,792 ----
+  		strcpy(pbmname, optarg);
+  		break;
+  	    case '?':
+! 		fprintf(stderr, "usage: %s [-dx[,y]][-p][-v][-c][-rpbm]< file\n",PGM);
+  		exit(1);
+  	}
+      
+      if (!resdone) {
+  
+! 	if (     !strcmp(PGM,	"hp2hifax")
+! 	    ||   !strcmp(PGM,	"hp2hig3")
+! 	    ||   !strcmp(PGM,	"hp2hig3r"))
+  	    rs_rastsize(	204.15, 195.58);
+! 	else if (!strcmp(PGM,	"hp2lofax")
+! 	    ||   !strcmp(PGM,	"hp2log3")
+! 	    ||   !strcmp(PGM,	"hp2log3r"))
+  	    rs_rastsize(	204.15, 97.79);
+  	else if (!strcmp(PGM,	"hp2sun"))
+  	    rs_rastsize(	 84.0,  84.0);
+***************
+*** 805,816 ****
+  	pbmeject(FALSE);
+      if (genps)
+  	ps_endemit();
+      exit(0);
+  /*NOTREACHED*/
+  }
+  
+  hptoany() {
+!     int c;
+  
+      while ((c = (*getchar_func)()) != EOF) {
+  	if (c == ESCAPE)
+--- 814,833 ----
+  	pbmeject(FALSE);
+      if (genps)
+  	ps_endemit();
++ 
++ #ifdef	ZYXFAX
++     if (  !strcmp(PGM,	"hp2hig3")
++         ||!strcmp(PGM,	"hp2hig3r")
++         ||!strcmp(PGM,	"hp2log3")
++         ||!strcmp(PGM,	"hp2log3r"))
++ 	g3stop();
++ #endif
+      exit(0);
+  /*NOTREACHED*/
+  }
+  
+  hptoany() {
+!     register int c;
+  
+      while ((c = (*getchar_func)()) != EOF) {
+  	if (c == ESCAPE)
+Index: ./hptopbm.h
+*** /tmp/PATCHold/./hptopbm.h	Thu Mar  5 02:20:13 1992
+--- ./hptopbm.h	Thu Mar  5 02:20:14 1992
+***************
+*** 16,25 ****
+  	Canada K0A 1T0
+  	(613) 832-0541
+  
+! 	Function: Header file for hp2pbm.  1.3 92/01/05 23:17:02
+   */
+  
+! #define	VERSION	"hp2pbm V1.01"
+  
+  #include <stdio.h>
+  #include <ctype.h>
+--- 16,25 ----
+  	Canada K0A 1T0
+  	(613) 832-0541
+  
+! 	Function: Header file for hp2pbm.  1.4 92/03/01 02:05:16
+   */
+  
+! #define	VERSION	"hp2pbm V1.02"
+  
+  #include <stdio.h>
+  #include <ctype.h>
+Index: ./g3.h
+*** /tmp/PATCHold/./g3.h	Thu Mar  5 02:20:20 1992
+--- ./g3.h	Thu Mar  5 02:20:23 1992
+***************
+*** 0 ****
+--- 1,242 ----
++ /*
++  * g3.h - G3 definitions
++  * 
++  * Copyright (C) 1989 by Paul Haeberli <paul@manray.sgi.com>. *
++  * 
++  * Permission to use, copy, modify, and distribute this software and its *
++  * documentation for any purpose and without fee is hereby granted, provided *
++  * that the above copyright notice appear in all copies and that both that *
++  * copyright notice and this permission notice appear in supporting *
++  * documentation.  This software is provided "as is" without express or *
++  * implied warranty.
++  * 1.1 92/03/05 from Jef Poskanzer's PBMPLUS
++  */
++ 
++ #ifndef _G3_H_
++ #define _G3_H_
++ 
++ typedef struct tableentry {
++     int tabid;
++     int code;
++     int length;
++     int count;
++     } tableentry;
++ 
++ #define TWTABLE		23
++ #define MWTABLE		24
++ #define TBTABLE		25
++ #define MBTABLE		26
++ #define EXTABLE		27
++ #define VRTABLE		28
++ 
++ static struct tableentry twtable[] = {
++     { TWTABLE, 0x35, 8, 0 },
++     { TWTABLE, 0x7, 6, 1 },
++     { TWTABLE, 0x7, 4, 2 },
++     { TWTABLE, 0x8, 4, 3 },
++     { TWTABLE, 0xb, 4, 4 },
++     { TWTABLE, 0xc, 4, 5 },
++     { TWTABLE, 0xe, 4, 6 },
++     { TWTABLE, 0xf, 4, 7 },
++     { TWTABLE, 0x13, 5, 8 },
++     { TWTABLE, 0x14, 5, 9 },
++     { TWTABLE, 0x7, 5, 10 },
++     { TWTABLE, 0x8, 5, 11 },
++     { TWTABLE, 0x8, 6, 12 },
++     { TWTABLE, 0x3, 6, 13 },
++     { TWTABLE, 0x34, 6, 14 },
++     { TWTABLE, 0x35, 6, 15 },
++     { TWTABLE, 0x2a, 6, 16 },
++     { TWTABLE, 0x2b, 6, 17 },
++     { TWTABLE, 0x27, 7, 18 },
++     { TWTABLE, 0xc, 7, 19 },
++     { TWTABLE, 0x8, 7, 20 },
++     { TWTABLE, 0x17, 7, 21 },
++     { TWTABLE, 0x3, 7, 22 },
++     { TWTABLE, 0x4, 7, 23 },
++     { TWTABLE, 0x28, 7, 24 },
++     { TWTABLE, 0x2b, 7, 25 },
++     { TWTABLE, 0x13, 7, 26 },
++     { TWTABLE, 0x24, 7, 27 },
++     { TWTABLE, 0x18, 7, 28 },
++     { TWTABLE, 0x2, 8, 29 },
++     { TWTABLE, 0x3, 8, 30 },
++     { TWTABLE, 0x1a, 8, 31 },
++     { TWTABLE, 0x1b, 8, 32 },
++     { TWTABLE, 0x12, 8, 33 },
++     { TWTABLE, 0x13, 8, 34 },
++     { TWTABLE, 0x14, 8, 35 },
++     { TWTABLE, 0x15, 8, 36 },
++     { TWTABLE, 0x16, 8, 37 },
++     { TWTABLE, 0x17, 8, 38 },
++     { TWTABLE, 0x28, 8, 39 },
++     { TWTABLE, 0x29, 8, 40 },
++     { TWTABLE, 0x2a, 8, 41 },
++     { TWTABLE, 0x2b, 8, 42 },
++     { TWTABLE, 0x2c, 8, 43 },
++     { TWTABLE, 0x2d, 8, 44 },
++     { TWTABLE, 0x4, 8, 45 },
++     { TWTABLE, 0x5, 8, 46 },
++     { TWTABLE, 0xa, 8, 47 },
++     { TWTABLE, 0xb, 8, 48 },
++     { TWTABLE, 0x52, 8, 49 },
++     { TWTABLE, 0x53, 8, 50 },
++     { TWTABLE, 0x54, 8, 51 },
++     { TWTABLE, 0x55, 8, 52 },
++     { TWTABLE, 0x24, 8, 53 },
++     { TWTABLE, 0x25, 8, 54 },
++     { TWTABLE, 0x58, 8, 55 },
++     { TWTABLE, 0x59, 8, 56 },
++     { TWTABLE, 0x5a, 8, 57 },
++     { TWTABLE, 0x5b, 8, 58 },
++     { TWTABLE, 0x4a, 8, 59 },
++     { TWTABLE, 0x4b, 8, 60 },
++     { TWTABLE, 0x32, 8, 61 },
++     { TWTABLE, 0x33, 8, 62 },
++     { TWTABLE, 0x34, 8, 63 },
++     };
++ 
++ static struct tableentry mwtable[] = {
++     { MWTABLE, 0x1b, 5, 64 },
++     { MWTABLE, 0x12, 5, 128 },
++     { MWTABLE, 0x17, 6, 192 },
++     { MWTABLE, 0x37, 7, 256 },
++     { MWTABLE, 0x36, 8, 320 },
++     { MWTABLE, 0x37, 8, 384 },
++     { MWTABLE, 0x64, 8, 448 },
++     { MWTABLE, 0x65, 8, 512 },
++     { MWTABLE, 0x68, 8, 576 },
++     { MWTABLE, 0x67, 8, 640 },
++     { MWTABLE, 0xcc, 9, 704 },
++     { MWTABLE, 0xcd, 9, 768 },
++     { MWTABLE, 0xd2, 9, 832 },
++     { MWTABLE, 0xd3, 9, 896 },
++     { MWTABLE, 0xd4, 9, 960 },
++     { MWTABLE, 0xd5, 9, 1024 },
++     { MWTABLE, 0xd6, 9, 1088 },
++     { MWTABLE, 0xd7, 9, 1152 },
++     { MWTABLE, 0xd8, 9, 1216 },
++     { MWTABLE, 0xd9, 9, 1280 },
++     { MWTABLE, 0xda, 9, 1344 },
++     { MWTABLE, 0xdb, 9, 1408 },
++     { MWTABLE, 0x98, 9, 1472 },
++     { MWTABLE, 0x99, 9, 1536 },
++     { MWTABLE, 0x9a, 9, 1600 },
++     { MWTABLE, 0x18, 6, 1664 },
++     { MWTABLE, 0x9b, 9, 1728 },
++     };
++ 
++ static struct tableentry tbtable[] = {
++     { TBTABLE, 0x37, 10, 0 },
++     { TBTABLE, 0x2, 3, 1 },
++     { TBTABLE, 0x3, 2, 2 },
++     { TBTABLE, 0x2, 2, 3 },
++     { TBTABLE, 0x3, 3, 4 },
++     { TBTABLE, 0x3, 4, 5 },
++     { TBTABLE, 0x2, 4, 6 },
++     { TBTABLE, 0x3, 5, 7 },
++     { TBTABLE, 0x5, 6, 8 },
++     { TBTABLE, 0x4, 6, 9 },
++     { TBTABLE, 0x4, 7, 10 },
++     { TBTABLE, 0x5, 7, 11 },
++     { TBTABLE, 0x7, 7, 12 },
++     { TBTABLE, 0x4, 8, 13 },
++     { TBTABLE, 0x7, 8, 14 },
++     { TBTABLE, 0x18, 9, 15 },
++     { TBTABLE, 0x17, 10, 16 },
++     { TBTABLE, 0x18, 10, 17 },
++     { TBTABLE, 0x8, 10, 18 },
++     { TBTABLE, 0x67, 11, 19 },
++     { TBTABLE, 0x68, 11, 20 },
++     { TBTABLE, 0x6c, 11, 21 },
++     { TBTABLE, 0x37, 11, 22 },
++     { TBTABLE, 0x28, 11, 23 },
++     { TBTABLE, 0x17, 11, 24 },
++     { TBTABLE, 0x18, 11, 25 },
++     { TBTABLE, 0xca, 12, 26 },
++     { TBTABLE, 0xcb, 12, 27 },
++     { TBTABLE, 0xcc, 12, 28 },
++     { TBTABLE, 0xcd, 12, 29 },
++     { TBTABLE, 0x68, 12, 30 },
++     { TBTABLE, 0x69, 12, 31 },
++     { TBTABLE, 0x6a, 12, 32 },
++     { TBTABLE, 0x6b, 12, 33 },
++     { TBTABLE, 0xd2, 12, 34 },
++     { TBTABLE, 0xd3, 12, 35 },
++     { TBTABLE, 0xd4, 12, 36 },
++     { TBTABLE, 0xd5, 12, 37 },
++     { TBTABLE, 0xd6, 12, 38 },
++     { TBTABLE, 0xd7, 12, 39 },
++     { TBTABLE, 0x6c, 12, 40 },
++     { TBTABLE, 0x6d, 12, 41 },
++     { TBTABLE, 0xda, 12, 42 },
++     { TBTABLE, 0xdb, 12, 43 },
++     { TBTABLE, 0x54, 12, 44 },
++     { TBTABLE, 0x55, 12, 45 },
++     { TBTABLE, 0x56, 12, 46 },
++     { TBTABLE, 0x57, 12, 47 },
++     { TBTABLE, 0x64, 12, 48 },
++     { TBTABLE, 0x65, 12, 49 },
++     { TBTABLE, 0x52, 12, 50 },
++     { TBTABLE, 0x53, 12, 51 },
++     { TBTABLE, 0x24, 12, 52 },
++     { TBTABLE, 0x37, 12, 53 },
++     { TBTABLE, 0x38, 12, 54 },
++     { TBTABLE, 0x27, 12, 55 },
++     { TBTABLE, 0x28, 12, 56 },
++     { TBTABLE, 0x58, 12, 57 },
++     { TBTABLE, 0x59, 12, 58 },
++     { TBTABLE, 0x2b, 12, 59 },
++     { TBTABLE, 0x2c, 12, 60 },
++     { TBTABLE, 0x5a, 12, 61 },
++     { TBTABLE, 0x66, 12, 62 },
++     { TBTABLE, 0x67, 12, 63 },
++     };
++ 
++ static struct tableentry mbtable[] = {
++     { MBTABLE, 0xf, 10, 64 },
++     { MBTABLE, 0xc8, 12, 128 },
++     { MBTABLE, 0xc9, 12, 192 },
++     { MBTABLE, 0x5b, 12, 256 },
++     { MBTABLE, 0x33, 12, 320 },
++     { MBTABLE, 0x34, 12, 384 },
++     { MBTABLE, 0x35, 12, 448 },
++     { MBTABLE, 0x6c, 13, 512 },
++     { MBTABLE, 0x6d, 13, 576 },
++     { MBTABLE, 0x4a, 13, 640 },
++     { MBTABLE, 0x4b, 13, 704 },
++     { MBTABLE, 0x4c, 13, 768 },
++     { MBTABLE, 0x4d, 13, 832 },
++     { MBTABLE, 0x72, 13, 896 },
++     { MBTABLE, 0x73, 13, 960 },
++     { MBTABLE, 0x74, 13, 1024 },
++     { MBTABLE, 0x75, 13, 1088 },
++     { MBTABLE, 0x76, 13, 1152 },
++     { MBTABLE, 0x77, 13, 1216 },
++     { MBTABLE, 0x52, 13, 1280 },
++     { MBTABLE, 0x53, 13, 1344 },
++     { MBTABLE, 0x54, 13, 1408 },
++     { MBTABLE, 0x55, 13, 1472 },
++     { MBTABLE, 0x5a, 13, 1536 },
++     { MBTABLE, 0x5b, 13, 1600 },
++     { MBTABLE, 0x64, 13, 1664 },
++     { MBTABLE, 0x65, 13, 1728 },
++     };
++ 
++ static struct tableentry extable[] = {
++     { EXTABLE, 0x8, 11, 1792 },
++     { EXTABLE, 0xc, 11, 1856 },
++     { EXTABLE, 0xd, 11, 1920 },
++     { EXTABLE, 0x12, 12, 1984 },
++     { EXTABLE, 0x13, 12, 2048 },
++     { EXTABLE, 0x14, 12, 2112 },
++     { EXTABLE, 0x15, 12, 2176 },
++     { EXTABLE, 0x16, 12, 2240 },
++     { EXTABLE, 0x17, 12, 2304 },
++     { EXTABLE, 0x1c, 12, 2368 },
++     { EXTABLE, 0x1d, 12, 2432 },
++     { EXTABLE, 0x1e, 12, 2496 },
++     { EXTABLE, 0x1f, 12, 2560 },
++     };
++ 
++ #endif /*_G3_H_*/
+Index: ./g3.c
+*** /tmp/PATCHold/./g3.c	Thu Mar  5 02:20:29 1992
+--- ./g3.c	Thu Mar  5 02:20:32 1992
+***************
+*** 0 ****
+--- 1,228 ----
++ /*
++  * g3 output routines for hp2pbm - bob@usixth.sublink.org. Mon Jan 20
++  * 20:44:06 EST 1992
++  * 
++  * From: 1.1 92/03/05
++  */
++ /*
++  * pbmtog3.c - read a portable bitmap and produce a Group 3 FAX file *
++  * 
++  * Copyright (C) 1989 by Paul Haeberli <paul@manray.sgi.com>. *
++  * 
++  * Permission to use, copy, modify, and distribute this software and its *
++  * documentation for any purpose and without fee is hereby granted, provided *
++  * that the above copyright notice appear in all copies and that both that *
++  * copyright notice and this permission notice appear in supporting *
++  * documentation.  This software is provided "as is" without express or *
++  * implied warranty.
++  */
++ 
++ #include <stdio.h>
++ #include "g3.h"
++ 
++ #ifdef	__STDC_
++ #define	ARGS(a)	a
++ #else
++ #define	ARGS(a)	()
++ #endif
++ 
++ static void putwhitespan ARGS((int c));
++ static void putblackspan ARGS((int c));
++ static void putcode ARGS((tableentry * te));
++ static void puteol ARGS((void));
++ static void putinit ARGS((void));
++ static void putbit ARGS((int d));
++ static void flushbits ARGS((void));
++ 
++ static int      reversebits;
++ static FILE     *fp;
++ static int      bigcols;
++ 
++ static int      shdata;
++ static int      shbit;
++ 
++ static
++ #ifdef	__GNUC__
++ inline
++ #endif
++ void
++ putbit(d)
++ 	int             d;
++ {
++ 	if (d)
++ 		shdata = shdata | shbit;
++ 	if (reversebits)
++ 		shbit = shbit << 1;
++ 	else
++ 		shbit = shbit >> 1;
++ 	if ((shbit & 0xff) == 0) {
++ 		putc(shdata,fp);
++ 		shdata = 0;
++ 		shbit = reversebits ? 0x01 : 0x80;
++ 	}
++ }
++ 
++ g3start(filep, xmax, rev)
++ 	FILE            *filep;
++ {
++ 	char            bitrow[1728 / 8];
++ 
++ 	fp = filep;
++ 	reversebits = rev;
++ 	bigcols = xmax;
++ 	if (bigcols > 1728)
++ 		bigcols = 1728;
++ 
++ 	shdata = 0;
++ 	shbit = reversebits ? 0x01 : 0x80;
++ 
++ 	memset(bitrow, 0, sizeof(bitrow));
++ 	g3write(bitrow);
++ 	g3write(bitrow);
++ 	g3write(bitrow);
++ 	g3write(bitrow);
++ }
++ 
++ g3stop()
++ {
++ 	puteol();
++ 	puteol();
++ 	puteol();
++ 	puteol();
++ 	puteol();
++ 	puteol();
++ 	flushbits();
++ }
++ 
++ g3write(bitrow)
++ 	register unsigned char *bitrow;
++ {
++ 	register int             n = bigcols;
++ 	register int             c;
++ 	register unsigned char	mask, byte;
++ 
++ 	byte = *bitrow++;
++ 	mask = 0x80;
++ 	while (n > 0) {
++ 		for ( c=0; (byte&mask) == 0 && n > 0; c++, n-- )
++ 		{
++ 			mask >>= 1;
++ 			if ( mask == 0 )
++ 			{
++ 				mask = 0x80;
++ 				byte = *bitrow++;
++ 				while ( n >= 8 && byte == 0 )
++ 				{
++ 					c += 8;
++ 					n -= 8;
++ 					byte = *bitrow++;
++ 				}
++ 			}
++ 		}
++ 		putwhitespan(c);
++ 		if (n == 0)
++ 			break;
++ 		for ( c=0; (byte&mask) && n > 0; c++, n-- )
++ 		{
++ 			mask >>= 1;
++ 			if ( mask == 0 )
++ 			{
++ 				mask = 0x80;
++ 				byte = *bitrow++;
++ 				while ( n >= 8 && byte == 0xff )
++ 				{
++ 					c += 8;
++ 					n -= 8;
++ 					byte = *bitrow++;
++ 				}
++ 			}
++ 		}
++ 		putblackspan(c);
++ 	}
++ 	puteol();
++ 	return 1;
++ }
++ 
++ static
++ #ifdef	__GNUC__
++ inline
++ #endif
++ void
++ putwhitespan(c)
++ 	int             c;
++ {
++ 	int             tpos;
++ 	tableentry      *te;
++ 
++ 	if (c >= 64) {
++ 		tpos = (c / 64) - 1;
++ 		te = mwtable + tpos;
++ 		c -= te->count;
++ 		putcode(te);
++ 	}
++ 	tpos = c;
++ 	te = twtable + tpos;
++ 	putcode(te);
++ }
++ 
++ static
++ #ifdef	__GNUC__
++ inline
++ #endif
++ void
++ putblackspan(c)
++ 	int             c;
++ {
++ 	int             tpos;
++ 	tableentry      *te;
++ 
++ 	if (c >= 64) {
++ 		tpos = (c / 64) - 1;
++ 		te = mbtable + tpos;
++ 		c -= te->count;
++ 		putcode(te);
++ 	}
++ 	tpos = c;
++ 	te = tbtable + tpos;
++ 	putcode(te);
++ }
++ 
++ static void
++ putcode(te)
++ 	register tableentry      *te;
++ {
++ 	register unsigned int    mask;
++ 	register int             code;
++ 
++ 	mask = 1 << (te->length - 1);
++ 	code = te->code;
++ 	while (mask) {
++ 		if (code & mask)
++ 			putbit(1);
++ 		else
++ 			putbit(0);
++ 		mask >>= 1;
++ 	}
++ 
++ }
++ 
++ static void
++ puteol()
++ {
++ 	int             i;
++ 
++ 	for (i = 0; i < 11; ++i)
++ 		putbit(0);
++ 	putbit(1);
++ }
++ 
++ static void
++ flushbits()
++ {
++ 	if ((reversebits && shbit != 0x01) ||
++ 	    (!reversebits && shbit != 0x80)) {
++ 		putc(shdata,fp);
++ 		shdata = 0;
++ 		shbit = reversebits ? 0x01 : 0x80;
++ 	}
++ }
+
+-- 
+Chris Lewis; clewis@ferret.ocunix.on.ca; Phone: Canada 613 832-0541
+Psroff 3.0 info: psroff-request@ferret.ocunix.on.ca
+Ferret list: ferret-request@ferret.ocunix.on.ca
+
+exit 0 # Just in case...

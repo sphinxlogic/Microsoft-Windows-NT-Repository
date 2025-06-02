@@ -1,0 +1,1870 @@
+Path: uunet!think.com!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i078: Video Extension for X (v2r2), Part27/29
+Message-ID: <1992Feb6.150036.1267@msi.com>
+Date: 6 Feb 92 15:00:36 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1857
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 78
+Archive-name: vex.v2r2/part27
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 27 (of 29)."
+# Contents:  extensions/xv/include/Xvlibint.h
+#   extensions/xv/man/man3/XvGetStill.3X
+#   extensions/xv/man/man3/XvGetVideo.3X
+#   extensions/xv/man/man3/XvPutStill.3X
+#   extensions/xv/man/man3/XvPutVideo.3X
+#   extensions/xv/man/man3/XvQueryAdaptors.3X
+#   extensions/xv/man/man3/XvSetPortAttribute.3X
+#   extensions/xv/server/ddx/decrop/i2c.h
+#   extensions/xv/server/ddx/sunrop/pip_obj.h
+#   server/ddx/cfb32/cfbpolypnt.c server/ddx/dec/tx/xfbmap.c
+#   server/ddx/dec/tx/xfbmisc.c server/ddx/mi/miinitext.c.diff
+#   server/ddx/sun/sunInit.c.diff server/ddx/sun/xfbmap.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:51 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'extensions/xv/include/Xvlibint.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/include/Xvlibint.h'\"
+else
+echo shar: Extracting \"'extensions/xv/include/Xvlibint.h'\" \(3345 characters\)
+sed "s/^X//" >'extensions/xv/include/Xvlibint.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X#ifndef XVLIBINT_H
+X#define XVLIBINT_H
+X/*
+X** File: 
+X**
+X**   Xvlibint.h --- Xv library internal header file
+X**
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   01.24.91 Carver
+X**     - version 1.4 upgrade
+X**
+X*/
+X
+X#define NEED_REPLIES
+X
+X#include "Xlibint.h"
+X#include "Xext.h"
+X#include "extutil.h"
+X#include "Xvproto.h"
+X#include "Xvlib.h"
+X
+X#if defined(__STDC__) && !defined(UNIXCPP)
+X#define XvGetReq(name, req) \
+X        WORD64ALIGN\
+X	if ((dpy->bufptr + SIZEOF(xv##name##Req)) > dpy->bufmax)\
+X		_XFlush(dpy);\
+X	req = (xv##name##Req *)(dpy->last_req = dpy->bufptr);\
+X	req->reqType = info->codes->major_opcode;\
+X        req->xvReqType = xv_##name; \
+X        req->length = (SIZEOF(xv##name##Req))>>2;\
+X	dpy->bufptr += SIZEOF(xv##name##Req);\
+X	dpy->request++
+X
+X#else  /* non-ANSI C uses empty comment instead of "##" for token concatenation */
+X#define XvGetReq(name, req) \
+X        WORD64ALIGN\
+X	if ((dpy->bufptr + SIZEOF(xv/**/name/**/Req)) > dpy->bufmax)\
+X		_XFlush(dpy);\
+X	req = (xv/**/name/**/Req *)(dpy->last_req = dpy->bufptr);\
+X	req->reqType = info->codes->major_opcode;\
+X	req->xvReqType = xv_/**/name;\
+X	req->length = (SIZEOF(xv/**/name/**/Req))>>2;\
+X	dpy->bufptr += SIZEOF(xv/**/name/**/Req);\
+X	dpy->request++
+X#endif
+X
+X
+X#if defined(__STDC__) && !defined(UNIXCPP)
+X#define XvGetReqExtra(name, n, req) \
+X        WORD64ALIGN\
+X	if ((dpy->bufptr + SIZEOF(xv##name##Req) + n) > dpy->bufmax)\
+X		_XFlush(dpy);\
+X	req = (xv##name##Req *)(dpy->last_req = dpy->bufptr);\
+X	req->reqType = info->codes->major_opcode;\
+X	req->xvReqType = xv_##name;\
+X	req->length = (SIZEOF(xv##name##Req) + n)>>2;\
+X	dpy->bufptr += SIZEOF(xv##name##Req) + n;\
+X	dpy->request++
+X#else
+X#define XvGetReqExtra(name, n, req) \
+X        WORD64ALIGN\
+X	if ((dpy->bufptr + SIZEOF(xv/**/name/**/Req) + n) > dpy->bufmax)\
+X		_XFlush(dpy);\
+X	req = (xv/**/name/**/Req *)(dpy->last_req = dpy->bufptr);\
+X	req->reqType = info->codes->major_opcode;\
+X	req->xvReqType = xv_/**/name;\
+X	req->length = (SIZEOF(xv/**/name/**/Req) + n)>>2;\
+X	dpy->bufptr += SIZEOF(xv/**/name/**/Req) + n;\
+X	dpy->request++
+X#endif
+X
+X
+X#endif XVLIBINT_H
+END_OF_FILE
+if test 3345 -ne `wc -c <'extensions/xv/include/Xvlibint.h'`; then
+    echo shar: \"'extensions/xv/include/Xvlibint.h'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/include/Xvlibint.h'
+fi
+if test -f 'extensions/xv/man/man3/XvGetStill.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvGetStill.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvGetStill.3X'\" \(3460 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvGetStill.3X' <<'END_OF_FILE'
+X.TH XvGetStill 3X 
+X.SH Name
+XXvGetStill \- capture a single frame of video from a drawable
+X.\"
+X.SH Syntax
+X.B include "Xvlib.h"
+X.sp 1l
+X.B XvGetStill(\fIdpy, port, d, gc, vx, vy, vw, vh, dx, dy, dw, dh\fP)
+X.sp 1l
+X.B register 
+X.I Display 
+X.I *dpy;
+X.br
+X.B XvPortID 
+X.I port;
+X.br
+X.B Drawable 
+X.I d;
+X.br
+X.B GC 
+X.I gc;
+X.br
+X.B int 
+X.I vx, 
+X.I vy, 
+X.I dx, 
+X.I dy;
+X.br
+X.B unsigned int 
+X.I vw, 
+X.I vh;
+X.br
+X.B unsigned int 
+X.I dw, 
+X.I dh;
+X.sp 1l
+X.\"
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 15
+XSpecifies the display screen on which the
+XXv Server is to accept requests from Xv clients.  If the
+Xdisplay option is not specified, Xv uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIport\fR 15
+XDefines the port to which the still is outputed.
+X.IP \fId\fR 15
+XDefines the drawable from which the still is to be captured.
+X.IP \fIgc\fR 15
+XDefines the graphical context.  GC components are: 
+X.I subwindow-mode, 
+X.I clip-x-origin, 
+X.I clip-y-origin,
+Xand 
+X.I clip-mask.
+X.IP \fIvx,vy,vw,vh\fR 15
+XDefine the location and size of the destination video region 
+Xinto which the still is to be written.  \fIvx\fP and \fIvy\fP define the 
+X.I x and
+X.I y
+Xcoordinates of the upper-left corner of the video region; 
+X.I vw and
+X.I vh
+Xdefine the width and height, in pixels, of the video region.
+X.IP \fIdx,dy,dw,dh\fR 15
+XDefine the location and size of the source drawable from which the
+Xstill image is to be captured.  
+X.I dx and
+X.I dy 
+Xdefine the 
+X.I x and
+X.I y 
+Xcoordinates of the upper-left corner of the drawable region; 
+X.I dw and 
+X.I dh 
+Xdefine the width and height, in pixels, of the drawable region.
+X.\"
+X.SH Description
+X.\"
+X.PN XvGetStill 
+Xcaptures a single frame of video from a drawable.  The 
+Xposition and size of the destination (video) rectangle is specified by \fIvx,
+Xvy, vw\fR, and \fIvh\fR.  The position and size of the 
+Xsource (drawable) rectangle is
+Xspecified by \fIdx, dy, dw\fR, and \fIdh\fR.  
+X.PP
+XDrawable data is clipped to the bounds of the drawable, scaled to the
+Xrequested video region size (or the closest size supported) and
+Xclipped to the bounds of the video encoding.  The contents of any region
+Xnot updated with drawable data is undefined.
+X.PP
+XIf the still is successfully captured an XvVideoNotify event with
+Xdetail XvStill is generated for the drawable.  If the port is grabbed
+Xby another client, this request is ignored, and an XvVideoNotify event
+Xwith detail XvBusy is generated for the drawable.
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturned if XvGetStill(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvGetStill(3X) failed to allocate memory to process
+Xthe request.
+X.SH Diagnostics
+X.IP [XvBadPort] 8
+XGenerated if the requested port does not exist.
+X.IP [BadDrawable] 8
+XGenerated if the requested drawable does not exist.
+X.IP [BadGC] 8
+XGenerated if the requested graphics context does not exist.
+X.IP [BadMatch] 8
+XGenerated if the depth and visual type of the requested drawable don't match the depth of the GC or a format (depth and visual) support by the Port.
+X.IP [BadAlloc] 8
+XGenerated if there were insufficient resources to process the request.
+X.\"
+X.SH See Also
+X.\"
+XXvPutStill(3X), XvGetVideo(3X), XvPutVideo(3X), XvVideoNotify(3X)
+X.br
+X
+X
+X
+X
+END_OF_FILE
+if test 3460 -ne `wc -c <'extensions/xv/man/man3/XvGetStill.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvGetStill.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvGetStill.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvGetVideo.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvGetVideo.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvGetVideo.3X'\" \(3535 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvGetVideo.3X' <<'END_OF_FILE'
+X.TH XvGetVideo 3X 
+X.SH Name
+XXvGetVideo \- capture video from a drawable
+X.\"
+X.SH Syntax
+X.B include "Xvlib.h"
+X.sp 1l
+X.B XvGetVideo(dpy, port, d, gc, vx, vy, vw, vh, dx, dy, dw, dh)
+X.sp 1l
+X.B register 
+X.I Display 
+X.I *dpy;
+X.br
+X.B XvPortID 
+X.I port;
+X.br
+X.B Drawable 
+X.I d;
+X.br
+X.B GC 
+X.I gc;
+X.br
+X.B int 
+X.I vx, 
+X.I vy, 
+X.I dx, 
+X.I dy;
+X.br
+Xunsigned int 
+X.I vw, 
+X.I vh;
+X.br
+Xunsigned int 
+X.I dw, 
+X.I dh;
+X.sp 1l
+X.\"
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 15
+XSpecifies the display screen on which the
+XXv Server is to accept requests from Xv clients.  If the
+Xdisplay option is not specified, Xv uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIport\fR 15
+XDefines the port to which video output is sent.
+X.IP \fId\fR 15
+XDefines the drawable from which video output is to be obtained.
+X.IP \fIgc\fR 15
+XDefines the graphical context.  GC components are: 
+X.I subwindow-mode, 
+X.I clip-x-origin, 
+X.I clip-y-origin,
+Xand 
+X.I clip-mask.
+X.IP \fIvx,vy,vw,vh\fR 15
+XDefine the location and size of the video region is to be written.  \fIvx\fP 
+Xand \fIvy\fP define the 
+X.I x and
+X.I y
+Xcoordinates of the upper-left corner of the video region; 
+X.I vw and
+X.I vh
+Xdefine the width and height, in pixels, of the video region.
+X.IP \fIdx,dy,dw,dh\fR 15
+XDefine the location of the source drawable from which the
+Xvideo image is to be taken.  
+X.I dx and
+X.I dy 
+Xdefine the 
+X.I x and
+X.I y 
+Xcoordinates of the upper-left corner of the drawable region; 
+X.I dw and 
+X.I dh 
+Xdefine the width and height, in pixels, of the drawable region.
+X.br
+X.SH Description
+X.PN XvGetVideo
+Xoutputs video from a drawable.  The position
+Xand size of the destination rectangle is specified by 
+X.I vx,
+X.I vy, 
+X.I vw, 
+Xand 
+X.I vh.  
+XThe position and size of the source rectangle is specified by 
+X.I dx, 
+X.I dy, 
+X.I dw, 
+Xand 
+X.I dh.
+X.PP
+XDrawable data is clipped to the bounds of the drawable, scaled to the
+Xrequested video region size (or the closest size supported) and
+Xclipped to the bounds of the video encoding.  The contents of any region
+Xnot updated with drawable data is undefined.
+X.PP
+XIf video is successfully initiated, an XvVideoNotify event with
+Xdetail XvStarted is generated for the drawable.  If the port is
+Xalready in use, its video is preempted, and if the new drawable is
+Xdifferent than the old, an XvVideoNotify event with detail XvPreempted
+Xis generated for the old drawable.  If the port is grabbed by another
+Xclient, this request is ignored, and an XvVideoNotify event with detail
+XXvBusy is generated for the drawable.
+X.\"
+X.br
+X.SH Examples
+X.br
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.br
+X.SH Returned Values
+X.IP [Success] 8
+XReturned if XvGetVideo(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvGetVideo(3X) failed to allocate memory to process
+Xthe request.
+X.SH Diagnostics
+X.IP [XvBadPort] 8
+XGenerated if the requested port does not exist.
+X.IP [BadGC] 8
+XGenerated if the requested graphics context does not exist.
+X.IP [BadDrawable] 8
+XGenerated if the requested drawable does not exist.
+X.IP [BadMatch] 8
+XGenerated if the depth and visual type of the requested drawable don't match the depth of the GC or a format (depth and visual) support by the Port.
+X.IP [BadAlloc] 8
+XGenerated if there were insufficient resources to process the request.
+X.SH See Also
+X.br
+X.\"
+XXvGetStill(3X), XvPutVideo(3X), XvVideoNotify(3X)
+X.br
+END_OF_FILE
+if test 3535 -ne `wc -c <'extensions/xv/man/man3/XvGetVideo.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvGetVideo.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvGetVideo.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvPutStill.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvPutStill.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvPutStill.3X'\" \(3239 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvPutStill.3X' <<'END_OF_FILE'
+X.TH XvPutStill 3X 
+X.SH Name
+XXvPutStill \- write a single frame of video to a drawable
+X.\"
+X.SH Syntax
+X.B #include <X11/extensions/Xvlib.h>
+X.sp 1l
+X\fBXvPutStill(\fIdpy, port, d, gc, vx, vy, vw, vh, dx, dy, dw, dh\fR)
+X.sp 1l
+X.B Display 
+X.I *dpy;
+X.br
+X.B XvPortID 
+X.I port;
+X.br
+X.B Drawable 
+X.I d;
+X.br
+X.B GC 
+X.I gc;
+X.br
+X.B int 
+X.I vx, 
+X.I vy, 
+X.I dx, 
+X.I dy;
+X.br
+X.B unsigned int 
+X.I vw, 
+X.I vh;
+X.br
+X.B unsigned int 
+X.I dw, 
+X.I dh;
+X.sp 1l
+X.\"
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 15
+XSpecifies the display screen on which the
+XXv Server is to accept requests from Xv clients.  If the
+Xdisplay option is not specified, Xv uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIport\fR 15
+XDefines the port from which to get the still.
+X.IP \fId\fR 15
+XDefines the drawable into which the still is to be written.
+X.IP \fIgc\fR 15
+XDefines the graphical context.  
+XGC components are: 
+X.I subwindow-mode, 
+X.I clip-x-origin, 
+X.I clip-y-origin,
+Xand 
+X.I clip-mask.
+X.IP \fIvx,vy,vw,vh\fR 15
+XDefine the location and size of the video region
+Xto be written.  \fIvx\fP and \fIvy\fP define the 
+Xupper-left pixel of the region. \fIvw\fP and \fIvh\fP
+Xdefine the width and height, in pixels, of the region.
+X.IP \fIdx,dy,dw,dh\fR 15
+XDefine the location and size of the destination region into which the
+Xstill image is written.  \fIdx\fP and \fIdy\fP define the upper-left 
+Xcorner of the region. \fIdw\fP and \fIdh\fP
+Xdefine the width and height, in pixels, of the region.
+X.\"
+X.SH Description
+X.\"
+XXvPutStill(3X) writes a single frame of video to a drawable.  
+XThe position and size of the source (video) rectangle is specified by \fIvx,
+Xvy, vw\fR, and \fIvh\fR.  The position and size of the destination (drawable)
+Xrectangle is specified by \fIdx, dy, dw\fR, and \fIdh\fR.
+X.PP
+XVideo data is clipped to the bounds of the video encoding, scaled to the
+Xrequested drawable region size (or the closest size supported) and
+Xclipped to the bounds of the drawable.
+X.PP
+XIf the port is grabbed by another client, this request is ignored, and
+Xan XvVideoNotify event with detail XvBusy is generated for the
+Xdrawable.  If the port is not receiving a valid video signal a
+XVideoNotify event with detail HardError is generated for the drawable.
+X.\"
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturned if XvPutStill(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvGetStill(3X) failed to allocate memory to process
+Xthe request.
+X.SH Diagnostics
+X.IP [XvBadPort] 8
+XGenerated if the requested port does not exist.
+X.IP [BadDrawable] 8
+XGenerated if the requested drawable does not exist.
+X.IP [BadGC] 8
+XGenerated if the requested graphics context does not exist.
+X.IP [BadMatch] 8
+XGenerated if the depth and visual type of the requested drawable don't match the depth of the GC or a format (depth and visual) support by the Port.
+X.IP [BadAlloc] 8
+XGenerated if there were insufficient resources to process the request.
+X.SH See Also
+X.\"
+XXvPutVideo(3X), XvGetStill(3X), XvVideoNotify(3X)
+X.br
+END_OF_FILE
+if test 3239 -ne `wc -c <'extensions/xv/man/man3/XvPutStill.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvPutStill.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvPutStill.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvPutVideo.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvPutVideo.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvPutVideo.3X'\" \(3566 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvPutVideo.3X' <<'END_OF_FILE'
+X.TH XvPutVideo 3X 
+X.SH Name
+XXvPutVideo \- write video into a drawable
+X.\"
+X.SH Syntax
+X.B #include <X11/extensions/Xvlib.h>
+X.sp 1l
+X\fBXvPutVideo(\fIdpy, port, d, gc, vx, vy, vw, vh, dx, dy, dw, dh\fR)
+X.sp 1l
+X.B Display 
+X.I *dpy;
+X.br
+X.B XvPortID 
+X.I port;
+X.br
+X.B Drawable 
+X.I d;
+X.br
+X.B GC 
+X.I gc;
+X.br
+X.B int 
+X.I vx, 
+X.I vy, 
+X.I dx, 
+X.I dy;
+X.br
+X.B unsigned int 
+X.I vw, 
+X.I vh;
+X.br
+X.B unsigned int 
+X.I dw, 
+X.I dh;
+X.sp 1l
+X.\"
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 15
+XSpecifies the display screen on which the
+XXv Server is to accept requests from Xv clients.  If the
+Xdisplay option is not specified, Xv uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIport\fR 15
+XDefines the port from which to get video.
+X.IP \fId\fR 15
+XDefines the drawable into which video is to be written.
+X.IP \fIgc\fR 15
+XDefines the graphical context.  
+XGC components are: 
+X.I subwindow-mode, 
+X.I clip-x-origin, 
+X.I clip-y-origin,
+Xand 
+X.I clip-mask.  
+X.IP \fIvx,vy,vw,vh\fR 15
+XDefine the size and location of the source (video) region 
+Xto be written.  \fIvx\fP and \fIvy\fP define the 
+Xupper-left pixel of the region. \fIvw\fP and \fIvh\fP
+Xdefine the width and height, in pixels, of the region.
+X.IP \fIdx,dy,dw,dh\fR 15
+XDefine the location and size of the destination (drawable) region 
+Xinto which the video image is written.  
+X.I dx 
+Xand
+X.I dy 
+Xdefine the upper-left pixel of the region.
+X.I dw 
+Xand 
+X.I dh 
+Xdefine the width and height, in pixels, of the region.
+X.\"
+X.SH Description
+X.\"
+XXvPutVideo writes video into a drawable.
+XThe position and size of the source (video) 
+Xrectangle is specified by \fIvx, vy, vw\fR, and \fIvh\fR.  
+XThe position and size of the destination (drawable) 
+Xrectangle is specified by \fIdx, dy, dw\fR, and \fIdh\fR.
+X.PP
+XVideo data is clipped to the bounds of the video encoding, scaled to the
+Xrequested drawable region size (or the closest size supported) and
+Xclipped to the bounds of the drawable.
+X.PP
+XIf video is successfully initiated, an XvVideoNotify event with detail
+XXvStarted is generated for the drawable.  If the port is already in
+Xuse, its video is preempted, and if the new drawable is different than
+Xthe old, an XvVideoNotify event with detail XvPreempted is generated
+Xfor the old drawable.  If the port is grabbed by another client, this
+Xrequest is ignored, and an XvVideoNotify event with detail XvBusy is
+Xgenerated for the drawable. If the port is not receiving a valid video
+Xsignal or if the video signal is interrupted while video is active a
+XVideoNotify event with detail HardError is generated for the drawable.
+X.\"
+X.SH Examples
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturned if XvPutVideo(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if there were insufficient resources to process the request.
+X.SH Diagnostics
+X.IP [XvBadPort] 8
+XGenerated if the requested port does not exist.
+X.IP [BadDrawable] 8
+XGenerated if the requested drawable does not exist.
+X.IP [BadGC] 8
+XGenerated if the requested graphics context does not exist.
+X.IP [BadMatch] 8
+XGenerated if the depth and visual type of the requested drawable don't match the depth of the GC or a format (depth and visual) support by the Port.
+X.IP [BadAlloc] 8
+XGenerated if there were insufficient resources to process the request.
+X.\"
+X.SH See Also
+X.\"
+XXvPutStill(3X), XvGetVideo(3X), XvVideoNotify(3X)
+X.br
+END_OF_FILE
+if test 3566 -ne `wc -c <'extensions/xv/man/man3/XvPutVideo.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvPutVideo.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvPutVideo.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvQueryAdaptors.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvQueryAdaptors.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvQueryAdaptors.3X'\" \(2745 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvQueryAdaptors.3X' <<'END_OF_FILE'
+X.TH XvQueryAdaptors 3X 
+X.SH Name
+XXvQueryAdaptors \- return adaptor information for a screen
+X.\"
+X.SH Syntax
+X.B #include <X11/extensions/Xvlib.h>
+X.br
+X.sp 1l
+X.B XvQueryAdaptors(\fIdpy, win, p_num_adaptors, pp_adaptor_info\fR)
+X.sp 1l 
+X\fBDisplay \fI*dpy;\fR
+X.br
+X\fBDrawable \fI draw;\fR
+X.br
+X\fBint \fI*p_num_adaptors\fR;
+X.br
+X\fBXvAdaptorInfo \fI**pp_adaptor_info\fR;
+X.br
+X.\"
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 8
+XSpecifies the display screen on which the
+XXv Server is to accept requests from Xv clients.  If the
+Xdisplay option is not specified, Xv uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIdraw\fR 8
+XSpecifies a drawable of the screen for which the adaptor 
+Xinformation is desired.
+X.IP \fIp_num_adaptors\fR 8
+XA pointer to where the numer of adaptors for the specified screen 
+Xis returned.
+X.IP \fIpp_adaptor_info\fR 8
+XA pointer to where the list of returned adaptor information is
+Xreturned.
+X.\"
+X.SH Description
+X.\"
+XXvQueryAdaptors(3X) returns an video adaptor information for
+Xthe screen of the specified drawable.  The XvAdaptorInfo structure
+Xhas the following organization:
+X.EX
+X
+X     typedef struct {
+X       XvPortID base_id;
+X       unsigned long num_ports;
+X       char type;
+X       char *name;
+X       unsigned long num_formats;
+X       XvFormat *formats;
+X     } XvAdaptorInfo;
+X
+X.EE
+X.IP \fIbase_id\fR 8
+XThe resource ID of the first adaptor port.
+X.IP \fInum_ports\fR 8
+XThe number of ports supported by the adaptor.
+X.IP \fItype\fR 8
+XA bit mask with the value XvInputMask asserted if the adaptor supports video
+Xinput, and value XvOutputMask asserted if the adaptor supports video output.
+X.IP \fIname\fR 8
+XA vendor specific name that identifies the adaptor.
+X.IP \fInum_formats\fR 8
+XThe number of depth/visual id formats supported by the adaptor.
+X.IP \fIformats\fR 8
+XA pointer to an array of XvFormat structures.
+X.PP
+XThe XvFormat structure has the following organization:
+X.EX
+X
+X     typedef struct {
+X       char depth;
+X       unsigned long visual_id;
+X     } XvFormat;
+X
+X.EE
+X.IP \fIdepth\fR 8
+XA drawable depth supported by the adaptor.
+X.IP \fIvisual_id\fR 8
+XA visual-id supported for the given depth by the adaptor.
+X.\"
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturns True if XvQueryAdaptors(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvQueryAdaptors(3X) failed to allocate memory to process
+Xthe request.
+X.SH Diagnostics
+X.IP [Drawable] 8
+XReturned if the requested drawable does not exist.
+X.SH See Also
+XXvFreeAdaptorInfo(3X)
+X.\"
+END_OF_FILE
+if test 2745 -ne `wc -c <'extensions/xv/man/man3/XvQueryAdaptors.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvQueryAdaptors.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvQueryAdaptors.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvSetPortAttribute.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvSetPortAttribute.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvSetPortAttribute.3X'\" \(2732 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvSetPortAttribute.3X' <<'END_OF_FILE'
+X.TH XvSetPortAttribute 3X 
+X.SH Name
+XXvSetPortAttribute \- sets an attribute of a video port 
+X.\"
+X.SH Syntax
+X\fB#include <X11/extensions/Xvlib.h>\fR
+X.sp 1l
+X\fBXvSetPortAttribute(\fIdpy, port, attribute, value\fR)
+X.sp 1l
+X\fBDisplay \fI*dpy\fR;
+X.br
+X\fBXvPortID \fIport\fR;
+X.br
+X\fBAtom \fIattribute\fR;
+X.br
+X\fBint \fIvalue\fR;
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 15
+XSpecifies the display screen on which the
+XXv Server is to accept requests from Xv clients.  If the
+Xdisplay option is not specified, Xv uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIport\fR 15
+XSpecifies the port for which the attribute is to be used.
+X.IP \fIattribute\fR 15
+XIdentifies the port attribute to be set by this request.
+XCan be one of the table entries under the column "String," below.
+X.IP \fIvalue\fR 15
+XIdentifies the value to which \fIattribute\fP is to be set.
+XCan be one of the table entries under the column "Type," below.
+X.\"
+X.SH Description
+XXvSetPortAttribute(3X) permits a client to set the port attribute
+Xto specified values.  This request supports the following values:
+X.bp
+X.PP
+X.TS
+Xtab(@);
+XlfHB lfHB lfHB
+XlfR  lfR  lfR .
+X_
+X.PP
+X.sp 4p
+XControl String@Type@Default
+X.sp 6p
+X_
+X.sp 6p
+X"XV_ENCODING"@XvEncodingID@Server dependent
+X"XV_HUE"@[-1000...1000]@0
+X"XV_SATURATION"@[-1000...1000]@0
+X"XV_BRIGHTNESS"@[-1000...1000]@0
+X"XV_CONTRAST"@[-1000...1000]@0
+X.sp 6p
+X_
+X.TE
+X.PP
+XThe supplied encoding must be one of the encodings listed for the
+Xadaptor, otherwise an Encoding error results.
+X.PP
+XIf the adaptor does not support the exact hue, saturation,
+Xbrightness, and contrast levels supplied, the closest levels
+Xsupported are assumed.  Use XvGetPortAttribute(3X) 
+Xto query the resulting levels.
+X.PP
+XWhen an XvSetPortAttribute(3X) request is processed, a 
+XPortControlNotify(3X) event is generated for all clients 
+Xthat have requested for port changes using XvSelectPortNotify(3X).
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturns True if XvSetPortAttribute(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvSelectVideoNotify(3X) failed to allocate memory to process
+Xthe request.
+X.SH Diagnostics
+X.IP [XvBadPort] 8
+XGenerated if the requested port does not exist.
+X.IP [XvBadEncoding] 8
+XGenerated if an encoding is specified that does not exist.
+X.IP [BadMatch] 8
+XGenerated if the requested attribute atom does not specify an attribute 
+Xsupported by the adaptor.
+X.SH See Also
+X.\"
+XXvGetPortAttribute(3X), XvSelectPortNotify(3X), XvPortNotify(3X)
+X.br
+END_OF_FILE
+if test 2732 -ne `wc -c <'extensions/xv/man/man3/XvSetPortAttribute.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvSetPortAttribute.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvSetPortAttribute.3X'
+fi
+if test -f 'extensions/xv/server/ddx/decrop/i2c.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/server/ddx/decrop/i2c.h'\"
+else
+echo shar: Extracting \"'extensions/xv/server/ddx/decrop/i2c.h'\" \(3429 characters\)
+sed "s/^X//" >'extensions/xv/server/ddx/decrop/i2c.h' <<'END_OF_FILE'
+X/*
+X *	i2c.h:	Definitions associated with the I2C bus and its peripherals.
+X */
+X
+X#ifndef i2c_DEFINED
+X#define i2c_DEFINED 1
+X
+X/*
+X *
+X *	I2C control bits and access macros:
+X *
+X */
+X#define I2C_CLOCK_OFF           (u_int)0xBF
+X#define I2C_CLOCK_OFF_DATA_ZERO (u_int)0x3F
+X#define I2C_CLOCK_ON            (u_int)0x40
+X#define I2C_CLOCK_ON_DATA_ONE   (u_int)0xC0
+X#define I2C_DATA_ONE            (u_int)0x80
+X#define I2C_DATA_ZERO           (u_int)0x7F
+X
+X#define I2C_CLOCK_DELAY i2c_clock_delay()
+X#define I2C_DATA_DELAY i2c_data_delay()
+X
+X#define I2C_CLOCK_DATA_LOW  {*port &= I2C_CLOCK_OFF_DATA_ZERO; I2C_CLOCK_DELAY;}
+X#define I2C_CLOCK_DATA_HIGH {*port |= I2C_CLOCK_ON_DATA_ONE; I2C_CLOCK_DELAY;}
+X#define I2C_CLOCK_LOW       {*port &= I2C_CLOCK_OFF; I2C_CLOCK_DELAY;}
+X#define I2C_CLOCK_HIGH      {*port |= I2C_CLOCK_ON; I2C_CLOCK_DELAY;}
+X#define I2C_DATA_LOW        {*port &= I2C_DATA_ZERO; I2C_DATA_DELAY;}
+X#define I2C_DATA_HIGH       {*port |= I2C_DATA_ONE; I2C_DATA_DELAY;}
+X
+X#define I2C_READ_BIT        (u_int)0x01
+X 
+X/*
+X *
+X *	Definitions associated with the Phillips Digital Color Space Convertor(DCSC).
+X *
+X */
+X#define I2C_ADDR_DCSC          0xE0		/* Address of DCSC chip. */
+X#define I2C_SUBA_DCSC_CONTROL  0x00		/* Subaddress of DCSC control register. */
+X#define I2C_SUBA_DCSC_DATA     0x01		/* Subaddress of DCSC lut data register. */
+X
+X/*
+X *	Control register (subaddress 0) bit definitions:
+X */
+X#define DCSC_VLUT_READ_ENABLED                0x40
+X#define DCSC_VLUT_WRITE_ENABLED 			  0x00
+X#define DCSC_VLUT_OUTPUT_DATA_TRISTATED_BY_OE 0x20
+X#define DCSC_VLUT_OUTPUT_DATA_TRISTATED       0x00
+X#define DCSC_INPUT_DATA_TO_FORMATTER          0x10
+X#define DCSC_INPUT_DATA_AT_FIXED_VALUES       0x00
+X#define DCSC_MATRIX_IN_USE                    0x08
+X#define DCSC_MATRIX_BYPASSED                  0x00
+X#define DCSC_INPUT_FORMATTER_TO_FORMAT_1      0x00
+X#define DCSC_INPUT_FORMATTER_TO_FORMAT_2      0x01
+X#define DCSC_INPUT_FORMATTER_TO_FORMAT_3      0x02
+X#define DCSC_INPUT_FORMATTER_TO_FORMAT_4      0x03
+X#define DCSC_INPUT_FORMATTER_TO_FORMAT_5      0x04
+X
+X#define DCSC_LOAD_LUT (DCSC_VLUT_WRITE_ENABLED | \
+X                             DCSC_VLUT_OUTPUT_DATA_TRISTATED_BY_OE | \
+X                             DCSC_INPUT_DATA_TO_FORMATTER | \
+X                             DCSC_MATRIX_IN_USE | \
+X                             DCSC_INPUT_FORMATTER_TO_FORMAT_3 )
+X
+X#define DCSC_COMPOSITE_LUT  (DCSC_VLUT_READ_ENABLED | \
+X                             DCSC_VLUT_OUTPUT_DATA_TRISTATED_BY_OE | \
+X                             DCSC_INPUT_DATA_TO_FORMATTER | \
+X                             DCSC_MATRIX_IN_USE | \
+X                             DCSC_INPUT_FORMATTER_TO_FORMAT_3)
+X
+X#define DCSC_S_VIDEO_LUT    (DCSC_VLUT_READ_ENABLED | \
+X                             DCSC_VLUT_OUTPUT_DATA_TRISTATED_BY_OE | \
+X                             DCSC_INPUT_DATA_TO_FORMATTER | \
+X                             DCSC_MATRIX_IN_USE | \
+X                             DCSC_INPUT_FORMATTER_TO_FORMAT_3)
+X
+X#define DCSC_RGB_LUT        (DCSC_VLUT_READ_ENABLED | \
+X                             DCSC_VLUT_OUTPUT_DATA_TRISTATED_BY_OE | \
+X                             DCSC_INPUT_DATA_TO_FORMATTER | \
+X                             DCSC_MATRIX_BYPASSED | \
+X                             DCSC_INPUT_FORMATTER_TO_FORMAT_4)
+X
+X/*
+X *
+X *	Definitions associated with the Phillips Digital Multi-Signal Decoder (DMSD).
+X * 
+X */
+X#define I2C_ADDR_DMSD	0x8A	/* Address of DMSD chip. */
+X
+X#endif !i2c_DEFINED
+END_OF_FILE
+if test 3429 -ne `wc -c <'extensions/xv/server/ddx/decrop/i2c.h'`; then
+    echo shar: \"'extensions/xv/server/ddx/decrop/i2c.h'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/server/ddx/decrop/i2c.h'
+fi
+if test -f 'extensions/xv/server/ddx/sunrop/pip_obj.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/server/ddx/sunrop/pip_obj.h'\"
+else
+echo shar: Extracting \"'extensions/xv/server/ddx/sunrop/pip_obj.h'\" \(3367 characters\)
+sed "s/^X//" >'extensions/xv/server/ddx/sunrop/pip_obj.h' <<'END_OF_FILE'
+X/*
+X *	pip_obj.h: Publicly exported interface to object providing 
+X *             RasterOps PIP support for Xv Video extension.
+X *
+X *	Copyright(c) 1991, RasterOps, Inc.
+X */
+X#ifndef pipObj_INCLUDED
+X#define pipObj_INCLUDED 
+X
+Xtypedef struct Pip_Dst_Area {	/* Output area specification: */
+X	u_char	horizontal_flip;	/* = 1 if image flipped horizontally. */
+X	u_char	vertical_flip;		/* = 1 if image flipped vertically. */
+X	u_short	left;				/* Left of upper left corner. */
+X	u_short	top;				/* Top of upper left corner. */
+X	u_short	width;				/* Width of output area. */
+X	u_short	height;				/* Height of output area. */
+X}	Pip_Dst_Area;
+X
+Xtypedef struct Pip_Fb_Type {	/* Type of frame buffer: */
+X	int		pitch;				/* # of pixels between scan lines. */
+X	int		frequency;			/* Frequency of monitor. */
+X}	Pip_Fb_Type;
+X
+Xtypedef struct Pip_Levels {	/* Picture level settings: */
+X	int	brightness;			/* Picture brightness: -1000 to 1000. */
+X	int	contrast;			/* picture contrast: -1000 to 1000. */
+X	int	hue;      			/* Picture hue level : -1000 to 1000. */
+X	int	saturation;			/* Picture saturation: -1000 to 1000. */
+X}	Pip_Levels;
+X
+Xtypedef struct Pip_Source {		/* Video source characteristics: */
+X	int		fields_inverted;	/* Invert order of video fields. */
+X	int		timing;				/* Timing: (PT_NTSC, etc.). */
+X	int		type;				/* Type: (PS_COMPOSITE, etc. ) */
+X	int		vtr_mode;			/* Video Tape Recorder mode (bad source). */
+X}	Pip_Source;
+X
+X#define		PS_COMPOSITE  0		/* Type: composite (1-wire). */
+X#define		PS_S_VIDEO    1		/* Type: s-video (2-wire). */
+X#define		PS_RGB	 	  2		/* Type: rgb (3-wire). */
+X#define		PS_COMPOSITE2 2		/* Type: composite no 2 (1-wire). */
+X
+X#define 	PT_NTSC		 0		/* Timing: NTSC regimen. */
+X#define 	PT_PAL		 1		/* Timing: PAL regimen. */
+X#define 	PT_SECAM	 2		/* Timing: SECAM regimen. */
+X
+Xtypedef struct Pip_Src_Area {	/* Input signal area specification: */
+X	u_short	left;				/* Left of upper left corner. */
+X	u_short	top;				/* Top of upper left corner. */
+X	u_short	width;				/* Width of output area. */
+X	u_short	height;				/* Height of output area. */
+X}	Pip_Src_Area;
+X
+Xtypedef struct Pip_Status {		/* Status of pip: */
+X	int		active_source;		/* = 1 if active data source connected. */
+X	int		pip_generating;		/* = 1 if actively generating image. */
+X	int		pip_on;				/* = 1 if pip is on. */
+X}	Pip_Status;
+X
+X/*
+X *	Transfer vector for Pip interface to Xv routines.
+X */
+Xtypedef struct Pip_Obj {
+X	int		(*fill_true_color)();		/* Fill true color memory. */
+X	int		(*fill_video_enable)();		/* Fill video enable memory. */
+X	void	(*get_levels)();			/* Get picture levels. */
+X	void	(*get_destination_area)();	/* Get pip output area. */
+X	void	(*get_source_area)();		/* Get pip source area. */
+X	void	(*get_source_type)();		/* Get pip input type. */
+X	int		(*initialize)();			/* Initialize pip. */
+X	int		(*off)();					/* Turn pip off. */
+X	int		(*on)();					/* Turn pip on. */
+X	int		(*one_shot)();				/* Turn pip on for one frame. */
+X	int		(*resume)();				/* Pop pip live stack on. */
+X	void	(*set_levels)();			/* Set picture levels. */
+X	void	(*set_destination_area)();	/* Set pip output area. */
+X	void	(*set_source_area)();		/* Set pip source area. */
+X	void	(*set_source_type)();		/* Set pip input type. */
+X	void	(*status)();				/* Get pip status. */
+X	int		(*suspend)();				/* Push pip live stack off. */
+X	void	(*terminate)();				/* Terminate object. */
+X} Pip_Obj;
+X
+X#endif pipObj_INCLUDED
+END_OF_FILE
+if test 3367 -ne `wc -c <'extensions/xv/server/ddx/sunrop/pip_obj.h'`; then
+    echo shar: \"'extensions/xv/server/ddx/sunrop/pip_obj.h'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/server/ddx/sunrop/pip_obj.h'
+fi
+if test -f 'server/ddx/cfb32/cfbpolypnt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbpolypnt.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbpolypnt.c'\" \(3576 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbpolypnt.c' <<'END_OF_FILE'
+X/************************************************************
+XCopyright 1989 by The Massachusetts Institute of Technology
+X
+XPermission to use, copy, modify, and distribute this
+Xsoftware and its documentation for any purpose and without
+Xfee is hereby granted, provided that the above copyright
+Xno- tice appear in all copies and that both that copyright
+Xno- tice and this permission notice appear in supporting
+Xdocu- mentation, and that the name of MIT not be used in
+Xadvertising or publicity pertaining to distribution of the
+Xsoftware without specific prior written permission.
+XM.I.T. makes no representation about the suitability of
+Xthis software for any purpose. It is provided "as is"
+Xwithout any express or implied warranty.
+X
+X********************************************************/
+X
+X/* $XConsortium: cfbpolypnt.c,v 5.13 91/07/14 13:51:14 keith Exp $ */
+X
+X#include "X.h"
+X#include "gcstruct.h"
+X#include "windowstr.h"
+X#include "pixmapstr.h"
+X#include "regionstr.h"
+X#include "scrnintstr.h"
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X
+X#define isClipped(c,ul,lr)  ((((c) - (ul)) | ((lr) - (c))) & ClipMask)
+X
+X#define PointLoop(fill) { \
+X    for (nbox = REGION_NUM_RECTS(cclip), pbox = REGION_RECTS(cclip); \
+X	 --nbox >= 0; \
+X	 pbox++) \
+X    { \
+X	c1 = *((long *) &pbox->x1) - off; \
+X	c2 = *((long *) &pbox->x2) - off - 0x00010001; \
+X	for (ppt = (long *) pptInit, i = npt; --i >= 0;) \
+X	{ \
+X	    pt = *ppt++; \
+X	    if (!isClipped(pt,c1,c2)) { \
+X		fill \
+X	    } \
+X	} \
+X    } \
+X}
+X
+Xvoid
+XcfbPolyPoint(pDrawable, pGC, mode, npt, pptInit)
+X    DrawablePtr pDrawable;
+X    GCPtr pGC;
+X    int mode;
+X    int npt;
+X    xPoint *pptInit;
+X{
+X    register long   pt;
+X    register long   c1, c2;
+X    register unsigned long   ClipMask = 0x80008000;
+X    register unsigned long   xor;
+X#ifdef PIXEL_ADDR
+X    register PixelType   *addrp;
+X    register int    npwidth;
+X    PixelType   *addrpt;
+X#else
+X    register unsigned long    *addrl;
+X    register int    nlwidth;
+X    unsigned long   *addrlt;
+X#endif
+X    register long   *ppt;
+X    RegionPtr	    cclip;
+X    int		    nbox;
+X    register int    i;
+X    register BoxPtr pbox;
+X    long	    and;
+X    int		    rop = pGC->alu;
+X    int		    off;
+X    cfbPrivGCPtr    devPriv;
+X    xPoint	    *pptPrev;
+X
+X    devPriv = (cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr); 
+X    rop = devPriv->rop;
+X    if (rop == GXnoop)
+X	return;
+X    cclip = devPriv->pCompositeClip;
+X    xor = devPriv->xor;
+X    if ((mode == CoordModePrevious) && (npt > 1))
+X    {
+X	for (pptPrev = pptInit + 1, i = npt - 1; --i >= 0; pptPrev++)
+X	{
+X	    pptPrev->x += (pptPrev-1)->x;
+X	    pptPrev->y += (pptPrev-1)->y;
+X	}
+X    }
+X    off = *((int *) &pDrawable->x);
+X    off -= (off & 0x8000) << 1;
+X#ifdef PIXEL_ADDR
+X    cfbGetPixelWidthAndPointer(pDrawable, npwidth, addrp);
+X    addrp = addrp + pDrawable->y * npwidth + pDrawable->x;
+X    if (rop == GXcopy)
+X    {
+X	if (!(npwidth & (npwidth - 1)))
+X	{
+X	    npwidth = ffs(npwidth) - 1;
+X	    PointLoop(*(addrp + (intToY(pt) << npwidth) + intToX(pt)) = xor;)
+X	}
+X#ifdef sun
+X	else if (npwidth == 1152)
+X	{
+X	    register int    y;
+X	    PointLoop(y = intToY(pt); *(addrp + (y << 10) + (y << 7) + intToX(pt)) = xor;)
+X	}
+X#endif
+X	else
+X	{
+X	    PointLoop(*(addrp + intToY(pt) * npwidth + intToX(pt)) = xor;)
+X	}
+X    }
+X    else
+X    {
+X	and = devPriv->and;
+X	PointLoop(  addrpt = addrp + intToY(pt) * npwidth + intToX(pt);
+X		    *addrpt = DoRRop (*addrpt, and, xor);)
+X    }
+X#else
+X    cfbGetLongWidthAndPointer(pDrawable, nlwidth, addrl);
+X    and = devPriv->and;
+X    PointLoop(	addrlt = addrl + intToY(pt) * nlwidth + intToX(pt);
+X		*addrlt = DoRRop (*addrlt, and, xor); )
+X#endif
+X}
+END_OF_FILE
+if test 3576 -ne `wc -c <'server/ddx/cfb32/cfbpolypnt.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbpolypnt.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbpolypnt.c'
+fi
+if test -f 'server/ddx/dec/tx/xfbmap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/tx/xfbmap.c'\"
+else
+echo shar: Extracting \"'server/ddx/dec/tx/xfbmap.c'\" \(3873 characters\)
+sed "s/^X//" >'server/ddx/dec/tx/xfbmap.c' <<'END_OF_FILE'
+X
+X#include "servermd.h"
+X#include "scrnintstr.h"
+X#include "pixmapstr.h"
+X#include "dix.h"
+X#include "cfb.h"
+X
+Xint cfb32ScreenPrivateIndex;
+Xstatic unsigned long cfb32DrawGeneration = 0;
+X
+X
+Xvoid
+XcfbDrawClose(pScreen)
+X    ScreenPtr pScreen;
+X{
+X    xfree(pScreen->devPrivate);
+X}
+X
+X/*
+XInitialize cfb drawing code.  Xfb cannot call cfbScreenInit() directly
+Xbecause it does too much.
+XInputs:
+X    cfbWindowPrivateIndex = window index to be used by cfb code, this
+X        is ignored because dec/cfb does not use window privates
+X    cfbGCPrivateIndex = GC index to be used by cfb code
+X*/
+XBool
+XcfbDrawInit(pScreen, pbits, xsize, ysize, width, WindowPrivateIndex,
+X    GCPrivateIndex)
+X    register ScreenPtr pScreen;
+X    pointer pbits;              /* pointer to screen bitmap */
+X    int xsize, ysize;           /* in pixels */
+X    int width;                  /* pixel width of frame buffer */
+X    int WindowPrivateIndex;
+X    int GCPrivateIndex;
+X{
+X    PixmapPtr pPixmap;
+X
+X    if (!AllocateGCPrivate(pScreen, GCPrivateIndex, sizeof(cfbPrivGC)))
+X        return FALSE;
+X
+X    pPixmap = (PixmapPtr ) xalloc(sizeof(PixmapRec));
+X    if (!pPixmap)
+X        return FALSE;
+X    pPixmap->drawable.type = DRAWABLE_PIXMAP;
+X    pPixmap->drawable.depth = 8;
+X    pPixmap->drawable.pScreen = pScreen;
+X    pPixmap->drawable.serialNumber = 0;
+X    pPixmap->drawable.x = 0;
+X    pPixmap->drawable.y = 0;
+X    pPixmap->drawable.width = xsize;
+X    pPixmap->drawable.height = ysize;
+X    pPixmap->refcnt = 1;
+X    pPixmap->devPrivate.ptr = pbits;
+X    pPixmap->devKind = PixmapBytePad(width, 8);
+X    pScreen->devPrivate = (pointer)pPixmap;
+X
+X    return (TRUE);
+X}
+X
+X
+X/*
+XThis allows the xfbBankSwitch module to change the address of the screen
+Xpixmap
+X*/
+Xvoid
+XxfbDrawSetFb24(pScreen, fb24)
+X    ScreenPtr pScreen;
+X    pointer fb24;
+X{
+X    ((PixmapPtr) pScreen->devPrivates[cfb32ScreenPrivateIndex].ptr)
+X	->devPrivate.ptr = fb24;
+X}
+X
+Xvoid
+Xcfb32DrawClose(pScreen)
+X    ScreenPtr pScreen;
+X{
+X    xfree(pScreen->devPrivates[cfb32ScreenPrivateIndex].ptr);
+X}
+X
+X/*
+XInitialize tfb drawing code.  Xfb cannot call tfbScreenInit() directly
+Xbecause it does too much.  See tfbscreen.h to see how drawing routines
+Xaccess screen pixmap.
+XInputs:
+X    cfbWindowPrivateIndex = window index to be used by tfb code
+X    cfbGCPrivateIndex = GC index to be used by tfb code
+X
+XBugs: Need to get rid of window private someday.  Rotated pixmaps don't
+X    make sense for 1 PPW.
+X*/
+XBool
+Xcfb32DrawInit(pScreen, fb24, xsize, ysize, width, WindowPrivateIndex,
+X    GCPrivateIndex)
+X    ScreenPtr pScreen;
+X    pointer fb24;		/* address of 24-bit framebuffer */
+X    int xsize, ysize;		/* in pixels */
+X    int width;			/* pixel width of frame buffer */
+X    int WindowPrivateIndex;
+X    int GCPrivateIndex;
+X{
+X    PixmapPtr pPixmap;
+X
+X    if (cfb32DrawGeneration != serverGeneration) {
+X	if ((cfb32ScreenPrivateIndex = AllocateScreenPrivateIndex()) < 0) {
+X	    return (FALSE);
+X	}
+X	cfb32DrawGeneration = serverGeneration;
+X    }
+X
+X    if (!AllocateWindowPrivate(pScreen, WindowPrivateIndex,
+X			       sizeof(cfbPrivWin)) ||
+X	!AllocateGCPrivate(pScreen, GCPrivateIndex, sizeof(cfbPrivGC))) {
+X	return FALSE;
+X    }
+X
+X    /* store 24-bit frame buffer pixmap in screen private: */
+X    pPixmap = (PixmapPtr) xalloc(sizeof(PixmapRec));
+X    if (!pPixmap)
+X	return FALSE;
+X    pPixmap->drawable.type = DRAWABLE_PIXMAP;
+X    pPixmap->drawable.class = 0;
+X    pPixmap->drawable.pScreen = pScreen;
+X    pPixmap->drawable.depth = 24;
+X    pPixmap->drawable.bitsPerPixel = 32;
+X    pPixmap->drawable.id = 0;
+X    pPixmap->drawable.serialNumber = NEXT_SERIAL_NUMBER;
+X    pPixmap->drawable.x = 0;
+X    pPixmap->drawable.y = 0;
+X    pPixmap->drawable.width = xsize;
+X    pPixmap->drawable.height = ysize;
+X    pPixmap->devKind = PixmapBytePad(width, 24);
+X    pPixmap->refcnt = 1;
+X    pPixmap->devPrivate.ptr = fb24;
+X    pScreen->devPrivates[cfb32ScreenPrivateIndex].ptr = (pointer) pPixmap;
+X
+X    return (TRUE);
+X}
+END_OF_FILE
+if test 3873 -ne `wc -c <'server/ddx/dec/tx/xfbmap.c'`; then
+    echo shar: \"'server/ddx/dec/tx/xfbmap.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/tx/xfbmap.c'
+fi
+if test -f 'server/ddx/dec/tx/xfbmisc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/tx/xfbmisc.c'\"
+else
+echo shar: Extracting \"'server/ddx/dec/tx/xfbmisc.c'\" \(4050 characters\)
+sed "s/^X//" >'server/ddx/dec/tx/xfbmisc.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X#include "X.h"
+X#include "windowstr.h"
+X#include "pixmapstr.h"
+X#include "scrnintstr.h"
+X#include "gcstruct.h"
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X#include "servermd.h"
+X#include "tfb.h"
+X
+Xvoid
+XxfbGetImage(pDrawable, sx, sy, w, h, format, planeMask, pdstLine)
+X    DrawablePtr pDrawable;
+X    int		sx, sy, w, h;
+X    unsigned int format;
+X    unsigned long planeMask;
+X    pointer	pdstLine;
+X{
+X    if (pDrawable->depth == 8) {
+X	cfbGetImage(pDrawable, sx, sy, w, h, format, planeMask, pdstLine);
+X    } else {
+X	tfbGetImage(pDrawable, sx, sy, w, h, format, planeMask, pdstLine);
+X    }
+X}
+X
+Xvoid
+XxfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart)
+X    DrawablePtr		pDrawable;	/* drawable from which to get bits */
+X    int			wMax;		/* largest value of all *pwidths */
+X    register DDXPointPtr ppt;		/* points to start copying from */
+X    int			*pwidth;	/* list of number of bits to copy */
+X    int			nspans;		/* number of scanlines to copy */
+X    unsigned int	*pdstStart;	/* where to put the bits */
+X{
+X    if (pDrawable->depth == 8) {
+X	cfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart);
+X    } else {
+X	tfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart);
+X    }
+X}
+X
+XBool
+XxfbCreateGC(pGC)
+X    register GCPtr      pGC;
+X{
+X    switch (pGC->depth) {
+X    case 1:
+X	return (mfbCreateGC(pGC));
+X    case 8:
+X	return (cfbCreateGC(pGC));
+X    case 24:
+X	return (tfbCreateGC(pGC));
+X    default:
+X	ErrorF("xfbCreateGC: unsupported depth: %d\n", pGC->depth);
+X	return FALSE;
+X    }
+X}
+X
+XPixmapPtr
+XxfbCreatePixmap(pScreen, width, height, depth)
+X    ScreenPtr	pScreen;
+X    int		width;
+X    int		height;
+X    int		depth;
+X{
+X    register PixmapPtr pPixmap;
+X    int size;
+X
+X    if (depth != 1 && depth != 8 && depth != 24)
+X	return NullPixmap;
+X
+X    /* Big pixmaps are pretty useless and will screw up server.  Probably we
+X       got such large numbers because someone passed in a negative height by
+X       accident, anyway. */
+X    if (width > 32767 || height > 32767)
+X	return NullPixmap;
+X
+X    size = PixmapBytePad(width, depth);
+X    pPixmap = (PixmapPtr)xalloc(sizeof(PixmapRec) + (height * size));
+X    if (!pPixmap)
+X	return NullPixmap;
+X    pPixmap->drawable.type = DRAWABLE_PIXMAP;
+X    pPixmap->drawable.class = 0;
+X    pPixmap->drawable.pScreen = pScreen;
+X    pPixmap->drawable.depth = depth;
+X    pPixmap->drawable.bitsPerPixel = (depth == 24) ? 32 : depth;
+X    pPixmap->drawable.id = 0;
+X    pPixmap->drawable.serialNumber = NEXT_SERIAL_NUMBER;
+X    pPixmap->drawable.x = 0;
+X    pPixmap->drawable.y = 0;
+X    pPixmap->drawable.width = width;
+X    pPixmap->drawable.height = height;
+X    pPixmap->devKind = size;
+X    pPixmap->refcnt = 1;
+X    pPixmap->devPrivate.ptr = (pointer)(pPixmap + 1);
+X    return pPixmap;
+X}
+X
+XBool
+XxfbDestroyPixmap(pPixmap)
+X    PixmapPtr pPixmap;
+X{
+X
+X    if(--pPixmap->refcnt)
+X	return TRUE;
+X    xfree(pPixmap);
+X    return TRUE;
+X}
+END_OF_FILE
+if test 4050 -ne `wc -c <'server/ddx/dec/tx/xfbmisc.c'`; then
+    echo shar: \"'server/ddx/dec/tx/xfbmisc.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/tx/xfbmisc.c'
+fi
+if test -f 'server/ddx/mi/miinitext.c.diff' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/mi/miinitext.c.diff'\"
+else
+echo shar: Extracting \"'server/ddx/mi/miinitext.c.diff'\" \(444 characters\)
+sed "s/^X//" >'server/ddx/mi/miinitext.c.diff' <<'END_OF_FILE'
+X*** /xsrc/server/ddx/mi/miinitext.c	Wed Aug 15 08:42:38 1990
+X--- miinitext.c	Fri Nov 15 12:35:26 1991
+X***************
+X*** 50,55 ****
+X--- 50,58 ----
+X  #ifdef XIDLE
+X  extern void XIdleExtensionInit();
+X  #endif
+X+ #ifdef XV
+X+ extern void XvExtensionInit();
+X+ #endif
+X  
+X  /*ARGSUSED*/
+X  void
+X***************
+X*** 83,87 ****
+X--- 86,93 ----
+X  #endif
+X  #ifdef XIDLE
+X      XIdleExtensionInit();
+X+ #endif
+X+ #ifdef XV
+X+     XvExtensionInit();
+X  #endif
+X  }
+END_OF_FILE
+if test 444 -ne `wc -c <'server/ddx/mi/miinitext.c.diff'`; then
+    echo shar: \"'server/ddx/mi/miinitext.c.diff'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/mi/miinitext.c.diff'
+fi
+if test -f 'server/ddx/sun/sunInit.c.diff' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/sun/sunInit.c.diff'\"
+else
+echo shar: Extracting \"'server/ddx/sun/sunInit.c.diff'\" \(3091 characters\)
+sed "s/^X//" >'server/ddx/sun/sunInit.c.diff' <<'END_OF_FILE'
+X*** /xsrc/server/ddx/sun/sunInit.c	Fri Aug 23 16:16:11 1991
+X--- sunInit.c	Fri Nov 15 12:28:50 1991
+X***************
+X*** 64,69 ****
+X--- 64,70 ----
+X  extern Bool sunCG4CProbe(), sunCG4CCreate();
+X  #ifdef FBTYPE_SUNFAST_COLOR /* doesn't exist in sunos3.x */
+X  extern Bool sunCG6CProbe(), sunCG6CCreate();
+X+ extern Bool sunCG8CProbe(), sunCG8CCreate();
+X  #endif
+X  #endif
+X  extern void ProcessInputEvents();
+X***************
+X*** 79,84 ****
+X--- 80,86 ----
+X  
+X  static Bool sunDevsProbed = FALSE;
+X  Bool sunSupportsDepth8 = FALSE;
+X+ Bool sunSupportsDepth24 = FALSE;
+X  unsigned long sunGeneration = 0;
+X  int sunScreenIndex;
+X  Bool FlipPixels = FALSE;
+X***************
+X*** 116,121 ****
+X--- 118,124 ----
+X  #endif
+X      sunCG2CProbe,  	"/dev/cgtwo0",	    sunCG2CCreate,
+X      sunCG4CProbe,  	"/dev/cgfour0",	    sunCG4CCreate,
+X+     sunCG8CProbe,	"/dev/cgeight0",    sunCG8CCreate,
+X  #endif
+X      sunBW2Probe,  	"/dev/bwtwo0",	    sunBW2Create,
+X  };
+X***************
+X*** 137,148 ****
+X  
+X  fbFd sunFbs[NUMDEVICES];
+X  
+X! static PixmapFormatRec	formats[] = {
+X      1, 1, BITMAP_SCANLINE_PAD,	/* 1-bit deep */
+X      8, 8, BITMAP_SCANLINE_PAD,	/* 8-bit deep */
+X  };
+X! #define NUMFORMATS	(sizeof formats)/(sizeof formats[0])
+X  
+X  /*-
+X   *-----------------------------------------------------------------------
+X   * sunNonBlockConsoleOff --
+X--- 140,156 ----
+X  
+X  fbFd sunFbs[NUMDEVICES];
+X  
+X! static PixmapFormatRec	format1 = {
+X      1, 1, BITMAP_SCANLINE_PAD,	/* 1-bit deep */
+X+ };
+X+ static PixmapFormatRec	format8 = {
+X      8, 8, BITMAP_SCANLINE_PAD,	/* 8-bit deep */
+X  };
+X! static PixmapFormatRec	format24 = {
+X!     24, 32, BITMAP_SCANLINE_PAD,	/* 24-bit deep */
+X! };
+X  
+X+ 
+X  /*-
+X   *-----------------------------------------------------------------------
+X   * sunNonBlockConsoleOff --
+X***************
+X*** 228,236 ****
+X      pScreenInfo->bitmapScanlinePad = BITMAP_SCANLINE_PAD;
+X      pScreenInfo->bitmapBitOrder = BITMAP_BIT_ORDER;
+X  
+X!     pScreenInfo->numPixmapFormats = NUMFORMATS;
+X!     for (i=0; i< NUMFORMATS; i++)
+X!         pScreenInfo->formats[i] = formats[i];
+X  
+X      autoRepeatHandlersInstalled = FALSE;
+X  
+X--- 236,243 ----
+X      pScreenInfo->bitmapScanlinePad = BITMAP_SCANLINE_PAD;
+X      pScreenInfo->bitmapBitOrder = BITMAP_BIT_ORDER;
+X  
+X!     pScreenInfo->numPixmapFormats = 1;
+X!     pScreenInfo->formats[0] = format1;
+X  
+X      autoRepeatHandlersInstalled = FALSE;
+X  
+X***************
+X*** 247,254 ****
+X  	if (n == 0)
+X  	    return;
+X      }
+X!     if (!sunSupportsDepth8)
+X! 	pScreenInfo->numPixmapFormats--;
+X      for (i = NUMSCREENS, dev = devStart; --i >= DEV_END; dev++) {
+X  	if (sunFbData[dev].createProc)
+X  	    (*sunFbData[dev].createProc)(pScreenInfo, argc, argv);
+X--- 254,263 ----
+X  	if (n == 0)
+X  	    return;
+X      }
+X!     if (sunSupportsDepth8)
+X!       pScreenInfo->formats[pScreenInfo->numPixmapFormats++] = format8;
+X!     if (sunSupportsDepth24)
+X!       pScreenInfo->formats[pScreenInfo->numPixmapFormats++] = format24;
+X      for (i = NUMSCREENS, dev = devStart; --i >= DEV_END; dev++) {
+X  	if (sunFbData[dev].createProc)
+X  	    (*sunFbData[dev].createProc)(pScreenInfo, argc, argv);
+END_OF_FILE
+if test 3091 -ne `wc -c <'server/ddx/sun/sunInit.c.diff'`; then
+    echo shar: \"'server/ddx/sun/sunInit.c.diff'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/sun/sunInit.c.diff'
+fi
+if test -f 'server/ddx/sun/xfbmap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/sun/xfbmap.c'\"
+else
+echo shar: Extracting \"'server/ddx/sun/xfbmap.c'\" \(3873 characters\)
+sed "s/^X//" >'server/ddx/sun/xfbmap.c' <<'END_OF_FILE'
+X
+X#include "servermd.h"
+X#include "scrnintstr.h"
+X#include "pixmapstr.h"
+X#include "dix.h"
+X#include "cfb.h"
+X
+Xint cfb32ScreenPrivateIndex;
+Xstatic unsigned long cfb32DrawGeneration = 0;
+X
+X
+Xvoid
+XcfbDrawClose(pScreen)
+X    ScreenPtr pScreen;
+X{
+X    xfree(pScreen->devPrivate);
+X}
+X
+X/*
+XInitialize cfb drawing code.  Xfb cannot call cfbScreenInit() directly
+Xbecause it does too much.
+XInputs:
+X    cfbWindowPrivateIndex = window index to be used by cfb code, this
+X        is ignored because dec/cfb does not use window privates
+X    cfbGCPrivateIndex = GC index to be used by cfb code
+X*/
+XBool
+XcfbDrawInit(pScreen, pbits, xsize, ysize, width, WindowPrivateIndex,
+X    GCPrivateIndex)
+X    register ScreenPtr pScreen;
+X    pointer pbits;              /* pointer to screen bitmap */
+X    int xsize, ysize;           /* in pixels */
+X    int width;                  /* pixel width of frame buffer */
+X    int WindowPrivateIndex;
+X    int GCPrivateIndex;
+X{
+X    PixmapPtr pPixmap;
+X
+X    if (!AllocateGCPrivate(pScreen, GCPrivateIndex, sizeof(cfbPrivGC)))
+X        return FALSE;
+X
+X    pPixmap = (PixmapPtr ) xalloc(sizeof(PixmapRec));
+X    if (!pPixmap)
+X        return FALSE;
+X    pPixmap->drawable.type = DRAWABLE_PIXMAP;
+X    pPixmap->drawable.depth = 8;
+X    pPixmap->drawable.pScreen = pScreen;
+X    pPixmap->drawable.serialNumber = 0;
+X    pPixmap->drawable.x = 0;
+X    pPixmap->drawable.y = 0;
+X    pPixmap->drawable.width = xsize;
+X    pPixmap->drawable.height = ysize;
+X    pPixmap->refcnt = 1;
+X    pPixmap->devPrivate.ptr = pbits;
+X    pPixmap->devKind = PixmapBytePad(width, 8);
+X    pScreen->devPrivate = (pointer)pPixmap;
+X
+X    return (TRUE);
+X}
+X
+X
+X/*
+XThis allows the xfbBankSwitch module to change the address of the screen
+Xpixmap
+X*/
+Xvoid
+XxfbDrawSetFb24(pScreen, fb24)
+X    ScreenPtr pScreen;
+X    pointer fb24;
+X{
+X    ((PixmapPtr) pScreen->devPrivates[cfb32ScreenPrivateIndex].ptr)
+X	->devPrivate.ptr = fb24;
+X}
+X
+Xvoid
+Xcfb32DrawClose(pScreen)
+X    ScreenPtr pScreen;
+X{
+X    xfree(pScreen->devPrivates[cfb32ScreenPrivateIndex].ptr);
+X}
+X
+X/*
+XInitialize tfb drawing code.  Xfb cannot call tfbScreenInit() directly
+Xbecause it does too much.  See tfbscreen.h to see how drawing routines
+Xaccess screen pixmap.
+XInputs:
+X    cfbWindowPrivateIndex = window index to be used by tfb code
+X    cfbGCPrivateIndex = GC index to be used by tfb code
+X
+XBugs: Need to get rid of window private someday.  Rotated pixmaps don't
+X    make sense for 1 PPW.
+X*/
+XBool
+Xcfb32DrawInit(pScreen, fb24, xsize, ysize, width, WindowPrivateIndex,
+X    GCPrivateIndex)
+X    ScreenPtr pScreen;
+X    pointer fb24;		/* address of 24-bit framebuffer */
+X    int xsize, ysize;		/* in pixels */
+X    int width;			/* pixel width of frame buffer */
+X    int WindowPrivateIndex;
+X    int GCPrivateIndex;
+X{
+X    PixmapPtr pPixmap;
+X
+X    if (cfb32DrawGeneration != serverGeneration) {
+X	if ((cfb32ScreenPrivateIndex = AllocateScreenPrivateIndex()) < 0) {
+X	    return (FALSE);
+X	}
+X	cfb32DrawGeneration = serverGeneration;
+X    }
+X
+X    if (!AllocateWindowPrivate(pScreen, WindowPrivateIndex,
+X			       sizeof(cfbPrivWin)) ||
+X	!AllocateGCPrivate(pScreen, GCPrivateIndex, sizeof(cfbPrivGC))) {
+X	return FALSE;
+X    }
+X
+X    /* store 24-bit frame buffer pixmap in screen private: */
+X    pPixmap = (PixmapPtr) xalloc(sizeof(PixmapRec));
+X    if (!pPixmap)
+X	return FALSE;
+X    pPixmap->drawable.type = DRAWABLE_PIXMAP;
+X    pPixmap->drawable.class = 0;
+X    pPixmap->drawable.pScreen = pScreen;
+X    pPixmap->drawable.depth = 24;
+X    pPixmap->drawable.bitsPerPixel = 32;
+X    pPixmap->drawable.id = 0;
+X    pPixmap->drawable.serialNumber = NEXT_SERIAL_NUMBER;
+X    pPixmap->drawable.x = 0;
+X    pPixmap->drawable.y = 0;
+X    pPixmap->drawable.width = xsize;
+X    pPixmap->drawable.height = ysize;
+X    pPixmap->devKind = PixmapBytePad(width, 24);
+X    pPixmap->refcnt = 1;
+X    pPixmap->devPrivate.ptr = fb24;
+X    pScreen->devPrivates[cfb32ScreenPrivateIndex].ptr = (pointer) pPixmap;
+X
+X    return (TRUE);
+X}
+END_OF_FILE
+if test 3873 -ne `wc -c <'server/ddx/sun/xfbmap.c'`; then
+    echo shar: \"'server/ddx/sun/xfbmap.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/sun/xfbmap.c'
+fi
+echo shar: End of archive 27 \(of 29\).
+cp /dev/null ark27isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

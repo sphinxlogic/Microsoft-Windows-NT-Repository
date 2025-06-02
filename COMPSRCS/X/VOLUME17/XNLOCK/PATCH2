@@ -1,0 +1,226 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: edsall@iastate.edu (David M Edsall)
+Subject: v17i022: xnlock patch (version 2.0.1), Patch2, Part01/01
+Message-ID: <1992Mar18.214136.16087@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i022-xnlock@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 21:41:36 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: edsall@iastate.edu (David M Edsall)
+Posting-number: Volume 17, Issue 22
+Archive-name: xnlock/patch2
+Patch-To: xnlock: Volume 9, Issue 63
+
+
+     This is a patch to Dan Heller's xnlock program that locks a user's
+display and creates a little man running around spitting out dialogue to
+passersby. I modified the code so that it would retrieve the user's password
+from a file rather than from /etc/passwd since my system uses Kerberos for
+authenticating a user rather than /etc/passwd. You may also wish to change
+references of /usr/games/bin/dec/fortune to point to wherever fortune is kept
+on your system.
+
+
+     dave
+
+
+Submitted-by: edsall@iastate.edu
+Archive-name: xnlock patch2/part01
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# This is xnlock patch2, a shell archive (produced by shar 3.49)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 03/10/1992 04:07 UTC by edsall@iastate.edu
+# Source directory /home/edsall/build/X11/xnlock2
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#   4675 -rw------- patch2
+#
+# ============= patch2 ==============
+if test -f 'patch2' -a X"$1" != X"-c"; then
+	echo 'x - skipping patch2 (File already exists)'
+else
+echo 'x - extracting patch2 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patch2' &&
+Prereq: 1
+*** patchlevel.h.orig	Mon Mar  9 21:16:54 1992
+--- patchlevel.h	Mon Mar  9 21:17:27 1992
+***************
+*** 1 ****
+! #define PATCHLEVEL 1
+--- 1 ----
+! #define PATCHLEVEL 2
+*** xnlock.c.orig	Mon Mar  9 21:22:29 1992
+--- xnlock.c	Mon Mar  9 21:21:45 1992
+***************
+*** 16,22 ****
+X  #include <pwd.h>
+X  /* The program should be something that outputs a small amount of text */
+X  #ifndef DEFAULT_PROGRAM
+! #define DEFAULT_PROGRAM "/usr/games/fortune -s"
+X  #endif
+X  #define font_height(font)	  	(font->ascent + font->descent)
+X  #define FONT_NAME	"-*-new century schoolbook-*-*-*-18-*"
+--- 16,22 ----
+X  #include <pwd.h>
+X  /* The program should be something that outputs a small amount of text */
+X  #ifndef DEFAULT_PROGRAM
+! #define DEFAULT_PROGRAM "/usr/games/bin/dec/fortune -s"
+X  #endif
+X  #define font_height(font)	  	(font->ascent + font->descent)
+X  #define FONT_NAME	"-*-new century schoolbook-*-*-*-18-*"
+***************
+*** 102,107 ****
+--- 102,109 ----
+X  int argc;
+X  char *argv[];
+X  {
++     FILE *pwfile;
++     char homedir[80],*hp=homedir;
+X      register int i;
+X      int foo;
+X      Widget override;
+***************
+*** 115,124 ****
+X  
+X      /* getpwuid() returns static pointer, so get root's passwd first */
+X      if (!(pw = getpwuid(0)))
+! 	printf("%s: can't get root's passwd!\n", ProgName), exit(1);
+X      strcpy(root_pw, pw->pw_passwd);
+X      if (!(pw = getpwuid(getuid())))
+! 	printf("%s: Intruder alert!\n", ProgName), exit(1);
+X  
+X      XtToolkitInitialize();
+X      if (!(app = XtCreateApplicationContext()) ||
+--- 117,136 ----
+X  
+X      /* getpwuid() returns static pointer, so get root's passwd first */
+X      if (!(pw = getpwuid(0)))
+! 	fprintf(stderr,"%s: can't get root's passwd!\n", ProgName), exit(1);
+X      strcpy(root_pw, pw->pw_passwd);
+X      if (!(pw = getpwuid(getuid())))
+!        fprintf(stderr,"%s: Intruder alert!\n", ProgName), exit(1);
+!     hp = getenv("HOME");
+!     if (!homedir) {
+!        fprintf(stderr,"Unable to locate home directory\n");
+!        exit(1);
+!     }
+!     strcat(hp,"/.xnlock");
+!     if ( !( pwfile = fopen(hp,"r") ) ) 
+!        fprintf(stderr,"Can't open %s\n",hp), exit(1);
+!     if (!(fscanf(pwfile,"%s",pw->pw_passwd)))
+!        fprintf(stderr,"%s: Can't get password\n", ProgName), exit(1);
+X  
+X      XtToolkitInitialize();
+X      if (!(app = XtCreateApplicationContext()) ||
+***************
+*** 383,391 ****
+X  	return;
+X      if (keysym == XK_Return || keysym == XK_Linefeed) {
+X  	XExposeEvent event;
+! 	passwd[cnt] = 0;
+X  	XtRemoveTimeOut(timeout_id);
+! 	if (!strcmp(crypt(passwd, pw->pw_passwd), pw->pw_passwd))
+X  	    leave();
+X  	if (Resrcs.accept_root &&
+X  	    (root_pw[0] == 0 && cnt == 0 ||
+--- 395,403 ----
+X  	return;
+X      if (keysym == XK_Return || keysym == XK_Linefeed) {
+X  	XExposeEvent event;
+! 	passwd[cnt] = '\0';
+X  	XtRemoveTimeOut(timeout_id);
+! 	if (!strcmp(passwd, pw->pw_passwd))
+X  	    leave();
+X  	if (Resrcs.accept_root &&
+X  	    (root_pw[0] == 0 && cnt == 0 ||
+*** xnlock.1.orig	Mon Mar  9 21:43:54 1992
+--- xnlock.1	Mon Mar  9 21:58:54 1992
+***************
+*** 20,27 ****
+X  By default, the messages are "humorous", but that depends on your
+X  sense of humor.
+X  .LP
+! If a key or mouse button is pressed, a prompt is printed requesting the
+! user's password.  If a RETURN is not typed within 30 seconds,
+X  the little man resumes running around.
+X  .LP
+X  Text on the command line is used as the message.  For example:
+--- 20,33 ----
+X  By default, the messages are "humorous", but that depends on your
+X  sense of humor.
+X  .LP
+! If a key or mouse button is pressed, a prompt is printed requesting the user's 
+! .I xnlock
+! password. The 
+! .I xnlock 
+! password is placed in a file named 
+! .I .xnlock
+! in the user's home directory. PLEASE MAKE SURE THAT THIS FILE IS 
+! READABLE ONLY BY YOU! If a RETURN is not typed within 30 seconds,
+X  the little man resumes running around.
+X  .LP
+X  Text on the command line is used as the message.  For example:
+***************
+*** 113,120 ****
+X  .br
+X  xnlock.acceptRootPasswd:   True/False
+X  .SH FILES
+! \fIxnlock\fP               executable file
+X  .br
+X  ~/.msgfile                 default message file
+X  .SH AUTHOR
+X  Dan Heller <argv@sun.com>  Copyright (c) 1985, 1990.
+--- 119,128 ----
+X  .br
+X  xnlock.acceptRootPasswd:   True/False
+X  .SH FILES
+! \fIxnlock\fP                     executable file
+X  .br
++ ~/.xnlock                  user's \fIxnlock\fP password file
++ .br
+X  ~/.msgfile                 default message file
+X  .SH AUTHOR
+X  Dan Heller <argv@sun.com>  Copyright (c) 1985, 1990.
+***************
+*** 121,123 ****
+--- 129,132 ----
+X  .br
+X  The original version of this program was written using pixrects on
+X  a Sun 2 running SunOS 1.1.
++ 
+SHAR_EOF
+chmod 0600 patch2 ||
+echo 'restore of patch2 failed'
+Wc_c="`wc -c < 'patch2'`"
+test 4675 -eq "$Wc_c" ||
+	echo 'patch2: original size 4675, current size' "$Wc_c"
+fi
+exit 0
+
+
+
+-- 
+------------------------------------------------------------------------------
+| David M. Edsall       |        INTERNET:        |  Ask Iowa State why they |
+| Physics Grad Student  |   edsall@iastate.edu    |  are censoring my USENET |
+| Iowa State University | BITNET: edsall@alisuvax |  feed.  You are not      |
+| Ames Iowa             | HEPNET: isuhep::edsall  |  allowed to read this.   |
+------------------------------------------------------------------------------
+
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

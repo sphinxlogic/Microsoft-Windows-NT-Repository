@@ -1,0 +1,1720 @@
+Newsgroups: comp.sources.misc
+From: woo@ra-next.arc.nasa.gov (Alex Woo)
+Subject:  v30i056:  gnuplot3 - interactive function plotting utility, Patch02c/7
+Message-ID: <1992Jun14.214009.8414@sparky.imd.sterling.com>
+X-Md4-Signature: 4dd79fd378e786059ba7bc6491e9b8c5
+Date: Sun, 14 Jun 1992 21:40:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: woo@ra-next.arc.nasa.gov (Alex Woo)
+Posting-number: Volume 30, Issue 56
+Archive-name: gnuplot3/patch02c
+Environment: UNIX, MS-DOS, VMS
+Patch-To: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  EPSView.h EPSView.m EpsViewer.m patch.6
+# Wrapped by woo@ra-iris. on Thu May 28 22:44:39 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 7)."'
+if test -f 'EPSView.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'EPSView.h'\"
+else
+  echo shar: Extracting \"'EPSView.h'\" \(229 characters\)
+  sed "s/^X//" >'EPSView.h' <<'END_OF_FILE'
+X/*
+X * $Id: EPSView.h,v 3.24 1992/02/29 16:29:37 woo Exp woo $
+X *
+X * $Log: EPSView.h,v $
+X * Revision 3.24  1992/02/29  16:29:37  woo
+X * gnuplot3.2, beta 4
+X *
+X */
+X
+X#import <appkit/View.h>
+X
+X@interface EPSView:View {}
+X
+X+ new;
+X
+X@end
+X
+END_OF_FILE
+  if test 229 -ne `wc -c <'EPSView.h'`; then
+    echo shar: \"'EPSView.h'\" unpacked with wrong size!
+  fi
+  # end of 'EPSView.h'
+fi
+if test -f 'EPSView.m' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'EPSView.m'\"
+else
+  echo shar: Extracting \"'EPSView.m'\" \(364 characters\)
+  sed "s/^X//" >'EPSView.m' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: EPSView.m,v 3.24 1992/02/29 16:23:41 woo Exp woo $";
+X#endif
+X
+X/*
+X * $Log: EPSView.m,v $
+X# Revision 3.24  1992/02/29  16:23:41  woo
+X# gnuplot3.2, beta 4
+X#
+X * Revision 3.23  1992/02/21  20:18:16  woo
+X * gnuplot3.2, beta 3
+X *
+X */
+X
+X#import "EPSView.h"
+X
+X@implementation EPSView
+X
+X+ new
+X{
+X	self = [super new];
+X	return self;
+X}
+X
+X@end
+END_OF_FILE
+  if test 364 -ne `wc -c <'EPSView.m'`; then
+    echo shar: \"'EPSView.m'\" unpacked with wrong size!
+  fi
+  # end of 'EPSView.m'
+fi
+if test -f 'EpsViewer.m' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'EpsViewer.m'\"
+else
+  echo shar: Extracting \"'EpsViewer.m'\" \(2722 characters\)
+  sed "s/^X//" >'EpsViewer.m' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: EpsViewer.m,v 3.24 1992/02/29 16:27:40 woo Exp woo $";
+X#endif
+X
+X/*
+X * $Log: EpsViewer.m,v $
+X# Revision 3.24  1992/02/29  16:27:40  woo
+X# gnuplot3.2, beta 4
+X#
+X */
+X
+X#import "EpsViewer.h"
+X#import "EPSView.h"
+X#import <appkit/nextstd.h>
+X#import <appkit/OpenPanel.h>
+X
+X@implementation EpsViewer
+X
+X- windowCreate:(NXCoord) width Height:(NXCoord) height
+X{
+X	NXRect rect = {{0.0,0.0},{width,height}};
+X	
+X	/* create the new window, in a good place */
+X	theNewWin = [Window
+X		newContent:[self nextRectForWidth:width Height:height]
+X		style:NX_TITLEDSTYLE
+X		backing:NX_RETAINED
+X		buttonMask:(NX_CLOSEBUTTONMASK | NX_MINIATURIZEBUTTONMASK)
+X		defer:NO];
+X	/* we need to receive windowDidBecomeMain: and windowDidResignMain: */
+X	[theNewWin setDelegate:self];
+X	/*
+X	 * create a new EPSView, make it the contentView of our new window,
+X	 * and destroy the window's old contentView 
+X	 */
+X	[[theNewWin setContentView:[EPSView new]] free];
+X		/* display the window, and bring it forth */
+X	[theNewWin display];
+X	[theNewWin makeKeyAndOrderFront:self];	
+X/*	[theNewWin orderBack:self];			*/
+X	/* show the frame */
+X	return self;
+X}
+X 
+X/***************************************************************************/
+X/* nextRectForWidth:Height: - return the next good content rectangle       */
+X/*  from Carl F. Sutter's wonderful ViewGif2 'Controller' method...        */
+X/***************************************************************************/
+X/* nextTopLeft - return the next good top left window position		   */
+X/***************************************************************************/
+X
+X- (NXRect *)nextRectForWidth:(NXCoord)width Height:(NXCoord)height
+X{
+X#define OFFSET 10.0
+X#define MAX_STEPS 20
+X#define INITIAL_X 356.0
+X#define INITIAL_Y 241.0
+X	NXPoint         nxpTopLeft;
+X	NXRect          nxrTemp;	/* used to find window height	 */
+X	NXRect          nxrWinHeight;	/* bounds of enclosing window	 */
+X	NXSize          nxsScreen;	/* size of screen		 */
+X	static NXRect   nxrResult;	/* the Answer!			 */
+X	static int      nCurStep = 0;
+X
+X	/* find a good top-left coord */
+X	nxpTopLeft.x = INITIAL_X + nCurStep * OFFSET;
+X	nxpTopLeft.y = INITIAL_Y + nCurStep * OFFSET;
+X	if (++nCurStep > MAX_STEPS)
+X		nCurStep = 0;
+X	/* find window height using nxrTemp */
+X	nxrTemp.size.width = width;
+X	nxrTemp.size.height = height;
+X	nxrTemp.origin.x = nxrTemp.origin.y = 0;
+X	[Window getFrameRect:&nxrWinHeight forContentRect:&nxrTemp
+X	 style:NX_TITLEDSTYLE];
+X	[NXApp getScreenSize:&nxsScreen];
+X	/* find the lower-left coord */
+X	nxrResult.origin.x = nxpTopLeft.x;
+X	nxrResult.origin.y = nxsScreen.height - nxrWinHeight.size.height - nxpTopLeft.y;
+X	nxrResult.size.width = width;
+X	nxrResult.size.height = height;
+X	return (&nxrResult);
+X}
+X
+X@end
+X
+END_OF_FILE
+  if test 2722 -ne `wc -c <'EpsViewer.m'`; then
+    echo shar: \"'EpsViewer.m'\" unpacked with wrong size!
+  fi
+  # end of 'EpsViewer.m'
+fi
+if test -f 'patch.6' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.6'\"
+else
+  echo shar: Extracting \"'patch.6'\" \(44290 characters\)
+  sed "s/^X//" >'patch.6' <<'END_OF_FILE'
+Xdiff -rc gnuplot/util.c gnuplot3.2/util.c
+X*** gnuplot/util.c	Sun Jan  5 21:33:27 1992
+X--- gnuplot3.2/util.c	Wed Mar 25 08:00:04 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - util.c */
+X  /*
+X!  * Copyright (C) 1986, 1987, 1990, 1991   Thomas Williams, Colin Kelley
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X--- 1,10 ----
+X+ #ifndef lint
+X+ static char *RCSid = "$Id: util.c,v 3.26 92/03/24 22:34:43 woo Exp Locker: woo $";
+X+ #endif
+X+ 
+X  /* GNUPLOT - util.c */
+X  /*
+X!  * Copyright (C) 1986, 1987, 1990, 1991, 1992   Thomas Williams, Colin Kelley
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X***************
+X*** 27,37 ****
+X   *       Gershon Elber and many others.
+X   * 
+X   * Send your comments or suggestions to 
+X!  *  pixar!info-gnuplot@sun.com.
+X   * This is a mailing list; to join it send a note to 
+X!  *  pixar!info-gnuplot-request@sun.com.  
+X   * Send bug reports to
+X!  *  pixar!bug-gnuplot@sun.com.
+X   */
+X  
+X  #include <ctype.h>
+X--- 31,41 ----
+X   *       Gershon Elber and many others.
+X   * 
+X   * Send your comments or suggestions to 
+X!  *  info-gnuplot@ames.arc.nasa.gov.
+X   * This is a mailing list; to join it send a note to 
+X!  *  info-gnuplot-request@ames.arc.nasa.gov.  
+X   * Send bug reports to
+X!  *  bug-gnuplot@ames.arc.nasa.gov.
+X   */
+X  
+X  #include <ctype.h>
+Xdiff -rc gnuplot/version.c gnuplot3.2/version.c
+X*** gnuplot/version.c	Sun Jan  5 21:33:27 1992
+X--- gnuplot3.2/version.c	Wed Mar 25 08:00:04 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - version.c */
+X  /*
+X!  * Copyright (C) 1986, 1987, 1990, 1991   Thomas Williams, Colin Kelley
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X--- 1,10 ----
+X+ #ifndef lint
+X+ static char *RCSid = "$Id: version.c,v 3.26 92/03/24 22:34:44 woo Exp Locker: woo $";
+X+ #endif
+X+ 
+X  /* GNUPLOT - version.c */
+X  /*
+X!  * Copyright (C) 1986, 1987, 1990, 1991, 1992   Thomas Williams, Colin Kelley
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X***************
+X*** 27,45 ****
+X   *       Gershon Elber and many others.
+X   * 
+X   * Send your comments or suggestions to 
+X!  *  pixar!info-gnuplot@sun.com.
+X   * This is a mailing list; to join it send a note to 
+X!  *  pixar!info-gnuplot-request@sun.com.  
+X   * Send bug reports to
+X!  *  pixar!bug-gnuplot@sun.com.
+X   */
+X  
+X! char version[] = "3.0 ";
+X! char patchlevel[] = "1, Dec 1 91";
+X! char date[] = "Sun Dec 1 16:56:36 1991";
+X  
+X  /* override in Makefile */
+X  #ifndef CONTACT
+X! # define CONTACT "pixar!bug-gnuplot@sun.com"
+X  #endif
+X  char bug_email[] = CONTACT;
+X--- 31,49 ----
+X   *       Gershon Elber and many others.
+X   * 
+X   * Send your comments or suggestions to 
+X!  *  info-gnuplot@ames.arc.nasa.gov.
+X   * This is a mailing list; to join it send a note to 
+X!  *  info-gnuplot-request@ames.arc.nasa.gov.  
+X   * Send bug reports to
+X!  *  bug-gnuplot@ames.arc.nasa.gov.
+X   */
+X  
+X! char version[] = "3.2 ";
+X! char patchlevel[] = "2, Mar 24 92";
+X! char date[] = "Sat Mar 24 21:08:47 PST 1992";
+X  
+X  /* override in Makefile */
+X  #ifndef CONTACT
+X! # define CONTACT "bug-gnuplot@ames.arc.nasa.gov"
+X  #endif
+X  char bug_email[] = CONTACT;
+Xdiff -rc gnuplot/demo/1.dat gnuplot3.2/demo/1.dat
+X*** gnuplot/demo/1.dat	Mon Mar 26 14:59:14 1990
+X--- gnuplot3.2/demo/1.dat	Wed Mar 25 08:00:05 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: 1.dat,v 3.26 92/03/24 22:32:15 woo Exp Locker: woo $
+X+ #
+X  -20.000000 -3.041676
+X  -19.000000 -3.036427
+X  -18.000000 -3.030596
+Xdiff -rc gnuplot/demo/2.dat gnuplot3.2/demo/2.dat
+X*** gnuplot/demo/2.dat	Mon Mar 26 14:59:16 1990
+X--- gnuplot3.2/demo/2.dat	Wed Mar 25 08:00:06 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: 2.dat,v 3.26 92/03/24 22:32:16 woo Exp Locker: woo $
+X+ #
+X  -20.000000 -6.083352
+X  -19.000000 -6.072853
+X  -18.000000 -6.061191
+Xdiff -rc gnuplot/demo/3.dat gnuplot3.2/demo/3.dat
+X*** gnuplot/demo/3.dat	Mon Mar 26 14:59:16 1990
+X--- gnuplot3.2/demo/3.dat	Wed Mar 25 08:00:07 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: 3.dat,v 3.26 92/03/24 22:32:17 woo Exp Locker: woo $
+X+ #
+X  -20.000000 -9.125028
+X  -19.000000 -9.109280
+X  -18.000000 -9.091787
+Xdiff -rc gnuplot/demo/all.demo gnuplot3.2/demo/all.demo
+X*** gnuplot/demo/all.demo	Sun Sep 15 10:22:14 1991
+X--- gnuplot3.2/demo/all.demo	Wed Mar 25 08:00:08 1992
+X***************
+X*** 1,4 ****
+X--- 1,7 ----
+X  #
+X+ # $Id: all.demo,v 3.26 92/03/24 22:32:37 woo Exp Locker: woo $
+X+ #
+X+ #
+X  # Executes ALL demos in this directory, in functionality order.
+X  #
+X  
+X***************
+X*** 34,39 ****
+X--- 37,45 ----
+X  
+X  pause 0 "******************** file contours.demo ********************"
+X  load "contours.demo"
+X+ 
+X+ pause 0 "******************** file hidden.demo ********************"
+X+ load "hidden.demo"
+X  
+X  pause 0 "******************** file world.demo ********************"
+X  load "world.demo"
+Xdiff -rc gnuplot/demo/antenna.dat gnuplot3.2/demo/antenna.dat
+X*** gnuplot/demo/antenna.dat	Tue Jul  2 10:34:30 1991
+X--- gnuplot3.2/demo/antenna.dat	Wed Mar 25 08:00:09 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: antenna.dat,v 3.26 92/03/24 22:32:36 woo Exp Locker: woo $
+X+ #
+X     0.000  90.007E-01 -35.926E+00 -71.297E+00  90.783E-01
+X     2.000  81.667E-01  13.355E-02 -32.735E+00  89.007E-01
+X     4.000  60.696E-01  40.782E-01 -28.040E+00  83.501E-01
+Xdiff -rc gnuplot/demo/bivariat.demo gnuplot3.2/demo/bivariat.demo
+X*** gnuplot/demo/bivariat.demo	Sun Sep 15 10:42:52 1991
+X--- gnuplot3.2/demo/bivariat.demo	Wed Mar 25 08:00:09 1992
+X***************
+X*** 1,4 ****
+X--- 1,7 ----
+X  #
+X+ # $Id: bivariat.demo,v 3.26 92/03/24 22:32:38 woo Exp Locker: woo $
+X+ #
+X+ #
+X  # This demo is very slow and requires unusually large stack size.
+X  # Do not attempt to run this demo under MSDOS.
+X  #
+Xdiff -rc gnuplot/demo/contours.demo gnuplot3.2/demo/contours.demo
+X*** gnuplot/demo/contours.demo	Mon Aug  5 07:51:37 1991
+X--- gnuplot3.2/demo/contours.demo	Wed Mar 25 08:00:10 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: contours.demo,v 3.26 92/03/24 22:32:18 woo Exp Locker: woo $
+X+ #
+X  set samples 20
+X  set isosamples 21
+X  set xlabel "X axis" -5,-2
+Xdiff -rc gnuplot/demo/controls.demo gnuplot3.2/demo/controls.demo
+X*** gnuplot/demo/controls.demo	Mon Mar 26 14:59:16 1990
+X--- gnuplot3.2/demo/controls.demo	Wed Mar 25 08:00:11 1992
+X***************
+X*** 1,4 ****
+X--- 1,7 ----
+X  #
+X+ # $Id: controls.demo,v 3.26 92/03/24 22:32:19 woo Exp Locker: woo $
+X+ #
+X+ #
+X  # warning:  this demo is SLOW on PCs without math coprocessors!
+X  #
+X  # From _Automatic_Control_Systems_, fourth ed., figure 6-14
+Xdiff -rc gnuplot/demo/electron.demo gnuplot3.2/demo/electron.demo
+X*** gnuplot/demo/electron.demo	Sun Sep 15 10:43:22 1991
+X--- gnuplot3.2/demo/electron.demo	Wed Mar 25 08:00:12 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: electron.demo,v 3.26 92/03/24 22:32:20 woo Exp Locker: woo $
+X+ #
+X  # Electronics demo
+X  #
+X  # Bipolar Transistor (NPN) Mutual Characteristic
+Xdiff -rc gnuplot/demo/err.dat gnuplot3.2/demo/err.dat
+X*** gnuplot/demo/err.dat	Sun Jun 23 09:18:38 1991
+X--- gnuplot3.2/demo/err.dat	Wed Mar 25 08:00:12 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: err.dat,v 3.26 92/03/24 22:32:32 woo Exp Locker: woo $
+X+ #
+X  0	11.062	9.757	12.667	2.345
+X  2	9.212	8.0908	10.932	1.725
+X  5	8.55	7.6612	9.0388	2.846
+Xdiff -rc gnuplot/demo/errorbar.demo gnuplot3.2/demo/errorbar.demo
+X*** gnuplot/demo/errorbar.demo	Sun Sep 15 10:43:49 1991
+X--- gnuplot3.2/demo/errorbar.demo	Wed Mar 25 08:00:13 1992
+X***************
+X*** 1,4 ****
+X--- 1,7 ----
+X  #
+X+ # $Id: errorbar.demo,v 3.26 92/03/24 22:32:35 woo Exp Locker: woo $
+X+ #
+X+ #
+X  # Requires data file "err.dat" from this directory,
+X  # so change current working directory to this directory before running.
+X  # gnuplot> set term <term-type>
+Xdiff -rc gnuplot/demo/glass.dat gnuplot3.2/demo/glass.dat
+X*** gnuplot/demo/glass.dat	Tue Jan  1 08:38:10 1991
+X--- gnuplot3.2/demo/glass.dat	Wed Mar 25 08:00:14 1992
+X***************
+X*** 1,4 ****
+X--- 1,7 ----
+X  #
+X+ # $Id: glass.dat,v 3.26 92/03/24 22:32:21 woo Exp Locker: woo $
+X+ #
+X+ #
+X  # 16x16 grid Glass shape. Created Using DRAWFN3D, Gershon Elber 1990.
+X  #
+X    0.568000   0.000000  -0.911000
+XOnly in gnuplot3.2/demo: hidden.demo
+Xdiff -rc gnuplot/demo/param.demo gnuplot3.2/demo/param.demo
+X*** gnuplot/demo/param.demo	Sun Sep 15 10:44:05 1991
+X--- gnuplot3.2/demo/param.demo	Wed Mar 25 08:00:15 1992
+X***************
+X*** 1,4 ****
+X--- 1,7 ----
+X  #
+X+ # $Id: param.demo,v 3.26 92/03/24 22:32:22 woo Exp Locker: woo $
+X+ #
+X+ #
+X  # Show some of the new parametric capabilities.
+X  #
+X  set parametric
+Xdiff -rc gnuplot/demo/polar.dat gnuplot3.2/demo/polar.dat
+X*** gnuplot/demo/polar.dat	Tue Jul  2 10:34:31 1991
+X--- gnuplot3.2/demo/polar.dat	Wed Mar 25 08:00:15 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: polar.dat,v 3.26 92/03/24 22:32:34 woo Exp Locker: woo $
+X+ #
+X  # Input data ncmain.d4 generated by genpat2.f:Tx antenna pattern
+X  # x,y,z of center point B in coord 3
+X  #     -5.12000     0.00000    -1.50000  
+Xdiff -rc gnuplot/demo/polar.demo gnuplot3.2/demo/polar.demo
+X*** gnuplot/demo/polar.demo	Sun Sep 15 10:44:33 1991
+X--- gnuplot3.2/demo/polar.demo	Wed Mar 25 08:00:16 1992
+X***************
+X*** 1,4 ****
+X--- 1,7 ----
+X  #
+X+ # $Id: polar.demo,v 3.26 92/03/24 22:32:23 woo Exp Locker: woo $
+X+ #
+X+ #
+X  # Show some of the new polar capabilities.
+X  #
+X  set polar
+Xdiff -rc gnuplot/demo/poldat.demo gnuplot3.2/demo/poldat.demo
+X*** gnuplot/demo/poldat.demo	Sun Sep 15 10:44:43 1991
+X--- gnuplot3.2/demo/poldat.demo	Wed Mar 25 08:00:17 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: poldat.demo,v 3.26 92/03/24 22:32:33 woo Exp Locker: woo $
+X+ #
+X  set samples 361
+X  set size .757,1.0
+X  set time
+Xdiff -rc gnuplot/demo/simple.demo gnuplot3.2/demo/simple.demo
+X*** gnuplot/demo/simple.demo	Sun Sep 15 10:44:58 1991
+X--- gnuplot3.2/demo/simple.demo	Wed Mar 25 08:00:17 1992
+X***************
+X*** 1,4 ****
+X--- 1,7 ----
+X  #
+X+ # $Id: simple.demo,v 3.26 92/03/24 22:32:24 woo Exp Locker: woo $
+X+ #
+X+ #
+X  # Requires data files "[123].dat" from this directory,
+X  # so change current working directory to this directory before running.
+X  # gnuplot> set term <term-type>
+Xdiff -rc gnuplot/demo/surface1.demo gnuplot3.2/demo/surface1.demo
+X*** gnuplot/demo/surface1.demo	Sun Aug 25 12:39:46 1991
+X--- gnuplot3.2/demo/surface1.demo	Wed Mar 25 08:00:18 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: surface1.demo,v 3.26 92/03/24 22:32:25 woo Exp Locker: woo $
+X+ #
+X  set samples 21
+X  set isosample 11
+X  set xlabel "X axis" -3,-2
+Xdiff -rc gnuplot/demo/surface2.demo gnuplot3.2/demo/surface2.demo
+X*** gnuplot/demo/surface2.demo	Mon Aug  5 07:51:55 1991
+X--- gnuplot3.2/demo/surface2.demo	Wed Mar 25 08:00:18 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: surface2.demo,v 3.26 92/03/24 22:32:26 woo Exp Locker: woo $
+X+ #
+X  set parametric
+X  set samples 50
+X  
+Xdiff -rc gnuplot/demo/using.dat gnuplot3.2/demo/using.dat
+X*** gnuplot/demo/using.dat	Sun Nov 25 07:15:30 1990
+X--- gnuplot3.2/demo/using.dat	Wed Mar 25 08:00:19 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: using.dat,v 3.26 92/03/24 22:32:26 woo Exp Locker: woo $
+X+ #
+X  891101 00   1.00  14   8.6  94.0
+X  891101 01   1.04  10  17.5  94.4
+X  891101 02   1.08   9   9.7  97.1
+Xdiff -rc gnuplot/demo/using.demo gnuplot3.2/demo/using.demo
+X*** gnuplot/demo/using.demo	Wed May 29 12:44:29 1991
+X--- gnuplot3.2/demo/using.demo	Wed Mar 25 08:00:20 1992
+X***************
+X*** 1,4 ****
+X--- 1,7 ----
+X  #
+X+ # $Id: using.demo,v 3.26 92/03/24 22:32:27 woo Exp Locker: woo $
+X+ #
+X+ #
+X  # Requires data file "using.dat" from this directory,
+X  # so change current working directory to this directory before running.
+X  #
+Xdiff -rc gnuplot/demo/world.cor gnuplot3.2/demo/world.cor
+X*** gnuplot/demo/world.cor	Sun Jan  5 21:33:28 1992
+X--- gnuplot3.2/demo/world.cor	Wed Mar 25 08:00:21 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: world.cor,v 3.26 92/03/24 22:32:28 woo Exp Locker: woo $
+X+ #
+X  # Gnuplot world correspondences.  Feel free to check for and update
+X  # your site; especially if it represents a new location or you
+X  # know more precise coordinates for a site.  A (?) indicates
+X***************
+X*** 76,78 ****
+X--- 79,82 ----
+X  7 51.5         # Fraunhofer Institut, Duisburg, Germany
+X  8 48           # Freiburg im Br.  (Federal Republic of Germany)
+X  8 52           # Univesity of Dortmund, Federal Republic of Germany
+X+ 11.5 48        # Technische Universitaet Muenchen, Munich, Germany
+Xdiff -rc gnuplot/demo/world.dat gnuplot3.2/demo/world.dat
+X*** gnuplot/demo/world.dat	Sun May 26 13:35:38 1991
+X--- gnuplot3.2/demo/world.dat	Wed Mar 25 08:00:21 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: world.dat,v 3.26 92/03/24 22:32:29 woo Exp Locker: woo $
+X+ #
+X  -140.37  60.25
+X  -132.08  57.20
+X  -131.46  55.98
+Xdiff -rc gnuplot/demo/world.demo gnuplot3.2/demo/world.demo
+X*** gnuplot/demo/world.demo	Mon Aug  5 07:59:13 1991
+X--- gnuplot3.2/demo/world.demo	Wed Mar 25 08:00:22 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: world.demo,v 3.26 92/03/24 22:32:31 woo Exp Locker: woo $
+X+ #
+X  set title "Gnuplot Correspondences"
+X  set nokey
+X  set noborder
+Xdiff -rc gnuplot/docs/Makefile gnuplot3.2/docs/Makefile
+X*** gnuplot/docs/Makefile	Thu Aug 22 07:02:07 1991
+X--- gnuplot3.2/docs/Makefile	Wed Mar 25 08:00:23 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ #
+X+ # $Id: Makefile,v 3.26 1992/03/25 04:53:29 woo Exp woo $
+X+ #
+X  # Makefile for GNUPLOT documentation
+X  #
+X  # Note that the top-level file for documentation is gnuplot.doc.
+X***************
+X*** 12,18 ****
+X  #   or
+X  #    make "TROFF=itroff" troff    (for troff; use your troff here)
+X  #
+X! # $Id: Makefile,v 1.1 90/01/11 15:43:03 dfk Exp Locker: dfk $
+X  
+X  # usually overridden by ../Makefile
+X  HELPDEST = /usr/local/lib/
+X--- 15,21 ----
+X  #   or
+X  #    make "TROFF=itroff" troff    (for troff; use your troff here)
+X  #
+X! # $Id: Makefile,v 3.26 1992/03/25 04:53:29 woo Exp woo $
+X  
+X  # usually overridden by ../Makefile
+X  HELPDEST = /usr/local/lib/
+Xdiff -rc gnuplot/docs/Makefile.ami gnuplot3.2/docs/Makefile.ami
+X*** gnuplot/docs/Makefile.ami	Wed Sep  4 12:54:52 1991
+X--- gnuplot3.2/docs/Makefile.ami	Wed Mar 25 08:00:24 1992
+X***************
+X*** 1,4 ****
+X--- 1,6 ----
+X  #
+X+ # $Id: Makefile.ami,v 3.26 1992/03/25 04:53:29 woo Exp woo $
+X+ #
+X  # Makefile for GNUPLOT documentation (Aztec C v5.xx Version)
+X  #
+X  # Note that the top-level file for documentation is gnuplot.doc.
+X***************
+X*** 13,19 ****
+X  #   or
+X  #    make "TROFF=itroff" troff    (for troff; use your troff for itroff here)
+X  #
+X! # $Id: Makefile,v 1.1 90/01/11 15:43:03 dfk Exp Locker: dfk $
+X  
+X  # usually overridden by ../Makefile
+X  HELPDEST = /usr/local/lib/
+X--- 15,21 ----
+X  #   or
+X  #    make "TROFF=itroff" troff    (for troff; use your troff for itroff here)
+X  #
+X! # $Id: Makefile.ami,v 3.26 1992/03/25 04:53:29 woo Exp woo $
+X  
+X  # usually overridden by ../Makefile
+X  HELPDEST = /usr/local/lib/
+Xdiff -rc gnuplot/docs/checkdoc.c gnuplot3.2/docs/checkdoc.c
+X*** gnuplot/docs/checkdoc.c	Mon Mar 26 14:59:30 1990
+X--- gnuplot3.2/docs/checkdoc.c	Wed Mar 25 08:00:24 1992
+X***************
+X*** 1,3 ****
+X--- 1,7 ----
+X+ #ifndef lint
+X+ static char *RCSid = "$Id: checkdoc.c,v 3.26 1992/03/25 04:53:29 woo Exp woo $";
+X+ #endif
+X+ 
+X  /*
+X   * checkdoc -- check a doc file for correctness of first column. 
+X   *
+Xdiff -rc gnuplot/docs/doc2gih.c gnuplot3.2/docs/doc2gih.c
+X*** gnuplot/docs/doc2gih.c	Thu Jul 11 08:32:57 1991
+X--- gnuplot3.2/docs/doc2gih.c	Wed Mar 25 08:00:24 1992
+X***************
+X*** 1,3 ****
+X--- 1,7 ----
+X+ #ifndef lint
+X+ static char *RCSid = "$Id: doc2gih.c,v 3.26 92/03/25 04:53:29 woo Exp Locker: woo $";
+X+ #endif
+X+ 
+X  /*
+X   * doc2gih.c  -- program to convert Gnuplot .DOC format to gnuplot
+X   * interactive help (.GIH) format.
+Xdiff -rc gnuplot/docs/doc2hlp.c gnuplot3.2/docs/doc2hlp.c
+X*** gnuplot/docs/doc2hlp.c	Thu Jul 11 08:34:22 1991
+X--- gnuplot3.2/docs/doc2hlp.c	Wed Mar 25 08:00:25 1992
+X***************
+X*** 1,3 ****
+X--- 1,7 ----
+X+ #ifndef lint
+X+ static char *RCSid = "$Id: doc2hlp.c,v 3.26 1992/03/25 04:53:29 woo Exp woo $";
+X+ #endif
+X+ 
+X  /*
+X   * doc2hlp.c  -- program to convert Gnuplot .DOC format to 
+X   * VMS help (.HLP) format.
+Xdiff -rc gnuplot/docs/doc2ms.c gnuplot3.2/docs/doc2ms.c
+X*** gnuplot/docs/doc2ms.c	Mon Aug 26 18:56:37 1991
+X--- gnuplot3.2/docs/doc2ms.c	Wed Mar 25 08:00:25 1992
+X***************
+X*** 1,3 ****
+X--- 1,7 ----
+X+ #ifndef lint
+X+ static char *RCSid = "$Id: doc2ms.c,v 3.26 1992/03/25 04:53:29 woo Exp woo $";
+X+ #endif
+X+ 
+X  /*
+X   * doc2ms.c  -- program to convert Gnuplot .DOC format to *roff -ms document
+X   * From hlp2ms by Thomas Williams 
+X***************
+X*** 18,24 ****
+X   *   doc2ms < gnuplot.doc | troff -ms
+X   */
+X  
+X! static char rcsid[] = "$Id: doc2ms.c,v 1.1 90/01/11 15:43:54 dfk Exp Locker: dfk $";
+X  
+X  #include <stdio.h>
+X  #include <ctype.h>
+X--- 22,28 ----
+X   *   doc2ms < gnuplot.doc | troff -ms
+X   */
+X  
+X! static char rcsid[] = "$Id: doc2ms.c,v 3.26 1992/03/25 04:53:29 woo Exp woo $";
+X  
+X  #include <stdio.h>
+X  #include <ctype.h>
+X***************
+X*** 83,94 ****
+X  	   }
+X  	   case '@': {			/* start/end table */
+X  		  if (intable) {
+X! 			 (void) fputs(".TE\n", b);
+X  			 (void) fputs(".EQ\ndelim off\n.EN\n\n",b);
+X  			 intable = FALSE;
+X  		  } else {
+X  			 (void) fputs("\n.EQ\ndelim $$\n.EN\n",b);
+X! 			 (void) fputs(".TS\ncenter box tab (@) ;\n", b);
+X  			 (void) fputs("c c l .\n", b);
+X  			 intable = TRUE;
+X  		  }
+X--- 87,98 ----
+X  	   }
+X  	   case '@': {			/* start/end table */
+X  		  if (intable) {
+X! 			 (void) fputs(".TE\n.KE\n", b);
+X  			 (void) fputs(".EQ\ndelim off\n.EN\n\n",b);
+X  			 intable = FALSE;
+X  		  } else {
+X  			 (void) fputs("\n.EQ\ndelim $$\n.EN\n",b);
+X! 			 (void) fputs(".KS\n.TS\ncenter box tab (@) ;\n", b);
+X  			 (void) fputs("c c l .\n", b);
+X  			 intable = TRUE;
+X  		  }
+Xdiff -rc gnuplot/docs/doc2tex.c gnuplot3.2/docs/doc2tex.c
+X*** gnuplot/docs/doc2tex.c	Fri Aug 23 12:40:49 1991
+X--- gnuplot3.2/docs/doc2tex.c	Wed Mar 25 08:00:26 1992
+X***************
+X*** 1,3 ****
+X--- 1,7 ----
+X+ #ifndef lint
+X+ static char *RCSid = "$Id: doc2tex.c,v 3.26 1992/03/25 04:53:29 woo Exp woo $";
+X+ #endif
+X+ 
+X  /*
+X   * doc2tex.c  -- program to convert Gnuplot .DOC format to LaTeX document
+X   * Also will work for VMS .HLP files. 
+X***************
+X*** 15,21 ****
+X   *   latex gnuplot.tex ; latex gnuplot.tex
+X   */
+X  
+X! static char rcsid[] = "$Id: doc2tex.c,v 1.1 90/01/11 15:44:06 dfk Exp Locker: dfk $";
+X  
+X  #include <stdio.h>
+X  #include <ctype.h>
+X--- 19,25 ----
+X   *   latex gnuplot.tex ; latex gnuplot.tex
+X   */
+X  
+X! static char rcsid[] = "$Id: doc2tex.c,v 3.26 1992/03/25 04:53:29 woo Exp woo $";
+X  
+X  #include <stdio.h>
+X  #include <ctype.h>
+Xdiff -rc gnuplot/docs/gnuplot.1 gnuplot3.2/docs/gnuplot.1
+X*** gnuplot/docs/gnuplot.1	Thu Sep  5 09:26:56 1991
+X--- gnuplot3.2/docs/gnuplot.1	Wed Mar 25 08:00:27 1992
+X***************
+X*** 91,101 ****
+X  with X servers. The \fIX11\fP terminal type provides differing colors as well 
+X  as shapes for the \fIpoints\fP plotting style. The two types are otherwise 
+X  identical.  When used with either of these terminal types, \fIgnuplot\fP
+X! honors all the standard X Toolkit options and resources such as geometry, font,
+X! foreground and background. See the X(1) man page for a description of
+X! the options. For color or grayscale displays \fIgnuplot\fP also honors 
+X  the following resources (shown here with default values):
+X  .sp
+X  .B  "gnuplot*textColor: black"
+X  .br 
+X  .B  "gnuplot*borderColor: black"
+X--- 91,114 ----
+X  with X servers. The \fIX11\fP terminal type provides differing colors as well 
+X  as shapes for the \fIpoints\fP plotting style. The two types are otherwise 
+X  identical.  When used with either of these terminal types, \fIgnuplot\fP
+X! accepts all the standard X Toolkit options and resources such as geometry, font,
+X! and background. See the X(1) man page for a description of
+X! the options. 
+X! .PP
+X! In addition to the X Toolkit options, there are three more
+X! command line options. \fB\-mono\fP forces monochrome rendering on
+X! color displays.
+X! \fB\-gray\fP requests grayscale rendering on grayscale or color displays. 
+X! (Grayscale displays receive monochrome rendering by default.) 
+X! \fB\-clear\fP requests that the window be cleared momentarily before a
+X! new plot is displayed. These options may also be controlled with resources.
+X! For example: \fBgnuplot*gray: on\fP .
+X! 
+X! For color displays \fIgnuplot\fP honors 
+X  the following resources (shown here with default values):
+X  .sp
+X+ .B  "gnuplot*background: white"
+X+ .br 
+X  .B  "gnuplot*textColor: black"
+X  .br 
+X  .B  "gnuplot*borderColor: black"
+X***************
+X*** 118,123 ****
+X--- 131,166 ----
+X  .br 
+X  .B  "gnuplot*line8Color: coral"
+X  .br 
+X+ 
+X+ When \fB\-gray\fP is selected, \fIgnuplot\fP honors 
+X+ the following resources for grayscale or color displays (shown here with 
+X+ default values). Note that the default background is black.
+X+ .sp
+X+ .B  "gnuplot*background: black"
+X+ .br 
+X+ .B  "gnuplot*textGray: white"
+X+ .br 
+X+ .B  "gnuplot*borderGray: gray50"
+X+ .br 
+X+ .B  "gnuplot*axisGray: gray50"
+X+ .br 
+X+ .B  "gnuplot*line1Gray: gray100"
+X+ .br 
+X+ .B  "gnuplot*line2Gray: gray60"
+X+ .br 
+X+ .B  "gnuplot*line3Gray: gray80"
+X+ .br 
+X+ .B  "gnuplot*line4Gray: gray40"
+X+ .br 
+X+ .B  "gnuplot*line5Gray: gray90"
+X+ .br 
+X+ .B  "gnuplot*line6Gray: gray50"
+X+ .br 
+X+ .B  "gnuplot*line7Gray: gray70"
+X+ .br 
+X+ .B  "gnuplot*line8Gray: gray30"
+X+ .br 
+X+ 
+X  .PP
+X  The size or aspect ratio of a plot may be changed by resizing the
+X  .I gnuplot
+X***************
+X*** 125,131 ****
+X  .SH AUTHORS
+X  Thomas Williams, Pixar Corporation, 
+X  .br
+X! (pixar!info-gnuplot@sun.com)
+X  .br
+X  and Colin Kelley.
+X  .PP
+X--- 168,174 ----
+X  .SH AUTHORS
+X  Thomas Williams, Pixar Corporation, 
+X  .br
+X! (info-gnuplot@ames.arc.nasa.gov)
+X  .br
+X  and Colin Kelley.
+X  .PP
+Xdiff -rc gnuplot/docs/gnuplot.doc gnuplot3.2/docs/gnuplot.doc
+X*** gnuplot/docs/gnuplot.doc	Sun Jan  5 21:33:30 1992
+X--- gnuplot3.2/docs/gnuplot.doc	Wed Mar 25 08:00:28 1992
+X***************
+X*** 729,735 ****
+X           10
+X   
+X   Note datafile.dat defines a 4 by 3 grid ( 4 rows of 3 points each ).
+X!  Rows are seperated by blank lines.
+X   
+X   For more information about 3-d plotting, see `splot`.
+X  4 using
+X--- 729,745 ----
+X           10
+X   
+X   Note datafile.dat defines a 4 by 3 grid ( 4 rows of 3 points each ).
+X!  Rows are separated by blank lines.
+X! 
+X!  On some computer systems with a popen function (UNIX), the datafile
+X!  can be piped through a shell command by starting the file name
+X!  with a '<'.  For example:
+X! 
+X!          pop(x) = 103*exp(x/10)
+X!          plot '< awk "{print $1-1965 $2}" population.dat', pop(x)
+X! 
+X!  would plot the same information as the first population example
+X!  but with years since 1965 as the x axis.
+X   
+X   For more information about 3-d plotting, see `splot`.
+X  4 using
+X***************
+X*** 1302,1308 ****
+X          set noclip
+X   `set clip` is synonymous with `set clip points`. `set noclip` turns
+X   off all three types of clipping.
+X! 3 Cntrparam
+X  ?set cntrparam
+X  ?show cntrparam
+X  ?cntrparam
+X--- 1312,1318 ----
+X          set noclip
+X   `set clip` is synonymous with `set clip points`. `set noclip` turns
+X   off all three types of clipping.
+X! 3 cntrparam
+X  ?set cntrparam
+X  ?show cntrparam
+X  ?cntrparam
+X***************
+X*** 1464,1469 ****
+X--- 1474,1501 ----
+X           set grid
+X           set nogrid
+X           show grid
+X+ 3 hidden3d
+X+ ?set hidden3d
+X+ ?show hidden3d
+X+  The `set hidden3d` command enables hidden line removal for explicit
+X+  surface plotting (see `splot`).
+X+  Hidden line removal may be used for both explicit functions
+X+  and for explicit data where gnuplot plot is in nonparametric mode (see
+X+  `set parametric`).
+X+  
+X+  When this flag is set both the surface hidden portion and possibly
+X+  its hidden contours (see `set contour`) as well as the hidden grid will be
+X+  removed. Labels and arrows are always visible and are unaffected by this
+X+  command.
+X+  
+X+  Each surface has its hidden part removed with respect to itself, if more
+X+  than one surface is ploted. This mode is meaningfull when surfaces are
+X+  plotted using line style drawing only.
+X+ 
+X+  Syntax:
+X+          set hidden3d
+X+          set nohidden3d
+X+          show hidden3d
+X  3 isosamples
+X  ?set isosamples
+X  ?show isosamples
+X***************
+X*** 1658,1663 ****
+X--- 1690,1707 ----
+X   
+X   The filename must be enclosed in quotes. If the filename is
+X   omitted, output will be sent to the standard output.
+X+ 
+X+  On machines with popen functions (UNIX), output can be piped
+X+  through a shell command if the first letter of the filename
+X+  is '|'.  For instance,
+X+  
+X+  Syntax:
+X+          set output "|lpr -Plaser filename"
+X+          set output "|lp -dlaser filename"
+X+ 
+X+  (On MSDOS machines, set output "prn" will direct the output
+X+  to the default printer.)
+X+ 
+X  3 parametric
+X  ?set parametric
+X  ?set noparametric
+X***************
+X*** 1810,1815 ****
+X--- 1854,1861 ----
+X           set size
+X   To make the plot half size use:
+X           set size 0.5,0.5
+X+  To make a landscape plot have a 1:1 aspect ratio in polar mode use:
+X+          set size 0.721,1.0
+X   To show the size use:
+X           show size
+X   
+X***************
+X*** 1950,1955 ****
+X--- 1996,2027 ----
+X   This file has exactly 12 lines of RGB triples. No empty lines are
+X   allowed and anything after the third number in line is ignored.
+X   
+X+ 4 pbm
+X+ ?set terminal pbm
+X+ ?pbm
+X+  Several options may be set in the PBMplus driver.
+X+ 
+X+  Syntax:
+X+          set terminal pbm {<fontsize>}
+X+          set terminal pgm {<fontsize>}
+X+          set terminal ppm {<fontsize>}
+X+ 
+X+  where <fontsize> is `small`, `medium`, or `large`. 
+X+  Default size is 640 pixels wide and 480 pixels high.
+X+  The pbm output is a portable bitmap (one bit per pixel).
+X+  The pgm output is a portable graymap (three bits per pixel). 	
+X+  The ppm output is a portable pixmap (color, four bits per pixel).
+X+  The output of these drivers can be used with Jef Poskanzer's 
+X+  excellent PBMPLUS package which provides programs to convert
+X+  the above PBMPLUS formats to GIF, TIFF, MacPaint, Macintosh PICT,
+X+  PCX, X11 bitmap and many others. 
+X+ 
+X+  Examples:
+X+  
+X+          set term pbm small
+X+          set size 2,2
+X+          set term ppm medium
+X+  
+X  4 postscript
+X  ?set terminal postscript
+X  ?postscript
+X***************
+X*** 2010,2015 ****
+X--- 2082,2095 ----
+X           set size 0.7,1.4
+X           set term aifm color "Times-Roman" 14 
+X   
+X+ 4 table
+X+ ?set terminal table
+X+ ?table
+X+  Instead of producing a picture, term type 'table' prints out
+X+  the evaluation results in a multicolumn ASCII table of X Y Z values.
+X+  For those times when you really want to see the numbers, now you
+X+  can see them on the screen or save to a file.
+X+ 
+X  3 tics
+X  ?set tics
+X  ?show tics
+X***************
+X*** 2581,2585 ****
+X   system.  HUGE should be set to 1e38 in plot.h. This error has been
+X   corrected in the 2.1 version of NeXT OS.
+X  
+X!  Please report any bugs to pixar!bug-gnuplot@sun.com or
+X!  pixar!bug-gnuplot@ucbvax.berkeley.edu.
+X--- 2661,2670 ----
+X   system.  HUGE should be set to 1e38 in plot.h. This error has been
+X   corrected in the 2.1 version of NeXT OS.
+X  
+X!  Some older models of HP plotters do not have a page eject command 'PG'.
+X!  The current HPGL driver uses this command in HPGL_reset.  This may need
+X!  to be removed for these plotters.  The current PCL5 driver uses HPGL/2
+X!  for text as well as graphics.  This should be modified to use scalable
+X!  PCL fonts.
+X! 
+X!  Please report any bugs to bug-gnuplot@ames.arc.nasa.gov.
+XCommon subdirectories: gnuplot/docs/latextut and gnuplot3.2/docs/latextut
+Xdiff -rc gnuplot/docs/titlepage.ms gnuplot3.2/docs/titlepage.ms
+X*** gnuplot/docs/titlepage.ms	Mon Aug 26 19:00:46 1991
+X--- gnuplot3.2/docs/titlepage.ms	Wed Mar 25 08:00:29 1992
+X***************
+X*** 26,34 ****
+X    Alex Woo
+X  
+X  .AI
+X!    Mailing list for comments: pixar!info-gnuplot@sun.com
+X  .br
+X!    Mailing list for bug reports: pixar!bug-gnuplot@sun.com
+X  \*(DY
+X  .br
+X  
+X--- 26,34 ----
+X    Alex Woo
+X  
+X  .AI
+X!    Mailing list for comments: info-gnuplot@ames.arc.nasa.gov
+X  .br
+X!    Mailing list for bug reports: bug-gnuplot@ames.arc.nasa.gov
+X  \*(DY
+X  .br
+X  
+X***************
+X*** 37,49 ****
+X  
+X  
+X  
+X! This manual is for GNUPLOT version 3.0.
+X  .AB no
+X  .AE
+X  .LP
+X  .nr HM 1.2i
+X  .ds CH
+X! .ds LH GNUPLOT 3.0
+X  .ds RH %
+X  .\".nr PS 12
+X  .\".nr VS 13
+X--- 37,49 ----
+X  
+X  
+X  
+X! This manual is for GNUPLOT version 3.2
+X  .AB no
+X  .AE
+X  .LP
+X  .nr HM 1.2i
+X  .ds CH
+X! .ds LH GNUPLOT 3.2
+X  .ds RH %
+X  .\".nr PS 12
+X  .\".nr VS 13
+Xdiff -rc gnuplot/docs/titlepage.tex gnuplot3.2/docs/titlepage.tex
+X*** gnuplot/docs/titlepage.tex	Mon Aug  5 08:45:47 1991
+X--- gnuplot3.2/docs/titlepage.tex	Wed Mar 25 08:00:30 1992
+X***************
+X*** 1,3 ****
+X--- 1,6 ----
+X+ %
+X+ % $Id: titlepage.tex,v 3.26 1992/03/25 04:53:29 woo Exp woo $
+X+ %
+X  \documentstyle[toc_entry]{article}
+X  \setlength{\textwidth}{6.25in}
+X  \setlength{\oddsidemargin}{0.5cm}
+X***************
+X*** 29,39 ****
+X    Alex Woo\\
+X  
+X     \vspace{3ex}
+X!    Mailing list for comments: \verb+pixar!info-gnuplot@sun.com+\\
+X!    Mailing list for bug reports: \verb+pixar!bug-gnuplot@sun.com+
+X  
+X     \vfill
+X!    {\small This manual is for GNUPLOT version 3.0.}
+X  
+X     \end{center}
+X  \newpage
+X--- 32,42 ----
+X    Alex Woo\\
+X  
+X     \vspace{3ex}
+X!    Mailing list for comments: \verb+info-gnuplot@ames.arc.nasa.gov+\\
+X!    Mailing list for bug reports: \verb+bug-gnuplot@ames.arc.nasa.gov+
+X  
+X     \vfill
+X!    {\small This manual is for GNUPLOT version 3.2}
+X  
+X     \end{center}
+X  \newpage
+X***************
+X*** 43,46 ****
+X  
+X  \setcounter{page}{1}
+X  \pagestyle{myheadings}
+X! \markboth{GNUPLOT 3.0}{GNUPLOT 3.0}
+X--- 46,49 ----
+X  
+X  \setcounter{page}{1}
+X  \pagestyle{myheadings}
+X! \markboth{GNUPLOT 3.2}{GNUPLOT 3.2}
+Xdiff -rc gnuplot/docs/toc_entry.sty gnuplot3.2/docs/toc_entry.sty
+X*** gnuplot/docs/toc_entry.sty	Thu May 30 07:18:38 1991
+X--- gnuplot3.2/docs/toc_entry.sty	Wed Mar 25 08:00:30 1992
+X***************
+X*** 1,4 ****
+X--- 1,6 ----
+X  %
+X+ % $Id: toc_entry.sty,v 3.26 1992/03/25 04:53:29 woo Exp woo $
+X+ %
+X  % TOC_ENTRY.STY of 13 Dec 90
+X  % written by Stefan Timphus
+X  %
+Xdiff -rc gnuplot/term/aed.trm gnuplot3.2/term/aed.trm
+X*** gnuplot/term/aed.trm	Mon Mar 26 15:02:16 1990
+X--- gnuplot3.2/term/aed.trm	Wed Mar 25 08:00:31 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - aed.trm */
+X  /*
+X!  * Copyright (C) 1990
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X--- 1,10 ----
+X+ /*
+X+  * $Id: aed.trm,v 3.26 92/03/24 22:34:46 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - aed.trm */
+X  /*
+X!  * Copyright (C) 1990, 1991, 1992
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X***************
+X*** 22,28 ****
+X   * AUTHORS
+X   *     Colin Kelley, Thomas Williams, Russell Lang
+X   *
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   * 
+X   */
+X  
+X--- 26,32 ----
+X   * AUTHORS
+X   *     Colin Kelley, Thomas Williams, Russell Lang
+X   *
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   * 
+X   */
+X  
+Xdiff -rc gnuplot/term/ai.trm gnuplot3.2/term/ai.trm
+X*** gnuplot/term/ai.trm	Sun Jan  5 21:33:01 1992
+X--- gnuplot3.2/term/ai.trm	Wed Mar 25 08:00:32 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - ai.trm */
+X  /*
+X!  * Copyright (C) 1991   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X--- 1,10 ----
+X+ /*
+X+  * $Id: ai.trm,v 3.26 92/03/24 22:35:00 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - ai.trm */
+X  /*
+X!  * Copyright (C) 1991, 1992   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X***************
+X*** 22,28 ****
+X   * AUTHORS
+X   *  Ray Ghanbari
+X   * 
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   *
+X   * The 'aifm' driver produces files editable by Adobe Illustrator 3.0
+X   * To change font to Courier and font size to 20pts use 
+X--- 26,32 ----
+X   * AUTHORS
+X   *  Ray Ghanbari
+X   * 
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   *
+X   * The 'aifm' driver produces files editable by Adobe Illustrator 3.0
+X   * To change font to Courier and font size to 20pts use 
+Xdiff -rc gnuplot/term/amiga.trm gnuplot3.2/term/amiga.trm
+X*** gnuplot/term/amiga.trm	Sun Jan  5 21:33:31 1992
+X--- gnuplot3.2/term/amiga.trm	Wed Mar 25 08:00:33 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - amiga.trm */
+X  /*
+X!  * Copyright (C) 1991
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X--- 1,10 ----
+X+ /*
+X+  * $Id: amiga.trm,v 3.26 92/03/24 22:34:45 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - amiga.trm */
+X  /*
+X!  * Copyright (C) 1991, 1992
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X***************
+X*** 38,44 ****
+X   *                      kludge will get deleted! 
+X   *                      (Aztec C release 5.2 beta)
+X   *
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   * 
+X   */
+X  
+X--- 42,48 ----
+X   *                      kludge will get deleted! 
+X   *                      (Aztec C release 5.2 beta)
+X   *
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   * 
+X   */
+X  
+Xdiff -rc gnuplot/term/apollo.trm gnuplot3.2/term/apollo.trm
+X*** gnuplot/term/apollo.trm	Sun Jan  5 21:33:32 1992
+X--- gnuplot3.2/term/apollo.trm	Wed Mar 25 08:00:34 1992
+X***************
+X*** 1,3 ****
+X--- 1,7 ----
+X+ /*
+X+  * $Id: apollo.trm,v 3.26 92/03/24 22:34:58 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - apollo.trm */
+X  /*
+X      Apollo terminal driver for GNUplot.
+Xdiff -rc gnuplot/term/bigfig.trm gnuplot3.2/term/bigfig.trm
+X*** gnuplot/term/bigfig.trm	Sun Aug 25 11:53:01 1991
+X--- gnuplot3.2/term/bigfig.trm	Wed Mar 25 08:00:34 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - fig.trm */
+X  /*
+X!  * Copyright (C) 1990
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted,
+X--- 1,10 ----
+X+ /*
+X+  * $Id: bigfig.trm,v 3.26 92/03/24 22:35:50 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - fig.trm */
+X  /*
+X!  * Copyright (C) 1990, 1991, 1992
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted,
+X***************
+X*** 22,28 ****
+X   * AUTHORS
+X   *  Micah Beck, David Kotz
+X   *
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   *
+X   */
+X   
+X--- 26,32 ----
+X   * AUTHORS
+X   *  Micah Beck, David Kotz
+X   *
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   *
+X   */
+X   
+Xdiff -rc gnuplot/term/cgi.trm gnuplot3.2/term/cgi.trm
+X*** gnuplot/term/cgi.trm	Sun Dec 16 14:59:48 1990
+X--- gnuplot3.2/term/cgi.trm	Wed Mar 25 08:00:35 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - cgi.trm */
+X  /*
+X!  * Copyright (C) 1990 Ronald Florence
+X   *
+X   * Permission is hereby granted for unlimited non-commercial
+X   * use of this code, on condition that the copyright
+X--- 1,10 ----
+X+ /*
+X+  * $Id: cgi.trm,v 3.26 92/03/24 22:34:47 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - cgi.trm */
+X  /*
+X!  * Copyright (C) 1990, 1991, 1992 Ronald Florence
+X   *
+X   * Permission is hereby granted for unlimited non-commercial
+X   * use of this code, on condition that the copyright
+Xdiff -rc gnuplot/term/dumb.trm gnuplot3.2/term/dumb.trm
+X*** gnuplot/term/dumb.trm	Sun Sep  8 09:11:50 1991
+X--- gnuplot3.2/term/dumb.trm	Wed Mar 25 08:00:36 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - dumb.trm */
+X  /*
+X!  * Copyright (C) 1991
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted,
+X--- 1,10 ----
+X+ /*
+X+  * $Id: dumb.trm,v 3.26 92/03/24 22:34:48 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - dumb.trm */
+X  /*
+X!  * Copyright (C) 1991, 1992
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted,
+X***************
+X*** 23,29 ****
+X   *   Francois Pinard, 91-04-03
+X   *           INTERNET: pinard@iro.umontreal.ca
+X   *
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   *
+X   */
+X  
+X--- 27,33 ----
+X   *   Francois Pinard, 91-04-03
+X   *           INTERNET: pinard@iro.umontreal.ca
+X   *
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   *
+X   */
+X  
+Xdiff -rc gnuplot/term/dxf.trm gnuplot3.2/term/dxf.trm
+X*** gnuplot/term/dxf.trm	Tue Jul  9 11:02:03 1991
+X--- gnuplot3.2/term/dxf.trm	Wed Mar 25 08:00:37 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - dxf.trm */
+X  /*
+X!  * Copyright (C) 1991
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted,
+X--- 1,10 ----
+X+ /*
+X+  * $Id: dxf.trm,v 3.26 92/03/24 22:34:49 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - dxf.trm */
+X  /*
+X!  * Copyright (C) 1991, 1992
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted,
+X***************
+X*** 23,29 ****
+X   * AUTHOR
+X   *   Florian Hiss  (fhis1231@w204zrz.zrz.tu-berlin.de)
+X   *
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X  */
+X  
+X  #define DXF_UNIT 60.0
+X--- 27,33 ----
+X   * AUTHOR
+X   *   Florian Hiss  (fhis1231@w204zrz.zrz.tu-berlin.de)
+X   *
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X  */
+X  
+X  #define DXF_UNIT 60.0
+Xdiff -rc gnuplot/term/dxy.trm gnuplot3.2/term/dxy.trm
+X*** gnuplot/term/dxy.trm	Mon Mar 26 15:02:18 1990
+X--- gnuplot3.2/term/dxy.trm	Wed Mar 25 08:00:38 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - dxy.trm */
+X  /*
+X!  * Copyright (C) 1990   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X--- 1,10 ----
+X+ /*
+X+  * $Id: dxy.trm,v 3.26 92/03/24 22:34:50 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - dxy.trm */
+X  /*
+X!  * Copyright (C) 1990, 1991, 1992   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X***************
+X*** 23,29 ****
+X   *  Martin Yii, eln557h@monu3.OZ
+X   *  Further modified Jan 1990 by Russell Lang, rjl@monu1.cc.monash.oz
+X   * 
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   * 
+X   */
+X  
+X--- 27,33 ----
+X   *  Martin Yii, eln557h@monu3.OZ
+X   *  Further modified Jan 1990 by Russell Lang, rjl@monu1.cc.monash.oz
+X   * 
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   * 
+X   */
+X  
+Xdiff -rc gnuplot/term/eepic.trm gnuplot3.2/term/eepic.trm
+X*** gnuplot/term/eepic.trm	Sun Aug 25 11:54:28 1991
+X--- gnuplot3.2/term/eepic.trm	Wed Mar 25 08:00:39 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - eepic.trm */
+X  /*
+X!  * Copyright (C) 1990   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X--- 1,10 ----
+X+ /*
+X+  * $Id: eepic.trm,v 3.26 92/03/24 22:34:51 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - eepic.trm */
+X  /*
+X!  * Copyright (C) 1990, 1991, 1992   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X***************
+X*** 22,28 ****
+X   * AUTHORS
+X   *   David Kotz
+X   *
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   * 
+X   */
+X  /*
+X--- 26,32 ----
+X   * AUTHORS
+X   *   David Kotz
+X   *
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   * 
+X   */
+X  /*
+Xdiff -rc gnuplot/term/epson.trm gnuplot3.2/term/epson.trm
+X*** gnuplot/term/epson.trm	Wed Jul 10 11:13:38 1991
+X--- gnuplot3.2/term/epson.trm	Wed Mar 25 08:00:40 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - epson.trm */
+X  /*
+X!  * Copyright (C) 1990   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X--- 1,10 ----
+X+ /*
+X+  * $Id: epson.trm,v 3.26 92/03/24 22:34:52 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - epson.trm */
+X  /*
+X!  * Copyright (C) 1990, 1991, 1992   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X***************
+X*** 24,30 ****
+X   *  Russell Lang
+X   *  William Wilson
+X   *
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   * 
+X   */
+X  
+X--- 28,34 ----
+X   *  Russell Lang
+X   *  William Wilson
+X   *
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   * 
+X   */
+X  
+Xdiff -rc gnuplot/term/fig.trm gnuplot3.2/term/fig.trm
+X*** gnuplot/term/fig.trm	Sun Aug 25 11:54:45 1991
+X--- gnuplot3.2/term/fig.trm	Wed Mar 25 08:00:40 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - fig.trm */
+X  /*
+X!  * Copyright (C) 1990
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted,
+X--- 1,10 ----
+X+ /*
+X+  * $Id: fig.trm,v 3.26 92/03/24 22:34:53 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - fig.trm */
+X  /*
+X!  * Copyright (C) 1990, 1991, 1992
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted,
+X***************
+X*** 22,28 ****
+X   * AUTHORS
+X   *  Micah Beck, David Kotz
+X   *
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   *
+X   */
+X  
+X--- 26,32 ----
+X   * AUTHORS
+X   *  Micah Beck, David Kotz
+X   *
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   *
+X   */
+X  
+Xdiff -rc gnuplot/term/gpr.trm gnuplot3.2/term/gpr.trm
+X*** gnuplot/term/gpr.trm	Mon Jun  3 09:14:32 1991
+X--- gnuplot3.2/term/gpr.trm	Wed Mar 25 08:00:41 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - gpr.trm */
+X  /*
+X!  * Copyright (C) 1990   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X--- 1,10 ----
+X+ /*
+X+  * $Id: gpr.trm,v 3.26 92/03/24 22:35:00 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - gpr.trm */
+X  /*
+X!  * Copyright (C) 1990, 1991, 1992   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X***************
+X*** 23,29 ****
+X   *  Michael Aramini
+X   *  Roque D Oliveira , oliveria@caen.engin.umich.edu
+X   * 
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   * 
+X   */
+X  #include <apollo/base.h>
+X--- 27,33 ----
+X   *  Michael Aramini
+X   *  Roque D Oliveira , oliveria@caen.engin.umich.edu
+X   * 
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   * 
+X   */
+X  #include <apollo/base.h>
+Xdiff -rc gnuplot/term/hp26.trm gnuplot3.2/term/hp26.trm
+X*** gnuplot/term/hp26.trm	Sun Jan  5 21:33:33 1992
+X--- gnuplot3.2/term/hp26.trm	Wed Mar 25 08:00:42 1992
+X***************
+X*** 1,6 ****
+X  /* GNUPLOT - hp26.trm */
+X  /*
+X!  * Copyright (C) 1990   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X--- 1,10 ----
+X+ /*
+X+  * $Id: hp26.trm,v 3.26 92/03/24 22:34:55 woo Exp Locker: woo $
+X+  */
+X+ 
+X  /* GNUPLOT - hp26.trm */
+X  /*
+X!  * Copyright (C) 1990, 1991, 1992   
+X   *
+X   * Permission to use, copy, and distribute this software and its
+X   * documentation for any purpose with or without fee is hereby granted, 
+X***************
+X*** 22,28 ****
+X   * AUTHORS
+X   *   hplvlch!ch (Chuck Heller) 
+X   * 
+X!  * send your comments or suggestions to (pixar!info-gnuplot@sun.com).
+X   * 
+X   */
+X  
+X--- 26,32 ----
+X   * AUTHORS
+X   *   hplvlch!ch (Chuck Heller) 
+X   * 
+X!  * send your comments or suggestions to (info-gnuplot@ames.arc.nasa.gov).
+X   * 
+X   */
+X  
+END_OF_FILE
+  if test 44290 -ne `wc -c <'patch.6'`; then
+    echo shar: \"'patch.6'\" unpacked with wrong size!
+  fi
+  # end of 'patch.6'
+fi
+echo shar: End of archive 3 \(of 7\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

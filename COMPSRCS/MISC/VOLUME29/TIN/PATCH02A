@@ -1,0 +1,1724 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@germany.eu.net (Iain Lea)
+Subject:  v29i050:  tin - threaded full screen newsreader v1.1 PL2, Patch02a/4
+Message-ID: <csm-v29i050=tin.165804@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 2fdcc5b4c84c4a4a6d651b6709ad8c72
+Date: Fri, 3 Apr 1992 22:58:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@germany.eu.net (Iain Lea)
+Posting-number: Volume 29, Issue 50
+Archive-name: tin/patch02a
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Patch-To: tin: Volume 29, Issue 19-30
+
+This is version 1.1 PL1 (patchlevel 2) of the tin newsreader.
+
+-  Based more on Notes and tass than rn type newreaders.
+
+-  Full screen, easy to use with on-line help at all levels.
+
+-  Reads news locally (ie. /usr/spool/news) and via NNTP.
+
+-  Threads on Subject: and/or Archive-name: mail headers.
+
+-  Four different operating levels:
+   o  Group selection level
+   o  Thread selection level
+   o  Article selection level
+   o  Article viewer
+
+-  Same interface to mail, pipe, print and save articles.
+
+-  Batch mode to mail/save news when user is on holiday.
+
+NOTE: PLEASE READ THE MAN PAGE tin.1 BEFORE SENDING A BUG REPORT/COMMENT.
+
+Major improvements over tin 1.1 PL1 are the following:
+
+o  Fixed saving and unpacking of articles.
+
+o  Fixed setuid news version to use fewer setuid calls.
+
+o  Fixed builtin inews to add .signature file to article.
+
+o  Fixed Subject sorting to be case insensitive.
+
+o  Fixed posting to check if a blank line exists between header and body.
+
+o  Fixed more signal() code that was using SVR4 specific features.
+
+o  Fixed #includes so that SCO Unix would compile.
+
+For more bug fixes, changes & additions read the CHANGES & TODO files.
+
+For compilation and installation information read the INSTALL file.
+
+Enjoy
+	Iain.
+
+#!/bin/sh
+# This is tin, a shell archive (shar 3.47)
+# made 03/29/1992 14:57 UTC by iain%anl433.uucp@germany.eu.net (Iain Lea)
+# Source directory /var/home/lea/.src/tin/112
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This is part 1 of a multipart archive                                    
+# do not concatenate these parts, unpack them in order with /bin/sh        
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+# 150807 -rw------- tin.patch112
+#
+if test -r _shar_seq_.tmp; then
+	echo 'Must unpack archives in sequence!'
+	echo Please unpack part `cat _shar_seq_.tmp` next
+	exit 1
+fi
+# ============= tin.patch112 ==============
+if test -f 'tin.patch112' -a X"$1" != X"-c"; then
+	echo 'x - skipping tin.patch112 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting tin.patch112 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'tin.patch112' &&
+diff -rcs ../111/CHANGES ./CHANGES
+*** ../111/CHANGES	Fri Mar 27 14:00:15 1992
+--- ./CHANGES	Sun Mar 29 12:15:21 1992
+***************
+*** 1,172 ****
+! CHANGES tin v1.1 PL0 -> tin 1.1 PL1
+X  -----------------------------------
+X  
+! 1)  crs89rdb@brunel.ac.uk (Roger Binns)
+!     BUG. active file is read in but if new news arrives while one
+!          is already reading news it will not be shown.
+!     FIX. active.c - added resync_active_file() to read active file
+!          at set intervals.
+X  
+! 2)  iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. 5% of all recieved bug reports are empty!?!
+!     FIX. post.c - added confirm question before mailing bug report. 
+X  
+X  3)  iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. Under SYSV doing a Ctrl-\ in foreground process when tin -U 
+!          kills background updating process.
+!     FIX. main.c - added signal (SIGQUIT, SIG_IGN) to background process.
+X  
+! 4) m31z@jupiter.sun.csd.unb.ca (Steven Cogswell)
+!     BUG. When editing 'M' entries or killing an articles get SIGSEGV.
+!     FIX. prompt.c - changed input parameter from (char *) 0 to "".
+X  
+! 5)  iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. error_message() is missing 2nd parameter in some cases.
+!     FIX. getline.c main.c misc.c open.c - added "" as 2nd parameter.
+X  
+! 6)  iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. tin -U background indexing process dies if foreground tin exits
+!          or receives certain signals. 
+!     FIX. main.c - set background process to be its own process leader 
+!          and to disassociate its control terminal and ignore signals.
+X  
+! 7)  mfaurot@bogart.uucp (Michael Faurot)
+!     BUG. The opening welcome screen is garbled on certain machines.
+!     FIX. main.c - applied supplied patch.
+X  
+! 8)  uunet!atlantis!bugs (Dan Berry) 
+!     BUG. Various functions had wrong number of parameters.
+!     FIX. main.c getline.c - applied supplied patch.
+X  
+! 9)  robinson@mdivax1.mdd.comm.mot.com (Jim Robinson)
+!     BUG. Help message about 'u' command at group level missing.
+!     FIX. help.c - added txt_help_u string to group help array.
+X  
+! 10) robert@sys.sweden.dg.com (Robert Claeson)
+!     ADD. main.c - added NNTP_ONLY define to always read via NNTP.
+X  
+! 11) iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. During compilation warning are issued that signal() call has
+!          incorrect return type (ie. void / int).
+!     FIX. tin.h - added #define SIGTYPE gobbly-gook for a few different
+!          compilers and machines.
+X  
+! 12) iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. Under interactive SYSVR3.2 tin does not auto resize under an xterm.
+!     FIX. tin.h - removed AUTO_RESIZE define and added a few #include files.
+!  
+! 13) djm@eng.umd.edu (David MacKenzie)
+!     BUG. POSIX_JOB_CONTROL relied on SVR4 extensions.
+!     FIX. signal.c - applied supplied patch.
+X  
+! 14) hakanl@lulea.telesoft.se (Hakan Lennestal)
+!     BUG. SunOS 4.1.1 does not handle setreuid() & setregid() correctly.
+!     FIX. misc.c - applied supplied patch.
+! 
+! 15) marc@CAM.ORG (Marc Boucher)
+!     BUG. SVR4 can support LONG_FILENAMES and replaced libucb (buggy).
+!     FIX. Makefile - applied supplied patch. 
+! 
+! 16) crs89rdb@brunel.ac.uk (Roger Binns)
+!     BUG. Resizing a xterm while tin is suspended causes tin to use the
+!          wrong screen size when it is restarted.
+!     FIX. signal.c - added routine to check window size when restarted.
+! 
+! 17) ted@isgtec.UUCP (Ted Richards)
+!     BUG. On BSD 'o' command forces -Pps0 to be used instead of -Pps.
+!     FIX. feed.c - changed default printer from -Pps0 to -Pps.
+! 
+! 18) otto@norisc.uucp (Otto Niesser)
+!     BUG. TAB command at page level was changed for the worst ???
+!     FIX. page.c - Due to HUGE outcry put an #ifdef in TAB command so
+!          people have have the 1.0 PL7 / 1.1 PL0 behaviour. For #ifdef
+!          info read the INSTALL file and Makefile.
+! 
+! 19) iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. Mailing a thread is a little tiresome when asked to confirm
+!          the sending of every article.
+!     FIX. feed.c post.c - added code to ask once to send all the thread.
+! 
+! 20) unido!bermuda!dansmith (Daniel Smith)
+!     BUG. ~/Mail & ~/News directories are always created whether -d or
+!          -m are defined.
+!     FIX. init.c main.c - if -d / -f are used they will override ~/Mail
+!          and ~/News default values.
+! 
+! 21) kleeman@informatik.uni-wuerzburg.de (Fritz Kleeman)
+!     BUG. Error in copy_fp() when printing/piping a thread via NNTP.
+!     FIX. open.c - applied supplied patch.
+! 
+! 22) iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. 'c' command does not automatically goto next page of groups.
+!     FIX. select.c - changed code to goto next page if at  bottom.
+! 
+! 23) john@iti.org (John Sauter)
+!     BUG. Always points to 2nd group in group selection index.
+!     FIX. main.c - check_any_unread_news() was not always returning
+!          a valid value. Only occured on BSD and sony NEWS here?!?.
+! 
+! 24) iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     ADD. Added XUSER nntp extension to log_user() to log client user
+!          info to nntp server logfile.
+! 
+! 25) iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     ADD. Added auto_subscribe_groups() routine to automatically subscribe
+!          user to groups specified in /usr/lib/news/subscriptions by news
+!          admin. If reading via NNTP does a LIST SUBSCRIPTIONS command.
+!   
+! 26) nelson@csd.uwm.edu (Nelson Kading)
+!     BUG. Man page does not format correctly.
+!     FIX. tin.1 - applied supplied patch.
+! 
+! 27) nelson@csd.uwm.edu (Nelson Kading)
+!     BUG. Does not compile on Convex machines.
+!     FIX. tin.h init.c - applied supplied patch.  
+! 
+! 28) iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     ADD. Added XINDEX nntp extension to allow NNTP client to get group
+!          index files from NNTP server machine if my NNTP XINDEX patch
+!          is installed. Define NNTP_EXTS to use NNTP_XUSER & NNTP_XINDEX
+! 
+! 29) iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. -s has no real use and -d should be -s (ie. save news dir)
+!     FIX. main.c tin.1 - did as noted above.
+! 
+! 30) john_palkovic@ssc.gov (John Palkovic)
+!     BIG. Under BSD the DEFAULT_MAILER should be /bin/mail not /bin/mail.
+!     FIX. tin.h - replaced /bin/rmail with /bin/mail for DEFAULT_MAILER.
+! 
+! 31) leilabd@syma.sussex.ac.uk (Leila Burrell-Davis)
+!     BUG. $EDITOR variable is documented in man page but $VISUAL is used.
+!     FIX. tin.1 - changed all references of $EDITOR to $VISUAL.
+! 
+! 32) robinson@mdivax1.mdd.comm.mot.com (Jim Robinson)
+!     NOTE. Supplied a 110K patch to add features & fix problems:
+!     This man deserves a gold star for fixing some irking bugs!
+!     FIX. misc.c - mark_unthreaded_groups() always needed to strcmp().
+!     FIX. art.c - read_group() could index into arts[] with neg number.
+!     FIX. newsrc.c - parse_unread() fixed one off error in unread arts.
+!     FIX. page.c - show_page() return value was being treated like an
+!          index into 'arts'. It is actually an index into 'base'.
+!     FIX. post.c - post_response() find_mail_header() is setting global
+!          variable 'note_h_subj'. This can cause problems. Replaced use
+!          of 'note_h_subj' with local variable.
+!     FIX. kill.c - kill_any_articles() replaced arts[i].tagged with
+!          arts[i].killed to make killing work.
+!     FIX. art.c - reload_index() after load_index() and before find_base()
+!          it is necessary to call read_newsrc_line().
+!     FIX. thread.c - main loop index was being incorrectly initialized. 
+!     FIX. thread.c - show_thread_page() fixed to page properly.
+!     FIX. search.c - search_author() was wrapping around incorrectly.
+!     FIX. group.c - show_group_page() so only new arts are counted in
+!          show only unread mode.
+!     FIX. newsrc.c - print_seq() totally rewritten (It needed it! :-))
+!     ADD. group.c - 	'r' command to toggle show_unread_only mode.
+!     ADD. thread.c - 'T' command to tag articles at thread listing level
+! 
+! 33) iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. If 'c' catchup done at article level from within thread level
+!          a SIGSEGV is produced upon returning to grouyp level.
+!     FIX. group.c - add check to see if index_point < 0.
+! 
+! 
+--- 1,61 ----
+! CHANGES tin v1.1 PL1 -> tin 1.1 PL2
+X  -----------------------------------
+X  
+! 1)  fischer-michael@cs.yale.edu (Michael Fischer)
+!     BUG. #ifdef INDEX_DAEMON should be #ifndef in create_path()
+!     FIX. save.c - applied supplied patch.
+X  
+! 2)  nms@jvd.msk.su (Nickolay Saukh)
+!     BUG. When freeing active array max_active is used in loop
+!          when number of allocated entries is num_active.
+!     FIX. memory.c - applied supplied patch.
+X  
+X  3)  iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. SVR4 specific signal handling code used in 2 routines.
+!     FIX. kill.c rcfile.c - added #ifdefs around SVR4 signal code.
+X  
+! 4)  hakanl@lulea.telesoft.se (Hakan Lennestal)
+!     BUG. setuid tin changes between real & tin uid so many times that
+!          its now very hard to follow what is happening.
+!     FIX. applied supplied patch.
+X  
+! 5)  hakanl@lulea.telesoft.se (Hakan Lennestal)
+!     BUG. inews will eat posted message until it finds the 1st blank line.
+!     FIX. post.c - applied supplied patch.
+X  
+! 6)  cjm@trillion.mincom.oz.au (Chris Moran)
+!     BUG. Sorting on Subject: & From: should be case insensitive.
+!     FIX. art.c misc.c - applied supplied patch.
+X  
+! 7)  cjm@trillion.mincom.oz.au (Chris Moran)
+!     BUG. Auto-save should do not post process arts if process type is None.
+!     FIX. feed.c - applied supplied patch.
+X  
+! 8)  iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. To use an editor without start line offset tin has to be explicity
+!          recompiled with feature enabled/disabled.
+!     FIX. Added option to 'M' menu to toggle ON/OFF.
+X  
+! 9)  iain%anl433.uucp@germany.eu.net (Iain Lea)
+!     BUG. Saving articles can sometimes not unpack articles because they were
+!          saved in the wrong order.
+!     FIX. save.c - save_comp() now recognizes Archive-name: & Subject: headers. 
+X  
+! 10) lusgr@chili.cc.lehigh.edu (Stephen G. Roseman)
+!     BUG. IBM AIX entry uses wrong wrong mailer & hostname call. Also
+!          NNTP_INEWS inews does not add .signature file.
+!     FIX. tin.h inews.c - applied supplied patch
+X  
+! 11) cjm@trillion.mincom.oz.au (Chris Moran)
+!     BUG. -u option does a LF which causes cron to send mail to user everytime
+!          it is run.
+!     FIX. active.c - applied supplied patch.
+X  
+! 12) Nickolay.Saukh@jvd.msk.su (Nickolay.Saukh)
+!     BUG. Could not enter Russian chars (high bit) problem.
+!     FIX. tin.h getline.c main.c - applied supplied patch.
+X  
+! 13) kronung@jlug-gw.uni-giessen.dbp.de (Bernhard Kroenung)
+!     BUG. #include <sys/pty.h> does not exist under SCO Unix.
+!     FIX. tin.h - added #ifndef SCO_UNIX around #include file.
+!  
+diff -rcs ../111/INSTALL ./INSTALL
+*** ../111/INSTALL	Fri Mar 27 14:00:15 1992
+--- ./INSTALL	Fri Mar 27 09:18:34 1992
+***************
+*** 1,4 ****
+! Compilation and installation notes for tin - 24-03-92 
+X  -----------------------------------------------------
+X  
+X  Tin has been compiled on a wide range of Un*x machines with cc and gcc.
+--- 1,4 ----
+! Compilation and installation notes for tin - 26-03-92 
+X  -----------------------------------------------------
+X  
+X  Tin has been compiled on a wide range of Un*x machines with cc and gcc.
+***************
+*** 168,176 ****
+X  NO_REGEX
+X  Define if you do not want to use regular expression pattern matching.
+X  
+- NO_START_LINE
+- Do not start editor with line offset into file.
+- 
+X  NO_SHELL_ESCAPE
+X  Do not allow shell escapes.
+X  
+--- 168,173 ----
+***************
+*** 201,217 ****
+X  4) * Sun 3/4/IPC/SS1/SS2 & SunOS 4.0.3/4.1/4.1.1 
+X  5) * Dec 5000/Vax & Ultrix 4.1/4.2
+X  6) * Vax 11/785 & BSD 4.3
+! 7)   ICL DRS6000 & SysVR4.0 
+! 8)   Apricot VX/FT & SCO 3.2.2
+! 9)   DIAB DS90 & D-NIX 5.3
+! 10)  Amdahl & SysVR3
+! 11)  HP 720/845 & HP-UX 7.0
+! 12)  IBM RS/6000 & AIX 3.1.5
+! 13)  NCR Tower & SysV
+! 14)  Atari STe & Minix 1.5.10.3b
+! 15)  Powerbook 140 & MacMinix
+! 16)  386 PC & Minix 386
+! 17)  DG Aviion & DG-UX
+X  18)  Sequent S81 & PTX 1.3
+X  19)  Convex C220 & Convex Un*x
+X  
+--- 198,214 ----
+X  4) * Sun 3/4/IPC/SS1/SS2 & SunOS 4.0.3/4.1/4.1.1 
+X  5) * Dec 5000/Vax & Ultrix 4.1/4.2
+X  6) * Vax 11/785 & BSD 4.3
+! 7) * DG Aviion 300 & DG-UX
+! 8)   ICL DRS6000 & SysVR4.0 
+! 9)   Apricot VX/FT & SCO 3.2.2
+! 10)  DIAB DS90 & D-NIX 5.3
+! 11)  Amdahl & SysVR3
+! 12)  HP 720/845 & HP-UX 7.0
+! 13)  IBM RS/6000 & AIX 3.1.5
+! 14)  NCR Tower & SysV
+! 15)  Atari STe & Minix 1.5.10.3b
+! 16)  Powerbook 140 & MacMinix
+! 17)  386 PC & Minix 386
+X  18)  Sequent S81 & PTX 1.3
+X  19)  Convex C220 & Convex Un*x
+X  
+diff -rcs ../111/MANIFEST ./MANIFEST
+*** ../111/MANIFEST	Fri Mar 27 14:00:14 1992
+--- ./MANIFEST	Sun Mar 29 16:57:24 1992
+***************
+*** 1,46 ****
+! MANIFEST for tin newsreader (Sun Mar 22 18:07:24 MET 1992)
+X  ----------------------------------------------------------
+!    10466 Makefile
+!      118 MANIFEST
+!     3253 README
+!     7851 CHANGES
+!     3490 TODO
+!     7863 INSTALL
+!    35435 tin.1
+X      2247 wildmat.3
+!    44431 tin.nrf
+!    10183 tin.h
+!    14795 extern.h
+X      3725 nntp.h
+!    24466 proto.h
+!      584 patchlev.h
+!     8707 active.c
+!    24273 art.c
+!     7612 curses.c
+X      3371 debug.c
+!    12199 feed.c
+!    11438 getline.c
+!    22085 group.c
+X      2510 hashstr.c
+!     5257 help.c
+!     2409 inews.c
+!    11316 init.c
+!    11211 kill.c
+!    20905 lang.c
+!    12102 main.c
+X      6765 memory.c
+!    15357 misc.c
+!    21037 newsrc.c
+!    12769 open.c
+!    22692 page.c
+!    20624 post.c
+!     3318 prompt.c
+!    22745 rcfile.c
+!    25511 save.c
+!     2662 screen.c
+X      7141 search.c
+!    20378 select.c
+X     12160 signal.c
+X     14471 thread.c
+X      4749 wildmat.c
+!   536681 total
+--- 1,46 ----
+! MANIFEST for tin newsreader (Sun Mar 29 16:57:23 MET DST 1992)
+X  ----------------------------------------------------------
+!    11319 Makefile
+!      122 MANIFEST
+!     2208 README
+!     2528 CHANGES
+!     3320 TODO
+!     7804 INSTALL
+!    35602 tin.1
+X      2247 wildmat.3
+!    44628 tin.nrf
+!    10264 tin.h
+!    14877 extern.h
+X      3725 nntp.h
+!    24790 proto.h
+!      633 patchlev.h
+!     8563 active.c
+!    24186 art.c
+!     7800 curses.c
+X      3371 debug.c
+!    12285 feed.c
+!    11452 getline.c
+!    21926 group.c
+X      2510 hashstr.c
+!     5275 help.c
+!     2428 inews.c
+!    11183 init.c
+!    11206 kill.c
+!    21092 lang.c
+!    12389 main.c
+X      6765 memory.c
+!    15519 misc.c
+!    20341 newsrc.c
+!    13060 open.c
+!    22496 page.c
+!    21286 post.c
+!     3822 prompt.c
+!    23032 rcfile.c
+!    25405 save.c
+!     2992 screen.c
+X      7141 search.c
+!    20659 select.c
+X     12160 signal.c
+X     14471 thread.c
+X      4749 wildmat.c
+!   533631 total
+diff -rcs ../111/Makefile ./Makefile
+*** ../111/Makefile	Fri Mar 27 14:00:13 1992
+--- ./Makefile	Sun Mar 29 16:57:04 1992
+***************
+*** 1,6 ****
+X  # Makefile for tin - for tin compiler flag options read INSTALL and README.
+- 
+X  EXE	= tin
+X  BINDIR	= /usr/local/bin
+X  MANDIR	= /usr/man/man1
+X  
+--- 1,6 ----
+X  # Makefile for tin - for tin compiler flag options read INSTALL and README.
+X  EXE	= tin
++ EXED	= tind
+X  BINDIR	= /usr/local/bin
+X  MANDIR	= /usr/man/man1
+X  
+***************
+*** 7,17 ****
+X  STRIP	= strip
+X  ROFF	= + drf -F Helvetica -man3 
+X  PRINT	= -Pps0
+! BASE_VER= ../110
+! PATCH_VER = 110
+! MAIL_ADDR = iain%anl433.uucp@germany.eu.net
+X  
+! HFILES	= tin.h extern.h nntp.h proto.h patchlev.h
+X  
+X  CFILES	= active.c art.c curses.c debug.c feed.c getline.c group.c \
+X  		hashstr.c help.c inews.c init.c kill.c lang.c main.c memory.c \
+--- 7,17 ----
+X  STRIP	= strip
+X  ROFF	= + drf -F Helvetica -man3 
+X  PRINT	= -Pps0
+! BASE_VER= ../111
+! PATCH_VER = 112
+! MAIL_ADDR = "iain%anl433.uucp@germany.eu.net (Iain Lea)"
+X  
+! HFILES	= tin.h extern.h nntp.h proto.h
+X  
+X  CFILES	= active.c art.c curses.c debug.c feed.c getline.c group.c \
+X  		hashstr.c help.c inews.c init.c kill.c lang.c main.c memory.c \
+***************
+*** 60,65 ****
+--- 60,66 ----
+X  #
+X  sysv:
+X  	@echo "Compiling for System V..."
++ 	@$(MAKE) timestamp
+X  	@$(MAKE) CFLAGS='-c -O -DLIBDIR=\"/usr/lib/news\" -DSPOOLDIR=\"/usr/spool/news\"' \
+X  			 LIBS="-lcurses -ltermcap" \
+X  			 EXE=tin linkit
+***************
+*** 140,149 ****
+X  			 LIBS="-lcurses" \
+X  			 EXE=tin linkit
+X  
+! # THE FOLLOWING ARE SITE SPECIFIC - IGNORE !!!
+X  anl433:
+X  	@echo "Compiling for ANL433 with NNTP ONLY..."
+! 	@$(MAKE) CFLAGS='-c -g -DNNTP_ONLY -DNNTP_EXTS -DNNTP_INEWS -DDEBUG -DSIGTYPE=void -DLIBDIR=\"/usr/lib/news\" -DSPOOLDIR=\"/usr/spool/news\"' \
+X  			 LIBS="-lcurses -ltermcap" \
+X  			 NNTPLIB=clientlib.o \
+X  			 NETLIBS="-linet -lnsl_s" \
+--- 141,151 ----
+X  			 LIBS="-lcurses" \
+X  			 EXE=tin linkit
+X  
+! # !!!  THE FOLLOWING ARE SITE SPECIFIC - IGNORE  !!!
+X  anl433:
+X  	@echo "Compiling for ANL433 with NNTP ONLY..."
+! 	@$(MAKE) timestamp
+! 	@$(MAKE) CFLAGS='-c -O -DNNTP_ONLY -DNNTP_EXTS -DNNTP_INEWS -DDEBUG -DSIGTYPE=void -DLIBDIR=\"/usr/lib/news\" -DSPOOLDIR=\"/usr/spool/news\"' \
+X  			 LIBS="-lcurses -ltermcap" \
+X  			 NNTPLIB=clientlib.o \
+X  			 NETLIBS="-linet -lnsl_s" \
+***************
+*** 151,167 ****
+X  
+X  daemon:
+X  	@echo "Compiling for ANL433 with INDEX DAEMON..."
+X  	@$(MAKE) CFLAGS='-c -O -DINDEX_DAEMON -DDEBUG -DSIGTYPE=void -DLIBDIR=\"/usr/lib/news\" -DSPOOLDIR=\"/usr/spool/news\"' \
+! 			 EXE=tind linkit
+X  
+X  home:
+X  	@echo "Compiling for (HOME) Xenix 386..."
+! 	@$(MAKE) CFLAGS='-c -W2 -Zi -DSYSV -DRESYNC_ACTIVE_SECS=30 -DDEBUG -DLIBDIR="\\"/usr/lib/news\\"" -DSPOOLDIR="\\"/usr/spool/news\\""' \
+X  			 LIBS="-lcurses -ltinfo -lx" \
+X  			 LFLAGS=-Zi EXE=tin linkit
+X  
+X  mx331:
+X  	@echo "Compiling for MX331 with NNTP ONLY..."
+X  	@$(MAKE) CFLAGS='-c -O -DNNTP_ONLY -DNNTP_EXTS -DNNTP_INEWS -DUSE_MKDIR -DLIBDIR=\\"/usr/lib/news\\" -DSPOOLDIR=\\"/usr/spool/news\\"' \
+X  			 NNTPLIB=clientlib.o \
+X  			 LIBS="-lcurses" \
+--- 153,179 ----
+X  
+X  daemon:
+X  	@echo "Compiling for ANL433 with INDEX DAEMON..."
++ 	@$(MAKE) timestamp
+X  	@$(MAKE) CFLAGS='-c -O -DINDEX_DAEMON -DDEBUG -DSIGTYPE=void -DLIBDIR=\"/usr/lib/news\" -DSPOOLDIR=\"/usr/spool/news\"' \
+! 			 EXE=$(EXED) linkit
+X  
++ dg01:
++ 	@echo "Compiling for DG01 with NNTP ONLY..."
++ 	@$(MAKE) CFLAGS='-c -O -DNNTP_ONLY -DNNTP_EXTS -DNNTP_INEWS -DDEBUG -DUSE_LONG_FILENAMES -DPOSIX_JOB_CONTROL -DUSE_INVERSE_HACK -DLIBDIR=\"/usr/lib/news\" -DSPOOLDIR=\"/usr/spool/news\"' \
++ 			LIBS="-lcurses" \
++ 			NNTPLIB=clientlib.o \
++ 			EXE=tin linkit
++ 
+X  home:
+X  	@echo "Compiling for (HOME) Xenix 386..."
+! 	@$(MAKE) timestamp
+! 	@$(MAKE) CFLAGS='-c -W2 -Zi -DSYSV -DDEBUG -DLIBDIR="\\"/usr/lib/news\\"" -DSPOOLDIR="\\"/usr/spool/news\\""' \
+X  			 LIBS="-lcurses -ltinfo -lx" \
+X  			 LFLAGS=-Zi EXE=tin linkit
+X  
+X  mx331:
+X  	@echo "Compiling for MX331 with NNTP ONLY..."
++ 	@$(MAKE) timestamp
+X  	@$(MAKE) CFLAGS='-c -O -DNNTP_ONLY -DNNTP_EXTS -DNNTP_INEWS -DUSE_MKDIR -DLIBDIR=\\"/usr/lib/news\\" -DSPOOLDIR=\\"/usr/spool/news\\"' \
+X  			 NNTPLIB=clientlib.o \
+X  			 LIBS="-lcurses" \
+***************
+*** 169,174 ****
+--- 181,187 ----
+X  
+X  mx351:
+X  	@echo "Compiling for MX351 with NNTP ONLY..."
++ 	@$(MAKE) timestamp
+X  	@$(MAKE) CFLAGS='-c -O -DSVR4 -DNNTP_ONLY -DNNTP_EXTS -DNNTP_INEWS -DPOSIX_JOB_CONTROL -DUSE_INVERSE_HACK -DLIBDIR=\"/usr/lib/news\" -DSPOOLDIR=\"/usr/spool/news\"' \
+X  			 NNTPLIB=clientlib.o \
+X  			 NETLIBS="-lnsl -lsocket" \
+***************
+*** 177,182 ****
+--- 190,196 ----
+X  
+X  norisc:
+X  	@echo "Compiling for NORISC with NNTP..."
++ 	@$(MAKE) timestamp
+X  	@$(MAKE) CFLAGS='-c -O -DBSD -DNNTP_ABLE -DDEBUG -DLIBDIR=\"/news/lib\" -DSPOOLDIR=\"/news/spool\"' \
+X  			NNTPLIB=/news/nntp/clientlib.o \
+X  			LIBS="-lcurses -ltermcap" \
+***************
+*** 201,206 ****
+--- 215,227 ----
+X  	$(CC) $(LFLAGS) -o $(EXE) $(OFILES) $(NNTPLIB) $(NETLIBS) $(LIBS) 
+X  	@ls -l $(EXE)
+X  
++ timestamp:
++ 	@echo "Generating timestamp..."
++ 	@-cp patchlev.h patchlev.h.old
++ 	@sed /COMPILED/d patchlev.h > PATCHLEV.H
++ 	@echo #define COMPILED \"`date`\" >> PATCHLEV.H
++ 	@-mv PATCHLEV.H patchlev.h
++ 
+X  install:
+X  	@echo "Installing $(EXE)..."
+X  	@$(STRIP) $(EXE)
+***************
+*** 223,232 ****
+X  	@ls -l $(BINDIR)/$(EXE) $(BINDIR)/r$(EXE)
+X  	@cp $(EXE).1 $(MANDIR)
+X  
+X  proto:
+X  	@echo "Generating function prototypes for proto.h..."
+- #	@cextract -DSIGTSTP -DSIGWINCH $(CFILES) > PROTO.H
+- #	@-mv PROTO.H proto.h
+X  	@echo "#if __STDC__" > PROTO.H
+X  	@echo " " >> PROTO.H
+X  	@cproto -e $(CFILES) >> PROTO.H
+--- 244,259 ----
+X  	@ls -l $(BINDIR)/$(EXE) $(BINDIR)/r$(EXE)
+X  	@cp $(EXE).1 $(MANDIR)
+X  
++ install_daemon:
++ 	@echo "Installing index daemon $(EXED)..."
++ 	@$(STRIP) $(EXED)
++ 	@-mv $(EXED) $(BINDIR)
++ 	@chown news $(BINDIR)/$(EXED) 
++ 	@chmod 0755 $(BINDIR)/$(EXED)"
++ 	@ls -l $(BINDIR)/$(EXED)
++ 
+X  proto:
+X  	@echo "Generating function prototypes for proto.h..."
+X  	@echo "#if __STDC__" > PROTO.H
+X  	@echo " " >> PROTO.H
+X  	@cproto -e $(CFILES) >> PROTO.H
+***************
+*** 246,258 ****
+X  	@echo "Creating MANIFEST..."
+X  	@echo "MANIFEST for tin newsreader (`date`)" > MANIFEST
+X  	@echo "----------------------------------------------------------" >> MANIFEST
+! 	@wc -c $(SUPPORT) $(HFILES) $(CFILES) >> MANIFEST
+X  
+X  shar:
+X  	@echo "Generating shell archive..."
+X  	@make nroff
+X  	@make manifest
+! 	@shar -a -n $(EXE)1.1 -s $(MAIL_ADDR) -L50 -o ../$(EXE).shar $(SUPPORT) $(CFILES) $(HFILES)
+X  
+X  uuencode:
+X  	@make tar
+--- 273,285 ----
+X  	@echo "Creating MANIFEST..."
+X  	@echo "MANIFEST for tin newsreader (`date`)" > MANIFEST
+X  	@echo "----------------------------------------------------------" >> MANIFEST
+! 	@wc -c $(SUPPORT) $(HFILES) patchlev.h $(CFILES) >> MANIFEST
+X  
+X  shar:
+X  	@echo "Generating shell archive..."
+X  	@make nroff
+X  	@make manifest
+! 	@shar -a -n $(EXE)1.1 -s $(MAIL_ADDR) -L50 -o ../$(EXE).shar $(SUPPORT) $(CFILES) $(HFILES) patchlev.h
+X  
+X  uuencode:
+X  	@make tar
+***************
+*** 272,284 ****
+X  	@make diff
+X  	@echo "Generating patch against $(BASE_VER)..."
+X  	@-mv $(EXE).diff $(EXE).patch$(PATCH_VER)
+! 	@shar -a -n $(EXE) -s $(MAIL_ADDR) -L50 -o patch$(PATCH_VER).shar $(EXE).patch$(PATCH_VER)
+! 	@ls -l patch$(PATCH_VER).shar*
+X  
+X  tar:
+X  	@echo "Generating compressed tar file..."
+X  	@-rm $(EXE).tar $(EXE).tar.Z > /dev/null 2>&1
+! 	@tar cvf $(EXE).tar $(SUPPORT) $(CFILES) $(HFILES) 
+X  	@echo "Compressing $(EXE).tar..."
+X  	@compress $(EXE).tar 
+X  	@ls -l $(EXE).tar.Z
+--- 299,311 ----
+X  	@make diff
+X  	@echo "Generating patch against $(BASE_VER)..."
+X  	@-mv $(EXE).diff $(EXE).patch$(PATCH_VER)
+! 	@shar -a -n $(EXE) -s $(MAIL_ADDR) -L50 -o ../patch$(PATCH_VER).shar $(EXE).patch$(PATCH_VER)
+! 	@ls -l ../patch$(PATCH_VER).shar*
+X  
+X  tar:
+X  	@echo "Generating compressed tar file..."
+X  	@-rm $(EXE).tar $(EXE).tar.Z > /dev/null 2>&1
+! 	@tar cvf $(EXE).tar $(SUPPORT) $(CFILES) $(HFILES) patchlev.h 
+X  	@echo "Compressing $(EXE).tar..."
+X  	@compress $(EXE).tar 
+X  	@ls -l $(EXE).tar.Z
+***************
+*** 286,298 ****
+X  zoo:
+X  	@echo "Generating zoo archive file..."
+X  	@-rm $(EXE).zoo > /dev/null 2>&1
+! 	@zoo ah $(EXE).zoo  $(SUPPORT) $(CFILES) $(HFILES)
+X  	@ls -l $(EXE).zoo
+X  
+X  tags:
+X  	@echo "Generating tags (results in ./tags)..."
+X  	@-rm tags
+! 	@ctags $(HFILES) $(CFILES) 
+X  
+X  lint:
+X  	@echo "Linting source (results in ./LINT)..."
+--- 313,325 ----
+X  zoo:
+X  	@echo "Generating zoo archive file..."
+X  	@-rm $(EXE).zoo > /dev/null 2>&1
+! 	@zoo ah $(EXE).zoo  $(SUPPORT) $(CFILES) $(HFILES) patchlev.h
+X  	@ls -l $(EXE).zoo
+X  
+X  tags:
+X  	@echo "Generating tags (results in ./tags)..."
+X  	@-rm tags
+! 	@ctags $(HFILES) patchlev.h $(CFILES) 
+X  
+X  lint:
+X  	@echo "Linting source (results in ./LINT)..."
+***************
+*** 312,318 ****
+X  
+X  cscope:
+X  	@echo "Creating cscope database $(EXE)..."
+! 	@cscope $(SUPPORT) $(HFILES) $(CFILES)
+X  
+X  man:
+X  	@echo "Printing $(EXE) manual to $(PRINT)..."
+--- 339,345 ----
+X  
+X  cscope:
+X  	@echo "Creating cscope database $(EXE)..."
+! 	@cscope $(SUPPORT) $(HFILES) patchlev.h $(CFILES)
+X  
+X  man:
+X  	@echo "Printing $(EXE) manual to $(PRINT)..."
+***************
+*** 319,325 ****
+X  	@$(ROFF) $(PRINT) $(EXE).1
+X  
+X  print:
+! 	@for FILE in $(HFILES) $(CFILES) $(SUPPORT); do \
+X  	echo "Printing $$FILE to $(PRINT)..."; \
+X  	expand -4 $$FILE | enscript -2r -h -G $(PRINT) -b $$FILE; \
+X  	done
+--- 346,352 ----
+X  	@$(ROFF) $(PRINT) $(EXE).1
+X  
+X  print:
+! 	@for FILE in $(HFILES) patchlev.h $(CFILES) $(SUPPORT); do \
+X  	echo "Printing $$FILE to $(PRINT)..."; \
+X  	expand -4 $$FILE | enscript -2r -h -G $(PRINT) -b $$FILE; \
+X  	done
+***************
+*** 337,343 ****
+X  init.o:		init.c $(HFILES)
+X  kill.o:		kill.c $(HFILES)
+X  lang.o:		lang.c $(HFILES)
+! main.o:		main.c $(HFILES)
+X  memory.o:	memory.c $(HFILES)
+X  misc.o:		misc.c $(HFILES)
+X  newsrc.o:	newsrc.c $(HFILES)
+--- 364,370 ----
+X  init.o:		init.c $(HFILES)
+X  kill.o:		kill.c $(HFILES)
+X  lang.o:		lang.c $(HFILES)
+! main.o:		main.c $(HFILES) patchlev.h
+X  memory.o:	memory.c $(HFILES)
+X  misc.o:		misc.c $(HFILES)
+X  newsrc.o:	newsrc.c $(HFILES)
+Only in .: Makefile~
+diff -rcs ../111/README ./README
+*** ../111/README	Fri Mar 27 14:00:14 1992
+--- ./README	Sun Mar 29 12:17:29 1992
+***************
+*** 1,4 ****
+! This is version 1.1 PL1 (patchlevel 1) of the tin newsreader.
+X  
+X  -  Based more on Notes and tass than rn type newreaders.
+X  
+--- 1,4 ----
+! This is version 1.1 PL1 (patchlevel 2) of the tin newsreader.
+X  
+X  -  Based more on Notes and tass than rn type newreaders.
+X  
+***************
+*** 20,73 ****
+X  
+X  NOTE: PLEASE READ THE MAN PAGE tin.1 BEFORE SENDING A BUG REPORT/COMMENT.
+X  
+! Major improvements over tin 1.1 PL0 are the following:
+X  
+! o  Added builtin NNTP inews so no need for mini-inews on client machines.
+X  
+! o  Added -DNNTP_ONLY define to compile tin to always read via NNTP.
+X  
+! o  Added XUSER and XINDEX extensions to NNTP protocol (RFC977) to allow
+!    index files to be stored on the NNTP server and retreived by clients
+!    to save each client having their own copy of the same index files.
+!    (NOTE. I will be posting the patches to NNTP in the NEAR future)
+X  
+! o  Added routine to reread active file at set intervals. A little 
+!    shakey so if you do not want it define -DNO_RESYNC_ACTIVE_FILE
+!    in Makefile at compile time. Default time is every 5 minutes.
+X  
+! o  Added tind index file daemon so that only one copy of each index
+!    file is required and this can be stored locally / on the NNTP server.
+X  
+! o  Added 'r' command at group level to toggle display of all and just
+!    unread articles.
+X  
+! o  Added 'T' command at thread level to tag articles.
+X  
+- o  Added support for Convex 200 series machines.
+- 
+- o  Fixed TAB command to default to previous behaviour as in tin v1.0 PL7.
+- 
+- o  Fixed input editing routine that was causing SIGSEGV errors.
+- 
+- o  Fixed printing/piping threads under NNTP.
+- 
+- o  Fixed to check window size when restarted after being suspended.
+- 
+- o  Fixed tin -U background indexing process to become a full daemon
+-    if foreground process quits/dies.
+- 
+- o  Fixed opening welcome screen so as not to be garbled.
+- 
+- o  Fixed POSIX_JOB_CONTROL because it relied on SVR4 extensions.
+- 
+X  For more bug fixes, changes & additions read the CHANGES & TODO files.
+X  
+X  For compilation and installation information read the INSTALL file.
+X  
+! I wish to thank all the people (and especially jim Robinson) that sent
+! me bug fixes and comments for tin. I still want to hear of any bug 
+! reports, gripes and comments but please read the INSTALL and tin.1 man
+! page before anything :-)!.
+X  
+X  I am still off the net, but am contactable at the following address:
+X  
+--- 20,49 ----
+X  
+X  NOTE: PLEASE READ THE MAN PAGE tin.1 BEFORE SENDING A BUG REPORT/COMMENT.
+X  
+! Major improvements over tin 1.1 PL1 are the following:
+X  
+! o  Fixed saving and unpacking of articles.
+X  
+! o  Fixed setuid news version to use fewer setuid calls.
+X  
+! o  Fixed builtin inews to add .signature file to article.
+X  
+! o  Fixed Subject sorting to be case insensitive.
+X  
+! o  Fixed posting to check if a blank line exists between header and body.
+X  
+! o  Fixed more signal() code that was using SVR4 specific features.
+X  
+! o  Fixed #includes so that SCO Unix would compile.
+X  
+X  For more bug fixes, changes & additions read the CHANGES & TODO files.
+X  
+X  For compilation and installation information read the INSTALL file.
+X  
+! I wish to thank all the people (especially Hakan Lennestal) that sent me 
+! bug fixes and comments for tin. I still want to hear of any bug reports,
+! gripes and comments but please read the INSTALL and tin.1 man page before
+! anything :-)!.
+X  
+X  I am still off the net, but am contactable at the following address:
+X  
+diff -rcs ../111/TODO ./TODO
+*** ../111/TODO	Fri Mar 27 14:00:15 1992
+--- ./TODO	Sat Mar 28 12:58:18 1992
+***************
+*** 13,21 ****
+X     it still has the old arts headers when going into next group. Where is it
+X     free'd?
+X  
+! o  Add crossposting of articles so that read ones are marked read in 
+!    other groups. in rn it uses Xref: line to do this. Perhaps just
+!    use update_group() to do it?
+X     Needs to handle 'c' 'C' 'k' 'K' commands. Perhaps it should be an
+X     option so that performance is not impaired. (JIM).
+X  
+--- 13,20 ----
+X     it still has the old arts headers when going into next group. Where is it
+X     free'd?
+X  
+! o  Add Xref handling of articles so that read ones are marked read in 
+!    other groups. Use update_group() to do it?
+X     Needs to handle 'c' 'C' 'k' 'K' commands. Perhaps it should be an
+X     option so that performance is not impaired. (JIM).
+X  
+***************
+*** 47,54 ****
+X  o  Fix code to display only groups with unread news. look at
+X     setup_base() also for killing.
+X  
+- o  Add nntp code to read 4th field (ynm) in active file in scanf()
+- 
+X  FIX FEATURES V2.0
+X  -----------------
+X  
+--- 46,51 ----
+***************
+*** 59,66 ****
+X  o  Fix code to KILL articles. At page level funny things happen.
+X  
+X  o  Fix code to KILL articles with 't' command.
+- 
+- o  Fix so that it always finds unread messages. 
+X  
+X  o  Fix 'z' so that it stays unread even if a KILL is performed before
+X     leaving the group.
+--- 56,61 ----
+diff -rcs ../111/active.c ./active.c
+*** ../111/active.c	Fri Mar 27 14:00:28 1992
+--- ./active.c	Sun Mar 29 04:45:45 1992
+***************
+*** 3,9 ****
+X   *  Module    : active.c
+X   *  Author    : I.Lea
+X   *  Created   : 16-02-92
+!  *  Updated   : 01-03-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : active.c
+X   *  Author    : I.Lea
+X   *  Created   : 16-02-92
+!  *  Updated   : 28-03-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 18,26 ****
+X  int reread_active_file = FALSE;
+X  
+X  
+- int test_reread = 0;
+- 
+- 
+X  /*
+X   *  Resync active file when SIGALRM signal reeived that
+X   *  is triggered by alarm (RESYNC_ACTIVE_SECS) call.
+--- 18,23 ----
+***************
+*** 28,34 ****
+X  
+X  void resync_active_file ()
+X  {
+- #ifndef NO_RESYNC_ACTIVE_FILE 	
+X  	if (reread_active_file) {
+X  		wait_message (txt_reading_active_file);
+X  		free_active_arrays ();
+--- 25,30 ----
+***************
+*** 36,47 ****
+X  		expand_active ();
+X  		read_active_file ();
+X  		read_newsrc (TRUE);
+! 		reread_active_file = FALSE;
+X  		alarm (RESYNC_ACTIVE_SECS);		/* reset alarm clock */
+X  		group_selection_page ();
+- 		test_reread++;		
+X  	}
+- #endif
+X  }
+X  
+X  /*
+--- 32,43 ----
+X  		expand_active ();
+X  		read_active_file ();
+X  		read_newsrc (TRUE);
+! #ifndef NO_RESYNC_ACTIVE_FILE 	
+X  		alarm (RESYNC_ACTIVE_SECS);		/* reset alarm clock */
++ #endif
++ 		reread_active_file = FALSE;
+X  		group_selection_page ();
+X  	}
+X  }
+X  
+X  /*
+***************
+*** 154,160 ****
+X  	debug_print_active ();
+X  
+X  	if (cmd_line || (read_news_via_nntp && update == FALSE)) {
+! 		wait_message ("\n");
+X  	}
+X  
+X  	return (created);
+--- 150,158 ----
+X  	debug_print_active ();
+X  
+X  	if (cmd_line || (read_news_via_nntp && update == FALSE)) {
+! 		if (! (update && ! verbose)) {
+! 			wait_message ("\n");
+! 		}
+X  	}
+X  
+X  	return (created);
+***************
+*** 173,180 ****
+X  	int i;
+X  	struct stat sb;
+X  	
+- 	set_real_uid_gid ();
+- 	
+X  	sprintf (buf, "%s/active", rcdir);
+X  	
+X  	if (create) {
+--- 171,176 ----
+***************
+*** 193,199 ****
+X  	}
+X  
+X  backup_active_done:
+- 	set_tin_uid_gid ();
+X  	return (created);
+X  }
+X  
+--- 189,194 ----
+***************
+*** 215,226 ****
+X  		int len;
+X  	} *old_active;
+X  	
+- 	set_real_uid_gid ();
+- 	
+X  	sprintf (buf, "%s/active", rcdir);
+X  	
+X  	if ((fp = fopen (buf, "r")) == NULL) {
+! 		error_message (txt_cannot_open, buf);
+X  		goto notify_groups_done;
+X  	}
+X  
+--- 210,219 ----
+X  		int len;
+X  	} *old_active;
+X  	
+X  	sprintf (buf, "%s/active", rcdir);
+X  	
+X  	if ((fp = fopen (buf, "r")) == NULL) {
+! 		perror_message (txt_cannot_open, buf);
+X  		goto notify_groups_done;
+X  	}
+X  
+***************
+*** 282,288 ****
+X  	}
+X  
+X  notify_groups_done:
+- 	set_tin_uid_gid ();
+X  }
+X  
+X  #endif
+--- 275,280 ----
+***************
+*** 302,313 ****
+X  		int visited;
+X  	} *old_active;
+X  	
+- 	set_real_uid_gid ();
+- 	
+X  	sprintf (buf, "%s/active", rcdir);
+X  	
+X  	if ((fp = fopen (buf, "r")) == NULL) {
+! 		error_message (txt_cannot_open, buf);
+X  		goto notify_groups_done;
+X  	}
+X  
+--- 294,303 ----
+X  		int visited;
+X  	} *old_active;
+X  	
+X  	sprintf (buf, "%s/active", rcdir);
+X  	
+X  	if ((fp = fopen (buf, "r")) == NULL) {
+! 		perror_message (txt_cannot_open, buf);
+X  		goto notify_groups_done;
+X  	}
+X  
+***************
+*** 331,337 ****
+X  		if (num >= max_old_active) {
+X  			max_old_active= max_old_active + (max_old_active / 2);
+X  			old_active= (struct notify_t*) my_realloc(
+! 				(struct notify_t*) old_active, 
+X  				(unsigned) sizeof(struct notify_t) * max_old_active);
+X  			if (old_active == (struct notify_t *) 0) {
+X  				error_message (txt_out_of_memory, progname);
+--- 321,327 ----
+X  		if (num >= max_old_active) {
+X  			max_old_active= max_old_active + (max_old_active / 2);
+X  			old_active= (struct notify_t*) my_realloc(
+! 				(char *) old_active, 
+X  				(unsigned) sizeof(struct notify_t) * max_old_active);
+X  			if (old_active == (struct notify_t *) 0) {
+X  				error_message (txt_out_of_memory, progname);
+***************
+*** 395,399 ****
+X  	}
+X  
+X  notify_groups_done:
+! 	set_tin_uid_gid ();
+X  }
+--- 385,389 ----
+X  	}
+X  
+X  notify_groups_done:
+! 	;
+X  }
+Only in .: active.o
+diff -rcs ../111/art.c ./art.c
+*** ../111/art.c	Fri Mar 27 14:00:33 1992
+--- ./art.c	Thu Mar 26 16:29:01 1992
+***************
+*** 3,9 ****
+X   *  Module    : art.c
+X   *  Author    : I.Lea & R.Skrenta
+X   *  Created   : 01-04-91
+!  *  Updated   : 21-03-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : art.c
+X   *  Author    : I.Lea & R.Skrenta
+X   *  Created   : 01-04-91
+!  *  Updated   : 25-03-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 171,179 ****
+X  	killed = kill_any_articles (group);
+X  	
+X  	if (modified || killed || purge_needed()) {
+- 		if (local_index) {		/* writing index in home directory */
+- 			set_real_uid_gid ();	/* so become them */
+- 		}
+X  
+X  		if (killed) {
+X  			reload_index_file (group, killed);
+--- 171,176 ----
+***************
+*** 183,192 ****
+X  			make_threads (FALSE);
+X  			find_base (show_only_unread);
+X  		}
+- 
+- 		if (local_index) {
+- 			set_tin_uid_gid ();
+- 		}
+X  	} else {
+X  		read_newsrc_line (group);
+X  		make_threads (FALSE);
+--- 180,185 ----
+***************
+*** 439,447 ****
+X  	int realnum;
+X  	register int i;
+X  
+! 	sprintf (nam, "%s.%d", index_file, process_id);
+X  	if ((fp = fopen (nam, "w")) == NULL) {
+! 		error_message (txt_cannot_open, nam);
+X  		return;
+X  	}
+X  
+--- 432,442 ----
+X  	int realnum;
+X  	register int i;
+X  
+! 	set_tin_uid_gid();
+! 
+!         sprintf (nam, "%s.%d", index_file, process_id);
+X  	if ((fp = fopen (nam, "w")) == NULL) {
+! 		perror_message (txt_cannot_open, nam);
+X  		return;
+X  	}
+X  
+***************
+*** 558,563 ****
+--- 553,559 ----
+X  	fclose (fp);
+X  	chmod (index_file, 0644);
+X  	rename_file (nam, index_file);
++ 	set_real_uid_gid();
+X  	if (debug == 2) {
+X  		sprintf (msg, "cp %s INDEX", index_file);
+X  		system (msg);
+***************
+*** 807,813 ****
+--- 803,811 ----
+X  		system (msg);
+X  	}
+X  
++ 	set_tin_uid_gid();
+X  	unlink (index_file);
++ 	set_real_uid_gid();
+X  	top = 0;
+X  	return FALSE;
+X  }
+***************
+*** 821,828 ****
+X   *  we find an existing file that matches our group.
+X   */
+X  
+! void find_index_file (group)
+X  	char *group;
+X  {
+X  	char *p;
+X  	FILE *fp;
+--- 819,827 ----
+X   *  we find an existing file that matches our group.
+X   */
+X  
+! void find_index_file (group, group_path)
+X  	char *group;
++ 	char *group_path;
+X  {
+X  	char *p;
+X  	FILE *fp;
+***************
+*** 842,848 ****
+X  	if (local_index) {
+X  		strcpy (dir, indexdir);
+X  	} else {
+! 		sprintf (dir, "%s/%s", spooldir, INDEXDIR);
+X  	}
+X  #endif	
+X  	
+--- 841,848 ----
+X  	if (local_index) {
+X  		strcpy (dir, indexdir);
+X  	} else {
+! 		sprintf (index_file, "%s/%s/%s", spooldir, group_path, INDEXDIR);
+! 		return;
+X  	}
+X  #endif	
+X  	
+***************
+*** 926,935 ****
+X  	char group_path[LEN];
+X  	char *p;
+X  
+- 	if (local_index) {			/* writing index in home directory */
+- 		set_real_uid_gid ();	/* so become them */
+- 	}
+- 
+X  	strcpy (group_path, group);			/* turn comp.unix.amiga into */
+X  	for (p = group_path; *p; p++)		/* comp/unix/amiga */
+X  		if (*p == '.')
+--- 926,931 ----
+***************
+*** 948,956 ****
+X  		if (! update) {
+X  			wait_message (txt_unkilling_arts);
+X  		}
+! 		find_index_file (group);
+X  
+X  		unlink (index_file);	/* delete index file */
+X  
+X  		index_file_killed = FALSE;
+X  		last_read_article = 0L;
+--- 944,954 ----
+X  		if (! update) {
+X  			wait_message (txt_unkilling_arts);
+X  		}
+! 		find_index_file (group, group_path);
+X  
++ 		set_tin_uid_gid();
+X  		unlink (index_file);	/* delete index file */
++ 		set_real_uid_gid();
+X  
+X  		index_file_killed = FALSE;
+X  		last_read_article = 0L;
+***************
+*** 963,972 ****
+X  	make_threads (TRUE);
+X  	find_base (show_only_unread);
+X  
+- 	if (local_index) {
+- 		set_tin_uid_gid ();
+- 	}
+- 
+X  	return; 
+X  }
+X  
+--- 961,966 ----
+***************
+*** 1103,1110 ****
+X  
+X  	/* return result of strcmp (reversed for descending) */
+X  	return (sort_art_type == SORT_BY_SUBJ_ASCEND 
+! 			? strcmp (s1->subject, s2->subject) 
+! 			: strcmp (s2->subject, s1->subject));
+X  }
+X  
+X  
+--- 1097,1104 ----
+X  
+X  	/* return result of strcmp (reversed for descending) */
+X  	return (sort_art_type == SORT_BY_SUBJ_ASCEND 
+! 			? my_stricmp (s1->subject, s2->subject) 
+! 			: my_stricmp (s2->subject, s1->subject));
+X  }
+X  
+X  
+***************
+*** 1117,1124 ****
+X  
+X  	/* return result of strcmp (reversed for descending) */
+X  	return (sort_art_type == SORT_BY_FROM_ASCEND 
+! 			? strcmp (s1->from, s2->from) 
+! 			: strcmp (s2->from, s1->from));
+X  }
+X  
+X  
+--- 1111,1118 ----
+X  
+X  	/* return result of strcmp (reversed for descending) */
+X  	return (sort_art_type == SORT_BY_FROM_ASCEND 
+! 			? my_stricmp (s1->from, s2->from) 
+! 			: my_stricmp (s2->from, s1->from));
+X  }
+X  
+X  
+Only in .: art.o
+Only in .: clientlib.c
+Only in .: core
+diff -rcs ../111/curses.c ./curses.c
+*** ../111/curses.c	Fri Mar 27 14:00:33 1992
+--- ./curses.c	Wed Mar 25 17:49:13 1992
+***************
+*** 3,9 ****
+X   *  Module    : curses.c
+X   *  Author    : D.Taylor & I.Lea
+X   *  Created   : ??-??-86
+!  *  Updated   : 22-03-92
+X   *  Notes     : This is a screen management library borrowed with permission
+X   *              from the Elm mail system (a great mailer--I highly recommend
+X   *              it!).This library was hacked to provide what tin needs.
+--- 3,9 ----
+X   *  Module    : curses.c
+X   *  Author    : D.Taylor & I.Lea
+X   *  Created   : ??-??-86
+!  *  Updated   : 25-03-92
+X   *  Notes     : This is a screen management library borrowed with permission
+X   *              from the Elm mail system (a great mailer--I highly recommend
+X   *              it!).This library was hacked to provide what tin needs.
+***************
+*** 13,18 ****
+--- 13,19 ----
+X  
+X  #include <stdio.h>
+X  #include <curses.h>
++ #include <sys/errno.h>
+X  
+X  #define DEFAULT_LINES_ON_TERMINAL	24
+X  #define DEFAULT_COLUMNS_ON_TERMINAL	80
+***************
+*** 367,382 ****
+X  int ReadCh()
+X  {
+X  #ifndef INDEX_DAEMON
+! 
+! 	register int result;
+! 	char ch;
+X  	
+X  #ifdef READ_CHAR_HACK
+X  #undef getc
+! 	ch = getc (stdin);
+X  	return ((ch == EOF) ? EOF : ch & 0xFF);
+X  #else
+! 	result = read(0, &ch, 1);
+X          return((result <= 0 ) ? EOF : ch & 0xFF);
+X  #endif		
+X  
+--- 368,394 ----
+X  int ReadCh()
+X  {
+X  #ifndef INDEX_DAEMON
+! 	extern int errno;
+! 	char ch = 0;
+! 	register int result = 0;
+X  	
+X  #ifdef READ_CHAR_HACK
+X  #undef getc
+! 	while (ch == 0 || errno == EINTR) {
+! 		ch = 0;
+! 		errno = 0;
+! 		ch = getc (stdin);
+! 	}
+! 
+X  	return ((ch == EOF) ? EOF : ch & 0xFF);
+X  #else
+! 
+! 	while (result == 0 || errno == EINTR) {
+! 		result = 0;
+! 		errno = 0;
+! 		result = read(0, &ch, 1);
+! 	}
+! 
+X          return((result <= 0 ) ? EOF : ch & 0xFF);
+X  #endif		
+X  
+Only in .: curses.o
+Files ../111/debug.c and ./debug.c are identical
+Only in .: debug.o
+diff -rcs ../111/extern.h ./extern.h
+*** ../111/extern.h	Fri Mar 27 14:01:17 1992
+--- ./extern.h	Sun Mar 29 04:50:18 1992
+***************
+*** 3,9 ****
+X   *  Module    : lang.h
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 21-03-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : lang.h
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 28-03-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 136,141 ****
+--- 136,142 ----
+X  extern char txt_help_ctrl_k[];
+X  extern char txt_help_ctrl_l[];
+X  extern char txt_help_ctrl_d[];
++ extern char txt_help_ctrl_y[];
+X  extern char txt_help_i_cr[];
+X  extern char txt_help_i_tab[];
+X  extern char txt_help_d[];
+***************
+*** 292,298 ****
+X  extern char txt_mail_bug_report_confirm[];
+X  extern char txt_reply_to_author[];
+X  extern char txt_opt_autosave[];
+! extern char txt_opt_save_separate[];
+X  extern char txt_opt_mark_saved_read[];
+X  extern char txt_opt_kill_articles[];
+X  extern char txt_opt_show_author[];
+--- 293,299 ----
+X  extern char txt_mail_bug_report_confirm[];
+X  extern char txt_reply_to_author[];
+X  extern char txt_opt_autosave[];
+! extern char txt_opt_start_editor_offset[];
+X  extern char txt_opt_mark_saved_read[];
+X  extern char txt_opt_kill_articles[];
+X  extern char txt_opt_show_author[];
+***************
+*** 327,333 ****
+X  extern char txt_opt_printer[];
+X  extern char txt_options_menu[];
+X  extern char txt_help_autosave[];
+! extern char txt_help_save_separate[];
+X  extern char txt_help_print_header[];
+X  extern char txt_help_pos_first_unread[];
+X  extern char txt_help_show_author[];
+--- 328,334 ----
+X  extern char txt_opt_printer[];
+X  extern char txt_options_menu[];
+X  extern char txt_help_autosave[];
+! extern char txt_help_start_editor_offset[];
+X  extern char txt_help_print_header[];
+X  extern char txt_help_pos_first_unread[];
+X  extern char txt_help_show_author[];
+***************
+*** 394,399 ****
+--- 395,401 ----
+X  extern char txt_help_t_4[];
+X  extern char txt_help_t_cr[];
+X  extern char txt_help_t_tab[];
++ extern char txt_no_blank_line[];
+X  
+X  extern int LINES, COLS;
+X  extern int MORE_POS;
+***************
+*** 444,454 ****
+X  extern int save_archive_name;
+X  extern int save_news;
+X  extern int save_num;
+- extern int save_separate;
+X  extern int show_author;
+X  extern int show_only_unread;
+X  extern int sort_art_type;
+X  extern int space_mode;
+X  extern int start_line_offset;
+X  extern int thread_arts;
+X  extern int tin_gid;
+--- 446,456 ----
+X  extern int save_archive_name;
+X  extern int save_news;
+X  extern int save_num;
+X  extern int show_author;
+X  extern int show_only_unread;
+X  extern int sort_art_type;
+X  extern int space_mode;
++ extern int start_editor_offset;
+X  extern int start_line_offset;
+X  extern int thread_arts;
+X  extern int tin_gid;
+diff -rcs ../111/feed.c ./feed.c
+*** ../111/feed.c	Fri Mar 27 14:00:34 1992
+--- ./feed.c	Fri Mar 27 14:32:28 1992
+***************
+*** 3,9 ****
+X   *  Module    : feed.c
+X   *  Author    : I.Lea
+X   *  Created   : 31-08-91
+!  *  Updated   : 18-03-92
+X   *  Notes     : provides same interface to mail,pipe,print and save commands
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : feed.c
+X   *  Author    : I.Lea
+X   *  Created   : 31-08-91
+!  *  Updated   : 25-03-92
+X   *  Notes     : provides same interface to mail,pipe,print and save commands
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 84,96 ****
+X  	} else {
+X  		file[0] = '\0';
+X  		ch = ch_default;
+! 		if (str_str (glob_group, "sources", 7)) {
+! 			proc_ch = 's';		/* *source* group */ 
+! 		} else if (str_str (glob_group, "binaries", 8)) {
+! 			proc_ch = 'u';		/* *binaries* group */
+! 		} else {
+! 			proc_ch = 's';
+! 		}
+X  	}
+X  
+X  	if (ch == 'e' || ch == ESC) {	/* exit */
+--- 84,98 ----
+X  	} else {
+X  		file[0] = '\0';
+X  		ch = ch_default;
+! 		if (proc_ch != 'n') {
+! 			if (str_str (glob_group, "sources", 7)) {
+! 				proc_ch = 's';		/* *source* group */ 
+! 			} else if (str_str (glob_group, "binaries", 8)) {
+! 				proc_ch = 'u';		/* *binaries* group */
+! 			} else {
+! 				proc_ch = 's';
+! 			}
+! 		}	
+X  	}
+X  
+X  	if (ch == 'e' || ch == ESC) {	/* exit */
+***************
+*** 151,158 ****
+X  				}
+X  			}
+X  
+! 			if ((fp = popen (command, "w")) == NULL) {
+! 				error_message (txt_command_failed_s, command);
+X  				return;
+X  			}
+X  			wait_message (txt_piping);
+--- 153,160 ----
+X  				}
+X  			}
+X  
+! 			if ((fp = (FILE *) popen (command, "w")) == NULL) {
+! 				perror_message (txt_command_failed_s, command);
+X  				return;
+X  			}
+X  			wait_message (txt_piping);
+***************
+*** 176,183 ****
+X  						printer, redirect_output);
+X  				}
+X  			}
+! 			if ((fp = popen (command, "w")) == NULL) {
+! 				error_message (txt_command_failed_s, command);
+X  				return;
+X  			}
+X  			break;
+--- 178,185 ----
+X  						printer, redirect_output);
+X  				}
+X  			}
+! 			if ((fp = (FILE *) popen (command, "w")) == NULL) {
+! 				perror_message (txt_command_failed_s, command);
+X  				return;
+X  			}
+X  			break;
+***************
+*** 274,281 ****
+X  			confirm = TRUE;
+X  			for (i = (int) base[b]; i >= 0; i = arts[i].thread) {
+X  				if (function == FEED_PRINT) {
+! 					if ((fp = popen (command, "w")) == NULL) {
+! 						error_message (txt_command_failed_s, command);
+X  						return;
+X  					}
+X  				}
+--- 276,283 ----
+X  			confirm = TRUE;
+X  			for (i = (int) base[b]; i >= 0; i = arts[i].thread) {
+X  				if (function == FEED_PRINT) {
+! 					if ((fp = (FILE *) popen (command, "w")) == NULL) {
+! 						perror_message (txt_command_failed_s, command);
+X  						return;
+X  					}
+X  				}
+***************
+*** 318,325 ****
+X  				for (j=0 ; j < top ; j++) {
+X  					if (arts[j].tagged && arts[j].tagged == i) { 
+X  						if (function == FEED_PRINT) {
+! 							if ((fp = popen (command, "w")) == NULL) {
+! 								error_message (txt_command_failed_s, command);
+X  								return;
+X  							}
+X  						}
+--- 320,327 ----
+X  				for (j=0 ; j < top ; j++) {
+X  					if (arts[j].tagged && arts[j].tagged == i) { 
+X  						if (function == FEED_PRINT) {
+! 							if ((fp = (FILE *) popen (command, "w")) == NULL) {
+! 								perror_message (txt_command_failed_s, command);
+X  								return;
+X  							}
+X  						}
+***************
+*** 367,374 ****
+X  				if (wildmat (arts[i].subject, pattern)) {
+X  #endif		
+X  					if (function == FEED_PRINT) {
+! 						if ((fp = popen (command, "w")) == NULL) {
+! 							error_message (txt_command_failed_s, command);
+X  							return;
+X  						}
+X  					}
+--- 369,376 ----
+X  				if (wildmat (arts[i].subject, pattern)) {
+X  #endif		
+X  					if (function == FEED_PRINT) {
+! 						if ((fp = (FILE *) popen (command, "w")) == NULL) {
+! 							perror_message (txt_command_failed_s, command);
+X  							return;
+X  						}
+X  					}
+Only in .: feed.o
+diff -rcs ../111/getline.c ./getline.c
+*** ../111/getline.c	Fri Mar 27 14:00:35 1992
+--- ./getline.c	Sun Mar 29 10:52:30 1992
+***************
+*** 1,9 ****
+X  /*
+X   *  Project   : tin - a threaded Netnews reader
+SHAR_EOF
+true || echo 'restore of tin.patch112 failed'
+fi
+echo 'End of tin part 1'
+echo 'File tin.patch112 is continued in part 2'
+echo 2 > _shar_seq_.tmp
+exit 0
+-- 
+ Dr. med. dipl.-math Dieter Becker           Tel.: (0 / +49) 6841 - 16 3046
+ Medizinische Universitaets- und Poliklinik  Fax.: (0 / +49) 6841 - 16 3369
+ Innere Medizin III                         
+ D - 6650 Homburg / Saar                     Email: becker@med-in.uni-sb.de
+exit 0 # Just in case...

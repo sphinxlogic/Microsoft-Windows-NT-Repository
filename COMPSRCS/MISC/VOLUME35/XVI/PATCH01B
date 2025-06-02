@@ -1,0 +1,2074 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject: v35i099:  xvi - portable multi-window vi-like editor, Patch01b/7
+Message-ID: <1993Feb23.183224.13205@sparky.imd.sterling.com>
+X-Md4-Signature: d541312301556ff1fbd9e0e543c57bc3
+Date: Tue, 23 Feb 1993 18:32:24 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 35, Issue 99
+Archive-name: xvi/patch01b
+Environment: Unix, MS-DOS, OS/2, QNX
+Patch-To: xvi: Volume 33, Issue 10-27
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 7)."
+# Contents:  src/ibmpc_c.c src/patch09 src/patch14 src/patch15
+#   src/patch17 src/patch19 src/patch30
+# Wrapped by jmd@bealfeirste on Mon Feb  8 19:57:06 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'src/ibmpc_c.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/ibmpc_c.c'\"
+else
+echo shar: Extracting \"'src/ibmpc_c.c'\" \(5791 characters\)
+sed "s/^X//" >'src/ibmpc_c.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)ibmpc_c.c	2.3 (Chris & John Downey) 11/6/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    ibmpc_c.c
+X* module function:
+X    C part of terminal interface module for IBM PC compatibles
+X    running MS-DOS.
+X
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Screen dimensions, defined here so they'll go in the C default data
+X * segment.
+X */
+Xunsigned int	Rows;
+Xunsigned int	Columns;
+X
+X/*
+X * IBM-compatible PC's have a default typeahead buffer which is only
+X * big enough for 16 characters, & some 8088-based PC's are so
+X * unbelievably slow that xvi can't handle more than about 2
+X * characters a second. So we do some input buffering here to
+X * alleviate the problem.
+X */
+X
+Xstatic	char	    kbuf[16];
+Xstatic	char	    *kbrp = kbuf;
+Xstatic	char	    *kbwp = kbuf;
+Xstatic	unsigned    kbcount;
+X
+Xstatic void near
+Xkbfill()
+X{
+X    register int	c;
+X
+X    while (kbcount < sizeof kbuf && (c = getchnw()) >= 0) {
+X	kbcount++;
+X	*kbwp = c;
+X	if (kbwp++ >= &kbuf[sizeof kbuf - 1])
+X	    kbwp = kbuf;
+X    }
+X}
+X
+Xstatic unsigned char near
+Xkbget()
+X{
+X    for (;;) {
+X	if (kbcount > 0) {
+X	    unsigned char c;
+X
+X	    --kbcount;
+X	    c = *kbrp;
+X	    if (kbrp++ >= &kbuf[sizeof kbuf - 1])
+X		kbrp = kbuf;
+X	    return c;
+X	} else {
+X	    kbfill();
+X	}
+X    }
+X}
+X
+X/*
+X * Convert milliseconds to clock ticks.
+X */
+X#if CLK_TCK > 1000
+X#		define	MS2CLK(m)	((long)(m) * (CLK_TCK / 1000))
+X#else
+X#	if CLK_TCK < 1000
+X#		define	MS2CLK(m)	((long)(m) / (1000 / CLK_TCK))
+X#	else
+X#		define	MS2CLK(m)	(m)
+X#	endif
+X#endif
+X
+X/*
+X * inchar() - get a character from the keyboard
+X */
+Xint
+Xinchar(long mstimeout)
+X{
+X    clock_t		stoptime;
+X
+X    if (kbcount == 0) {
+X	flush_output();
+X	if (mstimeout != 0) {
+X	    stoptime = clock() + MS2CLK(mstimeout);
+X	}
+X	kbfill();
+X    }
+X    for (;;) {
+X	static clock_t	lastevent;
+X	register int	c;
+X
+X	if (kbcount == 0) {
+X	    unsigned	prevbstate;
+X	    unsigned	prevx, prevy;
+X	    bool_t	isdrag;
+X
+X	    if (State == NORMAL) {
+X		showmouse();
+X		prevbstate = 0;
+X	    }
+X	    for (; kbcount == 0; kbfill()) {
+X		/*
+X		 * Time out if we have to.
+X		 */
+X		if (mstimeout != 0 && clock() > stoptime) {
+X		    break;
+X		}
+X		if (State == NORMAL) {
+X		    unsigned	buttonstate;
+X		    unsigned	mousex,
+X				mousey;
+X
+X		    /*
+X		     * If there's no keyboard input waiting to be
+X		     * read, watch out for mouse events. We don't do
+X		     * this if we're in insert or command line mode.
+X		     */
+X
+X		    buttonstate = mousestatus(&mousex, &mousey) & 7;
+X		    mousex /= 8;
+X		    mousey /= 8;
+X		    if (prevbstate == 0) {
+X			isdrag = FALSE;
+X		    } else {
+X			if (buttonstate) {
+X			    /*
+X			     * If a button is being held down, & the
+X			     * position has changed, this is a mouse
+X			     * drag event.
+X			     */
+X			    if (mousex != prevx || mousey != prevy) {
+X				hidemouse();
+X				mousedrag(prevy, mousey, prevx, mousex);
+X				showmouse();
+X				isdrag = TRUE;
+X			    }
+X			} else {
+X			    if (!isdrag) {
+X				/*
+X				 * They've pressed & released a button
+X				 * without moving the mouse.
+X				 */
+X				hidemouse();
+X				mouseclick(mousey, mousex);
+X				showmouse();
+X			    }
+X			}
+X		    }
+X		    if ((prevbstate = buttonstate) != 0) {
+X			prevx = mousex;
+X			prevy = mousey;
+X		    }
+X		}
+X	    }
+X	    if (State == NORMAL) {
+X		hidemouse();
+X	    }
+X	    if (kbcount == 0) {
+X		/*
+X		 * We must have timed out.
+X		 */
+X		return EOF;
+X	    }
+X	}
+X	c = kbget();
+X	/*
+X	 * On IBM compatible PC's, function keys return '\0' followed
+X	 * by another character. Check for this, and turn function key
+X	 * presses into appropriate "normal" characters to do the
+X	 * right thing in xvi.
+X	 */
+X	if (c != '\0') {
+X	    return(c);
+X	}
+X	/* else must be a function key press */
+X	{
+X	    if (State != NORMAL) {
+X		/*
+X		 * Function key pressed during insert or command line
+X		 * mode. Get the next character ...
+X		 */
+X		if (kbget() == 0x53) {
+X		    /*
+X		     * ... and if it's the delete key, return it as a
+X		     * backspace ...
+X		     */
+X		    return '\b';
+X		}
+X		/*
+X		 * ... otherwise it isn't valid ...
+X		 */
+X		alert();
+X
+X		/*
+X		 * Typical MS-DOS users are fairly naive & may not
+X		 * understand how to get out of insert mode. To make
+X		 * things easier, we do it for them here.
+X		 */
+X		switch (State) {
+X		case INSERT:
+X		case REPLACE:
+X		    return ESC;
+X		default:
+X		    continue;
+X		}
+X	    }
+X	    /* else (State == NORMAL) ... */
+X	    switch (kbget()) {
+X	    case 0x3b: return(K_HELP);		/* F1 key */
+X	    case 0x47: return('H');		/* home key */
+X	    case 0x48: return('k');		/* up arrow key */
+X	    case 0x49: return (CTRL('B'));	/* page up key */
+X	    case 0x4b: return('\b');		/* left arrow key */
+X	    case 0x4d: return(' ');		/* right arrow key */
+X	    case 0x4f: return('L');		/* end key */
+X	    case 0x50: return('j');		/* down arrow key */
+X	    case 0x51: return (CTRL('F'));	/* page down key */
+X	    case 0x52: return('i');		/* insert key */
+X	    case 0x53: return('x');		/* delete key */
+X	    /*
+X	     * default:
+X	     *	fall through and ignore both characters ...
+X	     */
+X	    }
+X	    continue;
+X	}
+X    }
+X}
+X
+X#ifdef __ZTC__
+X#   ifdef DOS386
+X#	define Z386
+X#   endif
+X#endif
+X
+X#ifndef Z386
+X
+X/*
+X * The routines in ibmpc_a.asm need to call this because they can't
+X * invoke C macros directly.
+X *
+X * Return Pn(P_colour) in the al register, Pn(P_statuscolour) in ah, &
+X * Pb(P_vbell) in dx.
+X *
+X * This will only work with a Microsoft-compatible compiler.
+X */
+Xlong
+Xcparams()
+X{
+X    return ((long) Pb(P_vbell) << 16) |
+X	   (unsigned short) ((Pn(P_statuscolour) << 8) |
+X		 (unsigned char) Pn(P_colour));
+X}
+X
+X#endif	/* not Z386 */
+END_OF_FILE
+if test 5791 -ne `wc -c <'src/ibmpc_c.c'`; then
+    echo shar: \"'src/ibmpc_c.c'\" unpacked with wrong size!
+fi
+# end of 'src/ibmpc_c.c'
+fi
+if test -f 'src/patch09' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch09'\"
+else
+echo shar: Extracting \"'src/patch09'\" \(4320 characters\)
+sed "s/^X//" >'src/patch09' <<'END_OF_FILE'
+X*** old/fileio.c	Tue Jul 28 17:46:16 1992
+X--- new/fileio.c	Tue Dec 22 17:04:21 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)fileio.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)fileio.c	2.2 (Chris & John Downey) 11/23/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 198,207 ****
+X  	unsigned long	nchars;		/* number of chars read */
+X      unsigned long	nlines;		/* number of lines read */
+X      unsigned long	nulls;		/* number of null chars */
+X-     unsigned long	toolong;	/*
+X- 					 * number of lines
+X- 					 * which were too long
+X- 					 */
+X      bool_t		incomplete;	/* incomplete last line */
+X      Line		*lptr = NULL;	/* pointer to list of lines */
+X      Line		*last = NULL;	/*
+X--- 198,203 ----
+X***************
+X*** 262,268 ****
+X      }
+X  #endif /* SETVBUF_AVAIL */
+X  
+X!     nchars = nlines = nulls = toolong = 0;
+X      col = 0;
+X      incomplete = FALSE;
+X      state = at_soln;
+X--- 258,264 ----
+X      }
+X  #endif /* SETVBUF_AVAIL */
+X  
+X!     nchars = nlines = nulls = 0;
+X      col = 0;
+X      incomplete = FALSE;
+X      state = at_soln;
+X***************
+X*** 292,307 ****
+X  	    switch (state) {
+X  	    case at_soln:
+X  		/*
+X! 		 * We're at the start of a line, &
+X! 		 * we've got at least one character,
+X! 		 * so we have to allocate a new Line
+X! 		 * structure.
+X  		 *
+X! 		 * If we can't do it, we throw away
+X! 		 * the lines we've read in so far, &
+X! 		 * return gf_NOMEM.
+X  		 */
+X! 		if ((lp = newline(MAX_LINE_LENGTH)) == NULL) {
+X  		    if (lptr != NULL) {
+X  			throw(lptr);
+X  		    }
+X--- 288,301 ----
+X  	    switch (state) {
+X  	    case at_soln:
+X  		/*
+X! 		 * We're at the start of a line, & we've got at least one
+X! 		 * character, so we have to allocate a new Line structure.
+X  		 *
+X! 		 * If we can't do it, we throw away the lines we've
+X! 		 * read in so far, & return gf_NOMEM.
+X  		 */
+X! 		if ((lp = newline(81)) == NULL &&
+X! 		    (lp = newline(1)) == NULL) {
+X  		    if (lptr != NULL) {
+X  			throw(lptr);
+X  		    }
+X***************
+X*** 354,360 ****
+X  	    }
+X  	}
+X  
+X! 	if (state == at_eoln || col >= MAX_LINE_LENGTH - 1) {
+X  	    /*
+X  	     * First null-terminate the old line.
+X  	     */
+X--- 348,354 ----
+X  	    }
+X  	}
+X  
+X! 	if (state == at_eoln) {
+X  	    /*
+X  	     * First null-terminate the old line.
+X  	     */
+X***************
+X*** 364,371 ****
+X  	     * If this fails, we squeak at the user and
+X  	     * then throw away the lines read in so far.
+X  	     */
+X! 	    buff = realloc(buff, (unsigned) col + 1);
+X! 	    if (buff == NULL) {
+X  		if (lptr != NULL)
+X  		    throw(lptr);
+X  		(void) fclose(fp);
+X--- 358,364 ----
+X  	     * If this fails, we squeak at the user and
+X  	     * then throw away the lines read in so far.
+X  	     */
+X! 	    if (!lnresize(lp, (unsigned) col + 1)) {
+X  		if (lptr != NULL)
+X  		    throw(lptr);
+X  		(void) fclose(fp);
+X***************
+X*** 372,379 ****
+X  		*headp = *tailp = NULL;
+X  		return gf_NOMEM;
+X  	    }
+X- 	    lp->l_text = buff;
+X- 	    lp->l_size = col + 1;
+X  
+X  	    /*
+X  	     * Tack the line onto the end of the list,
+X--- 365,370 ----
+X***************
+X*** 390,404 ****
+X  
+X  	    nlines++;
+X  	    col = 0;
+X- 	    if (state != at_eoln) {
+X- 		toolong++;
+X- 		/*
+X- 		 * We didn't get a properly terminated line,
+X- 		 * but we still have to do something with the
+X- 		 * character we've read.
+X- 		 */
+X- 		(void) ungetc(c, fp);
+X- 	    }
+X  	    state = at_soln;
+X  	} else {
+X  	    /*
+X--- 381,386 ----
+X***************
+X*** 408,413 ****
+X--- 390,405 ----
+X  		nulls++;
+X  		continue;
+X  	    }
+X+ 	    if (col >= lp->l_size - 1) {
+X+ 		if (!lnresize(lp, col + 2)) {
+X+ 		    if (lptr != NULL)
+X+ 			throw(lptr);
+X+ 		    (void) fclose(fp);
+X+ 		    *headp = *tailp = NULL;
+X+ 		    return gf_NOMEM;
+X+ 		}
+X+ 		buff = lp->l_text;
+X+ 	    }
+X  	    state = in_line;
+X  	    buff[col++] = c;
+X  	}
+X***************
+X*** 425,434 ****
+X  	if (nulls > 0) {
+X  	    (void) lformat(&errbuf, " (%ld null character%s)",
+X  		       nulls, (nulls == 1 ? "" : "s"));
+X- 	}
+X- 	if (toolong > 0) {
+X- 	    (void) lformat(&errbuf, " (%ld line%s too long)",
+X- 		       toolong, (toolong == 1 ? "" : "s"));
+X  	}
+X  	if (incomplete) {
+X  	    (void) lformat(&errbuf, " (incomplete last line)");
+X--- 417,422 ----
+END_OF_FILE
+if test 4320 -ne `wc -c <'src/patch09'`; then
+    echo shar: \"'src/patch09'\" unpacked with wrong size!
+fi
+# end of 'src/patch09'
+fi
+if test -f 'src/patch14' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch14'\"
+else
+echo shar: Extracting \"'src/patch14'\" \(5084 characters\)
+sed "s/^X//" >'src/patch14' <<'END_OF_FILE'
+X*** old/normal.c	Tue Jul 28 17:46:50 1992
+X--- new/normal.c	Thu Dec  3 19:50:03 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)normal.c	2.7 (Chris & John Downey) 8/24/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)normal.c	2.15 (Chris & John Downey) 11/30/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 321,327 ****
+X      static int		first_char;
+X      int			second_char;
+X      unsigned char	cflags;
+X!     bool_t		(*cfunc) P((int, int)) = NULL;
+X  
+X  
+X      /*
+X--- 321,327 ----
+X      static int		first_char;
+X      int			second_char;
+X      unsigned char	cflags;
+X!     bool_t		(*cfunc) P((int, int)) = NOFUNC;
+X  
+X  
+X      /*
+X***************
+X*** 452,458 ****
+X       * At this point, cfunc must be set - if not, the entry in the
+X       * command table is zero, so disallow the input character.
+X       */
+X!     if (cfunc == NULL) {
+X  	operator = NOP;
+X  	Prenum = 0;
+X      	beep(curwin);
+X--- 452,458 ----
+X       * At this point, cfunc must be set - if not, the entry in the
+X       * command table is zero, so disallow the input character.
+X       */
+X!     if (cfunc == NOFUNC) {
+X  	operator = NOP;
+X  	Prenum = 0;
+X      	beep(curwin);
+X***************
+X*** 773,778 ****
+X--- 773,780 ----
+X  do_cmd(c1, c2)
+X  int	c1, c2;
+X  {
+X+     Posn *curr_pos = curwin->w_cursor;
+X+ 
+X      switch (c1) {
+X      case K_HELP:
+X  	do_help(curwin);
+X***************
+X*** 784,790 ****
+X  	break;
+X  
+X      case CTRL('G'):
+X! 	show_file_info(curwin);
+X  	break;
+X  
+X      case CTRL(']'):		/* :ta to current identifier */
+X--- 786,792 ----
+X  	break;
+X  
+X      case CTRL('G'):
+X! 	show_file_info(curwin, TRUE);
+X  	break;
+X  
+X      case CTRL(']'):		/* :ta to current identifier */
+X***************
+X*** 821,827 ****
+X      case '!':
+X  	if (Prenum != 0)
+X  	    opnum = Prenum;
+X! 	startop = *curwin->w_cursor;
+X  	operator = c1;
+X  	break;
+X  
+X--- 823,829 ----
+X      case '!':
+X  	if (Prenum != 0)
+X  	    opnum = Prenum;
+X! 	startop = *curr_pos;
+X  	operator = c1;
+X  	break;
+X  
+X***************
+X*** 828,834 ****
+X      case 'p':
+X      case 'P':
+X  	Redo.r_mode = r_normal;
+X! 	do_put(curwin, curwin->w_cursor, (c1 == 'p') ? FORWARD : BACKWARD,
+X  							cur_yp_name);
+X  	if (is_digit(cur_yp_name) && cur_yp_name != '0' && cur_yp_name != '9') {
+X  	    cur_yp_name++;
+X--- 830,836 ----
+X      case 'p':
+X      case 'P':
+X  	Redo.r_mode = r_normal;
+X! 	do_put(curwin, curr_pos, (c1 == 'p') ? FORWARD : BACKWARD,
+X  							cur_yp_name);
+X  	if (is_digit(cur_yp_name) && cur_yp_name != '0' && cur_yp_name != '9') {
+X  	    cur_yp_name++;
+X***************
+X*** 838,851 ****
+X  	break;
+X  
+X      case 's':		/* substitute characters */
+X! 	start_command(curwin);
+X! 	replchars(curwin, curwin->w_cursor->p_line,
+X! 			    curwin->w_cursor->p_index, IDEF1PRENUM, "");
+X! 	updateline(curwin);
+X! 	Redo.r_mode = r_insert;
+X! 	flexclear(&Redo.r_fb);
+X! 	(void) lformat(&Redo.r_fb, "%lds", IDEF1PRENUM);
+X! 	startinsert(FALSE);
+X  	break;
+X  
+X      case ':':
+X--- 840,855 ----
+X  	break;
+X  
+X      case 's':		/* substitute characters */
+X! 	if (start_command(curwin))
+X! 	{
+X! 	    replchars(curwin, curr_pos->p_line,
+X! 		      curr_pos->p_index, IDEF1PRENUM, "");
+X! 	    updateline(curwin);
+X! 	    Redo.r_mode = r_insert;
+X! 	    flexclear(&Redo.r_fb);
+X! 	    (void) lformat(&Redo.r_fb, "%lds", IDEF1PRENUM);
+X! 	    startinsert(FALSE);
+X! 	}
+X  	break;
+X  
+X      case ':':
+X***************
+X*** 855,866 ****
+X  	break;
+X  
+X      case '&':
+X! 	(void) do_ampersand(curwin, curwin->w_cursor->p_line,
+X! 				    curwin->w_cursor->p_line, "");
+X  	begin_line(curwin, TRUE);
+X  	updateline(curwin);
+X  	break;
+X! 
+X      case 'R':
+X      case 'r':
+X  	Redo.r_mode = (c1 == 'r') ? r_replace1 : r_insert;
+X--- 859,872 ----
+X  	break;
+X  
+X      case '&':
+X!     {
+X! 	Line *cl = curr_pos->p_line;
+X! 
+X! 	(void) do_ampersand(curwin, cl, cl, "");
+X  	begin_line(curwin, TRUE);
+X  	updateline(curwin);
+X  	break;
+X!     }
+X      case 'R':
+X      case 'r':
+X  	Redo.r_mode = (c1 == 'r') ? r_replace1 : r_insert;
+X***************
+X*** 925,930 ****
+X--- 931,937 ----
+X  	} while (curwin->w_nrows < 2);
+X  	curbuf = curwin->w_buffer;
+X  	move_cursor_to_window(curwin);
+X+ 	cursupdate(curwin);
+X  	wind_goto(curwin);
+X  	break;
+X  
+X***************
+X*** 941,947 ****
+X       * Marks
+X       */
+X      case 'm':
+X! 	if (!setmark(c2, curbuf, curwin->w_cursor))
+X  	    beep(curwin);
+X  	break;
+X  
+X--- 948,954 ----
+X       * Marks
+X       */
+X      case 'm':
+X! 	if (!setmark(c2, curbuf, curr_pos))
+X  	    beep(curwin);
+X  	break;
+X  
+X***************
+X*** 1069,1075 ****
+X      /*
+X       * Finally, show where we are in the file.
+X       */
+X!     show_file_info(curwin);
+X  
+X      return(FALSE);
+X  }
+X--- 1076,1082 ----
+X      /*
+X       * Finally, show where we are in the file.
+X       */
+X!     show_file_info(curwin, TRUE);
+X  
+X      return(FALSE);
+X  }
+X***************
+X*** 1269,1274 ****
+X--- 1276,1282 ----
+X  	curwin->w_topline = lp;
+X  	lp = lp->l_prev;
+X      }
+X+     move_cursor_to_window(curwin);	/* just to get cursupdate to work */
+X      cursupdate(curwin);
+X      update_window(curwin);
+X  
+END_OF_FILE
+if test 5084 -ne `wc -c <'src/patch14'`; then
+    echo shar: \"'src/patch14'\" unpacked with wrong size!
+fi
+# end of 'src/patch14'
+fi
+if test -f 'src/patch15' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch15'\"
+else
+echo shar: Extracting \"'src/patch15'\" \(11382 characters\)
+sed "s/^X//" >'src/patch15' <<'END_OF_FILE'
+X*** old/os2vio.c	Tue Jul 28 17:46:52 1992
+X--- new/os2vio.c	Wed Jan 20 18:40:44 1993
+X***************
+X*** 1,5 ****
+X  #ifndef lint
+X! static char *sccsid = "@(#)os2vio.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,5 ----
+X  #ifndef lint
+X! static char *sccsid = "@(#)os2vio.c	2.2 (Chris & John Downey) 10/28/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 66,81 ****
+X   */
+X  unsigned char	curcell [2];
+X  
+X- /*
+X-  * Time of last keypress or mouse button press (or garbage if
+X-  * (keystrokes < PSVKEYS)).
+X-  *
+X-  * This should only be referenced within a thread's critical section.
+X-  * Referencing a 32-bit variable is not generally an atomic operation
+X-  * on the 80286.
+X-  */
+X- static volatile clock_t lastevent;
+X- 
+X  #ifndef NOMOUSE
+X      /*
+X       * This is FALSE if we don't appear to have a mouse driver.
+X--- 66,71 ----
+X***************
+X*** 115,132 ****
+X  
+X  static long	semvec [2];
+X  
+X! /*
+X!  * This semaphore needs to be acquired by a thread before it enters a
+X!  * critical region.
+X!  */
+X! #define		control ((HSEM)(long FAR *)&semvec[0])
+X  
+X! /*
+X!  * This semaphore is used for communication between the main thread &
+X!  * the thread which handles automatic buffer preservation. It should
+X!  * be clear when (keystrokes >= PSVKEYS), otherwise it should be set.
+X!  */
+X! #define		psvsema ((HSEM)(long FAR *)&semvec[1])
+X  
+X  #ifndef NOMOUSE
+X  
+X--- 105,118 ----
+X  
+X  static long	semvec [2];
+X  
+X! #define	producer		((HSEM)(long FAR *)&semvec[0])
+X! #define	consumer		((HSEM)(long FAR *)&semvec[1])
+X  
+X! #define s_acquire(x,t)		DosSemWait((x),(t))
+X! #define s_release(x)		DosSemClear(x)
+X! #define s_set(x)		DosSemSet(x)
+X! #define s_test(x)		\
+X! 		(DosSemWait((x),SEM_IMMEDIATE_RETURN) != ERROR_SEM_TIMEOUT)
+X  
+X  #ifndef NOMOUSE
+X  
+X***************
+X*** 187,322 ****
+X  
+X  #endif	/* NOMOUSE */
+X  
+X! /*
+X!  * Macro to convert clock ticks to milliseconds.
+X!  */
+X! #if CLK_TCK == 1000
+X! #   define CLK2MS(c)		(c)
+X! #else
+X! #   if CLK_TCK < 1000
+X! #	define CLK2MS(c)	((c) * (1000 / CLK_TCK))
+X! #   else
+X! #	define CLK2MS(c)	((c) / (CLK_TCK / 1000))
+X! #   endif	/* CLK_TCK > 1000 */
+X! #endif	/* CLK_TCK != 1000 */
+X  
+X- /*
+X-  * Number of keystrokes or mouse button presses since the last buffer
+X-  * preservation.
+X-  */
+X- volatile int		keystrokes;
+X- 
+X- /*
+X-  * This function handles automatic buffer preservation. It runs in its
+X-  * own thread, which is only awake when keystrokes >= PSVKEYS and the
+X-  * main thread is waiting for keyboard input. Even then, it spends
+X-  * most of its time asleep.
+X-  */
+X  static void FAR
+X! psvhandler()
+X  {
+X      for (;;) {
+X! 	long	sleeptime;
+X! 
+X! 	DosSemWait(psvsema, SEM_INDEFINITE_WAIT);
+X! 	DosSemRequest(control, SEM_INDEFINITE_WAIT);
+X! 	/*
+X! 	 * Start of critical section.
+X! 	 */
+X! 	if (keystrokes < PSVKEYS) {
+X! 	    sleeptime = 0;
+X! 	    /*
+X! 	     * If we haven't had at least PSVKEYS
+X! 	     * keystrokes, psvsema should be set.
+X! 	     */
+X! 	    DosSemSet(psvsema);
+X! 	} else if ((sleeptime = (long) Pn(P_preservetime) * 1000 -
+X! 		      CLK2MS(clock() - lastevent)) <= 0) {
+X! 	    /*
+X! 	     * If Pn(P_presevetime) seconds haven't yet
+X! 	     * elapsed, sleep until they should have - but
+X! 	     * NOT within the critical section (!).
+X! 	     *
+X! 	     * Otherwise do automatic preserve.
+X! 	     *
+X! 	     * do_preserve() should reset keystrokes to 0.
+X! 	     */
+X! 	    (void) do_preserve();
+X! 	    sleeptime = 0;
+X! 	}
+X! 	/*
+X! 	 * End of critical section.
+X! 	 */
+X! 	DosSemClear(control);
+X! 	/*
+X! 	 * Sleep if we have to.
+X! 	 */
+X! 	if (sleeptime != 0)
+X! 	    DosSleep(sleeptime);
+X      }
+X  }
+X  
+X  /*
+X   * inchar() - get a character from the keyboard.
+X-  *
+X-  * Timeout not implemented yet for OS/2.
+X   */
+X  int
+X  inchar(long mstimeout)
+X  {
+X      for (;;) {
+X! 	KBDKEYINFO k;
+X! 	bool_t	mstatus,
+X! 		psvstatus;
+X  
+X  	flush_output();
+X  
+X! 	mstatus = (usemouse && State == NORMAL);
+X! 	psvstatus = (keystrokes >= PSVKEYS);
+X! 	/*
+X! 	 * We don't have to give control to any other thread
+X! 	 * if neither of these conditions is true.
+X! 	 */
+X! 	if (mstatus || psvstatus) {
+X! #ifndef NOMOUSE
+X! 	    if (mstatus)
+X! 		showmouse();
+X! #endif
+X! 	    if (psvstatus && DosSemWait(psvsema, SEM_IMMEDIATE_RETURN)
+X! 						    == ERROR_SEM_TIMEOUT) {
+X! 		/*
+X! 		 * If psvsema is set, clear it.
+X! 		 */
+X! 		DosSemClear(psvsema);
+X! 	    }
+X! 	    DosSemClear(control);
+X  	}
+X! 	/*
+X! 	 * Start of non-critical section.
+X! 	 *
+X! 	 * Wait for character from keyboard.
+X! 	 */
+X! 	KbdCharIn((PKBDKEYINFO) &k, IO_WAIT, 0);
+X! 	/*
+X! 	 * End of non-critical section.
+X! 	 */
+X! 	if (mstatus || psvstatus) {
+X! 	    DosSemRequest(control, SEM_INDEFINITE_WAIT);
+X! #ifndef NOMOUSE
+X! 	    if (mstatus)
+X! 		hidemouse();
+X! #endif
+X  	}
+X- 	if (++keystrokes >= PSVKEYS)
+X- 	    lastevent = clock();
+X  	/*
+X  	 * Now deal with the keypress information.
+X  	 */
+X! 	if ((unsigned char) k.chChar == (unsigned char) 0xe0) {
+X  	/*
+X  	 * It's (probably) a function key.
+X  	 */
+X! 	    if (k.chScan == 0x53)
+X  		/*
+X  		 * It's the delete key.
+X  		 */
+X--- 173,231 ----
+X  
+X  #endif	/* NOMOUSE */
+X  
+X! static KBDKEYINFO kbc;
+X  
+X  static void FAR
+X! readkbd()
+X  {
+X      for (;;) {
+X! 	s_acquire(producer, SEM_INDEFINITE_WAIT);
+X! 	KbdCharIn((PKBDKEYINFO) &kbc, IO_WAIT, 0);
+X! 	s_release(consumer);
+X      }
+X  }
+X  
+X  /*
+X   * inchar() - get a character from the keyboard.
+X   */
+X  int
+X  inchar(long mstimeout)
+X  {
+X      for (;;) {
+X! 	static enum { LOCKED = 0, UNLOCKED } state;
+X! 	int c;
+X  
+X  	flush_output();
+X  
+X! 	if (state == LOCKED) {
+X! 	    /*
+X! 	     * Let the keyboard reading thread get on with its work.
+X! 	     *
+X! 	     * If (state == UNLOCKED), we're still waiting for it to
+X! 	     * finish from last time because we timed out waiting for
+X! 	     * it.
+X! 	     */
+X! 	    s_release(producer);
+X  	}
+X! 	c = s_acquire(consumer,
+X! 		      (mstimeout == 0 ? SEM_INDEFINITE_WAIT : mstimeout));
+X! 	if (c == ERROR_SEM_TIMEOUT) {
+X! 	    /*
+X! 	     * We timed out.
+X! 	     */
+X! 	    state = UNLOCKED;
+X! 	    return EOF;
+X! 	} else {
+X! 	    state = LOCKED;
+X  	}
+X  	/*
+X  	 * Now deal with the keypress information.
+X  	 */
+X! 	if ((unsigned char) kbc.chChar == (unsigned char) 0xe0) {
+X  	/*
+X  	 * It's (probably) a function key.
+X  	 */
+X! 	    if (kbc.chScan == 0x53)
+X  		/*
+X  		 * It's the delete key.
+X  		 */
+X***************
+X*** 326,332 ****
+X  		/*
+X  		 * Assume it must be a function key.
+X  		 */
+X! 		switch (k.chScan) {
+X  		    case 0x3b: return(K_HELP);
+X  			/* F1 key */
+X  		    case 0x47: return('H');
+X--- 235,241 ----
+X  		/*
+X  		 * Assume it must be a function key.
+X  		 */
+X! 		switch (kbc.chScan) {
+X  		    case 0x3b: return(K_HELP);
+X  			/* F1 key */
+X  		    case 0x47: return('H');
+X***************
+X*** 361,367 ****
+X  		 */
+X  	    }
+X  	}
+X! 	return (unsigned char) k.chChar;
+X      }
+X  }
+X  
+X--- 270,276 ----
+X  		 */
+X  	    }
+X  	}
+X! 	return (unsigned char) kbc.chChar;
+X      }
+X  }
+X  
+X***************
+X*** 441,446 ****
+X--- 350,357 ----
+X  static char				*oldscreen;
+X  static unsigned short			scrsize;
+X  static enum { m_SYS = 0, m_VI = 1 }	curmode;
+X+ static KBDINFO				cooked_state;
+X+ static KBDINFO				raw_state;
+X  
+X  /*
+X   * Save screen contents & set up video & keyboard states for editor.
+X***************
+X*** 463,491 ****
+X       *
+X       * We only do this when we've disabled keyboard interrupts.
+X       */
+X!     {
+X! 	KBDINFO		k;
+X! 
+X! 	k.cb = sizeof k;
+X! 	KbdGetStatus((PKBDINFO) &k, 0);
+X! 	k.fsMask = (k.fsMask
+X! 		/*
+X! 		 * turn these flags off:
+X! 		 */
+X! 		 & ~(KEYBOARD_ECHO_ON |
+X! 		 KEYBOARD_ASCII_MODE |
+X! 		 KEYBOARD_MODIFY_STATE |
+X! 		 KEYBOARD_MODIFY_INTERIM |
+X! 		 KEYBOARD_MODIFY_TURNAROUND |
+X! 		 KEYBOARD_2B_TURNAROUND |
+X! 		 KEYBOARD_SHIFT_REPORT))
+X! 		/*
+X! 		 * turn these flags on:
+X! 		 */
+X! 		| KEYBOARD_ECHO_OFF |
+X! 		  KEYBOARD_BINARY_MODE;
+X! 	KbdSetStatus((PKBDINFO) &k, 0);
+X!     }
+X      curmode = m_VI;
+X  }
+X  
+X--- 374,380 ----
+X       *
+X       * We only do this when we've disabled keyboard interrupts.
+X       */
+X!     KbdSetStatus((PKBDINFO) &raw_state, 0);
+X      curmode = m_VI;
+X  }
+X  
+X***************
+X*** 516,525 ****
+X      }
+X      oldscreen = malloc(scrsize);
+X      /*
+X!      * We have to acquire this semaphore before we start any other
+X!      * threads.
+X       */
+X!     DosSemSet(control);
+X  #ifndef NOMOUSE
+X      /*
+X       * Open mouse device if we can.
+X--- 405,415 ----
+X      }
+X      oldscreen = malloc(scrsize);
+X      /*
+X!      * We have to acquire these semaphores before the first call to
+X!      * inchar() & before the keyboard reading thread is started.
+X       */
+X!     s_set(consumer);
+X!     s_set(producer);
+X  #ifndef NOMOUSE
+X      /*
+X       * Open mouse device if we can.
+X***************
+X*** 550,572 ****
+X      }
+X  #endif	/* NOMOUSE */
+X      /*
+X!      * Initialize semaphore for automatic buffer preservation. It
+X!      * should only be clear if (keystrokes >= PSVKEYS).
+X!      */
+X!     DosSemSet(psvsema);
+X!     /*
+X!      * Create concurrent thread to do automatic preserves.
+X       *
+X!      * According to Microsoft, the ES register should be set to 0 first.
+X       */
+X      {
+X! 	TID psvthread;
+X  
+X! 	if (DosCreateThread((PFNTHREAD) psvhandler,
+X! 		    (es0(), (PTID) &psvthread),
+X! 		    (PBYTE) newstack(20000)) != 0) {
+X! 	    (void) fputs("Can't create thread for automatic preserves\r\n",
+X! 			 stderr);
+X  	    exit(1);
+X  	}
+X      }
+X--- 440,458 ----
+X      }
+X  #endif	/* NOMOUSE */
+X      /*
+X!      * Create concurrent thread to read from the keyboard.
+X       *
+X!      * According to Microsoft, the ES register should be set to 0
+X!      * first.
+X       */
+X      {
+X! 	TID kbdthread;
+X  
+X! 	es0();
+X! 	if (DosCreateThread((PFNTHREAD) readkbd,
+X! 			    (PTID) &kbdthread,
+X! 			    (PBYTE) newstack(20000)) != 0) {
+X! 	    (void) fprintf(stderr, "Can't create keyboard thread\r\n");
+X  	    exit(1);
+X  	}
+X      }
+X***************
+X*** 574,579 ****
+X--- 460,488 ----
+X       * Disable system critical error handler.
+X       */
+X      DosError(HARDERROR_DISABLE);
+X+     /*
+X+      * Get keyboard state & set up raw_state structure.
+X+      */
+X+     cooked_state.cb = sizeof cooked_state;
+X+     KbdGetStatus((PKBDINFO) &cooked_state, 0);
+X+     memcpy((char *) &raw_state, (char *) &cooked_state, sizeof raw_state);
+X+     raw_state.fsMask =
+X+ 		(raw_state.fsMask
+X+ 		/*
+X+ 		 * turn these flags off:
+X+ 		 */
+X+ 		& ~(KEYBOARD_ECHO_ON |
+X+ 		    KEYBOARD_ASCII_MODE |
+X+ 		    KEYBOARD_MODIFY_STATE |
+X+ 		    KEYBOARD_MODIFY_INTERIM |
+X+ 		    KEYBOARD_MODIFY_TURNAROUND |
+X+ 		    KEYBOARD_2B_TURNAROUND |
+X+ 		    KEYBOARD_SHIFT_REPORT))
+X+ 		/*
+X+ 		 * turn these flags on:
+X+ 		 */
+X+ 		| KEYBOARD_ECHO_OFF |
+X+ 		  KEYBOARD_BINARY_MODE;
+X      sys_startv();
+X  }
+X  
+X***************
+X*** 586,614 ****
+X  void
+X  sys_endv()
+X  {
+X-     KBDINFO k;
+X- 
+X      if (curmode == m_SYS)
+X  	return;
+X!     k.cb = sizeof k;
+X!     KbdGetStatus((PKBDINFO) &k, 0);
+X!     k.fsMask = (k.fsMask
+X! 	    /*
+X! 	     * turn these flags off:
+X! 	     */
+X! 	     & ~(KEYBOARD_ECHO_OFF |
+X! 	     KEYBOARD_BINARY_MODE |
+X! 	     KEYBOARD_MODIFY_STATE |
+X! 	     KEYBOARD_MODIFY_INTERIM |
+X! 	     KEYBOARD_MODIFY_TURNAROUND |
+X! 	     KEYBOARD_2B_TURNAROUND |
+X! 	     KEYBOARD_SHIFT_REPORT))
+X! 	    /*
+X! 	     * turn these flags on:
+X! 	     */
+X! 	    | KEYBOARD_ECHO_ON |
+X! 	      KEYBOARD_ASCII_MODE;
+X!     KbdSetStatus((PKBDINFO) &k, 0);
+X      if (oldscreen != (char*) 0)
+X  	/*
+X  	 * Restore contents of screen saved by
+X--- 495,503 ----
+X  void
+X  sys_endv()
+X  {
+X      if (curmode == m_SYS)
+X  	return;
+X!     KbdSetStatus((PKBDINFO) &cooked_state, 0);
+X      if (oldscreen != (char*) 0)
+X  	/*
+X  	 * Restore contents of screen saved by
+END_OF_FILE
+if test 11382 -ne `wc -c <'src/patch15'`; then
+    echo shar: \"'src/patch15'\" unpacked with wrong size!
+fi
+# end of 'src/patch15'
+fi
+if test -f 'src/patch17' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch17'\"
+else
+echo shar: Extracting \"'src/patch17'\" \(3975 characters\)
+sed "s/^X//" >'src/patch17' <<'END_OF_FILE'
+X*** old/param.h	Tue Jul 28 17:46:56 1992
+X--- new/param.h	Mon Nov 30 15:25:35 1992
+X***************
+X*** 1,7 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  /***
+X  
+X! * @(#)param.h	2.1 (Chris & John Downey) 7/29/92
+X  
+X  * program name:
+X      xvi
+X--- 1,7 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  /***
+X  
+X! * @(#)param.h	2.2 (Chris & John Downey) 11/6/92
+X  
+X  * program name:
+X      xvi
+X***************
+X*** 107,172 ****
+X  /*
+X   * The following are the indices in the params array for each parameter.
+X   * They must not be changed without also changing the table in "param.c".
+X   */
+X  #define P_ada		0
+X! #define P_adapath 	1
+X! #define P_autoindent 	2
+X! #define P_autoprint 	3
+X! #define P_autosplit 	4
+X! #define P_autowrite 	5
+X! #define P_beautify 	6
+X! #define P_cchars 	7
+X! #define P_colour 	8
+X! #define P_directory 	9
+X! #define P_edcompatible 	10
+X! #define P_edit 		11
+X! #define P_errorbells 	12
+X! #define P_format 	13
+X! #define P_hardtabs 	14
+X! #define P_helpfile 	15
+X! #define P_ignorecase 	16
+X! #define P_jumpscroll 	17
+X! #define P_lisp 		18
+X! #define P_list 		19
+X! #define P_magic 	20
+X! #define P_mchars 	21
+X! #define P_mesg 		22
+X! #define P_minrows 	23
+X! #define P_modeline 	24
+X! #define P_number 	25
+X! #define P_open 		26
+X! #define P_optimize 	27
+X! #define P_paragraphs 	28
+X! #define P_preserve 	29
+X! #define P_preservetime 	30
+X! #define P_prompt 	31
+X! #define P_readonly 	32
+X! #define P_redraw 	33
+X! #define P_regextype 	34
+X! #define P_remap 	35
+X! #define P_report 	36
+X! #define P_roscolour 	37
+X! #define P_scroll 	38
+X! #define P_sections 	39
+X! #define P_sentences 	40
+X! #define P_shell 	41
+X! #define P_shiftwidth 	42
+X! #define P_showmatch 	43
+X! #define P_slowopen 	44
+X! #define P_sourceany 	45
+X! #define P_statuscolour 	46
+X! #define P_systemcolour 	47
+X! #define P_tabs	 	48
+X! #define P_tabstop 	49
+X! #define P_taglength 	50
+X! #define P_tags 		51
+X! #define P_term 		52
+X! #define P_terse 	53
+X! #define P_timeout 	54
+X! #define P_ttytype 	55
+X! #define P_vbell 	56
+X! #define P_warn 		57
+X! #define P_window 	58
+X! #define P_wrapmargin 	59
+X! #define P_wrapscan 	60
+X! #define P_writeany 	61
+X--- 107,180 ----
+X  /*
+X   * The following are the indices in the params array for each parameter.
+X   * They must not be changed without also changing the table in "param.c".
+X+  *
+X+  * If you add any new parameters, & you have access to awk, pipe this
+X+  * list through
+X+  *
+X+  *	awk '{ printf "%s %s\t%d\n", $1, $2, NR - 1 }'
+X+  *
+X+  * to keep the numbers updated.
+X   */
+X  #define P_ada		0
+X! #define P_adapath	1
+X! #define P_autoindent	2
+X! #define P_autoprint	3
+X! #define P_autosplit	4
+X! #define P_autowrite	5
+X! #define P_beautify	6
+X! #define P_cchars	7
+X! #define P_colour	8
+X! #define P_directory	9
+X! #define P_edcompatible	10
+X! #define P_edit		11
+X! #define P_errorbells	12
+X! #define P_format	13
+X! #define P_hardtabs	14
+X! #define P_helpfile	15
+X! #define P_ignorecase	16
+X! #define P_infoupdate	17
+X! #define P_jumpscroll	18
+X! #define P_lisp		19
+X! #define P_list		20
+X! #define P_magic		21
+X! #define P_mchars	22
+X! #define P_mesg		23
+X! #define P_minrows	24
+X! #define P_modeline	25
+X! #define P_number	26
+X! #define P_open		27
+X! #define P_optimize	28
+X! #define P_paragraphs	29
+X! #define P_preserve	30
+X! #define P_preservetime	31
+X! #define P_prompt	32
+X! #define P_readonly	33
+X! #define P_redraw	34
+X! #define P_regextype	35
+X! #define P_remap		36
+X! #define P_report	37
+X! #define P_roscolour	38
+X! #define P_scroll	39
+X! #define P_sections	40
+X! #define P_sentences	41
+X! #define P_shell		42
+X! #define P_shiftwidth	43
+X! #define P_showmatch	44
+X! #define P_slowopen	45
+X! #define P_sourceany	46
+X! #define P_statuscolour	47
+X! #define P_systemcolour	48
+X! #define P_tabs		49
+X! #define P_tabstop	50
+X! #define P_taglength	51
+X! #define P_tags		52
+X! #define P_term		53
+X! #define P_terse		54
+X! #define P_timeout	55
+X! #define P_ttytype	56
+X! #define P_vbell		57
+X! #define P_warn		58
+X! #define P_window	59
+X! #define P_wrapmargin	60
+X! #define P_wrapscan	61
+X! #define P_writeany	62
+END_OF_FILE
+if test 3975 -ne `wc -c <'src/patch17'`; then
+    echo shar: \"'src/patch17'\" unpacked with wrong size!
+fi
+# end of 'src/patch17'
+fi
+if test -f 'src/patch19' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch19'\"
+else
+echo shar: Extracting \"'src/patch19'\" \(12055 characters\)
+sed "s/^X//" >'src/patch19' <<'END_OF_FILE'
+X*** old/screen.c	Tue Jul 28 17:47:10 1992
+X--- new/screen.c	Mon Nov 30 15:25:39 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)screen.c	2.3 (Chris & John Downey) 9/4/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)screen.c	2.10 (Chris & John Downey) 11/30/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 52,58 ****
+X  #define	L_COMMAND	0x10		/* is a command line */
+X  #define	L_READONLY	0x20		/* message line for readonly buffer */
+X  
+X! #define	L_STATUS	(L_MESSAGE | L_COMMAND)		/* is a status line */
+X  
+X  static	Sline	*new_screen;		/* screen being updated */
+X  static	Sline	*real_screen;		/* state of real screen */
+X--- 52,59 ----
+X  #define	L_COMMAND	0x10		/* is a command line */
+X  #define	L_READONLY	0x20		/* message line for readonly buffer */
+X  
+X! #define	L_STATUS	(L_MESSAGE | L_COMMAND | L_READONLY)
+X! 					/* is a status line */
+X  
+X  static	Sline	*new_screen;		/* screen being updated */
+X  static	Sline	*real_screen;		/* state of real screen */
+X***************
+X*** 412,418 ****
+X      VSset_colour(vs, Pn(P_colour));
+X  
+X      for (row = start_row; row < end_row; row++) {
+X! 	register int            ncol;   /* current column in new_screen */
+X  	register Sline          *new,
+X  				*real;  /* pointers to current lines */
+X  	register unsigned       nflags;
+X--- 413,419 ----
+X      VSset_colour(vs, Pn(P_colour));
+X  
+X      for (row = start_row; row < end_row; row++) {
+X! 	register int            col;   /* current column */
+X  	register Sline          *new,
+X  				*real;  /* pointers to current lines */
+X  	register unsigned       nflags;
+X***************
+X*** 452,458 ****
+X  	     * on some terminals.
+X  	     */
+X  	    VSgoto(vs, row, 0);
+X! 	    if (nflags & L_STATUS) {
+X  		VSset_colour(vs, (nflags & L_READONLY) ? Pn(P_roscolour) :
+X  						Pn(P_statuscolour));
+X  	    }
+X--- 453,459 ----
+X  	     * on some terminals.
+X  	     */
+X  	    VSgoto(vs, row, 0);
+X! 	    if ((nflags & L_MESSAGE) || ((nflags & L_COMMAND) && colour_cost == 0)) {
+X  		VSset_colour(vs, (nflags & L_READONLY) ? Pn(P_roscolour) :
+X  						Pn(P_statuscolour));
+X  	    }
+X***************
+X*** 461,469 ****
+X  	    }
+X  	    /*
+X  	     * For command lines, only the first character should be
+X! 	     * highlighted.
+X  	     */
+X! 	    if (nflags & L_COMMAND) {
+X  		VSset_colour(vs, Pn(P_colour));
+X  	    }
+X  	    if (nc != '\0') {
+X--- 462,470 ----
+X  	    }
+X  	    /*
+X  	     * For command lines, only the first character should be
+X! 	     * highlighted, except if (colour_cost != 0).
+X  	     */
+X! 	    if ((nflags & L_COMMAND) && colour_cost == 0) {
+X  		VSset_colour(vs, Pn(P_colour));
+X  	    }
+X  	    if (nc != '\0') {
+X***************
+X*** 495,540 ****
+X  	     * There is some optimisation here to avoid large
+X  	     * use of tty_goto.
+X  	     */
+X! 	    register int        scol;
+X! 				/* current column on physical screen */
+X! 	    register int        last_ncol;
+X  				/* last column to be updated */
+X  
+X! 	    for (ncol = scol = last_ncol = 0;
+X! 			     ncol < n_used && ncol < r_used;
+X! 			     (ncol++, scol++)) {
+X! 		if ((nc = ntextp[ncol]) != rtextp[ncol]) {
+X  		    /*
+X  		     * They are different. Get to the right
+X  		     * place before putting out the char.
+X  		     */
+X! 		    if (ncol != 0) {
+X! 			VSadvise(vs, row, last_ncol + 1,
+X! 					    ncol - last_ncol - 1,
+X! 					    ntextp + last_ncol + 1);
+X  		    } else {
+X! 			VSgoto(vs, row, scol);
+X  			/*
+X! 			 * A command line should have the first character
+X! 			 * - and only the first character - highlighted.
+X  			 */
+X! 			if (ncol == 0 && (nflags & L_STATUS) != 0) {
+X  			    VSset_colour(vs, (nflags & L_READONLY) ?
+X  				    Pn(P_roscolour) : Pn(P_statuscolour));
+X  			}
+X  		    }
+X  
+X! 		    VSputc(vs, row, ncol, nc);
+X  
+X! 		    if (ncol == 0 && (nflags & L_COMMAND) != 0) {
+X  			VSset_colour(vs, Pn(P_colour));
+X  		    }
+X! 		    last_ncol = ncol;
+X! 		    rtextp[ncol] = nc;
+X  		}
+X- 		if (ncol == 0 && (nflags & L_COMMAND) != 0) {
+X- 		    scol += (colour_cost * 2);
+X- 		}
+X  	    }
+X  
+X  	    if (n_used > r_used) {
+X--- 496,539 ----
+X  	     * There is some optimisation here to avoid large
+X  	     * use of tty_goto.
+X  	     */
+X! 	    register int        last_col;
+X  				/* last column to be updated */
+X  
+X! 	    for (col = last_col = 0; col < n_used && col < r_used; col++) {
+X! 		if ((nc = ntextp[col]) != rtextp[col]) {
+X  		    /*
+X  		     * They are different. Get to the right
+X  		     * place before putting out the char.
+X  		     */
+X! 		    if (col != 0) {
+X! 			VSadvise(vs, row, last_col + 1,
+X! 					    col - last_col - 1,
+X! 					    ntextp + last_col + 1);
+X  		    } else {
+X! 			VSgoto(vs, row, col);
+X  			/*
+X! 			 * A command line should have the first
+X! 			 * character - and only the first character -
+X! 			 * highlighted, except if (colour_cost != 0),
+X! 			 * because that complicates our updating
+X! 			 * algorithm too much.
+X  			 */
+X! 			if (col == 0 && (nflags & L_COMMAND) &&
+X! 						colour_cost == 0) {
+X  			    VSset_colour(vs, (nflags & L_READONLY) ?
+X  				    Pn(P_roscolour) : Pn(P_statuscolour));
+X  			}
+X  		    }
+X  
+X! 		    VSputc(vs, row, col, nc);
+X  
+X! 		    if (col == 0 && (nflags & L_COMMAND) &&
+X! 		    				colour_cost == 0) {
+X  			VSset_colour(vs, Pn(P_colour));
+X  		    }
+X! 		    last_col = col;
+X! 		    rtextp[col] = nc;
+X  		}
+X  	    }
+X  
+X  	    if (n_used > r_used) {
+X***************
+X*** 543,570 ****
+X  		 * screen line; if there is anything left,
+X  		 * we should just display it.
+X  		 */
+X! 		(void) strcpy(&rtextp[ncol], &ntextp[ncol]);
+X! 		if (ncol == 0 && (nflags & L_COMMAND) != 0) {
+X  		    /*
+X  		     * A command line should have the first character
+X! 		     * - and only the first character - highlighted.
+X  		     */
+X  		    VSgoto(vs, row, 0);
+X  		    VSset_colour(vs, Pn(P_statuscolour));
+X  		    VSputc(vs, row, 0, ntextp[0]);
+X  		    VSset_colour(vs, Pn(P_colour));
+X! 		    ncol = 1;
+X  		} else {
+X  		    /*
+X  		     * Skip over initial whitespace.
+X  		     */
+X! 		    while (ntextp[ncol] == ' ') {
+X! 			ncol++;
+X! 			scol++;
+X  		    }
+X  		}
+X! 		if (ncol < columns)
+X! 		    VSwrite(vs, row, scol, &ntextp[ncol]);
+X  	    } else if (r_used > n_used) {
+X  		/*
+X  		 * We have got to the end of the new screen
+X--- 542,570 ----
+X  		 * screen line; if there is anything left,
+X  		 * we should just display it.
+X  		 */
+X! 		(void) strcpy(&rtextp[col], &ntextp[col]);
+X! 		if (col == 0 && (nflags & L_COMMAND) && colour_cost == 0) {
+X  		    /*
+X  		     * A command line should have the first character
+X! 		     * - and only the first character - highlighted,
+X! 		     * as long as (colour_cost != 0).
+X  		     */
+X  		    VSgoto(vs, row, 0);
+X  		    VSset_colour(vs, Pn(P_statuscolour));
+X  		    VSputc(vs, row, 0, ntextp[0]);
+X  		    VSset_colour(vs, Pn(P_colour));
+X! 		    col = 1;
+X  		} else {
+X  		    /*
+X  		     * Skip over initial whitespace.
+X  		     */
+X! 		    while (ntextp[col] == ' ') {
+X! 			col++;
+X  		    }
+X  		}
+X! 		if (col < columns) {
+X! 		    VSwrite(vs, row, col, &ntextp[col]);
+X! 		}
+X  	    } else if (r_used > n_used) {
+X  		/*
+X  		 * We have got to the end of the new screen
+X***************
+X*** 571,577 ****
+X  		 * line, but the old one still has stuff on
+X  		 * it. We must therefore clear it.
+X  		 */
+X! 		VSclear_line(vs, row, scol);
+X  	    }
+X  	}
+X  
+X--- 571,577 ----
+X  		 * line, but the old one still has stuff on
+X  		 * it. We must therefore clear it.
+X  		 */
+X! 		VSclear_line(vs, row, col);
+X  	    }
+X  	}
+X  
+X***************
+X*** 628,634 ****
+X      register char	*end;
+X      Sline		*slp;
+X  
+X!     from = flexgetstr(&win->w_statusline);
+X      slp = &new_screen[win->w_cmdline];
+X      to = slp->l_line;
+X      end = to + win->w_ncols - st_spare_cols;
+X--- 628,634 ----
+X      register char	*end;
+X      Sline		*slp;
+X  
+X!     from = sline_text(win);
+X      slp = &new_screen[win->w_cmdline];
+X      to = slp->l_line;
+X      end = to + win->w_ncols - st_spare_cols;
+X***************
+X*** 666,673 ****
+X      if ((width = flexlen(&win->w_statusline)) > maxwidth) {
+X  	width = maxwidth;
+X      }
+X!     (void) strncpy(clp->l_line, flexgetstr(&win->w_statusline),
+X! 			    (int) width);
+X      clp->l_used = width;
+X      clp->l_line[width] = '\0';
+X      clp->l_flags = (L_COMMAND | L_DIRTY);
+X--- 666,672 ----
+X      if ((width = flexlen(&win->w_statusline)) > maxwidth) {
+X  	width = maxwidth;
+X      }
+X!     (void) strncpy(clp->l_line, sline_text(win), (int) width);
+X      clp->l_used = width;
+X      clp->l_line[width] = '\0';
+X      clp->l_flags = (L_COMMAND | L_DIRTY);
+X***************
+X*** 843,849 ****
+X  
+X      vs = win->w_vs;
+X  
+X!     if (vs->v_scroll != NULL) {
+X  	if (!VSscroll(vs, row, (int) win->w_cmdline - 1, -nlines)) {
+X  	    /*
+X  	     * Can't scroll what we were asked to - try scrolling
+X--- 842,848 ----
+X  
+X      vs = win->w_vs;
+X  
+X!     if (vs->v_scroll != NOFUNC) {
+X  	if (!VSscroll(vs, row, (int) win->w_cmdline - 1, -nlines)) {
+X  	    /*
+X  	     * Can't scroll what we were asked to - try scrolling
+X***************
+X*** 931,937 ****
+X  
+X      vs = win->w_vs;
+X  
+X!     if (vs->v_scroll != NULL) {
+X  	if (!VSscroll(vs, row, (int) win->w_cmdline - 1, nlines)) {
+X  	    /*
+X  	     * Can't scroll what we were asked to - try scrolling
+X--- 930,936 ----
+X  
+X      vs = win->w_vs;
+X  
+X!     if (vs->v_scroll != NOFUNC) {
+X  	if (!VSscroll(vs, row, (int) win->w_cmdline - 1, nlines)) {
+X  	    /*
+X  	     * Can't scroll what we were asked to - try scrolling
+X***************
+X*** 1004,1014 ****
+X      unsigned		columns;
+X  
+X      vs = window->w_vs;
+X!     if (vs->v_insert == NULL)
+X  	return;
+X  
+X!     if (!(echo & e_CHARUPDATE))
+X  	return;
+X  
+X      pp = window->w_cursor;
+X  
+X--- 1003,1015 ----
+X      unsigned		columns;
+X  
+X      vs = window->w_vs;
+X!     if (vs->v_insert == NOFUNC) {
+X  	return;
+X+     }
+X  
+X!     if (!(echo & e_CHARUPDATE)) {
+X  	return;
+X+     }
+X  
+X      pp = window->w_cursor;
+X  
+X***************
+X*** 1017,1024 ****
+X       * the bother. Define near as 0 or 1 characters to be moved.
+X       */
+X      cp = pp->p_line->l_text + pp->p_index;
+X!     if (*cp == '\0' || *(cp+1) == '\0')
+X  	return;
+X  
+X      curcol = window->w_col;
+X  
+X--- 1018,1026 ----
+X       * the bother. Define near as 0 or 1 characters to be moved.
+X       */
+X      cp = pp->p_line->l_text + pp->p_index;
+X!     if (*cp == '\0' || *(cp+1) == '\0') {
+X  	return;
+X+     }
+X  
+X      curcol = window->w_col;
+X  
+X***************
+X*** 1026,1033 ****
+X       * If the cursor is on a longline, and not on the last actual
+X       * screen line of that longline, we can't do it.
+X       */
+X!     if (window->w_c_line_size > 1 && curcol != window->w_virtcol)
+X  	return;
+X  
+X      nchars = vischar(newchar, &newstr, curcol);
+X  
+X--- 1028,1036 ----
+X       * If the cursor is on a longline, and not on the last actual
+X       * screen line of that longline, we can't do it.
+X       */
+X!     if (window->w_c_line_size > 1 && curcol != window->w_virtcol) {
+X  	return;
+X+     }
+X  
+X      nchars = vischar(newchar, &newstr, curcol);
+X  
+X***************
+X*** 1035,1042 ****
+X       * And don't bother if we are (or will be) at the last screen column.
+X       */
+X      columns = window->w_ncols;
+X!     if (curcol + nchars >= columns)
+X  	return;
+X  
+X      /*
+X       * Also, trying to push tabs rightwards doesn't work very
+X--- 1038,1046 ----
+X       * And don't bother if we are (or will be) at the last screen column.
+X       */
+X      columns = window->w_ncols;
+X!     if (curcol + nchars >= columns) {
+X  	return;
+X+     }
+X  
+X      /*
+X       * Also, trying to push tabs rightwards doesn't work very
+X***************
+X*** 1060,1067 ****
+X       */
+X      rp = &real_screen[window->w_winpos + currow];
+X      curp = &rp->l_line[curcol];
+X!     if ((rp->l_used += nchars) > columns)
+X  	rp->l_used = columns;
+X      cp = &rp->l_line[rp->l_used - 1];
+X      cp[1] = '\0';
+X      if (cp - curp >= nchars)
+X--- 1064,1072 ----
+X       */
+X      rp = &real_screen[window->w_winpos + currow];
+X      curp = &rp->l_line[curcol];
+X!     if ((rp->l_used += nchars) > columns) {
+X  	rp->l_used = columns;
+X+     }
+X      cp = &rp->l_line[rp->l_used - 1];
+X      cp[1] = '\0';
+X      if (cp - curp >= nchars)
+END_OF_FILE
+if test 12055 -ne `wc -c <'src/patch19'`; then
+    echo shar: \"'src/patch19'\" unpacked with wrong size!
+fi
+# end of 'src/patch19'
+fi
+if test -f 'src/patch30' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch30'\"
+else
+echo shar: Extracting \"'src/patch30'\" \(5043 characters\)
+sed "s/^X//" >'src/patch30' <<'END_OF_FILE'
+X*** old/xvi.h	Tue Jul 28 17:47:48 1992
+X--- new/xvi.h	Tue Dec 29 11:24:29 1992
+X***************
+X*** 1,7 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  /***
+X  
+X! * @(#)xvi.h	2.5 (Chris & John Downey) 9/1/92
+X  
+X  * program name:
+X      xvi
+X--- 1,7 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  /***
+X  
+X! * @(#)xvi.h	2.10 (Chris & John Downey) 11/30/92
+X  
+X  * program name:
+X      xvi
+X***************
+X*** 95,100 ****
+X--- 95,108 ----
+X  extern	void	sleep P((unsigned seconds));
+X  
+X  /*
+X+  * A null function pointer definition. Some ANSI compilers complain
+X+  * about comparison/assignment of function pointers with (void *) 0,
+X+  * and since that's what NULL is usually defined as (under ANSI) we
+X+  * use this to stop the warnings.
+X+  */
+X+ #define	NOFUNC	0
+X+ 
+X+ /*
+X   * If we have ANSI C, these should be defined in limits.h:
+X   */
+X  #ifndef INT_MAX
+X***************
+X*** 170,183 ****
+X  #define	MINROWS		2
+X  
+X  /*
+X-  * SLOP is the amount of extra space we get for text on a line during
+X-  * editing operations that need more space. This keeps us from calling
+X-  * malloc every time we get a character during insert mode. No extra
+X-  * space is allocated when the file is initially read.
+X-  */
+X- #define	SLOP		10
+X- 
+X- /*
+X   * The number of characters taken up by the line number
+X   * when "number" is set; up to 6 digits plus two spaces.
+X   */
+X--- 178,183 ----
+X***************
+X*** 185,196 ****
+X  #define	NUM_FMT		"%6ld  "
+X  
+X  /*
+X-  * (MAX_LINE_LENGTH - 1) gives the maximum line length this editor can read in.
+X-  * Used by fileio.c (getfile()) and pipe.c (p_read()).
+X-  */
+X- #define	MAX_LINE_LENGTH	1024
+X- 
+X- /*
+X   * Maximum value for the tabstop parameter.
+X   */
+X  #define	MAX_TABSTOP	32
+X--- 185,190 ----
+X***************
+X*** 277,282 ****
+X--- 271,284 ----
+X  #define	js_AUTO		1
+X  #define	js_ON		2
+X  
+X+ /*
+X+  * Integer values for the P_infoupdate enumerated parameter. Note that
+X+  * the entries in iu_strings (defined in param.c) must follow the same
+X+  * order.
+X+  */
+X+ #define	iu_TERSE	0
+X+ #define	iu_CONTINUOUS	1
+X+ 
+X  /***************************************************************
+X   *                                                             *
+X   * SECTION 6: EDITOR TYPE DEFINITIONS                          *
+X***************
+X*** 511,517 ****
+X   * Structure used to hold information about a "window" -
+X   * this is intimately associated with the Buffer structure.
+X   */
+X! typedef struct window {
+X      Posn		*w_cursor;	/* cursor's position in buffer */
+X  
+X      Buffer		*w_buffer;	/* buffer we are a window into */
+X--- 513,519 ----
+X   * Structure used to hold information about a "window" -
+X   * this is intimately associated with the Buffer structure.
+X   */
+X! typedef struct xviwin {
+X      Posn		*w_cursor;	/* cursor's position in buffer */
+X  
+X      Buffer		*w_buffer;	/* buffer we are a window into */
+X***************
+X*** 527,546 ****
+X      unsigned		w_cmdline;	/* row of window command line */
+X  
+X      /*
+X-      * These are used by the ^O command to store the previous
+X-      * size of the window so that we can return to it.
+X-      */
+X-     int			w_2winpos;	/* last row of top line of window */
+X-     int			w_2nrows;	/* last no of rows in buffer window */
+X-     int			w_2cmdline;	/* last row of window command line */
+X- 
+X- 
+X-     /*
+X       * Allocated within screen.c.
+X       */
+X!     Flexbuf		w_statusline;	/* status information on status line */
+X  
+X- 
+X      /*
+X       * These elements are related to the cursor's position in the window.
+X       */
+X--- 529,540 ----
+X      unsigned		w_cmdline;	/* row of window command line */
+X  
+X      /*
+X       * Allocated within screen.c.
+X       */
+X!     Flexbuf		w_statusline;	/* text on status line */
+X!     /* public: */
+X! #   define		sline_text(w)	(flexgetstr(&(w)->w_statusline))
+X  
+X      /*
+X       * These elements are related to the cursor's position in the window.
+X       */
+X***************
+X*** 569,576 ****
+X      /*
+X       * The following only used in windows.c.
+X       */
+X!     struct window	*w_last;	/* first and last pointers */
+X!     struct window	*w_next;
+X  } Xviwin;
+X  
+X  /*
+X--- 563,570 ----
+X      /*
+X       * The following only used in windows.c.
+X       */
+X!     struct xviwin	*w_last;	/* first and last pointers */
+X!     struct xviwin	*w_next;
+X  } Xviwin;
+X  
+X  /*
+X***************
+X*** 787,792 ****
+X--- 781,787 ----
+X  extern	bool_t	bufempty P((Buffer *));
+X  extern	bool_t	buf1line P((Buffer *));
+X  extern	bool_t	endofline P((Posn *));
+X+ extern	bool_t	lnresize P((Line *, unsigned));
+X  extern	bool_t	grow_line P((Line *, int));
+X  extern	void	throw P((Line *));
+X  
+X***************
+X*** 1031,1037 ****
+X  extern	void	init_sline P((Xviwin *));
+X  extern	void	show_message P((Xviwin *, char *, ...));
+X  extern	void	show_error P((Xviwin *, char *, ...));
+X! extern	void	show_file_info P((Xviwin *));
+X  
+X  /*
+X   * tags.c
+X--- 1026,1032 ----
+X  extern	void	init_sline P((Xviwin *));
+X  extern	void	show_message P((Xviwin *, char *, ...));
+X  extern	void	show_error P((Xviwin *, char *, ...));
+X! extern	void	show_file_info P((Xviwin *, bool_t));
+X  
+X  /*
+X   * tags.c
+END_OF_FILE
+if test 5043 -ne `wc -c <'src/patch30'`; then
+    echo shar: \"'src/patch30'\" unpacked with wrong size!
+fi
+# end of 'src/patch30'
+fi
+echo shar: End of archive 2 \(of 7\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

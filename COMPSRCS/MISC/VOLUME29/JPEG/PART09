@@ -1,0 +1,1383 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v29i009:  jpeg - JPEG image compression, Part09/18
+Message-ID: <1992Mar24.144804.18668@sparky.imd.sterling.com>
+X-Md4-Signature: 6cd9ed3c2c2bdfc1893b6903d1fc8f56
+Date: Tue, 24 Mar 1992 14:48:04 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 29, Issue 9
+Archive-name: jpeg/part09
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Cray
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  example.c jmemnobs.c jquant1.c
+# Wrapped by kent@sparky on Mon Mar 23 16:02:46 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 18)."'
+if test -f 'example.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example.c'\"
+else
+  echo shar: Extracting \"'example.c'\" \(26472 characters\)
+  sed "s/^X//" >'example.c' <<'END_OF_FILE'
+X/*
+X * example.c
+X *
+X * This file is not actually part of the JPEG software.  Rather, it provides
+X * a skeleton that may be useful for constructing applications that use the
+X * JPEG software as subroutines.  This code will NOT do anything useful as is.
+X *
+X * This file illustrates how to use the JPEG code as a subroutine library
+X * to read or write JPEG image files.  We assume here that you are not
+X * merely interested in converting the image to yet another image file format
+X * (if you are, you should be adding another I/O module to cjpeg/djpeg, not
+X * constructing a new application).  Instead, we show how to pass the
+X * decompressed image data into or out of routines that you provide.  For
+X * example, a viewer program might use the JPEG decompressor together with
+X * routines that write the decompressed image directly to a display.
+X *
+X * We present these routines in the same coding style used in the JPEG code
+X * (ANSI function definitions, etc); but you are of course free to code your
+X * routines in a different style if you prefer.
+X */
+X
+X/*
+X * Include file for declaring JPEG data structures.
+X * This file also includes some system headers like <stdio.h>;
+X * if you prefer, you can include "jconfig.h" and "jpegdata.h" instead.
+X */
+X
+X#include "jinclude.h"
+X
+X/*
+X * <setjmp.h> is used for the optional error recovery mechanism shown in
+X * the second part of the example.
+X */
+X
+X#include <setjmp.h>
+X
+X
+X
+X/******************** JPEG COMPRESSION SAMPLE INTERFACE *******************/
+X
+X/* This half of the example shows how to feed data into the JPEG compressor.
+X * We present a minimal version that does not worry about refinements such
+X * as error recovery (the JPEG code will just exit() if it gets an error).
+X */
+X
+X
+X/*
+X * To supply the image data for compression, you must define three routines
+X * input_init, get_input_row, and input_term.  These routines will be called
+X * from the JPEG compressor via function pointer values that you store in the
+X * cinfo data structure; hence they need not be globally visible and the exact
+X * names don't matter.  (In fact, the "METHODDEF" macro expands to "static" if
+X * you use the unmodified JPEG include files.)
+X *
+X * The input file reading modules (jrdppm.c, jrdgif.c, jrdtarga.c, etc) may be
+X * useful examples of what these routines should actually do, although each of
+X * them is encrusted with a lot of specialized code for its own file format.
+X */
+X
+X
+XMETHODDEF void
+Xinput_init (compress_info_ptr cinfo)
+X/* Initialize for input; return image size and component data. */
+X{
+X  /* This routine must return five pieces of information about the incoming
+X   * image, and must do any setup needed for the get_input_row routine.
+X   * The image information is returned in fields of the cinfo struct.
+X   * (If you don't care about modularity, you could initialize these fields
+X   * in the main JPEG calling routine, and make this routine be a no-op.)
+X   * We show some example values here.
+X   */
+X  cinfo->image_width = 640;		/* width in pixels */
+X  cinfo->image_height = 480;		/* height in pixels */
+X  /* JPEG views an image as being a rectangular array of pixels, with each
+X   * pixel having the same number of "component" values (color channels).
+X   * You must specify how many components there are and the colorspace
+X   * interpretation of the components.  Most applications will use RGB data or
+X   * grayscale data.  If you want to use something else, you'll need to study
+X   * and perhaps modify jcdeflts.c, jccolor.c, and jdcolor.c.
+X   */
+X  cinfo->input_components = 3;		/* or 1 for grayscale */
+X  cinfo->in_color_space = CS_RGB;	/* or CS_GRAYSCALE for grayscale */
+X  cinfo->data_precision = 8;		/* bits per pixel component value */
+X  /* In the current JPEG software, data_precision must be set equal to
+X   * BITS_IN_JSAMPLE, which is 8 unless you twiddle jconfig.h.  Future
+X   * versions might allow you to say either 8 or 12 if compiled with
+X   * 12-bit JSAMPLEs, or up to 16 in lossless mode.  In any case,
+X   * it is up to you to scale incoming pixel values to the range
+X   *   0 .. (1<<data_precision)-1.
+X   * If your image data format is fixed at a byte per component,
+X   * then saying "8" is probably the best long-term solution.
+X   */
+X}
+X
+X
+X/*
+X * This function is called repeatedly and must supply the next row of pixels
+X * on each call.  The rows MUST be returned in top-to-bottom order if you want
+X * your JPEG files to be compatible with everyone else's.  (If you cannot
+X * readily read your data in that order, you'll need an intermediate array to
+X * hold the image.  See jrdtarga.c or jrdrle.c for examples of handling
+X * bottom-to-top source data using the JPEG code's portable mechanisms.)
+X * The data is to be returned into a 2-D array of JSAMPLEs, indexed as
+X *		JSAMPLE pixel_row[component][column]
+X * where component runs from 0 to cinfo->input_components-1, and column runs
+X * from 0 to cinfo->image_width-1 (column 0 is left edge of image).  Note that
+X * this is actually an array of pointers to arrays rather than a true 2D array,
+X * since C does not support variable-size multidimensional arrays.
+X * JSAMPLE is typically typedef'd as "unsigned char".
+X */
+X
+X
+XMETHODDEF void
+Xget_input_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* Read next row of pixels into pixel_row[][] */
+X{
+X  /* This example shows how you might read RGB data (3 components)
+X   * from an input file in which the data is stored 3 bytes per pixel
+X   * in left-to-right, top-to-bottom order.
+X   */
+X  register FILE * infile = cinfo->input_file;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = 0; col < cinfo->image_width; col++) {
+X    *ptr0++ = (JSAMPLE) getc(infile); /* red */
+X    *ptr1++ = (JSAMPLE) getc(infile); /* green */
+X    *ptr2++ = (JSAMPLE) getc(infile); /* blue */
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xinput_term (compress_info_ptr cinfo)
+X/* Finish up at the end of the input */
+X{
+X  /* This termination routine will very often have no work to do, */
+X  /* but you must provide it anyway. */
+X  /* Note that the JPEG code will only call it during successful exit; */
+X  /* if you want it called during error exit, you gotta do that yourself. */
+X}
+X
+X
+X/*
+X * That's it for the routines that deal with reading the input image data.
+X * Now we have overall control and parameter selection routines.
+X */
+X
+X
+X/*
+X * This routine must determine what output JPEG file format is to be written,
+X * and make any other compression parameter changes that are desirable.
+X * This routine gets control after the input file header has been read
+X * (i.e., right after input_init has been called).  You could combine its
+X * functions into input_init, or even into the main control routine, but
+X * if you have several different input_init routines, it's a definite win
+X * to keep this separate.  You MUST supply this routine even if it's a no-op.
+X */
+X
+XMETHODDEF void
+Xc_ui_method_selection (compress_info_ptr cinfo)
+X{
+X  /* If the input is gray scale, generate a monochrome JPEG file. */
+X  if (cinfo->in_color_space == CS_GRAYSCALE)
+X    j_monochrome_default(cinfo);
+X  /* For now, always select JFIF output format. */
+X  jselwjfif(cinfo);
+X}
+X
+X
+X/*
+X * OK, here is the main function that actually causes everything to happen.
+X * We assume here that the target filename is supplied by the caller of this
+X * routine, and that all JPEG compression parameters can be default values.
+X */
+X
+XGLOBAL void
+Xwrite_JPEG_file (char * filename)
+X{
+X  /* These three structs contain JPEG parameters and working data.
+X   * They must survive for the duration of parameter setup and one
+X   * call to jpeg_compress; typically, making them local data in the
+X   * calling routine is the best strategy.
+X   */
+X  struct compress_info_struct cinfo;
+X  struct compress_methods_struct c_methods;
+X  struct external_methods_struct e_methods;
+X
+X  /* Initialize the system-dependent method pointers. */
+X  cinfo.methods = &c_methods;	/* links to method structs */
+X  cinfo.emethods = &e_methods;
+X  /* Here we use the default JPEG error handler, which will just print
+X   * an error message on stderr and call exit().  See the second half of
+X   * this file for an example of more graceful error recovery.
+X   */
+X  jselerror(&e_methods);	/* select std error/trace message routines */
+X  /* Here we use the standard memory manager provided with the JPEG code.
+X   * In some cases you might want to replace the memory manager, or at
+X   * least the system-dependent part of it, with your own code.
+X   */
+X  jselmemmgr(&e_methods);	/* select std memory allocation routines */
+X  /* If the compressor requires full-image buffers (for entropy-coding
+X   * optimization or a noninterleaved JPEG file), it will create temporary
+X   * files for anything that doesn't fit within the maximum-memory setting.
+X   * (Note that temp files are NOT needed if you use the default parameters.)
+X   * You can change the default maximum-memory setting by changing
+X   * e_methods.max_memory_to_use after jselmemmgr returns.
+X   * On some systems you may also need to set up a signal handler to
+X   * ensure that temporary files are deleted if the program is interrupted.
+X   * (This is most important if you are on MS-DOS and use the jmemdos.c
+X   * memory manager back end; it will try to grab extended memory for
+X   * temp files, and that space will NOT be freed automatically.)
+X   * See jcmain.c or jdmain.c for an example signal handler.
+X   */
+X
+X  /* Here, set up pointers to your own routines for input data handling
+X   * and post-init parameter selection.
+X   */
+X  c_methods.input_init = input_init;
+X  c_methods.get_input_row = get_input_row;
+X  c_methods.input_term = input_term;
+X  c_methods.c_ui_method_selection = c_ui_method_selection;
+X
+X  /* Set up default JPEG parameters in the cinfo data structure. */
+X  j_c_defaults(&cinfo, 75, FALSE);
+X  /* Note: 75 is the recommended default quality level; you may instead pass
+X   * a user-specified quality level.  Be aware that values below 25 will cause
+X   * non-baseline JPEG files to be created (and a warning message to that
+X   * effect to be emitted on stderr).  This won't bother our decoder, but some
+X   * commercial JPEG implementations may choke on non-baseline JPEG files.
+X   * If you want to force baseline compatibility, pass TRUE instead of FALSE.
+X   * (If non-baseline files are fine, but you could do without that warning
+X   * message, set e_methods.trace_level to -1.)
+X   */
+X
+X  /* At this point you can modify the default parameters set by j_c_defaults
+X   * as needed.  For a minimal implementation, you shouldn't need to change
+X   * anything.  See jcmain.c for some examples of what you might change.
+X   */
+X
+X  /* Select the input and output files.
+X   * Note that cinfo.input_file is only used if your input reading routines
+X   * use it; otherwise, you can just make it NULL.
+X   * VERY IMPORTANT: use "b" option to fopen() if you are on a machine that
+X   * requires it in order to write binary files.
+X   */
+X
+X  cinfo.input_file = NULL;	/* if no actual input file involved */
+X
+X  if ((cinfo.output_file = fopen(filename, "wb")) == NULL) {
+X    fprintf(stderr, "can't open %s\n", filename);
+X    exit(1);
+X  }
+X
+X  /* Here we go! */
+X  jpeg_compress(&cinfo);
+X
+X  /* That's it, son.  Nothin' else to do, except close files. */
+X  /* Here we assume only the output file need be closed. */
+X  fclose(cinfo.output_file);
+X
+X  /* Note: if you want to compress more than one image, we recommend you
+X   * repeat this whole routine.  You MUST repeat the j_c_defaults()/alter
+X   * parameters/jpeg_compress() sequence, as some data structures allocated
+X   * in j_c_defaults are freed upon exit from jpeg_compress.
+X   */
+X}
+X
+X
+X
+X/******************** JPEG DECOMPRESSION SAMPLE INTERFACE *******************/
+X
+X/* This half of the example shows how to read data from the JPEG decompressor.
+X * It's a little more refined than the above in that we show how to do your
+X * own error recovery.  If you don't care about that, you don't need these
+X * next two routines.
+X */
+X
+X
+X/*
+X * These routines replace the default trace/error routines included with the
+X * JPEG code.  The example trace_message routine shown here is actually the
+X * same as the standard one, but you could modify it if you don't want messages
+X * sent to stderr.  The example error_exit routine is set up to return
+X * control to read_JPEG_file() rather than calling exit().  You can use the
+X * same routines for both compression and decompression error recovery.
+X */
+X
+X/* These static variables are needed by the error routines. */
+Xstatic jmp_buf setjmp_buffer;	/* for return to caller */
+Xstatic external_methods_ptr emethods; /* needed for access to message_parm */
+X
+X
+X/* This routine is used for any and all trace, debug, or error printouts
+X * from the JPEG code.  The parameter is a printf format string; up to 8
+X * integer data values for the format string have been stored in the
+X * message_parm[] field of the external_methods struct.
+X */
+X
+XMETHODDEF void
+Xtrace_message (const char *msgtext)
+X{
+X  fprintf(stderr, msgtext,
+X	  emethods->message_parm[0], emethods->message_parm[1],
+X	  emethods->message_parm[2], emethods->message_parm[3],
+X	  emethods->message_parm[4], emethods->message_parm[5],
+X	  emethods->message_parm[6], emethods->message_parm[7]);
+X  fprintf(stderr, "\n");	/* there is no \n in the format string! */
+X}
+X
+X/*
+X * The error_exit() routine should not return to its caller.  The default
+X * routine calls exit(), but here we assume that we want to return to
+X * read_JPEG_data, which has set up a setjmp context for the purpose.
+X * You should make sure that the free_all method is called, either within
+X * error_exit or after the return to the outer-level routine.
+X */
+X
+XMETHODDEF void
+Xerror_exit (const char *msgtext)
+X{
+X  trace_message(msgtext);	/* report the error message */
+X  (*emethods->free_all) ();	/* clean up memory allocation & temp files */
+X  longjmp(setjmp_buffer, 1);	/* return control to outer routine */
+X}
+X
+X
+X
+X/*
+X * To accept the image data from decompression, you must define four routines
+X * output_init, put_color_map, put_pixel_rows, and output_term.
+X *
+X * You must understand the distinction between full color output mode
+X * (N independent color components) and colormapped output mode (a single
+X * output component representing an index into a color map).  You should use
+X * colormapped mode to write to a colormapped display screen or output file.
+X * Colormapped mode is also useful for reducing grayscale output to a small
+X * number of gray levels: when using the 1-pass quantizer on grayscale data,
+X * the colormap entries will be evenly spaced from 0 to MAX_JSAMPLE, so you
+X * can regard the indexes are directly representing gray levels at reduced
+X * precision.  In any other case, you should not depend on the colormap
+X * entries having any particular order.
+X * To get colormapped output, set cinfo->quantize_colors to TRUE and set
+X * cinfo->desired_number_of_colors to the maximum number of entries in the
+X * colormap.  This can be done either in your main routine or in
+X * d_ui_method_selection.  For grayscale quantization, also set
+X * cinfo->two_pass_quantize to FALSE to ensure the 1-pass quantizer is used
+X * (presently this is the default, but it may not be so in the future).
+X *
+X * The output file writing modules (jwrppm.c, jwrgif.c, jwrtarga.c, etc) may be
+X * useful examples of what these routines should actually do, although each of
+X * them is encrusted with a lot of specialized code for its own file format.
+X */
+X
+X
+XMETHODDEF void
+Xoutput_init (decompress_info_ptr cinfo)
+X/* This routine should do any setup required */
+X{
+X  /* This routine can initialize for output based on the data passed in cinfo.
+X   * Useful fields include:
+X   *	image_width, image_height	Pretty obvious, I hope.
+X   *	data_precision			bits per pixel value; typically 8.
+X   *	out_color_space			output colorspace previously requested
+X   *	color_out_comps			number of color components in same
+X   *	final_out_comps			number of components actually output
+X   * final_out_comps is 1 if quantize_colors is true, else it is equal to
+X   * color_out_comps.
+X   *
+X   * If you have requested color quantization, the colormap is NOT yet set.
+X   * You may wish to defer output initialization until put_color_map is called.
+X   */
+X}
+X
+X
+X/*
+X * This routine is called if and only if you have set cinfo->quantize_colors
+X * to TRUE.  It is given the selected colormap and can complete any required
+X * initialization.  This call will occur after output_init and before any
+X * calls to put_pixel_rows.  Note that the colormap pointer is also placed
+X * in a cinfo field, whence it can be used by put_pixel_rows or output_term.
+X * num_colors will be less than or equal to desired_number_of_colors.
+X *
+X * The colormap data is supplied as a 2-D array of JSAMPLEs, indexed as
+X *		JSAMPLE colormap[component][indexvalue]
+X * where component runs from 0 to cinfo->color_out_comps-1, and indexvalue
+X * runs from 0 to num_colors-1.  Note that this is actually an array of
+X * pointers to arrays rather than a true 2D array, since C does not support
+X * variable-size multidimensional arrays.
+X * JSAMPLE is typically typedef'd as "unsigned char".  If you want your code
+X * to be as portable as the JPEG code proper, you should always access JSAMPLE
+X * values with the GETJSAMPLE() macro, which will do the right thing if the
+X * machine has only signed chars.
+X */
+X
+XMETHODDEF void
+Xput_color_map (decompress_info_ptr cinfo, int num_colors, JSAMPARRAY colormap)
+X/* Write the color map */
+X{
+X  /* You need not provide this routine if you always set cinfo->quantize_colors
+X   * FALSE; but a safer practice is to provide it and have it just print an
+X   * error message, like this:
+X   */
+X  fprintf(stderr, "put_color_map called: there's a bug here somewhere!\n");
+X}
+X
+X
+X/*
+X * This function is called repeatedly, with a few more rows of pixels supplied
+X * on each call.  With the current JPEG code, some multiple of 8 rows will be
+X * passed on each call except the last, but it is extremely bad form to depend
+X * on this.  You CAN assume num_rows > 0.
+X * The data is supplied in top-to-bottom row order (the standard order within
+X * a JPEG file).  If you cannot readily use the data in that order, you'll
+X * need an intermediate array to hold the image.  See jwrrle.c for an example
+X * of outputting data in bottom-to-top order.
+X *
+X * The data is supplied as a 3-D array of JSAMPLEs, indexed as
+X *		JSAMPLE pixel_data[component][row][column]
+X * where component runs from 0 to cinfo->final_out_comps-1, row runs from 0 to
+X * num_rows-1, and column runs from 0 to cinfo->image_width-1 (column 0 is
+X * left edge of image).  Note that this is actually an array of pointers to
+X * pointers to arrays rather than a true 3D array, since C does not support
+X * variable-size multidimensional arrays.
+X * JSAMPLE is typically typedef'd as "unsigned char".  If you want your code
+X * to be as portable as the JPEG code proper, you should always access JSAMPLE
+X * values with the GETJSAMPLE() macro, which will do the right thing if the
+X * machine has only signed chars.
+X *
+X * If quantize_colors is true, then there is only one component, and its values
+X * are indexes into the previously supplied colormap.  Otherwise the values
+X * are actual data in your selected output colorspace.
+X */
+X
+X
+XMETHODDEF void
+Xput_pixel_rows (decompress_info_ptr cinfo, int num_rows, JSAMPIMAGE pixel_data)
+X/* Write some rows of output data */
+X{
+X  /* This example shows how you might write full-color RGB data (3 components)
+X   * to an output file in which the data is stored 3 bytes per pixel.
+X   */
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  register int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = pixel_data[0][row];
+X    ptr1 = pixel_data[1][row];
+X    ptr2 = pixel_data[2][row];
+X    for (col = 0; col < cinfo->image_width; col++) {
+X      putc(GETJSAMPLE(*ptr0), outfile);	/* red */
+X      ptr0++;
+X      putc(GETJSAMPLE(*ptr1), outfile);	/* green */
+X      ptr1++;
+X      putc(GETJSAMPLE(*ptr2), outfile);	/* blue */
+X      ptr2++;
+X    }
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xoutput_term (decompress_info_ptr cinfo)
+X/* Finish up at the end of the output */
+X{
+X  /* This termination routine may not need to do anything. */
+X  /* Note that the JPEG code will only call it during successful exit; */
+X  /* if you want it called during error exit, you gotta do that yourself. */
+X}
+X
+X
+X/*
+X * That's it for the routines that deal with writing the output image.
+X * Now we have overall control and parameter selection routines.
+X */
+X
+X
+X/*
+X * This routine gets control after the JPEG file header has been read;
+X * at this point the image size and colorspace are known.
+X * The routine must determine what output routines are to be used, and make
+X * any decompression parameter changes that are desirable.  For example,
+X * if it is found that the JPEG file is grayscale, you might want to do
+X * things differently than if it is color.  You can also delay setting
+X * quantize_colors and associated options until this point. 
+X *
+X * j_d_defaults initializes out_color_space to CS_RGB.  If you want grayscale
+X * output you should set out_color_space to CS_GRAYSCALE.  Note that you can
+X * force grayscale output from a color JPEG file (though not vice versa).
+X */
+X
+XMETHODDEF void
+Xd_ui_method_selection (decompress_info_ptr cinfo)
+X{
+X  /* if grayscale input, force grayscale output; */
+X  /* else leave the output colorspace as set by main routine. */
+X  if (cinfo->jpeg_color_space == CS_GRAYSCALE)
+X    cinfo->out_color_space = CS_GRAYSCALE;
+X
+X  /* select output routines */
+X  cinfo->methods->output_init = output_init;
+X  cinfo->methods->put_color_map = put_color_map;
+X  cinfo->methods->put_pixel_rows = put_pixel_rows;
+X  cinfo->methods->output_term = output_term;
+X}
+X
+X
+X/*
+X * OK, here is the main function that actually causes everything to happen.
+X * We assume here that the JPEG filename is supplied by the caller of this
+X * routine, and that all decompression parameters can be default values.
+X * The routine returns 1 if successful, 0 if not.
+X */
+X
+XGLOBAL int
+Xread_JPEG_file (char * filename)
+X{
+X  /* These three structs contain JPEG parameters and working data.
+X   * They must survive for the duration of parameter setup and one
+X   * call to jpeg_decompress; typically, making them local data in the
+X   * calling routine is the best strategy.
+X   */
+X  struct decompress_info_struct cinfo;
+X  struct decompress_methods_struct dc_methods;
+X  struct external_methods_struct e_methods;
+X
+X  /* Select the input and output files.
+X   * In this example we want to open the input file before doing anything else,
+X   * so that the setjmp() error recovery below can assume the file is open.
+X   * Note that cinfo.output_file is only used if your output handling routines
+X   * use it; otherwise, you can just make it NULL.
+X   * VERY IMPORTANT: use "b" option to fopen() if you are on a machine that
+X   * requires it in order to read binary files.
+X   */
+X
+X  if ((cinfo.input_file = fopen(filename, "rb")) == NULL) {
+X    fprintf(stderr, "can't open %s\n", filename);
+X    return 0;
+X  }
+X
+X  cinfo.output_file = NULL;	/* if no actual output file involved */
+X
+X  /* Initialize the system-dependent method pointers. */
+X  cinfo.methods = &dc_methods;	/* links to method structs */
+X  cinfo.emethods = &e_methods;
+X  /* Here we supply our own error handler; compare to use of standard error
+X   * handler in the previous write_JPEG_file example.
+X   */
+X  emethods = &e_methods;	/* save struct addr for possible access */
+X  e_methods.error_exit = error_exit; /* supply error-exit routine */
+X  e_methods.trace_message = trace_message; /* supply trace-message routine */
+X
+X  /* prepare setjmp context for possible exit from error_exit */
+X  if (setjmp(setjmp_buffer)) {
+X    /* If we get here, the JPEG code has signaled an error.
+X     * Memory allocation has already been cleaned up (see free_all call in
+X     * error_exit), but we need to close the input file before returning.
+X     * You might also need to close an output file, etc.
+X     */
+X    fclose(cinfo.input_file);
+X    return 0;
+X  }
+X
+X  /* Here we use the standard memory manager provided with the JPEG code.
+X   * In some cases you might want to replace the memory manager, or at
+X   * least the system-dependent part of it, with your own code.
+X   */
+X  jselmemmgr(&e_methods);	/* select std memory allocation routines */
+X  /* If the decompressor requires full-image buffers (for two-pass color
+X   * quantization or a noninterleaved JPEG file), it will create temporary
+X   * files for anything that doesn't fit within the maximum-memory setting.
+X   * You can change the default maximum-memory setting by changing
+X   * e_methods.max_memory_to_use after jselmemmgr returns.
+X   * On some systems you may also need to set up a signal handler to
+X   * ensure that temporary files are deleted if the program is interrupted.
+X   * (This is most important if you are on MS-DOS and use the jmemdos.c
+X   * memory manager back end; it will try to grab extended memory for
+X   * temp files, and that space will NOT be freed automatically.)
+X   * See jcmain.c or jdmain.c for an example signal handler.
+X   */
+X
+X  /* Here, set up the pointer to your own routine for post-header-reading
+X   * parameter selection.  You could also initialize the pointers to the
+X   * output data handling routines here, if they are not dependent on the
+X   * image type.
+X   */
+X  dc_methods.d_ui_method_selection = d_ui_method_selection;
+X
+X  /* Set up default decompression parameters. */
+X  j_d_defaults(&cinfo, TRUE);
+X  /* TRUE indicates that an input buffer should be allocated.
+X   * In unusual cases you may want to allocate the input buffer yourself;
+X   * see jddeflts.c for commentary.
+X   */
+X
+X  /* At this point you can modify the default parameters set by j_d_defaults
+X   * as needed; for example, you can request color quantization or force
+X   * grayscale output.  See jdmain.c for examples of what you might change.
+X   */
+X
+X  /* Set up to read a JFIF or baseline-JPEG file. */
+X  /* This is the only JPEG file format currently supported. */
+X  jselrjfif(&cinfo);
+X
+X  /* Here we go! */
+X  jpeg_decompress(&cinfo);
+X
+X  /* That's it, son.  Nothin' else to do, except close files. */
+X  /* Here we assume only the input file need be closed. */
+X  fclose(cinfo.input_file);
+X
+X  return 1;			/* indicate success */
+X
+X  /* Note: if you want to decompress more than one image, we recommend you
+X   * repeat this whole routine.  You MUST repeat the j_d_defaults()/alter
+X   * parameters/jpeg_decompress() sequence, as some data structures allocated
+X   * in j_d_defaults are freed upon exit from jpeg_decompress.
+X   */
+X}
+END_OF_FILE
+  if test 26472 -ne `wc -c <'example.c'`; then
+    echo shar: \"'example.c'\" unpacked with wrong size!
+  fi
+  # end of 'example.c'
+fi
+if test -f 'jmemnobs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jmemnobs.c'\"
+else
+  echo shar: Extracting \"'jmemnobs.c'\" \(2263 characters\)
+  sed "s/^X//" >'jmemnobs.c' <<'END_OF_FILE'
+X/*
+X * jmemnobs.c  (jmemsys.c)
+X *
+X * Copyright (C) 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file provides a really simple implementation of the system-
+X * dependent portion of the JPEG memory manager.  This implementation
+X * assumes that no backing-store files are needed: all required space
+X * can be obtained from malloc().
+X * This is very portable in the sense that it'll compile on almost anything,
+X * but you'd better have lots of main memory (or virtual memory) if you want
+X * to process big images.
+X * Note that the max_memory_to_use option is ignored by this implementation.
+X */
+X
+X#include "jinclude.h"
+X#include "jmemsys.h"
+X
+X#ifdef INCLUDES_ARE_ANSI
+X#include <stdlib.h>		/* to declare malloc(), free() */
+X#else
+Xextern void * malloc PP((size_t size));
+Xextern void free PP((void *ptr));
+X#endif
+X
+X
+Xstatic external_methods_ptr methods; /* saved for access to error_exit */
+X
+X
+X/*
+X * Memory allocation and freeing are controlled by the regular library
+X * routines malloc() and free().
+X */
+X
+XGLOBAL void *
+Xjget_small (size_t sizeofobject)
+X{
+X  return (void *) malloc(sizeofobject);
+X}
+X
+XGLOBAL void
+Xjfree_small (void * object)
+X{
+X  free(object);
+X}
+X
+X/*
+X * We assume NEED_FAR_POINTERS is not defined and so the separate entry points
+X * jget_large, jfree_large are not needed.
+X */
+X
+X
+X/*
+X * This routine computes the total memory space available for allocation.
+X * Here we always say, "we got all you want bud!"
+X */
+X
+XGLOBAL long
+Xjmem_available (long min_bytes_needed, long max_bytes_needed)
+X{
+X  return max_bytes_needed;
+X}
+X
+X
+X/*
+X * Backing store (temporary file) management.
+X * This should never be called and we just error out.
+X */
+X
+XGLOBAL void
+Xjopen_backing_store (backing_store_ptr info, long total_bytes_needed)
+X{
+X  ERREXIT(methods, "Backing store not supported");
+X}
+X
+X
+X/*
+X * These routines take care of any system-dependent initialization and
+X * cleanup required.  Keep in mind that jmem_term may be called more than
+X * once.
+X */
+X
+XGLOBAL void
+Xjmem_init (external_methods_ptr emethods)
+X{
+X  methods = emethods;		/* save struct addr for error exit access */
+X  emethods->max_memory_to_use = 0;
+X}
+X
+XGLOBAL void
+Xjmem_term (void)
+X{
+X  /* no work */
+X}
+END_OF_FILE
+  if test 2263 -ne `wc -c <'jmemnobs.c'`; then
+    echo shar: \"'jmemnobs.c'\" unpacked with wrong size!
+  fi
+  # end of 'jmemnobs.c'
+fi
+if test -f 'jquant1.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jquant1.c'\"
+else
+  echo shar: Extracting \"'jquant1.c'\" \(21850 characters\)
+  sed "s/^X//" >'jquant1.c' <<'END_OF_FILE'
+X/*
+X * jquant1.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains 1-pass color quantization (color mapping) routines.
+X * These routines are invoked via the methods color_quantize
+X * and color_quant_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef QUANT_1PASS_SUPPORTED
+X
+X
+X/*
+X * The main purpose of 1-pass quantization is to provide a fast, if not very
+X * high quality, colormapped output capability.  A 2-pass quantizer usually
+X * gives better visual quality; however, for quantized grayscale output this
+X * quantizer is perfectly adequate.  Dithering is highly recommended with this
+X * quantizer, though you can turn it off if you really want to.
+X *
+X * This implementation quantizes in the output colorspace.  This has a couple
+X * of disadvantages: each pixel must be individually color-converted, and if
+X * the color conversion includes gamma correction then quantization is done in
+X * a nonlinear space, which is less desirable.  The major advantage is that
+X * with the usual output color spaces (RGB, grayscale) an orthogonal grid of
+X * representative colors can be used, thus permitting the very simple and fast
+X * color lookup scheme used here.  The standard JPEG colorspace (YCbCr) cannot
+X * be effectively handled this way, because only about a quarter of an
+X * orthogonal grid would fall within the gamut of realizable colors.  Another
+X * advantage is that when the user wants quantized grayscale output from a
+X * color JPEG file, this quantizer can provide a high-quality result with no
+X * special hacking.
+X *
+X * The gamma-correction problem could be eliminated by adjusting the grid
+X * spacing to counteract the gamma correction applied by color_convert.
+X * At this writing, gamma correction is not implemented by jdcolor, so
+X * nothing is done here.
+X *
+X * In 1-pass quantization the colormap must be chosen in advance of seeing the
+X * image.  We use a map consisting of all combinations of Ncolors[i] color
+X * values for the i'th component.  The Ncolors[] values are chosen so that
+X * their product, the total number of colors, is no more than that requested.
+X * (In most cases, the product will be somewhat less.)
+X *
+X * Since the colormap is orthogonal, the representative value for each color
+X * component can be determined without considering the other components;
+X * then these indexes can be combined into a colormap index by a standard
+X * N-dimensional-array-subscript calculation.  Most of the arithmetic involved
+X * can be precalculated and stored in the lookup table colorindex[].
+X * colorindex[i][j] maps pixel value j in component i to the nearest
+X * representative value (grid plane) for that component; this index is
+X * multiplied by the array stride for component i, so that the
+X * index of the colormap entry closest to a given pixel value is just
+X *    sum( colorindex[component-number][pixel-component-value] )
+X * Aside from being fast, this scheme allows for variable spacing between
+X * representative values with no additional lookup cost.
+X */
+X
+X
+X#define MAX_COMPONENTS 4	/* max components I can handle */
+X
+Xstatic JSAMPARRAY colormap;	/* The actual color map */
+X/* colormap[i][j] = value of i'th color component for output pixel value j */
+X
+Xstatic JSAMPARRAY colorindex;	/* Precomputed mapping for speed */
+X/* colorindex[i][j] = index of color closest to pixel value j in component i,
+X * premultiplied as described above.  Since colormap indexes must fit into
+X * JSAMPLEs, the entries of this array will too.
+X */
+X
+Xstatic JSAMPARRAY input_buffer;	/* color conversion workspace */
+X/* Since our input data is presented in the JPEG colorspace, we have to call
+X * color_convert to get it into the output colorspace.  input_buffer is a
+X * one-row-high workspace for the result of color_convert.
+X */
+X
+X
+X/* Declarations for Floyd-Steinberg dithering.
+X *
+X * Errors are accumulated into the arrays evenrowerrs[] and oddrowerrs[].
+X * These have resolutions of 1/16th of a pixel count.  The error at a given
+X * pixel is propagated to its unprocessed neighbors using the standard F-S
+X * fractions,
+X *		...	(here)	7/16
+X *		3/16	5/16	1/16
+X * We work left-to-right on even rows, right-to-left on odd rows.
+X *
+X * In each of the xxxrowerrs[] arrays, indexing is [component#][position].
+X * We provide (#columns + 2) entries per component; the extra entry at each
+X * end saves us from special-casing the first and last pixels.
+X * In evenrowerrs[], the entries for a component are stored left-to-right, but
+X * in oddrowerrs[] they are stored right-to-left.  This means we always
+X * process the current row's error entries in increasing order and the next
+X * row's error entries in decreasing order, regardless of whether we are
+X * working L-to-R or R-to-L in the pixel data!
+X *
+X * Note: on a wide image, we might not have enough room in a PC's near data
+X * segment to hold the error arrays; so they are allocated with alloc_medium.
+X */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+Xtypedef INT16 FSERROR;		/* 16 bits should be enough */
+X#else
+Xtypedef INT32 FSERROR;		/* may need more than 16 bits? */
+X#endif
+X
+Xtypedef FSERROR FAR *FSERRPTR;	/* pointer to error array (in FAR storage!) */
+X
+Xstatic FSERRPTR evenrowerrs[MAX_COMPONENTS]; /* errors for even rows */
+Xstatic FSERRPTR oddrowerrs[MAX_COMPONENTS];  /* errors for odd rows */
+Xstatic boolean on_odd_row;	/* flag to remember which row we are on */
+X
+X
+X/*
+X * Policy-making subroutines for color_quant_init: these routines determine
+X * the colormap to be used.  The rest of the module only assumes that the
+X * colormap is orthogonal.
+X *
+X *  * select_ncolors decides how to divvy up the available colors
+X *    among the components.
+X *  * output_value defines the set of representative values for a component.
+X *  * largest_input_value defines the mapping from input values to
+X *    representative values for a component.
+X * Note that the latter two routines may impose different policies for
+X * different components, though this is not currently done.
+X */
+X
+X
+XLOCAL int
+Xselect_ncolors (decompress_info_ptr cinfo, int Ncolors[])
+X/* Determine allocation of desired colors to components, */
+X/* and fill in Ncolors[] array to indicate choice. */
+X/* Return value is total number of colors (product of Ncolors[] values). */
+X{
+X  int nc = cinfo->color_out_comps; /* number of color components */
+X  int max_colors = cinfo->desired_number_of_colors;
+X  int total_colors, iroot, i;
+X  long temp;
+X  boolean changed;
+X
+X  /* We can allocate at least the nc'th root of max_colors per component. */
+X  /* Compute floor(nc'th root of max_colors). */
+X  iroot = 1;
+X  do {
+X    iroot++;
+X    temp = iroot;		/* set temp = iroot ** nc */
+X    for (i = 1; i < nc; i++)
+X      temp *= iroot;
+X  } while (temp <= (long) max_colors); /* repeat till iroot exceeds root */
+X  iroot--;			/* now iroot = floor(root) */
+X
+X  /* Must have at least 2 color values per component */
+X  if (iroot < 2)
+X    ERREXIT1(cinfo->emethods, "Cannot quantize to fewer than %d colors",
+X	     (int) temp);
+X
+X  if (cinfo->out_color_space == CS_RGB && nc == 3) {
+X    /* We provide a special policy for quantizing in RGB space.
+X     * If 256 colors are requested, we allocate 8 red, 8 green, 4 blue levels;
+X     * this corresponds to the common 3/3/2-bit scheme.  For other totals,
+X     * the counts are set so that the number of colors allocated to each
+X     * component are roughly in the proportion R 3, G 4, B 2.
+X     * For low color counts, it's easier to hardwire the optimal choices
+X     * than try to tweak the algorithm to generate them.
+X     */
+X    if (max_colors == 256) {
+X      Ncolors[0] = 8;  Ncolors[1] = 8;  Ncolors[2] = 4;
+X      return 256;
+X    }
+X    if (max_colors < 12) {
+X      /* Fixed mapping for 8 colors */
+X      Ncolors[0] = Ncolors[1] = Ncolors[2] = 2;
+X    } else if (max_colors < 18) {
+X      /* Fixed mapping for 12 colors */
+X      Ncolors[0] = 2;  Ncolors[1] = 3;  Ncolors[2] = 2;
+X    } else if (max_colors < 24) {
+X      /* Fixed mapping for 18 colors */
+X      Ncolors[0] = 3;  Ncolors[1] = 3;  Ncolors[2] = 2;
+X    } else if (max_colors < 27) {
+X      /* Fixed mapping for 24 colors */
+X      Ncolors[0] = 3;  Ncolors[1] = 4;  Ncolors[2] = 2;
+X    } else if (max_colors < 36) {
+X      /* Fixed mapping for 27 colors */
+X      Ncolors[0] = 3;  Ncolors[1] = 3;  Ncolors[2] = 3;
+X    } else {
+X      /* these weights are readily derived with a little algebra */
+X      Ncolors[0] = (iroot * 266) >> 8; /* R weight is 1.0400 */
+X      Ncolors[1] = (iroot * 355) >> 8; /* G weight is 1.3867 */
+X      Ncolors[2] = (iroot * 177) >> 8; /* B weight is 0.6934 */
+X    }
+X    total_colors = Ncolors[0] * Ncolors[1] * Ncolors[2];
+X    /* The above computation produces "floor" values, so we may be able to
+X     * increment the count for one or more components without exceeding
+X     * max_colors.  We try in the order B, G, R.
+X     */
+X    do {
+X      changed = FALSE;
+X      for (i = 2; i >= 0; i--) {
+X	/* calculate new total_colors if Ncolors[i] is incremented */
+X	temp = total_colors / Ncolors[i];
+X	temp *= Ncolors[i]+1;	/* done in long arith to avoid oflo */
+X	if (temp <= (long) max_colors) {
+X	  Ncolors[i]++;		/* OK, apply the increment */
+X	  total_colors = (int) temp;
+X	  changed = TRUE;
+X	}
+X      }
+X    } while (changed);		/* loop until no increment is possible */
+X  } else {
+X    /* For any colorspace besides RGB, treat all the components equally. */
+X
+X    /* Initialize to iroot color values for each component */
+X    total_colors = 1;
+X    for (i = 0; i < nc; i++) {
+X      Ncolors[i] = iroot;
+X      total_colors *= iroot;
+X    }
+X    /* We may be able to increment the count for one or more components without
+X     * exceeding max_colors, though we know not all can be incremented.
+X     */
+X    for (i = 0; i < nc; i++) {
+X      /* calculate new total_colors if Ncolors[i] is incremented */
+X      temp = total_colors / Ncolors[i];
+X      temp *= Ncolors[i]+1;	/* done in long arith to avoid oflo */
+X      if (temp > (long) max_colors)
+X	break;			/* won't fit, done */
+X      Ncolors[i]++;		/* OK, apply the increment */
+X      total_colors = (int) temp;
+X    }
+X  }
+X
+X  return total_colors;
+X}
+X
+X
+XLOCAL int
+Xoutput_value (decompress_info_ptr cinfo, int ci, int j, int maxj)
+X/* Return j'th output value, where j will range from 0 to maxj */
+X/* The output values must fall in 0..MAXJSAMPLE in increasing order */
+X{
+X  /* We always provide values 0 and MAXJSAMPLE for each component;
+X   * any additional values are equally spaced between these limits.
+X   * (Forcing the upper and lower values to the limits ensures that
+X   * dithering can't produce a color outside the selected gamut.)
+X   */
+X  return (j * MAXJSAMPLE + maxj/2) / maxj;
+X}
+X
+X
+XLOCAL int
+Xlargest_input_value (decompress_info_ptr cinfo, int ci, int j, int maxj)
+X/* Return largest input value that should map to j'th output value */
+X/* Must have largest(j=0) >= 0, and largest(j=maxj) >= MAXJSAMPLE */
+X{
+X  /* Breakpoints are halfway between values returned by output_value */
+X  return ((2*j + 1) * MAXJSAMPLE + maxj) / (2*maxj);
+X}
+X
+X
+X/*
+X * Initialize for one-pass color quantization.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_init (decompress_info_ptr cinfo)
+X{
+X  int total_colors;		/* Number of distinct output colors */
+X  int Ncolors[MAX_COMPONENTS];	/* # of values alloced to each component */
+X  int i,j,k, nci, blksize, blkdist, ptr, val;
+X
+X  /* Make sure my internal arrays won't overflow */
+X  if (cinfo->num_components > MAX_COMPONENTS ||
+X      cinfo->color_out_comps > MAX_COMPONENTS)
+X    ERREXIT1(cinfo->emethods, "Cannot quantize more than %d color components",
+X	     MAX_COMPONENTS);
+X  /* Make sure colormap indexes can be represented by JSAMPLEs */
+X  if (cinfo->desired_number_of_colors > (MAXJSAMPLE+1))
+X    ERREXIT1(cinfo->emethods, "Cannot request more than %d quantized colors",
+X	     MAXJSAMPLE+1);
+X
+X  /* Select number of colors for each component */
+X  total_colors = select_ncolors(cinfo, Ncolors);
+X
+X  /* Report selected color counts */
+X  if (cinfo->color_out_comps == 3)
+X    TRACEMS4(cinfo->emethods, 1, "Quantizing to %d = %d*%d*%d colors",
+X	     total_colors, Ncolors[0], Ncolors[1], Ncolors[2]);
+X  else
+X    TRACEMS1(cinfo->emethods, 1, "Quantizing to %d colors", total_colors);
+X
+X  /* Allocate and fill in the colormap and color index. */
+X  /* The colors are ordered in the map in standard row-major order, */
+X  /* i.e. rightmost (highest-indexed) color changes most rapidly. */
+X
+X  colormap = (*cinfo->emethods->alloc_small_sarray)
+X		((long) total_colors, (long) cinfo->color_out_comps);
+X  colorindex = (*cinfo->emethods->alloc_small_sarray)
+X		((long) (MAXJSAMPLE+1), (long) cinfo->color_out_comps);
+X
+X  /* blksize is number of adjacent repeated entries for a component */
+X  /* blkdist is distance between groups of identical entries for a component */
+X  blkdist = total_colors;
+X
+X  for (i = 0; i < cinfo->color_out_comps; i++) {
+X    /* fill in colormap entries for i'th color component */
+X    nci = Ncolors[i];		/* # of distinct values for this color */
+X    blksize = blkdist / nci;
+X    for (j = 0; j < nci; j++) {
+X      /* Compute j'th output value (out of nci) for component */
+X      val = output_value(cinfo, i, j, nci-1);
+X      /* Fill in all colormap entries that have this value of this component */
+X      for (ptr = j * blksize; ptr < total_colors; ptr += blkdist) {
+X	/* fill in blksize entries beginning at ptr */
+X	for (k = 0; k < blksize; k++)
+X	  colormap[i][ptr+k] = (JSAMPLE) val;
+X      }
+X    }
+X    blkdist = blksize;		/* blksize of this color is blkdist of next */
+X
+X    /* fill in colorindex entries for i'th color component */
+X    /* in loop, val = index of current output value, */
+X    /* and k = largest j that maps to current val */
+X    val = 0;
+X    k = largest_input_value(cinfo, i, 0, nci-1);
+X    for (j = 0; j <= MAXJSAMPLE; j++) {
+X      while (j > k)		/* advance val if past boundary */
+X	k = largest_input_value(cinfo, i, ++val, nci-1);
+X      /* premultiply so that no multiplication needed in main processing */
+X      colorindex[i][j] = (JSAMPLE) (val * blksize);
+X    }
+X  }
+X
+X  /* Pass the colormap to the output module. */
+X  /* NB: the output module may continue to use the colormap until shutdown. */
+X  cinfo->colormap = colormap;
+X  cinfo->actual_number_of_colors = total_colors;
+X  (*cinfo->methods->put_color_map) (cinfo, total_colors, colormap);
+X
+X  /* Allocate workspace to hold one row of color-converted data */
+X  input_buffer = (*cinfo->emethods->alloc_small_sarray)
+X			(cinfo->image_width, (long) cinfo->color_out_comps);
+X
+X  /* Allocate Floyd-Steinberg workspace if necessary */
+X  if (cinfo->use_dithering) {
+X    size_t arraysize = (size_t) ((cinfo->image_width + 2L) * SIZEOF(FSERROR));
+X
+X    for (i = 0; i < cinfo->color_out_comps; i++) {
+X      evenrowerrs[i] = (FSERRPTR) (*cinfo->emethods->alloc_medium) (arraysize);
+X      oddrowerrs[i]  = (FSERRPTR) (*cinfo->emethods->alloc_medium) (arraysize);
+X      /* we only need to zero the forward contribution for current row. */
+X      jzero_far((void FAR *) evenrowerrs[i], arraysize);
+X    }
+X    on_odd_row = FALSE;
+X  }
+X}
+X
+X
+X/*
+X * Subroutines for color conversion methods.
+X */
+X
+XLOCAL void
+Xdo_color_conversion (decompress_info_ptr cinfo, JSAMPIMAGE input_data, int row)
+X/* Convert the indicated row of the input data into output colorspace */
+X/* in input_buffer.  This requires a little trickery since color_convert */
+X/* expects to deal with 3-D arrays; fortunately we can fake it out */
+X/* at fairly low cost. */
+X{
+X  short ci;
+X  JSAMPARRAY input_hack[MAX_COMPONENTS];
+X  JSAMPARRAY output_hack[MAX_COMPONENTS];
+X
+X  /* create JSAMPIMAGE pointing at specified row of input_data */
+X  for (ci = 0; ci < cinfo->num_components; ci++)
+X    input_hack[ci] = input_data[ci] + row;
+X  /* Create JSAMPIMAGE pointing at input_buffer */
+X  for (ci = 0; ci < cinfo->color_out_comps; ci++)
+X    output_hack[ci] = &(input_buffer[ci]);
+X
+X  (*cinfo->methods->color_convert) (cinfo, 1, cinfo->image_width,
+X				    input_hack, output_hack);
+X}
+X
+X
+X/*
+X * Map some rows of pixels to the output colormapped representation.
+X */
+X
+XMETHODDEF void
+Xcolor_quantize (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE input_data, JSAMPARRAY output_data)
+X/* General case, no dithering */
+X{
+X  register int pixcode, ci;
+X  register JSAMPROW ptrout;
+X  register long col;
+X  int row;
+X  long width = cinfo->image_width;
+X  register int nc = cinfo->color_out_comps;  
+X
+X  for (row = 0; row < num_rows; row++) {
+X    do_color_conversion(cinfo, input_data, row);
+X    ptrout = output_data[row];
+X    for (col = 0; col < width; col++) {
+X      pixcode = 0;
+X      for (ci = 0; ci < nc; ci++) {
+X	pixcode += GETJSAMPLE(colorindex[ci]
+X			      [GETJSAMPLE(input_buffer[ci][col])]);
+X      }
+X      *ptrout++ = (JSAMPLE) pixcode;
+X    }
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xcolor_quantize3 (decompress_info_ptr cinfo, int num_rows,
+X		 JSAMPIMAGE input_data, JSAMPARRAY output_data)
+X/* Fast path for color_out_comps==3, no dithering */
+X{
+X  register int pixcode;
+X  register JSAMPROW ptr0, ptr1, ptr2, ptrout;
+X  register long col;
+X  int row;
+X  long width = cinfo->image_width;
+X
+X  for (row = 0; row < num_rows; row++) {
+X    do_color_conversion(cinfo, input_data, row);
+X    ptr0 = input_buffer[0];
+X    ptr1 = input_buffer[1];
+X    ptr2 = input_buffer[2];
+X    ptrout = output_data[row];
+X    for (col = width; col > 0; col--) {
+X      pixcode  = GETJSAMPLE(colorindex[0][GETJSAMPLE(*ptr0++)]);
+X      pixcode += GETJSAMPLE(colorindex[1][GETJSAMPLE(*ptr1++)]);
+X      pixcode += GETJSAMPLE(colorindex[2][GETJSAMPLE(*ptr2++)]);
+X      *ptrout++ = (JSAMPLE) pixcode;
+X    }
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xcolor_quantize_dither (decompress_info_ptr cinfo, int num_rows,
+X		       JSAMPIMAGE input_data, JSAMPARRAY output_data)
+X/* General case, with Floyd-Steinberg dithering */
+X{
+X  register FSERROR val;
+X  FSERROR two_val;
+X  register FSERRPTR thisrowerr, nextrowerr;
+X  register JSAMPROW input_ptr;
+X  register JSAMPROW output_ptr;
+X  JSAMPROW colorindex_ci;
+X  JSAMPROW colormap_ci;
+X  register int pixcode;
+X  int dir;			/* 1 for left-to-right, -1 for right-to-left */
+X  int ci;
+X  int nc = cinfo->color_out_comps;
+X  int row;
+X  long col_counter;
+X  long width = cinfo->image_width;
+X
+X  for (row = 0; row < num_rows; row++) {
+X    do_color_conversion(cinfo, input_data, row);
+X    /* Initialize output values to 0 so can process components separately */
+X    jzero_far((void FAR *) output_data[row],
+X	      (size_t) (width * SIZEOF(JSAMPLE)));
+X    for (ci = 0; ci < nc; ci++) {
+X      if (on_odd_row) {
+X	/* work right to left in this row */
+X	dir = -1;
+X	input_ptr = input_buffer[ci] + (width-1);
+X	output_ptr = output_data[row] + (width-1);
+X	thisrowerr = oddrowerrs[ci] + 1;
+X	nextrowerr = evenrowerrs[ci] + width;
+X      } else {
+X	/* work left to right in this row */
+X	dir = 1;
+X	input_ptr = input_buffer[ci];
+X	output_ptr = output_data[row];
+X	thisrowerr = evenrowerrs[ci] + 1;
+X	nextrowerr = oddrowerrs[ci] + width;
+X      }
+X      colorindex_ci = colorindex[ci];
+X      colormap_ci = colormap[ci];
+X      *nextrowerr = 0;		/* need only initialize this one entry */
+X      for (col_counter = width; col_counter > 0; col_counter--) {
+X	/* Compute pixel value + accumulated error for this component */
+X	val = (((FSERROR) GETJSAMPLE(*input_ptr)) << 4) + *thisrowerr;
+X	if (val < 0) val = 0;	/* must watch for range overflow! */
+X	else {
+X	  val += 8;		/* divide by 16 with proper rounding */
+X	  val >>= 4;
+X	  if (val > MAXJSAMPLE) val = MAXJSAMPLE;
+X	}
+X	/* Select output value, accumulate into output code for this pixel */
+X	pixcode = GETJSAMPLE(*output_ptr);
+X	pixcode += GETJSAMPLE(colorindex_ci[val]);
+X	*output_ptr = (JSAMPLE) pixcode;
+X	/* Compute actual representation error at this pixel */
+X	/* Note: we can do this even though we don't yet have the final */
+X	/* value of pixcode, because the colormap is orthogonal. */
+X	val -= (FSERROR) GETJSAMPLE(colormap_ci[pixcode]);
+X	/* Propagate error to (same component of) adjacent pixels */
+X	/* Remember that nextrowerr entries are in reverse order! */
+X	two_val = val * 2;
+X	nextrowerr[-1]  = val; /* not +=, since not initialized yet */
+X	val += two_val;		/* form error * 3 */
+X	nextrowerr[ 1] += val;
+X	val += two_val;		/* form error * 5 */
+X	nextrowerr[ 0] += val;
+X	val += two_val;		/* form error * 7 */
+X	thisrowerr[ 1] += val;
+X	input_ptr += dir;	/* advance input ptr to next column */
+X	output_ptr += dir;	/* advance output ptr to next column */
+X	thisrowerr++;		/* cur-row error ptr advances to right */
+X	nextrowerr--;		/* next-row error ptr advances to left */
+X      }
+X    }
+X    on_odd_row = (on_odd_row ? FALSE : TRUE);
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_term (decompress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X  /* Note that we *mustn't* free the colormap before free_all, */
+X  /* since output module may use it! */
+X}
+X
+X
+X/*
+X * Prescan some rows of pixels.
+X * Not used in one-pass case.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_prescan (decompress_info_ptr cinfo, int num_rows,
+X		     JSAMPIMAGE image_data, JSAMPARRAY workspace)
+X{
+X  ERREXIT(cinfo->emethods, "Should not get here!");
+X}
+X
+X
+X/*
+X * Do two-pass quantization.
+X * Not used in one-pass case.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_doit (decompress_info_ptr cinfo, quantize_caller_ptr source_method)
+X{
+X  ERREXIT(cinfo->emethods, "Should not get here!");
+X}
+X
+X
+X/*
+X * The method selection routine for 1-pass color quantization.
+X */
+X
+XGLOBAL void
+Xjsel1quantize (decompress_info_ptr cinfo)
+X{
+X  if (! cinfo->two_pass_quantize) {
+X    cinfo->methods->color_quant_init = color_quant_init;
+X    if (cinfo->use_dithering) {
+X      cinfo->methods->color_quantize = color_quantize_dither;
+X    } else {
+X      if (cinfo->color_out_comps == 3)
+X	cinfo->methods->color_quantize = color_quantize3;
+X      else
+X	cinfo->methods->color_quantize = color_quantize;
+X    }
+X    cinfo->methods->color_quant_prescan = color_quant_prescan;
+X    cinfo->methods->color_quant_doit = color_quant_doit;
+X    cinfo->methods->color_quant_term = color_quant_term;
+X  }
+X}
+X
+X#endif /* QUANT_1PASS_SUPPORTED */
+END_OF_FILE
+  if test 21850 -ne `wc -c <'jquant1.c'`; then
+    echo shar: \"'jquant1.c'\" unpacked with wrong size!
+  fi
+  # end of 'jquant1.c'
+fi
+echo shar: End of archive 9 \(of 18\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1418 @@
+Newsgroups: comp.sources.misc
+From: amber@engin.umich.edu (Lee Liming)
+Subject: v34i099:  netuse - A Network Host Usage Monitoring System, Part01/06
+Message-ID: <csm-v34i099=netuse.203327@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 5dbd52aa67bb6f5ea290b37c94adff6d
+Date: Mon, 11 Jan 1993 02:34:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: amber@engin.umich.edu (Lee Liming)
+Posting-number: Volume 34, Issue 99
+Archive-name: netuse/part01
+Environment: UNIX, MS-DOS, OS/2, INET, MSC
+
+               NETUSE - A Network Host Usage Monitoring System
+
+                        Lee Liming and Michael L. Neil
+                      Computer Aided Engineering Network
+                          The University of Michigan
+
+NETUSE is a low-budget, high-output network service used for keeping track of
+dynamic information about hosts on a TCP/IP network.  It is not limited to
+physical networks; i.e., it's monitoring crosses routers.  It monitors and
+updates load averages, number of login sessions, display use, free disk space 
+in /tmp, host names, and vendor and model types for a (potentially large) 
+number of hosts.  All of these items are determined dynamically by the system.
+One never needs to tell NETUSE anything (other than to run).
+
+Rather than being based on broadcasts, which are limited to physical networks
+and which require processing time from all hosts on the network, NETUSE takes
+a client-server approach.  Periodic reports are sent directly to a server via
+UDP, and the server may subsequently be queried for near-instantaneous 
+information.
+
+This service was originally developed for assistance with large-scale,
+course-grained distributed processing (running jobs on lots and lots of
+hosts!).  It's strong points are low bandwidth requirements, speed of queries,
+self-maintenance, and versatility.
+
+NETUSE has been in wide use at CAEN for several years now, and we've been
+adding features and making it more robust through most of that time.  We now
+feel that it's "good enough" (in terms of robustness and usefulness) to be 
+distributed more broadly.
+
+The REAL documentation is in the ./doc directory, in several formats
+(including plain old ASCII).
+
+NOTICE: This distribution is also available via anonymous FTP from
+        freebie.engin.umich.edu (141.212.103.21) in /pub/netuse.
+
+-------------------------------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  netuse netuse/README netuse/clients netuse/daemons
+#   netuse/doc netuse/doc/NETUSE.txt netuse/lib netuse/lib/variable.c
+# Wrapped by kent@sparky on Sun Jan 10 20:28:33 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 6)."'
+if test ! -d 'netuse' ; then
+    echo shar: Creating directory \"'netuse'\"
+    mkdir 'netuse'
+fi
+if test -f 'netuse/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/README'\"
+else
+  echo shar: Extracting \"'netuse/README'\" \(2980 characters\)
+  sed "s/^X//" >'netuse/README' <<'END_OF_FILE'
+X
+X                NETUSE - A Network Host Usage Monitoring System
+X
+X                        Lee Liming and Michael L. Neil
+X                      Computer Aided Engineering Network
+X                          The University of Michigan
+X
+X
+XNETUSE is a low-budget, high-output network service used for keeping track of
+Xdynamic information about hosts on a TCP/IP network.  It is not limited to
+Xphysical networks; i.e., it's monitoring crosses routers.  It monitors and
+Xupdates load averages, number of login sessions, display use, free disk space 
+Xin /tmp, host names, and vendor and model types for a (potentially large) 
+Xnumber of hosts.  All of these items are determined dynamically by the system.
+XOne never needs to tell NETUSE anything (other than to run).
+X
+XRather than being based on broadcasts, which are limited to physical networks
+Xand which require processing time from all hosts on the network, NETUSE takes
+Xa client-server approach.  Periodic reports are sent directly to a server via
+XUDP, and the server may subsequently be queried for near-instantaneous 
+Xinformation.
+X
+XThis service was originally developed for assistance with large-scale,
+Xcourse-grained distributed processing (running jobs on lots and lots of
+Xhosts!).  It's strong points are low bandwidth requirements, speed of queries,
+Xself-maintenance, and versatility.
+X
+XNETUSE has been in wide use at CAEN for several years now, and we've been
+Xadding features and making it more robust through most of that time.  We now
+Xfeel that it's "good enough" (in terms of robustness and usefulness) to be 
+Xdistributed more broadly.
+X
+XThe REAL documentation is in the ./doc directory, in several formats
+X(including plain old ASCII).
+X
+X
+X/******************************************************************************
+XCopyright (C) 1992 by the Regents of the University of Michigan.
+X
+XUser agrees to reproduce said copyright notice on all copies of the software
+Xmade by the recipient.  
+X
+XAll Rights Reserved. Permission is hereby granted for the recipient to make
+Xcopies and use this software for its own internal purposes only. Recipient of
+Xthis software may re-distribute this software outside of their own
+Xinstitution. Permission to market this software commercially, to include this
+Xproduct as part of a commercial product, or to make a derivative work for
+Xcommericial purposes, is explicitly prohibited.  All other uses are also
+Xprohibited unless authorized in writing by the Regents of the University of
+XMichigan.
+X
+XThis software is offered without warranty. The Regents of the University of
+XMichigan disclaim all warranties, express or implied, including but not
+Xlimited to the implied warranties of merchantability and fitness for any
+Xparticular purpose. In no event shall the Regents of the University of
+XMichigan be liable for loss or damage of any kind, including but not limited
+Xto incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+END_OF_FILE
+  if test 2980 -ne `wc -c <'netuse/README'`; then
+    echo shar: \"'netuse/README'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/README'
+fi
+if test ! -d 'netuse/clients' ; then
+    echo shar: Creating directory \"'netuse/clients'\"
+    mkdir 'netuse/clients'
+fi
+if test ! -d 'netuse/daemons' ; then
+    echo shar: Creating directory \"'netuse/daemons'\"
+    mkdir 'netuse/daemons'
+fi
+if test ! -d 'netuse/doc' ; then
+    echo shar: Creating directory \"'netuse/doc'\"
+    mkdir 'netuse/doc'
+fi
+if test -f 'netuse/doc/NETUSE.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/doc/NETUSE.txt'\"
+else
+  echo shar: Extracting \"'netuse/doc/NETUSE.txt'\" \(16063 characters\)
+  sed "s/^X//" >'netuse/doc/NETUSE.txt' <<'END_OF_FILE'
+XMONITORING HOSTS WITH NETUSE               Computer Aided Engineering Network
+XAugust 1992                                            University of Michigan
+X
+X
+XCopyright (C) 1992 by the Regents of the University of Michigan.
+X
+XUser agrees to reproduce said copyright notice on all copies of the software
+Xmade by the recipient.  
+X
+XAll Rights Reserved. Permission is hereby granted for the recipient to make
+Xcopies and use this software for its own internal purposes only. Recipient of
+Xthis software may not re-distribute this software outside of their own
+Xinstitution. Permission to market this software commercially, to include this
+Xproduct as part of a commercial product, or to make a derivative work for
+Xcommercial purposes, is explicitly prohibited.  All other uses are also
+Xprohibited unless authorized in writing by the Regents of the University of
+XMichigan.
+X
+XThis software is offered without warranty. The Regents of the University of
+XMichigan disclaim all warranties, express or implied, including but not
+Xlimited to the implied warranties of merchantability and fitness for any
+Xparticular purpose. In no event shall the Regents of the University of
+XMichigan be liable for loss or damage of any kind, including but not limited
+Xto incidental, indirect, consequential, or special damages. 
+X
+X
+XDESCRIPTION
+X
+XThe NETUSE system is designed to provide a fast means of obtaining the names
+Xof hosts on a network that are available for use. It is particularly useful
+Xfor determining hosts to use for chunks of distributed processing jobs. 
+X
+XThe NETUSE system consists of a server process which keeps the following
+Xitems of dynamic information about a (potentially large) set of Unix hosts on
+Xa TCP/IP network. 
+X
+X     o  Host name
+X     o  Vendor type
+X     o  Model type
+X     o  1, 5, and 15-minute load averages
+X     o  Number of current login sessions
+X     o  Display in use or not
+X     o  Free space on /tmp
+X
+XClient applications can very quickly query the server for the names of hosts
+Xthat meet specific criteria (e.g., a Sun 4/50 with less than 0.05 as a
+X5-minute load average, no one logged into the display, less than three remote
+Xlogins, and at least 25Mb of /tmp space free). Hosts may be obtained
+Xindividually or in groups. 
+X
+XAdditionally, hosts that have not reported to the server in a specified
+Xamount of time can be listed (a useful feature for system administrators
+Xlooking for crashed machines). 
+X
+XWhen hosts are requested individually, the server will not give out the name
+Xof any host more than once in two minutes, thus causing sequential requests
+Xto return unique hosts. Presumably, by the time a host is checked a second
+Xtime for availability its status will have been changed enough by the
+Xprevious request's resulting job that it will be undesirable for further
+Xrequests.
+X
+XThree client programs are provided with the distribution: getmach (returns a
+Xsingle host that meets specified criteria), hostinfo (returns a list of hosts
+Xof specified types), and netuseadmin (controls the server's operation
+Xremotely). A programmer's interface consisting of a library and header files
+Xfor use in other applications is also provided.  
+X
+XDynamic updates
+X
+XThe NETUSE system was designed to be self-maintaining. Human intervention in
+Xits operation is seldom needed. For the most part, hosts get added and
+Xdeleted automatically, and information is constantly updated through
+Xautomatic mechanisms.  
+X
+XFor example, if a host name is changed, this will be reflected in the NETUSE
+Xsystem as soon as the nameserver or /etc/hosts file is updated. Hosts which
+Xdon't report for a set period of time (configurable at compile time) are
+Xautomatically removed from the database. Hosts that don't report for a
+Xshorter period of time (also configurable) can be "woken up" by a message
+Xfrom the NETUSE server (assuming that the problem was a netused daemon that
+Xterminated abnormally). If a machine is upgraded or replaced by a new model,
+Xthe server's database is updated when the machine sends its next report.
+X
+X
+XBACKGROUND
+X
+XIn early 1990, several student staff members at the University of Michigan's
+XComputer Aided Engineering network realized that there were considerable
+Xquantities of unused CPU cycles and disk space available among the hundreds
+Xof Unix workstations in public CAEN labs. Unfortunately, there was no
+Xefficient way to detect precisely which machines were currently unused at any
+Xgiven instant. Existing systems such as rwho and ruptime were not useful at
+XCAEN because of their broadcast nature, which both required more network and
+XCPU resources from the monitored hosts than was considered reasonable and
+Xalso limited the monitoring to individual physical networks. 
+X
+XThis was the inspiration for the NETUSE system. The basic requirements were
+Xthat the system be based on a non-broadcasting internet protocol, allowing it
+Xto work across routers; very low CPU and network bandwidth requirements; and
+Xspeed and flexibility of querying, allowing clients to quickly find hosts
+Xthat meet specific requirements. Mike Neil and Lee Liming wrote the original
+Xversion (with significant kibitzing from Steve Falkenburg), which was used on
+Xa test bed of roughly 50 DECstations and SPARCstations. 
+X
+X
+XSPECIFICATIONS
+X
+XThe NETUSE system current runs a daemon process (netused) on each host being
+Xmonitored. This daemon executes continuously (it is started on booting the
+Xhost), sleeping most of the time but waking up periodically to reassess the
+Xhost's status and report it to the NETUSE server. The NETUSE server runs
+Xcontinuously on a single host, receiving reports from monitored hosts and
+Xrequests for information from clients. 
+X
+XEach status report, client request, and server response consists of a 20-byte
+XUDP packet. (This packet ends up being about 66 bytes after having UDP, IP
+Xand ethernet headers added.) For some client requests, however, the NETUSE
+Xserver opens a TCP connection to the client to send it's response. In these
+Xcases the amount of data transmitted may vary greatly. 
+X
+XAt CAEN, a NETUSE system monitoring 225 hosts with each host reporting once
+Xevery two minutes generates roughly 3 kbits/s on a sustained basis. Note that
+Xthis is the bandwidth required on the server's local network only (the
+Xbusiest of all). Other networks will carry only the traffic for their local
+Xhosts. For all but the most extraordinary networks, this represents minor
+Xbackground noise, and will not impact normal network use at all. Since all
+XNETUSE-generated traffic is host-to-host (as opposed to broadcasted),
+Xmonitored hosts and client workstations do not need to examine any packets
+Xother than those they explicitly send or request from the server.
+X
+X
+XSUPPORTED PLATFORMS
+X
+XWe expect that the NETUSE client programs will be usable on many types of
+Xsystems, but, due to the lack of standardization for obtaining load averages,
+Xreading utmp files, and other system-dependent items, there are currently a
+Xmuch smaller set of platforms that the netused daemon will compile
+Xsuccessfully on. Table 1 shows the systems we've used NETUSE on, and which
+Xones we've provided netused versions for. 
+X
+X      -----------------------------------------------------------------
+X      Platform                                         Clients  netused
+X      -----------------------------------------------------------------
+X      DECstation 3100, 5000 (Ultrix 3.1d, 4.x)            o        o
+X      HP/Apollo DN and 400-series (DOMAIN/OS SR10.x)      o        o
+X      HP/Apollo 700-series (HP-UX 8.0.x)                  o        o
+X      IBM PS/2 (DOS: Novell TCP/IP, OS/2: IBM TCP/IP)     o
+X      IBM RS/6000 (AIX 3.x)                               o        o
+X      NeXT (NeXTstep 1.0)                                 o
+X      Sun 4 (SunOS 4.x)                                   o        o
+X      -----------------------------------------------------------------
+X                       Table 1: Supported platforms
+X
+X
+XINSTALLATION
+X
+XThe NETUSE system consists of the following executables:
+X
+X     o  netuse      - NETUSE server daemon
+X     o  netused     - Host monitor daemon
+X     o  netuseadmin - NETUSE server administration utility 
+X     o  hostinfo    - Multiple-host display utility
+X     o  getmach     - Single-host selection utility
+X
+XA library of linkable C routines (libNetuse.a) and two header files with type
+Xdefinitions and function prototypes (protocol.h and netuse.h) are also
+Xprovided, as are manual pages for the hostinfo(1) and getmach(1) commands. 
+X
+XThe directory structure of the source tree is described in Table 1. 
+X
+X        ------------------------------------------------------------
+X        Directory    Contents
+X        ------------------------------------------------------------
+X        .            Master "Makefile"
+X        ./lib        Library code and protocol header files
+X        ./daemons    NETUSE daemons (netuse and netused)
+X        ./clients    NETUSE clients (getmach, hostinfo, netuseadmin)
+X        ------------------------------------------------------------
+X                      Table 2: Source tree structure
+X
+XThe process for building these executables from the sources is very simple.  
+X
+XSite Customization
+X
+XBefore compiling, first edit the ./Makefile and ./lib/config.h files. The
+Xcomments in each file should be straightforward. It's necessary to edit these
+Xfiles, since they define the host name of your server and your installation
+Xdirectory, among other less important parameters. 
+X
+XIf you're not building on a supported platform, you'll need to either modify
+Xthe information-gathering modules in ./daemons, or take netused off the list
+Xof daemons to be built in the Makefile. 
+X
+XCompiling and installing
+X
+XOnce you've configured your Makefile and config.h file, compile the
+Xexecutables by typing "make" at the top of the source directory. Once the
+Xexecutables and libraries are built, they can be installed using the "make
+Xinstall" command. Note that you can skip the "make" step if you're confident
+Xthat you really want to install right away. The "make install" command will
+Xbuild any executables it needs. 
+X
+XWhen installing, the DESTDIR variable (in the Makefile) will be taken as the
+Xroot of the local software tree. Unless you've made significant changes to
+Xthe Makefile, the netuse package will be installed in a subdirectory named
+X"netuse", under which bin, etc, lib, include, and man/man1 directories will
+Xbe created, and the files will be installed in the appropriate directories.  
+X
+XAfter the executables and man pages are installed, the source tree may be
+Xcleaned using the "make clean" command. This will remove all object files and
+Xexecutables from the source tree. 
+X
+XModifications to system configuration files
+X
+XOnce you've installed the executables on all relevant systems, you should
+Xfirst add the netuse and netused services to your /etc/services files. The
+Xservice names "netuse" and "netused" are defined in the config.h file.
+XDefault port numbers for these services are also defined there. However, it
+Xis strongly recommended that you use /etc/services to register the port
+Xnumbers so that NETUSE doesn't conflict with other services on your network.
+XExamples of the appropriate lines for a typical /etc/services file are shown
+Xbelow. Note that the port numbers can be anything, so long as they don't
+Xconflict with any other services on your network and fall within the
+Xappropriate range as determined by the internet standards committees. 
+X
+X     # NETUSE services
+X     netuse  1848/udp
+X     netused 1849/udp
+X
+XIf you wish to use the "auto-wakeup" feature of the NETUSE system (where the
+Xserver restarts the netused daemon on hosts that haven't reported recently),
+Xadd the following line to /etc/inetd.conf on monitored hosts. 
+X
+X     netused dgram udp wait root /usr/caen/etc/netused netused
+X
+XSubstitute the appropriate path to your netused executable. Also note that
+Xsome Unix versions do not allow the "root" parameter (the user ID that the
+Xprogram is run under); look at other entries in your inetd.conf file for
+Xexamples. You will most likely need to restart or send a SIGHUP signal to
+Xyour inetd process before it will use the new configuration. 
+X
+XTrying it out
+X
+XAfter /etc/services and /etc/inetd.conf are updated, start the netuse daemon
+Xon the host named in config.h. Then, start the netused daemon on any hosts
+Xthat you wish to monitor. At this point, hostinfo and getmach commands will
+Xbegin listing the monitored hosts (read the man pages). The netuseadmin
+Xprogram can be used to add and delete hosts from the NETUSE database. 
+X
+XAt CAEN, we start netused out of our workstations' rc files. We also take
+Xcare that netused only runs on workstations that any of our users can log in
+Xto (so people don't try to start jobs on workstations they don't have
+Xprivileges to). 
+X
+XAdding and removing hosts
+X
+XAdding a host to the NETUSE system is easy: just start the netused daemon on
+Xit. Alternatively, use the netuseadmin program to add the host to the
+Xserver's database, and wait for the automatic "wakeup" feature (if enabled at
+Xyour site) to start netused on the host. 
+X
+XDeleting a host is slightly more tricky. First, kill the netused daemon on
+Xthe host itself. Then, use the netuseadmin program to delete the host from
+Xthe server's database. 
+X
+X
+XPLANS FOR THE FUTURE...
+X
+XWhile avoiding the temptation to throw in every possible feature and
+Xconsequently overuse a good thing, there are some improvements that could and
+Xmight be added to the current NETUSE system. 
+X
+X     o  Support for additional platforms and models. This will, of course,   
+X        always be a desirable thing. Assistance from users of the current 
+X        system is always welcome in this arena!  
+X
+X     o  Provide memory usage and total available memory information.
+X
+X     o  Provide swap space availability information.
+X
+X
+XCOMMUNICATION WITH THE AUTHORS
+X
+XWe welcome your comments, complaints, and suggestions, and especially
+Ximprovements that you've made to the original system. We won't promise to
+Xincorporate everything you suggest or send us, but send it anyway! We do
+Xpromise that appropriate credit will be given for anything we decide to use. 
+X
+XSend electronic mail to:
+X
+X     Lee.Liming@umich.edu (amber@engin.umich.edu)
+X     Michael L Neil (mackid@engin.umich.edu)
+X
+XSend non-e-mail to:
+X
+X     Attn.: Lee Liming
+X     229 Chrysler Center (CAEN)
+X     The University of Michigan
+X     Ann Arbor, MI 48109 (U.S.A.)
+X
+X
+XDISTRIBUTIONS
+X
+XThere are two NETUSE distributions currently available.
+X
+XAn anonymous FTP distribution is available on freebie.engin.umich.edu 
+X(141.212.103.21 at the time of this document's writing) in the directory 
+X/pub/netuse. This version is in compressed tar format, and includes the 
+Xcomplete NETUSE distribution.  
+X
+XNETUSE has also been posted to several USENET source newsgroups, including 
+Xcomp.sources.misc. The first submission was made on January 6, 1993. The 
+XUSENET distribution is in a shar format, and does not include the PostScript 
+Xor FrameMaker documentation files.
+X
+X
+XCOPYRIGHT
+X
+XCopyright (C) 1992 by the Regents of the University of Michigan.
+X
+XUser agrees to reproduce said copyright notice on all copies of the software
+Xmade by the recipient.  
+X
+XAll Rights Reserved. Permission is hereby granted for the recipient to make
+Xcopies and use this software for its own internal purposes only. Recipient of
+Xthis software may re-distribute this software outside of their own
+Xinstitution. Permission to market this software commercially, to include this
+Xproduct as part of a commercial product, or to make a derivative work for
+Xcommericial purposes, is explicitly prohibited.  All other uses are also
+Xprohibited unless authorized in writing by the Regents of the University of
+XMichigan.
+X
+XThis software is offered without warranty. The Regents of the University of
+XMichigan disclaim all warranties, express or implied, including but not
+Xlimited to the implied warranties of merchantability and fitness for any
+Xparticular purpose. In no event shall the Regents of the University of
+XMichigan be liable for loss or damage of any kind, including but not limited
+Xto incidental, indirect, consequential, or special damages. 
+X
+END_OF_FILE
+  if test 16063 -ne `wc -c <'netuse/doc/NETUSE.txt'`; then
+    echo shar: \"'netuse/doc/NETUSE.txt'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/doc/NETUSE.txt'
+fi
+if test ! -d 'netuse/lib' ; then
+    echo shar: Creating directory \"'netuse/lib'\"
+    mkdir 'netuse/lib'
+fi
+if test -f 'netuse/lib/variable.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/lib/variable.c'\"
+else
+  echo shar: Extracting \"'netuse/lib/variable.c'\" \(25559 characters\)
+  sed "s/^X//" >'netuse/lib/variable.c' <<'END_OF_FILE'
+X/*****************************************************************************
+X VARIABLE.C - The variable management module
+X
+X Lee Liming, The Computer Aided Engineering Network
+X The University of Michigan
+X
+X Copyright (C) 1990, 1991, 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X
+X
+X This module defines the data structures and operations for constructing
+X a table of variable bindings.  This is used for variable storage/retrieval
+X in the runtime module.
+X
+X varHashName() puts the name of a variable through the hashing algorithm
+X   to get a bucket number for storing the variable in.
+X varAllocate() allocates memory for a variable binding and initializes the
+X   fields to known starting values.
+X varFreeTable() deallocates the entire hash table of variable bindings.
+X varSet() sets a variable to a new value, creating the variable if necessary.
+X varAdd() adds a variable to the table.
+X varDelete() deletes a variable from the table.
+X varFind() gets the value of a variable.
+X varSaveState() saves the state of the variable table to a file.
+X varLoadHosts() empties the variable table and reinitializes it using
+X   variable names stored in a static file.
+X*****************************************************************************/
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <pwd.h>
+X#include <time.h>
+X#include <sys/types.h>
+X
+X#include "protocol.h"
+X#include "netuse.h"
+X#include "config.h"
+X#include "parser.h"
+X#include "variable.h"
+X
+X
+Xextern long lastSave;
+X
+XVARTABLE  variables;                           /* The global variable table */
+XTREE     *theTree;
+Xlong      lTime=0;
+X
+X
+X/*****************************************************************************
+X int varHashName(char *name)
+X
+X This function hashes the name sent to it and returns a bucket number.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xint varHashName(u_long name)
+X#else
+Xint varHashName(name)
+Xu_long name;
+X#endif
+X{
+X     int i,hash;
+X     u_char ipbytes[4];
+X
+X     bcopy(&name,ipbytes,sizeof(ipbytes));
+X     for (i=hash=0; i<4; i++)
+X          hash=(hash+ipbytes[i]) % VAR_ENTRIES;
+X     return(hash);
+X}
+X
+X
+X/*****************************************************************************
+X USER *userAllocate()
+X
+X This function allocates memory for another user node and sets the fields to
+X known, useful starting values.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+XUSER *userAllocate(void)
+X#else
+XUSER *userAllocate()
+X#endif
+X{
+X     USER *userNew;
+X
+X     userNew=(USER *)malloc(sizeof(USER));
+X     userNew->name=userNew->tty=NULL;
+X     userNew->next=NULL;
+X     return(userNew);
+X}
+X
+X
+X/*****************************************************************************
+X void userFree(USER *uptr)
+X
+X This function deallocates the memory used by a user node.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid userFree(USER *uptr)
+X#else
+Xvoid userFree(uptr)
+XUSER *uptr;
+X#endif
+X{
+X     if (uptr->name!=NULL) free(uptr->name);
+X     if (uptr->tty!=NULL) free(uptr->tty);
+X     free(uptr);
+X}
+X
+X
+X/*****************************************************************************
+X void userFreeList(USER *uptr)
+X
+X This function deallocates an entire user list.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid userFreeList(USER *uptr)
+X#else
+Xvoid userFreeList(uptr)
+XUSER *uptr;
+X#endif
+X{
+X     USER *utmp;
+X
+X     while (uptr!=NULL) {
+X          utmp=uptr->next;
+X          userFree(uptr);
+X          uptr=utmp;
+X     }
+X}
+X
+X
+X/*****************************************************************************
+X USERLIST userCopyList(USERLIST uptr)
+X
+X This function makes a copy of the user list pointed to by uptr and returns a
+X pointer to the new copy.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+XUSERLIST userCopyList(USERLIST uptr)
+X#else
+XUSERLIST userCopyList(uptr)
+XUSERLIST uptr;
+X#endif
+X{
+X     USER *utmp,*up;
+X
+X     utmp=NULL;
+X     while (uptr!=NULL) {
+X          if (utmp==NULL) utmp=up=userAllocate();
+X          else {
+X               up->next=userAllocate();
+X               up=up->next;
+X          }
+X          if (uptr->name!=NULL) {
+X               up->name=(char *)malloc(strlen(uptr->name)+1);
+X               strcpy(up->name,uptr->name);
+X          }
+X          if (uptr->tty!=NULL) {
+X               up->tty=(char *)malloc(strlen(uptr->tty)+1);
+X               strcpy(up->tty,uptr->tty);
+X          }
+X          uptr=uptr->next;
+X     }
+X     return(utmp);
+X}
+X
+X
+X/*****************************************************************************
+X VARENTRY *varAllocate()
+X
+X This function allocates memory for another variable binding and sets the
+X fields to known, useful starting values.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+XVARENTRY *varAllocate(void)
+X#else
+XVARENTRY *varAllocate()
+X#endif
+X{
+X     VARENTRY *varNew;
+X
+X     varNew=(VARENTRY *)malloc(sizeof(VARENTRY));
+X     varNew->name=varNew->class=NULL;
+X     varNew->ip_addr=0;
+X     varNew->l1=varNew->l2=varNew->l3=0.0;
+X     varNew->logtime=0;
+X     varNew->tmp=0;
+X     varNew->machine=0;
+X     varNew->model=0;
+X     varNew->lastused=0;
+X     varNew->console=varNew->users=0;
+X     varNew->userFirst=NULL;
+X     return(varNew);
+X}
+X
+X
+X/*****************************************************************************
+X varFree()
+X
+X This function frees the memory used by a variable table entry.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid varFree(VARENTRY *vptr)
+X#else
+Xvoid varFree(vptr)
+XVARENTRY *vptr;
+X#endif
+X{
+X     if (vptr->name!=NULL) free(vptr->name);
+X     if (vptr->userFirst!=NULL) userFreeList(vptr->userFirst);
+X     free(vptr);
+X}
+X
+X
+X/*****************************************************************************
+X varFreeTable()
+X
+X This function frees the entire variable table, removing all variable
+X bindings.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid varFreeTable(void)
+X#else
+Xvoid varFreeTable()
+X#endif
+X{
+X     VARENTRY *vptr;
+X     int i;
+X
+X     for (i=0; i<VAR_ENTRIES; i++)
+X          while (variables[i]!=NULL) {
+X               vptr=variables[i]->next;
+X               varFree(variables[i]);
+X               variables[i]=vptr;
+X          }
+X}
+X
+X
+X/*****************************************************************************
+X varSet(VARENTRY *var)
+X
+X This function sets a variable's value, creating a new variable if necessary.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid varSet(VARENTRY *var)
+X#else
+Xvoid varSet(var)
+XVARENTRY *var;
+X#endif
+X{
+X     int hashval;
+X     VARENTRY *vptr,*follower;
+X
+X     if (var==NULL) return;
+X     hashval=varHashName(var->ip_addr);
+X     vptr=variables[hashval];
+X     follower=NULL;
+X     while ((vptr!=NULL) && (vptr->ip_addr!=var->ip_addr)) {
+X          follower=vptr;
+X          vptr=vptr->next;
+X     }
+X     if (vptr==NULL) {
+X          vptr=varAllocate();
+X          vptr->next=NULL;
+X          vptr->name=(char *)malloc(strlen(var->name)+1);
+X          strcpy(vptr->name,var->name);
+X          vptr->ip_addr=var->ip_addr;
+X          if (follower!=NULL) follower->next=vptr;
+X          else variables[hashval]=vptr;
+X     }
+X     else if (strcmp(vptr->name,var->name)) {
+X          free(vptr->name);
+X          vptr->name=(char *)malloc(strlen(var->name)+1);
+X          strcpy(vptr->name,var->name);
+X     }
+X     vptr->l1=var->l1;                               /* Update simple fields */
+X     vptr->l2=var->l2;
+X     vptr->l3=var->l3;
+X     vptr->logtime=time(0);
+X     vptr->tmp=var->tmp;
+X     vptr->machine=var->machine;
+X     vptr->model=var->model;
+X     vptr->console=var->console;
+X     vptr->users=var->users;
+X     if (var->class!=NULL) {                           /* Update class field */
+X          if (vptr->class!=NULL) {
+X               if (!strcmp(vptr->class,var->class)) {
+X                    free(vptr->class);
+X                    vptr->class=(char *)malloc(strlen(var->class));
+X                    strcpy(vptr->class,var->class);
+X               }
+X          }
+X          else {
+X               vptr->class=(char *)malloc(strlen(var->class));
+X               strcpy(vptr->class,var->class);
+X          }
+X     }
+X     else if (vptr->class!=NULL) {
+X          free(vptr->class);
+X          vptr->class=NULL;
+X     }
+X     if (var->userFirst!=NULL) {
+X          userFreeList(vptr->userFirst);
+X          vptr->userFirst=userCopyList(var->userFirst);
+X     }
+X}
+X
+X
+X/*****************************************************************************
+X void varAdd(VARENTRY *var)
+X
+X This function adds a variable to the list, using the ipaddr field as a key,
+X and corrects the name field if the variable already exists with a different
+X name.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid varAdd(VARENTRY *var)
+X#else
+Xvoid varAdd(var)
+XVARENTRY *var;
+X#endif
+X{
+X     int hashval;
+X     VARENTRY *vptr,*follower;
+X
+X     if (var==NULL) return;
+X     hashval=varHashName(var->ip_addr);
+X     vptr=variables[hashval];
+X     follower=NULL;
+X     while ((vptr!=NULL) && (vptr->ip_addr!=var->ip_addr)) {
+X          follower=vptr;
+X          vptr=vptr->next;
+X     }
+X     if (vptr==NULL) {
+X          vptr=varAllocate();
+X          vptr->next=NULL;
+X          vptr->name=(char *)malloc(strlen(var->name)+1);
+X          strcpy(vptr->name,var->name);
+X          vptr->ip_addr=var->ip_addr;
+X          if (follower!=NULL) follower->next=vptr;
+X          else variables[hashval]=vptr;
+X          vptr->machine=var->machine;
+X          vptr->model=var->model;
+X          vptr->console=var->console;
+X          vptr->users=var->users;
+X          vptr->logtime=0;
+X     }
+X     else if (strcmp(vptr->name,var->name)) {
+X          free(vptr->name);
+X          vptr->name=(char *)malloc(strlen(var->name)+1);
+X          strcpy(vptr->name,var->name);
+X     }
+X}
+X
+X
+X/*****************************************************************************
+X void varDelete(VARENTRY *var)
+X
+X This function deletes a variable from the list, doing nothing if the
+X variable does not exist.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid varDelete(VARENTRY *var)
+X#else
+Xvoid varDelete(var)
+XVARENTRY *var;
+X#endif
+X{
+X     int hashval;
+X     VARENTRY *vptr,*follower;
+X
+X     if (var==NULL) return;
+X     hashval=varHashName(var->ip_addr);
+X     vptr=variables[hashval];
+X     follower=NULL;
+X     while ((vptr!=NULL) && (vptr->ip_addr!=var->ip_addr)) {
+X          follower=vptr;
+X          vptr=vptr->next;
+X     }
+X     if (vptr!=NULL) {
+X          if (follower==NULL) variables[hashval]=vptr->next;
+X          else follower->next=vptr->next;
+X          varFree(vptr);
+X     }
+X}
+X
+X
+X/*****************************************************************************
+X VARENTRY *varFindMatch(VARENTRY *template)
+X
+X This function searches the variable table looking for a variable whose value
+X matches the criteria given in the template, and returns a pointer to an
+X entry which satisfies the criteria.  If no match can be made, the return
+X value is NULL.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+XVARENTRY *varFindMatch(VARENTRY *template)
+X#else
+XVARENTRY *varFindMatch(template)
+XVARENTRY *template;
+X#endif
+X{
+X     int hashval,found;
+X     VARENTRY *vptr;
+X     long nowtime;
+X
+X     time(&nowtime);
+X     for (found=0,hashval=0; (hashval<VAR_ENTRIES) && !found; hashval++)
+X          for (vptr=variables[hashval]; (vptr!=NULL) && !found;
+X               vptr=vptr->next) {
+X               if ((vptr->l1<=template->l1) && (vptr->l2<=template->l2) &&
+X                   (vptr->l3<=template->l3) &&
+X                   (varUsers(vptr)<=varUsers(template)) &&
+X                   (varConsole(vptr)<=varConsole(template)) &&
+X                   (vptr->tmp>=template->tmp) &&
+X                   (!template->machine || (vptr->machine==template->machine)) &&
+X                   (!template->model || (vptr->model==template->model)) &&
+X                   ((nowtime-vptr->logtime)<15*60) &&
+X                   ((nowtime-vptr->lastused)>2*60)) {
+X                    found=1;
+X                    vptr->lastused=nowtime;
+X                    break;
+X               }
+X          }
+X     if (!found) return(NULL);
+X     else return(vptr);
+X}
+X
+X
+X/*****************************************************************************
+X VARENTRY *varFind(u_long ip_addr)
+X
+X This function looks up an entry in the variable table which has the given
+X IP address.  A pointer to the matching table entry is returned.  If no match
+X is found, a NULL value is returned.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+XVARENTRY *varFind(u_long ip_addr)
+X#else
+XVARENTRY *varFind(ip_addr)
+Xu_long ip_addr;
+X#endif
+X{
+X     int hashval;
+X     VARENTRY *vptr;
+X
+X     hashval=varHashName(ip_addr);
+X     vptr=variables[hashval];
+X     while ((vptr!=NULL) && (vptr->ip_addr!=ip_addr))
+X          vptr=vptr->next;
+X     return(vptr);
+X}
+X
+X
+X#ifdef __STDC__
+Xint varSaveState(void)
+X#else
+Xint varSaveState()
+X#endif
+X{
+X     FILE *outf;
+X     char temp[32],temp2[16];
+X     VARENTRY *vptr;
+X     int i;
+X
+X     if ((outf=fopen(NETUSEHOSTFILE,"w"))==NULL) {
+X          perror(NETUSEHOSTFILE);
+X          return(RV_NOFILE);
+X     }
+X     for (i=0; i<VAR_ENTRIES; i++) {
+X          for (vptr=variables[i]; vptr!=NULL; vptr=vptr->next)
+X               fprintf(outf,"%-7s %s %s\n",
+X                       netGetMachType(vptr->machine,temp),vptr->name,
+X                       netGetModelType(vptr->model,temp2));
+X     }
+X     fclose(outf);
+X     lastSave=time(0);
+X     return(RV_OK);
+X}
+X
+X
+X#ifdef __STDC__
+Xint varLoadHosts(void)
+X#else
+Xint varLoadHosts()
+X#endif
+X{
+X     FILE *inf;
+X     char temp[128],inbuf[512];
+X     VARENTRY *ventry;
+X
+X     if ((inf=fopen(NETUSEHOSTFILE,"r"))==NULL) {
+X          perror(NETUSEHOSTFILE);
+X          return(RV_NOFILE);
+X     }
+X     varFreeTable();
+X     ventry=varAllocate();
+X     while (fgets(inbuf,sizeof(inbuf),inf)!=NULL) {
+X          inbuf[strlen(inbuf)-1]='\0';
+X          if (!strlen(inbuf) || (inbuf[0]=='#')) continue;
+X          if (!(ventry->ip_addr=netGetAddress(textparam(inbuf,1,temp))))
+X               continue;
+X          ventry->name=(char *)malloc(strlen(temp)+1);
+X          strcpy(ventry->name,temp);
+X          if (!strcmp(textparam(inbuf,0,temp),"Sun"))
+X               ventry->machine=MACH_SUN;
+X          else if (!strcmp(temp,"DEC"))
+X               ventry->machine=MACH_DEC;
+X          else if (!strcmp(temp,"IBM"))
+X               ventry->machine=MACH_IBM_RS6000;
+X          else if (!strcmp(temp,"Apo"))
+X               ventry->machine=MACH_APOLLO;
+X          else if (!strcmp(temp,"HP"))
+X               ventry->machine=MACH_HP;
+X          else ventry->machine=0;
+X          ventry->model=netStrToModel(textparam(inbuf,2,temp));
+X          varAdd(ventry);
+X          free(ventry->name);
+X     }
+X     varFree(ventry);
+X     fclose(inf);
+X     lastSave=time(0);
+X     return(RV_OK);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid varInit(void)
+X#else
+Xvoid varInit()
+X#endif
+X{
+X     int i;
+X
+X     for (i=0; i<VAR_ENTRIES; i++)
+X          variables[i]=NULL;
+X     varLoadHosts();
+X}
+X
+X
+X#ifdef __STDC__
+Xint varConsole(VARENTRY *vptr)
+X#else
+Xint varConsole(vptr)
+XVARENTRY *vptr;
+X#endif
+X{
+X/*
+X     USER *uptr;
+X
+X     if ((vptr->userFirst==NULL) && (vptr->console!=0)) return(1);
+X     for (uptr=vptr->userFirst; uptr!=NULL; uptr=uptr->next)
+X          if (!strcmp(uptr->tty,"cons")) return(1);
+X     return(0);
+X*/
+X     return(vptr->console);
+X}
+X
+X
+X#ifdef __STDC__
+Xint varUsers(VARENTRY *vptr)
+X#else
+Xint varUsers(vptr)
+XVARENTRY *vptr;
+X#endif
+X{
+X/*
+X     USER *uptr;
+X     int i;
+X
+X     if ((vptr->userFirst==NULL) && (vptr->users!=0)) return(vptr->users);
+X     for (i=0,uptr=vptr->userFirst; uptr!=NULL; uptr=uptr->next)
+X          ++i;
+X     return(i);
+X*/
+X     return(vptr->users);
+X}
+X
+X
+X#ifdef __STDC__
+Xchar *fmt_time(long theTime,char *s2)
+X#else
+Xchar *fmt_time(theTime,s2)
+Xlong theTime;
+Xchar *s2;
+X#endif
+X{
+X     struct tm *tim;
+X
+X     tim=localtime(&theTime);
+X     sprintf(s2,"%02d/%02d %2d:%02d%s",tim->tm_mon+1,tim->tm_mday,
+X                ((tim->tm_hour % 12) ? (tim->tm_hour % 12) : 12),
+X                tim->tm_min,(tim->tm_hour>=12 ? "pm" : "am"));
+X     return(s2);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid varDumpTable(char *fname)
+X#else
+Xvoid varDumpTable(fname)
+Xchar *fname;
+X#endif
+X{
+X     VARENTRY *vptr;
+X     int i;
+X     FILE *outf;
+X     char temp[25],temp2[25],temp3[5];
+X
+X     if ((outf=fopen(fname,"w"))==NULL) {
+X          perror("fopen");
+X          return;
+X     }
+X     lTime=time(0);
+X     fprintf(outf,"Last written: %s\n",ctime(&lTime));
+X     fprintf(outf,"Host name            Type    Load Averages     Ses Disp Last Report   /tmp    \n");
+X     fprintf(outf,"-------------------- ---- -------------------- --- ---- ------------- --------\n");
+X     for (i=0; i<VAR_ENTRIES; i++)
+X          for (vptr=variables[i]; vptr!=NULL; vptr=vptr->next)
+X               fprintf(outf,"%20s %-4s %6.2f %6.2f %6.2f %3d %s  %s %8lu\n",
+X                            spicture(vptr->name,20,temp),
+X                            netGetMachType(vptr->machine,temp3),
+X                            vptr->l1,vptr->l2,vptr->l3,varUsers(vptr),
+X                            (varConsole(vptr) ? "YES" : "NO "),
+X                            fmt_time(vptr->logtime,temp2),vptr->tmp);
+X     fclose(outf);
+X     chmod(fname,0644);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid varDumpTableWithModels(char *fname)
+X#else
+Xvoid varDumpTableWithModels(fname)
+Xchar *fname;
+X#endif
+X{
+X     VARENTRY *vptr;
+X     int i;
+X     FILE *outf;
+X     char temp[25],temp2[25],temp3[5];
+X
+X     if ((outf=fopen(fname,"w"))==NULL) {
+X          perror("fopen");
+X          return;
+X     }
+X     lTime=time(0);
+X     fprintf(outf,"Last written: %s\n",ctime(&lTime));
+X     fprintf(outf,"Host name           Type and Model         Load Averages     Ses Disp /tmp    \n");
+X     fprintf(outf,"------------------- ------------------- -------------------- --- ---- --------\n");
+X     for (i=0; i<VAR_ENTRIES; i++)
+X          for (vptr=variables[i]; vptr!=NULL; vptr=vptr->next)
+X               fprintf(outf,"%19s %-4s%-15s %6.2f %6.2f %6.2f %3d %s  %8lu\n",
+X                            spicture(vptr->name,19,temp),
+X                            netGetMachType(vptr->machine,temp3),
+X                            netGetModelType(vptr->model,temp2),
+X                            vptr->l1,vptr->l2,vptr->l3,varUsers(vptr),
+X                            (varConsole(vptr) ? "YES" : "NO "),vptr->tmp);
+X     fclose(outf);
+X     chmod(fname,0644);
+X}
+X
+X
+X#define binval(x) (x ? 1 : 0)
+X
+X
+X#ifdef __STDC__
+Xvoid treeInsert(TREE **tptr,VARENTRY *vptr)
+X#else
+Xvoid treeInsert(tptr,vptr)
+XTREE **tptr;
+XVARENTRY *vptr;
+X#endif
+X{
+X     if (*tptr==NULL) {
+X          (*tptr)=(TREE *)malloc(sizeof(TREE));
+X          (*tptr)->data=vptr;
+X          (*tptr)->left=NULL;
+X          (*tptr)->right=NULL;
+X     }
+X     else if ((varConsole(vptr)<varConsole((*tptr)->data)) ||
+X              ((varConsole(vptr)==varConsole((*tptr)->data)) &&
+X               (vptr->l2<((*tptr)->data->l2))))
+X               treeInsert(&((*tptr)->left),vptr);
+X          else treeInsert(&((*tptr)->right),vptr);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid treeBuild(u_char machtype,u_char modeltype)
+X#else
+Xvoid treeBuild(machtype,modeltype)
+Xu_char machtype,modeltype;
+X#endif
+X{
+X     VARENTRY *vptr;
+X     int i;
+X
+X     theTree=NULL;
+X     for (i=0; i<VAR_ENTRIES; i++)
+X          for (vptr=variables[i]; vptr!=NULL; vptr=vptr->next)
+X               if ((!machtype || (machtype==vptr->machine)) &&
+X                   (!modeltype || (modeltype==vptr->model)))
+X                    treeInsert(&theTree,vptr);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid treePrintHost(FILE *outf,TREE *tptr)
+X#else
+Xvoid treePrintHost(outf,tptr)
+XFILE *outf;
+XTREE *tptr;
+X#endif
+X{
+X     char temp[132],temp2[132],temp3[132];
+X
+X     if (tptr->data->logtime==0) {
+X          fprintf(outf,"%20s %-4s ------ ------ ------ --- ---  ------------- --------\n\r",
+X                  spicture(tptr->data->name,20,temp),
+X                  netGetMachType(tptr->data->machine,temp3));
+X     }
+X     else if ((time(NULL)-tptr->data->logtime)>=DOWNTIME*60) {
+X          fprintf(outf,"%20s %-4s ------ ------ ------ --- ---  %s --------\n\r",
+X                  spicture(tptr->data->name,20,temp),
+X                  netGetMachType(tptr->data->machine,temp3),
+X                  fmt_time(tptr->data->logtime,temp2));
+X     }
+X     else {
+X          fprintf(outf,"%20s %-4s %6.2f %6.2f %6.2f %3hu %s  %s %8lu\n\r",
+X                  spicture(tptr->data->name,20,temp),
+X                  netGetMachType(tptr->data->machine,temp3),tptr->data->l1,
+X                  tptr->data->l2,tptr->data->l3,varUsers(tptr->data),
+X                  (varConsole(tptr->data) ? "YES" : "NO "),
+X                  fmt_time(tptr->data->logtime,temp2),tptr->data->tmp);
+X     }
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid treeDump(FILE *outf,TREE *tptr,u_char opcode,int *i)
+X#else
+Xvoid treeDump(outf,tptr,opcode,i)
+XFILE *outf;
+XTREE *tptr;
+Xu_char opcode;
+Xint *i;
+X#endif
+X{
+X     if (((opcode==OP_DISPLIST) && (*i>=MAXLSTLEN)) || (tptr==NULL)) return;
+X     if (tptr->left!=NULL) treeDump(outf,tptr->left,opcode,i);
+X     if ((opcode==OP_GETLIST) ||
+X         ((opcode==OP_GETDOWN) && (((time(NULL)-tptr->data->logtime)>=15*60)) ||
+X         ((opcode==OP_DISPLIST) &&
+X          ((time(NULL)-tptr->data->logtime)<15*60) && (*i<MAXLSTLEN)))) {
+X          treePrintHost(outf,tptr);
+X          ++(*i);
+X     }
+X     if (tptr->right!=NULL) treeDump(outf,tptr->right,opcode,i);
+X     free(tptr);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid treePrintList(FILE *outf,u_char machtype,u_char modeltype,u_char opcode)
+X#else
+Xvoid treePrintList(outf,machtype,modeltype,opcode)
+XFILE *outf;
+Xu_char machtype,modeltype,opcode;
+X#endif
+X{
+X     long t;
+X     int i;
+X
+X     time(&t);
+X     treeBuild(machtype,modeltype);
+X     fprintf(outf,"The current time is: %s\n\r",ctime(&t));
+X     fprintf(outf,"Host name            Type    Load Averages     Ses Disp Last Report   /tmp    \n\r");
+X     fprintf(outf,"-------------------- ---- -------------------- --- ---- ------------- --------\n\r");
+X     fflush(outf);
+X     i=0;
+X     treeDump(outf,theTree,opcode,&i);
+X     fprintf(outf,"\n\r");
+X     fflush(outf);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid treePrintHostWithModels(FILE *outf,TREE *tptr)
+X#else
+Xvoid treePrintHostWithModels(outf,tptr)
+XFILE *outf;
+XTREE *tptr;
+X#endif
+X{
+X     char temp[132],temp2[132],temp3[132];
+X
+X     if ((tptr->data->logtime==0) || ((time(NULL)-tptr->data->logtime)>=DOWNTIME*60)) {
+X          fprintf(outf,"%19s %-4s%-15s ------ ------ ------ --- ---  --------\n\r",
+X                  spicture(tptr->data->name,19,temp),
+X                  netGetMachType(tptr->data->machine,temp3),
+X                  netGetModelType(tptr->data->model,temp2));
+X     }
+X     else {
+X          fprintf(outf,"%19s %-4s%-15s %6.2f %6.2f %6.2f %3d %s  %8lu\n\r",
+X                  spicture(tptr->data->name,19,temp),
+X                  netGetMachType(tptr->data->machine,temp3),
+X                  netGetModelType(tptr->data->model,temp2),
+X                  tptr->data->l1,tptr->data->l2,tptr->data->l3,varUsers(tptr->data),
+X                  (varConsole(tptr->data) ? "YES" : "NO "),tptr->data->tmp);
+X     }
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid treeDumpWithModels(FILE *outf,TREE *tptr,u_char opcode,int *i)
+X#else
+Xvoid treeDumpWithModels(outf,tptr,opcode,i)
+XFILE *outf;
+XTREE *tptr;
+Xu_char opcode;
+Xint *i;
+X#endif
+X{
+X     if (((opcode==OP_DISPMLIST) && (*i>=MAXLSTLEN)) || (tptr==NULL)) return;
+X     if (tptr->left!=NULL) treeDumpWithModels(outf,tptr->left,opcode,i);
+X     if ((opcode==OP_GETMLIST) ||
+X         ((opcode==OP_GETMDOWN) && (((time(NULL)-tptr->data->logtime)>=15*60)) ||
+X         ((opcode==OP_DISPMLIST) &&
+X          ((time(NULL)-tptr->data->logtime)<15*60) && (*i<MAXLSTLEN)))) {
+X          treePrintHostWithModels(outf,tptr);
+X          ++(*i);
+X     }
+X     if (tptr->right!=NULL) treeDumpWithModels(outf,tptr->right,opcode,i);
+X     free(tptr);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid treePrintListWithModels(FILE *outf,u_char machtype,u_char modeltype,u_char opcode)
+X#else
+Xvoid treePrintListWithModels(outf,machtype,modeltype,opcode)
+XFILE *outf;
+Xu_char machtype,modeltype,opcode;
+X#endif
+X{
+X     long t;
+X     int i;
+X
+X     time(&t);
+X     treeBuild(machtype,modeltype);
+X     fprintf(outf,"The current time is: %s\n\r",ctime(&t));
+X     fprintf(outf,"Host name           Type and Model         Load Averages     Ses Disp /tmp    \n");
+X     fprintf(outf,"------------------- ------------------- -------------------- --- ---- --------\n\r");
+X     fflush(outf);
+X     i=0;
+X     treeDumpWithModels(outf,theTree,opcode,&i);
+X     fprintf(outf,"\n\r");
+X     fflush(outf);
+X}
+END_OF_FILE
+  if test 25559 -ne `wc -c <'netuse/lib/variable.c'`; then
+    echo shar: \"'netuse/lib/variable.c'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/lib/variable.c'
+fi
+echo shar: End of archive 1 \(of 6\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

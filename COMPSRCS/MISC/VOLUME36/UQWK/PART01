@@ -1,0 +1,2458 @@
+Newsgroups: comp.sources.misc
+From: seb3@gte.com (Steve Belczyk)
+Subject: v36i008:  uqwk - a QWK "door" for Unix, Part01/01
+Message-ID: <1993Mar12.033225.12237@sparky.imd.sterling.com>
+X-Md4-Signature: b060000bfb06487be8ac1dbab0414ea9
+Date: Fri, 12 Mar 1993 03:32:25 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: seb3@gte.com (Steve Belczyk)
+Posting-number: Volume 36, Issue 8
+Archive-name: uqwk/part01
+Environment: UNIX
+
+Uqwk is a program which collects all a user's unread mail or news
+and formats it into something called a "QWK" packet, which is then
+downloaded.  Mail and News can then be read offline, saving phone
+charges.  QWK readers exist for almost every machine.
+-------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile close.c init.c mail.c misc.c news.c
+#   offline.c options.c reply.c uqwk.c uqwk.h uqwk.man
+# Wrapped by kent@sparky on Thu Mar 11 21:28:15 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(3070 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XUQWK
+X
+XCopyright 1993, steve belczyk
+X
+XUqwk is a program which collects all a user's unread mail or news
+Xand formats it into something called a "QWK" packet, which is then
+Xdownloaded.  Mail and News can then be read offline, saving phone
+Xcharges.  QWK readers exist for almost every machine.
+X
+XUqwk also accepts reply packets, so replies can be mailed (if your
+Xmailer understands "mail -s"), or posted (if you have a B-news type
+Xof inews that understands -n and -t), depending whether the message
+Xis marked private (email) or public (news).
+X
+XUqwk also supports a small offline command language, so the contents
+Xof the user's .newsrc file can be viewed and manipulated offline.
+X
+XINSTALLATION
+X
+X1.  Create a directory for the uqwk source code.
+X
+X	mkdir /usr/local/src/uqwk
+X
+X2.  Move the uqwk tar file to that directory.
+X
+X	mv uqwk.tar.Z /usr/local/src/uqwk
+X
+X3.  Change to that directory, and unpack the tar file.
+X
+X	cd /usr/local/src/uqwk; zcat uqwk.tar | tar xvf -
+X
+X4.  Compile the software.
+X
+X	make
+X
+X    If this doesn't work you may have to twiddle with the Makefile,
+X    or, heaven forbid, the actual source code.
+X
+X5.  Move the binary and man pages to some public place.
+X
+X	mv uqwk /usr/local/bin
+X	mv uqwk.man /usr/man/man1/uqwk.1
+X	mv uqwk.cat /usr/man/cat1/uqwk.1
+X
+X6.  The QWK specification allows for the name, location, etc., of
+X    the BBS from which messages are being downloaded.  You should
+X    configure this information.  The best way is probably to use
+X    environment variables.  If you are using a Bourne shell, you
+X    should add something like this to /etc/profile or .profile:
+X
+X        UQ_BBS_NAME="My Super BBS"
+X	UQ_BBS_CITY="Somewhere, PA"
+X	UQ_BBS_PHONE="+1 215 555 1212"
+X	UQ_BBS_SYSOP="Joe Shmoe"
+X	UQ_BBS_ID="0,MYBBS"
+X	export UQ_BBS_NAME UQ_BBS_CITY UQ_BBS_PHONE
+X	export UQ_BBS_SYSOP UQ_BBS_ID
+X
+X    If you use a C type shell, try something like this in your
+X    .cshrc or .login:
+X
+X        setenv UQ_BBS_NAME "My Super BBS"
+X	setenv UQ_BBS_CITY "Somewhere, PA"
+X	setenv UQ_BBS_PHONE "+1 215 555 1212"
+X	setenv UQ_BBS_SYSOP "Joe Shmoe"
+X	setenv UQ_BBS_ID "0,MYBBS"
+X
+X    In both cases, the last entry, the "BBS ID", is the most important.
+X    It always consists of an integer, a comma, and a string less than
+X    nine characters, with no intervening spaces.  The string will be
+X    used to identify reply packets.
+X
+X7.  Now you can try it.  Log in as a normal user who has some mail,
+X    and issue:
+X
+X	uqwk +r
+X
+X    (The "+r" stops uqwk from clearing the user's mail spool file.)
+X    This should create three new files in the current directory named
+X    messages.dat, control.dat, and personal.ndx.  These are the files
+X    which the offline reader will need.  (Not all readers need the
+X    *.ndx files.  Also, some readers expect these files to have been
+X    archived using an archiver like zip, lharc, or arj.  You may need
+X    to obtain Unix versions of these archivers.)
+X
+X8.  Now it would be a good idea to read the man page.
+X
+XPlease inform me of any problems you run into:
+X
+X    steve belczyk
+X    steve1@genesis.nred.ma.us
+X    seb3@gte.com
+X    BBS: +1 508 664 0149
+X
+END_OF_FILE
+  if test 3070 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(637 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X#  Makefile for uqwk
+X#
+X#  steve belczyk  02/93
+X#
+XCFLAGS=
+X#
+X#  Use this for SGI:
+X#CFLAGS=-cckr
+X
+Xuqwk:	uqwk.o options.o init.o mail.o misc.o close.o news.o reply.o offline.o
+X	cc -o uqwk uqwk.o options.o init.o mail.o misc.o close.o news.o reply.o offline.o
+X
+Xuqwk.o:	uqwk.c uqwk.h
+X
+Xoptions.o:	options.c uqwk.h
+X
+Xinit.o:	init.c uqwk.h
+X
+Xmail.o:	mail.c uqwk.h
+X
+Xmisc.o:	misc.c uqwk.h
+X
+Xclose.o:	close.c uqwk.h
+X
+Xnews.o:	news.c uqwk.h
+X
+Xreply.o:	reply.c uqwk.h
+X
+Xoffline.o:	offline.c uqwk.h
+X
+Xclean:
+X	rm -f *.o uqwk
+X
+Xtar:
+X	tar cvf uqwk.tar *.[ch] Makefile README uqwk.man uqwk.cat
+X	compress -v uqwk.tar
+X
+Xuu:
+X	uuencode uqwk.tar.Z uqwk.tar.Z >uqwk.uu
+END_OF_FILE
+  if test 637 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'close.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'close.c'\"
+else
+  echo shar: Extracting \"'close.c'\" \(2070 characters\)
+  sed "s/^X//" >'close.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <string.h>
+X#include <time.h>
+X#include "uqwk.h"
+X
+X/*
+X *  Wrap things up
+X */
+X
+XCloseStuff()
+X{
+X	fclose (msg_fd);
+X
+X	WriteControl();
+X	if (do_news && (!read_only) ) WriteNewsrc();
+X
+X	if (blk_cnt >= max_blks)
+X	{
+X		fprintf (stderr,
+X			"%s: block count exceeded; some articles not packed\n",
+X			progname);
+X	}
+X
+X	/* Remove reply packet */
+X	if ( (!read_only) && (strcmp (rep_file, DEF_REP_FILE)))
+X	{
+X		unlink (rep_file);
+X	}
+X}
+X
+XWriteControl()
+X/*
+X *  Create the CONTROL.DAT file
+X */
+X{
+X	struct conf_ent *cp;
+X	struct tm *t;
+X	char ctl_fname[PATH_LEN];
+X	int clock;
+X
+X	strcpy (ctl_fname, home_dir);
+X	strcpy (ctl_fname, "/");
+X	strcpy (ctl_fname, "control.dat");
+X
+X	if (NULL == (ctl_fd = fopen (ctl_fname, "w")))
+X	{
+X		fprintf (stderr, "%s: can't open %s\n", progname, ctl_fname);
+X		exit (0);
+X	}
+X
+X	fprintf (ctl_fd, "%s\r\n%s\r\n%s\r\n%s\r\n%s\r\n",
+X		bbs_name, bbs_city, bbs_phone, bbs_sysop, bbs_id);
+X
+X	/* Date */
+X	clock = time (NULL);
+X	t = gmtime (&clock);
+X	fprintf (ctl_fd, "%02d\-%02d\-%04d,%02d\:%02d\:%02d\r\n",
+X		t->tm_mon+1, t->tm_mday, t->tm_year+1900,
+X		t->tm_hour, t->tm_min, t->tm_sec);
+X
+X	fprintf (ctl_fd, "%s\r\n \r\n0\r\n", user_name);
+X	fprintf (ctl_fd, "%d\r\n%d\r\n", msg_cnt, conf_cnt-1);
+X
+X	/* List of conferences */
+X	cp = conf_list;
+X	while (cp != NULL)
+X	{
+X		fprintf (ctl_fd, "%d\r\n%s\r\n", cp->number, cp->name);
+X		cp = cp->next;
+X	}
+X
+X	fprintf (ctl_fd, "WELCOME.DAT\r\nNEWS.DAT\r\nLOGOFF.DAT\r\n");
+X	fprintf (ctl_fd, "\032");
+X	fclose (ctl_fd);
+X}
+X
+XWriteNewsrc()
+X/*
+X *  Rewrite the updated .newsrc file
+X */
+X{
+X	if (read_only) return (0);
+X
+X	if (NULL == (nrc_fd = fopen (nrc_file, "w")))
+X	{
+X		fprintf (stderr, "%s: can't write %s\n",
+X			progname, nrc_file);
+X		return (0);
+X	}
+X
+X	/* We do this recursively to preserve the order of the .newsrc */
+X	wn (nrc_list);
+X
+X	fclose (nrc_fd);
+X}
+X
+Xwn (np)
+Xstruct nrc_ent *np;
+X{
+X	if (np == NULL) return (0);
+X
+X	/* Write the rest of them */
+X	wn (np->next);
+X
+X	/* Write this one */
+X	if (np->subscribed)
+X	{
+X		fprintf (nrc_fd, "%s: 1-%d\n", np->name, np->hi);
+X	}
+X	else
+X	{
+X		fprintf (nrc_fd, "%s! 1-%d\n", np->name, np->hi);
+X	}
+X}
+X
+END_OF_FILE
+  if test 2070 -ne `wc -c <'close.c'`; then
+    echo shar: \"'close.c'\" unpacked with wrong size!
+  fi
+  # end of 'close.c'
+fi
+if test -f 'init.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'init.c'\"
+else
+  echo shar: Extracting \"'init.c'\" \(832 characters\)
+  sed "s/^X//" >'init.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <string.h>
+X#include "uqwk.h"
+X
+X#define QWK_MAGIC "Produced by Qmail...Copyright (c) 1987 by Sparkware.  All rights Reserved"
+X
+XInitStuff()
+X/*
+X *  Initialize stuff
+X */
+X{
+X	char msg_fname[PATH_LEN];
+X	int n;
+X
+X	/* Mail, conference, etc. lists */
+X	mail_list = NULL;
+X	conf_list = NULL;
+X	last_conf = NULL;
+X	act_list = NULL;
+X	nrc_list = NULL;
+X
+X	/* Message and conference counts */
+X	msg_cnt = 0;
+X	conf_cnt = 0;
+X
+X	/* Open MESSAGES.DAT */
+X	strcpy (msg_fname, home_dir);
+X	strcat (msg_fname, "/");
+X	strcat (msg_fname, "messages.dat");
+X
+X	if (NULL == (msg_fd = fopen (msg_fname, "w")))
+X	{
+X		fprintf (stderr, "%s: can't open %s\n", progname, msg_fname);
+X		exit (0);
+X	}
+X
+X	/* Write magic string to MESSAGES.DAT */
+X	fprintf (msg_fd, QWK_MAGIC);
+X	n = 128 - strlen (QWK_MAGIC);
+X	while (n--) fputc (' ', msg_fd);
+X	blk_cnt = 2;
+X}
+END_OF_FILE
+  if test 832 -ne `wc -c <'init.c'`; then
+    echo shar: \"'init.c'\" unpacked with wrong size!
+  fi
+  # end of 'init.c'
+fi
+if test -f 'mail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mail.c'\"
+else
+  echo shar: Extracting \"'mail.c'\" \(4079 characters\)
+  sed "s/^X//" >'mail.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include "uqwk.h"
+X
+X/*
+X *  All sorts of stuff to do mail processing
+X */
+X
+XFILE *mail_fd;			/* For mail spool */
+Xstruct mail_ent *last_mp;	/* Points to last mail list entry */
+X
+XDoMail ()
+X/*
+X *  Process mail into QWK packet
+X */
+X{
+X	struct mail_ent *mailp;
+X
+X	/* Open the mail spool */
+X	if (NULL == (mail_fd = fopen (mail_file, "r")))
+X	{
+X		fprintf (stderr, "%s: can't open %s\n", progname, mail_file);
+X		perror (progname);
+X		return (0);
+X	}
+X
+X	/* Define the mail "conference" */
+X	NewConference (MAIL_CONF_NAME);
+X
+X	/* Construct the mail linked list */
+X	MakeMailList ();
+X
+X	/* Walk through all the messages */
+X	mailp = mail_list;
+X
+X	while (mailp != NULL)
+X	{
+X		DoMessage (mailp);
+X		mailp = mailp->next;
+X	}
+X
+X	fclose (mail_fd);
+X	fclose (ndx_fd);
+X
+X	/* Now empty the mail box */
+X	if (!read_only)
+X	{
+X		if (NULL == (mail_fd = fopen (mail_file, "w")))
+X		{
+X			fprintf (stderr, "%s: can't write %s\n", progname,
+X								mail_file);
+X		}
+X		else
+X		{
+X			fclose (mail_fd);
+X		}
+X	}
+X}
+X
+XMakeMailList ()
+X/*
+X *  Construct linked list of pointers to individual messages in
+X *  the mail spool.
+X */
+X{
+X	long offset;
+X
+X	last_mp = NULL;
+X
+X	/* Read through, looking for "From" lines */
+X	offset = ftell (mail_fd);
+X	while (NULL != Fgets (buf, BUF_LEN, mail_fd))
+X	{
+X		if (!strncmp (buf, "From ",  5))
+X		{
+X			DoFromLine (offset);
+X		}
+X		offset = ftell (mail_fd);
+X	}
+X	if (last_mp != NULL) last_mp->end = offset;
+X}
+X
+XDoFromLine (offset)
+Xlong offset;
+X{
+X	struct mail_ent *mp;
+X
+X	/* Get space for new mail list entry */
+X	if (NULL==(mp=(struct mail_ent *) malloc(sizeof(struct mail_ent))))
+X	{
+X		fprintf (stderr, "%s: out of memory\n", progname);
+X		exit (0);
+X	}
+X
+X	/* Fill in offset */
+X	mp->begin = offset;
+X
+X	if (last_mp == NULL)
+X	{
+X		/* This is first message */
+X		mail_list = mp;
+X	}
+X	else
+X	{
+X		/* Add to end of list */
+X		last_mp->next = mp;
+X		last_mp->end = offset;
+X	}
+X
+X	mp->next = NULL;
+X	last_mp = mp;
+X}
+X
+XDoMessage (mp)
+Xstruct mail_ent *mp;
+X/*
+X *  Convert a message to QWK format
+X */
+X{
+X	struct qwk_hdr hdr;
+X	char c[PATH_LEN], *eof, ndx[5];
+X	int out_bytes, n;
+X
+X	/* Write the ndx file entry */
+X	inttoms (blk_cnt, ndx);
+X	ndx[4] = conf_cnt-1;
+X	fwrite (ndx, 5, 1, ndx_fd);
+X
+X	Spaces (&hdr, 128);
+X
+X	/* Fill in the header fields we can do now */
+X	hdr.status = QWK_PRIVATE;
+X	PadNum (msg_cnt, hdr.number, 7);
+X	Spaces (hdr.password, 12);
+X	Spaces (hdr.refer, 8);
+X	hdr.flag = QWK_ACT_FLAG;
+X	IntNum (conf_cnt-1, hdr.conference);
+X	IntNum (msg_cnt+1, hdr.msg_num);
+X	hdr.tag = ' ';
+X
+X	msg_cnt++;
+X
+X	/* Seek to start of message */
+X	fseek (mail_fd, mp->begin, 0);
+X
+X	/* Read the From line */
+X	Fgets (buf, BUF_LEN, mail_fd);
+X
+X	/* The second field of the From line is assumed to be who
+X	   sent the message */
+X	sscanf (&buf[5], "%s", c);
+X	PadString (c, hdr.from, 25);
+X
+X	/* Now read through header lines, looking for ones we need */
+X	eof = Fgets (buf, BUF_LEN, mail_fd);
+X	while ( (0 != strlen(buf)) && (eof != NULL) )
+X	{
+X		if (!strncmp (buf, "Date: ", 6))
+X		{
+X			ParseDate (&buf[6], &hdr);
+X		}
+X		else if (!strncmp (buf, "To: ", 4))
+X		{
+X			PadString (&buf[4], hdr.to, 25);
+X		}
+X		else if (!strncmp (buf, "Subject: ", 9))
+X		{
+X			PadString (&buf[9], hdr.subject, 25);
+X		}
+X/*
+X		else if (!strncmp (buf, "From: ", 6))
+X		{
+X			PadString (&buf[6], hdr.from, 25);
+X		}
+X*/
+X
+X		eof = Fgets (buf, BUF_LEN, mail_fd);
+X	}
+X	mp->text = ftell (mail_fd);
+X
+X	/* Fill in block count */
+X	if (inc_hdrs)
+X	{
+X		PadNum (2+(mp->end-mp->begin)/128, hdr.blocks, 6);
+X		blk_cnt += (1+(mp->end - mp->begin)/128);
+X	}
+X	else
+X	{
+X		PadNum (2+(mp->end-mp->text)/128, hdr.blocks, 6);
+X		blk_cnt += (1+(mp->end - mp->text)/128);
+X	}
+X
+X	/* Write out the message header */
+X	fwrite (&hdr, 128, 1, msg_fd);
+X	blk_cnt++;
+X
+X	/* Now write the message text */
+X	if (inc_hdrs) fseek (mail_fd, mp->begin, 0);
+X	out_bytes = 0;
+X
+X	eof = Fgets (buf, BUF_LEN, mail_fd);
+X	do
+X	{
+X		n = strlen (buf);
+X		fwrite (buf, n, 1, msg_fd);
+X		out_bytes += n;
+X		if (n < BUF_LEN-1)
+X		{
+X			fputc (QWK_EOL, msg_fd);
+X			out_bytes++;
+X		}
+X		eof = Fgets (buf, BUF_LEN, mail_fd);
+X	} while ( (strncmp(buf,"From ", 5)) && (NULL != eof) );
+X
+X	/* Pad block as necessary */
+X	n = out_bytes % 128;
+X	for (;n<128;n++) fputc (' ', msg_fd);
+X}
+X
+END_OF_FILE
+  if test 4079 -ne `wc -c <'mail.c'`; then
+    echo shar: \"'mail.c'\" unpacked with wrong size!
+  fi
+  # end of 'mail.c'
+fi
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+  echo shar: Extracting \"'misc.c'\" \(4685 characters\)
+  sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <string.h>
+X#include "uqwk.h"
+X
+X/*
+X *  Miscellaneous uqwk routines
+X */
+X
+XNewConference (name)
+Xchar *name;
+X{
+X	struct conf_ent *cp, *tmp_cp;
+X	char *c, ndx_fname[PATH_LEN];
+X
+X	/* Get space for new conference */
+X	if (NULL == (tmp_cp = (struct conf_ent *) malloc
+X					(sizeof (struct conf_ent))))
+X	{
+X		fprintf (stderr, "%s: out of memory\n", progname);
+X		exit (0);
+X	}
+X
+X	/* Get space for name */
+X	if (NULL == (c = (char *) malloc (1+strlen(name))))
+X	{
+X		fprintf (stderr, "%s: out of memory\n", progname);
+X		exit (0);
+X	}
+X
+X	/* Fill in conference name */
+X	tmp_cp->name = c;
+X	strcpy (tmp_cp->name, name);
+X
+X	/* Fill in conference number */
+X	tmp_cp->number = conf_cnt;
+X
+X	/* Add to end of conference list */
+X	if (last_conf == NULL)
+X	{
+X		/* This is first conference */
+X		conf_list = tmp_cp;
+X	}
+X	else
+X	{
+X		last_conf->next = tmp_cp;
+X	}
+X	tmp_cp->next = NULL;
+X	last_conf = tmp_cp;
+X
+X	/* Open new index file */
+X	if (!strcmp (name, MAIL_CONF_NAME))
+X	{
+X		strcpy (ndx_fname, home_dir);
+X		strcat (ndx_fname, "/");
+X		strcat (ndx_fname, "personal.ndx");
+X	}
+X	else
+X	{
+X		sprintf (ndx_fname, "%s/%03d.ndx", home_dir, conf_cnt);
+X	}
+X
+X	if (NULL == (ndx_fd = fopen (ndx_fname, "w")))
+X	{
+X		fprintf (stderr, "%s: can't open %s\n", progname, ndx_fname);
+X		exit (0);
+X	}
+X
+X	conf_cnt++;
+X}
+X
+XPadString (s, c, n)
+Xchar *s, *c;
+Xint n;
+X/*
+X *  Take a null-terminated string s and copy it, space-padded or
+X *  truncated if necessary, into field c of n characters
+X */
+X{
+X	int len, i;
+X	len = strlen (s);
+X	if (len >= n)
+X	{
+X		strncpy (c, s, n);
+X	}
+X	else
+X	{
+X		strcpy (c, s);
+X		Spaces (&c[len], n-len);
+X	}
+X}
+X
+XSpaces (c, n)
+Xchar *c;
+Xint n;
+X/*
+X *  Fill field of n characters with spaces
+X */
+X{
+X	int i;
+X	for (i=0; i<n; i++) c[i]=' ';
+X}
+X
+XPadNum (i, c, n)
+Xint i, n;
+Xchar *c;
+X/*
+X *  Format an integer i and place it, space filled, in
+X *  field c of n characters
+X */
+X{
+X	sprintf (buf, "%d", i);
+X	PadString (buf, c, n);
+X}
+X
+XIntNum (i, c)
+Xint i;
+Xchar c[2];
+X/*
+X *  Put binary integer i into two bytes
+X */
+X{
+X	c[0] = i % 256;
+X	c[1] = (i / 256) % 256;
+X}
+X
+Xchar *Fgets (c, n, fd)
+Xchar *c;
+Xint n;
+XFILE *fd;
+X/*
+X *  Same as fgets, but changes trailing linefeed to a null
+X */
+X{
+X	int i;
+X
+X	if (NULL == fgets (c, n, fd)) return (NULL);
+X	i = strlen (c);
+X	if ( (i > 0) && (c[i-1]=='\n') ) c[i-1] = 0;
+X
+X	return (c);
+X}
+X
+Xinttoms (i, c)
+Xint i;
+Xchar c[4];
+X/*
+X *  Convert an integer into the Microsoft Basic floating format.
+X *  This is the dumbest thing in the whole QWK standard.  Why in
+X *  the world store block offsets as floating point numbers?
+X *  Stupid!
+X */
+X{
+X	int m, e;
+X
+X	if (i == 0)
+X	{
+X		c[0] = c[1] = c[2] = 0;
+X		c[3] = 0x80;
+X		return;
+X	}
+X
+X	e = 152;
+X	m = 0x7fffff & i;
+X
+X	while (!(0x800000 & m))
+X	{
+X		m <<= 1;
+X		e--;
+X	}
+X	c[0] = 0xff & m;
+X	c[1] = 0xff & (m >> 8);
+X	c[2] = 0x7f & (m >> 16);
+X	c[3] = 0xff & e;
+X}
+X
+Xint LastInt (line)
+Xchar *line;
+X/*
+X * Find last integer on line
+X */
+X{
+X        int i, last_delim, n;
+X        n = strlen (line);
+X
+X        /* Find last delimiter */
+X        for (i=0; i<n; i++)
+X        {
+X                if ( (line[i] == ' ') || (line[i] == '-') ||
+X                     (line[i] == ',') || (line[i] == ':') )
+X                        last_delim = i;
+X        }
+X
+X        i = atoi (&line[last_delim+1]);
+X        return (i);
+X}
+X
+XParseDate (c, hp)
+Xchar *c;
+Xstruct qwk_hdr *hp;
+X{
+X        char s[PATH_LEN];
+X        int day, mon, year, hour, minute;
+X        char month[4];
+X
+X        /* Dates come in two flavors:  with the weekday, and without.
+X           we simply look for the comma which follows the weekday */
+X        if (c[3] == ',')
+X        {
+X                sscanf (&c[4], "%d %s %d %d:%d", &day, month, &year,
+X                                                &hour, &minute);
+X        }
+X        else
+X        {
+X                sscanf (c, "%d %s %d %d:%d", &day, month, &year,
+X                                                &hour, &minute);
+X        }
+X
+X        /* Convert alphabetic month name to integer */
+X        if (!strncmp (month, "Jan", 3)) mon = 1;
+X        if (!strncmp (month, "Feb", 3)) mon = 2;
+X        if (!strncmp (month, "Mar", 3)) mon = 3;
+X        if (!strncmp (month, "Apr", 3)) mon = 4;
+X        if (!strncmp (month, "May", 3)) mon = 5;
+X        if (!strncmp (month, "Jun", 3)) mon = 6;
+X        if (!strncmp (month, "Jul", 3)) mon = 7;
+X        if (!strncmp (month, "Aug", 3)) mon = 8;
+X        if (!strncmp (month, "Sep", 3)) mon = 9;
+X        if (!strncmp (month, "Oct", 3)) mon = 10;
+X        if (!strncmp (month, "Nov", 3)) mon = 11;
+X        if (!strncmp (month, "Dec", 3)) mon = 12;
+X
+X        /* Convert date */
+X        sprintf (s, "%02d-%02d-%02d", mon, day, year);
+X        PadString (s, hp->date, 8);
+X
+X        /* Time */
+X        sprintf (s, "%02d:%02d", hour, minute);
+X        PadString (s, hp->time, 5);
+X}
+X
+END_OF_FILE
+  if test 4685 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+  fi
+  # end of 'misc.c'
+fi
+if test -f 'news.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'news.c'\"
+else
+  echo shar: Extracting \"'news.c'\" \(6294 characters\)
+  sed "s/^X//" >'news.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <string.h>
+X#include "uqwk.h"
+X/*
+X *  All sorts of stuff to do news processing
+X */
+X
+XDoNews ()
+X/*
+X *  Collect unread news into QWK packet
+X */
+X{
+X	struct act_ent *ap;
+X	struct nrc_ent *np;
+X
+X	/* Read .newsrc file */
+X	if (!ReadNewsrc()) return (0);
+X
+X	/* And active file */
+X	if (!ReadActive()) return (0);
+X
+X	/* Look through the newsrc file */
+X	np = nrc_list;
+X	while (np != NULL)
+X	{
+X		/* Check if too many blocks already */
+X		if ( (blk_cnt >= max_blks) && (max_blks > 0) )
+X		{
+X			return (0);
+X		}
+X
+X		if ( (np->subscribed) &&
+X		     (NULL != (ap = FindActive (np->name))) )
+X		{
+X			/* Do this group */
+X			DoGroup (np, ap);
+X		}
+X		np = np->next;
+X	}
+X}
+X
+Xint ReadNewsrc()
+X/*
+X *  Read the .newsrc file
+X */
+X{
+X	char group_name[PATH_LEN];
+X	struct nrc_ent *np;
+X	int n, c;
+X
+X	/* Don't bother if we've alread read it */
+X	if (nrc_list != NULL) return (1);
+X
+X	/* Open it */
+X	if (NULL == (nrc_fd = fopen (nrc_file, "r")))
+X	{
+X		fprintf (stderr, "%s: can't open %s\n", progname, nrc_file);
+X		return (0);
+X	}
+X
+X	/* Read through */
+X	while (NULL != Fgets (buf, BUF_LEN, nrc_fd))
+X	{
+X		/* Allocate a new nrc entry */
+X		np = (struct nrc_ent *) malloc (sizeof (struct nrc_ent));
+X		if (np == NULL) OutOfMemory();
+X
+X		/* Parse group name */
+X		sscanf (buf, "%s", group_name);
+X		n = strlen (group_name);
+X
+X		if (group_name[n-1] == ':')
+X		{
+X			np->subscribed = 1;
+X		}
+X		else
+X		{
+X			np->subscribed = 0;
+X		}
+X
+X		group_name[n-1] = 0;
+X		np->name = (char *) malloc (n);
+X		if (np->name == NULL) OutOfMemory();
+X		strcpy (np->name, group_name);
+X
+X		/* Hi article number */
+X		np->hi = LastInt (buf);
+X
+X		/* Add to nrc list */
+X		np->next = nrc_list;
+X		nrc_list = np;
+X	}
+X
+X	/* Walk through the nrc list, assign conference numbers */
+X	np = nrc_list;
+X	c = 0;
+X	while (np != NULL)
+X	{
+X		np->conf = c;
+X		c++;
+X		np = np->next;
+X	}
+X
+X	fclose (nrc_fd);
+X	return (1);
+X}
+X
+Xint ReadActive()
+X/*
+X *  Read active file
+X */
+X{
+X	char group_name[PATH_LEN];
+X	struct act_ent *ap;
+X	int n;
+X
+X	/* Don't bother if it's already here */
+X	if (act_list != NULL) return (1);
+X
+X	/* Open the active file */
+X	if (NULL == (act_fd = fopen (act_file, "r")))
+X	{
+X		fprintf (stderr, "%s: can't open %s\n", progname, act_file);
+X		return (0);
+X	}
+X
+X	/* Read through it */
+X	while (NULL != Fgets (buf, BUF_LEN, act_fd))
+X	{
+X		/* Get new act entry */
+X		ap = (struct act_ent *) malloc (sizeof (struct act_ent));
+X		if (ap == NULL) OutOfMemory();
+X
+X		/* Parse name, message numbers */
+X		sscanf (buf, "%s %d %d", group_name, &ap->hi, &ap->lo);
+X		ap->name = (char *) malloc (1+strlen(group_name));
+X		if (ap->name == NULL) OutOfMemory();
+X		strcpy (ap->name, group_name);
+X
+X		/* Add to list */
+X		ap->next = act_list;
+X		act_list = ap;
+X	}
+X
+X	fclose (act_fd);
+X	return (1);
+X}
+X
+Xstruct act_ent *FindActive (c)
+Xchar *c;
+X/*
+X *  Look for group's active entry given group name
+X */
+X{
+X	struct act_ent *ap;
+X
+X	ap = act_list;
+X	while (NULL != ap)
+X	{
+X		if (!strcmp (c, ap->name)) return (ap);
+X		ap = ap->next;
+X	}
+X	return (NULL);
+X}
+X
+XDoGroup (np, ap)
+Xstruct nrc_ent *np;
+Xstruct act_ent *ap;
+X/*
+X *  Process given group
+X */
+X{
+X	char news_path[PATH_LEN];
+X	char art_file[PATH_LEN];
+X	int i, n;
+X
+X	printf ("%s: %s\n", progname, np->name);
+X
+X	/* Make a new conference with this name */
+X	NewConference (np->name);
+X
+X	/* Construct path name for articles in this group */
+X	strcpy (news_path, news_dir);
+X	strcat (news_path, "/");
+X	strcat (news_path, np->name);
+X	strcat (news_path, "/");
+X	n = strlen (news_path);
+X	for (i=0; i<n; i++) if (news_path[i] == '.') news_path[i] = '/';
+X
+X	/* If highest read article is greater than highest available
+X	   article, assume group has been reset */
+X	if (np->hi > ap->hi) np->hi = ap->lo;
+X
+X	/* Look through unread articles */
+X	for (i=np->hi+1; i<=ap->hi; i++)
+X	{
+X		/* Check max block count */
+X		if ( (blk_cnt >= max_blks) && (max_blks > 0) )
+X		{
+X			fclose (ndx_fd);
+X			np->hi = i;
+X			return (0);
+X		}
+X
+X		/* Construct article's file name */
+X		sprintf (art_file, "%s%d", news_path, i);
+X
+X		/* Process this article */
+X		DoArticle (art_file);
+X	}
+X	fclose (ndx_fd);
+X
+X	/* Reset hi article number */
+X	np->hi = ap->hi;
+X}
+X
+XDoArticle (art_file)
+Xchar *art_file;
+X{
+X	struct qwk_hdr hdr;
+X	struct stat stat_buf;
+X	long txt_offset, end_offset;
+X	int n, out_bytes;
+X	char ndx[5], *eof, from[PATH_LEN];
+X	FILE *art_fd;
+X
+X	/* Forget it if we can't open the article */
+X	if (NULL == (art_fd = fopen (art_file, "r"))) return (0);
+X
+X	/* stat() the article to get file size */
+X	if (0 != stat (art_file, &stat_buf))
+X	{
+X		fclose (art_fd);
+X		return (0);
+X	}
+X	end_offset = stat_buf.st_size;
+X
+X	/* Skip empty articles */
+X	if (end_offset == 0)
+X	{
+X		fclose (art_fd);
+X		return (0);
+X	}
+X
+X	/* Write the index file entry */
+X	inttoms (blk_cnt, ndx);
+X	ndx[4] = conf_cnt - 1;
+X	fwrite (ndx, 5, 1, ndx_fd);
+X
+X	Spaces (&hdr, 128);
+X
+X	/* Fill in some header fields */
+X	hdr.status = QWK_PUBLIC;
+X	PadNum (msg_cnt, hdr.number, 7);
+X	Spaces (hdr.password, 12);
+X	Spaces (hdr.refer, 8);
+X	hdr.flag = QWK_ACT_FLAG;
+X	IntNum (conf_cnt-1, hdr.conference);
+X	IntNum (msg_cnt+1, hdr.msg_num);
+X	hdr.tag = ' ';
+X	PadString ("ALL", hdr.to, 25);
+X
+X	msg_cnt++;
+X
+X	/* Process header lines */
+X	eof = Fgets (buf, BUF_LEN, art_fd);
+X	while ( (0 != strlen(buf)) && (eof != NULL) )
+X	{
+X		if (!strncmp (buf, "Date: ", 6))
+X		{
+X			ParseDate (&buf[6], &hdr);
+X		}
+X		else if (!strncmp (buf, "Subject: ", 9))
+X		{
+X			PadString (&buf[9], hdr.subject, 25);
+X		}
+X		else if (!strncmp (buf, "From: ", 6))
+X		{
+X			sscanf (&buf[6], "%s", from);
+X			PadString (from, hdr.from, 25);
+X		}
+X
+X		eof = Fgets (buf, BUF_LEN, art_fd);
+X	}
+X
+X	txt_offset = ftell (art_fd);
+X
+X	/* Compute block count */
+X	if (inc_hdrs)
+X	{
+X		PadNum (2+end_offset/128, hdr.blocks, 6);
+X		blk_cnt += 1+end_offset/128;
+X	}
+X	else
+X	{
+X		PadNum (2+(end_offset-txt_offset)/128, hdr.blocks, 6);
+X		blk_cnt += 1+(end_offset-txt_offset)/128;
+X	}
+X
+X	/* Write the message header */
+X	fwrite (&hdr, 128, 1, msg_fd);
+X	blk_cnt++;
+X
+X	/* Now write the article's text */
+X	if (inc_hdrs) fseek (art_fd, 0, 0);
+X	out_bytes = 0;
+X
+X	while (NULL != Fgets (buf, BUF_LEN, art_fd))
+X	{
+X		n = strlen (buf);
+X		fwrite (buf, n, 1, msg_fd);
+X		out_bytes += n;
+X
+X		if (n < BUF_LEN-1)
+X		{
+X			fputc (QWK_EOL, msg_fd);
+X			out_bytes++;
+X		}
+X	}
+X
+X	/* Pad block as necessary */
+X	n = out_bytes % 128;
+X	for (;n<128;n++) fputc (' ', msg_fd);
+X
+X	fclose (art_fd);
+X}
+X
+XOutOfMemory()
+X{
+X	fprintf (stderr, "%s: out of memory\n", progname);
+X	exit (0);
+X}
+END_OF_FILE
+  if test 6294 -ne `wc -c <'news.c'`; then
+    echo shar: \"'news.c'\" unpacked with wrong size!
+  fi
+  # end of 'news.c'
+fi
+if test -f 'offline.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'offline.c'\"
+else
+  echo shar: Extracting \"'offline.c'\" \(5379 characters\)
+  sed "s/^X//" >'offline.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <string.h>
+X#include "uqwk.h"
+X/*
+X *  Process offline commands
+X */
+X
+XOffLine (bytes)
+Xint bytes;
+X/*
+X *  Process offline commands.  Message is open on rep_fd.  We
+X *  must be careful to leave the file pointer ready for the
+X *  next message.
+X */
+X{
+X	FILE *pfd;
+X	char c, cmd[PATH_LEN];
+X
+X	/* Open mail pipe to send results back to user */
+X	sprintf (buf, "%s -s 'Results of your request' %s",
+X			MAILER_PATH, user_name);
+X	if (NULL == (pfd = popen (buf, "w")))
+X	{
+X		fprintf (stderr, "%s: can't popen() mail\n", progname);
+X		while (bytes--) fread (&c, 1, 1, rep_fd);
+X		return (0);
+X	}
+X
+X	fprintf (pfd, "Here are the results of your mail to UQWK:\n");
+X
+X	/* Get lines, process them */
+X	while (GetLine(&bytes))
+X	{
+X		/* Echo command */
+X		fprintf (pfd, "\nCommand: %s\n", buf);
+X
+X		/* Extract command */
+X		if (1 != sscanf (buf, "%s", cmd))
+X		{
+X			fprintf (pfd, "Malformed command.\n");
+X		}
+X		else
+X		{
+X			/* Look up command */
+X			if ( (!strcmp (cmd, "help")) ||
+X			     (!strcmp (cmd, "HELP")) )
+X			{
+X				Help(pfd);
+X			}
+X			else if ( (!strcmp (cmd, "subscribe")) ||
+X				  (!strcmp (cmd, "SUBSCRIBE")) )
+X			{
+X				Subscribe(pfd);
+X			}
+X			else if ( (!strcmp (cmd, "unsubscribe")) ||
+X				  (!strcmp (cmd, "UNSUBSCRIBE")) )
+X			{
+X				Unsubscribe(pfd);
+X			}
+X			else if ( (!strcmp (cmd, "groups")) ||
+X			          (!strcmp (cmd, "GROUPS")) )
+X			{
+X				Groups(pfd);
+X			}
+X			else if ( (!strcmp (cmd, "allgroups")) ||
+X			          (!strcmp (cmd, "ALLGROUPS")) )
+X			{
+X				Allgroups(pfd);
+X			}
+X			else
+X			{
+X				fprintf (pfd, "No such command.  ");
+X				fprintf (pfd, "Send HELP for help.\n");
+X			}
+X		}
+X	}
+X
+X	fprintf (pfd, "\nEnd of commands.\n");
+X	pclose (pfd);
+X}
+X
+Xint GetLine (bytes)
+Xint *bytes;
+X/*
+X *  Get a line from rep_fd, put it in buf, check for end of message
+X */
+X{
+X	int i;
+X	i = 0;
+X
+X	/* Read bytes until EOL or end of message */
+X	while (*bytes)
+X	{
+X		fread (&buf[i], 1, 1, rep_fd);
+X		(*bytes)--;
+X
+X		if ( (buf[i] == QWK_EOL) || (i == BUF_LEN-1) )
+X		{
+X			buf[i] = 0;
+X			return (1);
+X		}
+X		i++;
+X	}
+X
+X	/* If we got here, we ran out of bytes */
+X	return (0);
+X}
+X
+XHelp (pfd)
+XFILE *pfd;
+X{
+X	fprintf (pfd, "\nAvailable commands:\n\n");
+X	fprintf (pfd, "HELP - This message.\n");
+X	fprintf (pfd, "SUBSCRIBE newsgroup - Subscribe to named newsgroup.\n");
+X	fprintf (pfd, "UNSUBSCRIBE newsgroup - Unsubscribe from newsgroup.\n");
+X	fprintf (pfd, "UNSUBSCRIBE ALL - Unsubscribe from all newsgroups.\n");
+X	fprintf (pfd, "GROUPS - List all subscribed newsgroups.\n");
+X	fprintf (pfd, "ALLGROUPS - List all available newsgroups.\n\n");
+X}
+X
+XSubscribe (pfd)
+XFILE *pfd;
+X{
+X	struct act_ent *ap;
+X	struct nrc_ent *np;
+X	char group[PATH_LEN];
+X
+X	/* Extract group name */
+X	if (1 != sscanf (buf, "%*s %s", group))
+X	{
+X		fprintf (pfd, "Usage: SUBSCRIBE newsgroup\n");
+X		return (0);
+X	}
+X
+X	/* We will need active file and .newsrc */
+X	if (!ReadActive() || !ReadNewsrc())
+X	{
+X		fprintf (pfd, "Sorry, couldn't read system files.\n");
+X		return (0);
+X	}
+X
+X	/* Already subscribed? */
+X	np = nrc_list;
+X	while (np != NULL)
+X	{
+X		if (!strcmp (group, np->name))
+X		{
+X			if (np->subscribed)
+X			{
+X				fprintf (pfd, "Already subscribed to %s.\n",
+X					group);
+X				return (0);
+X			}
+X			else
+X			{
+X				np->subscribed = 1;
+X				fprintf (pfd, "Okay, re-subscribed to %s.\n",
+X					group);
+X				WriteNewsrc();
+X				return (0);
+X			}
+X		}
+X		np = np->next;
+X	}
+X
+X	/* Find group in active file */
+X	if (NULL == (ap = FindActive (group)))
+X	{
+X		fprintf (pfd, "No such newsgroup: %s\n", group);
+X		return (0);
+X	}
+X
+X	/* Okay already, add to .newsrc */
+X	np = (struct nrc_ent *) malloc (sizeof (struct nrc_ent));
+X	if (np == NULL) OutOfMemory();
+X	np->name = (char *) malloc (1+strlen(group));
+X	if (np->name == NULL) OutOfMemory();
+X	strcpy (np->name, group);
+X	np->subscribed = 1;
+X	np->hi = ap->hi;
+X	np->next = nrc_list;
+X	nrc_list = np;
+X
+X	WriteNewsrc();
+X	fprintf (pfd, "Okay, you are now subscribed to %s.\n", group);
+X}
+X
+XUnsubscribe (pfd)
+XFILE *pfd;
+X{
+X	struct nrc_ent *np;
+X	char group[PATH_LEN];
+X
+X	/* Parse group name */
+X	if (1 != sscanf (buf, "%*s %s", group))
+X	{
+X		fprintf (pfd, "Usage: UNSUBSCRIBE newsgroup\n");
+X		return (0);
+X	}
+X
+X	/* Check for ALL */
+X	if ( (!strcmp (group, "ALL")) || (!strcmp (group, "all")) )
+X	{
+X		nrc_list = NULL;
+X		WriteNewsrc();
+X		fprintf (pfd,
+X		  "Okay, you are now unsubscribed from all newsgroups.\n");
+X		return (0);
+X	}
+X
+X	/* We need the .newsrc file */
+X	if (!ReadNewsrc())
+X	{
+X		fprintf (pfd, "Sorry, couldn't read .newsrc\n");
+X		return (0);
+X	}
+X
+X	/* Look for group in newsrc */
+X	np = nrc_list;
+X	while (np != NULL)
+X	{
+X		if (!strcmp (group, np->name)) break;
+X		np = np->next;
+X	}
+X
+X	if (np == NULL)
+X	{
+X		fprintf (pfd, "You are not currently subscribed to %s.\n",
+X		         group);
+X		return (0);
+X	}
+X
+X	np->subscribed = 0;
+X
+X	WriteNewsrc();
+X	fprintf (pfd, "Okay, you are unsubscribed from %s.\n", group);
+X}
+X
+XGroups (pfd)
+XFILE *pfd;
+X{
+X	struct nrc_ent *np;
+X
+X	if (!ReadNewsrc())
+X	{
+X		fprintf (pfd, "Sorry, couldn't read .newsrc\n");
+X		return (0);
+X	}
+X
+X	fprintf (pfd, "Newsgroups to which you are subscribed:\n\n");
+X
+X	np = nrc_list;
+X	while (np != NULL)
+X	{
+X		fprintf (pfd, "    %s\n", np->name);
+X		np = np->next;
+X	}
+X}
+X
+XAllgroups (pfd)
+XFILE *pfd;
+X{
+X	struct act_ent *ap;
+X
+X	if (!ReadActive())
+X	{
+X		fprintf (pfd, "Sorry, no newsgroups are available.\n");
+X		return (0);
+X	}
+X
+X	fprintf (pfd, "List of available newsgroups:\n\n");
+X
+X	ap = act_list;
+X	while (ap != NULL)
+X	{
+X		fprintf (pfd, "    %s (%d articles)\n",
+X			ap->name, ap->hi - ap->lo);
+X		ap = ap->next;
+X	}
+X}
+END_OF_FILE
+  if test 5379 -ne `wc -c <'offline.c'`; then
+    echo shar: \"'offline.c'\" unpacked with wrong size!
+  fi
+  # end of 'offline.c'
+fi
+if test -f 'options.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'options.c'\"
+else
+  echo shar: Extracting \"'options.c'\" \(5212 characters\)
+  sed "s/^X//" >'options.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <pwd.h>
+X#include <string.h>
+X#include "uqwk.h"
+X
+X/*
+X *  Determine runtime options
+X */
+X
+XDefaultOptions()
+X/*
+X *  Set up default options
+X */
+X{
+X	struct passwd *pw;
+X
+X	/* Do user-specific stuff*/
+X	if (NULL == (pw = getpwuid(getuid())))
+X	{
+X		fprintf (stderr, "%s: warning: you don't exist\n", progname);
+X		strcpy (user_name, DEF_USER_NAME);
+X		strcpy (home_dir, DEF_HOME_DIR);
+X	}
+X	else
+X	{
+X		strcpy (user_name, pw->pw_name);
+X		strcpy (home_dir, pw->pw_dir);
+X	}
+X
+X	/* Dinky misc options */
+X	do_mail = DEF_DO_MAIL;
+X	do_news = DEF_DO_NEWS;
+X	inc_hdrs = DEF_INC_HDRS;
+X	prt_opts = DEF_PRT_OPTS;
+X	read_only = DEF_READ_ONLY;
+X	max_blks = DEF_MAX_BLKS;
+X
+X	strcpy (mail_dir, DEF_MAIL_DIR);
+X	strcpy (mail_file, DEF_MAIL_FILE);
+X	strcpy (act_file, DEF_ACT_FILE);
+X	strcpy (nrc_file, DEF_NRC_FILE);
+X	strcpy (news_dir, DEF_NEWS_DIR);
+X
+X	strcpy (bbs_name, DEF_BBS_NAME);
+X	strcpy (bbs_city, DEF_BBS_CITY);
+X	strcpy (bbs_phone, DEF_BBS_PHONE);
+X	strcpy (bbs_sysop, DEF_BBS_SYSOP);
+X	strcpy (bbs_id, DEF_BBS_ID);
+X	strcpy (rep_file, DEF_REP_FILE);
+X}
+X
+XEnvOptions()
+X/*
+X *  Override options from environment variables
+X */
+X{
+X	char *c;
+X
+X	if (NULL != (c = getenv ("UQ_DO_MAIL"))) do_mail = atoi (c);
+X	if (NULL != (c = getenv ("UQ_DO_NEWS"))) do_news = atoi (c);
+X	if (NULL != (c = getenv ("UQ_INC_HDRS"))) inc_hdrs = atoi (c);
+X	if (NULL != (c = getenv ("UQ_PRT_OPTS"))) prt_opts = atoi (c);
+X	if (NULL != (c = getenv ("UQ_READ_ONLY"))) read_only = atoi (c);
+X	if (NULL != (c = getenv ("UQ_MAX_BLKS"))) max_blks = atoi (c);
+X
+X	if (NULL != (c = getenv ("UQ_HOME_DIR"))) strcpy (home_dir, c);
+X	if (NULL != (c = getenv ("UQ_MAIL_FILE"))) strcpy (mail_file, c);
+X	if (NULL != (c = getenv ("UQ_MAIL_DIR"))) strcpy (mail_dir, c);
+X	if (NULL != (c = getenv ("UQ_USER_NAME"))) strcpy (user_name, c);
+X	if (NULL != (c = getenv ("UQ_NEWS_DIR"))) strcpy (news_dir, c);
+X
+X	if (NULL != (c = getenv ("UQ_BBS_NAME"))) strcpy (bbs_name, c);
+X	if (NULL != (c = getenv ("UQ_BBS_CITY"))) strcpy (bbs_city, c);
+X	if (NULL != (c = getenv ("UQ_BBS_PHONE"))) strcpy (bbs_phone, c);
+X	if (NULL != (c = getenv ("UQ_BBS_SYSOP"))) strcpy (bbs_sysop, c);
+X	if (NULL != (c = getenv ("UQ_BBS_ID"))) strcpy (bbs_id, c);
+X
+X	if (NULL != (c = getenv ("UQ_ACT_FILE"))) strcpy (act_file, c);
+X	if (NULL != (c = getenv ("UQ_NRC_FILE"))) strcpy (nrc_file, c);
+X
+X	if (NULL != (c = getenv ("UQ_REP_FILE"))) strcpy (rep_file, c);
+X}
+X
+XCommandOptions (argc, argv)
+Xint argc;
+Xchar *argv[];
+X/*
+X *  Override options from command line
+X */
+X{
+X	int i;
+X
+X	for (i=1; i<argc; i++)
+X	{
+X		switch (argv[i][0])
+X		{
+X		case '+':
+X			switch (argv[i][1])
+X			{
+X			case 'm':	do_mail = 1;
+X					break;
+X
+X			case 'n':	do_news = 1;
+X					break;
+X
+X			case 'h':	inc_hdrs = 1;
+X					break;
+X
+X			case 'r':	read_only = 1;
+X					break;
+X
+X			default:	BadFlag (argv[i]);
+X					break;
+X			}
+X			break;
+X
+X		case '-':
+X			switch (argv[i][1])
+X			{
+X			case 'm':	do_mail = 0;
+X					break;
+X
+X			case 'n':	do_news = 0;
+X					break;
+X
+X			case 'h':	inc_hdrs = 0;
+X					break;
+X
+X			case 'r':	read_only = 0;
+X					break;
+X
+X			case 'p':	prt_opts = 1;
+X					break;
+X
+X			case 'M':	strcpy (mail_dir, &argv[i][2]);
+X					break;
+X
+X			case 'f':	strcpy (mail_file, &argv[i][2]);
+X					break;
+X
+X			case 'u':	strcpy (user_name, &argv[i][2]);
+X					break;
+X
+X			case 'H':	strcpy (home_dir, &argv[i][2]);
+X					break;
+X
+X			case 'b':	strcpy (bbs_name, &argv[i][2]);
+X					break;
+X
+X			case 'c':	strcpy (bbs_city, &argv[i][2]);
+X					break;
+X
+X			case 'P':	strcpy (bbs_phone, &argv[i][2]);
+X					break;
+X
+X			case 's':	strcpy (bbs_sysop, &argv[i][2]);
+X					break;
+X
+X			case 'i':	strcpy (bbs_id, &argv[i][2]);
+X					break;
+X
+X			case 'a':	strcpy (act_file, &argv[i][2]);
+X					break;
+X
+X			case 'N':	strcpy (nrc_file, &argv[i][2]);
+X					break;
+X
+X			case 'S':	strcpy (news_dir, &argv[i][2]);
+X					break;
+X
+X			case 'B':	max_blks = atoi (&argv[i][2]);
+X					break;
+X
+X			case 'R':	strcpy (rep_file, &argv[i][2]);
+X					break;
+X
+X			default:	BadFlag (argv[i]);
+X					break;
+X			}
+X			break;
+X
+X		default:
+X			BadFlag (argv[i]);
+X			break;
+X		}
+X	}
+X
+X	/* If mail file has not been overridden, set it */
+X	if (!strcmp (mail_file, DEF_MAIL_FILE))
+X	{
+X		strcpy (mail_file, mail_dir);
+X		strcat (mail_file, "/");
+X		strcat (mail_file, user_name);
+X	}
+X
+X	/* If .newsrc file has not been overridden, set it */
+X	if (!strcmp (nrc_file, DEF_NRC_FILE))
+X	{
+X		strcpy (nrc_file, home_dir);
+X		strcat (nrc_file, "/.newsrc");
+X	}
+X
+X	if (prt_opts)
+X	{
+X		PrintOptions();
+X		exit (0);
+X	}
+X}
+X
+XBadFlag (c)
+Xchar *c;
+X{
+X	fprintf (stderr, "%s: bad flag: %s\n", progname, c);
+X	exit (0);
+X}
+X
+XPrintOptions ()
+X{
+X	printf ("Do mail: %d\n", do_mail);
+X	printf ("Do news: %d\n", do_news);
+X	printf ("Include headers: %d\n", inc_hdrs);
+X	printf ("Read only: %d\n", read_only);
+X	printf ("Maximum blocks: %d\n", max_blks);
+X	printf ("Mail directory: %s\n", mail_dir);
+X	printf ("News directory: %s\n", news_dir);
+X	printf ("Mail file: %s\n", mail_file);
+X	printf ("User name: %s\n", user_name);
+X	printf ("Home directory: %s\n", home_dir);
+X	printf ("BBS name: %s\n", bbs_name);
+X	printf ("BBS city: %s\n", bbs_city);
+X	printf ("BBS phone: %s\n", bbs_phone);
+X	printf ("BBS sysop: %s\n", bbs_sysop);
+X	printf ("BBS id: %s\n", bbs_id);
+X	printf ("Active file: %s\n", act_file);
+X	printf (".newsrc file: %s\n", nrc_file);
+X	printf ("Reply file: %s\n", rep_file);
+X}
+END_OF_FILE
+  if test 5212 -ne `wc -c <'options.c'`; then
+    echo shar: \"'options.c'\" unpacked with wrong size!
+  fi
+  # end of 'options.c'
+fi
+if test -f 'reply.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'reply.c'\"
+else
+  echo shar: Extracting \"'reply.c'\" \(5123 characters\)
+  sed "s/^X//" >'reply.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <string.h>
+X#include "uqwk.h"
+X/*
+X *  Process a reply packet
+X */
+X
+XDoReply ()
+X{
+X	int n, rep_cnt;
+X	char bbs[PATH_LEN];
+X
+X	rep_cnt = 0;
+X
+X	/* Open the packet */
+X	if (NULL == (rep_fd = fopen (rep_file, "r")))
+X	{
+X		fprintf (stderr, "%s: can't open %s\n", progname, rep_file);
+X		return (0);
+X	}
+X
+X	/* Get the first block, the BBS ID */
+X	if (1 != fread (buf, 128, 1, rep_fd))
+X	{
+X		fprintf (stderr, "%s: reply packet read error\n", progname);
+X		fclose (rep_fd);
+X		return (0);
+X	}
+X
+X	/* Extract bbs id and check */
+X	sscanf (bbs_id, "%*d,%s", bbs);
+X	n = strlen (bbs);
+X	buf[n] = 0;
+X	if (strcmp (bbs, buf))
+X	{
+X		fprintf (stderr, "%s: reply BBS ID mismatch: %s != %s\n",
+X			progname, buf, bbs);
+X		fclose (rep_fd);
+X		return (0);
+X	}
+X
+X	/* Read the .newsrc file; we will need the list of conferences */
+X	ReadNewsrc();
+X
+X	/* Read the next message header and process it */
+X	while (1 == fread (&rep_hdr, 128, 1, rep_fd))
+X	{
+X		SendReply ();
+X		rep_cnt++;
+X	}
+X
+X	fclose (rep_fd);
+X	printf ("%s: sent %d replies\n", progname, rep_cnt);
+X}
+X
+XSendReply ()
+X/*
+X *  Pipe a reply to the mailer or inews
+X */
+X{
+X	FILE *pfd;
+X	unsigned char c, to[PATH_LEN], subject[PATH_LEN], group[PATH_LEN];
+X	int i, n, blocks, bytes, conf;
+X	struct nrc_ent *np;
+X
+X	/* Extract recipient */
+X	strncpy (buf, rep_hdr.to, 25);
+X	buf[25] = 0;
+X	sscanf (buf, "%s", to);
+X
+X	/* Extract conference number */
+X	strncpy (buf, rep_hdr.number, 7);
+X	buf[7] = 0;
+X	sscanf (buf, "%d", &conf);
+X
+X	/* Extract subject */
+X	strncpy (buf, rep_hdr.subject, 25);
+X	buf[25] = 0;
+X	strcpy (subject, buf);
+X
+X	/* Get rid of single quotes in subject */
+X	n = strlen (subject);
+X	for (i=0; i<n; i++) if (subject[i] == '\'') subject[i] = '`';
+X
+X	/* Find newsgroup with this conference number */
+X	np = nrc_list;
+X	while (np != NULL)
+X	{
+X		if (np->conf == conf) break;
+X		np = np->next;
+X	}
+X
+X	/* Get newsgroup name */
+X	if (np == NULL)
+X	{
+X		/* Bet this generates lots of email for "ALL" */
+X		rep_hdr.status = QWK_PRIVATE;
+X	}
+X	else
+X	{
+X		strcpy (group, np->name);
+X	}
+X
+X	/* Extract block count */
+X	strncpy (buf, rep_hdr.blocks, 6);
+X	buf[6] = 0;
+X	sscanf (buf, "%d", &blocks);
+X	blocks -= 1;
+X	bytes = 128 * blocks;
+X
+X	/* Check for off-line command message */
+X	if ( (!strcmp (to, "uqwk")) || (!strcmp (to, "UQWK")) )
+X	{
+X		OffLine (bytes);
+X		return (0);
+X	}
+X
+X	/* Check for a configuration message intended for some
+X	   other QWK "door" */
+X	if ( (!strcmp (to, "MARKMAIL")) || (!strcmp (to, "QMAIL"))   ||
+X	     (!strcmp (to, "markmail")) || (!strcmp (to, "qmail"))   ||
+X	     (!strcmp (to, "ROSEMAIL")) || (!strcmp (to, "KMAIL"))   ||
+X	     (!strcmp (to, "rosemail")) || (!strcmp (to, "kmail"))   ||
+X	     (!strcmp (to, "MAINMAIL")) || (!strcmp (to, "CMPMAIL")) ||
+X	     (!strcmp (to, "mainmail")) || (!strcmp (to, "cmpmail")) ||
+X	     (!strcmp (to, "ULTRABBS")) || (!strcmp (to, "BGQWK"))   ||
+X	     (!strcmp (to, "ultrabbs")) || (!strcmp (to, "bgqwk"))   ||
+X	     (!strcmp (to, "CAM-MAIL")) || (!strcmp (to, "TRIMAIL")) ||
+X	     (!strcmp (to, "cam-mail")) || (!strcmp (to, "trimail")) ||
+X	     (!strcmp (to, "QSO")) || (!strcmp (to, "qso")) )
+X	{
+X		/* Send warning to user */
+X		SendWarning (to);
+X
+X		/* Skip the rest of the message */
+X		while (bytes--) fread (&c, 1, 1, rep_fd);
+X
+X		return (0);
+X	}
+X
+X	/* Open pipe to proper program */
+X	pfd = NULL;
+X
+X	if ( (rep_hdr.status == QWK_PUBLIC) ||
+X	     (rep_hdr.status == QWK_PUBLIC2) )
+X	{
+X		/* Public message, open pipe to inews */
+X		sprintf (buf, "%s -t '%s' -n %s", INEWS_PATH, subject, group);
+X		printf ("%s\n", buf);
+X		if (NULL == (pfd = popen (buf, "w")))
+X		{
+X			fprintf (stderr, "%s: can't popen() inews\n",
+X					progname);
+X		}
+X	}
+X	else if ( (rep_hdr.status == QWK_PRIVATE) ||
+X	          (rep_hdr.status == QWK_PRIVATE2) )
+X	{
+X		/* Open pipe to mail */
+X		sprintf (buf, "%s -s '%s' %s", MAILER_PATH, subject, to);
+X		printf ("%s\n", buf);
+X		if (NULL == (pfd = popen (buf, "w")))
+X		{
+X			fprintf (stderr, "%s: can't popen() mail\n", progname);
+X		}
+X	}
+X
+X	/* Read and send all bytes of message */
+X	for (i=0; i<bytes; i++)
+X	{
+X		fread (&c, 1, 1, rep_fd);
+X		if (c == QWK_EOL) c = 012;
+X		if (pfd != NULL) fwrite (&c, 1, 1, pfd);
+X	}
+X
+X	if (pfd != NULL) pclose (pfd);
+X}
+X
+XSendWarning (to)
+Xchar *to;
+X/*
+X *  Mail a warning to the user if the reply packet
+X *  contains a message apparently for some other QWK
+X *  "door" program.
+X */
+X{
+X	FILE *pfd;
+X
+X	/* Open pipe to mailer */
+X	sprintf (buf, "%s -s 'UQWK Error Message' %s",
+X			MAILER_PATH, user_name);
+X	if (NULL == (pfd = popen (buf, "w")))
+X	{
+X		fprintf (stderr, "%s: can't popen() mail\n", progname);
+X		return (0);
+X	}
+X
+X	/* Send the message */
+X
+X	fprintf (pfd,
+X"Hello. You sent a message to the username %s, presumably to\n", to);
+X	fprintf (pfd,
+X"perform some sort of offline configuration. This QWK processor,\n");
+X	fprintf (pfd,
+X"called UQWK, cannot process this message. To perform offline\n");
+X	fprintf (pfd,
+X"configuration using UQWK, you must send a message to the username\n");
+X	fprintf (pfd,
+X"UQWK. Commands are to be included in the body of the message.\n");
+X	fprintf (pfd,
+X"For a list of commands, send a message to UQWK with the word\n");
+X	fprintf (pfd,
+X"HELP in the body of the message (not the subject). Thanks!\n");
+X
+X	pclose (pfd);
+X}
+END_OF_FILE
+  if test 5123 -ne `wc -c <'reply.c'`; then
+    echo shar: \"'reply.c'\" unpacked with wrong size!
+  fi
+  # end of 'reply.c'
+fi
+if test -f 'uqwk.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'uqwk.c'\"
+else
+  echo shar: Extracting \"'uqwk.c'\" \(597 characters\)
+  sed "s/^X//" >'uqwk.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <string.h>
+X#include "uqwk.h"
+X
+X/*
+X *  Try to make QWK packets from a mail and/or news spool
+X */
+X
+Xmain (argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	progname = argv[0];
+X
+X	/* Set up defaults */
+X	DefaultOptions();
+X
+X	/* Look for environment variable overrides */
+X	EnvOptions();
+X
+X	/* Look for command line overrides */
+X	CommandOptions (argc, argv);
+X
+X	/* Initialize files, etc. */
+X	InitStuff();
+X
+X	/* Do reply packet? */
+X	if (strcmp (rep_file, DEF_REP_FILE)) DoReply();
+X
+X	/* Do news? */
+X	if (do_news) DoNews();
+X
+X	/* Mail? */
+X	if (do_mail) DoMail();
+X
+X	/* All done */
+X	CloseStuff();
+X}
+END_OF_FILE
+  if test 597 -ne `wc -c <'uqwk.c'`; then
+    echo shar: \"'uqwk.c'\" unpacked with wrong size!
+  fi
+  # end of 'uqwk.c'
+fi
+if test -f 'uqwk.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'uqwk.h'\"
+else
+  echo shar: Extracting \"'uqwk.h'\" \(4189 characters\)
+  sed "s/^X//" >'uqwk.h' <<'END_OF_FILE'
+X/*
+X *  Header for uqwk
+X */
+X
+X#define	PATH_LEN	(128)	/* Length for file names, etc. */
+X#define BUF_LEN		(1024)	/* Length of general purpose buffer */
+X
+X#define QWK_EOL		(227)	/* QWK end-of-line */
+X#define QWK_ACT_FLAG	(225)	/* Active message flag */
+X#define QWK_PUBLIC	' '	/* Public message flags */
+X#define QWK_PUBLIC2	'-'
+X#define QWK_PRIVATE	'+'	/* Private message flags */
+X#define QWK_PRIVATE2	'*'
+X
+X#define MAILER_PATH	"mail"	/* Where to find mailer */
+X#define INEWS_PATH	"/usr/lib/news/inews"	/* Where to find inews */
+X
+X#define MAIL_CONF_NAME  "Email"
+X
+X/* Defaults */
+X#define	DEF_MAIL_DIR	"/usr/spool/mail"
+X#define DEF_DO_MAIL	(1)
+X#define DEF_DO_NEWS	(0)
+X#define DEF_INC_HDRS	(1)
+X#define DEF_PRT_OPTS	(0)
+X#define DEF_READ_ONLY	(0)
+X#define DEF_MAX_BLKS	(4000)	/* That's half a megabyte */
+X#define DEF_HOME_DIR	"."
+X#define DEF_USER_NAME	"unknown"
+X#define DEF_MAIL_FILE	"unknown"
+X#define DEF_BBS_NAME	"unknown BBS"
+X#define DEF_BBS_CITY	"Anytown, USA"
+X#define DEF_BBS_PHONE	"555-1212"
+X#define DEF_BBS_SYSOP	"Joe Sysop"
+X#define DEF_BBS_ID	"0,SOMEBBS"
+X#define DEF_ACT_FILE	"/usr/lib/news/active"
+X#define DEF_NRC_FILE	"unknown"
+X#define DEF_NEWS_DIR	"/usr/spool/news"
+X#define DEF_REP_FILE	"none"
+X
+X/* Runtime options */
+Xint do_mail;			/* Process mail? */
+Xint do_news;			/* Process news? */
+Xint inc_hdrs;			/* Include headers in messages? */
+Xint prt_opts;			/* Just display options; no processing */
+Xint read_only;			/* Don't rewrite mail spool and .newsrc */
+Xint max_blks;			/* Maximum blocks per QWK packet */
+X
+Xchar mail_file[PATH_LEN];	/* mail spool */
+Xchar mail_dir[PATH_LEN];	/* dir for mail spool */
+Xchar home_dir[PATH_LEN];	/* home directory */
+Xchar user_name[PATH_LEN];	/* user's login name */
+Xchar bbs_name[PATH_LEN];	/* BBS name */
+Xchar bbs_city[PATH_LEN];	/* BBS city */
+Xchar bbs_phone[PATH_LEN];	/* BBS phone number */
+Xchar bbs_sysop[PATH_LEN];	/* BBS sysop name */
+Xchar bbs_id[PATH_LEN];		/* BBS ID */
+Xchar act_file[PATH_LEN];	/* Active file */
+Xchar nrc_file[PATH_LEN];	/* .newsrc file */
+Xchar news_dir[PATH_LEN];	/* News spool dir */
+Xchar rep_file[PATH_LEN];	/* Reply packet file name */
+X
+Xchar *getenv();
+Xchar *Fgets();
+Xstruct act_ent *FindActive();
+X
+X/* Various globals */
+Xchar *progname;			/* Program name */
+Xint msg_cnt;			/* Total number of messages */
+Xint conf_cnt;			/* Total number of conferences */
+XFILE *msg_fd;			/* MESSAGES.DAT file desc */
+XFILE *ctl_fd;			/* CONTROL.DAT file desc */
+XFILE *ndx_fd;			/* xxx.NDX file desc */
+XFILE *act_fd;			/* Active file file desc */
+XFILE *nrc_fd;			/* .newsrc file desc */
+XFILE *rep_fd;			/* Reply packet file desc */
+Xunsigned char buf[BUF_LEN];	/* General purpose buffer */
+Xint blk_cnt;			/* Blocks written to messages.dat */
+X
+X/* This is the stuff we remember about each spooled mail message */
+Xstruct mail_ent
+X{
+X	long begin;		/* Offset of start of header */
+X	long text;		/* Offset to end of header, start of text */
+X	long end;		/* Offset to start of next message */
+X	struct mail_ent *next;	/* Pointer to next */
+X} *mail_list;
+X
+X/* This is stuff we remember about each "conference" */
+Xstruct conf_ent
+X{
+X	char *name;		/* Conference name */
+X	int number;		/* Conference number */
+X	struct conf_ent *next;	/* Pointer to next */
+X} *conf_list, *last_conf;
+X
+X/* This is the QWK message header format */
+Xstruct qwk_hdr
+X{
+X	unsigned char status;
+X	unsigned char number[7];
+X	unsigned char date[8];
+X	unsigned char time[5];
+X	unsigned char to[25];
+X	unsigned char from[25];
+X	unsigned char subject[25];
+X	unsigned char password[12];
+X	unsigned char refer[8];
+X	unsigned char blocks[6];
+X	unsigned char flag;
+X	unsigned char conference[2];
+X	unsigned char msg_num[2];
+X	unsigned char tag;
+X};
+X
+Xstruct qwk_hdr rep_hdr;		/* Header for replies */
+X
+X/* Stuff we remember about each active newsgroup */
+Xstruct act_ent
+X{
+X	char *name;		/* Newsgroup name */
+X	int hi;			/* High article number */
+X	int lo;			/* Low article number */
+X	struct act_ent *next;	/* Pointer to next */
+X} *act_list;
+X
+X/* Stuff we remember about the .newsrc file */
+Xstruct nrc_ent
+X{
+X	char *name;		/* Newsgroup name */
+X	int subscribed;		/* Subscribed flag */
+X	int hi;			/* High article number */
+X	int conf;		/* Corresponding conference number */
+X	struct nrc_ent *next;	/* Pointer to next */
+X} *nrc_list;
+X
+END_OF_FILE
+  if test 4189 -ne `wc -c <'uqwk.h'`; then
+    echo shar: \"'uqwk.h'\" unpacked with wrong size!
+  fi
+  # end of 'uqwk.h'
+fi
+if test -f 'uqwk.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'uqwk.man'\"
+else
+  echo shar: Extracting \"'uqwk.man'\" \(8779 characters\)
+  sed "s/^X//" >'uqwk.man' <<'END_OF_FILE'
+X.TH UQWK 1
+X.IX uqwk
+X.IX qwk
+X.SH NAME
+Xuqwk - Collect news and mail into QWK packet
+X.SH SYNOPSIS
+X.B
+Xuqwk
+X.RB [options]
+X.SH DESCRIPTION
+X.B uqwk
+Xis a program which collects all a user's unread mail or news
+Xand formats it into something called a "QWK" packet, which is then
+Xdownloaded.  Mail and News can then be read offline, saving phone
+Xcharges.  QWK readers exist for almost every machine.
+X.PP
+X.B uqwk
+Xalso accepts reply packets, so replies can be mailed (if your
+Xmailer understands "mail -s"), or posted (if you have a B-news type
+Xof
+X.IR inews
+Xthat understands -n and -t), depending whether
+Xthe message is marked private (email) or public (news).
+X.PP
+X.B uqwk
+Xalso supports a small offline command language, so the contents
+Xof the user's .newsrc file can be viewed and manipulated offline.
+X.SH OPTIONS
+X.TP
+X.B +m
+XDo mail.
+X.B uqwk
+Xwill process all mail in the user's mail spool file and convert
+Xit into a QWK packet.  This is the default.
+X.TP
+X.B -m
+XDon't do mail.
+X.TP
+X.B +n
+XDo news.  Using the user's .newsrc file and the news system's
+Xactive file,
+X.B uqwk
+Xwill collect all unread news articles in all subscribed newsgroups
+Xinto the QWK packet.  This can generate a large number of messages
+Xand large QWK files.
+X.TP
+X.B -n
+XDon't do news.  This is the default.
+X.TP
+X.B +h
+XInclude headers.  Since the QWK specification places limits on
+Xthe sizes of certain header fields such as To:, From:, and Subject:,
+X.B uqwk
+Xcan include all message and article headers in the body of the
+Xmessage so all fields are visible.  This does not, however, make
+Xit possible to successfully send a message to an email address
+Xwhich consists of more that 25 characters.  This is the default.
+X.TP
+X.B -h
+XDo not include headers in messages.
+X.TP
+X.B -p
+XPrint options.
+X.B uqwk
+Xwill examine all appropriate environment variables and command
+Xline options, print the values of all run-time options, then exit.  This
+Xis useful to see what
+X.B uqwk
+Xthinks it is going to do before you actually run it.
+X.TP
+X.B +r
+XRead only.  Normally,
+X.B uqwk
+Xwill empty the user's mail spool file and update the user's .newsrc
+Xfile to reflect the fact that mail and news have been
+Xread.  If this switch is specified,
+X.B uqwk
+Xwill not touch these files.  This is useful for testing.
+X.TP
+X.B -r
+XDo not execute in read-only mode.  This is the default.
+X.TP
+X.B -M\fImaildir\fR
+XLook in the directory \fImaildir\fR for the mail spool file.  The
+Xdefault is /usr/spool/mail.
+X.TP
+X.B -f\fImailfile\fR
+XLook for mail in the file \fImailfile\fR.  The default is a file
+Xwith the same name as the user's login name in \fImaildir\fR.
+XThis switch overrides the
+X.B -M
+Xswitch.
+X.TP
+X.B -u\fIusername\fR
+XBy default
+X.B uqwk
+Xuses the getpwuid() system call to determine the proper user
+Xname to use.  This switch overrides the results of that call.
+X.TP
+X.B -H\fIhomedir\fR
+XBy default,
+X.B uqwk
+Xuses the getpwuid() system call to determine the user's home
+Xdirectory.  The home directory is where the files comprising
+Xthe QWK packet will be created.  It is also where
+X.B uqwk
+Xlooks for the .newsrc file.  This switch may be used to
+Xoverride the results of the getpwuid() call.
+X.TP
+X.B -b\fIbbsname\fR
+XSpecify the BBS Name to be entered into the QWK packet.  The default
+Xis "unknown BBS".
+X.TP
+X.B -c\fIcity\fR
+XSpecify the BBS City to be entered into the QWK packet.  The default
+Xis "Anytown, USA".
+X.TP
+X.B -P\fIphone\fR
+XSpecify the BBS Phone Number to be entered into the QWK packet.
+XThe default is "555-1212".
+X.TP
+X.B -s\fIsysop\fR
+XSpecify the BBS Sysop Name to be entered into the QWK packet.  The
+Xdefault is "Joe Sysop".
+X.TP
+X.B -i\fIbbsid\fR
+XSpecify the BBS ID to be entered into the QWK packet.  The BBS ID
+Xis important since it will be checked against the BBS ID string
+Xin any incoming reply packets.  If the two do not match, the reply
+Xpacket will not be processed.  The BBS ID consists of an integer,
+Xa comma, and a string of less than nine characters, with no spaces.
+XThe default is "0,SOMEBBS".
+X.TP
+X.B -a\fIactivefile\fR
+XUse \fIactivefile\fR for the list of all available newsgroups and
+Xarticle numbers.  The default is /usr/lib/news/active.
+X.TP
+X.B -N\fInewsrcfile\fR
+XUse \fInewsrcfile\fR for the list of all newsgroups to which the
+Xuser is subscribed and the list of article numbers which have been
+Xread.  The default is a file called ".newsrc" in the user's home
+Xdirectory.
+X.TP
+X.B -S\fInewsdir\fR
+XLook for news articles in the directory \fInewsdir\fR.  The default
+Xis /usr/spool/news.
+X.TP
+X.B -B\fImaxblocks\fR
+XStop processing news articles if the size of the QWK packet
+X(specifically, messages.dat) exceeds \fImaxblocks\fR 128-byte blocks.
+XThis is useful since large amounts of unread news can create large
+XQWK files.  Use a \fImaxblocks\fR value of zero to suppress this
+Xcheck.  The default is 4000 blocks (half a megabyte).
+X.TP
+X.B -R\fIreplyfile\fR
+XProcess \fIreplyfile\fR as a reply packet.  Messages and articles
+Xcreated by the offline reader must be uploaded as a reply packet
+Xand then processed by this switch to be mailed or posted.
+X.B uqwk
+Xwill remove \fIreplyfile\fR when it has been processed unless
+Xit is running in read-only mode.
+X.SH "ENVIRONMENT VARIABLES"
+XMost of the run-time options can also be controlled by
+Xenvironment variables.  If an option is specified by both
+Xan environment variable and a command-line option, the
+Xcommand-line option is honored.
+X.TP
+X.B UQ_DO_MAIL
+XDetermines whether or not to process mail.  Should be set to
+X"1" (do mail) or "0" (don't do mail).
+X.TP
+X.B UQ_DO_NEWS
+XDetermines whether or not to process news.  Should be set to
+X"1" (do news) or "0" (don't do news).
+X.TP
+X.B UQ_INC_HDRS
+XDetermines whether or not to include headers in messages.
+XShould be set to "1" (include headers) or "0" (don't include
+Xheaders).
+X.TP
+X.B UQ_PRT_OPTS
+XDetermines whether or not to just print the values of run-time
+Xoptions and stop.  Should be set to "1" (print options) or
+X"0" (don't print options).
+X.TP
+X.B UQ_READ_ONLY
+XDetermines whether or not to run in read-only mode.  Should be
+Xset to "1" (read-only) or "0" (not read-only).
+X.TP
+X.B UQ_MAIL_DIR
+XSpecifies the directory where the mail spool file resides.
+X.TP
+X.B UQ_MAIL_FILE
+XSpecifies the mail spool file.
+X.TP
+X.B UQ_USER_NAME
+XSpecifies the username of the person running
+X.B uqwk.
+X.TP
+X.B UQ_HOME_DIR
+XSpecifies the home directory, where the QWK files will be
+Xcreated, and where
+X.B uqwk
+Xexpects to find the .newsrc file.
+X.TP
+X.B UQ_BBS_NAME
+XSpecifies the BBS name to be entered into the QWK packet.
+X.TP
+X.B UQ_BBS_CITY
+XSpecifies the BBS city to be entered into the QWK packet.
+X.TP
+X.B UQ_BBS_PHONE
+XSpecifies the BBS phone number to be entered into the QWK packet.
+X.TP
+X.B UQ_BBS_SYSOP
+XSpecifies the BBS sysop name to be entered into the QWK packet.
+X.TP
+X.B UQ_BBS_ID
+XSpecifies the BBS ID to be entered into the QWK packet.
+X.TP
+X.B UQ_ACT_FILE
+XSpecifies the name of the news system's active file.
+X.TP
+X.B UQ_NRC_FILE
+XSpecifies the name of the user's .newsrc file.
+X.TP
+X.B UQ_REP_FILE
+XSpecifies the name of the reply packet, if any.
+X.SH "COMMAND LANGUAGE"
+XIf, while processing a reply packet,
+X.B uqwk
+Xencounters a message to the username "UQWK", the body of the
+Xmessage will be interpreted as a small command language, used
+Xto display newsgroup names and subscribe or unsubscribe to
+Xnewsgroups.  The results of the execution of the commands will
+Xbe mailed back to the originating user.
+X.PP
+XThis is what the command language looks like:
+X.TP
+X.B HELP
+XList all the available commands.
+X.TP
+X.B SUBSCRIBE newsgroup
+XSubscribe to the named newsgroup.
+X.TP
+X.B UNSUBSCRIBE newsgroup
+XUnsubscribe from the named newsgroup.  UNSUBSCRIBE ALL may be used to
+Xunsubscribe from all newsgroups.  UNSUBSCRIBE ALL is also the only way
+Xto create a new .newsrc if it does not already exist.
+X.TP
+X.B GROUPS
+XList all newsgroups to which the user is currently subscribed.
+X.TP
+X.B ALLGROUPS
+XList all the available newsgroups and the number of articles in
+Xeach one.
+X.SH BUGS
+XKarl J. Vesterling reported that some .newsrc files cause a core dump.
+XThis may be related to the size of the .newsrc file or to long
+Xlines in the file.  I was unable to reproduce the problem.  Increasing
+XBUF_LEN in uqwk.h may help.
+X.SH "SEE ALSO"
+X.PD
+X.BR mail(1),
+X.BR inews(8)
+X.SH ACKNOWLEDGEMENTS
+XThanks to Patrick Y. Lee (patlee@panix.com) for the QWK documentation.
+XMany thanks also to the beta-testers:  Karl J. Vesterling
+X(kjv@exucom.com) and Brian J. Coan (brian@igc.apc.org).
+X.SH AUTHOR
+XSteve Belczyk, steve1@genesis.nred.ma.us, seb3@gte.com.
+X.PP
+XCopyright (C) 1993 by Steve Belczyk.
+XPermission to use, copy, modify and distribute this software and its
+Xdocumentation for any purpose and without fee is hereby granted, provided
+Xthat the above copyright notice appear in all copies and that both that
+Xcopyright notice and this permission notice appear in supporting
+Xdocumentation.  This software is provided "as is" without express or
+Ximplied warranty.
+END_OF_FILE
+  if test 8779 -ne `wc -c <'uqwk.man'`; then
+    echo shar: \"'uqwk.man'\" unpacked with wrong size!
+  fi
+  # end of 'uqwk.man'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

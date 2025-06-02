@@ -1,0 +1,1868 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v34i065:  jpeg - JPEG image compression, Part11/18
+Message-ID: <1992Dec17.164717.6009@sparky.imd.sterling.com>
+X-Md4-Signature: 50408c53090c67035085854eaabb06f3
+Date: Thu, 17 Dec 1992 16:47:17 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 34, Issue 65
+Archive-name: jpeg/part11
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Atari, Cray
+Supersedes: jpeg: Volume 29, Issue 1-18
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  jcmain.c jdmain.c jrdgif.c
+# Wrapped by kent@sparky on Wed Dec 16 20:52:29 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 11 (of 18)."'
+if test -f 'jcmain.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jcmain.c'\"
+else
+  echo shar: Extracting \"'jcmain.c'\" \(20781 characters\)
+  sed "s/^X//" >'jcmain.c' <<'END_OF_FILE'
+X/*
+X * jcmain.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains a command-line user interface for the JPEG compressor.
+X * It should work on any system with Unix- or MS-DOS-style command lines.
+X *
+X * Two different command line styles are permitted, depending on the
+X * compile-time switch TWO_FILE_COMMANDLINE:
+X *	cjpeg [options]  inputfile outputfile
+X *	cjpeg [options]  [inputfile]
+X * In the second style, output is always to standard output, which you'd
+X * normally redirect to a file or pipe to some other program.  Input is
+X * either from a named file or from standard input (typically redirected).
+X * The second style is convenient on Unix but is unhelpful on systems that
+X * don't support pipes.  Also, you MUST use the first style if your system
+X * doesn't do binary I/O to stdin/stdout.
+X */
+X
+X#include "jinclude.h"
+X#ifdef INCLUDES_ARE_ANSI
+X#include <stdlib.h>		/* to declare exit() */
+X#endif
+X#include <ctype.h>		/* to declare isupper(), tolower() */
+X#ifdef NEED_SIGNAL_CATCHER
+X#include <signal.h>		/* to declare signal() */
+X#endif
+X#ifdef USE_SETMODE
+X#include <fcntl.h>		/* to declare setmode() */
+X#endif
+X
+X#ifdef THINK_C
+X#include <console.h>		/* command-line reader for Macintosh */
+X#endif
+X
+X#ifdef DONT_USE_B_MODE		/* define mode parameters for fopen() */
+X#define READ_BINARY	"r"
+X#define WRITE_BINARY	"w"
+X#else
+X#define READ_BINARY	"rb"
+X#define WRITE_BINARY	"wb"
+X#endif
+X
+X#ifndef EXIT_FAILURE		/* define exit() codes if not provided */
+X#define EXIT_FAILURE  1
+X#endif
+X#ifndef EXIT_SUCCESS
+X#ifdef VMS
+X#define EXIT_SUCCESS  1		/* VMS is very nonstandard */
+X#else
+X#define EXIT_SUCCESS  0
+X#endif
+X#endif
+X
+X
+X#include "jversion.h"		/* for version message */
+X
+X
+X/*
+X * This routine determines what format the input file is,
+X * and selects the appropriate input-reading module.
+X *
+X * To determine which family of input formats the file belongs to,
+X * we may look only at the first byte of the file, since C does not
+X * guarantee that more than one character can be pushed back with ungetc.
+X * Looking at additional bytes would require one of these approaches:
+X *     1) assume we can fseek() the input file (fails for piped input);
+X *     2) assume we can push back more than one character (works in
+X *        some C implementations, but unportable);
+X *     3) provide our own buffering as is done in djpeg (breaks input readers
+X *        that want to use stdio directly, such as the RLE library);
+X * or  4) don't put back the data, and modify the input_init methods to assume
+X *        they start reading after the start of file (also breaks RLE library).
+X * #1 is attractive for MS-DOS but is untenable on Unix.
+X *
+X * The most portable solution for file types that can't be identified by their
+X * first byte is to make the user tell us what they are.  This is also the
+X * only approach for "raw" file types that contain only arbitrary values.
+X * We presently apply this method for Targa files.  Most of the time Targa
+X * files start with 0x00, so we recognize that case.  Potentially, however,
+X * a Targa file could start with any byte value (byte 0 is the length of the
+X * seldom-used ID field), so we provide a switch to force Targa input mode.
+X */
+X
+Xstatic boolean is_targa;	/* records user -targa switch */
+X
+X
+XLOCAL void
+Xselect_file_type (compress_info_ptr cinfo)
+X{
+X  int c;
+X
+X  if (is_targa) {
+X#ifdef TARGA_SUPPORTED
+X    jselrtarga(cinfo);
+X#else
+X    ERREXIT(cinfo->emethods, "Targa support was not compiled");
+X#endif
+X    return;
+X  }
+X
+X  if ((c = getc(cinfo->input_file)) == EOF)
+X    ERREXIT(cinfo->emethods, "Empty input file");
+X
+X  switch (c) {
+X#ifdef GIF_SUPPORTED
+X  case 'G':
+X    jselrgif(cinfo);
+X    break;
+X#endif
+X#ifdef PPM_SUPPORTED
+X  case 'P':
+X    jselrppm(cinfo);
+X    break;
+X#endif
+X#ifdef RLE_SUPPORTED
+X  case 'R':
+X    jselrrle(cinfo);
+X    break;
+X#endif
+X#ifdef TARGA_SUPPORTED
+X  case 0x00:
+X    jselrtarga(cinfo);
+X    break;
+X#endif
+X  default:
+X#ifdef TARGA_SUPPORTED
+X    ERREXIT(cinfo->emethods, "Unrecognized input file format --- perhaps you need -targa");
+X#else
+X    ERREXIT(cinfo->emethods, "Unrecognized input file format");
+X#endif
+X    break;
+X  }
+X
+X  if (ungetc(c, cinfo->input_file) == EOF)
+X    ERREXIT(cinfo->emethods, "ungetc failed");
+X}
+X
+X
+X/*
+X * This routine gets control after the input file header has been read.
+X * It must determine what output JPEG file format is to be written,
+X * and make any other compression parameter changes that are desirable.
+X */
+X
+XMETHODDEF void
+Xc_ui_method_selection (compress_info_ptr cinfo)
+X{
+X  /* If the input is gray scale, generate a monochrome JPEG file. */
+X  if (cinfo->in_color_space == CS_GRAYSCALE)
+X    j_monochrome_default(cinfo);
+X  /* For now, always select JFIF output format. */
+X#ifdef JFIF_SUPPORTED
+X  jselwjfif(cinfo);
+X#else
+X  You shoulda defined JFIF_SUPPORTED.   /* deliberate syntax error */
+X#endif
+X}
+X
+X
+X/*
+X * Signal catcher to ensure that temporary files are removed before aborting.
+X * NB: for Amiga Manx C this is actually a global routine named _abort();
+X * see -Dsignal_catcher=_abort in CFLAGS.  Talk about bogus...
+X */
+X
+X#ifdef NEED_SIGNAL_CATCHER
+X
+Xstatic external_methods_ptr emethods; /* for access to free_all */
+X
+XGLOBAL void
+Xsignal_catcher (int signum)
+X{
+X  if (emethods != NULL) {
+X    emethods->trace_level = 0;	/* turn off trace output */
+X    (*emethods->free_all) ();	/* clean up memory allocation & temp files */
+X  }
+X  exit(EXIT_FAILURE);
+X}
+X
+X#endif
+X
+X
+X/*
+X * Optional routine to display a percent-done figure on stderr.
+X * See jcdeflts.c for explanation of the information used.
+X */
+X
+X#ifdef PROGRESS_REPORT
+X
+XMETHODDEF void
+Xprogress_monitor (compress_info_ptr cinfo, long loopcounter, long looplimit)
+X{
+X  if (cinfo->total_passes > 1) {
+X    fprintf(stderr, "\rPass %d/%d: %3d%% ",
+X	    cinfo->completed_passes+1, cinfo->total_passes,
+X	    (int) (loopcounter*100L/looplimit));
+X  } else {
+X    fprintf(stderr, "\r %3d%% ",
+X	    (int) (loopcounter*100L/looplimit));
+X  }
+X  fflush(stderr);
+X}
+X
+X#endif
+X
+X
+X/*
+X * Argument-parsing code.
+X * The switch parser is designed to be useful with DOS-style command line
+X * syntax, ie, intermixed switches and file names, where only the switches
+X * to the left of a given file name affect processing of that file.
+X * The main program in this file doesn't actually use this capability...
+X */
+X
+X
+Xstatic char * progname;		/* program name for error messages */
+X
+X
+XLOCAL void
+Xusage (void)
+X/* complain about bad command line */
+X{
+X  fprintf(stderr, "usage: %s [switches] ", progname);
+X#ifdef TWO_FILE_COMMANDLINE
+X  fprintf(stderr, "inputfile outputfile\n");
+X#else
+X  fprintf(stderr, "[inputfile]\n");
+X#endif
+X
+X  fprintf(stderr, "Switches (names may be abbreviated):\n");
+X  fprintf(stderr, "  -quality N     Compression quality (0..100; 5-95 is useful range)\n");
+X  fprintf(stderr, "  -grayscale     Create monochrome JPEG file\n");
+X#ifdef ENTROPY_OPT_SUPPORTED
+X  fprintf(stderr, "  -optimize      Optimize Huffman table (smaller file, but slow compression)\n");
+X#endif
+X#ifdef TARGA_SUPPORTED
+X  fprintf(stderr, "  -targa         Input file is Targa format (usually not needed)\n");
+X#endif
+X  fprintf(stderr, "Switches for advanced users:\n");
+X  fprintf(stderr, "  -restart N     Set restart interval in rows, or in blocks with B\n");
+X#ifdef INPUT_SMOOTHING_SUPPORTED
+X  fprintf(stderr, "  -smooth N      Smooth dithered input (N=1..100 is strength)\n");
+X#endif
+X  fprintf(stderr, "  -maxmemory N   Maximum memory to use (in kbytes)\n");
+X  fprintf(stderr, "  -verbose  or  -debug   Emit debug output\n");
+X  fprintf(stderr, "Switches for wizards:\n");
+X#ifdef C_ARITH_CODING_SUPPORTED
+X  fprintf(stderr, "  -arithmetic    Use arithmetic coding\n");
+X#endif
+X#ifdef C_MULTISCAN_FILES_SUPPORTED
+X  fprintf(stderr, "  -nointerleave  Create noninterleaved JPEG file\n");
+X#endif
+X  fprintf(stderr, "  -qtables file  Use quantization tables given in file\n");
+X  fprintf(stderr, "  -sample HxV[,...]  Set JPEG sampling factors\n");
+X  exit(EXIT_FAILURE);
+X}
+X
+X
+XLOCAL boolean
+Xkeymatch (char * arg, const char * keyword, int minchars)
+X/* Case-insensitive matching of (possibly abbreviated) keyword switches. */
+X/* keyword is the constant keyword (must be lower case already), */
+X/* minchars is length of minimum legal abbreviation. */
+X{
+X  register int ca, ck;
+X  register int nmatched = 0;
+X
+X  while ((ca = *arg++) != '\0') {
+X    if ((ck = *keyword++) == '\0')
+X      return FALSE;		/* arg longer than keyword, no good */
+X    if (isupper(ca))		/* force arg to lcase (assume ck is already) */
+X      ca = tolower(ca);
+X    if (ca != ck)
+X      return FALSE;		/* no good */
+X    nmatched++;			/* count matched characters */
+X  }
+X  /* reached end of argument; fail if it's too short for unique abbrev */
+X  if (nmatched < minchars)
+X    return FALSE;
+X  return TRUE;			/* A-OK */
+X}
+X
+X
+XLOCAL int
+Xqt_getc (FILE * file)
+X/* Read next char, skipping over any comments (# to end of line) */
+X/* A comment/newline sequence is returned as a newline */
+X{
+X  register int ch;
+X  
+X  ch = getc(file);
+X  if (ch == '#') {
+X    do {
+X      ch = getc(file);
+X    } while (ch != '\n' && ch != EOF);
+X  }
+X  return ch;
+X}
+X
+X
+XLOCAL long
+Xread_qt_integer (FILE * file)
+X/* Read an unsigned decimal integer from a quantization-table file */
+X/* Swallows one trailing character after the integer */
+X{
+X  register int ch;
+X  register long val;
+X  
+X  /* Skip any leading whitespace, detect EOF */
+X  do {
+X    ch = qt_getc(file);
+X    if (ch == EOF)
+X      return EOF;
+X  } while (isspace(ch));
+X  
+X  if (! isdigit(ch)) {
+X    fprintf(stderr, "%s: bogus data in quantization file\n", progname);
+X    exit(EXIT_FAILURE);
+X  }
+X
+X  val = ch - '0';
+X  while (ch = qt_getc(file), isdigit(ch)) {
+X    val *= 10;
+X    val += ch - '0';
+X  }
+X  return val;
+X}
+X
+X
+XLOCAL void
+Xread_quant_tables (compress_info_ptr cinfo, char * filename, int scale_factor)
+X/* Read a set of quantization tables from the specified file.
+X * The file is plain ASCII text: decimal numbers with whitespace between.
+X * Comments preceded by '#' may be included in the file.
+X * There may be one to NUM_QUANT_TBLS tables in the file, each of 64 values.
+X * The tables are implicitly numbered 0,1,etc.
+X */
+X{
+X  /* ZIG[i] is the zigzag-order position of the i'th element of a DCT block */
+X  /* read in natural order (left to right, top to bottom). */
+X  static const short ZIG[DCTSIZE2] = {
+X     0,  1,  5,  6, 14, 15, 27, 28,
+X     2,  4,  7, 13, 16, 26, 29, 42,
+X     3,  8, 12, 17, 25, 30, 41, 43,
+X     9, 11, 18, 24, 31, 40, 44, 53,
+X    10, 19, 23, 32, 39, 45, 52, 54,
+X    20, 22, 33, 38, 46, 51, 55, 60,
+X    21, 34, 37, 47, 50, 56, 59, 61,
+X    35, 36, 48, 49, 57, 58, 62, 63
+X    };
+X  FILE * fp;
+X  int tblno, i;
+X  long val;
+X  QUANT_TBL table;
+X
+X  if ((fp = fopen(filename, "r")) == NULL) {
+X    fprintf(stderr, "%s: can't open %s\n", progname, filename);
+X    exit(EXIT_FAILURE);
+X  }
+X  tblno = 0;
+X
+X  while ((val = read_qt_integer(fp)) != EOF) { /* read 1st element of table */
+X    if (tblno >= NUM_QUANT_TBLS) {
+X      fprintf(stderr, "%s: too many tables in file %s\n", progname, filename);
+X      exit(EXIT_FAILURE);
+X    }
+X    table[0] = (QUANT_VAL) val;
+X    for (i = 1; i < DCTSIZE2; i++) {
+X      if ((val = read_qt_integer(fp)) == EOF) {
+X	fprintf(stderr, "%s: incomplete table in file %s\n", progname, filename);
+X	exit(EXIT_FAILURE);
+X      }
+X      table[ZIG[i]] = (QUANT_VAL) val;
+X    }
+X    j_add_quant_table(cinfo, tblno, table, scale_factor, FALSE);
+X    tblno++;
+X  }
+X
+X  fclose(fp);
+X}
+X
+X
+XLOCAL void
+Xset_sample_factors (compress_info_ptr cinfo, char *arg)
+X/* Process a sample-factors parameter string, of the form */
+X/*     HxV[,HxV,...]    */
+X{
+X#define MAX_COMPONENTS 4	/* # of comp_info slots made by jcdeflts.c */
+X  int ci, val1, val2;
+X  char ch1, ch2;
+X
+X  for (ci = 0; ci < MAX_COMPONENTS; ci++) {
+X    if (*arg) {
+X      ch2 = ',';		/* if not set by sscanf, will be ',' */
+X      if (sscanf(arg, "%d%c%d%c", &val1, &ch1, &val2, &ch2) < 3)
+X	usage();
+X      if ((ch1 != 'x' && ch1 != 'X') || ch2 != ',')
+X	usage();		/* syntax check */
+X      if (val1 <= 0 || val1 > 4 || val2 <= 0 || val2 > 4) {
+X	fprintf(stderr, "JPEG sampling factors must be 1..4\n");
+X	exit(EXIT_FAILURE);
+X      }
+X      cinfo->comp_info[ci].h_samp_factor = val1;
+X      cinfo->comp_info[ci].v_samp_factor = val2;
+X      while (*arg && *arg++ != ',') /* advance to next segment of arg string */
+X	;
+X    } else {
+X      /* reached end of parameter, set remaining components to 1x1 sampling */
+X      cinfo->comp_info[ci].h_samp_factor = 1;
+X      cinfo->comp_info[ci].v_samp_factor = 1;
+X    }
+X  }
+X}
+X
+X
+XLOCAL int
+Xparse_switches (compress_info_ptr cinfo, int last_file_arg_seen,
+X		int argc, char **argv)
+X/* Initialize cinfo with default switch settings, then parse option switches.
+X * Returns argv[] index of first file-name argument (== argc if none).
+X * Any file names with indexes <= last_file_arg_seen are ignored;
+X * they have presumably been processed in a previous iteration.
+X * (Pass 0 for last_file_arg_seen on the first or only iteration.)
+X */
+X{
+X  int argn;
+X  char * arg;
+X  char * qtablefile = NULL;	/* saves -qtables filename if any */
+X  int q_scale_factor = 100;	/* default to no scaling for -qtables */
+X
+X  /* (Re-)initialize the system-dependent error and memory managers. */
+X  jselerror(cinfo->emethods);	/* error/trace message routines */
+X  jselmemmgr(cinfo->emethods);	/* memory allocation routines */
+X  cinfo->methods->c_ui_method_selection = c_ui_method_selection;
+X
+X  /* Now OK to enable signal catcher. */
+X#ifdef NEED_SIGNAL_CATCHER
+X  emethods = cinfo->emethods;
+X#endif
+X
+X  /* Set up default JPEG parameters. */
+X  /* Note that default -quality level here need not, and does not,
+X   * match the default scaling for an explicit -qtables argument.
+X   */
+X  j_c_defaults(cinfo, 75, FALSE); /* default quality level = 75 */
+X  is_targa = FALSE;
+X
+X  /* Scan command line options, adjust parameters */
+X
+X  for (argn = 1; argn < argc; argn++) {
+X    arg = argv[argn];
+X    if (*arg != '-') {
+X      /* Not a switch, must be a file name argument */
+X      if (argn <= last_file_arg_seen)
+X	continue;		/* ignore it if previously processed */
+X      break;			/* else done parsing switches */
+X    }
+X    arg++;			/* advance past switch marker character */
+X
+X    if (keymatch(arg, "arithmetic", 1)) {
+X      /* Use arithmetic coding. */
+X#ifdef C_ARITH_CODING_SUPPORTED
+X      cinfo->arith_code = TRUE;
+X#else
+X      fprintf(stderr, "%s: sorry, arithmetic coding not supported\n",
+X	      progname);
+X      exit(EXIT_FAILURE);
+X#endif
+X
+X    } else if (keymatch(arg, "debug", 1) || keymatch(arg, "verbose", 1)) {
+X      /* Enable debug printouts. */
+X      /* On first -d, print version identification */
+X      if (last_file_arg_seen == 0 && cinfo->emethods->trace_level == 0)
+X	fprintf(stderr, "Independent JPEG Group's CJPEG, version %s\n%s\n",
+X		JVERSION, JCOPYRIGHT);
+X      cinfo->emethods->trace_level++;
+X
+X    } else if (keymatch(arg, "grayscale", 2) || keymatch(arg, "greyscale",2)) {
+X      /* Force a monochrome JPEG file to be generated. */
+X      j_monochrome_default(cinfo);
+X
+X    } else if (keymatch(arg, "maxmemory", 1)) {
+X      /* Maximum memory in Kb (or Mb with 'm'). */
+X      long lval;
+X      char ch = 'x';
+X
+X      if (++argn >= argc)	/* advance to next argument */
+X	usage();
+X      if (sscanf(argv[argn], "%ld%c", &lval, &ch) < 1)
+X	usage();
+X      if (ch == 'm' || ch == 'M')
+X	lval *= 1000L;
+X      cinfo->emethods->max_memory_to_use = lval * 1000L;
+X
+X    } else if (keymatch(arg, "nointerleave", 3)) {
+X      /* Create noninterleaved file. */
+X#ifdef C_MULTISCAN_FILES_SUPPORTED
+X      cinfo->interleave = FALSE;
+X#else
+X      fprintf(stderr, "%s: sorry, multiple-scan support was not compiled\n",
+X	      progname);
+X      exit(EXIT_FAILURE);
+X#endif
+X
+X    } else if (keymatch(arg, "optimize", 1) || keymatch(arg, "optimise", 1)) {
+X      /* Enable entropy parm optimization. */
+X#ifdef ENTROPY_OPT_SUPPORTED
+X      cinfo->optimize_coding = TRUE;
+X#else
+X      fprintf(stderr, "%s: sorry, entropy optimization was not compiled\n",
+X	      progname);
+X      exit(EXIT_FAILURE);
+X#endif
+X
+X    } else if (keymatch(arg, "quality", 1)) {
+X      /* Quality factor (quantization table scaling factor). */
+X      int val;
+X
+X      if (++argn >= argc)	/* advance to next argument */
+X	usage();
+X      if (sscanf(argv[argn], "%d", &val) != 1)
+X	usage();
+X      /* Set quantization tables (will be overridden if -qtables also given).
+X       * Note: we make force_baseline FALSE.
+X       * This means non-baseline JPEG files can be created with low Q values.
+X       * To ensure only baseline files are generated, pass TRUE instead.
+X       */
+X      j_set_quality(cinfo, val, FALSE);
+X      /* Change scale factor in case -qtables is present. */
+X      q_scale_factor = j_quality_scaling(val);
+X
+X    } else if (keymatch(arg, "qtables", 2)) {
+X      /* Quantization tables fetched from file. */
+X      if (++argn >= argc)	/* advance to next argument */
+X	usage();
+X      qtablefile = argv[argn];
+X      /* we postpone actually reading the file in case -quality comes later */
+X
+X    } else if (keymatch(arg, "restart", 1)) {
+X      /* Restart interval in MCU rows (or in MCUs with 'b'). */
+X      long lval;
+X      char ch = 'x';
+X
+X      if (++argn >= argc)	/* advance to next argument */
+X	usage();
+X      if (sscanf(argv[argn], "%ld%c", &lval, &ch) < 1)
+X	usage();
+X      if (lval < 0 || lval > 65535L)
+X	usage();
+X      if (ch == 'b' || ch == 'B')
+X	cinfo->restart_interval = (UINT16) lval;
+X      else
+X	cinfo->restart_in_rows = (int) lval;
+X
+X    } else if (keymatch(arg, "sample", 2)) {
+X      /* Set sampling factors. */
+X      if (++argn >= argc)	/* advance to next argument */
+X	usage();
+X      set_sample_factors(cinfo, argv[argn]);
+X
+X    } else if (keymatch(arg, "smooth", 2)) {
+X      /* Set input smoothing factor. */
+X      int val;
+X
+X      if (++argn >= argc)	/* advance to next argument */
+X	usage();
+X      if (sscanf(argv[argn], "%d", &val) != 1)
+X	usage();
+X      if (val < 0 || val > 100)
+X	usage();
+X      cinfo->smoothing_factor = val;
+X
+X    } else if (keymatch(arg, "targa", 1)) {
+X      /* Input file is Targa format. */
+X      is_targa = TRUE;
+X
+X    } else {
+X      usage();			/* bogus switch */
+X    }
+X  }
+X
+X  /* Post-switch-scanning cleanup */
+X
+X  if (qtablefile != NULL)	/* process -qtables if it was present */
+X    read_quant_tables(cinfo, qtablefile, q_scale_factor);
+X
+X  return argn;			/* return index of next arg (file name) */
+X}
+X
+X
+X/*
+X * The main program.
+X */
+X
+XGLOBAL int
+Xmain (int argc, char **argv)
+X{
+X  struct Compress_info_struct cinfo;
+X  struct Compress_methods_struct c_methods;
+X  struct External_methods_struct e_methods;
+X  int file_index;
+X
+X  /* On Mac, fetch a command line. */
+X#ifdef THINK_C
+X  argc = ccommand(&argv);
+X#endif
+X
+X  progname = argv[0];
+X
+X  /* Set up links to method structures. */
+X  cinfo.methods = &c_methods;
+X  cinfo.emethods = &e_methods;
+X
+X  /* Install, but don't yet enable signal catcher. */
+X#ifdef NEED_SIGNAL_CATCHER
+X  emethods = NULL;
+X  signal(SIGINT, signal_catcher);
+X#ifdef SIGTERM			/* not all systems have SIGTERM */
+X  signal(SIGTERM, signal_catcher);
+X#endif
+X#endif
+X
+X  /* Scan command line: set up compression parameters, input & output files. */
+X
+X  file_index = parse_switches(&cinfo, 0, argc, argv);
+X
+X#ifdef TWO_FILE_COMMANDLINE
+X
+X  if (file_index != argc-2) {
+X    fprintf(stderr, "%s: must name one input and one output file\n", progname);
+X    usage();
+X  }
+X  if ((cinfo.input_file = fopen(argv[file_index], READ_BINARY)) == NULL) {
+X    fprintf(stderr, "%s: can't open %s\n", progname, argv[file_index]);
+X    exit(EXIT_FAILURE);
+X  }
+X  if ((cinfo.output_file = fopen(argv[file_index+1], WRITE_BINARY)) == NULL) {
+X    fprintf(stderr, "%s: can't open %s\n", progname, argv[file_index+1]);
+X    exit(EXIT_FAILURE);
+X  }
+X
+X#else /* not TWO_FILE_COMMANDLINE -- use Unix style */
+X
+X  cinfo.input_file = stdin;	/* default input file */
+X  cinfo.output_file = stdout;	/* always the output file */
+X
+X#ifdef USE_SETMODE		/* need to hack file mode? */
+X  setmode(fileno(stdin), O_BINARY);
+X  setmode(fileno(stdout), O_BINARY);
+X#endif
+X
+X  if (file_index < argc-1) {
+X    fprintf(stderr, "%s: only one input file\n", progname);
+X    usage();
+X  }
+X  if (file_index < argc) {
+X    if ((cinfo.input_file = fopen(argv[file_index], READ_BINARY)) == NULL) {
+X      fprintf(stderr, "%s: can't open %s\n", progname, argv[file_index]);
+X      exit(EXIT_FAILURE);
+X    }
+X  }
+X
+X#endif /* TWO_FILE_COMMANDLINE */
+X
+X  /* Figure out the input file format, and set up to read it. */
+X  select_file_type(&cinfo);
+X
+X#ifdef PROGRESS_REPORT
+X  /* Start up progress display, unless trace output is on */
+X  if (e_methods.trace_level == 0)
+X    c_methods.progress_monitor = progress_monitor;
+X#endif
+X
+X  /* Do it to it! */
+X  jpeg_compress(&cinfo);
+X
+X#ifdef PROGRESS_REPORT
+X  /* Clear away progress display */
+X  if (e_methods.trace_level == 0) {
+X    fprintf(stderr, "\r                \r");
+X    fflush(stderr);
+X  }
+X#endif
+X
+X  /* All done. */
+X  exit(EXIT_SUCCESS);
+X  return 0;			/* suppress no-return-value warnings */
+X}
+END_OF_FILE
+  if test 20781 -ne `wc -c <'jcmain.c'`; then
+    echo shar: \"'jcmain.c'\" unpacked with wrong size!
+  fi
+  # end of 'jcmain.c'
+fi
+if test -f 'jdmain.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jdmain.c'\"
+else
+  echo shar: Extracting \"'jdmain.c'\" \(13745 characters\)
+  sed "s/^X//" >'jdmain.c' <<'END_OF_FILE'
+X/*
+X * jdmain.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains a command-line user interface for the JPEG decompressor.
+X * It should work on any system with Unix- or MS-DOS-style command lines.
+X *
+X * Two different command line styles are permitted, depending on the
+X * compile-time switch TWO_FILE_COMMANDLINE:
+X *	djpeg [options]  inputfile outputfile
+X *	djpeg [options]  [inputfile]
+X * In the second style, output is always to standard output, which you'd
+X * normally redirect to a file or pipe to some other program.  Input is
+X * either from a named file or from standard input (typically redirected).
+X * The second style is convenient on Unix but is unhelpful on systems that
+X * don't support pipes.  Also, you MUST use the first style if your system
+X * doesn't do binary I/O to stdin/stdout.
+X */
+X
+X#include "jinclude.h"
+X#ifdef INCLUDES_ARE_ANSI
+X#include <stdlib.h>		/* to declare exit() */
+X#endif
+X#include <ctype.h>		/* to declare isupper(), tolower() */
+X#ifdef NEED_SIGNAL_CATCHER
+X#include <signal.h>		/* to declare signal() */
+X#endif
+X#ifdef USE_SETMODE
+X#include <fcntl.h>		/* to declare setmode() */
+X#endif
+X
+X#ifdef THINK_C
+X#include <console.h>		/* command-line reader for Macintosh */
+X#endif
+X
+X#ifdef DONT_USE_B_MODE		/* define mode parameters for fopen() */
+X#define READ_BINARY	"r"
+X#define WRITE_BINARY	"w"
+X#else
+X#define READ_BINARY	"rb"
+X#define WRITE_BINARY	"wb"
+X#endif
+X
+X#ifndef EXIT_FAILURE		/* define exit() codes if not provided */
+X#define EXIT_FAILURE  1
+X#endif
+X#ifndef EXIT_SUCCESS
+X#ifdef VMS
+X#define EXIT_SUCCESS  1		/* VMS is very nonstandard */
+X#else
+X#define EXIT_SUCCESS  0
+X#endif
+X#endif
+X
+X
+X#include "jversion.h"		/* for version message */
+X
+X
+X/*
+X * This list defines the known output image formats
+X * (not all of which need be supported by a given version).
+X * You can change the default output format by defining DEFAULT_FMT;
+X * indeed, you had better do so if you undefine PPM_SUPPORTED.
+X */
+X
+Xtypedef enum {
+X	FMT_GIF,		/* GIF format */
+X	FMT_PPM,		/* PPM/PGM (PBMPLUS formats) */
+X	FMT_RLE,		/* RLE format */
+X	FMT_TARGA,		/* Targa format */
+X	FMT_TIFF		/* TIFF format */
+X} IMAGE_FORMATS;
+X
+X#ifndef DEFAULT_FMT		/* so can override from CFLAGS in Makefile */
+X#define DEFAULT_FMT	FMT_PPM
+X#endif
+X
+Xstatic IMAGE_FORMATS requested_fmt;
+X
+X
+X/*
+X * This routine gets control after the input file header has been read.
+X * It must determine what output file format is to be written,
+X * and make any other decompression parameter changes that are desirable.
+X */
+X
+XMETHODDEF void
+Xd_ui_method_selection (decompress_info_ptr cinfo)
+X{
+X  /* if grayscale or CMYK input, force similar output; */
+X  /* else leave the output colorspace as set by options. */
+X  if (cinfo->jpeg_color_space == CS_GRAYSCALE)
+X    cinfo->out_color_space = CS_GRAYSCALE;
+X  else if (cinfo->jpeg_color_space == CS_CMYK)
+X    cinfo->out_color_space = CS_CMYK;
+X
+X  /* select output file format */
+X  /* Note: jselwxxx routine may make additional parameter changes,
+X   * such as forcing color quantization if it's a colormapped format.
+X   */
+X  switch (requested_fmt) {
+X#ifdef GIF_SUPPORTED
+X  case FMT_GIF:
+X    jselwgif(cinfo);
+X    break;
+X#endif
+X#ifdef PPM_SUPPORTED
+X  case FMT_PPM:
+X    jselwppm(cinfo);
+X    break;
+X#endif
+X#ifdef RLE_SUPPORTED
+X  case FMT_RLE:
+X    jselwrle(cinfo);
+X    break;
+X#endif
+X#ifdef TARGA_SUPPORTED
+X  case FMT_TARGA:
+X    jselwtarga(cinfo);
+X    break;
+X#endif
+X  default:
+X    ERREXIT(cinfo->emethods, "Unsupported output file format");
+X    break;
+X  }
+X}
+X
+X
+X/*
+X * Signal catcher to ensure that temporary files are removed before aborting.
+X * NB: for Amiga Manx C this is actually a global routine named _abort();
+X * see -Dsignal_catcher=_abort in CFLAGS.  Talk about bogus...
+X */
+X
+X#ifdef NEED_SIGNAL_CATCHER
+X
+Xstatic external_methods_ptr emethods; /* for access to free_all */
+X
+XGLOBAL void
+Xsignal_catcher (int signum)
+X{
+X  if (emethods != NULL) {
+X    emethods->trace_level = 0;	/* turn off trace output */
+X    (*emethods->free_all) ();	/* clean up memory allocation & temp files */
+X  }
+X  exit(EXIT_FAILURE);
+X}
+X
+X#endif
+X
+X
+X/*
+X * Optional routine to display a percent-done figure on stderr.
+X * See jddeflts.c for explanation of the information used.
+X */
+X
+X#ifdef PROGRESS_REPORT
+X
+XMETHODDEF void
+Xprogress_monitor (decompress_info_ptr cinfo, long loopcounter, long looplimit)
+X{
+X  if (cinfo->total_passes > 1) {
+X    fprintf(stderr, "\rPass %d/%d: %3d%% ",
+X	    cinfo->completed_passes+1, cinfo->total_passes,
+X	    (int) (loopcounter*100L/looplimit));
+X  } else {
+X    fprintf(stderr, "\r %3d%% ",
+X	    (int) (loopcounter*100L/looplimit));
+X  }
+X  fflush(stderr);
+X}
+X
+X#endif
+X
+X
+X/*
+X * Argument-parsing code.
+X * The switch parser is designed to be useful with DOS-style command line
+X * syntax, ie, intermixed switches and file names, where only the switches
+X * to the left of a given file name affect processing of that file.
+X * The main program in this file doesn't actually use this capability...
+X */
+X
+X
+Xstatic char * progname;		/* program name for error messages */
+X
+X
+XLOCAL void
+Xusage (void)
+X/* complain about bad command line */
+X{
+X  fprintf(stderr, "usage: %s [switches] ", progname);
+X#ifdef TWO_FILE_COMMANDLINE
+X  fprintf(stderr, "inputfile outputfile\n");
+X#else
+X  fprintf(stderr, "[inputfile]\n");
+X#endif
+X
+X  fprintf(stderr, "Switches (names may be abbreviated):\n");
+X  fprintf(stderr, "  -colors N      Reduce image to no more than N colors\n");
+X#ifdef GIF_SUPPORTED
+X  fprintf(stderr, "  -gif           Select GIF output format\n");
+X#endif
+X#ifdef PPM_SUPPORTED
+X  fprintf(stderr, "  -pnm           Select PBMPLUS (PPM/PGM) output format (default)\n");
+X#endif
+X  fprintf(stderr, "  -quantize N    Same as -colors N\n");
+X#ifdef RLE_SUPPORTED
+X  fprintf(stderr, "  -rle           Select Utah RLE output format\n");
+X#endif
+X#ifdef TARGA_SUPPORTED
+X  fprintf(stderr, "  -targa         Select Targa output format\n");
+X#endif
+X  fprintf(stderr, "Switches for advanced users:\n");
+X#ifdef BLOCK_SMOOTHING_SUPPORTED
+X  fprintf(stderr, "  -blocksmooth   Apply cross-block smoothing\n");
+X#endif
+X  fprintf(stderr, "  -grayscale     Force grayscale output\n");
+X  fprintf(stderr, "  -nodither      Don't use dithering in quantization\n");
+X#ifdef QUANT_1PASS_SUPPORTED
+X  fprintf(stderr, "  -onepass       Use 1-pass quantization (fast, low quality)\n");
+X#endif
+X  fprintf(stderr, "  -maxmemory N   Maximum memory to use (in kbytes)\n");
+X  fprintf(stderr, "  -verbose  or  -debug   Emit debug output\n");
+X  exit(EXIT_FAILURE);
+X}
+X
+X
+XLOCAL boolean
+Xkeymatch (char * arg, const char * keyword, int minchars)
+X/* Case-insensitive matching of (possibly abbreviated) keyword switches. */
+X/* keyword is the constant keyword (must be lower case already), */
+X/* minchars is length of minimum legal abbreviation. */
+X{
+X  register int ca, ck;
+X  register int nmatched = 0;
+X
+X  while ((ca = *arg++) != '\0') {
+X    if ((ck = *keyword++) == '\0')
+X      return FALSE;		/* arg longer than keyword, no good */
+X    if (isupper(ca))		/* force arg to lcase (assume ck is already) */
+X      ca = tolower(ca);
+X    if (ca != ck)
+X      return FALSE;		/* no good */
+X    nmatched++;			/* count matched characters */
+X  }
+X  /* reached end of argument; fail if it's too short for unique abbrev */
+X  if (nmatched < minchars)
+X    return FALSE;
+X  return TRUE;			/* A-OK */
+X}
+X
+X
+XLOCAL int
+Xparse_switches (decompress_info_ptr cinfo, int last_file_arg_seen,
+X		int argc, char **argv)
+X/* Initialize cinfo with default switch settings, then parse option switches.
+X * Returns argv[] index of first file-name argument (== argc if none).
+X * Any file names with indexes <= last_file_arg_seen are ignored;
+X * they have presumably been processed in a previous iteration.
+X * (Pass 0 for last_file_arg_seen on the first or only iteration.)
+X */
+X{
+X  int argn;
+X  char * arg;
+X
+X  /* (Re-)initialize the system-dependent error and memory managers. */
+X  jselerror(cinfo->emethods);	/* error/trace message routines */
+X  jselmemmgr(cinfo->emethods);	/* memory allocation routines */
+X  cinfo->methods->d_ui_method_selection = d_ui_method_selection;
+X
+X  /* Now OK to enable signal catcher. */
+X#ifdef NEED_SIGNAL_CATCHER
+X  emethods = cinfo->emethods;
+X#endif
+X
+X  /* Set up default JPEG parameters. */
+X  j_d_defaults(cinfo, TRUE);
+X  requested_fmt = DEFAULT_FMT;	/* set default output file format */
+X
+X  /* Scan command line options, adjust parameters */
+X
+X  for (argn = 1; argn < argc; argn++) {
+X    arg = argv[argn];
+X    if (*arg != '-') {
+X      /* Not a switch, must be a file name argument */
+X      if (argn <= last_file_arg_seen)
+X	continue;		/* ignore it if previously processed */
+X      break;			/* else done parsing switches */
+X    }
+X    arg++;			/* advance past switch marker character */
+X
+X    if (keymatch(arg, "blocksmooth", 1)) {
+X      /* Enable cross-block smoothing. */
+X      cinfo->do_block_smoothing = TRUE;
+X
+X    } else if (keymatch(arg, "colors", 1) || keymatch(arg, "colours", 1) ||
+X	       keymatch(arg, "quantize", 1) || keymatch(arg, "quantise", 1)) {
+X      /* Do color quantization. */
+X      int val;
+X
+X      if (++argn >= argc)	/* advance to next argument */
+X	usage();
+X      if (sscanf(argv[argn], "%d", &val) != 1)
+X	usage();
+X      cinfo->desired_number_of_colors = val;
+X      cinfo->quantize_colors = TRUE;
+X
+X    } else if (keymatch(arg, "debug", 1) || keymatch(arg, "verbose", 1)) {
+X      /* Enable debug printouts. */
+X      /* On first -d, print version identification */
+X      if (last_file_arg_seen == 0 && cinfo->emethods->trace_level == 0)
+X	fprintf(stderr, "Independent JPEG Group's DJPEG, version %s\n%s\n",
+X		JVERSION, JCOPYRIGHT);
+X      cinfo->emethods->trace_level++;
+X
+X    } else if (keymatch(arg, "gif", 1)) {
+X      /* GIF output format. */
+X      requested_fmt = FMT_GIF;
+X
+X    } else if (keymatch(arg, "grayscale", 2) || keymatch(arg, "greyscale",2)) {
+X      /* Force monochrome output. */
+X      cinfo->out_color_space = CS_GRAYSCALE;
+X
+X    } else if (keymatch(arg, "maxmemory", 1)) {
+X      /* Maximum memory in Kb (or Mb with 'm'). */
+X      long lval;
+X      char ch = 'x';
+X
+X      if (++argn >= argc)	/* advance to next argument */
+X	usage();
+X      if (sscanf(argv[argn], "%ld%c", &lval, &ch) < 1)
+X	usage();
+X      if (ch == 'm' || ch == 'M')
+X	lval *= 1000L;
+X      cinfo->emethods->max_memory_to_use = lval * 1000L;
+X
+X    } else if (keymatch(arg, "nodither", 3)) {
+X      /* Suppress dithering in color quantization. */
+X      cinfo->use_dithering = FALSE;
+X
+X    } else if (keymatch(arg, "onepass", 1)) {
+X      /* Use fast one-pass quantization. */
+X      cinfo->two_pass_quantize = FALSE;
+X
+X    } else if (keymatch(arg, "pnm", 1)) {
+X      /* PPM/PGM output format. */
+X      requested_fmt = FMT_PPM;
+X
+X    } else if (keymatch(arg, "rle", 1)) {
+X      /* RLE output format. */
+X      requested_fmt = FMT_RLE;
+X
+X    } else if (keymatch(arg, "targa", 1)) {
+X      /* Targa output format. */
+X      requested_fmt = FMT_TARGA;
+X
+X    } else {
+X      usage();			/* bogus switch */
+X    }
+X  }
+X
+X  return argn;			/* return index of next arg (file name) */
+X}
+X
+X
+X/*
+X * The main program.
+X */
+X
+XGLOBAL int
+Xmain (int argc, char **argv)
+X{
+X  struct Decompress_info_struct cinfo;
+X  struct Decompress_methods_struct dc_methods;
+X  struct External_methods_struct e_methods;
+X  int file_index;
+X
+X  /* On Mac, fetch a command line. */
+X#ifdef THINK_C
+X  argc = ccommand(&argv);
+X#endif
+X
+X  progname = argv[0];
+X
+X  /* Set up links to method structures. */
+X  cinfo.methods = &dc_methods;
+X  cinfo.emethods = &e_methods;
+X
+X  /* Install, but don't yet enable signal catcher. */
+X#ifdef NEED_SIGNAL_CATCHER
+X  emethods = NULL;
+X  signal(SIGINT, signal_catcher);
+X#ifdef SIGTERM			/* not all systems have SIGTERM */
+X  signal(SIGTERM, signal_catcher);
+X#endif
+X#endif
+X
+X  /* Scan command line: set up compression parameters, input & output files. */
+X
+X  file_index = parse_switches(&cinfo, 0, argc, argv);
+X
+X#ifdef TWO_FILE_COMMANDLINE
+X
+X  if (file_index != argc-2) {
+X    fprintf(stderr, "%s: must name one input and one output file\n", progname);
+X    usage();
+X  }
+X  if ((cinfo.input_file = fopen(argv[file_index], READ_BINARY)) == NULL) {
+X    fprintf(stderr, "%s: can't open %s\n", progname, argv[file_index]);
+X    exit(EXIT_FAILURE);
+X  }
+X  if ((cinfo.output_file = fopen(argv[file_index+1], WRITE_BINARY)) == NULL) {
+X    fprintf(stderr, "%s: can't open %s\n", progname, argv[file_index+1]);
+X    exit(EXIT_FAILURE);
+X  }
+X
+X#else /* not TWO_FILE_COMMANDLINE -- use Unix style */
+X
+X  cinfo.input_file = stdin;	/* default input file */
+X  cinfo.output_file = stdout;	/* always the output file */
+X
+X#ifdef USE_SETMODE		/* need to hack file mode? */
+X  setmode(fileno(stdin), O_BINARY);
+X  setmode(fileno(stdout), O_BINARY);
+X#endif
+X
+X  if (file_index < argc-1) {
+X    fprintf(stderr, "%s: only one input file\n", progname);
+X    usage();
+X  }
+X  if (file_index < argc) {
+X    if ((cinfo.input_file = fopen(argv[file_index], READ_BINARY)) == NULL) {
+X      fprintf(stderr, "%s: can't open %s\n", progname, argv[file_index]);
+X      exit(EXIT_FAILURE);
+X    }
+X  }
+X
+X#endif /* TWO_FILE_COMMANDLINE */
+X  
+X  /* Set up to read a JFIF or baseline-JPEG file. */
+X  /* A smarter UI would inspect the first few bytes of the input file */
+X  /* to determine its type. */
+X#ifdef JFIF_SUPPORTED
+X  jselrjfif(&cinfo);
+X#else
+X  You shoulda defined JFIF_SUPPORTED.   /* deliberate syntax error */
+X#endif
+X
+X#ifdef PROGRESS_REPORT
+X  /* Start up progress display, unless trace output is on */
+X  if (e_methods.trace_level == 0)
+X    dc_methods.progress_monitor = progress_monitor;
+X#endif
+X
+X  /* Do it to it! */
+X  jpeg_decompress(&cinfo);
+X
+X#ifdef PROGRESS_REPORT
+X  /* Clear away progress display */
+X  if (e_methods.trace_level == 0) {
+X    fprintf(stderr, "\r                \r");
+X    fflush(stderr);
+X  }
+X#endif
+X
+X  /* All done. */
+X  exit(EXIT_SUCCESS);
+X  return 0;			/* suppress no-return-value warnings */
+X}
+END_OF_FILE
+  if test 13745 -ne `wc -c <'jdmain.c'`; then
+    echo shar: \"'jdmain.c'\" unpacked with wrong size!
+  fi
+  # end of 'jdmain.c'
+fi
+if test -f 'jrdgif.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrdgif.c'\"
+else
+  echo shar: Extracting \"'jrdgif.c'\" \(20480 characters\)
+  sed "s/^X//" >'jrdgif.c' <<'END_OF_FILE'
+X/*
+X * jrdgif.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to read input images in GIF format.
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume input from
+X * an ordinary stdio stream.  They further assume that reading begins
+X * at the start of the file; input_init may need work if the
+X * user interface has already read some data (e.g., to determine that
+X * the file is indeed GIF format).
+X *
+X * These routines are invoked via the methods get_input_row
+X * and input_init/term.
+X */
+X
+X/*
+X * This code is loosely based on giftoppm from the PBMPLUS distribution
+X * of Feb. 1991.  That file contains the following copyright notice:
+X * +-------------------------------------------------------------------+
+X * | Copyright 1990, David Koblas.                                     |
+X * |   Permission to use, copy, modify, and distribute this software   |
+X * |   and its documentation for any purpose and without fee is hereby |
+X * |   granted, provided that the above copyright notice appear in all |
+X * |   copies and that both that copyright notice and this permission  |
+X * |   notice appear in supporting documentation.  This software is    |
+X * |   provided "as is" without express or implied warranty.           |
+X * +-------------------------------------------------------------------+
+X *
+X * We are also required to state that
+X *    "The Graphics Interchange Format(c) is the Copyright property of
+X *    CompuServe Incorporated. GIF(sm) is a Service Mark property of
+X *    CompuServe Incorporated."
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef GIF_SUPPORTED
+X
+X
+X#define	MAXCOLORMAPSIZE	256	/* max # of colors in a GIF colormap */
+X#define NUMCOLORS	3	/* # of colors */
+X#define CM_RED		0	/* color component numbers */
+X#define CM_GREEN	1
+X#define CM_BLUE		2
+X
+Xstatic JSAMPARRAY colormap;	/* the colormap to use */
+X/* colormap[i][j] = value of i'th color component for pixel value j */
+X
+X#define	MAX_LZW_BITS	12	/* maximum LZW code size */
+X#define LZW_TABLE_SIZE	(1<<MAX_LZW_BITS) /* # of possible LZW symbols */
+X
+X/* Macros for extracting header data --- note we assume chars may be signed */
+X
+X#define LM_to_uint(a,b)		((((b)&0xFF) << 8) | ((a)&0xFF))
+X
+X#define BitSet(byte, bit)	((byte) & (bit))
+X#define INTERLACE	0x40	/* mask for bit signifying interlaced image */
+X#define COLORMAPFLAG	0x80	/* mask for bit signifying colormap presence */
+X
+X#define	ReadOK(file,buffer,len)	(JFREAD(file,buffer,len) == ((size_t) (len)))
+X
+X/* Static vars for GetCode and LZWReadByte */
+X
+Xstatic char code_buf[256+4];	/* current input data block */
+Xstatic int last_byte;		/* # of bytes in code_buf */
+Xstatic int last_bit;		/* # of bits in code_buf */
+Xstatic int cur_bit;		/* next bit index to read */
+Xstatic boolean out_of_blocks;	/* TRUE if hit terminator data block */
+X
+Xstatic int input_code_size;	/* codesize given in GIF file */
+Xstatic int clear_code,end_code; /* values for Clear and End codes */
+X
+Xstatic int code_size;		/* current actual code size */
+Xstatic int limit_code;		/* 2^code_size */
+Xstatic int max_code;		/* first unused code value */
+Xstatic boolean first_time;	/* flags first call to LZWReadByte */
+X
+X/* LZW decompression tables:
+X *   symbol_head[K] = prefix symbol of any LZW symbol K (0..LZW_TABLE_SIZE-1)
+X *   symbol_tail[K] = suffix byte   of any LZW symbol K (0..LZW_TABLE_SIZE-1)
+X * Note that entries 0..end_code of the above tables are not used,
+X * since those symbols represent raw bytes or special codes.
+X *
+X * The stack represents the not-yet-used expansion of the last LZW symbol.
+X * In the worst case, a symbol could expand to as many bytes as there are
+X * LZW symbols, so we allocate LZW_TABLE_SIZE bytes for the stack.
+X * (This is conservative since that number includes the raw-byte symbols.)
+X *
+X * The tables are allocated from FAR heap space since they would use up
+X * rather a lot of the near data space in a PC.
+X */
+X
+Xstatic UINT16 FAR *symbol_head; /* => table of prefix symbols */
+Xstatic UINT8  FAR *symbol_tail; /* => table of suffix bytes */
+Xstatic UINT8  FAR *symbol_stack; /* stack for symbol expansions */
+Xstatic UINT8  FAR *sp;		/* stack pointer */
+X
+X/* Static state for interlaced image processing */
+X
+Xstatic boolean is_interlaced;	/* TRUE if have interlaced image */
+Xstatic big_sarray_ptr interlaced_image;	/* full image in interlaced order */
+Xstatic long cur_row_number;	/* need to know actual row number */
+Xstatic long pass2_offset;	/* # of pixel rows in pass 1 */
+Xstatic long pass3_offset;	/* # of pixel rows in passes 1&2 */
+Xstatic long pass4_offset;	/* # of pixel rows in passes 1,2,3 */
+X
+X
+X/* Forward declarations */
+XMETHODDEF void load_interlaced_image PP((compress_info_ptr cinfo, JSAMPARRAY pixel_row));
+XMETHODDEF void get_interlaced_row PP((compress_info_ptr cinfo, JSAMPARRAY pixel_row));
+X
+X
+X
+XLOCAL int
+XReadByte (compress_info_ptr cinfo)
+X/* Read next byte from GIF file */
+X{
+X  register FILE * infile = cinfo->input_file;
+X  int c;
+X
+X  if ((c = getc(infile)) == EOF)
+X    ERREXIT(cinfo->emethods, "Premature EOF in GIF file");
+X  return c;
+X}
+X
+X
+XLOCAL int
+XGetDataBlock (compress_info_ptr cinfo, char *buf)
+X/* Read a GIF data block, which has a leading count byte */
+X/* A zero-length block marks the end of a data block sequence */
+X{
+X  int count;
+X
+X  count = ReadByte(cinfo);
+X  if (count > 0) {
+X    if (! ReadOK(cinfo->input_file, buf, count))
+X      ERREXIT(cinfo->emethods, "Premature EOF in GIF file");
+X  }
+X  return count;
+X}
+X
+X
+XLOCAL void
+XSkipDataBlocks (compress_info_ptr cinfo)
+X/* Skip a series of data blocks, until a block terminator is found */
+X{
+X  char buf[256];
+X
+X  while (GetDataBlock(cinfo, buf) > 0)
+X    /* skip */;
+X}
+X
+X
+XLOCAL void
+XReInitLZW (void)
+X/* (Re)initialize LZW state; shared code for startup and Clear processing */
+X{
+X  code_size = input_code_size+1;
+X  limit_code = clear_code << 1;	/* 2^code_size */
+X  max_code = clear_code + 2;	/* first unused code value */
+X  sp = symbol_stack;		/* init stack to empty */
+X}
+X
+X
+XLOCAL void
+XInitLZWCode (void)
+X/* Initialize for a series of LZWReadByte (and hence GetCode) calls */
+X{
+X  /* GetCode initialization */
+X  last_byte = 2;		/* make safe to "recopy last two bytes" */
+X  last_bit = 0;			/* nothing in the buffer */
+X  cur_bit = 0;			/* force buffer load on first call */
+X  out_of_blocks = FALSE;
+X
+X  /* LZWReadByte initialization */
+X  clear_code = 1 << input_code_size; /* compute special code values */
+X  end_code = clear_code + 1;	/* note that these do not change */
+X  first_time = TRUE;
+X  ReInitLZW();
+X}
+X
+X
+XLOCAL int
+XGetCode (compress_info_ptr cinfo)
+X/* Fetch the next code_size bits from the GIF data */
+X/* We assume code_size is less than 16 */
+X{
+X  register INT32 accum;
+X  int offs, ret, count;
+X
+X  if ( (cur_bit+code_size) > last_bit) {
+X    /* Time to reload the buffer */
+X    if (out_of_blocks) {
+X      WARNMS(cinfo->emethods, "Ran out of GIF bits");
+X      return end_code;		/* fake something useful */
+X    }
+X    /* preserve last two bytes of what we have -- assume code_size <= 16 */
+X    code_buf[0] = code_buf[last_byte-2];
+X    code_buf[1] = code_buf[last_byte-1];
+X    /* Load more bytes; set flag if we reach the terminator block */
+X    if ((count = GetDataBlock(cinfo, &code_buf[2])) == 0) {
+X      out_of_blocks = TRUE;
+X      WARNMS(cinfo->emethods, "Ran out of GIF bits");
+X      return end_code;		/* fake something useful */
+X    }
+X    /* Reset counters */
+X    cur_bit = (cur_bit - last_bit) + 16;
+X    last_byte = 2 + count;
+X    last_bit = last_byte * 8;
+X  }
+X
+X  /* Form up next 24 bits in accum */
+X  offs = cur_bit >> 3;		/* byte containing cur_bit */
+X#ifdef CHAR_IS_UNSIGNED
+X  accum = code_buf[offs+2];
+X  accum <<= 8;
+X  accum |= code_buf[offs+1];
+X  accum <<= 8;
+X  accum |= code_buf[offs];
+X#else
+X  accum = code_buf[offs+2] & 0xFF;
+X  accum <<= 8;
+X  accum |= code_buf[offs+1] & 0xFF;
+X  accum <<= 8;
+X  accum |= code_buf[offs] & 0xFF;
+X#endif
+X
+X  /* Right-align cur_bit in accum, then mask off desired number of bits */
+X  accum >>= (cur_bit & 7);
+X  ret = ((int) accum) & ((1 << code_size) - 1);
+X  
+X  cur_bit += code_size;
+X  return ret;
+X}
+X
+X
+XLOCAL int
+XLZWReadByte (compress_info_ptr cinfo)
+X/* Read an LZW-compressed byte */
+X{
+X  static int oldcode;		/* previous LZW symbol */
+X  static int firstcode;		/* first byte of oldcode's expansion */
+X  register int code;		/* current working code */
+X  int incode;			/* saves actual input code */
+X
+X  /* First time, just eat the expected Clear code(s) and return next code, */
+X  /* which is expected to be a raw byte. */
+X  if (first_time) {
+X    first_time = FALSE;
+X    code = clear_code;		/* enables sharing code with Clear case */
+X  } else {
+X
+X    /* If any codes are stacked from a previously read symbol, return them */
+X    if (sp > symbol_stack)
+X      return (int) *(--sp);
+X
+X    /* Time to read a new symbol */
+X    code = GetCode(cinfo);
+X
+X  }
+X
+X  if (code == clear_code) {
+X    /* Reinit static state, swallow any extra Clear codes, and */
+X    /* return next code, which is expected to be a raw byte. */
+X    ReInitLZW();
+X    do {
+X      code = GetCode(cinfo);
+X    } while (code == clear_code);
+X    if (code > clear_code) {	/* make sure it is a raw byte */
+X      WARNMS(cinfo->emethods, "Corrupt data in GIF file");
+X      code = 0;			/* use something valid */
+X    }
+X    firstcode = oldcode = code;	/* make firstcode, oldcode valid! */
+X    return code;
+X  }
+X
+X  if (code == end_code) {
+X    /* Skip the rest of the image, unless GetCode already read terminator */
+X    if (! out_of_blocks) {
+X      SkipDataBlocks(cinfo);
+X      out_of_blocks = TRUE;
+X    }
+X    /* Complain that there's not enough data */
+X    WARNMS(cinfo->emethods, "Premature end of GIF image");
+X    /* Pad data with 0's */
+X    return 0;			/* fake something usable */
+X  }
+X
+X  /* Got normal raw byte or LZW symbol */
+X  incode = code;		/* save for a moment */
+X  
+X  if (code >= max_code) {	/* special case for not-yet-defined symbol */
+X    /* code == max_code is OK; anything bigger is bad data */
+X    if (code > max_code) {
+X      WARNMS(cinfo->emethods, "Corrupt data in GIF file");
+X      incode = 0;		/* prevent creation of loops in symbol table */
+X    }
+X    *sp++ = (UINT8) firstcode;	/* it will be defined as oldcode/firstcode */
+X    code = oldcode;
+X  }
+X
+X  /* If it's a symbol, expand it into the stack */
+X  while (code >= clear_code) {
+X    *sp++ = symbol_tail[code];	/* tail of symbol: a simple byte value */
+X    code = symbol_head[code];	/* head of symbol: another LZW symbol */
+X  }
+X  /* At this point code just represents a raw byte */
+X  firstcode = code;		/* save for possible future use */
+X
+X  /* If there's room in table, */
+X  if ((code = max_code) < LZW_TABLE_SIZE) {
+X    /* Define a new symbol = prev sym + head of this sym's expansion */
+X    symbol_head[code] = oldcode;
+X    symbol_tail[code] = (UINT8) firstcode;
+X    max_code++;
+X    /* Is it time to increase code_size? */
+X    if ((max_code >= limit_code) && (code_size < MAX_LZW_BITS)) {
+X      code_size++;
+X      limit_code <<= 1;		/* keep equal to 2^code_size */
+X    }
+X  }
+X  
+X  oldcode = incode;		/* save last input symbol for future use */
+X  return firstcode;		/* return first byte of symbol's expansion */
+X}
+X
+X
+XLOCAL void
+XReadColorMap (compress_info_ptr cinfo, int cmaplen, JSAMPARRAY cmap)
+X/* Read a GIF colormap */
+X{
+X  int i;
+X
+X  for (i = 0; i < cmaplen; i++) {
+X    cmap[CM_RED][i]   = (JSAMPLE) ReadByte(cinfo);
+X    cmap[CM_GREEN][i] = (JSAMPLE) ReadByte(cinfo);
+X    cmap[CM_BLUE][i]  = (JSAMPLE) ReadByte(cinfo);
+X  }
+X}
+X
+X
+XLOCAL void
+XDoExtension (compress_info_ptr cinfo)
+X/* Process an extension block */
+X/* Currently we ignore 'em all */
+X{
+X  int extlabel;
+X
+X  /* Read extension label byte */
+X  extlabel = ReadByte(cinfo);
+X  TRACEMS1(cinfo->emethods, 1, "Ignoring GIF extension block of type 0x%02x",
+X	   extlabel);
+X  /* Skip the data block(s) associated with the extension */
+X  SkipDataBlocks(cinfo);
+X}
+X
+X
+X/*
+X * Read the file header; return image size and component count.
+X */
+X
+XMETHODDEF void
+Xinput_init (compress_info_ptr cinfo)
+X{
+X  char hdrbuf[10];		/* workspace for reading control blocks */
+X  UINT16 width, height;		/* image dimensions */
+X  int colormaplen, aspectRatio;
+X  int c;
+X
+X  /* Allocate space to store the colormap */
+X  colormap = (*cinfo->emethods->alloc_small_sarray)
+X		((long) MAXCOLORMAPSIZE, (long) NUMCOLORS);
+X
+X  /* Read and verify GIF Header */
+X  if (! ReadOK(cinfo->input_file, hdrbuf, 6))
+X    ERREXIT(cinfo->emethods, "Not a GIF file");
+X  if (hdrbuf[0] != 'G' || hdrbuf[1] != 'I' || hdrbuf[2] != 'F')
+X    ERREXIT(cinfo->emethods, "Not a GIF file");
+X  /* Check for expected version numbers.
+X   * If unknown version, give warning and try to process anyway;
+X   * this is per recommendation in GIF89a standard.
+X   */
+X  if ((hdrbuf[3] != '8' || hdrbuf[4] != '7' || hdrbuf[5] != 'a') &&
+X      (hdrbuf[3] != '8' || hdrbuf[4] != '9' || hdrbuf[5] != 'a'))
+X    TRACEMS3(cinfo->emethods, 1,
+X	     "Warning: unexpected GIF version number '%c%c%c'",
+X	     hdrbuf[3], hdrbuf[4], hdrbuf[5]);
+X
+X  /* Read and decipher Logical Screen Descriptor */
+X  if (! ReadOK(cinfo->input_file, hdrbuf, 7))
+X    ERREXIT(cinfo->emethods, "Premature EOF in GIF file");
+X  width = LM_to_uint(hdrbuf[0],hdrbuf[1]);
+X  height = LM_to_uint(hdrbuf[2],hdrbuf[3]);
+X  colormaplen = 2 << (hdrbuf[4] & 0x07);
+X  /* we ignore the color resolution, sort flag, and background color index */
+X  aspectRatio = hdrbuf[6] & 0xFF;
+X  if (aspectRatio != 0 && aspectRatio != 49)
+X    TRACEMS(cinfo->emethods, 1, "Warning: nonsquare pixels in input");
+X
+X  /* Read global colormap if header indicates it is present */
+X  if (BitSet(hdrbuf[4], COLORMAPFLAG))
+X    ReadColorMap(cinfo, colormaplen, colormap);
+X
+X  /* Scan until we reach start of desired image.
+X   * We don't currently support skipping images, but could add it easily.
+X   */
+X  for (;;) {
+X    c = ReadByte(cinfo);
+X
+X    if (c == ';')		/* GIF terminator?? */
+X      ERREXIT(cinfo->emethods, "Too few images in GIF file");
+X
+X    if (c == '!') {		/* Extension */
+X      DoExtension(cinfo);
+X      continue;
+X    }
+X    
+X    if (c != ',') {		/* Not an image separator? */
+X      TRACEMS1(cinfo->emethods, 1, "Bogus input char 0x%02x, ignoring", c);
+X      continue;
+X    }
+X
+X    /* Read and decipher Local Image Descriptor */
+X    if (! ReadOK(cinfo->input_file, hdrbuf, 9))
+X      ERREXIT(cinfo->emethods, "Premature EOF in GIF file");
+X    /* we ignore top/left position info, also sort flag */
+X    width = LM_to_uint(hdrbuf[4],hdrbuf[5]);
+X    height = LM_to_uint(hdrbuf[6],hdrbuf[7]);
+X    is_interlaced = BitSet(hdrbuf[8], INTERLACE);
+X
+X    /* Read local colormap if header indicates it is present */
+X    /* Note: if we wanted to support skipping images, */
+X    /* we'd need to skip rather than read colormap for ignored images */
+X    if (BitSet(hdrbuf[8], COLORMAPFLAG)) {
+X      colormaplen = 2 << (hdrbuf[8] & 0x07);
+X      ReadColorMap(cinfo, colormaplen, colormap);
+X    }
+X
+X    input_code_size = ReadByte(cinfo); /* get minimum-code-size byte */
+X    if (input_code_size < 2 || input_code_size >= MAX_LZW_BITS)
+X      ERREXIT1(cinfo->emethods, "Bogus codesize %d", input_code_size);
+X
+X    /* Reached desired image, so break out of loop */
+X    /* If we wanted to skip this image, */
+X    /* we'd call SkipDataBlocks and then continue the loop */
+X    break;
+X  }
+X
+X  /* Prepare to read selected image: first initialize LZW decompressor */
+X  symbol_head = (UINT16 FAR *) (*cinfo->emethods->alloc_medium)
+X				(LZW_TABLE_SIZE * SIZEOF(UINT16));
+X  symbol_tail = (UINT8 FAR *) (*cinfo->emethods->alloc_medium)
+X				(LZW_TABLE_SIZE * SIZEOF(UINT8));
+X  symbol_stack = (UINT8 FAR *) (*cinfo->emethods->alloc_medium)
+X				(LZW_TABLE_SIZE * SIZEOF(UINT8));
+X  InitLZWCode();
+X
+X  /*
+X   * If image is interlaced, we read it into a full-size sample array,
+X   * decompressing as we go; then get_input_row selects rows from the
+X   * sample array in the proper order.
+X   */
+X  if (is_interlaced) {
+X    /* We request the big array now, but can't access it until the pipeline
+X     * controller causes all the big arrays to be allocated.  Hence, the
+X     * actual work of reading the image is postponed until the first call
+X     * of get_input_row.
+X     */
+X    interlaced_image = (*cinfo->emethods->request_big_sarray)
+X		((long) width, (long) height, 1L);
+X    cinfo->methods->get_input_row = load_interlaced_image;
+X    cinfo->total_passes++;	/* count file reading as separate pass */
+X  }
+X
+X  /* Return info about the image. */
+X  cinfo->input_components = NUMCOLORS;
+X  cinfo->in_color_space = CS_RGB;
+X  cinfo->image_width = width;
+X  cinfo->image_height = height;
+X  cinfo->data_precision = 8;	/* always, even if 12-bit JSAMPLEs */
+X
+X  TRACEMS3(cinfo->emethods, 1, "%ux%ux%d GIF image",
+X	   (unsigned int) width, (unsigned int) height, colormaplen);
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X * This version is used for noninterlaced GIF images:
+X * we read directly from the GIF file.
+X */
+X
+XMETHODDEF void
+Xget_input_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  register int c;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    c = LZWReadByte(cinfo);
+X    *ptr0++ = colormap[CM_RED][c];
+X    *ptr1++ = colormap[CM_GREEN][c];
+X    *ptr2++ = colormap[CM_BLUE][c];
+X  }
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X * This version is used for the first call on get_input_row when
+X * reading an interlaced GIF file: we read the whole image into memory.
+X */
+X
+XMETHODDEF void
+Xload_interlaced_image (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  JSAMPARRAY image_ptr;
+X  register JSAMPROW sptr;
+X  register long col;
+X  long row;
+X
+X  /* Read the interlaced image into the big array we've created. */
+X  for (row = 0; row < cinfo->image_height; row++) {
+X    (*cinfo->methods->progress_monitor) (cinfo, row, cinfo->image_height);
+X    image_ptr = (*cinfo->emethods->access_big_sarray)
+X			(interlaced_image, row, TRUE);
+X    sptr = image_ptr[0];
+X    for (col = cinfo->image_width; col > 0; col--) {
+X      *sptr++ = (JSAMPLE) LZWReadByte(cinfo);
+X    }
+X  }
+X  cinfo->completed_passes++;
+X
+X  /* Replace method pointer so subsequent calls don't come here. */
+X  cinfo->methods->get_input_row = get_interlaced_row;
+X  /* Initialize for get_interlaced_row, and perform first call on it. */
+X  cur_row_number = 0;
+X  pass2_offset = (cinfo->image_height + 7L) / 8L;
+X  pass3_offset = pass2_offset + (cinfo->image_height + 3L) / 8L;
+X  pass4_offset = pass3_offset + (cinfo->image_height + 1L) / 4L;
+X
+X  get_interlaced_row(cinfo, pixel_row);
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X * This version is used for interlaced GIF images:
+X * we read from the big in-memory image.
+X */
+X
+XMETHODDEF void
+Xget_interlaced_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  JSAMPARRAY image_ptr;
+X  register JSAMPROW sptr, ptr0, ptr1, ptr2;
+X  register long col;
+X  register int c;
+X  long irow;
+X
+X  /* Figure out which row of interlaced image is needed, and access it. */
+X  switch ((int) (cur_row_number & 7L)) {
+X  case 0:			/* first-pass row */
+X    irow = cur_row_number >> 3;
+X    break;
+X  case 4:			/* second-pass row */
+X    irow = (cur_row_number >> 3) + pass2_offset;
+X    break;
+X  case 2:			/* third-pass row */
+X  case 6:
+X    irow = (cur_row_number >> 2) + pass3_offset;
+X    break;
+X  default:			/* fourth-pass row */
+X    irow = (cur_row_number >> 1) + pass4_offset;
+X    break;
+X  }
+X  image_ptr = (*cinfo->emethods->access_big_sarray)
+X			(interlaced_image, irow, FALSE);
+X  /* Scan the row, expand colormap, and output */
+X  sptr = image_ptr[0];
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    c = GETJSAMPLE(*sptr++);
+X    *ptr0++ = colormap[CM_RED][c];
+X    *ptr1++ = colormap[CM_GREEN][c];
+X    *ptr2++ = colormap[CM_BLUE][c];
+X  }
+X  cur_row_number++;		/* for next time */
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xinput_term (compress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/*
+X * The method selection routine for GIF format input.
+X * Note that this must be called by the user interface before calling
+X * jpeg_compress.  If multiple input formats are supported, the
+X * user interface is responsible for discovering the file format and
+X * calling the appropriate method selection routine.
+X */
+X
+XGLOBAL void
+Xjselrgif (compress_info_ptr cinfo)
+X{
+X  cinfo->methods->input_init = input_init;
+X  cinfo->methods->get_input_row = get_input_row; /* assume uninterlaced */
+X  cinfo->methods->input_term = input_term;
+X}
+X
+X#endif /* GIF_SUPPORTED */
+END_OF_FILE
+  if test 20480 -ne `wc -c <'jrdgif.c'`; then
+    echo shar: \"'jrdgif.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrdgif.c'
+fi
+echo shar: End of archive 11 \(of 18\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

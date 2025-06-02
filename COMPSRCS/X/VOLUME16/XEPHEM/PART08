@@ -1,0 +1,1531 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Subject: v16i119: xephem - astronomical ephemeris program., Part08/24
+Message-ID: <1992Mar6.135351.2289@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i112-xephem@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 13:53:51 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 16, Issue 119
+Archive-name: xephem/part08
+
+# this is part.08 (part 8 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file plot_aux.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 8; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping plot_aux.c'
+else
+echo 'x - continuing file plot_aux.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'plot_aux.c' &&
+X
+/* plot the given file in the drawing area in cartesian coords.
+X * drawing space is from 0..(nx-1) and 0..(ny-1).
+X * TODO: add z tags somehow
+X * return 0 if ok, else give a message about trouble and return -1.
+X */
+plot_cartesian (pfp, widget, nx, ny, flipx, flipy, grid)
+FILE *pfp;
+Widget widget;
+unsigned int nx, ny;
+int flipx, flipy;	/* respectively true to flip their axis */
+int grid;		/* whether to include a grid with the tick marks */
+{
+#define	TL	5	/* tick mark length, in pixels */
+#define	NT	10	/* rought number of tick marks on each axis */
+X	Display *dsp = XtDisplay(widget);
+X	Window win = XtWindow(widget);
+X	double ticks[NT+2];
+X	int nt;
+X	static char fmt[] = "%c,%lf,%lf";
+X	double x, y;	/* N.B. be sure these match what scanf's %lf wants*/
+X	double minx, maxx, miny, maxy, xscale, yscale;
+X	char buf[128];
+X	int lx[MAXPLTLINES], ly[MAXPLTLINES], one[MAXPLTLINES];
+X	char c, tags[MAXPLTLINES];
+X	XCharStruct overall;
+X	int sawtitle;
+X	int ylblw;
+X	int nlines;
+X	int ix, iy;	/* misc X drawing coords */
+X	int x0;		/* X x coord of lower left of plotting box, in pixels */
+X	int y0;		/* X y coord of lower left of plotting box, in pixels */
+X	int h, w;	/* width of height of plotting box, in pixels */
+X	int asc, desc;	/* font ascent and descent, in pixels */
+X	int maxlblw;	/* width of longest y axis label, in pixels */
+X	int i;
+#define	XCORD(x)	(x0 + (int)((flipx?maxx-(x):(x)-minx)*xscale + 0.5))
+#define	YCORD(y)	(y0 - (int)((flipy?maxy-(y):(y)-miny)*yscale + 0.5))
+X
+X	/* find ranges and number of and tags for each unique line */
+X	nlines = 0;
+X	while (fgets (buf, sizeof(buf), pfp)) {
+X	    if (sscanf (buf, fmt, &c, &x, &y) != 3)
+X		continue;
+X	    if (nlines == 0) {
+X		maxx = minx = x;
+X		maxy = miny = y;
+X	    }
+X	    for (i = 0; i < nlines; i++)
+X		if (c == tags[i])
+X		    break;
+X	    if (i == nlines) {
+X		if (nlines == MAXPLTLINES) {
+X		   (void) sprintf (buf,
+X		     "Plot file contains more than %d functions.", MAXPLTLINES);
+X		   f_msg (buf, 0);
+X		   return(-1);
+X		}
+X		tags[nlines++] = c;
+X	    }
+X	    if (x > maxx) maxx = x;
+X	    else if (x < minx) minx = x;
+X	    if (y > maxy) maxy = y;
+X	    else if (y < miny) miny = y;
+X	}
+X
+X	if (nlines == 0) {
+X	    f_msg ("Plot file appears to be empty.", 0);
+X	    return(-1);
+X	}
+#define	SMALL	(1e-6)
+X	if (fabs(minx-maxx) < SMALL || fabs(miny-maxy) < SMALL) {
+X	    f_msg ("Plot file values contain insufficient spread.", 0);
+X	    return(-1);
+X	}
+X
+X	if (!plt_gc) {
+X	    unsigned long da_p;	/* the foreground color of the drawing area */
+X	    XGCValues gcv;
+X	    unsigned gcm = GCForeground;
+X	    Colormap def_cm = DefaultColormap(dsp, 0);
+X	    XColor defxc, dbxc;
+X
+X	    /* create the annotation and default plot color gc,
+X	     * using the foreground color of the PlotDA.
+X	     */
+X	    get_something (widget, XmNforeground, &da_p);
+X	    gcv.foreground = da_p;
+X	    plt_gc = XCreateGC (dsp, win, gcm, &gcv);
+X	    plt_fs = XQueryFont (dsp, XGContextFromGC (plt_gc));
+X
+X	    /* fill in plt_gcc array with gc's to use for function plotting.
+X	     * Use colors defined in the plotColor[0-9] resources, else
+X	     * reuse plt_gc.
+X	     */
+X	    for (i = 0; i < MAXPLTLINES; i++) {
+X		char cnum[100], *cname;
+X		sprintf (cnum, "plotColor%d", i);
+X		cname = XGetDefault (dsp, "XEphem", cnum);
+X		if (!cname ||
+X			!XAllocNamedColor (dsp,def_cm,cname,&defxc,&dbxc)) {
+X		    if (!cname)
+X			printf ("can't find resource \"%s\"", cnum);
+X		    else
+X			printf ("can't Alloc color \"%s\"", cname);
+X		    printf ("... using PlotDA's foreground color.\n");
+X		    plt_gcc[i] = plt_gc;
+X		} else {
+X		    gcv.foreground = defxc.pixel;
+X		    plt_gcc[i] = XCreateGC (dsp, win, gcm, &gcv);
+X		}
+X	    }
+X	}
+X
+X	/* add y-axis tick marks.
+X	 * first compute length of longest y-axis label and other char stuff.
+X	 */
+X	nt = tickmarks (miny, maxy, NT, ticks);
+X	maxlblw = 0;
+X	for (i = 0; i < nt; i++) {
+X	    int dir;
+X	    int l;
+X	    if (ticks[i] < miny || ticks[i] > maxy)
+X		continue;
+X	    (void) sprintf (buf, "%g", ticks[i]);
+X	    l = strlen(buf);
+X	    XTextExtents (plt_fs, buf, l, &dir, &asc, &desc, &overall);
+X	    if (overall.width > maxlblw)
+X		maxlblw = overall.width;
+X	}
+X
+X	/* now we can compute border sizes and the scaling factors */
+X	x0 = maxlblw+TL+3;
+X	w = nx - x0 - 30;
+X	y0 = ny - (asc+desc+2+2*TL);
+X	h = y0 - (asc+desc+2);
+X	xscale = w/(maxx-minx);
+X	yscale = h/(maxy-miny);
+X
+X	/* now draw y axis, its labels, and optionally the horizontal grid */
+X	for (i = 0; i < nt; i++) {
+X	    int l;
+X	    if (ticks[i] < miny || ticks[i] > maxy)
+X		continue;
+X	    (void) sprintf (buf, "%g", ticks[i]);
+X	    l = strlen(buf);
+X	    iy = YCORD(ticks[i]);
+X	    XDrawLine (dsp, win, plt_gc, x0-TL, iy, x0, iy);
+X	    XDrawString (dsp, win, plt_gc, 1, iy+(asc-desc)/2, buf, l);
+X	    if (grid)
+X		XDrawLine (dsp, win, plt_gc, x0, iy, x0+w-1, iy);
+X	}
+X
+X	/* now draw x axis and label it's first and last tick mark.
+X	 * if there's room, label the center tickmark too.
+X	 * also grid, if requested.
+X	 */
+X	nt = tickmarks (minx, maxx, NT, ticks);
+X	ylblw = 0;
+X	for (i = 0; i < nt; i++) {
+X	    if (ticks[i] < minx || ticks[i] > maxx)
+X		continue;
+X	    ix = XCORD(ticks[i]);
+X	    XDrawLine (dsp, win, plt_gc, ix, y0+TL, ix, y0);
+X	    if (grid)
+X		XDrawLine (dsp, win, plt_gc, ix, y0, ix, y0-h-1);
+X	}
+X	for (i = 0; i < nt; i++)
+X	    if (ticks[i] >= minx) {
+X		int di, as, de;
+X		XCharStruct ovl;
+X		int l;
+X		(void) sprintf (buf, "%g", ticks[i]);
+X		l = strlen(buf);
+X		ix = XCORD(ticks[i]);
+X		XTextExtents (plt_fs, buf, l, &di, &as, &de, &ovl);
+X		ylblw += ovl.width;
+X		XDrawLine (dsp, win, plt_gc, ix, y0+TL, ix, y0+2*TL);
+X		XDrawString (dsp, win, plt_gc, ix-ovl.width/2, y0+2*TL+asc+1,
+X									buf, l);
+X		break;
+X	    }
+X	for (i = nt; --i >= 0;)
+X	    if (ticks[i] <= maxx) {
+X		int di, as, de;
+X		XCharStruct ovl;
+X		int l;
+X		(void) sprintf (buf, "%g", ticks[i]);
+X		l = strlen(buf);
+X		ix = XCORD(ticks[i]);
+X		XTextExtents (plt_fs, buf, l, &di, &as, &de, &ovl);
+X		ylblw += ovl.width;
+X		XDrawLine (dsp, win, plt_gc, ix, y0+TL, ix, y0+2*TL);
+X		XDrawString (dsp, win, plt_gc, ix-ovl.width/2, y0+2*TL+asc+1,
+X									buf, l);
+X		break;
+X	    }
+X	if (ylblw < w/2) {
+X	    /* pretty likely to be room for another label */
+X	    int di, as, de;
+X	    XCharStruct ovl;
+X	    int l;
+X	    (void) sprintf (buf, "%g", ticks[nt/2]);
+X	    l = strlen(buf);
+X	    ix = XCORD(ticks[nt/2]);
+X	    XTextExtents (plt_fs, buf, l, &di, &as, &de, &ovl);
+X	    XDrawLine (dsp, win, plt_gc, ix, y0+TL, ix, y0+2*TL);
+X	    XDrawString (dsp, win, plt_gc, ix-ovl.width/2, y0+2*TL+asc+1,
+X									buf, l);
+X	}
+X
+X	/* draw border of actual plotting area */
+X	XDrawLine (dsp, win, plt_gc, x0, y0-h, x0, y0);
+X	XDrawLine (dsp, win, plt_gc, x0, y0, x0+w, y0);
+X	XDrawLine (dsp, win, plt_gc, x0+w, y0, x0+w, y0-h);
+X	XDrawLine (dsp, win, plt_gc, x0+w, y0-h, x0, y0-h);
+X
+X	/* read file again, this time plotting the data (finally!).
+X	 * also, the first line we see that doesn't look like a point
+X	 * is put up as a title line (minus its first two char and trailing \n).
+X	 */
+X	sawtitle = 0;
+X	rewind (pfp);
+X	for (i = 0; i < nlines; i++)
+X	    one[i] = 0;
+X	while (fgets (buf, sizeof(buf), pfp)) {
+X	    if (sscanf (buf, fmt, &c, &x, &y) != 3) {
+X		/* a title line ? */
+X		int l;
+X		if (!sawtitle && (l = strlen(buf)) > 2) {
+X		    int di, as, de;
+X		    XCharStruct ovl;
+X		    XTextExtents (plt_fs, buf+2, l-2, &di, &as, &de, &ovl);
+X		    XDrawString (dsp, win, plt_gc, x0+(w-ovl.width)/2, asc+1,
+X								buf+2, l-3);
+X		    sawtitle = 1;
+X		}
+X		continue;
+X	    }
+X	    for (i = 0; i < nlines; i++)
+X		if (c == tags[i])
+X		    break;
+X	    ix = XCORD(x);
+X	    iy = YCORD(y);
+X	    if (one[i]++ > 0)
+X		XDrawLine (dsp, win, plt_gcc[i], ix, iy, lx[i], ly[i]);
+X	    else {
+X		int ytop = y0 - h + asc;
+X		XDrawString(dsp,win,plt_gcc[i], ix, iy<ytop ? ytop : iy, &c, 1);
+X	    }
+X	    lx[i] = ix;
+X	    ly[i] = iy;
+X	}
+X	return (0);
+}
+X
+X
+/* given min and max and an approximate number of divisions desired,
+X * fill in ticks[] with nicely spaced values and return how many.
+X * N.B. return value, and hence number of entries to ticks[], might be as
+X *   much as 2 more than numdiv.
+X */
+static int
+tickmarks (min, max, numdiv, ticks)
+double min, max;
+int numdiv;
+double ticks[];
+{
+X        static int factor[] = { 1, 2, 5 };
+X        double minscale;
+X        double delta;
+X	double lo;
+X        double v;
+X        int n;
+X
+X        minscale = fabs(max - min);
+X        delta = minscale/numdiv;
+X        for (n=0; n < sizeof(factor)/sizeof(factor[0]); n++) {
+X	    double scale;
+X	    double x = delta/factor[n];
+X            if ((scale = (pow(10.0, ceil(log10(x)))*factor[n])) < minscale)
+X		minscale = scale;
+X	}
+X        delta = minscale;
+X
+X        lo = floor(min/delta);
+X        for (n = 0; (v = delta*(lo+n)) < max+delta; )
+X	    ticks[n++] = v;
+X
+X	return (n);
+}
+SHAR_EOF
+echo 'File plot_aux.c is complete' &&
+chmod 0644 plot_aux.c ||
+echo 'restore of plot_aux.c failed'
+Wc_c="`wc -c < 'plot_aux.c'`"
+test 9197 -eq "$Wc_c" ||
+	echo 'plot_aux.c: original size 9197, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= precess.c ==============
+if test -f 'precess.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping precess.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting precess.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'precess.c' &&
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+X
+#define	DCOS(x)		cos(degrad(x))
+#define	DSIN(x)		sin(degrad(x))
+#define	DASIN(x)	raddeg(asin(x))
+#define	DATAN2(y,x)	raddeg(atan2((y),(x)))
+X
+/* corrects ra and dec, both in radians, for precession from epoch 1 to epoch 2.
+X * the epochs are given by their modified JDs, mjd1 and mjd2, respectively.
+X * N.B. ra and dec are modifed IN PLACE.
+X */
+X
+/*
+X * Copyright (c) 1990 by Craig Counterman. All rights reserved.
+X *
+X * This software may be redistributed freely, not sold.
+X * This copyright notice and disclaimer of warranty must remain
+X *    unchanged. 
+X *
+X * No representation is made about the suitability of this
+X * software for any purpose.  It is provided "as is" without express or
+X * implied warranty, to the extent permitted by applicable law.
+X *
+X * Rigorous precession. From Astronomical Ephemeris 1989, p. B18
+X */
+X
+precess (mjd1, mjd2, ra, dec)
+double mjd1, mjd2;	/* initial and final epoch modified JDs */
+double *ra, *dec;	/* ra/dec for mjd1 in, for mjd2 out */
+{
+X	double zeta_A, z_A, theta_A;
+X	double T;
+X	double A, B, C;
+X	double alpha, delta;
+X	double alpha_in, delta_in;
+X	double from_equinox, to_equinox;
+X	double alpha2000, delta2000;
+X
+X	mjd_year (mjd1, &from_equinox);
+X	mjd_year (mjd2, &to_equinox);
+X	alpha_in = raddeg(*ra);
+X	delta_in = raddeg(*dec);
+X
+X	/* From from_equinox to 2000.0 */
+X	if (from_equinox != 2000.0) {
+X	    T = (from_equinox - 2000.0)/100.0;
+X	    zeta_A  = 0.6406161* T + 0.0000839* T*T + 0.0000050* T*T*T;
+X	    z_A     = 0.6406161* T + 0.0003041* T*T + 0.0000051* T*T*T;
+X	    theta_A = 0.5567530* T - 0.0001185* T*T + 0.0000116* T*T*T;
+X
+X	    A = DSIN(alpha_in - z_A) * DCOS(delta_in);
+X	    B = DCOS(alpha_in - z_A) * DCOS(theta_A) * DCOS(delta_in)
+X	      + DSIN(theta_A) * DSIN(delta_in);
+X	    C = -DCOS(alpha_in - z_A) * DSIN(theta_A) * DCOS(delta_in)
+X	      + DCOS(theta_A) * DSIN(delta_in);
+X
+X	    alpha2000 = DATAN2(A,B) - zeta_A;
+X	    range (&alpha2000, 360.0);
+X	    delta2000 = DASIN(C);
+X	} else {
+X	    /* should get the same answer, but this could improve accruacy */
+X	    alpha2000 = alpha_in;
+X	    delta2000 = delta_in;
+X	};
+X
+X
+X	/* From 2000.0 to to_equinox */
+X	if (to_equinox != 2000.0) {
+X	    T = (to_equinox - 2000.0)/100.0;
+X	    zeta_A  = 0.6406161* T + 0.0000839* T*T + 0.0000050* T*T*T;
+X	    z_A     = 0.6406161* T + 0.0003041* T*T + 0.0000051* T*T*T;
+X	    theta_A = 0.5567530* T - 0.0001185* T*T + 0.0000116* T*T*T;
+X
+X	    A = DSIN(alpha2000 + zeta_A) * DCOS(delta2000);
+X	    B = DCOS(alpha2000 + zeta_A) * DCOS(theta_A) * DCOS(delta2000)
+X	      - DSIN(theta_A) * DSIN(delta2000);
+X	    C = DCOS(alpha2000 + zeta_A) * DSIN(theta_A) * DCOS(delta2000)
+X	      + DCOS(theta_A) * DSIN(delta2000);
+X
+X	    alpha = DATAN2(A,B) + z_A;
+X	    range(&alpha, 360.0);
+X	    delta = DASIN(C);
+X	} else {
+X	    /* should get the same answer, but this could improve accruacy */
+X	    alpha = alpha2000;
+X	    delta = delta2000;
+X	};
+X
+X	*ra = degrad(alpha);
+X	*dec = degrad(delta);
+}
+SHAR_EOF
+chmod 0644 precess.c ||
+echo 'restore of precess.c failed'
+Wc_c="`wc -c < 'precess.c'`"
+test 2952 -eq "$Wc_c" ||
+	echo 'precess.c: original size 2952, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= query.c ==============
+if test -f 'query.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping query.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting query.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'query.c' &&
+/* general purpose way to ask a question, in X.
+X */
+X
+#include <stdio.h>
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/MessageB.h>
+X
+/* put up a query message with up to three buttons.
+X * all args can safely be NULL; buttons without labels will be turned off.
+X */
+query (tw, msg, label1, label2, label3, func1, func2, func3)
+Widget tw;		/* toplevel widget */
+char *msg;		/* query message */
+char *label1;		/* label for button 1 */
+char *label2;		/* label for button 2 */
+char *label3;		/* label for button 3 */
+void (*func1)();	/* func to call if button 1 is pushed */
+void (*func2)();	/* func to call if button 2 is pushed */
+void (*func3)();	/* func to call if button 3 is pushed */
+{
+X	void query_cb();
+X	Widget qw;
+X	XmString strm, str1, str2, str3;
+X	Arg args[20];
+X	int n;
+X
+X	n = 0;
+X	if (label1) {
+X	    str1 = XmStringCreate (label1, XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg(args[n], XmNokLabelString, str1);  n++;
+X	}
+X	if (label2) {
+X	    str2 = XmStringCreate (label2, XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg(args[n], XmNcancelLabelString, str2);  n++;
+X	}
+X	if (label3) {
+X	    str3 = XmStringCreate (label3, XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg(args[n], XmNhelpLabelString, str3);  n++;
+X	}
+X	if (msg) {
+X	    strm = XmStringCreate (msg, XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg(args[n], XmNmessageString, strm);  n++;
+X	}
+X
+X	XtSetArg(args[n], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL);  n++;
+X	qw = XmCreateQuestionDialog(tw, "Query", args, n);
+X	XtAddCallback (qw, XmNokCallback, query_cb, func1);
+X	XtAddCallback (qw, XmNcancelCallback, query_cb, func2);
+X	XtAddCallback (qw, XmNhelpCallback, query_cb, func3);
+X	XtManageChild (qw);
+X
+X	if (label1)
+X	    XmStringFree (str1);
+X	else
+X	    XtUnmanageChild (XmMessageBoxGetChild (qw, XmDIALOG_OK_BUTTON));
+X	if (label2)
+X	    XmStringFree (str2);
+X	else
+X	    XtUnmanageChild (XmMessageBoxGetChild (qw, XmDIALOG_CANCEL_BUTTON));
+X	if (label3)
+X	    XmStringFree (str3);
+X	else
+X	    XtUnmanageChild (XmMessageBoxGetChild (qw, XmDIALOG_HELP_BUTTON));
+X	if (msg)
+X	    XmStringFree (strm);
+}
+X
+static void
+query_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	void (*f)() = (void (*)()) client;
+X	if (f)
+X	    (*f)();
+X	XtDestroyWidget(w);
+X
+}
+SHAR_EOF
+chmod 0644 query.c ||
+echo 'restore of query.c failed'
+Wc_c="`wc -c < 'query.c'`"
+test 2191 -eq "$Wc_c" ||
+	echo 'query.c: original size 2191, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= reduce.c ==============
+if test -f 'reduce.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping reduce.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting reduce.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'reduce.c' &&
+#include <math.h>
+#include "astro.h"
+X
+/* convert those orbital elements that change from epoch mjd0 to epoch mjd.
+X */
+reduce_elements (mjd0, mjd, inc0, ap0, om0, inc, ap, om)
+double mjd0;	/* initial epoch */
+double mjd;	/* desired epoch */
+double inc0;	/* initial inclination, rads */
+double ap0;	/* initial argument of perihelion, as an mjd */
+double om0;	/* initial long of ascending node, rads */
+double *inc;	/* desired inclination, rads */
+double *ap;	/* desired epoch of perihelion, as an mjd */
+double *om;	/* desired long of ascending node, rads */
+{
+X	double t0, t1;
+X	double tt, tt2, t02, tt3;
+X	double eta, th, th0;
+X	double a, b;
+X	double dap;
+X	double cinc, sinc;
+X	double ot, sot, cot, ot1;
+X	double seta, ceta;
+X
+X	t0 = mjd0/365250.0;
+X	t1 = mjd/365250.0;
+X
+X	tt = t1-t0;
+X	tt2 = tt*tt;
+X        t02 = t0*t0;
+X	tt3 = tt*tt2;
+X        eta = (471.07-6.75*t0+.57*t02)*tt+(.57*t0-3.37)*tt2+.05*tt3;
+X        th0 = 32869.0*t0+56*t02-(8694+55*t0)*tt+3*tt2;
+X        eta = degrad(eta/3600.0);
+X        th0 = degrad((th0/3600.0)+173.950833);
+X        th = (50256.41+222.29*t0+.26*t02)*tt+(111.15+.26*t0)*tt2+.1*tt3;
+X        th = th0+degrad(th/3600.0);
+X	cinc = cos(inc0);
+X        sinc = sin(inc0);
+X	ot = om0-th0;
+X	sot = sin(ot);
+X        cot = cos(ot);
+X	seta = sin(eta);
+X        ceta = cos(eta);
+X	a = sinc*sot;
+X        b = ceta*sinc*cot-seta*cinc;
+X	ot1 = atan(a/b);
+X        if (b<0) ot1 += PI;
+X        b = sinc*ceta-cinc*seta*cot;
+X        a = -1*seta*sot;
+X	dap = atan(a/b);
+X        if (b<0) dap += PI;
+X
+X        *ap = ap0+dap;
+X	range (ap, 2*PI);
+X        *om = ot1+th;
+X	range (om, 2*PI);
+X
+X        if (inc0<.175)
+X	    *inc = asin(a/sin(dap));
+X	else
+X	    *inc = 1.570796327-asin((cinc*ceta)+(sinc*seta*cot));
+}
+SHAR_EOF
+chmod 0644 reduce.c ||
+echo 'restore of reduce.c failed'
+Wc_c="`wc -c < 'reduce.c'`"
+test 1691 -eq "$Wc_c" ||
+	echo 'reduce.c: original size 1691, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= refract.c ==============
+if test -f 'refract.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping refract.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting refract.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'refract.c' &&
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+X
+/* correct the true altitude, ta, for refraction to the apparent altitude, aa,
+X * each in radians, given the local atmospheric pressure, pr, in mbars, and
+X * the temperature, tr, in degrees C.
+X */
+refract (pr, tr, ta, aa)
+double pr, tr;
+double ta;
+double *aa;
+{
+X	double r;	/* refraction correction*/
+X
+X        if (ta >= degrad(15.)) {
+X	    /* model for altitudes at least 15 degrees above horizon */
+X            r = 7.888888e-5*pr/((273+tr)*tan(ta));
+X	} else if (ta > degrad(-5.)) {
+X	    /* hairier model for altitudes at least -5 and below 15 degrees */
+X	    double a, b, tadeg = raddeg(ta);
+X	    a = ((2e-5*tadeg+1.96e-2)*tadeg+1.594e-1)*pr;
+X	    b = (273+tr)*((8.45e-2*tadeg+5.05e-1)*tadeg+1);
+X	    r = degrad(a/b);
+X	} else {
+X	    /* do nothing if more than 5 degrees below horizon.
+X	     */
+X	    r = 0;
+X	}
+X
+X	*aa  =  ta + r;
+}
+X
+/* correct the apparent altitude, aa, for refraction to the true altitude, ta,
+X * each in radians, given the local atmospheric pressure, pr, in mbars, and
+X * the temperature, tr, in degrees C.
+X */
+unrefract (pr, tr, aa, ta)
+double pr, tr;
+double aa;
+double *ta;
+{
+X	double err;
+X	double appar;
+X	double true;
+X
+X	/* iterative solution: search for the true that refracts to the
+X	 *   given apparent.
+X	 * since refract() is discontinuous at -5 degrees, there is a range
+X	 *   of apparent altitudes between about -4.5 and -5 degrees that are
+X	 *   not invertable (the graph of ap vs. true has a vertical step at
+X	 *   true = -5). thus, the iteration just oscillates if it gets into
+X	 *   this region. if this happens the iteration is forced to abort.
+X	 *   of course, this makes unrefract() discontinuous too.
+X	 */
+X	true = aa;
+X	do {
+X	    refract (pr, tr, true, &appar);
+X	    err = appar - aa;
+X	    true -= err;
+X	} while (fabs(err) >= 1e-6 && true > degrad(-5));
+X
+X	*ta = true;
+}
+SHAR_EOF
+chmod 0644 refract.c ||
+echo 'restore of refract.c failed'
+Wc_c="`wc -c < 'refract.c'`"
+test 1857 -eq "$Wc_c" ||
+	echo 'refract.c: original size 1857, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= riset.c ==============
+if test -f 'riset.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping riset.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting riset.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'riset.c' &&
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+X
+/* given the true geocentric ra and dec of an object, the observer's latitude,
+X *   lat, and a horizon displacement correction, dis, all in radians, find the
+X *   local sidereal times and azimuths of rising and setting, lstr/s
+X *   and azr/s, also all in radians, respectively.
+X * dis is the vertical displacement from the true position of the horizon. it
+X *   is positive if the apparent position is higher than the true position.
+X *   said another way, it is positive if the shift causes the object to spend
+X *   longer above the horizon. for example, atmospheric refraction is typically
+X *   assumed to produce a vertical shift of 34 arc minutes at the horizon; dis
+X *   would then take on the value +9.89e-3 (radians). On the other hand, if
+X *   your horizon has hills such that your apparent horizon is, say, 1 degree
+X *   above sea level, you would allow for this by setting dis to -1.75e-2
+X *   (radians).
+X *
+X * algorithm:
+X *   the situation is described by two spherical triangles with two equal angles
+X *    (the right horizon intercepts, and the common horizon transverse):
+X *   given lat, d(=d1+d2), and dis find z(=z1+z2) and rho, where      /| eq pole
+X *     lat = latitude,                                              /  |
+X *     dis = horizon displacement (>0 is below ideal)             / rho|
+X *     d = angle from pole = PI/2 - declination                /       |
+X *     z = azimuth east of north                            /          |
+X *     rho = polar rotation from down = PI - hour angle    /           | 
+X *   solve simultaneous equations for d1 and d2:         /             |
+X *     1) cos(d) = cos(d1+d2)                           / d2           | lat
+X *            = cos(d1)cos(d2) - sin(d1)sin(d2)        /               |
+X *     2) sin(d2) = sin(lat)sin(d1)/sin(dis)          /                |
+X *   then can solve for z1, z2 and rho, taking       /                 |
+X *     care to preserve quadrant information.       /                 -|
+X *                                              z1 /        z2       | |
+X *                      ideal horizon ------------/--------------------| 
+X *                                         | |   /                     N
+X *                                          -|  / d1
+X *                                       dis | /
+X *                                           |/
+X *                  apparent horizon  ---------------------------------
+X *
+X * note that when lat=0 this all breaks down (because d2 and z2 degenerate to 0)
+X *   but fortunately then we can solve for z and rho directly.
+X *
+X * status: 0: normal; 1: never rises; -1: circumpolar; 2: trouble.
+X */
+riset (ra, dec, lat, dis, lstr, lsts, azr, azs, status)
+double ra, dec;
+double lat, dis;
+double *lstr, *lsts;
+double *azr, *azs;
+int *status;
+{
+#define	EPS	(1e-6)	/* math rounding fudge - always the way, eh? */
+X	double d;	/* angle from pole */
+X	double h;	/* hour angle */
+X	double crho;	/* cos hour-angle complement */
+X	int shemi;	/* flag for southern hemisphere reflection */
+X
+X	d = PI/2 - dec;
+X
+X	/* reflect if in southern hemisphere.
+X	 * (then reflect azimuth back after computation.)
+X	 */
+X	if (shemi = lat < 0) {
+X	    lat = -lat;
+X	    d = PI - d;
+X	}
+X
+X	/* do the easy ones (and avoid violated assumptions) if d arc never
+X	 * meets horizon. 
+X	 */
+X	if (d <= lat + dis + EPS) {
+X	    *status = -1; /* never sets */
+X	    return;
+X	}
+X	if (d >= PI - lat + dis - EPS) {
+X	    *status = 1; /* never rises */
+X	    return;
+X	}
+X
+X	/* find rising azimuth and cosine of hour-angle complement */
+X	if (lat > EPS) {
+X	    double d2, d1; /* polr arc to ideal hzn, and corrctn for apparent */
+X	    double z2, z1; /* azimuth to ideal horizon, and " */
+X	    double a;	   /* intermediate temp */
+X	    double sdis, slat, clat, cz2, cd2;	/* trig temps */
+X	    sdis = sin(dis);
+X	    slat = sin(lat);
+X	    a = sdis*sdis + slat*slat + 2*cos(d)*sdis*slat;
+X	    if (a <= 0) {
+X		*status = 2; /* can't happen - hah! */
+X		return;
+X	    }
+X	    d1 = asin (sin(d) * sdis / sqrt(a));
+X	    d2 = d - d1;
+X	    cd2 = cos(d2);
+X	    clat = cos(lat);
+X	    cz2 = cd2/clat;
+X	    z2 = acos (cz2);
+X	    z1 = acos (cos(d1)/cos(dis));
+X	    if (dis < 0)
+X		z1 = -z1;
+X	    *azr = z1 + z2;
+X	    range (azr, PI);
+X	    crho = (cz2 - cd2*clat)/(sin(d2)*slat);
+X	} else {
+X	    *azr = acos (cos(d)/cos(dis));
+X	    crho = sin(dis)/sin(d);
+X	}
+X
+X	if (shemi)
+X	    *azr = PI - *azr;
+X        *azs = 2*PI - *azr;
+X	
+X	/* find hour angle */
+X	h = PI - acos (crho);
+X        *lstr = radhr(ra-h);
+X	*lsts = radhr(ra+h);
+X	range (lstr, 24.0);
+X	range (lsts, 24.0);
+X
+X	*status = 0;
+}
+SHAR_EOF
+chmod 0644 riset.c ||
+echo 'restore of riset.c failed'
+Wc_c="`wc -c < 'riset.c'`"
+test 4591 -eq "$Wc_c" ||
+	echo 'riset.c: original size 4591, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= riset_c.c ==============
+if test -f 'riset_c.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping riset_c.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting riset_c.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'riset_c.c' &&
+/* find rise and set circumstances, ie, riset_cir() and related functions. */
+X
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+X
+#define	TRACE(x)	{FILE *fp = fopen("trace","a"); fprintf x; fclose(fp);}
+X
+#define	STDREF	degrad(34./60.)	/* nominal horizon refraction amount */
+#define	TWIREF	degrad(18.)	/* twilight horizon displacement */
+#define	TMACC	(15./3600.)	/* convergence accuracy, hours */
+X
+/* find where and when a body, p, will rise and set and
+X *   it's transit circumstances. all times are local, angles rads e of n.
+X * return 0 if just returned same stuff as previous call, else 1 if new.
+X * status is set from the RS_* #defines in circum.h.
+X * also used to find astro twilight by calling with hzn TWILIGHT.
+X */
+riset_cir (p, np, force, hzn, ltr, lts, ltt, azr, azs, altt, status)
+int p;		/* one of the body defines in astro.h or moreobjs.h */
+Now *np;
+int force;	/* set !=0 to force computations */
+int hzn;	/* STDHZN or ADPHZN or TWILIGHT */
+double *ltr, *lts; /* local rise and set times */
+double *ltt;	/* local transit time */
+double *azr, *azs; /* local rise and set azimuths, rads e of n */
+double *altt;	/* local altitude at transit */
+int *status;	/* one or more of the RS_* defines */
+{
+X	typedef struct {
+X	    Now l_now;
+X	    double l_ltr, l_lts, l_ltt, l_azr, l_azs, l_altt;
+X	    int l_hzn;
+X	    int l_status;
+X	} Last;
+X	/* must be in same order as the astro.h/moreobjs.h #define's */
+X	static Last last[NOBJ] = {
+X	    {NOMJD}, {NOMJD}, {NOMJD}, {NOMJD}, {NOMJD}, {NOMJD},
+X	    {NOMJD}, {NOMJD}, {NOMJD}, {NOMJD}, {NOMJD}, {NOMJD}
+X	};
+X	Last *lp;
+X	int new;
+X
+X	lp = last + p;
+X	if (!force && same_cir (np, &lp->l_now) && same_lday (np, &lp->l_now)
+X						&& lp->l_hzn == hzn) {
+X	    *ltr = lp->l_ltr;
+X	    *lts = lp->l_lts;
+X	    *ltt = lp->l_ltt;
+X	    *azr = lp->l_azr;
+X	    *azs = lp->l_azs;
+X	    *altt = lp->l_altt;
+X	    *status = lp->l_status;
+X	    new = 0;
+X	} else {
+X	    *status = 0;
+X	    iterative_riset (p, np, hzn, ltr, lts, ltt, azr, azs, altt, status);
+X	    lp->l_ltr = *ltr;
+X	    lp->l_lts = *lts;
+X	    lp->l_ltt = *ltt;
+X	    lp->l_azr = *azr;
+X	    lp->l_azs = *azs;
+X	    lp->l_altt = *altt;
+X	    lp->l_status = *status;
+X	    lp->l_hzn = hzn;
+X	    lp->l_now = *np;
+X	    new = 1;
+X	}
+X	return (new);
+}
+X
+static
+iterative_riset (p, np, hzn, ltr, lts, ltt, azr, azs, altt, status)
+int p;
+Now *np;
+int hzn;
+double *ltr, *lts, *ltt;	/* local times of rise, set and transit */
+double *azr, *azs, *altt;/* local azimuths of rise, set and transit altitude */
+int *status;
+{
+#define	MAXPASSES	6
+X	double lstr, lsts, lstt; /* local sidereal times of rising/setting */
+X	double mjd0;		/* mjd estimates of rise/set event */
+X	double lnoon;		/* mjd of local noon */
+X	double x;		/* discarded tmp value */
+X	Now n;			/* just used to call now_lst() */
+X	double lst;		/* lst at local noon */
+X	double diff, lastdiff;	/* iterative improvement to mjd0 */
+X	int pass;
+X	int rss;
+X
+X	/* first approximation is to find rise/set times of a fixed object
+X	 * in its position at local noon.
+X	 */
+X	lnoon = mjd_day(mjd - tz/24.0) + (12.0 + tz)/24.0; /*mjd of local noon*/
+X	n.n_mjd = lnoon;
+X	n.n_lng = lng;
+X	now_lst (&n, &lst);	/* lst at local noon */
+X	mjd0 = lnoon;
+X	stationary_riset (p,mjd0,np,hzn,&lstr,&lsts,&lstt,&x,&x,&x,&rss);
+X    chkrss:
+X	switch (rss) {
+X	case  0:  break;
+X	case  1: *status = RS_NEVERUP; return;
+X	case -1: *status = RS_CIRCUMPOLAR; goto transit;
+X	default: *status = RS_ERROR; return;
+X	}
+X
+X	/* find a better approximation to the rising circumstances based on
+X	 * more passes, each using a "fixed" object at the location at
+X	 * previous approximation of the rise time.
+X	 */
+X	lastdiff = 1000.0;
+X	for (pass = 1; pass < MAXPASSES; pass++) {
+X	    diff = (lstr - lst)*SIDRATE; /* next guess at rise time wrt noon */
+X	    if (diff > 12.0)
+X		diff -= 24.0*SIDRATE;	/* not tomorrow, today */
+X	    else if (diff < -12.0)
+X		diff += 24.0*SIDRATE;	/* not yesterday, today */
+X	    mjd0 = lnoon + diff/24.0;	/* next guess at mjd of rise */
+X	    stationary_riset (p,mjd0,np,hzn,&lstr,&x,&x,azr,&x,&x,&rss);
+X	    if (rss != 0) goto chkrss;
+X	    if (fabs (diff - lastdiff) < TMACC)
+X		break;
+X	    lastdiff = diff;
+X	}
+X	if (pass == MAXPASSES)
+X	    *status |= RS_NORISE;	/* didn't converge - no rise today */
+X	else {
+X	    *ltr = 12.0 + diff;
+X	    if (p != MOON &&
+X		    (*ltr <= 24.0*(1.0-SIDRATE) || *ltr >= 24.0*SIDRATE))
+X		*status |= RS_2RISES;
+X	}
+X
+X	/* find a better approximation to the setting circumstances based on
+X	 * more passes, each using a "fixed" object at the location at
+X	 * previous approximation of the set time.
+X	 */
+X	lastdiff = 1000.0;
+X	for (pass = 1; pass < MAXPASSES; pass++) {
+X	    diff = (lsts - lst)*SIDRATE; /* next guess at set time wrt noon */
+X	    if (diff > 12.0)
+X		diff -= 24.0*SIDRATE;	/* not tomorrow, today */
+X	    else if (diff < -12.0)
+X		diff += 24.0*SIDRATE;	/* not yesterday, today */
+X	    mjd0 = lnoon + diff/24.0;	/* next guess at mjd of set */
+X	    stationary_riset (p,mjd0,np,hzn,&x,&lsts,&x,&x,azs,&x,&rss);
+X	    if (rss != 0) goto chkrss;
+X	    if (fabs (diff - lastdiff) < TMACC)
+X		break;
+X	    lastdiff = diff;
+X	}
+X	if (pass == MAXPASSES)
+X	    *status |= RS_NOSET;	/* didn't converge - no set today */
+X	else {
+X	    *lts = 12.0 + diff;
+X	    if (p != MOON &&
+X		    (*lts <= 24.0*(1.0-SIDRATE) || *lts >= 24.0*SIDRATE))
+X		*status |= RS_2SETS;
+X	}
+X
+X    transit:
+X	/* find a better approximation to the transit circumstances based on
+X	 * more passes, each using a "fixed" object at the location at
+X	 * previous approximation of the transit time.
+X	 */
+X	lastdiff = 1000.0;
+X	for (pass = 1; pass < MAXPASSES; pass++) {
+X	    diff = (lstt - lst)*SIDRATE; /*next guess at transit time wrt noon*/
+X	    if (diff > 12.0)
+X		diff -= 24.0*SIDRATE;	/* not tomorrow, today */
+X	    else if (diff < -12.0)
+X		diff += 24.0*SIDRATE;	/* not yesterday, today */
+X	    mjd0 = lnoon + diff/24.0;	/* next guess at mjd of transit */
+X	    stationary_riset (p,mjd0,np,hzn,&x,&x,&lstt,&x,&x,altt,&rss);
+X	    if (fabs (diff - lastdiff) < TMACC)
+X		break;
+X	    lastdiff = diff;
+X	}
+X	if (pass == MAXPASSES)
+X	    *status |= RS_NOTRANS;	/* didn't converge - no transit today */
+X	else {
+X	    *ltt = 12.0 + diff;
+X	    if (p != MOON &&
+X		    (*ltt <= 24.0*(1.0-SIDRATE) || *ltt >= 24.0*SIDRATE))
+X		*status |= RS_2TRANS;
+X	}
+}
+X
+static
+stationary_riset (p, mjd0, np, hzn, lstr, lsts, lstt, azr, azs, altt, status)
+int p;
+double mjd0;
+Now *np;
+int hzn;
+double *lstr, *lsts, *lstt;
+double *azr, *azs, *altt;
+int *status;
+{
+X	extern void bye();
+X	double dis;
+X	Now n;
+X	Sky s;
+X
+X	/* find object p's topocentric ra/dec at mjd0
+X	 * (this must include parallax)
+X	 */
+X	n = *np;
+X	n.n_mjd = mjd0;
+X	(void) body_cir (p, 0.0, &n, &s);
+X	if (epoch != EOD)
+X	    precess (epoch, mjd0, &s.s_ra, &s.s_dec);
+X	if (s.s_edist > 0) {
+X	    /* parallax, if we can */
+X	    double ehp, lst, ha;
+X	    if (p == MOON)
+X		ehp = asin (6378.14/s.s_edist);
+X	    else
+X		ehp = (2.*6378./146e6)/s.s_edist;
+X	    now_lst (&n, &lst);
+X	    ha = hrrad(lst) - s.s_ra;
+X	    ta_par (ha, s.s_dec, lat, height, ehp, &ha, &s.s_dec);
+X	    s.s_ra = hrrad(lst) - ha;
+X	    range (&s.s_ra, 2*PI);
+X	}
+X
+X	switch (hzn) {
+X	case STDHZN:
+X	    /* nominal atmospheric refraction.
+X	     * then add nominal moon or sun semi-diameter, as appropriate.
+X	     * other objects assumes to be negligibly small.
+X	     */
+X	    dis = STDREF;
+X	    if (p == MOON || p == SUN)
+X		dis += degrad (32./60./2.);
+X	    break;
+X	case TWILIGHT:
+X	    dis = TWIREF;
+X	    break;
+X	case ADPHZN:
+X	    /* adaptive includes actual refraction conditions and also
+X	     * includes object's semi-diameter.
+X	     */
+X	    unrefract (pressure, temp, 0.0, &dis);
+X	    dis = -dis;
+X	    dis += degrad(s.s_size/3600./2.0);
+X	    break;
+X	}
+X
+X	riset (s.s_ra, s.s_dec, lat, dis, lstr, lsts, azr, azs, status);
+X	transit (s.s_ra, s.s_dec, np, lstt, altt);
+}
+X
+X
+/* find when and how hi object at (r,d) is when it transits. */
+static
+transit (r, d, np, lstt, altt)
+double r, d;	/* ra and dec, rads */
+Now *np;	/* for refraction info */
+double *lstt;	/* local sidereal time of transit */
+double *altt;	/* local, refracted, altitude at time of transit */
+{
+X	*lstt = radhr(r);
+X	*altt = PI/2 - lat + d;
+X	if (*altt > PI/2)
+X	    *altt = PI - *altt;
+X	refract (pressure, temp, *altt, altt);
+}
+SHAR_EOF
+chmod 0644 riset_c.c ||
+echo 'restore of riset_c.c failed'
+Wc_c="`wc -c < 'riset_c.c'`"
+test 8189 -eq "$Wc_c" ||
+	echo 'riset_c.c: original size 8189, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= risetmenu.c ==============
+if test -f 'risetmenu.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping risetmenu.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting risetmenu.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'risetmenu.c' &&
+/* code to manage the stuff on the "rise / set" menu.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/LabelG.h>
+#include <Xm/PushBG.h>
+#include <Xm/ToggleBG.h>
+#include <Xm/RowColumn.h>
+#include "fieldmap.h"
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+X
+extern char *strncpy();
+extern char *getenv();
+extern Now *mm_get_now();
+extern Widget toplevel_w;
+extern XmString str_width();
+extern char *objname[];
+#define	XtD	XtDisplay(toplevel_w)
+X
+/* locations of each field.
+X * these are in terms of a 1-based row/col on a 24x80 alpha screen, for
+X * historical reasons.
+X */
+#define	NR	14
+#define	NC	80
+X
+#define	HZN_ROW		1
+X
+/* planet rows */
+#define	R_PLANTAB	(1)
+#define	R_SUN		(R_PLANTAB+1)
+#define	R_MOON		(R_PLANTAB+2)
+#define	R_MERCURY	(R_PLANTAB+3)
+#define	R_VENUS		(R_PLANTAB+4)
+#define	R_MARS		(R_PLANTAB+5)
+#define	R_JUPITER	(R_PLANTAB+6)
+#define	R_SATURN	(R_PLANTAB+7)
+#define	R_URANUS	(R_PLANTAB+8)
+#define	R_NEPTUNE	(R_PLANTAB+9)
+#define	R_PLUTO		(R_PLANTAB+10)
+#define	R_OBJX		(R_PLANTAB+11)
+#define	R_OBJY		(R_PLANTAB+12)
+#define	R_CONTROL	(R_PLANTAB+13)
+X
+#define	C_OBJ		1
+X
+/* menu 2 screen items */
+#define	C_RISETM	7
+#define	C_RISEAZ	18
+#define	C_TRANSTM	29
+#define	C_TRANSALT	40
+#define	C_SETTM		51
+#define	C_SETAZ		62
+#define	C_TUP		73
+X
+#define	TIME_WIDTH	5
+#define	AZ_WIDTH	6
+#define	ALT_WIDTH	5
+X
+static FieldMap rm_field_map[] = {
+X    {mkid(R_JUPITER,C_RISEAZ), PLT, AZ_WIDTH, 0, "Jup.RiseAz"},
+X    {mkid(R_JUPITER,C_RISETM), PLT, TIME_WIDTH, 0, "Jup.RiseTm"},
+X    {mkid(R_JUPITER,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_JUPITER,C_SETAZ), PLT, AZ_WIDTH, 0, "Jup.SetAz"},
+X    {mkid(R_JUPITER,C_SETTM), PLT, TIME_WIDTH, 0, "Jup.SetTm"},
+X    {mkid(R_JUPITER,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_JUPITER,C_TRANSALT), PLT, ALT_WIDTH, 0, "Jup.TransAlt"},
+X    {mkid(R_JUPITER,C_TRANSTM), PLT, TIME_WIDTH, 0, "Jup.TransTm"},
+X    {mkid(R_JUPITER,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_JUPITER,C_TUP), PLT, TIME_WIDTH, 0, "Jup.TmUp"},
+X    {mkid(R_JUPITER,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_MARS,C_RISEAZ), PLT, AZ_WIDTH, 0, "Mars.RiseAz"},
+X    {mkid(R_MARS,C_RISETM), PLT, TIME_WIDTH, 0, "Mars.RiseTm"},
+X    {mkid(R_MARS,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_MARS,C_SETAZ), PLT, AZ_WIDTH, 0, "Mars.SetAz"},
+X    {mkid(R_MARS,C_SETTM), PLT, TIME_WIDTH, 0, "Mars.SetTm"},
+X    {mkid(R_MARS,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_MARS,C_TRANSALT), PLT, ALT_WIDTH, 0, "Mars.TransAlt"},
+X    {mkid(R_MARS,C_TRANSTM), PLT, TIME_WIDTH, 0, "Mars.TransTm"},
+X    {mkid(R_MARS,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_MARS,C_TUP), PLT, TIME_WIDTH, 0, "Mars.TmUp"},
+X    {mkid(R_MARS,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_MERCURY,C_RISEAZ), PLT, AZ_WIDTH, 0, "Merc.RiseAz"},
+X    {mkid(R_MERCURY,C_RISETM), PLT, TIME_WIDTH, 0, "Merc.RiseTm"},
+X    {mkid(R_MERCURY,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_MERCURY,C_SETAZ), PLT, AZ_WIDTH, 0, "Merc.SetAz"},
+X    {mkid(R_MERCURY,C_SETTM), PLT, TIME_WIDTH, 0, "Merc.SetTm"},
+X    {mkid(R_MERCURY,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_MERCURY,C_TRANSALT), PLT, ALT_WIDTH, 0, "Merc.TransAlt"},
+X    {mkid(R_MERCURY,C_TRANSTM), PLT, TIME_WIDTH, 0, "Merc.TransTm"},
+X    {mkid(R_MERCURY,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_MERCURY,C_TUP), PLT, TIME_WIDTH, 0, "Merc.TmUp"},
+X    {mkid(R_MERCURY,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_MOON,C_RISEAZ), PLT, AZ_WIDTH, 0, "Moon.RiseAz"},
+X    {mkid(R_MOON,C_RISETM), PLT, TIME_WIDTH, 0, "Moon.RiseTm"},
+X    {mkid(R_MOON,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_MOON,C_SETAZ), PLT, AZ_WIDTH, 0, "Moon.SetAz"},
+X    {mkid(R_MOON,C_SETTM), PLT, TIME_WIDTH, 0, "Moon.SetTm"},
+X    {mkid(R_MOON,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_MOON,C_TRANSALT), PLT, ALT_WIDTH, 0, "Moon.TransAlt"},
+X    {mkid(R_MOON,C_TRANSTM), PLT, TIME_WIDTH, 0, "Moon.TransTm"},
+X    {mkid(R_MOON,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_MOON,C_TUP), PLT, TIME_WIDTH, 0, "Moon.TmUp"},
+X    {mkid(R_MOON,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_NEPTUNE,C_RISEAZ), PLT, AZ_WIDTH, 0, "Nep.RiseAz"},
+X    {mkid(R_NEPTUNE,C_RISETM), PLT, TIME_WIDTH, 0, "Nep.RiseTm"},
+X    {mkid(R_NEPTUNE,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_NEPTUNE,C_SETAZ), PLT, AZ_WIDTH, 0, "Nep.SetAz"},
+X    {mkid(R_NEPTUNE,C_SETTM), PLT, TIME_WIDTH, 0, "Nep.SetTm"},
+X    {mkid(R_NEPTUNE,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_NEPTUNE,C_TRANSALT), PLT, ALT_WIDTH, 0, "Nep.TransAlt"},
+X    {mkid(R_NEPTUNE,C_TRANSTM), PLT, TIME_WIDTH, 0, "Nep.TransTm"},
+X    {mkid(R_NEPTUNE,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_NEPTUNE,C_TUP), PLT, TIME_WIDTH, 0, "Nep.TmUp"},
+X    {mkid(R_NEPTUNE,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_OBJX,C_RISEAZ), PLT, AZ_WIDTH, 0, "ObjX.RiseAz"},
+X    {mkid(R_OBJX,C_RISETM), PLT, TIME_WIDTH, 0, "ObjX.RiseTm"},
+X    {mkid(R_OBJX,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_OBJX,C_SETAZ), PLT, AZ_WIDTH, 0, "ObjX.SetAz"},
+X    {mkid(R_OBJX,C_SETTM), PLT, TIME_WIDTH, 0, "ObjX.SetTm"},
+X    {mkid(R_OBJX,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_OBJX,C_TRANSALT), PLT, ALT_WIDTH, 0, "ObjX.TransAlt"},
+X    {mkid(R_OBJX,C_TRANSTM), PLT, TIME_WIDTH, 0, "ObjX.TransTm"},
+X    {mkid(R_OBJX,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_OBJX,C_TUP), PLT, TIME_WIDTH, 0, "ObjX.TmUp"},
+X    {mkid(R_OBJX,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_OBJY,C_RISEAZ), PLT, AZ_WIDTH, 0, "ObjY.RiseAz"},
+X    {mkid(R_OBJY,C_RISETM), PLT, TIME_WIDTH, 0, "ObjY.RiseTm"},
+X    {mkid(R_OBJY,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_OBJY,C_SETAZ), PLT, AZ_WIDTH, 0, "ObjY.SetAz"},
+X    {mkid(R_OBJY,C_SETTM), PLT, TIME_WIDTH, 0, "ObjY.SetTm"},
+X    {mkid(R_OBJY,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_OBJY,C_TRANSALT), PLT, ALT_WIDTH, 0, "ObjY.TransAlt"},
+X    {mkid(R_OBJY,C_TRANSTM), PLT, TIME_WIDTH, 0, "ObjY.TransTm"},
+X    {mkid(R_OBJY,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_OBJY,C_TUP), PLT, TIME_WIDTH, 0, "ObjY.TmUp"},
+X    {mkid(R_OBJY,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_PLUTO,C_RISEAZ), PLT, AZ_WIDTH, 0, "Pluto.RiseAz"},
+X    {mkid(R_PLUTO,C_RISETM), PLT, TIME_WIDTH, 0, "Pluto.RiseTm"},
+X    {mkid(R_PLUTO,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_PLUTO,C_SETAZ), PLT, AZ_WIDTH, 0, "Pluto.SetAz"},
+X    {mkid(R_PLUTO,C_SETTM), PLT, TIME_WIDTH, 0, "Pluto.SetTm"},
+X    {mkid(R_PLUTO,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_PLUTO,C_TRANSALT), PLT, ALT_WIDTH, 0, "Pluto.TransAlt"},
+X    {mkid(R_PLUTO,C_TRANSTM), PLT, TIME_WIDTH, 0, "Pluto.TransTm"},
+X    {mkid(R_PLUTO,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_PLUTO,C_TUP), PLT, TIME_WIDTH, 0, "Pluto.TmUp"},
+X    {mkid(R_PLUTO,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_SATURN,C_RISEAZ), PLT, AZ_WIDTH, 0, "Sat.RiseAz"},
+X    {mkid(R_SATURN,C_RISETM), PLT, TIME_WIDTH, 0, "Sat.RiseTm"},
+X    {mkid(R_SATURN,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_SATURN,C_SETAZ), PLT, AZ_WIDTH, 0, "Sat.SetAz"},
+X    {mkid(R_SATURN,C_SETTM), PLT, TIME_WIDTH, 0, "Sat.SetTm"},
+X    {mkid(R_SATURN,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_SATURN,C_TRANSALT), PLT, ALT_WIDTH, 0, "Sat.TransAlt"},
+X    {mkid(R_SATURN,C_TRANSTM), PLT, TIME_WIDTH, 0, "Sat.TransTm"},
+X    {mkid(R_SATURN,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_SATURN,C_TUP), PLT, TIME_WIDTH, 0, "Sat.TmUp"},
+X    {mkid(R_SATURN,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_SUN,C_RISEAZ), PLT, AZ_WIDTH, 0, "Sun.RiseAz"},
+X    {mkid(R_SUN,C_RISETM), PLT, TIME_WIDTH, 0, "Sun.RiseTm"},
+X    {mkid(R_SUN,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_SUN,C_SETAZ), PLT, AZ_WIDTH, 0, "Sun.SetAz"},
+X    {mkid(R_SUN,C_SETTM), PLT, TIME_WIDTH, 0, "Sun.SetTm"},
+X    {mkid(R_SUN,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_SUN,C_TRANSALT), PLT, ALT_WIDTH, 0, "Sun.TransAlt"},
+X    {mkid(R_SUN,C_TRANSTM), PLT, TIME_WIDTH, 0, "Sun.TransTm"},
+X    {mkid(R_SUN,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_SUN,C_TUP), PLT, TIME_WIDTH, 0, "Sun.TmUp"},
+X    {mkid(R_SUN,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_URANUS,C_RISEAZ), PLT, AZ_WIDTH, 0, "Uranus.RiseAz"},
+X    {mkid(R_URANUS,C_RISETM), PLT, TIME_WIDTH, 0, "Uranus.RiseTm"},
+X    {mkid(R_URANUS,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_URANUS,C_SETAZ), PLT, AZ_WIDTH, 0, "Uranus.SetAz"},
+X    {mkid(R_URANUS,C_SETTM), PLT, TIME_WIDTH, 0, "Uranus.SetTm"},
+X    {mkid(R_URANUS,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_URANUS,C_TRANSALT), PLT, ALT_WIDTH, 0, "Uranus.TransAlt"},
+X    {mkid(R_URANUS,C_TRANSTM), PLT, TIME_WIDTH, 0, "Uranus.TransTm"},
+X    {mkid(R_URANUS,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_URANUS,C_TUP), PLT, TIME_WIDTH, 0, "Uranus.TmUp"},
+X    {mkid(R_URANUS,C_TUP+TIME_WIDTH), 0, 1},
+X    {mkid(R_VENUS,C_RISEAZ), PLT, AZ_WIDTH, 0, "Ven.RiseAz"},
+X    {mkid(R_VENUS,C_RISETM), PLT, TIME_WIDTH, 0, "Ven.RiseTm"},
+X    {mkid(R_VENUS,C_RISETM+TIME_WIDTH), 0, 1},
+X    {mkid(R_VENUS,C_SETAZ), PLT, AZ_WIDTH, 0, "Ven.SetAz"},
+X    {mkid(R_VENUS,C_SETTM), PLT, TIME_WIDTH, 0, "Ven.SetTm"},
+X    {mkid(R_VENUS,C_SETTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_VENUS,C_TRANSALT), PLT, ALT_WIDTH, 0, "Ven.TransAlt"},
+X    {mkid(R_VENUS,C_TRANSTM), PLT, TIME_WIDTH, 0, "Ven.TransTm"},
+X    {mkid(R_VENUS,C_TRANSTM+TIME_WIDTH), 0, 1},
+X    {mkid(R_VENUS,C_TUP), PLT, TIME_WIDTH, 0, "Ven.TmUp"},
+X    {mkid(R_VENUS,C_TUP+TIME_WIDTH), 0, 1},
+X
+X    {mkid(R_PLANTAB,C_OBJ), 0, 0, "Ob"},
+X    {mkid(R_PLANTAB,C_RISETM-2), 0, 0, "Rise Time"},
+X    {mkid(R_PLANTAB,C_RISEAZ), 0, 0, "Rise Az"},
+X    {mkid(R_PLANTAB,C_TRANSTM-2), 0, 0, "Trans Time"},
+X    {mkid(R_PLANTAB,C_TRANSALT-1), 0, 0, "Trans Alt"},
+X    {mkid(R_PLANTAB,C_SETTM-1), 0, 0, "Set Time"},
+X    {mkid(R_PLANTAB,C_SETAZ), 0, 0, "Set Az"},
+X    {mkid(R_PLANTAB,C_TUP-1), 0, 0, "Hours Up"},
+};
+#define	NFM	(sizeof(rm_field_map)/sizeof(rm_field_map[0]))
+#define	LFM	(&rm_field_map[NFM])
+#define	fw(r,c)	(fm(r,c)->w)
+X
+static Widget risetform_w;
+static Widget objs_w[NOBJ];	/* object selector toggle buttons */
+static unsigned objs_on;	/* (1<<<OBJ>) when object is active */
+static int hzn = ADPHZN;	/* N.B. must match the initial True TB */
+static int rm_selecting;        /* set while our fields are being selected */
+X
+X
+static short bodyrow[NOBJ] = {
+X    R_MERCURY, R_VENUS, R_MARS, R_JUPITER, R_SATURN,
+X    R_URANUS, R_NEPTUNE, R_PLUTO, R_SUN, R_MOON, R_OBJX, R_OBJY
+};
+X
+static FieldMap *
+fm(r,c)
+int r, c;
+{
+X	FieldMap *fp;
+X	int id = mkid(r,c);
+X
+X	for (fp = rm_field_map; fp < LFM; fp++)
+X	    if (fp->id == id)
+X		return (fp);
+X	printf ("fm: can't find id 0x%x (%d,%d)\n", id, r, c);
+X	exit (1);
+X	return(0);	/* for lint */
+}
+X
+/* method by which another module can access our field map.
+X * this is used by the search compiler.
+X */
+rm_getfieldmap (fmpp)
+FieldMap **fmpp;
+{
+X	*fmpp = rm_field_map;
+X	return (NFM);
+}
+X
+/* called when the riset menu is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+rm_manage ()
+{
+X	if (!risetform_w) {
+X	    void rm_activate_cb();
+X	    void rm_hzn_cb();
+X	    void rm_obj_cb();
+X	    void rm_toggle_cb();
+X	    void rm_close_cb();
+X	    void rm_help_cb();
+X	    FieldMap *fp;
+X	    XmString str;
+X	    Arg args[20];
+X	    int i, n;
+X	    Widget rb_w, w;
+X
+X	    /* create the form */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	    XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	    XtSetArg (args[n], XmNfractionBase, 1000); n++;
+X	    XtSetArg (args[n], XmNallowOverlap, False); n++;
+X	    risetform_w = XmCreateFormDialog (toplevel_w, "Riset", args, n);
+X
+X	    /* set some stuff in the parent DialogShell.
+X	     * setting XmNdialogTitle in the Form didn't work..
+X	     */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtitle, "xephem Rise/Set Table"); n++;
+X	    XtSetValues (XtParent(risetform_w), args, n);
+X
+X	    /* establish the buttons and labels */
+X	    for (fp = rm_field_map; fp < LFM; fp++) {
+X		int free_str;
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNtopPosition, ypos(fp->id)); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, xpos(fp->id)); n++;
+X		free_str = 0;
+X		if (fp->prompt) {
+X		    str = XmStringCreate (fp->prompt,XmSTRING_DEFAULT_CHARSET);
+X		    free_str = 1;
+X		} else if (fp->width) {
+X		    str = str_width (fp->width);
+X		    XtSetArg(args[n], XmNrecomputeSize, False); n++;
+X		} else {
+X		    str = XmStringCreate("?",XmSTRING_DEFAULT_CHARSET);
+X		    free_str = 1;
+X		}
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		if (fp->how) {
+X		    /* pushbutton */
+X		    XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X		    fp->w = XtCreateManagedWidget ("RisetButton",
+X			    xmPushButtonGadgetClass, risetform_w, args, n);
+X		    XtAddCallback (fp->w, XmNactivateCallback, rm_activate_cb,
+X									fp);
+X		} else {
+X		    /* label */
+X		    fp->w = XtCreateManagedWidget ("RisetLabel",
+X				    xmLabelGadgetClass, risetform_w, args, n);
+X		}
+X		if (free_str)
+X		    XmStringFree(str);
+X	    }
+X
+X	    /* make the object control toggle buttons */
+X	    for (i = 0; i < NOBJ; i++) {
+X		str = XmStringCreate (objname[i], XmSTRING_DEFAULT_CHARSET);
+X		n = 0;
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		XtSetArg (args[n], XmNset, objs_on & (1<<i) ? True : False);n++;
+X		XtSetArg (args[n], XmNindicatorOn, False); n++;
+X		XtSetArg (args[n], XmNshadowThickness, 2); n++;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNtopPosition, r2ypos(bodyrow[i])); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, c2xpos(C_OBJ)); n++;
+X		objs_w[i] = XmCreateToggleButtonGadget (risetform_w, "RmObjs",
+X								    args, n);
+X		XtAddCallback(objs_w[i], XmNvalueChangedCallback, rm_obj_cb, i);
+X		XtManageChild (objs_w[i]);
+X		XmStringFree (str);
+X	    }
+X
+X	    /* make the close button */
+X	    str = XmStringCreate ("Close", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 0); n++;
+X	    w = XmCreatePushButtonGadget (risetform_w, "RisetClose", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, rm_close_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* make the horizon control radio box */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 250); n++;
+X	    XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	    rb_w = XmCreateRadioBox (risetform_w, "HznRadioBox", args, n);
+X	    XtManageChild (rb_w);
+X
+X	    str = XmStringCreate("Adaptive", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNset, hzn == ADPHZN); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButtonGadget (rb_w, "AdpHznTB", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, rm_hzn_cb, ADPHZN);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    str = XmStringCreate("Standard", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButtonGadget (rb_w, "StdHznTB", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, rm_hzn_cb, STDHZN);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* make the all on/off pushbutton */
+SHAR_EOF
+true || echo 'restore of risetmenu.c failed'
+fi
+echo 'End of  part 8'
+echo 'File risetmenu.c is continued in part 9'
+echo 9 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

@@ -1,0 +1,1225 @@
+Newsgroups: comp.sources.misc
+From: ram@eiffel.com (Raphael Manfredi)
+Subject: v35i034:  mailagent - Rule Based Mail Filtering, Patch18
+Message-ID: <1993Feb5.030658.776@sparky.imd.sterling.com>
+X-Md4-Signature: 7729d8fc0da3d870ee48c336c0756978
+Date: Fri, 5 Feb 1993 03:06:58 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ram@eiffel.com (Raphael Manfredi)
+Posting-number: Volume 35, Issue 34
+Archive-name: mailagent/patch18
+Environment: Perl, Sendmail, UNIX
+Patch-To: mailagent: Volume 33, Issue 93-109
+
+[The latest patch for mailagent version 2.9 is #19.]
+
+System: mailagent version 2.9
+Patch #: 18
+Priority: MEDIUM
+Subject: patch #17, continued
+Date: Mon Feb  1 10:45:58 PST 1993
+From: Raphael Manfredi <ram@eiffel.com>
+
+Description:
+	See patch #17.
+
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your mailagent source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		Configure -d
+		make depend
+		make
+		make install
+		make install.man
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+		Raphael Manfredi <ram@eiffel.com>
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+		Subject: Command
+		@SH mailpatch PATH mailagent 2.9 LIST
+			   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+	To get some more detailed instructions, send me the following mail:
+
+		Subject: Command
+		@SH mailhelp PATH
+
+
+Index: patchlevel.h
+Prereq: 17
+4c4
+< #define PATCHLEVEL 17
+---
+> #define PATCHLEVEL 18
+
+Index: agent/pl/newcmd.pl
+*** agent/pl/newcmd.pl.old	Mon Feb  1 10:24:39 1993
+--- agent/pl/newcmd.pl	Mon Feb  1 10:24:39 1993
+***************
+*** 0 ****
+--- 1,210 ----
++ ;# $Id: newcmd.pl,v 2.9.1.1 93/02/01 10:17:40 ram Exp $
++ ;#
++ ;#  Copyright (c) 1993, Raphael Manfredi
++ ;#
++ ;#  You may redistribute only under the terms of the GNU General Public
++ ;#  Licence as specified in the README file that comes with dist.
++ ;#
++ ;# $Log:	newcmd.pl,v $
++ ;# Revision 2.9.1.1  93/02/01  10:17:40  ram
++ ;# patch17: created
++ ;# 
++ ;# 
++ ;# This package handles the dynamic loading of a perl script in memory,
++ ;# providing a dynamic way of enhancing the command set of the mailagent.
++ ;#
++ ;# New commands are specified in the newcmd file specified in the config file.
++ ;# The syntax of this file is the following:
++ ;#
++ ;#   <cmd_name> <path> <function> [<status_flag> [<seen_flag>]]
++ ;#
++ ;# cmd_name: this is the command name, eg. RETURN_SENDER
++ ;# path: this is the path to the perl script implementing the command.
++ ;# function: the perl function within the script which implements the command
++ ;# status_flag: states whether the command modifies the execution status
++ ;# seen_flag: states whether the command is allowed in _SEEN_ mode
++ ;# 
++ ;# The last two booleans are optional, and may be specified as either 'yes'
++ ;# and 'no' or 'true' and 'false'. Their default value is respectively true
++ ;# and false.
++ ;#
++ ;# New commands are loaded as they are used and put in a special newcmd
++ ;# package, so that the names of the routines do not conflict with the
++ ;# mailagent's one. They are free to use whatever function the mailagent
++ ;# implements by prefixing the routine name with its package: normally, the
++ ;# execution of the command is done from within the newcmd package.
++ ;#
++ ;# Commands are given a single argument: the string forming the command name.
++ ;# Therefore, the command may implement the syntax it wishes. However, for
++ ;# the user convenience, the special array @newcmd'argv is preset with a
++ ;# shell-style parsed version. The mailagent also initializes the same
++ ;# special variables as the one set for PERL commands, only does it put them
++ ;# in the newcmd package instead of mailhook.
++ ;#
++ ;# Several data structures are maintained by this package:
++ ;#   %Usercmd, maps a command name to a file
++ ;#   %Loaded, records whether a file has been loaded or not
++ ;#   %Run, maps a command name to a perl function
++ ;#
++ 
++ package newcmd;
++ 
++ #
++ # User-defined commands
++ #
++ 
++ # Parse the newcmd file and record all new commands in the mailagent data
++ # structures.
++ sub load {
++ 	return unless -s $cf'newcmd;	# Empty or non-existent file
++ 
++ 	local($ST_MODE) =  2 + $[;		# Field st_mode from inode structure
++ 	local($S_IWOTH) = 02;			# Writable by world (no .ph files here)
++ 	local($unsecure) = 0;			# Is command file unsecure?
++ 
++ 	# Security checks. We cannot extend the mailagent commands if the file
++ 	# describing those new commands is not owned by the user or ir world
++ 	# writable. Indeed, someone could redefine default commands like LEAVE
++ 	# and use that to break into the user account.
++ 	unless (-O "$cf'newcmd") {
++ 		&'add_log("WARNING you do not own new command file $cf'newcmd")
++ 			if $'loglvl > 5;
++ 		$unsecure++;
++ 	}
++ 	local($st_mode) = (stat($cf'newcmd))[$ST_MODE];
++ 	if ($st_mode & $S_IWOTH) {
++ 		&'add_log("WARNING new command file $cf'newcmd is world writable!")
++ 			if $'loglvl > 5;
++ 		$unsecure++;
++ 	}
++ 
++ 	if ($unsecure) {
++ 		&'add_log("NOTICE ignoring new commands for security reasons")
++ 			if $'loglvl > 6;
++ 		return;
++ 	}
++ 
++ 	unless (open(NEWCMD, $cf'newcmd)) {
++ 		&'add_log("ERROR cannot open $cf'newcmd: $!") if $'loglvl;
++ 		&'add_log("WARNING new commands not loaded") if $'loglvl > 5;
++ 		return;
++ 	}
++ 
++ 	local($_);
++ 	local($cmd, $path, $function, $status, $seen);
++ 	while (<NEWCMD>) {
++ 		next if /^\s*#/;			# Skip comments
++ 		next if /^\s*$/;			# Skip blank lines
++ 		($cmd, $path, $function, $status, $seen) = split(' ');
++ 		$cmd =~ tr/a-z/A-Z/;		# Cannonicalize to upper-case
++ 		$path =~ s/~/$cf'home/;		# Perform ~ substitution
++ 		unless (-f $path && -r $path) {
++ 			$path =~ s/^$cf'home/~/;
++ 			&'add_log("ERROR command '$cmd' bound to unreadable file $path")
++ 				if $'loglvl;
++ 			next;					# Skip invalid command
++ 		}
++ 		# Load command into data structures by setting internal tables
++ 		$'Filter{$cmd} = "newcmd'run";		# Main dispatcher for new commands
++ 		$Usercmd{$cmd} = $path;				# Record command path
++ 		$Loaded{$path} = 0;					# File not loaded yet
++ 		$Run{$cmd} = $function;				# Perl function to call
++ 		$'Nostatus{$cmd} = 1 if status =~ /^f|n/i;
++ 		$'Rfilter{$cmd} = 1 unless $seen =~ /^t|y/i;
++ 		&interface'add($cmd);				# Add interface for perl hooks
++ 
++ 		$path =~ s/^$cf'home/~/;
++ 		&'add_log("new command $cmd in $path (&$function)")
++ 			if $'loglvl > 18;
++ 	}
++ 	close NEWCMD;
++ }
++ 
++ # This is the main dispatcher for user-defined command.
++ # Our caller 'run_command' has set up some special variables, like $mfile
++ # and $cmd_name, which are used here. Someday, I'll have to encapsulate that
++ # in a better way--RAM.
++ sub run {
++ 	# Make global variables visible in this package. Variables which should
++ 	# not be changed are marked 'read only'.
++ 	local($cmd) = $'cmd;					# Full command line (read only)
++ 	local($cmd_name) = $'cmd_name;			# Command name (read only)
++ 	local($mfile) = $'mfile;				# File name (read only)
++ 	local($ever_saved) = $'ever_saved;		# Saving already occurred?
++ 	local($cont) = $'cont;					# Continuation status
++ 	local($vacation) = $'vacation;			# Vacation message allowed?
++ 	local($lastcmd) = $'lastcmd;			# Last failure status stored
++ 	local($wmode) = $'wmode;				# Filter mode
++ 
++ 	&'add_log("user-defined command $cmd_name") if $'loglvl > 15;
++ 
++ 	# Let's see if we already have loaded the perl script which is responsible
++ 	# for implementing this command.
++ 	local($path) = $Usercmd{$cmd_name};
++ 	unless ($path) {
++ 		&'add_log("ERROR unknown user-defined command $cmd_name") if $'loglvl;
++ 		return 1;					# Command failed (should not happen)
++ 	}
++ 	local($function) = $Run{$cmd_name};
++ 
++ 	if (!$Loaded{$path}) {			# If implementation not loaded yet
++ 		unless (open(PERL, $path)) {
++ 			&'add_log("SYSERR open: $!") if $'loglvl;
++ 			&'add_log("ERROR cannot load code for user-defined $cmd_name")
++ 				if $'loglvl;
++ 			return 1;				# Command failed
++ 		}
++ 		local($/) = undef;
++ 		local($body) = ' ' x (-s PERL);
++ 		$body = <PERL>;				# Slurp whole file into pre-extended var
++ 		close(PERL);
++ 		local(@saved) = @INC;		# Save perl INC path (might be changed)
++ 		unshift(@INC, $'privlib);	# Files first searched for in private lib
++ 		eval $body;					# Load code into memory
++ 		@INC = @saved;				# Restore original require search path
++ 		$Loaded{$path} = 1;			# Mark script as loaded
++ 
++ 		if (chop($@)) {				# Script has an error
++ 			&'add_log("ERROR in $path: $@") if $'loglvl;
++ 			&'add_log("ERROR script for $cmd_name had an error") if $'loglvl;
++ 			return 1;				# Command failed
++ 		}
++ 
++ 		# Make sure the script we just loaded defines the function we want
++ 		local($defined) = 0;
++ 		eval('$defined = 1 if defined &' . $function);
++ 		unless ($defined) {
++ 			&'add_log("ERROR script $path did not provide &$function")
++ 				if $'loglvl;
++ 			return 1;				# Command failed
++ 		}
++ 	}
++ 
++ 	# At this point, we know we have some code to call in order to run the
++ 	# user-defined command. Prepare the special array @ARGV and initialize
++ 	# the mailhook variable in the current package.
++ 	&hook'initvar('newcmd');		# Initialize convenience variables
++ 	local(@ARGV);					# Argument vector for command
++ 	require 'shellwords.pl';
++ 	eval '@ARGV = &shellwords($cmd)';
++ 
++ 	# We don't need to protect the following execution within an eval, since
++ 	# we are currently inside one, via run_command.
++ 	local($failed) = &$function($cmd);		# Call user-defined function
++ 
++ 	# Propagate changes into global variables
++ 	$'ever_saved = $ever_saved;
++ 	$'cont = $cont;
++ 	$'vacation = $vacation;
++ 	$'lastcmd = $lastcmd;
++ 	$'wmode = $wmode;
++ 
++ 	# Log our action
++ 	local($msg) = $failed ? "and failed" : "successfully";
++ 	&'add_log("ran $cmd_name [$mfile] $msg") if $'loglvl > 6;
++ 
++ 	$failed;			# Propagate failure status
++ }
++ 
++ package main;
++ 
+
+Index: agent/pl/mailhook.pl
+Prereq: 2.9.1.1
+*** agent/pl/mailhook.pl.old	Mon Feb  1 10:24:37 1993
+--- agent/pl/mailhook.pl	Mon Feb  1 10:24:37 1993
+***************
+*** 1,4 ****
+! ;# $Id: mailhook.pl,v 2.9.1.1 92/08/26 13:16:58 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: mailhook.pl,v 2.9.1.2 93/02/01 10:17:30 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,15 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	mailhook.pl,v $
++ ;# Revision 2.9.1.2  93/02/01  10:17:30  ram
++ ;# patch17: special variables may now be initialized within various packages
++ ;# patch17: do not abort with fatal but with die (provision for new mailhooks)
++ ;# 
+  ;# Revision 2.9.1.1  92/08/26  13:16:58  ram
+  ;# patch8: created
+  ;# 
+***************
+*** 21,41 ****
+  # does not have (usually) to do any parsing on the mail. Headers of the mail
+  # are available via the %header array and some special variables are set as
+  # conveniences.
+! sub hook'initialize {
+! 	*header = *main'Header;		# User may fetch headers via %header
+! 	$sender = $header{'Sender'};
+! 	$subject = $header{'Subject'};
+! 	$precedence = $header{'Precedence'};
+! 	$from = $header{'From'};
+! 	$to = $header{'To'};
+! 	$cc = $header{'Cc'};
+! 	($address, $friendly) = &'parse_address($from);
+! 	$login = &'login_name($from);
+! 	@to = split(/,/, $to);
+! 	@cc = split(/,/, $to);
+! 	# Leave only the address part in @to and @cc
+! 	grep(($_ = (&'parse_address($_))[0], 0), @to);
+! 	grep(($_ = (&'parse_address($_))[0], 0), @cc);
+  }
+  
+  # Load hook script and run it
+--- 25,52 ----
+  # does not have (usually) to do any parsing on the mail. Headers of the mail
+  # are available via the %header array and some special variables are set as
+  # conveniences.
+! sub hook'initvar {
+! 	local($package) = @_;		# Package into which variables should be set
+! 	local($init) = &'q(<<'EOP');
+! :	*header = *main'Header;		# User may fetch headers via %header
+! :	$sender = $header{'Sender'};
+! :	$subject = $header{'Subject'};
+! :	$precedence = $header{'Precedence'};
+! :	$from = $header{'From'};
+! :	$to = $header{'To'};
+! :	$cc = $header{'Cc'};
+! :	($address, $friendly) = &'parse_address($from);
+! :	$login = &'login_name($from);
+! :	@to = split(/,/, $to);
+! :	@cc = split(/,/, $to);
+! :	# Leave only the address part in @to and @cc
+! :	grep(($_ = (&'parse_address($_))[0], 0), @to);
+! :	grep(($_ = (&'parse_address($_))[0], 0), @cc);
+! EOP
+! 	eval(<<EOP);				# Initialize variables inside package
+! 	package $package;
+! 	$init
+! EOP
+  }
+  
+  # Load hook script and run it
+***************
+*** 50,56 ****
+  	if (chop($@)) {
+  		$@ =~ s/ in file \(eval\)//;
+  		&'add_log("ERROR $@") if $'loglvl;
+! 		&'fatal("$hook aborted");
+  	}
+  }
+  
+--- 61,67 ----
+  	if (chop($@)) {
+  		$@ =~ s/ in file \(eval\)//;
+  		&'add_log("ERROR $@") if $'loglvl;
+! 		die("$hook aborted");
+  	}
+  }
+  
+
+Index: agent/test/misc/newcmd.t
+*** agent/test/misc/newcmd.t.old	Mon Feb  1 10:24:59 1993
+--- agent/test/misc/newcmd.t	Mon Feb  1 10:24:59 1993
+***************
+*** 0 ****
+--- 1,68 ----
++ # Test user-defined commands
++ do '../pl/misc.pl';
++ unlink "$user", 'always', 'test';
++ 
++ &add_option("-o 'newcmd: ~/.newcmd'");
++ open(NEWCMD, '>.newcmd') || print "1\n";
++ print NEWCMD <<EOF || print "2\n";
++ FIRST_CMD ~/commands first
++ SECOND_CMD ~/commands second
++ THIRD_CMD ~/commands third
++ EOF
++ close NEWCMD || print "3\n";
++ 
++ open(COM, '>commands') || print "4\n";
++ print COM <<'EOC' || print "5\n";
++ sub first {
++ 	&mailhook'third_cmd('test');	# Make sure interface function is there
++ 	open(OUT, '>output1');
++ 	print OUT join(' ', @ARGV), "\n";
++ 	print OUT "$to\n";
++ 	close OUT;
++ 	0;
++ }
++ 
++ sub second {
++ 	&main'add_log('second user-defined command ran ok');
++ 	open(OUT, '>output2');
++ 	print OUT "$from\n";
++ 	print OUT "$header{'Date'}\n";
++ 	close OUT;
++ 	0;
++ }
++ 
++ sub third {
++ 	local($cmd) = @_;
++ 	local(@cmd) = split(' ', $cmd);
++ 	open(TEST, ">$cmd[1]");
++ 	print TEST "$cmd\n";
++ 	close TEST;
++ 	0;
++ }
++ EOC
++ close COM || print "6\n";
++ 
++ &add_header('X-Tag: newcmd');
++ `$cmd`;
++ $? == 0 || print "7\n";
++ -f "$user" && print "8\n";		# Haa defaulted to LEAVE -> something's wrong
++ -f 'output1' || print "9\n";
++ -f 'output2' || print "10\n";
++ -f 'test' || print "11\n";
++ 
++ chop($test = `cat test 2>/dev/null`);
++ $test eq 'third_cmd test' || print "12\n";
++ 
++ chop(@test = `cat output1 2>/dev/null`);
++ $test[0] eq 'FIRST_CMD arg1 arg2' || print "13\n";
++ $test[1] eq 'ram@eiffel.com' || print "14\n";
++ 
++ chop(@test = `cat output2 2>/dev/null`);
++ $test[0] eq 'compilers-request@iecc.cambridge.ma.us' || print "15\n";
++ $test[1] eq '3 Jul 92 00:43:22 EDT (Fri)' || print "16\n";
++ 
++ &get_log(17);
++ &check_log('second user-defined command ran ok', 18) == 1 || print "19\n";
++ 
++ unlink "$user", 'mail', 'test', 'output1', 'output2', 'commands', '.newcmd';
++ print "0\n";
+
+Index: MANIFEST
+*** MANIFEST.old	Mon Feb  1 10:25:04 1993
+--- MANIFEST	Mon Feb  1 10:25:04 1993
+***************
+*** 100,105 ****
+--- 100,106 ----
+  agent/pl/matching.pl       Matching routines used by filter
+  agent/pl/mbox.pl           Getting mails from a mailbox file
+  agent/pl/mmdf.pl           MMDF-style mailbox handling
++ agent/pl/newcmd.pl         Filter command extension driver
+  agent/pl/once.pl           Dealing with once commands
+  agent/pl/parse.pl          Perl library to parse a mail message
+  agent/pl/period.pl         Perl library to compute periods
+***************
+*** 106,111 ****
+--- 107,113 ----
+  agent/pl/plsave.pl         Perl library to handle the plsave cache file
+  agent/pl/plural.pl         Perl library to pluralize words
+  agent/pl/pqueue.pl         Processing the queued mails
++ agent/pl/q.pl              Quote removal function
+  agent/pl/queue_mail.pl     Queuing mails
+  agent/pl/rangeargs.pl      Perl library to expand a list of patches
+  agent/pl/read_conf.pl      Perl library to read configuration file
+***************
+*** 182,187 ****
+--- 184,190 ----
+  agent/test/mail                The mail used by testing routines
+  agent/test/misc/compress.t     Folder compression checks
+  agent/test/misc/mmdf.t         MMDF-style mailbox checks
++ agent/test/misc/newcmd.t       Filter command extension tests
+  agent/test/option/             Tests the options to the mailagent program
+  agent/test/option/L.t          Test -L option
+  agent/test/option/V.t          Test -V option
+***************
+*** 204,209 ****
+--- 207,213 ----
+  agent/test/pl/init.pl          Variable initializations
+  agent/test/pl/logfile.pl       Logging file checking
+  agent/test/pl/mail.pl          Modifies mail components
++ agent/test/pl/misc.pl          Set up for miscellaneous tests
+  agent/test/rules               Rules used by filtering tests
+  bin/perload                The dataloading/autoloading perl translator
+  config.h.SH                Produces config.h
+
+Index: agent/pl/filter.pl
+Prereq: 2.9.1.6
+*** agent/pl/filter.pl.old	Mon Feb  1 10:24:26 1993
+--- agent/pl/filter.pl	Mon Feb  1 10:24:27 1993
+***************
+*** 1,4 ****
+! ;# $Id: filter.pl,v 2.9.1.6 93/01/12 13:13:12 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: filter.pl,v 2.9.1.7 93/02/01 10:10:24 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,15 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	filter.pl,v $
++ ;# Revision 2.9.1.7  93/02/01  10:10:24  ram
++ ;# patch17: NOTIFY now accepts a list of addresses instead of just one
++ ;# patch17: file inclusion to load addresses now available with NOTIFY
++ ;# 
+  ;# Revision 2.9.1.6  93/01/12  13:13:12  ram
+  ;# patch15: undocumented feature commented (WRITE may allow hooks)
+  ;# 
+***************
+*** 151,162 ****
+  
+  # Run the NOTIFY command
+  sub run_notify {
+! 	local($address, $msg) = $cmd =~ m|^\w+\s+(\S+)\s+(\S+)|;
+  	$msg =~ s/~/$cf'home/g;					# ~ substitution
+! 	local($failed) = do notify($msg, $address);
+  	unless ($failed) {
+  		$msg =~ s|^$cf'home|~|;				# Replace the home directory by ~
+! 		do add_log("NOTIFIED $msg for [$mfile]") if $loglvl > 2;
+  	}
+  	$failed;
+  }
+--- 155,169 ----
+  
+  # Run the NOTIFY command
+  sub run_notify {
+! 	local($args) = $cmd =~ m|^\w+\s+(.*)|;
+! 	local(@args) = split(' ', $args);
+! 	local($msg) = pop(@args);				# Last argument is message text
+  	$msg =~ s/~/$cf'home/g;					# ~ substitution
+! 	local($address) = join(' ', @args);		# Address list
+! 	local($failed) = &notify($msg, $address);
+  	unless ($failed) {
+  		$msg =~ s|^$cf'home|~|;				# Replace the home directory by ~
+! 		&add_log("NOTIFIED $msg [$mfile] to $addresses") if $loglvl > 2;
+  	}
+  	$failed;
+  }
+
+Index: agent/pl/analyze.pl
+Prereq: 2.9.1.5
+*** agent/pl/analyze.pl.old	Mon Feb  1 10:24:22 1993
+--- agent/pl/analyze.pl	Mon Feb  1 10:24:23 1993
+***************
+*** 1,4 ****
+! ;# $Id: analyze.pl,v 2.9.1.5 92/12/01 09:18:49 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: analyze.pl,v 2.9.1.6 93/02/01 10:09:21 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,15 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	analyze.pl,v $
++ ;# Revision 2.9.1.6  93/02/01  10:09:21  ram
++ ;# patch17: now recognizes 'mailer-agent' as a special address
++ ;# patch17: logging of sender now focuses only on address part
++ ;# 
+  ;# Revision 2.9.1.5  92/12/01  09:18:49  ram
+  ;# patch13: fixed mode selection pattern (no brace allowed)
+  ;# 
+***************
+*** 42,47 ****
+--- 46,52 ----
+  		'newsmaster', 1,		# My convention for news administrator--RAM
+  		'usenet', 1,			# Aka newsmaster
+  		'mailer-daemon', 1,		# Sendmail
++ 		'mailer-agent', 1,		# NeXT mailer
+  		'nobody', 1				# Nobody we've heard of
+  	);
+  }
+***************
+*** 332,339 ****
+  	local($sender) = $Header{'Sender'};
+  	local($from) = $Header{'From'};
+  	&add_log("FROM $from");
+! 	&add_log("VIA $sender")
+! 		if $sender ne '' && $sender ne (&parse_address($from))[0];
+  	if ($subject ne '') {
+  		if ($subject =~ s/^Re:\s*//) {
+  			&add_log("REPLY $subject");
+--- 337,344 ----
+  	local($sender) = $Header{'Sender'};
+  	local($from) = $Header{'From'};
+  	&add_log("FROM $from");
+! 	&add_log("VIA $sender") if $sender ne '' &&
+! 		(&parse_address($sender))[0] ne (&parse_address($from))[0];
+  	if ($subject ne '') {
+  		if ($subject =~ s/^Re:\s*//) {
+  			&add_log("REPLY $subject");
+
+Index: agent/files/mailagent.cf
+Prereq: 2.9.1.2
+*** agent/files/mailagent.cf.old	Mon Feb  1 10:23:54 1993
+--- agent/files/mailagent.cf	Mon Feb  1 10:23:54 1993
+***************
+*** 2,8 ****
+  # Configuration file for mailagent
+  #
+  
+! # $Id: mailagent.cf,v 2.9.1.2 93/01/12 12:07:32 ram Exp $
+  #
+  #  Copyright (c) 1991, Raphael Manfredi
+  #
+--- 2,8 ----
+  # Configuration file for mailagent
+  #
+  
+! # $Id: mailagent.cf,v 2.9.1.3 93/02/01 09:53:44 ram Exp $
+  #
+  #  Copyright (c) 1991, Raphael Manfredi
+  #
+***************
+*** 10,15 ****
+--- 10,19 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	mailagent.cf,v $
++ # Revision 2.9.1.3  93/02/01  09:53:44  ram
++ # patch17: new optional parameter 'newcmd'
++ # patch17: both 'compress' and 'newcmd' under same "optional" section
++ # 
+  # Revision 2.9.1.2  93/01/12  12:07:32  ram
+  # patch15: new parameters: nfslock, mmdf, mmdfbox and compress
+  # 
+***************
+*** 68,74 ****
+  mailbox  : $user				# Mailbox file name (optional)
+  mmdf     : OFF					# Allow MMDF-style mailbox delivery
+  mmdfbox  : OFF					# Force new folders to MMDF format
+! compress : ~/.compress			# Folder compression list (optional)
+  
+  # Database hashing directory (in $spool) and other controls
+  hash     : dbr					# Hashing directory
+--- 72,81 ----
+  mailbox  : $user				# Mailbox file name (optional)
+  mmdf     : OFF					# Allow MMDF-style mailbox delivery
+  mmdfbox  : OFF					# Force new folders to MMDF format
+! 
+! # Optional parameters (for experts...)
+! #compress : ~/.compress			# Folder compression list
+! #newcmd   : $spool/newcmd		# Definition of new filtering commands
+  
+  # Database hashing directory (in $spool) and other controls
+  hash     : dbr					# Hashing directory
+
+Index: agent/pl/hook.pl
+Prereq: 2.9.1.1
+*** agent/pl/hook.pl.old	Mon Feb  1 10:24:32 1993
+--- agent/pl/hook.pl	Mon Feb  1 10:24:32 1993
+***************
+*** 1,4 ****
+! ;# $Id: hook.pl,v 2.9.1.1 92/08/26 13:14:05 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: hook.pl,v 2.9.1.2 93/02/01 10:15:59 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	hook.pl,v $
++ ;# Revision 2.9.1.2  93/02/01  10:15:59  ram
++ ;# patch17: special variables are now initialized by &initvar
++ ;# 
+  ;# Revision 2.9.1.1  92/08/26  13:14:05  ram
+  ;# patch8: created
+  ;# 
+***************
+*** 131,137 ****
+  	local($mail, $hook) = @_;
+  	&'add_log("hook is an audit script") if $'loglvl > 17;
+  	&'parse_mail($mail);		# Fill in %Header
+! 	&initialize;				# Initialize special variables
+  	&run($hook);				# Load hook and run it
+  }
+  
+--- 134,140 ----
+  	local($mail, $hook) = @_;
+  	&'add_log("hook is an audit script") if $'loglvl > 17;
+  	&'parse_mail($mail);		# Fill in %Header
+! 	&initvar('mailhook');		# Initialize special variables
+  	&run($hook);				# Load hook and run it
+  }
+  
+***************
+*** 151,157 ****
+  		&'fatal("cannot deliver to hook");
+  	}
+  	if (0 == $pid) {			# Child process
+! 		&initialize;			# Initialize special variables
+  		&run($hook);			# Load hook and run it
+  		exit 0;					# Everything went well
+  	}
+--- 154,160 ----
+  		&'fatal("cannot deliver to hook");
+  	}
+  	if (0 == $pid) {			# Child process
+! 		&initvar('mailhook');	# Initialize special variables
+  		&run($hook);			# Load hook and run it
+  		exit 0;					# Everything went well
+  	}
+
+Index: agent/test/misc/compress.t
+*** agent/test/misc/compress.t.old	Mon Feb  1 10:24:54 1993
+--- agent/test/misc/compress.t	Mon Feb  1 10:24:55 1993
+***************
+*** 0 ****
+--- 1,45 ----
++ # Test compression feature
++ do '../pl/misc.pl';
++ unlink "$user.Z", 'always';
++ 
++ # Look whether compress is available. If not, do not perform this test.
++ `compress mail`;
++ `uncompress mail` if $? == 0 && -f mail.Z;
++ if ($? != 0) {		# No compress available in path, sorry
++ 	print "-1\n";	# Do not perform any tests
++ 	exit 0;
++ }
++ 
++ &add_option("-o 'compress: ~/.compress'");
++ open(COMPRESS, '>.compress') || print "1\n";
++ print COMPRESS <<EOF || print "2\n";
++ a[lm]*
++ $user
++ EOF
++ close COMPRESS || print "3\n";
++ 
++ &add_header('X-Tag: compress');
++ `$cmd`;
++ $? == 0 || print "4\n";
++ -f "$user" && print "5\n";		# Should be compressed
++ -f "$user.Z" || print "6\n";
++ -f 'always' && print "7\n";		# Should also be compressed
++ -f 'always.Z' || print "8\n";
++ -f 'another' || print "9\n";	# This one is not compressed
++ -f 'another.Z' && print "10\n";
++ $msize = -s "$user.Z";
++ 
++ `cp $user.Z $user >/dev/null 2>&1`;
++ `$cmd`;
++ $? == 0 || print "11\n";
++ -f "$user" || print "12\n";		# Should be not be recompressed
++ -f "$user.Z" || print "13\n";	# Should still be there
++ -f 'always' && print "14\n";	# Should also be compressed
++ -f 'always.Z' || print "15\n";
++ -f 'another' || print "16\n";	# This one is not compressed
++ -f 'another.Z' && print "17\n";
++ (-s $user != $msize) || print "18\n";		# Mail saved there
++ (-s "$user.Z" == $msize) || print "19\n";	# This one left undisturbed
++ 
++ unlink "$user", "$user.Z", 'always', 'always.Z', 'another', 'mail', '.compress';
++ print "0\n";
+
+Index: agent/filter/parser.c
+Prereq: 2.9.1.3
+*** agent/filter/parser.c.old	Mon Feb  1 10:23:57 1993
+--- agent/filter/parser.c	Mon Feb  1 10:23:58 1993
+***************
+*** 11,17 ****
+  */
+  
+  /*
+!  * $Id: parser.c,v 2.9.1.3 92/12/01 09:13:21 ram Exp $
+   *
+   *  Copyright (c) 1992, Raphael Manfredi
+   *
+--- 11,17 ----
+  */
+  
+  /*
+!  * $Id: parser.c,v 2.9.1.4 93/02/01 09:54:21 ram Exp $
+   *
+   *  Copyright (c) 1992, Raphael Manfredi
+   *
+***************
+*** 19,24 ****
+--- 19,27 ----
+   *  Licence as specified in the README file that comes with dist.
+   *
+   * $Log:	parser.c,v $
++  * Revision 2.9.1.4  93/02/01  09:54:21  ram
++  * patch17: configuration variables may now have '-' in them
++  * 
+   * Revision 2.9.1.3  92/12/01  09:13:21  ram
+   * patch13: removed spurious inclusion of <sys/types.h>
+   * 
+***************
+*** 395,402 ****
+  		return;							/* Ignore it */
+  
+  	while (*nptr++ = *path) {			/* Copy everything until non alphanum */
+! 		if (*path == '_') {				/* '_' is valid in variable names */
+! 			path++;						/* But is not an alphanumeric char */
+  			continue;
+  		} else if (!isalnum(*path++))	/* Reached a non-alphanumeric char */
+  			break;						/* We got variable name */
+--- 398,406 ----
+  		return;							/* Ignore it */
+  
+  	while (*nptr++ = *path) {			/* Copy everything until non alphanum */
+! 		if (*path == '_' || *path == '-') {
+! 			/* Valid variable characters, although not 'isalnum' */
+! 			path++;
+  			continue;
+  		} else if (!isalnum(*path++))	/* Reached a non-alphanumeric char */
+  			break;						/* We got variable name */
+
+Index: agent/pl/history.pl
+Prereq: 2.9.1.2
+*** agent/pl/history.pl.old	Mon Feb  1 10:24:29 1993
+--- agent/pl/history.pl	Mon Feb  1 10:24:30 1993
+***************
+*** 1,4 ****
+! ;# $Id: history.pl,v 2.9.1.2 92/11/01 15:50:23 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: history.pl,v 2.9.1.3 93/02/01 10:15:29 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	history.pl,v $
++ ;# Revision 2.9.1.3  93/02/01  10:15:29  ram
++ ;# patch17: updated comment
++ ;# 
+  ;# Revision 2.9.1.2  92/11/01  15:50:23  ram
+  ;# patch11: now recognizes '(a)' for '@' in a message ID (X-400 gateways)
+  ;# 
+***************
+*** 20,26 ****
+  ;# Each message-id tag is stored in a file, along with a time-stamp (to enable
+  ;# its removal after a given period.
+  ;#
+! # Record message whose message ID is given as argument and return 0 if the
+  # message was recorded for the first time or if there is no valid message ID.
+  # Return 1 if the message was already recorded, and hence was already seen.
+  sub history_record {
+--- 23,29 ----
+  ;# Each message-id tag is stored in a file, along with a time-stamp (to enable
+  ;# its removal after a given period.
+  ;#
+! # Record the message ID of the current message and return 0 if the
+  # message was recorded for the first time or if there is no valid message ID.
+  # Return 1 if the message was already recorded, and hence was already seen.
+  sub history_record {
+
+Index: agent/pl/interface.pl
+Prereq: 2.9.1.3
+*** agent/pl/interface.pl.old	Mon Feb  1 10:24:34 1993
+--- agent/pl/interface.pl	Mon Feb  1 10:24:35 1993
+***************
+*** 1,4 ****
+! ;# $Id: interface.pl,v 2.9.1.3 92/11/10 10:14:02 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: interface.pl,v 2.9.1.4 93/02/01 10:16:29 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	interface.pl,v $
++ ;# Revision 2.9.1.4  93/02/01  10:16:29  ram
++ ;# patch17: new &add routine to dynamically build a perl interface
++ ;# 
+  ;# Revision 2.9.1.3  92/11/10  10:14:02  ram
+  ;# patch12: perl command interface changed to return boolean success
+  ;# 
+***************
+*** 144,149 ****
+  	return 1 unless $'Filter{$fun};
+  	0;
+  }
+! 	
+  package main;
+  
+--- 147,166 ----
+  	return 1 unless $'Filter{$fun};
+  	0;
+  }
+! 
+! # Add a new interface function for user-defined commands
+! sub add {
+! 	local($cmd) = @_;			# Command name
+! 	$cmd =~ tr/A-Z/a-z/;		# Cannonicalize to lower case
+! 	eval &'q(<<EOP);			# Compile new mailhook perl interface function
+! :	sub mailhook'$cmd { &interface'dispatch; }
+! EOP
+! 	if (chop($@)) {
+! 		&'add_log("ERROR while adding 'sub $cmd': $@") if $'loglvl;
+! 		&'add_log("WARNING cannot use '&$cmd' in perl hooks")
+! 			if $'loglvl > 5;
+! 	}
+! }
+! 
+  package main;
+  
+
+Index: agent/pl/rfc822.pl
+Prereq: 2.9.1.2
+*** agent/pl/rfc822.pl.old	Mon Feb  1 10:24:46 1993
+--- agent/pl/rfc822.pl	Mon Feb  1 10:24:46 1993
+***************
+*** 1,4 ****
+! ;# $Id: rfc822.pl,v 2.9.1.2 92/12/01 09:27:19 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: rfc822.pl,v 2.9.1.3 93/01/19 17:44:03 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	rfc822.pl,v $
++ ;# Revision 2.9.1.3  93/01/19  17:44:03  ram
++ ;# patch17: now recognizes bogus addresses like '<address> (comment)'
++ ;# 
+  ;# Revision 2.9.1.2  92/12/01  09:27:19  ram
+  ;# patch13: added internet info extraction out of e-mail address
+  ;# 
+***************
+*** 28,34 ****
+  	local($comment);
+  	local($internet);
+  	if (/^\s*(\S+)\s+\((.*)\)/) {		# address (comment) 
+! 		($1, $2);
+  	} elsif (/^\s*(.*)\s+<(\S+)>/) {	# comment <address>
+  		$comment = $1;
+  		$internet = $2;
+--- 31,40 ----
+  	local($comment);
+  	local($internet);
+  	if (/^\s*(\S+)\s+\((.*)\)/) {		# address (comment) 
+! 		$comment = $2;
+! 		$internet = $1;
+! 		$internet =~ s/^<(\S+)>/$1/;	# was <address> (comment)
+! 		($internet, $comment);
+  	} elsif (/^\s*(.*)\s+<(\S+)>/) {	# comment <address>
+  		$comment = $1;
+  		$internet = $2;
+
+Index: agent/examples/rules
+*** agent/examples/rules.old	Mon Feb  1 10:23:51 1993
+--- agent/examples/rules	Mon Feb  1 10:23:52 1993
+***************
+*** 143,148 ****
+--- 143,174 ----
+  	system,
+  	unknown-user	{ SAVE admin };
+  
++ # Mail about the mailagent (sometimes called mail filter, hence the double
++ # pattern) is handled specially. I have a special pattern file held in
++ # ~/mail/auto-msg/agent.key. Every message which is NOT a reply and has one
++ # of those patterns in its body will be automatically replied to, once a week,
++ # by sending the message held in ~/mail/auto-msg/agent.msg. In order for me
++ # to know that this message has been already "replied-to", I annotate it.
++ # Ultimately, the message is dropped in a dedicated folder.
++ 
++ Subject:
++ 	/mail\s*agent/i,
++ 	/mail\s*filter/i		{ BEGIN AGENT; REJECT };
++ <AGENT>
++ 	Subject: !/^Re:/,
++ 	Body: "~/mail/auto-msg/agent.key"
++ 		{
++ 			ONCE (%r, agent, 1w) REJECT AGENT_MSG;
++ 			SAVE agent;
++ 		};
++ <AGENT_MSG>
++ 		{
++ 			MESSAGE ~/mail/auto-msg/agent.msg;
++ 			ANNOTATE Auto-Replied: %r;
++ 			SAVE agent;
++ 		};
++ <AGENT> { SAVE agent };
++ 
+  # Here, I am detecting mails sent by someone at ISE, i.e. mails with the
+  # domain name ``eiffel.com'' appended or simply mails with no domain name.
+  # I also turn off vacation messages, for when I am away, people at ISE usually
+
+Index: agent/mhook.SH
+Prereq: 2.9.1.2
+*** agent/mhook.SH.old	Mon Feb  1 10:24:14 1993
+--- agent/mhook.SH	Mon Feb  1 10:24:14 1993
+***************
+*** 22,28 ****
+  # via the filter. Mine looks like this:
+  #   "|exec /users/ram/mail/filter >>/users/ram/.bak 2>&1"
+  
+! # $Id: mhook.SH,v 2.9.1.2 93/01/12 12:09:20 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+--- 22,28 ----
+  # via the filter. Mine looks like this:
+  #   "|exec /users/ram/mail/filter >>/users/ram/.bak 2>&1"
+  
+! # $Id: mhook.SH,v 2.9.1.3 93/02/01 10:05:35 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+***************
+*** 30,35 ****
+--- 30,38 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	mhook.SH,v $
++ # Revision 2.9.1.3  93/02/01  10:05:35  ram
++ # patch17: added new file pl/q.pl for quotations
++ # 
+  # Revision 2.9.1.2  93/01/12  12:09:20  ram
+  # patch15: leading perl start up is now configured
+  # 
+***************
+*** 142,146 ****
+--- 145,150 ----
+  $grep -v '^;#' pl/header.pl >>mhook
+  $grep -v '^;#' pl/rfc822.pl >>mhook
+  $grep -v '^;#' pl/extern.pl >>mhook
++ $grep -v '^;#' pl/q.pl >>mhook
+  chmod 755 mhook
+  $eunicefix mhook
+
+Index: agent/test/misc/mmdf.t
+*** agent/test/misc/mmdf.t.old	Mon Feb  1 10:24:56 1993
+--- agent/test/misc/mmdf.t	Mon Feb  1 10:24:57 1993
+***************
+*** 0 ****
+--- 1,37 ----
++ # Test MMDF-style mailboxes
++ do '../pl/misc.pl';
++ unlink "$user", 'always';
++ 
++ &add_option("-o 'mmdf: ON' -o 'mmdfbox: OFF'");
++ &add_header('X-Tag: mmdf');
++ `$cmd`;
++ $? == 0 || print "1\n";
++ -f "$user" || print "2\n";
++ -f 'always' || print "3\n";
++ 
++ sub has_ctrl {
++ 	local($file) = @_;
++ 	open(FILE, $file) || return 0;
++ 	local($count) = 0;
++ 	local($_);
++ 	while (<FILE>) {
++ 		$count++ if /^\01\01\01\01$/;
++ 	}
++ 	$count;
++ }
++ 
++ &has_ctrl($user) == 0 || print "4\n";
++ &has_ctrl('always') == 0 || print "5\n";
++ 
++ $cmd =~ s/mmdfbox: OFF/mmdfbox: ON/ || print "6\n";
++ unlink 'always';
++ `$cmd`;
++ $? == 0 || print "7\n";
++ -f "$user" || print "8\n";
++ -f 'always' || print "9\n";
++ 
++ &has_ctrl($user) == 0 || print "10\n";
++ &has_ctrl('always') == 4 || print "11\n";
++ 
++ unlink $user, 'always', 'mail';
++ print "0\n";
+
+Index: agent/pl/q.pl
+*** agent/pl/q.pl.old	Mon Feb  1 10:24:43 1993
+--- agent/pl/q.pl	Mon Feb  1 10:24:44 1993
+***************
+*** 0 ****
+--- 1,22 ----
++ ;# $Id: q.pl,v 2.9.1.1 93/02/01 10:21:44 ram Exp $
++ ;#
++ ;#  Copyright (c) 1993, Raphael Manfredi
++ ;#
++ ;#  You may redistribute only under the terms of the GNU General Public
++ ;#  Licence as specified in the README file that comes with dist.
++ ;#
++ ;# $Log:	q.pl,v $
++ ;# Revision 2.9.1.1  93/02/01  10:21:44  ram
++ ;# patch17: created
++ ;# 
++ ;# Revision 2.9  92/07/14  16:50:18  ram
++ ;# 3.0 beta baseline.
++ ;# 
++ # Quotation removal routine
++ sub q {
++ 	local($_) = @_;
++ 	local($*) = 1;
++ 	s/^://g;
++ 	$_;
++ }
++ 
+
+Index: README
+*** README.old	Mon Feb  1 10:23:49 1993
+--- README	Mon Feb  1 10:23:49 1993
+***************
+*** 1,6 ****
+                             mailagent 2.9
+  
+!               Copyright (c) 1990-1992, Raphael Manfredi
+  
+  ------------------------------------------------------------------------
+      This program is free software; you can redistribute it and/or modify
+--- 1,6 ----
+                             mailagent 2.9
+  
+!               Copyright (c) 1990-1993, Raphael Manfredi
+  
+  ------------------------------------------------------------------------
+      This program is free software; you can redistribute it and/or modify
+
+Index: agent/test/TEST
+*** agent/test/TEST.old	Mon Feb  1 10:24:49 1993
+--- agent/test/TEST	Mon Feb  1 10:24:49 1993
+***************
+*** 11,17 ****
+  $ENV{'PWD'} = $pwd;
+  $ENV{'LEVEL'} = 0;			# Default loglvl for filter and cmd tests
+  
+! @tests = ('basic', 'option', 'filter', 'cmd');
+  $failed = 0;
+  $how_many = 0;
+  
+--- 11,17 ----
+  $ENV{'PWD'} = $pwd;
+  $ENV{'LEVEL'} = 0;			# Default loglvl for filter and cmd tests
+  
+! @tests = ('basic', 'option', 'filter', 'cmd', 'misc');
+  $failed = 0;
+  $how_many = 0;
+  
+
+Index: agent/test/actions
+*** agent/test/actions.old	Mon Feb  1 10:24:52 1993
+--- agent/test/actions	Mon Feb  1 10:24:52 1993
+***************
+*** 210,212 ****
+--- 210,215 ----
+  X-Tag: /write #1/	{ WRITE mbox };
+  X-Tag: /write #2/	{ WRITE path/another/third/mbox };
+  
++ X-Tag: /compress/	{ LEAVE; SAVE always; SAVE another };
++ X-Tag: /mmdf/		{ LEAVE; SAVE always; SAVE always };
++ X-Tag: /newcmd/		{ FIRST_CMD arg1 arg2; SECOND_CMD; DELETE };
+
+Index: agent/test/pl/misc.pl
+*** agent/test/pl/misc.pl.old	Mon Feb  1 10:25:01 1993
+--- agent/test/pl/misc.pl	Mon Feb  1 10:25:01 1993
+***************
+*** 0 ****
+--- 1,10 ----
++ # Common actions at the top of each misc test
++ do '../pl/cmd.pl';
++ 
++ # Add option to command string held in $cmd
++ sub add_option {
++ 	local($opt) = @_;
++ 	local(@cmd) = split(' ', $cmd);
++ 	$cmd = join(' ', $cmd[0], $opt, @cmd[1..$#cmd]);
++ }
++ 
+
+*** End of Patch 18 ***
+
+exit 0 # Just in case...

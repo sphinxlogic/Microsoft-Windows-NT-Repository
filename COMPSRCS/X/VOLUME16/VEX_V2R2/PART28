@@ -1,0 +1,1899 @@
+Path: uunet!think.com!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i079: Video Extension for X (v2r2), Part28/29
+Message-ID: <1992Feb6.150058.1326@msi.com>
+Date: 6 Feb 92 15:00:58 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1886
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 79
+Archive-name: vex.v2r2/part28
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 28 (of 29)."
+# Contents:  config/ultrix.cf.diff extensions/xv/include/Xv.h
+#   extensions/xv/man/man3/Xv.3X
+#   extensions/xv/man/man3/XvGetPortAttribute.3X
+#   extensions/xv/man/man3/XvGrabPort.3X
+#   extensions/xv/man/man3/XvQueryBestSize.3X
+#   extensions/xv/man/man3/XvQueryExtension.3X
+#   extensions/xv/man/man3/XvSelectPortNotify.3X
+#   extensions/xv/man/man3/XvSelectVideoNotify.3X
+#   extensions/xv/man/man3/XvVideoNotify.3X
+#   extensions/xv/test/Imakefile install/README install/ddx-dec-ws.sh
+#   install/install.sh install/server-imakefile.sh lib/X/XErrorDB.diff
+#   server/ddx/dec/tx/rop.h server/ddx/dec/tx/tfb.h
+#   server/ddx/dec/tx/xfbbankswst.h server/ddx/dec/tx/xfbbstore.c
+#   server/ddx/dec/tx/xfbstruct.h server/ddx/sun/sunCG8C.h
+#   server/ddx/sun/xfbbstore.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:51 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'config/ultrix.cf.diff' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/ultrix.cf.diff'\"
+else
+echo shar: Extracting \"'config/ultrix.cf.diff'\" \(458 characters\)
+sed "s/^X//" >'config/ultrix.cf.diff' <<'END_OF_FILE'
+X*** /xsrc/config/ultrix.cf	Tue Jul 30 12:12:58 1991
+X--- ultrix.cf	Fri Nov  8 15:11:12 1991
+X***************
+X*** 25,30 ****
+X--- 25,32 ----
+X  #ifdef MipsArchitecture
+X  #if OSMajorVersion > 4 || (OSMajorVersion == 4 && OSMinorVersion >= 2)
+X  #define XdecServer YES
+X+ #define BuildXvExt	YES
+X+ #define ExtensionOSDefines -DXV
+X  /* Even under ultrix 4.2, the compiler miscompiles some alloca calls */
+X  #define AllocateLocalDefines /* -DINCLUDE_ALLOCA_H */
+X  #else
+END_OF_FILE
+if test 458 -ne `wc -c <'config/ultrix.cf.diff'`; then
+    echo shar: \"'config/ultrix.cf.diff'\" unpacked with wrong size!
+fi
+# end of 'config/ultrix.cf.diff'
+fi
+if test -f 'extensions/xv/include/Xv.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/include/Xv.h'\"
+else
+echo shar: Extracting \"'extensions/xv/include/Xv.h'\" \(2658 characters\)
+sed "s/^X//" >'extensions/xv/include/Xv.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X#ifndef XV_H
+X#define XV_H
+X/*
+X** File: 
+X**
+X**   Xv.h --- Xv shared library and server header file
+X**
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   05.15.91 Carver
+X**     - version 2.0 upgrade
+X**
+X**   01.24.91 Carver
+X**     - version 1.4 upgrade
+X**
+X*/
+X
+X#include <X11/X.h>
+X
+X#define XvName "XVideo"
+X#define XvVersion 2
+X#define XvRevision 2
+X
+X/* Symbols */
+X
+Xtypedef XID XvPortID;
+Xtypedef XID XvEncodingID;
+X
+X#define XvNone 0
+X
+X#define XvInput          0
+X#define XvOutput         1
+X
+X#define XvInputMask      (1L<<XvInput)
+X#define XvOutputMask     (1L<<XvOutput)
+X
+X/* Events */
+X
+X#define XvVideoNotify 0
+X#define XvPortNotify 1
+X#define XvNumEvents 2
+X
+X/* Video Notify Reasons */
+X
+X#define XvStarted 0
+X#define XvStopped 1
+X#define XvBusy 2
+X#define XvPreempted 3
+X#define XvHardError 4
+X#define XvLastReason 4
+X
+X#define XvNumReasons (XvLastReason + 1)
+X
+X#define XvStartedMask     (1L<<XvStarted)
+X#define XvStoppedMask     (1L<<XvStopped)
+X#define XvBusyMask        (1L<<XvBusy)
+X#define XvPreemptedMask   (1L<<XvPreempted)
+X#define XvHardErrorMask   (1L<<XvHardError)
+X
+X#define XvAnyReasonMask   ((1L<<XvNumReasons) - 1)
+X#define XvNoReasonMask    0
+X
+X/* Errors */
+X
+X#define XvBadPort 0
+X#define XvBadEncoding 1
+X#define XvBadControl 2
+X#define XvNumErrors 3
+X
+X/* Status */
+X
+X#define XvBadExtension 1
+X#define XvAlreadyGrabbed 2
+X#define XvInvalidTime 3
+X#define XvBadReply 4
+X#define XvBadAlloc 5
+X
+X#endif XV_H
+X
+END_OF_FILE
+if test 2658 -ne `wc -c <'extensions/xv/include/Xv.h'`; then
+    echo shar: \"'extensions/xv/include/Xv.h'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/include/Xv.h'
+fi
+if test -f 'extensions/xv/man/man3/Xv.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/Xv.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/Xv.3X'\" \(2516 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/Xv.3X' <<'END_OF_FILE'
+X.TH Xv 3X
+X.\"
+X.SH Name
+XXv --- X Window System video extension
+X.SH Description
+XThe Xv extension provides support for video adaptors attached to an X
+Xdisplay.  It takes the approach that a display may have one or more
+Xvideo adaptors, each of which has one or more ports though which
+Xindependent video streams pass.  
+X.PP
+XAn adaptor may be able to display video in a drawable, capture video
+Xfrom a drawable, or both.  It translates between video encoding (NTSC,
+XPAL, SECAM, etc...) and drawable format (depth and visual-id pair). An
+Xadaptor may support multiple video encodings and/or multiple drawable
+Xformats.
+X.PP
+XClients use Xv(3X) to gain access and manage sharing of a display's
+Xvideo resources.  Typically, a client will use XvQueryExtension(3X) to
+Xdetermine the status of the extension, XvQueryAdaptors(3X) to get a
+Xdescription of what video adaptors exist, and XvQueryEncodings(3X) to
+Xget a description of what video encodings an adaptor supports.
+X.PP
+XOnce a client has determined what video resources are available, it is
+Xfree to put video into a drawable or get video from a drawable,
+Xaccording the capabilities supported.  Clients can select to receive
+Xevents when video activity changes in a drawable and when port
+Xattributes have changed.
+X.SH Summary of Library Functions
+XThe following is a summary of Xv library functions:
+X.sp 1l
+XXvGetPortAttribute(3X) \- return current port attribute value
+X.sp 1l
+XXvGetStill(3X) \- capture a single frame of video from a drawable
+X.sp 1l
+XXvGetVideo(3X) \- capture video from a drawable
+X.sp 1l
+XXvGrabPort(3X) \- lock port for exclusive use by client
+X.sp 1l
+XXvPortNotify(3X) \- event generated when port attributes change
+X.sp 1l
+XXvPutStill(3X) \- write a single frame of video to a drawable
+X.sp 1l
+XXvPutVideo(3X) \- write video into a drawable
+X.sp 1l
+XXvQueryAdaptors(3X) \- return adaptor information for a screen
+X.sp 1l
+XXvQueryBestSize(3X) \- determine the optimum drawable region size
+X.sp 1l
+XXvQueryEncodings(3X) \- return list of encodings for an adaptor
+X.sp 1l
+XXvQueryExtension(3X) \- return version and revision of extension
+X.sp 1l
+XXvSelectPortNotify(3X) \- enable or disable XvPortNotify events
+X.sp 1l
+XXvSelectVideoNotify(3X) \- enable or disable XvVideoNotify events
+X.sp 1l
+XXvSetPortAttribute(3X) \- set an attribute for a port 
+X.sp 1l
+XXvStopVideo(3X) \- stop active video 
+X.sp 1l
+XXvUngrabPort(3X) \- release a grabbed port
+X.sp 1l
+XXvVideoNotify(3X) \- event generated for video processing
+X.sp 1l
+X.PP
+XEach of these functions is described in its own Xv man page.
+X.br
+X
+END_OF_FILE
+if test 2516 -ne `wc -c <'extensions/xv/man/man3/Xv.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/Xv.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/Xv.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvGetPortAttribute.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvGetPortAttribute.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvGetPortAttribute.3X'\" \(2347 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvGetPortAttribute.3X' <<'END_OF_FILE'
+X.TH XvGetPortAttribute 3X
+X.SH Name
+XXvGetPortAttribute \- return current port attribute value
+X.\"
+X.SH Syntax
+X.B #include <X11/extensions/Xvlib.h>
+X.sp 1l
+X.B XvGetPortAttribute(\fIdpy, port, attribute, p_value\fR)
+X.sp 1l
+X\fBDisplay \fI*dpy\fR;
+X.br
+X\fBXvPortID \fIport\fR;
+X.br
+X\fBAtom \fIattribute\fR;
+X.br
+X\fBint \fI*p_vlaue\fR;
+X.sp 1l
+X.\"
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 8
+XSpecifies the display screen on which the
+XX Server is to accept requests from X clients.  If the
+Xdisplay option is not specified, X uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIport\fR 8
+XSpecifies the port, associated with the given display, for
+Xwhich the attribute values are to be returned. 
+X.IP \fIattribute\fR 8
+XAn atom that identifies the attribute to be queried by this
+Xrequest.  Control atoms are obtained using the XInterAtom
+Xrequest with a string from the following table.
+X.IP \fIp_value\fR 8
+XPointer to the location where the attribute value is written on
+Xreturn.
+X.\"
+X.SH Description
+X.\"
+X.PP
+XXvGetPortAttribute(3X) returns the current value of the requested
+Xport attribute in the integer pointed to by \fIp_value\fR.  
+XThe attribute is identified using an Atom that equates to the attribute name.  
+XThe XInterAtom request can be used with one of the strings
+Xbelow to return a matching Atom.
+X.bp
+X.PP
+X.TS
+Xtab(@);
+XlfHB lfHB lfHB
+XlfR  lfR  lfR .
+X_
+X.PP
+X.sp 4p
+XAttribute String@Type@Default
+X.sp 6p
+X_
+X.sp 6p
+X"XV_ENCODING"@XvEncodingID@Server dependent
+X"XV_HUE"@[-1000...1000]@0
+X"XV_SATURATION"@[-1000...1000]@0
+X"XV_BRIGHTNESS"@[-1000...1000]@0
+X"XV_CONTRAST"@[-1000...1000]@0
+X.sp 6p
+X_
+X.TE
+X.\"
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturned if XvGetPortAttribute(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvGetPortAttribute(3X) failed to allocate memory to process
+Xthe request.
+X.SH Diagnostics
+X.IP [XvBadPort] 8
+XGenerated if the requested port does not exist.
+X.IP [BadMatch] 8
+XGenerated if the requested attribute atom does not specify an attribute 
+Xsupported by the adaptor.
+X.SH See Also
+X.\"
+XXvSetPortAttribute(3X), XvPortNotify(3X)
+X.br
+X
+X
+X
+X
+END_OF_FILE
+if test 2347 -ne `wc -c <'extensions/xv/man/man3/XvGetPortAttribute.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvGetPortAttribute.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvGetPortAttribute.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvGrabPort.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvGrabPort.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvGrabPort.3X'\" \(2106 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvGrabPort.3X' <<'END_OF_FILE'
+X.TH XvGrabPort 3X
+X.SH Name
+XXvGrabPort \- lock port for exclusive use by client
+X.\"
+X.SH Syntax
+X.B #include <X11/extensions/Xvlib.h>
+X.sp 1l
+X.B XvGrabPort(\fIdpy, port, time)\fR
+X.sp 1l
+X.B Display \fI*dpy;\fR
+X.br
+X.B XvPortID 
+X.I port;
+X.br
+X.B Time 
+X.I time;
+X.\"
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 8 
+XSpecifies the display screen on which the
+XXv Server is to accept requests from Xv clients.  If the
+Xdisplay option is not specified, Xv uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIport\fR 8
+XDefines the port to be grabbed.
+X.IP \fItime\fR 8
+XSpecifies the request timestamp.
+X.\"
+X.SH Description
+X.\"
+XXvGrabPort(3X) grabs a port.  Once a client grabs a port, 
+Xonly that client can make video requests
+Xto that port.  
+X.PP
+XIf the time is before the current port time, the XvGrabPort request is
+Xignored and XvInvalidTime is returned.  If the port is already grabbed by
+Xanother client, XvAlreadyGrabbed is returned. Otherwise a it returns a
+Xstatus of \fISuccess\fR.  The port time is updated when the following
+Xrequests are processed: XvGrabPort(3X), XvUngrabPort(3X),
+XXvPutVideo(3X), XvPutStill(3X), XvGetVideo(3X), XvGetStill(3X).
+X.PP
+XIf the port is actively processing video for another client, the
+Xvideo is preempted, and an XvVideoNotify event with detail XvPreempted
+Xis generated for its drawable.
+X.\"
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturned if XvGrabPort(3X) completed successfully.
+X.IP [XvInvalidTime] 8
+XReturned if requested time is older than the current port time.
+X.IP [XvAlreadyGrabbed] 8
+XReturned if the port is already grabbed by another client.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvGrabPort(3X) failed to allocate memory to process
+Xthe request.
+X.SH Diagnostics
+X.IP [XvBadPort] 15
+XGenerated if the requested port does not exist.
+X.\"
+X.SH See Also
+X.\"
+XXvUngrabPort(3X) XvVideoNotify(3X)
+X.br
+END_OF_FILE
+if test 2106 -ne `wc -c <'extensions/xv/man/man3/XvGrabPort.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvGrabPort.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvGrabPort.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvQueryBestSize.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvQueryBestSize.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvQueryBestSize.3X'\" \(2096 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvQueryBestSize.3X' <<'END_OF_FILE'
+X.TH XvQueryBestSize 3X
+X.SH Name
+XXvQueryBestSize \- determine the optimum drawable region size
+X.\"
+X.SH Syntax
+X.B #include <X11/extensions/Xvlib.h>
+X.sp 1l
+X\fBXvQueryBestSize\fP(\fIdpy, port, motion, vw, vh, dw, dh, p_dw, p_dh\fR)
+X.sp 1l
+X.B Display \fI*dpy\fR;
+X.br 
+X.B XvPortID \fIport\fR; 
+X.br
+X.B Bool \fImotion\fR;
+X.br
+X.B unsigned 
+X.B int \fIvw, vh\fR;
+X.br
+X\fBunsigned int \fIdw, dh;\fR 
+X.br 
+X\fBunsigned int \fI*p_dw, *p_dh;\fR
+X.\"
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 15
+XSpecifies the display screen on which the
+XXv Server is to accept requests from Xv clients.  If the
+Xdisplay option is not specified, Xv uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIport\fR 15
+XDefines the port associated with the display and adaptor for which 
+Xthe optimum size is to be calculated.
+X.IP \fImotion\fR 15
+XSpecifies \fITrue\fP if the destination size needs to support
+Xfull motion, and \fIFalse\fP if the destination size need only
+Xsupport still images.
+X.IP \fIvw,vh\fR 15
+XSpecifies the size of the source vide region desired.
+X.IP \fIdw,dh\fR 15
+XSpecifies the size of the destination drawable region desired.
+X.IP \fIp_dw,p_dh\fR 15
+XPointers to where the closest destination sizes supported by the server are
+Xretunred.
+X.\"
+X.SH Description
+X.\"
+XSome ports may be able to scale incoming or outgoing video.  
+XXvQueryBestSize(3X) returns the size of the closest destination
+Xregion that is supported by the adaptor.  The returned size is
+Xguaranteed to be smaller than the requested size if a smaller 
+Xsize is supported.
+X.\"
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.\"
+X.SH Returned Values
+X.IP [Success] 8
+XReturned if XvQueryBestSize(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvQueryBestSize(3X) failed to allocate memory to process
+Xthe request.
+X.SH Diagnostics
+X.IP [XvBadPort] 8
+XGenerated if the requested port does not exist.
+X.br
+END_OF_FILE
+if test 2096 -ne `wc -c <'extensions/xv/man/man3/XvQueryBestSize.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvQueryBestSize.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvQueryBestSize.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvQueryExtension.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvQueryExtension.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvQueryExtension.3X'\" \(1459 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvQueryExtension.3X' <<'END_OF_FILE'
+X.TH XvQueryExtension 3X
+X.SH Name
+XXvQueryExtension \- return version and release of extension
+X.\"
+X.SH Syntax
+X.B #include <X11/extensions/Xvlib.h> 
+X.sp 1l
+X\fBXvQueryExtension(\fIp_version, p_release, 
+X.br
+X	p_request_base, p_event_base, p_error_base\fR)
+X.sp 1l
+X\fBunsigned int *p_version, *p_release;
+X\fBunsigned int *p_request_base, *p_event_base, *p_error_base;
+X.\"
+X.SH Arguments
+X.\"
+X.IP \fIp_version\fR 15
+XPointer to where the current version number of the \fIXv\fP video extension
+Xis written.
+X.IP \fIp_release\fR 15
+XPointer to where the release number of the \fIXv\fP video extension
+Xis written.
+X.IP \fIp_request_base\fR 15
+XPointer to where the extension major request number is returned
+X.IP \fIp_event_base\fR 15
+XPointer to where the extension event base is returned
+X.IP \fIp_error_base\fR 15
+XPointer to where the extension error base is returned
+X.\"
+X.SH Description
+X.\"
+X.PP
+XXvQueryExtension(3X) returns the version and release
+Xnumbers for the Xv video extension currently loaded 
+Xon the system.  The extension major request number, event base, and error
+Xbase are also returned.
+X.\"
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturns True if XvQueryExtension(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv video extension is not available for 
+Xthe named display.
+X.IP [XvBadAlloc] 8
+XReturned if XvQueryExtension(3X) failed to allocate memory to process
+Xthe request.
+X.br
+END_OF_FILE
+if test 1459 -ne `wc -c <'extensions/xv/man/man3/XvQueryExtension.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvQueryExtension.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvQueryExtension.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvSelectPortNotify.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvSelectPortNotify.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvSelectPortNotify.3X'\" \(1632 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvSelectPortNotify.3X' <<'END_OF_FILE'
+X.TH XvSelectPortNotify 3X
+X.SH Name
+XXvSelectPortNotify \- enable or disable XvPortNotify(3X) events
+X.\"
+X.SH Syntax
+X.B #include <X11/extensions/Xvlib.h>
+X.sp 1l
+X\fBXvSelectPortNotify(\fIdpy, port, onoff\fR)
+X.sp 1l
+X\fBDisplay \fI*dpy\fR;
+X.br
+X\fBXvPortID \fIport\fR;
+X.br
+X\fBBool \fIonoff\fR;
+X.\"
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 8
+XSpecifies the display screen on which the
+XX Server is to accept requests from X clients.  If the
+Xdisplay option is not specified, X uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIport\fR 8
+XSpecifies the port for which PortNotify events are to be generated
+Xwhen its attributes are changed using XvSetPortAttribute(3X).
+X.IP \fIonoff\fR 8
+XSpecifies whether notification is to be enabled or disabled.
+X.\"
+X.SH Description
+X.\"
+XXvSelectPortNotify(3X) enables or disables PortNotify event
+Xdelivery to the requesting client.  XvPortNotify(3X) events are
+Xgenerated when port attributes are changed using XvSetPortAttribute(3X).
+X.\"
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturns True if XvSelectPortNotify(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvSelectPortNotify(3X) failed to allocate memory to process
+Xthe request.
+X.SH Diagnostics
+X.IP [XvBadPort] 8
+XGenerated if the requested port does not exist.
+X.SH See Also
+X.\"
+XXvSetPortNotify(3X), XvSetPortAttribute(3X), XvPortNotify(3X)
+X.br
+END_OF_FILE
+if test 1632 -ne `wc -c <'extensions/xv/man/man3/XvSelectPortNotify.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvSelectPortNotify.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvSelectPortNotify.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvSelectVideoNotify.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvSelectVideoNotify.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvSelectVideoNotify.3X'\" \(1449 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvSelectVideoNotify.3X' <<'END_OF_FILE'
+X.TH XvSelectVideoNotify 3X
+X.SH Name
+XXvSelectVideoNotify \- enable or disable VideoNotify events
+X.\"
+X.SH Syntax
+X\fB#include\fI <X11/extensions/Xvlib.h>\fR
+X.sp 1l
+X\fBXvSelectVideoNotify(\fIdpy, drawable, onoff\fR)
+X.sp 1l
+X\fBregister Display \fI*dpy\fR;
+X.br
+X\fBDrawable \fIdrawable\fR;
+X.br
+X\fBBool \fIonoff\fR;
+X.SH Arguments
+X.\"
+X.IP \fIdpy\fR 15
+XSpecifies the display screen on which the
+XXv Server is to accept requests from Xv clients.  If the
+Xdisplay option is not specified, Xv uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIdrawable\fR 15
+XDefines the drawable in which video activity is to be reported.
+X.IP \fIonoff\fR 15
+XSelects whether video notification is enabled or disabled.
+X.\"
+X.SH Description
+XXvSelectVideoNotify(3X) enables or disables events to be reported for 
+Xvideo activity in a drawable.
+X.\"
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturns True if XvSelectVideoNotify(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvSelectVideoNotify(3X) failed to allocate memory to process
+Xthe request.
+X.Diagnostics
+X.IP [BadDrawable] 8
+XGenerated if the requested drawable does not exist.
+X.SH See Also
+X.\"
+XXvVideoNotify
+X.br
+END_OF_FILE
+if test 1449 -ne `wc -c <'extensions/xv/man/man3/XvSelectVideoNotify.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvSelectVideoNotify.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvSelectVideoNotify.3X'
+fi
+if test -f 'extensions/xv/man/man3/XvVideoNotify.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvVideoNotify.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvVideoNotify.3X'\" \(1558 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvVideoNotify.3X' <<'END_OF_FILE'
+X.TH XvVideoNotify 3X 
+X.SH Name
+XXvVideoNotify \- event generated for video processing
+X.\"
+X.SH Syntax
+X.B #include <X11/extensions/Xvlib.h>
+X.br
+X.sp 1l
+X.EX
+X
+X     typedef union {
+X       int type;
+X       XvVideoNotifyEvent xvvideo;
+X       XvPortNotifyEvent xvport;
+X     } XvEvent;
+X
+X     typedef struct {
+X       int type;
+X       unsigned long serial;
+X       Bool send_event;
+X       Display *display;
+X       Drawable drawable;
+X       unsigned long reason;
+X       XvPortID port_id;
+X       Time time;
+X     } XvVideoNotifyEvent;
+X
+X.EE
+X.\"
+X.IP \fItype\fR 8
+XSpecifies the type of event: XvVideoNotify(3X).
+X.IP \fIserial\fR 8
+XNumber of the last request processed by the server.
+X.IP \fIsend_event\fR 8
+XTrue if the event was generated by a SendEvent request.
+X.IP \fIdisplay\fR 8
+XA pointer to the display the event was read from.
+X.IP \fIdrawable\fR 8
+XThe drawable for which the event was generated.
+X.IP \fIreason\fR 8
+XThe reason the event was generated: \fBXvStarted\fR, \fBXvStopped\fR, 
+X\fBXvPreempted\fR, \fBXvBusy\fR, \fBXvHardError\fR.
+X.IP \fIport_id\fR 8
+XThe port processing the video for which the event was generated.
+X.\"
+X.SH Description
+X.\"
+XXvVideoNotify(3X) events are generated when video
+Xis started, stopped, preempted by another video
+Xrequest, ignored because the port is grabbed by another client, or interruped
+Xbecause of a hard transmission or reception error.
+X.\"
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH See Also
+XXvPutVideo(3X), XvPutStill(3X), XvGetVideo(3X), XvGetStill(3X), 
+XXvStopVideo(3X), XvSelectVideoNotify(3X)
+X.\"
+END_OF_FILE
+if test 1558 -ne `wc -c <'extensions/xv/man/man3/XvVideoNotify.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvVideoNotify.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvVideoNotify.3X'
+fi
+if test -f 'extensions/xv/test/Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/test/Imakefile'\"
+else
+echo shar: Extracting \"'extensions/xv/test/Imakefile'\" \(1619 characters\)
+sed "s/^X//" >'extensions/xv/test/Imakefile' <<'END_OF_FILE'
+X#if HasVoidSignalReturn
+X            DEFINES = -DSIG=void
+X#else
+X            DEFINES = -DSIG=int
+X#endif
+X      IMAKE_DEFINES = $(DEFINES)
+X
+X  XVLIBPATH = -L$(XLIBSRC) -L$(EXTENSIONSRC)/lib/xv -L$(EXTENSIONSRC)/xv/lib
+X
+X   XVT1SRCS = xvt1.c
+X   XVT1OBJS = xvt1.o
+X
+X   XVT2SRCS = xvt2.c
+X   XVT2OBJS = xvt2.o
+X
+X   XVT3SRCS = xvt3.c
+X   XVT3OBJS = xvt3.o
+X
+X   XVT4SRCS = xvt4.c
+X   XVT4OBJS = xvt4.o
+X
+X   XVT5SRCS = xvt5.c
+X   XVT5OBJS = xvt5.o
+X
+X   XVT6SRCS = xvt6.c
+X   XVT6OBJS = xvt6.o
+X
+X   XVT7SRCS = xvt7.c
+X   XVT7OBJS = xvt7.o
+X
+X   XVT8SRCS = xvt8.c
+X   XVT8OBJS = xvt8.o
+X
+X       SRCS = $(XVT1SRCS) $(XVT2SRCS) $(XVT3SRCS) $(XVT4SRCS) $(XVT5SRCS) \
+X	$(XVT6SRCS) $(XVT7SRCS) $(XVT8SRCS) $(XVT9SRCS) $(XVT10SRCS)
+X       OBJS = $(XVT1OBJS) $(XVT2OBJS) $(XVT3OBJS) $(XVT4OBJS) $(XVT5OBJS) \
+X	$(XVT6OBJS) $(XVT7OBJS) $(XVT8OBJS) $(XVT9OBJS) $(XVT10OBJS)
+X
+Xall:: xvt1 xvt2 xvt3 xvt4 xvt5 xvt6 xvt7 xvt8
+X
+XSingleProgramTarget(xvt1, $(XVT1OBJS), $(XVLIBPATH), -lXv -lXext -lX11)
+XSingleProgramTarget(xvt2, $(XVT2OBJS), $(XVLIBPATH), -lXv -lXext -lX11)
+XSingleProgramTarget(xvt3, $(XVT3OBJS), $(XVLIBPATH), -lXv -lXext -lX11)
+XSingleProgramTarget(xvt4, $(XVT4OBJS), $(XVLIBPATH), -lXv -lXext -lX11)
+XSingleProgramTarget(xvt5, $(XVT5OBJS), $(XVLIBPATH), -lXv -lXext -lX11)
+XSingleProgramTarget(xvt6, $(XVT6OBJS), $(XVLIBPATH), -lXv -lXext -lX11)
+XSingleProgramTarget(xvt7, $(XVT7OBJS), $(XVLIBPATH), -lXv -lXext -lX11)
+XSingleProgramTarget(xvt8, $(XVT8OBJS), $(XVLIBPATH), -lXv -lXext -lX11)
+X
+Xxvt1: $(XVT1LIBS)
+Xxvt2: $(XVT2LIBS)
+Xxvt3: $(XVT3LIBS)
+Xxvt4: $(XVT4LIBS)
+Xxvt5: $(XVT5LIBS)
+Xxvt6: $(XVT6LIBS)
+Xxvt7: $(XVT7LIBS)
+Xxvt8: $(XVT8LIBS)
+X
+XDependTarget()
+END_OF_FILE
+if test 1619 -ne `wc -c <'extensions/xv/test/Imakefile'`; then
+    echo shar: \"'extensions/xv/test/Imakefile'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/test/Imakefile'
+fi
+if test -f 'install/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'install/README'\"
+else
+echo shar: Extracting \"'install/README'\" \(1693 characters\)
+sed "s/^X//" >'install/README' <<'END_OF_FILE'
+X
+X  Welcome to the X Video Extension (Xv) Source Installation Procedure
+X
+X  To install Xv into your X source tree use `make install`.  To
+X  restore files modifed by `make install` use `make uninstall`.  Note
+X  that `make uninstall` simply restores files from backup files
+X  created by `make install`.  If something goes wrong during the
+X  installation, I suggest using uninstall to get back to a clean slate
+X  before attempting the installation again.
+X
+X  The installation attempts to remove all modifications made by
+X  earlier installations, even those made manually according to the
+X  installation instructions distributed with xv2r1.  If your xv2r1
+X  installation differs significantly from the one suggested, the
+X  installation may fail to clear the earlier installation.
+X
+X  The installation procedure edits several files in the source tree.
+X  It has been tested against a generic X11R5 source tree, but if you
+X  have made conflicting edits, you may find that the installation
+X  fails, or that the result won't build and run.  I have included a
+X  context diff for each file modified.  You may apply the changes
+X  manually or use the patch utility.
+X
+X  The installation only modifies your source pool, it does NOT
+X  automatically build the pool.  After the installation is complete
+X  you can either start from scratch and `make World` in the top build
+X  directory, or to save time you can cheat by performing the following
+X  commands in both the .../extensions and .../server build
+X  directories:
+X
+X	make Makefile
+X	make Makefiles
+X	make includes
+X	make depend
+X	make
+X
+X  After testing the results of your build, you may want to clean up a
+X  bit by using `make cleanup` in Xv kit directory.
+X
+X    
+X  
+END_OF_FILE
+if test 1693 -ne `wc -c <'install/README'`; then
+    echo shar: \"'install/README'\" unpacked with wrong size!
+fi
+# end of 'install/README'
+fi
+if test -f 'install/ddx-dec-ws.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'install/ddx-dec-ws.sh'\"
+else
+echo shar: Extracting \"'install/ddx-dec-ws.sh'\" \(1846 characters\)
+sed "s/^X//" >'install/ddx-dec-ws.sh' <<'END_OF_FILE'
+X
+Xecho
+Xecho "  Modifying $top/server/ddx/dec/ws/Imakefile"
+X
+Xmv -f $top/server/ddx/dec/ws/Imakefile $top/server/ddx/dec/ws/Imakefile.$bak
+Xif [ $? -gt 0 ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't move ws Imakefile to Imakefile.$bak"
+X	exit
+Xfi
+X
+Xcp $top/server/ddx/dec/ws/Imakefile.$bak $top/server/ddx/dec/ws/Imakefile
+Xchmod u+rw $top/server/ddx/dec/ws/Imakefile
+X
+Xed - $top/server/ddx/dec/ws/Imakefile << '-*-END-*-'
+Xg/acc_rop/d
+Xg/#ACC=acc_none/s/#//
+Xw
+Xq
+X-*-END-*-
+X
+Xchmod u-w $top/server/ddx/dec/ws/Imakefile
+X
+Xecho
+Xecho "  Modifying $top/server/ddx/dec/ws/acc_none.c"
+X
+Xmv -f $top/server/ddx/dec/ws/acc_none.c $top/server/ddx/dec/ws/acc_none.c.$bak
+Xif [ $? -gt 0 ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't move ws acc_none.c to acc_none.c.$bak"
+X	exit
+Xfi
+X
+Xcp $top/server/ddx/dec/ws/acc_none.c.$bak $top/server/ddx/dec/ws/acc_none.c
+Xchmod u+rw $top/server/ddx/dec/ws/acc_none.c
+X
+Xed - $top/server/ddx/dec/ws/acc_none.c << '-*-END-*-'
+Xg/ropInitProc/d
+X/^wsAcceleratorTypes/-1i
+XBool ropInitProc();
+X.
+X/{"", NULL}/i
+X	{"PMAG-JA ", ropInitProc},
+X	{"PMAG-RO ", ropInitProc},
+X.
+Xw
+Xq
+X-*-END-*-
+X
+Xchmod u-w $top/server/ddx/dec/ws/acc_none.c
+X
+Xgrep -s ropInitProc $top/server/ddx/dec/ws/acc_none.c
+Xif [ $? -gt 0 ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't modify acc_none.c"
+X	exit
+Xfi
+X
+Xecho
+Xecho "  Modifying $top/server/ddx/dec/ws/init.c"
+X
+Xmv -f $top/server/ddx/dec/ws/init.c $top/server/ddx/dec/ws/init.c.$bak
+Xif [ $? -gt 0 ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't move ws init.c to init.c.$bak"
+X	exit
+Xfi
+X
+Xcp $top/server/ddx/dec/ws/init.c.$bak $top/server/ddx/dec/ws/init.c
+Xchmod u+rw $top/server/ddx/dec/ws/init.c
+X
+Xed - $top/server/ddx/dec/ws/init.c << '-*-END-*-'
+Xg/NUMFORMATS 2/s/2/3/
+Xw
+Xq
+X-*-END-*-
+X
+Xchmod u-w $top/server/ddx/dec/ws/init.c
+X
+Xgrep -s "NUMFORMATS 3" $top/server/ddx/dec/ws/init.c
+Xif [ $? -gt 0 ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't modify init.c"
+X	exit
+Xfi
+END_OF_FILE
+if test 1846 -ne `wc -c <'install/ddx-dec-ws.sh'`; then
+    echo shar: \"'install/ddx-dec-ws.sh'\" unpacked with wrong size!
+fi
+# end of 'install/ddx-dec-ws.sh'
+fi
+if test -f 'install/install.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'install/install.sh'\"
+else
+echo shar: Extracting \"'install/install.sh'\" \(2608 characters\)
+sed "s/^X//" >'install/install.sh' <<'END_OF_FILE'
+X#!/bin/sh
+X#set -x
+Xpwd=`pwd`
+Xi=0
+X
+Xecho ""
+Xecho -n "> Enter target X11 (top) directory: "
+Xread top
+X
+Xecho ""
+Xecho "> Installing Xv sources into X11 source tree $top"
+Xecho -n "> Continue ? (y,[n]) "
+Xread yesno
+Xif [ x$yesno != xy -a x$yesno != xY ]
+Xthen
+X	echo
+X	echo "  Aborting Xv Installation"
+X	exit
+Xfi
+X
+Xif [ ! -d $top ]
+Xthen
+X	echo ""
+X	echo "  Error: $top isn't a directory"	
+X	exit
+Xfi
+X
+Xif [ ! -d $top/extensions ]
+Xthen
+X	if [ ! -d $top/mit/extensions ]
+X	then
+X	echo ""
+X	echo "  Error: Couldn't find extensions subdirectory"
+X	exit
+X	else
+X	top=$top/mit
+X	fi
+Xfi
+X
+Xif [ ! -w $top ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't access $top"	
+X	exit
+Xfi
+X
+Xcd $top
+Xtop=`pwd`
+Xcd $pwd
+X
+Xi=1
+Xif [ -s $top/XVINSTBAK ]
+Xthen
+X	i=`cat $top/XVINSTBAK`
+X	i=`expr $i + 1`
+X	rm -f $top/XVINSTBAK
+Xfi
+Xecho $i >> $top/XVINSTBAK
+Xif [ $? -gt 0 ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't create $top/XVINSTBAK"
+X	exit
+Xfi
+Xbak=xvbk$i
+X
+Xextensions=yes
+Xecho ""
+Xecho -n "> Install Extension files? ([y],n) "
+Xread yesno
+Xif [  x$yesno = xn -o x$yesno = xN ]
+Xthen
+X	extensions=no
+Xfi
+X
+Xserver=yes
+Xecho -n "> Install Server files? ([y],n) "
+Xread yesno
+Xif [  x$yesno = xn -o x$yesno = xN ]
+Xthen
+X	server=no
+Xfi
+X
+Xdec=yes
+Xecho -n "> Install DEC specific files? ([y],n) "
+Xread yesno
+Xif [  x$yesno = xn -o x$yesno = xN ]
+Xthen
+X	dec=no
+Xfi
+X
+Xsun=yes
+Xecho -n "> Install SUN specific files? ([y],n) "
+Xread yesno
+Xif [  x$yesno = xn -o x$yesno = xN ]
+Xthen
+X	sun=no
+Xfi
+X
+Xman=no
+Xecho  "> Install Xv man pages into /usr/man? "
+Xecho -n "> Note that \`make uninstall\` will not remove them: (y,[n]) "
+Xread yesno
+Xif [  x$yesno = xy -o x$yesno = xY ]
+Xthen
+X	man=yes
+Xfi
+X
+Xcfb32=yes
+Xif [ $server = yes ]
+Xthen
+X	if [ $dec = no -a $sun = no ]
+X	then
+X		echo
+X		echo -n "> Install 32 bit cfb files? ([y],n) "
+X		read yesno
+X		if [  x$yesno = xn -o x$yesno = xN ]
+X		then
+X			cfb32=no
+X		fi
+X	fi
+Xelse
+X	cfb32=no
+Xfi
+X
+Xif [ $extensions = yes ]
+Xthen
+X	. $pwd/install/extensions-xv.sh
+X	. $pwd/install/extensions-imakefile.sh
+X	. $pwd/install/lib-X.sh
+Xfi
+X
+Xif [ $server = yes ]
+Xthen
+X	echo -n
+X	. $pwd/install/server-imakefile.sh
+X	. $pwd/install/ddx-mi.sh
+Xfi
+X
+Xif [ $dec = yes -a $extensions = yes ]
+Xthen
+X	echo -n
+X	. $pwd/install/config-ultrix.sh
+Xfi
+X
+Xif [ $dec = yes -a $server = yes ]
+Xthen
+X	echo -n
+X	. $pwd/install/ddx-dec-ws.sh
+X	. $pwd/install/ddx-dec-tx.sh
+Xfi
+X
+Xif [ $sun = yes -a $extensions = yes ]
+Xthen
+X	echo -n
+X	. $pwd/install/config-sun.sh
+Xfi
+X
+Xif [ $server = yes -a $sun = yes ]
+Xthen
+X	echo -n
+X	. $pwd/install/ddx-sun.sh
+Xfi
+X
+Xif [ $cfb32 = yes ]
+Xthen
+X	echo -n
+X	. $pwd/install/ddx-cfb32.sh
+Xfi
+X
+Xif [ $man = yes ]
+Xthen
+X	echo -n
+X	cp $pwd/extensions/xv/man/man3/* /usr/man/man3
+Xfi
+X
+Xecho ""
+Xecho "> Xv Installation Finished."
+END_OF_FILE
+if test 2608 -ne `wc -c <'install/install.sh'`; then
+    echo shar: \"'install/install.sh'\" unpacked with wrong size!
+fi
+# end of 'install/install.sh'
+fi
+if test -f 'install/server-imakefile.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'install/server-imakefile.sh'\"
+else
+echo shar: Extracting \"'install/server-imakefile.sh'\" \(2513 characters\)
+sed "s/^X//" >'install/server-imakefile.sh' <<'END_OF_FILE'
+X#!/bin/sh
+Xecho
+Xecho "  Modifying $top/server/Imakefile"
+X
+Xmv -f $top/server/Imakefile $top/server/Imakefile.$bak
+Xif [ $? -gt 0 ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't move server Imakefile to Imakefile.$bak"
+X	exit
+Xfi
+X
+Xcp $top/server/Imakefile.$bak $top/server/Imakefile
+Xchmod u+rw $top/server/Imakefile
+X
+Xed - $top/server/Imakefile << '-*-END-*-'
+Xg/#if[a-z]* *BuildXvExt/.,/#endif/d
+Xg/#if[a-z]* *XtxServer/?[^^]?+1,.j
+Xg/#if[a-z]* *XtxServer/.,/#endif/+1d
+Xg/\$(XVSRC)/s/ *\$(XVSRC)//g
+Xg/\$(XVLIB)/s/ *\$(XVLIB)//g
+Xg/\$(XVDECDDLIB)/s/ *\$(XVDECDDLIB)//g
+Xg/\$(XVDECDDDIR)/s/ *\$(XVDECDDDIR)//g
+Xg/\$(XVSUNDDLIB)/s/ *\$(XVSUNDDLIB)//g
+Xg/\$(XVSUNDDDIR)/s/ *\$(XVSUNDDDIR)//g
+Xg/cfb32/s| *[a-z/.]*cfb32[a-z/.]*||g
+Xg/dec\/tx/s| *[a-z/.]*dec\/tx[a-z/.]*||g
+X/#if BuildXInputExt/s/X/X/
+X/^$/i
+X#ifdef BuildXvExt
+X           XVSRC = $(EXTENSIONSRC)/xv/server
+X           XVLIB = $(EXTENSIONSRC)/xv/server/libxv.a
+X#else
+X           XVSRC = /* nothing */
+X           XVLIB = /* nothing */
+X#endif
+X.
+X/DEPDIRS/s/$/ \$(XVSRC)/
+X/NONPEXEXTS/s/$/ \$(XVLIB)/
+Xw
+Xq
+X-*-END-*-
+X
+Xgrep -s BuildXvExt $top/server/Imakefile
+Xif [ $? -gt 0 ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't modify server Imakefile"
+X	exit
+Xfi
+X
+Xif [ $dec = yes ]
+Xthen
+X	echo ""
+X	echo "  Making DEC specific modifications to $top/server/Imakefile"
+X
+Xed - $top/server/Imakefile << '-*-END-*-'
+X/#if XdecServer/s/X/X/
+X/#if XdecServer/s/X/X/
+X/^SUBDIRS0/s|$| ddx/dec/tx ddx/cfb32 $(XVDECDDDIR)|
+Xi
+X#if BuildXvExt
+X  XVDECDDDIR = ../extensions/xv/server/ddx/decrop
+X  XVDECDDLIB = ../extensions/xv/server/ddx/decrop/libdecrop.a
+X#else
+X  XVDECDDDIR = /* nothing */
+X  XVDECDDLIB = /* nothing */
+X#endif
+X.
+X/^DECLIBS /s|CFBLibs|ddx/dec/tx/libtx.a ddx/cfb32/libcfb.a $(XVDECDDLIB) CFBLibs|
+Xw
+Xq
+X-*-END-*-
+X
+X	grep -s XVDECDDDIR $top/server/Imakefile
+X	if [ $? -gt 0 ]
+X	then
+X		echo ""
+X		echo "  Error: Couldn't modify server Imakefile"
+X		exit
+X	fi
+Xfi
+X
+X
+Xif [ $sun = yes ]
+Xthen
+X	echo ""
+X	echo "  Making SUN specific modifications to $top/server/Imakefile"
+X
+Xed - $top/server/Imakefile << '-*-END-*-'
+X/^SUNDIRS/s/S/S/
+X?SUBDIRS0?i
+X#if BuildXvExt
+X  XVSUNDDDIR = ../extensions/xv/server/ddx/sunrop
+X  XVSUNDDLIB = ../extensions/xv/server/ddx/sunrop/libsunrop.a
+X#else
+X  XVSUNDDDIR = /* nothing */
+X  XVSUNDDLIB = /* nothing */
+X#endif
+X.
+X/SUBDIRS1/s|$| ddx/cfb32 \$(XVSUNDDDIR)|
+X/SUNLIBS/s|CFBLibs|ddx/cfb32/libcfb.a \$(XVSUNDDLIB) CFBLibs|
+Xw
+Xq
+X-*-END-*-
+X
+X	grep -s XVSUNDDDIR $top/server/Imakefile
+X	if [ $? -gt 0 ]
+X	then
+X		echo "  Error: Couldn't modify server Imakefile"
+X		exit
+X	fi
+Xfi
+X
+Xchmod u-w $top/server/Imakefile
+X
+END_OF_FILE
+if test 2513 -ne `wc -c <'install/server-imakefile.sh'`; then
+    echo shar: \"'install/server-imakefile.sh'\" unpacked with wrong size!
+fi
+# end of 'install/server-imakefile.sh'
+fi
+if test -f 'lib/X/XErrorDB.diff' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib/X/XErrorDB.diff'\"
+else
+echo shar: Extracting \"'lib/X/XErrorDB.diff'\" \(1652 characters\)
+sed "s/^X//" >'lib/X/XErrorDB.diff' <<'END_OF_FILE'
+X*** /xsrc/lib/X/XErrorDB	Wed Jul 24 15:36:14 1991
+X--- XErrorDB	Thu Dec 12 10:40:14 1991
+X***************
+X*** 215,220 ****
+X--- 215,241 ----
+X  XRequest.MIT-SHM.5: X_ShmCreatePixmap
+X  XProtoError.MIT-SHM.0: BadShmSeg (invalid shared segment parameter)
+X  XlibMessage.MIT-SHM.0: Segment id in failed request 0x%lx
+X+ ! XVideo extension, not yet an X Consortium standard
+X+ XRequest.XVideo.0: X_XvQueryExtension                  
+X+ XRequest.XVideo.1: X_XvQueryAdaptors                   
+X+ XRequest.XVideo.2: X_XvQueryEncodings                  
+X+ XRequest.XVideo.3: X_XvGrabPort                        
+X+ XRequest.XVideo.4: X_XvUngrabPort                      
+X+ XRequest.XVideo.5: X_XvPutVideo                        
+X+ XRequest.XVideo.6: X_XvPutStill                        
+X+ XRequest.XVideo.7: X_XvGetVideo                        
+X+ XRequest.XVideo.8: X_XvGetStill                        
+X+ XRequest.XVideo.9: X_XvStopVideo                       
+X+ XRequest.XVideo.10: X_XvSelectVideoNotify              
+X+ XRequest.XVideo.11: X_XvSelectPortNotify               
+X+ XRequest.XVideo.12: X_XvQueryBestSize                  
+X+ XRequest.XVideo.13: X_XvSetPortAttribute               
+X+ XRequest.XVideo.14: X_XvGetPortAttribute               
+X+ XProtoError.XVideo.0: Port (invalid Port parameter)
+X+ XlibMessage.XVideo.0: Port id in failed request 0x%lx
+X+ XProtoError.XVideo.1: Encoding (invalid Encoding parameter)
+X+ XlibMessage.XVideo.1: Encoding id in failed request 0x%lx
+X  ! MIT-SUNDRY-NONSTANDARD extension, definitely not an X Consortium standard
+X  XRequest.MIT-SUNDRY-NONSTANDARD.0: X_MITSetBugMode
+X  XRequest.MIT-SUNDRY-NONSTANDARD.1: X_MITGetBugMode
+X+ 
+END_OF_FILE
+if test 1652 -ne `wc -c <'lib/X/XErrorDB.diff'`; then
+    echo shar: \"'lib/X/XErrorDB.diff'\" unpacked with wrong size!
+fi
+# end of 'lib/X/XErrorDB.diff'
+fi
+if test -f 'server/ddx/dec/tx/rop.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/tx/rop.h'\"
+else
+echo shar: Extracting \"'server/ddx/dec/tx/rop.h'\" \(1980 characters\)
+sed "s/^X//" >'server/ddx/dec/tx/rop.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X** File: 
+X**
+X**   rop.h --- RasterOps device interface header
+X**
+X** Author: 
+X**
+X**   Joel Gringorten ???
+X**
+X** Revisions:
+X**
+X**   29.08.91 Carver
+X**     - added RopRec and RopPtr types; this structure is now used by rop.c
+X**       and libpip.c uniformly as a handle to the board.
+X**
+X*/
+X#ifndef ROP_H
+X#define ROP_H
+X
+Xtypedef struct {
+X	unsigned char *board;
+X	unsigned char *bit8;
+X	unsigned char *bit24;
+X	unsigned char *SelectionPlane;
+X	unsigned char *VideoEnablePlane;
+X	unsigned char *mapRegister;
+X	unsigned char *MappedArea;  /*3max only */
+X	unsigned char *pipRegisters;
+X	unsigned char *dutyCycle;
+X} ropStruct, RopRec, *RopPtr;
+X
+X#ifndef TCO_DUTY_CYCLE    0x040020  /* Duty Cycle */
+X#define TCO_DUTY_CYCLE    0x040020  /* Duty Cycle */
+X#endif
+X
+X#endif ROP_H
+END_OF_FILE
+if test 1980 -ne `wc -c <'server/ddx/dec/tx/rop.h'`; then
+    echo shar: \"'server/ddx/dec/tx/rop.h'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/tx/rop.h'
+fi
+if test -f 'server/ddx/dec/tx/tfb.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/tx/tfb.h'\"
+else
+echo shar: Extracting \"'server/ddx/dec/tx/tfb.h'\" \(2165 characters\)
+sed "s/^X//" >'server/ddx/dec/tx/tfb.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X#ifndef TFB_H
+X#define TFB_H
+X
+X#define tfbDrawSetFb24 xfbDrawSetFb24
+X
+X#define tfbPrivGCPtr cfbPrivGCPtr
+X#define tfbWindowPrivateIndex cfbWindowPrivateIndex
+X#define tfbGCPrivateIndex cfbGCPrivateIndex
+X
+X#define tfbScreenPrivateIndex cfb32ScreenPrivateIndex
+X
+X#define tfbDoBitbltCopy cfb32DoBitbltCopy
+X#define tfbDoBitblt cfb32DoBitblt
+X#define tfbSaveAreas cfb32SaveAreas
+X#define tfbRestoreAreas cfb32RestoreAreas
+X#define tfbGetImage cfb32GetImage
+X#define tfbGetSpans cfb32GetSpans
+X#define tfbCreateGC cfb32CreateGC
+X#define tfbDrawClose cfb32DrawClose
+X#define tfbDrawInit cfb32DrawInit
+X#define tfbCreateWindow cfb32CreateWindow
+X#define tfbDestroyWindow cfb32DestroyWindow
+X#define tfbMapWindow cfb32MapWindow
+X#define tfbPositionWindow cfb32PositionWindow
+X#define tfbUnmapWindow cfb32UnmapWindow
+X#define tfbCopyWindow cfb32CopyWindow
+X#define tfbChangeWindowAttributes cfb32ChangeWindowAttributes
+X#define tfbPaintWindow cfb32PaintWindow
+X
+X#endif TFB_H
+END_OF_FILE
+if test 2165 -ne `wc -c <'server/ddx/dec/tx/tfb.h'`; then
+    echo shar: \"'server/ddx/dec/tx/tfb.h'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/tx/tfb.h'
+fi
+if test -f 'server/ddx/dec/tx/xfbbankswst.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/tx/xfbbankswst.h'\"
+else
+echo shar: Extracting \"'server/ddx/dec/tx/xfbbankswst.h'\" \(1834 characters\)
+sed "s/^X//" >'server/ddx/dec/tx/xfbbankswst.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+Xtypedef struct {
+X    pointer	mappedAdr;  /* adr of where bank switched mem is mapped to */
+X    /*
+X     * screen func wrappers
+X     */
+X    Bool	    (*CloseScreen)();
+X    void	    (*GetImage)();
+X    void	    (*GetSpans)();
+X    Bool	    (*CreateGC)();
+X    void (*PaintWindowBackground)();	/* pWin, pRgn, which */
+X    void (*PaintWindowBorder)();	/* pWin, pRgn, which */
+X    void (*CopyWindow)();		/* pWin, oldPt, pOldRegion */
+X} xfbBankScreenRec, *xfbBankScreenPtr;
+X
+Xtypedef struct {
+X    GCOps	    *wrapOps;	    /* wrapped ops */
+X    GCFuncs	    *wrapFuncs;	    /* wrapped funcs */
+X} xfbBankGCRec, *xfbBankGCPtr;
+END_OF_FILE
+if test 1834 -ne `wc -c <'server/ddx/dec/tx/xfbbankswst.h'`; then
+    echo shar: \"'server/ddx/dec/tx/xfbbankswst.h'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/tx/xfbbankswst.h'
+fi
+if test -f 'server/ddx/dec/tx/xfbbstore.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/tx/xfbbstore.c'\"
+else
+echo shar: Extracting \"'server/ddx/dec/tx/xfbbstore.c'\" \(2381 characters\)
+sed "s/^X//" >'server/ddx/dec/tx/xfbbstore.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X * xfbbstore.c --
+X *	Functions required by the backing-store implementation in MI.
+X *
+X * Route the request to cfb or tfb based on depth.
+X */
+X
+X#include    "X.h"
+X#include    "regionstr.h"
+X#include    "scrnintstr.h"
+X#include    "pixmapstr.h"
+X#include    "windowstr.h"
+X#include "tfb.h"
+X
+Xvoid
+XxfbSaveAreas(pPixmap, prgnSave, xorg, yorg)
+X    PixmapPtr	  	pPixmap;  	/* Backing pixmap */
+X    RegionPtr	  	prgnSave; 	/* Region to save (pixmap-relative) */
+X    int	    	  	xorg;	    	/* X origin of region */
+X    int	    	  	yorg;	    	/* Y origin of region */
+X{
+X    if (pPixmap->drawable.depth == 8) {
+X	cfbSaveAreas(pPixmap, prgnSave, xorg, yorg);
+X    } else {
+X	tfbSaveAreas(pPixmap, prgnSave, xorg, yorg);
+X    }
+X}
+X
+Xvoid
+XxfbRestoreAreas(pPixmap, prgnRestore, xorg, yorg)
+X    PixmapPtr	  	pPixmap;  	/* Backing pixmap */
+X    RegionPtr	  	prgnRestore; 	/* Region to restore (screen-relative)*/
+X    int	    	  	xorg;	    	/* X origin of window */
+X    int	    	  	yorg;	    	/* Y origin of window */
+X{
+X    if (pPixmap->drawable.depth == 8) {
+X	cfbRestoreAreas(pPixmap, prgnRestore, xorg, yorg);
+X    } else {
+X	tfbRestoreAreas(pPixmap, prgnRestore, xorg, yorg);
+X    }
+X}
+END_OF_FILE
+if test 2381 -ne `wc -c <'server/ddx/dec/tx/xfbbstore.c'`; then
+    echo shar: \"'server/ddx/dec/tx/xfbbstore.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/tx/xfbbstore.c'
+fi
+if test -f 'server/ddx/dec/tx/xfbstruct.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/tx/xfbstruct.h'\"
+else
+echo shar: Extracting \"'server/ddx/dec/tx/xfbstruct.h'\" \(2585 characters\)
+sed "s/^X//" >'server/ddx/dec/tx/xfbstruct.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X#include "xfb.h"
+X
+X#include "pixmap.h"
+X#include "region.h"
+X#include "colormap.h"
+X
+X/* edg: output of C prototyper needs to be rearranged */
+Xextern int xfbListInstalledColormaps();
+Xextern void xfbInstallColormap();
+Xextern void xfbUninstallColormap();
+Xextern void xfbResolveColor();
+Xextern Bool xfbInitializeColormap();
+Xextern void xfbGetImage();
+Xextern void xfbGetSpans();
+Xextern Bool xfbCreateGC();
+Xextern PixmapPtr xfbCreatePixmap();
+Xextern Bool xfbDestroyPixmap();
+Xextern void xfbPaintWindow();
+Xextern void xfbWindowExposures();
+Xextern Bool xfbScreenInit();
+Xextern int xfbGetSelectDepth();
+Xextern Bool xfbCreateWindow();
+Xextern Bool xfbDestroyWindow();
+Xextern Bool xfbMapWindow();
+Xextern Bool xfbPositionWindow();
+Xextern Bool xfbUnmapWindow();
+Xextern void xfbFindDepthAndHwCmap();
+Xextern void xfbCopyWindowSetCmaps();
+Xextern void xfbCopyWindow();
+Xextern Bool xfbChangeWindowAttributes();
+Xextern void xfbSaveAreas();
+Xextern void xfbRestoreAreas();
+X
+X
+X
+X/* included from mfb.h; we can't include mfb.h directly because of other 
+X * conflicts */
+Xextern void mfbPushPixels();
+Xextern void mfbSetSpans();
+Xextern void mfbGetSpans();
+Xextern void mfbUnnaturalTileFS();
+Xextern void mfbUnnaturalStippleFS();
+Xextern Bool mfbRealizeFont();
+Xextern Bool mfbUnrealizeFont();
+Xextern void mfbQueryBestSize();
+Xextern RegionPtr mfbPixmapToRegion();
+Xextern void mfbCopyRotatePixmap();
+END_OF_FILE
+if test 2585 -ne `wc -c <'server/ddx/dec/tx/xfbstruct.h'`; then
+    echo shar: \"'server/ddx/dec/tx/xfbstruct.h'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/tx/xfbstruct.h'
+fi
+if test -f 'server/ddx/sun/sunCG8C.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/sun/sunCG8C.h'\"
+else
+echo shar: Extracting \"'server/ddx/sun/sunCG8C.h'\" \(2623 characters\)
+sed "s/^X//" >'server/ddx/sun/sunCG8C.h' <<'END_OF_FILE'
+X/*-
+X * sunCG8C.h --
+X *  Internal declarations for the sun CG8, CG9, and CG12.
+X *
+X */
+X#ifndef _SUN_CG8_H_
+X#define _SUN_CG8_H_
+X
+X#include <sys/ioccom.h>         /* Define _IOR and _IOW */
+X
+X/* DCC MOD --- FIX CONFLICTS WITH NEW RASTEROPS PIP CODE */
+X
+X/* #ifndef cg8var_DEFINED */
+X#ifndef pipio_DEFINED
+X
+X/*  Frame buffer and memory mapping information ioctl:
+X */
+Xtypedef struct  Fb_Description {    /* Frame buffer description: */
+X    short   group;                  /* ... Sun "plane group" of frame buffer. */
+X    short   width;                  /* ... width of frame buffer. */
+X    short   height;                 /* ... height of frame buffer. */
+X    short   depth;                  /* ... depth of frame buffer. */
+X    u_int   linebytes;              /* ... number of bytes per scan line for frame buffer. */
+X    u_int   mmap_size;              /* ... size of mapping for frame buffer. */
+X    u_int   mmap_offset;            /* ... offset for memory map of frame buffer. */
+X}   Fb_Description;
+X
+X#define PIP_NFBS 10             /* Number of frame buffer descriptions in Pipio_Fb_Info. */
+X#define FB_NPGS 12              /* Number of plane groups possible. */
+X#define PIXPG_CURRENT       0
+X#define PIXPG_MONO      1
+X#define PIXPG_8BIT_COLOR    2
+X#define PIXPG_OVERLAY_ENABLE    3
+X#define PIXPG_OVERLAY       4
+X#define PIXPG_24BIT_COLOR   5
+X#define PIXPG_VIDEO     6
+X#define PIXPG_VIDEO_ENABLE  7
+X#define PIXPG_TRANSPARENT_OVERLAY   8
+X#define PIXPG_WID       9   /* Window Id */
+X#define PIXPG_ZBUF      10  /* Z (depth) buffer */
+X#define PIXPG_LAST_PLUS_ONE 11  /* array decls and loop termination */
+X
+X/* DCC MOD --- FIX CONFLICTS */
+X
+X/* #endif cg8var_DEFINED */
+X#endif pipio_DEFINED
+X
+X
+Xtypedef struct  Fb_Info {                       /* Frame buffer information record: */
+X    int             frame_buffer_count;         /* ... number of frame buffers supported. */
+X    u_int           total_mmap_size;            /* ... memory map size of all the frame buffers. */
+X    Fb_Description  fb_descriptions[PIP_NFBS];  /* ... description of individual frame buffers. */
+X} Fb_Info;
+X
+X#define FB_INFO _IOR(X, 1, Fb_Info)  /* Get information about frame buffers. */
+X
+X/*
+X *  Private data associated with a true color card:
+X *  (note Fb_Description is in /usr/include/pixrect/cg8var.h).
+X */
+Xtypedef struct TcPrivate {                      /* Private data for tc board: */
+X    ColormapPtr    installedMap;                /* ... current colormap. */
+X    u_char         mbak[(1280/8)*1024];         /* ... backing for mono fb. */
+X    Fb_Description pgInfo[PIXPG_LAST_PLUS_ONE]; /* ... plane group info. */
+X} TcPrivate;
+X
+X
+X#endif _SUN_CG8_H_
+END_OF_FILE
+if test 2623 -ne `wc -c <'server/ddx/sun/sunCG8C.h'`; then
+    echo shar: \"'server/ddx/sun/sunCG8C.h'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/sun/sunCG8C.h'
+fi
+if test -f 'server/ddx/sun/xfbbstore.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/sun/xfbbstore.c'\"
+else
+echo shar: Extracting \"'server/ddx/sun/xfbbstore.c'\" \(2530 characters\)
+sed "s/^X//" >'server/ddx/sun/xfbbstore.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X * xfbbstore.c --
+X *	Functions required by the backing-store implementation in MI.
+X *
+X * Route the request to cfb or cfb32 based on depth.
+X */
+X
+X#include    "X.h"
+X#include    "regionstr.h"
+X#include    "scrnintstr.h"
+X#include    "pixmapstr.h"
+X#include    "windowstr.h"
+X
+Xvoid
+XxfbSaveAreas(pPixmap, prgnSave, xorg, yorg)
+X    PixmapPtr	  	pPixmap;  	/* Backing pixmap */
+X    RegionPtr	  	prgnSave; 	/* Region to save (pixmap-relative) */
+X    int	    	  	xorg;	    	/* X origin of region */
+X    int	    	  	yorg;	    	/* Y origin of region */
+X{
+X    if (pPixmap->drawable.depth == 1)
+X	mfbSaveAreas(pPixmap, prgnSave, xorg, yorg);
+X    else if (pPixmap->drawable.depth == 8)
+X	cfbSaveAreas(pPixmap, prgnSave, xorg, yorg);
+X    else
+X	cfb32SaveAreas(pPixmap, prgnSave, xorg, yorg);
+X}
+X
+Xvoid
+XxfbRestoreAreas(pPixmap, prgnRestore, xorg, yorg)
+X    PixmapPtr	  	pPixmap;  	/* Backing pixmap */
+X    RegionPtr	  	prgnRestore; 	/* Region to restore (screen-relative)*/
+X    int	    	  	xorg;	    	/* X origin of window */
+X    int	    	  	yorg;	    	/* Y origin of window */
+X{
+X    if (pPixmap->drawable.depth == 1)
+X	mfbRestoreAreas(pPixmap, prgnRestore, xorg, yorg);
+X    else if (pPixmap->drawable.depth == 8)
+X	cfbRestoreAreas(pPixmap, prgnRestore, xorg, yorg);
+X    else
+X	cfb32RestoreAreas(pPixmap, prgnRestore, xorg, yorg);
+X}
+END_OF_FILE
+if test 2530 -ne `wc -c <'server/ddx/sun/xfbbstore.c'`; then
+    echo shar: \"'server/ddx/sun/xfbbstore.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/sun/xfbbstore.c'
+fi
+echo shar: End of archive 28 \(of 29\).
+cp /dev/null ark28isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

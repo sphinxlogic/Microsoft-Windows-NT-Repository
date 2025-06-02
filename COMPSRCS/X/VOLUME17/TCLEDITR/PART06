@@ -1,0 +1,2178 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i007: point text editor (TCL and TK), Part06/16
+Message-ID: <1992Mar18.141431.26767@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:14:31 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 7
+Archive-name: tcl-editor/part06
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 15)."
+# Contents:  anaObjects.c display.c mouse.c search.c
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:39 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'anaObjects.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'anaObjects.c'\"
+else
+echo shar: Extracting \"'anaObjects.c'\" \(10933 characters\)
+sed "s/^X//" >'anaObjects.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/anaObjects.c,v 1.3 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#ifdef HYPERTEXT
+X#include <sys/types.h>
+X#include <sys/file.h>
+X#include <string.h>
+X#include "pt.h"
+X
+typedef struct object_table_tag {
+X	char *name;
+X	int size;
+X} object_table_entry;
+X
+static object_table_entry ObjectTable[] = {
+X	{"", 0},	/* dummy so we can avoid magic numbers of 0 */
+X	{"Attribute", sizeof(AttributeStruct)},
+X	{"Block", sizeof(BlockStruct)},
+X	{"Document", sizeof(DocumentStruct)},
+X	{"File", sizeof(FileStruct)},
+X	{"Link", sizeof(LinkStruct)},
+X	{"Map", sizeof(MapStruct)},
+X	{"Marker", sizeof(BlockMarkerStruct)},
+X	{"Text", sizeof(TextStruct)},
+X	{"View", sizeof(ViewStruct)},
+X};
+X
+DBM *
+OpenObjects(name)
+X	String name;
+X{
+X	return dbm_open( name, O_RDWR | O_CREAT, 0644 );
+X}
+X
+void
+CloseObjects( db )
+X	DBM *db;
+X{
+X	dbm_close( db );
+X}
+X
+void
+DumpDB( db )
+X	DBM *db;
+X{
+X	datum d_out;
+X	
+X	d_out = dbm_firstkey( db );
+X	while( d_out.dptr != NULL ) {
+X		AnaObject object = (AnaObject)d_out.dptr;
+X		printf("magic=%d id=%d next=%d name is %s\n",
+X			object->magic, object->this_one,
+X			object->next, object->name);
+X		d_out = dbm_nextkey( db );
+X	}
+X}
+X
+AnaObject
+GetObject( db, magic, id, allocate )
+X	DBM *db;
+X	MagicNumber magic;
+X	ID id;
+X	AllocationMode allocate;
+X{
+X	datum d_in, d_out;
+X	AnaObject object;
+X
+X	d_in.dptr = (char *)&id;
+X	d_in.dsize = sizeof(ID);
+X	d_out = dbm_fetch( db, d_in );
+X	if( d_out.dptr == NULL ) {
+X		printf("ndbm ERROR in Get%s can't find id=%d\n",
+X			ObjectTable[magic].name, id);
+X		dbm_clearerr( db );
+X		return NULL;
+X	}
+X	if( d_out.dsize != ObjectTable[magic].size ) {
+X		printf("ndbm ERROR in Get%s id=%d, wrong size.",
+X			ObjectTable[magic].name, id);
+X		printf(" Size is %d and it should be %d\n", d_out.dsize,
+X			ObjectTable[magic].size );
+X		return NULL;
+X	}
+X	object = (AnaObject)d_out.dptr;
+X	if( object->magic != magic ) {
+X		printf("ndbm ERROR in Get%s id=%d, wrong magic number.",
+X			ObjectTable[magic].name, id);
+X		printf("Magic number is %d and it should be %d\n",
+X			object->magic, magic);
+X		return NULL;
+X	}
+X	if( allocate ) {
+X		object = (AnaObject)PtMalloc( d_out.dsize, "ana object" );
+X		/* copy d_out.dptr into object */
+X		memcpy( (char *)object, (char *)d_out.dptr, d_out.dsize );
+X	}
+X	return object;
+X}
+X
+void
+PutObject( db, magic, object, release )
+X	DBM *db;
+X	MagicNumber magic;
+X	AnaObject object;
+X	ReleaseMode release;
+X{
+X	datum d_key, d_object;
+X	int ret;
+X
+X	if( object == NULL )
+X		return;
+X	d_key.dptr = (char *)&(object->this_one);
+X	d_key.dsize = sizeof(ID);
+X	d_object.dptr = (char *)object;
+X	d_object.dsize = ObjectTable[magic].size;
+X	ret = dbm_store( db, d_key, d_object, DBM_REPLACE);
+X	if( ret != 0 )
+X		printf("ndbm ERROR in Put%s, ret=%d\n",
+X			ObjectTable[magic].name, ret);
+X	if( release )
+X		PtFree( (char *)object );
+X}
+X
+Block
+GetBlock( db, blockID, allocate )
+X	DBM *db;
+X	BlockID blockID;
+X	AllocationMode allocate;
+X{
+X	return (Block)GetObject( db, BlockMagic, (ID)blockID, allocate );
+X}
+X
+void
+PutBlock( db, block, release )
+X	DBM *db;
+X	Block block;
+X	ReleaseMode release;
+X{
+X	PutObject( db, BlockMagic, (AnaObject)block, release );
+X}
+X
+Attribute
+GetAttribute( db, attributeID, allocate )
+X	DBM *db;
+X	AttributeID attributeID;
+X	AllocationMode allocate;
+X{
+X	return (Attribute)GetObject(db,AttributeMagic,(ID)attributeID,allocate);
+X}
+X
+void
+PutAttribute( db, attribute, release )
+X	DBM *db;
+X	Attribute attribute;
+X	ReleaseMode release;
+X{
+X	PutObject( db, AttributeMagic, (AnaObject)attribute, release );
+X}
+X
+Map
+GetMap( db, mapID, allocate )
+X	DBM *db;
+X	MapID mapID;
+X	AllocationMode allocate;
+X{
+X	return (Map)GetObject( db, MapMagic, (ID)mapID, allocate );
+X}
+X
+void
+PutMap( db, map, release )
+X	DBM *db;
+X	Map map;
+X	ReleaseMode release;
+X{
+X	PutObject( db, MapMagic, (AnaObject)map, release );
+X}
+X
+XFile
+GetFile( db, fileID, allocate )
+X	DBM *db;
+X	FileID fileID;
+X	AllocationMode allocate;
+X{
+X	return (File)GetObject( db, FileMagic, (ID)fileID, allocate );
+X}
+X
+void
+PutFile( db, file, release )
+X	DBM *db;
+X	File file;
+X	ReleaseMode release;
+X{
+X	PutObject( db, FileMagic, (AnaObject)file, release );
+X}
+X
+Text
+GetText( db, textID, allocate )
+X	DBM *db;
+X	TextID textID;
+X	AllocationMode allocate;
+X{
+X	return (Text)GetObject( db, TextMagic, (ID)textID, allocate );
+X}
+X
+void
+PutText( db, text, release )
+X	DBM *db;
+X	Text text;
+X	ReleaseMode release;
+X{
+X	PutObject( db, TextMagic, (AnaObject)text, release );
+X}
+X
+Link
+GetLink( db, linkID, allocate )
+X	DBM *db;
+X	LinkID linkID;
+X	AllocationMode allocate;
+X{
+X	return (Link)GetObject( db, LinkMagic, (ID)linkID, allocate );
+X}
+X
+void
+PutLink( db, link, release )
+X	DBM *db;
+X	Link link;
+X	ReleaseMode release;
+X{
+X	PutObject( db, LinkMagic, (AnaObject)link, release );
+X}
+X
+View
+GetView( db, viewID, allocate )
+X	DBM *db;
+X	ViewID viewID;
+X	AllocationMode allocate;
+X{
+X	return (View)GetObject( db, ViewMagic, (ID)viewID, allocate );
+X}
+X
+void
+PutView( db, view, release )
+X	DBM *db;
+X	View view;
+X	ReleaseMode release;
+X{
+X	PutObject( db, ViewMagic, (AnaObject)view, release );
+X}
+X
+Document
+GetDocument( db, documentID, allocate )
+X	DBM *db;
+X	DocumentID documentID;
+X	AllocationMode allocate;
+X{
+X	return (Document)GetObject(db, DocumentMagic, (ID)documentID, allocate);
+X}
+X
+void
+PutDocument( db, document, release )
+X	DBM *db;
+X	Document document;
+X	ReleaseMode release;
+X{
+X	PutObject( db, DocumentMagic, (AnaObject)document, release );
+X}
+X
+Block
+CreateBlock( db, document, name, attribute, hint, file )
+X	DBM *db;
+X	Document document;
+X	char *name;
+X	AttributeID attribute;
+X	Offset hint;
+X	FileID file;
+X{
+X	Block block;
+X	int i;
+X
+X	block = (Block)PtMalloc( sizeof(BlockStruct), "ana block" );
+X	block->magic = BlockMagic;
+X	block->this_one = (document->nextFreeID)++;
+X	block->next = document->firstBlock;
+X	document->firstBlock = block->this_one;
+X	strncpy( block->name, name, NAME_SIZE );
+X	for( i = 1; i < MAX_ATTRIBUTES; ++i )
+X		 block->attribute[i] = NullObject;
+X	block->attribute[0] = attribute;
+X	block->hint = hint;
+X	block->file = file;
+X	block->numLinks = 0;
+X	block->firstFromLink = NullObject;
+X	block->firstToLink = NullObject;
+X	PutBlock( db, block, NO_RELEASE );
+X	return block;
+X}
+X
+Attribute
+CreateAttribute( db, document, name )
+X	DBM *db;
+X	Document document;
+X	char *name;
+X{
+X	Attribute attribute;
+X
+X	attribute = (Attribute)PtMalloc( sizeof(AttributeStruct),
+X						"ana attribute" );
+X	attribute->magic = AttributeMagic;
+X	attribute->this_one = (document->nextFreeID)++;
+X	attribute->next = document->firstAttribute;
+X	document->firstAttribute = attribute->this_one;
+X	strncpy( attribute->name, name, NAME_SIZE );
+X	PutAttribute( db, attribute, NO_RELEASE );
+X	return attribute;
+X}
+X
+X/*ARGSUSED*/
+AttributeID
+LookupAttributeByName( db, document, name )
+X	DBM *db;
+X	Document document;
+X	char *name;
+X{
+X	extern DBM *currentDB;
+X
+X	Attribute attribute;
+X	int attributeID = document->firstAttribute;
+X
+X	while( attributeID != NullObject ) {
+X		attribute = GetAttribute( currentDB, attributeID, NO_ALLOCATE );
+X		if( strcmp(name,attribute->name) == 0 )
+X			return attributeID;
+X		attributeID = attribute->next;
+X	}
+X	return NullObject;
+X}
+X
+Map
+CreateMap( db, document, name )
+X	DBM *db;
+X	Document document;
+X	char *name;
+X{
+X	Map map;
+X	int i;
+X
+X	map = (Map)PtMalloc( sizeof(MapStruct), "ana map" );
+X	map->magic = MapMagic;
+X	map->this_one = (document->nextFreeID)++;
+X	map->next = document->firstMap;
+X	document->firstMap = map->this_one;
+X	strncpy( map->name, name, NAME_SIZE );
+X	for( i = 0; i < MAP_SIZE; ++i ) {
+X		map->domain[i] = NullObject;
+X		map->range[i][0] = '\0';
+X	}
+X	PutMap( db, map, NO_RELEASE );
+X	return map;
+X}
+X
+X/*ARGSUSED*/
+MapID
+LookupMapByName( db, document, name )
+X	DBM *db;
+X	Document document;
+X	char *name;
+X{
+X	extern DBM *currentDB;
+X
+X	Map map;
+X	int mapID = document->firstMap;
+X
+X	while( mapID != NullObject ) {
+X		map = GetMap( currentDB, mapID, NO_ALLOCATE );
+X		if( strcmp(name,map->name) == 0 )
+X			return mapID;
+X		mapID = map->next;
+X	}
+X	return NullObject;
+X}
+X
+Link
+CreateLink( db, document, name, attribute, from, to )
+X	DBM *db;
+X	Document document;
+X	char *name;
+X	AttributeID attribute;
+X	BlockID from, to;
+X{
+X	Link link;
+X	int i;
+X
+X	link = (Link)PtMalloc( sizeof(LinkStruct), "ana link" );
+X	link->magic = LinkMagic;
+X	link->this_one = (document->nextFreeID)++;
+X	link->next = document->firstLink;
+X	document->firstLink = link->this_one;
+X	strncpy( link->name, name, NAME_SIZE );
+X	for( i = 1; i < MAX_ATTRIBUTES; ++i )
+X		 link->attribute[i] = NullObject;
+X	link->attribute[0] = attribute;
+X	link->nextFromLink = NullObject;
+X	link->from = from;
+X	link->nextToLink = NullObject;
+X	link->to = to;
+X	PutLink( db, link, NO_RELEASE );
+X	return link;
+X}
+X
+XFile
+CreateFile( db, document, name )
+X	DBM *db;
+X	Document document;
+X	char *name;
+X{
+X	File file;
+X
+X	file = (File)PtMalloc( sizeof(FileStruct), "ana file" );
+X	file->magic = FileMagic;
+X	strncpy( file->name, name , NAME_SIZE );
+X	file->this_one = (document->nextFreeID)++;
+X	file->next = document->firstFile;
+X	document->firstFile = file->this_one;
+X	PutFile( db, file, NO_RELEASE );
+X	return file;
+X}
+X
+X/*ARGSUSED*/
+XFileID
+LookupFileByName( db, document, name )
+X	DBM *db;
+X	Document document;
+X	char *name;
+X{
+X	extern DBM *currentDB;
+X
+X	File file;
+X	int fileID = document->firstFile;
+X
+X	while( fileID != NullObject ) {
+X		file = GetFile( currentDB, fileID, NO_ALLOCATE );
+X		if( strcmp(name,file->name) == 0 )
+X			return fileID;
+X		fileID = file->next;
+X	}
+X	return NullObject;
+X}
+X
+Text
+CreateText( db, document, s )
+X	DBM *db;
+X	Document document;
+X	char *s;
+X{
+X	Text text;
+X
+X	text = (Text)PtMalloc( sizeof(TextStruct), "ana text" );
+X	text->magic = TextMagic;
+X	text->this_one = (document->nextFreeID)++;
+X	text->next = document->firstText;
+X	document->firstText = text->this_one;
+X	strncpy( text->s, s, NAME_SIZE );
+X	PutText( db, text, NO_RELEASE );
+X	return text;
+X}
+X
+View
+CreateView( db, document, name, blockID, fromLinkMap, toLinkMap, blockMap )
+X	DBM *db;
+X	Document document;
+X	char *name;
+X	BlockID blockID;
+X	MapID fromLinkMap, toLinkMap, blockMap;
+X{
+X	View view;
+X
+X	view = (View)PtMalloc( sizeof(ViewStruct), "ana view" );
+X	view->magic = ViewMagic;
+X	view->this_one = (document->nextFreeID)++;
+X	view->next = document->firstView;
+X	document->firstView = view->this_one;
+X	strncpy( view->name, name, NAME_SIZE );
+X	view->blockID = blockID;
+X	view->fromLinkMap = fromLinkMap;
+X	view->toLinkMap = toLinkMap;
+X	view->blockMap = blockMap;
+X	PutView( db, view, NO_RELEASE );
+X	return view;
+X}
+X
+Document
+CreateDocument( db, name )
+X	DBM *db;
+X	char *name;
+X{
+X	Document document;
+X
+X	document = (Document)PtMalloc( sizeof(DocumentStruct), "ana document" );
+X	document->magic = DocumentMagic;
+X	document->this_one = 1;
+X	document->next = NullObject;
+X	strncpy( document->name, name, NAME_SIZE );
+X	/* start IDs at 100 so we can use low ids for conventional */
+X	/* purposes, like open fileIds as IDs */
+X	document->nextFreeID = 100;
+X	document->initialView = NullObject;
+X	document->firstBlock = NullObject;
+X	document->firstAttribute = NullObject;
+X	document->firstLink = NullObject;
+X	document->firstFile = NullObject;
+X	document->firstView = NullObject;
+X	document->firstMap = NullObject;
+X	document->firstText = NullObject;
+X	PutDocument( db, document, NO_RELEASE );
+X	return document;
+X}
+X#endif
+X
+END_OF_FILE
+if test 10933 -ne `wc -c <'anaObjects.c'`; then
+    echo shar: \"'anaObjects.c'\" unpacked with wrong size!
+fi
+# end of 'anaObjects.c'
+fi
+if test -f 'display.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'display.c'\"
+else
+echo shar: Extracting \"'display.c'\" \(12952 characters\)
+sed "s/^X//" >'display.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/display.c,v 1.7 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <math.h>
+X#include <string.h>
+X#include <stdio.h>
+X#include "pt.h"
+X#include <X11/StringDefs.h>
+X
+static int maxLineLength = 1;
+X
+X/* character table for fillLine (in windtext.c) */
+char charTable[257];
+X
+X/* screen line buffer */
+char screenLine[MAXCOLS];
+X
+void
+drawWindowFast(w, firstRow, lastRow, firstCol, lastCol )
+X	struct window *w;
+X	int firstRow, lastRow, firstCol, lastCol;
+X{
+X	extern int debug;
+X
+X        fillWindow(w, firstRow, lastRow, firstCol, lastCol );
+X	banner( w, 1 );
+X}
+X
+void
+drawWindow(w)
+X	register struct window *w;
+X{
+X	extern int debug;
+X
+X	if( w == NULL )
+X		return;
+X	fillWindow(w, 0, w->nRows-1, 0, w->nCols-1);
+X	banner( w, 1 );
+X}
+X
+static char *
+XFormatTitle( format, w, ff )
+X	char * format;
+X        struct window *w;
+X        struct openFile *ff;
+X{
+X	extern char textBuffer[];
+X	extern char msgBuffer[];
+X	extern int pathNames;
+X	extern int overType;
+X	extern int hypertextOn;
+X        extern struct openFile *files;
+X
+X	char * to = msgBuffer;
+X	char * copy_in;
+X	char ch;
+X
+X	while( (ch = *format++) != '\0' ) {
+X		if( ch != '%' ) {
+X			*to++ = ch;
+X			continue;
+X		}
+X		/* read a '%' */
+X		switch( ch = *format++ ) {
+X		default:	/* anything, including a literal '%' */
+X			textBuffer[0] = ch;
+X			textBuffer[1] = '\0';
+X			copy_in = textBuffer;
+X			break;
+X		case 'n':	/* file name */
+X			copy_in = &((ff->origName)[pathNames?0:w->nameOffset]);
+X			break;
+X		case 'N':	/* full path file name */
+X			copy_in = &((ff->origName)[0]);
+X			break;
+X		case 's':	/* short file name */
+X			copy_in = &((ff->origName)[w->nameOffset]);
+X			break;
+X		case 'c':	/* changed  flag */
+X			{/* get the change indicator string */
+X				char * to = textBuffer;
+X				char delimiter = *format++;
+X				while( 1 ) {
+X					ch = *format++;
+X					if( ch == delimiter )
+X						break;
+X					/* allow for missing delimiters */
+X					if( ch == '\0' ) {
+X						--format;
+X						msg(
+X"Missing change flag in title format", 1 );
+X						break;
+X					}
+X					*to++ = ch;
+X				}
+X				*to = '\0';
+X			}
+X			if( ff->flags&IS_CHANGED ) {
+X				copy_in = textBuffer;
+X			} else
+X				copy_in = "";
+X			break;
+X		case 'o':	/* overType flag */
+X			{/* get the overtype indicator string */
+X				char * to = textBuffer;
+X				char delimiter = *format++;
+X				while( 1 ) {
+X					ch = *format++;
+X					if( ch == delimiter )
+X						break;
+X					/* allow for missing delimiters */
+X					if( ch == '\0' ) {
+X						--format;
+X						msg(
+X"Missing overtype flag in title format", 1 );
+X						break;
+X					}
+X					*to++ = ch;
+X				}
+X				*to = '\0';
+X			}
+X			if( overType ) {
+X				copy_in = textBuffer;
+X			} else
+X				copy_in = "";
+X			break;
+X		case 'r':	/* readOnly flag */
+X			{/* get the readOnly indicator string */
+X				char * to = textBuffer;
+X				char delimiter = *format++;
+X				while( 1 ) {
+X					ch = *format++;
+X					if( ch == delimiter )
+X						break;
+X					/* allow for missing delimiters */
+X					if( ch == '\0' ) {
+X						--format;
+X						msg(
+X"Missing read only flag in title format", 1 );
+X						break;
+X					}
+X					*to++ = ch;
+X				}
+X				*to = '\0';
+X			}
+X			if( ff->flags&READ_ONLY ) {
+X				copy_in = textBuffer;
+X			} else
+X				copy_in = "";
+X			break;
+X		case 'l':	/* beginning line number */
+X			sprintf( textBuffer, "%d", w->numTopline );
+X			copy_in = textBuffer;
+X			break;
+X		case 'L':	/* ending line number */
+X			sprintf( textBuffer, "%d", w->numBotline - 1 );
+X			copy_in = textBuffer;
+X			break;
+X		case 'p':	/* beginning position number */
+X			sprintf( textBuffer, "%d", w->posTopline );
+X			copy_in = textBuffer;
+X			break;
+X		case 'P':	/* ending position number */
+X			sprintf( textBuffer, "%d", w->posBotline - 1 );
+X			copy_in = textBuffer;
+X			break;
+X		case 'S':	/* file size (in bytes) */
+X			sprintf( textBuffer, "%d", ff->fileSize );
+X			copy_in = textBuffer;
+X			break;
+X		case 'v':	/* beginning column number */
+X			sprintf( textBuffer, "%d", w->indent + 1 );
+X			copy_in = textBuffer;
+X			break;
+X		case 'V':	/* ending column number */
+X			sprintf( textBuffer, "%d", w->indent + w->nCols );
+X			copy_in = textBuffer;
+X			break;
+X#ifdef HYPERTEXT
+X		case 'M':	/* block map name */
+X			if( w->blockMap!=NULL && hypertextOn )
+X				sprintf( textBuffer, "%s", w->blockMap->name );
+X			else
+X				textBuffer[0] = '\0';
+X			copy_in = textBuffer;
+X			break;
+X#endif
+X		}
+X		while( *copy_in != '\0' )
+X			*to++ = *copy_in++;
+X	}
+X	*to = '\0';
+X	
+X	return msgBuffer;
+X}
+X
+void
+banner( w, doSlider )
+X	register struct window *w;
+X	int doSlider;
+X{
+X	extern int msgInTitleLine;
+X	extern int debug;
+X	extern char * titleFormat;
+X	extern char * iconFormat;
+X
+X	long lp;
+X        struct openFile *ff;
+X
+X	/* remember that we don't have to draw the banner again */
+X	msgInTitleLine = 0;
+X
+X	/* guard against calls with a NULL argument */
+X	if( w == NULL )
+X		return;
+X
+X	if( w->fileId == -1 ) {
+X		return;
+X	} else {
+X		ff = &(files[w->fileId]);
+X		lp = ff->fileSize;
+X	}
+X	
+X	/* set the window and icon titles */
+X	sprintf( textBuffer, "wm title %s {%s}", w->tk_pathname,
+X			FormatTitle( titleFormat, w, ff) );
+X	(void)ExecTclCommand( textBuffer );
+X	sprintf( textBuffer,"wm iconname %s {%s}", w->tk_pathname,
+X			FormatTitle( iconFormat, w, ff) );
+X	(void)ExecTclCommand( textBuffer );
+X
+X	if( doSlider )
+X		SetSlider( w, lp );
+X}
+X
+void
+SetSlider( w, total )
+X	struct window *w;
+X	int total;
+X{
+X	extern char msgBuffer[];
+X
+X	int inwindow, first, last;
+X
+X	/* set vertical scroll bar */
+X	if( total == 0 ) /* guard again zerodivide */
+X		total = 1;
+X	first = w->posTopline;
+X	last = w->posBotline - 2;
+X	if( last < first )
+X		last = first;
+X	inwindow = last - first;
+X	if( inwindow < 0 )
+X		inwindow = 0;
+X	sprintf( msgBuffer, "%s.VScrollAndText.VScroll set %d %d %d %d",
+X		w->tk_pathname, total, inwindow, first, last );
+X	(void)ExecTclCommand( msgBuffer );
+X
+X	/* set horizontal scroll bar */
+X	total = w->nCols;
+X	if( total < maxLineLength )
+X		total = maxLineLength;
+X	if( total <= 0 )
+X		total = 1;
+X	inwindow = w->nCols;
+X	first = w->indent;
+X	if( first >= total )
+X		first = total - 1;
+X	last = w->indent+w->nCols-1;
+X	if( last < first )
+X		last = first + 1;
+X	if( last >= total )
+X		last = total - 1;
+X	sprintf( msgBuffer, "%s.SplitterAndHScroll.HScroll set %d %d %d %d",
+X		w->tk_pathname, total, inwindow, first, last );
+X	(void)ExecTclCommand( msgBuffer );
+X}
+X
+void
+fillWindow(w, firstRow, lastRow, firstCol, lastCol)
+X	register struct window *w;
+X	int firstRow, lastRow, firstCol, lastCol;
+X{
+X	extern int debug;
+X	extern int hypertextOn;
+X	extern struct window *selWindow;
+X	extern Display *MainDisplay;
+X
+X	Offset cp;
+X	int i, y, row, lineNumber;
+X	int col1, col2;
+X	struct fontDataStruct *font;
+X	int fid;
+X
+X	if( w == NULL )
+X		return;
+X
+X#ifdef HYPERTEXT
+X	if( w->file != NULL && !hypertextOn )
+X		/* a hypertext file but not in hypertext mode */
+X		fid = w->realFileId;
+X	else
+X#endif
+X		fid = w->fileId;
+X	
+X	font = &(w->font);
+X
+X	maxLineLength = 1;	/* reset this count */
+X
+X	/* fill the rows one at a time */
+X
+X	/* initialize */
+X	cp = w->posTopline;
+X	lineNumber = w->numTopline;
+X	y = w->topMargin + font->ascent;
+X
+X	/* skip the rows above the ones we are redrawing */
+X	for( row = 0; row < firstRow; ++row ) {
+X		i = 1;
+X		cp = nextLine( fid, cp, &i);
+X		y += font->height;
+X		++lineNumber;
+X	}
+X	
+X	/* clear the area we are redrawing */
+X	XClearArea(MainDisplay, w->x_window_id, 0, y - font->ascent,
+X		Tk_Width(w->tk_text), (lastRow - row + 1)*(font->height),
+X		False );
+X		/* 0 width => clear the whole width of the window */
+X		/* False means: do not generate exposure events */
+X
+X	/* rewrite the lines required */
+X	for( ; row <= lastRow; ++row ) {
+X		if( row == firstRow )
+X			col1 = firstCol;
+X		else
+X			col1 = 0;
+X		if( row == lastRow )
+X			col2 = lastCol;
+X		else
+X			col2 = w->nCols - 1;
+X		cp = fillLine( w, cp, row, col1, col2, y, 1 );
+X		if( cp == -1 ) {
+X			++row;	/* at least the EOF marker printed out */
+X			break;
+X		}
+X		y += font->height;
+X		++lineNumber;
+X	}
+X
+X	/* count down through the rows we are not drawing */
+X	for( ; row < w->nRows; ++row ) {
+X		if( cp == -1 )
+X			break;
+X		i = 1;
+X		cp = nextLine( fid, cp, &i);
+X		++lineNumber;
+X	}
+X
+X	/* If we got to the end of the file we want posBotline to be */
+X	/* the size of the file (which will be one past the last character */
+X	/* in the file since we start counting at 0) */
+X	if( cp == -1 )
+X		cp = fileSize( w->fileId );
+X	w->posBotline = cp;
+X	w->numBotline = lineNumber;
+X}
+X
+X/* I know I shouldn't use global variables for procedure parameters */
+X/* but these are called for every single character so I am compromising */
+struct window *w;
+char *sLine;
+GC gc, gc_normal;
+int x, y;
+int inSelection;
+int logicalCol;
+int row;
+int indent;
+Offset cp;
+struct fontDataStruct *font;
+X
+void
+DrawString()
+X{
+X	extern char screenLine[];
+X	extern int underlineSelection;
+X	extern Display *MainDisplay;
+X	extern int debug;
+X
+X	int char_len, pix_len;
+X
+X	*sLine = '\0';
+X	char_len = sLine - screenLine;
+X	pix_len = char_len * font->width;
+X	if( char_len > 0 ) {
+X		if( inSelection && (underlineSelection > 0) )
+X			gc = gc_normal;
+X		XDrawImageString( MainDisplay, w->x_window_id, gc, x, y,
+X			screenLine, char_len );
+X		if( inSelection && (underlineSelection > 0) ) {
+X			int y2 = y + 1;
+X			XDrawLine(MainDisplay, w->x_window_id, gc, x, y2,
+X							x+pix_len-1, y2);
+X			if( underlineSelection == 2 )
+X				XDrawLine( MainDisplay, w->x_window_id, gc,
+X						x, y2+1, x+pix_len-1, y2+1 );
+X		}
+X		x += pix_len;
+X	}
+X	sLine = screenLine;
+X}
+X
+Offset
+fillLine(w_in, cp_in, row_in, firstCol, lastCol, y_in, fillToEol)
+X	struct window *w_in;
+X	Offset cp_in;
+X	int row_in, firstCol, lastCol, y_in, fillToEol;
+X{
+X	extern struct window *selWindow;
+X	extern char charTable[];
+X	extern char screenLine[];
+X	extern int tabWidth;
+X	extern int eofChar;
+X	extern Display *MainDisplay;
+X	extern Offset selBegin, selEnd;
+X	extern int hypertextOn;
+X	extern int getSpanSize;
+X
+X	int uch;
+X	int tabStop;
+X	int fid;
+X	unsigned char *firstByte;
+X	unsigned char *lastByte;
+X	char *sLineMax;
+X	
+X	/* make these values available to DrawString and CheckForSelection */
+X	cp = cp_in;
+X	w = w_in;
+X	y = y_in;
+X	row = row_in;
+X	font = &(w->font);
+X	
+X#ifdef HYPERTEXT
+X	if( w->file != NULL && !hypertextOn )
+X		/* a hypertext file but not in hypertext mode */
+X		fid = w->realFileId;
+X	else
+X#endif
+X		fid = w->fileId;
+X
+X	/* set up for the loop */
+X	inSelection = 0;
+X	gc_normal = font->gc_normal;
+X	gc = gc_normal;
+X	logicalCol = 0;
+X	indent = w->indent;
+X	lastCol += indent;
+X	x = w->leftMargin;
+X	sLine = screenLine;
+X	sLineMax = sLine + MAXCOLS - 1;
+X
+X	/* set things up so we will call getSpan first thing */
+X	firstByte = (unsigned char *)1;
+X	lastByte = (unsigned char *)0;
+X	
+X	/* handle line numbering */
+X	if( w->lineNumbers && firstCol == 0 ) {
+X		int ln = row + w->numTopline;
+X		int i;
+X		char s[12];
+X		
+X		sprintf(s, "%4d:", ln);
+X		for( i = 0; i < 5; ++i )
+X			*sLine++ = s[i];
+X	}
+X
+X	/* loop until we get to the end of the line or the window */
+X	while( logicalCol <= lastCol ) {
+X		/****Begin CheckForSelection();****/
+X		if( selBegin <= cp && cp <= selEnd && w == selWindow ) {
+X			/* we are inside the selection */
+X			if( !inSelection ) {
+X				DrawString();
+X				gc = font->gc_selected;
+X				inSelection = 1;
+X			}
+X		} else {
+X			/* we are not inside the selection */
+X			if( inSelection ) {
+X				DrawString();
+X				gc = font->gc_normal;
+X				inSelection = 0;
+X			}
+X		}
+X		/****End CheckForSelection();****/
+X		if( firstByte > lastByte ) {
+X			if( getSpan( fid, cp, &firstByte, &lastByte, 0 ) ) {
+X				uch = BLOCK_EOF;
+X				goto atEOF;
+X			}
+X		}
+X++getSpanSize;
+X		uch = (unsigned char)(*firstByte++);
+X		++cp;
+X		/* check limits of line buffer */
+X		if( sLine > sLineMax )
+X			sLine = sLineMax;
+X		switch( charTable[uch] ) {
+X		
+X		case 2:		/* end of file */
+X	atEOF:
+X			if( eofChar != -1 )
+X				*sLine++ = (char)eofChar;
+X			cp = -1;	/* indicate end of file written */
+X			goto endLoop;
+X
+X		case 1:		/* newline -- end of line  */
+X			*sLine++ = ' ';
+X			goto endLoop;
+X
+X		case 3:	/* tab */
+X			tabStop = tabWidth - (logicalCol % tabWidth)
+X					+ logicalCol;
+X			if( (sLine+tabWidth) > sLineMax )
+X				sLine = sLineMax-tabWidth;
+X			while( ++logicalCol <= tabStop )
+X				if( logicalCol >= indent )
+X					*sLine++ = ' ';
+X			--logicalCol;	/* one ++ too many above */
+X			break;
+X
+X		case 0:	/* other (one char position) character */
+X			if( logicalCol++ >= indent ) {
+X				*sLine++ = uch;
+X			}
+X			break;
+X
+X		}
+X	}
+endLoop:
+X	/* write out the last part of the text */
+X	DrawString();
+X	if( fillToEol )
+X		/* clear to the end of the line */
+X		XClearArea(MainDisplay, w->x_window_id, x, y - font->ascent,
+X			0, font->height, False );
+X			/* 0 width => clear the whole width of the window */
+X			/* False means: do not generate exposure events */
+X
+X
+X	/* find the end of the line */
+X	/* only look if we have not already gotten to EOF */
+X	while( uch != '\n' && uch != BLOCK_EOF ) {
+X			/* NOTE: */
+X			/* Since we are postincrementing we could move cp */
+X			/* two past EOF, check if this is a problem in some */
+X			/* other place that uses the returned value (cp) */
+X		uch = getFileByte( fid, cp++ );
+X		if( uch == '\t' )
+X			logicalCol += tabWidth - (logicalCol % tabWidth) - 1;
+X		++logicalCol;
+X	}
+X
+X	/* adjust for the NL */
+X	--logicalCol;
+X	if( logicalCol > maxLineLength )
+X		maxLineLength = logicalCol;
+X
+X	return cp;
+X}
+X
+END_OF_FILE
+if test 12952 -ne `wc -c <'display.c'`; then
+    echo shar: \"'display.c'\" unpacked with wrong size!
+fi
+# end of 'display.c'
+fi
+if test -f 'mouse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mouse.c'\"
+else
+echo shar: Extracting \"'mouse.c'\" \(11478 characters\)
+sed "s/^X//" >'mouse.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/mouse.c,v 1.9 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <stdio.h>
+X#include "pt.h"
+X#include <X11/Xatom.h>
+X
+X/* mouse motion constants (for the arrays) */
+X#define MM_NOMOTION	0
+X#define MM_NORTH	1
+X#define MM_EAST		2
+X#define MM_SOUTH	3
+X#define MM_WEST		4
+X
+static int mouseMotionActive = 0;
+static int currentDirection;
+X
+X/* variables to handle timing */
+static int intervalOn = 0;
+static Tk_TimerToken timer_token;
+static struct window * mouse_w;
+X
+X/* global mouse motion variables */
+struct mmData * mm_data;
+int mm_length[5];
+int mm_x, mm_y, mm_row, mm_col;
+int mm_origin_x[5];
+int mm_origin_y[5];
+Offset mm_cp = -1;
+GC gc;
+X
+static Tk_Uid BeginSelection;
+static Tk_Uid BeginExtend;
+static Tk_Uid ExtendSel;
+static Tk_Uid EndExtending;
+static Tk_Uid BeginMouseMenu1;
+static Tk_Uid BeginMouseMenu2;
+static Tk_Uid ContinueMouseMenu;
+static Tk_Uid CancelMouseMenu;
+static Tk_Uid EndMouseMenu;
+X
+void
+InitMouse()
+X{
+X	BeginSelection	= Tk_GetUid( "BeginSelection" );
+X	BeginExtend	= Tk_GetUid( "BeginExtend" );
+X	ExtendSel	= Tk_GetUid( "ExtendSelection" );
+X	EndExtending	= Tk_GetUid( "EndExtending" );
+X	BeginMouseMenu1	= Tk_GetUid( "BeginMouseMenu1" );
+X	BeginMouseMenu2	= Tk_GetUid( "BeginMouseMenu2" );
+X	ContinueMouseMenu=Tk_GetUid( "ContinueMouseMenu" );
+X	CancelMouseMenu	= Tk_GetUid( "CancelMouseMenu" );
+X	EndMouseMenu	= Tk_GetUid( "EndMouseMenu" );
+X}
+X
+static void DrawInitialMenu();
+X
+static void
+DrawMenuString( w, direction )
+X        struct window * w;
+X	int direction;
+X{
+X	extern Display *MainDisplay;
+X
+X	XDrawImageString( MainDisplay, w->x_window_id, gc,
+X		mm_origin_x[direction], mm_origin_y[direction],
+X		mm_data[direction].label, mm_data[direction].length);
+X}
+X
+X/*ARGSUSED*/
+static void
+mmTimeout( client_data )
+X	ClientData client_data;
+X{
+X	intervalOn = 0;
+X	DrawInitialMenu( mouse_w );
+X}
+X
+void
+Mouse( w, cmd, x, y )
+X	struct window * w;
+X	char * cmd;
+X	int x;
+X	int y;
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern int selMode;
+X	extern int menuDelay;
+X	extern struct mmData mm1Data[];
+X	extern struct mmData mm2Data[];
+X	extern Cursor currentCursor;
+X	extern Display *MainDisplay;
+X	extern Window MainWindow;
+X	extern int mouseSpriteMenu;
+X	extern int menuTolerance;
+X	extern Tcl_Interp * interp;
+X	extern char msgBuffer[];
+X	
+X	static int lastRow = -1;
+X	static int lastCol = -1;
+X
+X	int row, col, n;
+X	Offset cp, beginRowCp;
+X	/* two abbreviations */
+X	struct fontDataStruct *font = &(w->font);
+X	int fid = w->fileId;
+X	Tk_Uid cmd_uid = Tk_GetUid( cmd );
+X
+X	row = (y - w->topMargin) / font->height;
+X	col = (x - w->leftMargin) / font->width;
+X	cp = xyToOffset( w, row, col );
+X	n = -1;
+X	beginRowCp = prevLine( fid, cp, &n );
+X
+if( cmd_uid == BeginSelection ) {
+X	Offset oldBegin, oldEnd;
+X
+X	lastRow = row;
+X	lastCol = col;
+X	if( mouseMotionActive )
+X		goto restoreCursor;
+X
+X	/* determine the proper selection mode */
+X	else if( selBegin <= cp && cp <= selEnd && w == selWindow ) {
+X		if( selMode++ == SELLINE )
+X			selMode = SELCHAR;
+X		if( selMode == SELLINE ) {
+X			sprintf(msgBuffer,"Line %d",LineNumberOfSelection());
+X			msg( msgBuffer, 1 );
+X		}
+X		drawSelection( 1 );
+X		/* Extend the selection by the selection mode */
+X		oldBegin = selBegin;
+X		oldEnd = selEnd;
+X		modeExtend( selWindow, cp, row, col, beginRowCp );
+X		/* see if we need to erase the whole selection */
+X		/* this can happen if you click inside a large, */
+X		/* drawn-through selection within the double click */
+X		/* interval. */
+X		if( oldBegin < selBegin || selEnd < oldEnd )
+X			drawSelection( 1 );
+X		if( selMode != SELBLOCK ) {
+X			int row1, row2, col1, col2;
+X			Offset begin = selBegin;
+X			Offset end = selEnd;
+X			/* restrict begin-end range to what is */
+X			/* visible on the screen */
+X			if( begin < selWindow->posTopline )
+X				begin = selWindow->posTopline;
+X			if( end >= selWindow->posBotline )
+X				end = selWindow->posBotline - 1;
+X			if( begin <= end ) {
+X				/* at least part of the selection */
+X				/* is on the screen */
+X				int n = -1;
+X				Offset cp = prevLine(selWindow->fileId,
+X						begin, &n);
+X				OffsetToXY( selWindow, begin, &row1,
+X						&col1 );
+X				OffsetToXY( selWindow, end, &row2,
+X						&col2 );
+X				DrawSection( selWindow, cp, row1, col1,
+X						row2, col2 );
+X			}
+X		} else {
+X			drawWindow( selWindow );
+X		}
+X
+X	} else {
+X		drawSelection( 1 );
+X		selEnd = selBegin = cp;
+X		selWindow = w;
+X		selMode = SELCHAR;
+X		DrawSection(selWindow, beginRowCp, row, col, row, col);
+X	}
+X	AssertSelectionOwnership();
+X
+X} else if( cmd_uid == BeginExtend ) {
+X	ExtendSelection( cp, row, col, beginRowCp );
+X
+X} else if( cmd_uid == ExtendSel ) {
+X	if( row == lastRow && col == lastCol )
+X		return;
+X	lastRow = row;
+X	lastCol = col;
+X
+X	/* extend or contract the selection. */
+X	ExtendSelection( cp, row, col, beginRowCp );
+X
+X} else if( cmd_uid == EndExtending )
+X	/*EMPTY*/
+X{
+X	/* nothing to do on end selection */
+X
+X} else if( cmd_uid == BeginMouseMenu1 ) {
+X	mm_data = mm1Data;
+X	goto BeginEitherMenu;
+X
+X} else if( cmd_uid == BeginMouseMenu2 ) {
+X	mm_data = mm2Data;
+X
+BeginEitherMenu:
+X	/* remember the important parameters */
+X	mm_x = x;
+X	mm_y = y;
+X	mm_row = row;
+X	mm_col = col;
+X	mm_cp = cp;
+X	mouseMotionActive = 1;
+X	currentDirection = MM_NOMOTION;
+X	/* record all the label lengths */
+X	for( n = 0; n < 5; ++n )
+X		mm_length[n] = strlen(mm_data[n].label);
+X
+X	if( mouseSpriteMenu ) {
+X		XDefineCursor( MainDisplay, Tk_WindowId(w->tk_toplevel),
+X				mm_data[currentDirection].cursor );
+X	} else {
+X		intervalOn = 1;
+X		mouse_w = w;
+X		timer_token = Tk_CreateTimerHandler( menuDelay, mmTimeout, 0 );
+X	}
+X
+X} else if( cmd_uid == ContinueMouseMenu ) {
+X	int newDirection;
+X
+X	x -= mm_x;
+X	y -= mm_y;
+X	/* make it insensitive to small changes */
+X	if( abs(x) < menuTolerance && abs(y) < menuTolerance )
+X		newDirection = MM_NOMOTION;
+X	else if( x > y ) {
+X		if( x > -y )
+X			newDirection = MM_EAST;
+X		else
+X			newDirection = MM_NORTH;
+X	} else {
+X		if( x > -y )
+X			newDirection = MM_SOUTH;
+X		else
+X			newDirection = MM_WEST;
+X	}
+X	if( mouseMotionActive && (currentDirection != newDirection) ) {
+X		if( mouseSpriteMenu ) {
+X			XDefineCursor( MainDisplay, Tk_WindowId(w->tk_toplevel),
+X					mm_data[newDirection].cursor );
+X		} else if( !intervalOn ) {
+X			/* unhighlight the old item */
+X			gc = font->gc_normal;
+X			DrawMenuString( w, currentDirection );
+X			/* highlight the new item */
+X			gc = font->gc_selected;
+X			DrawMenuString( w, newDirection );
+X		}
+X	}
+X	currentDirection = newDirection;
+X
+X} else if( cmd_uid == EndMouseMenu ) {
+X	if( mouseMotionActive ) {
+X		int row1, row2;
+X		char * cmd = mm_data[currentDirection].tcl_command;
+X		if( striccmp(cmd,"ExtendSelection") != 0 ) {
+X			(void)ExecTclCommand( cmd );
+X		} else
+X			/* extend or contract the selection */
+X			ExtendSelection( cp, row, col, beginRowCp );
+restoreCursor:
+X		if( mouseSpriteMenu ) {
+X			XDefineCursor( MainDisplay, Tk_WindowId(w->tk_toplevel),
+X							currentCursor);
+X		} else {
+X			/* redraw the text we wrote over */
+X			if( intervalOn ) {
+X				intervalOn = 0;
+X				Tk_DeleteTimerHandler( timer_token );
+X			} else {
+X				if( (row1 = mm_row - 2) < 0 )
+X					row1 = 0;
+X				row2 = mm_row + 2;
+X				drawWindowFast( w, row1, row2, 0, w->nCols );
+X			}
+X		}
+X		mouseMotionActive = 0;
+X	}
+X} else if( cmd_uid == CancelMouseMenu ) {
+X	goto restoreCursor;
+X} else {	/* must be a Point command */
+X	printf("Mouse command `%s' not understood\n", cmd );
+X}
+X}
+X
+static void
+DrawInitialMenu( w )
+X        struct window * w;
+X{
+X	extern Display *MainDisplay;
+X
+X	int col9;
+X	/* two abbreviations */
+X	struct fontDataStruct *font = &(w->font);
+X
+X	/* write out the circular menu items */
+X
+X	/* first figure out where everything goes */
+X	mm_origin_y[MM_NOMOTION] = w->topMargin + font->ascent
+X						+ mm_row * font->height;
+X	mm_origin_y[MM_WEST] = mm_origin_y[MM_NOMOTION];
+X	mm_origin_y[MM_EAST] = mm_origin_y[MM_NOMOTION];
+X	mm_origin_y[MM_NORTH] = mm_origin_y[MM_NOMOTION] - font->height - 2;
+X	mm_origin_y[MM_SOUTH] = mm_origin_y[MM_NOMOTION] + font->height + 2;
+X
+X	col9 = mm_col - mm_length[MM_NOMOTION]/2;
+X	mm_origin_x[MM_NOMOTION] = w->leftMargin + col9 * font->width;
+X	mm_origin_x[MM_WEST] = mm_origin_x[MM_NOMOTION]
+X				- mm_length[MM_WEST] * font->width - 2;
+X	mm_origin_x[MM_EAST] = mm_origin_x[MM_NOMOTION]
+X				+ mm_length[MM_NOMOTION] * font->width + 2;
+X	col9 = mm_col - mm_length[MM_NORTH]/2;
+X	mm_origin_x[MM_NORTH] = w->leftMargin + col9 * font->width;
+X	col9 = mm_col - mm_length[MM_SOUTH]/2;
+X	mm_origin_x[MM_SOUTH] = w->leftMargin + col9 * font->width;
+X
+X	/* draw rectangles around the strings */
+X	gc = (w->font).gc_normal;
+X	XDrawRectangle(MainDisplay, w->x_window_id, gc,
+X		mm_origin_x[MM_NOMOTION] - 1,
+X		mm_origin_y[MM_NOMOTION] - font->ascent - 1,
+X		font->width * mm_length[MM_NOMOTION] + 2,
+X		font->height + 2);
+X	XDrawRectangle(MainDisplay, w->x_window_id, gc,
+X		mm_origin_x[MM_NORTH] - 1,
+X		mm_origin_y[MM_NORTH] - font->ascent - 1,
+X		font->width * mm_length[MM_NORTH] + 2,
+X		font->height + 2);
+X	XDrawRectangle(MainDisplay, w->x_window_id, gc,
+X		mm_origin_x[MM_EAST] - 1,
+X		mm_origin_y[MM_EAST] - font->ascent - 1,
+X		font->width * mm_length[MM_EAST] + 2,
+X		font->height + 2);
+X	XDrawRectangle(MainDisplay, w->x_window_id, gc,
+X		mm_origin_x[MM_SOUTH] - 1,
+X		mm_origin_y[MM_SOUTH] - font->ascent - 1,
+X		font->width * mm_length[MM_SOUTH] + 2,
+X		font->height + 2);
+X	XDrawRectangle(MainDisplay, w->x_window_id, gc,
+X		mm_origin_x[MM_WEST] - 1,
+X		mm_origin_y[MM_WEST] - font->ascent - 1,
+X		font->width * mm_length[MM_WEST] + 2,
+X		font->height + 2);
+X	/* now write the strings */
+X	gc = (w->font).gc_normal;
+X	DrawMenuString( w, MM_NOMOTION );
+X	DrawMenuString( w, MM_NORTH );
+X	DrawMenuString( w, MM_WEST );
+X	DrawMenuString( w, MM_SOUTH );
+X	DrawMenuString( w, MM_EAST );
+X	/* this one will be written twice */
+X	gc = (w->font).gc_selected;
+X	DrawMenuString( w, currentDirection );
+X}
+X
+X/* global variables for making cursor from pixmaps */
+static Pixmap pixmap;
+static GC mouse_gc;
+static XColor black, white;
+static int ascent;
+extern Display *MainDisplay;
+X
+static void
+MakeCursors( mm_data )
+X	struct mmData * mm_data;
+X{
+X
+X	int i;
+X
+X	for( i = 0; i < 5; ++i ) {
+X		mm_data[i].length = strlen( mm_data[i].label );
+X		if( mm_data[i].length > 0 ) {
+X			XDrawImageString( MainDisplay, pixmap, mouse_gc, 2,
+X				ascent+2, mm_data[i].label, mm_data[i].length );
+X			mm_data[i].cursor = XCreatePixmapCursor( MainDisplay,
+X				pixmap, None, &white, &black, 1, 1 );
+X		} else
+X			mm_data[i].cursor = NULL;
+X	}
+X}
+X
+void
+MakeMouseMenuCursors()
+X{
+X	extern Pixel ptWhitePixel, ptBlackPixel;
+X	extern struct mmData mm1Data[];
+X	extern struct mmData mm2Data[];
+X	extern char * mouseMenuFont;
+X
+X	XFontStruct *fontInfo;
+X
+X	/* set up the pixmap and stuff to create the cursors */
+X	pixmap = XCreatePixmap( MainDisplay, DefaultRootWindow(MainDisplay),
+X			28, 17, 1 );
+X	fontInfo = XLoadQueryFont( MainDisplay, mouseMenuFont );
+X	if( fontInfo == NULL )
+X		/* we assume every X server has a "fixed" font */
+X		fontInfo = XLoadQueryFont( MainDisplay, "fixed" );
+X	ascent = fontInfo->ascent;
+X	mouse_gc = XCreateGC(MainDisplay, pixmap, 0, NULL);
+X	XSetFont(MainDisplay, mouse_gc, fontInfo->fid);
+X
+X	/* clear out the edges of the pixmap */
+X	XFillRectangle( MainDisplay, pixmap, mouse_gc, 0, 0, 28, 17 );
+X	black.pixel = ptBlackPixel;
+X	ptBlackPixel = BlackPixel(MainDisplay, MainDisplay->default_screen);
+X	XQueryColor( MainDisplay, DefaultColormap(MainDisplay,
+X				DefaultScreen(MainDisplay)), &black);
+X	white.pixel = ptWhitePixel;
+X	XQueryColor( MainDisplay, DefaultColormap(MainDisplay,
+X				DefaultScreen(MainDisplay)), &white);
+X
+X	MakeCursors( mm1Data );
+X	MakeCursors( mm2Data ); 
+X
+X	XFreeGC( MainDisplay, mouse_gc );
+X	XFreePixmap( MainDisplay, pixmap );
+X}
+X
+END_OF_FILE
+if test 11478 -ne `wc -c <'mouse.c'`; then
+    echo shar: \"'mouse.c'\" unpacked with wrong size!
+fi
+# end of 'mouse.c'
+fi
+if test -f 'search.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'search.c'\"
+else
+echo shar: Extracting \"'search.c'\" \(14573 characters\)
+sed "s/^X//" >'search.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/search.c,v 1.7 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include <string.h>
+X#include <stdio.h>
+X#include "pt.h"
+X#include <X11/StringDefs.h>
+X
+static char searchString[STRINGSIZE];
+X
+int
+searchFor( w, searchMode, str, update, lof )
+X	struct window *w;
+X	int searchMode;
+X	char * str;
+X	int update;
+X	int lof;
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern int selMode;
+X	extern char msgBuffer[];
+X	extern int ignoreCase;
+X	extern int debug;
+X	extern int underlineSelection;
+X	extern int wrapAroundSearches;
+X
+X	int n, i, linesFromTop, fileId, nLines;
+X	int patLength;
+X	int saveUnderlineSelection;
+X	int wrappedAround = 0;
+X	Offset cp, cp2, startCp, stopCp;
+X	char ch, *p, *limit;
+X	int fid = w->fileId;
+X	Offset newSelBegin, newSelEnd;
+X
+X	fileId = w->fileId;
+X
+X        if( str != NULL ) {
+X                /* get pointers we can change */
+X                p = searchString;
+X                limit = searchString + STRINGSIZE;
+X                while( 1 ) {
+X                        ch = *str++;
+X                        /* case insensitive search? */
+X                        if( isupper(ch) && ignoreCase )
+X                                ch = tolower(ch);
+X                        if( (*p++ = ch) == '\0' )
+X                                break;
+X                        if( p >= limit ) {
+X                                *--p = '\0';
+X                                break;
+X                        }
+X                }
+X        }
+X
+X	/* do not allow searching for the empty string */
+X	if( searchString[0] == '\0' ) {
+X		sprintf(msgBuffer, "Search string is empty");
+X		goto errorExit;
+X	}
+X
+X	/* avoid overflowing msgBuffer */
+X	n = strlen( searchString );
+X	if( n > (STRINGSIZE-64) )
+X		n = STRINGSIZE - 64;
+X	/* 64 is enough for "Searching circularly for `%s'" */
+X	sprintf(msgBuffer, "Searching %s for `%s'",
+X		((searchMode == 0) ? "forwards" : "backwards"),
+X		searchString);
+X	msg( msgBuffer, 1 );
+X
+X	patLength = strlen(searchString);
+X	nLines = 0;
+X	cp = fileSize(w->fileId);
+X	if( searchMode == 1 ) {
+X		startCp = 0;
+X		if( w == selWindow )
+X			stopCp = selBegin - 1;
+X		else
+X			stopCp = cp - 1;
+X	} else {	/* seachMode == 0 */
+X		stopCp = cp;
+X		if( w == selWindow ) {
+X			startCp = selBegin + 1;
+X			if( startCp >= stopCp ) {	/* already done? */
+X				if( wrapAroundSearches )
+X					startCp = 0;
+X				else
+X					goto notFound;
+X			}
+X		} else
+X			startCp = 0;
+X	}
+X	linesFromTop = 0;
+X	/* adjust the line number */
+X	/* just put in the two while loops and forget the IF test */
+X	/* at most one of the WHILE loops will actually loop */
+X	/* adjust for backwards searching */
+X	cp2 = w->posTopline;
+X	if( searchMode == 1 ) {
+X		cp = stopCp + 1;
+X		if( cp > fileSize(w->fileId) )
+X			--cp;
+X	} else {
+X		cp = startCp - 1;
+X		if( cp < 0 )
+X			cp = 0;
+X	}
+X	/* normalize cp to the beginning of its line */
+X	i = -1;
+X	cp = prevLine( fid, cp, &i );
+X	while( cp2 < cp ) {
+X		++linesFromTop;
+X		i = 1;
+X		cp2 = nextLine( fid, cp2, &i );
+X	}
+X	while( cp2 > cp ) {
+X		--linesFromTop;
+X		i = 1;
+X		cp2 = prevLine( fid, cp2, &i );
+X	}
+X
+X	if( searchMode == 0 ) {
+X		cp = searchSpans(fileId, startCp, stopCp,
+X			searchString, patLength, &n);
+X		nLines += n;
+X		if( wrapAroundSearches && cp == -1 ) {
+X			wrappedAround = 1;
+X			cp = searchSpans(fileId, 0L, startCp,
+X				searchString, patLength, &n);
+X			nLines = n;
+X			linesFromTop = -(selWindow->numTopline);
+X		}
+X	} else {
+X		cp = searchReverseSpans(fileId, startCp, stopCp,
+X				searchString, patLength, &n);
+X		nLines -= n;
+X		/* a fix so that backwards search from the backwards */
+X		/* search command is circular if the normal search */
+X		/* mode is circular */
+X/********************* DO NOT DO THIS YET ************
+X THE PROBLEM IS GETTING THE LINE NUMBERS TO WORK OUT
+X FINISH IT LATER
+X		if( cp == -1 ) {
+X			wrappedAround = 1;
+X			cp = searchReverseSpans(fileId, stopCp,
+X				fileSize(w->fileId) - patLength,
+X				searchString, patLength, &n);
+X			nLines = n;
+X			linesFromTop = -(selWindow->numTopline);
+X		}
+X*******************************************************/
+X	}
+X
+X	if( cp != -1 ) {
+X		if( selWindow != w ) {
+X			drawSelection( 1 );
+X			selWindow = w;
+X		}
+X		newSelBegin = cp;
+X		newSelEnd = newSelBegin + patLength - 1;
+X		selMode = SELCHAR;
+X	} else
+X		goto notFound;
+X
+if( !update ) {
+X	selBegin = newSelBegin;
+X	selEnd = newSelEnd;
+X} else {
+X	(void)indentToShowSelection(-1);
+X	saveUnderlineSelection = underlineSelection;
+X	underlineSelection = 0;
+X	if( newSelBegin >= selWindow->posBotline
+X				|| newSelBegin < selWindow->posTopline ) {
+X		/* remember where we came from */
+X		selWindow->rowLastline = selWindow->numTopline;
+X		selBegin = newSelBegin;
+X		selEnd = newSelEnd;
+X	 	n = -1;
+X	 	cp2 = selBegin;
+X		cp2 = prevLine( fid, cp2, &n);
+X		/* find the number of lines in the window */
+X		n = selWindow->nRows;
+X		if( lof > n )
+X			/* if lof would place it outside the */
+X			/* window then put it in the middle of the window */
+X			n >>= 1;
+X		else
+X			/* otherwise put it lof lines down */
+X			n = lof;
+X		selWindow->posTopline = cp2;
+X		selWindow->posTopline = prevLine(fid,selWindow->posTopline,&n);
+X		selWindow->numTopline += linesFromTop + nLines - n;
+X		drawWindow(selWindow);
+X	} else {
+X		int row1, row2, col1, col2;
+X		/* the found string is already showing in the window */
+X		drawSelection( 1 );
+X		selBegin = newSelBegin;
+X		selEnd = newSelEnd;
+X		OffsetToXY( selWindow, selBegin, &row1, &col1 );
+X		OffsetToXY( selWindow, selEnd, &row2, &col2 );
+X		drawWindowFast( selWindow, row1, row2, 0, selWindow->nCols );
+X	}
+X	underlineSelection = saveUnderlineSelection;
+X}
+X
+X	AssertSelectionOwnership();
+X	/* this will erase the "Searching for..." msg in the case where */
+X	/* the selWindow does not extend to the bottom line */
+X	if( wrappedAround && update )
+X		msg(
+X"Circular search has wrapped around the beginning of the file", 1);
+X	return selBegin;
+X
+notFound:
+X	/* avoid overflowing msgBuffer */
+X	n = strlen(searchString);
+X	if( n > (STRINGSIZE-64) )
+X		n = STRINGSIZE - 64;
+X	/* 64 is enough for "String `%s' not found." */
+X	ch = searchString[n];
+X	searchString[n] = '\0';
+X	sprintf(msgBuffer, "`%s' not found.", searchString);
+X	searchString[n] = ch;
+errorExit:
+X	msg(msgBuffer, 1);
+X	return -1;
+X}
+X
+X
+int
+RegexSearch( w, searchMode, str, update, lof )
+X	struct window *w;
+X	int searchMode;
+X	char * str;
+X	int update;
+X	int lof;
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern int selMode;
+X	extern char msgBuffer[];
+X	extern char textBuffer[];
+X	extern int ignoreCase;
+X	extern int debug;
+X	extern int underlineSelection;
+X	extern int wrapAroundSearches;
+X	extern int regex_bopat[];
+X	extern int regex_eopat[];
+X
+X	int n, i, linesFromTop, fileId, nLines;
+X	int saveUnderlineSelection;
+X	int wrappedAround = 0;
+X	Offset cp, cp2, startCp, stopCp;
+X	char ch, *p;
+X	int fid = w->fileId;
+X	Offset newSelBegin, newSelEnd;
+X
+X	fileId = w->fileId;
+X	
+X	p = re_comp( str );
+X	if( p != NULL ) {
+X		sprintf(msgBuffer, "Regular expression error: %s", p);
+X		printf("%s\n", msgBuffer);
+X		goto errorExit;
+X	}
+X
+X	/* avoid overflowing msgBuffer */
+X	sprintf(textBuffer, "Searching %%s for `%%%ds'", STRINGSIZE-64);
+X	sprintf(msgBuffer, textBuffer,
+X		((searchMode == 0) ? "forwards" : "backwards"), str);
+X	msg( msgBuffer, 1 );
+X
+X	nLines = 0;
+X
+X	cp = fileSize(w->fileId);
+X	if( searchMode == 1 ) {
+X		startCp = 0;
+X		if( w == selWindow )
+X			stopCp = selBegin - 1;
+X		else
+X			stopCp = cp - 1;
+X	} else {	/* seachMode == 0 */
+X		stopCp = cp - 1;
+X		if( w == selWindow ) {
+X			startCp = selBegin + 1;
+X			if( startCp > stopCp ) {	/* already done? */
+X				if( wrapAroundSearches )
+X					startCp = 0;
+X				else
+X					goto notFound;
+X			}
+X		} else
+X			startCp = 0;
+X	}
+X	linesFromTop = 0;
+X	/* adjust the line number */
+X	/* just put in the two while loops and forget the IF test */
+X	/* at most one of the WHILE loops will actually loop */
+X	/* adjust for backwards searching */
+X	cp2 = w->posTopline;
+X	if( searchMode == 1 ) {
+X		cp = stopCp + 1;
+X		if( cp > fileSize(w->fileId) )
+X			--cp;
+X	} else {
+X		cp = startCp - 1;
+X		if( cp < 0 )
+X			cp = 0;
+X	}
+X	/* normalize cp to the beginning of its line */
+X	i = -1;
+X	cp = prevLine( fid, cp, &i );
+X	while( cp2 < cp ) {
+X		++linesFromTop;
+X		i = 1;
+X		cp2 = nextLine( fid, cp2, &i );
+X	}
+X	while( cp2 > cp ) {
+X		--linesFromTop;
+X		i = 1;
+X		cp2 = prevLine( fid, cp2, &i );
+X	}
+X
+X	if( searchMode == 0 ) {
+X		i = re_exec( fileId, startCp, stopCp, &n );
+X		nLines += n;
+X		if( wrapAroundSearches && i != 1 ) {
+X			wrappedAround = 1;
+X			i = re_exec( fileId, 0L, startCp-1, &n );
+X			nLines = n;
+X			linesFromTop = -(selWindow->numTopline);
+X		}
+X	} else {
+X		i = re_exec_reversed( fileId, startCp, stopCp, &n );
+X		nLines -= n;
+X		/* a fix so that backwards search from the backwards */
+X		/* search command is circular if the normal search */
+X		/* mode is circular */
+X/********************* DO NOT DO THIS YET ************
+X THE PROBLEM IS GETTING THE LINE NUMBERS TO WORK OUT
+X FINISH IT LATER
+X		if( cp == -1 ) {
+X			wrappedAround = 1;
+X			cp = searchReverseSpans(fileId, stopCp,
+X				fileSize(w->fileId) - patLength,
+X				str, patLength, &n);
+X			nLines = n;
+X			linesFromTop = -(selWindow->numTopline);
+X		}
+X*******************************************************/
+X	}
+X
+X	if( i < 1 )
+X		goto notFound;
+X	if( selWindow != w ) {
+X		drawSelection( 1 );
+X		selWindow = w;
+X	}
+X	newSelBegin = regex_bopat[0];
+X	newSelEnd = regex_eopat[0] - 1;
+X	selMode = SELCHAR;
+X
+if( !update ) {
+X	selBegin = newSelBegin;
+X	selEnd = newSelEnd;
+X} else {
+X	(void)indentToShowSelection(-1);
+X	saveUnderlineSelection = underlineSelection;
+X	underlineSelection = 0;
+X	if( newSelBegin >= selWindow->posBotline
+X				|| newSelBegin < selWindow->posTopline ) {
+X		/* remember where we came from */
+X		selWindow->rowLastline = selWindow->numTopline;
+X		selBegin = newSelBegin;
+X		selEnd = newSelEnd;
+X	 	n = -1;
+X	 	cp2 = selBegin;
+X		cp2 = prevLine( fid, cp2, &n);
+X		/* find the number of lines in the window */
+X		n = selWindow->nRows;
+X		if( lof > n )
+X			/* if lof would place it outside the */
+X			/* window then put it in the middle of the window */
+X			n >>= 1;
+X		else
+X			/* otherwise put it lof lines down */
+X			n = lof;
+X		selWindow->posTopline = cp2;
+X		selWindow->posTopline = prevLine(fid,selWindow->posTopline,&n);
+X		selWindow->numTopline += linesFromTop + nLines - n;
+X		drawWindow(selWindow);
+X	} else {
+X		int row1, row2, col1, col2;
+X		/* the found string is already showing in the window */
+X		drawSelection( 1 );
+X		selBegin = newSelBegin;
+X		selEnd = newSelEnd;
+X		OffsetToXY( selWindow, selBegin, &row1, &col1 );
+X		OffsetToXY( selWindow, selEnd, &row2, &col2 );
+X		drawWindowFast( selWindow, row1, row2, 0, selWindow->nCols );
+X	}
+X	underlineSelection = saveUnderlineSelection;
+X}
+X
+X	AssertSelectionOwnership();
+X	/* this will erase the "Searching for..." msg in the case where */
+X	/* the selWindow does not extend to the bottom line */
+X	if( wrappedAround && update )
+X		msg(
+X"Circular search has wrapped around the beginning of the file", 1);
+X	return selBegin;
+X
+notFound:
+X	/* avoid overflowing msgBuffer */
+X	n = strlen(str);
+X	if( n > (STRINGSIZE-64) )
+X		n = STRINGSIZE - 64;
+X	/* 64 is enough for "String `%s' not found." */
+X	ch = str[n];
+X	str[n] = '\0';
+X	sprintf(msgBuffer, "`%s' not found.", str);
+X	str[n] = ch;
+errorExit:
+X	msg(msgBuffer, 1);
+X	return -1;
+X}
+X
+X
+X#ifdef OLDOLD
+int
+OldRegexSearch( w, searchMode, str, update, lof )
+X	struct window *w;
+X	int searchMode;
+X	char * str;
+X	int update;
+X	int lof;
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern int selMode;
+X	extern char msgBuffer[];
+X	extern int ignoreCase;
+X	extern int debug;
+X	extern int underlineSelection;
+X	extern int wrapAroundSearches;
+X	extern int regex_bopat[];
+X	extern int regex_eopat[];
+X
+X	int n, i, linesFromTop, fileId, fid2, nLines;
+X	int patLength;
+X	int saveUnderlineSelection;
+X	int ret, answer;
+X	int wrappedAround = 0;
+X	Offset cp, cp2, startCp, stopCp;
+X	char ch, *p, *limit, *from, *to;
+X	int fid = w->fileId;
+X	Offset newSelBegin, newSelEnd;
+X
+X	fileId = w->fileId;
+X
+X	p = re_comp( str );
+X	if( p != NULL ) {
+X		sprintf(msgBuffer, "RE ERROR: %s", p);
+X		printf("%s\n", msgBuffer);
+X		goto errorExit;
+X	}
+X
+X	/* avoid overflowing msgBuffer */
+X	n = strlen( str );
+X	if( n > (STRINGSIZE-64) )
+X		n = STRINGSIZE - 64;
+X	/* 64 is enough for "Searching circularly for `%s'" */
+X	sprintf(msgBuffer, "Searching %s for `%s'",
+X		((searchMode == 0) ? "forwards" : "backwards"),
+X		str);
+X	msg( msgBuffer, 1 );
+X
+X/******** handle backwards, wrap around, etc. ********/
+X
+X	cp = fileSize(w->fileId);
+X	stopCp = cp;
+X	if( w == selWindow ) {
+X		startCp = selBegin + 1;
+X		if( startCp >= stopCp ) {	/* already done? */
+X			if( wrapAroundSearches )
+X				startCp = 0;
+X			else
+X				goto notFound;
+X		}
+X	} else
+X		startCp = 0;
+X
+X	n = re_exec( fileId, startCp, stopCp, &i);
+X
+X	if( n < 1 )
+X		goto notFound;
+X
+X	if( selWindow != w ) {
+X		drawSelection( 1 );
+X		selWindow = w;
+X	}
+X	newSelBegin = regex_bopat[0];
+X	newSelEnd = regex_eopat[0] - 1;
+X	selMode = SELCHAR;
+X
+if( !update ) {
+X	selBegin = newSelBegin;
+X	selEnd = newSelEnd;
+X} else {
+X	(void)indentToShowSelection(-1);
+X	saveUnderlineSelection = underlineSelection;
+X	underlineSelection = 0;
+X	if( newSelBegin >= selWindow->posBotline
+X				|| newSelBegin < selWindow->posTopline ) {
+X		/* remember where we came from */
+X		selWindow->rowLastline = selWindow->numTopline;
+X		selBegin = newSelBegin;
+X		selEnd = newSelEnd;
+X	 	n = -1;
+X	 	cp2 = selBegin;
+X		cp2 = prevLine( fid, cp2, &n);
+X		/* find the number of lines in the window */
+X		n = selWindow->nRows;
+X		if( lof > n )
+X			/* if lof would place it outside the */
+X			/* window then put it in the middle of the window */
+X			n >>= 1;
+X		else
+X			/* otherwise put it lof lines down */
+X			n = lof;
+X		selWindow->posTopline = cp2;
+X		selWindow->posTopline = prevLine(fid,selWindow->posTopline,&n);
+X		selWindow->numTopline += linesFromTop + nLines - n;
+X		drawWindow(selWindow);
+X	} else {
+X		int row1, row2, col1, col2;
+X		/* the found string is already showing in the window */
+X		drawSelection( 1 );
+X		selBegin = newSelBegin;
+X		selEnd = newSelEnd;
+X		OffsetToXY( selWindow, selBegin, &row1, &col1 );
+X		OffsetToXY( selWindow, selEnd, &row2, &col2 );
+X		drawWindowFast( selWindow, row1, row2, 0, selWindow->nCols );
+X	}
+X	underlineSelection = saveUnderlineSelection;
+X}
+X
+X	AssertSelectionOwnership();
+X	/* this will erase the "Searching for..." msg in the case where */
+X	/* the selWindow does not extend to the bottom line */
+X	if( wrappedAround && update )
+X		msg(
+X"Circular search has wrapped around the beginning of the file", 1);
+X	return selBegin;
+X
+notFound:
+X	/* avoid overflowing msgBuffer */
+X	n = strlen(str);
+X	if( n > (STRINGSIZE-64) )
+X		n = STRINGSIZE - 64;
+X	/* 64 is enough for "String `%s' not found." */
+X	ch = str[n];
+X	str[n] = '\0';
+X	sprintf(msgBuffer, "`%s' not found.", str);
+X	str[n] = ch;
+errorExit:
+X	msg(msgBuffer, 1);
+X	return -1;
+X}
+X#endif
+X
+END_OF_FILE
+if test 14573 -ne `wc -c <'search.c'`; then
+    echo shar: \"'search.c'\" unpacked with wrong size!
+fi
+# end of 'search.c'
+fi
+echo shar: End of archive 5 \(of 15\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

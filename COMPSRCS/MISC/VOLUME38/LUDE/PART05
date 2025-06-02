@@ -1,0 +1,2388 @@
+Newsgroups: comp.sources.misc
+From: laplante@crim.ca (Pierre Laplante)
+Subject: v38i037:  lude - A Distributed Software Library, Part05/12
+Message-ID: <1993Jul11.224608.16487@sparky.imd.sterling.com>
+X-Md4-Signature: b91825914cb7b50e42010010fc5b6915
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 11 Jul 1993 22:46:08 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: laplante@crim.ca (Pierre Laplante)
+Posting-number: Volume 38, Issue 37
+Archive-name: lude/part05
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lude-1.1/run/crim/sun4.1_sparc/bin/lude
+#   lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang/ludelist
+#   lude-1.1/src/orig/src/lude
+# Wrapped by kent@sparky on Sun Jul 11 15:49:14 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 12)."'
+if test -f 'lude-1.1/run/crim/sun4.1_sparc/bin/lude' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/run/crim/sun4.1_sparc/bin/lude'\"
+else
+  echo shar: Extracting \"'lude-1.1/run/crim/sun4.1_sparc/bin/lude'\" \(28996 characters\)
+  sed "s/^X//" >'lude-1.1/run/crim/sun4.1_sparc/bin/lude' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X# Lude - Lude Project.
+X# Copyright (C) 1991, 1992  Pierre Laplante
+X# Copyright (C) 1992 Stephane Boucher.
+X#
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 1, or (at your option)
+X# any later version.
+X#
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X$FULL_VERSION=
+X    "-- lude --\n" .
+X    "This is part of LUDE (Logitheque Universitaire Distribuee et Extensible)\n\n";
+X
+X$FULL_VERSION.='$Id: lude,v 1.7 1993/06/01 16:57:00 dagenais Exp $' . "\n";
+X
+X$VERSION='1.1';
+X#-----------------------------------------------------------------------
+X#	Globals definitions
+X#
+X$PL_INCDIR="/usr/local/soft/lude-1.1/run/crim/sun4.1_sparc/include/lude:../include";
+X$LANG_PATH="/usr/local/soft/lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang:../lib/lude/lang:../lang";
+X$MAPPING="mapping";
+X$BEFORELINK="beforelink";
+X$AFTERLINK="afterlink";
+X$BEFORERMLINK="beforermlink";
+X$AFTERRMLINK="afterrmlink";
+X$INSTALL="install";
+X$RENAME="rename";
+X$EXCLUDE="exclude";
+X
+X#-----------------------------------------------------------------------
+X# Main program
+X#
+X# Description :
+X#      The execution of the script goes through three phases:
+X#      1. Verification of the system:
+X#            Check to see if the OS has the necessary 
+X#            functionnality to support lude.
+X#            Check the availability of the various commands
+X#            that will be use by Lude.
+X#      2. Initialisation
+X#            Initialise various global variables.
+X#            Parse, the command line arguments, and validate
+X#            them.
+X#      3. execution of the commands
+X#            According to the command line arguments, perform
+X#            the appropriate actions.
+X#
+Xmain: {
+X    local($exitval)=0;		# Success by default
+X    local(@OLDARGV)=@ARGV;
+X    local($cmdsToDo);
+X
+X    unshift(@INC,split(/:/, "$PL_INCDIR"));
+X
+X    require('config.pl');
+X
+X    # Load and initialise the language support immediatly so
+X    # that the messages are available the soonest possible.
+X    # If an error occure in this phase, the execution is 
+X    # immediatly aborted.
+X    require('ludelang.pl');
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'ludemisc', @ARGV);
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'lude', @ARGV);
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'ludedatafiles', @ARGV);
+X
+X    # Include other perl files required for this script.
+X    require("ludemisc");	# subroutines and variables
+X				# common to all Lude scripts.
+X    require("ludeinc");		# subroutines and variables
+X				# required by the script lude.
+X    require("fileutil.pl");
+X    require("BldRegexpMinRqr.pl");
+X
+X    # Execution of phase 1: Verification of the system.
+X    if (! &VerifySystem) {
+X	    # An error occured.
+X	    $exitval=1;
+X    }
+X    # Execution of phase 2: Initialisation and arguments parsing.
+X    elsif (($cmdsToDo=&Initialisation) < 0) {
+X	    # An error occured
+X	    $exitval=2;
+X    }
+X    elsif ( -x "$SERVER_DIR/$Server/$Software/install/$Modification/$Class/$INSTALL") {
+X	  # A replacement script was found. Execute that
+X  	  # script rather than using the present script.
+X	  &RunCmd("$SERVER_DIR/$Server/$Software/install/$Modification/$Class/$INSTALL @OLDARGV");
+X    }
+X    # If any command(s) left to be executed
+X    elsif ($cmdsToDo > 0) {
+X	    # No error occured so far
+X	    if (! &ExecCommands) {
+X		$exitval=3;
+X	    }
+X    }
+X
+X    exit $exitval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Read the mapping file and put the result in
+X# 		     2 global arrays:
+X#                       $Rename{"from_rep"}="to_rep"
+X#                       @Exclude
+X#
+X# Parameters  : $mapping - mapping file name
+X#
+X# Returns     : 1 on success
+X#               0 if any errors
+X#
+Xsub ReadMapping {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__,__LINE__));}
+X    local($mapping)=@_;
+X    local($retval)=1;		# Success by default
+X
+X    local($origline, @fields, *fmap);
+X
+X    if (! open(fmap, $mapping)) {
+X	&NFError($ERR_OPEN, $mapping);
+X	$retval=0;
+X    }
+X    else {
+X	while (<fmap>) {
+X	    # Save a copy of the original line before manipulation 
+X	    $origline=$_;
+X
+X	    # Remove spaces at the beginning of the line,
+X	    # and the comment if any.
+X	    $_ =~ s/^\s*([^#]*)(#.*)?$/$1/o;
+X 	    # If the line is empty go to next line
+X	    next if (/^\s*$/o);
+X            # Remove the spaces at the end of the line, if any.
+X            $_ =~ s/^(.*[^\s])\s*$/$1/o;
+X
+X    	    (@fields)=split(/\s+/);
+X
+X            # Rename command
+X	    if ($fields[0] =~ m/^$RENAME$/oi && scalar(@fields)==3) {
+X 	        $Rename{$fields[1]}=$fields[2];
+X  	    } 
+X            # Exclude command
+X	    elsif ($fields[0] =~ m/^$EXCLUDE$/oi && scalar(@fields)==2) {
+X 	        push(@Exclude, $fields[1]);
+X  	    } 
+X            # Unrecognized command
+X            else {
+X	        &NFError($ERR_INVCMD, "$origline");
+X  	        $retval=0;
+X  	    }
+X        }
+X        close(fmap);
+X
+X    }
+X    return($retval);
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description  : Copies the given server/soft/mod/class
+X#                to the given target server.
+X# 
+X# Parameters   : $target - server location where a copy is to be
+X#                          placed.
+X#                          if eq '', then $SOFT_DIR is used.
+X#                $server - server location where the software to
+X#                          copy is located.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#                $class  - class (some class or '')
+X#                $copy   - parts to copy (run,src,install,none)
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Copy {
+X    if(scalar(@_)!=6){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_),__FILE__,__LINE__));}
+X    local($target, $server, $soft, $mod, $class, $copy)=@_;
+X    local($space, $total)=(0,0);
+X    local($tmp, $subtotal);
+X    local($todir);		# Destination directory of the copy
+X    local($fromdir);
+X    local($retval)=1;		# Success by default
+X
+X    if ($target eq $server) {	# Error: can't copy on itself
+X      &NFError($ERR_CANNOT_CP_SOFT_ON_ITSELF);
+X      $retval=0;
+X    }
+X    else {
+X      # Set the destination directory for the copy
+X      $todir  =($target ne '/') ? "$SERVER_DIR/$target" : "$SOFT_DIR";
+X      # Set the directory of the original files for the copy
+X      $fromdir=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X
+X      # Change to the destination directory
+X      if (! &ChDir($todir)) {
+X	&NFError($ERR_DIR, "$todir");
+X	$retval=0;
+X      }
+X    }
+X
+X    if ($retval) { #if still no error
+X      # Make the software directory, even though the tar command would
+X      # create it because a symlink might be performed before the tar
+X      # command, and we might have to first append.
+X      if (! -d "$todir/$soft") {
+X	if (&VerboseRetShow($WARN_CMD, "mkdir $todir/$soft")) {
+X	  # Show is on, so do nothing
+X	}
+X	elsif (! mkdir("$todir/$soft", 0755)) {
+X	  &NFError($ERR_MKDIR, "$todir/$soft");
+X	  $retval=0;
+X	}
+X	else {
+X	  &ChDir("$todir/$soft");
+X	}
+X      }
+X    }
+X
+X    if ($retval) {		# if still no error
+X	local($lstfiles)='';
+X	# For all sections of a software
+X	for $i ('src', 'install', 'run') {
+X	    # Here, we check to see if $i is somewhere in $copy.
+X	    # We can do this because $copy is certain to be without error,
+X	    # since it is validate in the function &Initialisation.
+X	    # Also, install is ALWAYS copied.
+X	    if ($i eq 'install' || $copy =~ /$i/) {
+X		# If theres a symlink between $todir/$soft/$i and
+X		# something else we attempt to remove it. It will
+X		# latter be replaced by either a symlink or an
+X		# entire tree of files.
+X		if (-l "$todir/$soft/$i") {
+X		    if (! unlink("$todir/$soft/$i")) {
+X			&NFError($ERR_RMSYMLINK, "$todir/$soft/$i");
+X			$retval=0;
+X		    }
+X		}
+X		
+X		if ($retval) { # If still no error
+X		    # For each classes or only the class of the 
+X		    # machine in case of directories run or install.
+X		    local(@lst);
+X
+X		    if ($i eq 'run') {
+X			@lst=("share", "$mod/share", "$mod/$class");
+X		    }
+X		    elsif ($i eq 'install') {
+X			@lst=("share", "$mod/share", "$mod/$class",
+X			      $IAFA_FILE, "$mod/$LUDE_FILE");
+X		    }
+X		    elsif ($i eq 'src') {
+X			# For the sections run, the name
+X			# of the mod ($mod) and orig are enough.
+X			# In the case of the section log, both files
+X			# are log files, and in the case of src
+X			# both files are directories.
+X			# The distinction is not important for tar.
+X			@lst=("orig", "$mod");
+X 		    }
+X
+X		    # For all the files that are to be copied...
+X		    for $f (@lst) {
+X			# Push it in the list of files that will
+X			# actually be tared, if the file does exist
+X			# in the original copy.
+X			if (-e "$fromdir/$soft/$i/$f") {
+X			    push(@lstfiles, "$i/$f");
+X			}
+X	  	    }
+X		}
+X	    }
+X	    else {
+X		# Make a symlink
+X
+X		# Do the symlink except if there's already a directory.
+X		if (! -d "$todir/$soft/$i") {
+X		    if (! symlink("$fromdir/$soft/$i", 
+X				  "$todir/$soft/$i")) {
+X			# Symlink failed
+X			&NFError($ERR_SYMLINK,
+X				 "$fromdir/$soft/$i", 
+X				 "$todir/$soft/$i", "nil");
+X			$retval=0;
+X		    }
+X		}
+X	    }
+X	}
+X	
+X	if ($retval) {		# if still no error
+X	    # Copy the files using tar, if there's any file to copy
+X	    if (scalar(@lstfiles) != 0) {
+X		local($joined_files)=join(' ', @lstfiles);
+X		&RunCmd("cd $fromdir/$soft; $PROG_TAR -cf - $joined_files | (cd $todir/$soft; $PROG_TAR -xf -)");
+X	    }
+X	    # Append the history file if one exist in $fromdir...
+X	    if (-e "$fromdir/$soft/history") {
+X		if (!&CopyFile("$fromdir/$soft/history", "$todir/$soft/history", 'a')) {
+X				# Error while appending
+X	 	    $retval=0;
+X		}
+X	    }
+X
+X	    # Backward compatibility stuff based on version of lude
+X	    # used to install the software ...
+X	    if ($LudeVersionUsedForSoft{'major'} == 0 &&
+X		$LudeVersionUsedForSoft{'minor'} <= 13) {
+X	      &Link("$todir/$soft", "$LOCAL_DIR/$soft");
+X	    }
+X	}
+X    }
+X
+X    return($retval);
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Delete the specified soft/mod/class
+X#
+X# Parameters   : $target - server location where the software to
+X#                          remove is placed.
+X#                          if eq '', then $SOFT_DIR is used.
+X#                $soft   - software to remove
+X#                $mod    - modification to remove
+X#                $class  - class to remove
+X#
+X# Returns     : 1 on success
+X#               0 on error
+X#
+Xsub RmCopy {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=4){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__,__LINE__));}
+X    local($target, $soft, $mod, $class)=@_;
+X    local($dir);		# Directory where the soft to delete
+X				# resides.
+X    local($retval)=1;		# Success by default
+X    local($saveCWD);
+X
+X    $saveCWD=&GetCwd();
+X
+X#???BUG???
+X    $dir=($target ne '/') ? "$SERVER_DIR/$target":$SOFT_DIR;
+X
+X    stat("$dir/$soft");
+X    if (-e _) {
+X      if (-d _) {
+X	local(@dirs)=();
+X
+X	&ChDir("$dir/$soft");
+X
+X	#
+X	# Make the list of dirs to remove
+X	#
+X	foreach $d ("run/$mod/$class", "install/$mod/$class") {
+X	  $d =~ m|^([^/]*)|o;
+X	  if (-e $d && ! -l $1) {
+X	    push(@dirs, $d);
+X	  }
+X	}
+X
+X	#
+X	# Recursively removing the list of directories just made
+X	#
+X	if (&VerboseRetShow($WARN_CMD, 
+X			    sprintf("Recursively Removing %s.",
+X				    join(' ', @dirs)))) {
+X	  # Show is on, so do nothing
+X	}
+X	else {
+X	  if (&RmFiles('r', @dirs)!=scalar(@dirs)) {
+X	    # Error: could not remove all the files
+X	    &NFError($ERR_UNLINK, "@dirs");
+X	    $retval=0;
+X	  }
+X	}
+X
+X	if ($retval) {	# If still no error
+X	  #
+X	  # Check to see if share should be removed
+X	  #
+X
+X	  local(@files);
+X                   
+X	  # Clean up the run and install sections
+X	  foreach $section ("run/$mod", 'run',
+X			    "install/$mod", 'install') {
+X	    $section =~ m|^([^/]*)|o;
+X	    stat($section);	# lstat was not required
+X	    if (-d _ && ! -l $1) {
+X	      local(*dir);
+X	      opendir(dir, $section);
+X	      @files=readdir(dir);
+X	      closedir(dir);
+X
+X	      if ((scalar(@files) -
+X		   scalar(grep(/^$IAFA_FILE$/o, @files)) -
+X		   scalar(grep(/^$LUDE_FILE$/o, @files)) -
+X		   scalar(grep(/^share$/o, @files))) == 2) {
+X		# Directory is empty, except for
+X		# a share directory and/or the $IAFA_FILE. So, that
+X		# directory is not required anymore.
+X
+X		# Remove the share directory and the $IAFA_FILE.
+X		if (&VerboseRetShow($WARN_CMD, 
+X				    sprintf("Recursively Removing %s.",
+X					    $section))) {
+X		  # Show is on, so do nothing
+X		}
+X		else {
+X		  if (&RmFiles('r', $section) == 0) {
+X		    &NFError($ERR_UNLINK, "$section");
+X		    $retval=0;
+X		  }
+X		}
+X	      }
+X	      else {
+X		# Directory has some other thing besides
+X		# share, so skip it.
+X	      }
+X	    }
+X	  }
+X
+X	  # If there's no install left for a modification, we then 
+X	  # remove the mod in src.
+X	  if (! -e "install/$mod") {
+X	    local(@dirs)=();	# List of other dirs to remove
+X
+X	    for $d ("src/$mod") {
+X	      $d=~m|^([^/]*)|o;
+X	      if (! -l $1) {
+X		push(@dirs, $d);
+X	      }
+X	    }
+X		  
+X	    if (&VerboseRetShow($WARN_CMD, 
+X				sprintf("Recursively Removing %s.",
+X					join(' ', @dirs)))) {
+X	      # Show is on, so do nothing
+X	    }
+X	    else {
+X	      if (&RmFiles('r', @dirs)!=scalar(@dirs)) {
+X		# Error: could not remove all the files
+X		&NFError($ERR_UNLINK, "@dirs");
+X		$retval=0;
+X	      }
+X	    }
+X	  }
+X
+X	  # If the directory install does not exist anymore, then
+X	  # the rest of the software can be removed
+X	  if (! -e 'install') {
+X	    if (&VerboseRetShow($WARN_CMD, 
+X				sprintf("Recursively Removing %s.",
+X					join(' ', @dirs)))) {
+X	      # Show is on, so do nothing
+X	    }
+X	    else {
+X	      if (&RmFiles('r', "$dir/$soft")!=1) {
+X		# Error: could not remove all the files
+X		&NFError($ERR_UNLINK, "$dir/$soft");
+X		$retval=0;
+X	      }
+X	      else { # removal was successful
+X		# Backward compatibility stuff based on version
+X		# of lude that was used to install the soft ...
+X		if ($LudeVersionUsedForSoft{'major'} == 0 &&
+X		    $LudeVersionUsedForSoft{'minor'} <= 13) {
+X		  &UnLink("$dir/$soft", "$LOCAL_DIR/$soft");
+X		}
+X	      }
+X	    }
+X	  }
+X	}
+X      }
+X      else {
+X	# $dir/$soft is not a directory, so
+X	# don't bother
+X      }
+X    }
+X    else {
+X	# $dir/$soft does not exist, so don't bother.
+X    }
+X
+X    &ChDir($saveCWD);
+X    return $retval;
+X}
+X
+X
+X#------------------------------------------------------------------
+X# Description: Recursively makes the symbolic links for between the
+X#              trees $fromdir and $todir.
+X#
+X# Parameters : $fromdir - Directory where the actual files are located
+X#              $todir   - Directory where symlinks and/or dir are added
+X#              $suffix  - File name relative to $fromdir
+X#
+X# Returns    : 1 on success
+X#              0 if any errors 
+X#
+Xsub MkLinks {
+X    if(scalar(@_)!=3){&Error(ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__,__LINE__));}
+X    local($fromdir, $todir, $suffix)=@_;
+X    local($retval)=1;		# By default success
+X
+X    local($fromfile, $tofile, $newsuffix, $lnkval);
+X
+X    # Read all the file names in $fromdir. In the special
+X    # case where $suffix eq '', we do not append it to $fromdir.
+X    # Sort the filenames, and remove the file names 
+X    # '.' and '..'
+X    local(*dir);
+X    opendir(dir, ($suffix eq "") ? "$fromdir":"$fromdir/$suffix");
+X    local(@files)=sort grep(!/^\.{1,2}$/, readdir(dir));
+X    closedir(dir);
+X
+X    # For each files in $fromdir/$suffix ...
+X    for $file (@files) {
+X	if ($suffix eq "") {
+X	    $newsuffix="$file";
+X	}
+X	else {
+X	    $newsuffix="$suffix/$file";
+X	}
+X	    
+X	$fromfile="$fromdir/$newsuffix";
+X
+X	# skip to the next file, if the current file was asked
+X	# to be excluded
+X	next if (grep(/^$newsuffix$/, @Exclude));
+X
+X	$tofile=&GetLongestRename($todir, $newsuffix);
+X
+X	if (-l $tofile) { 
+X	    $lnkval=readlink($tofile); 
+X	} 
+X	else {
+X	    # Set $lnkval to a value that is impossible for a file name
+X	    $lnkval='///';
+X	}
+X
+X	if ($lnkval eq $fromfile) {
+X	    # The link is already existant
+X	    &Warning($WARN_LINK_THERE_AND_CORRECT, $fromfile, $tofile);
+X	}
+X	elsif (-d $fromfile) {
+X	    # $tofile is not taken as a symbolic link if $suffix is ''
+X	    # because people could do a link between some other
+X	    # partition and /usr/local/bin, for example. This let
+X	    # them have bin, lib, man, etc. on different partition
+X	    # and use symlinks rather than mounts.
+X	    if ( -l $tofile && $suffix ne "") {
+X		# Test to see if it is a link that was generated
+X		# for the specified Software       
+X		if ($lnkval =~ m|^$SOFT_DIR/[^/]+/run/|) {
+X		    local($dirname);
+X		    
+X		    $dirname=&DirName($fromfile);
+X		    
+X		    # Check for write permission on the dir where $todir
+X		    # is located
+X		    if ( -w $dirname ) {
+X			# There's a link to some other software (because
+X			# $tofile is a link pointing to some other soft
+X			# tree), so we first explode the directory to
+X			# allow to make symlinks for the current
+X			# software.
+X			if (! &Explode($tofile)) {
+X			    $retval=0; # Error
+X			}
+X			elsif (! &VerboseRetShow()) {
+X			    # Recurse only if the work is really
+X			    # performed. i.e. if not only showing the
+X			    # commands that will be performed.
+X			    if (! &MkLinks($fromdir, $todir, $newsuffix)) {
+X				$retval=0; # Error
+X			    }
+X			}
+X		    }
+X		    else {
+X			# write permission on $dirname is required
+X			# not set. So this resulted in the impossibility
+X			# to make the explosion.
+X			&NFError($ERR_NO_W_PERM, $dir);
+X			$retval=0;
+X		    }
+X		}
+X		else {
+X		    # Error, since an explosion is required
+X		    # and cannot be performed due to an 
+X		    # apperent incorrect symlink
+X		    &NFError($ERR_EXPLODE, $tofile, $lnkval);
+X		    $retval=0;	# Error
+X		}
+X	    }
+X	    elsif (-d $tofile) {
+X		# Can't make a symlink because of the existence
+X		# of a directory, so go deeper to make the symlinks
+X		# by recursing.
+X		if (! &MkLinks($fromdir, $todir, $newsuffix)) {
+X		    $retval=0;	# Error
+X		}
+X	    }
+X	    else {
+X		# Test to see if $newsuffix happens to be the start of
+X		# a key in the rename assoc array, without being a 
+X		# whole key.
+X		# If this is the case, then we can't simply make a
+X		# symlink to $fromfile since there is a possibility of a
+X		# rename of a file name that is deeper that the current
+X		# directory.
+X		# Example:
+X		#    rename lib-inc lib/aux
+X		#    rename lib-inc/a /etc/b 
+X		# So if we stop at lib-inc (because it matches $newsuffix)
+X		# we miss lib-inc/a which should be in a totaly different
+X		# place.
+X		local($canlink, $key);
+X		$canlink=1;	# By default -> can link
+X		for $key (keys %Rename) {
+X		    if (index($key,$newsuffix)==$[ &&
+X			length($key)>length($newsuffix)) {
+X                        # Found that the link can't be done. Will
+X			# have to mkdir and recurse.
+X			$canlink=0; 
+X			last;
+X		    }
+X		}
+X		if ($canlink) {	# Can make the symlink
+X		    if (! &Link($fromfile, $tofile)) {
+X			$retval=0;
+X		    }
+X		}
+X		else {		# Cannot make the symlink
+X		    # Can't link because we could miss some files
+X		    # so, instead, the directory is created
+X		    if (&VerboseRetShow($WARN_CMD, "MkDir $tofile")) {
+X			# Show is on, so do nothing
+X			&VerboseRetShow($WARN_MSG, "Recursing ... (not shown)");
+X		    }
+X		    else {
+X			if ( ! mkdir($dst,0755) ) {
+X			    &NFError($ERR_MKDIR, $tofile, $!);
+X			    $retval=0; # Error
+X			}
+X			else {
+X			    # So far so good!
+X			    if (! &MkLinks($fromdir, $todir, $newsuffix)) {
+X				$retval=0;
+X			    }
+X			}
+X		    }
+X		}
+X	    }
+X	}
+X	elsif ( -l $fromfile || -f $fromfile ) {
+X	    if (! &Link($fromfile, $tofile)) {
+X		$retval=0;
+X	    }
+X	}
+X	else {
+X	    &NFError(ERR_WRONG_FILE_TYPE, $fromfile);
+X	    $retval=0;
+X	}
+X    }
+X    return $retval;
+X}
+X
+X
+X#--------------------------------------------------------------------
+X#
+X# Remove the Links
+X#
+X# Parameters : srcrep   : Directory where the actual files are located
+X#              dstrep   : Directory where symlinks and/or dir are added
+X#              f        : File name relative to ...Rep
+X#
+X# Returns    : nothing
+X
+Xsub RmLinks {
+X    if (scalar(@_)!=3) {
+X	&Error(ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($srcrep, $dstrep, $f)=@_;
+X    local($src, $dst, $newfile);
+X    local($retval)=1;		# Success by default
+X
+X    if ( -l $dst && (readlink($dst) eq $src) ) {
+X	# The link is already existant
+X	&Warning($WARN_LINK_THERE_AND_CORRECT, $src, $dst);
+X    }
+X    elsif ( -d $srcrep ) {
+X#	&Warning($WARN_CMD, "RmLinks: $srcrep/$f") if ( $Show );
+X
+X	opendir(DIR, (($f eq "") ? "$srcrep":"$srcrep/$f"));
+X	local(@files)=sort grep(!/^\.{1,2}$/, readdir(DIR));
+X	closedir(DIR);
+X
+X	for $file (@files) {
+X	    if ($f eq "") {
+X		$newfile="$file";
+X	    }
+X	    else {
+X		$newfile="$f/$file";
+X	    }
+X	    
+X	    $src = "$srcrep/$newfile";
+X	
+X	    # skip to the next file, if the current file was asked
+X	    # to be excluded
+X	    next if (grep(/^$newfile$/, @Exclude));
+X	    
+X	    $dst=&GetLongestRename($dstrep, $newfile);
+X
+X	    if  (-l $dst) {
+X		if (! &UnLink($src, $dst)) {
+X		    $retval=0;
+X		}
+X	    }
+X	    elsif (-d $dst) {
+X		if (! &RmLinks($srcrep, $dstrep, $newfile)) {
+X		    $retval=0;
+X		}
+X	    }
+X	    else {
+X		# Not a link, so do not care
+X	    }
+X	}
+X    }
+X    return $retval;
+X}
+X
+X
+X#------------------------------------------------------------------
+X#
+X#
+X#
+Xsub GetLongestRename {
+X    if (scalar(@_)!=2) {
+X	&Error(ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($dstrep, $newfile)=@_;
+X    local($matchlen, $newname)=0;
+X
+X    $newname="$dstrep/$newfile";
+X
+X    # Check to see if a rename was specified for the 
+X    # current file.
+X    # The longest match found will be the one kept.
+X    for (keys %Rename) {
+X	if ($newfile =~ m|^$_((/[^/]+)*)$|) {
+X	    if (length($_) > $matchlen) {
+X		$matchlen=length($_);
+X		if (substr($Rename{$_}, 0, 1) eq "/") {
+X		    $newname="$Rename{$_}$1";
+X		}
+X		else {
+X		    $newname="$dstrep/$Rename{$_}$1";
+X		}
+X	    }
+X	}
+X    }
+X
+X    return ($newname);
+X}
+X
+X
+X#------------------------------------------------------------------
+X#
+X# Perform a single link
+X#
+X# Return  : 1 on success
+X#           0 if any errors
+X#
+Xsub Link {
+X    if (scalar(@_)!=2) {&Error(ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($src, $dst)=@_;
+X    local($retval)=1;		# Success by default
+X    local($dir);
+X    local($lnkval);
+X
+X    ($dir = $dst) =~ s|(.*)/[^/]+|$1|o;
+X
+X    if (-l $dst && (readlink($dst) eq $src)) {
+X	# The link is already existant
+X	&Warning($WARN_LINK_THERE_AND_CORRECT, $src, $dst);
+X    }
+X    elsif (-w $dir) {
+X	# The -e test alone is not sufficient because it will
+X	# fail if there is a link to a non-existant file.
+X	# Therefore, the test -l must be added to take care
+X	# of the special condition.
+X	if (-e $dst || -l $dst) {
+X	    if ($Preserve ne "") {
+X		# Preserve old file
+X		if (&VerboseRetShow($WARN_CMD, 
+X				    "rename $dst (will remove $dst$Preserve if it exist)")) {
+X		    # Show is on, so do nothing
+X		}
+X		else {
+X		    if (!rename("$dst", "$dst$Preserve")) {
+X			&NFError($ERR_REN, $dst, $!);
+X			$retval=0;
+X		    }
+X		}
+X	    }
+X	    elsif ($Force) {
+X		# Delete old file
+X		if (&VerboseRetShow($WARN_CMD, "unlink $dst")) { 
+X		    # Show is on, so do nothing
+X		}
+X		else {
+X		    if (unlink($dst) == 0 ) { # 0 means unlink succeeded
+X			&NFError($ERR_RMSYMLINK, $dst);
+X			$retval=0;
+X		    }
+X		}
+X	    }
+X	    else {
+X		# Error
+X		&NFError($ERR_SYMLINK, $src, $dst, 'nil'); 
+X		$retval=0;
+X	    }
+X	}
+X
+X	if ($retval) {		# If still no error
+X	    # Perform the link
+X	    if (&VerboseRetShow($WARN_CMD, "Link $src <- $dst.")) {
+X		# Show is on, so do nothing
+X	    }
+X	    elsif (! symlink($src, $dst) ) {
+X		&NFError($ERR_SYMLINK, $src, $dst, 'nil');
+X		$retval=0;
+X	    }
+X	}
+X    }
+X    else {
+X	# Do not have permission to make the link
+X	&NFError($ERR_SYMLINK, $src, $dst, 'nil'); 
+X	$retval=0;
+X    }
+X
+X    return($retval);
+X}
+X
+X
+X#------------------------------------------------------------------
+X#
+X# Perform an Unlink by taking into account various parameters
+X# such as show
+X#
+X# Return  : 1 on success
+X#           0 if any errors
+X#
+Xsub UnLink {
+X    if (scalar(@_)!=2) {
+X	&Error(ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($src, $dst)=@_;
+X    local($lnkval);
+X    local($retval)=1;		# Success by default
+X
+X    $lnkval=readlink($dst);
+X    
+X    # Test to see if the link is really between
+X    # src <- dst.
+X    if ( $lnkval eq $src) {
+X	if (&VerboseRetShow($WARN_CMD, "UnLink $dst")) {
+X	    # Show is on, so do nothing
+X	}
+X	else {
+X	    if (! unlink($dst)) {
+X		&NFError($ERR_RMSYMLINK, $dst);
+X		$retval=0;
+X	    }
+X	}
+X    }
+X    else {
+X	# Not a symlink we made. Ignore it.
+X    }
+X
+X    return $retval;
+X}
+X
+X
+X#------------------------------------------------------------------
+X#
+X# srcrep   :   Directory where the actual files are located
+X# dstrep   :   Directory where symlinks and/or dir are added
+X#
+X# Return  : 1 on success
+X#           0 if any errors
+X#
+Xsub Explode {
+X    if (scalar(@_)!=1) {
+X	&Error(ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($dst)=@_;
+X    local($src, $dstrep,$srcrep,$newfile,$dir);
+X    local($retval)=1;		# Success by default
+X    
+X    $src=readlink($dst);
+X    ($dstrep=$dst) =~ s|^(.*)/[^/]+$|$1|o;
+X
+X    &VerboseRetShow($WARN_OUT, "Exploding $dst ...");
+X
+X    if (&VerboseRetShow($WARN_CMD, "UnLink $dst")) {
+X	# Show is on, so do nothing
+X	&VerboseRetShow($WARN_CMD, "MkDir $dst");   
+X	&VerboseRetShow($WARN_MSG, 
+X			"when showing, the recursion is not performed in Explode");
+X    }
+X    else {
+X	if (unlink($dst) == 0) { # 0 unlink succeeded
+X	    &NFError($ERR_RMSYMLINK, $dst);
+X	    $retval=0;
+X	}
+X	elsif (! mkdir($dst,0755)) {
+X	    &NFError($ERR_MKDIR, $dst, $!);
+X	    $retval=0;
+X	}
+X	else {
+X	    # So far so good!
+X	    ($srcrep = $src) =~ s|(.*)/[^/]+$|$1|o;
+X	    ($newfile = $src) =~ s|.*/([^/]+)$|$1|o;
+X
+X	    # When exploding, the symlink that is changed to a dir 
+X	    # belong to another software. Therefore, the mapping
+X	    # file for that software must be read. After the 
+X	    # explosion, the previous mapping information
+X	    # must be restored.
+X
+X	    local(%saverename,@saveexclude,$mappingfiledir);
+X	    %saverename=%Rename;
+X	    undef %Rename;
+X	    @saveexclude=@Exclude;
+X	    undef @Exclude;
+X
+X	    # Read Mapping file
+X	    ($mappingfiledir=$srcrep) =~ 
+X		s|^(.*)/run(/[^/]+/[^/]+).*$|$1/install$2|o;
+X
+X	    if (-r "$mappingfiledir/$MAPPING") {
+X		if (! &ReadMapping("$mappingfiledir/$MAPPING")) {
+X		    $retval=0;
+X		}
+X	    }
+X	
+X	    if ($retval) {	# If still no error
+X		if (! &MkLinks($srcrep, $dstrep, $newfile)) {
+X		    $retval=0;
+X		}
+X	    }
+X
+X	    # The restore has to be made even if an error occured
+X
+X	    # Restore Exclude
+X	    @Exclude=@saveexclude;
+X	    # Restore Rename
+X	    %Rename=%saverename;
+X	}
+X    }
+X    
+X    &VerboseRetShow($WARN_EXPLODE_DONE, $dst);
+X    
+X    return $retval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X#
+X#
+Xsub LinkDoc {
+X    local($soft,$mod)=@_;
+X
+X    local($docdir)="$LOCAL_DIR/doc";		# Location of doc files.
+X
+X    # Create the $docdir directory
+X    if (! -e $docdir) {
+X	mkdir($docdir, 0755) || &Error($ERR_MKDIR, $docdir, $!);
+X    }
+X
+X    # creates, in the directory $docdir,
+X    # a subdirectory with the same name as the software
+X    # package to install.
+X    if (! -e "$docdir/$soft") {
+X	mkdir("$docdir/$soft", 0755) || &Error($ERR_MKDIR, "$docdir/$soft", $!);
+X    }
+X
+X    # In $docdir/$soft, create two symbolic links that point
+X    # to the files install/$IAFA_FILE and install/$mod/$LUDE_FILE
+X    if (-e "$SOFT_DIR/$soft/log/$orig") {
+X	&Link("$SOFT_DIR/$soft/install/$IAFA_FILE",
+X	      "$docdir/$soft/$IAFA_FILE");
+X    }
+X    if (-e "$SOFT_DIR/$soft/log/$mod") {
+X	&Link("$SOFT_DIR/$soft/install/$mod/$LUDE_FILE",
+X	      "$docdir/$soft/${LUDE_FILE}-$mod");
+X    }
+X}
+X
+X#-----------------------------------------------------------------------
+X#
+X#
+Xsub RmLinkDoc {
+X    local($soft, $mod)=@_;
+X    local($retval)=1;		# Success by default
+X
+X    local($docdir)="$LOCAL_DIR/doc";		# Location of doc files.
+X
+X    lstat("$docdir/$soft/$IAFA_FILE");
+X    if (-e _ && -l _) {
+X	&UnLink("$SOFT_DIR/$soft/install/$IAFA_FILE",
+X		"$docdir/$soft/$IAFA_FILE");
+X    }
+X    lstat("$docdir/$soft/${LUDE_FILE}-$mod");
+X    if (-e _ && -l _) {
+X	&UnLink("$SOFT_DIR/$soft/install/$mod/$LUDE_FILE",
+X		"$docdir/$soft/${LUDE_FILE}-$mod");
+X    }
+X    if (&VerboseRetShow($WARN_CMD, "rmdir $docdir/$soft")) {
+X	# Show is on, so do nothing
+X    }
+X    else {
+X	if (! rmdir("$docdir/$soft")) {
+X	    &NFError($ERR_RMDIR, "$docdir/$soft", $!);
+X	    $retval=0;
+X	}
+X    }
+X    return $retval;
+X}
+X
+X
+X#     ;;; Local Variables: ***
+X#     ;;; mode:perl ***
+X#     ;;; End: ***
+END_OF_FILE
+  if test 28996 -ne `wc -c <'lude-1.1/run/crim/sun4.1_sparc/bin/lude'`; then
+    echo shar: \"'lude-1.1/run/crim/sun4.1_sparc/bin/lude'\" unpacked with wrong size!
+  fi
+  chmod +x 'lude-1.1/run/crim/sun4.1_sparc/bin/lude'
+  # end of 'lude-1.1/run/crim/sun4.1_sparc/bin/lude'
+fi
+if test -f 'lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang/ludelist' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang/ludelist'\"
+else
+  echo shar: Extracting \"'lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang/ludelist'\" \(3468 characters\)
+  sed "s/^X//" >'lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang/ludelist' <<'END_OF_FILE'
+Xfrancais english
+X#
+X# Keywords as found in the folg files
+X#
+Xassoc Logkw
+XPACKAGE-NAME
+X 0 package-name
+X 1 package-name
+XTITLE
+X 0 title
+X 1 title
+XVERSION
+X 0 version
+X 1 version
+XDESCRIPTION
+X 0 documentation
+X 1 description
+XABSTRACT
+X 0 resume
+X 1 abstract
+XAUTHOR
+X 0 author
+X 1 author
+XAUTHOR-TELEPHONE
+X 0 author-telephone
+X 1 author-telephone
+XAUTHOR-FAX
+X 0 author-fax
+X 1 author-fax
+XAUTHOR-POSTAL
+X 0 author-postal
+X 1 author-postal
+XAUTHOR-EMAIL
+X 0 author-email
+X 1 author-email
+XMAINTAINED-BY
+X 0 maintained-by
+X 1 maintained-by
+XPOSTAL-ADDRESS
+X 0 postal-address
+X 1 postal-address
+XTELEPHONE
+X 0 telephone
+X 1 telephone
+XFAX
+X 0 fax
+X 1 fax
+XELECTRONIC-ADDRESS
+X 0 electronic-address
+X 1 electronic-address
+XMAINTAINED-AT
+X 0 maintained-at
+X 1 maintained-at
+XDISTRIBUTION-TYPE
+X 0 distribution-type
+X 1 distribution-type
+XRESTRICTIONS
+X 0 restrictions
+X 1 restrictions
+XDISCUSSION-GROUPS
+X 0 discussion-groups
+X 1 discussion-groups
+XCOPYING-POLICY
+X 0 copying-policy
+X 1 copying-policy
+XMODIFIED-BY
+X 0 modified-by
+X 1 modified-by
+XKEYWORDS
+X 0 keywords
+X 1 keywords
+XURI
+X 0 uri
+X 1 uri
+XINSTALL
+X 0 installation
+X 1 install
+XUSAGE
+X 0 utilisation
+X 1 usage
+XADAPTED-BY
+X 0 adapted-by
+X 1 adapted-by
+XDATE-ADAPTED
+X 0 date-adapted
+X 1 date-adapted
+XLUDE-VERSION
+X 0 lude-version
+X 1 lude-version
+X#
+X# Keywords as printed for the user
+X#
+Xassoc Prkw
+XSERVER
+X 0 Serveur
+X 1 Server
+XMODIFICATION
+X 0 Modification
+X 1 Modification
+XCLASS
+X 0 Classe
+X 1 Class
+XPACKAGE-NAME
+X 0 Logiciel
+X 1 Package name
+XTITLE
+X 0 Titre
+X 1 Title
+XVERSION
+X 0 Version
+X 1 Version
+XDESCRIPTION
+X 0 Documentation
+X 1 Description
+XABSTRACT
+X 0 Resume
+X 1 Abstract
+XAUTHOR
+X 0 Auteur
+X 1 Author
+XAUTHOR-TELEPHONE
+X 0 Numero de telephone de l'auteur
+X 1 Author's phone number
+XAUTHOR-FAX
+X 0 Numero de telecopieur de l'auteur
+X 1 author's fax number
+XAUTHOR-POSTAL
+X 0 Adresse postal de l'auteur
+X 1 author's postal address
+XAUTHOR-EMAIL
+X 0 Adresse electronique de l'auteur
+X 1 author's email address
+XMAINTAINED-BY
+X 0 Maintenu par
+X 1 Maintained by
+XPOSTAL-ADDRESS
+X 0 Adresse postal
+X 1 Postal address
+XTELEPHONE
+X 0 Numero de telephone
+X 1 phone number
+XFAX
+X 0 Numero de telecopieur
+X 1 Fax number
+XELECTRONIC-ADDRESS
+X 0 Adresse electronique
+X 1 Electronic address
+XMAINTAINED-AT
+X 0 Maintenu a
+X 1 Maintained at
+XDISTRIBUTION-TYPE
+X 0 Type de distribution
+X 1 Distribution type
+XRESTRICTIONS
+X 0 Restrictions
+X 1 Restrictions
+XDISCUSSION-GROUPS
+X 0 Groupes de discussion
+X 1 Discussion groups
+XCOPYING-POLICY
+X 0 Copying policy
+X 1 Copying policy
+XMODIFIED-BY
+X 0 Modifie par
+X 1 Modified by
+XKEYWORDS
+X 0 Mots cles
+X 1 Keywords
+XURI
+X 0 uri
+X 1 uri
+XINSTALL
+X 0 Installation
+X 1 Install
+XUSAGE
+X 0 Utilisation
+X 1 Usage
+XADAPTED-BY
+X 0 Adapte par
+X 1 Adapted by
+XDATE-ADAPTED
+X 0 Date d'adaptation
+X 1 Date adapted
+XLUDE-VERSION
+X 0 Version de lude utilisee pour l'installation
+X 1 Lude version used for the installation
+Xarray MSGS
+XUSAGE
+X 0 UTILISATION: $0
+X c  [-software logiciel]         {Specifie le logiciel}
+X c  [-modification modification] {Specifie la modification}
+X c  [-language (francais|english)]
+X c  [-server serveur]            {Specifie le serveur}
+X c  [-class classe]              {Specifie la classe}
+X c  [-raw|-short|-long]          {Type de listage}
+X c  [-version|-full-version]
+X 1 USAGE: $0
+X c  [-software software]         {Specify the software}
+X c  [-modification modification] {Specify the modification}
+X c  [-language (francais|english)]
+X c  [-server server]             {Specify the server}
+X c  [-class class]               {Specify the class}
+X c  [-raw|-short|-long]          {Type of listing}
+X c  [-version|-full-version]
+END_OF_FILE
+  if test 3468 -ne `wc -c <'lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang/ludelist'`; then
+    echo shar: \"'lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang/ludelist'\" unpacked with wrong size!
+  fi
+  # end of 'lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang/ludelist'
+fi
+if test -f 'lude-1.1/src/orig/src/lude' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/src/orig/src/lude'\"
+else
+  echo shar: Extracting \"'lude-1.1/src/orig/src/lude'\" \(28905 characters\)
+  sed "s/^X//" >'lude-1.1/src/orig/src/lude' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X# Lude - Lude Project.
+X# Copyright (C) 1991, 1992  Pierre Laplante
+X# Copyright (C) 1992 Stephane Boucher.
+X#
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 1, or (at your option)
+X# any later version.
+X#
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X$FULL_VERSION=
+X    "-- lude --\n" .
+X    "This is part of LUDE (Logitheque Universitaire Distribuee et Extensible)\n\n";
+X
+X$FULL_VERSION.='$Id: lude,v 1.7 1993/06/01 16:57:00 dagenais Exp $' . "\n";
+X
+X$VERSION='%VERSION%';
+X#-----------------------------------------------------------------------
+X#	Globals definitions
+X#
+X$PL_INCDIR="%PL_INCDIR%:../include";
+X$LANG_PATH="%LANG_PATH%:../lib/lude/lang:../lang";
+X$MAPPING="mapping";
+X$BEFORELINK="beforelink";
+X$AFTERLINK="afterlink";
+X$BEFORERMLINK="beforermlink";
+X$AFTERRMLINK="afterrmlink";
+X$INSTALL="install";
+X$RENAME="rename";
+X$EXCLUDE="exclude";
+X
+X#-----------------------------------------------------------------------
+X# Main program
+X#
+X# Description :
+X#      The execution of the script goes through three phases:
+X#      1. Verification of the system:
+X#            Check to see if the OS has the necessary 
+X#            functionnality to support lude.
+X#            Check the availability of the various commands
+X#            that will be use by Lude.
+X#      2. Initialisation
+X#            Initialise various global variables.
+X#            Parse, the command line arguments, and validate
+X#            them.
+X#      3. execution of the commands
+X#            According to the command line arguments, perform
+X#            the appropriate actions.
+X#
+Xmain: {
+X    local($exitval)=0;		# Success by default
+X    local(@OLDARGV)=@ARGV;
+X    local($cmdsToDo);
+X
+X    unshift(@INC,split(/:/, "$PL_INCDIR"));
+X
+X    require('config.pl');
+X
+X    # Load and initialise the language support immediatly so
+X    # that the messages are available the soonest possible.
+X    # If an error occure in this phase, the execution is 
+X    # immediatly aborted.
+X    require('ludelang.pl');
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'ludemisc', @ARGV);
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'lude', @ARGV);
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'ludedatafiles', @ARGV);
+X
+X    # Include other perl files required for this script.
+X    require("ludemisc");	# subroutines and variables
+X				# common to all Lude scripts.
+X    require("ludeinc");		# subroutines and variables
+X				# required by the script lude.
+X    require("fileutil.pl");
+X    require("BldRegexpMinRqr.pl");
+X
+X    # Execution of phase 1: Verification of the system.
+X    if (! &VerifySystem) {
+X	    # An error occured.
+X	    $exitval=1;
+X    }
+X    # Execution of phase 2: Initialisation and arguments parsing.
+X    elsif (($cmdsToDo=&Initialisation) < 0) {
+X	    # An error occured
+X	    $exitval=2;
+X    }
+X    elsif ( -x "$SERVER_DIR/$Server/$Software/install/$Modification/$Class/$INSTALL") {
+X	  # A replacement script was found. Execute that
+X  	  # script rather than using the present script.
+X	  &RunCmd("$SERVER_DIR/$Server/$Software/install/$Modification/$Class/$INSTALL @OLDARGV");
+X    }
+X    # If any command(s) left to be executed
+X    elsif ($cmdsToDo > 0) {
+X	    # No error occured so far
+X	    if (! &ExecCommands) {
+X		$exitval=3;
+X	    }
+X    }
+X
+X    exit $exitval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Read the mapping file and put the result in
+X# 		     2 global arrays:
+X#                       $Rename{"from_rep"}="to_rep"
+X#                       @Exclude
+X#
+X# Parameters  : $mapping - mapping file name
+X#
+X# Returns     : 1 on success
+X#               0 if any errors
+X#
+Xsub ReadMapping {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__,__LINE__));}
+X    local($mapping)=@_;
+X    local($retval)=1;		# Success by default
+X
+X    local($origline, @fields, *fmap);
+X
+X    if (! open(fmap, $mapping)) {
+X	&NFError($ERR_OPEN, $mapping);
+X	$retval=0;
+X    }
+X    else {
+X	while (<fmap>) {
+X	    # Save a copy of the original line before manipulation 
+X	    $origline=$_;
+X
+X	    # Remove spaces at the beginning of the line,
+X	    # and the comment if any.
+X	    $_ =~ s/^\s*([^#]*)(#.*)?$/$1/o;
+X 	    # If the line is empty go to next line
+X	    next if (/^\s*$/o);
+X            # Remove the spaces at the end of the line, if any.
+X            $_ =~ s/^(.*[^\s])\s*$/$1/o;
+X
+X    	    (@fields)=split(/\s+/);
+X
+X            # Rename command
+X	    if ($fields[0] =~ m/^$RENAME$/oi && scalar(@fields)==3) {
+X 	        $Rename{$fields[1]}=$fields[2];
+X  	    } 
+X            # Exclude command
+X	    elsif ($fields[0] =~ m/^$EXCLUDE$/oi && scalar(@fields)==2) {
+X 	        push(@Exclude, $fields[1]);
+X  	    } 
+X            # Unrecognized command
+X            else {
+X	        &NFError($ERR_INVCMD, "$origline");
+X  	        $retval=0;
+X  	    }
+X        }
+X        close(fmap);
+X
+X    }
+X    return($retval);
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description  : Copies the given server/soft/mod/class
+X#                to the given target server.
+X# 
+X# Parameters   : $target - server location where a copy is to be
+X#                          placed.
+X#                          if eq '', then $SOFT_DIR is used.
+X#                $server - server location where the software to
+X#                          copy is located.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#                $class  - class (some class or '')
+X#                $copy   - parts to copy (run,src,install,none)
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Copy {
+X    if(scalar(@_)!=6){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_),__FILE__,__LINE__));}
+X    local($target, $server, $soft, $mod, $class, $copy)=@_;
+X    local($space, $total)=(0,0);
+X    local($tmp, $subtotal);
+X    local($todir);		# Destination directory of the copy
+X    local($fromdir);
+X    local($retval)=1;		# Success by default
+X
+X    if ($target eq $server) {	# Error: can't copy on itself
+X      &NFError($ERR_CANNOT_CP_SOFT_ON_ITSELF);
+X      $retval=0;
+X    }
+X    else {
+X      # Set the destination directory for the copy
+X      $todir  =($target ne '/') ? "$SERVER_DIR/$target" : "$SOFT_DIR";
+X      # Set the directory of the original files for the copy
+X      $fromdir=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X
+X      # Change to the destination directory
+X      if (! &ChDir($todir)) {
+X	&NFError($ERR_DIR, "$todir");
+X	$retval=0;
+X      }
+X    }
+X
+X    if ($retval) { #if still no error
+X      # Make the software directory, even though the tar command would
+X      # create it because a symlink might be performed before the tar
+X      # command, and we might have to first append.
+X      if (! -d "$todir/$soft") {
+X	if (&VerboseRetShow($WARN_CMD, "mkdir $todir/$soft")) {
+X	  # Show is on, so do nothing
+X	}
+X	elsif (! mkdir("$todir/$soft", 0755)) {
+X	  &NFError($ERR_MKDIR, "$todir/$soft");
+X	  $retval=0;
+X	}
+X	else {
+X	  &ChDir("$todir/$soft");
+X	}
+X      }
+X    }
+X
+X    if ($retval) {		# if still no error
+X	local($lstfiles)='';
+X	# For all sections of a software
+X	for $i ('src', 'install', 'run') {
+X	    # Here, we check to see if $i is somewhere in $copy.
+X	    # We can do this because $copy is certain to be without error,
+X	    # since it is validate in the function &Initialisation.
+X	    # Also, install is ALWAYS copied.
+X	    if ($i eq 'install' || $copy =~ /$i/) {
+X		# If theres a symlink between $todir/$soft/$i and
+X		# something else we attempt to remove it. It will
+X		# latter be replaced by either a symlink or an
+X		# entire tree of files.
+X		if (-l "$todir/$soft/$i") {
+X		    if (! unlink("$todir/$soft/$i")) {
+X			&NFError($ERR_RMSYMLINK, "$todir/$soft/$i");
+X			$retval=0;
+X		    }
+X		}
+X		
+X		if ($retval) { # If still no error
+X		    # For each classes or only the class of the 
+X		    # machine in case of directories run or install.
+X		    local(@lst);
+X
+X		    if ($i eq 'run') {
+X			@lst=("share", "$mod/share", "$mod/$class");
+X		    }
+X		    elsif ($i eq 'install') {
+X			@lst=("share", "$mod/share", "$mod/$class",
+X			      $IAFA_FILE, "$mod/$LUDE_FILE");
+X		    }
+X		    elsif ($i eq 'src') {
+X			# For the sections run, the name
+X			# of the mod ($mod) and orig are enough.
+X			# In the case of the section log, both files
+X			# are log files, and in the case of src
+X			# both files are directories.
+X			# The distinction is not important for tar.
+X			@lst=("orig", "$mod");
+X 		    }
+X
+X		    # For all the files that are to be copied...
+X		    for $f (@lst) {
+X			# Push it in the list of files that will
+X			# actually be tared, if the file does exist
+X			# in the original copy.
+X			if (-e "$fromdir/$soft/$i/$f") {
+X			    push(@lstfiles, "$i/$f");
+X			}
+X	  	    }
+X		}
+X	    }
+X	    else {
+X		# Make a symlink
+X
+X		# Do the symlink except if there's already a directory.
+X		if (! -d "$todir/$soft/$i") {
+X		    if (! symlink("$fromdir/$soft/$i", 
+X				  "$todir/$soft/$i")) {
+X			# Symlink failed
+X			&NFError($ERR_SYMLINK,
+X				 "$fromdir/$soft/$i", 
+X				 "$todir/$soft/$i", "nil");
+X			$retval=0;
+X		    }
+X		}
+X	    }
+X	}
+X	
+X	if ($retval) {		# if still no error
+X	    # Copy the files using tar, if there's any file to copy
+X	    if (scalar(@lstfiles) != 0) {
+X		local($joined_files)=join(' ', @lstfiles);
+X		&RunCmd("cd $fromdir/$soft; $PROG_TAR -cf - $joined_files | (cd $todir/$soft; $PROG_TAR -xf -)");
+X	    }
+X	    # Append the history file if one exist in $fromdir...
+X	    if (-e "$fromdir/$soft/history") {
+X		if (!&CopyFile("$fromdir/$soft/history", "$todir/$soft/history", 'a')) {
+X				# Error while appending
+X	 	    $retval=0;
+X		}
+X	    }
+X
+X	    # Backward compatibility stuff based on version of lude
+X	    # used to install the software ...
+X	    if ($LudeVersionUsedForSoft{'major'} == 0 &&
+X		$LudeVersionUsedForSoft{'minor'} <= 13) {
+X	      &Link("$todir/$soft", "$LOCAL_DIR/$soft");
+X	    }
+X	}
+X    }
+X
+X    return($retval);
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Delete the specified soft/mod/class
+X#
+X# Parameters   : $target - server location where the software to
+X#                          remove is placed.
+X#                          if eq '', then $SOFT_DIR is used.
+X#                $soft   - software to remove
+X#                $mod    - modification to remove
+X#                $class  - class to remove
+X#
+X# Returns     : 1 on success
+X#               0 on error
+X#
+Xsub RmCopy {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=4){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__,__LINE__));}
+X    local($target, $soft, $mod, $class)=@_;
+X    local($dir);		# Directory where the soft to delete
+X				# resides.
+X    local($retval)=1;		# Success by default
+X    local($saveCWD);
+X
+X    $saveCWD=&GetCwd();
+X
+X#???BUG???
+X    $dir=($target ne '/') ? "$SERVER_DIR/$target":$SOFT_DIR;
+X
+X    stat("$dir/$soft");
+X    if (-e _) {
+X      if (-d _) {
+X	local(@dirs)=();
+X
+X	&ChDir("$dir/$soft");
+X
+X	#
+X	# Make the list of dirs to remove
+X	#
+X	foreach $d ("run/$mod/$class", "install/$mod/$class") {
+X	  $d =~ m|^([^/]*)|o;
+X	  if (-e $d && ! -l $1) {
+X	    push(@dirs, $d);
+X	  }
+X	}
+X
+X	#
+X	# Recursively removing the list of directories just made
+X	#
+X	if (&VerboseRetShow($WARN_CMD, 
+X			    sprintf("Recursively Removing %s.",
+X				    join(' ', @dirs)))) {
+X	  # Show is on, so do nothing
+X	}
+X	else {
+X	  if (&RmFiles('r', @dirs)!=scalar(@dirs)) {
+X	    # Error: could not remove all the files
+X	    &NFError($ERR_UNLINK, "@dirs");
+X	    $retval=0;
+X	  }
+X	}
+X
+X	if ($retval) {	# If still no error
+X	  #
+X	  # Check to see if share should be removed
+X	  #
+X
+X	  local(@files);
+X                   
+X	  # Clean up the run and install sections
+X	  foreach $section ("run/$mod", 'run',
+X			    "install/$mod", 'install') {
+X	    $section =~ m|^([^/]*)|o;
+X	    stat($section);	# lstat was not required
+X	    if (-d _ && ! -l $1) {
+X	      local(*dir);
+X	      opendir(dir, $section);
+X	      @files=readdir(dir);
+X	      closedir(dir);
+X
+X	      if ((scalar(@files) -
+X		   scalar(grep(/^$IAFA_FILE$/o, @files)) -
+X		   scalar(grep(/^$LUDE_FILE$/o, @files)) -
+X		   scalar(grep(/^share$/o, @files))) == 2) {
+X		# Directory is empty, except for
+X		# a share directory and/or the $IAFA_FILE. So, that
+X		# directory is not required anymore.
+X
+X		# Remove the share directory and the $IAFA_FILE.
+X		if (&VerboseRetShow($WARN_CMD, 
+X				    sprintf("Recursively Removing %s.",
+X					    $section))) {
+X		  # Show is on, so do nothing
+X		}
+X		else {
+X		  if (&RmFiles('r', $section) == 0) {
+X		    &NFError($ERR_UNLINK, "$section");
+X		    $retval=0;
+X		  }
+X		}
+X	      }
+X	      else {
+X		# Directory has some other thing besides
+X		# share, so skip it.
+X	      }
+X	    }
+X	  }
+X
+X	  # If there's no install left for a modification, we then 
+X	  # remove the mod in src.
+X	  if (! -e "install/$mod") {
+X	    local(@dirs)=();	# List of other dirs to remove
+X
+X	    for $d ("src/$mod") {
+X	      $d=~m|^([^/]*)|o;
+X	      if (! -l $1) {
+X		push(@dirs, $d);
+X	      }
+X	    }
+X		  
+X	    if (&VerboseRetShow($WARN_CMD, 
+X				sprintf("Recursively Removing %s.",
+X					join(' ', @dirs)))) {
+X	      # Show is on, so do nothing
+X	    }
+X	    else {
+X	      if (&RmFiles('r', @dirs)!=scalar(@dirs)) {
+X		# Error: could not remove all the files
+X		&NFError($ERR_UNLINK, "@dirs");
+X		$retval=0;
+X	      }
+X	    }
+X	  }
+X
+X	  # If the directory install does not exist anymore, then
+X	  # the rest of the software can be removed
+X	  if (! -e 'install') {
+X	    if (&VerboseRetShow($WARN_CMD, 
+X				sprintf("Recursively Removing %s.",
+X					join(' ', @dirs)))) {
+X	      # Show is on, so do nothing
+X	    }
+X	    else {
+X	      if (&RmFiles('r', "$dir/$soft")!=1) {
+X		# Error: could not remove all the files
+X		&NFError($ERR_UNLINK, "$dir/$soft");
+X		$retval=0;
+X	      }
+X	      else { # removal was successful
+X		# Backward compatibility stuff based on version
+X		# of lude that was used to install the soft ...
+X		if ($LudeVersionUsedForSoft{'major'} == 0 &&
+X		    $LudeVersionUsedForSoft{'minor'} <= 13) {
+X		  &UnLink("$dir/$soft", "$LOCAL_DIR/$soft");
+X		}
+X	      }
+X	    }
+X	  }
+X	}
+X      }
+X      else {
+X	# $dir/$soft is not a directory, so
+X	# don't bother
+X      }
+X    }
+X    else {
+X	# $dir/$soft does not exist, so don't bother.
+X    }
+X
+X    &ChDir($saveCWD);
+X    return $retval;
+X}
+X
+X
+X#------------------------------------------------------------------
+X# Description: Recursively makes the symbolic links for between the
+X#              trees $fromdir and $todir.
+X#
+X# Parameters : $fromdir - Directory where the actual files are located
+X#              $todir   - Directory where symlinks and/or dir are added
+X#              $suffix  - File name relative to $fromdir
+X#
+X# Returns    : 1 on success
+X#              0 if any errors 
+X#
+Xsub MkLinks {
+X    if(scalar(@_)!=3){&Error(ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__,__LINE__));}
+X    local($fromdir, $todir, $suffix)=@_;
+X    local($retval)=1;		# By default success
+X
+X    local($fromfile, $tofile, $newsuffix, $lnkval);
+X
+X    # Read all the file names in $fromdir. In the special
+X    # case where $suffix eq '', we do not append it to $fromdir.
+X    # Sort the filenames, and remove the file names 
+X    # '.' and '..'
+X    local(*dir);
+X    opendir(dir, ($suffix eq "") ? "$fromdir":"$fromdir/$suffix");
+X    local(@files)=sort grep(!/^\.{1,2}$/, readdir(dir));
+X    closedir(dir);
+X
+X    # For each files in $fromdir/$suffix ...
+X    for $file (@files) {
+X	if ($suffix eq "") {
+X	    $newsuffix="$file";
+X	}
+X	else {
+X	    $newsuffix="$suffix/$file";
+X	}
+X	    
+X	$fromfile="$fromdir/$newsuffix";
+X
+X	# skip to the next file, if the current file was asked
+X	# to be excluded
+X	next if (grep(/^$newsuffix$/, @Exclude));
+X
+X	$tofile=&GetLongestRename($todir, $newsuffix);
+X
+X	if (-l $tofile) { 
+X	    $lnkval=readlink($tofile); 
+X	} 
+X	else {
+X	    # Set $lnkval to a value that is impossible for a file name
+X	    $lnkval='///';
+X	}
+X
+X	if ($lnkval eq $fromfile) {
+X	    # The link is already existant
+X	    &Warning($WARN_LINK_THERE_AND_CORRECT, $fromfile, $tofile);
+X	}
+X	elsif (-d $fromfile) {
+X	    # $tofile is not taken as a symbolic link if $suffix is ''
+X	    # because people could do a link between some other
+X	    # partition and /usr/local/bin, for example. This let
+X	    # them have bin, lib, man, etc. on different partition
+X	    # and use symlinks rather than mounts.
+X	    if ( -l $tofile && $suffix ne "") {
+X		# Test to see if it is a link that was generated
+X		# for the specified Software       
+X		if ($lnkval =~ m|^$SOFT_DIR/[^/]+/run/|) {
+X		    local($dirname);
+X		    
+X		    $dirname=&DirName($fromfile);
+X		    
+X		    # Check for write permission on the dir where $todir
+X		    # is located
+X		    if ( -w $dirname ) {
+X			# There's a link to some other software (because
+X			# $tofile is a link pointing to some other soft
+X			# tree), so we first explode the directory to
+X			# allow to make symlinks for the current
+X			# software.
+X			if (! &Explode($tofile)) {
+X			    $retval=0; # Error
+X			}
+X			elsif (! &VerboseRetShow()) {
+X			    # Recurse only if the work is really
+X			    # performed. i.e. if not only showing the
+X			    # commands that will be performed.
+X			    if (! &MkLinks($fromdir, $todir, $newsuffix)) {
+X				$retval=0; # Error
+X			    }
+X			}
+X		    }
+X		    else {
+X			# write permission on $dirname is required
+X			# not set. So this resulted in the impossibility
+X			# to make the explosion.
+X			&NFError($ERR_NO_W_PERM, $dir);
+X			$retval=0;
+X		    }
+X		}
+X		else {
+X		    # Error, since an explosion is required
+X		    # and cannot be performed due to an 
+X		    # apperent incorrect symlink
+X		    &NFError($ERR_EXPLODE, $tofile, $lnkval);
+X		    $retval=0;	# Error
+X		}
+X	    }
+X	    elsif (-d $tofile) {
+X		# Can't make a symlink because of the existence
+X		# of a directory, so go deeper to make the symlinks
+X		# by recursing.
+X		if (! &MkLinks($fromdir, $todir, $newsuffix)) {
+X		    $retval=0;	# Error
+X		}
+X	    }
+X	    else {
+X		# Test to see if $newsuffix happens to be the start of
+X		# a key in the rename assoc array, without being a 
+X		# whole key.
+X		# If this is the case, then we can't simply make a
+X		# symlink to $fromfile since there is a possibility of a
+X		# rename of a file name that is deeper that the current
+X		# directory.
+X		# Example:
+X		#    rename lib-inc lib/aux
+X		#    rename lib-inc/a /etc/b 
+X		# So if we stop at lib-inc (because it matches $newsuffix)
+X		# we miss lib-inc/a which should be in a totaly different
+X		# place.
+X		local($canlink, $key);
+X		$canlink=1;	# By default -> can link
+X		for $key (keys %Rename) {
+X		    if (index($key,$newsuffix)==$[ &&
+X			length($key)>length($newsuffix)) {
+X                        # Found that the link can't be done. Will
+X			# have to mkdir and recurse.
+X			$canlink=0; 
+X			last;
+X		    }
+X		}
+X		if ($canlink) {	# Can make the symlink
+X		    if (! &Link($fromfile, $tofile)) {
+X			$retval=0;
+X		    }
+X		}
+X		else {		# Cannot make the symlink
+X		    # Can't link because we could miss some files
+X		    # so, instead, the directory is created
+X		    if (&VerboseRetShow($WARN_CMD, "MkDir $tofile")) {
+X			# Show is on, so do nothing
+X			&VerboseRetShow($WARN_MSG, "Recursing ... (not shown)");
+X		    }
+X		    else {
+X			if ( ! mkdir($dst,0755) ) {
+X			    &NFError($ERR_MKDIR, $tofile, $!);
+X			    $retval=0; # Error
+X			}
+X			else {
+X			    # So far so good!
+X			    if (! &MkLinks($fromdir, $todir, $newsuffix)) {
+X				$retval=0;
+X			    }
+X			}
+X		    }
+X		}
+X	    }
+X	}
+X	elsif ( -l $fromfile || -f $fromfile ) {
+X	    if (! &Link($fromfile, $tofile)) {
+X		$retval=0;
+X	    }
+X	}
+X	else {
+X	    &NFError(ERR_WRONG_FILE_TYPE, $fromfile);
+X	    $retval=0;
+X	}
+X    }
+X    return $retval;
+X}
+X
+X
+X#--------------------------------------------------------------------
+X#
+X# Remove the Links
+X#
+X# Parameters : srcrep   : Directory where the actual files are located
+X#              dstrep   : Directory where symlinks and/or dir are added
+X#              f        : File name relative to ...Rep
+X#
+X# Returns    : nothing
+X
+Xsub RmLinks {
+X    if (scalar(@_)!=3) {
+X	&Error(ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($srcrep, $dstrep, $f)=@_;
+X    local($src, $dst, $newfile);
+X    local($retval)=1;		# Success by default
+X
+X    if ( -l $dst && (readlink($dst) eq $src) ) {
+X	# The link is already existant
+X	&Warning($WARN_LINK_THERE_AND_CORRECT, $src, $dst);
+X    }
+X    elsif ( -d $srcrep ) {
+X#	&Warning($WARN_CMD, "RmLinks: $srcrep/$f") if ( $Show );
+X
+X	opendir(DIR, (($f eq "") ? "$srcrep":"$srcrep/$f"));
+X	local(@files)=sort grep(!/^\.{1,2}$/, readdir(DIR));
+X	closedir(DIR);
+X
+X	for $file (@files) {
+X	    if ($f eq "") {
+X		$newfile="$file";
+X	    }
+X	    else {
+X		$newfile="$f/$file";
+X	    }
+X	    
+X	    $src = "$srcrep/$newfile";
+X	
+X	    # skip to the next file, if the current file was asked
+X	    # to be excluded
+X	    next if (grep(/^$newfile$/, @Exclude));
+X	    
+X	    $dst=&GetLongestRename($dstrep, $newfile);
+X
+X	    if  (-l $dst) {
+X		if (! &UnLink($src, $dst)) {
+X		    $retval=0;
+X		}
+X	    }
+X	    elsif (-d $dst) {
+X		if (! &RmLinks($srcrep, $dstrep, $newfile)) {
+X		    $retval=0;
+X		}
+X	    }
+X	    else {
+X		# Not a link, so do not care
+X	    }
+X	}
+X    }
+X    return $retval;
+X}
+X
+X
+X#------------------------------------------------------------------
+X#
+X#
+X#
+Xsub GetLongestRename {
+X    if (scalar(@_)!=2) {
+X	&Error(ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($dstrep, $newfile)=@_;
+X    local($matchlen, $newname)=0;
+X
+X    $newname="$dstrep/$newfile";
+X
+X    # Check to see if a rename was specified for the 
+X    # current file.
+X    # The longest match found will be the one kept.
+X    for (keys %Rename) {
+X	if ($newfile =~ m|^$_((/[^/]+)*)$|) {
+X	    if (length($_) > $matchlen) {
+X		$matchlen=length($_);
+X		if (substr($Rename{$_}, 0, 1) eq "/") {
+X		    $newname="$Rename{$_}$1";
+X		}
+X		else {
+X		    $newname="$dstrep/$Rename{$_}$1";
+X		}
+X	    }
+X	}
+X    }
+X
+X    return ($newname);
+X}
+X
+X
+X#------------------------------------------------------------------
+X#
+X# Perform a single link
+X#
+X# Return  : 1 on success
+X#           0 if any errors
+X#
+Xsub Link {
+X    if (scalar(@_)!=2) {&Error(ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($src, $dst)=@_;
+X    local($retval)=1;		# Success by default
+X    local($dir);
+X    local($lnkval);
+X
+X    ($dir = $dst) =~ s|(.*)/[^/]+|$1|o;
+X
+X    if (-l $dst && (readlink($dst) eq $src)) {
+X	# The link is already existant
+X	&Warning($WARN_LINK_THERE_AND_CORRECT, $src, $dst);
+X    }
+X    elsif (-w $dir) {
+X	# The -e test alone is not sufficient because it will
+X	# fail if there is a link to a non-existant file.
+X	# Therefore, the test -l must be added to take care
+X	# of the special condition.
+X	if (-e $dst || -l $dst) {
+X	    if ($Preserve ne "") {
+X		# Preserve old file
+X		if (&VerboseRetShow($WARN_CMD, 
+X				    "rename $dst (will remove $dst$Preserve if it exist)")) {
+X		    # Show is on, so do nothing
+X		}
+X		else {
+X		    if (!rename("$dst", "$dst$Preserve")) {
+X			&NFError($ERR_REN, $dst, $!);
+X			$retval=0;
+X		    }
+X		}
+X	    }
+X	    elsif ($Force) {
+X		# Delete old file
+X		if (&VerboseRetShow($WARN_CMD, "unlink $dst")) { 
+X		    # Show is on, so do nothing
+X		}
+X		else {
+X		    if (unlink($dst) == 0 ) { # 0 means unlink succeeded
+X			&NFError($ERR_RMSYMLINK, $dst);
+X			$retval=0;
+X		    }
+X		}
+X	    }
+X	    else {
+X		# Error
+X		&NFError($ERR_SYMLINK, $src, $dst, 'nil'); 
+X		$retval=0;
+X	    }
+X	}
+X
+X	if ($retval) {		# If still no error
+X	    # Perform the link
+X	    if (&VerboseRetShow($WARN_CMD, "Link $src <- $dst.")) {
+X		# Show is on, so do nothing
+X	    }
+X	    elsif (! symlink($src, $dst) ) {
+X		&NFError($ERR_SYMLINK, $src, $dst, 'nil');
+X		$retval=0;
+X	    }
+X	}
+X    }
+X    else {
+X	# Do not have permission to make the link
+X	&NFError($ERR_SYMLINK, $src, $dst, 'nil'); 
+X	$retval=0;
+X    }
+X
+X    return($retval);
+X}
+X
+X
+X#------------------------------------------------------------------
+X#
+X# Perform an Unlink by taking into account various parameters
+X# such as show
+X#
+X# Return  : 1 on success
+X#           0 if any errors
+X#
+Xsub UnLink {
+X    if (scalar(@_)!=2) {
+X	&Error(ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($src, $dst)=@_;
+X    local($lnkval);
+X    local($retval)=1;		# Success by default
+X
+X    $lnkval=readlink($dst);
+X    
+X    # Test to see if the link is really between
+X    # src <- dst.
+X    if ( $lnkval eq $src) {
+X	if (&VerboseRetShow($WARN_CMD, "UnLink $dst")) {
+X	    # Show is on, so do nothing
+X	}
+X	else {
+X	    if (! unlink($dst)) {
+X		&NFError($ERR_RMSYMLINK, $dst);
+X		$retval=0;
+X	    }
+X	}
+X    }
+X    else {
+X	# Not a symlink we made. Ignore it.
+X    }
+X
+X    return $retval;
+X}
+X
+X
+X#------------------------------------------------------------------
+X#
+X# srcrep   :   Directory where the actual files are located
+X# dstrep   :   Directory where symlinks and/or dir are added
+X#
+X# Return  : 1 on success
+X#           0 if any errors
+X#
+Xsub Explode {
+X    if (scalar(@_)!=1) {
+X	&Error(ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($dst)=@_;
+X    local($src, $dstrep,$srcrep,$newfile,$dir);
+X    local($retval)=1;		# Success by default
+X    
+X    $src=readlink($dst);
+X    ($dstrep=$dst) =~ s|^(.*)/[^/]+$|$1|o;
+X
+X    &VerboseRetShow($WARN_OUT, "Exploding $dst ...");
+X
+X    if (&VerboseRetShow($WARN_CMD, "UnLink $dst")) {
+X	# Show is on, so do nothing
+X	&VerboseRetShow($WARN_CMD, "MkDir $dst");   
+X	&VerboseRetShow($WARN_MSG, 
+X			"when showing, the recursion is not performed in Explode");
+X    }
+X    else {
+X	if (unlink($dst) == 0) { # 0 unlink succeeded
+X	    &NFError($ERR_RMSYMLINK, $dst);
+X	    $retval=0;
+X	}
+X	elsif (! mkdir($dst,0755)) {
+X	    &NFError($ERR_MKDIR, $dst, $!);
+X	    $retval=0;
+X	}
+X	else {
+X	    # So far so good!
+X	    ($srcrep = $src) =~ s|(.*)/[^/]+$|$1|o;
+X	    ($newfile = $src) =~ s|.*/([^/]+)$|$1|o;
+X
+X	    # When exploding, the symlink that is changed to a dir 
+X	    # belong to another software. Therefore, the mapping
+X	    # file for that software must be read. After the 
+X	    # explosion, the previous mapping information
+X	    # must be restored.
+X
+X	    local(%saverename,@saveexclude,$mappingfiledir);
+X	    %saverename=%Rename;
+X	    undef %Rename;
+X	    @saveexclude=@Exclude;
+X	    undef @Exclude;
+X
+X	    # Read Mapping file
+X	    ($mappingfiledir=$srcrep) =~ 
+X		s|^(.*)/run(/[^/]+/[^/]+).*$|$1/install$2|o;
+X
+X	    if (-r "$mappingfiledir/$MAPPING") {
+X		if (! &ReadMapping("$mappingfiledir/$MAPPING")) {
+X		    $retval=0;
+X		}
+X	    }
+X	
+X	    if ($retval) {	# If still no error
+X		if (! &MkLinks($srcrep, $dstrep, $newfile)) {
+X		    $retval=0;
+X		}
+X	    }
+X
+X	    # The restore has to be made even if an error occured
+X
+X	    # Restore Exclude
+X	    @Exclude=@saveexclude;
+X	    # Restore Rename
+X	    %Rename=%saverename;
+X	}
+X    }
+X    
+X    &VerboseRetShow($WARN_EXPLODE_DONE, $dst);
+X    
+X    return $retval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X#
+X#
+Xsub LinkDoc {
+X    local($soft,$mod)=@_;
+X
+X    local($docdir)="$LOCAL_DIR/doc";		# Location of doc files.
+X
+X    # Create the $docdir directory
+X    if (! -e $docdir) {
+X	mkdir($docdir, 0755) || &Error($ERR_MKDIR, $docdir, $!);
+X    }
+X
+X    # creates, in the directory $docdir,
+X    # a subdirectory with the same name as the software
+X    # package to install.
+X    if (! -e "$docdir/$soft") {
+X	mkdir("$docdir/$soft", 0755) || &Error($ERR_MKDIR, "$docdir/$soft", $!);
+X    }
+X
+X    # In $docdir/$soft, create two symbolic links that point
+X    # to the files install/$IAFA_FILE and install/$mod/$LUDE_FILE
+X    if (-e "$SOFT_DIR/$soft/log/$orig") {
+X	&Link("$SOFT_DIR/$soft/install/$IAFA_FILE",
+X	      "$docdir/$soft/$IAFA_FILE");
+X    }
+X    if (-e "$SOFT_DIR/$soft/log/$mod") {
+X	&Link("$SOFT_DIR/$soft/install/$mod/$LUDE_FILE",
+X	      "$docdir/$soft/${LUDE_FILE}-$mod");
+X    }
+X}
+X
+X#-----------------------------------------------------------------------
+X#
+X#
+Xsub RmLinkDoc {
+X    local($soft, $mod)=@_;
+X    local($retval)=1;		# Success by default
+X
+X    local($docdir)="$LOCAL_DIR/doc";		# Location of doc files.
+X
+X    lstat("$docdir/$soft/$IAFA_FILE");
+X    if (-e _ && -l _) {
+X	&UnLink("$SOFT_DIR/$soft/install/$IAFA_FILE",
+X		"$docdir/$soft/$IAFA_FILE");
+X    }
+X    lstat("$docdir/$soft/${LUDE_FILE}-$mod");
+X    if (-e _ && -l _) {
+X	&UnLink("$SOFT_DIR/$soft/install/$mod/$LUDE_FILE",
+X		"$docdir/$soft/${LUDE_FILE}-$mod");
+X    }
+X    if (&VerboseRetShow($WARN_CMD, "rmdir $docdir/$soft")) {
+X	# Show is on, so do nothing
+X    }
+X    else {
+X	if (! rmdir("$docdir/$soft")) {
+X	    &NFError($ERR_RMDIR, "$docdir/$soft", $!);
+X	    $retval=0;
+X	}
+X    }
+X    return $retval;
+X}
+X
+X
+X#     ;;; Local Variables: ***
+X#     ;;; mode:perl ***
+X#     ;;; End: ***
+END_OF_FILE
+  if test 28905 -ne `wc -c <'lude-1.1/src/orig/src/lude'`; then
+    echo shar: \"'lude-1.1/src/orig/src/lude'\" unpacked with wrong size!
+  fi
+  chmod +x 'lude-1.1/src/orig/src/lude'
+  # end of 'lude-1.1/src/orig/src/lude'
+fi
+echo shar: End of archive 5 \(of 12\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

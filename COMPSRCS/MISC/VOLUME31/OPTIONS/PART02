@@ -1,0 +1,559 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v31i046:  options - C++ library for parsing Unix-style command-lines, Part02/02
+Message-ID: <1992Jul27.015253.28370@sparky.imd.sterling.com>
+X-Md4-Signature: f4a5779bc3968a6f186478842907a7c9
+Date: Mon, 27 Jul 1992 01:52:53 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 31, Issue 46
+Archive-name: options/part02
+Environment: C++
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Makefile options.h
+# Wrapped by kent@sparky on Sun Jul 26 20:47:44 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1464 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X###
+X# operating-system dependent stuff
+X###
+X.UNIVERSE=att
+X
+X###
+X# target directories
+X#
+X#    NOTE: if you change INCDIR and LIBDIR then dont forget to change
+X#          their corresponding strings at the top of options.3!
+X###
+XLOCAL=/usr/local
+XINCDIR=${LOCAL}/include
+XLIBDIR=${LOCAL}/lib
+XMAN3DIR=/usr/man/local_man/man3
+X
+X###
+X# compilation options
+X###
+XCC=CC
+XCPLC=CC
+XINCLUDES=-I.
+X# OPT=-O
+XOPT=-g
+XTEST_DEFS=
+XUSR_DEFS=
+XDEFINES=${OS_DEFS} ${USR_DEFS} ${TEST_DEFS}
+XOPTIONS=
+XCFLAGS=${INCLUDES} ${DEFINES} ${OPT} ${OPTIONS}
+XCPLFLAGS=${OPT} ${INCLUDES} ${DEFINES} ${OPTIONS}
+X
+X###
+X# C++ Rules
+X###
+X.SUFFIXES : .C
+X.C.o : 
+X	${CPLC} ${CPLFLAGS} -c $<
+X
+X###
+X# Source files
+X###
+XLIBHDRS=options.h
+XLIBSRCS=options.C
+XLIBTESTS=testopts.C
+X
+XSRCS=${LIBHDRS} ${LIBSRCS} ${LIBTESTS}
+XOBJS=options.o
+XLIBRARY=liboptions.a
+XDOCS=options.3
+X
+X
+X###
+X# target dependencies
+X###
+Xall: library test
+X
+Xinstall: library
+X	rm -f ${INCDIR}/options.h ${LIBDIR}/${LIBRARY}
+X	cp options.h ${INCDIR}/options.h
+X	cp ${LIBRARY} ${LIBDIR}/${LIBRARY}
+X
+Xinstallman:
+X	rm -f ${MAN3DIR}/options.3
+X	cp options.3 ${MAN3DIR}/options.3
+X
+Xlibrary: ${LIBRARY}
+X
+X${LIBRARY}: ${OBJS}
+X	ar -r $@ ${OBJS}
+X	ranlib $@
+X
+Xtest: testopts
+X
+Xtestopts: testopts.o ${LIBRARY}
+X	${CPLC} -o $@ testopts.o ${LIBRARY}
+X
+X###
+X# maintenance dependencies
+X###
+Xclean:
+X	rm -f *.o core .exrc
+X
+Xclobber: clean
+X	rm -f tags testopts ${LIBRARY}
+X	
+Xshar:
+X	shar README ${SRCS} ${DOCS} Makefile >SHAR
+X
+X###
+X# object dependencies
+X###
+Xoptions.o: options.h
+X
+Xtestopts.o: options.h
+X
+END_OF_FILE
+  if test 1464 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'options.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'options.h'\"
+else
+  echo shar: Extracting \"'options.h'\" \(12980 characters\)
+  sed "s/^X//" >'options.h' <<'END_OF_FILE'
+X// ****************************************************************************
+X// ^FILE: options.h - option parsing classes
+X//
+X// ^DESCRIPTION:
+X//    This file defines classes used to parse command-line options.
+X//    Options may be parsed from an array of strings, or from any structure
+X//    for which a corresponding option-iterator exists.
+X//
+X// ^HISTORY:
+X//    03/06/92  Brad Appleton   <brad@ssd.csd.harris.com>   Created
+X// ^^**************************************************************************
+X
+X#ifndef _options_h
+X#define _options_h
+X
+Xclass  ostream;
+X
+X// Abstract class to iterate through options/arguments
+X//
+Xclass OptIter {
+Xpublic:
+X   OptIter(void) {}
+X   virtual ~OptIter(void);
+X
+X      // curr() returns the current item in the iterator without
+X      // advancing on to the next item. If we are at the end of items
+X      // then NULL is returned.
+X   virtual const char *
+X   curr(void) = 0;
+X
+X      // next() advances to the next item.
+X   virtual void
+X   next(void) = 0;
+X
+X      // operator() returns the current item in the iterator and then
+X      // advances on to the next item. If we are at the end of items
+X      // then NULL is returned.
+X   virtual const char *
+X   operator()(void);
+X} ;
+X
+X// Abstract class for a rewindable OptIter
+X//
+Xclass OptIterRwd : public OptIter {
+Xpublic:
+X   OptIterRwd(void);
+X
+X   virtual ~OptIterRwd(void);
+X
+X   virtual const char *
+X   curr(void) = 0;
+X
+X   virtual void
+X   next(void) = 0;
+X
+X   virtual const char *
+X   operator()(void) = 0;
+X
+X      // rewind() resets the "current-element" to the first one in the "list"
+X   virtual void
+X   rewind(void) = 0;
+X} ;
+X
+X// Class to iterate through an array of tokens. The array may be terminated
+X// by NULL or a count containing the number of tokens may be given.
+X//
+Xclass OptArgvIter : public OptIterRwd {
+Xprivate:
+X   int            ndx;   // index of current arg
+X   int            ac;    // arg count
+X   const char * const * av;  // arg vector
+X
+Xpublic:
+X   OptArgvIter(const char * const argv[])
+X      : av(argv), ac(-1), ndx(0) {}
+X
+X   OptArgvIter(int argc, const char * const argv[])
+X      : av(argv), ac(argc), ndx(0) {}
+X
+X   virtual
+X   ~OptArgvIter(void);
+X
+X   virtual const char *
+X   curr(void);
+X
+X   virtual void
+X   next(void);
+X
+X   virtual const char *
+X   operator()(void);
+X
+X   virtual void
+X   rewind(void);
+X
+X      // index returns the current index to use for argv[]
+X   int index(void)  { return  ndx; }
+X} ;
+X
+X
+X// Class to iterate through a string containing delimiter-separated tokens
+X//
+Xclass OptStrTokIter : public OptIterRwd {
+Xprivate:
+X   unsigned     len;        // length of token-string
+X   const char * str;        // the token-string
+X   const char * seps;       // delimiter-set (separator-characters)
+X   const char * cur;        // current token
+X   char       * tokstr;     // our copy of the token-string
+X
+X   static const char * default_delims;  // default delimiters = whitespace
+X
+Xpublic:
+X   OptStrTokIter(const char * tokens, const char * delimiters =0);
+X
+X   virtual
+X   ~OptStrTokIter(void);
+X
+X   virtual const char *
+X   curr(void);
+X
+X   virtual void
+X   next(void);
+X
+X   virtual const char *
+X   operator()(void);
+X
+X   virtual void
+X   rewind(void);
+X
+X      // delimiters() with NO arguments returns the current set of delimiters,
+X      // If an argument is given then it is used as the new set of delimiters.
+X   const char *
+X   delimiters(void)  { return  seps; }
+X
+X   void
+X   delimiters(const char * delims) {
+X      seps = (delims) ? delims : default_delims ;
+X   }
+X} ;
+X
+X
+X// Now we are ready to define a class to declare and parse command-options
+X//
+X//
+X// CLASS
+X// =====
+X// Options  -- parse command-line options
+X//
+X// SYNOPSIS
+X// ========
+X//   #include <options.h>
+X//
+X//   Options opts(cmdname, optv);
+X//   char cmdname[], *optv[];
+X//
+X// DESCRIPTION
+X// ===========
+X// The Options constructor expects a command-name (usually argv[0]) and
+X// a pointer to an array of strings.  The last element in this array MUST
+X// be NULL. Each non-NULL string in the array must have the following format:
+X//
+X//   The 1st character must be the option-name ('c' for a -c option).
+X//
+X//   The 2nd character must be one of '|', '?', ':', '*', or '+'.
+X//      '|' -- indicates that the option takes NO argument;
+X//      '?' -- indicates that the option takes an OPTIONAL argument;
+X//      ':' -- indicates that the option takes a REQUIRED argument;
+X//      '*' -- indicates that the option takes 0 or more arguments;
+X//      '+' -- indicates that the option takes 1 or more arguments;
+X//
+X//   The remainder of the string must be the long-option name.
+X//
+X//   If desired, the long-option name may be followed by one or more
+X//   spaces and then by the name of the option value. This name will
+X//   be used when printing usage messages. If the option-value-name
+X//   is not given then the string "<value>" will be used in usage
+X//   messages.
+X//
+X//   One may use a space to indicate that a particular option does not
+X//   have a corresponding long-option.  For example, "c: " (or "c:")
+X//   means the -c option takes a value & has NO corresponding long-option.
+X//
+X//   To specify a long-option that has no corresponding single-character
+X//   option is a bit trickier: Options::operator() still needs an "option-
+X//   character" to return when that option is matched. One may use a whitespace
+X//   character or a non-printable character as the single-character option
+X//   in such a case. (hence " |hello" would only match "--hello").
+X//
+X//   EXCEPTIONS TO THE ABOVE:
+X//   ------------------------ 
+X//   If the 2nd character of the string is '\0' then it is assumed
+X//   that there is no corresponding long-option and that the option
+X//   takes no argument (hence "f", and "f| " are equivalent).
+X//
+X//   Examples:
+X//      const char * optv[] = {
+X//          "c:count   <number>",
+X//          "s?str     <string>",
+X//          "x",
+X//          " |hello",
+X//          "g+groups  <newsgroup>",
+X//          NULL
+X//      } ;
+X//
+X//      optv[] now corresponds to the following:
+X//
+X//            usage: cmdname [-c|--count <number>] [-s|--str [<string>]]
+X//                           [-x] [--hello] [-g|--groups <newsgroup> ...]
+X//
+X// Long-option names are matched case-insensitive and only a unique prefix
+X// of the name needs to be specified.
+X//
+X// Option-name characters are case-sensitive!
+X//
+X// CAVEAT
+X// ======
+X// Because of the way in which multi-valued options and options with optional
+X// values are handled, it is NOT possible to supply a value to an option in
+X// a separate argument (different argv[] element) if the value is OPTIONAL
+X// and begins with a '-'. What this means is that if an option "-s" takes an
+X// optional value value and you wish to supply a value of "-foo" then you must
+X// specify this on the command-line as "-s-foo" instead of "-s -foo" because
+X// "-s -foo" will be considered to be two separate sets of options.
+X//
+X// A multi-valued option is terminated by another option or by the end-of
+X// options. The following are all equivalent (if "-l" is a multi-valued
+X// option and "-x" is an option that takes no value):
+X//
+X//    cmdname -x -l item1 item2 item3 -- arg1 arg2 arg3
+X//    cmdname -x -litem1 -litem2 -litem3 -- arg1 arg2 arg3
+X//    cmdname -l item1 item2 item3 -x arg1 arg2 arg3
+X//
+X//
+X// EXAMPLE
+X// =======
+X//    #include <options.h>
+X//
+X//    static const char * optv[] = {
+X//       "H|help",
+X//       "c:count   <number>",
+X//       "s?str     <string>",
+X//       "x",
+X//       " |hello",
+X//       "g+groups  <newsgroup>",
+X//       NULL
+X//    } ;
+X//
+X//    main(int argc, char * argv[]) {
+X//       int  optchar;
+X//       const char * optarg;
+X//       const char * str = "default_string";
+X//       int  count = 0, xflag = 0, hello = 0;
+X//       int  errors = 0, ngroups = 0;
+X//    
+X//       Options  opts(*argv, optv);
+X//       OptArgvIter  iter(--argc, ++argv);
+X//    
+X//       while( optchar = opts(iter, optarg) ) {
+X//          switch (optchar) {
+X//          case 'H' :
+X//             opts.usage(cout, "files ...");
+X//             exit(0);
+X//             break;
+X//          case 'g' :
+X//             ++ngroups; break;  // the groupname is in "optarg"
+X//          case 's' :
+X//             str = optarg; break;
+X//          case 'x' :
+X//             ++xflag; break;
+X//          case ' ' :
+X//             ++hello; break;
+X//          case 'c' :
+X//             if (optarg == NULL)  ++errors;
+X//             else  count = (int) atol(optarg);
+X//             break;
+X//          default :  ++errors; break;
+X//          } //switch
+X//       }
+X//    
+X//       if (errors || (iter.index() == argc)) {
+X//          if (! errors) {
+X//             cerr << opts.name() << ": no filenames given." << endl ;
+X//          }
+X//          opts.usage(cerr, "files ...");
+X//          exit(1);
+X//       }
+X//    
+X//       cout << "xflag=" << ((xflag) ? "ON"  : "OFF") << endl
+X//            << "hello=" << ((hello) ? "YES" : "NO") << endl
+X//            << "count=" << count << endl
+X//            << "str=\"" << ((str) ? str : "No value given!") << "\"" << endl
+X//            << "ngroups=" << ngroups << endl ;
+X//    
+X//       if (iter.index() < argc) {
+X//          cout << "files=" ;
+X//          for (int i = iter.index() ; i < argc ; i++) {
+X//             cout << "\"" << argv[i] << "\" " ;
+X//          }
+X//          cout << endl ;
+X//       }
+X//    }
+X//
+Xclass Options {
+Xprivate:
+X   unsigned       explicit_end : 1;  // were we terminated because of "--"?
+X   unsigned       optctrls : 7;  // control settings (a set of OptCtrl masks)
+X   const char  * const * optvec; // vector of option-specifications (last=NULL)
+X   const char   * nextchar;      // next option-character to process
+X   const char   * listopt;       // last list-option we matched
+X   const char   * cmdname;       // name of the command
+X
+X   int
+X   parse_opt(OptIter & iter, const char * & optarg);
+X
+X   int
+X   parse_longopt(OptIter & iter, const char * & optarg);
+X
+X   unsigned
+X   fmt_opt(const char * optspec, char * buf) const;
+X
+Xpublic:
+X   enum OptCtrl {
+X      DEFAULT    = 0x00,  // Default setting
+X      ANYCASE    = 0x01,  // Ignore case when matching short-options
+X      QUIET      = 0x02,  // Dont print error messages
+X      PLUS       = 0x04,  // Allow "+" as a long-option prefix
+X      SHORT_ONLY = 0x08,  // Dont accept long-options
+X      LONG_ONLY  = 0x10,  // Dont accept short-options
+X                            // (also allows "-" as a long-option prefix).
+X      NOGUESSING = 0x20,  // Normally, when we see a short (long) option
+X                            // on the command line that doesnt match any
+X                            // known short (long) options, then we try to
+X                            // "guess" by seeing if it will match any known
+X                            // long (short) option. Setting this mask prevents
+X                            // this "guessing" from occurring.
+X   } ;
+X
+X      // Error return values for operator()
+X      //
+X   enum OptRC {
+X      ENDOPTS    =  0,
+X      BADCHAR    = -1,
+X      BADKWD     = -2,
+X      AMBIGUOUS  = -3,
+X   } ;
+X
+X   Options(const char * name, const char * const optv[]);
+X
+X   virtual
+X   ~Options(void);
+X
+X      // name() returns the command name
+X   const char *
+X   name(void) const { return  cmdname; }
+X
+X      // ctrls() (with no arguments) returns the existing control settings
+X   unsigned
+X   ctrls(void) const { return  optctrls; }
+X
+X      // ctrls() (with 1 argument) sets new control settings
+X   void
+X   ctrls(unsigned newctrls) { optctrls = newctrls; }
+X
+X      // usage() prints options usage (followed by any positional arguments
+X      // listed in the parameter "positionals") on the given outstream
+X   void
+X   usage(ostream & os, const char * positionals) const ;
+X
+X      // operator() iterates through the arguments as necessary (using the
+X      // given iterator) and returns the character value of the option
+X      // (or long-option) that it matched. If the option has a value
+X      // then the value given may be found in optarg (otherwise optarg
+X      // will be NULL).
+X      //
+X      // 0 is returned upon end-of-options. At this point, "iter" may
+X      // be used to process any remaining positional parameters.
+X      //
+X      // If an invalid option is found then BADCHAR is returned and *optarg
+X      // is the unrecognized option character.
+X      //
+X      // If an invalid long-option is found then BADKWD is returned and optarg
+X      // points to the bad long-option.
+X      //
+X      // If an ambiguous long-option is found then AMBIGUOUS is returned and
+X      // optarg points to the ambiguous long-option.
+X      //
+X      // Unless Options::QUIET is used, missing option-arguments and
+X      // invalid options (and the like) will automatically cause error
+X      // messages to be issued to cerr.
+X   int
+X   operator()(OptIter & iter, const char * & optarg) ;
+X
+X      // Call this member function after operator() has returned 0
+X      // if you want to know whether or not options were explicitly
+X      // terminated because "--" appeared on the command-line.
+X      //
+X   int
+X   explicit_endopts() const { return  explicit_end; }
+X} ;
+X
+X#endif /* _options_h */
+END_OF_FILE
+  if test 12980 -ne `wc -c <'options.h'`; then
+    echo shar: \"'options.h'\" unpacked with wrong size!
+  fi
+  # end of 'options.h'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1551 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v29i002:  jpeg - JPEG image compression, Part02/18
+Message-ID: <1992Mar24.063220.3341@sparky.imd.sterling.com>
+X-Md4-Signature: 47003de048d1d82ad14b82205b7a8481
+Date: Tue, 24 Mar 1992 06:32:20 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 29, Issue 2
+Archive-name: jpeg/part02
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Cray
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  jquant2.c jrdppm.c
+# Wrapped by kent@sparky on Mon Mar 23 16:02:40 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 18)."'
+if test -f 'jquant2.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jquant2.c'\"
+else
+  echo shar: Extracting \"'jquant2.c'\" \(42181 characters\)
+  sed "s/^X//" >'jquant2.c' <<'END_OF_FILE'
+X/*
+X * jquant2.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains 2-pass color quantization (color mapping) routines.
+X * These routines are invoked via the methods color_quant_prescan,
+X * color_quant_doit, and color_quant_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef QUANT_2PASS_SUPPORTED
+X
+X
+X/*
+X * This module implements the well-known Heckbert paradigm for color
+X * quantization.  Most of the ideas used here can be traced back to
+X * Heckbert's seminal paper
+X *   Heckbert, Paul.  "Color Image Quantization for Frame Buffer Display",
+X *   Proc. SIGGRAPH '82, Computer Graphics v.16 #3 (July 1982), pp 297-304.
+X *
+X * In the first pass over the image, we accumulate a histogram showing the
+X * usage count of each possible color.  (To keep the histogram to a reasonable
+X * size, we reduce the precision of the input; typical practice is to retain
+X * 5 or 6 bits per color, so that 8 or 4 different input values are counted
+X * in the same histogram cell.)  Next, the color-selection step begins with a
+X * box representing the whole color space, and repeatedly splits the "largest"
+X * remaining box until we have as many boxes as desired colors.  Then the mean
+X * color in each remaining box becomes one of the possible output colors.
+X * The second pass over the image maps each input pixel to the closest output
+X * color (optionally after applying a Floyd-Steinberg dithering correction).
+X * This mapping is logically trivial, but making it go fast enough requires
+X * considerable care.
+X *
+X * Heckbert-style quantizers vary a good deal in their policies for choosing
+X * the "largest" box and deciding where to cut it.  The particular policies
+X * used here have proved out well in experimental comparisons, but better ones
+X * may yet be found.
+X *
+X * The most significant difference between this quantizer and others is that
+X * this one is intended to operate in YCbCr colorspace, rather than RGB space
+X * as is usually done.  Actually we work in scaled YCbCr colorspace, where
+X * Y distances are inflated by a factor of 2 relative to Cb or Cr distances.
+X * The empirical evidence is that distances in this space correspond to
+X * perceptual color differences more closely than do distances in RGB space;
+X * and working in this space is inexpensive within a JPEG decompressor, since
+X * the input data is already in YCbCr form.  (We could transform to an even
+X * more perceptually linear space such as Lab or Luv, but that is very slow
+X * and doesn't yield much better results than scaled YCbCr.)
+X */
+X
+X#define Y_SCALE 2		/* scale Y distances up by this much */
+X
+X#define MAXNUMCOLORS  (MAXJSAMPLE+1) /* maximum size of colormap */
+X
+X
+X/*
+X * First we have the histogram data structure and routines for creating it.
+X *
+X * For work in YCbCr space, it is useful to keep more precision for Y than
+X * for Cb or Cr.  We recommend keeping 6 bits for Y and 5 bits each for Cb/Cr.
+X * If you have plenty of memory and cycles, 6 bits all around gives marginally
+X * better results; if you are short of memory, 5 bits all around will save
+X * some space but degrade the results.
+X * To maintain a fully accurate histogram, we'd need to allocate a "long"
+X * (preferably unsigned long) for each cell.  In practice this is overkill;
+X * we can get by with 16 bits per cell.  Few of the cell counts will overflow,
+X * and clamping those that do overflow to the maximum value will give close-
+X * enough results.  This reduces the recommended histogram size from 256Kb
+X * to 128Kb, which is a useful savings on PC-class machines.
+X * (In the second pass the histogram space is re-used for pixel mapping data;
+X * in that capacity, each cell must be able to store zero to the number of
+X * desired colors.  16 bits/cell is plenty for that too.)
+X * Since the JPEG code is intended to run in small memory model on 80x86
+X * machines, we can't just allocate the histogram in one chunk.  Instead
+X * of a true 3-D array, we use a row of pointers to 2-D arrays.  Each
+X * pointer corresponds to a Y value (typically 2^6 = 64 pointers) and
+X * each 2-D array has 2^5^2 = 1024 or 2^6^2 = 4096 entries.  Note that
+X * on 80x86 machines, the pointer row is in near memory but the actual
+X * arrays are in far memory (same arrangement as we use for image arrays).
+X */
+X
+X#ifndef HIST_Y_BITS		/* so you can override from Makefile */
+X#define HIST_Y_BITS  6		/* bits of precision in Y histogram */
+X#endif
+X#ifndef HIST_C_BITS		/* so you can override from Makefile */
+X#define HIST_C_BITS  5		/* bits of precision in Cb/Cr histogram */
+X#endif
+X
+X#define HIST_Y_ELEMS  (1<<HIST_Y_BITS) /* # of elements along histogram axes */
+X#define HIST_C_ELEMS  (1<<HIST_C_BITS)
+X
+X/* These are the amounts to shift an input value to get a histogram index.
+X * For a combination 8/12 bit implementation, would need variables here...
+X */
+X
+X#define Y_SHIFT  (BITS_IN_JSAMPLE-HIST_Y_BITS)
+X#define C_SHIFT  (BITS_IN_JSAMPLE-HIST_C_BITS)
+X
+X
+Xtypedef UINT16 histcell;	/* histogram cell; MUST be an unsigned type */
+X
+Xtypedef histcell FAR * histptr;	/* for pointers to histogram cells */
+X
+Xtypedef histcell hist1d[HIST_C_ELEMS]; /* typedefs for the array */
+Xtypedef hist1d FAR * hist2d;	/* type for the Y-level pointers */
+Xtypedef hist2d * hist3d;	/* type for top-level pointer */
+X
+Xstatic hist3d histogram;	/* pointer to the histogram */
+X
+X
+X/*
+X * Prescan some rows of pixels.
+X * In this module the prescan simply updates the histogram, which has been
+X * initialized to zeroes by color_quant_init.
+X * Note: workspace is probably not useful for this routine, but it is passed
+X * anyway to allow some code sharing within the pipeline controller.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_prescan (decompress_info_ptr cinfo, int num_rows,
+X		     JSAMPIMAGE image_data, JSAMPARRAY workspace)
+X{
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register histptr histp;
+X  register int c0, c1, c2;
+X  int row;
+X  long col;
+X  long width = cinfo->image_width;
+X
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = image_data[0][row];
+X    ptr1 = image_data[1][row];
+X    ptr2 = image_data[2][row];
+X    for (col = width; col > 0; col--) {
+X      /* get pixel value and index into the histogram */
+X      c0 = GETJSAMPLE(*ptr0++) >> Y_SHIFT;
+X      c1 = GETJSAMPLE(*ptr1++) >> C_SHIFT;
+X      c2 = GETJSAMPLE(*ptr2++) >> C_SHIFT;
+X      histp = & histogram[c0][c1][c2];
+X      /* increment, check for overflow and undo increment if so. */
+X      /* We assume unsigned representation here! */
+X      if (++(*histp) == 0)
+X	(*histp)--;
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Now we have the really interesting routines: selection of a colormap
+X * given the completed histogram.
+X * These routines work with a list of "boxes", each representing a rectangular
+X * subset of the input color space (to histogram precision).
+X */
+X
+Xtypedef struct {
+X	/* The bounds of the box (inclusive); expressed as histogram indexes */
+X	int c0min, c0max;
+X	int c1min, c1max;
+X	int c2min, c2max;
+X	/* The number of nonzero histogram cells within this box */
+X	long colorcount;
+X      } box;
+Xtypedef box * boxptr;
+X
+Xstatic boxptr boxlist;		/* array with room for desired # of boxes */
+Xstatic int numboxes;		/* number of boxes currently in boxlist */
+X
+Xstatic JSAMPARRAY my_colormap;	/* the finished colormap (in YCbCr space) */
+X
+X
+XLOCAL boxptr
+Xfind_biggest_color_pop (void)
+X/* Find the splittable box with the largest color population */
+X/* Returns NULL if no splittable boxes remain */
+X{
+X  register boxptr boxp;
+X  register int i;
+X  register long max = 0;
+X  boxptr which = NULL;
+X  
+X  for (i = 0, boxp = boxlist; i < numboxes; i++, boxp++) {
+X    if (boxp->colorcount > max) {
+X      if (boxp->c0max > boxp->c0min || boxp->c1max > boxp->c1min ||
+X	  boxp->c2max > boxp->c2min) {
+X	which = boxp;
+X	max = boxp->colorcount;
+X      }
+X    }
+X  }
+X  return which;
+X}
+X
+X
+XLOCAL boxptr
+Xfind_biggest_volume (void)
+X/* Find the splittable box with the largest (scaled) volume */
+X/* Returns NULL if no splittable boxes remain */
+X{
+X  register boxptr boxp;
+X  register int i;
+X  register INT32 max = 0;
+X  register INT32 norm, c0,c1,c2;
+X  boxptr which = NULL;
+X  
+X  /* We use 2-norm rather than real volume here.
+X   * Some care is needed since the differences are expressed in
+X   * histogram-cell units; if HIST_Y_BITS != HIST_C_BITS, we have to
+X   * adjust the scaling to get the proper scaled-YCbCr-space distance.
+X   * This code won't work right if HIST_Y_BITS < HIST_C_BITS,
+X   * but that shouldn't ever be true.
+X   * Note norm > 0 iff box is splittable, so need not check separately.
+X   */
+X  
+X  for (i = 0, boxp = boxlist; i < numboxes; i++, boxp++) {
+X    c0 = (boxp->c0max - boxp->c0min) * Y_SCALE;
+X    c1 = (boxp->c1max - boxp->c1min) << (HIST_Y_BITS-HIST_C_BITS);
+X    c2 = (boxp->c2max - boxp->c2min) << (HIST_Y_BITS-HIST_C_BITS);
+X    norm = c0*c0 + c1*c1 + c2*c2;
+X    if (norm > max) {
+X      which = boxp;
+X      max = norm;
+X    }
+X  }
+X  return which;
+X}
+X
+X
+XLOCAL void
+Xupdate_box (boxptr boxp)
+X/* Shrink the min/max bounds of a box to enclose only nonzero elements, */
+X/* and recompute its population */
+X{
+X  histptr histp;
+X  int c0,c1,c2;
+X  int c0min,c0max,c1min,c1max,c2min,c2max;
+X  long ccount;
+X  
+X  c0min = boxp->c0min;  c0max = boxp->c0max;
+X  c1min = boxp->c1min;  c1max = boxp->c1max;
+X  c2min = boxp->c2min;  c2max = boxp->c2max;
+X  
+X  if (c0max > c0min)
+X    for (c0 = c0min; c0 <= c0max; c0++)
+X      for (c1 = c1min; c1 <= c1max; c1++) {
+X	histp = & histogram[c0][c1][c2min];
+X	for (c2 = c2min; c2 <= c2max; c2++)
+X	  if (*histp++ != 0) {
+X	    boxp->c0min = c0min = c0;
+X	    goto have_c0min;
+X	  }
+X      }
+X have_c0min:
+X  if (c0max > c0min)
+X    for (c0 = c0max; c0 >= c0min; c0--)
+X      for (c1 = c1min; c1 <= c1max; c1++) {
+X	histp = & histogram[c0][c1][c2min];
+X	for (c2 = c2min; c2 <= c2max; c2++)
+X	  if (*histp++ != 0) {
+X	    boxp->c0max = c0max = c0;
+X	    goto have_c0max;
+X	  }
+X      }
+X have_c0max:
+X  if (c1max > c1min)
+X    for (c1 = c1min; c1 <= c1max; c1++)
+X      for (c0 = c0min; c0 <= c0max; c0++) {
+X	histp = & histogram[c0][c1][c2min];
+X	for (c2 = c2min; c2 <= c2max; c2++)
+X	  if (*histp++ != 0) {
+X	    boxp->c1min = c1min = c1;
+X	    goto have_c1min;
+X	  }
+X      }
+X have_c1min:
+X  if (c1max > c1min)
+X    for (c1 = c1max; c1 >= c1min; c1--)
+X      for (c0 = c0min; c0 <= c0max; c0++) {
+X	histp = & histogram[c0][c1][c2min];
+X	for (c2 = c2min; c2 <= c2max; c2++)
+X	  if (*histp++ != 0) {
+X	    boxp->c1max = c1max = c1;
+X	    goto have_c1max;
+X	  }
+X      }
+X have_c1max:
+X  if (c2max > c2min)
+X    for (c2 = c2min; c2 <= c2max; c2++)
+X      for (c0 = c0min; c0 <= c0max; c0++) {
+X	histp = & histogram[c0][c1min][c2];
+X	for (c1 = c1min; c1 <= c1max; c1++, histp += HIST_C_ELEMS)
+X	  if (*histp != 0) {
+X	    boxp->c2min = c2min = c2;
+X	    goto have_c2min;
+X	  }
+X      }
+X have_c2min:
+X  if (c2max > c2min)
+X    for (c2 = c2max; c2 >= c2min; c2--)
+X      for (c0 = c0min; c0 <= c0max; c0++) {
+X	histp = & histogram[c0][c1min][c2];
+X	for (c1 = c1min; c1 <= c1max; c1++, histp += HIST_C_ELEMS)
+X	  if (*histp != 0) {
+X	    boxp->c2max = c2max = c2;
+X	    goto have_c2max;
+X	  }
+X      }
+X have_c2max:
+X  
+X  /* Now scan remaining volume of box and compute population */
+X  ccount = 0;
+X  for (c0 = c0min; c0 <= c0max; c0++)
+X    for (c1 = c1min; c1 <= c1max; c1++) {
+X      histp = & histogram[c0][c1][c2min];
+X      for (c2 = c2min; c2 <= c2max; c2++, histp++)
+X	if (*histp != 0) {
+X	  ccount++;
+X	}
+X    }
+X  boxp->colorcount = ccount;
+X}
+X
+X
+XLOCAL void
+Xmedian_cut (int desired_colors)
+X/* Repeatedly select and split the largest box until we have enough boxes */
+X{
+X  int n,lb;
+X  int c0,c1,c2,cmax;
+X  register boxptr b1,b2;
+X
+X  while (numboxes < desired_colors) {
+X    /* Select box to split */
+X    /* Current algorithm: by population for first half, then by volume */
+X    if (numboxes*2 <= desired_colors) {
+X      b1 = find_biggest_color_pop();
+X    } else {
+X      b1 = find_biggest_volume();
+X    }
+X    if (b1 == NULL)		/* no splittable boxes left! */
+X      break;
+X    b2 = &boxlist[numboxes];	/* where new box will go */
+X    /* Copy the color bounds to the new box. */
+X    b2->c0max = b1->c0max; b2->c1max = b1->c1max; b2->c2max = b1->c2max;
+X    b2->c0min = b1->c0min; b2->c1min = b1->c1min; b2->c2min = b1->c2min;
+X    /* Choose which axis to split the box on.
+X     * Current algorithm: longest scaled axis.
+X     * See notes in find_biggest_volume about scaling...
+X     */
+X    c0 = (b1->c0max - b1->c0min) * Y_SCALE;
+X    c1 = (b1->c1max - b1->c1min) << (HIST_Y_BITS-HIST_C_BITS);
+X    c2 = (b1->c2max - b1->c2min) << (HIST_Y_BITS-HIST_C_BITS);
+X    cmax = c0; n = 0;
+X    if (c1 > cmax) { cmax = c1; n = 1; }
+X    if (c2 > cmax) { n = 2; }
+X    /* Choose split point along selected axis, and update box bounds.
+X     * Current algorithm: split at halfway point.
+X     * (Since the box has been shrunk to minimum volume,
+X     * any split will produce two nonempty subboxes.)
+X     * Note that lb value is max for lower box, so must be < old max.
+X     */
+X    switch (n) {
+X    case 0:
+X      lb = (b1->c0max + b1->c0min) / 2;
+X      b1->c0max = lb;
+X      b2->c0min = lb+1;
+X      break;
+X    case 1:
+X      lb = (b1->c1max + b1->c1min) / 2;
+X      b1->c1max = lb;
+X      b2->c1min = lb+1;
+X      break;
+X    case 2:
+X      lb = (b1->c2max + b1->c2min) / 2;
+X      b1->c2max = lb;
+X      b2->c2min = lb+1;
+X      break;
+X    }
+X    /* Update stats for boxes */
+X    update_box(b1);
+X    update_box(b2);
+X    numboxes++;
+X  }
+X}
+X
+X
+XLOCAL void
+Xcompute_color (boxptr boxp, int icolor)
+X/* Compute representative color for a box, put it in my_colormap[icolor] */
+X{
+X  /* Current algorithm: mean weighted by pixels (not colors) */
+X  /* Note it is important to get the rounding correct! */
+X  histptr histp;
+X  int c0,c1,c2;
+X  int c0min,c0max,c1min,c1max,c2min,c2max;
+X  long count;
+X  long total = 0;
+X  long c0total = 0;
+X  long c1total = 0;
+X  long c2total = 0;
+X  
+X  c0min = boxp->c0min;  c0max = boxp->c0max;
+X  c1min = boxp->c1min;  c1max = boxp->c1max;
+X  c2min = boxp->c2min;  c2max = boxp->c2max;
+X  
+X  for (c0 = c0min; c0 <= c0max; c0++)
+X    for (c1 = c1min; c1 <= c1max; c1++) {
+X      histp = & histogram[c0][c1][c2min];
+X      for (c2 = c2min; c2 <= c2max; c2++) {
+X	if ((count = *histp++) != 0) {
+X	  total += count;
+X	  c0total += ((c0 << Y_SHIFT) + ((1<<Y_SHIFT)>>1)) * count;
+X	  c1total += ((c1 << C_SHIFT) + ((1<<C_SHIFT)>>1)) * count;
+X	  c2total += ((c2 << C_SHIFT) + ((1<<C_SHIFT)>>1)) * count;
+X	}
+X      }
+X    }
+X  
+X  my_colormap[0][icolor] = (JSAMPLE) ((c0total + (total>>1)) / total);
+X  my_colormap[1][icolor] = (JSAMPLE) ((c1total + (total>>1)) / total);
+X  my_colormap[2][icolor] = (JSAMPLE) ((c2total + (total>>1)) / total);
+X}
+X
+X
+XLOCAL void
+Xremap_colormap (decompress_info_ptr cinfo)
+X/* Remap the internal colormap to the output colorspace */
+X{
+X  /* This requires a little trickery since color_convert expects to
+X   * deal with 3-D arrays (a 2-D sample array for each component).
+X   * We must promote the colormaps into one-row 3-D arrays.
+X   */
+X  short ci;
+X  JSAMPARRAY input_hack[3];
+X  JSAMPARRAY output_hack[10];	/* assume no more than 10 output components */
+X
+X  for (ci = 0; ci < 3; ci++)
+X    input_hack[ci] = &(my_colormap[ci]);
+X  for (ci = 0; ci < cinfo->color_out_comps; ci++)
+X    output_hack[ci] = &(cinfo->colormap[ci]);
+X
+X  (*cinfo->methods->color_convert) (cinfo, 1,
+X				    (long) cinfo->actual_number_of_colors,
+X				    input_hack, output_hack);
+X}
+X
+X
+XLOCAL void
+Xselect_colors (decompress_info_ptr cinfo)
+X/* Master routine for color selection */
+X{
+X  int desired = cinfo->desired_number_of_colors;
+X  int i;
+X
+X  /* Allocate workspace for box list */
+X  boxlist = (boxptr) (*cinfo->emethods->alloc_small) (desired * SIZEOF(box));
+X  /* Initialize one box containing whole space */
+X  numboxes = 1;
+X  boxlist[0].c0min = 0;
+X  boxlist[0].c0max = MAXJSAMPLE >> Y_SHIFT;
+X  boxlist[0].c1min = 0;
+X  boxlist[0].c1max = MAXJSAMPLE >> C_SHIFT;
+X  boxlist[0].c2min = 0;
+X  boxlist[0].c2max = MAXJSAMPLE >> C_SHIFT;
+X  /* Shrink it to actually-used volume and set its statistics */
+X  update_box(& boxlist[0]);
+X  /* Perform median-cut to produce final box list */
+X  median_cut(desired);
+X  /* Compute the representative color for each box, fill my_colormap[] */
+X  for (i = 0; i < numboxes; i++)
+X    compute_color(& boxlist[i], i);
+X  cinfo->actual_number_of_colors = numboxes;
+X  /* Produce an output colormap in the desired output colorspace */
+X  remap_colormap(cinfo);
+X  TRACEMS1(cinfo->emethods, 1, "Selected %d colors for quantization",
+X	   numboxes);
+X  /* Done with the box list */
+X  (*cinfo->emethods->free_small) ((void *) boxlist);
+X}
+X
+X
+X/*
+X * These routines are concerned with the time-critical task of mapping input
+X * colors to the nearest color in the selected colormap.
+X *
+X * We re-use the histogram space as an "inverse color map", essentially a
+X * cache for the results of nearest-color searches.  All colors within a
+X * histogram cell will be mapped to the same colormap entry, namely the one
+X * closest to the cell's center.  This may not be quite the closest entry to
+X * the actual input color, but it's almost as good.  A zero in the cache
+X * indicates we haven't found the nearest color for that cell yet; the array
+X * is cleared to zeroes before starting the mapping pass.  When we find the
+X * nearest color for a cell, its colormap index plus one is recorded in the
+X * cache for future use.  The pass2 scanning routines call fill_inverse_cmap
+X * when they need to use an unfilled entry in the cache.
+X *
+X * Our method of efficiently finding nearest colors is based on the "locally
+X * sorted search" idea described by Heckbert and on the incremental distance
+X * calculation described by Spencer W. Thomas in chapter III.1 of Graphics
+X * Gems II (James Arvo, ed.  Academic Press, 1991).  Thomas points out that
+X * the distances from a given colormap entry to each cell of the histogram can
+X * be computed quickly using an incremental method: the differences between
+X * distances to adjacent cells themselves differ by a constant.  This allows a
+X * fairly fast implementation of the "brute force" approach of computing the
+X * distance from every colormap entry to every histogram cell.  Unfortunately,
+X * it needs a work array to hold the best-distance-so-far for each histogram
+X * cell (because the inner loop has to be over cells, not colormap entries).
+X * The work array elements have to be INT32s, so the work array would need
+X * 256Kb at our recommended precision.  This is not feasible in DOS machines.
+X * Another disadvantage of the brute force approach is that it computes
+X * distances to every cell of the cubical histogram.  When working with YCbCr
+X * input, only about a quarter of the cube represents realizable colors, so
+X * many of the cells will never be used and filling them is wasted effort.
+X *
+X * To get around these problems, we apply Thomas' method to compute the
+X * nearest colors for only the cells within a small subbox of the histogram.
+X * The work array need be only as big as the subbox, so the memory usage
+X * problem is solved.  A subbox is processed only when some cell in it is
+X * referenced by the pass2 routines, so we will never bother with cells far
+X * outside the realizable color volume.  An additional advantage of this
+X * approach is that we can apply Heckbert's locality criterion to quickly
+X * eliminate colormap entries that are far away from the subbox; typically
+X * three-fourths of the colormap entries are rejected by Heckbert's criterion,
+X * and we need not compute their distances to individual cells in the subbox.
+X * The speed of this approach is heavily influenced by the subbox size: too
+X * small means too much overhead, too big loses because Heckbert's criterion
+X * can't eliminate as many colormap entries.  Empirically the best subbox
+X * size seems to be about 1/512th of the histogram (1/8th in each direction).
+X *
+X * Thomas' article also describes a refined method which is asymptotically
+X * faster than the brute-force method, but it is also far more complex and
+X * cannot efficiently be applied to small subboxes.  It is therefore not
+X * useful for programs intended to be portable to DOS machines.  On machines
+X * with plenty of memory, filling the whole histogram in one shot with Thomas'
+X * refined method might be faster than the present code --- but then again,
+X * it might not be any faster, and it's certainly more complicated.
+X */
+X
+X
+X#ifndef BOX_Y_LOG		/* so you can override from Makefile */
+X#define BOX_Y_LOG  (HIST_Y_BITS-3) /* log2(hist cells in update box, Y axis) */
+X#endif
+X#ifndef BOX_C_LOG		/* so you can override from Makefile */
+X#define BOX_C_LOG  (HIST_C_BITS-3) /* log2(hist cells in update box, C axes) */
+X#endif
+X
+X#define BOX_Y_ELEMS  (1<<BOX_Y_LOG) /* # of hist cells in update box */
+X#define BOX_C_ELEMS  (1<<BOX_C_LOG)
+X
+X#define BOX_Y_SHIFT  (Y_SHIFT + BOX_Y_LOG)
+X#define BOX_C_SHIFT  (C_SHIFT + BOX_C_LOG)
+X
+X
+X/*
+X * The next three routines implement inverse colormap filling.  They could
+X * all be folded into one big routine, but splitting them up this way saves
+X * some stack space (the mindist[] and bestdist[] arrays need not coexist)
+X * and may allow some compilers to produce better code by registerizing more
+X * inner-loop variables.
+X */
+X
+XLOCAL int
+Xfind_nearby_colors (decompress_info_ptr cinfo, int minc0, int minc1, int minc2,
+X		    JSAMPLE colorlist[])
+X/* Locate the colormap entries close enough to an update box to be candidates
+X * for the nearest entry to some cell(s) in the update box.  The update box
+X * is specified by the center coordinates of its first cell.  The number of
+X * candidate colormap entries is returned, and their colormap indexes are
+X * placed in colorlist[].
+X * This routine uses Heckbert's "locally sorted search" criterion to select
+X * the colors that need further consideration.
+X */
+X{
+X  int numcolors = cinfo->actual_number_of_colors;
+X  int maxc0, maxc1, maxc2;
+X  int centerc0, centerc1, centerc2;
+X  int i, x, ncolors;
+X  INT32 minmaxdist, min_dist, max_dist, tdist;
+X  INT32 mindist[MAXNUMCOLORS];	/* min distance to colormap entry i */
+X
+X  /* Compute true coordinates of update box's upper corner and center.
+X   * Actually we compute the coordinates of the center of the upper-corner
+X   * histogram cell, which are the upper bounds of the volume we care about.
+X   * Note that since ">>" rounds down, the "center" values may be closer to
+X   * min than to max; hence comparisons to them must be "<=", not "<".
+X   */
+X  maxc0 = minc0 + ((1 << BOX_Y_SHIFT) - (1 << Y_SHIFT));
+X  centerc0 = (minc0 + maxc0) >> 1;
+X  maxc1 = minc1 + ((1 << BOX_C_SHIFT) - (1 << C_SHIFT));
+X  centerc1 = (minc1 + maxc1) >> 1;
+X  maxc2 = minc2 + ((1 << BOX_C_SHIFT) - (1 << C_SHIFT));
+X  centerc2 = (minc2 + maxc2) >> 1;
+X
+X  /* For each color in colormap, find:
+X   *  1. its minimum squared-distance to any point in the update box
+X   *     (zero if color is within update box);
+X   *  2. its maximum squared-distance to any point in the update box.
+X   * Both of these can be found by considering only the corners of the box.
+X   * We save the minimum distance for each color in mindist[];
+X   * only the smallest maximum distance is of interest.
+X   * Note we have to scale Y to get correct distance in scaled space.
+X   */
+X  minmaxdist = 0x7FFFFFFFL;
+X
+X  for (i = 0; i < numcolors; i++) {
+X    /* We compute the squared-c0-distance term, then add in the other two. */
+X    x = GETJSAMPLE(my_colormap[0][i]);
+X    if (x < minc0) {
+X      tdist = (x - minc0) * Y_SCALE;
+X      min_dist = tdist*tdist;
+X      tdist = (x - maxc0) * Y_SCALE;
+X      max_dist = tdist*tdist;
+X    } else if (x > maxc0) {
+X      tdist = (x - maxc0) * Y_SCALE;
+X      min_dist = tdist*tdist;
+X      tdist = (x - minc0) * Y_SCALE;
+X      max_dist = tdist*tdist;
+X    } else {
+X      /* within cell range so no contribution to min_dist */
+X      min_dist = 0;
+X      if (x <= centerc0) {
+X	tdist = (x - maxc0) * Y_SCALE;
+X	max_dist = tdist*tdist;
+X      } else {
+X	tdist = (x - minc0) * Y_SCALE;
+X	max_dist = tdist*tdist;
+X      }
+X    }
+X
+X    x = GETJSAMPLE(my_colormap[1][i]);
+X    if (x < minc1) {
+X      tdist = x - minc1;
+X      min_dist += tdist*tdist;
+X      tdist = x - maxc1;
+X      max_dist += tdist*tdist;
+X    } else if (x > maxc1) {
+X      tdist = x - maxc1;
+X      min_dist += tdist*tdist;
+X      tdist = x - minc1;
+X      max_dist += tdist*tdist;
+X    } else {
+X      /* within cell range so no contribution to min_dist */
+X      if (x <= centerc1) {
+X	tdist = x - maxc1;
+X	max_dist += tdist*tdist;
+X      } else {
+X	tdist = x - minc1;
+X	max_dist += tdist*tdist;
+X      }
+X    }
+X
+X    x = GETJSAMPLE(my_colormap[2][i]);
+X    if (x < minc2) {
+X      tdist = x - minc2;
+X      min_dist += tdist*tdist;
+X      tdist = x - maxc2;
+X      max_dist += tdist*tdist;
+X    } else if (x > maxc2) {
+X      tdist = x - maxc2;
+X      min_dist += tdist*tdist;
+X      tdist = x - minc2;
+X      max_dist += tdist*tdist;
+X    } else {
+X      /* within cell range so no contribution to min_dist */
+X      if (x <= centerc2) {
+X	tdist = x - maxc2;
+X	max_dist += tdist*tdist;
+X      } else {
+X	tdist = x - minc2;
+X	max_dist += tdist*tdist;
+X      }
+X    }
+X
+X    mindist[i] = min_dist;	/* save away the results */
+X    if (max_dist < minmaxdist)
+X      minmaxdist = max_dist;
+X  }
+X
+X  /* Now we know that no cell in the update box is more than minmaxdist
+X   * away from some colormap entry.  Therefore, only colors that are
+X   * within minmaxdist of some part of the box need be considered.
+X   */
+X  ncolors = 0;
+X  for (i = 0; i < numcolors; i++) {
+X    if (mindist[i] <= minmaxdist)
+X      colorlist[ncolors++] = (JSAMPLE) i;
+X  }
+X  return ncolors;
+X}
+X
+X
+XLOCAL void
+Xfind_best_colors (decompress_info_ptr cinfo, int minc0, int minc1, int minc2,
+X		  int numcolors, JSAMPLE colorlist[], JSAMPLE bestcolor[])
+X/* Find the closest colormap entry for each cell in the update box,
+X * given the list of candidate colors prepared by find_nearby_colors.
+X * Return the indexes of the closest entries in the bestcolor[] array.
+X * This routine uses Thomas' incremental distance calculation method to
+X * find the distance from a colormap entry to successive cells in the box.
+X */
+X{
+X  int ic0, ic1, ic2;
+X  int i, icolor;
+X  register INT32 * bptr;	/* pointer into bestdist[] array */
+X  JSAMPLE * cptr;		/* pointer into bestcolor[] array */
+X  INT32 dist0, dist1;		/* initial distance values */
+X  register INT32 dist2;		/* current distance in inner loop */
+X  INT32 xx0, xx1;		/* distance increments */
+X  register INT32 xx2;
+X  INT32 inc0, inc1, inc2;	/* initial values for increments */
+X  /* This array holds the distance to the nearest-so-far color for each cell */
+X  INT32 bestdist[BOX_Y_ELEMS * BOX_C_ELEMS * BOX_C_ELEMS];
+X
+X  /* Initialize best-distance for each cell of the update box */
+X  bptr = bestdist;
+X  for (i = BOX_Y_ELEMS*BOX_C_ELEMS*BOX_C_ELEMS-1; i >= 0; i--)
+X    *bptr++ = 0x7FFFFFFFL;
+X  
+X  /* For each color selected by find_nearby_colors,
+X   * compute its distance to the center of each cell in the box.
+X   * If that's less than best-so-far, update best distance and color number.
+X   * Note we have to scale Y to get correct distance in scaled space.
+X   */
+X  
+X  /* Nominal steps between cell centers ("x" in Thomas article) */
+X#define STEP_Y  ((1 << Y_SHIFT) * Y_SCALE)
+X#define STEP_C  (1 << C_SHIFT)
+X  
+X  for (i = 0; i < numcolors; i++) {
+X    icolor = GETJSAMPLE(colorlist[i]);
+X    /* Compute (square of) distance from minc0/c1/c2 to this color */
+X    inc0 = (minc0 - (int) GETJSAMPLE(my_colormap[0][icolor])) * Y_SCALE;
+X    dist0 = inc0*inc0;
+X    inc1 = minc1 - (int) GETJSAMPLE(my_colormap[1][icolor]);
+X    dist0 += inc1*inc1;
+X    inc2 = minc2 - (int) GETJSAMPLE(my_colormap[2][icolor]);
+X    dist0 += inc2*inc2;
+X    /* Form the initial difference increments */
+X    inc0 = inc0 * (2 * STEP_Y) + STEP_Y * STEP_Y;
+X    inc1 = inc1 * (2 * STEP_C) + STEP_C * STEP_C;
+X    inc2 = inc2 * (2 * STEP_C) + STEP_C * STEP_C;
+X    /* Now loop over all cells in box, updating distance per Thomas method */
+X    bptr = bestdist;
+X    cptr = bestcolor;
+X    xx0 = inc0;
+X    for (ic0 = BOX_Y_ELEMS-1; ic0 >= 0; ic0--) {
+X      dist1 = dist0;
+X      xx1 = inc1;
+X      for (ic1 = BOX_C_ELEMS-1; ic1 >= 0; ic1--) {
+X	dist2 = dist1;
+X	xx2 = inc2;
+X	for (ic2 = BOX_C_ELEMS-1; ic2 >= 0; ic2--) {
+X	  if (dist2 < *bptr) {
+X	    *bptr = dist2;
+X	    *cptr = (JSAMPLE) icolor;
+X	  }
+X	  dist2 += xx2;
+X	  xx2 += 2 * STEP_C * STEP_C;
+X	  bptr++;
+X	  cptr++;
+X	}
+X	dist1 += xx1;
+X	xx1 += 2 * STEP_C * STEP_C;
+X      }
+X      dist0 += xx0;
+X      xx0 += 2 * STEP_Y * STEP_Y;
+X    }
+X  }
+X}
+X
+X
+XLOCAL void
+Xfill_inverse_cmap (decompress_info_ptr cinfo, int c0, int c1, int c2)
+X/* Fill the inverse-colormap entries in the update box that contains */
+X/* histogram cell c0/c1/c2.  (Only that one cell MUST be filled, but */
+X/* we can fill as many others as we wish.) */
+X{
+X  int minc0, minc1, minc2;	/* lower left corner of update box */
+X  int ic0, ic1, ic2;
+X  register JSAMPLE * cptr;	/* pointer into bestcolor[] array */
+X  register histptr cachep;	/* pointer into main cache array */
+X  /* This array lists the candidate colormap indexes. */
+X  JSAMPLE colorlist[MAXNUMCOLORS];
+X  int numcolors;		/* number of candidate colors */
+X  /* This array holds the actually closest colormap index for each cell. */
+X  JSAMPLE bestcolor[BOX_Y_ELEMS * BOX_C_ELEMS * BOX_C_ELEMS];
+X
+X  /* Convert cell coordinates to update box ID */
+X  c0 >>= BOX_Y_LOG;
+X  c1 >>= BOX_C_LOG;
+X  c2 >>= BOX_C_LOG;
+X
+X  /* Compute true coordinates of update box's origin corner.
+X   * Actually we compute the coordinates of the center of the corner
+X   * histogram cell, which are the lower bounds of the volume we care about.
+X   */
+X  minc0 = (c0 << BOX_Y_SHIFT) + ((1 << Y_SHIFT) >> 1);
+X  minc1 = (c1 << BOX_C_SHIFT) + ((1 << C_SHIFT) >> 1);
+X  minc2 = (c2 << BOX_C_SHIFT) + ((1 << C_SHIFT) >> 1);
+X  
+X  /* Determine which colormap entries are close enough to be candidates
+X   * for the nearest entry to some cell in the update box.
+X   */
+X  numcolors = find_nearby_colors(cinfo, minc0, minc1, minc2, colorlist);
+X
+X  /* Determine the actually nearest colors. */
+X  find_best_colors(cinfo, minc0, minc1, minc2, numcolors, colorlist,
+X		   bestcolor);
+X
+X  /* Save the best color numbers (plus 1) in the main cache array */
+X  c0 <<= BOX_Y_LOG;		/* convert ID back to base cell indexes */
+X  c1 <<= BOX_C_LOG;
+X  c2 <<= BOX_C_LOG;
+X  cptr = bestcolor;
+X  for (ic0 = 0; ic0 < BOX_Y_ELEMS; ic0++) {
+X    for (ic1 = 0; ic1 < BOX_C_ELEMS; ic1++) {
+X      cachep = & histogram[c0+ic0][c1+ic1][c2];
+X      for (ic2 = 0; ic2 < BOX_C_ELEMS; ic2++) {
+X	*cachep++ = (histcell) (GETJSAMPLE(*cptr++) + 1);
+X      }
+X    }
+X  }
+X}
+X
+X
+X/*
+X * These routines perform second-pass scanning of the image: map each pixel to
+X * the proper colormap index, and output the indexes to the output file.
+X *
+X * output_workspace is a one-component array of pixel dimensions at least
+X * as large as the input image strip; it can be used to hold the converted
+X * pixels' colormap indexes.
+X */
+X
+XMETHODDEF void
+Xpass2_nodither (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE image_data, JSAMPARRAY output_workspace)
+X/* This version performs no dithering */
+X{
+X  register JSAMPROW ptr0, ptr1, ptr2, outptr;
+X  register histptr cachep;
+X  register int c0, c1, c2;
+X  int row;
+X  long col;
+X  long width = cinfo->image_width;
+X
+X  /* Convert data to colormap indexes, which we save in output_workspace */
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = image_data[0][row];
+X    ptr1 = image_data[1][row];
+X    ptr2 = image_data[2][row];
+X    outptr = output_workspace[row];
+X    for (col = width; col > 0; col--) {
+X      /* get pixel value and index into the cache */
+X      c0 = GETJSAMPLE(*ptr0++) >> Y_SHIFT;
+X      c1 = GETJSAMPLE(*ptr1++) >> C_SHIFT;
+X      c2 = GETJSAMPLE(*ptr2++) >> C_SHIFT;
+X      cachep = & histogram[c0][c1][c2];
+X      /* If we have not seen this color before, find nearest colormap entry */
+X      /* and update the cache */
+X      if (*cachep == 0)
+X	fill_inverse_cmap(cinfo, c0,c1,c2);
+X      /* Now emit the colormap index for this cell */
+X      *outptr++ = (JSAMPLE) (*cachep - 1);
+X    }
+X  }
+X  /* Emit converted rows to the output file */
+X  (*cinfo->methods->put_pixel_rows) (cinfo, num_rows, &output_workspace);
+X}
+X
+X
+X/* Declarations for Floyd-Steinberg dithering.
+X *
+X * Errors are accumulated into the arrays evenrowerrs[] and oddrowerrs[].
+X * These have resolutions of 1/16th of a pixel count.  The error at a given
+X * pixel is propagated to its unprocessed neighbors using the standard F-S
+X * fractions,
+X *		...	(here)	7/16
+X *		3/16	5/16	1/16
+X * We work left-to-right on even rows, right-to-left on odd rows.
+X *
+X * Each of the arrays has (#columns + 2) entries; the extra entry
+X * at each end saves us from special-casing the first and last pixels.
+X * Each entry is three values long.
+X * In evenrowerrs[], the entries for a component are stored left-to-right, but
+X * in oddrowerrs[] they are stored right-to-left.  This means we always
+X * process the current row's error entries in increasing order and the next
+X * row's error entries in decreasing order, regardless of whether we are
+X * working L-to-R or R-to-L in the pixel data!
+X *
+X * Note: on a wide image, we might not have enough room in a PC's near data
+X * segment to hold the error arrays; so they are allocated with alloc_medium.
+X */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+Xtypedef INT16 FSERROR;		/* 16 bits should be enough */
+X#else
+Xtypedef INT32 FSERROR;		/* may need more than 16 bits? */
+X#endif
+X
+Xtypedef FSERROR FAR *FSERRPTR;	/* pointer to error array (in FAR storage!) */
+X
+Xstatic FSERRPTR evenrowerrs, oddrowerrs; /* current-row and next-row errors */
+Xstatic boolean on_odd_row;	/* flag to remember which row we are on */
+X
+X
+XMETHODDEF void
+Xpass2_dither (decompress_info_ptr cinfo, int num_rows,
+X	      JSAMPIMAGE image_data, JSAMPARRAY output_workspace)
+X/* This version performs Floyd-Steinberg dithering */
+X{
+X  register FSERROR val;
+X  register FSERRPTR thisrowerr, nextrowerr;
+X  register FSERROR c0, c1, c2;
+X  register int pixcode;
+X  JSAMPROW ptr0, ptr1, ptr2, outptr;
+X  histptr cachep;
+X  int dir;
+X  long col;
+X  int row;
+X  long width = cinfo->image_width;
+X
+X  /* Convert data to colormap indexes, which we save in output_workspace */
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = image_data[0][row];
+X    ptr1 = image_data[1][row];
+X    ptr2 = image_data[2][row];
+X    outptr = output_workspace[row];
+X    if (on_odd_row) {
+X      /* work right to left in this row */
+X      ptr0 += width - 1;
+X      ptr1 += width - 1;
+X      ptr2 += width - 1;
+X      outptr += width - 1;
+X      dir = -1;
+X      thisrowerr = oddrowerrs + 3;
+X      nextrowerr = evenrowerrs + width*3;
+X      on_odd_row = FALSE;	/* flip for next time */
+X    } else {
+X      /* work left to right in this row */
+X      dir = 1;
+X      thisrowerr = evenrowerrs + 3;
+X      nextrowerr = oddrowerrs + width*3;
+X      on_odd_row = TRUE;	/* flip for next time */
+X    }
+X    /* need only initialize this one entry in nextrowerr */
+X    nextrowerr[0] = nextrowerr[1] = nextrowerr[2] = 0;
+X    for (col = width; col > 0; col--) {
+X      /* Get this pixel's value and add accumulated errors */
+X      /* The errors are in units of 1/16th pixel value */
+X      val = (GETJSAMPLE(*ptr0) << 4) + thisrowerr[0];
+X      if (val <= 0) val = 0;	/* must watch for range overflow! */
+X      else {
+X	val += 8;		/* divide by 16 with proper rounding */
+X	val >>= 4;
+X	if (val > MAXJSAMPLE) val = MAXJSAMPLE;
+X      }
+X      c0 = val;
+X      val = (GETJSAMPLE(*ptr1) << 4) + thisrowerr[1];
+X      if (val <= 0) val = 0;	/* must watch for range overflow! */
+X      else {
+X	val += 8;		/* divide by 16 with proper rounding */
+X	val >>= 4;
+X	if (val > MAXJSAMPLE) val = MAXJSAMPLE;
+X      }
+X      c1 = val;
+X      val = (GETJSAMPLE(*ptr2) << 4) + thisrowerr[2];
+X      if (val <= 0) val = 0;	/* must watch for range overflow! */
+X      else {
+X	val += 8;		/* divide by 16 with proper rounding */
+X	val >>= 4;
+X	if (val > MAXJSAMPLE) val = MAXJSAMPLE;
+X      }
+X      c2 = val;
+X      /* Index into the cache with adjusted value */
+X      cachep = & histogram[c0 >> Y_SHIFT][c1 >> C_SHIFT][c2 >> C_SHIFT];
+X      /* If we have not seen this color before, find nearest colormap */
+X      /* entry and update the cache */
+X      if (*cachep == 0)
+X	fill_inverse_cmap(cinfo, c0 >> Y_SHIFT, c1 >> C_SHIFT, c2 >> C_SHIFT);
+X      /* Now emit the colormap index for this cell */
+X      pixcode = *cachep - 1;
+X      *outptr = (JSAMPLE) pixcode;
+X      /* Compute representation error for this pixel */
+X      c0 -= (FSERROR) GETJSAMPLE(my_colormap[0][pixcode]);
+X      c1 -= (FSERROR) GETJSAMPLE(my_colormap[1][pixcode]);
+X      c2 -= (FSERROR) GETJSAMPLE(my_colormap[2][pixcode]);
+X      /* Propagate error to adjacent pixels */
+X      /* Remember that nextrowerr entries are in reverse order! */
+X      val = c0 * 2;
+X      nextrowerr[0-3]  = c0;	/* not +=, since not initialized yet */
+X      c0 += val;		/* form error * 3 */
+X      nextrowerr[0+3] += c0;
+X      c0 += val;		/* form error * 5 */
+X      nextrowerr[0  ] += c0;
+X      c0 += val;		/* form error * 7 */
+X      thisrowerr[0+3] += c0;
+X      val = c1 * 2;
+X      nextrowerr[1-3]  = c1;	/* not +=, since not initialized yet */
+X      c1 += val;		/* form error * 3 */
+X      nextrowerr[1+3] += c1;
+X      c1 += val;		/* form error * 5 */
+X      nextrowerr[1  ] += c1;
+X      c1 += val;		/* form error * 7 */
+X      thisrowerr[1+3] += c1;
+X      val = c2 * 2;
+X      nextrowerr[2-3]  = c2;	/* not +=, since not initialized yet */
+X      c2 += val;		/* form error * 3 */
+X      nextrowerr[2+3] += c2;
+X      c2 += val;		/* form error * 5 */
+X      nextrowerr[2  ] += c2;
+X      c2 += val;		/* form error * 7 */
+X      thisrowerr[2+3] += c2;
+X      /* Advance to next column */
+X      ptr0 += dir;
+X      ptr1 += dir;
+X      ptr2 += dir;
+X      outptr += dir;
+X      thisrowerr += 3;		/* cur-row error ptr advances to right */
+X      nextrowerr -= 3;		/* next-row error ptr advances to left */
+X    }
+X  }
+X  /* Emit converted rows to the output file */
+X  (*cinfo->methods->put_pixel_rows) (cinfo, num_rows, &output_workspace);
+X}
+X
+X
+X/*
+X * Initialize for two-pass color quantization.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_init (decompress_info_ptr cinfo)
+X{
+X  int i;
+X
+X  /* Lower bound on # of colors ... somewhat arbitrary as long as > 0 */
+X  if (cinfo->desired_number_of_colors < 8)
+X    ERREXIT(cinfo->emethods, "Cannot request less than 8 quantized colors");
+X  /* Make sure colormap indexes can be represented by JSAMPLEs */
+X  if (cinfo->desired_number_of_colors > MAXNUMCOLORS)
+X    ERREXIT1(cinfo->emethods, "Cannot request more than %d quantized colors",
+X	     MAXNUMCOLORS);
+X
+X  /* Allocate and zero the histogram */
+X  histogram = (hist3d) (*cinfo->emethods->alloc_small)
+X				(HIST_Y_ELEMS * SIZEOF(hist2d));
+X  for (i = 0; i < HIST_Y_ELEMS; i++) {
+X    histogram[i] = (hist2d) (*cinfo->emethods->alloc_medium)
+X				(HIST_C_ELEMS*HIST_C_ELEMS * SIZEOF(histcell));
+X    jzero_far((void FAR *) histogram[i],
+X	      HIST_C_ELEMS*HIST_C_ELEMS * SIZEOF(histcell));
+X  }
+X
+X  /* Allocate storage for the internal and external colormaps. */
+X  /* We do this now since it is FAR storage and may affect the memory */
+X  /* manager's space calculations. */
+X  my_colormap = (*cinfo->emethods->alloc_small_sarray)
+X			((long) cinfo->desired_number_of_colors,
+X			 (long) 3);
+X  cinfo->colormap = (*cinfo->emethods->alloc_small_sarray)
+X			((long) cinfo->desired_number_of_colors,
+X			 (long) cinfo->color_out_comps);
+X
+X  /* Allocate Floyd-Steinberg workspace if necessary */
+X  /* This isn't needed until pass 2, but again it is FAR storage. */
+X  if (cinfo->use_dithering) {
+X    size_t arraysize = (size_t) ((cinfo->image_width + 2L) * 3L * SIZEOF(FSERROR));
+X
+X    evenrowerrs = (FSERRPTR) (*cinfo->emethods->alloc_medium) (arraysize);
+X    oddrowerrs  = (FSERRPTR) (*cinfo->emethods->alloc_medium) (arraysize);
+X    /* we only need to zero the forward contribution for current row. */
+X    jzero_far((void FAR *) evenrowerrs, arraysize);
+X    on_odd_row = FALSE;
+X  }
+X
+X  /* Indicate number of passes needed, excluding the prescan pass. */
+X  cinfo->total_passes++;	/* I always use one pass */
+X}
+X
+X
+X/*
+X * Perform two-pass quantization: rescan the image data and output the
+X * converted data via put_color_map and put_pixel_rows.
+X * The source_method is a routine that can scan the image data; it can
+X * be called as many times as desired.  The processing routine called by
+X * source_method has the same interface as color_quantize does in the
+X * one-pass case, except it must call put_pixel_rows itself.  (This allows
+X * me to use multiple passes in which earlier passes don't output anything.)
+X */
+X
+XMETHODDEF void
+Xcolor_quant_doit (decompress_info_ptr cinfo, quantize_caller_ptr source_method)
+X{
+X  int i;
+X
+X  /* Select the representative colors */
+X  select_colors(cinfo);
+X  /* Pass the external colormap to the output module. */
+X  /* NB: the output module may continue to use the colormap until shutdown. */
+X  (*cinfo->methods->put_color_map) (cinfo, cinfo->actual_number_of_colors,
+X				    cinfo->colormap);
+X  /* Re-zero the histogram so pass 2 can use it as nearest-color cache */
+X  for (i = 0; i < HIST_Y_ELEMS; i++) {
+X    jzero_far((void FAR *) histogram[i],
+X	      HIST_C_ELEMS*HIST_C_ELEMS * SIZEOF(histcell));
+X  }
+X  /* Perform pass 2 */
+X  if (cinfo->use_dithering)
+X    (*source_method) (cinfo, pass2_dither);
+X  else
+X    (*source_method) (cinfo, pass2_nodither);
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xcolor_quant_term (decompress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the histogram/cache and colormaps) */
+X  /* Note that we *mustn't* free the external colormap before free_all, */
+X  /* since output module may use it! */
+X}
+X
+X
+X/*
+X * Map some rows of pixels to the output colormapped representation.
+X * Not used in two-pass case.
+X */
+X
+XMETHODDEF void
+Xcolor_quantize (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE input_data, JSAMPARRAY output_data)
+X{
+X  ERREXIT(cinfo->emethods, "Should not get here!");
+X}
+X
+X
+X/*
+X * The method selection routine for 2-pass color quantization.
+X */
+X
+XGLOBAL void
+Xjsel2quantize (decompress_info_ptr cinfo)
+X{
+X  if (cinfo->two_pass_quantize) {
+X    /* Make sure jdmaster didn't give me a case I can't handle */
+X    if (cinfo->num_components != 3 || cinfo->jpeg_color_space != CS_YCbCr)
+X      ERREXIT(cinfo->emethods, "2-pass quantization only handles YCbCr input");
+X    cinfo->methods->color_quant_init = color_quant_init;
+X    cinfo->methods->color_quant_prescan = color_quant_prescan;
+X    cinfo->methods->color_quant_doit = color_quant_doit;
+X    cinfo->methods->color_quant_term = color_quant_term;
+X    cinfo->methods->color_quantize = color_quantize;
+X  }
+X}
+X
+X#endif /* QUANT_2PASS_SUPPORTED */
+END_OF_FILE
+  if test 42181 -ne `wc -c <'jquant2.c'`; then
+    echo shar: \"'jquant2.c'\" unpacked with wrong size!
+  fi
+  # end of 'jquant2.c'
+fi
+if test -f 'jrdppm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrdppm.c'\"
+else
+  echo shar: Extracting \"'jrdppm.c'\" \(8944 characters\)
+  sed "s/^X//" >'jrdppm.c' <<'END_OF_FILE'
+X/*
+X * jrdppm.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to read input images in PPM format.
+X * The PBMPLUS library is NOT required to compile this software,
+X * but it is highly useful as a set of PPM image manipulation programs.
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume input from
+X * an ordinary stdio stream.  They further assume that reading begins
+X * at the start of the file; input_init may need work if the
+X * user interface has already read some data (e.g., to determine that
+X * the file is indeed PPM format).
+X *
+X * These routines are invoked via the methods get_input_row
+X * and input_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef PPM_SUPPORTED
+X
+X
+Xstatic JSAMPLE * rescale;	/* => maxval-remapping array, or NULL */
+X
+X
+X/* Portions of this code are based on the PBMPLUS library, which is:
+X**
+X** Copyright (C) 1988 by Jef Poskanzer.
+X**
+X** Permission to use, copy, modify, and distribute this software and its
+X** documentation for any purpose and without fee is hereby granted, provided
+X** that the above copyright notice appear in all copies and that both that
+X** copyright notice and this permission notice appear in supporting
+X** documentation.  This software is provided "as is" without express or
+X** implied warranty.
+X*/
+X
+X
+XLOCAL int
+Xpbm_getc (FILE * file)
+X/* Read next char, skipping over any comments */
+X/* A comment/newline sequence is returned as a newline */
+X{
+X  register int ch;
+X  
+X  ch = getc(file);
+X  if (ch == '#') {
+X    do {
+X      ch = getc(file);
+X    } while (ch != '\n' && ch != EOF);
+X  }
+X  return ch;
+X}
+X
+X
+XLOCAL unsigned int
+Xread_pbm_integer (compress_info_ptr cinfo)
+X/* Read an unsigned decimal integer from the PPM file */
+X/* Swallows one trailing character after the integer */
+X/* Note that on a 16-bit-int machine, only values up to 64k can be read. */
+X/* This should not be a problem in practice. */
+X{
+X  register int ch;
+X  register unsigned int val;
+X  
+X  /* Skip any leading whitespace */
+X  do {
+X    ch = pbm_getc(cinfo->input_file);
+X    if (ch == EOF)
+X      ERREXIT(cinfo->emethods, "Premature EOF in PPM file");
+X  } while (ch == ' ' || ch == '\t' || ch == '\n');
+X  
+X  if (ch < '0' || ch > '9')
+X    ERREXIT(cinfo->emethods, "Bogus data in PPM file");
+X  
+X  val = ch - '0';
+X  while ((ch = pbm_getc(cinfo->input_file)) >= '0' && ch <= '9') {
+X    val *= 10;
+X    val += ch - '0';
+X  }
+X  return val;
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X *
+X * We provide several different versions depending on input file format.
+X * In all cases, input is scaled to the size of JSAMPLE; it's possible that
+X * when JSAMPLE is 12 bits, this would not really be desirable.
+X *
+X * Note that a really fast path is provided for reading raw files with
+X * maxval = MAXJSAMPLE, which is the normal case (at least for 8-bit JSAMPLEs).
+X */
+X
+X
+XMETHODDEF void
+Xget_text_gray_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading text-format PGM files with any maxval */
+X{
+X  register JSAMPROW ptr0;
+X  register unsigned int val;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    val = read_pbm_integer(cinfo);
+X    if (rescale != NULL)
+X      val = rescale[val];
+X    *ptr0++ = (JSAMPLE) val;
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xget_text_rgb_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading text-format PPM files with any maxval */
+X{
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register unsigned int val;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    val = read_pbm_integer(cinfo);
+X    if (rescale != NULL)
+X      val = rescale[val];
+X    *ptr0++ = (JSAMPLE) val;
+X    val = read_pbm_integer(cinfo);
+X    if (rescale != NULL)
+X      val = rescale[val];
+X    *ptr1++ = (JSAMPLE) val;
+X    val = read_pbm_integer(cinfo);
+X    if (rescale != NULL)
+X      val = rescale[val];
+X    *ptr2++ = (JSAMPLE) val;
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xget_scaled_gray_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading raw-format PGM files with any maxval */
+X{
+X  register FILE * infile = cinfo->input_file;
+X  register JSAMPROW ptr0;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    *ptr0++ = rescale[getc(infile)];
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xget_scaled_rgb_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading raw-format PPM files with any maxval */
+X{
+X  register FILE * infile = cinfo->input_file;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    *ptr0++ = rescale[getc(infile)];
+X    *ptr1++ = rescale[getc(infile)];
+X    *ptr2++ = rescale[getc(infile)];
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xget_raw_gray_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading raw-format PGM files with maxval = MAXJSAMPLE */
+X{
+X  register FILE * infile = cinfo->input_file;
+X  register JSAMPROW ptr0;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    *ptr0++ = (JSAMPLE) getc(infile);
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xget_raw_rgb_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading raw-format PPM files with maxval = MAXJSAMPLE */
+X{
+X  register FILE * infile = cinfo->input_file;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    *ptr0++ = (JSAMPLE) getc(infile);
+X    *ptr1++ = (JSAMPLE) getc(infile);
+X    *ptr2++ = (JSAMPLE) getc(infile);
+X  }
+X}
+X
+X
+X/*
+X * Read the file header; return image size and component count.
+X */
+X
+XMETHODDEF void
+Xinput_init (compress_info_ptr cinfo)
+X{
+X  int c;
+X  unsigned int w, h, maxval;
+X
+X  if (getc(cinfo->input_file) != 'P')
+X    ERREXIT(cinfo->emethods, "Not a PPM file");
+X
+X  c = getc(cinfo->input_file);	/* save format discriminator for a sec */
+X
+X  w = read_pbm_integer(cinfo);	/* while we fetch the header info */
+X  h = read_pbm_integer(cinfo);
+X  maxval = read_pbm_integer(cinfo);
+X
+X  switch (c) {
+X  case '2':			/* it's a text-format PGM file */
+X    cinfo->methods->get_input_row = get_text_gray_row;
+X    cinfo->input_components = 1;
+X    cinfo->in_color_space = CS_GRAYSCALE;
+X    break;
+X
+X  case '3':			/* it's a text-format PPM file */
+X    cinfo->methods->get_input_row = get_text_rgb_row;
+X    cinfo->input_components = 3;
+X    cinfo->in_color_space = CS_RGB;
+X    break;
+X
+X  case '5':			/* it's a raw-format PGM file */
+X    if (maxval == MAXJSAMPLE)
+X      cinfo->methods->get_input_row = get_raw_gray_row;
+X    else
+X      cinfo->methods->get_input_row = get_scaled_gray_row;
+X    cinfo->input_components = 1;
+X    cinfo->in_color_space = CS_GRAYSCALE;
+X    break;
+X
+X  case '6':			/* it's a raw-format PPM file */
+X    if (maxval == MAXJSAMPLE)
+X      cinfo->methods->get_input_row = get_raw_rgb_row;
+X    else
+X      cinfo->methods->get_input_row = get_scaled_rgb_row;
+X    cinfo->input_components = 3;
+X    cinfo->in_color_space = CS_RGB;
+X    break;
+X
+X  default:
+X    ERREXIT(cinfo->emethods, "Not a PPM file");
+X    break;
+X  }
+X
+X  if (w <= 0 || h <= 0 || maxval <= 0) /* error check */
+X    ERREXIT(cinfo->emethods, "Not a PPM file");
+X
+X  /* Compute the rescaling array if necessary */
+X  /* This saves per-pixel calculation */
+X  if (maxval == MAXJSAMPLE)
+X    rescale = NULL;		/* no rescaling required */
+X  else {
+X    INT32 val, half_maxval;
+X
+X    /* On 16-bit-int machines we have to be careful of maxval = 65535 */
+X    rescale = (JSAMPLE *) (*cinfo->emethods->alloc_small)
+X			((size_t) (((long) maxval + 1L) * SIZEOF(JSAMPLE)));
+X    half_maxval = maxval / 2;
+X    for (val = 0; val <= (INT32) maxval; val++) {
+X      /* The multiplication here must be done in 32 bits to avoid overflow */
+X      rescale[val] = (JSAMPLE) ((val * MAXJSAMPLE + half_maxval) / maxval);
+X    }
+X  }
+X
+X  cinfo->image_width = w;
+X  cinfo->image_height = h;
+X  cinfo->data_precision = BITS_IN_JSAMPLE;
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xinput_term (compress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/*
+X * The method selection routine for PPM format input.
+X * Note that this must be called by the user interface before calling
+X * jpeg_compress.  If multiple input formats are supported, the
+X * user interface is responsible for discovering the file format and
+X * calling the appropriate method selection routine.
+X */
+X
+XGLOBAL void
+Xjselrppm (compress_info_ptr cinfo)
+X{
+X  cinfo->methods->input_init = input_init;
+X  /* cinfo->methods->get_input_row is set by input_init */
+X  cinfo->methods->input_term = input_term;
+X}
+X
+X#endif /* PPM_SUPPORTED */
+END_OF_FILE
+  if test 8944 -ne `wc -c <'jrdppm.c'`; then
+    echo shar: \"'jrdppm.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrdppm.c'
+fi
+echo shar: End of archive 2 \(of 18\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

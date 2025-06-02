@@ -1,0 +1,628 @@
+Newsgroups: comp.sources.misc
+From: seb3@gte.com (Steve Belczyk)
+Subject: v36i022:  uqwk - A QWK "door" for Unix, Patch01
+Message-ID: <1993Mar19.202157.13202@sparky.imd.sterling.com>
+X-Md4-Signature: 062ef82c523641f8911d362a751bd004
+Date: Fri, 19 Mar 1993 20:21:57 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: seb3@gte.com (Steve Belczyk)
+Posting-number: Volume 36, Issue 22
+Archive-name: uqwk/patch01
+Environment: UNIX
+Patch-To: uqwk: Volume 36, Issue 8
+
+This patch updates the previously posted uqwk to version 1.1.  Thanks
+to Thomas Bullinger, John Temples, and Russell Schultz for finding bugs
+and suggesting changes.
+
+Changes:
+
+- A new switch, "-l" to limit the length of newsgroup names.
+- Core dumps on unsubscribed, unread newsgroups fixed.
+- Control.dat now created in proper directory.
+- Some other small changes and code clean-up.
+
+cd into the uqwk source directory and "patch -p1 < this-file"
+
+diff -c uqwk1.0/Makefile uqwk1.1/Makefile
+*** uqwk1.0/Makefile	Mon Mar 15 13:48:48 1993
+--- uqwk1.1/Makefile	Thu Mar 18 10:39:52 1993
+***************
+*** 7,12 ****
+--- 7,15 ----
+  #
+  #  Use this for SGI:
+  #CFLAGS=-cckr
++ #
++ #  Use this for SCO 3.2.2:
++ #CFLAGS=-Od
+  
+  uqwk:	uqwk.o options.o init.o mail.o misc.o close.o news.o reply.o offline.o
+  	cc -o uqwk uqwk.o options.o init.o mail.o misc.o close.o news.o reply.o offline.o
+diff -c uqwk1.0/close.c uqwk1.1/close.c
+*** uqwk1.0/close.c	Mon Mar 15 13:48:48 1993
+--- uqwk1.1/close.c	Thu Mar 18 10:29:36 1993
+***************
+*** 1,5 ****
+--- 1,6 ----
+  #include <stdio.h>
+  #include <string.h>
++ #include <sys/types.h>
+  #include <time.h>
+  #include "uqwk.h"
+  
+***************
+*** 36,46 ****
+  	struct conf_ent *cp;
+  	struct tm *t;
+  	char ctl_fname[PATH_LEN];
+! 	int clock;
+  
+  	strcpy (ctl_fname, home_dir);
+! 	strcpy (ctl_fname, "/");
+! 	strcpy (ctl_fname, "control.dat");
+  
+  	if (NULL == (ctl_fd = fopen (ctl_fname, "w")))
+  	{
+--- 37,47 ----
+  	struct conf_ent *cp;
+  	struct tm *t;
+  	char ctl_fname[PATH_LEN];
+! 	time_t clock;
+  
+  	strcpy (ctl_fname, home_dir);
+! 	strcat (ctl_fname, "/");
+! 	strcat (ctl_fname, "control.dat");
+  
+  	if (NULL == (ctl_fd = fopen (ctl_fname, "w")))
+  	{
+***************
+*** 65,71 ****
+  	cp = conf_list;
+  	while (cp != NULL)
+  	{
+! 		fprintf (ctl_fd, "%d\r\n%s\r\n", cp->number, cp->name);
+  		cp = cp->next;
+  	}
+  
+--- 66,80 ----
+  	cp = conf_list;
+  	while (cp != NULL)
+  	{
+! 		strcpy (buf, cp->name);
+! 
+! 		/* Truncate the group name if desired */
+! 		if ( (grp_len > 0) && (grp_len < BUF_LEN) )
+! 		{
+! 			buf[grp_len] = 0;
+! 		}
+! 
+! 		fprintf (ctl_fd, "%d\r\n%s\r\n", cp->number, buf);
+  		cp = cp->next;
+  	}
+  
+***************
+*** 92,97 ****
+--- 101,107 ----
+  	wn (nrc_list);
+  
+  	fclose (nrc_fd);
++ 	return (1);
+  }
+  
+  wn (np)
+***************
+*** 111,115 ****
+--- 121,126 ----
+  	{
+  		fprintf (nrc_fd, "%s! 1-%d\n", np->name, np->hi);
+  	}
++ 	return (1);
+  }
+  
+diff -c uqwk1.0/mail.c uqwk1.1/mail.c
+*** uqwk1.0/mail.c	Mon Mar 15 13:48:49 1993
+--- uqwk1.1/mail.c	Thu Mar 18 10:30:08 1993
+***************
+*** 54,59 ****
+--- 54,60 ----
+  			fclose (mail_fd);
+  		}
+  	}
++ 	return (1);
+  }
+  
+  MakeMailList ()
+***************
+*** 118,124 ****
+  {
+  	struct qwk_hdr hdr;
+  	char c[PATH_LEN], *eof, ndx[5];
+! 	int out_bytes, n;
+  
+  	/* Write the ndx file entry */
+  	inttoms (blk_cnt, ndx);
+--- 119,125 ----
+  {
+  	struct qwk_hdr hdr;
+  	char c[PATH_LEN], *eof, ndx[5];
+! 	int out_bytes, n, i;
+  
+  	/* Write the ndx file entry */
+  	inttoms (blk_cnt, ndx);
+***************
+*** 201,206 ****
+--- 202,215 ----
+  	do
+  	{
+  		n = strlen (buf);
++ 
++ 		/* MMDF puts funny things in messages -- change to spaces */
++ 		for (i=0; i<n; i++)
++ 		{
++ 			if (buf[i] == 1) buf[i] = ' ';
++ 			if (buf[i] == 0) buf[i] = ' ';
++ 		}
++ 
+  		fwrite (buf, n, 1, msg_fd);
+  		out_bytes += n;
+  		if (n < BUF_LEN-1)
+diff -c uqwk1.0/misc.c uqwk1.1/misc.c
+*** uqwk1.0/misc.c	Mon Mar 15 13:48:49 1993
+--- uqwk1.1/misc.c	Sat Mar 13 21:54:56 1993
+***************
+*** 186,192 ****
+          for (i=0; i<n; i++)
+          {
+                  if ( (line[i] == ' ') || (line[i] == '-') ||
+!                      (line[i] == ',') || (line[i] == ':') )
+                          last_delim = i;
+          }
+  
+--- 186,193 ----
+          for (i=0; i<n; i++)
+          {
+                  if ( (line[i] == ' ') || (line[i] == '-') ||
+!                      (line[i] == ',') || (line[i] == ':') ||
+! 		     (line[i] == '!') )
+                          last_delim = i;
+          }
+  
+diff -c uqwk1.0/news.c uqwk1.1/news.c
+*** uqwk1.0/news.c	Mon Mar 15 13:48:49 1993
+--- uqwk1.1/news.c	Thu Mar 18 10:28:56 1993
+***************
+*** 39,44 ****
+--- 39,45 ----
+  		}
+  		np = np->next;
+  	}
++ 	return (1);
+  }
+  
+  int ReadNewsrc()
+***************
+*** 214,219 ****
+--- 215,222 ----
+  
+  	/* Reset hi article number */
+  	np->hi = ap->hi;
++ 
++ 	return (1);
+  }
+  
+  DoArticle (art_file)
+***************
+*** 325,330 ****
+--- 328,334 ----
+  	for (;n<128;n++) fputc (' ', msg_fd);
+  
+  	fclose (art_fd);
++ 	return (1);
+  }
+  
+  OutOfMemory()
+diff -c uqwk1.0/offline.c uqwk1.1/offline.c
+*** uqwk1.0/offline.c	Mon Mar 15 13:48:50 1993
+--- uqwk1.1/offline.c	Thu Mar 18 10:32:23 1993
+***************
+*** 77,82 ****
+--- 77,83 ----
+  
+  	fprintf (pfd, "\nEnd of commands.\n");
+  	pclose (pfd);
++ 	return (1);
+  }
+  
+  int GetLine (bytes)
+***************
+*** 183,188 ****
+--- 184,191 ----
+  
+  	WriteNewsrc();
+  	fprintf (pfd, "Okay, you are now subscribed to %s.\n", group);
++ 
++ 	return (1);
+  }
+  
+  Unsubscribe (pfd)
+***************
+*** 234,239 ****
+--- 237,244 ----
+  
+  	WriteNewsrc();
+  	fprintf (pfd, "Okay, you are unsubscribed from %s.\n", group);
++ 
++ 	return (1);
+  }
+  
+  Groups (pfd)
+***************
+*** 255,260 ****
+--- 260,266 ----
+  		fprintf (pfd, "    %s\n", np->name);
+  		np = np->next;
+  	}
++ 	return (1);
+  }
+  
+  Allgroups (pfd)
+***************
+*** 277,280 ****
+--- 283,287 ----
+  			ap->name, ap->hi - ap->lo);
+  		ap = ap->next;
+  	}
++ 	return (1);
+  }
+diff -c uqwk1.0/options.c uqwk1.1/options.c
+*** uqwk1.0/options.c	Mon Mar 15 13:48:50 1993
+--- uqwk1.1/options.c	Mon Mar 15 14:23:19 1993
+***************
+*** 35,40 ****
+--- 35,41 ----
+  	prt_opts = DEF_PRT_OPTS;
+  	read_only = DEF_READ_ONLY;
+  	max_blks = DEF_MAX_BLKS;
++ 	grp_len = DEF_GRP_LEN;
+  
+  	strcpy (mail_dir, DEF_MAIL_DIR);
+  	strcpy (mail_file, DEF_MAIL_FILE);
+***************
+*** 63,68 ****
+--- 64,70 ----
+  	if (NULL != (c = getenv ("UQ_PRT_OPTS"))) prt_opts = atoi (c);
+  	if (NULL != (c = getenv ("UQ_READ_ONLY"))) read_only = atoi (c);
+  	if (NULL != (c = getenv ("UQ_MAX_BLKS"))) max_blks = atoi (c);
++ 	if (NULL != (c = getenv ("UQ_GRP_LEN"))) grp_len = atoi (c);
+  
+  	if (NULL != (c = getenv ("UQ_HOME_DIR"))) strcpy (home_dir, c);
+  	if (NULL != (c = getenv ("UQ_MAIL_FILE"))) strcpy (mail_file, c);
+***************
+*** 175,180 ****
+--- 177,185 ----
+  			case 'R':	strcpy (rep_file, &argv[i][2]);
+  					break;
+  
++ 			case 'l':	grp_len = atoi (&argv[i][2]);
++ 					break;
++ 
+  			default:	BadFlag (argv[i]);
+  					break;
+  			}
+***************
+*** 217,227 ****
+--- 222,234 ----
+  
+  PrintOptions ()
+  {
++ 	printf ("Version: %s\n", UQWK_VERSION);
+  	printf ("Do mail: %d\n", do_mail);
+  	printf ("Do news: %d\n", do_news);
+  	printf ("Include headers: %d\n", inc_hdrs);
+  	printf ("Read only: %d\n", read_only);
+  	printf ("Maximum blocks: %d\n", max_blks);
++ 	printf ("Group name limit: %d\n", grp_len);
+  	printf ("Mail directory: %s\n", mail_dir);
+  	printf ("News directory: %s\n", news_dir);
+  	printf ("Mail file: %s\n", mail_file);
+diff -c uqwk1.0/reply.c uqwk1.1/reply.c
+*** uqwk1.0/reply.c	Mon Mar 15 13:48:50 1993
+--- uqwk1.1/reply.c	Thu Mar 18 10:33:10 1993
+***************
+*** 51,56 ****
+--- 51,58 ----
+  
+  	fclose (rep_fd);
+  	printf ("%s: sent %d replies\n", progname, rep_cnt);
++ 
++ 	return (1);
+  }
+  
+  SendReply ()
+***************
+*** 174,179 ****
+--- 176,182 ----
+  	}
+  
+  	if (pfd != NULL) pclose (pfd);
++ 	return (1);
+  }
+  
+  SendWarning (to)
+***************
+*** 213,216 ****
+--- 216,220 ----
+  "HELP in the body of the message (not the subject). Thanks!\n");
+  
+  	pclose (pfd);
++ 	return (1);
+  }
+diff -c uqwk1.0/uqwk.c uqwk1.1/uqwk.c
+*** uqwk1.0/uqwk.c	Mon Mar 15 13:48:51 1993
+--- uqwk1.1/uqwk.c	Thu Mar 18 10:33:55 1993
+***************
+*** 1,5 ****
+--- 1,7 ----
+  #include <stdio.h>
+  #include <string.h>
++ 
++ #define ALLOCATE
+  #include "uqwk.h"
+  
+  /*
+diff -c uqwk1.0/uqwk.h uqwk1.1/uqwk.h
+*** uqwk1.0/uqwk.h	Mon Mar 15 13:48:51 1993
+--- uqwk1.1/uqwk.h	Thu Mar 18 10:37:51 1993
+***************
+*** 2,7 ****
+--- 2,15 ----
+   *  Header for uqwk
+   */
+  
++ #define UQWK_VERSION	"1.1"
++ 
++ #ifdef ALLOCATE
++ #define EXTERN
++ #else
++ #define EXTERN extern
++ #endif
++ 
+  #define	PATH_LEN	(128)	/* Length for file names, etc. */
+  #define BUF_LEN		(1024)	/* Length of general purpose buffer */
+  
+***************
+*** 37,64 ****
+  #define DEF_NRC_FILE	"unknown"
+  #define DEF_NEWS_DIR	"/usr/spool/news"
+  #define DEF_REP_FILE	"none"
+  
+  /* Runtime options */
+! int do_mail;			/* Process mail? */
+! int do_news;			/* Process news? */
+! int inc_hdrs;			/* Include headers in messages? */
+! int prt_opts;			/* Just display options; no processing */
+! int read_only;			/* Don't rewrite mail spool and .newsrc */
+! int max_blks;			/* Maximum blocks per QWK packet */
+  
+! char mail_file[PATH_LEN];	/* mail spool */
+! char mail_dir[PATH_LEN];	/* dir for mail spool */
+! char home_dir[PATH_LEN];	/* home directory */
+! char user_name[PATH_LEN];	/* user's login name */
+! char bbs_name[PATH_LEN];	/* BBS name */
+! char bbs_city[PATH_LEN];	/* BBS city */
+! char bbs_phone[PATH_LEN];	/* BBS phone number */
+! char bbs_sysop[PATH_LEN];	/* BBS sysop name */
+! char bbs_id[PATH_LEN];		/* BBS ID */
+! char act_file[PATH_LEN];	/* Active file */
+! char nrc_file[PATH_LEN];	/* .newsrc file */
+! char news_dir[PATH_LEN];	/* News spool dir */
+! char rep_file[PATH_LEN];	/* Reply packet file name */
+  
+  char *getenv();
+  char *Fgets();
+--- 45,74 ----
+  #define DEF_NRC_FILE	"unknown"
+  #define DEF_NEWS_DIR	"/usr/spool/news"
+  #define DEF_REP_FILE	"none"
++ #define DEF_GRP_LEN	(15)
+  
+  /* Runtime options */
+! EXTERN	int do_mail;			/* Process mail? */
+! EXTERN	int do_news;			/* Process news? */
+! EXTERN	int inc_hdrs;			/* Include headers in messages? */
+! EXTERN	int prt_opts;			/* Display options; no processing */
+! EXTERN	int read_only;			/* Don't rewrite mail and .newsrc */
+! EXTERN	int max_blks;			/* Maximum blocks per QWK packet */
+! EXTERN	int grp_len;			/* Maximum newsgroup name length */
+  
+! EXTERN	char mail_file[PATH_LEN];	/* mail spool */
+! EXTERN	char mail_dir[PATH_LEN];	/* dir for mail spool */
+! EXTERN	char home_dir[PATH_LEN];	/* home directory */
+! EXTERN	char user_name[PATH_LEN];	/* user's login name */
+! EXTERN	char bbs_name[PATH_LEN];	/* BBS name */
+! EXTERN	char bbs_city[PATH_LEN];	/* BBS city */
+! EXTERN	char bbs_phone[PATH_LEN];	/* BBS phone number */
+! EXTERN	char bbs_sysop[PATH_LEN];	/* BBS sysop name */
+! EXTERN	char bbs_id[PATH_LEN];		/* BBS ID */
+! EXTERN	char act_file[PATH_LEN];	/* Active file */
+! EXTERN	char nrc_file[PATH_LEN];	/* .newsrc file */
+! EXTERN	char news_dir[PATH_LEN];	/* News spool dir */
+! EXTERN	char rep_file[PATH_LEN];	/* Reply packet file name */
+  
+  char *getenv();
+  char *Fgets();
+***************
+*** 65,84 ****
+  struct act_ent *FindActive();
+  
+  /* Various globals */
+! char *progname;			/* Program name */
+! int msg_cnt;			/* Total number of messages */
+! int conf_cnt;			/* Total number of conferences */
+! FILE *msg_fd;			/* MESSAGES.DAT file desc */
+! FILE *ctl_fd;			/* CONTROL.DAT file desc */
+! FILE *ndx_fd;			/* xxx.NDX file desc */
+! FILE *act_fd;			/* Active file file desc */
+! FILE *nrc_fd;			/* .newsrc file desc */
+! FILE *rep_fd;			/* Reply packet file desc */
+! unsigned char buf[BUF_LEN];	/* General purpose buffer */
+! int blk_cnt;			/* Blocks written to messages.dat */
+  
+  /* This is the stuff we remember about each spooled mail message */
+! struct mail_ent
+  {
+  	long begin;		/* Offset of start of header */
+  	long text;		/* Offset to end of header, start of text */
+--- 75,94 ----
+  struct act_ent *FindActive();
+  
+  /* Various globals */
+! EXTERN	char *progname;			/* Program name */
+! EXTERN	int msg_cnt;			/* Total number of messages */
+! EXTERN	int conf_cnt;			/* Total number of conferences */
+! EXTERN	FILE *msg_fd;			/* MESSAGES.DAT file desc */
+! EXTERN	FILE *ctl_fd;			/* CONTROL.DAT file desc */
+! EXTERN	FILE *ndx_fd;			/* xxx.NDX file desc */
+! EXTERN	FILE *act_fd;			/* Active file file desc */
+! EXTERN	FILE *nrc_fd;			/* .newsrc file desc */
+! EXTERN	FILE *rep_fd;			/* Reply packet file desc */
+! EXTERN	unsigned char buf[BUF_LEN];	/* General purpose buffer */
+! EXTERN	int blk_cnt;			/* Blocks written to messages.dat */
+  
+  /* This is the stuff we remember about each spooled mail message */
+! EXTERN	struct mail_ent
+  {
+  	long begin;		/* Offset of start of header */
+  	long text;		/* Offset to end of header, start of text */
+***************
+*** 87,93 ****
+  } *mail_list;
+  
+  /* This is stuff we remember about each "conference" */
+! struct conf_ent
+  {
+  	char *name;		/* Conference name */
+  	int number;		/* Conference number */
+--- 97,103 ----
+  } *mail_list;
+  
+  /* This is stuff we remember about each "conference" */
+! EXTERN	struct conf_ent
+  {
+  	char *name;		/* Conference name */
+  	int number;		/* Conference number */
+***************
+*** 95,101 ****
+  } *conf_list, *last_conf;
+  
+  /* This is the QWK message header format */
+! struct qwk_hdr
+  {
+  	unsigned char status;
+  	unsigned char number[7];
+--- 105,111 ----
+  } *conf_list, *last_conf;
+  
+  /* This is the QWK message header format */
+! EXTERN	struct qwk_hdr
+  {
+  	unsigned char status;
+  	unsigned char number[7];
+***************
+*** 113,122 ****
+  	unsigned char tag;
+  };
+  
+! struct qwk_hdr rep_hdr;		/* Header for replies */
+  
+  /* Stuff we remember about each active newsgroup */
+! struct act_ent
+  {
+  	char *name;		/* Newsgroup name */
+  	int hi;			/* High article number */
+--- 123,132 ----
+  	unsigned char tag;
+  };
+  
+! EXTERN	struct qwk_hdr rep_hdr;		/* Header for replies */
+  
+  /* Stuff we remember about each active newsgroup */
+! EXTERN	struct act_ent
+  {
+  	char *name;		/* Newsgroup name */
+  	int hi;			/* High article number */
+***************
+*** 125,131 ****
+  } *act_list;
+  
+  /* Stuff we remember about the .newsrc file */
+! struct nrc_ent
+  {
+  	char *name;		/* Newsgroup name */
+  	int subscribed;		/* Subscribed flag */
+--- 135,141 ----
+  } *act_list;
+  
+  /* Stuff we remember about the .newsrc file */
+! EXTERN	struct nrc_ent
+  {
+  	char *name;		/* Newsgroup name */
+  	int subscribed;		/* Subscribed flag */
+diff -c uqwk1.0/uqwk.man uqwk1.1/uqwk.man
+*** uqwk1.0/uqwk.man	Mon Mar 15 13:48:51 1993
+--- uqwk1.1/uqwk.man	Tue Mar 16 13:05:14 1993
+***************
+*** 152,157 ****
+--- 152,163 ----
+  QWK files.  Use a \fImaxblocks\fR value of zero to suppress this
+  check.  The default is 4000 blocks (half a megabyte).
+  .TP
++ .B -l\fIlen\fR
++ Truncate the names of newsgroups to \fIlen\fR characters.  Some
++ offline readers cannot handle long newsgroup names.  The default
++ is 15 characters.  Specify a value of zero for unlimited
++ newsgroup name lengths.
++ .TP
+  .B -R\fIreplyfile\fR
+  Process \fIreplyfile\fR as a reply packet.  Messages and articles
+  created by the offline reader must be uploaded as a reply packet
+***************
+*** 224,229 ****
+--- 230,241 ----
+  .B UQ_NRC_FILE
+  Specifies the name of the user's .newsrc file.
+  .TP
++ .B UQ_MAX_BLKS
++ Specifies the maximum size of the QWK packet in 128-byte blocks.
++ .TP
++ .B UQ_GRP_LEN
++ Specifies the maximum length of newsgroup names.
++ .TP
+  .B UQ_REP_FILE
+  Specifies the name of the reply packet, if any.
+  .SH "COMMAND LANGUAGE"
+***************
+*** 255,264 ****
+  List all the available newsgroups and the number of articles in
+  each one.
+  .SH BUGS
+! Karl J. Vesterling reported that some .newsrc files cause a core dump.
+! This may be related to the size of the .newsrc file or to long
+! lines in the file.  I was unable to reproduce the problem.  Increasing
+! BUF_LEN in uqwk.h may help.
+  .SH "SEE ALSO"
+  .PD
+  .BR mail(1),
+--- 267,273 ----
+  List all the available newsgroups and the number of articles in
+  each one.
+  .SH BUGS
+! The handling of MMDF mail files is kludgy and should be fixed.
+  .SH "SEE ALSO"
+  .PD
+  .BR mail(1),
+
+
+exit 0 # Just in case...

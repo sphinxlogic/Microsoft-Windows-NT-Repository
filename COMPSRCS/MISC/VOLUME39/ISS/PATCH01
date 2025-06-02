@@ -1,0 +1,331 @@
+Newsgroups: comp.sources.misc
+From: gt6468c@prism.gatech.edu (Christopher Klaus)
+Subject: v39i114:  iss - Internet Security Scanner, v1.02, Patch01
+Message-ID: <1993Sep29.221921.27286@sparky.sterling.com>
+X-Md4-Signature: 949a34d86b1c8e32a638e5ed23a5462c
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Wed, 29 Sep 1993 22:19:21 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: gt6468c@prism.gatech.edu (Christopher Klaus)
+Posting-number: Volume 39, Issue 114
+Archive-name: iss/patch01
+Environment: INET, UNIX
+Patch-To: iss: Volume 39, Issue 109
+
+Some minor bugs were found in ISS and the code has been cleaned up 
+a little and fixed.
+
+The changes made were:
+1. Changing  S_un to s.addr which abreviates the structure, but also
+   makes it more compatible to compile on other machines.
+2. The closing of files was changed from close(file) -> fclose(file).
+3. Unnecessary variables have been removed.
+4. One of the nested loops was incorrectly bracketted around the wrong 
+   command.
+5. Incorrectly calling the function getname(a). Changed to getname(&a).
+
+Here's the patch.
+-- 
+Christopher William Klaus
+Internet: gt6468c@prism.gatech.edu coup@gnu.ai.mit.edu cklaus@hotsun.nersc.gov
+26468 GaTech Station, Atlanta Georgia, 30332   (404)-206-1513
+
+*** iss/iss.c	Wed Sep 29 10:24:17 1993
+--- newiss/iss.c	Wed Sep 29 17:36:12 1993
+***************
+*** 1,5 ****
+  /*
+!  * Internet Security Scannner v1.00
+   *
+   * Purpose: Check the Security of your Domain
+   *
+--- 1,5 ----
+  /*
+!  * Internet Security Scannner v1.02
+   *
+   * Purpose: Check the Security of your Domain
+   *
+***************
+*** 43,48 ****
+--- 43,49 ----
+  #include <netdb.h>
+  #include <ctype.h>
+  #include <arpa/nameser.h>
++ #include <string.h>
+  #include "telnet.h"
+  
+  #define TELOPTS
+***************
+*** 58,67 ****
+  
+  struct sockaddr_in a;
+  /* struct of socket */
+! int s, x, y, i, len, hi, low, thirty = 30, sd;
+  int r;
+  /*  range values to scan */
+! int first = 0, second = 0, low1 = 0, low2 = 0, high1 = 0, high2 = 0;
+  
+  int sec = 0, log = 0, port = 0;
+  /* Check to see when function is done */
+--- 59,68 ----
+  
+  struct sockaddr_in a;
+  /* struct of socket */
+! int s, x, y, i, thirty = 30, sd;
+  int r;
+  /*  range values to scan */
+! int first = 0, second = 0, low1 = 0, high1 = 0;
+  
+  int sec = 0, log = 0, port = 0;
+  /* Check to see when function is done */
+***************
+*** 105,119 ****
+  	sleep(5);
+  	setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &thirty, sizeof(thirty));
+  	s = socket(AF_INET, SOCK_STREAM, 0);
+! 	printf("Retrying Socket.\n");
+  	if (s < 0)
+  	{
+! 	    printf("Socket is locked\n");
+  	}
+      }
+      a.sin_port = (port == 0) ? 23 : port;
+      a.sin_family = AF_INET;
+!     a.sin_addr.S_un.S_addr = (first << 24) | (second << 16) | (x << 8) | (y);
+      r = connect(s, &a, sizeof(a));
+      return (s);
+  }
+--- 106,120 ----
+  	sleep(5);
+  	setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &thirty, sizeof(thirty));
+  	s = socket(AF_INET, SOCK_STREAM, 0);
+! 	(void) printf("Retrying Socket.\n");
+  	if (s < 0)
+  	{
+! 	    (void) printf("Socket is locked\n");
+  	}
+      }
+      a.sin_port = (port == 0) ? 23 : port;
+      a.sin_family = AF_INET;
+!     a.sin_addr.s_addr = (first << 24) | (second << 16) | (x << 8) | (y);
+      r = connect(s, &a, sizeof(a));
+      return (s);
+  }
+***************
+*** 121,127 ****
+  void
+  usage()
+  {
+!     printf("\n\nISS v1.0  (Internet Security Scanner)\n");
+      printf("Usage: %s -msrdyvpqef #1 #2 #3 #4\n", progname);
+      printf(" -m Ignores checking for mail port.\n");
+      printf(" -s xx number of seconds max to wait\n");
+--- 122,128 ----
+  void
+  usage()
+  {
+!     printf("\n\nISS v1.02 (Internet Security Scanner)\n");
+      printf("Usage: %s -msrdyvpqef #1 #2 #3 #4\n", progname);
+      printf(" -m Ignores checking for mail port.\n");
+      printf(" -s xx number of seconds max to wait\n");
+***************
+*** 231,237 ****
+      fflush(fp);
+      if (login != 1)
+      {
+! 	writeln("sync");
+  	alarm(0);
+  	alarm(3);
+  	for (count = 0; count < 2; count++)
+--- 232,238 ----
+      fflush(fp);
+      if (login != 1)
+      {
+! 	writeln(s,"sync");
+  	alarm(0);
+  	alarm(3);
+  	for (count = 0; count < 2; count++)
+***************
+*** 335,341 ****
+      sprintf(buf, "%s.dom", addr);
+      if ((nis = fopen(buf, "r")) == NULL)
+      {
+! 	printf("\nError Opening File\n");
+  	return (1);
+      }
+      while (!feof(nis))
+--- 336,342 ----
+      sprintf(buf, "%s.dom", addr);
+      if ((nis = fopen(buf, "r")) == NULL)
+      {
+! 	(void) printf("\nError Opening File\n");
+  	return (1);
+      }
+      while (!feof(nis))
+***************
+*** 347,353 ****
+  	    fprintf(fp, "\nDomainname: %s NIS Server: %s", tryname, buf);
+  	}
+      }
+!     close(nis);
+      sprintf(buf, "rm %s.dom", addr);
+      system(buf);
+  
+--- 348,354 ----
+  	    fprintf(fp, "\nDomainname: %s NIS Server: %s", tryname, buf);
+  	}
+      }
+!     fclose(nis);
+      sprintf(buf, "rm %s.dom", addr);
+      system(buf);
+  
+***************
+*** 509,515 ****
+      sprintf(buf, "%s.log", addr);
+      if ((rpc = fopen(buf, "r")) == NULL)
+      {
+! 	printf("\nError Opening File\n");
+  	return (1);
+      }
+      while (!feof(rpc))
+--- 510,516 ----
+      sprintf(buf, "%s.log", addr);
+      if ((rpc = fopen(buf, "r")) == NULL)
+      {
+! 	(void) printf("\nError Opening File\n");
+  	return (1);
+      }
+      while (!feof(rpc))
+***************
+*** 564,578 ****
+  	    rusr = 1;
+  	}
+      }
+!     close(rpc);
+  /* Try to guess domain name if ypserv was found */
+      if (yp)
+      {
+! 	strcpy(testname, hname);
+  	domainguess();
+  	if (smtpname[0] != NULL)
+  	{
+! 	    strcpy(testname, smtpname);
+  	    domainguess();
+  	    smtpname[0] = NULL;
+  	}
+--- 565,579 ----
+  	    rusr = 1;
+  	}
+      }
+!     fclose(rpc);
+  /* Try to guess domain name if ypserv was found */
+      if (yp)
+      {
+! 	(void) strcpy(testname, hname);
+  	domainguess();
+  	if (smtpname[0] != NULL)
+  	{
+! 	    (void) strcpy(testname, smtpname);
+  	    domainguess();
+  	    smtpname[0] = NULL;
+  	}
+***************
+*** 605,611 ****
+  		}
+  	    }
+  	}
+! 	close(rpc);
+      }
+  /* Tries to get password file via ypserv, need ypx in local directory */
+  /* Plan to add my own code that grabs the password file */
+--- 606,612 ----
+  		}
+  	    }
+  	}
+! 	fclose(rpc);
+      }
+  /* Tries to get password file via ypserv, need ypx in local directory */
+  /* Plan to add my own code that grabs the password file */
+***************
+*** 632,639 ****
+  	    {
+  		fprintf(fp, "%s", buf);
+  	    }
+- 	    close(rpc);
+  	}
+  
+      }
+      sprintf(buf, "rm %s.log", addr);
+--- 633,640 ----
+  	    {
+  		fprintf(fp, "%s", buf);
+  	    }
+  	}
++ 	fclose(rpc);
+  
+      }
+      sprintf(buf, "rm %s.log", addr);
+***************
+*** 659,665 ****
+  	    sprintf(buf, "%s -p %s > %s.log 2> /dev/null", RPCINFO, addr, addr);
+  	    system(buf);
+  	}
+! 	getname(a);
+  	fprintf(fp, "%s %s", addr, hname);
+  	fprintf(fp, "\n>%s", temp2);
+  	clrlog();
+--- 660,666 ----
+  	    sprintf(buf, "%s -p %s > %s.log 2> /dev/null", RPCINFO, addr, addr);
+  	    system(buf);
+  	}
+! 	getname(&a);
+  	fprintf(fp, "%s %s", addr, hname);
+  	fprintf(fp, "\n>%s", temp2);
+  	clrlog();
+***************
+*** 716,723 ****
+  {
+  #define BUFSIZE 16
+  
+-     char buf[BUFSIZE];
+-     char scratch[1024];
+      sethostent(1);
+      progname = argv[0];
+  
+--- 717,722 ----
+***************
+*** 845,852 ****
+  		a.sin_port = (port == 0) ? 23 : port;
+  		a.sin_family = AF_INET;
+  
+! 		a.sin_addr.S_un.S_addr = (first << 24) | (second << 16) | (x << 8) | (y);
+! 		if (getname(a) == 1)	/* Look For Names */
+  		{
+  		    checkall();	/* Try for addresses with names */
+  		}
+--- 844,851 ----
+  		a.sin_port = (port == 0) ? 23 : port;
+  		a.sin_family = AF_INET;
+  
+! 		a.sin_addr.s_addr = (first << 24) | (second << 16) | (x << 8) | (y);
+! 		if (getname(&a) == 1)	/* Look For Names */
+  		{
+  		    checkall();	/* Try for addresses with names */
+  		}
+***************
+*** 857,861 ****
+  	}
+      }
+      endhostent();
+!     close(fp);
+  }
+--- 856,861 ----
+  	}
+      }
+      endhostent();
+!     fclose(fp);
+!     return(0);
+  }
+exit 0 # Just in case...

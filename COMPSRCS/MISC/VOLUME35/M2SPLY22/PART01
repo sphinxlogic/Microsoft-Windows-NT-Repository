@@ -1,0 +1,1233 @@
+Newsgroups: comp.sources.misc
+From: ljp@sm.luth.se (Johan Persson)
+Subject: v35i002:  m2-splay22 - Modula-2 splay tree library, Part01/01
+Message-ID: <1993Jan21.001939.29846@sparky.imd.sterling.com>
+X-Md4-Signature: 06df3818963bd2e1b051f632be107c60
+Date: Thu, 21 Jan 1993 00:19:39 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ljp@sm.luth.se (Johan Persson)
+Posting-number: Volume 35, Issue 2
+Archive-name: m2-splay22/part01
+Environment: Modula-2
+
+This is a Modula-2 library to implement splay trees.
+
+Splay trees are a form of balanced binary trees which moves every 
+accessed node to the root.  This means that the tree will behave 
+very well when there is some form of locality in the data processed. 
+Furthermore it can be shown that the amortized access cost is O(lgn) 
+for the basic operations (insert, delete and find).
+
+The splay tree also has the nice property that an item accessed
+t operations ago can be located in O(lgt) time.
+
+All in all practical tests have shown splay trees to be an excellent
+substitution for the more well known r-b-trees or some other variations
+on balanced trees.
+
+For a full introduction to splay trees see 
+
+        Sleator D. and Tarjan R. "Self adjusting
+	binary trees", JACM Vol 32. No 3, 1985, pp 652-686.
+
+-------------------------------8<----------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README splay.def splay.mod splayItem.def splayItem.mod
+#   splayTest.mod
+# Wrapped by kent@sparky on Wed Jan 20 17:56:09 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(4498 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XSPLAY TREE LIBRARY Version 2.2 930119
+X=====================================
+X
+XThis library contains the following files:
+X
+X	splay.def	Definition module for the splay tree library
+X	splay.mod 	Implementation of splay tree
+X	splayItem.def 	Definition module for data stored in the tree
+X	splayItem.mod	Implementation module for data stored in
+X			the tree
+X	splayTest.mod	A short test program
+X
+X
+X
+XFor a full introduction to splay trees see 
+X
+X	                Sleator D. and Tarjan R. "Self adjusting
+X			binary trees", JACM Vol 32. No 3, 1985, pp 652-
+X			686.
+X
+X
+X
+XChanges since version 2.1
+X=========================
+X
+XChanged updating of weight information so the basic operations
+Xnow remain in O(lgn) instead of O(n).
+X
+X
+XIntroduction
+X============
+X
+XIn short, splay trees are a form of balanced binary trees which
+Xmoves every accessed node to the root. This means that the tree
+Xwill behave very well when there is some form of locality in the
+Xdata processed. Furthermore it can be shown that the amortized
+Xaccess cost is O(lgn) for the basic operations (insert, delete and
+Xfind).
+X
+XThe splay tree also has the nice property that an item accessed
+Xt operations ago can be located in O(lgt) time.
+X
+XAll in all practical tests have shown splay trees to be an excellent
+Xsubstitution for the more well known r-b-trees or some other variations
+Xon balanced trees.
+X
+XSince modula2 lacks possibilities to create generic modules my
+Xapproach is to provide a separate module which gives the operations
+Xand type of the element stored in the tree. This module
+X(here called splayItem) must support operations to create, destroy
+Xand compare elements. This scheme provides for a fairly generic
+Ximplementation, (see the test program and splayItem.[mod,def])
+XIn the test program supplied the create and destroy routines
+Xare empty since the objects doesn't use any dynamic memory. The
+Xprize to pay for the generic structure is a little overhead for
+Xeach comparison.
+X
+XIf speed is essential (as always) you may hard code the comparison
+Xbetween elements in the implementation if you are only working
+Xwith simple types like integers or something like that. Or you
+Xmight want to rewrite the code to handle the more classic
+Xvariation with a key and a generic pointer stored in each
+Xnode. These changes are trivial and shouldn't take long
+Xtime to do.
+X
+X
+XRank
+X====
+X
+XThis implementation includes management of the rank of elements, i.e
+Xtheir ordering in an in-order tree traversal. To maintain the rank operation
+Xin O(lgn) time for an element it's necessary to do some extra work
+Xafter each basic operation. If you are not interested in maintaining
+Xrank of the elements you may delete the code for maintaining the weight
+X(number of nodes in subtrees for each node) of each node. 
+X
+XThis is basically a matter of deleting most of the code at the end of
+Xeach basic operation.
+X
+XSince maintaining the rank requires an explicit stack whos size
+Xmust be decided at run time it's possible to get a checked run time
+Xerror if the tree grows to large for the stack. This shouldn't pose
+Xa problem since the required stack size is in order O(lgn) where
+Xn is the number of elements in the tree, and the default stack quite
+Xbig.
+X
+XPortability
+X===========
+X
+XThere are basically two things you may want to change.
+X
+X1. The first are the routines used for I/O to
+Xprint a string, cardinal, int and so on. I have used
+Xour local library routines. Change these to your own
+Xfavorites.
+X
+X2. Error handling are done by a call to error.raise() which
+Xagain is a local library function. It calls the topmost
+Xfunction in an error stack with the string supplied as 
+Xargument. You probably want to change this to your own
+Xfavorite way of handling errors.
+X
+XTodo
+X====
+X
+X* Make two versions one with and one without rank operations.
+X* Dynamic stack to avoid any run time errors
+X
+X
+XTest program
+X============
+X
+XSupplied with this distribution is a test program called
+XsplayTest (what else?) it performs some basic tests at first
+Xand then starts an exhaustive test until any errors have been
+Xencountered or stopped by a CTRL-C. 
+X
+XBugs
+X====
+XTo the best of my knowledge this code is bug free. But if you
+Xdo discover some irregularities please drop me a note. 
+X
+XStandard disclaimer: This code is put in public domain and 
+Xdistributed as is. You may use this code commercially or 
+Xotherwise but I won't take any responsibility whatsoever.
+X
+X
+X	Johan Persson (ljp@sm.luth.se)
+X
+X
+X----
+X
+XJohan Persson				E-mail: ljp@sm.luth.se
+XDept. of Computer Science
+XTechnical University of Lulea
+XS-951 87 Lulea
+X			
+END_OF_FILE
+  if test 4498 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'splay.def' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'splay.def'\"
+else
+  echo shar: Extracting \"'splay.def'\" \(3840 characters\)
+  sed "s/^X//" >'splay.def' <<'END_OF_FILE'
+XDEFINITION MODULE splay;
+X(*
+X	Title:		Implementation of splay trees
+X	Last Edit:	Mon Dec 21 13:20:31 1992
+X	Author:		Johan Persson at my16
+X
+X	SCCS:		@(#)splay.def       2.2     92/12/21
+X
+X	Description:	This code implements splay tree as described in 
+X	                Sleator D. and Tarjan R. "Self adjusting
+X			binary trees", JACM Vol 32. No 3, 1985, pp 652-
+X			686.
+X			
+X			The implemenation is based on a top down
+X                        splaying heuristics as described in section 4 of 
+X			the article.
+X
+X	Note:		This implementation also supports the operations
+X			'getRankElement' which finds the element in the tree
+X			with a given rank in O(lgn) time) and 'getRank', 
+X			(which returns the rank of a given element)
+X			To achive this one must store the weight of a node in
+X			each node (i.e the number of descadents). The
+X			update of this information after each basic 
+X			operation takes O(lgn) time.
+X			
+X			To maintain this weight it's necessary to use a
+X			stack, since the size of the stack is 
+X			specified at compile time this may cause a checked 
+X			run time error if the bounds of this stack is 
+X		        violated. 
+X*)
+X
+X  IMPORT splayItem;
+X
+X  TYPE
+X     auxFunc = PROCEDURE (splayItem.T);
+X     T;
+X
+X  PROCEDURE create(VAR tree:T);
+X  (* Post: The splay tree tree 'tree' has been created.
+X  *)
+X		   
+X  PROCEDURE destroy(VAR tree:T);
+X  (* Pre: 'tree' has been created with 'create'
+X     Post: All dynamic memory previously associated with 'tree'
+X           have been returned. The 'del' function specified in
+X	   'create' has been called one time for each datum in the
+X	   tree. Upon completion 'tree' is no longer a valid tree.
+X  *) 
+X  
+X  PROCEDURE insert(tree:T; item:splayItem.T);
+X  (* Pre: 'tree' has been created with 'create'
+X     Post: 'item' has been inserted in 'tree'. If the 'item' already
+X           exists this operation equals 
+X	      delete(tree,item);insert(tree,item)
+X  *)
+X  
+X  PROCEDURE delete(tree:T; item:splayItem.T);
+X  (* Pre: 'tree' has been created with 'create'
+X     Post: If 'item' exists it has been removed from 'tree'
+X           otherwise the tree is left untouched
+X  *)
+X  
+X  PROCEDURE find(tree:T; item:splayItem.T; VAR found:splayItem.T):BOOLEAN;
+X  (* Pre: 'tree' has been created with 'create'
+X     Post: If 'item' exists in 'tree' 'found' has been assigned
+X           to the corresponding data in 'tree'.
+X	   Note: The reason for returning the same item searched
+X	         for is to make it possible to specify an incomplete
+X		 search structure and then get the full structure
+X		 returned.
+X     Returns: TRUE if 'item' exist, FALSE otherwise
+X  *)
+X  
+X  PROCEDURE nbrElem(tree:T): CARDINAL;
+X  (* Pre: 'tree' has been created with 'create'
+X     Returns: The number of elements in 'tree'
+X  *)
+X  
+X  PROCEDURE getRankElement(tree:T; r:CARDINAL; VAR found:splayItem.T): BOOLEAN;
+X  (* Pre: 'tree' has been created with 'create'
+X     Post: The 'item' with rank 'r' has been assigned to 'found'
+X     Returns: TRUE if 'item' exist, FALSE otherwise
+X  *)
+X  
+X  PROCEDURE getRank(tree:T; item:splayItem.T):CARDINAL;
+X  (* Pre: 'tree' has been created with 'create'
+X     Returns: The rank of element 'item'. If 'item' wasn't 
+X              found the routine returns 0 
+X  *)
+X  
+X  PROCEDURE mapIn(tree:T; f:auxFunc);
+X  (* Pre: 'tree' has been created with 'create'
+X     Post: The 'f' procedure has been applied to all elements in
+X           'tree' according to a tree-inorder walk
+X  *)
+X  
+X  PROCEDURE mapPre(tree:T; f:auxFunc);
+X  (* Pre: 'tree' has been created with 'create'
+X     Post: The 'f' procedure has been applied to all elements in
+X           'tree' according to a tree-preorder walk
+X  *)
+X  
+X  PROCEDURE mapPos(tree:T; f:auxFunc); 
+X  (* Pre: 'tree' has been created with 'create'
+X     Post: The 'f' procedure has been applied to all elements in
+X           'tree' according to a tree-preorder walk
+X  *)
+X
+XEND splay.
+END_OF_FILE
+  if test 3840 -ne `wc -c <'splay.def'`; then
+    echo shar: \"'splay.def'\" unpacked with wrong size!
+  fi
+  # end of 'splay.def'
+fi
+if test -f 'splay.mod' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'splay.mod'\"
+else
+  echo shar: Extracting \"'splay.mod'\" \(15974 characters\)
+  sed "s/^X//" >'splay.mod' <<'END_OF_FILE'
+XIMPLEMENTATION MODULE splay;
+X(*
+X	Title:		Implementation of splay trees
+X	Last Edit:	Mon Dec 21 13:20:38 1992
+X	Author:		Johan Persson at my16
+X 
+X	SCCS:		@(#)splay.mod       2.2     92/12/21	
+X	
+X		
+X	Description:	This code implements splay tree as described in 
+X	                Sleator D. and Tarjan R. "Self adjusting
+X			binary trees", JACM Vol 32. No 3, 1985, pp 652-
+X			686.
+X			
+X			The implemenation is based on a top down
+X                        splaying heuristics as described in section 4 of 
+X			the article.
+X
+X	Note:		This implementation also supports the operations
+X			'getRankElement' which finds the element in the tree
+X			with a given rank in O(lgn) time) and 'getRank', 
+X			(which returns the rank of a given element)
+X			To achive this one must store the weight of a node in
+X			each node (i.e the number of descadents). The
+X			update of this information after each basic 
+X			operation takes O(lgn) time.
+X
+X			To maintain this weight it's necessary to use a
+X			stack, since the size of the stack is 
+X			specified at compile time this may cause a checked 
+X			run time error if the bounds of this stack is 
+X		        violated. 
+X
+X			See 'splay.def' for a complete description
+X			of all procedures.
+X*)
+X
+X  IMPORT SYSTEM,Storage,splayItem,error; 
+X   
+X  TYPE
+X     T = POINTER TO head;
+X     Tree = POINTER TO treeNode;
+X     treeNode = RECORD
+X		   l,r:Tree;		  (* left and right links   *)
+X		   data:splayItem.T;	  (* stored item            *)
+X		   weight:CARDINAL;	  (* number of nodes in subtrees *)
+X		END (* record *);	     
+X		
+X     cmpFunc = PROCEDURE (splayItem.T, splayItem.T) : CARDINAL;
+X	
+X     head = RECORD
+X	        t : Tree;
+X	      nbr : CARDINAL;   
+X	    END (* record *);
+X	    
+X    CONST 
+X      stackSize =  10000;
+X      	    
+X    VAR 
+X         ls : ARRAY [0..stackSize] OF Tree;
+X         rs : ARRAY [0..stackSize] OF Tree;
+X	 lp,rp : CARDINAL;
+X
+X
+X    PROCEDURE create(VAR tree:T);
+X       BEGIN (* create *)
+X         Storage.ALLOCATE(tree,SIZE(head));
+X	 tree^.t := NIL;
+X	 tree^.nbr := 0;
+X       END create;
+X
+X
+X  PROCEDURE destroy(VAR tree:T);
+X     PROCEDURE des(t:Tree);
+X       BEGIN (* des *)
+X	 IF t # NIL THEN 
+X	    des(t^.l);
+X	    des(t^.r);
+X	    splayItem.destroy(t^.data);
+X	    Storage.DEALLOCATE(t,SIZE(treeNode));
+X	 END (* if *);
+X       END des;
+X     BEGIN (* destroy *)
+X       des(tree^.t); 
+X       Storage.DEALLOCATE(tree,SIZE(head));
+X       tree := NIL;
+X     END destroy;
+X  
+X   PROCEDURE nbrElem(tree:T): CARDINAL; 
+X      BEGIN
+X         RETURN tree^.nbr;
+X      END nbrElem;
+X     
+X(**)
+X  PROCEDURE insert(tree:T; item:splayItem.T);
+X     VAR n,nn,l,r,node:Tree;
+X         i:CARDINAL;
+X     BEGIN (* insert *)
+X       Storage.ALLOCATE(node,SIZE(treeNode));
+X       node^.data := item; 
+X       n := tree^.t;
+X       lp:=0;rp:=0;ls[0]:=NIL;rs[0]:=NIL;
+X       tree^.t := node;
+X       IF n = NIL THEN
+X       	 node^.l:=NIL; node^.r:=NIL;
+X       ELSE 
+X       	 l:=node; r:=node;
+X	 ls[0]:=l; rs[0]:=r;
+X	 LOOP 
+X	   IF l#ls[lp] THEN INC(lp);
+X	     IF lp>stackSize THEN error.raise("Internal error splay(insert):\n");HALT;
+X	     ELSE ls[lp]:=l; END;
+X	   END;
+X	   IF r#rs[rp] THEN INC(rp); 
+X	     IF rp>stackSize THEN error.raise("Internal error splay(insert):\n");HALT;
+X	     ELSE rs[rp]:=r; END;
+X	   END;
+X	 
+X	   IF splayItem.cmp(item,n^.data) < 0 THEN 
+X	     nn := n^.l;
+X	     IF nn=NIL THEN r^.l := n; l^.r := NIL; EXIT;
+X	     ELSIF splayItem.cmp(item,nn^.data) >= 0 THEN 
+X	       r^.l := n; r := n; 
+X	       l^.r := nn; l := nn;
+X	       n := nn^.r;
+X	       IF n=NIL THEN r^.l:=NIL; EXIT; END;
+X	     ELSE (* item < data *)
+X	       n^.l := nn^.r;
+X	       r^.l := nn;
+X	       nn^.r := n;
+X	       r := nn;
+X	       n := nn^.l;
+X	       IF n = NIL THEN l^.r := NIL; EXIT; END;
+X	     END (* if *);
+X	   ELSE (* item >= data *)   
+X	     nn := n^.r;
+X	     IF nn=NIL THEN l^.r := n; r^.l := NIL; EXIT;
+X	     ELSIF splayItem.cmp(item,nn^.data) < 0 THEN 
+X	       l^.r := n; l := n; 
+X	       r^.l := nn; r:=nn;
+X	       n := nn^.l;
+X	       IF n=NIL THEN l^.r:=NIL; EXIT; END;
+X	     ELSE (* item >= data *)
+X	       n^.r := nn^.l;
+X	       l^.r := nn;
+X	       nn^.l := n;
+X	       l := nn;
+X	       n := nn^.r;
+X	       IF n=NIL THEN r^.l := NIL; EXIT; END;
+X	     END (* if *)
+X	   END (* if *);
+X	 END (* loop *);
+X	 IF l#ls[lp] THEN INC(lp); ls[lp]:=l; END;
+X	 IF r#rs[rp] THEN INC(rp); rs[rp]:=r; END; 
+X	 (*
+X	 ** Now, walk back up the left AND right built tree, i.e all nodes
+X	 ** that are smaller (and bigger) than the node searched for, 
+X	 ** and update all weights. This is done using an explicit stack ls
+X	 ** and lr.
+X	 *) 
+X	 FOR i := lp TO 0 BY -1 DO
+X	    n:=ls[i]; n^.weight:=1;
+X	    nn:=n^.l;
+X	    IF nn#NIL THEN 
+X	       nn^.weight:=1;	       
+X	       IF nn^.l#NIL THEN nn^.weight:=nn^.weight+nn^.l^.weight; END;
+X	       IF nn^.r#NIL THEN nn^.weight:=nn^.weight+nn^.r^.weight; END;
+X	       n^.weight:=n^.weight+nn^.weight; 
+X	    END;
+X	    nn:=n^.r;
+X	    IF nn#NIL THEN n^.weight:=n^.weight+nn^.weight; END;
+X	 END (* for *);
+X	 
+X	 FOR i := rp TO 0 BY -1 DO
+X	    n:=rs[i]; n^.weight:=1;
+X	    nn:=n^.r;
+X	    IF nn#NIL THEN 
+X	       nn^.weight:=1;
+X	       IF nn^.l#NIL THEN nn^.weight:=nn^.weight+nn^.l^.weight; END;
+X	       IF nn^.r#NIL THEN nn^.weight:=nn^.weight+nn^.r^.weight; END;
+X	       n^.weight:=n^.weight+nn^.weight; 
+X	    END;
+X	    nn:=n^.l;
+X	    IF nn#NIL THEN n^.weight:=n^.weight+nn^.weight; END;
+X	 END (* for *); 
+X	 
+X	 nn := node^.r;
+X	 node^.r := node^.l;
+X	 node^.l := nn;
+X       END (* if empty tree*);
+X       INC(tree^.nbr);
+X     END insert;
+X
+X(*  *)
+X
+X  PROCEDURE delete(tree:T; item:splayItem.T);
+X     VAR l,r,nnn,nn,n,pnn:Tree;
+X         left,right:treeNode;
+X         fFound:BOOLEAN;
+X	 i:CARDINAL;
+X     PROCEDURE replace(VAR p:Tree; n:Tree);
+X        VAR r,pr:Tree;
+X        BEGIN (* replace *)
+X           r:=n^.l;
+X	   IF r=NIL THEN p:=n^.r;
+X	   ELSE 
+X	      IF r^.r=NIL THEN p:=r; p^.r:=n^.r;
+X	      ELSE 
+X	         WHILE r^.r#NIL DO DEC(r^.weight); pr:=r; r:=r^.r; END;
+X	         pr^.r:=r^.l;
+X	         r^.l:=n^.l; r^.r:=n^.r;
+X	         p:=r;
+X	      END;
+X	   END (* if *);
+X	   splayItem.destroy(n^.data);
+X	   Storage.DEALLOCATE(n,SIZE(treeNode));
+X	   DEC(tree^.nbr);
+X        END replace;
+X      PROCEDURE fixWeight(n:Tree);
+X	VAR nn:Tree;   
+X	BEGIN (* fixWeight *)
+X	    n^.weight:=1;
+X	    nn:=n^.r;
+X	    IF nn#NIL THEN 
+X	       nn^.weight:=1;
+X	       IF nn^.l#NIL THEN INC(nn^.weight,nn^.l^.weight); END;
+X	       IF nn^.r#NIL THEN INC(nn^.weight,nn^.r^.weight); END;
+X	       INC(n^.weight,nn^.weight);
+X	    END;
+X	    nn:=n^.l;
+X	    IF nn#NIL THEN 
+X	       nn^.weight:=1;
+X	       IF nn^.l#NIL THEN INC(nn^.weight,nn^.l^.weight); END;
+X	       IF nn^.r#NIL THEN INC(nn^.weight,nn^.r^.weight); END;
+X	       INC(n^.weight,nn^.weight); 
+X	    END;
+X	END fixWeight;
+X	
+X     BEGIN (* delete *) 
+X        l:=SYSTEM.ADR(left); r:=SYSTEM.ADR(right);
+X	l^.l:=NIL; l^.r:=NIL;
+X	r^.l:=NIL; r^.r:=NIL;
+X        lp:=0;rp:=0;ls[0]:=l;rs[0]:=r;
+X        n := tree^.t;
+X	IF n=NIL THEN RETURN;
+X	ELSIF splayItem.cmp(n^.data,item)=0 THEN replace(tree^.t,n);
+X	ELSE
+X	   LOOP
+X	      IF l#ls[lp] THEN INC(lp);
+X	        IF lp>stackSize THEN error.raise("Internal error splay(delete):\n");HALT;
+X	        ELSE ls[lp]:=l; END;
+X	      END;
+X	      IF r#rs[rp] THEN INC(rp); 
+X	        IF rp>stackSize THEN error.raise("Internal error/delete):\n");HALT;
+X	        ELSE rs[rp]:=r; END;
+X	      END;
+X	   
+X	      IF splayItem.cmp(item,n^.data)<0 THEN
+X	         nn:=n^.l;
+X		 IF nn=NIL THEN EXIT;
+X		 ELSE 
+X		    IF splayItem.cmp(item,nn^.data)=0 THEN 
+X		       replace(n^.l,nn);
+X		       EXIT;  
+X		    ELSIF splayItem.cmp(item,nn^.data)<0 THEN 
+X		       nnn:=nn^.l;
+X		       IF nnn#NIL THEN
+X		       	  IF splayItem.cmp(item,nnn^.data)=0 THEN
+X			     replace(nn^.l,nnn);
+X			     r^.l:=n; r:=n; n:=nn;
+X			     EXIT;
+X			  ELSE (* case III *) 
+X			     n^.l:=nn^.r;
+X			     r^.l:=nn; r:=nn; 
+X			     nn^.r:=n;
+X			     n:=nnn;
+X			  END (* if *);
+X		       ELSE (* nnn=NIL *)
+X		       	  r^.l:=n; r:=n; n:=nn;
+X			  EXIT;
+X		       END (* if nnn#NIL *);
+X		    ELSE (* item > n^.data *)
+X		       nnn:=nn^.r;
+X		       IF nnn#NIL THEN
+X		          IF splayItem.cmp(item,nnn^.data)=0 THEN
+X			     replace(nn^.r,nnn);
+X			     r^.l:=n; r:=n; n:=nn;
+X			     EXIT;
+X			  ELSE (* case V *)
+X			     l^.r:=nn; l:=nn;
+X			     r^.l:=n; r:=n;
+X			     n:=nnn;
+X			  END (* if *);
+X		       ELSE (* nnn=NIL *)
+X			  r^.l:=n; r:=n; n:=nn;
+X			  EXIT;
+X		       END (* if nnn#NIL *);
+X		    END (* if *);
+X		 END (* if nn#NIL  *);
+X	      ELSE (* item>n^.data *)
+X	      	 nn:=n^.r;
+X		 IF nn=NIL THEN EXIT;
+X		 ELSE 
+X		    IF splayItem.cmp(item,nn^.data)=0 THEN 
+X		       replace(n^.r,nn);
+X		       EXIT;  
+X		    ELSIF splayItem.cmp(item,nn^.data)>0 THEN 
+X		       nnn:=nn^.r;
+X		       IF nnn#NIL THEN
+X		       	  IF splayItem.cmp(item,nnn^.data)=0 THEN
+X			     replace(nn^.r,nnn);
+X			     l^.r:=n; l:=n; n:=nn;
+X			     EXIT;
+X			  ELSE (* case IV *)
+X			     n^.r:=nn^.l;
+X			     l^.r:=nn; l:=nn;
+X			     nn^.l:=n;
+X			     n:=nnn;
+X			  END (* if *);
+X		       ELSE (* nnn=NIL *)
+X			  l^.r:=n; l:=n; n:=nn;
+X			  EXIT;
+X		       END (* if nnn#NIL *);
+X		    ELSE (* item < n^.data *)
+X		       nnn:=nn^.l;
+X		       IF nnn#NIL THEN
+X		          IF splayItem.cmp(item,nnn^.data)=0 THEN
+X			     replace(nn^.l,nnn);
+X			     l^.r:=n; l:=n; n:=nn;
+X			     EXIT;
+X			  ELSE (* case VI *)
+X			     l^.r:=n; l:=n;
+X			     r^.l:=nn; r:=nn;
+X			     n:=nnn;
+X			  END (* if *);
+X		       ELSE (* nnn=NIL *)
+X			  l^.r:=n; l:=n; n:=nn;
+X			  EXIT;
+X		       END (* if nnn#NIL *);
+X		    END (* if *);
+X		 END (* if nn#nil *);
+X	      END (* if *);
+X	   END (* loop *);
+X	   IF l#ls[lp] THEN INC(lp); ls[lp]:=l; END;
+X	   IF r#rs[rp] THEN INC(rp); rs[rp]:=r; END; 
+X	   l^.r:=n^.l; r^.l:=n^.r; 
+X	   n^.l:=left.r; n^.r:=right.l;
+X	   tree^.t:=n;
+X	 (*
+X	 ** Now, walk back up the left AND right built tree, i.e all nodes
+X	 ** that are smaller (and bigger) than the node searched for, 
+X	 ** and update all weights. This is done using an explicit stack ls
+X	 ** and lr.
+X	 *) 
+X	      
+X	   FOR i := lp TO 1 BY -1 DO
+X	     fixWeight(ls[i]);
+X	   END (* for *);
+X	   FOR i := rp TO 1 BY -1 DO
+X	     fixWeight(rs[i]);
+X	   END (* for *); 
+X	END;
+X	IF tree^.t#NIL THEN fixWeight(tree^.t); END;
+X     END delete;
+X
+X
+X(*  *)
+X  PROCEDURE find(tree:T; item:splayItem.T;VAR found:splayItem.T): BOOLEAN;
+X     VAR l,r,nnn,nn,n:Tree;
+X         left,right:treeNode;
+X         fFound : BOOLEAN;
+X	 i:CARDINAL;
+X     BEGIN (* find *)
+X        l:=SYSTEM.ADR(left); r:=SYSTEM.ADR(right);
+X	l^.l:=NIL; l^.r:=NIL;
+X	r^.l:=NIL; r^.r:=NIL;
+X	
+X	fFound:=FALSE;
+X        n := tree^.t;
+X	lp:=0;rp:=0;ls[0]:=l;rs[0]:=r;
+X	IF n=NIL THEN RETURN FALSE;
+X	ELSIF splayItem.cmp(n^.data,item)=0 THEN
+X	   found:=n^.data; 
+X	   RETURN TRUE;
+X	ELSE
+X	   LOOP
+X	      IF l#ls[lp] THEN INC(lp);
+X	        IF lp>stackSize THEN error.raise("Internal error splay(find):\n");HALT;
+X	        ELSE ls[lp]:=l; END;
+X	      END;
+X	      IF r#rs[rp] THEN INC(rp); 
+X	        IF rp>stackSize THEN error.raise("Internal error splay(find):\n");HALT;
+X	        ELSE rs[rp]:=r; END;
+X	      END;
+X	   
+X	      IF splayItem.cmp(item,n^.data)=0 THEN
+X	         found:=n^.data; fFound:=TRUE;
+X		 EXIT;
+X	      ELSIF splayItem.cmp(item,n^.data)<0 THEN
+X	         nn:=n^.l;
+X		 IF nn=NIL THEN EXIT;
+X		 ELSE 
+X		    IF splayItem.cmp(item,nn^.data)=0 THEN  (* case I   *)
+X		       r^.l:=n; r:=n; n:=nn;
+X		       found:=n^.data; fFound:=TRUE;
+X		       EXIT;  
+X		    ELSIF splayItem.cmp(item,nn^.data)<0 THEN 
+X		       nnn:=nn^.l;
+X		       IF nnn#NIL THEN                  (* case III *)
+X			  n^.l:=nn^.r;
+X			  r^.l:=nn; r:=nn; 
+X			  nn^.r:=n; n:=nnn;
+X		       ELSE (* nnn=NIL *)
+X		       	  r^.l:=n; r:=n; n:=nn;
+X			  EXIT;
+X		       END (* if nnn#NIL *);
+X		    ELSE (* item > nn^.data *)
+X		       nnn:=nn^.r;
+X		       IF nnn#NIL THEN                  (* case V   *)
+X			  l^.r:=nn; l:=nn;
+X			  r^.l:=n; r:=n; n:=nnn;
+X		       ELSE (* nnn=NIL *)
+X			  r^.l:=n; r:=n; n:=nn;
+X			  EXIT;
+X		       END (* if nnn#NIL *);
+X		    END (* if *);
+X		 END (* if nn#NIL  *);
+X	      ELSE (* item>n^.data *)
+X	      	 nn:=n^.r;
+X		 IF nn=NIL THEN EXIT;
+X		 ELSE 
+X		    IF splayItem.cmp(item,nn^.data)=0 THEN  (* case II  *)
+X		       l^.r:=n; l:=n; n:=nn;
+X		       found:=n^.data; fFound:=TRUE;
+X		       EXIT;  
+X		    ELSIF splayItem.cmp(item,nn^.data)>0 THEN 
+X		       nnn:=nn^.r;
+X		       IF nnn#NIL THEN                  (* case IV  *)
+X			  n^.r:=nn^.l;
+X			  l^.r:=nn; l:=nn;
+X			  nn^.l:=n; n:=nnn;
+X		       ELSE (* nnn=NIL *)
+X			  l^.r:=n; l:=n; n:=nn;
+X			  EXIT;
+X		       END (* if nnn#NIL *);
+X		    ELSE (* item < nn^.data *)
+X		       nnn:=nn^.l;
+X		       IF nnn#NIL THEN                  (* case VI  *)
+X			  l^.r:=n; l:=n;
+X			  r^.l:=nn; r:=nn; n:=nnn;
+X		       ELSE (* nnn=NIL *)
+X			  l^.r:=n; l:=n; n:=nn;
+X			  EXIT;
+X		       END (* if nnn#NIL *);
+X		    END (* if cmp(...) *);
+X		 END (* if nn=nil *);
+X	      END (* if cmp(...) *);
+X	   END (* loop *);
+X	   IF l#ls[lp] THEN INC(lp); ls[lp]:=l; END;
+X	   IF r#rs[rp] THEN INC(rp); rs[rp]:=r; END; 
+X	   
+X	   r^.l:=n^.r; l^.r:=n^.l; 
+X	   n^.l:=left.r; n^.r:=right.l; 
+X	   tree^.t:=n;
+X	 (*
+X	 ** Now, walk back up the left AND right built tree, i.e all nodes
+X	 ** that are smaller (and bigger) than the node searched for, 
+X	 ** and update all weights. This is done using an explicit stack ls
+X	 ** and lr.
+X	 *) 
+X	   
+X	   FOR i := lp TO 0 BY -1 DO
+X	    n:=ls[i]; n^.weight:=1;
+X	    nn:=n^.l;
+X	    IF nn#NIL THEN 
+X	       nn^.weight:=1;	       
+X	       IF nn^.l#NIL THEN nn^.weight:=nn^.weight+nn^.l^.weight; END;
+X	       IF nn^.r#NIL THEN nn^.weight:=nn^.weight+nn^.r^.weight; END;
+X	       n^.weight:=n^.weight+nn^.weight; 
+X	    END;
+X	    nn:=n^.r;
+X	    IF nn#NIL THEN n^.weight:=n^.weight+nn^.weight; END; 
+X	   END (* for *);
+X	 
+X	   FOR i := rp TO 0 BY -1 DO
+X	     n:=rs[i]; n^.weight:=1;
+X	     nn:=n^.r;
+X	     IF nn#NIL THEN 
+X	       nn^.weight:=1;
+X	       IF nn^.l#NIL THEN nn^.weight:=nn^.weight+nn^.l^.weight; END;
+X	       IF nn^.r#NIL THEN nn^.weight:=nn^.weight+nn^.r^.weight; END;
+X	       n^.weight:=n^.weight+nn^.weight; 
+X	     END;
+X	     nn:=n^.l;
+X	     IF nn#NIL THEN n^.weight:=n^.weight+nn^.weight; END;
+X	   END (* for *); 
+X	END;
+X	RETURN fFound;      
+X     END find;
+X  
+X
+X  PROCEDURE getRank(tree:T; item:splayItem.T): CARDINAL;
+X     VAR t,p:Tree;rank:CARDINAL;
+X     BEGIN (* getRank *)
+X       t:=tree^.t;
+X       p:=NIL;
+X       rank:=1;
+X       LOOP 
+X         IF t = NIL THEN
+X           RETURN 0;
+X         ELSE 
+X           IF splayItem.cmp(t^.data,item)=0 THEN 
+X               IF t^.l # NIL THEN 
+X                  RETURN rank+t^.l^.weight;
+X               ELSE
+X                  RETURN rank;
+X               END;
+X           ELSIF splayItem.cmp(t^.data,item) > 0  THEN 
+X               p:=t;
+X               t := t^.l;
+X           ELSE
+X               IF t^.l#NIL THEN  
+X                  rank:=rank+t^.l^.weight+1;
+X               ELSE 
+X                  INC(rank);
+X               END;
+X               p:=t;
+X               t := t^.r
+X           END;
+X         END (* if *);
+X       END (* loop *);
+X     END getRank;
+X
+X  
+X   PROCEDURE getRankElement(tree:T; r:CARDINAL; VAR found:splayItem.T):BOOLEAN;
+X      VAR n:Tree;rank,weight:CARDINAL;
+X      BEGIN (* getRankElement *)
+X         n:=tree^.t;
+X	 rank:=0;
+X	 WHILE n#NIL DO
+X	   IF n^.l#NIL THEN weight:=n^.l^.weight+1;
+X	   ELSE weight:=1; END; 
+X	   IF r=rank+weight THEN
+X	     found:=n^.data;
+X	     RETURN TRUE;
+X	   ELSIF r<rank+weight THEN
+X	     n:=n^.l;
+X	   ELSE
+X	     rank:=rank+weight;
+X	     n:=n^.r; 
+X	   END (* if *);
+X	 END;
+X	 RETURN FALSE;
+X      END getRankElement;
+X      
+X
+X  PROCEDURE mapIn(tree:T; f:auxFunc);
+X     PROCEDURE mI(t:Tree);
+X	BEGIN (* mI *)
+X	  IF t # NIL THEN mI(t^.l); f(t^.data); mI(t^.r); END;
+X	END mI;
+X     BEGIN (* mapIn *)
+X       mI(tree^.t); 
+X     END mapIn;
+X
+X
+X  PROCEDURE mapPre(tree:T; f:auxFunc);
+X     PROCEDURE mPr(t:Tree);
+X	BEGIN (* mPr *)
+X	  IF t # NIL THEN f(t^.data); mPr(t^.l); mPr(t^.r); END;
+X	END mPr;
+X     BEGIN (* mapPre *)
+X       mPr(tree^.t); 
+X     END mapPre;
+X
+X
+X  PROCEDURE mapPos(tree:T; f:auxFunc);
+X     PROCEDURE mPo(t:Tree);
+X	BEGIN (* mPo *)
+X	  IF t # NIL THEN mPo(t^.l); mPo(t^.r); f(t^.data); END;
+X	END mPo;
+X     BEGIN (* mapPos *)
+X       mPo(tree^.t); 
+X     END mapPos;
+X
+XEND splay.
+X
+END_OF_FILE
+  if test 15974 -ne `wc -c <'splay.mod'`; then
+    echo shar: \"'splay.mod'\" unpacked with wrong size!
+  fi
+  # end of 'splay.mod'
+fi
+if test -f 'splayItem.def' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'splayItem.def'\"
+else
+  echo shar: Extracting \"'splayItem.def'\" \(505 characters\)
+  sed "s/^X//" >'splayItem.def' <<'END_OF_FILE'
+XDEFINITION MODULE splayItem;
+X(*
+X 	Title:		
+X	Last Edit:	Sun Nov 22 12:31:05 1992
+X	Author:		Johan Persson at my9
+X
+X*)
+X  TYPE
+X     T = INTEGER;
+X
+X  PROCEDURE cmp(a:T; b:T): INTEGER;
+X  (* Returns:	   cmp(a,b) = 0  => a=b
+X		   cmp(a,b) = 1  => a>b
+X		   cmp(a,b) = -1 => a<b
+X  *)
+X  
+X  PROCEDURE create(VAR a:T);
+X  (* Post: A new object has been created 
+X  *) 
+X  
+X  PROCEDURE destroy(VAR a:T);
+X  (* Pre: create(a)
+X     Post: All memory occupied by 'a' has been returned.
+X           a = NIL 
+X  *)
+X  
+XEND splayItem.
+END_OF_FILE
+  if test 505 -ne `wc -c <'splayItem.def'`; then
+    echo shar: \"'splayItem.def'\" unpacked with wrong size!
+  fi
+  # end of 'splayItem.def'
+fi
+if test -f 'splayItem.mod' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'splayItem.mod'\"
+else
+  echo shar: Extracting \"'splayItem.mod'\" \(447 characters\)
+  sed "s/^X//" >'splayItem.mod' <<'END_OF_FILE'
+X(*
+X	Title:		
+X	Last Edit:	Sun Nov 22 12:30:53 1992
+X	Author:		Johan Persson at my16
+X*)
+X
+XIMPLEMENTATION MODULE splayItem;
+X
+X  
+X  PROCEDURE cmp(a:T; b:T): INTEGER;
+X     BEGIN (* cmp *)
+X	IF a=b THEN RETURN 0;
+X	ELSIF a<b THEN RETURN -1;
+X	ELSE RETURN 1;
+X	END (* if *);
+X     END cmp;
+X
+X  PROCEDURE destroy(VAR a:T);
+X     BEGIN (* destroy *)
+X     END destroy;
+X     
+X  PROCEDURE create(VAR a:T);
+X     BEGIN (* create *)
+X     END create;
+X  
+X  
+X
+XEND splayItem.
+END_OF_FILE
+  if test 447 -ne `wc -c <'splayItem.mod'`; then
+    echo shar: \"'splayItem.mod'\" unpacked with wrong size!
+  fi
+  # end of 'splayItem.mod'
+fi
+if test -f 'splayTest.mod' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'splayTest.mod'\"
+else
+  echo shar: Extracting \"'splayTest.mod'\" \(4178 characters\)
+  sed "s/^X//" >'splayTest.mod' <<'END_OF_FILE'
+XMODULE splayTest; 
+X(*
+X	Title:		
+X	Last Edit:	Mon Dec 21 11:43:13 1992
+X	Author:		Johan Persson at my9
+X
+X	SCCS:		%Z%%M%       %I%     %E%		
+X
+X*)
+X
+XIMPORT splay, splayItem, std, string, int, card, randomstrm;
+X
+XCONST 
+X
+X MaxC = 25000;
+X MaxR = 25000.0;
+X
+X
+XVAR t:splay.T;
+X    i,r,rank,tests:CARDINAL;
+X    tmp:splayItem.T;
+X    bf:BOOLEAN;
+X    v : ARRAY [1..MaxC] OF BOOLEAN;
+X    rnd : randomstrm.Obj;
+X    idx:CARDINAL;
+X    
+X   
+XPROCEDURE printsplayItem(i:splayItem.T);
+X   
+X   BEGIN (* printsplayItem *)
+X     int.write(std.out,i,0);
+X     string.writef(std.out,",");   
+X   END printsplayItem;
+X
+X
+XPROCEDURE msg(s:ARRAY OF CHAR);
+X   BEGIN (* msg *)
+X     string.writef(std.out,s);
+X   END msg;
+X
+XPROCEDURE testRank ();
+X   VAR i,idx:CARDINAL;
+X   BEGIN (* testRank *)
+X     idx:=1;
+X     FOR i := 1 TO MaxC DO
+X        IF v[i] THEN
+X          rank:=splay.getRank(t,i);
+X          IF idx#rank THEN 
+X            string.writef(std.out,"** ERROR IN RANK.\n");
+X	    string.writef(std.out," (i=");
+X	    card.write(std.out,i,0);
+X	    string.writef(std.out,")\n");
+X	    string.writef(std.out," rank=");
+X	    card.write(std.out,rank,0);
+X	    string.writef(std.out,"\n");
+X	    string.writef(std.out," idx=");
+X	    card.write(std.out,idx,0);
+X	    string.writef(std.out,"\n");
+X	    msg("Number OF tests: ");
+X	    card.write(std.out,tests,0);
+X	    string.writef(std.out,"\n");
+X	    splay.mapIn(t,printsplayItem);
+X	    HALT;
+X	  END;
+X	  INC(idx); 
+X       ELSE
+X	 (* card.write(std.out,i,0);
+X	  msg(": F, ");*)
+X        END;
+X      END;
+X   END testRank;
+X
+XBEGIN
+X
+Xmsg("Create the structure ...");
+X
+Xsplay.create(t);
+X
+Xmsg("done.\n");
+X
+Xmsg("Beginning with insertions\n");
+X
+XFOR i := 0 TO 255 DO
+X  splay.insert(t,i);   
+XEND (* for *);
+X
+Xmsg("Done with insertions\n");
+X
+XIF splay.find(t,13,tmp) THEN
+X   msg("found 13 (tmp=");
+X   int.write(std.out,tmp,0);
+X   msg(") OK.\n");
+X   splay.mapPre(t,printsplayItem);
+X   msg("\n");
+XELSE
+X   msg("****** ERROR IN find routine!\n");
+XEND (* if *);
+X
+XIF splay.find(t,18,tmp) THEN
+X   msg("found 18 (tmp=");
+X   int.write(std.out,tmp,0);
+X   msg(") OK.\n");
+X   splay.mapPre(t,printsplayItem);
+X   msg("\n");
+XELSE
+X   msg("**** ERROR IN exist routine!\n");
+XEND (* if *);
+X
+XIF splay.find(t,300,tmp) THEN
+X   msg("ERROR IN exist routine!  ");
+X   msg("found 300 (tmp=");
+X   int.write(std.out,tmp,0);
+X   msg(")\n");
+XELSE
+X   msg("Didn't find 300. OK.\n");
+X   splay.mapPre(t,printsplayItem);
+X   msg("\n");
+XEND (* if *);
+X
+X
+Xmsg("Print a sorted version ...\n");
+X
+Xsplay.mapIn(t,printsplayItem);
+X
+Xmsg("\n\n Print some rank's\n");
+X
+XIF splay.getRankElement(t,3,tmp) THEN 
+X   msg("3=> "); int.write(std.out,tmp,0); msg("\n");
+XELSE 
+X   msg("ERROR didn't find rank 3\n\n");
+XEND;
+X
+XIF splay.getRankElement(t,1,tmp) THEN 
+X   msg("1=> "); int.write(std.out,tmp,0); msg("\n");
+XELSE 
+X   msg("ERROR didn't find rank 1\n\n");
+XEND;
+X
+XIF splay.getRankElement(t,6,tmp) THEN 
+X   msg("6=> "); int.write(std.out,tmp,0); msg("\n");
+XELSE 
+X   msg("ERROR didn't find rank 6\n\n");
+XEND;
+X
+XIF splay.getRank(t,255)#256 THEN 
+X   msg("**** ERROR IN getRank\n");
+XELSE 
+X   msg("\n 255 has rank 256\n");
+XEND;
+X
+Xmsg("\n and now we delete som element");
+X
+Xmsg("\n 6 ..");
+X
+Xsplay.delete(t,6);
+X
+Xmsg("\n Print a sorted version ...\n");
+X
+Xsplay.mapIn(t,printsplayItem);
+X
+Xmsg("\n");
+X
+Xsplay.destroy(t);
+X
+Xmsg("\n Finished first part. Starting exhaustive test (hit Ctrl-C TO abort)\n");
+X
+X
+Xsplay.create(t);
+X
+Xmsg("Beginning with insertions ... \n");
+X
+XFOR i := 1 TO MaxC  DO
+X  splay.insert(t,i); 
+X  v[i]:=TRUE;  
+XEND (* for *);
+X
+Xmsg("done.\n");
+X
+XIF splay.find(t,MaxC DIV 2,tmp) THEN 
+X  msg("Starting test: of insert... ");
+X  testRank;
+X  msg("done.\n Passed test 1.\n");
+XELSE
+X  msg("Failed 'find' test 1\n");
+XEND;
+X
+Xmsg("Starting test sequence ...\n");
+Xtests:=0;
+Xrnd:=randomstrm.uniform(1.0, MaxR, 837 );
+X
+XLOOP
+X  INC(tests);
+X  IF tests=10000 THEN 
+X     msg(".\n");
+X     tests:=0;
+X  END;
+X  r:= TRUNC(randomstrm.next(rnd));
+X  IF v[r] THEN
+X     IF TRUNC(randomstrm.next(rnd)) > (MaxC DIV 2) THEN 
+X       IF NOT splay.find(t,r,tmp) THEN 
+X         msg("Error 'find'\n");
+X       END;
+X     ELSE
+X       splay.delete(t,r);
+X       v[r]:=FALSE;
+X     END;
+X     testRank;
+X  ELSE
+X     splay.insert(t,r);
+X     v[r]:=TRUE;
+X     testRank;
+X  END (* if *);
+XEND (* loop *);
+X
+X
+XEND splayTest.
+END_OF_FILE
+  if test 4178 -ne `wc -c <'splayTest.mod'`; then
+    echo shar: \"'splayTest.mod'\" unpacked with wrong size!
+  fi
+  # end of 'splayTest.mod'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

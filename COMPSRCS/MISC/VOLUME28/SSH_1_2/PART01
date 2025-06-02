@@ -1,0 +1,404 @@
+Newsgroups: comp.sources.misc
+From: etxerus@james.ericsson.se (Hans Beckerus LG/TH)
+Subject:  v28i098:  ssh-1.2 - Split & Strip appended shell archives, Part01/01
+Message-ID: <1992Mar13.052055.19370@sparky.imd.sterling.com>
+X-Md4-Signature: a78bea57610507a5cc30c08acbcfa258
+Date: Fri, 13 Mar 1992 05:20:55 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: etxerus@james.ericsson.se (Hans Beckerus LG/TH)
+Posting-number: Volume 28, Issue 98
+Archive-name: ssh-1.2/part01
+Environment: UNIX
+Supersedes: ssh: Volume 28, Issue 80
+
+                --------------------------
+                     SSH version 1.20
+                --------------------------   
+
+This program strips and splits multiple/single part shell
+archives and stores the result in 'partXX' files.
+
+ In this version of ssh I have: 
+
+  - Fixed some minor bugs.
+
+  - Added the -x option that makes it possible to
+    extract files in multipart archives. 
+
+  - Added usage and version information options.
+
+  - Increased the functionality so that it will work
+    on almost all archives. I have only seen one type
+    that does not work and that is when the archives
+    contains archives themselves.
+
+  - Updated the code so it will compile on all SYS V
+    machines too (I hope).
+
+ This program has been tested on the SUN/SPARC and 
+ the HP9000/700 series.
+
+                         /Hans
+----------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Makefile README ssh.c
+# Wrapped by etxerus@james16 on Thu Mar 12 15:59:26 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(655 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Simple makefile for ssh 1.20
+X#
+X
+X# Destination directory for binary
+XBINDIR= /usr/local/bin
+X
+XCC= cc
+XFLAGS= -O
+XPROG= ssh
+XSOURCES= ssh.c
+XOBJS= ssh.o
+X
+X# Do not change the SHELL definition except if
+X# (by some reason) 'sh' is located somewhere
+X# else then in /bin.
+XDSHELL=-DSHELL=\"/bin/sh\"
+X
+X# SUN/SPARC:
+X# This should work for all SUN:s.
+XTARGET= -DSUN
+X 
+X# SYS5:
+X# This should work for all System V machines.
+X#TARGET= -DSYSV
+X
+XSCCSID= -DSCCSID
+XDEFINES= $(TARGET) $(SCCSID) $(DSHELL)
+XCFLAGS= $(FLAGS) $(DEFINES)
+X
+X$(PROG): $(OBJS)
+X	$(CC) $(CFLAGS) -o $(PROG) $(OBJS) 
+X
+Xclean:
+X	rm -f core $(PROG) $(OBJS)
+X
+Xinstall: $(PROG)
+X	strip $(PROG)
+X	mv $(PROG) $(BINDIR)
+END_OF_FILE
+if test 655 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(1493 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+X                --------------------------
+X                     SSH version 1.20
+X                --------------------------   
+X
+X In this version of ssh I have: 
+X
+X  - Fixed some minor bugs.
+X
+X  - Added the -x option that makes it possible to
+X    extract files in multipart archives. 
+X
+X  - Added usage and version information options.
+X
+X  - Increased the functionality so that it will work
+X    on allmost all archives. I have only seen one type
+X    that does not work and that is when the archives
+X    contains archives themselves.
+X
+X  - Updated the code so it will compile on all SYS V
+X    machines too (I hope).
+X
+X If you find any faults while using this program please
+X notify me. Read the sourcecode for more information.
+X
+X To compile type 'make install'. For SYS V machines
+X see the makefile.
+X
+X This program has been tested on the SUN/SPARC and 
+X the HP9000/700 series.
+X
+X
+X Usage: ssh [-h]
+X            [-x] < shar_archive
+X            [-v]
+X
+X Options:
+X   -h       - Display usage information. 
+X   -x       - Extract files in archive instead
+X              of spliting it into parts.
+X   -v       - Display version information.
+X
+X   Without any options ssh splits archives
+X   into extractable 'PartXX' files.
+X
+X
+X Cheers!
+X________________________________________________________________________________
+XHans Beckerus                  Phone : +46 8 719 59 60     
+XEricsson Telecom AB            Memo  : ETX.ETXERUS
+XAXE System Design              Email : etxerus@james.ericsson.se
+X126 25 Stockholm
+XSWEDEN
+END_OF_FILE
+if test 1493 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'ssh.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ssh.c'\"
+else
+echo shar: Extracting \"'ssh.c'\" \(6246 characters\)
+sed "s/^X//" >'ssh.c' <<'END_OF_FILE'
+X/* @(#)ssh.c 1.20 92/03/11 (HaB)
+X *
+X * NAME:
+X *    ssh
+X *
+X * SYNTAX:
+X *    ssh [-h]
+X *        [-x] < shar_archive
+X *        [-v] 
+X *
+X * OPTIONS:
+X *    -h    Display usage information.
+X *
+X *    -x    Extract files in archive instead
+X *          of spliting it into parts. 
+X *
+X *    -v    Display version information. 
+X *
+X *    Without any options ssh splits archives
+X *    into extractable 'PartXX' files.
+X *
+X * DESCRIPTION:
+X *    Splits, strips and extracts appended shell
+X *    archives and stores the result in 'PartXX'
+X *    files (not when extracting). 
+X *
+X * NOTES:
+X *    The program should work on all archives created
+X *    using 'shar' (or equals) provided that they have
+X *    not been changed since they were first generated.  
+X *
+X * BUGS:
+X *    I have noticed that when the archives contains
+X *    archives themselves (happens sometimes) it does 
+X *    not work properly.
+X *
+X * DATE:
+X *    1992-03-11
+X *
+X * AUTHOR:
+X *    Hans C. Beckerus
+X *    etxerus@james.ericsson.se
+X *
+X * DISCLAIMER:
+X *    This program is free to distribute to anyone aslong 
+X *    as the code is not changed in anyway without me
+X *    knowing about it.  
+X *
+X *                                            /HaB :-)
+X */
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <malloc.h>
+X
+X#define SEARCH   0
+X#define START    1
+X#define INSIDE   2
+X#define MSTEP    80     /* Allocation steps       */
+X#define SEARCHP  5      /* No. of search patterns */ 
+X
+X#ifndef SHELL
+X#define SHELL  "/bin/sh"     /* Just in case... */
+X#endif
+X
+X#ifdef SYSV     /* HPUX/SYSV */
+X#define nl_fprintf  fprintf
+X#define nl_sprintf  sprintf
+X#define nl_strcmp   strcmp
+Xsize_t msize;
+X#endif
+X
+X#ifdef SUN     /* SunOS/Berkeley */
+Xunsigned int msize;
+X#endif
+X
+X#ifdef SCCSID
+Xchar sccsid[] = "@(#)ssh.c 1.20  92/03/11 (HaB)  etxerus@james.ericsson.se";
+X#endif
+X
+Xenum boolean {     /* Boolean constants */
+X    FALSE,
+X    TRUE
+X};
+X
+Xchar *pattern[] = {                 /* Add more patterns here if needed.   */ 
+X    "# this is a shell archive",    /* NOTE! Remember to increase SEARCHP. */ 
+X    "# this is part", 
+X    "#!/bin/sh",
+X    "# !/bin/sh",
+X    "#! /bin/sh"
+X};
+X
+X/* usage:
+X * 
+X * Display usage information and exit with status rc.
+X *
+X */
+X
+Xvoid usage (rc) 
+X
+Xint rc;     /* Return code */
+X
+X{
+X    puts ("\nUsage: ssh [-h]");
+X    puts ("           [-x] < shar_archive");
+X    puts ("           [-v]\n");
+X    puts ("Options:");
+X    puts ("  -h       - This help text.");
+X    puts ("  -x       - Extract files in archive instead");
+X    puts ("             of spliting it into parts.");
+X    puts ("  -v       - Display version information.\n");
+X    puts ("  Without any options ssh splits archives");
+X    puts ("  into extractable 'PartXX' files.\n");
+X    exit (rc);
+X}
+X
+Xvoid main (argn, argv)
+X
+Xint   argn;
+Xchar *argv[];
+X
+X{
+X    FILE     *fr = stdin;          /* Input filepointer  */
+X    FILE     *fw;                  /* Output filepointer */
+X    FILE     *pipe;                /* Stream pipe        */
+X    int       state = SEARCH;      /* The current state  */
+X    int       fc = 0;              /* File part counter  */
+X    int       extract = FALSE;     /* Extract/write flag */
+X    char     *s;                   /* Read line          */
+X    char      fout[7];             /* Output filenames   */
+X    register  j = 0;               /* Counter            */
+X    register  c;                   /* Read character     */
+X
+X    /* Check the arguments if any */
+X    while (--argn) {
+X        argv++;
+X        if (!(strcmp (*argv, "-h", 2))) {     /* Help screen */
+X            if (!(argn-1))     /* Single option */
+X                usage (0);
+X        }
+X        else if (!(strcmp (*argv, "-x"))) {     /* Extract files */ 
+X            if (!(argn-1)) {     /* Single option */
+X                extract = TRUE;
+X                continue;
+X            }
+X        }
+X        else if (!(strcmp (*argv, "-v"))) {
+X            if (!(argn-1)) {     /* Single option */
+X                puts ("ssh 1.20  (bugs to etxerus@james.ericsson.se)");
+X                exit (0);
+X            }
+X        }
+X        usage (1);
+X    }  
+X
+X    msize = MSTEP;
+X    s = malloc (msize);     /* Allocate buffer */
+X
+X    while ((c = getc (fr)) != EOF) {
+X	if (c != '\n') {     /* Check for EOL */
+X	    s[j++] = c;
+X            if (j == msize) {
+X                msize += MSTEP;
+X                if ((s = realloc (s, msize)) == NULL) {
+X                    fprintf (stderr, "ssh: Allocation error, cannot continue.\n");
+X                    exit (1);
+X                }
+X            }
+X        }
+X	else {
+X	    s[j] = '\0';     /* One line has been read */
+X	    switch (state) {
+X		case SEARCH:
+X                    for (j = 0; j < SEARCHP; j++) {
+X                        if (!(strncasecmp (s, pattern[j], strlen (pattern[j])))) {
+X                            state = START;
+X                            break;    
+X                        }
+X                    }
+X                    if (state != START)
+X                        break;
+X
+X		case START:     /* Start writing or extracting */
+X                    if (!extract) {
+X		        sprintf (fout, "Part%.2d", ++fc);
+X		        fw = fopen (fout, "w");
+X                        fprintf (fw, "%s\n", s);
+X                    }
+X                    else {
+X                        if ((pipe = popen (SHELL, "w")) == NULL) {
+X                            puts ("ssh: Cannot create process.\n");
+X                            exit (1);
+X                        }
+X                        fprintf (pipe, "%s\n", s);
+X                    }
+X                    state = INSIDE;
+X		    break;
+X
+X                case INSIDE:
+X		    if (!(strcmp (s, "exit 0"))) {     /* Look for end */
+X                        if (!extract) {
+X                            fprintf (fw, "%s\n", s);
+X                            fclose (fw);
+X                        }
+X                        else {
+X                            fprintf (pipe, "%s\n", s);
+X                            pclose (pipe);
+X                        }
+X                        state = SEARCH;
+X                    }
+X                    else {
+X                        if (extract)
+X                            fprintf (pipe, "%s\n", s);
+X                        else
+X			    fprintf (fw, "%s\n", s);
+X                    }
+X		    break;
+X            }
+X            j = 0;    /* Reset counter */
+X        }
+X    }
+X}
+END_OF_FILE
+if test 6246 -ne `wc -c <'ssh.c'`; then
+    echo shar: \"'ssh.c'\" unpacked with wrong size!
+fi
+# end of 'ssh.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

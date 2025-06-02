@@ -1,0 +1,472 @@
+Path: uunet!usc!sol.ctr.columbia.edu!destroyer!cs.ubc.ca!bcsystems!spruce.pfc.forestry.ca!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+Newsgroups: vmsnet.sources.games
+Subject: Vmsnetrek 36/47
+Message-ID: <1992Nov20.201846.1@acad2.alaska.edu>
+From: asdmf@acad2.alaska.edu
+Date: Sat, 21 Nov 1992 00:18:46 GMT
+Sender: news@raven.alaska.edu (USENET News System)
+Organization: University of Alaska
+Nntp-Posting-Host: acad2.alaska.edu
+Lines: 460
+Xref: uunet vmsnet.sources.games:535
+
+-+-+-+-+-+-+-+-+ START OF PART 36 -+-+-+-+-+-+-+-+
+X    stline(1);`009/* This is for refresh.  We redraw player stats too */
+X    sprintf(buf,`032
+X`009"Flags        Warp Dam Shd Torps  Kills Armies   Fuel  Wtemp Etemp");
+X    W_WriteText(tstatw, 50, 5, textColor, buf, strlen(buf), W_RegularFont);
+X    sprintf(buf,
+X`009   "Maximum:      %2d  %3d %3d               %3d   %6d   %3d   %3d",
+X`009   me->p_ship.s_maxspeed, me->p_ship.s_maxdamage,
+X`009   me->p_ship.s_maxshield, me->p_ship.s_maxarmies,`032
+X`009   me->p_ship.s_maxfuel, me->p_ship.s_maxwpntemp/10,`032
+X`009   me->p_ship.s_maxegntemp/10);
+X    W_WriteText(tstatw, 50, 27, textColor, buf, strlen(buf), W_RegularFont);
+X`125
+$ CALL UNPACK REDRAW.C;1 119804609
+$ create/nolog 'f'
+X/* reserved.c
+X *`032
+X * Kevin P. Smith   7/3/89
+X */
+X#include "copyright2.h"
+X#include <stdio.h>
+X#include <types.h>
+X#include <socket.h>
+X#include <in.h>
+X#include <netdb.h>
+X#include "packets.h"
+X
+XmakeReservedPacket(packet)
+Xstruct reserved_spacket *packet;
+X`123
+X    int i;
+X
+X    for (i=0; i<16; i++) `123
+X`009packet->data`091i`093=random() % 256;
+X    `125
+X    packet->type = SP_RESERVED;
+X`125
+X
+XencryptReservedPacket(spacket, cpacket, server, pno)
+Xstruct reserved_spacket *spacket;
+Xstruct reserved_cpacket *cpacket;
+Xchar *server;
+Xint pno;
+X`123
+X    struct hostent *hp;
+X    struct in_addr address;
+X    unsigned char mixin1, mixin2, mixin3, mixin4, mixin5;
+X    int i,j,k;
+X    char buf`09116`093;
+X    unsigned char *s;
+X   `032
+X    bcopy(spacket->data, cpacket->data, 16);
+X    bcopy(spacket->data, cpacket->resp, 16);
+X    cpacket->type=CP_RESERVED;
+X
+X/*
+X    if ((address.s_addr = inet_addr(server)) == -1) `123
+X`009if ((hp = gethostbyname(server)) == NULL) `123
+X`009    fprintf(stderr, "I don't know any %s!\n", server);
+X`009    exit(1);
+X`009`125 else `123
+X`009    address.s_addr = *(long *) hp->h_addr;
+X`009`125
+X    `125
+X
+X    mixin1 = address.s_net;
+X    mixin2 = pno;
+X    mixin3 = address.s_host;
+X    mixin4 = address.s_lh;
+X    mixin5 = address.s_impno;
+X */
+X
+X    /* Now you've got 5 random bytes to play with (mixin`0911-5`093), to`032
+X     *  help in coming up with an encryption of your data.
+X     */
+X
+X    /* Encryption algorithm goes here.
+X     * Take the 16 bytes in cpacket->data, and create cpacket->resp,
+X     *   which you require the client to also do.  If he fails, he
+X     *   gets kicked out.
+X     */
+X
+X`125
+$ CALL UNPACK RESERVED.C;1 2065895101
+$ create/nolog 'f'
+X/*
+X * scan.c
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X#include "packets.h"
+X
+X/* ATM - scanner stuff */
+Xstatic W_Window scanww;
+Xstatic int scanmx, scanmy;
+X
+Xscan(ww, x, y)
+XW_Window ww;
+Xint x, y;
+X`123
+X    struct obtype *gettarget(), *target;
+X
+X    scanww = ww;`009/* remember these for later */
+X    scanmx = x;
+X    scanmy = y;
+X
+X    /* find player nearest to mouse */
+X    target = gettarget(ww, x, y, TARG_PLAYER);
+X
+X    /* don't scan myself */
+X    if (target->o_num == me->p_no) `123
+X`009warning("Nobody to scan");
+X`009return;
+X    `125
+X
+X    /* send the request to the server */
+X    sendScanReq(target->o_num);
+X`125
+X
+XinformScan(pnum)
+Xint pnum;
+X`123
+X    scanplayer = pnum;
+X    W_MapWindow(scanwin);
+X    scanmapped = 1;
+X    redrawScan();
+X    calibrate_scan();
+X    updateScan();
+X`125
+X
+X
+X/* from here on it's from stats.c */
+X
+X#define`009MIN(a,b)`009(((a) < (b)) ? (a) : (b))
+X
+X#define`009BX_OFF()`009((textWidth + 1) * W_Textwidth + S_IBORDER)
+X#define`009BY_OFF(line)`009((line) * (W_Textheight + S_IBORDER) + S_IBORDER)
+X#define`009TX_OFF(len)`009((textWidth - len) * W_Textwidth + S_IBORDER)
+X#define`009TY_OFF(line)`009BY_OFF(line)
+X
+X#define SCAN_WIDTH`009`009160
+X#define SCAN_HEIGHT`009`009BY_OFF(NUM_SLIDERS)
+X#define SCAN_BORDER`009`0092
+X#define S_IBORDER`009`0095
+X#define SCAN_X`009`009`009422
+X#define SCAN_Y`009`009`00913
+X
+X#define SL_WID`009`009`009\
+X`009(SCAN_WIDTH - 2 * S_IBORDER - (textWidth + 1) * W_Textwidth)
+X#define SL_HEI`009`009`009(W_Textheight)
+X
+X#define NUM_ELS(a)`009`009(sizeof (a) / sizeof (*(a)))
+X#define NUM_SLIDERS`009`009NUM_ELS(scanners)
+X
+Xtypedef struct slider `123
+X`009char`009*label;
+X`009int`009min, max;
+X`009int`009low_red, high_red;
+X`009int`009label_length;
+X`009int`009diff;
+X`009int`009*var;
+X`009int`009lastVal;
+X`125 SLIDER;
+X
+Xtypedef struct record `123
+X`009int`009*data;
+X`009int`009last_value;
+X`125 RECORD;
+X
+Xstatic SLIDER`009scanners`091`093 = `123
+X`009`123 "Shields",`009`0090,`009100,`00920,`009100`009`125,
+X`009`123 "Damage",`009`0090,`009100,`0090,`0090`009`125,
+X`009`123 "Fuel",`009`0090,`00910000,`0092000,`00910000`009`125,
+X`009`123 "Warp",`009`0090,`0099,`0090,`0099`009`125,
+X`009`123 "Weapon Temp",`0090,`0091200,`0090,`009800`009`125,
+X`009`123 "Engine Temp",`0090,`0091200,`0090,`009800`009`125,
+X`125;
+X
+Xstatic int`009`009textWidth = 0;
+Xstatic int `009`009initialized = 0;
+X
+XinitScan()
+X`123
+X    int`009i;
+X    /*char`009*str;*/
+X    scanners`0910`093.var = &(players`091scanplayer`093.p_shield);
+X    scanners`0911`093.var = &(players`091scanplayer`093.p_damage);
+X    scanners`0912`093.var = &(players`091scanplayer`093.p_fuel);
+X    scanners`0913`093.var = &(players`091scanplayer`093.p_speed);
+X    scanners`0914`093.var = &(players`091scanplayer`093.p_wtemp);
+X    scanners`0915`093.var = &(players`091scanplayer`093.p_etemp);
+X    for (i = 0; i < NUM_SLIDERS; i++) `123
+X`009scanners`091i`093.label_length = strlen(scanners`091i`093.label);
+X`009textWidth = MAX(textWidth, scanners`091i`093.label_length);
+X`009scanners`091i`093.diff = scanners`091i`093.max - scanners`091i`093.min;
+X`009scanners`091i`093.lastVal=0;
+X    `125
+X`125
+X
+XredrawScan()
+X`123
+X    int`009i;
+X    char tempstr`091128`093;
+X
+X    W_ClearWindow(scanwin);
+X    initScan();
+X    for (i=0; i<NUM_SLIDERS; i++) `123
+X`009scanners`091i`093.lastVal=0;
+X    `125
+X
+X    sprintf(tempstr,"SCAN of %s(%c%d)",players`091scanplayer`093.p_name,
+X`009teamlet`091players`091scanplayer`093.p_team`093,players`091scanplayer`09
+V3.p_no);
+X    W_WriteText(scanwin, 0, TY_OFF(0),
+X`009textColor, tempstr, strlen(tempstr), W_RegularFont);
+X    for (i = 0; i < NUM_SLIDERS; i++) `123
+X`009W_WriteText(scanwin, TX_OFF(scanners`091i`093.label_length), TY_OFF(i+1)
+V,
+X`009    textColor, scanners`091i`093.label, scanners`091i`093.label_length,
+X`009    W_RegularFont);
+X`009drwbox(0, BX_OFF() - 1, BY_OFF(i+1) - 1, SL_WID+2, SL_HEI+2, borderColor
+V);
+X`009scanners`091i`093.lastVal=0;
+X    `125
+X    W_WriteText(scanwin, TX_OFF(strlen("Armies:")), TY_OFF(NUM_SLIDERS+1),
+X`009textColor, "Armies:", strlen("Armies:"), W_RegularFont);
+X    sprintf(tempstr,"%d",players`091scanplayer`093.p_armies);
+X    W_WriteText(scanwin, BX_OFF()-1, TY_OFF(NUM_SLIDERS+1),
+X`009textColor, tempstr, strlen(tempstr), W_RegularFont);
+X`125
+X
+XupdateScan()
+X`123
+X    int`009i, value, diff, old_x, new_x;
+X    W_Color color;
+X    SLIDER`009*s;
+X
+X    initScan();
+X    for (i = 0; i < NUM_SLIDERS; i++) `123
+X`009s = &scanners`091i`093;
+X`009value= *(s->var);
+X`009if (value < s->min)
+X`009    value = s->min;
+X`009else if (value > s->max)
+X`009    value = s->max;
+X`009if (value == s->lastVal)
+X`009    continue;
+X`009diff = value - s->lastVal;
+X`009if (diff < 0) `123
+X`009    old_x = s->lastVal * SL_WID / s->diff;
+X`009    new_x = value * SL_WID / s->diff;
+X`009    drwbox(1, BX_OFF()+new_x, BY_OFF(i+1), old_x-new_x, SL_HEI, backColo
+Vr);
+X
+X`009    if (s->lastVal >= s->low_red && value < s->low_red)`032
+X`009`009drwbox(1, BX_OFF(), BY_OFF(i+1), new_x, SL_HEI, warningColor);
+X`009    else if (s->lastVal > s->high_red && value <= s->high_red)`032
+X`009`009drwbox(1, BX_OFF(), BY_OFF(i+1), new_x, SL_HEI, myColor);
+X`009`125 else `123
+X`009    if (value < s->low_red)
+X`009`009color = warningColor;
+X`009    else if (value > s->high_red) `123
+X`009`009color = warningColor;
+X`009`009if (s->lastVal <= s->high_red)
+X`009`009    s->lastVal = 0;
+X`009    `125 else `123
+X`009`009color = myColor;
+X`009`009if (s->lastVal < s->low_red)
+X`009`009    s->lastVal = 0;
+X`009    `125
+X`009    old_x = s->lastVal * SL_WID / s->diff;
+X`009    new_x = value * SL_WID / s->diff;
+X`009    drwbox(1, BX_OFF() + old_x, BY_OFF(i+1), new_x - old_x, SL_HEI, colo
+Vr);
+X`009`125
+X`009s->lastVal=value;
+X    `125
+X`125
+X
+Xdrwbox(filled, x, y, wid, hei, color)
+Xint filled, x, y, wid, hei;
+XW_Color color;
+X`123
+X    if (wid==0) return;
+X    if (filled) `123
+X`009W_ClearArea(scanwin, x, y, wid+1, hei+1, color);
+X`009return;
+X    `125
+X
+X    W_MakeLine(scanwin,x,y,x+wid,y,color);
+X    W_MakeLine(scanwin,x+wid,y,x+wid,y+hei,color);
+X    W_MakeLine(scanwin,x+wid,y+hei,x,y+hei,color);
+X    W_MakeLine(scanwin,x,y+hei,x,y,color);
+X`125
+X
+X
+Xcalibrate_scan()
+X`123
+X    register int i;
+X
+X    scanners`0910`093.max = players`091scanplayer`093.p_ship.s_maxshield;
+X    scanners`0910`093.low_red = .20 * ((double) scanners`0910`093.max);
+X    scanners`0910`093.high_red = scanners`0910`093.max;
+X
+X    scanners`0911`093.max = players`091scanplayer`093.p_ship.s_maxdamage;
+X
+X    scanners`0912`093.max = players`091scanplayer`093.p_ship.s_maxfuel;
+X    scanners`0912`093.low_red = .20 * ((double) scanners`0912`093.max);
+X    scanners`0912`093.high_red = scanners`0912`093.max;
+X
+X    scanners`0913`093.max = players`091scanplayer`093.p_ship.s_maxspeed;
+X    scanners`0913`093.high_red = scanners`0913`093.max;
+X
+X    scanners`0914`093.max = 1.2 * ((double) players`091scanplayer`093.p_ship
+V.s_maxwpntemp);
+X    scanners`0914`093.high_red = .667 * ((double) scanners`0914`093.max);
+X
+X    scanners`0915`093.max = 1.2 * ((double) players`091scanplayer`093.p_ship
+V.s_maxegntemp);
+X    scanners`0915`093.high_red = .667 * ((double) scanners`0915`093.max);
+X
+X    for (i=0; i<NUM_SLIDERS; i++)`032
+X`009scanners`091i`093.diff = scanners`091i`093.max - scanners`091i`093.min;
+X
+X`125
+X
+$ CALL UNPACK SCAN.C;1 1076648455
+$ create/nolog 'f'
+XFrom: tom@ocf.berkeley.edu (Tom Holub)
+XNewsgroups: rec.games.netrek,alt.games.xtrek,news.answers
+XSubject: Netrek Server List
+XSupersedes: <netreklist_706850674@ocf.berkeley.edu>
+XFollowup-To: rec.games.netrek
+XDate: 20 Jun 1992 03:09:03 GMT
+XOrganization: University of California, Berkeley
+XReply-To: tom@ocf.berkeley.edu
+XNNTP-Posting-Host: sandstorm.berkeley.edu
+XOriginator: tom@sandstorm.berkeley.edu
+X
+XLast-Updated: 19 Jun 1992
+XArchive-Name: netrek/server-list
+XChanges: Many servers not responding or down.
+X
+X
+XThis is a list of all known public Netrek servers.  If you know of any`032
+Xothers, or if any of my information is wrong, please mail
+Xtom@ocf.Berkeley.EDU.
+X `032
+X
+XServer name`009`009`009INET address`009Port`009Notes
+X
+Xbezier.berkeley.edu`009`009128.32.150.109`0092592`009Biggest western, UDP.
+X
+Xsickdog.cs.berkeley.edu`009`009128.32.240.135`0092592`009Replaces bigdog, UD
+VP.
+X
+Xbronco.ece.cmu.edu`009`009128.2.210.65`0092592`009Biggest eastern, UDP.
+X
+Xrwd4.mach.cs.cmu.edu`009`009128.2.209.169`0092592`009Robot-oriented, UDP.
+X
+Xauk.warp.cs.cmu.edu`009`009128.2.242.102`0092592`009Clue-only
+X
+Xhydrus.ece.cmu.edu`009`009128.2.236.147`0092592`009Bronco clone.
+X
+Xneedmore.cs.utexas.edu`009`009128.83.138.122`0093737`009Apparently down.
+X
+Xgrit.cs.utexas.edu`009`009128.83.138.115`0092592`009Chaos, UDP.
+X
+Xhpserv.math.tamu.edu`009`009128.194.7.8`0092592`009Texas A&M, UDP.
+X
+Xmatt.ksu.ksu.edu`009`009129.130.1.64`0095854`009KSU chaos server.
+X
+Xnetrek.cis.ksu.edu`009`009129.130.10.87`0095855`009KSU chaos, UDP.
+X
+Xpeanuts.informatik.uni-tuebingen.de 134.2.14.1`0092592`009Germany.
+X
+Xbayes.ibr.cs.tu-bs.de`009`009134.169.34.33`0095855`009Germany, UDP.
+X
+Xmelmac.risc.uni-linz.ac.at`009140.78.140.60`0092592`009Austria, UDP.
+X
+Xiacrs2.unibe.ch`009`009`009130.92.11.4`009592`009Swiss server, UDP.
+X
+Xuhura.fmi.uni-passau.de`009`009132.231.51.224`00921212`009Germany.
+X
+Xlegend.cma.fr`009`009`009192.33.149.15`0092592`009France, UDP.
+X
+Xcalvin.usc.edu`009`009`009128.125.62.143`0092592`009USC server, UDP.
+X
+Xscws9.harvard.edu`009`009128.103.25.59`0092592`009Harvard server, UDP.
+X
+Xtbird.cc.iastate.edu`009`009129.186.140.11`0092592`009Iowa State, UDP.
+X
+Xpanther.ecss.iastate.edu`009129.186.141.248`0092592`009Iowa State, UDP.
+X
+Xultrix.csc.usf.edu`009`009131.247.31.1`0092592`009South Florida.
+X
+Xfife.ecn.purdue.edu`009`009128.46.130.169`0092592`009Purdue, UDP.
+X
+Xsturgeon.cs.washington.edu`009128.95.1.58`0092592`009U Washington, UDP.
+X
+Xsturgeon.cs.washington.edu`009128.95.1.58`0093592`009Scrod's new home, UDP.
+X
+Xharvey.cs.umd.edu`009`009128.8.128.178`0092592`009Maryland, UDP.
+X
+Xdiscovery.cl.msu.edu`009`00935.8.1.220`0092592`009Michigan, UDP.
+X
+Xesrg.ucsb.edu`009`009`009128.111.228.1`0092592`009UC Santa Barbara.
+X
+Xnewton.physics.ucla.edu`009`009128.97.23.41`0092592`009Apparently down.
+X
+Xnetrek.atd.ucar.edu`009`009128.117.80.14`0092592`009Colorado, UDP.
+X
+Xpanda.lpl.arizona.edu`009`009128.196.64.154`0092592`009Down for good.
+X
+Xflint.cs.brown.edu`009`009128.148.37.33`0092592`009User's choice, UDP.
+X
+Xghost.dsi.unimi.it`009`009149.132.1.2`0092592`009Italy, UDP.
+X
+Xnetrek.cs.mcgill.ca`009`009132.206.51.3`0092592`009Canada.
+X
+Xbigmax.ulowell.edu`009`009129.63.32.1`0092592`009Mass., UDP.
+X
+Xalia.cs.umn.edu`009`009`009128.101.229.22`0092592`009New chaos, UDP.
+X
+XComments and server configurations:
+X
+XNOTE: It is an excellent idea to read the MOTD when you first log
+Xon to a server (use 'f' and 'b' to move forwards and backwards through
+Xthe news).
+X
+X
+Xbezier.berkeley.edu
+XServer source: from scam.berkeley.edu.
+XUDP: version 1.0.
+XHours: 5PM to 8AM Pacific time Monday-Friday, all day on weekends.
+XT-mode: 4 on 4.
+XCyborgs: Allowed Sunday, Monday, and Tuesday.
+XTheme nights: Wednesday, vector torps.
+XPing time from ocf.Berkeley.edu: 20-40.
+XPing time from ccon.hl.andrew.cmu.edu: 180-190.
+XPing time from utexas: 100-270.
+XMaintainer: sfd@miro.berkeley.edu.
+XComments: The biggest West Coast server, t-mode nearly every night.
+X
+Xsuckdog.cs.berkeley.edu
+XServer source: Scam.
+XUDP: version 1.0
+XHours: 5PM to 8AM Pacific time Monday-Friday, all day on weekends.
+XT-mode: 4 on 4.
+XCyborgs: Never allowed.  Blessed binaries required.
+XTheme nights: Friday, three-race war.
+X`009      Monday and Tuesday, hockey.
+XPing time from ocf: 15-30.
+XMaintainer: jh@bigdog.berkeley.edu.
++-+-+-+-+-+-+-+-  END  OF PART 36 +-+-+-+-+-+-+-+-

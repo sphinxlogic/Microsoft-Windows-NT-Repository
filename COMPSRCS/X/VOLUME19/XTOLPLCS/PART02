@@ -1,0 +1,1589 @@
+Newsgroups: comp.sources.x
+From: adam@iset.scan.mc.xerox.com (Adam Stein)
+Subject: v19i076:  Xtoolplaces - save current X desktop window information, Part02/03
+Message-ID: <1993Apr6.143502.15292@sparky.imd.sterling.com>
+X-Md4-Signature: 2f7854d98e280da15f0db09edf21e8a6
+Date: Tue, 6 Apr 1993 14:35:02 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: adam@iset.scan.mc.xerox.com (Adam Stein)
+Posting-number: Volume 19, Issue 76
+Archive-name: Xtoolplaces/part02
+Environment: X11, !mwm, !tvtwm
+Supersedes: Xtoolplaces: Volume 14, Issue 2-3
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile.simple adddisplay.c addon.c combine.c copyright.c
+#   fix_command.c get_geometry.c getgeom.c make_list.c xtoolplaces.c
+#   xtoolplaces.man
+# Wrapped by chris@sparky on Tue Apr  6 09:15:54 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'Makefile.simple' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.simple'\"
+else
+  echo shar: Extracting \"'Makefile.simple'\" \(1845 characters\)
+  sed "s/^X//" >'Makefile.simple' <<'END_OF_FILE'
+X# Copyright (c) 1993 Xerox Corporation.  All Rights Reserved. 
+X#
+X# Permission to use,  copy,  modify  and  distribute  without
+X# charge this software, documentation, images, etc. is grant-
+X# ed, provided that this copyright and the author's  name  is 
+X# retained. 
+X# 
+X# A fee may be charged for this program ONLY to recover costs 
+X# for distribution (i.e. media costs).  No profit can be made    
+X# on this program. 
+X# 
+X# The author assumes no responsibility for disasters (natural 
+X# or otherwise) as a consequence of use of this software.  
+X# 
+X# Adam Stein (adam@iset.scan.mc.xerox.com)
+X
+X# Name of program to build
+XTARGET=xtoolplaces
+X
+X# Name of resource file
+XRESOURCE=Xtoolplaces
+X
+X# Directories to install to
+XBINDIR=/usr/local/bin
+XMANDIR=/usr/local/man/man1
+XAPPSDIR=/usr/lib/X11/app-defaults
+X
+X# Top level of X directory structure
+XXTOP=/usr/local/openwin
+X
+X#Choose a C compiler
+X#CC=gcc
+XCC=cc
+X
+X# Choose the flags needed for the C compiler, the first one is for gcc
+X#CFLAGS=-I${XTOP}/include -traditional -fpcc-struct-return -c -O
+XCFLAGS=-I${XTOP}/include
+X
+XINCS=addon.h patchlevel.h xtoolplaces.h
+XSRCS=copyright.c adddisplay.c addon.c combine.c fix_command.c\
+X     getargs.c getgeom.c getinfo.c is.c make_list.c missing.c\
+X     strdup.c strstr.c xtoolplaces.c
+XOBJS=copyright.o adddisplay.o addon.o combine.o fix_command.o\
+X     getargs.o getgeom.o getinfo.o is.o make_list.o missing.o\
+X     strdup.o strstr.o xtoolplaces.o
+X
+X.KEEP_STATE:
+X
+X${TARGET}: ${OBJS}
+X	${CC} -o ${TARGET} ${OBJS} -lX11
+X
+Xinstall: ${TARGET}
+X	install -s ${TARGET} ${BINDIR}
+X	install ${TARGET}.man ${MANDIR}/${TARGET}.1
+X	install ${RESOURCE}.ad ${APPSDIR}/${RESOURCE}
+X
+Xclean:
+X	rm -f core makelog ${TARGET} ${OBJS}
+X
+Xshar:
+X	shar -c -o ${TARGET} -l50 README CHANGES MANIFEST Imakefile \
+X	Makefile.simple ${RESOURCE}.ad xtoolplaces.man ${SRCS} ${INCS} \
+X	addon.sample missing.sample
+X
+END_OF_FILE
+  if test 1845 -ne `wc -c <'Makefile.simple'`; then
+    echo shar: \"'Makefile.simple'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile.simple'
+fi
+if test -f 'adddisplay.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'adddisplay.c'\"
+else
+  echo shar: Extracting \"'adddisplay.c'\" \(1951 characters\)
+  sed "s/^X//" >'adddisplay.c' <<'END_OF_FILE'
+X/*Copyright (c) 1993 Xerox Corporation.  All Rights Reserved.
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is
+X  retained.
+X
+X  A fee may be charged for this program ONLY to recover costs
+X  for distribution (i.e. media costs).  No profit can be made
+X  on this program.
+X
+X  The author assumes no responsibility for disasters (natural
+X  or otherwise) as a consequence of use of this software.
+X
+X  Adam Stein (adam@iset.scan.mc.xerox.com)
+X*/
+X
+X#include <stdio.h>
+X#include <X11/Xos.h>
+X
+Xextern FILE *fp;
+X
+X/*This function will add the '-display' to windows that don't already have
+X  it if xtoolplaces is saving from more than 1 screen.  This is done
+X  because a user might start an application in 1 screen (so that -display
+X  isn't needed) and run xtoolplaces from another.  To insure that the
+X  applications starts up on the right screen, '-display' is added to all
+X  applications.
+X
+X  Three assumptions are made:
+X
+X  1) if a colon (:) is found on the command line, it belongs to
+X     HOST:SERVER.SCREEN and not to some other option
+X  2) if a window already has a '-display' option (i.e. a colon was
+X     found in the command line), it points to the correct screen
+X     and nothing is changed or added
+X  3) every window that has '-display' added used '-display' (and
+X     not '-d' or something else)
+X
+X  Inputs:  command_line   - command line to see if it already has option or not
+X	   display_number - number of the display this will be working under
+X	   screen_number  - number of the screen this window is on
+X  Outputs: none
+X  Locals:  none
+X  Globals: fp             - file pointer to write window information to
+X*/
+Xchar *adddisplay(command_line,displaynum,screennum)
+Xregister int displaynum,screennum;
+Xregister char *command_line;
+X{
+X	if(!index(command_line,':'))
+X	  fprintf(fp,"-display :%d.%d ",displaynum,screennum);
+X}
+X
+END_OF_FILE
+  if test 1951 -ne `wc -c <'adddisplay.c'`; then
+    echo shar: \"'adddisplay.c'\" unpacked with wrong size!
+  fi
+  # end of 'adddisplay.c'
+fi
+if test -f 'addon.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'addon.c'\"
+else
+  echo shar: Extracting \"'addon.c'\" \(4825 characters\)
+  sed "s/^X//" >'addon.c' <<'END_OF_FILE'
+X/*Copyright (c) 1993 Xerox Corporation.  All Rights Reserved.
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is
+X  retained.
+X
+X  A fee may be charged for this program ONLY to recover costs
+X  for distribution (i.e. media costs).  No profit can be made
+X  on this program.
+X
+X  The author assumes no responsibility for disasters (natural
+X  or otherwise) as a consequence of use of this software.
+X
+X  Adam Stein (adam@iset.scan.mc.xerox.com)
+X*/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <X11/Xos.h>
+X#include "addon.h"
+X
+XADDON *head = NULL;
+Xextern char *program,*addon;
+Xextern FILE *fp;
+X
+X/*This function will read in a file containing strings to put onto the
+X  command line.  This is used when WM_COMMAND isn't complete.  In the case
+X  of xrolo, the data file is never listed in WM_COMMAND and must be put
+X  added.  I don't know if this is an XVIEW bug or not.  I haven't seen it
+X  with any other program (yet).
+X
+X  Inputs:  none
+X  Outputs: none
+X  Locals:  fp      - file pointer to read from
+X	   line    - line of text read in
+X  Globals: addon   - name of file containing commands to add on
+X	   program - name of currently executing program
+X	   stderr  - standard error
+X	   NULL    - 0
+X*/
+Xread_addon()
+X{
+X	register char line[200];
+X	register FILE *fp;
+X
+X	/*Open the file for reading*/
+X	if((fp = fopen(addon,"r")) == NULL) {
+X	  fprintf(stderr,"%s: can't open {%s}\n",program,addon);
+X	  exit(1);
+X	}
+X
+X	/*Read lines from file until there is no more*/
+X	while(fgets(line,200,fp) != NULL)
+X	  switch(line[0]) {
+X	    case '#':			/*Comment character - ignore line*/
+X	    case '\n':			/*Blank line - ignore line*/
+X			break;
+X	    default:
+X			line[strlen(line)-1] = '\0';  /*Take out NL char*/
+X			insert(line);
+X
+X			break;
+X	  }
+X}
+X
+X/*This function will insert commands to be added into a linked list.
+X
+X  Inputs:  line    - line containing program name and commands to be added
+X  Outputs: none
+X  Locals:  next    - next available structure entry to fill in
+X	   pointer - point to : to separater program from commands and to
+X		     skip over white space to point to commands
+X  Globals: addon   - name of file containing commands to add on
+X	   head    - pointer to head of linked list
+X	   program - name of currently executing program
+X	   stderr  - standard error
+X	   ADDON   - structure holding program and command line info
+X	   NULL    - 0
+X*/
+Xinsert(line)
+Xregister char *line;
+X{
+X	register char *pointer;
+X	register ADDON *next;
+X	char *calloc(),*strdup();
+X
+X	/*Find colon to make it a NULL thereby making line equal to just
+X	  the program name.  Syntax error if the colon isn't found*/
+X	if((pointer = index(line,':')) == NULL) {
+X	  fprintf(stderr,"%s: syntax error in {%s}\n",program,addon);
+X	  exit(1);
+X	}
+X
+X	/*Insert new entry*/
+X	if(!head) {
+X	  if((head = (ADDON *) calloc(1,sizeof(ADDON))) == NULL) {
+X	    perror(program);
+X	    exit(1);
+X	  }
+X
+X	  next = head;
+X	} else {
+X		 for(next = head;next->next;next = next->next)
+X		   ;
+X
+X		 if((next->next = (ADDON *) calloc(1,sizeof(ADDON))) == NULL) { 
+X		   perror(program);
+X		   exit(1);
+X		 }
+X
+X		 next = next->next;
+X	       }
+X
+X	/*Make colon NULL so that line equals just the program name*/
+X	*pointer = '\0';
+X
+X	if((next->program = strdup(line)) == NULL) {
+X	  perror(program);
+X	  exit(1);
+X	}
+X
+X	/*Put colon back and skip past whitespace to get to first character
+X	  in command line*/
+X	*(pointer) = ':';
+X	while(isspace(*(++pointer))) ;
+X
+X	if((next->cmmd_line = strdup(pointer)) == NULL) {
+X	  perror(program);
+X	  exit(1);
+X	}
+X
+X	next->next = (ADDON *) NULL;
+X}
+X
+X/*This function will find the corresponding addon commands to the program
+X  being written out and at the commands to the command line being written
+X  out.
+X
+X  Inputs:  name - name of program being written out
+X  Outputs: none
+X  Locals:  list    - pointer to go through linked list
+X	   pointer - pointer to make name equal to just the first word in string
+X  Globals: fp      - file pointer to write window information to
+X	   head    - pointer to head of linked list
+X	   NULL    - 0
+X*/
+Xaddto(name)
+Xregister char *name;
+X{
+X	register char *pointer;
+X	register ADDON *list;
+X
+X	/*If there is whitespace in the name string then put in a NULL to
+X	  make name equal to just the first word in the string, otherwise
+X	  assume the string is only made up of one word*/
+X	if((pointer = index(name,' ')) != NULL)
+X	  *pointer = '\0';
+X
+X	/*Loop through linked list to match the program information saved with
+X	  the name of the program being written out.  Write out saved addon
+X	  command line when we find a match*/
+X	for(list = head;list;list = list->next)
+X	  if(!strcmp(name,list->program)) {
+X	    fprintf(fp,"%s ",list->cmmd_line);
+X	    break;
+X	  }
+X
+X	/*Put whitespace back to put the string back to normal*/
+X	if(pointer) *pointer = ' ';
+X}
+X
+END_OF_FILE
+  if test 4825 -ne `wc -c <'addon.c'`; then
+    echo shar: \"'addon.c'\" unpacked with wrong size!
+  fi
+  # end of 'addon.c'
+fi
+if test -f 'combine.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'combine.c'\"
+else
+  echo shar: Extracting \"'combine.c'\" \(2496 characters\)
+  sed "s/^X//" >'combine.c' <<'END_OF_FILE'
+X/*Copyright (c) 1993 Xerox Corporation.  All Rights Reserved.
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is
+X  retained.
+X
+X  A fee may be charged for this program ONLY to recover costs
+X  for distribution (i.e. media costs).  No profit can be made
+X  on this program.
+X
+X  The author assumes no responsibility for disasters (natural
+X  or otherwise) as a consequence of use of this software.
+X
+X  Adam Stein (adam@iset.scan.mc.xerox.com)
+X*/
+X
+X#include <stdio.h>
+X
+Xextern char *program;
+X
+X/*This function will combine multiple argv[] strings into a single string.
+X  For command lines that are in multiple argv[] strings, any argument with
+X  whitespace will be double quoted.  It is assumed that command lines already
+X  in a single string have double quoted any white space arguments they have.
+X
+X  Inputs:  argc     - number of arguments
+X	   argv     - list of arguments
+X  Outputs: pointer  - pointer to single string of arguments
+X  Locals:  loop     - loop through arguments
+X	   numbytes - number of bytes needed for single argument string
+X	   pointer  - pointer to single string of arguments
+X  Globals: NULL     - 0
+X*/
+Xchar *combine(argc,argv)
+Xregister int argc;
+Xregister char *argv[];
+X{
+X	register int numbytes,loop;
+X	register char *pointer;
+X	char *malloc(),*strdup(),*index();
+X
+X	/*If argc equals 1, then all the arguments are already in a single
+X	  string and there's no reason to do anything else but copy it*/
+X	if(argc != 1) {
+X	  /*Set numbytes initially to count the spaces between arguments
+X	    and the NULL (number of arguments - 1 + 1)*/
+X	  numbytes = argc;
+X
+X	  /*Count bytes in each argument, add double quotes if argument
+X	    has whitespace*/
+X	  for(loop = 0;loop < argc;++loop) {
+X	    if((index(argv[loop],' ') || index(argv[loop],'\t')) &&
+X	       (argv[loop][0] != '"')) {
+X	      if((pointer = malloc(strlen(argv[loop]) + 3)) == NULL) {
+X		perror(program);
+X		exit(1);
+X	      } else {
+X		       sprintf(pointer,"\"%s\"",argv[loop]);
+X		       argv[loop] = pointer;
+X		     }
+X	    }
+X	    numbytes += strlen(argv[loop]);
+X	  }
+X
+X	  if((pointer = malloc(numbytes)) == NULL) {
+X	    perror(program);
+X	    exit(1);
+X	  }
+X
+X	  strcpy(pointer,argv[0]);
+X
+X	  for(loop = 1;loop < argc;++loop) {
+X	    strcat(pointer," ");
+X	    strcat(pointer,argv[loop]);
+X	  }
+X	} else if((pointer = strdup(argv[0])) == NULL) {
+X		 perror(program);
+X		 exit(1);
+X	       }
+X
+X	return(pointer);
+X}
+X
+END_OF_FILE
+  if test 2496 -ne `wc -c <'combine.c'`; then
+    echo shar: \"'combine.c'\" unpacked with wrong size!
+  fi
+  # end of 'combine.c'
+fi
+if test -f 'copyright.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'copyright.c'\"
+else
+  echo shar: Extracting \"'copyright.c'\" \(643 characters\)
+  sed "s/^X//" >'copyright.c' <<'END_OF_FILE'
+Xchar copyright[] =
+X"\
+XCopyright (c) 1993 Xerox Corporation.  All Rights Reserved.\n\
+X    \n\
+XPermission to use,  copy,  modify  and  distribute  without\n\
+Xcharge this software, documentation, images, etc. is grant-\n\
+Xed, provided that this copyright and the author's  name  is\n\
+Xretained.\n\
+X    \n\
+XA fee may be charged for this program ONLY to recover costs\n\
+Xfor distribution (i.e. media costs).  No profit can be made\n\
+Xon this program.\n\
+X    \n\
+XThe author assumes no responsibility for disasters (natural\n\
+Xor otherwise) as a consequence of use of this software.\n\
+X    \n\
+XAdam Stein (adam@iset.scan.mc.xerox.com)\n\
+X    \n\
+X";
+X
+END_OF_FILE
+  if test 643 -ne `wc -c <'copyright.c'`; then
+    echo shar: \"'copyright.c'\" unpacked with wrong size!
+  fi
+  # end of 'copyright.c'
+fi
+if test -f 'fix_command.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fix_command.c'\"
+else
+  echo shar: Extracting \"'fix_command.c'\" \(2177 characters\)
+  sed "s/^X//" >'fix_command.c' <<'END_OF_FILE'
+X/*Copyright (c) 1993 Xerox Corporation.  All Rights Reserved.
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is
+X  retained.
+X
+X  A fee may be charged for this program ONLY to recover costs
+X  for distribution (i.e. media costs).  No profit can be made
+X  on this program.
+X
+X  The author assumes no responsibility for disasters (natural
+X  or otherwise) as a consequence of use of this software.
+X
+X  Adam Stein (adam@iset.scan.mc.xerox.com)
+X*/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include "xtoolplaces.h"
+X
+X/*This routine will fix a problem caused by xview.  This routine is needed
+X  since xview seems to screw up WM_COMMAND when a command is started using
+X  the -Wl option (window label) with a string of more than 23 characters.  It
+X  does this by putting some of the label string after the last number for the
+X  icon position.  For exmaple, if a WM_SAVE_YOURSELF is sent to xrolo,
+X  WM_COMMAND is set to:
+X
+Xxrolo -Wp 29 278 -Ws 592 309 -WP 1085 241 1)" -Wl "Rolo - .work  (Card 1 of 1)"
+X
+X  The ' 1)"' after -WP 1085 241 shouldn't be there.  It seems to do this only
+X  with WM_COMMAND strings that are a single string (as opposed to xcalctool
+X  for example which breaks up the WM_COMMAND string where each word is it's
+X  own string).
+X
+X  To fix the problem, the offending characters are replaces with spaces.
+X
+X  Inputs:  string  - WM_COMMAND string
+X  Outputs: none
+X  Locals:  pointer - pointer to go through string
+X  Globals: NULL    - 0
+X*/
+Xfix_command(string)
+Xregister char *string;
+X{
+X	register char *pointer;
+X	char *strstr();
+X
+X	/*See if we have a string with the potential -WP problem*/
+X	if((pointer = strstr(string,"-WP")) != NULL) {
+X	  /*Get to 2nd icon position*/
+X	  pointer = strstr(pointer," ");
+X	  pointer = strstr(++pointer," ");
+X
+X	  /*Skip over Y icon position, which can consist of numbers or
+X	    the + or - signs*/
+X	  while(isdigit(*(++pointer)) || (*pointer == '+') ||
+X		(*pointer == '-'))
+X	    ;
+X
+X	  /*Change screwed up characters to spaces*/
+X	  while(*pointer && *pointer != '-' && *pointer != '+')
+X	    *(pointer++) = ' ';
+X	}
+X}
+X
+END_OF_FILE
+  if test 2177 -ne `wc -c <'fix_command.c'`; then
+    echo shar: \"'fix_command.c'\" unpacked with wrong size!
+  fi
+  # end of 'fix_command.c'
+fi
+if test -f 'get_geometry.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'get_geometry.c'\"
+else
+  echo shar: Extracting \"'get_geometry.c'\" \(7840 characters\)
+  sed "s/^X//" >'get_geometry.c' <<'END_OF_FILE'
+X/*Copyright (c) 1991 Xerox Corporation.  All Rights Reserved.
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is
+X  retained.
+X
+X  A fee may be charged for this program ONLY to recover costs
+X  for distribution (i.e. media costs).  No profit can be made
+X  on this program.
+X
+X  The author assumes no responsibility for disasters (natural
+X  or otherwise) as a consequence of use of this software.
+X
+X  Adam Stein (stein.wbst129@xerox.com)
+X*/
+X
+X#include <stdio.h>
+X#include <X11/Xos.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X
+Xextern char *program;
+Xextern Display *display;
+X
+X/*This function will get the window and icon geometry and add them to the
+X  command line.  For window geometry, it will add position and size.  For
+X  icon geometry, it will only add position.  This function makes some
+X  assumptions:
+X
+X	1) windows use "-g" for window geometry (which is an abbreviation for
+X	   "-geom" or "-geometry")
+X	2) normal applications use "-iconGeom" for icon geometry while
+X	   xterm uses "#"
+X	3) normal applications take the geometry size in pixels while
+X	   xterm takes geometry size in characters
+X
+X  Inputs:  command_line  - command line arguments
+X	   window        - ID of the window that we are going to check
+X  Outputs: command_line  - command line arguments with geometry info added
+X  Locals:  dummy	 - dummary variable for return value we don't want
+X	   dummywin	 - dummary variable for return value we don't want
+X	   geometry_args - geometry arguments to add to command line
+X	   height	 - height of window (in pixels)
+X	   height_inc	 - height increment
+X	   hints	 - window size hints
+X	   icon_arg      - icon geometry argument
+X	   icon_hints    - icon position hints
+X	   icon_x	 - X coordinate of icon
+X	   icon_y	 - Y coordinate of icon
+X	   root		 - root window of this window
+X	   status        - status of get call
+X	   supplied      - flag telling which size hints are available
+X	   tx		 - translated X coordinate
+X	   ty		 - translated Y coordinate
+X	   width	 - width of window (in pixels)
+X	   width_inc     - width increment
+X	   x		 - X coordinate of window
+X	   y		 - Y coordinate of window
+X  Globals: display       - interface info to X display
+X	   program	 - name of currently executing program
+X	   NULL		 - 0
+X	   PResizeInc    - flag bit to check if resize increment hint is avail.
+X*/
+Xchar *get_geometry(window,command_line)
+Xregister char *command_line;
+Xregister Window window;
+X{
+X	register int width_inc,height_inc;
+X	int x,y,tx,ty,icon_x,icon_y;
+X	unsigned int width,height,dummy;
+X	long supplied;
+X	register char *icon_arg,geometry_args[100];
+X	register Status status;
+X	Window root,dummywin;
+X	XSizeHints hints;
+X	register XWMHints *icon_hints;
+X	char *strip_geometry(),*strip_xterm_geometry(),*realloc(),*strdup();
+X
+X	/*Get icon position*/
+X	icon_x = icon_y = -1;
+X	icon_hints = XGetWMHints(display,window);
+X	if(icon_hints) {
+X	  icon_x = icon_hints->icon_x;
+X	  icon_y = icon_hints->icon_y;
+X	  XFree(hints);
+X	}
+X
+X	/*Get window geometry*/
+X	status = XGetGeometry(display,window,&root,&x,&y,&width,&height,&dummy,
+X			      &dummy);
+X
+X	if(status) {
+X	  width_inc = 1;
+X	  height_inc = 1;
+X	  icon_arg = "-iconGeom ";
+X
+X	  /*Translate coordinate relative to root window*/
+X	  XTranslateCoordinates(display,window,root,0,0,&tx,&ty,&dummywin);
+X
+X	  /*Xterm is a special case (isn't it always?).  Unlike other programs,
+X	    xterm takes it's dimensions in characters, not pixels.  This
+X	    means we have to get it's increment size (i.e. font size) and
+X	    divide the size of the window (in pixels) by it's font size to
+X	    determine it's character size.  In addition, the argument to
+X	    specify icon position is different from normal*/
+X	  if(is_xterm(window) == 1) {
+X	    /*Get increment (i.e. font size)*/
+X	    status = XGetWMNormalHints(display,window,&hints,&supplied);
+X	    if(!status || !(supplied & PResizeInc)) return(command_line);
+X
+X	    width_inc = hints.width_inc;
+X	    height_inc = hints.height_inc;
+X	    icon_arg = "#";
+X
+X	    /*Strip old geometry arguments out of command line (if the
+X	      command line has any geometry arguments)*/
+X	    command_line = strip_xterm_geometry(command_line);
+X	  } else command_line = strip_geometry(command_line);
+X
+X	  /*Put geometry information together in a string.  Put in icon
+X	    information is there was icon information*/
+X	  if(icon_x == -1)
+X	    sprintf(geometry_args," -geom %dx%d+%d+%d",width/width_inc,height/height_inc,tx-x,ty-y);
+X	  else
+X	    sprintf(geometry_args," -geom %dx%d+%d+%d %s+%d+%d",width/width_inc,height/height_inc,tx-x,ty-y,icon_arg,icon_x,icon_y);
+X
+X	  /*Add window and icon geometry*/
+X	  if((command_line = realloc(command_line,strlen(command_line)+
+X				     strlen(geometry_args)+1)) == NULL) {
+X	    perror(program);
+X	    exit(1);
+X	  }
+X
+X	  strcat(command_line,geometry_args);
+X	}
+X
+X	return(command_line);
+X}
+X
+X/*This will strip out the geometry arguments for a normal X application.
+X
+X  Inputs:  command_line - command line arguments
+X  Outputs: command_line - command line arguments without geometry info
+X  Locals:  none
+X  Globals: none
+X*/
+Xchar *strip_geometry(command_line)
+Xregister char *command_line;
+X{
+X	char *strip_arg();
+X
+X	/*Strip window geometry*/
+X	command_line = strip_arg(command_line,"-g");
+X
+X	/*Strip icon geometry*/
+X	command_line = strip_arg(command_line,"-iconGeom");
+X
+X	return(command_line);
+X}
+X
+X/*This will strip out the geometry arguments for an xterm window.
+X
+X  Inputs:  command_line - command line arguments
+X  Outputs: command_line - command line arguments without geometry info
+X  Locals:  none
+X  Globals: none
+X*/
+Xchar *strip_xterm_geometry(command_line)
+Xregister char *command_line;
+X{
+X	char *strip_arg();
+X
+X	/*Strip window geometry*/
+X	command_line = strip_arg(command_line,"-g");
+X
+X	/*Strip icon geometry*/
+X	command_line = strip_arg(command_line,"#");
+X
+X	return(command_line); 
+X}
+X
+X/*This function will strip an argument from a string.
+X
+X  Inputs:  arg              - argument to strip
+X	   command_line     - command line arguments
+X  Outputs: new_command_line - command line without 'arg'
+X  Locals:  new_command_line - command line without 'arg'
+X	   numbytes	    - number of bytes to copy from old command line
+X	   pointer1	    - pointer to start of 'arg'
+X	   pointer2	    - pointer to any arguments after 'arg'
+X  Globals: program	    - name of currently executing program
+X	   NULL		    - 0
+X*/
+Xchar *strip_arg(command_line,arg)
+Xregister char *command_line,*arg;
+X{
+X	register int numbytes;
+X	register char *pointer1,*pointer2,*new_command_line;
+X	char *malloc(),*strstr();
+X
+X	/*If the argument to strip isn't here, then just return the original
+X	  string*/
+X	if((pointer1 = strstr(command_line,arg)) == NULL)
+X	  return(command_line);
+X	else {
+X	       /*Find next character after argument*/
+X	       pointer2 = pointer1 + strlen(arg);
+X	       pointer2 = index(pointer2+1,' ');
+X
+X	       /*Find out how much space to allocate for command line minus
+X		 the argument to strip*/
+X	       /*Null out byte before argument to be able to use strlen()*/
+X	       *pointer1 = '\0';
+X	       numbytes = strlen(command_line);
+X	       /*Count bytes after argument (if there are any) plus 1 for NULL*/
+X	       /*Have to use pointer2+1 instead of doing ++pointer2 so we
+X		 can check if pointer2 = NULL (++pointer2 would have it = 1)*/
+X	       if(pointer2) numbytes += strlen(pointer2+1)+1;
+X
+X	       /*Allocate space and copy over all arguments except argument*/
+X	       if((new_command_line = malloc(numbytes)) == NULL) {
+X		 perror(program);
+X		 exit(1);
+X	       }
+X	       strcpy(new_command_line,command_line);
+X	       if(pointer2) strcat(new_command_line,pointer2+1);
+X
+X	       /*Restore command_line to it's original condition so we can
+X		 free up all the space it's using*/
+X	       *pointer1 = '-';
+X	       free(command_line);
+X	     }
+X
+X	return(new_command_line);
+X}
+X
+END_OF_FILE
+  if test 7840 -ne `wc -c <'get_geometry.c'`; then
+    echo shar: \"'get_geometry.c'\" unpacked with wrong size!
+  fi
+  # end of 'get_geometry.c'
+fi
+if test -f 'getgeom.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getgeom.c'\"
+else
+  echo shar: Extracting \"'getgeom.c'\" \(9362 characters\)
+  sed "s/^X//" >'getgeom.c' <<'END_OF_FILE'
+X/*Copyright (c) 1993 Xerox Corporation.  All Rights Reserved.
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is
+X  retained.
+X
+X  A fee may be charged for this program ONLY to recover costs
+X  for distribution (i.e. media costs).  No profit can be made
+X  on this program.
+X
+X  The author assumes no responsibility for disasters (natural
+X  or otherwise) as a consequence of use of this software.
+X
+X  Adam Stein (adam@iset.scan.mc.xerox.com)
+X*/
+X
+X#include <stdio.h>
+X#include <X11/Xos.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X
+Xchar *strip_arg2(),*malloc(),*index();
+Xextern char *program;
+Xextern Display *display;
+X
+X/*This function will get the window and icon geometry and add them to the
+X  command line.  For window geometry, it will add position and size.  For
+X  icon geometry, it will only add position.
+X
+X  Inputs:  command_line  - command line arguments
+X	   window        - ID of the window that we are going to check
+X  Outputs: command_line  - command line arguments with geometry info added
+X  Locals:  dummy	 - dummary variable for return value we don't want
+X	   dummywin	 - dummary variable for return value we don't want
+X	   geometry_args - geometry arguments to add to command line
+X	   height	 - height of window (in pixels)
+X	   height_inc	 - height increment
+X	   hints	 - window size hints
+X	   icon_arg      - icon geometry argument
+X	   icon_hints    - icon position hints
+X	   icon_x	 - X coordinate of icon
+X	   icon_y	 - Y coordinate of icon
+X	   ptr           - pointer to characters within a string
+X	   rearrange     - rearrange args so geometry is first
+X	   root		 - root window of this window
+X	   status        - status of get call
+X	   supplied      - flag telling which size hints are available
+X	   tx		 - translated X coordinate
+X	   ty		 - translated Y coordinate
+X	   width	 - width of window (in pixels)
+X	   width_inc     - width increment
+X	   x		 - X coordinate of window
+X	   y		 - Y coordinate of window
+X  Globals: display       - interface info to X display
+X	   program	 - name of currently executing program
+X	   NULL		 - 0
+X	   PResizeInc    - flag bit to check if resize increment hint is avail.
+X*/
+Xchar *getgeom(window,command_line)
+Xregister char *command_line;
+Xregister Window window;
+X{
+X	register int width_inc,height_inc;
+X	int x,y,tx,ty,icon_x,icon_y;
+X	unsigned int width,height,dummy;
+X	long supplied;
+X	register char *icon_arg,*geom_arg,geometry_args[100],*rearrange,*ptr;
+X	register Status status;
+X	Window root,dummywin;
+X	XSizeHints hints;
+X	register XWMHints *icon_hints;
+X	char *strip_geometry(),*strip_xterm_geometry(),*strip_emacs_geometry();
+X	char *strdup();
+X
+X	/*Get icon position*/
+X	icon_x = icon_y = -1;
+X	icon_hints = XGetWMHints(display,window);
+X	if(icon_hints) {
+X	  icon_x = icon_hints->icon_x;
+X	  icon_y = icon_hints->icon_y;
+X	  XFree(icon_hints);
+X	}
+X
+X	/*Get window geometry*/
+X	status = XGetGeometry(display,window,&root,&x,&y,&width,&height,&dummy,
+X			      &dummy);
+X
+X	if(status) {
+X	  width_inc = 1;
+X	  height_inc = 1;
+X	  geom_arg = "-geom";
+X	  icon_arg = "-iconGeom ";
+X
+X	  /*Translate coordinate relative to root window*/
+X	  XTranslateCoordinates(display,window,root,0,0,&tx,&ty,&dummywin);
+X
+X	  /*Xterm is a special case (isn't it always?).  Unlike other programs,
+X	    xterm takes it's dimensions in characters, not pixels.  This
+X	    means we have to get it's increment size (i.e. font size) and
+X	    divide the size of the window (in pixels) by it's font size to
+X	    determine it's character size.  In addition, the argument to
+X	    specify icon position is different from normal*/
+X	  if(is_xterm(window) == 1) {
+X	    /*Get increment (i.e. font size)*/
+X	    status = XGetWMNormalHints(display,window,&hints,&supplied);
+X	    if(!status || !(supplied & PResizeInc)) return(command_line);
+X
+X	    width_inc = hints.width_inc;
+X	    height_inc = hints.height_inc;
+X	    icon_arg = "#";
+X
+X	    XFree(hints);
+X
+X	    /*Strip old geometry arguments out of command line (if the
+X	      command line has any geometry arguments)*/
+X	    command_line = strip_xterm_geometry(command_line);
+X	  } else if(is_emacs(window) == 1) {
+X		   /*Get increment (i.e. font size), like xterm, emacs also
+X		     takes size in characters, not pixels*/
+X		   status = XGetWMNormalHints(display,window,&hints,&supplied);
+X		   if(!status || !(supplied & PResizeInc)) return(command_line);
+X
+X		   width_inc = hints.width_inc;
+X		   height_inc = hints.height_inc;
+X		   icon_x = -1;				/*No icon arg*/
+X		   geom_arg = "-w";			/*Figures...*/
+X
+X		   XFree(hints);
+X
+X		   /*Strip old geometry arguments out of command line (if the
+X		     command line has any geometry arguments)*/
+X		   command_line = strip_emacs_geometry(command_line);
+X		 } else command_line = strip_geometry(command_line);
+X
+X	  /*Calctool is special in that it thinks it has icon geometry, and
+X	    it doesn't.  Also, it doesn't set the increment right.*/
+X	  if(is_calctool(window) == 1) {
+X	    icon_x = -1;
+X	    width_inc = height_inc = 1;
+X	  }
+X
+X	  /*Put geometry information together in a string.  Put in icon
+X	    information is there was icon information*/
+X	  if(icon_x == -1)
+X	    sprintf(geometry_args," %s %dx%d+%d+%d",geom_arg,width/width_inc,height/height_inc,tx-x,ty-y);
+X	  else
+X	    sprintf(geometry_args," %s %dx%d+%d+%d %s+%d+%d",geom_arg,width/width_inc,height/height_inc,tx-x,ty-y,icon_arg,icon_x,icon_y);
+X
+X	  /*Add window and icon geometry as first arguments*/
+X	  if((rearrange = malloc(command_line,strlen(command_line) +
+X				 strlen(geometry_args) + 1)) == NULL) {
+X	    perror(program);
+X	    exit(1);
+X	  }
+X	  if(ptr = index(command_line,' ')) {
+X	    *ptr = '\0';
+X	    sprintf(rearrange,"%s%s %s",command_line,geometry_args,ptr + 1);
+X	    *ptr = ' ';
+X	  } else sprintf(rearrange,"%s%s",command_line,geometry_args);
+X	}
+X
+X	free(command_line);
+X
+X	return(rearrange);
+X}
+X
+X/*This will strip out the geometry arguments for a normal X application.
+X
+X  Inputs:  command_line - command line arguments
+X  Outputs: command_line - command line arguments without geometry info
+X  Locals:  none
+X  Globals: none
+X*/
+Xchar *strip_geometry(command_line)
+Xregister char *command_line;
+X{
+X	/*Strip window geometry*/
+X	command_line = strip_arg2(command_line,"-g");
+X
+X	/*Strip icon geometry*/
+X	command_line = strip_arg2(command_line,"-iconGeom");
+X
+X	return(command_line);
+X}
+X
+X/*This will strip out the geometry arguments for an xterm window.
+X
+X  Inputs:  command_line - command line arguments
+X  Outputs: command_line - command line arguments without geometry info
+X  Locals:  none
+X  Globals: none
+X*/
+Xchar *strip_xterm_geometry(command_line)
+Xregister char *command_line;
+X{
+X	/*Strip window geometry*/
+X	command_line = strip_arg2(command_line,"-g");
+X
+X	/*Strip icon geometry*/
+X	command_line = strip_arg2(command_line,"#");
+X
+X	return(command_line); 
+X}
+X
+X/*This will strip out the geometry arguments for an emacs window.
+X
+X  Inputs:  command_line - command line arguments
+X  Outputs: command_line - command line arguments without geometry info
+X  Locals:  none
+X  Globals: none
+X*/
+Xchar *strip_emacs_geometry(command_line)
+Xregister char *command_line;
+X{
+X	/*Strip window geometry*/
+X	command_line = strip_arg2(command_line,"-geometry");
+X	command_line = strip_arg2(command_line,"-w");
+X
+X	return(command_line); 
+X}
+X
+X/*This function will strip two arguments from a string.
+X
+X  Inputs:  arg              - argument to start stripping at
+X	   command_line     - command line arguments
+X  Outputs: new_command_line - command line without 'arg' & following arg
+X  Locals:  new_command_line - command line without 'arg' & following arg
+X	   numbytes	    - number of bytes to copy from old command line
+X	   pointer1	    - pointer to start of 'arg'
+X	   pointer2	    - pointer to any arguments after 2nd arg
+X  Globals: program	    - name of currently executing program
+X	   NULL		    - 0
+X*/
+Xchar *strip_arg2(command_line,arg)
+Xregister char *command_line,*arg;
+X{
+X	register int numbytes;
+X	register char *pointer1,*pointer2,*new_command_line;
+X	char *strstr();
+X
+X	/*If the argument to strip isn't here, then just return the original
+X	  string*/
+X	if((pointer1 = strstr(command_line,arg)) == NULL)
+X	  return(command_line);
+X	else {
+X	       /*Find next character after argument*/
+X	       pointer2 = pointer1 + strlen(arg);
+X	       pointer2 = index(pointer2+1,' ');	/*After 'arg'*/
+X	       if(pointer2)
+X	         pointer2 = index(pointer2+1,' ');	/*After 2nd arg*/
+X
+X	       /*Find out how much space to allocate for command line minus
+X		 the argument to strip*/
+X	       /*Null out byte before argument to be able to use strlen()*/
+X	       *pointer1 = '\0';
+X	       numbytes = strlen(command_line);
+X	       /*Count bytes after argument (if there are any) plus 1 for NULL*/
+X	       /*Have to use pointer2+1 instead of doing ++pointer2 so we
+X		 can check if pointer2 = NULL (++pointer2 would have it = 1)*/
+X	       if(pointer2) numbytes += strlen(pointer2+1)+1;
+X
+X	       /*Allocate space and copy over all arguments except argument*/
+X	       if((new_command_line = malloc(numbytes + 1)) == NULL) {
+X		 perror(program);
+X		 exit(1);
+X	       }
+X	       strcpy(new_command_line,command_line);
+X	       if(pointer2) strcat(new_command_line,pointer2+1);
+X
+X	       /*Restore command_line to it's original condition so we can
+X		 free up all the space it's using*/
+X	       *pointer1 = '-';
+X	       free(command_line);
+X	     }
+X
+X	return(new_command_line);
+X}
+X
+END_OF_FILE
+  if test 9362 -ne `wc -c <'getgeom.c'`; then
+    echo shar: \"'getgeom.c'\" unpacked with wrong size!
+  fi
+  # end of 'getgeom.c'
+fi
+if test -f 'make_list.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'make_list.c'\"
+else
+  echo shar: Extracting \"'make_list.c'\" \(2593 characters\)
+  sed "s/^X//" >'make_list.c' <<'END_OF_FILE'
+X/*Copyright (c) 1993 Xerox Corporation.  All Rights Reserved.
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is
+X  retained.
+X
+X  A fee may be charged for this program ONLY to recover costs
+X  for distribution (i.e. media costs).  No profit can be made
+X  on this program.
+X
+X  The author assumes no responsibility for disasters (natural
+X  or otherwise) as a consequence of use of this software.
+X
+X  Adam Stein (adam@iset.scan.mc.xerox.com)
+X*/
+X
+X#include <stdio.h>
+X#include <X11/Xos.h>
+X
+Xextern char *list,*program;
+X
+X/*This function will put together a list of screens to save information from.
+X
+X  Inputs:  default_screen - default screen to use if no option list given
+X	   total_screens  - total number of screens this server knows about
+X  Outputs: screens	  - list of screen numbers to save from
+X  Locals:  loop		  - loop through list array
+X	   numscreens     - number of screens in list
+X	   pointer	  - loop through option list
+X	   screens	  - array of screen numbers
+X  Globals: list		  - option list of screens to save from
+X	   program	  - name of currently executing program
+X	   NULL		  - 0
+X*/
+Xint *make_list(default_screen,total_screens)
+Xregister int default_screen,total_screens;
+X{
+X	register int *screens,numscreens,loop;
+X	register char *pointer;
+X	char *calloc();
+X
+X	/*Found out how big an array we need - how many screens to save
+X	  from*/
+X	if(!list) numscreens = 2;
+X	else if(strcmp(list,"all")) numscreens = count_spaces(list)+2;
+X	     else numscreens = total_screens + 1;
+X
+X	if((screens = (int *) calloc(numscreens,sizeof(int *))) == NULL) {
+X	  perror(program);
+X	  exit(1);
+X	}
+X
+X	/*Set up array list*/
+X	if(!list) {
+X	  screens[0] = default_screen;
+X	  screens[1] = -1;
+X	} else if(strcmp(list,"all")) {
+X		 loop = 0;
+X	         for(pointer = list;pointer;pointer = index(pointer+1,' '))
+X	           sscanf(pointer,"%d",&screens[loop++]);
+X		 screens[loop] = -1;
+X	       } else {
+X			for(loop = 0;loop < total_screens;++loop)
+X	                  screens[loop] = loop;
+X			screens[loop] = -1;
+X		      }
+X
+X	return(screens);
+X}
+X
+X/*Count the number of spaces in a string.
+X
+X  Inputs:  string    - string to count spaces in
+X  Outputs: numspaces - number of spaces in a string
+X  Locals:  numspaces - number of spaces in a string
+X	   pointer   - pointer to spaces in string
+X  Globals: none
+X*/
+Xcount_spaces(string)
+Xregister char *string;
+X{
+X	register int numspaces = 0;
+X	register char *pointer = string;
+X
+X	while(pointer = index(pointer+1,' ')) ++numspaces;
+X
+X	return(numspaces);
+X}
+X
+END_OF_FILE
+  if test 2593 -ne `wc -c <'make_list.c'`; then
+    echo shar: \"'make_list.c'\" unpacked with wrong size!
+  fi
+  # end of 'make_list.c'
+fi
+if test -f 'xtoolplaces.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xtoolplaces.c'\"
+else
+  echo shar: Extracting \"'xtoolplaces.c'\" \(2630 characters\)
+  sed "s/^X//" >'xtoolplaces.c' <<'END_OF_FILE'
+X/*Copyright (c) 1993 Xerox Corporation.  All Rights Reserved.
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is
+X  retained.
+X
+X  A fee may be charged for this program ONLY to recover costs
+X  for distribution (i.e. media costs).  No profit can be made
+X  on this program.
+X
+X  The author assumes no responsibility for disasters (natural
+X  or otherwise) as a consequence of use of this software.
+X
+X  Adam Stein (adam@iset.scan.mc.xerox.com)
+X*/
+X
+X#include <stdio.h>
+X#include <X11/Xos.h>
+X
+Xint console_checking;			/*Console checking flag*/
+Xchar *addon;				/*File containing stuff to add*/
+Xchar *list;				/*List of screens to save*/
+Xchar *missing;				/*File containing apps to save*/
+Xchar *remote;				/*Command to use for remote apps*/
+Xchar *program;				/*Program name*/
+XFILE *fp;				/*File pointer to write to*/
+X
+X/*This program will write the current state of every window on an X desktop to
+X  a file (or stdout).  It is the X equivalent to Sunview's toolplaces program.
+X
+X
+X  Inputs:  argc    - number of command line arguments
+X	   argv    - command line arguments
+X  Outputs: 0
+X  Locals:  none
+X  Globals: addon   - name of file containing commands to add on
+X	   fp      - file pointer to write window information to
+X	   missing - name of file containing X applications
+X	   program - name of currently executing program
+X	   stdout  - standard output
+X*/
+Xmain(argc,argv)
+Xregister int argc;
+Xregister char *argv[];
+X{
+X	program = argv[0];
+X
+X	/*Get and parse arguments and resources*/
+X	getargs(argc,argv);
+X
+X        /*If -a option given, read in addon file*/
+X        if(addon) read_addon();
+X 
+X        /*If -m option given, read in missing apps file*/
+X        if(missing) read_missing();
+X 
+X	/*Get application information*/
+X	getinfo();
+X
+X	/*If we were writing to a file (as opposed to stdout), close the file*/
+X	if(fp != stdout) fclose(fp);
+X
+X	exit(0);
+X}
+X
+X/*This function will write out the header for a Bourne shell script.  It will
+X  also write out the current date and time.
+X
+X  Inputs:  none
+X  Outputs: none
+X  Locals:  date - current date and time
+X           tp   - date & time info structure
+X  Globals: fp   - file pointer to write window information to
+X           NULL - 0
+X*/
+Xwrite_header()
+X{
+X        register char *date;
+X        struct timeval tp;
+X
+X        /*Get current date & time*/
+X        gettimeofday(&tp,NULL);
+X        date = asctime(localtime(&tp.tv_sec));
+X
+X        fputs("#!/bin/sh\n",fp);
+X        fputs("#\n",fp);
+X        fprintf(fp,"# Created by 'xtoolplaces' on %s",date);
+X        fputs("#\n\n",fp);
+X}
+X
+END_OF_FILE
+  if test 2630 -ne `wc -c <'xtoolplaces.c'`; then
+    echo shar: \"'xtoolplaces.c'\" unpacked with wrong size!
+  fi
+  # end of 'xtoolplaces.c'
+fi
+if test -f 'xtoolplaces.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xtoolplaces.man'\"
+else
+  echo shar: Extracting \"'xtoolplaces.man'\" \(11365 characters\)
+  sed "s/^X//" >'xtoolplaces.man' <<'END_OF_FILE'
+X.ll 6.5i
+X.TH XTOOLPLACES 1 "13-Feb-93"
+X.SH NAME
+Xxtoolplaces - save current X desktop window information
+X.SH SYNOPSIS
+Xxtoolplaces [-a filename] [-c] [-display host:display.screen] [-f filename] [-m filename] [-r command] [-s {list | all}] [-v]
+X.SH DESCRIPTION
+XXtoolplaces collects current state information for all windows running on
+Xan X display at the time of execution.  This information can then be saved
+Xand used to restart the X display.  Applications started remotely are saved
+Xcorrectly.  Local applications lines are of the form:
+X
+X.in +5
+XWM_COMMAND
+X.in -5
+X
+Xwhile remote application lines are of the form:
+X
+X.in +5
+Xrsh -n <machine> WM_COMMAND
+X.in -5
+X
+XWM_COMMAND is the command line to use to re-create the application as it
+Xcurrently exists and <machine> is the remote application's host.  The '-r'
+Xoption can be used to change the command used to start remote applications
+X(i.e. rcmd or xon).  If an application doesn't update WM_COMMAND, the geometry
+Xinformation will be gotten manually.  Use the '-m' option to save those
+Xapplications that don't set WM_COMMAND (i.e. xman).
+X
+XXtoolplaces will lock the pointer, change the cursor to a watch, and beep
+Xonce to announce that it's starting.  The pointer is locked so that the user
+Xcan't change anything once xtoolplaces starts.  When the program is finished
+Xit releases the pointer, changes the cursor back to the normal shape, and
+Xbeeps twice.
+X
+XThe default filename to store the window information is ~/.xtoolplaces.  This
+Xcan be overridden with the '-f' option (including writing to \f2stdout\f1).
+X
+XThis is the X equivalent of Sunview's toolplaces (but is not limited to
+XSuns -- I hope).  Xtoolplaces was written entirely in Xlib to make it as
+Xportable across X platforms as possible.  This tool was born out of the
+Xneed to replace the functionality of toolplaces in X.  The Open Look window
+Xmanager (olwm) could only save the window information into one place.  In
+Xaddition, it could only save applications that correctly saved their startup
+Xstate in WM_COMMAND.  Since I needed different initialization files depending
+Xon what machine I was on and I used applications that weren't "well-behaved",
+Xthis became a little limited.  Therefore, xtoolplaces was made.
+X.SH OPTIONS
+XDescriptions of the '-a', '-c', '-m', and '-s' options are listed in greater
+Xdetail in following sections.  A description of resources is listed in
+Xthe section entitled RESOURCES.
+X
+X.IP "-a filename"
+XRead in a file ('filename') containing arguments to add on to the end of
+Xcommand lines.  See ADDING ARGUMENTS below for more detail.
+X.IP -c
+XPut special 'if ... fi' statement around any console windows found.  See
+XCONSOLE CHECKING below for more detail.
+X.IP "-d host:display.screen"
+XSave window information from an alternate display.
+X.IP "-f filename"
+XWrite window information to 'filename'.  Default is '~/.xtoolplaces'.
+XWindow information can be written to \f2stdout\f1 by specifying '-' as the
+Xfilename.
+X.IP "-m filename"
+XRead in a file ('filename') containing a list of X applications that don't set
+XWM_COMMAND and need to be saved.  Normally, X windows that don't have
+XWM_COMMAND set aren't saved.  See MISSING APPLICATIONS below for more
+Xdetail.
+X.IP "-r command"
+XCommand to use to start remote applications.  Default is 'rsh -n'.  The '-n'
+Xoption of rsh is used to redirect input to /dev/null.  See the rsh man page
+Xfor more information on '-n'.
+X.IP "-s {list | all}"
+XSpecify what screens to save information from.  Either a list of screen
+Xnumbers can be given or the keyword 'all' which specifies to do all the screens
+Xthat a server knows about.  See SCREEN LISTS below for more detail.
+X.IP -v
+XPrint the current version number and patchlevel and quit.  No processing is
+Xdone.
+X.SH ADDING ARGUMENTS (-a)
+XThe '-a' option was added because of a possible xview problem.  For some
+Xreason, some windows don't fill in the WM_COMMAND string completely.  For
+Xexample, xrolo is an xview program.  When it saves it's state in WM_COMMAND,
+Xit never saves the filename it is using.  This option allows a user to
+Xhave a file containing the name of the program and any arguments to be added
+Xon to the end of the command line (gotten from WM_COMMAND).  If multiple
+Xversions of the program are running, the extra arguments will go onto the end
+Xof the command line for each of them.  If the same program is listed more
+Xthan once in the file, only the first occurrence is used.
+X
+XAn addon file can consist of three different types of lines:
+X
+X.in +5
+X.nf
+Xcomment lines
+Xblank lines
+Xargument lines
+X.fi
+X.in -5
+X
+XComment lines are lines where the first character is a pound sign (#).
+X
+XBlank lines are lines where the first character is a newline.
+X
+XArgument lines are of the form:
+X
+X.in +5
+Xname: argument(s)
+X.in -5
+X
+Xwhere 'name' is the name of the program whose command line you want to
+Xadd onto and 'argument(s)' are the arguments to add.  Everything from the
+Xfirst non-whitespace after to colon to the newline is considered arguments to
+Xadd.
+X.SH CONSOLE CHECKING (-c)
+XA console checking option was added out of a need to NOT start a console window
+Xif running from an X terminal without having a special initialization file for
+Xthe terminal.  This option will try to determine which windows (if any) are the
+Xconsole windows and put an 'if' statement around them to start only if the
+Xcurrent tty equals '/dev/console'.  This allows a user to have the same
+Xinitialization file for starting X on the console of machine A and for an X
+Xterminal running off of machine A.
+X
+XA console window if first checked by it's class.  While there is no default
+Xclass for console windows, maybe this program will create one.  Xtoolplaces
+Xchecks for a class of 'XConsole'.  If the class doesn't match, it checks to
+Xsee if the window is one of the more common console programs.  As far as I
+Xknow, only \f2xconsole\f1, by Roman J. Budzianowski, sets the class
+Xto 'XConsole'.
+X
+XThe more common console programs this version currently searchs for are:
+X\f2contool\f1, a console program to capture and display console output by
+XChuck Musciano; Sun's \f2shelltool\f1 and \f2cmdtool\f1 in console mode; and
+X\f2xterm\f1 in console mode, by Tom Weinstein and a whole bunch of other people.
+X
+XFor \f2contool\f1, it checks it's window name.  For \f2{shell,cmd}tool\f1, it
+Xchecks the icon name.  For \f2xterm\f1, it checks the options that xterm was
+Xstarted with.
+X.SH MISSING APPLICATIONS (-m)
+XThe '-m' option was added because some older X applications don't set
+XWM_COMMAND.  Xtoolplaces uses the existance of WM_COMMAND to know what
+Xwindows to save information from.  The missing applications (to save despite
+Xnot having WM_COMMAND set) file is a list of applications, one per line.
+XMissing applications files have the same three line types as addons (see
+XADDING ARGUMENTS above) except that the argument lines consist of just the name
+X(as gotten from WM_NAME) of the application to save.  For example, we know
+Xthat the programs \f2xman\f1 and \f2xyz\f1 don't set WM_COMMAND but we wish
+Xto save their states anyway.  The file specifed with '-m' would look like:
+X
+X.in +5
+X.nf
+Xxman
+Xxyz
+X.fi
+X.in -5
+X.SH SCREEN LISTS
+XA list of screens is a list of numbers seperated by spaces and quoted (by
+Xsingle or double quotes) to prevent the shell from parsing the list (i.e. to
+Xsave screens 1 and 3 would be -s '1 3').  The default screen to save is the
+Xone listed in either the environment variable \f2DISPLAY\f1 or with the '-d'
+Xoption.  The screen specified by the '-d' option would override the one
+Xin \f2DISPLAY\f1.
+X
+XWhen saving from multiple screens, each window saved has the '-display' option
+Xadded to it if it doesn't already have it.  This is done in case a user starts
+Xa window from one screen (so as not to need -display) and runs xtoolplaces
+Xfrom another.  To insure that the window starts up on the right screen,
+Xthe '-display' option is added.
+X
+XThree assumptions are made when adding the '-display' option:
+X
+X.in +5
+X.nf
+X1) if a colon (:) is found on the command line, it belongs
+X   to HOST:SERVER.SCREEN and not to some other option
+X2) if a window already has a '-display' option, it points
+X   to the correct screen and nothing is changed or added
+X3) every window that has '-display' added uses '-display'
+X   (and not '-d' or something else)
+X.fi
+X.in -5
+X.SH RESOURCES
+XAll of the options available on the command line can be put into a resource
+Xfile (and in fact most are in the default resource file,
+X/usr/lib/X11/app-defaults/Xtoolplaces), with the exception of the version (-v)
+Xflag.  The order in which resources are read in (with each layer overwriting
+Xthe previous layers) are as follows:
+X
+X.nf
+X        1) Hardcoded defaults
+X        2) Values in /usr/lib/X11/app-defaults/Xtoolplaces
+X        3) Values in $XUSERFILESEARCHPATH/Xtoolplaces or
+X           $XAPPLRESDIR/Xtoolplaces
+X        4) Values set using xrdb, either through the
+X           XResourceMangerString macro or, if that's empty, the
+X           .Xdefaults file in the user's home directory
+X        5) Values in the file specified by the XENVIRONMENT
+X           environment variable or, if that's not set, the
+X           .Xdefaults-hostname file in the user's home directory
+X           (where hostname is the name of the machine)
+X        6) Command line arguments
+X.fi
+X
+XDescriptions of each resource can be found in the OPTIONS section.  The
+Xresource names are as follows:
+X.IP xtoolplaces.addon
+X-a option (i.e. xtoolplaces.addon: /adm/addon)
+X.IP xtoolplaces.console
+X-c option (i.e. xtoolplaces.console:)
+X.IP xtoolplaces.display
+X-d option (i.e. xtoolplaces.display: chroma:1)
+X.IP xtoolplaces.saveto
+X-f option (i.e. xtoolplaces.saveto: /home/abb/.startup)
+X.IP xtoolplaces.missing
+X-m option (i.e. xtoolplaces.missing: /adm/missing)
+X.IP xtoolplaces.remote
+X-r option (i.e. xtoolplaces.remote: rsh)
+X.IP xtoolplaces.screens
+X-s option (i.e. xtoolplaces.screens: 1 3 4)
+X.SH FILES
+X.IP "/usr/lib/X11/app-defaults/Xtoolplaces" 2i
+Xdefault resource file
+X.IP "$USERFILESEARCHPATH/Xtoolplaces" 2i
+Xresource file
+X.IP "$XAPPLRESDIR/Xtoolplaces" 2i
+Xresource file
+X.IP "~/.Xdefaults" 2i
+Xuser's resource file
+X.IP "$XENVIRONMENT" 2i
+Xresource file
+X.IP "~/.Xdefaults-hostname" 2i
+Xresource file for a specific machine
+X.IP "~/.xtoolplaces" 2i
+Xdefault file to store window information
+X.SH SEE ALSO
+Xtoolplaces(1), xprop(1), xwininfo(1), xplaces(X)
+X.SH BUGS
+XXtoolplaces goes VERY out it's way to capture as many X applications as
+Xpossible (including ill-behaved ones :-{).  The most up-to-date information
+Xcomes from WM_COMMAND if the application understands WM_SAVE_YOURSELF.  Don't
+Xblame me if all the information isn't there for ill-behaved applications, I
+Xtried!
+X
+XIf the application doesn't put the icon position in WM_COMMAND or into
+Xwindow manager hints, there is no way to save that information.
+X
+XFor windows in which the geometry has to be gotten manually, xtoolplaces
+Xdoesn't put on the command line whether to start iconic or not (even if the
+Xapplication is iconic at the time).  This is because different applications
+Xtake different arguments to start iconic (if they CAN be started iconic).
+X
+XThis program WILL NOT work with mwm (Motif Window Manager) and tvtwm (the
+Xvirtual version of twm).  It seems to work with all the others (olwm, olvwm,
+Xtwm) from what I've been told (I only use olvwm myself).
+X.SH AUTHOR
+X.nf
+XAdam Stein
+X800 Phillips Road, 129-71B
+XWebster, New York  14580
+X.ta 10
+XInternet:	adam@iset.scan.mc.xerox.com
+X.br
+X	stein.wbst129@xerox.com
+END_OF_FILE
+  if test 11365 -ne `wc -c <'xtoolplaces.man'`; then
+    echo shar: \"'xtoolplaces.man'\" unpacked with wrong size!
+  fi
+  # end of 'xtoolplaces.man'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

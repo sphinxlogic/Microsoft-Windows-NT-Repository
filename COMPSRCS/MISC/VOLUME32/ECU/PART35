@@ -1,0 +1,1873 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i070:  ecu - ECU Asynchronous Communications v3.20, Part35/40
+Message-ID: <1992Sep15.153603.20749@sparky.imd.sterling.com>
+X-Md4-Signature: bdb203a34c895c23071d16e94de17008
+Date: Tue, 15 Sep 1992 15:36:03 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 70
+Archive-name: ecu/part35
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.35 (part 35 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xsel386/select.txt continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 35; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xsel386/select.txt'
+else
+echo 'x - continuing file xsel386/select.txt'
+sed 's/^X//' << 'SHAR_EOF' >> 'xsel386/select.txt' &&
+X    17     | 00 | 03 | 02 | 03 | 0 0 0 0 0 0 3 5 | _msgget
+X    18     | 00 | 05 | 04 | 03 | 0 0 0 0 3 3 1 3 | _msgsnd
+X    19     | 06 | 07 | 05 | 03 | 0 0 0 3 5 3 1 3 | _msgrcv
+X    1a     | 00 | 05 | 04 | 03 | 0 0 0 0 7 3 4 3 | _semctl
+X    1b     | 00 | 04 | 03 | 03 | 0 0 0 0 0 3 3 5 | _semget
+X    1c     | 00 | 04 | 03 | 03 | 0 0 0 0 0 4 1 3 | _semop
+X    1d     | 00 | 04 | 03 | 03 | 0 0 0 0 0 1 3 3 | _shmctl
+X    1e     | 00 | 04 | 03 | 03 | 0 0 0 0 0 3 4 5 | _shmget
+X    1f     | 00 | 04 | 03 | 06 | 0 0 0 0 0 3 7 3 | _shmat
+X    20     | 00 | 04 | 03 | 03 | 0 0 0 0 0 1 3 3 | _proctl
+X    21     | 00 | 03 | 00 | 06 | 0 0 0 0 0 0 3 7 | _execseg
+X    22     | 00 | 02 | 00 | 03 | 0 0 0 0 0 0 0 7 | _unexecseg
+X    23     | 00 | 00 | 03 | 03 | 0 0 0 0 0 5 5 1 | _swapon
+X    24     | 00 | 09 | 05 | 03 | 0 0 0 1 1 1 1 3 | _select
+X
+XI couldn't really figure out how uadmin() was accessed.  libc's
+Xuadmin.o links in a routine that calls system call 0x37.  Hmmm...
+X
+XThe _cxentry is accessed by (documented in the programmer's reference
+Xunder System Calls) setting a bit in the system call number.  It seems
+Xas though it actually shifts the system call number up half a word and
+Xputs 0x28 in the low order halfword.
+X
+XNow we see that select() exists as a cxenix function (number 0x24),
+X
+XThere is also poll(), putmsg(), and getmsg() -- streams stuff.
+XSince the tty device is not a streams device (actually it looks as if
+Xthe streams stuff has been nulled out -- look at the master file for
+Xmore information) it is highly unlikely that these routines will do
+Xanything useful.  Infact, they don't.  Change the SYSNUM (and symbols)
+Xin the example open.s above to their appropriate values to try out the
+Xstreams routines.
+X
+Xselect.s looks something like:
+X
+X; select
+X;
+X;
+X;
+X
+X	title	select
+X
+X	.386
+X
+XSYSNUM	equ 	2428h
+X
+Xextrn	_errno:dword
+X
+Xpublic  _select
+X
+X_TEXT	segment  dword use32 public 'CODE'
+X	assume   cs: _TEXT
+X_select	proc near
+X	mov	eax, SYSNUM		; Get system call number.
+X
+X	;
+X	; I don't even pretend to understand masm syntax.  I tried
+X	; the following line (and variations) without any success.
+X	;
+X
+X;	call    far 7:0			; Switch to kernel and call SYSNUM.
+X
+X	;
+X	; Don't laugh, it works.
+X	;
+X
+X	db 9ah
+X	dw 0,0
+X	dw 7
+X
+X	jb	short _cerror		; below == error.
+X
+X	xor	eax, eax		; zero return value (no error).
+X	ret				; done.
+X
+X_cerror:
+X	mov	_errno, eax		; Save error code in _errno.
+X	mov	eax, -1			; Return -1 (as error).
+X	ret				; done.
+X
+X_select	endp
+X
+X_TEXT	ends
+X
+X	end
+X
+XThere is a header file you'll need in <sys/select.h> which has some
+Xinformation in it.
+X
+XA Synopsis of the SCO XENIX implementation:
+X
+X	#include <sys/select.h>
+X
+X	nfds = select(width readfds, writefds, exceptfds, timeout)
+X	int width, *readfds, *writefds, *exceptfds;
+X	struct timeval *timeout;  /* timeval is a pointer to a structure */
+X
+XI tested select() and found it to be half way implemented.  It seems
+Xas if there must be some extra field in struct cdevsw <sys/conf.h>.
+X
+XSo, I guess I wait 'til 3.2.
+X
+XPax, Keith
+X
+XPs, FYI.
+X
+XPps, if I made a mistake in my description of system call handling on
+XSCO XENIX or what not, please correct me.
+X
+XPpps, `call far 7:0' seems really reasonable to me.
+X-- 
+Xag@elgar.CTS.COM         Keith Gabryelski          ...!{ucsd, crash}!elgar!ag
+X
+X
+SHAR_EOF
+echo 'File xsel386/select.txt is complete' &&
+chmod 0644 xsel386/select.txt ||
+echo 'restore of xsel386/select.txt failed'
+Wc_c="`wc -c < 'xsel386/select.txt'`"
+test 21402 -eq "$Wc_c" ||
+	echo 'xsel386/select.txt: original size 21402, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xsel386/ttiocom.c ==============
+if test -f 'xsel386/ttiocom.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xsel386/ttiocom.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xsel386/ttiocom.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xsel386/ttiocom.c' &&
+X
+X#include <sys/types.h>
+X#include <sys/tty.h>
+X#include <sys/select.h>
+X
+Xttiocom(ttyp, com, arg, flag)
+Xstruct tty *ttyp;
+Xint com, arg, flag;     /* there should be better types for this :-) */
+X{
+X        if (com == IOC_SELECT)
+X        {
+X                ttselect(ttyp, flag);
+X                return(0);      /*** THIS IS IMPORTANT ***/
+X        }
+X        return(Ttiocom(ttyp, com ,arg, flag));
+X}
+X
+SHAR_EOF
+chmod 0644 xsel386/ttiocom.c ||
+echo 'restore of xsel386/ttiocom.c failed'
+Wc_c="`wc -c < 'xsel386/ttiocom.c'`"
+test 391 -eq "$Wc_c" ||
+	echo 'xsel386/ttiocom.c: original size 391, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= memmove/README ==============
+if test ! -d 'memmove'; then
+    echo 'x - creating directory memmove'
+    mkdir 'memmove'
+fi
+if test -f 'memmove/README' -a X"$1" != X"-c"; then
+	echo 'x - skipping memmove/README (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting memmove/README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'memmove/README' &&
+Xmemmove() is a very, very fast non-overlapping memory copy, but
+Xsince it does not save certain registers it uses, calling from
+XGCC can be tricky.  GCC does a fabulous job of grinding all it
+Xcan out of the available registers; MSC doesn't make very good
+Xuse of registers, er, I mean keeps a lot of registers for scratch
+Xuse.  I've never seen 386 MSC use dx except as a side effect of
+Xmultiply.  I guess that's what somebody (Gates?) meant by "tuning"
+Xone compiler to meet many needs being adequate. Enough philosophy,
+Xthough.
+X
+XI am using -fcall-used-{ax,bx,cx,dx} since in at least one
+Xcase (ecufkey.c display_keyset()), rigorous optimization and
+Xreally righteous register usage caused a call to strlen() to
+Xscrew up since cx is not preserved by strlen.
+X
+Xstrlen:         push    edi
+Xstrlen+0x1:     mov     edi,[esp+0x8]
+Xstrlen+0x5:     xor     eax,eax               <-- goodbye ax 
+Xstrlen+0x7:     mov     ecx,0xffffffff        <-- goodbye cx
+Xstrlen+0xc:     repne   scasb
+Xstrlen+0xe:     inc     ecx     
+Xstrlen+0xf:     mov     eax,ecx 
+Xstrlen+0x11:    not     eax
+Xstrlen+0x13:    pop     edi
+Xstrlen+0x14:    ret
+X
+Xmemmove:        push    ebp
+Xmemmove+0x1:    mov     ebp,esp
+Xmemmove+0x3:    mov     edx,edi               <-- move rather than push
+Xmemmove+0x5:    mov     ebx,esi               <-- move rather than push
+Xmemmove+0x7:    mov     esi,[ebp+0xc]
+Xmemmove+0xa:    mov     edi,[ebp+0x8]
+Xmemmove+0xd:    mov     eax,edi               <-- goodbye ax 
+Xmemmove+0xf:    mov     ecx,[ebp+0x10]        <-- goodbye cx (OK w/MSC)
+Xmemmove+0x12:   jcxz    memmove+0x43
+Xmemmove+0x14:   cmp     edi,esi
+Xmemmove+0x16:   jbe     memmove+0x2e
+Xmemmove+0x18:   mov     eax,esi
+Xmemmove+0x1a:   add     eax,ecx
+Xmemmove+0x1c:   cmp     edi,eax
+Xmemmove+0x1e:   jae     memmove+0x2e
+Xmemmove+0x20:   mov     eax,edi
+Xmemmove+0x22:   add     esi,ecx
+Xmemmove+0x24:   add     edi,ecx
+Xmemmove+0x26:   dec     esi
+Xmemmove+0x27:   dec     edi
+Xmemmove+0x28:   std
+Xmemmove+0x29:   rep     movsb
+Xmemmove+0x2b:   cld
+Xmemmove+0x2c:   jmp     near memmove+0x43
+Xmemmove+0x2e:   mov     eax,edi
+Xmemmove+0x30:   test    Byte Ptr 0x1f:0x1,al
+Xmemmove+0x36:   je      memmove+0x3a
+Xmemmove+0x38:   movsb
+Xmemmove+0x39:   dec     ecx
+Xmemmove+0x3a:   shr     ecx,1
+Xmemmove+0x3c:   rep     movsw
+Xmemmove+0x3f:   adc     ecx,ecx
+Xmemmove+0x41:   rep     movsb
+Xmemmove+0x43:   mov     esi,ebx
+Xmemmove+0x45:   mov     edi,edx
+Xmemmove+0x47:   pop     ebp
+Xmemmove+0x48:   ret
+Xmemmove+0x49:   nop
+Xmemmove+0x4a:   nop
+Xmemmove+0x4b:   nop
+X
+X---------------------------------------------------------------------
+X
+XThe memmove in theis directory is written in x86 assembler
+Xand is courtesy of Chip Salzenberg with some help from
+XRoger Cornelius.  I hacked out the .asm versions.
+X
+XChip Salzenberg:
+X> SCO's memmove() function in the 3.2v2 development system libc.a
+X> library has an insidious bug: it trashes the EBX register.  This
+X> register is used to hold register variables.  I suspect the bug crept
+X> in due to a simple-minded translation of a '286 routine, because on
+X> the '286, BX need not be preserved.
+X> 
+X> The fix is to replace memmove.o in /lib/libc.a with the version
+X> included below.  Note that if you use profiling, you must also put a
+X> profiling version of memmove() in /usr/lib/libp/libc.a.
+X> 
+X> To assemble the non-profiling version:
+X> 
+X>     as -m -o memmove.o memmove.s
+X
+X(How strange that this bug has gone unnoticed for so long...)
+X
+XRoger Cornelius <rac@sherpa.UUCP> :
+X> The following will build the profiling memmove.o correctly:
+X> 
+X> m4 profile.s memmove.s > memmove_p.s    # order is important!
+X> as -o memmove_p.o memmove_p.s
+X> 
+X> Note also that manually running memmove.s through m4 (instead of
+X> using as -m) before assembling will also save 100 or so bytes in the
+X> .o file for the non-profiling version.
+SHAR_EOF
+chmod 0644 memmove/README ||
+echo 'restore of memmove/README failed'
+Wc_c="`wc -c < 'memmove/README'`"
+test 3781 -eq "$Wc_c" ||
+	echo 'memmove/README: original size 3781, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= memmove/memmove.s ==============
+if test -f 'memmove/memmove.s' -a X"$1" != X"-c"; then
+	echo 'x - skipping memmove/memmove.s (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting memmove/memmove.s (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'memmove/memmove.s' &&
+X/+------------------------------------------------------------------
+X/ memmove.s
+X/
+X/ $Id: memmove.s,v 1.3 1991/06/05 19:15:44 chip Exp $
+X/
+X/ Implementation of memmove(), which is inexplicably missing
+X/ from the SCO Unix C library.
+X/
+X/ for profiling version,
+X/ m4 profile.s memmove.s > memmove_p.s  # order is important!
+X/ as -o memmove_p.o memmove_p.s
+X/ 
+X/ Note also that manually running memmove.s through m4 (instead of
+X/ using as -m) before assembling will also save 100 or so bytes in
+X/ the .o file for the non-profiling version.
+X/ 
+X/-------------------------------------------------------------------
+X
+X	.globl	memmove
+Xmemmove:
+Xifdef(`PROFILE',`
+X	.bss
+X.L1:	.=.+4
+X	.text
+X	mov	$.L1,%edx
+X	.globl	_mcount
+X	call	_mcount
+X')
+X	push	%edi
+X	push	%esi
+X	mov	12(%esp),%edi
+X	mov	16(%esp),%esi
+X	mov	20(%esp),%ecx
+X	mov	%edi,%eax		/ return value: dest
+X	jcxz	mm_exit
+X
+X	mov	%edi,%edx
+X	sub	%esi,%edx
+X	jb	mm_simple
+X	cmp	%edx,%ecx
+X	jb	mm_simple
+X
+X	add	%ecx,%edi
+X	dec	%edi
+X	add	%ecx,%esi
+X	dec	%esi
+X	std
+X	rep; movsb
+X	cld
+X	jmp	mm_exit
+X
+Xmm_simple:
+X	cld
+X	mov	%ecx,%edx
+X	shr	$2,%ecx
+X	rep; movs
+X	mov	%edx,%ecx
+X	and	$3,%ecx
+X	rep; movsb
+X
+Xmm_exit:
+X	pop	%esi
+X	pop	%edi
+X	ret
+SHAR_EOF
+chmod 0644 memmove/memmove.s ||
+echo 'restore of memmove/memmove.s failed'
+Wc_c="`wc -c < 'memmove/memmove.s'`"
+test 1143 -eq "$Wc_c" ||
+	echo 'memmove/memmove.s: original size 1143, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= memmove/memmove386.asm ==============
+if test -f 'memmove/memmove386.asm' -a X"$1" != X"-c"; then
+	echo 'x - skipping memmove/memmove386.asm (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting memmove/memmove386.asm (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'memmove/memmove386.asm' &&
+X;+------------------------------------------------------------------
+X; memmove386.asm
+X;
+X; Name
+X;      memmove - Copies characters between objects.
+X;
+X; Syntax
+X;
+X;      void *memmove(dest, src, count)
+X;      void *dest;
+X;      const void *src;
+X;      size_t count;
+X;
+X; Description
+X;      The memmove function copies count characters from src to
+X;      dest.  If some regions of src and dest overlap, memmove
+X;      ensures that the original src bytes in the overlapping
+X;      region are copied before being overwritten.
+X;
+X; Return Value
+X;      The value of dest, the destination object.
+X;
+X;-------------------------------------------------------------------
+X;+:EDITS:
+X;:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X;:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X;:09-01-1991-23:15-wht@n4hgf-convert Chip's memmove.s
+X
+X	TITLE	$memmove
+X
+X	.386
+XDGROUP	GROUP	CONST, _BSS, _DATA
+X_DATA	SEGMENT  DWORD USE32 PUBLIC 'DATA'
+X_DATA      ENDS
+X_BSS	SEGMENT  DWORD USE32 PUBLIC 'BSS'
+X_BSS      ENDS
+XCONST	SEGMENT  DWORD USE32 PUBLIC 'CONST'
+XCONST      ENDS
+X	ASSUME   CS: _TEXT, DS: DGROUP, SS: DGROUP, ES: DGROUP
+X
+X	PUBLIC  _memmove
+X	PUBLIC  memmove
+X
+X_TEXT	SEGMENT  DWORD USE32 PUBLIC 'CODE'
+X_memmove PROC NEAR
+Xmemmove:
+X	push	edi
+X	push	esi
+X	mov	edi,[esp+12]
+X	mov	esi,[esp+16]
+X	mov	ecx,[esp+20]
+X	mov	eax,edi		; return value: dest
+X	jcxz	mm_exit
+X
+X	mov	edx,edi
+X	sub	edx,esi
+X	jb	short mm_left_to_right
+X	cmp	ecx,edx
+X	jb	short mm_left_to_right
+X
+Xmm_right_to_left:
+X	add	edi,ecx
+X	dec	edi
+X	add	esi,ecx
+X	dec	esi
+X	std
+X	rep movsb
+X	cld
+X	jmp	short mm_exit
+X
+Xmm_left_to_right:
+X	cld
+X	mov	edx,ecx
+X	shr	ecx,2
+X	rep movsw
+X	mov	ecx,edx
+X	and	ecx,3
+X	rep movsb
+X
+Xmm_exit:
+X	pop	esi
+X	pop	edi
+X	ret
+X_memmove  ENDP
+X_TEXT	ENDES
+X	end
+SHAR_EOF
+chmod 0644 memmove/memmove386.asm ||
+echo 'restore of memmove/memmove386.asm failed'
+Wc_c="`wc -c < 'memmove/memmove386.asm'`"
+test 1684 -eq "$Wc_c" ||
+	echo 'memmove/memmove386.asm: original size 1684, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= memmove/memmove286.asm ==============
+if test -f 'memmove/memmove286.asm' -a X"$1" != X"-c"; then
+	echo 'x - skipping memmove/memmove286.asm (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting memmove/memmove286.asm (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'memmove/memmove286.asm' &&
+X;+------------------------------------------------------------------
+X; memmove386.asm
+X;
+X; Name
+X;      memmove - Copies characters between objects.
+X;
+X; Syntax
+X;
+X;      void *memmove(dest, src, count)
+X;      void *dest;
+X;      const void *src;
+X;      size_t count;
+X;
+X; Description
+X;      The memmove function copies count characters from src to
+X;      dest.  If some regions of src and dest overlap, memmove
+X;      ensures that the original src bytes in the overlapping
+X;      region are copied before being overwritten.
+X;
+X; Return Value
+X;      The value of dest, the destination object.
+X;
+X;-------------------------------------------------------------------
+X;+:EDITS:
+X;:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X;:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X;:09-01-1991-23:15-wht@n4hgf-convert Chip's memmove.s
+X
+X	TITLE   memmove286.asm
+X	.286p
+X	.287
+XMEMMOVE_TEXT	SEGMENT  WORD PUBLIC 'CODE'
+XMEMMOVE_TEXT	ENDS
+X_DATA	SEGMENT  WORD PUBLIC 'DATA'
+X_DATA	ENDS
+XCONST	SEGMENT  WORD PUBLIC 'CONST'
+XCONST	ENDS
+X_BSS	SEGMENT  WORD PUBLIC 'BSS'
+X_BSS	ENDS
+XDGROUP	GROUP	CONST, _BSS, _DATA
+X	ASSUME  CS: MEMMOVE_TEXT, DS: DGROUP, SS: DGROUP
+XEXTRN	__chkstk:FAR
+XMEMMOVE_TEXT      SEGMENT
+X	ASSUME	CS: MEMMOVE_TEXT
+X
+Xdest	equ	6
+Xsrc	equ	10
+Xlen	equ	14
+X
+X	PUBLIC	_memmove
+X_memmove	PROC FAR
+X	push	bp
+X	mov	bp,sp
+X	mov	ax,0
+X	call	FAR PTR __chkstk
+X	push	di
+X	push	si
+X	push	ds
+X
+X	mov	ax,WORD PTR [bp+src]
+X	mov	dx,WORD PTR [bp+src+2]
+X	mov	cx,WORD PTR [bp+len]
+X	mov	si,ax
+X	mov	ds,dx
+X	les	di,DWORD PTR [bp+dest]
+X	mov	dx,es
+X
+X; which way should the copy go?
+X	mov	ax,di
+X	sub	ax,si
+X	jb	short mm_ascend
+X	cmp	cx,ax
+X	jb	short mm_ascend
+X
+X; descending
+X	add	si,cx
+X	dec	si
+X	add	di,cx
+X	dec	di
+X	std
+X	rep	movsb
+X	cld
+X	jmp	short mm_exit
+X
+X; ascending
+Xmm_ascend:
+X	cld
+X	shr	cx,1
+X	rep	movsw
+X	adc	cx,cx
+X	rep	movsb
+X
+Xmm_exit:
+X	pop	ds
+X	pop	si
+X	pop	di
+X	leave	
+X	ret	
+X
+X_memmove  ENDP
+X_TEXT	ENDS
+X	end
+SHAR_EOF
+chmod 0644 memmove/memmove286.asm ||
+echo 'restore of memmove/memmove286.asm failed'
+Wc_c="`wc -c < 'memmove/memmove286.asm'`"
+test 1842 -eq "$Wc_c" ||
+	echo 'memmove/memmove286.asm: original size 1842, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= timetest/Makefile ==============
+if test ! -d 'timetest'; then
+    echo 'x - creating directory timetest'
+    mkdir 'timetest'
+fi
+if test -f 'timetest/Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping timetest/Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting timetest/Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'timetest/Makefile' &&
+X
+XPROGS = seltest naptest naptest2 naptest3
+X
+XLIB = -lx # -linet # needed on ISC
+X
+Xall: $(PROGS)
+X
+X# -linet needed on ISC
+Xseltest: seltest.c
+X	cc -o $@ $@.c
+X
+Xnaptest: seltest.c
+X	cc -o $@ $@.c $(LIB)
+X
+Xnaptest2: seltest.c
+X	cc -o $@ $@.c $(LIB)
+X
+Xnaptest3: seltest.c
+X	cc -o $@ $@.c $(LIB)
+X
+Xclean:
+X	rm -f $(PROGS)
+SHAR_EOF
+chmod 0644 timetest/Makefile ||
+echo 'restore of timetest/Makefile failed'
+Wc_c="`wc -c < 'timetest/Makefile'`"
+test 304 -eq "$Wc_c" ||
+	echo 'timetest/Makefile: original size 304, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= timetest/naptest.c ==============
+if test -f 'timetest/naptest.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping timetest/naptest.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting timetest/naptest.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'timetest/naptest.c' &&
+X/* CHK=0x88E6 */
+X/*+-------------------------------------------------------------------------
+X	naptest.c - nap test suite
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XThis little program is derived from my first nap program from XENIX days.
+XThe M_XENIX code shows how predictable nap() behaves under XENIX 286
+Xand 386.  It assumes HZ is 50.  It surely was nice when UNIX came out
+Xwith 100 HZ for 10 msec clock ticks.  60 HZ 16.6666666666666666666667
+Xmsec clock ticks are a bit nauseating.
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:06-26-1988-14:05-wht-creation */
+X
+X#include <stdio.h>
+X#ifdef M_UNIX
+X#undef M_XENIX
+X#endif
+X
+X#ifndef M_XENIX
+X#include <sys/param.h>
+X#endif
+X
+Xmain(argc,argv,envp)
+Xint argc;
+Xchar	**argv;
+Xchar	**envp;
+X{
+X	register int itmp;
+X	long nap(),ms;
+X	int cnt[8];
+X
+X	for(itmp = 0; itmp < 8; itmp++)
+X		cnt[itmp] = 0;
+X
+X#ifdef M_XENIX
+X	printf("making 1000 nap(20L) calls\n");
+X	for(itmp = 0; itmp < 1000; itmp++)
+X	{
+X		switch(nap((long)20))
+X		{
+X		case 0L:	cnt[0]++; break;
+X		case 20L:	cnt[1]++; break;
+X		case 40L:	cnt[2]++; break;
+X		case 60L:	cnt[3]++; break;
+X		case 80L:	cnt[4]++; break;
+X		case 100L:	cnt[5]++; break;
+X		case 120L:	cnt[6]++; break;
+X		default:	cnt[7]++; break;
+X		}
+X	}
+X	printf("return value buckets:\n");
+X	printf("0:%d 20:%d 40:%d 60:%d 80:%d 100:%d 120:%d other:%d\n",
+X	    cnt[0],cnt[1],cnt[2],cnt[3],cnt[4],cnt[5],cnt[6],cnt[7]);
+X#else
+X	printf("making 1000 nap(%ldL) calls\n",(1000 / HZ) + 1);
+X	for(itmp = 0; itmp < 1000; itmp++)
+X	{
+X		switch(ms = nap((long)(1000 / HZ) + 1))
+X		{
+X		case 0L:
+X			cnt[0]++; break;
+X		case (((1000 / HZ)    )  * 1):
+X		case (((1000 / HZ) + 1)  * 1):
+X			cnt[1]++; break;
+X		case (((1000 / HZ)    )  * 2):
+X		case (((1000 / HZ) + 1)  * 2):
+X			cnt[2]++; break;
+X		case (((1000 / HZ)    )  * 3):
+X		case (((1000 / HZ) + 1)  * 3):
+X			cnt[3]++; break;
+X		case (((1000 / HZ)    )  * 4):
+X		case (((1000 / HZ) + 1)  * 4):
+X			cnt[4]++; break;
+X		case (((1000 / HZ)    )  * 5):
+X		case (((1000 / HZ) + 1)  * 5):
+X			cnt[5]++; break;
+X		case (((1000 / HZ)    )  * 6):
+X		case (((1000 / HZ) + 1)  * 6):
+X			cnt[6]++; break;
+X		default:
+X			cnt[7]++; break;
+X		}
+X	}
+X
+X	printf("return value buckets:\n");
+X	for(itmp = 0; itmp < 7; itmp++)
+X		printf("%d:%d ",(1000/HZ)*itmp,cnt[itmp]);
+X	printf("other:%d\n",cnt[7]);
+X#endif
+X	exit(0);
+X
+X}	/* end of main */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 timetest/naptest.c ||
+echo 'restore of timetest/naptest.c failed'
+Wc_c="`wc -c < 'timetest/naptest.c'`"
+test 2447 -eq "$Wc_c" ||
+	echo 'timetest/naptest.c: original size 2447, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= timetest/naptest2.c ==============
+if test -f 'timetest/naptest2.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping timetest/naptest2.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting timetest/naptest2.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'timetest/naptest2.c' &&
+X/* CHK=0xD254 */
+X/*+-------------------------------------------------------------------------
+X    naptest2.c - nap test suite
+X    wht@n4hgf.Mt-Park.GA.US
+X
+XThis test checks a number of nap features.
+X
+X1.  Does nap correctly nap a reasonable interval of time over
+X    a range of selected periods?
+X2.  Does nap correctly return the period of time it napped?
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:09-03-1991-21:04-wht@n4hgf-make part of suite */
+X/*:06-26-1988-14:05-wht-creation */
+X
+X#include <stdio.h>
+X#include <sys/param.h>
+X
+X/*+-------------------------------------------------------------------------
+X    nap_test(period) - make repeated nap test for 'period'
+X--------------------------------------------------------------------------*/
+Xvoid
+Xnap_test(period)
+Xlong period;
+X{
+Xint itmp,zero_nap_count = 0;
+Xlong total = 0L,msec,then,now,nap();
+Xchar s64[64],*ctime();
+X#define CNT 500
+X
+X	printf("testing nap(%ldL) should take about %.2lf sec\n",
+X		period,(double)period * CNT / 1000.0);
+X	time(&then);
+X	printf("  started at %s",ctime(&then));
+X	itmp = CNT;
+X    while(itmp--)
+X    {
+X        msec = nap(period);
+X        total += msec;
+X        if(!msec)
+X            zero_nap_count++;
+X    }
+X	time(&now);
+X	strcpy(s64,ctime(&now));
+X	s64[strlen(s64) - 1] = 0;
+X	printf("  ended   at %s  (%ld secs)\n",s64,now - then);
+X    printf("  average nap return value = %.2lf msec\n",(double)total / CNT);
+X    printf("  reported zero length nap %d out of %d times\n\n",
+X        zero_nap_count,CNT);
+X
+X}   /* end of nap_test */
+X
+X/*+-------------------------------------------------------------------------
+X    main(argc,argv,envp)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv,envp)
+Xint argc;
+Xchar    **argv;
+Xchar    **envp;
+X{
+X    int hz;
+X    long hzmsec;
+X
+X	setbuf(stdout,NULL);
+X
+X/*
+X * learn tick rate for various timers
+X */
+X    if(getenv("HZ"))
+X        hz = atoi(getenv("HZ"));
+X    else
+X        hz = HZ;
+X    hzmsec = (1000 / hz) + 1; /* prevent damaged nap from not napping */
+X
+X    nap_test(5L);       /* this never naps at all unless accidental
+X                         * scheduling causes a delay
+X                         */
+X
+X    nap_test(hzmsec);
+X    nap_test(50L);
+X    exit(0);
+X
+X}   /* end of main */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 timetest/naptest2.c ||
+echo 'restore of timetest/naptest2.c failed'
+Wc_c="`wc -c < 'timetest/naptest2.c'`"
+test 2417 -eq "$Wc_c" ||
+	echo 'timetest/naptest2.c: original size 2417, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= timetest/naptest3.c ==============
+if test -f 'timetest/naptest3.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping timetest/naptest3.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting timetest/naptest3.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'timetest/naptest3.c' &&
+X/* CHK=0x83DE */
+X/*+-------------------------------------------------------------------------
+X    naptest3.c - nap test suite
+X    wht@n4hgf.Mt-Park.GA.US
+X
+XThis test attempts to see if small naps nap even though return value is 0,
+Xthus partially complying with the man page:
+X"The current process is suspended from execution for at least
+Xthe number of milliseconds specified by period ...." ^^^^^^^^
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:09-03-1991-20:30-wht@n4hgf-creation */
+X
+X#include <stdio.h>
+X#include <sys/param.h>
+X
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+X    int itmp,hz,expected;
+X    char *cptr,*getenv(),*ctime();
+X    long hzmsec,then,now,actual;
+X
+X    /* learn tick period */
+X    if((cptr = getenv("HZ")) && *cptr)
+X        hz = atoi(cptr);
+X    else
+X        hz = HZ;
+X    hzmsec = (1000 / hz) + 1; /* prevent damaged nap from not napping */
+X
+X    itmp = 1000;
+X    expected = (int)(hzmsec * itmp / 1000L);
+X    printf("This should sleep about %d seconds, %ld+ msec at a time\n",
+X		expected, hzmsec - 1);
+X    time(&then);
+X    printf("Nap started at %s",ctime(&then));
+X    while(itmp--)
+X        nap(hzmsec - 1);
+X    time(&now);
+X    printf("Nap ended   at %s",ctime(&now));
+X    printf("Napped about %ld second(s)",actual = now - then);
+X	if(!actual)
+X		printf(", not at all!");
+X	else if(actual == 1)
+X		printf(". Must be a lucky epoch tick.  Try it again!");
+X	printf("\n",stdout);
+X
+X    exit(0);
+X}   /* end of main */
+SHAR_EOF
+chmod 0644 timetest/naptest3.c ||
+echo 'restore of timetest/naptest3.c failed'
+Wc_c="`wc -c < 'timetest/naptest3.c'`"
+test 1574 -eq "$Wc_c" ||
+	echo 'timetest/naptest3.c: original size 1574, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= timetest/seltest.c ==============
+if test -f 'timetest/seltest.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping timetest/seltest.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting timetest/seltest.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'timetest/seltest.c' &&
+X/* CHK=0xF551 */
+X/*+-------------------------------------------------------------------------
+X	testsel.c - test timeout interval of select()
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:09-03-1991-19:57-wht@n4hgf-creation */
+X
+X#include <stdio.h>
+X#ifdef M_SYSV /* SCO */
+X#include <sys/select.h>
+X#else
+X#include <sys/time.h>
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+Xstruct timeval tv;
+X
+X	setbuf(stdout,NULL);
+X
+X	while(1)
+X	{
+X		tv.tv_sec = 0;
+X		tv.tv_usec = 100*1000L;
+X		select(0,0,0,0,&tv);
+X		fputs("100 msec?\n",stdout);
+X	}
+X
+X	exit(0);
+X}	/* end of main */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of testsel.c */
+SHAR_EOF
+chmod 0644 timetest/seltest.c ||
+echo 'restore of timetest/seltest.c failed'
+Wc_c="`wc -c < 'timetest/seltest.c'`"
+test 968 -eq "$Wc_c" ||
+	echo 'timetest/seltest.c: original size 968, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/README ==============
+if test ! -d 'doc'; then
+    echo 'x - creating directory doc'
+    mkdir 'doc'
+fi
+if test -f 'doc/README' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/README (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/README' &&
+XUnusual characters and excessively long lines in news articles
+Xcan cause problems on some installations.  While ECU is guaranteed
+Xunuseful on such systems, news will travel through them to
+Xreach some ECU customers.
+XThe distributed manuals have been fed through the "col -b" filter
+Xto reduce difficulties.
+X
+XWhen a patch requires manual changes, the patch set will contain
+Xchanges for the nroff source.  However, it is quite, quite
+Ximpractical to patch the nroff output itself.
+X
+XIf you do not have nroff and the mm macro set, I will be happy
+Xto mail you a manual with the nroff underlining and bolding intact.
+XI say happy.  If the demand grows too much, I'll make some
+Xother arrangements.
+X
+XIf there is sufficient interest, I'll make a "nice and pretty"
+Xlaser-printed manual available for a nominal charge.
+SHAR_EOF
+chmod 0644 doc/README ||
+echo 'restore of doc/README failed'
+Wc_c="`wc -c < 'doc/README'`"
+test 804 -eq "$Wc_c" ||
+	echo 'doc/README: original size 804, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/Makefile ==============
+if test -f 'doc/Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/Makefile' &&
+X#+------------------------------------------------------
+X# ECU manual Makefile
+X#-------------------------------------------------------
+X#+:EDITS:*/
+X#:09-10-1992-13:58-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA
+X#:08-22-1992-15:07-wht@n4hgf-whoops - forgot -mm
+X#:06-16-1992-02:05-wht@n4hgf-creation
+X
+XNROFF = nroff -mm
+X
+X#COL_PHRASE =
+XCOL_PHRASE = | col
+X#COL_PHRASE = | col -b
+X
+XECU_FILES = \
+X	ecu.txt \
+X	_top.txt \
+X	_intro.txt \
+X	_basic.txt \
+X	_features.txt \
+X	_startup.txt \
+X	_icmd.txt \
+X	_hdb.txt \
+X	_exits.txt \
+X	_end.txt
+X
+XPROC_FILES = \
+X	proc.txt \
+X	_p_param.txt \
+X	_p_ifunc.txt \
+X	_p_sfunc.txt \
+X	_p_cmd.txt
+X
+Xall: ecu.man proc.man
+X
+Xecu.man: $(ECU_FILES)
+X	$(NROFF) ecu.txt $(COL_PHRASE) > $@
+X
+Xproc.man: $(PROC_FILES)
+X	$(NROFF) proc.txt $(COL_PHRASE) > $@
+X
+X# no funky characters in distribution shars
+Xdist:
+X	$(NROFF) ecu.txt | col -b > $@
+X	$(NROFF) proc.txt | col -b > $@
+X
+SHAR_EOF
+chmod 0644 doc/Makefile ||
+echo 'restore of doc/Makefile failed'
+Wc_c="`wc -c < 'doc/Makefile'`"
+test 907 -eq "$Wc_c" ||
+	echo 'doc/Makefile: original size 907, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/_basic.txt ==============
+if test -f 'doc/_basic.txt' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/_basic.txt (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/_basic.txt (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/_basic.txt' &&
+X.*s 1 "Basic Organization"
+X
+XECU forks to run as two separate
+Xprocesses, a transmitter (XMTR) and a receiver (RCVR).
+XThe two processes
+Xcommunicate via signals and a System V shared memory segment.
+XXMTR controls RCVR and terminates it under certain circumstances,
+Xcalled here auxiliary operations.  After an auxiliary operation
+Xcompletes, XMTR forks again to recreate RCVR.
+X
+X.*s 2 "Transmitter Process (XMTR)"
+X
+XXMTR
+Xaccepts user input from the computer keyboard; input is recognized
+Xas belonging to one of two types: 1) transmit data and 2)
+XECU commands.  Keyboard input
+Xis passed to the serial line driver until an ECU command
+Xis detected.  Commands are prefixed with a 
+X.B HOME
+Xkey which causes ECU to accept keyboard data up to the next ENTER
+Xkey as command text.  After a command has been processed,
+Xkeyed data is again routed to the serial line.
+X
+X.*s 3 "Keyboard Interface"
+X
+XThe keyboard driver is set into the raw mode.
+XXMTR reads characters one at a time from the driver.
+XNormally, characters read from the keyboard are passed directly to
+Xthe serial line driver.  The
+XASCII ESC ("escape") character is handled as a special case.
+XWhen a function key is pressed, the keyboard generates
+Xto XMTR an ESC character,
+Xfollowed by more characters describing which function key has
+Xbeen pressed.
+XPressing the ESC key also causes XMTR to see an ESC character,
+Xbut with no subsequent function key "suffix".
+X
+XWhen an ESC character is read, XMTR delays transmission of the
+Xcharacter to the line for a short period to determine whether
+Xthe ESC key has been pressed or a function key has been pressed.
+XIf no "suffix" is detected, the ESC is passed to the line, having
+Xsuffered an insignificant delay given human typing speeds.
+X
+XIf a function key "suffix" is detected, the function key type
+Xis decoded.  The
+X.B HOME
+Xkey indicates an ECU command follows.  Any
+Xother function key is passed to the function key mapping feature
+X(described later).
+X
+X.*s 3 "ECU Command Assembly"
+X
+XAfter 
+X.B HOME
+Xhas been pressed, XMTR presents a reverse video prompt on the
+Xdisplay, indicating its readiness to accept a command.  During
+Xinput, the command may be edited using the same control keys
+Xspecified with stty(C).  Additonal editing
+Xusing the left and right arrow keys and the
+XIns(ert) key are usually available.
+XCommand input may be aborted by pressing ESC.
+XWhen a command string has been assembled, it is passed to the
+Xcommand processor, which breaks the command arguments into a token
+Xarray similar to the argc/argv array.  When the command handler
+Xreturns, XMTR returns to its normal mode of copying keyboard data to
+Xthe serial line.
+X
+XFurther information on XMTR command line processing may be found in 
+Xlater sections titled Line Editing and Interactive Command History.
+X
+X.*s 3 "Function Key Mapping"
+X
+XWhile in tty-to-line mode, function keys other than 
+X.B HOME
+Xare available to be mapped
+Xto transmit short keystroke sequences on a connection by
+Xconnection basis.  Under control of the dialing command ("Dial"
+Xdescribed below)  or the function key control command ("FK"),
+Xpredefined function key maps may be loaded.
+X
+XFunction keys which may be mapped are
+X.B F1
+Xthrough
+X.B F12 ,
+X.B PgUp ,
+X.B PgDn ,
+X.B End ,
+X.B Ins ,
+X.B Del ,
+Xand
+Xthe cursor control keys.
+X
+XThe unshifted keypad '5' key is permanently mapped to
+Xproduce a screen snapshot when it is pressed and XMTR is
+Xreading from the keyboard.
+X
+XThe BackTab (shift Tab) key is permanently mapped to a screen
+Xredisplay feature.
+X
+X.*s 3 "Auxiliary Operation Control"
+X
+XCertain commands cause ECU to perform what is called an
+Xauxiliary operation, requiring temporary termination of the
+XRCVR process.  Such operations are not as useful
+Xwith
+X.B cu(C) ,
+Xbecause cu does NOT kill its receiver process at any time.
+XAs a result, it impossible to run a modern file transfer
+Xprotocol since the cu receiver process eats some of the
+Xcharacters sent by the remote protocol program.
+X
+XThere are two types of auxiliary operations:
+X1) internal interactive command or procedure
+Xexecution and 2) external program execution.
+XCertain
+X.B internal
+X.B commands
+Xrequire tight control over the serial line.
+XFor instance, the
+X.B dial
+Xcommand requires transmitting modem command
+Xstrings and receiving modem response codes.  Such functions
+Xare best accomplished by single-process control of the line.
+X.B External
+X.B program
+Xexecution is of two kinds, file transfer invocation
+Xand local shell/command execution.
+X
+XThe RCVR process is terminated in any of these cases either to
+Xavoid the RCVR swallowing characters intended for other
+Xtargets (the modem handler in XMTR or the file transfer protocol)
+Xor to avoid having remote data interspersed with the output of
+Xlocal programs.
+X
+X.*s 2 "Receiver Process (RCVR)"
+X
+XThe receiver process reads the incoming serial data stream and
+Xpasses it to the user terminal driver through a filter which
+Xscans for events such as the occurrence of ASCII BEL (bell)
+Xcharacters or terminal control sequences.  RCVR also handles
+Xthe session logging and ANSI filter functions.
+X
+X.*s 3 "ANSI Filter"
+X
+XSince the term "ANSI" is used to describe
+X.B many
+Xvariations on the ANSI X3.64 recommendations for terminal control (read
+X"IBM pseudo-ANSI"), the ECU receiver process has an "ANSI filter" which
+Xattempts to translate incompatible (read "MSDOS") ANSI-like control
+Xsequences to sequences acceptable to the console terminal in use.
+XThis includes support for the MS-DOS "save cursor" and "restore cursor"
+Xsequences.
+XMore information may be found later in "Supported Terminals."
+X
+X.*s 3 "Session Logging"
+X
+XWhen directed by the user, the RCVR process logs incoming serial
+Xdata to a file named on the log command line.  The default operation
+Xis to filter unprintable characters (other than TAB and NL) from the
+Xlog, but raw logging is available with a command option.  In a like
+Xmanner, the default is for appending to an existing file, but a
+Xcommand option may specify scratching any previous contents.
+X
+XLog files receive header lines each time the file is
+Xopened, stating the logical system name, the telephone number
+Xand the date/time.
+X
+SHAR_EOF
+chmod 0644 doc/_basic.txt ||
+echo 'restore of doc/_basic.txt failed'
+Wc_c="`wc -c < 'doc/_basic.txt'`"
+test 6050 -eq "$Wc_c" ||
+	echo 'doc/_basic.txt: original size 6050, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/_end.txt ==============
+if test -f 'doc/_end.txt' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/_end.txt (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/_end.txt (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/_end.txt' &&
+X
+X.br
+X.nr si 0n
+X.af % i
+X.ls 1
+X.TC 1 1 3
+SHAR_EOF
+chmod 0644 doc/_end.txt ||
+echo 'restore of doc/_end.txt failed'
+Wc_c="`wc -c < 'doc/_end.txt'`"
+test 39 -eq "$Wc_c" ||
+	echo 'doc/_end.txt: original size 39, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/_exits.txt ==============
+if test -f 'doc/_exits.txt' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/_exits.txt (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/_exits.txt (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/_exits.txt' &&
+X.*s 1 "Exit Codes"
+X
+XWhen ECU exits (terminates execution),
+Xit uses a code from the following table:
+X.DS L
+XOK                   0    no error
+XSIG1                 1    SIGHUP (signal 1)
+XSIGN                 64   signal 64 - see below
+XLINE_READ_ERROR      129  could not read from attached line
+XXMTR_WRITE_ERROR     130  could not write to attached line
+XXMTR_LOGIC_ERROR     131  software logic error
+XBSD4_IOCTL           132  not currently used
+XSHM_ABL              133  not currently used
+XSHM_RTL              134  not currently used
+XNO_FORK_FOR_RCVR     135  could not fork receiver process
+XTTYIN_READ_ERROR     136  could not read from console
+XLINE_OPEN_ERROR      137  could not attach (open) requested line
+XPWENT_ERROR          138  error in /etc/passwd processing
+XUSAGE                139  command line syntax error
+XCONFIG_ERROR         140  missing or erroroenous configuration file
+XCURSES_ERROR         141  error in curses use
+XRCVR_FATAL_ERROR     142  receiver died unexpectedly
+XMALLOC               143  critical memory allocation failure
+XLOGIC_ERROR          144  internal logic error
+XGEOMETRY             145  unsupported screen geometry
+XINIT_PROC_ERROR      192  initial procedure terminated in error
+XUSER1                193  exit procedure command called with 1
+XUSERN                223  exit procedure command called with 31
+X.DE
+X
+XThe logical names 'SIG1' and 'SIGN' refer to a range of error codes
+Xsignifying ecu termination due to a signal.  A larger range (64) is
+Xreserved than is necessary to handle reasonable expansion of
+XSIG values in the OS. Not all signals will be reported
+Xin this manner. ECU will never report status 9 (signal 9, SIGKILL),
+Xfor instance.
+X
+XThe logical names 'USER1' and 'USERN' refer to a range of error
+Xexits codes reserved for use by the 'exit' procedure command.
+XSee the description of this command for more information.
+X
+XFor ecu friend code,
+Xformal C #define identifiers for exit codes may be found in
+Xtermecu.h and consist of the above logical names prefixed with 'TERMECU_'.
+X
+SHAR_EOF
+chmod 0644 doc/_exits.txt ||
+echo 'restore of doc/_exits.txt failed'
+Wc_c="`wc -c < 'doc/_exits.txt'`"
+test 2023 -eq "$Wc_c" ||
+	echo 'doc/_exits.txt: original size 2023, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/_features.txt ==============
+if test -f 'doc/_features.txt' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/_features.txt (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/_features.txt (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/_features.txt' &&
+X.*s 1 "Features"
+X.*s 2 "Supported Terminals"
+X
+XECU supports many terminals with geometries between 20 and 43
+Xlines, inclusive.  The column width must be 80.
+XThe termcap entry for a console (user tty rather than the line)
+XMUST contain a valid entry for the database entries listed below.
+X
+XECU does not attempt to support terminal emulation in the classic
+Xsense of the word.  It presents to the remote host an "ANSI-like"
+Xterminal type as described earlier in the introduction and in 
+Xthe section titled "ANSI Filter."
+XHowever, it does support, with limitations, any LOCAL terminal
+X(console) for which a valid termcap description exists. You MAY
+Xbe able to use ECU with a remote terminal (calling into UNIX/XENIX
+Xover a network or modem), but you may get unfavorable results with
+Xfunction key usage if your modem is a "packetizing" type, such as
+Xa Telebit or if ethernet or other networking chops up your keystroke
+Xsequences.  ECU allows approximately 100 milliseconds after receiving
+Xan ASCII ESC character for later characters of a function key sequence
+Xto arrive.  If at least one character of the sequence has not been
+Xreceived in that time, ECU treats the key as an ESCape, not a function key.
+XThis typical problem of detecting ESC vs. function key is unfortunate, but
+Xwe must live with it until paradigms change (say, in about 2010?).
+X
+XThe termcap entry for a console
+XMUST contain a valid entry for the following database entries:
+X
+X.DS L
+Xcl      clear screen
+Xkl      cursor left
+Xkr      cursor right
+Xdc      delete character
+Xdl      delete line
+Xcd      clear to end of display
+Xce      clear to end of line
+Xic      insert character
+Xal      insert line ("add" a "line")
+Xcm      cursor motion
+Xso      stand out (terminal specific attention getter)
+Xse      stand end
+X.DE
+X
+XThe above sequences MUST be present, valid and reasonably
+Xefficient.  ECU does not use curses during it's primary mode of
+Xoperation (keyboard send-receive). Unlike curses, ECU makes no
+Xattempt to emulate missing terminal functionality.  Failure to
+Xprovide valid entries will result in strange behavior with no
+Xwarning.
+X
+XNote that the formal termcap description of "kl" and "kr" 
+Xstate these are sequences generated by the terminal
+X.B keyboard ,
+Xbut ECU expects that these sequences also cause the desired
+Xeffects when
+X.B sent
+Xto the
+X.B screen .
+X
+XAdditionally, the following, optional, sequences will be used if
+Xthey are detected.
+X
+X.DS L
+Xmb      bold on ("XENIX" extension)
+Xme      bold off ("XENIX" extension)
+Xus      underscrore on
+Xue      underscrore off
+Xvb      visual bell
+X.DE
+X
+XOn SCO, termcap terminal contrtol is used.  Other
+Xversions use terminfo.
+XA future SCO version of ECU may use terminfo instead of termcap.
+XProblems with terminfo prevent its use at the present time.
+XIn addition, early versions of XENIX do not support terminfo.
+X
+XOn SCO multiscreens, SCO "extensions" to "ANSI" are supported
+Xas described below in "Multiscreen Local Terminals."
+X
+X.*s 2 "Host Video Control Sequences"
+X
+X.*s 3 "All Local Consoles (Terminals)"
+X
+XThe following sequences are recieved over the line
+Xby ECU and properly interpreted for all local terminal types
+X(multiscreen, rlogin/xterm pseudotty, serial).
+X
+X.DS L
+XSequence  | Description
+X----------+-------------------------------
+XESC [ @   | ICH
+XESC [ A   | CUU
+XESC [ B   | CUD
+XESC [ C   | CUF
+XESC [ D   | CUB
+XESC [ E   | CNL       See ANSI X3.64,
+XESC [ F   | CPL       screen(HW) and/or
+XESC [ H   | CUP       MS-DOS Technical
+XESC [ J   | ED        Reference Manual
+XESC [ K   | EL
+XESC [ L   | IL
+XESC [ M   | DL
+XESC [ P   | DCH
+XESC [ S   | SU
+XESC [ T   | SD
+XESC [ X   | ECH
+XESC [ `   | HPA
+XESC [ a   | HPR
+XESC [ d   | VPA
+XESC [ e   | VPR
+XESC [ f   | HVP
+XESC [ ? m | SGR
+XESC [ n   | DSR
+XESC [ s   | save cursor MS-DOSism
+XESC [ u   | restore cursor MS-DOSism
+X.DE
+X.DS L
+XSGR Sequences for ALL TERMINALS
+XSequence  | Description   |  Maps to termcap
+X----------+---------------+-------------------------------
+XESC [ 0 m | normal        |  "se"+"me"+"ue"
+XESC [ 1 m | bold          |  "so"
+XESC [ 4 m | underscore    |  "us"
+XESC [ 5 m | blink         |  "mb" (XENIX extension)
+XESC [ 7 m | reverse video |  "so"
+X.DE
+X
+X.*s 3 "Multiscreen Local Terminals"
+X
+XIn addition to the above, if you are operating from an SCO color
+Xmultiscreen, additional (SCO and MS-DOS/ANSI.SYS) sequences
+Xare supported (see screen(HW)):
+X
+X.DS L
+XAdditional Multiscreen SGR Sequences
+XSequence    | Description  (no termcap mapping)
+X------------+-----------------------------------------------
+XESC [ 8 m   | non-display
+XESC [ 1 0 m | select primary font
+XESC [ 1 1 m | select first alternate font (0x00-0x1F)
+XESC [ 1 2 m | select second alternate font (0x80-0xFF)
+XESC [ 3 0 m | black foreground
+XESC [ 3 1 m | red foreground
+XESC [ 3 2 m | green foreground
+XESC [ 3 3 m | brown foreground
+XESC [ 3 4 m | blue foreground
+XESC [ 3 5 m | magenta foreground
+XESC [ 3 6 m | cyan foreground
+XESC [ 3 7 m | white foreground
+XESC [ 3 8 m | enables underline option
+XESC [ 3 9 m | disables underline option
+XESC [ 4 0 m | black background
+XESC [ 4 1 m | red background
+XESC [ 4 2 m | green background
+XESC [ 4 3 m | brown background
+XESC [ 4 4 m | blue background
+XESC [ 4 5 m | magenta background
+XESC [ 4 6 m | cyan background
+XESC [ 4 7 m | white background
+X.DE
+X
+X.s 3 "MS-DOS 'SGR Gaggles'"
+X
+XECU also does it's best to interpret MS-DOS "SGR gaggles" such as
+X.DS I
+XESC [ 5 ; 3 4 ; 4 7 m
+X.DE
+Xwhich means "set the terminal to white background with
+Xblue blinking foreground."
+X
+X.*s 3 "Character Mapping"
+X
+XMost versions of ECU running on an AT style machine attempt to
+Xuse the ruling characters in the video display adapter's ROM
+Xper:
+X.DS L
+XMapped Characters (see pc_scr.h):
+XHex  | Description
+X-----+---------------------------
+X0xDA | top left single rule
+X0xBF | top right single rule
+X0xC0 | bottom left single rule
+X0xD9 | bottom right single rule
+X0xC3 | left hand T
+X0xB4 | right hand T
+X0xB3 | vertical rule
+X0xC4 | horizontal rule
+X.DE
+XOn non-AT machines (or in such environments as X11), the PC ROM
+Xsingle ruling characters from the following table are mapped
+Xafter the fashion of:
+X.DS L
+X       .-----+--------.
+X       |     |        |
+X       |     +--------+
+X       |     |        |
+X       +-----+        |
+X       |     |        |
+X       `-----+--------'
+X.DE
+X
+X(Due to laziness on the part of the author, double
+Xruling characters will appear as random druk, unless your terminal
+Xhas joined the Church of the True-Blue ROM.
+XOne day an X version of this program may appear and you can choose
+Xto no longer accomplish real work, but may spend your days editing
+X42Kb resource files which will give you TAC, Total Anal Control,
+Xover all this.)
+X
+X.*s 2 "Function Key Mapping (Recognition)"
+X
+X(This section reflects the changes in keyboard management made
+Xin version 3.20.)
+X
+XECU recognizes 23 function keys as having special significance
+Xto its operation.
+XThey are:
+X.DS I
+XName      Description 
+X--------  ------------
+XF1        F1         
+XF2        F2        
+XF3        F3          
+XF4        F4          
+XF5        F5          
+XF6        F6          
+XF7        F7          
+XF8        F8          
+XF9        F9          
+XF10       F10         
+XF11       F11         
+XF12       F12         
+XHome      Home        
+XEnd       End         
+XPgUp      Page up     
+XPgDn      Page down   
+XCUU       Up arrow    
+XCUD       Down arrow  
+XCUL       Left arrow  
+XCUR       Right arrow 
+XCU5       "Cursor 5"  
+XIns       Insert      
+XBkTab     Back Tab    
+X.DE
+X
+XECU matches a function key sequence
+Xto an internal function key representation
+Xby testing all keystroke sequences against an internal table loaded
+Xat the beginning of execution from the file ~/.ecu/funckeymap.
+XA default funckeymap file placed in the ECU library directory
+X(normally /usr/local/lib/ecu) by the software installation process.  
+XIf there is no funckeys in the user's home directory, the default
+Xfile is used.
+X
+XNOTE that supported terminals MUST employ function keys which generate
+Xsequences less than 32 characters in length.
+X
+XX11 xterms and X terminals usually require special attention
+Xwith VT100.Translations overrides.  Sometimes an xmodmap must also be
+Xemployed.  Experimentation is the best teacher, but the supplied
+Xfunckeymap file and various READMEs offer some hints.  In particular,
+XREADME.KEYBRD contains information that is kept current.
+X
+XSeveral predefined entries are supplied with the program distribution
+Xin models/funckeymap.
+XIf you have a terminal or console with a keyboard not already
+Xin this file, you must construct one using the terminal's reference
+Xmanual or by direct discovery (typing the key and empricially noting
+Xits generated sequence).
+XThe program kbdtest3 (the source is provided in the distribution) can
+Xassist you in building funckeymap entries.
+Xcertain keys are pressed.  kbdtest.c is a more primitive version of
+Xthe same program.
+X
+XNormally, the TERM environment variable is used to determine
+Xthe funckeymap entry to be used.  Sometimes, the TERM variable
+Xis not adequate for identifying your keyboard arrangement.  For
+Xinstance, suppose you use an xterm on the console at times and
+Xan X terminal at other times.  The choice of function keys
+Xand the character sequences they emit are not likely to match.
+XRather than make herculean efforts with xmodmap and translations,
+Xyou can define two different funckeymap entries, say "xterm-sco"
+Xand "xterm-ncd".
+XThe environment variable ECUFUNCKEY, if found, overrides the
+XTERM variable for funckeymap keyboard management only.  
+XTERM is always used for identifying the display.
+XThus, you can set TERM to "xterm" and ECUFUNCKEY to "xterm-sco"
+XOR "xterm-ncd".
+XAlso, the -F command line switch may be used (which overrides $ECUFUNCKEY).
+X
+XThe format of an file entry is shown below.
+XLines beginning with '#' are comments.
+X
+X.DS I
+X#+------------------------------
+X# SCO
+X#-------------------------------
+Xansi
+Xansi43
+Xsco
+X    F1:F1:          esc [ M 
+X    F2:F2:          esc [ N 
+X    F3:F3:          esc [ O 
+X    F4:F4:          esc [ P 
+X    F5:F5:          esc [ Q 
+X    F6:F6:          esc [ R 
+X    F7:F7:          esc [ S 
+X    F8:F8:          esc [ T 
+X    F9:F9:          esc [ U 
+X    F10:F10:        esc [ V 
+X    F11:F11:        esc [ W 
+X    F12:F12:        esc [ X 
+X    Home:Home:      esc [ H 
+X    End:End:        esc [ F 
+X    PgUp:PgUp:      esc [ I 
+X    PgDn:PgDn:      esc [ G 
+X    CUU:CUU:        esc [ A 
+X    CUL:CUL:        esc [ D 
+X    CU5:CU5:        esc [ E 
+X    CUR:CUR:        esc [ C 
+X    CUD:CUD:        esc [ B 
+X    Ins:Ins:        esc [ L
+X    BkTab:BackTab:  esc [ Z
+X.DE
+X
+XThe first line(s) in a terminal keyboard description begin in
+Xcolumn 1 and contain the terminal types (a la $TERM) for which
+Xthe keyboard description are valid.  The example entry contains
+Xseveral references to terminal types containing the substring
+X'ansi'.  These are included only as an example of one keyboard
+Xdescription servicing multiple terminal types.
+X
+XFollowing the "first lines" are key definition entries, each
+Xpreceded by at least one tab or space.  Each entry is composed of
+Xthree fields delimited by commas.  The first field of an entry is
+Xthe internal ECU function key name and must be chosen from the
+Xfollowing strings (with no regard to case): "F1", "F2", "F3",
+X"F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "Home",
+X"End", "PgUp", "PgDn", "CUU" (cursor up), "CUL" (cursor left),
+X"CU5" (unshifted cursor pad 5), "CUR" (cursor right) and "CUD"
+X(cursor down). The
+Xsecond field contains the name of the key as it appears on the
+Xkeyboard (such as "F16" for End on the Wyse 60).  The
+Xthird field is a description of the character sequence generated
+Xby the keyboard when the chosen key is pressed; it is a
+Xstring of one or more tokens separated by spaces or tabs.
+X
+XIn addition, function key sequences may not 
+Xexceed 31 characters in length.
+X
+XPLEASE NOTE: ECU does not have a reasonable way for you to terminate it
+Xif there are no Home and End keys defined, so it refuses to proceed
+Xif no definitions are found.  Even so, if you have incorrect definitions,
+Xyou may not be able to get out of ECU without a kill -1 <pid> from
+Xanother terminal or hanging up your connection with UNIX/XENIX
+Xif using ECU from remote.
+X
+X.*s 2 "Function Key Actions"
+X
+XThis section deals with how ECU behaves
+Xonce a function key has been recognized as having been entered
+Xat the keyboard. 
+X
+X.*s 3 "Standard Function Keys"
+X
+XAll function keys with the exception of the 
+X.B Home ,
+X.B BkTab
+X(shift TAB),
+Xand keypad unshifted 5 key can be programmed to 
+Xtransmit preselected character sequences when the key is pressed.
+X
+XThe default values for these sequences is shown below.
+X
+X.DS L
+XIdentifier Description    Default Sequence
+X--------   ------------   ----------------
+XF1         F1                ESC [ M
+XF2         F2                ESC [ N
+XF3         F3                ESC [ O
+XF4         F4                ESC [ P
+XF5         F5                ESC [ Q
+XF6         F6                ESC [ R
+XF7         F7                ESC [ S
+XF8         F8                ESC [ T
+XF9         F9                ESC [ U
+XF10        F10               ESC [ V
+XF11        F11               ESC [ W
+XF12        F12               ESC [ X
+XHome       Home          <-- intercepted (not an input key)
+XEnd        End               ESC [ F
+XPgUp       Page up           ESC [ I
+XPgDn       Page down         ESC [ G
+XCUU        Up arrow          ESC [ A
+XCUD        Down arrow        ESC [ B
+XCUL        Left arrow        ESC [ D
+XCUR        Right arrow       ESC [ C
+XCU5        "Cursor 5"    <-- intercepted (not an input key)
+XIns        Insert            ESC [ L
+X.DE
+X 
+XThis results in the following interactive "fkey" command display:
+X.DS L
+X F1   SCO F1    F2   SCO F2    Home  ecu cmd       PgUp  SCO PgUp
+X F3   SCO F3    F4   SCO F4    End   SCO End       PgDn  SCO PgDn
+X F5   SCO F5    F6   SCO F6    Ins   local shell   CUR5  screen dump
+X F7   SCO F7    F8   SCO F8    BkTab redisplay  
+X F9   SCO F9    F10  SCO F10   CUR^  SCO CUU       CUR>  SCO CUR
+X F11  SCO F11   F12  SCO F12   CUR<  SCO CUL       CURv  SCO CUD
+X.DE
+X
+XYou may override the default setting by using the interactive or
+Xprocedure command "fkey" to specify a new keyset definition
+Xfrom ~/.ecu/keys.
+X
+XFunction keyset definitions are appended one after another
+Xto ~/.ecu/keys.  The keyset name appears on a line by itself
+Xand the choices making up a set appear on subsequent lines
+Xof a special format.  
+X
+XA keyset is loaded explicitly using "fkey" and implicitly when
+Xconnecting to a remote system and a keyset name matches
+Xthe dialing directory entry name.
+X
+XConsider the example:
+X
+X.DS L
+Xstratus
+X    F1:F1:esc O q
+X    F2:F2:esc O r
+X    F3:F3:esc O s
+X    F4:F4:esc O t
+X    F5:F5:esc O u
+X    F6:F6:esc O v
+X    F7:F7:esc O w
+X    F8:status:dc4
+X    F9:no status:nl
+X    F10:redisp:esc O y
+X    F11:redisp:syn
+X    PGDN:cancel:esc O Q
+X    END:enter:esc O M
+X    PGUP:dispform:esc O R
+X    CUU:^:dle
+X    CUD:v:so
+X    CUL:<:stx
+X    CUR:>:ack
+X.DE
+X
+XThe key definition lines are made up of three fields.  In addition,
+Xthere must be a blank or a space in the first column of the line.
+XThe first field is the ECU key identifier from the table above.
+XThe second field is a 12-character max string to display when
+Xthe display option of the fkey command is used.
+XThe last field is a character sequence to be transmitted when
+Xthe key is pressed.
+X
+XThe resulting fkey display for the stratus example looks similar to:
+X
+X.DS L
+X F1  F1     F2  F2         Home ecu cmd     PgUp  dispform
+X F3  F3     F4  F4         End  enter       PgDn  cancel
+X F5  F5     F6  F6         Ins  local shell CUR5  Screen dump
+X F7  status F8  no status  BkTab restore receiver display
+X F9         F10 redisp     CUR^ ^           CUR>  >
+X F11        F12            CUR< <           CURv  v
+X.DE
+X
+XPressing F1, causes the three characters ESC, 'O' and 'q' to be
+Xtransmitted.
+X
+X.*s 3 "SCO ALT-[a-z] Function Keys"
+X
+XIf you are on an SCO machine and you have installed the custom ECU mapkey file
+X(as described in the release directory
+Xin mapkeys/README), then ALT-a through ALT-z causes the "silent"
+Xexecution of procedures 'alt_a.ep' for ALT-a, 'alt_b.ep' for ALT-b, etc.
+XThe models subdirectory contains an example alt_h.ep which will home
+Xthe cursor when ALT-h is pressed.  This facility allows the execution
+Xof 26 procedures without ECU itself changing the video display at all.
+XAny changes to the display (short of procedure errors) will result
+Xsolely from the action of the invoked procedure.
+XIf the procedure matching the ALT-[a-z] key pressed cannot be found,
+Xa short error message is printed and the terminal bell is rung.
+X(Using back tab may be used to refresh the display in this event.)
+X
+XNOTE: ECU 3.10 CHANGES TO THE SINGLE KEY PROCEDURE FUNCTIONALITY
+XMAKE IT NECESSARY FOR YOU TO REVIEW mapkeys/README IF YOU HAVE USED
+XTHIS FEATURE IN PREVIOUS REVISIONS.
+X
+XThe strings used to represent "non-printable" characters are identical
+Xto the formal ASCII names given them (without regard to case), viz:
+X.DS I
+X      NUL may not appear in a function key definition
+SHAR_EOF
+true || echo 'restore of doc/_features.txt failed'
+fi
+echo 'End of ecu320 part 35'
+echo 'File doc/_features.txt is continued in part 36'
+echo 36 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,1071 @@
+Newsgroups: comp.sources.misc
+From: mpeppler@itf0.itf.ch (Michael Peppler)
+Subject: v37i034:  sybperl - Sybase DB-library extensions to Perl, v1.6, Part02/02
+Message-ID: <1993Apr28.164156.12825@sparky.imd.sterling.com>
+X-Md4-Signature: 432fbb5d8027b7f5639c5aae29ca6811
+Date: Wed, 28 Apr 1993 16:41:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mpeppler@itf0.itf.ch (Michael Peppler)
+Posting-number: Volume 37, Issue 34
+Archive-name: sybperl/part02
+Environment: UNIX, Perl, Sybase
+Supersedes: sybperl: Volume 28, Issue 33
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  BUGS CHANGES PACKING.LST eg/README eg/capture.pl
+#   eg/dbtext.pl eg/report.pl eg/space.pl eg/sql.pl lib/sybdb.ph
+#   lib/sybperl.pl t/sbex.pl
+# Wrapped by kent@sparky on Wed Apr 28 08:40:08 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'BUGS' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'BUGS'\"
+else
+  echo shar: Extracting \"'BUGS'\" \(2818 characters\)
+  sed "s/^X//" >'BUGS' <<'END_OF_FILE'
+X
+X	
+X    The Sybase DB-Library - Perl savestr() conflict
+X    ------------------------------------------------
+X
+X
+X    Ah! The joys of tying different packages together!
+X
+X    Both Perl and DB-Library have a function called savestr(). The
+X    DB-Library version is used in dbcmd() to add an SQL command to the
+X    list of commands pointed to by dpproc->dbcmdbuf, and in dbuse() as
+X    well. Now there are several ways to work around this problem.
+X
+X    1) Compile sybperl.c with -DBROKEN_DBCMD. I've written some code
+X       that emulates calls to dbcmd() and dbuse(). This works OK on my
+X       machine/OS/Version of Perl/Version of DBlib, but it relies on
+X       the internal storing method used by DBlib, and that might
+X       change in the future.
+X
+X    2) Recompile Perl (specifically, uperl.o in the Perl source
+X       directory) with some suitable flags (eg -Dsavestr=p_savestr).
+X       This does not create any compatibility problems, but is a
+X       lengthy procedure.
+X
+X    3) Do something like:
+X       cc -c sybperl.c
+X       ld -r -o sybperl2.o sybperl.o -lsybdb
+X       [edit sybperl2.o and replace `_savestr' with something like `_savest1']
+X       cc -o sybperl uperl.o sybperl2.o
+X       This is not a bad solution, but won't work if you have shared
+X       library versions of libsybdb.a
+X
+X    4) Edit uperl.o and replace savestr with something else. This is
+X       the solution I've chosen as the default. It is relatively fast,
+X       does not rely on any internal knowledge of DB-Library, and does
+X       not require Perl to be recompiled.
+X
+X    The Makefile gives some information on how to achieve these
+X    different options.
+X       
+X    Thanks to Teemu Torma for providing the initial input on this problem.    
+X
+X
+X
+X    Sybperl Memory Usage
+X    --------------------
+X
+X    The general format of a Sybperl script usually looks somewhat like
+X    this:
+X
+X    #!/usr/local/bin/sybperl
+X
+X    &dbcmd( query text );
+X    &dbsqlexec;
+X    &dbresults;
+X
+X    while(@data = &dbnextrow)
+X    {
+X       process data
+X    }
+X
+X
+X    If you are using a version of Perl prior to release 4, patchlevel
+X    35, then this method will result in a rather important memory
+X    leak. There are two ways around this problem:
+X
+X    1) Upgrade to Perl 4, patchlevel 35 :-)
+X
+X    2) Write a subroutine that calls &dbnextrow and stores the returned
+X       array to a local variable, and which in turn returns that array to
+X       the main while() loop, like so:
+X
+X    sub getRow
+X    {
+X        local(@data);
+X
+X	@data = &dbnextrow;
+X
+X	@data;
+X    }
+X
+X    while(@data = &getRow)
+X    {
+X       etc.
+X    }
+X
+X
+X    This technique should keep the memory usage of Sybperl to a
+X    manageable level.
+X
+X
+X
+X
+X
+X
+X
+X
+X    Please let me know if you find any other problems with Sybperl so
+X    that I can look into it.
+X
+X    Thank you.
+X
+X    Michael Peppler    <mpeppler@itf.ch>
+X
+X    
+END_OF_FILE
+  if test 2818 -ne `wc -c <'BUGS'`; then
+    echo shar: \"'BUGS'\" unpacked with wrong size!
+  fi
+  # end of 'BUGS'
+fi
+if test -f 'CHANGES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CHANGES'\"
+else
+  echo shar: Extracting \"'CHANGES'\" \(1782 characters\)
+  sed "s/^X//" >'CHANGES' <<'END_OF_FILE'
+X	Sybperl CHANGES:
+X
+X	1.006	Added contributed patches: &dbwritetext(),
+X		&dbsafestr() and a modified &dblogin().
+X		Added &dbhasretstats() and &dbretstatus(), as well as
+X		some calls to DBlib macros such as DBCMD(),
+X		DBMORECMD(), etc.
+X		Received a patch to eg/space.pl from Wolfgang Richter.
+X		Code that was defined to compile if BROKER_DBCMD was
+X		defined has been removed. It was only a hack, making
+X		use of knowledge of the structure of the DBPROCESS
+X		data type.
+X		Added the possibility to return an associative array
+X		from &dbnextrow.
+X		Added support for new datatypes (SYBREAL, SYBDATETIME4).
+X		NULL values retrieved using &dbnextrow can be returned
+X		as 'undef' instead of 'NULL' (this is a compile-time
+X		option).
+X	1.005   Sybperl would core dump if you used a uninitialized
+X	        DBPROCESS.
+X		A solution to the sometime pathological	memory usage
+X		observed when using a release of Perl lower than 4.035
+X		is also described in BUGS.
+X		&dblogin now returns -1 if the dblogin() or dbopen()
+X		calls fail.
+X		Added the possibility to login to a specific server
+X		without setting the DSQUERY environment variable.
+X		Added a script to extract the information regarding
+X		the database from the databases' system tables. See
+X		eg/dbschema.pl.
+X	1.004	Added support for Perl based error and message
+X		handlers (as made possible by Perl 4.018). Many Thanks
+X		to Teemu Torma for this code.
+X		Added limited support for SYBTEXT datatypes.
+X		Added &dbstrcpy() to retrieve the current command buffer.
+X		The DBPROCESS parameter to most &db*() calls can now
+X		be omitted: it will default to the first DBPROCESS
+X		opened (the one that is returned by &dblogin()).
+X		Added lib/sybdb.ph
+X		Added a couple of example scripts in eg/*.pl, courtesy
+X		of Gijs Mos (Thank You!).
+X	1.003	Base version.
+X
+END_OF_FILE
+  if test 1782 -ne `wc -c <'CHANGES'`; then
+    echo shar: \"'CHANGES'\" unpacked with wrong size!
+  fi
+  # end of 'CHANGES'
+fi
+if test -f 'PACKING.LST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PACKING.LST'\"
+else
+  echo shar: Extracting \"'PACKING.LST'\" \(1175 characters\)
+  sed "s/^X//" >'PACKING.LST' <<'END_OF_FILE'
+X
+X
+X	
+X	The Sybperl package should contain the following files:
+X
+X
+X	    PACKING.LST	    This file
+X	    README	    Read Me!
+X	    BUGS	    Perl/DB-library incompatibility description
+X	    CHANGES
+X	    Makefile
+X	    sybperl.c	    Sybperl source
+X	    sybperl.1	    Man page
+X	    patchlevel.h
+X	    t/sbex.pl	    Example of sybperl script
+X	    lib/sybperl.pl  A Perl library file.
+X	    lib/sybdb.ph    Some of the DB-Library include files, run
+X			    through h2ph.
+X	    eg/space.pl	    How much space does your sybase databases use?
+X	    eg/capture.pl   Create a table extracted from /etc/passwd
+X	    eg/report.pl    Report from table created by capture.pl
+X	    eg/sql.pl	    Utility routines used by the above example programs.
+X
+X	    eg/dbtext.pl    Example of &dbwritetext() usage. This
+X			    script will NOT work out of the box. Read
+X			    the code to see what requires doing first.
+X
+X	    eg/dbschema.pl  Create an Isql script that will to
+X	                    recreate your database(s) structure (data
+X			    types, tables, indexes, rules, defaults,
+X			    views, triggers and stored procedures),
+X			    extracting the information from the
+X			    database's system tables.
+X	    
+END_OF_FILE
+  if test 1175 -ne `wc -c <'PACKING.LST'`; then
+    echo shar: \"'PACKING.LST'\" unpacked with wrong size!
+  fi
+  # end of 'PACKING.LST'
+fi
+if test -f 'eg/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'eg/README'\"
+else
+  echo shar: Extracting \"'eg/README'\" \(1741 characters\)
+  sed "s/^X//" >'eg/README' <<'END_OF_FILE'
+X	@(#)README	1.4	4/2/93
+X
+X
+X    This directory contains a number of example scripts for Sybperl.
+X
+X
+X    
+X    space.pl		Report the space used by your database.
+X    capture.pl		Create a table with information from
+X			/etc/passwd.
+X    report.pl		Report information from the above table.
+X    sql.pl		Utility used by the above three scripts.
+X    dbschema.pl		Extract an Isql script to re-create a database
+X    dbtext.pl		A very simple example of usage of dbwritetext.
+X			Read the code before using!
+X
+X
+X    
+X    Dbschema.pl Documentation:
+X    --------------------------
+X    
+X    This is a Sybperl script that extracts a Sybase database definition
+X    and creates an Isql script to rebuild the database.
+X
+X    dbschema.pl is NOT a production script, in the sense that it does
+X    not do ALL the necessary work. The script tries to do the right
+X    thing, but in certain cases (mainly where the owner of an object
+X    is not the DBO) it creates an invalid or incorrect Isql command. I
+X    have tried to detect these cases, and log them both to stdout and to a
+X    file, so that the script can be corrected.
+X    Please note also that dbschema.pl logs in to Sybase with the
+X    default (Unix) user id, and a NULL password. This behaviour is
+X    maybe not OK for your site.
+X
+X    Usage:
+X
+X    	itf1% dbschema.pl -d excalibur -o excalibur.isql -v
+X
+X    Run dbschema on database 'excalibur', place the resulting script
+X    in 'excalibur.isql' (and the error log in 'excalibur.isql.log')
+X    and turn on verbose output on the console. The default database is
+X    'master', the default output file is 'script.isql'.
+X
+X
+X    I hope this will prove of some use, and I would be more than happy
+X    to hear of any improvements :-)
+X
+X
+X    Michael Peppler		mpeppler@itf.ch
+X
+END_OF_FILE
+  if test 1741 -ne `wc -c <'eg/README'`; then
+    echo shar: \"'eg/README'\" unpacked with wrong size!
+  fi
+  # end of 'eg/README'
+fi
+if test -f 'eg/capture.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'eg/capture.pl'\"
+else
+  echo shar: Extracting \"'eg/capture.pl'\" \(1640 characters\)
+  sed "s/^X//" >'eg/capture.pl' <<'END_OF_FILE'
+X#! /usr/local/bin/sybperl
+X
+X#
+X#	@(#)capture.pl	1.1	6/24/92
+X#
+X
+Xrequire "sybperl.pl";
+Xrequire "sql.pl";
+X
+X#
+X# Log us in to Sybase.
+X#
+X$d = &dblogin;
+X
+X&sql($d, "set statistics io on");
+X&sql($d, "set statistics time on");
+X
+X#
+X# Count the number off password tables.
+X#
+X@results = &sql($d, '
+X		select count(*) from sysobjects
+X		where name = "password" and type = "U"'
+X	   );
+X
+X#
+X# If there is none create it else truncate it.
+X#
+Xif(@results[0] == 0) {
+X	&sql($d, '
+X		create table password(
+X		    username char(8),
+X		    uid int,
+X		    gid int,
+X		    shell varchar(30),
+X		    home varchar(30)
+X		)'
+X	);
+X	print "The password table has been created.\n";
+X} else {
+X	&sql($d, 'truncate table password');
+X	print "The password table already exists. Table truncated!\n";
+X};
+X
+X#
+X# Read the password entries and add them to the database.
+X#
+Xwhile (($n,$p,$u,$g,$q,$c,$gc,$d,$s)= getpwent) {
+X	print "Adding $n.\n";
+X	&sql($d, "
+X		insert password
+X		values(\"$n\", $u, $g, \"$s\", \"$d\")
+X		"
+X	);
+X};
+Xendpwent;
+X
+X#
+X# Count the number off group tables.
+X#
+X@results = &sql($d, '
+X		select count(*) from sysobjects
+X		where name = "groups" and type = "U"'
+X	   );
+X
+X#
+X# If there is none create it else truncate it.
+X#
+Xif(@results[0] == 0) {
+X	&sql($d, '
+X		create table groups(
+X		    groupname char(8),
+X		    gid int
+X		)'
+X	);
+X	print "The groups table has been created.\n";
+X} else {
+X	&sql($d, 'truncate table groups');
+X	print "The groups table already exists. Table truncated!\n";
+X};
+X
+X#
+X# Read the group entries and add them to the database.
+X#
+Xwhile (($gn,$gp,$gg,$gm)= getgrent) {
+X	print "Adding group $gn.\n";
+X	&sql($d, "
+X		insert groups
+X		values(\"$gn\", $gg)
+X		"
+X	);
+X};
+Xendgrent;
+X
+END_OF_FILE
+  if test 1640 -ne `wc -c <'eg/capture.pl'`; then
+    echo shar: \"'eg/capture.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'eg/capture.pl'
+  # end of 'eg/capture.pl'
+fi
+if test -f 'eg/dbtext.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'eg/dbtext.pl'\"
+else
+  echo shar: Extracting \"'eg/dbtext.pl'\" \(708 characters\)
+  sed "s/^X//" >'eg/dbtext.pl' <<'END_OF_FILE'
+X#  Script which demonstrates dbwrite routine.
+X#
+X#  In isql do something like:
+X#       create table text_table (t_index int, the_text text)
+X#
+X
+Xrequire "sybperl.pl";
+Xrequire "sql.pl";
+X
+X$d = &dblogin;
+X$d2 = &dbopen;
+X
+X&sql ($d, 'delete from text_table');
+X&sql ($d, 'insert into text_table (t_index, the_text) values (5,"")');
+X
+X
+X&dbcmd($d,'select the_text, t_index from text_table where t_index = 5');
+X&dbsqlexec($d);                         # execute sql
+X
+X&dbresults($d);
+X@data = &dbnextrow($d);
+X
+X&dbwritetext ($d2, "text_table.the_text", $d, 1, "This is text which was added with Sybperl");
+X
+X@result = &sql($d,'select t_index, the_text from text_table where t_index = 5');
+X
+Xprint @result, "\n";
+X
+X&dbclose($d);
+X
+END_OF_FILE
+  if test 708 -ne `wc -c <'eg/dbtext.pl'`; then
+    echo shar: \"'eg/dbtext.pl'\" unpacked with wrong size!
+  fi
+  # end of 'eg/dbtext.pl'
+fi
+if test -f 'eg/report.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'eg/report.pl'\"
+else
+  echo shar: Extracting \"'eg/report.pl'\" \(753 characters\)
+  sed "s/^X//" >'eg/report.pl' <<'END_OF_FILE'
+X#! /usr/local/bin/sybperl
+X
+X#
+X#	@(#)report.pl	1.1	6/24/92
+X#
+X
+Xrequire "sybperl.pl";
+Xrequire "sql.pl";
+X
+X#
+X# Log us in to Sybase.
+X#
+X$d = &dblogin;
+X
+X#
+X# define the format
+X#
+Xformat top=
+X			 PASSWORD FILE
+XLogin      Uid Group      Shell                   Home directory
+X-------- ----- ---------- ----------------------- ----------------------
+X. 
+Xformat stdout=
+X@<<<<<<< @>>>> @<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<
+X$n,      $u,   $gn,       $s,                     $d
+X. 
+X
+X#
+X# See if everything is there.
+X#
+X@results = &sql($d, '
+X	select username, uid, isnull(groupname,convert(char,p.gid)), shell, home
+X	from password p, groups g
+X	where	p.gid *= g.gid
+X	order by uid
+X	');
+Xforeach $x (@results) {
+X	($n,$u,$gn,$s,$d) = split("~",$x);
+X	write;
+X}
+X
+END_OF_FILE
+  if test 753 -ne `wc -c <'eg/report.pl'`; then
+    echo shar: \"'eg/report.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'eg/report.pl'
+  # end of 'eg/report.pl'
+fi
+if test -f 'eg/space.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'eg/space.pl'\"
+else
+  echo shar: Extracting \"'eg/space.pl'\" \(1494 characters\)
+  sed "s/^X//" >'eg/space.pl' <<'END_OF_FILE'
+X#! /usr/local/bin/sybperl
+X#
+X#	@(#)space.pl	1.2	4/2/93
+X
+Xrequire "sybperl.pl";
+Xrequire "sql.pl";
+X
+X#
+X# Log us in to Sybase.
+X#
+Xprint "Name of Sybase server: ";
+X$server = <>; chop($server);
+Xif($server ne '')
+X{
+X    $ENV{'DSQUERY'} = $server;
+X}
+Xelse
+X{
+X    $server = $ENV{'DSQUERY'};
+X}
+X
+Xprint "Administrative account password: ";
+Xeval `stty -echo`;
+X$sapw = <>; chop($sapw);
+Xeval `stty echo`;
+X
+X$d = &dblogin("sa", $sapw);
+X
+X
+X$server = $server . '.';
+X
+X
+X&sql($d, "use master");
+X@dbs = &sql($d, "select name from sysdatabases order by name");
+X
+Xforeach $n (@dbs) {
+X    &sql($d, "use $n");
+X    $x = join('~', &sql($d, 'sp_spaceused'));
+X    $x =~ s/ //g;
+X    $x =~ s/MB|KB//g;
+X    ($name, $size, $res, $data, $index, $free ) = split("~",$x);
+X    $unused = $size * 1024 - $res;
+X    write;
+X    $ts += $size;
+X    $tr += $res;
+X    $td += $data;
+X    $ti += $index;
+X    $tf += $free;
+X}
+X
+Xprint '-' x 78, "\n"; 
+X$name = 'TOTAL';
+X$size = $ts;
+X$res = $tr;
+X$data = $td;
+X$index = $ti;
+X$free = $tf;
+X$unused = $size * 1024 - $res;
+Xwrite;
+X
+Xformat top=
+XSpace usage per database for server @<<<<<<<<<<<<<<<
+X				    $server
+XName             Size    Reserved       Data      Index       Free     Unused
+X	         (MB)        (KB)       (KB)       (KB)       (KB)       (KB)
+X-----------------------------------------------------------------------------
+X. 
+Xformat stdout=
+X@<<<<<<<<<  @>>>>>>>>  @>>>>>>>>>  @>>>>>>>>  @>>>>>>>>  @>>>>>>>>  @>>>>>>>>
+X$name,      $size,     $res,       $data,     $index,    $free,     $unused
+X. 
+X
+X
+END_OF_FILE
+  if test 1494 -ne `wc -c <'eg/space.pl'`; then
+    echo shar: \"'eg/space.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'eg/space.pl'
+  # end of 'eg/space.pl'
+fi
+if test -f 'eg/sql.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'eg/sql.pl'\"
+else
+  echo shar: Extracting \"'eg/sql.pl'\" \(1738 characters\)
+  sed "s/^X//" >'eg/sql.pl' <<'END_OF_FILE'
+X#
+X#	@(#)sql.pl	1.1	6/24/92
+X#
+X
+Xsub sql {
+X    local($db,$sql,$sep)=@_;			# local copy parameters
+X
+X    $sep = '~' unless $sep;			# provide default for sep
+X
+X    @res = ();					# clear result array
+X
+X    &dbcmd($db,$sql);				# pass sql to server
+X    &dbsqlexec($db);				# execute sql
+X
+X    while(&dbresults($db) != $NO_MORE_RESULTS) {	# copy all results
+X	while (@data = &dbnextrow($db1)) {
+X	    push(@res,join($sep,@data));
+X	}
+X    }
+X
+X    @res;					# return the result array
+X}
+X
+X
+X# Message and error handlers.
+X
+Xsub sql_message_handler
+X{
+X    local ($db, $message, $state, $severity, $text, $server, $procedure, $line)
+X	= @_;
+X
+X    if ($severity > 0)
+X    {
+X	print ("Sybase message ", $message, ", Severity ", $severity,
+X	       ", state ", $state);
+X	print ("\nServer `", $server, "'") if defined ($server);
+X	print ("\nProcedure `", $procedure, "'") if defined ($procedure);
+X	print ("\nLine ", $line) if defined ($line);
+X	print ("\n    ", $text, "\n\n");
+X
+X# &dbstrcpy returns the command buffer.
+X
+X	local ($lineno) = 1;	# 
+X	foreach $row (split (/\n/, &dbstrcpy ($db)))
+X	{
+X	    print (sprintf ("%5d", $lineno ++), "> ", $row, "\n");
+X	}
+X    }
+X    elsif ($message == 0)
+X    {
+X	print ($text, "\n");
+X    }
+X    
+X    0;
+X}
+X
+Xsub sql_error_handler {
+X    # Check the error code to see if we should report this.
+X    if ($_[2] != &SYBESMSG) {
+X	local ($db, $severity, $error, $os_error, $error_msg, $os_error_msg)
+X	    = @_;
+X	print ("Sybase error: ", $error_msg, "\n");
+X	print ("OS Error: ", $os_error_msg, "\n") if defined ($os_error_msg);
+X    }
+X
+X    &INT_CANCEL;
+X}
+X
+X
+Xif( defined(&dbmsghandle))	# Is this a modern version of sybperl? ;-)
+X{
+X    &dbmsghandle ("sql_message_handler"); # Some user defined error handlers
+X    &dberrhandle ("sql_error_handler");
+X}
+X
+X
+X1;
+X
+END_OF_FILE
+  if test 1738 -ne `wc -c <'eg/sql.pl'`; then
+    echo shar: \"'eg/sql.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'eg/sql.pl'
+  # end of 'eg/sql.pl'
+fi
+if test -f 'lib/sybdb.ph' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib/sybdb.ph'\"
+else
+  echo shar: Extracting \"'lib/sybdb.ph'\" \(2788 characters\)
+  sed "s/^X//" >'lib/sybdb.ph' <<'END_OF_FILE'
+X;#	@(#)sybdb.ph	1.1	11/8/91
+X;#
+X;#
+X
+Xsub SYBESYNC {20001;}
+Xsub SYBEFCON {20002;}
+Xsub SYBETIME {20003;}
+Xsub SYBEREAD {20004;}
+Xsub SYBEBUFL {20005;}
+Xsub SYBEWRIT {20006;}
+Xsub SYBEVMS {20007;}
+Xsub SYBESOCK {20008;}
+Xsub SYBECONN {20009;}
+Xsub SYBEMEM {20010;}
+Xsub SYBEDBPS {20011;}
+Xsub SYBEINTF {20012;}
+Xsub SYBEUHST {20013;}
+Xsub SYBEPWD {20014;}
+Xsub SYBEOPIN {20015;}
+Xsub SYBEINLN {20016;}
+Xsub SYBESEOF {20017;}
+Xsub SYBESMSG {20018;}
+Xsub SYBERPND {20019;}
+Xsub SYBEBTOK {20020;}
+Xsub SYBEITIM {20021;}
+Xsub SYBEOOB {20022;}
+Xsub SYBEBTYP {20023;}
+Xsub SYBEBNCR {20024;}
+Xsub SYBEIICL {20025;}
+Xsub SYBECNOR {20026;}
+Xsub SYBENPRM {20027;}
+Xsub SYBEUVDT {20028;}
+Xsub SYBEUFDT {20029;}
+Xsub SYBEWAID {20030;}
+Xsub SYBECDNS {20031;}
+Xsub SYBEABNC {20032;}
+Xsub SYBEABMT {20033;}
+Xsub SYBEABNP {20034;}
+Xsub SYBEAAMT {20035;}
+Xsub SYBENXID {20036;}
+Xsub SYBERXID {20037;}
+Xsub SYBEICN {20038;}
+Xsub SYBENMOB {20039;}
+Xsub SYBEAPUT {20040;}
+Xsub SYBEASNL {20041;}
+Xsub SYBENTLL {20042;}
+Xsub SYBEASUL {20043;}
+Xsub SYBERDNR {20044;}
+Xsub SYBENSIP {20045;}
+Xsub SYBEABNV {20046;}
+Xsub SYBEDDNE {20047;}
+Xsub SYBECUFL {20048;}
+Xsub SYBECOFL {20049;}
+Xsub SYBECSYN {20050;}
+Xsub SYBECLPR {20051;}
+Xsub SYBECNOV {20052;}
+Xsub SYBERDCN {20053;}
+Xsub SYBESFOV {20054;}
+Xsub SYBEUNT {20055;}
+Xsub SYBECLOS {20056;}
+Xsub SYBEUAVE {20057;}
+Xsub SYBEUSCT {20058;}
+Xsub SYBEEQVA {20059;}
+Xsub SYBEUDTY {20060;}
+Xsub SYBETSIT {20061;}
+Xsub SYBEAUTN {20062;}
+Xsub SYBEBDIO {20063;}
+Xsub SYBEBCNT {20064;}
+Xsub SYBEIFNB {20065;}
+Xsub SYBETTS {20066;}
+Xsub SYBEKBCO {20067;}
+Xsub SYBEBBCI {20068;}
+Xsub SYBEKBCI {20069;}
+Xsub SYBEBCRE {20070;}
+Xsub SYBETPTN {20071;}
+Xsub SYBEBCWE {20072;}
+Xsub SYBEBCNN {20073;}
+Xsub SYBEBCOR {20074;}
+Xsub SYBEBCIS {20075;}
+Xsub SYBEBCPI {20076;}
+Xsub SYBEBCPN {20077;}
+Xsub SYBEBCPB {20078;}
+Xsub SYBEVDPT {20079;}
+Xsub SYBEBIVI {20080;}
+Xsub SYBEBCBC {20081;}
+Xsub SYBEBCFO {20082;}
+Xsub SYBEBCVH {20083;}
+Xsub SYBEBCUO {20084;}
+Xsub SYBEBCUC {20085;}
+Xsub SYBEBUOE {20086;}
+Xsub SYBEBUCE {20087;}
+Xsub SYBEBWEF {20088;}
+Xsub SYBEASTF {20089;}
+Xsub SYBEUACS {20090;}
+Xsub SYBEASEC {20091;}
+Xsub SYBETMTD {20092;}
+Xsub SYBENTTN {20093;}
+Xsub SYBEDNTI {20094;}
+Xsub SYBEBTMT {20095;}
+Xsub SYBEORPF {20096;}
+Xsub SYBEUVBF {20097;}
+Xsub SYBEBUOF {20098;}
+Xsub SYBEBUCF {20099;}
+Xsub SYBEBRFF {20100;}
+Xsub SYBEBWFF {20101;}
+Xsub SYBEBUDF {20102;}
+Xsub SYBEBIHC {20103;}
+Xsub SYBEBEOF {20104;}
+Xsub SYBEBCNL {20105;}
+Xsub SYBEBCSI {20106;}
+Xsub SYBEBCIT {20107;}
+Xsub SYBEBCSA {20108;}
+Xsub SYBENULL {20109;}
+Xsub SYBEUNAM {20110;}
+Xsub SYBEBCRO {20111;}
+Xsub SYBEMPLL {20112;}
+Xsub SYBERPIL {20113;}
+Xsub SYBERPUL {20114;}
+Xsub SYBEUNOP {20115;}
+Xsub SYBECRNC {20116;}
+Xsub SYBERTCC {20117;}
+Xsub SYBERTSC {20118;}
+Xsub SYBEUCRR {20119;}
+Xsub SYBERPNA {20120;}
+Xsub SYBEOPNA {20121;}
+X
+Xsub SUCCEED {1;}
+Xsub FAIL {0;}
+X
+Xsub INT_EXIT {0;}
+Xsub INT_CONTINUE {1;}
+Xsub INT_CANCEL {2;}
+X
+X1;
+X
+END_OF_FILE
+  if test 2788 -ne `wc -c <'lib/sybdb.ph'`; then
+    echo shar: \"'lib/sybdb.ph'\" unpacked with wrong size!
+  fi
+  # end of 'lib/sybdb.ph'
+fi
+if test -f 'lib/sybperl.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib/sybperl.pl'\"
+else
+  echo shar: Extracting \"'lib/sybperl.pl'\" \(464 characters\)
+  sed "s/^X//" >'lib/sybperl.pl' <<'END_OF_FILE'
+X;# 	@(#)sybperl.pl	1.2	11/25/91
+X
+X;# This file, when interpreted, sets the appropriate environment
+X;# variables for Sybase's use DB-Library & isql.
+X;#
+X;# usage:
+X;#	require 'sybperl.pl';
+X;#
+X;# We don't set the environment if it is already set.
+X
+Xrequire 'sybdb.ph';
+X
+X$ENV{'SYBASE'} = "/usr/local/sybase" unless $ENV{'SYBASE'};
+X$ENV{'DSQUERY'}= "SYBASE" unless $ENV{'DSQUERY'};
+X$ENV{'PATH'}="$ENV{'PATH'}:$ENV{'SYBASE'}/bin" unless $ENV{'PATH'} =~ /$ENV{'SYBASE'}/;
+X
+X
+END_OF_FILE
+  if test 464 -ne `wc -c <'lib/sybperl.pl'`; then
+    echo shar: \"'lib/sybperl.pl'\" unpacked with wrong size!
+  fi
+  # end of 'lib/sybperl.pl'
+fi
+if test -f 't/sbex.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'t/sbex.pl'\"
+else
+  echo shar: Extracting \"'t/sbex.pl'\" \(4974 characters\)
+  sed "s/^X//" >'t/sbex.pl' <<'END_OF_FILE'
+X#!../sybperl
+X
+X
+X@nul = ('not null','null');
+X@sysdb = ('master', 'model', 'tempdb');
+X
+Xrequire "../lib/sybperl.pl";
+Xrequire "../lib/sybdb.ph";
+X
+Xprint "Sybperl version $SybperlVer\n\n";
+X
+Xprint "This script tests some of sybperl's functions, and prints out\n";
+Xprint "description of the databases that are defined in your Sybase\n";
+Xprint "dataserver.\n\n";
+X
+X
+X$dbproc = &dblogin("sa");	# Login to sybase
+X&dbmsghandle ("message_handler"); # Some user defined error handlers
+X&dberrhandle ("error_handler");
+X
+X$dbproc2 = &dbopen;		# Get a second dbprocess, so that we can select from several
+X                                # chanels simultaneously. We could code things so that this
+X				# feature is unnecessary, but it's good to exercise it.
+X
+X				# First, find out what databases exist:
+X&dbcmd($dbproc, "select name from sysdatabases order by crdate\n");
+X&dbsqlexec($dbproc);
+X&dbresults($dbproc);
+X
+Xdatabase: while((@db = &dbnextrow($dbproc)))
+X{
+X    foreach $nm (@sysdb)
+X    {
+X	if($db[0] =~ /$nm/)
+X	{
+X	    print "'$db[0]' is a system database\n";
+X	    next database;
+X	}
+X    }
+X    print "Finding user tables in user database $db[0]...";
+X
+X    &dbcmd($dbproc2, "select o.name, u.name, o.id\n"); # 
+X    &dbcmd($dbproc2, "from $db[0].dbo.sysobjects o, $db[0].dbo.sysusers u\n");
+X    &dbcmd($dbproc2, "where o.type = 'U' and u.uid = o.uid\n");
+X    &dbcmd($dbproc2, "order by o.name\n");
+X
+X    &dbsqlexec($dbproc2);
+X    &dbresults($dbproc2);
+X
+X    while((@dat = &dbnextrow($dbproc2)))
+X    {
+X	$tab = join('@', @dat);	# Save the information
+X	push(@tables, $tab);	# for later use...
+X    }
+X    print "Done.\n";
+X
+X    print "Finding user defined datatypes in database $db[0]...\n";
+X
+X    &dbcmd($dbproc2, "select s.length,substring(s.name,1,30),substring(st.name,1,30)\n");
+X    &dbcmd($dbproc2, "from $db[0].dbo.systypes s, $db[0].dbo.systypes st\n");
+X    &dbcmd($dbproc2, "where  st.type = s.type\n");
+X    &dbcmd($dbproc2, "and s.usertype > 100 and st.usertype < 100 and st.usertype != 18\n");
+X    &dbsqlexec($dbproc2);
+X    &dbresults($dbproc2);
+X
+X    while((@dat = &dbnextrow($dbproc2)))
+X    {
+X	print "sp_addtype $dat[1],";
+X	if ($dat[2] =~ /char|binary/)
+X	{
+X	    print "'$dat[2]($dat[0])'";
+X	}
+X	else
+X	{
+X	    print "$dat[2]";
+X	}
+X	print "\n";
+X
+X    }
+X    print "Done.\n";
+X
+X    print "Now we find the table definition for each user table\nin database $db[0]...\n";
+X
+X    foreach $ln (@tables)		# For each line in the list
+X    {
+X	@tab = split('@',$ln);
+X
+X	&dbcmd($dbproc2, "select Column_name = c.name, \n");
+X	&dbcmd($dbproc2, "       Type = t.name, \n");
+X	&dbcmd($dbproc2, "       Length = c.length, \n");
+X	&dbcmd($dbproc2, "       Nulls = convert(bit, (c.status & 8))\n");
+X	&dbcmd($dbproc2, "from   $db[0].dbo.syscolumns c, $db[0].dbo.systypes t\n");
+X	&dbcmd($dbproc2, "where  c.id = $tab[2]\n");
+X	&dbcmd($dbproc2, "and    c.usertype *= t.usertype\n");
+X	
+X	&dbsqlexec($dbproc2);
+X	&dbresults($dbproc2);
+X
+X	print "\nTABLE $db[0].$tab[1].$tab[0]\n ("; 
+X	$first = 1;
+X	while((@field = &dbnextrow($dbproc2)))
+X	{
+X	    print ",\n" if !$first;		# add a , and a \n if not first field in table
+X        
+X	    print "\t$field[0] \t$field[1]";
+X	    print "($field[2])" if $field[1] =~ /char|bin/;
+X	    print " $nul[$field[3]]";
+X
+X	    $first = 0 if $first;
+X	}
+X	print " )\n";
+X
+X# now get the indexes...
+X#
+X	print "\nIndexes on $db[0].$tab[0].$tab[1]...\n\n";
+X	&dbuse($dbproc2, $db[0]);
+X	&dbcmd($dbproc2, "sp_helpindex '$tab[1].$tab[0]'\n");
+X
+X	&dbsqlexec($dbproc2);
+X	&dbresults($dbproc2);
+X
+X	while((@field = &dbnextrow($dbproc2)))
+X	{
+X	    print "unique " if $field[1] =~ /unique/;
+X	    print "clustered " if $field[1] =~ /^clust/;
+X	    print "index $field[0]\n";
+X	    @col = split(/,/,$field[2]);
+X	    print "on $db[0].$tab[1].$tab[0] (";
+X	    $first = 1;
+X	    foreach $ln1 (@col)
+X	    {
+X		print ", " if !$first;
+X		$first = 0;
+X		print "$ln1";
+X	    }
+X	    print ")\n";
+X	}
+X	print "\nDone.\n";
+X    }
+X    &dbuse($dbproc2, "master");
+X    @tables = ();
+X}
+X
+X&dbexit;
+X
+X
+X# Message and error handlers.
+X
+Xsub message_handler
+X{
+X    local ($db, $message, $state, $severity, $text, $server, $procedure, $line)
+X	= @_;
+X
+X    if ($severity > 0)
+X    {
+X	print ("Sybase message ", $message, ", Severity ", $severity,
+X	       ", state ", $state);
+X	print ("\nServer `", $server, "'") if defined ($server);
+X	print ("\nProcedure `", $procedure, "'") if defined ($procedure);
+X	print ("\nLine ", $line) if defined ($line);
+X	print ("\n    ", $text, "\n\n");
+X
+X# &dbstrcpy returns the command buffer.
+X
+X	local ($lineno) = 1;	# 
+X	foreach $row (split (/\n/, &dbstrcpy ($db)))
+X	{
+X	    print (sprintf ("%5d", $lineno ++), "> ", $row, "\n");
+X	}
+X    }
+X    elsif ($message == 0)
+X    {
+X	print ($text, "\n");
+X    }
+X    
+X    0;
+X}
+X
+Xsub error_handler {
+X    # Check the error code to see if we should report this.
+X    if ($_[2] != &SYBESMSG) {
+X	local ($db, $severity, $error, $os_error, $error_msg, $os_error_msg)
+X	    = @_;
+X	print ("Sybase error: ", $error_msg, "\n");
+X	print ("OS Error: ", $os_error_msg, "\n") if defined ($os_error_msg);
+X    }
+X
+X    &INT_CANCEL;
+X}
+X
+X
+X
+END_OF_FILE
+  if test 4974 -ne `wc -c <'t/sbex.pl'`; then
+    echo shar: \"'t/sbex.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 't/sbex.pl'
+  # end of 't/sbex.pl'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

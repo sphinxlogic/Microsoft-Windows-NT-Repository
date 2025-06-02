@@ -1,0 +1,1251 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject: v39i090:  ncftp - Alternative User Interface for FTP, v1.5.0, Patch04
+Message-ID: <1993Sep16.211537.5615@sparky.sterling.com>
+X-Md4-Signature: c09a7dd7dc32b62f175247d7c3ebf83e
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: NCEMRSoft
+Date: Thu, 16 Sep 1993 21:15:37 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 39, Issue 90
+Archive-name: ncftp/patch04
+Environment: UNIX, ANSI-C, !SVR4
+Patch-To: ncftp: Volume 39, Issue 53-57
+
+This is the fourth official patch to ncftp 1.5.  This patch fixes some
+significant bugs, so if you hadn't upgraded to 1.5.3 yet, I recommend
+you apply all four patches to upgrade to 1.5.4.
+
+As usual, you'll need the sources with the 3 previous patches applied
+for this to work.
+
+There are supposed to be tabs in this patch. Make sure your newsreader isn't
+converting them to spaces; if you have problems you may want to check to see
+if your 'patch' program can handle munged tabs (like patch -l, perhaps).
+
+I'll put up the whole 1.5.4 distribution up for ftp as:
+  cse.unl.edu:/pub/mgleason/ncftp154.tar.z
+Don't call during business hours -- you won't be able to download it.
+
+Changes:
+ * v1.5.4 - September 14, 1993.
+ *  Fixed bug where non-unix sites were hanging after listings.  Better
+ *  SVR4 support.  Fixed bug during an ascii transfer with debug mode
+ *  on.  Now checking the system type after a successful login, because
+ *  some sites didn't allow commands to be executed until logged in; this
+ *  prevents one (the only?) instance of the elusive short-file bug, because
+ *  files were being fetched with ascii mode on.  Now checking for half-
+ *  bright mode if boldface isn't available.  Numeric-only site abbreviations
+ *  no longer accepted, so numbers will be treated only as indices from the
+ *  open 'menu.'  You can include <term.h> for the 'tgetstr' prototype,
+ *  if you define TERMH.  termcap_get() tweaked.  Fixed bug where macros
+ *  from the previous site were still present when you opened a new site.
+ *  Fixed bug where colon-mode paths were truncated.  Setting tenex mode
+ *  automatically when you open a TOPS20 site.  Looking for <getline.h>
+ *  instead of <getline/getline.h>; have to leave <readline/readline.h>,
+ *  because that header also includes stuff like <readline/keymaps.h>.
+ *  Catman support added to Makefile.  Fixed problem with terminfo, where
+ *  $<2> etc., was not being removed from the terminal control strings.
+ */
+
+diff -c ./Makefile ../ncftp154/Makefile
+*** ./Makefile	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/Makefile	Wed Sep 15 18:53:41 1993
+***************
+*** 57,62 ****
+--- 57,63 ----
+  #LIBS = -lgetline
+  #LIBS = -lreadline -lcurses
+  #LIBS = ../lib/Rconnect.o
++ #LIBS = -lnet -lnsl -lsocket -lcurses
+  
+  
+  # If the libraries are in a non-standard directory, or you if want to use
+***************
+*** 75,93 ****
+  #
+  # For READLINE, provide a path which would find <readline/readline.h>,
+  #   so you would put the parent directory of the readline directory below.
+! #   If you had '/usr/local/readline' you would use -I/usr/local.
+! # For GETLINE, the same thing for <getline/getline.h>
+  #--------------------------------------------------------------------------
+  HDRDIRS =
+! #HDRDIRS = -I..   # I have ../getline and ../readline directories.
+! #HDRDIRS = -I.    # Maybe you have ./getline and ./readline directories.
+  
+  
+  # If you want to 'make install,' edit these variables, otherwise don't
+  # worry about it.
+  #--------------------------------------------------------------------------
+! BINDIR = /usr/local
+  MANDIR = /usr/man/man1
+  RM = rm -f
+  CP = cp
+  
+--- 76,108 ----
+  #
+  # For READLINE, provide a path which would find <readline/readline.h>,
+  #   so you would put the parent directory of the readline directory below.
+! #   If you had '/usr/local/readline/readline.h' you would use
+! #   -I/usr/local.
+! #
+! # For GETLINE, a little different. Just supply a path that would find
+! #   <getline.h>.  If you had '/usr/local/getline/getline.h' you would use
+! #   -I/usr/local/getline.
+  #--------------------------------------------------------------------------
+  HDRDIRS =
+! #HDRDIRS = -I../getline
+! #HDRDIRS = -I..
+  
+  
+  # If you want to 'make install,' edit these variables, otherwise don't
+  # worry about it.
++ # To install MAN style pages, set MANDIR to the proper location.
++ # To install CATMAN style pages, set CATMANDIR, NROFF, and PACK to the proper
++ # locations.
++ # To inhibit the installation of either, unset MANDIR/CATMANDIR.
+  #--------------------------------------------------------------------------
+! BINDIR = /usr/lbin
+  MANDIR = /usr/man/man1
++ #MANDIR = 
++ CATMANDIR = /usr/catman/LOCAL/g1
++ #CATMANDIR =
++ NROFF	= /usr/ucb/nroff
++ PACK	= pack
++ TEST	= test
+  RM = rm -f
+  CP = cp
+  
+***************
+*** 110,115 ****
+--- 125,131 ----
+  
+  NAME = ncftp
+  MAN = ncftp.1
++ CATMAN = ncftp.z
+  ALL = $(SRCS) $(HEADERS) patchlevel.h Blurb README Makefile $(MAN) \
+  v2_Note
+  
+***************
+*** 121,136 ****
+  $(NAME): $(OBJS)
+  	$(CC) $(LFLAGS) $(LIBDIRS) $(OBJS)  -o $(NAME) $(LIBS)
+  
+! install: $(NAME)
+  	$(CP) $(NAME) $(BINDIR)/$(NAME)
+  	$(CP) $(MAN)  $(MANDIR)/$(MAN)
+  
+  uninstall:
+  	$(RM) $(BINDIR)/$(NAME)
+  	$(RM) $(MANDIR)/$(MAN)
+  
+  cmds.o:
+! 	$(C_COMPILE2) cmds.c -c -o cmds.o
+  
+  .c.o:
+  	$(C_COMPILE) -c $<
+--- 137,168 ----
+  $(NAME): $(OBJS)
+  	$(CC) $(LFLAGS) $(LIBDIRS) $(OBJS)  -o $(NAME) $(LIBS)
+  
+! install: $(NAME) $(CATMAN)
+  	$(CP) $(NAME) $(BINDIR)/$(NAME)
++ 	@if $(TEST) -n '$(MANDIR)'; then \
++ 		$(MAKE) install_man ; else true ;  fi
++ 	@if $(TEST) -n '$(CATMANDIR)'; then \
++ 		$(MAKE) install_catman ; else true ;  fi
++ 
++ install_man: 
+  	$(CP) $(MAN)  $(MANDIR)/$(MAN)
+  
++ install_catman:  $(CATMAN)
++ 	$(CP) $(CATMAN)  $(CATMANDIR)/$(CATMAN)
++ 
+  uninstall:
+  	$(RM) $(BINDIR)/$(NAME)
+  	$(RM) $(MANDIR)/$(MAN)
++ 	$(RM) $(CATMANDIR)/$(CATMAN)
+  
++ $(CATMAN): $(MAN)
++ 	rm -f tmp
++ 	$(NROFF) -man -Tlp $(MAN) > tmp
++ 	$(PACK) -f tmp
++ 	mv tmp.z $(CATMAN)
++ 
+  cmds.o:
+! 	$(C_COMPILE2) cmds.c -c
+  
+  .c.o:
+  	$(C_COMPILE) -c $<
+***************
+*** 149,154 ****
+--- 181,187 ----
+  cmds.o: ftprc.h 
+  cmds.o: getpass.h 
+  cmds.o: glob.h 
++ cmds.o: open.h 
+  cmds.o: set.h 
+  cmds.o: defaults.h 
+  cmds.o: copyright.h 
+Only in ../ncftp154: NcMakefile
+diff -c ./README ../ncftp154/README
+*** ./README	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/README	Wed Sep 15 18:53:41 1993
+***************
+*** 105,111 ****
+      Hewlett-Packard HP-UX:  If you have 7.0, you'll need to find
+        a copy of <ftp.h> from somewhere (8.0 has it though). Then
+        set CFLAGS= -Aa.  You may also need to use gcc if your
+!       compiler is non-ANSI.
+  
+      SCO Unix:  Add -DSCO324 or -DSCO322 (as appropriate) to SDEFS,
+        and -lsocket to LIBS.
+--- 105,115 ----
+      Hewlett-Packard HP-UX:  If you have 7.0, you'll need to find
+        a copy of <ftp.h> from somewhere (8.0 has it though). Then
+        set CFLAGS= -Aa.  You may also need to use gcc if your
+!       compiler is non-ANSI.  Note that for HP-UX, the default
+! 	  terminal escape codes are for HP terminals, so you should
+! 	  probably link termcap/curses in so it will get the ANSI
+! 	  sequences if you're on a vt100, etc., terminal connected
+! 	  to your HP-UX machine.
+  
+      SCO Unix:  Add -DSCO324 or -DSCO322 (as appropriate) to SDEFS,
+        and -lsocket to LIBS.
+diff -c ./cmds.c ../ncftp154/cmds.c
+*** ./cmds.c	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/cmds.c	Wed Sep 15 18:53:42 1993
+***************
+*** 40,45 ****
+--- 40,46 ----
+  #include "ftprc.h"
+  #include "getpass.h"
+  #include "glob.h"
++ #include "open.h"
+  #include "set.h"
+  #include "defaults.h"
+  #include "copyright.h"
+***************
+*** 122,134 ****
+  	string lsline;
+  	long size = 0L;
+  	int n, v;
+! 	struct lslist *saved;
+  	
+  	*mod_time = 0;
+  	v = verbose; verbose = V_QUIET;
+  	is_ls = 1;
+  	buffer_only = 1;
+! 	saved = lshead;
+  	lshead = NULL;
+  	(void) recvrequest("LIST", "-", fName, "w");
+  	is_ls = 0;
+--- 123,136 ----
+  	string lsline;
+  	long size = 0L;
+  	int n, v;
+! 	struct lslist *savedh, *savedt;
+  	
+  	*mod_time = 0;
+  	v = verbose; verbose = V_QUIET;
+  	is_ls = 1;
+  	buffer_only = 1;
+! 	savedh = lshead;
+! 	savedt = lstail;
+  	lshead = NULL;
+  	(void) recvrequest("LIST", "-", fName, "w");
+  	is_ls = 0;
+***************
+*** 136,147 ****
+  	verbose = v;
+  	if (lshead == NULL) {
+  		PurgeLineBuffer();
+! 		lshead = saved;
+  		goto aa;
+  	}
+  	(void) Strncpy(lsline, lshead->string);
+  	PurgeLineBuffer();
+! 	lshead = saved;
+  
+  	if (code >= 400 && code < 500)
+  		goto aa;
+--- 138,151 ----
+  	verbose = v;
+  	if (lshead == NULL) {
+  		PurgeLineBuffer();
+! 		lshead = savedh;
+! 		lstail = savedt;
+  		goto aa;
+  	}
+  	(void) Strncpy(lsline, lshead->string);
+  	PurgeLineBuffer();
+! 	lshead = savedh;
+! 	lstail = savedt;
+  
+  	if (code >= 400 && code < 500)
+  		goto aa;
+***************
+*** 428,434 ****
+  		size_t len = strlen(remote_file);
+  
+  		/* Run compressed remote files through zcat, then the pager. */
+! 		if (strlen(remote_file) > 2 && (remote_file[len - 1] == 'Z' || remote_file[len - 1] == 'z') && remote_file[len - 2] == '.') {
+  			(void) _settype("b");
+  			(void) sprintf(local_file, "|%s ", ZCAT);
+  			argv[2] = Strncat(local_file, pager);
+--- 432,441 ----
+  		size_t len = strlen(remote_file);
+  
+  		/* Run compressed remote files through zcat, then the pager. */
+! 		if (strlen(remote_file) > (size_t)2 &&
+! 			(remote_file[len - 1] == 'Z' || remote_file[len - 1] == 'z') &&
+! 			remote_file[len - 2] == '.')
+! 		{
+  			(void) _settype("b");
+  			(void) sprintf(local_file, "|%s ", ZCAT);
+  			argv[2] = Strncat(local_file, pager);
+***************
+*** 1035,1040 ****
+--- 1042,1048 ----
+  		(void) command(str);
+  	}
+  	logged_in = 1;
++ 	CheckRemoteSystemType(0);
+  	return NOERR;
+  }	/* do_user */
+  
+***************
+*** 1699,1705 ****
+  	char	*DStrs[40];
+  	int		nDStrs = 0, i, j;
+  
+! 	(void) printf("%s\n%-30s %s\n", version, "Author:",
+  		"Mike Gleason, NCEMRSoft (mgleason@cse.unl.edu).");
+  
+  /* Now entering CPP hell... */
+--- 1707,1714 ----
+  	char	*DStrs[40];
+  	int		nDStrs = 0, i, j;
+  
+! 	(void) printf("%-30s %s\n", "NcFTP Version:", version);
+! 	(void) printf("%-30s %s\n", "Author:",
+  		"Mike Gleason, NCEMRSoft (mgleason@cse.unl.edu).");
+  
+  /* Now entering CPP hell... */
+***************
+*** 1759,1764 ****
+--- 1768,1776 ----
+  #endif
+  #ifdef SYSSELECTH
+  	DStrs[nDStrs++] = "SYSSELECTH";
++ #endif
++ #ifdef TERMH
++ 	DStrs[nDStrs++] = "TERMH";
+  #endif
+  #ifdef NO_UNISTDH 
+  	DStrs[nDStrs++] = "NO_UNISTDH";
+diff -c ./ftp.c ../ncftp154/ftp.c
+*** ./ftp.c	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/ftp.c	Wed Sep 15 18:53:43 1993
+***************
+*** 152,158 ****
+  #ifdef SOCKS
+  	while (Rconnect(s, (struct sockaddr *) &hisctladdr, (int) sizeof (hisctladdr)) < 0) {
+  #else
+! 	while (connect(s, (struct sockaddr *) &hisctladdr, (int) sizeof (hisctladdr)) < 0) {
+  #endif
+  		if (hp && hp->h_addr_list[1]) {
+  			(void) sprintf(errstr, "connect error to address %s",
+--- 152,158 ----
+  #ifdef SOCKS
+  	while (Rconnect(s, (struct sockaddr *) &hisctladdr, (int) sizeof (hisctladdr)) < 0) {
+  #else
+! 	while (Connect(s, &hisctladdr, sizeof (hisctladdr)) < 0) {
+  #endif
+  		if (hp && hp->h_addr_list[1]) {
+  			(void) sprintf(errstr, "connect error to address %s",
+***************
+*** 374,380 ****
+  
+  
+  
+! int command(char *cmd)
+  {
+  	int r;
+  	Sig_t oldintr;
+--- 374,380 ----
+  
+  
+  
+! int CommandWithFlags(char *cmd, int flags)
+  {
+  	int r;
+  	Sig_t oldintr;
+***************
+*** 407,419 ****
+  #endif /* !SCO324 */
+  	(void) fflush(cout);
+  	cpend = 1;
+! 	r = getreply(strcmp(cmd, "QUIT") == 0);
+  	if (abrtflag && oldintr != SIG_IGN && oldintr != NULL)
+  		(*oldintr)(0);
+  	(void) Signal(SIGINT, oldintr);
+  	return(r);
+  }	/* command */
+  
+  
+  
+  
+--- 407,436 ----
+  #endif /* !SCO324 */
+  	(void) fflush(cout);
+  	cpend = 1;
+! 	r = (flags == WAIT_FOR_REPLY) ? getreply(strcmp(cmd, "QUIT") == 0) : 0;
+  	if (abrtflag && oldintr != SIG_IGN && oldintr != NULL)
+  		(*oldintr)(0);
+  	(void) Signal(SIGINT, oldintr);
+  	return(r);
++ }	/* CommandWithFlags */
++ 
++ 
++ 
++ /* This stub runs 'CommandWithFlags' above, telling it to wait for
++  * reply after the command is sent.
++  */
++ int command(char *cmd)
++ {
++ 	CommandWithFlags(cmd, WAIT_FOR_REPLY);
+  }	/* command */
+  
++ /* This stub runs 'CommandWithFlags' above, telling it to NOT wait for
++  * reply after the command is sent.
++  */
++ int command_noreply(char *cmd)
++ {
++ 	CommandWithFlags(cmd, DONT_WAIT_FOR_REPLY);
++ }	/* command */
+  
+  
+  
+***************
+*** 636,642 ****
+  	if (!ansi_escapes && (cur_progress_meter == pr_philbar))
+  		cur_progress_meter = pr_dots;
+  
+! 	(void) gettimeofday(&start, (struct timezone *)0);
+  	now_sec = start.tv_sec;
+  
+  	switch (cur_progress_meter) {
+--- 653,659 ----
+  	if (!ansi_escapes && (cur_progress_meter == pr_philbar))
+  		cur_progress_meter = pr_dots;
+  
+! 	(void) Gettimeofday(&start);
+  	now_sec = start.tv_sec;
+  
+  	switch (cur_progress_meter) {
+***************
+*** 681,687 ****
+  	str32 spec;
+  
+  	next_report += xferbufsize;
+! 	(void) gettimeofday(&stop, (struct timezone *)0);
+  	if ((stop.tv_sec > now_sec) || finish_up && file_size) {
+  		switch (cur_progress_meter) {
+  			case pr_none:
+--- 698,704 ----
+  	str32 spec;
+  
+  	next_report += xferbufsize;
+! 	(void) Gettimeofday(&stop);
+  	if ((stop.tv_sec > now_sec) || finish_up && file_size) {
+  		switch (cur_progress_meter) {
+  			case pr_none:
+***************
+*** 900,926 ****
+  	if (setjmp(sendabort))
+  		goto Abort;
+  
+  	if (remote) {
+  		(void) sprintf(str, "%s %s", cmd, remote);
+! 		if (command(str) != PRELIM) {
+! 			(void) Signal(SIGINT, oldintr);
+! 			if (oldintp)
+! 				(void) Signal(SIGPIPE, oldintp);
+! 			close_file(&fin, filetype);
+! 			goto xx;
+! 		}
+! 	} else
+! 		if (command(cmd) != PRELIM) {
+! 			(void) Signal(SIGINT, oldintr);
+! 			if (oldintp)
+! 				(void) Signal(SIGPIPE, oldintp);
+! 			close_file(&fin, filetype);
+! 			goto xx;
+! 		}
+  	dout = dataconn(mode);
+  	if (dout == NULL)
+  		goto Abort;
+! 	(void) gettimeofday(&start, (struct timezone *)0);
+  	oldintp = Signal(SIGPIPE, SIG_IGN);
+  	if (do_reports = (filetype == IS_FILE && NOT_VQUIET))
+  		do_reports = start_progress(1, local);
+--- 917,967 ----
+  	if (setjmp(sendabort))
+  		goto Abort;
+  
++ #ifdef TRY_NOREPLY
+  	if (remote) {
+  		(void) sprintf(str, "%s %s", cmd, remote);
+! 		(void) command_noreply(str);
+! 	} else {
+! 		(void) command_noreply(cmd);
+! 	}
+! 
+  	dout = dataconn(mode);
+  	if (dout == NULL)
+  		goto Abort;
+! 
+! 	if(getreply(0) != PRELIM) {
+! 		(void) Signal(SIGINT, oldintr);
+!  		if (oldintp)
+!  			(void) Signal(SIGPIPE, oldintp);
+!  		close_file(&fin, filetype);
+!  		return -1;
+!  	}
+! #else
+! 	 if (remote) {
+! 		 (void) sprintf(str, "%s %s", cmd, remote);
+! 		 if (command(str) == PRELIM) {
+! 			 (void) Signal(SIGINT, oldintr);
+! 			 if (oldintp)
+! 				 (void) Signal(SIGPIPE, oldintp);
+! 			 close_file(&fin, filetype);
+! 			 goto xx;
+! 		 }
+! 	 } else {
+! 		 if (command(cmd) == PRELIM) {
+! 			 (void) Signal(SIGINT, oldintr);
+! 			 if (oldintp)
+! 				 (void) Signal(SIGPIPE, oldintp);
+! 			 close_file(&fin, filetype);
+! 			 goto xx;
+! 		 }
+! 	 }
+! 
+! 	 dout = dataconn(mode);
+! 	 if (dout == NULL)
+! 		 goto Abort;
+! #endif
+! 
+! 	(void) Gettimeofday(&start);
+  	oldintp = Signal(SIGPIPE, SIG_IGN);
+  	if (do_reports = (filetype == IS_FILE && NOT_VQUIET))
+  		do_reports = start_progress(1, local);
+***************
+*** 1121,1128 ****
+  		(void) sprintf(str, "%s %s", ftpcmd, remote);
+  	else
+  		(void) Strncpy(str, ftpcmd);
+! 		
+  	if (command(str) != PRELIM)
+  		result = -1;
+  	return (result);
+  }	/* IssueCommand */
+--- 1162,1173 ----
+  		(void) sprintf(str, "%s %s", ftpcmd, remote);
+  	else
+  		(void) Strncpy(str, ftpcmd);
+! 	
+! #ifdef TRY_NOREPLY
+! 	if (command_noreply(str) != PRELIM)
+! #else
+  	if (command(str) != PRELIM)
++ #endif
+  		result = -1;
+  	return (result);
+  }	/* IssueCommand */
+***************
+*** 1406,1411 ****
+--- 1451,1460 ----
+  
+  	oldtype = SetToAsciiForLS(is_retr, curtype);
+  
++  	/* Issue the NLST command but don't wait for the reply.  Some FTP 
++  	 * servers make the data connection before issuing the 
++  	 * "150 Opening ASCII mode data connection for /bin/ls" reply.
++  	 */
+  	if (IssueCommand(cmd, remote))
+  		goto xx;
+  	
+***************
+*** 1415,1420 ****
+--- 1464,1474 ----
+  	if ((din = dataconn("r")) == NULL)
+  		goto Abort;
+  
++ #ifdef TRY_NOREPLY
++  	/* Now get the reply we skipped above. */
++  	(void) getreply(0);
++ #endif
++ 
+  	do_reports = NOT_VQUIET && is_retr && filetype == IS_FILE;
+  	if (do_reports)
+  		do_reports = start_progress(0, local);
+***************
+*** 1444,1449 ****
+--- 1498,1504 ----
+  		(void) Signal(SIGPIPE, SIG_IGN);
+  		(void) Signal(SIGINT, SIG_IGN);
+  	}	
++ 	CloseData();
+  	(void) getreply(0);
+  	ResetOldType(oldtype);
+  
+***************
+*** 1541,1547 ****
+  #ifdef SOCKS
+  	if (Rbind(data, (struct sockaddr *)&data_addr, sizeof (data_addr), hisctladdr.sin_addr.s_addr) < 0) {
+  #else
+! 	if (bind(data, (struct sockaddr *)&data_addr, sizeof (data_addr)) < 0) {
+  #endif
+  		PERROR("initconn", "bind");
+  		goto bad;
+--- 1596,1602 ----
+  #ifdef SOCKS
+  	if (Rbind(data, (struct sockaddr *)&data_addr, sizeof (data_addr), hisctladdr.sin_addr.s_addr) < 0) {
+  #else
+! 	if (Bind(data, &data_addr, sizeof (data_addr)) < 0) {
+  #endif
+  		PERROR("initconn", "bind");
+  		goto bad;
+***************
+*** 1600,1606 ****
+  #ifdef SOCKS
+  	s = Raccept(data, (struct sockaddr *) &from, &fromlen);
+  #else
+! 	s = accept(data, (struct sockaddr *) &from, &fromlen);
+  #endif
+  	if (s < 0) {
+  		PERROR("dataconn", "accept");
+--- 1655,1661 ----
+  #ifdef SOCKS
+  	s = Raccept(data, (struct sockaddr *) &from, &fromlen);
+  #else
+! 	s = Accept(data, &from, &fromlen);
+  #endif
+  	if (s < 0) {
+  		PERROR("dataconn", "accept");
+diff -c ./ftp.h ../ncftp154/ftp.h
+*** ./ftp.h	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/ftp.h	Wed Sep 15 18:53:44 1993
+***************
+*** 20,29 ****
+--- 20,41 ----
+  #define pr_dots 4
+  #define pr_last pr_dots
+  
++ /* Values sent to CommandWithFlags() to determine whether to read a reply
++  * from the remote host after sending the command.
++  */
++ #define DONT_WAIT_FOR_REPLY 0
++ #define WAIT_FOR_REPLY 1
++ 
++ /* Expect EOF values for getreply() */
++ #define DONT_EXPECT_EOF		0
++ #define EXPECT_EOF			1
++ 
+  int hookup(char *, unsigned int);
+  int Login(char *userNamePtr, char *passWordPtr, char *accountPtr, int doInit);
+  void cmdabort SIG_PARAMS;
++ int CommandWithFlags(char *, int);
+  int command(char *);
++ int command_noreply(char *);
+  int quiet_command(char *);
+  int verbose_command(char *);
+  int getreply(int);
+diff -c ./ftprc.c ../ncftp154/ftprc.c
+*** ./ftprc.c	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/ftprc.c	Wed Sep 15 18:53:44 1993
+***************
+*** 383,400 ****
+  {
+  	register siteptr		s, s2;
+  	register recentsite		*r;
+! 	char					*ndir, *nhost;
+! 	int						x, i;
+  
+  	ndir = nhost = NULL;
+  	x = 0;
+  
+! 	/* see if 'host' is in our list of favorite sites (in NETRC). */
+! 	if ((s = FindNetrcSite(host)) != NULL) {
+! 		nhost = s->name;
+! 	} else if ((r = FindRecentSite(host)) != NULL) {
+! 		nhost = r->name;
+! 		ndir = r->dir;
+  	} else if (sscanf(host[0]=='#' ? host+1 : host, "%d", &x) != 1) {
+  		x = 0;
+  	}
+--- 383,416 ----
+  {
+  	register siteptr		s, s2;
+  	register recentsite		*r;
+! 	char					*ndir, *nhost, *cp;
+! 	int						x, i, isAllDigits;
+  
+  	ndir = nhost = NULL;
+  	x = 0;
+  
+! 	/* Don't allow just numbers as abbreviations;  "open 2" could be
+! 	 * confused between site numbers in the open 'menu,' like
+! 	 * "2. unlinfo.unl.edu" and IP numbers "128.93.2.1" or even numbers
+! 	 * in the site name like "simtel20.army.mil."
+! 	 */
+! 	
+! 	for (isAllDigits = 1, cp = host; *cp != 0; cp++) {
+! 		if (!isdigit(*cp)) {
+! 			isAllDigits = 0;
+! 			break;
+! 		}
+! 	}
+! 
+! 	if (!isAllDigits) {
+! 		/* Try matching the abbreviation, since it isn't just a number. */
+! 		/* see if 'host' is in our list of favorite sites (in NETRC). */
+! 		if ((s = FindNetrcSite(host)) != NULL) {
+! 			nhost = s->name;
+! 		} else if ((r = FindRecentSite(host)) != NULL) {
+! 			nhost = r->name;
+! 			ndir = r->dir;
+! 		}
+  	} else if (sscanf(host[0]=='#' ? host+1 : host, "%d", &x) != 1) {
+  		x = 0;
+  	}
+diff -c ./main.c ../ncftp154/main.c
+*** ./main.c	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/main.c	Wed Sep 15 18:53:46 1993
+***************
+*** 7,14 ****
+  
+  #define _main_c_
+  
+! #define FTP_VERSION \
+! "NcFTP 1.5.3 (September 2, 1993) by Mike Gleason, NCEMRSoft."
+  
+  /* #define BETA 1 */ /* If defined, it prints a little warning message. */
+  
+--- 7,13 ----
+  
+  #define _main_c_
+  
+! #define FTP_VERSION "1.5.4 (September 14, 1993)"
+  
+  /* #define BETA 1 */ /* If defined, it prints a little warning message. */
+  
+***************
+*** 38,43 ****
+--- 37,45 ----
+  #ifdef CURSES
+  #	undef HZ		/* Collides with HaZeltine ! */
+  #	include <curses.h>
++ #	ifdef TERMH
++ #		include <term.h>
++ #	endif
+  #endif	/* CURSES */
+  
+  #include "util.h"
+***************
+*** 336,346 ****
+  #endif
+  
+  #ifndef CURSES
+! 		(void) printf("%s%s%s%s\n", 
+  				tcap_boldface, FTP_VERSION, BETA_MSG, tcap_normal);
+  #else
+  		string vis;
+! 		(void) sprintf(vis, "%s%s%s%s\n", 
+  				tcap_boldface, FTP_VERSION, BETA_MSG, tcap_normal);
+  		tcap_put(vis);
+  #endif /* !CURSES */
+--- 338,348 ----
+  #endif
+  
+  #ifndef CURSES
+! 		(void) printf("%sNcFTP %s by Mike Gleason, NCEMRSoft.%s%s\n", 
+  				tcap_boldface, FTP_VERSION, BETA_MSG, tcap_normal);
+  #else
+  		string vis;
+! 		(void) sprintf(vis, "%sNcFTP %s by Mike Gleason, NCEMRSoft.%s%s\n", 
+  				tcap_boldface, FTP_VERSION, BETA_MSG, tcap_normal);
+  		tcap_put(vis);
+  #endif /* !CURSES */
+***************
+*** 976,1001 ****
+  
+  
+  #ifdef CURSES
+! void termcap_get(char **dest, char *attr)
+  {
+  	static char area[1024];
+  	static char *s = area, *t;
+! 	char buf[64];
+! 	int foo;
+  
+! 	t = tgetstr(attr, &s);
+! 	if (t)
+  		(void) Strncpy(buf, t);
+! 	else
+! 		buf[0] = '\0';
+  	if (buf[0]) {
+!  		for (foo = 0; (buf[foo] <= '9') && (buf[foo] >= '0'); foo++); 
+!  		if ((*dest = (char *)malloc(strlen(&(buf[foo])) + 1)) == NULL) 
+   			*dest = "";
+!  		else 
+!  			(void) strcpy(*dest, &(buf[foo]));
+!  	} else 
+   		*dest = "";
+  }	/* termcap_get */
+  
+  
+--- 978,1010 ----
+  
+  
+  #ifdef CURSES
+! int termcap_get(char **dest, char *attr)
+  {
+  	static char area[1024];
+  	static char *s = area, *t;
+! 	char buf[64], *cp;
+! 	int i, result = -1;
+  
+! 	buf[0] = 0;
+! 	if ((t = tgetstr(attr, &s)) != NULL)
+  		(void) Strncpy(buf, t);
+! 
+  	if (buf[0]) {
+!  		for (i = 0; (buf[i] <= '9') && (buf[i] >= '0'); )
+! 			++i; 
+!  		if ((*dest = (char *)malloc(strlen(&(buf[i])) + 1)) == NULL) {
+   			*dest = "";
+!  		} else {
+!  			(void) strcpy(*dest, &(buf[i]));
+! 			/* Get rid of the terminal delays, like "$<2>". */
+! 			if ((cp = strstr(*dest, "$<")) != NULL)
+! 				*cp = 0;
+! 			result = 0;
+! 		}
+!  	} else { 
+   		*dest = "";
++ 	}
++ 	return (result);
+  }	/* termcap_get */
+  
+  
+***************
+*** 1013,1022 ****
+  	if (tgetent(tcbuf,term) != 1) {
+  		(void) fprintf(stderr,"Can't get termcap entry for terminal [%s]\n", term);
+  	} else {
+! 		termcap_get(&tcap_normal, "me");
+! 		termcap_get(&tcap_boldface, "md");
+! 		termcap_get(&tcap_underline, "us");
+! 		termcap_get(&tcap_reverse, "so");
+  		tcl_normal = strlen(tcap_normal);
+  		tcl_bold = strlen(tcap_boldface);
+  		tcl_uline = strlen(tcap_underline);
+--- 1022,1034 ----
+  	if (tgetent(tcbuf,term) != 1) {
+  		(void) fprintf(stderr,"Can't get termcap entry for terminal [%s]\n", term);
+  	} else {
+! 		(void) termcap_get(&tcap_normal, "me");
+! 		if (termcap_get(&tcap_boldface, "md") < 0) {
+! 			/* Dim-mode is better than nothing... */
+! 			(void) termcap_get(&tcap_normal, "mh");
+! 		}
+! 		(void) termcap_get(&tcap_underline, "us");
+! 		(void) termcap_get(&tcap_reverse, "so");
+  		tcl_normal = strlen(tcap_normal);
+  		tcl_bold = strlen(tcap_boldface);
+  		tcl_uline = strlen(tcap_underline);
+diff -c ./main.h ../ncftp154/main.h
+*** ./main.h	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/main.h	Wed Sep 15 18:53:46 1993
+***************
+*** 31,45 ****
+  int CheckNewMail(void);
+  
+  #ifdef CURSES
+! void tcap_put(char *cap);
+! void termcap_init(void);
+! void termcap_get(char **dest, char *attr);
+! #ifdef NO_CONST
+! extern char *tgetstr(char *, char **);
+! #else
+! extern char *tgetstr(const char *, char **);
+! #endif
+  #endif	/* CURSES */
+  /* Should be in a 'tips.h,' but... */
+  void PrintTip(void);
+  
+--- 31,48 ----
+  int CheckNewMail(void);
+  
+  #ifdef CURSES
+! 	void tcap_put(char *cap);
+! 	void termcap_init(void);
+! 	int termcap_get(char **dest, char *attr);
+! #	ifndef TERMH /* <term.h> would take care of this. */
+! #		ifdef NO_CONST
+! 			extern char *tgetstr(char *, char **);
+! #		else
+! 			extern char *tgetstr(const char *, char **);
+! #		endif
+! #	endif	/* TERMH */
+  #endif	/* CURSES */
++ 
+  /* Should be in a 'tips.h,' but... */
+  void PrintTip(void);
+  
+diff -c ./open.c ../ncftp154/open.c
+*** ./open.c	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/open.c	Wed Sep 15 18:53:47 1993
+***************
+*** 45,51 ****
+  
+  /* open.c externs */
+  extern char					*reply_string, *line, *Optarg, *margv[];
+! extern int					Optind, margc, verbose;
+  extern long					eventnumber;
+  extern struct servent		serv;
+  extern FILE					*cout;
+--- 45,51 ----
+  
+  /* open.c externs */
+  extern char					*reply_string, *line, *Optarg, *margv[];
+! extern int					Optind, margc, verbose, macnum;
+  extern long					eventnumber;
+  extern struct servent		serv;
+  extern FILE					*cout;
+***************
+*** 115,120 ****
+--- 115,121 ----
+  int GetOpenOptions(int argc, char **argv, OpenOptions *openopt)
+  {
+  	int					opt;
++ 	char				*cp;
+  
+  	/* First setup the openopt variables. */
+  	InitOpenOptions(openopt);
+***************
+*** 225,231 ****
+  		if (openopt->hostname[0] == 0)
+  			goto usage;
+  	} else {
+! 		/* The user gave us a host to open.  */
+  		(void) Strncpy(openopt->hostname, argv[Optind]);
+  	}
+  	return NOERR;
+--- 226,240 ----
+  		if (openopt->hostname[0] == 0)
+  			goto usage;
+  	} else {
+! 		/* The user gave us a host to open.
+! 		 *
+! 		 * First, check to see if they gave us a colon-mode path
+! 		 * along with the hostname.
+! 		 */
+! 		if ((cp = index(argv[Optind], ':')) != NULL) {
+! 			*cp++ = 0;
+! 			(void) Strncpy(openopt->colonmodepath, cp);
+! 		}	
+  		(void) Strncpy(openopt->hostname, argv[Optind]);
+  	}
+  	return NOERR;
+***************
+*** 242,249 ****
+   */
+  int CheckForColonMode(OpenOptions *openopt, int *login_verbosity)
+  {
+- 	char *path;
+- 
+  	/* Usually the user doesn't supply hostname in colon-mode format,
+  	 * and wants to interactively browse the remote host, so set the
+  	 * login_verbosity to whatever it is set to now.
+--- 251,256 ----
+***************
+*** 250,259 ****
+  	 */
+  	*login_verbosity = verbose;
+  
+! 	if ((path = index(openopt->hostname, ':')) != NULL) {
+! 		*path++ = 0;
+! 		(void) Strncpy(openopt->colonmodepath, path);
+! 		
+  		/* But if the user does use colon-mode, we want to do our business
+  		 * and leave, without all the login messages, etc., so set
+  		 * login_verbosity to quiet so we won't print anything until
+--- 257,263 ----
+  	 */
+  	*login_verbosity = verbose;
+  
+! 	if (openopt->colonmodepath[0] != 0) {
+  		/* But if the user does use colon-mode, we want to do our business
+  		 * and leave, without all the login messages, etc., so set
+  		 * login_verbosity to quiet so we won't print anything until
+***************
+*** 296,302 ****
+  
+  
+  
+! void CheckRemoteSystemType(OpenOptions *openopt)
+  {
+  	int tmpverbose;
+  	char *cp, c;
+--- 300,306 ----
+  
+  
+  
+! void CheckRemoteSystemType(int force_binary)
+  {
+  	int tmpverbose;
+  	char *cp, c;
+***************
+*** 328,346 ****
+  				*cp = c;
+  		}
+  		remote_is_unix = !strncmp(reply_string + 4, "UNIX", (size_t) 4);
+- 		if (!remote_is_unix) 
+- 			(void) printf("\n\
+- WARNING:  Due to a bug in the program, ncftp may hang while connected to\n\
+- a non-UNIX system.  You probably should use the regular 'ftp' program\n\
+- for those sites until this is fixed.\n\n");
+  	}
+  
+  	/* Set to binary mode if any of the following are true:
+  	 * (a) The user has auto-binary set;
+! 	 * (b) The user is using colon-mode;
+  	 * (c) The reply-string from SYST said it was UNIX with 8-bit chars.
+  	 */
+! 	if (auto_binary || openopt->colonmodepath[0]
+  		|| !strncmp(reply_string, "215 UNIX Type: L8", (size_t) 17)) {
+  		(void) _settype("binary");
+  		if (tmpverbose > V_TERSE)
+--- 332,345 ----
+  				*cp = c;
+  		}
+  		remote_is_unix = !strncmp(reply_string + 4, "UNIX", (size_t) 4);
+  	}
+  
+  	/* Set to binary mode if any of the following are true:
+  	 * (a) The user has auto-binary set;
+! 	 * (b) The user is using colon-mode (force_binary);
+  	 * (c) The reply-string from SYST said it was UNIX with 8-bit chars.
+  	 */
+! 	if (auto_binary || force_binary
+  		|| !strncmp(reply_string, "215 UNIX Type: L8", (size_t) 17)) {
+  		(void) _settype("binary");
+  		if (tmpverbose > V_TERSE)
+***************
+*** 350,357 ****
+  	/* Print a warning for that (extremely) rare Tenex machine. */
+  	if (tmpverbose >= V_ERRS && 
+  	    !strncmp(reply_string, "215 TOPS20", (size_t) 10)) {
+! 		(void) printf(
+! "Remember to set tenex mode when transfering _binary_ files from this machine.\n");
+  	}
+  	verbose = tmpverbose;
+  }	/* CheckRemoteSystemType */
+--- 349,356 ----
+  	/* Print a warning for that (extremely) rare Tenex machine. */
+  	if (tmpverbose >= V_ERRS && 
+  	    !strncmp(reply_string, "215 TOPS20", (size_t) 10)) {
+! 		(void) _settype("tenex");
+! 		(void) printf("Using tenex mode to transfer files.\n");
+  	}
+  	verbose = tmpverbose;
+  }	/* CheckRemoteSystemType */
+***************
+*** 441,446 ****
+--- 440,447 ----
+  	char *user, *pass, *acct;	
+  	int					login_verbosity;
+  
++ 	macnum = 0;	 /* Reset macros. */
++ 
+  	/* If the hostname supplied is in the form host.name.str:/path/file,
+  	 * then colon mode was used, and we need to fix the hostname to be
+  	 * just the hostname, copy the /path/file to colonmode path, and init
+***************
+*** 521,531 ****
+  			}
+  #endif
+  
+- 			/* We need to check for unix and see if we should set binary
+- 			 * mode automatically.
+- 			 */
+- 			CheckRemoteSystemType(openopt);
+- 
+  #ifdef GATEWAY
+  			if (!*gateway) {
+  #endif
+--- 522,527 ----
+***************
+*** 542,547 ****
+--- 538,548 ----
+  #ifdef GATEWAY
+  			}
+  #endif
++ 
++ 			/* We need to check for unix and see if we should set binary
++ 			 * mode automatically.
++ 			 */
++ 			CheckRemoteSystemType(openopt->colonmodepath[0] != (char)0);
+  
+  			if (openopt->colonmodepath[0]) {
+  				ColonMode(openopt);
+diff -c ./open.h ../ncftp154/open.h
+*** ./open.h	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/open.h	Wed Sep 15 18:53:47 1993
+***************
+*** 37,43 ****
+  int GetOpenOptions(int argc, char **argv, OpenOptions *openopt);
+  int CheckForColonMode(OpenOptions *openopt, int *login_verbosity);
+  int HookupToRemote(OpenOptions *openopt);
+! void CheckRemoteSystemType(OpenOptions *openopt);
+  void ColonMode(OpenOptions *openopt);
+  int Open(OpenOptions *openopt);
+  int cmdOpen(int argc, char **argv);
+--- 37,43 ----
+  int GetOpenOptions(int argc, char **argv, OpenOptions *openopt);
+  int CheckForColonMode(OpenOptions *openopt, int *login_verbosity);
+  int HookupToRemote(OpenOptions *openopt);
+! void CheckRemoteSystemType(int);
+  void ColonMode(OpenOptions *openopt);
+  int Open(OpenOptions *openopt);
+  int cmdOpen(int argc, char **argv);
+diff -c ./patchlevel.h ../ncftp154/patchlevel.h
+*** ./patchlevel.h	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/patchlevel.h	Wed Sep 15 18:53:48 1993
+***************
+*** 125,129 ****
+   *  sitenames weren't expanded.  Fixed a tip.  Using <readline/readline.h>
+   *  and <getline/getline.h> instead of <readline.h> etc.  Fixed daylight
+   *  savings time bug.  LocalPath checks $HOME now.
+   */
+- 
+--- 125,147 ----
+   *  sitenames weren't expanded.  Fixed a tip.  Using <readline/readline.h>
+   *  and <getline/getline.h> instead of <readline.h> etc.  Fixed daylight
+   *  savings time bug.  LocalPath checks $HOME now.
++  *
++  * v1.5.4 - September 14, 1993.
++  *  Fixed bug where non-unix sites were hanging after listings.  Better
++  *  SVR4 support.  Fixed bug during an ascii transfer with debug mode
++  *  on.  Now checking the system type after a successful login, because
++  *  some sites didn't allow commands to be executed until logged in; this
++  *  prevents one (the only?) instance of the elusive short-file bug, because
++  *  files were being fetched with ascii mode on.  Now checking for half-
++  *  bright mode if boldface isn't available.  Numeric-only site abbreviations
++  *  no longer accepted, so numbers will be treated only as indices from the
++  *  open 'menu.'  You can include <term.h> for the 'tgetstr' prototype,
++  *  if you define TERMH.  termcap_get() tweaked.  Fixed bug where macros
++  *  from the previous site were still present when you opened a new site.
++  *  Fixed bug where colon-mode paths were truncated.  Setting tenex mode
++  *  automatically when you open a TOPS20 site.  Looking for <getline.h>
++  *  instead of <getline/getline.h>; have to leave <readline/readline.h>,
++  *  because that header also includes stuff like <readline/keymaps.h>.
++  *  Catman support added to Makefile.  Fixed problem with terminfo, where
++  *  $<2> etc., was not being removed from the terminal control strings.
+   */
+diff -c ./sys.h ../ncftp154/sys.h
+*** ./sys.h	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/sys.h	Wed Sep 15 18:53:48 1993
+***************
+*** 7,12 ****
+--- 7,28 ----
+   *  $Date: 93/06/21 06:42:11 $
+   */
+  
++ #ifdef SVR4
++ #	define System "System V.4"
++ #	ifndef SYSV
++ #		define SYSV 1
++ #	endif
++ #	define VOID void
++ #	ifndef HERROR
++ #		define HERROR 1
++ #	endif
++ #	ifdef TERMH
++ #		define TERMH 1
++ #	endif
++ #	define Gettimeofday gettimeofday
++ #	include <sys/types.h>
++ #endif  /* SVR4 */
++ 
+  #ifdef __sun
+  #	ifndef sun
+  #		define sun 1
+***************
+*** 49,54 ****
+--- 65,73 ----
+  #	ifndef STRICT_PROTOS
+  #		define STRICT_PROTOS 1
+  #	endif
++ #	ifndef TERMIOS
++ #		define TERMIOS 1
++ #	endif
+  #endif /* sgi */
+  
+  #ifdef _AIX
+***************
+*** 283,288 ****
+--- 302,323 ----
+  #ifndef Select
+  #	define Select(a,b,c,d,e) select((a), (b), (c), (d), (e))
+  #endif
++ 
++ #ifndef Connect
++ #ifndef SVR4
++ #	define Connect(a,b,c) (connect((a), (struct sockaddr *)(b), (int)(c)))
++ #	define Bind(a,b,c) (bind((a), (struct sockaddr *)(b), (int)(c)))
++ #	define Accept(a,b,c) (accept((a), (struct sockaddr *)(b), (int *)(c)))
++ #else  /* SVR4 */
++ #	define Connect(a,b,c) (connect((a), (addr_t)(b), (int)(c)))
++ #	define Bind(a,b,c) (bind((a), (caddr_t)(b), (int)(c)))
++ #	define Accept(a,b,c) (accept((a), (caddr_t)(b), (int *)(c)))
++ #endif	/* SVR4 */
++ #endif	/* Connect */
++ 
++ #ifndef Gettimeofday
++ #	define Gettimeofday(a) gettimeofday(a, (struct timezone *)0)
++ #endif /* Gettimeofday */
+  
+  #ifdef GETPASS
+  #	define Getpass getpass
+diff -c ./util.c ../ncftp154/util.c
+*** ./util.c	Thu Sep  2 01:23:01 1993
+--- ../ncftp154/util.c	Wed Sep 15 18:53:49 1993
+***************
+*** 27,33 ****
+  #endif /* READLINE */
+  
+  #ifdef GETLINE
+! #	include <getline/getline.h>
+  #endif
+  
+  #include "util.h"
+--- 27,33 ----
+  #endif /* READLINE */
+  
+  #ifdef GETLINE
+! #	include <getline.h>
+  #endif
+  
+  #include "util.h"
+--
+--mg                                                      mgleason@cse.unl.edu
+
+exit 0 # Just in case...

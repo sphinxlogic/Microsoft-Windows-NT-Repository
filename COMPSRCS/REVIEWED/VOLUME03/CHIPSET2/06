@@ -1,0 +1,836 @@
+From decwrl!athertn!sander.cupertino.ca.us!paul@cs.purdue.edu Wed Jan  6 13:53:29 EST 1993
+Submit chipset-2 06/10 
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 10)."
+# Contents:  src/btree/btinsert.c src/btree/btutil.c
+# Wrapped by paul@sander on Sun Nov 22 15:41:52 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f src/btree/btinsert.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btinsert.c\"
+else
+echo shar: Extracting \"src/btree/btinsert.c\" \(10881 characters\)
+sed "s/^X//" >src/btree/btinsert.c <<'END_OF_src/btree/btinsert.c'
+X/*********************************************************************
+X * 
+X * btinsert.c -- This file contains functions needed to insert new
+X *               items into an in-memory B-tree.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X *********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X
+X/*********************************************************************
+X *                                                                   *
+X * bt_createNode -- This function allocates a node on the heap, and  *
+X *                  returns a pointer to it to the caller.  If an    *
+X *                  error occurs, any storage allocated is freed,    *
+X *                  and NULL is returned.                            *
+X *                                                                   *
+X *********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic BTNODE *bt_createNode(BTREE tree, int children)
+X#else
+Xstatic BTNODE *bt_createNode(tree,children)
+XBTREE	tree;
+Xint	children;
+X#endif
+X{
+X	BTNODE	*new;
+X
+X	new = (BTNODE*) bt_malloc(sizeof(BTNODE));
+X	if (new != NULL)
+X	{
+X		new->keys = (void **) bt_malloc((tree->order-1)*sizeof(void*));
+X		if (new->keys != NULL)
+X		{
+X			new->data = (void **) bt_malloc(
+X			                         (tree->order-1)*sizeof(void*));
+X			if (new->data != NULL)
+X			{
+X				COVER("btinsert.c",1);
+X				if (children)
+X				{
+X					COVER("btinsert.c",2);
+X					new->children = (BTNODE**) bt_malloc(
+X					      (tree->order) * sizeof(BTNODE*));
+X					if (new->children != NULL)
+X					{
+X						return new;
+X					}
+X				}
+X				else
+X				{
+X					COVER("btinsert.c",3);
+X					new->children = NULL;
+X					return new;
+X				}
+X				bt_free(new->data);
+X			}
+X			bt_free(new->keys);
+X		}
+X		bt_free(new);
+X	}
+X	return NULL;
+X}
+X
+X/*********************************************************************
+X *
+X * bt_insertKey -- This function inserts a key into a specified node at
+X *                 a specified location in its key array.  0 is returned
+X *                 if the node is already full, 1 otherwise.
+X *
+X *********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic int bt_insertKey(BTNODE *node, void *key, int n, int order, void *data)
+X#else
+Xstatic int bt_insertKey(node,key,n,order,data)
+XBTNODE	*node;
+Xvoid	*key;
+Xint	n;
+Xint	order;
+Xvoid	*data;
+X#endif
+X{
+X	int	i;
+X
+X	/* Return FALSE if insertion is not possible */
+X	if (node->nkeys >= order - 1)
+X	{
+X		COVER("btinsert.c",4);
+X		return 0;
+X	}
+X
+X	/* Shift keys to make room, then insert new key */
+X	COVER("btinsert.c",5);
+X	for (i = node->nkeys - 1; i >= n; i--)
+X	{
+X		COVER("btinsert.c",6);
+X		node->keys[i+1] = node->keys[i];
+X		node->data[i+1] = node->data[i];
+X	}
+X	node->keys[n] = key;
+X	node->data[n] = data;
+X	node->nkeys++;
+X	node->tsize++;
+X	return 1;
+X}
+X
+X/*********************************************************************
+X *
+X * bt_burst -- Given a node and an index into its key and child arrays,
+X *             this function splits the specified child node in half,
+X *             elevating the key at the child's split point into this
+X *             specified node.  0 is returned if the child array index
+X *             is out of range, or the node is full, or malloc fails;
+X *             1 is returned otherwise.
+X *
+X *********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic int bt_burst(BTREE tree, BTNODE *node, int n)
+X#else
+Xstatic int bt_burst(tree,node,n)
+XBTREE	tree;
+XBTNODE	*node;
+Xint	n;
+X#endif
+X{
+X	BTNODE	*new;
+X	int	i;
+X	int	m;
+X	BTNODE	*left;
+X	int	lkeys;
+X
+X	/* Test parameters */
+X	if ((node->nkeys > 0) && (node->nkeys >= tree->order - 1))
+X	{
+X		COVER("btinsert.c",7);
+X		return 0;
+X	}
+X	if (n < 0)
+X	{
+X		/* This should never happen */
+X		COVER("btinsert.c",8);
+X		return 0;
+X	}
+X
+X	/* Calculate needed partial results */
+X	COVER("btinsert.c",9);
+X	m = tree->order / 2;
+X	left = node->children[n];
+X	lkeys = left->nkeys;
+X
+X	/* Create a new node */
+X	new = bt_createNode(tree,(left->children != NULL));
+X	if (new != NULL)
+X	{
+X		new->parent = node;
+X		new->tsize = lkeys - m;
+X
+X		/* Split child array */
+X		if (left->children != NULL)
+X		{
+X			COVER("btinsert.c",10);
+X			for (i = 0; i <= lkeys - m; i++)
+X			{
+X				COVER("btinsert.c",11);
+X				new->children[i] = left->children[m + i];
+X				new->children[i]->parent = new;
+X				new->tsize += new->children[i]->tsize;
+X			}
+X		}
+X
+X		/* Split keys */
+X		COVER("btinsert.c",12);
+X		for (i = 0; i < lkeys - m; i++)
+X		{
+X			COVER("btinsert.c",13);
+X			new->keys[i] = left->keys[m + i];
+X			new->data[i] = left->data[m + i];
+X		}
+X		COVER("btinsert.c",14);
+X		new->nkeys = lkeys - m;
+X		left->nkeys = m - 1;
+X		left->tsize = left->tsize - new->tsize - 1;
+X
+X		/* Elevate the key where the split was made */
+X		for (i = node->nkeys; i > n; i--)
+X		{
+X			COVER("btinsert.c",15);
+X			node->keys[i] = node->keys[i-1];
+X			node->data[i] = node->data[i-1];
+X			node->children[i+1] = node->children[i];
+X		}
+X		COVER("btinsert.c",16);
+X		node->children[n+1] = new;
+X		node->keys[n] = left->keys[m - 1];
+X		node->data[n] = left->data[m - 1];
+X		node->nkeys++;
+X		tree->capacity += tree->order - 1;
+X		return 1;
+X	}
+X
+X	/* Failed to allocate new node, return FALSE */
+X	return 0;
+X}
+X
+X/*********************************************************************
+X *
+X * bt_rebalance -- This function tries to rebalance the two adjacent
+X *                 nodes.  This is needed when an insertion is attempted
+X *                 into a node that is already full but its neighbors are
+X *                 not, or when a deletion is made and the node is less
+X *                 than half-full.
+X *
+X *********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic bt_rebalance(BTNODE *node, int n, int order)
+X#else
+Xstatic bt_rebalance(node,n,order)
+XBTNODE	*node;
+Xint	n;
+Xint	order;
+X#endif
+X{
+X	int	res;
+X
+X	COVER("btinsert.c",17);
+X	if (node->children[n]->nkeys < (order-1)/2)
+X	{
+X		COVER("btinsert.c",18);
+X		res = bt_rotateLeft(node,n,order);
+X	}
+X	else
+X	if ((n < node->nkeys) && (node->children[n+1]->nkeys < (order-1)/2))
+X	{
+X		/*
+X		 * It turns out that the only time a tree needs to be
+X		 * rebalanced by this function is after a burst.  When that
+X		 * happens, the left child may have one less key than the
+X		 * right.  If the key is inserted on the right, the left
+X		 * rotation rebalances.  Otherwise, the key is inserted on
+X		 * the left, and tree becomes balanced.  Therefore, this
+X		 * branch should never be taken.
+X		 */
+X		COVER("btinsert.c",19);
+X		res = bt_rotateRight(node,n,order);
+X	}
+X	COVER("btinsert.c",20);
+X	return;
+X}
+X
+X/*********************************************************************
+X *
+X * bt_insertNode -- This function performs a recursive-descent of a b-tree,
+X *                  inserting a new key in a leaf node.  If the leaf is
+X *                  full, the tree is reorganized to make room.  -1 is
+X *                  returned if the insert fails due to a duplicate key.
+X *                  0 is returned if the insert fails for some other
+X *                  reason.  1 is returned if successful.
+X *
+X *********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic int bt_insertNode(BTREE tree, BTNODE *node, void *key, void *data)
+X#else
+Xstatic int bt_insertNode(tree,node,key,data)
+XBTREE	tree;
+XBTNODE	*node;
+Xvoid	*key;
+Xvoid	*data;
+X#endif
+X{
+X	int	i;
+X	int	res;
+X
+X	/* Locate proper place for new key in node */
+X	i = bt_searchNode(node,key,tree->comp,&res);
+X	if (res)
+X	{
+X		COVER("btinsert.c",21);
+X		return -1;
+X	}
+X
+X	/* If no children, insert key in this node */
+X	COVER("btinsert.c",22);
+X	if (node->children == NULL)
+X	{
+X		COVER("btinsert.c",23);
+X		res = bt_insertKey(node,key,i,tree->order,data);
+X		return res;
+X	}
+X
+X	/* Try to insert the new key in a child node */
+X	res = bt_insertNode(tree,node->children[i],key,data);
+X
+X	/* Child is full, reorganize */
+X	COVER("btinsert.c",24);
+X	if (res == 0)
+X	{
+X		COVER("btinsert.c",25);
+X		/* Try rotating right */
+X		if ((res == 0) && (i < node->nkeys) &&
+X		    (node->children[i+1]->nkeys < tree->order - 2))
+X		{
+X			COVER("btinsert.c",26);
+X			res = bt_rotateRight(node,i,tree->order);
+X		}
+X
+X		/* Try rotating left */
+X		COVER("btinsert.c",27);
+X		if ((res == 0) && (i > 0) &&
+X		    (node->children[i-1]->nkeys < tree->order - 2))
+X		{
+X			COVER("btinsert.c",28);
+X			res = bt_rotateLeft(node,i - 1,tree->order);
+X		}
+X
+X		/* Can't rotate, try bursting */
+X		COVER("btinsert.c",29);
+X		if (res == 0)
+X		{
+X			COVER("btinsert.c",30);
+X			res = bt_burst(tree,node,i);
+X		}
+X		COVER("btinsert.c",31);
+X		if (res > 0)
+X		{
+X			COVER("btinsert.c",32);
+X			res = bt_insertNode(tree,node,key,data);
+X			if (res > 0)
+X			{
+X				COVER("btinsert.c",33);
+X				bt_rebalance(node,i,tree->order);
+X			}
+X		}
+X	}
+X	else if (res > 0)
+X	{
+X		COVER("btinsert.c",34);
+X		node->tsize++;
+X	}
+X	COVER("btinsert.c",35);
+X	return res;
+X}
+X
+X/*********************************************************************
+X *
+X * bt_insert -- This function inserts a new key into a b-tree.  -1 is
+X *              returned if the insert fails due to a duplicate key.
+X *              0 is returned if the insert fails for some other
+X *              reason.  1 is returned if successful.
+X *
+X *********************************************************************/
+X
+X#ifdef __STDC__
+Xint bt_insert(void *ptree, void *key, void *data)
+X#else
+Xint bt_insert(ptree,key,data)
+Xvoid	*ptree;
+Xvoid	*key;
+Xvoid	*data;
+X#endif
+X{
+X	int	res;
+X	BTNODE	*new;
+X	BTNODE	*node;
+X	BTREE	tree;
+X
+X	if (ptree == NULL)
+X	{
+X		COVER("btinsert.c",36);
+X		return 0;
+X	}
+X
+X	if (key == NULL)
+X	{
+X		COVER("btinsert.c",37);
+X		return 0;
+X	}
+X
+X	tree = (BTREE) ptree;
+X
+X	/* Begin at root */
+X	node = tree->root;
+X
+X	/* If root is empty, insert first key */
+X	COVER("btinsert.c",38);
+X	if (node->nkeys == 0)
+X	{
+X		COVER("btinsert.c",39);
+X		node->keys[0] = key;
+X		node->data[0] = data;
+X		node->nkeys = 1;
+X		node->tsize = 1;
+X		tree->currNode = NULL;
+X		return 1;
+X	}
+X
+X	/* Try inserting new key */
+X	COVER("btinsert.c",40);
+X	res = bt_insertNode(tree,node,key,data);
+X
+X	/* If 0 return, burst the root, rebalance, and try again */
+X	if (res == 0)
+X	{
+X		COVER("btinsert.c",41);
+X		new = bt_createNode(tree,1);
+X		if (new != NULL)
+X		{
+X			new->nkeys = 0;
+X			new->tsize = node->tsize;
+X			new->children[0] = node;
+X			new->parent = NULL;
+X			node->parent = new;
+X			tree->root = new;
+X			tree->capacity += tree->order - 1;
+X			res = bt_burst(tree,new,0);
+X			if (res > 0)
+X			{
+X				COVER("btinsert.c",42);
+X				res = bt_insertNode(tree,new,key,data);
+X			}
+X			COVER("btinsert.c",43);
+X			if (res > 0)
+X			{
+X				COVER("btinsert.c",44);
+X				bt_rebalance(new,0,tree->order);
+X				tree->currNode = NULL;
+X			}
+X			COVER("btinsert.c",45);
+X			return res;
+X		}
+X	}
+X	COVER("btinsert.c",46);
+X	if (res > 0)
+X	{
+X		COVER("btinsert.c",47);
+X		tree->currNode = NULL;
+X	}
+X	COVER("btinsert.c",48);
+X	return res;
+X}
+X
+X/********** End of file ************/
+X
+END_OF_src/btree/btinsert.c
+if test 10881 -ne `wc -c <src/btree/btinsert.c`; then
+    echo shar: \"src/btree/btinsert.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btutil.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btutil.c\"
+else
+echo shar: Extracting \"src/btree/btutil.c\" \(7759 characters\)
+sed "s/^X//" >src/btree/btutil.c <<'END_OF_src/btree/btutil.c'
+X/********************************************************************
+X *
+X * btutil.c -- This function contains utility functions that are
+X *             used for many features of an in-memory B-tree
+X *             implementation.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ********************************************************************/
+X
+X#define __BTUTIL_C__
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X
+X/********************************************************************
+X *
+X * bt_searchNode -- This function searches a node for a key.  If the key
+X *                  is found, its index in the node's key array is
+X *                  returned, along with a flag indicating that the key
+X *                  was found.  If the key is not found, the index of the
+X *                  next higher key in the key array is returned, along
+X *                  with a "not found" indication.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xint bt_searchNode(BTNODE *node, void *target, int (*comp)(), int *eq)
+X#else
+Xint bt_searchNode(node,target,comp,eq)
+XBTNODE	*node;		/* Node to be searched */
+Xvoid	*target;	/* Key to search for */
+Xint	(*comp)();	/* strcmp()-like comparison function */
+Xint	*eq;		/* 0 if not found, non-zero otherwise */
+X#endif
+X{
+X	int	i;
+X	int	res;
+X	int	hi;
+X	int	lo;
+X
+X	res = -1;
+X
+X	/*
+X	 * Perform linear search of node contains 7 keys or less,
+X	 * otherwise perform binary search
+X	 */
+X	COVER("btutil.c",1);
+X	if (node->nkeys <= 7)
+X	{
+X		COVER("btutil.c",2);
+X		for (i = 0; i < node->nkeys; i++)
+X		{
+X			res = (*comp)(node->keys[i],target);
+X			if (res >= 0)
+X			{
+X				COVER("btutil.c",3);
+X				break;
+X			}
+X		}
+X		COVER("btutil.c",4);
+X	}
+X	else
+X	{
+X		COVER("btutil.c",5);
+X		lo = 0;
+X		hi = node->nkeys - 1;
+X		while ((lo <= hi) && (res != 0))
+X		{
+X			i = (lo + hi) / 2;
+X			res = (*comp)(node->keys[i],target);
+X			if (res < 0)
+X			{
+X				COVER("btutil.c",6);
+X				lo = i + 1;
+X			}
+X			else if (res > 0)
+X			{
+X				COVER("btutil.c",7);
+X				hi = i - 1;
+X			}
+X			COVER("btutil.c",8);
+X		}
+X		if (res < 0)
+X		{
+X			COVER("btutil.c",9);
+X			i++;
+X		}
+X		COVER("btutil.c",10);
+X	}
+X	COVER("btutil.c",11);
+X	*eq = (res == 0);	/* Indicate successful search */
+X	node->currKey = i + *eq - 1;
+X	return i;
+X}
+X
+X/******************************************************************
+X *
+X * bt_rotateRight -- Given a node and an index into its key array, this
+X *                   function rotates the node right at the specified
+X *                   key.  This is used during insertion and deletion to
+X *                   keep the tree balanced.  The return value is 0 if
+X *                   the function fails, i.e. the node on the left
+X *                   cannot lose keys, the node on the right cannot
+X *                   gain keys, or the specified node is a leaf; 1 is
+X *                   returned if successful.
+X *
+X ******************************************************************/
+X
+X#ifdef __STDC__
+Xint bt_rotateRight(BTNODE *node,int n,int order)
+X#else
+Xint bt_rotateRight(node,n,order)
+XBTNODE	*node;
+Xint	n;
+Xint	order;
+X#endif
+X{
+X	int	i;
+X	BTNODE	*right;
+X	BTNODE	*left;
+X
+X	/* Test parameters */
+X	if (n >= node->nkeys)
+X	{
+X		/*
+X		 * This branch is never taken because callers test this
+X		 * condition.
+X		 */
+X		COVER("btutil.c",12);
+X		return 0;
+X	}
+X	if (n < 0)
+X	{
+X		COVER("btutil.c",13);
+X		return 0;
+X	}
+X	COVER("btutil.c",14);
+X
+X	/* Point to children */
+X	left = node->children[n];
+X	right = node->children[n+1];
+X
+X	/* Return FALSE if rotation is not possible */
+X	if (left == NULL)
+X	{
+X		/*
+X		 * This branch is never taken, because the callers insure
+X		 * that this node has children.
+X		 */
+X		COVER("btutil.c",15);
+X		return 0;
+X	}
+X	if (left->nkeys <= order/2)
+X	{
+X		COVER("btutil.c",16);
+X		return 0;
+X	}
+X	if (right->nkeys >= order - 1)
+X	{
+X		/*
+X		 * Coverage analysis was unable to stimulate this branch,
+X		 * but inspection indicates that it is correct.
+X		 */
+X		COVER("btutil.c",17);
+X		return 0;
+X	}
+X	COVER("btutil.c",18);
+X
+X	/* Shift the right child's keys */
+X	for (i = right->nkeys; i > 0; i--)
+X	{
+X		right->keys[i] = right->keys[i - 1];
+X		right->data[i] = right->data[i - 1];
+X	}
+X
+X	/* Rotate keys */
+X	right->keys[0] = node->keys[n];
+X	right->data[0] = node->data[n];
+X	node->keys[n] = left->keys[left->nkeys - 1];
+X	node->data[n] = left->data[left->nkeys - 1];
+X	left->keys[left->nkeys - 1] = NULL;
+X	left->data[left->nkeys - 1] = NULL;
+X
+X	if (right->children != NULL)
+X	{
+X		COVER("btutil.c",19);
+X		/* Shift the right child's children */
+X		for (i = right->nkeys; i >= 0; i--)
+X		{
+X			right->children[i + 1] = right->children[i];
+X		}
+X
+X		/* Rotate children */
+X		right->children[0] = left->children[left->nkeys];
+X		right->children[0]->parent = right;
+X		left->children[left->nkeys] = NULL;
+X		right->tsize += right->children[0]->tsize;
+X		left->tsize -= right->children[0]->tsize;
+X	}
+X	COVER("btutil.c",20);
+X
+X	/* Update key count and return TRUE */
+X	right->nkeys++;
+X	right->tsize++;
+X	left->nkeys--;
+X	left->tsize--;
+X	return 1;
+X}
+X
+X/******************************************************************
+X *
+X * bt_rotateLeft -- Given a node and an index into its key array, this
+X *                  function rotates the node left at the specified
+X *                  key.  This is used during insertion and deletion to
+X *                  keep the tree balanced.  The return value is 0 if
+X *                  the function fails, i.e. the node on the right
+X *                  cannot lose keys, the node on the left cannot
+X *                  gain keys, or the specified node is a leaf; 1 is
+X *                  returned when successful.
+X *
+X ******************************************************************/
+X
+X#ifdef __STDC__
+Xint bt_rotateLeft(BTNODE *node, int n, int order)
+X#else
+Xint bt_rotateLeft(node,n,order)
+XBTNODE	*node;
+Xint	n;
+Xint	order;
+X#endif
+X{
+X	int	i;
+X	BTNODE	*right;
+X	BTNODE	*left;
+X
+X	/* Test parameters */
+X	if (n < 0)
+X	{
+X		/*
+X		 * This branch is never taken because callers test for this
+X		 * condition.
+X		 */
+X		COVER("btutil.c",21);
+X		return 0;
+X	}
+X	if (n >= node->nkeys)
+X	{
+X		COVER("btutil.c",22);
+X		return 0;
+X	}
+X	COVER("btutil.c",23);
+X
+X	/* Point to children */
+X	right = node->children[n+1];
+X	left = node->children[n];
+X
+X	/* Return FALSE if rotation is not possible */
+X	if (left == NULL)
+X	{
+X		/*
+X		 * This branch is never taken, because the callers insure
+X		 * that this node has children.
+X		 */
+X		COVER("btutil.c",24);
+X		return 0;
+X	}
+X	if (right->nkeys <= order/2)
+X	{
+X		COVER("btutil.c",25);
+X		return 0;
+X	}
+X	if (left->nkeys >= order - 1)
+X	{
+X		/*
+X		 * Coverage analysis was unable to stimulate this branch,
+X		 * but inspection indicates that it is correct.
+X		 */
+X		COVER("btutil.c",26);
+X		return 0;
+X	}
+X	COVER("btutil.c",27);
+X
+X	/* Rotate keys */
+X	left->keys[left->nkeys] = node->keys[n];
+X	left->data[left->nkeys] = node->data[n];
+X	node->keys[n] = right->keys[0];
+X	node->data[n] = right->data[0];
+X
+X	/* Update key counts */
+X	left->nkeys ++;
+X	right->nkeys --;
+X	left->tsize ++;
+X	right->tsize --;
+X
+X	/* Shift the right child's keys */
+X	for (i = 0; i < right->nkeys; i++)
+X	{
+X		right->keys[i] = right->keys[i+1];
+X		right->data[i] = right->data[i+1];
+X	}
+X	right->keys[i] = NULL;
+X	right->data[i] = NULL;
+X
+X	if (left->children != NULL)
+X	{
+X		COVER("btutil.c",28);
+X		left->tsize += right->children[0]->tsize;
+X		right->tsize -= right->children[0]->tsize;
+X
+X		/* Rotate children */
+X		left->children[left->nkeys] = right->children[0];
+X		left->children[left->nkeys]->parent = left;
+X
+X		/* Shift the right child's children */
+X		for (i = 0; i <= right->nkeys; i++)
+X		{
+X			right->children[i] = right->children[i+1];
+X		}
+X		right->children[i] = NULL;
+X	}
+X	COVER("btutil.c",29);
+X
+X	/* Return TRUE */
+X	return 1;
+X}
+X
+X/*********** End of file ************/
+X
+END_OF_src/btree/btutil.c
+if test 7759 -ne `wc -c <src/btree/btutil.c`; then
+    echo shar: \"src/btree/btutil.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 6 \(of 10\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    echo "Now edit common.mk and do a 'make all'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+

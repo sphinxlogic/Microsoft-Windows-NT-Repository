@@ -1,0 +1,1814 @@
+Newsgroups: comp.sources.misc
+From: fst@nimo.claircom.com (Fariborz Skip Tavakkolian)
+Subject: v38i053:  dmdtet - Tetris for the 630 MTG terminal, Part01/01
+Message-ID: <1993Jul14.135524.24508@sparky.sterling.com>
+X-Md4-Signature: 22d17bb70765938bbaacc2690b863d34
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: /home/nimo/fst/.organization
+Date: Wed, 14 Jul 1993 13:55:24 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: fst@nimo.claircom.com (Fariborz Skip Tavakkolian)
+Posting-number: Volume 38, Issue 53
+Archive-name: dmdtet/part01
+Environment: AT&T 630 MTG
+
+The following is the shell archive containing the sources to the
+``dmdtet'' program.  This is a tetris like game for the AT&T 630 MTG
+terminals.  (The 630 is a descendant of the Blit and DMD5620
+terminals).  I have not had a chance to compile and test it for the
+5620 yet.  The porting should be straight forward.  I used the
+``xtetris'' score values for each piece and its orientation.  Anything
+else has either been guessed at, or made up.
+
+You may do with the sources what you wish, as long as the copyright
+notice is kept, and authors are noted.
+
+Enjoy
+Skip	(fst@claircom.com)
+--------------------------------8<-----------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile drawing.c motion.c tetris.c tetris.h
+# Wrapped by kent@sparky on Sun Jul 11 19:31:10 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(795 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Copyright (C) 1993 Fariborz ``Skip'' Tavakkolian
+X#
+X# $Id: Makefile,v 1.4 93/06/13 12:27:30 fst Exp $
+X#
+X# Description:
+X#
+X# $Log:	Makefile,v $
+X# Revision 1.4  93/06/13  12:27:30  fst
+X# Added the lint stuff
+X# 
+X# Revision 1.3  93/06/06  11:05:53  fst
+X# Changed CFLAGS to -g for debugging by dmdpi
+X# 
+X# Revision 1.2  93/06/05  22:10:42  fst
+X# Changed the RCS ``Header'' with ``Id''.
+X# 
+X# Revision 1.1  93/06/05  22:03:05  fst
+X# Initial revision
+X# 
+X
+XSOURCES = tetris.c drawing.c motion.c
+XOBJECTS = $(SOURCES:.c=.o)
+X
+XTARGET = tetris.m
+XTARGET_LINT = tetris.lint
+XCC=dmdcc
+XCFLAGS=-g
+X
+X$(TARGET_LINT):	$(SOURCES)
+X	lint -I$(DMD)/include $(SOURCES)
+X
+X$(TARGET):	$(OBJECTS)
+X	$(CC) -o $(TARGET) $(OBJECTS)
+X
+Xdmdtet.shar:
+X	shar Makefile $(SOURCES) tetris.h > dmdtet.shar
+X
+Xtetris.o:	tetris.h
+Xmotion.o:	tetris.h
+END_OF_FILE
+  if test 795 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'drawing.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'drawing.c'\"
+else
+  echo shar: Extracting \"'drawing.c'\" \(15443 characters\)
+  sed "s/^X//" >'drawing.c' <<'END_OF_FILE'
+X/**********************************************************/
+X/*                                                        */
+X/* Copyright (C) 1993 Fariborz ``Skip'' Tavakkoian        */
+X/*                                                        */
+X/**********************************************************/
+X
+Xstatic char *RCSid = "$Id: drawing.c,v 1.3 93/06/06 11:11:38 fst Exp $";
+X
+X/*
+X * Description:
+X *
+X * $Log:	drawing.c,v $
+X * Revision 1.3  93/06/06  11:11:38  fst
+X * Added the current game piece to argument list for Show_Full_Rows and
+X * Clear_Full_Rows.  The two functions were changed to check those rows
+X * which are effected by the last of move of the current game piece.
+X * 
+X * Revision 1.2  93/06/05  22:11:32  fst
+X * Changed the RCS ``Header'' with ``Id''.
+X * 
+X * Revision 1.1  93/06/05  22:05:24  fst
+X * Initial revision
+X * 
+X */
+X
+X#include	<dmd.h>
+X#include	<dmdio.h>
+X#include	"tetris.h"
+X
+XTexture16 *colors[] =
+X{
+X  &T_darkgrey,	
+X  (Texture16*) 0, /* black */
+X  (Texture16*) 0, /* grey */
+X  (Texture16*) 0, /* grey2 */
+X  (Texture16*) 0, /* checks */
+X  (Texture16*) 0, /* background */
+X  &T_lightgrey,
+X  (Texture16*) 0,
+X};
+X
+XTexture16 hashmark =
+X{
+X  0x318C, 0x6318, 0xC631, 0x8C63,
+X  0x18C6, 0x318C, 0x6318, 0xC631,
+X  0x8C63, 0x18C6, 0x318C, 0x6318,
+X  0xC631, 0x8C63, 0x18C6, 0x318C,
+X};
+X
+Xstatic Word brick_bits[] =
+X{
+X  0xFFFE, 0xFFFE, 0xFFFE, 0xFFFE,
+X  0xFFFE, 0xFFFE, 0xFFFE, 0xFFFE,
+X  0xFFFE, 0xFFFE, 0xFFFE, 0xFFFE,
+X  0xFFFE, 0xFFFE, 0xFFFE, 0x0000,
+X};
+X
+Xstatic Bitmap a_brick =
+X{
+X  (Word *) brick_bits,
+X  1,
+X  { {0, 0}, {16, 16} },
+X  (char *) 0,
+X};
+X
+Xstatic Word shadow_bits[64];
+Xstatic Bitmap shadow =
+X{
+X  (Word *) shadow_bits,
+X  1,				/* this changes at runtime	*/
+X  { {0, 0}, {64, 16} },		/* so does corner.x		*/
+X  (char *) 0,
+X};
+X
+Xstatic Word game_bits[BOARD_HEIGHT];
+Xstatic Bitmap game_bitmap =
+X{
+X  (Word *) game_bits,
+X  1,
+X  { {0, 0}, {BOARD_WIDTH+1, BOARD_HEIGHT+1} },
+X  (char *) 0,
+X};
+X
+XBoard game_board =
+X{
+X  { 0, 0, },
+X  &game_bitmap,
+X};
+X
+X/* ================= J - piece ================ */
+X
+X/* -------------------  North ----------------- */
+Xstatic Word xJ_n[] =
+X{
+X  0x4000,
+X  0x4000,
+X  0xC000,
+X};
+X
+Xstatic Bitmap xJ_north =
+X{
+X  (Word *) xJ_n,
+X  1,
+X  { {0, 0}, {2, 3} },
+X  (char *) 0,
+X};
+X
+Xstatic Word J_n[96];
+X
+Xstatic Bitmap J_north =
+X{
+X  (Word *) J_n,
+X  2,
+X  { {0, 0}, {32, 48} },
+X  (char *) 0,
+X};
+X
+X/* ------------------  East ----------------- */
+Xstatic Word xJ_e[] =
+X{
+X  0x8000,
+X  0xE000,
+X};
+X
+Xstatic Bitmap xJ_east =
+X{
+X  (Word *) xJ_e,
+X  1,
+X  { {0, 0}, {3, 2} },
+X  (char *) 0,
+X};
+X
+Xstatic Word J_e[96];
+X
+Xstatic Bitmap J_east =
+X{
+X  (Word*) J_e,
+X  3,
+X  { {0, 0}, {48, 32} },
+X  (char *) 0,
+X};
+X
+X/* ------------------- South ------------------ */
+Xstatic Word xJ_s[] =
+X{
+X  0xC000,
+X  0x8000,
+X  0x8000,
+X};
+X
+Xstatic Bitmap xJ_south =
+X{
+X  (Word *) xJ_s,
+X  1,
+X  { {0, 0}, {2, 3} },
+X  (char *) 0,
+X};
+X
+Xstatic Word J_s[96];
+X
+Xstatic Bitmap J_south =
+X{
+X  (Word*) J_s,
+X  2,
+X  { {0, 0}, {32, 48} },
+X  (char *) 0,
+X};
+X
+X
+X/* ---------------------- West ------------------ */
+Xstatic Word xJ_w[] =
+X{
+X  0xE000,
+X  0x2000,
+X};
+X
+Xstatic Bitmap xJ_west =
+X{
+X  (Word *) xJ_w,
+X  1,
+X  { {0, 0}, {3, 2} },
+X  (char *) 0,
+X};
+X
+Xstatic Word J_w[96];
+X
+Xstatic Bitmap J_west =
+X{
+X  (Word*) J_w,
+X  3,
+X  { {0, 0}, {48, 32} },
+X  (char *) 0,
+X};
+X
+X/* =================== L - piece ================== */
+X
+X/* ---------------------  North  ------------------ */
+Xstatic Word xL_n[] =
+X{
+X  0x8000,
+X  0x8000,
+X  0xC000,
+X};
+X
+Xstatic Bitmap xL_north =
+X{
+X  (Word *) xL_n,
+X  1,
+X  { {0, 0}, {2, 3} },
+X  (char *) 0,
+X};
+X
+Xstatic Word L_n[96];
+X
+Xstatic Bitmap L_north =
+X{
+X  (Word*) L_n,
+X  2,
+X  { {0, 0}, {32, 48} },
+X  (char *) 0,
+X};
+X
+X/* ---------------------  East  ------------------ */
+Xstatic Word xL_e[] =
+X{
+X  0xE000,
+X  0x8000,
+X};
+X
+Xstatic Bitmap xL_east =
+X{
+X  (Word *) xL_e,
+X  1,
+X  { {0, 0}, {3, 2} },
+X  (char *) 0,
+X};
+X
+Xstatic Word L_e[96];
+X
+Xstatic Bitmap L_east =
+X{
+X  (Word*) L_e,
+X  3,
+X  { {0, 0}, {48, 32} },
+X  (char *) 0,
+X};
+X
+X/* --------------------  South  ------------------ */
+Xstatic Word xL_s[] =
+X{
+X  0xC000,
+X  0x4000,
+X  0x4000,
+X};
+X
+Xstatic Bitmap xL_south =
+X{
+X  (Word *) xL_s,
+X  1,
+X  { {0, 0}, {2, 3} },
+X  (char *) 0,
+X};
+X
+Xstatic Word L_s[96];
+X
+Xstatic Bitmap L_south =
+X{
+X  (Word*) L_s,
+X  2,
+X  { {0, 0}, {32, 48} },
+X  (char *) 0,
+X};
+X
+X/* ---------------------  West  ------------------ */
+Xstatic Word xL_w[] =
+X{
+X  0x2000,
+X  0xE000,
+X};
+X
+Xstatic Bitmap xL_west =
+X{
+X  (Word *) xL_w,
+X  1,
+X  { {0, 0}, {3, 2} },
+X  (char *) 0,
+X};
+X
+Xstatic Word L_w[96];
+X
+Xstatic Bitmap L_west =
+X{
+X  (Word*) L_w,
+X  3,
+X  { {0, 0}, {48, 32} },
+X  (char *) 0,
+X};
+X
+X/* ================= S - peices ===================== */
+X
+X/* ------------------ North / South ----------------- */
+Xstatic Word xS_n[] =
+X{
+X  0x8000,
+X  0xC000,
+X  0x4000,
+X};
+X
+Xstatic Bitmap xS_north =
+X{
+X  (Word *) xS_n,
+X  1,
+X  { {0, 0}, {2, 3} },
+X  (char *) 0,
+X};
+X
+Xstatic Word S_n[96];
+X
+Xstatic Bitmap S_north =
+X{
+X  (Word *) S_n,
+X  2,
+X  { {0, 0}, {32, 48} },
+X  (char *) 0,
+X};
+X
+X/* ----------------- East / West ------------------ */
+Xstatic Word xS_e[] =
+X{
+X  0x6000,
+X  0xC000,
+X};
+X
+Xstatic Bitmap xS_east =
+X{
+X  (Word *) xS_e,
+X  1,
+X  { {0, 0}, {3, 2} },
+X  (char *) 0,
+X};
+X
+Xstatic Word S_e[96];
+X
+Xstatic Bitmap S_east = 
+X{
+X  (Word *) S_e,
+X  3,
+X  { {0, 0}, {48, 32} },
+X  (char *) 0,
+X};
+X
+X/* =========================== Z - piece ======================= */
+X
+X/* -------------------------- North/South ---------------------- */
+Xstatic Word xZ_n[] =
+X{
+X  0x4000,
+X  0xC000,
+X  0x8000,
+X};
+X
+Xstatic Bitmap xZ_north =
+X{
+X  (Word *) xZ_n,
+X  1,
+X  { {0, 0}, {2, 3} },
+X  (char *) 0,
+X};
+X
+Xstatic Word Z_n[96];
+Xstatic Bitmap Z_north =
+X{
+X  (Word *) Z_n,
+X  2,
+X  { {0, 0}, {32, 48} },
+X  (char *) 0,
+X};
+X
+X/* -------------------------- East/West ---------------------- */
+Xstatic Word xZ_e[] =
+X{
+X  0xC000,
+X  0x6000,
+X};
+X
+Xstatic Bitmap xZ_east =
+X{
+X  (Word *) xZ_e,
+X  1,
+X  { {0, 0}, {3, 2} },
+X  (char *) 0,
+X};
+X
+Xstatic Word Z_e[96];
+Xstatic Bitmap Z_east = 
+X{
+X  (Word *) Z_e,
+X  3,
+X  { {0, 0}, {48, 32} },
+X  (char *) 0,
+X};  
+X
+X/* ============================ T - piece ======================= */
+X/* ---------------- North -------------- */
+Xstatic Word xT_n[] =
+X{
+X  0x8000,
+X  0xC000,
+X  0x8000,
+X};
+X
+Xstatic Bitmap xT_north = 
+X{
+X  (Word *) xT_n,
+X  1,
+X  { {0, 0}, {2, 3} },
+X  (char *) 0,
+X};
+X
+Xstatic Word T_n[96];
+Xstatic Bitmap T_north = 
+X{
+X  (Word *) T_n,
+X  2,
+X  { {0, 0}, {32, 48} },
+X  (char *) 0,
+X};
+X
+X/* ------------------ East ----------------- */
+Xstatic Word xT_e[] =
+X{
+X  0xE000,
+X  0x4000,
+X};
+Xstatic Bitmap xT_east =
+X{
+X  (Word *) xT_e,
+X  1,
+X  { {0, 0}, {3, 2} },
+X  (char *) 0,
+X};
+X
+Xstatic Word T_e[96];
+Xstatic Bitmap T_east = 
+X{
+X  (Word *) T_e,
+X  3,
+X  { {0, 0}, {48, 32} },
+X  (char *) 0,
+X};
+X
+X/* ------------------ South ---------------- */
+Xstatic Word xT_s[] =
+X{
+X  0x4000,
+X  0xC000,
+X  0x4000,
+X};
+X
+Xstatic Bitmap xT_south = 
+X{
+X  (Word *) xT_s,
+X  1,
+X  { {0, 0}, {2, 3} },
+X  (char *) 0,
+X};
+X
+Xstatic Word T_s[96];
+Xstatic Bitmap T_south = 
+X{
+X  (Word *) T_s,
+X  2,
+X  { {0, 0}, {32, 48} },
+X  (char *) 0,
+X};
+X
+X/* -------------------- West ----------------- */  
+Xstatic Word xT_w[] =
+X{
+X  0x4000,
+X  0xE000,
+X};
+Xstatic Bitmap xT_west =
+X{
+X  (Word *) xT_w,
+X  1,
+X  { {0, 0}, {3, 2} },
+X  (char *) 0,
+X};
+X
+Xstatic Word T_w[96];
+Xstatic Bitmap T_west = 
+X{
+X  (Word *) T_w,
+X  3,
+X  { {0, 0}, {48, 32} },
+X  (char *) 0,
+X};
+X
+X/* ========================= I - piece ===================== */
+X
+X/* ------------------------- North / South ----------------- */
+Xstatic Word xI_n[] =
+X{
+X  0x8000,
+X  0x8000,
+X  0x8000,
+X  0x8000,
+X};
+Xstatic Bitmap xI_north = 
+X{
+X  (Word *) xI_n,
+X  1,
+X  { {0, 0}, {1, 4} },
+X  (char *) 0,
+X};
+X
+Xstatic Word I_n[96];
+Xstatic Bitmap I_north =
+X{
+X  (Word *) I_n,
+X  1,
+X  { {0, 0}, {16, 64} },
+X  (char *) 0,
+X};
+X
+X/* ------------------------- East / West ------------------- */
+Xstatic Word xI_e[] =
+X{
+X  0xF000,
+X};
+Xstatic Bitmap xI_east = 
+X{
+X  (Word *) xI_e,
+X  1,
+X  { {0, 0}, {4, 1} },
+X  (char *) 0,
+X};
+X
+Xstatic Word I_e[96];
+Xstatic Bitmap I_east =
+X{
+X  (Word *) I_e,
+X  4,
+X  { {0, 0}, {64, 16} },
+X};
+X
+X/* ======================== Square piece ====================== */
+X/* -------------------- North / South / East / West =========== */
+Xstatic Word xO_n[] =
+X{
+X  0xC000,
+X  0xC000,
+X};
+Xstatic Bitmap xO_north =
+X{
+X  (Word *) xO_n,
+X  1,
+X  { {0, 0}, {2, 2} },
+X  (char *) 0,
+X};
+X
+Xstatic Word O_n[96];
+Xstatic Bitmap O_north =
+X{
+X  (Word *) O_n,
+X  2,
+X  { {0, 0}, {32, 32} },
+X  (char *) 0,
+X};
+X    
+X
+X/* ============================================================ */
+X
+Xstatic GamePiece J_Piece =
+X{
+X  0, (Texture16 *) 0,
+X  { 7, 6, 7, 6, },
+X  { &xJ_north, &xJ_east, &xJ_south, &xJ_west,	},
+X  { &J_north, &J_east, &J_south, &J_west,	},
+X};
+X
+Xstatic GamePiece L_Piece =
+X{
+X  0, (Texture16 *) 0,
+X  { 7, 6, 7, 6, },
+X  { &xL_north, &xL_east, &xL_south, &xL_west,	},
+X  { &L_north, &L_east, &L_south, &L_west,	},
+X};
+X
+Xstatic GamePiece S_Piece =
+X{
+X  0, (Texture16 *) 0,
+X  { 7, 6, 7, 6, },
+X  { &xS_north, &xS_east, &xS_north, &xS_east,	},
+X  { &S_north, &S_east, &S_north, &S_east,	},
+X};
+X
+Xstatic GamePiece Z_Piece =
+X{
+X  0, (Texture16 *) 0,
+X  { 7, 6, 7, 6, },
+X  { &xZ_north, &xZ_east, &xZ_north, &xZ_east,	},
+X  { &Z_north, &Z_east, &Z_north, &Z_east,	},
+X};
+X
+Xstatic GamePiece T_Piece =
+X{
+X  0, (Texture16 *) 0,
+X  { 5, 6, 5, 5, },
+X  { &xT_north, &xT_east, &xT_south, &xT_west,	},
+X  { &T_north, &T_east, &T_south, &T_west,	},
+X};
+X
+Xstatic GamePiece I_Piece = 
+X{
+X  0, (Texture16 *) 0,
+X  { 8, 5, 8, 5, },
+X  { &xI_north, &xI_east, &xI_north, &xI_east,	},
+X  { &I_north, &I_east, &I_north, &I_east,	},
+X};
+X
+Xstatic GamePiece O_Piece =
+X{
+X  0, (Texture16 *) 0,
+X  { 6, 6, 6, 6, },
+X  { &xO_north, &xO_north, &xO_north, &xO_north,	},
+X  { &O_north, &O_north, &O_north, &O_north,	},
+X};
+X
+XGamePiece *Pieces[] =
+X{
+X  &O_Piece,
+X  &I_Piece,
+X  &J_Piece,
+X  &L_Piece,
+X  &S_Piece,
+X  &Z_Piece,
+X  &T_Piece,
+X};
+X
+X/*
+X * Pick a game piece. any piece...
+X */
+XGamePiece *Get_Next_Piece()
+X{
+X  return Pieces[rand() % 7];
+X}
+X
+X/*
+X * Set the color of a piece to a texture given.
+X */
+Xvoid Set_Color(smap, col)
+X     Bitmap *smap;
+X     Texture16 *col;
+X{
+X  texture(smap, smap->rect, col, F_OR);
+X  texture(smap, smap->rect, col, F_XOR);
+X}
+X
+Xint Show_Full_Rows(gp)
+X     GamePiece *gp;	/* the game piece that might have caused full rows */
+X{
+X  int y, xmax, ymax, ymin, rcount;
+X  Word *w;
+X  Bitmap *gbmap = game_board.map;
+X
+X  if (gp)
+X    {
+X      Bitmap *gpmap = gp->gmap_arr[gp->cur];
+X
+X      ymin = game_board.curpt.y;
+X      ymax = game_board.curpt.y + gpmap->rect.corner.y;
+X    }
+X  else
+X    {
+X      ymin = gbmap->rect.origin.y;
+X      ymax = gbmap->rect.corner.y;
+X    }
+X      
+X  xmax = gbmap->rect.corner.x - 1;
+X
+X  for (rcount = 0, y = ymin; y < ymax; y++)
+X    {
+X      w = addr(gbmap, Pt(0, y));
+X      if (*w == FULL_ROW_MASK)
+X	{
+X	  Rectangle r;
+X
+X	  rcount++;
+X	  r.origin = add(add(Drect.origin, Grect.origin), mul(Pt(0, y), 16));
+X	  r.corner = add(r.origin, mul(Pt(xmax, 1), 16));
+X	  texture(&physical, r, &hashmark, F_STORE);
+X	  sleep(30);
+X	}
+X    }
+X
+X  sleep(30);
+X  return rcount;
+X}
+X
+Xvoid Clear_Full_Rows(rcount, gp)
+X     int rcount;
+X     GamePiece *gp;
+X{
+X  int y, xmax, ymax, ymin;
+X  Word *w;
+X  Bitmap *gbmap = game_board.map;
+X
+X  if (gp)
+X    {
+X      Bitmap *gpmap = gp->gmap_arr[gp->cur];
+X
+X      ymin = game_board.curpt.y;
+X      ymax = game_board.curpt.y + gpmap->rect.corner.y;
+X    }
+X  else
+X    {
+X      ymin = gbmap->rect.origin.y;
+X      ymax = gbmap->rect.corner.y;
+X    }
+X
+X  xmax = gbmap->rect.corner.x - 1;
+X  while (rcount--)
+X    {
+X      for (y = ymax-1; y >= ymin; y--)
+X	{
+X	  w = addr(gbmap, Pt(0,y));
+X	  if (*w == FULL_ROW_MASK)
+X	    {
+X	      Point o;
+X	      Rectangle r;
+X
+X	      /* move game rows down by 1 row */
+X	      bitblt(gbmap,Rpt(Pt(0,0), Pt(xmax, y)), gbmap, Pt(0,1), F_STORE);
+X	      /* clear the top game row */
+X	      rectf(gbmap, Rpt(Pt(0,0), Pt(xmax, 1)), F_CLR);
+X
+X	      /* move displayed rows down by 1 row */
+X	      r.origin = add(Drect.origin, Grect.origin);
+X	      r.corner = add(r.origin, mul(Pt(xmax, y), 16));
+X	      o = add(r.origin, mul(Pt(0, 1), 16));
+X	      bitblt(&physical, r, &physical, o, F_STORE);
+X
+X	      /* clear the top display row */
+X	      r.origin = add(Drect.origin, Grect.origin);
+X	      r.corner = add(r.origin, mul(Pt(xmax, 1), 16));
+X	      rectf(&physical, r, F_CLR);
+X	      break;
+X	    }
+X	}
+X    }
+X}
+X
+X/*
+X * Using the game bitmap create the displayed piece shape.
+X */
+Xvoid Populate_Bitmap(gmap, smap)
+X     Bitmap *gmap, *smap;
+X{
+X  int x, y;
+X  int bit;
+X  Word *w;
+X
+X  if (! eqpt(gmap->rect.origin, Pt(0,0)))
+X    {
+X      /* fprintf(stderr, "Populate_Bitmap(): Internal error\n"); */
+X      sleep(2);
+X      exit();
+X    }
+X  if (gmap->rect.corner.x > 4 || gmap->rect.corner.y > 4)
+X    {
+X      /* fprintf(stderr, "Populate_Bitmap(): Internal error\n"); */
+X      sleep(2);
+X      exit();
+X    }
+X
+X  for (y = gmap->rect.origin.y; y < gmap->rect.corner.y; y++)
+X    for (x = gmap->rect.origin.x; x < gmap->rect.corner.x; x++)
+X    {
+X      w = addr(gmap, Pt(x,y));
+X
+X      bit = FIRSTBIT >> (x % WORDSIZE);
+X
+X      /*
+X       * If the bit is set fill the corresponding block
+X       * in game piece's shape bitmap
+X       */
+X      if ((*w & bit) == bit)
+X	bitblt(&a_brick, a_brick.rect, smap, Pt((x*16),(y*16)), F_STORE);
+X    }
+X}
+X
+Xvoid Clear_Shadow_Area()
+X{
+X  rectf(&physical, raddp(Mrect, Drect.origin), F_CLR);
+X}
+X  
+Xvoid Display_Shadow_XOR(gp)
+X     GamePiece *gp;
+X{
+X  Point origin;
+X  Bitmap *smap = gp->smap_arr[gp->cur];
+X
+X  /* Display the shadow */
+X
+X  origin = add(Drect.origin, Mrect.origin);
+X  origin = add(origin, Pt(game_board.curpt.x*16, 0));
+X
+X  shadow.rect.corner.x = smap->rect.corner.x;
+X  shadow.width = smap->width;
+X
+X  texture(&shadow, shadow.rect, (Texture16*) brick_bits, F_STORE);
+X  texture(&shadow, shadow.rect, gp->color, F_XOR);
+X  bitblt(&shadow, shadow.rect, &physical, origin, F_XOR);
+X}
+X
+Xvoid Bitblit_Piece_XOR(gp)
+X     GamePiece *gp;
+X{
+X  Point origin;
+X  Bitmap *smap = gp->smap_arr[gp->cur];
+X  Bitmap *gmap = gp->gmap_arr[gp->cur];
+X
+X  /* Game board bitmap */
+X  origin = game_board.curpt;
+X  bitblt(gmap, gmap->rect, game_board.map, origin, F_XOR);
+X  
+X  /* Display bitmap */
+X
+X  origin = fPt(add(add(Drect.origin, Grect.origin), mul(origin, 16)));
+X  bitblt(smap, smap->rect, &physical, origin, F_XOR);
+X  Display_Shadow_XOR(gp);
+X}
+X
+Xvoid Bitblit_Display_XOR(gp)
+X     GamePiece *gp;
+X{
+X  Point origin;
+X  Bitmap *smap = gp->smap_arr[gp->cur];
+X
+X  origin = fPt(add(add(Drect.origin, Grect.origin),mul(game_board.curpt, 16)));
+X
+X  bitblt(smap, smap->rect, &physical, origin, F_XOR);
+X  Display_Shadow_XOR(gp);
+X}
+X
+Xvoid Bitblit_Game_Board_XOR(gp)
+X     GamePiece *gp;
+X{
+X  Point origin;
+X  Bitmap *gmap = gp->gmap_arr[gp->cur];
+X
+X  /* Game board bitmap */
+X  origin = game_board.curpt;
+X  bitblt(gmap, gmap->rect, game_board.map, origin, F_XOR);
+X}
+X
+Xvoid Draw_Window()
+X{
+X  Rectangle r;
+X
+X  r.origin = sub(Srect.origin, Pt(1, 1));
+X  r.corner = add(Srect.corner, Pt(1, 1));
+X  r = raddp(r, Drect.origin);
+X  box(&display, r, F_STORE);
+X
+X  r.origin = sub(Grect.origin, Pt(1, 1));
+X  r.corner = add(Grect.corner, Pt(1, 1));
+X  r = raddp(r, Drect.origin);
+X  box(&display, r, F_STORE);
+X
+X  r.origin = sub(Mrect.origin, Pt(1, 1));
+X  r.corner = add(Mrect.corner, Pt(1, 1));
+X  r = raddp(r, Drect.origin);
+X  box(&display, r, F_STORE);
+X}
+X
+Xvoid Clear_Game_Board()
+X{
+X  extern Rectangle Grect;
+X  Rectangle r;
+X
+X  r.origin = add(Drect.origin, Grect.origin);
+X  r.corner = add(Drect.origin, Grect.corner);
+X
+X  /* rectf(&display, Drect, F_CLR); */
+X  rectf(&display, r, F_CLR);
+X  rectf(game_board.map, game_board.map->rect, F_CLR);
+X  /* sleep(2); */
+X}
+X
+Xvoid Show_Next_Piece(np)
+X     GamePiece *np;
+X{
+X  Bitmap *smap = np->smap_arr[np->cur];
+X  Rectangle r;
+X
+X  r.origin = add(Drect.origin, nploc);
+X  r.corner = add(r.origin, Pt(64, 64));
+X  rectf(&physical, r, F_CLR);
+X  bitblt(smap, smap->rect, &physical, r.origin, F_STORE);
+X}
+END_OF_FILE
+  if test 15443 -ne `wc -c <'drawing.c'`; then
+    echo shar: \"'drawing.c'\" unpacked with wrong size!
+  fi
+  # end of 'drawing.c'
+fi
+if test -f 'motion.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'motion.c'\"
+else
+  echo shar: Extracting \"'motion.c'\" \(6521 characters\)
+  sed "s/^X//" >'motion.c' <<'END_OF_FILE'
+X/**********************************************************/
+X/*                                                        */
+X/* Copyright (C) 1993 Fariborz ``Skip'' Tavakkolian       */
+X/*                                                        */
+X/**********************************************************/
+X
+Xstatic char *RCSid = "$Id: motion.c,v 1.2 93/06/05 22:11:28 fst Exp Locker: fst $";
+X
+X/*
+X * Description:
+X *
+X * $Log:	motion.c,v $
+X * Revision 1.2  93/06/05  22:11:28  fst
+X * Changed the RCS ``Header'' with ``Id''.
+X * 
+X * Revision 1.1  93/06/05  22:06:11  fst
+X * Initial revision
+X * 
+X */
+X
+X#include	<dmd.h>
+X#include	<dmdio.h>
+X#include	<font.h>
+X#include	"tetris.h"
+X
+Xvoid Reshape_Window()
+X{
+X  lprintf("Please Reshape Window");
+X
+X  request(RESHAPED);
+X  do
+X    {
+X      wait(RESHAPED);
+X      if (P->state & MOVED)
+X	{
+X	  P->state &= ~(MOVED|RESHAPED);
+X	}
+X      else if ((P->state & RESHAPED) && !(P->state & MOVED))
+X	{
+X	  P->state &= ~RESHAPED;
+X	  P->state |= NO_RESHAPE;
+X	  break;
+X	}
+X    }
+X  while (1);
+X}
+X
+X/*
+X * Initialize the game pieces.
+X */
+Xvoid Init_Pieces()
+X{
+X  int i, j;
+X  extern Texture16 *colors[];
+X
+X  for (i = 0; i < PIECES_COUNT; i++)
+X    for (j = 0; j < 4; j++)
+X      {
+X	Pieces[i]->color = colors[i];
+X	Populate_Bitmap(Pieces[i]->gmap_arr[j], Pieces[i]->smap_arr[j]);
+X	Set_Color(Pieces[i]->smap_arr[j], colors[i]);
+X      }
+X
+X  srand((unsigned) realtime());	/* seed the random number generator */
+X}
+X
+XRectangle Grect, Srect, Mrect;
+X
+X/*
+X * Set default size for the window.
+X */
+XPoint default_size(x, y, p)
+X     int x,y;
+X     struct Proc *p;
+X{
+X  Point q;
+X
+X  Srect.origin = fPt(TET_INSET + BBW, TET_INSET + BBW);
+X
+X  Grect.origin = add(Srect.origin, Pt(TEXTWIDTH+2*BBW+TET_INSET, 0));
+X  Grect.corner = add(Grect.origin, Pt(GBW, GBH));
+X
+X  Mrect.origin = add(Grect.origin, Pt(0, 2*BBW+GBH+TET_INSET));
+X  Mrect.corner = add(Mrect.origin, Pt(GBW, 16));
+X
+X  Srect.corner = fPt(Srect.origin.x+TEXTWIDTH, Mrect.corner.y);
+X
+X  q.x = Grect.corner.x - Srect.origin.x + 2*TET_INSET + 2*BBW + 2*INSET;
+X  q.y = Srect.corner.y - Srect.origin.y + 2*TET_INSET + 2*BBW + 2*INSET;
+X
+X  return q;
+X}
+X
+X/*
+X * Initialize the default size function, colors and pieces.
+X */
+Xvoid Initialize()
+X{
+X  colors[1] = &T_white;
+X  colors[2] = &T_grey;
+X  colors[3] = &T_grey2;
+X  colors[4] = &T_checks;
+X  colors[5] = &T_background;
+X
+X  Init_Pieces();
+X
+X  P->ctob = default_size;
+X  P->state |= NOCURSEXPAND;
+X}
+X
+Xint Check_Bounds(origin, corner)
+X     Point origin, corner;
+X{
+X  /*
+X  fprintf(stderr, "Check_Bounds origin(%d,%d), corner(%d,%d)\n",
+X	  origin.x, origin.y, corner.x, corner.y
+X	  );
+X  */
+X
+X  if ((! ptinrect(origin, game_board.map->rect)) ||
+X      (! ptinrect(corner, game_board.map->rect)))
+X    return 0;
+X
+X  return 1;
+X}
+X
+Xint Game_Board_Spot_Empty(gmap, pt)
+X     Bitmap *gmap;	/* game piece bitmap */
+X     Point pt;		/* origin of game piece in game board bitmap */
+X{
+X  Point gpt, ept;
+X  int x, y, maxx, maxy, bit;
+X  Word *w;
+X  extern Word *addr();
+X
+X  ept = add(pt, sub(gmap->rect.corner, gmap->rect.origin));
+X  if (! Check_Bounds(pt, ept))
+X    {
+X      /*fprintf(stderr, "Game_Board_Spot_Empty(): Check_Bounds() failed\n");*/
+X      return 0;
+X    }
+X
+X  maxy = gmap->rect.corner.y;
+X  maxx = gmap->rect.corner.x;
+X
+X  /*
+X    For every bit set in the game piece bitmap
+X    if corresponding bit in the game board bitmap, then fail
+X    if all bits in game board are free, succeed.
+X    */
+X    
+X  for (y = gmap->rect.origin.y; y < maxy; y++)
+X    for (x = gmap->rect.origin.x; x < maxx; x++)
+X      {
+X	w = addr(gmap, Pt(x, y));
+X
+X	bit = FIRSTBIT >> (x % WORDSIZE);
+X
+X	if ((*w & bit) == bit)
+X	  {
+X	    gpt = add(pt, Pt(x, y));
+X
+X	    w = addr(game_board.map, gpt);
+X	    bit = FIRSTBIT >> (gpt.x % WORDSIZE);
+X
+X	    if ((*w & bit) == bit)
+X	      {
+X		/*
+X		fprintf(stderr,
+X			"Game_Board_Spot_Empty(): point(%d,%d) occupied\n",
+X			gpt.x, gpt.y
+X			);
+X		*/
+X		return 0;
+X	      }
+X	  }
+X      }
+X
+X  /*
+X  fprintf(stderr,
+X	  "Game_Board_Spot_Empty(): rectangle([%d,%d],[%d,%d]) is open\n",
+X	  pt.x, pt.y, ept.x, ept.y
+X	  );
+X  */
+X  return 1;
+X}
+X
+Xint Can_Move(gp, d, orgpt)
+X     GamePiece *gp;
+X     enum MoveDirection d;
+X     Point *orgpt;
+X{
+X  switch ((int) d)
+X    {
+X    case Left:
+X      *orgpt = sub(game_board.curpt, Pt(1, 0));
+X      break;
+X    case Right:
+X      *orgpt = add(game_board.curpt, Pt(1, 0));
+X      break;
+X    case Down:
+X      *orgpt = add(game_board.curpt, Pt(0, 1));
+X      break;
+X
+X    default:
+X      return 0;
+X    }
+X
+X  return Game_Board_Spot_Empty(gp->gmap_arr[gp->cur], *orgpt);
+X}
+X
+Xint Can_Rotate(gp, d, orgpt, orient)
+X     GamePiece *gp;
+X     enum MoveDirection d;
+X     Point *orgpt;
+X     int *orient;
+X{
+X  Point center;
+X
+X  switch ((int) d)
+X    {
+X    case Clockwise:
+X      *orient = ((gp->cur + 1 > 3) ? 0 : gp->cur + 1);
+X      break;
+X    case CounterClockwise:
+X      *orient = ((gp->cur - 1 < 0) ? 3 : gp->cur - 1);
+X      break;
+X    default:
+X      return 0;
+X    }
+X
+X
+X  /* Center calculations */
+X  center = add(game_board.curpt,
+X	       div(
+X		   sub(gp->gmap_arr[gp->cur]->rect.corner,
+X		       gp->gmap_arr[gp->cur]->rect.origin
+X		       ),
+X		   2)
+X	       );
+X
+X  /* New origin calculations */
+X  *orgpt = sub(center,
+X	       div(
+X		   sub(gp->gmap_arr[*orient]->rect.corner,
+X		       gp->gmap_arr[*orient]->rect.origin
+X		       ),
+X		   2)
+X	       );
+X
+X  return Game_Board_Spot_Empty(gp->gmap_arr[*orient], *orgpt);
+X}
+X
+Xint Move_Piece(gp, d)
+X     GamePiece *gp;
+X     enum MoveDirection d;
+X{
+X  int new_orientation;
+X  Point new_origin;
+X  int retval;
+X
+X  switch ((int) d)
+X    {
+X    case FirstMove:
+X      if (! Game_Board_Spot_Empty(gp->gmap_arr[gp->cur], game_board.curpt))
+X	return 0;
+X
+X      break;
+X
+X    case Left:
+X    case Right:
+X    case Down:
+X      Bitblit_Game_Board_XOR(gp);	/* first free current location */
+X      if (! Can_Move(gp, d, &new_origin))
+X	{
+X	  Bitblit_Game_Board_XOR(gp);	/* put it back */
+X	  return ((d == Down) ? -1 : 0);
+X	}
+X
+X      Bitblit_Display_XOR(gp);		/* erase old impression */
+X      game_board.curpt = new_origin;
+X      break;
+X
+X    case Clockwise:
+X    case CounterClockwise:
+X      Bitblit_Game_Board_XOR(gp);
+X      if (! Can_Rotate(gp, d, &new_origin, &new_orientation))
+X	{
+X	  Bitblit_Game_Board_XOR(gp);	/* put it back */
+X	  return 0;
+X	}
+X
+X      Bitblit_Display_XOR(gp);
+X      gp->cur = new_orientation;
+X      game_board.curpt = new_origin;
+X      break;
+X
+X    case Fall:
+X      while ((retval = Move_Piece(gp, Down)) > 0)
+X	/* sleep(2) */;
+X
+X      return retval;
+X    }
+X
+X  /*
+X  fprintf(stderr,
+X	  "Move_Piece(): drawing (0x%x) at game_board location (%d,%d)\n",
+X	  gp, game_board.curpt.x, game_board.curpt.y
+X	  );
+X  */
+X  Bitblit_Piece_XOR(gp);
+X  return 1;
+X}
+X
+X  
+END_OF_FILE
+  if test 6521 -ne `wc -c <'motion.c'`; then
+    echo shar: \"'motion.c'\" unpacked with wrong size!
+  fi
+  # end of 'motion.c'
+fi
+if test -f 'tetris.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tetris.c'\"
+else
+  echo shar: Extracting \"'tetris.c'\" \(5731 characters\)
+  sed "s/^X//" >'tetris.c' <<'END_OF_FILE'
+X/**********************************************************/
+X/*                                                        */
+X/* Copyright (C) 1993 Fariborz ``Skip'' Tavakkolian       */
+X/*                                                        */
+X/**********************************************************/
+X
+Xstatic char *RCSid = "$Id: tetris.c,v 1.4 93/06/13 12:28:25 fst Exp $";
+X
+X/*
+X * Description:
+X *
+X * $Log:	tetris.c,v $
+X * Revision 1.4  93/06/13  12:28:25  fst
+X * Added casts to satisfy link.
+X * 
+X * Revision 1.3  93/06/06  11:07:13  fst
+X * Added the current game piece to the arguments passed to Collapse_Full_Rows
+X * to allow for checking of only those rows which are effected by the last
+X * move.
+X * 
+X * Revision 1.2  93/06/05  22:11:16  fst
+X * Changed the RCS ``Header'' with ``Id''.
+X * 
+X * Revision 1.1  93/06/05  22:03:58  fst
+X * Initial revision
+X * 
+X */
+X
+X#include <dmd.h>
+X#include <dmdio.h>
+X#include <object.h>
+X#include <font.h>
+X#include "tetris.h"
+X
+X/* Library Routines and associated manual page. */
+Xvoid bitblt();
+Xvoid lprintf();
+Xvoid sleep();
+XPoint sPtCurrent();
+Xint wait();
+X
+X
+X/* tetris functions */
+Xextern char *Gen_Menu_Items();
+X
+X/* local variables */
+Xstatic int running = 0;
+Xstatic int new_piece = 1;
+Xstatic int fall_speed = FALL_SPEED;
+Xstatic int p_count = 0;
+Xstatic int score = 0;
+X
+X#define	ADJUST_SPEED()					\
+X{							\
+X  if (score > 50)					\
+X    {							\
+X      fall_speed = FALL_SPEED - (score / 25);		\
+X      fall_speed = (fall_speed <= 10) ? 10 : fall_speed;\
+X    }							\
+X}
+X
+XMenu top_level_menu =
+X{
+X  0, 0, 0, Gen_Menu_Items,
+X};
+X  
+Xchar *Gen_Menu_Items(i)
+X     int i;
+X{
+X  switch (i)
+X    {
+X    case 0:
+X      return "New Game";
+X    case 1:
+X      return ((running) ? "Stop" : "Start");
+X    case 2:
+X      return "Quit";
+X    default:
+X      return NULL;
+X    }
+X}
+X  
+X#define	WAIT_TIME	5
+X
+XGamePiece *cgp, *ngp;
+X
+X
+XDo_First_Move()
+X{
+X  int middle_x;
+X
+X  if (! running)
+X    return 0;
+X
+X  middle_x = BOARD_WIDTH/2 -
+X    (cgp->gmap_arr[cgp->cur]->rect.corner.x -
+X     cgp->gmap_arr[cgp->cur]->rect.origin.x)/2;
+X      
+X  game_board.curpt = fPt(middle_x, 0);
+X  /*
+X  fprintf(stderr, "Do_First_Move(): game_board.curpt is (%d,%d)\n",
+X	  game_board.curpt.x, game_board.curpt.y
+X	  );
+X  */
+X  if (! Move_Piece(cgp, FirstMove)) /* first move and wont fit */
+X    {
+X      return 0;
+X    }
+X
+X  return 1;
+X}
+X
+Xstatic Point scoreloc, countloc;
+XPoint nploc;
+X
+Xvoid Show_Score()
+X{
+X  char buff[16];
+X
+X  /* itoa((long) score, buff); */
+X  Sprintf(buff, "%4d", score);
+X  string(&largefont, buff, &display, add(Drect.origin, scoreloc), F_STORE);
+X
+X  /* itoa((long) p_count, buff); */
+X  Sprintf(buff, "%4d", p_count);
+X  string(&largefont, buff, &display, add(Drect.origin, countloc), F_STORE);
+X}
+X
+Xvoid New_Game()
+X{
+X  Point q;
+X
+X  Clear_Game_Board();
+X  Draw_Window();
+X  q = add(Drect.origin, Srect.origin);
+X  scoreloc = string(&largefont, " SCORE   ", &display, q, F_STORE);
+X  scoreloc = sub(scoreloc, Drect.origin);
+X
+X  q = add(q, Pt(0, FONTHEIGHT(largefont)));
+X  countloc = string(&largefont, " PIECES  ", &display, q, F_STORE);
+X  countloc = sub(countloc, Drect.origin);
+X
+X  q = add(q, Pt(0, FONTHEIGHT(largefont)));
+X  nploc = string(&largefont, " NEXT PIECE ", &display, q, F_STORE);
+X  nploc = sub(nploc, Drect.origin);
+X
+X  ngp = Get_Next_Piece();
+X  new_piece = 1;
+X  running = 0;
+X  p_count = 0;
+X  score = 0;
+X  fall_speed = FALL_SPEED;
+X
+X  Show_Score();
+X}
+X
+Xvoid Collapse_Full_Rows()
+X{
+X  int n;
+X
+X  if (n = Show_Full_Rows(cgp))
+X    Clear_Full_Rows(n, cgp);
+X}
+X
+Xmain()
+X{
+X  extern GamePiece *Get_Next_Piece();
+X  int bonus;
+X
+X  Initialize();
+X  /* cache((char *) 0, A_NO_BOOT & ~A_SHARED); */
+X  Reshape_Window();
+X
+X  request(MOUSE);
+X  New_Game();
+X
+X  while (1)
+X    {
+X      alarm(0);
+X      request(MOUSE);
+X
+X      while (! running)
+X	{
+X	  wait(MOUSE);
+X	  if ((own() & MOUSE) && button2())
+X	    {
+X	      int m = menuhit(&top_level_menu, 2);
+X	      switch (m)
+X		{
+X		default:
+X		  break;
+X		case 0:
+X		  New_Game();
+X		  break;
+X
+X		case 1:
+X		  running = 1;
+X		  break;
+X
+X		case 2:
+X		  exit();
+X		}
+X	    }
+X	}
+X
+X
+X      alarm(fall_speed);
+X      request(MOUSE|KBD|ALARM);
+X      
+X      while (running)
+X	{
+X	  Show_Score();
+X	  if (new_piece)
+X	    {
+X	      alarm(0);
+X	      Collapse_Full_Rows();
+X	      Clear_Shadow_Area();
+X	      cgp = ngp;
+X	      ngp = Get_Next_Piece();
+X	      cgp->cur = 0;
+X	      Show_Next_Piece(ngp);
+X
+X	      if (! Do_First_Move())
+X		{
+X		  running = 0;
+X		  new_piece = 1;
+X		  break;
+X		}
+X	      p_count++;
+X	      new_piece = 0;
+X	      ADJUST_SPEED();
+X	      alarm(fall_speed);
+X	    }
+X
+X	  wait(ALARM|MOUSE|KBD);
+X	  if ((own() & MOUSE) && button2())
+X	    {
+X	      int m = menuhit(&top_level_menu, 2);
+X	      switch (m)
+X		{
+X		default:
+X		  break;
+X		case 0:
+X		  New_Game();
+X		  break;
+X
+X		case 1:
+X		  running = 0;
+X		  break;
+X
+X		case 2:
+X		  exit();
+X		}
+X
+X	      if (! running)
+X		break;
+X	    }
+X
+X	  if (own() & ALARM)
+X	    {
+X	      alarm(0);
+X	      if (Move_Piece(cgp, Down) < 0)	/* resting */
+X		{
+X		  score += cgp->score[cgp->cur];
+X		  new_piece = 1;
+X		  continue;
+X		}
+X
+X	      alarm(fall_speed);
+X	    }
+X
+X	  if (own() & KBD)
+X	    {
+X	      switch (kbdchar())
+X		{
+X		default:
+X		  break;
+X
+X		case 0xE2:	/* right arrow */
+X		case 'l':
+X		  (void) Move_Piece(cgp, Right);
+X		  break;
+X
+X		case 0xE3:	/* left arrow */
+X		case 'h':
+X		  (void) Move_Piece(cgp, Left);
+X		  break;
+X
+X		case 0xE4:	/* home key */
+X		case 'j':
+X		  (void) Move_Piece(cgp, Clockwise);
+X		  break;
+X
+X		case 0xE0:	/* up arrow */
+X		case 'k':
+X		  (void) Move_Piece(cgp, CounterClockwise);
+X		  break;
+X
+X		case 0xE1:	/* down arrow */
+X		case ' ':
+X		  bonus = BOARD_HEIGHT - game_board.curpt.y;
+X		  (void) Move_Piece(cgp, Fall);
+X		  score += cgp->score[cgp->cur];
+X		  score += bonus/2;	/* give them half the fall distance */
+X
+X		  /* after a fall, the piece is always resting */
+X		  new_piece = 1;
+X		  break;
+X		}
+X	    }
+X	}
+X    }
+X}
+X
+END_OF_FILE
+  if test 5731 -ne `wc -c <'tetris.c'`; then
+    echo shar: \"'tetris.c'\" unpacked with wrong size!
+  fi
+  # end of 'tetris.c'
+fi
+if test -f 'tetris.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tetris.h'\"
+else
+  echo shar: Extracting \"'tetris.h'\" \(2942 characters\)
+  sed "s/^X//" >'tetris.h' <<'END_OF_FILE'
+X/**********************************************************/
+X/*                                                        */
+X/* Copyright (C) 1993 Fariborz ``Skip'' Tavakkolian       */
+X/* All rights reserved                                    */
+X/*                                                        */
+X/**********************************************************/
+X
+X#ident "$Id: tetris.h,v 1.3 93/06/13 12:29:25 fst Exp $"
+X
+X/*
+X * Description:
+X *
+X * $Log:	tetris.h,v $
+X * Revision 1.3  93/06/13  12:29:25  fst
+X * Added forward declarations, and some external function declarations.
+X * 
+X * Revision 1.2  93/06/05  22:11:25  fst
+X * Changed the RCS ``Header'' with ``Id''.
+X * 
+X * Revision 1.1  93/06/05  22:04:29  fst
+X * Initial revision
+X * 
+X */
+X
+X#ifndef	_tetris_h
+X#define	_tetris_h
+X
+X/* DMD Library Routines */
+Xextern void bitblt();
+Xextern void lprintf();
+Xextern alarm();
+Xextern int request();
+Xextern int own();
+Xextern int wait();
+Xextern Point sPtCurrent();
+X
+X
+X#define	DIM(x)	(sizeof(x)/sizeof((x)[0]))
+X
+X/* NOTE:
+X   Do not set BOARD_WIDTH greater than 16
+X   */
+X#define	BOARD_WIDTH	10
+X#define	BOARD_HEIGHT	30
+X#define	PIECES_COUNT	7
+X
+X#define	TET_INSET	4
+X#define	BBW		1
+X#define	CHARCOUNT	18
+X#define	TEXTWIDTH	(FONTWIDTH(largefont)*CHARCOUNT)
+X#define	GBW	(BOARD_WIDTH * 16)
+X#define	GBH	(BOARD_HEIGHT* 16)
+X
+X/* 1 tick = 1/60 of a second */
+X#define	FALL_SPEED	30
+X
+X/*
+X  FULL_ROW_MASK greater than FFFF wont work
+X  (see drawing.c Collapse_Full_Rows)
+X  */
+X#define	FULL_ROW_MASK	0xFFC0
+X
+Xextern Texture16 hashmark;
+X
+Xenum MoveDirection
+X{
+X  FirstMove,
+X  Fall,
+X  Left,
+X  Right,
+X  Down,
+X  Clockwise,
+X  CounterClockwise,
+X};
+X
+Xenum Boolean
+X{
+X  False = 0,
+X  True,
+X};
+X
+Xtypedef struct
+X{
+X  Point curpt;
+X  Bitmap *map;
+X} Board;
+X
+Xextern Board game_board;
+X
+Xtypedef struct
+X{
+X  int cur;
+X  Texture16 *color;	/* color for this game piece */
+X  int score[4];		/* points scored for each orientation of the piece */
+X  Bitmap *gmap_arr[4];	/* the game bitmap (one bit per brick)		   */
+X  Bitmap *smap_arr[4];	/* shape bit map.  This is built from gmap	   */
+X} GamePiece;
+X
+Xextern GamePiece *Pieces[];
+Xextern Texture16 *colors[];
+Xextern Rectangle Srect, Grect, Mrect;
+Xextern Point nploc;
+X
+X#ifdef	_STDC_
+X# define	__(x)	x
+X#else
+X# define	__(x)	()
+X#endif
+X
+X/* dmdtetris functions */
+Xextern GamePiece *Get_Next_Piece();
+X
+Xextern void Clear_Game_Board ();
+Xextern void Draw_Window      ();
+Xextern void Clear_Shadow_Area();
+Xextern void Reshape_Window   ();
+Xextern void Clear_Full_Rows  ();
+Xextern void Init_Pieces      ();
+Xextern void Initialize       ();
+X
+Xextern void Show_Next_Piece	   __((GamePiece* ));
+Xextern void Bitblit_Game_Board_XOR __((GamePiece* ));
+Xextern void Bitblit_Display_XOR	   __((GamePiece* ));
+Xextern void Bitblit_Piece_XOR	   __((GamePiece* ));
+Xextern void Set_Color		   __((Bitmap*, Texture16* ));
+Xextern void Populate_Bitmap	   __((Bitmap*, Bitmap* ));
+X
+Xextern int Show_Full_Rows();
+X
+Xextern Point default_size __((int x, int y, struct Proc* ));
+X
+X#endif	/* _tetris_h */
+END_OF_FILE
+  if test 2942 -ne `wc -c <'tetris.h'`; then
+    echo shar: \"'tetris.h'\" unpacked with wrong size!
+  fi
+  # end of 'tetris.h'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

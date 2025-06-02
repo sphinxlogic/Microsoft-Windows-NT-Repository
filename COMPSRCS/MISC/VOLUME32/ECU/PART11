@@ -1,0 +1,2309 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i046:  ecu - ECU Asynchronous Communications v3.20, Part11/40
+Message-ID: <1992Sep13.153342.5205@sparky.imd.sterling.com>
+X-Md4-Signature: abdf55d55ae00d07c4efded06efca8e5
+Date: Sun, 13 Sep 1992 15:33:42 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 46
+Archive-name: ecu/part11
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.11 (part 11 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ecuphrase.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 11; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ecuphrase.c'
+else
+echo 'x - continuing file ecuphrase.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ecuphrase.c' &&
+Xchar *phrases_label[P_N_QUAN];
+Xint phrases_count = 0;
+Xint phrases_resident = 0;
+X
+X/*+-----------------------------------------------------------------------
+X	read_phrases()
+X------------------------------------------------------------------------*/
+Xvoid
+Xread_phrases()
+X{
+Xregister char *phrases_str;
+Xchar phrases_buf[256];
+Xchar phrases_buf_copy[256];
+Xchar *phrases_lbl;
+XFILE *fd_phrase;
+X
+X	if(phrases_resident)
+X	{
+X		while(phrases_count)
+X			free(phrases_string[--phrases_count]);
+X		phrases_resident = 0;
+X	}
+X
+X	get_home_dir(phrases_buf);
+X	strcat(phrases_buf,"/.ecu/phrases");
+X
+X	if(!(fd_phrase = fopen(phrases_buf,"r")))
+X	{
+X		ff(se,"\r\n");
+X		perror(phrases_buf);
+X		ff(se,"\r\n");
+X		ff(se,"... no phrases resident\r\n");
+X		return;
+X	}
+X
+X/* we have an open .ecu/phrase file */
+X	phrases_count = 0;
+X	while(fgets(phrases_buf,sizeof(phrases_buf),fd_phrase))
+X	{
+X		phrases_buf[strlen(phrases_buf) - 1] = 0;
+X		if(strlen(phrases_buf) == 0)
+X			continue;
+X
+X		if(phrases_count == P_N_QUAN)
+X		{
+X			ff(se,"\r\nMaximum number of phrases %d exceeded\r\n",P_N_QUAN);
+X			ff(se,"rest of file ignored, starting with the following:\r\n");
+X			ff(se,"--> %s\r\n\r\n",phrases_buf);
+X			phrases_resident = 1;
+X			fclose(fd_phrase);
+X			return;
+X		}
+X		strcpy(phrases_buf_copy,phrases_buf);
+X		phrases_lbl = phrases_buf_copy;
+X		for(phrases_str = phrases_buf_copy; *phrases_str; phrases_str++)
+X		{
+X			if(*phrases_str == ':')
+X			{
+X				*phrases_str++ = 0;
+X				break;
+X			}
+X			if(*phrases_str == 0)
+X			{
+X				ff(se,"invalid entry `%s'\n",phrases_buf);
+X				continue;
+X			}
+X		}
+X
+X		if(!(phrases_string[phrases_count] = malloc(strlen(phrases_str)+2)) ||
+X		   !(phrases_label[phrases_count] = malloc(strlen(phrases_lbl)+2)))
+X		{
+X			ff(se,"\r\nNo more memory for phrases\r\n");
+X			ff(se,"rest of file ignored, starting with the following:\r\n");
+X			ff(se,"--> %s\r\n\r\n",phrases_buf);
+X			phrases_resident = 1;
+X			fclose(fd_phrase);
+X			if(phrases_string[phrases_count])
+X				free(phrases_string[phrases_count]);
+X			return;
+X		}
+X		strcpy(phrases_string[phrases_count],phrases_str);
+X		strcpy(phrases_label[phrases_count],phrases_lbl);
+X		phrases_count++;
+X	}			/* while records left to read */
+X
+X	fclose(fd_phrase);
+X	phrases_resident = 1;
+X}	/* end of read_phrases */
+X
+X/*+-------------------------------------------------------------------------
+X	phrases(nargc,nargv)
+X--------------------------------------------------------------------------*/
+Xphrases(nargc,nargv)
+Xint nargc;
+Xchar **nargv;
+X{
+Xregister itmp;
+Xregister ichar;
+Xregister char *cptr;
+Xint old_ttymode = get_ttymode();
+Xextern char *phrases_string[]; 
+Xextern int phrases_count;
+Xextern int phrases_resident;
+Xextern int icmd_prompt_len;
+X
+X	for(itmp = icmd_prompt_len + strlen(nargv[0]); itmp; itmp--)
+X		fputs("\b \b",se);
+X
+X	itmp = atoi(nargv[0]);
+X
+X	if(itmp == 0)
+X	{
+X		ff(se,"\r\n");
+X		read_phrases();
+X		if(!phrases_count)
+X			return(0);
+X		tcap_stand_out();
+X		ff(se,
+X" # |  mnemonic    |     phrase                                              ");
+X		tcap_stand_end();
+X		ff(se,"\r\n");
+X		for(itmp = 0; itmp < phrases_count; itmp++)
+X			ff(se,"%2d | %12s |  %s\r\n",itmp + 1,phrases_label[itmp],
+X						phrases_string[itmp]);
+X		return(0);
+X	}
+X	else
+X		if(phrases_resident == 0)
+X			read_phrases();
+X
+X	if(itmp > phrases_count)
+X	{
+X		ff(se,"  unknown: %d\r\n",itmp);
+X		return(-1);
+X	}
+X	else
+X	{
+X		cptr = phrases_string[itmp - 1];
+X		ttymode(2);
+X		while(*cptr)
+X		{
+X			if(sigint)
+X				break;
+X
+X			switch(ichar = *cptr++)
+X			{
+X				case '^':
+X					ichar = *cptr++;
+X					if((ichar >= '@') && (ichar <= '_'))
+X						lputc_paced(0,ichar & 0x1F);
+X					else if(ichar == '?')
+X						lputc_paced(0,0x7F);
+X					else
+X					{
+X						switch(ichar)
+X						{
+X							case 0:
+X								goto NUL_FOUND;
+X							case 'r':
+X								lputc_paced(0,'\r');
+X								break;
+X							case 'n':
+X								lputc_paced(0,'\n');
+X								break;
+X							case 't':
+X								lputc_paced(0,'\t');
+X								break;
+X							case '^':
+X								lputc_paced(0,'^'); 
+X								break;
+X							case 'p': 
+X								itmp = atoi(cptr);
+X								while((*cptr >= '0') && (*cptr <= '9'))
+X									cptr++;
+X								if(*cptr == '.')
+X									cptr++;
+X								if(!itmp)
+X									itmp = 1;
+X								Nap((long)itmp * 100L);
+X								break;
+X							case 'a':
+X								itmp = atoi(cptr);
+X								while((*cptr >= '0') && (*cptr <= '9'))
+X									cptr++;
+X								if(*cptr == '.')
+X									cptr++;
+X								if(itmp < nargc)
+X								{
+X									lputs_paced(0,nargv[itmp]);
+X									itmp = strlen(nargv[itmp]);
+X								}
+X								break;
+X						}
+X					}
+X					break;
+X				default:
+X					lputc_paced(0,ichar);
+X			}
+X		}
+X
+XNUL_FOUND:
+X		if(sigint)
+X		{
+X			sigint = 0;
+X			ff(se,"\r\n--> interrupted\r\n");
+X		}
+X
+X	}
+X
+X	ttymode(old_ttymode);
+X	return(0);
+X
+X}	/* end of phrases */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	phrase_help()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xphrase_help()
+X{
+X	ff(se,"^r == \\r    ^n == \\n   ^t == \\t  ^^ == '^'\r\n");
+X	ff(se,"^p#.  pause # secs\r\n");
+X	ff(se,"^a#.  arg number # of %%# invocation\r\n");
+X}	/* end of phrase_help */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File ecuphrase.c is complete' &&
+chmod 0644 ecuphrase.c ||
+echo 'restore of ecuphrase.c failed'
+Wc_c="`wc -c < 'ecuphrase.c'`"
+test 5683 -eq "$Wc_c" ||
+	echo 'ecuphrase.c: original size 5683, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecurcvr.c ==============
+if test -f 'ecurcvr.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecurcvr.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecurcvr.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecurcvr.c' &&
+X/* #define DEFENSIVE */
+X/* #define ANSI_DEBUG */		/* debug ansi */
+X/* #define ANSI_DEBUG_2 */		/* debug ansi intensive output */
+X/* #define ANSI_DEBUG_3 */		/* debug ansi selected output */
+X/* #define ANSI_DEBUG_NOBUF */	/* unbufferred logging */
+X/* #define ANSI_DEBUG_LOGFILE	"/dev/tty2h" */
+X/* #define DEBUG_CURSOR */
+X#ifndef LIMIT_BELL
+X#define LIMIT_BELL
+X#endif
+X/*+-------------------------------------------------------------------------
+X	ecurcvr.c - rcvr process + ANSI filter + non-ANSI<->ANSI hoop jumping
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	accumulate_ansi_sequence(rchar)
+X	ansi_CNL()
+X	ansi_CPL()
+X	ansi_CUB()
+X	ansi_CUD()
+X	ansi_CUF()
+X	ansi_CUP()
+X	ansi_CUU()
+X	ansi_DCH()
+X	ansi_DL()
+X	ansi_DSR()
+X	ansi_ECH()
+X	ansi_ED()
+X	ansi_EL()
+X	ansi_HPA()
+X	ansi_ICH()
+X	ansi_IL()
+X	ansi_SD()
+X	ansi_SGR()
+X	ansi_SU()
+X	ansi_VPA()
+X	is_ansi_terminator(rchar)
+X	lgetc_rcvr()
+X	process_ansi_sequence()
+X	process_rcvd_char(rchar)
+X	rcvd_ESC()
+X	rcvr()
+X	rcvr_log_open()
+X	rcvrdisp(buf,buflen)
+X	rcvrdisp_actual()
+X	rcvrdisp_actual2()
+X	redisplay_rcvr_screen()
+X	saved_cursor_restore_cursor()
+X	saved_cursor_save_cursor()
+X	spaces(buf,buflen)
+X	spaces_trap(code,buf,buflen)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:09-06-1992-13:29-wht@n4hgf-add receiver process buffered screen write */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:05-29-1992-13:28-wht@n4hgf-no banner - phone numbers are security risk */
+X/*:11-11-1991-14:25-wht@n4hgf-lzero_length_read_detected code */
+X/*:11-11-1991-12:45-wht@n4hgf-add LIMIT_BELL code */
+X/*:08-26-1991-16:39-wht@n4hgf2-SD was still hopelessly manic */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:07-05-1991-06:13-wht@n4hgf-SD was in baaaaadd shape */
+X/*:01-09-1991-22:31-wht@n4hgf-ISC port */
+X/*:12-26-1990-14:32-wht@n4hgf-use memset in spaces() */
+X/*:12-21-1990-21:06-wht@n4hgf-CUF and CUB set non-ansi cursor incorrectly */
+X/*:12-20-1990-16:27-wht@n4hgf-had SU and SD swapped */
+X/*:11-30-1990-18:39-wht@n4hgf-non-ansi console rcvr appears to be working */
+X/*:11-28-1990-14:13-wht@n4hgf-start non-ansi console support */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include <sys/ipc.h>
+X#include <sys/sem.h>
+X
+Xextern int errno;
+Xextern char rcvr_log_file[];	/* if rcvr_log!= 0,log filename */
+Xextern int rcvr_log;			/* rcvr log active if != 0 */
+Xextern FILE *rcvr_log_fp;		/* rcvr log file */
+Xextern int rcvr_log_raw;		/* if true, log all, else filter ctl chrs */
+Xextern int rcvr_log_append;		/* if true, append, else scratch */
+Xextern int rcvr_log_flusheach;	/* if true, flush log on each char */
+Xextern int rcvr_log_gen_title;
+X
+Xextern uint tcap_LINES;	/* terminal line quantity - see ecutcap.c */
+Xextern uint tcap_COLS;	/* terminal column quantity - see ecutcap.c */
+Xextern uint LINESxCOLS;
+X
+Xstatic char esc = ESC;
+X#define MAX_ANSI_LEN	30	/* generous */
+Xchar ansibuf[MAX_ANSI_LEN];
+Xchar *ansi;
+Xint ansilen = 0;
+Xint in_ansi_accumulation = 0;
+X
+Xint saved_cursor_y;
+Xint saved_cursor_x;
+X
+X#define RCVR_RDQUAN		250
+Xchar lgetc_buf[RCVR_RDQUAN];
+Xchar *lgetc_ptr;
+Xextern int lgetc_count;
+X
+Xuchar autorz_frame[] = { SUB, 'B', '0', '0' };
+X
+X#ifdef ANSI_DEBUG
+XFILE *wfp = (FILE *)0;
+X#endif
+X
+Xuchar non_multiscreen_hi_map[128] = {
+X/*80*/	'c','u','e','a','a','a','a','c', /* the main purpose of this ... */
+X/*88*/	'e','e','e','i','i','i','a','a', /* ... is to map ruling ... */
+X/*90*/	'e','e','a','a','a','o','u','u', /* ... characters, but as ...*/
+X/*98*/	'y','o','u','X','#','Y','P','f', /* ... a side effect, also map ... */
+X/*A0*/	'a','i','o','u','n','n','a','o', /* ... others to reasonable, ... */
+X/*A8*/	'?','-','-','%','%','|','<','>', /* ... near, amusing, or random ... */
+X/*B0*/	'#','#','#','|','+','+','+','.', /* ... printing characters as well */
+X/*B8*/	'.','+','|','.','\'','\'','\'','.',
+X/*C0*/	'`','+','+','+','-','+','+','+',
+X/*C8*/	'`','.','+','+','+','=','+','+',
+X/*D0*/	'+','+','+','`','`','.','.','+',
+X/*D8*/	'+','\'','.','#','_','|','|','-',
+X/*E0*/	'a','b','F','T','E','o','u','t',
+X/*E8*/	'I','0','O','o','o','o','e','n',
+X/*F0*/	'=','+','>','<','f','j','%','=',
+X/*F8*/	'o','.','.','V','n','2','*',' '
+X};
+X
+X/*
+X * if != 0, allow xmtr use of rcvrdisp_actual2() function to buffer,
+X * if 0, flush buffer whenever the function is called
+X */
+Xint rcvrdisp_actual2_xmtr_buffer = 0;
+X
+X/*+-------------------------------------------------------------------------
+X	rcvrdisp_p() - lock rcvrdisp mechanism
+X--------------------------------------------------------------------------*/
+X#ifdef RCVRDISP_PV
+Xvoid
+Xrcvrdisp_p()
+X{
+X	register int retn;
+X	struct sembuf sembuf;
+X
+X	sembuf.sem_num = 0;
+X	sembuf.sem_op = -1;
+X	sembuf.sem_flg = 0;
+X
+X	while(1)
+X	{
+X		if(((retn = semop(shm->rcvrdisp_semid,&sembuf,1)) >= 0) ||
+X			(errno != EINTR))
+X		{
+X			break;
+X		}
+X	}
+X
+X	if((retn < 0) && (errno != EINVAL))
+X	{
+X		extern char lopen_err_str[];
+X		strcpy(lopen_err_str,"rcvrdisp_p failed: SysV IPC error");
+X		termecu(TERMECU_IPC_ERROR);
+X	}
+X
+X}	/* end of rcvrdisp_p */
+X#endif /*  RCVRDISP_PV */
+X
+X/*+-------------------------------------------------------------------------
+X	rcvrdisp_v() - unlock rcvrdisp mechanism
+X--------------------------------------------------------------------------*/
+X#ifdef RCVRDISP_PV
+Xvoid
+Xrcvrdisp_v()
+X{
+X	register int retn;
+X	struct sembuf sembuf;
+X
+X	sembuf.sem_num = 0;
+X	sembuf.sem_op = 1;
+X	sembuf.sem_flg = 0;
+X
+X	while(1)
+X	{
+X		if(((retn = semop(shm->rcvrdisp_semid,&sembuf,1)) >= 0) ||
+X			(errno != EINTR))
+X		{
+X			break;
+X		}
+X	}
+X
+X	if((retn < 0) && (errno != EINVAL))
+X	{
+X		extern char lopen_err_str[];
+X		strcpy(lopen_err_str,"rcvrdisp_v failed: SysV IPC error");
+X		termecu(TERMECU_IPC_ERROR);
+X	}
+X}	/* end of rcvrdisp_v */
+X#endif /*  RCVRDISP_PV */
+X
+X/*+-------------------------------------------------------------------------
+X	rcvrdisp_actual() - actual write to screen
+X--------------------------------------------------------------------------*/
+Xvoid
+Xrcvrdisp_actual()
+X{
+X#ifdef RCVRDISP_PV
+X	rcvrdisp_p();
+X#endif /*  RCVRDISP_PV */
+X	if(shm->rcvrdisp_count)
+X		write(TTYOUT,shm->rcvrdisp_buffer,shm->rcvrdisp_count);
+X	shm->rcvrdisp_ptr = shm->rcvrdisp_buffer;
+X	shm->rcvrdisp_count = 0;
+X#ifdef RCVRDISP_PV
+X	rcvrdisp_v();
+X#endif /*  RCVRDISP_PV */
+X
+X}	/* end of rcvrdisp_actual */
+X
+X/*+-------------------------------------------------------------------------
+X	rcvrdisp_actual2() - for tcap, flush only if not receiver
+X--------------------------------------------------------------------------*/
+Xvoid
+Xrcvrdisp_actual2()
+X{
+X	if(rcvrdisp_actual2_xmtr_buffer || (getpid() == rcvr_pid))
+X		return;
+X#ifdef RCVRDISP_PV
+X	rcvrdisp_p();
+X#endif /*  RCVRDISP_PV */
+X	if(shm->rcvrdisp_count)
+X		write(TTYOUT,shm->rcvrdisp_buffer,shm->rcvrdisp_count);
+X	shm->rcvrdisp_ptr = shm->rcvrdisp_buffer;
+X	shm->rcvrdisp_count = 0;
+X#ifdef RCVRDISP_PV
+X	rcvrdisp_v();
+X#endif /*  RCVRDISP_PV */
+X
+X}	/* end of rcvrdisp_actual2 */
+X
+X/*+-------------------------------------------------------------------------
+X	rcvrdisp(buf,buflen) - logical write to screen
+X--------------------------------------------------------------------------*/
+Xvoid
+Xrcvrdisp(buf,buflen)
+Xchar *buf;
+Xint buflen;
+X{
+X
+X	if((buflen + shm->rcvrdisp_count) > sizeof(shm->rcvrdisp_buffer))
+X		rcvrdisp_actual();
+X	if((buflen + shm->rcvrdisp_count) > sizeof(shm->rcvrdisp_buffer))
+X	{
+X		write(TTYOUT,buf,buflen);
+X		return;
+X	}
+X#ifdef RCVRDISP_PV
+X	rcvrdisp_p();
+X#endif /*  RCVRDISP_PV */
+X	memcpy(shm->rcvrdisp_ptr,buf,buflen);
+X	shm->rcvrdisp_ptr += buflen;
+X	shm->rcvrdisp_count += buflen;
+X#ifdef RCVRDISP_PV
+X	rcvrdisp_v();
+X#endif /*  RCVRDISP_PV */
+X
+X}	/* end of rcvrdisp */
+X
+X/*+-------------------------------------------------------------------------
+X	redisplay_rcvr_screen() - redisplay logical receiver screen
+XAs of writing, this function is called only by the XMTR process
+X--------------------------------------------------------------------------*/
+Xvoid
+Xredisplay_rcvr_screen()
+X{
+X	register uint y;
+X	extern int tty_not_char_special;
+X
+X
+X	if(tty_not_char_special)
+X		return;
+X
+X	setcolor(colors_current);
+X	tcap_stand_end();
+X	for(y = 0; y < tcap_LINES; y++)
+X	{
+X		tcap_cursor(y,0);
+X		fwrite(&shm->screen[y][0],
+X			((y != tcap_LINES - 1) ? tcap_COLS : tcap_COLS - 1),1,se);
+X	}
+X	tcap_eeol();
+X	tcap_cursor(shm->cursor_y,shm->cursor_x);
+X
+X}	/* end of redisplay_rcvr_screen */
+X
+X#ifdef DEBUG_CURSOR
+Xvoid
+Xspaces_trap(code,buf,buflen)
+Xint code;
+Xregister uchar *buf;
+Xregister uint buflen;
+X{
+X	char *xyz = (char *)0x90000000;
+X	ff(se,"rcvr 'spaces trap' code %d: cursor x,y=%d,%d\r\n",
+X		code,
+X		shm->cursor_y,shm->cursor_x);
+X	ff(se,"buf=%08lx len=%08lx offs=%08lx\r\n",buf,buflen,
+X		(ulong)buf - (ulong)shm->screen);
+X	*xyz = 0;
+X	abort();
+X}
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	spaces(buf,buflen) - fill with spaces
+X--------------------------------------------------------------------------*/
+Xvoid
+Xspaces(buf,buflen)
+Xregister uchar *buf;
+Xuint buflen;
+X{
+X#ifdef DEBUG_CURSOR
+X	if((ulong)buf > (((ulong)shm->screen) + LINESxCOLS))
+X		spaces_trap(1,buf,buflen);
+X	if((ulong)buf < (ulong)shm->screen)
+X		spaces_trap(2,buf,buflen);
+X	if((ulong)(buf + buflen) > (((ulong)shm->screen) + LINESxCOLS))
+X		spaces_trap(3,buf,buflen);
+X	if((ulong)(buf + buflen) < (ulong)shm->screen)
+X		spaces_trap(4,buf,buflen);
+X#endif
+X
+X	if(!buflen)
+X		return;
+X
+X#ifdef DEFENSIVE
+X	if((ulong)buf < (ulong)shm->screen)
+X		return;
+X	if((ulong)(buf + buflen) > (((ulong)shm->screen) + LINESxCOLS))
+X		return;
+X#endif
+X
+X	memset(buf,SPACE,buflen);
+X
+X}	/* end of spaces */
+X
+X/*+-------------------------------------------------------------------------
+X	lgetc_rcvr() - rcvr version of get char from line
+X--------------------------------------------------------------------------*/
+Xint
+Xlgetc_rcvr()
+X{
+X	extern int errno;
+X
+X	if(!lgetc_count)
+X	{
+X		rcvrdisp_actual();
+X		while(lgetc_count <= 0)
+X		{
+X			errno = 0;
+X			if((lgetc_count =
+X				read(shm->Liofd,lgetc_buf,RCVR_RDQUAN)) < 0)
+X			{
+X				if(errno == EINTR)	/* if signal interrupted, ... */
+X					continue;		/* ... read again */
+X				termecu(TERMECU_LINE_READ_ERROR);
+X			}
+X			if(!lgetc_count)
+X			{
+X				lzero_length_read_detected(); /* maybe terminate program ... */
+X				continue;					/* ... but if not, read again */
+X			}
+X		}
+X		shm->rcvd_chars += lgetc_count;
+X		shm->rcvd_chars_this_connect += lgetc_count;
+X		lgetc_ptr = lgetc_buf;
+X	}
+X
+X	lgetc_count--;
+X
+X	if(shm->Lparity)
+X		return(*lgetc_ptr++ & 0x7F);
+X	else
+X		return(*lgetc_ptr++);
+X
+X}	/* end of lgetc_rcvr */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_SGR() - Set Graphics Rendition
+X
+XThe DOS ANSI world expects to be able to be able to chain 0,1 and
+X3x,4x params together with semicolons.
+X
+X  Supported modifiers for non-ansi terminals
+X  0       normal
+X  1       bold
+X  4       underscore
+X  5       blink
+X  7       reverse video
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_SGR()
+X{
+X	register itmp;
+X	register char *cptr;
+X	char SGRstr[MAX_ANSI_LEN];
+X	char *token;
+X	char *str_token();
+X
+X	if(!tty_is_multiscreen)
+X	{
+X		ansibuf[ansilen - 1] = 0;	/* get rid of 'm' */
+X		cptr = ansibuf + 1;			/* get rid of '[' */
+X		if(!strlen(cptr))
+X			goto SGR_0;
+X		while(token = str_token(cptr,";"))
+X		{
+X			cptr = (char *)0;	/* further calls to str_token need NULL */
+X			switch(atoi(token))
+X			{
+X				default:
+X				case 0:		/* normal */
+XSGR_0:
+X					tcap_stand_end();
+X					tcap_blink_off();
+X					tcap_underscore_off();
+X					tcap_bold_off();
+X					break;
+X				case 1:		/* bold */
+X					tcap_bold_on();
+X					break;
+X				case 4:		/* underscore */
+X					tcap_underscore_on();
+X					break;
+X				case 5:		/* blink */
+X					tcap_blink_on();
+X					break;
+X				case 7:		/* reverse video */
+X					tcap_stand_out();
+X					break;
+X			}
+X		}
+X		return;
+X	}
+X
+X	if(ansilen <= 3)	/* 'ESC[<0-9>m' and 'ESC[m' - quickly handled */
+X	{
+X		rcvrdisp(&esc,1);
+X		rcvrdisp(ansibuf,ansilen);
+X		return;
+X	}
+X
+X/* check XENIX 'ESC[<2,3,7>m' extensions */
+X	switch(itmp = atoi(ansibuf + 1))
+X	{
+X		case 7: /* XENIX 'ESC[7;<0-15>;<0-15>m' set fore/background color */
+X			itmp = atoi(ansibuf + 3);	/* second parameter */
+X			if(itmp > 15)				/* not XENIX extension */
+X				break;
+X			/* fall through */
+X		case 2:	/* XENIX 'ESC[2;<0-15>;<0-15>m' set fore/background color */
+X		case 3:	/* XENIX 'ESC[3;<0-1>m' color only set/clear blink */
+X			rcvrdisp(&esc,1);
+X			rcvrdisp(ansibuf,ansilen);
+X			return;
+X		default:
+X			break;
+X	}
+X
+X/* not XENIX extension */
+X	ansibuf[ansilen - 1] = 0;	/* get rid of 'm' */
+X	cptr = ansibuf + 1;			/* get rid of '[' */
+X
+X	while(token = str_token(cptr,";"))
+X	{
+X		cptr = (char *)0;	/* further calls to str_token need NULL */
+X		sprintf(SGRstr,"\033[%sm",token);
+X		rcvrdisp(SGRstr,strlen(SGRstr));
+X	}
+X
+X}	/* end of ansi_SGR */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_CUP() - cursor position (also HVP horiz/vertical position)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_CUP()
+X{
+X	register uint param_count = 0;
+X	char ansicopy[MAX_ANSI_LEN];
+X	register char *cptr = ansicopy;
+X	register char *token;
+X	char *str_token();
+X
+X	strcpy(cptr,ansibuf + 1);
+X	*(cptr + ansilen - 2) = 0;
+X
+X	while(token = str_token(cptr,";"))
+X	{
+X		cptr = (char *)0;	/* further calls to str_token need NULL */
+X		switch(++param_count)
+X		{
+X			case 1:	shm->cursor_y = atoi(token) - 1; break;
+X			case 2:	shm->cursor_x = atoi(token) - 1; break;
+X		}
+X	}
+X	switch(param_count)
+X	{
+X		case 0:
+X			shm->cursor_y = 0;
+X		case 1:
+X			shm->cursor_x = 0;
+X	}
+X	if(shm->cursor_x >= tcap_COLS)
+X		shm->cursor_x = 0;
+X	if(shm->cursor_y >= tcap_LINES)
+X		shm->cursor_y = 0;
+X
+X	if(!tty_is_multiscreen)
+X		tcap_cursor(shm->cursor_y,shm->cursor_x);
+X
+X}	/* end of ansi_CUP */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_CUU() - cursor up
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_CUU()
+X{
+X	register uint count;
+X	register uint y;
+X
+X	if(ansilen == 2)		/* no param */
+X		count = 1;
+X	else
+X		count = atoi(ansibuf + 1);
+X
+X	y = shm->cursor_y - count;
+X	if(y >= tcap_LINES)	/* unsigned comparison */
+X		y = 0;
+X
+X	if(y != shm->cursor_y)
+X	{
+X		shm->cursor_y = y;
+X		if(!tty_is_multiscreen)
+X			tcap_cursor(shm->cursor_y,shm->cursor_x);
+X	}
+X
+X}	/* end of ansi_CUU */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_CUD() - cursor down (also VPR vertical position relative)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_CUD()
+X{
+X	register uint count;
+X	register uint y;
+X
+X	if(ansilen == 2)		/* no param */
+X		count = 1;
+X	else
+X		count = atoi(ansibuf + 1);
+X
+X	y = shm->cursor_y + count;
+X	if(y >= tcap_LINES)
+X		y = tcap_LINES - 1;
+X
+X	if(y != shm->cursor_y)
+X	{
+X		shm->cursor_y = y;
+X		if(!tty_is_multiscreen)
+X			tcap_cursor(shm->cursor_y,shm->cursor_x);
+X	}
+X
+X}	/* end of ansi_CUD */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_CUF() - cursor forward (also HPR horizontal position relative)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_CUF()
+X{
+X	register uint count;
+X	register uint x;
+X
+X	if(ansilen == 2)		/* no param */
+X		count = 1;
+X	else
+X		count = atoi(ansibuf + 1);
+X
+X	x = shm->cursor_x + count;
+X	if(x >= tcap_COLS)
+X		x = tcap_COLS - 1;
+X
+X	if(x != shm->cursor_x)
+X	{
+X		shm->cursor_x = x;
+X		if(!tty_is_multiscreen)
+X			tcap_cursor(shm->cursor_y,shm->cursor_x);
+X	}
+X
+X}	/* end of ansi_CUF */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_CUB() - cursor forward
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_CUB()
+X{
+X	register uint count;
+X	register uint x;
+X
+X	if(ansilen == 2)		/* no param */
+X		count = 1;
+X	else
+X		count = atoi(ansibuf + 1);
+X
+X	x = shm->cursor_x - count;
+X	if(x >= tcap_COLS)	/* unsigned comparison */
+X		x = 0;
+X
+X	if(x != shm->cursor_x)
+X	{
+X		shm->cursor_x = x;
+X		if(!tty_is_multiscreen)
+X			tcap_cursor(shm->cursor_y,shm->cursor_x);
+X	}
+X
+X}	/* end of ansi_CUB */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_DSR() - device status report
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_DSR()
+X{
+X	char response[MAX_ANSI_LEN];
+X
+X	sprintf(response,"\033[%d;%dR",shm->cursor_y + 1,shm->cursor_x + 1);
+X	write(shm->Liofd,response,strlen(response));
+X
+X}	/* end of ansi_DSR */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_ED() - erase in display
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_ED()
+X{
+X	register uint param;
+X	int y;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 0;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	switch(param)
+X	{
+X		case 0:	/* erase to end of display */
+X			spaces(&shm->screen[shm->cursor_y][shm->cursor_x],
+X				LINESxCOLS - ((shm->cursor_y * tcap_COLS) + shm->cursor_x));
+X			if(!tty_is_multiscreen)
+X				tcap_eeod();
+X			break;
+X		case 1:	/* erase from beginning of display */
+X			spaces((char *)shm->screen,(shm->cursor_y * tcap_COLS) +
+X				shm->cursor_x);
+X			if(!tty_is_multiscreen)
+X			{
+X				for(y = 0; y < shm->cursor_y - 1; y++)
+X				{
+X					tcap_cursor(y,0);
+X					tcap_eeol();
+X				}
+X				if(shm->cursor_x)
+X				{
+X					tcap_cursor(shm->cursor_y,0);
+X					tcap_clear_area_char(shm->cursor_x,' ');
+X				}
+X				else
+X					tcap_cursor(shm->cursor_y,shm->cursor_x);
+X			}
+X			break;
+X		case 2:	/* clear display */
+X			shm->cursor_y = 0;
+X			shm->cursor_x = 0;
+X			spaces((char *)shm->screen,LINESxCOLS);
+X			if(!tty_is_multiscreen)
+X			{
+X				tcap_clear_screen();
+X				tcap_cursor(shm->cursor_y,shm->cursor_x);
+X			}
+X			break;
+X	}
+X
+X}	/* end of ansi_ED */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_EL() - erase in line
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_EL()
+X{
+X	register uint param;
+X	char cr = CRET;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 0;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	switch(param)
+X	{
+X		case 2:	/* clear line */
+X			shm->cursor_x = 0;
+X			if(!tty_is_multiscreen)
+X				rcvrdisp(&cr,1);
+X			/* fall thru */
+X		case 0:	/* erase to end of line */
+X			spaces(&shm->screen[shm->cursor_y][shm->cursor_x],
+X				tcap_COLS - shm->cursor_x);
+X			if(!tty_is_multiscreen)
+X				tcap_eeol();
+X			break;
+X		case 1:	/* erase from beginning of line */
+X			spaces(&shm->screen[shm->cursor_y][0],shm->cursor_x);
+X			if(!tty_is_multiscreen && shm->cursor_x)
+X			{
+X				rcvrdisp(&cr,1);
+X				tcap_clear_area_char(shm->cursor_x,' ');
+X			}
+X			break;
+X	}
+X
+X}	/* end of ansi_EL */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_ECH() - erase characters
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_ECH()
+X{
+X	register uint param;
+X	register uint screen_pos;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if((shm->cursor_x + param) >= tcap_COLS)
+X		return;
+X
+X	screen_pos = (shm->cursor_y * tcap_COLS) + shm->cursor_x;
+X	mem_cpy((char *)shm->screen + screen_pos,
+X	       (char *)shm->screen + screen_pos + param,param);
+X	spaces((char *)shm->screen + ((shm->cursor_y + 1) * tcap_COLS) -
+X				param,param);
+X
+X	if(!tty_is_multiscreen)
+X		tcap_delete_chars(param);
+X
+X}	/* end of ansi_ECH */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_SU() - scroll up (new blank lines at the bottom)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_SU()
+X{
+X	register uint param;
+X	register uint count;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if(param > tcap_LINES)
+X		param = tcap_LINES;
+X	if(!param)
+X		return;
+X
+X#ifdef ANSI_DEBUG_3
+X	if(wfp)
+X		fprintf(wfp,"SU: param=%u y,x=%d,%d\n",param,
+X			shm->cursor_y,shm->cursor_x);
+X#endif
+X
+X	count = tcap_COLS * param;
+X	mem_cpy((char *)shm->screen,(char *)shm->screen + count,
+X		LINESxCOLS - count);
+X	spaces((char *)shm->screen + LINESxCOLS - count,count);
+X
+X	if(!tty_is_multiscreen)
+X	{
+X		tcap_cursor(tcap_LINES - 1,0);
+X		while(param--)
+X			ff(se,"\r\n");
+X		tcap_cursor(shm->cursor_y,shm->cursor_x);
+X	}
+X
+X}	/* end of ansi_SU */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_SD() - scroll down (new blank lines at the top)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_SD()
+X{
+X	register uint param;
+X	register uint count;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if(param > tcap_LINES)
+X		param = tcap_LINES;
+X	if(!param)
+X		return;
+X
+X#ifdef ANSI_DEBUG_3
+X	if(wfp)
+X		fprintf(wfp,"SD: param=%u y,x=%d,%d\n",param,
+X			shm->cursor_y,shm->cursor_x);
+X#endif
+X
+X	count = tcap_COLS * param;
+X	mem_cpy((char *)shm->screen,(char *)shm->screen + count,
+X		LINESxCOLS - count);
+X	spaces((char *)shm->screen + LINESxCOLS - count,count);
+X
+X	if(!tty_is_multiscreen)
+X	{
+X		tcap_cursor(0,0);
+X		tcap_insert_lines(param);
+X		tcap_cursor(shm->cursor_y,shm->cursor_x);
+X	}
+X
+X}	/* end of ansi_SD */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_HPA() - horizontal position absolute
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_HPA()
+X{
+X	register uint param;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if(param >= tcap_LINES)
+X		return;
+X
+X	if((unsigned)(shm->cursor_x = param) >= (unsigned)tcap_COLS)
+X		shm->cursor_x = tcap_COLS - 1;
+X
+X	if(!tty_is_multiscreen)
+X		tcap_cursor(shm->cursor_y,shm->cursor_x);
+X
+X}	/* end of ansi_HPA */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_VPA() - vertical position absolute
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_VPA()
+X{
+X	register uint param;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if(param >= tcap_COLS)
+X		return;
+X
+X	if((unsigned)(shm->cursor_y = param) >= (unsigned)tcap_LINES)
+X		shm->cursor_y = tcap_LINES - 1;
+X
+X	if(!tty_is_multiscreen)
+X		tcap_cursor(shm->cursor_y,shm->cursor_x);
+X
+X}	/* end of ansi_VPA */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_IL() - insert lines
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_IL()
+X{
+X	register uint param;
+X	register uint count;
+X	register uint screen_pos;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if((shm->cursor_y + param) >= tcap_LINES)
+X		return;
+X
+X	count = tcap_COLS * param;
+X	screen_pos = shm->cursor_y * tcap_COLS;
+X	mem_cpy((char *)shm->screen + screen_pos + count,
+X	       (char *)shm->screen + screen_pos,
+X		   LINESxCOLS - screen_pos - count);
+X	spaces((char *)shm->screen + screen_pos,count);
+X
+X	if(!tty_is_multiscreen)
+X		tcap_insert_lines(param);
+X
+X}	/* end of ansi_IL */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_ICH() - insert characters
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_ICH()
+X{
+X	register uint param;
+X	register uint count;
+X	register uint screen_pos;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if(param > tcap_COLS - shm->cursor_x)
+X		param = tcap_COLS - shm->cursor_x;
+X
+X	if(!param)
+X		return;
+X
+X	screen_pos = (shm->cursor_y * tcap_COLS) + shm->cursor_x;
+X	count = tcap_COLS - shm->cursor_x - param;
+X	mem_cpy((char *)shm->screen + screen_pos + param,
+X	       (char *)shm->screen + screen_pos,count);
+X	spaces((char *)shm->screen + screen_pos,param);
+X
+X	if(!tty_is_multiscreen)
+X		tcap_insert_chars(param);
+X
+X}	/* end of ansi_ICH */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_DL() - delete lines
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_DL()
+X{
+X	register uint param;
+X	register uint count;
+X	register uint screen_pos;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if(param > (tcap_LINES - shm->cursor_y))
+X		param = tcap_LINES - shm->cursor_y;
+X
+X	if(!param)
+X		return;
+X
+X	count = tcap_COLS * param;
+X	screen_pos = shm->cursor_y * tcap_COLS;
+X	mem_cpy((char *)shm->screen + screen_pos,
+X		   (char *)shm->screen + screen_pos + count,
+X			LINESxCOLS - screen_pos - count);
+X	spaces((char *)shm->screen + LINESxCOLS - count,count);
+X
+X	if(!tty_is_multiscreen)
+X		tcap_delete_lines(param);
+X
+X}	/* end of ansi_DL */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_DCH() - delete characters
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_DCH()
+X{
+X	register uint param;
+X	register uint count;
+X	register uint screen_pos;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if(param > tcap_COLS - shm->cursor_x)
+X		param = tcap_COLS - shm->cursor_x;
+X
+X	if(!param)
+X		return;
+X
+X	screen_pos = (shm->cursor_y * tcap_COLS) + shm->cursor_x;
+X	count = tcap_COLS - shm->cursor_x - param;
+X	mem_cpy((char *)shm->screen + screen_pos,
+X	        (char *)shm->screen + screen_pos + param,count);
+X	screen_pos = ((shm->cursor_y + 1) * tcap_COLS) - param;
+X	spaces((char *)shm->screen + screen_pos,param);
+X
+X	if(!tty_is_multiscreen)
+X		tcap_delete_chars(param);
+X
+X}	/* end of ansi_DCH */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_CPL() - cursor to previous line
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_CPL()
+X{
+X	register uint param;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if((shm->cursor_y -= param) >= tcap_LINES)	/* unsigned comparison */
+X		shm->cursor_y = 0;
+X	shm->cursor_x = 0;
+X
+X	if(!tty_is_multiscreen)
+X		tcap_cursor(shm->cursor_y,shm->cursor_x);
+X
+X}	/* end of ansi_CPL */
+X
+X/*+-------------------------------------------------------------------------
+X	ansi_CNL() - cursor to next line
+X--------------------------------------------------------------------------*/
+Xvoid
+Xansi_CNL()
+X{
+X	register uint param;
+X
+X	if(ansilen == 2)		/* no param */
+X		param = 1;
+X	else
+X		param = atoi(ansibuf + 1);
+X
+X	if((shm->cursor_y += param) >= tcap_LINES)
+X		shm->cursor_y = tcap_LINES - 1;
+X	shm->cursor_x = 0;
+X
+X	if(!tty_is_multiscreen)
+X		tcap_cursor(shm->cursor_y,shm->cursor_x);
+X
+X}	/* end of ansi_CNL */
+X
+X/*+-------------------------------------------------------------------------
+X	saved_cursor_save_cursor() - nice but unfortunate IBM extension
+X
+XI can't find this used anywhere but in the DOS world.  Supporting this
+Xpair of sequences is what started this whole complex mess.
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsaved_cursor_save_cursor()
+X{
+X	saved_cursor_y = shm->cursor_y;
+X	saved_cursor_x = shm->cursor_x;
+X}	/* end of saved_cursor_save_cursor */
+X
+X/*+-------------------------------------------------------------------------
+X	saved_cursor_restore_cursor() - nice but unfortunate IBM extension
+X
+XI can't find this used anywhere but in the DOS world.  Supporting this
+Xpair of sequences is what started this whole complex mess.
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsaved_cursor_restore_cursor()
+X{
+X	shm->cursor_y = saved_cursor_y;
+X	shm->cursor_x = saved_cursor_x;
+X	tcap_cursor(shm->cursor_y,shm->cursor_x);
+X}	/* end of saved_cursor_restore_cursor */
+X
+X/*+-------------------------------------------------------------------------
+X	rcvd_ESC() - ESC seen-prepare to accumulate ansi sequence
+X--------------------------------------------------------------------------*/
+Xvoid
+Xrcvd_ESC()
+X{
+X#ifdef ANSI_DEBUG
+X	if(wfp)
+X		fprintf(wfp,"ESC ");
+X#endif
+X
+X	ansi = ansibuf;
+X	ansilen = 0;
+X	in_ansi_accumulation = 1;
+X
+X}	/* end of rcvd_ESC */
+X
+X/*+-------------------------------------------------------------------------
+X	is_ansi_terminator(rchar) - is character terminator for ansi sequence?
+X--------------------------------------------------------------------------*/
+Xint
+Xis_ansi_terminator(rchar)
+Xregister uint rchar;
+X{
+X	return(isalpha(rchar) || (rchar == '@'));
+X}	/* end of is_ansi_terminator */
+X
+X/*+-------------------------------------------------------------------------
+X	accumulate_ansi_sequence(rchar)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xaccumulate_ansi_sequence(rchar)
+Xuint rchar;
+X{
+X	if(ansilen == (MAX_ANSI_LEN - 2))
+X	{
+X		in_ansi_accumulation = 0;
+X		return;
+X	}
+X
+X#ifdef ANSI_DEBUG_2
+X	if(wfp)
+X	{
+X		fprintf(wfp,"\naas: %02x %c ansilen=%d",
+X			rchar,(rchar & 0x7F < SPACE) ? '.' : (rchar & 0x7F),ansilen);
+X	}
+X#endif
+X
+X	*ansi++ = (uchar)rchar;
+X	*ansi   = 0;
+X	ansilen++;
+X
+X}	/* end of accumulate_ansi_sequence */
+X
+X/*+-------------------------------------------------------------------------
+X	process_ansi_sequence() - a full ansi sequence is to be decoded
+X--------------------------------------------------------------------------*/
+Xvoid
+Xprocess_ansi_sequence()
+X{
+X	register itmp;
+X
+X#ifdef ANSI_DEBUG
+X	if(wfp)
+X		fprintf(wfp,"\npas: len=%d '%s' y,x=%d,%d\n",ansilen,ansibuf,
+X			shm->cursor_y,shm->cursor_x);
+X#endif
+X
+X	if(!in_ansi_accumulation)
+X		return;
+X	in_ansi_accumulation = 0;
+X
+X	itmp = 1;		/* assume write needed */
+X	if((ansilen > 1) && (ansibuf[1] == '='))
+X		;
+X	else switch(ansibuf[ansilen - 1])
+X	{
+X		case '@': ansi_ICH(); break;
+X		case 'A': ansi_CUU(); break;
+X		case 'B': ansi_CUD(); break;
+X		case 'C': ansi_CUF(); break;
+X		case 'D': ansi_CUB(); break;
+X		case 'E': ansi_CNL(); break;
+X		case 'F': ansi_CPL(); break;
+X		case 'H': ansi_CUP(); break;
+X		case 'J': ansi_ED(); break;
+X		case 'K': ansi_EL(); break;
+X		case 'L': ansi_IL(); break;
+X		case 'M': ansi_DL(); break;
+X		case 'P': ansi_DCH(); break;
+X		case 'S': ansi_SU(); break;
+X		case 'T': ansi_SD(); break;
+X		case 'X': ansi_ECH(); break;
+X		case '`': ansi_HPA(); break;
+X		case 'a': ansi_CUF(); break; /* HPR */
+X		case 'd': ansi_VPA(); break;
+X		case 'e': ansi_CUD(); break; /* VPR */
+X		case 'f': ansi_CUP(); break; /* HVP */
+X		case 'm': ansi_SGR(); itmp = 0; break;
+X		case 'n': ansi_DSR(); itmp = 0; break;
+X		case 's': saved_cursor_save_cursor(); itmp = 0; break;
+X		case 'u': saved_cursor_restore_cursor(); itmp = 0; break;
+X#ifdef FUTURES
+X		case 'h': ansi_SM(); break;	/* Set Mode: SCO: lock keyboard
+X									 *           MSDOS: host of shit */
+X		case 'i': ansi_MC(); break;	/* Media Copy: send screen to line */
+X		case 'l': ansi_RM(); break;	/* Reset Mode: SCO: unlock keyboard
+X									 *             MSDOS: host of shit */
+X#endif /* FUTURES */
+X		default:
+X			break;
+X	}
+X
+X/* if proper ansi console and indicated, write the buffer to the screen */
+X	if(tty_is_multiscreen && itmp)
+X	{
+X		rcvrdisp(&esc,1);
+X		rcvrdisp(ansibuf,ansilen);
+X	}
+X
+X#ifdef ANSI_DEBUG
+X	if(wfp)
+X		fprintf(wfp,"pas: new cursor y,x=%d,%d\n",shm->cursor_y,shm->cursor_x);
+X#endif
+X}	/* end of process_ansi_sequence */
+X
+X/*+-------------------------------------------------------------------------
+X	rcvr_log_open()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xrcvr_log_open()
+X{
+X
+X	if(rcvr_log)		/* if xmtr set us up for logging */
+X	{
+X		rcvr_log_fp = fopen(rcvr_log_file,rcvr_log_append ? "a" : "w");
+X		rcvr_log_append = 1;	/* until next %log -s */
+X		if(!rcvr_log_fp)
+X		{
+X			ff(se,"ecu RCVR: Could not open log file: %s\r\n",rcvr_log_file);
+X			ff(se,"recording aborted.\r\n");
+X			rcvr_log = 0;
+X		}
+X		else if(!rcvr_log_raw && rcvr_log_gen_title)
+X		{
+X#if 0 /* decommitted - security risk */
+X			char tstr[80];
+X			get_tod(2,tstr);
+X			fprintf(rcvr_log_fp,"\n====> %s (%s, %s, %s) %s\n\n",
+X				shm->Lrname,shm->Llogical,
+X				shm->Ldescr,(shm->Ltelno[0]) ? shm->Ltelno : "NONE",tstr);
+X#endif
+X		}
+X		rcvr_log_gen_title = 0;
+X	}
+X}	/* end of rcvr_log_open */
+X
+X/*+-------------------------------------------------------------------------
+X	process_rcvd_char(rchar) - process a received character
+X
+XReturn 0 if char should be written to console, 1 otherwise
+X--------------------------------------------------------------------------*/
+Xint
+Xprocess_rcvd_char(rchar)
+Xregister uint rchar;
+X{
+X	register itmp;
+X#ifdef LIMIT_BELL
+X	long now;
+X	static long last_bell_time = -1L;
+X#endif
+X
+X	/*
+X	 * automatic ZMODEM frame detection (expensive CPU burners for lazy folks)
+X	 */
+X	if(shm->autorz)
+X	{
+X		if((uchar)rchar == autorz_frame[shm->autorz_pos])
+X		{
+X			itmp = shm->autorz_pos;	/* copy to register trying to be quick */
+X			if(++itmp == sizeof(autorz_frame))
+X			{
+X				if(lgetc_count)
+X				{
+X					rcvrdisp(lgetc_ptr,lgetc_count);
+X					lgetc_count = 0;
+X				}
+X				shmr_notify_zmodem_frame();
+X				pause();		/* wait for death */
+X				itmp = 0;		/* in case something starts us up */
+X			}
+X			shm->autorz_pos = itmp;
+X			return(!itmp);	/* don't try to print ^X */
+X		}
+X		else
+X			shm->autorz_pos = 0;
+X	}
+X
+X	/*
+X	 * BEL and alarm-on-incoming-data processing
+X	 */
+X	if(shm->bell_notify_state == 2)
+X	{
+X		shm->bell_notify_state = 1;
+X		bell_notify(XBELL_3T);
+X	}
+X	else if(rchar == BEL)
+X	{
+X#ifdef LIMIT_BELL
+X		time(&now);
+X		if((now - last_bell_time) < 2L)
+X			return(1);
+X		last_bell_time = now;
+X#endif
+X		bell_notify(XBELL_ATTENTION);
+X		return(0);
+X	}
+X
+X	/*
+X	 * video control sequences
+X	 */
+X	if(rchar == ESC)
+X	{
+X		rcvd_ESC();
+X		return(1);
+X	}
+X	else if(in_ansi_accumulation)
+X	{
+X		accumulate_ansi_sequence(rchar);
+X		if(is_ansi_terminator(rchar))
+X			process_ansi_sequence();
+X		return(1);
+X	}
+X
+X	/*
+X	 * the bread and butter of the receiver:
+X	 * print printable characters and obey formatting characters
+X	 */
+X	if(rchar < SPACE)
+X	{
+X		switch(rchar)
+X		{
+X			case CTL_L:
+X				spaces((char *)shm->screen,LINESxCOLS);
+X				shm->cursor_y = 0;
+X				shm->cursor_x = 0;
+X				break;
+X
+X			case BS:
+X				if(shm->cursor_x)
+X					shm->cursor_x--;
+X				break;
+X
+X			case NL:
+X				if(shm->cursor_y != tcap_LINES - 1)
+X					shm->cursor_y++;
+X				else
+X				{
+X					mem_cpy((char *)shm->screen,(char *)shm->screen + tcap_COLS,
+X						LINESxCOLS - tcap_COLS);
+X					spaces(&shm->screen[shm->cursor_y][0],tcap_COLS);
+X				}
+X				break;
+X
+X			case CRET:
+X				shm->cursor_x = 0;
+X				break;
+X
+X			case TAB:
+X				itmp = 8 - (shm->cursor_x % 8);
+X				shm->cursor_x += itmp;
+X				if(shm->cursor_x >= tcap_COLS)
+X				{
+X					shm->cursor_x = 0;
+X					if(++shm->cursor_y >= tcap_LINES)
+X						shm->cursor_y = tcap_LINES - 1;
+X				}
+X				spaces(&shm->screen[shm->cursor_y][shm->cursor_x],itmp);
+X				break;
+X
+X#ifdef TANDEM_ENQ_ACK	/* for my friend John Dashner at Tandem */
+X			case ENQ:
+X				lputc(ACK);
+X				return(0);
+X#endif
+X
+X		}
+X	}
+X	else
+X	{
+X		shm->screen[shm->cursor_y][shm->cursor_x++] = (uchar)rchar;
+X		if(shm->cursor_x >= tcap_COLS)
+X		{
+X			shm->cursor_x = 0;
+X			if(shm->cursor_y != tcap_LINES - 1)
+X				shm->cursor_y++;
+X			else
+X			{
+X				mem_cpy((char *)shm->screen,(char *)shm->screen + tcap_COLS,
+X					LINESxCOLS - tcap_COLS);
+X				spaces(&shm->screen[shm->cursor_y][shm->cursor_x],tcap_COLS);
+X			}
+X		}
+X	}
+X
+X#ifdef ANSI_DEBUG_2
+X	if(wfp)
+X	{
+X		if((rchar & 0x7F) == NL)
+X			fputs("\n",wfp);
+X		else
+X			fputc(((rchar & 0x7F) < SPACE) ? '.' : (rchar & 0x7F),wfp);
+X	}
+X#endif
+X
+X	/*
+X	 * receiver logging
+X	 */
+X	if(rcvr_log && rcvr_log_fp)
+X	{
+X		/* if raw mode or character not excluded from "cooked" logging */
+X		if(rcvr_log_raw || ((rchar >= SPACE) && (rchar <= '~')) ||
+X			 (rchar == NL) || (rchar == TAB))
+X		{
+X			LOGPUTC(rchar,rcvr_log_fp);
+X		}
+X		/* back if log file if not raw and char is backspace */
+X		else if(!rcvr_log_raw && (rchar == BS))
+X		{
+X		long logpos = 0;
+X			if(logpos = ftell(rcvr_log_fp))
+X				fseek(rcvr_log_fp,logpos - 1,0);
+X		}
+X
+X		if(rcvr_log_flusheach)
+X			fflush(rcvr_log_fp);
+X	}
+X	return(0);
+X
+X}	/* end of process_rcvd_char */
+X
+X/*+-----------------------------------------------------------------------
+X	rcvr() - copy characters from remote line to screen
+X------------------------------------------------------------------------*/
+Xvoid
+Xrcvr()
+X{
+X	uchar rchar;
+X	uchar nlchar = NL;
+X
+X#ifdef ANSI_DEBUG
+Xchar s80[80];
+X	wfp = fopen(ANSI_DEBUG_LOGFILE,"a");
+X	if(ulindex(ANSI_DEBUG_LOGFILE,"/dev/tty") != -1)
+X	{
+X		sprintf(s80,"stty opost ocrnl < %s",ANSI_DEBUG_LOGFILE);
+X		system(s80);
+X	}
+X	fprintf(wfp,"***************\n");
+X#ifdef ANSI_DEBUG_NOBUF
+X	setbuf(wfp,NULL);
+X#endif /* ANSI_DEBUG_NOBUF */
+X#endif /* ANSI_DEBUG */
+X
+X	rcvr_pid = getpid();
+X	shm->autorz_pos = 0;
+X	lgetc_count = 0;
+X	in_ansi_accumulation = 0;
+X	ansi = ansibuf;
+X	ansilen = 0;
+X	shm->rcvrdisp_ptr = shm->rcvrdisp_buffer;
+X	shm->rcvrdisp_count = 0;
+X
+X/* yetch - magic number gretching for lines and columns */
+X	if(!tcap_LINES || !tcap_COLS)
+X	{
+X		tcap_LINES = 25;
+X		tcap_COLS = 80;
+X	}
+X	if(tcap_LINES > SCREEN_LINES_MAX)
+X		tcap_LINES = SCREEN_LINES_MAX;
+X	if(tcap_COLS > SCREEN_COLS_MAX)
+X		tcap_COLS = SCREEN_COLS_MAX;
+X	LINESxCOLS = tcap_LINES * tcap_COLS;
+X
+X	rcvr_signals();
+X	rcvr_log_open();
+X
+X	saved_cursor_y = shm->cursor_y;
+X	saved_cursor_x = shm->cursor_x;
+X
+X/* receive loop - keep tight as possible! */
+X	if(tty_is_multiscreen)
+X	{
+X		while(1)
+X		{
+X			rchar = lgetc_rcvr();
+X
+X			if(process_rcvd_char(rchar))
+X				continue;
+X
+X			rcvrdisp((char *)&rchar,1);
+X
+X			if(shm->Ladd_nl_incoming && (rchar == CRET))
+X				rcvrdisp((char *)&nlchar,1);
+X		}
+X	}
+X	else
+X	{
+X		while(1)
+X		{
+X			rchar = lgetc_rcvr();
+X
+X			if(rchar >= 0x80)
+X				rchar = non_multiscreen_hi_map[rchar - 0x80];
+X
+X			if(process_rcvd_char(rchar))
+X				continue;
+X
+X			rcvrdisp((char *)&rchar,1);
+X
+X			if(shm->Ladd_nl_incoming && (rchar == CRET))
+X				rcvrdisp((char *)&nlchar,1);
+X		}
+X	}
+X}	/* end of rcvr */
+X
+X/* end of ecurcvr.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecurcvr.c ||
+echo 'restore of ecurcvr.c failed'
+Wc_c="`wc -c < 'ecurcvr.c'`"
+test 37081 -eq "$Wc_c" ||
+	echo 'ecurcvr.c: original size 37081, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuscrdump.c ==============
+if test -f 'ecuscrdump.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuscrdump.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuscrdump.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuscrdump.c' &&
+X#define MULTISCREEN_DUMP_BUG
+X/*+-------------------------------------------------------------------------
+X	ecuscrdump.c - screen dump
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	screen_dump(scrfile)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:05-29-1992-13:28-wht@n4hgf-no banner - phone numbers are security risk */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:12-21-1990-17:27-wht@n4hgf-non-ansi considerations */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "pc_scr.h"
+X
+Xextern char curr_dir[CURR_DIRSIZ];		/* current working directory */
+Xextern uint tcap_LINES;
+Xextern uint tcap_COLS;
+Xextern struct termio tty_termio_at_entry;
+Xextern int tty_not_char_special;
+Xextern int tty_is_multiscreen;
+X
+Xchar screen_dump_file_name[256];
+X
+X/*+-------------------------------------------------------------------------
+X	screen_dump(scrfile) - dump physical display contents
+Xunless stdin is non-multiscreen and/or /dev/null, in which case,
+Xdump rcvr virtual screen
+Xif scrfile == NULL, default to ~/.ecu/screen.dump
+X--------------------------------------------------------------------------*/
+Xvoid
+Xscreen_dump(scrfile)
+Xchar *scrfile;
+X{
+X	uchar schar;
+X	uchar s256[256];
+X	register uchar *cptr = s256;
+X	uchar *sptr = (uchar *)shm->screen;
+X	int srow = 0;
+X	int scol = 0;
+X	FILE *fp;
+X	struct termio dump_tty_termio_at_entry;
+X	struct termio dump_tty_termio_current;
+X	int restart_rcvr = need_rcvr_restart();
+X	int use_ansi_MC = !(!tty_is_multiscreen || tty_not_char_special);
+X	uint lines_left = tcap_LINES;
+X
+X	kill_rcvr_process(SIGUSR1);
+X
+X	if(use_ansi_MC)
+X	{
+X		/* save keyboard termio at entry */
+X		ioctl(TTYIN,TCGETA,(char *)&dump_tty_termio_at_entry);
+X
+X		/* set keyboard to termio status at staart of execution of program 
+X		 * plus a few mods
+X		 */
+X
+X		dump_tty_termio_current = tty_termio_at_entry;
+X		dump_tty_termio_current.c_cflag &= ~(PARENB | PARODD);
+X		dump_tty_termio_current.c_cflag |= CS8;
+X		dump_tty_termio_current.c_iflag &= ~(ISTRIP);
+X		dump_tty_termio_current.c_lflag &= ~(ICANON | ISIG | ECHO);
+X		ioctl(TTYIN,TCSETAW,(char *) &dump_tty_termio_current);
+X		ttyflush(2);
+X	}
+X
+X	if(scrfile)
+X		fp = fopen(scrfile,"a");
+X	else
+X	{
+X		get_home_dir(s256);
+X		strcat((char *)s256,"/.ecu/screen.dump");
+X		fp = fopen((char *)s256,"a");
+X	}
+X	if(!fp)
+X	{
+X#if defined(MORSE)
+X		xbell(XBELL_DONE,1);
+X#else
+X		ring_bell();
+X		Nap(50L);
+X		ring_bell();
+X#endif
+X		return;
+X	}
+X
+X#if 0 /* decommitted - security risk */
+X	get_tod(2,s256);
+X	fprintf(fp,"==> %s: %s (phone %s)\n",
+X		s256,shm->Ldescr,(shm->Ltelno[0]) ? shm->Ltelno : "NONE");
+X#endif
+X
+X	if(use_ansi_MC)
+X		write(1,"\033[2i",4);	/* spill your guts, screen */
+X
+X	while(1)
+X	{
+X		if(use_ansi_MC)
+X		{
+X			if(!ttyrdchk())
+X			{
+X				Nap(hzmsec * 3);
+X				if(!ttyrdchk())
+X					break;
+X			}
+X			read(0,(char *)&schar,1);
+X			if(!lines_left)
+X				continue;
+X		}
+X		else
+X		{
+X			if(srow == tcap_LINES)
+X				break;
+X			if(scol == tcap_COLS)
+X			{
+X				scol = 0;
+X				srow++;
+X				schar = NL;
+X			}
+X			else
+X			{
+X				schar = *sptr++;
+X				scol++;
+X			}
+X		}
+X
+X		if((schar > 0x7E) || (schar < 0x20))
+X		{
+X			switch(schar)
+X			{
+X			case NL:
+X				while((cptr > s256) && (*(cptr - 1) == ' '))
+X					cptr--;
+X				*cptr++ = 0x0A;
+X				*cptr = 0;
+X				fputs((char *)s256,fp);
+X				cptr = s256;
+X				*cptr = 0;
+X				--lines_left;
+X				continue;
+X
+X			case at_TL:		
+X				schar = vanilla_TL;
+X				break;
+X			case at_TR:
+X				schar = vanilla_TR;
+X				break;
+X			case at_BL:		
+X				schar = vanilla_BL;
+X				break;
+X			case at_BR:		
+X				schar = vanilla_BR;
+X				break;
+X			case at_LT:			/* left hand T */
+X				schar = vanilla_LT;
+X				break;
+X			case at_RT:			/* right hand T */
+X				schar = vanilla_RT;
+X				break;
+X			case at_VR:			/* vertical rule */
+X				schar = vanilla_VR;
+X				break;
+X			case at_HR:			/* horizontal rule */
+X				schar = vanilla_HR;
+X				break;
+X			default:
+X				schar = ' ';
+X			}
+X		}
+X		*cptr++ = schar;
+X	}
+X
+X	if(use_ansi_MC)
+X	{
+X		/* restore keyboard termio at entry */
+X		ioctl(TTYIN,TCSETAW,(char *)&dump_tty_termio_at_entry);
+X		ttyflush(2);
+X#if defined(MULTISCREEN_DUMP_BUG)
+X		/*
+X		 * bug in 2.3.1 sco video driver leaves "ESC[2" active;
+X		 * use "l" (unlock tty) a noop
+X		 */
+X		write(TTYOUT,"l",1);
+X#endif /* MULTISCREEN_DUMP_BUG */
+X	}
+X
+X	fclose(fp);
+X
+X#if defined(MORSE)
+X	xbell(XBELL_DONE,1);
+X#else
+X	ring_bell();
+X#endif
+X
+X	if(restart_rcvr)
+X		start_rcvr_process(0);
+X
+X}	/* end of screen_dump */
+SHAR_EOF
+chmod 0644 ecuscrdump.c ||
+echo 'restore of ecuscrdump.c failed'
+Wc_c="`wc -c < 'ecuscrdump.c'`"
+test 4531 -eq "$Wc_c" ||
+	echo 'ecuscrdump.c: original size 4531, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecusetup.c ==============
+if test -f 'ecusetup.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecusetup.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecusetup.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecusetup.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecusetup.c -- ecu visual "argv"
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  0000000000111111111122222222223333333333444444444455555555556666
+X  0123456789012345678901234567890123456789012345678901234567890123
+X00.--[ ecu rev ]-------------------------------------------------.
+X01|                                                              |
+X02|  Destination   .......................................       |
+X03|    Telephone     ....................                        |
+X04|    Description   ........................................    |
+X05|                                                              |
+X06|  tty: /dev/........   (opened)                               | 
+X07|                                                              |
+X08|  duplex: .  baud: .....  parity: . (data bits .)             |
+X09|  add NL to transmitted CR: .                                 |
+X10|  add NL to received CR:    .                                 |
+X11|                                                              |
+X12|                                                              |
+X13|   TAB:next ^B:prev END:proceed ^D:phone dir  ESC:quit ecu    |
+X14`--------------------------------------------------------------'
+X
+X  Defined functions:
+X	setup_display_baud()
+X	setup_display_name()
+X	setup_display_screen(write_lits)
+X	setup_display_single_char()
+X	setup_display_tty()
+X	setup_line_open()
+X	setup_screen(argv_logical)
+X	setw_bot_msg(msg)
+X	setw_err_msg(msg)
+X	setw_get_single(nondelim_list)
+X	setw_msg(msg,y,fillch,last_msglen)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:09-05-1992-14:49-wht@n4hgf-parity field was one to the left of proper pos */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-28-1992-01:34-wht@n4hgf-default tty in tty prompt had slash */
+X/*:04-24-1992-21:59-wht@n4hgf-more SCO tty name normalizing */
+X/*:08-28-1991-14:07-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-12-1991-00:58-wht@n4hgf-ISC tty names */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:06-05-1991-18:07-wht@n4hgf-rework */
+X/*:04-27-1991-01:52-wht@n4hgf-overhaul revision numbers */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecucurses.h"
+X
+X#define STDIO_H_INCLUDED
+X#define OMIT_TERMIO_REFERENCES
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "ecuxkey.h"
+X#include "ecupde.h"
+X#include "pc_scr.h"
+X
+XPDE *logical_telno_to_pde();
+X
+X#define SETW_LINES	15
+X#define SETW_COLS	64
+X#define SETW_TLY	1
+X#define SETW_TLX	((80 - SETW_COLS) / 2)
+X
+X#define NAME_Y		2
+X#define NAME_X		17
+X#define NAME_LEN	DESTREF_LEN
+X#define NAME_LX		3
+X
+X#define PHNUM_Y		3
+X#define PHNUM_X		19
+X#define PHNUM_LEN	DESTREF_LEN
+X#define PHNUM_LX	5
+X
+X#define DESCR_Y		4
+X#define DESCR_X		19
+X#define DESCR_LEN	PDE_DESCR_LEN
+X#define DESCR_LX	5
+X
+X#define TTY_Y		6
+X#define TTY_X		13
+X#define TTY_LEN		8
+X#define TTY_LX		3
+X
+X#define TTYOPN_LY	6
+X#define TTYOPN_LX	24
+X
+X#define DPX_Y		8
+X#define DPX_X		11
+X#define DPX_LX		3
+X
+X#define BAUD_Y		8
+X#define BAUD_X		20
+X#define BAUD_LEN	5
+X#define BAUD_LX		14
+X
+X#define PAR_Y		8
+X#define PAR_X		35
+X#define PAR_LX		27
+X
+X#define DB_Y		8
+X#define DB_X		48
+X#define DB_LX		37
+X#define DB_LX2		49
+X
+X#define XADDNL_Y	9
+X#define XADDNL_X	29
+X#define XADDNL_LX	3
+X
+X#define RADDNL_Y	10
+X#define RADDNL_X	29
+X#define RADDNL_LX	3
+X
+Xextern char *revstr;	/* ecunumrev.c */
+Xextern char errmsg[];
+X
+XWINDOW *setw;
+X
+X#define SETW_MSG_LEFTX 2
+X#define SETW_MSG_MAXLEN	(SETW_COLS - SETW_MSG_LEFTX - 8)
+X#define SETW_MSG_BOT_Y  (SETW_LINES - 1)
+X#define SETW_MSG_ERR_Y  (SETW_LINES - 3)
+X
+X/*+-------------------------------------------------------------------------
+X	setw_msg(msg,y,fillch)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsetw_msg(msg,y,fillch,last_msglen)
+Xchar *msg;
+Xint y;
+Xchar fillch;
+Xint *last_msglen;
+X{
+X	register itmp;
+X	register itmp2;
+X	char msg2[80];
+X
+X	if(!*last_msglen && !strlen(msg))
+X		return;
+X
+X	wmove(setw,y,SETW_MSG_LEFTX);
+X
+X	if((itmp = strlen(msg)) == 0)
+X	{
+X		itmp2 = *last_msglen + 2;
+X#if defined(SVR4)
+X		whline(setw, (unsigned long)(fillch & 0x00ff), itmp2);
+X#else
+X  		for(itmp = 0; itmp < itmp2; itmp++)
+X			waddch(setw,fillch & 0xFF); 
+X#endif
+X		*last_msglen = 0;
+X	}
+X	else
+X	{
+X		waddch(setw,' ');
+X		if(itmp > SETW_MSG_MAXLEN)
+X		{
+X			strncpy(msg2,msg,SETW_MSG_MAXLEN);
+X			msg2[SETW_MSG_MAXLEN + 1] = 0;
+X			waddstr(setw,msg2);
+X			itmp = strlen(msg2);
+X		}
+X		else
+X		{
+X			waddstr(setw,msg);
+X			itmp = strlen(msg);
+X		}
+X		waddch(setw,' ');
+X		if((itmp2 = *last_msglen - itmp) > 0)
+X		{
+X#if defined(SVR4)
+X			whline(setw, (unsigned long)(fillch & 0x00ff), itmp2);
+X#else
+X			while(itmp2--)
+X  				waddch(setw,fillch & 0xFF); 
+X#endif
+X		}
+X		*last_msglen = itmp;		/* remember last message length */
+X	}
+X	wrefresh(setw);
+X}	/* end of setw_msg */
+X
+X/*+-------------------------------------------------------------------------
+X	setw_bot_msg(msg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsetw_bot_msg(msg)
+Xchar *msg;
+X{
+X	static int last_msglen = 0;
+X	setw_msg(msg,SETW_MSG_BOT_Y,sHR,&last_msglen);
+X}	/* end of setw_bot_msg */
+X
+X/*+-------------------------------------------------------------------------
+X	setw_err_msg(msg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsetw_err_msg(msg)
+Xchar *msg;
+X{
+X	static int last_msglen = 0;
+X
+X	setw_msg(msg,SETW_MSG_ERR_Y,' ',&last_msglen);
+X}	/* end of setw_err_msg */
+X
+X/*+-------------------------------------------------------------------------
+X	setup_display_name()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsetup_display_name()
+X{
+X	clear_area(setw,NAME_Y,NAME_X,NAME_LEN);
+X	waddstr(setw,shm->Llogical);
+X
+X#if 0
+X	if(!shm->Llogical[0] && (shm->Liofd < 0))
+X	{
+X		clear_area(setw,PHNUM_Y,PHNUM_X,PHNUM_LEN);
+X		clear_area(setw,DESCR_Y,DESCR_X,DESCR_LEN);
+X		return;
+X	}
+X#endif
+X
+X
+X	wmove(setw,PHNUM_Y,PHNUM_LX);
+X	if(shm->Ltelno[0])
+X		waddstr(setw,"Telephone");
+X	else
+X		waddstr(setw,"         ");
+X	clear_area(setw,PHNUM_Y,PHNUM_X,PHNUM_LEN);
+X#if 0
+X	if(!shm->Ltelno[0])
+X	{
+X		if(!isdigit(shm->Llogical[0]) && find_procedure(shm->Llogical))
+X			waddstr(setw,"<procedure connect>");
+X		else
+X			waddstr(setw,"<direct connect>");
+X	}
+X	else
+X#endif
+X		waddstr(setw,shm->Ltelno);
+X
+X	wmove(setw,DESCR_Y,DESCR_LX);
+X	if(shm->Ldescr[0])
+X		waddstr(setw,"Description");
+X	else
+X		waddstr(setw,"           ");
+X	clear_area(setw,DESCR_Y,DESCR_X,DESCR_LEN);
+X	waddstr(setw,shm->Ldescr);
+X
+X}	/* end of setup_display_name */
+SHAR_EOF
+true || echo 'restore of ecusetup.c failed'
+fi
+echo 'End of ecu320 part 11'
+echo 'File ecusetup.c is continued in part 12'
+echo 12 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

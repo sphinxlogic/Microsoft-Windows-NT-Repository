@@ -1,0 +1,2339 @@
+Newsgroups: comp.sources.misc
+From: mool@oce.nl (Bram Moolenaar)
+Subject: v37i005:  vim - Vi IMitation editor v1.27, Part05/24
+Message-ID: <1993Apr23.172958.16246@sparky.imd.sterling.com>
+X-Md4-Signature: 29aa58ecfce17becb2bc0bc68a07ef7a
+Date: Fri, 23 Apr 1993 17:29:58 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mool@oce.nl (Bram Moolenaar)
+Posting-number: Volume 37, Issue 5
+Archive-name: vim/part05
+Environment: UNIX, AMIGA, MS-DOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 23)."
+# Contents:  vim/src/csearch.c vim/src/main.c vim/src/mark.c
+#   vim/src/script.c vim/src/tag.c
+# Wrapped by mool@oce-rd2 on Mon Apr 19 15:50:07 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'vim/src/csearch.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/csearch.c'\"
+else
+echo shar: Extracting \"'vim/src/csearch.c'\" \(9336 characters\)
+sed "s/^X//" >'vim/src/csearch.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMitation
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony
+X *							G. R. (Fred) Walter     watmath!watcgl!grwalter
+X */
+X
+X/*
+X *
+X * csearch.c: command line searching commands
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X
+X/* we use modified Henry Spencer's regular expression routines */
+X#include "regexp.h"
+X
+Xint global_busy = 0;			/* set to 1 if global busy, 2 if global has
+X									been called during a global command */
+Xint global_wait;				/* set to 1 if wait_return has to be called
+X									after global command */
+Xextern regexp *myregcomp __ARGS((char *));
+X
+X/* dosub(lp, up, cmd)
+X *
+X * Perform a substitution from line 'lp' to line 'up' using the
+X * command pointed to by 'cmd' which should be of the form:
+X *
+X * /pattern/substitution/gc
+X *
+X * The trailing 'g' is optional and, if present, indicates that multiple
+X * substitutions should be performed on each line, if applicable.
+X * The trailing 'c' is optional and, if present, indicates that a confirmation
+X * will be asked for each replacement.
+X * The usual escapes are supported as described in the regexp docs.
+X */
+X
+Xextern char *reg_prev_sub;		/* this is in regexp.c */
+X
+X	void
+Xdosub(lp, up, cmd, nextcommand)
+X	linenr_t	lp;
+X	linenr_t	up;
+X	char		*cmd;
+X	u_char		**nextcommand;
+X{
+X	linenr_t		lnum;
+X	long			i;
+X	char		   *ptr;
+X	regexp		   *prog;
+X	long			nsubs = 0;
+X	linenr_t		nlines = 0;
+X	int				do_all; 		/* do multiple substitutions per line */
+X	int				do_ask; 		/* ask for confirmation */
+X	char		   *pat, *sub = NULL;
+X	static char    *old_sub = NULL;
+X	int 			delimiter;
+X	int 			sublen;
+X
+X	if (strchr("0123456789gc|\"#", *cmd) == NULL)       /* new pattern and substitution */
+X	{
+X		delimiter = *cmd++;			/* remember delimiter character */
+X		pat = cmd;					/* remember the start of the regexp */
+X
+X		/*
+X		 * do the next loop twice:
+X		 *  i == 0: find the end of the regexp
+X		 *  i == 1: find the end of the substitution
+X		 */
+X		for (i = 0; ; ++i)
+X		{
+X			while (cmd[0])
+X			{
+X				if (cmd[0] == delimiter)			/* end delimiter found */
+X				{
+X					*cmd++ = NUL;					/* replace it by a NUL */
+X					break;
+X				}
+X				if (cmd[0] == '\\' && cmd[1] != 0)	/* skip escaped characters */
+X					++cmd;
+X				++cmd;
+X			}
+X			if (i == 1)
+X				break;
+X			sub = cmd;				/* remember the start of the substitution */
+X		}
+X		free(old_sub);
+X		old_sub = strsave(sub);
+X	}
+X	else								/* use previous pattern and substitution */
+X	{
+X		if (old_sub == NULL)    /* there is no previous command */
+X		{
+X			beep();
+X			return;
+X		}
+X		pat = NULL; 			/* myregcomp() will use previous pattern */
+X		sub = old_sub;
+X	}
+X
+X	/*
+X	 * find trailing options
+X	 */
+X	do_all = FALSE;
+X	do_ask = FALSE;
+X	while (*cmd)
+X	{
+X		if (*cmd == 'g')
+X			do_all = TRUE;
+X		else if (*cmd == 'c')
+X			do_ask = TRUE;
+X		else
+X			break;
+X		++cmd;
+X	}
+X
+X	/*
+X	 * check for a trailing count
+X	 */
+X	skipspace(&cmd);
+X	if (isdigit(*cmd))
+X	{
+X		i = getdigits(&cmd);
+X		if (i <= 0)
+X		{
+X			emsg(e_zerocount);
+X			return;
+X		}
+X		lp = up;
+X		up += i - 1;
+X	}
+X
+X	/*
+X	 * check for trailing '|', '"' or '#'
+X	 */
+X	skipspace(&cmd);
+X	if (*cmd)
+X	{
+X		if (strchr("|\"#", *cmd) != NULL)
+X		{
+X			*nextcommand = (u_char *)cmd;
+X		}
+X		else
+X		{
+X			emsg(e_trailing);
+X			return;
+X		}
+X	}
+X
+X	if ((prog = myregcomp(pat)) == NULL)
+X	{
+X		emsg(e_invcmd);
+X		return;
+X	}
+X
+X	for (lnum = lp; lnum <= up && !got_int; ++lnum)
+X	{
+X		ptr = nr2ptr(lnum);
+X		if (regexec(prog, ptr, (int)TRUE))  /* a match on this line */
+X		{
+X			char	   *ns, *sns = NULL, *p, *prevp, *oldp = NULL;
+X			int			did_sub = FALSE;
+X
+X			if (nsubs == 0)
+X					setpcmark();
+X			/*
+X			 * Save the line that was last changed for the final cursor
+X			 * position (just like the real vi).
+X			 */
+X			Curpos.lnum = lnum;
+X
+X			prevp = p = ptr;
+X			do
+X			{
+X				Curpos.col = prog->startp[0] - ptr;
+X				/*
+X				 * First match empty string does not count, except for first match.
+X				 * This reproduces the strange vi behaviour.
+X				 * This also catches endless loops.
+X				 */
+X				if (did_sub && p == oldp && p == prog->endp[0])
+X				{
+X					++p;
+X					goto skip2;
+X				}
+X				if (do_ask)
+X				{
+X						updateScreen(CURSUPD);
+X						smsg("replace by %s (y/n/q)? ", sub);
+X						setcursor();
+X						if ((i = vgetc()) == 'q')
+X						{
+X							got_int = TRUE;
+X							break;
+X						}
+X						else if (i != 'y')
+X							goto skip;
+X				}
+X
+X						/* get length of substitution part */
+X				sublen = regsub(prog, sub, ptr, 0, (int)p_magic);
+X				if (did_sub == FALSE)
+X				{
+X					/*
+X					 * Get some space for a temporary buffer to do the substitution
+X					 * into.
+X					 */
+X					if ((sns = alloc((unsigned)(strlen(ptr) + sublen + 5))) == NULL)
+X						goto outofmem;
+X					*sns = NUL;
+X					did_sub = TRUE;
+X				}
+X				else
+X				{
+X					/*
+X					 * extend the temporary buffer to do the substitution into.
+X					 */
+X					if ((ns = alloc((unsigned)(strlen(sns) + strlen(prevp) + sublen + 1))) == NULL)
+X						goto outofmem;
+X					strcpy(ns, sns);
+X					free(sns);
+X					sns = ns;
+X				}
+X
+X				for (ns = sns; *ns; ns++)
+X					;
+X				/*
+X				 * copy up to the part that matched
+X				 */
+X				while (prevp < prog->startp[0])
+X					*ns++ = *prevp++;
+X
+X				regsub(prog, sub, ns, 1, (int)p_magic);
+X				nsubs++;
+X				/*
+X				 * Regsub may have replaced a ~ by the old sub.
+X				 * We have to use the result, otherwise the ~ is replaced
+X				 * over and over again.
+X				 */
+X				sub = reg_prev_sub;
+X
+X				prevp = prog->endp[0];	/* remember last copied character */
+X				/*
+X				 * continue searching after the match
+X				 * prevent endless loop with patterns that match empty strings,
+X				 * e.g. :s/$/pat/g or :s/[a-z]* /(&)/g
+X				 */
+Xskip:
+X				p = prog->endp[0];
+X				oldp = p;
+X				if (*p == NUL)      /* end of line: quit here */
+X					break;
+X
+Xskip2:
+X					/* breakcheck is slow, don't call it too often */
+X				if ((nsubs & 15) == 0)
+X					breakcheck();
+X
+X			} while (!got_int && do_all && regexec(prog, p, (int)FALSE));
+X
+X			if (did_sub)
+X			{
+X					/*
+X					 * copy the rest of the line, that didn't match
+X					 */
+X					strcat(sns, prevp);
+X
+X					if ((ptr = save_line(sns)) != NULL)
+X							u_savesub(lnum, replaceline(lnum, ptr));
+X
+X					free(sns);          /* free the temp buffer */
+X					++nlines;
+X			}
+X		}
+X			/* breakcheck is slow, don't call it too often */
+X		if ((lnum & 15) == 0)
+X			breakcheck();
+X	}
+X
+Xoutofmem:
+X	if (nsubs)
+X	{
+X		CHANGED;
+X		updateScreen(CURSUPD); /* need this to update LineSizes */
+X		beginline(TRUE);
+X		if (nsubs > p_report)
+X			smsg("%s%ld substitution%s on %ld line%s",
+X								got_int ? "(Interrupted) " : "",
+X								nsubs, plural(nsubs),
+X								(long)nlines, plural((long)nlines));
+X		else if (got_int)
+X				msg(e_interr);
+X		else if (do_ask)
+X				msg("");
+X	}
+X	else if (got_int)
+X		msg(e_interr);
+X	else
+X		msg("No match");
+X
+X	free((char *) prog);
+X}
+X
+X/*
+X * doglob(cmd)
+X *
+X * Execute a global command of the form:
+X *
+X * g/pattern/X : execute X on all lines where pattern matches
+X * v/pattern/X : execute X on all lines where pattern does not match
+X *
+X * where 'X' is an EX command
+X *
+X * The command character (as well as the trailing slash) is optional, and
+X * is assumed to be 'p' if missing.
+X *
+X * This is implemented in two passes: first we scan the file for the pattern and
+X * set a mark for each line that (not) matches. secondly we execute the command
+X * for each line that has a mark. This is required because after deleting
+X * lines we do not know where to search for the next match.
+X */
+X
+X	void
+Xdoglob(type, lp, up, cmd)
+X	int 		type;
+X	linenr_t	lp, up;
+X	char		*cmd;
+X{
+X	linenr_t		lnum;		/* line number according to old situation */
+X	linenr_t		old_lcount; /* line_count before the command */
+X	int 			ndone;
+X
+X	char			delim;		/* delimiter, normally '/' */
+X	char		   *pat;
+X	regexp		   *prog;
+X	int				match;
+X
+X	if (global_busy)
+X	{
+X		emsg("Cannot do :global recursive");
+X		++global_busy;
+X		return;
+X	}
+X
+X	delim = *cmd++; 			/* skip the delimiter */
+X	pat = cmd;
+X
+X	while (cmd[0])
+X	{
+X		if (cmd[0] == delim)				/* end delimiter found */
+X		{
+X			*cmd++ = NUL;					/* replace it by a NUL */
+X			break;
+X		}
+X		if (cmd[0] == '\\' && cmd[1] != 0)	/* skip escaped characters */
+X			++cmd;
+X		++cmd;
+X	}
+X
+X	reg_ic = p_ic;           /* set "ignore case" flag appropriately */
+X
+X	if ((prog = myregcomp(pat)) == NULL)
+X	{
+X		emsg(e_invcmd);
+X		return;
+X	}
+X	msg("");
+X
+X/*
+X * pass 1: set marks for each (not) matching line
+X */
+X	ndone = 0;
+X	for (lnum = lp; lnum <= up && !got_int; ++lnum)
+X	{
+X		match = regexec(prog, nr2ptr(lnum), (int)TRUE);     /* a match on this line? */
+X		if ((type == 'g' && match) || (type == 'v' && !match))
+X		{
+X			setmarked(lnum);
+X			ndone++;
+X		}
+X			/* breakcheck is slow, don't call it too often */
+X		if ((lnum & 15) == 0)
+X			breakcheck();
+X	}
+X
+X/*
+X * pass 2: execute the command for each line that has been marked
+X */
+X	if (got_int)
+X		msg("Interrupted");
+X	else if (ndone == 0)
+X		msg("No match");
+X	else
+X	{
+X		global_busy = 1;
+X		global_wait = 0;
+X		RedrawingDisabled = TRUE;
+X		old_lcount = line_count;
+X		while (!got_int && (lnum = firstmarked()) != 0 && global_busy == 1)
+X		{
+X			Curpos.lnum = lnum;
+X			Curpos.col = 0;
+X			if (*cmd == NUL)
+X				docmdline((u_char *)"p");
+X			else
+X				docmdline((u_char *)cmd);
+X			breakcheck();
+X		}
+X
+X		RedrawingDisabled = FALSE;
+X		if (global_wait)                /* wait for return */
+X			wait_return(FALSE);
+X		updateScreen(CLEAR);
+X		msgmore(line_count - old_lcount);
+X	}
+X
+X	clearmarked();      /* clear rest of the marks */
+X	global_busy = 0;
+X	free((char *) prog);
+X}
+END_OF_FILE
+if test 9336 -ne `wc -c <'vim/src/csearch.c'`; then
+    echo shar: \"'vim/src/csearch.c'\" unpacked with wrong size!
+fi
+# end of 'vim/src/csearch.c'
+fi
+if test -f 'vim/src/main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/main.c'\"
+else
+echo shar: Extracting \"'vim/src/main.c'\" \(9338 characters\)
+sed "s/^X//" >'vim/src/main.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMitation
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X#define EXTERN
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X
+Xstatic void usage __PARMS((int));
+X
+X	static void
+Xusage(n)
+X	int n;
+X{
+X	register int i;
+X	static char *(use[]) = {"[file ..]\n",
+X							"-t tag\n",
+X							"+[command] file ..\n",
+X							"-c {command} file ..\n",
+X							"-e\n"};
+X	static char *(errors[]) =  {"Unknown option\n",			/* 0 */
+X								"Too many arguments\n",		/* 1 */
+X								"Argument missing\n",		/* 2 */
+X								};
+X
+X	fprintf(stderr, errors[n]);
+X	fprintf(stderr, "usage:");
+X	for (i = 0; ; ++i)
+X	{
+X		fprintf(stderr, " vim [options] ");
+X		fprintf(stderr, use[i]);
+X		if (i == (sizeof(use) / sizeof(char *)) - 1)
+X			break;
+X		fprintf(stderr, "   or:");
+X	}
+X#ifdef AMIGA
+X	fprintf(stderr, "\noptions: -v -n -r -d device -s scriptin -w scriptout -T terminal\n");
+X#else
+X	fprintf(stderr, "\noptions: -v -n -r -s scriptin -w scriptout -T terminal\n");
+X#endif
+X	mch_windexit(1);
+X}
+X
+X	void
+Xmain(argc, argv)
+X	int				argc;
+X	char		  **argv;
+X{
+X	char		   *initstr;		/* init string from the environment */
+X	char		   *term = NULL;	/* specified terminal name */
+X	char		   *fname = NULL;	/* file name from command line */
+X	char		   *command = NULL;	/* command from + option */
+X	char		   *tagname = NULL;	/* tag from -t option */
+X	int 			c;
+X	int				doqf = 0;
+X	int				i;
+X
+X#ifdef DEBUG
+X# ifdef MSDOS
+X	OPENDEBUG("#debug#");
+X# else
+X	OPENDEBUG("/tmp/debug/vim");
+X# endif
+X#endif
+X
+X/*
+X * Check if we have an interactive window.
+X * If not, open one with a newcli command (needed for :! to work).
+X * check_win will also handle the -d argument (for the Amiga).
+X */
+X	check_win(argc, argv);
+X
+X	++argv;
+X	/*
+X	 * Process the command line arguments
+X	 * 		'-s scriptin'
+X	 *		'-w scriptout'
+X	 *		'-v'
+X	 *		'-n'
+X	 *		'-r'
+X	 *		'-T terminal'
+X	 */
+X	while (argc > 1 && argv[0][0] == '-' &&
+X			strchr("swvnrTd", c = argv[0][1]) != NULL && c)
+X	{
+X		--argc;
+X		switch (c)
+X		{
+X		case 'v':
+X			readonlymode = TRUE;
+X			p_ro = TRUE;
+X			/*FALLTHROUGH*/
+X
+X		case 'n':
+X			p_uc = 0;
+X			break;
+X
+X		case 'r':
+X			recoverymode = 1;
+X			break;
+X		
+X		default:	/* options with argument */
+X			++argv;
+X			--argc;
+X			if (argc < 1)
+X				usage(2);
+X
+X			switch (c)
+X			{
+X			case 's':
+X				if ((scriptin[0] = fopen(argv[0], READBIN)) == NULL)
+X				{
+X						fprintf(stderr, "cannot open %s for reading\n", argv[0]);
+X						mch_windexit(2);
+X				}
+X				break;
+X			
+X			case 'w':
+X				if ((scriptout = fopen(argv[0],
+X#ifdef MSDOS
+X													"ab"
+X#else
+X													"a"
+X#endif
+X														)) == NULL)
+X				{
+X						fprintf(stderr, "cannot open %s for output\n", argv[0]);
+X						mch_windexit(2);
+X				}
+X				break;
+X
+X/*
+X * The -T term option is always available and when TERMCAP is supported it
+X * overrides the environment variable TERM.
+X */
+X			case 'T':
+X				term = *argv;
+X				break;
+X			
+X		/*	case 'd':		This is ignored as it is handled in check_win() */
+X			}
+X		}
+X		++argv;
+X	}
+X
+X	/*
+X	 * Allocate space for the generic buffer
+X	 */
+X	if ((IObuff = alloc(IOSIZE)) == NULL)
+X		mch_windexit(0);
+X
+X	/* note that we may use mch_windexit() before mch_windinit()! */
+X	mch_windinit();
+X	set_init();			/* after mch_windinit because Rows is used */
+X
+X	/*
+X	 * Process the other command line arguments.
+X	 */
+X	if (argc > 1)
+X	{
+X		c = argv[0][1];
+X		switch (argv[0][0])
+X		{
+X		  case '-':
+X		    switch (c)
+X			{
+X		  	case 'e':			/* -e QuickFix mode */
+X				if (argc != 2)
+X					usage(1);
+X				doqf = 1;
+X				break;
+X
+X			case 'c':			/* -c {command} file .. */
+X				if (argc <= 3)
+X					usage(2);
+X				++argv;
+X				--argc;
+X				command = &(argv[0][0]);
+X				goto getfiles;
+X
+X			case 't':			/* -t tag */
+X				if (argc < 3)
+X					usage(2);
+X				if (argc > 3)
+X					usage(1);
+X				++argv;
+X				tagname = argv[0];
+X				break;
+X
+X			default:
+X				usage(0);
+X			}
+X			break;
+X
+X		  case '+': 			/* + or +{number} or +/{pat} or +{command} */
+X			if (argc < 3)		/* no filename */
+X					usage(2);
+X			if (c == NUL)
+X				command = "$";
+X			else
+X				command = &(argv[0][1]);
+X
+Xgetfiles:
+X			++argv;
+X			--argc;
+X			/*FALLTHROUGH*/
+X
+X		  default:				/* must be a file name */
+X#if defined(WILD_CARDS) && !defined(UNIX)
+X			ExpandWildCards(argc - 1, argv, &numfiles, &files, TRUE, TRUE);
+X			if (numfiles != 0)
+X				fname = files[0];
+X
+X#else
+X			files = argv;
+X			numfiles = argc - 1;
+X			fname = argv[0];
+X#endif
+X			if (numfiles > 1)
+X				printf("%d files to edit\n", numfiles);
+X			break;
+X		}
+X	}
+X
+X	if (numfiles == 0)
+X		numfiles = 1;
+X
+X	RedrawingDisabled = TRUE;
+X	filealloc();				/* Initialize storage structure */
+X	init_yank();				/* init yank buffers */
+X	termcapinit(term);			/* get terminal capabilities */
+X
+X#ifdef USE_LOCALE
+X#include <locale.h>
+X	setlocale(LC_ALL, "");		/* for ctype() and the like */
+X#endif
+X
+X#ifdef MSDOS /* default mapping for some often used keys */
+X	domap(0, "#1 :help\r", 0);				/* F1 is help key */
+X	domap(0, "\236R i", 0);					/* INSERT is 'i' */
+X	domap(0, "\236S x", 0);					/* DELETE is 'x' */
+X	domap(0, "\236G 0", 0);					/* HOME is '0' */
+X	domap(0, "\236w H", 0);					/* CTRL-HOME is 'H' */
+X	domap(0, "\236O $", 0);					/* END is '$' */
+X	domap(0, "\236u L", 0);					/* CTRL-END is 'L' */
+X	domap(0, "\236I \002", 0);				/* PageUp is '^B' */
+X	domap(0, "\236\204 1G", 0);				/* CTRL-PageUp is '1G' */
+X	domap(0, "\236Q \006", 0);				/* PageDown is '^F' */
+X	domap(0, "\236v G", 0);					/* CTRL-PageDown is 'G' */
+X			/* insert mode */
+X	domap(0, "\236S \017x", INSERT);			/* DELETE is '^Ox' */
+X	domap(0, "\236G \017""0", INSERT);		/* HOME is '^O0' */
+X	domap(0, "\236w \017H", INSERT);		/* CTRL-HOME is '^OH' */
+X	domap(0, "\236O \017$", INSERT);		/* END is '^O$' */
+X	domap(0, "\236u \017L", INSERT);		/* CTRL-END is '^OL' */
+X	domap(0, "\236I \017\002", INSERT);		/* PageUp is '^O^B' */
+X	domap(0, "\236\204 \017\061G", INSERT);	/* CTRL-PageUp is '^O1G' */
+X	domap(0, "\236Q \017\006", INSERT);		/* PageDown is '^O^F' */
+X	domap(0, "\236v \017G", INSERT);		/* CTRL-PageDown is '^OG' */
+X#endif
+X
+X/*
+X * get system wide defaults (for unix)
+X */
+X#ifdef DEFVIMRC_FILE
+X	dosource(DEFVIMRC_FILE);
+X#endif
+X
+X/*
+X * Try to read initialization commands from the following places:
+X * - environment variable VIMINIT
+X * - file s:.vimrc ($HOME/.vimrc for Unix)
+X * - environment variable EXINIT
+X * - file s:.exrc ($HOME/.exrc for Unix)
+X * The first that exists is used, the rest is ignored.
+X */
+X	if ((initstr = (char *)vimgetenv("VIMINIT")) != NULL)
+X		docmdline((u_char *)initstr);
+X	else if (dosource(SYSVIMRC_FILE))
+X	{
+X		if ((initstr = (char *)vimgetenv("EXINIT")) != NULL)
+X			docmdline((u_char *)initstr);
+X		else
+X			dosource(SYSEXRC_FILE);
+X	}
+X
+X/*
+X * Read initialization commands from ".vimrc" or ".exrc" in current directory.
+X * Because of security reasons we disallow shell and write commands now,
+X * except for unix if the file is owned by the user.
+X * Only do this if VIMRC_FILE is not the same as SYSVIMRC_FILE or DEFVIMRC_FILE.
+X */
+X#ifdef UNIX
+X	{
+X		struct stat s;
+X
+X		stat(VIMRC_FILE, &s);
+X		if (s.st_uid != getuid())	/* ".vimrc" file is not owned by user */
+X			secure = 1;
+X	}
+X#else
+X	secure = 1;
+X#endif
+X
+X	i = 1;
+X	if (fullpathcmp(SYSVIMRC_FILE, VIMRC_FILE)
+X#ifdef DEFVIMRC_FILE
+X			&& fullpathcmp(DEFVIMRC_FILE, VIMRC_FILE)
+X#endif
+X			)
+X		i = dosource(VIMRC_FILE);
+X#ifdef UNIX
+X	if (i)
+X	{
+X		struct stat s;
+X
+X		stat(EXRC_FILE, &s);
+X		if (s.st_uid != getuid())	/* ".exrc" file is not owned by user */
+X			secure = 1;
+X		else
+X			secure = 0;
+X	}
+X#endif
+X	if (i && fullpathcmp(SYSEXRC_FILE, EXRC_FILE))
+X		dosource(EXRC_FILE);
+X
+X/*
+X * Call settmode and starttermcap here, so the T_KS and T_TS may be defined
+X * by termcapinit and redifined in .exrc.
+X */
+X	settmode(1);
+X	starttermcap();
+X
+X	if (secure == 2)		/* done something that is not allowed */
+X		wait_return(TRUE);		/* must be called after settmode(1) */
+X	secure = 0;
+X
+X#ifdef AMIGA
+X	fname_case(fname);		/* set correct case for file name */
+X#endif
+X	setfname(fname);
+X	maketitle();
+X
+X/*
+X * start putting things on the screen
+X */
+X	starting = FALSE;
+X	screenalloc();
+X	screenclear();
+X	if (Filename != NULL)
+X		readfile(Filename, (linenr_t)0, TRUE);
+X	else
+X		msg("Empty Buffer");
+X
+X	setpcmark();
+X	if (!tagname)
+X		startscript();				/* start writing to auto script file */
+X
+X	if (recoverymode && !scriptin[curscript])	/* first do script file, then recover */
+X		openrecover();
+X
+X	/* position the display and the cursor at the top of the file. */
+X	Topline = 1;
+X	Curpos.lnum = 1;
+X	Curpos.col = 0;
+X	Cursrow = Curscol = 0;
+X
+X	if (doqf)
+X	{
+X		if (qf_init(p_ef))
+X			mch_windexit(3);
+X		qf_jump(0);
+X	}
+X
+X	if (command)
+X		docmdline((u_char *)command);
+X	/*
+X	 * put the :ta command in the stuff buffer here, so that it will not
+X	 * be erased by an emsg().
+X	 */
+X	if (tagname)
+X	{
+X		stuffReadbuff(":ta ");
+X		stuffReadbuff(tagname);
+X		stuffReadbuff("\n");
+X	}
+X
+X	RedrawingDisabled = FALSE;
+X	updateScreen(NOT_VALID);
+X
+X		/* start in insert mode (already taken care of for :ta command) */
+X	if (p_im && stuff_empty())
+X		stuffReadbuff("i");
+X/*
+X * main command loop
+X */
+X	for (;;)
+X	{
+X		adjustCurpos();
+X		cursupdate();	/* Figure out where the cursor is based on Curpos. */
+X
+X		if (Quote.lnum)
+X			updateScreen(INVERTED);		/* update inverted part */
+X		setcursor();
+X
+X		normal();						/* get and execute a command */
+X	}
+X	/*NOTREACHED*/
+X}
+X
+X	void
+Xgetout(r)
+X	int 			r;
+X{
+X	windgoto((int)Rows - 1, 0);
+X	outchar('\r');
+X	outchar('\n');
+X	mch_windexit(r);
+X}
+END_OF_FILE
+if test 9338 -ne `wc -c <'vim/src/main.c'`; then
+    echo shar: \"'vim/src/main.c'\" unpacked with wrong size!
+fi
+# end of 'vim/src/main.c'
+fi
+if test -f 'vim/src/mark.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/mark.c'\"
+else
+echo shar: Extracting \"'vim/src/mark.c'\" \(8995 characters\)
+sed "s/^X//" >'vim/src/mark.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMitation
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * mark.c: functions for setting marks and jumping to them
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "mark.h"
+X#include "ops.h"		/* for endop and startop */
+X
+X/*
+X * This file contains routines to maintain and manipulate marks.
+X */
+X
+X#define NMARKS			26			/* max. # of named marks */
+X#define JUMPLISTSIZE	50			/* max. # of marks in jump list */
+X
+Xstatic struct mark pcmark;					/* previous context mark */
+Xstatic struct mark namedm[NMARKS];			/* original vi marks */
+Xstatic struct filemark namedfm[NMARKS];		/* new marks with file nr */
+Xstatic struct filemark jumplist[JUMPLISTSIZE];	/* list of old pcmarks */
+X
+Xstatic int jumplistlen = 0;
+Xstatic int jumplistidx = 0;
+X
+Xstatic FPOS *mark2pos __ARGS((struct mark *));
+X
+X/*
+X * setmark(c) - set named mark 'c' at current cursor position
+X *
+X * Returns TRUE on success, FALSE if no room for mark or bad name given.
+X */
+X	int
+Xsetmark(c)
+X	int			c;
+X{
+X	int 			i;
+X
+X	if (islower(c))
+X	{
+X		i = c - 'a';
+X		namedm[i].ptr = nr2ptr(Curpos.lnum);
+X		namedm[i].col = Curpos.col;
+X		return TRUE;
+X	}
+X	if (isupper(c))
+X	{
+X		i = c - 'A';
+X		namedfm[i].mark.ptr = nr2ptr(Curpos.lnum);
+X		namedfm[i].mark.col = Curpos.col;
+X		namedfm[i].lnum = Curpos.lnum;
+X		namedfm[i].fnum = 0;
+X		return TRUE;
+X	}
+X	return FALSE;
+X}
+X
+X/*
+X * setpcmark() - set the previous context mark to the current position
+X *				 and insert it into the jump list
+X */
+X	void
+Xsetpcmark()
+X{
+X	int i;
+X#ifdef ROTATE
+X	struct filemark tempmark;
+X#endif
+X
+X	pcmark.ptr = nr2ptr(Curpos.lnum);
+X	pcmark.col = Curpos.col;
+X
+X#ifndef ROTATE
+X	/*
+X	 * simply add the new entry at the end of the list
+X	 */
+X	jumplistidx = jumplistlen;
+X#else
+X	/*
+X	 * If last used entry is not at the top, put it at the top by rotating
+X	 * the stack until it is (the newer entries will be at the bottom).
+X	 * Keep one entry (the last used one) at the top.
+X	 */
+X	if (jumplistidx < jumplistlen)
+X		++jumplistidx;
+X	while (jumplistidx < jumplistlen)
+X	{
+X		tempmark = jumplist[jumplistlen - 1];
+X		for (i = jumplistlen - 1; i > 0; --i)
+X			jumplist[i] = jumplist[i - 1];
+X		jumplist[0] = tempmark;
+X		++jumplistidx;
+X	}
+X#endif
+X
+X		/* only add new entry if it differs from the last one */
+X	if (jumplistlen == 0 || jumplist[jumplistidx - 1].mark.ptr != pcmark.ptr)
+X	{
+X			/* if jumplist is full: remove oldest entry */
+X		if (++jumplistlen > JUMPLISTSIZE)
+X		{
+X			jumplistlen = JUMPLISTSIZE;
+X			for (i = 1; i < jumplistlen; ++i)
+X				jumplist[i - 1] = jumplist[i];
+X			--jumplistidx;
+X		}
+X
+X		jumplist[jumplistidx].mark = pcmark;
+X		jumplist[jumplistidx].lnum = Curpos.lnum;
+X		jumplist[jumplistidx].fnum = 0;
+X		++jumplistidx;
+X	}
+X}
+X
+X/*
+X * move "count" positions in the jump list (count may be negative)
+X */
+X	FPOS *
+Xmovemark(count)
+X	int count;
+X{
+X	FPOS		*pos;
+X
+X	if (jumplistlen == 0)			/* nothing to jump to */
+X		return (FPOS *)NULL;
+X
+X	if (jumplistidx + count < 0 || jumplistidx + count >= jumplistlen)
+X		return (FPOS *)NULL;
+X
+X	/*
+X	 * if first CTRL-O or CTRL-I command after a jump, add cursor position to list
+X	 */
+X	if (jumplistidx == jumplistlen)
+X	{
+X		setpcmark();
+X		--jumplistidx;		/* skip the new entry */
+X	}
+X
+X	jumplistidx += count;
+X	if (jumplist[jumplistidx].mark.ptr == NULL)	/* jump to other file */
+X	{
+X		if (getaltfile(jumplist[jumplistidx].fnum - 1, jumplist[jumplistidx].lnum, FALSE))
+X			return (FPOS *)NULL;
+X		Curpos.col = jumplist[jumplistidx].mark.col;
+X		jumplist[jumplistidx].fnum = 0;
+X		jumplist[jumplistidx].mark.ptr = nr2ptr(Curpos.lnum);
+X		pos = (FPOS *)-1;
+X	}
+X	else
+X		pos = mark2pos(&jumplist[jumplistidx].mark);
+X	return pos;
+X}
+X
+X/*
+X * getmark(c) - find mark for char 'c'
+X *
+X * Return pointer to FPOS if found
+X *        NULL if no such mark.
+X *        -1 if mark is in other file (only if changefile is TRUE)
+X */
+X	FPOS *
+Xgetmark(c, changefile)
+X	int			c;
+X	int			changefile;
+X{
+X	FPOS	*posp;
+X
+X	posp = NULL;
+X	if (c == '\'' || c == '`')			/* previous context mark */
+X		posp = mark2pos(&pcmark);
+X	else if (c == '[')					/* to start of previous operator */
+X	{
+X		if (startop.lnum > 0 && startop.lnum <= line_count)
+X			posp = &startop;
+X	}
+X	else if (c == ']')					/* to end of previous operator */
+X	{
+X		if (endop.lnum > 0 && endop.lnum <= line_count)
+X			posp = &endop;
+X	}
+X	else if (islower(c))				/* normal named mark */
+X		posp = mark2pos(&(namedm[c - 'a']));
+X	else if (isupper(c))				/* named file mark */
+X	{
+X		c -= 'A';
+X		posp = mark2pos(&(namedfm[c].mark));
+X		if (posp == NULL && namedfm[c].lnum != 0 && (changefile || samealtfile(namedfm[c].fnum - 1)))
+X		{
+X			if (!getaltfile(namedfm[c].fnum - 1, namedfm[c].lnum, TRUE))
+X			{
+X				Curpos.col = namedfm[c].mark.col;
+X				namedfm[c].fnum = 0;
+X				namedfm[c].mark.ptr = nr2ptr(Curpos.lnum);
+X				posp = (FPOS *)-1;
+X			}
+X		}
+X	}
+X	return posp;
+X}
+X
+X	static FPOS *
+Xmark2pos(markp)
+X	struct mark *markp;
+X{
+X	static FPOS pos;
+X
+X	if (markp->ptr != NULL && (pos.lnum = ptr2nr(markp->ptr, (linenr_t)1)) != 0)
+X	{
+X		pos.col = markp->col;
+X		return (&pos);
+X	}
+X	return (FPOS *)NULL;
+X}
+X
+X/*
+X * clrallmarks() - clear all marks
+X *
+X * Used mainly when trashing the entire buffer during ":e" type commands
+X */
+X	void
+Xclrallmarks()
+X{
+X	static int 			i = -1;
+X
+X	if (i == -1)		/* first call ever: initialize */
+X		for (i = 0; i < NMARKS; i++)
+X			namedfm[i].lnum = 0;
+X
+X	for (i = 0; i < NMARKS; i++)
+X	{
+X		namedm[i].ptr = NULL;
+X		namedfm[i].mark.ptr = NULL;
+X	}
+X	pcmark.ptr = NULL;
+X	qf_clrallmarks();
+X	for (i = 0; i < jumplistlen; ++i)
+X		jumplist[i].mark.ptr = NULL;
+X}
+X
+X/*
+X * increment the file number for all filemarks
+X * called when adding a file to the file stack
+X */
+X	void
+Xincrmarks()
+X{
+X	int			i;
+X
+X	for (i = 0; i < NMARKS; i++)
+X		++namedfm[i].fnum;
+X
+X	for (i = 0; i < jumplistlen; ++i)
+X	{
+X#if 0		/* this would take too much time */
+X		if (jumplist[i].fnum == 0)	/* current file */
+X			jumplist[i].lnum = ptr2nr(jumplist[i].mark.ptr, 1);
+X#endif
+X		++jumplist[i].fnum;
+X	}
+X}
+X
+X/*
+X * decrement the file number for the filemarks of the current file
+X * called when not adding the current file name to the file stack
+X */
+X	void
+Xdecrmarks()
+X{
+X	int			i;
+X
+X	for (i = 0; i < NMARKS; i++)
+X		if (namedfm[i].fnum == 1)
+X			namedfm[i].fnum = 0;
+X
+X	for (i = 0; i < jumplistlen; ++i)
+X		if (jumplist[i].fnum == 1)
+X			jumplist[i].fnum = 0;
+X}
+X
+X/*
+X * adjustmark: set new ptr for a mark
+X * if new == NULL the mark is effectively deleted
+X */
+X   void
+Xadjustmark(old, new)
+X		char *old, *new;
+X{
+X		register int i;
+X
+X		for (i = 0; i < NMARKS; ++i)
+X		{
+X			if (namedm[i].ptr == old)
+X				namedm[i].ptr = new;
+X			if (namedfm[i].mark.ptr == old)
+X			{
+X				namedfm[i].mark.ptr = new;
+X				if (new == NULL)
+X					namedfm[i].lnum = 0;		/* delete this mark */
+X			}
+X		}
+X		if (pcmark.ptr == old)
+X				pcmark.ptr = new;
+X		for (i = 0; i < jumplistlen; ++i)
+X				if (jumplist[i].mark.ptr == old)
+X						jumplist[i].mark.ptr = new;
+X		qf_adjustmark(old, new);
+X}
+X
+X/*
+X * get name of file from a filemark (use the occasion to update the lnum)
+X */
+X	char *
+Xfm_getname(fmark)
+X	struct filemark *fmark;
+X{
+X	linenr_t	nr;
+X	char		*name;
+X
+X	if (fmark->fnum != 0)						/* maybe not current file */
+X	{
+X		name = getaltfname(fmark->fnum - 1);
+X		if (name == NULL)
+X			return "-none-";
+X		if (Filename == NULL || fnamecmp(name, Filename) != 0)	/* not current file */
+X			return name;
+X		fmark->fnum = 0;
+X	}
+X	if (fmark->mark.ptr == NULL)
+X		fmark->mark.ptr = nr2ptr(fmark->lnum);	/* update ptr */
+X	else
+X	{
+X		nr = ptr2nr(fmark->mark.ptr, (linenr_t)1);
+X		if (nr != 0)
+X			fmark->lnum = nr;					/* update lnum */
+X	}
+X	return "-current-";
+X}
+X
+X/*
+X * print the marks (use the occasion to update the line numbers)
+X */
+X	void
+Xdomarks()
+X{
+X	int			i;
+X	char		*name;
+X
+X#ifdef AMIGA
+X	settmode(0);		/* set cooked mode, so output can be halted */
+X#endif
+X	outstrn("\nmark line  file\n");
+X	for (i = 0; i < NMARKS; ++i)
+X	{
+X		if (namedm[i].ptr != NULL)
+X		{
+X			sprintf(IObuff, " %c %5ld\n",
+X				i + 'a',
+X				ptr2nr(namedm[i].ptr, (linenr_t)1));
+X			outstrn(IObuff);
+X		}
+X		flushbuf();
+X	}
+X	for (i = 0; i < NMARKS; ++i)
+X	{
+X		if (namedfm[i].lnum != 0)
+X		{
+X			name = fm_getname(&namedfm[i]);
+X			if (name == NULL)		/* file name not available */
+X				continue;
+X
+X			sprintf(IObuff, " %c %5ld  %s\n",
+X				i + 'A',
+X				namedfm[i].lnum,
+X				name);
+X			outstrn(IObuff);
+X		}
+X		flushbuf();
+X	}
+X#ifdef AMIGA
+X	settmode(1);
+X#endif
+X	wait_return(TRUE);
+X}
+X
+X/*
+X * print the jumplist (use the occasion to update the line numbers)
+X */
+X	void
+Xdojumps()
+X{
+X	int			i;
+X	char		*name;
+X
+X#ifdef AMIGA
+X	settmode(0);		/* set cooked mode, so output can be halted */
+X#endif
+X	outstrn("\n jump line  file\n");
+X	for (i = 0; i < jumplistlen; ++i)
+X	{
+X		if (jumplist[i].lnum != 0)
+X		{
+X			name = fm_getname(&jumplist[i]);
+X			if (name == NULL)		/* file name not available */
+X				continue;
+X
+X			sprintf(IObuff, "%c %2d %5ld  %s\n",
+X				i == jumplistidx ? '>' : ' ',
+X				i + 1,
+X				jumplist[i].lnum,
+X				name);
+X			outstrn(IObuff);
+X		}
+X		flushbuf();
+X	}
+X	if (jumplistidx == jumplistlen)
+X		outstrn(">\n");
+X#ifdef AMIGA
+X	settmode(1);
+X#endif
+X	wait_return(TRUE);
+X}
+END_OF_FILE
+if test 8995 -ne `wc -c <'vim/src/mark.c'`; then
+    echo shar: \"'vim/src/mark.c'\" unpacked with wrong size!
+fi
+# end of 'vim/src/mark.c'
+fi
+if test -f 'vim/src/script.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/script.c'\"
+else
+echo shar: Extracting \"'vim/src/script.c'\" \(11660 characters\)
+sed "s/^X//" >'vim/src/script.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMitation
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * script.c: functions for handling script files
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X
+Xstatic char *scriptname;			/* name of the script in use */
+Xstatic FILE *autoscriptfd = NULL;
+Xstatic char *makescriptname __ARGS((void));
+Xstatic void Supdatescript __ARGS((char *));
+X
+Xextern int global_busy;			/* this is in csearch.c */
+X
+X/*
+X * for Amiga Dos 2.0x we use Open/Close/Flush instead of fopen/fclose
+X */
+X#ifdef AMIGA
+X# ifndef NO_ARP
+Xextern int dos2;					/* this is in amiga.c */
+X# endif
+X# ifdef SASC
+X#  include <proto/dos.h>
+X# endif
+X#endif
+X
+X/*
+X * We use this flag to avoid writing :win to commands to the script file
+X * during startup.
+X */
+Xstatic int script_started = FALSE;
+X
+X/*
+X * startscript(): open automatic script file
+X */
+X	void
+Xstartscript()
+X{
+X	int		n;
+X	char	buf[25];
+X#ifdef AMIGA
+X	int		r;
+X	FILE	*dummyfd = NULL;
+X#endif
+X
+X	script_started = TRUE;
+X
+X#ifdef AMIGA
+X/*
+X * With Amiga DOS 2.0 the system may lockup with the sequence: write to .vim
+X * file, close it, delete it, create a new .vim file and write to it.
+X * This is a problem in the filesystem hash chains (solved in version 39.xx).
+X * The Delay seems to solve this problem, maybe because DOS gets a chance to
+X * finish closing and deleting the old .vim file. Also do this for DOS 1.3,
+X * just in case.
+X */
+X	if (stopscript())
+X		Delay(10L);		/* This should fix the lockup bug */
+X#else
+X	stopscript();		/* stop any old script */
+X#endif
+X
+X	if (p_uc == 0 || exiting)	/* no auto script wanted/needed */
+X		return;
+X	if (Changed)
+X		emsg("Warning: buffer already changed, auto script file will be incomplete");
+X
+X#ifdef AMIGA
+X/*
+X * If we start editing a new file, e.g. "test.doc", which resides on an MSDOS
+X * compatible filesystem, it is possible that the file "test.doc.vim" which we
+X * create will be exactly the same file. To avoid this problem we temporarily
+X * create "test.doc".
+X */
+X	if (!(p_sn || thisfile_sn) && Filename && getperm(Filename) < 0)
+X		dummyfd = fopen(Filename, "w");
+X#endif
+X
+X/*
+X * we try different names until we find one that does not exist yet
+X */
+X	scriptname = makescriptname();
+X	for (;;)
+X	{
+X		if (scriptname == NULL)		/* must be out of memory */
+X			break;
+X		if ((n = strlen(scriptname)) == 0)	/* safety check */
+X		{
+X			free(scriptname);
+X			break;
+X		}
+X		
+X		/*
+X		 * check if the scriptfile already exists
+X		 */
+X		if (getperm(scriptname) < 0)		/* it does not exist */
+X		{
+X				/*
+X				 * Create the autoscript file.
+X				 */
+X#ifdef AMIGA
+X# ifndef NO_ARP
+X			if (dos2)
+X# endif
+X				autoscriptfd = (FILE *)Open((UBYTE *)scriptname, (long)MODE_NEWFILE);
+X# ifndef NO_ARP
+X			else
+X				autoscriptfd = fopen(scriptname, "w");
+X# endif
+X#else	/* !AMIGA */
+X				autoscriptfd = fopen(scriptname, WRITEBIN);
+X#endif	/* AMIGA */
+X
+X#ifdef AMIGA
+X			/*
+X			 * on the Amiga getperm() will return -1 when the file exists but
+X			 * is being used by another program. This happens if you edit
+X			 * a file twice.
+X			 */
+X			if (autoscriptfd != NULL || (IoErr() != ERROR_OBJECT_IN_USE && IoErr() != ERROR_OBJECT_EXISTS))
+X#endif
+X				break;
+X		}
+X	/*
+X	 * get here when file already exists
+X	 */
+X		if (scriptname[n - 1] == 'm')		/* first try */
+X		{
+X#ifdef AMIGA
+X		/*
+X		 * on MS-DOS compatible filesystems (e.g. messydos) file.doc.vim
+X		 * and file.doc are the same file. To guess if this problem is
+X		 * present try if file.doc.vix exists. If it does, we set thisfile_sn
+X		 * and try file_doc.vim (dots replaced by underscores for this file),
+X		 * and try again. If it doesn't we assume that "file.doc.vim" already
+X		 * exists.
+X		 */
+X			if (!(p_sn || thisfile_sn))		/* not tried yet */
+X			{
+X				scriptname[n - 1] = 'x';
+X				r = getperm(scriptname);	/* try "file.vix" */
+X				scriptname[n - 1] = 'm';
+X				if (r >= 0)					/* it seems to exist */
+X				{
+X					thisfile_sn = TRUE;
+X					free(scriptname);
+X					scriptname = makescriptname();	/* '.' replaced by '_' */
+X					continue;						/* try again */
+X				}
+X			}
+X#endif
+X			/* if we get here ".vim" file really exists */
+X			emsg(".vim file exists: an edit of this file has not been finished");
+X		}
+X
+X		if (scriptname[n - 1] == 'a')	/* tried enough names, give up */
+X		{
+X			free(scriptname);
+X			break;
+X		}
+X		--scriptname[n - 1];				/* change last char of the name */
+X	}
+X	if (autoscriptfd != NULL)		/* ".vim" file has been created */
+X	{
+X		script_winsize();			/* always start with a :win command */
+X									/* output cursor position if neccessary */
+X		if (Curpos.lnum > 1 || Curpos.col > 0)
+X		{
+X			sprintf(buf, "%ldG0%dl", (long)Curpos.lnum, (int)Curpos.col);
+X			Supdatescript(buf);
+X		}
+X	}
+X
+X#ifdef AMIGA
+X	if (dummyfd)		/* file has been created temporarily */
+X	{
+X		fclose(dummyfd);
+X		remove(Filename);
+X	}
+X#endif
+X}
+X
+X	int
+Xstopscript()
+X{
+X	if (!autoscriptfd)
+X		return FALSE;		/* nothing to stop */
+X
+X#ifdef AMIGA
+X# ifndef NO_ARP
+X	if (dos2)
+X# endif
+X		Close((BPTR)autoscriptfd);
+X# ifndef NO_ARP
+X	else
+X		fclose(autoscriptfd);
+X# endif
+X#else
+X	fclose(autoscriptfd);
+X#endif
+X	remove(scriptname);		/* delete the file */
+X	autoscriptfd = NULL;
+X	free(scriptname);
+X	return TRUE;
+X}
+X
+X/*
+X * open new script file
+X * return 0 on success, 1 on error
+X */
+X	int
+Xopenscript(name)
+X	char *name;
+X{
+X	int oldcurscript;
+X
+X	if (curscript + 1 == NSCRIPT)
+X	{
+X		emsg(e_nesting);
+X		return 1;
+X	}
+X	else
+X	{
+X		if (scriptin[curscript] != NULL)	/* already reading script */
+X			++curscript;
+X		if ((scriptin[curscript] = fopen((char *)name, READBIN)) == NULL)
+X		{
+X			emsg(e_notopen);
+X			if (curscript)
+X				--curscript;
+X			return 1;
+X		}
+X		/*
+X		 * With command ":g/pat/so! file" we have to execute the
+X		 * commands from the file now.
+X		 */
+X		if (global_busy)
+X		{
+X			State = NORMAL;
+X			oldcurscript = curscript;
+X			do
+X			{
+X				normal();
+X				vpeekc();			/* check for end of file */
+X			}
+X			while (scriptin[oldcurscript]);
+X			State = CMDLINE;
+X		}
+X	}
+X	return 0;
+X}
+X
+X/*
+X * updatescipt() is called when a character has to be written into the script file
+X * or when we have waited some time for a character (c == 0)
+X */
+X	void
+Xupdatescript(c)
+X	int c;
+X{
+X	static int count = 0;
+X
+X	if (c && scriptout)
+X		putc(c, scriptout);
+X	if (autoscriptfd == NULL || (c == 0 && count == 0))		/* nothing to do */
+X		return;
+X	if (c)
+X	{
+X#ifdef AMIGA
+X# ifndef NO_ARP
+X		if (dos2)
+X# endif
+X			FPutC((BPTR)autoscriptfd, (unsigned long)c);
+X# ifndef NO_ARP
+X		else
+X			putc(c, autoscriptfd);
+X# endif
+X#else
+X		putc(c, autoscriptfd);
+X#endif
+X		++count;
+X	}
+X	if ((c == 0 || count >= p_uc) && Updated)
+X	{
+X		/*
+X		 * Before DOS 2.0x we have to close and open the file in order to really
+X		 * get the characters in the file to disk!
+X		 * With DOS 2.0x Flush() can be used for that
+X		 */
+X#ifdef AMIGA
+X# ifndef NO_ARP
+X		if (dos2)
+X# endif
+X			Flush((BPTR)autoscriptfd);
+X# ifndef NO_ARP
+X		else
+X		{
+X			fclose(autoscriptfd);
+X			autoscriptfd = fopen(scriptname, "a");
+X		}
+X# endif
+X#else 	/* !AMIGA */
+X		fclose(autoscriptfd);
+X# ifdef MSDOS
+X		autoscriptfd = fopen(scriptname, "ab");
+X# else
+X		autoscriptfd = fopen(scriptname, "a");
+X# endif
+X#endif
+X		count = 0;
+X		Updated = 0;
+X	}
+X}
+X
+X	static void
+XSupdatescript(str)
+X	char *str;
+X{
+X	while (*str)
+X		updatescript(*str++);
+X}
+X
+X/*
+X * try to open the ".vim" file for recovery
+X * if recoverymode is 1: start recovery, set recoverymode to 2
+X * if recoverymode is 2: stop recovery mode
+X */
+X	void
+Xopenrecover()
+X{
+X	char *fname;
+X	struct stat efile, rfile;
+X
+X	if (recoverymode == 2)		/* end of recovery */
+X	{
+X		if (got_int)
+X		{
+X			emsg("Recovery Interrupted");
+X				/* somehow the cursor ends up in the wrong place (why?) */
+X			setcursor();
+X			flushbuf();
+X		}
+X		else
+X			msg("Recovery completed");
+X		recoverymode = 0;
+X	}
+X	else
+X	{
+X		fname = makescriptname();
+X		if (fname)
+X		{
+X			recoverymode = 2;
+X			if (Filename != NULL &&
+X					stat(Filename, &efile) != -1 &&
+X					stat(fname, &rfile) != -1 &&
+X					efile.st_mtime > rfile.st_mtime)
+X				emsg(".vim file is older; file not recovered");
+X			else
+X			{
+X				if (openscript(fname))
+X					emsg("Cannot open .vim file; file not recovered");
+X			}
+X			free(fname);
+X		}
+X	}
+X}
+X
+X/*
+X * make script name out of the filename
+X */
+X	static char *
+Xmakescriptname()
+X{
+X	char *r, *s, *fname;
+X
+X	r = modname(Filename, ".vim");
+X	if (*p_dir == 0 || r == NULL)
+X		return r;
+X
+X	for (fname = s = r; *s; ++s)		/* skip path */
+X	{
+X#ifdef UNIX
+X		if (*s == '/')		/* UNIX has ':' inside file names */
+X#else
+X		if (*s == ':' || *s == PATHSEP)
+X#endif
+X			fname = s + 1;
+X	}
+X
+X	s = alloc((unsigned)(strlen(p_dir) + strlen(fname) + 1));
+X	if (s != NULL)
+X	{
+X		strcpy(s, p_dir);
+X		strcat(s, fname);
+X	}
+X	free(r);
+X	return s;
+X}
+X
+X/*
+X * add extention to filename - change path/fo.o.h to path/fo.o.h.ext or
+X * fo_o_h.ext for MSDOS or when dotfname option reset.
+X *
+X * Assumed that fname is a valid name found in the filesystem we assure that
+X * the return value is a different name and ends in ".ext".
+X * "ext" MUST start with a "." and MUST be at most 4 characters long.
+X * Space for the returned name is allocated, must be freed later.
+X */
+X
+X	char *
+Xmodname(fname, ext)
+X	char *fname, *ext;
+X{
+X	char			*retval;
+X	register char   *s;
+X	register char   *ptr;
+X	register int	fnamelen, extlen;
+X	char			currentdir[512];
+X
+X	extlen = strlen(ext);
+X
+X	/*
+X	 * if there is no filename we must get the name of the current directory
+X	 * (we need the full path in case :cd is used)
+X	 */
+X	if (fname == NULL || *fname == NUL)
+X	{
+X		(void)dirname(currentdir, 511);
+X		strcat(currentdir, PATHSEPSTR);
+X		fnamelen = strlen(currentdir);
+X	}
+X	else
+X		fnamelen = strlen(fname);
+X	retval = alloc((unsigned) (fnamelen + extlen + 1));
+X	if (retval != NULL)
+X	{
+X		if (fname == NULL || *fname == NUL)
+X			strcpy(retval, currentdir);
+X		else
+X			strcpy(retval, fname);
+X		/*
+X		 * search backwards until we hit a '\' or ':' replacing all '.' by '_'
+X		 * for MSDOS or when dotfname option reset.
+X		 * Then truncate what is after the '\' or ':' to 8 characters for MSDOS
+X		 * and 26 characters for AMIGA and UNIX.
+X		 */
+X		for (ptr = retval + fnamelen; ptr >= retval; ptr--)
+X		{
+X#ifndef MSDOS
+X			if (p_sn || thisfile_sn)
+X#endif
+X				if (*ptr == '.')	/* replace '.' by '_' */
+X					*ptr = '_';
+X#ifdef UNIX
+X			if (*ptr == '/')		/* UNIX has ':' inside file names */
+X#else
+X			if (*ptr == ':' || *ptr == PATHSEP)
+X#endif
+X				break;
+X		}
+X		ptr++;
+X
+X		/* the filename has at most BASENAMELEN characters. */
+X		if (strlen(ptr) > BASENAMELEN)
+X			ptr[BASENAMELEN] = '\0';
+X#ifndef MSDOS
+X		if ((p_sn || thisfile_sn) && strlen(ptr) > 8)
+X			ptr[8] = '\0';
+X#endif
+X		s = ptr + strlen(ptr);
+X
+X		/*
+X		 * Append the extention.
+X		 * ext must start with '.' and cannot exceed 3 more characters.
+X		 */
+X		strcpy(s, ext);
+X		if (fname != NULL && strcmp(fname, retval) == 0)
+X		{
+X			/* after modification still the same name? */
+X			/* we search for a character that can be replaced by '_' */
+X			while (--s >= ptr)
+X			{
+X				if (*s != '_')
+X				{
+X					*s = '_';
+X					break;
+X				}
+X			}
+X			if (s < ptr)
+X			{
+X				/* fname was "________.<ext>" how tricky! */
+X				*ptr = 'v';
+X			}
+X		}
+X	}
+X	return retval;
+X}
+X
+X/*
+X * the new window size must be used in scripts;
+X * write a ":winsize width height" command to the (auto)script
+X * Postpone this action if not in NORMAL State, otherwise we may insert the
+X * command halfway another command.
+X */
+Xint script_winsize_postponed = FALSE;
+X
+X	void
+Xscript_winsize()
+X{
+X	char			buf[25];
+X
+X	if (!script_started || State != NORMAL)		/* postpone action */
+X	{
+X		script_winsize_postponed = TRUE;
+X		return;
+X	}
+X
+X	sprintf(buf, ":win %d %d\r", (int)Columns, (int)Rows);
+X	Supdatescript(buf);
+X	script_winsize_postponed = FALSE;
+X}
+X
+X/*
+X * This function is called after each "State = NORMAL"
+X */
+X	void
+Xscript_winsize_pp()
+X{
+X	if (script_winsize_postponed)
+X		script_winsize();
+X}
+END_OF_FILE
+if test 11660 -ne `wc -c <'vim/src/script.c'`; then
+    echo shar: \"'vim/src/script.c'\" unpacked with wrong size!
+fi
+# end of 'vim/src/script.c'
+fi
+if test -f 'vim/src/tag.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/tag.c'\"
+else
+echo shar: Extracting \"'vim/src/tag.c'\" \(9119 characters\)
+sed "s/^X//" >'vim/src/tag.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMitation
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * Code to handle tags and the tag stack
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X#include "mark.h"
+X
+X#define TAGSTACKSIZE 20
+X
+X/*
+X * the taggy struct is used to store the information about a :tag command:
+X *	the tag name and the cursor position BEFORE the :tag command
+X */
+Xstruct taggy
+X{
+X	char			*tagname;			/* tag name */
+X	struct filemark fmark;				/* cursor position */
+X};
+X
+X/*
+X * the tagstack grows from 0 upwards:
+X * entry 0: older
+X * entry 1: newer
+X * entry 2: newest
+X */
+Xstatic struct taggy tagstack[TAGSTACKSIZE];	/* the tag stack */
+Xstatic int tagstackidx = 0;				/* index just below active entry */
+Xstatic int tagstacklen = 0;				/* number of tags on the stack */
+X
+Xstatic int findtag __ARGS((char *));
+Xstatic char *firsttaborspace __ARGS((char *));
+X
+Xstatic char bottommsg[] = "at bottom of tag stack";
+Xstatic char topmsg[] = "at top of tag stack";
+X
+X/*
+X * Jump to tag; handling of tag stack
+X *
+X * *tag != NUL (:tag): jump to new tag, add to tag stack
+X * type == 1 (:pop) || type == 2 (CTRL-T): jump to old position
+X * type == 0 (:tag): jump to old tag
+X */
+X	void
+Xdotag(tag, type, count)
+X	char	*tag;
+X	int		type;
+X	int		count;
+X{
+X	int 			i;
+X	struct taggy	temptag;
+X
+X	if (*tag != NUL)						/* new pattern, add to the stack */
+X	{
+X		/*
+X		 * if last used entry is not at the top, put it at the top by rotating
+X		 * the stack until it is (the newer entries will be at the bottom)
+X		 */
+X		while (tagstackidx < tagstacklen)
+X		{
+X			temptag = tagstack[tagstacklen - 1];
+X			for (i = tagstacklen - 1; i > 0; --i)
+X				tagstack[i] = tagstack[i - 1];
+X			tagstack[0] = temptag;
+X			++tagstackidx;
+X		}
+X				/* if tagstack is full: remove oldest entry */
+X		if (++tagstacklen > TAGSTACKSIZE)
+X		{
+X			tagstacklen = TAGSTACKSIZE;
+X			free(tagstack[0].tagname);
+X			for (i = 1; i < tagstacklen; ++i)
+X				tagstack[i - 1] = tagstack[i];
+X			--tagstackidx;
+X		}
+X	/*
+X	 * remember the tag and the position before the jump
+X	 */
+X		tagstack[tagstackidx].tagname = strsave(tag);
+X		tagstack[tagstackidx].fmark.lnum = Curpos.lnum;
+X		tagstack[tagstackidx].fmark.mark.col = Curpos.col;
+X		tagstack[tagstackidx].fmark.mark.ptr = nr2ptr(Curpos.lnum);
+X		tagstack[tagstackidx].fmark.fnum = 0;
+X	}
+X	else if (tagstacklen == 0)					/* empty stack */
+X	{
+X		emsg("tag stack empty");
+X		return;
+X	}
+X	else if (type)								/* go to older position */
+X	{
+X		if ((tagstackidx -= count) < 0)
+X		{
+X			tagstackidx = 0;
+X			emsg(bottommsg);
+X		}
+X		else if (tagstackidx >= tagstacklen)	/* must have been count == 0 */
+X		{
+X			emsg(topmsg);
+X			return;
+X		}
+X		if (tagstack[tagstackidx].fmark.mark.ptr == NULL)	/* jump to other file */
+X		{
+X			if (getaltfile(tagstack[tagstackidx].fmark.fnum - 1, tagstack[tagstackidx].fmark.lnum, TRUE))
+X			{
+X				emsg(e_notopen);
+X				return;
+X			}
+X			/* "refresh" this position, so we will not fall off the altfile array */
+X			tagstack[tagstackidx].fmark.fnum = 0;
+X			tagstack[tagstackidx].fmark.mark.ptr = nr2ptr(Curpos.lnum);
+X		}
+X		else
+X			Curpos.lnum = ptr2nr(tagstack[tagstackidx].fmark.mark.ptr, (linenr_t)1);
+X		Curpos.col = tagstack[tagstackidx].fmark.mark.col;
+X		return;
+X	}
+X	else									/* go to newer pattern */
+X	{
+X		if ((tagstackidx += count - 1) >= tagstacklen)
+X		{
+X			tagstackidx = tagstacklen - 1;
+X			emsg(topmsg);
+X		}
+X		else if (tagstackidx < 0)			/* must have been count == 0 */
+X		{
+X			emsg(bottommsg);
+X			tagstackidx = 0;
+X			return;
+X		}
+X	}
+X	if (findtag(tagstack[tagstackidx].tagname) > 0)
+X		++tagstackidx;
+X	else if (bufempty())		/* "vim -t tag" failed, start script now */
+X		startscript();
+X}
+X
+X/*
+X * invalidate the line pointer for all tags
+X * called when abandoning the current file
+X */
+X	void
+Xclrtags()
+X{
+X	int			i;
+X
+X	for (i = 0; i < tagstacklen; ++i)
+X		tagstack[i].fmark.mark.ptr = NULL;
+X}
+X
+X/*
+X * increment the file number for all tags
+X * called when adding a file to the file stack
+X */
+X	void
+Xincrtags()
+X{
+X	int			i;
+X
+X	for (i = 0; i < tagstacklen; ++i)
+X	{
+X#if 0		/* this would take too much time */
+X		if (tagstack[i].fmark.fnum == 0)	/* current file */
+X			tagstack[i].fmark.lnum = ptr2nr(tagstack[i].fmark.mark.ptr, 1);
+X#endif
+X		++tagstack[i].fmark.fnum;
+X	}
+X}
+X
+X/*
+X * decrement the file number for the tags of the current file
+X * called when not adding the current file name to the file stack
+X */
+X	void
+Xdecrtags()
+X{
+X	int			i;
+X
+X	for (i = 0; i < tagstacklen; ++i)
+X		if (tagstack[i].fmark.fnum == 1)
+X			tagstack[i].fmark.fnum = 0;
+X}
+X
+X/*
+X * Print the tag stack (use the occasion to update the line numbers)
+X */
+X	void
+Xdotags()
+X{
+X	int			i;
+X	char		*name;
+X
+X#ifdef AMIGA
+X	settmode(0);		/* set cooked mode so output can be halted */
+X#endif
+X	outstrn("\n  # TO tag      FROM line in file\n");
+X	for (i = 0; i < tagstacklen; ++i)
+X	{
+X		if (tagstack[i].tagname != NULL)
+X		{
+X			name = fm_getname(&(tagstack[i].fmark));
+X			if (name == NULL)		/* file name not available */
+X				continue;
+X
+X			sprintf(IObuff, "%c%2d %-15s %4ld  %s\n",
+X				i == tagstackidx ? '>' : ' ',
+X				i + 1,
+X				tagstack[i].tagname,
+X				tagstack[i].fmark.lnum,
+X				name);
+X			outstrn(IObuff);
+X		}
+X		flushbuf();
+X	}
+X	if (tagstackidx == tagstacklen)		/* idx at top of stack */
+X		outstrn(">\n");
+X#ifdef AMIGA
+X	settmode(1);
+X#endif
+X	wait_return(TRUE);
+X}
+X
+X/*
+X * findtag(tag) - goto tag
+X *   return 0 for failure, 1 for success
+X */
+X	static int
+Xfindtag(tag)
+X	char		   *tag;
+X{
+X	FILE	   *tp, *fopen();
+X	char		lbuf[LSIZE];
+X	char		pbuf[LSIZE];			/* search pattern buffer */
+X	char	   *fname, *str;
+X	int			cmplen;
+X	char		*m = NULL;
+X	register char	*p;
+X	char		*np;					/* pointer into file name string */
+X	char		sbuf[CMDBUFFSIZE + 1];	/* tag file name */
+X	int			i;
+X	int			save_secure;
+X
+X	if (tag == NULL)		/* out of memory condition */
+X		return 0;
+X
+X	if ((cmplen = p_tl) == 0)
+X		cmplen = 999;
+X
+X	/* get stack of tag file names from tags option */
+X	for (np = p_tags; *np; )
+X	{
+X		for (i = 0; i < CMDBUFFSIZE && *np; ++i)	/* copy next file name into lbuf */
+X		{
+X			if (*np == ' ')
+X			{
+X				++np;
+X				break;
+X			}
+X			sbuf[i] = *np++;
+X		}
+X		sbuf[i] = 0;
+X		if ((tp = fopen(sbuf, "r")) == NULL)
+X		{
+X			m = "Can't open tags file %s";
+X			goto erret2;
+X		}
+X		while (fgets(lbuf, LSIZE, tp) != NULL)
+X		{
+X			m = "Format error in tags file %s";	/* default error message */
+X
+X		/* find start of file name, after first TAB or space */
+X			fname = firsttaborspace(lbuf);
+X			if (fname == NULL)
+X				goto erret;
+X			*fname++ = '\0';
+X
+X		/* find start of search command, after second TAB or space */
+X			str = firsttaborspace(fname);
+X			if (str == NULL)
+X				goto erret;
+X			*str++ = '\0';
+X
+X			if (strncmp(lbuf, tag, (size_t)cmplen) == 0)
+X			{
+X				fclose(tp);
+X				/*
+X				 * Tag found!
+X				 * If the command is a string like "/^function fname"
+X				 * scan through the search string. If we see a magic
+X				 * char, we have to quote it. This lets us use "real"
+X				 * implementations of ctags.
+X				 */
+X				if (*str == '/' || *str == '?')
+X				{
+X					p = pbuf;
+X					*p++ = *str++;			/* copy the '/' or '?' */
+X					if (*str == '^')
+X						*p++ = *str++;			/* copy the '^' */
+X
+X					while (*str)
+X					{
+X						switch (*str)
+X						{
+X						case '\\':	if (str[1] == '(')	/* remove '\' before '(' */
+X										++str;
+X									else
+X										*p++ = *str++;
+X									break;
+X
+X						case '\n':	*p++ = pbuf[0];	/* copy '/' or '?' */
+X									*str = 'n';		/* no setpcmark() for search */
+X									break;
+X
+X									/*
+X									 * if string ends in search character: skip it
+X									 * else escape it with '\'
+X									 */
+X						case '/':
+X						case '?':	if (*str != pbuf[0])	/* not a search char */
+X										break;
+X									if (str[1] == '\n')		/* last char */
+X									{
+X										++str;
+X										continue;
+X									}
+X						case '[':
+X									if (!p_magic)
+X										break;
+X						case '^':
+X						case '*':
+X						case '.':	*p++ = '\\';
+X									break;
+X						}
+X						*p++ = *str++;
+X					}
+X				}
+X				else		/* not a search command, just copy it */
+X					for (p = pbuf; *str && *str != '\n'; )
+X						*p++ = *str++;
+X				*p = NUL;
+X
+X				RedrawingDisabled = TRUE;
+X				if ((i = getfile(fname, TRUE)) <= 0)
+X				{
+X					set_want_col = TRUE;
+X
+X					RedrawingDisabled = FALSE;
+X					/* dosearch(pbuf[0] == '/' ? FORWARD : BACKWARD, pbuf + 1, FALSE, 1L); */
+X					save_secure = secure;
+X					secure = 1;
+X					docmdline((u_char *)pbuf);
+X					if (secure == 2)		/* done something that is not allowed */
+X						wait_return(TRUE);
+X					secure = save_secure;
+X
+X					if (p_im && i == -1)
+X						stuffReadbuff("\033\007i");	/* ESC CTRL-G i */
+X					else
+X						stuffReadbuff("\007");		/* CTRL-G */
+X					return 1;
+X				}
+X				RedrawingDisabled = FALSE;
+X				return 0;
+X			}
+X		}
+X		m = NULL;
+X
+Xerret:
+X		fclose(tp);
+Xerret2:
+X		if (m)
+X		{
+X			smsg(m, sbuf);
+X			sleep(1);
+X		}
+X	}
+X	if (m == NULL)
+X		emsg("tag not found");
+X	return 0;
+X}
+X
+X/*
+X * find first TAB or space
+X */
+X	static char *
+Xfirsttaborspace(str)
+X	char *str;
+X{
+X	char *p1, *p2;
+X
+X	p1 = strchr(str, TAB);			/* find first TAB */
+X	p2 = strchr(str, ' ');			/* find first space */
+X	if (p1 == NULL || (p2 != NULL && p2 < p1))
+X		return p2;					/* space comes first */
+X	return p1;
+X}
+END_OF_FILE
+if test 9119 -ne `wc -c <'vim/src/tag.c'`; then
+    echo shar: \"'vim/src/tag.c'\" unpacked with wrong size!
+fi
+# end of 'vim/src/tag.c'
+fi
+echo shar: End of archive 5 \(of 23\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 23 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-------------8<----------------8<----------------8<---------------8<--------
+Bram Moolenaar                             | DISCLAIMER:  This  note  does  not
+Oce Nederland B.V., Research & Development | necessarily represent the position
+p.o. box 101, 5900 MA  Venlo               | of  Oce-Nederland  B.V.  Therefore
+The Netherlands        phone +31 77 594077 | no liability or responsibility for
+UUCP: mool@oce.nl        fax +31 77 595450 | whatever will be accepted.
+
+exit 0 # Just in case...

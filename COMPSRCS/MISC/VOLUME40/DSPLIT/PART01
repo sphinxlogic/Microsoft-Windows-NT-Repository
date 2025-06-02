@@ -1,0 +1,351 @@
+Newsgroups: comp.sources.misc
+From: arnstein@netcom.com (David Arnstein)
+Subject: v40i051:  dsplit - A portable binary file splitter, Part01/01
+Message-ID: <1993Oct25.225703.7969@sparky.sterling.com>
+Summary: Binary file split program for MSDOS, Unix, C, Ansi C, C++...
+X-Md4-Signature: 905a06408c60a2f293cc8766af44930f
+Keywords: portable file split
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: arnstein@netcom.com
+Organization: My Own Internet Account!
+Date: Mon, 25 Oct 1993 22:57:03 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: arnstein@netcom.com (David Arnstein)
+Posting-number: Volume 40, Issue 51
+Archive-name: dsplit/part01
+Environment: MS-DOS, UNIX
+
+Here is a portable binary file splitting program.  It reads a binary file and
+splits it into pieces.  I use this program to put large binary files on floppy
+disks.  For this reason, the default size of the output files is 1,457,000
+bytes, which just about fills up a 1.44 MB floppy disk.
+
+Unlike other binary split programs I have seen, dsplit does not malloc a huge
+block of memory.  Dsplit is suitable for use under MSDOS and other primitive
+operating systems.
+
+To merge the pieces back into a single large file, use "cat" in Unix, or "copy"
+in MSDOS.  The MSDOS "copy" command uses plus-signs to indicate concatenation,
+eg
+   copy/b piece.001+piece.002+piece.003 opus.ps
+concatenates three files into file opus.ps.
+
+   Usage:
+        dsplit [-size nnn] [input_file [output_base]]
+   Size        is size of each output file, in bytes.  The default is 1457000,
+	       enough to fill a "1.44MB" diskette, save 152 bytes.
+   input_file  is the name of the file to split up.  A dash (-) indicates 
+                  standard input.  Defaults to standard input.
+   output_base is the name of the output files to be written, minus the
+                  extension.  Dsplit adds suffixes 000, 001, ...
+                  The default base name is dsplit.
+
+It should compile using K&R C, ANSI C, or C++.  I have compiled it using
+Borland C++ 3.1, Sun cc, gcc, and g++.  Please notify me of any compilation
+problems, I would like to make this program portable!
+
+I also have a dmerge program which is more convenient to use than MSDOS "copy,"
+but I have not put effort into making it super-portable.  You'd be better off
+obtaining a clone to the Unix "cat" command, several exist.  However, I can
+send you dmerge if you really want it.
+
+Hope someone finds this useful.
+
+David Arnstein
+arnstein@netcom.com
+----------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  dsplit.c
+# Wrapped by kent@sparky on Mon Oct 25 17:53:36 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'dsplit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dsplit.c'\"
+else
+  echo shar: Extracting \"'dsplit.c'\" \(6478 characters\)
+  sed "s/^X//" >'dsplit.c' <<'END_OF_FILE'
+X#ifdef lint
+X   static char RCSid[] = "$RCSfile: dsplit.c $ $Revision: 1.9 $ $Date: 1993/10/15 00:46:38 $";
+X#endif
+X/*
+X   Program dsplit:  Splits a large  file into pieces.
+X
+X   Usage:
+X        dsplit [-size nnn] [input_file [output_base]]
+X   Size        is size of each output file, in bytes.  The default is 1457000,
+X	       enough to fill a "1.44MB" diskette, save 152 bytes.
+X   input_file  is the name of the file to split up.  A dash (-) indicates 
+X                  standard input.  Defaults to standard input.
+X   output_base is the name of the output files to be written, minus the
+X                  extension.  Dsplit adds suffixes 000, 001, ...
+X                  The default base name is dsplit.
+X*/
+X#include <ctype.h>
+X#include <stdlib.h>
+X#include <stdio.h>
+X#include <string.h>
+X#if (defined (__MSDOS__) || defined (WIN32))
+X#include <io.h>
+X#include <fcntl.h>
+X#endif /* __MSDOS__ or WIN32 */
+X#ifndef FILENAME_MAX
+X#define FILENAME_MAX 1024
+X#endif
+X
+X#define DEFAULT_NAME "dsplit"
+X#define DEFAULT_SIZE 1457000L
+X#if (defined (__MSDOS__) || defined (WIN32))
+X#   define READ_OPTIONS  "rb"
+X#   define WRITE_OPTIONS "wb"
+X#else
+X#   define READ_OPTIONS  "r"
+X#   define WRITE_OPTIONS "w"
+X#endif /* __MSDOS__ or WIN32 */
+X
+X#ifndef MIN
+X#define MIN(a,b) (((a) <= (b)) ? (a) : (b))
+X#endif
+X
+Xstatic unsigned long output_size = DEFAULT_SIZE;
+Xstatic char* base_name = DEFAULT_NAME;
+Xstatic FILE* input_handle;
+Xstatic char* input_name = "-";
+X
+X#ifdef __STDC__
+Xstatic void init (int argc, char* argv[]);
+Xstatic int write_one (int count);
+Xstatic void ToLower (char* string);
+Xstatic void usage_error (void);
+X#else /* not __STDC__ */
+Xstatic void init (/* int argc, char* argv[] */);
+Xstatic int write_one (/* int count */);
+Xstatic void ToLower (/* char* string */);
+Xstatic void usage_error (/* void */);
+X#endif /* __STDC__ */
+X
+X
+X
+X#ifdef __STDC__
+Xint main (int argc, char* argv[])
+X#else
+Xint main (argc, argv)
+Xint argc;
+Xchar* argv[];
+X#endif
+X{
+X   int count;
+X
+X   /* Process command line arguments, open input file. */
+X   init (argc, argv);
+X
+X   /* Write the output files */
+X   for (count = 0 ; write_one (count) ; ++count)
+X      ;
+X
+X   /* Close input file (a matter of style) */
+X   if (fclose (input_handle) != 0)
+X   {
+X      (void)fprintf (stderr, "Could not close file \"%s\" for input\n",
+X	 input_name);
+X      return 1;
+X   }
+X
+X   /* Normal successful conclusion */
+X   return 0;
+X}
+X
+X
+X
+X#ifdef __STDC__
+Xstatic void init (int argc, char* argv[])
+X#else
+Xstatic void init (argc, argv)
+Xint argc;
+Xchar* argv[];
+X#endif
+X{
+X   int iarg;
+X   int name_count;
+X
+X   /* Initialize the input file handle to standard input.  IBM's Toolset++
+X   won't let me do this statically, unfortunately. */
+X   input_handle = stdin;
+X
+X   /* Initialize for following loop */
+X   name_count = 0;
+X
+X   /* Loop over command line arguments */
+X   for (iarg = 1 ; iarg < argc ; ++iarg)
+X   {
+X      /* Point to argument,for convenience */
+X      char* arg = argv[iarg];
+X
+X      /* If this argument is an option */
+X      if (arg[0] == '-' && arg[1] != '\0')
+X      {
+X         /* Process option if recognized */
+X         ToLower (arg+1);
+X         if (strcmp (arg+1, "size") != 0)
+X            usage_error ();
+X	 ++iarg;
+X	 if (iarg >= argc)
+X	    usage_error ();
+X	 arg = argv[iarg];
+X	 if (sscanf (arg, "%ld", &output_size) != 1)
+X	 {
+X	    (void)fprintf (stderr, "Illegal numeric expression \"%s\"\n", arg);
+X	    exit (1);
+X	 }
+X      } 
+X      else /* argument is not an option */
+X      {
+X         /* Argument is a name string.  Determine which one. */
+X         switch (name_count)
+X         {
+X         case 0:
+X            input_name = argv[iarg];
+X            break;
+X	 case 1:
+X            base_name = argv[iarg];
+X	    break;
+X	 default:
+X	    usage_error ();
+X	    break;
+X         }
+X         ++name_count;
+X
+X      } /* End if this argument is an option */
+X
+X   }  /* End loop over command line arguments */
+X
+X   /* Open the input file */
+X   if (strcmp (input_name, "-") == 0)
+X   {
+X#  if (defined (__MSDOS__) || defined (WIN32))
+X      if (setmode (0, O_BINARY) == -1)
+X      {
+X         perror ("dsplit: setmode");
+X         exit (1);
+X      }
+X#  endif
+X   }
+X   else
+X   {
+X      if ((input_handle = fopen (input_name, READ_OPTIONS)) == NULL)
+X      {
+X	 (void)fprintf (stderr, "Could not open file \"%s\" for input\n",
+X	    input_name);
+X	 exit (1);
+X      }
+X   }
+X}
+X
+X
+X
+X#ifdef __STDC__
+Xstatic int write_one (int count)
+X#else
+Xstatic int write_one (count)
+Xint count;
+X#endif
+X{
+X   char output_name[FILENAME_MAX];
+X   int bytes_written;
+X   unsigned long total_written;
+X   FILE* output_handle;
+X
+X   /* Read the first buffer full now, just to see if any data is left */
+X   static char buff[1024];
+X   int to_read = MIN (sizeof(buff), output_size);
+X   int bytes_read = fread (buff, 1, to_read, input_handle);
+X   if (bytes_read <= 0)
+X      return 0;
+X
+X   /* Open file for output */
+X   sprintf (output_name, "%s.%03d", base_name, count);
+X   output_handle = fopen (output_name, WRITE_OPTIONS);
+X   if (output_handle == NULL)
+X   {
+X      (void)fprintf (stderr,
+X         "Could not open file \"%s\" for output\n", output_name);
+X      exit (1);
+X   }
+X
+X   /* Write the first output buffer */
+X   bytes_written = fwrite (buff, 1, bytes_read, output_handle);
+X   if (bytes_written != bytes_read)
+X   {
+X      (void)fprintf (stderr, "Error writing to file \"%s\"\n", output_name);
+X      exit (1);
+X   }
+X   total_written = bytes_written;
+X
+X   /* Write output file */
+X   while (total_written < output_size)
+X   {
+X      to_read = MIN (sizeof(buff), output_size-total_written);
+X      bytes_read = fread (buff, 1, to_read, input_handle);
+X      if (bytes_read <= 0)
+X         break;
+X      bytes_written = fwrite (buff, 1, bytes_read, output_handle);
+X      if (bytes_written != bytes_read)
+X      {
+X         (void)fprintf (stderr, "Error writing to file \"%s\"\n", output_name);
+X         exit (1);
+X      }
+X      total_written += bytes_written;
+X   }
+X
+X   /* Close the output file, it is complete */
+X   if (fclose (output_handle) != 0)
+X   {
+X      (void)fprintf (stderr,
+X         "Could not close file \"%s\" for output\n", output_name);
+X      exit (1);
+X   }
+X
+X   /* Indicate whether more data remains to be transferred */
+X   return (bytes_read == to_read);
+X}
+X
+X
+X
+X#ifdef __STDC__
+Xstatic void ToLower (char* string)
+X#else
+Xstatic void ToLower (string)
+Xchar* string;
+X#endif
+X{
+X   
+X   while (*string != '\0')
+X      tolower (*string++);
+X}
+X
+X
+X
+X#ifdef __STDC__
+Xstatic void usage_error (void)
+X#else
+Xstatic void usage_error ()
+X#endif
+X{
+X   (void)fprintf (stderr, 
+X      "Usage: dsplit [-size nnn] [input_file [output_base]]\n");
+X   exit (1);
+X}
+X
+END_OF_FILE
+  if test 6478 -ne `wc -c <'dsplit.c'`; then
+    echo shar: \"'dsplit.c'\" unpacked with wrong size!
+  fi
+  # end of 'dsplit.c'
+fi
+echo shar: End of archive.
+exit 0
+exit 0 # Just in case...

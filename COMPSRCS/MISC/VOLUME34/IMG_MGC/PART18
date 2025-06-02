@@ -1,0 +1,1667 @@
+Newsgroups: comp.sources.misc
+From: cristy@eplrx7.es.duPont.com (John Cristy)
+Subject:  v34i046:  imagemagick - X11 image processing and display v2.2, Part18/26
+Message-ID: <1992Dec15.035626.22640@sparky.imd.sterling.com>
+X-Md4-Signature: af87bfbfdd9aa5f5609066949479dbc2
+Date: Tue, 15 Dec 1992 03:56:26 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (John Cristy)
+Posting-number: Volume 34, Issue 46
+Archive-name: imagemagick/part18
+Environment: UNIX, VMS, X11, SGI, DEC, Cray, Sun, Vax
+
+#!/bin/sh
+# this is Part.18 (part 18 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/X.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 18; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/X.c'
+else
+echo 'x - continuing file ImageMagick/X.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/X.c' &&
+%
+%  Function XWindowByID locates a child window with a given ID.  If not window
+%  with the given name is found, 0 is returned.   Only the window specified
+%  and its subwindows are searched.
+%
+%  The format of the XWindowByID function is:
+%
+%      child=XWindowByID(display,window,id)
+%
+%  A description of each parameter follows:
+%
+%    o child: XWindowByID returns the window with the specified
+%      id.  If no windows are found, XWindowByID returns 0.
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o id: Specifies the id of the window to locate.
+%
+%
+*/
+Window XWindowByID(display,root_window,id)
+Display
+X  *display;
+X
+Window
+X  root_window;
+X
+unsigned long
+X  id;
+{
+X  register int
+X    i;
+X
+X  unsigned int
+X    number_children;
+X
+X  Window
+X    child,
+X    *children,
+X    window;
+X
+X  if (root_window == id)
+X    return(id);
+X  if (!XQueryTree(display,root_window,&child,&child,&children,&number_children))
+X    return((Window) NULL);
+X  window=(Window) NULL;
+X  for (i=0; i < number_children; i++)
+X  {
+X    /*
+X      Search each child and their children.
+X    */
+X    window=XWindowByID(display,children[i],id);
+X    if (window != (Window) NULL)
+X      break;
+X  }
+X  if (children != (Window *) NULL)
+X    XFree((void *) children);
+X  return(window);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X W i n d o w B y N a m e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XWindowByName locates a window with a given name on a display.
+%  If no window with the given name is found, 0 is returned. If more than
+%  one window has the given name, the first one is returned.  Only root and
+%  its children are searched.
+%
+%  The format of the XWindowByName function is:
+%
+%      window=XWindowByName(display,root_window,name)
+%
+%  A description of each parameter follows:
+%
+%    o window: XWindowByName returns the window id.
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o root_window: Specifies the id of the root window.
+%
+%    o name: Specifies the name of the window to locate.
+%
+%
+*/
+Window XWindowByName(display,root_window,name)
+Display
+X  *display;
+X
+Window
+X  root_window;
+X
+char
+X  *name;
+{
+X  register int
+X    i;
+X
+X  unsigned int
+X    number_children;
+X
+X  Window
+X    *children,
+X    child,
+X    window;
+X
+X  XTextProperty
+X    window_name;
+X
+X  if (XGetWMName(display,root_window,&window_name) != 0)
+X    if (strcmp((char *) window_name.value,name) == 0)
+X      return(root_window);
+X  if (!XQueryTree(display,root_window,&child,&child,&children,&number_children))
+X    return((Window) NULL);
+X  window=(Window) NULL;
+X  for (i=0; i < number_children; i++)
+X  {
+X    /*
+X      Search each child and their children.
+X    */
+X    window=XWindowByName(display,children[i],name);
+X    if (window != (Window) NULL)
+X      break;
+X  }
+X  if (children != (Window *) NULL)
+X    XFree((void *) children);
+X  return(window);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X W i n d o w B y P r o p e r y                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XWindowByProperty locates a child window with a given property.
+%  If no window with the given name is found, 0 is returned.  If more than
+%  one window has the given property, the first one is returned.  Only the
+%  window specified and its subwindows are searched.
+%
+%  The format of the XWindowByProperty function is:
+%
+%      child=XWindowByProperty(display,window,property)
+%
+%  A description of each parameter follows:
+%
+%    o child: XWindowByProperty returns the window id with the specified
+%      property.  If no windows are found, XWindowByProperty returns 0.
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o property: Specifies the property of the window to locate.
+%
+%
+*/
+Window XWindowByProperty(display,window,property)
+Display
+X  *display;
+X
+Window
+X  window;
+X
+Atom
+X  property;
+{
+X  Atom
+X    type;
+X
+X  int
+X    format,
+X    status;
+X
+X  unsigned char
+X    *data;
+X
+X  unsigned int
+X    i,
+X    number_children;
+X
+X  unsigned long
+X    after,
+X    number_items;
+X
+X  Window
+X    *children,
+X    child,
+X    parent,
+X    root;
+X
+X  if (XQueryTree(display,window,&root,&parent,&children,&number_children) == 0)
+X    return((Window) NULL);
+X  type=(Atom) NULL;
+X  child=(Window) NULL;
+X  for (i=0; (i < number_children) && (child == (Window) NULL); i++)
+X  {
+X    status=XGetWindowProperty(display,children[i],property,0L,0L,False,
+X      (Atom) AnyPropertyType,&type,&format,&number_items,&after,&data);
+X    if ((status == Success) && (type != (Atom) NULL))
+X      child=children[i];
+X  }
+X  for (i=0; (i < number_children) && (child == (Window) NULL); i++)
+X    child=XWindowByProperty(display,children[i],property);
+X  if (children != (Window *) NULL)
+X    XFree((void *) children);
+X  return(child);
+}
+SHAR_EOF
+echo 'File ImageMagick/X.c is complete' &&
+chmod 0644 ImageMagick/X.c ||
+echo 'restore of ImageMagick/X.c failed'
+Wc_c="`wc -c < 'ImageMagick/X.c'`"
+test 188131 -eq "$Wc_c" ||
+	echo 'ImageMagick/X.c: original size 188131, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/animate.h ==============
+if test -f 'ImageMagick/animate.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/animate.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/animate.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/animate.h' &&
+/*
+X  Define declarations.
+*/
+#ifdef SYSV
+#include <poll.h>
+poll((struct poll *) 0, (size_t) 0, usec / 1000);
+#define Delay(milliseconds)  \
+X  poll((struct poll *) 0,(size_t) 0,milliseconds/1000);
+#else
+#ifdef vms
+#define Delay(milliseconds)
+#else
+#define Delay(milliseconds)  \
+{  \
+X  struct timeval  \
+X    timeout;  \
+X  \
+X  timeout.tv_usec=(milliseconds % 1000)*1000;  \
+X  timeout.tv_sec=milliseconds/1000;  \
+X  select(0,(void *) 0,(void *) 0,(void *) 0,&timeout);  \
+}
+#endif
+#endif
+SHAR_EOF
+chmod 0644 ImageMagick/animate.h ||
+echo 'restore of ImageMagick/animate.h failed'
+Wc_c="`wc -c < 'ImageMagick/animate.h'`"
+test 485 -eq "$Wc_c" ||
+	echo 'ImageMagick/animate.h: original size 485, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/animate.c ==============
+if test -f 'ImageMagick/animate.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/animate.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/animate.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/animate.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%              AAA   N   N  IIIII  M   M   AAA   TTTTT  EEEEE                 %
+%             A   A  NN  N    I    MM MM  A   A    T    E                     %
+%             AAAAA  N N N    I    M M M  AAAAA    T    EEE                   %
+%             A   A  N  NN    I    M   M  A   A    T    E                     %
+%             A   A  N   N  IIIII  M   M  A   A    T    EEEEE                 %
+%                                                                             %
+%                                                                             %
+%          Animate Machine Independent File Format Image via X11.             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                           Software Design                                   %
+%                             John Cristy                                     %
+%                              July 1992                                      %
+%                                                                             %
+%                                                                             %
+%  Copyright 1992 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Animate displays a sequence of images in the MIFF format on any
+%  workstation display running an X server.  Animate first determines the
+%  hardware capabilities of the workstation.  If the number of unique
+%  colors in an image is less than or equal to the number the workstation
+%  can support, the image is displayed in an X window.  Otherwise the
+%  number of colors in the image is first reduced to match the color
+%  resolution of the workstation before it is displayed.
+%
+%  This means that a continuous-tone 24 bits-per-pixel image can display on a
+%  8 bit pseudo-color device or monochrome device.  In most instances the
+%  reduced color image closely resembles the original.  Alternatively, a
+%  monochrome or pseudo-color image can display on a continuous-tone 24
+%  bits-per-pixel device.
+%
+%  The Animate program command syntax is:
+%
+%  Usage: animate [options ...] file [ [options ...] file ...]
+%
+%  Where options include:
+%    -backdrop            display image centered on a backdrop
+%    -clip geometry       preferred size and location of the clipped image
+%    -colormap type       Shared or Private
+%    -colors value        preferred number of colors in the image
+%    -colorspace type     GRAY, RGB, XYZ, YIQ, or YUV
+%    -delay milliseconds  display the next image after pausing
+%    -density geometry    vertical and horizonal density of the image
+%    -display server      display image to this X server
+%    -dither              apply Floyd/Steinberg error diffusion to image
+%    -gamma value         level of gamma correction
+%    -geometry geometry   preferred size and location of the image window
+%    -map type            display image using this Standard Colormap
+%    -monochrome          transform image to black and white
+%    -reflect             reverse image scanlines
+%    -rotate degrees      apply Paeth rotation to the image
+%    -scale geometry      preferred size factors of the image
+%    -treedepth value     depth of the color classification tree
+%    -verbose             print detailed information about the image
+%    -visual type         display image using this visual type
+%
+%  In addition to those listed above, you can specify these standard X
+%  resources as command line options:  -background, -bordercolor,
+%  -borderwidth, -font, -foreground, -iconGeometry, -iconic, -name, or
+%  -title.
+%
+%  Change '-' to '+' in any option above to reverse its effect.  For
+%  example, specify +compress to store the image as uncompressed.
+%
+%  By default, the image format of `file' is determined by its magic
+%  number.  To specify a particular image format, precede the filename
+%  with an image format name and a colon (i.e. mtv:image) or specify the
+%  image type as the filename suffix (i.e. image.mtv).  Specify 'file' as
+%  '-' for standard input or output.
+%
+%  Buttons:
+%    1    press and drag to select a command from a pop-up menu
+%
+%  Keyboard accelerators:
+%    p    press to animate the sequence of images
+%    s    press to display the next image in the sequence
+%    .    press to continually display the sequence of images
+%    a    press to automatically reverse the sequence of images
+%    <    press to slow the display of the images
+%    >    press to speed-up the display of the images
+%    f    press to animate in the forward direction
+%    r    press to animate in the reverse direction
+%    i    press to display information about the image
+%    q    press to discard all images and exit program
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+#include "alien.h"
+#include "X.h"
+X
+/*
+X  State declarations.
+*/
+#define AutoReverseAnimationState 0x0001
+#define ConfigureWindowState  0x0002
+#define DefaultState  0x0004
+#define ExitState  0x0008
+#define ForwardAnimationState 0x0010
+#define HighlightState  0x0020
+#define InfoMappedState  0x0040
+#define PlayAnimationState 0x0080
+#define RepeatAnimationState 0x0100
+#define StepAnimationState 0x0200
+X
+/*
+X  Global declarations.
+*/
+char
+X  *application_name;
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   D e l a y                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Delay suspends animation for the number of milliseconds specified.
+%
+%  The format of the Delay routine is:
+%
+%      Delay(milliseconds)
+%
+%  A description of each parameter follows:
+%
+%    o milliseconds: Specifies the number of milliseconds to delay before
+%      returning.
+%
+%
+*/
+static void Timer()
+{
+}
+X
+void Delay(milliseconds)
+unsigned long
+X  milliseconds;
+{
+#ifdef unix
+#ifdef SYSV
+#include <sys/poll.h>
+X  if (milliseconds == 0)
+X    return;
+X  (void) poll((struct pollfd *) NULL,(unsigned long) NULL,
+X    (int) (milliseconds/1000));
+#else
+X  struct timeval
+X    timer;
+X
+X  if (milliseconds == 0)
+X    return;
+X  timer.tv_sec=milliseconds/1000;
+X  timer.tv_usec=(milliseconds % 1000)*1000;
+X  (void) select(0,(fd_set *) NULL,(fd_set *) NULL,(fd_set *) NULL,&timer);
+#endif
+#endif
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E r r o r                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Error displays an error message and then terminates the program.
+%
+%  The format of the Error routine is:
+%
+%      Error(message,qualifier)
+%
+%  A description of each parameter follows:
+%
+%    o message: Specifies the message to display before terminating the
+%      program.
+%
+%    o qualifier: Specifies any qualifier to the message.
+%
+%
+*/
+void Error(message,qualifier)
+char
+X  *message,
+X  *qualifier;
+{
+X  (void) fprintf(stderr,"%s: %s",application_name,message);
+X  if (qualifier != (char *) NULL)
+X    (void) fprintf(stderr," (%s)",qualifier);
+X  (void) fprintf(stderr,".\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s a g e                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Usage displays the program command syntax.
+%
+%  The format of the Usage routine is:
+%
+%      Usage(terminate)
+%
+%  A description of each parameter follows:
+%
+%    o terminate: The program will exit if the value is not zero.
+%
+%
+*/
+static void Usage(terminate)
+unsigned int
+X  terminate;
+{
+X  char
+X    **p;
+X
+X  static char
+X    *buttons[]=
+X    {
+X      "1    press and drag to select a command from a pop-up menu",
+X      (char *) NULL
+X    },
+X    *keys[]=
+X    {
+X      "0-9  press to change the level of delay",
+X      "p    press to animate the sequence of images",
+X      "s    press to display the next image in the sequence",
+X      ".    press to continually display the sequence of images",
+X      "a    press to automatically reverse the sequence of images",
+X      "<    press to slow the display of the images",
+X      ">    press to speed-up the display of images",
+X      "f    press to animate in the forward direction",
+X      "r    press to animate in the reverse direction",
+X      "i    press to display information about the image",
+X      "q    press to discard all images and exit program",
+X      (char *) NULL
+X    },
+X    *options[]=
+X    {
+X      "-backdrop            display image centered on a backdrop",
+X      "-clip geometry       preferred size and location of the clipped image",
+X      "-colormap type       Shared or Private",
+X      "-colors value        preferred number of colors in the image",
+X      "-colorspace type     GRAY, RGB, XYZ, YIQ, or YUV",
+X      "-delay milliseconds  display the next image after pausing",
+X      "-density geometry    vertical and horizonal density of the image",
+X      "-display server      display image to this X server",
+X      "-dither              apply Floyd/Steinberg error diffusion to image",
+X      "-gamma value         level of gamma correction",
+X      "-geometry geometry   preferred size and location of the image window",
+X      "-map type            display image using this Standard Colormap",
+X      "-monochrome          transform image to black and white",
+X      "-reflect             reflect the image scanlines",
+X      "-rotate degrees      apply Paeth rotation to the image",
+X      "-scale geometry      preferred size factors of the image",
+X      "-treedepth value     depth of the color classification tree",
+X      "-verbose             print detailed information about the image",
+X      "-visual type         display image using this visual type",
+X      (char *) NULL
+X    };
+X  (void) fprintf(stderr,
+X    "Usage: %s [-options ...] file [ [-options ...] file ...]\n",
+X    application_name);
+X  (void) fprintf(stderr,"\nWhere options include: \n");
+X  for (p=options; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  (void) fprintf(stderr,
+X    "\nIn addition to those listed above, you can specify these standard X\n");
+X  (void) fprintf(stderr,
+X    "resources as command line options:  -background, -bordercolor,\n");
+X  (void) fprintf(stderr,
+X    "-borderwidth, -font, -foreground, -iconGeometry, -iconic, -name, or\n");
+X  (void) fprintf(stderr,"-title.\n");
+X  (void) fprintf(stderr,
+X    "\nChange '-' to '+' in any option above to reverse its effect.  For\n");
+X  (void) fprintf(stderr,
+X    "example, specify +compress to store the image as uncompressed.\n");
+X  (void) fprintf(stderr,
+X    "\nBy default, the image format of `file' is determined by its magic\n");
+X  (void) fprintf(stderr,
+X    "number.  To specify a particular image format, precede the filename\n");
+X  (void) fprintf(stderr,
+X    "with an image format name and a colon (i.e. mtv:image) or specify the\n");
+X  (void) fprintf(stderr,
+X    "image type as the filename suffix (i.e. image.mtv).  Specify 'file' as\n");
+X  (void) fprintf(stderr,"'-' for standard input or output.\n");
+X  (void) fprintf(stderr,"\nButtons: \n");
+X  for (p=buttons; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  (void) fprintf(stderr,"\nKeyboard accelerators: \n");
+X  for (p=keys; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  if (terminate)
+X    exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s e r C o m m a n d                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function UserCommand makes a transform to the image or image window as
+%  specified by a user menu button or keyboard command.
+%
+%  The format of the UserCommand routine is:
+%
+%    UserCommand(display,resource_info,window,image,command,state);
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o window: Specifies a pointer to a XWindows structure.
+%
+%    o image: Specifies a pointer to a Image structure;  UserCommand
+%      may transform the image and return a new image pointer.
+%
+%    o state: Specifies an unsigned int;  UserCommand may return a
+%      modified state.
+%
+%
+*/
+static void UserCommand(display,resource_info,window,command,image,state)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindows
+X  *window;
+X
+char
+X  command;
+X
+Image
+X  **image;
+X
+unsigned int
+X  *state;
+{
+X  if (*state & InfoMappedState)
+X    XWithdrawWindow(display,window->info.id,window->info.screen);
+X  /*
+X    Process user command.
+X  */
+X  switch (command)
+X  {
+X    case ' ':
+X    case '\0':
+X      break;
+X    case '<':
+X    {
+X      resource_info->delay<<=1;
+X      if (resource_info->delay == 0)
+X        resource_info->delay=1;
+X      break;
+X    }
+X    case '>':
+X    {
+X      resource_info->delay>>=1;
+X      break;
+X    }
+X    case '.':
+X    {
+X      *state|=RepeatAnimationState;
+X      *state&=(~AutoReverseAnimationState);
+X      *state|=PlayAnimationState;
+X      break;
+X    }
+X    case 'a':
+X    {
+X      *state|=AutoReverseAnimationState;
+X      *state&=(~RepeatAnimationState);
+X      *state|=PlayAnimationState;
+X      break;
+X    }
+X    case 'f':
+X    {
+X      *state=ForwardAnimationState;
+X      *state&=(~AutoReverseAnimationState);
+X      break;
+X    }
+X    case 'i':
+X    {
+X      char
+X        text[2048];
+X
+X      /*
+X        Display information about the image in the info window.
+X      */
+X      (void) sprintf(text," [%u] %s %ux%u \0",(*image)->scene,
+X        (*image)->filename,window->image.width,window->image.height);
+X      if ((*image)->colors > 0)
+X        (void) sprintf(text,"%s%uc \0",text,(*image)->colors);
+X      (void) strcat(text,(*image)->magick);
+X      XSetWindowExtents(window->info,text,2);
+X      XMapWindow(display,window->info.id);
+X      XDrawImageString(display,window->info.id,window->info.graphic_context,2,
+X        window->info.font_info->ascent+2,text,(unsigned int) strlen(text));
+X      break;
+X    }
+X    case 'p':
+X    {
+X      *state|=PlayAnimationState;
+X      *state&=(~AutoReverseAnimationState);
+X      break;
+X    }
+X    case 's':
+X    case '\n':
+X    {
+X      *state|=StepAnimationState;
+X      *state&=(~PlayAnimationState);
+X      break;
+X    }
+X    case 'q':
+X    {
+X      /*
+X        Exit program
+X      */
+X      *state|=ExitState;  /* exit program */
+X      break;
+X    }
+X    case 'r':
+X    case '\r':
+X    {
+X      *state&=(~ForwardAnimationState);
+X      *state&=(~AutoReverseAnimationState);
+X      break;
+X    }
+X    default:
+X    {
+X      XBell(display,0);
+X      break;
+X    }
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X A n i m a t e I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XAnimateImage displays an image via X11.
+%
+%  The format of the XAnimateImage routine is:
+%
+%      XAnimateImage(display,resource_info,argv,argc,image,number_scenes)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o argv: Specifies the application's argument list.
+%
+%    o argc: Specifies the number of arguments.
+%
+%    o image: Specifies a pointer to a Image structure; returned from
+%      ReadImage.
+%
+%    o number_scenes: Specifies the number of scenes to animate.
+%
+%
+*/
+static int LinearCompare(x,y)
+void
+X  *x,
+X  *y;
+{
+X  Image
+X    **image_1,
+X    **image_2;
+X
+X  image_1=(Image **) x;
+X  image_2=(Image **) y;
+X  return((int) (*image_1)->scene-(int) (*image_2)->scene);
+}
+X
+static void XAnimateImage(display,resource_info,argv,argc,images,number_scenes)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+char
+X  **argv;
+X
+int
+X  argc;
+X
+Image
+X  **images;
+X
+unsigned int
+X  number_scenes;
+{
+#define MaxWindows  9
+X
+X  Atom
+X    delete_property,
+X    protocols_property;
+X
+X  char
+X    text[2048];
+X
+X  Cursor
+X    arrow_cursor,
+X    watch_cursor;
+X
+X  GC
+X    graphic_context;
+X
+X  int
+X    i,
+X    scene;
+X
+X  unsigned int
+X    number_windows,
+X    state,
+X    status;
+X
+X  Window
+X    root_window;
+X
+X  XClassHint
+X    *class_hint;
+X
+X  XEvent
+X    event;
+X
+X  XFontStruct
+X    *font_info;
+X
+X  XGCValues
+X    graphic_context_value;
+X
+X  XPixelInfo
+X    pixel_info;
+X
+X  XStandardColormap
+X    *map_info;
+X
+X  XVisualInfo
+X    *visual_info;
+X
+X  XWindowInfo
+X    *magick_windows[MaxWindows];
+X
+X  XWindows
+X    *window;
+X
+X  XWMHints
+X    *manager_hints;
+X
+X  /*
+X    Sort images by increasing scene number.
+X  */
+X  (void) qsort((void *) images,(int) number_scenes,sizeof(Image *),
+X    LinearCompare);
+X  /*
+X    Allocate standard colormap.
+X  */
+X  if (resource_info->debug)
+X    XSynchronize(display,True);
+X  map_info=XAllocStandardColormap();
+X  if (map_info == (XStandardColormap *) NULL)
+X    Error("unable to create standard colormap","memory allocation failed");
+X  map_info->colormap=(Colormap) NULL;
+X  pixel_info.pixels=(unsigned long *) NULL;
+X  /*
+X    Get the best visual this server supports.
+X  */
+X  visual_info=XBestVisualInfo(display,resource_info->visual_type,
+X    resource_info->map_type,map_info);
+X  if (visual_info == (XVisualInfo *) NULL)
+X    Error("unable to get visual",resource_info->visual_type);
+X  if (resource_info->debug)
+X    {
+X      (void) fprintf(stderr,"Visual:\n");
+X      (void) fprintf(stderr,"  visual id: 0x%lx\n",visual_info->visualid);
+X      (void) fprintf(stderr,"  class: %s\n",XVisualClassName(visual_info));
+X      (void) fprintf(stderr,"  depth: %d planes\n",visual_info->depth);
+X      (void) fprintf(stderr,"  size of colormap: %d entries\n",
+X        visual_info->colormap_size);
+X      (void) fprintf(stderr,"  red, green, blue masks: 0x%lx 0x%lx 0x%lx\n",
+X        visual_info->red_mask,visual_info->green_mask,visual_info->blue_mask);
+X      (void) fprintf(stderr,"  significant bits in color: %d bits\n",
+X        visual_info->bits_per_rgb);
+X    }
+X  /*
+X    Initialize cursor.
+X  */
+X  arrow_cursor=XCreateFontCursor(display,XC_arrow);
+X  watch_cursor=XCreateFontCursor(display,XC_watch);
+X  if ((arrow_cursor == (Cursor) NULL) || (watch_cursor == (Cursor) NULL))
+X    Error("unable to create cursor",(char *) NULL);
+X  /*
+X    Initialize atoms.
+X  */
+X  protocols_property=XInternAtom(display,"WM_PROTOCOLS",False);
+X  delete_property=XInternAtom(display,"WM_DELETE_WINDOW",False);
+X  if ((protocols_property == (Atom) NULL) || (delete_property == (Atom) NULL))
+X    Error("unable to create property",(char *) NULL);
+X  /*
+X    Allocate class and manager hints.
+X  */
+X  class_hint=XAllocClassHint();
+X  manager_hints=XAllocWMHints();
+X  if ((class_hint == (XClassHint *) NULL) ||
+X      (manager_hints == (XWMHints *) NULL))
+X    Error("unable to allocate X hints",(char *) NULL);
+X  /*
+X    Initialize window id's.
+X  */
+X  window=(XWindows *) malloc(sizeof(XWindows));
+X  if (window == (XWindows *) NULL)
+X    Error("unable to create X windows","memory allocation failed");
+X  number_windows=0;
+X  magick_windows[number_windows++]=(&window->backdrop);
+X  magick_windows[number_windows++]=(&window->icon);
+X  magick_windows[number_windows++]=(&window->image);
+X  magick_windows[number_windows++]=(&window->info);
+X  magick_windows[number_windows++]=(&window->popup);
+X  for (i=0; i < number_windows; i++)
+X    magick_windows[i]->id=(Window) NULL;
+X  if (resource_info->map_type == (char *) NULL)
+X    if ((visual_info->class != TrueColor) &&
+X        (visual_info->class != DirectColor))
+X      {
+X        unsigned int
+X          identical_colormap;
+X
+X        /*
+X          Determine if the sequence of images has the identical colormap.
+X        */
+X        identical_colormap=True;
+X        for (scene=0; scene < number_scenes; scene++)
+X        {
+X          if ((images[scene]->class == DirectClass) ||
+X              (images[scene]->colors > visual_info->colormap_size))
+X            {
+X              /*
+X                Image has more colors than the visual supports.
+X              */
+X              status=UnpackImage(images[scene]);
+X              if (status == False)
+X                Error("unable to unpack image",(char *) NULL);
+X              QuantizeImage(images[scene],(unsigned int)
+X                visual_info->colormap_size,resource_info->tree_depth,
+X                resource_info->dither,resource_info->colorspace,False);
+X            }
+X          if (images[scene]->signature == (char *) NULL)
+X            ColormapSignature(images[scene]);
+X          status=strcmp(images[scene]->signature,images[0]->signature);
+X          if (status != 0)
+X            identical_colormap=False;
+X        }
+X        if (!identical_colormap)
+X          {
+X            /*
+X              Create a single colormap for the sequence of images.
+X            */
+X            for (scene=0; scene < number_scenes; scene++)
+X              if (images[scene]->packed_pixels != (unsigned char *) NULL)
+X                {
+X                  status=UnpackImage(images[scene]);
+X                  if (status == False)
+X                    Error("unable to unpack image",(char *) NULL);
+X                }
+X            QuantizeImages(images,number_scenes,(Image *) NULL,(unsigned int)
+X              visual_info->colormap_size,resource_info->tree_depth,
+X              resource_info->dither,resource_info->colorspace,False);
+X          }
+X      }
+X  /*
+X    Initialize Standard Colormap.
+X  */
+X  if (images[0]->packed_pixels != (unsigned char *) NULL)
+X    {
+X      status=UnpackImage(images[0]);
+X      if (status == False)
+X        Error("unable to unpack image",(char *) NULL);
+X    }
+X  XMakeStandardColormap(display,visual_info,resource_info,&pixel_info,
+X    images[0],map_info);
+X  /*
+X    Color cursors.
+X  */
+X  XRecolorCursor(display,arrow_cursor,&pixel_info.background_color,
+X    &pixel_info.foreground_color);
+X  XRecolorCursor(display,watch_cursor,&pixel_info.background_color,
+X    &pixel_info.foreground_color);
+X  /*
+X    Initialize font info.
+X  */
+X  (void) sprintf(text," [%u] %s %ux%u \0",images[0]->scene,images[0]->filename,
+X    images[0]->columns,images[0]->rows);
+X  if (images[0]->colors > 0)
+X    (void) sprintf(text,"%s%uc \0",text,images[0]->colors);
+X  font_info=XBestFont(display,resource_info,text,images[0]->columns);
+X  if (font_info == (XFontStruct *) NULL)
+X    Error("unable to load font",resource_info->font);
+X  /*
+X    Initialize class and manager hints.
+X  */
+X  if (resource_info->name == (char *) NULL)
+X    class_hint->res_name=application_name;
+X  else
+X    class_hint->res_name=resource_info->name;
+X  class_hint->res_class=(char *) "ImageMagick";
+X  manager_hints->flags=InputHint | StateHint;
+X  manager_hints->input=False;
+X  manager_hints->initial_state=NormalState;
+X  /*
+X    Window superclass.
+X  */
+X  window->superclass.id=(Window) NULL;
+X  window->superclass.screen=visual_info->screen;
+X  window->superclass.depth=visual_info->depth;
+X  window->superclass.visual_info=visual_info;
+X  window->superclass.map_info=map_info;
+X  window->superclass.pixel_info=(&pixel_info);
+X  window->superclass.font_info=font_info;
+X  window->superclass.cursor=arrow_cursor;
+X  window->superclass.busy_cursor=watch_cursor;
+X  window->superclass.name=(char *) NULL;
+X  window->superclass.geometry=(char *) NULL;
+X  window->superclass.icon_name=(char *) NULL;
+X  window->superclass.icon_geometry=resource_info->icon_geometry;
+X  window->superclass.clip_geometry=(char *) NULL;
+X  window->superclass.flags=PSize;
+X  window->superclass.x=0;
+X  window->superclass.y=0;
+X  window->superclass.width=1;
+X  window->superclass.height=1;
+X  window->superclass.min_width=1;
+X  window->superclass.min_height=1;
+X  window->superclass.width_inc=1;
+X  window->superclass.height_inc=1;
+X  window->superclass.border_width=WindowBorderWidth;
+X  window->superclass.immutable=True;
+X  window->superclass.ximage=(XImage *) NULL;
+X  window->superclass.pixmap=(Pixmap) NULL;
+X  window->superclass.attributes.background_pixel=
+X    pixel_info.background_color.pixel;
+X  window->superclass.attributes.background_pixmap=(Pixmap) NULL;
+X  window->superclass.attributes.backing_store=WhenMapped;
+X  window->superclass.attributes.bit_gravity=ForgetGravity;
+X  window->superclass.attributes.border_pixel=pixel_info.border_color.pixel;
+X  window->superclass.attributes.colormap=map_info->colormap;
+X  window->superclass.attributes.cursor=arrow_cursor;
+X  window->superclass.attributes.do_not_propagate_mask=NoEventMask;
+X  window->superclass.attributes.event_mask=NoEventMask;
+X  window->superclass.attributes.override_redirect=False;
+X  window->superclass.attributes.save_under=True;
+X  window->superclass.attributes.win_gravity=NorthWestGravity;
+X  window->superclass.graphic_context=(GC) NULL;
+X  window->superclass.ximage=(XImage *) NULL;
+X  root_window=XRootWindow(display,visual_info->screen);
+X  XMakeWindow(display,root_window,argv,argc,class_hint,manager_hints,
+X    delete_property,&window->superclass);
+X  if (resource_info->debug)
+X    (void) fprintf(stderr,"Window id: 0x%lx (superclass)\n",
+X      window->superclass.id);
+X  /*
+X    Initialize graphic context.
+X  */
+X  graphic_context_value.background=pixel_info.background_color.pixel;
+X  graphic_context_value.foreground=pixel_info.foreground_color.pixel;
+X  graphic_context_value.font=font_info->fid;
+X  graphic_context_value.function=GXcopy;
+X  graphic_context_value.line_width=2;
+X  graphic_context_value.graphics_exposures=False;
+X  graphic_context_value.plane_mask=AllPlanes;
+X  graphic_context=XCreateGC(display,window->superclass.id,GCBackground |
+X    GCFont | GCForeground | GCFunction | GCGraphicsExposures | GCLineWidth |
+X    GCPlaneMask,&graphic_context_value);
+X  if (graphic_context == (GC) NULL)
+X    Error("unable to create graphic context",(char *) NULL);
+X  window->superclass.graphic_context=graphic_context;
+X  graphic_context_value.background=pixel_info.foreground_color.pixel;
+X  graphic_context_value.foreground=pixel_info.background_color.pixel;
+X  graphic_context=XCreateGC(display,window->superclass.id,GCBackground |
+X    GCFont | GCForeground | GCFunction | GCLineWidth | GCPlaneMask,
+X    &graphic_context_value);
+X  if (graphic_context == (GC) NULL)
+X    Error("unable to create graphic context",(char *) NULL);
+X  window->superclass.highlight_context=graphic_context;
+X  XDestroyWindow(display,window->superclass.id);
+X  window->superclass.id=(Window) NULL;
+X  /*
+X    Initialize icon window.
+X  */
+X  XGetWindowInfo(&window->superclass,&window->icon);
+X  XBestIconSize(display,&window->icon,images[0]);
+X  window->icon.attributes.event_mask=ExposureMask | StructureNotifyMask;
+X  manager_hints->flags=InputHint | StateHint;
+X  manager_hints->input=False;
+X  manager_hints->initial_state=IconicState;
+X  XMakeWindow(display,root_window,argv,argc,class_hint,manager_hints,
+X    delete_property,&window->icon);
+X  if (resource_info->debug)
+X    (void) fprintf(stderr,"Window id: 0x%lx (icon)\n",window->icon.id);
+X  /*
+X    Initialize image window.
+X  */
+X  XGetWindowInfo(&window->superclass,&window->image);
+X  window->image.name=(char *) malloc(2048*sizeof(char));
+X  window->image.icon_name=(char *) malloc(2048*sizeof(char));
+X  if ((window->image.name == NULL) || (window->image.icon_name == NULL))
+X    Error("unable to create image window","memory allocation failed");
+X  if (resource_info->title != (char *) NULL)
+X    {
+X      (void) strcpy(window->image.name,resource_info->title);
+X      (void) strcpy(window->image.icon_name,resource_info->title);
+X    }
+X  else
+X    {
+X      register char
+X        *p;
+X
+X      (void) strcpy(window->image.name,"ImageMagick: ");
+X      (void) strcat(window->image.name,images[0]->filename);
+X      p=window->image.name;
+X      while (*p != '\0')
+X      {
+X        if (*p == '.')
+X          {
+X            *p='\0';
+X            break;
+X          }
+X        p++;
+X      }
+X      (void) strcpy(window->image.icon_name,images[0]->filename);
+X      p=window->image.icon_name;
+X      while (*p != '\0')
+X      {
+X        if (*p == '.')
+X          {
+X            *p='\0';
+X            break;
+X          }
+X        p++;
+X      }
+X    }
+X  window->image.geometry=resource_info->image_geometry;
+X  window->image.width=images[0]->columns;
+X  if (window->image.width > XDisplayWidth(display,visual_info->screen))
+X    window->image.width=XDisplayWidth(display,visual_info->screen);
+X  window->image.height=images[0]->rows;
+X  if (window->image.height > XDisplayHeight(display,visual_info->screen))
+X    window->image.height=XDisplayHeight(display,visual_info->screen);
+X  window->image.border_width=resource_info->border_width;
+X  XGetWindowInfo(&window->superclass,&window->backdrop);
+X  if (resource_info->backdrop)
+X    {
+X      unsigned int
+X        height,
+X        width;
+X
+X      /*
+X        Initialize backdrop window.
+X      */
+X      window->backdrop.cursor=XMakeInvisibleCursor(display,root_window);
+X      if (window->backdrop.cursor == (Cursor) NULL)
+X        Error("unable to create cursor",(char *) NULL);
+X      window->backdrop.name="ImageMagick Background";
+X      window->backdrop.flags=USSize | USPosition;
+X      window->backdrop.width=XDisplayWidth(display,visual_info->screen);
+X      window->backdrop.height=XDisplayHeight(display,visual_info->screen);
+X      window->backdrop.border_width=0;
+X      window->backdrop.immutable=True;
+X      window->backdrop.attributes.cursor=window->backdrop.cursor;
+X      window->backdrop.attributes.do_not_propagate_mask=
+X        ButtonPressMask | ButtonReleaseMask;
+X      window->backdrop.attributes.override_redirect=True;
+X      manager_hints->flags=IconWindowHint | InputHint | StateHint;
+X      manager_hints->icon_window=window->icon.id;
+X      manager_hints->input=True;
+X      manager_hints->initial_state=
+X        resource_info->iconic ? IconicState : NormalState;
+X      XMakeWindow(display,root_window,argv,argc,class_hint,manager_hints,
+X        delete_property,&window->backdrop);
+X      if (resource_info->debug)
+X        (void) fprintf(stderr,"Window id: 0x%lx (backdrop)\n",
+X          window->backdrop.id);
+X      XSetTransientForHint(display,window->backdrop.id,window->backdrop.id);
+X      XMapWindow(display,window->backdrop.id);
+X      XInstallColormap(display,map_info->colormap);
+X      XSetInputFocus(display,window->backdrop.id,RevertToNone,CurrentTime);
+X      /*
+X        Position image in the center the backdrop.
+X      */
+X      window->image.flags|=USPosition;
+X      window->image.x=0;
+X      width=images[0]->columns+window->image.border_width;
+X      if (width < XDisplayWidth(display,visual_info->screen))
+X        window->image.x=XDisplayWidth(display,visual_info->screen)/2-width/2;
+X      window->image.y=0;
+X      height=images[0]->rows+window->image.border_width;
+X      if (height < XDisplayHeight(display,visual_info->screen))
+X        window->image.y=XDisplayHeight(display,visual_info->screen)/2-height/2;
+X    }
+X  window->image.immutable=False;
+X  window->image.attributes.event_mask=ButtonMotionMask | ButtonPressMask |
+X    ButtonReleaseMask | EnterWindowMask | ExposureMask | KeyPressMask |
+X    LeaveWindowMask | OwnerGrabButtonMask | StructureNotifyMask;
+X  manager_hints->flags=IconWindowHint | InputHint | StateHint;
+X  manager_hints->icon_window=window->icon.id;
+X  manager_hints->input=True;
+X  manager_hints->initial_state=
+X    resource_info->iconic ? IconicState : NormalState;
+X  XMakeWindow(display,(resource_info->backdrop ? window->backdrop.id :
+X    root_window),argv,argc,class_hint,manager_hints,delete_property,
+X    &window->image);
+X  if (resource_info->debug)
+X    (void) fprintf(stderr,"Window id: 0x%lx (image)\n",window->image.id);
+X  XMapWindow(display,window->image.id);
+X  window->image.x=0;
+X  window->image.y=0;
+X  /*
+X    Initialize image X image structure.
+X  */
+X  status=XMakeImage(display,resource_info,&window->image,images[0],
+X    images[0]->columns,images[0]->rows);
+X  status|=XMakePixmap(display,resource_info,&window->image);
+X  if (status == False)
+X    Error("unable to create X image",(char *) NULL);
+X  if (resource_info->debug)
+X    {
+X      (void) fprintf(stderr,"Image: [%u] %s %ux%u ",images[0]->scene,
+X        images[0]->filename,images[0]->columns,images[0]->rows);
+X      if (images[0]->colors > 0)
+X        (void) fprintf(stderr,"%uc ",images[0]->colors);
+X      (void) fprintf(stderr,"%s\n",images[0]->magick);
+X    }
+X  XRefreshWindow(display,&window->image,(XEvent *) NULL);
+X  /*
+X    Initialize popup window.
+X  */
+X  XGetWindowInfo(&window->superclass,&window->popup);
+X  window->popup.name="ImageMagick Popup";
+X  window->popup.flags=PSize | PPosition;
+X  window->popup.attributes.override_redirect=True;
+X  window->popup.attributes.save_under=True;
+X  window->popup.attributes.event_mask=ButtonMotionMask | ButtonPressMask |
+X    ButtonReleaseMask | EnterWindowMask | ExposureMask | LeaveWindowMask |
+X    OwnerGrabButtonMask;
+X  manager_hints->flags=InputHint | StateHint | WindowGroupHint;
+X  manager_hints->input=False;
+X  manager_hints->initial_state=NormalState;
+X  manager_hints->window_group=window->image.id;
+X  XMakeWindow(display,root_window,argv,argc,class_hint,manager_hints,
+X    delete_property,&window->popup);
+X  if (resource_info->debug)
+X    (void) fprintf(stderr,"Window id: 0x%lx (popup)\n",window->popup.id);
+X  XSetTransientForHint(display,window->popup.id,window->image.id);
+X  /*
+X    Initialize info window.
+X  */
+X  XGetWindowInfo(&window->superclass,&window->info);
+X  window->info.name="ImageMagick Info";
+X  window->info.flags=PSize | PPosition;
+X  window->info.x=2;
+X  window->info.y=2;
+X  window->info.attributes.event_mask=StructureNotifyMask;
+X  manager_hints->flags=InputHint | StateHint | WindowGroupHint;
+X  manager_hints->input=False;
+X  manager_hints->initial_state=NormalState;
+X  manager_hints->window_group=window->image.id;
+X  XMakeWindow(display,window->image.id,argv,argc,class_hint,manager_hints,
+X    delete_property,&window->info);
+X  if (resource_info->debug)
+X    (void) fprintf(stderr,"Window id: 0x%lx (info)\n",window->info.id);
+X  /*
+X    Initialize image pixmaps structure.
+X  */
+X  XDefineCursor(display,window->image.id,window->image.busy_cursor);
+X  XMapWindow(display,window->info.id);
+X  window->image.pixmaps=(Pixmap *) malloc(number_scenes*sizeof(Pixmap));
+X  if (window->image.pixmaps == (Pixmap *) NULL)
+X    Error("unable to animate images","memory allocation failed");
+X  window->image.pixmaps[0]=window->image.pixmap;
+X  for (scene=1; scene < number_scenes; scene++)
+X  {
+X    /*
+X      Display information about the image in the info window.
+X    */
+X    (void) sprintf(text," [%u] %s %ux%u \0",images[scene]->scene,
+X      images[scene]->filename,window->image.width,window->image.height);
+X    if (images[scene]->colors > 0)
+X      (void) sprintf(text,"%s%uc \0",text,images[scene]->colors);
+X    XSetWindowExtents(window->info,text,2);
+X    XDrawImageString(display,window->info.id,window->info.graphic_context,2,
+X      window->info.font_info->ascent+2,text,(unsigned int) strlen(text));
+X    XFlush(display);
+X    /*
+X      Create X image.
+X    */
+X    window->image.pixmap=(Pixmap) NULL;
+X    if (images[scene]->packed_pixels != (unsigned char *) NULL)
+X      {
+X        status=UnpackImage(images[scene]);
+X        if (status == False)
+X          Error("unable to unpack image",(char *) NULL);
+X      }
+X    status=XMakeImage(display,resource_info,&window->image,images[scene],
+X      images[scene]->columns,images[scene]->rows);
+X    status|=XMakePixmap(display,resource_info,&window->image);
+X    if (status == False)
+X      Error("unable to create X image",(char *) NULL);
+X    if (resource_info->debug)
+X      {
+X        (void) fprintf(stderr,"Image: [%u] %s %ux%u ",images[scene]->scene,
+X          images[scene]->filename,images[scene]->columns,images[scene]->rows);
+X        if (images[scene]->colors > 0)
+X          (void) fprintf(stderr,"%uc ",images[scene]->colors);
+X        (void) fprintf(stderr,"%s\n",images[scene]->magick);
+X      }
+X    /*
+X      Free image pixels.
+X    */
+X    (void) free((char *) images[scene]->pixels);
+X    images[scene]->pixels=(RunlengthPacket *) NULL;
+X    /*
+X      Refresh image window.
+X    */
+X    window->image.pixmaps[scene]=window->image.pixmap;
+X    XRefreshWindow(display,&window->image,(XEvent *) NULL);
+X    XSync(display,False);
+X  }
+X  XWithdrawWindow(display,window->info.id,window->info.screen);
+X  XDefineCursor(display,window->image.id,window->image.cursor);
+X  /*
+X    Respond to events.
+X  */
+X  state=DefaultState;
+X  scene=0;
+X  do
+X  {
+X    if (XEventsQueued(display,QueuedAfterFlush) == 0)
+X      if ((state & PlayAnimationState) || (state & StepAnimationState))
+X        {
+X          if (state & InfoMappedState)
+X            XWithdrawWindow(display,window->info.id,window->info.screen);
+X          /*
+X            Copy X pixmap to image window.
+X          */
+X          window->image.pixmap=window->image.pixmaps[scene];
+X          XRefreshWindow(display,&window->image,(XEvent *) NULL);
+X          XSync(display,False);
+X          if (state & StepAnimationState)
+X            {
+X              state&=(~StepAnimationState);
+X              UserCommand(display,resource_info,window,'i',&images[scene],
+X                &state);
+X            }
+X          if (resource_info->delay > 0)
+X            Delay((unsigned long) resource_info->delay);
+X          if (state & ForwardAnimationState)
+X            {
+X              /*
+X                Forward animation:  increment scene number.
+X              */
+X              scene++;
+X              if (scene == number_scenes)
+X                if (state & AutoReverseAnimationState)
+X                  {
+X                    state&=(~ForwardAnimationState);
+X                    scene--;
+X                  }
+X                else
+X                  {
+X                    if (!(state & RepeatAnimationState))
+X                      state&=(~PlayAnimationState);
+X                    scene=0;
+X                  }
+X            }
+X          else
+X            {
+X              /*
+X                Reverse animation:  decrement scene number.
+X              */
+X              scene--;
+X              if (scene < 0)
+X                if (state & AutoReverseAnimationState)
+X                  {
+X                    state|=ForwardAnimationState;
+X                    scene=0;
+X                  }
+X                else
+X                  {
+X                    if (!(state & RepeatAnimationState))
+X                      state&=(~PlayAnimationState);
+X                    scene=number_scenes-1;
+X                  }
+X            }
+X          continue;
+X        }
+X    /*
+X      Handle a window event.
+X    */
+X    XNextEvent(display,&event);
+X    switch (event.type)
+X    {
+X      case ButtonPress:
+X      {
+X        if (event.xbutton.window == window->image.id)
+X          switch (event.xbutton.button)
+X          {
+X            case Button1:
+X            {
+X              static char
+X                command[2048],
+X                *MenuCommand="ips.a<>frq",
+X                *MenuSelections[]=
+X                {
+X                  "Image Info",
+X                  "Play",
+X                  "Step",
+X                  "Repeat",
+X                  "Auto Reverse",
+X                  "Slower",
+X                  "Faster",
+X                  "Forward",
+X                  "Reverse",
+X                  "Quit"
+X                };
+X
+X              static int
+X                command_number;
+X
+X              /*
+X                Select a command from the pop-up menu.
+X              */
+X              command_number=XPopupMenu(display,&window->popup,
+X                event.xbutton.x_root,event.xbutton.y_root,"Commands",
+X                MenuSelections,sizeof(MenuSelections)/sizeof(char *),command);
+X              if (*command != '\0')
+X                UserCommand(display,resource_info,window,
+X                  MenuCommand[command_number],&images[scene],&state);
+X              break;
+X            }
+X            default:
+X              break;
+X          }
+X        break;
+X      }
+X      case ClientMessage:
+X      {
+X        /*
+X          If client window delete message, exit.
+X        */
+X        if (event.xclient.message_type == protocols_property)
+X          if (*event.xclient.data.l == delete_property)
+X            if (event.xclient.window == window->image.id)
+X              state|=ExitState;
+X            else
+X              XWithdrawWindow(display,event.xclient.window,visual_info->screen);
+X        break;
+X      }
+X      case ConfigureNotify:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Configure Notify: 0x%lx %dx%d+%d+%d\n",
+X            event.xconfigure.window,event.xconfigure.width,
+X            event.xconfigure.height,event.xconfigure.x,event.xconfigure.y);
+X        if (event.xconfigure.window == window->image.id)
+X          {
+X            /*
+X              Image window has a new configuration.
+X            */
+X            window->image.width=event.xconfigure.width;
+X            window->image.height=event.xconfigure.height;
+X            break;
+X          }
+X        if (event.xconfigure.window == window->icon.id)
+X          {
+X            /*
+X              Icon window has a new configuration.
+X            */
+X            window->icon.width=event.xconfigure.width;
+X            window->icon.height=event.xconfigure.height;
+X            break;
+X          }
+X      }
+X      case EnterNotify:
+X      {
+X        /*
+X          Selectively install colormap.
+X        */
+X        if (map_info->colormap != XDefaultColormap(display,visual_info->screen))
+X          if (event.xcrossing.mode != NotifyUngrab)
+X            XInductColormap(display,map_info->colormap);
+X        if (window->backdrop.id != (Window) NULL)
+X          if (event.xbutton.window == window->image.id)
+X            {
+X              XInstallColormap(display,map_info->colormap);
+X              XSetInputFocus(display,window->image.id,RevertToNone,CurrentTime);
+X              break;
+X            }
+X        break;
+X      }
+X      case Expose:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Expose: 0x%lx %dx%d+%d+%d\n",
+X            event.xexpose.window,event.xexpose.width,event.xexpose.height,
+X            event.xexpose.x,event.xexpose.y);
+X        /*
+X          Repaint windows that are now exposed.
+X        */
+X        if (event.xexpose.window == window->image.id)
+X          {
+X            window->image.pixmap=window->image.pixmaps[scene];
+X            XRefreshWindow(display,&window->image,&event);
+X            break;
+X          }
+X        break;
+X      }
+X      case KeyPress:
+X      {
+X        static char
+X          command[2048];
+X
+X        static KeySym
+X          key_symbol;
+X
+X        /*
+X          Respond to a user key press.
+X        */
+X        if (state & ConfigureWindowState)
+X          {
+X            XBell(display,0);
+X            break;
+X          }
+X        *command='\0';
+X        XLookupString((XKeyEvent *) &event.xkey,command,sizeof(command),
+X          &key_symbol,(XComposeStatus *) NULL);
+X        if (key_symbol == XK_Help)
+X          Usage(False);
+X        else
+X          if (!IsCursorKey(key_symbol))
+X            UserCommand(display,resource_info,window,*command,&images[scene],
+X              &state);
+X        break;
+X      }
+X      case LeaveNotify:
+X      {
+X        /*
+X          Selectively uninstall colormap.
+X        */
+X        if (map_info->colormap != XDefaultColormap(display,visual_info->screen))
+X          if (event.xcrossing.mode != NotifyUngrab)
+X            XUninductColormap(display,map_info->colormap);
+X        break;
+X      }
+X      case MapNotify:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Map Notify: 0x%lx\n",event.xmap.window);
+X        if (event.xmap.window == window->image.id)
+X          {
+X            state=ForwardAnimationState | PlayAnimationState;
+X            break;
+X          }
+X        if (event.xmap.window == window->info.id)
+X          {
+X            state|=InfoMappedState;
+X            break;
+X          }
+X        if (event.xmap.window == window->icon.id)
+X          {
+X            /*
+X              Create icon pixmap.
+X            */
+X            status=XMakeImage(display,resource_info,&window->icon,images[0],
+X              window->icon.width,window->icon.height);
+X            status|=XMakePixmap(display,resource_info,&window->icon);
+X            if (status == False)
+X              Error("unable to create icon image",(char *) NULL);
+SHAR_EOF
+true || echo 'restore of ImageMagick/animate.c failed'
+fi
+echo 'End of  part 18'
+echo 'File ImageMagick/animate.c is continued in part 19'
+echo 19 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

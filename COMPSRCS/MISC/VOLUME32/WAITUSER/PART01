@@ -1,0 +1,201 @@
+Newsgroups: comp.sources.misc
+From: weigand@pecan.cns.udel.edu (Steve Weigand)
+Subject:  v32i095:  waituser - user logon detector, Part01/01
+Message-ID: <1992Oct4.171303.4437@sparky.imd.sterling.com>
+X-Md4-Signature: 9a144449b8004a1b63880c09122cc551
+Date: Sun, 4 Oct 1992 17:13:03 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: weigand@pecan.cns.udel.edu (Steve Weigand)
+Posting-number: Volume 32, Issue 95
+Archive-name: waituser/part01
+Environment: BSD
+
+[ If you wish to have rapid turnaround on postings, please submit them  ]
+[ in the format described in the introduction posting.  Thanks.  -Kent+ ]
+
+Summary:  waituser is a program which I created that will allow one to
+wait until until a certain user logs into the machine you are currently
+logged in on.
+
+ USAGE: waituser <username>
+
+It accomplishes this by repeatedly scanning the utmp file for any changes
+that happen to it. If the file is changed, waituser will recheck it to
+see if that user logged in. If not, it just keeps waiting for changes. 
+
+Obviously, infinite loops like this tend to take up lots of processor 
+time, but scanning for changes to a file, rather than scanning the entire
+file, should reduce most of the overhead. The result is a program which
+eats up a little, but not a lot, of processor time.
+
+ Example:
+
+        Suppose you had a friend with username "jdoe", who logs into your
+        machine on occassion. You want to surprise him with a message the
+        very instant he logs in. How 'bout a really big message (banner)
+        to his screen? Here's what you'd do:
+
+        Create the following shell script file using vi, calling it
+        "test.scr":
+                waituser jdoe
+                banner Hi there John | write jdoe
+
+        Now, run this program in the background before you logout by doing
+        the following from your shell prompt:
+                source test.scr &
+
+        The ampersand will tell it to run in the background; so it will
+        continue to be there even when you logout.
+
+        When John Doe logs into his account, he should instantly see 
+        a huge message on his screen, "Hi there John", even before seeing
+        anything in his .login (it should be that fast!).
+
+I release this program public domain. I don't care what you all do to it,
+and I don't care if I am given credit. However, if you do find a way to
+do it better, without taking up processor time, please post it.
+
+Thanx, 
+ -Steve Weigand
+ (weigand@ee.udel.edu)
+
+=============================CUT HERE====================================
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  waituser.c
+# Wrapped by kent@sparky on Sun Oct  4 12:06:39 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'waituser.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'waituser.c'\"
+else
+  echo shar: Extracting \"'waituser.c'\" \(2879 characters\)
+  sed "s/^X//" >'waituser.c' <<'END_OF_FILE'
+X/* Program: waituser.c 
+X** Author : Steven Weigand (weigand@ee.udel.edu)
+X** Date   : September 22, 1992
+X** Ver.   : 1.0
+X** Descr. :
+X**		This program will wait until the username you give it is
+X**		logged onto the system. The INSTANT that user logs in, this
+X**		program will exit, returning control back to your process.
+X**		The purpose of such a program is obvious, so I won't say
+X**		too much more on the subject. 
+X**
+X**		Reason for its invention: I didn't like constantly scanning
+X**	 	'users' for a certain names... when I did, it used up lots
+X**		of processor time, especially when the intervals between 
+X**		scans was small. This program will scan the /etc/utmp file
+X**		for the user in question. It will do this by checking it
+X**		for when the computer updates it, and then checking the 
+X**		list for the user you want. 
+X**
+X**		Example: 
+X**		 If you wanted to write your friend (weigand) a "hello" to
+X**		 his screen when he logged in, then create a script called
+X**		 "hiweigand" and make it executeable:
+X**			waituser weigand
+X**			banner Hello | write weigand
+X**		 When you activate this script, do so by using the & sign to
+X**		 make it run in the background, even after you've left:
+X**		 	hiweigand& 
+X**		 4 some odd hours/days later, your friend signs on and sees
+X**		 a big Hello on his screen. Nifty, huh?
+X**
+X** USAGE:	waituser username
+X*/
+X#include <stdio.h>
+X#include <utmp.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X
+X#define EQ(a,b)  (strcmp(a,b) == 0)
+Xchar* sformat();
+X
+Xvoid main(i,v)
+Xint i;
+Xchar** v;
+X{
+X FILE* fp = NULL;
+X struct utmp * UT = NULL;
+X char* buffer = NULL;
+X long counter = 0L;
+X long index = 0L;
+X char c;
+X int endflag = 0;
+X time_t cur_date = 0;
+X struct stat stbufr;
+X
+X if (i<2) exit(-1);
+X if (i>2) printf("Extra input ignored.\n");
+X
+Xwhile(!endflag)
+X{
+X
+X fp = fopen("/etc/utmp","r");
+X fseek(fp,0L,2);
+X
+X if (fp == NULL) endflag = 1;
+X
+X if (fp != NULL)
+X {
+X   buffer = (char*)malloc(ftell(fp)*sizeof(char));
+X   fseek(fp,0L,0);
+X   counter = 0L;
+X   index = 0L; 
+X   while (!feof(fp))
+X     buffer[counter++] = fgetc(fp); 
+X   UT = (struct utmp*)buffer;
+X
+X   while (index < counter)
+X   {
+X        if (EQ(sformat(UT->ut_name,8),v[1]))
+X		  exit(0);
+X    	index = index + sizeof(struct utmp);
+X        UT++;
+X   } 
+X   free(buffer);
+X  
+X } /*End if*/
+X fclose(fp);
+X /* Now, wait until /etc/utmp is changed */
+X
+X cur_date = stbufr.st_mtime;
+X while(stbufr.st_mtime == cur_date)
+X	stat("/etc/utmp",&stbufr);
+X  /*It might take a lot of processor time, but this is better than opening
+X  **up the file and rechecking it every 1 millisecond! */
+X
+X
+X}/*End while*/
+X}/*End main()*/
+X
+Xchar* sformat(s,l)
+Xchar* s;
+Xint l;
+X{
+X /* Will return a string of l characters long from s*/
+X char* newstring;
+X int counter = 0;
+X
+X newstring = (char*)malloc((l+1)*sizeof(char));
+X
+X for (counter=0;counter<l;counter++)
+X   newstring[counter] = s[counter];
+X newstring[counter] = '\0';
+X return newstring;
+X}
+X
+END_OF_FILE
+  if test 2879 -ne `wc -c <'waituser.c'`; then
+    echo shar: \"'waituser.c'\" unpacked with wrong size!
+  fi
+  # end of 'waituser.c'
+fi
+echo shar: End of archive.
+exit 0
+exit 0 # Just in case...

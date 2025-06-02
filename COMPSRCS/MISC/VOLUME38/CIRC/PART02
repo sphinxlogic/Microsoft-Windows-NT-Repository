@@ -1,0 +1,2390 @@
+From: newsham@wiliki.eng.hawaii.edu (Timothy Newsham)
+Newsgroups: comp.sources.misc
+Subject: v38i011: circ - encrypted irc package, Part02/03
+Date: 19 Jun 1993 08:31:05 +0100
+Sender: aem@aber.ac.uk
+Approved: aem@aber.ac.uk
+Message-ID: <1vufbp$jkv@uk-usenet.UK.Sun.COM>
+X-Md4-Signature: 8f4133c8e6b72f352e9a52b762cacd1e
+
+Submitted-by: newsham@wiliki.eng.hawaii.edu (Timothy Newsham)
+Posting-number: Volume 38, Issue 11
+Archive-name: circ/part02
+Environment: C UNIX
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Circ/README Circ/RSA/arith.c Circ/RSA/nio.c
+#   Circ/RSA/prim.c Circ/RSA/rsa.c Circ/crypt.irc Circ/d3des/d3des.h
+#   Circ/new.c
+# Wrapped by alecm@uk-usenet on Sat Jun 19 08:26:21 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'Circ/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/README'\"
+else
+  echo shar: Extracting \"'Circ/README'\" \(5888 characters\)
+  sed "s/^X//" >'Circ/README' <<'END_OF_FILE'
+X
+XThis is an encrypted protocol that runs on top of IRC.
+XThis version has a binary and an ircII script, and is
+Xdesigned to run within IRC-II (irc clients).
+X
+XThis is release 1.0, the first general release.  It is 
+Xincompatible to pre-release versions since the encryption
+Xwas changed from DES to triple-DES.  Also RSA keys must
+Xbe longer than the ones created by the last version since
+XTriple-DES keys are three times longer (so any old RSA
+Xkeys are no longer any good).
+X
+XIf you want a tiny (stand-alone) client, read README.old
+X
+XGENERAL DESCRIPTION:
+X---------------------
+X
+XInterfaces to ircII clients through the scripting language.
+XEncrypts messages in Triple-DES.
+XKeeps a table of Triple-DES keys.
+XAllows for key exchange using the RSA encryption algorithm.
+X
+X
+XHOW DO I SET IT UP?
+X--------------------
+X
+X1.  set-up your ircII client.  Hopefully you already have 
+X    this done
+X
+X2.  compile all the binaries you will need:
+X       make all    
+X    this will make the binary 'new' and generate your
+X    keys.  Alternatively you can do them seperately:
+X       make new
+X     and
+X       make keys
+X    this may come in handy later if you wish to make a new
+X    RSA key, or if you wish to remake 'new' without changing
+X    your key.
+X    The file names used for your keys will be printed to your
+X    screen:  "secret" for your secret key and another one named
+X    after your login or $IRCNAME (or "public" if the script
+X    cant determine either of those).  
+X
+X3.  Send your public key (named after your IRCNICK ) to your
+X    friends, heck even your enemies... doesnt hurt.  Security
+X    does not depend much on this key (having this key shouldnt
+X    help the bad guys decrypt your messages).   You can do this
+X    a number of ways:  mail and '/dcc send' (within irc) are
+X    two of them.
+X
+X4.  If you have a directory with your friends public keys
+X    set up an environmental pointing to them.  This is
+X    done differently in CSH and SH :
+X     CSH%  setenv KEYDIR /path/to/key/dir
+X      SH$  KEYDIR=/path/to/key/dir
+X      SH$  export KEYDIR
+X    alternatively put all your keys into a directory named
+X    "pubkeys" under the current directory.  This directory
+X    always gets checked.
+X
+X5.  Start-up irc now.
+X
+X6.  Once in load up the script file.  While loading the script
+X    you *must* be in the same directory as the binary 'new'
+X    the files 'secret' and all the secret keys!  You can
+X    do this by either starting IRC from within the directory,
+X    or using the IRCII command /cd directory to get there.
+X
+X         /load crypt.irc
+X
+X   (note due to discrepencies in scripting in newer IRCII
+X    clients there are two versions of the script.  Users
+X    using older ircII clients should use "crypt.irc" and
+X    those using newer (I believe 2.2.4 and onward) should
+X    use "crypt.irc2" )
+X
+X7.  You should now be ready to encrypt and receive encrypted
+X    messages.  Join a channel with someone else who has encryption
+X    and send them your key:
+X
+X         /join #crypto
+X         /key myfriend
+X
+X     this will send them your (random) DES key and allow them
+X     to see you.  When you send them encrypted messages now,
+X     it will be automatically decrypted on their end and put up
+X     on the screen with an E before it.
+X
+X     To send an encrypted message to the current channel type
+X         /e message here
+X     Or to make all your messages encrypted:
+X         /crypt
+X     To undo that:
+X         /plain
+X     And to send plaintext messages while encrypted:
+X         /p message here
+X     To send encrypted messages:
+X         /emsg nick message here
+X
+XFor details on what goes on behind the scene,  the protocol
+Xspecifics, or anything more detailed than this, see 
+XREADME.old which refers to a previous (standalone) encrypted
+Xclient.
+X
+X
+XWATCH OUT FOR:
+X--------------
+X
+X-  if you dont want someone to see you: DONT /KEY THEIRNICK !!!
+X   anyone you /key can read what you type
+X
+X-  if you want someone to see you:  /key theirnick !!!
+X   while encrypted, only the people you have /key'ed can
+X   see what you type.  (And only then if they have the
+X   client)
+X
+X-  dont piss people off!  Anyone who does not run this program
+X   will see *alot* of garbage on their screen while you are
+X   sending encrypted messages to their channel!  Please keep
+X   encryption in channels were people have encrypted clients.
+X
+X-  the /crypt and /plain  alias's use /query.   If you are /query'ing
+X   someone and type either /crypt or /plain it will cancel your
+X   old /query.  If you are encrypted (/crypt) and you /query
+X   someone else it will take yout out of auto-encryption.  You
+X   can tell when you are encrypted by the [query: %crypt] in
+X   the title bar (if you have a title bar :)
+X
+X-  only messages that are sent with "/e" or "/emsg" or while
+X   in "/crypt" mode are encrypted.  Not everything you type
+X   after "/load crypt.irc" is encrypted.
+X
+X-  If you wish to reload the program, or stop it use /die.  This
+X   will stop the server program ('new') and remove any /query's
+X   that are in effect (in case you where /crypt'ed).  
+X
+X
+XWEAKNESSES:
+X-----------
+X
+XSecurity of all messages you type in any one session depends
+Xon the secrecy of your Triple-DES key and the security of
+Xthat algorithm.
+X
+XSecurity of any key exchanges depends on the RSA algorithm and
+Xthe secrecy of your "secret" secret key file.  The keys generated
+Xare aproximately 512 bits long,  but the random numbers are all
+Xtaken from the rand() system call.  This is a possible weakness.
+X 
+XAs usual anything you do on another persons machine is not totally
+Xsecure.  Root can peek at your core image which has all the
+Xsecret keys as well as some extra plaintext laying around.  Root
+Xcould go as far as to watch the pipe between irc and the 'new'
+Xbinary.  If you are dialing up and go through a Terminal Server
+Xyou could be monitored at that point, or comming over the
+Xnetwork.
+X
+X----
+Xenjoy..  distribute freely.  Feel free to add, give suggestions,
+Xetc.
+X  
+END_OF_FILE
+  if test 5888 -ne `wc -c <'Circ/README'`; then
+    echo shar: \"'Circ/README'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/README'
+fi
+if test -f 'Circ/RSA/arith.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/RSA/arith.c'\"
+else
+  echo shar: Extracting \"'Circ/RSA/arith.c'\" \(11667 characters\)
+  sed "s/^X//" >'Circ/RSA/arith.c' <<'END_OF_FILE'
+X/*******************************************************************************
+X*									       *
+X*	Copyright (c) Martin Nicolay,  22. Nov. 1988			       *
+X*									       *
+X*	Wenn diese (oder sinngemaess uebersetzte) Copyright-Angabe enthalten   *
+X*	bleibt, darf diese Source fuer jeden nichtkomerziellen Zweck weiter    *
+X*	verwendet werden.						       *
+X*									       *
+X*	martin@trillian.megalon.de					       *
+X*									       *
+X*******************************************************************************/
+X
+X#include	"arith.h"
+X
+X/*
+X *	!!!!!!!!!!!!!!!!!!!!!!!!!!!! ACHTUNG !!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X *	Es findet keinerlei Ueberpruefung auf Bereichsueberschreitung
+X *	statt. Alle Werte muessen natuerliche Zahlen aus dem Bereich
+X *		0 ... (MAXINT+1)^MAXLEN-1 sein.
+X *	
+X *	
+X *	Bei keiner Funktion oder Hilsfunktion werden Annahmen getroffen,
+X *	ueber die Verschiedenheit von Eingabe- & Ausgabe-Werten.
+X *
+X *
+X *		Funktionen:
+X *
+X *	a_add( s1, s2, d )
+X *		NUMBER *s1,*s2,*d;
+X *			*d = *s1 + *s2;
+X *
+X *	a_assign( *d, *s )
+X *		NUMBER *d,*s;
+X *			*d = *s;
+X *
+X * int	a_cmp( c1, c2 )
+X *		NUMBER *c1,*c2;
+X *			 1 :	falls *c1 >  *c2
+X *			 0 :	falls *c1 == *c2
+X *			-1 :	falls *c1 <  *c2
+X *
+X *	a_div( d1, d2, q, r )
+X *		NUMBER *d1,*d2,*q,*r;
+X *			*q = *d1 / *d2 Rest *r;
+X *
+X *	a_div2( n )
+X *		NUMBER *n;
+X *			*n /= 2;
+X *
+X *	a_ggt( a, b, f )
+X *		NUMBER *a,*b,*f;
+X *			*f = ( *a, *b );
+X *
+X *	a_imult( n, m, d )
+X *		NUMBER *n;
+X *		INT m;
+X *		NUMBER *d;
+X *			*d = *n * m
+X *
+X *	a_mult( m1, m2, d )
+X *		NUMBER *m1,*m2,*d;
+X *			*d = *m1 * *m2;
+X *
+X *	a_sub( s1, s2, d )
+X *		NUMBER *s1,*s2,*d;
+X *			*d = *s1 - *s2;
+X *
+X *		Modulare Funktionen
+X *	m_init( n, o )
+X *		NUMBER *n,*o;
+X *			Initialsierung der Modularen Funktionen
+X *			o != 0 : *o = alter Wert
+X *
+X *	m_add( s1, s2, d )
+X *		NUMBER *s1, *s2, *d;
+X *			*d = *s1 + *s2;
+X *
+X *	m_mult( m1, m2, d )
+X *		NUMBER *m1,*m2,*d;
+X *
+X *	m_exp( x, n, z )
+X *		NUMBER *x,*n,*z;
+X *			*z = *x exp *n;
+X *
+X *
+X *		Hilfs-Funktionen:
+X *
+X * int	n_bits( n, b )
+X *		NUMBER *n;
+X *		int b;
+X *			return( unterste b Bits der Dualdarstellung von n)
+X *
+X *	n_div( d1, z2, q, r )
+X *		NUMBER *d1,z2[MAXBIT],*q,*r;
+X *			*q = *d1 / z2[0] Rest *r;
+X *			z2[i] = z2[0] * 2^i,  i=0..MAXBIT-1
+X *
+X * int	n_cmp( i1, i2, l )
+X *		INT i1[l], i2[l];
+X *			 1 :	falls i1 >  i2
+X *			 0 :	falls i1 == i2
+X *			-1 :	falls i1 <  i2
+X *
+X * int	n_mult( n, m, d, l)
+X *		INT n[l], m, d[];
+X *			d = m * n;
+X *			return( sizeof(d) ); d.h. 'l' oder 'l+1'
+X *
+X * int	n_sub( p1, p2, p3, l, lo )
+X *		INT p1[l], p2[lo], p3[];
+X *			p3 = p1 - p2;
+X *			return( sizeof(p3) ); d.h. '<= min(l,lo)'
+X *
+X * int	n_bitlen( n )
+X * 		NUMBER *n;
+X *			return( sizeof(n) in bits )
+X *
+X */
+X
+X
+X/*
+X * Konstante 1, 2
+X */
+XNUMBER a_one = {
+X	1,
+X	{ (INT)1, },
+X};
+X
+XNUMBER a_two = {
+X#if MAXINT == 1
+X	2,
+X	{ 0, (INT)1, },
+X#else
+X	1,
+X	{ (INT)2, },
+X#endif
+X};
+X
+X
+X/*
+X * Vergleiche zwei INT arrays der Laenge l
+X */
+Xint n_cmp( i1, i2, l )
+XINT *i1,*i2;
+X{
+X	i1 += (l-1);			/* Pointer ans Ende		*/ 
+X	i2 += (l-1);
+X	 
+X	for (;l--;)
+X		if ( *i1-- != *i2-- )
+X			return( i1[1] > i2[1] ? 1 : -1 );
+X	
+X	return(0);
+X}
+X
+X/*
+X * Vergleiche zwei NUMBER
+X */
+Xint a_cmp( c1, c2 )
+XNUMBER *c1,*c2;
+X{
+X	int l;
+X					/* bei verschiedener Laenge klar*/
+X	if ( (l=c1->n_len) != c2->n_len)
+X		return( l - c2->n_len);
+X	
+X					/* vergleiche als arrays	*/
+X	return( n_cmp( c1->n_part, c2->n_part, l) );
+X}
+X
+X/*
+X * Zuweisung einer NUMBER (d = s)
+X */
+Xvoid a_assign( d, s )
+XNUMBER *d,*s;
+X{
+X	int l;
+X	
+X	if (s == d)			/* nichts zu kopieren		*/
+X		return;
+X	
+X	if (l=s->n_len)
+X		memcpy( d->n_part, s->n_part, sizeof(INT)*l);
+X	
+X	d->n_len = l;
+X}
+X
+X/*
+X * Addiere zwei NUMBER (d = s1 + s2)
+X */
+Xvoid a_add( s1, s2, d )
+XNUMBER *s1,*s2,*d;
+X{
+X	int l,lo,ld,same;
+X	register LONG sum;
+X	register INT *p1,*p2,*p3;
+X	register INT b;
+X	
+X				/* setze s1 auch die groessere Zahl	*/
+X	l = s1->n_len;
+X	if ( (l=s1->n_len) < s2->n_len ) {
+X		NUMBER *tmp = s1;
+X		
+X		s1 = s2;
+X		s2 = tmp;
+X		
+X		l = s1->n_len;
+X	}
+X
+X	ld = l;
+X	lo = s2->n_len;
+X	p1 = s1->n_part;
+X	p2 = s2->n_part;
+X	p3 = d->n_part;
+X	same = (s1 == d);
+X	sum = 0;
+X	
+X	while (l --) {
+X		if (lo) {		/* es ist noch was von s2 da	*/
+X			lo--;
+X			b = *p2++;
+X		}
+X		else
+X			b = 0;		/* ansonten 0 nehmen		*/
+X		
+X		sum += (LONG)*p1++ + (LONG)b;
+X		*p3++ = TOINT(sum);
+X
+X		if (sum > (LONG)MAXINT) {	/* carry merken		*/
+X			sum = 1;
+X		}
+X		else
+X			sum = 0;
+X
+X		if (!lo && same && !sum)	/* nichts mehr zu tuen	*/
+X			break;
+X	}
+X	
+X	if (sum) {		/* letztes carry beruecksichtigen	*/
+X		ld++;
+X		*p3 = sum;
+X	}
+X	
+X	d->n_len = ld;			/* Laenge setzen		*/
+X}
+X
+X/*
+X * Subtrahiere zwei INT arrays. return( Laenge Ergebniss )
+X * l == Laenge p1
+X * lo== Laenge p3
+X */
+Xint n_sub( p1, p2, p3, l, lo )
+XINT *p1,*p2,*p3;
+Xint l,lo;
+X{
+X	int ld,lc,same;
+X	int over = 0;
+X	register LONG dif;
+X	LONG a,b;
+X	
+X	same = (p1 == p3);			/* frueher Abbruch moeglich */
+X	
+X	for (lc=1, ld=0; l--; lc++) {
+X		a = (LONG)*p1++;
+X		if (lo) {			/* ist noch was von p2 da ? */
+X			lo--;
+X			b = (LONG)*p2++;
+X		}
+X		else
+X			b=0;			/* ansonten 0 nehmen	*/
+X
+X		if (over)			/* frueherer Overflow	*/
+X			b++;
+X		if ( b > a ) {			/* jetzt Overflow ?	*/
+X			over = 1;
+X			dif = (MAXINT +1) + a;
+X		}
+X		else {
+X			over = 0;
+X			dif = a;
+X		}
+X		dif -= b;
+X		*p3++ = (INT)dif;
+X		
+X		if (dif)			/* Teil != 0 : Laenge neu */
+X			ld = lc;
+X		if (!lo && same && !over) {	/* nichts mehr zu tuen	*/
+X			if (l > 0)		/* Laenge korrigieren	*/
+X				ld = lc + l;
+X			break;
+X		}
+X	}
+X
+X	return( ld );
+X}
+X
+X/*
+X * Subtrahiere zwei NUMBER (d= s1 - s2)
+X */
+Xvoid a_sub( s1, s2, d )
+XNUMBER *s1,*s2,*d;
+X{
+X	d->n_len = n_sub( s1->n_part, s2->n_part, d->n_part
+X			 ,s1->n_len, s2->n_len );
+X}
+X
+X/*
+X * Mulitipliziere INT array der Laenge l mit einer INT (d = n * m)
+X * return neue Laenge
+X */
+Xint n_mult( n, m, d, l)
+Xregister INT *n;
+Xregister INT m;
+XINT *d;
+X{
+X	int i;
+X	register LONG mul;
+X	
+X	for (i=l,mul=0; i; i--) {
+X		mul += (LONG)m * (LONG)*n++;
+X		*d++ = TOINT(mul);
+X		mul  = DIVMAX1( mul );
+X	}
+X	
+X	if (mul) {		/* carry  ? */
+X		l++;
+X		*d = mul;
+X	}
+X	
+X	return( l );
+X}
+X
+X/*
+X * Mulitipliziere eine NUMBER mit einer INT (d = n * m)
+X */
+Xvoid a_imult( n, m, d )
+XNUMBER *n;
+XINT m;
+XNUMBER *d;
+X{
+X	if (m == 0)
+X		d->n_len=0;
+X	else if (m == 1)
+X		a_assign( d, n );
+X	else
+X		d->n_len = n_mult( n->n_part, m, d->n_part, n->n_len );
+X}
+X  
+X/*
+X * Multipliziere zwei NUMBER (d = m1 * m2) 
+X */
+Xvoid a_mult( m1, m2, d )
+XNUMBER *m1,*m2,*d;
+X{
+X	static INT id[ MAXLEN ];		/* Zwischenspeicher	*/
+X	register INT *vp;			/* Pointer darin	*/
+X	register LONG sum;			/* Summe fuer jede Stelle */
+X	register LONG tp1;			/* Zwischenspeicher fuer m1 */
+X	register INT *p2;
+X	INT *p1;
+X	int l1,l2,ld,lc,l,i,j;
+X	
+X	l1 = m1->n_len;
+X	l2 = m2->n_len;
+X	l = l1 + l2;
+X	if (l >= MAXLEN)
+X		abort();
+X
+X	for (i=l, vp=id; i--;)
+X		*vp++ = 0;
+X	
+X			/* ohne Uebertrag in Zwischenspeicher multiplizieren */
+X	for ( p1 = m1->n_part, i=0; i < l1 ; i++, p1++ ) {
+X
+X		tp1 = (LONG)*p1;		
+X		vp = &id[i];
+X		sum = 0;
+X		for ( p2 = m2->n_part, j = l2; j--;) {
+X			sum += (LONG)*vp + (tp1 * (LONG)*p2++);
+X			*vp++ = TOINT( sum );
+X			sum = DIVMAX1(sum);
+X		}
+X		*vp++ += (INT)sum;
+X	}
+X
+X			/* jetzt alle Uebertraege beruecksichtigen	*/
+X	ld = 0;
+X	for (lc=0, vp=id, p1=d->n_part; lc++ < l;) {
+X		if ( *p1++ = *vp++ )
+X			ld = lc;
+X	}
+X	
+X	d->n_len = ld;
+X}
+X
+X
+X/*
+X * Dividiere Zwei NUMBER mit Rest (q= d1 / z2[0] Rest r)
+X * z2[i] = z2[0] * 2^i,  i=0..MAXBIT-1
+X * r = 0 : kein Rest
+X * q = 0 : kein Quotient
+X */
+Xvoid n_div( d1, z2, q, r )
+XNUMBER *d1,*z2,*q,*r;
+X{
+X	static	NUMBER dummy_rest;  /* Dummy Variable, falls r = 0 */
+X	static	NUMBER dummy_quot;  /* Dummy Variable, falla q = 0 */
+X	INT *i1,*i1e,*i3;
+X	int l2,ld,l,lq;
+X#if MAXINT != 1
+X	INT z;
+X	int pw,l2t;
+X#endif
+X
+X	if (!z2->n_len)
+X		abort();
+X		
+X	if (!r)
+X		r = &dummy_rest;
+X	if (!q)
+X		q = &dummy_quot;
+X	
+X	a_assign( r, d1 );	/* Kopie von d1 in den Rest		*/
+X	
+X	l2= z2->n_len;		/* Laenge von z2[0]			*/
+X	l = r->n_len - l2;	/* Laenge des noch ''rechts'' liegenden
+X					Stuecks von d1			*/
+X	lq= l +1;		/* Laenge des Quotienten		*/
+X	i3= q->n_part + l;
+X	i1= r->n_part + l;
+X	ld = l2;		/* aktuelle Laenge des ''Vergleichsstuecks''
+X					von d1				*/
+X	i1e= i1 + (ld-1);
+X	
+X	for (; l >= 0; ld++, i1--, i1e--, l--, i3--) {
+X		*i3 = 0;
+X
+X		if (ld == l2 && ! *i1e) {
+X			ld--;
+X			continue;
+X		}
+X		
+X		if ( ld > l2 || (ld == l2 && n_cmp( i1, z2->n_part, l2) >= 0 ) ) {
+X#if MAXINT != 1
+X				/* nach 2er-Potenzen zerlegen	*/
+X			for (pw=MAXBIT-1, z=(INT)HIGHBIT; pw >= 0; pw--, z /= 2) {
+X				if ( ld > (l2t= z2[pw].n_len)
+X					|| (ld == l2t
+X					    && n_cmp( i1, z2[pw].n_part, ld) >= 0) ) {
+X					ld = n_sub( i1, z2[pw].n_part, i1, ld, l2t );
+X					(*i3) += z;
+X				}
+X			}
+X#else
+X				/* bei MAXINT == 1 alles viel einfacher	*/
+X			ld = n_sub( i1, z2->n_part, i1, ld, l2 );
+X			(*i3) ++;
+X#endif
+X		}
+X	}
+X	
+X			/* Korrektur, falls l von Anfang an Negativ war */
+X	l ++;
+X	lq -= l;
+X	ld += l;
+X	
+X	if (lq>0 && !q->n_part[lq -1])	/* evtl. Laenge korrigieren	*/
+X		lq--;
+X	
+X	q->n_len = lq;
+X	r->n_len = ld -1;
+X}
+X
+X/*
+X * Dividiere Zwei NUMBER mit Rest (q= d1 / z2[0] Rest r)
+X * z2[i] = z2[0] * 2^i,  i=0..MAXBIT-1
+X * r = 0 : kein Rest
+X * q = 0 : kein Quotient
+X */
+Xvoid a_div( d1, d2, q, r )
+XNUMBER *d1,*d2,*q,*r;
+X{
+X#if MAXINT != 1
+X	NUMBER z2[MAXBIT];
+X	INT z;
+X	int i;
+X	
+X	a_assign( &z2[0], d2 );
+X	for (i=1,z=2; i < MAXBIT; i++, z *= 2)
+X		a_imult( d2, z, &z2[i] );
+X	
+X	d2 = z2;
+X#endif
+X
+X	n_div( d1, d2, q, r );
+X}
+X
+X/*
+X * Dividiere eine NUMBER durch 2
+X */
+Xvoid a_div2( n )
+XNUMBER *n;
+X{
+X#if MAXBIT == LOWBITS
+X	register INT *p;
+X	int i;
+X
+X#if MAXINT != 1
+X	register INT h;
+X	register int c;
+X
+X	c=0;
+X	i= n->n_len;
+X	p= &n->n_part[i-1];
+X	
+X	for (; i--;) {
+X		if (c) {
+X			c = (h= *p) & 1;
+X			h /= 2;
+X			h |= HIGHBIT;
+X		}
+X		else {
+X			c = (h= *p) & 1;
+X			h /= 2;
+X		}
+X		
+X		*p-- = h;
+X	}
+X	
+X	if ( (i= n->n_len) && n->n_part[i-1] == 0 )
+X		n->n_len = i-1;
+X
+X#else  /* MAXBIT != 1 */
+X	p = n->n_part;
+X	i = n->n_len;
+X	
+X	if (i) {
+X		n->n_len = i-1;
+X		for (; --i ; p++)
+X			p[0] = p[1];
+X	}
+X#endif /* MAXBIT != 1 */
+X#else  /* MAXBIT == LOWBITS */
+X	a_div( n, &a_two, n, NUM0P );
+X#endif /* MAXBIT == LOWBITS */
+X}
+X
+X
+X/*
+X *	MODULO-FUNKTIONEN
+X */
+X
+Xstatic NUMBER mod_z2[ MAXBIT ];
+X
+X/*
+X * Init
+X */
+Xvoid m_init( n, o )
+XNUMBER *n,*o;
+X{
+X	INT z;
+X	int i;
+X	
+X	if (o)
+X		a_assign( o, &mod_z2[0] );
+X	
+X	if (! a_cmp( n, &mod_z2[0] ) )
+X		return;
+X	
+X	for (i=0,z=1; i < MAXBIT; i++, z *= 2)
+X		a_imult( n, z, &mod_z2[i] );
+X}
+X
+Xvoid m_add( s1, s2, d )
+XNUMBER *s1, *s2, *d;
+X{
+X	a_add( s1, s2, d );
+X	if (a_cmp( d, mod_z2 ) >= 0)
+X		a_sub( d, mod_z2, d );
+X}
+X
+Xvoid m_mult( m1, m2, d )
+XNUMBER *m1,*m2,*d;
+X{
+X	a_mult( m1, m2, d );
+X	n_div( d, mod_z2, NUM0P, d );
+X}
+X
+X/*
+X * Restklassen Exponent
+X */
+Xvoid m_exp( x, n, z )
+XNUMBER *x,*n,*z;
+X{
+X	NUMBER xt,nt;
+X	
+X	a_assign( &nt, n );
+X	a_assign( &xt, x );
+X	a_assign( z, &a_one );
+X	
+X	while (nt.n_len) {
+X		while ( ! (nt.n_part[0] & 1) ) {
+X			m_mult( &xt, &xt, &xt );
+X			a_div2( &nt );
+X		}
+X		m_mult( &xt, z, z );
+X		a_sub( &nt, &a_one, &nt );
+X	}
+X}
+X
+X/*
+X * GGT
+X */
+Xvoid a_ggt( a, b, f )
+XNUMBER *a,*b,*f;
+X{
+X	NUMBER t[2];
+X	int at,bt, tmp;
+X	
+X	a_assign( &t[0], a ); at= 0;
+X	a_assign( &t[1], b ); bt= 1;
+X	
+X	if ( a_cmp( &t[at], &t[bt] ) < 0 ) {
+X		tmp= at; at= bt; bt= tmp;
+X	}
+X				/* euklidischer Algorithmus		*/
+X	while ( t[bt].n_len ) {
+X		a_div( &t[at], &t[bt], NUM0P, &t[at] );
+X		tmp= at; at= bt; bt= tmp;
+X	}
+X	
+X	a_assign( f, &t[at] );
+X}
+X	
+X/*
+X * die untersten b bits der Dualdarstellung von n
+X * die bits muessen in ein int passen
+X */
+Xint n_bits(n,b)
+XNUMBER *n;
+X{
+X	INT *p;
+X	int l;
+X	unsigned r;
+X	int m = (1<<b) -1;
+X
+X	if ( n->n_len == 0)
+X		return(0);
+X	
+X	if (LOWBITS >= b)
+X		return( n->n_part[0] & m );
+X
+X#if LOWBITS != 0
+X	l = (b-1) / LOWBITS;
+X#else
+X	l = n->n_len -1;
+X#endif
+X	for (p= &n->n_part[l],r=0; l-- >= 0 && b > 0; b-= LOWBITS, p--) {
+X		r  = MULMAX1( r );
+X		r += (unsigned)*p;
+X	}
+X
+X	return( r & m );
+X}
+X
+X/*
+X * Anzahl der bits von n bei Dualdarstellung
+X */
+Xint n_bitlen( n )
+XNUMBER *n;
+X{
+X	NUMBER b;
+X	int i;
+X	
+X	a_assign( &b, &a_one );
+X	
+X	for (i=0; a_cmp( &b, n ) <= 0; a_mult( &b, &a_two, &b ), i++)
+X		;
+X	
+X	return(i);
+X}
+END_OF_FILE
+  if test 11667 -ne `wc -c <'Circ/RSA/arith.c'`; then
+    echo shar: \"'Circ/RSA/arith.c'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/RSA/arith.c'
+fi
+if test -f 'Circ/RSA/nio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/RSA/nio.c'\"
+else
+  echo shar: Extracting \"'Circ/RSA/nio.c'\" \(4308 characters\)
+  sed "s/^X//" >'Circ/RSA/nio.c' <<'END_OF_FILE'
+X/*******************************************************************************
+X*									       *
+X*	Copyright (c) Martin Nicolay,  22. Nov. 1988			       *
+X*									       *
+X*	Wenn diese (oder sinngemaess uebersetzte) Copyright-Angabe enthalten   *
+X*	bleibt, darf diese Source fuer jeden nichtkomerziellen Zweck weiter    *
+X*	verwendet werden.						       *
+X*									       *
+X*	martin@trillian.megalon.de					       *
+X*									       *
+X*******************************************************************************/
+X
+X#include	<stdio.h>
+X#include	<ctype.h>
+X#include	<string.h>
+X
+X#include	"nio.h"
+X
+X/*
+X *	NUMBER io
+X */
+X
+X/*
+X *		Funktionen
+X *
+X * int	num_sput( n, s, l)
+X *		NUMBER *n;
+X *		char s[l];
+X *			schreibt *n als Hex-Zahl in s
+X *
+X * int	num_fput( n, f )
+X *		NUMBER *n;
+X *		FILE *f;
+X *			schreibt *n als Hex-Zahl in File f
+X *
+X * int	num_sget( n, s )
+X *		NUMBER *n;
+X *		char *s;
+X *			liest Hex-Zahl s in *n ein
+X *
+X * int	num_fget( n, f )
+X *		NUMBER *n;
+X *		FILE *f;
+X *			liest eine Hex-Zahl von f in *n ein
+X *
+X */
+X
+X
+Xstatic char *HEX="0123456789ABCDEF";
+Xstatic char *hex="0123456789abcdef";
+X
+Xstatic NUMBER bits[9];
+Xstatic NUMBER int16[16];
+X
+Xstatic int init = 0;
+X
+Xstatic num_init()
+X{
+X	int i;
+X	
+X	a_assign( &bits[0], &a_one );
+X	for ( i=1; i<9; i++)
+X		a_add( &bits[i-1], &bits[i-1], &bits[i] );
+X
+X	a_assign( &int16[0], &a_one );
+X	for ( i=1; i<16; i++)
+X		a_add( &int16[i-1], &a_one, &int16[i] );
+X	
+X	init = 1;
+X}
+X
+X
+Xint num_sput( n, s, l)
+XNUMBER *n;
+Xchar *s;
+X{
+X#if MAXINT == ( (1 << MAXBIT) - 1 )
+X	INT *p;
+X	int bi,ab,i;
+X	long b;
+X	int first = 1;
+X	
+X	bi = MAXBIT * n->n_len;
+X	ab = 4 - (bi + 3) % 4 -1;
+X	p  = &n->n_part[n->n_len -1];
+X
+X	if ( (bi+3) / 4 >= l )
+X		return(EOF);
+X	
+X	b  = 0;
+X	while (bi) {
+X		b <<= (MAXBIT);
+X		b |= (unsigned long)*p--;
+X		bi -= MAXBIT;
+X		ab += MAXBIT;
+X		while (ab >= 4) {
+X			i = (b >> (ab - 4));
+X			b &= ( 1L << (ab - 4) ) -1L;
+X			ab -= 4;
+X
+X			if (first && !i)
+X				continue;
+X			first = 0;
+X			*s++ = HEX[ i ];
+X		}
+X	}
+X	if (b)
+X		abort();
+X	*s = '\0';
+X
+X	return (0);
+X#else			
+X	NUMBER r,q;
+X	int i,b,p,len,low,high;
+X	char *np;
+X	
+X	if (! init)
+X		num_init();
+X	
+X	a_assign( &q, n);
+X	len = l;
+X	np = s + l;
+X
+X	for (; q.n_len && len > 1; len --) {
+X		a_div( &q, &bits[4], &q, &r );
+X		for (p=8, b=0, i=3; i >= 0; i--, p /= 2 ) {
+X			if ( a_cmp( &r, &bits[i] ) >= 0 ) {
+X				a_sub( &r, &bits[i], &r );
+X				b += p;
+X			}
+X		}
+X		*--np = HEX[ b ];
+X	}
+X	if (q.n_len)
+X		return(EOF);
+X
+X	l -= len;
+X	len = l;
+X	for (; l--; )
+X		*s++ = *np++;
+X	
+X	*s = '\0';
+X
+X	return (0);
+X#endif
+X}
+X
+X
+Xint num_fput( n, f )
+XNUMBER *n;
+XFILE *f;
+X{
+X	int j;
+X	char *np;
+X	unsigned char n_print[ STRLEN + 1 ];
+X	
+X	if ( num_sput( n, n_print, sizeof( n_print ) ) == EOF )
+X		return(EOF);
+X	
+X	for (j=0, np=(char *)n_print; *np ; np++, j++ ) {
+X		if (j==64) {
+X			fputs("\n",f);
+X			j = 0;
+X		}
+X		putc((int)*np,f);
+X	}
+X
+X	if (j)
+X		putc('\n',f);
+X
+X	return(0);
+X}
+X
+X
+Xint num_sget( n, s )
+XNUMBER *n;
+Xchar *s;
+X{
+X#if MAXINT == ( (1 << MAXBIT) - 1 )
+X	INT *p;
+X	char *hp;
+X	int bi,ab,i;
+X	long b;
+X	int first = 1;
+X	
+X	bi = 4 * strlen(s);
+X	ab = MAXBIT - (bi + MAXBIT -1) % MAXBIT -1;
+X	i  =  (bi + MAXBIT-1) / MAXBIT;
+X	p  = &n->n_part[ i -1 ];
+X	n->n_len = i;
+X
+X	if ( i > MAXLEN )
+X		return(EOF);
+X	
+X	b  = 0;
+X	while (bi > 0) {
+X		if ( hp= strchr( HEX, *s ) )
+X			i = hp - HEX;
+X		else if ( hp= strchr( hex, *s ) )
+X			i = hp - hex;
+X		else
+X			return(EOF);
+X		s++;
+X		
+X		b <<= 4;
+X		b |= (unsigned long)i;
+X		bi -= 4;
+X		ab += 4;
+X		while (ab >= MAXBIT) {
+X			i = (b >> (ab - MAXBIT));
+X			b &= ( 1L << (ab - MAXBIT) ) -1L;
+X			ab -= MAXBIT;
+X			if (first && !i) {
+X				p--;
+X				n->n_len--;
+X			}
+X			else {
+X				first = 0;
+X				*p-- = i;
+X			}
+X		}
+X	}
+X	if (b)
+X		abort();
+X	*s = '\0';
+X
+X	return (0);
+X#else			
+X	char *p;
+X	int i,c;
+X
+X	if (! init)
+X		num_init();
+X	
+X	n->n_len = 0;
+X	while ( (c = *s++ & 0xFF) ) {
+X		if ( p= strchr( HEX, c ) )
+X			i = p - HEX;
+X		else if ( p= strchr( hex, c ) )
+X			i = p - hex;
+X		else
+X			return(EOF);
+X		
+X		a_mult( n, &bits[4], n );
+X		if (i)
+X			a_add( n, &int16[i-1], n );
+X	}
+X	
+X	return(0);
+X#endif
+X}
+X
+Xint num_fget( n, f )
+XNUMBER *n;
+XFILE *f;
+X{
+X	int j,c;
+X	char *np;
+X	char n_print[ STRLEN + 1 ];
+X
+X	np = n_print;
+X	j = sizeof(n_print);
+X	while ( (c=getc(f)) != EOF && ( isxdigit(c) || isspace(c) ) ) {
+X		if (isspace(c))
+X			continue;
+X		if (! --j)
+X			return(EOF);
+X		*np++ = (char)c;
+X	}
+X	*np = '\0';
+X
+X	if (c != EOF)
+X		ungetc(c,f);
+X	
+X	if ( num_sget( n, n_print ) == EOF )
+X		return( EOF );
+X	
+X	return(0);
+X}
+X
+END_OF_FILE
+  if test 4308 -ne `wc -c <'Circ/RSA/nio.c'`; then
+    echo shar: \"'Circ/RSA/nio.c'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/RSA/nio.c'
+fi
+if test -f 'Circ/RSA/prim.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/RSA/prim.c'\"
+else
+  echo shar: Extracting \"'Circ/RSA/prim.c'\" \(4732 characters\)
+  sed "s/^X//" >'Circ/RSA/prim.c' <<'END_OF_FILE'
+X/*******************************************************************************
+X*									       *
+X*	Copyright (c) Martin Nicolay,  22. Nov. 1988			       *
+X*									       *
+X*	Wenn diese (oder sinngemaess uebersetzte) Copyright-Angabe enthalten   *
+X*	bleibt, darf diese Source fuer jeden nichtkomerziellen Zweck weiter    *
+X*	verwendet werden.						       *
+X*									       *
+X*	martin@trillian.megalon.de					       *
+X*									       *
+X*******************************************************************************/
+X
+X#include	"prim.h"
+X
+X/*
+X *		RSA
+X *
+X *	p,q prim
+X *	p != q
+X *	n = p*q
+X *	phi = (p -1)*(q -1)
+X *	e,d aus 0...n-1
+X *	e*d == 1 mod phi
+X *
+X *	m aus 0...n-1 sei eine Nachricht
+X *
+X *	Verschluesseln:
+X *		E(x) = x^e mod n		( n,e oeffendlich )
+X *
+X *	Entschluesseln:
+X *		D(x) = x^d mod n		( d geheim )
+X *
+X *
+X *	Sicherheit:
+X *
+X *		p,q sollten bei mind. 10^100 liegen.
+X *		(d,phi) == 1, das gilt fuer alle Primzahlen > max(p,q).
+X *		Allerdings sollte d moeglichst gross sein ( d < phi-1 )
+X *		um direktes Suchen zu verhindern.
+X */
+X
+X
+X/*
+X *		FUNKTIONEN um RSA Schluessel zu generieren.
+X *
+X * int	p_prim( n, m )
+X *		NUMBER *n;
+X *		int m;
+X *			0 : n ist nicht prim
+X *			1 : n ist mit Wahrscheinlichkeit (1-1/2^m) prim
+X *		ACHTUNG !!!!
+X *		p_prim benutzt m_init
+X *
+X *	inv( d, phi, e )
+X *		NUMBER *d,*phi,*e;
+X *			*e = *d^-1 (mod phi)
+X *		ACHTUNG !!!!
+X *		p_prim benutzt m_init
+X */
+X
+X/*
+X * Prototypes
+X */
+Xstatic int	jak_f(  );	
+Xstatic int	jak_g(  );	
+Xstatic int	jakobi(  );
+X
+X/*
+X * Hilfs-Funktion fuer jakobi
+X */
+Xstatic int jak_f( n )
+XNUMBER *n;
+X{
+X	int f,ret;
+X	
+X	f = n_bits( n, 3 );
+X	
+X	ret = ((f == 1) || (f == 7)) ? 1 : -1;
+X	
+X	return(ret);
+X}
+X
+X/*
+X * Hilfs-Funktuion fuer jakobi
+X */	
+Xstatic int jak_g( a, n )
+XNUMBER *a,*n;
+X{
+X	int ret;
+X	
+X	if ( n_bits( n, 2 ) == 1 ||
+X			n_bits( a, 2 ) == 1 )
+X		ret = 1;
+X	else
+X		ret = -1;
+X	
+X	return(ret);
+X}
+X		
+X/*
+X * Jakobi-Symbol
+X */
+Xstatic int jakobi( a, n )
+XNUMBER *a,*n;
+X{
+X	NUMBER t[2];
+X	int at,nt, ret;
+X	
+X	a_assign( &t[0], a ); at = 0;
+X	a_assign( &t[1], n ); nt = 1;
+X
+X	/*
+X	 * b > 1
+X	 *
+X	 * J( a, b) =
+X	 * a == 1	:	1
+X	 * a == 2	:	f(n)
+X	 * a == 2*b	:	J(b,n)*J(2,n) ( == J(b,n)*f(n) )
+X	 * a == 2*b -1	:	J(n % a,a)*g(a,n)
+X	 *
+X	 */
+X	 
+X	ret = 1;
+X	while (1) {
+X		if (! a_cmp(&t[at],&a_one) ) {
+X			break;
+X		}
+X		if (! a_cmp(&t[at],&a_two) ) {
+X			ret *= jak_f( &t[nt] );
+X			break;
+X		}
+X		if ( ! t[at].n_len )		/* Fehler :-)	*/
+X			abort();
+X		if ( t[at].n_part[0] & 1 ) {	/* a == 2*b -1	*/
+X			int tmp;
+X			
+X			ret *= jak_g( &t[at], &t[nt] );
+X			a_div( &t[nt], &t[at], NUM0P, &t[nt] );
+X			tmp = at; at = nt; nt = tmp;
+X		}
+X		else {				/* a == 2*b	*/
+X			ret *= jak_f( &t[nt] );
+X			a_div2( &t[at] );
+X		}
+X
+X	}
+X	
+X	return(ret);
+X}
+X		
+X/*
+X * Probabilistischer Primzahltest
+X *
+X *  0 -> n nicht prim
+X *  1 -> n prim mit  (1-1/2^m) Wahrscheinlichkeit.
+X *
+X *	ACHTUNG !!!!!!
+X *	p_prim benutzt m_init !!
+X *
+X */
+Xint p_prim( n, m )
+XNUMBER *n;
+X{
+X	NUMBER gt,n1,n2,a;
+X	INT *p;
+X	int i,w,j;
+X	long lrand48();
+X
+X	if (a_cmp(n,&a_two) <= 0 || m <= 0)
+X		abort();
+X		
+X	a_sub( n, &a_one, &n1 );	/* n1 = -1    mod n		*/
+X	a_assign( &n2, &n1 );
+X	a_div2( &n2 );			/* n2 = ( n -1 ) / 2		*/
+X	
+X	m_init( n, NUM0P );
+X	
+X	w = 1;
+X	for (; w && m; m--) {
+X				/* ziehe zufaellig a aus 2..n-1		*/
+X		do {
+X			for (i=n->n_len-1, p=a.n_part; i; i--)
+X				*p++ = (INT)lrand48();
+X			if ( i=n->n_len )
+X				*p = (INT)( lrand48() % ((unsigned long)n->n_part[i-1] +1) );
+X			while ( i && ! *p )
+X				p--,i--;
+X			a.n_len = i;
+X		} while ( a_cmp( &a, n ) >= 0 || a_cmp( &a, &a_two ) < 0 );
+X
+X				/* jetzt ist a fertig			*/
+X
+X		/*
+X		 * n ist nicht prim wenn gilt:
+X		 *	(a,n) != 1
+X		 * oder
+X		 *	a^( (n-1)/2 ) != J(a,n)   mod n
+X		 *
+X		 */
+X		 
+X		a_ggt( &a, n, &gt );
+X		if ( a_cmp( &gt, &a_one ) == 0 ) {
+X
+X			j= jakobi( &a, n );
+X			m_exp( &a, &n2, &a );
+X
+X			if  (   ( a_cmp( &a, &a_one ) == 0 && j ==  1 )
+X			     || ( a_cmp( &a, &n1    ) == 0 && j == -1 ) )
+X				w = 1;
+X			else
+X				w = 0;
+X		}
+X		else
+X			w = 0;
+X	}
+X
+X	return( w );
+X}
+X
+X/*
+X * Berechne mulitiplikatives Inverses zu d (mod phi)
+X *	d relativ prim zu phi ( d < phi )
+X *	d.h. (d,phi) == 1
+X *
+X *	ACHTUNG !!!!
+X *	inv benutzt m_init
+X */
+Xvoid inv( d, phi, e )
+XNUMBER *d,*phi,*e;
+X{
+X	int k, i0, i1, i2;
+X	NUMBER r[3],p[3],c;
+X	
+X	/*
+X	 * Berlekamp-Algorithmus
+X	 *	( fuer diesen Spezialfall vereinfacht )
+X	 */
+X
+X	if (a_cmp(phi,d) <= 0)
+X		abort();
+X	
+X	m_init( phi, NUM0P );
+X	
+X	p[1].n_len = 0;
+X	a_assign( &p[2], &a_one );
+X	a_assign( &r[1], phi );
+X	a_assign( &r[2], d );
+X	
+X	k = -1;
+X	do {
+X		k++;
+X		i0=k%3; i1=(k+2)%3; i2=(k+1)%3;
+X		a_div( &r[i2], &r[i1], &c, &r[i0] );
+X		m_mult( &c, &p[i1], &p[i0] );
+X		m_add( &p[i0], &p[i2], &p[i0] );
+X	} while (r[i0].n_len);
+X
+X	if ( a_cmp( &r[i1], &a_one ) )	/* r[i1] == (d,phi) muss 1 sein	*/
+X		abort();
+X		
+X	if ( k & 1 )	/* falsches ''Vorzeichen''	*/
+X		a_sub( phi, &p[i1], e );
+X	else
+X		a_assign( e, &p[i1] );
+X}
+END_OF_FILE
+  if test 4732 -ne `wc -c <'Circ/RSA/prim.c'`; then
+    echo shar: \"'Circ/RSA/prim.c'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/RSA/prim.c'
+fi
+if test -f 'Circ/RSA/rsa.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/RSA/rsa.c'\"
+else
+  echo shar: Extracting \"'Circ/RSA/rsa.c'\" \(4406 characters\)
+  sed "s/^X//" >'Circ/RSA/rsa.c' <<'END_OF_FILE'
+X/*******************************************************************************
+X*									       *
+X*	Copyright (c) Martin Nicolay,  22. Nov. 1988			       *
+X*									       *
+X*	Wenn diese (oder sinngemaess uebersetzte) Copyright-Angabe enthalten   *
+X*	bleibt, darf diese Source fuer jeden nichtkomerziellen Zweck weiter    *
+X*	verwendet werden.						       *
+X*									       *
+X*	martin@trillian.megalon.de					       *
+X*									       *
+X*******************************************************************************/
+X
+X#include	<stdio.h>
+X#include	<string.h>
+X#ifndef AMIGA
+X#include	<memory.h>
+X#endif  AMIGA
+X
+X#include	"arith.h"
+X#include	"nio.h"
+X
+X#define	ENCODE	"rsaencode"
+X#define	DECODE	"rsadecode"
+X
+Xchar *prog;
+X
+Xint	clear_siz;			/* clear-text blocksize		*/
+Xint	enc_siz;			/* encoded blocksize		*/
+X					/* clear_siz < enc_siz		*/
+X
+Xdo_crypt( s, d, len, e )
+Xchar *s;
+Xchar *d;
+XNUMBER *e;
+X{
+X	static char hex[] = "0123456789ABCDEF";
+X	NUMBER n;
+X	char buf[ STRLEN + 1 ];
+X	char *pb,*ph;
+X	int i,c;
+X	
+X	ph = buf + STRLEN;
+X	ph[1] = '\0';
+X	
+X	for (i=len; i; i--) {
+X		c = *s++;
+X		*ph-- = hex[ (c >> 4) & 0xF ];
+X		*ph-- = hex[ c & 0xF ];
+X	}
+X	ph++;
+X	
+X	num_sget( &n, ph );
+X	
+X	m_exp( &n, e, &n );
+X	
+X	num_sput( &n, buf, STRLEN +1 );
+X	
+X	ph = buf + (i=strlen(buf)) -1;
+X	
+X	for (; len; len--) {
+X		if (i-- > 0) {
+X			c = (strchr( hex, *ph ) - hex) << 4;
+X			ph--;
+X		}
+X		else
+X			c=0;
+X		if (i-- > 0) {
+X			c |= strchr( hex, *ph ) - hex;
+X			ph--;
+X		}
+X
+X		*d++ = c;
+X	}
+X}
+X	
+X#ifdef STANDALONE 	
+Xint get_clear( p )
+Xchar *p;
+X{
+X	int n;
+X	
+X	n = fread( p, 1, clear_siz, stdin );
+X	
+X	if (n <= 0)
+X		return(0);
+X	
+X	
+X	return(1);
+X}
+X
+Xint get_enc( p )
+Xchar *p;
+X{
+X	int n;
+X
+X	n = fread( p, 1, enc_siz, stdin );
+X	
+X	if (n != enc_siz)
+X		return(0);
+X	
+X	return(1);
+X}
+X
+Xint put_clear( p )
+Xchar *p;
+X{
+X	int n;
+X	
+X	n = fwrite( p, 1, clear_siz, stdout );
+X	
+X	if (n != clear_siz)
+X		return(0);
+X
+X	return(1);
+X}
+X
+Xint put_enc( p )
+Xchar *p;
+X{
+X	int n;
+X
+X	n = fwrite( p, 1, enc_siz, stdout );
+X	
+X	if (n != enc_siz)
+X		return(0);
+X	
+X	return(1);
+X}
+X
+X
+Xmain( argc, argv )
+Xchar **argv;
+X{
+X	char buf[ STRLEN*2 ];
+X	NUMBER n,e;
+X	FILE *keys;
+X	int (*inp)() = 0;
+X	int (*out)() = 0;
+X	
+X	if ( ! (prog=strrchr( argv[0], '/' )) )
+X		prog=argv[0];
+X	
+X	
+X	if ( ! strcmp( prog, DECODE ) ) {
+X		inp = get_enc;
+X		out = put_clear;
+X	}
+X	if ( ! strcmp( prog, ENCODE ) ) {
+X		inp = get_clear;
+X		out = put_enc;
+X	}
+X	
+X	if (! inp) {
+X		fprintf(stderr,"%s: don't know who i am (%s or %s)\n",prog,ENCODE,DECODE);
+X		exit(1);
+X	}
+X	
+X	if (argc != 2) {
+X		fprintf(stderr,"usage: %s keyfile\n",prog);
+X		exit(1);
+X	}
+X	if ( !( keys= fopen(argv[1],"r")) ) {
+X		perror(argv[1]);
+X		exit(1);
+X	}
+X	
+X	num_fget( &n, keys ); getc(keys);
+X	num_fget( &e, keys );
+X	if (a_cmp(&n,&e) <= 0 || e.n_len == 0 || getc(keys) != EOF) {
+X		fprintf(stderr,"%s: corrupt keyfile\n",prog);
+X		fprintf(stderr,"keyfile format:\n");
+X		fprintf(stderr,"\t<n in hex>\n");
+X		fprintf(stderr,"\t<delimiter> (1 char)\n");
+X		fprintf(stderr,"\t<e/d in hex>\n");
+X		fprintf(stderr,"white spaces are ignored\n");
+X		exit(1);
+X	}
+X	
+X	enc_siz = ( n_bitlen( &n ) + 7 ) / 8;
+X	clear_siz = enc_siz -1;
+X	
+X	m_init( &n, NUM0P );
+X	
+X	while ( (*inp)( buf ) ) {
+X		do_crypt( buf, buf, enc_siz, &e );
+X		if (! (*out)( buf ) ) {
+X			perror("output");
+X			exit(1);
+X		}
+X	}
+X	
+X	exit(0);
+X}
+X
+X#else STANDALONE
+X
+Xdo_rsa(keyfile,buffer,buflen,maxlen )
+Xint buflen;
+Xchar *keyfile,*buffer;
+X{
+X	NUMBER n,e;
+X	FILE *keys;
+X	
+X	if ( !( keys= fopen(keyfile,"r")) ) {
+X/*		perror(keyfile);    /* quiet, no errors */
+X		return(-1);
+X	}
+X	
+X	num_fget( &n, keys ); getc(keys);
+X	num_fget( &e, keys );
+X	if (a_cmp(&n,&e) <= 0 || e.n_len == 0 || getc(keys) != EOF) {
+X            /*     
+X		fprintf(stderr,"%s: corrupt keyfile\n",prog);
+X		fprintf(stderr,"keyfile format:\n");
+X		fprintf(stderr,"\t<n in hex>\n");
+X		fprintf(stderr,"\t<delimiter> (1 char)\n");
+X		fprintf(stderr,"\t<e/d in hex>\n");
+X		fprintf(stderr,"white spaces are ignored\n");
+X             */
+X		return(-11);
+X	}
+X	
+X	enc_siz = ( n_bitlen( &n ) + 7 ) / 8;
+X	clear_siz = enc_siz -1;
+X	
+X	m_init( &n, NUM0P );
+X	
+X        if(buflen > enc_siz) {
+X        /*
+X          fprintf(stderr,"Public Key must be larger than data!\n");
+X         */
+X          return(-1);
+X        } 
+X        if(maxlen < enc_siz) {
+X        /* 
+X          fprintf(stderr,"Public key is too big for buffer.\n");
+X         */
+X          return(-1);
+X        }
+X	memset( buffer+buflen, 0, enc_siz - buflen ); /* pad out block */
+X	do_crypt( buffer, buffer, enc_siz, &e );
+X        return(enc_siz);
+X	
+X}
+X
+X#endif   STANDALONE
+X
+END_OF_FILE
+  if test 4406 -ne `wc -c <'Circ/RSA/rsa.c'`; then
+    echo shar: \"'Circ/RSA/rsa.c'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/RSA/rsa.c'
+fi
+if test -f 'Circ/crypt.irc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/crypt.irc'\"
+else
+  echo shar: Extracting \"'Circ/crypt.irc'\" \(1324 characters\)
+  sed "s/^X//" >'Circ/crypt.irc' <<'END_OF_FILE'
+X# Start up the proggie
+X/^exec -name crypt exec new
+X
+X# automatically pick out protocol messages
+X#    crypt processor gets:   !send nick!CLIPPER:...etc
+X#    or   !our nick!SKPJACK:...etc 
+X/on ^public "* CLIPPER:*" /msg %crypt !$0!$1-
+X/on ^public "* SKPJACK:*" /msg %crypt OURNICK:$N;/msg %crypt !$0!$1-
+X/on ^public_other "* * CLIPPER:*" /msg %crypt !$0:$1!$2-
+X/on ^public_other "* * SKPJACK:*" /msg %crypt OURNICK:$N;/msg %crypt !$0:$1!$2-
+X
+X/on ^msg "* CLIPPER:*" /msg %crypt !*$0*!$1-
+X/on ^msg "* SKPJACK:*" /msg %crypt OURNICK:$N;/msg %crypt !*$0*!$1-
+X
+X# messages comming back from crypt, to server or screen?
+X/on ^exec "crypt TCHANNL: *" /msg $C $2-
+X/on ^exec "crypt TSCREEN: *" /echo $2-
+X/on ^exec "crypt TNICKNM: *" /msg $2 $3-
+X
+X# our irc commands:
+X#    /key nick  or /key nick filename
+X#    /die
+X#    /e message to be encrypted
+X#    /p message to be plaintext
+X#    /crypt   (turn on automatic encryption)
+X#    /plain   (turn off automatic encryption)
+X#    /emsg nick text  send an encrypted message
+X/alias key /echo K->*$0* Sending Key;/^msg %crypt SENDKEY: $0-
+X/alias die /^msg %crypt QUITDIE:;/query 
+X/alias e /echo E> $0-;/^msg %crypt CRYPTME:$0-
+X/alias p /msg $C $0-
+X/alias crypt /query %crypt
+X/alias plain /query
+X/alias emsg /echo E->*$0* $1-;/^msg %crypt !$0!CRYPTME:$1-
+X
+X/echo *** Encrypted Irc Protocol loaded. 
+END_OF_FILE
+  if test 1324 -ne `wc -c <'Circ/crypt.irc'`; then
+    echo shar: \"'Circ/crypt.irc'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/crypt.irc'
+fi
+if test -f 'Circ/d3des/d3des.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/d3des/d3des.h'\"
+else
+  echo shar: Extracting \"'Circ/d3des/d3des.h'\" \(4546 characters\)
+  sed "s/^X//" >'Circ/d3des/d3des.h' <<'END_OF_FILE'
+X/* d3des.h -
+X *
+X *	Headers and defines for d3des.c
+X *	Graven Imagery, 1992.
+X *
+X * Copyright (c) 1988,1989,1990,1991,1992 by Richard Outerbridge
+X *	(GEnie : OUTER; CIS : [71755,204])
+X */
+X
+X#define D2_DES		/* include double-length support */
+X#define D3_DES		/* include triple-length support */
+X
+X#ifdef D3_DES
+X#ifndef D2_DES
+X#define D2_DES		/* D2_DES is needed for D3_DES */
+X#endif
+X#endif
+X
+X#define EN0	0	/* MODE == encrypt */
+X#define DE1	1	/* MODE == decrypt */
+X
+X/* A useful alias on 68000-ish machines, but NOT USED HERE. */
+X
+Xtypedef union {
+X	unsigned long blok[2];
+X	unsigned short word[4];
+X	unsigned char byte[8];
+X	} M68K;
+X
+Xextern void deskey(/* unsigned char *, short */);
+X/*		      hexkey[8]     MODE
+X * Sets the internal key register according to the hexadecimal
+X * key contained in the 8 bytes of hexkey, according to the DES,
+X * for encryption or decryption according to MODE.
+X */
+X
+Xextern void usekey(/* unsigned long * */);
+X/*		    cookedkey[32]
+X * Loads the internal key register with the data in cookedkey.
+X */
+X
+Xextern void cpkey(/* unsigned long * */);
+X/*		   cookedkey[32]
+X * Copies the contents of the internal key register into the storage
+X * located at &cookedkey[0].
+X */
+X
+Xextern void des(/* unsigned char *, unsigned char * */);
+X/*		    from[8]	      to[8]
+X * Encrypts/Decrypts (according to the key currently loaded in the
+X * internal key register) one block of eight bytes at address 'from'
+X * into the block at address 'to'.  They can be the same.
+X */
+X
+X#ifdef D2_DES
+X
+X#define desDkey(a,b)	des2key((a),(b))
+Xextern void des2key(/* unsigned char *, short */);
+X/*		      hexkey[16]     MODE
+X * Sets the internal key registerS according to the hexadecimal
+X * keyS contained in the 16 bytes of hexkey, according to the DES,
+X * for DOUBLE encryption or decryption according to MODE.
+X * NOTE: this clobbers all three key registers!
+X */
+X
+Xextern void Ddes(/* unsigned char *, unsigned char * */);
+X/*		    from[8]	      to[8]
+X * Encrypts/Decrypts (according to the keyS currently loaded in the
+X * internal key registerS) one block of eight bytes at address 'from'
+X * into the block at address 'to'.  They can be the same.
+X */
+X
+Xextern void D2des(/* unsigned char *, unsigned char * */);
+X/*		    from[16]	      to[16]
+X * Encrypts/Decrypts (according to the keyS currently loaded in the
+X * internal key registerS) one block of SIXTEEN bytes at address 'from'
+X * into the block at address 'to'.  They can be the same.
+X */
+X
+Xextern void makekey(/* char *, unsigned char * */);
+X/*		*password,	single-length key[8]
+X * With a double-length default key, this routine hashes a NULL-terminated
+X * string into an eight-byte random-looking key, suitable for use with the
+X * deskey() routine.
+X */
+X
+X#define makeDkey(a,b)	make2key((a),(b))
+Xextern void make2key(/* char *, unsigned char * */);
+X/*		*password,	double-length key[16]
+X * With a double-length default key, this routine hashes a NULL-terminated
+X * string into a sixteen-byte random-looking key, suitable for use with the
+X * des2key() routine.
+X */
+X
+X#ifndef D3_DES	/* D2_DES only */
+X
+X#define useDkey(a)	use2key((a))
+X#define cpDkey(a)	cp2key((a))
+X
+Xextern void use2key(/* unsigned long * */);
+X/*		    cookedkey[64]
+X * Loads the internal key registerS with the data in cookedkey.
+X * NOTE: this clobbers all three key registers!
+X */
+X
+Xextern void cp2key(/* unsigned long * */);
+X/*		   cookedkey[64]
+X * Copies the contents of the internal key registerS into the storage
+X * located at &cookedkey[0].
+X */
+X
+X#else	/* D3_DES too */
+X
+X#define useDkey(a)	use3key((a))
+X#define cpDkey(a)	cp3key((a))
+X
+Xextern void des3key(/* unsigned char *, short */);
+X/*		      hexkey[24]     MODE
+X * Sets the internal key registerS according to the hexadecimal
+X * keyS contained in the 24 bytes of hexkey, according to the DES,
+X * for DOUBLE encryption or decryption according to MODE.
+X */
+X
+Xextern void use3key(/* unsigned long * */);
+X/*		    cookedkey[96]
+X * Loads the 3 internal key registerS with the data in cookedkey.
+X */
+X
+Xextern void cp3key(/* unsigned long * */);
+X/*		   cookedkey[96]
+X * Copies the contents of the 3 internal key registerS into the storage
+X * located at &cookedkey[0].
+X */
+X
+Xextern void make3key(/* char *, unsigned char * */);
+X/*		*password,	triple-length key[24]
+X * With a triple-length default key, this routine hashes a NULL-terminated
+X * string into a twenty-four-byte random-looking key, suitable for use with
+X * the des3key() routine.
+X */
+X
+X#endif	/* D3_DES */
+X#endif	/* D2_DES */
+X
+X/* d3des.h V5.09 rwo 9208.04 15:06 Graven Imagery
+X ********************************************************************/
+END_OF_FILE
+  if test 4546 -ne `wc -c <'Circ/d3des/d3des.h'`; then
+    echo shar: \"'Circ/d3des/d3des.h'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/d3des/d3des.h'
+fi
+if test -f 'Circ/new.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/new.c'\"
+else
+  echo shar: Extracting \"'Circ/new.c'\" \(11955 characters\)
+  sed "s/^X//" >'Circ/new.c' <<'END_OF_FILE'
+X
+X#include <stdio.h>
+X#include <unistd.h>   /* R_OK */
+X#include <sys/dir.h>  /* MAXFNAMLEN */
+X
+Xchar *en_crypt(),*de_crypt(); /* external, in crypt.c */
+X
+X/* defines for encoding and decoding */
+X#define KEYLEN  24+1          /* size of keys */ 
+X#define MAXKEYS 30            /* number of keys we keep track of */
+X#define HUGE 1024             /* big size for buffers */
+X#define SECKEY  "secret"      /* secret key file,  should be a variable */
+X#define LINELEN 65            /* must be less than 90,  line wrap */
+X                              /* why? irc message length limits */
+X
+X/* keys database */
+Xchar keys[MAXKEYS][KEYLEN];            /* the actual keys */
+Xunsigned int  sers[MAXKEYS];           /* serial numbers  */
+X
+X/* globals for irc interface */
+Xint nickvalid = 0;             /* tells if 'nick' has valid data */
+Xchar *nick,ournick[50];        /* dest nick and our nick         */
+X
+X/* strings sent to ircII script */
+X#define S_TOSCREEN   "TSCREEN:"
+X#define S_TONICK     "TNICKNM:"
+X#define S_TOCHAN     "TCHANNL:"
+X/* output routines */
+X#define TO_SCREEN(str)    (printf("%s %s\n",S_TOSCREEN,(str)))
+X#define TO_SCRKEY(str)    (printf("%s K<%s> %s\n",S_TOSCREEN,\
+X  (nickvalid)?nick:"???",(str)))
+X#define TO_SCRENC(str)    (printf("%s E<%s> %s\n",S_TOSCREEN,\
+X  (nickvalid)?nick:"???",(str)))
+X#define TO_REMOTE(str)    ((nickvalid)?\
+X  printf("%s %s %s\n",S_TONICK,nick,(str)):\
+X  printf("%s %s\n",S_TOCHAN,(str)))
+X
+X
+X/* find_path()
+X * return path to file if can find it.
+X * look in current dir first, then in $KEYDIR then in
+X * ./pubkeys directory.
+X * if not found.. return null
+X */
+Xchar *find_path(name)
+Xchar *name;
+X{
+X  char *path;
+X  static char fname[MAXNAMLEN];
+X
+X  if(access(name,R_OK)==0) return(name);
+X  if(path=(char *)getenv("KEYDIR")) {
+X    sprintf(fname,"%s/%s",path,name);
+X    if(access(fname,R_OK)==0) return(fname);
+X  }
+X  sprintf(fname,"pubkeys/%s",name);
+X  if(access(fname,R_OK)==0) return(fname);
+X  return(0);
+X}
+X
+X/* casecmp(a,b)
+X     a,b - null terminated strings.
+X       does a non-case sensitive compare
+X */
+X#define To_lower(a)    (isupper(a)?tolower(a):(a))
+X
+Xcasecmp(a,b)
+Xchar *a,*b;
+X{
+X  while(*a && *b) 
+X    if(To_lower(*a) != To_lower(*b)) 
+X      return (*b-*a);   /* doesnt really matter if they are diff cases here*/
+X    else {
+X      a++,b++;
+X    }
+X  return(0);
+X}
+X
+X/* asctobin(str,len)
+X     str - ascii string (null terminated)
+X     len - int *,   RETURN length of binary block
+X     returns:  char * to binary block data in static storage.
+X       coding:
+X         high nybble - 'a'=0 to 'p'=15
+X         low nybble  - 'A'=0 to 'P'=15
+X      NULL returned for bad encoding. 
+X */
+Xchar *asctobin(str,len)
+Xchar *str;
+Xint *len;
+X{
+X  static char buf[HUGE];
+X  char a,b;
+X  int i;
+X
+X  for(i=0;;) {
+X    a= *str++;
+X    while(a==' '||a=='\n') a= *str++;
+X    b= *str++;
+X    if(a=='\0' || b=='\0') {
+X      *len=i;
+X      return(buf);
+X    }
+X    if (a<'a'||a>'p' || b<'A'||b>'P') 
+X      return(0);
+X    buf[i++] = ((a-'a')<<4)|(b-'A');
+X  }
+X}
+X
+X/* bintoasc(str,len)
+X      str - a pointer to a binary block
+X      len - length of binary block in bytes
+X      return - char * to a string that is ascii, null-terminated
+X        coding -
+X           high nybble  'a'=0 to 'p'=15
+X           low nybble   'A'=0 to 'P'=15
+X */
+Xchar *bintoasc(str,len)
+Xint len;
+Xchar *str;
+X{
+X  static char buf[HUGE];
+X  int i;
+X  
+X  for(i=0;len-- >0;str++) {
+X    buf[i++]=((*str&0xf0)>>4) + 'a';
+X    buf[i++]=(*str&0xf) + 'A'; 
+X    if((rand()&0x03) == 0) buf[i++]=' ';  /* wow, now it has spaces! */
+X  }
+X  buf[i]='\0';
+X  return(buf);
+X}
+X
+X/* encode(str)
+X     str - an ascii null-terminated string 
+X     encoding:
+X       CLIPPER:xxxx:yyyyyyyyyyyyy
+X          xxxx - serial number of key used
+X          yyyyy- ascii coded, encrypted text message
+X     Note: only prints LINELEN characters per message. does 
+X           line wrap.
+X     return - nothing, prints results to remote
+X */
+Xencode(str)
+Xchar *str;
+X{
+X  int l,ser,a,i;
+X  char buf[HUGE];
+X  char tmp[LINELEN+5]; 
+X  char *p;
+X
+X  set_key(keys[0]);          /* use our key and our serial number */
+X  a=strlen(str);
+X  while (a>LINELEN) {         /* do line wrap */
+X    for(i=LINELEN;i>0;i--)
+X      if(isspace(str[i])) break;
+X    if(i==0) 
+X      i=LINELEN;             /* couldnt break at a space */
+X    else
+X      i++;                   /* put spaces on the same line */
+X    strncpy(tmp,str,i);     
+X    tmp[i]='\0';
+X    p=en_crypt(tmp,i+2,&l);
+X    sprintf(buf,"CLIPPER:%d:%s",sers[0],bintoasc(p,l));
+X    TO_REMOTE(buf);
+X    a-=i;                    /* skip over what we just outputed */
+X    str+=i;
+X  } 
+X  p=en_crypt(str ,a+1,&l);   /* add 1 so we get the NULL too */
+X  sprintf(buf,"CLIPPER:%d:%s",sers[0],bintoasc(p,l));
+X  TO_REMOTE(buf);
+X}
+X
+X/*  decode(str)
+X      str - ascii string, null terminated
+X       coding:  see encode()
+X       error codes are returned as human readable strings.
+X
+X        CLIPPER:xxxx:yyyyyy
+X            x - ascii serial number
+X            y - ascii encoded binary data, crypted
+X        SKPJACK:xxxx:yyyy:zzzz
+X            x - nick name of destination
+X            y - serial number of key being received
+X            z - ascii encoded binary data,  encrypted with rsa
+X                in 'nick's public key ,  contains the key
+X                needed to read messages from nick
+X       returned - nothing,  results output to screen
+X */
+Xdecode(str)
+Xchar *str;
+X{
+X  char *p;      /* lots of chars */
+X  char buf[HUGE];
+X  int i,ser,l,a,itsakey=0,len;
+X  
+X  if(strncmp(str,"SKPJACK:",8)==0) 
+X    itsakey=1;                          /* someones sending a key */
+X  else if(strncmp(str,"CLIPPER:",8))   
+X      return(0);                    /* not encoded */
+X  for(i=8;str[i]!=':'&&str[i]!='\0';i++);  /* jump past ser # */
+X  if(str[i]!=':') {
+X    TO_SCRENC("*Badly Formed*");
+X    return(0);
+X  }
+X  str[i++]='\0';
+X  ser=atoi(str+8);                          /* this is ser # */
+X
+X  if(itsakey && casecmp(str+8,ournick)==0) {      /* new key sent to us */
+X    ser=atoi(str+i);
+X    for(;str[i]!=':'&&str[i]!='\0';i++) ;
+X    if(str[i++]!=':') {
+X      TO_SCRKEY("*Newkey: badly formed*");
+X      return(0);
+X    }
+X    p=asctobin(str+i,&len);
+X    if(!p)  {
+X      TO_SCRKEY("*new key: bad coding*");
+X      return(0);
+X    }
+X    memcpy(buf,p,len);         /* copy binary data */
+X    p=find_path(SECKEY);
+X    if (!p)  {
+X      TO_SCRKEY("*Newkey: 'secret' not found!*");
+X      return(0);
+X    }
+X    if(do_rsa(p,buf,len,HUGE)<0)  {
+X      TO_SCRKEY("*new key: couldnt decrypt (rsa)*");
+X      return(0);
+X    }
+X    for(i=0;i<MAXKEYS;i++) 
+X      if(sers[i]==0 || sers[i]==ser) break;
+X    if(i==MAXKEYS) {
+X      TO_SCRKEY("*new key: out of table entries*");
+X      return(0);
+X    }
+X    if(sers[i]==ser) {
+X                    /* *never* receive a key we already have */
+X                    /* this could be a trick                 */
+X      TO_SCRKEY("*new key: already have it!*");
+X      return(0);
+X    }
+X    sers[i]= ser;
+X    memcpy(keys[i],buf,KEYLEN);
+X    TO_SCRKEY("*New Key installed*");
+X    return(0);
+X  }
+X  if (itsakey) {
+X    sprintf(buf,"*Saw key for %s*",str+8);
+X    TO_SCRKEY(buf);
+X    return(0);
+X  }
+X
+X  /* else its a message , try to decode */  
+X
+X  a=key(ser);                               /* find the key */
+X  if(a==-1) {
+X    TO_SCRENC("*Dont Have the Key*");
+X    return(0);
+X  }
+X  set_key(keys[a]);
+X  p=asctobin(str+i,&len);                   /* decrypt it */
+X  if(!p) { 
+X    TO_SCRENC("*Bad Encoding*");
+X    return(0);
+X  }
+X  TO_SCRENC(de_crypt(p,len,&l));
+X  return(0);
+X}
+X
+X/*  key(ser)
+X      ser = serial number 
+X      returned - index to the key with serial number ser, else -1 
+X */
+Xint key(ser)
+Xint ser;
+X{
+X  int i;
+X
+X  for(i=0;i<MAXKEYS;i++)
+X    if(ser == sers[i]) return(i);
+X  return(-1);
+X}
+X
+X/* sendkey(line)
+X     line - char *,  everything after  /key on the command line
+X       parsed to 'nick' and the optional 'filename'
+X       filename is set to nick if it doesnt exist.
+X     returned - nothing,  outputs to remote (errors to screen)
+X    encodes our key and serial number with nick's public
+X    key and sends it over the current channel for him
+X    to receive 
+X */
+Xsendkey(line)     /* handle  /key nick [filename]   */
+Xchar *line;
+X{
+X  char *file,*p;
+X  char buf[1024];
+X  int len;
+X
+X  while(*line==' ') line++;
+X  nick=line;
+X  while(*line!=' '&&*line!='\0'&&*line!='\n') line++; 
+X  if(*line=='\n') *line='\0';
+X  if(*line=='\0') 
+X    file=nick;
+X  else {
+X    *line++='\0';
+X    file=line;
+X    while(*line!=' '&&*line!='\0'&&*line!='\n') line++; 
+X    *line='\0';
+X  }
+X  if(*nick=='\0') {
+X    TO_SCREEN("*ERROR*  nick missing,  /key nick [file]");
+X    return;
+X  }
+X
+X  memcpy(buf,keys[0],KEYLEN);
+X  p=find_path(file);
+X  if(!p) {
+X    sprintf(buf,"*Error* public key file '%s' not found",file);
+X    TO_SCREEN(buf);
+X    return(0);
+X  }
+X  len=do_rsa(p,buf,KEYLEN,1024);
+X  if(len<0)  {
+X    sprintf(buf,"*ERROR* public key file corrupt for %s",file);
+X    TO_SCREEN(buf);
+X    return(0);                 /* couldnt send it, RSA failed */
+X  }
+X  p=bintoasc(buf,len);
+X  sprintf(buf,"SKPJACK:%s:%d:%s",
+X          nick,sers[0],p);
+X  nickvalid=1;                 /* send it to their nick */
+X  TO_REMOTE(buf);
+X}
+X
+X/* everything above this line (excluding some #include's and #defines)
+X   is for encoding and decoding messages.
+X */
+Xmain(argc, argv)
+X  int argc;
+X  char **argv;
+X{
+X  int i;
+X
+X  /* pick random  key -> K                */
+X  /* encrypt  crypt(K,K) -> serial number */
+X  /* pick random  L                       */
+X  /* encrypt  crypt(L,K) -> our DES key   */
+X
+X  srand(time(0));
+X  for(i=0;i<KEYLEN;i++)
+X    keys[0][i]= (char)((rand()&0xff00)>>8);
+X  set_key(keys[0]);
+X  en_crypt(keys[0],KEYLEN,&i);
+X  sers[0] = (int) *((int *)keys[0]);  /* pick serial number */
+X  /* if(sers[0]<0) sers[0]=-sers[0];     /* problem with negative ser #'s */
+X  for(i=0;i<KEYLEN;i++)
+X    keys[0][i]= (char)((rand()&0xff00)>>8);
+X  en_crypt(keys[0],KEYLEN,&i);
+X
+X  strcpy(ournick,"*invalid*");      /* dont know yet */
+X
+X  do_it();
+X}
+X
+X/* gets messages from ircII, sends em back to ircII
+X   messages can be from either user, or remote users
+X   and to local screen or to remote users.
+X   to distinguish, client stuff passes it to use with
+X   special headers:
+X        optionally preceeded by:
+X          !nick!       nickname of sending party for
+X                       CLIPPER: and SKIPJACK: 
+X                       nickname of destination for key SENDKEY: 
+X                       CRYPTME:
+X        to us from remote users
+X          CLIPPER:     encrypted message
+X          SKPJACK:     key exchange
+X        to us from local user
+X          CRYPTME:     to be encrypted 
+X          SENDKEY:     send key to another user
+X          QUITDIE:     shut down.. die, etc.
+X          OURNICK:     tell us what our current nick is
+X        to ircII
+X          TSCREEN:     to users screen
+X          TCHANNL:     to current channel 
+X          TNICKNM:     to specified (following) nickname
+X */
+X
+X#define NUMTOK 6 
+Xchar *tok[NUMTOK] = { 
+X     "CLIPPER:","SKPJACK:","CRYPTME:","SENDKEY:","QUITDIE:","OURNICK:", 
+X};
+X
+Xdo_it()         /* main loop here */
+X{
+X  char buf[1024],*str;
+X  char temp[1024];
+X  int i;
+X 
+X  while(1) {
+X    if(gets(buf)==NULL)    /* input line from irc */
+X      return;
+X    str=buf;
+X    nickvalid=0;
+X    if(*str == '!') {
+X      nick= ++str;
+X      while(*str!='!' && *str!='\0') str++;
+X      if (*str!='\0') 
+X        *str++='\0';
+X      nickvalid=1;
+X    } else nick="!dunno!";
+X    for(i=0;i<NUMTOK;i++)
+X      if(strncmp(str,tok[i],8)==0) break;
+X    switch(i) {
+X      case  0:      /* encrypted message */
+X      case  1:      /* new key sent to us */
+X           decode(str);
+X           break; 
+X      case  2:      /* message to be encrypted */
+X           encode(str+8);
+X           break;
+X      case  3:      /* send a key to a user */
+X           sendkey(str+8);
+X           break;
+X      case  4:      /* get out of dodge, and quick */
+X           return;
+X      case  5:      /* update ournick */
+X           strcpy(ournick,str+8);
+X           break;
+X
+X      case NUMTOK:
+X      default:      /* no prefix, encrypt it  */
+X          encode(str);
+X          break;
+X    }
+X    fflush(stdout);
+X  }
+X} 
+X
+END_OF_FILE
+  if test 11955 -ne `wc -c <'Circ/new.c'`; then
+    echo shar: \"'Circ/new.c'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/new.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

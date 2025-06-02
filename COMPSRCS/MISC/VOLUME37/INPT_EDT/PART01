@@ -1,0 +1,1831 @@
+Newsgroups: comp.sources.misc
+From: thewalt@canuck.CE.Berkeley.EDU (Chris Thewalt)
+Subject: v37i050: input-edit - C input functions for line editing with history, Part01/01
+Message-ID: <1993May11.175323.3487@sparky.imd.sterling.com>
+X-Md4-Signature: cc7c9d447bfc709116845a170f28e21f
+Date: Tue, 11 May 1993 17:53:23 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: thewalt@canuck.CE.Berkeley.EDU (Chris Thewalt)
+Posting-number: Volume 37, Issue 50
+Archive-name: input-edit/part01
+Environment: unix, vms, dos, posix
+Supersedes: input-edit: Volume 28, Issue 56
+
+Changes since last release:
+    * type-ahead saved in BSD mode (was OK in SYSV and POSIX)
+    * fixed POSIX mode bug and enabled termios use if POSIX defined.
+    * allow caller to supply a prompt width calculation function so that the
+      caller can embed escape sequences into the prompt (see gl_strwidth in
+      the man page).
+    * added a getline.h header file for inclusion into the caller.
+    * man page added, thanks to DaviD W. Sanderson (dws@cs.wisc.edu)
+
+Description:
+    Motivation: Many interactive programs read input line by line, but 
+    would like to provide line editing and history functionality to the 
+    end-user that runs the program.
+
+    The input-edit package provides that functionality.  As far as the 
+    programmer is concerned, the program only asks for the next line
+    of input. However, until the user presses the RETURN key they can use
+    emacs-style line editing commands and can traverse the history of lines
+    previously typed.
+
+    Other packages, such as GNU's readline, have greater capability but are
+    also substantially larger.  Input-edit is small, since it uses neither
+    stdio nor any termcap features, and is also quite portable.  It only uses
+    \b to backspace and \007 to ring the bell on errors.  Since it cannot
+    edit multiple lines it scrolls long lines left and right on the same line.
+
+    Input edit uses classic (not ANSI) C, and should run on any Unix 
+    system (BSD, SYSV or POSIX), PC's with the MSC compiler, or 
+    Vax/VMS (untested by me).  Porting the package to new systems basicaly 
+    requires code to read a character when it is typed without echoing it, 
+    everything else should be OK.
+
+    I have run the package on:
+
+	DECstation 5000, Ultrix 4.3 with cc 2.1 and gcc 2.3.3
+	Sun Sparc 2, SunOS 4.1.1, with cc
+	SGI Iris, IRIX System V.3, with cc
+	PC, DRDOS 5.0, with MSC 6.0
+
+    Chris Thewalt (thewalt@ce.berkeley.edu)   
+    5/3/93
+
+    PS: I don't have, and don't want to add, a vi mode, sorry.
+---------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README CHANGES Makefile getline.3 getline.c getline.h
+#   testgl.c
+# Wrapped by kent@sparky on Tue May 11 12:48:34 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(8595 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X*************************** Motivation **********************************
+X
+XMany interactive programs read input line by line, but would like to
+Xprovide line editing and history functionality to the end-user that 
+Xruns the program.
+X
+XThe input-edit package provides that functionality.  As far as the 
+Xprogrammer is concerned, the program only asks for the next line
+Xof input. However, until the user presses the RETURN key they can use
+Xemacs-style line editing commands and can traverse the history of lines
+Xpreviously typed.
+X
+XOther packages, such as GNU's readline, have greater capability but are
+Xalso substantially larger.  Input-edit is small, since it uses neither
+Xstdio nor any termcap features, and is also quite portable.  It only uses
+X\b to backspace and \007 to ring the bell on errors.  Since it cannot
+Xedit multiple lines it scrolls long lines left and right on the same line.
+X
+XInput edit uses classic (not ANSI) C, and should run on any Unix 
+Xsystem (BSD, SYSV or POSIX), PC's with the MSC compiler, or 
+XVax/VMS (untested by me).  Porting the package to new systems basicaly 
+Xrequires code to read a character when it is typed without echoing it, 
+Xeverything else should be OK.
+X
+XI have run the package on:
+X
+X	DECstation 5000, Ultrix 4.3 with cc 2.1 and gcc 2.3.3
+X	Sun Sparc 2, SunOS 4.1.1, with cc
+X	SGI Iris, IRIX System V.3, with cc
+X	PC, DRDOS 5.0, with MSC 6.0
+X
+XThe description below is broken into two parts, the end-user (editing) 
+Xinterface and the programmer interface.  Send bug reports, fixes and 
+Xenhancements to:
+X
+XChris Thewalt (thewalt@ce.berkeley.edu)   
+X5/3/93
+X
+XPS: I don't have, and don't want to add, a vi mode, sorry.
+X
+X************************** End-User Interface ***************************
+X
+XEntering printable keys generally inserts new text into the buffer (unless
+Xin overwrite mode, see below).  Other special keys can be used to modify
+Xthe text in the buffer.  In the description of the keys below, ^n means
+XControl-n, or holding the CONTROL key down while pressing "n".  Errors
+Xwill ring the terminal bell.
+X
+X^A/^E	: Move cursor to beginning/end of the line.
+X^F/^B   : Move cursor forward/backward one character.
+X^D	: Delete the character under the cursor.
+X^H, DEL : Delete the character to the left of the cursor.
+X^K	: Kill from the cursor to the end of line.
+X^L	: Redraw current line.
+X^O	: Toggle overwrite/insert mode. Initially in insert mode. Text
+X	  added in overwrite mode (including yanks) overwrite
+X	  existing text, while insert mode does not overwrite.
+X^P/^N   : Move to previous/next item on history list.
+X^R/^S   : Perform incremental reverse/forward search for string on
+X	  the history list.  Typing normal characters adds to the current
+X	  search string and searches for a match. Typing ^R/^S marks
+X	  the start of a new search, and moves on to the next match.
+X	  Typing ^H or DEL deletes the last character from the search 
+X	  string, and searches from the starting location of the last search.  
+X	  Therefore, repeated DEL's appear to unwind to the match nearest 
+X	  the point at which the last ^R or ^S was typed.  If DEL is 
+X	  repeated until the search string is empty the search location 
+X	  begins from the start of the history list.  Typing ESC or 
+X	  any other editing character accepts the current match and 
+X	  loads it into the buffer, terminating the search.
+X^T	: Toggle the characters under and to the left of the cursor.
+X^Y	: Yank previously killed text back at current location.  Note that
+X	  this will overwrite or insert, depending on the current mode.
+XTAB	: By default adds spaces to buffer to get to next TAB stop 
+X	  (just after every 8th column), although this may be rebound by the 
+X	  programmer, as described below.
+XNL, CR  : returns current buffer to the program.
+X
+XDOS and ANSI terminal arrow key sequences are recognized, and act like:
+X
+X  up    : same as ^P
+X  down  : same as ^N
+X  left  : same as ^B
+X  right : same as ^F
+X
+X************************** Programmer Interface ***************************
+X
+XThe programmer accesses input-edit through these functions, and optionally
+Xthrough three additional function pointer hooks.  The four functions are:
+X
+Xchar *getline(char *prompt)
+X
+X	Prints the prompt and allows the user to edit the current line. A
+X	pointer to the line is returned when the user finishes by
+X	typing a newline or a return.  Unlike GNU readline, the returned
+X	pointer points to a static buffer, so it should not be free'd, and
+X	the buffer contains the newline character.  The user enters an
+X	end-of-file by typing ^D on an empty line, in which case the
+X	first character of the returned buffer is '\0'.  Getline never
+X	returns a NULL pointer.  The getline functions sets terminal modes
+X	needed to make it work, and resets them before returning to the
+X	caller.  The getline function also looks for characters that would
+X	generate a signal, and resets the terminal modes before raising the
+X	signal condition.  If the signal handler returns to getline, 
+X	the screen is automatically redrawn and editing can continue.
+X	Getline now requires both the input and output stream be connected
+X	to the terminal (not redirected) so the main program should check
+X	to make sure this is true.  If input or output have been redirected
+X	the main program should use buffered IO (stdio) rather than
+X	the slow 1 character read()s that getline uses.
+X
+Xvoid gl_setwidth(int width)
+X
+X        Set the width of the terminal to the specified width. The default
+X	width is 80 characters, so this function need only be called if the
+X	width of the terminal is not 80.  Since horizontal scrolling is
+X	controlled by this parameter it is important to get it right.
+X
+Xvoid gl_histadd(char *buf)
+X
+X	The gl_histadd function checks to see if the buf is not empty or
+X	whitespace, and also checks to make sure it is different than
+X	the last saved buffer to avoid repeats on the history list.
+X	If the buf is a new non-blank string a copy is made and saved on
+X	the history list, so the caller can re-use the specified buf.
+X
+Xvoid gl_strwidth(size_t (*func)())
+X	The gl_strwidth function allows the caller to supply a pointer to 
+X	a prompt width calculation function (strlen by default). This
+X	allows the caller to embed escape sequences in the prompt and then
+X	tell getline how many screen spaces the prompt will take up.
+X
+XThe main loop in testgl.c, included in this directory, shows how the
+Xinput-edit package can be used:
+X
+Xextern char *getline();
+Xextern void  gl_histadd();
+Xmain()
+X{
+X    char *p;
+X    do {
+X	p = getline("PROMPT>>>> ");
+X	gl_histadd(p);
+X	fputs(p, stdout);
+X    } while (*p != 0);
+X}
+X
+XIn order to allow the main program to have additional access to the buffer,
+Xto implement things such as completion or auto-indent modes, three
+Xfunction pointers can be bound to user functions to modify the buffer as
+Xdescribed below.  By default gl_in_hook and gl_out_hook are set to NULL,
+Xand gl_tab_hook is bound to a function that inserts spaces until the next
+Xlogical tab stop is reached.  The user can reassign any of these pointers
+Xto other functions.  Each of the functions bound to these hooks receives
+Xthe current buffer as the first argument, and must return the location of
+Xthe leftmost change made in the buffer.  If the buffer isn't modified the
+Xfunctions should return -1.  When the hook function returns the screen is
+Xupdated to reflect any changes made by the user function.
+X
+Xint (*gl_in_hook)(char *buf)
+X
+X	If gl_in_hook is non-NULL the function is called each time a new 
+X	buffer is loaded. It is called when getline is entered, with an
+X	empty buffer, it is called each time a new buffer is loaded from
+X	the history with ^P or ^N, and it is called when an incremental
+X	search string is accepted (when the search is terminated). The
+X	buffer can be modified and will be redrawn upon return to getline(). 
+X
+Xint (*gl_out_hook)(char *buf)
+X
+X	If gl_out_hook is non-NULL it is called when a line has been
+X	completed by the user entering a newline or return. The buffer
+X	handed to the hook does not yet have the newline appended. If the
+X	buffer is modified the screen is redrawn before getline returns the
+X	buffer to the caller.
+X
+Xint (*gl_tab_hook)(char *buf, int prompt_width, int *cursor_loc)
+X
+X	If gl_tab_hook is non-NULL, it is called whenever a tab is typed.
+X	In addition to receiving the buffer, the current prompt width is
+X	given (needed to do tabbing right) and a pointer to the cursor
+X	offset is given, where a 0 offset means the first character in the
+X	line.  Not only does the cursor_loc tell the programmer where the
+X	TAB was received, but it can be reset so that the cursor will end
+X	up at the specified location after the screen is redrawn.
+END_OF_FILE
+  if test 8595 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'CHANGES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CHANGES'\"
+else
+  echo shar: Extracting \"'CHANGES'\" \(2073 characters\)
+  sed "s/^X//" >'CHANGES' <<'END_OF_FILE'
+XChanges from last release (v28i056 in comp.sources.misc)
+X
+X* type-ahead saved in BSD mode (was OK in SYSV and POSIX)
+X* fixed POSIX mode bug and enabled termios use if POSIX defined.
+X* allow caller to supply a prompt width calculation function so that the
+X  caller can embed escape sequences into the prompt (see gl_strwidth in
+X  the man page).
+X* added a getline.h header file for inclusion into the caller.
+X* man page added, thanks to DaviD W. Sanderson (dws@cs.wisc.edu)
+X
+X
+XChanges from previous release (v25i056 and patch v26i092)
+X
+X* The user no longer calls gl_init() and gl_cleanup(), getline() sets
+X  required terminal modes on entry and resets before returning.  This
+X  was necessary to capture changes in terminal modes that the main
+X  program might be making.
+X* Getline() now looks to see which characters are bound to signal
+X  generation, and when these characters are seen getline() resets
+X  terminal modes before passing on the signal.  If the signal handler
+X  returns to getline(), the screen is automatically updated and editing
+X  can continue.
+X* The toggle key for overwrite mode has been moved from ^G to ^O
+X* All code is now classic rather than ANSI C, so any compiler should
+X  be able to handle it.
+X* ^Y now yanks back previously kill'ed (^K) text starting at the
+X  current location.
+X* ^R/^S begin reverse and forward incremental searches through the
+X  history list.
+X* The programmer must add buffers onto the history list by calling
+X  gl_addhist(char *buffer).  This function makes copies of the buffer
+X  and adds them to the history list if the buffer is not a blank line
+X  and if the buffer is different than the last item saved (so the
+X  program need not check for these conditions)
+X* The main program can specify the screen width to use with a call to
+X  gl_setwidth(int width)
+X* Getline now insists that both the input and output are connected to
+X  a terminal. If this is not the case, an error message is written and
+X  the program is terminated.  The main program should check for this
+X  case and use buffered IO (stdio) for non-interactive sessions.
+X
+END_OF_FILE
+  if test 2073 -ne `wc -c <'CHANGES'`; then
+    echo shar: \"'CHANGES'\" unpacked with wrong size!
+  fi
+  # end of 'CHANGES'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(182 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+XTARGET = testgl
+XOBJS   = testgl.o getline.o
+X
+XCC     = gcc
+XCFLAGS = -O 
+XLDFLAGS= -s
+X
+X$(TARGET): $(OBJS)
+X	$(CC) $(LDFLAGS) $(CFLAGS) -o testgl $(OBJS)
+X
+Xclean:
+X	rm -f $(OBJS) $(TARGET)
+END_OF_FILE
+  if test 182 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'getline.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getline.3'\"
+else
+  echo shar: Extracting \"'getline.3'\" \(9501 characters\)
+  sed "s/^X//" >'getline.3' <<'END_OF_FILE'
+X.\" Note that in silly ol' [nt]roff, even trailing white space is
+X.\" significant.  I went through and eliminated it.
+X.\" I adopted a convention of using a bold 'getline' when referring to
+X.\" the whole package, but an italic 'getline' when referring to the
+X.\" specific function.
+X.\" Note that in [nt]roff that "-" is a hyphen, while "\-" is a dash.
+X.\" I adjusted some source text lines to keep them short (I keep line
+X.\" numbers turned on in vi, so I only have 72 cols w/o wrapping).
+X.\" It's too bad that getline() doesn't realloc() the buffer as
+X.\" necessary.  Then it could have an unlimited input line length.
+X.\" Note that .RI et al are limited in how many args they can take.
+X.\" I corrected gl_addhist to gl_histadd, which is what is actually
+X.\" used!  Perhaps it really should be gl_addhist, to preserve the
+X.\" gl_<verb><object> pattern in the other function names.
+X.\" I tried to rephrase certain sections to avoid the passive voice.
+X.\" I find the active voice much easier to understand, since I can tell
+X.\" more easily what acts on what.
+X.TH GETLINE 3
+X.SH NAME
+Xgetline \- command-line editing library with history
+X.SH SYNOPSIS
+X.RI "char *getline(char *" prompt );
+X.PP
+X.RI "void gl_histadd(char *" line );
+X.br
+X.RI "void gl_setwidth(int " width );
+X.br
+X.RI "void gl_strwidth(int " (*width_func)() );
+X.PP
+X.RI "extern int (*gl_in_hook)(char *" buf );
+X.br
+X.RI "extern int (*gl_out_hook)(char *" buf );
+X.br
+X.RI "extern int (*gl_tab_hook)(char *" buf ,
+X.RI "int " prompt_width ", int *" cursor_loc );
+X.SH DESCRIPTION
+XThe
+X.B getline
+Xpackage is a set of library routines that implement
+Xan editable command-line history.
+X.PP
+X.B "Programming Interface"
+X.br
+X.I getline
+Xreturns a pointer to a line of text read from the user,
+Xprompting the user with the specified
+X.IR prompt .
+XThe pointer refers to a static buffer allocated by the
+X.B getline
+Xpackage.
+XClients may assume that the pointer
+X.I getline
+Xreturns is always the same, and is never NULL.
+XThe buffer
+X.I getline
+Xreturns to the caller contains the terminating newline character,
+Xexcept on end of file,
+Xin which case the first character in the buffer is 0
+X.RB ( NUL ).
+XFile descriptors 0 and 1 must be connected to the terminal
+X(not redirected),
+Xso the caller should check for this condition (using
+X.IR isatty (\|))
+Xand call stdio routines if the session is not interactive.
+X.PP
+X.I gl_histadd
+Xadds the given
+X.I line
+Xto the
+X.B getline
+Xhistory list if the
+X.I line
+Xis not empty and if it is different from the last line
+Xin the history list
+X(so the caller need not check for these conditions).
+X.I gl_histadd
+Xmakes its own copies of all the lines it adds to the history list.
+XThis is so the caller can reuse the buffer it supplies to
+X.IR gl_histadd .
+X.PP
+X.I gl_setwidth
+Xspecifies the terminal
+X.I width
+Xto use for horizontal scrolling.
+XThe default value is 80 columns,
+Xand it is important to properly specify the
+X.I width
+Xor lines may wrap inadvertently.
+X.PP
+X.I gl_strwidth
+Xallows the application program to supply a prompt string width calculation
+Xfunction that returns the number of screen positions used by the argument
+Xstring.  
+XBy default strlen is used, but if the prompt contains escape sequences the user
+Xcan bind a function that returns the actual number of screen postitions
+Xused by the argument string, not including the escape characters.
+X.PP
+XIn addition to the function call interface,
+X.B getline
+Xhas three externally accessible function pointers
+Xthat act as hooks if bound to user-defined functions.
+X.B getline
+Xsupplies each of the functions with a pointer to the current buffer
+Xas the first argument,
+Xand expects the return value to be the index
+Xof the first change the function made in the buffer
+X(or \-1 if the function did not alter the buffer).
+XAfter the functions return,
+X.B getline
+Xupdates the screen as necessary.
+X.\"-------
+X.\" DWS comment --
+X.\"-------
+XNote that the functions may not alter the size of the buffer.
+XIndeed, they do not even know how large the buffer is!
+X.PP
+X.I getline
+Xcalls
+X.I gl_in_hook
+X(initially NULL)
+Xeach time it loads a new buffer.
+XMore precisely, this is
+X.TP
+X\(bu
+Xat the first call to
+X.I getline
+X(with an empty buffer)
+X.TP
+X\(bu
+Xeach time the user enters a new buffer from the history list (with
+X.B ^P
+Xor
+X.BR ^N )
+X.TP
+X\(bu
+Xwhen the user accepts an incremental search string
+X(when the user terminates the search).
+X.PP
+X.I getline
+Xcalls
+X.I gl_out_hook
+X(initially NULL)
+Xwhen a line has been completed by the user entering a
+X.B NEWLINE
+X.RB (\| ^J \|)
+Xor
+X.B RETURN
+X.RB (\| ^M \|).
+XThe buffer
+X.I gl_out_hook
+Xsees does not yet have the newline appended, and
+X.I gl_out_hook
+Xshould not add a newline.
+X.PP
+X.I getline
+Xcalls
+X.I gl_tab_hook
+Xwhenever the user types a
+X.BR TAB .
+XIn addition to the buffer,
+X.I getline
+Xsupplies the current
+X.I prompt_width
+X(presumably needed for tabbing calculations) and
+X.IR cursor_loc ,
+Xa pointer to the cursor location.
+X.RI ( *cursor_loc
+X\(eq 0 corresponds to the first character in the buffer)
+X.I *cursor_loc
+Xtells
+X.I gl_tab_hook
+Xwhere the
+X.B TAB
+Xwas typed.
+XNote that when it redraws the screen,
+X.I getline
+Xwill honor any change
+X.I gl_tab_hook
+Xmay make to
+X.IR *cursor_loc .
+X.\"-------
+X.\" DWS comment --
+X.\"-------
+XNote also that
+X.I prompt_width
+Xmay not correspond to the actual width of
+X.I prompt
+Xon the screen if
+X.I prompt
+Xcontains escape sequences.
+X.I gl_tab_hook
+Xis initially bound to the
+X.B getline
+Xinternal static function
+X.IR gl_tab ,
+Xwhich acts like a normal
+X.B TAB
+Xkey by inserting spaces.
+X.PP
+X.B "User Interface"
+X.br
+X.\"-------
+X.\" I adapted the prologue to this section from the ksh man page (dws).
+X.\"-------
+XTo edit, the user moves the cursor to the point needing correction and
+Xthen inserts or deletes characters or words as needed.
+XAll the editing commands are control characters,
+Xwhich typed by holding the
+XCTRL key down while typing another character.
+XControl characters are indicated below as the caret
+X.RB (\| ^ \|)
+Xfollowed by another character,
+Xsuch as
+X.BR ^A .
+X.PP
+XAll edit commands operate from any place on the line,
+Xnot just at the beginning.
+X.PP
+XThese are the
+X.I getline
+Xkey bindings.
+X.\"-------
+X.\" Tt	- max width of tag
+X.\" Tw	- max width of tag + spacing to the paragraph
+X.\" Tp	- special .TP, with the best indent for the editing command
+X.\"	descriptions.
+X.\"	The first version of Tp prints the tags left-justified.
+X.\"	The second version of Tp prints the tags as follows:
+X.\"	If one argument is given, it is printed right-justified.
+X.\"	If two arguments are given, the first is printed left-justified
+X.\"	and the second is printed right-justified.
+X.\"-------
+X.nr Tt \w'BACKSPACE'
+X.nr Tw \w'BACKSPACE\0\0\0'
+X.\" .de Tp
+X.\" .TP \n(Twu
+X.\" \fB\\$1\fR
+X.\" ..
+X.de Tp
+X.TP \n(Twu
+X.if \\n(.$=1 \h@\n(Ttu-\w'\fB\\$1\fR'u@\fB\\$1\fR
+X.if \\n(.$=2 \fB\\$1\fR\h@\n(Ttu-\w'\fB\\$1\\$2\fR'u@\fB\\$2\fR
+X..
+X.PP
+X.\"-------
+X.\" Set interparagraph spacing to zero so binding descriptions are
+X.\" kept together.
+X.\"-------
+X.PD 0
+X.Tp "^A"
+XMove cursor to beginning of line.
+X.Tp "^B"
+XMove cursor left (back) 1 column.
+X.Tp "^D"
+XDelete the character under the cursor.
+X.Tp "^E"
+XMove cursor to end of line.
+X.Tp "^F"
+XMove point right (forward) 1 column.
+X.Tp "^H"
+XDelete the character left of the cursor.@
+X.Tp "^I"
+XJump to next tab stop (may be redefined by the program).
+X.Tp "^J"
+XReturn the current line.
+X.Tp "^K"
+XKill from cursor to the end of the line (see
+X.BR "^Y" \|).
+X.Tp "^L"
+XRedisplay current line.
+X.Tp "^M"
+XReturn the current line.
+X.Tp "^N"
+XFetches next line from the history list.
+X.Tp "^O"
+XToggle overwrite/insert mode, initially in insert mode.
+X.Tp "^P"
+XFetches previous line from the history list.
+X.Tp "^R"
+XBegin a reverse incremental search through history list.
+XEach printing character typed adds to the search substring
+X(initially empty), and
+X.B getline
+Xfinds and displays the first matching location.
+XTyping
+X.B ^R
+Xagain marks the current starting location and begins a new
+Xsearch for the current substring.
+XTyping
+X.B ^H
+Xor
+X.B DEL
+Xdeletes the last character from the search string,
+Xand
+X.B getline
+Xrestarts the search from the last starting location.
+XRepeated
+X.B ^H
+Xor
+X.B DEL
+Xcharacters therefore appear to unwind the search to the match nearest
+Xthe point where the user last typed
+X.B ^R
+Xor
+X.BR ^S .
+XTyping
+X.B ^H
+Xor
+X.B DEL
+Xuntil the search string is empty causes
+X.B getline
+Xto reset the start of the search to the beginning of the history list.
+XTyping
+X.B ESC
+Xor any other editing character accepts the current match
+Xand terminates the search.
+X.Tp "^S"
+XBegin a forward incremental search through the history list.
+XThe behavior is like that of
+X.B ^R
+Xbut in the opposite direction through the history list.
+X.Tp "^T"
+XTranspose current and previous character.
+X.Tp "^Y"
+XYank previously killed
+X.RB (\| ^K \|)
+Xtext back at current location.
+X.Tp BACKSPACE
+XDelete the character left of the cursor.
+X.Tp DEL
+XDelete the character left of the cursor.
+X.Tp RETURN
+XReturn the current line.
+X.Tp TAB
+XJump to next tab stop (may be redefined by the program).
+X.\"-------
+X.\" Restore default interparagraph spacing.
+X.\"-------
+X.PD
+X.PP
+X.B getline
+Xrecognizes DOS and ANSI arrow keys.
+XThey cause the following actions:
+X.B up
+Xis the same as
+X.BR ^P ,
+X.B down
+Xis the same as
+X.BR ^N ,
+X.B left
+Xis the same as
+X.BR ^P ,
+Xand
+X.B right
+Xis the same as
+X.BR ^F .
+X.SH AUTHORS
+X.PP
+XProgram by
+XChristopher R. Thewalt (thewalt\|@ce.berkeley.edu)
+X.PP
+XOriginal man page by
+XDaviD W. Sanderson (dws\|@cs.wisc.edu)
+Xand Christopher R. Thewalt
+X.SH COPYRIGHT
+X\&
+X.br
+X.if n (C)
+X.if t \s+8\v'+2p'\fB\(co\fR\v'-2p'\s0
+X\s+2Copyright 1992,1993 by Christopher R. Thewalt and DaviD W. Sanderson\s0
+X(but freely redistributable)
+END_OF_FILE
+  if test 9501 -ne `wc -c <'getline.3'`; then
+    echo shar: \"'getline.3'\" unpacked with wrong size!
+  fi
+  # end of 'getline.3'
+fi
+if test -f 'getline.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getline.c'\"
+else
+  echo shar: Extracting \"'getline.c'\" \(26628 characters\)
+  sed "s/^X//" >'getline.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char     rcsid[] =
+X"$Id: getline.c,v 3.7 1993/05/03 20:57:50 thewalt Exp thewalt $";
+Xstatic char    *copyright = "Copyright (C) 1991, 1992, 1993, Chris Thewalt";
+X#endif
+X
+X/*
+X * Copyright (C) 1991, 1992, 1993 by Chris Thewalt (thewalt@ce.berkeley.edu)
+X *
+X * Permission to use, copy, modify, and distribute this software 
+X * for any purpose and without fee is hereby granted, provided
+X * that the above copyright notices appear in all copies and that both the
+X * copyright notice and this permission notice appear in supporting
+X * documentation.  This software is provided "as is" without express or
+X * implied warranty.
+X */
+X
+X#include       "getline.h"
+Xstatic int      gl_tab();  /* forward reference needed for gl_tab_hook */
+X
+X/******************** imported interface *********************************/
+X
+X#include <string.h>
+X#include <ctype.h>
+X#include <errno.h>
+X#include <signal.h>
+X
+Xextern int      isatty();	
+Xextern void    *malloc();
+Xextern void     free();
+Xextern int      kill();	
+X
+X/********************* exported interface ********************************/
+X
+Xchar           *getline();		/* read a line of input */
+Xvoid            gl_setwidth();		/* specify width of screen */
+Xvoid            gl_histadd();		/* adds entries to hist */
+Xvoid		gl_strwidth();		/* to bind gl_strlen */
+X
+Xint 		(*gl_in_hook)() = 0;
+Xint 		(*gl_out_hook)() = 0;
+Xint 		(*gl_tab_hook)() = gl_tab;
+X
+X/******************** internal interface *********************************/
+X
+X#define BUF_SIZE 1024
+X
+Xstatic int      gl_init_done = -1;	/* terminal mode flag  */
+Xstatic int      gl_termw = 80;		/* actual terminal width */
+Xstatic int      gl_scroll = 27;		/* width of EOL scrolling region */
+Xstatic int      gl_width = 0;		/* net size available for input */
+Xstatic int      gl_extent = 0;		/* how far to redraw, 0 means all */
+Xstatic int      gl_overwrite = 0;	/* overwrite mode */
+Xstatic int      gl_pos, gl_cnt = 0;     /* position and size of input */
+Xstatic char     gl_buf[BUF_SIZE];       /* input buffer */
+Xstatic char     gl_killbuf[BUF_SIZE]=""; /* killed text */
+Xstatic char    *gl_prompt;		/* to save the prompt string */
+Xstatic char     gl_intrc = 0;		/* keyboard SIGINT char */
+Xstatic char     gl_quitc = 0;		/* keyboard SIGQUIT char */
+Xstatic char     gl_suspc = 0;		/* keyboard SIGTSTP char */
+Xstatic char     gl_dsuspc = 0;		/* delayed SIGTSTP char */
+Xstatic int      gl_search_mode = 0;	/* search mode flag */
+X
+Xstatic void     gl_init();		/* prepare to edit a line */
+Xstatic void     gl_cleanup();		/* to undo gl_init */
+Xstatic void     gl_char_init();		/* get ready for no echo input */
+Xstatic void     gl_char_cleanup();	/* undo gl_char_init */
+Xstatic size_t 	(*gl_strlen)() = (size_t(*)())strlen; 
+X					/* returns printable prompt width */
+X
+Xstatic void     gl_addchar();		/* install specified char */
+Xstatic void     gl_del();		/* del, either left (-1) or cur (0) */
+Xstatic void     gl_error();		/* write error msg and die */
+Xstatic void     gl_fixup();		/* fixup state variables and screen */
+Xstatic int      gl_getc();		/* read one char from terminal */
+Xstatic void     gl_kill();		/* delete to EOL */
+Xstatic void     gl_newline();		/* handle \n or \r */
+Xstatic void     gl_putc();		/* write one char to terminal */
+Xstatic void     gl_puts();		/* write a line to terminal */
+Xstatic void     gl_redraw();		/* issue \n and redraw all */
+Xstatic void     gl_transpose();		/* transpose two chars */
+Xstatic void     gl_yank();		/* yank killed text */
+X
+Xstatic void     hist_init();	/* initializes hist pointers */
+Xstatic char    *hist_next();	/* return ptr to next item */
+Xstatic char    *hist_prev();	/* return ptr to prev item */
+Xstatic char    *hist_save();	/* makes copy of a string, without NL */
+X
+Xstatic void     search_addchar();	/* increment search string */
+Xstatic void     search_term();		/* reset with current contents */
+Xstatic void     search_back();		/* look back for current string */
+Xstatic void     search_forw();		/* look forw for current string */
+X
+X/************************ nonportable part *********************************/
+X
+Xextern int      write();
+Xextern void     exit();
+X
+X#ifdef MSDOS
+X#include <bios.h>
+X#endif
+X
+X#ifdef unix
+Xextern int      read();
+Xextern int      ioctl();
+X
+X#ifdef POSIX		/* use POSIX interface */
+X#include <termios.h>
+Xstruct termios  new_termios, old_termios;
+X#else /* not POSIX */
+X#include <sys/ioctl.h>
+X#ifdef TIOCSETN		/* use BSD interface */
+X#include <sgtty.h>
+Xstruct sgttyb   new_tty, old_tty;
+Xstruct tchars   tch;
+Xstruct ltchars  ltch;
+X#else			/* use SYSV interface */
+X#include <termio.h>
+Xstruct termio   new_termio, old_termio;
+X#endif /* TIOCSETN */
+X#endif /* POSIX */
+X#endif	/* unix */
+X
+X#ifdef vms
+X#include <descrip.h>
+X#include <ttdef.h>
+X#include <iodef.h>
+X#include unixio
+X   
+Xstatic int   setbuff[2];             /* buffer to set terminal attributes */
+Xstatic short chan = -1;              /* channel to terminal */
+Xstruct dsc$descriptor_s descrip;     /* VMS descriptor */
+X#endif
+X
+Xstatic void
+Xgl_char_init()			/* turn off input echo */
+X{
+X#ifdef unix
+X#ifdef POSIX
+X    tcgetattr(0, &old_termios);
+X    gl_intrc = old_termios.c_cc[VINTR];
+X    gl_quitc = old_termios.c_cc[VQUIT];
+X#ifdef VSUSP
+X    gl_suspc = old_termios.c_cc[VSUSP];
+X#endif
+X#ifdef VDSUSP
+X    gl_dsuspc = old_termios.c_cc[VDSUSP];
+X#endif
+X    new_termios = old_termios;
+X    new_termios.c_iflag &= ~(BRKINT|ISTRIP|IXON|IXOFF);
+X    new_termios.c_iflag |= (IGNBRK|IGNPAR);
+X    new_termios.c_lflag &= ~(ICANON|ISIG|IEXTEN|ECHO);
+X    new_termios.c_cc[VMIN] = 1;
+X    new_termios.c_cc[VTIME] = 0;
+X    tcsetattr(0, TCSANOW, &new_termios);
+X#else				/* not POSIX */
+X#ifdef TIOCSETN			/* BSD */
+X    ioctl(0, TIOCGETC, &tch);
+X    ioctl(0, TIOCGLTC, &ltch);
+X    gl_intrc = tch.t_intrc;
+X    gl_quitc = tch.t_quitc;
+X    gl_suspc = ltch.t_suspc;
+X    gl_dsuspc = ltch.t_dsuspc;
+X    ioctl(0, TIOCGETP, &old_tty);
+X    new_tty = old_tty;
+X    new_tty.sg_flags |= RAW;
+X    new_tty.sg_flags &= ~ECHO;
+X    ioctl(0, TIOCSETN, &new_tty);
+X#else				/* SYSV */
+X    ioctl(0, TCGETA, &old_termio);
+X    gl_intrc = old_termio.c_cc[VINTR];
+X    gl_quitc = old_termio.c_cc[VQUIT];
+X    new_termio = old_termio;
+X    new_termio.c_iflag &= ~(BRKINT|ISTRIP|IXON|IXOFF);
+X    new_termio.c_iflag |= (IGNBRK|IGNPAR);
+X    new_termio.c_lflag &= ~(ICANON|ISIG|ECHO);
+X    new_termio.c_cc[VMIN] = 1;
+X    new_termio.c_cc[VTIME] = 0;
+X    ioctl(0, TCSETA, &new_termio);
+X#endif /* TIOCSETN */
+X#endif /* POSIX */
+X#endif /* unix */
+X
+X#ifdef vms
+X    descrip.dsc$w_length  = strlen("tt:");
+X    descrip.dsc$b_dtype   = DSC$K_DTYPE_T;
+X    descrip.dsc$b_class   = DSC$K_CLASS_S;
+X    descrip.dsc$a_pointer = "tt:";
+X    (void)sys$assign(&descrip,&chan,0,0);
+X    (void)sys$qiow(0,chan,IO$_SENSEMODE,0,0,0,setbuff,8,0,0,0,0);
+X    setbuff[1] |= TT$M_NOECHO;
+X    (void)sys$qiow(0,chan,IO$_SETMODE,0,0,0,setbuff,8,0,0,0,0);
+X#endif /* vms */
+X}
+X
+Xstatic void
+Xgl_char_cleanup()		/* undo effects of gl_char_init */
+X{
+X#ifdef unix
+X#ifdef POSIX 
+X    tcsetattr(0, TCSANOW, &old_termios);
+X#else 			/* not POSIX */
+X#ifdef TIOCSETN		/* BSD */
+X    ioctl(0, TIOCSETN, &old_tty);
+X#else			/* SYSV */
+X    ioctl(0, TCSETA, &old_termio);
+X#endif /* TIOCSETN */
+X#endif /* POSIX */
+X#endif /* unix */
+X
+X#ifdef vms
+X    setbuff[1] &= ~TT$M_NOECHO;
+X    (void)sys$qiow(0,chan,IO$_SETMODE,0,0,0,setbuff,8,0,0,0,0);
+X    sys$dassgn(chan);
+X    chan = -1;
+X#endif 
+X}
+X
+Xstatic int
+Xgl_getc()
+X/* get a character without echoing it to screen */
+X{
+X    int             c;
+X    char            ch;
+X
+X#ifdef unix
+X    c = (read(0, &ch, 1) > 0)? ch : -1;
+X#endif
+X#ifdef MSDOS
+X    c = _bios_keybrd(_NKEYBRD_READ);
+X    if ((c & 0377) == 224) {
+X	switch (c = (c >> 8) & 0377) {
+X	  case 72: c = 16;   /* up -> ^P */
+X	    break;
+X          case 80: c = 14;   /* down -> ^N */
+X	    break;
+X	  case 75: c = 2;    /* left -> ^B */
+X	    break;
+X          case 77: c = 6;    /* right -> ^F */
+X	    break;
+X	  default: c = 0;    /* make it garbage */
+X	}
+X    } else {
+X	c = c & 0377;
+X    }
+X#endif
+X#ifdef vms
+X    if(chan < 0) {
+X       c='\0';
+X    }
+X    (void)sys$qiow(0,chan,IO$_TTYREADALL,0,0,0,&c,1,0,0,0,0);
+X    c &= 0177;                        /* get a char */
+X#endif
+X    return c;
+X}
+X
+Xstatic void
+Xgl_putc(c)
+Xint     c;
+X{
+X    char   ch = c;
+X
+X    write(1, &ch, 1);
+X    if (ch == '\n') {
+X	ch = '\r';
+X        write(1, &ch, 1);	/* RAW mode needs '\r', does not hurt */
+X    }
+X}
+X
+X/******************** fairly portable part *********************************/
+X
+Xstatic void
+Xgl_puts(buf)
+Xchar *buf;
+X{
+X    int len; 
+X    
+X    if (buf) {
+X        len = strlen(buf);
+X        write(1, buf, len);
+X    }
+X}
+X
+Xstatic void
+Xgl_error(buf)
+Xchar *buf;
+X{
+X    int len = strlen(buf);
+X
+X    gl_cleanup();
+X    write(2, buf, len);
+X    exit(1);
+X}
+X
+Xstatic void
+Xgl_init()
+X/* set up variables and terminal */
+X{
+X    if (gl_init_done < 0) {		/* -1 only on startup */
+X        hist_init();
+X    }
+X    if (isatty(0) == 0 || isatty(1) == 0)
+X	gl_error("\n*** Error: getline(): not interactive, use stdio.\n");
+X    gl_char_init();
+X    gl_init_done = 1;
+X}
+X
+Xstatic void
+Xgl_cleanup()
+X/* undo effects of gl_init, as necessary */
+X{
+X    if (gl_init_done > 0)
+X        gl_char_cleanup();
+X    gl_init_done = 0;
+X}
+X
+Xvoid
+Xgl_setwidth(w)
+Xint  w;
+X{
+X    if (w > 20) {
+X	gl_termw = w;
+X	gl_scroll = w / 3;
+X    } else {
+X	gl_error("\n*** Error: minimum screen width is 21\n");
+X    }
+X}
+X
+Xchar *
+Xgetline(prompt)
+Xchar *prompt;
+X{
+X    int             c, loc, tmp;
+X    int	            sig;
+X
+X    gl_init();	
+X    gl_prompt = (prompt)? prompt : "";
+X    gl_buf[0] = 0;
+X    if (gl_in_hook)
+X	gl_in_hook(gl_buf);
+X    gl_fixup(gl_prompt, -2, BUF_SIZE);
+X    while ((c = gl_getc()) >= 0) {
+X	gl_extent = 0;  	/* reset to full extent */
+X	if (isprint(c)) {
+X	    if (gl_search_mode)
+X	       search_addchar(c);
+X	    else
+X	       gl_addchar(c);
+X	} else {
+X	    if (gl_search_mode) {
+X	        if (c == '\033' || c == '\016' || c == '\020') {
+X	            search_term();
+X	            c = 0;     		/* ignore the character */
+X		} else if (c == '\010' || c == '\177') {
+X		    search_addchar(-1); /* unwind search string */
+X		    c = 0;
+X		} else if (c != '\022' && c != '\023') {
+X		    search_term();	/* terminate and handle char */
+X		}
+X	    }
+X	    switch (c) {
+X	      case '\n': case '\r': 			/* newline */
+X		gl_newline();
+X		gl_cleanup();
+X		return gl_buf;
+X		/*NOTREACHED*/
+X		break; 
+X	      case '\001': gl_fixup(gl_prompt, -1, 0);		/* ^A */
+X		break;
+X	      case '\002': gl_fixup(gl_prompt, -1, gl_pos-1);	/* ^B */
+X		break;
+X	      case '\004':					/* ^D */
+X		if (gl_cnt == 0) {
+X		    gl_buf[0] = 0;
+X		    gl_cleanup();
+X		    gl_putc('\n');
+X		    return gl_buf;
+X		} else {
+X		    gl_del(0);
+X		}
+X		break;
+X	      case '\005': gl_fixup(gl_prompt, -1, gl_cnt);	/* ^E */
+X		break;
+X	      case '\006': gl_fixup(gl_prompt, -1, gl_pos+1);	/* ^F */
+X		break;
+X	      case '\010': case '\177': gl_del(-1);	/* ^H and DEL */
+X		break;
+X	      case '\t':        				/* TAB */
+X                if (gl_tab_hook) {
+X		    tmp = gl_pos;
+X	            loc = gl_tab_hook(gl_buf, gl_strlen(gl_prompt), &tmp);
+X	            if (loc >= 0 || tmp != gl_pos)
+X	                gl_fixup(gl_prompt, loc, tmp);
+X                }
+X		break;
+X	      case '\013': gl_kill();				/* ^K */
+X		break;
+X	      case '\014': gl_redraw();				/* ^L */
+X		break;
+X	      case '\016': 					/* ^N */
+X		strcpy(gl_buf, hist_next());
+X                if (gl_in_hook)
+X	            gl_in_hook(gl_buf);
+X		gl_fixup(gl_prompt, 0, BUF_SIZE);
+X		break;
+X	      case '\017': gl_overwrite = !gl_overwrite;       	/* ^O */
+X		break;
+X	      case '\020': 					/* ^P */
+X		strcpy(gl_buf, hist_prev());
+X                if (gl_in_hook)
+X	            gl_in_hook(gl_buf);
+X		gl_fixup(gl_prompt, 0, BUF_SIZE);
+X		break;
+X	      case '\022': search_back(1);			/* ^R */
+X		break;
+X	      case '\023': search_forw(1);			/* ^S */
+X		break;
+X	      case '\024': gl_transpose();			/* ^T */
+X		break;
+X	      case '\031': gl_yank();				/* ^Y */
+X		break;
+X	      case '\033':				/* ansi arrow keys */
+X		c = gl_getc();
+X		if (c == '[') {
+X		    switch(c = gl_getc()) {
+X		      case 'A':             			/* up */
+X		        strcpy(gl_buf, hist_prev());
+X                        if (gl_in_hook)
+X	                    gl_in_hook(gl_buf);
+X		        gl_fixup(gl_prompt, 0, BUF_SIZE);
+X		        break;
+X		      case 'B':                         	/* down */
+X		        strcpy(gl_buf, hist_next());
+X                        if (gl_in_hook)
+X	                    gl_in_hook(gl_buf);
+X		        gl_fixup(gl_prompt, 0, BUF_SIZE);
+X		        break;
+X		      case 'C': gl_fixup(gl_prompt, -1, gl_pos+1); /* right */
+X		        break;
+X		      case 'D': gl_fixup(gl_prompt, -1, gl_pos-1); /* left */
+X		        break;
+X		      default: gl_putc('\007');         /* who knows */
+X		        break;
+X		    }
+X		} else
+X		    gl_putc('\007');
+X		break;
+X	      default:		/* check for a terminal signal */
+X#ifdef unix
+X	        if (c > 0) {	/* ignore 0 (reset above) */
+X	            sig = 0;
+X#ifdef SIGINT
+X	            if (c == gl_intrc)
+X	                sig = SIGINT;
+X#endif
+X#ifdef SIGQUIT
+X	            if (c == gl_quitc)
+X	                sig = SIGQUIT;
+X#endif
+X#ifdef SIGTSTP
+X	            if (c == gl_suspc || c == gl_dsuspc)
+X	                sig = SIGTSTP;
+X#endif
+X                    if (sig != 0) {
+X	                gl_cleanup();
+X	                kill(0, sig);
+X	                gl_init();
+X	                gl_redraw();
+X			c = 0;
+X		    } 
+X		}
+X#endif /* unix */
+X                if (c > 0)
+X		    gl_putc('\007');
+X		break;
+X	    }
+X	}
+X    }
+X    gl_cleanup();
+X    gl_buf[0] = 0;
+X    return gl_buf;
+X}
+X
+Xstatic void
+Xgl_addchar(c)
+Xint c;
+X/* adds the character c to the input buffer at current location */
+X{
+X    int  i;
+X
+X    if (gl_cnt >= BUF_SIZE - 1)
+X	gl_error("\n*** Error: getline(): input buffer overflow\n");
+X    if (gl_overwrite == 0 || gl_pos == gl_cnt) {
+X        for (i=gl_cnt; i >= gl_pos; i--)
+X            gl_buf[i+1] = gl_buf[i];
+X        gl_buf[gl_pos] = c;
+X        gl_fixup(gl_prompt, gl_pos, gl_pos+1);
+X    } else {
+X	gl_buf[gl_pos] = c;
+X	gl_extent = 1;
+X        gl_fixup(gl_prompt, gl_pos, gl_pos+1);
+X    }
+X}
+X
+Xstatic void
+Xgl_yank()
+X/* adds the kill buffer to the input buffer at current location */
+X{
+X    int  i, len;
+X
+X    len = strlen(gl_killbuf);
+X    if (len > 0) {
+X	if (gl_overwrite == 0) {
+X            if (gl_cnt + len >= BUF_SIZE - 1) 
+X	        gl_error("\n*** Error: getline(): input buffer overflow\n");
+X            for (i=gl_cnt; i >= gl_pos; i--)
+X                gl_buf[i+len] = gl_buf[i];
+X	    for (i=0; i < len; i++)
+X                gl_buf[gl_pos+i] = gl_killbuf[i];
+X            gl_fixup(gl_prompt, gl_pos, gl_pos+len);
+X	} else {
+X	    if (gl_pos + len > gl_cnt) {
+X                if (gl_pos + len >= BUF_SIZE - 1) 
+X	            gl_error("\n*** Error: getline(): input buffer overflow\n");
+X		gl_buf[gl_pos + len] = 0;
+X            }
+X	    for (i=0; i < len; i++)
+X                gl_buf[gl_pos+i] = gl_killbuf[i];
+X	    gl_extent = len;
+X            gl_fixup(gl_prompt, gl_pos, gl_pos+len);
+X	}
+X    } else
+X	gl_putc('\007');
+X}
+X
+Xstatic void
+Xgl_transpose()
+X/* switch character under cursor and to left of cursor */
+X{
+X    int    c;
+X
+X    if (gl_pos > 0 && gl_cnt > gl_pos) {
+X	c = gl_buf[gl_pos-1];
+X	gl_buf[gl_pos-1] = gl_buf[gl_pos];
+X	gl_buf[gl_pos] = c;
+X	gl_extent = 2;
+X	gl_fixup(gl_prompt, gl_pos-1, gl_pos);
+X    } else
+X	gl_putc('\007');
+X}
+X
+Xstatic void
+Xgl_newline()
+X/*
+X * Cleans up entire line before returning to caller. A \n is appended.
+X * If line longer than screen, we redraw starting at beginning
+X */
+X{
+X    int change = gl_cnt;
+X    int len = gl_cnt;
+X    int loc = gl_width - 5;	/* shifts line back to start position */
+X
+X    if (gl_cnt >= BUF_SIZE - 1) 
+X        gl_error("\n*** Error: getline(): input buffer overflow\n");
+X    if (gl_out_hook) {
+X	change = gl_out_hook(gl_buf);
+X        len = strlen(gl_buf);
+X    } 
+X    if (loc > len)
+X	loc = len;
+X    gl_fixup(gl_prompt, change, loc);	/* must do this before appending \n */
+X    gl_buf[len] = '\n';
+X    gl_buf[len+1] = '\0';
+X    gl_putc('\n');
+X}
+X
+Xstatic void
+Xgl_del(loc)
+Xint loc;
+X/*
+X * Delete a character.  The loc variable can be:
+X *    -1 : delete character to left of cursor
+X *     0 : delete character under cursor
+X */
+X{
+X    int i;
+X
+X    if ((loc == -1 && gl_pos > 0) || (loc == 0 && gl_pos < gl_cnt)) {
+X        for (i=gl_pos+loc; i < gl_cnt; i++)
+X	    gl_buf[i] = gl_buf[i+1];
+X	gl_fixup(gl_prompt, gl_pos+loc, gl_pos+loc);
+X    } else
+X	gl_putc('\007');
+X}
+X
+Xstatic void
+Xgl_kill()
+X/* delete from current position to the end of line */
+X{
+X    if (gl_pos < gl_cnt) {
+X	strcpy(gl_killbuf, gl_buf + gl_pos);
+X	gl_buf[gl_pos] = '\0';
+X	gl_fixup(gl_prompt, gl_pos, gl_pos);
+X    } else
+X	gl_putc('\007');
+X}
+X
+Xstatic void
+Xgl_redraw()
+X/* emit a newline, reset and redraw prompt and current input line */
+X{
+X    if (gl_init_done > 0) {
+X        gl_putc('\n');
+X        gl_fixup(gl_prompt, -2, gl_pos);
+X    }
+X}
+X
+Xstatic void
+Xgl_fixup(prompt, change, cursor)
+Xchar  *prompt;
+Xint    change, cursor;
+X/*
+X * This function is used both for redrawing when input changes or for
+X * moving within the input line.  The parameters are:
+X *   prompt:  compared to last_prompt[] for changes;
+X *   change : the index of the start of changes in the input buffer,
+X *            with -1 indicating no changes, -2 indicating we're on
+X *            a new line, redraw everything.
+X *   cursor : the desired location of the cursor after the call.
+X *            A value of BUF_SIZE can be used  to indicate the cursor should
+X *            move just past the end of the input line.
+X */
+X{
+X    static int   gl_shift;	/* index of first on screen character */
+X    static int   off_right;	/* true if more text right of screen */
+X    static int   off_left;	/* true if more text left of screen */
+X    static char  last_prompt[80] = "";
+X    int          left = 0, right = -1;		/* bounds for redraw */
+X    int          pad;		/* how much to erase at end of line */
+X    int          backup;        /* how far to backup before fixing */
+X    int          new_shift;     /* value of shift based on cursor */
+X    int          extra;         /* adjusts when shift (scroll) happens */
+X    int          i;
+X    int          new_right = -1; /* alternate right bound, using gl_extent */
+X    int          l1, l2;
+X
+X    if (change == -2) {   /* reset */
+X	gl_pos = gl_cnt = gl_shift = off_right = off_left = 0;
+X	gl_putc('\r');
+X	gl_puts(prompt);
+X	strcpy(last_prompt, prompt);
+X	change = 0;
+X        gl_width = gl_termw - gl_strlen(prompt);
+X    } else if (strcmp(prompt, last_prompt) != 0) {
+X	l1 = gl_strlen(last_prompt);
+X	l2 = gl_strlen(prompt);
+X	gl_cnt = gl_cnt + l1 - l2;
+X	strcpy(last_prompt, prompt);
+X	gl_putc('\r');
+X	gl_puts(prompt);
+X	gl_pos = gl_shift;
+X        gl_width = gl_termw - l2;
+X	change = 0;
+X    }
+X    pad = (off_right)? gl_width - 1 : gl_cnt - gl_shift;   /* old length */
+X    backup = gl_pos - gl_shift;
+X    if (change >= 0) {
+X        gl_cnt = strlen(gl_buf);
+X        if (change > gl_cnt)
+X	    change = gl_cnt;
+X    }
+X    if (cursor > gl_cnt) {
+X	if (cursor != BUF_SIZE)		/* BUF_SIZE means end of line */
+X	    gl_putc('\007');
+X	cursor = gl_cnt;
+X    }
+X    if (cursor < 0) {
+X	gl_putc('\007');
+X	cursor = 0;
+X    }
+X    if (off_right || (off_left && cursor < gl_shift + gl_width - gl_scroll / 2))
+X	extra = 2;			/* shift the scrolling boundary */
+X    else 
+X	extra = 0;
+X    new_shift = cursor + extra + gl_scroll - gl_width;
+X    if (new_shift > 0) {
+X	new_shift /= gl_scroll;
+X	new_shift *= gl_scroll;
+X    } else
+X	new_shift = 0;
+X    if (new_shift != gl_shift) {	/* scroll occurs */
+X	gl_shift = new_shift;
+X	off_left = (gl_shift)? 1 : 0;
+X	off_right = (gl_cnt > gl_shift + gl_width - 1)? 1 : 0;
+X        left = gl_shift;
+X	new_right = right = (off_right)? gl_shift + gl_width - 2 : gl_cnt;
+X    } else if (change >= 0) {		/* no scroll, but text changed */
+X	if (change < gl_shift + off_left) {
+X	    left = gl_shift;
+X	} else {
+X	    left = change;
+X	    backup = gl_pos - change;
+X	}
+X	off_right = (gl_cnt > gl_shift + gl_width - 1)? 1 : 0;
+X	right = (off_right)? gl_shift + gl_width - 2 : gl_cnt;
+X	new_right = (gl_extent && (right > left + gl_extent))? 
+X	             left + gl_extent : right;
+X    }
+X    pad -= (off_right)? gl_width - 1 : gl_cnt - gl_shift;
+X    pad = (pad < 0)? 0 : pad;
+X    if (left <= right) {		/* clean up screen */
+X	for (i=0; i < backup; i++)
+X	    gl_putc('\b');
+X	if (left == gl_shift && off_left) {
+X	    gl_putc('$');
+X	    left++;
+X        }
+X	for (i=left; i < new_right; i++)
+X	    gl_putc(gl_buf[i]);
+X	gl_pos = new_right;
+X	if (off_right && new_right == right) {
+X	    gl_putc('$');
+X	    gl_pos++;
+X	} else { 
+X	    for (i=0; i < pad; i++)	/* erase remains of prev line */
+X		gl_putc(' ');
+X	    gl_pos += pad;
+X	}
+X    }
+X    i = gl_pos - cursor;		/* move to final cursor location */
+X    if (i > 0) {
+X	while (i--)
+X	   gl_putc('\b');
+X    } else {
+X	for (i=gl_pos; i < cursor; i++)
+X	    gl_putc(gl_buf[i]);
+X    }
+X    gl_pos = cursor;
+X}
+X
+Xstatic int
+Xgl_tab(buf, offset, loc)
+Xchar  *buf;
+Xint    offset;
+Xint   *loc;
+X/* default tab handler, acts like tabstops every 8 cols */
+X{
+X    int i, count, len;
+X
+X    len = strlen(buf);
+X    count = 8 - (offset + *loc) % 8;
+X    for (i=len; i >= *loc; i--)
+X        buf[i+count] = buf[i];
+X    for (i=0; i < count; i++)
+X        buf[*loc+i] = ' ';
+X    i = *loc;
+X    *loc = i + count;
+X    return i;
+X}
+X
+X/******************* strlen stuff **************************************/
+X
+Xvoid gl_strwidth(func)
+Xsize_t (*func)();
+X{
+X    if (func != 0) {
+X	gl_strlen = func;
+X    }
+X}
+X
+X/******************* History stuff **************************************/
+X
+X#ifndef HIST_SIZE
+X#define HIST_SIZE 100
+X#endif
+X
+Xstatic int      hist_pos = 0, hist_last = 0;
+Xstatic char    *hist_buf[HIST_SIZE];
+X
+Xstatic void
+Xhist_init()
+X{
+X    int i;
+X
+X    hist_buf[0] = "";
+X    for (i=1; i < HIST_SIZE; i++)
+X	hist_buf[i] = (char *)0;
+X}
+X
+Xvoid
+Xgl_histadd(buf)
+Xchar *buf;
+X{
+X    static char *prev = 0;
+X    char *p = buf;
+X    int len;
+X
+X    while (*p == ' ' || *p == '\t' || *p == '\n') 
+X	p++;
+X    if (*p) {
+X	len = strlen(buf);
+X	if (strchr(p, '\n')) 	/* previously line already has NL stripped */
+X	    len--;
+X	if (prev == 0 || strlen(prev) != len || 
+X			    strncmp(prev, buf, len) != 0) {
+X            hist_buf[hist_last] = hist_save(buf);
+X	    prev = hist_buf[hist_last];
+X            hist_last = (hist_last + 1) % HIST_SIZE;
+X            if (hist_buf[hist_last] && *hist_buf[hist_last]) {
+X	        free(hist_buf[hist_last]);
+X            }
+X	    hist_buf[hist_last] = "";
+X	}
+X    }
+X    hist_pos = hist_last;
+X}
+X
+Xstatic char *
+Xhist_prev()
+X/* loads previous hist entry into input buffer, sticks on first */
+X{
+X    char *p = 0;
+X    int   next = (hist_pos - 1 + HIST_SIZE) % HIST_SIZE;
+X
+X    if (hist_buf[hist_pos] != 0 && next != hist_last) {
+X        hist_pos = next;
+X        p = hist_buf[hist_pos];
+X    } 
+X    if (p == 0) {
+X	p = "";
+X	gl_putc('\007');
+X    }
+X    return p;
+X}
+X
+Xstatic char *
+Xhist_next()
+X/* loads next hist entry into input buffer, clears on last */
+X{
+X    char *p = 0;
+X
+X    if (hist_pos != hist_last) {
+X        hist_pos = (hist_pos+1) % HIST_SIZE;
+X	p = hist_buf[hist_pos];
+X    } 
+X    if (p == 0) {
+X	p = "";
+X	gl_putc('\007');
+X    }
+X    return p;
+X}
+X
+Xstatic char *
+Xhist_save(p)
+Xchar *p;
+X/* makes a copy of the string */
+X{
+X    char *s = 0;
+X    int   len = strlen(p);
+X    char *nl = strchr(p, '\n');
+X
+X    if (nl) {
+X        if ((s = malloc(len)) != 0) {
+X            strncpy(s, p, len-1);
+X	    s[len-1] = 0;
+X	}
+X    } else {
+X        if ((s = malloc(len+1)) != 0) {
+X            strcpy(s, p);
+X        }
+X    }
+X    if (s == 0) 
+X	gl_error("\n*** Error: hist_save() failed on malloc\n");
+X    return s;
+X}
+X
+X/******************* Search stuff **************************************/
+X
+Xstatic char  search_prompt[101];  /* prompt includes search string */
+Xstatic char  search_string[100];
+Xstatic int   search_pos = 0;      /* current location in search_string */
+Xstatic int   search_forw_flg = 0; /* search direction flag */
+Xstatic int   search_last = 0;	  /* last match found */
+X
+Xstatic void  
+Xsearch_update(c)
+Xint c;
+X{
+X    if (c == 0) {
+X	search_pos = 0;
+X        search_string[0] = 0;
+X        search_prompt[0] = '?';
+X        search_prompt[1] = ' ';
+X        search_prompt[2] = 0;
+X    } else if (c > 0) {
+X        search_string[search_pos] = c;
+X        search_string[search_pos+1] = 0;
+X        search_prompt[search_pos] = c;
+X        search_prompt[search_pos+1] = '?';
+X        search_prompt[search_pos+2] = ' ';
+X        search_prompt[search_pos+3] = 0;
+X	search_pos++;
+X    } else {
+X	if (search_pos > 0) {
+X	    search_pos--;
+X            search_string[search_pos] = 0;
+X            search_prompt[search_pos] = '?';
+X            search_prompt[search_pos+1] = ' ';
+X            search_prompt[search_pos+2] = 0;
+X	} else {
+X	    gl_putc('\007');
+X	    hist_pos = hist_last;
+X	}
+X    }
+X}
+X
+Xstatic void 
+Xsearch_addchar(c)
+Xint  c;
+X{
+X    char *loc;
+X
+X    search_update(c);
+X    if (c < 0) {
+X	if (search_pos > 0) {
+X	    hist_pos = search_last;
+X	} else {
+X	    gl_buf[0] = 0;
+X	    hist_pos = hist_last;
+X	}
+X	strcpy(gl_buf, hist_buf[hist_pos]);
+X    }
+X    if ((loc = strstr(gl_buf, search_string)) != 0) {
+X	gl_fixup(search_prompt, 0, loc - gl_buf);
+X    } else if (search_pos > 0) {
+X        if (search_forw_flg) {
+X	    search_forw(0);
+X        } else {
+X	    search_back(0);
+X        }
+X    } else {
+X	gl_fixup(search_prompt, 0, 0);
+X    }
+X}
+X
+Xstatic void     
+Xsearch_term()
+X{
+X    gl_search_mode = 0;
+X    if (gl_buf[0] == 0)		/* not found, reset hist list */
+X        hist_pos = hist_last;
+X    if (gl_in_hook)
+X	gl_in_hook(gl_buf);
+X    gl_fixup(gl_prompt, 0, gl_pos);
+X}
+X
+Xstatic void     
+Xsearch_back(new_search)
+Xint new_search;
+X{
+X    int    found = 0;
+X    char  *p, *loc;
+X
+X    search_forw_flg = 0;
+X    if (gl_search_mode == 0) {
+X	search_last = hist_pos = hist_last;	
+X	search_update(0);	
+X	gl_search_mode = 1;
+X        gl_buf[0] = 0;
+X	gl_fixup(search_prompt, 0, 0);
+X    } else if (search_pos > 0) {
+X	while (!found) {
+X	    p = hist_prev();
+X	    if (*p == 0) {		/* not found, done looking */
+X	       gl_buf[0] = 0;
+X	       gl_fixup(search_prompt, 0, 0);
+X	       found = 1;
+X	    } else if ((loc = strstr(p, search_string)) != 0) {
+X	       strcpy(gl_buf, p);
+X	       gl_fixup(search_prompt, 0, loc - p);
+X	       if (new_search)
+X		   search_last = hist_pos;
+X	       found = 1;
+X	    } 
+X	}
+X    } else {
+X        gl_putc('\007');
+X    }
+X}
+X
+Xstatic void     
+Xsearch_forw(new_search)
+Xint new_search;
+X{
+X    int    found = 0;
+X    char  *p, *loc;
+X
+X    search_forw_flg = 1;
+X    if (gl_search_mode == 0) {
+X	search_last = hist_pos = hist_last;	
+X	search_update(0);	
+X	gl_search_mode = 1;
+X        gl_buf[0] = 0;
+X	gl_fixup(search_prompt, 0, 0);
+X    } else if (search_pos > 0) {
+X	while (!found) {
+X	    p = hist_next();
+X	    if (*p == 0) {		/* not found, done looking */
+X	       gl_buf[0] = 0;
+X	       gl_fixup(search_prompt, 0, 0);
+X	       found = 1;
+X	    } else if ((loc = strstr(p, search_string)) != 0) {
+X	       strcpy(gl_buf, p);
+X	       gl_fixup(search_prompt, 0, loc - p);
+X	       if (new_search)
+X		   search_last = hist_pos;
+X	       found = 1;
+X	    } 
+X	}
+X    } else {
+X        gl_putc('\007');
+X    }
+X}
+END_OF_FILE
+  if test 26628 -ne `wc -c <'getline.c'`; then
+    echo shar: \"'getline.c'\" unpacked with wrong size!
+  fi
+  # end of 'getline.c'
+fi
+if test -f 'getline.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getline.h'\"
+else
+  echo shar: Extracting \"'getline.h'\" \(480 characters\)
+  sed "s/^X//" >'getline.h' <<'END_OF_FILE'
+X#ifndef GETLINE_H
+X#define GETLINE_H
+X
+X/* unix systems can #define POSIX to use termios, otherwise 
+X * the bsd or sysv interface will be used 
+X */
+X
+Xchar           *getline();		/* read a line of input */
+Xvoid            gl_setwidth();		/* specify width of screen */
+Xvoid            gl_histadd();		/* adds entries to hist */
+Xvoid		gl_strwidth();		/* to bind gl_strlen */
+X
+Xextern int 	(*gl_in_hook)();
+Xextern int 	(*gl_out_hook)();
+Xextern int	(*gl_tab_hook)();
+X
+X#endif /* GETLINE_H */
+END_OF_FILE
+  if test 480 -ne `wc -c <'getline.h'`; then
+    echo shar: \"'getline.h'\" unpacked with wrong size!
+  fi
+  # end of 'getline.h'
+fi
+if test -f 'testgl.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testgl.c'\"
+else
+  echo shar: Extracting \"'testgl.c'\" \(309 characters\)
+  sed "s/^X//" >'testgl.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X
+Xextern char *getline();
+Xextern void  gl_histadd();
+Xextern void  exit();
+X
+Xmain()
+X/* 
+X * just echo user input lines, letting user edit them and move through
+X * history list
+X */
+X{
+X    char *p;
+X
+X    do {
+X	p = getline("PROMPT>>>> ");
+X	gl_histadd(p);
+X	fputs(p, stdout);
+X    } while (*p != 0);
+X}
+END_OF_FILE
+  if test 309 -ne `wc -c <'testgl.c'`; then
+    echo shar: \"'testgl.c'\" unpacked with wrong size!
+  fi
+  # end of 'testgl.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

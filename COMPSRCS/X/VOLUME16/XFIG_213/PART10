@@ -1,0 +1,1847 @@
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: envbvs@bea.lbl.gov (Brian V. Smith)
+Newsgroups: comp.sources.x
+Subject: v16i015: Xfig 2.1.3, Part10/25
+Message-ID: <1992Feb4.145928.779@msi.com>
+Date: 4 Feb 92 14:59:28 GMT
+References: <csx-16i006-xfig-2.1.3@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1834
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: envbvs@bea.lbl.gov (Brian V. Smith)
+Posting-number: Volume 16, Issue 15
+Archive-name: xfig-2.1.3/part10
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 10 (of 25)."
+# Contents:  e_movept.c main.c u_markers.c
+# Wrapped by dcmartin@fascet on Tue Feb  4 06:42:29 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'e_movept.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'e_movept.c'\"
+else
+echo shar: Extracting \"'e_movept.c'\" \(18589 characters\)
+sed "s/^X//" >'e_movept.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_draw.h"
+X#include "u_search.h"
+X#include "u_create.h"
+X#include "u_elastic.h"
+X#include "u_list.h"
+X#include "u_undo.h"
+X#include "w_canvas.h"
+X#include "w_mousefun.h"
+X
+X/* local routine declarations */
+X
+Xstatic F_point *moved_point;
+X
+Xstatic Boolean	init_ellipsepointmoving();
+Xstatic int	init_arcpointmoving();
+Xstatic int	init_linepointmoving();
+Xstatic int	init_splinepointmoving();
+Xstatic int	init_compoundpointmoving();
+X
+Xstatic int	relocate_arcpoint();
+Xstatic int	relocate_ellipsepoint();
+Xstatic int	relocate_linepoint();
+Xstatic int	relocate_splinepoint();
+Xstatic int	assign_newboxpoint();
+X
+Xstatic int	init_move_point();
+Xstatic int	init_arb_move_point();
+Xstatic int	init_stretch_move_point();
+X
+Xstatic int	fix_movedarcpoint();
+Xstatic int	fix_movedellipsepoint();
+Xstatic int	fix_movedsplinepoint();
+Xstatic int	fix_box();
+Xstatic int	fix_movedlinepoint();
+Xstatic int	fix_movedlatexlinepoint();
+X
+Xstatic int	cancel_movedarcpoint();
+Xstatic int	cancel_movedellipsepoint();
+Xstatic int	cancel_movedsplinepoint();
+Xstatic int	cancel_box();
+Xstatic int	cancel_movedlinepoint();
+X
+Xmove_point_selected()
+X{
+X    set_mousefun("move point", "horiz/vert move", "");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    init_searchproc_left(init_arb_move_point);
+X    init_searchproc_middle(init_stretch_move_point);
+X    canvas_leftbut_proc = point_search_left;
+X    canvas_middlebut_proc = point_search_middle;
+X    canvas_rightbut_proc = null_proc;
+X    set_cursor(pick9_cursor);
+X}
+X
+Xstatic
+Xinit_arb_move_point(obj, type, x, y, p, q)
+X    char	   *obj;
+X    int		    type, x, y;
+X    F_point	   *p, *q;
+X{
+X    constrained = MOVE_ARB;
+X    init_move_point(obj, type, x, y, p, q);
+X    set_mousefun("new posn", "", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_middlebut_proc = null_proc;
+X}
+X
+Xstatic
+Xinit_stretch_move_point(obj, type, x, y, p, q)
+X    char	   *obj;
+X    int		    type, x, y;
+X    F_point	   *p, *q;
+X{
+X    constrained = MOVE_HORIZ_VERT;
+X    init_move_point(obj, type, x, y, p, q);
+X    set_mousefun("", "new posn", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_middlebut_proc = canvas_leftbut_proc;
+X    canvas_leftbut_proc = null_proc;
+X}
+X
+Xstatic
+Xinit_move_point(obj, type, x, y, p, q)
+X    char	   *obj;
+X    int		    type, x, y;
+X    F_point	   *p, *q;
+X{
+X    left_point = p;
+X    moved_point = q;
+X    switch (type) {
+X    case O_POLYLINE:
+X	cur_l = (F_line *) obj;
+X	right_point = q->next;
+X	init_linepointmoving();
+X	break;
+X    case O_SPLINE:
+X	cur_s = (F_spline *) obj;
+X	right_point = q->next;
+X	init_splinepointmoving();
+X	break;
+X    case O_ELLIPSE:
+X	/* dirty trick - arcpoint_num is stored in p */
+X	movedpoint_num = (int) p;
+X	cur_e = (F_ellipse *) obj;
+X	if (!init_ellipsepointmoving()) /* selected center, ignore */
+X	    return;
+X	break;
+X    case O_ARC:
+X	/* dirty trick - arcpoint_num is stored in p */
+X	movedpoint_num = (int) p;
+X	cur_a = (F_arc *) obj;
+X	init_arcpointmoving();
+X	break;
+X    case O_COMPOUND:
+X	/* dirty trick - posn of corner is stored in p and q */
+X	cur_x = (int) p;
+X	cur_y = (int) q;
+X	cur_c = (F_compound *) obj;
+X	init_compoundpointmoving();
+X	break;
+X    default:
+X	return;
+X    }
+X}
+X
+Xstatic
+Xwrapup_movepoint()
+X{
+X    reset_action_on();
+X    move_point_selected();
+X    draw_mousefun_canvas();
+X}
+X
+X/*************************  ellipse  *******************************/
+X
+Xstatic		Boolean
+Xinit_ellipsepointmoving()
+X{
+X    double	    dx, dy, l;
+X
+X    if (constrained &&
+X	(cur_e->type == T_CIRCLE_BY_DIA || cur_e->type == T_CIRCLE_BY_RAD)) {
+X	put_msg("Constrained move not supported for CIRCLES");
+X	return False;		/* abort - constrained move for circle not
+X				 * needed */
+X    }
+X    if (movedpoint_num == 0) {
+X	if (cur_e->type == T_ELLIPSE_BY_RAD ||
+X	    cur_e->type == T_CIRCLE_BY_RAD) {
+X	    put_msg("Cannot move CENTER point");
+X	    return False;	/* abort - center point is selected */
+X	}
+X	cur_x = cur_e->start.x;
+X	cur_y = cur_e->start.y;
+X	fix_x = cur_e->end.x;
+X	fix_y = cur_e->end.y;
+X    } else {
+X	cur_x = cur_e->end.x;
+X	cur_y = cur_e->end.y;
+X	fix_x = cur_e->start.x;
+X	fix_y = cur_e->start.y;
+X    }
+X    if (constrained) {
+X	dx = cur_x - fix_x;
+X	dy = cur_y - fix_y;
+X	l = sqrt(dx * dx + dy * dy);
+X	cosa = fabs(dx / l);
+X	sina = fabs(dy / l);
+X    }
+X    set_action_on();
+X    toggle_ellipsemarker(cur_e);
+X    switch (cur_e->type) {
+X    case T_ELLIPSE_BY_RAD:
+X	canvas_locmove_proc = constrained_resizing_ebr;
+X	elastic_ebr();
+X	break;
+X    case T_CIRCLE_BY_RAD:
+X	canvas_locmove_proc = resizing_cbr;
+X	elastic_cbr();
+X	break;
+X    case T_ELLIPSE_BY_DIA:
+X	canvas_locmove_proc = constrained_resizing_ebd;
+X	elastic_ebd();
+X	break;
+X    case T_CIRCLE_BY_DIA:
+X	canvas_locmove_proc = resizing_cbd;
+X	elastic_cbd();
+X	break;
+X    }
+X    from_x = cur_x;
+X    from_y = cur_y;
+X    set_temp_cursor(crosshair_cursor);
+X    canvas_leftbut_proc = fix_movedellipsepoint;
+X    canvas_rightbut_proc = cancel_movedellipsepoint;
+X    return True;		/* all is Ok */
+X}
+X
+Xstatic
+Xcancel_movedellipsepoint()
+X{
+X    switch (cur_e->type) {
+X	case T_ELLIPSE_BY_RAD:
+X	elastic_ebr();
+X	break;
+X    case T_CIRCLE_BY_RAD:
+X	elastic_cbr();
+X	break;
+X    case T_ELLIPSE_BY_DIA:
+X	elastic_ebd();
+X	break;
+X    case T_CIRCLE_BY_DIA:
+X	elastic_cbd();
+X	break;
+X    }
+X    toggle_ellipsemarker(cur_e);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xfix_movedellipsepoint(x, y)
+X    int		    x, y;
+X{
+X    switch (cur_e->type) {
+X    case T_ELLIPSE_BY_RAD:
+X	elastic_ebr();
+X	break;
+X    case T_CIRCLE_BY_RAD:
+X	elastic_cbr();
+X	break;
+X    case T_ELLIPSE_BY_DIA:
+X	elastic_ebd();
+X	break;
+X    case T_CIRCLE_BY_DIA:
+X	elastic_cbd();
+X	break;
+X    }
+X    adjust_box_pos(x, y, from_x, from_y, &cur_x, &cur_y);
+X    new_e = copy_ellipse(cur_e);
+X    relocate_ellipsepoint(new_e, cur_x, cur_y, movedpoint_num);
+X    change_ellipse(cur_e, new_e);
+X    toggle_ellipsemarker(new_e);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xrelocate_ellipsepoint(ellipse, x, y, point_num)
+X    F_ellipse	   *ellipse;
+X    int		    x, y, point_num;
+X{
+X    int		    dx, dy;
+X
+X    set_temp_cursor(wait_cursor);
+X    draw_ellipse(ellipse, ERASE);
+X    if (point_num == 0) {	/* starting point is selected  */
+X	fix_x = ellipse->end.x;
+X	fix_y = ellipse->end.y;
+X	ellipse->start.x = x;
+X	ellipse->start.y = y;
+X    } else {
+X	fix_x = ellipse->start.x;
+X	fix_y = ellipse->start.y;
+X	ellipse->end.x = x;
+X	ellipse->end.y = y;
+X    }
+X    switch (ellipse->type) {
+X    case T_ELLIPSE_BY_RAD:
+X	ellipse->radiuses.x = abs(x - fix_x) + 1;
+X	ellipse->radiuses.y = abs(y - fix_y) + 1;
+X	break;
+X    case T_CIRCLE_BY_RAD:
+X	dx = fix_x - x;
+X	dy = fix_y - y;
+X	ellipse->radiuses.x = sqrt((double) (dx * dx + dy * dy)) + .5;
+X	ellipse->radiuses.y = ellipse->radiuses.x;
+X	break;
+X    case T_ELLIPSE_BY_DIA:
+X	ellipse->center.x = (fix_x + x) / 2;
+X	ellipse->center.y = (fix_y + y) / 2;
+X	ellipse->radiuses.x = abs(ellipse->center.x - fix_x);
+X	ellipse->radiuses.y = abs(ellipse->center.y - fix_y);
+X	break;
+X    case T_CIRCLE_BY_DIA:
+X	dx = ellipse->center.x = (fix_x + x) / 2 + .5;
+X	dy = ellipse->center.y = (fix_y + y) / 2 + .5;
+X	dx -= x;
+X	dy -= y;
+X	ellipse->radiuses.x = sqrt((double) (dx * dx + dy * dy)) + .5;
+X	ellipse->radiuses.y = ellipse->radiuses.x;
+X	break;
+X    }
+X    draw_ellipse(ellipse, PAINT);
+X    reset_cursor();
+X}
+X
+X/***************************  arc  *********************************/
+X
+Xstatic
+Xinit_arcpointmoving()
+X{
+X    set_action_on();
+X    toggle_arcmarker(cur_a);
+X    cur_x = cur_a->point[movedpoint_num].x;
+X    cur_y = cur_a->point[movedpoint_num].y;
+X    set_temp_cursor(crosshair_cursor);
+X    win_setmouseposition(canvas_win, cur_x, cur_y);
+X    elastic_arclink();
+X    canvas_locmove_proc = reshaping_arc;
+X    canvas_leftbut_proc = fix_movedarcpoint;
+X    canvas_rightbut_proc = cancel_movedarcpoint;
+X}
+X
+Xstatic
+Xcancel_movedarcpoint()
+X{
+X    elastic_arclink();
+X    toggle_arcmarker(cur_a);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xfix_movedarcpoint(x, y)
+X    int		    x, y;
+X{
+X    elastic_arclink();
+X    adjust_pos(x, y, cur_a->point[movedpoint_num].x,
+X	       cur_a->point[movedpoint_num].y, &x, &y);
+X    new_a = copy_arc(cur_a);
+X    relocate_arcpoint(new_a, x, y, movedpoint_num);
+X    change_arc(cur_a, new_a);
+X    toggle_arcmarker(new_a);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xrelocate_arcpoint(arc, x, y, movedpoint_num)
+X    F_arc	   *arc;
+X    int		    x, y, movedpoint_num;
+X{
+X    float	    xx, yy;
+X    F_pos	    p[3];
+X
+X    p[0] = arc->point[0];
+X    p[1] = arc->point[1];
+X    p[2] = arc->point[2];
+X    p[movedpoint_num].x = x;
+X    p[movedpoint_num].y = y;
+X    if (compute_arccenter(p[0], p[1], p[2], &xx, &yy)) {
+X	set_temp_cursor(wait_cursor);
+X	draw_arc(arc, ERASE);	/* erase old arc */
+X	arc->point[movedpoint_num].x = x;
+X	arc->point[movedpoint_num].y = y;
+X	arc->center.x = xx;
+X	arc->center.y = yy;
+X	arc->direction = compute_direction(p[0], p[1], p[2]);
+X	draw_arc(arc, PAINT);	/* draw new arc */
+X	reset_cursor();
+X    }
+X}
+X
+X/**************************  spline  *******************************/
+X
+Xstatic
+Xinit_splinepointmoving()
+X{
+X    F_point	   *p;
+X
+X    set_action_on();
+X    toggle_splinemarker(cur_s);
+X    from_x = cur_x = moved_point->x;
+X    from_y = cur_y = moved_point->y;
+X    set_temp_cursor(crosshair_cursor);
+X    if (closed_spline(cur_s) && left_point == NULL) {
+X	for (left_point = right_point, p = left_point->next;
+X	     p->next != NULL;
+X	     left_point = p, p = p->next);
+X    }
+X    elastic_linelink();
+X    canvas_locmove_proc = reshaping_line;
+X    canvas_leftbut_proc = fix_movedsplinepoint;
+X    canvas_rightbut_proc = cancel_movedsplinepoint;
+X}
+X
+Xstatic
+Xcancel_movedsplinepoint()
+X{
+X    elastic_linelink();
+X    toggle_splinemarker(cur_s);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xfix_movedsplinepoint(x, y)
+X    int		    x, y;
+X{
+X    elastic_linelink();
+X    adjust_pos(x, y, from_x, from_y, &x, &y);
+X    old_s = copy_spline(cur_s);
+X    clean_up();
+X    set_latestspline(old_s);
+X    set_action_object(F_CHANGE, O_SPLINE);
+X    old_s->next = cur_s;
+X    relocate_splinepoint(cur_s, x, y, moved_point);
+X    toggle_splinemarker(cur_s);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xrelocate_splinepoint(s, x, y, moved_point)
+X    F_spline	   *s;
+X    int		    x, y;
+X    F_point	   *moved_point;
+X{
+X    set_temp_cursor(wait_cursor);
+X    draw_spline(s, ERASE);	/* erase old spline */
+X    moved_point->x = x;
+X    moved_point->y = y;
+X    if (closed_spline(s)) {
+X	left_point->next->x = x;
+X	left_point->next->y = y;
+X    }
+X    if (int_spline(s))
+X	remake_control_points(s);
+X    draw_spline(s, PAINT);	/* draw spline with moved point */
+X    set_modifiedflag();
+X    reset_cursor();
+X}
+X
+X/***************************  compound	********************************/
+X
+Xstatic		prescale_compound(), cancel_compound();
+X
+Xstatic
+Xinit_compoundpointmoving()
+X{
+X    double	    dx, dy, l;
+X
+X    set_action_on();
+X    if (cur_x == cur_c->nwcorner.x)
+X	fix_x = cur_c->secorner.x;
+X    else
+X	fix_x = cur_c->nwcorner.x;
+X    if (cur_y == cur_c->nwcorner.y)
+X	fix_y = cur_c->secorner.y;
+X    else
+X	fix_y = cur_c->nwcorner.y;
+X    from_x = cur_x;
+X    from_y = cur_y;
+X    toggle_compoundmarker(cur_c);
+X    draw_compoundelements(cur_c, ERASE);
+X    set_temp_cursor(crosshair_cursor);
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    if (constrained) {
+X	dx = cur_x - fix_x;
+X	dy = cur_y - fix_y;
+X	l = sqrt(dx * dx + dy * dy);
+X	cosa = fabs(dx / l);
+X	sina = fabs(dy / l);
+X    }
+X    canvas_locmove_proc = constrained_resizing_box;
+X    canvas_leftbut_proc = prescale_compound;
+X    canvas_rightbut_proc = cancel_compound;
+X}
+X
+Xstatic
+Xcancel_compound()
+X{
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    draw_compoundelements(cur_c, PAINT);
+X    toggle_compoundmarker(cur_c);
+X    wrapup_movepoint();
+X}
+X
+Xextern		scale_compound();
+X
+Xstatic
+Xprescale_compound(x, y)
+X    int		    x, y;
+X{
+X    float	    scalex, scaley;
+X
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    adjust_box_pos(x, y, from_x, from_y, &cur_x, &cur_y);
+X
+X    scalex = ((float) (cur_x - fix_x)) / (from_x - fix_x);
+X    scaley = ((float) (cur_y - fix_y)) / (from_y - fix_y);
+X    scale_compound(cur_c, scalex, scaley, fix_x, fix_y);
+X
+X    draw_compoundelements(cur_c, PAINT);
+X    set_lastposition(from_x, from_y);
+X    set_newposition(cur_x, cur_y);
+X    clean_up();
+X    set_action_object(F_SCALE, O_COMPOUND);
+X    set_latestcompound(cur_c);
+X    toggle_compoundmarker(cur_c);
+X    set_modifiedflag();
+X    reset_cursor();
+X    wrapup_movepoint();
+X}
+X
+X/***************************  line  ********************************/
+X
+Xstatic
+Xinit_linepointmoving()
+X{
+X    int		    box_case;
+X    int		    latex_case;
+X    F_point	   *p;
+X
+X    set_action_on();
+X    toggle_linemarker(cur_l);
+X    box_case = 0;
+X    latex_case = 0;
+X    from_x = cur_x = moved_point->x;
+X    from_y = cur_y = moved_point->y;
+X    set_temp_cursor(crosshair_cursor);
+X    switch (cur_l->type) {
+X    case T_POLYGON:
+X	if (left_point == NULL)
+X	    for (left_point = right_point, p = left_point->next;
+X		 p->next != NULL;
+X		 left_point = p, p = p->next);
+X	break;
+X    case T_BOX:
+X    case T_ARC_BOX:
+X    case T_EPS_BOX:
+X	if (right_point->next == NULL) {	/* point 4 */
+X	    fix_x = cur_l->points->next->x;
+X	    fix_y = cur_l->points->next->y;
+X	} else {
+X	    fix_x = right_point->next->x;
+X	    fix_y = right_point->next->y;
+X	}
+X	draw_line(cur_l, ERASE);
+X	box_case = 1;
+X	break;
+X    case T_POLYLINE:
+X	if (left_point != NULL) {
+X	    if (left_point == cur_l->points) {
+X		if (cur_l->back_arrow)	/* backward arrow  */
+X		    draw_arrow(cur_x, cur_y,
+X			       left_point->x, left_point->y,
+X			       cur_l->back_arrow, ERASE,
+X			       cur_l->color);
+X	    }
+X	} else if (cur_l->back_arrow)	/* backward arrow  */
+X	    draw_arrow(right_point->x, right_point->y,
+X		       cur_x, cur_y, cur_l->back_arrow, ERASE,
+X		       cur_l->color);
+X	if (right_point != NULL) {
+X	    if (cur_l->for_arrow && right_point->next == NULL)
+X		draw_arrow(cur_x, cur_y, right_point->x, right_point->y,
+X			   cur_l->for_arrow, ERASE,
+X			   cur_l->color);
+X	} else if (cur_l->for_arrow)	/* f arrow */
+X	    draw_arrow(left_point->x, left_point->y,
+X		       cur_x, cur_y, cur_l->for_arrow, ERASE,
+X		       cur_l->color);
+X	if (latexline_mode || latexarrow_mode) {
+X	    if (left_point != NULL) {
+X		latex_fix_x = left_point->x;
+X		latex_fix_y = left_point->y;
+X		latex_case = 1;
+X	    } else if (right_point != NULL) {
+X		latex_fix_x = right_point->x;
+X		latex_fix_y = right_point->y;
+X		latex_case = 1;
+X	    }
+X	}
+X    }
+X    if (box_case) {
+X	double		dx, dy, l;
+X
+X	if (constrained) {
+X	    dx = cur_x - fix_x;
+X	    dy = cur_y - fix_y;
+X	    l = sqrt(dx * dx + dy * dy);
+X	    cosa = fabs(dx / l);
+X	    sina = fabs(dy / l);
+X	}
+X	elastic_box(fix_x, fix_y, cur_x, cur_y);
+X	canvas_locmove_proc = constrained_resizing_box;
+X	canvas_leftbut_proc = fix_box;
+X	canvas_rightbut_proc = cancel_box;
+X    } else if (latex_case) {
+X	elastic_linelink();
+X	canvas_locmove_proc = reshaping_latexline;
+X	canvas_leftbut_proc = fix_movedlatexlinepoint;
+X	canvas_rightbut_proc = cancel_movedlinepoint;
+X	cur_latexcursor = crosshair_cursor;
+X    } else {
+X	elastic_linelink();
+X	canvas_locmove_proc = reshaping_line;
+X	canvas_leftbut_proc = fix_movedlinepoint;
+X	canvas_rightbut_proc = cancel_movedlinepoint;
+X    }
+X}
+X
+Xstatic
+Xcancel_box()
+X{
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    draw_line(cur_l, PAINT);
+X    toggle_linemarker(cur_l);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xfix_box(x, y)
+X    int		    x, y;
+X{
+X    int		    delta;
+X
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    new_l = copy_line(cur_l);
+X    draw_line(cur_l, ERASE);
+X    if (new_l->type == T_EPS_BOX) {
+X	if (signof(fix_x - from_x) != signof(fix_x - x))
+X	    new_l->eps->flipped = 1 - new_l->eps->flipped;
+X	if (signof(fix_y - from_y) != signof(fix_y - y))
+X	    new_l->eps->flipped = 1 - new_l->eps->flipped;
+X    }
+X    assign_newboxpoint(new_l, fix_x, fix_y, x, y);
+X    change_line(cur_l, new_l);
+X    draw_line(new_l, PAINT);
+X    toggle_linemarker(new_l);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xassign_newboxpoint(b, x1, y1, x2, y2)
+X    F_line	   *b;
+X    int		    x1, y1, x2, y2;
+X{
+X    F_point	   *p;
+X    register int    tmp;
+X
+X    p = b->points;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X}
+X
+Xstatic
+Xcancel_movedlinepoint()
+X{
+X    elastic_linelink();
+X    toggle_linemarker(cur_l);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xfix_movedlinepoint(x, y)
+X    int		    x, y;
+X{
+X    elastic_linelink();
+X    adjust_pos(x, y, from_x, from_y, &x, &y);
+X    /* make a copy of the original and save as unchanged object */
+X    old_l = copy_line(cur_l);
+X    clean_up();
+X    set_latestline(old_l);
+X    set_action_object(F_CHANGE, O_POLYLINE);
+X    old_l->next = cur_l;
+X    /* now change the original to become the new object */
+X    relocate_linepoint(cur_l, x, y, moved_point, left_point);
+X    toggle_linemarker(cur_l);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xfix_movedlatexlinepoint(x, y)
+X    int		    x, y;
+X{
+X    elastic_linelink();
+X    adjust_pos(x, y, from_x, from_y, &x, &y);
+X    latex_endpoint(latex_fix_x, latex_fix_y, x, y, &x, &y,
+X    latexarrow_mode, (cur_pointposn == P_ANY) ? 1 : posn_rnd[cur_pointposn]);
+X    if (cur_latexcursor != crosshair_cursor)
+X	set_temp_cursor(crosshair_cursor);
+X    old_l = copy_line(cur_l);
+X    clean_up();
+X    set_latestline(old_l);
+X    set_action_object(F_CHANGE, O_POLYLINE);
+X    old_l->next = cur_l;
+X    relocate_linepoint(cur_l, x, y, moved_point, left_point);
+X    toggle_linemarker(cur_l);
+X    wrapup_movepoint();
+X}
+X
+Xstatic
+Xrelocate_linepoint(line, x, y, moved_point, left_point)
+X    F_line	   *line;
+X    int		    x, y;
+X    F_point	   *moved_point, *left_point;
+X{
+X    draw_line(line, ERASE);
+X    if (line->type == T_POLYGON)
+X	if (line->points == moved_point) {
+X	    left_point->next->x = x;
+X	    left_point->next->y = y;
+X	}
+X    moved_point->x = x;
+X    moved_point->y = y;
+X    set_modifiedflag();
+X    draw_line(line, PAINT);
+X}
+END_OF_FILE
+if test 18589 -ne `wc -c <'e_movept.c'`; then
+    echo shar: \"'e_movept.c'\" unpacked with wrong size!
+fi
+# end of 'e_movept.c'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+echo shar: Extracting \"'main.c'\" \(18818 characters\)
+sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "version.h"
+X#include "patchlevel.h"
+X#include "object.h"
+X#include "mode.h"
+X#include "resources.h"
+X#include "u_fonts.h"
+X#include "w_drawprim.h"
+X#include "w_mousefun.h"
+X#include "w_setup.h"
+X#include "w_util.h"
+X
+Xextern void	setup_cmd_panel();
+Xextern		X_error_handler();
+Xextern void	error_handler();
+Xextern int	ignore_exp_cnt;
+Xextern char    *getenv();
+Xextern int	psfontnum();
+Xextern int	latexfontnum();
+X
+X#include "fig.icon.X"
+XPixmap		fig_icon;
+X
+Xstatic char	tool_name[100];
+Xstatic		sigwinched();
+X
+X/************** FIG options ******************/
+X
+XTOOL		tool;
+Xstatic char    *filename = NULL;
+X
+Xstatic Boolean	true = True;
+Xstatic Boolean	false = False;
+Xstatic int	zero = 0;
+X
+Xstatic XtResource application_resources[] = {
+X    {"showallbuttons", "ShowAllButtons", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, ShowAllButtons), XtRBoolean, (caddr_t) & false},
+X    {XtNjustify, XtCJustify, XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, RHS_PANEL), XtRBoolean, (caddr_t) & false},
+X    {"landscape", XtCOrientation, XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, landscape), XtRBoolean, (caddr_t) & true},
+X    {"debug", "Debug", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, DEBUG), XtRBoolean, (caddr_t) & false},
+X    {"pwidth", XtCWidth, XtRFloat, sizeof(float),
+X    XtOffset(appresPtr, tmp_width), XtRInt, (caddr_t) & zero},
+X    {"pheight", XtCHeight, XtRFloat, sizeof(float),
+X    XtOffset(appresPtr, tmp_height), XtRInt, (caddr_t) & zero},
+X    {XtNreverseVideo, XtCReverseVideo, XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, INVERSE), XtRBoolean, (caddr_t) & false},
+X    {"trackCursor", "Track", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, TRACKING), XtRBoolean, (caddr_t) & true},
+X    {"inches", "Inches", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, INCHES), XtRBoolean, (caddr_t) & true},
+X    {"boldFont", "BoldFont", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, boldFont), XtRString, (caddr_t) NULL},
+X    {"normalFont", "NormalFont", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, normalFont), XtRString, (caddr_t) NULL},
+X    {"buttonFont", "ButtonFont", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, buttonFont), XtRString, (caddr_t) NULL},
+X    {"startlatexFont", "StartlatexFont", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, startlatexFont), XtRString, (caddr_t) NULL},
+X    {"startpsFont", "StartpsFont", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, startpsFont), XtRString, (caddr_t) NULL},
+X    {"startfontsize", "StartFontSize", XtRFloat, sizeof(float),
+X    XtOffset(appresPtr, startfontsize), XtRInt, (caddr_t) & zero},
+X    {"internalborderwidth", "InternalBorderWidth", XtRFloat, sizeof(float),
+X    XtOffset(appresPtr, internalborderwidth), XtRInt, (caddr_t) & zero},
+X    {"latexfonts", "Latexfonts", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, latexfonts), XtRBoolean, (caddr_t) & false},
+X    {"specialtext", "SpecialText", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, specialtext), XtRBoolean, (caddr_t) & false},
+X    {"scalablefonts", "ScalableFonts", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, SCALABLEFONTS), XtRBoolean, (caddr_t) & false},
+X    {"color0", "Color0", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[0]), XtRString, (caddr_t) "black"},
+X    {"color1", "Color1", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[1]), XtRString, (caddr_t) "blue"},
+X    {"color2", "Color2", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[2]), XtRString, (caddr_t) "green"},
+X    {"color3", "Color3", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[3]), XtRString, (caddr_t) "cyan"},
+X    {"color4", "Color4", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[4]), XtRString, (caddr_t) "red"},
+X    {"color5", "Color5", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[5]), XtRString, (caddr_t) "magenta"},
+X    {"color6", "Color6", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[6]), XtRString, (caddr_t) "yellow"},
+X    {"color7", "Color7", XtRPixel, sizeof(Pixel),
+X    XtOffset(appresPtr, color[7]), XtRString, (caddr_t) "white"},
+X    {"monochrome", "Monochrome", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, monochrome), XtRBoolean, (caddr_t) & false},
+X    {"latexfonts", "Latexfonts", XtRBoolean, sizeof(Boolean),
+X    XtOffset(appresPtr, latexfonts), XtRBoolean, (caddr_t) & false},
+X    {"keyFile", "KeyFile", XtRString, sizeof(char *),
+X    XtOffset(appresPtr, keyFile), XtRString, (caddr_t) "CompKeyDB"},
+X};
+X
+Xstatic XrmOptionDescRec options[] =
+X{
+X    {"-showallbuttons", ".showallbuttons", XrmoptionNoArg, "True"},
+X    {"-right", ".justify", XrmoptionNoArg, "True"},
+X    {"-left", ".justify", XrmoptionNoArg, "False"},
+X    {"-debug", ".debug", XrmoptionNoArg, "True"},
+X    {"-landscape", ".landscape", XrmoptionNoArg, "True"},
+X    {"-Landscape", ".landscape", XrmoptionNoArg, "True"},
+X    {"-portrait", ".landscape", XrmoptionNoArg, "False"},
+X    {"-Portrait", ".landscape", XrmoptionNoArg, "False"},
+X    {"-pwidth", ".pwidth", XrmoptionSepArg, 0},
+X    {"-pheight", ".pheight", XrmoptionSepArg, 0},
+X    {"-inverse", ".reverseVideo", XrmoptionNoArg, "True"},
+X    {"-notrack", ".trackCursor", XrmoptionNoArg, "False"},
+X    {"-track", ".trackCursor", XrmoptionNoArg, "True"},
+X    {"-inches", ".inches", XrmoptionNoArg, "True"},
+X    {"-imperial", ".inches", XrmoptionNoArg, "True"},
+X    {"-centimeters", ".inches", XrmoptionNoArg, "False"},
+X    {"-metric", ".inches", XrmoptionNoArg, "False"},
+X    {"-boldFont", ".boldFont", XrmoptionSepArg, 0},
+X    {"-normalFont", ".normalFont", XrmoptionSepArg, 0},
+X    {"-buttonFont", ".buttonFont", XrmoptionSepArg, 0},
+X    {"-startpsFont", ".startpsFont", XrmoptionSepArg, 0},
+X    {"-startlatexFont", ".startlatexFont", XrmoptionSepArg, 0},
+X    {"-startFontSize", ".startfontsize", XrmoptionSepArg, 0},
+X    {"-startfontsize", ".startfontsize", XrmoptionSepArg, 0},
+X    {"-latexfonts", ".latexfonts", XrmoptionNoArg, "True"},
+X    {"-specialtext", ".specialtext", XrmoptionNoArg, "True"},
+X    {"-scalablefonts", ".scalablefonts", XrmoptionNoArg, "True"},
+X    {"-monochrome", ".monochrome", XrmoptionNoArg, "True"},
+X    {"-internalBW", ".internalborderwidth", XrmoptionSepArg, 0},
+X    {"-internalBorderWidth", ".internalborderwidth", XrmoptionSepArg, 0},
+X    {"-keyFile", ".keyFile", XrmoptionSepArg, 0},
+X};
+X
+Xstatic XtCallbackRec callbacks[] =
+X{
+X    {NULL, NULL},
+X};
+X
+Xstatic Arg	form_args[] =
+X{
+X    {XtNcallback, (XtArgVal) callbacks},
+X    {XtNinput, (XtArgVal) True},
+X    {XtNdefaultDistance, (XtArgVal) 0},
+X    {XtNresizable, (XtArgVal) False},
+X};
+X
+Xstatic void	check_for_resize();
+Xstatic void	check_colors();
+XXtActionsRec	form_actions[] =
+X{
+X    {"ResizeForm", (XtActionProc) check_for_resize},
+X};
+X
+Xextern void clear_text_key();
+Xextern void paste_panel_key();
+Xstatic XtActionsRec text_panel_actions[] =
+X{
+X    {"PastePanelKey", (XtActionProc) paste_panel_key} ,
+X    {"EmptyTextKey", (XtActionProc) clear_text_key} ,
+X};
+X
+Xstatic String	form_translations =
+X"<ConfigureNotify>:ResizeForm()\n";
+X
+X#define NCHILDREN	9
+Xstatic TOOL	form;
+X
+Xmain(argc, argv)
+X    int		    argc;
+X    char	   *argv[];
+X
+X{
+X    TOOL	    children[NCHILDREN];
+X    int		    ichild;
+X    int		    init_canv_wd, init_canv_ht;
+X    XWMHints	   *wmhints;
+X    char	    i;
+X    Dimension	    w, h;
+X
+X    DeclareArgs(5);
+X
+X    (void) sprintf(tool_name, " XFIG %s.%s  (protocol: %s)",
+X		   FIG_VERSION, PATCHLEVEL, PROTOCOL_VERSION);
+X    (void) strcat(file_header, PROTOCOL_VERSION);
+X    tool = XtAppInitialize(&tool_app, (String) "Fig", (XrmOptionDescList) options,
+X			   (Cardinal) XtNumber(options),
+X			   (Cardinal *) & argc, (String *) argv,
+X			   (String *) NULL, (String *) NULL, (Cardinal) 0);
+X
+X    fix_converters();
+X    XtGetApplicationResources(tool, &appres, application_resources,
+X			      XtNumber(application_resources), NULL, 0);
+X
+X    i = 1;
+X    while (argc-- > 1) {
+X	if (*argv[i] != '-') {	/* search for non - name */
+X	    filename = argv[i];
+X	    break;
+X	}
+X	i++;
+X    }
+X
+X    print_landscape = appres.landscape; /* match print and screen format to
+X					 * start */
+X
+X    tool_d = XtDisplay(tool);
+X    tool_s = XtScreen(tool);
+X    tool_sn = DefaultScreen(tool_d);
+X
+X    /* turn off PSFONT_TEXT flag if user specified -latexfonts */
+X    if (appres.latexfonts)
+X	cur_textflags = cur_textflags & (~PSFONT_TEXT);
+X    if (appres.specialtext)
+X	cur_textflags = cur_textflags | SPECIAL_TEXT;
+X
+X    /* turn off PSFONT_TEXT flag if user specified -latexfonts */
+X    if (appres.latexfonts)
+X	cur_textflags = cur_textflags & (~PSFONT_TEXT);
+X
+X    /* run synchronously for debugging */
+X
+X    if (appres.DEBUG) {
+X	XSynchronize(tool_d, 1);
+X	fprintf(stderr, "Debug mode, running synchronously\n");
+X    }
+X    if (CellsOfScreen(tool_s) == 2 && appres.INVERSE) {
+X	XrmValue	value;
+X	XrmDatabase	newdb = (XrmDatabase) 0, old;
+X
+X	value.size = sizeof("White");
+X	value.addr = "White";
+X	XrmPutResource(&newdb, "xfig*borderColor", "String",
+X		       &value);
+X	value.size = sizeof("White");
+X	value.addr = "White";
+X	XrmPutResource(&newdb, "xfig*foreground", "String",
+X		       &value);
+X	value.size = sizeof("Black");
+X	value.addr = "Black";
+X	XrmPutResource(&newdb, "xfig*background", "String",
+X		       &value);
+X	old = XtDatabase(tool_d);
+X	XrmMergeDatabases(newdb, &old);
+X
+X	/* now set the tool part, since its already created */
+X	FirstArg(XtNborderColor, WhitePixelOfScreen(tool_s));
+X	NextArg(XtNforeground, WhitePixelOfScreen(tool_s));
+X	NextArg(XtNbackground, BlackPixelOfScreen(tool_s));
+X	SetValues(tool);
+X    }
+X    init_font();
+X
+X    gc = DefaultGC(tool_d, tool_sn);
+X    bold_gc = DefaultGC(tool_d, tool_sn);
+X    button_gc = DefaultGC(tool_d, tool_sn);
+X
+X    /* set the roman and bold fonts for the message windows */
+X    XSetFont(tool_d, gc, roman_font->fid);
+X    XSetFont(tool_d, bold_gc, bold_font->fid);
+X    XSetFont(tool_d, button_gc, button_font->fid);
+X
+X    /*
+X     * check if the NUMCOLORS drawing colors could be allocated and have
+X     * different palette entries
+X     */
+X    check_colors();
+X
+X    init_cursor();
+X    form = XtCreateManagedWidget("form", formWidgetClass, tool,
+X				 form_args, XtNumber(form_args));
+X
+X    if (cur_fontsize == 0)
+X	cur_fontsize = (int) appres.startfontsize;
+X    if (cur_fontsize == 0)
+X	cur_fontsize = DEF_FONTSIZE;
+X
+X    if (cur_latex_font == 0)
+X	cur_latex_font = latexfontnum (appres.startlatexFont);
+X
+X    if (cur_ps_font == 0)
+X	cur_ps_font = psfontnum (appres.startpsFont);
+X
+X    if (INTERNAL_BW == 0)
+X	INTERNAL_BW = (int) appres.internalborderwidth;
+X    if (INTERNAL_BW <= 0)
+X	INTERNAL_BW = DEF_INTERNAL_BW;
+X
+X    SW_PER_ROW = SW_PER_ROW_PORT;
+X    SW_PER_COL = SW_PER_COL_PORT;
+X    init_canv_wd = appres.tmp_width *
+X	(appres.INCHES ? PIX_PER_INCH : PIX_PER_CM);
+X    init_canv_ht = appres.tmp_height *
+X	(appres.INCHES ? PIX_PER_INCH : PIX_PER_CM);
+X
+X    if (init_canv_wd == 0)
+X	init_canv_wd = appres.landscape ? DEF_CANVAS_WD_LAND :
+X	    DEF_CANVAS_WD_PORT;
+X
+X    if (init_canv_ht == 0)
+X	init_canv_ht = appres.landscape ? DEF_CANVAS_HT_LAND :
+X	    DEF_CANVAS_HT_PORT;
+X
+X    if ((init_canv_ht < DEF_CANVAS_HT_PORT) ||
+X	(HeightOfScreen(tool_s) < DEF_CANVAS_HT_PORT)) {
+X	SW_PER_ROW = SW_PER_ROW_LAND;
+X	SW_PER_COL = SW_PER_COL_LAND;
+X    }
+X    setup_sizes(init_canv_wd, init_canv_ht);
+X    (void) init_cmd_panel(form);
+X    (void) init_msg(form);
+X    (void) init_mousefun(form);
+X    (void) init_mode_panel(form);
+X    (void) init_topruler(form);
+X    (void) init_canvas(form);
+X    (void) init_fontmenu(form); /* printer font menu */
+X    (void) init_unitbox(form);
+X    (void) init_sideruler(form);
+X    (void) init_ind_panel(form);
+X
+X    ichild = 0;
+X    children[ichild++] = cmd_panel;	/* command buttons */
+X    children[ichild++] = msg_panel;	/* message window */
+X    children[ichild++] = mousefun;	/* labels for mouse fns */
+X    children[ichild++] = mode_panel;	/* current mode */
+X    children[ichild++] = topruler_sw;	/* top ruler */
+X    children[ichild++] = unitbox_sw;	/* box containing units */
+X    children[ichild++] = sideruler_sw;	/* side ruler */
+X    children[ichild++] = canvas_sw;	/* main drawing canvas */
+X    children[ichild++] = ind_panel;	/* current settings indicators */
+X
+X    /*
+X     * until the following XtRealizeWidget() is called, there are NO windows
+X     * in existence
+X     */
+X
+X    XtManageChildren(children, NCHILDREN);
+X    XtRealizeWidget(tool);
+X
+X    fig_icon = XCreateBitmapFromData(tool_d, XtWindow(tool),
+X				     fig_bits, fig_width, fig_height);
+X
+X    FirstArg(XtNtitle, tool_name);
+X    NextArg(XtNiconPixmap, fig_icon);
+X    SetValues(tool);
+X    /* Set the input field to true to allow keyboard input */
+X    wmhints = XGetWMHints(tool_d, XtWindow(tool));
+X    wmhints->flags |= InputHint;/* add in input hint */
+X    wmhints->input = True;
+X    XSetWMHints(tool_d, XtWindow(tool), wmhints);
+X    XFree((char *) wmhints);
+X
+X    if (appres.RHS_PANEL) {	/* side button panel is on right size */
+X	FirstArg(XtNfromHoriz, 0);
+X	NextArg(XtNhorizDistance, RULER_WD + INTERNAL_BW);
+X	SetValues(topruler_sw);
+X
+X	FirstArg(XtNfromHoriz, 0);
+X	NextArg(XtNhorizDistance, 0);
+X	NextArg(XtNfromVert, topruler_sw);
+X	NextArg(XtNleft, XtChainLeft);	/* chain to left of form */
+X	NextArg(XtNright, XtChainLeft);
+X	SetValues(sideruler_sw);
+X
+X	FirstArg(XtNfromHoriz, 0);
+X	NextArg(XtNhorizDistance, 0);
+X	NextArg(XtNfromVert, msg_panel);
+X	NextArg(XtNleft, XtChainLeft);	/* chain to left of form */
+X	NextArg(XtNright, XtChainLeft);
+X	SetValues(unitbox_sw);
+X
+X	/* relocate the side button panel */
+X	XtUnmanageChild(mode_panel);
+X	XtUnmanageChild(canvas_sw);
+X	FirstArg(XtNfromHoriz, canvas_sw);	/* panel right of canvas */
+X	NextArg(XtNhorizDistance, -INTERNAL_BW);
+X	NextArg(XtNfromVert, mousefun);
+X	NextArg(XtNleft, XtChainRight);
+X	NextArg(XtNright, XtChainRight);
+X	SetValues(mode_panel);
+X	FirstArg(XtNfromHoriz, sideruler_sw);	/* panel right of canvas */
+X	SetValues(canvas_sw);
+X	XtManageChild(canvas_sw);
+X	XtManageChild(mode_panel);
+X    }
+X
+X    init_gc();
+X    setup_cmd_panel();
+X    setup_msg();
+X    setup_canvas();
+X    setup_rulers();
+X    setup_mode_panel();
+X    setup_mousefun();
+X    setup_fontmenu();		/* setup bitmaps in printer font menu */
+X    setup_ind_panel();
+X    get_directory(cur_dir);
+X
+X    FirstArg(XtNwidth, &w);
+X    NextArg(XtNheight, &h);
+X    GetValues(tool);
+X    TOOL_WD = (int) w;
+X    TOOL_HT = (int) h;
+X    XtAppAddActions(tool_app, form_actions, XtNumber(form_actions));
+X    XtAppAddActions(tool_app, text_panel_actions, XtNumber(text_panel_actions));
+X    XtOverrideTranslations(form, XtParseTranslationTable(form_translations));
+X
+X    XSetErrorHandler(X_error_handler);
+X    XSetIOErrorHandler((XIOErrorHandler) X_error_handler);
+X    (void) signal(SIGHUP, error_handler);
+X    (void) signal(SIGFPE, error_handler);
+X    (void) signal(SIGBUS, error_handler);
+X    (void) signal(SIGSEGV, error_handler);
+X    (void) signal(SIGINT, SIG_IGN);	/* in case user accidentally types
+X					 * ctrl-c */
+X
+X    put_msg("READY, please select a mode or load a file");
+X
+X    /*
+X     * decide on filename for cut buffer: first try users HOME directory to
+X     * allow cutting and pasting between sessions, if this fails create
+X     * unique filename in /tmp dir
+X     */
+X
+X    if (*strcpy(cut_buf_name, getenv("HOME")) != NULL) {
+X	strcat(cut_buf_name, "/.xfig");
+X    } else {
+X	sprintf(cut_buf_name, "%s%06d", "/tmp/xfig", getpid());
+X    }
+X
+X    app_flush();
+X
+X    if (filename == NULL)
+X	strcpy(cur_filename, DEF_NAME);
+X    else
+X	load_file(filename);
+X
+X    XtAppMainLoop(tool_app);
+X}
+X
+Xstatic void
+Xcheck_for_resize(tool, event, params, nparams)
+X    TOOL	    tool;
+X    INPUTEVENT	   *event;
+X    String	   *params;
+X    Cardinal	   *nparams;
+X{
+X    XConfigureEvent *xc = (XConfigureEvent *) event;
+X    Dimension	    b;
+X    int		    dx, dy;
+X
+X    DeclareArgs(3);
+X
+X    if (xc->width == TOOL_WD && xc->height == TOOL_HT)
+X	return;			/* no size change */
+X    dx = xc->width - TOOL_WD;
+X    dy = xc->height - TOOL_HT;
+X    TOOL_WD = xc->width;
+X    TOOL_HT = xc->height;
+X    setup_sizes(CANVAS_WD + dx, CANVAS_HT + dy);
+X
+X    XawFormDoLayout(form, False);
+X    ignore_exp_cnt++;		/* canvas is resized twice - redraw only once */
+X
+X    FirstArg(XtNborderWidth, &b);
+X    /* first redo the top panels */
+X    GetValues(cmd_panel);
+X    XtResizeWidget(cmd_panel, CMDPANEL_WD, CMDPANEL_HT, b);
+X    GetValues(msg_panel);
+X    XtResizeWidget(msg_panel, MSGPANEL_WD, MSGPANEL_HT, b);
+X    GetValues(mousefun);
+X    XtResizeWidget(mousefun, MOUSEFUN_WD, MOUSEFUN_HT, b);
+X    XtUnmanageChild(mousefun);
+X    resize_mousefun();
+X    XtManageChild(mousefun);	/* so that it shifts with msg_panel */
+X
+X    /* now redo the center area */
+X    XtUnmanageChild(mode_panel);
+X    FirstArg(XtNheight, (MODEPANEL_SPACE + 1) / 2);
+X    SetValues(d_label);
+X    FirstArg(XtNheight, (MODEPANEL_SPACE) / 2);
+X    SetValues(e_label);
+X    XtManageChild(mode_panel);	/* so that it adjusts properly */
+X
+X    FirstArg(XtNborderWidth, &b);
+X    GetValues(canvas_sw);
+X    XtResizeWidget(canvas_sw, CANVAS_WD, CANVAS_HT, b);
+X    GetValues(topruler_sw);
+X    XtResizeWidget(topruler_sw, TOPRULER_WD, TOPRULER_HT, b);
+X    resize_topruler();
+X    GetValues(sideruler_sw);
+X    XtResizeWidget(sideruler_sw, SIDERULER_WD, SIDERULER_HT, b);
+X    resize_sideruler();
+X    XtUnmanageChild(sideruler_sw);
+X    XtManageChild(sideruler_sw);/* so that it shifts with canvas */
+X    XtUnmanageChild(unitbox_sw);
+X    XtManageChild(unitbox_sw);	/* so that it shifts with canvas */
+X
+X    XawFormDoLayout(form, True);
+X}
+X
+X
+Xstatic void
+Xcheck_colors()
+X{
+X    int		    i, j;
+X
+X    /* if monochrome resource is set, do not even check for colors */
+X    if (appres.monochrome) {
+X	all_colors_available = false;
+X	return;
+X    }
+X    all_colors_available = true;
+X
+X    /* check if the drawing colors have different palette entries */
+X    for (i = 0; i < NUMCOLORS - 1; i++) {
+X	for (j = i + 1; j < NUMCOLORS; j++) {
+X	    if (appres.color[i] == appres.color[j]) {
+X		all_colors_available = false;
+X		break;
+X	    }
+X	}
+X	if (!all_colors_available)
+X	    break;
+X    }
+X}
+X
+X#ifdef NOSTRSTR
+X#include <stdio.h>
+X#include <string.h>
+X
+Xchar *strstr(s1, s2)
+X    char *s1, *s2;
+X{
+X    int len2;
+X    char *stmp;
+X
+X    len2 = strlen(s2);
+X    for (stmp = s1; *stmp != NULL; stmp++)
+X	if (strncmp(stmp, s2, len2)==0)
+X	    return stmp;
+X    return NULL;
+X}
+X#endif
+END_OF_FILE
+if test 18818 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+fi
+# end of 'main.c'
+fi
+if test -f 'u_markers.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_markers.c'\"
+else
+echo shar: Extracting \"'u_markers.c'\" \(13902 characters\)
+sed "s/^X//" >'u_markers.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "object.h"
+X#include "mode.h"
+X#include "paintop.h"
+X#include "w_zoom.h"
+X
+X#define set_marker(win,x,y,w,h,z1,z2) \
+X	zXDrawRectangle(tool_d,(win),gccache[INV_PAINT],(x),(y),(w),(h))
+X
+X#ifdef notdef
+X/* not used in present implementation */
+Xstatic u_int	marker_pattern[3] = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
+X
+Xmpr_static(pmarker, 5, 5, 1, marker_pattern);
+X#endif
+X
+Xcenter_marker(x, y)
+X    int		    x, y;
+X{
+X    pw_vector(canvas_win, x, y - 2, x, y + 2, INV_PAINT, 1,
+X	      RUBBER_LINE, 0.0, DEFAULT_COLOR);
+X    pw_vector(canvas_win, x - 2, y, x + 2, y, INV_PAINT, 1,
+X	      RUBBER_LINE, 0.0, DEFAULT_COLOR);
+X}
+X
+Xtoggle_csrhighlight(x, y)
+X    int		    x, y;
+X{
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    set_marker(canvas_win, x - 2, y - 2, 5, 5, 0, 0);
+X    set_marker(canvas_win, x - 1, y - 1, 3, 3, 0, 0);
+X}
+X
+Xellipse_in_mask()
+X{
+X    return (cur_objmask & M_ELLIPSE);
+X}
+X
+Xarc_in_mask()
+X{
+X    return (cur_objmask & M_ARC);
+X}
+X
+Xcompound_in_mask()
+X{
+X    return (cur_objmask & M_COMPOUND);
+X}
+X
+Xanytext_in_mask()
+X{
+X    return ((cur_objmask & M_TEXT_NORMAL) || (cur_objmask & M_TEXT_HIDDEN));
+X}
+X
+Xvalidtext_in_mask(t)
+X    F_text	   *t;
+X{
+X    return ((hidden_text(t) && (cur_objmask & M_TEXT_HIDDEN)) ||
+X	    ((!hidden_text(t)) && (cur_objmask & M_TEXT_NORMAL)));
+X}
+X
+Xanyline_in_mask()
+X{
+X    return ((cur_objmask & M_POLYLINE_LINE) ||
+X	    (cur_objmask & M_POLYLINE_POLYGON) ||
+X	    (cur_objmask & M_POLYLINE_BOX));
+X}
+X
+Xvalidline_in_mask(l)
+X    F_line	   *l;
+X{
+X    return ((((l->type == T_BOX) ||
+X	      (l->type == T_ARC_BOX)) && (cur_objmask & M_POLYLINE_BOX)) ||
+X	    ((l->type == T_EPS_BOX) && (cur_objmask & M_POLYLINE_BOX)) ||
+X	    ((l->type == T_POLYLINE) && (cur_objmask & M_POLYLINE_LINE)) ||
+X	    ((l->type == T_POLYGON) && (cur_objmask & M_POLYLINE_POLYGON)));
+X}
+X
+Xanyspline_in_mask()
+X{
+X    return ((cur_objmask & M_SPLINE_O_NORMAL) ||
+X	    (cur_objmask & M_SPLINE_O_INTERP) ||
+X	    (cur_objmask & M_SPLINE_C_NORMAL) ||
+X	    (cur_objmask & M_SPLINE_C_INTERP));
+X}
+X
+Xvalidspline_in_mask(s)
+X    F_spline	   *s;
+X{
+X    return (((s->type == T_OPEN_INTERP) && (cur_objmask & M_SPLINE_O_INTERP)) ||
+X	((s->type == T_OPEN_NORMAL) && (cur_objmask & M_SPLINE_O_NORMAL)) ||
+X      ((s->type == T_CLOSED_INTERP) && (cur_objmask & M_SPLINE_C_INTERP)) ||
+X       ((s->type == T_CLOSED_NORMAL) && (cur_objmask & M_SPLINE_C_NORMAL)));
+X}
+X
+Xmask_toggle_ellipsemarker(e)
+X    F_ellipse	   *e;
+X{
+X    if (ellipse_in_mask())
+X	toggle_ellipsemarker(e);
+X}
+X
+Xmask_toggle_arcmarker(a)
+X    F_arc	   *a;
+X{
+X    if (arc_in_mask())
+X	toggle_arcmarker(a);
+X}
+X
+Xmask_toggle_compoundmarker(c)
+X    F_compound	   *c;
+X{
+X    if (compound_in_mask())
+X	toggle_compoundmarker(c);
+X}
+X
+Xmask_toggle_textmarker(t)
+X    F_text	   *t;
+X{
+X    if (validtext_in_mask(t))
+X	toggle_textmarker(t);
+X}
+X
+Xmask_toggle_linemarker(l)
+X    F_line	   *l;
+X{
+X    if (validline_in_mask(l))
+X	toggle_linemarker(l);
+X}
+X
+Xmask_toggle_splinemarker(s)
+X    F_spline	   *s;
+X{
+X    if (validspline_in_mask(s))
+X	toggle_splinemarker(s);
+X}
+X
+Xtoggle_markers()
+X{
+X    toggle_markers_in_compound(&objects);
+X}
+X
+Xtoggle_markers_in_compound(cmpnd)
+X    F_compound	   *cmpnd;
+X{
+X    F_ellipse	   *e;
+X    F_arc	   *a;
+X    F_line	   *l;
+X    F_spline	   *s;
+X    F_text	   *t;
+X    F_compound	   *c;
+X    register int    mask;
+X
+X    mask = cur_objmask;
+X    if (mask & M_ELLIPSE)
+X	for (e = cmpnd->ellipses; e != NULL; e = e->next)
+X	    toggle_ellipsemarker(e);
+X    if ((mask & M_TEXT_NORMAL) || (mask & M_TEXT_HIDDEN))
+X	for (t = cmpnd->texts; t != NULL; t = t->next) {
+X	    if ((hidden_text(t) && (mask & M_TEXT_HIDDEN)) ||
+X		((!hidden_text(t)) && (mask & M_TEXT_NORMAL)))
+X		toggle_textmarker(t);
+X	}
+X    if (mask & M_ARC)
+X	for (a = cmpnd->arcs; a != NULL; a = a->next)
+X	    toggle_arcmarker(a);
+X    if ((mask & M_POLYLINE_LINE) ||
+X	(mask & M_POLYLINE_POLYGON) ||
+X	(mask & M_POLYLINE_BOX))
+X	for (l = cmpnd->lines; l != NULL; l = l->next) {
+X	    if ((((l->type == T_BOX) ||
+X		  (l->type == T_ARC_BOX)) && (mask & M_POLYLINE_BOX)) ||
+X		((l->type == T_EPS_BOX) && (mask & M_POLYLINE_BOX)) ||
+X		((l->type == T_POLYLINE) && (mask & M_POLYLINE_LINE)) ||
+X		((l->type == T_POLYGON) && (mask & M_POLYLINE_POLYGON)))
+X		toggle_linemarker(l);
+X	}
+X    if ((mask & M_SPLINE_O_NORMAL) || (mask & M_SPLINE_O_INTERP) ||
+X	(mask & M_SPLINE_C_NORMAL) || (mask & M_SPLINE_C_INTERP))
+X	for (s = cmpnd->splines; s != NULL; s = s->next) {
+X	    if (((s->type == T_OPEN_INTERP) && (mask & M_SPLINE_O_INTERP)) ||
+X		((s->type == T_OPEN_NORMAL) && (mask & M_SPLINE_O_NORMAL)) ||
+X	     ((s->type == T_CLOSED_INTERP) && (mask & M_SPLINE_C_INTERP)) ||
+X		((s->type == T_CLOSED_NORMAL) && (mask & M_SPLINE_C_NORMAL)))
+X		toggle_splinemarker(s);
+X	}
+X    if (mask & M_COMPOUND)
+X	for (c = cmpnd->compounds; c != NULL; c = c->next)
+X	    toggle_compoundmarker(c);
+X}
+X
+Xupdate_markers(mask)
+X    int		    mask;
+X{
+X    F_ellipse	   *e;
+X    F_arc	   *a;
+X    F_line	   *l;
+X    F_spline	   *s;
+X    F_text	   *t;
+X    F_compound	   *c;
+X    register int    oldmask, newmask;
+X
+X    oldmask = cur_objmask;
+X    newmask = mask;
+X    if ((oldmask & M_ELLIPSE) != (newmask & M_ELLIPSE))
+X	for (e = objects.ellipses; e != NULL; e = e->next)
+X	    toggle_ellipsemarker(e);
+X    if (((oldmask & M_TEXT_NORMAL) != (newmask & M_TEXT_NORMAL)) ||
+X	((oldmask & M_TEXT_HIDDEN) != (newmask & M_TEXT_HIDDEN)))
+X	for (t = objects.texts; t != NULL; t = t->next) {
+X	    if ((hidden_text(t) &&
+X		 ((oldmask & M_TEXT_HIDDEN) != (newmask & M_TEXT_HIDDEN))) ||
+X		((!hidden_text(t)) &&
+X		 ((oldmask & M_TEXT_NORMAL) != (newmask & M_TEXT_NORMAL))))
+X		toggle_textmarker(t);
+X	}
+X    if ((oldmask & M_ARC) != (newmask & M_ARC))
+X	for (a = objects.arcs; a != NULL; a = a->next)
+X	    toggle_arcmarker(a);
+X    if (((oldmask & M_POLYLINE_LINE) != (newmask & M_POLYLINE_LINE)) ||
+X	((oldmask & M_POLYLINE_POLYGON) != (newmask & M_POLYLINE_POLYGON)) ||
+X	((oldmask & M_POLYLINE_BOX) != (newmask & M_POLYLINE_BOX)))
+X	for (l = objects.lines; l != NULL; l = l->next) {
+X	    if ((((l->type == T_BOX) ||
+X		  (l->type == T_ARC_BOX || l->type == T_EPS_BOX)) &&
+X	      ((oldmask & M_POLYLINE_BOX) != (newmask & M_POLYLINE_BOX))) ||
+X		((l->type == T_POLYLINE) &&
+X	    ((oldmask & M_POLYLINE_LINE) != (newmask & M_POLYLINE_LINE))) ||
+X		((l->type == T_POLYGON) &&
+X		 ((oldmask & M_POLYLINE_POLYGON) != (newmask & M_POLYLINE_POLYGON))))
+X		toggle_linemarker(l);
+X	}
+X    if (((oldmask & M_SPLINE_O_NORMAL) != (newmask & M_SPLINE_O_NORMAL)) ||
+X	((oldmask & M_SPLINE_O_INTERP) != (newmask & M_SPLINE_O_INTERP)) ||
+X	((oldmask & M_SPLINE_C_NORMAL) != (newmask & M_SPLINE_C_NORMAL)) ||
+X	((oldmask & M_SPLINE_C_INTERP) != (newmask & M_SPLINE_C_INTERP)))
+X	for (s = objects.splines; s != NULL; s = s->next) {
+X	    if (((s->type == T_OPEN_INTERP) &&
+X		 ((oldmask & M_SPLINE_O_INTERP) !=
+X		  (newmask & M_SPLINE_O_INTERP))) ||
+X		((s->type == T_OPEN_NORMAL) &&
+X		 ((oldmask & M_SPLINE_O_NORMAL) !=
+X		  (newmask & M_SPLINE_O_NORMAL))) ||
+X		((s->type == T_CLOSED_INTERP) &&
+X		 ((oldmask & M_SPLINE_C_INTERP) !=
+X		  (newmask & M_SPLINE_C_INTERP))) ||
+X		((s->type == T_CLOSED_NORMAL) &&
+X		 ((oldmask & M_SPLINE_C_NORMAL) !=
+X		  (newmask & M_SPLINE_C_NORMAL))))
+X		toggle_splinemarker(s);
+X	}
+X    if ((oldmask & M_COMPOUND) != (newmask & M_COMPOUND))
+X	for (c = objects.compounds; c != NULL; c = c->next)
+X	    toggle_compoundmarker(c);
+X    cur_objmask = newmask;
+X}
+X
+Xtoggle_ellipsemarker(e)
+X    F_ellipse	   *e;
+X{
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    set_marker(canvas_win, e->start.x - 2, e->start.y - 2, 5, 5, 0, 0);
+X    set_marker(canvas_win, e->end.x - 2, e->end.y - 2, 5, 5, 0, 0);
+X    if (e->tagged)
+X	toggle_ellipsehighlight(e);
+X}
+X
+Xtoggle_ellipsehighlight(e)
+X    F_ellipse	   *e;
+X{
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    set_marker(canvas_win, e->start.x, e->start.y, 1, 1, 0, 0);
+X    set_marker(canvas_win, e->start.x - 1, e->start.y - 1, 3, 3, 0, 0);
+X    set_marker(canvas_win, e->end.x, e->end.y, 1, 1, 0, 0);
+X    set_marker(canvas_win, e->end.x - 1, e->end.y - 1, 3, 3, 0, 0);
+X}
+X
+Xtoggle_arcmarker(a)
+X    F_arc	   *a;
+X{
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    set_marker(canvas_win, a->point[0].x - 2, a->point[0].y - 2, 5, 5, 0, 0);
+X    set_marker(canvas_win, a->point[1].x - 2, a->point[1].y - 2, 5, 5, 0, 0);
+X    set_marker(canvas_win, a->point[2].x - 2, a->point[2].y - 2, 5, 5, 0, 0);
+X    if (a->tagged)
+X	toggle_archighlight(a);
+X}
+X
+Xtoggle_archighlight(a)
+X    F_arc	   *a;
+X{
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    set_marker(canvas_win, a->point[0].x, a->point[0].y, 1, 1, 0, 0);
+X    set_marker(canvas_win, a->point[0].x - 1, a->point[0].y - 1, 3, 3, 0, 0);
+X    set_marker(canvas_win, a->point[1].x, a->point[1].y, 1, 1, 0, 0);
+X    set_marker(canvas_win, a->point[1].x - 1, a->point[1].y - 1, 3, 3, 0, 0);
+X    set_marker(canvas_win, a->point[2].x, a->point[2].y, 1, 1, 0, 0);
+X    set_marker(canvas_win, a->point[2].x - 1, a->point[2].y - 1, 3, 3, 0, 0);
+X}
+X
+Xtoggle_textmarker(t)
+X    F_text	   *t;
+X{
+X    int		    dx, dy;
+X
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    /* adjust for text angle */
+X    dy = (int) ((double) t->height * cos(t->angle));
+X    dx = (int) ((double) t->height * sin(t->angle));
+X    set_marker(canvas_win, t->base_x - dx - 2, t->base_y - dy - 2, 5, 5, 0, 0);
+X    set_marker(canvas_win, t->base_x - 2, t->base_y - 2, 5, 5, 0, 0);
+X    if (t->tagged)
+X	toggle_texthighlight(t);
+X}
+X
+Xtoggle_texthighlight(t)
+X    F_text	   *t;
+X{
+X    int		    dx, dy;
+X
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    /* adjust for text angle */
+X    dy = (int) ((double) t->height * cos(t->angle));
+X    dx = (int) ((double) t->height * sin(t->angle));
+X    set_marker(canvas_win, t->base_x - dx, t->base_y - dy, 1, 1, 0, 0);
+X    set_marker(canvas_win, t->base_x - dx - 1, t->base_y - dy - 1, 3, 3, 0, 0);
+X    set_marker(canvas_win, t->base_x, t->base_y, 1, 1, 0, 0);
+X    set_marker(canvas_win, t->base_x - 1, t->base_y - 1, 3, 3, 0, 0);
+X}
+X
+Xtoggle_compoundmarker(c)
+X    F_compound	   *c;
+X{
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    set_marker(canvas_win, c->nwcorner.x - 2, c->nwcorner.y - 2, 5, 5, 0, 0);
+X    set_marker(canvas_win, c->secorner.x - 2, c->secorner.y - 2, 5, 5, 0, 0);
+X    set_marker(canvas_win, c->nwcorner.x - 2, c->secorner.y - 2, 5, 5, 0, 0);
+X    set_marker(canvas_win, c->secorner.x - 2, c->nwcorner.y - 2, 5, 5, 0, 0);
+X    if (c->tagged)
+X	toggle_compoundhighlight(c);
+X}
+X
+Xtoggle_compoundhighlight(c)
+X    F_compound	   *c;
+X{
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    set_marker(canvas_win, c->nwcorner.x, c->nwcorner.y, 1, 1, 0, 0);
+X    set_marker(canvas_win, c->nwcorner.x - 1, c->nwcorner.y - 1, 3, 3, 0, 0);
+X    set_marker(canvas_win, c->secorner.x, c->secorner.y, 1, 1, 0, 0);
+X    set_marker(canvas_win, c->secorner.x - 1, c->secorner.y - 1, 3, 3, 0, 0);
+X    set_marker(canvas_win, c->nwcorner.x, c->secorner.y, 1, 1, 0, 0);
+X    set_marker(canvas_win, c->nwcorner.x - 1, c->secorner.y - 1, 3, 3, 0, 0);
+X    set_marker(canvas_win, c->secorner.x, c->nwcorner.y, 1, 1, 0, 0);
+X    set_marker(canvas_win, c->secorner.x - 1, c->nwcorner.y - 1, 3, 3, 0, 0);
+X}
+X
+Xtoggle_linemarker(l)
+X    F_line	   *l;
+X{
+X    F_point	   *p;
+X    int		    fx, fy, x, y;
+X
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    p = l->points;
+X    fx = p->x;
+X    fy = p->y;
+X    for (p = p->next; p != NULL; p = p->next) {
+X	x = p->x;
+X	y = p->y;
+X	set_marker(canvas_win, x - 2, y - 2, 5, 5, 0, 0);
+X    }
+X    if (x != fx || y != fy || l->points->next == NULL) {
+X	set_marker(canvas_win, fx - 2, fy - 2, 5, 5, 0, 0);
+X    }
+X    if (l->tagged)
+X	toggle_linehighlight(l);
+X}
+X
+Xtoggle_linehighlight(l)
+X    F_line	   *l;
+X{
+X    F_point	   *p;
+X    int		    fx, fy, x, y;
+X
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    p = l->points;
+X    fx = p->x;
+X    fy = p->y;
+X    for (p = p->next; p != NULL; p = p->next) {
+X	x = p->x;
+X	y = p->y;
+X	set_marker(canvas_win, x, y, 1, 1, 0, 0);
+X	set_marker(canvas_win, x - 1, y - 1, 3, 3, 0, 0);
+X    }
+X    if (x != fx || y != fy) {
+X	set_marker(canvas_win, fx, fy, 1, 1, 0, 0);
+X	set_marker(canvas_win, fx - 1, fy - 1, 3, 3, 0, 0);
+X    }
+X}
+X
+Xtoggle_splinemarker(s)
+X    F_spline	   *s;
+X{
+X    F_point	   *p;
+X    int		    fx, fy, x, y;
+X
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    p = s->points;
+X    fx = p->x;
+X    fy = p->y;
+X    for (p = p->next; p != NULL; p = p->next) {
+X	x = p->x;
+X	y = p->y;
+X	set_marker(canvas_win, x - 2, y - 2, 5, 5, 0, 0);
+X    }
+X    if (x != fx || y != fy) {
+X	set_marker(canvas_win, fx - 2, fy - 2, 5, 5, 0, 0);
+X    }
+X    if (s->tagged)
+X	toggle_splinehighlight(s);
+X}
+X
+Xtoggle_splinehighlight(s)
+X    F_spline	   *s;
+X{
+X    F_point	   *p;
+X    int		    fx, fy, x, y;
+X
+X    set_line_stuff(1, RUBBER_LINE, 0.0, (INV_PAINT), DEFAULT_COLOR);
+X    p = s->points;
+X    fx = p->x;
+X    fy = p->y;
+X    for (p = p->next; p != NULL; p = p->next) {
+X	x = p->x;
+X	y = p->y;
+X	set_marker(canvas_win, x, y, 1, 1, 0, 0);
+X	set_marker(canvas_win, x - 1, y - 1, 3, 3, 0, 0);
+X    }
+X    if (x != fx || y != fy) {
+X	set_marker(canvas_win, fx, fy, 1, 1, 0, 0);
+X	set_marker(canvas_win, fx - 1, fy - 1, 3, 3, 0, 0);
+X    }
+X}
+END_OF_FILE
+if test 13902 -ne `wc -c <'u_markers.c'`; then
+    echo shar: \"'u_markers.c'\" unpacked with wrong size!
+fi
+# end of 'u_markers.c'
+fi
+echo shar: End of archive 10 \(of 25\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

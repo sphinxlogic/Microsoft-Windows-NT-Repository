@@ -1,0 +1,1396 @@
+Newsgroups: comp.sources.misc
+From: wietse@wzv.win.tue.nl (Wietse Venema)
+Subject: v39i113:  tcp_wrappers - TCP/IP daemon wrappers, v6.0, Part04/04
+Message-ID: <1993Sep29.220022.26564@sparky.sterling.com>
+X-Md4-Signature: e5bc98fc63408dbd9127c814badca739
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Eindhoven University of Technology, The Netherlands
+Date: Wed, 29 Sep 1993 22:00:22 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: wietse@wzv.win.tue.nl (Wietse Venema)
+Posting-number: Volume 39, Issue 113
+Archive-name: tcp_wrappers/part04
+Environment: UNIX, INET
+Supersedes: log_tcp: Volume 36, Issue 4-6
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 4)."
+# Contents:  strcasecmp.c strtok.c tcpd.8 tcpd.c tli.c try.c
+#   workarounds.c 6compat.c
+# Wrapped by wietse@wzv on Wed Sep 29 18:45:47 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f strcasecmp.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"strcasecmp.c\"
+else
+echo shar: Extracting \"strcasecmp.c\" \(3867 characters\)
+sed "s/^X//" >strcasecmp.c <<'END_OF_strcasecmp.c'
+X/*
+X * Copyright (c) 1987 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)strcasecmp.c	5.6 (Berkeley) 6/27/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X/* Some environments don't define u_char -- WZV */
+X#if 0
+X#include <sys/types.h>
+X#else
+Xtypedef unsigned char u_char;
+X#endif
+X
+X/*
+X * This array is designed for mapping upper and lower case letter
+X * together for a case independent comparison.  The mappings are
+X * based upon ascii character sequences.
+X */
+Xstatic u_char charmap[] = {
+X	'\000', '\001', '\002', '\003', '\004', '\005', '\006', '\007',
+X	'\010', '\011', '\012', '\013', '\014', '\015', '\016', '\017',
+X	'\020', '\021', '\022', '\023', '\024', '\025', '\026', '\027',
+X	'\030', '\031', '\032', '\033', '\034', '\035', '\036', '\037',
+X	'\040', '\041', '\042', '\043', '\044', '\045', '\046', '\047',
+X	'\050', '\051', '\052', '\053', '\054', '\055', '\056', '\057',
+X	'\060', '\061', '\062', '\063', '\064', '\065', '\066', '\067',
+X	'\070', '\071', '\072', '\073', '\074', '\075', '\076', '\077',
+X	'\100', '\141', '\142', '\143', '\144', '\145', '\146', '\147',
+X	'\150', '\151', '\152', '\153', '\154', '\155', '\156', '\157',
+X	'\160', '\161', '\162', '\163', '\164', '\165', '\166', '\167',
+X	'\170', '\171', '\172', '\133', '\134', '\135', '\136', '\137',
+X	'\140', '\141', '\142', '\143', '\144', '\145', '\146', '\147',
+X	'\150', '\151', '\152', '\153', '\154', '\155', '\156', '\157',
+X	'\160', '\161', '\162', '\163', '\164', '\165', '\166', '\167',
+X	'\170', '\171', '\172', '\173', '\174', '\175', '\176', '\177',
+X	'\200', '\201', '\202', '\203', '\204', '\205', '\206', '\207',
+X	'\210', '\211', '\212', '\213', '\214', '\215', '\216', '\217',
+X	'\220', '\221', '\222', '\223', '\224', '\225', '\226', '\227',
+X	'\230', '\231', '\232', '\233', '\234', '\235', '\236', '\237',
+X	'\240', '\241', '\242', '\243', '\244', '\245', '\246', '\247',
+X	'\250', '\251', '\252', '\253', '\254', '\255', '\256', '\257',
+X	'\260', '\261', '\262', '\263', '\264', '\265', '\266', '\267',
+X	'\270', '\271', '\272', '\273', '\274', '\275', '\276', '\277',
+X	'\300', '\341', '\342', '\343', '\344', '\345', '\346', '\347',
+X	'\350', '\351', '\352', '\353', '\354', '\355', '\356', '\357',
+X	'\360', '\361', '\362', '\363', '\364', '\365', '\366', '\367',
+X	'\370', '\371', '\372', '\333', '\334', '\335', '\336', '\337',
+X	'\340', '\341', '\342', '\343', '\344', '\345', '\346', '\347',
+X	'\350', '\351', '\352', '\353', '\354', '\355', '\356', '\357',
+X	'\360', '\361', '\362', '\363', '\364', '\365', '\366', '\367',
+X	'\370', '\371', '\372', '\373', '\374', '\375', '\376', '\377',
+X};
+X
+Xstrcasecmp(s1, s2)
+X	char *s1, *s2;
+X{
+X	register u_char	*cm = charmap,
+X			*us1 = (u_char *)s1,
+X			*us2 = (u_char *)s2;
+X
+X	while (cm[*us1] == cm[*us2++])
+X		if (*us1++ == '\0')
+X			return(0);
+X	return(cm[*us1] - cm[*--us2]);
+X}
+X
+Xstrncasecmp(s1, s2, n)
+X	char *s1, *s2;
+X	register int n;
+X{
+X	register u_char	*cm = charmap,
+X			*us1 = (u_char *)s1,
+X			*us2 = (u_char *)s2;
+X
+X	while (--n >= 0 && cm[*us1] == cm[*us2++])
+X		if (*us1++ == '\0')
+X			return(0);
+X	return(n < 0 ? 0 : cm[*us1] - cm[*--us2]);
+X}
+END_OF_strcasecmp.c
+if test 3867 -ne `wc -c <strcasecmp.c`; then
+    echo shar: \"strcasecmp.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f strtok.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"strtok.c\"
+else
+echo shar: Extracting \"strtok.c\" \(2976 characters\)
+sed "s/^X//" >strtok.c <<'END_OF_strtok.c'
+X/*
+X * Copyright (c) 1988 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)strtok.c	5.8 (Berkeley) 2/24/91";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#ifdef __STDC__	/* Added for backwards compatibility -- WZV 930122 */
+X#include <stddef.h>
+X#include <string.h>
+X#else
+X#define const
+X#define NULL 0
+X#endif
+X
+Xchar *
+Xstrtok(s, delim)
+X	register char *s;
+X	register const char *delim;
+X{
+X	register char *spanp;
+X	register int c, sc;
+X	char *tok;
+X	static char *last;
+X
+X
+X	if (s == NULL && (s = last) == NULL)
+X		return (NULL);
+X
+X	/*
+X	 * Skip (span) leading delimiters (s += strspn(s, delim), sort of).
+X	 */
+Xcont:
+X	c = *s++;
+X	for (spanp = (char *)delim; (sc = *spanp++) != 0;) {
+X		if (c == sc)
+X			goto cont;
+X	}
+X
+X	if (c == 0) {		/* no non-delimiter characters */
+X		last = NULL;
+X		return (NULL);
+X	}
+X	tok = s - 1;
+X
+X	/*
+X	 * Scan token (scan for delimiters: s += strcspn(s, delim), sort of).
+X	 * Note that delim must have one NUL; we stop if we see that, too.
+X	 */
+X	for (;;) {
+X		c = *s++;
+X		spanp = (char *)delim;
+X		do {
+X			if ((sc = *spanp++) == c) {
+X				if (c == 0)
+X					s = NULL;
+X				else
+X					s[-1] = 0;
+X				last = s;
+X				return (tok);
+X			}
+X		} while (sc != 0);
+X	}
+X	/* NOTREACHED */
+X}
+END_OF_strtok.c
+if test 2976 -ne `wc -c <strtok.c`; then
+    echo shar: \"strtok.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f tcpd.8 -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"tcpd.8\"
+else
+echo shar: Extracting \"tcpd.8\" \(6923 characters\)
+sed "s/^X//" >tcpd.8 <<'END_OF_tcpd.8'
+X.TH TCPD 8
+X.SH NAME
+Xtcpd \- access control facility for internet services
+X.SH DESCRIPTION
+X.PP
+XThe \fItcpd\fR program can be set up to monitor incoming requests for
+X\fItelnet\fR, \fIfinger\fR, \fIftp\fR, \fIexec\fR, \fIrsh\fR,
+X\fIrlogin\fR, \fItftp\fR, \fItalk\fR, \fIcomsat\fR and other services
+Xthat have a one-to-one mapping onto executable files.
+X.PP
+XThe program supports both 4.3BSD-style sockets and System V.4-style
+XTLI.  Functionality may be limited when the protocol underneath TLI is
+Xnot an internet protocol.
+X.PP
+XOperation is as follows: whenever a request for internet service
+Xarrives, the \fIinetd\fP daemon is tricked into running the \fItcpd\fP
+Xprogram instead of the desired server. \fItcpd\fP logs the request and
+Xdoes some additional checks. When all is well, \fItcpd\fP runs the
+Xappropriate server program and goes away.
+X.PP
+XOptional features are: pattern-based access control, patterns, remote
+Xusername lookups with the RFC 931 protocol, protection against hosts
+Xthat pretend to have someone elses host name, and protection against
+Xhosts that pretend to have someone elses network address.
+X.SH LOGGING
+XConnections that are monitored by
+X.I tcpd
+Xare reported through the \fIsyslog\fR(3) facility. Each record contains
+Xa time stamp, the remote host name and the name of the service
+Xrequested. The information can be useful to detect unwanted activities,
+Xespecially when logfile information from several hosts is merged.
+X.PP
+XIn order to find out where your logs are going, examine the syslog
+Xconfiguration file, usually /etc/syslog.conf.
+X.SH ACCESS CONTROL
+XOptionally,
+X.I tcpd
+Xsupports a simple form of access control that is based on pattern
+Xmatching.  The access-control software provides hooks for the execution
+Xof shell commands when a pattern fires.  For details, see the
+X\fIhosts_access\fR(5) manual page.
+X.SH HOST NAME VERIFICATION
+XThe authentication scheme of some protocols (\fIrlogin, rsh\fR) relies
+Xon host names. Some implementations believe the host name that they get
+Xfrom any random name server; other implementations are more careful but
+Xuse a flawed algorithm.
+X.PP
+X.I tcpd
+Xverifies the remote host name that is returned by the address->name DNS
+Xserver by looking at the host name and address that are returned by the
+Xname->address DNS server.  If any discrepancy is detected,
+X.I tcpd
+Xconcludes that it is dealing with a host that pretends to have someone
+Xelses host name.
+X.PP
+XIf the sources are compiled with the \*QPARANOID\*U option,
+X.I tcpd
+Xwill drop the connection in case of a host name/address mismatch.
+XOtherwise,
+X.I tcpd
+Xjust pretends that host name lookup failed when logging the connection
+Xand consulting the optional access control tables.
+X.SH HOST ADDRESS SPOOFING
+XBy default,
+X.I tcpd
+Xdisables source-routing socket options on every connection that it
+Xdeals with. This will take care of most attacks from hosts that pretend
+Xto have an address that belongs to someone elses network. UDP services
+Xdo not benefit from this protection.
+X.SH RFC 931
+XWhen RFC 931 lookups are enabled (compile-time option) \fItcpd\fR will
+Xattempt to establish the name of the remote user. This will succeed
+Xonly if the client host runs an RFC 931-compliant daemon.  Remote user
+Xname lookups will not work for datagram-oriented connections, and may
+Xcause noticeable delays in the case of connections from PCs.
+X.SH EXAMPLES
+XThe details of using \fItcpd\fR depend on pathname information that was
+Xcompiled into the program.
+X.SH EXAMPLE 1
+XThis example applies when \fItcpd\fR expects that the original network
+Xdaemons will be moved to an "other" place.
+X.PP
+XIn order to monitor access to the \fIfinger\fR service, move the
+Xoriginal finger daemon to the "other" place and install tcpd in the
+Xplace of the original finger daemon. No changes are required to
+Xconfiguration files.
+X.nf
+X.sp
+X.in +5
+X# mkdir /other/place
+X# mv /usr/etc/in.fingerd /other/place
+X# cp tcpd /usr/etc/in.fingerd
+X.fi
+X.PP
+XThe example assumes that the network daemons live in /usr/etc. On some
+Xsystems, network daemons live in /usr/sbin or in /usr/libexec, or have
+Xno `in.\' prefix to their name.
+X.SH EXAMPLE 2
+XThis example applies when \fItcpd\fR expects that the network daemons
+Xare left in their original place.
+X.PP
+XIn order to monitor access to the \fIfinger\fR service, perform the
+Xfollowing edits on the \fIinetd\fR configuration file (usually 
+X\fI/etc/inetd.conf\fR or \fI/etc/inet/inetd.conf\fR):
+X.nf
+X.sp
+X.ti +5
+Xfinger  stream  tcp  nowait  nobody  /usr/etc/in.fingerd  in.fingerd
+X.sp
+Xbecomes:
+X.sp
+X.ti +5
+Xfinger  stream  tcp  nowait  nobody  /some/where/tcpd     in.fingerd
+X.sp
+X.fi
+X.PP
+XThe example assumes that the network daemons live in /usr/etc. On some
+Xsystems, network daemons live in /usr/sbin or in /usr/libexec, the
+Xdaemons have no `in.\' prefix to their name, or there is no userid
+Xfield in the inetd configuration file.
+X.PP
+XSimilar changes will be needed for the other services that are to be
+Xcovered by \fItcpd\fR.  Send a `kill -HUP\' to the \fIinetd\fR(8)
+Xprocess to make the changes effective.
+X.SH EXAMPLE 3
+XIn the case of daemons that do not live in a common directory ("secret"
+Xor otherwise), edit the \fIinetd\fR configuration file so that it
+Xspecifies an absolute path name for the process name field. For example:
+X.nf
+X.sp
+X    ntalk  dgram  udp  wait  root  /some/where/tcpd  /usr/local/lib/ntalkd
+X.sp
+X.fi
+X.PP
+XOnly the last component (ntalkd) of the process name will be used for
+Xaccess control and logging.
+X.SH BUGS
+XSome UDP (and RPC) daemons linger around for a while after they have
+Xfinished their work, in case another request comes in.  In the inetd
+Xconfiguration file these services are registered with the \fIwait\fR
+Xoption. Only the request that started such a daemon will be logged.
+X.PP
+XThe program does not work with RPC services over TCP. These services
+Xare registered as \fIrpc/tcp\fR in the inetd configuration file. The
+Xonly non-trivial service that is affected by this limitation is
+X\fIrexd\fR, which is used by the \fIon(1)\fR command. This is no great
+Xloss.  On most systems, \fIrexd\fR is less secure than a wildcard in
+X/etc/hosts.equiv.
+X.PP
+XRPC broadcast requests (for example: \fIrwall, rup, rusers\fR) always
+Xappear to come from the responding host. What happens is that the
+Xclient broadcasts the request to all \fIportmap\fR daemons on its
+Xnetwork; each \fIportmap\fR daemon forwards the request to a local
+Xdaemon. As far as the \fIrwall\fR etc.  daemons know, the request comes
+Xfrom the local host.
+X.SH FILES
+X.PP
+XThe default locations of the host access control tables are:
+X.PP
+X/etc/hosts.allow
+X.br
+X/etc/hosts.deny
+X.SH SEE ALSO
+X.na
+X.nf
+Xhosts_access(5), format of the tcpd access control tables.
+Xsyslog.conf(5), format of the syslogd control file.
+Xinetd.conf(5), format of the inetd control file.
+X.SH AUTHORS
+X.na
+X.nf
+XWietse Venema (wietse@wzv.win.tue.nl),
+XDepartment of Mathematics and Computing Science,
+XEindhoven University of Technology,
+XThe Netherlands.
+X\" @(#) tcpd.8 1.3 93/07/02 16:33:38
+END_OF_tcpd.8
+if test 6923 -ne `wc -c <tcpd.8`; then
+    echo shar: \"tcpd.8\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f tcpd.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"tcpd.c\"
+else
+echo shar: Extracting \"tcpd.c\" \(3104 characters\)
+sed "s/^X//" >tcpd.c <<'END_OF_tcpd.c'
+X /*
+X  * General front end for stream and datagram IP services. This program logs
+X  * the remote host name and then invokes the real daemon. For example,
+X  * install as /usr/etc/{tftpd,fingerd,telnetd,ftpd,rlogind,rshd,rexecd},
+X  * after saving the real daemons in the directory specified with the
+X  * REAL_DAEMON_DIR macro. This arrangement requires that the network daemons
+X  * are started by inetd or something similar. Connections and diagnostics
+X  * are logged through syslog(3).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) tcpd.c 1.8 93/09/27 18:59:22";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X
+Xextern char *strrchr();
+Xextern char *strcpy();
+X
+X#ifndef MAXPATHNAMELEN
+X#define MAXPATHNAMELEN	BUFSIZ
+X#endif
+X
+X/* Local stuff. */
+X
+X#include "patchlevel.h"
+X#include "log_tcp.h"
+X
+Xint     allow_severity = SEVERITY;	/* run-time adjustable */
+Xint     deny_severity = LOG_WARNING;	/* ditto */
+X
+Xmain(argc, argv)
+Xint     argc;
+Xchar  **argv;
+X{
+X    struct client_info client;
+X    int     from_stat;
+X    char    path[MAXPATHNAMELEN];
+X
+X    /* Attempt to prevent the creation of world-writable files. */
+X
+X#ifdef DAEMON_UMASK
+X    umask(DAEMON_UMASK);
+X#endif
+X
+X    /*
+X     * If argv[0] is an absolute path name, ignore REAL_DAEMON_DIR, and strip
+X     * argv[0] to its basename.
+X     */
+X
+X    if (argv[0][0] == '/') {
+X	strcpy(path, argv[0]);
+X	argv[0] = strrchr(argv[0], '/') + 1;
+X    } else {
+X	sprintf(path, "%s/%s", REAL_DAEMON_DIR, argv[0]);
+X    }
+X
+X    /*
+X     * Open a channel to the syslog daemon. Older versions of openlog()
+X     * require only two arguments.
+X     */
+X
+X#ifdef LOG_MAIL
+X    (void) openlog(argv[0], LOG_PID, FACILITY);
+X#else
+X    (void) openlog(argv[0], LOG_PID);
+X#endif
+X
+X    /*
+X     * Find out and verify the remote host name. Sites concerned with
+X     * security may choose to refuse connections from hosts that pretend to
+X     * have someone elses host name.
+X     */
+X
+X    from_stat = fromhost(&client);
+X#ifdef PARANOID
+X    if (from_stat == -1)
+X	refuse(&client);
+X#endif
+X
+X    /*
+X     * The BSD rlogin and rsh daemons that came out after 4.3 BSD disallow
+X     * socket options at the IP level. They do so for a good reason.
+X     * Unfortunately, we cannot use this with SunOS 4.1.x because the
+X     * getsockopt() system call can panic the system.
+X     */
+X
+X#ifdef KILL_IP_OPTIONS
+X    fix_options(&client);
+X#endif
+X
+X    /*
+X     * Check whether this host can access the service in argv[0]. The
+X     * access-control code invokes optional shell commands as specified in
+X     * the access-control tables.
+X     */
+X
+X#ifdef HOSTS_ACCESS
+X    if (!hosts_access(argv[0], &client))
+X	refuse(&client);
+X#endif
+X
+X    /* Report remote client and invoke the real daemon program. */
+X
+X    syslog(allow_severity, "connect from %s", hosts_info(&client));
+X    (void) execv(path, argv);
+X    syslog(LOG_ERR, "error: cannot execute %s: %m", path);
+X    clean_exit(&client);
+X    /* NOTREACHED */
+X}
+END_OF_tcpd.c
+if test 3104 -ne `wc -c <tcpd.c`; then
+    echo shar: \"tcpd.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f tli.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"tli.c\"
+else
+echo shar: Extracting \"tli.c\" \(10747 characters\)
+sed "s/^X//" >tli.c <<'END_OF_tli.c'
+X /*
+X  * tli_host() determines the type of transport (connected, connectionless),
+X  * the name and address of the host at the other end of a network link. In
+X  * case of an IP service, tli_host() also determines the local address and
+X  * port, and the remote username if username lookups are done irrespective
+X  * of client. All results are in static memory.
+X  * 
+X  * The return status is (-1) if the remote host pretends to have someone elses
+X  * name, or if the remote host name is available but could not be verified;
+X  * in either case the hostname will be ignored. The return status is zero in
+X  * all other cases (the hostname is unavailable, or the host name double
+X  * check succeeds).
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) tli.c 1.7 93/09/27 18:59:25";
+X#endif
+X
+X#ifdef TLI
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X#include <sys/mkdev.h>
+X#include <sys/tiuser.h>
+X#include <sys/timod.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X#include <errno.h>
+X#include <netconfig.h>
+X#include <netdir.h>
+X
+Xextern char *strncpy();
+X
+X /* Some systems versions advertise a too small MAXHOSTNAMELEN value. */
+X
+X#if (MAXHOSTNAMELEN < 64)
+X#undef MAXHOSTNAMELEN
+X#endif
+X
+X /* In case not defined in <sys/param.h>. */
+X
+X#ifndef MAXHOSTNAMELEN
+X#define MAXHOSTNAMELEN	256		/* storage for host name */
+X#endif
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+Xextern int sys_nerr;
+Xextern int t_errno;
+Xextern char *t_errlist[];
+Xextern int t_nerr;
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* Forward declarations. */
+X
+Xstatic struct t_unitdata *tli_remote_addr();
+Xstatic struct t_unitdata *tli_local_addr();
+Xstatic struct netconfig *tli_transport();
+Xstatic int tli_names();
+Xstatic int tli_match_hostname();
+Xstatic char *tli_error();
+Xstatic void tli_sink();
+X
+X/* tli_host - determine endpoint info */
+X
+Xint     tli_host(client)
+Xstruct client_info *client;
+X{
+X    struct netconfig *config;
+X    struct t_unitdata *rmt_unit;
+X    struct t_unitdata *our_unit;
+X    static struct sockaddr_in rmt_sin;
+X    static struct sockaddr_in our_sin;
+X    int     ret = 0;			/* host name/addr unknown */
+X
+X    /*
+X     * Initialize the result with suitable defaults.
+X     */
+X
+X    init_client(client);
+X
+X    /*
+X     * Find out the client address, find out what type of transport is hidden
+X     * underneath the TLI programmatic interface, map the transport address
+X     * to a human-readable form, and determine the host name. Double check
+X     * the hostname.
+X     * 
+X     * If we discover that we are using an IP transport, do DNS lookups and
+X     * determine the local binding. Otherwise, use the transport-independent
+X     * method and stick to generic network addresses. XXX hard-coded protocol
+X     * family name.
+X     */
+X
+X#define SINCP(d,s) (((d) = *(struct sockaddr_in *) (s)), &(d))
+X
+X    if ((rmt_unit = tli_remote_addr(client)) != 0) {
+X	if ((config = tli_transport(client->fd)) != 0) {
+X	    if (strcasecmp(config->nc_protofmly, "inet") == 0) {
+X		if ((our_unit = tli_local_addr(client)) != 0) {
+X		    client->our_sin = SINCP(our_sin, our_unit->addr.buf);
+X		    t_free((char *) our_unit, T_UNITDATA);
+X		}
+X		client->rmt_sin = SINCP(rmt_sin, rmt_unit->addr.buf);
+X		ret = sock_names(client);
+X	    } else {
+X		ret = tli_names(client, &(rmt_unit->addr), config);
+X	    }
+X	    freenetconfigent(config);
+X	}
+X	t_free((char *) rmt_unit, T_UNITDATA);
+X    }
+X    return (ret);
+X}
+X
+X/* tli_remote_addr - determine TLI client address */
+X
+Xstatic struct t_unitdata *tli_remote_addr(client)
+Xstruct client_info *client;
+X{
+X    struct t_unitdata *unit;
+X    int     flags;
+X
+X    /*
+X     * Allocate storage for the endpoint address. t_alloc() finds out for us
+X     * how large the address can be. Address sizes depend on the underlying
+X     * transport protocol.
+X     * 
+X     * Determine the transport-independent client address. With connectionless
+X     * services, peek at the sender address of the pending datagram without
+X     * popping it off the receive queue. This trick works because only the
+X     * address member of the unitdata structure has been allocated.
+X     */
+X
+X    if ((unit = (struct t_unitdata *) t_alloc(client->fd, T_UNITDATA, T_ADDR)) == 0) {
+X	syslog(LOG_ERR, "error: t_alloc: %s", tli_error());
+X    } else {
+X	if (ioctl(client->fd, TI_GETPEERNAME, &(unit->addr)) < 0) {
+X	    if (t_rcvudata(client->fd, unit, &flags) < 0) {
+X		syslog(LOG_ERR, "error: can't get client address: %s", tli_error());
+X		t_free((void *) unit, T_UNITDATA);
+X		unit = 0;
+X	    } else {
+X		client->sink = tli_sink;
+X	    }
+X	    /* beware: at this point, unit may be null */
+X	}
+X    }
+X    return (unit);
+X}
+X
+X/* tli_local_addr - determine TLI local address */
+X
+Xstruct t_unitdata *tli_local_addr(client)
+Xstruct client_info *client;
+X{
+X    struct t_unitdata *unit;
+X
+X    if ((unit = (struct t_unitdata *) t_alloc(client->fd, T_UNITDATA, T_ADDR)) == 0) {
+X	syslog(LOG_ERR, "error: t_alloc: %s", tli_error());
+X    } else {
+X	if (ioctl(client->fd, TI_GETMYNAME, &(unit->addr)) < 0) {
+X	    syslog(LOG_ERR, "error: TI_GETMYNAME: %m");
+X	    t_free((void *) unit, T_UNITDATA);
+X	    unit = 0;
+X	}
+X	/* beware: at this point, unit may be null */
+X    }
+X    return (unit);
+X}
+X
+X/* tli_transport - find out TLI transport type */
+X
+Xstatic struct netconfig *tli_transport(fd)
+Xint     fd;
+X{
+X    struct stat from_client;
+X    struct stat from_config;
+X    void   *handlep;
+X    struct netconfig *config;
+X
+X    /*
+X     * Assuming that the network device is a clone device, we must compare
+X     * the major device number of stdin to the minor device number of the
+X     * devices listed in the netconfig table.
+X     */
+X
+X    if (fstat(fd, &from_client) != 0) {
+X	syslog(LOG_ERR, "error: fstat(fd %d): %m", fd);
+X	return (0);
+X    }
+X    if ((handlep = setnetconfig()) == 0) {
+X	syslog(LOG_ERR, "error: setnetconfig: %m");
+X	return (0);
+X    }
+X    while (config = getnetconfig(handlep)) {
+X	if (stat(config->nc_device, &from_config) == 0) {
+X	    if (minor(from_config.st_rdev) == major(from_client.st_rdev))
+X		break;
+X	}
+X    }
+X    if (config == 0) {
+X	syslog(LOG_ERR, "error: unable to identify transport protocol");
+X	return (0);
+X    }
+X
+X    /*
+X     * Something else may clobber our getnetconfig() result, so we'd better
+X     * acquire our private copy.
+X     */
+X
+X    if ((config = getnetconfigent(config->nc_netid)) == 0) {
+X	syslog(LOG_ERR, "error: getnetconfigent(%s): %s",
+X	       config->nc_netid, nc_sperror());
+X	return (0);
+X    }
+X    return (config);
+X}
+X
+X/* tli_names - map TLI transport address to readable address and name */
+X
+Xstatic int tli_names(client, taddr, config)
+Xstruct client_info *client;
+Xstruct netbuf *taddr;
+Xstruct netconfig *config;
+X{
+X    struct nd_hostservlist *service;
+X    static char host_name[MAXHOSTNAMELEN];
+X    static char host_addr[MAXHOSTNAMELEN];
+X    char   *uaddr;
+X    int     ret = 0;			/* hostname unknown */
+X
+X    /*
+X     * Translate the transport address to (well, more-or-less human-readable)
+X     * universal form and clean up. Some transports may not have a universal
+X     * address representation and will lose. XXX uaddr form includes blanks?!
+X     */
+X
+X#define STRNCP(d,s,l) { strncpy((d),(s),(l)); (d)[(l)-1] = 0; }
+X
+X    if ((uaddr = taddr2uaddr(config, taddr)) != 0) {
+X	STRNCP(host_addr, uaddr, sizeof(host_addr));
+X	client->addr = host_addr;
+X	free(uaddr);
+X    }
+X
+X    /*
+X     * Map the transport address to a human-readable hostname. Try to verify
+X     * that the host name does not belong to someone else. If host name
+X     * verification fails, ignore the host name.
+X     */
+X
+X    if (netdir_getbyaddr(config, &service, taddr) == ND_OK) {
+X	if (tli_match_hostname(config, service->h_hostservs, client->addr)) {
+X	    STRNCP(host_name, service->h_hostservs->h_host, sizeof(host_name));
+X	    client->name = host_name;
+X	    ret = 0;				/* hostname ok */
+X	} else {
+X	    ret = (-1);				/* bad or unverified name */
+X	}
+X	netdir_free((void *) service, ND_HOSTSERVLIST);
+X    }
+X    return (ret);
+X}
+X
+X/* tli_match_hostname - determine if host name matches transport address */
+X
+Xstatic int tli_match_hostname(config, service, uaddr)
+Xstruct netconfig *config;
+Xstruct nd_hostserv *service;
+Xchar   *uaddr;
+X{
+X    struct nd_addrlist *addr_list;
+X
+X    if (netdir_getbyname(config, service, &addr_list) != ND_OK) {
+X
+X	/*
+X	 * Unable to verify that the name matches the address. This may be a
+X	 * transient problem or a botched name server setup. We decide to
+X	 * play safe.
+X	 */
+X
+X	syslog(LOG_ERR,
+X	       "warning: can't verify hostname: netdir_getbyname(%s) failed",
+X	       service->h_host);
+X	return (FROM_BAD);
+X
+X    } else {
+X
+X	/*
+X	 * Look up the host address in the address list we just got. The
+X	 * comparison is done on the textual representation, because the
+X	 * transport address is an opaque structure that may have holes with
+X	 * uninitialized garbage. This approach obviously loses when the
+X	 * address does not have a textual representation.
+X	 */
+X
+X	char   *ua;
+X	int     i;
+X	int     found = 0;
+X
+X	for (i = 0; found == 0 && i < addr_list->n_cnt; i++) {
+X	    if ((ua = taddr2uaddr(config, &(addr_list->n_addrs[i]))) != 0) {
+X		found = !strcmp(ua, uaddr);
+X		free(ua);
+X	    }
+X	}
+X	netdir_free((void *) addr_list, ND_ADDRLIST);
+X
+X	/*
+X	 * When the host name does not map to the client address, assume
+X	 * someone has compromised a name server. More likely someone botched
+X	 * it, but that could be dangerous, too.
+X	 */
+X
+X	if (found) {
+X	    return (FROM_GOOD);
+X	} else {
+X	    syslog(LOG_ERR, "warning: host name/address mismatch: %s != %s",
+X		   uaddr, service->h_host);
+X	    return (FROM_BAD);
+X	}
+X    }
+X}
+X
+X/* tli_error - convert tli error number to text */
+X
+Xstatic char *tli_error()
+X{
+X    static char buf[40];
+X
+X    if (t_errno != TSYSERR) {
+X	if (t_errno < 0 || t_errno >= t_nerr) {
+X	    sprintf(buf, "Unknown TLI error %d", t_errno);
+X	    return (buf);
+X	} else {
+X	    return (t_errlist[t_errno]);
+X	}
+X    } else {
+X	if (errno < 0 || errno >= sys_nerr) {
+X	    sprintf(buf, "Unknown UNIX error %d", errno);
+X	    return (buf);
+X	} else {
+X	    return (sys_errlist[errno]);
+X	}
+X    }
+X}
+X
+X/* tli_sink - absorb unreceived datagram */
+X
+Xstatic void tli_sink(fd)
+Xint     fd;
+X{
+X    struct t_unitdata *unit;
+X    int     flags;
+X
+X    /*
+X     * Something went wrong. Absorb the datagram to keep inetd from looping.
+X     * Allocate storage for address, control and data. If that fails, sleep
+X     * for a couple of seconds in an attempt to keep inetd from looping too
+X     * fast.
+X     */
+X
+X    if ((unit = (struct t_unitdata *) t_alloc(fd, T_UNITDATA, T_ALL)) == 0) {
+X	syslog(LOG_ERR, "error: t_alloc: %s", tli_error());
+X	sleep(5);
+X    } else {
+X	(void) t_rcvudata(fd, unit, &flags);
+X	t_free((void *) unit, T_UNITDATA);
+X    }
+X}
+X
+X#endif /* TLI */
+END_OF_tli.c
+if test 10747 -ne `wc -c <tli.c`; then
+    echo shar: \"tli.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f try.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"try.c\"
+else
+echo shar: Extracting \"try.c\" \(5197 characters\)
+sed "s/^X//" >try.c <<'END_OF_try.c'
+X /*
+X  * try - program to try out host access-control tables, including the
+X  * optional shell commands and the optional language extensions.
+X  * 
+X  * usage: try [-d] process_name [user@]host_name_or_address
+X  * 
+X  * where process_name is a daemon process name (argv[0] value). If a host name
+X  * is specified, both name and address will be checked against the address
+X  * control tables. If a host address is specified, the program pretends that
+X  * host name lookup failed.
+X  * 
+X  * The -d option forces the program to use the access control tables in the
+X  * current directory.
+X  * 
+X  * All errors are written to the standard error stream, including the errors
+X  * that would normally be reported via the syslog daemon.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) try.c 1.8 93/09/27 18:59:28";
+X#endif
+X
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <arpa/inet.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X#include <setjmp.h>
+X
+Xextern void exit();
+Xextern char *strchr();
+X
+X#ifndef HOSTS_ACCESS
+X
+Xmain()
+X{
+X    fprintf(stderr, "host access control is not enabled.\n");
+X    return (1);
+X}
+X
+X#else
+X
+X#ifndef	INADDR_NONE
+X#define	INADDR_NONE	(-1)		/* XXX should be 0xffffffff */
+X#endif
+X
+X#include "log_tcp.h"
+X#include "options.h"
+X
+Xint     allow_severity = SEVERITY;	/* run-time adjustable */
+Xint     deny_severity = LOG_WARNING;	/* ditto */
+X
+X/* usage - explain */
+X
+Xvoid    usage(myname)
+Xchar   *myname;
+X{
+X    fprintf(stderr,
+X	    "usage: %s [-d] process_name [user@]host_name_or_address\n",
+X	    myname);
+X    exit(1);
+X}
+X
+X/* Try out a (daemon,client) pair */
+X
+Xvoid    try(daemon, name, addr, user)
+Xchar   *daemon;
+Xchar   *name;
+Xchar   *addr;
+Xchar   *user;
+X{
+X    int     verdict;
+X
+X    /*
+X     * The dry_run flag informs the optional extension language routines that
+X     * they are being run in verification mode, and that they should not
+X     * perform any real action. Extension language routines that would not
+X     * return should inform us of their plan, by clearing the dry_run flag.
+X     * This is a bit clumsy but we must be able to verify hosts with more
+X     * than one network address; just terminating the program isn't
+X     * acceptable.
+X     */
+X
+X    dry_run = 1;
+X
+X    printf(" Daemon:   %s\n", daemon);
+X    printf(" Hostname: %s\n", name);
+X    printf(" Address:  %s\n", addr);
+X
+X    if (user[0] && strcasecmp(user, FROM_UNKNOWN))
+X	printf(" Username: %s\n", user);
+X
+X    verdict = hosts_ctl(daemon, name, addr, user);
+X
+X    printf(" Access:   %s\n",
+X	   dry_run == 0 ? "delegated" :
+X	   verdict ? "granted" : "denied");
+X}
+X
+Xint     main(argc, argv)
+Xint     argc;
+Xchar  **argv;
+X{
+X    struct hostent *hp;
+X    char   *myname = argv[0];
+X    char   *client;
+X    char   *server;
+X    char   *at;
+X    char   *user;
+X    char   *host;
+X
+X    /*
+X     * Parse the JCL.
+X     */
+X    while (--argc && *++argv && **argv == '-') {
+X	if (strcmp(*argv, "-d") == 0) {		/* use tables in . */
+X	    hosts_allow_table = "hosts.allow";
+X	    hosts_deny_table = "hosts.deny";
+X	} else {
+X	    usage(myname);
+X	}
+X    }
+X    if (argc != 2)
+X	usage(myname);
+X
+X    server = argv[0];
+X    client = argv[1];
+X
+X    /*
+X     * Default is to specify just a host name or address. If user@host is
+X     * specified, separate the two parts.
+X     */
+X    if ((at = strchr(client, '@')) != 0) {
+X	user = client;
+X	*at = 0;
+X	host = at + 1;
+X    } else {
+X	user = FROM_UNKNOWN;
+X	host = client;
+X    }
+X
+X    /*
+X     * Note: all syslog stuff will be going to stderr, so the next calls are
+X     * entirely superfluous.
+X     */
+X#ifdef LOG_MAIL
+X    openlog(argv[0], LOG_PID, FACILITY);
+X#else
+X    openlog(argv[0], LOG_PID);
+X#endif
+X
+X    /*
+X     * If a host address is specified, we simulate the effect of host name
+X     * lookup failures.
+X     */
+X    if (inet_addr(host) != INADDR_NONE) {
+X	try(server, FROM_UNKNOWN, host, user);
+X	return (0);
+X    }
+X
+X    /*
+X     * Otherwise, assume that a host name is specified, and insist that the
+X     * address is known. The reason is that in real life, the host address is
+X     * always available.
+X     */
+X    if ((hp = gethostbyname(host)) == 0) {
+X	fprintf(stderr, "host %s: address lookup failed\n", host);
+X	return (1);
+X    }
+X
+X    /*
+X     * Iterate over all known addresses for this host. This way we find out
+X     * if different addresses for the same host have different permissions,
+X     * something that we probably do not want.
+X     */
+X    while (hp->h_addr_list[0])
+X	try(server, hp->h_name,
+X	    inet_ntoa(*(struct in_addr *) * hp->h_addr_list++), user);
+X
+X    return (0);
+X}
+X
+X/* dummy function to intercept the real shell_cmd() */
+X
+Xvoid    shell_cmd(cmd, daemon, client)
+Xchar   *cmd;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    char    buf[BUFSIZ];
+X    int     pid = getpid();
+X
+X    percent_x(buf, sizeof(buf), cmd, daemon, client, pid);
+X    printf(" Command:  %s\n", buf);
+X}
+X
+X/* dummy function  to intercept the real clean_exit() */
+X
+X/* ARGSUSED */
+X
+Xvoid    clean_exit(client)
+Xstruct client_info *client;
+X{
+X    exit(0);
+X}
+X
+X/* dummy function  to intercept the real rfc931() */
+X
+X/* ARGSUSED */
+X
+Xchar   *rfc931(rmt_sin, our_sin)
+Xstruct sockaddr_in *rmt_sin;
+Xstruct sockaddr_in *our_sin;
+X{
+X    fprintf(stderr, "Oops - cannot do username lookups in verification mode\n");
+X    return (0);
+X}
+X
+X#endif
+END_OF_try.c
+if test 5197 -ne `wc -c <try.c`; then
+    echo shar: \"try.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f workarounds.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"workarounds.c\"
+else
+echo shar: Extracting \"workarounds.c\" \(3742 characters\)
+sed "s/^X//" >workarounds.c <<'END_OF_workarounds.c'
+X /*
+X  * Workarounds for known system software bugs. This module provides wrappers
+X  * around library functions and system calls that are known to have problems
+X  * on some systems. Most of these workarounds won't do any harm on regular
+X  * systems.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xchar    sccsid[] = "@(#) workarounds.c 1.1 93/09/21 23:16:38";
+X#endif
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <arpa/inet.h>
+X#include <errno.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X
+X#include "log_tcp.h"
+X
+X /*
+X  * Some DG/UX inet_addr() versions return a struct/union instead of a long.
+X  * You have this problem when the compiler complains about illegal lvalues
+X  * or something like that. The following code fixes this mutant behaviour.
+X  * It should not be enabled on "normal" systems.
+X  * 
+X  * Bug reported by ben@piglet.cr.usgs.gov (Rev. Ben A. Mesander).
+X  */
+X
+X#ifdef INET_ADDR_BUG
+X
+X#undef inet_addr
+X
+Xlong    fix_inet_addr(string)
+Xchar   *string;
+X{
+X    return (inet_addr(string).s_addr);
+X}
+X
+X#endif /* INET_ADDR_BUG */
+X
+X /*
+X  * With some System-V versions, the fgets() library function does not
+X  * account for partial reads from e.g. sockets. The result is that fgets()
+X  * gives up too soon, causing username lookups to fail. Problem first
+X  * reported for IRIX 4.0.5, by Steve Kotsopoulos <steve@ecf.toronto.edu>.
+X  * The following code works around the problem. It does no harm on "normal"
+X  * systems.
+X  */
+X
+X#ifdef BROKEN_FGETS
+X
+X#undef fgets
+X
+Xchar   *fix_fgets(buf, len, fp)
+Xchar   *buf;
+Xint     len;
+XFILE   *fp;
+X{
+X    char   *cp = buf;
+X    int     c;
+X
+X    /*
+X     * Copy until the buffer fills up, until EOF, or until a newline is
+X     * found.
+X     */
+X    while (len > 1 && (c = getc(fp)) != EOF) {
+X	len--;
+X	*cp++ = c;
+X	if (c == '\n')
+X	    break;
+X    }
+X
+X    /*
+X     * Return 0 if nothing was read. This is correct even when a silly buffer
+X     * length was specified.
+X     */
+X    if (cp > buf) {
+X	*cp = 0;
+X	return (buf);
+X    } else {
+X	return (0);
+X    }
+X}
+X
+X#endif /* BROKEN_FGETS */
+X
+X /*
+X  * With early SunOS 5 versions, recvfrom() does not completely fill in the
+X  * source address structure when doing a non-destructive read. The following
+X  * code works around the problem. It does no harm on "normal" systems.
+X  */
+X
+X#ifdef RECVFROM_BUG
+X
+X#undef recvfrom
+X
+Xint     fix_recvfrom(sock, buf, buflen, flags, from, fromlen)
+Xint     sock;
+Xchar   *buf;
+Xint     buflen;
+Xint     flags;
+Xstruct sockaddr *from;
+Xint    *fromlen;
+X{
+X    int     ret;
+X
+X    /* Assume that both ends of a socket belong to the same address family. */
+X
+X    if ((ret = recvfrom(sock, buf, buflen, flags, from, fromlen)) >= 0) {
+X	if (from->sa_family == 0) {
+X	    struct sockaddr my_addr;
+X	    int     my_addr_len = sizeof(my_addr);
+X
+X	    if (getsockname(0, &my_addr, &my_addr_len)) {
+X		syslog(LOG_ERR, "getsockname: %m");
+X	    } else {
+X		from->sa_family = my_addr.sa_family;
+X	    }
+X	}
+X    }
+X    return (ret);
+X}
+X
+X#endif /* RECVFROM_BUG */
+X
+X /*
+X  * The Apollo SR10.3 and some SYSV4 getpeername(2) versions do not return an
+X  * error in case of a datagram-oriented socket. Instead, they claim that all
+X  * UDP requests come from address 0.0.0.0. The following code works around
+X  * the problem. It does no harm on "normal" systems.
+X  */
+X
+X#ifdef GETPEERNAME_BUG
+X
+X#undef getpeername
+X
+Xint     fix_getpeername(sock, sa, len)
+Xint     sock;
+Xstruct sockaddr *sa;
+Xint    *len;
+X{
+X    int     ret;
+X    struct sockaddr_in *sin = (struct sockaddr_in *) sa;
+X
+X    if ((ret = getpeername(sock, sa, len)) >= 0
+X	&& sa->sa_family == AF_INET
+X	&& sin->sin_addr.s_addr == 0) {
+X	errno = ENOTCONN;
+X	return (-1);
+X    } else {
+X	return (ret);
+X    }
+X}
+X
+X#endif /* GETPEERNAME_BUG */
+END_OF_workarounds.c
+if test 3742 -ne `wc -c <workarounds.c`; then
+    echo shar: \"workarounds.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f 6compat.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"6compat.c\"
+else
+echo shar: Extracting \"6compat.c\" \(349 characters\)
+sed "s/^X//" >6compat.c <<'END_OF_6compat.c'
+X /*
+X  * These are defined here in case the application uses the pre-6.0 libwrap.a
+X  * interface with static logging severities.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) 6compat.c 1.1 93/09/29 08:31:33";
+X#endif
+X
+X#include <syslog.h>
+X
+Xint     allow_severity = SEVERITY;	/* run-time adjustable */
+Xint     deny_severity = LOG_WARNING;	/* ditto */
+END_OF_6compat.c
+if test 349 -ne `wc -c <6compat.c`; then
+    echo shar: \"6compat.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 4 \(of 4\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

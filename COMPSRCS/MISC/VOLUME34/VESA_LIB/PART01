@@ -1,0 +1,1006 @@
+Newsgroups: comp.sources.misc
+From: bobp@hal.com (Bob Pendleton)
+Subject: v34i105:  vesa_lib - A Simple VESA BIOS interface library., Part01/01
+Message-ID: <1993Jan11.040215.4155@sparky.imd.sterling.com>
+X-Md4-Signature: 71b5829b11de0d0cf20f5c85da1b3ae3
+Date: Mon, 11 Jan 1993 04:02:15 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: bobp@hal.com (Bob Pendleton)
+Posting-number: Volume 34, Issue 105
+Archive-name: vesa_lib/part01
+Environment: MSC7
+
+This is the source code for a VESA BIOS version 1.1 interface library
+for use with msdos. It compiles under MSC7.  I've included a simple 
+demo program as well.  This is all public domain.
+
+Bob P.
+----------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  main.cpp makefile ptypes.h read.me vesa.cpp vesa.h
+# Wrapped by kent@sparky on Sun Jan 10 22:08:17 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'main.cpp' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.cpp'\"
+else
+  echo shar: Extracting \"'main.cpp'\" \(1833 characters\)
+  sed "s/^X//" >'main.cpp' <<'END_OF_FILE'
+X/*
+X
+XWritten by: Robert C. Pendleton
+X
+XPlaced in the public domain by the author.
+X
+X*/
+X
+X#include <dos.h>
+X#include <conio.h>
+X#include <stdio.h>
+X#include <memory.h>
+X#include "ptypes.h"
+X#include "vesa.h"
+X
+X//---------------------------------------------------
+X
+Xstatic uint8 _huge *screen = (uint8 *) 0xA0000000L;
+XvesaInfo info;
+XvesaModeInfo modeInfo;
+X
+X//---------------------------------------------------
+X
+Xvoid
+Xmain()
+X{
+X	int16 oldMode;
+X	uint8 _huge *scrnAddr;
+X	int16 i;
+X	int16 j;
+X	uint32 pixel;
+X	uint32 pixels[] =
+X	{
+X		0x00000000l,
+X		0x01010101l,
+X		0x02020202l,
+X		0x03030303l,
+X		0x04040404l,
+X		0x05050505l,
+X		0x06060606l,
+X		0x07070707l,
+X		0x08080808l
+X	};
+X
+X
+X	getVesaMode(&oldMode);
+X
+X	setVesaMode(g320x200);
+X	setVesaScanLineLength(1024);
+X
+X	setVGAColor(0, 0xf0, 0xf0, 0xf0);
+X	setVGAColor(1, 0x00, 0x00, 0xff);
+X	setVGAColor(2, 0x00, 0xff, 0x00);
+X	setVGAColor(3, 0x00, 0xff, 0xff);
+X	setVGAColor(4, 0xff, 0x00, 0x00);
+X	setVGAColor(5, 0xff, 0x00, 0xff);
+X	setVGAColor(6, 0xff, 0xff, 0x00);
+X	setVGAColor(7, 0xff, 0xff, 0xff);
+X	setVGAColor(8, 0x3c, 0x3c, 0x3c);
+X
+X
+Xtop:
+X	for(i = 0; i < 16; i++)
+X	{
+X		setVesaWinAAddr(i);
+X		memset(screen, i%8, 0x8000);
+X		memset(screen + 0x8000l, i%8, 0x8000);
+X	}
+X
+X	for(i = 0; i < 640; i += 10)
+X	{
+X		setVesaDisplayStart(0, i);
+X	}
+X
+X	for(i = 0; i < 16; i++)
+X	{
+X		setVesaWinAAddr(i);
+X		scrnAddr = screen;
+X		for(j = 0; j < 64; j++)
+X		{
+X			*(scrnAddr +   0) = 8;
+X			*(scrnAddr +  32) = 8;
+X			*(scrnAddr +  64) = 8;
+X			*(scrnAddr +  96) = 8;
+X			*(scrnAddr + 128) = 8;
+X			*(scrnAddr + 160) = 8;
+X			*(scrnAddr + 192) = 8;
+X			*(scrnAddr + 224) = 8;
+X			*(scrnAddr + 256) = 8;
+X			*(scrnAddr + 288) = 8;
+X			*(scrnAddr + 320) = 8;
+X
+X			scrnAddr += 1024;
+X		}
+X	}
+X
+X	for(i = 0; i < 1024; i += 8)
+X	{
+X		setVesaDisplayStart(i, 0);
+X	}
+X
+X	setVesaDisplayStart(0, 0);
+X	if(!_kbhit())goto top;
+X	while(!_kbhit());_getch();
+X	setVesaMode(oldMode);
+X}
+END_OF_FILE
+  if test 1833 -ne `wc -c <'main.cpp'`; then
+    echo shar: \"'main.cpp'\" unpacked with wrong size!
+  fi
+  # end of 'main.cpp'
+fi
+if test -f 'makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile'\"
+else
+  echo shar: Extracting \"'makefile'\" \(470 characters\)
+  sed "s/^X//" >'makefile' <<'END_OF_FILE'
+X#
+X# Microsoft C 7.00 Makefile
+X#
+X
+XCDEFS	= /DMSC
+XDEBUG   = 
+XCFLAGS	= /nologo /O /FPa /AH $(CDEFS) $(DEBUG)
+XCC      = cl
+X
+X#
+X# standard headers
+X#
+X
+XDEF = ptypes.h vesa.h
+X
+X#
+X# implicit compilation rule
+X#
+X
+X.cpp.obj:
+X	$(CC) /c $(CFLAGS) $*.cpp
+X
+Xall: main.exe
+X
+Xmain.exe : main.obj vesa.obj
+X	link /STACK:0x2000 main.obj+vesa.obj;
+X
+X#
+X# header dependencies
+X#
+X
+Xmain.obj: main.cpp $(DEF)
+Xvesa.obj: vesa.cpp $(DEF)
+X
+X#
+X# clean up 
+X#
+Xclean:
+X	-rm *.map
+X	-rm *.bak
+X	-rm *.obj
+X	-rm *.exe
+X
+X
+END_OF_FILE
+  if test 470 -ne `wc -c <'makefile'`; then
+    echo shar: \"'makefile'\" unpacked with wrong size!
+  fi
+  # end of 'makefile'
+fi
+if test -f 'ptypes.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ptypes.h'\"
+else
+  echo shar: Extracting \"'ptypes.h'\" \(531 characters\)
+  sed "s/^X//" >'ptypes.h' <<'END_OF_FILE'
+X/*
+X
+XWritten by: Robert C. Pendleton
+X
+XPlaced in the public domain by the author.
+X
+X*/
+X
+X#ifndef _PTYPES_H_
+X#define _PTYPES_H_
+X
+Xtypedef enum {FALSE = 0, TRUE = 1} boolean;
+X
+X/*
+X
+XThese define types with unique names for each length.
+XThey make it easier to port other environments.
+X
+X*/
+X
+Xtypedef signed char		int8;
+Xtypedef signed short int	int16;
+Xtypedef signed long int		int32;
+X
+Xtypedef unsigned char		uint8;
+Xtypedef unsigned short int	uint16;
+Xtypedef unsigned long int	uint32;
+X
+Xtypedef float			float32;
+Xtypedef double			float64;
+X
+X#endif
+END_OF_FILE
+  if test 531 -ne `wc -c <'ptypes.h'`; then
+    echo shar: \"'ptypes.h'\" unpacked with wrong size!
+  fi
+  # end of 'ptypes.h'
+fi
+if test -f 'read.me' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'read.me'\"
+else
+  echo shar: Extracting \"'read.me'\" \(568 characters\)
+  sed "s/^X//" >'read.me' <<'END_OF_FILE'
+XThis is the code for a simple vesa 1.1 interface library, and a simple
+Xtest program. 
+X
+XFor more information about the VESA BIOS extension please contact
+XVESA. At the time I wrote this, VESA can be contatcted at:
+X
+XVideo Electronics Standards Association
+X2150 North First Street, Suite 440
+XSan Jose, CA 95131-2020
+XPhone: (408) 435-0333
+XFax:   (408) 535-8225
+X
+XPublic domain VESA TSRs, documentation, and source code available
+Xon many ftp sites.
+X
+XTo the best of my knowledge, everything in this distribution is in the
+Xpublic domain. 
+X
+X			You're Welcome
+X
+X				Bob Pendleton
+END_OF_FILE
+  if test 568 -ne `wc -c <'read.me'`; then
+    echo shar: \"'read.me'\" unpacked with wrong size!
+  fi
+  # end of 'read.me'
+fi
+if test -f 'vesa.cpp' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vesa.cpp'\"
+else
+  echo shar: Extracting \"'vesa.cpp'\" \(8554 characters\)
+  sed "s/^X//" >'vesa.cpp' <<'END_OF_FILE'
+X/*
+X
+XWritten by: Robert C. Pendleton
+X
+XPlaced in the public domain by the author.
+X
+X*/
+X
+X#include <dos.h>
+X#include <conio.h>
+X#include <stdio.h>
+X#include "ptypes.h"
+X#include "vesa.h"
+X
+X//---------------------------------------------------
+X/*
+X    Static Variables
+X*/
+X
+Xstatic union _REGS reg;
+Xstatic struct _SREGS sreg;
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xvoid
+XsetVGAColor(int16 index, int16 r, int16 g, int16 b)
+X{
+X   reg.x.ax =0x1010;
+X
+X   reg.x.bx =index;
+X   reg.h.dh =r;
+X   reg.h.ch =g;
+X   reg.h.cl =b;
+X
+X   _int86(0x10, &reg, &reg);
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xvoid
+XsetVGAPalette(palette *p)
+X{
+X   reg.x.ax =0x1012;
+X   reg.x.bx =0;
+X   reg.x.cx =256;
+X
+X   sreg.es = _FP_SEG(p);
+X   reg.x.dx = _FP_OFF(p);
+X
+X
+X   _int86x(0x10, &reg, &reg, &sreg);
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XgetVesaInfo(vesaInfo *infoPtr)
+X{
+X  	reg.x.ax = 0x4f00;
+X
+X	sreg.es = _FP_SEG(infoPtr);
+X	reg.x.di = _FP_OFF(infoPtr);
+X
+X    	_int86x(0x10, &reg, &reg, &sreg);
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xvoid
+XprintVesaInfo(FILE *file, vesaInfo *info)
+X{
+X	int16 *mode;
+X
+X	fprintf(file, "name=%c%c%c%c\n", info->vesa[0],
+X					   info->vesa[1],
+X					   info->vesa[2],
+X					   info->vesa[3]);
+X
+X	fprintf(file, "Version %d.%d\n", info->majorMode, info->minorMode);
+X	fprintf(file, "Vendor %s\n", info->vendorName);
+X	fprintf(file, "Capabilities %lX\n", info->capabilities);
+X
+X	mode = info->modes;
+X	while((*mode) != 0xffff)
+X	{
+X		fprintf(file, "mode=%x\n", *mode);
+X		mode++;
+X	}
+X	fflush(file);
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XgetVesaModeInfo(int16 mode, vesaModeInfo *infoPtr)
+X{
+X  	reg.x.ax = 0x4f01;
+X  	reg.x.cx = mode;
+X
+X	sreg.es = _FP_SEG(infoPtr);
+X	reg.x.di = _FP_OFF(infoPtr);
+X
+X    	_int86x(0x10, &reg, &reg, &sreg);
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xvoid
+XprintVesaModeInfo(FILE *file, vesaModeInfo *info)
+X{
+X	boolean optionalInfo = FALSE;
+X
+X/* mode attributes */
+X
+X	if(info->modeAttr & (1<<0))
+X	{
+X		fprintf(file, "supported\n");
+X	}
+X	else
+X	{
+X		fprintf(file, "not supported\n");
+X	}
+X
+X	if(info->modeAttr & (1<<1))
+X	{
+X		fprintf(file, "optional info\n");
+X		optionalInfo = TRUE;
+X	}
+X	else
+X	{
+X		fprintf(file, "no optional info\n");
+X		optionalInfo = FALSE;
+X	}
+X
+X	if(info->modeAttr & (1<<2))
+X	{
+X		fprintf(file, "BIOS output\n");
+X	}
+X	else
+X	{
+X		fprintf(file, "no BIOS output\n");
+X	}
+X
+X	if(info->modeAttr & (1<<3))
+X	{
+X		fprintf(file, "color\n");
+X	}
+X	else
+X	{
+X		fprintf(file, "monochrome\n");
+X	}
+X
+X	if(info->modeAttr & (1<<4))
+X	{
+X		fprintf(file, "graphics\n");
+X	}
+X	else
+X	{
+X		fprintf(file, "text\n");
+X	}
+X
+X/* window A attributes */
+X
+X	if(info->windowAAttr & (1<<0))
+X	{
+X		fprintf(file, "window A exists\n");
+X	}
+X	else
+X	{
+X		fprintf(file, "window A does not exist\n");
+X	}
+X
+X	if(info->windowAAttr & (1<<1))
+X	{
+X		fprintf(file, "window A readable\n");
+X	}
+X	else
+X	{
+X		fprintf(file, "window A not readable\n");
+X	}
+X
+X	if(info->windowAAttr & (1<<2))
+X	{
+X		fprintf(file, "window A writable\n");
+X	}
+X	else
+X	{
+X		fprintf(file, "window A not writable\n");
+X	}
+X
+X/* window B attributes */
+X
+X	if(info->windowBAttr & (1<<0))
+X	{
+X		fprintf(file, "window B exists\n");
+X	}
+X	else
+X	{
+X		fprintf(file, "window B does not exist\n");
+X	}
+X
+X	if(info->windowBAttr & (1<<1))
+X	{
+X		fprintf(file, "window B readable\n");
+X	}
+X	else
+X	{
+X		fprintf(file, "window B not readable\n");
+X	}
+X
+X	if(info->windowBAttr & (1<<2))
+X	{
+X		fprintf(file, "window B writable\n");
+X	}
+X	else
+X	{
+X		fprintf(file, "window B not writable\n");
+X	}
+X
+X/* window attributes */
+X
+X	fprintf(file, "window granularity=%d\n", info->windowGranularity);
+X	fprintf(file, "window size=%d\n", info->windowSize);
+X	fprintf(file, "window A start seg=%x\n", info->windowAStartSeg);
+X	fprintf(file, "window B start seg=%x\n", info->windowBStartSeg);
+X
+X	fprintf(file, "positioning function=%p\n", info->posFuncPtr);
+X
+X	fprintf(file, "bytes/scanline=%d\n", info->bytesPerScanLine);
+X
+X	if(optionalInfo)
+X	{
+X		fprintf(file, "width =%d\n", info->width);
+X		fprintf(file, "height=%d\n", info->height);
+X
+X		fprintf(file, "char width =%d\n", (int16)(info->charWidth));
+X		fprintf(file, "char height=%d\n", (int16)(info->charHeight));
+X
+X		fprintf(file, "number of planes=%d\n", (int16)(info->numberOfPlanes));
+X		fprintf(file, "bits/pixel=%d\n", (int16)(info->bitsPerPixel));
+X		fprintf(file, "number of banks=%d\n", (int16)(info->numberOfBanks));
+X
+X		fprintf(file, "memory model=%d\n", (int16)(info->memoryModel));
+X		fprintf(file, "size of bank=%d\n", (int16)(info->sizeOfBank));
+X	}
+X
+X	fflush(file);
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XsetVesaMode(int16 mode)
+X{
+X  	reg.x.ax = 0x4f02;
+X  	reg.x.bx = mode;
+X
+X    	_int86x(0x10, &reg, &reg, &sreg);
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XgetVesaMode(int16 *mode)
+X{
+X  	reg.x.ax = 0x4f03;
+X
+X    	_int86x(0x10, &reg, &reg, &sreg);
+X
+X  	*mode = reg.x.bx;
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XgetVesaStateSize(uint8 flags, int32 *size)
+X{
+X  	reg.x.ax = 0x4f04;
+X	reg.h.dl = 0x00;
+X	reg.x.cx = flags;
+X
+X    	_int86x(0x10, &reg, &reg, &sreg);
+X
+X  	*size = ((int32)reg.x.bx) * 64;
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XgetVesaState(uint8 flags, uint8 *buffer)
+X{
+X  	reg.x.ax = 0x4f04;
+X	reg.h.dl = 0x01;
+X	reg.x.cx = flags;
+X
+X	sreg.es = _FP_SEG(buffer);
+X	reg.x.bx = _FP_OFF(buffer);
+X
+X    	_int86x(0x10, &reg, &reg, &sreg);
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XsetVesaState(uint8 flags, uint8 *buffer)
+X{
+X  	reg.x.ax = 0x4f04;
+X	reg.h.dl = 0x02;
+X	reg.x.cx = flags;
+X
+X	sreg.es = _FP_SEG(buffer);
+X	reg.x.bx = _FP_OFF(buffer);
+X
+X    	_int86x(0x10, &reg, &reg, &sreg);
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XsetVesaWinAAddr(uint16 addr)
+X{
+X  	reg.x.ax = 0x4f05;
+X	reg.h.bh = 0x00;
+X	reg.h.bl = 0x00;
+X	reg.x.dx = addr;
+X
+X    	_int86(0x10, &reg, &reg);
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XsetVesaWinBAddr(uint16 addr)
+X{
+X  	reg.x.ax = 0x4f05;
+X	reg.h.bh = 0x00;
+X	reg.h.bl = 0x01;
+X	reg.x.dx = addr;
+X
+X    	_int86(0x10, &reg, &reg);
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XgetVesaWinAAddr(uint16 *addr)
+X{
+X  	reg.x.ax = 0x4f05;
+X	reg.h.bh = 0x01;
+X	reg.h.bl = 0x00;
+X
+X    	_int86(0x10, &reg, &reg);
+X
+X	*addr = reg.x.dx;
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XgetVesaWinBAddr(uint16 *addr)
+X{
+X  	reg.x.ax = 0x4f05;
+X	reg.h.bh = 0x01;
+X	reg.h.bl = 0x01;
+X
+X    	_int86(0x10, &reg, &reg);
+X
+X	*addr = reg.x.dx;
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XsetVesaScanLineLength(uint16 length)
+X{
+X  	reg.x.ax = 0x4f06;
+X	reg.h.bl = 0x00;
+X	reg.x.cx = length;
+X
+X    	_int86(0x10, &reg, &reg);
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XgetVesaScanLineLength(uint16 *bytesPerScanLine, 
+X		      uint16 *pixelsPerScanLine, 
+X		      uint16 *maxScanLines)
+X{
+X  	reg.x.ax = 0x4f06;
+X	reg.h.bl = 0x01;
+X
+X    	_int86(0x10, &reg, &reg);
+X
+X	*bytesPerScanLine = reg.x.bx;
+X	*pixelsPerScanLine = reg.x.cx;
+X	*maxScanLines = reg.x.dx;
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XsetVesaDisplayStart(uint16 pixel, uint16 line)
+X{
+X  	reg.x.ax = 0x4f07;
+X	reg.h.bh = 0x00;
+X	reg.h.bl = 0x00;
+X
+X	reg.x.cx = pixel;
+X	reg.x.dx = line;
+X
+X    	_int86(0x10, &reg, &reg);
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xboolean
+XgetVesaDisplayStart(uint16 *pixel, uint16 *line) 
+X{
+X  	reg.x.ax = 0x4f07;
+X	reg.h.bh = 0x00;
+X	reg.h.bl = 0x01;
+X
+X    	_int86(0x10, &reg, &reg);
+X
+X	*pixel = reg.x.cx;
+X	*line = reg.x.dx;
+X
+X	if(reg.x.ax != 0x004f)
+X	{
+X		return FALSE;
+X	}
+X
+X	return TRUE;
+X}
+X
+X//---------------------------------------------------
+X
+END_OF_FILE
+  if test 8554 -ne `wc -c <'vesa.cpp'`; then
+    echo shar: \"'vesa.cpp'\" unpacked with wrong size!
+  fi
+  # end of 'vesa.cpp'
+fi
+if test -f 'vesa.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vesa.h'\"
+else
+  echo shar: Extracting \"'vesa.h'\" \(2626 characters\)
+  sed "s/^X//" >'vesa.h' <<'END_OF_FILE'
+X/*
+X
+XWritten by: Robert C. Pendleton
+X
+XPlaced in the public domain by the author.
+X
+X*/
+X
+X#ifndef _VESA_H_
+X#define _VESA_H_
+X
+X/*
+X
+XVESA graphics driver for 256 color VESA graphic modes. It requires
+Xa VESA version 1.1 BIOS.
+X
+XIt has been tested with a VESA 1.1 BIOS on an ET4000
+X
+X*/
+X
+X#include "ptypes.h"
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xtypedef struct {
+X	uint8 red;
+X	uint8 green;
+X	uint8 blue;
+X} palette;
+X
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xtypedef enum {
+X	NONE       = 0x000,
+X	g320x200   = 0x013,
+X	g640x400   = 0x100,
+X	g640x480   = 0x101,
+X	g800x600   = 0x103,
+X	g1024x768  = 0x105,
+X	g1280x1024 = 0x107,
+X} vesaMode;
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xtypedef union {
+X	struct {
+X		uint8 vesa[4];
+X		uint8 majorMode;
+X		uint8 minorMode;
+X		uint8 _far *vendorName;
+X		uint32 capabilities;
+X		int16 _far *modes;
+X	};
+X	uint8 filler[512];
+X} vesaInfo;
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xtypedef union {
+X		struct {
+X		uint16 modeAttr;
+X		uint8 windowAAttr;
+X		uint8 windowBAttr;
+X		uint16 windowGranularity;
+X		uint16 windowSize;
+X		uint16 windowAStartSeg;
+X		uint16 windowBStartSeg;
+X		uint32 posFuncPtr;
+X		uint16 bytesPerScanLine;
+X/*------------ Optional ------------*/
+X		uint16 width;
+X		uint16 height;
+X		uint8 charWidth;
+X		uint8 charHeight;
+X		uint8 numberOfPlanes;
+X		uint8 bitsPerPixel;
+X		uint8 numberOfBanks;
+X		uint8 memoryModel;
+X		uint8 sizeOfBank;
+X	};
+X	uint8 filler[512];
+X} vesaModeInfo;
+X
+X//---------------------------------------------------
+X/*
+X*/
+X
+Xextern void setVGAColor(int16 index, int16 r, int16 g, int16 b);
+Xextern void setVGAPalette(palette *p);
+Xextern boolean getVesaInfo(vesaInfo *infoPtr);
+Xextern void printVesaInfo(FILE *file, vesaInfo *info);
+Xextern boolean getVesaModeInfo(int16 mode, vesaModeInfo *infoPtr);
+Xextern void printVesaModeInfo(FILE *file, vesaModeInfo *info);
+Xextern boolean setVesaMode(int16 mode);
+Xextern boolean getVesaMode(int16 *mode);
+Xextern boolean getVesaStateSize(uint8 flags, int32 *size);
+Xextern boolean getVesaState(uint8 flags, uint8 *buffer);
+Xextern boolean setVesaState(uint8 flags, uint8 *buffer);
+Xextern boolean setVesaWinAAddr(uint16 addr);
+Xextern boolean setVesaWinBAddr(uint16 addr);
+Xextern boolean getVesaWinAAddr(uint16 *addr);
+Xextern boolean getVesaWinBAddr(uint16 *addr);
+Xextern boolean setVesaScanLineLength(uint16 length);
+Xextern boolean getVesaScanLineLength(uint16 *bytesPerScanLine, 
+X				     uint16 *pixelsPerScanLine, 
+X				     uint16 *maxScanLines);
+Xextern boolean setVesaDisplayStart(uint16 pixel, uint16 line);
+Xextern boolean getVesaDisplayStart(uint16 *pixel, uint16 *line);
+X
+X#endif
+END_OF_FILE
+  if test 2626 -ne `wc -c <'vesa.h'`; then
+    echo shar: \"'vesa.h'\" unpacked with wrong size!
+  fi
+  # end of 'vesa.h'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0

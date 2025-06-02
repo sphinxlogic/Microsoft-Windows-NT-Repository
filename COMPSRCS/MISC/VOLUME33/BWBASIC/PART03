@@ -1,0 +1,2298 @@
+Newsgroups: comp.sources.misc
+From: tcamp@acpub.duke.edu (Ted A. Campbell)
+Subject:  v33i039:  bwbasic - Bywater BASIC interpreter version 1.10, Part03/11
+Message-ID: <1992Nov5.035047.14847@sparky.imd.sterling.com>
+X-Md4-Signature: 30f249811a6a9685844f68e886079926
+Date: Thu, 5 Nov 1992 03:50:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tcamp@acpub.duke.edu (Ted A. Campbell)
+Posting-number: Volume 33, Issue 39
+Archive-name: bwbasic/part03
+Environment: ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwb_tcc.c bwb_var.c makefile.gcc
+# Wrapped by kent@sparky on Wed Nov  4 21:34:22 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 11)."'
+if test -f 'bwb_tcc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwb_tcc.c'\"
+else
+  echo shar: Extracting \"'bwb_tcc.c'\" \(167 characters\)
+  sed "s/^X//" >'bwb_tcc.c' <<'END_OF_FILE'
+X/* This is for Borland Turbo C++ only: it requests the linker to
+X   establish a larger-than-usual stack of 8192 bytes for BWBASIC */
+X
+Xextern unsigned _stklen = 8192U;
+END_OF_FILE
+  if test 167 -ne `wc -c <'bwb_tcc.c'`; then
+    echo shar: \"'bwb_tcc.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwb_tcc.c'
+fi
+if test -f 'bwb_var.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwb_var.c'\"
+else
+  echo shar: Extracting \"'bwb_var.c'\" \(56249 characters\)
+  sed "s/^X//" >'bwb_var.c' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwb_var.c       Variable-Handling Routines
+X                        for Bywater BASIC Interpreter
+X
+X                        Commands:	DIM
+X                                        COMMON
+X                                        ERASE
+X                                        SWAP
+X					CLEAR
+X
+X                        Copyright (c) 1992, Ted A. Campbell
+X
+X                        Bywater Software
+X                        P. O. Box 4023
+X                        Duke Station
+X                        Durham, NC  27706
+X
+X                        email: tcamp@acpub.duke.edu
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international copyrights are claimed by the
+X        author. The author grants permission to use this code
+X        and software based on it under the following conditions:
+X        (a) in general, the code and software based upon it may be
+X        used by individuals and by non-profit organizations; (b) it
+X        may also be utilized by governmental agencies in any country,
+X        with the exception of military agencies; (c) the code and/or
+X        software based upon it may not be sold for a profit without
+X        an explicit and specific permission from the author, except
+X        that a minimal fee may be charged for media on which it is
+X        copied, and for copying and handling; (d) the code must be
+X        distributed in the form in which it has been released by the
+X        author; and (e) the code and software based upon it may not
+X        be used for illegal activities.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <ctype.h>
+X#include <math.h>
+X#include <string.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+Xstruct bwb_variable var_start, var_end;
+X
+Xint dim_base = 0;                        	/* set by OPTION BASE */
+Xstatic int dimmed = FALSE;                      /* has DIM been called? */
+Xstatic int first, last;				/* first, last for DEFxxx commands */
+X
+X/* Prototypes for functions visible to this file only */
+X
+Xstatic int dim_check( struct bwb_variable *v, int *pp );
+Xstatic int var_defx( struct bwb_line *l, int type );
+Xstatic int var_letseq( char *buffer, int *position, int *start, int *end );
+Xstatic size_t dim_unit( struct bwb_variable *v, int *pp );
+X
+X/***************************************************************
+X
+X        FUNCTION:       var_init()
+X
+X        DESCRIPTION:	This function initializes the internal 
+X        linked list of variables.
+X
+X***************************************************************/
+X
+Xint
+Xvar_init()
+X   {
+X   var_start.next = &var_end;
+X   strcpy( var_start.name, "<START>" );
+X   strcpy( var_end.name, "<END>" );
+X   return TRUE;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_common()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X        		COMMON command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_common( struct bwb_line *l )
+X   {   
+X   register int loop;
+X   struct bwb_variable *v;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* loop while arguments are available */
+X
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X
+X      /* get variable name and find variable */
+X
+X      bwb_getvarname( l->buffer, tbuf, &( l->position ) );
+X
+X      if ( ( v = var_find( tbuf ) ) == NULL )
+X         {
+X         bwb_error( err_syntax );
+X         return l;
+X         }
+X
+X      v->common = TRUE;				/* set common flag to true */
+X
+X      /* check for comma */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] != ',' )
+X         {
+X         return l;				/* no comma; leave */
+X         }
+X      ++( l->position );
+X      adv_ws( l->buffer, &( l->position ) );
+X
+X      }
+X
+X   }
+X
+X/***********************************************************
+X
+X        Function:	bwb_ddbl()
+X
+X        This function implements the BASIC DEFDBL command.
+X
+X***********************************************************/
+X
+Xstruct bwb_line *
+Xbwb_ddbl( struct bwb_line *l )
+X   {
+X 
+X   /* call generalized DEF handler with DOUBLE set */
+X
+X   var_defx( l, DOUBLE );
+X   
+X   return l;
+X
+X   }
+X
+X/***********************************************************
+X
+X        Function:	bwb_dint()
+X
+X        This function implements the BASIC DEFINT command.
+X
+X***********************************************************/
+X
+Xstruct bwb_line *
+Xbwb_dint( struct bwb_line *l )
+X   {
+X
+X   /* call generalized DEF handler with INTEGER set */
+X
+X   var_defx( l, INTEGER );
+X   
+X   return l;
+X
+X   }
+X
+X/***********************************************************
+X
+X        Function:	bwb_dsng()
+X
+X        This function implements the BASIC DEFSNG command.
+X
+X***********************************************************/
+X
+Xstruct bwb_line *
+Xbwb_dsng( struct bwb_line *l )
+X   {
+X
+X   /* call generalized DEF handler with SINGLE set */
+X
+X   var_defx( l, SINGLE );
+X   
+X   return l;
+X
+X   }
+X
+X/***********************************************************
+X
+X        Function:	bwb_dstr()
+X
+X        This function implements the BASIC DEFSTR command.
+X
+X***********************************************************/
+X
+Xstruct bwb_line *
+Xbwb_dstr( struct bwb_line *l )
+X   {
+X
+X   /* call generalized DEF handler with STRING set */
+X
+X   var_defx( l, STRING );
+X   
+X   return l;
+X
+X   }
+X
+X/***********************************************************
+X
+X        Function:	var_defx()
+X
+X        This function is a generalized DEFxxx handler.
+X
+X***********************************************************/
+X
+Xstatic int
+Xvar_defx( struct bwb_line *l, int type )
+X   {
+X   int loop;
+X   register int c;
+X   static char vname[ 2 ];
+X   struct bwb_variable *v;
+X
+X   /* loop while there are variable names to process */
+X
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X
+X      /* check for end of line or line segment */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      switch( l->buffer[ l->position ] )
+X         {
+X         case '\n':
+X         case '\r':
+X         case '\0':
+X         case ':':
+X            return FALSE;
+X         }
+X
+X      /* find a sequence of letters for variables */
+X
+X      if ( var_letseq( l->buffer, &( l->position ), &first, &last ) == FALSE )
+X         {
+X         return FALSE;
+X         }
+X      
+X      /* loop through the list getting variables */
+X
+X      for ( c = first; c <= last; ++c )
+X         {
+X         vname[ 0 ] = (char) c;
+X         vname[ 1 ] = '\0';
+X         
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in var_defx(): calling var_find() for <%s>",
+X            vname );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         v = var_find( vname );
+X
+X         /* but var_find() assigns on the basis of name endings
+X            (so all in this case should be SINGLEs), so we must
+X            force the type of the variable */
+X
+X         var_make( v, type );
+X
+X         }
+X
+X      }
+X   
+X   return TRUE;
+X
+X   }
+X
+X/***********************************************************
+X
+X        Function:	var_letseq()
+X
+X        This function finds a sequence of letters for a DEFxxx
+X        command.
+X
+X***********************************************************/
+X
+Xstatic int
+Xvar_letseq( char *buffer, int *position, int *start, int *end )
+X   {
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in var_letseq(): buffer <%s>", &( buffer[ *position ] ));
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* advance beyond whitespace */
+X
+X   adv_ws( buffer, position );
+X
+X   /* check for end of line */
+X
+X   switch( buffer[ *position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         return TRUE;
+X      }
+X
+X   /* character at this position must be a letter */
+X
+X   if ( isalpha( buffer[ *position ] ) == 0 )
+X      {      
+X      bwb_error( err_defchar );
+X      return FALSE;
+X      }
+X
+X   *end = *start = buffer[ *position ];
+X      
+X   /* advance beyond character and whitespace */
+X
+X   ++( *position );
+X   adv_ws( buffer, position );
+X
+X   /* check for hyphen, indicating sequence of more than one letter */
+X
+X   if ( buffer[ *position ] == '-' )
+X      {
+X
+X      ++( *position );
+X      
+X      /* advance beyond whitespace */
+X
+X      adv_ws( buffer, position );
+X
+X      /* character at this position must be a letter */
+X
+X      if ( isalpha( buffer[ *position ] ) == 0 )
+X         {
+X         *end = *start;
+X         }
+X      else
+X         {
+X         *end = buffer[ *position ];
+X         ++( *position );
+X         }
+X      
+X      }
+X
+X   /* advance beyond comma if present */
+X
+X   if ( buffer[ *position ] == ',' )
+X      {
+X      ++( *position );
+X      }
+X
+X   return TRUE;
+X   }
+X
+X/***********************************************************
+X
+X        Function:	bwb_clear()
+X
+X        This function implements the BASIC CLEAR command.
+X
+X***********************************************************/
+X
+Xstruct bwb_line *
+Xbwb_clear( struct bwb_line *l )
+X   {
+X   struct bwb_variable *v;
+X   register int n;
+X   int *ip;
+X   bstring *sp;
+X   float *fp;
+X   double *dp;
+X   
+X   for ( v = var_start.next; v != &var_end; v = v->next )
+X      {
+X      switch( v->type )
+X         {
+X         case SINGLE:
+X            fp = (float *) v->array;
+X            for ( n = 0; n < v->array_units; ++n )
+X               {
+X               fp[ n ] = (float) 0.0;
+X               }
+X            break;
+X         case DOUBLE:
+X            dp = (double *) v->array;
+X            for ( n = 0; n < v->array_units; ++n )
+X               {
+X               dp[ n ] = (double) 0.0;
+X               }
+X            break;
+X         case INTEGER:
+X            ip = (int *) v->array;
+X            for ( n = 0; n < v->array_units; ++n )
+X               {
+X               ip[ n ] = 0;
+X               }
+X            break;
+X         case STRING:
+X            sp = (bstring *) v->array;
+X            for ( n = 0; n < v->array_units; ++n )
+X               {
+X               if ( sp[ n ].buffer != NULL )
+X                  {
+X                  free( sp[ n ].buffer );
+X                  sp[ n ].buffer = NULL;
+X                  }
+X               sp[ n ].rab = FALSE;
+X               sp[ n ].length = 0;
+X               }
+X            break;
+X         }
+X      }
+X
+X   return l;
+X
+X   }
+X
+X/***********************************************************
+X
+X        Function:	var_delcvars()
+X
+X        This function deletes all variables in memory except
+X        those previously marked as common.
+X
+X***********************************************************/
+X
+Xint
+Xvar_delcvars()
+X   {
+X   struct bwb_variable *v;
+X   struct bwb_variable *p;		/* previous variable */
+X
+X   p = &var_start;
+X   for ( v = var_start.next; v != &var_end; v = v->next )
+X      {
+X
+X      if ( v->common != TRUE )
+X         {
+X
+X         /* if the variable is dimensioned, release allocated memory */
+X
+X         if ( v->dimensions > 0 )
+X            {
+X
+X            /* deallocate memory */
+X
+X            free( v->array_sizes );
+X            free( v->array_pos );
+X            free( v->array );
+X
+X            }
+X
+X         /* reassign linkage */
+X
+X         p->next = v->next;
+X
+X         /* deallocate the variable itself */
+X
+X         free( v );
+X
+X         }
+X
+X      /* else reset previous variable */
+X
+X      else
+X         {
+X         p = v;
+X         }
+X
+X      }
+X
+X   return TRUE;
+X
+X   }
+X
+X/***********************************************************
+X
+X        Function:	bwb_erase()
+X
+X        This function implements the BASIC ERASE command.
+X
+X***********************************************************/
+X
+Xstruct bwb_line *
+Xbwb_erase( struct bwb_line *l )
+X   {
+X   register int loop;
+X   struct bwb_variable *v;
+X   struct bwb_variable *p;		/* previous variable in linked list */
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* loop while arguments are available */
+X
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X
+X      /* get variable name and find variable */
+X
+X      bwb_getvarname( l->buffer, tbuf, &( l->position ) );
+X
+X      if ( ( v = var_find( tbuf ) ) == NULL )
+X         {
+X         bwb_error( err_syntax );
+X         return l;
+X         }
+X
+X      /* be sure the variable is dimensioned */
+X
+X      if (( v->dimensions < 1 ) || ( v->array_sizes[ 0 ] < 1 ))
+X	 {
+X	 bwb_error( err_dimnotarray );
+X	 return l;
+X         }
+X
+X      /* find previous variable in chain */
+X
+X      for ( p = &var_start; p->next != v; p = p->next )
+X         {
+X         ;
+X         }
+X
+X      /* reassign linkage */
+X
+X      p->next = v->next;
+X
+X      /* deallocate memory */
+X
+X      free( v->array_sizes );
+X      free( v->array_pos );
+X      free( v->array );
+X      free( v );
+X
+X      /* check for comma */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] != ',' )
+X         {
+X         return l;				/* no comma; leave */
+X         }
+X      ++( l->position );
+X      adv_ws( l->buffer, &( l->position ) );
+X
+X      }
+X
+X   }
+X
+X/***********************************************************
+X
+X        Function:	bwb_swap()
+X
+X        This function implements the BASIC SWAP command.
+X
+X***********************************************************/
+X
+Xstruct bwb_line *
+Xbwb_swap( struct bwb_line *l )
+X   {
+X   struct bwb_variable *v;			/* temp holder */
+X   struct bwb_variable *lhs, *rhs;		/* left and right- hand side of swap statement */
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_swap(): buffer is <%s>",
+X      &( l->buffer[ l->position ] ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* get left variable name and find variable */
+X
+X   bwb_getvarname( l->buffer, tbuf, &( l->position ) );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_swap(): tbuf is <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   if ( ( lhs = var_find( tbuf ) ) == NULL )
+X      {
+X      bwb_error( err_syntax );
+X      return l;
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_swap(): lhs variable <%s> found",
+X      lhs->name );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* check for comma */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] != ',' )
+X      {
+X      bwb_error( err_syntax );
+X      return l;
+X      }
+X   ++( l->position );
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   /* get right variable name */
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_swap(): buffer is now <%s>",
+X      &( l->buffer[ l->position ] ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   bwb_getvarname( l->buffer, tbuf, &( l->position ) );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_swap(): tbuf is <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   if ( ( rhs = var_find( tbuf ) ) == NULL )
+X      {
+X      bwb_error( err_syntax );
+X      return l;
+X      }
+X
+X   /* check to be sure that both variables are of the same type */
+X
+X   if ( rhs->type != lhs->type )
+X      {
+X      bwb_error( err_mismatch );
+X      return l;
+X      }
+X
+X   /* copy lhs to temp, rhs to lhs, then temp to rhs */
+X
+X   memcpy( &v,  lhs, sizeof( struct bwb_variable ));
+X   memcpy( lhs, rhs, sizeof( struct bwb_variable ));
+X   memcpy( rhs, &v,  sizeof( struct bwb_variable ));
+X
+X   /* return */
+X
+X   return l;
+X
+X   }
+X
+X/***********************************************************
+X
+X        bwb_const()
+X
+X        This function takes the string in lb (the large buffer),
+X        finds a string constant (beginning and ending with 
+X        quotation marks), and returns it in sb (the small
+X        buffer), appropriately incrementing the integer
+X        pointed to by n. The string in lb should NOT include
+X        the initial quotation mark.
+X
+X***********************************************************/
+X
+Xbwb_const( char *lb, char *sb, int *n )
+X   {
+X   register int s;
+X
+X   ++*n;                        /* advance past quotation mark */
+X   s = 0;
+X
+X   while ( TRUE )
+X      {
+X      switch ( lb[ *n ] )
+X         {
+X         case '\"':
+X            sb[ s ] = 0;
+X            ++*n;               /* advance past ending quotation mark */
+X            return TRUE;
+X         case '\n':
+X         case '\r':
+X         case 0:
+X            sb[ s ] = 0;
+X            return TRUE;
+X         default:
+X            sb[ s ] = lb[ *n ];
+X            break;
+X         }
+X
+X      ++*n;                     /* advance to next character in large buffer */
+X      ++s;                      /* advance to next position in small buffer */
+X      sb[ s ] = 0;              /* terminate with 0 */
+X      }
+X
+X   }
+X
+X/***********************************************************
+X
+X        bwb_getvarname()
+X
+X        This function takes the string in lb (the large buffer),
+X        finds a variable name, and returns it in sb (the
+X        small buffer), appropriately incrementing the integer
+X        pointed to by n.
+X
+X***********************************************************/
+X
+Xbwb_getvarname( char *lb, char *sb, int *n )
+X   {
+X   register int s;
+X
+X   s = 0;
+X
+X   /* advance beyond whitespace */
+X
+X   adv_ws( lb, n );
+X
+X   while ( TRUE )
+X      {
+X      switch ( lb[ *n ] )
+X         {
+X         case ' ':              /* whitespace */
+X         case '\t':
+X         case '\n':             /* end of string */
+X         case '\r':
+X         case 0:
+X         case ':':              /* end of expression */
+X         case ',':
+X         case ';':
+X         case '(':              /* beginning of parameter list for dimensioned array */
+X         case '+':              /* add variables */
+X            sb[ s ] = 0;
+X            return TRUE;
+X         default:
+X            sb[ s ] = lb[ *n ];
+X            break;
+X         }
+X
+X      ++*n;                     /* advance to next character in large buffer */
+X      ++s;                      /* advance to next position in small buffer */
+X      sb[ s ] = 0;              /* terminate with 0 */
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_getvarname(): found <%s>", sb );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       var_find()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xvar_find( char *buffer )
+X   {
+X   struct bwb_variable *v;
+X   size_t array_size;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in var_find(): received <%s>", buffer );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* first, run through the variable list and try to find a match */
+X
+X   for ( v = var_start.next; v != &var_end; v = v->next )
+X      {
+X
+X      if ( strcmp( v->name, buffer ) == 0 )
+X         {
+X         switch( v->type )
+X            {
+X            case STRING:
+X            case DOUBLE:
+X            case INTEGER:
+X            case SINGLE:
+X               break;
+X            default:
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in var_find(): inappropriate precision for variable <%s>",
+X                  v->name );
+X               bwb_error( bwb_ebuf );
+X               #endif
+X               break;
+X            }
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in var_find(): found existing variable <%s>", v->name );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         return v;
+X         }
+X
+X      }
+X
+X   /* presume this is a new variable, so initialize it... */
+X   /* check for NULL variable name */
+X
+X   if ( strlen( buffer ) == 0 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in var_find(): NULL variable name received\n" );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return NULL;
+X      }
+X
+X   /* get memory for new variable */
+X
+X   if ( ( v = (struct bwb_variable *) calloc( 1, sizeof( struct bwb_variable ) )) 
+X      == NULL )
+X      {
+X      bwb_error( err_getmem );
+X      return NULL;
+X      }
+X
+X   /* get memory for new variable name */
+X
+X   #if ALLOCATE_NAME
+X   if ( ( v->name = (char *) calloc( 1, strlen( buffer ) + 1 )) 
+X      == NULL )
+X      {
+X      bwb_error( err_getmem );
+X      return NULL;
+X      }
+X   #endif
+X
+X   /* copy the name into the appropriate structure */
+X
+X   strcpy( v->name, buffer );
+X
+X   /* set memory in the new variable */
+X
+X   var_make( v, (int) v->name[ strlen( v->name ) - 1 ] );
+X
+X   /* set place at beginning of variable chain */
+X
+X   v->next = var_start.next;
+X   var_start.next = v;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in var_find(): initialized new variable <%s> type <%c>, dim <%d>",
+X      v->name, v->type, v->dimensions );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   return v;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_isvar()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xint
+Xbwb_isvar( char *buffer )
+X   {
+X   struct bwb_variable *v;
+X
+X   /* run through the variable list and try to find a match */
+X
+X   for ( v = var_start.next; v != &var_end; v = v->next )
+X      {
+X
+X      if ( strcmp( v->name, buffer ) == 0 )
+X         {
+X         return TRUE;
+X         }
+X
+X      }
+X
+X   /* search failed */
+X
+X   return FALSE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   var_getdval()
+X
+X        DESCRIPTION:  This function returns the current value of
+X        the variable argument as a double precision number.
+X
+X***************************************************************/
+X
+Xdouble
+Xvar_getdval( struct bwb_variable *nvar )
+X   {
+X
+X   switch( nvar->type )
+X      {
+X      case DOUBLE:
+X         return *( var_finddval( nvar, nvar->array_pos ) );
+X      case SINGLE:
+X         return (double) *( var_findfval( nvar, nvar->array_pos ) );
+X      case INTEGER:
+X         return (double) *( var_findival( nvar, nvar->array_pos ) );
+X      }
+X
+X   #if PROG_ERRORS
+X   sprintf( bwb_ebuf, "in var_getdval(): type is <%d>=<%c>.",
+X      nvar->type, nvar->type );
+X   bwb_error( bwb_ebuf );
+X   #else
+X   bwb_error( err_mismatch );
+X   #endif
+X
+X
+X   return (double) 0.0;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   var_getfval()
+X
+X        DESCRIPTION:  This function returns the current value of
+X        the variable argument as a single precision number (float).
+X
+X***************************************************************/
+X
+Xfloat
+Xvar_getfval( struct bwb_variable *nvar )
+X   {
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in var_getfval(): variable <%s>, type <%c>",
+X      nvar->name, nvar->type );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   switch( nvar->type )
+X      {
+X      case DOUBLE:
+X         return (float) *( var_finddval( nvar, nvar->array_pos ) );
+X      case SINGLE:
+X         return *( var_findfval( nvar, nvar->array_pos ) );
+X      case INTEGER:
+X         return (float) *( var_findival( nvar, nvar->array_pos ) );
+X      }
+X
+X   #if PROG_ERRORS
+X   sprintf( bwb_ebuf, "in var_getfval(): type is <%d>=<%c>.",
+X      nvar->type, nvar->type );
+X   bwb_error( bwb_ebuf );
+X   #else
+X   bwb_error( err_mismatch );
+X   #endif
+X
+X   return (float) 0.0;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   var_getival()
+X
+X        DESCRIPTION:  This function returns the current value of
+X        the variable argument as an integer.
+X
+X***************************************************************/
+X
+Xint
+Xvar_getival( struct bwb_variable *nvar )
+X   {
+X
+X   switch( nvar->type )
+X      {
+X      case DOUBLE:
+X         return (int) *( var_finddval( nvar, nvar->array_pos ) );
+X      case SINGLE:
+X
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in var_getival(): float <%f> -> int <%d>",
+X            nvar->fval, (int) nvar->fval );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         return (int) *( var_findfval( nvar, nvar->array_pos ) );
+X      case INTEGER:
+X         return *( var_findival( nvar, nvar->array_pos ) );
+X      }
+X
+X   #if PROG_ERRORS
+X   sprintf( bwb_ebuf, "in var_getival(): type is <%d>=<%c>.",
+X      nvar->type, nvar->type );
+X   bwb_error( bwb_ebuf );
+X   #else
+X   bwb_error( err_mismatch );
+X   #endif
+X
+X   return 0;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   var_getsval()
+X
+X        DESCRIPTION:  This function returns the current value of
+X        the variable argument as a pointer to a BASIC string
+X        structure.
+X
+X***************************************************************/
+X
+Xbstring *
+Xvar_getsval( struct bwb_variable *nvar )
+X   {
+X   static bstring b;
+X
+X   b.rab = FALSE;
+X
+X   switch( nvar->type )
+X      {
+X      case STRING:
+X         return var_findsval( nvar, nvar->array_pos );
+X      case DOUBLE:
+X         sprintf( bwb_ebuf, "%*f ", prn_precision( nvar ),
+X            *( var_finddval( nvar, nvar->array_pos ) ) );
+X         str_ctob( &b, bwb_ebuf );
+X         return &b;
+X      case SINGLE:
+X         sprintf( bwb_ebuf, "%*f ", prn_precision( nvar ),
+X            *( var_findfval( nvar, nvar->array_pos ) ) );
+X         str_ctob( &b, bwb_ebuf );
+X         return &b;
+X      case INTEGER:
+X         sprintf( bwb_ebuf, "%d ", *( var_findival( nvar, nvar->array_pos ) ) );
+X         str_ctob( &b, bwb_ebuf );
+X         return &b;
+X      default:
+X         #if PROG_ERRORS
+X         sprintf( bwb_ebuf, "in var_getsval(): type is <%d>=<%c>.",
+X            nvar->type, nvar->type );
+X         bwb_error( bwb_ebuf );
+X         #else
+X         bwb_error( err_mismatch );
+X         #endif
+X         return NULL;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_dim()
+X
+X        DESCRIPTION:    This function implements the BASIC DIM
+X                        statement, allocating memory for a
+X                        dimensioned array of variables.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_dim( struct bwb_line *l )
+X   {
+X   register int n;
+X   static int n_params;                         /* number of parameters */
+X   static int *pp;                              /* pointer to parameter values */
+X   struct bwb_variable *newvar;
+X   double *d;
+X   float *f;
+X   int *i;
+X   int loop;
+X   int old_name, old_dimensions;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_dim(): entered function." );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X
+X      old_name = FALSE;
+X
+X      /* Get variable name */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      bwb_getvarname( l->buffer, tbuf, &( l->position ) );
+X
+X      /* check for previously used variable name */
+X
+X      if ( bwb_isvar( tbuf ) == TRUE )
+X         {
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_dim(): variable name is already used.",
+X            l->number );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X         old_name = TRUE;
+X         }
+X
+X      /* get the new variable */
+X
+X      newvar = var_find( tbuf );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_dim(): new variable name is <%s>.",
+X         newvar->name );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* note that DIM has been called */
+X
+X      dimmed = TRUE;
+X
+X      /* read parameters */
+X
+X      old_dimensions = newvar->dimensions;
+X      dim_getparams( l->buffer, &( l->position ), &n_params, &pp );
+X      newvar->dimensions = n_params;
+X
+X      /* Check parameters for an old variable name */
+X
+X      if ( old_name == TRUE )
+X         {
+X
+X         /* check to be sure the number of dimensions is the same */
+X
+X         if ( newvar->dimensions != old_dimensions )
+X            {
+X            #if PROG_ERRORS
+X            sprintf( bwb_ebuf, "in bwb_dim(): variable <%s> cannot be re-dimensioned",
+X               newvar->name );
+X            bwb_error( bwb_ebuf );
+X            #else
+X            bwb_error( err_redim );
+X            #endif
+X            }
+X
+X         /* check to be sure sizes for the old variable are the same */
+X
+X         for ( n = 0; n < newvar->dimensions; ++n )
+X            {
+X            #if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_dim(): old var <%s> parameter <%d> size <%d>.",
+X               newvar->name, n, pp[ n ] );
+X            bwb_debug( bwb_ebuf );
+X            #endif
+X            if ( ( pp[ n ] + ( 1 - dim_base )) != newvar->array_sizes[ n ] )
+X               {
+X               #if PROG_ERRORS
+X               sprintf( bwb_ebuf, "in bwb_dim(): variable <%s> parameter <%d> cannot be resized",
+X                  newvar->name, n );
+X               bwb_error( bwb_ebuf );
+X               #else
+X               bwb_error( err_redim );
+X               #endif
+X               }
+X            }
+X
+X         }         /* end of conditional for old variable */
+X
+X
+X      /* a new variable */
+X
+X      else
+X         {
+X
+X         /* assign memory for parameters */
+X
+X         if ( ( newvar->array_sizes = (int *) calloc( n_params, sizeof( int )  )) == NULL )
+X            {
+X            #if PROG_ERRORS
+X            sprintf( bwb_ebuf, "in line %d: Failed to find memory for array_sizes for <%s>",
+X               l->number, newvar->name );
+X            bwb_error( bwb_ebuf );
+X            #else
+X            bwb_error( err_getmem );
+X            #endif
+X            l->next->position = 0;
+X            return l->next;
+X            }
+X
+X         for ( n = 0; n < newvar->dimensions; ++n )
+X            {
+X            newvar->array_sizes[ n ] = pp[ n ] + ( 1 - dim_base );
+X            #if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_dim(): array_sizes dim <%d> value <%d>",
+X               n, newvar->array_sizes[ n ] );
+X            bwb_debug( bwb_ebuf );
+X            #endif
+X            }
+X
+X         /* assign memory for current position */
+X
+X         if ( ( newvar->array_pos = (int *) calloc( n_params, sizeof( int ) )) == NULL )
+X            {
+X            #if PROG_ERRORS
+X            sprintf( bwb_ebuf, "in line %d: Failed to find memory for array_pos for <%s>",
+X               l->number, newvar->name );
+X            bwb_error( bwb_ebuf );
+X            #else
+X            bwb_error( err_getmem );
+X            #endif
+X            l->next->position = 0;
+X            return l->next;
+X            }
+X
+X         for ( n = 0; n < newvar->dimensions; ++n )
+X            {
+X            newvar->array_pos[ n ] = dim_base;
+X            }
+X
+X         /* calculate the array size */
+X
+X         newvar->array_units = (size_t) MAXINTSIZE;	/* avoid error in dim_unit() */
+X         newvar->array_units = dim_unit( newvar, pp ) + 1;
+X
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_dim(): array memory requires <%ld> units",
+X            (long) newvar->array_units );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         /* assign array memory */
+X
+X         switch( newvar->type )
+X            {
+X            case STRING:
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in bwb_dim(): 1 STRING requires <%ld> bytes",
+X                  (long) sizeof( bstring ));
+X               bwb_debug( bwb_ebuf );
+X               sprintf( bwb_ebuf, "in bwb_dim(): STRING array memory requires <%ld> bytes",
+X        	  (long) ( newvar->array_units + 1 ) * sizeof( bstring ));
+X               bwb_debug( bwb_ebuf );
+X               #endif
+X               if ( ( newvar->array = (char *) calloc( newvar->array_units, sizeof( bstring) )) == NULL )
+X                  {
+X                  #if PROG_ERRORS
+X                  sprintf( bwb_ebuf, "in line %d: Failed to find memory for array <%s>",
+X                     l->number, newvar->name );
+X                  bwb_error( bwb_ebuf );
+X                  #else
+X                  bwb_error( err_getmem );
+X                  #endif
+X                  l->next->position = 0;
+X                  return l->next;
+X                  }
+X               break;
+X            case DOUBLE:
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in bwb_dim(): 1 DOUBLE requires <%ld> bytes",
+X                  (long) sizeof( double ));
+X               bwb_debug( bwb_ebuf );
+X               sprintf( bwb_ebuf, "in bwb_dim(): DOUBLE array memory requires <%ld> bytes",
+X        	  (long) ( newvar->array_units + 1 ) * sizeof( double ));
+X               bwb_debug( bwb_ebuf );
+X               #endif
+X               if ( ( d = (double *) calloc( newvar->array_units, sizeof( double ) )) == NULL )
+X                  {
+X                  #if PROG_ERRORS
+X                  sprintf( bwb_ebuf, "in line %d: Failed to find memory for array <%s>",
+X                  l->number, newvar->name );
+X                  bwb_error( bwb_ebuf );
+X                  #else
+X                  bwb_error( err_getmem );
+X                  #endif
+X                  l->next->position = 0;
+X                  return l->next;
+X                  }
+X               newvar->array = (char *) d;
+X               break;
+X            case SINGLE:
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in bwb_dim(): 1 SINGLE requires <%ld> bytes",
+X                  (long) sizeof( float ));
+X               bwb_debug( bwb_ebuf );
+X               sprintf( bwb_ebuf, "in bwb_dim(): SINGLE array memory requires <%ld> bytes",
+X        	  (long) ( newvar->array_units + 1 ) * sizeof( float ));
+X               bwb_debug( bwb_ebuf );
+X               #endif
+X               if ( ( f = (float *) calloc( newvar->array_units, sizeof( float ) )) == NULL )
+X                  {
+X                  #if PROG_ERRORS
+X                  sprintf( bwb_ebuf, "in line %d: Failed to find memory for array <%s>",
+X                     l->number, newvar->name );
+X                  bwb_error( bwb_ebuf );
+X                  #else
+X                  bwb_error( err_getmem );
+X                  #endif
+X                  l->next->position = 0;
+X                  return l->next;
+X                  }
+X               newvar->array = (char *) f;
+X               break;
+X            case INTEGER:
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in bwb_dim(): 1 INTEGER requires <%ld> bytes",
+X                  (long) sizeof( int ));
+X               bwb_debug( bwb_ebuf );
+X               sprintf( bwb_ebuf, "in bwb_dim(): INTEGER array memory requires <%ld> bytes",
+X        	  (long) ( newvar->array_units + 1 ) * sizeof( int ));
+X               bwb_debug( bwb_ebuf );
+X               #endif
+X               if ( ( i = (int *) calloc( newvar->array_units, sizeof( int ) )) == NULL )
+X                  {
+X                  #if PROG_ERRORS
+X                  sprintf( bwb_ebuf, "in line %d: Failed to find memory for array <%s>",
+X                     l->number, newvar->name );
+X                  bwb_error( bwb_ebuf );
+X                  #else
+X                  bwb_error( err_getmem );
+X                  #endif
+X                  l->next->position = 0;
+X                  return l->next;
+X                  }
+X               newvar->array = (char *) i;
+X               break;
+X            default:
+X               #if PROG_ERRORS
+X               sprintf( bwb_ebuf, "in line %d: New variable has unrecognized type.",
+X                  l->number );
+X               bwb_error( bwb_ebuf );
+X               #else
+X               bwb_error( err_syntax );
+X               #endif
+X               l->next->position = 0;
+X               return l->next;
+X            }
+X
+X         }			/* end of conditional for new variable */
+X
+X      /* now check for end of string */
+X
+X      if ( l->buffer[ l->position ] == ')' )
+X         {
+X         ++( l->position );
+X         }
+X      adv_ws( l->buffer, &( l->position ));
+X      switch( l->buffer[ l->position ] )
+X         {
+X         case '\n':			/* end of line */
+X         case '\r':
+X         case ':':			/* end of line segment */
+X         case '\0':			/* end of string */
+X            loop = FALSE;
+X            break;
+X         case ',':
+X            ++( l->position );
+X            adv_ws( l->buffer, &( l->position ) );
+X            loop = TRUE;
+X            break;
+X         default:
+X            #if PROG_ERRORS
+X            sprintf( bwb_ebuf, "in bwb_dim(): unexpected end of string, buf <%s>",
+X               &( l->buffer[ l->position ] ) );
+X            bwb_error( bwb_ebuf );
+X            #else
+X            bwb_error( err_syntax );
+X            #endif
+X            loop = FALSE;
+X            break;
+X         }
+X
+X      }				/* end of loop through variables */
+X
+X   /* return */
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       dim_unit()
+X
+X        DESCRIPTION:    This function calculates the unit
+X        		position for an array.
+X
+X***************************************************************/
+X
+Xsize_t
+Xdim_unit( struct bwb_variable *v, int *pp )
+X   {
+X   size_t r;
+X   size_t b;
+X   register int n;
+X
+X   /* Calculate and return the address of the dimensioned array */
+X
+X   b = 1;
+X   r = 0;
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      r += b * ( pp[ n ] - dim_base );
+X      b *= v->array_sizes[ n ];
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      sprintf( bwb_ebuf,
+X         "in dim_unit(): variable <%s> pos <%d> val <%d>.",
+X         v->name, n, pp[ n ] );
+X      bwb_debug( bwb_ebuf );
+X      }
+X   sprintf( bwb_ebuf, "in dim_unit(): return unit: <%ld>", (long) r );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   if ( r > v->array_units )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dim_unit(): unit value <%ld> exceeds array units <%ld>",
+X         r, v->array_units );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_valoorange );
+X      #endif
+X      return 0;
+X      }
+X
+X   return r;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       dim_getparams()
+X
+X        DESCRIPTION:    This fuunction reads a string in <buffer>
+X                        beginning at position <pos> and finds a
+X                        list of parameters surrounded by paren-
+X                        theses, returning in <n_params> the number
+X                        of parameters found, and returning in
+X                        <pp> an array of n_params integers giving
+X                        the sizes for each dimension of the array.
+X
+X***************************************************************/
+X
+Xint
+Xdim_getparams( char *buffer, int *pos, int *n_params, int **pp )
+X   {
+X   int loop;
+X   static int params[ MAX_DIMS ];
+X   int x_pos, s_pos;
+X   int paren_found;
+X   register int n;
+X   struct exp_ese *e;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* set initial values */
+X
+X   *n_params = 0;
+X   paren_found = FALSE;
+X
+X   /* find open parenthesis */
+X
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in dim_getparams(): eval char <%c = 0x%x>",
+X         buffer[ *pos ], buffer[ *pos ] );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      switch( buffer[ *pos ] )
+X         {
+X         case '\0':                     /* end of line */
+X         case '\n':
+X         case '\r':
+X            #if PROG_ERRORS
+X            sprintf( bwb_ebuf, "Unexpected end of line in dimensioned variable." );
+X            bwb_error ( bwb_ebuf );
+X            #else
+X            bwb_error( err_syntax );
+X            #endif
+X	    return FALSE;
+X            break;
+X         case ' ':                      /* whitespace */
+X         case '\t':
+X            if ( paren_found == FALSE )
+X               {
+X               ++(*pos);
+X               *n_params = 1;
+X               params[ 0 ] = dim_base;
+X               *pp = params;
+X               free( tbuf );
+X               return TRUE;
+X               }
+X            else
+X               {
+X               ++(*pos);
+X               }
+X            break;
+X
+X         case '(':                      /* the open parenthesis */
+X            ++(*pos);
+X            paren_found = TRUE;
+X            loop = FALSE;
+X            #if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in dim_getparams(): open parenthesis found (1)." );
+X            bwb_debug( bwb_ebuf );
+X            #endif
+X            break;
+X
+X         default:			/* any other character */
+X            #if PROG_ERRORS
+X            sprintf( bwb_ebuf, "in dim_getparams(): illegal char <%c = 0x%x> in dimensioned variable.",
+X               buffer[ *pos ], buffer[ *pos ] );
+X            bwb_error ( bwb_ebuf );
+X            #else
+X            bwb_error( err_syntax );
+X            #endif
+X	    return FALSE;
+X         }
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in dim_getparams(): open parenthesis found (2)." );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* Find each parameter */
+X
+X   s_pos = 0;
+X   tbuf[ 0 ] = '\0';
+X   loop = TRUE;
+X   while( loop == TRUE )
+X      {
+X      switch( buffer[ *pos ] )
+X         {
+X         case ')':                      /* end of parameter list */
+X            x_pos = 0;
+X            if ( tbuf[ 0 ] == '\0' )
+X               {
+X               params[ *n_params ] = DEF_SUBSCRIPT;
+X               }
+X            else
+X               {
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in dim_getparams(): call bwb_exp() for last element" );
+X               bwb_debug( bwb_ebuf );
+X               #endif
+X               e = bwb_exp( tbuf, FALSE, &x_pos );
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in dim_getparams(): return from bwb_exp() for last element" );
+X               bwb_debug( bwb_ebuf );
+X               #endif
+X               params[ *n_params ] = exp_getival( e );
+X               }
+X            ++(*n_params);
+X            loop = FALSE;
+X            ++( *pos );
+X            break;
+X
+X         case ',':                      /* end of a parameter */
+X            x_pos = 0;
+X            if ( tbuf[ 0 ] == '\0' )
+X               {
+X               params[ *n_params ] = DEF_SUBSCRIPT;
+X               }
+X            else
+X               {
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in dim_getparams(): call bwb_exp() for element (not last)" );
+X               bwb_debug( bwb_ebuf );
+X               #endif
+X               e = bwb_exp( tbuf, FALSE, &x_pos );
+X               params[ *n_params ] = exp_getival( e );
+X               }
+X            ++(*n_params);
+X            tbuf[ 0 ] = '\0';
+X            ++(*pos);
+X            s_pos = 0;
+X            break;
+X
+X         case ' ':                      /* whitespace -- skip */
+X         case '\t':
+X            ++(*pos);
+X            break;
+X
+X         default:
+X            tbuf[ s_pos ] = buffer[ *pos ];
+X            ++(*pos);
+X            ++s_pos;
+X            tbuf[ s_pos ] = '\0';
+X            break;
+X         }
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   for ( n = 0; n < *n_params; ++n )
+X      {
+X      sprintf( bwb_ebuf, "in dim_getparams(): Parameter <%d>: <%d>",
+X         n, params[ n ] );
+X      bwb_debug( bwb_ebuf );
+X      }
+X   #endif
+X
+X   /* return params stack */
+X
+X   *pp = params;
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_option()
+X
+X        DESCRIPTION:    This function implements the BASIC OPTION
+X                        BASE statement, designating the base (1 or
+X                        0) for addressing DIM arrays.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_option( struct bwb_line *l )
+X   {
+X   register int n;
+X   int newval;
+X   struct exp_ese *e;
+X   struct bwb_variable *current;
+X   char tbuf[ MAXSTRINGSIZE ];
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_option(): entered function." );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* If DIM has already been called, do not allow OPTION BASE */
+X
+X   if ( dimmed != FALSE )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "at line %d: OPTION BASE must be called before DIM.",
+X         l->number );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_obdim );
+X      #endif
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   /* capitalize first element in tbuf */
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   for ( n = 0; tbuf[ n ] != '\0'; ++n )
+X      {
+X      if ( islower( tbuf[ n ] ) != FALSE )
+X         {
+X         tbuf[ n ] = toupper( tbuf[ n ] );
+X         }
+X      }
+X
+X   /* check for BASE statement */
+X
+X   if ( strncmp( tbuf, "BASE", (size_t) 4 ) != 0 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "at line %d: Unknown statement <%s> following OPTION.",
+X         l->number, tbuf );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   /* Get new value from argument. */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X   newval = exp_getival( e );
+X
+X   /* Test the new value. */
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_option(): New value received is <%d>.", newval );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   if ( ( newval < 0 ) || ( newval > 1 ) )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "at line %d: value for OPTION BASE must be 1 or 0.",
+X         l->number );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_valoorange );
+X      #endif
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   /* Set the new value. */
+X
+X   dim_base = newval;
+X
+X   /* run through the variable list and change any positions that had
+X      set 0 before OPTION BASE was run */ 
+X
+X   for ( current = var_start.next; current != &var_end; current = current->next )
+X      {
+X      current->array_pos[ 0 ] = dim_base;
+X      }
+X
+X   /* Return. */
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       var_findival()
+X
+X        DESCRIPTION:    This function returns the address of
+X                        the integer for the variable <v>.  If
+X                        <v> is a dimensioned array, the address
+X                        returned is for the integer at the
+X                        position indicated by the integer array
+X                        <pp>.
+X
+X***************************************************************/
+X
+Xint *
+Xvar_findival( struct bwb_variable *v, int *pp )
+X   {
+X   register int n;
+X   size_t offset;
+X   int *p;
+X
+X   /* Check for appropriate type */
+X
+X   if ( v->type != INTEGER )
+X      {
+X      #if PROG_ERRORS
+X      sprintf ( bwb_ebuf, "in var_findival(): variable <%s> is not an integer.", v->name );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_mismatch );
+X      #endif
+X      return NULL;
+X      }
+X
+X   /* check subscripts */
+X
+X   if ( dim_check( v, pp ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X
+X   /* Calculate and return the address of the dimensioned array */
+X
+X   offset = dim_unit( v, pp );
+X
+X   #if INTENSIVE_DEBUG
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      sprintf( bwb_ebuf,
+X         "in var_findival(): dimensioned variable pos <%d> <%d>.",
+X         n, pp[ n ] );
+X      bwb_debug( bwb_ebuf );
+X      }
+X   #endif
+X
+X   p = (int *) v->array;
+X   return (p + offset);
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       var_finddval()
+X
+X        DESCRIPTION:    This function returns the address of
+X                        the double for the variable <v>.  If
+X                        <v> is a dimensioned array, the address
+X                        returned is for the double at the
+X                        position indicated by the integer array
+X                        <pp>.
+X
+X***************************************************************/
+X
+Xdouble *
+Xvar_finddval( struct bwb_variable *v, int *pp )
+X   {
+X   register int n;
+X   size_t offset;
+X   double *p;
+X
+X   /* Check for appropriate type */
+X
+X   if ( v->type != DOUBLE )
+X      {
+X      #if PROG_ERRORS
+X      sprintf ( bwb_ebuf, "in var_finddval(): Variable <%s> is not double precision.", 
+X         v->name );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_mismatch );
+X      #endif
+X      return NULL;
+X      }
+X
+X   /* Check subscripts */
+X
+X   if ( dim_check( v, pp ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X
+X   /* Calculate and return the address of the dimensioned array */
+X
+X   offset = dim_unit( v, pp );
+X
+X   #if INTENSIVE_DEBUG
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      sprintf( bwb_ebuf,
+X         "in var_finddval(): dimensioned variable pos <%d> <%d>.",
+X         n, pp[ n ] );
+X      bwb_debug( bwb_ebuf );
+X      }
+X   #endif
+X
+X   p = (double *) v->array;
+X   return (p + offset);
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       var_findfval()
+X
+X        DESCRIPTION:    This function returns the address of
+X                        the float value for the variable <v>.  If
+X                        <v> is a dimensioned array, the address
+X                        returned is for the float at the
+X                        position indicated by the integer array
+X                        <pp>.
+X
+X***************************************************************/
+X
+Xfloat *
+Xvar_findfval( struct bwb_variable *v, int *pp )
+X   {
+X   register int n;
+X   size_t offset;
+X   float *r;
+X   float *p;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in var_findfval(): variable <%s>, type <%c>",
+X      v->name, v->type );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* Check for appropriate type */
+X
+X   if ( v->type != SINGLE )
+X      {
+X      #if PROG_ERRORS
+X      sprintf ( bwb_ebuf, "in var_findfval(): Variable <%s> is not single precision: prec <%c>",
+X         v->name, v->type );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_mismatch );
+X      #endif
+X      return NULL;
+X      }
+X
+X   /* Check subscripts */
+X
+X   if ( dim_check( v, pp ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X
+X   /* Calculate and return the address of the dimensioned array */
+X
+X   offset = dim_unit( v, pp );
+X
+X   #if INTENSIVE_DEBUG
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      sprintf( bwb_ebuf,
+X         "in var_findfval(): dimensioned variable <%s> dim <%d> val <%d>.",
+X         v->name, n, pp[ n ] );
+X      bwb_debug( bwb_ebuf );
+X      }
+X   #endif
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf,
+X      "in var_findfval(): dimensioned variable <%s> offset <%ld>",
+X      v->name, (long) offset );
+X      bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   p = (float *) v->array;
+X   r = (p + offset);
+X
+X   #if INTENSIVE_DEBUG
+X   if ( ( r < (float *) v->array ) || ( r > (float *) v->array_max ))
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in var_findfval(): return value is out of range" );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_valoorange );
+X      #endif
+X      return r;
+X      }
+X   #endif
+X
+X   return r;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       var_findsval()
+X
+X        DESCRIPTION:    This function returns the address of
+X                        the string for the variable <v>.  If
+X                        <v> is a dimensioned array, the address
+X                        returned is for the string at the
+X                        position indicated by the integer array
+X                        <pp>.
+X
+X***************************************************************/
+X
+Xbstring *
+Xvar_findsval( struct bwb_variable *v, int *pp )
+X   {
+X   register int n;
+X   size_t offset;
+X   bstring *p;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in var_findsval(): entered, var <%s>", v->name );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* Check for appropriate type */
+X
+X   if ( v->type != STRING )
+X      {
+X      #if PROG_ERRORS
+X      sprintf ( bwb_ebuf, "in var_findsval(): Variable <%s> is not a string.", v->name );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_mismatch );
+X      #endif
+X      return NULL;
+X      }
+X
+X   /* Check subscripts */
+X
+X   if ( dim_check( v, pp ) == FALSE )
+X      {
+X      return NULL;
+X      }
+X
+X   /* Calculate and return the address of the dimensioned array */
+X
+X   offset = dim_unit( v, pp );
+X
+X   #if INTENSIVE_DEBUG
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      sprintf( bwb_ebuf,
+X         "in var_findsval(): dimensioned variable pos <%d> val <%d>.",
+X         n, pp[ n ] );
+X      bwb_debug( bwb_ebuf );
+X      }
+X   #endif
+X
+X   p = (bstring *) v->array;
+X   return (p + offset);
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       dim_check()
+X
+X        DESCRIPTION:    This function checks subscripts of a
+X                        specific variable to be sure that they
+X                        are within the correct range.
+X
+X***************************************************************/
+X
+Xint
+Xdim_check( struct bwb_variable *v, int *pp )
+X   {
+X   register int n;
+X
+X   /* Check for dimensions */
+X
+X   if ( v->dimensions < 1 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dim_check(): var <%s> dimensions <%d>",
+X         v->name, v->dimensions );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_valoorange );
+X      #endif
+X      return FALSE;
+X      }
+X
+X   /* Check for validly allocated array */
+X
+X   if ( v->array == NULL )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dim_check(): var <%s> array not allocated",
+X         v->name );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_valoorange );
+X      #endif
+X      return FALSE;
+X      }
+X
+X   /* Now check subscript values */
+X
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      if ( ( pp[ n ] < dim_base ) || ( ( pp[ n ] - dim_base )
+X         > v->array_sizes[ n ] ))
+X         {
+X         #if PROG_ERRORS
+X         sprintf( bwb_ebuf, "in dim_check(): array subscript var <%s> pos <%d> val <%d> out of range <%d>-<%d>.",
+X            v->name, n, pp[ n ], dim_base, v->array_sizes[ n ]  );
+X         bwb_error( bwb_ebuf );
+X         #else
+X         bwb_error( err_valoorange );
+X         #endif
+X         return FALSE;
+X         }
+X      }
+X
+X   /* No problems found */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       var_make()
+X
+X        DESCRIPTION:	This function initializes a variable,
+X        		allocating necessary memory for it.
+X
+X***************************************************************/
+X
+Xint
+Xvar_make( struct bwb_variable *v, int type )
+X   {
+X   size_t data_size;
+X   bstring *b;
+X   #if TEST_BSTRING
+X   static int tnumber = 0;
+X   #endif
+X
+X   switch( type )
+X      {
+X      case DOUBLE:
+X         v->type = DOUBLE;
+X         data_size = sizeof( double );
+X         break;
+X      case INTEGER:
+X         v->type = INTEGER;
+X         data_size = sizeof( int );
+X         break;
+X      case STRING:
+X         v->type = STRING;
+X         data_size = sizeof( bstring );
+X         break;
+X      default:
+X         v->type = SINGLE;
+X         data_size = sizeof( float );
+X         break;
+X      }
+X
+X   /* get memory for array */
+X
+X   if ( ( v->array = (char *) calloc( 2, data_size )) == NULL )
+X      {
+X      bwb_error( err_getmem );
+X      return NULL;
+X      }
+X
+X   /* get memory for array_sizes and array_pos */
+X
+X   if ( ( v->array_sizes = (int *) calloc( 2, sizeof( int ) )) == NULL )
+X      {
+X      bwb_error( err_getmem );
+X      return NULL;
+X      }
+X
+X   if ( ( v->array_pos = (int *) calloc( 2, sizeof( int ) )) == NULL )
+X      {
+X      bwb_error( err_getmem );
+X      return NULL;
+X      }
+X
+X   v->array_pos[ 0 ] = dim_base;
+X   v->array_sizes[ 0 ] = 1;
+X   v->dimensions = 1;
+X   v->common = FALSE;
+X   v->array_units = 1;
+X
+X   if ( type == STRING )
+X      {
+X      b = var_findsval( v, v->array_pos );
+X      b->rab = FALSE;      
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in var_make(): made variable <%s> type <%c> pos[ 0 ] <%d>",
+X      v->name, v->type, v->array_pos[ 0 ] );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if TEST_BSTRING
+X   if ( type == STRING )
+X      {
+X      b = var_findsval( v, v->array_pos );
+X      sprintf( b->name, "bstring # %d", tnumber );
+X      ++tnumber;
+X      sprintf( bwb_ebuf, "in var_make(): new string variable <%s>",
+X         b->name );
+X      bwb_debug( bwb_ebuf );
+X      }
+X   #endif
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_vars()
+X
+X        DESCRIPTION:    This function implements the Bywater-
+X        		specific debugging command VARS, which
+X        		gives a list of all variables defined
+X        		in memory.
+X
+X***************************************************************/
+X
+X#if PERMANENT_DEBUG
+Xstruct bwb_line *
+Xbwb_vars( struct bwb_line *l )
+X   {
+X   struct bwb_variable *v;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* run through the variable list and print variables */
+X
+X   for ( v = var_start.next; v != &var_end; v = v->next )
+X      {
+X      fprintf( stdout, "variable <%s>\t", v->name );
+X      switch( v->type )
+X         {
+X         case STRING:
+X            str_btoc( tbuf, var_getsval( v ) );
+X            fprintf( stdout, "STRING\tval: <%s>\n", tbuf );
+X            break;
+X         case INTEGER:
+X            fprintf( stdout, "INTEGER\tval: <%d>\n", var_getival( v ) );
+X            break;
+X         case DOUBLE:
+X            fprintf( stdout, "DOUBLE\tval: <%lf>\n", var_getdval( v ) );
+X            break;
+X         case SINGLE:
+X            fprintf( stdout, "SINGLE\tval: <%f>\n", var_getfval( v ) );
+X            break;
+X         default:
+X            fprintf( stdout, "ERROR: type is <%c>", (char) v->type );
+X            break;
+X         }
+X      }
+X
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X#endif
+END_OF_FILE
+  if test 56249 -ne `wc -c <'bwb_var.c'`; then
+    echo shar: \"'bwb_var.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwb_var.c'
+fi
+if test -f 'makefile.gcc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile.gcc'\"
+else
+  echo shar: Extracting \"'makefile.gcc'\" \(385 characters\)
+  sed "s/^X//" >'makefile.gcc' <<'END_OF_FILE'
+X#               Unix Makefile for Bywater BASIC Interpreter
+X#
+XCC=		gcc
+X
+XCFLAGS=         -O -ansi
+X
+XOFILES=		bwbasic.o bwb_int.o bwb_tbl.o bwb_cmd.o bwb_prn.o\
+X		bwb_exp.o bwb_var.o bwb_inp.o bwb_fnc.o bwb_cnd.o\
+X		bwb_ops.o bwb_dio.o bwb_str.o bwb_elx.c bwb_mth.o
+X
+XHFILES=         bwbasic.h bwb_mes.h
+X
+Xbwbasic:	$(OFILES)
+X		$(CC) $(CFLAGS) $(OFILES) -lm -o bwbasic
+X
+X$(OFILES):	$(HFILES)
+END_OF_FILE
+  if test 385 -ne `wc -c <'makefile.gcc'`; then
+    echo shar: \"'makefile.gcc'\" unpacked with wrong size!
+  fi
+  # end of 'makefile.gcc'
+fi
+echo shar: End of archive 3 \(of 11\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

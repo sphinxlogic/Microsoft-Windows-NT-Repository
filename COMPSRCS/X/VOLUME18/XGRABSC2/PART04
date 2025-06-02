@@ -1,0 +1,1870 @@
+Path: uunet!ogicse!hp-cv!sdd.hp.com!mips!msi!dcmartin
+From: bruce@SLC.COM (Bruce Schuchardt)
+Newsgroups: comp.sources.x
+Subject: v18i055: xgrabsc v2.1 - grab screen dump, Part04/05
+Message-ID: <1992Jul23.140223.27121@msi.com>
+Date: 23 Jul 92 14:02:23 GMT
+Article-I.D.: msi.1992Jul23.140223.27121
+References: <csx-18i052-xgrabsc-2.1@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1856
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: bruce@SLC.COM (Bruce Schuchardt)
+Posting-number: Volume 18, Issue 55
+Archive-name: xgrabsc-2.1/part04
+
+#!/bin/sh
+# this is part.04 (part 4 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xgrab.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 4; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xgrab.c'
+else
+echo 'x - continuing file xgrab.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xgrab.c' &&
+X *
+X *
+X * Description:
+X *
+X * xgrab.c - interactive front for xgrabsc
+X *
+X *========================================================================
+X */
+#include "cpyright.h"
+#include "patchlevel.h"
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Shell.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Label.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/AsciiText.h>
+#include <X11/Xaw/Toggle.h>
+X
+static char *fallback_resources[] = {
+#include "xgrab_ad.h"
+X  NULL
+X  };
+X
+X
+static Display *hDisplay;
+X
+typedef enum {
+X  HITWIN = 1,
+X  STRETCH,
+X  KEY,
+X  ROOT,
+X
+X  XWD,
+X  PS,
+X  BITMAP,
+X  BITMAP2,
+X  BITMAP3,
+X  PUZZLE,
+X  SIMPLE,
+X
+X  DITHER,
+X  HALFTONE,
+X  MAPBW,
+X
+X  REVERSE,
+X
+X  TOFILE,
+X  TOPRN,
+X
+X  PS_NORMAL,
+X  PS_EPS,
+X  PS_EPSI,
+X  PS_LANDSCAPE
+X  
+X  } radioType;
+X
+X
+Widget selBtns, formatBtns, psColr, encBtns, psComp, sltext, psltext,
+X       psBin, borderBtn, horizMargin, vertMargin, pgHeight, pgWidth,
+X       cnvBtns, revBtn, brtext, outBtns, filenm, prncmd, dispBtn, hostnm;
+Widget hShell;
+X
+XXtAppContext appContext;
+X
+X
+static void doGrab() {
+X  char tmp[14];
+X  char cmdargs[200];
+X  char piper[200];
+X  char cmd[500];
+X  char *txt;
+X  int  sltime, psltime;
+X  int  bright;
+X  Boolean state;
+X
+X  cmdargs[0] = '\0';
+X  piper[0] = '\0';
+X
+X  XtVaGetValues(sltext, XtNstring, &txt, NULL);
+X  sltime = atoi(txt);
+X  if (sltime < 0) sltime = 0;
+X  sprintf(tmp, "-sleep %d ", sltime);
+X  strcat(cmdargs, tmp);
+X
+X  XtVaGetValues(psltext, XtNstring, &txt, NULL);
+X  psltime = atoi(txt);
+X  if (psltime < 0) psltime = 0;
+X  sprintf(tmp, "-post %d ", psltime);
+X  strcat(cmdargs, tmp);
+X
+X  XtVaGetValues(brtext, XtNstring, &txt, NULL);
+X  bright = atoi(txt);
+X  sprintf(tmp, "-brighten %d ", bright);
+X  strcat(cmdargs, tmp);
+X
+X  XtVaGetValues(borderBtn, XtNstate, &state, NULL);
+X  if (!state)
+X    strcat(cmdargs, "-");
+X  strcat(cmdargs, "-bdrs ");
+X
+X  XtVaGetValues(revBtn, XtNstate, &state, NULL);
+X  if (!state)
+X    strcat(cmdargs, "-");
+X  strcat(cmdargs, "-reverse ");
+X
+X  switch ((int)XawToggleGetCurrent(selBtns)) {
+X    case HITWIN:
+X      strcat(cmdargs, "-click ");
+X      break;
+X    case KEY:
+X      strcat(cmdargs, "-key ");
+X      break;
+X    case ROOT:
+X      strcat(cmdargs, "-root ");
+X      break;
+X    case STRETCH:
+X    default:
+X      strcat(cmdargs, "-stretch ");
+X      break;
+X  }
+X  switch ((int)XawToggleGetCurrent(formatBtns)) {
+X    case XWD:
+X      strcat(cmdargs, "-xwd ");
+X      break;
+X    case BITMAP:
+X      strcat(cmdargs, "-bm ");
+X      break;
+X    case BITMAP2:
+X      strcat(cmdargs, "-bm2 ");
+X      break;
+X    case BITMAP3:
+X      strcat(cmdargs, "-bm3 ");
+X      break;
+X    case PUZZLE:
+X      strcat(cmdargs, "-puzzle ");
+X      break;
+X    case SIMPLE:
+X      strcat(cmdargs, "-simple ");
+X      break;
+X    case PS:
+X    default:
+X      XtVaGetValues(psColr, XtNstate, &state, NULL);
+X      if (state)
+X        strcat(cmdargs, "-ps ");
+X      else
+X        strcat(cmdargs, "-cps ");
+X
+X      switch ((int)XawToggleGetCurrent(encBtns)) {
+X        case PS_EPS:
+X          strcat(cmdargs, "-eps ");
+X	  break;
+X	case PS_EPSI:
+X	  strcat(cmdargs, "-preview ");
+X	  break;
+X	case PS_LANDSCAPE:
+X	  strcat(cmdargs, "-landscape ");
+X	  break;
+X	default:
+X	  break;
+X      }
+X
+X      XtVaGetValues(psComp, XtNstate, &state, NULL);
+X      if (!state)
+X        strcat(cmdargs, "-");
+X      strcat(cmdargs, "-compress ");
+X      XtVaGetValues(psBin, XtNstate, &state, NULL);
+X      if (!state)
+X        strcat(cmdargs, "-");
+X      strcat(cmdargs, "-bin ");
+X
+X      strcat(cmdargs, "-page ");
+X      XtVaGetValues(pgWidth, XtNstring, &txt, NULL);
+X      if (strlen(txt))    strcat(cmdargs, txt);
+X      else                strcat(cmdargs, "8.5");
+X      strcat(cmdargs, "x");
+X      XtVaGetValues(pgHeight, XtNstring, &txt, NULL);
+X      if (strlen(txt))    strcat(cmdargs, txt);
+X      else                strcat(cmdargs, "11.0");
+X      strcat(cmdargs, "-");
+X      XtVaGetValues(horizMargin, XtNstring, &txt, NULL);
+X      if (strlen(txt))    strcat(cmdargs, txt);
+X      else                strcat(cmdargs, "0.5");
+X      strcat(cmdargs, "-");
+X      XtVaGetValues(horizMargin, XtNstring, &txt, NULL);
+X      if (strlen(txt))    strcat(cmdargs, txt);
+X      else                strcat(cmdargs, "0.5");
+X      strcat(cmdargs, " ");
+X
+X      break;
+X  }
+X  switch ((int)XawToggleGetCurrent(cnvBtns)) {
+X    case DITHER:
+X      strcat(cmdargs, "-dither ");
+X      break;
+X    case HALFTONE:
+X      strcat(cmdargs, "-halftone ");
+X      break;
+X    case MAPBW:
+X      strcat(cmdargs, "-bw ");
+X      break;
+X    default:
+X      break;
+X  }
+X  switch ((int)XawToggleGetCurrent(outBtns)) {
+X    case TOPRN:
+X      XtVaGetValues(prncmd, XtNstring, &txt, NULL);
+X      if (strlen(txt)) {
+X        strcat(piper, " | ");
+X        strcat(piper, txt);
+X      }
+X      break;
+X    case TOFILE:
+X    default:
+X      strcat(cmdargs, "-o ");
+X      XtVaGetValues(filenm, XtNstring, &txt, NULL);
+X      if (strlen(txt))
+X        strcat(cmdargs, txt);
+X      else
+X        strcat(cmdargs, "screen.dmp");
+X      strcat(cmdargs, " ");
+X      break;
+X  }
+X
+X  XtVaGetValues(dispBtn, XtNstate, &state, NULL);
+X  if (state) {
+X    XtVaGetValues(hostnm, XtNstring, &txt, NULL);
+X    strcat(cmdargs, "-d ");
+X    if (strlen(txt)) {
+X      strcat(cmdargs, txt);
+X      strcat(cmdargs, " ");
+X    }
+X    else
+X      strcat(cmdargs, ":0 ");
+X  }
+X
+X  sprintf(cmd, "xgrabsc %s%s\n", cmdargs, piper);
+X  /* fputs(cmd, stderr); */
+X  /* try to make the window iconic */
+X  XtUnmapWidget(hShell);
+X  XSync(hDisplay, False);
+X  system(cmd);
+X  XtMapWidget(hShell);
+}
+X
+X
+X
+X
+static void doDismiss() {
+X  if (hShell) {
+X    XtDestroyWidget(hShell);
+X    hShell = NULL;
+X    exit(0);
+X  }
+}
+X
+X
+X
+X
+static void createWindow() {
+X  Widget dialog, button, box1, box2, box3, box4, box5, box6;
+X
+X  dialog = XtVaCreateManagedWidget("dialog", formWidgetClass, hShell,
+X           NULL);
+X           XtVaCreateManagedWidget("title",  labelWidgetClass, dialog,
+X           NULL);
+X
+X
+X  /* selection options */
+X  /* input options */
+X  box1 = XtVaCreateManagedWidget("box1", formWidgetClass, dialog, NULL);
+X
+X           XtVaCreateManagedWidget("inputLbl", labelWidgetClass, box1,
+X	   NULL);
+X
+X  dispBtn= XtVaCreateManagedWidget("host", toggleWidgetClass, box1,
+X	   NULL);
+X
+X  hostnm = XtVaCreateManagedWidget("hostText", asciiTextWidgetClass, box1,
+X           XtNeditType, XawtextEdit, NULL);
+X
+X  if (getenv("DISPLAY"))
+X    XtVaSetValues(hostnm, XtNstring, getenv("DISPLAY"), NULL);
+X
+X  selBtns =
+X           XtVaCreateManagedWidget("click", toggleWidgetClass, box1,
+X           XtNradioData, HITWIN,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("stretch", toggleWidgetClass, box1,
+X           XtNradioData, STRETCH,
+X	   XtNradioGroup, selBtns,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("key", toggleWidgetClass, box1,
+X           XtNradioData, KEY,
+X	   XtNradioGroup, selBtns,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("root", toggleWidgetClass, box1,
+X           XtNradioData, ROOT,
+X	   XtNradioGroup, selBtns,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("sleeplbl", labelWidgetClass, box1,
+X           NULL);
+X
+X  sltext = XtVaCreateManagedWidget("sleeptime", asciiTextWidgetClass, box1,
+X           XtNeditType, XawtextEdit, NULL);
+X
+X           XtVaCreateManagedWidget("psleeplbl", labelWidgetClass, box1,
+X           NULL);
+X
+X  psltext = XtVaCreateManagedWidget("psleeptime", asciiTextWidgetClass, box1,
+X           XtNeditType, XawtextEdit, NULL);
+X
+X  box2 = XtVaCreateManagedWidget("box2", formWidgetClass, dialog, NULL);
+X
+X  /* output options */
+X           XtVaCreateManagedWidget("outputFormat", labelWidgetClass, box2,
+X           NULL);
+X
+X  formatBtns =
+X           XtVaCreateManagedWidget("xwd", toggleWidgetClass, box2,
+X           XtNradioData, XWD,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("ps", toggleWidgetClass, box2,
+X           XtNradioData, PS,
+X	   XtNradioGroup, formatBtns,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("xpm", toggleWidgetClass, box2,
+X           XtNradioData, BITMAP,
+X	   XtNradioGroup, formatBtns,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("xpm2", toggleWidgetClass, box2,
+X           XtNradioData, BITMAP2,
+X	   XtNradioGroup, formatBtns,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("xpm3", toggleWidgetClass, box2,
+X           XtNradioData, BITMAP3,
+X	   XtNradioGroup, formatBtns,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("puzzle", toggleWidgetClass, box2,
+X           XtNradioData, PUZZLE,
+X	   XtNradioGroup, formatBtns,
+X	   NULL);
+X
+X
+X
+X  /* postscript options */
+X  box3 = XtVaCreateManagedWidget("box3", formWidgetClass, dialog, NULL);
+X
+X           XtVaCreateManagedWidget("psOptions", labelWidgetClass, box3,
+X           NULL);
+X
+X  psComp = XtVaCreateManagedWidget("compress", toggleWidgetClass, box3,
+X	   NULL);
+X
+X  psColr = XtVaCreateManagedWidget("color", toggleWidgetClass, box3,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("pageWidth", labelWidgetClass, box3,
+X           NULL);
+X
+X  pgWidth = XtVaCreateManagedWidget("pageWidthText",asciiTextWidgetClass, box3,
+X           XtNeditType, XawtextEdit, NULL);
+X
+X           XtVaCreateManagedWidget("pageHeight", labelWidgetClass, box3,
+X           NULL);
+X
+X  pgHeight = XtVaCreateManagedWidget("pageHeightText",asciiTextWidgetClass, box3,
+X           XtNeditType, XawtextEdit, NULL);
+X
+X           XtVaCreateManagedWidget("horizMargin", labelWidgetClass, box3,
+X           NULL);
+X
+X  horizMargin = XtVaCreateManagedWidget("horizMarginText",asciiTextWidgetClass, box3,
+X           XtNeditType, XawtextEdit, NULL);
+X
+X           XtVaCreateManagedWidget("vertMargin", labelWidgetClass, box3,
+X           NULL);
+X
+X  vertMargin = XtVaCreateManagedWidget("vertMarginText",asciiTextWidgetClass, box3,
+X           XtNeditType, XawtextEdit, NULL);
+X
+X
+X  encBtns= XtVaCreateManagedWidget("landscape", toggleWidgetClass, box3,
+X           XtNradioData, PS_LANDSCAPE,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("encap", toggleWidgetClass, box3,
+X           XtNradioData, PS_EPS,
+X	   XtNradioGroup, encBtns,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("epsi", toggleWidgetClass, box3,
+X           XtNradioData, PS_EPSI,
+X	   XtNradioGroup, encBtns,
+X	   NULL);
+X
+X  psBin = XtVaCreateManagedWidget("binary", toggleWidgetClass, box3,
+X	   NULL);
+X
+X
+X  /* image processing options */
+X  box4 = XtVaCreateManagedWidget("box4", formWidgetClass, dialog, NULL);
+X
+X           XtVaCreateManagedWidget("prOptions", labelWidgetClass, box4,
+X           NULL);
+X  cnvBtns= XtVaCreateManagedWidget("dither", toggleWidgetClass, box4,
+X           XtNradioData, DITHER,
+X	   NULL);
+X           XtVaCreateManagedWidget("halftone", toggleWidgetClass, box4,
+X           XtNradioData, HALFTONE,
+X	   XtNradioGroup, cnvBtns,
+X	   NULL);
+X           XtVaCreateManagedWidget("mapbw", toggleWidgetClass, box4,
+X           XtNradioData, MAPBW,
+X	   XtNradioGroup, cnvBtns,
+X	   NULL);
+X
+X           XtVaCreateManagedWidget("brightnessLbl", labelWidgetClass, box4,
+X	   NULL);
+X  brtext = XtVaCreateManagedWidget("brightnessText", asciiTextWidgetClass, box4,
+X           XtNeditType, XawtextEdit, NULL);
+X
+X  revBtn = XtVaCreateManagedWidget("reverse", toggleWidgetClass, box4, NULL);
+X
+X  borderBtn = XtVaCreateManagedWidget("borders", toggleWidgetClass, box4, NULL);
+X
+X  box5 = XtVaCreateManagedWidget("box5", formWidgetClass, dialog, NULL);
+X
+X           XtVaCreateManagedWidget("outputLbl", labelWidgetClass, box5,
+X	   NULL);
+X
+X  outBtns= XtVaCreateManagedWidget("file", toggleWidgetClass, box5,
+X           XtNradioData, TOFILE,
+X	   NULL);
+X
+X  filenm = XtVaCreateManagedWidget("fileText", asciiTextWidgetClass, box5,
+X           XtNeditType, XawtextEdit, NULL);
+X
+X           XtVaCreateManagedWidget("printer", toggleWidgetClass, box5,
+X           XtNradioData, TOPRN,
+X	   XtNradioGroup, outBtns,
+X	   NULL);
+X
+X  prncmd = XtVaCreateManagedWidget("printerText", asciiTextWidgetClass, box5,
+X           XtNeditType, XawtextEdit, NULL);
+X
+X
+X  box6 = XtVaCreateManagedWidget("box6", formWidgetClass, dialog, NULL);
+X
+X  XtVaCreateManagedWidget("splat", labelWidgetClass, box6, NULL);
+X  
+X  button = XtVaCreateManagedWidget("OK", commandWidgetClass, box6, NULL);
+X  XtAddCallback(button, XtNcallback, doGrab, NULL);
+X
+X  button = XtVaCreateManagedWidget("Dismiss", commandWidgetClass, box6, NULL);
+X  XtAddCallback(button, XtNcallback, doDismiss, NULL);
+X
+}
+X
+X
+X
+int main(argc, argv, envp)
+X  int argc;
+X  char *argv[];
+X  char *envp;
+{
+X  puts("X-Windows Screen Grabber");
+X  puts(Copyright);
+X  puts("");
+X
+X
+X  hShell = XtAppInitialize(&appContext, "XGrab", NULL, 0, &argc, argv,
+X     fallback_resources, NULL, 0);
+X
+X  hDisplay = XtDisplay(hShell);
+X  createWindow();
+X
+X  XtRealizeWidget(hShell);
+X  XtAppMainLoop(appContext);
+}
+SHAR_EOF
+echo 'File xgrab.c is complete' &&
+chmod 0644 xgrab.c ||
+echo 'restore of xgrab.c failed'
+Wc_c="`wc -c < 'xgrab.c'`"
+test 12758 -eq "$Wc_c" ||
+	echo 'xgrab.c: original size 12758, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xgrabsc.c ==============
+if test -f 'xgrabsc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xgrabsc.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xgrabsc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xgrabsc.c' &&
+/*========================================================================
+X *
+X * Name - xgrabsc.c
+X *
+X * ccs version:	1.18
+X *
+X * ccsid:	@(#)xgrabsc.c	1.18 - 7/9/92 12:49:24
+X * from: 	ccs/s.xgrabsc.c
+X * date: 	7/9/92 13:35:30
+X *
+X * Copyright (c) 1990-92 Bruce Schuchardt.
+X * Read the file cpyright.h for full copyright information.
+X *
+X *
+X * Description:
+X *
+X * xgrabsc - grab screen images and store in files
+X *
+X *========================================================================
+X */
+X
+#include "cpyright.h"
+#include "patchlevel.h"
+#include "config.h"
+#include "ps_color.h"
+#include "checkvm.h"
+#include "cmdopts.h"
+X
+#include <stdio.h>
+X
+#include <X11/Xos.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <X11/cursorfont.h>
+#include <X11/Xatom.h>
+X
+#ifdef VMS
+#include "XWDFile.h"
+#else
+#include <X11/XWDFile.h>
+#endif /* VMS */
+X
+#ifndef CARD32
+#include <X11/Xmd.h>
+#endif
+X
+#include <X11/Xmu/WinUtil.h>
+X
+#ifndef NO_VIRTUAL_WINDOW
+#include "virtual.h"
+#endif
+X
+X
+#define MAX_CELLS  256
+#define TRUE  1
+#define FALSE 0
+X
+X
+typedef enum {
+X  NO_DITHER=0,
+X  FS_DITHER,
+X  MATRIX_DITHER,
+X  MATRIX_HALFTONE,
+X  MAP_BW
+} ditherType;
+X
+X
+typedef unsigned char byte;
+typedef unsigned long dw;
+typedef unsigned int  word;
+X
+X
+X
+typedef struct {
+X  XImage *ximage;
+X  word numcells;
+X  word red[MAX_CELLS], green[MAX_CELLS], blue[MAX_CELLS];
+X  byte used[MAX_CELLS];
+} imageInfo;
+X
+X
+typedef enum {
+X  sourceRect,
+X  sourceRoot,
+X  sourceId,
+X  sourceWd,
+X  sourceKey
+} sourceType;
+X
+typedef enum {
+X  puzzleFormat,
+X  psFormat,
+X  simpleFormat,
+X  xwdFormat,
+X  pixmapFormat
+} formatType;
+X
+X
+X
+X
+#ifdef BCOPY
+#ifdef MEMCPY
+#undef MEMCPY
+#endif
+#define memcpy(x,y,c) bcopy(y,x,c)
+#define memset(x,c)   bzero(x,c) /* well, I only use it for zeroing out stuff */
+#endif
+X
+#ifdef MEMCPY
+char *memcpy();
+char *memset();
+#endif
+X
+X
+#ifdef VMS
+#define rindex strrchr
+#endif
+X
+static Display *hDisplay;
+static int      hScreen;
+static Window   hRoot, vRoot;
+static int      displayCells;
+static char    *programName;
+static char    *imageName;
+X
+static char    *version    = XGRABSC_VERSION;
+static int      patchLevel = XGRABSC_PATCHLEVEL;
+static int      verbose;
+X
+static word nr[MAX_CELLS], ng[MAX_CELLS], nb[MAX_CELLS];
+X
+static char   hexdigits[] = "0123456789abcdef";
+X
+static double pageWidth   = PAPER_WIDTH;
+static double pageHeight  = PAPER_HEIGHT;
+static double horizMargin = HORIZ_MARGIN;
+static double vertMargin  = VERT_MARGIN;
+static double horizInset  = PAPER_WIDTH - HORIZ_MARGIN - HORIZ_MARGIN;
+static double vertInset   = PAPER_HEIGHT - VERT_MARGIN - VERT_MARGIN;
+X
+static int needColorImageProc;
+X
+X
+/* most functions have been moved to seperate source include files */
+X
+#include "process.hc"         /* color processing     */
+#include "get.hc"             /* get images           */
+#include "mem.hc"             /* memcpy, memset       */
+#include "convert.hc"         /* color->bw conversion */
+#include "write.hc"           /* output functions     */
+X
+X
+X
+xgrabsc(argc, argv, env)
+X  int argc;
+X  char *argv[];  /* must have at least argv[0] == programName */
+X  char *env;
+{
+X  char        *args[100], *arg;
+X  extern char *optarg;
+X  FILE        *outfile;
+X  char        *outfileName;
+X  XRectangle  xrect;
+X  XWindowAttributes xwa;
+X  imageInfo   image;
+X  int         argn, argi, polarity;
+X  int	      cmdi, cmdargi;
+X  int         doAnd;
+X  int         doOr;
+X  int         doReverse;
+X  int         depth;
+X  int         noBell;
+X  int         psColor;
+X  int         brighten;
+X  int         forceBitmap;
+X  int         grabServer;
+X  ditherType  ditherKind;
+X  int         halftone;
+X  int         compress;
+X  int         sleepSeconds;
+X  int         postSelectSleepSeconds;
+X  int         andBits;
+X  int         orBits;
+X  int         encapsulate;
+X  Window      sourceWindow, childWindow, clientWindow, wmWindow, ignored;
+X  char       *ptr;
+X  char       *display;
+X  int         i, x, y;
+X  int         brightenFactor;
+X  sourceType  source;
+X  formatType  outputFormat;
+X  int         xpmFormat;
+X  int         landscape;
+X  int         binary;
+X  int	      borders;
+X  int	      checkLimits;
+X  int	      preview;
+X
+X
+X  outfile     = stdout;
+X  outfileName = NULL;
+X  display     = NULL;
+X  programName = argv[0];
+X
+X  noBell       = FALSE;
+X  brighten     = FALSE;
+X  compress     = TRUE;
+X  ditherKind   = NO_DITHER;
+X  doAnd        = FALSE;
+X  doOr         = FALSE;
+X  doReverse    = FALSE;
+X  encapsulate  = FALSE;
+X  forceBitmap  = FALSE;
+X  grabServer   = TRUE;
+X  halftone     = FALSE;
+X  landscape    = FALSE;
+X  binary       = FALSE;
+X  sleepSeconds = 0;
+X  postSelectSleepSeconds = 0;
+X  verbose      = FALSE;
+X  borders      = TRUE;
+#ifdef NO_PRINTER_MEMORY_CHECKS
+X  checkLimits  = FALSE;
+#else
+X  checkLimits  = TRUE;
+#endif
+X  preview      = FALSE;
+X  needColorImageProc = DEFAULT_NEED_COLORIMAGE_PROC;
+X
+X  source       = sourceRect;
+X  outputFormat = psFormat;
+X
+X
+X  /* merge environment options and command line options */
+X  args[0] = programName;
+X  if (env != NULL) {
+X    args[1] = env;
+X    for (argn=2; argn<100  &&
+X                (args[argn]=(char *)strchr(args[argn-1], ' ')) != NULL;
+X	        argn++) {
+X      /* remove leading white space */
+X      while (*args[argn] == ' ' || *args[argn] == 9) {
+X        *(args[argn]) = '\0';
+X        args[argn]++;
+X      }
+X      if (*args[argn] == '|' || *args[argn] == '>') /* dbx leaves these in the cmd line */
+X        break;
+X    }
+X  }
+X  else
+X    argn = 1;
+X
+X  for (i=1; i<argc && argn<100; argn++, i++)
+X    args[argn] = argv[i];
+X
+X  
+X  for (argi=1; argi<argn; argi++) {
+X    arg = args[argi];
+X
+X    polarity = 1;
+X    if (arg[0] == '-') {
+X      arg++;
+X      if (arg[0] == '-') {
+X        arg++;
+X	polarity = 0;
+X      }
+X    }
+X
+X    for (cmdi=0; cmdi<numCmds; cmdi++) {
+X      if (strcmp(arg, commands[cmdi].userstr) == 0)
+X        break;
+X    }
+X    if (cmdi >= numCmds) {
+X      fprintf(stderr, "%s: unknown option '%s'\n", programName, arg);
+X      exit(3);
+X    }
+X
+X    cmdargi = argi+1;
+X    argi += commands[cmdi].numargs;
+X    if (argi >= argn) {
+X      fprintf(stderr, "%s: not enough arguments for '%s'\n", programName, arg);
+X      exit(3);
+X    }
+X
+X    switch (commands[cmdi].command) {
+X      case CMD_DISPLAY:
+X        display = args[cmdargi];
+X        break;
+X      case CMD_BELL:
+X        noBell = !polarity;
+X        break;
+X      case CMD_GRABSERVER:
+X        grabServer = polarity;
+X        break;
+X      case CMD_OUTPUT:
+X        outfileName = args[cmdargi];
+X        break;
+X      case CMD_PRESLEEP:
+X        sleepSeconds = atoi(args[cmdargi]);
+X        if (sleepSeconds < 0) sleepSeconds = 0;
+X        break;
+X      case CMD_POSTSLEEP:
+X        postSelectSleepSeconds = atoi(args[cmdargi]);
+X        if (postSelectSleepSeconds < 0) postSelectSleepSeconds = 0;
+X        break;
+X      case CMD_VERBOSE:
+X        verbose = polarity;
+X        break;
+X      case CMD_BORDERS:
+X        borders = polarity;
+X	break;
+X      case CMD_NOBORDERS:
+X        borders = !polarity;
+X	break;
+X
+X
+X      case CMD_SOURCE_KEY:
+X        source = sourceKey;
+X        grabServer = FALSE;
+X	break;
+X      case CMD_SOURCE_ID:
+X        source = sourceId;
+X        sourceWindow = 0;
+X        if (!sscanf(args[cmdargi], "%ix", &sourceWindow)) {
+X          fprintf(stderr, "%s: invalid window id '%s'\n", programName, args[cmdargi]);
+X	  exit(3);
+X        }
+X        break;
+X      case CMD_SOURCE_RECT:
+X	source = sourceRect;
+X	break;
+X      case CMD_SOURCE_ROOT:
+X        source = sourceRoot;
+X        break;
+X      case CMD_SOURCE_WD:
+X        source = sourceWd;
+X        break;
+X
+X
+X
+X      case CMD_AND:
+X        doAnd = polarity;
+X	if (doAnd)
+X          andBits = atoi(args[cmdargi]);
+X        break;
+X      case CMD_OR:
+X        doOr = polarity;
+X	if (doOr)
+X          orBits = atoi(args[cmdargi]);
+X        break;
+X      case CMD_NOT:
+X        doReverse = polarity;
+X	break;
+X      case CMD_BRIGHTEN:
+X        brighten = polarity;
+X	if (brighten) {
+X          brightenFactor = atoi(args[cmdargi]);
+X          if (brightenFactor <= 0) {
+X            fprintf(stderr, "%s: brightening factor must be a positive number\n",
+X              programName);
+X            exit(3);
+X          }
+X	  if (brightenFactor != 100)
+X            brighten = TRUE;
+X	  else
+X	    brighten = FALSE;
+X	}
+X        break;
+X
+X      case CMD_DITHER_MAP:
+X        forceBitmap = TRUE;
+X        halftone = FALSE;
+X        break;
+X      case CMD_DITHER_MATRIX:
+X        ditherKind = MATRIX_DITHER;
+X        halftone = TRUE;
+X        forceBitmap = FALSE;
+X        break;
+X      case CMD_DITHER_FS:
+X        ditherKind = FS_DITHER;
+X        halftone = TRUE;
+X        forceBitmap = FALSE;
+X        break;
+X      case CMD_DITHER_HALFTONE:
+X        ditherKind = MATRIX_HALFTONE;
+X        halftone = TRUE;
+X        forceBitmap = FALSE;
+X        break;
+X      case CMD_DITHER_NONE:
+X        ditherKind = NO_DITHER;
+X	halftone = forceBitmap = FALSE;
+X	break;
+X
+X
+X
+X      case CMD_OUTPUT_PS:
+X        psColor = FALSE;
+X        outputFormat = psFormat;
+X        break;
+X      case CMD_OUTPUT_CPS:
+X        psColor = polarity;
+X        outputFormat = psFormat;
+X	break;
+X      case CMD_OUTPUT_SIMPLE:
+X        outputFormat = simpleFormat;
+X        break;
+X      case CMD_OUTPUT_XWD:
+X        outputFormat = xwdFormat;
+X        break;
+X      case CMD_OUTPUT_PIXMAP:
+X        xpmFormat = 1;
+X        outputFormat = pixmapFormat;
+X        break;
+X      case CMD_OUTPUT_XPM2:
+X        if (polarity) xpmFormat = 2;
+X	else if (xpmFormat == 2) xpmFormat = 1;
+X	outputFormat = pixmapFormat;
+X	break;
+X      case CMD_OUTPUT_XPM3:
+X        if (polarity) xpmFormat = 3;
+X	else if (xpmFormat == 3) xpmFormat = 1;
+X	outputFormat = pixmapFormat;
+X	break;
+X
+X      case CMD_OUTPUT_PUZZLE:
+X        outputFormat = puzzleFormat;
+X        break;
+X
+X      case CMD_LANDSCAPE:
+X        landscape = polarity;
+X	outputFormat = psFormat;
+X        break;
+X      case CMD_BIN:
+X        binary = polarity;
+X        outputFormat = psFormat;
+X	break;
+X      case CMD_COMPRESS:
+X        compress = polarity;
+X        outputFormat = psFormat;
+X        break;
+X      case CMD_EPS:
+X        encapsulate = polarity;
+X        outputFormat = psFormat;
+X	break;
+X      case CMD_LIMIT:
+X        checkLimits = polarity;
+X        outputFormat = psFormat;
+X	break;
+X      case CMD_PREVIEW:
+X        preview = polarity;
+X        outputFormat = psFormat;
+X	break;  
+X      case CMD_PAGE:
+X        outputFormat = psFormat;
+X        sscanf(args[cmdargi], "%lfx%lf-%lf-%lf",
+X	  &pageWidth, &pageHeight, &horizMargin, &vertMargin);
+X	horizInset = pageWidth - horizMargin - horizMargin;
+X	vertInset  = pageHeight - vertMargin - vertMargin;
+X        break;
+X      case CMD_COLORPROC:
+X        outputFormat = psFormat;
+X	needColorImageProc = polarity;
+X	break;
+X    }
+X  }
+X
+X
+X  if (verbose) {
+X    fprintf(stderr, "%s: xgrabsc version %s\n", programName, version);
+X    fprintf(stderr, "%s:         patchlevel %d\n", programName, patchLevel);
+X    fprintf(stderr, "%s:         %s\n\n", programName, Copyright);
+X  }
+X
+X  if (!display) display = (char *)getenv("DISPLAY");
+X  hDisplay = XOpenDisplay(display);
+X  if (!hDisplay) {
+X    fprintf(stderr, "%s: could not open X display\n", programName);
+X    exit(3);
+X  }
+X  hScreen  = DefaultScreen(hDisplay);
+X  hRoot    = DefaultRootWindow(hDisplay);
+#ifndef NO_VIRTUAL_WINDOW
+X  vRoot    = VirtualRootWindow(hDisplay, hScreen);
+#else
+X  vRoot    = hRoot;
+#endif
+X
+X  depth  = DefaultDepth(hDisplay, hScreen);
+X  if (DisplayCells(hDisplay, hScreen) > MAX_CELLS) {
+X    fprintf(stderr, "%s: color table is too big for this program\n",
+X      programName);
+X    XCloseDisplay(hDisplay);
+X    exit(3);
+X  }
+X
+X  /* sleep if asked to do so */
+X  if (sleepSeconds)
+X    sleep(sleepSeconds);
+X
+X  /* grab the screen if asked to do so */
+X  if (grabServer)
+X    XGrabServer(hDisplay);
+X
+X
+X
+X  if (source != sourceId)
+X    sourceWindow = hRoot;
+X
+X  switch (source) {
+X    case sourceKey:
+X      childWindow =
+#ifdef SELECTION_MASK
+X          getWindowWhenKeyIsPressed(SELECTION_MASK)
+#else
+X          getWindowWhenKeyIsPressed(ControlMask);
+#endif
+X      if (!childWindow) {
+X        fprintf(stderr, "%s: unable to find source window\n", programName);
+X        XCloseDisplay(hDisplay);
+X        exit(3);
+X      }
+X      break;
+X    case sourceId:
+X      childWindow = sourceWindow;
+X      break;
+X    case sourceWd:
+X      /* grab the image from the root window so menus will show up on top
+X       * of the window */
+X      childWindow=getWindow();
+X      if (!childWindow) {
+X        fprintf(stderr, "%s: unable to find source window\n", programName);
+X        XCloseDisplay(hDisplay);
+X        exit(3);
+X      }
+X      break;
+X    case sourceRoot:
+X      xrect.x = xrect.y = 0;
+X      xrect.width  = DisplayWidth(hDisplay, hScreen);
+X      xrect.height = DisplayHeight(hDisplay, hScreen);
+X      break;
+X    case sourceRect:
+X    default:
+X      if (!getRectangle(&xrect)) {
+X        XCloseDisplay(hDisplay);
+X        exit(3);
+X      }
+X      break;
+X  }
+X
+X
+X
+X  clientWindow = (Window)NULL;
+X  if (!borders  &&
+X      (source == sourceKey || source == sourceWd)  &&
+X      childWindow != hRoot) {
+X    /* look for a different client window */
+X    clientWindow = XmuClientWindow(hDisplay, childWindow);
+X    if (clientWindow && clientWindow != childWindow) {
+X      if (verbose)
+X	fprintf(stderr, "%s: found subwindow 0x%x\n", programName, clientWindow);
+X      wmWindow = childWindow;
+X      childWindow = clientWindow;
+X    }
+X  }
+X
+X  if ((source == sourceKey && childWindow != hRoot) ||
+X      source == sourceId ||
+X      source == sourceWd) {
+X
+X    if (childWindow == hRoot) {
+X      xrect.x      = 0;
+X      xrect.y      = 0;
+X      xrect.width  = DisplayWidth(hDisplay, hScreen);
+X      xrect.height = DisplayHeight(hDisplay, hScreen);
+X    }
+X    else {
+X
+X      /* take the child window (and optional client/wm window info) and
+X      * determine the portion of the root window that should be grabbed */
+X
+X      if (!XGetWindowAttributes(hDisplay, childWindow, &xwa)) {
+X        fprintf(stderr, "%s: unable to get window coordinates\n", programName);
+X        XCloseDisplay(hDisplay);
+X        exit(3);
+X      }
+X
+X      /* get the correct screen and root window for the selected window,
+X        * and if it isn't the default, muck with the global state of the
+X        * program a bit
+X        */
+X      i = XScreenNumberOfScreen(xwa.screen);
+X      if (i != hScreen) {
+X        hRoot   = xwa.root;
+X        hScreen = i;
+#ifndef NO_VIRTUAL_WINDOW
+X        vRoot   = VirtualRootWindow(hDisplay, hScreen);
+#else
+X        vRoot   = hRoot;
+#endif
+X        depth   = DefaultDepth(hDisplay, hScreen);
+X      }
+X
+X      sourceWindow = vRoot;
+X      if (!borders) {
+X        xrect.x      = xwa.x + xwa.border_width;
+X        xrect.y      = xwa.y + xwa.border_width;
+X        xrect.width  = xwa.width;
+X        xrect.height = xwa.height;
+X      }
+X      else {
+X        xrect.x      = xwa.x;
+X        xrect.y      = xwa.y;
+X        xrect.width  = xwa.width + (2 * xwa.border_width);
+X        xrect.height = xwa.height + (2 * xwa.border_width);
+X      }
+X
+X      /* if a subwindow of a window-manager window was found, adjust
+X        * the coordinates of the rectangle to be grabbed */
+X      if (clientWindow  &&  clientWindow != wmWindow) {
+X        if (!XGetWindowAttributes(hDisplay, wmWindow, &xwa)) {
+X          fprintf(stderr, "%s: unable to get window coordinates\n", programName);
+X          XCloseDisplay(hDisplay);
+X          exit(3);
+X        }
+X        xrect.x += xwa.x + xwa.border_width;
+X        xrect.y += xwa.y + xwa.border_width;
+X      }
+X
+X      if (hRoot == vRoot) {
+X        /* do some clipping here, since it's cheap */
+X        i = DisplayWidth(hDisplay, hScreen);
+X        if (xrect.x + xrect.width > i) {
+X          x = i - (int)(xrect.x);
+X          if (x < 0) x = 0;
+X          xrect.width = x;
+X        }
+X        i = DisplayHeight(hDisplay, hScreen);
+X        if (xrect.y + xrect.height > i) {
+X          x = i - (int)(xrect.y);
+X          if (x < 0) x = 0;
+X          xrect.height = x;
+X        }
+X      }
+X    }
+X  }
+X
+X
+X  if (verbose)
+X    fprintf(stderr, "%s: bounding box is [x=%d y=%d w=%d h=%d]\n", programName, xrect.x, xrect.y,
+X                    xrect.width, xrect.height);
+X
+X  /* sleep if asked to do so */
+X  if (postSelectSleepSeconds) {
+X    if (grabServer) {
+X      XUngrabServer(hDisplay);
+X      XSync(hDisplay, FALSE);
+X    }
+X    sleep(postSelectSleepSeconds);
+X    if (grabServer)
+X      XGrabServer(hDisplay);
+X  }
+X
+X
+X  /* get the image bounded by the rectangle from the source window */
+X  if (!noBell)
+X    XBell(hDisplay, 50);
+X
+X  if (!getImage(&xrect, &image, sourceWindow)) {
+X    XCloseDisplay(hDisplay);
+X    exit(3);
+X  }
+X  if (grabServer)
+X    XUngrabServer(hDisplay);
+X
+X  if (!noBell) {
+X    XBell(hDisplay, 20);
+X    XBell(hDisplay, 30);
+X  }
+X
+X  XFlush(hDisplay);
+X
+X
+X
+X  /* do color image processing/conversions */
+X  if (depth >= 2) {
+X    if (brighten)
+X      brightenColors(&image, brightenFactor);
+X    if (doAnd)
+X      alterPlanes(&image, TRUE, andBits);
+X    if (doOr)
+X      alterPlanes(&image, FALSE, orBits);
+X    if (doReverse)
+X      reverseColors(&image);
+X
+X    if (forceBitmap) {
+X      pixmap2bitmap(&image);
+X      depth = 1;
+X    }
+X    else if (halftone)
+X      pixmap2halftone(&image, ditherKind);
+X    else
+X      compressColormap(&image);
+X  }
+X
+X
+X  /* open the output stream */
+X  if (outfileName) {
+X    outfile = fopen(outfileName, "w");
+X    if (!outfile) {
+X      fprintf(stderr, "%s: ", programName);
+X      perror(outfileName);
+X      exit(3);
+X    }
+X    /* form an image name based on the file name */
+X    ptr = rindex(outfileName, '.');
+X    if (ptr) *ptr = '\0';
+X    imageName = rindex(outfileName, '/');
+X    if (imageName) imageName++;
+X    else imageName = outfileName;
+X  }
+X  else
+X    imageName = "unnamed";
+X
+X
+X  /* write to the output stream in the requested format */
+X  switch (outputFormat) {
+X    case xwdFormat:
+X      writeXWD(&image, outfile);
+X      break;
+X    case simpleFormat:
+X      writeSimple(&image, outfile);
+X      break;
+X    case puzzleFormat:
+X      writePuzzle(&image, outfile);
+X      break;
+X    case pixmapFormat:
+X      if (image.ximage->depth <= 1)
+X        writeXYPixmap(&image, outfile);
+X      else
+X        writeZPixmap(xpmFormat, &image, outfile);
+X      break;
+X    case psFormat:
+X    default:
+X      if (psColor)
+X        writeColorPS(&image, outfile, compress, encapsulate,
+X	                preview, PREVIEW_DITHER, landscape, binary, checkLimits);
+X      else
+X        writePostscript(&image, outfile, compress, encapsulate,
+X	                preview, PREVIEW_DITHER, landscape, binary, checkLimits);
+X      break;
+X  }
+X
+X
+X  XDestroyImage(image.ximage);
+X  XCloseDisplay(hDisplay);
+X  if (outfileName)
+X    fclose(outfile);
+X
+X  exit(0);
+}
+X
+X
+X
+X
+X
+#ifndef NO_MAIN
+main(argc, argv)
+X  int argc;
+X  char *argv[];
+{
+X  char *env;
+X  env = (char *)getenv("XGRABSC");
+X  xgrabsc(argc, argv, env);
+}
+#endif
+SHAR_EOF
+chmod 0644 xgrabsc.c ||
+echo 'restore of xgrabsc.c failed'
+Wc_c="`wc -c < 'xgrabsc.c'`"
+test 18405 -eq "$Wc_c" ||
+	echo 'xgrabsc.c: original size 18405, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Makefile ==============
+if test -f 'Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Makefile' &&
+# Makefile generated by imake - do not edit!
+# $XConsortium: imake.c,v 1.65 91/07/25 17:50:17 rws Exp $
+#
+# The cpp used on this machine replaces all newlines and multiple tabs and
+# spaces in a macro expansion with a single space.  Imake tries to compensate
+# for this, but is not always successful.
+#
+X
+# -------------------------------------------------------------------------
+# Makefile generated from "Imake.tmpl" and <Imakefile>
+# $XConsortium: Imake.tmpl,v 1.139 91/09/16 08:52:48 rws Exp $
+#
+# Platform-specific parameters may be set in the appropriate <vendor>.cf
+# configuration files.  Site-specific parameters should be set in the file
+# site.def.  Full rebuilds are recommended if any parameters are changed.
+#
+# If your C preprocessor does not define any unique symbols, you will need
+# to set BOOTSTRAPCFLAGS when rebuilding imake (usually when doing
+# "make World" the first time).
+#
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that need to come before
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+# -------------------------------------------------------------------------
+# platform-specific configuration parameters - edit sun.cf to change
+X
+# platform:  $XConsortium: sun.cf,v 1.68 91/07/30 11:34:39 rws Exp $
+X
+# operating system:  SunOS 4.1.1
+X
+# $XConsortium: sunLib.rules,v 1.6 91/03/24 17:55:58 rws Exp $
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that go after
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+X            SHELL = /bin/sh
+X
+X              TOP = .
+X      CURRENT_DIR = .
+X
+X               AR = ar clq
+X  BOOTSTRAPCFLAGS =
+X               CC = cc
+X               AS = as
+X
+X         COMPRESS = compress
+X              CPP = /lib/cpp $(STD_CPP_DEFINES)
+X    PREPROCESSCMD = cc -E $(STD_CPP_DEFINES)
+X          INSTALL = install
+X               LD = ld
+X             LINT = lint
+X      LINTLIBFLAG = -C
+X         LINTOPTS = -axz
+X               LN = ln -s
+X             MAKE = make
+X               MV = mv
+X               CP = cp
+X
+X           RANLIB = ranlib
+X  RANLIBINSTFLAGS =
+X
+X               RM = rm -f
+X            TROFF = psroff
+X         MSMACROS = -ms
+X              TBL = tbl
+X              EQN = eqn
+X     STD_INCLUDES =
+X  STD_CPP_DEFINES =
+X      STD_DEFINES =
+X EXTRA_LOAD_FLAGS =
+X  EXTRA_LIBRARIES =
+X             TAGS = ctags
+X
+X    SHAREDCODEDEF = -DSHAREDCODE
+X         SHLIBDEF = -DSUNSHLIB
+X
+X    PROTO_DEFINES =
+X
+X     INSTPGMFLAGS =
+X
+X     INSTBINFLAGS = -m 0755
+X     INSTUIDFLAGS = -m 4755
+X     INSTLIBFLAGS = -m 0644
+X     INSTINCFLAGS = -m 0444
+X     INSTMANFLAGS = -m 0444
+X     INSTDATFLAGS = -m 0444
+X    INSTKMEMFLAGS = -m 4755
+X
+X      PROJECTROOT = /usr/X11/R5
+X
+X     TOP_INCLUDES = -I$(INCROOT)
+X
+X      CDEBUGFLAGS = -O
+X        CCOPTIONS = -pipe
+X
+X      ALLINCLUDES = $(INCLUDES) $(EXTRA_INCLUDES) $(TOP_INCLUDES) $(STD_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(EXTRA_DEFINES) $(PROTO_DEFINES) $(DEFINES)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X        LINTFLAGS = $(LINTOPTS) -DLINT $(ALLDEFINES)
+X
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS) $(LOCAL_LDFLAGS) -L$(USRLIBDIR)
+X
+X   LDCOMBINEFLAGS = -X -r
+X      DEPENDFLAGS =
+X
+X        MACROFILE = sun.cf
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X
+X    IMAKE_DEFINES =
+X
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X
+X     ICONFIGFILES = $(IRULESRC)/Imake.tmpl $(IRULESRC)/Imake.rules \
+X			$(IRULESRC)/Project.tmpl $(IRULESRC)/site.def \
+X			$(IRULESRC)/$(MACROFILE) $(EXTRA_ICONFIGFILES)
+X
+# -------------------------------------------------------------------------
+# X Window System Build Parameters
+# $XConsortium: Project.tmpl,v 1.138 91/09/10 09:02:12 rws Exp $
+X
+# -------------------------------------------------------------------------
+# X Window System make variables; this need to be coordinated with rules
+X
+X          PATHSEP = /
+X        USRLIBDIR = /usr/X11/R5/lib
+X           BINDIR = /usr/X11/R5/bin
+X          INCROOT = /usr/X11/R5/include
+X     BUILDINCROOT = $(TOP)
+X      BUILDINCDIR = $(BUILDINCROOT)/X11
+X      BUILDINCTOP = ..
+X           INCDIR = $(INCROOT)/X11
+X           ADMDIR = /usr/adm
+X           LIBDIR = $(USRLIBDIR)/X11
+X        CONFIGDIR = $(LIBDIR)/config
+X       LINTLIBDIR = $(USRLIBDIR)/lint
+X
+X          FONTDIR = $(LIBDIR)/fonts
+X         XINITDIR = $(LIBDIR)/xinit
+X           XDMDIR = $(LIBDIR)/xdm
+X           TWMDIR = $(LIBDIR)/twm
+X          MANPATH = /usr/X11/R5/man
+X    MANSOURCEPATH = $(MANPATH)/man
+X        MANSUFFIX = n
+X     LIBMANSUFFIX = 3
+X           MANDIR = $(MANSOURCEPATH)$(MANSUFFIX)
+X        LIBMANDIR = $(MANSOURCEPATH)$(LIBMANSUFFIX)
+X           NLSDIR = $(LIBDIR)/nls
+X        PEXAPIDIR = $(LIBDIR)/PEX
+X      XAPPLOADDIR = $(LIBDIR)/app-defaults
+X       FONTCFLAGS = -t
+X
+X     INSTAPPFLAGS = $(INSTDATFLAGS)
+X
+X            IMAKE = imake
+X           DEPEND = makedepend
+X              RGB = rgb
+X
+X            FONTC = bdftopcf
+X
+X        MKFONTDIR = mkfontdir
+X        MKDIRHIER = /bin/sh $(BINDIR)/mkdirhier
+X
+X        CONFIGSRC = $(TOP)/config
+X       DOCUTILSRC = $(TOP)/doc/util
+X        CLIENTSRC = $(TOP)/clients
+X          DEMOSRC = $(TOP)/demos
+X           LIBSRC = $(TOP)/lib
+X          FONTSRC = $(TOP)/fonts
+X       INCLUDESRC = $(TOP)/X11
+X        SERVERSRC = $(TOP)/server
+X          UTILSRC = $(TOP)/util
+X        SCRIPTSRC = $(UTILSRC)/scripts
+X       EXAMPLESRC = $(TOP)/examples
+X       CONTRIBSRC = $(TOP)/../contrib
+X           DOCSRC = $(TOP)/doc
+X           RGBSRC = $(TOP)/rgb
+X        DEPENDSRC = $(UTILSRC)/makedepend
+X         IMAKESRC = $(CONFIGSRC)
+X         XAUTHSRC = $(LIBSRC)/Xau
+X          XLIBSRC = $(LIBSRC)/X
+X           XMUSRC = $(LIBSRC)/Xmu
+X       TOOLKITSRC = $(LIBSRC)/Xt
+X       AWIDGETSRC = $(LIBSRC)/Xaw
+X       OLDXLIBSRC = $(LIBSRC)/oldX
+X      XDMCPLIBSRC = $(LIBSRC)/Xdmcp
+X      BDFTOSNFSRC = $(FONTSRC)/bdftosnf
+X      BDFTOSNFSRC = $(FONTSRC)/clients/bdftosnf
+X      BDFTOPCFSRC = $(FONTSRC)/clients/bdftopcf
+X     MKFONTDIRSRC = $(FONTSRC)/clients/mkfontdir
+X         FSLIBSRC = $(FONTSRC)/lib/fs
+X    FONTSERVERSRC = $(FONTSRC)/server
+X     EXTENSIONSRC = $(TOP)/extensions
+X         XILIBSRC = $(EXTENSIONSRC)/lib/xinput
+X      PHIGSLIBSRC = $(EXTENSIONSRC)/lib/PEX
+X
+# $XConsortium: sunLib.tmpl,v 1.11 91/07/31 11:32:08 rws Exp $
+X
+SHLIBLDFLAGS = -assert pure-text
+PICFLAGS = -pic
+X
+X  DEPEXTENSIONLIB =
+X     EXTENSIONLIB = -lXext
+X
+X          DEPXLIB = $(DEPEXTENSIONLIB)
+X             XLIB = $(EXTENSIONLIB) -lX11
+X
+X        DEPXMULIB = $(USRLIBDIR)/libXmu.sa.$(SOXMUREV)
+X           XMULIB = -lXmu
+X
+X       DEPOLDXLIB =
+X          OLDXLIB = -loldX
+X
+X      DEPXTOOLLIB = $(USRLIBDIR)/libXt.sa.$(SOXTREV)
+X         XTOOLLIB = -lXt
+X
+X        DEPXAWLIB = $(USRLIBDIR)/libXaw.sa.$(SOXAWREV)
+X           XAWLIB = -lXaw
+X
+X        DEPXILIB =
+X           XILIB = -lXi
+X
+X        SOXLIBREV = 4.10
+X          SOXTREV = 4.10
+X         SOXAWREV = 5.0
+X        SOOLDXREV = 4.10
+X         SOXMUREV = 4.10
+X        SOXEXTREV = 4.10
+X      SOXINPUTREV = 4.10
+X
+X      DEPXAUTHLIB = $(USRLIBDIR)/libXau.a
+X         XAUTHLIB =  -lXau
+X      DEPXDMCPLIB = $(USRLIBDIR)/libXdmcp.a
+X         XDMCPLIB =  -lXdmcp
+X
+X        DEPPHIGSLIB = $(USRLIBDIR)/libphigs.a
+X           PHIGSLIB =  -lphigs
+X
+X       DEPXBSDLIB = $(USRLIBDIR)/libXbsd.a
+X          XBSDLIB =  -lXbsd
+X
+X LINTEXTENSIONLIB = $(LINTLIBDIR)/llib-lXext.ln
+X         LINTXLIB = $(LINTLIBDIR)/llib-lX11.ln
+X          LINTXMU = $(LINTLIBDIR)/llib-lXmu.ln
+X        LINTXTOOL = $(LINTLIBDIR)/llib-lXt.ln
+X          LINTXAW = $(LINTLIBDIR)/llib-lXaw.ln
+X           LINTXI = $(LINTLIBDIR)/llib-lXi.ln
+X        LINTPHIGS = $(LINTLIBDIR)/llib-lphigs.ln
+X
+X          DEPLIBS = $(DEPXAWLIB) $(DEPXMULIB) $(DEPXTOOLLIB) $(DEPXLIB)
+X
+X         DEPLIBS1 = $(DEPLIBS)
+X         DEPLIBS2 = $(DEPLIBS)
+X         DEPLIBS3 = $(DEPLIBS)
+X
+# -------------------------------------------------------------------------
+# Imake rules for building libraries, programs, scripts, and data files
+# rules:  $XConsortium: Imake.rules,v 1.123 91/09/16 20:12:16 rws Exp $
+X
+# -------------------------------------------------------------------------
+# start of Imakefile
+X
+OBJS1 = xgrabsc.o
+OBJS2 = xgrab.o
+PROGRAMS = xgrabsc xgrab
+X
+all:: $(PROGRAMS)
+X
+xgrabsc:  $(OBJS1)
+X	$(RM) $@
+X	$(CC) -o $@  $(OBJS1) $(LDOPTIONS)   $(LDLIBS)  $(XMULIB) $(XLIB) $(EXTRA_LOAD_FLAGS)
+X
+clean::
+X	$(RM) xgrabsc
+X
+xgrab:  $(OBJS2)
+X	$(RM) $@
+X	$(CC) -o $@  $(OBJS2) $(LDOPTIONS)   $(LDLIBS)  $(XAWLIB) $(XTOOLLIB) $(XMULIB) $(XLIB) $(EXTRA_LOAD_FLAGS)
+X
+clean::
+X	$(RM) xgrab
+X
+xgrabsc.o:: process.hc get.hc mem.hc convert.hc write.hc checkvm.h cmdopts.h
+X
+xgrab.o:: xgrab_ad.h
+X
+xgrab_ad.h: XGrab.ad
+X	rm -f xgrab_ad.h
+X	sed -n '1,/! ====/p' XGrab.ad | sed -n -f ad2c.sed >xgrab_ad.h
+X
+install:: xgrabsc xgrab
+X	@if [ -d $(DESTDIR) $(BINDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR) $(BINDIR)); fi
+X	@case '${MFLAGS}' in *[i]*) set +e;; esac; \
+X	for i in xgrabsc xgrab; do \
+X	(set -x; $(INSTALL) -c $(INSTALLFLAGS) $$i $(DESTDIR) $(BINDIR)); \
+X	done
+X
+install.man:: xgrabsc.man
+X	@if [ -d $(DESTDIR) $(MANDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR) $(MANDIR)); fi
+X	$(INSTALL) -c $(INSTMANFLAGS) xgrabsc.man $(DESTDIR) $(MANDIR)/xgrabsc.$(MANSUFFIX)
+X
+install.man:: xgrab.man
+X	@if [ -d $(DESTDIR) $(MANDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR) $(MANDIR)); fi
+X	$(INSTALL) -c $(INSTMANFLAGS) xgrab.man $(DESTDIR) $(MANDIR)/xgrab.$(MANSUFFIX)
+X
+install:: XGrab.ad
+X	@if [ -d $(DESTDIR)$(XAPPLOADDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR)$(XAPPLOADDIR)); fi
+X	$(INSTALL) -c $(INSTAPPFLAGS) XGrab.ad $(DESTDIR)$(XAPPLOADDIR)/XGrab
+X
+# -------------------------------------------------------------------------
+# common rules for all Makefiles - do not edit
+X
+emptyrule::
+X
+clean::
+X	$(RM_CMD) "#"*
+X
+Makefile::
+X	-@if [ -f Makefile ]; then set -x; \
+X	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak; \
+X	else exit 0; fi
+X	$(IMAKE_CMD) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT_DIR)
+X
+tags::
+X	$(TAGS) -w *.[ch]
+X	$(TAGS) -xw *.[ch] > TAGS
+X
+saber:
+X	# load $(ALLDEFINES) $(SRCS)
+X
+osaber:
+X	# load $(ALLDEFINES) $(OBJS)
+X
+# -------------------------------------------------------------------------
+# empty rules for directories that do not have SUBDIRS - do not edit
+X
+install::
+X	@echo "install in $(CURRENT_DIR) done"
+X
+install.man::
+X	@echo "install.man in $(CURRENT_DIR) done"
+X
+Makefiles::
+X
+includes::
+X
+# -------------------------------------------------------------------------
+# dependencies generated by makedepend
+X
+SHAR_EOF
+chmod 0644 Makefile ||
+echo 'restore of Makefile failed'
+Wc_c="`wc -c < 'Makefile'`"
+test 10735 -eq "$Wc_c" ||
+	echo 'Makefile: original size 10735, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xgrab_ad.h ==============
+if test -f 'xgrab_ad.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xgrab_ad.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xgrab_ad.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xgrab_ad.h' &&
+"XGrab*.title.label: X-Windows Screen Grabber",
+"XGrab*.title.font:   *-helvetica-medium-r-normal--24-*",
+"XGrab*.title.horizDistance: 70",
+"XGrab*.box1.horizDistance: 0",
+"XGrab*.box1.vertDistance:  55",
+"XGrab*.inputLbl.horizDistance:     5",
+"XGrab*.inputLbl.vertDistance:      0",
+"XGrab*.inputLbl.font: *-helvetica-medium-o-normal--14-*",
+"XGrab*.inputLbl.label: Input Options---------------------------------------",
+"XGrab*.click.horizDistance:   10",
+"XGrab*.click.vertDistance:    30",
+"XGrab*.click.label: Click on Window",
+"XGrab*.stretch.horizDistance:   135",
+"XGrab*.stretch.vertDistance:     30",
+"XGrab*.stretch.label: Stretch Rectangle",
+"XGrab*.stretch.state: 1",
+"XGrab*.key.horizDistance:   265",
+"XGrab*.key.vertDistance:     30",
+"XGrab*.key.label: Wait for Control key",
+"XGrab*.root.horizDistance: 10",
+"XGrab*.root.vertDistance:  60",
+"XGrab*.root.label: Grab Whole Screen",
+"XGrab*.sleeplbl.horizDistance: 10",
+"XGrab*.sleeplbl.vertDistance:  90",
+"XGrab*.sleeplbl.label: Sleep before starting",
+"XGrab*.sleeptime.horizDistance:   145",
+"XGrab*.sleeptime.vertDistance:     90",
+"XGrab*.sleeptime.width:            30",
+"XGrab*.sleeptime*string: 3",
+"XGrab*.psleeplbl.horizDistance:  185",
+"XGrab*.psleeplbl.vertDistance:    90",
+"XGrab*.psleeplbl.label: Sleep after selecting",
+"XGrab*.psleeptime.horizDistance:   320",
+"XGrab*.psleeptime.vertDistance:     90",
+"XGrab*.psleeptime.width:            30",
+"XGrab*.psleeptime*string: 0",
+"XGrab*.host.horizDistance:   10",
+"XGrab*.host.vertDistance:   120",
+"XGrab*.host.label: Use Alternate Display:",
+"XGrab*.host.shapeStyle: oval",
+"XGrab*.host.width:	    140",
+"XGrab*.host.state: 0",
+"XGrab*.hostText.horizDistance:   160",
+"XGrab*.hostText.vertDistance:    120",
+"XGrab*.box2.horizDistance:   0",
+"XGrab*.box2.vertDistance:  205",
+"XGrab*.outputFormat.horizDistance:   5",
+"XGrab*.outputFormat.vertDistance:    0",
+"XGrab*.outputFormat.font: *-helvetica-medium-o-normal--14-*",
+"XGrab*.outputFormat.label: Output Format--------------------------------------",
+"XGrab*.xwd.horizDistance:   10",
+"XGrab*.xwd.vertDistance:    30",
+"XGrab*.xwd.label: X Window Dump",
+"XGrab*.ps.horizDistance:   120",
+"XGrab*.ps.vertDistance:     30",
+"XGrab*.ps.label: PostScript",
+"XGrab*.ps.state: 1",
+"XGrab*.puzzle.horizDistance:   197",
+"XGrab*.puzzle.vertDistance:     30",
+"XGrab*.puzzle.label: Puzzle",
+"XGrab*.xpm.horizDistance:    10",
+"XGrab*.xpm.vertDistance:     60",
+"XGrab*.xpm.label: Bitmap/XPM",
+"XGrab*.xpm2.horizDistance:   100",
+"XGrab*.xpm2.vertDistance:     60",
+"XGrab*.xpm2.label: Bm/XPM2",
+"XGrab*.xpm3.horizDistance:   175",
+"XGrab*.xpm3.vertDistance:     60",
+"XGrab*.xpm3.label: Bm/XPM3",
+"XGrab*.box3.horizDistance:   0",
+"XGrab*.box3.vertDistance:  300",
+"XGrab*.psOptions.horizDistance:   5",
+"XGrab*.psOptions.vertDistance:    0",
+"XGrab*.psOptions.font: *-helvetica-medium-o-normal--14-*",
+"XGrab*.psOptions.label: PostScript Options-----------------------------------",
+"XGrab*.compress.horizDistance:   10",
+"XGrab*.compress.vertDistance:    30",
+"XGrab*.compress.shapeStyle: oval",
+"XGrab*.compress.label: Compress",
+"XGrab*.color.horizDistance:    80",
+"XGrab*.color.vertDistance:     30",
+"XGrab*.color.shapeStyle: oval",
+"XGrab*.color.label: Color Output",
+"XGrab*.binary.horizDistance: 170",
+"XGrab*.binary.vertDistance: 30",
+"XGrab*.binary.shapeStyle: oval",
+"XGrab*.binary.label: Binary",
+"XGrab*.landscape.horizDistance: 10",
+"XGrab*.landscape.vertDistance: 60",
+"XGrab*.landscape.width: 80",
+"XGrab*.landscape.label: Landscape",
+"XGrab*.encap.horizDistance:   100",
+"XGrab*.encap.vertDistance:     60",
+"XGrab*.encap.width: 90",
+"XGrab*.encap.label: Encapsulated",
+"XGrab*.epsi.horizDistance:   200",
+"XGrab*.epsi.vertDistance:     60",
+"XGrab*.epsi.label: Encapsulated+Preview",
+"XGrab*.pageWidth.horizDistance: 10",
+"XGrab*.pageWidth.vertDistance:  90",
+"XGrab*.pageWidth.label: Paper Width",
+"XGrab*.pageWidthText.horizDistance: 90",
+"XGrab*.pageWidthText.vertDistance:  90",
+"XGrab*.pageWidthText.width: 35",
+"XGrab*.pageWidthText*string: 8.5",
+"XGrab*.pageHeight.horizDistance: 130",
+"XGrab*.pageHeight.vertDistance:  90",
+"XGrab*.pageHeight.label: Height",
+"XGrab*.pageHeightText.horizDistance: 175",
+"XGrab*.pageHeightText.vertDistance:  90",
+"XGrab*.pageHeightText.width: 35",
+"XGrab*.pageHeightText*string: 11.0",
+"XGrab*.horizMargin.horizDistance: 230",
+"XGrab*.horizMargin.vertDistance:  90",
+"XGrab*.horizMargin.label: Margin Width",
+"XGrab*.horizMarginText.horizDistance: 315",
+"XGrab*.horizMarginText.vertDistance:  90",
+"XGrab*.horizMarginText.width: 35",
+"XGrab*.horizMarginText*string: 0.5",
+"XGrab*.vertMargin.horizDistance: 355",
+"XGrab*.vertMargin.vertDistance:  90",
+"XGrab*.vertMargin.label:  Height",
+"XGrab*.vertMarginText.horizDistance: 400",
+"XGrab*.vertMarginText.vertDistance:  90",
+"XGrab*.vertMarginText.width: 35",
+"XGrab*.vertMarginText*string: 0.5",
+"XGrab*.box4.horizDistance: 0",
+"XGrab*.box4.vertDistance: 420",
+"XGrab*.prOptions.horizDistance:   5",
+"XGrab*.prOptions.vertDistance:    0",
+"XGrab*.prOptions.font: *-helvetica-medium-o-normal--14-*",
+"XGrab*.prOptions.label: Image Processing Options-----",
+"XGrab*.borders.horizDistance:   10",
+"XGrab*.borders.vertDistance:    30",
+"XGrab*.borders.shapeStyle: oval",
+"XGrab*.borders.label: Include Borders",
+"XGrab*.borders.width:          105",
+"XGrab*.borders.state:            1",
+"XGrab*.reverse.horizDistance:   10",
+"XGrab*.reverse.vertDistance:    60",
+"XGrab*.reverse.shapeStyle: oval",
+SHAR_EOF
+true || echo 'restore of xgrab_ad.h failed'
+fi
+echo 'End of  part 4'
+echo 'File xgrab_ad.h is continued in part 5'
+echo 5 > _shar_seq_.tmp
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

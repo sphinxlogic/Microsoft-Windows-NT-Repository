@@ -1,0 +1,1581 @@
+Newsgroups: comp.sources.misc
+From: drt@chinet.chi.il.us (Donald Tveter)
+Subject:  v28i064:  backprop - Fast Backpropagation, Part02/04
+Message-ID: <1992Feb24.031238.9978@sparky.imd.sterling.com>
+X-Md4-Signature: f2a8d9aee8ab3bf9e32e640da2914335
+Date: Mon, 24 Feb 1992 03:12:38 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: drt@chinet.chi.il.us (Donald Tveter)
+Posting-number: Volume 28, Issue 64
+Archive-name: backprop/part02
+Environment: UNIX, DOS
+Supersedes: back-prop: Volume 22, Issue 73-76
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 4)."
+# Contents:  bp.c
+# Wrapped by drt@chinet on Tue Feb 18 10:22:40 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'bp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bp.c'\"
+else
+echo shar: Extracting \"'bp.c'\" \(37758 characters\)
+sed "s/^X//" >'bp.c' <<'END_OF_FILE'
+X/* ************************************************** */
+X/* file bp.c:  contains the main program and network  */
+X/*             creation routines.                     */
+X/*                                                    */
+X/* Copyright (c) 1991 by Donald R. Tveter             */
+X/*                                                    */
+X/* ************************************************** */
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X
+X#ifdef DOS16
+X#include <stdlib.h>
+X#include <time.h>
+X#endif
+X
+X#ifdef DOS32
+X#include <stdlib.h>
+X#include <time.h>
+X#endif
+X
+X#ifdef UNIX
+X#include <malloc.h>
+X#define SIGINT 2
+X#define CLOCKS_PER_SEC 1000000.0
+Xextern long clock();
+X#endif
+X
+X#ifdef INTEGER
+X#include "ibp.h"
+X#else
+X#include "rbp.h"
+X#endif
+X
+X/* an addition for large data sets */
+X
+XINT32 g = 0;
+X
+X/* built-in C functions */
+X
+Xextern int rand();
+Xextern void srand();
+X
+X/* functions from io.c */
+X
+X#ifdef INTEGER
+Xextern int scale();
+Xextern REAL unscale();
+X#endif
+X
+Xextern void help(), printweights();
+Xextern void restoreweights(), saveweights(), texterror();
+Xextern WTTYPE rdr();
+Xextern int pg(), printoutunits(), readch(), readint();
+Xextern REAL readchar();
+Xextern char *readstr();
+X
+X/* functions from misc.c */
+X
+Xextern void clear(), nullpatterns(), findendofpats(), kick();
+Xextern void setonepat(), setoutputpat(), whittle();
+Xextern int loadpat(), patcheck(), run();
+X
+X/* global variables used in all versions */
+X
+Xchar activation;      /* activation function, p or s */
+XWTTYPE alpha;         /* momentum term */
+Xchar backprop;        /* flags whether to back propagate error for */
+X                      /* units close to their targets */
+Xint benchmark;        /* flags benchmarking in progress */
+Xint bufferend;        /* index of last character in input line */
+Xint bufferptr;        /* position of next character in buffer */
+Xchar buffer[buffsize];/* holds contents of one input line */
+Xint ch;               /* general purpose character variable */
+XFILE *copy;           /* file pointer to copy file */
+Xchar copyflag;        /* + for copying, - for no copy */
+Xjmp_buf cmdloopstate; /* to save state in case of a SIGINT */
+XWTTYPE D;             /* sigmoid sharpness */
+XFILE *data;           /* file for original data */
+Xchar *datafilename;   /* copy of the data file name saved here */
+XWTTYPE dbdeta;        /* the initial eta value for the DBD method */
+XWTTYPE decay;         /* the decay parameter for the DBD method */
+Xchar deriv;           /* flags type of derivative to use */
+Xchar echo;            /* controls echoing of characters during input */
+Xchar emptystring;     /* for unused string values */
+XREAL errorperunit;    /* average unsquared error on output layer */
+XWTTYPE eta;           /* basic learning rate */
+XWTTYPE eta2;          /* learning rate for lower layers */
+XWTTYPE etamax;        /* the maximum eta for the DBD method */
+Xint extraconnect;     /* flags the use of connections between */
+X                      /* non-adjacent layers */
+XFILE *filestack[4];   /* allows for nested reads from files */
+Xint filestackptr;     /* has the index of the current file */
+Xint format[maxformat];/* each value in format indicates where to put */
+X                      /* a blank for compressed output mode or a */
+X                      /* carriage return for real output */
+Xint goal;             /* successes desired when benchmarking */
+XUNIT *hlayer;         /* pointer to list of units in second layer */
+XUNIT *ilayer;         /* pointer to list of units in third layer */
+Xchar informat;        /* controls format to read numbers */
+XWTTYPE initialkick;   /* the range weights are initialized to */
+Xchar *inputfile;      /* name of file to take extra commands from */
+Xint iter;             /* for counting iterations in one run */
+XUNIT *jlayer;         /* pointer to list of units in fourth layer */
+XWTTYPE kappa;         /* the DBD learning parameter */
+XUNIT *klayer;         /* pointer to list of units in fifth layer */
+XWTTYPE kicksize;      /* range of random weights when benchmarking */
+XLAYER *last;          /* has address of the output layer */
+Xint lastprint;        /* last iteration pattern responses printed */
+Xint lastsave;         /* last time weights were saved */
+XINT32 lineno;         /* counts lines for paging */
+Xint maxiter;          /* maximum iterations when benchmarking */
+Xint maxtries;         /* max networks to try when benchmarking */
+Xshort nlayers;        /* number of layers in network */
+XWTTYPE noise;         /* noise parameter for dbd and qp */
+Xint npats;            /* number of patterns currently in use */
+Xchar outformat;       /* controls format to print output */
+Xchar outstr[OUTSTRSIZE]; /* the output string */
+Xint pagesize;         /* size of page for pg */
+Xchar patform;         /* flags general or classification pattern format */
+XREAL pct_right;       /* % of training patterns correct */
+Xint prevnpats;        /* previous number of patterns, initially 0 */
+Xint printrate;        /* printrate when benchmarking */
+XWTTYPE qmark;         /* value for ? in compressed input */
+Xint readerror;        /* flags an error in reading a value */
+Xint readingpattern;   /* flags reading pattern state */
+Xchar ringbell;        /* flag to ring bell when finished */
+Xint right;            /* number of training patterns learned */
+Xint saverate;         /* rate at which to save weights */
+Xunsigned seed;        /* seed for generating random weights */
+XSEEDNODE *seedstart;  /* the list of user defined seeds */
+Xshort skiprate;       /* number of times to bypass a learned pattern */
+XLAYER *start;         /* has address of the input layer */
+Xchar summary;         /* flags summary output mode */
+Xint testpat;          /* pattern to skip when benchmarking; else 0 */
+Xchar *testfile;       /* file to take test patterns from */
+XWTTYPE theta1;        /* the DBD parameter */
+XWTTYPE theta2;        /* 1 - theta1 */
+XWTTYPE toler;         /* value used in testing for completion */
+XWTTYPE toosmall;      /* weights smaller than toosmall were removed */
+X#ifdef INTEGER
+XINT32 totaldiff;      /* totals errors to find average error per unit */
+X#else
+XREAL totaldiff;
+X#endif
+Xint totaliter;        /* counts total iterations for the program */
+Xchar *trainfile;      /* file to take training patterns from */
+Xint unlearned;        /* number unlearned in last learning cycle */
+Xchar update;          /* flags type of update rule to use */
+Xchar up_to_date_stats;/* + does an extra forward pass after update */
+Xint wrong;            /* number of training patterns unlearned */
+Xchar w[8] = "weights";/* the string, weights */
+Xchar *wtfile;         /* file to write weights to */
+Xchar wtformat;        /* controls format to save and restore weights */
+Xchar wtlimithit;      /* flags whether the limit has been hit */
+Xint wttotal;          /* total number of weights in use */
+X
+X/* global variable for the symmetric integer version */
+X
+X#ifdef SYMMETRIC
+XWTTYPE  stdthresh;    /* the standard threshold weight value */
+X#endif
+X
+X/* given a layer no. and unit no. locateunit returns the address */
+XUNIT *locateunit(layerno,unitno)
+Xint layerno, unitno;
+X{int i;
+X UNIT *u;
+X LAYER *layer;
+X 
+Xlayer = start;
+Xfor(i=1;i<=(layerno-1);i++) layer = layer->next;
+Xu = (UNIT *) layer->units;
+Xwhile (u != NULL && u->unitnumber != unitno) u = u->next;
+Xif (u == NULL)
+X  printf("there is no unit %3d in layer %3d\n",unitno,layerno);
+Xreturn(u);     
+X}
+X
+X#ifdef SYMMETRIC
+X
+XINT32 wtaddress(i,j,biasunit,type,size) /* Returns the address of a */
+Xint i,j;                                /* weight (1), olddw (2),   */
+Xint biasunit;                           /* eta (3), total (4),      */
+Xint type;                               /* or slope (5)             */
+Xint size;                               /* One is created if it     */
+X                                        /* doesn't already exist.   */
+X{ int k;
+X  INT32 addr;
+X  UNIT *u;
+X  WTNODE *w;
+X
+Xif (biasunit) addr = (INT32) malloc(size);
+Xelse if (j >= i) addr = (INT32) malloc(size);
+Xelse /* the item already exists, so find its address */
+X {
+X  u = locateunit(2,j);
+X  w = (WTNODE *) u->wtlist;
+X  k = 1;
+X  while (k < i)
+X   {
+X    w = w->next;
+X    k = k + 1;
+X   };
+X  if (type == 1) addr = (INT32) w->weight;
+X  else if (type == 2) addr = (INT32) w->olddw;
+X  else if (type == 3) addr = (INT32) w->eta;
+X  else if (type == 4) addr = (INT32) w->total;
+X  else addr = (INT32) w->slope;
+X };
+Xreturn(addr);
+X}
+X
+Xvoid setweight(w,i,j,biasunit) /* set initial values in w */
+XWTNODE *w;
+Xshort i, j;
+Xint biasunit;
+X{WTTYPE *s;
+X
+Xs = (WTTYPE *) wtaddress(i,j,biasunit,1,WTSIZE);
+X*s = 0;
+Xw->weight = s;
+Xs = (WTTYPE *) wtaddress(i,j,biasunit,2,WTSIZE);
+X*s = 0;
+Xw->olddw = s;
+Xs = (WTTYPE *) wtaddress(i,j,biasunit,3,WTSIZE);
+X*s = eta;
+Xw->eta = s;
+X#ifdef INTEGER
+Xw->total = (INT32 *) wtaddress(i,j,biasunit,4,sizeof(INT32));
+X#else
+Xw->total = (REAL *) wtaddress(i,j,biasunit,4,sizeof(REAL));
+X#endif
+X}
+X
+X#else
+X
+Xvoid setweight(w,i,j,biasunit) /* set initial values in w */
+XWTNODE *w;
+Xshort i,j;
+Xint biasunit;
+X{
+Xw->weight = 0;
+Xw->olddw = 0;
+Xw->slope = 0;
+Xw->eta = dbdeta;
+X}
+X
+X#endif
+X
+XLAYER *mklayer(prevlayer,n)  /* creates a layer of n units, pointers */
+XLAYER *prevlayer;            /* and weights back to the units in the */
+Xint n;                       /* previous layer and links this new */
+X                             /* layer into the list of layers */
+X{UNIT *front, *p, *q, *bias, *prev, *ptr;
+X WTNODE *wfront, *wprev, *w;
+X LAYER *lptr;
+X int i, j, count;
+X
+X/* make a list of nodes in this layer */
+X
+Xcount = 1;
+Xfront = (UNIT *) malloc(sizeof(UNIT));
+Xfront->unitnumber = count;
+Xfront->layernumber = nlayers;
+Xprev = front;
+Xfor(i=1;i<n;i++)
+X {
+X  count = count + 1;
+X  ptr = (UNIT *) malloc(sizeof(UNIT));
+X  prev->next = ptr;
+X  ptr->unitnumber = count;
+X  ptr->layernumber = nlayers;
+X  prev = ptr;
+X };
+Xprev->next = NULL;
+X
+X/* make a LAYER node to point to this list of units */
+X
+Xlptr = (LAYER *) malloc(sizeof(LAYER));
+Xlptr->unitcount = n;
+Xlptr->patstart = NULL;
+Xlptr->currentpat = NULL;
+Xlptr->backlayer = prevlayer;
+Xlptr->next = NULL;
+X(UNIT *) lptr->units = front;   /* connect the list of units */
+X
+X/* return if this is the input layer */
+X
+Xif (prevlayer == NULL) return(lptr);
+Xprevlayer->next = lptr;
+X
+X/* If we are working on a deeper layer, for every node in this layer, */
+X/* create a linked list back to units in the previous layer. */
+X
+Xi = 1;
+Xq = front;
+Xwhile (q != NULL) /* do a unit */
+X {    
+X  j = 1;            /* handle first connection */
+X  p = (UNIT *) prevlayer->units;
+X  wfront = (WTNODE *) malloc(sizeof(WTNODE));
+X  wttotal = wttotal + 1;
+X  (WTNODE *) q->wtlist = wfront;
+X  wprev = wfront;
+X  (UNIT *) wfront->backunit = p;
+X  setweight(wfront,i,j,0);
+X  p = p->next;
+X  while (p != NULL) /* handle rest of connections */
+X   {
+X    j = j + 1;
+X    w = (WTNODE *) malloc(sizeof(WTNODE));
+X    wttotal = wttotal + 1;
+X    wprev->next = w;
+X    (UNIT *) w->backunit = p;
+X    setweight(w,i,j,0);
+X    wprev = w;
+X    p = p->next;
+X   };
+X  j = j + 1;
+X  bias = (UNIT *) malloc(sizeof(UNIT));   /* create a bias unit */
+X  bias->oj = scale(1.0);
+X  bias->layernumber = nlayers;
+X  bias->unitnumber = 32767;           /* bias unit is unit 32767 */
+X  w = (WTNODE *) malloc(sizeof(WTNODE)); /* connect to end of list */
+X  wttotal = wttotal + 1;
+X  wprev->next = w;
+X  (UNIT *) w->backunit = bias;
+X  setweight(w,n+2,i,1);
+X  w->next = NULL;
+X  q = q->next;
+X  i = i + 1;
+X };
+Xreturn(lptr);
+X}
+X
+X#ifndef SYMMETRIC
+X
+Xvoid connect(a,b,range)  /* add a connection from unit a to unit b */
+XUNIT *a, *b;             /* connections go in increasing order */
+XWTTYPE range;
+X
+X{WTNODE *wnew, *w, *wprev;
+X UNIT *wunit;
+X int farenough;
+X
+Xwnew = (WTNODE *) malloc(sizeof(WTNODE));
+Xwttotal = wttotal + 1;
+Xwnew->eta = dbdeta;
+Xwnew->weight = range * rand() / 32768;
+Xif (rand() > 16383) wnew->weight = -wnew->weight;
+Xwnew->olddw = 0;
+Xwnew->slope = 0;
+X(UNIT *) wnew->backunit = a;
+Xw = (WTNODE *) b->wtlist;
+Xwprev = NULL;
+Xwunit = (UNIT *) w->backunit;
+Xfarenough = 0;                  /* insert the weight in order */
+Xwhile (w != NULL && !farenough)
+X if (wunit->layernumber > a->layernumber) farenough = 1;
+X else if (wunit->layernumber == a->layernumber)
+X  while (w != NULL && !farenough)
+X   {
+X    if (wunit->unitnumber < a->unitnumber &&
+X        wunit->layernumber == a->layernumber)
+X     {
+X      wprev = w;
+X      w = w->next;
+X      wunit = (UNIT *) w->backunit;
+X     }
+X    else farenough = 1;
+X   }
+X  else
+X   {
+X    wprev = w;
+X    w = w->next;
+X    wunit = (UNIT *) w->backunit;
+X   };
+Xif (wprev == NULL)
+X {
+X  wnew->next = w;
+X  (WTNODE *) b->wtlist = wnew;
+X }
+Xelse
+X {
+X  wnew->next = w;
+X  wprev->next = wnew;
+X };
+X}
+X
+Xvoid addhiddenunit(layerno,range)
+Xint layerno;  /* add hidden unit to end of the layer */
+XWTTYPE range;
+X{
+X LAYER *lptr, *prevlayer, *nextlayer;
+X UNIT *u, *prevu, *p, *bias;
+X WTNODE *wnode;
+X int i, unitno;
+X
+Xlptr = start;
+Xfor (i=1;i <= (layerno - 1); i++) lptr = lptr->next;
+Xunitno = lptr->unitcount;
+Xlptr->unitcount = unitno + 1;
+Xprevu = locateunit(layerno,unitno);
+Xif (prevu == NULL) return;
+Xu = (UNIT *) malloc(sizeof(UNIT));
+Xprevu->next = u;
+Xu->next = NULL;
+Xu->unitnumber = unitno + 1;
+Xu->layernumber = layerno;
+Xbias = (UNIT *) malloc(sizeof(UNIT));
+Xbias->oj = scale(1.0);
+Xbias->layernumber = layerno;
+Xbias->unitnumber = 32767;           /* bias unit is unit 32767 */
+Xwnode = (WTNODE *) malloc(sizeof(WTNODE));
+Xwttotal = wttotal + 1;
+Xwnode->weight = range * rand() / 32768;
+Xif (rand() > 16383) wnode->weight = -wnode->weight;
+Xwnode->olddw = 0;
+Xwnode->slope = 0;
+Xwnode->eta = dbdeta;
+Xwnode->next = NULL;
+X(UNIT *) wnode->backunit = bias;
+X(WTNODE *) u->wtlist = wnode;
+Xprevlayer = lptr->backlayer;
+Xp = (UNIT *) prevlayer->units;
+Xwhile (p != NULL)
+X {
+X  connect(p,u,range);
+X  p = p->next;
+X };
+Xnextlayer = lptr->next;
+Xp = (UNIT *) nextlayer->units;
+Xwhile (p != NULL)
+X {
+X  connect(u,p,range);
+X  p = p->next;
+X };
+X}      
+X
+X#endif
+X
+Xvoid readpatson(layer,command)
+XLAYER *layer;
+Xint command;
+X
+X{PATLIST *pl;
+X int i, answer, veclength;
+X WTTYPE *val;
+X
+Xpl = (PATLIST *) malloc(sizeof(PATLIST));
+Xpl->next = NULL;
+Xpl->bypass = 0;      /* number of times to bypass this pattern */
+Xpl->pats = NULL;     /* no patterns read yet */
+Xif (layer->patstart == NULL) (PATLIST *) layer->patstart = pl;
+Xelse layer->currentpat->next = pl;
+Xlayer->currentpat = pl;
+X
+Xif (layer == last && (patform == 'c' || patform == 'C'))
+X {
+X  answer = readint(1,last->unitcount,command);
+X  if (readerror) return;
+X  val = (WTTYPE *) malloc(sizeof(WTTYPE));
+X  *val = answer;
+X  pl->pats = val;
+X  return;
+X };
+Xveclength = layer->unitcount;
+Xval = (WTTYPE *) malloc(veclength * sizeof(WTTYPE));
+Xpl->pats = val;
+Xfor (i=1;i<=veclength;i++)
+X {
+X  if (informat == 'r') *val++ = rdr(GE,(REAL) HCODE,command);
+X  else *val++ = scale(readchar());
+X  if (readerror)
+X   {
+X    if (readerror == 2 && i == 1) readerror = 2; else readerror = 1;
+X    return;
+X   };
+X };
+Xreturn;
+X}
+X
+Xint readpats(number,command)
+Xint number, command;
+X{ int i, j;
+X  PATLIST *pl;
+X
+Xfor (i=1;i<=number;i++)
+X {
+X  readpatson(start,command);
+X  if (readerror == 1) goto failure;
+X  if (readerror == 2) /* EOF */ break;
+X  readpatson(last,command);
+X  if (readerror) goto failure;
+X };
+Xif (readerror == 0) return(number);
+Xelse if (readerror == 2)
+X {
+X  popfile();
+X  return(i-1);
+X };
+X
+Xfailure:
+Xprintf("error while reading pattern %d\n",i);
+Xpopfile();
+Xpl = (PATLIST *) start->patstart;
+Xfor (j=1;j<=prevnpats + i - 2;j++) pl = pl->next;
+Xpl->next = NULL;
+Xpl = (PATLIST *) last->patstart;
+Xfor (j=1;j<=prevnpats + i - 2;j++) pl = pl->next;
+Xpl->next = NULL;
+Xreturn(i-1);
+X}
+X
+Xvoid init()
+X{int i;
+X
+Xactivation = 'p';
+Xalpha = scale(0.5);
+Xbackprop = 1;
+Xbenchmark = 0;
+Xbufferend = 0;
+Xbufferptr = buffsize + 1;
+Xch = ' ';
+Xcopyflag = '-';            /* default is to not make a copy */
+XD = scale(1.0);
+Xdbdeta = scale(0.5);
+Xdecay = scale(0.5);
+Xderiv = 'd';
+Xecho = '-';
+Xeta = scale(0.5);
+Xeta2 = eta;
+Xetamax = scale(30.0);
+Xextraconnect = 0;
+Xformat[0] = 0;
+Xfor(i=1;i<=maxformat-1;i++) format[i] = format[i-1] + 10;
+Xgoal = 10;
+Xinformat = 'c';
+Xinitialkick = -1;
+Xkappa = scale(0.5);
+Xkicksize = scale(1.0);
+Xlastprint = 0;
+Xlastsave = 0;
+Xmaxiter = 1000;
+Xmaxtries = 10;
+Xnoise = 0;
+Xoutformat = 'r';
+Xpagesize = 24;
+Xpatform = 'g';
+Xpct_right = 0.0;
+Xprevnpats = 0;
+Xqmark = scale(0.5);
+Xright = 0;
+Xringbell = '-';
+Xskiprate = 0;
+Xtestpat = 0;
+Xsaverate = MAXINT;
+Xseedstart = (SEEDNODE *) malloc(sizeof(SEEDNODE));
+Xseedstart->val = 0;
+Xseedstart->next = NULL;
+X#ifdef SYMMETRIC
+Xstdthresh = -32768;      /* indicates no threshold set */
+X#endif
+Xsummary = '+';
+Xtheta1 = scale(0.5);
+Xtheta2 = scale(1.0) - theta1;
+Xtoler = scale(0.1);
+Xtoosmall = -1;           /* indicates no weights whittled away */
+Xtotaliter = 0;
+Xupdate = 'p';
+Xup_to_date_stats = '-';
+Xwrong = 0;
+Xwtfile = &w[0];
+Xwtformat = 'r';
+Xwtlimithit = 0;
+Xwttotal = 0;
+X}
+X
+Xint nonetwork()
+X{
+Xif (start != NULL) return(0);
+Xpg("there is no network\n");
+Xreturn(1);
+X}
+X
+Xint nopatterns()
+X{
+Xif (npats != 0) return(0);
+Xpg("there are no patterns\n");
+Xreturn(1);
+X}
+X
+X/* for a SIGINT, restart in cmdloop */
+X#ifdef UNIX
+Xvoid restartcmdloop()
+X#else
+Xvoid restartcmdloop(int dummy)
+X#endif
+X{
+Xwhile (data != stdin) popfile();
+Xbenchmark = 0;
+Xsignal(SIGINT,restartcmdloop);
+Xlongjmp(cmdloopstate,1);
+X}
+X 
+Xvoid cmdloop()    /* read commands and process them */
+X{
+Xint finished, layerno, unitno, layer1, layer2, node1, node2;
+Xint i, itemp, itemp2, successes, tries, sumiter, dobenchmark;
+XINT32 itemp32;
+XWTTYPE temp, temp2;
+XREAL averageiter, averagecpu;
+XLAYER *p;
+XUNIT *u, *n1, *n2;
+Xchar string[81];
+XWTNODE *w;
+XSEEDNODE *s, *sprev;
+Xlong cputime, prevcputime, totalcpu;
+X
+Xsetjmp(cmdloopstate); /* restart here from SIGINT */
+Xfinished = 0;
+Xdo{
+X#ifdef SYMMETRIC
+X   if (data == stdin) pg("[?!*AaBbCdefhiklmnOoPpQqRrSsTtWwx]? ");
+X#else
+X   if (data == stdin) pg("[?!*AaBbCcdefHhiklmnOoPpQqRrSstWwx]? ");
+X#endif
+X
+X   while(ch == ' ' || ch == '\n') ch = readch();
+X   lineno = 0;
+X   switch (ch) {
+X
+Xcase EOF:
+Xpopfile();
+Xif (data == stdin) pg("taking commands from stdin now\n");
+Xbreak;
+X
+Xcase '?':
+Xsprintf(outstr,"\n%d iterations, s %1d  ",totaliter,seed); pg(outstr);
+Xsprintf(outstr,"k 0 %5.3f,  ",unscale(initialkick)); pg(outstr);
+Xsprintf(outstr,"data file = %s\n",datafilename); pg(outstr);
+Xsprintf(outstr,"testing file = %s\n",testfile); pg(outstr);
+Xsprintf(outstr,"training file = %s\n",trainfile); pg(outstr);
+Xsprintf(outstr,"input file = %s\n",inputfile); pg(outstr);
+Xsprintf(outstr,"weight file = %s\n",wtfile); pg(outstr);
+Xsprintf(outstr,"Algorithm: a%c",activation); pg(outstr);
+Xif (backprop) pg(" b+"); else pg(" b-");
+Xsprintf(outstr," D%5.2f d%c g %d ",unscale(D),deriv,g); pg(outstr);
+Xsprintf(outstr,"s%1d t%1d u%c\n",skiprate,testpat,update); pg(outstr);
+Xsprintf(outstr,"e %7.5f %7.5f",unscale(eta),unscale(eta2)); pg(outstr);
+Xsprintf(outstr," --- a %7.5f\n",unscale(alpha)); pg(outstr);
+Xsprintf(outstr,"d d %8.5f e %8.5f ",unscale(decay),unscale(dbdeta));
+Xpg(outstr);
+Xsprintf(outstr," k %8.5f m %8.5f ",unscale(kappa),unscale(etamax));
+Xpg(outstr);
+Xsprintf(outstr," n %8.5f t %8.5f\n",unscale(noise),unscale(theta1));
+Xpg(outstr);
+Xsprintf(outstr,"tolerance = %4.2f\n",unscale(toler)); pg(outstr);
+Xsprintf(outstr,"f b%c c%c e%c i%c",ringbell,copyflag,echo,informat);
+Xpg(outstr);
+Xsprintf(outstr," o%c P %d p%c s%c ",outformat,pagesize,patform,summary);
+Xpg(outstr);
+Xsprintf(outstr,"u%c w%c\n",up_to_date_stats,wtformat); pg(outstr);
+Xpg("format breaks after: ");
+Xfor (i=1;i<=10;i++) {sprintf(outstr,"%4d",format[i]); pg(outstr);};
+Xpg("\n                     ");
+Xfor (i=11;i<=maxformat-1;i++)
+X {sprintf(outstr,"%4d",format[i]); pg(outstr);};
+Xsprintf(outstr,"\nlast time weights were saved: %d\n",lastsave);
+Xpg(outstr);
+Xsprintf(outstr,"saving weights every %d iterations\n",saverate);
+Xpg(outstr);
+Xif (wtlimithit) pg(">>>>> WEIGHT LIMIT HIT <<<<<\n");
+Xpg("network size: ");
+Xp = start;
+Xwhile (p != NULL)
+X {
+X  sprintf(outstr," %1d",p->unitcount);
+X  pg(outstr);
+X  p = p->next;
+X };
+Xif (extraconnect) pg(" with extra connections");
+Xsprintf(outstr," (total:  %1d weights)\n",wttotal); pg(outstr);
+Xif (toosmall != -1)
+X {
+X  pg("removed non-bias weights with absolute ");
+X  sprintf(outstr,"value below  %4.2f\n",unscale(toosmall)); pg(outstr);
+X };
+X#ifdef SYMMETRIC
+Xif (stdthresh != -32768)
+X {
+X  sprintf(outstr,"thresholds frozen at %f\n", unscale(stdthresh));
+X  pg(outstr);
+X };
+X#endif
+Xsprintf(outstr,"%d patterns   %5.2f%%  right ",npats,pct_right);
+Xpg(outstr);
+Xsprintf(outstr,"(%d right,  %d wrong)  ",right,wrong); pg(outstr);
+Xsprintf(outstr,"%7.5f error/unit\n",errorperunit); pg(outstr);
+Xsprintf(outstr,"? = %f\n",unscale(qmark)); pg(outstr);
+Xsprintf(outstr,"benchmark parameters: g %d ",goal); pg(outstr);
+Xsprintf(outstr,"k %4.2f ",unscale(kicksize)); pg(outstr);
+Xsprintf(outstr,"m %d r %d ",maxtries,maxiter); pg(outstr);
+Xif (printrate != -1) {sprintf(outstr,"%d ",printrate); pg(outstr);};
+Xif (*testfile != emptystring)
+X {sprintf(outstr,"t %s\n",testfile); pg(outstr);}
+Xelse {sprintf(outstr,"t %d\n",testpat); pg(outstr);};
+Xpg("for help, type h followed by the letter of the command\n\n");
+Xbreak;
+X
+Xcase '!':
+Xi = 0;
+Xch = readch();
+Xwhile (ch != '\n' && i <= 80)
+X {
+X  string[i] = ch;
+X  ch = readch();
+X  i = i + 1;
+X };
+Xbufferptr = bufferptr - 1;
+Xstring[i] = '\0';
+Xsystem(string);
+Xbreak;
+X
+Xcase '*': break;  /* * on a line is a comment */
+X
+Xcase 'A':
+Xwhile (ch != '\n' && ch != '*')
+X {
+X  ch = readch();
+X  if (ch == 'a')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == 'p' || ch == 'l' || ch == 't') activation = ch;
+X#ifndef INTEGER
+X    else if (ch == 's' || ch == 'T') activation = ch;
+X#endif
+X    else texterror();
+X   }
+X  else if (ch == 'b')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == '+') backprop = 1;
+X    else if (ch == '-') backprop = 0;
+X    else texterror();
+X   }
+X  else if (ch == 'D')
+X   {
+X    temp = rdr(GT,0.0,'A');
+X    if (!readerror) D = temp;
+X   }
+X  else if (ch == 'd')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == 'd' || ch == 'f' || ch == 'o' || ch == 'F') deriv = ch;
+X    else texterror();
+X   }
+X  else if (ch == 'g')
+X   {
+X    itemp32 = readint(0,MAXINT,'f');
+X    if (!readerror) g = itemp32;
+X   }
+X  else if (ch == 's')
+X   {
+X    itemp = readint(0,32767,'A');
+X    if (!readerror) skiprate = itemp;
+X   }
+X  else if (ch == 't')
+X   {
+X    itemp = readint(0,npats,'A');
+X    if (!readerror) testpat = itemp;
+X    resetpats();
+X    for (i=1;i<=npats;i++)
+X     {
+X      nextpat();
+X      if (last->currentpat->bypass < 0) last->currentpat->bypass = 0;
+X      else if (i == testpat) last->currentpat->bypass = -1;
+X     };
+X   }
+X  else if (ch == 'u')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == 'j') ch = 'd';
+X#ifdef SYMMETRIC
+X    if (ch == 'c' || ch == 'p') update = ch;
+X#else
+X    if (ch == 'c' || ch == 'p' || ch == 'd') update = ch;
+X#endif
+X    else texterror();
+X   }
+X  else if (ch == '*' || ch == '\n' || ch == ' ');
+X  else texterror();
+X }
+Xbufferptr = bufferptr - 1;
+Xbreak;
+X
+Xcase 'a':
+Xtemp = rdr(GE,0.0,'a');
+Xif (!readerror) alpha = temp;
+Xbreak;
+X
+Xcase 'B':
+Xdobenchmark = 0;
+Xwhile (ch != '\n' && ch != '*')
+X {
+X  do ch = readch(); while (ch == ' ');
+X  if (ch == 'g')
+X   {
+X    itemp2 = readint(0,MAXINT,'B');
+X    if (!readerror) goal = itemp2;
+X   }
+X  else if (ch == 'k')
+X   {
+X    temp = rdr(GT,0.0,'B');
+X    if (!readerror) kicksize = temp;
+X   }
+X  else if (ch == 'm')
+X   {
+X    itemp2 = readint(0,MAXINT,'B');
+X    if (!readerror) maxtries = itemp2;
+X   }
+X  else if (ch == 'r')
+X   {
+X    if (nonetwork() || nopatterns()) goto endB;
+X    maxiter = readint(1,MAXINT,'B');
+X    if (readerror) goto endB;
+X    do ch = readch(); while (ch == ' ');
+X    bufferptr = bufferptr - 1;
+X    if (ch >= '0' && ch <= '9')
+X     {
+X      printrate = readint(1,MAXINT,'B');
+X      if (readerror) goto endB;
+X     }
+X    else printrate = -1;
+X    dobenchmark = 1;
+X   }
+X  else if (ch == 't')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == 'f') testfile = readstr();
+X    else if (nonetwork() || nopatterns()) goto endB;
+X    else
+X     {
+X      bufferptr = bufferptr - 1;
+X      itemp = readint(0,npats,'B');
+X      if (readerror) goto endB;
+X      testpat = itemp;
+X      if (testpat == 0) testfile = &emptystring;
+X     };
+X   }
+X  else if (ch == ' ' || ch == '*' || ch == '\n');
+X  else texterror();
+X };
+Xbufferptr = bufferptr - 1;
+Xif (dobenchmark)
+X {
+X  if (testpat)
+X   {
+X    sprintf(outstr,"testing pattern %d\n",testpat);
+X    if (pg(outstr)) goto endB;
+X   };
+X  benchmark = 1;
+X  tries = 0;
+X  sumiter = 0;
+X  successes = 0;
+X  totalcpu = 0;
+X  s = seedstart->next;
+X  while (successes < goal && tries < maxtries)
+X   {
+X    if (s != NULL)
+X     {
+X      seed = s->val;
+X      srand(seed);
+X      s = s->next;
+X     };
+X    clear();
+X    kick(scale(0.0),kicksize);
+X    sprintf(outstr," seed = %6d; ",seed);
+X    pg(outstr);
+X    if (testpat)
+X     {
+X      resetpats();
+X      for (i=1;i<=testpat;i++) nextpat();
+X      last->currentpat->bypass = -1;
+X     };
+X    prevcputime = clock();
+X    if (run(maxiter,printrate)) goto endB;
+X    cputime = clock();
+X    tries = tries + 1;;
+X    if (unlearned == 0 || ((unlearned == 1) && testpat))
+X     {
+X      successes = successes + 1;
+X      sumiter = sumiter + totaliter;
+X      totalcpu = totalcpu + cputime - prevcputime;
+X     };
+X    if (testpat)
+X     {
+X      for (i=1;i<(testpat-1);i++) setonepat();
+X      last->currentpat->bypass = 0;
+X     }
+X   };
+X  sprintf(outstr,"%d failures; %d successes;",tries - successes,successes);
+X  pg(outstr);
+X  if (successes > 0)
+X   {
+X    averageiter = (REAL) sumiter / (REAL) successes;
+X    averagecpu = (REAL) totalcpu / (REAL) successes;
+X    sprintf(outstr," average = %f ",averageiter); pg(outstr);
+X    sprintf(outstr,"%12.6f sec/network",averagecpu / CLOCKS_PER_SEC);
+X    pg(outstr);
+X   };
+X  pg("\n");
+X };
+X
+XendB: benchmark = 0;
+Xbreak;
+X
+Xcase 'b':
+Xitemp = 0;
+Xch = readch();
+Xwhile (ch != '\n' && ch != '*')
+X {
+X  bufferptr = bufferptr - 1;
+X  itemp2 = readint(format[itemp],last->unitcount,'b');
+X  if (readerror) goto endb;
+X  itemp = itemp + 1;
+X  if (itemp < maxformat) format[itemp] = itemp2;
+X  else pg("format too long\n");
+X  ch = readch();
+X  while (ch == ' ') ch = readch();
+X  if (ch >= '0' && ch <= '9') bufferptr = bufferptr - 1;
+X };
+Xif (itemp < maxformat-1)
+X   for (i=itemp+1;i <= maxformat-1; i++) format[i] = format[i-1] + 10;
+Xbufferptr = bufferptr - 1;
+X
+Xendb: break;
+X
+Xcase 'C':
+Xif (nonetwork()) break;
+Xclear();
+Xsrand(seed);
+Xbreak;
+X
+X#ifndef SYMMETRIC
+Xcase 'c':
+Xif (nonetwork()) break;
+Xlayer1 = readint(1,nlayers,'c');
+Xif (readerror) break;
+Xnode1 = readint(1,MAXINT,'c');
+Xif (readerror) break;
+Xlayer2 = readint(1,nlayers,'c');
+Xif (readerror) break;
+Xnode2 = readint(1,MAXINT,'c');
+Xif (readerror) break;
+Xif (layer1 >= layer2)
+X {
+X  pg("backward connections in c command not implemented\n");
+X  break;
+X };
+Xn1 = locateunit(layer1,node1);
+Xn2 = locateunit(layer2,node2);
+Xif (n1 != NULL && n2 != NULL)
+X {
+X  connect(n1,n2,0);
+X  extraconnect = 1;
+X }
+Xelse
+X {
+X  sprintf(outstr,"connection not made: %d %d %d %d\n", layer1, node1, layer2, node2);
+X  pg(outstr);
+X };
+Xbreak;
+X#endif
+X
+Xcase 'd':
+Xcase 'j':
+Xwhile (ch != '\n' && ch != '*')
+X {
+X  ch = readch();
+X  if (ch == 'd')
+X   {
+X    temp = rdr(GT,0.0,'d');
+X    if (!readerror) decay = temp;
+X   }
+X  else if (ch == 'e')
+X   {
+X    temp = rdr(GT,0.0,'d');
+X    if (!readerror && !nonetwork())
+X     {
+X      dbdeta = temp;
+X      p = start->next;
+X      while (p != NULL)
+X       {
+X        u = (UNIT *) p->units;
+X        while (u != NULL)
+X         {
+X          w = (WTNODE *) u->wtlist;
+X          while (w != NULL)
+X           {
+X#ifdef SYMMETRIC
+X            *(w->eta) = dbdeta;
+X#else
+X            w->eta = dbdeta;
+X#endif
+X            w = w->next;
+X           }
+X          u = u->next;
+X         }
+X        p = p->next;
+X       }
+X     }
+X   }
+X  else if (ch == 'k')
+X   {
+X    temp = rdr(GT,0.0,'d');
+X    if (!readerror) kappa = temp;
+X   }
+X  else if (ch == 'm')
+X   {
+X    temp = rdr(GT,0.0,'d');
+X    if (!readerror) etamax = temp;
+X   }
+X  else if (ch == 'n')
+X   {
+X    temp = rdr(GE,0.0,'d');
+X    if (!readerror) noise = temp;
+X   }
+X  else if (ch == 't')
+X   {
+X    temp = rdr(GE,0.0,'d');
+X    if (!readerror)
+X     {
+X      theta1 = temp;
+X      theta2 = scale(1.0) - theta1;
+X     };
+X   }
+X  else if (ch == '*' || ch == '\n' || ch == ' ');
+X  else texterror();
+X }
+Xbufferptr = bufferptr - 1;
+Xbreak;
+X
+Xcase 'e':
+Xtemp = rdr(GT,0.0,'e');
+Xif (!readerror) eta = temp;
+Xdo ch = readch(); while (ch == ' ');
+Xbufferptr = bufferptr - 1;
+Xif (ch != '\n' && ch != '*')
+X {
+X  temp = rdr(GT,0.0,'r');
+X  if (!readerror) eta2 = temp;
+X }
+Xelse eta2 = eta;
+Xbreak;
+X
+Xcase 'f':
+Xwhile (ch != '\n' && ch != '*')
+X {
+X  ch = readch();
+X  if (ch == 'b')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == '+' || ch == '-') ringbell = ch; else texterror();
+X   }
+X  else if (ch == 'c')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == '+')
+X     {
+X       copyflag = '+';
+X       copy = fopen("copy","w");
+X       if (copy == NULL)
+X        {sprintf(outstr,"cannot open file:  copy\n"); pg(outstr); };
+X     }
+X    else if (ch == '-')
+X     {
+X      copyflag = '-';
+X      if (copy != NULL)
+X       {
+X        fflush(copy);
+X        fclose(copy);
+X       }
+X     }
+X    else texterror();
+X   }
+X  else if (ch == 'e')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == '+' || ch == '-') echo = ch;
+X   }
+X  else if (ch == 'i')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == 'c' || ch == 'r') informat = ch; else texterror();
+X   }
+X  else if (ch == 'o')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == 'a' || ch == 'c' || ch == 'r') outformat = ch;
+X    else texterror();
+X   }
+X  else if (ch == 'P')
+X   {
+X    itemp = readint(0,MAXINT,'f');
+X    if (!readerror) pagesize = itemp;
+X   }
+X  else if (ch == 'p')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == 'c' || ch == 'C' || ch == 'g' || ch == 'G') patform = ch;
+X    else texterror();
+X   }
+X  else if (ch == 's')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == '+' || ch == '-') summary = ch; else texterror();
+X   }
+X  else if (ch == 'u')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == '+' || ch == '-') up_to_date_stats = ch; else texterror();
+X   }
+X  else if (ch == 'w')
+X   {
+X    do ch = readch(); while (ch == ' ');
+X    if (ch == 'r' || ch == 'R' || ch == 'b' || ch == 'B') wtformat = ch;
+X    else texterror();
+X   }
+X  else if (ch == ' ' || ch == '*' || ch == '\n');
+X  else texterror();
+X }
+Xbufferptr = bufferptr - 1;
+Xbreak;
+X#ifndef SYMMETRIC
+X
+Xcase 'H':
+Xif (nonetwork()) break;
+Xitemp = readint(2,nlayers,'H');
+Xif (readerror) break;
+Xtemp = rdr(GE,0.0,'H');
+Xif (!readerror) addhiddenunit(itemp,temp);
+Xbreak;
+X#endif
+X
+Xcase 'h': help(); break;
+X
+Xcase 'i':
+Xdo ch = readch(); while (ch == ' ');
+Xif (ch != '\n')
+X {
+X  bufferptr = bufferptr - 1;
+X  inputfile = readstr();
+X }
+Xpushfile(inputfile);
+Xbreak;
+X
+Xcase 'k':
+Xif (nonetwork()) break;
+Xtemp = rdr(GE,0.0,'k');
+Xif (readerror) break;
+Xtemp2 = rdr(GT,0.0,'k');
+Xif (!readerror)
+X {
+X  if (initialkick == -1 && temp == 0) initialkick = temp2;
+X  kick(temp,temp2);
+X }
+Xbreak;
+X
+Xcase 'l':
+Xif (nonetwork()) break;
+Xlayerno = readint(1,nlayers,'l'); 
+Xif (readerror) break;
+Xp = start;
+Xfor (i=2;i<=layerno;i++) p = p->next;
+Xprintoutunits(1,p,0);
+Xbreak;
+X
+Xcase 'm':
+Xnlayers = 0;
+Xwttotal = 0;
+Xch = readch();
+Xp = NULL;
+Xwhile (ch != '\n' && ch != '*')
+X {
+X  itemp = readint(1,MAXINT,'m');
+X  if (readerror)
+X   {
+X    wttotal = 0;
+X    goto endm;
+X   };
+X  nlayers = nlayers + 1;
+X  p = mklayer(p,itemp);
+X  if (nlayers == 1) start = p;
+X  ch = readch();
+X  while (ch == ' ') ch = readch();
+X  if (ch >= '0' && ch <= '9') bufferptr = bufferptr - 1;
+X };
+Xlast = p;
+Xp = start;
+Xp = p->next;
+Xhlayer = (UNIT *) p->units;
+Xp = p->next;
+Xif (p != NULL)
+X {
+X  ilayer = (UNIT *) p->units;
+X  p = p->next;
+X  if (p != NULL)
+X   {
+X    jlayer = (UNIT *) p->units;
+X    p = p->next;
+X    if (p != NULL) klayer = (UNIT *) p->units;
+X   }
+X };
+Xbufferptr = bufferptr - 1;
+Xnullpatterns();
+Xclear();
+Xendm: break;
+X
+Xcase 'n':
+Xif (nonetwork()) break;
+Xdo ch = readch(); while (ch == ' ');
+Xif (ch == 'f')
+X {
+X  trainfile = readstr();
+X  itemp = MAXINT;
+X  pushfile(trainfile);
+X }
+Xelse
+X {
+X  bufferptr = bufferptr - 1;
+X  itemp = readint(1,MAXINT,'n');
+X  if (readerror) break;
+X };
+Xnullpatterns();
+Xreadingpattern = 1;
+Xnpats = readpats(itemp,'n');
+Xif (itemp != MAXINT && npats < itemp)
+X {
+X  sprintf(outstr,"\n>>>>> only %d patterns read <<<<<\n\n",npats);
+X  pg(outstr);
+X };
+Xreadingpattern = 0;
+Xwrong = npats;
+Xbreak;
+X
+Xcase 'O':
+Xif (nonetwork() || nopatterns()) break;
+Xitemp = readint(1,npats,'O');
+Xif (readerror) break;
+Xresetpats();
+Xfor (i=1;i<=itemp;i++) nextpat();
+Xsetoutputpat();
+Xu = (UNIT *) last->units;
+Xitemp2 = 0; /* unit counter */
+Xi = 1;      /* format counter */
+Xwhile (u != NULL)
+X {
+X  if (outformat == 'c')
+X     if (unscale(u->tj) == 1) pg("1"); else pg("0");
+X  else {sprintf(outstr,"%5.2f",unscale(u->tj)); pg(outstr);};
+X  itemp2 = itemp2 + 1;
+X  if (format[i] == itemp2)
+X   {
+X    if (outformat == 'r') pg("\n"); else pg(" ");
+X    if (i < maxformat - 1) i = i + 1;
+X   };
+X  u = u->next;
+X }
+Xpg("\n");
+Xbreak;
+X
+Xcase 'o':
+Xdo ch = readch(); while (ch == ' ' || ch == '\n');
+Xif (ch == 'r' || ch == 'a' || ch == 'c') outformat = ch;
+Xelse printf("incorrect output format: %c\n",ch);
+Xbreak;
+X
+Xcase 'P':
+Xif (nonetwork() || nopatterns()) break;
+Xdo ch = readch(); while (ch == ' ');
+Xbufferptr = bufferptr - 1;
+Xif (ch == '\n' || ch == '*') patcheck(1,npats,1,1,1,1,0);
+Xelse
+X {
+X  itemp = readint(0,npats,'P');
+X  if (readerror) break;
+X  if (itemp == 0) patcheck(1,npats,0,0,1,1,0);
+X  else patcheck(itemp,itemp,1,1,0,0,0);
+X };
+Xbreak;
+X
+Xcase 'p':
+Xif (nonetwork()) break;
+Xloadpat('p');
+Xprintoutunits(1,last,0);
+Xbreak;
+X
+Xcase 'Q':
+Xtemp = rdr(GT,(REAL) KCODE,'Q');
+Xif (!readerror) qmark = temp;
+Xbreak;
+X
+Xcase 'q': return;
+X
+Xcase 'R': if (nonetwork()) break; else restoreweights(); break;
+X
+Xcase 'r': /* r for run, rw for restore weights */
+Xdo ch = readch(); while (ch == ' ');
+Xif (ch == 'w')
+X {
+X  do ch = readch(); while (ch == ' ');
+X  bufferptr = bufferptr - 1;
+X  if (ch == '*' || ch == '\n') /* nothing */ ; else wtfile = readstr();
+X  if (nonetwork()) break; else restoreweights();
+X }
+Xelse
+X {
+X  if (nonetwork() || nopatterns()) break;
+X  bufferptr = bufferptr - 1;
+X  itemp = readint(1,MAXINT,'r'); 
+X  if (!readerror) iter = itemp; else break;
+X  do ch = readch(); while (ch == ' ');
+X  bufferptr = bufferptr - 1;
+X  if (ch != '\n' && ch != '*')
+X   {
+X    itemp = readint(1,MAXINT,'r');
+X    if (readerror != 1) run(iter,itemp);
+X   }
+X  else run(iter,-1);
+X };
+Xbreak;
+X
+Xcase 'S':
+Xdo ch = readch(); while (ch == ' ');
+Xbufferptr = bufferptr - 1;
+Xif (ch == '\n' || ch == '*') itemp = 0;
+Xelse
+X {
+X  itemp = readint(0,MAXINT,'S');
+X  if (readerror) break; 
+X };
+Xif (itemp == 0) if (nonetwork()) break; else saveweights();
+Xelse saverate = itemp;
+Xbreak;
+X
+Xcase 's':  /* s <int> for seed, sw <filename> for save weights */
+Xdo ch = readch(); while (ch == ' ');
+Xif (ch == 'w')
+X {
+X  do ch = readch(); while (ch == ' ');
+X  bufferptr = bufferptr - 1;
+X  if (ch == '*' || ch == '\n') /* nothing */ ; else wtfile = readstr();
+X  if (nonetwork()) break; else saveweights();
+X }
+Xelse
+X {
+X  bufferptr = bufferptr - 1;
+X  sprev = seedstart;
+X  while (ch != '\n' && ch != '*')
+X   {
+X    seed = readint(0,MAXINT,'s');
+X    if (readerror) goto ends;
+X    s = (SEEDNODE *) malloc(sizeof(SEEDNODE));
+X    s->val = seed;
+X    s->next = NULL;
+X    sprev->next = s;
+X    sprev = s;
+X    do ch = readch(); while(ch == ' ');
+X    if (ch >= '0' && ch <= '9') bufferptr = bufferptr - 1;
+X   };
+Xends: seed = seedstart->next->val;
+X  srand(seed);
+X}
+Xbufferptr = bufferptr - 1;
+Xbreak;
+X#ifdef SYMMETRIC
+X
+Xcase 'T':
+Xif (nonetwork()) break;
+Xstdthresh = rdr(GT,-unscale(32767),'T');
+Xif (readerror) break;
+Xu = (UNIT *) last->units;
+Xwhile (u != NULL)
+X {
+X  w = (WTNODE *) u->wtlist;
+X  while (w->next != NULL) w = w->next;
+X  *(w->weight) = stdthresh;
+X  u = u->next;
+X };
+Xbreak;
+X#endif
+X
+Xcase 't':
+Xdo ch = readch(); while (ch == ' ');
+Xif (ch == '\n' && (!nonetwork())) testcheck();
+Xelse if (ch == 'f')
+X {
+X  do ch = readch(); while (ch == ' ');
+X  if (ch == '\n' && (!nonetwork())) testcheck();
+X  else
+X   {
+X    bufferptr = bufferptr - 1;
+X    testfile = readstr();
+X    if (!nonetwork()) testcheck();
+X   };
+X }
+Xelse
+X {
+X  bufferptr = bufferptr - 1;
+X  temp = rdr(GT,0.0,'t');
+X  if (readerror) break;
+X  else if (temp < scale(1.0)) toler = temp;
+X  else printf("tolerance value out of range\n");
+X };
+Xbreak;
+X#ifndef SYMMETRIC
+X
+Xcase 'W':
+Xif (nonetwork()) break;
+Xtemp = rdr(GT,0.0,'W');
+Xif (!readerror)
+X {
+X  toosmall = temp;
+X  whittle(temp);
+X  printf("total weights now: %1d\n",wttotal);
+X };
+Xbreak;
+X#endif
+X
+Xcase 'w':
+Xif (nonetwork()) break;
+Xlayerno = readint(2,nlayers,'w');
+Xif (readerror) break;
+Xunitno = readint(1,MAXINT,'w');
+Xif (readerror) break;
+Xu = locateunit(layerno,unitno);
+Xif (u != NULL) printweights(u);
+Xbreak;
+X
+Xcase 'x':
+Xif (nonetwork()) break;
+Xdo ch = readch(); while (ch == ' ');
+Xif (ch == 'f')
+X {
+X  trainfile = readstr();
+X  itemp = MAXINT;
+X  pushfile(trainfile);
+X }
+Xelse
+X {
+X  bufferptr = bufferptr - 1;
+X  itemp = readint(1,MAXINT,'n');
+X  if (readerror) break;
+X };
+Xprevnpats = npats;
+Xfindendofpats(start);
+Xfindendofpats(last);
+Xreadingpattern = 1;
+Xitemp2 = readpats(itemp,'x');
+Xif (itemp != MAXINT && npats < itemp2)
+X   printf("\n>>>>> only %d patterns read <<<<<\n\n",npats);
+Xreadingpattern = 0;
+Xnpats = npats + itemp2;
+Xwrong = wrong + itemp2;
+Xbreak;
+X
+X/*
+Xcase 'z': tracer();
+X          break;
+X*/
+X
+Xdefault: texterror();
+Xbreak;
+X      };
+X    do ch = readch(); while (ch != '\n');
+X  }while (!finished);
+X}
+X
+Xvoid main(argc,argv)
+Xint argc;
+Xchar *argv[];
+X{
+XFILE *tempfile;
+Xsetbuf(stdout,NULL);  /* set unbuffered output */
+Xprintf("Fast Backpropagation Copyright (c) 1990, 1991, 1992 by Donald R. Tveter\n");
+Xfilestackptr = 0;
+Xfilestack[0] = stdin;
+Xdata = stdin;
+Xemptystring = '\0';
+Xif (argc == 1)
+X {
+X  printf("no data file, stdin assumed\n");
+X  datafilename = &emptystring;
+X  testfile = &emptystring;
+X }
+Xelse
+X {
+X  datafilename = argv[1];
+X  pushfile(datafilename);
+X  if (argc == 3)
+X   {
+X    tempfile = fopen(argv[2],"r");
+X    if (tempfile == NULL)
+X     {
+X      printf("there is no file: %s\n",argv[2]);
+X      testfile = &emptystring;
+X     }
+X    else
+X     {
+X      testfile = argv[2];
+X      fclose(tempfile);
+X     }
+X   }
+X  else testfile = &emptystring;
+X };
+Xinit();
+Xsignal(SIGINT,restartcmdloop); /* restart from interrrupt */
+Xcmdloop();
+Xif (copy != NULL)
+X {
+X  fflush(copy);
+X  fclose(copy);
+X }
+X}
+END_OF_FILE
+if test 37758 -ne `wc -c <'bp.c'`; then
+    echo shar: \"'bp.c'\" unpacked with wrong size!
+fi
+# end of 'bp.c'
+fi
+echo shar: End of archive 2 \(of 4\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
