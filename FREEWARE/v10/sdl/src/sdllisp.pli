@@ -1,0 +1,1311 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1986,1987,1988           	                            *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Generates the Lisp language output from the SDL tree.
+
+author:
+
+        John Miller
+*/
+
+sdl$output: proc (out_file, def_filename, sdl$_shr_data) 
+	    options(ident('V3.2-4')); 
+
+/* INCLUDE FILES */
+%include 'sdl$library:sdlnodef.in';         /* node structure definition */
+%include 'sdl$library:sdltypdef.in';        /* data type definitions */
+%include 'sdl$library:sdlshr.in';           /* entry and external definitions */
+%include 'sdl$library:sdlmsgdef.in';        /* error reporting */
+%include 'SDL$LIBRARY:filedef.in';      /* rms file definitions */
+
+  
+/* CONSTANTS */
+%replace line_length by 132;		/* output file line length */ 
+%replace lang_ext by '.lsp';
+%replace lang_name by 'LISP';
+%replace true by '1'b;
+%replace false by '0'b;
+
+/*
+ * The following array gives the PL/I equivalents for SDL data types
+ */
+	dcl types(30) char (32) var;
+ 
+/*
+ * The following initialization of the types array is done with
+ * assignments so that the numeric values of the symbols used for
+ * indices do not have to be known 
+ */
+ 
+	types(typ$k_address)='unsigned-longword';
+	types(typ$k_byte)='byte';
+	types(typ$k_char)='text';
+	types(typ$k_boolean)='byte';
+	types(typ$k_decimal)='';
+	types(typ$k_double)='d-floating';
+	types(typ$k_float)='f-floating';
+	types(typ$k_grand)='g-floating';
+	types(typ$k_huge)='h-floating';
+	types(typ$k_longword)='unsigned-longword';
+	types(typ$k_octaword)='unsigned-octaword';
+	types(typ$k_quadword)='unsigned-quadword';
+	types(typ$k_vield)='bit';
+	types(typ$k_word)='unsigned-word';
+	types(typ$k_float_complex)='f-floating-complex';
+	types(typ$k_double_complex)='f-floating-complex';
+	types(typ$k_grand_complex)='f-floating-complex';
+	types(typ$k_huge_complex)='f-floating-complex';
+	types(typ$k_structure)='';
+	types(typ$k_union)='';
+	types(typ$k_any)='';
+	types(typ$k_entry)='';
+	types(typ$k_user)='';
+	types(typ$k_void)='';
+
+/*
+ * These equivalents are used for signed data types
+ */
+	dcl signed (20) char (32) var;
+
+	signed(typ$k_byte)='byte';
+        signed(typ$k_char)='text';
+	signed(typ$k_word)='signed-word';
+	signed(typ$k_longword)='signed-longword';
+	signed(typ$k_quadword)='signed-quadword';
+	signed(typ$k_octaword)='signed-octaword';
+
+
+/* LOCAL VARIABLES */
+	dcl out_file char(128) var ;
+	dcl def_filename char(132) var;
+        dcl module_filename char (132) var;
+	dcl output_file file output record sequential;
+	dcl xptr ptr;
+	dcl (buf,prefix,suffix) char(1024) var;
+        dcl comment_buf char(1024) var;
+	dcl based_string char(1024) var based;
+	dcl (i,o,k) fixed bin(31);
+	dcl tab char initial (byte(9));
+        dcl indent char initial (byte(9));
+        dcl quote char initial (byte(39));
+        dcl dquote char initial (byte(34));
+	dcl (tmpbuf,bitstring) char (32);
+	dcl tag char(2);
+/* New local arrays to store information for the construction of LISP
+   wrapper routines                                                      */
+        dcl inparms(20) char (32) var;
+        dcl outparms(20) char (32) var;
+        dcl allparms(20) char (32) var;
+        dcl inptype(20) char (32) var;
+        dcl outptype(20) char (32) var;
+        dcl buftemp char (1024) var;
+        dcl process_conditional bit init (false);
+
+/* Declare variables needed for getting a fully resolved file specification.
+   The resolved file specification will be recorded as a dependency for
+   the VDE system builder through the LIB$REC_DEPENDENCY interface.
+ */
+        dcl vde_filename char(128) var
+                        init ('');      /* input source file name */
+        dcl vde_input_file file variable static;
+        dcl vde_in_file pointer initial(addr(vde_input_file));
+        dcl vde_in_file_ptr pointer based (vde_in_file);
+        dcl vde_esa_area char(120) static;
+        dcl vde_addr_esa_area pointer initial(addr(vde_esa_area));
+        dcl vde_rsa_area char(120) static;
+        dcl vde_addr_rsa_area pointer initial(addr(vde_rsa_area));
+
+        dcl vde_full_name pointer;
+        dcl vde_result_name char(132) based (vde_full_name) ;
+
+
+/*** main ***/
+
+    on undefinedfile (output_file) 
+	begin;
+	    call errmsg (sdl$_shr_data, sdl$_outfilopn,,(out_file||lang_ext));
+	    goto exit;
+	end;
+
+/* Set up file structures for receiving the fully resolved language specific
+   output file from the open call. The fully resolved output file, file
+   specification is passed back to the front end through the variable
+   vde_lang_file which is declared in the shared data area (SDLSHR.SDL).
+*/
+        vde_input_file = output_file;
+        vde_in_file_ptr->nam$l_esa = vde_addr_esa_area;
+        vde_in_file_ptr->nam$b_ess = 120;
+        vde_in_file_ptr->nam$l_rsa = vde_addr_rsa_area;
+        vde_in_file_ptr->nam$b_rss = 120;
+
+
+	/* first open up the output file */
+	/* concatenate the extension for the language */
+	open file (output_file) title (out_file) 
+			environment (default_file_name( def_filename ||
+					lang_ext) );
+	outfile = output_file;	/* equate the file with the file variable 
+					in the shared structure */	
+
+	/* output the little SDL header with time and date info */
+	call sdl$header(sdl$_shr_data, '; ','',line_length);
+
+	/* begin at the root of the tree, and let it go */
+
+        /** put in optimization statement before writing anything **/
+         buf=comment_buf;
+         buf=';;;(proclaim '||quote||'(optimize (speed 3) (safety 0)))';
+         call sdl$putline(outfile,buf,line_length);
+        /***********************************************************/
+
+	call outputnode(tree_root->nod$a_flink,tree_root,0);
+
+/* Get the fully resolved language specific output file and
+   and move it the shared data area for the front-end. The reultant
+   name will be recorded as a file dependency for the VDE system builder.
+*/
+        vde_full_name = vde_in_file_ptr->nam$l_rsa;
+        vde_filename = vde_result_name;
+	vde_lang_file = substr( vde_result_name, 1, vde_in_file_ptr->nam$b_rsl);
+
+ 
+	close file (output_file);
+exit: 
+	return;
+
+
+
+/** print node routine **/
+outputnode:	proc (initp,startp,level);
+
+/* parameters:	initp	= address of node to output
+		startp	= address of where we started (i.e. where to stop
+			  in traversing a circular list )
+		level	= level number of aggregate (incremented by 1 with
+			  each sub-aggregate */
+  dcl (p,startp,q,initp) ptr;
+  dcl level fixed bin(31);
+  dcl firstextern fixed binary;
+  dcl (temp,temp2) char (128) var;
+
+/* initializing some variables */
+p = initp;            /* save the beginning point of the parse tree  */
+firstextern = 1;      /* track where the first external routine shows up */
+
+do while (p^=startp);
+/* The indentation level is one tab for everything except nested structures */
+/* Since the first call on OUTPUTNODE is always a root node, this code serves to initialize
+   indentation level. */
+	comment_buf = '';
+	indent = tab;
+
+	goto case(p->nod$b_type);
+ 
+case(nod$k_rootnode):
+/* nothing done here except to move on to list of module nodes of which
+this is the head */
+	buf='';
+	goto common_2;
+ 
+case(nod$k_commnode):
+/* Fill the buffer to the comment start position and let the common stuff
+ output the comment line */
+	buf=';;;'||p->nod$a_comment->based_string;
+	goto common_3;
+ 
+case(nod$k_constnode):
+/* do a straightforward PARAMETER for the constant node */
+
+	buf=' (defconstant '||p->nod$t_name||' ';
+	if p->nod$w_datatype = typ$k_char then do;
+		temp=p->nod$a_typeinfo2->based_string;
+		call sdl$cvtstr(temp, temp2, '"\"\\\');
+		buf=buf||'"'||temp2||'")';
+		end;
+
+        else if p->nod$l_flags&nod$m_mask then do;
+           tmpbuf=char(unspec(p->nod$l_typeinfo));
+           i=length(tmpbuf);
+           k= 1;
+           do while (i > 0);
+             substr(bitstring,k,1)= substr(tmpbuf,i,1);
+             k=k+1;
+             i= i-1;
+           end;
+           buf=buf||'#b'||bitstring||')';
+         end;
+
+        else do;
+           buf=buf||trim(p->nod$l_typeinfo);
+           buf=buf||')';
+           end;
+        goto common;
+
+case(nod$k_entrynode):
+/* write out the header for define external routine */
+/* Initialize the array that will be use to store information for the 
+   generation of the lisp wrapper routine.                          */
+
+         xptr=p;
+         i=1;
+         do while (i < 21);
+          inparms(i)=' ';
+          outparms(i)=' ';
+          inptype(i)=' ';
+          outptype(i)=' ';
+          i=i+1;
+         end;
+/* The input and output parameter number counters and 
+   parse the routine's name                                          */
+         i = 1;
+         o = 1;
+         k=1;
+         call parsename (p,prefix,suffix);
+
+/*         if firstextern=1 then
+             call createmacro(p,buf);
+         firstextern = 0;                          Leave for later */
+         buf=comment_buf;
+         buf= '(define-external-routine ('||p->nod$t_name; 
+         call sdl$putline(outfile,buf,line_length);
+         buf=comment_buf;
+         call isthereafile(p,buf);
+         if p->nod$w_datatype=typ$k_boolean then
+            buf=indent||indent||':check-status-return t';
+         else do;
+               buf=indent||indent||':result  ';
+             if p->nod$w_datatype^=0 then do;
+               call sdl$putline(outfile,buf,line_length);
+               buf=comment_buf;
+               buf=indent||indent||'        (:lisp-type ';
+               call putlisptype(p,buf,0);
+               buf=buf||')';
+              end;
+             else
+               buf=buf||'nil';
+       
+           end;
+         if p->nod$a_child^=null() then
+            buf=buf||')';
+         else
+            buf=buf||'))';           
+         call sdl$putline(outfile,buf,line_length);
+         if p->nod$a_child=null() then
+            buf=comment_buf;
+         goto common_2;
+
+case(nod$k_modulnode):
+
+	call sdl$putline (outfile, ' ',line_length);
+        module_filename = p->nod$t_name;
+	buf=';;;'||'*** MODULE '||p->nod$t_name;
+	if p->nod$t_naked ^= '' then
+		buf=buf || ' IDENT '||p->nod$t_naked;
+	buf=buf||' ***';
+	call sdl$putline (outfile, buf,line_length);
+        call sdl$putline (outfile, '      ',line_length);  
+	buf='';
+	goto common;
+
+case(nod$k_itemnode):
+/* This defines how and aggregate will be deciphered into lisp code */
+    
+	if p->nod$v_declared then goto common;	/* ignore declared item */
+
+        buf=comment_buf;
+        if  p->nod$l_flags&nod$m_global then do;
+           buf=';;; ITEM '||p->nod$t_name||' ADDRESS GLOBAL';
+           goto common_2;
+         end;
+        else if (p->nod$w_datatype=typ$k_structure |
+           p->nod$w_datatype=typ$k_union) & p->nod$a_child^=null() then do;
+
+/* Output the define alien structure routine header       */
+
+                if level=1 then do;
+                    buf='            ';
+                    call sdl$putline (outfile, buf,line_length); 
+
+/* Now eliminate def in names of all define-alien-structures            */
+
+                    i = length(p->nod$t_name);
+                    k = 1;
+                    do while (k <= (length(p->nod$t_name)));
+                       substr(tmpbuf,1,3) = substr(p->nod$t_name,k,3);
+                       if substr(tmpbuf,1,3)='def' | substr(tmpbuf,1,3)='DEF'
+                        then do;
+                          p->nod$t_name= substr(p->nod$t_name,1,k-1)||
+                                         substr(p->nod$t_name,k+3,
+                                            (length(p->nod$t_name)));
+                          k=i-2;
+                          do while (k <= i+1);
+                            substr(p->nod$t_name,k,1) = ' ';
+                            k=k+1;
+                          end;
+                          k=998;
+                        end;
+                        k=k+1;
+                      end;
+
+/* Print out the define-alien-structure header and set the conc-name keyword
+   to nil                                                                 */
+
+                    buf= '(define-alien-structure '|| '(';
+                    if k=999 then
+                          buf= buf||substr(p->nod$t_name,1,i);
+                    else
+                          buf= buf||p->nod$t_name;
+                    buf= buf||' ( :conc-name nil))';   
+                    call sdl$putline (outfile, buf,line_length); 
+                    p=putalienbody(p,p->nod$a_child,level);
+                    call sdl$putline (outfile, buf,line_length);  
+
+                    call sdl$putline (outfile, '      ',line_length);  
+                    p=p->nod$a_parent;
+                    end;
+              end;
+
+/* For V3.2. If the item is typedef to something go create and alien-structure */
+        else if (p->nod$l_flags&nod$m_typedef) then do;
+
+            call sdl$putline (outfile, '      ',line_length);  
+            buf= '(define-alien-structure '|| '(';
+            buf= buf||p->nod$t_name;
+            buf= buf||' ( :conc-name nil))';   
+            call sdl$putline (outfile, buf,line_length); 
+            if p->nod$a_typeinfo2=null() then
+              p=puttdbody(p,1);
+            else
+              p=puttdbody(p,2);     
+          end;
+
+        goto common_2;
+
+case(nod$k_parmnode):
+/* Parmnode contains the parameter information for defining an external 
+   routine                                                               */
+
+        buf=comment_buf;
+        buftemp=comment_buf;
+        buf='  '||'(';
+        if p->nod$t_name^='' then do;
+           buf=buf||p->nod$t_name;
+           if length(p->nod$t_name) > 4 then 
+               buf=buf||indent||':lisp-type ';
+           else
+               buf=buf||indent||indent||':lisp-type ';
+          end;
+        else do;
+           buf=buf||p->nod$t_naked;
+           if length(p->nod$t_naked) > 4 then 
+               buf=buf||indent||':lisp-type ';
+           else
+               buf=buf||indent||indent||':lisp-type ';
+          end;
+
+/* since we have a go construct the right lisp code else just go put out 
+the base type */
+        if p->nod$l_flags&nod$m_dimen then 
+          if p->nod$w_datatype^=typ$k_char then do;
+             allparms(k)=p->nod$t_name;
+             k=k+1;            
+             call putarray(p,buf);
+
+/* Is it an output parameter??????????                                     */
+  
+           if p->nod$l_flags&nod$m_out then do;
+                outparms(o)=p->nod$t_name;
+                outptype(o)=buftemp;
+                o=o+1;
+               end;
+           else do; /* else throw it in with the input parameters    */
+                inparms(i)=p->nod$t_name;
+                inptype(i)=buftemp;
+                i=i+1;
+               end;
+
+             goto paramout;
+            end;
+          else
+            goto plisp;   
+        else
+plisp:
+/* store appropriate information for lispwrapper routine that will be written
+   later.                                                                  */
+           call putlisptype(p,buftemp,0);
+/* For use in determining input and output parameter types                 */
+           buf=buf||buftemp;
+           allparms(k)=p->nod$t_name;
+           k=k+1;            
+/* Is it an output parameter??????????                                     */
+           if p->nod$l_flags&nod$m_out then do;
+             outparms(o)=p->nod$t_name;
+             outptype(o)=buftemp;
+             o=o+1;
+            end;
+           else do;
+             inparms(i)=p->nod$t_name;
+             inptype(i)=buftemp;
+             i=i+1;
+            end;
+           call sdl$putline(outfile,buf,line_length);
+/* all these special types fall under the category of alien-structures. */
+        if (p->nod$w_datatype=typ$k_any | p->nod$w_datatype=typ$k_user |
+                p->nod$w_datatype=typ$k_structure | 
+                p->nod$w_datatype=typ$k_union) |
+               (p->nod$w_datatype=typ$k_longword & p->nod$l_hidim > 0) then do;
+           goto paramout;
+         end;
+
+        buf=indent||indent||':vax-type  :';
+        if p->nod$l_flags&nod$m_signed then
+           buf=buf||signed(p->nod$w_datatype);
+        else 
+           buf=buf||types(p->nod$w_datatype);
+        call sdl$putline(outfile,buf,line_length);
+
+paramout:
+        buf=comment_buf;
+        buf=indent||indent||':mechanism ';
+        if p->nod$l_flags&nod$m_desc then
+           buf=buf||':descriptor';
+        else if p->nod$l_flags&nod$m_dimen then do;
+           if (p->nod$w_datatype=typ$k_user | p->nod$w_datatype=typ$k_structure
+              | p->nod$w_datatype=typ$k_address) then
+             buf=buf||':reference';
+          end;
+        else if p->nod$w_datatype=typ$k_user then
+             buf=buf||':reference';
+        else if p->nod$w_datatype=typ$k_address then do;
+         if p->nod$l_flags&nod$m_out then    
+             buf=buf||':reference';
+         else 
+             buf=buf||':value';    
+         end;
+        else if (p->nod$l_flags&nod$m_value)&
+                 (p->nod$w_datatype^=typ$k_double &
+                  p->nod$w_datatype^=typ$k_grand &
+                  p->nod$w_datatype^=typ$k_float &
+                  p->nod$w_datatype^=typ$k_any &
+                  p->nod$w_datatype^=typ$k_huge) then 
+           buf=buf||':value';
+        else
+            buf=buf||':reference';
+
+        if p->nod$l_flags&nod$m_out then do;
+           call sdl$putline(outfile,buf,line_length);
+           buf=comment_buf;
+           buf=indent||indent||':access :in-out)';
+           end;
+        else do;
+           call sdl$putline(outfile,buf,line_length);
+           buf=indent||indent||':access :in)';
+           end;
+
+        if initp->nod$a_parent->nod$a_child = p->nod$a_flink then do;
+           buf=buf||')';
+           call sdl$putline (outfile, buf,line_length);
+/* Now go write the wrapper routine                                   */
+           buf=comment_buf;
+           call sdl$putline (outfile, buf,line_length);              
+           call sdl$putline (outfile, buf,line_length);
+           call lispwrapper(xptr,i,o,inparms,outparms,allparms,inptype,
+                            outptype,prefix,suffix);
+         end;
+        goto common;
+
+
+ 
+case(nod$k_objnode):
+
+/* do nothing with object node yet */
+
+	buf='';
+	goto common_2;
+ 
+case(nod$k_headnode):
+/* nothing done with head nodes-- just use them to move down a circular list */
+	buf='';
+	goto common_2;
+
+case(nod$k_condnode):						/* jg */
+
+	/* Search for this language in the list */
+
+	q = p->nod$a_typeinfo2->nod$a_flink;
+	do while (^process_conditional & q->nod$b_type = nod$k_objnode);
+	    if q->nod$t_name = lang_name then process_conditional = true;
+	    q = q->nod$a_flink;
+	end;
+
+	/*
+	 * If this language has been found, then children will be processed
+	 * at common_2 at the same level.
+	 *
+	 * Process a comment attached to IFLANGUAGE only if for this language.
+	 */
+	if process_conditional then goto common;
+	else goto common_2;
+
+case(nod$k_litnode):						/* jg */
+
+	/* Process literal node */
+
+	buf = p->nod$a_typeinfo2->based_string;
+	goto common;
+
+
+common:
+/* if there is attached comment, then append it to end of line and output it */
+
+	if p->nod$a_comment^=null() & sdl$v_comment_opt 
+	then 
+		buf=buf||'   ; '||p->nod$a_comment->based_string;
+
+	call sdl$putline (outfile, buf,line_length);
+	buf='';
+
+common_2:
+/*
+ * Travel down the child node 
+ */
+
+	if process_conditional then do;				/* jg */
+	    process_conditional = false;
+	    call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,
+				level);
+	    end;
+
+	else if p->nod$a_child^=null() & p->nod$b_type ^= nod$k_condnode then
+		call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,
+		level+1);
+
+common_3:
+/*
+ * Travel across the circular list to the sibling node 
+ */
+	if p->nod$a_flink ^= startp
+	then do;
+	     call sdl$putline (outfile, buf, line_length);
+	     buf = tab;
+	     end;
+
+	p = p->nod$a_flink;
+
+	end;  /* end of the DO WHILE loop */
+
+	return;
+
+isthereafile: proc(p,buf);
+   dcl p ptr;
+   dcl (buf,temp) char(1024) var;
+
+   buf=comment_buf;
+   temp=comment_buf;
+   buf=buf||indent||indent;
+   temp=temp||indent||indent;
+   if substr(p->nod$t_name,1,3)^='SYS' |
+      substr(p->nod$t_name,1,3)^='sys' then  
+      buf=buf||':file '||dquote||module_filename||dquote;
+
+   if buf ^= temp  then
+       call sdl$putline(outfile,buf,line_length);
+   buf=comment_buf;
+   return;
+
+end isthereafile;
+
+
+putlisptype: proc (p,buf,num);
+   dcl (temp,buf) char(1024) var;
+   dcl p ptr;
+   dcl num fixed binary;
+/* return the appropriate lisp datatype      */
+
+       if (p->nod$w_datatype=typ$k_any |
+                p->nod$w_datatype=typ$k_structure |
+                p->nod$w_datatype=typ$k_union) then do;
+           buf=buf||'alien-structure';
+           return;
+         end;
+       else if ((p->nod$w_datatype=typ$k_user)&num=0) then do;
+           temp=comment_buf;
+           temp=';;;*** POINTER TO ALIEN STRUCTURE ';
+           temp=temp||p->nod$a_typeinfo2->nod$a_flink->nod$t_name||' ***';
+           call sdl$putline(outfile,temp,line_length);
+           buf=buf||'alien-structure';
+           return;
+         end;
+
+        else if p->nod$w_datatype=typ$k_char then do;
+             if num=0 then
+              buf=buf||'simple-string';
+             else
+              buf=buf||'string';
+          end;
+        else if p->nod$w_datatype=typ$k_float then
+              buf=buf||'single-float';
+        else if p->nod$w_datatype=typ$k_double then 
+              buf=buf||'double-float';
+        else if p->nod$w_datatype=typ$k_grand then
+                buf=buf||'double-float';
+        else if p->nod$w_datatype=typ$k_huge then
+                buf=buf||'long-float';
+        else if p->nod$w_datatype=typ$k_huge then
+                buf=buf||'long-float';
+        else if (p->nod$w_datatype=typ$k_double_complex | 
+                p->nod$w_datatype=typ$k_float_complex | 
+                p->nod$w_datatype=typ$k_grand_complex | 
+                p->nod$w_datatype=typ$k_huge_complex) then
+                buf=buf||'(complex single-float)';
+        else if p->nod$w_datatype=typ$k_quadword |
+                p->nod$w_datatype=typ$k_octaword then
+              buf=buf||'(signed-byte 32)';
+        else if p->nod$w_datatype=typ$k_word then
+              buf=buf||'(unsigned-byte 16)';
+        else if p->nod$w_datatype=typ$k_byte then
+              buf=buf||'(unsigned-byte 8)';
+        else do;
+            if num=0 then
+              buf=buf||'(signed-byte 32)';
+            else 
+              buf=buf||'integer';
+         end;
+
+return;
+
+end putlisptype;
+
+puttdbody: proc (p,aggr) returns (ptr);
+   dcl p ptr;
+   dcl pstart(90) ptr;
+   dcl (aggr,trash) fixed binary;
+
+/* this code writes out the user defined typedefs       */
+
+   pstart(1)=p;
+   buf = comment_buf;
+   if aggr = 1 then do;
+      buf=buf||'  ('||p->nod$t_name||' :';
+      trash = detertype(p,1,0,0,pstart);
+      buf=buf||')';
+     end;
+   else if aggr = 2 then do;
+      if p->nod$a_typeinfo2->nod$a_flink->nod$t_name^='' then
+         buf=buf||'  ('||p->nod$a_typeinfo2->nod$a_flink->nod$t_name||' :';
+      else
+         buf=buf||'  ('||p->nod$t_name||' :';
+      trash = detertype(p,1,0,0,pstart);
+      buf=buf||')';
+    end;
+ 
+return(p);
+
+end puttdbody;
+
+putalienbody: proc (init,p,l) returns (ptr);
+   dcl init ptr;
+   dcl p ptr;
+   dcl (temp,temp2) ptr;
+   dcl flag fixed binary;
+   dcl l fixed binary;
+   dcl noitemyet fixed binary;
+   dcl (detval,level) fixed binary;
+   dcl pstart(90) ptr;
+   dcl  i fixed binary;
+  
+/* Check to see if this is a typedef alien structure      */
+   pstart(l)=p;
+
+/* now loop through all the children and put them out   */
+
+   temp = p->nod$a_flink;
+   if l=1 & temp->nod$b_type^=nod$k_itemnode then do;
+     noitemyet=0;
+     level=l;
+     call moreitems(level,temp,pstart,flag);
+    end;
+
+   do while (p->nod$a_flink ^=pstart(l));
+       flag=0;
+       buf=comment_buf;
+       p=p->nod$a_flink;
+
+/* see how many level down you are                       */
+
+        if p->nod$b_type=nod$k_itemnode then do;
+           temp = p->nod$a_flink;
+           noitemyet=1;
+           level=l;
+           call moreitems(level,temp,pstart,flag);
+          end;
+
+/* Put out all comment associated with a slot before the slot */
+
+       if (p->nod$a_comment^=null() & sdl$v_comment_opt)&
+          (p->nod$b_type^=nod$k_commnode) then do;
+              call moreitems(level,temp,pstart,flag);
+              if flag=0 then
+                 buf=buf||'    ;'||p->nod$a_comment->based_string;
+              call sdl$putline(outfile,buf,line_length);
+              buf=comment_buf;
+          end;
+
+/* write out the beginning of the slot for an itemnode in the sdl tree */
+
+       do i=1 to l;
+          buf=buf||'  ';
+       end; /* end the do loop */
+
+
+       buf=buf||'('||p->nod$t_name;
+       buf=buf||' '||':';
+
+
+/* Fill out the rest of the slot data. Determine what it is    */
+
+        detval=detertype(p,l,flag,noitemyet,pstart);
+ 
+        if detval=1 then 
+           goto skip;
+
+        else if (p->nod$w_datatype=typ$k_structure |
+               p->nod$w_datatype=typ$k_union) & p->nod$a_typeinfo2=null()
+               then do;
+                  p=putalienbody(init,p->nod$a_child,l+1);
+                  p=p->nod$a_parent;
+                  temp=p->nod$a_flink;
+                  level=l;
+                  call moreitems(level,temp,pstart,flag);
+                  goto skip;
+              end;
+
+skip:
+       if (p->nod$l_flags&nod$m_bottom) then do;
+          buf=buf||')';
+          if p->nod$a_comment^=null() & sdl$v_comment_opt then 
+                buf=buf||'    ;'||p->nod$a_comment->based_string;
+         end;
+
+       if (p->nod$a_flink^=pstart(l)) then
+          call sdl$putline(outfile,buf,line_length);
+   
+
+/* This ends the do while loop */
+
+end;
+
+return(p->nod$a_flink);
+end putalienbody;
+
+detertype: proc(p,l,flag,noitemyet,pstart) returns (fixed binary);
+   dcl p ptr;
+   dcl pstart(90) ptr;
+   dcl (temp,temp2) ptr;
+   dcl (l,flag,noitemyet) fixed binary;
+   dcl (level,retval) fixed binary;
+
+/* Determine the pointer type */
+
+   retval=0;
+
+          if p->nod$w_datatype=typ$k_address then do;
+           buf=buf||'pointer ';
+           call puttypesize(p,buf,4);
+          end;
+
+       else if p->nod$w_datatype=typ$k_byte then do;
+              if p->nod$l_flags&nod$m_unsigned then
+                  buf=buf||'unsigned-integer ';
+              else
+                  buf=buf||'signed-integer ';
+              call puttypesize(p,buf,1);
+             end;
+
+       else if p->nod$w_datatype=typ$k_decimal then do;
+              buf=buf||'unsigned-integer ';
+               call puttypesize(p,buf,4);
+             end;
+
+       else if p->nod$w_datatype=typ$k_boolean then do;
+              buf=buf||'unsigned-integer ';
+              call puttypesize(p,buf,1);
+             end;
+
+       else if p->nod$w_datatype=typ$k_double then do;
+              buf=buf||'d-floating ';
+              call puttypesize(p,buf,8);
+             end;             
+
+       else if p->nod$w_datatype=typ$k_float then do;
+              buf=buf||'f-floating ';
+              call puttypesize(p,buf,4);
+             end;             
+    
+
+       else if p->nod$w_datatype=typ$k_grand then do;
+              buf=buf||'g-floating ';
+              call puttypesize(p,buf,8);
+             end;             
+
+       else if p->nod$w_datatype=typ$k_huge then do;
+              buf=buf||'h-floating ';
+              call puttypesize(p,buf,16);
+             end;             
+
+       else if p->nod$w_datatype=typ$k_vield then do;
+              buf=buf||'unsigned-integer ';
+              buf=buf||'#.(+ '||trim(p->nod$l_offset)||' ';
+              buf=buf||trim(p->nod$l_typeinfo2)||'/'||trim(8)||') ';
+              buf=buf||'#.(+ '||trim(p->nod$l_offset)||' ';
+              buf=buf||trim(p->nod$l_typeinfo+p->nod$l_typeinfo2)||'/';
+              buf=buf||trim(8)||')) ';
+             end;             
+
+       else if p->nod$w_datatype=typ$k_char
+            then do;
+              if nod$m_varying then
+                  buf=buf||'string ';
+              else
+                  buf=buf||'text ';
+              call puttypesize(p,buf,1);
+             end;             
+
+       else if p->nod$w_datatype=typ$k_longword then
+             call islongword(p,buf);
+
+
+       else if p->nod$w_datatype=typ$k_octaword then do;
+              if p->nod$l_flags&nod$m_unsigned then
+                  buf=buf||'unsigned-integer ';
+              else
+                  buf=buf||'signed-integer ';
+              call puttypesize(p,buf,16);
+            end;
+
+       else if p->nod$w_datatype=typ$k_quadword then do;
+              if p->nod$l_flags&nod$m_unsigned then
+                  buf=buf||'unsigned-integer ';
+              else
+                  buf=buf||'signed-integer ';
+              call puttypesize(p,buf,8);
+             end;
+
+
+       else if p->nod$w_datatype=typ$k_word then do;
+              if p->nod$l_flags&nod$m_unsigned then
+                  buf=buf||'unsigned-integer ';
+              else
+                  buf=buf||'signed-integer ';
+              call puttypesize(p,buf,2);
+             end;
+
+       else if p->nod$b_type=nod$k_commnode then do;
+              buf='';
+              temp = p->nod$a_flink;
+              level=l;
+              call moreitems(level,temp,pstart,flag);
+              if flag=0 & noitemyet^=0 then
+                 buf=buf||'    ;'||p->nod$a_comment->based_string;
+              flag=0;
+              call sdl$putline(outfile,buf,line_length);
+              buf=comment_buf;
+              retval = 1;
+            end;                              
+
+       else if (p->nod$w_datatype=typ$k_structure |
+               p->nod$w_datatype=typ$k_union) & p->nod$a_typeinfo2^=null()
+               then do;
+
+                temp2=p->nod$a_typeinfo2;
+                buf=buf||'pointer'||' ';
+                call puttypesize(p,buf,4);
+                retval = 1;
+              end;
+       
+       else if (p->nod$w_datatype=typ$k_user) then do;
+
+                temp2=p->nod$a_typeinfo2;
+                buf=buf||'pointer'||' ';
+                call puttypesize(p,buf,0);
+                if ^p->nod$l_flags&nod$m_bottom then do;
+                   buf=buf||'  ;* POINTER TO A ';
+                   buf=buf||p->nod$a_typeinfo2->nod$a_flink->nod$t_name;
+                end;
+                retval = 1;
+              end;
+
+return (retval);
+
+end detertype;
+
+
+moreitems: proc(level,t,pt,flag);
+   dcl level fixed binary;
+   dcl t ptr;
+   dcl temp ptr;
+   dcl pt(90) ptr;
+   dcl flag fixed binary;
+   dcl lookup fixed binary;
+
+/* check to see if there are any more items in this structure  */
+   if flag=1 then
+      if t->nod$b_type=nod$k_itemnode then
+         flag=0;
+   if t->nod$b_type=nod$k_commnode then do;
+       flag=1;
+       do while ((t->nod$a_flink ^= pt(level)) & flag=1);
+          if t->nod$b_type=nod$k_itemnode then do;
+             flag=0;
+             return;
+            end;
+          t=t->nod$a_flink;
+       end;
+       if t->nod$b_type=nod$k_itemnode then do;
+          flag=0;
+          return;
+         end;
+    end;
+   temp=t;
+   if (flag ^=0) & (level > 1) then do;
+      t=t->nod$a_parent;
+      lookup=1;
+      call moreitems(level-1,t->nod$a_flink,pt,lookup);
+      if lookup=0 then
+        flag=0;            
+    end;
+   t=temp;
+  return;
+
+end moreitems;
+
+islongword: proc(p,buf);
+   dcl p ptr;
+   dcl buf char(1024) var;
+   dcl k fixed binary;
+
+/* In some sdl files some of the longword datatypes that are specified should
+   be of type pointer. This routine looks at the comment if there is one 
+   and determines if this is suppose to be an address. If so then in make
+   lisp datatype a longword. Otherwise it is the appropriate type longword */
+
+   k=1;
+   if p->nod$a_comment^=null() & sdl$v_comment_opt then do;
+     do while (k <= (length(p->nod$a_comment->based_string)));
+       if substr(p->nod$a_comment->based_string,k,4)='addr' 
+          | substr(p->nod$a_comment->based_string,k,4)='ADDR'
+          | substr(p->nod$a_comment->based_string,k,4)='Addr' 
+          | substr(p->nod$a_comment->based_string,k,7)='pointer' 
+          | substr(p->nod$a_comment->based_string,k,7)='Pointer' 
+          | substr(p->nod$a_comment->based_string,k,7)='POINTER' then do;
+          buf=buf||'pointer ';
+          goto longjump;
+         end;
+        k=k+1;
+     end;
+   end;
+
+   if p->nod$l_flags&nod$m_unsigned then
+       buf=buf||'unsigned-integer ';
+   else
+       buf=buf||'signed-integer ';
+longjump:
+   call puttypesize(p,buf,4);
+
+end islongword;
+
+
+puttypesize: proc(p,buf,standardsize);
+   dcl p ptr;
+   dcl sv fixed binary;
+   dcl size fixed binary;
+   dcl standardsize fixed binary;
+   dcl buf char(1024) var;
+
+/* Put out the size of the data type    */
+
+/* initialize the displacement and size */
+
+      sv=p->nod$l_offset;
+      size=p->nod$l_fldsiz;
+      if p->nod$l_flags&nod$m_dimen then do;
+         buf=buf||trim(sv);
+         sv=sv+standardsize;
+         buf=buf||' '|| trim(sv)||' :occurs '||
+             trim((p->nod$l_fldsiz/standardsize))||')';
+       end;
+      else do;
+         buf=buf||trim(sv);
+         sv=sv+size;
+         buf=buf||' '||trim(sv)||')';
+      end;
+
+  return;
+
+end puttypesize;
+
+
+
+putarray: proc (p,buf);
+   dcl buf char(1024) var;
+   dcl p ptr;
+/* put array construct an array as a lisp type */
+
+   buf=buf||'(array ';
+   if p->nod$l_flags&nod$m_dimen then do;
+      if (p->nod$w_datatype=typ$k_any | p->nod$w_datatype=typ$k_address |
+           p->nod$w_datatype=typ$k_structure |
+           p->nod$w_datatype=typ$k_union) then
+           buf=buf||'(signed-byte 32)';
+           goto puta;
+      end;
+   call putlisptype(p,buf,0);
+puta:
+   buf=buf||' (';
+   if p->nod$t_typename='integer_matrix' then
+     buf=buf||'500 500';
+   else if p->nod$l_flags&nod$m_vardim then
+     buf=buf||'500';
+   else
+     buf=buf||trim(p->nod$l_hidim);
+   buf=buf||'))';
+   call sdl$putline (outfile, buf,line_length);
+return;
+
+end putarray;
+
+initvalue: proc (buf,lispt);
+   dcl buf char (1024) var;
+   dcl lispt char (32) var;
+
+   if ((substr(lispt,1,12) = 'single-float') | 
+       (substr(lispt,1,12) = 'double-float') |
+       (substr(lispt,1,10) = 'long-float')) then
+     buf=buf||' 0.0)';
+   else if (substr(lispt,1,7) = 'integer') then
+     buf=buf||' 0)';
+   else 
+     buf=buf||' nil)';
+
+end initvalue;
+
+parsename: proc (p,prefix,suffix);
+    dcl (p,temp) ptr;
+    dcl (count,wlength) fixed binary;
+    dcl prefix char(1024) var;
+    dcl suffix char(1024) var;
+
+    temp=p;
+    count=1;
+    prefix=comment_buf;
+    suffix=comment_buf;;
+
+    wlength=length(temp->nod$t_name);
+    do while ((substr(temp->nod$t_name,count,1) ^= '$')&
+              (count ^= length(temp->nod$t_name)));
+
+      count =count + 1;
+    end;
+    prefix=substr(temp->nod$t_name,1,(count-1));
+    suffix=substr(temp->nod$t_name,(count+1),(wlength - count));
+/*    substr(suffix,(wlength-(count-1)),(wlength+9))=' ';         */
+
+end parsename;
+
+  
+createmacro: proc (p,buf);
+    dcl p ptr;
+    dcl (buf,prefix,suffix) char(1024) var;
+    
+/* This routine creates an associated lisp macro that does the call-out to the 
+   define-external-routine                                              */
+
+/* Write out three blank lines                                           */
+    call sdl$putline (outfile, ' ',line_length);
+    call sdl$putline (outfile, ' ',line_length);
+    call sdl$putline (outfile, ' ',line_length);
+
+/* Write out a header for this access routine                            */
+
+    buf=comment_buf;
+    buf=';********************************************************************';
+    call sdl$putline (outfile,buf,line_length);
+    call sdl$putline (outfile,buf,line_length);
+    buf=comment_buf;
+    buf=';The following routine can be used to call any external routine listed';
+    call sdl$putline (outfile,buf,line_length);
+    buf=comment_buf;
+    buf=';inside this file. Basically pass to the macro below the service';
+    call sdl$putline (outfile,buf,line_length);
+
+    call parsename (p,prefix,suffix);
+    buf=';without the '||prefix||'$ prefix along, if any, a list of parameters';
+    call sdl$putline (outfile,buf,line_length);
+    buf=comment_buf;
+    buf=';********************************************************************';
+    call sdl$putline (outfile,buf,line_length);
+    call sdl$putline (outfile,buf,line_length);
+
+    buf=comment_buf;
+    buf='(defmacro '|| prefix || '$ (routine &rest args)';
+
+/* Now that you found all the parameter, complete the writing of the defmacro */
+
+    call sdl$putline (outfile, buf,line_length);
+    buf=comment_buf;
+    buf=indent||'`(call-out ';
+    call sdl$putline (outfile, buf,line_length);
+    buf=comment_buf;
+    buf=buf||indent;
+    buf=buf||',(intern (concatenate '||quote||'string '||dquote;
+    buf=buf||prefix||'$'||dquote;
+    buf=buf||' (string routine))) ,@args))';
+    call sdl$putline (outfile, buf,line_length);
+    call sdl$putline (outfile, ' ',line_length);
+    call sdl$putline (outfile, ' ',line_length);
+    call sdl$putline (outfile, ' ',line_length);
+
+end createmacro;
+
+lispwrapper: proc (temp,i,o,inparms,outparms,allparms,inptype,outptype,prefix,
+                   wsuffix);
+   dcl temp ptr;
+   dcl (i,o) fixed binary;
+   dcl inparms(20) char (32) var;
+   dcl allparms(20) char (32) var;
+   dcl outparms(20) char (32) var;
+   dcl inptype(20) char (32) var;
+   dcl outptype(20) char (32) var;
+   dcl (buf,prefix,wsuffix) char (1024) var;
+   dcl count fixed binary;
+ 
+   buf=comment_buf;
+   call sdl$putline (outfile, ' ',line_length);   
+   call sdl$putline (outfile, ' ',line_length);   
+
+   buf='(defun lisp$'||prefix;
+   buf=buf||'_'||wsuffix||' (';
+   count =1;
+   do while (count < i);
+     buf=buf||inparms(count);
+     if (((count+1)=i)&(1>(o-1))) then
+        buf=buf||')';
+     else
+        buf=buf||' ';
+     call dumpline(prefix,buf);
+     count=count+1;
+   end;
+   count=1;
+   if (o>1) then
+      buf=buf||'&optional ';
+   do while (count < o);
+     buf=buf||outparms(count);
+     if ((count+1)=o) then
+         buf=buf||')';
+     else
+         buf=buf||' ';
+     call dumpline(prefix,buf);
+     count=count+1;
+   end;
+   call sdl$putline (outfile, buf,line_length);   
+
+   count=1;
+   do while (count < i);
+     buf=comment_buf;
+     if (inptype(count)^='alien-structure')&(inptype(count)^=' ')
+      then do;
+        buf=buf||'  '||'(declare ('||inptype(count)||' '||inparms(count)||'))';
+        call sdl$putline (outfile, buf,line_length);   
+     end;
+     count=count+1;
+   end;
+        
+   count=1;
+   do while (count < o);
+     buf=comment_buf;
+     buf=buf||'  ';
+     if (outptype(count) ^= 'alien-structure')& (outptype(count) ^= ' ')
+       then do;
+        buf=buf||'(declare ('||outptype(count)||' '||outparms(count)||'))';
+        call sdl$putline (outfile, buf,line_length);   
+      end;
+     count=count+1;
+   end;
+
+   buf=comment_buf;
+   buf=buf||'     '||'(call-out '||temp->nod$t_name||' ';
+   count=1;
+   do while (count < ((i + o) -1));
+     buf=buf||allparms(count);
+     if ((count+1)=((i+o)-1)) then 
+        buf=buf||')';
+     else
+        buf=buf||' ';
+     call dumpline(prefix,buf);
+     count = count + 1;
+   end;
+
+   if o > 1 then do;
+     call sdl$putline (outfile, buf,line_length);   
+     buf=comment_buf;
+     buf=buf||indent||indent||indent||'(values ';
+     count=1;
+     do while (count < o);
+       buf=buf||outparms(count);
+       if ((count+1)=o) then 
+          buf=buf||'))';
+       else 
+          buf=buf||' ';
+       call dumpline(prefix,buf);
+       count=count+1;
+     end;
+     call sdl$putline (outfile, buf,line_length);   
+    end;
+   else do;
+     buf=buf||')';
+     call sdl$putline (outfile, buf,line_length);   
+   end;
+   call sdl$putline (outfile, ' ',line_length);   
+   call sdl$putline (outfile, ' ',line_length);   
+
+dumpline: proc (prefix,buf);
+    dcl (prefix,buf) char(1024) var;   
+
+     if ((length(prefix)+ 12 + length(buf))>78) then do; 
+        call sdl$putline (outfile, buf,line_length);   
+        buf=comment_buf;
+      end;
+
+end dumpline;
+
+end lispwrapper;
+
+end outputnode;
+
+end sdl$output;
+

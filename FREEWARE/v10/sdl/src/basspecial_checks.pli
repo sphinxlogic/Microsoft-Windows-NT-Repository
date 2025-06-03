@@ -1,0 +1,138 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+    15-Apr-1986	|  pc	| adding support specification of lower bounds on dimensions
+________________!_______!______________________________________________________
+    13-May-1987	|  jw	| X3.1-0 Added check for CHARACTER LENGTH * in
+		|	|	 anticipation of future support for LENGTH * in
+		|	|	 a context other than that of a parameter.
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* SPECIAL_CHECKS checks for special cases in simple items.	*/
+/* for example dimensions, string lenght etc.			*/
+/*								*/
+/****************************************************************/
+
+special_checks: proc (cur_node,level,dim,dec,strn_len,struc_ref);
+
+					    /********************/
+					    /*			*/
+					    /* SPECIAL_CHECKS	*/
+					    /*			*/
+					    /********************/
+%include 'sdl$library:sdlshr.in';
+%include 'sdl$library:sdlnodef.in';
+%include 'sdl$library:sdltypdef.in';
+
+/* declare variables */
+declare
+    cur_node pointer,			    /* pointer to the current node  */
+    level fixed binary(31),		    /* level in the aggregate	    */
+    dim char(*) var,			    /* dimension, if any	    */
+    dec char(*) var,			    /* declaritive		    */
+    strn_len char(*) var,		    /* string length		    */
+    global_opt bit(1) ext,		    /* global option flag on comand line */
+    struc_ref bit(1);			    /* structure reference flag	    */
+
+
+	if( level = 1 )
+	then do;
+	    if( cur_node->nod$v_global )
+	    then
+		dec = 'EXTERNAL ';
+	    else
+	    if( cur_node->nod$v_common )
+	    then
+		dec = 'COMMON ';
+	    else
+		dec = 'DECLARE ';
+	end;
+
+	if( cur_node->nod$v_global & global_opt )
+	then
+	   /*********** change to system call *************/
+	    put skip list ('*** ERROR - Basic does not support global definitions');
+
+
+	if( cur_node->nod$w_datatype = typ$k_char )
+	then do;
+	    if cur_node->nod$l_typeinfo = sdl$k_unknown_length then
+		strn_len = '';
+	    else
+		strn_len = ' = ' || trim(cur_node->nod$l_typeinfo) ;
+	    if( level = 1 )
+	    then
+		dec = 'COMMON ';
+	end;
+
+	if( cur_node->nod$v_dimen )
+	then do;
+	    dim = '(';
+
+	    if( cur_node->nod$l_lodim ^= 0 )
+	    then
+		dim = dim || trim(cur_node->nod$l_lodim) || ' to ';
+
+	    dim = dim || trim(cur_node->nod$l_hidim) || ')' ;
+	end;
+
+
+
+
+/*
+ * if this item's data type is a structure reference set the
+ * structure reference flag. ( a structure reference is similar to 
+ * the "LIKE" attribute in pli )
+*/
+    if( (cur_node->nod$w_datatype = typ$k_union | 
+	 cur_node->nod$w_datatype = typ$k_structure) &
+         cur_node->nod$a_typeinfo2 ^= null() 
+      )
+    then
+	if( cur_node->nod$a_typeinfo2->nod$b_type = nod$k_typnode )
+	then
+	    struc_ref = '1'b;
+
+
+
+end special_checks;

@@ -1,0 +1,110 @@
+! EVE_CSEARCH Relies on EVE_FIND subprocedures!
+! By Peter Galbraith (GALBRTH@AC.DAL.CA)
+procedure eve_csearch(peve$arg1,peve$arg2)
+! peve$arg1 can be [Tex|C|FORTRAN|TPU] or a search string
+! peve$arg2 can be a search string if peve$arg1 is [Tex|C|FORTRAN]
+
+local tex_flag, c_flag, fortran_flag, tpu_flag, search_flag, search_string, 
+      file_type, status, found_range, saved_direction;
+
+tex_flag := FALSE; c_flag := FALSE; fortran_flag := FALSE; search_flag := FALSE;
+tpu_flag := FALSE;
+if peve$arg1 <> "" then
+  if peve$check_arg(peve$arg1,"TEX") then 
+    TeX_flag := TRUE; 
+  else
+    if peve$check_arg(peve$arg1,"C") then 
+      C_flag := TRUE; 
+    else
+      if peve$check_arg(peve$arg1,"FORTRAN") then 
+        Fortran_flag := TRUE; 
+      else
+        if peve$check_arg(peve$arg1,"TPU") then 
+          TPU_flag := TRUE; 
+        else
+          search_string := peve$arg1;
+          search_flag := TRUE;
+        endif;
+      endif;
+    endif;
+  endif;
+  if (not search_flag) and (peve$arg2 <> "") then 
+    search_flag := TRUE;
+    search_string := peve$arg2;
+  endif;
+endif;
+
+if (not tex_flag) and (not C_flag) and (not Fortran_flag) and (not TPU_flag) 
+  then
+  file_type := file_parse(get_info(current_buffer,"name")," "," ",TYPE);
+  if file_type = ".TPU" then 
+    TPU_flag := TRUE;
+  else
+    if file_type = ".TEX" then 
+      TeX_flag := TRUE;
+    else
+      if file_type = ".FOR" then 
+        FORTRAN_flag := TRUE;
+      else
+        C_flag := TRUE;   ! The default
+      endif;
+    endif;
+  endif;
+endif;
+if TeX_Flag then                                      
+  if search_flag then                                
+    eve$x_target := execute('return(LINE_BEGIN|NOTANY("\") + "%" + MATCH("'
+                            + search_string +'") + REMAIN)');
+    eve$x_target_pattern := 'LINE_BEGIN|NOTANY("\") + "%" + MATCH("'
+                            + search_string +'") + REMAIN';
+    eve$x_printable_target := "TeX Comment line with string "+search_string;
+  else
+    eve$x_target := execute('return((LINE_BEGIN|NOTANY("\")) + "%" + REMAIN)');
+    eve$x_target_pattern := '(LINE_BEGIN|NOTANY("\")) + "%" + REMAIN';
+    eve$x_printable_target := "TeX Comment line";
+  endif;
+endif;
+if TPU_flag then 
+  if search_flag then
+    eve$x_target := execute('return("!" + MATCH("'+search_string+'") +REMAIN)');
+    eve$x_target_pattern := '"!" + MATCH("'+search_string+'") +REMAIN';
+    eve$x_printable_target := "TPU Comment line with string "+search_string;
+  else
+    eve$x_target := execute('return("!" + REMAIN)');
+    eve$x_target_pattern := '"!" + REMAIN';
+    eve$x_printable_target := "TPU Comment line";
+  endif;
+endif;
+if FORTRAN_flag then 
+  if search_flag then
+    eve$x_target := execute('return(LINE_BEGIN + ("*"|"C") + MATCH("'
+                             + search_string +'") + REMAIN)');
+    eve$x_target_pattern := 'LINE_BEGIN + ("*"|"C") + MATCH("'
+                             + search_string +'") + REMAIN';
+    eve$x_printable_target := "FORTRAN Comment line with string "+search_string;
+  else
+    eve$x_target := execute('return(LINE_BEGIN + ("*"|"C") + REMAIN)');
+    eve$x_target_pattern := 'LINE_BEGIN + ("*"|"C") + REMAIN';
+    eve$x_printable_target := "FORTRAN Comment line";
+  endif;
+endif;
+if C_flag   then 
+  if search_flag then
+    eve$x_target := execute('return("/*" + UNANCHOR + MATCH("'
+                    + search_string +'") + UNANCHOR + "*/")');
+    eve$x_target_pattern := '"/*" + UNANCHOR + MATCH("'
+                             + search_string +'") + UNANCHOR + "*/"';
+    eve$x_printable_target := "C Comment line with string "+search_string;
+  else
+    eve$x_target := execute('return("/*" + UNANCHOR + "*/")');
+    eve$x_target_pattern := '"/*" + UNANCHOR + "*/"';
+    eve$x_printable_target := "C Comment line";
+  endif;
+endif;
+saved_direction := current_direction;
+found_range := eve$find_target (eve$x_find_no_exact, 0, 1);
+status := eve$remember_found (found_range);
+eve$x_old_find_direction := current_direction;
+set (saved_direction, current_buffer);
+
+endprocedure;

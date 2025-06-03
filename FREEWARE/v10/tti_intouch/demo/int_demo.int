@@ -1,0 +1,1103 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program       : INT_DEMO.INT
+        ! Package       : INTOUCH DEMONSTRATION SYSTEM
+        ! Author        : Daniel James Swain
+        ! Date          : January 3, 1991
+        ! Purpose       : Demonstrate a variety of INTOUCH features
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M O D I F I C A T I O N    H I S T O R Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! 05-OCT-94     NVA     Modified to use pop-up menus from
+        !                       menu_routines.inc
+        ! 18-OCT-94     JLS     Report buffered I/Os on the screen I/O 
+        !                       benchmark.  Report direct I/Os on all
+        !                       the other benchmarks except for redim.
+        !                       Use tti_run:menu_control file instead
+        !                       of tti_int_demo:int_demo_menu_control.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+100     !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E C L A R A T I O N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        ask margin z
+        if  z <> 80 then set margin 80
+        the_width = 80
+        current_margin = the_width
+        ask system : mode z$
+        if  z$ = "BATCH"  then  
+          batch_mode = true
+        end if
+        ask system, symbol "int_demo_version" : value system_version$
+        today_yymmdd$ = date$
+        u_yymmdd$ = today_yymmdd$
+        gosub ymd_to_mdy
+        today_mmddyy$ = u_mmddyy$
+                ! Today's date in yyMMDD and MMDDyy formats
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M E N U    R O U T I N E S    V A R I A B L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        system_name$  = "INTOUCH Demo"
+        default_mcl$  = 'tti_int_demo:int_demo.mcl'
+        system_title$ = "INTOUCH Demonstration System"
+        u_str$        = system_title$
+        menu_message$ = ''
+        page_ctr      = 0
+        selected_ctr  = 0
+        start_print_time        = 0
+        report_title$           = ''
+        report_title2$          = ''
+        bottom_frame_text$      = ''
+        menu_no_finish          = false
+        u_exit_text$ = ',"EXIT      EXIT INTOUCH Demo"="EXIT"'
+        system_copyright$ = "INTOUCH Demo " + &
+          "Copyright (c) 1994 Touch Technologies, Inc."
+
+
+200     !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T I A L   S E T U P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        frame off
+
+	open structure mc   : name "tti_run:menu_control"
+        open structure proc : name "tti_int_demo:int_demo_procedure"
+        declare structure oper
+
+1000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I N   L O G I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        set structure mc, field menukey : key '111111'
+        if  _extracted = 0  then
+          message error : "Menu control record is not set up"
+          halt
+        end if
+        action$ = "menu_build"
+
+        do
+          select case action$
+          case "exit" : exit do
+          case else   : dispatch action$
+          end select
+        loop
+     
+        close all
+        end
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   A L L   F I L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! open the rest of the data files here
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  routine open_all_files
+
+        action$ = "int_demo_init"
+
+        end routine
+
+
+10000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P A T C H   R O U T I N E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N T   D E M O   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine int_demo_init
+
+        form_feed$ = chr$(12)
+
+        help_structure$ = "tti_int_demo:int_demo_help"
+        gosub help_initialize
+        gosub help_open ! ++DJS++ 13-JAN-1993 help_init no longer opens the file
+        max_languages = 10
+        dim benchmark_results$(max_languages, 5)
+        dim benchmark_format$(5)
+        benchmark_format$(1) = ''
+        benchmark_format$(2) = '###,###'
+        benchmark_format$(3) = '###,###'
+        benchmark_format$(4) = '###.##'
+        benchmark_format$(5) = '#,###.##'
+        dim baseline_language$(max_languages)
+        dim non_io_baseline(max_languages, 4)
+        dim io_baseline(max_languages, 4)
+        gosub establish_baselines
+
+        action$ = "menu_display_first_menu"
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! E S T A B L I S H   B A S E L I N E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! establish the performance baselines for the various languages
+        ! run the baseline programs
+        ! get the logicals created and save the values in the arrays
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !       baseline_language$() is loaded
+        !       io_baseline(,) is loaded
+        !       non_io_baseline(,) is loaded
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine establish_baselines
+
+        ask window : typeahead z$ ! test to allow typeahead during before pass
+        pass '@tti_int_demo:int_demo_baseline'
+        gosub setup_baseline_results
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   B A S E L I N E   R E S U L T S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! results are in a file tti_int_demo:int_demo_baseline.results
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !       baseline_language$() is loaded
+        !       io_baseline(,) is loaded
+        !       non_io_baseline(,) is loaded
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_baseline_results
+
+        in_ch = _channel
+        open #in_ch : name 'sys$scratch:int_demo_baseline_results.tmp'
+        baseline = 0
+        last_language$ = ''
+        do
+          when exception in
+            line input #in_ch : z1$
+          use
+          end when
+          if  _error  then  exit do
+          z$ = element$(z1$, 1)
+          if  z$ <> last_language$ then 
+            baseline = baseline + 1
+            baseline_language$(baseline) = z$
+            last_language$ = z$
+          end if
+          z$ = element$(z1$, 2)
+          if  z$ = 'IO' then 
+            doing_io = true
+          else
+            doing_io = false
+          end if  
+          for i = 1 to 4
+            z$ = element$(z1$, i + 2)
+            if  doing_io then
+              io_baseline(baseline, i) = val(element$(z$, 2, '='))
+            else
+              non_io_baseline(baseline, i) = val(element$(z$, 2, '='))
+            end if
+          next i
+        loop
+        close #in_ch
+        kill 'sys$scratch:int_demo_baseline_results.tmp' 
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O V E R V I E W
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! The user selected the overview option from the menu.  Use the 
+        ! help system to implement this option.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine overview
+
+        help_topic$ = 'overview'
+        help_noprompt% = true
+        gosub help
+        help_noprompt% = false
+        repaint_menu = false ! don't need to repaint since help put it back
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F U N C T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! run a functionality example
+        !
+        ! Expected:
+        !       proc(program_name) contains the name of the INTOUCH 
+        !       program to run
+        !
+        ! Result  :
+        !       the program is executed
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  routine function
+
+        gosub function_init
+
+        if  proc(repaint) = "Y"  then  ask window : current cur_scrn$
+
+        if  proc(pre_execution_help_topic) <> ''  then  
+          help_topic$ = proc(pre_execution_help_topic)
+          gosub display_text
+        end if
+
+        gosub ask_proceed
+        if  _error  then  exit routine
+
+        if  proc(pre_execution_command) <> ''  then  &
+                pass proc(pre_execution_command)
+
+        pass "intouch/source " + proc(program_name)
+
+        if  proc(repaint) = "Y"  then  
+          clear
+          set window : current cur_scrn$
+        end if
+
+        if  proc(post_execution_help_topic) <> ''  then  
+          help_topic$ = proc(post_execution_help_topic)
+          gosub display_text
+          delay
+        end if
+
+        set scroll 1, 24
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F U N C T I O N   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! set up for the functionality demonstration
+        ! print the 2nd line of the frame
+        ! set the scrolling region
+        !
+        ! Expected:
+        !       proc(desc) = description of the demonstration
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine function_init
+
+        clear area 2, 1, 22, the_width
+        z$ = space$(the_width)
+        print at 2, 1, reverse : z$
+        z$ = " " + proc(desc) + " " 
+        z = (the_width/2) - (len(z$) / 2)
+        print at 2, z, bold, reverse : z$
+        set scroll 3, 22
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B E N C H M A R K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! perform the benchmark procedures.  The procedure file contains
+        ! the languages to run in the field languages field.  
+        ! proc(program_name) contains the program name fragment to run
+        !
+        ! Expected:
+        !       proc record is current
+        !       proc(name) is the name of the benchmark
+        !       proc(languages) is a list of languages in which
+        !                              this benchmark has been written
+        !       proc(program_name) is the program name fragement. This
+        !                               appended with the lanuage form
+        !                               the program name
+        !       proc(desc) is the description of the benchmark to print
+        !                               in the frame
+        !
+        ! Result  :
+        !       benchmark_results$() is loaded with the results of the
+        !               benchmark (buffered_ios, direct_ios, cputime)
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine benchmark
+
+        gosub benchmark_init
+        if  proc(pre_execution_help_topic) <> ''  then  
+          help_topic$ = proc(pre_execution_help_topic)
+          gosub display_text
+        end if
+        gosub ask_proceed
+        if  _error  then  exit routine
+
+        print at 4, 1 : 'Languages used in this benchmark:'
+        for language = 1 to languages_benchmarked
+          benchmark_language$ = &
+              ucase$(element$(benchmark_languages$, language))
+          print at 5 + language, 3 : benchmark_language$
+        next language
+        for language = 1 to languages_benchmarked
+          gosub benchmark_do_language
+          gosub benchmark_save_results
+          if  _exit  then  exit routine
+          if  _back  then  repeat for
+        next language
+
+        gosub benchmark_show_summary
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B E N C H M A R K   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! initialize for the benchmark tests
+        !
+        ! Expected:
+        !       proc record is current
+        !
+        ! Result  :
+        !       benchmark_languages = languages used for this benchmark
+        !       benchmark_name$ = name of the test being performed
+        !       languages_benchmarked = number of languages used in benchmark
+        !       benchmark_results$() is initialized
+        !       benchmark_result$ is initialized
+        !       int_demo_frame_line2$ = report frame line 2
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine benchmark_init
+
+        z$ = space$(the_width)
+        print at 2, 1, reverse : z$
+        z$ = " " + proc(desc) + " " 
+        z = (the_width/2) - (len(z$) / 2)
+        print at 2, z, bold, reverse : z$
+        benchmark_languages$ = proc(languages)
+        benchmark_name$ = proc(desc)
+
+        languages_benchmarked = elements(benchmark_languages$)
+        for i = 1 to languages_benchmarked
+          for i1 = 1 to 4
+            benchmark_results$(i, i1) = ''
+          next i1
+        next i
+        benchmark_result$ = ''
+        int_demo_frame_line2$ = " " + proc(desc) + " Benchmark "
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B E N C H M A R K   D O   L A N G U A G E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! perform an actual benchmark in a particular language
+        !
+        ! Expected:
+        !       benchmark_languages$ = languages to use
+        !       language = language index
+        !       proc(program_name) = program name fragment to run
+        !       proc(pre_execution_command) = command to execute
+        !       benchmark_name$ = name of benchmark
+        !
+        ! Result  :
+        !       the benchmark is run
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine benchmark_do_language
+
+        if  proc(pre_execution_command) <> ''  then  &
+                pass proc(pre_execution_command)
+!        clear area 2, 1, 22, the_width
+!        z$ = space$(the_width)
+!        print at 2, 1, reverse : z$
+        benchmark_language$ = &
+              ucase$(element$(benchmark_languages$, language))
+        z$ = proc(program_name)
+        if  right$(z$, 1) <> '_' then  z$ = z$ + '_'
+        benchmark_program$ = z$ + benchmark_language$
+!         z$ = " " + benchmark_language$ + " " + benchmark_name$ + &
+!               " Benchmark "
+!        z = (the_width/2) - (len(z$) / 2)
+!        print at 2, z, bold, reverse : z$
+        z = 5 + language
+        clear area z, 3, z, the_width
+        print at z, 3, bold : benchmark_language$; tab(11); &
+                ' Benchmark is being executed';
+        set scroll 12, 22
+        print at 12, 1:;
+        pass "@tti_int_demo:int_demo_benchmark " + benchmark_program$ + &
+                " " + benchmark_language$
+        clear area 12, 1, 22, the_width
+        set scroll 1, 24
+        clear area z, 3, z, the_width
+        print at z, 3 : benchmark_language$
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B E N C H M A R K   S A V E   R E S U L T S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! save the results of the benchmark into an array for later display
+        ! result is stored as "bio=xxx,dio=xxx,cpu=xxx,elapsed=xxx
+        !
+        ! Expected:
+        !       benchmark_language$ = language used for this benchmark
+        !       benchmark_result$ = results of this benchmark
+        !       benchmark = current benchmark being executed (index)
+        !       benchmark_results$() = results of all benchmarks (formated)
+        !
+        ! Result  :
+        !       benchmark_results$() is loaded with the results of this test
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine benchmark_save_results
+
+        benchmark_results$(language, 1) = benchmark_language$
+        for baseline = 1 to max_languages
+          if  benchmark_language$ = baseline_language$(baseline) then exit for
+        next baseline
+        in_ch = _channel
+        open #in_ch : name 'sys$scratch:int_demo_benchmark_results.tmp'
+        do
+          when exception in
+            line input #in_ch : benchmark_result$
+          use
+          end when
+          if  _error  then  exit do
+          for i = 1 to 4
+            z$ = element$(benchmark_result$, i)
+            z = val(element$(z$, 2, '='))
+            type$ = proc(baseline_type)
+            select case type$
+              case 'IO' : z = z - io_baseline(baseline, i)
+              case 'NON_IO' : z = z - non_io_baseline(baseline, i)
+              case else
+            end select
+            ! subtract out the baseline counts
+            if  z < 0  then  z = 0 ! counts fluctuate by a few. make sure we
+                                   ! don't go negative on the display
+            if  i = 3 then z = z / 100.
+            i1 = i + 1
+            benchmark_results$(language, i1) = format$(z, benchmark_format$(i1))
+          next i
+        end do
+        close #in_ch
+        kill 'sys$scratch:int_demo_benchmark_results.tmp'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B E N C H M A R K   S H O W   S U M M A R Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! show the results of all of the benchmarks run for this test
+        ! create a file and write the report to it.  Use the print option
+        ! routine to allow the user to print where he wants
+        !
+        ! Expected:
+        !       benchmark_results$() = results
+        !       languages_benchmarked = number of tests run
+        !       proc record is current
+        !       proc(name) is the name of the benchmark
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine benchmark_show_summary
+
+        gosub bss_init
+
+        for i = 1 to languages_benchmarked
+          if  line_counter > 56  then  gosub bss_heading
+
+          !print #out_ch : tab(10); benchmark_results$(i, 1); &
+          !      tab(31); benchmark_results$(i, 2); &
+          !      tab(44); benchmark_results$(i, 3); &
+          !      tab(55); benchmark_results$(i, 4); &
+          !      tab(63); benchmark_results$(i, 5)
+          print #out_ch : tab(16); benchmark_results$(i, 1);
+          if  proc(name) = "B_SCREEN_IO"  then  
+            print #out_ch : tab(37); benchmark_results$(i, 2);
+          elseif  proc(name) <> "B_REDIM"  then  
+            print #out_ch : tab(37); benchmark_results$(i, 3);
+          end if
+          print #out_ch : &
+                tab(48); benchmark_results$(i, 4); &
+                tab(56); benchmark_results$(i, 5)
+          !+jls+ Report buffered I/O on screen, no I/O redim, direct I/O others
+
+          line_counter = line_counter + 1
+        next i
+
+        if  post_execution_text  then  
+          gosub bss_print_text_file
+        end if
+
+        gosub bss_report_finished
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B S S   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! get the screen painted to show the summary report is being created
+        ! make up the output file name and open the file
+        !
+        ! Expected:
+        !       proc(name) = name of procedure being run
+        !       proc(post_execution_help_topic) = text to print at end 
+        !               of report
+        !
+        ! Result  :
+        !       benchmark_filename$ = name of file opened
+        !       out_ch = channel opened on
+        !       post_execution_text = true if text to print
+        !       line_counter set to 66 to force first heading
+        !       page_counter = 0
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine bss_init
+
+        set scroll 1, 24
+        !gosub bss_report_frame
+
+        message "Creating summary report..."
+        print at 23, 54:;                               !++amr++ 04/25/91
+
+        out_ch = _channel
+        benchmark_filename$ = 'sys$scratch:int_demo_' + &
+                lcase$(proc(name)) + '_list.tmp'
+        open #out_ch : name benchmark_filename$, access output
+        post_execution_text = false
+        if  proc(post_execution_help_topic) <> ''  then  &
+          post_execution_text = true
+        line_counter = 66
+        page_counter = 0
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B S S   P R I N T   T E X T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! print the text at the end of the report
+        ! text is contained in the help file
+        !
+        ! Expected:
+        !       proc(post_execution_help_topic) = help topic to use
+        !       line_counter = current line count
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine bss_print_text_file
+
+        set structure help, field topic : key proc(post_execution_help_topic)
+        if  _extracted = 0  then
+          exit routine
+        end if
+        print #out_ch:
+        print #out_ch:
+        line_counter = line_counter + 2
+        bss_text$ = wrap$(help(text), 1, the_width)
+        bss_lines = pieces(bss_text$)
+        for bss_line = 1 to bss_lines
+          text_line$ = piece$(bss_text$, bss_line)
+          if  line_counter >= 56  then  gosub bss_heading
+          print #out_ch: text_line$
+          line_counter = line_counter + 1
+        next bss_line
+          
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B S S   H E A D I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! print the heading for the summary report
+        !
+        ! Expected:
+        !       proc record is current
+        !       proc(name) is the name of the benchmark
+        !       system_title$ = "INTOUCH Demonstration System"
+        !
+        ! Result  :
+        !       heading is printed 
+        !       line_counter set to proper value
+        !       page_counter is incremented
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine bss_heading
+
+        page_counter = page_counter + 1
+        z$ = system_title$
+        print #out_ch : chr$(12); chr$(0)
+        print #out_ch : 'Run on: '; date$(days(date$), 3); &
+                tab(40 - (len(z$)/2)); z$; tab(72); 'Page '; &
+                format$(page_counter, '###'); chr$(0)
+        print #out_ch : chr$(0)
+        z$ = " " + benchmark_name$ + " Benchmark Summary "
+        print #out_ch : tab(40 - (len(z$) / 2)); z$; chr$(0)
+        print #out_ch : chr$(0)
+
+        !print #out_ch : tab(53); 'CPU Time'; tab(63); ' Elapsed'; chr$(0)
+        !print #out_ch : tab(10); 'Language'; tab(25); 'Buffered I/Os'; &
+        !        tab(40); 'Direct I/Os'; tab(53); ' Seconds'; &
+        !        tab(63); ' Seconds'; chr$(0)
+        !print #out_ch : tab(10); repeat$('-', 12); tab(25); repeat$('-', 13); &
+        !        tab(40); repeat$('-', 11); tab(53); repeat$('-', 8); &
+        !        tab(63); repeat$('-', 8); chr$(0)
+        print #out_ch : tab(46); 'CPU Time'; tab(56); ' Elapsed'; chr$(0)
+        print #out_ch : tab(16); 'Language'; 
+        if  proc(name) = "B_SCREEN_IO"  then  
+          print #out_ch : tab(31); 'Buffered I/Os';
+        elseif  proc(name) <> "B_REDIM"  then  
+          print #out_ch : tab(33); 'Direct I/Os';
+        end if
+        print #out_ch :  tab(46); ' Seconds'; tab(56); ' Seconds'; chr$(0)
+        print #out_ch : tab(16); repeat$('-', 12); 
+        if  proc(name) = "B_SCREEN_IO"  then  
+          print #out_ch : tab(31); repeat$('-', 13);
+        elseif  proc(name) <> "B_REDIM"  then  
+          print #out_ch : tab(33); repeat$('-', 11);
+        end if
+        print #out_ch :  &
+                tab(46); repeat$('-', 8); &
+                tab(56); repeat$('-', 8); chr$(0)
+        !+jls+ Report buffered I/O on screen, no I/O on redim, direct I/O others
+
+        line_counter = 8
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B S S   R E P O R T   F I N I S H E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! report is finished. setup so that the print option routine can
+        ! print the report
+        !
+        ! Expected:
+        !       benchmark_filename$ = name of report created
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine bss_report_finished
+
+        close #out_ch
+        u_str$ = benchmark_filename$
+        u_scr_width% = the_width
+        u_help$ = 'print_option'
+        u_dispatch$ = 'int_demo_report_frame'
+
+        gosub  prnt_ask_option
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   T E X T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! display the text contained as a help topic in the help file
+        !
+        ! Expected:
+        !       help_topic$ = help topic to display
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_text
+
+        do
+          gosub dt_init
+          if  _extracted = 0  then  exit do
+          gosub dt_display
+          clear area 21, 1, 21, the_width
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D T   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! initialize for the display of the text
+        !
+        ! Expected:
+        !       help_topic$ = help topic to display
+        !
+        ! Result  :
+        !       screen is cleared
+        !       help record is read
+        !       line_counter is set to 3
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine dt_init
+
+        clear area 3, 1, 22, the_width
+        set structure help, field topic : key help_topic$
+        if  _extracted = 0  then  exit routine
+        line_counter = 4
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D T   D I S P L A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! actually print the text
+        !
+        ! Expected:
+        !       help(text) is the text to display
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine dt_display
+
+        dt_text$ = wrap$(help(text), 1, the_width)
+        dt_lines = pieces(dt_text$)
+        for dt_line = 1 to dt_lines
+          text_line$ = piece$(dt_text$, dt_line)
+          line_counter = line_counter + 1
+          if  (line_counter >= 20) or text_line$[1:1] = form_feed$  then
+            delay
+            if  _exit  then  exit routine
+            clear area 3, 1, 22, the_width
+            line_counter = 4
+          end if
+          if  text_line$[1:1] <> form_feed$  then
+            print at line_counter, 1 : text_line$
+          end if
+        next dt_line
+          
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S O U R C E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! make a report out of the source code for all programs for a
+        ! particular language
+        !
+        ! Expected:
+        !       proc(languages) = language selected
+        !       proc(program)   = name fragment to retrieve
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine source
+
+        gosub source_init
+        source_file = 0
+        do
+          source_file = source_file + 1
+          text_file$ = findfile$(source_file$, source_file)
+          if  text_file$ = ''  then  exit do
+          gosub print_text_file
+          line_counter = 66
+        loop
+        gosub source_report_finished
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S O U R C E   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! get the screen painted to show the report is being created
+        ! open the input file
+        ! make up the output file name and open the file
+        !
+        ! Expected:
+        !       proc(languages) = language selected
+        !       proc(program_name) = program name fragment
+        !
+        ! Result  :
+        !       source_file$ = fragment of program names to retreive
+        !       report_name$ = name of report file opened
+        !       report_title$ = title to put on report
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine source_init
+
+        int_demo_frame_line2$ = ' Source Code List of ' + proc(languages) + &
+                ' Demonstration Programs '
+        gosub int_demo_report_frame
+        message "Creating source code list..."
+        source_file$ = proc(program_name)
+        report_file$ = 'sys$scratch:int_demo_' + &
+                lcase$(proc(languages)) + '_source.tmp'
+        report_title$ = int_demo_frame_line2$
+        out_ch = _channel
+        open #out_ch : name report_file$, access output
+        page_counter = 0
+        line_counter = 66
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S O U R C E   R E P O R T   F I N I S H E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! report is finished. setup so that the print option routine can
+        ! print the report
+        !
+        ! Expected:
+        !       out_ch = output channel
+        !       in_ch  = input channel
+        !       report_file$ = name of report created
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine source_report_finished
+
+        close #out_ch
+        u_str$ = report_file$
+        u_scr_width% = the_width
+        u_help$ = 'print_option'
+        u_dispatch$ = 'int_demo_report_frame'
+
+        gosub  prnt_ask_option
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   T E X T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! make a report out of a text file
+        !
+        ! Expected:
+        !       text_file$ = file to print
+        !       report_file$ = file to print to
+        !       report_title$ = heading line
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_text_file
+
+        gosub ptf_init
+        if  _error  then  exit routine
+        do
+          when exception in
+            line input #in_ch : text_line$
+          use
+          end when
+          if  _error  then  exit do
+          if  line_counter > 56  then  gosub  ptf_heading
+          print #out_ch : text_line$
+          line_counter = line_counter + 1
+        loop
+        gosub ptf_report_finished
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P T F   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! open the input file, output file.  initialize counters
+        !
+        ! Expected:
+        !       text_file$ = file to print
+        !       out_ch = channel to print to
+        !       expects text file name to be logical:filename.ext
+        !
+        ! Result  :
+        !       in_ch  = channel source file is opened on
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ptf_init
+
+        in_ch  = _channel
+        when exception in
+          open #in_ch : name text_file$
+        use
+        end when
+        if  _error  then
+          message error : "Error opening text file: " + text_file$
+          message error : "Extext: " + extext$
+          exit routine
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P T F   H E A D I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! print the heading for the report
+        !
+        ! Expected:
+        !       page_counter  = current page_counter
+        !       report_title$ = second line title
+        !       system_title$ = "INTOUCH Demonstration System"
+        !
+        ! Result  :
+        !       heading is printed 
+        !       page_counter is incremented
+        !       line_counter is set
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ptf_heading
+
+        page_counter = page_counter + 1
+        z$ = system_title$
+        print #out_ch : chr$(12); 
+        print #out_ch : 'Run on: '; date$(days(date$), 3); &
+                tab(40 - (len(z$)/2)); z$; tab(72); 'Page '; &
+                format$(page_counter, '##'); chr$(0)
+        print #out_ch : tab(40 - (len(report_title$) / 2)); report_title$; &
+                chr$(0)
+        print #out_ch : chr$(0)
+        print #out_ch : chr$(0)
+        line_counter = 4
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P T F   R E P O R T   F I N I S H E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! report is finished. setup so that the print option routine can
+        ! print the report
+        !
+        ! Expected:
+        !       out_ch = output channel
+        !       in_ch  = input channel
+        !       report_file$ = name of report created
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ptf_report_finished
+
+        close #in_ch
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N T   D E M O   R E P O R T   F R A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! print the screen since the report option screen clears it
+        !
+        ! Expected:
+        !       int_demo_frame_line2$ = line 2 of frame
+        !       system_title$         = "INTOUCH Demonstration System"
+        !
+        ! Result  :
+        !       lines 1, 2, 24 are painted
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine int_demo_report_frame
+
+        clear
+        set structure mc, field menukey : key "111111"
+        u_str$ = system_title$
+        gosub screen_frame                        
+        z$ = space$(the_width)
+        print at 2, 1, reverse : z$
+        z = (the_width/2) - (len(int_demo_frame_line2$) / 2)
+        print at 2, z, bold, reverse : int_demo_frame_line2$
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   P R O C E E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! find out if the user wants to proceed with the benchmark/example
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !       error is set on if the user doesn't want to continue
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_proceed
+
+        u_prompt$ = "Proceed"
+        gosub askyn
+        clear area 3, 1, 22, the_width
+        if  _back or _exit  or u_reply$ = 'N' then
+          set error on
+          exit routine
+        end if
+
+        end routine
+
+
+
+80000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O G R A M   I N C L U D E   M O D U L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+90000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C O M M O N   A N D   U T I L I T Y   R O U T I N E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+90001   %include "utility_routines.inc"
+90002   %include "menu_routines.inc"
+90004   %include "tti_run:print_option.inc"
+90005   %include "tti_run:help.inc"
+
+999999  end

@@ -1,0 +1,270 @@
+1 MSEGMENT 
+Segments an image with thresholding and the fuzzy c-Means
+technique.
+
+SYNOPSIS
+
+  $ msegment [ options ... ] input_file output_file
+
+2 DESCRIPTION
+segment segments an image by analyzing the histograms of the color
+components and identifying units that are homogeneous with the fuzzy c-means
+technique.  The scale-space filter analyzes the histograms of the three
+color components of the image and identifies a set of classes.  The
+extents of each class is used to coarsely segment the image with
+thresholding.  The color associated with each class is determined by
+the mean color of all pixels within the extents of a particular class.
+Finally, any unclassified pixels are assigned to the closest class with
+the fuzzy c-means technique.
+ 
+The fuzzy c-Means algorithm can be summarized as follows:
+ 
+  o Build a histogram, one for each color component of the image.
+
+  o For each histogram, successively apply the scale-space filter and
+    build an interval tree of zero crossings in the second derivative at
+    each scale.  Analyze this scale-space ``fingerprint'' to determine
+    which peaks or valleys in the histogram are most predominant.
+
+  o The fingerprint defines intervals on the axis of the histogram.  Each
+    interval contains either a minima or a maxima in the original signal.
+    If each color component lies within the maxima interval, that pixel is
+    considered ``classified'' and is assigned an unique class number.
+
+  o Any pixel that fails to be classified in the above thresholding pass is
+    classified using the fuzzy c-Means technique.  It is assigned to one
+    of the classes discovered in the histogram analysis phase.
+ 
+The fuzzy c-Means technique attempts to cluster a pixel by finding the local
+minima of the generalized within group sum of squared error objective
+function.  A pixel is assigned to the closest class of which the fuzzy
+membership has a maximum value.
+
+For additional information see
+
+Young Won Lim, Sang Uk Lee, "On The Color Image Segmentation Algorithm Based
+on the Thresholding and the Fuzzy c-Means Techniques", Pattern Recognition,
+Volume 23, Number 9, pages 935-952, 1990.
+
+2 EXAMPLES
+ 
+To segment an image of a cockatoo, use:
+ 
+   $ msegment cockatoo.miff cockatoo.segmented
+ 
+To segment a raw grayscale image, use:
+ 
+   $ msegment -size 768x512 gray:raw image.miff
+
+2 OPTIONS
+ 
+    -cluster_threshold value
+eliminate clusters that are insignificant.
+
+The number of pixels in each cluster must exceed the the cluster
+threshold to be considered valid.  The default is 1%.
+ 
+    -colorspace value
+the type of colorspace: GRAY, OHTA, RGB, XYZ,
+YCbCr, YIQ, YPbPr, or YUV.
+
+Color reduction, by default, takes place in the RGB color space.
+Empirical evidence suggests that distances in color spaces such as YUV
+or YIQ correspond to perceptual color differences more closely
+than do distances in RGB space.  These color spaces may give better
+results when color reducing an image.  Refer to quantize(9) for
+more details.
+ 
+    -comment string
+annotate an image with a comment.
+
+By default, each image is commented with its file name.  Use this
+option to assign a specific comment to the image.  Optionally you can
+include the image filename, type, width, height, or scene number by
+embedding special format characters.  Embed %f for filename,
+%m for magick, %w for width, %h for height, %s
+for scene number, or \n for newline.  For example,
+
+     -comment "%m:%f %wx%h"
+
+produces an image comment of MIFF:bird.miff 512x480 for an image
+titled bird.miff and whose width is 512 and height is 480.
+
+If the first character of string is @, the image comment is read
+from a file titled by the remaining characters in the string.
+ 
+    -compress type
+the type of image compression: QEncoded or RunlengthEncoded.
+
+Specify +compress to store the binary image in an uncompressed format.
+The default is the compression type of the specified image file.
+ 
+    -density <width>x<height>
+vertical and horizontal density of the image.
+
+This option specifies an image density for a Postscript page.
+The default is 72 dots per inch in the horizontal and vertical direction.
+Use this option to alter the default density.
+ 
+    -display host:display[.screen]
+specifies the X server to contact; see X(1).
+ 
+    -font name
+This option specifies the font to be used  for displaying normal text.
+The default is fixed.
+ 
+    -interlace type
+the type of interlacing scheme: NONE, LINE, or PLANE.
+
+This option is used to specify the type of interlacing scheme for raw
+image formats such as RGB or YUV.  NONE means do not
+interlace (RGBRGBRGBRGBRGBRGB...), LINE uses scanline
+interlacing (RRR...GGG...BBB...RRR...GGG...BBB...), and PLANE uses
+plane interlacing (RRRRRR...GGGGGG...BBBBBB...).
+ 
+    -label name
+assign a label to an image.
+
+Use this option to assign a specific label to the image.  Optionally
+you can include the image filename, type, width, height, or scene
+number in the label by embedding special format characters.   Embed
+%f for filename, %m for magick, %w for width,
+%h for height, or %s for scene number.  For example,
+
+     -label "%m:%f %wx%h"
+
+produces an image label of MIFF:bird.miff 512x480 for an image
+titled bird.miff and whose width is 512 and height is 480.
+
+If the first character of string is @, the image label is read
+from a file titled by the remaining characters in the string.
+ 
+When converting to Postscript, use this option to specify a header string
+to print above the image.
+ 
+    -matte
+store matte channel if the image has one.
+ 
+    -page <width>x<height>{+-}<x offset>{+-}<y offset>
+preferred size and location of the Postscript page.
+
+Use this option to specify the dimensions of the Postscript page in
+picas or a TEXT page in pixels.  The default for a Postscript page is
+to center the image on a letter page 612 by 792 dots per inch.  The
+left and right margins are 18 picas and the top and bottom 94 picas
+(i.e.  612x792+36+36).  Other common sizes are:
+
+    540x720   Note
+    612x1008  Legal
+    842x1190  A3
+    595x842   A4
+    421x595   A5
+    297x421   A6
+    709x1002  B4
+    612x936   U.S. Foolscap
+    612x936   European Foolscap
+    396x612   Half Letter
+    792x1224  11x17
+    1224x792  Ledger
+
+The page geometry is relative to the vertical and horizontal density of the
+Postscript page.  See -density for details.
+
+The default page dimensions for a TEXT image is 612x792+36+36.
+ 
+    -quality value
+JPEG quality setting.
+
+Quality is 0 (worst) to 100 (best). The default is 85.
+ 
+    -scene value
+image scene number.
+ 
+    -size <width>{%}x<height>{%}{+colors}{!}
+width and height of the image.
+
+Use this option to specify the width and height of raw images whose
+dimensions are unknown such as GRAY, RGB, or CMYK.
+In addition to width and height, use -size to tell the number
+of colors in a MAP image file, (e.g. -size 640x512+256).
+ 
+    -smoothing_threshold value
+eliminate noise in the second derivative of the histogram.
+
+As the value is increased, you can expect a smoother second derivative.  The
+default is 5.0.
+ 
+   -verbose
+print detailed information about the image.
+
+This information is printed: image scene number;  image name;  converted
+image name;  image size;  the image class (DirectClass or 
+PseudoClass);  the total number of unique colors;  and the number
+of seconds to read and convert the image.
+ 
+Options are processed in command line order.
+Any option you specify on the command line remains in effect until it is
+explicitly changed by specifying the option again with a different effect.
+ 
+Change '-' to '+' in any option above to reverse its effect.  For
+example, specify +matte to store the image without its matte channel.
+ 
+By default, the image format is determined by its magic number. To
+specify a particular image format, precede the filename with an image
+format name and a colon (i.e. ps:image) or specify the image type as
+the filename suffix (i.e. image.ps).  See convert(1) for a list
+of valid image formats.
+ 
+When you specify X as your image type, the filename has special
+meaning.  It specifies an X window by id, name, or root.  If no
+filename is specified, the window is selected by clicking the mouse in
+the desired window.
+ 
+Specify input_file as - for standard input,
+output_file as - for standard output.  If input_file
+has the extension .Z or .gz, the file is uncompressed with
+uncompress or gunzip respectively.  If output_file
+has the extension .Z or .gz, the file size is compressed
+using with compress or gzip respectively.  Finally, precede
+the image file name with | to pipe to or from a system command.
+
+Use an optional index enclosed in brackets after a file name to specify
+a desired subimage of a multi-resolution image format like Photo CD
+(e.g. img0001.pcd[4]).
+
+If output_file already exists, you will be prompted as to whether
+it should be overwritten.
+
+2 ENVIRONMENT
+ 
+   display
+To get the default host, display number, and screen.
+
+2 COPYRIGHT
+Copyright 1994 E. I. du Pont de Nemours and Company
+ 
+Permission to use, copy, modify, distribute, and sell this software and
+its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of E. I. du Pont de Nemours
+and Company not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.  E. I. du Pont de Nemours and Company makes no representations
+about the suitability of this software for any purpose.  It is provided
+"as is" without express or implied warranty.
+ 
+E. I. du Pont de Nemours and Company disclaims all warranties with regard
+to this software, including all implied warranties of merchantability
+and fitness, in no event shall E. I. du Pont de Nemours and Company be
+liable for any special, indirect or consequential damages or any
+damages whatsoever resulting from loss of use, data or profits, whether
+in an action of contract, negligence or other tortuous action, arising
+out of or in connection with the use or performance of this software.
+
+2 ACKNOWLEDGEMENTS
+Andy Gallo, University of Delaware.  This software is strongly based on
+software Andy wrote.
+
+2 AUTHORS
+John Cristy, E.I. du Pont De Nemours and Company Incorporated

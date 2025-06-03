@@ -1,0 +1,1726 @@
+%title 'Nmail display code'
+module nm$show(
+    	      ident='34',
+    	      addressing_mode(external=general)
+              ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1991, 1992, 1993, 1994
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	11-Aug-1985
+!
+! Revision history:
+!
+!   01  30-Sep-1985
+!	Don't suppress blank subject strings
+!
+!   02  02-Oct-1985
+!	Include NM$_SHONDLV 'no confirmation' message in full display
+!
+!   03  03-Oct-1985
+!	Count expired messages as failed, not unsent, in summary
+!	line (NM$_SHOSUM)
+!
+!   04  15-Oct-1985
+!	Mechanism to show only queue entries for a specified user (/USER
+!	qualifier) and/or to suppress addresses which have been sent ok
+!	(/UNSENT qualifier)
+!
+!   05	14-Nov-1985
+!	Remove local literals for sizes of things like queue
+!	names.
+! 
+!   06	03-Dec-1985
+!	Remove NM$WRITE_xxx routines to the REPORTIO module
+!
+!   07	02-Apr-1986
+!	Include more job status in header line
+!
+!   08	15-Apr-1986
+!	Don't call JBC$_NOSUCHQUE `unexpected'
+!
+!   09	16-Apr-1986
+!	Don't display subject in /USER or /ALL case;
+!	this information is private.  Also, add VOLATILEs
+!	to data referred to in item lists.
+!
+!   10	18-Apr-1986
+!	Disregard JBC$_NOJOBCTX errors, it means the job went
+!	away while we were looking at it.
+!
+!   11	19-Apr-1986
+!	Use common routine NM$NEXT_QUEUE to help out in queue
+!	scans
+!
+!   12	20-Apr-1986
+!	Add support for /OUTPUT qualifier
+!
+!   13	21-Apr-1986
+!	Add support for CC-list
+!
+!   14	24-Apr-1986
+!	Replace use of /UNSENT by full selection on status
+!
+!   15	19-Nov-1986
+!  	Cancel ctrl/O at beginning of each entry
+!
+!   16	26-Jun-1987
+!	. Oops: cancel ctrl/O at beginning, not the second line!
+!	. Print polite message if EOF seen in NM$SHOW_ERROR
+!
+!   17	3-Sep-1987
+!	If job is not due to run in the next hour (arbitrary figure)
+!  	then say so: it's probably submitted /AFTER.  
+!
+!   18	20-Sep-1987
+!	. Fix loophole in 016
+!	. Give special message if no error text for given error
+!
+!   19	29-Jan-1989
+!	We no longer support control files without a CC record,
+!	so remove code that coped with the older stuff.
+!
+!   20	5-Feb-1989
+!	Replace calls to NM$READ_CTL_EOK with calls to NM$READ_CTL;
+!	the latter routine can now handle the _EOK case.
+!
+!   21	7-Feb-1989
+!	Use new $GETQUI item to get the file-id directly, rather
+!	than opening the file by name to determine the file-id.
+!
+!   22	9-Feb-1989
+!	Give informational message if no queues are active
+!
+!   23	14-Feb-1989
+!	Add message for 'no report' jobs (submitted by the daemon)
+!
+!   24	20-Feb-1989
+!	Add message for cancelled (return-to-sender) jobs
+!
+!   25	24-Feb-1989
+!	Ensure dynamic strings dellocated on unwinds
+!
+!   26  26-Feb-1991
+!	Cope with changes in queue status bits in the new batch/print
+!	subsystem.  This version now works with old and new JBC.
+!
+!   27  16-Dec-1991	Cathy Wright
+!	ALPHA specific changes
+!
+!   28	7-May-1992	
+!	Merge VAX, ALPHA cases
+!	
+!   29	9-May-1992
+!	Defensive code; one user reported an error in
+!	which Nmail showed a given queue entry under the
+!	previous entry number.   This could only be caused by
+!	$GETQUI failing to return an entry number, or returning
+!	the wrong one.   So we can diagnose this if it's ever seen
+!	again, zero out the entry number variable at the start
+!	of each time through the 'jobs' loop.
+!
+!   30	1-Jul-1992
+!	Be cautious, check for FAO failure
+!
+!   31	4-Jul-1992
+!	Add a few VOLATILE attributes
+!
+!   32	3-Sep-1992
+!	The new job controller seems to return JBC$_NOSUCHJOB
+!	if the job goes away while we're looking at it; we need
+!	to handle this case.  (See also edit 10)
+!
+!   33	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!
+!   34	14-Jan-1994
+!	. Add routine to show single job - that is, support
+!	  the /ENTRY qualifier on the SHOW command.
+!	. Decide whether to display subject based on owning username
+!	  rather than on presence of /USER (and /ALL) qualifiers.
+!--
+
+
+!
+! Library calls                                            
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+! 
+! Internal routines
+!
+forward routine
+    nm$setup           : novalue,
+    nm$show_file       : novalue,
+    nm$jobsts	       : novalue,
+    nm$show_addr_full  : novalue,
+    nm$show_addr_mid   : novalue,
+    nm$show_addr_brief : novalue,                              
+    nm$show_error      : novalue,
+    nm$wrtmsg	       : novalue,
+    nm$chand;
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Module-wide data
+!
+own
+    ctl_flags   : block[%upval,byte],			! Control record flags
+    buffer      : block[nm$s_ctl_buf,byte] alias,	! File I/O buffer
+    buflen      : alias,				! Size of data in buffer
+    counts      : vector[err$k_zzzz+1],			! Counts of addresses by status
+    total_addr	: long,					! Total addressees
+    midnight	: vector[2],				! Time at midnight
+    hourlater   : vector[2],				! Time in one hour's time
+    myname_buff : vector[nm$s_usernam,byte],            ! User of 'show' command
+    myname_len  : long;					! Length of username
+
+!
+! Fixed strings
+!
+bind
+    blank   = %ascid'',
+    comma   = %ascid',',
+    arrow   = %ascid' -->',
+    comsp   = %ascid', ',
+    lpar    = %ascid'(',
+    rpar    = %ascid')',
+    yerwot  = %ascid'******';
+
+%sbttl 'strings and arrows'
+
+!
+! The following descriptors hold bits and pieces that are
+! used in constructing a display.  They are initially read from
+! the message file so as to cater for language independence.
+! They are never deallocated during the life of the image.
+!
+own
+    strings_set : initial(false),
+    unsent	: descrip initial($dynamic),
+    sent	: descrip initial($dynamic),
+    failed	: descrip initial($dynamic),
+    expired     : descrip initial($dynamic),
+    cancelled   : descrip initial($dynamic),
+    addr_title	: descrip initial($dynamic),
+    sts_title	: descrip initial($dynamic),
+    time_title	: descrip initial($dynamic),
+    executing	: descrip initial($dynamic),
+    held	: descrip initial($dynamic),
+    helduntil	: descrip initial($dynamic),
+    completed	: descrip initial($dynamic),
+    complerr	: descrip initial($dynamic),
+    noselect    : descrip initial($dynamic),
+    eoferrmsg   : descrip initial($dynamic),
+    nulerrmsg   : descrip initial($dynamic);
+
+!
+! Structure to map the NM$_xxx codes to string descriptors
+!
+bind
+    strings_list = plit(
+		       nm$_shouns,  unsent,
+		       nm$_shodun,  sent,
+		       nm$_shofail, failed,
+		       nm$_shoexp,  expired,
+		       nm$_shocan,  cancelled,
+    		       nm$_shoadr,  addr_title,
+		       nm$_shosts,  sts_title,
+		       nm$_sholst,  time_title,
+		       nm$_shoxeq,  executing,
+	               nm$_shohld,  held,
+		       nm$_shotil,  helduntil,
+		       nm$_shocmp,  completed,
+		       nm$_shoerr,  complerr,
+		       nm$_shonose, noselect,
+		       nm$_eoferr,  eoferrmsg,
+	 	       nm$_nulerr,  nulerrmsg
+		       ) : vector;
+
+!
+! Offsets and sizes for fields in the addressee display. Note
+! that you can change the field widths (xxx_siz) as required, but
+! the ordering and interfield spacing cannot be changed without
+! also changing FAO control strings and possibly FAO calls.
+!
+literal
+    mark_pos = 0,
+    mark_siz = 4,
+    addr_pos = mark_pos + mark_siz + 1,
+    addr_siz = 20,
+    sts_pos  = addr_pos + addr_siz + 2,
+    sts_siz  = 10,                           
+    time_pos = sts_pos + sts_siz + 2,
+    time_siz = 20,
+    end_pos  = time_pos + time_siz;
+
+%sbttl 'data, parameters, etc'
+                                                                         
+!
+! Dispatch table for 'show address' routines, indexed by mode.
+! Note that this makes an assumption about the values of the
+! SHO$K_xxx values!
+!
+bind
+    show_addr_xxxx = uplit(
+    			  nm$show_addr_brief,
+    			  nm$show_addr_mid, 
+    			  nm$show_addr_full
+    			  ) : vector;
+
+!
+! Macro to compute an index value for the 'status' of an
+! entry in the address list.  This yields
+!	0 - sent okay
+!	1 - failed, hard error
+!	2 - unsent, retrying later
+!	3 - unsent, expired
+!	4 - unsent, cancelled
+! which correspond to the err$k_xxx codes. The value 5 is
+! assigned if we see an unrecognised state.
+!
+macro 
+    addr_status_indx =
+        begin
+	if .buffer[addr$v_done] 
+	then
+	    minu(.buffer[addr$b_err], err$k_zzzz)
+	else
+	    err$k_soft
+	end
+    %;
+
+!
+! Vector to map above indexes to descriptive strings (order vital)
+!
+bind
+    addr_status = uplit(
+		       sent, 		! 0 - sent okay
+		       failed, 		! 1 - failed, hard error
+		       unsent, 		! 2 - unsent, retrying later
+		       expired, 	! 3 - unsent, expired
+		       cancelled, 	! 4 - unsent, cancelled
+		       yerwot		! 5 - unknown (internal error)
+		       ) : vector;
+
+%sbttl 'scan all queues, show all entries'
+global routine nm$show_queue (
+			     mode, 
+			     flags  : block[,byte], 
+			     user   : ref descrip,
+			     output : ref descrip
+			     ) =
+
+!++
+! Functional description:
+!
+! Scans all Nmail queues and lists all entries found, either for
+! the current user, or for a particular user, or for all users
+! (see flags parameter).
+!
+! Formal parameters:
+!
+! mode.rl.v     = brief/mid/full display mode
+! flags.rl.v    = flags saying what is to be printed
+!		    sho$v_all  - all users
+!	            sho$v_user - entries for given user name
+!		    otherwise  - entries for logged-in user
+!		    sho$v_sent - show 'sent' addresses
+!		    sho$v_unse - show 'unsent' addresses
+!	            sho$v_fail - show 'failed' addresses
+!		    sho$v_expi - show 'expired' addresses
+!		    sho$v_canc - show 'cancelled' addresses
+!		    if none of above 5 flags set, all addresses shown
+! user.rt.dx1   = user name, if sho$v_user set
+! output.rt.dx1 = output filespec
+!
+! Routine value:
+!
+! status.wlc.v = always true
+!		 (ss$_normal if jobs found, nm$_nojobs otherwise)
+!
+!--
+
+    begin
+
+    !
+    ! Storage for returned queue information items
+    !
+    local
+	que_flags	: block[%upval,byte] alias,
+	que_status	: block[%upval,byte] alias,
+	job_status	: block[%upval,byte] alias,
+	comp_status	: block[%upval,byte] alias,
+        username_buff   : vector[nm$s_usernam,byte] alias,
+	username_len    : word alias,
+	entry_num	: long alias, 
+	after_time	: vector[2] alias,
+	active_jobs	: long alias,
+	job_limit	: long alias,
+	ctl_fid	        : block[nm$s_fileid,byte] alias;
+
+    !
+    ! Other scratch bits and pieces. 
+    !
+    local 
+	status,
+	srch_wild    : initial(qui$m_search_wildcard) alias,
+	srch_all     : initial(0) alias,
+	queue_list   : descrip initial($dynamic) volatile,
+        temp	     : descrip initial($dynamic) volatile,
+	hdr_msg	     : initial(nm$_shohdr),
+	generic	     : initial(false),
+	qcount	     : vector[2] initial(0),
+	jcount       : initial(0),
+	rpt_fid	     : block[nm$s_fileid,byte];
+                                             
+    !
+    ! Queue state bits which indicate the queue is, or soon will be,
+    ! able to process our jobs
+    !
+    literal q_active = qui$m_queue_available or 
+		       qui$m_queue_busy or
+		       qui$m_queue_idle;
+
+    !
+    ! Items lists for the various 'display' functions to be requested.
+    !
+    local
+	dpy_queue : $itemlist(
+			qui$_search_name,         0,             0,             0,
+			qui$_search_flags,        %upval,        srch_wild,     0,
+			qui$_queue_flags,         %upval,        que_flags,	0,
+			qui$_queue_status,        %upval,        que_status,	0,
+			qui$_executing_job_count, %upval,        active_jobs,   0,
+			qui$_job_limit,  	  %upval,	 job_limit,     0
+			),
+	dpy_job   : $itemlist(
+			qui$_search_flags,        %upval,        srch_all,      0,
+			qui$_entry_number,        %upval,        entry_num,     0,
+		        qui$_job_status,          %upval,        job_status,    0,
+			qui$_after_time,	  %upval*2,	 after_time,    0,
+		        qui$_condition_vector,    %upval,	 comp_status,   0,
+			qui$_username,            nm$s_usernam,  username_buff, username_len
+			),
+	dpy_file  : $itemlist(
+	 	        qui$_file_identification, nm$s_fileid,   ctl_fid,       0
+		        );
+
+    !
+    ! Hook up a handler to deallocate dynamic strings on an unwind
+    !
+    enable nm$freestr (queue_list, temp);
+
+    !
+    ! Initialise, then open the listing output file
+    !
+    nm$setup();
+    nm$create_rptsho_file(rpt_fid, .output);
+
+    !
+    ! If we're doing anything other than the logged-in user, then set 
+    ! up a flag so that $GETQUI returns info for all users.  Also, change
+    ! the header message so that the username is displayed. 
+    !
+    if .flags[sho$v_all] or .flags[sho$v_user]
+    then 
+	begin
+	srch_all = qui$m_search_all_jobs;
+	hdr_msg  = nm$_shohdal;
+	end;
+
+    !
+    ! Now, process each queue in turn.
+    !
+    while nm$next_queue(queue_list, dpy_queue) do
+	begin
+
+	!
+	! Establish queue context for job controller
+	!
+	status = nm$getqui(qui$_cancel_operation, %ref(0));
+	if not .status then signal_stop(nm$_jbc, 0, .status);
+	status = nm$getqui(qui$_display_queue, dpy_queue);
+	if not .status then signal_stop(nm$_jbc, 0, .status);
+
+        !
+        ! Massage queue status bits into 1990-design format
+        !
+        que_status = nm$massage_qstatus(.que_status, .active_jobs, .job_limit);
+
+	!	
+	! Count active queues (generic/execution counted separately)
+	!
+	if .que_flags[qui$v_queue_generic] 
+	then 
+	    generic = true;
+	if (.que_status and q_active) neq 0
+	then
+	    qcount[.que_flags[qui$v_queue_generic]] =
+	    		.qcount[.que_flags[qui$v_queue_generic]] + 1;
+
+	!
+	! Process all jobs in queue
+	!
+	while begin
+	      entry_num = 0;
+	      status = nm$getqui(qui$_display_job, dpy_job);
+	      if not .status
+	      then 
+		  if .status neq jbc$_nomorejob and
+		     .status neq jbc$_nosuchjob 
+		  then
+		      signal_stop(nm$_jbc, 0, .status);
+	      .status
+	      end
+        do
+	    begin
+	    local 
+	        username_dsc : descrip initial(.username_len, username_buff);
+
+	    !
+	    ! Check whether we want to process this job. If we're not in /USER 
+	    ! mode then we certainly do (since GETQUI is doing the selection
+	    ! for us).  If we're in /USER mode then we need to check names.
+	    !
+	    if begin
+	       if .flags[sho$v_user] and not .flags[sho$v_all]
+	       then 
+		   str$match_wild(username_dsc, .user)
+               else
+		   true
+	       end
+
+	    then
+		begin
+
+		!
+		! Process all files in job (only one expected)
+		!
+		while begin
+		    status = nm$getqui(qui$_display_file, dpy_file);
+		    if not .status
+		    then 
+			if .status neq jbc$_nomorefile and
+			   .status neq jbc$_nosuchfile and 
+			   .status neq jbc$_nojobctx   and ! job went away
+			   .status neq jbc$_nosuchjob      ! job went away
+			then
+			    signal_stop(nm$_jbc, 0, .status);
+		    .status
+		    end
+		do
+
+		    begin
+
+		    !
+		    ! Count another job found (actually, we're counting
+		    ! files, but the user thinks they're jobs)
+		    !
+		    jcount = .jcount + 1;
+
+		    !
+		    ! Write initial message giving entry number of job in queue,
+		    ! and maybe a flag to say it's currently being processed
+		    !
+                    nm$cco_rpt();
+		    nm$jobsts(.job_status, .comp_status, after_time, temp);
+		    nm$wrtmsg(
+			     .hdr_msg, 3, 
+			     .entry_num, username_dsc, temp
+			     );
+
+		    !
+		    ! Dispatch to show details of this entry
+		    !
+		    nm$show_file(ctl_fid, .mode, .flags, username_dsc);
+
+		    !
+		    ! End of file-loop
+		    !
+		    end;
+
+		!
+		! End of if-we-want-this-job test
+		!
+		end;
+
+	    !
+	    ! End of job-loop
+	    !
+	    end;
+
+	!
+	! End of queue-loop
+	!
+	end;
+
+    !
+    ! If there's no generic queue, fudge the counts
+    ! to make subsequent tests simpler
+    !
+    if not .generic then qcount[1] = .qcount[0];
+
+    !
+    ! Tell job controller we're done
+    !
+    status = nm$getqui(qui$_cancel_operation, %ref(0));
+    if not .status then signal_stop(nm$_jbc, 0, .status);
+
+    !
+    ! All displayed, tidy up the mess (the listing file
+    ! is not retained if no jobs were listed)
+    !
+    str$free1_dx(temp);
+    str$free1_dx(queue_list);
+    nm$close_rpt_file(.jcount eql 0);
+
+    !
+    ! If no jobs were found, issue a message, and return appropriate
+    ! status.
+    !
+    if .jcount eql 0 
+    then
+	begin
+	signal(nm$_nojobs);
+	return nm$_nojobs;
+	end;
+
+    !
+    ! If we found jobs, but there aren't any queues running,
+    ! then warn the user.
+    !
+    if .qcount[0] eql 0 or .qcount[1] eql 0
+    then
+	begin
+	signal(nm$_noques);
+	return nm$_noques;
+        end;
+
+    !
+    ! Otherwise, we got jobs, we got queues
+    !
+    ss$_normal
+
+    end;
+
+%sbttl 'show single queue entry'
+global routine nm$show_job (
+			   mode, 
+			   flags     : block[,byte], 
+			   user      : ref descrip,
+			   output    : ref descrip,
+			   entry_num : alias
+			   ) =
+
+!++
+! Functional description:
+!
+! Lists a single Nmail queue entry, specified by the job
+! controller's entry number.
+!
+! Formal parameters:
+!
+! mode.rl.v      = brief/mid/full display mode
+! flags.rl.v     = flags saying what is to be printed
+!	            sho$v_user - entry is for given user name
+!		    otherwise  - entry is for logged-in user
+!		    sho$v_sent - show 'sent' addresses
+!		    sho$v_unse - show 'unsent' addresses
+!	            sho$v_fail - show 'failed' addresses
+!		    sho$v_expi - show 'expired' addresses
+!		    sho$v_canc - show 'cancelled' addresses
+!		    if none of above 5 flags set, all addresses shown
+! user.rt.dx1    = user name, if sho$v_user set
+! output.rt.dx1  = output filespec
+! entry_num.rl.v = entry number
+!
+! Routine value:
+!
+! status.wlc.v = always true
+!		 (ss$_normal if jobs found, nm$_nojobs otherwise)
+!
+!--
+
+    begin
+
+    !
+    ! Storage for returned queue information items
+    !
+    local
+	job_status	: block[%upval,byte] alias,
+	comp_status	: block[%upval,byte] alias,
+        username_buff   : vector[nm$s_usernam,byte] alias,
+	username_dsc    : descrip initial(0,username_buff) alias,
+	after_time	: vector[2] alias,
+	ctl_fid	        : block[nm$s_fileid,byte] alias;
+
+    !
+    ! Other scratch bits and pieces. 
+    !
+    local 
+	status,
+	srch_flags   : initial(qui$m_search_wildcard+qui$m_search_freeze_context) alias,
+	curr_queue   : descrip initial(0,0),
+        queue_list   : descrip initial($dynamic) volatile,
+        temp	     : descrip initial($dynamic) volatile,
+	hdr_msg	     : initial(nm$_shohdr),
+	jcount       : initial(0),
+	rpt_fid	     : block[nm$s_fileid,byte];
+                                             
+    !
+    ! Items lists for the various 'display' functions to be requested.
+    !
+    local
+	dpy_job   : $itemlist(
+			qui$_search_flags,        %upval,        srch_flags,    0,
+		        qui$_job_status,          %upval,        job_status,    0,
+			qui$_after_time,	  %upval*2,	 after_time,    0,
+		        qui$_condition_vector,    %upval,	 comp_status,   0,
+			qui$_username,            nm$s_usernam,  username_buff, username_dsc[dsc$w_length]
+			),
+	dpy_file  : $itemlist(
+	 	        qui$_file_identification, nm$s_fileid,   ctl_fid,       0
+		        );
+
+    !
+    ! Hook up a handler to deallocate dynamic strings on an unwind
+    !
+    enable nm$freestr (queue_list, temp);
+
+    !
+    ! Open the listing output file.  We do this first out of
+    ! some misguided idea about having the same behaviour for
+    ! the "show queue" and "show entry" cases.
+    !
+    nm$setup();
+    nm$create_rptsho_file(rpt_fid, .output);
+
+    !
+    ! If this isn't for the logged-in user, then set up an 
+    ! appropriate header message (includes username).
+    !
+    if .flags[sho$v_all] or .flags[sho$v_user]
+    then 
+	hdr_msg = nm$_shohdal;
+
+    !
+    ! Locate the indicated entry in the queues, then fetch
+    ! more information about the job.
+    !
+    status = nm$find_entry(
+		          queue_list, .entry_num, 
+			  (if .flags[sho$v_user] then .user else 0),
+			  curr_queue, job_status
+			  );
+    if .status 
+    then 
+	begin
+        status = nm$getqui(qui$_display_job, dpy_job);
+	if not .status 
+	then
+	    if .status neq jbc$_nosuchjob and
+	       .status neq jbc$_nomorejob
+	    then 
+	        signal_stop(nm$_jbc, 0, .status);
+	end;
+
+    !
+    ! Process all files in job (only one expected)
+    !
+    if .status
+    then
+	while begin
+	      status = nm$getqui(qui$_display_file, dpy_file);
+	      if not .status
+	      then 
+	          if .status neq jbc$_nomorefile and
+		     .status neq jbc$_nosuchfile and 
+	             .status neq jbc$_nojobctx   and ! job went away
+		     .status neq jbc$_nosuchjob      ! job went away
+	          then
+		      signal_stop(nm$_jbc, 0, .status);
+	      .status
+	      end
+    	do
+	    begin
+
+	    !
+	    ! Count another job (file) found
+	    !
+	    jcount = .jcount + 1;
+
+	    !
+	    ! Write initial message giving entry number of job in queue,
+	    ! and maybe a flag to say it's currently being processed
+	    !
+	    nm$cco_rpt();
+	    nm$jobsts(.job_status, .comp_status, after_time, temp);
+	    nm$wrtmsg(
+	    	    .hdr_msg, 3, 
+	            .entry_num, username_dsc, temp
+	 	    );
+
+	    !
+	    ! Dispatch to show details of this entry
+	    !
+	    nm$show_file(ctl_fid, .mode, .flags, username_dsc);
+
+	    !
+	    ! End of file-loop
+	    !
+	    end;
+
+    !
+    ! Tell job controller we're done
+    !
+    status = nm$getqui(qui$_cancel_operation, %ref(0));
+    if not .status then signal_stop(nm$_jbc, 0, .status);
+
+    !
+    ! All displayed, tidy up the mess (the listing file
+    ! is not retained if no jobs were listed)
+    !
+    str$free1_dx(queue_list);
+    str$free1_dx(temp);
+    nm$close_rpt_file(.jcount eql 0);
+
+    !
+    ! If no jobs were found, issue a message, and return 
+    ! appropriate status.
+    !
+    if .jcount eql 0 
+    then
+ 	begin
+	signal(nm$_nonxjob);
+	return nm$_nonxjob;
+ 	end;
+
+    !
+    ! Otherwise, we found it
+    !
+    ss$_normal
+
+    end;
+
+%sbttl 'initialisation'
+routine nm$setup : novalue =
+
+!++
+! Functional description:
+!
+! This routine does the setup work for all 'show' commands.
+!
+! Parameters:
+!
+! none
+! 
+! Routine value:
+!
+! none 
+!
+!--
+
+    begin
+
+    local
+	now : vector[2];
+
+    !
+    ! Load the small strings, if they're not already loaded.
+    !
+    if not .strings_set
+    then
+	begin
+	nm$load_strings(strings_list);
+	strings_set = true;
+        end;
+
+    !
+    ! Get our own username, used in deciding whether this
+    ! job belongs to us or someone else.
+    !
+    if .myname_len eql 0
+    then
+        nm$username(myname_buff, nm$s_usernam, myname_len);
+
+    !
+    ! Figure out the time in one hour's time (plus a bit) and
+    ! at midnight tonight (less a bit).  These times are in deciding
+    ! whether it'll be a significant time before the job runs.
+    !
+    $bintim(timbuf=%ascid'-- 23:59:59.99', timadr=midnight);
+    $bintim(timbuf=%ascid'0 01:00:59.99', timadr=hourlater);
+    $gettim(timadr=now);
+    $subq(hourlater, now, hourlater);
+
+    end;
+    
+
+%sbttl 'show contents of control file'
+routine nm$show_file (ctl_fileid, mode, flags : block[,byte], owner : ref descrip) : novalue =
+
+!++
+! Functional description:
+!
+! Given a control file, which describes a single mail message
+! and the intended recipients, this routine will display a 
+! formatted listing.
+!
+! The control file, identified by file-id, is opened and closed
+! by this routine.  The listing file must already be opened 
+! (and writeable via nm$write_rpt).
+!
+! Formal parameters:
+!
+! ctl_fileid.rt.ds = 28-byte file ID for control file
+! mode.rl.v        = brief/mid/full selection
+! flags.rl.v	   = other options 
+!		        sho$v_sent - show 'sent' addresses
+!		        sho$v_unse - show 'unsent' addresses
+!			sho$v_fail - show 'failed' addresses
+!			sho$v_expi - show 'expired' addresses
+!			sho$v_canc - show 'cancelled' addresses
+!			if none of above set, all addresses shown
+! owner.rt.dx      = username owning this job
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Catch all signals
+    !
+    enable nm$chand;
+
+    !
+    ! We only display "private" information, such as the subject,
+    ! if it's our own job.   
+    !
+    if ch$eql(
+	    .owner[dsc$w_length], .owner[dsc$a_pointer],
+	    .myname_len, myname_buff, ' '
+	    )
+    then
+        flags[sho$v_xpriv] = false
+    else
+	flags[sho$v_xpriv] = true;
+
+    !
+    ! Open the control file by file ID
+    !
+    nm$open_ctl_file(.ctl_fileid, buffer, buflen, true);
+
+    !
+    ! Now dispatch to the common code to generate the display
+    !
+    nm$do_show_display(.mode, .flags);
+    nm$write_rpt_fao(blank);
+
+    !
+    ! That's all, folks
+    !
+    nm$close_ctl_file(false);
+
+    end;
+
+%sbttl 'construct job status string'
+routine nm$jobsts(
+		 jobsts  : block[,byte], 
+		 compsts : block[,byte], 
+		 after   : ref vector,
+		 string  : ref descrip
+		 ) : novalue =
+
+!++
+! Functional description:
+!
+! Builds a string correponding to the current job status
+!
+! Formal parameters:
+!
+! jobsts.rl.v   = job status bits
+! compsts.rlc.v = completion status (if job completed)
+! after.rq.r    = 'after' time (if job timed)
+! string.wt.dx  = returned text string describing status
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    own
+	timed : descrip;
+    bind	     
+	ststxt = plit(
+	    	     executing, qui$m_job_executing,     qui$m_job_executing, 0, 0,
+		     held,	qui$m_job_holding,       qui$m_job_holding,   0, 0,
+		     timed,     qui$m_job_timed_release, qui$m_job_timed_release,     0, 0,
+		     completed,	qui$m_job_retained,      qui$m_job_retained,  1, 1,
+		     complerr,	qui$m_job_retained,      qui$m_job_retained,  1, 0
+		     ) : vector;
+    local
+	timebuff : vector[40,byte] alias,
+	sep      : initial(blank),
+	status;
+
+    !
+    ! Start with empty string
+    !
+    str$free1_dx(.string); 
+
+    !
+    ! Special-case processing for jobs waiting until a certain time.
+    ! If the due time is less than an hour away, then we don't bother
+    ! to report it, since most Nmail jobs are waiting. If there's more than
+    ! an hour to go, say so.
+    !
+    if .jobsts[qui$v_job_timed_release]
+    then
+	if $cmpq(.after, hourlater) leq 0
+	then
+	    jobsts[qui$v_job_timed_release] = false
+	else
+	    begin
+	    bind dw = (if $cmpq(.after, midnight) leq 0 then 0 else 12);
+	    bind dt = timebuff[.helduntil[dsc$w_length]+1] : vector[,byte];
+	    timed[dsc$w_length]  = 40;
+	    timed[dsc$a_pointer] = timebuff;
+	    status = $fao(%ascid'!AS !#%D!-!5%T', timed, timed, helduntil, dw, .after);
+	    if not .status then signal_stop(nm$_fao, 0, .status);
+	    if .dt[0] eql ' '
+	    then
+	        begin
+		ch$move(dw+5, dt[1], dt[0]);	! eliminate leading space
+		timed[dsc$w_length] = .timed[dsc$w_length] - 1;
+		end;
+	    end;
+
+    !
+    ! Add descriptive text to string for each bit that's set
+    !
+    incr i from 0 to .ststxt[-1]-1 by 5 do
+	if (.jobsts  and .ststxt[.i+1]) eql .ststxt[.i+2] and
+	   (.compsts and .ststxt[.i+3]) eql .ststxt[.i+4]
+	then
+	    begin
+	    str$concat(.string, .string, .sep, .ststxt[.i]);
+	    sep = comsp;
+	    end;
+
+    !
+    ! If we have any text at all, wrap it in parentheses
+    !
+    if .string[dsc$w_length] neq 0 
+    then
+	str$concat(.string, lpar, .string, rpar);
+
+    end;
+
+%sbttl 'generate show display'
+global routine nm$do_show_display (mode, flags : block[,byte]) : novalue =
+
+!++
+! Functional description:
+!
+! Given a control file, which describes a single mail message
+! and the intended recipients, this routine will display a 
+! formatted listing.
+!
+! The listing file must already be opened (and writeable via
+! nm$write_rpt).  The control file must be opened, accessible
+! by the nm$read_ctl and nm$write_ctl routines (etc) and 
+! positioned at the 'from' record.
+!
+! Formal parameters:
+!
+! mode.rl.v        = brief/mid/full selection
+! flags.rl.v	   = sent/unsent/failed/expired/cancelled selection
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	save_rfa : vector[3,word],
+	temp     : descrip initial($static),
+	temp2    : descrip initial($static),
+	selekt	 : bitvector[%bpval] initial(0);
+
+    !
+    ! Zero the counters
+    !
+    ch$fill(0, (err$k_zzzz+1)*%upval, counts);
+    total_addr = 0;
+
+    !
+    ! Load the small strings, if they're not already loaded
+    !
+    if not .strings_set
+    then
+	begin
+	nm$load_strings(strings_list);
+	strings_set = true;
+        end;
+
+    !
+    ! Determine which addresses to select for display. Default
+    ! to 'all', and also ensure that the 'unknown' status is
+    ! always displayed.
+    !
+    selekt[err$k_sent]  = .flags[sho$v_sent];
+    selekt[err$k_hard]  = .flags[sho$v_fail];
+    selekt[err$k_soft]  = .flags[sho$v_unse];
+    selekt[err$k_expir] = .flags[sho$v_expi];
+    selekt[err$k_canc]  = .flags[sho$v_canc];
+    if .selekt eql 0 then selekt = -1;
+    selekt[err$k_zzzz]  = true;
+
+    !
+    ! Rewind control file to start, then read the first record
+    !
+    nm$rewind_ctl(buffer, buflen);
+    nm$read_ctl();
+    ctl_flags = .buffer[ctl$b_flags];
+
+    !
+    ! Ensure it's a control file before we make a fool of ourself
+    !
+    if not nm$chk_ctl_file(buffer, .buflen) 
+    then 
+	begin
+	signal(nm$_badfil);
+	return;
+	end;
+
+    !
+    ! Display initial lines for this entry
+    !
+    nm$wrtmsg(
+	     (if $zeroq(buffer[ctl$q_qued]) then nm$_shoenuk else nm$_shoent),
+             1, buffer[ctl$q_qued]
+	     );
+
+    !
+    ! In /FULL mode only, do full header analysis
+    !
+    if .mode geq sho$k_full
+    then
+	begin
+
+    	!
+    	! Display number of attempts, and time of last attempt
+    	!
+        nm$wrtmsg(
+		 (if .buffer[ctl$w_natt] eql 0 then nm$_shonew else nm$_shotim),
+		 2, .buffer[ctl$w_natt], buffer[ctl$q_time]
+		 );
+
+    	!
+    	! Expiry time and max number of attempts if applicable
+    	!
+	begin
+	bind 
+	    msgs = uplit(nm$_shoxno, nm$_shoxat, nm$_shoxtm, nm$_shoxor) : vector,
+	    xmsg = .msgs[
+			(if .buffer[ctl$w_mxatt] eql 0 then 0 else 1) +
+			(if $zeroq(buffer[ctl$q_expir]) then 0 else 2)
+			];
+	nm$wrtmsg(xmsg, 2, buffer[ctl$q_expir], .buffer[ctl$w_mxatt]);
+	end;
+
+     	!
+    	! Display retry delta if set
+    	!
+        nm$wrtmsg(
+		 (if $zeroq(buffer[ctl$q_delta]) then nm$_shondel else nm$_shodel),
+		 1, buffer[ctl$q_delta]
+		 );
+
+    	! 
+    	! For foreign documents, announce the fact
+    	!
+	if .buffer[ctl$v_for] then nm$wrtmsg(nm$_shoforn);
+
+    	!
+    	! Say if end-of-run summary required
+    	!
+	nm$wrtmsg((if .buffer[ctl$v_summ] then nm$_shodlv else nm$_shondlv));
+
+    	!
+    	! Say if message to be returned to sender on error.
+    	!
+        nm$wrtmsg(
+	         (if .buffer[ctl$v_norpt] then nm$_shonrpt
+		  else if .buffer[ctl$v_noret] then nm$_shonret 
+		  else nm$_shoret)
+		 );
+
+	!
+	! Say if the message is being cancelled and returned
+	! to sender
+	!
+	if .buffer[ctl$v_can] then nm$wrtmsg(nm$_shocrts);
+
+	!
+	! End of full header analysis
+	!
+	end;
+
+    !
+    ! Next is the 'from' line- read and maybe display it
+    !
+    nm$read_ctl();
+    if .mode geq sho$k_full
+    then
+	begin
+	temp[dsc$w_length] = .buflen;
+	temp[dsc$a_pointer] = buffer;
+	nm$parse_token(temp, temp, temp2);
+	nm$wrtmsg(nm$_shofrom, 1, temp);
+	end;
+
+    !
+    ! Read first address record and save a pointer to it
+    !
+    nm$read_ctl();
+    nm$get_rfa(save_rfa);
+
+    !
+    ! Skip over the rest of the  address records
+    !
+    while not (.buflen eql 1 and .buffer[byte0] eql 0) do
+	nm$read_ctl();
+
+    !
+    ! Display to-list
+    !
+    nm$read_ctl();
+    temp[dsc$w_length] = .buflen;
+    temp[dsc$a_pointer] = buffer;
+    nm$wrtmsg(nm$_shoto, 1, temp);
+
+    !
+    ! Display cc-list if it's not blank
+    !
+    nm$read_ctl();
+    temp[dsc$w_length] = .buflen;
+    temp[dsc$a_pointer] = buffer;
+    if .buflen neq 0 then nm$wrtmsg(nm$_shocc, 1, temp);
+
+    !
+    ! Display subject, unless it doesn't belong to us
+    ! (this information is considered as private)
+    !
+    nm$read_ctl();
+    temp[dsc$w_length]  = .buflen;
+    temp[dsc$a_pointer] = buffer;
+    nm$wrtmsg(
+	     (if .flags[sho$v_xpriv] then nm$_shosubx else nm$_shosubj),
+	     1, temp
+	     );
+
+    !
+    ! Set up so that next read will read first address record
+    !
+    nm$point_rfa(save_rfa);
+
+    !
+    ! Now, deal with displaying the address list. The form that the
+    ! display will take depends on the current mode of operation.
+    !
+    (.show_addr_xxxx[.mode])(.selekt);
+
+    !
+    ! Display summary line showing number unsent/sent/failed messages
+    !
+    nm$wrtmsg(
+    	     nm$_shosum, 3, 
+             .counts[err$k_soft],
+             .counts[err$k_sent], 
+    	     .counts[err$k_hard]+.counts[err$k_expir]+.counts[err$k_canc]
+             );
+
+    end;
+
+%sbttl 'show full details for address list'
+routine nm$show_addr_full (selekt : bitvector) : novalue =
+
+!++
+! Functional description:
+!
+! Shows full details for all entries in the address list.
+! This includes:
+!	. the address
+!	. status (sent/unsent/failed)
+!	. flag if currently being processed
+!	. time of last/final attempt
+!	. last error message, if any
+!
+! Formal parameters:
+!
+! selekt.rl.v = bitvector; if Nth bit is set we display
+!	        details of addresses for which stsinx=N
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    bind
+	titles     = %ascid'!#* !#AS  !#AS  !+!AS',
+	dashes     = %ascid'!#* !#<!#*-!>  !#<!#*-!>  !+!#*-',
+    	addr_proto = %ascid'!#AS !#AD  !#AS  !#%D',
+	noshows    = %ascid'!#* (!AS)';
+
+    local
+        shown : initial(0);
+ 
+    !
+    ! Write a header, and then underline it (pretty nifty trick, eh?)
+    !
+    nm$write_rpt_fao(blank);
+    nm$write_rpt_fao(
+    		    titles, addr_pos,
+    		    addr_siz, addr_title,
+    		    sts_siz, sts_title,
+    	            time_siz, time_title
+                    );
+    nm$write_rpt_fao(
+    		    dashes, addr_pos,
+        	    addr_siz, .addr_title[dsc$w_length],
+    		    sts_siz, .sts_title[dsc$w_length], 
+		    time_siz, .time_title[dsc$w_length]
+		    );
+
+    !
+    ! Loop for every address..
+    !
+    while begin
+    	  nm$read_ctl();
+          not (.buflen eql 1 and .buffer[byte0] eql 0)
+          end
+    do
+	begin
+        bind stsinx = addr_status_indx;
+
+	!
+	! Give details if this message is selected by state
+        !
+	if .selekt[stsinx]
+	then
+	    begin
+	    shown = .shown + 1;
+
+	    !
+	    ! Format and write the status line. Observe that addresses longer
+	    ! than the availble field width won't be truncated, but instead
+	    ! will just displace the following fields.
+	    !
+	    nm$write_rpt_fao(
+			    addr_proto,
+			    mark_siz, 
+			    (if .buffer[addr$v_pass] then arrow else blank),
+			    max(addr_siz, .buflen-addr$s_hdr),
+			    .buflen-addr$s_hdr, buffer[addr$t_text],
+			    sts_siz, 
+			    .addr_status[stsinx],
+			    (if $zeroq(buffer[addr$q_time]) then 0 else time_siz), 
+			    buffer[addr$q_time]
+			    );
+
+	    !
+	    ! If there are error messages, then display them too
+	    !
+	    if .buffer[addr$w_rfa0] neq 0 or 
+	       .buffer[addr$w_rfa2] neq 0 or
+	       .buffer[addr$w_rfa4] neq 0
+	    then
+		nm$show_error();
+
+	    !
+	    ! End of display-code
+	    !
+	    end;
+
+	!
+	! Count what we've seen, and loop for next
+	!
+	total_addr = .total_addr + 1;
+	counts[stsinx] = .counts[stsinx] + 1;
+	end;
+
+    !
+    ! If no addresses were selected, say so
+    !
+    if .shown eql 0 then nm$write_rpt_fao(noshows, addr_pos, noselect);
+
+    !
+    ! Blank line to finish with
+    !
+    nm$write_rpt_fao(blank);
+
+    end;
+
+%sbttl 'show medium-level details for address list'
+routine nm$show_addr_mid (selekt : bitvector) : novalue =
+
+!++
+! Functional description:
+!
+! Shows some details for all entries in the address list.
+! This includes:
+!	. the address
+!	. status (sent/unsent/failed)
+!
+! Formal parameters:
+!
+! selekt.rl.v = bitvector; if Nth bit is set we display
+!	        details of addresses for which stsinx=N
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    bind
+	titles     = %ascid'!#* !#AS  !+!AS',
+	dashes     = %ascid'!#* !#<!#*-!>  !+!#*-',
+    	addr_proto = %ascid'!#* !#AD  !+!AS',
+	noshows    = %ascid'!#* (!AS)';
+    local
+	shown : initial(0);
+ 
+    !
+    ! Write a header, and then underline it (pretty nifty trick, eh?)
+    !
+    nm$write_rpt_fao(blank);
+    nm$write_rpt_fao(
+    		    titles, addr_pos,
+    		    addr_siz, addr_title,
+    		    sts_siz, sts_title
+                    );
+    nm$write_rpt_fao(
+    		    dashes, addr_pos,
+        	    addr_siz, .addr_title[dsc$w_length],
+    		    sts_siz, .sts_title[dsc$w_length]
+		    );
+
+    !
+    ! Loop for every address..
+    !
+    while begin
+    	  nm$read_ctl();
+          not (.buflen eql 1 and .buffer[byte0] eql 0)
+          end
+    do
+	begin
+        bind stsinx = addr_status_indx;
+
+	!
+	! Display details if this address is selected
+        !
+	if .selekt[stsinx]
+	then
+	    begin
+	    shown = .shown + 1;
+
+	    !
+	    ! Format and write the status line. Observe that addresses longer
+	    ! than the availble field width won't be truncated, but instead
+	    ! will just displace the following fields.
+	    !
+	    nm$write_rpt_fao(
+			    addr_proto, addr_pos,
+			    max(addr_siz, .buflen-addr$s_hdr),
+			    .buflen-addr$s_hdr, buffer[addr$t_text],
+			    sts_siz,
+			    .addr_status[stsinx]
+			    );
+
+	    end;
+
+	!
+	! Count what we've seen, and loop for next
+	!
+	total_addr = .total_addr + 1;
+	counts[stsinx] = .counts[stsinx] + 1;
+	end;
+
+    !
+    ! If no addresses were selected, say so
+    !
+    if .shown eql 0 then nm$write_rpt_fao(noshows, addr_pos, noselect);
+
+    !
+    ! Blank line to finish with
+    !
+    nm$write_rpt_fao(blank);
+
+    end;
+
+%sbttl 'show brief details for address list'
+routine nm$show_addr_brief (selekt : bitvector) : novalue =
+
+!++
+! Functional description:
+!
+! Shows brief details for all entries in the address list.
+! (At present, this is absolutely nothing. This routine
+!  merely computes totals).
+!
+! Formal parameters:
+!
+! selekt.rl.v = bitvector; if Nth bit is set we display
+!	        details of addresses for which stsinx=N
+!	        (not used)
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Loop for every address..
+    !
+    while begin
+    	  nm$read_ctl();
+          not (.buflen eql 1 and .buffer[byte0] eql 0)
+          end
+    do
+	begin
+        bind stsinx = addr_status_indx;
+	total_addr = .total_addr + 1;
+	counts[stsinx] = .counts[stsinx] + 1;
+	end;
+
+    end;
+
+%sbttl 'display last error message for address'
+routine nm$show_error : novalue =
+
+!++
+! Functional description:
+! 
+! Displays the error message for the current address
+!
+! Formal parameters:
+! 
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+                              
+    bind
+	tabas = %ascid'!_!AS',
+	tabad = %ascid'!_!AD';
+
+    local 
+	status,
+	count    : initial(0),
+	save_rfa : vector[3,word];
+
+    !
+    ! Save pointer to current record and read first
+    ! record of error text (which isn't worth printing)
+    !
+    nm$get_rfa(save_rfa);
+    nm$point_rfa(buffer[addr$w_rfa0]);
+    status = nm$read_ctl(true);
+
+    !
+    ! Loop copying the error message to the terminal. The loop terminates
+    ! either on a read error (not usual) or the end-of-text marker (usual
+    ! case).
+    !
+    while .status do
+	begin
+	status = nm$read_ctl(true);
+	if .buflen eql 1 and .buffer[byte0] eql 0 
+	then 
+	    exitloop;
+	if .status 
+        then
+	    begin
+	    nm$write_rpt_fao(tabad, .buflen, buffer);
+	    count = .count + 1;
+	    end;
+	end;
+
+    !
+    ! If the loop terminated by reading a single null, then
+    ! ensure some text got displayed: explain situation if not 
+    !
+    if .status
+    then
+    	begin
+	if .count eql 0
+	then
+	    nm$write_rpt_fao(tabas, nulerrmsg);
+	end
+
+    !
+    ! Otherwise, we encountered premature EOF
+    !
+    else
+	nm$write_rpt_fao(tabas, eoferrmsg);
+
+    !
+    ! Restore address record
+    !
+    nm$read_by_rfa(save_rfa);
+
+    end;
+
+%sbttl 'write message to report file'
+routine nm$wrtmsg : novalue =
+
+!++
+! Functional description:
+!
+! Builds a message vector and calls a routine to
+! write the messages to the report file.
+!
+! Caution: this routine deviates from the VMS calling
+! standard by modifying its argument list.  The argument
+! list must be in R/W storage.
+!
+! Formal parameters:
+!
+! (argument list must be in format of a message vector)
+!
+! Routine values:
+!
+! none
+!
+!--
+
+    begin
+
+    builtin
+	argptr;
+
+    !
+    ! Select text only 
+    !
+    argptr() = .argptr() or put_txt;
+	
+    !
+    ! Expand and write messages
+    !
+    nm$write_rpt_vec(argptr());
+
+    end;
+
+%sbttl 'condition handler'
+routine nm$chand (sig : ref block[,byte], mech : ref block[,byte]) =
+
+!++
+! Functional description:
+!
+! Condition handler. Fields per-queue-entry errors, puts the appropriate
+! error message in the listing file, and unwinds the stack to the caller
+! of the establisher. All in all, pretty standard stuff.
+!
+! Formal parameters:
+!
+! sig.mr.r = signal array
+! mech.mr.r = mechanism array
+!
+! Routine value/condition codes:
+!
+! status.wlc.v = ss$_resignal (always, but ignored if signal was an NM$_xxx
+!	 	 error because we'll have unwound the stack)
+!
+!--
+
+    begin
+
+    !
+    ! Routine to write one line to the listing file
+    !
+    routine put1line(str) =
+	begin
+	nm$write_rpt_fao(.str);
+	false
+	end;
+
+    bind 
+	args = sig[chf$l_sig_args] : byte,
+	cond = sig[chf$l_sig_name] : block[,byte];
+
+    !
+    ! If this is a rundown call, ensure control file 
+    ! gets closed
+    !
+    if .cond eql ss$_unwind
+    then
+	nm$rundown_ctl();
+
+    !
+    ! For Nmail errors only, write error message into the listing
+    ! file, and then unwind the stack
+    !
+    if .cond[sts$v_fac_no] eql nmail$_facility
+    then
+	begin
+	args = .args - 2;
+	$putmsg(msgvec=.sig, actrtn=put1line);
+        args = .args + 2;
+	nm$write_rpt_fao(blank);
+        $setstatus(mech, .cond);
+	setunwind();
+	end;
+
+    !
+    ! Always say resignal, which is ignored if we're unwinding
+    !
+    ss$_resignal
+
+    end;
+
+end
+eludom

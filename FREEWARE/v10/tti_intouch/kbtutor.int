@@ -1,0 +1,1121 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program: KBTUTOR
+        ! System : Office utilities
+        ! Author : Original unknown, this version -- Daniel Esbensen
+        ! Date   : 26-NOV-1992
+        ! Purpose: Help develop keyboard skills
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+900     randomize
+        max_lines = 2000
+        dim lin$(max_lines)
+
+        max_lessons = 100
+        dim lesson$(max_lessons)
+        dim ltitle$(max_lessons)
+        dim lstatus(max_lessons)
+
+        ask system, logical 'kbtutor_file': value kbtutor_file$
+        if kbtutor_file$ = '' then kbtutor_file$ = "tti_run:kbtutor.dat"
+
+        unshift$ = "1234567890-=qwertyuiop[]asdfghjkl;'\<zxcvbnm,./"
+        shift$   = '!@#$%^&*()_+QWERTYUIOP{}ASDFGHJKL:"|>ZXCVBNM<>?'
+
+        max_rows = 4
+        dim unshift_row$(max_rows)
+        dim shift_row$(max_rows)
+        unshift_row$(1) = '1234567890-='
+        unshift_row$(2) = 'qwertyuiop[]'
+        unshift_row$(3) = "asdfghjkl;'\"
+        unshift_row$(4) = '<zxcvbnm,./'
+        shift_row$(1)   = '!@#$%^&*()_+'
+        shift_row$(2)   = 'QWERTYUIOP{}'
+        shift_row$(3)   = 'ASDFGHJKL:"|'
+        shift_row$(4)   = '>ZXCVBNM<>?'
+
+        lhand$          = '12345!@#$%qwertasdfg<>zxcvb'
+        rhand$          = '67890-=^&*()_+yuiop[]{}hjkl;''\:"|nm,./?'
+
+        max_drill = 3
+        dim error_txt$(max_drill)
+        error_txt$(1) = 'You had some difficulty, please try again.'
+        error_txt$(2) = 'Still a few mistakes, try once more.'
+        error_txt$(max_drill) = &
+          'You are still having difficulty, but lets move on.'
+
+        max_good = 10
+        dim good$(max_good)
+        good$(1) = "Good work"
+        good$(2) = "Excellent"
+        good$(3) = "Terrific"
+        good$(4) = "Very good"
+        good$(5) = "Very nice"
+        good$(6) = "Well done"
+        good$(7) = "Excellent job"
+        good$(8) = "Great job"
+        good$(9) = "Great work"
+        good$(10)= "Really good job"
+
+        chfreq_thresh = 2
+        dim chtime(0 to 255)
+        dim chfreq(0 to 255)
+
+        status_complete   = 1
+        status_incomplete = 2
+        status_names$ = 'done, incomplete'
+
+        punct_chars$ = ".?:!"
+        last_space$ = chr$(128)
+        eol$        = chr$(129)
+
+1000    ! start and format screen
+        ! open and read exercise file
+        ! print header
+        ! inquire for lesson to run
+        clear
+        set messageline 24
+        read_datafile
+        build_menu
+        best_speed = 0
+        lchosen$ = ''
+        last_lesson$ = ''
+
+1210    do
+          z0$=space$(80)
+          cset z0$ = 'Keyboarding Skills Tutor Program'
+          print at 1,1, reverse: z0$
+          reset_chtimes
+          if last_lesson$ > '' then message 'Last lesson:  '; last_lesson$
+          show_lstatus
+          line input menu menu$: lsn$
+          if _exit or _back then exit do
+          if lsn$ = '' then repeat do
+          load_data
+          process_lesson
+          if _exit then 
+            lstatus(linx) = status_incomplete
+          else
+            lstatus(linx) = status_complete
+          end if
+        loop
+
+
+9999    print at 24,1:;
+        stop
+
+
+
+11000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   L E S S O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Process a user chosen lesson.
+        !
+        ! Expected:
+        !
+        ! Results:
+        !  The lesson is processed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_lesson
+          oldtyp = 4
+          pagestart = 1
+          for lesline = 1 to totline 
+            t$ = lin$(lesline)
+            if left(t$,1) = "*" then exit for
+            com = pos(t$,"\")
+            if com = 0 then iterate for
+            process_command
+            if _exit then exit for
+            pagestart = lesline + 1
+          next lesline
+          clear area 1,1, 23, 80
+        end routine
+
+
+11100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Process a text command (like \T, \B, ...)
+        !
+        ! Expected:
+        !  t$  = text line to be processed
+        !  com = location of the '\" command prefix
+        !  lesline = lession line we are on
+        !  lin$()  = lesson line data
+        !
+        ! Results:
+        !  The command is processed
+        !  _exit = true  if the user wants to exit early
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_command
+          com$ = mid(t$,com+1,1)
+          lin$(lesline) = left(lin$(lesline),com-1)
+          t$ = lin$(lesline)
+          pageend = lesline
+          typ = oldtyp 
+          if com$ <> "" then typ = pos("BPITD",ucase$(com$)) 
+          oldtyp = typ
+          on typ gosub type_b,type_p,type_i,type_t,type_d
+        end routine
+
+
+
+
+12000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T Y P E   D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Typing drill.  Displays a line of text and has the user retype
+        !  the line until correct. (A maximum of MAX_DRILL times.)
+        !
+        ! Expected:
+        !   max_drill = maximum number of times to drill on the same text.
+        !   lin$()  = lesson lines
+        !   lesline = current lesson line
+        !
+        ! Results:
+        !  _exit  if the user wants to exit early
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine type_d
+          t$ = lin$(lesline)
+          append_worst
+          for count = 1 to 3
+            reset_counters
+            print_line = 10
+            print at print_line,1:;
+            print_text
+            set window: column 1
+            process_a_line
+            if _exit then exit routine
+            if continue? then exit for
+            if errors = 0 then 
+              show_summary
+              exit for
+            end if
+            show_summary
+            message error: error_txt$(count) 
+          next count
+          print at print_line, 1, erase:;
+        end routine
+
+
+12050   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A P P E N D   W O R S T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Append to the text line the worst characters...insert the
+        !   characters where spaces are.
+        !
+        ! Expected:
+        !   t$ = original text line
+        !
+        ! Results:
+        !   t$ = the adjusted text line
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine append_worst
+         get_worst_chars
+         for z5 = 1 to len(worst_chars$)
+           z0 = elements(t$, ' ')
+           z$ = piece$(t$, rnd(z0), ' ')
+           z9 = _integer
+           z$ = repeat$(worst_chars$[z5:z5], rnd(2)+1)
+           t$[z9:z9]= z$ + ' ' + t$[z9:z9]
+         next z5
+         t$ = left(t$, 78)
+        end routine
+
+
+
+
+
+12100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T Y P E   P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Type out a paragraph of test and time its entry.
+        !
+        ! Expected:
+        !   pagestart = starting line of the lesson
+        !   pageend   = ending line of the lesson
+        !   lin$()    = lines of text for this lesson
+        ! Results:
+        !   _exit = true  if the user wants to exit early
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine type_p
+          reset_counters
+          for z0 = pagestart to pageend  ! trim leading blank lines
+            if lin$(z0) <> '' then exit for
+          next z0
+          pagestart = z0          
+          for test = pagestart to pageend 
+            t$ = lin$(test)
+            print at test+5-pagestart,1:;
+            print_text
+          next test
+
+          for test = pagestart to pageend
+            t$ = lin$(test)
+            print_line = test+5-pagestart
+            print at print_line, 1:;
+            process_a_line
+            if _exit or continue? then exit for
+          next test
+          if totalchars > 0 then 
+            show_summary
+            delay
+          end if
+          clear area 1,1, 23, 80
+        end routine
+
+
+12200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T Y P E   T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Type out text for a lesson  (\t)
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine type_t
+          clear area 1,1, 23, 80
+          for test = pagestart to pageend
+            t$ = lin$(test) 
+            if pos(t$,"\T") > 0 then
+              print at 1+test-pagestart+3, 1:;
+              print_text
+              exit routine
+            end if
+            print at 1+test-pagestart, 1:;
+            print_text
+          next test
+          delay
+          clear area 1,1, 23, 80
+        end routine
+
+
+
+12300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T Y P E   I
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   clear text area (not messageline) and print instruction 
+        !   line  \I
+        !
+        ! Expected:
+        !  t$  = instruction to be printed
+        !
+        ! Results:
+        !  none.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine type_i
+          clear area 1,1, 20, 80
+          print_line = 3
+          print at print_line,1, bold, reverse: t$;
+        end routine
+
+
+13000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T Y P E   B
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Clear screen and print a "beginning" line (a title) \B
+        !
+        ! Expected:
+        !   t$ = beginning line to be typed
+        !
+        ! Results:
+        !   _exit = true  if the user wants to exit early
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine type_b
+          z0$ = trim$(t$)
+          if z0$ = '' then  exit routine
+          print_line = 12
+          clear area 1,1, 23, 80
+          z0  = (80-len(z0$))/2
+          print at print_line,z0, bold, reverse: t$;
+          delay
+        end routine
+
+
+
+14000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   A   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Verify, keystroke-by-keystroke, the retyping of a text line
+        !
+        ! Expected:
+        !  t$  = the text line
+        !  totalchars = total characters processed so far
+        !
+        ! Results:
+        !   A keystroke is asked for and check against the text line.
+        !   totalchars is updated
+        !   _exit = true  if they want to exit early
+        !   continue? = true if they want to skip this item and continue
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_a_line
+          continue? = false
+          if pos(punct_chars$, right(t$,1)) > 0 then t$ = t$ + last_space$
+          t$ = t$ + eol$
+          for testc = 1 to len(t$)
+            exp_char$ = mid(t$, testc, 1)
+            chstart   = time(5)
+            do
+              get_keystroke
+              if _exit or continue? then exit routine
+              check_char
+              if _error then repeat do
+            end do
+            ch_elapsed = time(5) - chstart
+            if testc = 1 then
+              clear area 21,1, 22, 80
+            else
+              time_keystroke
+            end if
+            set window: column testc+1
+            totalchars = totalchars + 1
+            if _terminator = 'RETURN' and ascii(exp_char$) >= 128 then exit for
+          next testc
+        end routine
+
+
+
+
+
+22500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E A D   D A T A F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !   kbtutor_file$  = name of the kbtutor data file
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   lesson$()   = CURRENT locations for each lesson
+        !   lessons     = number of lessons
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine read_datafile
+          message 'Reading in lessons...'
+          dat_ch = _channel
+          when exception in
+            open #dat_ch: name kbtutor_file$
+          use
+            message error: extext$;'  for  '; kbtutor_file$
+            stop
+          end when
+          do
+            line input #dat_ch, eof eof?: rawdata$
+            if eof? then exit do
+            if _reply[1:1] = '!' then repeat do
+            if len(rawdata$) < 3 then repeat do
+            if rawdata$[1:1]      <> '*' then repeat do
+            if right(rawdata$, 1) <> '*' then repeat do
+            lessons = lessons + 1
+            ask #dat_ch: current lesson$(lessons)
+          loop
+          message ''
+        end routine
+
+
+23000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B U I L D   M E N U
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !  ltitle$() = lesson titles
+        !  menu$     = user selection menu
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine build_menu
+          speed_menu$  = ''
+          touch_menu$  = ''
+          keypad_menu$ = ''
+          for linx = 1 to lessons
+            set #dat_ch: current lesson$(linx)
+            line input #dat_ch: lsn$
+            lsn$ = change$(lsn$, '*', '')
+            line input #dat_ch: title$
+            title$ = trim$(title$)
+            z0 = pos(title$, '\')
+            if z0 > 0 then title$ = left(title$, z0-1)
+            z0$ = ',"' + title$+'"='+str$(linx)
+            select case lsn$[1:1]
+            case 'S'
+              speed_menu$ = speed_menu$   + z0$
+              ltitle$(linx) = "Speed  - " + title$
+            case 'T'
+              touch_menu$ = touch_menu$   + z0$
+              ltitle$(linx) = "Typing - " + title$
+            case 'N'
+              keypad_menu$ = keypad_menu$ + z0$
+              ltitle$(linx) = "Keypad - " + title$
+            end select
+          next linx
+          speed_menu$[1:1]  = ''
+          touch_menu$[1:1]  = ''
+          keypad_menu$[1:1] = ''
+          menu$ = '%at 3,1, %title "Choices",' &
+                + '"Typing drills"={'  + touch_menu$ + '},' &
+                + '"Speed drills"={'  + speed_menu$ + '},' &
+                + '"Keypad drills"={' + keypad_menu$+ '}'
+        end routine
+
+
+
+
+24000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   D A T A
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Load the data arrays for this lesson
+        !
+        ! Expected:
+        !   lsn$ = lesson index#
+        !   lesson$() = CURRENT locations for each lesson
+        !   dat_ch  = data channel
+        !
+        ! Results:
+        !   linx  = lesson index#
+        !   last_lesson$  = title of this lesson
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_data
+          linx = val(lsn$)
+          last_lesson$ = ltitle$(linx)
+          set #dat_ch: current lesson$(linx)
+          line input #dat_ch: z0$
+          for totline = 1 to max_lines &
+            line input #dat_ch:  z0$
+            if _reply[1:1] = '!' then repeat for
+            if left(z0$,1) = "*" then exit routine
+            z0$ = rtrim$(change$(z0$, chr$(9), ' '))
+            lin$(totline) = z0$
+          next totline
+          message error: 'End of lesson '; lsn$;' is missing'
+          stop
+        end routine
+
+
+
+24600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   C H A R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Check to see if the character (keystroke entered) is okay
+        !    ** exceeds 22 lines to show all test in one routine **
+        !
+        ! Expected:
+        !  exp_char$    = expected character
+        !  _terminator  = what the user entered
+        !  t$           = text line
+        !  testc        = current location in the text line
+        !  errors       = number of errors so far
+        !
+        ! Results:
+        !   errors is updated if an error.  _error is set to true
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_char
+          if exp_char$ = _terminator then  exit routine
+          if (exp_char$ = last_space$ or exp_char$ = eol$) and &
+             (_terminator = 'RETURN' or _terminator = ' ') then exit routine
+          if ascii(exp_char$) >= 128 then &
+            print at print_line, testc, underline,bold: exp_char$;
+          set window: column testc
+          errors = errors + 1
+
+          check_shift
+          if shift_error? then
+            message error: 'SHIFT key in wrong position?'
+            shift_errors = shift_errors + 1
+            exit routine
+          end if
+
+          check_row
+          if row_error? then
+            message error: 'Fingers on wrong row?'
+            row_errors = row_errors + 1
+            exit routine
+          end if
+
+          check_hand
+          if hand_error? then
+            message error: 'Using the wrong hand?'
+            hand_errors = hand_errors + 1
+            exit routine
+          end if
+
+          check_slip
+          if slip_error? then
+            message error: 'Fingers slipped?'
+            slip_errors = slip_errors + 1
+            exit routine
+          end if
+
+          if _terminator = mid(t$, testc+1,1) then
+            skip_errors = skip_errors + 1
+            message error: 'Skipping characters?'
+            exit routine
+          end if
+
+          other_errors = other_errors + 1
+          if exp_char$ = ' ' then
+            message error: 'SPACE BAR?'
+            exit routine
+          end if
+          message error: ''
+        end routine
+
+
+24700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   S H I F T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Check to see if the shift key was used improperly.
+        !
+        ! Expected:
+        !  shift$, unshift$  = shifted and unshifted characters
+        !  exp_char$ = character we excepted
+        !  _terminator = what the user entered
+        !
+        ! Results:
+        !  shift_error? = true  if a shift error was found
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_shift
+          shift_error? = false
+          z0 = pos(shift$, exp_char$)
+          if z0 > 0 then
+            if _terminator = unshift$[z0:z0] then shift_error? = true
+          end if
+          z0 = pos(unshift$, exp_char$)
+          if z0 > 0 then
+            if _terminator = shift$[z0:z0]   then shift_error? = true
+          end if
+        end routine
+
+
+24800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   S L I P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Check for a finger-slip (hit one of the surrounding keys)
+        !
+        ! Expected:
+        !  shift$, unshift$  = shifted and unshifted keystrokes 
+        !                      (in keyboard order)
+        !
+        ! Results:
+        !   slip_error?  = true  if a finger slip error
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_slip
+          slip_error? = false
+          z0 = pos(shift$, exp_char$)
+          if z0 > 0 then
+            if _terminator = shift$[z0-1:z0-1] or &
+               _terminator = shift$[z0+1:z0+1] then slip_error? = true
+          end if
+          z0 = pos(unshift$, exp_char$)
+          if z0 > 0 then
+            if _terminator = unshift$[z0-1:z0-1] or &
+               _terminator = unshift$[z0+1:z0+1] then slip_error? = true
+          end if
+
+        end routine
+
+
+
+
+24850   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   H A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Check to see if they used the right finger, but on the wrong
+        !  hand  (a F instead of a J, or D instead of K)
+        !
+        ! Expected:
+        !  exp_char$   = character that was expected
+        !  _terminator = what they entered
+        !  lhand$      = left-hand characters
+        !  rhand$      = right-hand characters
+        !
+        ! Results:
+        !  hand_error? = true  if an hand error
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_hand
+          hand_error? = false
+          check_row
+          if exp_row <> term_row then exit routine  ! not just a hand problem
+          z0$ = lcase$(exp_char$)
+          z1$ = lcase$(_terminator)
+          if (pos(lhand$, z0$) > 0 and pos(rhand$, z1$) > 0) or &
+             (pos(lhand$, z1$) > 0 and pos(rhand$, z0$) > 0) then &
+            hand_error? = true
+        end routine
+
+
+
+24900   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   R O W
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Check to see if the fingers are on the wrong row.
+        !
+        ! Expected:
+        !   max_rows = maximum number of rows
+        !   shift_row$()    = shifted characters
+        !   unshift_row$()  = unshifted characters
+        !   exp_char$       = expected character
+        !   _terminator     = what the user entered
+        !
+        ! Results:
+        !  row_error?  = true  if an error
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_row
+          row_error? = false
+          char$ = exp_char$
+          get_char_row
+          exp_row = krow
+          exp_pos = kpos
+
+          char$ = _terminator
+          get_char_row
+          term_row= krow
+          term_pos= kpos
+          if abs(term_row-exp_row) = 1 and abs(term_pos-exp_pos) < 2 then
+            row_error? = true
+            exit routine
+          end if
+        end routine
+
+
+
+
+25000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   C H A R   R O W
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  See which keyboard row a given character is found on.
+        !
+        ! Expected:
+        !  char$ = character to be checked
+        !
+        ! Results:
+        !  krow  = row# of this character
+        !  kpos  = position on the row
+        !  shifted? = true  if char$ is a shifted character
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_char_row
+          z0 = pos(shift$, char$)
+          shifted? = false
+          if z0 > 0 then shifted? = true
+          select case true
+          case shifted?
+            for z0 = 1 to max_rows
+              kpos = pos(shift_row$(z0), char$) 
+              if kpos > 0 then exit for
+            next z0
+            krow = z0
+            if krow > max_rows then krow = 0
+          case else
+            for z0 = 1 to max_rows
+              kpos = pos(unshift_row$(z0), char$)
+              if kpos > 0 then exit for
+            next z0
+            krow = z0
+            if krow > max_rows then krow = 0
+          end select
+        end routine
+
+
+
+
+
+
+25100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   K E Y S T R O K E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Get a keystroke from the user
+        !
+        ! Expected:
+        !  first_ks? = true  if this is the first keystroke
+        !  chtime()  = cum time to press keys
+        !  chfreq()  = number of times each character was pressed
+        !
+        ! Results:
+        !   _exit = true  if they want to exit
+        !   continue? = true  if they want to skip out and then continue
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_keystroke
+          continue? = false
+          key input z0$
+          if _terminator = 'DO' then
+            do_special_ks
+            repeat routine
+          end if
+          if first_ks? then
+            if _terminator = 'RETURN' or _terminator = ' ' then repeat routine
+            first_ks? = false
+            starttime  = time(5)
+          end if
+          if _terminator = 'NEXT' then continue? = true
+        end routine
+
+
+26000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E S E T   C O U N T E R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Reset counters.
+        !
+        ! Expected:
+        !
+        ! Results:
+        !   totalchars, errors, first_ks?, ... are initialized
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine reset_counters
+          first_ks?    = true
+          starttime    = 0
+          totalchars   = 0
+          errors       = 0 
+          shift_errors = 0
+          skip_errors  = 0
+          slip_errors  = 0
+          row_errors   = 0
+          hand_errors  = 0
+          other_errors = 0
+        end routine
+
+
+
+
+27000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   T E X T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Print out a text line.  The line can include special
+        !   formatting instructions enclosed in {}.  By default,
+        !   the {} will cause the text to be BOLD,REVERSED to highlight.
+        !
+        ! Expected:
+        !   t$  = text to be printed
+        !
+        ! Results:
+        !   The formatted text is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_text
+          z5$ = change$(t$, last_space$+eol$)  ! no "special" characters
+          do
+            z0 = pos(z5$, '{')
+            if z0 = 0 then exit do
+            z1 = pos(z5$, '}', z0+1)
+            if z1 = 0 then exit do
+            print left(z5$, z0-1);
+            print bold, reverse: z5$[z0+1:z1-1];
+            z5$[1:z1] = ''
+          loop            
+          print erase: z5$;
+        end routine
+
+
+
+
+43000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   S U M M A R Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Show time and error summary information,
+        !
+        ! Expected:
+        !   *_errors  = the various error counters
+        !   good$() = good job messages
+        !   max_good = number of "good job" messages
+        !
+        ! Results:
+        !   best_speed = best speed so far
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_summary
+          speed     = 0
+          error_pct = 0
+          testtime_sec  = (time(5) - starttime)
+          testtime      = testtime_sec/60
+          words = round(totalchars/5)
+          if testtime   > 0 then speed     = round(words/testtime, 1)
+          if totalchars > 0 then error_pct = round(100*errors/totalchars,2)
+          if words > 5 then best_speed = max(best_speed, speed)
+
+          print at 21, 1, bold, reverse: "Speed: ";str$(speed); &
+              " wpm (";str$(round(testtime_sec,1));" secs), ";
+          print bold, reverse: "Words: ";str$(words);", ";
+          print bold, reverse: "Errors:"; errors; &
+              "("; str$(error_pct); "%)  ";
+          if best_speed > 0 then &
+              print bold, reverse: "Best: ";str$(best_speed);' wpm';
+          print bold, reverse: tab(80);
+          if errors > 0 then 
+            show_errors
+          else
+            message delay: "** "; good$(rnd(max_good)); " **"
+          end if
+        end routine
+
+
+44000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   E R R O R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Show the error analysis
+        !
+        ! Expected:
+        !   *_errors = the various error catagories.
+        !
+        ! Results:
+        !  none.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_errors
+          print at 22,1, bold, reverse: 'Error analysis--> ';
+          print bold, reverse: ' Shift:';   shift_errors;
+          print bold, reverse: ' Slip:';    slip_errors;
+          print bold, reverse: ' Row:';     row_errors;
+          print bold, reverse: ' Hand:';    hand_errors;
+          print bold, reverse: ' Skip:';    skip_errors;
+          print bold, reverse: ' Other:';   other_errors;
+          print bold, reverse: tab(80);
+        end routine
+
+
+44500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   S P E C I A L   K S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Do special commands and keystroke processing.
+        !  We will save the screen, do various things, and then
+        !  put the screen back again.
+        !
+        ! Expected:
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_special_ks
+          ask window: current the_screen$
+          show_chtimes
+          delay
+          set window: current the_screen$
+        end routine
+
+
+
+
+
+
+
+45000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   C H T I M E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Show character pressing times (top five and bottom five)
+        !
+        ! Expected:
+        !  chtime()  = cum time to press keys
+        !  chfreq()  = number of times each character was pressed
+        !  chfreq_thresh = character significants threshhold
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_chtimes
+          clear area 10,1, 20, 80
+          print at 10,1:            '**Fastest**';
+          print at 10,15:           '*Need Work*';
+          print at 11,1, underline: 'Char  Speed';
+          print at 11,15,underline: 'Char  Speed';
+
+          sort_chars
+          for z5 = 1 to min(5, min(tchars/2, tchars))
+            z0$ = piece$(schars$, z5, chr$(0))
+            ch_elapsed = val(z0$[1:3])/100
+            ch$        = z0$[4:4]
+            print at 11+z5,1, using '@@@@  ##.##': ch$, ch_elapsed
+          next z5
+
+          for z5 = 1 to min(5, min(tchars/2, tchars))
+            z0$ = piece$(schars$, tchars+1-z5, chr$(0))
+            ch_elapsed = val(z0$[1:3])/100
+            ch$        = z0$[4:4]
+            print at 11+z5,15, using '@@@@  ##.##': ch$, ch_elapsed
+          next z5
+        end routine
+
+
+45100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   W O R S T   C H A R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Get the slowest accessed characters.
+        !
+        ! Expected:
+        !   chtime()  = character cum times
+        !   chfreq()  = character frequencies
+        !
+        ! Results:
+        !   worst_chars$ = slowest accessed characters (worst)
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_worst_chars
+          sort_chars
+          worst_chars$ = ''
+          for z5 = 1 to min(5, min(tchars/2, tchars))
+            z0$ = piece$(schars$, tchars+1-z5, chr$(0))
+            ch$        = z0$[4:4]
+            worst_chars$ = worst_chars$ + ch$
+          next z5
+        end routine
+
+
+
+
+45200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S O R T   C H A R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !   chtime()  = character cum times
+        !   chfreq()  = character frequencies
+        !   
+        ! Locals:
+        !
+        ! Results:
+        !  schars$  = sorted characters
+        !  tchars   = number of sorted characters
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine sort_chars
+          schars$ = ''
+          for z5 = 33 to 127
+            if chfreq(z5) < chfreq_thresh then iterate for
+            z9 = round((chtime(z5)/chfreq(z5))*100)
+            schars$ = schars$ + chr$(0) + encode$(z9, 10, 3) + chr$(z5)
+          next z5
+          schars$[1:1] = ''
+          schars$ = sort$(schars$, chr$(0))
+          tchars = pieces(schars$, chr$(0))
+        end routine
+
+
+45300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E S E T   C H T I M E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Reset character seeking times.
+        !
+        ! Expected:
+        !   chtime()  = character cum times
+        !   chfreq()  = character frequencies
+        !
+        ! Results:
+        !   chtime() and chfreq() are reset
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine reset_chtimes
+          for z0 = 0 to 255
+            chtime(z0) = 0
+            chfreq(z0) = 0
+          next z0
+        end routine
+
+
+
+
+
+46000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T I M E   K E Y S T R O K E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Update time counters for a given character
+        !
+        ! Expected:
+        !  exp_char$  = character that was just entered
+        !  ch_elapsed = how long it took to enter the character
+        !
+        ! Results:
+        !  chtime() and chfreq() are updated
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine time_keystroke
+          if (ch_elapsed < 3) and (len(exp_char$) = 1) then
+            z5 = ascii(exp_char$)
+            chtime(z5) = chtime(z5) + ch_elapsed
+            chfreq(z5) = chfreq(z5) + 1
+          end if
+        end routine
+
+
+47000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   L S T A T U S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Show lesson status information.
+        !
+        ! Expected:
+        !  lessons = number of lessons
+        !  lstatus() = status of each lesson
+        !  status_names$ = name of each status
+        !  ltitle$() = title of each lesson
+        !  best_speed = best typing speed so far
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_lstatus
+          print at 9,1:;
+          for linx = 1 to lessons
+            if lstatus(linx) = 0 then iterate for
+            print rpad$(ltitle$(linx), 45, '.'); 
+            print element$(status_names$, lstatus(linx))
+          next linx
+          if best_speed > 0 then
+            print at 22,1, erase, reverse: &
+                'Best speed so far: '; best_speed; 'wpm'; tab(80);
+          end if
+        end routine
+

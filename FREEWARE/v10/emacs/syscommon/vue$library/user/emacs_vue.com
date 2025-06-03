@@ -1,0 +1,39 @@
+$! Generated automatically from EMACS_VUE.COM_IN by configure.
+$!
+$!  Command procedure to run Emacs from
+$!  the User Executive in DECwindows
+$!
+$ vue$suppress_output_popup
+$!
+$! See if we should skip the dialog box
+$!
+$    vue$get_symbol vue$show_hidden_dialogs
+$    vue$read show_hidden_dialogs
+$
+$    if show_hidden_dialogs then goto select_qualifiers
+$	vue$get_qualifiers
+$	goto do_emacs
+$
+$select_qualifiers:
+$	vue$popup_qualifiers
+$
+$do_emacs:
+$
+$ vue$read vue$command
+$
+$ if "''vue$command'" .eqs. "DETACHED_APPLY" then goto select_qualifiers
+$
+$ 'vue$command
+$
+$ vue$get_next_selection
+$ vue$read selection
+$ startupdir := EMACS_LIBRARY:[SYSCOMMON.SYS$STARTUP]
+$ startup_command := @'startupdir'gnu_startup_common emacs-19.22 nologicals
+$ if f$search(startupdir + "EMACS_STARTUP.COM") .eqs. "" then -
+$	startup_command := @'startupdir'emacs_startup nologicals
+$ 'startup_command'
+$ runemacs 'selection'
+$
+$ vue$check_verb_loop
+$ vue$read loop
+$ if "''loop'" .eqs. "TRUE" then goto select_qualifiers

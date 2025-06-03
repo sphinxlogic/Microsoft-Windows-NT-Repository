@@ -1,0 +1,235 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+    5-Apr-1986	|  pc	| Adding LIST parameter stuff.
+________________!_______!______________________________________________________
+    13-Mar-1987	|  jw	| T3.1-0 Enhancements to allow for OPTIONAL LIST
+		|	|	 ("0 or more"), changing the meaning of LIST
+		|	|	 (without OPTIONAL specified) to "1 or more".
+________________!_______!______________________________________________________
+    24-Mar-1987	|  jw	| T3.1-1 Enhancements for RTL_STR_DESC attribute.
+________________!_______!______________________________________________________
+    13-May-1987	|  jw	| X3.1-2 Added check for sdl$k_unknown_length
+		|	|	 (LENGTH *) for CHARACTER parameters; added
+		|	|	 %include of sdl$library:sdlshr.in; deleted
+		|	|	 entry declarations already made in sdlshr.in
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* DO_PARAM processes parameter nodes				*/
+/*								*/
+/****************************************************************/
+
+do_param: proc(cur_node,level);
+
+					    /********************/
+					    /*			*/
+					    /* DO_PARAM		*/
+					    /*			*/
+					    /********************/
+%include 'sdl$library:sdlshr.in';
+%include 'sdl$library:sdlnodef.in';
+%include 'sdl$library:sdltypdef.in';
+
+/* declare variables */
+declare
+    cur_node pointer,			    /* pointer to the current node  */
+    temp_node pointer,			    /* utility pointer		    */
+    trailing_optional bit,		    /* temporary flag		    */
+    level fixed binary(31),		    /* level in the aggregate	    */
+    i fixed binary(15),			    /* counter			    */
+    tab char(15) var initial(''),	    /* indentation		    */
+    typ_buf char(30) var initial(''),	    /* parameter type		    */
+    str_len char(15) var initial(''),	    /* length of the string, if any */
+    pass_mech char(15) var initial(''),	    /* passing mechanism	    */
+    dim char(10) var initial(''),	    /* dimension		    */
+    comma char(8) var initial(''),	    /* comma for parameter list	    */
+    optionl char(10) var initial(''),	    /* buffer for the OPTIONAL keyword */
+    buf char(1024) var initial(''),	    /* output buffer		    */
+    parm_list char(512) var initial(''),    /* for LIST parameters	    */
+    parm_cnt fixed binary(15) static initial(0),/* Number of parameters done so far */
+    counter fixed binary(31) static initial(0),/* counter appended to generated name */
+    OPTIONAL_has_appeared bit(1) static initial('0'b);/* flag indicating the OPTIONAL keyword has already apperared in the parameter list */
+
+
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+DCL ADD_COMMENTS ENTRY (
+	pointer,
+	character(1024) VARYING );
+
+DCL GET_TYPE ENTRY (
+	pointer,
+	char(*) var );
+
+DCL TABS ENTRY (
+	pointer,
+	fixed binary(31),
+	bit(1) ) returns(char(132) var) ;
+
+%replace MAX_PARMS by 255;
+
+
+
+    tab = '               ';
+    parm_cnt = parm_cnt + 1;
+
+/*
+ * If the parameter is a character varying, generate the
+ * name of the record that was put out for this parameter
+ * and use it as the datatype. The name looks like "char_varying_n"
+ * where n is a counter. In order for us to generate the
+ * correct name the variable "counter" must be in sync with 
+ * the variable "counter" in the routine PUT_CHAR_VAR_RECS.
+ * 
+ * otherwise get the datatype from the function GET_TYPE.
+ *
+ */
+    if( cur_node->nod$v_varying )
+    then do;
+	counter = counter + 1;
+	typ_buf = 'char_varying_' || trim(counter);
+    end;
+    else
+        call get_type(cur_node,typ_buf);
+
+    if( cur_node->nod$v_dimen )
+    then
+	dim = 'DIM()';
+
+    if( cur_node->nod$w_datatype = typ$k_char ) & (cur_node->nod$l_typeinfo ^= sdl$k_unknown_length)
+    then
+	str_len = ' = ' || trim(cur_node->nod$l_typeinfo);
+
+
+/*
+ * get the passing mechanism, if any
+ *
+ */
+
+    if( cur_node->nod$v_ref )
+    then
+	pass_mech = 'BY REF';
+    else
+    if( cur_node->nod$v_value )
+    then
+	pass_mech = 'BY VALUE';
+    else
+    if( cur_node->nod$v_desc | cur_node->nod$v_rtl_str_desc )
+    then
+	pass_mech = 'BY DESC';
+    else
+    if( cur_node->nod$v_varying )
+    then
+	pass_mech = 'BY REF';
+
+
+/* 
+ * If the parameter is optional or a LIST parameter and the OPTIONAL keyword
+ * has not already appeared, fill the buffer and set the flag
+ *
+ */
+    if cur_node->nod$v_optional & ^OPTIONAL_has_appeared then
+	do;
+       /*
+	* BASIC's OPTIONAL attribute can only be used on a trailing
+	* OPTIONAL parameter, so make sure all following parameters
+	* are optionals.
+	*/
+	trailing_optional = '1'b;
+	temp_node = cur_node->nod$a_flink;
+	do while (trailing_optional &: (temp_node->nod$b_type ^= nod$k_headnode));
+	    if ^temp_node->nod$v_optional then
+		trailing_optional = '0'b;
+	    temp_node = temp_node->nod$a_flink;
+	    end;
+	if trailing_optional then do;
+	    optionl = 'OPTIONAL';
+	    OPTIONAL_has_appeared = '1'b;
+	    end;
+	else
+	    optionl = '';
+        end;
+    else
+	optionl = '';
+
+
+/*
+ * Check for a LIST parameter (remember LIST can only be used on the last
+ * parameter). If it is, allow for the maximum number of parameters to be 
+ * passed. We can just use commas because Basic propagates the last specified 
+ * type.
+ */
+    if cur_node->nod$v_list & (^cur_node->nod$v_optional) then
+	do
+	parm_list = parm_list || ', OPTIONAL';
+	parm_cnt = parm_cnt + 1;
+	end;
+
+    if cur_node->nod$v_list then
+	do i = parm_cnt to MAX_PARMS - 1 ;
+	parm_list = parm_list || ',';
+	end;
+
+/*
+ * if this is the last node in the parameter list then don't
+ * put out the comma, reset the flag and reset the parameter count.
+ *
+ */
+    if( cur_node->nod$a_flink->nod$b_type = nod$k_headnode )
+    then do;
+	comma = '';
+	OPTIONAL_has_appeared = '0'b;	/* reset flag when finished with parameter list */
+	parm_cnt = 0;
+    end;
+    else
+	comma = ',';
+
+/******************* TAKING THE STR_LEN OFF PARAMS FOR NOW **********/
+    buf = tab || optionl || ' ' || typ_buf || ' ' || dim ||
+          ' ' || pass_mech || comma || parm_list;
+
+    call add_comments(cur_node,buf);
+    call output_buf(buf);
+
+end do_param;

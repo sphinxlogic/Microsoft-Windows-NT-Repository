@@ -1,0 +1,64 @@
+This file presents some information about application defined types and
+operator overloading.  See ../demo/complex.sl for an explicit example of the
+functions discussed here.
+-------------------------------------------------------------------------------
+
+Declaring a new type.
+=====================
+
+To create a new type and interface it with S-Lang, you have to do several
+things.
+
+   1.  You must write a routine to create the object.  This routine will
+       then have to be made available as an intrinsic function for the
+       applications's script to create the object.  For example, in the
+       complex.c demo, the function `complex' creates the object.
+
+   2.  You have to create a routine that destroy the object.  This routine
+       will be called automatically by S-Lang when it is necessary to delete
+       the object.  In order for S-Lang to achieve this, you must register
+       this ``callback'' when you register the new type.  The function
+       should be declared as taking no parameters and returning void, e.g.,
+       
+           void destroy_type_callback (void);
+
+   3.  Declare the new type to S-Lang.  This is achieved by using the
+       function `SLang_register_class'.  This function takes three
+       parameters and returns no-zero if the class (type) was sucessfully
+       added or zero if not (malloc failure).
+       
+       This function has the prototype:
+       
+           int SLang_register_class (unsigned char, VOID *, VOID *);
+	   
+       Here, VOID is a macro defined in slang.h.  In may be either `void' or
+       `unsigned char' depending on the compiler (Old compilers do not
+       support void *).
+       
+       The first parameter is an unsigned character in the range 100 to 255.
+       Integers outside this range (0 to 99) are reserved for S-Lang itself.
+       This integer (unsigned char) will serve as an identification number
+       for the type.  For example, in complex.c, a macro is used:
+       
+       #define COMPLEX_NUMBER 100
+       
+       If more than one type is created, two different numbers will have to
+       be used (e.g., 100 and 101).  As a result, an application may define
+       at most 156 different types.
+       
+       The second parameter represents the function that is to be called to
+       destroy a variable of the new type.  This function is described in
+       (2) above.  It must be typecast to `VOID *'.  If your type does not
+       need to be destroyed (it did not malloc anything and there is no
+       cleanup necessary), NULL may be used.
+       
+       The third parameter represents the function that will be called to
+       obtain a printable representation of a variable of the new type.
+       NULL may be used if the function does not exist.  See the discussion
+       below about this function.
+       
+Interacting with the new type
+=============================
+
+  Once the type has been defined, new intrinsics should be written to 
+

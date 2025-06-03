@@ -1,0 +1,1375 @@
+Dfab:	$fab	fac=<Put>, Rat=<Cr>
+Drab:	$rab	fab=Dfab,usz=500,rsz=500
+
+
+
+	.MACRO	put_de	, mmm
+	movw	mmm, Drab+rab$w_rsz
+	movw	mmm, Drab+rab$w_usz
+	movl	mmm+4, Drab+rab$l_Rbf
+	movl	mmm+4, Drab+rab$l_Ubf
+	$Put	Rab=Drab
+	check	r0,error
+	.endm	put_de
+
+
+
+
+
+
+
+	.library	/sys$login:peb/
+	.library	/sys$library:lib/
+        $notesdef
+	$NOTESMSGDEF
+	NOTEITEMS
+
+
+	.entry	Search,0
+
+
+
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  debug
+	calls   #3,g^cli$get_value 
+	check	r0,error	
+
+
+
+
+	movb	input,Dfab+fab$b_fns
+	movl	input+4,Dfab+fab$l_fna
+
+	$create	fab=Dfab
+	check	r0,error
+
+	$connect	rab=Drab
+	check	r0,error
+
+
+
+
+
+	pushaq	op_msg_mast
+	calls	#1,g^lib$put_output
+
+
+
+; get the master conf name
+
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  Master
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+	movw	input,notes_open_i
+
+
+
+
+; should we treat this as being a notebook entry ?
+
+
+	pushaq	notebook
+	calls	#1,g^Cli$Present
+	blbs	r0,301$			; skip if NOnotebook
+	movl	#12, master_name_flag
+	brw	300$
+301$:	nop
+
+
+	clrl	master_name_flag
+
+	movl    #100,notebook_spec      
+	Pushaw  notebook_spec
+	pushaq  notebook_spec
+	pushaq  notebook
+	calls   #3,g^cli$get_value 
+	check	r0,error
+	movw	notebook_spec, notebook_in
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent,outbuf=out,outlen=out,-
+		p1=#Input
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+; open notebook (if its not open already!)
+
+        pushaw  null
+        pushaw  notebook_in
+        pushal  notebook_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+; begin
+
+	pushaw  null
+	pushaw	book_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_begin
+	check	r0,error
+
+; get the entry
+
+	movw	input, ent_in
+	movl	input+4, ent_in+4
+
+
+	pushaw	ent_out
+	pushaw	ent_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_get
+	check	r0,error
+
+
+	movl	entry_name_len, master_entry_len
+	movc3	entry_name_len, entry_name, master_entry
+
+
+	movl	Notefile_file_name_len, descr
+	movab	Notefile_file_name, descr+4
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent1,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	Descr, Input
+	movc3	Input, @Descr+4, Input+8
+
+	movw	input,notes_open_i
+
+300$:	nop
+
+
+
+	movw	#full_default_name_len, def_l
+	movab	full_default_name, def_n
+
+
+
+        pushaw  notes_open_o
+        pushaw  notes_open_i
+        pushal  mast_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+
+
+
+; context to first note
+
+
+
+        pushaw  notes_beg_O
+        pushaw  notes_beg_I
+        pushal  first_note_cont
+        calls   #3,G^Notes$note_begin
+	check	r0,error
+
+
+
+; get the notes  range
+
+
+	Pushaw  range_i
+	pushaq  range_i
+	pushaq  range
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+
+; get search string
+
+
+
+	Pushaw  string_i
+	pushaq  string_i
+	pushaq  string
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+	movl	string_i, flag
+
+
+	pushaq	string_i
+	pushaq	string_i
+	calls	#2,g^str$upcase
+	check	r0,error
+
+
+	movw	range_i, note_in
+	movab	range_i+8, note_in+4
+
+	movw	string_i, note_in+12
+	movab	string_i+8, note_in+16
+
+
+
+; begin the search
+
+
+	pushaq	st_msg
+	calls	#1,g^lib$put_output
+
+
+
+
+
+Sloop:	nop
+
+        pushaw  mast_note_out
+        pushaw  note_in
+        pushal  first_note_cont
+        calls   #3,g^notes$note_get
+        check   r0,error
+
+
+
+;	movw	#notes$k_noop, note_in+2
+
+
+
+	movc3	#contI_len, contI, note_in
+
+
+	put_de	fdlm
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_tu,outbuf=out,outlen=out,-
+		p1=mast_note_id_len,-
+		p2=#mast_note_id,-
+		p3=mast_author_len,-
+		p4=#mast_author,-
+		p5=mast_note_title_len,-
+		p6=#mast_note_title
+	put_de	out
+
+
+
+10$:	nop
+
+
+        pushaw  Get_txt_o
+        pushaw  Get_txt_i
+        pushal  first_note_cont
+        calls   #3,g^notes$note_get_text
+	blbs	r0,1$
+	cmpl	r0,#notes$_no_more_text
+	bneq	2$
+	brw	Sloop
+2$:	$exit_s	code=r0
+1$:	nop
+
+
+	movl	rec_len, tmp
+	MOVAB	REC, tmp+4
+
+;	pushaq	tmp
+;	calls	#1,g^lib$put_output
+
+
+	movl	rec_len, out
+
+
+	pushaq	tmp
+	pushaq	out
+	calls	#2,g^str$upcase
+	check	r0,error
+
+
+
+
+
+	matchc	string_i, @string_i+4, out, @out+4
+;	bneq	100$
+	beql	99$
+	brw	100$
+99$:	nop
+
+
+	subl3	r2, out, dlm
+	subl2	string_i, dlm
+
+	put_de	tmp
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_p,outbuf=out,outlen=out,-
+		p1=#dlm,-
+		p2=#flag
+	put_de	out
+
+
+
+100$:	nop
+
+
+	brw	10$
+	
+
+
+
+
+error:	ret
+
+
+debug:	.ascid	/OUT/
+
+ctr_p:	.ascid	/!AS!AS/
+
+ctr_tu:	.ascid	/Note !AD, by !AD, "!AD"/
+
+st_msg:	.ascid	/	... begin search .../
+
+
+
+get_txt_i:  	.word   4
+        	.word   notes$k_nosignal
+        	.long   hint
+        	.long   0
+;
+        	.long   0
+
+
+
+
+get_txt_o:  	.word   1000
+        	.word   notes$k_text_string
+        	.long   rec
+        	.long   rec_len
+;
+        	.long   0
+
+
+got_txt_typ:	.blkl	1
+
+
+
+do_c_o:	.ascid	/%PAN-I-DO_CO, PAN will now copy the new notes/
+
+report_only:	.ascid	+(As this pass was done /REPORT_ONLY)+
+report_only1:	.ascid	+(*_NO_* changes have been made))+
+
+
+
+contI:	.word	4
+	.word	NOTES$K_CONTINUE          
+	.long	0
+	.long	0
+;
+	.long	0
+
+contI_len = . - contI
+
+
+
+
+note_in:	.word	4
+                .word   notes$k_note_id
+                .long   0
+                .long   0
+;
+		.word	0
+		.word	NOTES$K_NOTE_SEARCH_STRING                    
+		.long	0
+		.long	0
+;
+                .word   4  
+                .word   notes$k_nosignal
+                .long   no_sig
+                .long   0
+;
+		.word	4
+		.word	NOTES$K_NOTE_HINT_GET_TEXT                      
+		.long	no_sig
+		.long	0
+;
+		.long	0
+
+
+
+
+
+
+note_uid:	.long	0
+
+
+
+first_note_in:
+                .word   4
+                .word   notes$k_nosignal
+                .long   no_sig
+                .long   0
+;
+		.word	4
+		.word	notes$k_note_next_unseen
+		.long	no_sig
+		.long	0
+;
+		.long	0
+
+
+
+first_uid:	.blkl	1
+
+first_note_cont:	.blkl	1
+
+
+first_char:	.ascid	/8-SEP-1954/
+
+first_date:	.blkl	2
+
+
+
+
+notes_beg_i:    .word   4
+                .word   notes$k_notefile_context
+                .long   mast_file_cont
+                .long   0
+;
+                .word   4
+                .word   notes$k_nosignal
+                .long   no_sig
+                .long   0
+
+;
+                .long   0
+
+
+
+
+notes_beg_o:    .word   4
+                .word   notes$k_notefile_numnotes
+                .long   number_of_notes
+                .long   0
+;
+                .long   0
+                                                                                
+
+
+shad_note_cont:	.blkl	1
+mast_note_cont:	.blkl	1
+
+no_sig:         .long   1
+
+
+
+
+
+
+mast_note_out:	
+		.word   20
+                .word   notes$k_note_id
+                .long   mast_note_id
+                .long   mast_note_id_len
+;
+		.word	100
+		.word	notes$k_note_title
+		.long	mast_note_title
+		.long	mast_note_title_len
+;
+		.word	8
+		.word	notes$k_note_create_time
+		.long	mast_note_time
+		.long	0
+;
+		.word	100
+		.word	notes$k_note_author
+		.long	mast_author
+		.long	mast_author_len
+;
+		.word	4
+		.word	notes$k_note_numrecords
+		.long	mast_number_of_lines
+		.long	0
+;
+		.long	0
+
+
+
+
+
+
+mast_number_of_lines:	.blkl	1
+shad_number_of_lines:	.blkl	1
+
+
+mast_note_id:		.blkb	50
+mast_note_id_len:	.blkl	1
+mast_uid:		.blkl	1
+mast_note_title:	.blkb	200
+mast_note_title_len:	.blkl	1
+mast_note_time:		.blkl	2
+mast_hidden:		.blkl	1
+
+ctr_tell_u:		.ascid	/Working on UID !XL/
+
+
+shad_note_out:	
+		.word   20
+                .word   notes$k_note_id
+                .long   shad_note_id
+                .long   shad_note_id_len
+;
+		.word	4
+		.word	notes$k_note_uid
+		.long	shad_uid
+		.long	0
+;
+		.word	100
+		.word	notes$k_note_title
+		.long	shad_note_title
+		.long	shad_note_title_len
+;
+		.word	8
+		.word	notes$k_note_create_time
+		.long	shad_note_time
+		.long	0
+;
+		.word	4
+		.word	notes$k_note_hidden
+		.long	shad_hidden
+		.long	0
+;
+		.word	100
+		.word	notes$k_note_author
+		.long	shad_author
+		.long	shad_author_len
+;
+		.word	4
+		.word	notes$k_note_numrecords
+		.long	shad_number_of_lines
+		.long	0
+;
+		.long	0
+
+
+shad_author:	.blkb	100
+mast_author:	.blkb	100
+
+shad_author_len:	.blkl	1
+mast_author_len:	.blkl	1
+
+
+
+shad_note_id:		.blkb	50
+shad_note_id_len:	.blkl	1
+shad_uid:		.blkl	1
+shad_note_title:	.blkb	200
+shad_note_title_len:	.blkl	1
+shad_note_time:		.blkl	2
+shad_hidden:		.blkl	1
+
+mast_note_flag:		.blkl	1
+shad_note_flag:		.blkl	1
+
+no_same:	.Ascid	/%PAN-F-DATE_MISMATCH, Same UID notes have not same time stamp/
+
+wrg_mst:	.ascid	/%PAN-F-WRG_MAST, This is not the right master file for this shadow /
+
+
+
+
+
+
+
+ctr_ns2:	.ascid	/Shadow, UID !XL, note !12AD, time !%D/
+ctr_ns1:	.ascid	/Master, UID !XL, note !12AD, time !%D/
+
+ctr_tell_u1:	.ascid	/!ASUID !XL:Master !12<!AS!12AD!>,Shadow !12<!AS!12AD!> @!%D/
+ctr_tell_u2:	.ascid	/!ASUID !XL:Master !12<!AS!12AD!>,Shadow !12<!AS!12AD!> @/
+
+
+neither:	.blkl	1
+nei_exit:	.ascid	/%PAN-I-LIMEX, Scan exit after 30 "no notes"/
+
+last_uid:	.blkl	1
+
+
+
+
+
+indent:	.ascid	/####################################################/
+
+
+un_hid_nol:	.ascid	/>>> WARNING! Unhiding note we did not get the text for <<</
+
+ctr_cb1:	.ascid	/>>> the master has the missing base note !AD, as UID !XL<<</
+no_base:	.ascid	/>>> this topic does not exist <<</
+huh:		.ascid	/>>> loop detected , move stack dumped <<</
+ctr_iw:		.ascid	/>>> Shadow note !AD is UID !XL<<</
+ctr_li:		.ascid	/>>> Master note !UL lines, Shadow note !UL lines<<</
+no_same_lines:	.Ascid	/>>> Same notes have not the same number of lines <<</
+del_bas:	.ascid	/>>> base note deleted in the master, but not in the shadow <<</
+ctrm:		.ascid	/>>> Master note is missing from the shadow <<</
+auth_ch:	.ascid	/>>> Note authors are different <<</
+del_shad:	.ascid	/>>> Delete shadow note (not in the master) <<</
+note_id_ch:	.ascid	/>>> Note ID has changed <<</
+note_tit_ch:	.ascid	/>>> Note Title has changed <<</
+note_hid_ch:	.ascid	/>>> Note hidden status has changed <<</
+
+shad_del:	.blkl	1
+shad_Cnote_id:	.blkl	1
+shad_Cnote_tit:	.blkl	1
+shad_Cnote_hid:	.blkl	1
+del_both:	.blkl	1
+
+
+ctr_rep1:	.ascid	/!5UL Notes were deleted from the shadow /
+ctr_rep2:	.ascid	/!5UL Notes were moved/
+ctr_rep3:	.ascid	/!5UL Notes had titles changed/
+ctr_rep4:	.ascid	/!5UL Notes had their hidden status changed/
+ctr_rep5:	.ascid	/!5UL Notes were not in either conf /
+ctr_rep6:	.ascid	/!5UL UID's scanned /
+ctr_rep7:	.ascid	/!5UL Notes found & compared/
+ctr_rep8:	.ascid	/!5UL Notes missing from the shadow !AS/
+ctr_rep9:	.ascid	/!5UL Notes should be copied over (symbol PAN$TO_BE_COPIED/
+ctr_rep10:	.ascid	/!UL/
+
+ny_count:	.blkl	1
+
+
+miss_g:		.ascid	+, and copied over+
+
+notes_tested:	.blkl	1
+
+uid_scan:	.blkl	1
+
+since:	.ascid	/SINCE/
+
+
+end_quad:	.blkl	2
+
+
+tmp:	.blkl	2
+word7:	.blkw	20
+
+ctr_last2:	.ascid	/Last shadow update completed at !%D/
+
+ctr_peb:	.ascid	/!UW, !UW, !UW, !UW/
+
+
+
+
+from_last:	.ascid	/Will SYNC from completion of last update/
+ctr_last3:	.ascid	+Verifying notes written since !%D+
+day:	.ascid	/1 00:00:00/
+
+build:		.blkl	100
+build_len = . - build
+
+build_point:	.blkl	1
+
+changes:	.blkl	1
+
+start_uid:	.ascid	/START_UID/
+
+other_shad_note_cont:	.blkl	1
+
+other_other_shad_note_cont:	.blkl	1
+
+
+
+
+
+
+
+ctr_s1:		.ascid	/!AD/
+
+struc_q:	.ascid	/%PAN-F-INERR, Internal structure error/
+
+
+
+mod:		.ascid	/MODERATOR/
+ent_this:	.ascid	/*******  do_pan_enable_mod *******/
+
+
+
+
+
+
+VEC:    .LONG   2
+        .BLKL   1
+        .LONG   0
+        .LONG   0
+
+last_shadow_update:	.blkl	2
+
+ctr_word:	.ascid	/word 7 !UW /
+blank:	.ascid	/                             /
+missing:	.blkl	1
+
+
+ny:	.ascii	/not yet copied/
+ny_len = . - ny
+
+
+none:	.ascii	/**None**/
+none_len = . - none
+
+report:	.ascid	/REPORT_ONLY/
+
+base_fnd:	.ascid	/this is a base note/
+
+
+ask_out:	.word	4
+		.word	notes$k_note_uid
+		.long	note_uid
+		.long	0
+;
+		.word   20
+                .word   notes$k_note_id
+                .long   mast_note_id
+                .long   mast_note_id_len
+;
+		.long	0
+
+ask_in:		.word	0
+		.word	notes$k_note_id
+		.long	0
+		.long	0
+;
+		.long	0
+
+save:		.blkl	500
+save_point:	.long	save
+saved:		.blkl	1
+
+
+
+
+
+ask_out_iw:	.word	4
+		.word	notes$k_note_uid
+		.long	iw_note_uid
+		.long	0
+;
+		.word   20
+                .word   notes$k_note_id
+                .long   iw_note_id
+                .long   iw_note_id_len
+;
+		.long	0
+
+
+iw_note_uid:	.blkl	1
+
+iw_note_id:	.blkb	50
+
+iw_note_id_len:	.blkl	1
+
+ctr_iw1:	.ascid	/The target note_id !AD exists in the shadow,as UID !XL/
+
+ctr_cb:	.ascid	/!AS.0/
+
+other_mast_note_cont:	.blkl	1
+
+
+fred:	.blkl	1
+
+
+master_name_flag:	.ascid	+/NOnotebook   +
+master_name:		.long	100
+			.long	master_name+8
+			.blkb	100
+
+
+shadow_name_flag:	.ascid	+/NOnotebook   +
+shadow_name:		.long	100
+			.long	shadow_name+8
+			.blkb	100
+
+
+ctr_am:		.ascid	+$ Pan Copy Note !AS!AS !AS!AS /Range=!AD /NOlog !AS+
+
+ctr_am1:	.ascid	+$ Pan Copy Note !AS!AS !AS!AS /NOlog /Limit=100 !AS+
+
+
+am:	.ascid	+Do the following (or use SYNC/COPY) to get this note+
+am1:	.ascid	/Spawning PAN to copy this note/
+S_FLAG:	.LONG	0
+
+
+
+m_pad:	.ascid	/                   /
+s_pad:	.ascid	/                   /
+
+
+
+
+symbol:	.ascid	/PAN$TO_BE_COPIED/
+DCLFLAG:        .LONG   LIB$K_CLI_GLOBAL_SYM  
+
+def_tbc:	.ascid	/-1/
+
+keyword_cnx:	.blkl	1
+
+
+
+keyword:	.ascii	/PAN$DATA_STORE/
+keyword_len = . - keyword
+
+
+
+key_out:	.word	100
+		.word	NOTES$K_KEYWORD_USER_AREA
+		.long	KEYWORD_USER_AREA
+		.long	KEYWORD_USER_AREA_len
+;
+		.long	0
+
+KEYWORD_USER_AREA:	.blkb	100
+KEYWORD_USER_AREA_len:	.blkl	1
+
+
+
+
+key_in:	.word	0
+	.word	NOTES$K_KEYWORD_NAME
+	.long	0
+	.long	0
+;
+        .word   4
+        .word   notes$k_nosignal
+        .long   no_sig
+        .long   0
+;
+	.long	0	
+
+keyword_add:	.ascid	/Adding keyword PAN$DATA_STORE/
+
+ctr_wm1:	.ascid	/Master conf creation date is !%D/
+ctr_wm2:	.ascid	/Master conf creation date is !%D  (Stored in the shadow conf)/
+
+key_add:	.word	0
+		.word	NOTES$K_KEYWORD_USER_AREA
+		.long	KEYWORD_USER_AREA
+		.long	0
+;
+		.word	keyword_len
+		.word	NOTES$K_KEYWORD_NAME
+		.long	keyword
+		.long	0	
+;
+		.long	0
+
+
+
+
+p_wrt:	.ascid	/PAN$EXTRACT_NOTES_WRITTEN/
+
+e_noI:	.ascid	/PAN$EXTRACT_NOTE_ID/
+
+e_noA:	.ascid	/PAN$EXTRACT_NOTE_AUTHOR/
+
+e_noT:	.ascid	/PAN$EXTRACT_NOTE_TITLE/
+
+sym_cre:	.ascid	/%PAN-I-SYMC, DCL symbols PAN$EXTRACT_* created/
+
+time:	.ascid	/0 00:00:30/
+quad:	.blkl	2
+
+
+break_in:	.word	10
+		.word	notes$k_note_id
+		.long	break_range
+		.long	0
+;
+		.long	0
+
+break_range:	.ascii	/1.*-999999.*/
+
+
+
+no_base_m:	.ascid	/asking the master for this base note did not find it/
+limit_done:	.ascid	/ **** LIMIT time has expired ****/
+id_ch:	.blkl	1
+limit:		.ascid	/LIMIT_TIME/
+ctr_tell_uI:	.ascid	/master note !AD, shadow note is now !AD/
+
+
+
+
+RANGE:	.ASCID	/RANGE/
+
+
+range_i:	.long	100
+		.long	range_i+8
+		.blkb	100
+
+
+
+
+
+string_i:	.long	100
+		.long	string_i+8
+		.blkb	100
+
+
+
+
+
+
+
+
+open_o:         .word   8
+                .word   notes$k_notefile_create_time
+                .long   create_time
+                .long   0
+;
+		.word	100
+		.word	notes$k_notefile_user_area
+		.long	notefile_user_area
+		.long	notefile_user_area_len
+;
+                .long   0
+
+
+
+first_end:	.ascid	/%PAN-I-DONE, Scan terminated, first UID in master reached/
+ctr_fire:	.ascid	/%PAN-I-RANGE, UID range !XL (note !AD) to !XL (last note)/
+no_up_done:	.ascid	/%PAN-F-NSHAD, No shadow update has been done/
+op_msg_mast:	.ascid	/%PAN-I-OPEN_SC, Opening the Master conference/
+op_msg_shad:	.ascid	/%PAN-I-OPEN_TC, Opening the Shadow conference/
+o_msg:	.ascid	/%PAN-I-OPEN_R, Opening file for RMS access/
+result_spec:            .blkb   150
+result_spec_len:        .blkl   1
+Shadow:	.ascid	/SHADOW/
+shad_entry_len:		.blkl	1
+shad_entry:		.blkb	300
+shad_file_cont:	.blkl	1
+title:          .blkb   100
+title_len:      .blkl   1
+uid:			.blkl	1
+OUT:	.long	500
+	.long	out+8
+	.blkb	500
+
+
+
+out_len = . - out
+
+tmp_OUT:	.long	500
+		.long	tmp_out+8
+		.blkb	500
+
+
+
+
+open_m:         .word   4
+                .word   notes$k_notefile_moderate
+                .long   moderate
+                .long   0
+;
+                .word   4
+                .word   notes$k_nosignal
+                .long   hint
+                .long   0
+;
+                .long   0
+
+
+Null:		.word	0
+		.word	0
+		.long	0
+		.long	0
+;
+		.long	0
+
+
+notice:         .blkb   100
+notice_len:     .blkl   1
+
+
+
+notes_open_o:   .word   100
+                .word   notes$k_notefile_title
+                .long   title
+                .long   title_len
+;
+                .word   150
+                .word   notes$k_notefile_result_spec
+                .long   result_spec
+                .long   result_spec_len
+;
+                .word   100
+                .word   notes$k_notefile_notice
+                .long   notice
+                .long   notice_len
+;
+		.word	4
+		.word	notes$k_notefile_restricted
+		.long	is_restricted
+		.long	0
+;
+		.word	300
+		.word	notes$k_notefile_moderator
+		.long	moderator_st
+		.long	moderator_st_len
+;
+		.word	4
+		.word	notes$k_notefile_high_uid
+		.long	max_uid_in_high_uid
+		.long	0
+;
+		.word	100
+		.word	notes$k_notefile_user_area
+		.long	notefile_user_area
+		.long	notefile_user_area_len
+;
+		.word   8
+                .word   notes$k_notefile_create_time
+                .long   create_time
+                .long   0
+;
+                .long   0
+
+
+
+master_create_time:	.blkl	2
+
+
+
+
+Notefile_file_name:	.blkb	100
+Notefile_file_name_len:	.blkl	1
+
+
+notebook_spec:		.long	100
+			.long	notebook_spec+8
+			.blkb	100
+
+
+notebook_in:	.word   0
+                .word   notes$k_notefile_file_name
+                .long   notebook_spec+8
+                .long   0
+;
+		.word	notebook_def_len
+		.word	notes$k_notefile_default_name
+		.long	notebook_def_spec
+		.long	0
+;
+		.long	0
+
+
+notebook_def_spec:	.ascii	/SYS$LOGIN:notes$notebook.NOTE/
+notebook_def_len = . - notebook_def_spec
+
+
+notebook_file_cont:	.blkl	1
+
+
+
+notebook:	.ascid	/NOTEBOOK/
+
+
+
+
+
+book_in:	.word	4
+		.word	notes$k_notefile_context
+		.long	notebook_file_cont
+		.long	0
+;
+		.long	0
+
+notebook_cont:	.blkl	1
+
+
+mod_en:	.ascid	/%PAN-I-MODP, Enable moderator privileges on the Target conference/
+
+mast_file_cont:	.blkl	1
+
+
+master_entry_len:	.blkl	1
+master_entry:		.blkb	300
+
+Master:	.ascid	/MASTER/
+
+
+input:	.long	300
+	.long	input+8
+	.blkb	300
+
+
+full_default_name:   .ascii  /Notes$Library:.Note/
+full_default_name_len =. - full_default_name
+
+ent_out:	.word	100
+		.word	notes$k_notefile_file_name
+		.long	Notefile_file_name
+		.long	Notefile_file_name_len
+;
+		.word	4
+		.word	notes$k_entry_last_status
+		.long	last_status
+		.long	0
+;
+		.word	4
+		.word	notes$k_entry_unseen_est
+		.long	unseen_est
+		.long	0
+;
+		.word	100
+		.word	notes$k_entry_name
+		.long	entry_name
+		.long	entry_name_len
+;
+		.word	3000
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	seen_map_len
+;
+		.word	100
+		.word	NOTES$K_ENTRY_USER_AREA
+		.long	note_user_area
+		.long	note_user_area_len
+;
+		.word	4
+		.word	notes$k_notefile_entrytotal
+		.long	entrytotal
+		.long	0
+;
+		.word	4
+		.word	notes$k_notefile_high_uid
+		.long	high_uid
+		.long	0
+;
+		.word	8
+		.word	notes$k_notefile_lastrev
+		.long	notefile_lastrev
+		.long	0
+;
+		.word	300
+		.word	notes$k_notefile_moderator
+		.long	moderator_st
+		.long	moderator_st_len
+;
+                .word   100
+                .word   notes$k_notefile_notice
+                .long   notice
+                .long   notice_len
+;
+		.word   4
+                .word   notes$k_notefile_numnotes
+                .long   number_of_notes
+                .long   0
+;
+		.word   100
+                .word   notes$k_notefile_title
+                .long   title
+                .long   title_len
+;
+		.word	3000
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	seen_map_len
+;
+		.long	0
+
+                                                                  
+
+
+entry_name:	.blkb	100
+entry_name_len:	.blkl	1
+
+dlm:	
+.ascid	/-------------------------------------------------------------------------------/
+
+descr:		.blkl	2
+
+ctr_title:	.ascid	/%PAN-I-TI,  Title = "!AS"/
+ctr_notice:	.ascid	/%PAN-I-NO, Notice = "!AS"/
+
+ctr_filn:	.ascid	/%PAN-I-CONF, Conference file is "!AS"/
+
+ctr_ent:	.ascid	/%PAN-I-ENTO, Opening notebook entry !AS ............../
+ctr_ent1:	.ascid	/%PAN-I-CONO, Opening conference     !AS ............../
+
+
+
+
+ 
+
+
+unseen_est:	.blkl	1
+
+seen_map:	.blkb	3000
+seen_map_len:	.blkl	1
+NUMBER_OF_NOTES:	.blkl	1
+
+note_user_area_len:	.blkl	1
+note_user_area:		.blkb	100
+
+notes_open_i:   .word   0
+                .word   notes$k_notefile_file_name
+                .long   input+8
+                .long   0
+;
+def_l:          .word   default_name_len
+                .word   notes$k_notefile_default_name
+def_n:          .long   default_name
+                .long   default_name_len
+;
+se_mp:		.word	0
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	0
+;
+                .long   0
+
+notefile_user_area:	.blkb	100
+notefile_user_area_len:	.blkl	1
+
+notefile_lastrev:	.blkl	2
+moderator_st:		.blkb	500
+moderator_st_len:	.blkl	1
+
+moderate:       .long   1       ; we want to be a Goderator  !!
+
+max_uid_in_high_uid:	.blkl	1
+
+last_status:	.blkl	1
+
+is_restricted:	.blkl	1
+
+hint:		.long	1
+
+high_uid:	.blkl	1
+
+ent_in:		.word	0
+		.word	notes$k_entry_name
+		.long	0
+		.long	0
+;
+		.word   default_name_len
+cl_xy:          .word   notes$k_noop		;notes$k_notefile_default_name
+		.long   default_name
+                .long   default_name_len
+;
+		.long	0
+
+entrytotal:		.blkl	1
+
+
+default_name:   .ascii  /Notes$library:.Note/
+default_name_len =. - default_name
+
+create_time:	.blkl	2
+
+ctr_max_u:	.ascid	/Copy the input maximum UID (!XL) to the output conf (!XL)/
+maximum_uid:	.blkl	1
+
+not_a_high:	.ascid	/*** This is __NOT__ a higher UID than exists ***/
+
+san_fail:	.ascid	/>>> failed to understand the file structure <<</
+
+copy:		.ascid	/COPY/
+
+
+
+qual:	.ascid	/QUALIFIER/
+q_v:	.long	100
+	.long	q_v+8
+	.blkb	100
+
+rec:            .blkb   1000
+
+rec_len:        .blkl   1
+
+
+txt_continue:   .blkl   1
+
+st_msg1:	.ascid	/##############################/
+
+
+string:	.ascid	/STRING/
+
+
+fdlm:	.ascid	/############# Search string found ############/
+
+
+flag:	.ascid	/^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^/
+
+
+	.end	
+
+
+
+
+
+               ____________________________________________________________
+
+               6.6  NOTES$NOTE_GET
+
+
+                  O     NOTES$K_CONTINUE          Keep returning information
+
+
+                  S,O   NOTES$K_NOTE_HINT_GET_    Value of 1 indicates that a
+                        TEXT                      NOTES$NOTE_GET_TEXT will
+                                                  be performed next. This
+                                                  item code must be speci-
+                                                  fied if a NOTES$NOTE_GET_
+                                                  TEXT will be done after the
+                                                  NOTES$NOTE_GET. Otherwise,
+                                                  the NOTES$NOTE_GET_TEXT will
+                                                  not work correctly for remote
+                                                  notefiles.
+
+                  S,O   NOTES$K_NOTE_ID           String range of notes to get
+                                                  (conflicts with NOTES$K_NOTE_
+                                                  UID)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+note_in:	.word	4
+mast_note_out:	
+
+
+
+
+
+
+
+
+                .long   mast_note_id
+                .long   mast_note_id_len
+;
+		.long	mast_note_title
+		.long	mast_note_title_len
+;
+		.long	mast_note_time
+;
+		.long	mast_author
+		.long	mast_author_len
+;
+		.long	mast_number_of_lines

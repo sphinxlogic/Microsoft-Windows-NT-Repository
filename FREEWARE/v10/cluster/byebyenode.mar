@@ -1,0 +1,147 @@
+	.TITLE	BYEBYENODE
+;
+; This is a quick hack to force a remote system out of the cluster. It can
+; be used when a remote system hangs for example at high IPL (bewteen 3
+; and 6), or when the SMIserver does not respond.
+;
+; It uses an internal routine in the connection manager. There is one
+; problem with this approach, and that is that this routine (CNX$DISC_REMOVE)
+; is not available in any symboltable which we can include in the link.
+; So what we do is use MATCHC to find the sequence of instructions around
+; the place where we expect the code, and issue an error if we can't find it.
+; If we got the address, we JSB to it and let that routine do the dirty work.
+; The net result will be that the remote node will CLUEXIT.
+;
+; This is strictly a HACK, and as such it may fail at any time. Use at
+; your own risk. (I included a check to prevent removal of the node from
+; which this program runs, although it was fun to get a system in a state
+; in which the only clusternode was removed from the cluster and in longbreak,
+; without quorum....). It was tested on VMS V5.5 thru T6.2-FT1.
+;
+; Author:  Jur van der Burg
+;          UTRTSC::VDBURG
+;
+;
+	.library	'sys$library:lib.mlb'
+	.link		'sys$system:sys.stb'/selective_search
+;
+	$clubdef
+	$sbdef
+	$ssdef
+;
+lckarr:	.long	lockbeg		; Point to area to lock in memory
+	.long	lockend
+;
+tbl:				; Start of the interesting instructions
+;
+; This is copied from CNXMAN.LIS
+;
+	.enabl	lsb
+cnx$disc_bugcheck:
+	movzwl	#^x8104,r0
+	brb	20$
+cnx$disc_incluver:
+	movzwl	#^x8106,r0
+	brb	20$
+cnx$disc_remove:
+10$:	movzwl	#^x800a,r0
+20$:
+	.dsabl	lsb
+tblend=.
+tbllen=tblend-tbl
+;
+lockbeg=.
+;
+indsc:	.long	80
+	.long	inbuf
+inbuf:	.blkb	80
+reslen:	.word	0
+prompt:	.ascid	/Enter node name: /
+;
+        .entry  start,0
+;
+        pushal  reslen			; Resultant length
+        pushaq  prompt			; Prompt
+        pushaq  indsc			; Input line descriptor
+        calls   #3,g^lib$get_foreign	; Get nodename
+        blbc    r0,30$			; Exit on error
+	movzwl	#ss$_nosuchnode,r0 	; Assume such node
+        movw    reslen,indsc		; Copy resultant length
+        beql    30$			; Nothing there...
+        cmpw	reslen,#sb$s_nodename	; Check against maximum size
+	bgtr	30$			; Exit if more
+	pushaq	indsc			; Pointer to nodename
+	pushaq	indsc
+	calls	#2,g^str$upcase		; Make sure it's upper case
+	pushaq	lckarr			; Address of lock array
+	$lkwset_s	inadr=lckarr	; Lock pages
+	blbc	r0,30$			; Exit on error
+	$cmkrnl_s	routin=work	; Do the dirty work
+
+30$:	ret
+;
+; Kernel mode routine to do the dirty work
+;
+	.entry	work,^m<r2,r3,r4,r5,r6,r7>
+;
+; The code we are looking for is around CLUSTRLOA+^X700
+;
+	addl3	#^x700,g^clu$gl_loa_addr,r2
+	matchc	#tbllen,tbl,#256,(r2)	; Try to locate the code
+	beql	10$			; If EQ it's there, R3 points to the end
+;
+; If NE, not found. Code has probably changed.
+;
+	movzwl	#ss$_bugcheck,r0
+	brw	30$
+;
+10$:	subl2	#tblend-cnx$disc_remove,r3 ; This points us to CNX$DISC_REMOVE
+	movl	r3,r7			; Save for later
+	movab	indsc,r2		; Point to nodename descriptor
+	lock	scs			; Synch with SCS
+	bsbw	nodename_to_csb		; Get CSB
+	blbc	r0,20$			; Not there
+	jsb	(r7)			; Call CNX$DISC_REMOVE,
+					; it does not return status
+	movzwl	#ss$_normal,r0		; Okay
+
+20$:	unlock	scs			; Release lock
+
+30$:	ret
+;
+nodename_to_csb:
+	movl	g^clu$gl_club,r6	; Point to CLUB
+	movl	club$l_local_csb(r6),r6	; Get our own CSB
+	movaq	g^scs$gq_config,r3	; Get cluster listhead
+	movl	r3,r0			; Save start address
+
+10$:	movl	(r3),r3			; Next CSB
+	cmpl	r3,r0			; Back at the beginning?
+	beql	20$			; Yes, quit
+	pushr	#^m<r0,r1,r2,r3,r4,r5>
+	movzwl	(r2),r0			; Get length from input descriptor
+	cmpb	r0,sb$t_nodename(r3)	; Lenght match?
+	bneq	15$			; No, next one please
+	cmpc3	r0,@4(r2),sb$t_nodename+1(r3) ; Nodename match?
+
+15$:	popr	#^m<r0,r1,r2,r3,r4,r5>
+	bneq	10$			; No match
+	movl	sb$l_csb(r3),r5		; Get CSB
+	beql	40$			; Not there anymore
+	cmpl	r5,r6			; Is it our own?
+	beql	30$			; Yes, don't allow that
+	movzwl  #ss$_normal,r0		; Okay
+	rsb
+
+20$:	movzwl	#ss$_nosuchnode,r0
+	rsb
+
+30$:	movzwl	#ss$_ivaddr,r0
+	rsb
+
+40$:	movzwl	#ss$_nodeleave,r0
+	rsb
+
+lockend=.
+
+	.end	start

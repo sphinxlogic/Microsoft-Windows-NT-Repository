@@ -1,0 +1,145 @@
+# Unix Makefile for JED
+
+# Note!!!  You also need to build the S-Lang library.  You should have
+#          received a copy of it with this distribution.
+#          Build it first.
+
+# This file is divided into three sections.  The first section consists of 
+# compile time options.  The second section is system specific so read it
+# carefully.  The final section can be ignored.
+
+#-------------------------------------------------------------------------
+# You must undefine any of these if you compiler does not have the appropriate
+# function (memset, memcpy, memcmp, memchr)
+# I have come to the conclusion that most Unix memchr routines are poor.
+# JED's is MUCH better.  Also note that JED assumes that yor machines `memcmp'
+# function uses an unsigned comparision.  This is NOT true for SunOS.
+CFLAGS1A = -DHAS_MEMSET -DHAS_MEMCPY #-DHAS_MEMCMP #-DHAS_MEMCHR
+
+# Root directory where jed files are going to be kept.  This is the parent 
+# of JED's src, lib, etc, bin, and info directories.  MAKE SURE THAT THE '#' 
+# IMMEDIATELY FOLLOWS THE PATH.  THERE CAN BE NO WHITESPACE HERE!
+JED_ROOT = /usr/local/jed#
+
+# S-Lang Library include path.  This one assumes that slang and jed are on
+# the same level in the directory tree.
+SLIB = ../../slang/src
+
+# Termcap library--- many SYSV systems support termcap in their curses
+# library so use the curses line.  Sometimes Solaris systems do not have
+# either one installed.  Too bad....  you might have to install ncurses.
+TERMCAP = termcap
+#TERMCAP = curses
+
+# Random number function
+# There are many variations here.  The random number generator is only need
+# to justify paragraphs.  If your system does not have the `random' function
+# comment out the next line and `srand' will be used (not as good).
+RANDOM = -DHAS_RANDOM
+
+# Note that since version 0.92, JED has had the ability to do floating point
+# arithmetic.  This is enable by defining FLOAT_TYPE.  If you want
+# floating point support AND you have compiled the S-Lang library 
+# with floating point support, remove the `#' symbol from the 
+# next two lines:
+CFLAGS1 = $(CFLAGS1A) -DFLOAT_TYPE
+LFLAGS = -lm
+
+#------------------------------------------------------------
+# XWindow version of JED specifics
+# 
+# If you are also compiling an XWindows version of JED, you need to 
+# set up the path for the X11 include files.  This is simply the directory
+# that contains the X11 directory.  Try using one of the following:
+XINCLUDE = -I/usr/include/mit
+#XINCLUDE = -I/usr/local/X11/include
+#XINCLUDE = -I/usr/openwin/share/include/X11     # Solaris
+
+
+# Library to use for linkiing in the X11 code.  On many systems, it is simply
+# given by -lX11, while for some, it is -lX11-mit
+XLIB = -lX11
+#XLIB = -lX11-mit
+
+#------------------------ machine specific flags --------------------------
+#
+# Look for your machine in right margin and comment out others.
+# If your system does NOT have stdlib.h add: -DNO_STDLIB_H
+# If your system does NOT have unistd.h add: -DNO_UNISTD_H
+# These files should be in /usr/include, e.g., /usr/include/stdlib.h
+
+#                                                                   ULTRIX
+CFLAGS = -O -DNO_PROTOTYPES
+CC =cc
+
+#                                                                   SunOS
+#CC =gcc  #also try acc
+#CFLAGS = -O  -traditional-cpp
+
+
+#                                                                  HP-UX
+# CFLAGS =-Aa -D_HPUX_SOURCE -Dunix 
+# CC = cc
+
+#                                                                 AIX 
+#CFLAGS = -DAIX -Dunix 
+#CC = cc
+# This was also suggested for AIX.  I do not know what the flags 
+# mean though: CFLAGS = -O3 -DAIX -Dunix -v -qphsinfo -qsource -qlistopt
+
+
+#                                                           Sequent, NeXT
+#CFLAGS = -Dsequent -DNO_UNISTD_H -DNO_STDLIB_H
+#CC = cc   # or: gcc
+
+#                                                                 Linux
+# Someone suggested using -O6 instead of -O2.
+#CFLAGS= -g -Wall -Wstrict-prototypes -fstrength-reduce -DPOSIX_SOURCE 
+#CC=gcc
+
+#                                                         SYSV ISC R3.2 v3.0 
+#CC=gcc
+#CFLAGS= -Dunix -DSYSV
+#LIBS = -linet -lnsl_s -lcposix
+#
+
+#                                                                  OSF
+#CC = cc                                               
+#CFLAGS = -O -DXLIB_ILLEGAL_ACCESS
+
+#                                                                   CRAY
+#CFLAGS = -O -Dunix -DSYSV
+#CC =cc
+
+#
+#  some systems may need to define POSIX as well,          e.g.,    IRIX
+#CFLAGS = -O -prototypes -DPOSIX
+
+
+
+#-----------------------------------------------------------------------
+OBJS = buffer.o cmds.o misc.o file.o main.o ins.o sig.o\
+         sysdep.o screen.o paste.o ledit.o line.o vterm.o search.o text.o\
+         keymap.o replace.o window.o undo.o vfile.o\
+	 intrin.o syntax.o abbrev.o
+
+.c.o:
+	$(CC) -c $(CFLAGS) $(CFLAGS1) -DJED  -I$(SLIB) $(XINCLUDE) $*.c
+
+jed: $(OBJS) display.o
+	$(CC) $(OBJS) display.o -o jed -L$(SLIB) -lslang $(LFLAGS) -l$(TERMCAP) 
+
+main.o: main.c
+	$(CC) -c $(CFLAGS) $(CFLAGS1) -DJED -DJED_ROOT='"$(JED_ROOT)"' -DJED_LIBRARY='"$(JED_ROOT)/lib"' -I. -I$(SLIB) main.c
+
+xjed: $(OBJS) xterm.o
+	$(CC) $(OBJS) xterm.o -o xjed -L$(SLIB) -lslang  $(XLIB) $(LFLAGS)
+
+export:
+	export -f zip.lis
+
+rgrep: vfile.o rgrep.o
+	$(CC) vfile.o rgrep.o -o rgrep -L$(SLIB) -lslang 
+
+getmail: getmail.o
+	$(CC) getmail.o -o ../bin/getmail

@@ -1,0 +1,193 @@
+          .Title        MAILSHR - Foreign mail protocol interface
+ 
+;
+; Written by Kevin Carosso @ Hughes Aircraft Co., SCG/CTC, January 11, 1985
+; Modified by Ned Freed, 16-Nov-86, to use proper global symbols.
+;
+;---------------------------------------------------------------------------
+; This is invoked by MAIL when it encounters the foreign mail protocol.
+; This module really has nothing protocol-specific to it and can be used
+; to dispatch to any handler.  The handler should supply the following
+; action routines:
+;
+;       status := MAIL_OUT_CONNECT (context : unsigned;
+;                                   LNK_C_OUT_CONNECT : immediate;
+;                                   protocol, node : string_descriptor;
+;                                   MAIL$_LOGLINK : immediate;
+;                                   file_RAT, file_RFM : immediate;
+;                                   MAIL$GL_FLAGS : immediate;
+;                                   attached_file : descriptor := immediate 0)
+;
+;       status := MAIL_OUT_LINE    (context : unsigned;
+;                                   [LNK_C_OUT_SENDER | LNK_C_OUT_TO |
+;                                    LNK_C_OUT_SUBJ] : immediate;
+;                                   node, sender_name : string_descriptor)
+;
+;       status := MAIL_OUT_CHECK   (context : unsigned;
+;                                   [LNK_C_OUT_CKUSER |
+;                                    LNK_C_OUT_CKSEND] : immediate;
+;                                   node, addressee : string_descriptor;
+;                                   procedure MAIL$READ_ERROR_TEXT);
+;
+;       status := MAIL_OUT_FILE    (context : unsigned;
+;                                   LNK_C_OUT_FILE : immediate;
+;                                   node : string_descriptor;
+;                                   rab : $RAB_TYPE;
+;                                   procedure UTIL$REPORT_IO_ERROR);
+;
+;       status := MAIL_OUT_DEACCESS (context : unsigned;
+;                                    LNK_C_OUT_DEACCESS : immediate);
+;
+;       status := MAIL_IN_CONNECT (context : unsigned;
+;                                  LNK_C_IN_CONNECT : immediate;
+;                                  input_tran : string_descriptor;
+;                                  file_RAT, file_RFM : immediate;
+;                                  MAIL$GL_FLAGS : immediate;
+;                                  MAIL$Q_PROTOCOL : string_descriptor;
+;                                  pflags : immediate);
+;
+;       status := MAIL_IN_LINE   (context : unsigned;
+;                                 [LNK_C_IN_SENDER | LNK_C_IN_CKUSER |
+;                                  LNK_C_IN_TO | LNK_C_IN_SUBJ] : immediate;
+;                                 returned_line : string_descriptor);
+;
+;       status := MAIL_IN_FILE     (context : unsigned;
+;                                   LNK_C_OUT_FILE : immediate;
+;                                   0 : immediate;
+;                                   rab : $RAB_TYPE;
+;                                   procedure UTIL$REPORT_IO_ERROR);
+;
+;       status := MAIL_IO_READ  (context : unsigned;
+;                                LNK_C_IO_READ : immediate;
+;                                returned_text_line : string_descriptor);
+;
+;       status := MAIL_IO_WRITE (context : unsigned;
+;                                LNK_C_IO_WRITE : immediate;
+;                                text_line : string_descriptor);
+;
+;---------------------------------------------------------------------------
+;
+; Define major and minor protocol identifiers.  MAIL requires that these
+; be 1.  The shareable image MUST be linked with the options file MAILSHR.OPT
+; that promotes these symbols to UNIVERSAL symbols so they will end up
+; in the shareable image's symbol table.
+;
+                MAIL$C_PROT_MAJOR == 1
+                MAIL$C_PROT_MINOR == 1
+;
+; Constants for dispatcher, taken from MAIL.SDL listing
+;
+        LNK_C_FIRST = 0
+        LNK_C_OUT_CONNECT  == 0
+        LNK_C_OUT_SENDER   == 1
+        LNK_C_OUT_CKUSER   == 2
+        LNK_C_OUT_TO       == 3
+        LNK_C_OUT_SUBJ     == 4
+        LNK_C_OUT_FILE     == 5
+        LNK_C_OUT_CKSEND   == 6
+        LNK_C_OUT_DEACCESS == 7
+ 
+        LNK_C_IN_CONNECT   == 8
+        LNK_C_IN_SENDER    == 9
+        LNK_C_IN_CKUSER    == 10
+        LNK_C_IN_TO        == 11
+        LNK_C_IN_SUBJ      == 12
+        LNK_C_IN_FILE      == 13
+ 
+        LNK_C_IO_READ      == 14
+        LNK_C_IO_WRITE     == 15
+        LNK_C_LAST = 15
+;
+; Here's the main routine that is called by MAIL.  Note that we don't really
+; do any work here, just dispatch the call to the appropriate handler.  The
+; reason I do it this way is that I am not interested in writing the handlers
+; in MACRO, and I cannot easily deal with different numbers of arguments in
+; the same procedure in other languages.
+;
+ 
+;
+; General argument offset to the function code:
+;
+        LNK_FUNCTION = 8
+;
+; Shareable image transfer vectors
+;
+        .Transfer       MAIL$PROTOCOL
+        .Mask           MAIL$PROTOCOL
+        jmp     L^MAIL$PROTOCOL + 2
+ 
+        .Entry  MAIL$PROTOCOL, ^M<r2,r3>
+ 
+        caseb   LNK_FUNCTION(ap), #LNK_C_FIRST, -       ; Dispatch to handler
+                #<LNK_C_LAST - LNK_C_FIRST>
+ 
+10$:      .word Dispatch_out_connect - 10$              ; LNK_C_OUT_CONNECT
+          .word Dispatch_out_line - 10$                 ; LNK_C_OUT_SENDER
+          .word Dispatch_out_check - 10$                ; LNK_C_OUT_CKUSER
+          .word Dispatch_out_line - 10$                 ; LNK_C_OUT_TO
+          .word Dispatch_out_line - 10$                 ; LNK_C_OUT_SUBJ
+          .word Dispatch_out_file - 10$                 ; LNK_C_OUT_FILE
+          .word Dispatch_out_check - 10$                ; LNK_C_OUT_CKSEND
+          .word Dispatch_out_deaccess - 10$             ; LNK_C_OUT_DEACCESS
+ 
+          .word Dispatch_in_connect - 10$               ; LNK_C_IN_CONNECT
+          .word Dispatch_in_line - 10$                  ; LNK_C_IN_SENDER
+          .word Dispatch_in_line - 10$                  ; LNK_C_IN_CKUSER
+          .word Dispatch_in_line - 10$                  ; LNK_C_IN_TO
+          .word Dispatch_in_line - 10$                  ; LNK_C_IN_SUBJ
+          .word Dispatch_in_file - 10$                  ; LNK_C_IN_FILE
+ 
+          .word Dispatch_IO_read - 10$                  ; LNK_C_IO_READ
+          .word Dispatch_IO_write - 10$                 ; LNK_C_IO_WRITE
+ 
+unknown:
+        pushl   LNK_FUNCTION(ap)        ; FAO parameter in the function code
+        pushl   #1
+        pushl   #DELIVER__UNKFUNC       ; Signal unknown function code
+        calls   #3, G^LIB$SIGNAL        ; if we fall through dispatcher.
+        movl    #DELIVER__UNKFUNC, r0
+        ret
+;
+; The dispatchers
+;
+Dispatch_out_connect:
+        callg   (ap), MAIL_OUT_CONNECT
+        ret
+ 
+Dispatch_out_line:
+        callg   (ap), MAIL_OUT_LINE
+        ret
+ 
+Dispatch_out_check:
+        callg   (ap), MAIL_OUT_CHECK
+        ret
+ 
+Dispatch_out_file:
+        callg   (ap), MAIL_OUT_FILE
+        ret
+ 
+Dispatch_out_deaccess:
+        callg   (ap), MAIL_OUT_DEACCESS
+        ret
+ 
+Dispatch_in_connect:
+        callg   (ap), MAIL_IN_CONNECT
+        ret
+ 
+Dispatch_in_line:
+        callg   (ap), MAIL_IN_LINE
+        ret
+ 
+Dispatch_in_file:
+        callg   (ap), MAIL_IN_FILE
+        ret
+ 
+Dispatch_IO_read:
+        callg   (ap), MAIL_IO_READ
+        ret
+ 
+Dispatch_IO_write:
+        callg   (ap), MAIL_IO_WRITE
+        ret
+ 
+        .end

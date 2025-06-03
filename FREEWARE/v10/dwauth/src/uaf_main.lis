@@ -1,0 +1,195 @@
+
+UAF_MAIN                                                        22-NOV-1993 11:29:31    VAX C      V3.2-044                 Page 1
+X-2                                                              1-NOV-1993 12:25:38    [PILANT.HACK.DWAUTH.BL2]UAF_MAIN.C;113 (1)
+
+
+
+    1        	#module uaf_main "X-2"
+    2        	
+    3        	/*
+    4        	**++
+    5        	**  FACILITY:	Authorization record maintenance utility
+    6        	**
+    7        	**  MODULE DESCRIPTION:
+    8        	**
+    9        	**		This module contains the main processing routine  for the
+   10        	**		DECwindows AUTHORIZE utility.
+   11        	**
+   12        	**  AUTHORS:	L. Mark Pilant		CREATION DATE:  25-Nov-1992
+   13        	**
+   14        	**  MODIFICATION HISTORY:
+   15        	**
+   16        	**	X-2	LMP		L. Mark Pilant,		28-JAN-1993  16:04
+   17        	**		Convert to C from BLISS sources.
+   18        	**
+   19        	**	X-1	LMP		L. Mark Pilant,		25-NOV-1992
+   20        	**		Original version.
+   21        	**
+   22        	**--
+   23        	*/
+   24        	
+   25        	/*
+   26        	**
+   27        	**  INCLUDE FILES
+   28        	**
+   29        	*/
+   30        	
+   31        	#include	<JPIDEF>
+  178        	#include	<PRVDEF>
+  286        	
+  287        	#include	string
+  333        	
+  334        	#include	<decw$include:mrmappl>
+32393        	
+32394        	#include	"uaf_header"
+33814        	
+33815        	/*
+33816        	**
+33817        	** FORWARD ROUTINES.
+33818        	**
+33819        	*/
+33820        	
+33821        	#pragma noinline (AUTHORIZE$MAIN)
+33822        	
+
+UAF_MAIN                                                        22-NOV-1993 11:29:31    VAX C      V3.2-044                 Page 2
+X-2                                                              1-NOV-1993 12:25:38    [PILANT.HACK.DWAUTH.BL2]UAF_MAIN.C;113 (2)
+
+             	
+33823        	unsigned int AUTHORIZE$MAIN (argc, argv)
+33824        	
+33825        	MAIN_PROGRAM
+33826        	
+33827        	unsigned int		argc;
+33828        	char			*argv[];
+33829        	{
+33830    1   	/*
+33831    1   	**++
+33832    1   	**  FUNCTIONAL DESCRIPTION:
+33833    1   	**
+33834    1   	**	Main routine for the DECwindows AUTHORIZE utility.
+33835    1   	**
+33836    1   	**  FORMAL PARAMETERS:
+33837    1   	**
+33838    1   	**	None.
+33839    1   	**
+33840    1   	**  RETURN VALUE:
+33841    1   	**
+33842    1   	**	SS$_NORMAL if successful, error code otherwise.
+33843    1   	**
+33844    1   	**  SIDE EFFECTS:
+33845    1   	**
+33846    1   	**	None.
+33847    1   	**
+33848    1   	**--
+33849    1   	*/
+33850    1   	
+
+UAF_MAIN                                                        22-NOV-1993 11:29:31    VAX C      V3.2-044                 Page 3
+X-2                                                              1-NOV-1993 12:25:38    [PILANT.HACK.DWAUTH.BL2]UAF_MAIN.C;113 (3)
+
+             	
+33851    1   	/* External routines */
+33852    1   	
+33853    1   	extern unsigned int	AUTHORIZE$BUILD_MASTER_LIST ();
+33854    1   	extern unsigned int	AUTHORIZE$BUILD_USER_LIST ();
+33855    1   	extern void		AUTHORIZE$DECW_ERROR ();
+33856    1   	extern unsigned int	AUTHORIZE$DECW_INIT ();
+33857    1   	extern void		AUTHORIZE$DECW_MAIN_LOOP ();
+33858    1   	extern void		AUTHORIZE$INIT_GLOBAL ();
+33859    1   	extern unsigned int	AUTHORIZE$OPEN_UAF ();
+33860    1   	extern void		AUTHORIZE$SET_DEFAULT_FILTER ();
+33861    1   	extern void		AUTHORIZE$SET_UP_USERNAME ();
+33862    1   	
+33863    1   	/* Global references. */
+33864    1   	
+33865    1   	globalref Widget	uaf_r_main_top_level_widget;			/* Main window widget shell info */
+33866    1   	globalref char		*uaf_t_default_filter;				/* Default username filter */
+33867    1   	
+33868    1   	/* Local storage. */
+33869    1   	
+33870    1   	struct ITMDEF		jpi_itmlst[2];					/* $GETJPI item list */
+33871    1   	union prvdef		process_privileges;				/* Process privileges */
+33872    1   	unsigned int		status;						/* Routine exit status */
+33873    1   	
+33874    1   	/* Initialize local storage. */
+33875    1   	
+33876    1   	memset (&jpi_itmlst, 0, sizeof jpi_itmlst);
+33877    1   	
+33878    1   	jpi_itmlst[0].itm$w_bufsiz = sizeof process_privileges;
+33879    1   	jpi_itmlst[0].itm$w_itmcod = JPI$_CURPRIV;
+33880    1   	jpi_itmlst[0].itm$l_bufadr = &process_privileges;
+33881    1   	
+33882    1   	/* Get the process' current privileges. */
+33883    1   	
+33884    1   	CHECK_RETURN (SYS$GETJPI (NULL,
+33885    1   				  NULL,
+33886    1   				  NULL,
+33887    1   				  &jpi_itmlst,
+33888    1   				  NULL,
+33889    1   				  NULL,
+33890    1   				  NULL));
+33891    1   	
+33892    1   	/* There is an anomoly in the $GETUAI and $SETUAI system services that will
+33893    1   	** cause some problems if SYSPRV is not present.  Even though the authorization
+33894    1   	** file has been opened outside the system services, they still perform the
+33895    1   	** protection check.  (Even though the process could write the authorization
+33896    1   	** record directly...sigh.)  So to avoid some weird problems, check to see
+33897    1   	** if the process is running with SYSPRV.  If it is not, mention it. */
+33898    1   	
+33899    1   	if (FALSE (process_privileges.prv$v_sysprv) &&
+33900    1   	    FALSE (process_privileges.prv$v_bypass)) LIB$SIGNAL (UAF$_NOUAIPRIVS);
+33901    1   	
+33902    1   	/* Initialize the global storage. */
+33903    1   	
+33904    1   	AUTHORIZE$INIT_GLOBAL ();
+33905    1   	
+33906    1   	/* Initialize the DECwindows environment. */
+
+UAF_MAIN                                                        22-NOV-1993 11:29:31    VAX C      V3.2-044                 Page 4
+X-2                                                              1-NOV-1993 12:25:38    [PILANT.HACK.DWAUTH.BL2]UAF_MAIN.C;113 (3)
+
+33907    1   	
+33908    1   	SIGNAL_RETURN (UAF$_INITDISPLAY, AUTHORIZE$DECW_INIT ());
+33909    1   	
+33910    1   	/* Set up the default username filter. */
+33911    1   	
+33912    1   	AUTHORIZE$SET_DEFAULT_FILTER (uaf_t_default_filter);
+33913    1   	
+33914    1   	/* If the INITIAL_OPEN symbol has been defined, open up the authorization
+33915    1   	** file using either the logical name SYSUAF or the file name SYS$DISK:
+33916    1   	** SYSUAF.DAT. */
+33917    1   	
+33918    1   	#ifdef	INITIAL_OPEN
+33919    1   	
+33920    1   	/* Access the authorization file. */
+33921    1   	
+33922    1   	SIGNAL_RETURN (UAF$_UAFOPENERR, AUTHORIZE$OPEN_UAF (&NULL));
+33923    1   	
+33924    1   	/* Get a list of the user's and groups. */
+33925    1   	
+33926    1   	SIGNAL_RETURN (UAF$_UAFOPENERR, AUTHORIZE$BUILD_MASTER_LIST ());
+33927    1   	SIGNAL_RETURN (UAF$_UAFOPENERR, AUTHORIZE$BUILD_USER_LIST ());
+33928    1   	
+33929    1   	/* Set up for the first username in the list. */
+33930    1   	
+33931    1   	AUTHORIZE$SET_UP_USERNAME (NULL,
+33932    1   				   1);
+33933    1   	#endif	/* INITIAL_OPEN */
+33934    1   	
+33935    1   	/* Go finish up the DECwindows initialization and wait for X events. */
+33936    1   	
+33937    1   	AUTHORIZE$DECW_MAIN_LOOP ();
+33938    1   	
+33939    1   	/* Should never get here. */
+33940    1   	
+33941    1   	return SS$_NORMAL;
+33942    1   	}
+
+ 
+ 
+Command Line
+------------
+ 
+CC/LIST=UAF_MAIN/OBJECT=UAF_MAIN UAF_MAIN
+

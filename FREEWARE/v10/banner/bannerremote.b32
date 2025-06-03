@@ -1,0 +1,903 @@
+MODULE bannerremote (IDENT = 'V02-001',
+			ADDRESSING_MODE (NONEXTERNAL=GENERAL),
+			ADDRESSING_MODE (EXTERNAL=GENERAL)) =
+BEGIN
+
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1984 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+
+!++
+! FACILITY:	BANNER
+!
+! ABSTRACT:
+!
+!	This module displays performance monitors
+!
+! ENVIRONMENT:
+!
+!	VAX/VMS operating system.  Unprivileged, any mode.
+!
+! AUTHOR:
+!
+!	CW Hobbs					2-May-1985
+!
+! Modified by:
+!
+!	V02-002	LPL0001		Lee Leahy		 5 Oct 1991
+!		Modified to collect BUS and VC data for displaying LAN 
+!		and BUS utilization and most active VCs.
+!
+!       V02-001 TEC2001         T Coughlan		23-Aug-1991
+!               Update the PE counters to match the current driver.  
+!               (Modifications to file obtained from:
+!               FIZBUZ::FIZBUZ$DUA0:[SAUNDERS.BANNER.C])
+!
+!	V01-001	CWH1001		CW Hobbs		??-1985
+!		??
+!
+!--
+
+! Include files
+!
+LIBRARY 'SYS$LIBRARY:LIB';
+REQUIRE 'BANNER_PE';
+REQUIRE 'BANNER-PEM';
+REQUIRE 'LANUDEF';
+REQUIRE 'PEM_DEF';
+
+! Table of contents
+
+BUILTIN
+    MTPR;
+
+!
+! Define a macro to set the IPL
+!
+MACRO
+    set_ipl (level) = MTPR(%REF(level), pr$_ipl)%;
+
+! Table of contents
+!
+FORWARD ROUTINE
+    kernel_handler,		! Turn kernel mode signals to returns
+    kernel_handler_nolock,	! Turn kernel mode signals to returns
+    ucb_init,
+    check_busy,
+    add_opcnt,
+    add_pestats,
+    remote_io_count,
+    remote_pe_count;
+
+!
+! Define the linkage for the routines to lock and unlock the I/O database,
+! scan the I/O database, and obtain the device name.
+!
+LINKAGE
+    IOLOCK = JSB (REGISTER = 4)
+		: NOPRESERVE(0,1,2,3,4,5) PRESERVE(6,7,8,9,10,11),
+    IOSCAN = JSB (REGISTER = 11,		! Call with DDB,
+	    	  REGISTER = 10;		! UCB,
+		  REGISTER = 11,		! Return with DDB,
+		  REGISTER = 10)		! UCB
+		: NOPRESERVE(0,10,11) PRESERVE(1,2,3,4,5,6,7,8,9);
+
+EXTERNAL ROUTINE
+    sch$iolockr : IOLOCK,
+    sch$iounlock : IOLOCK,
+    ioc$scan_iodb : IOSCAN;
+
+EXTERNAL
+    mmg$gl_sysphd,
+    exe$gl_sysucb,
+    SCH$GL_PCBVEC : REF VECTOR[, LONG],
+    SCH$GW_PROCLIM,
+    scs$ar_localsb,
+    ctl$gl_pcb,
+    BUS_ARRAY : VECTOR [ PE_BUS$C_BUS_COUNT * PE_BUS$S_PE_BUS, BYTE ],
+    VC_ARRAY : VECTOR [ PE_VC$C_VC_COUNT * PE_VC$S_PE_VC, BYTE ];
+
+MACRO
+    pes_l_vc_cnt	=  0,0,32,0 %,
+    pes_l_ret_id_attempts = 4,0,32,0 %,
+    pes_l_ret_ids_sent =   8,0,32,0 %,
+    pes_l_topology_change = 12,0,32,0 %,
+    pes_l_npagedyn_low  = 16,0,32,0 %,
+    pes_l_xmt_msg	= 20,0,32,0 %,
+    pes_l_xmt_unseq	= 24,0,32,0 %,
+    pes_l_xmt_seq	= 28,0,32,0 %,
+    pes_l_xmt_ack	= 32,0,32,0 %,
+    pes_l_xmt_rexmt	= 36,0,32,0 %,
+    pes_l_xmt_bytes	= 40,0,32,0 %,
+    pes_l_xmt_noxch	= 44,0,32,0 %,
+    pes_l_rcv_msg	= 48,0,32,0 %,
+    pes_l_rcv_unseq	= 52,0,32,0 %,
+    pes_l_rcv_seq	= 56,0,32,0 %,
+    pes_l_rcv_ack	= 60,0,32,0 %,
+    pes_l_rcv_rercv	= 64,0,32,0 %,
+    pes_l_rcv_bytes	= 68,0,32,0 %,
+    pes_l_rcv_cache	= 72,0,32,0 %,
+    pes_l_tr_pipe_quota	= 76,0,32,0 %,
+    pes_l_rcv_tr_short	= 80,0,32,0 %,
+    pes_l_rcv_ill_ack	= 84,0,32,0 %,
+    pes_l_rcv_ill_seq	= 88,0,32,0 %,
+    pes_l_rcv_bad_cksum	= 92,0,32,0 %,
+    pes_l_xmt_seq_tmo	= 96,0,32,0 %,
+    pes_l_tr_dfq_empty	=100,0,32,0 %,
+    pes_l_tr_mfq_empty	=104,0,32,0 %,
+    pes_l_cc_dfq_empty	=108,0,32,0 %,
+    pes_l_cc_mfq_empty	=112,0,32,0 %;
+
+LITERAL
+    pes_c_length = 116,
+    ucbvec_size = 512;
+
+OWN
+    checkcount,
+    our_pid,
+    our_tt  : VECTOR[PCB$S_TERMINAL, BYTE],
+    our_pcb : REF BLOCK[, BYTE],
+    pe_ucb : REF $BBLOCK,
+    pe_checked : INITIAL (0),
+    ucbvec : VECTOR [ucbvec_size, LONG],
+    pdt : REF $BBLOCK,
+    port : REF $BBLOCK,
+    bus : REF $BBLOCK,
+    vc : REF $BBLOCK,
+    vcvec : REF VECTOR [, LONG],
+    vccnt;
+    
+GLOBAL
+    mon_v_ni_mntverip,
+    mon_v_ni_busy,
+    mon_v_ni_sys_mv,
+    new_pes : BLOCK [pes_c_length, BYTE];
+
+OWN
+    kernel_accvio : VECTOR [4, LONG] ADDRESSING_MODE (GENERAL);
+
+ROUTINE kernel_sysflts =
+
+!-
+!	This routine returns the number of system faults
+!
+! Inputs:
+!
+!	none
+!
+! Implicit Inputs:
+!
+!	system PHD
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    phd : REF BLOCK [, BYTE];
+
+phd = .mmg$gl_sysphd;			! Get pointer to system PHD (in ERKW memory)
+
+RETURN .phd [phd$l_pageflts];
+END;
+
+GLOBAL ROUTINE banner_kernel_sysflts =
+
+!-
+!	This routine returns the number of system faults
+!
+! Inputs:
+!
+!	none
+!
+! Implicit Inputs:
+!
+!	system PHD
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+RETURN $CMKRNL(ROUTIN=kernel_sysflts);
+END;
+
+GLOBAL ROUTINE kernel_handler (sig : REF BLOCK[,BYTE], mech : REF BLOCK[,BYTE]) =
+BEGIN
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine intercepts kernel mode signals.  
+!
+! INPUTS:
+!
+!	sig  - signal argument list
+!	mech - mechanism argument list
+!
+! SIDE EFFECTS:
+!
+!	A return is made to user mode code.
+!--
+
+EXTERNAL ROUTINE
+    LIB$SIG_TO_RET : ADDRESSING_MODE (GENERAL);
+
+! If the signal name is an accvio, then clean up
+!
+IF .sig [chf$l_sig_name] EQL ss$_accvio		! Is it an accvio?
+THEN
+    BEGIN
+    SCH$IOUNLOCK(.ctl$gl_pcb);		! Unlock I/O database
+    SET_IPL(0);					! Lower IPL
+    CH$MOVE (4*4, sig[chf$l_sig_arg1], kernel_accvio[0]);
+    RETURN LIB$SIG_TO_RET (.sig, .mech);	! Convert signal to return
+    END;
+
+RETURN ss$_resignal;
+END;
+
+GLOBAL ROUTINE kernel_handler_nolock (sig : REF BLOCK[,BYTE], mech : REF BLOCK[,BYTE]) =
+BEGIN
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine intercepts kernel mode signals.  
+!
+! INPUTS:
+!
+!	sig  - signal argument list
+!	mech - mechanism argument list
+!
+! SIDE EFFECTS:
+!
+!	A return is made to user mode code.
+!--
+
+EXTERNAL ROUTINE
+    LIB$SIG_TO_RET : ADDRESSING_MODE (GENERAL);
+
+! If the signal name is an accvio, then clean up
+!
+IF .sig [chf$l_sig_name] EQL ss$_accvio		! Is it an accvio?
+THEN
+    BEGIN
+    CH$MOVE (4*4, sig[chf$l_sig_arg1], kernel_accvio[0]);
+    RETURN LIB$SIG_TO_RET (.sig, .mech);	! Convert signal to return
+    END;
+
+RETURN ss$_resignal;
+END;
+
+GLOBAL ROUTINE ucb_init =
+
+!-
+!	This routine loads UCBVEC with the UCB addresses of all remote disks.
+!
+! Inputs:
+!
+!
+! Outputs:
+!	ucbvec - a zero-terminated list of ucb addresses
+!
+!-
+
+BEGIN
+
+LOCAL
+    status,
+    idx,
+    ucb : REF $BBLOCK,				! UCB pointer
+    ddb : REF $BBLOCK;				! DDB pointer
+
+!
+! Trap anything weird, and turn it into a return
+!
+ENABLE
+    kernel_handler;
+
+! 
+! Lock the I/O data base.  Upon return from the call to SCH$IOLOCKR, the 
+! IPL will be 2, so that pagefaults are still allowed.
+!
+SCH$IOLOCKR(.ctl$gl_pcb);			! Lock the I/O database
+
+!
+! Start at the beginning of the I/O database and initiate the I/O scan.
+!
+status = IOC$SCAN_IODB(0, 0; ddb, ucb);
+
+!
+! For each UCB in the I/O database, determine if it describes a device of 
+! interest.  If so, then add the UCB address to the UCBVEC.
+!
+idx = 1;					! ucbvec[0] is count, [1] is first ucb
+WHILE .status DO				! As long as the scan returns
+    BEGIN					! a success, stay in the loop.
+    IF
+	.ucb[ucb$b_devclass] EQL dc$_disk	! If it is a disk
+     AND					! and
+	.ddb[ddb$l_sb] NEQ .scs$ar_localsb	! if it is from a different system
+    THEN
+	BEGIN					! Save the UCB address
+	ucbvec[.idx] = .ucb;
+	idx = .idx + 1;
+	END;
+    IF
+	.ucb[ucb$b_devclass] EQL dc$_bus	! If it is a bus
+     AND					! and
+	.ucb[ucb$b_devtype] EQL dt$_nisca	! if it is a NI-SCS port
+     AND					! and
+	.ucb[ucb$w_unit] EQL 0			! if it is unit 0
+     AND					! on
+	.(ddb[ddb$t_name]) EQL .(UPLIT BYTE (3,'PEA')) ! device PEA
+    THEN
+	pe_ucb = .ucb;				! Save the UCB address
+    IF .idx EQL ucbvec_size-1
+    THEN
+	exitloop;
+    status = IOC$SCAN_IODB(.ddb, .ucb; ddb, ucb);
+    END;
+
+ucbvec[.idx] = 0;				! Mark the end
+!
+! Now to clean up.  Unlock the I/O database, then lower the IPL
+! to zero.
+!
+SCH$IOUNLOCK(.ctl$gl_pcb);			! Unlock I/O database
+SET_IPL(0);					! Lower IPL
+
+RETURN 1;
+END;
+
+
+GLOBAL ROUTINE check_busy (ucb : REF $BBLOCK) =
+
+!-
+!	This routine determines if any I/O requests are pending
+!
+! Inputs:
+!
+!	ucb - address of UCB
+!
+! Outputs:
+!	ucbvec - a zero-terminated list of ucb addresses
+!
+!-
+
+BEGIN
+
+LOCAL
+    cddb : REF $BBLOCK,				! CDDB pointer
+    status;
+
+status = 0;					! Assume not busy
+
+IF .ucb[ucb$v_bsy]
+THEN
+    status = 1;
+
+IF .ucb[ucb$l_ioqfl] NEQ ucb[ucb$l_ioqfl]
+THEN
+    status = 1;
+
+IF .$BBLOCK [ucb[ucb$l_devchar2], dev$v_mscp]
+THEN
+    BEGIN
+    cddb = .ucb[ucb$l_cddb];
+    IF .cddb NEQ 0
+    THEN
+	BEGIN
+	IF .cddb[cddb$l_cdrpqfl] NEQ cddb[cddb$l_cdrpqfl]
+	THEN
+	    status = 1;
+	IF .cddb[cddb$l_rstrtqfl] NEQ cddb[cddb$l_rstrtqfl]
+	THEN
+	    status = 1;
+	END;
+    END;
+
+RETURN .status;
+END;
+
+GLOBAL ROUTINE add_opcnt =
+
+!-
+!	This routine adds the operation counts of a list of UCBs
+!
+! Inputs:
+!	ucbvec[1] - a zero-terminated list of ucb addresses
+!
+! Outputs:
+!	ucbvec[0] - sum of UCB$L_OPCNT fields of all the UCBs
+!
+!-
+
+BEGIN
+
+LOCAL
+    opcnt,
+    ucb : REF $BBLOCK;				! UCB pointer
+
+!
+! Trap anything weird, and turn it into a return
+!
+ENABLE
+    kernel_handler_nolock;
+!
+! Loop through all the ucbs, adding the opcnt fields
+!
+ucbvec[0] = opcnt = 0;
+mon_v_ni_mntverip = mon_v_ni_busy  = mon_v_ni_sys_mv = 0;
+INCR idx FROM 1 TO ucbvec_size-1
+DO
+    BEGIN
+    ucb = .ucbvec[.idx];
+    IF .ucb EQL 0
+    THEN
+	EXITLOOP;
+    opcnt = .opcnt + .ucb[ucb$l_opcnt];
+    IF check_busy (.ucb)
+    THEN
+	mon_v_ni_busy = 1;
+    IF .ucb[ucb$v_mntverip]
+    THEN
+	BEGIN
+	mon_v_ni_mntverip = 1;
+	IF .ucb EQL .exe$gl_sysucb
+	THEN
+	    mon_v_ni_sys_mv = 1;
+	END;
+    END;
+!
+! Store the count
+!
+ucbvec[0] = .opcnt;
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE add_pestats =
+
+!-
+!	This routine collects the statistics from the PE
+!	virtual circuit and BUS blocks.
+!
+! Inputs:
+!	pe_ucb    - pointer to the UCB for PEA0
+!
+! Outputs:
+!	new_pes   - a block containing the sum of all the data
+!		    in the VC blocks
+!	BUS_ARRAY - a block containing the BUS information.
+!
+!-
+
+BEGIN
+
+  LOCAL
+    bus_list : REF $BBLOCK;
+
+!
+! Trap anything weird, and turn it into a return
+!
+ENABLE
+    kernel_handler_nolock;
+
+IF .pe_ucb EQL 0
+THEN
+    BEGIN
+    IF NOT .pe_checked
+    THEN
+	BEGIN
+	ucb_init ();
+	pe_checked = 1;
+	END;
+    IF .pe_ucb EQL 0
+    THEN
+	RETURN 1;
+    END;
+
+!
+! Zero the new statistics block, and other cells
+!
+
+CH$FILL (0, pes_c_length, new_pes);
+vccnt = 0;
+
+!
+! Find the start of the list of virtual circuit blocks
+!
+
+pdt = .pe_ucb[ucb$l_pdt];
+IF .pdt[pdt$b_type] NEQ dyn$c_scs
+ OR
+   .pdt[pdt$b_subtyp] NEQ dyn$c_scs_pdt
+ OR
+   .pdt[pdt$b_pdt_type] NEQ pdt$c_pe
+THEN
+    RETURN 1;
+port = .(.pdt+pdt$c_pem+pem_pctx);
+vcvec = .port[port$a_vcvec0];
+bus_list = port [ port$q_bus_list ];
+
+!
+! Collect the required BUS statistics.
+!
+
+bus = ..bus_list;
+INCR idx FROM 0 TO PE_BUS$C_BUS_COUNT-1 DO
+  BEGIN
+    IF .bus NEQ .bus_list THEN
+      BEGIN
+        BIND
+          bus_name = .bus [ BUS$A_DL_DEV_NAME ],
+	  next_bus = bus [ BUS$Q_BUS_LIST ],
+	  vcib = bus [ BUS$T_VCIB ] : $BBLOCK;
+        LOCAL
+          found;
+
+!		Locate this BUS in the BUS array.
+
+        found = 0;
+        INCR idx2 FROM 0 TO PE_BUS$C_BUS_COUNT-1 DO
+          BEGIN
+            LOCAL
+	      bus_statistics : REF $BBLOCK,
+              device_name;
+
+            IF .found EQL 0 THEN
+              BEGIN
+
+                bus_statistics = BUS_ARRAY [ .idx2 * PE_BUS$S_PE_BUS ];
+                device_name = bus_statistics [ PE_BUS$T_NAME ];
+	        IF ( ..device_name EQL .bus_name ) OR 
+                   ( ..device_name EQL 0 ) THEN
+                  BEGIN
+
+!			    Get the BUS statistics.
+
+		    found = 1;
+                    .device_name = .bus_name;
+		    bus_statistics [ PE_BUS$L_FLAGS ] = .bus [ BUS$L_STS ];
+		    bus_statistics [ PE_BUS$L_XMT_BYTES ] = .bus [ BUS$L_XMT_BYTES ];
+		    bus_statistics [ PE_BUS$L_RCV_BYTES ] = .bus [ BUS$L_RCV_BYTES ];
+		    bus_statistics [ PE_BUS$L_XMT_ERRORS ] = .bus [ BUS$L_ERROR_COUNT ];
+		    bus_statistics [ PE_BUS$L_LAN_TYPE ] = .vcib [ VCIB$W_DLL_TYPE ];
+
+                  END
+              END
+          END;
+
+!		    Set the next bus.
+
+	bus = .next_bus;
+
+      END
+  END;
+
+!
+! Scan all the VC blocks, and add the stats from all that
+! exist
+!
+INCR idx FROM .port[port$b_vc_last] TO .port[port$b_vc_num]
+DO
+    BEGIN
+    vc = .vcvec[.idx];
+    !
+    ! If the VC is zero, it has been closed.  If it is
+    ! -1, it is the end marker.
+    !
+    IF (.vc NEQ 0) AND (.vc NEQ -1)
+    THEN
+	BEGIN
+            LOCAL
+	      vc_statistics : REF $BBLOCK,
+              scs_node,
+	      nodename;
+
+        !
+        ! Collect the required VC statistics.
+        !
+
+        vc_statistics = VC_ARRAY [ .idx * PE_VC$S_PE_VC ];
+        scs_node = vc_statistics [ PE_VC$T_NODENAME ];
+	nodename = vc [ VC$T_NODENAME ];
+        .scs_node = ..nodename;
+	.scs_node+4 = .( .nodename + 4 );
+        vc_statistics [ PE_VC$L_FLAGS ] = .vc [ VC$W_STS ];
+        vc_statistics [ PE_VC$L_XMT_BYTES ] = .vc [ VC$L_XMT_BYTES ];
+        vc_statistics [ PE_VC$L_REXMT_MSGS ] = .vc [ VC$L_XMT_REXMT ];
+        vc_statistics [ PE_VC$L_RCV_BYTES ] = .vc [ VC$L_RCV_BYTES ];
+        vc_statistics [ PE_VC$L_RERCV_MSGS ] = .vc [ VC$L_RCV_RERCV ];
+        vc_statistics [ PE_VC$L_PIPE_QUOTA ] = .vc [ VC$B_PIPE_QUOTA ];
+
+	!
+	! Add the statistics for this VC.  Note that we divide the byte counts by
+	! 256 to reduce the risk of overflow.
+	!
+	vccnt = .vccnt + 1;
+	new_pes[pes_l_ret_id_attempts]	= .new_pes[pes_l_ret_id_attempts]	+ .vc[vc$l_ret_id_attempts];
+	new_pes[pes_l_ret_ids_sent]	= .new_pes[pes_l_ret_ids_sent]		+ .vc[vc$l_ret_ids_sent];
+	new_pes[pes_l_topology_change]	= .new_pes[pes_l_topology_change]	+ .vc[vc$l_topology_change];
+	new_pes[pes_l_npagedyn_low]	= .new_pes[pes_l_npagedyn_low]		+ .vc[vc$l_npagedyn_low];
+	new_pes[pes_l_xmt_msg]		= .new_pes[pes_l_xmt_msg]		+ .vc[vc$l_xmt_msg];
+	new_pes[pes_l_xmt_unseq]	= .new_pes[pes_l_xmt_unseq]		+ .vc[vc$l_xmt_unseq];
+	new_pes[pes_l_xmt_seq]		= .new_pes[pes_l_xmt_seq]		+ .vc[vc$l_xmt_seq];
+	new_pes[pes_l_xmt_ack]		= .new_pes[pes_l_xmt_ack]		+ .vc[vc$l_xmt_ack];
+	new_pes[pes_l_xmt_rexmt]	= .new_pes[pes_l_xmt_rexmt]		+ .vc[vc$l_xmt_rexmt];
+	new_pes[pes_l_xmt_bytes]	= .new_pes[pes_l_xmt_bytes]		+ .(vc[vc$l_xmt_bytes])<8,24,0>;
+	new_pes[pes_l_xmt_noxch]	= .new_pes[pes_l_xmt_noxch]		+ .vc[vc$l_xmt_noxch];
+	new_pes[pes_l_rcv_msg]		= .new_pes[pes_l_rcv_msg]		+ .vc[vc$l_rcv_msg];
+	new_pes[pes_l_rcv_unseq]	= .new_pes[pes_l_rcv_unseq]		+ .vc[vc$l_rcv_unseq];
+	new_pes[pes_l_rcv_seq]		= .new_pes[pes_l_rcv_seq]		+ .vc[vc$l_rcv_seq];
+	new_pes[pes_l_rcv_ack]		= .new_pes[pes_l_rcv_ack]		+ .vc[vc$l_rcv_ack];
+	new_pes[pes_l_rcv_rercv]	= .new_pes[pes_l_rcv_rercv]		+ .vc[vc$l_rcv_rercv];
+	new_pes[pes_l_rcv_bytes]	= .new_pes[pes_l_rcv_bytes]		+ .(vc[vc$l_rcv_bytes])<8,24,0>;
+	new_pes[pes_l_rcv_cache]	= .new_pes[pes_l_rcv_cache]		+ .vc[vc$l_rcv_cache];
+	new_pes[pes_l_tr_pipe_quota]	= .new_pes[pes_l_tr_pipe_quota]		+ .vc[vc$l_tr_pipe_quota];
+	new_pes[pes_l_rcv_tr_short]	= .new_pes[pes_l_rcv_tr_short]		+ .vc[vc$w_rcv_tr_short];
+	new_pes[pes_l_rcv_ill_ack]	= .new_pes[pes_l_rcv_ill_ack]		+ .vc[vc$w_rcv_ill_ack];
+	new_pes[pes_l_rcv_ill_seq]	= .new_pes[pes_l_rcv_ill_seq]		+ .vc[vc$w_rcv_ill_seq];
+	new_pes[pes_l_rcv_bad_cksum]	= .new_pes[pes_l_rcv_bad_cksum]		+ .vc[vc$w_rcv_bad_cksum];
+	new_pes[pes_l_xmt_seq_tmo]	= .new_pes[pes_l_xmt_seq_tmo]		+ .vc[vc$w_xmt_seq_tmo];
+	new_pes[pes_l_tr_dfq_empty]	= .new_pes[pes_l_tr_dfq_empty]		+ .vc[vc$w_tr_dfq_empty];
+	new_pes[pes_l_tr_mfq_empty]	= .new_pes[pes_l_tr_mfq_empty]		+ .vc[vc$w_tr_mfq_empty];
+	new_pes[pes_l_cc_dfq_empty]	= .new_pes[pes_l_cc_dfq_empty]		+ .vc[vc$w_cc_dfq_empty];
+	new_pes[pes_l_cc_mfq_empty]	= .new_pes[pes_l_cc_mfq_empty]		+ .vc[vc$w_cc_mfq_empty];
+	END;
+    END;
+!
+! Store the VC count into the stat block and return
+!
+new_pes[pes_l_vc_cnt] = .vccnt;
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE remote_io_count =
+
+!-
+!	This routine returns the count of remote I/Os
+!
+! Implicit Inputs:
+!
+!	None
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    status;     
+
+status = 1;
+!
+! Find all the ucbs we need, but update the list once every five minutes
+!
+checkcount = .checkcount - 1;
+IF .checkcount LEQ 0
+THEN
+    BEGIN
+    status = $CMKRNL (ROUTIN = ucb_init);
+    checkcount = 300;
+    END;
+!
+! Now count them
+!
+IF .status
+THEN
+    status = $CMKRNL (ROUTIN = add_opcnt);
+!
+! Check for problems
+!
+IF NOT .status
+THEN
+    BEGIN
+    IF .status EQL SS$_ACCVIO
+    THEN SIGNAL (.status, .kernel_accvio[0], .kernel_accvio[1], .kernel_accvio[2], .kernel_accvio[3], 0)
+    ELSE SIGNAL (.status);
+    RETURN 0;
+    END;
+
+RETURN .ucbvec[0];
+END;
+
+GLOBAL ROUTINE remote_pe_count =
+
+!-
+!	This routine updates the NEW_PES block with NISCS stats
+!
+! Implicit Inputs:
+!
+!	None
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    status;
+
+status = $CMKRNL (ROUTIN = add_pestats);
+IF NOT .status
+THEN
+    BEGIN
+!    IF .status EQL SS$_ACCVIO
+!    THEN SIGNAL (.status, .kernel_accvio[0], .kernel_accvio[1], .kernel_accvio[2], .kernel_accvio[3], 0)
+!    ELSE SIGNAL (.status);
+!    RETURN 0;
+    RETURN .status;
+    END;
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE get_pcb =
+
+!-
+!   This routine searches the list of PCB looking for the one which matches 
+! the specified pid.
+!
+! Inputs:
+!	    pid
+!
+! Outputs:
+!	    our_pcb is filled in.
+!
+!-
+
+BEGIN
+!
+! Trap anything weird, and turn it into a return
+!
+ENABLE
+    kernel_handler_nolock;
+
+!
+! Scan all the PCB blocks,
+!
+INCR idx FROM 0 TO 1000
+DO
+    BEGIN
+    our_pcb = .SCH$GL_PCBVEC[.idx];
+    IF (.SCH$GL_PCBVEC[.idx] EQL 0)
+    THEN
+	EXITLOOP;
+    IF (.our_pcb[PCB$L_EPID] EQLU .our_pid)
+    THEN
+	RETURN 1;    
+    END;
+
+RETURN 0;
+END;
+
+GLOBAL ROUTINE set_pcb =
+
+!-
+!   This routine sets the charactereristics of our PCB
+!
+! Inputs:
+!	    our_pcb
+!
+! Outputs:
+!
+!-
+
+BEGIN
+LOCAL
+    terminal : REF VECTOR[, BYTE];
+!
+! Trap anything weird, and turn it into a return
+!
+ENABLE
+    kernel_handler_nolock;
+
+!
+! Set the Terminal field
+!
+terminal = our_pcb[PCB$T_TERMINAL];
+
+INCR idx FROM 0 TO PCB$S_TERMINAL-1
+DO
+    BEGIN
+    terminal[.idx] = .our_tt[.idx];
+    END;
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE CHANGEPROCESSCHAR (pid : LONG, tt : REF VECTOR[, BYTE])=
+
+!-
+!	This rouitne patches the current processes PCB so that it
+! has the opeariance of an interactive processes with a terminal.
+!
+! Implicit Inputs:
+!
+!	None
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    charpos,
+    status;
+
+our_pid = .pid;
+status = $cmkrnl (routin = get_pcb);
+
+IF NOT .status
+THEN
+    BEGIN
+    RETURN .status;
+    END;
+
+charpos = 0;
+IF (.tt[.charpos] EQLU %C'_')
+THEN
+    charpos = 1;
+
+our_tt[0] = 0;
+INCR idx FROM 1 TO PCB$S_TERMINAL-1
+DO
+    BEGIN
+    IF (.tt[.charpos] EQL 0)
+    THEN
+	our_tt[.idx] = 0
+    ELSE
+	BEGIN
+	our_tt[0] = .our_tt[0] + 1;
+	our_tt[.idx] = .tt[.charpos];
+	END;
+    charpos = .charpos+1;
+    END;
+
+status = $cmkrnl (routin = set_pcb);
+
+IF NOT .status
+THEN
+    BEGIN
+    RETURN .status;
+    END;
+
+RETURN 1;
+END;
+
+END
+ELUDOM

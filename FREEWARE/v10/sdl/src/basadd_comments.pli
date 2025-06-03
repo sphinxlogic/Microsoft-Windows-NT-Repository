@@ -1,0 +1,134 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+*/
+
+/****************************************************************/
+/*								*/
+/* ADD_COMMENTS appends an end of line comment to the end  of	*/
+/* the output buffer.						*/
+/*								*/
+/****************************************************************/
+
+
+
+add_comments: proc(cur_node,buf) ;
+					    /********************/
+					    /*			*/
+					    /* ADD_COMMENTS	*/
+					    /*			*/
+					    /********************/
+/* include files */
+%include 'sdl$library:sdlnodef.in';	    /* definition of the tree node structure */
+
+/* declare variables */
+declare
+    cur_node pointer,			    /* pointer to the current node  */
+    buf	     char(1024) var,		    /* output buffer		    */
+    comment char(1024) var,		    /* buffer to hold the comment   */
+    pos fixed binary(31),		    /* position of special characters */
+    based_string char(1024) var BASED,	    /* ???????????????????????????  */
+    comment_opt bit(1) external,	    /* comment option flag	    */
+    global_db fixed binary(7) external,	    /* for debugging		    */
+    local_db fixed binary(7) initial(1);    /* for debugging		    */
+
+/* declare external routines */
+DCL FILL ENTRY (
+	character(*) VARYING ,
+	fixed binary(31))
+	RETURNS (character(132) VARYING );
+
+
+
+
+
+	if( global_db = 1 ) then
+	if ( local_db = 1 ) then
+	put skip list ('in add_comments');
+
+/* 
+ * If there is attached comment, then append it to end of line and 
+ * output it 
+ */
+
+	if( cur_node->nod$a_comment^=null() & comment_opt )
+	then do;
+	    if( buf ^= '' )
+	    then
+		buf= fill(buf,40);
+	
+	    
+	    /*
+	     * Exclaimation points '!' and ampersands '&' are special characters
+	     * within comments so change them to question marks '?'
+	     *
+	     */
+	    comment = cur_node->nod$a_comment->based_string;
+	    pos = index(comment,'!');
+	    do while( pos > 0 );
+		substr(comment,pos,1) = '?';
+		pos = index(comment,'!');
+	    end;
+	    pos = index(comment,'&');
+	    do while( pos > 0 );
+		substr(comment,pos,1) = '?';
+		pos = index(comment,'!');
+	    end;
+	    buf = buf || ' ! ' || comment;
+	end;
+
+/*
+ * If This node is part of a paramenter list then append an ampersand
+ *
+ */
+    if (cur_node->nod$a_parent ^= null())
+    then
+	if( cur_node->nod$a_parent->nod$b_type = nod$k_entrynode )
+	then
+	   buf = buf || ' &';
+
+
+
+
+	if( global_db = 1 ) then
+	if ( local_db = 1 ) then
+	put skip list ('end of add_comments');
+
+
+end add_comments;

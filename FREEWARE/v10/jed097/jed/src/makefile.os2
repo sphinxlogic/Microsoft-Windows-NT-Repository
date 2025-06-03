@@ -1,0 +1,109 @@
+#================ JED makefile for DMAKE 3.8 ======================
+# This makefile is for DMAKE, either under DOS or OS/2
+# The following OS/Compiler combinations are supported:
+#
+# Target       Compiler    Command                Compiler
+# Operating    Mnemoic     Line
+# System                   
+#-----------------------------------------------------------------------
+# OS2            MSC       OS=OS2 COMP=MSC        Microsoft C
+# OS2            EMX       OS=OS2 COMP=EMX        emx/gcc
+#-----------------------------------------------------------------------
+MODEL = L
+#-----------------------------------------------------------------------
+# default setup for EMX under OS/2, optimized version
+# change values below or override with -e switch on command line
+#-----------------------------------------------------------------------
+OS=OS2
+COMP=EMX
+OPT=Y
+#-----------------------------------------------------------------------
+.IF $(TOS) == $(NULL)
+    TOS = $(OS)
+.END
+.IF $(OS) == OS2
+#========================================================================
+#========================= OS2 - MSC ====================================
+#========================================================================
+    .IF $(COMP) == MSC
+        CC        = cl -nologo -MT
+        .IF $(OPT) == N
+            CDBUG = -Od -Zi -W2
+            LDEBUG = -Zi
+        .ELSE
+            CDBUG = 
+            LDEBUG =
+        .END
+        CDEBUG = -Gt16384 -D__os2_16__ $(CDBUG)
+        O = .obj
+	L = .lib
+	SLANG = $(SLIB)\slang$L
+	LFLAGS2 = setargv.obj $(SLANG) os2jed16.def -link /NOE
+#========================================================================
+#========================= OS2 - EMX ====================================
+#========================================================================
+    .ELIF $(COMP) == EMX
+        CC        = gcc -Zmtd
+        .IF $(OPT) == N
+            CDEBUG =-g
+            LDEBUG =
+        .ELSE
+            CDEBUG = -O
+            LDEBUG = -s
+        .END
+	O = .o
+	L = .a
+	SLANG = $(SLIB)\slang$L
+	LFLAGS2 = -L$(SLIB) os2jed.def -lslang
+    .ENDIF
+.ENDIF
+
+
+CFILES = buffer.c cmds.c misc.c file.c main.c display.c ins.c\
+         sysdep.c screen.c paste.c ledit.c line.c vterm.c search.c text.c\
+         keymap.c replace.c window.c undo.c vfile.c intrin.c syntax.c\
+	 abbrev.c
+
+OBJS = $(CFILES:s/.c/$O/)
+
+%OBJS = buffer.obj cmds.obj misc.obj file.obj main.obj display.obj ins.obj\
+%         sysdep.obj screen.obj paste.obj ledit.obj line.obj vterm.obj\
+%         keymap.obj replace.obj window.obj search.obj text.obj\
+%	 undo.obj vfile.obj intrin.obj
+HFILES = buffer.h file.h display.h sysdep.h screen.h paste.h ins.h misc.h\
+         ledit.h cmds.h text.h keymap.h replace.h window.h line.h\
+	 vterm.h search.h undo.h 
+MFILES = makefile zip.lis vms.c bsd.c sys5.c sig.c sig.h display.c
+JFILES = emacs.jed jed.rc most.jed edt.jed fortran.jed jed.doc read.me
+
+# Root directory where jed files are going to be kept.  This is the parent 
+# of JED's src, lib, etc, bin, and info directories.
+prefix = c:/jed
+JED_ROOT = -DJED_ROOT="\"$(prefix)\"" 
+#JED_LIB = -DJED_LIBRARY="\"$(JED_ROOT)/lib\""
+JED_PATHS = $(JED_ROOT) $(JED_LIB)
+
+# S-Lang Library include path.  This one assumes that slang and jed are on
+# the same level in the directory tree.
+SLIB = ..\..\slang\src
+
+CFLAGS = $(CDEBUG) -D__os2__ \
+	-DHAS_MEMCMP -DHAS_MEMCHR -DHAS_MEMCPY -DHAS_MEMSET -DFLOAT_TYPE
+LFLAGS = $(LDEBUG)
+
+.SUFFIXES: .obj .c
+
+jed.exe: $(OBJS) $(HFILES) $(SLANG)
+	$(CC) $(LFLAGS) -o $@ $(OBJS) $(LFLAGS2)
+
+$(SLANG):
+	cd $(SLIB) && $(MAKE) -f makefile.os2 OS=$(OS) COMP=$(COMP) OPT=$(OPT)
+
+.c$O:
+	$(CC) -c $(CFLAGS) -DJED -I$(SLIB) $*.c
+
+main$O: main.c
+	$(CC) -c $(CFLAGS) -DJED $(JED_PATHS) -I$(SLIB) main.c
+
+sysdep$O : os2.c config.h sysdep.h screen.h buffer.h misc.h
+

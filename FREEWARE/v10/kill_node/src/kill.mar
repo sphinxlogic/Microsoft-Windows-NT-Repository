@@ -1,0 +1,81 @@
+	.title		KILL -- causes the crash of another cluster node
+	.library	/sys$share:lib/
+	$IODEF
+	$SBDEF
+	$SYIDEF
+	.psect	data,rd,wrt,noexe,quad
+systemid:.blkb	SB$S_SYSTEMID
+itm_list:.word	SB$S_SYSTEMID,SYI$_NODE_SYSTEMID
+	.address systemid
+	.long	0,0
+nodename:.blkb	SB$S_NODENAME
+node_desc:.long	.-nodename
+	.address nodename
+prompt_d:.ascid	/Node:/
+nonode_mess:.ascid	/This node is not a member of the cluster/
+nodev_mess: .ascid	/the driver KILLDRIVER has not been loaded/
+nodriver_mess:
+	.ascid	/the driver KILLDRIVER has not been loaded on the remote node/
+get_foreign_mess:
+	.ascid	/Erreur during LIB$GET_FOREIGN/
+getsyi_mess:
+	.ascid	/Erreur during $GETSYI/
+assign_mess:
+	.ascid	/Erreur during $ASSIGN/
+qio_mess:
+	.ascid	/Erreur during $QIO/
+drvr_d:	.ASCID	/KILL0:/
+drvr_chan:.blkw	1
+iosb:	.blkl	2
+	.psect	code,rd,nowrt,exe,quad
+exit:	pushl	r0
+	pushl	r2
+	calls	#1,G^LIB$PUT_OUTPUT
+	movl	(SP)+,r0
+	ret
+;
+nonode:	pushal	nonode_mess
+	brw	put_output
+;
+	.entry	main,^m<>
+	moval	get_foreign_mess,r2
+	pushal	node_desc
+	pushal	prompt_d
+	pushal	node_desc
+	calls	#3,G^LIB$GET_FOREIGN
+1$:	blbc	r0,exit
+	moval	getsyi_mess,r2
+	$GETSYIW_S-
+		itmlst=itm_list,-
+		nodename=node_desc,-
+		iosb=iosb
+	cmpl	r0,#SS$_NOSUCHNODE
+	beql	nonode
+2$:	blbc	r0,1$
+	movl	iosb,r0
+	blbc	r0,1$
+	moval	assign_mess,r0
+	$ASSIGN_S devnam=drvr_d,-
+		chan=drvr_chan
+	cmpl	r0,#SS$_NOSUCHDEV
+	beql	nodev
+	blbc	r0,2$
+	moval	qio_mess,r2
+	$QIOW_S	chan=drvr_chan,func=#IO$_STOP,iosb=iosb,p1=systemid
+	blbc	r0,2$
+	movl	iosb,r0
+	cmpl	r0,#SS$_NOLISTENER
+	beql	nodriver
+	cmpl	r0,#SS$_VCBROKEN
+	beql	10$
+	brw	exit
+10$:	movzbl	#SS$_NORMAL,R0
+	ret
+nodev:	pushal	nodev_mess
+	brw	put_output
+nodriver:
+	pushal	nodriver_mess
+put_output:
+	calls	#1,G^LIB$PUT_OUTPUT
+	ret
+	.end	main

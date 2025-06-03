@@ -1,0 +1,837 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program: NATURAL_DEF
+        ! System : ADABAS
+        ! Author : Daniel James Swain
+        ! Date   :  7-AUG-1990
+        ! Purpose: Convert a Natural Data Definition report to an
+        !          INTOUCH augmented definition file
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+1000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  M A I N   L O G I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        action$ = "init"
+        do
+          select case action$
+            case "exit" : exit do
+            case else   : dispatch action$
+          end select
+        loop
+
+        close all
+        end
+        
+        
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! initialize the screen and variables
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init
+
+        natdef_ch = 1
+        frame off
+        z$ = space$(80)
+        cset z$ = "Natural to INTOUCH Definition Conversion"
+        print at 1, 1, bold : z$;
+        z$ = "EXIT = Exit" + &
+              space$(48) + &
+              "\ = Back  HELP = Help"
+
+        print reverse, at 24, 1 : z$;
+        print at 3, 1 : "Natural data definition filename: ";
+        print at 5, 1 : "Intouch defintion name          : ";
+
+        nat_tmp$ = 'natural_def.tmp'
+        gosub init_fields
+        
+        action$ = "natural_filename"
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! N A T U R A L   F I L E N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! get the Natural file name for the data definition
+        !
+        ! Expected:
+        !       nat_def$ = default name of the definition file
+        !
+        ! Result  :
+        !       nat_def$ = new definition filename
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine natural_filename
+        
+        u_prompt$ = "Natural file name"
+        u_length  = 45
+        u_help$   = action$
+        u_default$ = nat_def$
+        gosub ask
+        if  _exit  or  _back  then  
+          action$ = "exit"
+          exit routine
+        end if
+        nat_def$ = u_reply$
+        print at 3, 35, bold : rpad$(nat_def$, 45);
+        def_file$ = change$(nat_def$, "-", "_")
+        z = pos(def_file$, ".")
+        if  z > 0 then def_file$ = def_file$[1:z-1]
+        def_file$ = def_file$ + '.DEF'
+        action$ = "def_file"
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E F   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! get the intouch definition name
+        !
+        ! Expected:
+        !       def_file$ = default def file name
+        !
+        ! Result  :
+        !       def_file$ = new def file name
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine def_file
+
+        u_prompt$ = "INTOUCH definition filename"
+        u_length  = 45
+        u_help$   = action$
+        u_default$ = def_file$
+        gosub ask
+        if  _exit  then  
+          action$ = "exit"
+          exit routine
+        end if
+        if  _back  then
+          action$ = "natural_filename"
+          exit routine
+        end if
+        def_file$ = u_reply$
+        print at 5, 35, bold : rpad$(def_file$, 45);
+        action$ = "ask_proceed"
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   P R O C E E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! make sure this is what they want to do
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_proceed
+
+        u_prompt$ = "Proceed (Y/N)"
+        u_length  = 5
+        u_help$   = action$
+        u_default$ = "N"
+        gosub ask
+        if  _exit  then  
+          action$ = "exit"
+          exit routine
+        end if
+        if  _back  then
+          action$ = "def_file"
+          exit routine
+        end if
+        select case ucase$(u_reply$[1:1])
+          case 'Y' : action$ = "generate_nat_def"
+          case 'N' : action$ = "def_file"
+          case else 
+            message error : "Answer 'Y' to proceed, 'N' to change answers"
+        end select
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E N E R A T E   N A T   D E F
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! spawn natural with the commands needed to write a file of the
+        ! specified definition
+        !
+        ! Expected:
+        !       nat_def$ = natural file name
+        !       nat_tmp$ = name of tmp file to build
+        !
+        ! Result  :
+        !       tmp file is build
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine generate_nat_def
+
+        print ! get cursor back to right for appearance sake
+        when exception in
+          kill nat_tmp$ ! make sure old file is not present
+        use
+        end when
+        message "Accessing Natural..."
+        pass '@tti_run:natural_def.com ' +  nat_def$ + " " + nat_tmp$
+        ask system, pass : success z
+        if  not z  then
+          message error : "Spawn of Natural failed: " + systext$
+          action$ = "exit"
+          exit routine
+        end if
+        
+        action$ = "open_nat_tmp"
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   N A T   T M P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! open the file just created by natural
+        !
+        ! Expected:
+        !       nat_tmp$ = file name to open
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine open_nat_tmp
+
+        when exception in
+          open #natdef_ch : name nat_tmp$
+        use
+        end when
+        if  _error  then
+          message error : "Unable to write Natural definition: " + nat_def$
+          action$ = 'natural_filename'
+          exit routine
+        end if
+        
+        action$ = "create_def"
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C R E A T E   D E F
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! create the INTOUCH definition file
+        !
+        ! Expected:
+        !       def_file$ = name of definition file to create
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine create_def
+
+        pass "create/fdl=tti_run:define.fdl " + def_file$
+        ask system, pass : success z
+        if  not z  then
+          message error : "Failed to create INTOUCH definition file: " + &
+                def_file$
+          message error : "Error: " + systext$
+          action$ = "exit"
+          exit routine
+        end if
+
+        open structure def : name 'tti_run:define', &
+                datafile def_file$, access outin
+
+        action$ = "build_def"
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B U I L D   D E F
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! actually build the defintion file
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine build_def
+
+        eof = false
+        past_heading = false
+        do
+          gosub read_line
+          if  eof  then  exit do
+          if  not past_heading  then 
+            gosub skip_heading
+            iterate do
+          end if
+          gosub process_line
+        loop
+        gosub write_def
+        
+        action$ = "finish"
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E A D   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! read a line from the nat file
+        !
+        ! Expected:
+        !       natdef_ch = channel that nat file is opened on
+        !
+        ! Result  :
+        !       nat_line$ = line read from report
+        !       eof       = true if end of file reached
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine read_line
+
+        when exception in
+          line input #natdef_ch : nat_line$
+        use
+          eof = true
+        end when
+        
+        end routine
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S K I P   H E A D I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! skip over the heading lines. 
+        !
+        ! Expected:
+        !       nat_line$ = report line
+        !       only on heading per report
+        !       --- -- - is the first 8 non blank char in last line of heading
+        !
+        ! Result  :
+        !       past_heading = true when last line of heading is reached
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine skip_heading
+
+        z$ = trim$(nat_line$)
+        if  z$[1:8] = "--- -- -"  then  past_heading = true
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! process a report line.  A single natural field can span multiple
+        ! lines
+        !
+        ! Expected:
+        !       nat_line$ = report line
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_line
+
+        if  nat_line$[6:6] = "*"  then  exit routine ! comment line
+        if  nat_line$[10:11] <> "  "  then
+          gosub new_field
+        else
+          gosub same_field
+        end if
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! N E W   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! this line starts the definition of a new database field
+        ! write the definition record for the last field if any and start 
+        ! the new one
+        !
+        ! Expected:
+        !       nat_line$ = report line
+        !       nd_db_name$ = name of prior databas field if any
+        !
+        ! Result  :
+        !       nd_dtype$          datatype of the field
+        !       nd_scale           scale of numeric field
+        !       nd_full_name$      full natural name for the field
+        !       nd_db_name$ = new database name
+        !       
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine new_field
+
+        if  nd_db_name$ <> ""  then  gosub write_def ! new field def
+        nd_db_name$ = nat_line$[10:11]
+        nd_full_name$ = change$(nat_line$[13:44], "-", "_")
+        dtype$ = nat_line$[46:46]
+        gosub setup_dtype
+        z$ = nat_line$[48:52]
+        if  valid(z$, "number")  then  nd_scale = fp(val(z$))
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   D T Y P E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! convert from natural format code to INTOUCH datatype
+        !
+        ! Expected:
+        !       dtype$ = natural format
+        !
+        ! Result  :
+        !       nd_zf$             y if field is zero filled
+        !       nd_rj$             y if field is right justified
+        !       nd_num$            Y if field is numeric
+        !       nd_dtype$          INTOUCH data type
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_dtype
+
+        select case  dtype$
+          case 'A' : nd_dtype$  = "CH"
+          case 'B' : nd_dtype$  = "IN"
+          case 'P' : nd_dtype$  = "C3"
+          case 'N' 
+            nd_dtype$  = "CH"
+            nd_num$    = 'Y'
+            nd_rj$     = 'Y'
+            nd_zf$     = 'Y'
+          case 'I' : nd_dtype$  = "IN"
+          case 'F' : nd_dtype$  = "FL"
+          case '0' : nd_dtype$  = "UN" ! group fields
+          case ' ' : nd_dtype$  = "UN" ! group fields
+        end select
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S A M E   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! line is a continuation of the same database field
+        ! must be defining the heading or edit mask
+        !
+        ! Expected:
+        !       nat_line$ = report line
+        !       format of lines is as follows:
+        !          HD= XXXX where XXXX is heading
+        !          IC=X     where X is leading character of edit mask
+        !          EM= XXXX where XXXX is the actual edit mask
+        !          TC= X    where X is the trailing character of mask
+        !
+        ! Result  :
+        !       nd_heading$ = heading for field 
+        !       nd_mask$    = edit mask for field
+        !
+        !  routine longer that 22 lines due to the select case logic
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine same_field
+
+        nat_line$ = trim$(nat_line$)
+        eq_pos = 0
+        do 
+          eq_pos = eq_pos + 1
+          eq_pos = pos(nat_line$, '=', eq_pos)
+          if  eq_pos = 0  then  exit do
+          z$ = ucase$(nat_line$[eq_pos-2:eq_pos-1])
+          select case z$
+            case "HD" : nd_heading$ = trim$(nat_line$[eq_pos+1:eq_pos+31])
+            case "EM" : gosub parse_edit_mask
+            case "IC" 
+              z1$ = nat_line$[eq_pos+1:eq_pos+1]
+              if  z1$ = "'"  then  
+                eq_pos = eq_pos + 2
+                z1$ = nat_line$[eq_pos:eq_pos]
+              end if
+              nd_mask_ic$ = "~" + z1$
+            case "TC" 
+              z1$ = nat_line$[eq_pos+2:eq_pos+2]
+              if  z1$ = "'"  then  
+                eq_pos = eq_pos + 2
+                z1$ = nat_line$[eq_pos:eq_pos]
+              end if
+              nd_mask_tc$ = "~" + z1$
+          end select
+        loop
+        
+        end routine
+
+        
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   E D I T   M A S K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! parse a Natural edit mask and convert it into an INTOUCH 
+        ! edit mask
+        !
+        ! Expected:
+        !       nat_mask$ = the edit mask
+        !       eq_pos      = position of the = sign
+        !
+        ! Result  :
+        !       nd_mask$ = INTOUCH edit mask
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_edit_mask
+
+        z1 = pos(nat_line$, '=', eq_pos+1)
+        if  z1 = 0  then  z1 = len(nat_line$) + 3
+        nat_mask$ = trim$(nat_line$[eq_pos+1:z1-3])
+        fill_asteric = false
+        gosub expand_mask
+        mask_len = len(nat_mask$)
+        select case nd_dtype$
+          case 'CH'
+            if  nd_num$ = "Y"  then 
+              gosub numeric_mask
+            else
+              gosub string_mask
+            end if
+          case 'IN' : gosub numeric_mask
+          case 'C3' : gosub numeric_mask
+          case 'FL' : gosub numeric_mask
+          case else : gosub string_mask
+        end select
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! E X P A N D   M A S K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! edit mask can be shorthand. ex: 9(4).9(4) is the same as
+        ! 9999.9999
+        ! expand this out to make it possible to work with
+        !
+        ! Expected:
+        !       nat_mask$ = natural edit mask
+        !
+        ! Result  :
+        !       nat_mask$ = expanded natural edit mask
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine expand_mask
+
+        i = 1
+        do
+          z = pos(nat_mask$, '(', i)
+          if  z = 0  then  exit do
+          ! make sure not a quoted (
+          if  nat_mask$[z+1:z+1] = "'"  then
+            i = z + 2
+            repeat do
+          end if
+          z1 = pos (nat_mask$, ')', z)
+          if  z1 = 0  then  z1 = len(nat_mask$)
+          z$ = nat_mask$[z+1:z1-1]
+          if  not valid(z$, "integer")  then
+            nat_mask$ = ""
+            exit routine
+          end if
+          dup_char$ = nat_mask$[z-1:z-1]
+          dup_nbr = val(z$)
+          nat_mask$ = nat_mask$[1:z-2] + repeat$(dup_char$, dup_nbr) + &
+                nat_mask$[z1+1:len(nat_mask$)]
+          i = z - 2 + dup_nbr + 1 ! get past expanded characters
+        loop
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! N U M E R I C   M A S K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! convert a numeric edit mask
+        !
+        ! Expected:
+        !       nat_mask$ = edit mask
+        !       mask_len = length of edit mask
+        !
+        ! Result  :
+        !       nd_mask$ = INTOUCH edit mask
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine numeric_mask
+
+        mask_start = 2
+        select case nat_mask$[1:1]
+          case 'Z' : nd_mask$ = '#'
+          case '9' : nd_mask$ = '%'
+          case '*' 
+            fill_asteric = true
+            nd_mask$ = ''
+          case '.', '-', '$', '+' : nd_mask$ = nat_mask$[1:1]
+          case 'N' : nd_mask$ = '-'
+          case 'S' : nd_mask$ = '+'
+          case '^' : nd_mask$ = '^ '
+          case "'" 
+            nd_mask$ = "~" + nat_mask$[2:2]
+            mask_start = 4
+          case else : nd_mask$ = "~" + nat_mask$[1:1]
+        end select
+        for mask_index = mask_start to mask_len
+          mask_char$ = nat_mask$[mask_index : mask_index]
+          select case mask_char$
+            case 'Z'
+              if  fill_asteric  then
+                nd_mask$ = nd_mask$ + '*'
+              else
+                nd_mask$ = nd_mask$ + '#'
+              end if
+            case '9' : nd_mask$ = nd_mask$ + '%'
+            case '.', ',' : nd_mask$ = nd_mask$ + mask_char$
+            case '^' : nd_mask$ = nd_mask$ + '~ '
+            case '+', '-' 
+              if  nd_mask$[1:1] <> mask_char$  then  &
+                nd_mask$ = mask_char$ + nd_mask$
+            case "'"
+              nd_mask$ = nd_mask$ + "~" + nat_mask$[mask_index+1:mask_index+1]
+              mask_index = mask_index + 2
+            case else : nd_mask$ = nd_mask$ + '~' + mask_char$
+          end select
+        next mask_index
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T R I N G   M A S K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! convert a string edit mask
+        !
+        ! Expected:
+        !       nat_mask$ = edit mask
+        !       mask_len = length of edit mask
+        !
+        ! Result  :
+        !       nd_mask$ = INTOUCH edit mask
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine string_mask
+
+        first_repl_char = false ! no replacement chars found yet
+        nd_mask$ = ''
+        for mask_index = 1 to mask_len
+          mask_char$ = nat_mask$[mask_index : mask_index]
+          select case mask_char$
+            case 'X' 
+              if  first_repl_char  then
+                nd_mask$ = nd_mask$ + '#'
+              else
+                nd_mask$ = nd_mask$ + '<'
+                first_repl_char = true 
+              end if
+            case '^' : nd_mask$ = nd_mask$ + '~ '
+            case "'"
+              nd_mask$ = nd_mask$ + "~" + nat_mask$[mask_index+1:mask_index+1]
+              mask_index = mask_index + 2
+            case else : nd_mask$ = nd_mask$ + '~' + mask_char$
+          end select
+        next mask_index
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! W R I T E   D E F
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Write the definition record
+        !
+        ! Expected:
+        !   nd_db_name$        actual ADABAS field name
+        !   nd_mask_ic$        initial character if specified
+        !   nd_mask_tc$        trailing character if specified
+        !   nd_mask$           edit mask for field (optional)
+        !   nd_scale           scale of field
+        !   nd_zf$             Y if field is zero filled
+        !   nd_rj$             Y if field is right justified
+        !   nd_num$            Y if field is numeric character
+        !   nd_dtype$          INTOUCH datatype for the field
+        !   nd_full_name$      Natural field name
+        !   nd_heading$        heading for the field (optional)
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine write_def
+
+        if  nd_heading$ = "" then nd_heading$ = nd_full_name$
+        add structure def
+          def(old_name)= "*"
+          def(name)    = nd_full_name$
+          def(desc)    = nd_heading$
+          def(first)   = 0
+          def(len)     = 0
+          def(dtype)   = nd_dtype$
+          def(num)     = nd_num$    
+          def(rj)      = nd_rj$
+          def(zf)      = nd_zf$
+          def(scale)   = nd_scale
+          def(df)      = "YMD"
+          def(prompt)  = nd_heading$
+          def(heading) = nd_heading$
+          def(prmask)  = nd_mask_ic$ + nd_mask$ + nd_mask_tc$
+          def(help)    = nd_heading$
+          def(read)    = 'N'
+          def(write)   = 'N'
+          def(dbfld)   = nd_db_name$
+        end add
+        message "Created field: " + nd_full_name$
+
+        gosub init_fields
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   F I E L D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! initialize the fields
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_fields
+
+        nd_full_name$ = ""
+        nd_heading$   = ""
+        nd_scale      = 0
+        nd_mask_ic$   = ""
+        nd_mask$      = ""
+        nd_mask_tc$   = ""
+        nd_num$       = "N"
+        nd_dtype$     = ""
+        nd_rj$        = "N"
+        nd_zf$        = "N"
+        nd_db_name$   = ""
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N I S H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! finish up this definition
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine finish
+        
+        close all
+        kill nat_tmp$
+        message nat_def$ + " converted to INTOUCH"
+        
+        clear area 3, 35, 3, 80
+        clear area 5, 35, 5, 80
+
+        nat_def$ = ""
+        def_file$ = ""        
+
+        action$ = "natural_filename"
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! ask for input
+        !
+        ! Expected:
+        !        u_prompt$ = prompt text
+        !        u_length  = max len of input
+        !        u_help$   = input name for help
+        !        u_default$ = default data
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask
+
+        do
+          line input at 19, 1, prompt u_prompt$ + ": ", length u_length, &
+                default u_default$ : u_reply$
+          u_reply$ = ucase$(u_reply$)
+          if  _help  then  
+            gosub ask_help
+            repeat do
+          end if
+        end do        
+        clear area 19, 1, 19, 80
+        u_prompt$  = ""
+        u_length   = 0
+        u_help$    = ""
+        u_default$ = ""
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   H E L P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! display a help message based upon the field being input
+        !
+        ! Expected:
+        !       u_help$ = name of help
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_help
+        
+        select case u_help$
+          case "natural_filename"
+            message "Enter the name of a Natural file defined in SYSDDM"
+          case "def_file"
+            message "Enter the name of the INTOUCH definition file to create"
+          case "ask_proceed"
+            message "Enter 'Y' to proceed, 'N' to change answers"
+        end select
+
+        end routine
+
+
+
+

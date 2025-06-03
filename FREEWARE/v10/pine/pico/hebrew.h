@@ -1,0 +1,11 @@
+#define L_HEB  1
+#define L_ENG  0
+extern char hebmode;
+extern char hebmain;
+extern char control_mode;
+extern char eng_in_heb;
+extern char message_mode;
+extern  char compose_heb;
+extern char search_mode;
+extern short last_eng_pos;
+extern char force_eng;

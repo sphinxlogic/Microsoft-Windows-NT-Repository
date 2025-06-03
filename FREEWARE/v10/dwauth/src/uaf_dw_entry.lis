@@ -1,0 +1,1690 @@
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 1
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (1)
+
+
+
+    1        	#module UAF_DW_ENTRY "X-2"
+    2        	
+    3        	/*
+    4        	**++
+    5        	**  FACILITY:	Authorization record maintenance utility
+    6        	**
+    7        	**  MODULE DESCRIPTION:
+    8        	**
+    9        	**		This module contains the various DECwindows entry window
+   10        	**		support routines needed by the DECwindows AUTHORIZE utility.
+   11        	**
+   12        	**  AUTHORS:	L. Mark Pilant			CREATION DATE:  30-Oct-1992
+   13        	**
+   14        	**  MODIFICATION HISTORY:
+   15        	**
+   16        	**	X-2	LMP		L. Mark Pilant,		 5-MAR-1993  12:47
+   17        	**		Convert to C from BLISS sources.
+   18        	**
+   19        	**	X-1	LMP		L. Mark Pilant,		30-Oct-1992
+   20        	**		Original version.
+   21        	**
+   22        	**--
+   23        	*/
+   24        	
+   25        	/*
+   26        	**
+   27        	**  INCLUDE FILES
+   28        	**
+   29        	*/
+   30        	
+   31        	#include ctype
+   94        	#include stdlib
+  241        	
+  242        	#include <decw$include:mrmappl>
+32314        	
+32315        	#include "uaf_header"
+33735        	
+33736        	/*
+33737        	**
+33738        	**  FORWARD ROUTINES
+33739        	**
+33740        	*/
+33741        	
+33742        	#pragma noinline (AUTHORIZE$ENTRY_PROCESS)
+33743        	#pragma noinline (AUTHORIZE$FINISH_ENTRY)
+33744        	#pragma noinline (AUTHORIZE$GET_ENTRY)
+33745        	#pragma noinline (AUTHORIZE$SET_UP_ENTRY)
+33746        	
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 2
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (2)
+
+             	
+33747        	extern void AUTHORIZE$ENTRY_PROCESS (widget_id, tag, reason)
+33748        	
+33749        	Widget				widget_id;
+33750        	int				*tag;
+33751        	XmAnyCallbackStruct		*reason;
+33752        	{
+33753    1   	/*
+33754    1   	**++
+33755    1   	**  FUNCTIONAL DESCRIPTION:
+33756    1   	**
+33757    1   	**	This routine is called to initiate processing of an
+33758    1   	**	authorization entry.
+33759    1   	**
+33760    1   	**  FORMAL PARAMETERS:
+33761    1   	**
+33762    1   	**	{@subtags@}
+33763    1   	**
+33764    1   	**  RETURN VALUE:
+33765    1   	**
+33766    1   	**	None
+33767    1   	**
+33768    1   	**  SIDE EFFECTS:
+33769    1   	**
+33770    1   	**	{@description or none@}
+33771    1   	**
+33772    1   	**--
+33773    1   	*/
+33774    1   	
+33775    1   	/* External routines. */
+33776    1   	
+33777    1   	extern void			AUTHORIZE$DECW_ERROR ();
+33778    1   	extern unsigned int		AUTHORIZE$GET_USER_INFO ();
+33779    1   	extern void			AUTHORIZE$ITMLST_ADD_ITEM ();
+33780    1   	extern void			AUTHORIZE$SET_UP_ENTRY ();
+33781    1   	extern void			AUTHORIZE$SET_UP_USERNAME ();
+33782    1   	
+33783    1   	/* Global references. */
+33784    1   	
+33785    1   	globalref unsigned int		uaf_l_current_user_index;	/* Index of current user */
+33786    1   	globalref unsigned int		uaf_l_current_user_max;		/* Count of entries in user list */
+33787    1   	globalref Widget		uaf_r_access_pri_window_widget;	/* Primary access restriction window widget info */
+33788    1   	globalref Widget		uaf_r_access_sec_window_widget;	/* Secondary access restriction window widget info */
+33789    1   	globalref struct ITMDEF		(*uaf_r_current_user_info)[];	/* Current user UAF info */
+33790    1   	globalref Widget		uaf_r_entry_window_widget;	/* Entry window widget info */
+33791    1   	globalref struct ITMDEF		(*uaf_r_template_info)[];	/* Modification template information */
+33792    1   	globalref char			uaf_t_current_username[];	/* Current username */
+33793    1   	
+33794    1   	/* Local storage. */
+33795    1   	
+33796    1   	int				index;				/* General index */
+33797    1   	unsigned int			status;				/* Routine exit status */
+33798    1   	int				widget_number = *tag;
+33799    1   	
+33800    1   	/* Debug information. */
+33801    1   	
+33802    1   	#ifdef DEBUGGING
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 3
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (2)
+
+33803   X    	printf ("entry process\n");
+33804    1   	#endif /* DEBUGGING */
+33805    1   	
+33806    1   	/* Call the appropriate routine, based upon the pushbutton. */
+33807    1   	
+33808    1   	switch (widget_number)
+33809    1   	    {
+33810    2   	    case uaf$c_entry_cancel:
+33811    2   		{
+33812    3   		XtUnmanageChild (uaf_r_entry_window_widget);
+33813    3   	
+33814    3   	/* If there is an access window up, tear it down. */
+33815    3   	
+33816    3   		if (XtIsManaged (uaf_r_access_pri_window_widget))
+33817    3   		    XtUnmanageChild (uaf_r_access_pri_window_widget);
+33818    3   		if (XtIsManaged (uaf_r_access_sec_window_widget))
+33819    3   		    XtUnmanageChild (uaf_r_access_sec_window_widget);
+33820    3   		break;
+33821    3   		}
+33822    2   	    case uaf$c_entry_ok_next:
+33823    2   		{
+33824    3   	
+33825    3   	/* If I am positioned to the last possible entry, don't attempt to go any
+33826    3   	** further.  Otherwise finish up with the current entry and do the next one. */
+33827    3   	
+33828    3   		if (uaf_l_current_user_index < uaf_l_current_user_max)
+33829    3   		    {
+33830    4   	
+33831    4   	/* Set up for the next user in the list. */
+33832    4   	
+33833    4   		    ++uaf_l_current_user_index;
+33834    4   		    AUTHORIZE$SET_UP_USERNAME (NULL,
+33835    4   					       uaf_l_current_user_index);
+33836    4   	
+33837    4   	/* Get the authorization information. */
+33838    4   	
+33839    4   		    if (FALSE (AUTHORIZE$GET_USER_INFO (uaf_t_current_username,
+33840    4   							&uaf_r_current_user_info)))
+33841    4   			{
+33842    5   	
+33843    5   	/* Since an error has occurred getting the authorization information for the
+33844    5   	** next user, reset the username, note the error, and dismiss; leaving the
+33845    5   	** existing window unchanged. */
+33846    5   	
+33847    5   			--uaf_l_current_user_index;
+33848    5   			AUTHORIZE$SET_UP_USERNAME (NULL,
+33849    5   						   uaf_l_current_user_index);
+33850    5   			AUTHORIZE$DECW_ERROR (UAF$_UAFREADERR);
+33851    5   			return;
+33852    5   			}
+33853    4   	
+33854    4   	/* Now set up the information in the entry window. */
+33855    4   	
+33856    4   		    AUTHORIZE$SET_UP_ENTRY (uaf_r_current_user_info);
+33857    4   		    }
+33858    3   		XtManageChild (uaf_r_entry_window_widget);
+33859    3   		break;
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 4
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (2)
+
+33860    3   		}
+33861    2   	
+33862    2   	    case uaf$c_entry_ok_previous:
+33863    2   		{
+33864    3   	
+33865    3   	/* If I am positioned to the first possible entry, don't attempt to go any
+33866    3   	** further.  Otherwise finish up with the current entry and do the next one. */
+33867    3   	
+33868    3   		if (uaf_l_current_user_index > 1)
+33869    3   		    {
+33870    4   	
+33871    4   	/* Set up for the previous user in the list. */
+33872    4   	
+33873    4   		    --uaf_l_current_user_index;
+33874    4   		    AUTHORIZE$SET_UP_USERNAME (NULL,
+33875    4   					       uaf_l_current_user_index);
+33876    4   	
+33877    4   	/* Get the authorization information. */
+33878    4   	
+33879    4   		    if (FALSE (AUTHORIZE$GET_USER_INFO (uaf_t_current_username,
+33880    4   							&uaf_r_current_user_info)))
+33881    4   			{
+33882    5   	
+33883    5   	/* Since an error has occurred getting the authorization information for the
+33884    5   	** next user, reset the username, note the error, and dismiss; leaving the
+33885    5   	** existing window unchanged. */
+33886    5   	
+33887    5   			++uaf_l_current_user_index;
+33888    5   			AUTHORIZE$SET_UP_USERNAME (NULL,
+33889    5   						   uaf_l_current_user_index);
+33890    5   			AUTHORIZE$DECW_ERROR (UAF$_UAFREADERR);
+33891    5   			return;
+33892    5   			}
+33893    4   	
+33894    4   	/* Now set up the information in the entry window. */
+33895    4   	
+33896    4   		    AUTHORIZE$SET_UP_ENTRY (uaf_r_current_user_info);
+33897    4   		    }
+33898    3   		XtManageChild (uaf_r_entry_window_widget);
+33899    3   		break;
+33900    3   		}
+33901    2   	
+33902    2   	    case uaf$c_entry_apply_template:
+33903    2   		{
+33904    3   	
+33905    3   	/* Apply the template information to the current authorization entry.  This is
+33906    3   	** done by taking each of the (template) item list entries and updating the
+33907    3   	** current user information. */
+33908    3   	
+33909    3   		for (index = 0; (*uaf_r_template_info)[index].itm$w_itmcod != 0; index++)
+33910    3   		    {
+33911    4   	
+33912    4   	/* Don't modify the username of the current entry.  This allows the user to
+33913    4   	** put some meaningful information in the username field of the template
+33914    4   	** authorization entry. */
+33915    4   	
+33916    4   		    if ((*uaf_r_template_info)[index].itm$w_itmcod != UAI$_USERNAME)
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 5
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (2)
+
+33917    4   			AUTHORIZE$ITMLST_ADD_ITEM (&uaf_r_current_user_info,
+33918    4   						   (*uaf_r_template_info)[index].itm$w_itmcod,
+33919    4   						   (*uaf_r_template_info)[index].itm$w_bufsiz,
+33920    4   						   (*uaf_r_template_info)[index].itm$l_bufadr);
+33921    4   		    }
+33922    3   	
+33923    3   	/* Use the updated information to set up the authorization window.  It would
+33924    3   	** be possible to simply update those fields that changed, but doing it this
+33925    3   	** way simplifies the code. */
+33926    3   	
+33927    3   		AUTHORIZE$SET_UP_ENTRY (uaf_r_current_user_info);
+33928    3   		XtManageChild (uaf_r_entry_window_widget);
+33929    3   		break;
+33930    3   		}
+33931    2   	    }
+33932    1   	}
+33933        	
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 6
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (3)
+
+             	
+33934        	extern void AUTHORIZE$FINISH_ENTRY (widget_id, tag, reason)
+33935        	
+33936        	Widget				widget_id;
+33937        	int				*tag;
+33938        	XmAnyCallbackStruct		*reason;
+33939        	{
+33940    1   	/*
+33941    1   	**++
+33942    1   	**  FUNCTIONAL DESCRIPTION:
+33943    1   	**
+33944    1   	**	This routine is called to finish up the processing of an
+33945    1   	**	authorization entry.
+33946    1   	**
+33947    1   	**  FORMAL PARAMETERS:
+33948    1   	**
+33949    1   	**	{@subtags@}
+33950    1   	**
+33951    1   	**  RETURN VALUE:
+33952    1   	**
+33953    1   	**	None
+33954    1   	**
+33955    1   	**  SIDE EFFECTS:
+33956    1   	**
+33957    1   	**	{@description or none@}
+33958    1   	**
+33959    1   	**--
+33960    1   	*/
+33961    1   	
+33962    1   	/* External routines. */
+33963    1   	
+33964    1   	extern unsigned int		AUTHORIZE$ADD_LIST_ENTRY ();
+33965    1   	extern unsigned int		AUTHORIZE$CRE_USER_INFO ();
+33966    1   	extern void			AUTHORIZE$DECW_ERROR ();
+33967    1   	extern unsigned int		AUTHORIZE$FIND_USER_ENTRY ();
+33968    1   	extern unsigned int		AUTHORIZE$GET_ENTRY ();
+33969    1   	extern void			AUTHORIZE$ITMLST_ADD_ITEM ();
+33970    1   	extern void			AUTHORIZE$ITMLST_COMPARE ();
+33971    1   	extern void			AUTHORIZE$ITMLST_DELETE ();
+33972    1   	extern void			AUTHORIZE$ITMLST_MERGE ();
+33973    1   	extern void			AUTHORIZE$ITMLST_UPDATE ();
+33974    1   	extern void			AUTHORIZE$SET_UP_USERNAME ();
+33975    1   	extern unsigned int		AUTHORIZE$SET_USER_INFO ();
+33976    1   	extern unsigned int		AUTHORIZE$MATCH_NAME ();
+33977    1   	
+33978    1   	/* Global references. */
+33979    1   	
+33980    1   	globalref unsigned int		uaf_l_current_group_max;	/* Count of entries in group list */
+33981    1   	globalref unsigned int		uaf_l_current_user_max;		/* Count of entries in user list */
+33982    1   	globalref int			uaf_l_main_operation;		/* Operation (i.e., create, modify, etc.) */
+33983    1   	globalref Widget		uaf_r_access_pri_window_widget;	/* Primary access restriction window widget info */
+33984    1   	globalref Widget		uaf_r_access_sec_window_widget;	/* Secondary access restriction window widget info */
+33985    1   	globalref struct ITMDEF		(*uaf_r_current_group_info)[];	/* Current group UAF info */
+33986    1   	globalref struct ITMDEF		(*uaf_r_current_user_info)[];	/* Current user UAF info */
+33987    1   	globalref Widget		uaf_r_entry_window_widget;	/* Entry window widget info */
+33988    1   	globalref struct USRLSTDEF	uaf_r_group_list;		/* Group user name list head */
+33989    1   	globalref struct USRLSTDEF	uaf_r_master_list;		/* Complete user list (from the file) */
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 7
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (3)
+
+33990    1   	globalref struct ITMDEF		(*uaf_r_template_info)[];	/* Modification template information */
+33991    1   	globalref struct USRLSTDEF	uaf_r_user_list;		/* User name list head */
+33992    1   	globalref Widget		uaf_r_widget_id_array[];	/* Array of Widget IDs in use */
+33993    1   	globalref char			uaf_t_current_username[];	/* Current username */
+33994    1   	globalref char			uaf_t_username_filter[sizeof uaf_r_user_list.uaf$t_usrlst_name];	/* Current username filter string */
+33995    1   	
+33996    1   	/* Local storage. */
+33997    1   	
+33998    1   	XmString			current_username;		/* Compound string for current username */
+33999    1   	int				index;				/* General index */
+34000    1   	unsigned char			*item_bufadr;			/* Item buffer address from item list entry */
+34001    1   	unsigned int			item_bufsiz;			/* Item buffer size from item list entry */
+34002    1   	unsigned int			item_code;			/* Item code from item list entry */
+34003    1   	int				list_count;			/* Number of list entries passed before adding item */
+34004    1   	struct USRLSTDEF		*new_entry;			/* User list entry just added */
+34005    1   	int				new_entry_uic = 0;		/* UIC for new entry */
+34006    1   	struct ITMDEF			(*new_user_info)[] = 0;		/* Item list for new information */
+34007    1   	unsigned int			status;				/* Routine exit status */
+34008    1   	struct USRLSTDEF		*user_entry;			/* Current user list entry */
+34009    1   	int				widget_number = *tag;
+34010    1   	
+34011    1   	/* Debug information. */
+34012    1   	
+34013    1   	#ifdef DEBUGGING
+34014   X    	printf ("finish entry\n");
+34015    1   	#endif /* DEBUGGING */
+34016    1   	
+34017    1   	/* Do any needed initialization. */
+34018    1   	
+34019    1   	current_username = XmStringCreateSimple (uaf_t_current_username);
+34020    1   	
+34021    1   	/* Look through all the item list entries for the current user, and see
+34022    1   	** if a UAI$_UIC entry is present.  If it is, note the UIC for later. */
+34023    1   	
+34024    1   	for (index = 0; (*uaf_r_current_user_info)[index].itm$w_itmcod != 0; index++)
+34025    1   	    {
+34026    2   	
+34027    2   	/* Set up information from item list entry. */
+34028    2   	
+34029    2   	    item_code = (*uaf_r_current_user_info)[index].itm$w_itmcod;
+34030    2   	    item_bufsiz = (*uaf_r_current_user_info)[index].itm$w_bufsiz;
+34031    2   	    item_bufadr = (*uaf_r_current_user_info)[index].itm$l_bufadr;
+34032    2   	
+34033    2   	/* If a UIC entry is found, note the UIC for later and trip out of the loop. */
+34034    2   	
+34035    2   	    if (item_code == UAI$_UIC)
+34036    2   		{
+34037    3   		new_entry_uic = (*(unsigned int (*)[])item_bufadr)[0];
+34038    3   		break;
+34039    3   		}
+34040    2   	    }
+34041    1   	
+34042    1   	/* Based upon the operation being performed, do the necessary final steps
+34043    1   	** to complete the operation started (i.e., create, modify, etc.) on the
+34044    1   	** authorization entry. */
+34045    1   	
+34046    1   	switch (uaf_l_main_operation)
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 8
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (3)
+
+34047    1   	    {
+34048    2   	
+34049    2   	/* The modification template is complete. */
+34050    2   	
+34051    2   	    case uaf$c_cmd_modify_template:
+34052    2   		{
+34053    3   	
+34054    3   	/* Get the information from the (template) authorization entry window, and
+34055    3   	** build an appropriate item list. */
+34056    3   	
+34057    3   		if (FALSE (AUTHORIZE$GET_ENTRY (&new_user_info,
+34058    3   						1)))
+34059    3   		    {
+34060    4   		    XtFree (current_username);
+34061    4   		    return;					/* Return with windows still up on error*/
+34062    4   		    }
+34063    3   	
+34064    3   	/* Compare the new information with the existing template information, and
+34065    3   	** build an item list with just the differences. */
+34066    3   	
+34067    3   		AUTHORIZE$ITMLST_COMPARE (new_user_info,
+34068    3   					  uaf_r_template_info,
+34069    3   					  &new_user_info);
+34070    3   	
+34071    3   	/* The changed item list entries must now be added to the original template
+34072    3   	** information.  This is done by taking each of the changed item list entries
+34073    3   	** and adding it to the original template information in turn. */
+34074    3   	
+34075    3   		for (index = 0; (*new_user_info)[index].itm$w_itmcod != 0; index++)
+34076    3   		    {
+34077    4   		    AUTHORIZE$ITMLST_ADD_ITEM (&uaf_r_template_info,
+34078    4   					       (*new_user_info)[index].itm$w_itmcod,
+34079    4   					       (*new_user_info)[index].itm$w_bufsiz,
+34080    4   					       (*new_user_info)[index].itm$l_bufadr);
+34081    4   		    }
+34082    3   	
+34083    3   	/* Delete the temporary (new user information) item list. */
+34084    3   	
+34085    3   		AUTHORIZE$ITMLST_DELETE (&new_user_info);
+34086    3   		break;
+34087    3   		}
+34088    2   	
+34089    2   	/* A new entry is being created. */
+34090    2   	
+34091    2   	    case uaf$c_main_create:
+34092    2   		{
+34093    3   	
+34094    3   	/* Get the information from the authorization entry window, and build an
+34095    3   	** appropriate item list. */
+34096    3   	
+34097    3   		if (FALSE (AUTHORIZE$GET_ENTRY (&uaf_r_current_user_info,
+34098    3   						0)))
+34099    3   		    {
+34100    4   		    XtFree (current_username);
+34101    4   		    return;					/* Return with windows still up on error*/
+34102    4   		    }
+34103    3   	
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 9
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (3)
+
+34104    3   	/* Merge the new user info item list with the current default info item
+34105    3   	** list.  This will insure all information is present and accounted for. */
+34106    3   	
+34107    3   		AUTHORIZE$ITMLST_MERGE (uaf_r_current_user_info,
+34108    3   					uaf_r_current_group_info,
+34109    3   					&uaf_r_current_user_info);
+34110    3   	
+34111    3   	/* Create a new authorization entry with the specified information. */
+34112    3   	
+34113    3   		if (FALSE (AUTHORIZE$CRE_USER_INFO (uaf_t_current_username,
+34114    3   						    uaf_r_current_user_info)))
+34115    3   		    {
+34116    4   	
+34117    4   	/* Since an error has occurred creating the authorization information for the
+34118    4   	** user, note the error and dismiss; leaving the existing window unchanged. */
+34119    4   	
+34120    4   		    AUTHORIZE$DECW_ERROR (UAF$_UAFWRITERR);
+34121    4   		    XtFree (current_username);
+34122    4   		    return;
+34123    4   		    }
+34124    3   	
+34125    3   	/* Add the new entry to the master list. */
+34126    3   	
+34127    3   		AUTHORIZE$ADD_LIST_ENTRY (uaf_t_current_username,
+34128    3   					  new_entry_uic,
+34129    3   					  &uaf_r_master_list.uaf$l_usrlst_flink,
+34130    3   					  &new_entry);
+34131    3   	
+34132    3   	/* If the newly created entry passes the filter check, add it to the use
+34133    3   	** list. */
+34134    3   	
+34135    3   		if (TRUE (AUTHORIZE$MATCH_NAME (strlen (uaf_t_current_username),
+34136    3   						uaf_t_current_username,
+34137    3   						strlen (uaf_t_username_filter),
+34138    3   						uaf_t_username_filter)))
+34139    3   		    {
+34140    4   	
+34141    4   	/* Locate the entry in the user list after which the new entry will be added. */
+34142    4   	
+34143    4   		    AUTHORIZE$FIND_USER_ENTRY (&uaf_r_user_list.uaf$l_usrlst_flink,
+34144    4   					       uaf_t_current_username,
+34145    4   					       FIND_NAME_LESS,
+34146    4   					       &list_count,
+34147    4   					       &user_entry);
+34148    4   	
+34149    4   	/* USER_ENTRY now points to the "list head"; where the new entry is to be
+34150    4   	** added.  Do it. */
+34151    4   	
+34152    4   		    AUTHORIZE$ADD_LIST_ENTRY (uaf_t_current_username,
+34153    4   					      NULL,
+34154    4   					      &user_entry->uaf$l_usrlst_flink,
+34155    4   					      &new_entry);
+34156    4   		    ++uaf_l_current_user_max;				/* One more user */
+34157    4   		    XmListAddItem (uaf_r_widget_id_array[uaf$c_main_user_list],
+34158    4   				   current_username,
+34159    4   				   list_count);
+34160    4   	
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 10
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (3)
+
+34161    4   	/* Set up the current username as the selected one. */
+34162    4   	
+34163    4   		    AUTHORIZE$SET_UP_USERNAME (uaf_t_current_username,
+34164    4   					       NULL);
+34165    4   		    }
+34166    3   	
+34167    3   	/* If the newly created entry represents a new group (member number 177777)
+34168    3   	** add it to the group user list. */
+34169    3   	
+34170    3   		for (index = 0; (*uaf_r_current_user_info)[index].itm$w_itmcod != 0; index++)
+34171    3   		    {
+34172    4   	
+34173    4   	/* Set up information from item list entry. */
+34174    4   	
+34175    4   		    item_code = (*uaf_r_current_user_info)[index].itm$w_itmcod;
+34176    4   		    item_bufsiz = (*uaf_r_current_user_info)[index].itm$w_bufsiz;
+34177    4   		    item_bufadr = (*uaf_r_current_user_info)[index].itm$l_bufadr;
+34178    4   	
+34179    4   	/* Look through all the item list entries for the current user, and see
+34180    4   	** if a UAI$_UIC entry is present.  If it is, check to see if the member
+34181    4   	** portion of the UIC is 177777 (octal). */
+34182    4   	
+34183    4   		    if (item_code == UAI$_UIC)
+34184    4   			{
+34185    5   			if ((*(unsigned short int (*)[])item_bufadr)[0] == 0177777)
+34186    5   			    {
+34187    6   	
+34188    6   	/* Locate the entry in the group list after which the new entry will be added. */
+34189    6   	
+34190    6   			    AUTHORIZE$FIND_USER_ENTRY (&uaf_r_group_list.uaf$l_usrlst_flink,
+34191    6   						       uaf_t_current_username,
+34192    6   						       FIND_NAME_LESS,
+34193    6   						       &list_count,
+34194    6   						       &user_entry);
+34195    6   	
+34196    6   	/* USER_ENTRY now points to the list head; where the new entry is to be
+34197    6   	** added.  Do it. */
+34198    6   	
+34199    6   			    AUTHORIZE$ADD_LIST_ENTRY (uaf_t_current_username,
+34200    6   						      NULL,
+34201    6   						      &user_entry->uaf$l_usrlst_flink,
+34202    6   						      &new_entry);
+34203    6   			    ++uaf_l_current_group_max;				/* One more group */
+34204    6   			    XmListAddItem (uaf_r_widget_id_array[uaf$c_main_group_list],
+34205    6   					   uaf_t_current_username,
+34206    6   					   list_count);
+34207    6   			    }
+34208    5   			}
+34209    4   		    }
+34210    3   		break;
+34211    3   		}
+34212    2   	
+34213    2   	/* An existing entry is being modified. */
+34214    2   	
+34215    2   	    case uaf$c_main_modify:
+34216    2   		{
+34217    3   	
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 11
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (3)
+
+34218    3   	/* Get the information from the authorization entry window, and build an
+34219    3   	** appropriate item list. */
+34220    3   	
+34221    3   		if (FALSE (AUTHORIZE$GET_ENTRY (&new_user_info,
+34222    3   						0)))
+34223    3   		    {
+34224    4   		    XtFree (current_username);
+34225    4   		    return;					/* Return with windows still up on error*/
+34226    4   		    }
+34227    3   	
+34228    3   	/* Compare the new information with the current information, and build an item
+34229    3   	** list with just the differences. */
+34230    3   	
+34231    3   		AUTHORIZE$ITMLST_COMPARE (new_user_info,
+34232    3   					  uaf_r_current_user_info,
+34233    3   					  &new_user_info);
+34234    3   	
+34235    3   	/* Update the authorization entry with the specified information. */
+34236    3   	
+34237    3   		if (FALSE (AUTHORIZE$SET_USER_INFO (uaf_t_current_username,
+34238    3   						    new_user_info)))
+34239    3   		    {
+34240    4   	
+34241    4   	/* Since an error has occurred setting the authorization information for the
+34242    4   	** user, note the error and dismiss; leaving the existing window unchanged. */
+34243    4   	
+34244    4   		    AUTHORIZE$DECW_ERROR (UAF$_UAFWRITERR);
+34245    4   		    XtFree (current_username);
+34246    4   		    return;
+34247    4   		    }
+34248    3   	
+34249    3   	/* Delete the temporary (new user information) item list. */
+34250    3   	
+34251    3   		AUTHORIZE$ITMLST_DELETE (&new_user_info);
+34252    3   		break;
+34253    3   		}
+34254    2   	    }
+34255    1   	
+34256    1   	/* Since I am finished with then authorization entry window, tear it down. */
+34257    1   	
+34258    1   	XtUnmanageChild (uaf_r_entry_window_widget);
+34259    1   	
+34260    1   	/* If there is an access window up, tear it down. */
+34261    1   	
+34262    1   	if (XtIsManaged (uaf_r_access_pri_window_widget))
+34263    1   	    XtUnmanageChild (uaf_r_access_pri_window_widget);
+34264    1   	if (XtIsManaged (uaf_r_access_sec_window_widget))
+34265    1   	    XtUnmanageChild (uaf_r_access_sec_window_widget);
+34266    1   	
+34267    1   	XtFree (current_username);
+34268    1   	}
+34269        	
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 12
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (4)
+
+             	
+34270        	extern unsigned int AUTHORIZE$GET_ENTRY (itmlst, ignore_null_fields)
+34271        	
+34272        	struct ITMDEF		(**itmlst)[];
+34273        	int			ignore_null_fields;
+34274        	{
+34275    1   	/*
+34276    1   	**++
+34277    1   	**  FUNCTIONAL DESCRIPTION:
+34278    1   	**
+34279    1   	**	This routine is called to get the information from the authorization
+34280    1   	**	entry window, and convert it to the appropriate ($xxxUAI) item list
+34281    1   	**	format.
+34282    1   	**
+34283    1   	**  FORMAL PARAMETERS:
+34284    1   	**
+34285    1   	**	ITMLST			- Address of a pointer containing the pointer
+34286    1   	**				  to the new item list
+34287    1   	**	IGNORE_NULL_FIELDS	- = 0 to accept empty (zero length) fields
+34288    1   	**				  = 1 to ignore empty (zero length) fields
+34289    1   	**
+34290    1   	**  RETURN VALUE:
+34291    1   	**
+34292    1   	**	SS$_NORMAL
+34293    1   	**
+34294    1   	**  SIDE EFFECTS:
+34295    1   	**
+34296    1   	**	None
+34297    1   	**
+34298    1   	**--
+34299    1   	*/
+34300    1   	
+34301    1   	/* External routines. */
+34302    1   	
+34303    1   	extern unsigned int		AUTHORIZE$CONVERT_UIC ();
+34304    1   	extern void			AUTHORIZE$DECW_ERROR ();
+34305    1   	extern unsigned int		AUTHORIZE$GET_LIST_ENTRIES ();
+34306    1   	extern void			AUTHORIZE$ITMLST_ADD_ITEM ();
+34307    1   	extern void			AUTHORIZE$ITMLST_DELETE ();
+34308    1   	
+34309    1   	/* Global references. */
+34310    1   	
+34311    1   	globalref struct UAFLAG		uaf_r_flags;				/* Miscellaneous utility flags */
+34312    1   	globalref struct FMTABL		uaf_r_item_table[];			/* Entry window info format table */
+34313    1   	globalref Widget		uaf_r_widget_id_array[uaf$c_max_widget_code];	/* Array of Widget IDs in use */
+34314    1   	globalref char			*uaf_t_no_date_time;			/* String to use when no date/time present */
+34315    1   	globalref char			*uaf_t_pre_expired;			/* String to use when no pwd chg dat/time present */
+34316    1   	
+34317    1   	/* Local storage. */
+34318    1   	
+34319    1   	unsigned char			ascii_string[MAX_TEMP_STRING];		/* ASCII string of some form */
+34320    1   	char				device_terminator = ':';		/* Device string terminator character */
+34321    1   	int				index;					/* General index */
+34322    1   	unsigned int			simple_desc[2];				/* Simple character descriptor */
+34323    1   	unsigned int			status;					/* Routine exit status */
+34324    1   	char				*temp_string;				/* Temp string pointer */
+34325    1   	int				temp_string_length;			/* Length of temp string */
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 13
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (4)
+
+34326    1   	
+34327    1   	/* Debug information. */
+34328    1   	
+34329    1   	#ifdef DEBUGGING
+34330   X    	printf ("get entry info\n");
+34331    1   	#endif /* DEBUGGING */
+34332    1   	
+34333    1   	/* Delete any existing item list. */
+34334    1   	
+34335    1   	AUTHORIZE$ITMLST_DELETE (itmlst);
+34336    1   	
+34337    1   	/* Loop through each entry in the item table and get the corresponding
+34338    1   	** widget value. */
+34339    1   	
+34340    1   	for (index = 0; index < UAI$_MAX_ITEM_CODE; index++)
+34341    1   	    {
+34342    2   	
+34343    2   	/* Clear out any previous buffer contents by filling the target buffer with
+34344    2   	** the appropriate pad character. */
+34345    2   	
+34346    2   	    memset (ascii_string, uaf_r_item_table[index].item_b_pad_char, sizeof ascii_string);
+34347    2   	
+34348    2   	/* If there is a widget-id for the item table entry, get the value (a
+34349    2   	** string) associated with the widget. */
+34350    2   	
+34351    2   	    if ((uaf_r_item_table[index].item_l_widget != 0) &&
+34352    2   		(uaf_r_widget_id_array[uaf_r_item_table[index].item_l_widget] != 0))
+34353    2   		{
+34354    3   		temp_string = XmTextGetString (uaf_r_widget_id_array[uaf_r_item_table[index].item_l_widget]);
+34355    3   		temp_string_length = strlen (temp_string);
+34356    3   	
+34357    3   	/* Only attempt to decode the information if there was something specified
+34358    3   	** in the field.  Otherwise, simply skip it. */
+34359    3   	
+34360    3   		if ((temp_string_length != 0) ||
+34361    3   		    (ignore_null_fields == 0))
+34362    3   		    {
+34363    4   	
+34364    4   	/* Now that I have a string, it is time to decode it.  The method used to
+34365    4   	** decode the information is determined by various flags set in the item
+34366    4   	** table entry. */
+34367    4   	
+34368    4   	/* A counted ASCII string.  This is done by placing the string length in
+34369    4   	** the first byte of the target string, and then copying the actual string
+34370    4   	** text. */
+34371    4   	
+34372    4   		    if (uaf_r_item_table[index].item_r_flag_overlay.item_r_flag_bits.item_v_flag_cstr)
+34373    4   			{
+34374    5   	
+34375    5   	/* Make sure the string copy will not exceed the maximum size of a counted
+34376    5   	** ASCII string (255 bytes). */
+34377    5   	
+34378    5   			if (temp_string_length > 255) return SS$_BADPARAM;
+34379    5   			ascii_string[0] = temp_string_length;
+34380    5   	
+34381    5   	/* Copy the string text. */
+34382    5   	
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 14
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (4)
+
+34383    5   			memmove (&ascii_string[1], temp_string, ascii_string[0]);
+34384    5   			++temp_string_length;			/* For count byte */
+34385    5   			}
+34386    4   	
+34387    4   	/* A simple ASCII string.  This is done by first filling the target string
+34388    4   	** with the appropriate pad character, and then copying the actual string. */
+34389    4   	
+34390    4   		    if (uaf_r_item_table[index].item_r_flag_overlay.item_r_flag_bits.item_v_flag_asc)
+34391    4   			{
+34392    5   	
+34393    5   	/* Make sure the text string is not too large for the authorization record. */
+34394    5   	
+34395    5   			if (temp_string_length > uaf_r_item_table[index].item_w_byte_cnt) return SS$_BADPARAM;
+34396    5   	
+34397    5   	/* Copy the string text. */
+34398    5   	
+34399    5   			memmove (ascii_string, temp_string, temp_string_length);
+34400    5   			}
+34401    4   	
+34402    4   	/* A value to be converted from a string.  This is done by converting the
+34403    4   	** numeric string to the corresponding binary value.  The resulting binary
+34404    4   	** value is placed in the target "string" to make the logic a little more
+34405    4   	** simple; by allowing a common code path. */
+34406    4   	
+34407    4   		    if (uaf_r_item_table[index].item_r_flag_overlay.item_r_flag_bits.item_v_flag_val)
+34408    4   			{
+34409    5   			(*(int *)ascii_string) = strtoul (temp_string, NULL, 10);
+34410    5   			temp_string_length = uaf_r_item_table[index].item_w_byte_cnt;	/* Byte count of converted value */
+34411    5   			}
+34412    4   	
+34413    4   	/* A date string.  This is pretty simple, but there is the special case where
+34414    4   	** the date string is "(none)".  In this case, the resulting value is zero. */
+34415    4   	
+34416    4   		    if (uaf_r_item_table[index].item_r_flag_overlay.item_r_flag_bits.item_v_flag_dat)
+34417    4   			{
+34418    5   	
+34419    5   	/* Check for date/time specified.  If there is no date/time specified, simply
+34420    5   	** do nothing.  This will result in a zero value (because of the buffer preset).
+34421    5   	** Otherwise, convert the date. */
+34422    5   	
+34423    5   			if ((strcmp (temp_string, uaf_t_no_date_time) != 0) &&
+34424    5   			    (strcmp (temp_string, uaf_t_pre_expired) != 0))
+34425    5   			    {
+34426    6   	
+34427    6   	/* Initialize a simple character descriptor for the temp string buffer. */
+34428    6   	
+34429    6   			    simple_desc[0] = temp_string_length;
+34430    6   			    simple_desc[1] = temp_string;
+34431    6   	
+34432    6   	/* Convert the time string. */
+34433    6   	
+34434    6   			    CHECK_RETURN (SYS$BINTIM (simple_desc,
+34435    6   						      ascii_string));
+34436    6   			    }
+34437    5   			temp_string_length = QUADWORD;				/* Converted value is a quadword */
+34438    5   			}
+34439    4   	
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 15
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (4)
+
+34440    4   	/* An item requiring special handling. */
+34441    4   	
+34442    4   		    if (uaf_r_item_table[index].item_r_flag_overlay.item_r_flag_bits.item_v_flag_spc)
+34443    4   			{
+34444    5   			if (index == UAI$_CPUTIM)
+34445    5   			    {
+34446    6   	
+34447    6   	/* Check for date/time specified.  If there is no date/time specified, simply
+34448    6   	** do nothing.  This will result in a zero value (because of the buffer preset).
+34449    6   	** Otherwise, convert the date. */
+34450    6   	
+34451    6   			    if (strcmp (temp_string, uaf_t_no_date_time) != 0)
+34452    6   				{
+34453    7   	
+34454    7   	/* Decode the CPU time limit.  This is done as a standard delta time, and
+34455    7   	** then the second longword of the time is dropped. */
+34456    7   	
+34457    7   	/* Initialize a simple character descriptor for the temp string buffer. */
+34458    7   	
+34459    7   				simple_desc[0] = temp_string_length;
+34460    7   				simple_desc[1] = temp_string;
+34461    7   	
+34462    7   	/* Convert the time string. */
+34463    7   	
+34464    7   				CHECK_RETURN (SYS$BINTIM (simple_desc,
+34465    7   							  ascii_string));
+34466    7   				}
+34467    6   			    temp_string_length = LONGWORD;				/* Converted value is a longword */
+34468    6   			    }
+34469    5   			if (index == UAI$_UIC)
+34470    5   			    {
+34471    6   	
+34472    6   	/* Decode the UIC.  In the simple case, this could simply mean interpreting
+34473    6   	** a comma separated pair of octal numbers.  However, in the interest of
+34474    6   	** flexibility, a separate routine is called to use TPARSE to decode the
+34475    6   	** UIC string.  This allows octal numbers or identifiers to be used in the
+34476    6   	** UIC string. */
+34477    6   	
+34478    6   	/* Convert the UIC string. */
+34479    6   	
+34480    6   			    CHECK_RETURN (AUTHORIZE$CONVERT_UIC (temp_string,
+34481    6   								 ascii_string));
+34482    6   			    temp_string_length = LONGWORD;				/* Converted value is a longword */
+34483    6   			    }
+34484    5   			}
+34485    4   	
+34486    4   	/* If necessary, use the maximal item size instead of the actual size
+34487    4   	** (from the entry window).  This is necessary for such things as the
+34488    4   	** account field. */
+34489    4   	
+34490    4   		    if (uaf_r_item_table[index].item_r_flag_overlay.item_r_flag_bits.item_v_flag_max)
+34491    4   			temp_string_length = uaf_r_item_table[index].item_w_byte_cnt;
+34492    4   	
+34493    4   	/* Add the information to the item list; if it is not the username.  The
+34494    4   	** username item is not added because it is a formal input parameter to
+34495    4   	** the routines that actually create or modify the user authorization
+34496    4   	** information. */
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 16
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (4)
+
+34497    4   	
+34498    4   		    if (index != UAI$_USERNAME)
+34499    4   			AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34500    4   						   index,
+34501    4   						   temp_string_length,
+34502    4   						   ascii_string);
+34503    4   		    }
+34504    3   	
+34505    3   	/* Free up any storage allocated for the text string. */
+34506    3   	
+34507    3   		XtFree (temp_string);
+34508    3   		}
+34509    2   	    }
+34510    1   	
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 17
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (5)
+
+             	
+34511    1   	/* Since all the standard information has been processed, do the special
+34512    1   	** case information.  These are usually bit masks (streams) or composite
+34513    1   	** fields. */
+34514    1   	
+34515    1   	/* Default device and directory. */
+34516    1   	
+34517    1   	if (uaf_r_widget_id_array[uaf$c_entry_default] != 0)
+34518    1   	    {
+34519    2   	
+34520    2   	/* Get the default string. */
+34521    2   	
+34522    2   	    temp_string = XmTextGetString (uaf_r_widget_id_array[uaf$c_entry_default]);
+34523    2   	    temp_string_length = strlen (temp_string);
+34524    2   	
+34525    2   	    if (temp_string_length == 0)
+34526    2   		{
+34527    3   	
+34528    3   	/* If the default string is empty, and enpty fields are being accepted, create
+34529    3   	** the appropriate item list entries; otherwise simply ignore the field.  These
+34530    3   	** fields are all zero, indicating a null counted string, but still having the
+34531    3   	** maximal size. */
+34532    3   	
+34533    3   		if (ignore_null_fields == 0)
+34534    3   		    {
+34535    4   		    memset (ascii_string, uaf_r_item_table[UAI$_DEFDEV].item_b_pad_char, sizeof ascii_string);	/* Clear out and pad *
+/
+34536    4   		    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,						/* ITEM_M_FLAG_MAX */
+34537    4   					       UAI$_DEFDEV,
+34538    4   					       MAX_DEFDEV,
+34539    4   					       ascii_string);
+34540    4   		    memset (ascii_string, uaf_r_item_table[UAI$_DEFDIR].item_b_pad_char, sizeof ascii_string);	/* Clear out and pad *
+/
+34541    4   		    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,						/* ITEM_M_FLAG_MAX */
+34542    4   					       UAI$_DEFDIR,
+34543    4   					       MAX_DEFDIR,
+34544    4   					       ascii_string);
+34545    4   		    }
+34546    3   		}
+34547    2   	    else
+34548    2   		{
+34549    3   	
+34550    3   	/* Loop through the  source string looking for the device (terminated by a colon. */
+34551    3   	
+34552    3   		memset (ascii_string, uaf_r_item_table[UAI$_DEFDEV].item_b_pad_char, sizeof ascii_string);	/* Clear out and pad */
+34553    3   		ascii_string[0] = 0;						/* Reset byte count */
+34554    3   		for (index = 0; index < temp_string_length; index++)
+34555    3   		    {
+34556    4   		    ascii_string[ascii_string[0] + 1] = temp_string[index];	/* Copy one character */
+34557    4   		    ++ascii_string[0];						/* One more character in count byte */
+34558    4   		    if (temp_string[index] == device_terminator)
+34559    4   			{
+34560    5   	
+34561    5   	/* Add the default device name item.  This must have maximal size. */
+34562    5   	
+34563    5   			AUTHORIZE$ITMLST_ADD_ITEM (itmlst,					/* ITEM_M_FLAG_MAX */
+34564    5   						   UAI$_DEFDEV,
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 18
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (5)
+
+34565    5   						   MAX_DEFDEV,
+34566    5   						   ascii_string);
+34567    5   			memset (ascii_string, uaf_r_item_table[UAI$_DEFDIR].item_b_pad_char, sizeof ascii_string);  /* Clear out and pad */
+34568    5   			ascii_string[0] = 0;					/* Reset byte count */
+34569    5   			}
+34570    4   		    }
+34571    3   	
+34572    3   	/* At this point, the count byte will contain the number of characters in the
+34573    3   	** directory string. */
+34574    3   	
+34575    3   		AUTHORIZE$ITMLST_ADD_ITEM (itmlst,						/* ITEM_M_FLAG_MAX */
+34576    3   					   UAI$_DEFDIR,
+34577    3   					   MAX_DEFDIR,
+34578    3   					   ascii_string);
+34579    3   		}
+34580    2   	
+34581    2   	/* Free up any storage allocated for the text string. */
+34582    2   	
+34583    2   	    XtFree (temp_string);
+34584    2   	    }
+34585    1   	
+34586    1   	/* Default privilege mask. */
+34587    1   	
+34588    1   	if (uaf_r_flags.uaf_v_mod_def_privs)
+34589    1   	    {
+34590    2   	    memset (ascii_string, uaf_r_item_table[UAI$_DEF_PRIV].item_b_pad_char, sizeof ascii_string);	/* Clear out and pad 
+*/
+34591    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_entry_def_priv_list,
+34592    2   					ascii_string,
+34593    2   					sizeof ascii_string);
+34594    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34595    2   				       UAI$_DEF_PRIV,
+34596    2   				       QUADWORD,
+34597    2   				       ascii_string);
+34598    2   	    }
+34599    1   	
+34600    1   	/* Login flags. */
+34601    1   	
+34602    1   	if (uaf_r_flags.uaf_v_mod_login_flags)
+34603    1   	    {
+34604    2   	    memset (ascii_string, uaf_r_item_table[UAI$_FLAGS].item_b_pad_char, sizeof ascii_string);	/* Clear out and pad */
+34605    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_entry_login_flag_list,
+34606    2   					ascii_string,
+34607    2   					sizeof ascii_string);
+34608    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34609    2   				       UAI$_FLAGS,
+34610    2   				       LONGWORD,
+34611    2   				       ascii_string);
+34612    2   	    }
+34613    1   	
+34614    1   	/* Primary days. */
+34615    1   	
+34616    1   	if (uaf_r_flags.uaf_v_mod_prime_days)
+34617    1   	    {
+34618    2   	    memset (ascii_string, uaf_r_item_table[UAI$_PRIMEDAYS].item_b_pad_char, sizeof ascii_string);	/* Clear out and pad
+ */
+34619    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_entry_primeday_list,
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 19
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (5)
+
+34620    2   					ascii_string,
+34621    2   					sizeof ascii_string);
+34622    2   	
+34623    2   	/* In the primary day mask, the primary days are 0 and the secondary days are
+34624    2   	** 1.  This means the resulting bit stream must be complemented prior to adding
+34625    2   	** it to the item list (for the authorization entry). */
+34626    2   	
+34627    2   	    COMPLEMENT (BYTE, ascii_string);
+34628    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34629    2   				       UAI$_PRIMEDAYS,
+34630    2   				       BYTE,
+34631    2   				       ascii_string);
+34632    2   	    }
+34633    1   	
+34634    1   	/* Authorized privileges. */
+34635    1   	
+34636    1   	if (uaf_r_flags.uaf_v_mod_auth_privs)
+34637    1   	    {
+34638    2   	    memset (ascii_string, uaf_r_item_table[UAI$_PRIV].item_b_pad_char, sizeof ascii_string);	/* Clear out and pad */
+34639    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_entry_auth_priv_list,
+34640    2   					ascii_string,
+34641    2   					sizeof ascii_string);
+34642    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34643    2   				       UAI$_PRIV,
+34644    2   				       QUADWORD,
+34645    2   				       ascii_string);
+34646    2   	    }
+34647    1   	
+34648    1   	/* Access restrictions. */
+34649    1   	
+34650    1   	if (uaf_r_flags.uaf_v_mod_pri_local_access)
+34651    1   	    {
+34652    2   	    memset (ascii_string, uaf_r_item_table[UAI$_LOCAL_ACCESS_P].item_b_pad_char, sizeof ascii_string);	/* Clear out an
+d pad */
+34653    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_access_pri_local_list,
+34654    2   					ascii_string,
+34655    2   					sizeof ascii_string);
+34656    2   	
+34657    2   	/* In the local access mask, access is granted if the hour bit is clear and denied
+34658    2   	** if the hour bit is set.  In other words, a bit stream of all zeros indicates
+34659    2   	** full access.  This means the resulting bit stream must be complemented prior
+34660    2   	** to adding it to the item list (for the authorization entry). */
+34661    2   	
+34662    2   	    COMPLEMENT (ACCESS_SIZE, ascii_string);
+34663    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34664    2   				       UAI$_LOCAL_ACCESS_P,
+34665    2   				       ACCESS_SIZE,
+34666    2   				       ascii_string);
+34667    2   	    }
+34668    1   	
+34669    1   	if (uaf_r_flags.uaf_v_mod_sec_local_access)
+34670    1   	    {
+34671    2   	    memset (ascii_string, uaf_r_item_table[UAI$_LOCAL_ACCESS_S].item_b_pad_char, sizeof ascii_string);	/* Clear out an
+d pad */
+34672    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_access_sec_local_list,
+34673    2   					ascii_string,
+34674    2   					sizeof ascii_string);
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 20
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (5)
+
+34675    2   	    COMPLEMENT (ACCESS_SIZE, ascii_string);			/* See comments on above call */
+34676    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34677    2   				       UAI$_LOCAL_ACCESS_S,
+34678    2   				       ACCESS_SIZE,
+34679    2   				       ascii_string);
+34680    2   	    }
+34681    1   	
+34682    1   	if (uaf_r_flags.uaf_v_mod_pri_batch_access)
+34683    1   	    {
+34684    2   	    memset (ascii_string, uaf_r_item_table[UAI$_BATCH_ACCESS_P].item_b_pad_char, sizeof ascii_string);	/* Clear out an
+d pad */
+34685    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_access_pri_batch_list,
+34686    2   					ascii_string,
+34687    2   					sizeof ascii_string);
+34688    2   	    COMPLEMENT (ACCESS_SIZE, ascii_string);			/* See comments on above call */
+34689    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34690    2   				       UAI$_BATCH_ACCESS_P,
+34691    2   				       ACCESS_SIZE,
+34692    2   				       ascii_string);
+34693    2   	    }
+34694    1   	
+34695    1   	if (uaf_r_flags.uaf_v_mod_sec_batch_access)
+34696    1   	    {
+34697    2   	    memset (ascii_string, uaf_r_item_table[UAI$_BATCH_ACCESS_S].item_b_pad_char, sizeof ascii_string);	/* Clear out an
+d pad */
+34698    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_access_sec_batch_list,
+34699    2   					ascii_string,
+34700    2   					sizeof ascii_string);
+34701    2   	    COMPLEMENT (ACCESS_SIZE, ascii_string);			/* See comments on above call */
+34702    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34703    2   				       UAI$_BATCH_ACCESS_S,
+34704    2   				       ACCESS_SIZE,
+34705    2   				       ascii_string);
+34706    2   	    }
+34707    1   	
+34708    1   	if (uaf_r_flags.uaf_v_mod_pri_dialup_access)
+34709    1   	    {
+34710    2   	    memset (ascii_string, uaf_r_item_table[UAI$_DIALUP_ACCESS_P].item_b_pad_char, sizeof ascii_string);	/* Clear out a
+nd pad */
+34711    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_access_pri_dialup_list,
+34712    2   					ascii_string,
+34713    2   					sizeof ascii_string);
+34714    2   	    COMPLEMENT (ACCESS_SIZE, ascii_string);			/* See comments on above call */
+34715    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34716    2   				       UAI$_DIALUP_ACCESS_P,
+34717    2   				       ACCESS_SIZE,
+34718    2   				       ascii_string);
+34719    2   	    }
+34720    1   	
+34721    1   	if (uaf_r_flags.uaf_v_mod_sec_dialup_access)
+34722    1   	    {
+34723    2   	    memset (ascii_string, uaf_r_item_table[UAI$_DIALUP_ACCESS_S].item_b_pad_char, sizeof ascii_string);	/* Clear out a
+nd pad */
+34724    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_access_sec_dialup_list,
+34725    2   					ascii_string,
+34726    2   					sizeof ascii_string);
+34727    2   	    COMPLEMENT (ACCESS_SIZE, ascii_string);			/* See comments on above call */
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 21
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (5)
+
+34728    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34729    2   				       UAI$_DIALUP_ACCESS_S,
+34730    2   				       ACCESS_SIZE,
+34731    2   				       ascii_string);
+34732    2   	    }
+34733    1   	
+34734    1   	if (uaf_r_flags.uaf_v_mod_pri_remote_access)
+34735    1   	    {
+34736    2   	    memset (ascii_string, uaf_r_item_table[UAI$_REMOTE_ACCESS_P].item_b_pad_char, sizeof ascii_string);	/* Clear out a
+nd pad */
+34737    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_access_pri_remote_list,
+34738    2   					ascii_string,
+34739    2   					sizeof ascii_string);
+34740    2   	    COMPLEMENT (ACCESS_SIZE, ascii_string);			/* See comments on above call */
+34741    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34742    2   				       UAI$_REMOTE_ACCESS_P,
+34743    2   				       ACCESS_SIZE,
+34744    2   				       ascii_string);
+34745    2   	    }
+34746    1   	
+34747    1   	if (uaf_r_flags.uaf_v_mod_sec_remote_access)
+34748    1   	    {
+34749    2   	    memset (ascii_string, uaf_r_item_table[UAI$_REMOTE_ACCESS_S].item_b_pad_char, sizeof ascii_string);	/* Clear out a
+nd pad */
+34750    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_access_sec_remote_list,
+34751    2   					ascii_string,
+34752    2   					sizeof ascii_string);
+34753    2   	    COMPLEMENT (ACCESS_SIZE, ascii_string);			/* See comments on above call */
+34754    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34755    2   				       UAI$_REMOTE_ACCESS_S,
+34756    2   				       ACCESS_SIZE,
+34757    2   				       ascii_string);
+34758    2   	    }
+34759    1   	
+34760    1   	if (uaf_r_flags.uaf_v_mod_pri_network_access)
+34761    1   	    {
+34762    2   	    memset (ascii_string, uaf_r_item_table[UAI$_NETWORK_ACCESS_P].item_b_pad_char, sizeof ascii_string);	/* Clear out 
+and pad */
+34763    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_access_pri_network_list,
+34764    2   					ascii_string,
+34765    2   					sizeof ascii_string);
+34766    2   	    COMPLEMENT (ACCESS_SIZE, ascii_string);			/* See comments on above call */
+34767    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34768    2   				       UAI$_NETWORK_ACCESS_P,
+34769    2   				       ACCESS_SIZE,
+34770    2   				       ascii_string);
+34771    2   	    }
+34772    1   	
+34773    1   	if (uaf_r_flags.uaf_v_mod_sec_network_access)
+34774    1   	    {
+34775    2   	    memset (ascii_string, uaf_r_item_table[UAI$_NETWORK_ACCESS_S].item_b_pad_char, sizeof ascii_string);	/* Clear out 
+and pad */
+34776    2   	    AUTHORIZE$GET_LIST_ENTRIES (uaf$c_access_sec_network_list,
+34777    2   					ascii_string,
+34778    2   					sizeof ascii_string);
+34779    2   	    COMPLEMENT (ACCESS_SIZE, ascii_string);			/* See comments on above call */
+34780    2   	    AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 22
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (5)
+
+34781    2   				       UAI$_NETWORK_ACCESS_S,
+34782    2   				       ACCESS_SIZE,
+34783    2   				       ascii_string);
+34784    2   	    }
+34785    1   	
+34786    1   	/* Primary password. */
+34787    1   	
+34788    1   	if (uaf_r_widget_id_array[uaf$c_entry_password] != 0)
+34789    1   	    {
+34790    2   	
+34791    2   	/* Get the password string. */
+34792    2   	
+34793    2   	    temp_string = XmTextGetString (uaf_r_widget_id_array[uaf$c_entry_password]);
+34794    2   	    temp_string_length = strlen (temp_string);
+34795    2   	
+34796    2   	    if (temp_string_length != 0)
+34797    2   		{
+34798    3   	
+34799    3   	/* If a password string was specified, create the appropriate item list entry. */
+34800    3   	
+34801    3   		AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34802    3   					   UAI$_PASSWORD,
+34803    3   					   temp_string_length,
+34804    3   					   temp_string);
+34805    3   	
+34806    3   	/* Since the password should not remain visible, clear out the field. */
+34807    3   	
+34808    3   		XmTextSetString (uaf_r_widget_id_array[uaf$c_entry_password],
+34809    3   				 &NULL);
+34810    3   		}
+34811    2   	
+34812    2   	/* Free up any storage allocated for the text string. */
+34813    2   	
+34814    2   	    XtFree (temp_string);
+34815    2   	    }
+34816    1   	
+34817    1   	/* Secondary password. */
+34818    1   	
+34819    1   	if (uaf_r_widget_id_array[uaf$c_entry_password2] != 0)
+34820    1   	    {
+34821    2   	
+34822    2   	/* Get the password string. */
+34823    2   	
+34824    2   	    temp_string = XmTextGetString (uaf_r_widget_id_array[uaf$c_entry_password2]);
+34825    2   	    temp_string_length = strlen (temp_string);
+34826    2   	
+34827    2   	    if (temp_string_length != 0)
+34828    2   		{
+34829    3   	
+34830    3   	/* If a password string was specified, create the appropriate item list entry. */
+34831    3   	
+34832    3   		AUTHORIZE$ITMLST_ADD_ITEM (itmlst,
+34833    3   					   UAI$_PASSWORD2,
+34834    3   					   temp_string_length,
+34835    3   					   temp_string);
+34836    3   	
+34837    3   	/* Since the password should not remain visible, clear out the field. */
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 23
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (5)
+
+34838    3   	
+34839    3   		XmTextSetString (uaf_r_widget_id_array[uaf$c_entry_password],
+34840    3   				 &NULL);
+34841    3   		}
+34842    2   	
+34843    2   	/* Free up any storage allocated for the text string. */
+34844    2   	
+34845    2   	    XtFree (temp_string);
+34846    2   	    }
+34847    1   	
+34848    1   	/* The item list is complete.  Exit stage right. */
+34849    1   	
+34850    1   	return SS$_NORMAL;
+34851    1   	}
+34852        	
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 24
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (6)
+
+             	
+34853        	extern void AUTHORIZE$SET_UP_ENTRY (itmlst)
+34854        	
+34855        	struct ITMDEF			(*itmlst)[];
+34856        	{
+34857    1   	/*
+34858    1   	**++
+34859    1   	**  FUNCTIONAL DESCRIPTION:
+34860    1   	**
+34861    1   	**	This routine is called to set up the information in the authorization
+34862    1   	**	entry window.  The information is obtained from the supplied item list.
+34863    1   	**
+34864    1   	**  FORMAL PARAMETERS:
+34865    1   	**
+34866    1   	**	ITMLST		- Address of the item list
+34867    1   	**
+34868    1   	**  RETURN VALUE:
+34869    1   	**
+34870    1   	**	{@description or none@}
+34871    1   	**
+34872    1   	**  SIDE EFFECTS:
+34873    1   	**
+34874    1   	**	{@description or none@}
+34875    1   	**
+34876    1   	**--
+34877    1   	*/
+34878    1   	
+34879    1   	/* External routines. */
+34880    1   	
+34881    1   	extern void			AUTHORIZE$SELECT_LIST_ENTRIES ();
+34882    1   	extern void			AUTHORIZE$SET_UP_ACCESS ();
+34883    1   	
+34884    1   	/* Global references. */
+34885    1   	
+34886    1   	globalref Widget		uaf_r_access_pri_window_widget;	/* Primary access restriction window widget info */
+34887    1   	globalref Widget		uaf_r_access_sec_window_widget;	/* Secondary access restriction window widget info */
+34888    1   	globalref struct UAFLAG		uaf_r_flags;			/* Miscellaneous utility flags */
+34889    1   	globalref struct FMTABL		uaf_r_item_table[];		/* Entry window info format table */
+34890    1   	globalref Widget		uaf_r_widget_id_array[uaf$c_max_widget_code];	/* Array of Widget IDs in use */
+34891    1   	globalref char			*uaf_t_no_date_time;		/* String to use when no date/time present */
+34892    1   	globalref char			*uaf_t_pre_expired;		/* String to use when no pwd chg dat/time present */
+34893    1   	
+34894    1   	/* Local storage. */
+34895    1   	
+34896    1   	unsigned int			date_time[2];			/* Temp date time value */
+34897    1   	char				default_dev[MAX_DEFDEV] = "";	/* Default device string */
+34898    1   	char				default_dir[MAX_DEFDIR] = "";	/* Default directory string */
+34899    1   	int				index;				/* General index */
+34900    1   	int				index2;				/* Second general index */
+34901    1   	unsigned char			*item_bufadr;			/* Item buffer address from item list entry */
+34902    1   	unsigned int			item_bufsiz;			/* Item buffer size from item list entry */
+34903    1   	unsigned int			item_code;			/* Item code from item list entry */
+34904    1   	unsigned int			simple_desc[2];			/* Simple character descriptor */
+34905    1   	unsigned int			status;				/* Routine exit status */
+34906    1   	char				temp_string[MAX_TEMP_STRING];	/* Temporary string storage */
+34907    1   	int				temp_string_length;		/* Length of temp string (built) */
+34908    1   	int				widget_number;			/* Widget number for item list entry */
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 25
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (6)
+
+34909    1   	
+34910    1   	/* Debug information. */
+34911    1   	
+34912    1   	#ifdef DEBUGGING
+34913   X    	printf ("set up entry\n");
+34914    1   	#endif /* DEBUGGING */
+34915    1   	
+34916    1   	/* Before setting up the new information in the authorization entry window,
+34917    1   	** clear out any stale information. */
+34918    1   	
+34919    1   	for (index = 0; index < UAI$_MAX_ITEM_CODE; index++)
+34920    1   	    {
+34921    2   	
+34922    2   	/* If there is a widget-id for the item table entry, reset the associated
+34923    2   	** text string. */
+34924    2   	
+34925    2   	    if ((uaf_r_item_table[index].item_l_widget != 0) &&
+34926    2   		(uaf_r_widget_id_array[uaf_r_item_table[index].item_l_widget] != 0))
+34927    2   		XmTextSetString (uaf_r_widget_id_array[uaf_r_item_table[index].item_l_widget],
+34928    2   				 &NULL);
+34929    2   	    }
+34930    1   	
+34931    1   	/* Reset the default device & directory string. */
+34932    1   	
+34933    1   	XmTextSetString (uaf_r_widget_id_array[uaf$c_entry_default],
+34934    1   			 &NULL);
+34935    1   	
+34936    1   	/* Reset the various lists.  This is done by deselecting all the list entries. */
+34937    1   	
+34938    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_entry_def_priv_list]);
+34939    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_entry_auth_priv_list]);
+34940    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_entry_login_flag_list]);
+34941    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_entry_primeday_list]);
+34942    1   	
+34943    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_access_pri_local_list]);
+34944    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_access_pri_batch_list]);
+34945    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_access_pri_dialup_list]);
+34946    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_access_pri_remote_list]);
+34947    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_access_pri_network_list]);
+34948    1   	
+34949    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_access_sec_local_list]);
+34950    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_access_sec_batch_list]);
+34951    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_access_sec_dialup_list]);
+34952    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_access_sec_remote_list]);
+34953    1   	XmListDeselectAllItems (uaf_r_widget_id_array[uaf$c_access_sec_network_list]);
+34954    1   	
+34955    1   	/* If the item list pointer is zero, trip out now. */
+34956    1   	
+34957    1   	if (itmlst == 0) return;
+34958    1   	
+34959    1   	/* Loop through the item list entries and set the appropriate information in
+34960    1   	** the authorization entry window. */
+34961    1   	
+34962    1   	for (index = 0; (*itmlst)[index].itm$w_itmcod != 0; index++)
+34963    1   	    {
+34964    2   	   
+34965    2   	/* Get the information from the current item list entry. */
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 26
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (6)
+
+34966    2   	
+34967    2   	    item_code = (*itmlst)[index].itm$w_itmcod;
+34968    2   	    item_bufsiz = (*itmlst)[index].itm$w_bufsiz;
+34969    2   	    item_bufadr = (*itmlst)[index].itm$l_bufadr;
+34970    2   	
+34971    2   	/* Depending on the type of information (i.e., value, counted string, etc.)
+34972    2   	** do some limit checking.  There are two possible cases: too much information
+34973    2   	** supplied, and not enough information supplied.  The former case would most
+34974    2   	** likely occur with some form of ASCII text and the latter would most likely
+34975    2   	** occur with some form of value.
+34976    2   	**
+34977    2   	** If the limit check fails, return an SS$_BADPARAM error.  This also indicates
+34978    2   	** the uaf_r_item_table probably needs to be updated; i.e., an internal error. */
+34979    2   	
+34980    2   	    if ((uaf_r_item_table[item_code].item_r_flag_overlay.item_r_flag_bits.item_v_flag_cstr) ||
+34981    2   		(uaf_r_item_table[item_code].item_r_flag_overlay.item_r_flag_bits.item_v_flag_asc))
+34982    2   		{
+34983    3   		if (item_bufsiz > uaf_r_item_table[item_code].item_w_byte_cnt) LIB$SIGNAL (UAF$_INTERNAL1);
+34984    3   		}
+34985    2   	    else
+34986    2   		{
+34987    3   		if (item_bufsiz < uaf_r_item_table[item_code].item_w_byte_cnt) LIB$SIGNAL (UAF$_INTERNAL1);
+34988    3   		}
+34989    2   	
+34990    2   	/* Get the widget number corresponding to the widget associated with the information.
+34991    2   	** This may be zero, which usually indicates special processing is needed. */
+34992    2   	
+34993    2   	    widget_number = uaf_r_item_table[item_code].item_l_widget;
+34994    2   	
+34995    2   	/* Clear out any previous buffer contents.  This also assumes the typical C
+34996    2   	** character string storage is terminated by a null (\0) character. */
+34997    2   	
+34998    2   	    memset (temp_string, NULL, sizeof temp_string);
+34999    2   	
+35000    2   	/* Initialize a simple character descriptor for the temp string buffer. */
+35001    2   	
+35002    2   	    simple_desc[0] = (sizeof temp_string) - 1;		/* -1 for ASCIZ string */
+35003    2   	    simple_desc[1] = temp_string;
+35004    2   	
+35005    2   	/* Determine how the information in the item list entry is to be formatted.
+35006    2   	** This is done by examining the flags associated with the format table entry. */
+35007    2   	
+35008    2   	/* A counted ASCII string.
+35009    2   	**
+35010    2   	** For this case, the first byte of the buffer contains the number of
+35011    2   	** ASCII characters to copy.
+35012    2   	**
+35013    2   	*/
+35014    2   	
+35015    2   	    if (uaf_r_item_table[item_code].item_r_flag_overlay.item_r_flag_bits.item_v_flag_cstr)
+35016    2   		{
+35017    3   	
+35018    3   	/* Make sure the temp storage area is not exceeded when copying the text. */
+35019    3   	
+35020    3   		temp_string_length = item_bufadr[0];			/* Assume it will all fit (-1 for count) */
+35021    3   	
+35022    3   	/* If the size of the supplied buffer is greater than the internal storage,
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 27
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (6)
+
+35023    3   	** truncate the supplied information to fit. */
+35024    3   	
+35025    3   		if (temp_string_length > sizeof temp_string)
+35026    3   		    temp_string_length = (sizeof temp_string) - 1;
+35027    3   	
+35028    3   	/* Copy the appropriate amount of text, minus the count byte. */
+35029    3   	
+35030    3   		memmove (temp_string, &item_bufadr[1], temp_string_length);
+35031    3   		}
+35032    2   	
+35033    2   	/* A simple ASCII string. */
+35034    2   	
+35035    2   	    if (uaf_r_item_table[item_code].item_r_flag_overlay.item_r_flag_bits.item_v_flag_asc)
+35036    2   		{
+35037    3   	
+35038    3   	/* Copy the string up to the first occurrance of the pad character, the
+35039    3   	** input string is exhausted, or the target buffer is exceeded. */
+35040    3   	
+35041    3   		for (temp_string_length = 0; temp_string_length < (sizeof temp_string) - 1; temp_string_length++)
+35042    3   		    {
+35043    4   		    if (temp_string_length == item_bufsiz) break;
+35044    4   		    if (item_bufadr[temp_string_length] == uaf_r_item_table[item_code].item_b_pad_char) break;
+35045    4   		    temp_string[temp_string_length] = item_bufadr[temp_string_length];
+35046    4   		    }
+35047    3   		}
+35048    2   	
+35049    2   	/* A value to be converted to a string. */
+35050    2   	
+35051    2   	    if (uaf_r_item_table[item_code].item_r_flag_overlay.item_r_flag_bits.item_v_flag_val)
+35052    2   		{
+35053    3   	
+35054    3   	/* Format the value.  Because the buffer is zeroed (above) prior to the FAO call,
+35055    3   	** the formatting results in an ASCIZ string. */
+35056    3   	
+35057    3   		SYS$FAO (&uaf_r_item_table[item_code].item_l_fao_ctrs_len,
+35058    3   			 simple_desc,
+35059    3   			 simple_desc,
+35060    3   			 (*(int (*)[])item_bufadr)[0]);
+35061    3   		}
+35062    2   	
+35063    2   	/* Format a date/time quadword.  This may be an absolute or delta time. */
+35064    2   	
+35065    2   	    if ((uaf_r_item_table[item_code].item_r_flag_overlay.item_r_flag_bits.item_v_flag_dat) &&
+35066    2   		(item_bufsiz >= 8))	/* Must be at least a quadword...otherwise skip */
+35067    2   		{
+35068    3   	
+35069    3   	/* If the quadword time value is zero, substitute a reasonable string instead of
+35070    3   	** the usual "1858" date :-).  Otherwise, format the time.*/
+35071    3   	
+35072    3   		if ((*(int (*)[])item_bufadr)[0] == 0 && (*(int (*)[])item_bufadr)[1] == 0)
+35073    3   		    {
+35074    4   	
+35075    4   	/* If the zero time value is for a password change date (primary or secondary)
+35076    4   	** change the string used to "(pre-expired)" rather than "(none)". */
+35077    4   	
+35078    4   		    if ((item_code == UAI$_PWD_DATE) ||
+35079    4   			(item_code == UAI$_PWD2_DATE))
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 28
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (6)
+
+35080    4   			strcpy (temp_string, uaf_t_pre_expired);
+35081    4   		    else
+35082    4   			strcpy (temp_string, uaf_t_no_date_time);
+35083    4   		    }
+35084    3   		else
+35085    3   		    SYS$ASCTIM (simple_desc,
+35086    3   				simple_desc,
+35087    3   				item_bufadr,
+35088    3   				NULL);
+35089    3   		}
+35090    2   	
+35091    2   	/* Handle those items which require special formatting; but nothing more in the
+35092    2   	** way of additional processing. */
+35093    2   	
+35094    2   	    if (uaf_r_item_table[item_code].item_r_flag_overlay.item_r_flag_bits.item_v_flag_spc)
+35095    2   		{
+35096    3   		if (item_code == UAI$_CPUTIM)
+35097    3   		    {
+35098    4   	
+35099    4   	/* Format the CPU time limit.  This requires special processing because the CPU
+35100    4   	** time limit is stored as the low longword of a delta time.  In order to format
+35101    4   	** it as a real delta time, set the date/time quadword to -1 before adding in the
+35102    4   	** supplied buffer information (the remaining longword). */
+35103    4   	
+35104    4   		    memset (date_time, 0xFF, sizeof date_time);
+35105    4   		    date_time[0] = (*(int (*)[])item_bufadr)[0];
+35106    4   	
+35107    4   	/* If the CPU time limit is zero, substitute a reasonable string instead of some
+35108    4   	** random time string. */
+35109    4   	
+35110    4   		    if (date_time[0] == 0)
+35111    4   			strcpy (temp_string, uaf_t_no_date_time);
+35112    4   		    else
+35113    4   			SYS$ASCTIM (simple_desc,
+35114    4   				    simple_desc,
+35115    4   				    date_time,
+35116    4   				    NULL);
+35117    4   		    }
+35118    3   		if (item_code == UAI$_UIC)
+35119    3   		    {
+35120    4   	
+35121    4   	/* Format the UIC.  This is done as a special case to allow the item table to be
+35122    4   	** used for input as well as output.  Because the buffer is zeroed (above) prior
+35123    4   	** to the FAO call, the formatting results in an ASCIZ string. */
+35124    4   	
+35125    4   		    SYS$FAO (&uaf_r_item_table[item_code].item_l_fao_ctrs_len,
+35126    4   			     simple_desc,
+35127    4   			     simple_desc,
+35128    4   			     (*(int (*)[])item_bufadr)[0]);
+35129    4   		    }
+35130    3   		}
+35131    2   	
+35132    2   	/* If there is a widget number associated with the UAI item code, simply set the
+35133    2   	** string in the entry window. */
+35134    2   	
+35135    2   	    if (uaf_r_widget_id_array[widget_number] != 0) XmTextSetString (uaf_r_widget_id_array[widget_number], temp_string)
+;
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 29
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (6)
+
+35136    2   	
+             	
+35137    2   	/* There are several authorization items that require special processing.  Mostly
+35138    2   	** because they cannot be represented as simple values or strings.  See if any are
+35139    2   	** present and do the appropriate processing. */
+35140    2   	
+35141    2   	/* If a default privilege entry is seen, set the state of all the various default
+35142    2   	** privilege list entries. */
+35143    2   	
+35144    2   	    if (item_code == UAI$_DEF_PRIV)
+35145    2   		AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_entry_def_priv_list,
+35146    2   					       item_bufadr,
+35147    2   					       item_bufsiz);
+35148    2   	
+35149    2   	/* If a default device entry is seen, copy the device name for later. */
+35150    2   	
+35151    2   	    if (item_code == UAI$_DEFDEV) strcpy (default_dev, temp_string);
+35152    2   	
+35153    2   	/* If a default directory entry is seen, copy the directory name for later. */
+35154    2   	
+35155    2   	    if (item_code == UAI$_DEFDIR) strcpy (default_dir, temp_string);
+35156    2   	
+35157    2   	/* If a login flag entry is seen, set the state of all the various login flag
+35158    2   	** list entries. */
+35159    2   	
+35160    2   	    if (item_code == UAI$_FLAGS)
+35161    2   		AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_entry_login_flag_list,
+35162    2   					       item_bufadr,
+35163    2   					       item_bufsiz);
+35164    2   	
+35165    2   	/* If a primary day entry is seen, set the state of all the various primary day
+35166    2   	** list entries. */
+35167    2   	
+35168    2   	    if (item_code == UAI$_PRIMEDAYS)
+35169    2   		{
+35170    3   	
+35171    3   	/* In the primary day mask, the primary days are 0 and the secondary days are
+35172    3   	** 1.  This means the resulting bit stream must be complemented prior to selecting
+35173    3   	** the items in the list. */
+35174    3   	
+35175    3   		COMPLEMENT (item_bufsiz, item_bufadr);
+35176    3   		AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_entry_primeday_list,
+35177    3   					       item_bufadr,
+35178    3   					       item_bufsiz);
+35179    3   		}
+35180    2   	
+35181    2   	/* If an authorized privilege entry is seen, set the state of all the various
+35182    2   	** authorized privilege list entries. */
+35183    2   	
+35184    2   	    if (item_code == UAI$_PRIV)
+35185    2   		AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_entry_auth_priv_list,
+35186    2   					       item_bufadr,
+35187    2   					       item_bufsiz);
+35188    2   	    }
+35189    1   	
+35190    1   	/* Since the default device and default directory must be set up in the entry
+35191    1   	** window in a particular order, the display of this information has been
+
+UAF_DW_ENTRY                                                    22-NOV-1993 11:27:40    VAX C      V3.2-044                 Page 30
+X-2                                                              2-NOV-1993 13:42:21    UAF_DW_ENTRY.C;140 (7)
+
+35192    1   	** deferred until now.
+35193    1   	**
+35194    1   	** If there is either a default device or a default directory, display the
+35195    1   	** information at this time. */
+35196    1   	
+35197    1   	temp_string[0] = '\0';		/* Null string to start with */
+35198    1   	
+35199    1   	if (strlen (default_dev) > 0) strcat (temp_string, default_dev);
+35200    1   	if (strlen (default_dir) > 0) strcat (temp_string, default_dir);
+35201    1   	
+35202    1   	if ((strlen (temp_string) > 0) && (uaf_r_widget_id_array[uaf$c_entry_default] != 0))
+35203    1   	    XmTextSetString (uaf_r_widget_id_array[uaf$c_entry_default],
+35204    1   			     temp_string);
+35205    1   	
+35206    1   	/* If the primary access restriction window is managed, set up the lists. */
+35207    1   	
+35208    1   	if (XtIsManaged (uaf_r_access_pri_window_widget))
+35209    1   	    AUTHORIZE$SET_UP_ACCESS (itmlst,
+35210    1   				     1);
+35211    1   	
+35212    1   	/* If the secondary access restriction window is managed, set up the lists. */
+35213    1   	
+35214    1   	if (XtIsManaged (uaf_r_access_sec_window_widget))
+35215    1   	    AUTHORIZE$SET_UP_ACCESS (itmlst,
+35216    1   				     2);
+35217    1   	
+35218    1   	/* Note no list modifications performed as yet.  This must be done after
+35219    1   	** the list have been set up by AUTHORIZE$SELECT_LIST_ENTRIES (otherwise
+35220    1   	** AUTHORIZE$SELECT_LIST_ENTRIES would cause the list modification flag
+35221    1   	** to get set. */
+35222    1   	
+35223    1   	uaf_r_flags.uaf_v_mod_def_privs = 0;
+35224    1   	uaf_r_flags.uaf_v_mod_login_flags = 0;
+35225    1   	uaf_r_flags.uaf_v_mod_prime_days = 0;
+35226    1   	uaf_r_flags.uaf_v_mod_auth_privs = 0;
+35227    1   	uaf_r_flags.uaf_v_mod_pri_local_access = 0;
+35228    1   	uaf_r_flags.uaf_v_mod_pri_batch_access = 0;
+35229    1   	uaf_r_flags.uaf_v_mod_pri_dialup_access = 0;
+35230    1   	uaf_r_flags.uaf_v_mod_pri_remote_access = 0;
+35231    1   	uaf_r_flags.uaf_v_mod_pri_network_access = 0;
+35232    1   	uaf_r_flags.uaf_v_mod_sec_local_access = 0;
+35233    1   	uaf_r_flags.uaf_v_mod_sec_batch_access = 0;
+35234    1   	uaf_r_flags.uaf_v_mod_sec_dialup_access = 0;
+35235    1   	uaf_r_flags.uaf_v_mod_sec_remote_access = 0;
+35236    1   	uaf_r_flags.uaf_v_mod_sec_network_access = 0;
+35237    1   	}
+
+ 
+ 
+Command Line
+------------
+ 
+CC/LIST=UAF_DW_ENTRY/OBJECT=UAF_DW_ENTRY UAF_DW_ENTRY
+

@@ -1,0 +1,1747 @@
+<front_matter>(front)
+<title_page>
+<title>(DFU V2.1)
+<abstract>
+DFU Disk and File Utilities for OpenVMS VAX and AXP
+<endabstract>
+<revision_info>(Revision Information:\This manual supersedes V2.0)
+<revision_info>(Date:\February 1995)
+<revision_info>(Operating System:\OpenVMS VAX V5.5 thru 6.2 and AXP V1.5/6.2)
+<revision_info>(Note:\Part of the Freeware CD-ROM)
+<endtitle_page>
+<copyright_page><p>
+OpenVMS Freeware for VAX and AXP Systems<p>
+The OpenVMS Freeware CD-ROM contains free software tools
+and utilities to aid software developers in creating
+applications and managing and using OpenVMS systems.
+<p>
+Many of these tools are popular packages already widely
+known and in use, while others are internally developed
+Digital tools our engineers are making available to our
+OpenVMS customers. For example, the OpenVMS Freeware CD-ROM
+includes Bliss-32 for OpenVMS VAX, Bliss-32 for OpenVMS
+AXP, and Bliss-64 for OpenVMS AXP.
+<p>
+Disclaimer on Testing, Quality, and Licensing
+<p>
+The OpenVMS Freeware for VAX and AXP Systems CD-ROM is
+provided "AS IS" without warranty. Digital imposes no
+restrictions on its distribution, nor on the redistribution
+of anything on it. Be aware, however, that some of the
+packages on the CD-ROM may carry restrictions on their
+use imposed by the original authors. Therefore, you should
+carefully read the documentation accompanying the products.
+<p>
+Digital Equipment Corporation is providing this software
+free of charge and without warranty. Included in the
+[FREEWARE] directory on this CD are the GNU software
+licenses. Unless otherwise stated in sources or source
+packages, the GNU licenses cover all software supplied on
+this CD.
+<p>
+Digital makes no claims about the quality of this software.
+It is provided to the customer as a free service.
+<copyright_date>(1995)
+<endcopyright_page>
+<contents_file>
+<endfront_matter>
+<chapter>(Introduction\ch1)<p>
+The Disk and File Utilities (DFU) is a high perfomance tool
+meant as an aid to the system manager who is responsible for monitoring
+and maintain disks, files and directories. 
+It makes use of low level I/O features of VMS. As a result a high level 
+of performance is reached with minimal overhead on the system. 
+DFU supports all types of disk sets which comply to the VMS ODS-2 standard
+such as volume sets, stripe sets , shadow sets and RAID sets, 
+and combinations of these.
+<head1>(General description\hd1_1)<p>
+DFU provides the following functions :
+<list>(unnumbered)
+<le>DEFRAG : This function allows simple defragmentation of a file or
+files. Note: this function is not available on AXP V1.5. 
+<le>DELETE : This function allows either a delete by file-id, or a fast delete
+of a complete directory or directory tree with all its subdirectories.
+<le>DIRECTORY : This function has 7 options :
+<list>(numbered)
+<le>COMPRESS a directory
+<le>DUMP a directory block by block
+<le>CREATE a directory with a preallocated size
+<le>Search all directories on the disk for files which have multiple versions
+<le>Search all directories on the disk for alias file entries
+<le>Search all directories on the disk for empty directories
+<le>Search all directories on the disk for corrupted directories.
+<endlist>
+<le>REPORT : Generates a file and free space report for a disk. Also a
+disk space usage report, based on UIC/Identifier, can be generated, even
+on a disk which has disk quotas disabled.
+<le>SEARCH : Look up files on a disk by specific file attributes (eg.
+files sizes, dates, ownership, and so on)
+<le>SET : This functions allows setting of file attributes which are
+not available through DCL commands.
+<le>UNDELETE : A safe file recovery function.
+<le>VERIFY : This function performs a fast disk structure verification 
+and can optionally repair disk structure errors 
+(comparable with ANALYZE/DISK/REPAIR).
+<endlist><p>
+Each function is described in detail in the corresponding chapter.<p>
+
+DFU is supported on OpenVMS VAX V5.5 through V6.2, and 
+OpenVMS AXP V1.5 through V6.2.
+<head1>(New features of V2.1\hd1_2)<p>
+This version of DFU offers several new features compared with V2.0:
+<list>(unnumbered)
+<le>DIRECTORY/CREATE/ALLOCATE=n allows you to create an empty
+directory with a preallocated size of 'n' blocks.
+<le>DIRECTORY/CHECK performs a diskwide check for corrupted directories.
+<le>REPORT/NOFILE will skip the file reporting phase.
+<le>VERIFY/REBUILD repairs errors in INDEXF.SYS , BITMAP.SYS and the QUOTA 
+file. This function is almost equivalent to ANALYZE/DISK/REPAIR.
+<le>Several minor bugs were fixes. Currently there are no known problems
+with DFU V2.1.
+<endlist><p>
+<head1>(Restrictions and Parameters\hd1_3)<p>
+The DFU program has a few restrictions :
+<list>(unnumbered)
+<le>DFU can not handle volume sets with more than 32 members.
+<le>The DEFRAG command does not work on AXP V1.5.
+<endlist><p>
+The following minimum process quotas are recommended for DFU usage:
+<list>(unnumbered)
+<le>WSQUOTA : 1500
+<le>WSEXTENT : 3000
+<le>DIOLM : 40
+<le>ASTLM : 40
+<le>FILLM : 40
+<le>BYTLM : 30000
+<le>PGFLQUOTA : 30000
+<endlist><p>
+If you use DFU on volume sets with a large number of members you may
+need to increase the SYSGEN parameter CHANNELCNT. <p>
+If you use the directory command on very large directory files (> 1000
+blocks) and run into errors you may need to increase the following 
+parameters:
+<list>(unnumbered)
+<le>WSQUOTA at least 1000 + size-of-largest directory file
+<le>WSEXTENT : WSQUOTA + at least 1000
+<le>CTLPAGES (SYSGEN parameter) : at least 100
+<le>WSMAX (SYSGEN parameter) : at least WSEXTENT 
+<endlist><p>
+Do not change parameters unless you run into errors such as EXCEEDED QUOTA
+or INSUFFICIENT WORKING SET LIMITS.
+<chapter>(Using DFU\ch2)<p>
+This chapter describes the installation procedure and other actions
+which must be taken to run DFU.
+<head1>(Installation procedure\hd2_1)<p>
+DFU can be installed with the VMSINSTAL utility. During the installation
+VMSINSTAL does the following:
+<list>(unnumbered)
+<le>Moves the documentation to SYS$HELP (Optional)
+<le>Relinks DFU
+<le>Creates the DFU_ALLPRIV identifier needed to perform the 
+write functions. (See 2.2)
+<endlist><p>
+The DFU utility in fact contains just 2 files :
+<list>(numbered)
+<le>SYS$SYSTEM:DFU.EXE : the DFU program
+<le>SYS$HELP:DFUHLP.HLB : the on-line help file
+<endlist><p>
+To install DFU log in into a privileged account and enter :
+<display>
+$ @sys$update:vmsinstal
+
+  VAX/VMS Software Product Installation Procedure V6.1
+
+  It is 02-Feb-1995 at 13:46.
+
+  Enter a question mark (?) at any time for help.
+
+  * Are you satisfied with the backup of your system disk [YES]?
+
+<enddisplay><p>
+VMSINSTAL now asks for the distribution media and product. You can
+also specify the directory where you have the DFU021.A file instead of a
+device name:
+<display>
+  * Where will the distribution volumes be mounted: [DDCU:]
+
+  Enter the products to be processed from the first distribution volume set.
+  
+  * Products: DFU021
+  * Enter installation options you wish to use (none):
+
+  The following products will be processed:
+
+         DFU V2.1
+
+  Beginning installation of DFU V2.1 at 13:46
+
+  %VMSINSTAL-I-RESTORE, Restoring product save set A ...
+
+  Installing DFU version 2.1
+
+
+<enddisplay><p>
+  The next question will prompt  you for the documentation files. 
+  The DFU documentation is available in Line printer, PostScript and 
+  Bookreader format. The documentation files will be copied to SYS$HELP.
+
+<display>
+  * Do you want the documentation in Lineprinter format ? [Y]?
+  %VMSINSTAL-I-DOCMOVED, DFU021.LINE moved to SYS$HELP
+
+  * Do you want the documentation in PostScript(TM) format ?   [N]?
+  * Do you want the documentation in Bookreader format ? [N]?
+
+<enddisplay><p>
+
+VMSINSTAL now links the DFU image and adds the identifier DFU_ALLPRIV 
+to the Rightslist (see 2.2 for the meaning of this identifier).
+
+<display>
+  Linking DFU image ...
+  %DFU-I-LINK, Linking DFU 2.1 image...
+  %DFU-S-DONE, DFU.EXE created
+
+<enddisplay><p>
+
+Next VMSINSTAL will create the DFU_ALLPRIV identifier if necessary.
+<display>
+
+  %VMSINSTAL-I-ACCOUNT, This installation adds an identifier named
+    DFU_ALLPRIV.
+  %UAF-I-RDBADDMSG, identifier DFU_ALLPRIV value: %X80010008 added to
+    rights data base
+
+<enddisplay><p>
+
+Next VMSINSTAL will move the files to the correct directory 
+and finish the installation procedure.
+<display>
+  %VMSINSTAL-I-MOVEFILES, Files will now be moved to their 
+   target directories...
+
+  Installation of DFU V2.1 completed at 13:47
+
+<enddisplay><p>
+Note : you must grant any DFU user (including yourself) the necessary
+DFU_ALLPRIV identifiers if they must be able to use all DFU functions. 
+<head1>(Security and access\hd2_2)<p>
+DFU has some functions which must not be made available for general
+usage. Therefore DFU has 2 groups of functions :
+<list>(numbered)
+<le>Read-only functions 
+<list>(numbered)
+<le>DIRECTORY (except DIRECTORY/COMPRESS)
+<le>REPORT
+<le>SEARCH
+<le>VERIFY (except VERIFY/FIX and VERIFY/REBUILD)
+<endlist><p>
+<le>Write functions
+<list>(numbered)
+<le>DEFRAG
+<le>DELETE
+<le>DIRECTORY/COMPRESS
+<le>SET
+<le>UNDELETE
+<le>VERIFY/FIX and VERIFY/REBUILD
+<endlist>
+<endlist><p>
+The Read-only functions need SYSPRV or BYPASS privilege.
+The Write functions require BYPASS privilege as well as the DFU_ALLPRIV
+identifier. 
+The DFU_ALLPRIV identifier is created during the installation
+procedure. To enable a user to perform Write functions the system
+manager must grant this identifier as follows :
+<display>
+$ mc authorize
+UAF> grant/id DFU_ALLPRIV username
+<enddisplay><p>
+It is highly recommended that Write functions are not made systemwide 
+available. <p>
+<head1>(Running DFU\hd2_3)<p>
+To run DFU you can enter :
+<display>
+$ MC DFU
+<enddisplay><p>
+You can also define and use a symbol for DFU as follows:
+<display>
+$ DFU == "$DFU"
+$ DFU
+<enddisplay><p>
+DFU now prompts with :
+<display>
+    Disk and File Utilities for OpenVMS DFU V2.1
+    Copyright (C) 1994,1995 Digital Equipment Corporation
+    Type Help for on-line Help
+
+DFU>
+<enddisplay><p>
+You can now enter DFU commands. HELP gives you online
+help. After each command DFU returns to the DFU>
+prompt. You can recall and edit commands, just as with
+DCL (20 commands will be stored in the recall buffer).
+Use EXIT or CTRL/Z to leave DFU.
+If you use a symbol for DFU , you also process a single
+command and return to DCL immediately:
+<display>
+$DFU SEARCH disk/qualifiers
+<enddisplay><p>
+During a DFU run , you can interrupt DFU with CTRL/C or
+CTRL/Y. These interrupts are catched
+by DFU to allow a correct rundown of the current
+command. It may therefore take some time
+before DFU responds to a CTRL/C or Y interrupt.
+<chapter>(DFU basics\ch3)<p>
+Note : this chapter is meant for first time users of DFU. If you already
+used DFU before you may probably skip this chapter.<p>
+This chapter gives a brief overview of the commands which can be used
+with DFU, and how they can provide the system manager with the necessary
+information.<p>
+One of most common actions by a system manager is trying to locate specific 
+files eg. files with a certain file size. Although a lot can be done with
+the VMS DIRECTORY command this can be a time consuming process , especially if 
+the complete disk must be scanned. The SEARCH command of DFU is exactly meant
+for this situation. It gives a very quick list of specific files, with
+their size, and if needed the number of file fragments. Some usefull SEARCH
+commands are :
+<display>
+DFU> SEARCH disk/SIZE=MINIMUM=1000 (files > 1000 blocks)
+DFU> SEARCH disk/IDENTIFIER=SYSTEM (files owned by SYSTEM)
+DFU> SEARCH disk/FRAGMENT=MINIMUM=10 (files with at least 10 fragments)
+DFU> SEARCH disk/CHAR=MARKED (all files marked for delete)
+DFU> SEARCH disk/CREATED=SINCE=YESTERDAY (all files created since YESTERDAY)
+<enddisplay><p>
+Of course these qualifiers can be combined to narrow the search. 
+As the SEARCH command scans INDEXF.SYS , not directories, the output
+generated by SEARCH may look a bit random (but it is just the order in
+which the file headers are in the INDEXF.SYS file). To smooth the output
+use the /SORT qualifier.<p>
+Another important action for a system manager is to gather some overall
+disk information , such as number of files , free space statistics and
+fragmentation information. The REPORT command will generate such a
+disk report. To get individual disk space usage information the /USAGE
+qualifier can be used. This will work even if there is no disk quota
+enabled on the disk.<p>
+At regular intervals a system manager may need to check a disk with 
+ANALYZE/DISK. The DFU VERIFY command provides more or less the same 
+functionality but many times faster. The /FIX qualifier provides
+some REPAIR options which (unlike ANALYZE/DISK/REPAIR) do NOT lock the
+disk, and thus do not interfere with other disk operations.
+Also, the disk can be rebuild completely by using the /REBUILD qualifier.<p>
+Occasionaly a user will delete the wrong file, leaving the system manager
+or operator with the tedious task of restoring the file from a backup set.
+The UNDELETE command may be able to recover the file if it has not yet
+been overwritten with a new one. Much care has been taken to make this
+command as safe as possible; therefore no disk corruptions will be the 
+result of an UNDELETE. If DFU encounters a problem with a deleted file
+it will refuse to UNDELETE it.<p>
+Another type of typical system manager problems deals with directories.
+The DFU command DIRECTORY can handle such problems. DIRECTORY can generate
+reports about empty directories (/EMPTY qualifier) or directories which
+contains files with a certain number of versions (/VERSION=n qualifier)
+or even check for corrupted directories (/CHECK).
+Also , directories may become internally fragmented. This can be quickly solved
+with the /COMPRESS qualifier.<p>
+The last 2 commands deal with individual files. SET allows settings of
+some special file attributes. Since VMS V6.0 this functionality is also
+provided by the DCL SET FILE/ATTRIBUTE command, but DFU's SET offers 
+some more options. The DEFRAG command is an interface to the MOVEFILE
+function offered by VMS 5.5 and higher. This allows a simple defragmentation
+of individual files<p>
+The next chapters gives a detailed description of each individual DFU
+command.<p>
+<chapter>(DEFRAG\ch4)<p>
+This chapter describes the DEFRAG command with the related parameters
+and qualifiers.
+<head1>(Description\hd4_1)<p>
+The DEFRAG command can be used to defragment a single file or a group of 
+files. You can also enter an indirect command file containing a list of 
+files. This feature allows you to create an output file with SEARCH
+and use that as an input to DEFRAG.<p>
+DEFRAG makes use of the file-primitive MOVEFILE function. Therefore 
+files which are open, or which are marked NOMOVE will not be DEFRAGmented.
+Still you should be cautious about using DEFRAG. You should not make
+this function available for general usage.<p>
+Note that DEFRAG does not work on AXP V1.5.
+<head1>(Error messages\hd4_2)<p>
+The most common errors returned by DEFRAG are :
+<list>(unnumbered)
+<le>ACCONFLICT:  File is open by another user
+<le>DEVICEFULL:  Device has not enough  contiguous free
+space to  move the entire file
+<le>FILNOTACC:   File has been set to NOMOVE.
+<le>FILENUMCHK:  You tried to move a reserved file (eg INDEXF.SYS).
+<le>RMS Errors:   Almost always caused by an invalid or 
+wrong file specifcation.
+<endlist><p>
+<command_section>(DEFRAG command)
+<set_template_command>(command\nonewpage\doublerunningheads)
+<command>(DEFRAG\\defrag)
+<overview>
+Defragment a file or a list of files on the disk.
+<endoverview>
+<format>
+<fcmd>(DEFRAG)    <fparms>	file1,file2,@file...
+<endformat>
+<paramdeflist>
+<paramitem>(file1,file2,@file...)
+<paramdef>The file(s) to be defragmented. You can also use an indirect command
+file (@file) which contains a list of files to be defragmented. This may be
+an output file generated with the SEARCH/OUTPUT command.
+<endparamdeflist>
+<qualdeflist>
+<qualitem>(/BESTTRY)
+<qualdef>
+Normally DEFRAG tries to create a contiguous file. If there is not enough
+contiguous free space the operation will fail. With the /BESTTRY qualifier
+DEFRAG tries to move the file with the contiguous-best-try method. 
+This means a maximum of 3 fragments. You should only use this qualifier
+when a normal DEFRAG fails. If a DEFRAG/BESTTRY also fails this is an
+indication that the disks free space is too fragmented. Run a REPORT
+to see what the largest contiguous free space is, and check the free
+space fragmentation index.
+<qualitem>(/DEVICE)
+<qualdef>
+The device on which the files reside. The device name is added to the
+file name. If you generate a file list with the DFU SEARCH command
+you don't need this qualifier anymore. However you may have a list
+of files produced from another source and thus need to append a device
+name to it.
+Example:
+<display>
+  DFU> SEARCH mydisk/...../frag=min=50/output=x.x
+  DFU> DEFRAG @x.x
+<enddisplay>
+<qualitem>(/STATISTICS)
+<qualdef>
+This qualifier displays the performance statistics: CPU time, Elapsed Time, 
+I/O and PageFaults.
+<qualitem>(/WRITECHECK)
+<qualdef>
+Perform a writecheck on the resultant file. The default is /NOWRITECHECK.
+Note that a writecheck doubles the number of involved disk I/O's. 
+<endqualdeflist>
+<endcommand_section><p>
+<chapter>(DELETE\ch5)<p>
+This chapter describes the DELETE command with the related parameters
+and qualifiers.
+<head1>(Introduction\hd5_1)<p>
+The DELETE command is designed for 2 purposes:
+<list>(numbered)
+<le>Delete a file by file id (with the /FILE qualifier). This functionality
+is needed to be able to delete files which no longer have a parent directory. 
+This way 'lost' files and (sometimes) files marked for delete can be removed
+from a disk. 
+<le>A fast method to delete a complete directory or even a directory tree
+(with the /DIRECTORY qualifier). First all entries of a directory are 
+deleted without removing the directory entry ; this saves a lot of 
+unnecessary directory updates. 
+Finally the directory file itself is deleted.
+This way a directory is cleaned up 2 to 3 times faster than with the
+DCL DELETE command. On large directories DFU's DELETE may even be more
+than 10 times faster.
+To delete a complete directory tree use the /TREE qualifier.
+The DCL command DELETE [.SUBDIR...]*.*;* will almost always 
+fail to delete the intermediate subdirectory files forcing you to issue 
+this command several times. The DFU DELETE command is smart enough to delete
+the files and the subdirectory files in the proper order; therefore only
+one command is sufficient to delete a complete directory tree.
+<endlist><p>
+<command_section>(DELETE command)
+<set_template_command>(command\nonewpage\doublerunningheads)
+<command>(DELETE\\delete)
+<overview>
+Deletes files or directories.
+<endoverview>
+<format>
+<fcmd>(DELETE)    <fparms>(device[:] or directory-file(s))
+<endformat>
+<paramdeflist>
+<paramitem>(device)
+<paramdef>The device on which to perform the DELETE/FILE=file-id
+command.
+<paramitem>(directory-file(s))
+<paramdef>The filespecification of the directory on which to perform
+the DELETE/DIRECTORY command. Wildcard file specifications may be used. 
+DFU will automatically add .DIR to the filespecification if a filetype
+is not provided.
+<endparamdeflist>
+<qualdeflist>
+<qualitem>(/DIRECTORY)
+<qualdef>
+Specify the directory file which must be deleted. Wildcards may be used
+but must be used very carefully. Make sure that the directory does not
+contain non-empty subdirectories. Files within such a subdirectory will
+become lost after the DELETE/DIRECTORY command (but can be recovered
+with ANALYZE/DISK/REPAIR). Note that the
+directory file itself will also be deleted. Example:
+<display>
+$ DIR EXAMPLE
+
+Directory MYDISK:[RUBBISH]
+
+EXAMPLE.DIR;1
+
+$ DFU
+DFU> DELETE/DIRECTORY EXAMPLE.DIR
+
+%DFU-I-CLEANUP, Deleting MYDISK:[RUBBISH]EXAMPLE.DIR;1...
+%DFU-S-DELETED, File DBGINI.COM;3 deleted
+%DFU-S-DELETED, File ICON.COM;1 deleted
+%DFU-S-DELETED, File I_FOOL.COM;1 deleted
+%DFU-S-DELETED, File LOGICALS.COM;51 deleted
+%DFU-S-DELETED, File LOGIN.COM;79 deleted
+%DFU-S-DELETED, File LOGOUT.COM;4 deleted
+%DFU-S-DELETED, File NOTE_COMPRESS.COM;3 deleted
+%DFU-S-DELETED, File SHOWCL.COM;3 deleted
+%DFU-S-DELETED, File SYMBOLS.COM;89 deleted
+%DFU-S-DELETED, File TPUBUILD.COM;5 deleted
+%DFU-S-TOTAL, 11 file(s) deleted
+%DFU-S-DELETED, File EXAMPLE.DIR;1 deleted
+<enddisplay><p>
+<qualitem>(/FILE=file-id)
+<qualdef>
+Specify a complete file-id (num,seq,rvn) of the file which must be deleted.
+This qualifier allows the deletion of lost files or files marked for
+delete. Example :
+<display>
+$ DFU
+DFU> VERIFY MYDISK:
+
+%DFU-S-CHKHOME, Home block info verified OK
+%DFU-I-IFSCAN, Scanning INDEXF.SYS...
+%DFU-E-INVBAKFID, file (86,17915,1) 0004CF04$BFS.;1 has invalid backlink
+%DFU-W-DELETED, file (537,2878,1) APPL_UTRYIT_BOOK.TMP;1 marked for delete
+	.
+	.	
+	.
+
+DFU> DELETE MYDISK/FILE=(86,17915,1)
+%DFU-S-DELETED, File 0004CF04$BFS.;1 deleted
+
+DFU> DELETE MYDISK/FILE=(537,2878,1)
+%DFU-S-DELETED, File APPL_UTRYIT_BOOK.TMP;1 deleted
+
+<enddisplay><p>
+<qualitem>(/NOLOG)
+<qualdef>
+Do not log succesfull deletes to SYS$OUTPUT. /LOG is the default.
+<qualitem>(/NOREMOVE)
+<qualdef> 
+Can only be used with /FILE. Default DELETE/FILE will try to
+remove the file from the parent directory. If the file's backlink
+no longer points to a valid directory this will generate an error.
+The /NOREMOVE qualifier overrules this behaviour allowing such
+files to be deleted.
+<qualitem>(/STATISTICS)
+<qualdef>
+This qualifier displays the performance statistics: CPU time, Elapsed Time, 
+I/O and PageFaults.
+<qualitem>(/TREE)
+<qualdef>
+Can only be used with /DIRECTORY. The delete command will delete
+all subdirectories within the directory file specified. DFU will first
+sort out the subdirectory tree and than delete the files in the proper order.
+Thus a complete directory tree is deleted with one command.
+<endqualdeflist>
+<endcommand_section><p>
+<chapter>(DIRECTORY\ch6)<p>
+This chapter describes the DIRECTORY command with the related parameters
+and qualifiers.
+<head1>(Introduction\hd6_1)<p>
+The DIRECTORY command offers 7 major functions. 4 functions deal with
+all directories on a disk, the other 3 functions are used for
+manipulating individual directories. These functions 
+are activated by special qualifiers:
+<list>(unnumbered)
+<le>Individual directory functions :
+<list>(numbered)
+<le>/COMPRESS : Rebuild and truncate one or more directory files. Directories
+are alphabetically sorted lists of filenames and file id's. Because file
+names are randomly inserted and deleted, holes will occur in directory files.
+Such holes will only be reused if a file can be alphabetically fitted into
+it. As a result directory files will grow. Especially MAIL subdirectories
+suffer from this behaviour. <p>
+To make matters worse directory files above 127 blocks will no longer be
+cached by the file system. This will degrade performance on such directories
+dramatically. The COMPRESS function will rebuild the complete directory file.
+The /TEST qualifier can be used to preview the results of a possible
+COMPRESS command.
+<le>/CREATE/ALLOCATE=n : Create a directory with a preallocated size
+of 'n' blocks. Note that 'n' will be rounded up to a multiple of the
+disks cluster size.
+<le>/DUMP : Make a dump of the directory blocks and formats the output.
+This option is usefull for debugging directory files which are suspected
+or corrupted. This function is equivalent to the previously undocumented
+VMS command DUMP/DIRECTORY, although the layout of the output is different.
+<endlist><p>
+<le>Disk-wide directory functions :
+<list>(numbered)
+<le>/ALIAS : Scan all directories on the disk for alias file entries.
+<le>/CHECK : Scan the disk for corrupted directories.
+<le>/EMPTY : Scan the disk for empty directories
+<le>/VERSION=n : Scan all directories on the disk for files which have
+at least 'n' versions. 
+<endlist><p>
+<endlist><p>
+The diskwide function qualifiers can be used in one command; other combinations
+of qualifiers are not possible.
+Note that the diskwide directory functions can take several minutes to complete
+because a complete directory scan uses a lot of disk I/O (approximately
+2 I/O's per directory).<p>
+An indirect command file containing a list of
+files can be used as a parameter to /COMPRESS or /DUMP. Such a list
+can be generated with the SEARCH command. Example:
+<display>
+DFU> SEARCH disk/FILE=*.DIR/SIZE=MIN=50/OUT=x.x
+DFU> DIRECTORY/COMPRESS @x.x
+<enddisplay>
+<p>
+Caution: Care should be taken when compressing critical system directories.
+To be safe you should first use the /TEST qualifier before compressing
+the directory. Another problem may be caused by a systemcrash just when DFU
+is rewriting the new compressed directory (although the chance that this
+happens is very small). When this happens you can recover the files by
+executing the following procedure:
+<list>(numbered)
+<le>Do a $SET FILE/NODIR of the corrupted directory
+<le>Delete the directory and create a new one
+<le>Do a $ANALYZE/DISK/REPAIR ; this will move all the lost files to [SYSLOST].
+<le>Move the files from [SYSLOST} to the newly created directory.
+<endlist><p>
+<command_section>(DIRECTORY command)
+<set_template_command>(command\nonewpage\doublerunningheads)
+<command>(DIRECTORY\\directory)
+<overview>
+Performs directory functions.
+<endoverview>
+<format>
+<fcmd>(DIRECTORY)    <fparms>(device[:] or directory-files(s))
+<endformat>
+<paramdeflist>
+<paramitem>(device)
+<paramdef>The device on which to perform one of the diskwide directory
+functions.
+<paramitem>(directory-files(s))
+<paramdef>The filespecification of the directory on which to perform
+the /CREATE , /COMPRESS or /DUMP function. 
+Wildcard file specifications may be used. 
+DFU will automatically add .DIR to the filespecification if a filetype
+is not provided. 
+<endparamdeflist>
+<qualdeflist>
+<qualitem>(/ALIAS)
+<qualdef>
+The /ALIAS qualifier directs DFU to scan all directories for alias
+file entries. Only alias files in DIFFERENT directories will be found
+(this is the most common situation).
+Normally only the system disk should contain alias files. This qualifier
+can be combined with other diskwide directory functions..
+<qualitem>(/ALLOCATE=n)
+<qualdef>
+Used in combination with /CREATE. Creates the new directory with 
+an allocated size of 'n' blocks.
+<qualitem>(/CHECK)
+<qualdef>
+Perform a diskwide scan for corrupted directories. Directories with
+a first byte = 0, and directories which contain files out of alphabetical
+order are reported as being corrupt.
+<qualitem>(/COMPRESS)
+<qualdef>
+Performs the directory compression unless /TEST is also specified.
+The output will show the results in terms of file sizes. Example:
+<display>
+DFU> DIR/COMP MYDISK:[MYDIR]MAIL
+
+%DFU-S-DONE, MYDISK:[MYDIR]MAIL.DIR;1: 31 files; was : 4/9, now : 3/3 blocks
+
+DFU>
+<enddisplay><p>
+<qualitem>(/CREATE)
+<qualdef>
+Create a new , empty directory.
+<qualitem>(/DEVICE)
+<qualdef>
+The device on which the files reside. The device name is added to the
+file name. If you generate a file list with the DFU SEARCH command
+you don't need this qualifier. However you may have a list
+of files produced from another source and thus need to append a device
+name to it. This qualifier can only be used in combination with /COMPRESS
+or /DUMP.
+<qualitem>(/DUMP)
+<qualdef>
+Produce a block level dump of a directory. /DUMP will interpret the directory
+entries found in each block. A directory entry contains a size, version-limit,
+type and name field. Next the directory entry contains a list of 
+versions and file ID's for this entry. /DUMP will produce a rather
+low level output of this information. Example :
+<display>
+DFU> DIR/DUMP C.DIR
+
+DUMP of directory block 1
+Size: 22, Version limit: 3, Type: 0, Name(10): CHKDSK.EXE
+   Version: 3, FID : (1027,1456,0)
+Size: 26, Version limit: 3, Type: 0, Name(13): CHKDSK.README
+   Version: 2, FID : (33892,1171,0)
+   Version: 3, FID : (1256,11234,0)
+Size: 22, Version limit: 3, Type: 0, Name(10): CHKDSK.SAV
+   Version: 2, FID : (13947,100,0)
+Size: 24, Version limit: 3, Type: 0, Name(11): CHKDSK.SAVE
+   Version: 1, FID : (12531,2114,0)
+Size: 26, Version limit: 3, Type: 0, Name(14): CHKDSK_LNK.COM
+   Version: 2, FID : (12314,72,0)
+Size: 18, Version limit: 3, Type: 0, Name(5): C_D.C
+   Version: 3, FID : (32650,32,0)
+Size: 20, Version limit: 3, Type: 0, Name(7): C_D.EXE
+   Version: 9, FID : (2675,64,0)
+Size: 20, Version limit: 3, Type: 0, Name(7): C_D.OBJ
+   Version: 4, FID : (9835,117,0)
+Size: 20, Version limit: 3, Type: 0, Name(7): C_D_2.C
+   Version: 15, FID : (12428,84,0)
+Size: 22, Version limit: 3, Type: 0, Name(9): C_D_2.OBJ
+   Version: 9, FID : (8439,119,0)
+Size: 22, Version limit: 3, Type: 0, Name(9): C_D_3.CLD
+   Version: 3, FID : (9777,178,0)
+Size: 22, Version limit: 3, Type: 0, Name(9): C_D_3.OBJ
+   Version: 2, FID : (9737,161,0)
+Size: 20, Version limit: 3, Type: 0, Name(7): C_D_4.C
+   Version: 3, FID : (10594,1580,0)
+Size: 22, Version limit: 3, Type: 0, Name(9): C_D_4.OBJ
+   Version: 2, FID : (10177,109,0)
+
+DUMP of directory block 2
+Size: 18, Version limit: 3, Type: 0, Name(5): DFU.C
+   Version: 169, FID : (31123,52,0)
+
+	.
+	.
+	.
+%DFU-I-TOTAL, MYDISK:[MYDIR]C.DIR;1: 42 files
+
+<enddisplay><p>
+<qualitem>(/EMPTY)
+<qualdef>
+The /EMPTY qualifier will produce a list of empty directories.
+This qualifier can be combined with other diskwide directory functions.
+<qualitem>(/OUTPUT=filename)
+<qualdef>
+This qualifier redirects the output to a filename. Default output will
+be to SYS$OUTPUT.
+<qualitem>(/STATISTICS)
+<qualdef>
+This qualifier displays the performance statistics: CPU time, Elapsed Time, 
+I/O and PageFaults.
+<qualitem>(/TEST)
+<qualdef>
+The /TEST can only be used in conjunction with /COMPRESS. The qualifier
+will show the results of the /COMPRESS but will not compress
+the directory file.
+<qualitem>(/VERSION=n)
+<qualdef>
+The /VERSION qualifier directs DFU to scan all directories on the device
+to produce a list of files which have at least 'n' versions. This qualifier
+can be combined with other diskwide functions.
+<endqualdeflist>
+<endcommand_section><p>
+<chapter>(REPORT\ch7)<p>
+This chapter describes the REPORT command with the related parameters
+and qualifiers.
+<head1>(Description\hd7_1)<p>
+The REPORT command function generates a report of the
+file and free space fragmentation of the disk. Also a
+graph may be generated by the /GRAPH qualifier; this 
+visualises the free space distribution on your disk. 
+The /USAGE qualifier will generate a diskspace usage
+report. This is especially usefull if DISKQUOTA is not
+enabled on the disk.
+<head1>(Syntax and Output\hd7_2)<p>
+The syntax of the report command is:
+<display>
+DFU> REPORT device/QUALIFIERS
+<enddisplay><p>
+Below follows an example and output of the report command:
+<display>
+
+DFU> REPORT USER3:/GRAPH/USAGE
+
+%DFU-I-REPORT, Reporting on USER3: ($1$DUA102:)
+
+ 	***** Volume info for USER3: (from HOME block) *****
+ Volume name                      :  USER3       
+ Volume owner                     :  SYSTEM      
+ Structure name                   :              
+ Clustersize                      :  3
+ Maximum # files                  :  367618
+ First header VBN                 :  103
+ Header count                     :  51547	(1)
+ Free headers                     :  10951	(2)
+  
+ 	***** File statistics (from INDEXF.SYS) *****
+ INDEXF.SYS fragments /map_in_use :  21 / 61    (3)
+ Total files                      :  40595
+ Files with extension headers     :  0
+ Files marked for delete          :  19 , size : 25/63 blocks
+ Directory files                  :  1957
+ Empty files                      :  177
+ Files with allocation            :  40418
+ Contiguous files                 :  40326	(4)
+ Total size used /allocated       :  2492431 /2533209
+ Total fragments                  :  40770
+ Average fragments per file       :  1.009 	(5)
+ File fragmentation index         :  0.692 (excellent)	(6)
+ Average size per fragment        :  62
+ Most fragmented file             : 
+    $1$DUA102:[LARGEUSER]A.DAT;1 ( 180/630 blocks; 30  fragments)
+  
+ 	***** Free space statistics (from BITMAP.SYS) *****
+ Total blocks on disk             :  2940951
+ Total free blocks                :  407742
+ Percentage free (rounded)        :  13
+ Total free extents               :  260
+ Largest free extent              :  42912   at LBN: 2463597	(7)
+ Average extent size (rounded)    :  1568
+ Free space fragmentation index   :  0.191 (excellent)	(6)   
+  
+ %free------------------------------------------------------------------
+ 100 |                                                                  |
+  95 |                                                                  |
+  90 |                                                                  |
+  85 |                             *                                    |
+  80 |                             *                                    |
+  75 |                             *                                    |
+  70 |                             *                          *         |
+  65 |                             *                          *         |
+  60 |                             *                          *         |
+  55 |                             *                          *         |
+  50 |                       *     *                        * *         |
+  45 |                       *     *                        * *    *    |
+  40 |                       *     **                       * *    *    |
+  35 |                       *     **                       * *    **   |
+  30 |                       *   * *** *                 *  * *    **   |
+  25 |              *       **   * *** *            *   **  ***    ** * |
+  20 |              *       **   * *** *            * * **  ***    ** * |
+  15 |      *  *  * *   * * ********** *            * * **  ***    ** * |
+  10 |      *  *  * *   *** ********** **           * * ** ****    ** * |
+   5 |      *  *  * * ***** **************          * * ** ****    ** * |
+      -------------------------------------------------------------------
+ LBN: 0                                                             2940951
+ Free space distribution, each * =  2100  free blocks
+  
+ 	***** Disk Usage Table (from INDEXF.SYS and QUOTA.SYS) *****
+ Identifier/UIC                 Used/Allocated   Headers   Quota Used/Perm
+ -------------------------------------------------------------------------
+ [SYSTEM]                       499554/505626     4954     510580/2000000  
+ [SSG,MRX]                       42079/46356      2259      48615/60000    
+ [SSG,TESTJE]                   189306/254742     4935     259677/300000   
+ [SSG,LARGEUSER]                 47961/50238      1648      51886/65000    
+	.
+	.
+	.  
+<enddisplay><p>
+The various items have the following meaning :
+<list>(numbered)
+<le>The header count is calculated based on the size
+of INDEXF.SYS. If more headers are needed INDEXF.SYS has to be extended.
+<le>The free headers gives the number of free entries in INDEXF.SYS
+before it has to extend.
+<le>The INDEXF.SYS number of fragments and mapwords in use are very important
+figures to determine if the INDEXF.SYS file can be extended. The theoretical 
+maximum number of mapwords is 155. This value may be less if there are
+ACL's on INDEXF.SYS. Each fragment, and therefore each retrieval pointer
+must be in the mapword area. As the size of a retrieval pointer depends on
+the physical size of a disk, it is not easy to say how many fragments
+INDEXF.SYS can store in the mapwords area.
+If the mapword area is full the INDEXF file can no longer extend,
+and creating new files may result in a SYSTEM-W-HEADERFULL error.
+<le>Files which have exactly 1 retrieval pointer are considered
+to be contiguous. This doesn't mean that the
+CONTIGUOUS bit is set in the file header.
+<le>The average  fragments per file give some
+indication about the total file fragmentation.
+<le>The file and free space fragmentation index classifies your disk as follows :
+<list>(unnumbered)
+<le> 0-1 : Excellent
+<le> 1-2 : Good
+<le> 2-3 : Fair
+<le> 3-4 : Poor
+<le> >4  : Bad
+<endlist><p>
+If your index is greater than 3 you should consider defragmenting the disk
+using Digital's DFO software , or by performing an Image BACKUP / Restore.
+<le>The largest free extent is a usefull figure for
+defragmentation purposes. You cannot defragment a file when the size is
+greater than this value.
+<endlist><p>
+The disks free space distribution as a bar graph. On the horizontal axis
+the Logical Block Number (LBN) is shown, running from 0 to the maximum
+block number. Each * represents a certain number of contiguous free blocks.<p>
+If you use the /USAGE qualifier a usage table will be added.
+Per Identifier / UIC the blocks used/allocated , and the number of file
+headers are shown. If Diskquota is enabled a third column will be included
+which shows the blocks used/permitted allowing to QUOTA.SYS.
+Normally quota should satisfy the following rule :
+<display>
+	Quota used = blocks allocated + # of file headers
+<enddisplay><p>
+<command_section>(REPORT command)
+<set_template_command>(command\nonewpage\doublerunningheads)
+<command>(REPORT\\report)
+<overview>
+Create a file and free space report of a disk device.
+<endoverview>
+<format>
+<fcmd>(REPORT)    <fparms>(device[:])
+<endformat>
+<paramdeflist>
+<paramitem>(device[:])
+<paramdef>Device to be reported. You may also specify a logical devicename.
+<endparamdeflist>
+<qualdeflist>
+<qualitem>(/GRAPH)
+<qualdef>
+This qualifier generates a graph table which visualizes the free space
+distribution on the disk. /NOGRAPH is the default.
+<qualitem>(/NOFILE)
+<qualdef>
+The /NOFILE qualifier directs DFU to skip the "File Statistics" 
+reporting phase. When /NOFILE is used the /USAGE qualifier can not
+be used.
+<qualitem>(/OUTPUT=filename)
+<qualdef>
+This qualifier redirects the output to a filename. Default output will
+be to SYS$OUTPUT.
+<qualitem>(/STATISTICS)
+<qualdef>
+This qualifier displays the performance statistics: CPU time, Elapsed Time, 
+I/O and PageFaults.
+<qualitem>(/USAGE)
+<qualdef>
+The /USAGE qualifier will generate a diskspace usage report based on
+Identifiers/UIC. If diskquota is enabled on the disk the blocks 
+used/permitted allowing to QUOTA.SYS will also be shown. /USAGE
+is very usefull when diskquota is not enabled on the disk.
+/USAGE can not be used together with /NOFILE.
+<endqualdeflist>
+<endcommand_section><p>
+<chapter>(SEARCH\ch8)<p>
+This chapter describes the SEARCH command with the related parameters
+and qualifiers.
+<head1>(Introduction\hd8_1)<p>
+The search function allows very quick disk-wide
+searches for specific files. You can use almost any
+possible file attribute as a search qualifier. 
+<head1>(Syntax and Output\hd8_2)<p>
+The command syntax for SEARCH is:
+<display>
+DFU> SEARCH device/qualifiers
+<enddisplay><p>
+The output is displayed on your terminal  (unless redirected to
+an output file with  /OUTPUT=filename ). You can also sort
+the output with the /SORT qualifier.
+The output is shown in 2 or 3 columns eg:
+<display>
+DFU> SEARCH MYDISK/FILE=X.X/FRAGMENT
+	.
+	.
+$1$DUA111:[MYDIR.COMMAND]X.X;1             1/3               1/1
+	.
+	.
+<enddisplay><p>
+The first column shows the full file name . As of this version of DFU the
+device name is included in the file name. The second
+columns shows the file size as actual/allocated size. The 3rd column
+is optional and will only be shown when the /FRAGMENT qualifier is used. It
+shows the number of fileheaders / number of file fragments.
+<head1>(Volume Set processing\hd8_3)<p>
+SEARCH checks if the device to-be-searched is member of a
+volume set. If so, the complete volume set will be processed,
+starting with Relative Volume Number 1 up to the last
+member in set. You can override this behaviour with the /NOVOLSET qualifier.
+<command_section>(SEARCH command)
+<set_template_command>(command\nonewpage\doublerunningheads)
+<command>(SEARCH\\search)
+<overview>
+Fast file search through INDEXF.SYS.
+<endoverview>
+<format>
+<fcmd>(SEARCH)    <fparms>(device[:])
+<endformat>
+<paramdeflist>
+<paramitem>(device[:])
+<paramdef>Device to be searched. You may also specify a logical devicename.
+<endparamdeflist>
+<description>
+The SEARCH command is used for quick disk-wide searches for specific files. 
+The qualifiers describe the file attributes used as the search
+criteria. You can combine almost all of the possible
+qualifiers, unless otherwise specified. Eg.:
+<display>
+DFU> SEARCH DISK1/SIZE=MIN=10/OWN=[1,4]/CREATED=SINCE=YESTERDAY
+<enddisplay><p>
+is a valid command. Note that qualifiers will be used
+in a logical AND manner, that is, SEARCH will only display files which 
+obey to all qualifiers and options specified.
+<enddescription>
+<qualdeflist>
+<qualitem>(/ALLOCATED)
+<qualdef>
+Default, SEARCH will use the actual file size. The /ALLOCATED qualifier 
+forces SEARCH to use the allocated filesize. This qualifier is only 
+meaningfull if you combine it with /SIZE. 
+<qualitem>(/BACKUP=option(,option))
+<qualdef>
+The /BACKUP qualifier is used to search files depending
+on their backup date. The possible options are :
+<list>(unnumbered)
+<le>/BACKUP=BEFORE=date
+<le>/BACKUP=SINCE=date
+<le>/BACKUP=NONE
+<endlist><p>
+The NONE option gives files which don't have a backup
+date recorded.The other 2 options can be used to get
+files which have a backup date before or after a
+specific date. The BEFORE and SINCE option can be
+combined in one command.
+<qualitem>(/BAKFID=backlink-file-id)
+<qualdef>
+You can use this qualifier to look for a file with a
+specific backlink. Only the first part of the file id
+must be specified, that is, if the file id is (x,y,z)
+you must specify 'x' as the file id. You can use this
+qualifier to get files from a specific directory. If
+you use /BAKFID=0 you will get files not belonging to a
+directory (often temporary files).
+<qualitem>(/CHARACTERISTIC=(char1,char2...))
+<qualdef>
+This qualifier is used to get files with specific file
+characteristics.The characteristics can have the
+following values:
+<list>(unnumbered)
+<le>Directory    : directory files
+<le>Nobackup     : files marked nobackup
+<le>Contiguous   : files marked as contiguous
+<le>Erase        : erase file before deletion
+<le>Spool        : spool files
+<le>Badblock     : files which contain suspected bad block(s)
+<le>Badacl       : files with a corrupted ACL
+<le>Besttry      : files marked contiguous-best-try
+<le>Scratch      : files marked as scratch files
+<le>Nocharge     : files not charged against quota
+<le>Nomove       : files marked NoMove (VMS 5.5+)
+<le>Locked       : files with the deaccess lock bit set
+<le>Marked       : files marked for deletion
+<endlist><p>
+The several characteristics can be combined in one
+command.If you want a logical OR behaviour in stead of
+the default AND behaviour, you can use the special
+option  MATCH=OR eg:
+<display>
+  SEARCH disk/CHAR=(NOMOVE,DIR,MATCH=OR)
+<enddisplay><p>
+Specifying the NOMOVE characteristic has no effect unless you are 
+running VMS 5.5 or above.
+<qualitem>(/CREATED=option(,option))
+<qualdef>
+The /CREATED qualifier is used to search files
+depending on their creation date. The options are :
+<list>(unnumbered)
+<le>/CREATED=BEFORE=date
+<le>/CREATED=SINCE=date
+<endlist><p>
+These 2 options can be used to get files which have a
+creation date before or after a specific date. The
+BEFORE and SINCE option can be combined in one command.
+<qualitem>(/EXCLUDE=(file1,file2...))
+<qualdef>
+This qualifier is used to exclude files from the
+search. You can use wildcard filenames ; you can also
+specifiy a list of files.
+<qualitem>(/EXPIRED=option(,option))
+<qualdef>
+The /EXPIRED qualifier is used to search files
+depending on their expiration date. The options are :
+<list>(unnumbered)
+<le>/EXPIRED=BEFORE=date
+<le>/EXPIRED=SINCE=date
+<le>/EXPIRED=NONE
+<endlist><p>
+The NONE option gives files which don't have a
+expiration date recorded.The other 2 options can be
+used to get files which have a expiration date before
+or after a specific date. The BEFORE and SINCE option
+can be combined in one command.
+<qualitem>(/FID=file-id)
+<qualdef>
+The /FID qualifier is a special function of SEARCH.  It
+directs SEARCH to go directly to the specified file
+without processing the rest of the Index file.
+Therefore, you cannot combine this qualifierwith other
+search qualifiers such as /FILE. Normally a file-id
+consists is in the form (x,y,z) where x is the number
+of the file header within INDEXF.SYS y is the sequence
+number, and z is the Relative Volume Number. You only
+need to specifiy the x value in the /FID qualifier.
+<qualitem>(/FILE=(file1,file2...))
+<qualdef>This qualifier is used to search for files with a
+specific file name.You can use wildcard file  names;
+also you can specify a list of files.
+<qualitem>(/FRAGMENT(=(MINIMUM=nr,MAXIMUM=nr)))
+<qualdef>
+This qualifier displays the number of fragments and file headers of each
+file found. You can further limit the files found by
+using the MINIMUM and MAXIMUM= options. For example:
+<display>
+DFU> disk/FRAG
+DFU> disk/FRAG=min=10
+DFU> disk/FRAG=(min=10,max=100)
+<enddisplay><p>
+<qualitem>(/FULL)
+<qualdef>
+If you use this qualifier , SEARCH will give a full
+output for each file found. This output is a look-alike
+of the output from DIRECTORY/FULL. You cannot combine
+this qualifier with /SORT or /SUMMARY.
+<qualitem>(/HOME)
+<qualdef>This qualifier directs search to give output from the
+disk's home block. SEARCH uses the home block for
+calculating the free and used file headers within INDEXF.SYS.
+<qualitem>(/IDENT=identifier)
+<qualdef>
+You can search for files owned by a specific
+identifier. Another way is the /OWNER_UIC qualifier;
+you cannot combine these 2 qualifier in one SEARCH
+command.
+<qualitem>(/LBN=logical-block-number)
+<qualdef>The /LBN qualifier is a special function of SEARCH.
+This allows you to find a file which  contains a
+specific LBN. This may be usefull if you have bad
+blocks logged in the error log. You cannot combine /LBN
+with search qualifiers such as /FILE.
+<qualitem>(/OWNER_UIC=[x,y])
+<qualdef>
+This qualifier is used to get files owned by uic [x,y].
+You cannot  combine this qualifier with /IDENT.
+<qualitem>(/MODIFIED=option(,option))
+<qualdef>The /MODIFIED qualifier is used to search files
+depending on their modification date. The options are :
+<list>(unnumbered)
+<le>/MODIFIED=BEFORE=date
+<le>/MODIFIED=SINCE=date
+<endlist><p>
+These 2 options can be used to get files which have a
+modification date before or after a specific date. The
+BEFORE and SINCE option can be combined in one command.
+<qualitem>(/MULTIPLE)
+<qualdef>This qualifier searches for files which have more than
+1 file header.
+<qualitem>(/NOSEARCH)
+<qualdef>
+This qualifier can only be used in combination with
+/HOME. It is used to get the Homeblock info, without
+searching the entire disk.
+<qualitem>(/NOVOLSET)
+<qualdef>
+The default behaviour of SEARCH is to process an entire
+volume set. You can override this  behaviour with
+/NOVOLSET. This may be usefull when doing a /LBN search.
+<qualitem>(/OUTPUT=file)
+<qualdef>
+This qualifier redirects the output from SEARCH to an
+output file.This file can later be used  as input to
+the DEFRAG command.
+<qualitem>(/PLACED)
+<qualdef>
+Checks for files which have a placement control
+retrieval pointer.This is sometimes set by non-DEC disk
+defragmentation programs.
+<qualitem>(/SIZE=(minimum=size1,maximum=size2))
+<qualdef>
+The /SIZE qualifier is used to limit files found by
+their file size.You can either use minimum= or
+maximum= or use both options together. SEARCH will use
+the actual file size for selecting files, except when
+the /ALLOCATED qualifier is used.
+<qualitem>(/SORT)
+<qualdef>
+This qualifier will sort the files found before being
+output. You can combine this with the /OUTPUT qualifier
+(the deafult output is SYS$OUTPUT).
+<qualitem>(/STATISTICS)
+<qualdef>
+This qualifier displays the performance statistics: CPU time, Elapsed Time, 
+I/O and PageFaults.
+<qualitem>(/SUMMARY)
+<qualdef>
+This qualifier will limit the output to the total
+number of files found, with their size (and  optional
+the fragmentation when /FRAG is used). You cannot
+combine /SUMMARY with /FULL.
+<endqualdeflist>
+<endcommand_section><p>
+<chapter>(SET\ch9)<p>
+This chapter describes the SET command with the related parameters
+and qualifiers.
+<head1>(Introduction\hd9_1)<p>
+The SET command allows you to modify file attributes which can't be 
+modified through DCL commands. 
+Note that you should be carefull about using this function; 
+you may easily corrupt files. 
+NOTE: This much wanted functionality is finally introduced in VMS 6.0
+with a new DCL command $SET FILE/ATTRIBUTES. Still DFU's SET has
+some options which are not in SET FILE/ATTRIBUTES (such as setting a
+BACKUP date).<p>
+<command_section>(SET command)
+<set_template_command>(command\nonewpage\doublerunningheads)
+<command>(SET\\set)
+<overview>
+Modify file attributes.
+<endoverview>
+<format>
+<fcmd>(SET)    <fparms>(file1,file2,...)
+<endformat>
+<paramdeflist>
+<paramitem>(file1,file2,...)
+<paramdef>The files to be modified. The attributes to be modified are specified
+with qualifiers. Wildcards area allowed in the filename.
+<endparamdeflist>
+<qualdeflist>
+<qualitem>(/BACKUP_DATE=date\/NOBACKUP_DATE)
+<qualdef>
+Controls whether a new  backup date is  assigned  to
+the  specified files.  Specify the date according to the rules described 
+in Chapter 1 of the VMS  DCL  Concepts  Manual.   Absolute
+date  keywords  are allowed.   If  you specify 0 as the date, 
+today's date is used. If you specify /NOBACKUP_DATE the Backup date
+field will be cleared.
+<qualitem>(/BADACL\/NOBADACL)
+<qualdef>
+Sets or  resets the 'BADACL' flag in the file header.
+This enables deletion of a file with
+a corrupted ACL.
+<qualitem>(/BUCKETSIZE=size)
+<qualdef>
+Sets a new value for the bucket size in the file header.
+<qualitem>(/CONFIRM\/NOCONFIRM (default))
+<qualdef>
+Controls whether a  request is issued before each
+individual SET operation  to confirm that
+the operation should be performed on that file.
+When the system  issues  the  prompt,  you  can  issue
+any  of  the following responses:
+<display>
+  YES      NO     QUIT
+  TRUE     FALSE  CTRL/Z
+  1        0      ALL
+           <RET>
+<enddisplay><p>
+You can use any combination of upper- and lowercase
+letters for word responses.  Word responses can be abbreviated to 
+one or more letters (for example, T, TR, or TRU for TRUE).
+Affirmative answers are YES, TRUE, and 1.  Negative
+answers are NO, FALSE, 0, and <RET>.  QUIT or  CTRL/Z indicates that you want
+to stop processing the  command at that  point.   When  you  respond with 
+ALL, the command continues to process, but no further prompts are given.
+If you type  a  response other than one of those in the list,
+the prompt will be reissued.
+<qualitem>(/CONTIGUOUS_BEST_TRY\/NOCONTIGUOUS_BEST_TRY)
+<qualdef>
+Sets or resets the 'CONTIGUOUS_BEST_TRY' bit in the file header.
+<qualitem>(/CREATION_DATE=date\/NOCREATION_DATE)
+<qualdef>
+Controls whether a new creation date is  assigned to
+the  specified files.  Specify the date according to
+the rules described in Chapter 1 of the VMS  DCL
+Concepts  Manual.   Absolute
+date  keywords  are allowed.   If  you specify 0 as the
+date, today's date is used.
+<qualitem>(/DIRECTORY\/NODIRECTORY)
+<qualdef>
+Sets  or resets the  directory  attribute of a file.
+This  qualifier allows you to set  the directory
+bit of a file which was mistakingly reset by the 'SET
+FILE/NODIRECTORY' command.
+If it is done on a non-directory   file,  then  access
+to  that  directory  will  give  a 'BADIRECTORY' error.
+<qualitem>(/EBLOCK[=block])
+<qualdef>
+This qualifier will reset the  end-of-file mark to the
+highest block allocated if no block has been specified.  
+Otherwise the end-of-file mark will be set to the specified block.
+<qualitem>(/EBYTE[=byte])
+<qualdef>
+This qualifier  will set the  end-of-file byte mark to
+the highest byte if it has not been specified.
+Otherwise the  end-of-file byte mark will be set to the specified byte.
+<qualitem>(/EXPIRATION_DATE=date\/NOEXPIRATION_DATE)
+<qualdef>
+Controls whether an expiration date is  assigned  to
+the  specified files.  Specify the date
+according to the rules described in Chapter 1 of the
+VMS  DCL  Concepts  Manual.   Absolute
+date keywords  are allowed.   If  you specify 0 as the 
+date, today's date is used.
+<qualitem>(/LOCKED\/NOLOCKED)
+<qualdef>
+This qualifier will  lock a file  for future use.
+Nothing else  can then be done with the file, until
+it is unlocked  (which can also be done with the VMS 'UNLOCK' command.
+<qualitem>(/LOG (default)\/NOLOG)
+<qualdef>
+Controls whether the SET command displays the file
+specification of each file after the
+modification is made.
+<qualitem>(/MAXREC=record)
+<qualdef>
+Sets a new value for the maximum record number in the
+file header.
+<qualitem>(/ORGANIZATION=keyword)
+<qualdef>
+The following  keywords are used as  parameters for the ORGANIZATION
+qualifier: DIRECT, INDEXED, RELATIVE and SEQUENTIAL.
+This will allow you to modify the file organization
+type in the file header.  Of course this won't change 
+the real  organization of the file.
+<qualitem>(/RECATTRIBUTES=keyword)
+<qualdef>
+The   following   keywords   are   used   as
+parameters   for   the RECATTRIBUTES qualifier: NONE, FORTRAN, IMPLIED, PRINT
+and NOSPAN. This  will allow you to  modify the  file's record
+attributes in the file header. NONE, FORTRAN, IMPLIED and PRINT are mutually
+exclusive,  but can be used in combination with NOSPAN.
+When  NOSPAN is omitted  SPAN is  assumed (the  default is to allow 
+records to cross block boundaries).
+<qualitem>(/RECSIZE=size)
+<qualdef>
+Sets a new value for the record size in the file header.
+<qualitem>(/RECTYPE=keyword)
+<qualdef>
+The  following  keywords  are  used as  parameters  for
+the RECTYPE qualifier: FIXED,  STREAM, STREAMCR, STREAMLF, UNDEFINED, VARIABLE
+and VFC. This  will allow  you to  modify the  file's record
+type in the file header.
+<qualitem>(/REVISION_DATE=date\/NOREVISION_DATE)
+<qualdef>
+Controls whether a revision date is assigned to the
+specified files. Specify the  date according
+to the  rules described  in Chapter 1 of the VMS  DCL Concepts  Manual.
+Absolute date keywords are allowed. If you  specify 0  as the date,
+today's date is used.
+<qualitem>(/RVCOUNT=count)
+<qualdef>
+Sets a new value for the revision count in the file header.
+<qualitem>(/UPDATE\/NOUPDATE (default))
+<qualdef>
+Normally  the  file's  revision  date  will  be
+updated  after  any modification to it.
+SET however disables this update (otherwise the REVISION date could not 
+be set).  Specify this qualifier if you want the revision date to be
+updated.
+<qualitem>(/VFCSIZE=size)
+<qualdef>
+Sets a new value  for the  VFC size in  the file
+header.  This value will only be used with the VFC record type.
+<endqualdeflist>
+<endcommand_section><p>
+<chapter>(UNDELETE\ch10)<p>
+This chapter describes the UNDELETE command with the related parameters
+and qualifiers.
+<head1>(Introduction\hd10_1)<p>
+The UNDELETE function is designed to recover deleted files, if possible.
+UNDELETE operates in a safe mode such that
+it first checks if the deleted file header and diskblocks are still available.
+Only in that case will the file be recovered. Otherwise UNDELETE will leave
+the disk unmodified. 
+UNDELETE has some powerfull options:
+<list>(unnumbered)
+<le>Generate a list of recoverable files with the /LIST qualifier.
+This qualifier will not undelete any file, and therefore it does not lock 
+up the disk. 
+<le>Undelete multiple files in one pass. 
+<le>Make file selections based on the owner uic with the /OWNER or /IDENT
+qualifier.
+<le>Undeleted files which cannot be entered back in their original 
+directory will be moved to the [SYSLOST] directory. This saves an
+additional ANALYZE/DISK/REPAIR action.
+<endlist><p>
+The UNDELETE command operates as follows : 
+<list>(numbered)
+<le>Lock the volume. In the same manner as ANALYZE/DISK/REPAIR and SET VOLUME
+/REBUILD Undelete locks the disk for other writers such that no modifications
+to the INDEXF, BITMAP or QUOTA file can be made.
+<le>Search the INDEXF.SYS file if the requested file is still there. A check
+is made if it really is a valid deleted file header. 
+<le>Checks if the deleted file header and all possible extension headers 
+are still valid.
+<le>Checks if the blocks previously owned by this file are still free.
+<le>If all these conditions are met DFU will display the file
+and asks for a confirmation.
+<le>Rebuilds all of the deleted file headers and bitmaps in memory.
+If no errors are found all the file headers and bitmaps
+are written back to disk. The files original backlink is saved in a 
+table in memory. 
+<le>If appropiate the blocks and headers are charged against diskquota.
+<le>When all of INDEXF.SYS has been scanned the volume is unlocked.
+<le>The file(s) is (are) entered in the original directory if possible, 
+using the table build up in memory. If the enter command fails (probably 
+because the original directory is gone) the file will be entered in 
+[SYSLOST]. DFU will create this directory if needed.
+<endlist><p>
+If the /LIST qualifier is used, DFU will just list the recoverable
+files without performing any action on the disk. The disk will not
+be locked. <p>
+It is important to note that during the bitmap and file header processing
+any error will immediately terminate the recovery process, and unlock the 
+disk. Files which have been recovered up to that point will still be
+entered in the appropiate directory. As no wrong information has been 
+written back to the disk this should leave the disk in a proper state.<p>
+NOTE: The blocks recovered will NOT be subtracted from the Volume's free
+block count. To get the actual freeblock count a SET VOLUME/REBUILD=FORCE
+is necessary. Also a complete reMOUNT will reset the freeblock count.<p>
+IMPORTANT: DFU takes care to recover only files whose original blocks are
+free. However these blocks may have been modified in the meantime by
+another file which also has been deleted. Therefore each recovered file
+must be checked manually to check its integrity. <p>
+
+<p>Example of a Undelete session :
+<display>
+DFU> undel $1$dua102:/list
+
+Recoverable file [TEST]CHANGE_UIC.FOR;2 found 
+Recoverable file [TEST]CHECK_ID.FOR;1 found 
+Recoverable file [TEST]CHKPRDIMG.FOR;1 found 
+Recoverable file [TEST]CHRLEN.FOR;1 found 
+
+DFU> undel/file=*.for $1$DUA102:
+
+%DFU-I-READBMAP, Reading BITMAP.SYS...
+%DFU-W-LOCKED, Volume now LOCKED for write
+%DFU-I-UNDEL, Start search on $1$DUA102:
+
+Recoverable file [TEST]CHANGE_UIC.FOR;2 found 
+Recover this file? (Y/N) [N] : n
+Recoverable file [TEST]CHECK_ID.FOR;1 found 
+Recover this file? (Y/N) [N] : y
+%DFU-S-RECOVER, File succesfully recovered
+%DFU-I-ADDQUOTA, updating diskquota...
+
+Recoverable file [TEST]CHKPRDIMG.FOR;1 found 
+Recover this file? (Y/N) [N] : n
+Recoverable file [TEST]CHRLEN.FOR;1 found 
+Recover this file? (Y/N) [N] : y
+
+%DFU-S-RECOVER, File succesfully recovered
+%DFU-I-ADDQUOTA, updating diskquota...
+%DFU-I-UNLOCK, Volume unlocked
+%DFU-I-ENTER, Entering file(s) in directory...
+%DFU-S-ENTERED, File CHECK_ID.FOR entered in original directory
+%DFU-S-ENTERED, File CHRLEN.FOR entered in original directory
+
+DFU> EXIT
+
+<enddisplay><p> 
+<command_section>(UNDELETE command)
+<set_template_command>(command\nonewpage\doublerunningheads)
+<command>(UNDELETE\\undelete)
+<overview>
+Recover one or more deleted files on a device.
+<endoverview>
+<format>
+<fcmd>(UNDELETE)    <fparms>(device[:])
+<endformat>
+<paramdeflist>
+<paramitem>(device)
+<paramdef>The device on which to undelete one or more files. 
+The device will be write-locked during the undelete process.
+<endparamdeflist>
+<qualdeflist>
+<qualitem>(/FILE=filename)
+<qualdef>
+The file to be recovered. Wildcards may be used. If a matching file is found
+Undelete will ask a confirmation. If a certain file is confirmed, that 
+file will be recovered if possible, and control will be returned to the
+DFU> prompt. If the /FILE qualifier is omitted DFU will assume *.*;* .
+<qualitem>(/IDENT=identifier)
+<qualdef>
+You can search for files owned by a specific
+identifier. Another way is the /OWNER_UIC qualifier;
+you cannot combine these 2 qualifier in one UNDELETE command.
+<qualitem>(/LIST(=output-file-name))
+<qualdef>
+Generate a list of recoverable files. No undelete will take place,
+and the disk will not be locked. The defaultoutput is SYS$OUTPUT.
+<qualitem>(/OWNER_UIC=[x,y])
+<qualdef>
+This qualifier is used to select files by uic. The uic must be of
+the form [x,y]. You cannot  combine this qualifier with /IDENT.
+<qualitem>(/STATISTICS)
+<qualdef>
+This qualifier displays the performance statistics: CPU time, Elapsed Time, 
+I/O and PageFaults.
+<endqualdeflist>
+<endcommand_section><p>
+<chapter>(VERIFY\ch11)<p>
+This chapter describes the VERIFY command with the related parameters
+and qualifiers.
+<head1>(Introduction\hd11_1)<p>
+The VERIFY command makes an analysis of the disk, scanning for file and disk
+structure errors. VERIFY performs almost all of the checks normally done
+by a ANALYZE/DISK command. But VERIFY is many times faster than
+ANALYZE/DISK. <p>
+VERIFY checks and reports the following errors:
+<list>(unnumbered)
+<le>Checks the logical information contained in the disks HOME block
+<le>Reports files marked for deletion
+<le>Reports mismatches in the index file's bitmap
+<le>Checks all backlinks. 
+<le>Reports multiple allocated blocks
+<le>Reports blocks incorrectly marked free and allocated
+<le>Reports all lost files
+<le>Checks for mismatches between blocks used and blocks charged in QUOTA.SYS.
+(Only done when diskquota is enabled)
+<endlist><p>
+<p>
+The /FIX qualifier can be used to perform some basic
+repair actions. Unlike ANALYZE/DISK/REPAIR is does not lock the disk!
+/FIX repairs the following errors:
+<list>(unnumbered)
+<le>Deletes file marked for delete (if possible).
+<le>Recovers lost files and directories into [SYSLOST].
+<le>Recovers a very rare problem which will get ANALYZE/DISK/REPAIR 
+into a computable loop (This problem is fixed in VMS 6.2).
+<endlist><p>
+This version of DFU introduces the new /REBUILD qualifier. /REBUILD can 
+performs the same function as a SET VOLUME/REBUILD=FORCE command.
+It will lock the disk for a short period of time 
+(usually less than 30 seconds). /REBUILD repairs the following errors :
+<list>(unnumbered)
+<le>Mismatches in the INDEXF.SYS bitmap (files reported with the 
+NOBITSET and NOBITCLR errors)
+<le>Blocks incorrectly marked allocated or free in the BITMAP.SYS.
+<le>Mismatches in the diskquota file.
+<endlist><p>
+Note that /REBUILD does NOT change the disks free block count.<p>
+CAUTION: On a system (cluster) wide mounted disk there will probably be
+concurrent disk activity during the VERIFY command. Therefore VERIFY may report
+some errors which are not really errors. Try running VERIFY 2 or 3 times
+to see if the errors are reported again.
+To get a really consistent report from VERIFY you can use the /LOCK qualifier.
+This will write-lock the disk during the VERIFY run, so don't use this
+qualifier too often. (The /REPAIR qualifier of ANALYZE/DISK  also
+write-locks the disk). Even if DFU ends ungracefully the DFU exit handler
+will always UNLOCK the disk.
+<head1>(Error reporting\hd11_2)<p>
+An example of a typical VERIFY run follows: 
+<display>
+DFU> VERIFY mydisk
+%DFU-I-VERIFY, Verifying MYDISK:
+%DFU-S-CHKHOME, Home block info verified OK
+%DFU-I-IFSCAN, Scanning INDEXF.SYS ...
+%DFU-I-CHKBITMAP, Checking BITMAP.SYS...
+%DFU-I-CHKLOST, Checking for lost files...
+%DFU-I-CHKQUOTA, Checking QUOTA.SYS...
+  
+DFU> VERIFY/REBUILD sys$sysdevice
+%DFU-W-LOCKED, Volume now write locked
+%DFU=I-VERIFY, Verifying SYS$SYSDEVICE:
+%DFU-S-CHKHOME, Home block info verified OK
+%DFU-W-DELETED, file (620,351,1) RSF_DI_RSF_SERVER0.TMP;3 marked for delete
+%DFU-W-DELETED, file (6349,173,1) DCLTABLES.EXE;937 marked for delete
+%DFU-W-DELETED, file (19745,35,1) RSF_DI_RSF_SERVER0.TMP;3 marked for delete
+%DFU-I-CHKBITMAP, Checking BITMAP.SYS...
+%DFU-E-ALLOCCLR, blocks LBN 2667141 through 2667143 incorrectly marked allocated
+%DFU-E-ALLOCCLR, blocks LBN 2667153 through 2667161 incorrectly marked allocated
+		.
+		.
+%DFU-S-RBDBITMAP, BITMAP.SYS succesfully rebuild
+%DFU-I-CHKLOST, Checking for lost files...
+%DFU-I-UNLOCK, Volume unlocked
+
+DFU>
+<enddisplay><p>
+VERIFY can report the following errors:
+<MESSAGE_SECTION>
+<message_type>(textident)
+<msg>(ALLOCCLR, blocks incorrectly marked allocated)
+<msg_text>(Severity) ERROR
+<msg_text>
+Blocks were found which are not allocated by a file but set in the
+BITMAP file. This error is often seen when VERIFY is run and there
+is concurrent file activity on the disk. Also, if after a system crash
+the disk is mounted with /NOREBUILD such blocks may exist.
+ReRun VERIFY with /LOCK to see if the error is still there. 
+<msg_text>(User Action)
+Run VERIFY/REBUILD to rebuild the BITMAP file.
+<msg>(ALLOCSET, blocks incorrectly marked free)
+<msg_text>(Severity) ERROR
+<msg_text>
+Blocks were found which are allocated by a file but not set in the
+BITMAP file. This error is often seen when VERIFY is run and there
+is concurrent file activity on the disk. Also, if after a system crash
+the disk is mounted with /NOREBUILD such blocks may exist.
+ReRun VERIFY with /LOCK to see if the error is still there. 
+<msg_text>(User Action)
+Run VERIFY/REBUILD to rebuild the BITMAP file.
+<msg>(BADBLOCK, file has suspected bad blocks)
+<msg_text>(Severity) ERROR
+<msg_text>
+A file has suspected bad blocks. This is likely to be caused by hardware errors
+on the disk.
+<msg_text>(User Action)
+Try to copy the file to another location. Also check the Error Log.
+<msg>(BADEXTLNK, link to extension header broken)
+<msg_text>(Severity) ERROR
+<msg_text>VERIFY tries to follow the extension link of the file and it
+failed, or the extension header is invalid.
+<msg_text>(User Action)
+Try ANALYZE/DISK/REPAIR. However, this may be an unrepairable error, in which
+case the file will be corrupted and unreliable.
+<msg>(DELETED, file marked for delete)
+<msg_text>(Severity) WARNING
+<msg_text>
+A file was found marked for deletion. Such files usually exists as 
+a result of file being deleted while it was still INSTALLed , or as
+a result of a system crash. It is not considered as an error. You can try
+to delete such files by using VERIFY/FIX.
+<msg>(ERRHOME, Home block info not OK)
+<msg_text>(Severity) ERROR
+<msg_text>
+The Info contained in the Home Block was not consistent or corrupted.
+<msg_text>(User Action)
+Run ANALYZE/DISK/REPAIR to try to fix the error.
+<msg>(INVBAKFID, file has invalid backlink)
+<msg_text>(Severity) ERROR
+<msg_text>
+The files backlink file id is not filled in. This is likely to be a lost
+file. (Note that once VERIFY reports this error, it will not be reported
+again during the LOSTFILE check). But is also possible that the file
+is in a valid directory, but that the Backlink file id is not filled in.
+<msg_text>(User Action)
+Run ANALYZE/DISK/REPAIR. If the file is in a valid directory the backlink will
+be repaired. Otherwise the file will be moved to the [SYSLOST] directory.
+You can also use VERIFY/FIX but then the file will unconditionally be moved
+to [SYSLOST].
+<msg>(LOCKED, file is deaccess locked)
+<msg_text>(Severity) WARNING
+<msg_text>
+The file is deaccess locked. This may be a result of a system crash.
+<msg_text>(User Action)
+Try to unlock the file with the DFU SET command, or the DCL UNLOCK command.
+<msg>(LOSTHDR1, file found in nonexistent directory)
+<msg_text>(Severity) WARNING
+<msg_text>
+During the lost file check a file was discovered in a nonexistent directory.
+This error can be caused as follows : set a directory file to NODIRECTORY
+and delete it. 
+<msg_text>(User Action)
+Run VERIFY/FIX to move the file to the [SYSLOST] directory.
+<msg>(LOSTHDR2, file found in directory with bad backlink)
+<msg_text>(Severity) WARNING
+<msg_text>
+During the lost file check a file was discovered in a valid directory.
+However, the directory has an invalid backlink. 
+This error can be caused by doing a SET FILE/REMOVE of a directory file.
+<msg_text>(User Action)
+Run VERIFY/FIX to move the directory to the [SYSLOST] directory.
+Then move the directory back to the correct location. The files in
+the directory should be accesible again.
+<msg>(LOSTHDR3, file found in invalid directory)
+<msg_text>(Severity) WARNING
+<msg_text>
+During the lost file check a file was discovered in a  directory which
+is not a valid directory. Either the file has a wrong backlink, or
+the directory file has the directory file attribute not set.
+<msg_text>(User Action)
+Look up the directory and use DFU SET to set the directory bit. If the 
+directory file was OK then run VERIFY/FIX to recover the lost file.
+<msg>(MULTALLOC, blocks multiple allocated)
+<msg_text>(Severity) ERROR
+<msg_text>
+A file has blocks allocated which already belong to another file.
+Note that VERIFY will make a second pass through INDEXF.SYS 
+to report all the files involved. This is a serious error, and may be a 
+result of a disk being mounted on two seperated VAXClusters 
+(or a partitioned VAXCluster).
+<msg_text>(User Action)
+Copy all the files found to another location. Next all the files must be
+deleted. Run VERIFY/REBUILD to repair the BITMAP. All the afflicted
+files must be manually inspected to see which files are valid and which are
+corrupted.
+<msg>(NOBITCLR, Deleted file header marked BUSY)
+<msg_text>(Severity) WARNING
+<msg_text>
+A file was deleted. The corresponding bit in the INDEXF bitmap should be 
+cleared but is still set. This is not a serious error.
+<msg_text>(User Action)
+Run VERIFY/REBUILD to fix the error.
+<msg>(NOBITSET, index file bitmap bit not set)
+<msg_text>(Severity) WARNING
+<msg_text>
+A valid file was found , but the corresponding index file bitmap
+bit is clear. This is not a serious error.
+<msg_text>(User Action)
+Run VERIFY/REBUILD to fix the error.
+<msg>(NOOWNER, file has no owner)
+<msg_text>(Severity) WARNING
+<msg_text>
+A file was found with UIC [0,0] as the owner. This is not a normal situation.
+<msg_text>(User Action)
+Look up the file and modify the file owner.
+<msg>(QUOTAERR, UIC [x,y] has n blocks used, QUOTA indicates m blocks)
+<msg_text>(Severity) WARNING
+<msg_text>
+If a disk has diskquota enabled, VERIFY calculates the blocks used and
+compares them with the value in the QUOTA.SYS file. Any mismatch is reported.
+This error is often seen when VERIFY is run, and there
+is concurrent file activity on the disk. Also, if after a system crash
+the disk is mounted with /NOREBUILD such Quota mismatches may exist.
+ReRun VERIFY with /LOCK to see if the error is still there. 
+<msg_text>(User Action)
+Run VERIFY/REBUILD to rebuild the QUOTA file. 
+Or run a DISKQUOTA> REBUILD command.
+<msg>(SLFBAKFID, file (x,y,z) FILE.EXT backlink points to itself)
+<msg_text>(Severity) WARNING
+<msg_text>
+A lost directory , with a backlink pointing to itself , is found.
+This may potentially get ANALYZE/DISK in a COMputable loop.
+<msg_text>(User Action)
+Run VERIFY/FIX to move the file to [SYSLOST].
+<endmessage_section>
+<command_section>(VERIFY command)
+<set_template_command>(command\nonewpage\doublerunningheads)
+<command>(VERIFY\\verify)
+<overview>
+VERIFY a device for disk structure errors.
+<endoverview>
+<format>
+<fcmd>(VERIFY)    <fparms>(device[:])
+<endformat>
+<paramdeflist>
+<paramitem>(device)
+<paramdef>The device to be verified. 
+<endparamdeflist>
+<qualdeflist>
+<qualitem>(/FIX\/NOFIX (default))
+<qualdef>
+Repair errors on the disk. File marked for delete will be deleted and
+lost files and directories will be moved to [SYSLOST].
+<qualitem>(/LOCK\/NOLOCK (default))
+<qualdef>
+Locks the disk for file allocation/deletion. This gives a consistent report
+for the disk, but other users may experience a delay when accessing the disk.
+The device will be unlocked a the end of the VERIFY command. 
+<qualitem>(/OUTPUT=filename)
+<qualdef>
+This qualifier redirects the output to a filename. Default output will
+be to SYS$OUTPUT. CAUTION: if you use /LOCK in combination with /OUTPUT
+be carefull to specify an outputfile on ANOTHER disk, or DFU will finish
+with a severe error.
+<qualitem>(/REBUILD\/NOREBUILD (default))
+<qualdef>
+Perform a volume rebuild.
+Using this qualifier will temporarily lock the disk for other users.
+<qualitem>(/STATISTICS)
+<qualdef>
+This qualifier displays the performance statistics: CPU time, Elapsed Time, 
+I/O and PageFaults.
+<endqualdeflist>
+<endcommand_section><p>

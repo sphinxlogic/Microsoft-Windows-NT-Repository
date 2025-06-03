@@ -1,0 +1,412 @@
+.spr0.ap.ebb.date.fl subs
+.require "ident"
+.title $ident() Extension Image Interface
+.subtit $ident()
+
+###
+.b6
+.c;DEC INTERNAL USE ONLY
+.b
+.c;N#M#A#I#L
+.b
+.c;EXTENSION IMAGE INTERFACE
+.b4
+
+This document describes the interface through which $ident()
+can make calls to an external shareable image, in order to
+implement extensions to normal Nmail processing.  
+
+Nmail was written by Dave Porter and is entirely unfunded; 
+please send comments, suggestions, gratitude and
+legal tender to MU::PORTER. Supply of this software and documentation
+does not commit me to anything, anytime.
+
+.pg;.do contents "/deepest=2/double_space"
+
+.pg;.hl1 Introduction
+ 
+This document describes the interface through which $ident()
+can make calls to an external shareable image, in order to
+implement extensions to normal Nmail processing.   
+
+In the current version, the extension interface
+offers support for two different
+functions.  Firstly, it allows for mail addresses to be modified
+as they are entered by the user.   Secondly, it provides hooks
+to support the collection of usage statistics in the Nmail
+sending daemon.
+
+The extension interface is intended for use by experienced programmers,
+and very little assistance is available beyond the
+present document.  It is my intention that the interface
+will not be changed in incompatible ways in future versions
+of Nmail, but I cannot guarantee that I won't make such
+a change.  You have been warned!
+
+.hl1 Declaring the image to Nmail
+
+.hl2 Entry-Point Table
+
+The extension image must include a table of entry points.
+The table format is:
+.lt
+
+		+-----------------+
+		| count           | :00
+		+--------+--------+
+		| majver | minver | :04
+		+--------+--------+
+		| start           | :08
+		+-----------------+
+		| send-address    | :12
+		+-----------------+
+		| finish          | :16
+		+-----------------+
+		| symbiont-start  | :20
+		+-----------------+
+		| symbiont-stats  | :24
+		+-----------------+
+		| symbiont-finish | :28
+		+-----------------+
+.el
+.lm+12
+.b.i-8;count
+.b;Specifies the number of longwords following; it must be at
+least one. That is, the version number longword must always be
+present, but other table entries are optional.
+.b.i-8;majver and minver
+.b;The version of the Nmail extension interface to which the
+image is implemented.
+This specification describes version
+1.2 (value 1 in high word, 2 in low word).
+.b.i-8;start
+.b;A pointer to the extension's user-context start routine.
+.b.i-8;send-address
+.b;A pointer to the extension's user-context send-address routine.
+.b.i-8;finish
+.b;A pointer to the extension's user-context finish routine.
+.b.i-8;symbiont-start
+.b;A pointer to the extension's symbiont-context start routine.
+.b;.i-8;symbiont-stats
+.b;A pointer to the extension's symbiont-context statistics-recording routine.
+.b.i-8;symbiont-start
+.b;A pointer to the extension's symbiont-context finish routine.
+.lm-12
+
+The value of a routine pointer depends on the machine architecture.
+On VAX, it is the address of the register save mask which precedes
+the first instruction of the routine.  On Alpha, it is the address
+of the procedure descriptor structure.  This difference should be
+invisible to all but assembly-language programmers.
+
+If the extension image has no use for a particular routine, a
+null pointer (value of zero) can be used.
+
+The purpose of the supplied routines
+is described in the next section, together with the
+calling sequence which Nmail will use to invoke the routines.
+Some extension routines are called in user context (for example, 
+when running MAIL.EXE), and others are called from the Nmail symbiont.
+The same image is activated in both cases.
+
+The entry point table must be labelled with the
+symbol NM_$EXTENSION.   At link time, use
+the UNIVERSAL option (VAX)
+or the SYMBOL__VECTOR option (Alpha) to make the symbol
+visible outside the image; Nmail will search for this
+symbol when it activates the shareable image.
+
+.hl2 Telling Nmail about the extension image
+
+The extension image can have any name you wish.   A system
+logical name must be used to identify the image to Nmail:
+.lt
+
+	$ ASSIGN /SYS/EXEC  dev:<dir>yourimage.exe  NM$EXTENSION
+
+.el
+This logical name must be defined before starting the
+Nmail queues, or else the symbiont will not make use
+of it.
+The definition must have an access mode of
+'executive' to be seen by Nmail.
+
+If Nmail cannot activate the image for any reason, or if it 
+considers the format of the entry point table to be invalid, then 
+it will treat this as a fatal error, rather than continuing to operate
+but without the extension.   In other words, if the system manager has
+specified that an Nmail extension is to be used, its use is
+considered to be mandatory.  
+
+In the case of the symbiont,  the DCL command to start the queue
+will fail with "bad parameter value".
+An OPCOM message will be sent to class CENTRAL,
+giving a slightly more informative cause of failure.
+
+.hl2 Miscellaneous design notes
+
+Some routines are called in user context from NM__MAILSHR.EXE,
+which is in turn called from MAIL.EXE, or some other program
+which allows the user to send mail.   Other routines are
+called in symbiont context from NM_$DAEMON.EXE.  The two contexts
+are quite different.
+
+When your extension image is running in user context, no
+special privileges are available.  Since VMS MAIL provides
+a callable interface, the user could be running any image
+at all, not only MAIL.EXE.  Therefore, you cannot rely on
+being able to install the image with elevated privilege.
+
+Don't forget that user context also includes running
+to send outgoing mail from a network mail server which
+was started to handle an incoming mail message.  This can
+happen as a result of someone sending mail to an address
+like node1::NM%node2::user, or a SET FORWARD command
+with the same effect.
+
+In user context, you can write to SYS_$OUTPUT for debugging
+purposes.  You should not try to use this for reporting
+errors back to the original user; in the mail server case,
+SYS_$OUTPUT is the mail server's log file and thus the 
+text is unlikely to do any good.  
+
+When your extension image is running in symbiont context,
+then TMPMBX, NETMBX, SYSPRV, and OPER privileges will always 
+be enabled.  Other privileges may be enabled, but you shouldn't rely
+on that.
+In addition, you have SETPRV, so you can turn on anything
+you need.  If you do modify the symbiont's current privileges
+in any extension routine, then you MUST restore the
+original values before returning control to Nmail.  Do
+not simply turn off all extra privileges when you return---that
+might cause Nmail to subsequently fail.
+
+The extension image is activated only once for each run of
+the main image (mail user agent or symbiont) but it may be 
+invoked to handle several independent
+mail messages.   You should ensure that your image will
+function correctly in this environment; for example, static
+data may need to be initialised at run time, rather than having
+initial values compiled in to the image.
+An extension image finish routine can be used to ensure cleanup
+after each mail message.
+
+You can not write to SYS_$OUTPUT when running in symbiont context.
+That file points to the job controller's input mailbox, and 
+it doesn't appreciate random text messages.
+
+Note that NM__MAILSHR.EXE is not the only creator of Nmail
+jobs.  The symbiont also submits jobs into the queue, for 
+use in reporting errors, returning cancelled messages,
+and so on.   Therefore, you can't assume that every job you
+see when called from the symbiont will have previously been seen 
+in user context.
+
+.hl1 Routine specifications
+
+.hl2 The Start Routine (User Context)
+
+Nmail calls the extension image's start routine 
+when beginning to process a new mail message.  
+
+The calling sequence is as follows:
+
+####status = start(qtime, sender)
+.lm+12
+.b.i-8;qtime###quadword date-time by reference; input parameter.
+.b;The time at which this message was entered into Nmail.
+This is not necessarily unique, and can not be 
+reliably used to deduce the name of the Nmail work file.
+.b.i-8;sender##character string by descriptor; input parameter.
+.b;The "from" address.  It can include one or more node names,
+if the message has been forwarded through any intermediate nodes.
+.b.i-8;status##longword value; routine return value.
+.b;The return status; not currently checked by Nmail.
+.lm-12
+
+.hl2 The Send-Address Routine (User Context)
+
+Nmail calls the send-address routine once for each mail address
+to which the message is to be sent.  The send-address routine may
+change or reformat the address, before Nmail writes it to the
+work file.
+
+The calling sequence is as follows:
+
+####status = send__address(node, addr, result)
+.lm+12
+.b.i-8;node####character string by descriptor; input parameter.
+.b;Specifies the node name for this mail address; it may be
+the empty string.
+.b;The node name can be a simple name (for example, MU) or
+something more complicated, such as a DECdns full name
+(for example, DEC:.lkg.mu).
+.b.i-8;addr####character string by descriptor; input parameter.
+.b;The rest of the address; in the simple case this is just 
+a user name, but it may include further node names if more than one was
+specified in the original address.
+.b;The end of the address list is indicated by a call in which the
+string is exactly one null byte---that is, the descriptor
+length contains one, and the descriptor pointer points to
+a byte containing zero.
+The node name parameter is arbitrary in this case.
+.b.i-8;result##character string by descriptor; output parameter.
+.b;The reformatted address returned by send__address.  The
+address is returned by dynamic descriptor, so the routine should write
+to it using a library function such as str_$copy__dx.
+.b;The string is initialised to null. If it is null on return (but
+the status shows successful completion) then Nmail assumes
+that normal node::addr formatting is needed for this address.
+.b.i-8;status##longword value; routine return value.
+.b;The return status; if true, then the address was valid
+and the call succeeded.  If false, then the call failed; Nmail will
+tell MAIL that the address was invalid, and it will not be written to
+the work file.
+.lm-12
+
+Returning a false (low bit clear) status value will cause
+MAIL to treat that address as being invalid, but it will not
+cause any error message to be displayed.  Errors must be explicitly
+signalled.  If the severity of the signal is 'fatal' then MAIL
+will be abruptly terminated; otherwise, the signalled error
+will be considered as applying to the address currently being processed.
+
+You must signal errors; you cannot simply write them to
+the terminal.  MAIL needs to handle the case
+where it is using Nmail in server context (for example, 
+if mail was sent to node1::NM%node2::user) and 
+it does this by using VMS conditional handling.
+
+.hl2 The Finish Routine (User Context)
+
+Nmail calls the extension image's finish routine 
+at the end of processing a mail message.   Under normal
+circumstances, this will occur just after the work
+file has been submitted to the Nmail queue.  However, the
+finish routine is also called 
+if mail processing is
+abnormally terminated.  This can happen as a result of
+some previous error, cancellation by Ctrl/C, or 
+image rundown.   
+
+In any case,
+the finish routine should clean up, and leave
+the extension image in a state where it is able to start processing a new
+mail message (if the user chooses to send another message
+before leaving MAIL).
+
+The calling sequence is as follows:
+
+####status = finish(sndsts, txtlen, naddr)
+.lm+12
+.b.i-8;sndsts##longword value; input parameter.
+.b;A VMS status value: low bit set if the Nmail job was successfully
+submitted to the queue, and low bit clear otherwise.
+.b.i-8;txtlen##longword integer value; input parameter.
+.b;The length of the body of the mail message; the sum of
+the record lengths for the file.
+.b.i-8;naddr###longword integer value; input parameter.
+.b;Total number of mail addresses written to  the Nmail
+control file.  Invalid addresses (rejected by the extension's
+send-address routine) are not included in the count.
+.b.i-8;status##longword value; routine return value.
+.b;The return status; not currently checked by Nmail.
+.lm-12
+
+Note that the finish routine may be called even if no other
+routine in the extension image has yet been called.
+Therefore, it should operate cautiously and check whether it really has
+any work to perform.
+
+.hl2 The Start Routine (Symbiont Context)
+
+Nmail calls the start routine when the symbiont starts
+to process a message; that is to say, when a job becomes
+active in the queue.
+The start routine is called every time the symbiont
+needs to reprocess the message, not just for the first time
+in the queue.
+ 
+The calling sequence is as follows:
+
+####status = symbiont__start(qtime, sender, natt)
+.lm+12
+.b.i-8;qtime###quadword date-time by reference; input parameter.
+.b;The time at which this message was entered into Nmail.
+This is not necessarily unique, and can not be 
+reliably used to deduce the name of the Nmail work file.
+.b.i-8;sender##character string by descriptor; input parameter.
+.b;The "from" address.  It can include one or more node names,
+if the message has been forwarded through any intermediate nodes.
+.b.i-8;natt####longword integer by value; input parameter.
+.b;The number of times that delivery of this message has been
+attempted (number of times the Nmail job has been processed).
+.b.i-8;status##longword value; routine return value.
+.b;The return status; not currently checked by Nmail.
+.lm-12
+
+.hl2 The Statistics Routine (Symbiont Context)
+
+Nmail calls the statistics routine at the end of each attempt
+to send the message to a single node.  The statistics routine
+is provided with information about the sending pass which
+has just completed.
+
+The calling sequence is as follows:
+
+####status = symbiont__stats(node, iocnt)
+.lm+12
+.b.i-8;node####character string by descriptor; input parameter.
+.b;The destination node name for this pass; it may be
+the empty string.
+.b.i-8;iocnt###array of longword integers by reference; input parameter.
+.b;The network I/O counters, with the following layout:
+.lt
+
+		+-------------------+
+		| links connected   | :0
+		+-------------------+
+		| APDUs transmitted | :4
+		+-------------------+
+		| bytes transmitted | :8
+		+-------------------+
+		| APDUs received    | :12
+		+-------------------+
+		| bytes received    | :16
+		+-------------------+
+.el
+ Notes:
+ An APDU is an application protocol data unit; it corresponds to
+a single DECnet QIO.  During the transfer of the
+body of the mail message, an APDU is either a disk block
+or a line of text, depending on the capabilities of the
+receiver.
+ Since the counters apply to a single pass, the "links#connected"
+value can only be zero or one, depending on whether the connection
+succeeded.
+.b.i-8;status##longword value; routine return value.
+.b;The return status; not currently checked by Nmail.
+.lm-12
+
+.hl2 The Finish Routine (Symbiont Context)
+
+Nmail calls the finish routine when the symbiont has finished
+processing a message; that is to say, when a job is about to
+become inactive in the queue.
+The finish routine is called whether or not the message
+is fully completed or needs to be requeued.
+
+The calling sequence is as follows:
+
+####status = symbiont__finish(alldon)
+.lm+12
+.b.i-8;alldon##longword integer by value; input parameter.
+.b;True (low bit set) if this is the final execution of this message, 
+false (low bit clear)
+if the message will be resubmitted for a further attempt.
+.b.i-8;status##longword value; routine return value.
+.b;The return status; not currently checked by Nmail.
+.lm-12
+
+.b2
+[End of Nmail Extension Manual]

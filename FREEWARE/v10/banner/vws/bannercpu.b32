@@ -1,0 +1,707 @@
+MODULE bannercpu (IDENT = 'V01-004',
+			ADDRESSING_MODE (NONEXTERNAL=WORD_RELATIVE),
+			ADDRESSING_MODE (EXTERNAL=GENERAL)) =
+BEGIN
+
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1984 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+
+!++
+! FACILITY:  User Interface System (UIS)
+!
+! ABSTRACT:
+!
+!	This module creates and maintains the workstation cpu usage
+!
+! ENVIRONMENT:
+!
+!	VAX/VMS operating system.  Unprivileged, any mode.
+!
+! AUTHOR:  CW Hobbs		23-Apr-1985
+!
+! Modified by:
+!
+!--
+
+! Include files
+!
+REQUIRE 'BANNER';
+
+! Table of contents
+!
+FORWARD ROUTINE
+    bannercpu_monitor: NOVALUE,	! Bar graph at each tick
+    bannercpu_modes: NOVALUE,	! Bar graphes for cpu modes
+    bannercpu_mode_data:NOVALUE,! Routine to fetch modes
+    bannercpu_nullcpu: NOVALUE;	! Routine to fetch "null" time
+
+external routine lib$put_output : addressing_mode(general);
+
+BUILTIN
+    FFS;
+
+EXTERNAL
+    smp$gl_active_cpus,			! Bitmask of active cpus
+    smp$gl_cpu_data : VECTOR [, LONG],	! Vector of pointers to CPU data
+    exe$gl_abstim_tics,			! Absolute time since boot
+
+    normal_font,
+    lcl : BLOCK [lcl_c_length, BYTE] ADDRESSING_MODE (WORD_RELATIVE);
+
+! Play some PSECT games so that BLISS will use lots of different base
+! registers and therefore keep all displacements at byte disp  (µVAX I
+! is much faster at byte disp)
+
+npag_own_rw
+
+! Timers for null bar
+
+    update_count, countm1, bar_wid,
+    tach_x, tach_x1, bar_x, bar_x1, low_y, high_y, bar_height, min_tick,
+    abstics,
+    last_abstics,
+    last_cpu,
+    last_ourticks,
+    cpu_null,
+    cpu_count,
+    cube_cpu,
+    cube_jpi : VECTOR [4, LONG] PRESET (
+		[0] = ((jpi$_cputim^16) OR 4),
+		[1] = cube_cpu,
+		[2] = 0, [3] = 0),
+
+    cpu_mode :      VECTOR [6, LONG],
+    last_cpu_mode : VECTOR [6, LONG],
+
+    mode_last_y   : VECTOR [6, LONG],
+    mode_bar_height,
+    mode_bar_width,
+    mode_bar_x,
+    mode_char_width,
+    mode_high_y,
+    mode_last_abstics,
+    mode_low_y,
+    mode_upd_cnt;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE bannercpu_monitor : NOVALUE =
+
+!-
+!	This routine displays a bar graph of busy processor time
+!	to give a more accurate picture of CPU availability.
+!
+! Implicit Inputs:
+!
+!	lcl	- localdata block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    cpu,
+    bot,
+    top,
+    cur_x,
+    mode,
+    elapsed,
+    ticks,
+    ourticks,
+    height,
+    ratio,
+    status;
+
+! Check to see if we should do it this tick
+!
+update_count = .update_count - 1;
+IF .update_count GTR 0
+THEN
+    RETURN;
+update_count = .lcl[lcl_l_cpu_update];
+
+! Get null process CPU time, cpu used by a separate Cube process, our current
+! CPU time, and the current clock time (null, cube, and our time do not count
+! as being "used").  Absolute time is also stored in ABSTICS.
+!
+bannercpu_nullcpu ();				! longword time, 10 msec ticks, into CPU_NULL
+ticks = .cpu_null;				! store null CPU time
+cube_cpu = 0;
+$getjpi (prcnam=%ASCID 'Cube', itmlst=cube_jpi);! no error check, might not be there
+ticks = .ticks + .cube_cpu;			! add "Cube" cpu to null time
+
+IF NOT (status = $getjpi (itmlst=cube_jpi))	! longword time, 10 msec ticks
+THEN						!  for current process
+    SIGNAL_STOP (.status);
+ourticks = .cube_cpu;				! save our cpu time
+cube_cpu = .cube_cpu + .ticks;			! add our cpu to total cpu
+IF (NOT .lcl[lcl_v_cube])			! if nocube and we should count
+    AND .lcl[lcl_v_inclbannercpu]		!  our cpu as "used", then
+THEN
+    cube_cpu = .ticks;				! keep Cube+null only as "spare"
+
+! If first time, preset the timers and draw the ticks
+!
+IF .bar_height EQL 0
+THEN
+    BEGIN
+    LOCAL
+	tickl_x, tickr_x, widel, wider, delta;
+    last_abstics = .abstics;
+    last_cpu = .cube_cpu;
+    last_ourticks = .ourticks;
+    min_tick = 4000000;
+    countm1 = .lcl[lcl_l_cpu_count] - 1;
+    status = uis$begin_segment (lcl[lcl_l_vd_id]);
+    uis$set_writing_mode(lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_1], %REF (5));	! atb#1 overlay
+
+    ! Adjust the maximum height to something so that it can be chopped into ten pieces, each
+    ! an integer number of pixels.  Note that lcl[lcl_f_cpu_y] is already pixel aligned.
+    !
+    bar_height = DIV_F (.lcl[lcl_f_pixel_size], SUB_F (.lcl[lcl_f_2edge], .lcl[lcl_f_vd_height]));
+    bar_height = 10 * (INTR_F(.bar_height) / 10);
+    bar_height = MUL_F (.lcl[lcl_f_pixel_size], FLOAT_F(.bar_height));
+    low_y = .lcl[lcl_f_cpu_y];
+    high_y = ADD_F (.low_y, .bar_height);
+
+    ! Figure the locations of points on the window which we will need to reference
+    ! both for drawing the ticks and the bars
+    !
+    bar_wid = MUL_F (FLOAT_F(.lcl[lcl_l_cpu_width]), .lcl[lcl_f_pixel_size]);
+    widel = .lcl[lcl_f_cpu_x];
+    tickl_x = ADD_F (.widel, .lcl[lcl_f_pixel_size]);
+    tach_x = ADD_F (.tickl_x, .lcl[lcl_f_pixel_size]);
+    tach_x1 = ADD_F (.bar_wid, .tach_x);
+    bar_x = ADD_F (.tach_x, MUL_F (FLOAT_F(.countm1), .bar_wid));
+    bar_x1 = ADD_F (.bar_x, .bar_wid);
+    tickr_x = ADD_F (.bar_x1, .lcl[lcl_f_pixel_size]);
+    wider = ADD_F (.tickr_x, .lcl[lcl_f_pixel_size]);	! boosted x for major ticks
+
+    ! Now draw the ticks
+    !
+    height = .low_y;
+    delta = DIV_F (%E'10.', .bar_height);
+    INCR i FROM 0 TO 10
+    DO
+	BEGIN
+	uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], tickr_x, height, tickr_x, height);
+	IF (.i EQL 0) OR (.i EQL 5) OR (.i EQL 10)
+	THEN
+	    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], wider, height, wider, height);
+	IF (.lcl[lcl_l_cpu_count] * .lcl[lcl_l_cpu_width]) GTR 10
+	THEN
+	    BEGIN
+	    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], tickl_x, height, tickl_x, height);
+	    IF (.i EQL 0) OR (.i EQL 5) OR (.i EQL 10)
+	    THEN
+		uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], widel, height, widel, height);
+	    END;
+	height = ADD_F (.delta, .height);
+	END;
+    uis$end_segment (lcl[lcl_l_vd_id]);
+    RETURN;
+    END;
+
+! Compute our CPU time as a percent of real time
+!
+elapsed = .abstics - .last_abstics;		! elapsed time (10 msec ticks)
+last_abstics = .abstics;			! save current elapsed as last
+elapsed = .elapsed * .cpu_count;		! adjust for multiple cpus
+cpu = .cube_cpu - .last_cpu;			! cpu is difference (10 msec ticks)
+last_cpu = .cube_cpu;				! save current cpu as last
+
+IF (NOT .lcl[lcl_v_cube])			! if nocube and we should not count
+ AND NOT .lcl[lcl_v_inclbannercpu]		!  our cpu as "used", then subtract
+THEN						!  our time from real-time
+    BEGIN
+    LOCAL
+	ourtime;
+    ourtime = (.ourticks-.last_ourticks);
+    elapsed = .elapsed - .ourtime;
+    cpu = .cpu - .ourtime;
+    last_ourticks = .ourticks;
+    END;
+
+IF .elapsed LSS 64				! called twice within about one second, should
+THEN						!  only happen on second call, so just ignore
+    RETURN;					!  this interval
+IF .elapsed LSSU .min_tick			! if this real-time tick is shorter than the
+THEN						!  minimum we've seen up until now,
+    min_tick = .elapsed;			!  remember this as the minimum tick time.
+ticks = .elapsed / .min_tick;			! remember the number of ticks for this interval
+ratio = DIV_F(FLOAT_F(.elapsed),		! compute ratio of time used to clock time
+	      FLOAT_F(.cpu));
+height = MUL_F (.bar_height, .ratio);		! scale height - 0 = we got no CPU,
+						!                y = we got 100% CPU
+height = SUB_F (.height, .bar_height);		! reverse - y is 0%, 0 is 100%
+height = ADD_F (.height, .low_y);		! Adjust for offset
+
+IF CMPF (height, high_y) GTR 0			! If over the line
+THEN
+    height = .high_y;
+IF CMPF (height, low_y) LEQ 0			! If on or under the line
+THEN
+    height = 0;
+
+! If we have a history window, scroll it to the left
+!
+status = uis$begin_segment (lcl[lcl_l_vd_id]);
+IF .lcl[lcl_l_cpu_count] GTR 1
+THEN
+    BEGIN
+    LOCAL
+	left_x;
+    left_x = .tach_x1;
+    IF .ticks GTR 1
+    THEN
+	BEGIN
+	LOCAL
+	    tm1;
+	ticks = MIN (.ticks, .lcl[lcl_l_cpu_count]);
+	tm1 = .ticks - 1;
+	left_x = ADD_F (.left_x, MUL_F (FLOAT_F (.tm1), .bar_wid));
+	END;
+    uis$move_area (lcl[lcl_l_vd_id], left_x,low_y, bar_x1,high_y, tach_x,low_y);
+    END
+
+! No history window, we have a single bar.  Do all of the single bar stuff right
+! here, so that the window working can be faster.
+!
+ELSE
+    BEGIN
+    LOCAL
+	newplot;
+    newplot = (CMPF (height, low_y) GTR 0);			! If something happened
+    mode = uis$c_mode_eras;
+    uis$set_writing_mode(lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_1], mode);	! atb#1 erase
+    mode = uis$c_mode_over;
+    uis$set_writing_mode(lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_2], mode);	! atb#2 overlay
+    cur_x = .bar_x;
+    INCR k FROM 1 TO .lcl[lcl_l_cpu_width]	! width can only be GTR 1 if CPU_COUNT EQL 0
+    DO
+	BEGIN
+!	uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], cur_x, low_y, cur_x, low_y);
+	uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], cur_x, low_y, cur_x, high_y);
+	IF .newplot
+	THEN
+	    BEGIN
+!	    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_2], cur_x, low_y, cur_x, low_y);
+	    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_2], cur_x, low_y, cur_x, height);
+	    END;
+	cur_x = ADD_F (.cur_x, .lcl[lcl_f_pixel_size]);
+	END;
+    uis$end_segment (lcl[lcl_l_vd_id]);
+    RETURN;
+    END;
+
+! If we have a multi-tick bar, then do that (note that we know that we
+! have a window).  A multi-tick bar usually means that we got starved
+! for CPU, or that HOLD-SCREEN was hit.
+!
+IF .ticks GTR 1
+ AND
+   CMPF (height, low_y) GTR 0
+THEN
+    BEGIN
+    LOCAL
+	left_x, right_x;
+    right_x = SUB_F (.lcl[lcl_f_pixel_size], .bar_x1);
+    left_x = SUB_F (MUL_F (FLOAT_F (.ticks), .bar_wid), .right_x);
+    left_x = ADD_F (.lcl[lcl_f_pixel_size], .left_x);
+    uis$set_writing_mode (lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_1], %REF(uis$c_mode_over));
+    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1],
+			left_x, low_y,
+			right_x, low_y,
+			right_x, height,
+			left_x, height,
+			left_x, low_y);
+    uis$set_font (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], lcl[lcl_l_cons_1], %ASCID 'UIS$FILL_PATTERNS');
+    uis$set_writing_mode (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], lcl[lcl_l_cons_1], %REF(uis$c_mode_repl));
+    uis$set_fill_pattern (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], lcl[lcl_l_cons_1], %REF(patt$c_foreground));
+    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1],
+			left_x, low_y,
+			right_x, low_y,
+			right_x, height,
+			left_x, height,
+			left_x, low_y);
+    uis$end_segment (lcl[lcl_l_vd_id]);
+    RETURN;
+    END;
+
+! If the line is on or above the baseline, draw it.
+!
+IF CMPF (height, low_y) GEQ 0
+THEN
+    BEGIN
+    mode = uis$c_mode_over;
+    bot = .low_y;
+    top = .height;
+    uis$set_writing_mode(lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_1], mode);	! atb#1 erase
+!    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], bar_x, bot, bar_x, bot);	!starting point
+    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], bar_x, bot, bar_x, top);
+    END;
+
+uis$end_segment (lcl[lcl_l_vd_id]);
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE bannercpu_modes : NOVALUE =
+
+!-
+!	This routine displays a bar graph of processor mode time
+!
+! Implicit Inputs:
+!
+!	lcl	- local data block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    elapsed,
+    ratio,
+    height,
+    status;
+
+! Check to see if we should do it this tick
+!
+mode_upd_cnt = .mode_upd_cnt - 1;
+IF .mode_upd_cnt GTR 0
+THEN
+    RETURN;
+mode_upd_cnt = .lcl[lcl_l_mode_update];
+
+! Get processor mode counters in 10 msec ticks, into CPU_MODE vector.
+! Put absolute time into ABSTICS.
+!
+bannercpu_mode_data ();
+status = uis$begin_segment (lcl[lcl_l_vd_id]);
+
+! If first time, preset the timers and draw the ticks
+!
+IF .mode_bar_height EQL 0
+THEN
+    BEGIN
+    LOCAL
+	tickl_x, tickr_x, widel, wider, delta, char_height, half_char;
+
+    ! Add an extra "interval" one time only.  This is mainly so that if both CPU_UPDATE and
+    ! and MODE_UPDATE are both the same, then we will update them on different ticks.
+    !
+    mode_upd_cnt = .mode_upd_cnt + 1;
+
+    ! Set up the attribute block for the text
+    !
+    uis$set_font (lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_1], .normal_font);
+    uis$set_writing_mode (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], lcl[lcl_l_cons_1], %REF (uis$c_mode_repl));
+
+    ! Put the legend underneath the bars
+    !
+    uis$get_font_size (.normal_font, %ASCID 'K', mode_char_width, char_height);
+    half_char = DIV_F (.lcl[lcl_f_cons_2], .mode_char_width);
+    mode_low_y = ADD_F (.char_height, .lcl[lcl_f_mode_y]);
+    mode_low_y = SUB_F (.lcl[lcl_f_pixel_size], .mode_low_y);
+!    mode_bar_x = ADD_F (MUL_F (%E'4.0', .lcl[lcl_f_pixel_size]), ADD_F (.half_char, .lcl[lcl_f_mode_x]));
+    mode_bar_x = ADD_F (.half_char, .lcl[lcl_f_mode_x]);
+
+    ! Write the message
+    !
+    uis$set_aligned_position (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], 
+		%REF (SUB_F (.lcl[lcl_f_pixel_size], .mode_bar_x)), mode_low_y);
+    uis$text (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], %ASCID 'NUSEKI');
+
+    ! Adjust the maximum height to something so that it can be chopped into ten pieces, each
+    ! an integer number of pixels.  Note that lcl[lcl_f_cpu_y] is already pixel aligned.
+    !
+    mode_low_y = SUB_F (MUL_F (.lcl[lcl_f_cons_2], .lcl[lcl_f_pixel_size]), .mode_low_y);
+    mode_bar_height = DIV_F (.lcl[lcl_f_pixel_size], SUB_F (MUL_F (.lcl[lcl_f_cons_3], .lcl[lcl_f_pixel_size]), 
+						SUB_F (.mode_low_y, .lcl[lcl_f_vd_height])));
+    mode_bar_height = 10 * (INTR_F(.mode_bar_height) / 10);
+    mode_bar_height = MUL_F (.lcl[lcl_f_pixel_size], FLOAT_F(.mode_bar_height));
+    mode_high_y = ADD_F (.mode_low_y, .mode_bar_height);
+
+    ! Figure the locations of points on the window which we will need to reference
+    ! both for drawing the ticks and the bars
+    !
+    mode_bar_width = SUB_F (MUL_F (.lcl[lcl_f_cons_2], .lcl[lcl_f_pixel_size]), .mode_char_width);
+    widel   = SUB_F (MUL_F (.lcl[lcl_f_cons_3], .lcl[lcl_f_pixel_size]), .mode_bar_x);
+    tickl_x = ADD_F (.widel, .lcl[lcl_f_pixel_size]);
+    tickr_x = ADD_F (.tickl_x, MUL_F (%E'6.0', .mode_char_width));
+    tickr_x = ADD_F (.tickr_x, DIV_F (.lcl[lcl_f_cons_2], .half_char));
+    tickr_x = ADD_F (.tickr_x, .lcl[lcl_f_pixel_size]);
+    wider   = ADD_F (.tickr_x, .lcl[lcl_f_pixel_size]);	! boosted x for major ticks
+
+    ! Now draw the ticks
+    !
+    height = .mode_low_y;
+    delta = DIV_F (%E'10.', .mode_bar_height);
+    INCR i FROM 0 TO 10
+    DO
+	BEGIN
+	uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], tickr_x, height, tickr_x, height);
+	uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], tickl_x, height, tickl_x, height);
+	IF (.i EQL 0) OR (.i EQL 5) OR (.i EQL 10)
+	THEN
+	    BEGIN
+	    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], wider, height, wider, height);
+	    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], widel, height, widel, height);
+	    END;
+	height = ADD_F (.delta, .height);
+	END;
+
+    ! Initialize some cells describing the "previous" snapshot
+    !
+    mode_last_abstics = .abstics;
+    INCR idx FROM 0 TO 5
+    DO
+	BEGIN
+	last_cpu_mode[.idx] = .cpu_mode[.idx];
+	mode_last_y [.idx] = .mode_low_y;
+	END;
+
+    uis$end_segment (lcl[lcl_l_vd_id]);
+    RETURN;
+    END;
+
+! Compute our CPU mode time as a percent of real time
+!
+elapsed = .abstics - .mode_last_abstics;	! elapsed time (10 msec ticks)
+mode_last_abstics = .abstics;			! save current absolute as last
+elapsed = .elapsed * .cpu_count;		! adjust for multiple cpus
+!BEGIN
+!LOCAL
+!    desc:vector[2,long],buff:vector[80,byte];
+!    desc[0]=80;
+!    desc[1]=buff;
+!    $fao (%ASCID 'Elapsed !3UL ticks', desc, desc, .elapsed);
+!    lib$put_output(desc);
+!END;
+
+! For each of the modes, display the bar
+!
+
+uis$set_font (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], lcl[lcl_l_cons_1], %ASCID 'UIS$FILL_PATTERNS');
+uis$set_fill_pattern (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], lcl[lcl_l_cons_1], %REF(patt$c_foreground));
+uis$set_writing_mode (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], lcl[lcl_l_cons_1], %REF(uis$c_mode_eras));
+uis$set_writing_mode (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], lcl[lcl_l_cons_2], %REF(uis$c_mode_repl));
+INCR idx FROM 0 TO 5
+DO
+    BEGIN
+    REGISTER
+	temp1, temp2, reg_height;
+    LOCAL
+	cpu, left_x, right_x;
+
+    cpu = .cpu_mode[.idx] - .last_cpu_mode[.idx];	! cpu is difference (10 msec ticks)
+    CVTLF (elapsed, temp1);				! elapsed time to floating point
+    CVTLF (cpu, temp2);					! cpu time to floating point
+    DIVF (temp1, temp2, ratio);				! compute ratio of time used to clock time
+    MULF (mode_bar_height, ratio, reg_height);		! scale height - 0 = we got no CPU,
+		    					!                y = we got 100% CPU
+    ADDF (reg_height, mode_low_y, reg_height);		! adjust for offset
+
+    IF .reg_height NEQ .mode_last_y [.idx]
+    THEN
+	BEGIN
+	IF CMPF (reg_height, mode_high_y) GTR 0		! If over the line
+	THEN
+	    reg_height = .mode_high_y;
+	CVTLF (idx, temp1);				! get mode index to floating    
+	MULF (temp1, mode_char_width, temp2);		! multiply index by char width to get starting offset
+	ADDF (temp2, mode_bar_x, left_x);		! add to base position to get starting position
+	ADDF (mode_bar_width, left_x, right_x);		! add bar width to get ending position
+	height = .reg_height;				! put height in memory for calls
+
+	IF CMPF (reg_height, mode_last_y [.idx]) LSS 0
+	THEN
+	    BEGIN
+
+	    ! Erase all or part of the previous bar
+	    !
+	    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1],
+	    		left_x, height,
+	    		right_x, height,
+	    		right_x, mode_last_y [.idx],
+	    		left_x, mode_last_y [.idx],
+	    		left_x, height);
+
+	    END
+	ELSE
+	    BEGIN
+	    IF .idx EQL 0
+	    THEN
+		uis$set_fill_pattern (lcl[lcl_l_vd_id], lcl[lcl_l_cons_2], lcl[lcl_l_cons_2], %REF(patt$c_grey8_16));
+	    uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_2],
+	    		left_x, mode_last_y [.idx],
+	    		right_x, mode_last_y [.idx],
+	    		right_x, height,
+	    		left_x, height,
+	    		left_x, mode_last_y [.idx]);
+	    IF .idx EQL 0
+	    THEN
+		uis$set_fill_pattern (lcl[lcl_l_vd_id], lcl[lcl_l_cons_2], lcl[lcl_l_cons_2], %REF(patt$c_foreground));
+	    END;
+	mode_last_y [.idx] = .reg_height;
+	END;
+    END;
+
+! Save the current mode times as the previous
+!
+INCR idx FROM 0 TO 5
+DO
+    last_cpu_mode[.idx] = .cpu_mode[.idx];
+
+uis$end_segment (lcl[lcl_l_vd_id]);
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE bannercpu_mode_data : NOVALUE =
+
+!-
+!	Routine to fetch time in processor modes.
+!
+! Implicit Inputs:
+!
+!	None
+!
+! Outputs:
+!
+!	CPU_modes contains cpu mode times for all cpus
+!-
+
+BEGIN
+
+LOCAL
+    cpubits,
+    cpuidx;
+
+cpu_count = 0;				! Set to 0 initially
+
+cpubits = .smp$gl_active_cpus;
+INCR i FROM 0 TO 5
+DO
+    cpu_mode [.i] = 0;
+
+! 
+!  Time counters offset from CPU$L_KERNEL defined as follows:
+! 
+!       [0] KERNEL mode on KERNEL stack, no spinlock busywait active
+!       [1] EXECUTIVE mode
+!       [2] SUPERVISOR mode
+!       [3] USER mode
+!       [4] KERNEL mode on INTERRUPT stack
+!       [5] Compatibility mode
+!       [6] KERNEL mode on KERNEL stack, spinlock busywait is active
+! 
+!           NULL job counter
+!
+!  In CPU_MODE, they are:
+!
+!	[0] = null time
+!	[1] = user + compatibility
+!	[2] = supervisor
+!	[3] = executive
+!	[4] = kernel (including kernel spinwait)
+!	[5] = interrupt
+
+WHILE (NOT FFS (%REF(0), %REF(32), cpubits, cpuidx))
+DO
+    BEGIN
+    BIND
+	cpuptr = .smp$gl_cpu_data [.cpuidx] : BLOCK [, BYTE],
+	times  = cpuptr [cpu$l_kernel] : VECTOR [7, LONG];
+    cpu_mode [0] = .cpu_mode [0] + .cpuptr [cpu$l_nullcpu];
+    cpu_mode [1] = .cpu_mode [1] + .times [3] + .times [5];
+    cpu_mode [2] = .cpu_mode [2] + .times [2];
+    cpu_mode [3] = .cpu_mode [3] + .times [1];
+    cpu_mode [4] = .cpu_mode [4] + .times [0] + .times [6];
+    cpu_mode [5] = .cpu_mode [5] + .times [4] - .cpuptr [cpu$l_nullcpu];
+    cpu_count = .cpu_count + 1;
+    cpubits<.cpuidx,1,0> = 0;
+    END;
+
+abstics = .exe$gl_abstim_tics;
+
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE bannercpu_nullcpu : NOVALUE =
+
+!-
+!	Routine to fetch null "process" time.
+!
+! Implicit Inputs:
+!
+!	None
+!
+! Outputs:
+!
+!	CPU_NULL contains null cpu time for all cpus
+!-
+
+BEGIN
+
+LOCAL
+    cpubits,
+    cpuidx;
+
+cpu_null = 0;				! Set to 0 initially
+cpu_count = 0;				! Set to 0 initially
+
+cpubits = .smp$gl_active_cpus;
+
+WHILE (NOT FFS (%REF(0), %REF(32), cpubits, cpuidx))
+DO
+    BEGIN
+    BIND
+	cpuptr = .smp$gl_cpu_data [.cpuidx] : BLOCK [, BYTE];
+    cpu_null = .cpu_null + .cpuptr [cpu$l_nullcpu];
+    cpubits<.cpuidx,1,0> = 0;
+    cpu_count = .cpu_count + 1;
+    END;
+
+abstics = .exe$gl_abstim_tics;
+
+RETURN;
+END;
+
+END
+ELUDOM

@@ -1,0 +1,105 @@
+/*****************************************************************************
+ *									     *
+ *  Copyright (c) 1983			                                     *
+ *  by Digital Equipment Corporation, Maynard, Mass.			     *
+ * 									     *
+ *  This software is furnished under a license and may be used and  copied   *
+ *  only  in  accordance  with  the  terms  of  such  license and with the   *
+ *  inclusion of the above copyright notice.  This software or  any  other   *
+ *  copies  thereof may not be provided or otherwise made available to any   *
+ *  other person.  No title to and ownership of  the  software  is  hereby   *
+ *  transferred.							     *
+ * 									     *
+ *  The information in this software is subject to change  without  notice   *
+ *  and  should  not  be  construed  as  a commitment by Digital Equipment   *
+ *  Corporation.							     *
+ * 									     *
+ *  Digital assumes no responsibility for the use or  reliability  of  its   *
+ *  software on equipment which is not supplied by Digital.		     *
+ *									     *
+ *****************************************************************************/
+/**
+*
+* FACILITY:	 SDL 
+*
+* ABSTRACT:	 tbs
+*
+* ENVIRONMENT:	 VAX/VMS
+*
+* AUTHOR:	 C. T. Pacy
+*
+* CREATION DATE: Dec. 1980
+*
+* MODIFIED BY:
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+		|	|
+ 10-Sep-1983	|  kd	|  Remove this module from the SDLIO.pli file and make
+		|	|  it a seperate routine.  This routine is only used by
+		|	|  backends.  Add some documentation to the routines.	
+________________|_______|______________________________________________________
+  5-Mar-1985	|  kd	|  2-1 Add IDENT.
+________________|_______|______________________________________________________
+*
+**/
+
+/**
+* FUNCTIONAL DESCRIPTION: SDL$PUTLINE
+*
+*	This routine outputs a line of text to the current language
+*	output file.  If the text to be output is greater than the
+*	line length, it is broken at the nearest delimiter (a space, tab
+*	or comma) and output on the next line.
+*
+*
+* FORMAL PARAMETERS:
+*
+*	outfile The output file to be written to
+*	buf	The buffer to be written to the output file
+*	len	The length of the buffer to be written
+*
+* IMPLICIT INPUTS:
+*
+*	tbs
+*
+* IMPLICIT OUTPUTS:
+*
+*	tbs
+*
+* ROUTINE VALUE:
+* COMPLETION CODES:
+*
+*	This routine returns the length of the buffer that is written.
+*
+*/
+sdl$putline:	proc (outfile, buf, len) 
+		    options(ident('2-1')) 
+		    returns (fixed bin(31) );
+	
+	dcl outfile file variable;
+	dcl buf char(1024) var;
+	dcl delimiters char(3) static init (' 	,'); /* space,tab, comma */
+	dcl (i,j,len) fixed bin;
+	dcl tmpbuf char(1024) var;
+ 
+	do i=1 to length(buf) by len;
+		if length(buf)<=len then
+			write file(outfile)  from (buf) ;
+		else do;
+			tmpbuf=substr(buf,1,len);
+			do j=len to 1 by -1;
+				if index(delimiters,substr(tmpbuf,j,1))^=0 then
+					goto l1;
+				end;
+l1:
+			tmpbuf=substr(tmpbuf,1,j);
+			write file(outfile) from (tmpbuf);
+			buf=substr(buf,j+1);
+			end;
+		end;
+	return (length(buf));
+end;
+

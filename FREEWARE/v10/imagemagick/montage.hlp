@@ -1,0 +1,529 @@
+1 MONTAGE 
+Creates a composite image by combining several separate images
+
+SYNOPSIS
+
+  $ montage [ options ...] file [ [ options ...] file ...] output_file
+
+2 DESCRIPTION
+montage creates a composite image by combining several separate images.
+The images are tiled on the composite image with the name of the image
+optionally appearing just below the individual tile.
+
+The composite image is constructed in the following manner.  First,
+each image specified on the command line, except for the last, is
+scaled to fit the maximum tile size.  The maximum tile size by default
+is 256x256.  It can be modified with the -geometry command line
+argument or X resource.  See OPTIONS for more information on
+command line arguments. See X(1) for more information on X
+resources.  Note that the maximum tile size need not be a square.  To
+respect the aspect ratio of each image append ~ to the geometry
+specification.
+
+Next the composite image is initialized with the color specified by the
+-background command line argument or X resource.  The width and
+height of the composite image is determined by the title specified,
+the maximum tile size, the number of tiles per row, the tile border
+width and height, the image border width, and the label height.  The
+number of tiles per row specifies how many images are to appear in each
+row of the composite image. The default is to have 5 tiles in each row
+and 4 tiles in each column of the composite.  A specific value is 
+specified with -tile. The tile border width and height,
+and the image border width defaults to the value of the X resource
+-borderwidth.  It can be changed with the -borderwidth or
+-geometry command line argument or X resource.  The label height
+is determined by the font you specify with the -font command line
+argument or X resource.  If you do not specify a font, a font is
+choosen that allows the name of the image to fit the maximum width of a
+tiled area.  The label colors is determined by the -background
+and -foreground command line argument or X resource.  Note, that
+if the background and foreground colors are the same, labels will not
+appear.
+
+Initially, the composite image title is placed at the top if one is
+specified (refer to -foreground X resource).  Next, each image is
+set onto the composite image, surrounded by its border color, with its
+name centered just below it.  The individual images are left-justified
+within the width of the tiled area.  The order of the images is the
+same as they appear on the command line unless the images have a scene
+keyword.  If a scene number is specified in each image, then the images
+are tiled onto the composite in the order of their scene number.  Finally,
+the last argument on the command line is the name assigned to the
+composite image.  By default, the image is written in the MIFF format
+and can be viewed or printed with display(1).
+
+2 EXAMPLES
+To create a montage of a cockatoo, a parrot, and a hummingbird and write
+it to a file called birds, use:
+ 
+   $ montage cockatoo.miff parrot.miff hummingbird.miff birds.miff
+ 
+ To tile several bird images so that they are at most 256 pixels in width and
+ 192 pixels in height, surrounded by a red border, and separated by
+ 10 pixels of background color, use:
+ 
+   $ montage -geometry 256x192+10+10 -bordercolor red birds.* montage.miff
+ 
+To create an unlabeled parrot image, 640 by 480 pixels, and surrounded
+by a border of black, use:
+ 
+   $ montage -geometry 640x480 -bordercolor black -label "" parrot.miff bird.miff
+
+2 OPTIONS
+ 
+    -colors value
+preferred number of colors in the image.
+
+The actual number of colors in the image may be less than your request,
+but never more.  Note, this is a color reduction option.  Images with
+less unique colors than specified with this option will remain unchanged.
+Refer to quantize(9) for more details.
+
+Note, options -dither, -colorspace, and -treedepth affect
+the color reduction algorithm.
+ 
+    -colorspace value
+the type of colorspace: GRAY, OHTA, RGB, XYZ,
+YCbCr, YIQ, YPbPr, or YUV.
+ 
+Color reduction, by default, takes place in the RGB color space.
+Empirical evidence suggests that distances in color spaces such as YUV
+or YIQ correspond to perceptual color differences more closely
+than do distances in RGB space.  These color spaces may give better
+results when color reducing an image.  Refer to quantize(9) for
+more details.
+
+The -colors or -monochrome option is required for this option
+to take effect.
+ 
+    -comment string
+annotate an image with a comment.
+
+By default, each image is commented with its file name.  Use this
+option to assign a specific comment to the image.  Optionally you can
+include the image filename, type, width, height, or scene number by
+embedding special format characters.  Embed %f for filename,
+%m for magick, %w for width, %h for height, %s
+for scene number, or \n for newline.  For example,
+
+     -comment "%m:%f %wx%h"
+
+produces an image comment of MIFF:bird.miff 512x480 for an image
+titled bird.miff and whose width is 512 and height is 480.
+
+If the first character of string is @, the image comment is read
+from a file titled by the remaining characters in the string.
+ 
+    -compose operator
+the type of image composition.
+
+By default, each of the composite image pixels are replaced by the
+corresponding image tile pixel. You can choose an alternate composite
+operation:
+
+    over
+    in
+    out
+    atop
+    xor
+    plus
+    minus
+    add
+    subtract
+    difference
+    replace
+ 
+The operations behaves as follows:
+.TP 9
+   over
+The result will be the union of the two image shapes, with image
+obscuring composite image in the region of overlap.
+.TP 9
+   in
+The result is simply image cut by the shape of image
+window.  None of the image data of composite image will be in the
+result.
+.TP 9
+   out
+The resulting image is image with the shape of composite image
+cut out.
+.TP 9
+   atop
+The result is the same shape as image composite image, with
+image obscuring composite image where the image shapes
+overlap.  Note this differs from over because the portion of
+image outside composite image's shape does not appear in the
+result.
+.TP 9
+   xor
+The result is the image data from both image and composite image
+that is outside the overlap region.  The overlap region will be blank.
+.TP 9
+   plus
+The result is just the sum of the image data.  Output values are
+cropped to 255 (no overflow).  This operation is independent
+of the matte channels.
+.TP 9
+   minus
+The result of image \- composite image, with underflow cropped
+to zero.  The matte channel is ignored (set to 255, full coverage).
+.TP 9
+   add
+The result of image + composite image, with overflow wrapping
+around (mod 256).
+.TP 9
+   subtract
+The result of image - composite image, with underflow wrapping
+around (mod 256).  The add and subtract operators can
+be used to perform reversible transformations.
+.TP 9
+   difference
+The result of abs(image \- composite image).  This is useful
+for comparing two very similar images.
+.TP 9
+   replace
+The resulting image is composite image replaced with image.
+Here the matte information is ignored.
+
+The image compositor requires an matte, or alpha channel in the image
+for some operations.  This extra channel usually defines a mask which
+represents a sort of a cookie-cutter for the image.  This is the case
+when matte is 255 (full coverage) for pixels inside the shape, zero
+outside, and between zero and 255 on the boundary.  If image does
+not have an matte channel, it is initialized with 0 for any pixel
+matching in color to pixel location (0,0), otherwise 255 (to work
+properly borderwidth must be 0).
+ 
+    -compress type
+the type of image compression: QEncoded or RunlengthEncoded.
+
+This option specifies the type of image compression for the composite
+image.  See miff(5) for details.
+
+Specify +compress to store the binary image in an uncompressed format.
+The default is the compression type of the specified image file.
+ 
+    -crop <width>x<height>+<x offset>+<y offset>
+preferred size and location of the cropped image.  See X(1) for details
+about the geometry specification.
+
+Use cropping to tile only a particular area of an image.  Use -crop
+0x0 to remove edges that are the background color.
+
+The equivalent X resource for this option is cropGeometry
+(class CropGeometry).  See X RESOURCES for details.
+ 
+    -density <width>x<height>
+vertical and horizontal density of the image.
+
+This option specifies an image density for a Postscript page.
+The default is 72 dots per inch in the horizontal and vertical direction.
+Use this option to alter the default density.
+ 
+    -display host:display[.screen]
+specifies the X server to contact; see X(1).
+
+Specify +display if an X server is not available.  The label font
+is obtained from the X server.  If none is available, the composite image
+will not have labels.
+ 
+    -dither
+apply Floyd/Steinberg error diffusion to the image.
+
+The basic strategy of dithering is to trade intensity resolution for
+spatial resolution by averaging the intensities of several neighboring
+pixels.  Images which suffer from severe contouring when reducing colors
+can be improved with this option.
+
+The -colors or -monochrome option is required
+for this option to take effect.
+ 
+    -frame
+surround image with an ornamental border.
+
+Specify the width of the matte with -borderwidth.  Use
+-gravity to specify how the image is oriented within the
+ornamental border.  Use -mattecolor to specify the frame color.
+ 
+    -gamma value
+level of gamma correction.
+
+The same color image displayed on two different workstations may look
+different due to differences in the display monitor.  Use gamma
+correction to adjust for this color difference.  Reasonable values
+extend from 0.8 to 2.3.
+
+
+You can apply separate gamma values to the red, green, and blue
+channels of the image with a gamma value list delineated with commas
+(i.e. 1.7,2.3,1.2).
+ 
+    -geometry <width>x<height>+<border width>+<border height>{!}
+preferred tile and border size of each tile of the composite image.
+
+By default, the width and height are maximum values.  That is, the
+image is expanded or contracted to fit the width and height value while
+maintaining the aspect ratio of the image.  Append an exclamation point
+to the geometry to force the image size to exactly the size you
+specify.  For example, if you specify 640x480! the image width is
+set to 640 pixels and height to 480.  If only one factor is
+specified, both the width and height assume the value.
+ 
+Each image is surrounded by a border whose size in pixels is specified
+as <border width> and <border height> and whose color is
+the background color.  By default, the tile size is 256x256 and there is no
+border.
+
+The equivalent X resource for this option is imageGeometry
+(class ImageGeometry).  See X RESOURCES for details.
+ 
+    -gravity direction
+direction image gravitates to within a tile.  See X(1) for details
+about the gravity specification.
+
+A tile of the composite image is a fixed width and height.  However,
+the image within the tile may not fill it completely (see
+-aspect_ratio).  The direction you specify indicates where to
+position the image within the tile.  For example Center gravity
+forces the image to be centered within the tile.  By default, the image
+gravity is North.
+ 
+    -interlace type
+the type of interlacing scheme: NONE, LINE, or PLANE.
+
+This option is used to specify the type of interlacing scheme for raw
+image formats such as RGB or YUV.  NONE means do not
+interlace (RGBRGBRGBRGBRGBRGB...), LINE uses scanline
+interlacing (RRR...GGG...BBB...RRR...GGG...BBB...), and PLANE uses
+plane interlacing (RRRRRR...GGGGGG...BBBBBB...).
+ 
+    -label name
+assign a label to an image.
+
+By default, each image is labeled with its file name.  Use this option
+to assign a specific label to the image.  Optionally you can include
+the image filename, type, width, height, or scene number in the label
+by embedding special format characters.   Embed %f for filename,
+%m for magick, %w for width, %h for height, or
+%s for scene number.  For example,
+
+     -label "%m:%f %wx%h"
+
+produces an image label of MIFF:bird.miff 512x480 for an image
+titled bird.miff and whose width is 512 and height is 480.
+
+If the first character of string is @, the image label is read
+from a file titled by the remaining characters in the string.
+ 
+    -monochrome
+transform the image to black and white.
+ 
+    -page <width>x<height>{+-}<x offset>{+-}<y offset>
+preferred size and location of the Postscript page.
+
+Use this option to specify the dimensions of the Postscript page in
+picas or a TEXT page in pixels.  The default for a Postscript page is
+to center the image on a letter page 612 by 792 dots per inch.  The
+left and right margins are 18 picas and the top and bottom 94 picas
+(i.e.  612x792+36+36).  Other common sizes are:
+
+    540x720   Note
+    612x1008  Legal
+    842x1190  A3
+    595x842   A4
+    421x595   A5
+    297x421   A6
+    709x1002  B4
+    612x936   U.S. Foolscap
+    612x936   European Foolscap
+    396x612   Half Letter
+    792x1224  11x17
+    1224x792  Ledger
+
+The page geometry is relative to the vertical and horizontal density of the
+Postscript page.  See -density for details.
+
+The default page dimensions for a TEXT image is 612x792+36+36.
+ 
+    -quality value
+JPEG quality setting.
+
+Quality is 0 (worst) to 100 (best). The default is 85.
+ 
+    -rotate degrees
+apply Paeth image rotation to the image.
+
+Empty triangles left over from rotating the image are filled with
+the color defined as bordercolor (class borderColor).
+See X(1) for details.
+ 
+    -scene value
+image scene number.
+ 
+    -shadow
+add a shadow beneath a tile to simulate depth.
+ 
+    -size <width>{%}x<height>{%}{+colors}{!}
+width and height of the image.
+
+Use this option to specify the width and height of raw images whose
+dimensions are unknown such as GRAY, RGB, or CMYK.
+In addition to width and height, use -size to tell the number
+of colors in a MAP image file, (e.g. -size 640x512+256).
+ 
+    -tile <width>x<height>
+specifies how many tiles are to appear in each row and column of the
+composite image.
+
+Specify the number of tiles per row with width and tiles per column
+with height.  For example if you want 1 tile in each row and a maximum
+of 10 tiles in the composite image, use -tile 1x10.  The default is to
+have 5 tiles in each row and 4 tiles in each column of the composite.
+ 
+    -treedepth value
+Normally, this integer value is zero or one.  A zero or one tells
+montage to choose a optimal tree depth for the color reduction
+algorithm.
+
+An optimal depth generally allows the best representation of the source
+image with the fastest computational speed and the least amount of
+memory.  However, the default depth is inappropriate for some images.
+To assure the best representation, try values between 2 and 8 for this
+parameter.  Refer to quantize(9) for more details.
+
+The -colors or -monochrome option is required for this option
+to take effect.
+ 
+   -verbose
+print detailed information about the image.
+ 
+This information is printed: image scene number;  image name;  image size;
+the image class (DirectClass or PseudoClass);  the total
+number of unique colors;  and the number of seconds to read and write the
+image.
+ 
+In addition to those listed above, you can specify these standard X
+resources as command line options:  -background, -bordercolor, -borderwidth,
+-font, -foreground, -mattecolor, or -title.
+See X RESOURCES for details.
+ 
+Options are processed in command line order.
+Any option you specify on the command line remains in effect until it is
+explicitly changed by specifying the option again with a different effect.
+For example, to montage two images, the first with 32 colors and the
+second with only 16 colors, use:
+ 
+   $ montage -colors 32 cockatoo.1 -colors 16 cockatoo.2 cockatoo.miff
+ 
+Change - to + in any option above to reverse its effect.
+For example, specify +dither to not apply error diffusion to an
+image.
+ 
+By default, the image format is determined by its magic number. To
+specify a particular image format, precede the filename with an image
+format name and a colon (i.e. ps:image) or specify the image type as
+the filename suffix (i.e. image.ps).  See convert(1) for a list
+of valid image formats.
+ 
+When you specify X as your image type, the filename has special
+meaning.  It specifies an X window by id, name, or root.  If no
+filename is specified, the window is selected by clicking the mouse in
+the desired window.
+ 
+Specify file as - for standard input, output_file as
+- for standard output.  If file has the extension .Z
+or .gz, the file is uncompressed with uncompress or
+gunzip respectively.  If output_file has the extension
+.Z or .gz, the file size is compressed using with
+compress or gzip respectively.  Finally, precede the image
+file name with | to pipe to or from a system command.
+
+Use an optional index enclosed in brackets after a file name to specify
+a desired subimage of a multi-resolution image format like Photo CD
+(e.g. img0001.pcd[4]).
+ 
+Note, a composite MIFF image displayed to an X server with
+display behaves differently than other images.  You can think of
+the composite as a visual image directory.  Choose a particular tile of
+the composite and press a button to display it.  See display(1)
+and miff(5) for details.
+
+2 X_RESOURCES
+montage options can appear on the command line or in your X
+resource file.  Options on the command line supersede values specified
+in your X resource file.  See X(1) for more information on X
+resources.
+
+All montage options have a corresponding X resource.  In addition,
+montage uses the following X resources:
+ 
+   background (class Background)
+Specifies the preferred color to use for the composite image background.  The
+default is white.
+ 
+   borderColor (class BorderColor)
+Specifies the preferred color to use for the composite image border.  The
+default is black.
+ 
+   borderWidth (class BorderWidth)
+Specifies the width in pixels of the composite image border.  The default is 2.
+ 
+   font (class Font)
+Specifies the name of the preferred font to use when displaying text
+within the composite image.  The default is 9x15, fixed, or 5x8 determined by
+the composite image size.
+ 
+   foreground (class Foreground)
+Specifies the preferred color to use for text within the composite image.  The
+default is black.
+ 
+   matteColor (class MatteColor)
+Specify the color of an image frame.  A 3D  effect  is achieved  by
+using highlight and shadow colors derived from this color.  Default
+value: #bcd.
+ 
+   title (class Title)
+This resource specifies the title to be placed at the top of the composite 
+image.  The default is not to place a title at the top of the composite image.
+
+2 ENVIRONMENT
+ 
+   display
+To get the default host, display number, and screen.
+
+2 COPYRIGHT
+Copyright 1994 E. I. du Pont de Nemours and Company
+ 
+Permission to use, copy, modify, distribute, and sell this software and
+its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of E. I. du Pont de Nemours
+and Company not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.  E. I. du Pont de Nemours and Company makes no representations
+about the suitability of this software for any purpose.  It is provided
+"as is" without express or implied warranty.
+ 
+E. I. du Pont de Nemours and Company disclaims all warranties with regard
+to this software, including all implied warranties of merchantability
+and fitness, in no event shall E. I. du Pont de Nemours and Company be
+liable for any special, indirect or consequential damages or any
+damages whatsoever resulting from loss of use, data or profits, whether
+in an action of contract, negligence or other tortuous action, arising
+out of or in connection with the use or performance of this software.
+
+2 ACKNOWLEDGEMENTS
+The MIT X Consortium for making network transparent graphics a reality.
+ 
+Michael Halle, Spatial Imaging Group at MIT, for the initial
+implementation of Alan Paeth's image rotation algorithm.
+ 
+David Pensak, E. I. du Pont de Nemours and Company, for providing a
+computing environment that made this program possible.
+ 
+Paul Raveling, USC Information Sciences Institute, for the original
+idea of using space subdivision for the color reduction algorithm.
+
+2 AUTHORS
+John Cristy, E.I. du Pont de Nemours and Company Incorporated

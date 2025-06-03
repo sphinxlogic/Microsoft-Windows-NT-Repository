@@ -1,0 +1,103 @@
+#
+# xrn - an X-based NNTP news reader
+#
+# Copyright (c) 1988, 1989, 1990, Ellen M. Sentovich and Rick L. Spickelmier.
+#
+# Permission to use, copy, modify, and distribute this software and its
+# documentation for any purpose and without fee is hereby granted, provided
+# that the above copyright notice appear in all copies and that both that
+# copyright notice and this permission notice appear in supporting
+# documentation, and that the name of the University of California not
+# be used in advertising or publicity pertaining to distribution of 
+# the software without specific, written prior permission.  The University
+# of California makes no representations about the suitability of this
+# software for any purpose.  It is provided "as is" without express or
+# implied warranty.
+#
+# THE UNIVERSITY OF CALIFORNIA DISCLAIMS ALL WARRANTIES WITH REGARD TO 
+# THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND 
+# FITNESS, IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE FOR
+# ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+# RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF
+# CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN 
+# CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+# The following may need changing for your site:
+#
+# CC, DEST, LD, LDFLAGS, LIBS, MANDIR, MANSUFFIX, INCLUDES
+#
+# The libraries -lPW and -lBSD should be included for machines running
+# HP-UX.  This may apply to other SYSV systems.
+#
+
+#           CC = gcc
+
+          SHELL = 	/bin/sh
+
+        DEFINES =
+           DEST = /usr/local/bin
+           HDRS = avl.h buttons.h codes.h compose.h config.h copyright.h \
+		  cursor.h dialogs.h error_hnds.h internals.h mesg.h \
+		  modes.h news.h newsrcfile.h resources.h save.h server.h \
+		  utils.h xmisc.h xrn.h xthelper.h slist.h slistP.h Pane.h \
+		  PaneP.h
+         CFLAGS = $(INCLUDES) $(STD_DEFINES) $(DEFINES)
+       INCLUDES =
+        INSTALL = cp
+        LDFLAGS = 
+         DWTLIB = -ldwt
+           XLIB = -lX11
+           LIBS = $(DWTLIB) $(XLIB)
+       INCLUDES = 
+       MANDIR = /usr/man/man1
+      MANPAGE = mxrn.man
+    MANSUFFIX = 1
+       RM_CMD = rm *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a \
+			.emacs_* tags TAGS make.log MakeOut
+ 
+        OBJS = avl.o buttons.o clientlib.o compose.o cursor.o dialogs.o \
+	       menus.o mesg.o error_hnds.o newsrcfile.o resources.o \
+	       internals.o refile.o save.o server.o utils.o xmisc.o xrn.o    \
+	       xthelper.o killfile.o pane.o slist.o
+
+       PRINT = pr
+     PROGRAM = dxrn
+        SRCS = avl.c buttons.c clientlib.c compose.c \
+	       cursor.c dialogs.c error_hnds.c internals.c menus.c mesg.c \
+	       newsrcfile.c refile.c resources.c save.c server.c utils.c \
+	       pane.c slist.c xmisc.c xrn.c xthelper.c killfile.c
+
+
+all:		$(PROGRAM)
+
+$(PROGRAM):     $(OBJS) y.tab.o
+		@echo "Linking $(PROGRAM) ..."
+		$(CC) $(LDFLAGS) $(OBJS) y.tab.o $(LIBS) -o $(PROGRAM)
+		@echo "done"
+
+lex.yy.c:	newsrc.l
+		lex newsrc.l
+
+y.tab.c:	newsrc.y
+		yacc newsrc.y
+
+y.tab.o:	lex.yy.c avl.h news.h newsrcfile.h utils.h
+
+clean:;		@rm -f $(OBJS) core y.tab.o y.tab.c lex.yy.c
+
+install:	$(PROGRAM)
+		@echo Installing $(PROGRAM) in $(DEST)
+		@if [ $(DEST) ! = . ]; then \
+		(rm -f $(DEST)/$(PROGRAM); \
+		$(INSTALL) $(PROGRAM) $(DEST); \
+		chmod 755 $(DEST)/$(PROGRAM)); fi
+
+install-man:	$(MANPAGE)
+		@cp $(MANPAGE) $(MANDIR)/`basename $(MANPAGE) .man`.$(MANSUFFIX)
+
+print:;		@$(PRINT) $(HDRS) $(SRCS) newsrc.l newsrc.y
+
+tags:           $(HDRS) $(SRCS) newsrc.l newsrc.y
+		@ctags $(HDRS) $(SRCS) newsrc.l newsrc.y
+
+

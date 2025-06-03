@@ -1,0 +1,1932 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program: COBOL_DEF.INT
+        ! System : INTOUCH
+        ! Author : Daniel James Swain
+        ! Date   : 17-DEC-1992
+        ! Purpose: Create an INTOUCH structure definition from a COBOL
+        !          record definition.  This program expects the input
+        !          file to be just the record definition for a single record.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+1000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        dim_arrays
+        paint_screen
+        do
+          initialize_variables
+          ask_questions
+          if  _exit or _back then exit do
+          process_all_input_files
+          set window : current clear_screen$
+        loop
+
+9999    stop
+
+
+
+12000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A I N T   S C R E E N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   paint the screen background
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   clear_screen$      save screen image
+        !   screen is painted
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine paint_screen
+          frame off
+          clear
+          set margin 80
+          z$ = space$(80)
+          cset z$ = 'Create INTOUCH Definition from COBOL Definition'
+          lset fill '' : z$ = 'COBOL_DEF V2.0'
+          print at 1, 1, bold, reverse : z$
+          print at 3, 1 : 'COBOL copy-lib file:'
+          print at 4, 1 : 'ANSI format        :'
+          !print at 5, 1 : 'INTOUCH Definition :'
+          z$ = 'EXIT = Exit                                                ' + &
+            '\ = Back  HELP = Help'
+          print at 24, 1, bold, reverse : z$;
+          ask window : current clear_screen$
+        end routine
+
+
+
+12100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I M   A R R A Y S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   dimension the arrays that will be used to store the cobol info
+        !   
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   array_suffix$      array suffix array
+        !   array_occurs_processed 
+        !                      array occurs processed array
+        !   array_occurs       array nbr occurs array
+        !   array_field        array field index array
+        !   array_level        array level array
+        !   group_field_start  group item starting position array
+        !   group_field        group item field name array
+        !   group_level        level number of group items array
+        !   def_numeric        numeric flag array
+        !   def_redef_index    redefined field index array
+        !   def_occurs         occurs array
+        !   def_scale          scale array
+        !   def_field_length   field length array
+        !   def_field_start    starting position array
+        !   def_dtype$         data type array
+        !   def_field_name$    field name array
+        !   def_level          field level array
+        !   array_size         size of cobol infor arrays
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine dim_arrays
+          array_size = 100
+          dim def_level(array_size)
+          dim def_field_name$(array_size)
+          dim def_dtype$(array_size)
+          dim def_field_start(array_size)
+          dim def_field_length(array_size)
+          dim def_scale(array_size)
+          dim def_occurs(array_size)
+          dim def_redef_index(array_size)
+          dim def_numeric(array_size)
+          dim group_level(10)
+          dim group_field(10)
+          dim group_field_start(10)
+          dim array_level(10)
+          dim array_field(10)
+          dim array_occurs(10)
+          dim array_occurs_processed(10)
+          dim array_suffix$(10)
+        end routine
+
+
+
+13000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T I A L I Z E   V A R I A B L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   setup variables needed to run
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   valid_last_char_fieldname_characters$ 
+        !                      valid field name characters (not first char)
+        !   valid_fieldname_characters$ 
+        !                      valid field name characters
+        !   group_field_start  array of starting positions for group fields
+        !   group_field        array of field numbers that start a group
+        !   group_level        array of levels for group fields
+        !   def_field_start    starting position array
+        !   ansi_format$       english version of ansi format
+        !   intouch_file$      intouch def filename blanked
+        !   ansi_format        ansi format flag turned off
+        !   cobol_file$        cobol file spec blanked
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine initialize_variables
+          cobol_file$ = ''
+          ansi_format = false
+          ansi_format$ = 'NO'
+          intouch_file$ = ''
+          valid_fieldname_characters$ = &
+            'characters "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$_"'
+          valid_last_char_fieldname_characters$ = &
+            'characters "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$%_"'
+        end routine
+
+
+
+14000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   Q U E S T I O N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   need to ask for the input file name, the structure name
+        !   to create and whether this is an ANSI format file
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !   action$            routine to execute
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_questions
+          action$ = 'ask_cobol_file'
+          do until action$ = 'finished'
+            dispatch action$
+          loop
+        end routine
+
+
+
+15000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   C O B O L   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   ask the user for the name of the COBOL file to process
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !   default$           default answer
+        !   reply$             response
+        !   help$              help topic
+        !   uc_response        upper case flag
+        !   validation$        validation rules
+        !   length             length of response
+        !   prompt$            prompt text
+        !
+        ! Results:
+        !   cobol_file$        filename entered
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_cobol_file
+          do
+            prompt$ = 'COBOL copy-lib file spec'
+            length  = 64
+            validation$ = 'required'
+            uc_response = true
+            help$ = ''
+            default$ = cobol_file$
+            input_response
+            if  _exit or _back then
+              action$ = 'finished'
+              exit routine
+            end if
+            validate_cobol_filename
+            if  _error then repeat do
+          end do
+          cobol_file$ = reply$
+          print at 3, 22, bold, erase : cobol_file$
+          action$ = 'ask_ansi_format'
+        end routine
+
+
+
+15100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! V A L I D A T E   C O B O L   F I L E N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   make sure that the file name entered exists.  
+        !
+        ! Expected:
+        !   reply$             file name entered
+        !
+        ! Locals:
+        !   z$                 results from findfile
+        !
+        ! Results:
+        !   _error             true if file not found
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine validate_cobol_filename
+          parse_filename$ = reply$
+          default_extension$ = ''
+          parse_filespec
+          device$ = ''
+          directory$ = ''
+          filename$ = ''
+          extension$ = ''
+          z$ = findfile$(reply$)
+          if  z$ = '' then
+            message error : reply$ + ' is not a valid file name'
+            exit routine
+          end if
+        end routine
+
+
+
+16000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   A N S I   F O R M A T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   find out if the input file is in ansi format or terminal format
+        !   
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   action$            next routine to execute
+        !   ansi_format        true is file is in ansi format
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_ansi_format
+          do
+            input_ansi_format
+            if  _exit then
+              action$ = 'finished'
+              exit routine
+            end if
+            if  _back then
+              action$ = 'ask_cobol_file'
+              exit routine
+            end if
+          end do
+          select case reply$[1:1]
+            case 'Y'
+              ansi_format = true
+              ansi_format$ = 'YES'
+            case 'N'
+              ansi_format = false
+              ansi_format$ = 'NO'
+          end select
+          print at 4, 22, bold, erase : ansi_format$
+          !action$ = 'ask_intouch_file'
+          action$ = 'ask_proceed'
+        end routine
+
+
+
+16100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N P U T   A N S I   F O R M A T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   actually ask the ansi format question
+        !
+        ! Expected:
+        !   ansi_format$       default answer
+        !
+        ! Locals:
+        !   help$              help topic
+        !   uc_response        upper case flag
+        !   validation$        validation rules
+        !   length             length of response
+        !   prompt$            prompt text
+        !
+        ! Results:
+        !   reply$             response
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine input_ansi_format
+          prompt$ = 'Is file in ANSI format (Y/N)'
+          length  = 4
+          validation$ = 'required;yes/no'
+          uc_response = true
+          help$ = ''
+          default$ = ansi_format$
+          input_response
+        end routine
+
+
+
+17000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   I N T O U C H   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   get the name of the intouch definition file.
+        !   check to see if it exists
+        !   if it does then warn the user
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !   reply$             response
+        !   help$              help topic
+        !   uc_response        upper case flag
+        !   validation$        validation rules
+        !   length             length of response
+        !   prompt$            prompt text
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_intouch_file
+          do
+            input_intouch_file
+            if  _exit then
+              action$ = 'finished'
+              exit routine
+            end if
+            if  _back then
+              action$ = 'ask_ansi_format'
+              exit routine
+            end if
+            parse_filename$ = reply$
+            default_extension$ = 'DEF'
+            parse_filespec
+            reply$ = parse_filename$
+            validate_intouch_filename
+            if  _error then repeat do
+          end do
+          intouch_file$ = reply$
+          print at 5, 22, bold, erase : intouch_file$
+          action$ = 'ask_proceed'
+        end routine
+
+
+
+17100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N P U T   I N T O U C H   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   actually ask the question
+        !
+        ! Expected:
+        !   intouch_file$      default intouch def name
+        !
+        ! Locals:
+        !   default$           default answer
+        !   help$              help topic
+        !   uc_response        upper case flag
+        !   validation$        validation rules
+        !   length             length of response
+        !   prompt$            prompt text
+        !
+        ! Results:
+        !   reply$             response
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine input_intouch_file
+          prompt$ = 'INTOUCH definition file spec'
+          length  = 64
+          validation$ = 'required'
+          uc_response = true
+          help$ = ''
+          default$ = intouch_file$
+          input_response
+        end routine
+
+
+
+17200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! V A L I D A T E   I N T O U C H   F I L E N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   check to see if the intouch definition file exists.
+        !   if it does then warn the user
+        !
+        ! Expected:
+        !   reply$             intouch definition file entered
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   message is given if necessary
+        !   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine validate_intouch_filename
+          z$ = findfile$(reply$)
+          if  z$ <> '' then &
+            message delay : 'WARNING: ' + reply$ + ' already exists'
+        end routine
+
+
+
+18000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   P R O C E E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   make sure they really want to process this file
+        !   
+        ! Expected:
+        !
+        ! Locals:
+        !   prompt$            prompt for this input
+        !
+        ! Results:
+        !   action$            next routine to execute
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_proceed
+          do
+            prompt$ = 'Proceed with definition creation (Y/N)'
+            help$ = ''
+            input_response_yn
+            if  _exit then
+              action$ = 'finished'
+              exit routine
+            end if
+            if  _back or reply$ = 'N' then
+              !action$ = 'ask_intouch_file'
+              action$ = 'ask_ansi_format'
+              exit routine
+            end if
+          end do
+          action$ = 'finished'
+        end routine
+
+
+
+20000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   A L L   I N P U T   F I L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   since I support wildcards, process each file found
+        !   
+        ! Expected:
+        !   cobol_file$        cobol filename entered (with wildcards maybe)
+        !
+        ! Locals:
+        !   filename$          filename spec
+        !   directory$         directory spec
+        !   device$            device spec
+        !   intouch_file$      name of the INTOUCH definition file to create
+        !   one_cobol_file$    name of an individual cobol file
+        !   cur_file           current file being processed
+        !   nbr_fields         number of fields defined
+        !
+        ! Results:
+        !   one cobol file is processed and its INTOUCH definition created
+        !   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_all_input_files
+          cur_file = 0
+          do
+            nbr_fields = 0
+            cur_file = cur_file + 1
+            one_cobol_file$ = element$(findfile$(cobol_file$, cur_file), 1, ';')
+            parse_filename$ = one_cobol_file$
+            gosub parse_filespec
+            intouch_file$ = device$ + directory$ + filename$ + '.DEF'
+            if  one_cobol_file$ = '' then exit do            
+            process_cobol_file
+            if  _error then exit do
+            load_intouch_definitions
+            close all
+          loop
+        end routine
+
+
+
+20500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   C O B O L   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   read the cobol file and convert it into an INTOUCH definition
+        !   store the results into arrays for easier processing when writing 
+        !   the definition file
+        !
+        ! Expected:
+        !   one_cobol_file$    name of the cobol file being processed
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   new_names$         list of new names is blanked
+        !   known_names$       list of known names that are too long
+        !   definition file is built
+        !   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_cobol_file
+          print at 7, 1, erase : 'Processing file: ';
+          print bold : one_cobol_file$
+          known_names$ = ''
+          new_names$ = ''
+          open_files
+          if  _error then exit routine
+          do
+            read_cobol_file
+            if  _error then
+              set error off
+              exit do
+            end if
+            process_one_line
+          loop
+        end routine
+
+
+
+21000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   F I L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   open the files needed
+        !   
+        ! Expected:
+        !   intouch_file$      intouch definition name
+        !   one_cobol_file$    cobol file name
+        !
+        ! Locals:
+        !   pass_successful    flag indicating whether the creation of the definition file was ok
+        !
+        ! Results:
+        !   cobol_ch           channel for the input cobol file
+        !   intouch define structure opened
+        !   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine open_files
+          message 'Creating definition file: ' + intouch_file$ + '...'
+          cobol_ch = _channel
+          open #cobol_ch : name one_cobol_file$
+          pass 'create/fdl=tti_run:define ' + intouch_file$
+          ask system, pass : success pass_successful
+          if not pass_successful then
+            message error : 'Creation of ' + intouch_file$ + ' failed'
+            message error delay : 'Systext: ' + systext$
+            exit routine
+          end if
+          open structure def : name 'tti_run:define', &
+            datafile intouch_file$, access outin
+          message ''
+        end routine
+
+
+
+21050   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! V A L I D A T E   F I E L D N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   make sure that the field name meets the naming standards
+        !   
+        ! Expected:
+        !   valid_last_char_fieldname_characters$
+        !                      validation rule for the last character of a field name
+        !   valid_fieldname_characters$
+        !                      validation rule for the middle characters of a field name
+        !   def_name_length    length of the name field
+        !   tmp_field_name$     field name entered
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   delete_field       true if field is to be deleted
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine validate_fieldname
+          if  not valid(tmp_field_name$[1:1], 'letters') then
+            message error : 'Field names must begin with a letter'
+            exit routine
+          end if
+          z = len(tmp_field_name$)
+          if not valid(tmp_field_name$[2:z-1], valid_fieldname_characters$) then
+            message error : 'Invalid field name: ' + tmp_field_name$
+            exit routine
+          end if
+          if not valid(tmp_field_name$[z:z], valid_last_char_fieldname_characters$) then
+            message error : 'Invalid field name: ' + tmp_field_name$
+            exit routine
+          end if
+        end routine
+
+
+
+22000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E A D   C O B O L   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   read a complete line (up to a period) from the cobol file.
+        !   if in ansi format the strip the ansi stuff off
+        !   check it for being a comment line.  if it is then ignore it
+        !   
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   cobol_line$        line of text to process
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine read_cobol_file
+          do
+            cobol_line$ = ''
+            do
+              when exception in
+                line input #cobol_ch : z$
+              use
+              end when
+              if  _error then exit routine
+              if  ansi_format then z$ = trim$(z$[7:72])
+              if z$[1:1] = '*' then repeat do
+              if z$[1:1] = '/' then repeat do
+              cobol_line$ = cobol_line$ + ' ' + z$
+              if  right$(trim$(z$), 1) = '.' then exit do
+            loop
+            cobol_line$ = trim$(edit$(cobol_line$, 20))
+            z = len(cobol_line$)
+            cobol_line$[z:z] = ''
+          end do            
+        end routine
+
+
+
+23000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   O N E   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   I now have one line with a complete cobol line of code.
+        !   I need to parse this an build up an intouch definition record
+        !   from it.  Just load the info into the arrays for now.
+        !
+        ! Expected:
+        !   cobol_line$        line being processed
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   field arrays are loaded for the current field
+        !   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_one_line
+          initialize_line_variables
+          get_cobol_level
+          if  _error then exit routine ! not a line I want to deal with
+          get_field_name
+          message 'Processing field: ' + field_name$
+          z$ = element$(cobol_line$, 3, ' ')
+          rest_of_line$ = trim$(mid$(cobol_line$, _integer)) ! without fieldname
+          parse_rest_of_line
+          if  _error then exit routine
+          load_field_arrays
+        end routine
+
+
+
+23100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T I A L I Z E   L I N E   V A R I A B L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   redef_field_name$  redefined field name
+        !   redef_field_index  redefined field index
+        !   occurs             number of occurrances set to 0
+        !   scale              field scale set to 0
+        !   field_length%      field length
+        !   field_is_signed    signed flag
+        !   trailing_separate  trailing separate sign flag
+        !   leading_separate   leading separate sign flag
+        !   dtype$             data type
+        !   picture$           picture
+        !   field_name$        field name
+        !   cobol_level        level
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine initialize_line_variables
+          cobol_level = 0
+          field_name$ = ''
+          picture$ = ''
+          dtype$ = 'CH'
+          leading_separate = false
+          trailing_separate = false
+          field_is_signed = false
+          field_length% = 0
+          scale = 0
+          occurs = 0
+          redef_field_name$ = ''
+          redef_field_index = 0
+        end routine
+
+
+
+23200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   C O B O L   L E V E L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   get the level of this line
+        !   
+        ! Expected:
+        !   cobol_line$        line of text
+        !
+        ! Locals:
+        !   z$                 first element of the line
+        !
+        ! Results:
+        !   cobol_level        level
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_cobol_level
+          z$ = element$(cobol_line$, 1, ' ')
+          if  not valid(z$, 'integer') then
+            set error on
+            exit routine
+          end if
+          cobol_level = val(z$)
+          select case cobol_level
+            case 66, 77, 88 : set error on 
+            case else
+          end select
+        end routine
+
+
+
+23300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   F I E L D   N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   set up the field name.  This is the 2nd element on the line
+        !
+        ! Expected:
+        !   fill_count         count of filler lines so far
+        !   cobol_line$        line of text
+        !
+        ! Locals:
+        !   z$                 potential field name
+        !
+        ! Results:
+        !   field_name$        field name
+        !   fill_count         incremented if this line is a filler statement
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_field_name
+          z$ = element$(cobol_line$, 2, ' ')
+          if  z$ = 'FILLER' then
+            fill_count = fill_count + 1
+            field_name$ = 'FILLER_' + str$(fill_count)
+          else
+            field_name$ = change$(z$, '-', '_')
+          end if
+        end routine
+
+
+
+23400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   R E S T   O F   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   pick apart the rest of the cobol line.
+        !   
+        ! Expected:
+        !   rest_of_line$      the cobol line without the level or field name
+        !
+        ! Locals:
+        !   token$             current token being processed
+        !   cur_token          current token being processed
+        !   tokens             number of things in the line
+        !
+        ! Results:
+        !   field_length%      field length
+        !   dtype$             data type
+        !   trailing_separate  trailing separate sign flag true if found
+        !   leading_separate   leading separate sign flag true if found
+        !
+        !   routine is longer than 22 lines due to case statement
+        !   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_rest_of_line
+          tokens = elements(rest_of_line$, ' ')
+          for cur_token = 1 to tokens
+            token$ = element$(rest_of_line$, cur_token, ' ')
+            select case ucase$(token$)
+              case 'PIC', 'PICTURE' : process_picture_clause
+              case 'OCCURS'
+                setup_occurs
+              case 'REDEFINES' : process_redefine
+              case 'LEADING' : leading_separate = true
+              case 'TRAILING' : trailing_separate = true
+              case 'COMP' : setup_comp_field
+              case 'COMP-1'
+                dtype$ = 'FL'
+                field_length% = 4
+              case 'COMP-2'
+                dtype$ = 'FL'
+                field_length% = 8
+              case 'COMP-3'
+                dtype$ = 'C3'
+                field_length% = (field_length% + 1) / 2%
+              case 'INDEX', 'POINTER'
+                dtype$ = 'IN'
+                field_length% = 4
+              case else
+            end select
+          next cur_token
+        end routine
+
+
+
+23500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   P I C T U R E   C L A U S E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   examine the picture clause and determine field length
+        !   scale, and whether it is signed or not.
+        !   
+        ! Expected:
+        !   rest_of_line$      line being processed
+        !   cur_token          index to picture token
+        !
+        ! Locals:
+        !   picture$           picture (s99v99, etc)
+        !
+        ! Results:
+        !   field_length%      length of the field
+        !   field_is_signed    set to true if picture begins with S
+        !   numeric            set false if not numeric - true if picture is 9...
+        !   scale              scale of the field if any
+        !   cur_token          incremented to point to actual picture
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_picture_clause
+          cur_token = cur_token + 1
+          picture$ = element$(rest_of_line$, cur_token, ' ')
+          expand_picture_clause
+          z0 = pos(picture$, 'V')
+          if  z0 > 0 then
+            scale = len(picture$) - z0
+            picture$[z0:z0] = ''
+          end if
+          numeric = false
+          if pos(picture$, '9') > 0 then
+            numeric = true
+            z = pos(picture$, 'S')
+            if  z > 0 then 
+              field_is_signed = true
+              picture$[z:z] = ''
+            end if
+          end if
+          field_length% = len(picture$)
+          if  numeric then &
+            if  field_is_signed then dtype$ = 'RO'
+        end routine
+
+
+
+23550   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! E X P A N D   P I C T U R E   C L A U S E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   picture clauses can be either xxxxx or 9(5)v9(4).
+        !   I want to expand the second example to be 99999v9999
+        !   for ease of processing
+        !
+        ! Expected:
+        !   picture$           picture clause
+        !
+        ! Locals:
+        !   rcount             number of occurrances of the character
+        !   z1                 position of )
+        !   z0                 position of (
+        !
+        ! Results:
+        !   picture$           expanded picture clause
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine expand_picture_clause
+          do
+            z0 = pos(picture$, '(')
+            if z0 = 0 then exit do
+            z1 = pos(picture$, ')')
+            rcount = val(picture$[z0+1:z1-1])
+            picture$[z0:z1] = repeat$(picture$[z0-1:z0-1], rcount-1)
+          loop
+        end routine
+
+
+
+23600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   O C C U R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   get the number of times the field occurs
+        !
+        ! Expected:
+        !   rest_of_line$      cobol text line
+        !   cur_token          token index to occurs
+        !
+        ! Locals:
+        !   z$                 should be number of time field occurs
+        !
+        ! Results:
+        !   occurs             number of times this field occurs
+        !   cur_token          incremented 1 to point to occurs value
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_occurs
+          cur_token = cur_token + 1
+          z$ = element$(rest_of_line$, cur_token, ' ')
+          if not valid(z$, 'integer') then
+            message error : 'Line contains invalid occurs clause'
+            message error : cobol_line$
+            exit routine
+          end if
+          occurs = val(z$)
+        end routine
+
+
+
+23700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   R E D E F I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !   nbr_fields         count of fields setup so far
+        !   rest_of_line$      cobol text line
+        !   cur_token          token index to occurs
+        !
+        ! Locals:
+        !   z$                 should be field name to redefine
+        !
+        ! Results:
+        !   redef_field_index  field being redefined (index)
+        !   redef_field_name$  name of field being redefined
+        !   cur_token          incremented 1 to point to occurs value
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_redefine
+          cur_token = cur_token + 1
+          z$ = element$(rest_of_line$, cur_token, ' ')
+          redef_field_name$ = change$(z$, '-', '_')
+          for z = 1 to nbr_fields
+            if  def_field_name$(z) = redef_field_name$ then exit for
+          next z
+          if  z > nbr_fields then
+            message error : 'Cannot find field being redefined: ' + &
+              redef_field_name$
+            message error : cobol_line$
+          end if
+          redef_field_index = z
+        end routine
+
+
+
+23800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   C O M P   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   found a comp field. setup the data type and actual field length
+        !   
+        ! Expected:
+        !   field_is_signed    true if the picture was signed
+        !   field_length%      current field length based upon picture
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   field_length%      new field length
+        !   dtype$             data type
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_comp_field
+          if  field_is_signed then
+            dtype$ = 'IN'
+          else
+            dtype$ = 'IU'
+          end if
+          select case field_length%
+            case is <= 4 : field_length% = 2 ! word
+            case is <= 9 : field_length% = 4 ! longword
+            case is <= 18 
+              field_length% = 7 ! quadword
+              dtype$ = 'QS'
+          end select
+        end routine
+
+
+
+23900   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   F I E L D   A R R A Y S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   load the information about this field into the arrays
+        !   
+        ! Expected:
+        !   numeric            numeric true/false
+        !   redef_field_index  index to field being redefined 
+        !   occurs             number of occurrances
+        !   scale              scale of the field
+        !   field_length%      length of the field
+        !   dtype$             data type of the field
+        !   field_name$        field name for this field
+        !   cobol_level        level of this field
+        !   array_size         current size of the arrays
+        !   nbr_fields         number of fields defined so far
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   def_numeric        numeric true/false is loaded
+        !   def_redef_index    index to field being redefined is loaded
+        !   def_occurs         number of occurrances is loaded
+        !   def_scale          scale is loaded
+        !   def_field_length   field length is loaded
+        !   def_dtype$         data type is loaded
+        !   def_field_name$    field name loaded
+        !   def_level          array of field levels
+        !   nbr_fields         number of fields incremented
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_field_arrays
+          nbr_fields = nbr_fields + 1
+          if  nbr_fields > array_size then gosub redim_field_arrays
+          def_level(nbr_fields) = cobol_level
+          def_field_name$(nbr_fields) = field_name$
+          def_dtype$(nbr_fields) = dtype$
+          def_field_length(nbr_fields) = field_length%
+          def_scale(nbr_fields) = scale
+          def_occurs(nbr_fields) = occurs
+          def_redef_index(nbr_fields) = redef_field_index
+          def_numeric(nbr_fields) = numeric
+        end routine
+
+
+
+23910   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E D I M   F I E L D   A R R A Y S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   arrays need to be expanded to handle the new field
+        !   
+        ! Expected:
+        !   array_size         current size of the arrays
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   array_size         10 added to it for new size
+        !   def* arrays are expanded
+        !   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine redim_field_arrays
+          array_size = array_size + 10
+          redim def_level(array_size)
+          redim def_field_name$(array_size)
+          redim def_dtype$(array_size)
+          redim def_field_start(array_size)
+          redim def_field_length(array_size)
+          redim def_scale(array_size)
+          redim def_occurs(array_size)
+          redim def_redef_index(array_size)
+          redim def_numeric(array_size)
+        end routine
+
+
+
+30000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   I N T O U C H   D E F I N I T I O N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !   field_suffix$      suffix to append to field for arrays
+        !   cur_field_length   current field length
+        !   cur_field_name$    name of current field
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_intouch_definitions
+          for cur_field = 1 to nbr_fields
+            if  processing_complex_array then 
+              cur_level = def_level(cur_field)
+              process_complex_array
+            end if
+            cur_field_name$ = def_field_name$(cur_field)
+            message 'Defining field: ' + cur_field_name$ + field_suffix$
+            if  def_level(cur_field) = 1 or cur_field = 1 then start_new_record
+            if  def_level(cur_field) > last_level then start_group_item
+            if  def_level(cur_field) < last_level then 
+              end_group_level = def_level(cur_field)
+              end_group_item
+            end if
+            last_level = def_level(cur_field)
+            if  def_redef_index(cur_field) > 0 then &
+              def_first_position = def_field_start(def_redef_index(cur_field))
+            ! if redefined then get starting position of field being redefined
+            if  def_occurs(cur_field) > 0 &
+                and def_field_length(cur_field) = 0 then setup_complex_array
+            if  def_field_length(cur_field) = 0 then iterate for
+            cur_field_length = def_field_length(cur_field)
+            store_field_definition
+            if  processing_complex_array and cur_field = nbr_fields then
+              cur_level = array_level(array_depth) - 1 ! force level break
+              process_complex_array
+              if cur_field < nbr_fields then repeat for 
+            end if
+            ! need to handle array in progress when last field reached
+            ! force a level break and gosub process routine
+            ! process routine will reset cur_field if necessary
+            ! repeat for if I need to continue on 
+          next cur_field
+          end_group_level = 0
+          end_group_item
+        end routine
+
+
+
+31000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T A R T   N E W   R E C O R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   01 levels start a new record definition. so finish off the
+        !   record being processed and set up for a new record
+        !
+        ! Expected:
+        !   cur_field          index to current field
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   def_first_position first position of next field
+        !   last_level         last level processed
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine start_new_record
+          if cur_field > 1 then
+            end_group_level = def_level(cur_field)
+            end_group_item
+          end if
+          last_level = 1
+          def_first_position = 1
+        end routine
+
+
+
+32000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T A R T   G R O U P   I T E M
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   save some information about the first field of a group
+        !   
+        ! Expected:
+        !   def_first_position next starting position
+        !   def_level          array of levels
+        !   cur_field          current field
+        !   level_depth        number of groups nested so far
+        !
+        ! Locals:
+        !   z                  field number that started group (1 less than current)
+        !
+        ! Results:
+        !   group_field_start  starting position of the group
+        !   group_field        field number that started the group
+        !   group_level        holds level of starting field
+        !   level_depth        new number of groups nested
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine start_group_item
+          level_depth = level_depth + 1
+          if  level_depth > size(group_level) then
+            z = level_depth + 10
+            redim group_level(z)
+            redim group_field(z)
+            redim group_field_start(z)
+          end if
+          z = cur_field - 1 ! last field was the start of the group
+          group_level(level_depth) = def_level(z) 
+          group_field(level_depth) = z
+          group_field_start(level_depth) = def_first_position
+        end routine
+
+
+
+33000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! E N D   G R O U P   I T E M
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   current field level is less than the last level processed.
+        !   must be the end of a group. 
+        !   can be ending several groups so work my way backwards in the
+        !   array of nested groups.  Process each level until the level
+        !   for the group is less than the level of the current field to be
+        !   processed.  for each level:
+        !     calculate the size of the group
+        !     define a field for it
+        !   
+        ! Expected:
+        !   end_group_level    level triggering end of group
+        !   group_field_start  array of first positions for groups
+        !   group_field        array of field numbers (want field number of current group)
+        !   def_first_position first position of the next field
+        !   def_level          level for the current field
+        !   group_level        array of group levels
+        !   level_depth        number of groups nested
+        !
+        ! Locals:
+        !   cur_field_length   length of group field
+        !   cur_field_name$    change the name of the current field to the group field and back
+        !   def_first_position first position of current group
+        !   cur_field          field number of current group
+        !   def_first_position_save 
+        !                      save the first position of the next field
+        !   cur_field_save     save the field number of the next field
+        !   cur_group          current group (most deeply nested)
+        !
+        ! Results:
+        !   level_depth        reduced 1 for each group processed
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine end_group_item
+          if  level_depth = 0 then exit routine ! no group item started
+          for cur_group = level_depth to 1 step -1
+            if  group_level(cur_group) < end_group_level then exit for
+            cur_field_save = cur_field
+            def_first_position_save = def_first_position
+            cur_field = group_field(cur_group)
+            def_first_position = group_field_start(cur_group)
+            cur_field_length = def_first_position_save - def_first_position
+            cur_field_name$ = def_field_name$(cur_field)
+            store_field_definition
+            cur_field = cur_field_save
+            def_first_position = def_first_position_save
+            if  cur_field <= nbr_fields then &
+              cur_field_name$ = def_field_name$(cur_field)
+            level_depth = level_depth - 1
+          next cur_group
+        end routine
+
+
+
+34000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   C O M P L E X   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   save things I need to know about the start of an array
+        !   
+        ! Expected:
+        !   def_occurs         array of field occurs info
+        !   def_level          level of current field
+        !   array_depth        depth of nested arrays
+        !
+        ! Locals:
+        !   z                  if I have to expand arrays - new size
+        !
+        ! Results:
+        !   field_suffix$      suffix to append to field names to make them unique
+        !   processing_complex_array 
+        !                      flag indicating complex array processing started
+        !   array_occurs_processed 
+        !                      number of occurrance processed so far
+        !   array_occurs       number of time elements occur
+        !   array_level        field level loaded
+        !   array_depth        incremented by 1
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_complex_array
+          do
+            if  array_depth = 0 then 
+              setup_new_array
+              exit do
+            end if
+            if  array_field(array_depth) = cur_field then
+              array_occurs_processed(array_depth) = &
+                array_occurs_processed(array_depth) + 1
+              exit do
+            end if
+            setup_new_array
+          end do
+          field_suffix$ = ''
+          for z = 1 to array_depth
+            z1$ = str$(array_occurs_processed(z))
+            z2$ = str$(array_occurs(z))
+            field_suffix$ = field_suffix$ + array_suffix$(z) + &
+              lpad$(z1$, len(z2$), '0')
+          next z
+          processing_complex_array = true
+        end routine
+
+
+
+34100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   N E W   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   this is an array I haven't seen before
+        !
+        ! Expected:
+        !   def_occurs         array of field occurs info
+        !   def_level          level of current field
+        !   array_depth        depth of nested arrays
+        !
+        ! Locals:
+        !   z                  if I have to expand arrays - new size
+        !
+        ! Results:
+        !   array_field        starting field of the array
+        !   array_suffix$      suffix for field name associated with this array
+        !   processing_complex_array 
+        !                      flag indicating complex array processing started
+        !   array_occurs_processed 
+        !                      number of occurrance processed so far
+        !   array_occurs       number of time elements occur
+        !   array_level        field level loaded
+        !   array_depth        incremented by 1
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_new_array
+          array_depth = array_depth + 1
+          if  array_depth > size(array_level) then
+            z = array_depth + 5
+            redim array_level(z)
+            redim array_field(z)
+            redim array_occurs(z)
+            redim array_occurs_processed(z)
+            redim array_suffix$(z)
+          end if
+          array_level(array_depth) = def_level(cur_field)
+          array_field(array_depth) = cur_field
+          array_occurs(array_depth) = def_occurs(cur_field)
+          array_occurs_processed(array_depth) = 1
+          array_suffix$(array_depth) = '_' + chr$(64 + array_depth)
+        end routine
+
+
+
+35000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   C O M P L E X   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   I am processing a complex array.
+        !   check to see if this field's level is greater than the level of 
+        !   the array.  If it is then this field is part of the array. Just
+        !   exit.
+        !   If not then this field is past the end of the array.  
+        !   Check to see if all elements of the array have been processed. 
+        !   if all elements processed then subtract one from the array_depth.
+        !   if the array depth is now 0 then all nested arrays have been
+        !   processed.  in this case just turn off the processing complex
+        !   array flag and exit.
+        !   
+        !   If another array is in progress then just exit as the new
+        !   field is just the next field to process in the parent array.
+        !   
+        !   if not all elements of the current array have been processed 
+        !    then set field pointer to the first field of the array
+        !   
+        ! Expected:
+        !   array_suffix$      array of field suffixes
+        !   array_field        field field of the current array
+        !   array_occurs       time the current array needs to be processed
+        !   array_occurs_processed 
+        !                      times the current array has been processed
+        !   array_depth        index to the current array being processed
+        !   array_level        level of the current array being processed
+        !   cur_field          index to new fields arrays
+        !   cur_level          level of the new field
+        !
+        ! Locals:
+        !   end_group_level    level to end groups to
+        !
+        ! Results:
+        !   field_sufix$       new suffix or blank if not more arrays
+        !   cur_field          set to first field of the current array if necessary
+        !   processing_complex_array 
+        !                      flag turned off if last nested array completely processed
+        !   array_depth        array depth decremented if all occurrances processed
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_complex_array
+          if  cur_level > array_level(array_depth) then exit routine
+          do
+            if  array_occurs_processed(array_depth) = &
+                  array_occurs(array_depth) then
+              end_group_level = array_level(array_depth)
+              end_group_item
+              array_depth = array_depth - 1
+              if  array_depth = 0 then 
+                processing_complex_array = false
+              end if
+              exit do
+            end if
+            cur_field = array_field(array_depth) ! start back at first field
+          end do          
+          field_suffix$ = ''
+          for z = 1 to array_depth
+            z1$ = str$(array_occurs_processed(z))
+            z2$ = str$(array_occurs(z))
+            field_suffix$ = field_suffix$ + array_suffix$(z) + &
+              lpad$(z1$, len(z2$), '0')
+          next z
+        end routine
+
+
+
+40000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T O R E   F I E L D   D E F I N I T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   store the field definition into the definition file
+        !   
+        ! Expected:
+        !   cur_field_length   length of the current field
+        !   field_suffix$      suffix to field name (maybe)
+        !   cur_field_name$    name of the field to store
+        !   def* variables
+        !   
+        ! Locals:
+        !
+        ! Results:
+        !   def record is created
+        !   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine store_field_definition
+          check_name_length
+          add structure def
+            def(old_name) = '*'
+            def(name) = cur_field_name$ + field_suffix$
+            z$ = lcase$(change$(def(name), '_$%', ' '))
+            z1$ = ucase$(z$[1:1]) + mid$(z$, 2) ! uppercase 1st char only
+            def(desc)  = z1$
+            def(first) = def_first_position
+            def(len)   = cur_field_length
+            def(dtype)   = def_dtype$(cur_field)
+            def(num) = "N"
+            def(rj)  = "N"
+            def(zf) = "N"
+            def(uc) = "Y"
+            if  def_numeric(cur_field) then 
+              def(num) = 'Y'
+              def(rj) = 'Y'
+              def(zf) = 'Y'
+              def(uc) = "N"
+            end if            
+            def(scale) = def_scale(cur_field)
+            def(date) = "N"
+            def(df) = 'YMD'
+            def(cp) = "N"
+            def(eb) = "N"
+            def(ls) = "N"
+            def(rs) = "N"
+            def(zs) = "N"
+            def(dbfld) = ""
+            def(fulltime) = ""
+            def(read) = 'N'
+            def(write) = 'N'
+            def(prompt) = def(desc)
+            setup_report_heading
+            def(prmask)  = ""
+            def(scmask)  = ""
+            def(help)    = ""
+            nbr_occurs = def_occurs(cur_field)
+            if  def_field_length(cur_field) = 0 then nbr_occurs = 0
+            ! this must be a group field array.  It has been flattened so no occurs
+            def(occurrence) = nbr_occurs
+            def(validation) = ""
+          end add
+          if  nbr_occurs = 0 then nbr_occurs = 1
+          def_field_start(cur_field) = def_first_position
+          def_first_position = def_first_position + &
+            (cur_field_length * nbr_occurs)
+        end routine
+
+
+
+41000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   R E P O R T   H E A D I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   set up the heading from the field name
+        !   
+        ! Expected:
+        !   def(name)            field name
+        !   
+        ! Locals:
+        !
+        ! Results:
+        !   def(heading)         report heading
+        !   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_report_heading
+          z$ = lcase$(change$(def(name), '_', ' '))
+          z = elements(z$, ' ')
+          z1$ = ''
+          for z1 = 1 to z
+            z2$ = element$(z$, z1, ' ')
+            z1$ = z1$ + ucase$(z2$[1:1]) + mid$(z2$, 2) + ' '
+          next z1
+          def(heading) = trim$(z1$)
+        end routine
+
+
+
+42000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   N A M E   L E N G T H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   with the suffix added to array fields, the name could be too
+        !   long now.  if so, ask the user for a new field name. save
+        !   the new name so that as I process the fields, i won't ask
+        !   a second time
+        !   
+        ! Expected:
+        !   new_names$         list of new names for the known long ones
+        !   known_names$       list of already known long names
+        !   cur_field_name$    field name from cobol file
+        !
+        ! Locals:
+        !   z$                 field name + suffix
+        !   tmp_field_name$    another tmp field name
+        !   new_name$          tmp new field name
+        !   old_name$          temp field name
+        !
+        ! Results:
+        !   cur_field_name$    new field name if necessary
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_name_length
+          old_name$ = cur_field_name$
+          z0 = match(known_names$, cur_field_name$)
+          if z0 > 0 then
+            new_name$ = element$(new_names$, z0)
+            message old_name$ + ' --> ' + new_name$
+            cur_field_name$ = new_name$
+          end if
+          tmp_field_name$ = cur_field_name$
+          do 
+            z$ = tmp_field_name$ + field_suffix$
+            if  len(z$) <= 32 then exit do
+            message 'Field name: ' + z$ + ' is too long: ' + str$(len(z$))
+            line input 'New name', at 21, 1, length 32 - len(field_suffix$), &
+              default tmp_field_name$: tmp_field_name$
+            clear area 21, 1, 21, 80
+            if  _exit or _back then 
+              message error : "You must answer this question"
+              tmp_field_name$ = cur_field_name$
+              repeat do
+            end if
+            tmp_field_name$ = ucase$(tmp_field_name$)
+            validate_fieldname
+            if  _error then repeat do
+            if len(tmp_field_name$) + len(field_suffix$) > 32 then repeat do
+            known_names$ = known_names$ + cur_field_name$ + ','
+            new_names$   = new_names$   + tmp_field_name$ + ','
+          loop
+          cur_field_name$ = tmp_field_name$ 
+        end routine
+
+
+
+95000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   F I L E S P E C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   break out the pieces of the filename.
+        !   append the default extension if none was entered
+        !
+        ! Expected:
+        !   default_extension$ default extension
+        !   parse_filename$    file spec entered
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   extension$         extension entered or default
+        !   filename$          filename entered
+        !   directory$         directory entered
+        !   device$            device entered
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_filespec
+          device$ = ''
+          directory$ = ''
+          filename$ = ''
+          extension$ = ''
+          parse_filename$ = trim$(parse_filename$)
+          parse_logical
+          if  logical_found then exit routine
+          parse_device
+          parse_directory
+          parse_filename
+        end routine
+
+
+
+95100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   L O G I C A L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   check to see if the filespec is a logical 
+        !   a file spec ending in a ":" is assumed to be a logical
+        !
+        ! Expected:
+        !   parse_filename$    file spec passed in
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   filename$          logical if found
+        !   logical_found      flag indicating whether or not a logical was found
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_logical
+          logical_found = false
+          if  right$(parse_filename$, 1) <> ':' then exit routine
+          filename$ = parse_filename$
+          logical_found = true
+        end routine
+
+
+
+95300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   D E V I C E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   parse out the device if any
+        !
+        ! Expected:
+        !   parse_filename$    filename passed in
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   device$            device name if any
+        !   device_end         end of the device portion of file spec
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_device
+          device_start = 1
+          device_end = pos(parse_filename$, ':', device_start)
+          if  device_end <> 0 then &
+            device$ = parse_filename$[device_start:device_end]
+        end routine
+
+
+
+95400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   D I R E C T O R Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !   parse_filename$    filename passed in
+        !   device_end         end of device spec
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   directory$         directory spec if any
+        !   directory_start    start of possible directory spec
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_directory
+          directory_start = device_end + 1
+          directory_end = pos(parse_filename$, ']', directory_start)
+          if  directory_end > 0 then
+            directory$ = parse_filename$[directory_start:directory_end]
+          else
+            directory_end = directory_start - 1
+          end if
+        end routine
+
+
+
+95500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   F I L E N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   get the filename and the extension
+        !   
+        ! Expected:
+        !   default_extension$ default extension
+        !   parse_filename$    filename passed in
+        !   directory_end      end of the directory spec
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   filename$          filename
+        !   extension$         extension in filespec
+        !   filename_end       end of the filename
+        !   filename_start     start of the filename
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_filename
+          filename_start = directory_end + 1
+          filename_end = pos(parse_filename$, '.', filename_start)
+          if  filename_end = 0 then 
+            filename_end = len(parse_filename$) + 1
+            if  default_extension$ <> '' and &
+                parse_filename$[filename_start:filename_end-1] <> 'NONE' then
+              parse_filename$ = parse_filename$ + '.' + default_extension$
+              extension$ = default_extension$
+            end if
+          else
+            extension$ = mid$(parse_filename$, filename_end+1)
+          end if
+          filename$ = parse_filename$[filename_start:filename_end-1]
+        end routine
+
+
+
+99600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N P U T   R E S P O N S E   Y N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Ask a yes or no question.
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   reply$ = yes or no answer.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine input_response_yn
+          length = 4
+          validation$ = 'required;yes/no'
+          default$ = 'No'
+          input_response
+          reply$ = ucase$(reply$[1:1])
+        end routine
+
+
+
+99700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N P U T   R E S P O N S E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Ask the expected prompt.
+        !   Allows, through various flags (see do_ask_checks), you to
+        !   automatically check for stuff.  Because these flags are
+        !   automatically reset, you don't need to worry about them
+        !   unless you WANT it to check for something.
+        !   Routine is over 22 lines.
+        !
+        ! Expected:
+        !   help$              help topic
+        !   default$           default response
+        !   uc_response        upper case flag
+        !   length             max input length
+        !   prompt$            prompt text
+        !   validation$        validation rules
+        !   response_message$  message to display
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   finished_entry     flag signifying entry is finished
+        !   reply$  = user's reply
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine input_response
+          init_ask_vars
+          clear area 21, 1, 21, 80
+          do
+            if  ask_message$ <> '' then message ask_message$
+            line input  prompt ask_prompt$, default ask_default$, &
+                length ask_length, at 21, 1 : reply$
+            clear area 21, 1, 21, 80
+            if  _exit or _back  then exit do
+            if  _help  then
+              if  tmp_help_topic$ = '' then
+                message error : 'No help is available'
+              else
+                help_topic$ = tmp_help_topic$
+                gosub help
+              end if
+              repeat do
+            end if
+            if not valid(reply$, ask_validation$, true) then repeat do
+          end do
+          reply$ = trim$(reply$)
+          if  ask_uc_response then reply$ = ucase$(reply$)
+          if  _terminator = 'PF4' then finished_entry = true
+        end routine
+
+
+
+99750   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   A S K   V A R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   initialize the variables that ask uses.  Reset the variables
+        !   that the programmer passed so that they don't get used next time
+        !   
+        ! Expected:
+        !   response_message$  message to display
+        !   help$              help topic
+        !   default$           default response
+        !   uc_response        upper case flag
+        !   length             max input length
+        !   prompt$            prompt text
+        !   validation$        validation rules
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   finished_entry     flag signifying entry is finished
+        !   ask_message$       message to display
+        !   tmp_help_topic$    help topic
+        !   ask_default$       default response
+        !   ask_uc_response    upper case flag
+        !   ask_length         max input length
+        !   ask_prompt$        prompt text
+        !   ask_validation$    validations rules
+        !   reply$             user's response is blanked
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_ask_vars
+          reply$ = ""
+          ask_validation$ = validation$
+          validation$ = ''
+          ask_prompt$ = prompt$
+          if  pos(ask_prompt$, '?') = 0 then ask_prompt$ = ask_prompt$ + '? '
+          prompt$ = ''
+          ask_length = length
+          length = 0
+          ask_uc_response = uc_response
+          uc_response = false
+          ask_default$ = default$
+          default$ = ''
+          tmp_help_topic$ = help$
+          help$ = ''
+          ask_message$ = response_message$
+          response_message$ = ''
+          finished_entry = false
+        end routine
+
+
+
+99900   %include 'tti_run:help.inc'

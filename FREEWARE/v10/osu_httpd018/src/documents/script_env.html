@@ -1,0 +1,172 @@
+<HTML>
+<HEAD>
+<TITLE>Writing scripts</TITLE>
+</HEAD>
+<BODY>
+<H1>Writing scripts</H1>
+
+<H2>Introduction</H2>
+This document describes how to write basic scripts for the DECthreads HTTP
+server.  A script may be either a DCL command procedure or an executable
+image.  It must reside in a script directory defined in the server's
+<A HREF="configfile.html">configuration file</A> via an 'exec' rule or 'htbin' rule.
+The execution of your script is directly managed by the DECnet task
+object <A HREF="/www_root/000000/wwwexec.com">WWWEXEC.COM</A>, which locates
+your script and invokes/runs it with the follow command line:
+<PRE>
+   $ script-cmd method translated-path protocol-version
+</PRE>
+<P>
+Your script runs in 2 phases:
+<OL>
+<LI><em>Dialog phase</em>:
+In the dialog phase, your script queries the server for additional data not 
+included on the command line.  If all the necessary information has been
+provided on the command line (i.e. method, path), your script may go directly
+to the output phase.  For CGI (Common Gateway Interface) style scripts, the
+dialog phase is handled internally by the cgi_init() routine or 
+cgi_symbols.exe program.
+<P>
+<LI><em>Output phase</em>:
+In the output phase, your script generates the response to be sent to the 
+client.  Once a script enters the output phase, no other dialog commands
+can be sent.  The output phase has 3 different modes: text, raw, and CGI.
+The format of the output you need generate is different for each of the modes.
+</OL>
+<H2>Command line arguments (parameters)</H2>
+<DL>
+<DT>The following 3 items are passed to your script via the command line,
+i.e. as DCL parameter symbols (if script is a command procedure) or as 
+command line arguments:</DT><DD>
+<P><DL>
+<DT>argv[1]/P1</DT>
+<DD>
+This argument/parameter holds the method (e.g. GET) specified in the client's
+request.
+</DD><P>
+<DT>argv[2]/P2</DT>
+<DD>
+This argument/parameter holds the path portion (ident) of the URL that triggered
+the execution of the script, truncated to 255 characters.  Note that this
+argument is the <i>translated</i> path, i.e. the string that results after
+all the configuration file translations.  Note also that string includes the
+exec directory prefix and is not the same as the CGI PATH_TRANSLATED variable.
+</DD><P>
+<DT>argv[3]/P3</DT>
+<DD>
+This argument/parameter holds the HTTP protocol that the client is using, either
+"HTTP/1.0" or null.
+</DD>
+</DL></DD></DL>
+<H2>Network connection</H2>
+A script communicates with the server via a DECnet logical link which
+is open by DCL as logical name net_link.  You write commands and data
+to this link and read server responses to your commands on this link.  When your
+script is a program, the scriptlib and cgilib routines handle the reading
+and writing to the net_link connection.  Since this link is opened in 
+supervisor mode by WWWEXEC.COM, it remains open until your script returns 
+(i.e. it is a process permanent file).
+<H2>Dialog phase</H2>
+In dialog phase, your script writes commands over the net_link to the server and
+read the response sent by the server.  The particular commands are described
+in the <A HREF="serverscriptprotocol.html#commands">scriptserver 
+protocol documentation</A>.
+<H2>Output Modes</H2>
+<DL>
+<DT>Text mode (&lt;DNETTEXT&gt;)</DT>
+<DD>
+Text mode is used to send simple text data and messages (i.e. error messages)
+to the client.  In text mode, the first line of output is the HTTP status line
+followed by lines of text.  Do not include the protocol-version (HTTP/1.0)
+on the status line as it will be prepended by the server if needed.
+<P>
+In text mode, the server automatically appends a CR/LF record delimiter
+after each record sent over the network line.  This make text mode
+convenient for returning DCL command output (e.g. HELP) to the client.
+</DD><P>
+<DT>Raw mode (&lt;DNETRAW&gt;)</DT>
+<DD>
+Raw mode is used in situations where you want your script to have complete
+control over the HTTP response (status and headers) sent back to the client.
+<P>
+Note that unless you send a &lt;DNETRECMODE&gt; dialog command in the dialog phase, 
+your output must explicitly include the carriage control characters (CR/LF) for 
+delimiting lines.
+</DD><P>
+<DT>CGI mode (&lt;DNETCGI&gt;)</DT>
+<DD>
+</DD>
+In CGI mode the server interprets your output according to the
+CGI (Common Gateway Interface) <A HREF="http://hoohoo.ncsa.uiuc.edu/cgi/">
+specification</A>.  The first line of output is
+either a 'Content-type:' header line or 'location: ' header line followed
+by a blank line and the output data.  If a 'Content-type:' header is sent,
+you can include additional header lines to be returned to the client before
+the blank line (e.g. last-modified header).  If you include a 'Status:' header
+line, the header argument overrides the default HTTP status returned.
+<P>
+Note that unless you send a &lt;DNETRECMODE&gt; dialog command in the dialog phase, 
+your output must explicitly include the carriage control characters (CR/LF) for 
+delimiting lines.
+</DL>
+<H2>Example</H2>
+<PRE>
+$!
+$! Demonstrate use of scripts.  P1: Method,  P2: path, P3: protocol-version
+$!
+$ write net_link "<DNETARG2>"		! get search argument (part after ?)
+$ read/end=done net_link search_arg
+$ if search_arg .eqs. ""
+$ then
+$!    Request doesn't have a search argument, redirect to HTML document that
+$!    explains what you are supposed to do.
+$!
+$    crlf = f$fao("!/")
+$    write net_link "<DNETCGI>"
+$    write net_link "location: /www/vmshelp.html",crlf,crlf
+$    write net_link "</DNETCGI>"
+$    exit
+$ endif
+$!
+$! Decode encoded characters in search argument.
+$!
+$ search_arg = f$extract(1,255,search_arg)	! Trim "/"
+$ num = 0
+$ help_list = ""
+$ help_list_raw = ""
+$ next_keyword:
+$    keyword = f$element(num,"+",search_arg)
+$    if keyword .eqs. "+" then goto decode_escape
+$    help_list_raw = help_list_raw + keyword + " "
+$    num = num + 1
+$    goto next_keyword
+$ decode_escape:
+$    percent = f$locat("%",help_list_raw)
+$    help_list = help_list + f$extract(0,percent,help_list_raw)
+$    if percent .ge. f$length(help_list_raw) then goto do_help
+$    help_list[f$length(help_list)*8,8] = -
+		%x0'f$extract(percent+1,2,help_list_raw)'
+$    help_list_raw = f$extract(percent+3,f$length(help_list_raw),help_list_raw)
+$    goto decode_escape
+$!
+$! Generate output using text mode.
+$ do_help:
+$ write net_link "<DNETTEXT>"
+$ write net_link "200 Sending document"
+$ write sys$output "help_list = ", help_list
+$ define sys$Output net_link:
+$ type sys$input
+VMSHELP output:
+$ if help_list .eqs. "? " then help_list = ""
+$ helpcmd = "help" + " " + help_list
+$ helpcmd
+$ write net_link "</DNETTEXT>"
+$!
+$ done:
+$ exit
+
+</PRE>
+<HR>
+</BODY>
+<ADDRESS>David Jones, Ohio State University</ADDRESS>
+</HTML>

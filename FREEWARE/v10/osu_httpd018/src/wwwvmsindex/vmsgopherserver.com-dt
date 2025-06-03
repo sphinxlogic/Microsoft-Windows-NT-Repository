@@ -1,0 +1,110 @@
+$! 'f$verify(0)
+$!
+$!	VMSGopherServer.COM - for DTquery searches with DECthreads server
+$!	===================
+$!	19-AUG-1994	F.Macrides (macrides@sci.wfeb.edu)
+$!			Example htbin script interface to the
+$!			 VMSIndex search engine (DTquery.c) for
+$!			 use with the OSU DECthreads httpd.
+$!			Should be placed where your htbin
+$!			 scripts have been mapped.
+$!	16-OCT-1994	Added lots of symbol options (see below). - FM
+$!	31-DEC-1994	Enhanced for DECthreads server v1.7. - FM
+$!	17-JAN-1995	Minor mods of cover page. - FM
+$!
+$!	DTquery.c is my modification of Bruce Tanner's query.c (for the
+$!	VMS gopherd) and my WWWquery.c (for the CERN httpd) for accessing
+$!	foo.doc;*, foo.IDX;*, foo.SEL;* filesets.  The doc file(s) is(are)
+$!	indexed with BUILD_INDEX.EXE, yielding the IDX and SEL filesets.
+$!	This search engine was develeped by Bruce and colleagues associated
+$!	with the VMSGopher-L@trln.lib.unc.edu list for use with the
+$!	VMSGopherServer.  It is similar to WAIS, but uses native indexing
+$!	facilities of the VMS Record Management System (RMS).
+$!
+$!	Get the BUILD_INDEX sources and support files as a zip archive in:
+$!
+$!		gopher://sci.wfeb.edu/11[_FileServ._HTTPD]
+$!
+$!	Read its BUILD_INDEX.DOC for information about the indexer.  The
+$!	IDX and SEL files built by the indexer are the same whether they
+$!	are intended for use by the Gopher or HTTP Servers, or from the
+$!	DCL command line.
+$!
+$!	This example script is for use with the HTML version of the VMS
+$!	Gopher Server documentation (VMSGopherServer.doc), which is also
+$!	included in the zip archive.  It is invoked via the URL:
+$!
+$!		http://host[:port]/htbin/vmsgopherserver
+$!
+$!	If no query was included in the client's request, a "database cover
+$!	page" is returned.  Modify that section, below, to indicate yourself
+$!	and your host as the "database maintainer".  The cover page assumes
+$!	that the searchwords.html HELP file resides in the directory to 
+$!	which /www/* has been mapped.
+$!
+$!	Check the foreign command definition for DTquery, below, and point
+$!	the symbol 'database' to the IDX/SEL file pair (need not be in the
+$!	same directory as VMSGopherServer.doc, e.g., the document could be
+$!	in your Gopher_Root data tree).
+$!
+$!----------------------------------------------------------------------------
+$ DTquery := "$WWW_Root:[Bin]DTquery"
+$!-----------------------------------
+$ database = "WWW_Root:[Index]VMSGopherServer"
+$!--------------------------------------------
+$ say = "write net_link"
+$ say "<DNETARG2>"	! Get the query string, if present.
+$ read net_link query
+$!
+$ IF query .eqs. ""
+$ THEN
+$!
+$!  No query string.  Send the Cover Page.
+$!  ======================================
+$   say "<DNETID>"			! Construct the access symbol.
+$   read net_link id
+$   host = f$edit(f$element(1," ", id),"LOWERCASE")
+$   port = ":" + f$element(2," ",id)
+$   if port .eqs. ":80" .or. port .eqs. ": " then port = ""
+$   access = "http://" + host + port
+$   say "<DNETRECMODE>"			! Set IMPLIED CARRIAGE CONTROL.
+$   say "<DNETCGI>"			! Set CGI environment.
+$   crlf = f$fao("!/") 
+$   say "Content-Type: text/html", crlf	! Send the Header.
+$   say "<HTML>"			! Send the Cover Page.
+$   say "<HEAD>"
+$   say "<TITLE>Search the VMSGopherServer v1.2VMS-1 Documentation</TITLE>"
+$   say "<ISINDEX>"
+$   say "</HEAD>"
+$   say "<BODY>"
+$   say "<H1>VMSGopherServer</H1>"
+$!***** Change the next two lines, appropriately for your site. *****
+$   say "This database is maintained by macrides@sci.wfeb.edu"
+$   say "on host sci.wfeb.edu."
+$   say "<p>"
+$   say "The search matches your words against full document text."
+$   say "Access to this index is provided by the WWW to VMSIndex gateway."
+$   say "Please specify <A HREF=""''access'/www/searchwords.html"""
+$   say ">search words</A> to find documents."
+$   say "Click <A HREF=""''access'/htbin/vmsgopherserver?gopher"""
+$   say ">here</A> or use gopher as the search word to fetch"
+$   say "a menu for all 33 sections of this database."
+$   say "</BODY>"
+$   say "</HTML>"
+$   say "</DNETCGI>"			! Send CGI environment end tag.
+$ ELSE
+$!
+$!  Do Search or Send Document Section
+$!  ==================================
+$!  Hit list options:
+$!  =================
+$!  WWW_SHOW_FILETYPE = "YES"	! All text, so don't bother
+$!  WWW_MAXIMUM_HITS = 250	! Only 33 sections, so don't bother
+$   WWW_SHOW_SIZE = "YES"	! Bytes or KB
+$!  WWW_SHOW_DATE = "YES"	! DD-MMM-YY, not worthwhile for databases
+$!  WWW_SHOW_TIME = "YES"	! Replace -YY with HH:MM for current year
+$!  WWW_USE_MDATE = "YES"	! Use last modified date (default is creation)
+$!
+$   DTquery "''P1'" "''P2'" "''P3'" "''database'"
+$ ENDIF
+$exit

@@ -1,0 +1,58 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program: INT_DEMO_DB_SORTING
+        ! System : INTOUCH DEMONSTRATION SYSTEM
+        ! Author : Dan Esbensen
+        ! Date   :  05-MAR-1991
+        ! Purpose: Illustrate the SORT statement
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        clear area 5, 1, 21, 80
+        set scroll 10, 21
+        print at 7,20, underline: 'Search for RIGHTSLIST IDs'
+
+        open structure rights: name 'tti_run:rightslist'
+        do
+          message 'Use the "*" for wildcard names'
+          line input 'User name (identifier)', at 9, 1, length 32, &
+             default 'SYSTEM': uname$
+          clear area 10, 1, 21, 80
+          if  _exit  then  exit do
+          uname$ = ucase$(uname$)
+          wild = pos(uname$, '*')
+          if wild > 0 then
+            gosub do_partial_lookup
+          else
+         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+         ~~ set structure rights, field id: key uname$ ~~
+         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            if _extracted = 0 then repeat do
+            group$ = encode$(rights(group), 8)
+            member$= encode$(rights(member), 8)
+            if member$ = '177777' then member$ = '*'
+            print rights(id); tab(20);'[';group$;',';member$;']'
+          end if
+       loop
+       stop
+
+       routine do_partial_lookup
+         left_text$  = left$(uname$, wild-1)
+         right_text$ =  mid$(uname$, wild+1)
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      ~~ extract structure rights, field id : partial key left_text$ ~~
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+           group$ = encode$(rights(group), 8)
+           exclude len(group$) >= 6   ! skip resource names
+           include pos(rights(id), right_text$, wild) > 0
+           member$= encode$(rights(member), 8)
+           if member$ = '177777' then member$ = '*'
+           print rights(id); tab(20);'[';group$;',';member$;']'
+           ask window: row z
+           if  z >= 21  then
+             print at 22,30, bold: 'Press CTRL/Z to exit or';
+             delay
+             clear area 10, 1, 22, 80
+             print at 10,1:;
+             if  _exit  then exit extract
+           end if
+         end extract
+       end routine

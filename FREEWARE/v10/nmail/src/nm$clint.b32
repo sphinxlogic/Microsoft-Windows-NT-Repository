@@ -1,0 +1,768 @@
+%title 'CLI interface for utility functions'
+module nm$clint(
+    	       ident='11',
+    	       addressing_mode(external=general),
+	       main=nm$clint
+               ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1986, 1987, 1988, 1989, 1991, 1992, 1993, 1994
+! by Digital Equipment Corporation, Maynard, Mass.			 
+!
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	23-Sep-1986
+!
+! Revision history:
+!
+!   01	10-Aug-1987
+!	Add parsing for ANALYZE command
+!
+!   02	26-Aug-1987
+!	Add parsing for STOP command
+!
+!   03	1-Sep-1987
+!	Add parsing for RELEASE command
+! 
+!   04	18-Feb-1989
+!	Add /RETURN qualifier on CANCEL, and
+!	/STATUS=CANCELLED option to SHOW QUEUE
+!
+!   05	16-Dec-1991	Cathy Wright
+!	ALPHA porting modifications
+!
+!   06	7-May-1992	
+!	Merge VAX, ALPHA cases
+!
+!   07	7-Jul-1992
+!	Use ENABLE declaration for handlers; we don't
+!	need to declare 'em dynamically at all
+!
+!   08	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!
+!   09	15-Nov-1993
+!	Add /RETURN, /BEFORE, /SINCE options to ANALYZE QUEUE.  
+!
+!   10	18-Nov-1993
+!	Add cancellation reason to CANCEL and ANALYZE
+!
+!   11	13-Jan-1994
+!	Add /ENTRY support to SHOW command
+!
+!--
+
+
+!
+! Library calls
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! External references
+!
+external literal
+    cli$_facility;
+external routine
+    cli$present,	
+    cli$get_value;
+
+!
+! Internal references
+!
+forward routine 
+    nm$clishow,
+    nm$clicancel,
+    nm$clirelease,
+    nm$clistop,
+    nm$clistart,
+    nm$clianalyze,
+    nm$clisig,
+    nm$getstring,
+    nm$gettime,
+    nm$getnumeric,
+    nm$getmode;
+
+%sbttl 'Data and macro definitions'
+
+! 
+! Own data
+!
+own
+    flags     : block[%upval,byte] initial(0),
+    entry_num : initial(0),
+    mode      : initial(0),
+    user      : descrip initial($dynamic),
+    output    : descrip initial($dynamic),
+    reason    : descrip initial($dynamic),
+    before    : vector[2] initial(0),
+    since     : vector[2] initial(0);
+
+!
+! Macros
+!
+macro
+    signal_return(stat) =
+	begin
+	signal(stat %if %length gtr 1 %then ,%remaining %fi);
+	return (stat)
+	end
+    %;
+
+%sbttl 'nmail command line interpreter interface'
+routine nm$clint =
+
+!++
+! Functional description:
+!
+! This routine determines which verb has been issued and dispatches
+! to a routine which will handle parsing and execution of that verb.
+! Such a routine is necessary because we have one image which handles
+! several different verbs; the individual process routines remain
+! unaware of this.
+!
+! Don't forget that this image will be activated with elevated privilege.
+! If this is inappropriate for certain commands, then the privilege
+! should be turned off here.
+!
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! status.wlc.v = true if it worked
+!		 false if error
+!
+!--
+
+    begin
+
+    bind
+	dispatch = plit(
+			%ascid'show_queue',    nm$clishow,
+			%ascid'cancel_job',    nm$clicancel,
+			%ascid'release_job',   nm$clirelease,
+			%ascid'stop_queue',    nm$clistop,
+			%ascid'start_queue',   nm$clistart,
+			%ascid'analyze_queue', nm$clianalyze
+			) : vector;
+
+    enable nm$clisig;
+
+    !
+    ! Ensure parameters start off null
+    !
+    str$free1_dx(user);
+    str$free1_dx(output);
+    str$free1_dx(reason);
+    entry_num = mode = flags = 0;
+    before[0] = before[1] = 0;
+    since[0] = since[1] = 0;
+
+    !
+    ! Dispatch to function-specific parsing code
+    !
+    incr i from 0 to .dispatch[-1]-1 by 2 do
+	if cli$present(.dispatch[.i])
+    	then
+	    return (.dispatch[.i+1])() or sts$m_inhib_msg;
+
+    !
+    ! Fall out here if command not found in tables
+    !
+    signal_stop(nm$_clibug)
+
+    end;
+
+%sbttl 'show queue entries'
+routine nm$clishow =
+
+!++
+! Functional description:
+!
+! This routine handles the SHOW QUEUE command. It calls the 
+! CLI to get the command parsed and then dispatches appropriately.
+! Note that specification of the /ENTRY qualifier causes a single
+! job to be displayed rather than the whole queue.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! status.wlc.v = true if it worked
+!		 false if error
+!
+!--
+
+    begin
+
+    enable nm$clisig;
+
+    local
+	entryflg;
+
+    !
+    ! If /ENTRY=nnn specified, then we just want to display
+    ! a single queue entry.  Get the entry number.
+    !
+    entryflg = nm$getnumeric(%ascid'entry', entry_num);
+
+    !
+    ! Set mode depending on qualifiers. We rely on the CLI doing its
+    ! job and filtering out conflicting combinations, and so forth.
+    ! It the CLD isn't correct then we don't guarantee what we'll do.
+    !
+    mode = sho$k_mid;
+    if cli$present(%ascid'brief') then mode = sho$k_brief;
+    if cli$present(%ascid'full') then mode = sho$k_full;
+
+    !
+    ! Get output file parameter
+    !
+    nm$getstring(%ascid'output', output);
+    
+    !
+    ! See whether it's to be just one user or all
+    !
+    if cli$present(%ascid'all') then flags[sho$v_all] = true;
+    if nm$getstring(%ascid'user', user) then flags[sho$v_user] = true;
+    
+    ! 
+    ! If /ALL or /USER was specified, ensure caller has the rights
+    !
+    if .flags[sho$v_all] or .flags[sho$v_user]
+    then
+	if not nm$chkpriv($prvmsk(sysprv), $prvmsk(bypass))
+        then
+	    signal_return(nm$_nosysprv);
+
+    ! 
+    ! If /ENTRY 
+    !
+    ! Check whether we restrict address displays to particular
+    ! states                           
+    !
+    if cli$present(%ascid'st_sent')      then flags[sho$v_sent] = true;
+    if cli$present(%ascid'st_unsent')    then flags[sho$v_unse] = true;
+    if cli$present(%ascid'st_failed')    then flags[sho$v_fail] = true;
+    if cli$present(%ascid'st_expired')   then flags[sho$v_expi] = true;
+    if cli$present(%ascid'st_cancelled') then flags[sho$v_canc] = true;
+
+    !
+    ! Dispatch the call
+    !
+    if .entryflg 
+    then 
+	nm$show_job(.mode, .flags, user, output, .entry_num)
+    else
+        nm$show_queue(.mode, .flags, user, output)
+
+    end;
+
+%sbttl 'cancel'
+routine nm$clicancel =
+
+!++
+! Functional description:
+!       
+! This routine handles the CANCEL command. It calls the 
+! CLI to get the command parsed and then dispatches appropriately.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!
+! status.wlc.v = true if it worked
+!		 false if error
+!
+!--
+
+    begin
+
+    enable nm$clisig;
+
+    !
+    ! The CLI has done all the parsing work (we hope, or else we're in
+    ! serious schtuck).  Just get the entry number.
+    !
+    nm$getnumeric(%ascid'entry', entry_num);
+
+    !
+    ! Include /LOG and /RETURN qualifiers
+    !
+    if cli$present(%ascid'log')    then flags[can$v_log] = true;
+    if cli$present(%ascid'return') then flags[can$v_rts] = true;
+
+    !
+    ! Get user name qualifier, if present.  
+    ! 
+    if nm$getstring(%ascid'user', user) then flags[can$v_user] = true;
+
+    !
+    ! And get the cancellation reason, if specified
+    !
+    nm$getstring(%ascid'reason', reason);
+
+    !
+    ! Perform any needed privilege checks
+    !
+    if .flags[can$v_user]
+    then
+	if not nm$chkpriv($prvmsk(sysprv), $prvmsk(bypass))
+        then
+	    signal_return(nm$_nosysprv);
+
+    !
+    ! Go ahead and cancel the entry
+    !
+    nm$cancel_entry(.entry_num, .flags, user, reason)
+
+    end;
+
+%sbttl 'release'
+routine nm$clirelease =
+                                        
+!++
+! Functional description:
+!
+! This routine handles the RELEASE command. It calls the 
+! CLI to get the command parsed and then dispatches appropriately.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!
+! status.wlc.v = true if it worked
+!		 false if error
+!
+!--
+
+    begin
+
+    enable nm$clisig;
+
+    !
+    ! The CLI has done all the parsing work (we hope, or else we're in
+    ! serious schtuck).  Just get the entry number.
+    ! 
+    nm$getnumeric(%ascid'entry', entry_num);
+
+    !
+    ! Include /LOG qualifier
+    !
+    if cli$present(%ascid'log') then flags[rel$v_log] = true;
+
+    !
+    ! Get user name qualifier, if present.  
+    !
+    if nm$getstring(%ascid'user', user) then flags[rel$v_user] = true;
+
+    !
+    ! Perform any needed privilege checks
+    !
+    if .flags[rel$v_user]
+    then          
+	if not nm$chkpriv($prvmsk(sysprv), $prvmsk(bypass))
+	then
+	    signal_return(nm$_nosysprv);
+
+    !
+    ! Go ahead and release the entry
+    !
+    nm$release_entry(.entry_num, .flags, user)
+
+    end;
+
+%sbttl 'stop queue'
+routine nm$clistop =
+
+!++
+! Functional description:  
+!
+! This routine handles the STOP QUEUE command. It calls the 
+! CLI to get the command parsed and then dispatches appropriately.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!                                                            
+! status.wlc.v = true if it worked
+!		 false if error
+!
+!--
+
+    begin
+
+    enable nm$clisig;
+
+    !
+    ! Get /LOG, /OKNONE and /DELETE flags
+    !
+    if cli$present(%ascid'oknone') then flags[stp$v_okno] = true;
+    if cli$present(%ascid'log')    then flags[stp$v_log]  = true;
+    if cli$present(%ascid'delete') then flags[stp$v_del]  = true;
+
+    !
+    ! Ensure we have OPER privilege. The job controller enforces 
+    ! this anyway, but we prefer to check before we get half-way through.
+    !
+    if not nm$chkpriv($prvmsk(oper)) then signal_return(nm$_nooper);
+	
+    !
+    ! Go stop the queues
+    !
+    nm$stop_queues(.flags)
+
+    end;
+
+%sbttl 'start queue'
+routine nm$clistart =
+
+!++
+! Functional description:
+!
+! This routine handles the START QUEUE command. It calls the 
+! CLI to get the command parsed and then dispatches appropriately.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!
+! status.wlc.v = true if it worked
+!		 false if error
+!
+!--
+
+    begin
+
+    enable nm$clisig;
+
+    !
+    ! Get /LOG flag
+    !
+    if cli$present(%ascid'log') then flags[stp$v_log] = true;
+
+    !
+    ! Ensure we have OPER privilege. The job controller enforces 
+    ! this anyway, but we prefer to check before we get half-way through.
+    !
+    if not nm$chkpriv($prvmsk(oper)) then signal_return(nm$_nooper);
+	
+    !
+    ! Go start the queues
+    !
+    nm$start_queues(.flags)
+
+    end;
+
+%sbttl 'analyze queue'
+routine nm$clianalyze =
+
+!++
+! Functional description:
+!
+! This routine handles the ANALYZE command. It calls the 
+! CLI to get the command parsed and then dispatches appropriately.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!
+! status.wlc.v = true if it worked
+!		 false if error
+!
+!--
+
+    begin
+
+    enable nm$clisig;
+
+    !
+    ! Get the qualifiers from the CLI...
+    !
+    if cli$present(%ascid'repair')        then flags[anl$v_repair] = true;
+    if cli$present(%ascid'confirm')       then flags[anl$v_conf]   = true;
+    if cli$present(%ascid'hold')          then flags[anl$v_hold]   = true;
+    if cli$present(%ascid'return')        then flags[anl$v_rts]    = true;
+    if nm$gettime(%ascid'before', before) then flags[anl$v_before] = true;
+    if nm$gettime(%ascid'since', since)   then flags[anl$v_since]  = true;
+    nm$getstring(%ascid'reason', reason);
+
+    !
+    ! This command is highly privileged
+    !
+    if not nm$chkpriv($prvmsk(oper)) 
+    then 
+	signal_return(nm$_nooper);
+    if not nm$chkpriv($prvmsk(sysprv),$prvmsk(bypass))
+    then
+	signal_return(nm$_nosysprv);
+    if .flags[anl$v_repair]
+    then
+	if not nm$chkpriv($prvmsk(cmkrnl)) 
+	then 
+	    signal_return(nm$_nocmkrnl);
+
+    !
+    ! /CONFIRM can only be used interactively (but we only worry
+    ! about it if /REPAIR is also specified)
+    !
+    if .flags[anl$v_repair] and .flags[anl$v_conf]
+    then
+	if nm$getmode() neq jpi$k_interactive
+	then
+	    signal_return(nm$_mode);
+
+    !
+    ! Go do the work
+    !
+    nm$repair(.flags, before, since, reason)
+
+    end;
+
+%sbttl 'condition handler'
+routine nm$clisig (sig : ref block[,byte], mech : ref block[,byte]) =
+
+!++
+! Functional description:
+!       
+! Routine to catch CLI$_xxx signals and turn them into
+! return statuses, thus allowing us to continue even if
+! we have some sort of image/CLD mismatch.
+!
+! Formal parameters:
+!
+! sig.rl.r  = signal array
+! mech.rl.r = mechanism array
+!
+! Routine values:
+!
+! status.wlc.v = ss$_resignal
+!
+!--
+
+    begin
+
+    bind 
+	sig_name = sig[chf$l_sig_name] : block[,byte];
+
+    !
+    ! Only interfere with CLI signals
+    !
+    if .sig_name[sts$v_fac_no] eql cli$_facility 
+    then
+	begin
+	$setstatus(mech, .sig_name);
+	setunwind(mech[chf$is_mch_depth]);
+	end;
+
+    !
+    ! Always say resignal (ignored if unwinding)
+    !
+    ss$_resignal
+
+    end;
+
+%sbttl 'get string parameter'
+routine nm$getstring(param, str) =
+
+!++
+! Functional description:
+!
+! Gets a named DCL parameter, returning it as a string.
+! There is no default supplied - it is considered to 
+! be a CLD bug if the qualifier can be present with no
+! value.
+!
+! Formal parameters:
+!
+! param.rt.dx = name of parameter
+! str.wt.dx   = returned string
+!                                                     
+! Routine value:
+!
+! present.wl.v = true if parameter/qualifier present
+!		 false otherwise
+!
+!--
+
+    begin
+
+    local
+        status;
+
+    enable nm$clisig;
+
+    status = cli$present(.param);
+    if not .status then return false;
+             
+    status = cli$get_value(.param, .str);
+    if not .status then signal_stop(nm$_clibug);
+
+    true
+ 
+    end;
+
+%sbttl 'get date/time parameter'
+routine nm$gettime(param, tim : ref vector) =
+
+!++
+! Functional description:
+!
+! Gets a named DCL parameter, returning it as a 
+! quadword absolute date-time value.   Note that
+! DCL handles the details of combination times and
+! symbolic times ("TOMORROW", etc).
+!
+! In the case where the qualifier is present but the
+! value is not, the default of (effectively) "TODAY"
+! is supplied.   Whether or not it's actually possible 
+! to omit the value is controlled by the CLD file.
+!
+! Formal parameters:
+!
+! param.rt.dx = name of parameter
+! tim.wq.r    = returned date-time
+!                                                     
+! Routine value:
+!
+! present.wl.v = true if parameter/qualifier present
+!		 false otherwise
+!
+!--
+
+    begin
+
+    local
+        status,
+	temp : descrip initial($dynamic);
+
+    enable nm$clisig;
+
+    status = cli$present(.param);
+    if not .status then return false;
+
+    status = cli$get_value(.param, temp);
+    if not .status then str$copy_dx(temp, %ascid'-- 00:00:00.00');
+
+    status = $bintim(timbuf=temp, timadr=.tim);
+    str$free1_dx(temp);
+    if not .status then signal_stop(nm$_clibug);
+    if .tim[1] lss 0 then signal_stop(nm$_clibug);
+
+    true
+ 
+    end;
+
+%sbttl 'get numeric parameter'
+routine nm$getnumeric(param, num) =
+
+!++
+! Functional description:
+!
+! Gets a named DCL parameter and translates it from
+! a decimal string to binary
+!
+! In the case where the qualifier is present but the
+! value is not, the default of zero is supplied.   
+! Whether or not it's actually possible to omit the 
+! value is controlled by the CLD file.
+!
+! Formal parameters:
+!
+! param.rt.dx = name of parameter
+! num.wl.v    = converted numeric value
+!
+! Routine value:
+!
+! present.wl.v = true if parameter/qualifier present
+!		 false otherwise
+!
+!--
+
+    begin
+
+    local
+	status,
+	temp : descrip initial($dynamic);
+
+    enable nm$clisig;
+
+    status = cli$present(.param);
+    if not .status then return false;
+
+    status = cli$get_value(.param, temp);
+    if not .status then str$copy_dx(temp, %ascid'0');
+
+    status = lib$cvt_dtb(.temp[dsc$w_length], .temp[dsc$a_pointer], .num);
+    str$free1_dx(temp);
+    if not .status then signal_stop(nm$_clibug);
+        
+    true
+
+    end;
+
+%sbttl 'get process mode'
+routine nm$getmode =
+
+!++
+! Functional description:
+!
+! Returns the current process mode (interactive, batch, etc)
+!
+! Formal parameters:
+!
+! None
+!
+! Routine value:
+!
+! mode.wl.v = process mode, JPI$K_xxxx value
+!
+!--
+
+    begin
+
+    local
+	mode  : alias,
+	items : $itemlist(jpi$_mode, %upval, mode, 0),
+	status;
+
+    status = $getjpiw(itmlst=items);
+    if not .status then mode = jpi$k_other;
+
+    .mode
+
+    end;
+        
+end
+eludom

@@ -1,0 +1,2651 @@
+;
+; This software is COPYRIGHT © 1989-1994, Stephane Germain. ALL RIGHTS RESERVED.
+; Permission is granted for not-for-profit redistribution, provided all source
+; and object code remain unchanged from the original distribution, and that all
+; copyright notices remain intact.
+;
+; This software is provided "AS IS". The author makes no representations or
+; warranties with respect to the software and specifically disclaim any implied
+; warranties of merchantability or fitness for any particular purpose.
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; This is SYS_PROBE:DMS.MAR
+; Creator S.Germain p.eng
+; Using   VAX/VMS 5.1/5.2/5.4/5.5
+; History V1.0      Nov 89 : display-only functionality, no 802.3, no stats
+;         V2.0      Apr 91 : full-function (display, statistics)
+;         V2.1      Feb 94 : default statistics file now .PRB_STATS
+;                            frame size adjustments (minimum) to be performed
+;	  V2.1B	    Nov 94 : symbolic address representation (static table)
+;	  V2.2      Dec 94 : updated protocol filtering (now 15 ids + unmatched)
+;                            revamped display layout & subprocessing
+;			     (removed ots$ calls -- built special routine)
+;                            revamped statistics layout
+;
+;; CONCEPT ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;  This image is run as a subprocess spawned from PROBE when either "DISPLAY"
+;  or "STATISTICS" are specified (or implied) at activation in recording mode.
+;  The module input is through the "control" and "buffer" global sections set-up
+;  by PROBE. Output occurs to the screen either during a display pass and/or to
+;  a file at cycle end or at image termination.
+;  Some synchronization with PROBE is performed using event flags.
+;  DMS wakes up at regular interval, flushes ethernet item queues filled by ACQ,
+;  computes continuous statistics and outputs master data to a VT100 (DEC_CRT
+;  with Advanced_video) or compatible type device.
+;  Taken in its entirety, DMS is called the data manager. Its functions are
+;  called "display manager" and "statistician".
+;
+;; NOTES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;  1. Messages are contained in PROBE.MSG and mostly of informational nature.
+;  Initialisation and runtime errors are signaled back to PROBE which normally
+;  handles error recovery or initiate abort procedures.
+;  Assembling and linking is done as follows:
+;
+;     $ MACRO/NODEBUG DMS
+;     $ MESSAGE/OBJECT=MSG PROBE
+;     $ LINK/NODEBUG/NOTRACEBACK DMS,MSG
+;
+;  2. For maximum throughput of the real-time display function, this program
+;  is coded using VT(100+) terminal escape sequences and special characters.
+;  It is therefore unsupported on other (unless upward compatible) terminals.
+;
+;; CONSTANTS ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.TITLE	DMS	DISPLAY MANAGER & STATISTICIAN
+	.IDENT	/2.2/
+;
+	.LIBRARY "SYS$LIBRARY:LIB.MLB"	; alternate system macro library
+	.LIBRARY "SYS_PROBE:PROBELIB"	; application macro library
+	$IODEF				; 
+	$PSLDEF				; 
+	$SECDEF				; 
+	$TTDEF				; 
+	$TT2DEF				; 
+	V22$GBLDEF			; global constants definitions
+	V22$CTLDEF			; control section definitions
+	V22$BUFDEF			; buffer entry & section definitions
+;
+	.PSECT	FIXDATA,NOEXE,NOWRT,NOSHR,LONG
+;
+K_MINBASE	= 12			; number of lines in basic display
+K_MINDYN	= 3			; minimum allowed dynamic/bar lines
+K_MAXDYN	= 80			; maximum allowed dynamic/bar lines
+K_DYN_BYTES	= 100			; worst case dynamic(src/dst) line bytes
+K_UPD_BYTES	= 240			; worst case (~225) basic update bytes
+K_INI_BYTES	= 910			; worst case (~895) basic set-up bytes
+K_WDW_BYTES	= 14			; length of S_DYNAMIC below
+;
+; From the previous limits, the following parameters can be deduced
+;
+K_MINLINES	= K_MINBASE+K_MINDYN		   ; lines  >= 15 required
+K_MAXLINES	= K_MINBASE+K_MAXDYN		   ; lines  >  92 not used
+K_MINBUF	= K_WDW_BYTES*K_MINDYN+K_INI_BYTES ; buffer >~ 950 required
+;
+; Static screen segments
+;
+K_LF		= 10			; ASCII line feed character value
+K_CR		= 13			; ASCII carriage return character value
+K_ESC		= 27			; ASCII escape character value
+;
+D_GENERIC:	.ASCID	*!12<!AD!> !5UL !3UL/!3<!UL!>*
+D_GLOBAL:	.ASCID	*!5UL !3UL/!3<!UL!>*
+;
+S_SCALE0:	.ASCIC	*0    5    10   15   20   25   30   35   40   45   50+*
+S_SCALE1:	.ASCIC	*0    10   20   30   40   50   60   70   80   90   100*
+S_SCALE2:	.ASCIC	*0        0.01      0.1        1         10        100*
+S_INIT:		.ASCIC	<K_ESC>+[H+<K_ESC>+[0m+<K_ESC>+[?5l+ -
+			<K_ESC>+[2J+<K_ESC>+[4l+<K_ESC>+[?7l+ -
+			+PROBE 2.2+ -
+			<K_ESC>+[2;15HRATE  %LOAD+ -
+			<K_ESC>+[3;16Hfps cur/ave +
+S_TOP:		.ASCIC	<K_CR><K_LF>+Segment+<K_ESC>+[12C<Sm=  > +
+S_UPPER:	.ASCIC	<K_ESC>+(0+ -
+			+tqqqqvqqqqvqqqqvqqqqvqqqqvqqqqvqqqqvqqqqvqqqqvqqqqu+ -
+			<K_ESC>+(B+ -
+			<K_CR><K_LF>+(( Local ))+ -
+			<K_ESC>+[16C+<K_ESC>+(0x+<K_ESC>+(B+
+S_SOURCE:	.ASCIC	<K_CR><K_LF>+Source+<K_ESC>+[21C+
+S_TARGET:	.ASCIC	<K_CR><K_LF>+Destination+<K_ESC>+[16C+
+S_NOMARK:	.ASCIC	<K_ESC>+(0x+<K_ESC>+(B+
+S_MARK1:	.ASCIC	<K_ESC>+(0t+
+S_MARK2:	.ASCIC	<K_ESC>+[1m`+<K_ESC>+[0m+<K_ESC>+(B+
+S_DYNAMIC:	.ASCIC	<K_CR><K_LF><K_ESC>+[27C+<K_ESC>+(0x+<K_ESC>+(B+
+S_BOTTOM:	.ASCIC	<K_CR><K_LF><K_ESC>+[19C<I=0.5> +
+S_LOWER:	.ASCIC	<K_ESC>+(0+ -
+			+tqqqqwqqqqwqqqqwqqqqwqqqqwqqqqwqqqqwqqqqwqqqqwqqqqu+ -
+			<K_ESC>+(B+ -
+			<K_CR><K_LF>+NODES....... SIZE.....byte +
+S_PARAMS:	.ASCIC	<K_CR><K_LF><K_ESC>+[13CMaximum=+ -
+			<K_ESC>+[6CFrames=+ -
+			<K_ESC>+[19CFilters= 0+ -
+			<K_CR><K_LF>+CD=    /1000 Average=+ -
+			<K_ESC>+[6CReject=+ -
+			<K_ESC>+[19CProtocols +
+S_LOWEST:	.ASCIC	<K_CR><K_LF><K_ESC>+[13CMinimum=+ -
+			<K_ESC>+[6C+
+S_FILL:		.ASCIC	<K_CR><K_ESC>+[3A+
+S_NODE:		.ASCIC	<K_ESC>+[1;28H+
+S_ADAPTER:	.ASCIC	*::*
+S_SEPARATOR:	.ASCIC	* + *
+;
+S_START:	.ASCIC	<K_ESC>+[2C+<K_ESC>+(0+<K_ESC>+[1m+	; fill reverse
+S_MIDDLE:	.ASCIC	<K_ESC>+[0m+				; fill normal
+S_END:		.ASCIC	<K_ESC>+(B+<K_ESC>+[0K+<K_CR><K_LF>	; nofill & clear
+S_CLEAR:	.ASCIC	<K_ESC>+[0K+<K_ESC>+[27C+ -
+			<K_ESC>+(0x+<K_ESC>+(B+<K_CR><K_LF>
+;
+S_PLACE:	.ASCIC	<K_ESC>+[5;14H+		; refresh absolute start
+S_FIELD1:	.ASCIC	<K_CR><K_LF>		; stats line 1 offset A: node(s)
+S_FIELD2:	.ASCIC	<K_ESC>+[10C+		; stats line 1 offset B: max
+S_FIELD3:	.ASCIC	<K_ESC>+[9C+		; stats line 1 offset C: frame
+S_FIELD4:	.ASCIC	<K_ESC>+[11C+		; stats line 1 offset D: filter
+S_FIELD5:	.ASCIC	<K_CR><K_LF><K_ESC>+[4C+; stats line 2 offset A: cd
+S_FIELD6:	.ASCIC	<K_ESC>+[15C+		; stats line 2 offset B: ave
+S_FIELD7:	.ASCIC	<K_ESC>+[9C+		; stats line 2 offset C: reject
+S_FIELD8:	.ASCIC	<K_CR><K_LF>		; stats line 3 offset A: clock
+S_FIELD9:	.ASCIC	<K_ESC>+[10C+		; stats line 3 offset B: min
+;
+S_STATE1:	.ASCIC	<K_ESC>+[2;1H+<K_ESC>+[5m+ -
+			+STANDING BY+ -
+			<K_ESC>+[0m+
+S_STATE2:	.ASCIC	<K_ESC>+[2;1H+<K_ESC>+[1m+ -
+			+MONITORING + -
+			<K_ESC>+[0m+<K_CR>
+S_STATE3:	.ASCIC	<K_ESC>+[2;1H+<K_ESC>+[1m+ -
+			+RECORDING  + -
+			<K_ESC>+[0m+<K_CR>
+S_STATE4:	.ASCIC	<K_ESC>+[2;1H+<K_ESC>+[5m+ -
+			+STOPPING   + -
+			<K_ESC>+[0m+
+;
+; Standard input/output logical devices ; named values
+;
+D_OUTPUT:	.ASCID	/SYS$OUTPUT/	; default output device logical name
+D_SCRNAME:	.ASCID	/DMS_SCR/	; screen global section name
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	ARRAYS,NOEXE,WRT,NOSHR,LONG
+;
+AL_NODEDIR:	.BLKL	GK_NODES	; pointer map to each node entries
+AL_PTCLDIR:	.BLKL	GK_PTCLS+1	; pointer map to each protocol entries
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	FILEDATA,NOEXE,WRT,NOSHR,LONG
+;
+T_FILE:		$FAB	DNM=<.PRB_STATS>,- ; default file type
+			FAC=<PUT>,-	; output only
+			FOP=<MXV,SQO>,-	; maximize version number, sequential
+			ORG=<SEQ>,-	; sequential organisation
+			RAT=<CR>,-	; carriage return record attribute
+			SHR=<GET,PUT>	; fully shared file access
+T_REC:		$RAB	FAB=T_FILE	; pointer to output file access block
+;
+D_VERSION:	.ASCID	\2.2\		; see also S_INIT for display revision
+S_STS_CAT:	.ASCIC	\Category\	; global header string
+S_STS_PRO:	.ASCIC	\Protocols    #\; protocol header string
+S_STS_G1:	.ASCIC	\Ethernet:\	; global ethernet counter marker
+S_STS_G2:	.ASCIC	\IEEE 802.3:\	; global IEEE counter marker
+S_STS_G3:	.ASCIC	\Total:\	; global total counter marker
+S_STS_S:	.ASCIC	\S:\		; source marker in node statisitics
+S_STS_D:	.ASCIC	\D:\		; destination marker in node statistics
+S_STS_Z:	.ASCIC	\-:\		; disabled marker in node statistics
+S_STS_P:	.ASCIC	\123456789ABCDEF\ ; node protocol hits string
+S_STS_NOP:	.ASCIC	\_______________\ ; node protocol no hits string
+S_STS_A:	.ASCIC	\Ave\		; average load in node legend
+S_STS_M:	.ASCIC	\Max\		; peak (max) load in node legend
+S_802HIT:	.ASCIC	\IEEE\		; node statistics IEEE hit string
+S_802NOHIT:	.ASCIC	\____\		; node statistics IEEE no hit string
+;
+D_STS01:	.ASCID	\!80*-\						; 0
+D_STS02:	.ASCID	\PROBE !AS STATISTICS!_Elapsed time: !13%T\	; 2
+D_STS04:	.ASCID	\Segment!25* Node::Device!10* Rate(hz) \ -	; 0
+			\ Load(%)  CD(/kf)\
+D_STS_SEG0:	.ASCID	\(local)!#* !AD::!AD!#* Max:!10UL!9UL!9UL\	; 9
+D_STS_SEG1:	.ASCID	\!48* Min:!10UL!9UL!9UL\			; 3
+D_STS_SIZ0:	.ASCID	\!64* ------Size------\				; 0
+D_STS_SIZ1:	.ASCID	\!28* -!3AC--!3AC-!26* ------Size------\	; 2
+D_STS_HDR0:	.ASCID	\!14<!AC!>!6* Frames  Multicasts!19* Bytes \ -	; 1
+			\  Ave   Min   Max\
+D_STS_HDR1:	.ASCID	\Nodes!15* <Hits>  Rate %Load!6* Frames\ -	; 0
+			\!7* Bytes   Ave   Min   Max\
+D_STS_GBL0:	.ASCID	\!14<!AC!>  !10UL  !10UL!14* !10UL\ -		; 7
+			\  !4UL  !4UL  !4UL\
+D_STS_GBL1:	.ASCID	\Filtered:!7* !10UL  !10UL!14* !10UL\		; 3
+D_STS_GBL2:	.ASCID	\Dropped:!8* !10UL\				; 1
+D_STS_PX:	.ASCID	\!12<!AD!> !1XL  !10UL  !10UL!14* !10UL\ -	; 9
+			\  !4UL  !4UL  !4UL\
+D_STS_N0:	.ASCID	\!12<!AD!>\					; 2
+D_STS_NX:	.ASCID	\!2AC  <!15AC|!4AC>  !5UL  !3UL  !10UL  !10UL\-	; 10
+			\  !4UL  !4UL  !4UL\
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	WORKDATA,NOEXE,WRT,NOSHR,QUAD
+;
+AL_CTL:		.LONG	0		; control section start address
+		.LONG	0		; control section end address
+AL_BUF:		.LONG	0		; buffer section start address
+		.LONG	0		; buffer section end address
+AL_SCR:		.LONG	0		; screen section start address
+		.LONG	0		; screen section end address
+AL_CODE:	.ADDRESS DMS		; program low address
+		.ADDRESS BYE		; program high address
+AL_EXIT:	.LONG	0		; (VMS reserved usage) forward link
+		.ADDRESS SHUTDOWN	; exit handler address
+		.LONG	1		; number of arguments
+		.ADDRESS L_VMSSTATUS	; argument # 1 (VMS filled status)
+Q_CRTIOSB:	.QUAD	0		; screen output I/O status block
+Q_WORKTIME:	.QUAD	0		; binary time work storage (stats)
+Q_DELTATIME:	.QUAD	0		; relative binary time storage (cycle)
+F_MINLAPSE:	.FLOAT	0.5		; minimum interval time (scalable)
+F_LAPSE:	.FLOAT	0.0		; computed interval time (now-last)
+F_CURRENT:	.FLOAT	0.0		; last queue item reference time
+F_PREVIOUS:	.FLOAT	0.0		; previous pass last reference time
+L_REMCNT:	.LONG	0		; removal retry count (descending)
+L_INSCNT:	.LONG	0		; insertion retry count (descending)
+L_INTFCNT:	.LONG	0		; interval frame count
+L_INTBCNT:	.LONG	0		; interval byte count
+L_VMSSTATUS:	.LONG	0		; image exit status
+W_REPCYCLE:	.WORD	0		; number of cycles reported (statistics)
+W_FAO:		.WORD	0		; returned FAO string length
+W_SRCWDW:	.WORD	0		; source window line count
+W_DSTWDW:	.WORD	0		;*DSD* destination window line count
+W_SRC_HEAD:	.WORD	0		; source sorted list head (index)
+W_DST_HEAD:	.WORD	0		;*DSD* target sorted list head (index)
+L_NULL:		.LONG	0		; bit bucket
+;
+crtfunc	=	<IO$_WRITEVBLK!IO$M_NOFORMAT>
+;
+AL_CRT:		$QIO	-		; async screen output/refresh arguments
+		func=  CRTFUNC,-	; >uninterpreted control write
+		iosb=  Q_CRTIOSB,-	; >status block address
+		chan=  0,-		; >program filled :output channel
+		p1=    0,-		; >program filled :output buffer address
+		p2=    0		; >program filled :output buffer size
+AL_TIM:		$SETIMR	-		; refresh timer arguments
+		efn=   GV_DMSREFRESH,-	; >refresh cycle timer flag
+		daytim=Q_DELTATIME	; >interval binary time address
+AL_STS_FAO:	$FAOL	-		; status line format arguments
+		ctrstr=0,-		; >program filled :directive
+		outlen=D_WORK,-		; >returned string size
+		outbuf=D_WORK,-		; >returned string descriptor
+		prmlst=0		; >program filled :heap address
+AL_FAO_GLOBAL:	$FAO	-		; global line format arguments
+		ctrstr=D_GLOBAL,-	; >directive descriptor address
+		outlen=W_FAO,-		; >returned string length address
+		outbuf=D_WORK,-		; >returned string address
+		p1=    0,-		; >program filled :frame rate
+		p2=    0,-		; >program filled :relative load
+		p3=    0		; >program filled :mean | peak 
+AL_FAO_GENERIC:	$FAO	-		; histogram format arguments
+		ctrstr=D_GENERIC,-	; >directive descriptor address
+		outlen=W_FAO,-		; >returned string length address
+		outbuf=D_WORK,-		; >returned string address
+		p1=    0,-		; >program filled :node str size
+		p2=    0,-		; >program filled :node str addr
+		p3=    0,-		; >program filled :frame rate
+		p4=    0,-		; >program filled :relative load
+		p5=    0		; >program filled :mean | peak
+;
+S_TEXT:		.BLKB	GK_VALSIZE_MAX	; message string storage
+S_WORK:		.BLKB	GK_VALSIZE_MAX	; working storage (record-oriented)
+D_TEXT:		.LONG	GK_VALSIZE_MAX	; message string descriptor (size)
+		.ADDRESS S_TEXT		; message string address
+D_WORK:		.LONG	GK_VALSIZE_MAX	; working storage descriptor (size)
+		.ADDRESS S_WORK		; working storage address
+;
+		.ALIGN	LONG
+S_FLTSTATE:	.ASCII	\123456789ABCDEF\   ; defined protocol filter state mask
+;
+		.ALIGN	QUAD			;+V2.1B
+D_ADDR_NAME:	.LONG	12			; descriptor for name format
+		.ADDRESS 99			; (program filled - Xcare tag)
+D_ADDR_DN4:	.ASCID	\DEC(!UB.!UW)\		; AA-00-04-00-XX-XX (DECnet IV)
+AB_MFGCODE:	.ASCII	\08002BDEC:\		; static producer code array
+		.ASCII	\080020SUN:\		; (could be loaded thru .TBL
+		.ASCII	\080009HP: \		;  in future version)
+		.ASCII	\08005AIBM:\
+		.ASCII	\080069SGI:\
+		.ASCII	\0000A7NCD:\
+		.LONG	0			; end-of-list -V2.1B
+;
+;; MAIN PROGRAM ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	CODE,EXE,NOWRT,NOSHR
+;
+	.ENTRY	DMS,^M<>		; entry point, no registers saved
+					; integer overflow trap is disabled
+;
+; Associate with common event cluster - communication with PROBE parent
+;
+	$ascefc_s -			; associate common event flag cluster
+		efn= #GK_BASE,-		; >temporary event flag cluster id
+		name=GS_CEFNAME,-	; >event flag cluster name
+		prot=#1			; >access granted to creator UIC only
+	blbc	R0,NOWAY		; validate success
+	$setef_s -			; notify parent process of progress
+		efn=#GV_DMSCONTACT	; >contact established flag
+	blbs	R0,DO_MAP		; upon incorrect status
+NOWAY:	ret				; drop out... parent will time out
+DO_MAP:
+;
+; Map CONTROL and BUFFER global sections - data was locked down by parent
+; (Pages are writable, first fit into virtual space)
+; Lock down code & define master reference pointers to sections
+;
+gsmask	=	<SEC$M_EXPREG!SEC$M_WRT>
+;
+	$mgblsc_s -			; map the existing group global section
+		inadr= AL_CTL,-		; >proposed virtual address array (P0)
+		retadr=AL_CTL,-		; >actual virtual address array
+		gsdnam=GS_CTL_NAME,-	; >global section name
+		ident= GQ_CTL_IDENT,-	; >version identification
+		acmode=#PSL$C_USER,-	; >user access mode (3)
+		flags= #GSMASK		; >attribute mask
+	blbc	R0,NOMAP		; validate success
+	$mgblsc_s -			; map the existing group global section
+		inadr= AL_BUF,-		; >proposed virtual address array (P0)
+		retadr=AL_BUF,-		; >actual virtual address array
+		gsdnam=GS_BUF_NAME,-	; >global section name
+		ident= GQ_BUF_IDENT,-	; >version identification
+		acmode=#PSL$C_USER,-	; >user access mode (3)
+		flags= #GSMASK		; >attribute mask
+	blbs	R0,MAPPED		; validate success
+NOMAP:	$setef_s -			; notify parent process of problem
+		efn=#GV_DMSFINISH	; >failure flag
+	ret				; quit
+MAPPED:	$lckpag_s -			; code lockdown
+		inadr= AL_CODE,-	; >code boundary array
+		acmode=#PSL$C_USER	; >user access mode (3)
+;	signal	abnormal status
+	movl	AL_CTL,R11		; load control section starting address
+	movl	AL_BUF,R10		; load buffer section starting address
+;
+; Initialize direct address entry arrays (for run-time performance)
+;
+	movab	GAE_N_SLOT(R11),R2	; base node slot address
+	moval	AL_NODEDIR,R1		; base pointer array address
+	movl	#GK_NODES,R0		; number of entries (maximum allocated)
+INDIR:	movl	R2,(R1)+		; slot address to pointer array
+	addl2	#GNNTRY_SIZE,R2		; compute next slot address
+	sobgtr	R0,INDIR		; continue until array is filled [0..x]
+	movab	GAE_P_SLOT(R11),R2	; base protocol slot address
+	moval	AL_PTCLDIR,R1		; base pointer array address
+	movl	#<GK_PTCLS+1>,R0	; number of entries (maximum allocated)
+IPDIR:	movl	R2,(R1)+		; slot address to pointer array
+	addl2	#GPNTRY_SIZE,R2		; compute next slot address
+	sobgtr	R0,IPDIR		; continue until array is filled [0..x]
+;
+; Display manager & statistician select logic & validation
+;
+	bitl	#M_STATISTICS,GL_CSR(R11);if statistics is selected
+	beql	STEP1			; then
+;
+	jsb	STATS_ON		;  prepare statistics
+;
+STEP1:	bitl	#M_DISPLAY,GL_CSR(R11)	; if display is selected
+	beql	STEP2			; then
+;
+	jsb	DISPLAY_ON		;  prepare display
+;
+STEP2:	bitl	#<M_STATISTICS! -	; if either statistics
+		M_DISPLAY>,GL_CSR(R11)	; ...or display still active
+	beql	NOTIN			; then
+	bitl	#M_DISPLAY,GL_CSR(R11)	;  if display is off
+	bneq	PURSUE			;  then
+	moval	PRB_DMSPART, -		;   identify that statistics is good
+		GL_DMS_EXT(R11)		;   (extended area used only when fault)
+	movf	#1.0,F_MINLAPSE		;   override interval (every second)
+	brb	PURSUE			; else
+NOTIN:	moval	PRB_DMSTRIK, -		;  identify error code for diagnostics
+		GL_DMS_EXT(R11)		;  (extended area preserves fault code)
+	$setef_s -			; signal erroneous termination to parent
+		efn=#GV_DMSFINISH	; >abort flag
+	ret				; and quit
+PURSUE:
+;
+; Declare exit handler routine (disregard failure)
+; Scale base internal cycle time using refresh rate & convert to binary format
+;
+        $dclexh_s -			; establish shutdown routine
+                desblk=AL_EXIT		; >exit handler control block
+	bitl	#M_REFRESH,GL_CSR(R11)	; if alternate refresh rate requested
+	beql	CLOCK			; then
+	cvtwf	GW_REFRESH(R11),R0	;  load scaling factor
+	bleq	CLOCK			;  if positive then
+	movl	R0,F_MINLAPSE		;   use as refresh rate
+CLOCK:	pushl	#LIB$K_DELTA_SECONDS_F	; put operation code on heap
+	movl	SP,R9			; save current heap
+	pushaq	Q_DELTATIME		; >internal time format output address
+	pushaf	F_MINLAPSE		; >floating time value to convert
+	pushl	R9			; >conversion factor on heap
+	calls	#3,G^LIB$CVTF_TO_INTERNAL_TIME ; convert to VMS time format
+	addl2	#4,SP			; discard heap space
+	blbs	R0,READY		; if unsuccessful binary conversion
+	movl	R0,GL_DMS_VMS(R11)	; store error code
+	moval	PRB_DMSITIME, -		; ... unable to obtain binary interval
+		GL_DMSSTATUS(R11)	; 
+	$setef_s -			; notify parent process of problem
+		efn=#GV_DMSFINISH	; >failure flag
+	ret				; quit
+READY:
+;
+; Main control loop origin & PROBE handshaking.
+; Process indefinitely while parent is holding standby active. Synchronous
+; cycle refresh is default. Automatic data flush (cycle end statistics) is
+; triggered asynchronously by reset of activity flag.
+;
+	bbs	#V_STANDBY, -		; if parent continuation lock absent
+		GL_CSR(R11),RESET	; then
+	ret				;  rundown the program... (normal END)
+RESET:					; else
+;
+; Reset data structures before every new cycle
+;
+	movzwl	GW_NODECOUNT(R11),R1	; load known node value
+RST_ND:	movl	AL_NODEDIR[R1],R8	; for each known node do...
+	movw	#GK_MAXFRM,-		; 
+		GW_NSRC_MIN(R8)		; reverse bias source limiter (min)
+	movw	#GK_MINFRM,-		; 
+		GW_NSRC_MAX(R8)		; reverse bias source limiter (max)
+	movw	#GK_MAXFRM,-		; 
+		GW_NDST_MIN(R8)		; reverse bias destination limiter (min)
+	movw	#GK_MINFRM,-		; 
+		GW_NDST_MAX(R8)		; reverse bias destination limiter (max)
+	clrl	GW_NSRC_PVISIT(R8)	;*DSD*initialize all protocol hits
+	clrq	GL_NSRC_FRAMES(R8)	;*DSD*initialize all counted frames
+	clrq	GL_NSRC_BYTES(R8)	;*DSD*initialize all counted bytes
+	clrq	GF_NSRC_PKRATE(R8)	;*DSD*nullify previous peak rate value
+	clrq	GF_NSRC_AVGPEAK(R8)	;*DSD*nullify potential peak load value
+	sobgeq	R1,RST_ND		; ...until all nodes reset
+	movzwl	GW_DEFPTCL(R11),R1	; load defined protocol mask
+	beql	RST_CS			; if not null then
+	clrl	R0			;  init first index (will always hit 0)
+RST_PT:	ffs	R0,#GK_PTCLS,R1,R0	;*DSD*find next defined protocol
+	beql	RST_CS			;  if found then
+	movl	AL_PTCLDIR[R0],R8	;   point to its entry block
+	movw	#GK_MAXFRM,GW_PMIN(R8)	;   reverse bias minimum size
+	movw	#GK_MINFRM,GW_PMAX(R8)	;   reverse bias maximum size
+	clrq	GL_PMATCH(R8)		;*DSD*initialize frames and multicasts
+	clrl	GL_PBYTES(R8)		;   initialize counted bytes
+	acbl	#GK_PTCLS,#1,R0,RST_PT	;  repeat until all protocols reset
+RST_CS:	clrl	GL_TOT_BYTES(R11)	; initialize total counted bytes
+	clrl	GL_TOT_BFILT(R11)	; initialize total counted filtered byte
+	clrl	GL_TOT_B802(R11)	; initialize total IEEE bytes
+	clrl	GL_TOT_FRAMES(R11)	; initialize total counted frames
+	clrl	GL_F802COUNT(R11)	; initialize IEEE counted frames
+	clrl	GL_F802FILT(R11)	; initialize IEEE filtered frames
+	clrl	GL_FETHFILT(R11)	; initialize ethernet filtered frames
+	clrl	GL_FMLTFILT(R11)	; initialize multicast filtered frames
+	clrl	GL_FETHMLT(R11)		; initialize ethernet multicast frames
+	clrl	GL_F802MLT(R11)		; initialize IEEE multicast frames
+	clrl	GL_FPFILT(R11)		; initialize protocol filtered frames
+	movw	#GK_MAXFRM,GW_FMIN(R11)	; reverse bias minimum size
+	movw	#GK_MINFRM,GW_FMAX(R11)	; reverse bias maximum size
+	movw	#GK_MAXFRM, -		; 
+		GW_FETHMIN(R11)		; reverse bias minimum ethernet size
+	movw	#GK_MINFRM, -		; 
+		GW_FETHMAX(R11)		; reverse bias maximum ethernet size
+	movw	#GK_MAXFRM, -		; 
+		GW_F802MIN(R11)		; reverse bias minimum IEEE size
+	movw	#GK_MINFRM, -		; 
+		GW_F802MAX(R11)		; reverse bias maximum IEEE size
+	movf	#15E3,GF_FMINRATE(R11)	; reverse bias minimum frame rate
+	clrf	GF_FMAXRATE(R11)	; reverse bias maximum frame rate
+	movf	#100.0,GF_FMINLOAD(R11)	; reverse bias minimum traffic load
+	clrf	GF_FMAXLOAD(R11)	; reverse bias maximum traffic load
+	clrf	F_PREVIOUS		; reset cycle relative time
+;
+; Indicate readiness and wait for parent's synchronization signal
+;
+	$setef_s -			; notify parent process back
+		efn=#GV_DMSREADY	; >setup complete... in gear
+	$waitfr_s -			; synchronize with parent command
+		efn=#GV_TRIGGER		; >slave wait... release clutch
+	$clref_s -			; drop ready synch
+		efn=#GV_DMSREADY	; >processing... drive
+INCYC:
+;
+; Prepare refresh pass - set timer wakeup using (scaled) binary converted time
+;
+	$setimr_g -			; activate refresh interval timer
+		AL_TIM			; >predefined argument list
+	blbs	R0,YELLOW		; check for proper returned status
+	movl	R0,GL_DMS_VMS(R11)	; save VMS error code for diagnostics
+	moval	PRB_DMSITIME, -		; ... unable to set idle timer
+		GL_DMSSTATUS(R11)	; 
+	ret				; quit to prevent high-priority loop
+YELLOW:	$waitfr_s -			; wait refresh interval timer
+		efn=#GV_DMSREFRESH	; >timer
+	bisw2	#M_UNSAFE,GW_EFLAGS(R10); set work-in-progress semaphore
+;
+; Queue diagnostic/statistics & list preparation
+;
+	movzwl	GW_ECOUNT(R10),R7	; load current item queue size
+	bbc	#V_DIAGNOSTIC, -	; if diagnostics requested
+		GL_CSR(R11),GREEN	; then
+	$gettim_s -			;*DIAG* mark current time
+		timadr=GQ_EQTIME1(R10)	;* >start pass
+	incl	GL_EQVISIT(R10)		;* increment pass counter
+	addl2	R7,GQ_EQDEPTH(R10)	;* compute total starting queue depth
+	adwc	#0,<GQ_EQDEPTH+4>(R10)	;* ... update high portion
+	cmpw	R7,GW_EQMIN(R10)	;* limit check low
+	bgequ	DG1			;* 
+	movw	R7,GW_EQMIN(R10)	;* update low boundary
+DG1:	cmpw	R7,GW_EQMAX(R10)	;* limit check high
+	blequ	GREEN			;* 
+	movw	R7,GW_EQMAX(R10)	;*DIAG* update high boundary
+GREEN:	movzwl	GW_NODECOUNT(R11),R1	; current known nodes (use as max index)
+	movl	R7,R0			; transfer & test item count
+	beql	DELTA			; skip list processing if empty
+	movl	R0,L_REMCNT		; pass total queue removal retries
+	movl	R0,L_INSCNT		; pass total queue insertion retries
+;
+; Process the frame buffer item list...
+; Remove current interval entries by default, extract information & place into
+; existing or new node block, add-up interval values
+;
+	jsb	PROCESS_FRAME
+;
+; Bound check interval time (minimum is refresh rate)
+;
+	movw	R1,GW_NODECOUNT(R11)	; update permanent node count
+DELTA:	subf3	F_PREVIOUS,F_CURRENT, -	; compute perceived interval time
+		F_LAPSE			; 
+	cmpf	F_LAPSE,F_MINLAPSE	; if perceived smaller than minimum
+	bgeq	SYNC			;  (based on actual timer period)
+	movl	F_MINLAPSE,F_LAPSE	; then adjust to minimum
+SYNC:	addf2	F_LAPSE,F_PREVIOUS	; save (adjusted) time for next pass
+	movl	F_LAPSE,R0		; ...and load for future computation
+;
+; Compute global network traffic values from interval counters
+;
+	movl	L_INTBCNT,R2		; load interval byte count (future opr)
+	cvtlf	R2,R3			; float interval byte value (next subr)
+	movl	L_INTFCNT,R4		; load interval frame count (future opr)
+	bneq	GRATE			; if no frames processed then
+	clrq	R8			;  zero frame rate (R8) & net load (R9)
+	brb	BNDR			; else
+GRATE:	cvtlf	R4,R5			;  float interval frame value
+	addl2	R4,GL_TOT_FRAMES(R11)	;  update total frame count
+	addl2	R2,GL_TOT_BYTES(R11)	;  update total byte count
+	divl3	R4,R2,GL_FMEAN(R11)	;  compute interval average frame size
+	divf3	R0,R5,R8		;  compute interval frame rate
+	mulf3	#12500.0,R0,R7		;  compute optimum interval byte
+	cvtwf	GW_COLLISION(R11),R6	;  float collision ratio (/1000 frames)
+	beql	GLOAD			;  if not null then
+	mulf2	#0.00050,R6		;   scale by average byte/collision (50)
+	mulf2	R5,R6			;   compute interval collision byte
+	subf2	R6,R7			;   achievable max = optimum - collision
+GLOAD:	mull2	#GK_OVERHEAD,R4		;  compute interval overhead bytes
+	cvtlf	R4,R9			;  float overhead
+	addf2	R3,R9			;  compute interval actual network bytes
+	divf2	R7,R9			;  compute actual network percent load
+BNDR:	cmpf	GF_FMINRATE(R11),R8	; if current rate below recorded low
+	bleq	BNDR2			; then
+	movl	R8,GF_FMINRATE(R11)	;  update low value
+BNDR2:	cmpf	GF_FMAXRATE(R11),R8	; if current rate above recorded peak
+	bgeq	BNDL			; then
+	movl	R8,GF_FMAXRATE(R11)	;  update peak value
+BNDL:	cmpf	GF_FMINLOAD(R11),R9	; if current load below recorded low
+	bleq	BNDL2			; then
+	movl	R9,GF_FMINLOAD(R11)	;  update low value
+BNDL2:	cmpf	GF_FMAXLOAD(R11),R9	; if current load above recorded peak
+	bgeq	NLOAD			; then
+	movl	R9,GF_FMAXLOAD(R11)	;  update peak value
+NLOAD:	movl	R8,GF_FRATE(R11)	; memorize interval frame rate
+	movl	R9,GF_FLOAD(R11)	; memorize interval network load
+;
+; Process the node list...
+; Compute individual relative traffic load & build sorted display list
+;
+	jsb	PROCESS_NODE
+;
+; Reset interval values for next pass
+; Close off pass diagnostics as required & declare data structures safe
+;
+	clrl	L_INTFCNT		; initialize interval frame count
+	clrl	L_INTBCNT		; initialize interval byte count
+	bbc	#V_DIAGNOSTIC, -	; if diagnostics requested
+		GL_CSR(R11),PASSN	; then
+	$gettim_s -			;*DIAG* find current time
+		timadr=GQ_EQTIME2(R10)	;* >end pass
+	subl2	GQ_EQTIME2(R10),-	;* compute interval low portion
+		GQ_EQTIME1(R10)		;* 
+	sbwc	<GQ_EQTIME2+4>(R10),-	;* compute interval high portion
+		<GQ_EQTIME1+4>(R10)	;* 
+	addl2	GQ_EQTIME1(R10),-	;* summ up intervals low portion
+		GQ_EQTOTTIME(R10)	;* 
+	adwc	<GQ_EQTIME1+4>(R10),-	;* summ up intervals high portion
+		<GQ_EQTOTTIME+4>(R10)	;*DIAG*
+PASSN:	bicw2	#M_UNSAFE,GW_EFLAGS(R10); clear work-in-progress semaphore
+;
+; Refresh screen if applicable, file statistics if at cycle-end... then sleep
+; (for single cycle statistics directed to the screen, we must first release
+;  the display from potential processing... since the exit handler takes care
+;  of this, screen statistics are produced there as well.)
+;
+	bbc	#V_DISPLAY, -		; if display refresh is required
+		GL_CSR(R11),DO_STS	; then
+;
+	jsb	UPDATE_WINDOW		;  prepare dynamic zone and refresh
+;
+DO_STS:	bbc	#V_GO,GL_CSR(R11),FLUSH	; if not end-of-cycle (continuation)
+	brw	INCYC			; then sleep until next refresh
+FLUSH:	bbc	#V_OUTPUT, -		; else if stats directed to a file
+		GL_CSR(R11),SLEEPY	; then
+;
+	jsb	OUTPUT_STATS		;  prepare statistics and output
+;
+;	error processing
+;
+SLEEPY:	brw	READY			;  back to control... & reset structures
+;
+;; SUBROUTINES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+PROCESS_FRAME:
+;
+; This routine extracts a given number of frame entries from the item list and
+; uses their information to update/create interim and permanent counters. When
+; a cycle ends during the execution of this routine, an automatic adjustment is
+; made to flush the entire frame list content (so that statistics computations
+; have no requirement for another clean-up pass).
+; Called from: MAIN
+; Subroutines: SYS$FAO
+; Register allocation:
+; R0  - L - R/W - list size... maximum number of entries to process
+;		  (saved prior to system-service call, as required)
+; R1  - L - R/W - node count... max index into node block array
+;		  (saved prior to system-service call, as required)
+; R2  - L -  /W - scratch , source/destination index [0:1]
+; R3  - L -  /W - protocol identifier index [0:15]
+; R4  -LQ1-  /W - protocol scan length / frame address (4 bytes) / scratch
+; R5  -LQ2-  /W - protocol active mask / frame address (2 bytes) / scratch
+; R6  - L -  /W - frame size
+; R7  - L -  /W - scratch
+; R8  - L -  /W - protocol pointer / node pointer
+; R9  - L -  /W - entry pointer
+; R10 - L - R/  - buffer section pointer
+; R11 - L - R/  - control section pointer
+;
+	remqhi	GAL_EQITEM(R10),R9	; retrieve first/next item from queue
+	bvc	ITEM			; validate acquired entry
+	bcs	RETRY			; retry on failed interlocked removal
+	brw	NOMORE			; skip processing on empty queue
+RETRY:	sobgtr	L_REMCNT,PROCESS_FRAME	; fixed max retry on failed interlocked
+	bisw2	#M_REMEXH,GW_EFLAGS(R10);*DIAG* if retries exhausted then mark
+	movl	#GK_EXHRETRY,L_REMCNT	;  grant minimum retry to further items
+	incl	GL_EQIORPHAN(R10)	; this item slot lost... count orphans
+	brw	AGAIN			;  check for remaining items
+ITEM:
+;
+; For each recovered frame...
+;
+	adawi	#-1,GW_ECOUNT(R10)	; update queue size (item count)
+	incl	L_INTFCNT		; update interval frame count
+	extzv	#GV_Q802OVERHEAD,#4,-	; initialize entry size
+		GB_QTAG(R9),R6		;  to IEEE overhead or zero
+	addw2	GW_QSIZE(R9),R6		; compute entry total payload size
+	addw2	#GK_ENVELOP,R6		; adjust frame for LLC overhead
+	cmpw    #GK_MINFRM,R6		; if size below ethernet min
+        bleq    BYTES			; then
+        movw    #GK_MINFRM,R6		;  adjust size to ethernet min
+BYTES:	addl2	R6,L_INTBCNT		; update interval byte count
+	cmpw	R6,GW_FMIN(R11)		; limit check low
+	bgequ	MINLOW			; 
+	movw	R6,GW_FMIN(R11)		; update overall low frame size
+MINLOW:	cmpw	R6,GW_FMAX(R11)		; limit check high
+	blequ	MAXHI			; 
+	movw	R6,GW_FMAX(R11)		; update overall high frame size
+MAXHI:	movl	GF_QTIME(R9),F_CURRENT	; save last item reference time
+	moval	L_NULL,R2		; point @ null (used later for mlt filt)
+	clrl	R3			; reset protocol index
+	blbc	GB_QTAG(R9),ETHER	;*DSD* select and process
+	brw	IEEE			; either IEEE or Ethernet format
+;
+; Ethernet format
+;
+ETHER:	blbc	GQ_QDESTIN(R9),EMLT	; if multicast frame then
+	incl	GL_FETHMLT(R11)		;  update ethernet multicast count
+	moval	GL_FMLTFILT(R11),R2	;  point to multicast filtered counter
+EMLT:	cmpw	R6,GW_FETHMIN(R11)	; limit check low
+	bgequ	ELOW			; 
+	movw	R6,GW_FETHMIN(R11)	; update ethernet low frame size
+ELOW:	cmpw	R6,GW_FETHMAX(R11)	; limit check high
+	blequ	EHI			; 
+	movw	R6,GW_FETHMAX(R11)	; update ethernet high frame size
+EHI:	moval	GL_FETHFILT(R11),R7	; point to ethernet filtered counter
+;
+; Perform protocol matching and filtering
+;
+	movzwl	GW_DEFPTCL(R11),R5	; load protocol definition mask
+	bbcc	#V_PONOFF,R5,EBLK	; check & mask out defined state bit
+SCAN_P:	subl3	R3,#<GK_PTCLS+1>,R4	; compute relative field length
+	ffs	R3,R4,R5,R3		; search field for next defined protocol
+	beql	NO_P			; if one found then
+	movl	AL_PTCLDIR[R3],R8	;  point to protocol block
+	cmpw	GW_PROTOCOL(R8), -	;  try to match frame protocol to filter
+		GW_QPTCL(R9)		;  if successful match
+	bneq	NXT_P			;  then
+	bbs	R3,GW_ACTPTCL(R11),MLT_P;   if protocol filter not selected
+	bbc	#V_PONOFF, -		;   but protocol filtering inactive
+		GW_ACTPTCL(R11),MLT_P	;   then cumulate stats
+	brb	DMP_P			;   else frame to be discarded
+NXT_P:	acbl	#GK_PTCLS,#1,R3,SCAN_P	;  else start over mask scanning
+NO_P:	clrl	R3			; else, mark protocol unmatched
+	movl	AL_PTCLDIR,R8		;  point to unmatched protocol block #0
+	bbc	#V_PONOFF, -		;  if protocol filtering active
+		GW_ACTPTCL(R11),MLT_P	;  then (reject this frame)
+DMP_P:	incl	GL_FPFILT(R11)		;   update protocol filtered counter
+	bisl2	#M_PONOFF,R5		;   mark frame for future discard
+MLT_P:	blbc	GQ_QDESTIN(R9),CNT_P	; if multicast frame destination
+	incl	GL_PMULTI(R8)		; then update protocol multicast
+CNT_P:	incl	GL_PMATCH(R8)		; update protocol match count
+	addl2	R6,GL_PBYTES(R8)	; update protocol bytes
+	cmpw	R6,GW_PMIN(R8)		; limit check low
+	bgequ	LIM_P			; 
+	movw	R6,GW_PMIN(R8)		; update low boundary
+LIM_P:	cmpw	R6,GW_PMAX(R8)		; limit check high
+	blequ	CHK_P			; 
+	movw	R6,GW_PMAX(R8)		; update high boundary
+CHK_P:	bbs	#V_PONOFF,R5,DROPF	; if frame flagged filtered then drop it
+EBLK:	bbs	#V_EBLOCK, -		; if ethernet format filter blocking
+		GL_CSR(R11),DROPF	; then discard this frame
+	brb	VALIDF			; else pursue
+;
+; IEEE format
+;
+IEEE:	blbc	GQ_QDESTIN(R9),IMLT	; if multicast frame then
+	incl	GL_F802MLT(R11)		;  update IEEE multicast count
+	moval	GL_FMLTFILT(R11),R2	;  point to multicast filtered counter
+IMLT:	cmpw	R6,GW_F802MIN(R11)	; limit check low
+	bgequ	ILOW			; 
+	movw	R6,GW_F802MIN(R11)	; update IEEE low frame size
+ILOW:	cmpw	R6,GW_F802MAX(R11)	; limit check high
+	blequ	IHI			; 
+	movw	R6,GW_F802MAX(R11)	; update ethernet high frame size
+IHI:	addl2	R6,GL_TOT_B802(R11)	; update IEEE byte global counter
+	incl	GL_F802COUNT(R11)	; update IEEE frame global counter
+	moval	GL_F802FILT(R11),R7	; point to IEEE filtered counter
+	bbs	#V_802BLOCK, -		; if IEEE format filter active
+		GL_CSR(R11),DROPF	; then discard this frame
+VALIDF:	bbc	#V_MFILTER, -		; if multicast filter active
+		GL_CSR(R11),DO_ITEM	;    and
+	blbs	GQ_QDESTIN(R9),DO_ITEM	;    not multicast frame destination
+DROPF:	incl	(R2)			;  update multicast drop count
+	incl	(R7)			;  update frame type drop count
+	addl2	R6,GL_TOT_BFILT(R11)	;  update total byte drop count
+	brw	RELEASE			;  don't care about frame anymore, flush
+DO_ITEM:				; else, all filters have been passed...
+;
+; Find corresponding node block for source & destination addresses
+;
+	clrl	R2			; reset source[0]:destination[1] index
+NEXT:	movq	GQ_QSOURCE(R9)[R2],R4	; load frame address r4:r5
+	blbc	R4,E_HASH		; check for multicast address
+	movab	GAE_N_SLOT(R11),R8	; if so then use fixed slot (0)
+	brw	E_UPDATE		; and skip over hashing search
+E_HASH:	extzv	#24,#24,R4,R7		; use vendor-specific address portion
+	clrl	R8			; to form hash key
+	ediv	#GK_HASH,R7,R8,R7	; produce hash index from key
+	movzwl	GAW_HASH_X(R11)[R7],R8	; get corresponding node slot index
+	bneq	E_SLOT			; if null, process new node entry
+	cmpw	#<GK_NODES-1>,R1	; if node counter already at max
+	bleq	E_FULL			; then cannot add this node, drop it
+	bbs	#V_FREEZE, -		; else check logically full node array
+		GW_NODECTL(R11),E_FULL	; if not frozen then
+	incw	R1			;  update node count
+	movw	R1,GAW_HASH_X(R11)[R7]	;  update hash index table with new node
+	brb	E_ADD			;  initialize node information
+E_FULL:	insv	#1,R2,#1,GB_QFLAGS(R9)	;*DSD*DIAG* else mark allocation failure
+	brw	NEXT_E			;  and skip over node processing
+E_SLOT:	movl	AL_NODEDIR[R8],R8	; get pointer for current node
+E_LOOK:	cmpl	R5,<GQ_NADDRESS+4>(R8)	; check entry-node address (high) match
+	bneq	E_MORE			; if different, pursue hash collision
+	cmpl	R4,GQ_NADDRESS(R8)	; else, check address (low) match
+	bneq	E_MORE			; if different, pursue hash collision
+	brw	E_UPDATE		; else merge (identical) entry
+E_MORE:	movl	GL_NEXT_HASH(R8),R7	; load next hash entry offset
+	beql	E_END			; end of string if null... insert new
+	addl2	R7,R8			; update current node ponter if exists
+	brb	E_LOOK			; start over comparing addresses
+E_END:	cmpw	#<GK_NODES-1>,R1	; if node counter already at max
+	bleq	E_FULL			; then cannot add this node, drop it
+	bbs	#V_FREEZE, -		; else check logically full node array
+		GW_NODECTL(R11),E_FULL	; if not frozen then
+	incw	R1			;  update node count
+	subl3	R8,AL_NODEDIR[R1], -	;  compute next-in-string offset
+		GL_NEXT_HASH(R8)	; 
+E_ADD:	movl	AL_NODEDIR[R1],R8	; load node pointer from direct map
+;
+; Create new node entry, fill in initial values
+;
+	movw	#GK_MAXFRM,-		; reverse bias source limiter (min)
+		GW_NSRC_MIN(R8)		; 
+	movw	#GK_MINFRM,-		; reverse bias source limiter (max)
+		GW_NSRC_MAX(R8)		; 
+	movw	#GK_MAXFRM,-		; reverse bias destination limiter (min)
+		GW_NDST_MIN(R8)		; 
+	movw	#GK_MINFRM,-		; reverse bias destination limiter (max)
+		GW_NDST_MAX(R8)		; 
+	movq	R4,GQ_NADDRESS(R8)	; initialize node address
+;
+; If address is a logical DECnet address (aa-00-04-00-xx-yy), build a special
+; name string representing the area and node decimal values
+;
+	cmpl	#^X000400AA,R4		; if node address is DECnet phase 4
+	bneq	XSTART			; then (display format is area.node)
+	extzv	#0,#10,R5,R4		;  separate node number (10 bits)
+	ashl	#-10,R5,R5		;  & area number (6 bits)
+	movab	GS_NNAME(R8),-		;  set result descriptor pointer
+		<D_ADDR_NAME+4>		;   to node block string address
+	pushr	#^M<R0,R1>		;  save register context
+	$fao_s	-			;  produce name string
+		ctrstr=D_ADDR_DN4,-	;  >control string
+		outlen=GW_NSIZE(R8),-	;  >returned string size (=12)
+		outbuf=D_ADDR_NAME,-	;  >returned string (DEC x.y)
+		p1=    R5,-		;  >fao #1 - area number
+		p2=    R4		;  >fao #2 - node number
+	movl	R0,R7			;  preserve return status
+	popr	#^M<R0,R1>		;  recover saved register context
+	blbs	R7,E_UPDATE		;  if bad output formatting then
+	movq	GQ_NADDRESS(R8),R4	;   reset name to standard (hex) format
+;
+; Because the 48 bits address stream is broken down into byte fields, some
+; manipulation is required to obtain the proper ASCII representation string
+;
+XSTART:	pushr	#^M<R2,R3>		; save register context
+	clrq	R2			; init string index & extraction cursor
+XMORE:	blbs	R2,XLEFT		; if string index even
+	extzv	R3,#8,R4,R7		; then, extract next address byte
+	acbb	#31,#8,R3,XRIGHT	;  update extraction cursor
+	movl	R5,R4			;  if overflow, transfer high address
+	clrl	R3			;  and reinitialize cursor
+XRIGHT:	rotl	#-4,R7,R7		;  shift top nibble in position
+	brb	XALPHA			;  skip to conversion
+XLEFT:	rotl	#4,R7,R7		; else, shift low nibble in position
+	bicb2	#^XF0,R7		;  clear top nibble remains
+XALPHA:	cmpb	#10,R7			; check byte value
+	bgtr	XDIGIT			; if alpha (larger than 9)
+	addb2	#7,R7			; then offset for next conversion
+XDIGIT:	addb3	#^A/0/,R7,-		; convert number
+		GS_NNAME(R8)[R2]	;  to ASCII at string index
+	acbb	#11,#1,R2,XMORE		; update index and check for end
+	movzbw	R2,GW_NSIZE(R8)		; initialize name string length
+;
+; Check display address against known manufacturer's code and replace hex
+; value with symbolic prefix as possible
+;
+	cmpb	#12,R2			; if address string is 12 characters
+	bneq	XEND			; then (possibly hexa representation)
+	pushr	#^M<R0,R1>		;  save register context
+	movab	AB_MFGCODE,R7		;  set pointer to manufacturer array
+XNEXT:	tstl	(R7)			;  while not end-of list
+	beql	XEOL			;  do
+	cmpc3	#6,GS_NNAME(R8),(R7)	;   if manufacturer's code is unknown
+	beql	XOK			;   then
+	addl2	#10,R7			;*DSD* advance pointer to next item
+	brb	XNEXT			;   else (found symbolic candidate)
+XOK:	movl	6(R7),GS_NNAME(R8)	;*DSD* put maker's abbreviated name
+	movb	#^A/-/,R3		;      load separator character
+	movw	<GS_NNAME+6>(R8),-	;      reaarange 4th "display byte"
+		<GS_NNAME+4>(R8)	;*DSD*
+	movw	<GS_NNAME+8>(R8),-	;      reaarange 5th "display byte"
+		<GS_NNAME+7>(R8)	;*DSD*
+	movb	R3,<GS_NNAME+6>(R8)	;*DSD* put separator between 4th & 5th
+	movb	R3,<GS_NNAME+9>(R8)	;*DSD* put separator between 5th & 6th
+XEOL:	popr	#^M<R0,R1>		;  recover saved register context
+XEND:	popr	#^M<R2,R3>		; recover saved register context
+E_UPDATE:
+;
+; Update node interval values if direction globally enabled
+;
+	extzv	R2,#1,<GL_CSR+1>(R11),R7;*DSD* check direction significance
+	beql	NEXT_E			; if filtered then bypass update
+	bisb2	#M_NACTIVE, -		; else
+		GB_NSRC_CTL(R8)[R2]	;  set node direction active flag
+	incl	GL_NSRC_IFRAMES(R8)[R2]	;  increment node direction hits
+	addl2	R6,GL_NSRC_IBYTES(R8)[R2]; update node transfer bytes
+	cmpw	R6,GW_NSRC_MIN(R8)[R2]	;  limit check low
+	bgequ	E_MIN			; 
+	movw	R6,GW_NSRC_MIN(R8)[R2]	;  update low boundary
+E_MIN:	cmpw	R6,GW_NSRC_MAX(R8)[R2]	;  limit check high
+	blequ	E_MAX			; 
+	movw	R6,GW_NSRC_MAX(R8)[R2]	;  update high boundary
+E_MAX:	movaw	GW_NSRC_PVISIT(R8)[R2],R7; point to direction protocol status
+	tstl	R3			;  if protocol hit (non-zero)
+	bneq	E_PVST			;  then mark, else
+	blbc	GB_QTAG(R9),NEXT_E	;*DSD* if frame type IEEE then
+E_PVST:	insv	#1,R3,#1,(R7)		;*DSD* mark protocol visit (0=IEEE)
+NEXT_E:	acbl	#1,#1,R2,NEXT		;  repeat process for each direction
+	bitb	#<M_SRCFAIL!M_DSTFAIL>,-;*DIAG* check for any node failure
+		GB_QFLAGS(R9)		;* ...on this entry
+	beql	RELEASE			;* if so then
+	incl	GL_NODEFAIL(R11)	;*DIAG* update node failure total
+	bbc	#V_SRCFAIL, -		; if source data not computed
+		GB_QFLAGS(R9),RELEASE	; and
+	bbc	#V_DSTFAIL, -		; if destination data not computed
+		GB_QFLAGS(R9),RELEASE	; then
+	addl2	R6,GL_TOT_BFILT(R11)	;  update total filtered byte count
+	blbc	GB_QTAG(R9),KTYP	;*DSD* if frame type IEEE then
+	incl	GL_F802FILT(R11)	;   update IEEE frame filtered counter
+	brb	KMLT			;  else
+KTYP:	incl	GL_FETHFILT(R11)	;   update Ethernet frame filtered count
+KMLT:	blbc	GQ_QDESTIN(R9),RELEASE	;  if multicast frame then
+	incl	GL_FMLTFILT(R11)	;   update multicast filtered counter
+RELEASE:				;  endif
+;
+; Release processed entry & reintroduce into free queue (for future ACQ frame)
+;
+	insqti	(R9),GAL_EQFREE(R10)	; item stale, transfer to free queue
+	bcc	AGAIN			; if unsuccessful, try again
+	sobgtr	L_INSCNT,RELEASE	; until retry counter exhausted
+	bisw2	#M_INSEXH,GW_EFLAGS(R10);*DIAG* then mark insertion exhausted
+	movl	#GK_EXHRETRY,L_INSCNT	; grant minimum retry to further items
+	incl	GL_EQFORPHAN(R10)	; this item slot lost... count orphans
+AGAIN:	bbs	#V_GO,GL_CSR(R11),LIMIT	; if cycle end pending then
+	brw	PROCESS_FRAME		;  completely flush list (automatic)
+LIMIT:	acbl	#1,#-1,R0,PROCESS_FRAME	; else until specified items done
+NOMORE:	rsb				; return to caller
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+PROCESS_NODE:
+;
+; This routine scans the node array and updates enabled & active node traffic
+; values. This routine also builds 2 sorted node list, one each for source and
+; destination data. This is used by the display routines for screen updates.
+; Called from: MAIN
+; Subroutines: none
+; Register allocation:
+; R0  - F - R/  - interval duration (sec)
+; R1  - L - R/W - node count... max index into node block
+; R2  - L -  /W - source/destination index [0:1]
+; R3  - F - R/  - interval total byte
+; R4  - FL-  /W - scratch
+; R5  - FB-  /W - scratch (raw rate & load) (control mask)
+; R6  - FL-  /W - scratch
+; R7  - L -  /W - list scanning pointer
+; R8  - L -  /W - node block pointer
+; R9  - L -  /W - sorted list head block pointer
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+	movw	#-1,W_SRC_HEAD		; initialize head [0] to "null" index
+	movw	#-1,W_DST_HEAD		; initialize head [1] to "null" index
+	subl3	#GW_NSRC_NEXT, -	; use fixed node offset [0:1]
+		#W_SRC_HEAD,R9		;  point to (artificial) head block
+OUTER:	movl	AL_NODEDIR[R1],R8	; load node direct map address
+	clrl	R2			; reset source[0]:destination[1] index
+INNER:	cmpzv	R2,#1,<GL_CSR+1>(R11),#1;*DSD* check direction significance
+	beql	B_SD			; if filtered
+	brw	B_LOOP			; then attempt other side or next node
+B_SD:	bbc	#V_NDISABLE, -		; if node direction is enabled
+		GB_NSRC_CTL(R8)[R2], -	; then
+		B_ENBL			;  ...continue with this node
+	brw	B_LOOP			; else attempt other side or next node
+B_ENBL:	bbsc	#V_NACTIVE, -		; if node activity recorded
+		GB_NSRC_CTL(R8)[R2], -	; then
+		B_ACTV			;  ...reset activity flag for next pass
+	brw	B_LOOP			; else attempt other side or next node
+B_ACTV:
+;
+; Compute frame rate. Merge then reset interval values with overall counters.
+; Compute relative percentage load & determine peak or average.
+;
+	cvtlf	GL_NSRC_IFRAMES(R8)[R2],-;float direction interval frame
+		R5			; 
+	bneq	B_RATE			; if no frame recorded then
+	clrf	GF_NSRC_FRMRATE(R8)[R2]	;  frame rate is null (nothing to do)
+	brb	B_PEAK			; else
+B_RATE:	divf2	R0,R5			;  compute frame rate
+	cmpf	GF_NSRC_PKRATE(R8)[R2],-;  if current rate above recorded peak
+		R5			; 
+	bgeq	B_LOAD			;  then
+	movl	R5,-			;   update peak value
+		GF_NSRC_PKRATE(R8)[R2]	;  endif
+B_LOAD:	movl	R5,-			;  memorize rate
+		GF_NSRC_FRMRATE(R8)[R2]	;
+	cvtlf	GL_NSRC_IBYTES(R8)[R2],-;  float direction interval byte
+		R4			;
+	divf3	R3,R4,R5		;  compute relative load
+	mulf2	#100.0,R5		;  express load in percentage
+	addl2	GL_NSRC_IFRAMES(R8)[R2],-; merge frame data
+		GL_NSRC_FRAMES(R8)[R2]	; 
+	addl2	GL_NSRC_IBYTES(R8)[R2],-;  merge byte data
+		GL_NSRC_BYTES(R8)[R2]	; 
+	clrl	GL_NSRC_IFRAMES(R8)[R2]	;  reset interval frame for next pass
+	clrl	GL_NSRC_IBYTES(R8)[R2]	;  reset interval byte for next pass
+B_PEAK:	bbc	#V_PEAK, -		; if peak hold requested
+		GL_CSR(R11),B_AVG	; then
+	cmpf	GF_NSRC_AVGPEAK(R8)[R2],-; if current load above recorded peak
+		R5			; 
+	bgeq	B_SMTH			;  then
+	movl	R5,-			;   update peak value
+		GF_NSRC_AVGPEAK(R8)[R2] ;  endif
+	brb	B_SMTH			; else (compute average percentage load)
+B_AVG:	cvtlf	GL_TOT_BYTES(R11),R4	;  float total recorded bytes
+	beql	B_ZERO			;  if not null then
+	cvtlf	GL_NSRC_BYTES(R8)[R2],R6;   float node total bytes
+	beql	B_ZERO			;   if not null then
+	divf2	R4,R6			;    compute average load
+	mulf3	#100.0,R6, -		; 
+		GF_NSRC_AVGPEAK(R8)[R2]	;    express load in percentage
+	brb	B_SMTH			;  else
+B_ZERO:	clrf	GF_NSRC_AVGPEAK(R8)[R2]	;   relative load is zero
+B_SMTH:					; endif
+;
+; Smooth data as required
+;
+	bbc	#V_SMOOTH, -		; if smoothing is in effect
+		GL_CSR(R11),B_RAW	; then
+	bbs	#V_NBYPSMTH, -		;  if node direction is exempted
+		GB_NSRC_CTL(R8)[R2], -	;  then bypass processing
+		B_RAW			;  else
+	subf2	GF_NSRC_LOAD(R8)[R2],R5	;   compute (last) load differential
+	mulf2	GF_SMOOTH(R11),R5	;   smooth delta by predefined factor
+	addf2	R5,GF_NSRC_LOAD(R8)[R2]	;   update new current load
+	brb	B_SORT			; else
+B_RAW:	movl	R5,GF_NSRC_LOAD(R8)[R2]	;  use raw load data
+B_SORT:					; endif
+;
+; Display list ordering (decreasing within 2 priority levels).
+; Threshold limiting is performed first, as required.
+; The term 'index' refers to a given node's successor directory/map number.
+; Insertion occurs between a node called 'current' and its index called 'next'.
+;
+	movl	R9,R7			; point current @ physical queue head
+	bbc	#V_THRESHOLD, -		; if threshold limiter in effect
+		GL_CSR(R11),B_SCAN	; then
+	bbs	#V_NBYPTHRS, -		;  if node direction is exempted
+		GB_NSRC_CTL(R8)[R2], -	;  then bypass processing
+		B_SCAN			;  else
+	cmpf	GF_NSRC_LOAD(R8)[R2], -	;   check that current load exceeds
+		GF_THRESHOLD(R11)	;    or meets threshold minimum
+	bgeq	B_SCAN			;   if so then continue
+	brb	B_LOOP			;   else attempt other side or next node
+;
+B_TEST:	cmpf	GF_NSRC_LOAD(R8)[R2], -	; if this node load matches next load
+		GF_NSRC_LOAD(R6)[R2]	; then
+	bgeq	B_PUT			;  insert now... done
+B_STEP:	movl	R6,R7			; point current @ next (advance)
+B_SCAN:	movzwl	GW_NSRC_NEXT(R7)[R2],R4	; load current index (i.e. next)
+	cmpw	#-1,R4			; if index corresponds to queue tail
+	beql	B_PUT			; then must insert now @ tail
+	movl	AL_NODEDIR[R4],R6	; else point to next
+	xorb3	GB_NSRC_CTL(R8)[R2], -	; overlap this node control mask
+		GB_NSRC_CTL(R6)[R2],R5	; ...with next node control mask
+	bbc	#V_NFRONT,R5,B_TEST	; insert priority nodes based on load
+	bbc	#V_NFRONT, -		; else if this node is less favored
+		GB_NSRC_CTL(R8)[R2], -	; then advance pointers
+		B_STEP			; else...
+B_PUT:	movw	R4,GW_NSRC_NEXT(R8)[R2]	;  load current index into node index
+					;   (i.e. point to next)
+	movw	R1,GW_NSRC_NEXT(R7)[R2]	;  insert this node after current
+					;   (i.e. become new next)
+;
+; Loop control, alternate direction & scan complete node directory
+;
+B_LOOP:	acbl	#1,#1,R2,INNER		; repeat process for each direction
+	acbl	#0,#-1,R1,OUTER		; repeat process for each node
+	rsb				; return to caller
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+DISPLAY_ON:
+;
+; This routine is activated when the display control bit is 'on'. It connects
+; a channel to the display, validates environment variables, creates a buffer
+; for output and initializes the screen. Upon failure, it stores a status code
+; in the control section and cancels display processing.
+; Called from: MAIN
+; Subroutines: SYS$ASSIGN , SYS$CRMPSC , SYS$LCKPAG
+;              INIT_SCREEN
+; Register allocation:
+; R0  - L -  /W - system calls status
+; R1  - L -  /W - (affected by system calls)
+; R2  - L -  /W - scratch , screen sizing values (dynamic window)
+; R3  - L -  /W - scratch , screen sizing values
+; R4  - L -  /W - scratch , screen sizing values
+; R5  - L -  /W - scratch , screen & section sizing values
+; R6  - L -  /W - scratch , screen sizing values
+; R7  - * - */* - not referenced
+; R8  - * - */* - not referenced
+; R9  - * - */* - not referenced
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+; Validate system-wide (SYSGEN) maximum buffer size for terminal IO
+; Connect the default display device...
+;
+	cmpl	#K_MINBUF,GL_MAXBUF(R11); check adequate system buffer size
+	bleq	SYS_OK			; if too small
+	moval	PRB_DSPOVF, -		; then
+		GL_DMSSTATUS(R11)	;  application buffer overflow - error
+	bicl2	#M_DISPLAY,GL_CSR(R11)	;  cancel display operations
+	rsb				; 
+SYS_OK:	$assign_s -			; assign a channel to output device
+		devnam=D_OUTPUT,-	; >descriptor to standard output
+		chan=  AL_CRT+QIO$_CHAN	; >resulting channel number
+	blbs	R0,CONX			; check success and continue
+	movl	R0,GL_DMS_VMS(R11)	;  report failure status
+	moval	PRB_DSPCNX, -		; otherwise,
+		GL_DMSSTATUS(R11)	;  set unrecoverable display vector code
+	bicl2	#M_DISPLAY,GL_CSR(R11)	;  cancel display operations
+	rsb				; 
+CONX:
+;
+; Validate minimum display requirements (height, characteristics...)
+;
+	cmpw	#K_MINLINES, -		; check screen height (lines)
+		GW_CRTLINES(R11)	;  against minimum allowable number
+	bleq	MIN_OK			; if too small
+	moval	PRB_DSPWDW, -		; then
+		GL_DMSSTATUS(R11)	;  set unrecoverable display vector code
+	bicl2	#M_DISPLAY,GL_CSR(R11)	;  cancel display operations
+	rsb				; 
+MIN_OK:	cmpw	#K_MAXLINES, -		; limit check screen height
+		GW_CRTLINES(R11)	; if within bounds
+	bgeq	DEV			; then continue
+	movw	#K_MAXLINES, -		; else
+		GW_CRTLINES(R11)	;  limit at upper bound
+DEV:	bitl    #TT$M_SCOPE, -		; check that terminal is video
+		GL_CRTDEV1(R11)		; else
+        beql    NOGO3			;  declare an error
+        bitl    #TT2$M_AVO, -		; check that advanced video is enabled
+		GL_CRTDEV2(R11)		; else
+        beql    NOGO3			;  declare an error
+        bitl    #<TT2$M_DECCRT! -	; terminal must be at least...
+                  TT2$M_DECCRT2>, -	; ...VT100 or VT200 compatible
+                GL_CRTDEV2(R11)		; ...for escape sequences
+        bneq    CRT_OK			; otherwise, declare error
+NOGO3:  moval   PRB_DSPCHAR, -		; set unrecoverable display vector code
+                GL_DMSSTATUS(R11)	; 
+	bicl2	#M_DISPLAY,GL_CSR(R11)	; cancel display operations
+	rsb				; return to caller
+CRT_OK:
+;     
+; Compute screen buffer space requirements (static & dynamic)
+;
+	subw3	#K_MINBASE, -		; compute number of dynamic lines
+		GW_CRTLINES(R11),R2	; 
+	movzwl	R2,R2			; convert number to larger integer type
+	emul	#K_DYN_BYTES,R2, -	; compute dynamic section size in bytes
+		#K_UPD_BYTES,R3		;  including static update size (r4<-0)
+	emul	#K_WDW_BYTES,R2, -	; compute primary section size in bytes
+		#K_INI_BYTES,R6		;  including initial update size (r7<-0)
+	cmpl	R3,R6			; keep...
+	bgeq	MAX_SZ			; largest of initial or dynamic size
+	movl	R6,R3			; ...as a worst case scenario
+MAX_SZ:	cmpl	GL_MAXBUF(R11),R3	; bound check size against Sysgen MAXBUF
+	bgeq	GOT_SZ			; if MAXBUF insufficient then
+	subl3	#K_UPD_BYTES, -		; 
+		GL_MAXBUF(R11),R2	;  compute dynamic line fit into MAXBUF
+	divl2	#K_DYN_BYTES,R2		; 
+	subl3	#K_INI_BYTES, -		; 
+		GL_MAXBUF(R11),R5	;  compute initial line fit into MAXBUF
+	divl2	#K_WDW_BYTES,R5		; 
+	cmpl	R2,R5			;  keep...
+	bleq	MIN_SZ			;  smallest (best-fit) line count
+	movl	R5,R2			;  ...as a worst case scenario
+MIN_SZ:	emul	#K_DYN_BYTES,R2, -	;  recompute dynamic section size
+		#K_UPD_BYTES,R3		;  ...from maximum line count
+	emul	#K_WDW_BYTES,R2, -	;  recompute primary section size
+		#K_INI_BYTES,R6		;  ...from maximum line count
+	cmpl	R3,R6			;  keep...
+	bgeq	GOT_SZ			;  largest of initial or dynamic size
+	movl	R6,R3			;  ...as a worst case scenario
+GOT_SZ:	ediv    #512,R3,R5,R6		; compute buffer size in pages
+	tstl    R6			; test division remainder
+	bleq    DO_GBL			; if not null then
+	incl    R5			;  round up section page count
+DO_GBL:					; endif
+;
+; Create, map & lock SCR global section (used as buffer for terminal I/O)
+; (Pages are initialized to zero, first-fit in virtual space, writable and
+;  allocated from pagefile)
+;
+gsmask	=	<SEC$M_GBL!SEC$M_DZRO!SEC$M_EXPREG!SEC$M_WRT!SEC$M_PAGFIL>
+;
+	$crmpsc_s -			; create and map Control global section
+		inadr= AL_SCR,-		; >proposed virtual address array (P0)
+		retadr=AL_SCR,-		; >actual virtual address array
+		gsdnam=D_SCRNAME,-	; >global section name - hardcoded
+		acmode=#PSL$C_USER,-	; >user access mode (3)
+		pagcnt=R5,-		; >page count - as calculated above
+		prot=  #<^XFFFFF888>,-	; >protection (S:RWE,O:RWE,G:RWE,W)
+		flags= #GSMASK		; >creation attribute mask
+	blbs	R0,LOCK			; validate section creation
+	movl	R0,GL_DMS_VMS(R11)	;  save error code for diagnostics
+	moval	PRB_DSPSCR, -		;  set unrecoverable display vector code
+		GL_DMSSTATUS(R11)	; 
+	bicl2	#M_DISPLAY,GL_CSR(R11)	;  cancel display operations
+	rsb				;  return to caller
+LOCK:	$lckpag_s -			; lock global pages in memory
+                inadr= AL_SCR, -	; >actual virtual address array
+                acmode=#PSL$C_USER	; >user access mode (3)
+; 	disregard potential error processing
+;
+; Compute source/destination window sizes (based on display height)
+;
+	rotl	#-1,R2,R2		; divide lines by 2, high bit remainder
+	bgeq    WDW1			; test for odd or even active lines
+	bitl    #M_DESTINATION, -	; then check if destination on display
+	        GL_CSR(R11)		; 
+	bneq    DBIAS			; if so, extra line goes to destination
+	incw    W_SRCWDW		; else extra line goes to source
+	brb     WDW1			; 
+DBIAS:	incw    W_DSTWDW		; (because of multicast)
+WDW1:	bitl    #M_SOURCE,GL_CSR(R11)	; check if source on display
+	beql    S_OFF			; if so
+	addw2   R2,W_SRCWDW		; then add half-size to source count
+	brb     WDW2			; 
+S_OFF:	addw2   R2,W_DSTWDW		; else add half-size to destination #
+	incw    W_DSTWDW		; adjust for invisible static source cue
+WDW2:	bitl    #M_DESTINATION, -	; check if destination on display
+	        GL_CSR(R11)		; 
+	beql    D_OFF			; if so
+	addw2   R2,W_DSTWDW		; then add half-size to destination #
+	brb     DO_INI			;  display sizes computed, proceed
+D_OFF:	addw2   R2,W_SRCWDW		; else add half-size to source count
+	incw    W_SRCWDW		;  adjust for invisible destination cue
+DO_INI:					; endif
+;       
+; Initialize screen buffer (static and status) then write it out
+;
+	bisl2	#M_NOTICE,GL_CSR(R11)	; force notify bit (filter processing)
+;
+	jsb	INIT_SCREEN
+;
+	bicl2	#M_NOTICE,GL_CSR(R11)	; clear notify bit... processing done
+	blbs	R0,GOBACK		; all set & ok...
+	bicl2	#M_DISPLAY,GL_CSR(R11)	;  else, cancel display operations
+GOBACK:	rsb				; return to caller
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+INIT_SCREEN:
+;
+; This routine builds the background graphic sequence into the screen buffer
+; and outputs it to the display. This is the initial counterpart to the normal
+; update routines which are used during refresh cycles (_WINDOW,_PARAM,etc).
+; Called from: DISPLAY_ON
+; Subroutines: MTH$ALOG10 , SYS$FAO , SYS$GETMSG , SYS$QIOW
+;              UPDATE_PARAM
+; Register allocation:
+; R0  -FL -  /W - scratch (implicit thru MOVCx) , status on return
+; R1  - L -  /W - scratch (implicit thru MOVCx) , segment transfer byte count
+; R2  - L -  /W - scratch (implicit thru MOVCx)
+; R3  - L -  /W - buffer pointer (automatically updated by MOVCx)
+; R4  - L -  /W - scratch (implicit thru MOVCx)
+; R5  - L -  /W - scratch (implicit thru MOVCx)
+; R6  - L -  /W - scratch , dynamic window height
+; R7  - L -  /W - scratch , threshold diamond offset
+; R8  - L -  /W - scale segment string pointer , set-up string pointer
+; R9  - * - */* - not referenced
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+	movl	AL_SCR,R3		; establish buffer loading pointer
+	movl	R3,AL_CRT+QIO$_P1	; load buffer address into argument list
+	movzbl	S_INIT,R1		; load primal string size
+	movc3	R1,<S_INIT+1>,(R3)	; transfer primal string to buffer
+;
+; Modify default ave(rage) marker to max(imum) as required by peak flag
+;
+	bitl	#M_PEAK,GL_CSR(R11)	; if peak is active
+	beql	NOPEAK			; then
+	movl	#^A/max /,-4(R3)	;*DSD* overwrite default legend
+;
+; Select proper scale
+;
+NOPEAK:	bitl	#M_SCALE2,GL_CSR(R11)	; check logarithmic scale bit state
+	beql	NOLOGA			; if set then
+	movab	S_SCALE2,R8		;  point to logarithmic scale segment
+	brb	EDGE			; else
+NOLOGA:	movab	S_SCALE0,R8		; point to half scale segment (assumed)
+	bitl	#M_SCALE,GL_CSR(R11)	; check normal scale bit state
+	beql	EDGE			; if set then
+	movab	S_SCALE1,R8		;  point to full scale segment (actual)
+EDGE:	movzbl	(R8),R1			; load string size
+	movc3	R1,1(R8),(R3)		; transfer scale string to buffer
+;
+; Prepare upper legend area
+;
+	movzbl	S_TOP,R1		; load segment legend string size
+	movc3	R1,<S_TOP+1>,(R3)	; transfer segment string to buffer
+	bitl	#M_SMOOTH,GL_CSR(R11)	; if smoothing is active
+	beql	NOSMT			; then
+	mulf3	#100.0,GF_SMOOTH(R11),R6;  express smooth ratio as percentage
+	cvtfl	R6,R6			;  in integer format
+	subl3	R6,#100,R6		;  complement (lag) from 100
+	clrl	R7			;  initialize quadword upper half
+	ediv	#10,R6,R6,R7		;  break into tens and units
+        addb2	#^A/0/,R6		;  transform tens into ASCII digit
+        addb2	#^A/0/,R7		;  transform units into ASCII digit
+	movb	R6,-4(R3)		;*DSD* inscribe smoothing value (tens)
+	movb	R7,-3(R3)		;*DSD* inscribe smoothing value (units)
+	brb	BOX			; else
+NOSMT:	movl	#^A/    /,-8(R3)	;*DSD* overwrite/blank-out legend
+	movb	#^A/ /,-2(R3)		;*DSD* overwrite/blank-out legend
+BOX:	movzbl	S_UPPER,R1		; load top frame legend string size
+	movc3	R1,<S_UPPER+1>,(R3)	; transfer top frame string to buffer
+;
+; Compute threshold mark offset for future reference
+;
+	clrl	R7			; initialize offset (assume nothreshold)
+	bitl	#M_THRESHOLD,GL_CSR(R11); check threshold active bit state
+	beql	SRC			; if set then...
+	bitl	#M_SCALE2,GL_CSR(R11)	; check logarithmic scale bit state
+	beql	LINSCL			; if set then...
+	pushaf	GF_THRESHOLD(R11)	; >use specified threshold value [1:50]
+	calls	#1,G^MTH$ALOG10		; compute base 10 log of value
+	mulf2	#10.0,R0		; scale increment to column displacement
+	cvtfl	R0,R0			; pursue computation in integer format
+	addl2	#30,R0			; offset to the 0 log mark (value = 1)
+	brb	DIRSCL			; else...
+LINSCL:	cvtrfl	GF_THRESHOLD(R11),R0	;  load specified threshold
+	bitl	#M_SCALE,GL_CSR(R11)	;  check normal scale bit state
+	beql	DIRSCL			; if full scale selected then
+	blbc	R0,EVNTHR		;  adjust odd number
+	incl	R0			;  upwards (round up)
+EVNTHR:	ashl	#-1,R0,R0		;  scale threshold to reduced width
+DIRSCL:	movl	R0,R7			; preserve offset value
+;
+; Prepare dynamic zone legend and spacing
+;
+SRC:	movzwl	W_SRCWDW,R6		; check source window height
+	beql    TGT			; and bypass if null
+	movzbl	S_SOURCE,R1		; load source legend string size
+	movc3   R1,<S_SOURCE+1>,(R3)	; transfer source legend string
+	tstl	R7			; check for threshold
+	beql	NOTHR1			; if so then
+	movzbl	S_MARK1,R1		;  load connected line string size
+	movc3   R1,<S_MARK1+1>,(R3)	;  transfer connected line string
+	subl3	#1,R7,R1		;  adjust offset for diamond mark
+	beql	THR1			;  make sure displacement not null
+	movc5	#0,(R8),#^A/q/,R1,(R3)	;  fill with graphic '-'
+THR1:	movzbl	S_MARK2,R1		;  load diamond string size
+	movc3   R1,<S_MARK2+1>,(R3)	;  transfer diamond string
+	brb	D1			; else
+NOTHR1:	movzbl	S_NOMARK,R1		; load single line string size
+	movc3   R1,<S_NOMARK+1>,(R3)	;  transfer single line string
+D1:	movzbl	S_DYNAMIC,R1		; load dynamic spacing string size
+	movc3   R1,<S_DYNAMIC+1>,(R3)	; transfer source legend string
+	sobgtr	R6,D1			; for each dynamic line in window
+TGT:	movzwl	W_DSTWDW,R6		; check destination window height
+	beql    FOOT			; and bypass if null
+	movzbl	S_TARGET,R1		; load destination legend string size
+	movc3   R1,<S_TARGET+1>,(R3)	; transfer destination legend string
+	tstl	R7			; check for threshold
+	beql	NOTHR2			; if so then
+	movzbl	S_MARK1,R1		;  load connected line string size
+	movc3   R1,<S_MARK1+1>,(R3)	;  transfer connected line string
+	subl3	#1,R7,R1		;  adjust offset for diamond mark
+	beql	THR2			;  make sure displacement not null
+	movc5	#0,(R8),#^A/q/,R1,(R3)	;  fill with graphic '-'
+THR2:	movzbl	S_MARK2,R1		;  load diamond string size
+	movc3   R1,<S_MARK2+1>,(R3)	;  transfer diamond string
+	brb	D2			; else
+NOTHR2:	movzbl	S_NOMARK,R1		;  load single line string size
+	movc3   R1,<S_NOMARK+1>,(R3)	;  transfer single line string
+D2:	movzbl	S_DYNAMIC,R1		; load dynamic spacing string size
+	movc3   R1,<S_DYNAMIC+1>,(R3)	; transfer source legend string
+	sobgtr	R6,D2			; for each dynamic line in window
+FOOT:
+;       
+; Prepare lower legend static display & set-up attributes
+;
+	movzbl	S_BOTTOM,R1		; load footer mark string size
+	movc3 	R1,<S_BOTTOM+1>,(R3)	; transfer mark string to buffer
+	bitl	#M_REFRESH,GL_CSR(R11)	; if alternate refresh interval active
+	beql	NOINT			; then
+	movzwl	GW_REFRESH(R11),R6	;  load refresh interval
+	beql	NOINT			;  if non-default then
+	clrl	R7			;   initialize quadword upper half
+	ediv	#10,R6,R6,R7		;   break into tens and units
+        addb2	#^A/0/,R6		;   transform tens into ASCII digit
+        addb2	#^A/0/,R7		;   transform units into ASCII digit
+	movb	R6,-4(R3)		;*DSD* inscribe interval value (tens)
+	movb	R7,-3(R3)		;*DSD* inscribe interval value (units)
+NOINT:	movzbl	S_LOWER,R1		; load footer mark string size
+	movc3 	R1,<S_LOWER+1>,(R3)	; transfer mark string to buffer
+	movzbl	(R8),R1			; load scale string size
+	movc3	R1,1(R8),(R3)		; transfer scale string to buffer
+	movzbl	S_PARAMS,R1		; load parameter legend string size
+	movc3 	R1,<S_PARAMS+1>,(R3)	; transfer legend string to buffer
+;
+; Prepare defined protocol legend
+;
+	movl	#GK_PTCLS,R6		; load number of protocols for countdown
+	movzwl	GW_DEFPTCL(R11),R7	; load defined protocol mask
+	movab	S_FLTSTATE,R8		; point to default legend
+SCNDEF:	ashl	#-1,R7,R7		; check one protocol
+	blbs	R7,NEXDEF		; if protocol undefined then
+	movb	#^A/ /,(R8)		;  erase its identifier from legend
+NEXDEF:	incl	R8			; else skip over
+	sobgtr	R6,SCNDEF		; repeat for all protocols
+	movc3	#GK_PTCLS,S_FLTSTATE,(R3); transfer set-up string to buffer
+;
+; Prepare bottom line legend (exit method message)
+;
+	movzbl	S_LOWEST,R1		; load exit placement string size
+	movc3	R1,<S_LOWEST+1>,(R3)	; transfer exit placement to buffer
+	bitl	#M_TIMER,GL_CSR(R11)	; check timer state
+	beql	MANXIT			; if reset, exit must be manual, skip
+	$getmsg_s -			; get message text from vector
+		msgid= #PRB_EX3AUTO,-	; >automatic exit method message vector
+		msglen=D_TEXT,-		; >returned string size
+		bufadr=D_TEXT,-		; >returned string
+		flags= #1		; >only text is of interest
+	blbc	R0,FAOERR		; validate prevous call success
+	movzwl	GW_CHRONO(R11),R4	; timer setting... cycle active interval
+	movzwl	GW_STANDBY(R11),R5	; timer setting... standby interval
+	movzwl	GW_MAXCYCLE(R11),R6	; cycle setting... repeat count
+	$fao_s	-			; produce message
+		ctrstr=D_TEXT,-		; >use exit method as directive string
+		outlen=D_WORK,-		; >returned string size
+		outbuf=D_WORK,-		; >returned string
+		p1=    R6,-		; >fao #1 - cycle
+		p2=    R5,-		; >fao #2 - timer standby
+		p3=    R4		; >fao #3 - timer active
+	movw	#GK_VALSIZE_MAX,D_TEXT	; reset exit descriptor size to max
+	blbs	R0,PUTXIT		; validate previous call success
+FAOERR:	movl	R0,GL_DMS_VMS(R11)	;  save error code for diagnostics
+	moval	PRB_DSPFAO, -		;  set unrecoverable display vector code
+		GL_DMSSTATUS(R11)	; 
+	rsb				;  drop display processing
+MANXIT:	$getmsg_s -			; get message text from vector
+		msgid= #PRB_EX3MAN,-	; >manual exit method message vector
+		msglen=D_WORK,-		; >returned string size
+		bufadr=D_WORK,-		; >returned string
+		flags= #1		; >only text is of interest
+	blbc	R0,FAOERR		; validate prevous call success
+PUTXIT:	movw	D_WORK,R1		; load exit string size
+	movc3	R1,@<D_WORK+4>,(R3)	; transfer exit string to buffer
+	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+;
+; Fix-up node legend, as required
+;
+	movzbl	S_FILL,R1		; load cursor reposition string size
+	movc3 	R1,<S_FILL+1>,(R3)	; transfer reposition string to buffer
+;
+; Fill-in (initial pass) fundamental parameters display
+;
+	jsb	UPDATE_PARAM
+;
+; Prepare (header) system information & utility state display
+;
+	movzbl	S_NODE,R1		; load header node position size
+	movc3	R1,<S_NODE+1>,(R3)	; transfer header position to buffer
+	movzwl	GW_NODESIZE(R11),R1	; load node name string size
+	movc3	R1,GS_NODENAME(R11),(R3); transfer node name string to buffer
+	movzbl	S_ADAPTER,R1		; load adapter separator string size
+	movc3 	R1,<S_ADAPTER+1>,(R3)	; transfer adapter separator to buffer
+	movzwl	GW_ADAPSIZE(R11),R1	; load adapter string size
+	movc3	R1,GS_ADAPTER(R11),(R3)	; transfer adapter string to buffer
+	movzbl	S_STATE1,R1		; load initial state (standby) size
+	movc3	R1,<S_STATE1+1>,(R3)	; transfer initial state string
+;
+; Flush buffer out to screen (synchronized)
+;
+	subl3	AL_SCR,R3,AL_CRT+QIO$_P2; compute buffer size from boundaries
+	$qiow_g AL_CRT			; output buffer to the screen
+	blbc	R0,SCRBUG		; check service submission
+	blbs	Q_CRTIOSB,ENOF		; validate service call success
+	movl	Q_CRTIOSB,R0		;  preserve faulty status
+SCRBUG:	movl	R0,GL_DMS_VMS(R11)	;  save error status for diagnostics
+	moval	PRB_DSPOUT, -		;  unable to queue terminal I/O vector
+		GL_DMSSTATUS(R11)	;
+ENOF:	rsb				; return to caller
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+UPDATE_WINDOW:
+;
+; This routine builds the dynamic global and source:destination histograms into
+; the screen buffer. When done, the buffer cursor rests on the top lower legend
+; line and can therefore be cascaded directly into UPDATE_PARAM. Upon failure,
+; it stores a status code in the control section and cancels display processing.
+; Called from: MAIN
+; Subroutines: SYS$FAO
+;              PUT_BAR , UPDATE_PARAM
+; Register allocation:
+; R0  - L -  /W - scratch (implicit thru MOVCx) , status on return
+; R1  - L -  /W - scratch (implicit thru MOVCx) , segment transfer byte count
+; R2  - L -  /W - scratch (implicit thru MOVCx)
+; R3  - L -  /W - buffer pointer
+; R4  - L -  /W - scratch (implicit thru MOVCx) , node index
+; R5  - L -  /W - scratch (implicit thru MOVCx)
+; R6  - L -  /W - node block pointer
+; R7  - L -  /W - window height
+; R8  - L -  /W - argument 1 to subroutine PUT_BAR
+; R9  - L -  /W - argument 2 to subroutine PUT_BAR
+; R10 - L -  /* - [SAVED-no external impact] source:destination index [0:1]
+; R11 - L - R/  - control section pointer
+;
+; Prepare global network utilisation line
+;
+	movl	AL_CRT+QIO$_P1,R3	; buffer loading pointer
+	movzbl	S_PLACE,R1		; load refresh cursor command size
+	movc3	R1,<S_PLACE+1>,(R3)	; transfer cursor coordinate to buffer
+;
+	cvtfl	GF_FRATE(R11),-		; load & convert absolute global rate
+		AL_FAO_GLOBAL+FAO$_P1	; ... into FAO argument list (#1)
+	cvtfl	GF_FLOAD(R11),R8	; load & convert relative global rate
+	movl	R8,AL_FAO_GLOBAL+FAO$_P2; ... into FAO argument list (#2)
+	cvtfl	GF_FMAXLOAD(R11),R9	; load & convert peak utilisation rate
+	movl	R9,AL_FAO_GLOBAL+FAO$_P3; ... into FAO argument list (#3)
+	$fao_g	AL_FAO_GLOBAL		; prepare output string
+	blbs	R0,FAOK1		; validate previous call success
+	movl	R0,GL_DMS_VMS(R11)	;  save error code for diagnostics
+	moval	PRB_DSPFAO, -		;  set unrecoverable display vector code
+		GL_DMSSTATUS(R11)	; 
+	rsb				;  drop display processing
+FAOK1:	movw	W_FAO,R1		; load resulting string size
+	movc3	R1,@<D_WORK+4>,(R3)	; transfer global value string to buffer
+	bitl	#M_SCALE2,GL_CSR(R11)	; if current scale is logarithmic
+	beql	GBLBAR			; then
+	movaf	GF_FLOAD(R11),R8	;  use floating rate pointer
+	movaf	GF_FMAXLOAD(R11),R9	;  use floating peak pointer
+;
+GBLBAR:	jsb	PUT_BAR			; prepare graphic bar
+;
+	movb	#K_LF,(R3)+		; skip over direction legend line
+;
+; Prepare source & destination window(s) as required
+; The following loop is folded onto itself (some later elements on top)
+; to allow more efficient code branching (compactness).
+;
+	pushr	#^M<R10>		; preserve register contents
+	clrl	R10			; start with source [0] node index
+N_CNT:	movzwl	W_SRCWDW[R10],R7	; load corresponding window size
+	bleq	N_NEXT			; if valid then
+	subl3	#GW_NSRC_NEXT, -	;  create pointer to node head of queue
+		#W_SRC_HEAD,R6		;  (artificial location)
+	brb	N_TOP			; continue with processing loop
+N_EOQ:	movzbw	S_CLEAR,R1		;\load null node string size
+	movc3	R1,<S_CLEAR+1>,(R3)	; transfer empty string to buffer
+	sobgtr	R7,N_EOQ		; repeat for remainder of window
+N_SKIP:	movb	#K_LF,(R3)+		; skip over following legend line
+N_NEXT:	acbl	#1,#1,R10,N_CNT		; switch index and validate termination
+	brw	N_DONE			; if so then dynamic windows done
+FAOK2:	movw	W_FAO,R1		;\load resulting string size
+	movc3	R1,@<D_WORK+4>,(R3)	; transfer node value string to buffer
+	bitl	#M_SCALE2,GL_CSR(R11)	; if current scale is logarithmic
+	beql	N_BAR			; then
+	movaf	GF_NSRC_LOAD(R6)[R10],-	;  use floating rate pointer
+		R8			; 
+	movaf	GF_NSRC_AVGPEAK(R6)[R10],-;use floating peak pointer
+		R9			; 
+;
+N_BAR:	jsb	PUT_BAR			; prepare graphic bar
+;
+	decl	R7			; keep track of remaining window lines
+	bleq	N_SKIP			; if not finished then
+N_TOP:	movzwl	GW_NSRC_NEXT(R6)[R10],-	;  load next station number
+		R4			; 
+	cmpw	#-1,R4			;  check for end of queue tag
+	beql	N_EOQ			;  if not so then
+	movl	AL_NODEDIR[R4],R6	;   point to the station's info block
+	movw	GW_NSIZE(R6), -		;   prepare FAO argument (name size)
+		AL_FAO_GENERIC+FAO$_P1	;
+	movab	GS_NNAME(R6), -		;   prepare FAO argument (name pointer)
+		AL_FAO_GENERIC+FAO$_P2	;
+	cvtfl	GF_NSRC_FRMRATE(R6)[R10],-; prepare FAO argument (frame rate)
+		AL_FAO_GENERIC+FAO$_P3	;    (convert to integer)
+	cvtfl	GF_NSRC_LOAD(R6)[R10],R8;   prepare FAO argument (node load)
+	movl	R8,AL_FAO_GENERIC+FAO$_P4;
+	cvtfl	GF_NSRC_AVGPEAK(R6)[R10],-; prepare FAO argument (average|peak)
+		R9			;    (convert to integer)
+	movl	R9,AL_FAO_GENERIC+FAO$_P5;
+	$fao_g	AL_FAO_GENERIC		; prepare output string segment
+	blbs	R0,FAOK2		; validate previous call success
+	movl	R0,GL_DMS_VMS(R11)	;  save error code for diagnostics
+	moval	PRB_DSPFAO, -		;  set unrecoverable display vector code
+		GL_DMSSTATUS(R11)	; 
+	brw	CANCEL			;  drop display processing
+N_DONE:
+;
+; Update lower and upper legend information
+;
+	jsb	UPDATE_PARAM		; prepare lower legend counter/stats
+;
+	bitl	#M_GO,GL_CSR(R11)	; if activity is enabled
+	beql	WOOO			; then
+	bitl	#M_LOG,GL_CSR(R11)	;  if logging is enabled
+	beql	NOREC			;  then
+	movzbl	S_STATE3,R1		;   load current state (recording) size
+	movc3	R1,<S_STATE3+1>,(R3)	;   transfer initial state string
+	brb	IOOUT			;  else
+NOREC:	movzbl	S_STATE2,R1		;   load current state (monitoring) size
+	movc3	R1,<S_STATE2+1>,(R3)	;   transfer initial state string
+	brb	IOOUT			;  endif
+WOOO:	bitl	#M_STANDBY,GL_CSR(R11)	; else if further cycle signaled
+	beql	BREAK			;  then
+	movzbl	S_STATE1,R1		;   load current state (standby) size
+	movc3	R1,<S_STATE1+1>,(R3)	;   transfer initial state string
+	brb	IOOUT			;  else
+BREAK:	movzbl	S_STATE4,R1		;   load current state (stopping) size
+	movc3	R1,<S_STATE4+1>,(R3)	;   transfer initial state string
+;
+; Flush buffer out to screen (unsynchronized - IOSB not checked further)
+;
+IOOUT:	subl3	AL_SCR,R3,AL_CRT+QIO$_P2; compute buffer size from boundaries
+	$qio_g	AL_CRT			; output buffer to the screen
+	blbs	R0,DATSIT		; check service submission
+	movl	R0,GL_DMS_VMS(R11)	;  save error status for diagnostics
+	moval	PRB_DSPOUT, -		;  unable to queue terminal I/O vector
+		GL_DMSSTATUS(R11)	;
+CANCEL:	bicl2	#M_DISPLAY,GL_CSR(R11)	;  else, cancel display operations
+DATSIT:	bicl2	#M_NOTICE,GL_CSR(R11)	; clear notify bit... processing done
+	popr	#^M<R10>		; restore register contents
+	rsb				; return to caller
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+UPDATE_PARAM:
+;
+; This routine builds the 3 lower statistics lines into the screen buffer.
+; Upon entry, the cursor must be on the top lower legend (scale) line.
+; Upon exit, the cursor is located on the lowest legend (exit) line.
+; Called from: INIT_SCREEN , UPDATE_WINDOW
+; Subroutines: UNSIGNED_LONG_TO_ASCII
+; Register allocation:
+; R0  - L -  /W - scratch (implicit thru MOVCx)
+; R1  - L -  /W - scratch (implicit thru MOVCx) , segment transfer byte count
+; R2  -BWL-  /W - scratch (implicit thru MOVCx) , transient
+; R3  - L - R/W - buffer pointer
+; R4  - L -  /W - scratch (implicit thru MOVCx) , protocol index
+; R5  - L -  /W - scratch (implicit thru MOVCx) , protocol field shifter
+; R6  - * - */* - not referenced
+; R7  - * - */* - not referenced
+; R8  - * - */* - not referenced
+; R9  - * - */* - not referenced
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+; Nodes (right-justified 4) of (left-justified 4)
+;
+	movzbl	S_FIELD1,R1		; load location string size
+	movc3	R1,<S_FIELD1+1>,(R3)	; transfer location string
+	movzwl	GW_ACTIVNODE(R11),R4	; >value to output
+	bneq	NACTIV			; if value is zero (no node filtering)
+	movl	#^A/ all/,(R3)+		; then specify "all"
+	brb	NSPACE			; else
+NACTIV:	movzbl	#4,R2			;  >field width
+	movzbl	#^A/ /,R5		;  >right-justify -- pad spaces
+	jsb	UNSIGNED_LONG_TO_ASCII	;  format ASCII & transfer to buffer
+NSPACE:	movl	#^A/ of /,(R3)+		; transfer fixed spacer string
+	movzwl	GW_NODECOUNT(R11),R4	; >value to output
+	movzbl	#4,R2			; >field width
+	movzbl	#-1,R5			; >left-justify flag
+	jsb	UNSIGNED_LONG_TO_ASCII	; format ASCII & transfer to buffer
+;
+; Maximum frame size (left-justified 4)
+;
+	movzbl	S_FIELD2,R1		; load location string size
+	movc3	R1,<S_FIELD2+1>,(R3)	; transfer location string
+	cmpw	GW_FMIN(R11),GW_FMAX(R11);check min & max for reverse bias
+	bleq	FMAXOK			; if so then
+	clrl	R4			;  >values are meaningless... make 0
+	brb	MAXCVT			; else
+FMAXOK:	movzwl	GW_FMAX(R11),R4		;  >good value
+MAXCVT:	movzbl	#4,R2			; >field width
+	movzbl	#-1,R5			; >left-justify flag
+	jsb	UNSIGNED_LONG_TO_ASCII	; format ASCII & transfer to buffer
+;
+; Frames (zero-filled 10)
+;
+	movzbl	S_FIELD3,R1		; load location string size
+	movc3	R1,<S_FIELD3+1>,(R3)	; transfer location string
+	movl	GL_TOT_FRAMES(R11),R4	; >value to output
+	movzbl	#10,R2			; >field width
+	movzbl	#^A/0/,R5		; >right-justify -- pad zero
+	jsb	UNSIGNED_LONG_TO_ASCII	; format ASCII & transfer to buffer
+;
+; Accepted type (Ieee,etHr or blank)
+;
+	movb	#^A/ /,(R3)+		; advance to field (space)
+	movl	#^A/    /,R2		; assume no type filters active
+	bitl    #M_EBLOCK,GL_CSR(R11)	; if ethernet type block active
+	beql    T_IEEE			; then
+	movl	#^A/Ieee/,R2		;  update reason string
+	brb	T_MARK			; else
+T_IEEE:	bitl	#M_802BLOCK,GL_CSR(R11)	;  if ieee type block active
+	beql	T_MARK			;  then
+	movl    #^A/etHr/,R2		;   update reason string
+T_MARK:	movl    R2,(R3)+		; transfer reason string to buffer
+;
+; Update filter state (multicast & protocol), as required
+;
+	bitl	#M_NOTICE,GL_CSR(R11)	; check notification from input handler
+	beql	F_SKIP			; if set then
+	movw	#^A/ ./,R2		;  assume multicast is off
+	bitl    #M_MFILTER,GL_CSR(R11)	;  check multicast filter state
+	beql    M_MARK			;  if on then
+	movw	#^A/ M/,R2		;   override default
+M_MARK:	movw    R2,(R3)+		;  transfer appropriate multicast symbol
+;
+	movzbl	S_FIELD4,R1		;  load location string size
+	movc3	R1,<S_FIELD4+1>,(R3)	;  transfer location string
+	movzwl	GW_ACTPTCL(R11),R5	;  load active protocol mask
+	rotl    #-1,R5,R5		;  place on-off in high bit, shift ptcls
+	movl    #1,R4			;  index at initial protocol
+P_LOOK:	tstl    R5			;  check protocol field
+	blss    P_HIGH			;  if overall state is inhibited then
+	blbs    R5,P_INIB		;   if protocol is inactive then
+	movb    #^A/_/,(R3)+		;    low symbol
+	brb     P_MORE			;   else
+P_INIB:	movb    #^A/-/,(R3)+		;    intermediate symbol
+	brb     P_MORE			;   endif
+P_HIGH:	blbs    R5,P_GOOD		;  else if protocol is inactive then
+	movb    #^A/_/,(R3)+		;   low symbol
+	brb     P_MORE			;  else
+P_GOOD:	movb	<S_FLTSTATE-1>[R4],(R3)+;   symbol is protocol number
+P_MORE:	ashl    #-1,R5,R5		;  endif... adjust protocols
+	aobleq  #GK_PTCLS,R4,P_LOOK	;  repeat until all protocol checked
+F_SKIP:					; endif
+;
+; Collision factor (in parts per thousand) (right-justified 3)
+;
+	movzbl	S_FIELD5,R1		; load location string size
+	movc3	R1,<S_FIELD5+1>,(R3)	; transfer location string
+	movzwl	GW_COLLISION(R11),R4	; >value to output
+	movzbl	#3,R2			; >field width
+	movzbl	#^A/ /,R5		; >right-justify -- pad spaces
+	jsb	UNSIGNED_LONG_TO_ASCII	; format ASCII & transfer to buffer
+;
+; Average frame size (left-justified 4)
+;
+	movzbl	S_FIELD6,R1		; load location string size
+	movc3	R1,<S_FIELD6+1>,(R3)	; transfer location string
+	movl	GL_FMEAN(R11),R4	; >value to output
+	movzbl	#4,R2			; >field width
+	movzbl	#-1,R5			; >left-justify flag
+	jsb	UNSIGNED_LONG_TO_ASCII	; format ASCII & transfer to buffer
+;
+; Rejected Frames (zero-filled 10)
+;
+	movzbl	S_FIELD7,R1		; load location string size
+	movc3	R1,<S_FIELD7+1>,(R3)	; transfer location string
+	addl3	GL_F802FILT(R11), -	; summ up ethernet and ieee dropped
+		GL_FETHFILT(R11),R4	; >total rejected
+	movzbl	#10,R2			; >field width
+	movzbl	#^A/0/,R5		; >right-justify -- pad zero
+	jsb	UNSIGNED_LONG_TO_ASCII	; format ASCII & transfer to buffer
+;
+; Rejected type (Ieee,etHr or blank)
+;
+	movb	#^A/ /,(R3)+		; advance to field (space)
+	movl	#^A/    /,R2		; assume no type filters active
+	bitl    #M_EBLOCK,GL_CSR(R11)	; if ethernet type block active
+	beql    T_EEEI			; then
+	movl	#^A/etHr/,R2		;  update reason string
+	brb	T_KRAM			; else
+T_EEEI:	bitl	#M_802BLOCK,GL_CSR(R11)	;  if ieee type block active
+	beql	T_KRAM			;  then
+	movl    #^A/Ieee/,R2		;   update reason string
+T_KRAM:	movl    R2,(R3)+		; transfer reason string to buffer
+;
+; Clock (zero-filled 5+5)
+;
+	movzbl	S_FIELD8,R1		; load location string size
+	movc3	R1,<S_FIELD8+1>,(R3)	; transfer location string
+	movb	#^A/(/,(R3)+		; transfer cycle delimiter
+	movzwl	GW_CURCYCLE(R11),R4	; >value to output
+	movzbl	#5,R2			; >field width
+	movzbl	#^A/0/,R5		; >right-justify -- pad zero
+	jsb	UNSIGNED_LONG_TO_ASCII	; format ASCII & transfer to buffer
+	movb	#^A/)/,(R3)+		; transfer cycle delimiter
+	cvtfl	F_PREVIOUS,R4		; >value to output
+	movzbl	#5,R2			; >field width
+	movzbl	#^A/0/,R5		; >right-justify -- pad zero
+	jsb	UNSIGNED_LONG_TO_ASCII	; format ASCII & transfer to buffer
+;
+; Minimum frame size (left-justified 4)
+;
+	movzbl	S_FIELD9,R1		; load location string size
+	movc3	R1,<S_FIELD9+1>,(R3)	; transfer location string
+	cmpw	GW_FMIN(R11),GW_FMAX(R11);check min & max for reverse bias
+	bleq	FMINOK			; if so then
+	clrl	R4			;  >values are meaningless... make 0
+	brb	MINCVT			; else
+FMINOK:	movzwl	GW_FMIN(R11),R4		;  >good value
+MINCVT:	movzbl	#4,R2			; >field width
+	movzbl	#-1,R5			; >left-justify flag
+	jsb	UNSIGNED_LONG_TO_ASCII	; format ASCII & transfer to buffer
+;
+	rsb				; return to caller
+;       
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+UNSIGNED_LONG_TO_ASCII:
+;
+; This routine converts a given unsigned digit into its ASCII representation.
+; The output string can be right-justified (any positive or zero pad character
+; i.e. typical low-ASCII) or left-justified (negative input -- padded with
+; spaces). Field width must be positive (non-zero). On conversion overflow,
+; the string is filled with "*". On return the field pointer is advanced to
+; the following byte. 
+; Called from: UPDATE_PARAM
+; Subroutines: none
+; Register allocation:
+; R0  - L -  /W - scratch (implicit thru MOVCx) , division remainder
+; R1  - L -  /W - scratch (implicit thru MOVCx) , work index
+; R2  - L-  R/W - scratch (implicit thru MOVCx) , field width
+; R3  - L - R/W - field pointer
+; R4  - L - R/W - scratch (implicit thru MOVCx) , input value
+; R5  -BL - R/W - scratch (implicit thru MOVCx) , fill character
+; R6  - * - */* - not referenced
+; R7  - * - */* - not referenced
+; R8  - * - */* - not referenced
+; R9  - * - */* - not referenced
+; R10 - * - */* - not referenced
+; R11 - * - */* - not referenced
+;
+	subl3	#1,R2,R1		; max index = width - 1
+	movb	R5,(R3)			; store filler character @ string-top
+	clrl	R5			; ms-longword of r4:r5 quadword
+CV_NXT:	ediv	#10,R4,R4,R0		;  value = value/10 (& remainder)
+	addb3	#^A/0/,R0,(R3)[R1]	;  store ascii(remainer) @ ls-digit
+	tstl	R4			;  if value not zero
+	beql	CV_OK			;  then
+	decl	R1			;   progress towards front of string
+	bgeq	CV_NXT			;   if field overflow
+	movc5	#0,(R3),#^A/*/,R2,(R3)	;   then fill with "*" & exit
+	rsb				;  else (computation complete)
+CV_OK:	tstl	R1			;   if string is not full
+	beql	CV_PTR			;   then
+	movb	(R3),R5			;    if padding character is negative
+	bgeq	CD_LEF			;    then
+	subl3	R1,R2,R0		;     compute effective string length
+	movc5	R0,(R3)[R1],#^A/ /, -	;     left justify (pad right spaces)
+		R2,(R3)			;
+	rsb				;    else
+CV_PAD:	movb	R5,(R3)[R1]		;     right justify (pad left)
+CD_LEF:	decl	R1			;     until string is full
+	bgtr	CV_PAD			;    endif
+CV_PTR:	addl2	R2,R3			;   update pointer past string
+	rsb				;  endif - exit
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+PUT_BAR:
+;
+; This routine creates a 2 intensity histogram bar of lenght proportional to
+; the value pair contained in the argument registers. The active scale specifies
+; the argument passign mechanism, by value (integer) for linear scales and by
+; reference (to floating) for logarithmic scale. The resulting graphic string
+; is put into the screen buffer. Limiting is performed at half scale (linear).
+; See comment block below for an optional user customization.
+; Called from: UPDATE_WINDOW
+; Subroutines: MTH$ALOG10
+; Register allocation:
+; R0  -FL -  /W - scratch (implicit thru MOVCx)
+; R1  - L -  /W - scratch (implicit thru MOVCx) , segment transfer byte count
+; R2  - L -  /W - scratch (implicit thru MOVCx)
+; R3  - L -  /W - buffer pointer
+; R4  - L -  /W - scratch (implicit thru MOVCx)
+; R5  - L -  /W - scratch (implicit thru MOVCx)
+; R6  - * - */* - not referenced
+; R7  - * - */* - not referenced
+; R8  - L - R/W - integer argument 1 or pointer to floating argument 1
+; R9  - L - R/W - integer argument 2 or pointer to floating argument 2
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+	movzbl	S_START,R1		; load cursor preparation string size
+	movc3	R1,<S_START+1>,(R3)	; transfer string to buffer
+	bitl	#M_SCALE2,GL_CSR(R11)	; check logarithmic scale bit state
+	beql	LINEAR			; if set then (logarithmic_scale)
+	tstf	(R8)			;  if 1st pointed value is null
+	bneq	LOG1			;  then
+	clrl	R8			;   make argument null
+	brb	LOG2ND			;  else
+LOG1:	pushl	R8			;   stack reference
+	calls	#1,G^MTH$ALOG10		;   compute base 10 logarithm of value
+	mulf2	#10.0,R0		;   scale unit to column displacement
+	cvtfl	R0,R8			;   pursue computation in integer format
+	addl2	#30,R8			;   offset to the 0 log mark (value = 1)
+LOG2ND:	tstf	(R9)			;  else if 2nd pointed value is null
+	bneq	LOG2			;  then
+	clrl	R9			;   make argument null
+	brb	LINEAR			;  else
+LOG2:	pushl	R9			;   stack reference
+	calls	#1,G^MTH$ALOG10		;   compute base 10 logarithm of value
+	mulf2	#10.0,R0		;   scale unit to column displacement
+	cvtfl	R0,R9			;   pursue computation in integer format
+	addl2	#30,R9			;   offset to the 0 log mark (value = 1)
+LINEAR:	tstl	R8			; if first argument is zero
+	beql	NEUTRE			; then skip 1st bar segment processing
+	bitl	#M_SCALE,GL_CSR(R11)	; check linear scale bit state
+	beql	LIM1			; if set then (full_scale)
+	blbc	R8,EVEN1		;  if argument is odd number
+	incl	R8			;  then make it even (next upper)
+EVEN1:	ashl	#-1,R8,R8		;  divide by 2 (output scaling)
+	brb	FILL1			; else (half_scale)
+LIM1:	cmpl	#50,R8			;  limit check first argument
+	bgeq	FILL1			;  if beyond bounds
+	movl	#50,R8			;  then maximize
+FILL1:	movc5	#0,(R11),#^A/a/,R8,(R3)	; transfer block to buffer
+NEUTRE:	movzbl	S_MIDDLE,R1		; load intensity switch string size
+	movc3	R1,<S_MIDDLE+1>,(R3)	; transfer string to buffer
+	tstl	R9			; if second argument is zero
+	beql	CLEAN			; then skip 2nd bar segment processing
+	bitl	#M_SCALE,GL_CSR(R11)	; check linear scale bit state
+	beql	LIM2			; if set then (full_scale)
+	blbc	R9,EVEN2		;  if argument is odd number
+	incl	R9			;  then make it even (next upper)
+EVEN2:	ashl	#-1,R9,R9		;  divide by 2 (output scaling)
+	brb	FILL2			; else (half_scale)
+LIM2:	cmpl	#50,R9			;  limit check second argument
+	bgeq	FILL2			;  if beyond bounds
+	movl	#50,R9			;   then maximize
+FILL2:	subl2	R8,R9			; compute difference between 2 segments
+	bleq	CLEAN			; if 2nd segment not occluded then
+;+++++++
+	movc5	#0,(R11),#^A/a/,R9,(R3)	;  transfer block to buffer
+;+++++++
+; OPTIONAL USER DISPLAY CUSTOMIZATION
+; The code sections (i.e. between +++++++) immediately above and below this
+; comment block will produce different trailing ends for graphic bars.
+; The default (above) is normally acceptable on VT terminals (better on color
+; terminals) but can be difficult to see on workstation DECterms. You may wish
+; to deactivate (comment out) the default code line and activate (uncomment)
+; the alternate code (4 lines below)... and rebuild this program.
+;+++++++
+;	decl	R9			;  compute segment length minus tail
+;	beql	TAIL			;  if length is positive then
+;	movc5	#0,(R11),#^A/q/,R9,(R3)	;   transfer block of "-" to buffer
+;TAIL:	movb	#^A/u/,(R3)+		;  add tail (sideway T)
+;+++++++
+CLEAN:	movzbl	S_END,R1		; load line clearing string size
+	movc3	R1,<S_END+1>,(R3)	; transfer string to buffer
+	rsb				; return to caller
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+STATS_ON:
+;
+; This routine is activated when the statistics control bit is 'on'. It either
+; creates a new statistics file or connects to the screen. Upon failure, it
+; stores a status code in the control section and cancels statistics processing.
+; Called from: MAIN
+; Subroutines: SYS$CONNECT , SYS$CREATE , SYS$OPEN
+; Register allocation:
+; R0  - L -  /W - system calls status
+; R1  - L -  /W - (affected by system calls)
+; R2  - * - */* - not referenced
+; R3  - * - */* - not referenced
+; R4  - * - */* - not referenced
+; R5  - * - */* - not referenced
+; R6  - * - */* - not referenced
+; R7  - * - */* - not referenced
+; R8  - * - */* - not referenced
+; R9  - * - */* - not referenced
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+	bitl	#M_OUTPUT,GL_CSR(R11)	; if statistics log file missing
+	bneq	USE_FL			; then
+	bitl	#M_BATCH,GL_CSR(R11)	;  if mode is interactive
+	beql	USE_TT			;  then use terminal equivalence
+	brb	USE_DF			;  else use default output file name
+USE_FL:	movab	GS_OUTFILE(R11),-	; else
+		T_FILE+FAB$L_FNA	;  use specified log file string
+	movb	GW_OUTSIZE(R11),-	;  use log specified file string size
+		T_FILE+FAB$B_FNS	;  to prepare RMS access blocks
+USE_DF:	$create	fab=T_FILE		;  create a new file from file info
+	blbs	R0,PLUG			;  if unsuccessful then
+DRAIN:	bicl2	#<M_STATISTICS!-	;   cancel statistics
+		M_OUTPUT>,GL_CSR(R11)	;   ...and output file processing
+	moval	PRB_DMSFILE,-		;   identify error
+		GL_DMSSTATUS(R11)	; 
+	movl	T_FILE+FAB$L_STS,-	;   store RMS/R0 status for diagnostics
+		GL_DMS_VMS(R11)		; 
+	movl	T_FILE+FAB$L_STV,-	;   store extended information
+		GL_DMS_EXT(R11)		; 
+	rsb				;  return to caller
+USE_TT:	movl	<D_OUTPUT+4>,-		; else
+		T_FILE+FAB$L_FNA	;  use default output device name
+	movb	D_OUTPUT,-		;  use default output string size
+		T_FILE+FAB$B_FNS	;  ... in file access block
+	$open	fab=T_FILE		;  simply attach device (already exists)
+	blbc	R0,DRAIN		;  if successful then
+PLUG:	$connect -			; establish record connection
+		rab=T_REC		; ... with record access block
+	blbs	R0,SOK			; validate success
+	bicl2	#<M_STATISTICS!-	;  cancel statistics
+		M_OUTPUT>,GL_CSR(R11)	;  ...and output file processing
+	moval	PRB_DMSFILE,-		;  identify error
+		GL_DMSSTATUS(R11)	; 
+	movl	T_REC+RAB$L_STS,-	;  store RMS/R0 status for diagnostics
+		GL_DMS_VMS(R11)		; 
+	movl	T_REC+RAB$L_STV,-	;  store extended information
+		GL_DMS_EXT(R11)		; 
+SOK:	rsb				; return to caller
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+OUTPUT_STATS:
+;
+; This routine formats the principal network traffic counters as well as defined
+; protocol and node cycle counters to the specified output sink.
+; Called from: MAIN
+; Subroutines: SYS$FAO , SYS$GETMSG , SYS$PUT
+; Register allocation:
+; R0  - L -  /W - system calls status
+; R1  - LW-  /W - (affected by system calls) , protocol hit scan index
+; R2  - L -  /W - scratch (implicit thru CMPCx) , protocol hits mask
+; R3  - L -  /W - scratch (implicit thru CMPCx) , protocol hits string pointer
+; R4  - L -  /W - node sort current ptr , node direction index
+; R5  - L -  /W - node sort next ptr , data block index
+; R6  - L -  /W - node sort new ptr , protocol & node [source:destination] state
+; R7  - L -  /W - node sort new index , protocol & node block pointer
+; R8  - L -  /W - heap pointer - top of item list
+; R9  - L -  /W - saved stack pointer contents
+; R10 - L - R/  - buffer section pointer
+; R11 - L - R/  - control section pointer
+;
+; Allocate working space... based on largest statistics message arguments (10)
+; and fix computed address into call blocks
+;
+	bisw2	#M_UNSAFE,GW_EFLAGS(R10); set work-in-progress semaphore
+	movl	SP,R9			; prepare to build stack item list
+	subl2	#40,SP			; create heap space (10 longwords)
+	movl	SP,R8			; setup heap pointer
+	movl	R8,-			; permanently store heap pointer
+		AL_STS_FAO+FAOL$_PRMLST	; ...into FAO argument list
+	movl	<D_WORK+4>,-		; prepare output record address
+		T_REC+RAB$L_RBF		; ...into record access block
+;
+; Process independant statistics... each line follows a similar pattern
+;
+	movaq	D_STS01,-		; >statistics line 1 control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,S01Z			; validate result
+BADFAO:	bicl2	#<M_STATISTICS!-	;  cancel statistics
+		M_OUTPUT>,GL_CSR(R11)	;  ...and output file processing
+	moval	PRB_DMSFILE,-		;  identify global error
+		GL_DMSSTATUS(R11)	; 
+	moval	PRB_DSPFAO,-		;  identify more specific error type
+		GL_DMS_VMS(R11)		; 
+	movl	R0,GL_DMS_EXT(R11)	;  store message code for diagnostics
+	movl	R9,SP			;  discard heap - restore stack
+	rsb				;  return to caller
+S01Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S02A			; validate success, else
+BADIO:	bicl2	#<M_STATISTICS!-	;  cancel statistics
+		M_OUTPUT>,GL_CSR(R11)	;  ...and output file processing
+	moval	PRB_DMSFILE,-		;  identify error
+		GL_DMSSTATUS(R11)	; 
+	movl	T_FILE+FAB$L_STS,-	;  store RMS status for diagnostics
+		GL_DMS_VMS(R11)		; 
+	movl	T_FILE+FAB$L_STV,-	;  store extended information
+		GL_DMS_EXT(R11)		; 
+	movl	R9,SP			;  discard heap - restore stack
+	rsb				;  return to caller
+;
+S02A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movaq	D_VERSION,(R8)		; >fao #1 - version number
+	movq	GQ_GOTIME(R11),-	; get cycle end time
+		Q_WORKTIME		; 
+	subl2	GQ_STOPTIME(R11),-	; compute cycle duration low portion
+		Q_WORKTIME		; 
+	sbwc	<GQ_STOPTIME+4>(R11),-	; compute cycle duration high portion
+		<Q_WORKTIME+4>		; 
+	movaq	Q_WORKTIME,4(R8)	; >fao #2 - cycle duration time
+	movaq	D_STS02,-		; >statistics line 2 control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; merge variables and control string
+	blbs	R0,S02Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S02Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S03A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S03A:	clrw	T_REC+RAB$W_RSZ		; prepare output record size (nil)
+	$put	rab=T_REC		; write to file
+	blbs	R0,S04A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S04A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movaq	D_STS04,-		; >statistics line 4 control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,S04Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S04Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S05A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S05A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	subw3	GW_NODESIZE(R11),#29,R2	; spacing = (36-lead) - field width
+	movzwl	R2,(R8)			; >fao #1 - spacing
+	movzwl	GW_NODESIZE(R11),4(R8)	; >fao #2 - node string size
+	movab	GS_NODENAME(R11),8(R8)	; >fao #3 - node string
+	movzwl	GW_ADAPSIZE(R11),12(R8)	; >fao #4 - adapter string size
+	movab	GS_ADAPTER(R11),16(R8)	; >fao #5 - adapter string
+	subw3	GW_ADAPSIZE(R11),#10,R2	; spacing = 10 - field width
+	movzwl	R2,20(R8)		; >fao #6 - spacing
+	cvtfl	GF_FMAXRATE(R11),24(R8)	; >fao #7 - maximum cycle frame rate
+	cvtfl	GF_FMINRATE(R11),R2	; load minimum cycle frame rate
+	cmpl	R2,24(R8)		; check for reverse bias (rate)
+	bleq	S05B			; if so then
+	clrl	R2			;  values are meaningless... make 0
+	clrl	24(R8)			;  (for both min & max values)
+S05B:	cvtfl	GF_FMAXLOAD(R11),28(R8)	; >fao #8 - maximum cycle network load
+	cvtfl	GF_FMINLOAD(R11),R3	; load minimum cycle network load
+	cmpl	R3,28(R8)		; check for reverse bias (collision)
+	bleq	S05C			; if so then
+	clrl	R3			;  values are meaningless... make 0
+	clrl	28(R8)			;  (for both min & max values)
+S05C:	movzwl	GW_MAXCOLL(R11),32(R8)	; >fao #9 - maximum cycle collision rate
+	movzwl	GW_MINCOLL(R11),R4	; load minimum cycle collision rate
+	cmpl	R4,32(R8)		; check for reverse bias (load)
+	bleq	S05D			; if so then
+	clrl	R4			;  values are meaningless... make 0
+	clrl	32(R8)			;  (for both min & max values)
+S05D:	movaq	D_STS_SEG0,-		; >statistic top segment line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; merge variables and control string
+	blbs	R0,S05Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S05Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S06A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S06A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movl	R2,(R8)			; >fao #1 - minimum cycle frame rate
+	movl	R3,4(R8)		; >fao #2 - minimum cycle network load
+	movl	R4,8(R8)		; >fao #3 - minimum cycle collision rate
+	movaq	D_STS_SEG1,-		; >statistic bottom segment line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; merge variables and control string
+	blbs	R0,S06Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S06Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S07A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S07A:	clrw	T_REC+RAB$W_RSZ		; prepare output record size (nil)
+	$put	rab=T_REC		; write to file
+	blbs	R0,S08A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S08A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movaq	D_STS_SIZ0,-		; >statistics size legend line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,S08Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S08Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S09A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S09A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movab	S_STS_CAT,(R8)		; >fao #1 - Category marker string
+	movaq	D_STS_HDR0,-		; >statistics global legend line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,S09Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S09Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S10A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S10A:	clrw	T_REC+RAB$W_RSZ		; prepare output record size (nil)
+	$put	rab=T_REC		; write to file
+	blbs	R0,S11A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S11A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movab	S_STS_G1,(R8)		; >fao #1 - Ethernet marker string
+	subl3	GL_F802COUNT(R11),-	; ethernet = total - IEEE
+		GL_TOT_FRAMES(R11),4(R8); >fao #2 - total ethernet frames
+	movl	GL_FETHMLT(R11),8(R8)	; >fao #3 - total ethernet multicasts
+	subl3	GL_TOT_B802(R11),-	; ethernet = total - IEEE
+		GL_TOT_BYTES(R11),12(R8); >fao #4 - total ethernet bytes
+	movl	4(R8),R2		; load ethernet frames
+	beql	S11B			; if non-zero then
+	divl3	R2,12(R8),16(R8)	;  >fao #5 - average = bytes/frames
+	movzwl	GW_FETHMIN(R11),20(R8)	;  >fao #6 - minimum ethernet frame size
+	movzwl	GW_FETHMAX(R11),24(R8)	;  >fao #7 - maximum ethernet frame size
+	brb	S11C			; else
+S11B:	clrl	16(R8)			;  >fao #5 - no average
+	clrq	20(R8)			;  >fao #6+7 - insignificant min:max
+S11C:	movaq	D_STS_GBL0,-		; >statistics global legend line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,S11Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S11Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S12A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S12A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movab	S_STS_G2,(R8)		; >fao #1 - IEEE marker string
+	movl	GL_F802COUNT(R11),4(R8)	; >fao #2 - total IEEE frames
+	movl	GL_F802MLT(R11),8(R8)	; >fao #3 - total IEEE multicasts
+	movl	GL_TOT_B802(R11),12(R8)	; >fao #4 - total IEEE bytes
+	movl	4(R8),R2		; load IEEE frames
+	beql	S12B			; if non-zero then
+	divl3	R2,12(R8),16(R8)	;  >fao #5 - average = bytes/frames
+	movzwl	GW_F802MIN(R11),20(R8)	;  >fao #6 - minimum IEEE frame size
+	movzwl	GW_F802MAX(R11),24(R8)	;  >fao #7 - maximum IEEE frame size
+	brb	S12C			; else
+S12B:	clrl	16(R8)			;  >fao #5 - no average
+	clrq	20(R8)			;  >fao #6+7 - insignificant min:max
+S12C:	movaq	D_STS_GBL0,-		; >statistics global legend line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,S12Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S12Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S13A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S13A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movab	S_STS_G3,(R8)		; >fao #1 - Total marker string
+	movl	GL_TOT_FRAMES(R11),4(R8); >fao #2 - total frames
+	addl3	GL_FETHMLT(R11),-	; total = ethernet + IEEE
+		GL_F802MLT(R11),8(R8)	; >fao #3 - total multicasts
+	movl	GL_TOT_BYTES(R11),12(R8); >fao #4 - total bytes
+	movl	4(R8),R2		; load frames
+	beql	S13B			; if non-zero then
+	divl3	R2,12(R8),16(R8)	;  >fao #5 - average = bytes/frames
+	movzwl	GW_FMIN(R11),20(R8)	;  >fao #6 - minimum frame size
+	movzwl	GW_FMAX(R11),24(R8)	;  >fao #7 - maximum frame size
+	brb	S13C			; else
+S13B:	clrl	16(R8)			;  >fao #5 - no average
+	clrq	20(R8)			;  >fao #6+7 - insignificant min:max
+S13C:	movaq	D_STS_GBL0,-		; >statistics global legend line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,S13Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S13Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S14A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S14A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	addl3	GL_FETHFILT(R11),-	; total = ethernet + IEEE
+		GL_F802FILT(R11),(R8)	; >fao #1 - total frames filtered
+	movl	GL_FMLTFILT(R11),4(R8)	; >fao #2 - total multicasts filtered
+	movl	GL_TOT_BFILT(R11),8(R8)	; >fao #3 - total bytes filtered
+	movaq	D_STS_GBL1,-		; >statistics filter legend line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,S14Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S14Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,S15A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+S15A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	addl3	GL_EACQDROP(R10),-	; dropped = ACQ + DMS input dropped
+		GL_EQIORPHAN(R10),(R8)	; >fao #1 - total frames dropped
+	movaq	D_STS_GBL2,-		; >statistics drop legend line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; merge variables and control string
+	blbs	R0,S15Z			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+S15Z:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,SP0A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+; Process protocol dependant statistics...
+;
+SP0A:	movzwl	GW_DEFPTCL(R11),R6	; if some protocols are defined
+	bneq	SP0B			; then...
+	brw	SN0A			; 
+SP0B:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movaq	D_STS_SIZ0,-		; >statistics size legend line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,SP0C			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+SP0C:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,SP0D			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+SP0D:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movab	S_STS_PRO,(R8)		; >fao #1 - Protocol marker string
+	movaq	D_STS_HDR0,-		; >statistics global legend line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,SP0E			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+SP0E:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,SP0F			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+SP0F:	clrw	T_REC+RAB$W_RSZ		; prepare output record size (nil)
+	$put	rab=T_REC		; write to file
+	blbs	R0,SPA			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+SPA:	clrl	R5			; initialize protocol index
+SPB:	aobleq	#GK_PTCLS,R5,SPC	; for all (defined) protocols [1..max,0]
+	brw	SP_DO0			; do
+SPC:	ashl	#-1,R6,R6		;  isolate protocol state (low bit)
+	bneq	SPD			;  while some active states left
+	brw	SP_DO0			;  do...
+SPD:	blbc	R6,SPB			;  if protocol is defined then
+	movl	AL_PTCLDIR[R5],R7	;   get pointer to protocol block
+	movl	R5,8(R8)		;   >fao #3 - protocol number
+SP_X:	movzwl	GW_PSIZE(R7),(R8)	;   >fao #1 - name string size
+	movab	GS_PNAME(R7),4(R8)	;   >fa0 #2 - name string
+	movl	GL_PMULTI(R7),16(R8)	;   >fao #5 - multicast frames counted
+	movl	GL_PBYTES(R7),20(R8)	;   >fao #6 - bytes counted
+	movl	GL_PMATCH(R7),12(R8)	;   >fao #4 - frames counted
+	bneq	SPE			;   if frames counted is null then
+	clrl	24(R8)			;    >fao #7 - insignificant mean size
+	clrq	28(R8)			;    >fao #8+9 - insignificant min:max
+	brb	SPF			;   else
+SPE:	divl3	GL_PMATCH(R7),-		;    average = total size / total frames
+		GL_PBYTES(R7),24(R8)	;    >fao #7 - average frame size
+	movzwl	GW_PMIN(R7),28(R8)	;    >fao #8 - minimum frame size
+	movzwl	GW_PMAX(R7),32(R8)	;    >fao #9 - maximum frame size
+SPF:	movw	#GK_VALSIZE_MAX,D_WORK	;   reset work descriptor size to max
+	movaq	D_STS_PX,-		;   >statistics line protocol control
+		AL_STS_FAO+FAOL$_CTRSTR	;   load into argument list
+	$faol_g	AL_STS_FAO		;   merge variables and control string
+	blbs	R0,SPZ			;   if unsuccessful then
+	brw	BADFAO			;    signal unsuccessful conversion
+SPZ:	movw	D_WORK,T_REC+RAB$W_RSZ	;   prepare output record size
+	$put	rab=T_REC		;   write to file
+	blbs	R0,SP_DOX		;   validate success, else
+	brw	BADIO			;    signal unsuccessful file write
+SP_DOX:	brw	SPB			;  end do
+SP_DO0:	cmpl	#<GK_PTCLS+1>,R5	;  if last run-through (special)
+	blss	SP_END			;  then
+	movl	#<GK_PTCLS+1>,R5	;   garantee single-run only
+	movl	AL_PTCLDIR,R7		;   point to unmatched protocol block
+	clrl	8(R8)			;   >fao #3 - protocol number is zero
+	brw	SP_X			; enddo
+SP_END:	clrw	T_REC+RAB$W_RSZ		; prepare output record size (nil)
+	$put	rab=T_REC		; write to file
+	blbs	R0,SN0A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+; Process node dependant statistics...
+;
+SN0A:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movab	S_STS_M,(R8)		; >fao #1 - maximum rate marker
+	movab	S_STS_A,4(R8)		; >fao #2 - default average load marker
+	bitl	#M_PEAK,GL_CSR(R11)	; if peak specified
+	beql	SN0B			; then
+	movab	S_STS_M,4(R8)		;  >fao #2 - maximum load marker
+SN0B:	movaq	D_STS_SIZ1,-		; >statistics size legend line control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,SN0C			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+SN0C:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,SN0D			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+SN0D:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movaq	D_STS_HDR1,-		; >statistics line node legend control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; merge variables and control string
+	blbs	R0,SN0E			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+SN0E:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,SN0F			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+SN0F:	clrw	T_REC+RAB$W_RSZ		; prepare output record size (nil)
+	$put	rab=T_REC		; write to file
+	blbs	R0,SN_A			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+; Sort nodes by name (discard disabled/inactive nodes)
+;
+SN_A:	movl	AL_NODEDIR,R4		; (initial) current pointer @ 0
+	clrl	GL_NEXT_NAME(R4)	; (initial) current.next = 0 (self-ref)
+	movzwl	GW_NODECOUNT(R11),R7	; (initial) new = max_index
+SN_B:	movl	AL_NODEDIR[R7],R6	;  pointer @ new
+	bitb	#M_NDISABLE,-		;  if
+		GB_NSRC_CTL(R6)		;    source disabled
+	beql	SN_C			;    and
+	bitb	#M_NDISABLE,-		;    destination disabled
+		GB_NDST_CTL(R6)		;  then
+	bneq	SN_F			;   skip this node entirely, do next
+SN_C:	addl3	GL_NSRC_FRAMES(R6),-	;  if total node frames is zero
+		GL_NDST_FRAMES(R6),R1	;  then
+	beql	SN_F			;   skip this node entirely, do next
+	movl	AL_NODEDIR,R4		;  current pointer @ 0
+SN_D:	movl	GL_NEXT_NAME(R4),R5	;  next = current.next
+	beql	SN_E			;  if next not zero (end-of-chain) then
+	movl	AL_NODEDIR[R5],R5	;   pointer @ next
+	cmpc5	GW_NSIZE(R6), -		; 
+		GS_NNAME(R6),#^A/ /, -	; 
+		GW_NSIZE(R5), -		; 
+		GS_NNAME(R5)		;   if new.name > next.name
+	blequ	SN_E			;   then
+	movl	R5,R4			;    current pointer @ next (advance)
+	brb	SN_D			;  else (insert between current & next)
+SN_E:	movl	GL_NEXT_NAME(R4), -	;   new.next = current.next
+		GL_NEXT_NAME(R6)	; 
+	movl	R7,GL_NEXT_NAME(R4)	;   current.next = new
+SN_F:	sobgtr	R7,SN_B			; repeat for all nodes
+;
+; Scan node sorted list and output
+;
+	movl	AL_NODEDIR,R7		; point @ node-header (multicast)
+SNA:	movl	GL_NEXT_NAME(R7),R5	; index = node.next
+	movl	AL_NODEDIR[R5],R7	; point to indexed node
+	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movzwl	GW_NSIZE(R7),(R8)	; >fao #1 - node name string size
+	movab	GS_NNAME(R7),4(R8)	; >fao #2 - node name string
+	movaq	D_STS_N0,-		; >statistics line node name control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; merge variables and control string
+	blbs	R0,SNB			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+SNB:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,SNC			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+SNC:	clrl	R4			; initialize direction index
+SND:	bneq	SNE			; if source (first line) then
+	movab	S_STS_S,(R8)		;  >fao #1 - source caption
+	brb	SNF			; else (second line)
+SNE:	movab	S_STS_D,(R8)		;  >fao #1 - destination caption
+SNF:	bitb	#M_NDISABLE,-		; endif
+		GB_NSRC_CTL(R7)[R4]	; if direction disabled
+	beql	SNG			; then
+	movab	S_STS_Z,(R8)		;  >fao #1 - overwrite (inhibit) caption
+SNG:	movab	S_STS_NOP,4(R8)		; >fao #2 - assume no protocol hits
+	movab	S_802NOHIT,8(R8)	; >fao #3 - assume no IEEE hit
+	movzwl	GW_NSRC_PVISIT(R7)[R4],R2;load direction protocol hit mask
+	bbcc	#V_PONOFF,R2,SNH	; if IEEE actually hit (bad assumption)
+	movab	S_802HIT,8(R8)		;  >fao #3 - update IEEE hit string
+SNH:	tstl	R2			; if some protocol hits
+	beql	SNL			; then
+	movab	S_STS_P,4(R8)		;  >fao #2 - update protocol hits string
+	movl	#1,R1			;  initialize protocol scan index
+SNI:	ashl	#-1,R2,R2		;  for each position in hit mask do
+	blbs	R2,SNJ			;   if protocol miss then
+	movb	#^A/_/,S_STS_P[R1]	;    blank protocol identifier
+	brb	SNK			;   else
+SNJ:	movb	<S_FLTSTATE-1>[R1], -	;    inscribe protocol identifier
+		S_STS_P[R1]		;   endif
+SNK:	aobleq	#GK_PTCLS,R1,SNI	;  end do
+SNL:	cvtfl	GF_NSRC_PKRATE(R7)[R4],-; >fao #4 - direction peak frame rate
+		12(R8)			; 
+	cvtfl	GF_NSRC_AVGPEAK(R7)[R4],-;>fao #5 - direction mean|peak load
+		16(R8)			; 
+	movl	GL_NSRC_BYTES(R7)[R4],-	; >fao #7 - direction bytes
+		24(R8)			; 
+	movl	GL_NSRC_FRAMES(R7)[R4],-; >fao #6 - direction frames
+		20(R8)			; 
+	bneq	SNM			; if frames counted is null then
+	clrl	28(R8)			;  >fao #8 - insignificant mean size
+	clrq	32(R8)			;  >fao #9+10 - insignificant min:max
+	brb	SNN			; else
+SNM:	divl3	GL_NSRC_FRAMES(R7)[R4],-;  average = total size / total frames
+		GL_NSRC_BYTES(R7)[R4],-	;  >fao #8 - average frame size
+		28(R8)			; 
+	movzwl	GW_NSRC_MIN(R7)[R4],-	;  >fao #9 - minimum frame size
+		32(R8)			; 
+	movzwl	GW_NSRC_MAX(R7)[R4],-	;  >fao #10 - maximum frame size
+		36(R8)			; 
+SNN:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movaq	D_STS_NX,-		; >statistics line node control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; merge variables and control string
+	blbs	R0,SNO			; if unsuccessful then
+	brw	BADFAO			;  signal unsuccessful conversion
+SNO:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,SNP			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+SNP:	acbl	#1,#1,R4,SND		; repeat process for each direction
+	tstl	R5			; if current index is not zero
+	beql	SNZ			; then
+	brw	SNA			;  repeat process for next node
+SNZ:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movaq	D_STS01,-		; >statistics line 1 (& last) control
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,SN_END		; validate result
+	brw	BADFAO			;  signal unsuccessful conversion
+SN_END:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,SCYC			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+; Produce status indicator line
+;
+SCYC:	$getmsg_s -			; get message text from vector
+		msgid= #PRB_FLUSH,-	; >statistics cycle completion message
+		msglen=D_TEXT,-		; >returned string size
+		bufadr=D_TEXT		; >returned string
+	blbs	R0,SCYC2		; validate prevous call success
+	brw	BADFAO			;  signal unsuccessful conversion
+SCYC2:	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	incw	W_REPCYCLE		; keep track of number of stats reported
+	movzwl	W_REPCYCLE,(R8)		; >fao #1 - cycle number
+	clrl	4(R8)			; >fao #2 - current time
+	movaq	D_TEXT,-		; >statistics status indicator line
+		AL_STS_FAO+FAOL$_CTRSTR	; load into argument list
+	$faol_g	AL_STS_FAO		; expand control string
+	blbs	R0,SCYC3		; validate result
+	brw	BADFAO			;  signal unsuccessful conversion
+SCYC3:	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	$put	rab=T_REC		; write to file
+	blbs	R0,SFIN			; validate success, else
+	brw	BADIO			;  signal unsuccessful file write
+;
+SFIN:	movw	#GK_VALSIZE_MAX,D_TEXT	; reset message descriptor size to max
+	movw	#GK_VALSIZE_MAX,D_WORK	; reset work descriptor size to max
+	movl	R9,SP			; discard heap - restore stack
+	bicw2	#M_UNSAFE,GW_EFLAGS(R10); reset work-in-progress semaphore
+	rsb				; return to caller
+;
+;; MODULES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	HANDLE,EXE,NOWRT,NOSHR
+;
+	.ENTRY	SHUTDOWN,^M<R2,R3,R4,R5,R11>
+;
+; This module is called automatically by VMS upon image rundown, after being
+; declared by DMS as an exit handler once display or statistics processing is
+; validated. The purpose of this module is to finalize actions taken, clean up
+; data structures, produce reports (as required)...i.e. to gracefully complete
+; processing.
+; User mode files are closed implicitely by RMS.
+; Diagnostics are handled by PROBE.
+; Called from: MAIN (can be externally forced)
+; Subroutines: SYS$FAO , SYS$GETMSG , SYS$QIOW , SYS$SETEF
+;	       OUTPUT_STATS
+; Register allocation: unpredictable upon entry, no further impact upon exit.
+;
+	movl	AL_CTL,R11		; load control section starting address
+	movl	AL_BUF,R10		; load buffer section starting address
+;
+; if display active, release by moving cursor to bottom of screen
+;
+	bitl	#M_DISPLAY,GL_CSR(R11)	; if display is active
+	beql	BOTTOM			; then
+	movl	AL_CRT+QIO$_P1,R3	;  establish buffer loading pointer
+	movw	#^X5B1B,(R3)+		;  <esc>[  : control string initiator
+	movzwl	GW_CRTLINES(R11),R4	;  load page size (extended lower half)
+	clrl	R5			;  init extended integer upper half
+	ediv	#10,R4,R1,R2		;  compute tens & units
+	beql	UNITS			;  if tens not null then
+	addb3	#^A/0/,R1,(R3)+		;   convert tens to ASCII
+UNITS:	addb3	#^A/0/,R2,(R3)+		;  convert units to ASCII
+	movl	#^X0A48313B,(R3)+	;  ;1H<lf> : control string terminator
+	subl3	AL_SCR,R3,AL_CRT+QIO$_P2;  compute buffer size
+	$qiow_g	AL_CRT			;  release screen
+BOTTOM:
+;
+; cleanup (STATS processing) if less cycles reported than processed and
+; data structures are safe (signal interrupted work)
+;
+	bitl	#M_STATISTICS,-		; if statistics requested
+		GL_CSR(R11)		; then
+	beql	WAVE			; 
+	cmpw	W_REPCYCLE,-		;  if pending cycles to report
+		GW_CURCYCLE(R11)	;  then
+	bgequ	WAVE			; 
+	bitw	#M_UNSAFE,GW_EFLAGS(R10);   if no work-in-progress
+	bneq	CONCUR			;   then
+;
+	jsb	OUTPUT_STATS		;    generate statistics
+;
+WAVE:	brw	BYE			; leave...
+CONCUR:	$getmsg_s -			; get problem message from vector
+		msgid= #PRB_UNSAFE,-	; >interrupted rundown message vector
+		msglen=D_TEXT,-		; >returned string size
+		bufadr=D_TEXT		; >returned string
+	blbc	R0,BYE			; if unsuccessful then abort
+	movzwl	GW_CURCYCLE(R11),R5	; produce message for current cycle
+	$fao_s	ctrstr=D_TEXT,-		; >use previous text as directive string
+		outlen=D_WORK,-		; >returned string size
+		outbuf=D_WORK,-		; >returned string
+		p1=    R5		; >fao #1 - cycle
+	blbc	R0,BYE			; if unsuccessful then abort
+	movw	D_WORK,T_REC+RAB$W_RSZ	; prepare output record size
+	movl	<D_WORK+4>,-		; prepare output record address
+		T_REC+RAB$L_RBF	; 
+	$put	rab=T_REC		; write concurrency problem message
+	blbs	R0,BYE			; validate success, else
+	moval	PRB_DMSFILE,-		;  identify error
+		GL_DMSSTATUS(R11)	; 
+	movl	T_FILE+FAB$L_STS,-	;  store RMS status for diagnostics
+		GL_DMS_VMS(R11)		; 
+	movl	T_FILE+FAB$L_STV,-	;  store extended information
+		GL_DMS_EXT(R11)		; 
+BYE:	$setef_s -			; notify parent process of termination
+		efn=#GV_DMSFINISH	; >signing off event flag
+	bbcci	#V_SLEEP,GL_CSR(R11),-	; if parent currently sleeping
+		ADIOS			; then
+	$wake_s	pidadr=GL_PID(R11)	;  wake it up
+ADIOS:	ret				; complete rundown (normal END)
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.END	DMS

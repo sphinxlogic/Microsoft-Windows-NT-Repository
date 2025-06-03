@@ -1,0 +1,272 @@
+	.TITLE	KILLDRIVER -- SYSAP pour forcer le crash d'une station HANG- alpha
+	.IDENT	/V2.0/
+;
+;	GG	9-mar-1994	V2.0	ALPHA support
+;	GG	6-nov-1990	V1.0-2	added SMPMOD in DPT (was not generated)
+;	GG	30-oct-1990	V1.0-1	added PCB lw in UCB to restore R4 in start I/O
+;	GG			V1.0-0	released
+;
+
+	.SBTTL	External symbol definitions
+;
+;  External symbols
+;
+	.LIBRARY	/SYS$LIBRARY:LIB/
+	$DCDEF	; Define device classes
+	$CRBDEF ; Channel request block
+	$DCDEF  ; Device classes and types
+	$DDBDEF ; Device data block
+	$DYNDEF ; Dynamic-data-structure types
+	$IDBDEF ; Interrupt data block
+	$IRPDEF ; I/O request packet
+	$IODEF  ; I/O function codes
+	$JIBDEF ; JIB offsets
+	$PCBDEF	; Process control block
+	$SPLCODDEF	; Spin locks
+	$SSDEF  ; system condition codes
+	$UCBDEF ; Unit control block
+	$VECDEF ; Interrupt vector block
+	$CDTDEF	; Connection descriptor table
+	$PDTDEF	; Port descriptor table
+	$SBDEF	; System block
+	$PBDEF	; Path block
+;
+	$DEFINI	UCB,GLOBAL
+.	=	UCB$K_LENGTH
+$DEF	UCB$L_KILL_PCB		.blkl	1		; sauvegarde adresse PCB
+$DEF	UCB$L_KILL_UNLOADABLE	.blkl	1
+$DEF	UCB$L_KILL_CDT		.blkl	1
+$DEF	UCB$L_KILL_CDTSAV	.blkl	1
+$DEF	UCB$L_KILL_LISTEN_STS	.blkl	1
+$DEF	UCB$B_KILL_SYSTEMID	.blkb	SB$S_SYSTEMID	; pourrait aller dans l'IRP
+$DEF	UCB$K_KILL_LENGTH
+	$DEFEND	UCB
+;
+	.SBTTL	KILLDRIVER Driver Prologue Table
+;
+;  Driver prologue table
+;
+	DPTAB	-
+		END=kill$END_OF_DRIVER,-
+		ADAPTER=NULL,-
+		FLAGS=<DPT$M_SCS!DPT$M_SMPMOD>,-
+		UCBSIZE=UCB$K_KILL_LENGTH,-
+		NAME=KILLDRIVER,-
+		UNLOAD=KILL$UNLOAD,-
+		STEP=2
+
+;
+;  Driver dispatch table
+;
+	DDTAB	-
+		START=kill$START,-
+		CANCEL=kill$CANCEL,-
+		FUNCTB=kill$FDT,-
+		UNITINIT=kill$UNIT_INIT, -
+		DEVNAM=KILL
+;
+	FDT_INI	FDT=kill$FDT
+	FDT_ACT	kill$fdt_unload,UNLOAD
+	FDT_ACT	kill$fdt_initialize,INITIALIZE
+	FDT_ACT	kill$fdt_stop,STOP
+;
+kill$PRNAME:
+	.ASCII	"VMS$VAXClystere "	; nom process SCS (16 car.)
+kill$PRINFO:
+	.ASCII	"Gare au gorille!"	; ident. process SCS (16 car.)
+;
+	DPT_STORE	INIT
+
+	DPT_STORE	UCB   ,  UCB$B_FLCK,B,SPL$C_SCS
+	DPT_STORE	UCB   ,  UCB$B_DIPL,B,22
+	DPT_STORE	UCB   ,  UCB$L_DEVCHAR,L,<DEV$M_SHR!DEV$M_IDV>
+	DPT_STORE	UCB   ,  UCB$L_DEVCHAR2,L,<DEV$M_NNM>	; ca fait joli
+	DPT_STORE	UCB   ,  UCB$B_DEVCLASS,B,DC$_SCOM
+	DPT_STORE	UCB   ,  UCB$L_KILL_CDT,L,0
+
+	DPT_STORE	REINIT
+
+	DPT_STORE	DDB   ,  DDB$L_DDT,D,kill$DDT
+	DPT_STORE	UCB   ,  UCB$L_KILL_UNLOADABLE,L,SS$_DRV_NOUNLOAD;pas trouvé.
+
+	DPT_STORE	END
+
+	.psect	$$$115_driver
+;
+;
+;	UNIT_INIT (IDB,UCB)
+;
+kill$unit_init:
+	.call_entry	2 preserve=<R5>
+	movl	8(AP),R5
+	BSBB	DO_FORK
+	movzbl	#SS$_NORMAL,R0
+	RET
+;
+;	pour restaurer ce R5, et que 0(SP) - @ caller's caller
+;
+DO_FORK:.jsb32_entry
+;
+;	on forke dans le CRB. il faut initialiser CRB$B_FLCK
+;
+	FORK					; access SCS with SCS spinlock
+;
+;	R5: UCB
+;
+;;;	MOVAB	kill$PRNAME,R1
+;
+;	locate	process
+;
+;;;	JSB	G^SCS$LOCLOOKUP		; pas AXP ...
+;
+;	R0	status
+;	R1	SDIR
+;	R3	CDT or 0 if failure
+;	all others preserved
+;
+;;;	BLBC	R0,2$
+;
+;	already exists
+;
+;;;	RSB
+2$:
+;
+	MOVL	UCB$L_KILL_CDT(R5),R3
+	MOVL	R3,UCB$L_KILL_CDTSAV(R5)
+	beql	10$
+	moval	kill$connect_rcv,CDT$L_MSGINPUT(R3)
+	moval	kill$listen_error,CDT$L_ERRADDR(R3)
+	movl	#CDT$C_LISTEN,CDT$W_STATE(R3)
+	movl	#SS$_WASSET,R0
+	brb	20$
+10$:	LISTEN	MSGADR=kill$CONNECT_RCV,-
+		ERRADR=kill$LISTEN_ERROR,-
+		LPRNAM=kill$PRNAME,-
+		PRINFO=kill$PRINFO
+;
+;	R0	status
+;	R3	CDT or 0 if failure
+;	r1,r2	destroyed
+;	all others preserved
+;
+	movl	R3,UCB$L_KILL_CDT(R5)		; CDT
+20$:	movl	r0,UCB$L_KILL_LISTEN_STS(R5)	; listen_status
+	BLBC	R0,1$
+;
+	BISB2	#UCB$M_ONLINE,UCB$L_STS(R5)
+	BISL2	#DEV$M_AVL,UCB$L_DEVCHAR(R5)
+;	kata. que faire ?
+1$:	RSB
+;
+;	CONTROLLER INIT ROUTINE
+;
+;	modification du process SCS en unsupported
+;
+;	a lock SCS
+;
+;	arguments:	DDB, DPT
+;
+kill$UNLOAD:
+	.call_entry	2,preserve=<R5>
+	movl	4(AP),R0			; DDB
+	movl	DDB$L_UCB(r0),r1		; UCB
+	movl	UCB$L_KILL_UNLOADABLE(r1),r0
+	RET
+;
+kill$LISTEN_ERROR:	.jsb_entry
+	DISCONNECT
+	RSB
+;
+kill$CONNECT_RCV:	.jsb_entry
+	BUG_CHECK	CLUEXIT,FATAL
+;
+;	FDT pour le seul IO function code autorisé: IO$_STOP
+;	P1 contient l'adresse du systemid du noeud visé
+;
+kill$fdt_stop:
+	.call_entry	preserve=<R3,R4,R5>
+	movl	4(ap),r3
+	BISL3	irp$l_qio_p2(r3),irp$l_qio_p3(r3),R0
+	BISL	irp$l_qio_p4(r3),R0
+	BISL	irp$l_qio_p5(r3),R0
+	BISL	irp$l_qio_p6(r3),R0
+	BNEQ	BADPARAM			; p2--p6 doivent être nuls
+	MOVL	irp$l_qio_p1(r3),R1
+	IFNORD	#SB$S_SYSTEMID,(R1),ACCVIO	; impossible de lire le systemid
+	PUSHR	#^M<R3,R4,R5>			; sauvegarde de systemid dans
+	MOVC3	#SB$S_SYSTEMID,(r1),UCB$B_KILL_SYSTEMID(R5)	; l'UCB
+	POPR	#^M<R3,R4,R5>			; registres nécessaires
+	MOVL	R4,UCB$L_KILL_PCB(R5)		; save PCB address
+	CALL_QIODRVPKT	do_ret=yes		; call START IO
+BADPARAM:
+	MOVZBL	#SS$_BADPARAM,R0
+	BRB	ABORT
+ACCVIO:
+	MOVZBL	#SS$_ACCVIO,R0
+ABORT:	CALL_ABORTIO	do_ret=yes		;	JMP	G^EXE$ABORTIO
+
+kill$fdt_unload:
+	.call_entry	preserve=<R3,R4,R5>
+	movl	4(ap),r3
+	BISL3	irp$l_qio_p2(r3),irp$l_qio_p3(r3),R0
+	BISL	irp$l_qio_p4(r3),R0
+	BISL	irp$l_qio_p5(r3),R0
+	BISL	irp$l_qio_p6(r3),R0
+	BISL	irp$l_qio_p1(r3),R0
+	BNEQ	BADPARAM			; p2--p6 doivent être nuls
+	movl	12(ap),r5
+	movl	ucb$l_kill_cdt(r5),r4
+	movl	#CDT$C_CLOSED,CDT$W_STATE(r4)
+	movl	#SS$_NORMAL,UCB$L_KILL_UNLOADABLE(R5)
+	movl	#SS$_NORMAL,r0
+	call_finishioc do_ret=yes
+;
+kill$fdt_initialize:
+	.call_entry	preserve=<R3,R4,R5>
+	movl	4(ap),r3
+	BISL3	irp$l_qio_p2(r3),irp$l_qio_p3(r3),R0
+	BISL	irp$l_qio_p4(r3),R0
+	BISL	irp$l_qio_p5(r3),R0
+	BISL	irp$l_qio_p6(r3),R0
+	BISL	irp$l_qio_p1(r3),R0
+	BNEQ	BADPARAM			; p2--p6 doivent être nuls
+	movl	12(ap),r5
+	movl	ucb$l_kill_cdt(r5),r4
+	movl	#SS$_DRV_NOUNLOAD,UCB$L_KILL_UNLOADABLE(R5)
+	movl	#CDT$C_LISTEN,CDT$W_STATE(r4)
+	movl	#SS$_NORMAL,r0
+	call_finishioc do_ret=yes
+;
+;	START	I/O routine
+;	ouverture d'une connexion vers la machine cible.
+;
+;	R3	IRP
+;	R5	UCB
+kill$START:
+	.call_entry	preserve=<R2,R3,R4,R5>
+	movl	4(ap),r3
+	movl	8(ap),r5
+	bsbb	do_connect
+	ret
+;
+do_connect:.jsb32_entry
+	MOVL	UCB$L_KILL_PCB(R5),R4
+	MOVL	PCB$L_JIB(R4),R0
+	CONNECT	LPRNAM=kill$PRNAME,-
+		RPRNAM=kill$PRNAME,-
+		ERRADR=kill$LISTEN_ERROR,-
+		CONDAT=JIB$T_USERNAME(R0),-	; flicage
+		RSYSID=UCB$B_KILL_SYSTEMID(R5)	; attention: FORK
+;
+;	r0	status
+;	R1,R2	destroyed
+;	R3	address of CDT or 0 if unsuccessful
+;	R4	address of PDT
+;
+	REQCOM
+;
+kill$CANCEL:	.jsb_entry
+	RSB
+;
+kill$END_OF_DRIVER:
+	.end

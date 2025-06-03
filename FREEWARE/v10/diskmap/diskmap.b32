@@ -1,0 +1,809 @@
+%title 'plot disk allocation bitmap'
+module diskmap(
+	     ident='V2.6', 
+	     main=diskmap,
+	     addressing_mode(external=general,nonexternal=word_relative)
+	     ) =
+
+begin
+
+!++
+! Copyright (C) 1986, 1988 by
+! Digital Equipment Corporation, Maynard, Mass.
+!
+! ***DEC INTERNAL USE ONLY***
+!
+! Facility:	DISKMAP - disk bitmap display tool
+!
+! Abstract:	Plots the disk allocation bitmap as a raster
+!		image on a VAXstation, thus allowing the degree
+!		of fragmentation to be visually assessed.
+!
+! Environment:	VAX/VMS, DECwindows, user mode
+!
+! Author:	Dave Porter, 22-Nov-1986
+!
+! V2.0	18-Nov-1988
+!	Switch to using DECwindows.  Note that support
+!	is very limited in this version; we certainly don't
+!	offer a true DECwindows look and feel.
+!
+! V2.1  29-Nov-1988
+!	Add our very own icon (thanks for the help, Dan)
+!
+! V2.2	30-Nov-1988
+!	Change name to "DISKMAP" to avoid conflict with
+!	the X11 bitmap editor.
+!
+! V2.3	1-Dec-1988
+!	Include handler for our own signals, so we don't
+!	get traceback info if we happen to be linked /TRACEBACK.
+!
+! V2.4	7-Mar-1989
+!	Clean up comments around window property setup
+!
+! V2.5	19-Jun-1989
+!	Open file for write (briefly) to flush cache
+!
+! V2.6	1-Oct-1990
+!	Use increasing co-ords for windows so that
+!	they don't overlap.
+!
+!--
+
+
+%sbttl 'libraries and externals'
+
+library 'sys$library:lib';
+require 'sys$library:decw$xlibdef';
+require 'sys$library:decw$dwtdef';
+
+external literal
+    diskmap$_facility,
+    dm$_size,
+    dm$_shape,
+    dm$_colour,
+    dm$_parse,
+    dm$_open,
+    dm$_cache,
+    dm$_xopen,
+    dm$_map,
+    dm$_gack,
+    dm$_oflo,
+    dm$_bigend,
+    dm$_nalign,
+    dm$_gotlost;
+
+external routine
+    lib$get_input,
+    lib$put_output,
+    lib$get_vm,
+    str$trim,
+    str$append,
+    str$copy_dx,
+    str$copy_r,
+    str$free1_dx;
+
+forward routine
+    do_one_disk,
+    map_bitmap,
+    display_map,
+    exposed,
+    countbits,
+    handler;
+
+macro 
+    descriptor(cl) =
+	block[8,byte] preset([dsc$w_length]=0,
+			     [dsc$b_class]=%name(dsc$k_class_,cl),
+			     [dsc$b_dtype]=dsc$k_dtype_t,
+			     [dsc$a_pointer]=0)
+	%;
+
+%sbttl 'plot disk allocation bitmap'
+routine diskmap =
+
+!++
+! Functional description:
+!
+! This program graphically illustrates the degree of 
+! disk fragmentation by plotting the disk bitmap as 
+! a raster image. It can simulataneously display several
+! disks.
+!
+!--
+
+    begin
+
+    builtin
+	fp;
+
+    local 
+	status,
+	inp   : descriptor(d);
+
+    !
+    ! Enable condition handler
+    !
+    .fp = handler;
+
+    !
+    ! Get next disk name, exit when blank line is entered
+    !
+    lib$put_output(%ascid'Prod RETURN to exit');
+    while begin
+	  status = lib$get_input(inp, %ascid'Disk: ');
+          str$trim(inp, inp);
+	  .status and (.inp[dsc$w_length] neq 0)
+	  end
+    do
+	begin
+
+	!
+	! Ensure there's a colon at the end of the device name
+	! because we're going to use $PARSE and (if it's a real 
+	! disk name, rather than a logical name) thus a  colon is
+	! essential.
+	!
+	if .inp[dsc$w_length] neq 0 and
+	    ch$find_ch(.inp[dsc$w_length], .inp[dsc$a_pointer], ':') eql 0
+	then
+	    str$append(inp, %ascid':');
+
+	! 
+	! Go and build display for this disk
+	!
+	do_one_disk(inp);
+
+	!
+	! Loop to suspend and/or get next disk name. Note that have
+	! not closed the existing file, deleted any windows, etc etc.	
+	! Eventually we'll run out of something.
+	!
+	end;
+
+    !
+    ! Exit from program, let image exit reclaim all resources
+    !
+    1
+    end;
+
+%sbttl 'plot bitmap for one disk'
+routine do_one_disk(inp : ref block[8,byte]) =
+
+!++
+! Functional description:
+!
+! This routine does the work for one disk
+!
+! Inputs:
+!
+!   inp = name of device
+!
+! Return value:
+!
+!   status = success/failure status
+!
+!--
+
+    begin
+
+    local 
+	nbits,
+	bmapv : vector[2],
+	scb   : ref block[,byte],
+	dev   : descriptor(d),
+	status;
+
+    !
+    ! Map the whole bitmap file into memory, then adjust pointer 
+    ! past overhead guff.
+    !
+    status = map_bitmap(.inp, dev, bmapv);
+    if not .status then return .status;
+    scb	     = .bmapv[0];
+    bmapv[0] = .bmapv[0] + 512; 
+
+    !
+    ! Figure out size of bitmap from volume size and cluster factor.
+    ! Ensure that bitmap is contained within the mapped file (!)
+    !
+    nbits = .scb[scb$l_volsize] / .scb[scb$w_cluster];
+    if .bmapv[0]+((.nbits+7)/8)-1 gtr .bmapv[1]
+    then
+	signal_stop(dm$_oflo);
+    signal(dm$_size, 4, dev, 
+	              .scb[scb$l_volsize], 
+		      countbits(.bmapv[0],.nbits) * .scb[scb$w_cluster],
+		      .scb[scb$w_cluster]);
+
+    !
+    ! And finally display it. Note, the bitmap data itself
+    ! must remain beyond the lifetime of this routine, since it
+    ! is plotted asynchronously.
+    !
+    status = display_map(dev, .bmapv[0], .nbits);
+
+    !
+    ! Free up the string storage
+    !
+    str$free1_dx(dev);
+
+    !
+    ! Return success/failure status
+    !
+    .status
+
+    end;
+
+%sbttl 'map bitmap.sys into address space'
+routine map_bitmap(
+		  idev  : ref block[8,byte], 
+		  odev  : ref block[8,byte],
+		  mapad : ref vector[2]
+		  ) =
+
+!++
+! Functional description:
+!
+! Opens BITMAP.SYS on the specified device, and maps
+! it into our virtual address space.
+!
+! Inputs:
+!
+!   idev    = descriptor for disk device spec (must have a colon!)
+!
+! Outputs:
+!
+!   odev    = device name after parse
+!   mapad   = two-longword vector containing mapped address
+!
+! Return value:
+!
+!   status  = true if it worked 
+!	      false if it didn't (file open error)
+!
+!--
+
+    begin
+
+    local 
+	status,
+	wstatus,
+	fab   : $fab_decl,
+	nam   : $nam_decl,
+	sbuff : vector[nam$c_maxrss,byte];
+
+    !
+    ! Firstly, parse the device name to get the underlying physical
+    ! device.  We want to do this because we'd like to be able to
+    ! find the bitmap for the real device when given a rooted directory.
+    !
+    $fab_init(
+	     fab=fab,
+	     nam=nam,
+	     fna=.idev[dsc$a_pointer],
+	     fns=.idev[dsc$w_length]
+	     );
+    $nam_init(
+	     nam=nam,
+	     nop=(noconceal,synchk),
+	     esa=sbuff,
+	     ess=nam$c_maxrss,
+	     rsa=sbuff,
+	     rss=nam$c_maxrss
+	     );
+    
+    !
+    ! Do the parse, and keep the returned device name
+    !
+    status = $parse(fab=fab);
+    if .nam[nam$b_rsl] neq 0 or .nam[nam$b_esl] neq 0
+    then
+	str$copy_r(.odev, %ref(.nam[nam$b_dev]), .nam[nam$l_dev])
+    else
+	str$copy_r(.odev, %ref(3), uplit('~~~'));
+    if not .status 
+    then 
+	begin
+	signal(dm$_parse, 1, .idev, .fab[fab$l_sts], .fab[fab$l_stv]);
+	return dm$_parse;
+	end;
+
+    !
+    ! Initialise RMS structures for user-file-open
+    !
+    $fab_init(
+	     fab=fab,
+	     fna=.odev[dsc$a_pointer],
+	     fns=.odev[dsc$w_length],
+	     dna=uplit byte('[000000]bitmap.sys'),
+	     dns=%charcount('[000000]bitmap.sys'),
+    	     fop=(ufo),
+             fac=(bio,get),
+    	     shr=(upi,get,put,upd)
+	     );
+
+    !
+    ! Briefly open the bitmap file for write; this apparently
+    ! flushes any allocation cache, and will therefore give
+    ! a better picture.  Errors are basically ignored, we'll catch
+    ! anything we care about on the next open.
+    !
+    fab[fab$v_put] = 1;
+    wstatus = $open(fab=fab);
+
+    !
+    ! Open the bitmap read-only
+    !
+    fab[fab$v_put] = 0;
+    status = $open(fab=fab);
+    if not .status 
+    then 
+	begin
+	signal(dm$_open, 1, .odev, .fab[fab$l_sts], .fab[fab$l_stv]);
+	return dm$_open;
+	end;
+
+    !
+    ! Map the entire file into P0
+    !
+    status = $crmpsc(inadr=uplit(0,0), retadr=.mapad,
+		     flags=sec$m_expreg, chan=.fab[fab$l_stv]);
+    if not .status 
+    then 
+	signal_stop(dm$_map, 1, .odev, .status);
+
+    !
+    ! If we managed to open the file for read access but didn't
+    ! manage the write access, let someone know.
+    !
+    if not .wstatus then signal(dm$_cache);
+
+    !
+    ! Nothing succeeds like success
+    !
+    1
+
+    end;
+
+%sbttl 'display bitmap'
+routine display_map(dev : ref block[8,byte], bits : ref bitvector, nbits) =
+
+!++
+! Functional description:
+!
+! Create a suitably-sized virtual display and window, and
+! displays the bitmap as a raster image.
+!
+! Inputs:
+!
+!   dev     = descriptor for disk device spec
+!   bits    = bitmap
+!   nbits   = size of bitmap, in bits
+!
+! Routine value:
+!
+!   status  = true if it worked (always)
+!
+!--
+
+    begin
+
+    bind
+	zero      = uplit(0),
+	one       = uplit(1),
+        sixteen   = uplit(16),
+	thirtytwo = uplit(32),
+	exxes     = plit(128,256,512,768,960,1024) : vector,
+	i32dat    = uplit byte(
+	   %x'01', %x'1b', %x'00', %x'c0', %x'03', %x'00', %x'76', %x'5f',
+	   %x'f7', %x'ac', %x'06', %x'38', %x'01', %x'fb', %x'f9', %x'0f', 
+	   %x'01', %x'00', %x'86', %x'7e', %x'ff', %x'ff', %x'ff', %x'ff',
+	   %x'ff', %x'df', %x'bf', %x'07', %x'01', %x'00', %x'00', %x'30',
+	   %x'ab', %x'b5', %x'ff', %x'ef', %x'03', %x'80', %x'ff', %x'ff', 
+	   %x'b7', %x'6c', %x'00', %x'00', %x'01', %x'00', %x'00', %x'7f',
+	   %x'ff', %x'c1', %x'f7', %x'7e', %x'ff', %x'7f', %x'ac', %x'fa',
+	   %x'01', %x'00', %x'ac', %x'7d', %x'03', %x'00', %x'00', %x'00', 
+	   %x'af', %x'52', %x'd6', %x'fd', %x'b1', %x'00', %x'a0', %x'f3',
+	   %x'17', %x'13', %x'3f', %x'40', %x'1f', %x'00', %x'00', %x'3f',
+	   %x'e7', %x'f7', %x'ff', %x'5e', %x'01', %x'00', %x'00', %x'f0', 
+	   %x'ff', %x'4b', %x'd2', %x'7f', %x'7f', %x'ff', %x'bf', %x'ff',
+	   %x'f9', %x'02', %x'00', %x'10', %x'01', %x'00', %x'9e', %x'ec',
+	   %x'ff', %x'ff', %x'8f', %x'9c', %x'01', %x'71', %x'80', %x'00', 
+	   %x'ff', %x'7f', %x'bf', %x'07', %x'03', %x'00', %x'00', %x'40',
+	   %x'ff', %x'ff', %x'ff', %x'ff', %x'ff', %x'ff', %x'ff', %x'ff'
+           ),
+	i16dat    = uplit byte(
+	   %x'89', %x'f9', %x'01', %x'03', %x'7f', %x'ff', %x'3d', %x'18', 
+	   %x'ff', %x'ff', %x'01', %x'00', %x'f7', %x'67', %x'01', %x'00', 
+	   %x'7d', %x'7e', %x'01', %x'00', %x'ff', %x'e3', %x'01', %x'fc',
+	   %x'f9', %x'03', %x'01', %x'fe', %x'f1', %x'00', %x'ff', %x'ff'
+	   );
+
+    own
+	display : initial (0),	    	! display, whatever that is
+	xoffset : initial (0),		! x-offset for this window
+	yoffset : initial (0);		! y-offset for this window
+
+    local
+	screen,		    		! screen identifier
+  	swd,		    		! width of screen (pixels)
+        sht,		    		! height of screen (pixels)
+	window,		    		! window identifier
+	wd,		    		! window width
+	ht,		    		! window height
+	x,				! horizontal position
+	y,				! vertical position
+	icon,				! icon pixmap id
+	iconify,			! iconify button pixmap id
+	gc,				! graphics context id
+	gcval    : x$gc_values,		! graphics context data
+	visual   : x$visual,  		! 'visual' type
+	imagptr  : ref x$image,		! image structure
+  	astprm   : ref vector,		! ast parameters
+	dwmhints : dwt$wm_hints_rec,	! decwindows manager hints
+	hatom;				! atom for above structure type
+
+    !
+    ! First time through, open connection to the display
+    ! 
+    if .display eql 0
+    then
+	begin
+        display = x$open_display(0);
+        if .display eql 0 then signal_stop(dm$_xopen);
+	end;
+
+    ! 
+    ! Check we support this display type
+    !
+    if x$bitmap_bit_order(display) neq x$c_lsb_first or
+       x$image_byte_order(display) neq x$c_lsb_first
+    then
+	signal_stop(dm$_bigend);
+    if 32 mod x$bitmap_unit(display) neq 0 or
+       32 mod x$bitmap_pad(display) neq 0
+    then
+	signal_stop(dm$_nalign);
+
+    !
+    ! Run synchronously for debugging ease (warning: this 
+    ! slows everything down, so remove it before release)
+    !
+!** x$synchronize(display, one, %ref(0));
+
+    !
+    ! Determine default screen and its dimensions 
+    !
+    screen = x$default_screen_of_display(display);
+    swd    = x$width_of_screen(screen);
+    sht    = x$height_of_screen(screen);
+
+    !
+    ! Determine required window size/shape to display the 
+    ! number of bits we've got.  Note that the 'exxes' table
+    ! must guarantee that the width is a multiple of the bitmap
+    ! unit size.  The unit size can be 8, 16 or 32, so we just
+    ! ensure all widths are multiples of 32.
+    !
+    incr i from 0 to .exxes[-1]-1 do
+	begin
+	wd = .exxes[.i];
+	ht = (.nbits + .wd - 1) / .wd;
+	if .wd leq .swd and    	! fits in available width
+	   .ht leq .sht and 	! fits in available height
+	   .ht leq .wd		! and isn't tall and thin
+	then
+	    exitloop;
+	wd = ht = 0;
+	end;
+    if .wd eql 0 then signal_stop(dm$_gack, 2, .swd, .sht);
+
+    !
+    ! Assign to a central position on the screen, staggered
+    ! slightly to avoid complete overlap.
+    !
+    x = (.swd - .wd) / 2;
+    if .x + .xoffset + .wd geq .swd then xoffset = 0;
+    x = .x + .xoffset;
+    xoffset = .xoffset + 25;
+    y = (.sht - .ht) / 2;
+    if .y + .yoffset + .ht geq .sht then yoffset = 0;
+    y = .y + .yoffset;
+    yoffset = .yoffset + 25;
+
+    !
+    ! Copy the default visual, whatever that is
+    !
+    x$default_visual_of_screen(screen, visual);
+
+    !
+    ! At last, we're ready to create the window
+    !
+    window = x$create_window(
+			    display, 
+	 		    %ref(x$root_window_of_screen(screen)),
+			    x, y,		! window co-ords 
+			    wd, ht,		! size
+			    one,		! border width
+			    %ref(x$default_depth_of_screen(screen)),
+			    %ref(x$c_input_output),
+			    visual,		! default visual
+			    zero,		! attribute mask 
+			    zero		! no attribute block
+			    );
+    x$set_window_background(display, window, %ref(x$white_pixel_of_screen(screen)));
+    signal(dm$_shape, 2, .wd, .ht);
+
+    !
+    ! Create a pixmap to use as an icon, and another one to
+    ! use as an iconify button (doubles as a small icon sometimes)
+    !
+    icon = x$create_bitmap_from_data(
+				    display,
+				    %ref(x$default_root_window(display)),  
+				    i32dat, thirtytwo, thirtytwo
+				    );
+    iconify = x$create_bitmap_from_data(
+				    display,
+				    %ref(x$default_root_window(display)),  
+				    i16dat, sixteen, sixteen
+				    );
+
+    !
+    ! Set up window name, icon name, icon pixmap.
+    ! We probably ought to set up a 'size hints' here but we don't.
+    !
+    x$set_standard_properties(display, window, .dev, .dev, icon, 0, 0, 0);
+
+    !
+    ! DECwindows-specific stuff: set up a pixmap for the 'iconify' button
+    !
+    hatom = x$intern_atom(display, %ascid'DEC_WM_HINTS', zero);
+    dwmhints[dwt$l_hints_value_mask] = dwt$c_decwm_iconify_pixmap_mask;
+    dwmhints[dwt$l_hints_iconify_pixmap] = .iconify;
+    x$change_property(
+		     display, window,
+		     hatom, hatom, thirtytwo,
+		     %ref(x$c_prop_mode_replace),
+		     dwmhints,
+		     %ref(dwt$wm_num_dec_wm_hints_elem)
+		     );
+
+    !
+    ! Create the graphics context with appropriate foreground/background.
+    ! Note that '1' bits in the bitmap correspond to available disk clusters
+    ! and will be drawn in foreground colour; allocated bits (0)  will be
+    ! drawn in background colour.
+    !
+    gcval[x$l_gcvl_background] = x$white_pixel_of_screen(screen);
+    gcval[x$l_gcvl_foreground] = x$black_pixel_of_screen(screen);
+    gc = x$create_gc(
+		    display, window, 
+		    %ref(x$m_gc_foreground+x$m_gc_background),
+		    gcval
+		    );
+    signal(dm$_colour);
+
+    !
+    ! Create the image structure, in heap storage since
+    ! it needs to survive past routine exit
+    !
+    lib$get_vm(%ref(x$s_x$image), imagptr);
+    x$create_image(
+		  display,		! display
+		  visual,		! visual
+		  one,			! depth of image
+		  %ref(x$c_xy_bitmap),	! image format
+		  zero,			! offset into image data
+		  .bits,		! image data
+		  wd, ht,		! size of raster
+		  %ref(x$bitmap_pad(display)),	
+		  zero,			! bytes per line (computed)
+		  .imagptr		! image structure to fill in
+		  );
+
+    !
+    ! Enable reporting of exposure events via AST
+    !
+    lib$get_vm(%ref(6*%upval), astprm);
+    astprm[0] = .display;
+    astprm[1] = .window;
+    astprm[2] = .gc;
+    astprm[3] = .imagptr;
+    astprm[4] = .icon;
+    astprm[5] = .iconify;
+    x$select_async_input(
+		        display, 
+			window, 
+			%ref(x$m_exposure),
+			exposed,
+			astprm
+			);
+    x$select_input(display, window, %ref(x$m_exposure));
+
+    !
+    ! Map window: this will generate the first exposure event
+    ! and cause us to plot the image
+    !
+    x$map_window(display, window);
+    x$sync(display,  zero);
+
+    !
+    ! Return success
+    !
+    1
+    end;
+
+%sbttl 'plot image'
+routine exposed (prm : ref vector) =
+
+!++
+! Functional description:
+!
+! Handle exposure events by (re)plotting the image
+!
+! Inputs:
+!
+!   prm = pointer to parameter block
+!	prm[0] = display id
+!	prm[1] = window id
+!	prm[2] = gc id
+!	prm[3] = pointer to image structure
+!	prm[4] = icon id
+!
+! Routine value:
+!
+!   status  = true if it worked (always)
+!
+!--
+
+    begin
+
+    bind
+	display =  prm[0],
+	window  =  prm[1],
+	gc      =  prm[2],
+	image	= .prm[3] : x$image,
+	icon    =  prm[4],
+    	iconify =  prm[5],
+	zero    =  uplit(0);
+    local
+	event : x$event;
+    map
+	event : x$expose_event;
+
+    !
+    ! Read the event...
+    !
+    x$next_event(display, event);
+
+    !
+    ! Some consistency checks may be prudent
+    !
+    if .display neq .event[x$a_exev_display] or
+       .window neq .event[x$l_exev_window]
+    then
+	signal(dm$_gotlost);
+
+    ! 
+    ! We have a fairly simple exposure policy here: redraw the whole
+    ! image on the last exposure event
+    !
+    if .event[x$l_exev_count] eql 0
+    then
+    	x$put_image(
+		   display,			! display
+		   window,              	! window
+	           gc,				! graphics context
+	           image,			! image data
+	           zero, zero,			! source co-ords
+	           zero, zero,			! destination co-ords
+	           image[x$l_imag_width],	! raster width
+	           image[x$l_imag_height]	! raster height
+	           );
+
+    !
+    ! Flush it out to the display
+    !
+    x$sync(display, zero);
+
+    !
+    ! All done
+    !
+    1
+    end;
+
+%sbttl 'count set bits in bitmap'
+routine countbits(bits : ref bitvector, nbits) =
+
+!++
+! Functional description:
+!
+! Counts the number of asserted bits in the supplied
+! bitvector
+!
+! Inputs:
+!
+!   bits    = bitmap
+!   nbits   = size of bitmap, in bits
+!
+! Return value:
+!
+!   nset    = number of set bits
+!
+!--
+
+    begin
+
+    local
+	nset : initial(0);
+
+    !
+    ! Not the most efficient way of doing this...
+    !
+    incr i from 0 to .nbits-1 do
+	if .bits[.i] then nset = .nset + 1;
+
+    !
+    ! Return count
+    !
+    .nset
+
+    end;
+
+%sbttl 'condition handler'
+routine handler (sig : ref block[,byte], mech : ref block[,byte]) =         
+
+!++
+! Functional description:
+!
+! Handles internally-generated signals by calling
+! $PUTMSG.  Fatal errors cause image exit.
+! 
+! Inputs:
+!
+!   sig = signal vector
+!   mech = mechanism vector
+!
+! Routine value:
+!
+!   usual condition handler values
+!
+!--                                                                      
+                                                                         
+    begin
+    switches structure(block[,byte]);
+
+    !
+    ! Only handle our own (intentional) signals
+    !
+    if .sig[chf$l_sig_name][sts$v_fac_no] neq diskmap$_facility
+    then
+	return ss$_resignal;
+
+    !
+    ! Display the message
+    !
+    sig[chf$l_sig_args] = .sig[chf$l_sig_args] - 2;
+    $putmsg(msgvec=.sig);
+    sig[chf$l_sig_args] = .sig[chf$l_sig_args] + 2;
+    sig[chf$l_sig_name][sts$v_inhib_msg] = 1;
+
+    !
+    ! If it's fatal, then bomb the image now
+    !
+    if .sig[chf$l_sig_name][sts$v_severity] gequ sts$k_severe
+    then
+	$exit(code=.sig[chf$l_sig_name]);
+
+    !
+    ! Otherwise, continue from error
+    !
+    ss$_continue
+
+    end;
+
+end
+eludom

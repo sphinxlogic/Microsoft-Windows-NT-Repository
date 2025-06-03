@@ -1,0 +1,885 @@
+	.title	LOADCODE - filter outgoing TCP accesses, loadable code
+	.ident	/V2.2-AXP/
+;
+;	unload code when reloading driver.
+;	is conditional since it was on VAX, because the code used on VAX was
+;	not that straightforward. Much more easy on AXP.
+;
+	.if	NDF, UNLOAD
+UNLOAD=1
+	.endc
+;
+;	maintain debugging information
+;
+	.if	NDF, DEBUG
+DEBUG=1
+	.endc
+;
+;	perform auditing... conditional since the has recently
+;	changed and the code may not be portable after VMS 6.1
+;
+	.if	NDF, AUDIT
+AUDIT=1
+	.endc
+;									*/
+;	Copyright (©) Ecole Nationale Supérieure des Télécommunications */
+;									*/
+;	programmme pour filtrer les appels TCP/IP sortants		*/
+;									*/
+;	21-oct-1992:	Guillaume gérard				*/
+;									*/
+;	Ce logiciel est fourni gratuitement et ne peut faire		*/
+;		l'objet d'aucune commercialisation			*/
+;									*/
+;	Aucune garantie d'utilisation, ni implicite,			*/
+;		ni explicite, n'est fournie avec ce logiciel.		*/
+;		Utilisez-le à vos risques et périls			*/
+;									*/
+;	02-jun-1994 gg v2.2	structures for auditing			*/
+;	02-jun-1994 gg v2.1	use EXE$CHKPRO_INT interface
+;	02-oct-1992 gg v2.0	utilisation d'une table de securite
+;	14-oct-1991 GG v1.0-1	utilisation de deanonpaged plutot que deanonpgdisz
+;				raz du driver dans unload au cas ou pas unloadable
+;	7-oct-1991 GG v1.0:	création
+;
+;	Ce programme ne permet les connextions sortantes que 
+;	pour les appels sur les addresses autorisees en fonction
+;	des ACL et/ou des images effectuant l'appel
+;
+	.disable	global
+	.library	"[-]tcpfilter"
+	.library	"sys$share:lib"
+	$ACLDEF
+	$ATRDEF
+	$CCBDEF
+	$CHPCTLDEF
+	$CHPRETDEF	; for debugging purposes
+	$DDBDEF
+	$DDTDEF
+	$DPTDEF
+	$DYNDEF
+	$FCBDEF
+	$FKBDEF
+	$IMCBDEF
+	$IOCDEF
+	$IODEF
+	$IRPDEF
+	$NAMDEF
+	$NSAEVTDEF
+	$OCBDEF		; object class block
+	$OSRVDEF	; object class services
+	$ORBDEF
+	$PCBDEF
+	$PDSCDEF	; procedure descriptor
+	$PSLDEF
+	$PHDDEF
+	$SECDEF
+	$SPLCODDEF
+	$SSDEF
+	$WCBDEF
+	.page
+	.external	sch$iolockr,sch$iounlock,sch$lockr,sch$unlock
+	.external	ioc$parsdevnam,ioc$searchint,ioc$verifychan
+	.external	exe_std$abortio,exe$deanonpaged
+	.external	exe$primitive_fork
+	.external	exe$chkpro_int
+	.external	iac$gl_main_icb
+	.external	sys$fao
+	.external	bug$_inconstate
+	.macro	dbg_count	offset
+	.if	DF,DEBUG
+		ldq	R28,8*offset+dbgdata+8
+		addq	r28,#1,R28
+		stq	R28,8*offset+dbgdata+8
+	.endc
+	.endm
+	.macro	dbg_store	offset,reg
+	.if	DF,DEBUG
+		stq	reg,8*offset+dbgdata+8
+	.endc
+	.endm
+	.macro	M_jsb,addr
+		ldq	r28,ps_'addr'
+		ldq	r26,PDSC$Q_ENTRY(r28)
+		mov	r28,r27
+		JSR	r26,(r26)
+	.endm
+	.macro	M_bug_check,code
+		subq	sp,#16,sp
+		stq	r16,(sp)
+		stq	r17,8(sp)
+		ldq	r28,bug_'code'
+	    	mov	r28,r16
+		BUGCHK
+		ldq	r17,8(sp)
+		ldq	r16,(sp)
+		addq	sp,#16,sp
+	.endm
+	.macro	m_ifnord	size,addr,lab
+		lda	r16,addr		; addr
+		mov	size,r17		; siz
+		RD_PS
+		ASSUME	PSL$V_PRVMOD,EQ,0
+		and	r0,#PSL$M_PRVMOD,r18	; prvmod
+		PROBER
+		beq	r0,lab
+	.endm
+	.macro	ldzb_u	reg,offset,base
+		lda	reg,offset(base)
+		ldq_u	r22,offset(base)
+		extbl	r22,reg,reg
+	.endm
+	.macro	ldzw_u	reg,offset,base
+		lda	reg,offset(base)
+		ldq_u	r22,offset(base)
+		ldq_u	r23,offset+1(base)
+		extwl	r22,reg,r22
+		extwh	r23,reg,r23
+		or	r23,r22,reg
+	.endm
+	.macro	ldzl_u	reg,offset,base
+		lda	reg,offset(base)
+		ldq_u	r22,offset(base)
+		ldq_u	r23,offset+3(base)
+		extll	r22,reg,r22
+		extlh	r23,reg,r23
+		or	r23,r22,reg
+	.endm
+	.macro	ldzq_u	reg,offset,base
+		lda	reg,offset(base)
+		ldq_u	r22,offset(base)
+		ldq_u	r23,offset+7(base)
+		extql	r22,reg,r22
+		extqh	r23,reg,r23
+		or	r23,r22,reg
+	.endm
+;
+	act_def
+	.psect	stack,abs,noexe,octa
+stk$savpd=	.
+	.blkq	1
+stk$savret=.
+	.blkq	1
+stk$savr2=.
+	.blkq	1
+stk$savr3=.
+	.blkq	1
+stk$savr4=.
+	.blkq	1
+stk$savr5=.
+	.blkq	1
+stk$savr6=.
+	.blkq	1
+stk$savr7=.
+	.blkq	1
+stk$savr13=.
+	.blkq	1
+;
+;	the calling arguments to the FDT routine must be saved to
+;	be restored for the original FDT routine
+;
+stk$savr16=.
+	.blkq	1
+stk$savr17=.
+	.blkq	1
+stk$savr18=.
+	.blkq	1
+stk$savr19=.
+	.blkq	1
+stk$savfp=.
+	.blkq	1
+	.align	octa		; fausquifaut
+stk$k_length=	.
+;
+;
+	.psect	$kernel,rd,wrt,pic,octa,exe,mix	; quad to allow .align
+krnlstart::
+hdr:	.quad	0	; standard hdr
+	ASSUME	IRP$W_SIZE,eq,<.-KRNLSTART>
+krnlallocsz::	.blkw	1
+	ASSUME	IRP$B_TYPE,eq,<.-KRNLSTART>
+	.byte	DYN$C_BUFIO	; doit être >= 0 pour EXE$DEANONPAGED
+	.byte	1		; version 2	(this byte is *not* used) 
+	.long	0
+;				second octaword
+	.quad	0
+	.blkw	1
+	.byte	DYN$C_BUFIO	; doit être >= 0 pour EXE$DEANONPAGED
+	.byte	1		; version 2	(this byte *is* used)
+	.long	0
+	.align	quad
+;;;	ASSUME	<.&7>,EQ,0	;	doit etre sur une frontiere de quad
+krnldata::
+access_pd::	.blkb	PDSC$K_MIN_STACK_SIZE	; this routine PD
+drv_accessfdt::	.blkq	1		; @ of original access routine PD
+drv_unload::	.blkq	1		; @ of original unload routine PD
+access_table::	.blkq	1
+mutex::		.word	^XFFFF,0	; protects access table
+		.long	0
+	.if	DF,UNLOAD
+unload_pd::	.blkb	PDSC$K_MIN_STACK_SIZE	; this routine PD
+drv_fdtadr::	.blkq	1		; address of pointer of FDT routine
+	.endc
+		.blkq	16		; spare for extensions
+	.align	quad
+dbgdata::
+	.if	DF,DEBUG
+		.blkq	32
+chpret:		.blkb	CHPRET$C_LENGTH
+		.align	quad
+privs_used:	.blkq	1
+ace_len:	.blkw	1
+audit_len:	.blkw	1
+alarm_len:	.blkw	1
+ace:		.blkb	ATR$S_READACE
+nsa_alm_len=	<NSA$S_ALARM_NAME+1>*NSA$K_MAX_JOURNALS
+alarm_name:	.blkb	nsa_alm_len
+nsa_aud_len= 	<NSA$S_AUDIT_NAME+1>*NSA$K_MAX_JOURNALS
+audit_name:	.blkb	nsa_aud_len
+dbgdataend=	.
+.=		chpret+CHPRET$L_MATCHED_ACELEN
+		.long	ATR$S_READACE
+.=		chpret+CHPRET$L_ALARMLEN
+		.long	nsa_alm_len
+.=		chpret+CHPRET$L_AUDITLEN
+		.long	nsa_aud_len
+.=		dbgdataend
+	.endc
+	.if	DF,AUDIT
+    	.align quad
+osrv::	.blkb	OSRV$K_LENGTH	; empty block
+    	.align quad
+nsaacc::.blkb	NSA$K_ACCESS_LENGTH	; empty block
+bitout:	.ascii	/Outgoing/
+bitin:	.ascii	/Incoming/
+	.align	quad
+bitnames::.blkl	32
+out:	.long	8
+	.long	0
+in:	.long	8
+	.long	0
+ocb::	.blkb	OCB$K_LENGTH
+strstr:	.ascii	/!UB.!UB.!UB.!UB Port:!UW/
+ctrstr:	.long	.-strstr
+	.address strstr
+auditend=	.
+.=	ocb+OCB$T_NAME
+	.ascii	/IP destination/
+l=	.-<ocb+ocb$t_name>
+.=	ocb+OCB$L_NAME_LENGTH
+	.long	l
+.=	ocb+OCB$L_TYPE
+	.long	DYN$C_OCB
+.=	ocb+OCB$L_SIZE
+	.long	OCB$K_LENGTH
+.=	ocb+OCB$L_ACCESS_MODES
+	.long	CHPCTL$M_READ!CHPCTL$M_WRITE
+.=	auditend
+	.endc
+;
+;	the following data will be moved on the kernel stack, quadword aligned
+;
+	.align	octa
+kstkdatast:
+ucbadr:	.blkq	1
+orb::	.blkb	ORB$C_LENGTH
+	.align	quad
+chpctl::.blkb	CHPCTL$K_LENGTH
+chpaccess=chpctl+CHPCTL$L_ACCESS
+	.if	DF,AUDIT
+objname:.blkb	4*3+3*1+11
+l$$	= .-objname
+	.align quad
+objname_d:.long l$$
+	.long	objname
+	.endc
+	.align	octa
+kstkdatasz=	.-kstkdatast	; multiple de 16
+	.align quad
+		.BASE	r13,access_pd
+ret_accessfdt::	mov	fp,sp
+		ldq	r16,stk$savr16(fp)
+		ldq	r17,stk$savr17(fp)
+		ldq	r18,stk$savr18(fp)
+		ldq	r19,stk$savr19(fp)
+		ldq	r7,stk$savr7(fp)
+		ldq	r6,stk$savr6(fp)
+		ldq	r5,stk$savr5(fp)
+		ldq	r4,stk$savr4(fp)
+		ldq	r3,stk$savr3(fp)
+		ldq	r2,stk$savr2(fp)
+		ldq	r26,stk$savret(fp)	; return address
+		ldq	r27,drv_accessfdt		; PD
+		ldq	r13,stk$savr13(fp)
+		ldq	fp,stk$savfp(fp)
+		lda	sp,stk$k_length(sp)
+		ldq	r28,PDSC$Q_ENTRY(r27)
+		jmp	r31,(r28)
+;
+		.align quad
+ps_exe$abortio:	.address	EXE_STD$ABORTIO
+ps_exe$chkpro_int:.address	EXE$CHKPRO_INT
+ps_exe$deanonpaged:.address	EXE$DEANONPAGED
+ps_exe$primitive_fork:.address	EXE$PRIMITIVE_FORK
+ps_iac$gl_main_icb:.address	IAC$GL_MAIN_ICB
+ps_ioc$parsdevnam:.address	IOC$PARSDEVNAM
+ps_ioc$searchint:.address	IOC$SEARCHINT
+ps_ioc$verifychan:.address	IOC$VERIFYCHAN
+ps_sch$lockr:	.address	SCH$LOCKR
+ps_sch$unlock:	.address	SCH$UNLOCK
+ps_sch$iolockr:	.address	SCH$IOLOCKR
+ps_sch$iounlock:.address	SCH$IOUNLOCK
+ps_sys$fao:	.address	SYS$FAO
+bug_inconstate:	.quad		BUG$_INCONSTATE
+access_type:
+access_write:	.long	CHPCTL$M_WRITE
+access_read:	.long	CHPCTL$M_READ
+;
+	.align	quad
+;
+;	FDT routine
+;
+;	inputs	IPL 2
+;		R16	@irp	(r3)
+;		R17	@pcb	(r4)
+;		R18	@ucb	(r5)
+;		R19	@ccb	(r6)
+;		Px	IRP$L_Px(r3)
+;
+;		R22-R24: scratch
+;
+;	 under no circumstances modify from krnlstart to here, or else 
+;	you'll have to reboot your system to get the new version working.
+;	If you don't, your system will do it for you.
+;
+krnlcode::
+		lda	sp,-stk$k_length(sp)
+		stq	r27,stk$savpd(sp)	; our PD addr
+		stq	r26,stk$savret(sp)	; ret addr
+		stq	r2,stk$savr2(sp)
+		stq	r3,stk$savr3(sp)
+		stq	r4,stk$savr4(sp)
+		stq	r5,stk$savr5(sp)
+		stq	r6,stk$savr6(sp)
+		stq	r7,stk$savr7(sp)
+		stq	r13,stk$savr13(sp)
+		stq	r16,stk$savr16(sp)
+		stq	r17,stk$savr17(sp)
+		stq	r18,stk$savr18(sp)
+		stq	r19,stk$savr19(sp)
+		stq	fp,stk$savfp(sp)
+		mov	sp,fp
+krnlcode_offset= .-krnlcode
+		mov	r27,r13
+;
+;		check IO function is IO$_ACCESS [!IO$M_NOW]
+;
+		ldl	R28,IRP$L_FUNC(r16)
+		cmpeq	r28,#<IO$_ACCESS!IO$M_NOW>,r0
+		bne	r0,do_check
+		cmpeq	r28,#IO$_ACCESS,r0
+		beq	r0,ret_accessfdt
+;
+;	QIO P3:	internet address descriptor
+;
+do_check:
+		ldl	r1,IRP$L_QIO_P3(r16)
+		m_ifnord #8,(r1),ret_accessfdt
+		ldzw_u	r5,0,r1
+		cmpeq	r5,#16,r28			; descr. length
+		beq	r28,ret_accessfdt
+		ldzl_u	r5,4,r1				; descr. addr
+		m_ifnord #16,(r5),ret_accessfdt
+		ldzb_u	r1,4,r5
+		cmpeq	r1,#127,r28			; loopback ?
+		bne	r28,ret_accessfdt		; yes: always allow
+;
+;;;		pushr	#^M<r2,r3,r4,r5>
+		and	sp,#7,r28
+		subq	sp,r28,sp			; assure quad align
+		lda	sp,-kstkdatasz(SP)
+		lda	r0,mutex
+		m_jsb	sch$lockr
+;
+;;;	pushl	r1				; save access buffer address
+;;;	movc3	#kstkdatasz,kstkdatast,4(SP)	; init kernel stack
+;
+		mov	#kstkdatasz,r0		; movc3... +
+		lda	r22,kstkdatast
+		mov	sp,r23
+1$:		beq	r0,2$			; move done
+		ldq	r28,(r22)
+		stq	r28,(r23)
+		lda	r23,8(r23)
+		lda	r22,8(r22)
+		subq	r0,#8,r0
+		br	1$			; movc3... -
+2$:
+		ldq	r28,ps_iac$gl_main_icb
+		ldq	r1,(r28)
+		dbg_store 0,R1			;;; DBG
+		ble	r1,ret_accessfdt_stk_bug ; ICB addr not valid
+;
+;		r0-> ICB
+;
+		ldzw_u	r0,IMCB$W_CHAN,r1	; channel to be tested (unal.)
+		m_jsb	IOC$VERIFYCHAN		; find CCB
+;
+;	R1:	@CCB
+;	R2:	channel index
+;	R3:	destroyed	
+;				R4: 		@PCB
+; 				R5: 		access buffer address
+;
+		dbg_count	8
+		blbc	r0,ret_accessfdt_stk_bug; channel was invalid
+		ldl	r0,CCB$L_UCB(r1)	; save image UCB addr
+		stq	r0,<ucbadr-kstkdatast>(SP); sign extend long to quad
+		ldl	r1,CCB$L_WIND(r1)
+		blt	r1,20$			; direct window
+		beq	r1,ret_accessfdt_stk	; no window
+		sll	r1,#48,r28
+		sra	r28,#48,r1		; sign extend.
+		ldl	r22,PCB$L_PHD(r4)	; PHD addr
+		ldl	r28,PHD$L_PSTBASOFF(r22)
+		addq	r28,r22,r23
+		s4addq	r1,r23,r28		; compute lw addr
+		ldl	r1,SEC$L_WINDOW(r28)
+		dbg_count	8
+		bge	r1,ret_accessfdt_stk_bug; br if WCB addr not valid
+20$:		ldl	r1,wcb$l_fcb(r1)	; R1<--FCB addr
+		clr	r0			; R0<--0 => access
+;
+;
+;	R0 -->	0 access; 1 accept
+;	R1 -->  @ FCB
+;		[31..16| 15..0 ]
+;	R3 -->	[port  | domain] (bytes inversés)
+;		[internet addr ] (bytes inversés)
+;	register usage:
+;		r1,r3: read only
+;		r0: @ entry
+;		r2: data index
+;		R4-R5: scratch
+;
+		mov	r5,r3
+		ldl	r28,access_write
+		beq	r0,21$
+		ldl	r28,access_read
+21$:		stl	r28,<chpaccess-kstkdatast>(SP)       ; set access
+		ldq	r28,access_table
+		ldl	r2,act$l_aq(r28)
+		s4addq	r2,r28,r0		; points to start of list
+testent:
+		dbg_count 9
+		ldl	r28,acte$whb_index(r0)
+		srl	r28,#16,r2
+		beq	r2,default		; end of list: no match
+		ldzl_u	r16,4,r3		; addr
+		ldl	r22,acte$l_mask(r0)	; mask
+		bic	r16,r22,r23		; matching address?
+		ldl	r28,acte$l_addr(r0)
+		dbg_store	11,r16
+		dbg_store	12,r22
+		dbg_store	13,r23
+		dbg_store	14,r28
+		cmpeq	r28,r23,r22
+		beq	r22,nextent		; don't match
+		dbg_count 10
+		ldl	r28,acte$wl_port(r0)
+		extwl	r28,#0,r22		; port #
+		beq	r22,check_acc		; port # = 0 -> no port check
+		ldzw_u	r17,0,r3		; port
+		cmpeq	r22,r17,r28
+		bne	r28,check_acc		; br if ports match
+nextent:	lda	r0,acte$k_length(r0)	; goto next entry
+		br	testent
+default:	dbg_count	1			;;; DBG
+		br	check_pro
+ret_accessfdt_stk_bug:
+		dbg_store	2,R0
+		M_bug_check	INCONSTATE,NONFATAL
+ret_accessfdt_stk:
+		lda	r0,mutex
+		m_jsb	SCH$UNLOCK
+		br	ret_accessfdt
+;
+;	entry:	addr,mask,lenaddr,code
+;	r0	@ acte
+;	r1	@ FCB
+;	r2	entry data index (LW)
+;	r3	access item list
+;	r4	@ PCB
+;
+;	R5,R6,R7: scratch
+;
+check_acc:					; match found
+		dbg_store 3,r1			;;; DBG
+		s4addq	r2,r0,r2		; address of ACTE
+		ldl	r28,acte$whb_type(r0)
+		srl	r28,#16,r28
+		beq	r28,check_acl		; check ACL
+;
+;		check IMAGE NAME
+;
+;		R0:	in	@ acte
+;		R1:	in	@ wcb
+;		R2:	in	@ acte data
+;		r6,r7: 	*	scratch
+;
+		ldl	r28,acte$wl_size(r0)
+		extwl	r28,#0,r6
+		addq	r2,r6,r7		; max. data addr
+		dbg_store	15,r0
+		dbg_store	16,r2
+		dbg_store	17,r6
+		dbg_store	18,r7
+		dbg_count	4		;;; DBG
+imgloop:
+		cmplt	r7,r2,r28		; all done for this entry
+		bne	r28,nextent
+		dbg_count	5		;;; DBG
+		ASSUME	<FCB$W_FID&7>,eq,0
+		ldq	r28,FCB$W_FID(r1)	; check FID
+		sll	r28,#16,r6
+		ldzq_u	r28,actimg$w_fid,r2
+		sll	r28,#16,r22
+		cmpeq	r22,r6,r28
+		beq	r28,5$			; FID dont match
+		dbg_count 20
+
+;;;	pushr	#^M<r0,r1,r2,r3,r4,r6,r7,r8,r9,r10,r11>
+		lda	sp,-80(sp)
+		stq	r0,(sp)
+		stq	r1,8(sp)
+		stq	r2,16(sp)
+		stq	r3,24(sp)
+		stq	r4,32(sp)
+; 6 scratch
+		stq	r7,40(sp)
+		stq	r8,48(sp)
+		stq	r9,56(sp)
+		stq	r10,64(sp)
+		stq	r11,72(sp)
+		lda	r9,<actimg$t_devnam+1>(r2)	; device name string
+		ldl	r28,actimg$t_devnam(r2)
+		and	r28,#255,r8			; device name length
+		m_jsb	SCH$IOLOCKR			; lock I/O database for read
+		mov	#<IOC$M_ANY!IOC$M_PHY>,R10	; any physical device
+		m_jsb	IOC$PARSDEVNAM
+		blbc	r0,133$				; strange ...
+		m_jsb	IOC$SEARCHINT			; R5 => @ UCB
+		blbc	r0,133$				; strange ...
+1$:		m_jsb	SCH$IOUNLOCK			; unlock I/O database
+;;;	popr	#^M<r0,r1,r2,r3,r4,r6,r7,r8,r9,r10,r11>
+		ldq	r0,(sp)
+		ldq	r1,8(sp)
+		ldq	r2,16(sp)
+		ldq	r3,24(sp)
+		ldq	r4,32(sp)
+		ldq	r7,40(sp)
+		ldq	r8,48(sp)
+		ldq	r9,56(sp)
+		ldq	r10,64(sp)
+		ldq	r11,72(sp)
+		lda	sp,80(sp)
+		ldq	r28,<ucbadr-kstkdatast>(SP)	; do UCB @ match ?
+		dbg_store 22,r5
+		dbg_store 23,r28
+		cmpeq	r28,r5,r22
+		bne	r22,10$				; yep
+5$:		lda	r2,actimg$k_length(r2)		; try next image
+		br	imgloop
+10$:		ldzl_u	r28,actimg$l_access,r2		; authorized access
+		ldl	r23,<chpaccess-kstkdatast>(SP)	; required access
+		bic	r23,r28,r22
+		beq	r22,ret_accessfdt_stk
+		br	nopriv_stk
+133$:		dbg_store	6,R0			; very strange
+		M_bug_check	INCONSTATE
+		br	1$
+;
+check_pro:	stl	R31,<orb+ORB$L_ACLFL-kstkdatast>(SP); clear ACL
+		stl	R31,<orb+ORB$L_ACLBL-kstkdatast>(SP)
+		mov	sp,r6
+		br	call_chkpro
+;
+;	entry:	addr,mask,lenaddr,0
+;	r0	@ acte
+;	r2	@ of ACL data
+;	r3	@ access item list
+;	r5	*	scratch
+;	r6	*	scratch
+;
+;		we must call directly the system service to remain at IPL 2
+;
+check_acl:
+		dbg_count	7			;;; DBG
+		ldl	r22,acte$wl_size(r0)
+		extwl	r22,#0,r5			; acl size
+		addq	r5,#ACL$K_LENGTH,r5
+		addq	r5,#15,r28
+		bic	r28,#15,r28			; octaword size
+		mov	sp,r6
+		subq	sp,r28,sp
+		mov	#DYN$C_ACL,r16
+		sll	r16,#16,r16
+		bis	r5,r16,r16
+		ASSUME	<ACL$W_SIZE&3>,eq,0		; for STL
+		stl	r16,ACL$W_SIZE(sp)
+
+		mov	r2,r16				; copy acl on stack
+		lda	r17,ACL$L_LIST(sp)
+		subq	r5,#ACL$K_LENGTH,r5
+1$:		ble	r5,2$
+		ldzl_u	r28,0,r16
+		stl	r28,(r17)
+		lda	r16,4(r16)			; lw to avoid
+		lda	r17,4(r17)			; overwriting the stack
+		subq	r5,#4,r5			; with a simple alg.
+		br	1$
+2$:
+		stl	sp,<orb+ORB$L_ACLFL-kstkdatast>(r6)
+		stl	sp,<orb+ORB$L_ACLBL-kstkdatast>(r6)
+		lda	r28,<orb+ORB$L_ACLFL-kstkdatast>(r6)
+		stl	r28,ACL$L_FLINK(sp)
+		stl	r28,ACL$L_BLINK(sp)
+call_chkpro:
+	.if	DF, AUDIT
+		lda	r28,<objname-kstkdatast>(r6)
+		stl	r28,<objname_d+4-kstkdatast>(r6)
+		stl	r28,<orb+ORB$L_NAME_POINTER-kstkdatast>(r6)
+		lda	r28,osrv			; could be done at
+		stl	r28,ocb+OCB$L_SUPPORT_RTNS	; init time
+    		lda	r28,nsaacc
+    		stl	r28,ocb+OCB$AR_ACC_ALARMS	; ditto
+    		stl	r28,ocb+OCB$AR_ACC_AUDITS	; ditto
+		lda	r28,strstr
+		stl	r28,ctrstr+4			; ditto
+    		lda	r28,bitin
+    		stl	r28,in+4			; ditto
+    		lda	r28,bitout
+    		stl	r28,out+4			; ditto
+		lda	r28,in
+		stl	r28,<bitnames+<4*CHPCTL$V_READ>>	; ditto
+		lda	r28,out
+		stl	r28,<bitnames+<4*CHPCTL$V_WRITE>>	; ditto
+    		lda	r28,bitnames
+    		stl	r28,ocb+OCB$L_ACCESS_BITNAMES	; ditto
+		lda	r28,ocb
+		stl	r28,<orb+ORB$L_OCB-kstkdatast>(r6)
+;
+		lda	r16,ctrstr
+		lda	r17,<orb+ORB$W_NAME_LENGTH-kstkdatast>(r6)
+		lda	r18,<objname_d-kstkdatast>(r6)
+		ldzb_u	r19,4,r3
+		ldzb_u	r20,5,r3
+		ldzb_u	r21,6,r3
+		lda	sp,-16(sp)
+		ldzb_u	r28,7,r3
+		stq	r28,(sp)
+
+		ldzw_u	r28,2,r3	; port #
+		ldzb_u	r0,3,r3
+		sll	r28,#8,r28
+		or	r0,r28,r28
+		stq	r28,8(sp)
+
+		mov	#8,r25
+		m_jsb	SYS$FAO
+		dbg_store	24,r0
+		ldq	r28,<objname_d-kstkdatast>(r6)
+		dbg_store	25,r28
+		ldq	r28,<objname-kstkdatast>(r6)
+		dbg_store	26,r28
+		lda	sp,16(sp)
+	.endc
+
+		ldq	r0,PCB$L_ARB(r4)
+		lda	r1,<orb-kstkdatast>(r6)
+		lda	r2,<chpctl-kstkdatast>(r6)
+	.if	DF,DEBUG
+		lda	r28,privs_used
+		stl	r28,chpret+CHPRET$L_PRIVS_USED
+		lda	r28,ace
+		stl	r28,chpret+CHPRET$L_MATCHED_ACE
+		lda	r28,ace_len
+		stl	r28,chpret+CHPRET$L_MATCHED_ACERET
+		lda	r28,audit_name
+		stl	r28,chpret+CHPRET$L_AUDIT
+		lda	r28,audit_len
+		stl	r28,chpret+CHPRET$L_AUDITRET
+		lda	r28,alarm_name
+		stl	r28,chpret+CHPRET$L_ALARM
+		lda	r28,alarm_len
+		stl	r28,chpret+CHPRET$L_ALARMRET
+		lda	r3,chpret
+	.iff
+		clr	r3
+	.endc
+		m_jsb	EXE$CHKPRO_INT
+		mov	r6,sp
+		dbg_store 19,R0
+		blbc	r0,abort_stk
+		br	ret_accessfdt_stk
+nopriv_stk:
+		mov	#SS$_NOPRIV,r0
+abort_stk:                       
+		mov	r0,r5
+		lda	r0,mutex
+		m_jsb	SCH$UNLOCK
+		mov	r5,r0
+		mov	fp,sp
+		ldq	r16,stk$savr16(fp)	; IRP
+		ldq	r17,stk$savr17(fp)	; PCB
+		ldq	r18,stk$savr18(fp)	; UCB
+		ldq	r19,stk$savr19(fp)	; CCB
+		ldq	r7,stk$savr7(fp)
+		ldq	r6,stk$savr6(fp)
+		ldq	r5,stk$savr5(fp)
+		ldq	r4,stk$savr4(fp)
+		ldq	r3,stk$savr3(fp)
+		ldq	r2,stk$savr2(fp)
+;
+		ldq	r26,stk$savret(fp)	; caller's return address
+		ldq	r27,ps_EXE$ABORTIO	; ABORTIO pd
+		ldq	r13,stk$savr13(fp)	; no more self relative data
+		.base	r13
+		ldq	fp,stk$savfp(fp)	; caller's frame pointer
+		lda	sp,stk$k_length(sp)	; reset stack
+		ldq	r28,PDSC$Q_ENTRY(r27)	; called addr
+		mov	R0,R19	; status	; status for ABORTIO
+;			; (IRP, PCB and UCB have already been restored)
+		jmp	r31,(r28)	; (IRP, PCB, UCB, status)
+	.page
+;
+	.if DF,UNLOAD
+	.align	quad
+fkb:	.blkb	fkb$c_length
+.=fkb+fkb$b_flck
+	.byte	SPL$C_IOLOCK8
+.=fkb+fkb$c_length
+	.align quad
+unload_fork_pd:
+	.word	PDSC$K_KIND_FP_STACK
+	.word	0
+	.word	0,0
+	.address	unload_fork
+	.long	32
+	.word	0
+	.word		unload_fork_offset
+	.long	<1@29>!<1@13>
+	.long	0
+;
+;	fork routine:	(r16, r17, fkb addr)
+;
+unload_fork:
+	subq	sp,#32,sp
+	stq	r26,(SP)
+	stq	fp,8(sp)
+	stq	r13,16(sp)
+	mov	r27,r13
+	.base	r13,unload_fork_pd
+	mov	r27,fp
+unload_fork_offset= .-unload_fork
+	lda	r0,access_table
+	m_jsb	EXE$DEANONPAGED		; dealloc access table
+	lda	r0,krnlstart
+;
+	ldq	R26,(sp)
+	ldq	fp,8(sp)
+	ldq	r28,ps_EXE$DEANONPAGED
+	ldq	r13,16(sp)
+	.base	r13
+	addq	sp,#32,sp
+	ldq	R28,PDSC$Q_ENTRY(R28)
+	jmp	r31,(r28)
+;
+;	driver unload routine
+;
+;	inputs:	IPL$_POWER
+;		R6	@DDB
+;		R10	@DPT
+;		IO MUTEX held for WRITE
+;
+;	output:	r0: status
+;		all other registers: scratch
+;
+;	we must restore original values for the unload routine
+;	and the FDT routine, just in case the driver would not unload
+;;
+;	note: we can't use COM$DRVDEALMEM since it preserves R0,
+;	      and the driver will not unload since R0 is even
+;
+unload_rtn:
+	subq	sp,#32,sp
+	stq	r26,(SP)
+	stq	fp,8(sp)
+	stq	r13,16(sp)
+	mov	r27,r13
+	.base	r13,unload_pd
+	mov	r27,fp
+unload_rtn_offset= .-unload_rtn
+	ldl	r28,drv_unload
+	beq	r28,1$
+	stl	r28,dpt$ps_unload(r10)	; restore driver unload routine
+	br	2$
+1$:	stl	r31,dpt$ps_unload(R10)	; clear driver unload routine
+2$:	ldl	r28,drv_accessfdt
+	ldl	r22,drv_fdtadr		; restore original FDT routine address
+	stl	r28,(r22)
+	mov	#SS$_NORMAL,R0		; fork preserves R0
+	lda	r18,fkb			; fork block addr= arg 3 
+	lda	r28,unload_fork_pd
+	stl	r28,FKB$L_FPC(r18)
+	m_jsb	EXE$PRIMITIVE_FORK	; SMP ok, since we never get back into our code at IPL POWER
+	ldq	R26,(sp)
+	ldq	r28,8(sp)
+	ldq	r13,16(sp)
+	.base	r13
+	addq	sp,#32,sp
+	mov	r28,r27
+	ret	R31,(r26)
+	.ENDC
+;
+krnlend:
+krnlsize==	.-krnlstart
+;
+.=	orb+ORB$B_type
+		.byte	DYN$C_ORB
+.=	orb+ORB$W_SIZE
+		.word	ORB$C_LENGTH
+.=	orb+ORB$B_FLAGS
+		.byte	ORB$M_PROT_16
+.=	orb+ORB$L_OWNER
+objowner::	.long	^X10004		; default owner SYSTEM (for SOGW test)
+.=	orb+ORB$W_PROT
+objprot::	.word	^xFFF0		; default prot (s:rewd,o,g,w)
+.=	chpctl+CHPCTL$L_FLAGS
+		.long	CHPCTL$M_READ!CHPCTL$M_WRITE
+.=	access_pd
+		.word	PDSC$K_KIND_FP_STACK!PDSC$M_BASE_REG_IS_FP!PDSC$M_NO_JACKET
+		.word	8
+		.word	0,0
+		.address	krnlcode
+		.long	stk$k_length
+		.word	0
+		.word		krnlcode_offset
+		.long	252!<1@13>!<1@29>!<1@16>!<1@17>!<1@18>!<1@19>
+		.long	0
+;
+.=	unload_pd
+		.word	PDSC$K_KIND_FP_STACK!PDSC$M_NO_JACKET
+		.word	0
+		.word	0,0
+		.address	unload_rtn
+		.long	32
+		.word	0
+		.word		unload_rtn_offset
+		.long	<1@29>!<1@13>
+		.long	0
+;
+.=	krnlend
+;
+;
+	.end

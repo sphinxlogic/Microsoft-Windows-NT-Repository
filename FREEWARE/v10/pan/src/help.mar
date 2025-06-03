@@ -1,0 +1,139 @@
+
+
+	.library	/sys$login:peb/
+	.library	/sys$library:lib/
+	$Hlpdef
+
+jpi:	.word	400
+	.word	jpi$_imagname
+	.long	image
+	.long	image_len
+;
+	.long	0
+
+image:		.blkb	400
+image_len:	.blkl	1
+
+
+flag:           .long   hlp$m_prompt!hlp$m_help   
+
+HELP_KEY0:      .ASCID  /Pan/
+
+HELP_KEY:       .word   0
+		.BYTE   DSC$K_DTYPE_T
+		.BYTE   DSC$K_CLASS_D
+		.LONG   0
+
+what:	.ascid	/WHAT/
+input:	.long	100
+	.long	input+8
+	.blkb	100
+
+	.entry	help,0
+
+	incl	help_flag
+
+	pushaq	input
+	pushaq	input
+	pushaq	what
+	calls	#3,g^cli$get_value
+	check	r0,error
+
+; tack on PAN
+
+	movc3	input, input+8, input+12
+	movl	#^a/Pan /, input+8
+	addl2	#4, input
+
+; ---------------------------------------------------
+
+	pushaq	msg1
+	calls	#1,g^lib$put_output
+
+
+	PUSHAB  G^LIB$GET_INPUT
+	pushal	flag
+	PUSHAQ	syshlp
+	PUSHAQ  input				;Help_key0
+	CLRL    -(SP)
+	PUSHAB  G^LIB$PUT_OUTPUT
+	CALLS   #6,G^LBR$OUTPUT_HELP            ;GET HELP
+	blbc	r0,12$
+	ret
+12$:	nop
+
+	MOVL    R0,VEC+4
+        $PUTMSG_S       MSGVEC=VEC
+
+; ---------------------------------------------------
+
+	$getjpiw_s	Itmlst=jpi
+	check	r0,error
+
+		
+
+	movab	image, R6
+	addl2	image_len, R6
+
+5$:	cmpb	#^a/]/,(R6)
+	beql	10$
+	decl	R6
+	decl	image_len
+	bneq	5$
+10$:	nop
+
+	incl	image_len
+	incl	R6
+
+
+	movzbl	help_key0, R5
+	addl2	R5, image_len
+	movc3	R5, HELP_KEY0+8, (R6)
+
+
+	pushaq	msg
+	calls	#1,g^lib$put_output
+
+
+
+
+	movl	image_len, descr
+	movab	image, descr+4
+	pushaq	Descr
+	calls	#1,g^lib$put_output
+
+
+	PUSHAB  G^LIB$GET_INPUT
+	pushal	flag
+	PUSHAQ	Descr
+	PUSHAQ  input				;Help_key0
+	CLRL    -(SP)
+	PUSHAB  G^LIB$PUT_OUTPUT
+	CALLS   #6,G^LBR$OUTPUT_HELP            ;GET HELP
+	blbs	r0,54$
+	MOVL    R0,VEC+4
+        $PUTMSG_S       MSGVEC=VEC
+54$:	nop
+
+error:	ret
+
+descr:	.blkl	2
+
+msg:	.ascid	/Using PAN.HLB in the same directory as PAN.EXE/
+msg1:	.ascid	/Using PAN.HLB in SYS$HELP/
+
+
+syshlp:	.ascid	/SYS$HELP:PAN/
+
+
+VEC:    .LONG   2
+        .BLKL   1
+        .LONG   0
+        .LONG   0
+
+
+
+
+
+	.end	
+

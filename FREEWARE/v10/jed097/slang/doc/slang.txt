@@ -1,0 +1,1183 @@
+This document discusses the S-Lang language syntax.  For instructions on
+embedding S-Lang in your C program, see the document slang.how.
+
+==========================================================================
+				Introduction
+==========================================================================
+
+S-Lang (pronounced ``sssslang'') is a powerful stack based language
+interpreter with a C-like syntax which may be easily embedded into another
+application, making it extensible.  Unlike a compiled language, S-Lang
+functions cannot crash an application since S-Lang is interpreted.  If an
+S-Lang procedure does crash an application, it should be regarded as either
+a bug in the application or as a bug in S-Lang.  Therefor, not only does
+S-Lang make an application extensible, it also provides a way to quickly
+develop and debug the application in a safe and efficient manner.  Since
+S-Lang resembles C, it is easy to recode S-Lang procedures in C if the need
+arises.
+
+The S-Lang language features both global variables and local variables,
+branching and looping constructs, as well as user defined functions.  Unlike
+most interpreted languages, S-Lang allows functions to be dynamically loaded
+from disk (function autoloading).  It even includes error handling
+capabilities as well as various types of debugging information (e.g.,
+tracebacks).
+
+The syntax of the language is quite simple and is very similar to C.  Unlike
+C, S-Lang variables are untyped and inherit a type upon assignment. The
+actual type checking is performed at run time.  In addition, there is
+limited support for pointers. 
+
+It is perhaps easiest to explain the structure and syntax of the language by
+comparing it directly with C.  The following list points out the salient
+differences between S-Lang and C.  Reading and understanding this list is
+the quickest and easiest way for an experienced C programmer to get started
+with S-Lang. Most of the differences stem from the fact that S-Lang
+functions have to the ability to return multiple values.
+
+   0. The current version of S-Lang only implements signed integer, string,
+      and floating point types.  In addition, S-Lang supports
+      multidimensional arrays of those types.  More types will be added in
+      the future.
+
+   1. C is a typed language which means that the type of a variable must be
+      declared before it can be used.  S-Lang is untyped and only requires
+      that an object be declared before it is used. Variables are declared
+      using the `variable' keyword followed by a comma separated list of
+      variable names, e.g.,
+
+         variable larry, curly, moe;
+
+      As in C, all statements must end with a semi-colon.  Variables have
+      both a global scope and a local function scope.  Variable defined
+      inside functions are of local scope and have no meaning outside the
+      function. It is legal to execute statements in a variable
+      declaration list.  That is,
+
+         variable x = 1;
+      
+      is a legal variable declaration.  Previous versions of S-Lang did not
+      support this form.
+      
+   2. Functions are declared using the `define' keyword followed by the name
+      of the function and a parameter list.  The body of the function
+      follows and must be enclosed by braces, e.g.,
+      
+         define my_function(x, y, z)
+	 {
+	   <body of function>
+	 }
+      
+      Functions may return zero, one or more values.  For example,
+     
+         define sum_and_diff(x, y)
+	 {
+	    variable sum, diff;
+
+            sum = x + y;  diff = x - y;
+	    return (sum, diff);
+	 }
+     
+      is a function returning two values.  For this example, the `return'
+      keyword is not really needed.  The line:
+      
+         sum; diff;
+	 
+      is equivalent to `return(sum, diff);'.
+      
+   3. Operators must be separated by whitespace on both sides of the
+      operator.  For example,
+      
+         x = y;
+	 
+      is valid but
+      
+         x =y;
+
+      is not.  The reason for this is that `=y' has a meaning different from
+      `= y'.  `=y' means assign to `y' the top value on the stack.  The `=y'
+      syntax is used to handle functions returning multiple values.  Consider
+      again the example above returning two values.  One could write:
+      
+        sum_and_diff(20, 30); =diff; =sum;
+	
+      or
+      
+        diff = sum_and_diff(20, 30); =sum;
+	
+      or even:
+      
+        diff = sum_and_diff(20, 30);
+	sum = ();
+	
+      or as:
+      
+        (sum, diff) = sum_and_diff (20, 30);
+
+      This might seem strange to C programmers but that is because C does
+      not return more than one object.  S-Lang functions can and this is the
+      way to handle it.  The first and last forms given above are preferred
+      since both treat the return values on more or less the same footing.
+
+      Finally, one can also just write:
+      
+        sum = diff = sum_and_diff(20, 30);
+
+      However, this expression is also legal in C but it has a totally
+      different meaning.  For this reason, this form is discouraged.
+      
+      
+   4. Comments are started with the `%' character and extend to the end of the
+      line.  In C, the `%' character denotes the mod operation. S-Lang
+      denotes the mod operation by `mod'.
+      
+   5. Boolean operations are not short circuited as they are in C.  For this
+      reason, the logical AND operator is denoted by `and' in S-Lang whereas
+      one uses `&&' in C.  A similar statement holds for the OR operator
+      denoted as `or' in S-Lang.  For example, in the C statement
+      
+        if ((y > 0) && (y < sin(x))) do_whatever();
+	
+      the `y < sin(x)' test is not performed if `y > 0' evaluates to 0.
+      However, in the analogous S-Lang statement
+      
+        if ((y > 0) and (y < sin(x))) do_whatever();
+	
+      the second test is performed even if the first one fails.  
+      
+      To get the effect of short circuit evaluation, use the `orelse' and
+      `andelse' operators.  For the above expression, one would write:
+      
+        if (andelse
+	    {y > 0}
+	    {y < sin(x)})  do_whatever ();
+	    
+      Here is another example: To achieve the effect of the C expression:
+      
+        if (((y > 0) && (y < sin(x)))
+	    || ((y == 0) && (sin(x) == 0))) do_whatever ();
+	    
+      use:
+      
+        if (orelse 
+	    {andelse {y > 0}{y < sin(x)}}
+	    {andelse {y == 0}{sin(x) == 0}}) do_whatever ();
+     
+      Although slightly more cumbersome, it is perhaps more readable.
+
+      It is also important to note that ALL boolean and bit operators share
+      the same level of precedence.  This differs from C and is another
+      reason the logical operators are named differently.  This statement
+      does NOT apply to tha arithemetic operators `+', `-', `*', and `/'.
+      The reason that the boolean operators do not have the complex
+      precedence rules of C is that to achieve this would substantially
+      increase the size and the complexity of the parsing code which
+      conflicts with the ``keep it small'' design philosophy of S-Lang. 
+
+      In addition, the logical NOT operator is called `not' in S-Lang
+      whereas it is represented by the symbol `!' in C.  S-Lang also
+      introduces the `!if' keyword.  Here, 
+      
+           !if (expression) ...
+	   
+      is equivalent to:
+      
+           if (not(expression)) ...
+
+      however, `!if' is preferred since it results in faster code as well as
+      more readable code.  Note also that `!if' cannot be with the `else'
+      token.  This is not a limitation since
+
+           !if (expression) statement_1; else statement_2;
+	   
+       would be equivalent to
+      
+           if (expression) statement_2; else statement_1;
+
+   6. The S-Lang version of the switch statement follows a different syntax
+      than is provided by the C language.  See the discussion below for more
+      details.
+
+   7. Array subscripting follows a different syntax:
+      
+             C:  a[i][j][k]
+        S-Lang:  a[i, j, k]
+
+   8. S-Lang functions that mimic C functions which take a variable number
+      of arguments (e.g., sprintf) or normally pass information back to the
+      calling routine via the parameter list, require a slightly different
+      calling syntax.  For example, in C, one would write
+      
+          sprintf(buf, "%s.dat", filename);
+	  
+      whereas the correct S-Lang expression is
+      
+          buf = Sprintf("%s.dat", filename, 1);
+
+      Here the number of items to be formatted must be passed to `Sprintf'
+      as well.  This is also the reason it is capitalized. See the S-Lang
+      function library reference in this manual for details.
+
+   9. Array notation for string subscripting is allowed only when extracting
+      a character from a string.  For example, if
+   
+         variable s, ch;  s = "Hello World";
+	 
+      then `ch = s[1]' is allowed but `s[1] = ch' will generate an error.
+      For the latter case, one must either use the `strsub' function or use
+      a character array.
+
+   10. The operators `+=' and `-=' only work on simple integer variable
+       types.  For example, is `i' is an integer and `a' is an integer
+       array, then `i += 4' is valid but `a[0] += 4' is not since `a[0]' is
+       not a ``simple'' integer variable.
+
+   11. In C, if a function returns a value, the value can be ignored.  For
+       example, the C function `fflush' returns a value but most people
+       ignore it, writing one of the two forms:
+       
+           fflush(stdout);
+           (void) fflush(stdout);
+       
+       However, in S-Lang, return values CANNOT be ignored.  If you really
+       want to ignore the return value, you must explicitly pop it off the
+       stack with the `pop' function:
+       
+           fflush(stdout); pop();
+       
+       A C compiler will automatically perform the `pop' but S-Lang requires
+       the programmer to do it.
+       
+   13. Functions returning multiple values must be properly placed for binary
+       operations.  For example, the function `fgets' returns the number of
+       characters read and if the number is non-zero, it also returns the
+       character string itself.  Consider the code fragment:
+       
+           while (0 < fgets(stdin)) { =buf; ... }
+	   
+       This expression will result in a type mismatch because a comparison
+       is actually being made between the number of characters read by fgets
+       and the character string itself.  To understand this, consider what is
+       happening on the stack.  First of all the 0 is pushed onto the stack
+       and the function `fgets(stdin)' is called.  Suppose "Hello" is read
+       from stdin.  After the call to `fgets', the stack will look like:
+       
+           0, "Hello", 5
+
+       where the top item on the stack is `5', the next item is "Hello", and
+       so on.  After `fgets' returns, the `<' operation is performed.  This
+       is a binary comparison operation that expects two numbers to be at
+       the top of the stack.  However, in this example, the `<' operator,
+       will try a comparison on "Hello" and `5' which results in a type
+       mismatch.  The correct way to write the above code fragment is:
+
+           while (fgets(stdin) > 0) {=buf; ...}
+	   
+       or:
+       
+           while (n = fgets(stdin), n > 0) {=buf; ...}
+	   
+       As a general rule of thumb, if one of the operands for a binary
+       operation is the result of a call to a function returning multiple
+       values, then arrange the expression such that the function returning
+       multiple values is on the left side of the binary operator.
+	   
+
+With the above rules and differences in mind, it should be fairly easy for
+anyone familiar with C to begin developing S-Lang programs.  The rest of
+this document discusses more technical details of the S-Lang language as
+well as advanced programming techniques.
+      
+      
+**************************************************************************
+		     Users Guide and Technical Reference
+**************************************************************************
+
+Data Types: specifying strings and integers.
+--------------------------------------------
+Literal strings must be enclosed in double quotes as in:
+
+			     "This is a string".
+			     
+The backslash is a special character and is used to include special
+characters in the string. The special characters recognized are:
+
+    \"    --  double quote
+    \'    --  single quote
+    \\    --  backslash
+    \a    --  bell character
+    \t    --  tab character
+    \n    --  newline character
+    \e    --  escape  (S-Lang extension)
+    \xhhh --  character expressed in HEXADECIMAL notation
+    \ooo  --  character expressed in OCTAL notation
+    \dnnn --  character expressed in DECIMAL (S-Lang extension)
+
+For example, if a double quote is to be part of the string, it is to be
+preceded by a backslash character, e.g., 
+
+			    "This is a \"quote\""
+
+Integers may be expressed several ways:
+
+   1.  As decimal numbers (e.g. 10 is ten)
+   2.  In hexadecimal notation: 0x??..?
+         Here ? is any one of the following characters: 0-9, A-F
+	 For example, 0xFF is 255.
+   3.  Octal notation:  0??..?
+         Here ? is one of 0-7, e.g., 0123 = 0x53 = 83
+   4.  As unsigned characters.  These are characters enclosed in single
+       quotes.  For example, since the ascii value of the letter `a' is 97,
+       the following are equivalent representations:
+       
+         'a', 97, '\d97', '\x61', '\141'
+	 
+       Strictly speaking, S-Lang has no character type.
+
+
+			    ---------------------
+			    Arithmetic operators.
+			    ---------------------
+
+The arithmetic operators `+', `-', `*', `/' operate on integers or floats.
+They are defined:
+
+	       x + y	-->	 add x and y returning result
+	       x - y	-->	 subtract y from x returning result
+	       x * y	-->	 multiply x and y returning result
+	       x / y	-->	 divide x by y returning result
+	       x mod y  -->      return x modulo y
+
+These operators remove the top two values from the stack, perform the
+indicated operation on the two numbers and put the result of the operation on
+the stack.
+
+In addition, S-Lang also supports the increment and decrement operations on
+integers. They are written:
+
+               ++x;      -->    x = x + 1
+               --x;      -->    x = x - 1
+
+They also have the alternate forms x++ and x--.  S-Lang does not distinguish
+between x-- and --x since neither of these forms return a value as they do
+in C.  With this in mind, do not use constructs such as:
+  
+      while (i--) ....     /* test then decrement */
+      while (--i) ....     /* decrement first then test */
+
+Instead, use something like
+
+      while (i, i--) ....  % test then decrement
+      while (i--, i) ....  % decrement first then test
+
+The increment and decrement operators work only on simple scalar variables.
+In particular, ++(x) is NOT the same as ++x and will generate an error.
+
+Finally, S-Lang also supports the `+=' and `-=' operations
+
+               x += y;    -->   y = y + x
+               x -= y;    -->   y = y - x
+
+which are borrowed from the C language.  Whenever possible, these latter four
+operations should be used since they execute 2 to 3 times faster than the
+longer forms.  At present, these shorter versions operate only on integers.
+
+
+Mixing integer and floating point arithmetic.
+----------------------------------------------
+
+If a binary operation (+, -, * , /) is performed on two integers, the result
+is an integer.  If at least one of the operands is a float, the other is
+converted to float and the result is float.  For example:
+
+    11 / 2           --> 5   (integer)
+    11 / 2.0         --> 5.5 (float)
+    11.0 / 2         --> 5.5 (float)
+    11.0 / 2.0       --> 5.5 (float)
+
+Finally note that only integers may be used as array indices, for loop
+control variables, shl, shr, etc bit operations.  Again, if there is any
+doubt, use the conversion functions `int' and `float' where appropriate:
+
+    int (1.5)         --> 1 (integer)
+    float(1.5)        --> 1.5 (float)
+    float (1)         --> 1.0 (float)
+
+Working with floating point numbers.
+------------------------------------
+
+Each of the math functions sin, cos, etc... requires one floating point
+argument except `pow' which requires two.  Although no error is generated,
+integer arguments will not work.  To pass an integer, convert it to float
+first.  For example:
+
+   sin(1)            --> 1.401e-45  (incorrect)
+   sin(1.0)          --> 0.841471   (correct)
+   sin(float(1))     --> 0.841471   (correct)
+   
+S-Lang is very FORTRAN-like in this respect.
+
+
+			 --------------------------
+			 Binary Boolean Operations.
+			 --------------------------
+
+The binary Boolean operators act on two integers and return an integer.  An
+integer is considered TRUE if it is non-zero; otherwise, it is FALSE.  These
+operators are
+
+	       x == y	  % TRUE if x equals y
+	       x != y	  % TRUE if x is not equal to y
+	       x > y	  % TRUE if x is greater than y 
+	       x >= y	  % TRUE if x is greater than or equal to y 
+	       x < y	  % TRUE if x is less than y 
+	       x <= y	  % TRUE if x is less than or equal to y 
+	       x or y	  % TRUE if either x or y are TRUE
+	       x and y	  % TRUE if both x and y are TRUE
+
+The first variable, `x' is placed on the stack first followed by `y'.  The
+the binary operator ``pops'' the two variables off the stack and replaces
+them with the value of the result, TRUE or FALSE (non-zero or zero).
+
+In addition to the above logical operators, S-Lang also incorporates
+operators which act on the bits themselves.  These are: 
+
+               x & y	  % bitwise and
+               x | y	  % bitwise or
+               x xor y	  % bitwise exclusive or
+	       x shl y	  % shift bits in x left y places
+	       x shr y	  % shift bits in x right y places
+	       
+One of the beauties of RPN is that operator precedence is not an issue.  
+This becomes an issue when infix notation is used.  When parsing infix,
+S-Lang assumes that all binary operators fall into three levels of precedence.
+Operators falling into the lowest level are (``boolean'' group)
+
+	    >   >=   <   <=   !=  ==  shl  shr  or   xor   |  and
+
+followed by 
+				    +   -
+			    
+in the next level, and those following in the highest level are:
+
+				 *   /   mod
+
+Basically, all one has to remember is that all boolean and bit operators
+fall into the lowest level of precedence.
+Thus, 
+
+   i == 2 or i < 3 and j > 4
+
+is ambiguous because it is composed of operators from the same level of
+precedence.  S-Lang regards the operators from the lowest level of
+precedence (``boolean'' group) as right associative.  That is, the above
+expression is:
+
+   i == (2 or (i < (3 and (j > 4))))
+
+which is not equivalent to:
+
+   (i == 2) or ((i < 3) and (j > 4))
+
+The operators from the other two groups (``arithmetic'' operators) are left
+associative, e.g., 
+
+    3 + 4 + 5
+
+is
+
+    (3 + 4) + 5
+
+
+It is always best to use parenthesis when there is doubt about the precedence
+to remove possible ambiguities.  Also,
+
+    (i == 2) or ((i < 3) and (j > 4))
+
+is much more readable and clearly explains the intent of the expression.
+Finally, it becomes easier to translate S-Lang code to other languages with
+a different view of operator precedence.
+
+
+			       ----------------
+			       Unary operators
+			       ----------------
+			       
+The UNARY operators operate only on one integer.  They are: 
+
+	not (x)   % if x is non-zero return zero else return non-zero
+        chs (x)   % change the  sign of x
+	~(x)      % bitwise not
+        sign (x)  % +1 if x >= 0, -1 otherwise
+        abs (x)   % absolute value of x
+
+			       ---------------
+			       Stack Operators
+			       ---------------
+
+The use of local variables greatly simplifies the task of maintaining the
+stack.  Nevertheless, S-Lang is really a stack based language and there are
+times when they are useful.
+
+	       pop  	  % removes the top object from the stack
+	       dup  	  % duplicates the top object on the stack
+	       exch       % exchanges top 2 objects on the stack
+
+These operators work on all data types -- they are not limited to integers.
+
+
+============================================================================
+			Block Operators and Branching
+============================================================================
+
+A block is a sequence of valid executable S-Lang code.  As such, a block may
+contain other blocks.  However, a block cannot include function
+declarations; function declarations must take place at the top level.  In
+the following, `statement' refers to a single S-Lang statement or to a block
+of statements enclosed in `{}'.
+
+   1. if, if else
+   
+              if (expression) statement;
+	
+	Evaluates `statement' if `expression' is TRUE.  
+	The if statement can also be followed by an else: 
+	
+	      if (expression) statement; else statement;
+
+    
+   2. !if
+   
+              !if (expression) statement;
+     
+        Evaluates `statement' if `expression' is FALSE.
+     
+   3. while
+   
+               while (expression) statement;
+	       
+        Continue to repeat statement while `expression' is TRUE.
+	
+   4. do while
+   
+               do statement; while (expression);
+  
+        Execute statement then test expression.  Repeat while expression is
+	TRUE.  This guarantees that statement will be executed at least once.
+
+   5. for
+   
+               for (expr1; expr2; expr3) statement;
+	       
+        Evaluate `expr1' first.  Then loop executing `statement' while
+	`expr2' is TRUE.  After every evaluation of `statement' evaluate
+	`expr3'.  For example, 
+	
+	     variable i, sum;
+	     sum = 0;
+	     for (i = 1; i <= 10; i++) sum += i;
+	     
+	  computes the sum of the first 10 integers.
+	  
+    6. loop
+               loop (n) statement;
+	       
+        Evaluate `statement' n times.
+       
+    7. forever
+    
+        forever statement;
+	
+       Loop evaluating statement forever.  Forever means until either a
+       `break' or `return' statement is executed.
+       
+    8. switch
+    
+       The switch statement deviates the most from its C counterpart.  The
+       syntax is:
+       
+          switch (x)
+	    { ...  :  ...}
+	      .
+	      .
+	    { ...  :  ...}
+
+	Here the object `x' is pushed onto the stack and the sequence of
+	blocks is executed.  The `:' operator is a S-Lang special symbol
+	which means to test the top item on the stack, if it is non-zero,
+	the rest of the block is executed and control then passes out of the
+	switch statement.  If the test is false, execution of the block is
+	terminated and the process repeats for the next block.  
+	For example:
+	
+	    variable x;
+	    x = 3;
+	    switch (x)
+	      { () == 1 : print("Number is one.")}
+	      { () == 2 : print("Number is two.")}
+	      { () == 3 : print("Number is three.")}
+	      { () == 4 : print("Number is four.")}
+	      { () == 5 : print("Number is five.")}
+	      { pop(); print ("Number is greater than five.")}
+
+	Here x is assigned a value of 3 and the switch statement pushes the
+	3 onto the stack.  Control then passes to the first block.  The
+	first block tests the top stack item `()' against `1'.  This test
+	will result in 0 on top of the stack.  `:' will then pop the top
+	stack item and if it is zero, control will be passed to the next
+	block where the process will be repeated.  In this case, control
+	will pass to the second block and on to the third block. When the
+	`:' operator is executed for the third block, a TRUE value will be
+	left on the top of the stack and the `print' function will be
+	called. Control then passes onto the statement following the switch
+	statement.
+
+	Unlike C, `x' does not have to be a simple integer.  For example,
+	the following is perfectly acceptable:
+	
+	    variable x;
+	    x = "three";
+	    switch (x)
+	      { not(strcmp((), "one")) : print("Number is 1.")}
+	      { not(strcmp((), "two")) : print("Number is 2.")}
+	      { not(strcmp((), "three")) : print("Number is 3.")}
+	      { not(strcmp((), "four")) : print("Number is 4.")}
+	      { not(strcmp((), "five")) : print("Number is 5.")}
+	      { pop(); print ("Number is greater than 5.")}
+	
+	Here `strcmp' compares two strings and returns 0 if they are equal.
+	This is the reason for the `not' operator above.  Again, note that
+	() is a placeholder for the top stack item.
+	
+S-Lang also includes the non-local transfer functions return, break, and
+continue.  The return statement causes control to return to the calling
+function while the break and continue statements are used in the context of
+loop structures.  Here is an example:
+
+       define fun ()
+       {
+          forever 
+	    {
+	       s1;
+	       s2;
+	       ..
+	       if (condition_1) break;
+	       if (condition_2) return;
+	       if (condition_3) continue;
+	       ..
+	       s3;
+	    }
+	  s4;
+	  ..
+       }
+    
+Here a function `fun' has been defined and includes a `forever' loop
+that consists of statements s1, s2, ..., s3 and 3 boolean conditions.  As
+long as condition_1, condition_2, and condition_3 return 0, statements s1, s2,
+..., s3 would be repeatedly executed.  However, if condition_1 returns a
+non-zero value, the break statement would be executed, and control would pass
+out of the forever loop to the statement immediately following the loop which
+in this case is s4.  Similarly, if condition_2 returns a non-zero number,
+return will cause control to pass back to the caller of `fun'.  Finally, the
+continue statement will cause control to pass back to the start of the loop,
+skipping the statement s3 altogether.
+
+===========================================================================
+			      Array Operations
+===========================================================================
+			      
+An array is created with a call to the function `create_array'.  The
+syntax is:
+
+   variable a;
+   a = create_array(type, n1, n2, ... nd, dim);
+   
+Here `type' specifies the type of array and is limited to one of the
+following integer values:
+    
+       'i'     (array of integers)
+       's'     (array of strings)
+       'f'     (array of floats)
+       'c'     (array of characters (bytes))
+
+`dim' specifies the dimension of the array (currently 1, 2, or 3) and the
+remaining parameters specify the size of the array.   For example,
+create_array('i', 10, 1) returns an 1 dimensional array of 10 integers and
+create_array('f', 30, 50, 2) creates a two dimensional array of floats of
+size 30x50.
+
+Elements of an array `a' are specified using the notation `a[i,j,..k]'
+which differs from the notation used in C: `a[i][j]..[k]'.
+
+Once an array is no longer needed, it may be destroyed using the
+`free_array' function, e.g.,
+
+     a = create_array(...);
+         .
+	 .
+     free_array(a);
+     
+For example, here is a function which computes the trace of a square 2
+dimensional n x n array:
+
+   define array_trace(a, n)
+   {
+      variable sum, i;
+      sum = 0;
+      for (i = 0; i < n; i++) sum += a[i, i];
+      return (sum);
+   }
+
+This fragment creates a 10x10 array and sets its diagonal elements to 5,
+computes the trace and destroys the array:
+
+   variable a, j, the_trace;
+   a = create_array('i', 10, 10, 2);
+   for (j = 0; j < 10; j++) a[j, j] = 5;
+   the_trace = array_trace(a, 10);
+   free_array(a);
+   
+      
+
+==========================================================================
+		    Functions returning multiple values.
+==========================================================================
+
+  There are some functions which return multiple values.  For example,
+S-Lang's implementation of the `fgets' function takes a single argument, a
+handle an to open file, and usually returns 2 values: the number of
+characters read followed by the character string itself.  The question
+immediately arises about how to handle such a function.  The answer to this
+question is to understand the stack.  Consider the following function which
+`types' out a file to the standard output device.
+
+     define display_file(file)
+     {
+        variable n, fp, buf;
+	
+	fp = fopen(file);
+	if (fp == -1) error("fopen failed.");
+	
+	while (n = fgets(fp), n > 0)
+	  {
+	     buf = ();              % <----- stack
+	     fputs(buf, stdout);    
+	  }
+	if (fclose(fp) <= 0) error("fclose failed.");
+     }
+
+The fgets function returns 2 items to the stack only when it reads 1 or more
+characters from the file.  If it encounters the end of the file, it returns
+0 and nothing else.  If an error occurs when reading, it returns -1.  The
+line containing the comment above illustrates how to assign the top stack
+item to a variable.  Note also, that the two lines:
+
+      buf = ();
+      fputs(buf, 1);
+	    
+can be replaced by the single line:  
+
+      fputs((), 1);
+      
+It is also permissible to replace `buf = ()' by simply `=buf'.  Note that
+there is no space between the `=' and `buf' in the latter form.
+
+Someone might simply suggest to do it like it is done in `C', i.e., 
+
+      n = fgets(buf, fp);
+
+However, this is impossible in S-Lang, and it is not even desirable.  S-Lang
+is an interpreted language and one of the reasons for using it over the C
+language is to free oneself from problems which can arise in the above `C'
+expression.
+
+Finally, note that `()' returns the TOP stack item.  Consider the following
+code fragment:
+
+    variable div_1, div_2;
+
+    12; div_1 = () / 4;              % push 12 on stack then do division
+    4;  div_2 = 12 / ();             % push 4 on stack then do division
+    
+The value of div_1 will be the expected result of 12 / 4 = 3; however, div_2
+will have the value of 4 / 12.  The reason is that () removes the TOP stack
+item and in the second case, 12 will be the top stack item not 4.
+
+
+============================================================================
+				Loading Files
+============================================================================
+
+Most applications will load a startup file which consists of S-Lang
+function definitions.  The file may load other files of S-Lang code
+via the `evalfile' intrinsic function.  This function takes one string
+argument (the filename) and returns a non-zero value if the file was
+successfully loaded and returns zero otherwise.  For example,
+
+
+    !if (evalfile("my_functs.sl")) error("Error loading File!");
+    
+instructs the interpreter to load the file `my_functs.sl' and returns an error
+message upon failure. 
+			    
+A nice feature in the S-Lang not found in many interpreters in the ability
+to load functions when they are used.  For example, consider the JED editor
+which embeds S-Lang as its extension language.  JED includes a set of
+routines defined in a file `info.sl' which read GNU info files.  In
+particular, JED's online documentation is in info format.  It is extremely
+unlikely that one would read the online documentation every time one edits.
+Thus, it is not normally necessary to load this file of S-Lang code.  Since
+the main entry point into the info reader is the function `info_run_info',
+JED includes the line
+
+  autoload("info_run_info", "info.sl");
+
+in its main startup file (site.sl).  This line lets the S-Lang interpreter
+know that when the `info_run_info' function is called, the file `info.sl' is
+to be loaded first.
+
+===========================================================================
+			       Error Handling.
+===========================================================================
+
+  Many intrinsic functions may signal errors.  This is done internally in
+the underlying C code by setting SLang_Error to a non-zero value.  Once this
+happens, S-Lang will start to return to top level by ``unwinding'' the
+stack. However, there are times when some cleanup needs to be done.  This is
+facilitated in S-Lang through the concept of ``error blocks''.  An error block
+is a block that gets executed in the event of an error.  As an example,
+consider the following:
+
+  define example()
+  {
+     ERROR_BLOCK {print("Error Block executed!") }
+     while (1);  % executes forever
+  }
+
+Here a function called `example' has been defined.  It assumes an intrinsic
+function `print' has been defined and that there is some way for the user to
+signal a quit condition which the underlying C code will trap and raise
+SLang_Error to a non-zero value.  The while loop will execute forever until
+an error condition is signaled.  At this point, the error block will
+be executed.
+
+Consider another example from the JED editor.  When the user starts up JED
+with no filename, a message is displayed in the *scratch* buffer until the
+user hits a key:
+
+   define startup_hook()
+   {
+      !if (strcmp("*scratch*", whatbuf())) return;
+      insert("This is the JED editor.\n\nFor help, hit Control-H Control-H");
+      bob(); update(1);
+      input_pending(300); pop();    % wait up to 300 seconds for input
+      erase_buffer();
+   }
+
+This is a function that JED automatically calls upon startup.  If the buffer
+is the *scratch* buffer, a short help message is displayed; otherwise the
+function returns.  Then JED will wait 300 seconds or until the user hits a
+key then erases the buffer.  This will work fine unless the user does
+something to generate an error.  For example, the ^G key will generate a
+quit condition, the backspace key will try to delete past he beginning of
+the buffer, etc...  If an error is generated, S-Lang will abort before
+erasing the buffer. This will leave the help message on the screen and in
+the buffer which is not what is desired.  To prevent this, an ERROR_BLOCK is
+used:
+
+   define startup_hook()
+   {
+      !if (strcmp("*scratch*", whatbuf())) return;
+      ERROR_BLOCK {erase_buffer()}
+      insert("This is the JED editor.\n\nFor help, hit Control-H Control-H");
+      bob(); update(1);
+      input_pending(300); pop();    % wait up to 300 seconds for input
+      EXECUTE_ERROR_BLOCK;
+   }
+
+Here erase_buffer() has been declare as an error block.  If an error occurs
+the buffer will be erased.  The statement `EXECUTE_ERROR_BLOCK' is a S-Lang
+directive which says to go ahead and execute the error block even if no
+error has occurred.
+
+The upshot is that the ERROR_BLOCK directive declares an error block.  The
+EXECUTE_ERROR_BLOCK directive means that the error block is to be executed
+at this point--- no error is necessary.  Also note that error blocks may be
+defined at multiple levels.  As the stack unwinds, they get executed.
+
+Emacs lisp programmers should note the similarity to the Emacs lisp function
+`unwind-protect'.
+
+
+======================================================================
+				  Pointers
+======================================================================
+
+S-Lang supports a limited concept of a pointer.  A pointer is usually thought
+of as an address.  S-Lang defines pointers as the address of a global
+object.  To see the distinction,  consider the following three functions:
+
+  define first() { print("First"); }
+  define second() { print("Second"); }
+  define first_second()
+  {
+     variable f;
+     f = &first;  f();      % Line 1 (see text)
+     f = &second;  f();     % Line 2 (see text)
+  }
+
+Here three functions have been defined.  'print' is a function which
+displays its argument.  The functions 'first' and 'second' should be quite
+clear.  However, the function 'first_second' looks somewhat strange because
+of the appearance of the '&' character.  A function or variable name
+immediately preceded by the '&' character means to push the address of the
+OBJECT referenced by the name onto the stack rather than pushing its value
+(variable) or executing it (function).  The object referred to MUST be a
+GLOBAL object, either a global variable or a global function. Thus `&first'
+pushes the address of the function `first' on the stack rather than calling
+`first'. The local variable `f' is then assigned this address.  Note that
+after the assignment, `f' is neither a string type nor an integer type. In
+this case it becomes a function type and and is synonymous with the function
+`first'. Hence the line labeled `Line 1' above simply calls the function
+`first'.  A similar statement holds for `Line 2' which results in the
+function `second' getting called.
+
+Finally note that pointers may be passed as arguments.  Consider:
+
+    define execute_function(f)
+    {
+        f();
+    }
+    
+Then
+       execute_function(&first);  execute_function(&second);
+
+will work as in the above example.
+
+This concept should be clear to most C or LISP programmers who will
+interpret the `&' prefixing the object name as simply quoting the object.
+
+
+****************************************************************************
+Library reference
+****************************************************************************
+
+=============================================================================
+			 Predefined Global Variables
+=============================================================================
+
+S-Lang defines the following predefined global variables.  (R) indicates the
+variable is read-only, (RW) indicates it is read_write.
+They are:
+
+   Variable             Type         Description
+ ---------------------------------------------------------------------
+ _slang_version     STRING_TYPE (R)  Version number of S-Lang interpreter.
+ _stkdepth          INT_TYPE (R)     stack depth. 0 indicates empty stack
+ _traceback         INT_TYPE (RW)    non-zero causes a traceback to generated 
+                                     upon error.
+
+ _MSDOS             VOID_TYPE        defined only for MSDOS systems
+ _UNIX              VOID_TYPE        defined only for unix systems
+ _VMS               VOID_TYPE        defined only for VMS systems
+ 
+The latter three variables are operating system dependent and are meant to
+be used with the `is_defined' function.  For example, 
+
+    is_defined("_UNIX")  --> non-zero if Unix system, zero otherwise.
+
+=============================================================================
+			     Function Reference
+=============================================================================
+The functions described below are the only ones intrinsic to the S-Lang
+language.  However, S-Lang is meant to be embedded into an application which
+would then add new intrinsic operations to the language (e.g., the JED
+editor).  It is impossible to say more about these functions without
+explicit reference to the application.
+
+
+String Functions:
+-----------------
+  strlen, strcat, strcmp, strncmp, strup, strlow, substr, 
+  strsub, strtrim, Sprintf
+    
+     strlen(s);           % returns the length of string s
+
+     strcat(s1, s2);      % concatenates strings s1 and s2 returning result
+
+     strcmp(s1, s2)       % returns 0 if s1 and s2 are the same, a negative 
+      		          % number if s2 is lexically greater, otherwise it
+		          % returns a positive non-zero integer (s1 ``>''s2)
+
+     strncmp(s1, s2, n)   % like strcmp except only the first n chars are used
+                          % for the comparison
+
+     strup(s)             % returns uppercase of s
+     strlow(s)            % returns lowercase of s
+     substr(s, i, n)      % returns n character substring from position i in
+                          % string s.  THE FIRST CHARACTER IS POSITION 1.
+			  
+     strsub(s, i, j)      % replace character at position i of string s with
+                          % character whose ascii value is j.  The first
+			  % character is at position 1.
+			  
+     strtrim(s)           % removes leading and trailing whitespace from 
+                          % string s.  Whitespace is composed of only spaces,
+			  % tabs, and newline characters
+
+     Sprintf(fmt, p1, ... pn, n) 
+                          % Returns a formatted string composed of arguments
+			  % p1, ... pn, formatted according to string `fmt'.
+			  % Unlike the C counterpart, `sprintf', Sprintf 
+			  % REQUIRES the number of items to format, n, as its
+			  % last argument.  See `sprintf' in any C reference 
+			  % manual for a discussion of the format string fmt.
+
+Type Conversion Functions
+-------------------------				       
+These operators convert data from one type to another.
+
+   string, char, int, integer, float
+
+      string(n)		% converts integer n to its string equivalent.
+      
+      char(n)		% converts integer n to a string of length 1 whose 
+			% first character has ascii value n
+
+      integer(s)        % converts string s to integer, e.g., "123" -> 123
+
+      int(x)		% returns the ascii value of the first character in
+      			% string x; if x is float it truncates x to integer
+			
+      float(x)          % If x is a string, it converts x to a float, 
+                        % e.g., "1.2" -> 1.2.  If x is an integer, x is 
+                        % converted to float e.g., 1 -> 1.0
+
+File I/O
+--------
+The functions described below are only available if the SLfiles module has
+been linked in.  They include:
+
+  fopen, fclose, fgets, fputs, fflush
+
+      fopen(f, m)       % opens a file `f' in mode `m' and returns a handle
+                        % to the file.  If handle is -1, the file could not
+			% be opened.  Here `m' is one of:
+			%   "r"   open existing file reading
+			%   "w"   open file for writing, create if new
+			%   "r+"  open existing file for both read and write
+			%   "w+"  open for read and write, create if new
+			%   "a"   open for writing at end of file
+			%   "a+"  open for reading and writing at end of file
+			% The handle returned must be used for all other 
+			% file operations.  Predefined open handles include 
+			% `stderr', `stdin', and `stdout'.
+			
+      fclose(n)         % Close file with handle `n'.  Returns 1 upon success
+                        % and 0 upon failure.  Do not forget to `pop' the 
+			% return value if you choose to ignore it.
+
+      fgets(n)          % reads a line from open file handle `n'.  Returns:
+                        %   -1 if handle is not associated with an open file
+			%   0 if at the end of the file
+			%   otherwise, returns the number of characters read
+			%   followed by the character string.
+			
+      fflush(n)         % flushes open file descriptor `n'.  Returns 1 upon
+                        % success, 0 upon failure, and -1 if `n' is not 
+			% associated with an open stream.
+			
+      fputs(buf, n)     % writes string `buf' to open file handle `n'. 
+                        % returns -1 if handle is not open for writing
+			%          1 if write was successful
+			%          0 upon failure (e.g., disk full)
+
+Math Routines
+-------------
+The functions described below are only available if the SLmath module has
+been linked in.  They include:
+
+   sin, cos, tan, atan, asin, acos, exp, log, sqrt, log10, pow, polynom
+
+      sin(x)            % returns sin of floating point number x
+      cos(x)            % returns cos of floating point number x
+      tan(x)            % returns tan of floating point number x
+      atan(x)           % returns arctan of floating point number x
+      acos(x)           % returns arccos of floating point number x
+      asin(x)           % returns arcsin of floating point number x
+      exp(x)            % raises E to the x power.  x must be a float
+      log(x)            % returns natural log of floating point number x
+      log10(x)          % returns base 10 log of floating point number x
+      sqrt(x)           % return square root of floating point number x
+      pow(x, y)         % raises x to y power.  Both x and y are floats.
+
+      polynom(a, b, ...c, n, x)
+                        % returns polynomial ax^n + bx^(n-1) + ... + c
+Miscellaneous Functions
+------------------------			   
+      isdigit(s)	% returns TRUE if the first character of string s is
+      			% a digit (0-9)
+			
+      eval(s)		% evaluates string s as S-Lang code.
+      
+      is_defined(s)	% returns a non-zero integer if string s is the name 
+                        % of a variable or function.  Specifically, it returns
+			%   1 if `s' is an intrinsic function
+			%   2 if `s' is a user defined function
+			%  -1 if `s' is an intrinsic variable
+			%  -2 if `s' is a user defined variable
+			
+       getenv(s)        % Returns environment variable string `s' 
+                        % or an empty string
+
+       evalfile(s)      % loads file s as S-Lang code
+
+       system(s)        % evaluate `s' in inferior shell
+       
+       extract_element(list, n, delim)
+                        % extracts element n from a list of elements
+			% separated by delimiters delim.  Here `list' is a 
+			% string, `n' is an integer, and `delim' is the
+			% ascii value of the delimiter.  Elements are number
+			% from 0.
+
+=============================================================================
+			     Regular Expressions
+=============================================================================
+
+Some applications might provide access to S-Lang's regular expression (RE)
+matching functions.  The S-Lang pattern matcher supports the following
+constructs:
+
+   .                  match any character except newline
+   *                  matches zero or more occurences of previous RE
+   +                  matches one or more occurences of previous RE
+   ?                  matches zero or one occurence of previous RE
+   ^                  matches beginning of line
+   $                  matches end of line
+   [ ... ]            matches any single character between brackets. 
+                      For example, [-02468] matches `-' or any even digit.
+		      and [-0-9a-z] matches `-' and any digit between 0 and 9
+		      as well as letters a through z.
+   \{ ... \}
+   \( ... \)
+   \1, \2, ..., \9    matches match specified by nth \( ... \) expression.
+                      For example, '\([ \t][a-zA-Z]+\)\1[ \t]' matches any
+		      word repeated consecutively.
+   
+For a complete description of these constructs, see the `ed' man page.
+In addition, S-Lang supports the additional constructs:
+
+  \c   make matches case sensitive
+  \C   make matches case insensitive
+  \n   NEWLINE
+  \t   TAB
+  
+For example, the regular expression:
+
+  "\Chell\co World"
+  
+matches the strings:  "Hello World", "hELLo World", "HELlo World", etc...
+but it does not match "Hello world".
+   
+   

@@ -1,0 +1,155 @@
+!++
+!
+! File :	SEND_DEFS.R32
+! Author :	Darrell Burkhead
+!		COPYRIGHT © 1994, MADGOAT SOFTWARE.  ALL RIGHTS RESERVED.
+! Date :	February 24, 1994
+!
+! Abstract :
+!
+!	This file contains the macros and literals used by the modules of
+!	the SEND command.
+!
+! Revision History :
+!
+!	V1.0		Darrell Burkhead	24-FEB-1994 16:17
+!		Creation.
+!--
+LIBRARY 'FIELDS';
+LIBRARY 'SEND_COMM_DEFS';
+
+LITERAL
+    max_lnm_len			= 255,	!Max length of a LNM value
+    max_node_len		= 8,	!Max length of a BITNET node
+    que_head_len		= 8;	!Length of a queue head structure
+					!...(FLINK and BLINK)
+
+_DEF(SUBDST)
+    SUBDST_L_FLINK		= _LONG,	!Queue header
+    SUBDST_L_BLINK		= _LONG,
+    SUBDST_L_FLAGS		= _LONG,
+    _OVERLAY(SUBDST_L_FLAGS)
+	SUBDST_V_TERMINAL	= _BIT,		!Remote terminal?
+	SUBDST_V_VALID		= _BIT,		!Send to this destination
+    _ENDOVERLAY
+    SUBDST_L_EFN		= _LONG,	!Used to synchronize message
+    SUBDST_L_EFNMASK		= _LONG,	!...sending
+    SUBDST_L_DECNODE		= _LONG,	!Points to the nodent for a
+						!...a DECnet destination (0 for
+						!...local messages)
+    SUBDST_Q_IOSB		= _QUAD,	!IOSB for $BRKTHRU calls
+    _OVERLAY(SUBDST_Q_IOSB)
+	SUBDST_W_STATUS		= _WORD,	!Completion status
+	SUBDST_W_SNTCNT		= _WORD,	!Sent count
+	SUBDST_W_TMOCNT		= _WORD,	!Timeout count
+	SUBDST_W_REJCNT		= _WORD,	!Reject count
+    _ENDOVERLAY
+    SUBDST_T_SRVMSG		= _BYTES(SRVMSG_S_SRVMSGDEF)
+_ENDDEF(SUBDST);
+
+_DEF(DESTENT)
+    DESTENT_L_FLINK		= _LONG,	!Queue header
+    DESTENT_L_BLINK		= _LONG,
+    DESTENT_L_FLAGS		= _LONG,
+    _OVERLAY(DESTENT_L_FLAGS)
+	DESTENT_V_BITNET	= _BIT,		!Send through BITNET
+	DESTENT_V_LOG		= _BIT,		!Signal informationals
+	DESTENT_V_TERMINAL	= _BIT,		!Destination is a terminal
+    _ENDOVERLAY
+    DESTENT_Q_SUBDSTQUE		= _QUAD,	!Queue of I/O info for the
+    _OVERLAY(DESTENT_Q_SUBDSTQUE)		!...sub dests making up this
+	DESTENT_L_SUBDSTHEAD	= _LONG,	!...destination
+	DESTENT_L_SUBDSTTAIL	= _LONG,
+    _ENDOVERLAY
+    DESTENT_Q_FULLDEST		= _QUAD,	!Dyn desc with the full dest
+    DESTENT_Q_DESTDSC		= _QUAD,	!Offsets into fulldest
+    DESTENT_Q_NODEDSC		= _QUAD		!...
+_ENDDEF(DESTENT);
+
+_DEF(SNDBLK)
+    SNDBLK_L_FLAGS		= _LONG,
+    _OVERLAY(SNDBLK_L_FLAGS)
+	SNDBLK_V_LOG		= _BIT,		!Signal informationals
+	SNDBLK_V_PROMPT		= _BIT,		!Prompt with destination
+    _ENDOVERLAY
+    SNDBLK_L_BRKFLAGS		= _LONG,	!$BRKTHRU flags
+    SNDBLK_L_WAIT		= _LONG,	!The number of seconds to wait
+    SNDBLK_Q_DESTQUE		= _QUAD,	!Head of a queue of dests
+    _OVERLAY(SNDBLK_Q_DESTQUE)
+	SNDBLK_L_DESTHEAD	= _LONG,	!Points to the first entry
+	SNDBLK_L_DESTTAIL	= _LONG,	!Points to the last entry
+    _ENDOVERLAY
+    SNDBLK_Q_FROMUSER		= _QUAD,	!Dyn desc with source user
+    SNDBLK_Q_FROMNODE		= _QUAD,	!Dyn desc with source node
+    SNDBLK_Q_FROMTERM		= _QUAD,	!Dyn desc with source terminal
+    SNDBLK_Q_PRIVS		= _QUAD,	!Privileges held
+    SNDBLK_Q_IMAGPRIV		= _QUAD,	!Installed privileges
+    SNDBLK_Q_MESSAGE		= _QUAD,	!Message text
+    SNDBLK_Q_MSGPREFIX		= _QUAD		!Local message prefix
+_ENDDEF(SNDBLK);
+
+_DEF(LNMENT)
+    LNMENT_L_FLINK		= _LONG,
+    LNMENT_L_BLINK		= _LONG,
+    LNMENT_L_FLAGS		= _LONG,
+    _OVERLAY(LNMENT_L_FLAGS)
+	LNMENT_V_CLUSTERWIDE	= _BIT,
+	LNMENT_V_LOG		= _BIT,
+    _ENDOVERLAY
+    LNMENT_L_LENGTH		= _LONG,
+    LNMENT_T_BUFFER		= _BYTES(max_lnm_len)
+_ENDDEF(LNMENT);
+
+_DEF(NODDST)
+    NODDST_L_FLINK		= _LONG,
+    NODDST_L_BLINK		= _LONG,
+    NODDST_L_FLAGS		= _LONG,
+    _OVERLAY(NODDST_L_FLAGS)
+	NODDST_V_ADDED		= _BIT,		!Add dest reply successful
+    _ENDOVERLAY
+    NODDST_L_DEST		= _LONG,
+    NODDST_L_SUBDST		= _LONG
+_ENDDEF(NODDST);
+
+_DEF(NODENT)
+    NODENT_L_FLINK		= _LONG,
+    NODENT_L_BLINK		= _LONG,
+    NODENT_L_FLAGS		= _LONG,
+    _OVERLAY(NODENT_L_FLAGS)
+	NODENT_V_ACCEPTED	= _BIT,		!Connection has completed
+	NODENT_V_CLUSTER	= _BIT,		!Is this a cluster node?
+	NODENT_V_INITED		= _BIT,		!Init message sent
+	NODENT_V_RDYTOSEND	= _BIT,		!Init & add dest msgs sent
+	NODENT_V_REQUIRED	= _BIT,		!Was requested explicitly, not
+						!...as a result of /CLUSTER
+	NODENT_V_VALID		= _BIT,		!Connection still valid?
+    _ENDOVERLAY
+    NODENT_W_NETCHN		= _WORD,	!Network channel
+    NODENT_W_MBXCHN		= _WORD,	!Mailbox channel
+    NODENT_L_EFN		= _LONG,	!Used to synchronize message
+    NODENT_L_EFNMASK		= _LONG,	!...sending
+    NODENT_Q_NODDSTQUE		= _QUAD,	!Queue of I/O info for the
+    _OVERLAY(NODENT_Q_NODDSTQUE)		!...sub dests for this node
+	NODENT_L_NODDSTHEAD	= _LONG,
+	NODENT_L_NODDSTTAIL	= _LONG,
+    _ENDOVERLAY
+    NODENT_Q_IOSB		= _QUAD,
+    _OVERLAY(NODENT_Q_IOSB)
+	NODENT_W_STATUS		= _WORD,	!Completion status
+    _ENDOVERLAY
+    NODENT_Q_NCB		= _QUAD,	!The NCB to connect
+    NODENT_Q_NAME		= _QUAD,	!The node name
+    NODENT_T_SRVMSG		= _BYTES(SRVMSG_S_SRVMSGDEF)
+_ENDDEF(NODENT);
+
+!
+! I/O Request block:
+!
+_DEF(IOR)
+    IOR_L_ASTPRM		= _LONG,
+    IOR_L_ASTPRM2		= _LONG,
+    IOR_Q_IOSB			= _QUAD,
+    _OVERLAY(IOR_Q_IOSB)
+	IOR_W_STATUS		= _WORD
+    _ENDOVERLAY
+_ENDDEF(IOR);

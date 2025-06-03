@@ -1,0 +1,288 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program:    {Guide.shell}
+        ! Package:    Intouch Utilities
+        ! Author:     Jim McCleary
+        ! Date:       August 23, 1988   ({date})
+        ! Purpose:    Generic program to format and print a report
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+10      set system : comment "Initializing report"
+        ask system : mode mode$
+        show_stats = true
+        if  mode$ = "BATCH"  or  mode$ = "OTHER"  then  show_stats = false
+        string_dtype = 1
+        declare dynamic field_data
+        max_list = 50
+        max_structure = 9
+        max_titles% = 20
+        dim title$(max_titles%)
+        dim real total(max_list,0 to max_list)
+        dim real extract_totals(max_list)
+        dim break_hold$(0 to max_list)
+        dim break_compare$(0 to max_list)
+        dim integer page_break(0 to max_list)
+        dim integer skip_break_totals(0 to max_list)
+        dim integer level_count(0 to max_list)
+        dim integer groupcount(0 to max_list)
+        dim integer str_found(0 to max_structure)
+        dim string break_desc$(0 to max_list)
+        dim integer break_pos(0 to max_list)
+
+20      !Special variable declarations go here
+        today$ = date$(days(date$),3)
+        cntrl_z$ = chr$(26)
+        no_current_record = 7305
+        out_ch = 2
+        st_inx% = 0
+        last_break_level% = 1
+        no_stats = false
+        ask system, logical 'guide_file_locator' : value guide_file_locator$
+        if  guide_file_locator$ <> '' then  &
+          open structure locator : name guide_file_locator$
+        ! for those sites that use a file locator system for placing datafiles
+
+        {DECLARE}
+
+100     gosub main_logic
+        set system, logical 'guide_status' : value 'success'
+        end
+
+
+1000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I N   L O G I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine main_logic
+          gosub init
+          gosub open_files
+          {MAIN}
+          close all
+          clear
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! start up initialization 
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init
+          margin = {margin}
+          set margin margin
+          frame off
+          gosub define_constants
+        end routine
+
+
+
+10000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E F I N E   C O N S T A N T S
+        ! Special definitions go here
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine define_constants
+          {DEFINE}
+        end routine
+
+
+
+11000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   F I L E S
+        ! open structures here
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine open_files
+          set system : comment "Opening data structures"
+          {OPEN}
+        end routine
+
+
+
+{IF making_export_structure} {INCLUDE tti_run:guide_shell_create_export_str.inc}
+{IF input_count > 0} {INCLUDE tti_run:guide_shell_input.inc}
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! E X T R A C T   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! initialize variables needed for the extract phase
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !        rec        = 0
+        !        sta        = 0
+        !        found      = 0
+        !        key_input$ = ''
+        !        bailout%    = false
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine extract_init
+          rec% = 0
+          sta% = 0
+          found% = 0
+          detail_rec% = 0
+          page_counter% = 0
+          key_input$ = ''
+          bailout% = false
+          last_sort_key$ = 'zzzzz'
+          for z = 1 to max_list
+            for z1 = 0 to max_list
+              total(z, z1) = 0
+            next z1
+          next z
+          for z1 = 0 to max_list
+            groupcount(z1) = 0
+            level_count(z1) = 0
+          next z1
+          gosub show_stats
+          message "Extracting records..."
+          set system : comment "Extracting from {STR}"
+        end routine
+
+
+
+12000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! E X T R A C T   R E C O R D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine extract_records
+          {SIMPLE_LETS}
+          extract structure {STR} {SYSTEMSET} {key}
+            gosub show_extract_status
+            {CHECK_SAMPLE}
+            if bailout% then exit extract
+            {USER_GET_ROUTINE}
+            {EXTRACT}
+            found% = found% + 1
+          end extract
+          gosub show_recs_searched
+          gosub show_recs_selected
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! initialize variables needed during the print phase
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !       The ouput file is opened
+        !        start_print_time = time(0)
+        !        first_line       = true
+        !        key_input$       = ''
+        !        page_counter%     = 0
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_init
+          message building_message$
+          set system : comment building_message$
+          if  out_ch > 0 and not making_export_structure then
+            if  unique_report_name then
+              open #out_ch: name report_name$, access output, unique
+              ask #out_ch : name report_name$
+            else
+              open #out_ch: name report_name$, access output
+            end if
+            set #out_ch: margin report_margin
+          end if
+          start_print_time = time(0)
+          key_input$ = ''
+          line_counter%   = lines_per_page%  ! cause first page break
+          first_line%   = true
+        end routine
+
+
+
+13000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   R E P O R T:
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_report
+          for each {STR}
+            gosub show_report_status
+            {CHECK_CUTOFF}
+            if  bailout% = true  then exit for
+            {USER_GET_ROUTINE}
+            ! Do file lookups
+            {LOOKUP}
+            {PROCESS_RECORD}
+          if  out_ch > 0  then close #out_ch
+        end routine
+
+
+
+13500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E L A T E   M A N Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+          {RELATE_MANY}
+
+14000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   R E P O R T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !       u_dispatch$ = routine to dispatch to after clear screen
+        !                     (u_dispatch$ is cleared on reference)
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_report
+          if  not making_report  then  
+            gosub show_stats
+            delay
+            exit routine
+          end if
+          if  out_ch = 0  then exit routine
+          set system : comment "Displaying report"
+          u_str$ = report_name$
+          u_scr_width% = margin
+          u_dispatch$ = 'show_stats'
+          gosub prnt_ask_option
+        end routine
+
+
+
+21000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! N E W   P A G E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine new_page
+{IF making_report}  {INCLUDE tti_run:guide_shell_new_page.inc}
+        end routine
+
+
+
+22000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T   U S E R   D E F I N E D
+        !
+        ! User-defined variables get calculated here
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine set_user_defined
+          {USER}
+        end routine
+
+
+
+{IF brk_count > 0}    {INCLUDE tti_run:guide_shell_break.inc}
+{IF report_has_totals or report_has_cumes} {INCLUDE tti_run:guide_shell_add_totals.inc}
+{IF summary = true}   {INCLUDE tti_run:guide_shell_save.inc}
+{IF brk_count > 0}    {INCLUDE tti_run:guide_shell_level_break.inc}
+26000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   D E T A I L   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Print detail line: col_data$(col) for each column
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_detail_line
+          {DETAIL}
+          data_printed% = false
+          first_page_line% = false
+          last_break_level% = 0
+        end routine
+
+
+
+{IF brk_count > 0 or report_has_totals or report_has_groupcount} {INCLUDE tti_run:guide_shell_print_totals.inc}
+
+{USER_INCLUDES}
+
+90000   %include "tti_run:guide_shell_int.inc"
+
+99999   end

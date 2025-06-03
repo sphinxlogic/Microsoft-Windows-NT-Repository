@@ -1,0 +1,206 @@
+	.TITLE	KILLDRIVER -- SYSAP pour forcer le crash d'une station HANG
+	.LINK	'SYS$SYSTEM:SYS.STB'/SE
+	.IDENT	/V1.0-2/
+;
+;	GG	6-nov-1990	V1.0-2	added SMPMOD in DPT (why ??)
+;	GG	30-oct-1990	V1.0-1	added PCB lw in UCB to restore R4 in start I/O
+;	GG			V1.0-0	released
+;
+
+	.SBTTL	External symbol definitions
+;
+;  External symbols
+;
+	.LIBRARY	/SYS$LIBRARY:LIB/
+	$DCDEF	; Define device classes
+	$CRBDEF ; Channel request block
+	$DCDEF  ; Device classes and types
+	$DDBDEF ; Device data block
+	$DYNDEF ; Dynamic-data-structure types
+	$IDBDEF ; Interrupt data block
+	$IRPDEF ; I/O request packet
+	$IODEF  ; I/O function codes
+	$JIBDEF ; JIB offsets
+	$PCBDEF	; Process control block
+	$SPLCODDEF	; Spin locks
+	$SSDEF  ; system condition codes
+	$UCBDEF ; Unit control block
+	$VECDEF ; Interrupt vector block
+	$CDTDEF	; Connection descriptor table
+	$PDTDEF	; Port descriptor table
+	$SBDEF	; System block
+	$PBDEF	; Path block
+;
+	$DEFINI	UCB
+.	=	UCB$K_LENGTH
+$DEF	UCB$B_SYSTEMID	.blkb	SB$S_SYSTEMID	; pourrait aller dans l'IRP
+$DEF	UCB$L_PCB				; sauvegarde adresse PCB
+$DEF	UCB$K_KILL_LENGTH
+	$DEFEND	UCB
+;
+	.SBTTL	KILLDRIVER Driver Prologue Table
+;
+;  Driver prologue table
+;
+	DPTAB	-		; version 4 VMS
+		END=kill$END_OF_DRIVER,-
+		ADAPTER=NULL,-
+		FLAGS=<DPT$M_NOUNLOAD!DPT$M_SCS!DPT$M_SMPMOD>,-
+		UCBSIZE=UCB$K_KILL_LENGTH,-
+		NAME=KILLDRIVER
+
+	DPT_STORE	INIT
+
+	DPT_STORE	UCB   ,  UCB$B_FLCK,B,SPL$C_SCS
+	DPT_STORE	UCB   ,  UCB$B_DIPL,B,22
+	DPT_STORE	UCB   ,  UCB$L_DEVCHAR,L,<DEV$M_SHR!DEV$M_IDV>
+	DPT_STORE	UCB   ,  UCB$L_DEVCHAR2,L,<DEV$M_NNM>	; ca fait joli
+	DPT_STORE	UCB   ,  UCB$B_DEVCLASS,B,DC$_SCOM
+
+	DPT_STORE	REINIT
+
+	DPT_STORE	DDB   ,  DDB$L_DDT,D,kill$DDT
+	DPT_STORE	CRB   ,  CRB$L_INTD+VEC$L_INITIAL,D,kill$CTRL_INIT
+	DPT_STORE	CRB   ,  CRB$L_INTD+VEC$L_UNITINIT,D,kill$UNIT_INIT
+
+	DPT_STORE	END
+
+;
+;  Driver dispatch table
+;
+	DDTAB	-
+		START=kill$START,-
+		CANCEL=kill$CANCEL,-
+		FUNCTB=kill$FDT,-
+		DEVNAM=KILL
+kill$FDT:
+	FUNCTAB	,-
+		 <STOP>
+
+	FUNCTAB	,-
+		<>
+
+	FUNCTAB	kill$FDT_STOP,-
+		<STOP> 
+
+kill$PRNAME:
+	.ASCII	"VMS$VAXClystere "	; nom process SCS (16 car.)
+kill$PRINFO:
+	.ASCII	"Gare au gorille!"	; ident. process SCS (16 car.)
+;
+;	CONTROLLER INIT ROUTINE
+;
+;	R8	CRB	
+;
+;	declaration du process SCS en LISTEN. pour cela, il faut forker
+;	a lock SCS
+;
+kill$CTRL_INIT:
+	PUSHL	R5	; save R5
+	BSBB	DO_FORK
+	POPL	R5	; restore R5
+	RSB
+;
+;	pour restaurer ce R5, et que 0(SP) - @ caller's caller
+;
+DO_FORK:
+;
+;	on forke dans le CRB. il faut initialiser CRB$B_FLCK
+;
+	MOVB	#SPL$C_SCS,CRB$B_FLCK(R8)	; init CRB lock number
+	MOVL	R8,R5				; adresse du FKB
+	FORK					; access SCS with SCS spinlock
+;
+;
+	MOVAB	kill$PRNAME,R1
+;
+;	locate	process
+;
+	JSB	G^SCS$LOCLOOKUP
+;
+;	R0	status
+;	R1	SDIR
+;	R3	CDT or 0 if failure
+;	all others preserved
+;
+	BLBC	R0,2$
+;
+;	already exists
+;
+	RSB
+2$:
+;
+	LISTEN	MSGADR=kill$CONNECT_RCV,-
+		ERRADR=kill$LISTEN_ERROR,-
+		LPRNAM=kill$PRNAME,-
+		PRINFO=kill$PRINFO
+;
+;	R0	status
+;	R3	CDT or 0 if failure
+;	r1,r2	destroyed
+;	all others preserved
+;
+	BLBS	R0,1$
+;	kata. que faire ?
+1$:	RSB
+;
+kill$LISTEN_ERROR:
+	DISCONNECT
+	RSB
+kill$CONNECT_RCV:
+	BUG_CHECK	CLUEXIT,FATAL
+	HALT
+;
+;	FDT pour le seul IO function code autorisé: IO$_STOP
+;	P1 contient l'adresse du systemid du noeud visé
+;
+kill$FDT_STOP:
+	BISL3	4(AP),8(AP),R0
+	BISL	16(AP),R0
+	BISL	20(AP),R0
+	BISL	24(AP),R0
+	BNEQ	BADPARAM			; p2--p6 doivent être nuls
+	MOVL	(AP),R1
+	IFNORD	#SB$S_SYSTEMID,(R1),ACCVIO	; impossible de lire le systemid
+	PUSHR	#^M<R3,R4,R5>			; sauvegarde de systemid dans
+	MOVC3	#SB$S_SYSTEMID,(r1),UCB$B_SYSTEMID(R5)	; l'UCB
+	POPR	#^M<R3,R4,R5>			; registres nécessaires
+	MOVL	R4,UCB$L_PCB(R5)		; save PCB address
+	JMP	G^EXE$QIODRVPKT			; call START IO
+BADPARAM:
+	MOVZBL	#SS$_BADPARAM,R0
+	BRB	ABORT
+ACCVIO:
+	MOVZBL	#SS$_ACCVIO,R0
+ABORT:	JMP	G^EXE$ABORTIO
+;
+;	START	I/O routine
+;	ouverture d'une connexion vers la machine cible.
+;
+;	R3	IRP
+;	R5	UCB
+kill$START:
+;
+	MOVL	UCB$L_PCB(R5),R4
+	MOVL	PCB$L_JIB(R4),R0
+	CONNECT	LPRNAM=kill$PRNAME,-
+		RPRNAM=kill$PRNAME,-
+		ERRADR=kill$LISTEN_ERROR,-
+		CONDAT=JIB$T_USERNAME(R0),-	; flicage
+		RSYSID=UCB$B_SYSTEMID(R5)	; attention: FORK
+;
+;	r0	status
+;	R1,R2	destroyed
+;	R3	address of CDT or 0 if unsuccessful
+;	R4	address of PDT
+;
+	REQCOM
+;
+kill$CANCEL:
+	RSB
+kill$UNIT_INIT:
+	BISB2	#UCB$M_ONLINE,UCB$L_STS(R5)
+	BISL2	#DEV$M_AVL,UCB$L_DEVCHAR(R5)
+	RSB
+kill$END_OF_DRIVER:
+	.end

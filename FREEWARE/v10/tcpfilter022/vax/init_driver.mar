@@ -1,0 +1,892 @@
+	.title	TCPFILTER - filter outgoing TCP accesses
+	.ident	/V2.2/
+;									*/
+;	Copyright (©) Ecole Nationale Supérieure des Télécommunications */
+;									*/
+;	programmme pour filtrer les appels TCP/IP sortants		*/
+;									*/
+;	21-feb-1995:	Guillaume gérard				*/
+;									*/
+;	Ce logiciel est fourni gratuitement et ne peut faire		*/
+;		l'objet d'aucune commercialisation			*/
+;									*/
+;	Aucune garantie d'utilisation, ni implicite,			*/
+;		ni explicite, n'est fournie avec ce logiciel.		*/
+;		Utilisez-le à vos risques et périls			*/
+;									*/
+;
+;	21-feb-1995 gg: v2.2 same functionnality as alpha: audit alarm acls.
+;				use EXE$CHKPRO_INT
+;	02-oct-1992 gg v2.0	utilisation d'une table de securite
+;	14-oct-1991 GG v1.0-1	utilisation de deanonpaged plutot que deanonpgdisz
+;				raz du driver dans unload au cas ou pas unloadable
+;	7-oct-1991 GG v1.0:	création
+;
+;	Ce programme ne permet les connextions sortantes que 
+;	pour les appels sur les addresses autorisees en fonction
+;	des ACL et/ou des images effectuant l'appel
+;
+;
+	.if	NDF,AUDIT
+AUDIT=1		; enable auditing
+	.endc
+;
+;	unload code when reloading driver.
+;	conditional assembly since rather hairy
+;	we use inittab to store code to call us in case of
+;	a driver reload, to allow us to leave memory
+;
+	.if	NDF,UNLOAD
+UNLOAD=1
+	.endc
+;
+	.if	NDF,DEBUG
+DEBUG=1
+	.endc
+;
+	.disable	global
+	.library	/sys$share:lib/
+	.library	/lib$:tcpfilter/
+	.link		@sys$system:sys.stb@/se
+	$ACEDEF
+	$ACLDEF
+	$ARMDEF
+	$CCBDEF
+	$CHPDEF
+	$CHPCTLDEF
+	.if	NE, AUDIT
+	.if	NE, DEBUG
+	$CHPRETDEF
+	.endc;	NE, DEBUG
+	.endc;	NE, AUDIT
+	$DDBDEF
+	$DDTDEF
+	$DPTDEF
+	$DYNDEF
+	$FCBDEF
+	$FKBDEF
+;
+;;;	$ICBDEF		; unimplemented in LIB.MLB ... sigh ...
+	ICB$W_CHAN	= 14
+;
+	$IOCDEF
+	$IODEF
+	$IRPDEF
+	$NAMDEF
+	.if	NE,AUDIT
+	$NSAEVTDEF
+	$OCBDEF
+	$OSRVDEF
+	.endc; 	NE,Audit
+	$ORBDEF
+	$PCBDEF
+	$PHDDEF
+	$SECDEF
+	$SPLCODDEF
+	$SSDEF
+	$WCBDEF
+	act_def
+	.page
+	.external	sch$iolockr,sch$iounlock,sch$lockr,sch$lockw,sch$unlock
+	.external	ioc$searchdev,ioc$parsdevnam,ioc$searchint
+	.external	exe$alonpagvar,exe$abortio,exe$deanonpaged
+	.external	exe$fork	; should be in FORK macro!
+	.external	exe$chkpro_int,ioc$gl_dptlist,sys$fao
+	.external	ioc$verifychan,exe$prober,iac$gl_main_icb
+	.external	ctl$gl_phd,ctl$gl_pcb
+	.external	lib$put_output
+	.external	bug$_inconstate
+;
+	.macro	$zero	nbbytes
+	.repeat	nbbytes
+	.byte	0
+	.endr
+	.endm	$zero
+;
+	.macro	$dbgres	nbbytes
+	.if	NE,DEBUG
+dbgres$$=	nbbytes
+	.endc
+	.endm	$dbgres
+;
+	.macro	$dbgarea
+	.if	NE,DEBUG
+dbg_area:$zero	dbgres$$
+	.endc
+	.endm	$dbgarea
+;
+	.macro	$dbg_store	op,numbyte
+	.if	NE,DEBUG
+	.if	LT,<dbgres$$-numbyte-4>
+	.error	numbyte	; Debug area to small
+	.iff
+	MOVL	op,dbg_area+numbyte
+	.endc
+	.endc
+	.end	$dbg_store
+;
+	.macro	$dbg_count	numbyte
+	.if	NE,DEBUG
+	.if	LT,<dbgres$$-numbyte-2>
+	.error	numbyte	; Debug area to small
+	.iff	
+	INCW	dbg_area+numbyte
+	.endc
+	.endc
+	.end	$dbg_count
+
+	.page
+	$dbgres	80
+	.psect	$kernel,rd,wrt,pic,quad	; quad to allow .align
+krnlstart:
+hdr:	.quad	0	; standard hdr
+	ASSUME	IRP$W_SIZE,eq,<.-KRNLSTART>
+krnlallocsz:	.blkw	1
+	ASSUME	IRP$B_TYPE,eq,<.-KRNLSTART>
+	.byte	DYN$C_BUFIO	; doit être >= 0 pour EXE$DEANONPAGED
+	.byte	1		; version 2
+krnldata:
+accessfdt:	.blkl	1		; @ of original access fdt routine
+drv_unload:	.blkl	1		; @ of original driver unload routine
+access_table:	.long	0
+mutex:		.word	^XFFFF,0	; protects access table
+old_objowner:	.long	^X10004		; default owner SYSTEM (for SOGW test)
+old_objprot:	.word	^xFFF0		; default prot (s:rewd,o,g,w)
+		.align	long
+ret_accessfdt:	jmp	@accessfdt
+;
+;	FDT routine
+;
+;	inputs	IPL 2
+;		R0	@FDT
+;		R3	@IRP
+;		R4	@PCB
+;		R5	@UCB
+;		R6	@CCB
+;		R7
+;		R8
+;		AP	@Px
+;
+	.align	long
+krnlcode:
+;	 under no circumstances modify from krnlstart to here, or else !
+	cmpw	IRP$W_FUNC(r3),#<IO$_ACCESS!IO$M_NOW>
+	beql	do_check
+	cmpw	IRP$W_FUNC(r3),#IO$_ACCESS
+	bneq	ret_accessfdt
+;	P3:	internet address descriptor
+do_check:
+	movl	8(ap),r1
+	ifnord	#8,(r1),ret_accessfdt
+	cmpw	(r1),#16
+	bneq	ret_accessfdt
+	movl	4(r1),r1
+	ifnord	#16,(r1),ret_accessfdt
+	cmpb	#127,4(r1)		; Loopback ?
+	beql	ret_accessfdt		; yes: always allow
+;
+	pushr	#^M<r2,r3,r4,r5>
+	subl	#kstkdatasz,SP
+	moval	mutex,r0
+	jsb	G^SCH$LOCKR
+	pushl	r1				; save access buffer address
+	movc3	#kstkdatasz,kstkdatast,4(SP)	; init kernel stack
+;
+	movl	G^IAC$GL_MAIN_ICB,r0
+	$dbg_store r0,12			;;; DBG
+	bgtr	10$
+	brw	ret_accessfdt_stk_bug		; no ICB
+;
+10$:	movl	icb$w_chan(r0),r0		; channel to be tested
+	jsb	G^IOC$VERIFYCHAN		; find CCB
+;
+;	R1:	@CCB
+;	R2:	channel index
+;	R3:	destroyed
+;
+	popl	r3				; restore access buffer address
+	blbc	r0,ret_accessfdt_stk_bug	; channel was invalid
+	movl	CCB$L_UCB(r1), -		; save image UCB addr
+		<ucbadr-kstkdatast>(SP)
+	movl	CCB$L_WIND(r1),r1
+	blss	20$				; direct window
+	beql	ret_accessfdt_stk		; no window
+	cvtwl	r1,r0				; section window
+	movl	G^CTL$GL_PHD,r1
+	addl	PHD$L_PSTBASOFF(r1),r1
+	movl	SEC$L_WINDOW(r1)[r0],r1
+	bgeq	ret_accessfdt_stk_bug
+20$:	movl	WCB$L_FCB(r1),r1
+	clrl	r0      			; access
+;
+;
+;	R0 -->	0 access; 1 accept
+;	R1 -->  @ FCB
+;		[31..16| 15..0 ]
+;	R3 -->	access item list
+;		[port  | domain] (bytes inversés)
+;		[internet addr ] (bytes inversés)
+;	register usage:
+;		r1,r3: read only
+;		r0: @ entry
+;		r2: data index
+;		R4-R5: scratch
+;
+	movl	access_type[r0],<chpaccess-kstkdatast>(SP)       ; set access
+	movl	access_table,r0
+	movzwl	act$l_aq(r0),r2
+	moval	(r0)[r2],r0	; points to start of list
+testent:movzwl	acte$wh_index(r0),r2
+	beql	default			; end of list: no match
+	bicl3	acte$l_mask(r0),4(r3),r5; matching address?
+	cmpl	r5,acte$l_addr(r0)
+	bneq	nextent			; nope
+	movw	acte$wl_port(r0),r5
+	beql	check_acc		; no port
+	cmpw	r5,2(r3)
+	beql	check_acc
+nextent:addl	#acte$k_length,r0	; goto next entry
+	brb	testent
+default:
+	clrl	<orb+ORB$L_ACLFL-kstkdatast>(sp)	; clear ACL
+	clrl	<orb+ORB$L_ACLBL-kstkdatast>(sp)
+	$dbg_count	16			;;; DBG
+	brw	check_pro
+ret_accessfdt_stk_bug:
+	bug_check	INCONSTATE,NONFATAL
+ret_accessfdt_stk:              
+	addl	#kstkdatasz,SP
+	moval	mutex,r0
+	movl	G^CTL$GL_PCB,r4
+	jsb	G^SCH$UNLOCK
+	popr	#^M<r2,r3,r4,r5>
+	jmp	@accessfdt
+check_acc:				; match found
+;
+;	entry:	addr,mask,lenaddr,code
+;	r0	entry
+;	r1	@ FCB
+;	r2	entry data index (LW)
+;	r3	access item list
+;
+	$dbg_store	r1,4		;;; DBG
+	moval	(r0)[r2],r2                  
+	tstw	acte$wh_type(r0)
+	bneq	1$
+	brw	check_acl		; check ACL
+1$:	movzwl	acte$wl_size(r0),r5
+	addl3	r2,r5,r4		; max. data
+	$dbg_count	20		;;; DBG
+imgloop:
+	$dbg_count	22		;;; DBG
+	cmpl	r2,r4
+	bgequ	nextent			; no more images: return to main loop
+	cmpl	(r2),FCB$W_FID(r1)	; check FID
+	bneq	5$
+	cmpw	4(r2),FCB$W_FID+4(r1)
+	bneq	5$
+	pushr	#^M<r0,r1,r2,r3,r4,r6,r7,r8,r9,r10,r11>
+	movab	<actimg$t_devnam+1>(r2),r9	; address of text
+	movzbl	actimg$t_devnam(r2),r8		; size of string
+	movl	G^CTL$GL_PCB, r4		; for SCH$xxx
+	jsb	G^SCH$IOLOCKR			; lock I/O database for read
+	movl	#<IOC$M_ANY!IOC$M_PHY>,R10	; any physical device
+	jsb	G^IOC$PARSDEVNAM
+	blbc	r0,133$				; strange ...
+	jsb	G^IOC$SEARCHINT			; R5 => @ UCB
+	blbc	r0,133$				; strange ...
+1$:	jsb	G^SCH$IOUNLOCK			; unlock I/O database
+	popr	#^M<r0,r1,r2,r3,r4,r6,r7,r8,r9,r10,r11>
+	cmpl	r5,<ucbadr-kstkdatast>(SP)	; do UCB match ?
+	beql	10$				; yep
+5$:	addl	#actimg$k_length,r2		; try next image
+	brb	imgloop
+10$:	bicl3	6(r2),<chpaccess-kstkdatast>(SP),r2 ; finish if images matches
+	bneq	131$				; br if access denied
+	brw	ret_accessfdt_stk		; br if access granted
+131$:	brw	nopriv_stk
+133$:	$dbg_store	r0,8
+	bug_check	INCONSTATE
+	brb	1$
+
+check_pro:
+	movl	sp,r5
+	brb	call_chkpro
+;
+;	entry:	addr,mask,lenaddr,0
+;	r0	@ acte
+;	r2	@ acte data
+;	r3	access item list
+;	r1,r4,r5:	scratch
+;
+;		we must call directly the system service to remain at IPL 2
+;		copy acl on stack, adding an header
+;
+check_acl:
+	$dbg_count	18				;;; DBG
+	addw3	#ACL$K_LENGTH,acte$wl_size(r0),r1	;;;
+	movl	sp,r5
+	movzwl	r1,r4
+	movl	r4,r1					; r1 and r4 must be LW
+	addl	#7,r1
+	bicl	#7,r1					;; round to quad
+	subl	r1,sp					; extend stack
+	$dbg_store	r0,40
+	pushr	#^M<r3,r4,r5>
+	movc3	acte$wl_size(r0),(r2),<<3*4>+ACL$L_LIST>(sp) ; copy acl data
+	popr	#^M<r3,r4,r5>
+;
+;	r3:	access item list
+;	r4:	acl size, including header
+;	r5:	saved sp
+;	sp:	pointer to acl block
+;
+	addl3	#<DYN$C_ACL@16>,r4,ACL$W_SIZE(sp)	; init acl header
+	movl	sp,<orb+ORB$L_ACLFL-kstkdatast>(r5)	; initialize orb flink
+	movl	sp,<orb+ORB$L_ACLBL-kstkdatast>(r5)	; ditto, blink
+	moval	<orb+ORB$L_ACLFL-kstkdatast>(r5),r1
+	movl	r1,ACL$L_FLINK(sp)			; ditto, link flink
+	movl	r1,ACL$L_BLINK(sp)			; and blink
+;
+call_chkpro:
+	.if	NE, audit
+	moval	<objname-kstkdatast>(r5),<objname_d+4-kstkdatast>(r5)
+	moval	<objname-kstkdatast>(r5),<orb+ORB$L_NAME_POINTER-kstkdatast>(r5)
+	moval	osrv,ocb+OCB$L_SUPPORT_RTNS
+	moval	nsaacc,ocb+OCB$AR_ACC_ALARMS
+	moval	nsaacc,ocb+OCB$AR_ACC_AUDITS
+	moval	strstr,ctrstr+4
+	moval	bitin,in+4
+	moval	bitout,out+4
+	moval	in,<bitnames+<4*CHPCTL$V_READ>>
+	moval	out,<bitnames+<4*CHPCTL$V_WRITE>>
+	moval	bitnames,ocb+OCB$L_ACCESS_BITNAMES
+	moval	ocb,orb+<ORB$L_OCB-kstkdatast>(r5)
+;
+;	format the object name
+;
+	movzbl	3(r3),-(SP)
+	movb	2(r3),1(sp)
+	movzbl	7(r3),-(SP)
+	movzbl	6(r3),-(SP)
+	movzbl	5(r3),-(SP)
+	movzbl	4(r3),-(SP)
+	moval	<objname_d-kstkdatast>(r5),-(SP)
+	moval	<orb+ORB$W_NAME_LENGTH-kstkdatast>(r5),-(SP)
+	moval	ctrstr,-(SP)
+	calls	#8,G^SYS$FAO
+	$dbg_store	r0,32
+	$dbg_count	36
+	.endc;	NE, AUDIT
+;
+	movl	G^CTL$GL_PCB,r4			; restore r4
+	movl	PCB$L_ARB(R4),R0		; get arb address
+	moval	<orb-kstkdatast>(r5),r1		; orb address
+	moval	<chpctl-kstkdatast>(r5),r2	; chpctl block
+	clrl	r3				; no chpret block
+	jsb	G^EXE$CHKPRO_INT
+	movl	r5,sp				; restore stack
+	blbc	r0,abort_stk
+	brw	ret_accessfdt_stk
+nopriv_stk:
+	movzwl	#SS$_NOPRIV,r0
+abort_stk:                       
+	addl	#kstkdatasz,SP
+	movl	r0,-(SP)
+	moval	mutex,r0
+	movl	G^CTL$GL_PCB,r4
+	jsb	G^SCH$UNLOCK
+	movl	(SP)+,r0
+	popr	#^M<r2,r3,r4,r5> 
+	jmp 	G^EXE$ABORTIO
+;
+	.align	long
+access_type:
+	.long	ARM$M_WRITE
+	.long	ARM$M_READ
+	.if	NE, AUDIT
+osrv:	$zero	OSRV$K_LENGTH
+nsaacc:	$zero	NSA$K_ACCESS_LENGTH
+bitout:	.ascii	/Outgoing/
+bitin:	.ascii	/Incoming/
+bitnames:.blkl	32
+out:	.long	8,0	; descriptors for bit names
+in:	.long	8,0
+ocb:	$zero	OCB$K_LENGTH
+strstr:	.ascii	/!UB.!UB.!UB.!UB Port:!UW/
+ctrstr:	.long	.-strstr
+	.address strstr	; will be updated anyhow
+auditend=	.
+.=	ocb+OCB$T_NAME
+	.ascii	/IP destination/
+l=	.-<ocb+ocb$t_name>
+.=	ocb+OCB$W_NAME_LENGTH
+	.word	l
+.=	ocb+OCB$B_TYPE
+	.byte	DYN$C_OCB
+.=	ocb+OCB$W_SIZE
+	.word	OCB$K_LENGTH
+.=	ocb+OCB$L_ACCESS_MODES
+	.long	CHPCTL$M_READ!CHPCTL$M_WRITE
+.=	auditend
+	.endc	; NE, AUDIT	
+;
+;	the following data will be moved on the kernel stack
+;
+kstkdatast:
+	.align quad
+ucbadr:	.blkl	1
+orb:	$zero	ORB$C_LENGTH
+lc$$=	.
+.=	orb+ORB$B_TYPE
+	.byte	DYN$C_ORB
+.=	orb+ORB$W_SIZE
+	.word	ORB$C_LENGTH
+.=	orb+ORB$B_FLAGS
+	.byte	ORB$M_PROT_16
+.=	orb+ORB$L_OWNER
+objowner::.long	^x1004		; default owner= SYSTEM
+.=	orb+ORB$W_PROT
+objprot::.word	^xFFF0		; default protection= s:rewd,o,w,g
+.=	lc$$
+chpctl:	$zero	CHPCTL$K_LENGTH
+lc$$=	.
+.=	chpctl+CHPCTL$L_FLAGS
+	.long	CHPCTL$M_READ!CHPCTL$M_WRITE
+.=	lc$$
+chpaccess=	chpctl+CHPCTL$L_ACCESS
+	.if	NE, AUDIT
+objname:.blkb	4*3+3*1+11
+l$$	=	.-objname
+	.align quad
+objname_d:.long	l$$
+	.address objname	; will be updated
+	.endc	; NE, AUDIT
+;
+	.align quad
+kstkdatasz=	.-kstkdatast
+	.page
+	.if NE,UNLOAD
+drv_fdtadr:	.blkl	1		; address of pointer of FDT routine
+fkb:	.blkb	fkb$c_length
+.=fkb+fkb$b_flck
+	.byte	SPL$C_IOLOCK8
+.=fkb+fkb$c_length
+;
+;	driver unload routine
+;
+;	inputs:	IPL$_POWER
+;		R6	@DDB
+;		R10	@DPT
+;		IO MUTEX held for WRITE
+;
+;	output:	r0: status
+;		all other registers: scratch
+;
+;	we must restore original values for the unload routine
+;	and the FDT routine, just in case the driver would not unload
+;
+	.align	quad
+unload_rtn:
+	tstl	drv_unload
+	beql	1$
+	movl	drv_unload,-(SP)		; fake rsb
+	subw3	R10,drv_unload,dpt$w_unload(r10); restore driver unload routine
+	brb	2$
+1$:	clrw	dpt$w_unload(R10)	; clear driver unload routine
+2$:	movl	accessfdt,@drv_fdtadr	; restore original FDT routine address
+	movzbl	#SS$_NORMAL,R0		; fork preserves R0
+	moval	fkb,R5			; fork block addr
+	FORK	; SMP ok, since we never get back into our code at IPL POWER
+;
+;	note: we can't use COM$DRVDEALMEM since it preserves R0,
+;	      and the driver will not unload since R0 is even
+;
+	movl	access_table,r0
+	jsb	G^EXE$DEANONPAGED		; dealloc access table
+	moval	krnlstart,r0
+	jmp	G^EXE$DEANONPAGED		; roule cocotte
+	.ENDC
+;
+	.align	quad
+	$dbgarea
+;
+krnlend:
+;	
+;
+krnlsize=	.-krnlstart
+	.page
+;
+;
+;
+	.IF 	NE,UNLOAD
+	.psect	rdwrt,rd,wrt
+instbran:	jmp	G^SCH$IOLOCKR	; en fait n'importe quoi sauf 1 sym rel
+instsz=	.-instbran
+	.ENDC
+	.psect	rdonly,rd,nowrt,long
+devnam:	.ascid	/UCX$DEVICE/
+replace:.ascid	/%TCPLOAD-I-REPLACED, previous code replaced./
+kernel_inadr:	.address	mod_accessfdt,-
+				mod_accessfdt_end
+;
+	.psect	code,rd,nowrt,long,shr,pic
+;
+	.entry		LOADCODE,^m<>
+;
+	$CMKRNL_S	routin=mod_accessfdt,-
+			arglst=<(AP)>
+	cmpl	#9,r0
+	bneq	dehors
+	pushal	replace
+	calls	#1,G^LIB$PUT_OUTPUT
+	movl	#9,r0
+dehors:	ret
+	.page
+;
+;	translate kernel into system space
+;	replace ACCESS FDT entry by ours
+;
+;	P1:	size of table
+;	P2:	address of table
+;	P3:	address of diag buffer	(optional)
+;	P4:	reload code (optional and NOT protected (CRASHES))
+;		0 or absent: don't reload code
+;		1: reload code without any synchronization
+;		2: reload code and synchronize with old mutex
+;	R4	@PCB
+;
+mod_accessfdt:
+	.word	^M<r2,r3,r5,r6,r7,r8,r9,r10>
+	clrl	r10
+	cmpl	(ap),#2
+	blssu	insfarg
+	cmpl	(ap),#4
+	bgtru	maxarg
+	cmpl	(ap),#3
+	blssu	1$
+	movl	12(ap),r10
+	ifnowrt	#<6*4>,(r10),accvio
+1$:	movzbl	#1,r5
+	movl	4(ap),r7
+	cmpl	r7,#<1@18>
+	bgtru	badpar
+	cmpl	r7,#32
+	bleq	badpar
+	incl	r5
+	movl	8(ap),r6
+	bleq	badpar
+	movq	r6,r0
+	clrl	r3
+	jsb	G^EXE$PROBER
+	blbc	r0,ret
+	addl	#2,r5
+	clrl	r9
+	cmpl	(ap),#4
+	blssu	2$
+	movl	16(ap),r9
+	cmpl	r9,#2
+	bgtru	badpar
+2$:
+;
+	callg	(ap),check_table
+	blbc	r0,ret
+	$LKWSET_S	inadr=kernel_inadr
+	blbs	r0,kernel_lock
+ret:	ret
+insfarg:movl	#SS$_INSFARG,r0
+	brb	ret
+maxarg:	movl	#SS$_OVRMAXARG,r0
+	brb	ret
+accvio:	movl	#SS$_ACCVIO,r0
+	brb	ret
+badpar:	movl	#SS$_BADPARAM,r0
+	movl	r10,r3
+	beql	ret
+	movq	r0,(r3)+
+	movq	r2,(r3)+
+	movq	r5,(r3)+
+	brb	ret
+;
+kernel_lock:
+	jsb	G^SCH$IOLOCKR	; for IOC$SEARCHDEV *AND* protection against 
+				; unload
+	moval	devnam,r1	; IPL: ASTDEL
+	jsb	G^IOC$SEARCHDEV	; search specific device
+	blbc	r0,133$
+;
+;	R1	UCB
+;	R2	DDB
+;	R3	SB
+;
+	movl	DDB$L_DDT(r2),r0		; @ of DDT
+	movl	DDT$L_FDT(r0),R3		; @ of FDT
+	addl	#<16-12>,r3			; skip over legal & buf mask
+1$:	addl	#12,r3
+	bbc	#IO$_ACCESS,(r3),1$
+	bsbw	find_dpt
+	blbc	r0,133$
+;
+;	first FDT valid for access;	replace its entry
+;
+	movl	8(r3),accessfdt		; update accessfdt from driver
+	.IF	NE,UNLOAD
+	movzwl	dpt$w_unload(r5),r1
+	beql	100$			; no unload routine
+	addl	r5,r1
+	movl	r1,drv_unload		; update drv_unload from driver
+100$:	.ENDC
+;
+	bsbw	alloc_table
+	blbs	r0,140$
+133$:	brw	433$
+;
+140$:	bsbw	check_replace
+;
+;	R2	@ of previous kernel data block (0 if none)
+;	R3	@ of FDT entry
+;
+	movl	r2,r8			; save for later
+        tstl	r9			; reload flag
+	bneq	200$			; reload code
+150$:	tstl	r2			; if code already loaded, do not
+	bneq	300$			; reload it
+200$:	movl	#krnlsize,r1
+	jsb	G^EXE$ALONPAGVAR
+;	r2	@ allouee
+;	r1	taille
+	blbc	r0,133$
+	movw	r1,krnlallocsz			; save size
+	pushr	#^M<R2,R3,R4,R5>		; save R4 for SCH$IOUNLOCK
+	movc3	#krnlsize,krnlstart,(r2)
+	popr	#^M<R2,R3,R4,R5>
+;
+	.IF	NE,UNLOAD	; we are protected by the IO MUTEX
+;
+;	since the driver will never use again the INITTAB, we store
+;	a jmp to our unload routine in its place
+;
+	ASSUME	INSTSZ,eq,6
+	subw3	dpt$w_inittab(r5),dpt$w_reinittab(r5),r1
+	cmpw	r1,#instsz
+	bleq	270$				; no room
+	moval	<unload_rtn-krnlstart>(R2),instbran+2
+	movzwl	dpt$w_inittab(r5),r1
+	addl	r5,r1
+	movl	instbran,(r1)+
+	movw	instbran+4,(r1)
+	movw	dpt$w_inittab(r5),dpt$w_unload(r5)
+	moval	8(r3),<drv_fdtadr-krnlstart>(r2); save FDT routine pointer addr
+270$:	.ENDC
+300$:
+;
+;	R2	now points to valid code
+;	R3	points to the FDT entry to be replaced
+;	R8	points to old code, if any
+;	R9	is the reload flag
+;
+	tstl	r8
+	beql	310$
+	movl	<access_table-krnlstart>(r8),r6
+	blbs	r9,310$
+	moval	<mutex-krnlstart>(r8),r0
+	jsb     G^SCH$LOCKW
+310$:
+;
+	movl	access_table,r10
+	movl	r10,<access_table-krnlstart>(r2)
+	.if	NE,DEBUG
+	moval	<krnldata-krnlstart>(r2),<dbg_area-krnlstart>(r2)
+	.endc
+	bbc	#act$v_owner,act$w_ctl(r10),311$
+	movl	act$l_owner(r10),<objowner-krnlstart>(r2); update default owner
+311$:	bbc	#act$v_prot,act$w_ctl(r10),312$
+	movw	act$w_prot(r10),<objprot-krnlstart>(r2)	; update default prot.
+312$:	moval	<krnlcode-krnlstart>(r2),8(R3)		; update FDT entry
+;
+	tstl	r8
+	beql	450$				; no previous code, all done
+	blbs	r9,320$
+	movl	r2,r7
+	jsb     G^SCH$UNLOCK			; wipes out r1-r3
+320$:
+;
+;	free old table
+;
+	movl	r6,r0
+	jsb	G^EXE$DEANONPAGED		; wipes out r1-r2
+;
+	cmpl	r8,r7				; same code ?
+	beql	455$				; br if yes
+;
+;	free old kernel fragment
+;
+	movl	r8,r0
+	jsb	G^EXE$DEANONPAGED
+;						; R1,R2 destroyed
+	movl	#9,r0				; replaced
+	brb	500$
+;
+433$:	movl	r0,-(SP)
+	movl	access_table,r0			; error exit
+	beql    510$
+	jsb	G^EXE$DEANONPAGED
+        brb	510$
+450$:	movl	#1,r0				; created
+	brb	500$
+455$:	movl	#3,r0				; table changed
+;
+;	save status, unlock io database & return
+;
+500$:	movl	r0,-(SP)
+510$:	jsb	G^SCH$IOUNLOCK
+	movl	(SP)+,r0
+	ret
+;
+;	inputs	R3	@FDT entry
+;
+;	output	R0	SS$_BUGCHECK	R5=0
+;		R0	SS$_NORMAL	R5= @DPT
+;
+;	R1	scratch
+;
+;	we find the DPT thinking the FDT address is in its space.
+;	(the DPT list is locked by the io mutex)
+;
+find_dpt:
+	movl	G^IOC$GL_DPTLIST,R5
+	movl	r5,r0			; end marker
+1$:	cmpl	r3,r5
+	blssu	10$			; too low
+	movzwl	DPT$W_SIZE(r5),R1
+	addl	R5,R1			; end of driver
+	cmpl	r3,r1
+	blequ	20$			; ok
+10$:	movl	DPT$L_FLINK(r5),r5
+	cmpl	r5,r0
+	bneq	1$
+	movl	#SS$_BUGCHECK,R0
+	rsb
+20$:	movzbl	#SS$_NORMAL,R0
+	rsb
+;
+;
+check_replace:
+;
+;	check for replacement of code
+;	inputs	R3 @ fdt table entry
+;		R5 @DPT
+;		old code:	krnlstart,
+;				krnlcode,
+;				accessfdt,
+;				ret_accessfdt,
+;				drv_unload
+;	output	r2	0: no replacement
+;		       #0: @ of old block
+;		updates new kernel code/data
+;		- drv_unload
+;		- accessfdt
+;	scratch	R1
+;
+
+;	first check:	FDT routine address must not be within the driver DPT
+
+	cmpl	8(r3),r5	; saved FDT rtn addr
+	blssu	1$
+	movzwl	dpt$w_size(R5),R1
+	addl	r5,r1
+	cmpl	8(r3),r1
+	blequ	20$		; FDT routine within the driver. not ours
+1$:
+
+;	second check:	the saved FDT rtn addr must point on the same code
+
+	movl	8(r3),r1	; assumedly points to krnlcode
+	cmpl	<ret_accessfdt-krnlcode>(r1),ret_accessfdt
+	bneq	20$		; different code
+	.IF	NE,UNLOAD
+;	if the unload feature has been inited, then the unload code must
+;	be at the place where the inittab was.
+	cmpw	dpt$w_inittab(r5),dpt$w_unload(r5)
+	bneq	10$		; not inited
+;
+;	update driver unload code from original address in previous code
+;
+	movl	<drv_unload-krnlcode>(r1),drv_unload
+	.ENDC
+;
+;	update driver FDT rtn address from original address in previous code
+;
+10$:	movl	<accessfdt-krnlcode>(r1),accessfdt
+	moval	<krnlstart-krnlcode>(r1),r2	; previous code addr.
+	rsb
+20$:	clrl	r2				; no previous code
+	rsb
+;
+;	inputs:	r6, r7
+;	outputs:access_&table	able address
+;		r0:	status;
+;
+;
+alloc_table:
+	pushr	#^M<r1,r2,r3,r4,r5>
+	movl	r7,r1
+	jsb	G^EXE$ALONPAGVAR
+        blbc	r0,33$
+        movw	r1,-(sp)
+	movl	r2,access_table
+	movc3	r7,(r6),(r2)
+	movl	access_table,r2
+	movw	(SP)+,act$w_size(r2)
+	movw	#<1@8+DYN$C_BUFIO>,act$w_type(r2)
+	movzbl	#SS$_NORMAL,r0
+33$:	popr	#^M<r1,r2,r3,r4,r5>
+	rsb
+mod_accessfdt_end:
+;
+;	P1	size (in bytes) of table
+;	P2:	address of table
+;
+check_table:	.word	^M<r2,r3,r4,r5>
+	movl	8(ap),r0	; table address;
+	movab	@4(ap)[r0],r2	; address max
+	tstl	act$w_size(r0)	; reserved
+	bneq	taberr
+	bicw3	#act$m_valctl,act$w_ctl(r0),r3
+	bneq	taberr
+	movl	act$l_aq(r0),r1
+	bsbb	check_list
+	movzbl	#SS$_NORMAL,r0	
+	ret
+check_list:
+	beql	20$
+	moval	(r0)[r1],r1	; first entry address
+1$:	movab	acte$k_length(r1),r4
+	cmpl	r4,r2
+	bgtru	taberr		; invalid entry
+	movzwl	acte$wh_index(r1),r4
+	beql	20$		; end of list
+	moval	(r1)[r4],r5
+	movzwl	acte$wl_size(r1),r4
+	addl	r5,r4
+	cmpl	r4,r2
+	bgtru	taberr		; invalid entry
+	tstw	acte$wh_type(r1)
+	beql	10$
+2$:	cmpb	actimg$t_devnam(r5),#NAM$C_DVI
+	bgtru	taberr
+	addl	#actimg$k_length,r5
+	cmpl	r5,r4
+	blssu	2$
+	bneq	taberr
+10$:	addl	#acte$k_length,r1
+	brb	1$
+20$:	rsb
+taberr:	movl	r10,r3
+	beql	133$
+	movq	r0,(r3)+
+	movq	r2,(r3)+
+	movq	r4,(r3)+	
+	movzwl	#ss$_BADPARAM,r0
+133$:	ret
+	.end

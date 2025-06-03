@@ -1,0 +1,149 @@
+# xrn - an X-based NNTP news reader
+#
+# Copyright (c) 1988, 1989, 1990, Ellen M. Sentovich and Rick L. Spickelmier.
+#
+# Permission to use, copy, modify, and distribute this software and its
+# documentation for any purpose and without fee is hereby granted, provided
+# that the above copyright notice appear in all copies and that both that
+# copyright notice and this permission notice appear in supporting
+# documentation, and that the name of the University of California not
+# be used in advertising or publicity pertaining to distribution of 
+# the software without specific, written prior permission.  The University
+# of California makes no representations about the suitability of this
+# software for any purpose.  It is provided "as is" without express or
+# implied warranty.
+#
+# THE UNIVERSITY OF CALIFORNIA DISCLAIMS ALL WARRANTIES WITH REGARD TO 
+# THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND 
+# FITNESS, IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE FOR
+# ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+# RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF
+# CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN 
+# CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+
+# Things you can define to specify how and what to build:
+# MXRN to build the Motif interface
+# DXRN to build the XUI interface
+# decnet to add DECnet support
+
+#define MXRN
+
+/*
+ * If you use InterNetNews, set this define to the location of your
+ * InterNetNews library.
+ * Note: UNTESTED. Use at your own risk..
+ */
+
+/* #define INN /com/projects/inn/libinn.a */
+
+#ifdef BandAidCompiler
+#include BandAidCompiler
+#endif
+
+#ifdef decnet
+DNETLIB=-ldnet
+DEPDNETLIB=/usr/lib/libdnet.a
+DNETDEF=-DDECNET
+#else
+DNETLIB=
+DEPDNETLIB=
+DNETDEF=
+#endif
+
+#ifdef MXRN
+#include "Motif.tmpl"
+DEFS = -DMOTIF $(DNETDEF)
+LOCAL_LIBRARIES = XmClientLibs $(DNETLIB)
+DEPLIBS = XmClientDepLibs $(DEPDNETLIB)
+PROGRAMS = mxrn
+#else
+DEFS = $(DNETDEF)
+DWTLIB=-ldwt
+DEPDWTLIB = /usr/lib/libdwt.a
+DEPLIBS = $(DEPDWTLIB) $(DEPXTOOLLIB) $(DEPXLIB) $(DEPDNETLIB)
+LOCAL_LIBRARIES = $(DWTLIB) $(XTOOLLIB) $(XLIB) $(XMULIB) $(DNETLIB)
+PROGRAMS = dxrn
+#endif
+
+XRN_DEFINES = $(DEFS)
+
+#if defined(XmacIIServer) || defined(hp9000s300) || defined(hp9000s800) || defined(SGIArchitecture)
+XRN_LOAD_FLAGS = -lPW
+#endif
+
+#if defined(aiws)
+XRN_DEFINES = -a -Nn3000 -Nd4000 $(DEFS)
+#endif
+
+#if defined(HCRevision)
+XRN_DEFINES = -DUNIXCPP -DNOSTDHDRS $(DEFS)
+#endif
+
+#if defined(gould)
+XRN_DEFINES = -DNOVOID -DLONGINT -UINTSPRINTF $(DEFS)
+#endif
+
+#if defined(OSF)
+CC=/bin/cc
+COMP_HOST_ROOT=/bin
+XRN_DEFINES = $(DEFS) -Olimit 2000
+#endif
+
+#if defined(INN)
+EXTRA_LOAD_FLAGS = $(XRN_LOAD_FLAGS) INN
+DEFINES = $(XRN_DEFINES) -DINN
+CLIENTSRC = 
+CLIENTOBJ =
+#else
+EXTRA_LOAD_FLAGS = $(XRN_LOAD_FLAGS)
+DEFINES = $(XRN_DEFINES)
+CLIENTSRC = clientlib.c
+CLIENTOBJ = clientlib.o
+#endif
+
+#ifdef MXRN
+           SRCS = avl.c buttons.c $(CLIENTSRC) compose.c cursor.c dialogs.c \
+		  menus.c refile.c mesg.c error_hnds.c newsrcfile.c 	\
+		  resources.c slist.c internals.c save.c server.c utils.c \
+		  xmisc.c xrn.c xthelper.c killfile.c y.tab.c 
+   	   OBJS = avl.o buttons.o $(CLIENTOBJ) compose.o cursor.o dialogs.o \
+		  menus.o refile.o mesg.o error_hnds.o newsrcfile.o 	\
+		  resources.o slist.o internals.o save.o server.o utils.o \
+		  xmisc.o xrn.o xthelper.o killfile.o y.tab.o 
+#else
+           SRCS = avl.c buttons.c $(CLIENTSRC) compose.c cursor.c dialogs.c \
+		  menus.c refile.c mesg.c error_hnds.c newsrcfile.c 	\
+		  resources.c slist.c internals.c save.c server.c utils.c \
+		  pane.c xmisc.c xrn.c xthelper.c killfile.c y.tab.c 
+           OBJS = avl.o buttons.o $(CLIENTOBJ) compose.o cursor.o dialogs.o \
+		  menus.o refile.o mesg.o error_hnds.o newsrcfile.o 	\
+		  resources.o slist.o internals.o save.o server.o utils.o \
+		  pane.o xmisc.o xrn.o xthelper.o killfile.o y.tab.o 
+#endif
+
+#ifdef MXRN
+AllTarget(mxrn)
+#else
+AllTarget(dxrn)
+#endif
+
+depend:: y.tab.c lex.yy.c
+
+#ifdef MXRN
+ComplexProgramTarget(mxrn)
+#else
+ComplexProgramTarget(dxrn)
+#endif
+
+lex.yy.c: newsrc.l
+	lex newsrc.l
+
+y.tab.c: newsrc.y
+	yacc newsrc.y
+
+y.tab.o: lex.yy.c avl.h news.h newsrcfile.h utils.h
+
+clean::
+	$(RM) y.tab.c lex.yy.c
+

@@ -1,0 +1,911 @@
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 1
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (1)
+
+
+
+    1        	#module UAF_DW_IDENTIFIERS "X-1"
+    2        	
+    3        	/*
+    4        	**++
+    5        	**  FACILITY:	Authorization record maintenance utility
+    6        	**
+    7        	**  MODULE DESCRIPTION:
+    8        	**
+    9        	**		This module contains the various support routines needed by
+   10        	**		the DECwindows AUTHORIZE utility to manage identifiers.
+   11        	**
+   12        	**  AUTHORS:	L. Mark Pilant			CREATION DATE:   4-Jun-1993
+   13        	**
+   14        	**  MODIFICATION HISTORY:
+   15        	**
+   16        	**	X-1	LMP		L. Mark Pilant,		 4-Jun-1993
+   17        	**		Original version.
+   18        	**
+   19        	**--
+   20        	*/
+   21        	
+   22        	/*
+   23        	**
+   24        	**  INCLUDE FILES
+   25        	**
+   26        	*/
+   27        	
+   28        	#include <UICDEF>
+   65        	
+   66        	#include ctype
+  129        	#include stdlib
+  276        	
+  277        	#include <decw$include:mrmappl>
+32349        	
+32350        	#include "uaf_header"
+33770        	
+33771        	/*
+33772        	**
+33773        	**  FORWARD ROUTINES
+33774        	**
+33775        	*/
+33776        	
+33777        	#pragma noinline (AUTHORIZE$IDENTIFIERS)
+33778        	#pragma noinline (AUTHORIZE$IDENTIFIERS_UPDATE)
+33779        	#pragma noinline (AUTHORIZE$MODIFY_IDENTIFIER)
+33780        	#pragma noinline (AUTHORIZE$SET_UP_ATTRIBUTES)
+33781        	#pragma noinline (AUTHORIZE$SET_UP_IDENTIFIER)
+33782        	#pragma noinline (AUTHORIZE$SET_UP_SYSTEM_ID)
+33783        	
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 2
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (2)
+
+             	
+33784        	extern void AUTHORIZE$IDENTIFIERS (widget_id, tag, reason)
+33785        	
+33786        	Widget				widget_id;
+33787        	int				*tag;
+33788        	XmAnyCallbackStruct		*reason;
+33789        	{
+33790    1   	/*
+33791    1   	**++
+33792    1   	**  FUNCTIONAL DESCRIPTION:
+33793    1   	**
+33794    1   	**	This routine is called to initiate processing of identifiers
+33795    1   	**	for an authorization entry.
+33796    1   	**
+33797    1   	**  FORMAL PARAMETERS:
+33798    1   	**
+33799    1   	**	{@subtags@}
+33800    1   	**
+33801    1   	**  RETURN VALUE:
+33802    1   	**
+33803    1   	**	None
+33804    1   	**
+33805    1   	**  SIDE EFFECTS:
+33806    1   	**
+33807    1   	**	{@description or none@}
+33808    1   	**
+33809    1   	**--
+33810    1   	*/
+33811    1   	
+33812    1   	/* External routines. */
+33813    1   	
+33814    1   	extern void			AUTHORIZE$DECW_ERROR ();
+33815    1   	extern unsigned int		AUTHORIZE$FIND_USER_ENTRY ();
+33816    1   	extern void			AUTHORIZE$IDENTIFIERS_UPDATE ();
+33817    1   	extern void			AUTHORIZE$MODIFY_IDENTIFIER ();
+33818    1   	extern void			AUTHORIZE$SET_UP_ATTRIBUTES ();
+33819    1   	extern void			AUTHORIZE$SET_UP_IDENTIFIER ();
+33820    1   	extern void			AUTHORIZE$SET_UP_SYSTEM_ID ();
+33821    1   	
+33822    1   	/* Global references. */
+33823    1   	
+33824    1   	globalref unsigned int		uaf_l_current_user_uic;		/* Current user UIC */
+33825    1   	globalref Widget		uaf_r_identifier_window_widget;	/* Identifier window widget info */
+33826    1   	globalref struct USRLSTDEF	uaf_r_master_list;		/* Complete user list (from the file) */
+33827    1   	globalref Widget		uaf_r_system_id_window_widget;	/* System identifier window widget info */
+33828    1   	globalref Widget		uaf_r_widget_id_array[];	/* Array of Widget IDs in use */
+33829    1   	
+33830    1   	/* Local storage. */
+33831    1   	
+33832    1   	unsigned int			id_attributes;			/* Identifier attributes */
+33833    1   	char				**identifier;			/* Identifier selected */
+33834    1   	int				index;				/* General index */
+33835    1   	unsigned int			status;				/* Routine exit status */
+33836    1   	char				*temp_string;			/* Temp string pointer */
+33837    1   	char				text_string [MAX_USERNAME];	/* Text string (from main window) storage */
+33838    1   	struct USRLSTDEF		*user_entry;			/* Current user list entry */
+33839    1   	int				widget_number = *tag;
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 3
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (2)
+
+33840    1   	short int			wildcard_name = 0;		/* Wildcard indicator */
+33841    1   	
+33842    1   	/* Debug information. */
+33843    1   	
+33844    1   	#ifdef DEBUGGING
+33845   X    	printf ("identifier processing\n");
+33846    1   	#endif /* DEBUGGING */
+33847    1   	
+33848    1   	/* Based upon the widget number, determine what should be done. */
+33849    1   	
+33850    1   	switch (widget_number)
+33851    1   	    {
+33852    2   	    case uaf$c_main_identifiers:
+33853    2   		{
+33854    3   	
+33855    3   	/* Get the supplied username from the main window, convert it to all upper case
+33856    3   	** characters and see if there are wildcards present. */
+33857    3   	
+33858    3   		temp_string = XmTextGetString (uaf_r_widget_id_array[uaf$c_main_username]);
+33859    3   		strcpy (text_string, temp_string);					/* Copy the widget text */
+33860    3   		for (index = 0; index < strlen (text_string); index++)
+33861    3   		    {
+33862    4   		    text_string[index] = toupper (text_string[index]);			/* Upcase character */
+33863    4   		    if (text_string[index] == '*') wildcard_name = 1;			/* Check for */
+33864    4   		    if (text_string[index] == '%') wildcard_name = 1;			/*   wildcards */
+33865    4   		    }
+33866    3   		XtFree (temp_string);
+33867    3   	
+33868    3   	/* Since the name is now uppercased, reflect it in the main window. */
+33869    3   	
+33870    3   		XmTextSetString (uaf_r_widget_id_array[uaf$c_main_username],
+33871    3   				 text_string);
+33872    3   	
+33873    3   	/* If there are any wildcards, complain and abort the operation. */
+33874    3   	
+33875    3   		if (wildcard_name != 0)
+33876    3   		    {
+33877    4   		    AUTHORIZE$DECW_ERROR (UAF$_NOWILDCARDS);
+33878    4   		    return;
+33879    4   		    }
+33880    3   	
+33881    3   	/* Make sure the user already exists. */
+33882    3   	
+33883    3   		if (FALSE (AUTHORIZE$FIND_USER_ENTRY (&uaf_r_master_list.uaf$l_usrlst_flink,
+33884    3   						      &text_string,
+33885    3   						      FIND_NAME_EQUAL,
+33886    3   						      0,
+33887    3   						      &user_entry)))
+33888    3   		    {
+33889    4   	
+33890    4   	/* The user does not exist.  Let the user know, and return. */
+33891    4   	
+33892    4   		    AUTHORIZE$DECW_ERROR (UAF$_NOSUCHUSER);
+33893    4   		    return;
+33894    4   		    }
+33895    3   	
+33896    3   	/* Fill the identifier list with those held by the user. */
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 4
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (2)
+
+33897    3   	
+33898    3   		uaf_l_current_user_uic = user_entry->uaf$l_usrlst_own_id;	/* Save for later */
+33899    3   		AUTHORIZE$IDENTIFIERS_UPDATE (uaf_l_current_user_uic);
+33900    3   	
+33901    3   	/* Select the first identifier in the list. */
+33902    3   	
+33903    3   		AUTHORIZE$SET_UP_IDENTIFIER (NULL,
+33904    3   					     1);
+33905    3   	
+33906    3   	/* Make the identifier window visible. */
+33907    3   	
+33908    3   		XtManageChild (uaf_r_identifier_window_widget);
+33909    3   		break;
+33910    3   		}
+33911    2   	
+33912    2   	    case uaf$c_identifier_system:
+33913    2   		{
+33914    3   	
+33915    3   	/* A list of the system identifiers is needed.  Build it and then make
+33916    3   	** it visible. */
+33917    3   	
+33918    3   		AUTHORIZE$SET_UP_SYSTEM_ID ();
+33919    3   		XtManageChild (uaf_r_system_id_window_widget);
+33920    3   		break;
+33921    3   		}
+33922    2   	
+33923    2   	    case uaf$c_system_identifier_cancel:
+33924    2   		{
+33925    3   	
+33926    3   	/* Simply tear down the system identifier window without doing anything. */
+33927    3   	
+33928    3   		XtUnmanageChild (uaf_r_system_id_window_widget);
+33929    3   		break;
+33930    3   		}
+33931    2   	
+33932    2   	    case uaf$c_identifier_modify:
+33933    2   	    case uaf$c_identifier_grant:
+33934    2   	    case uaf$c_identifier_remove:
+33935    2   		{
+33936    3   	
+33937    3   	/* An identifier's attributes are being modified.  Get the attribute list
+33938    3   	** state and set the apptoprizte flags. */
+33939    3   	
+33940    3   		AUTHORIZE$MODIFY_IDENTIFIER (widget_id,
+33941    3   					     tag,
+33942    3   					     reason);
+33943    3   		break;
+33944    3   		}
+33945    2   	
+33946    2   	    case uaf$c_identifier_ok:
+33947    2   		{
+33948    3   	
+33949    3   	/* The "OK" action is the same as a modify, except the window will be torn
+33950    3   	** down upon completion. */
+33951    3   	
+33952    3   	/* Tear down the identifier window. */
+33953    3   	
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 5
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (2)
+
+33954    3   		AUTHORIZE$MODIFY_IDENTIFIER (widget_id,
+33955    3   					     tag,
+33956    3   					     reason);
+33957    3   		XtUnmanageChild (uaf_r_identifier_window_widget);
+33958    3   	
+33959    3   	/* If necessary, tear down the system identifier window. */
+33960    3   	
+33961    3   		if (XtIsManaged (uaf_r_system_id_window_widget))
+33962    3   		    XtUnmanageChild (uaf_r_system_id_window_widget);
+33963    3   		break;
+33964    3   		}
+33965    2   	
+33966    2   	    case uaf$c_identifier_cancel:
+33967    2   		{
+33968    3   	
+33969    3   	/* Simply tear down the identifier window without doing anything. */
+33970    3   	
+33971    3   		XtUnmanageChild (uaf_r_identifier_window_widget);
+33972    3   	
+33973    3   	/* If necessary, tear down the system identifier window. */
+33974    3   	
+33975    3   		if (XtIsManaged (uaf_r_system_id_window_widget))
+33976    3   		    XtUnmanageChild (uaf_r_system_id_window_widget);
+33977    3   		break;
+33978    3   		}
+33979    2   	    }
+33980    1   	}
+33981        	
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 6
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (3)
+
+             	
+33982        	extern void AUTHORIZE$IDENTIFIERS_UPDATE (uic)
+33983        	
+33984        	int				uic;
+33985        	{
+33986    1   	/*
+33987    1   	**++
+33988    1   	**  FUNCTIONAL DESCRIPTION:
+33989    1   	**
+33990    1   	**	This routine is called to get the list of identifiers held by
+33991    1   	**	the supplied UIC.  These are then placed in the identifier list.
+33992    1   	**
+33993    1   	**  FORMAL PARAMETERS:
+33994    1   	**
+33995    1   	**	UIC		- UIC for which the held identifiers will be
+33996    1   	**			  obtained
+33997    1   	**
+33998    1   	**  RETURN VALUE:
+33999    1   	**
+34000    1   	**	None
+34001    1   	**
+34002    1   	**  SIDE EFFECTS:
+34003    1   	**
+34004    1   	**	{@description or none@}
+34005    1   	**
+34006    1   	**--
+34007    1   	*/
+34008    1   	
+34009    1   	/* Global references. */
+34010    1   	
+34011    1   	globalref Widget		uaf_r_widget_id_array[];	/* Array of Widget IDs in use */
+34012    1   	
+34013    1   	/* Local storage. */
+34014    1   	
+34015    1   	unsigned int			context = 0;			/* $FIND_HELD context */
+34016    1   	unsigned int			holder[2];			/* Holder for $FIND_HELD */
+34017    1   	XmString			id_name;			/* Compound string for identifier name */
+34018    1   	char				id_name_buf[MAX_ID_SIZE];	/* Storage for identifier name */
+34019    1   	unsigned int			id_name_desc[2];		/* Simple descriptor for identifier name */
+34020    1   	unsigned short int		id_name_len;			/* Identifier name length */
+34021    1   	unsigned int			identifier;			/* Identifier found by $FIND_HELD */
+34022    1   	unsigned int			status;				/* Routine exit status */
+34023    1   	
+34024    1   	/* Debug information. */
+34025    1   	
+34026    1   	#ifdef DEBUGGING
+34027   X    	printf ("identifiers update\n");
+34028    1   	#endif /* DEBUGGING */
+34029    1   	
+34030    1   	/* Initialize needed storage. */
+34031    1   	
+34032    1   	id_name_desc[0] = sizeof id_name_buf;
+34033    1   	id_name_desc[1] = &id_name_buf;
+34034    1   	
+34035    1   	holder[0] = uic;
+34036    1   	holder[1] = 0;
+34037    1   	
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 7
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (3)
+
+34038    1   	/* Delete all the entries currently in the identifier list. */
+34039    1   	
+34040    1   	XmListDeleteAllItems (uaf_r_widget_id_array[uaf$c_identifier_list]);
+34041    1   	
+34042    1   	/* Loop getting all the identifiers held by the specified holder id. */
+34043    1   	
+34044    1   	while (TRUE (SYS$FIND_HELD (&holder,
+34045    1   				    &identifier,
+34046    1   				    NULL,
+34047    1   				    &context)))
+34048    1   	    {
+34049    2   	
+34050    2   	/* Convert the identifier from a value to a text string. */
+34051    2   	
+34052    2   	    SYS$IDTOASC (identifier,
+34053    2   			 &id_name_len,
+34054    2   			 &id_name_desc,
+34055    2   			 NULL,
+34056    2   			 NULL,
+34057    2   			 NULL);
+34058    2   	    id_name_buf[id_name_len] = '\0';		/* Terminate the name */
+34059    2   	
+34060    2   	/* Add the identifier to the list. */
+34061    2   	
+34062    2   	    id_name = XmStringCreateSimple (id_name_buf);
+34063    2   	    XmListAddItem (uaf_r_widget_id_array[uaf$c_identifier_list],
+34064    2   			   id_name,
+34065    2   			   0);
+34066    2   	    XtFree (id_name);
+34067    2   	    }
+34068    1   	}
+34069        	
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 8
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (4)
+
+             	
+34070        	extern void AUTHORIZE$MODIFY_IDENTIFIER (widget_id, tag, reason)
+34071        	
+34072        	Widget				widget_id;
+34073        	int				*tag;
+34074        	XmAnyCallbackStruct		*reason;
+34075        	{
+34076    1   	/*
+34077    1   	**++
+34078    1   	**  FUNCTIONAL DESCRIPTION:
+34079    1   	**
+34080    1   	**	This routine is called when it is necessary to modify the attributes
+34081    1   	**	of an identifier.  The identifier name is obtained from the identifier
+34082    1   	**	window and the attributes from the attribute list.  This information
+34083    1   	**	is then used with the holder record.
+34084    1   	**
+34085    1   	**  FORMAL PARAMETERS:
+34086    1   	**
+34087    1   	**	{@subtags@}
+34088    1   	**
+34089    1   	**  RETURN VALUE:
+34090    1   	**
+34091    1   	**	None
+34092    1   	**
+34093    1   	**  SIDE EFFECTS:
+34094    1   	**
+34095    1   	**	{@description or none@}
+34096    1   	**
+34097    1   	**--
+34098    1   	*/
+34099    1   	
+34100    1   	/* The following is a mask to clear all id attributes available to a
+34101    1   	** holder of an identifier.  This must track the definition of the
+34102    1   	** symbol KGB$M_VALID_HOLDER_ATTRIB in the module [LOADSS]RDBSHR.B32. */
+34103    1   	
+34104    1   	#define			id_attrib_clear_mask	0x1f
+34105    1   	
+34106    1   	/* External routines. */
+34107    1   	
+34108    1   	extern void		AUTHORIZE$GET_LIST_ENTRIES ();
+34109    1   	extern void		AUTHORIZE$IDENTIFIERS_UPDATE ();
+34110    1   	extern void		AUTHORIZE$SET_UP_ATTRIBUTES ();
+34111    1   	extern void		AUTHORIZE$SET_UP_IDENTIFIER ();
+34112    1   	
+34113    1   	/* Global references. */
+34114    1   	
+34115    1   	globalref unsigned int	uaf_l_current_user_uic;		/* Current user UIC */
+34116    1   	globalref Widget	uaf_r_widget_id_array[];	/* Array of Widget IDs in use */
+34117    1   	
+34118    1   	/* Local storage. */
+34119    1   	
+34120    1   	XmString		compound_string;		/* General compound string */
+34121    1   	unsigned int		holder[2];			/* Holder for $xxx_HOLDER */
+34122    1   	unsigned int		identifier;			/* Identifier's value */
+34123    1   	unsigned int		identifier_attributes = 0;	/* Identifier's attributes to set */
+34124    1   	int			index;				/* General index */
+34125    1   	unsigned int		simple_desc[2];			/* Simple character descriptor */
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 9
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (4)
+
+34126    1   	unsigned int		status;				/* Routine exit status */
+34127    1   	char			*temp_string;			/* Temp string pointer */
+34128    1   	char			text_string [MAX_USERNAME];	/* Text string (from main window) storage */
+34129    1   	int			widget_number = *tag;
+34130    1   	
+34131    1   	/* Debug information. */
+34132    1   	
+34133    1   	#ifdef DEBUGGING
+34134   X    	printf ("modify identifier\n");
+34135    1   	#endif /* DEBUGGING */
+34136    1   	
+34137    1   	/* Get the supplied identifier name from the identifier window and convert
+34138    1   	** it to all upper case characters. */
+34139    1   	
+34140    1   	temp_string = XmTextGetString (uaf_r_widget_id_array[uaf$c_identifier_name]);
+34141    1   	strcpy (text_string, temp_string);					/* Copy the widget text */
+34142    1   	for (index = 0; index < strlen (text_string); index++)
+34143    1   	    text_string[index] = toupper (text_string[index]);			/* Upcase character */
+34144    1   	XtFree (temp_string);
+34145    1   	
+34146    1   	/* Since the name is now uppercased, reflect it in the identifier window. */
+34147    1   	
+34148    1   	XmTextSetString (uaf_r_widget_id_array[uaf$c_identifier_name],
+34149    1   			 text_string);
+34150    1   	
+34151    1   	/* Get the state of the attributes in the identifier attribute list. 
+34152    1   	** This doesn't really need to be done for the remove, but it is easier
+34153    1   	** to make this call in the main line as it does affect most other
+34154    1   	** operations. */
+34155    1   	
+34156    1   	AUTHORIZE$GET_LIST_ENTRIES (uaf$c_identifier_attrib_list,
+34157    1   				    &identifier_attributes,
+34158    1   				    sizeof identifier_attributes);
+34159    1   	
+34160    1   	/* Convert the text identifier name to a value; for $xxx_HOLDER. */
+34161    1   	
+34162    1   	simple_desc[0] = strlen (text_string);
+34163    1   	simple_desc[1] = text_string;
+34164    1   	
+34165    1   	SYS$ASCTOID (&simple_desc,
+34166    1   		     &identifier,
+34167    1   		     NULL);						/* Don't need the attributes here */
+34168    1   	
+34169    1   	/* Set up the holder information. */
+34170    1   	
+34171    1   	holder[0] = uaf_l_current_user_uic;
+34172    1   	holder[1] = 0;
+34173    1   	
+34174    1   	/* Based upon the widget number, determine what should be done. */
+34175    1   	
+34176    1   	switch (widget_number)
+34177    1   	    {
+34178    2   	    case uaf$c_identifier_modify:
+34179    2   		{
+34180    3   	
+34181    3   	/* Because it is possible for the user to specify the granting of attributes
+34182    3   	** the identifier does not currently have enabled, explicitly modify the
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 10
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (4)
+
+34183    3   	** identifier to enable the attributes being granted.  This will allow the
+34184    3   	** $ADD_HOLDER to proceed as expected.  This is done quietly, unless an error
+34185    3   	** is encountered.
+34186    3   	**
+34187    3   	** It would be possible to pop up a warning dialog box to query the user to
+34188    3   	** determine whether or not this should be done...but that is more work :-). */
+34189    3   	
+34190    3   		SYS$MOD_IDENT (identifier,
+34191    3   			       identifier_attributes,
+34192    3   			       NULL,
+34193    3   			       NULL,
+34194    3   			       NULL);
+34195    3   	
+34196    3   	/* Modify the holder record as appropriate. Clear all existing attributes
+34197    3   	** held before setting the new attributes. */
+34198    3   	
+34199    3   		SYS$MOD_HOLDER (identifier,
+34200    3   				&holder,
+34201    3   				identifier_attributes,
+34202    3   				id_attrib_clear_mask);
+34203    3   		break;
+34204    3   		}
+34205    2   	
+34206    2   	    case uaf$c_identifier_grant:
+34207    2   		{
+34208    3   	
+34209    3   	/* Because it is possible for the user to specify the granting of attributes
+34210    3   	** the identifier does not currently have enabled, explicitly modify the
+34211    3   	** identifier to enable the attributes being granted.  This will allow the
+34212    3   	** $ADD_HOLDER to proceed as expected.  This is done quietly, unless an error
+34213    3   	** is encountered.
+34214    3   	**
+34215    3   	** It would be possible to pop up a warning dialog box to query the user to
+34216    3   	** determine whether or not this should be done...but that is more work :-). */
+34217    3   	
+34218    3   		SYS$MOD_IDENT (identifier,
+34219    3   			       identifier_attributes,
+34220    3   			       NULL,
+34221    3   			       NULL,
+34222    3   			       NULL);
+34223    3   	
+34224    3   	/* Add a new holder record for the specified identifier. */
+34225    3   	
+34226    3   		SYS$ADD_HOLDER (identifier,
+34227    3   				&holder,
+34228    3   				identifier_attributes);
+34229    3   	
+34230    3   	/* Add the new identifier to the list.  This is done by simply rebuilding the
+34231    3   	** list; rather than adding the single item.  Because the usual case is only
+34232    3   	** holding a handful of identifiers, this is not a big performance issue.
+34233    3   	**
+34234    3   	** However, this is an area for a performance tweek, should an account hold
+34235    3   	** a large number of identifiers. */
+34236    3   	
+34237    3   		AUTHORIZE$IDENTIFIERS_UPDATE (uaf_l_current_user_uic);
+34238    3   	
+34239    3   	/* Select the currently entered identifier. */
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 11
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (4)
+
+34240    3   	
+34241    3   		AUTHORIZE$SET_UP_IDENTIFIER (text_string,
+34242    3   					     NULL);
+34243    3   		break;
+34244    3   		}
+34245    2   	
+34246    2   	    case uaf$c_identifier_remove:
+34247    2   		{
+34248    3   	
+34249    3   	/* Remove a holder record for the specified identifier. */
+34250    3   	
+34251    3   		SYS$REM_HOLDER (identifier,
+34252    3   			        &holder);
+34253    3   	
+34254    3   	/* Since the entry is to be removed from the identifier list, do it directly
+34255    3   	** (and simply) rather than rebuilding the entire list. */
+34256    3   	
+34257    3   		compound_string = XmStringCreateSimple (text_string);
+34258    3   		XmListDeleteItem (uaf_r_widget_id_array[uaf$c_identifier_list],
+34259    3   				  compound_string);
+34260    3   		XtFree (compound_string);
+34261    3   		break;
+34262    3   		}
+34263    2   	    }
+34264    1   	}
+34265        	
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 12
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (5)
+
+             	
+34266        	extern void AUTHORIZE$SET_UP_ATTRIBUTES (identifier)
+34267        	
+34268        	char				*identifier;
+34269        	{
+34270    1   	/*
+34271    1   	**++
+34272    1   	**  FUNCTIONAL DESCRIPTION:
+34273    1   	**
+34274    1   	**	This routine is called to set the list of attributes for an
+34275    1   	**	identifier (held by the current UIC).  If an identifier is not
+34276    1   	**	specified the currently selected identifier will be used.
+34277    1   	**
+34278    1   	**  FORMAL PARAMETERS:
+34279    1   	**
+34280    1   	**	IDENTIFIER	- pointer to the identifier name string
+34281    1   	**
+34282    1   	**  RETURN VALUE:
+34283    1   	**
+34284    1   	**	None
+34285    1   	**
+34286    1   	**  SIDE EFFECTS:
+34287    1   	**
+34288    1   	**	{@description or none@}
+34289    1   	**
+34290    1   	**--
+34291    1   	*/
+34292    1   	
+34293    1   	/* External routines. *.
+34294    1   	
+34295    1   	extern void		AUTHORIZE$SELECT_LIST_ENTRIES ();
+34296    1   	
+34297    1   	/* Global references. */
+34298    1   	
+34299    1   	globalref unsigned int	uaf_l_current_user_uic;		/* Current user UIC */
+34300    1   	globalref Widget	uaf_r_widget_id_array[];	/* Array of Widget IDs in use */
+34301    1   	
+34302    1   	/* Local storage. */
+34303    1   	
+34304    1   	unsigned int		context = 0;			/* $FIND_HELD context */
+34305    1   	unsigned int		holder[2];			/* Holder for $FIND_HELD */
+34306    1   	char			*id;				/* Name of identifier for attributes */
+34307    1   	unsigned int		id_attributes;			/* Identifier attributes */
+34308    1   	char			id_name_buf[MAX_ID_SIZE];	/* Storage for identifier name */
+34309    1   	unsigned int		id_name_desc[2];		/* Simple descriptor for identifier name */
+34310    1   	unsigned short int	id_name_len;			/* Identifier name length */
+34311    1   	unsigned int		identifier2;			/* Identifier found by $FIND_HELD */
+34312    1   	int			index;				/* General index */
+34313    1   	int			(*position_list)[];		/* List of entries selected */
+34314    1   	int			position_count = 0;		/* Number of entries selected */
+34315    1   	unsigned int		status;				/* Routine exit status */
+34316    1   	
+34317    1   	/* Debug information. */
+34318    1   	
+34319    1   	#ifdef DEBUGGING
+34320   X    	printf ("set up identifier attributes\n");
+34321    1   	#endif /* DEBUGGING */
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 13
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (5)
+
+34322    1   	
+34323    1   	/* Initialize needed storage. */
+34324    1   	
+34325    1   	id_name_desc[0] = sizeof id_name_buf;
+34326    1   	id_name_desc[1] = &id_name_buf;
+34327    1   	
+34328    1   	holder[0] = uaf_l_current_user_uic;
+34329    1   	holder[1] = 0;
+34330    1   	
+34331    1   	/* Get the name of the identifier to use.  This will either be the one
+34332    1   	** specified or the currently selected identifier. */
+34333    1   	
+34334    1   	if (identifier != 0)
+34335    1   	    id = identifier;
+34336    1   	else
+34337    1   	    {
+34338    2   	
+34339    2   	/* Find out which entry has been selected.  There should only be one. */
+34340    2   	
+34341    2   	    XmListGetSelectedPos (uaf_r_widget_id_array[uaf$c_identifier_list],
+34342    2   				  &position_list,
+34343    2   				  &position_count);
+34344    2   	
+34345    2   	/* Release the memory for the position list. */
+34346    2   	
+34347    2   	    XtFree (position_list);
+34348    2   	    }
+34349    1   	
+34350    1   	/* Loop getting all the identifiers held by the specified holder id. */
+34351    1   	
+34352    1   	while (TRUE (SYS$FIND_HELD (&holder,
+34353    1   				    &identifier2,
+34354    1   				    &id_attributes,
+34355    1   				    &context)))
+34356    1   	    {
+34357    2   	
+34358    2   	/* Convert the identifier from a value to a text string. */
+34359    2   	
+34360    2   	    SYS$IDTOASC (identifier2,
+34361    2   			 &id_name_len,
+34362    2   			 &id_name_desc,
+34363    2   			 NULL,
+34364    2   			 NULL,
+34365    2   			 NULL);
+34366    2   	    id_name_buf[id_name_len] = '\0';		/* Terminate the name */
+34367    2   	
+34368    2   	/* If the identifier found matches the supplied identifier, set the state
+34369    2   	** of the attributes in the list appropriately. */
+34370    2   	
+34371    2   	    if (strcmp (id, id_name_buf) == 0)
+34372    2   		{
+34373    3   		AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_identifier_attrib_list,
+34374    3   					       &id_attributes,
+34375    3   					       sizeof id_attributes);
+34376    3   		SYS$FINISH_RDB (&context);					/* Finish up */
+34377    3   		break;
+34378    3   		}
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 14
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (5)
+
+34379    2   	    }
+34380    1   	}
+34381        	
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 15
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (6)
+
+             	
+34382        	extern void AUTHORIZE$SET_UP_IDENTIFIER (identifier, position)
+34383        	
+34384        	char				*identifier;
+34385        	int				position;
+34386        	{
+34387    1   	/*
+34388    1   	**++
+34389    1   	**  FUNCTIONAL DESCRIPTION:
+34390    1   	**
+34391    1   	**	{@tbs@}
+34392    1   	**
+34393    1   	**  FORMAL PARAMETERS:
+34394    1   	**
+34395    1   	**	{@subtags@}
+34396    1   	**
+34397    1   	**  RETURN VALUE:
+34398    1   	**
+34399    1   	**	{@description or none@}
+34400    1   	**
+34401    1   	**  SIDE EFFECTS:
+34402    1   	**
+34403    1   	**	{@description or none@}
+34404    1   	**
+34405    1   	**--
+34406    1   	*/
+34407    1   	
+34408    1   	/* Global references. */
+34409    1   	
+34410    1   	globalref Widget	uaf_r_widget_id_array[uaf$c_max_widget_code];	/* Array of Widget IDs in use */
+34411    1   	
+34412    1   	/* Local storage. */
+34413    1   	
+34414    1   	XmString		compound_string;		/* General compound string */
+34415    1   	unsigned int		status;				/* Routine exit status */
+34416    1   	char			*temp_string;			/* Temp string pointer */
+34417    1   	
+34418    1   	/* Debug information. */
+34419    1   	
+34420    1   	#ifdef DEBUGGING
+34421   X    	printf ("set up identifier\n");
+34422    1   	#endif /* DEBUGGING */
+34423    1   	
+34424    1   	/* If the set up is being done by identifier, set the position in the list
+34425    1   	** to the specified identifier.  Otherwise, set the position in the list
+34426    1   	** to the specified (numeric) position.  In addition, select the list item
+34427    1   	** to simulate a mouse button click. */
+34428    1   	
+34429    1   	if (identifier != 0)
+34430    1   	    {
+34431    2   	
+34432    2   	/* See if the specified identifier exists in the list.  If it is in the list,
+34433    2   	** select it. */
+34434    2   	
+34435    2   	    compound_string = XmStringCreateSimple (identifier);
+34436    2   	    if (XmListItemExists (uaf_r_widget_id_array[uaf$c_identifier_list],
+34437    2   				  compound_string))
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 16
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (6)
+
+34438    2   		{
+34439    3   		XmListSetItem (uaf_r_widget_id_array[uaf$c_identifier_list],
+34440    3   			       compound_string);
+34441    3   		XmListSelectItem (uaf_r_widget_id_array[uaf$c_identifier_list],
+34442    3   				  compound_string,
+34443    3   				  1);
+34444    3   		}
+34445    2   	    XtFree (compound_string);
+34446    2   	    }
+34447    1   	else
+34448    1   	    {
+34449    2   	
+34450    2   	/* Otherwise, get the position in the list and use it. */
+34451    2   	
+34452    2   	    XmListSetPos (uaf_r_widget_id_array[uaf$c_identifier_list],
+34453    2   			  position);
+34454    2   	    XmListSelectPos (uaf_r_widget_id_array[uaf$c_identifier_list],
+34455    2   			     position,
+34456    2   			     1);
+34457    2   	    }
+34458    1   	}
+34459        	
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 17
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (7)
+
+             	
+34460        	extern void AUTHORIZE$SET_UP_SYSTEM_ID ()
+34461        	
+34462        	{
+34463    1   	/*
+34464    1   	**++
+34465    1   	**  FUNCTIONAL DESCRIPTION:
+34466    1   	**
+34467    1   	**	This routine is called to set up the system identifier list.
+34468    1   	**
+34469    1   	**  FORMAL PARAMETERS:
+34470    1   	**
+34471    1   	**	None.
+34472    1   	**
+34473    1   	**  RETURN VALUE:
+34474    1   	**
+34475    1   	**	None
+34476    1   	**
+34477    1   	**  SIDE EFFECTS:
+34478    1   	**
+34479    1   	**	{@description or none@}
+34480    1   	**
+34481    1   	**--
+34482    1   	*/
+34483    1   	
+34484    1   	/* External routines. */
+34485    1   	
+34486    1   	extern void			AUTHORIZE$WATCH_CURSOR_ON ();
+34487    1   	extern void			AUTHORIZE$WATCH_CURSOR_OFF ();
+34488    1   	
+34489    1   	/* Global references. */
+34490    1   	
+34491    1   	globalref Widget		uaf_r_identifier_window_widget;	/* Identifier window widget info */
+34492    1   	globalref Widget		uaf_r_main_top_level_widget;	/* Main window widget shell info */
+34493    1   	globalref Widget		uaf_r_main_window_widget;	/* Main window widget info */
+34494    1   	globalref Cursor		uaf_r_wait_cursor_main;		/* Main window wait cursor id */
+34495    1   	globalref Widget		uaf_r_widget_id_array[uaf$c_max_widget_code];	/* Array of Widget IDs in use */
+34496    1   	
+34497    1   	/* Local storage. */
+34498    1   	
+34499    1   	unsigned int			context = 0;			/* $IDTOASC context */
+34500    1   	XmString			id_name;			/* Identifier name compound string */
+34501    1   	char				id_name_buf[MAX_ID_SIZE];	/* Storage for identifier name */
+34502    1   	unsigned int			id_name_desc[2];		/* Simple descriptor for identifier name */
+34503    1   	unsigned short int		id_name_len;			/* Identifier name length */
+34504    1   	unsigned int			status;				/* Routine exit status */
+34505    1   	char				*temp_string;			/* Temp string pointer */
+34506    1   	
+34507    1   	/* Debug information. */
+34508    1   	
+34509    1   	#ifdef DEBUGGING
+34510   X    	printf ("set up system identifiers\n");
+34511    1   	#endif /* DEBUGGING */
+34512    1   	
+34513    1   	/* Initialize needed storage. */
+34514    1   	
+34515    1   	id_name_desc[0] = sizeof id_name_buf;
+
+UAF_DW_IDENTIFIERS                                              22-NOV-1993 11:27:55    VAX C      V3.2-044                 Page 18
+X-1                                                             24-JUN-1993 11:14:45    UAF_DW_IDENTIFIERS.C;63 (7)
+
+34516    1   	id_name_desc[1] = &id_name_buf;
+34517    1   	
+34518    1   	/* Since building the identifier list may take some time, set up the wait cursor. */
+34519    1   	
+34520    1   	AUTHORIZE$WATCH_CURSOR_ON (uaf_r_main_top_level_widget,
+34521    1   				   uaf_r_main_window_widget,
+34522    1   				   uaf_r_wait_cursor_main);
+34523    1   	AUTHORIZE$WATCH_CURSOR_ON (uaf_r_main_top_level_widget,
+34524    1   				   uaf_r_identifier_window_widget,
+34525    1   				   uaf_r_wait_cursor_main);
+34526    1   	
+34527    1   	/* Delete all the entries currently in the system identifier list. */
+34528    1   	
+34529    1   	XmListDeleteAllItems (uaf_r_widget_id_array[uaf$c_system_identifier_list]);
+34530    1   	
+34531    1   	/* Loop, getting all the defined identifiers. */
+34532    1   	
+34533    1   	while (TRUE (SYS$IDTOASC (UIC$K_MATCH_ALL,
+34534    1   				  &id_name_len,
+34535    1   				  &id_name_desc,
+34536    1   				  NULL,
+34537    1   				  NULL,
+34538    1   				  &context)))
+34539    1   	    {
+34540    2   	
+34541    2   	/* An identifier has been found.  Add it to the list. */
+34542    2   	
+34543    2   	    id_name_buf[id_name_len] = '\0';		/* Terminate the name */
+34544    2   	    id_name = XmStringCreateSimple (id_name_buf);
+34545    2   	    XmListAddItem (uaf_r_widget_id_array[uaf$c_system_identifier_list],
+34546    2   			   id_name,
+34547    2   			   0);
+34548    2   	    XtFree (id_name);
+34549    2   	    }
+34550    1   	
+34551    1   	/* Reset the cursor. */
+34552    1   	
+34553    1   	AUTHORIZE$WATCH_CURSOR_OFF (uaf_r_main_top_level_widget,
+34554    1   				    uaf_r_main_window_widget);
+34555    1   	AUTHORIZE$WATCH_CURSOR_OFF (uaf_r_main_top_level_widget,
+34556    1   				    uaf_r_identifier_window_widget);
+34557    1   	}
+
+ 
+ 
+Command Line
+------------
+ 
+CC/LIST=UAF_DW_IDENTIFIERS/OBJECT=UAF_DW_IDENTIFIERS UAF_DW_IDENTIFIERS
+

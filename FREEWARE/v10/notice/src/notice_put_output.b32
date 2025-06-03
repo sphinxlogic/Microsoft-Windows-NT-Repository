@@ -1,0 +1,386 @@
+%TITLE	'NOTICE_PUT_OUTPUT'
+MODULE	NOTICE_PUT_OUTPUT (IDENT = '01-001') =
+BEGIN
+!++
+!
+!  Facility:	I/O routines
+!
+!  Author:	Hunter Goatley
+!		goathunter@WKUVX1.WKU.EDU
+!		Copyright © 1992--1994, MadGoat Software.  All rights reserved.
+!
+!  Date:	March 13, 1992
+!
+!  Abstract:
+!
+!	This file contains the routines necessary to provide TYPE/PAGE
+!	emulation.  It is useful for pausing screenfuls of output so that
+!	the text doesn't scroll off the screen before the user has a chance
+!	to read it.
+!
+!  Modified by:
+!
+!	01-001		Hunter Goatley		14-APR-1994 07:54
+!		Added routines to support /OUTPUT on NOTICE command.
+!
+!	01-000		Hunter Goatley		13-MAR-1992 07:59
+!		Genesis.
+!
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';
+
+SWITCHES ADDRESSING_MODE (EXTERNAL = GENERAL, NONEXTERNAL = WORD_RELATIVE);
+
+    FORWARD ROUTINE
+	notice_put_output,				!The output routine
+	notice_open_output,				!Open /OUTPUT file
+	notice_rms_output,				!Write to /OUTPUT file
+	notice_put_outexh,				!The exit handler
+	notice_rms_outexh;				!The RMS exit handler
+
+    EXTERNAL ROUTINE
+	LIB$PUT_OUTPUT,				!Write to SYS$OUTPUT
+	SMG$CREATE_PASTEBOARD,			!Create an SMG$ pasteboard
+	SMG$CREATE_VIRTUAL_DISPLAY,		!Create an SMG$ virtual display
+	SMG$CREATE_VIRTUAL_KEYBOARD,		!Create an SMG$ keyboard
+	SMG$DELETE_PASTEBOARD,			!Delete an SMG$ pasteboard
+	SMG$DELETE_VIRTUAL_DISPLAY,		!Delete an SMG$ virtual display
+	SMG$DELETE_VIRTUAL_KEYBOARD,		!Delete an SMG$ keyboard
+	SMG$ERASE_CHARS,			!Erase characters from display
+	SMG$PASTE_VIRTUAL_DISPLAY,		!Paste a virtual display
+	SMG$PUT_CHARS,				!Write characters to a display
+	SMG$PUT_LINE,				!Write a line to a display
+	SMG$READ_KEYSTROKE,			!Read a key from the keyboard
+	SMG$UNPASTE_VIRTUAL_DISPLAY;		!Unpaste a virtual display
+
+    LITERAL
+	txt$c_bufsiz	= 256,
+	true		= 1,
+	false		= 0;
+
+    MACRO
+	$STATICDESC (len, addr) =	!Static descriptor declaration
+		$BBLOCK[DSC$C_S_BLN]
+		PRESET	([DSC$W_LENGTH] = len,
+			 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+			 [DSC$A_POINTER]= addr)
+	%;
+
+    OWN
+	fab	: $FAB (
+		FAC = PUT,			!Access is put
+		SHR = (PUT,GET),		!Allow other access
+		FOP = (SQO,MXV),		!File operations - sequential
+		RFM = VAR,			!Variable length records
+		MRS = 512,			!Maximum record size
+		RAT = CR,			!Carriage return format
+		ORG = SEQ			!File organization - sequential
+		),
+	rab : $RAB (				!RAB for output file
+		FAB = fab,			!The related FAB
+		RAC = SEQ			!Record access is sequential
+		);
+
+
+%SBTTL	'NOTICE_PUT_OUTPUT'
+GLOBAL ROUTINE notice_put_output (string_a) =
+BEGIN
+!+
+!
+!  Routine:	PUT_OUTPUT
+!
+!  Functional Description:
+!
+!	This routine is called to write a line to SYS$OUTPUT.  It keeps
+!	track of how many lines have been displayed and prompts the user
+!	to press [RETURN] if a full-screen is displayed.
+!
+!	For terminals, SMG$ is used to manage the screen.  If SYS$OUTPUT
+!	is not a terminal (i.e., a file), LIB$PUT_OUTPUT is used and no
+!	checks on the line count are made.
+!
+!  Environment:
+!
+!	User mode.
+!
+!  Formal parameters:
+!
+!	string_a	- Address of string descriptor for output string
+!
+!  Implicit inputs:
+!
+!	fao_out, line, module_header, header_buff
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+BIND
+	string		= .string_a	: $BBLOCK;
+
+BIND
+	sys$output	= %ASCID'SYS$OUTPUT',
+	key_prompt	= %ASCID'Press RETURN to continue, CTRL-Z to exit';
+
+OWN
+	vd1,					!Main text virtual display
+	vd2,					!"Press RETURN...." display
+	pb,					!The pasteboard
+	kb,					!The keyboard
+	rows,					!The number of rows in pb
+	columns,				!The number of columns in pb
+	key_prompt_col,				!The column number for prompt
+	terminal,				!Terminal flag (true/false)
+	line_count,				!Number of lines printed
+	exit_status,				!Exit status for exit handler
+	iosb		: $BBLOCK[8],		!I/O status block
+	exh_block	: VECTOR[8,LONG]
+		INITIAL (0, notice_put_outexh, 5, exit_status, vd1, vd2, pb, kb);
+
+REGISTER
+	status;					!The status
+
+  !
+  !  The first time this routine is called, call $GETDVI to see if
+  !  SYS$OUTPUT is a terminal or not.  If it is, then make the appropriate
+  !  SMG$ calls to set up the pasteboard and the virtual displays.
+  !
+  IF (.rows EQLU 0)
+  THEN
+     BEGIN
+     status = SMG$CREATE_PASTEBOARD (pb, sys$output, rows, columns,
+			0, terminal);
+
+     terminal = (IF (.terminal EQLU SMG$K_VTTERMTABLE)	!Is it a terminal?
+		 THEN					!Set flag to true or
+		    true				!... false for fast
+		 ELSE					!... checking later on
+		    false);				!...
+     IF .terminal					!If terminal, then get
+     THEN						!... the page size
+	IF (.rows GTRU 4)			!If there are at least 4 rows
+	THEN					!... on the screen, then use
+	   BEGIN				!... SMG for the output
+	   rows = .rows - 2;			!Leave two lines for the prompt
+	   status = SMG$CREATE_VIRTUAL_DISPLAY (rows, columns, vd1);
+	   rows = .rows - 1;	!Display last line at top after scroll
+	   status = SMG$CREATE_VIRTUAL_DISPLAY (%REF(1), columns, vd2);
+	   status = SMG$PASTE_VIRTUAL_DISPLAY (vd1, pb, %REF(1), %REF(1));
+	   status = SMG$PASTE_VIRTUAL_DISPLAY (vd2, pb, %REF(.rows+3), %REF(1));
+	   status = SMG$CREATE_VIRTUAL_KEYBOARD (kb);
+	   key_prompt_col = (.columns-.key_prompt<0,16,0>) / 2;
+	   status = $DCLEXH (DESBLK = exh_block);
+	   END
+	ELSE
+	   terminal = false;				!Set no terminal
+
+     IF NOT(.terminal)					!If it's not a terminal,
+     THEN						!... delete the SMG$
+	status = SMG$DELETE_PASTEBOARD (pb, %REF(0));	!... pasteboard
+
+     line_count = 0;					!Initialize the count
+     END;
+
+  !
+  !  Now we're ready to write the string to SYS$OUTPUT.
+  !
+  !  If SYS$OUTPUT is a terminal, add a <LF><CR> pair to the string and
+  !  write it using $QIOW.  If we hit the maximum number of lines to display,
+  !  then prompt the user to press a key before returning.
+  !
+  !  If SYS$OUTPUT is *not* a terminal, just use LIB$PUT_OUTPUT.
+  !
+  IF .terminal
+  THEN
+     BEGIN
+     status = SMG$PUT_LINE (vd1, string);		!Write string to vd1
+     line_count = .line_count + 1;			!Bump number of lines
+     !
+     !  If the number of lines written is equal to the page length - 2,
+     !  then prompt the user to press a key before continuing....
+     !
+     IF (.line_count EQLU .rows)
+     THEN
+	BEGIN
+	LOCAL	key_pressed;
+	status = SMG$PUT_CHARS (vd2, key_prompt, %REF(1),
+				key_prompt_col,0,
+				UPLIT(SMG$M_REVERSE));
+	status = SMG$READ_KEYSTROKE (kb, key_pressed);
+	status = SMG$ERASE_CHARS (vd2, %REF(.key_prompt<0,16,0>), %REF(1),
+				   key_prompt_col);
+	!
+	!  Exit the program (via $EXIT) if any key other than RETURN or
+	!  SPACE was typed (SPACE is accepted for "more" compatibility).
+	!
+	IF ((.key_pressed<0,16,0> NEQU SMG$K_TRM_CR) AND
+	    (.key_pressed<0,16,0> NEQU SMG$K_TRM_SPACE))
+	THEN
+	   $EXIT (CODE = SS$_NORMAL);
+	line_count = 0;					!And reset line counter
+	END;
+     END
+  ELSE							!Not a terminal, so
+     LIB$PUT_OUTPUT (string);				!... just use LIB$ rtn
+
+
+  RETURN (SS$_NORMAL);					!Always return success
+
+END;
+
+
+%SBTTL	'NOTICE_OPEN_OUTPUT'
+GLOBAL ROUTINE notice_open_output (filename_a) =
+BEGIN
+!+
+!
+!  Routine:	NOTICE_OPEN_OUTPUT
+!
+!  Functional Description:
+!
+!	This routine opens the output file specified on the command line
+!	using /OUTPUT.
+!
+!  Inputs:
+!
+!	filename_a	= Address of descriptor for file name
+!
+!  Implicit Inputs:
+!
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	filename	= .filename_a	: $BBLOCK;
+
+    OWN
+	rms_exit_status,
+	rms_exh_block	: VECTOR[8,LONG]
+		INITIAL (0, notice_rms_outexh, 2, rms_exit_status, fab);
+    LOCAL
+	status;
+
+    status = SS$_NORMAL;
+    IF (.fab [FAB$W_IFI] EQLU 0)
+    THEN
+	BEGIN
+	fab [FAB$L_FNA] = .filename [DSC$A_POINTER];
+	fab [FAB$B_FNS] = .filename [DSC$W_LENGTH];
+	status = $CREATE (FAB = fab);
+	IF (.status)
+	THEN
+	    status = $CONNECT (RAB = rab);
+	IF (.status)
+	THEN
+	    status = $DCLEXH (DESBLK = rms_exh_block);
+	END;
+
+    .status
+
+END;
+
+
+%SBTTL	'NOTICE_RMS_OUTPUT'
+GLOBAL ROUTINE notice_rms_output (notice_a) =
+BEGIN
+!+
+!
+!  Routine:	NOTICE_RMS_OUTPUT
+!
+!  Functional Description:
+!
+!	This routine writes a line of information to the /OUTPUT file.
+!
+!  Inputs:
+!
+!	notice_a	= Address of descriptor for line of output
+!
+!  Implicit Inputs:
+!
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	notice	= .notice_a	: $BBLOCK;
+
+    rab [RAB$L_RBF] = .notice [DSC$A_POINTER];
+    rab [RAB$W_RSZ] = .notice [DSC$W_LENGTH];
+    RETURN ($PUT (RAB = rab));
+
+END;
+
+
+ROUTINE notice_put_outexh (estatus_a, vd1_a, vd2_a, pb_a, kb_a) =
+BEGIN
+!++
+!
+!  Routine:	NOTICE_PUT_OUTEXH
+!
+!  Abstract:
+!
+!	This routine is established as an exit handler to delete the
+!	pasteboard and the keyboard.  The virtual displays are not deleted,
+!	though, because the screen is cleared if they are.
+!
+!--
+BIND
+	estatus	= .estatus_a,
+	vd1	= .vd1_a,
+	vd2	= .vd2_a,
+	pb	= .pb_a,
+	kb	= .kb_a;
+
+REGISTER
+	status;
+
+  !
+  !If the virtual displays are deleted, the text disappears---just let
+  !the image rundown free up the memory.....
+  !
+!  status = SMG$DELETE_VIRTUAL_DISPLAY (vd1);
+!  status = SMG$DELETE_VIRTUAL_DISPLAY (vd2);
+  status = SMG$DELETE_VIRTUAL_KEYBOARD (kb);
+  RETURN (SMG$DELETE_PASTEBOARD (pb, %REF(0)));
+
+END;
+
+
+%SBTTL 'NOTICE_RMS_OUTEXH'
+ROUTINE notice_rms_outexh (estatus_a, fab_a) =
+BEGIN
+!++
+!
+!  Routine:	NOTICE_RMS_OUTEXH
+!
+!  Abstract:
+!
+!	This routine is established as an exit handler to close the
+!	file opened via /OUTPUT.
+!
+!--
+    BIND
+	estatus	= .estatus_a,
+	fab	= .fab_a	: $FAB_DECL;
+
+    REGISTER
+	status;
+
+    $CLOSE (FAB = fab);
+    SS$_NORMAL
+
+END;
+
+END
+ELUDOM

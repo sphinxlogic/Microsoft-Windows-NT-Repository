@@ -1,0 +1,129 @@
+<HTML>
+<HEAD>
+<TITLE>DECthreads server algorithm</TITLE>
+</HEAD>
+<BODY>
+<H1>Server Internals</H1>
+<UL><LI><A HREF="#base">Main routine</A>
+<LI><A HREF="#senddoc">Document retrieval</A>
+<LI><A HREF="#decnet">Script operation</A>
+</UL>
+<H2><A NAME="base">Server algorithm</A></H2>
+The main routine for the HTTP server configures itself according to the
+command line arguments, reads the rules file into memory, and starts
+a thread that listens for TCP/IP connections to the specified port.  When
+a connection is received, the listener thread creates a new thread
+with a start routine that performs the following actions:<P>
+<OL>
+<LI>Reads the HTTP request from WWW client and parses out method, URL, and 
+protocol.  Any header lines included with the request are read at this 
+time as well.
+</LI><P>
+<LI>Executes request (function http_execute()):<P>
+<OL>
+  <LI>
+  Parse URL into scheme, host, ident, and search arg (if any).<P>
+  </LI>
+  <LI>Apply rules file rules to ident portion of URL. Send error
+		message  and return if 'fail' rule triggered.<P>
+  </LI>
+  <LI>
+  <DL>
+  <DT>If translated URL matched on an exec rule:</DT>
+    <DD>Punt to DECnet task (WWWEXEC) with subfunction "HTBIN"<P></DD>
+   <DT>else if requested method is "GET" or "HEAD":</DT>
+    <DD><A HREF="#senddoc">Retrieve file/directory</A> and send to client.
+    </DD><P>
+    <DT>else if requested method is "POST":</DT>
+	<DD>Punt to DECnet task with subfunction "POST"</DD>
+   </DL>
+   </LI>
+</OL>
+</LI><P>
+<LI>
+Close connection and exit thread.
+</LI>
+</OL>
+<P>
+Note the repeated use of the operation "<A HREF="#decnet">punt to DECnet 
+task</A>", in which the
+server makes a DECnet connection to object WWWEXEC and lets the object
+control the processing of the request.
+<HR>
+<H2><A NAME="senddoc">Document Retrieval</A></H2>
+In most environments, the primary function of the HTTP server is the retrieval
+of files residing on the server machine.  File-oriented URLs are processed with
+the steps:
+<OL>
+<LI>Check access, abort if access not granted.<P>
+</LI>
+<LI>Determine if local port is no-cache port, which will inhibit placing
+retrieved file in cache.<P>
+</LI>
+<LI>Determine content-type and encoding of document:
+  <OL>
+     <LI>Make list of content-types that client will accept by parsing request
+	headers.
+     <LI>Extract suffix and match content-type defined for suffix with
+	 those accepted by client, suffix of "/" is treated special and
+	 forced to type text/file-directory.
+     <LI>If previous step found no match, abort request unless method is HEAD.
+  </OL><P>
+<LI>See if content-type matches presentation rule in configuration file
+and punt to DECnet task with subfunction CONVERT if match.<P>
+<LI>See if search argument (?xxx) present in request and punt to DECnet task
+with subfunction SEARCH is so.<P>
+<LI>Check document cache for requested URL and complete request using data
+in cache if found.<P>
+<LI>Open file, open depends upon case:<DL><DD><DL>
+  <DT>Encoding is Binary</DT><DD>Attempt open using fopen mode "rb".</DD>
+  <DT>URL is directory</DT><DD>Open directory using special "d" and check
+   for existence of welcome file (index.html) in directory.  If welcome
+   file present, set status to re-direct request to welcome file.
+  </DD>
+  <DT>Encoding is 8Bit (text)</DT><DD>Attempt open using fopen mode "r"</DD>
+</DL></DD></DL><P>
+<LI>If open failed, check for errant directory request (missing final slash)
+and set status for re-direct if directory found.<P>
+<LI> If open successful, make HTTP header and send contents.  If entire
+caching allowed and contents fit in cache buffer (4K bytes), save in document 
+cache.<P>
+<LI>If open failed, abort request with 404 status.
+</OL>
+<HR>
+<H2><A NAME="decnet">WWEXEC algorithm</A></H2>
+The WWWEXEC procedure first opens SYS$NET, making it a PPF (Process
+Permanent File).  It then reads the basic request parameters from the
+server (sub-function, method, ident, protocol) and continues processing based 
+upon the sub-function:<P>
+<UL>
+<DL>
+<DT>HTBIN:</DT>
+  <DD>Parse script name out of URL ident and search for matching
+	script in htbin directory (directory that was named in the rule
+	file).  If found, invoke script.<P>
+  </DD>
+<DT>CONVERT:</DT>
+  <DD>Query server for name of converter script (defined by presenation rule
+in configuration file) and invoke script to convert specified URL ident.<P>
+  </DD>
+<DT>SEARCH:</DT>
+  <DD>Send message indicating generic search capability not available.
+	Note that scripts can handle searches because they are
+	tested for first by the server<P>
+   </DD>
+<DT>POST:</DT>
+   <DD>Save request to temporary file and send acknowlegement to
+	client.  Nothing is done with the saved file, I was testing
+	the request_to_file program for future development.<P>
+    </DD>
+</DL>
+</UL>
+For a more detailed 
+<A HREF="/www/serverscriptprotocol.html">description of the protocol</A> 
+used between the server and WWWEXEC, see the comments at the bottom of 
+<A HREF="/www_root/000000/WWWEXEC.COM">WWWEXEC.COM</A>.
+<HR>
+</BODY>
+<ADDRESS>David Jones, Ohio State University</ADDRESS>
+</HTML>

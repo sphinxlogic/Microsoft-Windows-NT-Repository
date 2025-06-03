@@ -1,0 +1,132 @@
+This file should not be loaded.  In fact this line should generate an error
+if loaded.  This file contains compiler dependent routines for parsing error
+messages by compile.sl.  This file is simply a data base.  Find the function
+for your compiler and place the function on you jed.rc file.  
+
+Currently supported compilers:
+
+    bcc, Ultrix_cc, gcc, hp_cc
+
+These functions all return 0 if the current line does not contain file
+ad line number information.  Otherwise they return 1 followed by line number 
+and filename.
+------------------------------------------
+%@bcc
+. (
+.     [file]
+.     bol
+.     "Warning" looking_at "Error" looking_at or {0 return} !if
+.     "a-zA-z" skip_chars
+.     skip_white
+.     push_mark
+.     " " ffind {0 return} !if
+.     bufsubstr =file
+.     skip_white
+.     push_mark
+.     "0-9" skip_chars
+.     bufsubstr file 1
+. ) compile_is_this_line_error
+------------------------------------------------
+%@Ultrix_cc compiler:
+% sample:  ccom: Error: t.c, line 14: LC_ALL undefined
+. (
+.    [file]
+.    bol
+.    {"Warning: " ffind}{"Error: " ffind} orelse {0 return} !if
+.    ": " ffind pop 2 go_right
+.    push_mark 
+.    ", line " ffind {0 pop_mark 0 return} !if
+.    bufsubstr =file
+.    7 go_right
+.    push_mark "0-9" skip_chars 
+.    bufsubstr file 1
+. ) compile_is_this_line_error    % Ultrix cc
+----------------------------------------
+%@hp_cc compiler:
+% sample:  cc: "t.c", line 3: error 1588: "ddkldkjdldkj" undefined.
+define compile_is_this_line_error()
+{
+   variable file;
+   
+   bol();
+   !if (ffind("\"")) return(0);
+   go_right(1);
+   push_mark();
+   !if (ffind("\""))
+     {
+	pop_mark(0);
+	return(0);
+     }
+   
+   file = bufsubstr();
+   
+   !if (ffind("line ")) return(0);
+   go_right(5);
+   push_mark();
+   !if (ffind(": "))
+     {
+	pop_mark(0);
+	return(0);
+     }
+   return (bufsubstr(),file, 1);
+} % HP-UX cc
+----------------------------------------
+%@gcc
+% sample: cmds.c:33: warning: initialization of non-const * pointer...
+%         cmds.c:1041 (cmds.o): Undefined symbol _Screen_Height referenced...
+define compile_is_this_line_error ()
+{
+   variable file, colon = ":", nums = "0-9";
+   bol ();
+   !if (ffind (colon)) return 0;
+
+   go_right(1);
+   POINT; skip_chars (nums);
+   !if (POINT - ()) return 0;
+   if (looking_at(":\n")) return 0;
+   !if (looking_at(colon))
+     {
+	skip_white ();
+	!if (looking_at_char ('(')) return 0;
+     }
+   
+   bol (); push_mark(); 
+   ffind(colon); pop(); 
+   file = bufsubstr ();
+   go_right (1);
+   push_mark (); skip_chars (nums);
+   bufsubstr ();  file;  1;
+}
+
+--------------------------------------------
+%@sun_acc
+% examples:
+%"filename.c", line 123: error: buffer undefined
+%"filename.c", line 123: warning: fin not used
+define compile_is_this_line_error ()
+{
+   variable file, line;
+   variable str = "\", line ";
+   bol ();
+   skip_white ();
+   !if (looking_at_char('"')) return 0;
+   !if (ffind(str)) return 0;
+   push_mark ();
+   bfind("\""); pop (); 
+   go_right(1);
+   file = bufsubstr ();
+   ffind(str); pop ();
+   go_right (7); skip_white ();
+   push_mark ();
+   skip_chars ("0-9");
+   line = bufsubstr ();
+   !if (looking_at(": error:")
+	or looking_at (": warning:")) return 0;
+   
+   line; file; 1;
+}
+
+   
+   
+	
+

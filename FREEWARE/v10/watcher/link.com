@@ -1,0 +1,26 @@
+$! LINK.COM
+$!
+$!  This procedure links the two WATCHER images.
+$!
+$ VMSVER = F$GETSYI("VERSION")
+$ PREFIX = "V" + F$EXTRACT(1,1,VMSVER)
+$ IF F$GETSYI("HW_MODEL") .GT. 1023 	! AXP or VAX?
+$ THEN
+$   IF PREFIX .EQS. "V1" .AND. F$EXTRACT(3,1,VMSVER) .EQS. "5" THEN PREFIX = "V15"
+$   IF F$SEARCH("''PREFIX'_WATCHER.ALPHA_OPT") .EQS. ""
+$   THEN
+$   	WRITE SYS$OUTPUT "You must recompile from sources for this version of VMS."
+$   	EXIT
+$   ENDIF
+$   LINK/EXE=WATCHER.EXE/SYSEXE 'PREFIX'_WATCHER.ALPHA_OPT/OPT
+$   LINK/EXE=WCP.EXE/NOTRACE [.BIN-AXP]WCP.OLB/INCLUDE=WCP/LIB
+$ ELSE
+$   IF F$SEARCH("''PREFIX'_WATCHER.OPT") .EQS. ""
+$   THEN
+$   	WRITE SYS$OUTPUT "You must recompile from sources for this version of VMS."
+$   	EXIT
+$   ENDIF
+$   LINK/EXE=WATCHER.EXE 'PREFIX'_WATCHER.OPT/OPT
+$   LINK/EXE=WCP.EXE/NOTRACE [.BIN-VAX]WCP.OLB/INCLUDE=WCP/LIB
+$ ENDIF
+$ EXIT

@@ -1,0 +1,1693 @@
+
+
+	.TITLE  WATCHER WATCHER
+	.IDENT  \V2.9-1\
+
+	.PSECT  $$$COPYRIGHT,NOWRT,NOEXE,  SHR,2
+
+P.AAA:	.ASCII  \Copyright \<169>\ 1993, 1994  MadGoat Software.  All rights reserved.\
+							   ;
+
+	.PSECT  $OWN$,NOEXE,2
+
+;COPYRIGHT
+U.1:	.ADDRESS P.AAA					   ;
+;COUNTQ
+U.17:	.BLKB   8
+;NOWTIME
+U.18:	.BLKB   8
+;MBXCHN
+U.19:	.WORD   0					   ;
+	.BLKB   2
+;MBXEFN
+U.20:	.BLKB   4
+;SETAST
+U.21:	.LONG   0					   ;
+;FINAL_STATUS
+U.22:	.BLKB   4
+;EXHBLK
+U.23:	.BYTE   0[4]					   ;
+	.ADDRESS U.11					   ;
+	.LONG   1					   ;
+	.ADDRESS U.22					   ;
+
+	.PSECT  $GLOBAL$,NOEXE,2
+
+GLOBALS::
+	.BLKB   296
+PGLOBALS::
+	.BLKB   12
+TRMQUE::.BLKB   8
+EXCQUE::.BLKB   8
+OVRQUE::.BLKB   8
+
+	.PSECT  $PLIT$,NOWRT,NOEXE,2
+
+P.AAC:	.ASCII  \*** Checking mailbox ***\		   ;
+P.AAB:	.LONG   17694744				   ;
+	.ADDRESS P.AAC					   ;
+P.AAE:	.ASCII  \*** Collecting process information at !%D ***\<0><0><0>
+							   ;
+P.AAD:	.LONG   17694765				   ;
+	.ADDRESS P.AAE					   ;
+P.AAG:	.ASCII  \Process: PID=!XL, user=!AD, term=!AD, accpor=!AD\
+							   ;
+P.AAF:	.LONG   17694768				   ;
+	.ADDRESS P.AAG					   ;
+P.AAI:	.ASCII  \  -- Process found on count list\	   ;
+P.AAH:	.LONG   17694752				   ;
+	.ADDRESS P.AAI					   ;
+P.AAK:	.ASCII  \  -- Terminal found on watch list\<0><0><0>
+							   ;
+P.AAJ:	.LONG   17694753				   ;
+	.ADDRESS P.AAK					   ;
+P.AAM:	.ASCII  \  -- Queueing count record for checking\<0>
+							   ;
+P.AAL:	.LONG   17694759				   ;
+	.ADDRESS P.AAM					   ;
+P.AAO:	.ASCII  \  -- This was a "fake" process\<0><0>	   ;
+P.AAN:	.LONG   17694750				   ;
+	.ADDRESS P.AAO					   ;
+P.AAQ:	.ASCII  \ -- Process found on exclude list\<0><0><0>
+							   ;
+P.AAP:	.LONG   17694753				   ;
+	.ADDRESS P.AAQ					   ;
+P.AAS:	.ASCII  \*** End of process loop ***\<0>	   ;
+P.AAR:	.LONG   17694747				   ;
+	.ADDRESS P.AAS					   ;
+P.AAU:	.ASCII  \Check for warn/force: PID=!XL, user=!AD\<0>
+							   ;
+P.AAT:	.LONG   17694759				   ;
+	.ADDRESS P.AAU					   ;
+P.AAW:	.ASCII  \  -- Terminal is part of count group !AD\ ;
+P.AAV:	.LONG   17694760				   ;
+	.ADDRESS P.AAW					   ;
+P.AAY:	.ASCII  \  -- Warn/force aborted, !AD in group !AD changed.\<0><0>
+							   ;
+P.AAX:	.LONG   17694770				   ;
+	.ADDRESS P.AAY					   ;
+P.ABA:	.ASCII  \  -- Force check: Is !%T GTR !%T?\<0><0><0>
+							   ;
+P.AAZ:	.LONG   17694753				   ;
+	.ADDRESS P.ABA					   ;
+P.ABC:	.ASCII  \       -- also check count group members...\<0>
+							   ;
+P.ABB:	.LONG   17694763				   ;
+	.ADDRESS P.ABC					   ;
+P.ABE:	.ASCII  \     -- Terminal forced.\		   ;
+P.ABD:	.LONG   17694744				   ;
+	.ADDRESS P.ABE					   ;
+P.ABG:	.ASCII  \    -- Don't force: pid !XL changed at !%D\<0><0>
+							   ;
+P.ABF:	.LONG   17694762				   ;
+	.ADDRESS P.ABG					   ;
+P.ABI:	.ASCII  \    -- Terminal forced.\<0>		   ;
+P.ABH:	.LONG   17694743				   ;
+	.ADDRESS P.ABI					   ;
+P.ABK:	.ASCII  \  -- Warn check: Is !%T GTR !%T?\	   ;
+P.ABJ:	.LONG   17694752				   ;
+	.ADDRESS P.ABK					   ;
+P.ABM:	.ASCII  \       -- also check count group members...\<0>
+							   ;
+P.ABL:	.LONG   17694763				   ;
+	.ADDRESS P.ABM					   ;
+P.ABO:	.ASCII  \     -- Terminal warned.\		   ;
+P.ABN:	.LONG   17694744				   ;
+	.ADDRESS P.ABO					   ;
+P.ABQ:	.ASCII  \    -- Don't warn: pid !XL changed at !%D\<0><0><0>
+							   ;
+P.ABP:	.LONG   17694761				   ;
+	.ADDRESS P.ABQ					   ;
+P.ABS:	.ASCII  \    -- Terminal warned.\<0>		   ;
+P.ABR:	.LONG   17694743				   ;
+	.ADDRESS P.ABS					   ;
+P.ABU:	.ASCII  \*** End of warn/force checks ***\	   ;
+P.ABT:	.LONG   17694752				   ;
+	.ADDRESS P.ABU					   ;
+P.ABW:	.ASCII  \*** About to sleep, interval=!%T ***\	   ;
+P.ABV:	.LONG   17694756				   ;
+	.ADDRESS P.ABW					   ;
+P.ABY:	.ASCII  \*** Wake up!! ***\<0><0><0>		   ;
+P.ABX:	.LONG   17694737				   ;
+	.ADDRESS P.ABY					   ;
+
+	.EXTRN  COLLECT_PROCESS_INFO, LOAD_CONFIG, WARN, FORCE, FLUSH_LOG, LOCK_DISCONNECT_CODE, LIB$GET_VM
+	.EXTRN  LIB$FREE_VM, LIB$SUB_TIMES, LIB$DAY_OF_WEEK, STR$MATCH_WILD, LIB$GET_EF, STR$_MATCH
+	.EXTRN  LIB$_NORMAL, WATCHER__NOCFG, TRACE_PUT_OUTPUT, LIB$SYS_FAO, STR$FREE1_DX, SYS$GETTIM
+	.EXTRN  SYS$SCHDWK, SYS$HIBER, SYS$CANWAK
+
+	.PSECT  $CODE$,NOWRT,2
+
+U.2:
+	.ENTRY  WATCHER, ^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,-  ;WATCHER, Save R2,R3,R4,R5,R6,R7,R8,R9,R10,R11
+		R11>					   ;
+	MOVAB   W^U.17, R11				   ;U.17, R11
+	MOVAB   W^TRACE_PUT_OUTPUT, R10			   ;TRACE_PUT_OUTPUT, R10
+	MOVAB   W^GLOBALS+16, R9			   ;GLOBALS+16, R9
+	MOVAB   -72(SP), SP				   ;-72(SP), SP
+	MOVAB   64(SP), R0				   ;Q, R0
+	MOVL    R0, 64(SP)				   ;R0, Q
+	MOVL    R0, 68(SP)				   ;R0, Q+4
+	MOVAB   56(SP), R0				   ;Q, R0
+	MOVL    R0, 56(SP)				   ;R0, Q
+	MOVL    R0, 60(SP)				   ;R0, Q+4
+	CALLS   #0, W^LOCK_DISCONNECT_CODE		   ;#0, LOCK_DISCONNECT_CODE
+	MOVL    R0, R8					   ;R0, STATUS
+	BLBS    R8, 1$					   ;STATUS, 1$
+	PUSHL   R8					   ;STATUS
+	CALLS   #1, G^LIB$STOP				   ;#1, LIB$STOP
+1$:	CALLS   #0, W^U.3				   ;#0, U.3
+2$:	BBC     #4, (R9), 3$				   ;#4, GLOBALS+16, 3$
+	BLBC    4(R9), 3$				   ;GLOBALS+20, 3$
+	PUSHAB  W^P.AAB					   ;P.AAB
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+3$:	CALLS   #0, W^U.9				   ;#0, U.9
+	MOVL    (R11), 20(SP)				   ;COUNTQ, C
+4$:	MOVL    20(SP), R0				   ;C, R0
+	MOVAB   (R11), R1				   ;COUNTQ, R1
+	CMPL    R0, R1					   ;R0, R1
+	BEQL    5$					   ;5$
+	BICB2   #1, 76(R0)				   ;#1, 76(R0)
+	MOVL    (R0), 20(SP)				   ;(R0), C
+	BRB     4$					   ;4$
+5$:	PUSHAB  8(R11)					   ;NOWTIME
+	CALLS   #1, G^SYS$GETTIM			   ;#1, SYS$GETTIM
+	BBC     #4, (R9), 6$				   ;#4, GLOBALS+16, 6$
+	BLBC    4(R9), 6$				   ;GLOBALS+20, 6$
+	MOVL    #34471936, 32(SP)			   ;#34471936, _D
+	CLRL    36(SP)					   ;_D+4
+	PUSHAB  8(R11)					   ;NOWTIME
+	PUSHAB  36(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.AAD					   ;P.AAD
+	CALLS   #4, G^LIB$SYS_FAO			   ;#4, LIB$SYS_FAO
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+6$:	PUSHAB  64(SP)					   ;PINFOQ
+	CALLS   #1, W^COLLECT_PROCESS_INFO		   ;#1, COLLECT_PROCESS_INFO
+7$:	REMQUE  @64(SP), 12(SP)				   ;@PINFOQ, P
+	BVC     8$					   ;8$
+	BRW     24$					   ;24$
+8$:	BBC     #4, (R9), 9$				   ;#4, GLOBALS+16, 9$
+	BLBC    4(R9), 9$				   ;GLOBALS+20, 9$
+	MOVL    #34471936, 32(SP)			   ;#34471936, _D
+	CLRL    36(SP)					   ;_D+4
+	MOVL    12(SP), R0				   ;P, R0
+	PUSHAB  110(R0)					   ;110(R0)
+	MOVZWL  108(R0), -(SP)				   ;108(R0), -(SP)
+	PUSHAB  44(R0)					   ;44(R0)
+	MOVZWL  42(R0), -(SP)				   ;42(R0), -(SP)
+	PUSHAB  176(R0)					   ;176(R0)
+	MOVZWL  174(R0), -(SP)				   ;174(R0), -(SP)
+	PUSHL   8(R0)					   ;8(R0)
+	PUSHAB  60(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.AAF					   ;P.AAF
+	CALLS   #10, G^LIB$SYS_FAO			   ;#10, LIB$SYS_FAO
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+9$:	PUSHAB  300(R9)					   ;EXCQUE
+	MOVL    16(SP), R3				   ;P, R3
+	PUSHL   R3					   ;R3
+	CALLS   #2, W^U.4				   ;#2, U.4
+	BLBC    R0, 10$					   ;R0, 10$
+	BRW     19$					   ;19$
+10$:	PUSHAB  20(SP)					   ;C
+	PUSHL   R3					   ;R3
+	CALLS   #2, W^U.5				   ;#2, U.5
+	MOVL    R0, R8					   ;R0, STATUS
+	BLBC    R8, 14$					   ;STATUS, 14$
+	BBC     #4, (R9), 11$				   ;#4, GLOBALS+16, 11$
+	BLBC    4(R9), 11$				   ;GLOBALS+20, 11$
+	PUSHAB  W^P.AAH					   ;P.AAH
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+11$:	MOVL    20(SP), R2				   ;C, R2
+	PUSHAB  4(SP)					   ;OVR
+	PUSHAB  308(R9)					   ;OVRQUE
+	PUSHL   R3					   ;R3
+	CALLS   #3, W^U.4				   ;#3, U.4
+	BLBC    R0, 12$					   ;R0, 12$
+	CMPL    72(R2), 4(SP)				   ;72(R2), OVR
+	BEQL    15$					   ;15$
+	PUSHL   4(SP)					   ;OVR
+	BRB     13$					   ;13$
+12$:	TSTL    72(R2)					   ;72(R2)
+	BEQL    15$					   ;15$
+	CLRL    -(SP)					   ;-(SP)
+13$:	PUSHL   24(SP)					   ;C
+	CALLS   #2, W^U.8				   ;#2, U.8
+	BRB     15$					   ;15$
+14$:	PUSHAB  20(SP)					   ;C
+	PUSHL   R3					   ;R3
+	CALLS   #2, W^U.6				   ;#2, U.6
+	MOVL    R0, R8					   ;R0, STATUS
+	BLBC    R8, 18$					   ;STATUS, 18$
+	BBC     #4, (R9), 15$				   ;#4, GLOBALS+16, 15$
+	BLBC    4(R9), 15$				   ;GLOBALS+20, 15$
+	PUSHAB  W^P.AAJ					   ;P.AAJ
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+15$:	BLBC    R8, 18$					   ;STATUS, 18$
+	MOVL    20(SP), R2				   ;C, R2
+	PUSHL   R2					   ;R2
+	PUSHL   R3					   ;R3
+	CALLS   #2, W^U.7				   ;#2, U.7
+	BLBS    R0, 17$					   ;R0, 17$
+	BBC     #4, (R9), 16$				   ;#4, GLOBALS+16, 16$
+	BLBC    4(R9), 16$				   ;GLOBALS+20, 16$
+	PUSHAB  W^P.AAL					   ;P.AAL
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+16$:	PUSHAB  16(SP)					   ;CHK
+	MOVL    #12, 4(SP)				   ;#12, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, G^LIB$GET_VM			   ;#2, LIB$GET_VM
+	MOVL    16(SP), R0				   ;CHK, R0
+	MOVL    R2, 8(R0)				   ;R2, 8(R0)
+	INSQUE  (R0), @60(SP)				   ;(R0), @CHKQUE+4
+	BRB     21$					   ;21$
+17$:	BBC     #3, 77(R2), 21$				   ;#3, 77(R2), 21$
+	BBC     #4, (R9), 21$				   ;#4, GLOBALS+16, 21$
+	BLBC    4(R9), 21$				   ;GLOBALS+20, 21$
+	PUSHAB  W^P.AAN					   ;P.AAN
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+18$:	BRB     21$					   ;21$
+19$:	BBC     #4, (R9), 20$				   ;#4, GLOBALS+16, 20$
+	BLBC    4(R9), 20$				   ;GLOBALS+20, 20$
+	PUSHAB  W^P.AAP					   ;P.AAP
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+20$:	PUSHAB  20(SP)					   ;C
+	PUSHL   R3					   ;R3
+	CALLS   #2, W^U.5				   ;#2, U.5
+	BLBC    R0, 21$					   ;R0, 21$
+	REMQUE  @20(SP), 20(SP)				   ;@C, C
+	PUSHAB  20(SP)					   ;C
+	MOVZWL  #535, 4(SP)				   ;#535, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, G^LIB$FREE_VM			   ;#2, LIB$FREE_VM
+21$:	MOVL    12(SP), R0				   ;P, R0
+	MOVL    36(R0), 8(SP)				   ;36(R0), IP
+22$:	BEQL    23$					   ;23$
+	MOVL    @8(SP), R2				   ;@IP, TMP
+	PUSHAB  8(SP)					   ;IP
+	MOVZBL  #72, 4(SP)				   ;#72, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, G^LIB$FREE_VM			   ;#2, LIB$FREE_VM
+	MOVL    R2, 8(SP)				   ;TMP, IP
+	BRB     22$					   ;22$
+23$:	PUSHAB  12(SP)					   ;P
+	MOVZWL  #465, 4(SP)				   ;#465, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, G^LIB$FREE_VM			   ;#2, LIB$FREE_VM
+	BRW     7$					   ;7$
+24$:	BBC     #4, (R9), 25$				   ;#4, GLOBALS+16, 25$
+	BLBC    4(R9), 25$				   ;GLOBALS+20, 25$
+	PUSHAB  W^P.AAR					   ;P.AAR
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+25$:	REMQUE  @56(SP), 16(SP)				   ;@CHKQUE, CHK
+	BVC     26$					   ;26$
+	BRW     62$					   ;62$
+26$:	MOVL    16(SP), R0				   ;CHK, R0
+	MOVL    8(R0), R5				   ;8(R0), R5
+	BBC     #4, (R9), 27$				   ;#4, GLOBALS+16, 27$
+	BLBC    4(R9), 27$				   ;GLOBALS+20, 27$
+	MOVL    #34471936, 32(SP)			   ;#34471936, _D
+	CLRL    36(SP)					   ;_D+4
+	PUSHAB  212(R5)					   ;212(R5)
+	MOVZWL  210(R5), -(SP)				   ;210(R5), -(SP)
+	PUSHL   40(R5)					   ;40(R5)
+	PUSHAB  44(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.AAT					   ;P.AAT
+	CALLS   #6, G^LIB$SYS_FAO			   ;#6, LIB$SYS_FAO
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+27$:	EXTZV   #3, #1, 77(R5), R0			   ;#3, #1, 77(R5), R0
+	MCOML   R0, R0					   ;R0, R0
+	MOVL    R0, R7					   ;R0, DOCHK
+	MOVAB   244(R5), R6				   ;244(R5), R6
+	TSTW    (R6)					   ;(R6)
+	BNEQ    29$					   ;29$
+28$:	BRW     35$					   ;35$
+29$:	BLBC    R0, 28$					   ;R0, 28$
+	BBC     #4, (R9), 30$				   ;#4, GLOBALS+16, 30$
+	BLBC    4(R9), 30$				   ;GLOBALS+20, 30$
+	MOVL    #34471936, 32(SP)			   ;#34471936, _D
+	CLRL    36(SP)					   ;_D+4
+	PUSHAB  246(R5)					   ;246(R5)
+	MOVZWL  (R6), -(SP)				   ;(R6), -(SP)
+	PUSHAB  40(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.AAV					   ;P.AAV
+	CALLS   #5, G^LIB$SYS_FAO			   ;#5, LIB$SYS_FAO
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+30$:	MOVL    (R11), R4				   ;COUNTQ, C
+31$:	MOVAB   (R11), R0				   ;COUNTQ, R0
+	CMPL    R4, R0					   ;C, R0
+	BEQL    33$					   ;33$
+	CMPC5   244(R4), 246(R4), #32, (R6), 246(R5)	   ;244(C), 246(C), #32, (R6), 246(R5)
+	BNEQ    32$					   ;32$
+	BLBC    76(R4), 32$				   ;76(C), 32$
+	BBS     #3, 77(R4), 32$				   ;#3, 77(C), 32$
+	BBS     #1, 76(R4), 33$				   ;#1, 76(C), 33$
+32$:	MOVL    (R4), R4				   ;(C), C
+	BRB     31$					   ;31$
+33$:	MOVAB   (R11), R1				   ;COUNTQ, R1
+	CLRL    R0					   ;R0
+	CMPL    R4, R1					   ;C, R1
+	BNEQ    34$					   ;34$
+	INCL    R0					   ;R0
+34$:	MOVL    R0, R7					   ;R0, DOCHK
+	BLBS    R7, 36$					   ;DOCHK, 36$
+	BBC     #4, (R9), 35$				   ;#4, GLOBALS+16, 35$
+	BLBC    4(R9), 35$				   ;GLOBALS+20, 35$
+	MOVL    #34471936, 32(SP)			   ;#34471936, _D
+	CLRL    36(SP)					   ;_D+4
+	PUSHAB  246(R4)					   ;246(C)
+	MOVZWL  244(R4), -(SP)				   ;244(C), -(SP)
+	PUSHAB  80(R4)					   ;80(C)
+	MOVZWL  78(R4), -(SP)				   ;78(C), -(SP)
+	PUSHAB  48(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.AAX					   ;P.AAX
+	CALLS   #7, G^LIB$SYS_FAO			   ;#7, LIB$SYS_FAO
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+35$:	BLBS    R7, 36$					   ;DOCHK, 36$
+	BRW     61$					   ;61$
+36$:	PUSHAB  48(SP)					   ;DELTA
+	PUSHAB  8(R5)					   ;8(R5)
+	PUSHAB  8(R11)					   ;NOWTIME
+	CALLS   #3, G^LIB$SUB_TIMES			   ;#3, LIB$SUB_TIMES
+	BLBS    77(R5), 38$				   ;77(R5), 38$
+	BBS     #6, 76(R5), 38$				   ;#6, 76(R5), 38$
+	BBS     #1, 77(R5), 38$				   ;#1, 77(R5), 38$
+37$:	BRW     49$					   ;49$
+38$:	BBC     #4, (R9), 39$				   ;#4, GLOBALS+16, 39$
+	BLBC    4(R9), 39$				   ;GLOBALS+20, 39$
+	MOVL    #34471936, 32(SP)			   ;#34471936, _D
+	CLRL    36(SP)					   ;_D+4
+	PUSHAB  32(R5)					   ;32(R5)
+	PUSHAB  52(SP)					   ;DELTA
+	PUSHAB  40(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.AAZ					   ;P.AAZ
+	CALLS   #5, G^LIB$SYS_FAO			   ;#5, LIB$SYS_FAO
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+39$:	PUSHAB  40(SP)					   ;DIFF
+	PUSHAB  32(R5)					   ;32(R5)
+	PUSHAB  56(SP)					   ;DELTA
+	CALLS   #3, G^LIB$SUB_TIMES			   ;#3, LIB$SUB_TIMES
+	CMPL    R0, #LIB$_NORMAL			   ;R0, #LIB$_NORMAL
+	BNEQ    37$					   ;37$
+	TSTW    (R6)					   ;(R6)
+	BNEQ    40$					   ;40$
+	BRW     47$					   ;47$
+40$:	BBC     #4, (R9), 41$				   ;#4, GLOBALS+16, 41$
+	BLBC    4(R9), 41$				   ;GLOBALS+20, 41$
+	PUSHAB  W^P.ABB					   ;P.ABB
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+41$:	MOVL    (R11), R7				   ;COUNTQ, C
+42$:	MOVAB   (R11), R0				   ;COUNTQ, R0
+	CMPL    R7, R0					   ;C, R0
+	BEQL    45$					   ;45$
+	CMPC5   244(R7), 246(R7), #32, (R6), 246(R5)	   ;244(C), 246(C), #32, (R6), 246(R5)
+	BNEQ    44$					   ;44$
+	BLBS    77(R7), 43$				   ;77(C), 43$
+	BBS     #6, 76(R7), 43$				   ;#6, 76(C), 43$
+	BBC     #1, 77(R7), 44$				   ;#1, 77(C), 44$
+43$:	BBS     #3, 77(R7), 44$				   ;#3, 77(C), 44$
+	PUSHAB  32(SP)					   ;D
+	PUSHAB  8(R7)					   ;8(C)
+	PUSHAB  8(R11)					   ;NOWTIME
+	CALLS   #3, G^LIB$SUB_TIMES			   ;#3, LIB$SUB_TIMES
+	PUSHAB  40(SP)					   ;DIFF
+	PUSHAB  32(R7)					   ;32(C)
+	PUSHAB  40(SP)					   ;D
+	CALLS   #3, G^LIB$SUB_TIMES			   ;#3, LIB$SUB_TIMES
+	CMPL    R0, #LIB$_NORMAL			   ;R0, #LIB$_NORMAL
+	BNEQ    45$					   ;45$
+44$:	MOVL    (R7), R7				   ;(C), C
+	BRB     42$					   ;42$
+45$:	MOVAB   (R11), R0				   ;COUNTQ, R0
+	CMPL    R7, R0					   ;C, R0
+	BNEQ    46$					   ;46$
+	PUSHL   R11					   ;R11
+	PUSHAB  60(SP)					   ;CHKQUE
+	PUSHL   R5					   ;R5
+	CALLS   #3, W^FORCE				   ;#3, FORCE
+	BBC     #4, (R9), 49$				   ;#4, GLOBALS+16, 49$
+	BLBC    4(R9), 49$				   ;GLOBALS+20, 49$
+	PUSHAB  W^P.ABD					   ;P.ABD
+	BRB     48$					   ;48$
+46$:	BBC     #4, (R9), 49$				   ;#4, GLOBALS+16, 49$
+	BLBC    4(R9), 49$				   ;GLOBALS+20, 49$
+	MOVL    #34471936, 24(SP)			   ;#34471936, _D
+	CLRL    28(SP)					   ;_D+4
+	PUSHAB  8(R7)					   ;8(C)
+	PUSHL   40(R7)					   ;40(C)
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ABF					   ;P.ABF
+	CALLS   #5, G^LIB$SYS_FAO			   ;#5, LIB$SYS_FAO
+	PUSHAB  24(SP)					   ;_TRCFAO
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  24(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+	BRB     49$					   ;49$
+47$:	PUSHL   R11					   ;R11
+	PUSHAB  60(SP)					   ;CHKQUE
+	PUSHL   R5					   ;R5
+	CALLS   #3, W^FORCE				   ;#3, FORCE
+	BBC     #4, (R9), 49$				   ;#4, GLOBALS+16, 49$
+	BLBC    4(R9), 49$				   ;GLOBALS+20, 49$
+	PUSHAB  W^P.ABH					   ;P.ABH
+48$:	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+49$:	BBC     #2, 76(R5), 51$				   ;#2, 76(R5), 51$
+50$:	BRW     61$					   ;61$
+51$:	TSTB    76(R5)					   ;76(R5)
+	BGEQ    50$					   ;50$
+	BBC     #4, (R9), 52$				   ;#4, GLOBALS+16, 52$
+	BLBC    4(R9), 52$				   ;GLOBALS+20, 52$
+	MOVL    #34471936, 32(SP)			   ;#34471936, _D
+	CLRL    36(SP)					   ;_D+4
+	PUSHAB  16(R5)					   ;16(R5)
+	PUSHAB  52(SP)					   ;DELTA
+	PUSHAB  40(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ABJ					   ;P.ABJ
+	CALLS   #5, G^LIB$SYS_FAO			   ;#5, LIB$SYS_FAO
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+52$:	PUSHAB  40(SP)					   ;DIFF
+	PUSHAB  16(R5)					   ;16(R5)
+	PUSHAB  56(SP)					   ;DELTA
+	CALLS   #3, G^LIB$SUB_TIMES			   ;#3, LIB$SUB_TIMES
+	CMPL    R0, #LIB$_NORMAL			   ;R0, #LIB$_NORMAL
+	BNEQ    50$					   ;50$
+	TSTW    (R6)					   ;(R6)
+	BNEQ    53$					   ;53$
+	BRW     59$					   ;59$
+53$:	BBC     #4, (R9), 54$				   ;#4, GLOBALS+16, 54$
+	BLBC    4(R9), 54$				   ;GLOBALS+20, 54$
+	PUSHAB  W^P.ABL					   ;P.ABL
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+54$:	MOVL    (R11), R7				   ;COUNTQ, C
+55$:	MOVAB   (R11), R0				   ;COUNTQ, R0
+	CMPL    R7, R0					   ;C, R0
+	BEQL    57$					   ;57$
+	CMPC5   244(R7), 246(R7), #32, (R6), 246(R5)	   ;244(C), 246(C), #32, (R6), 246(R5)
+	BNEQ    56$					   ;56$
+	TSTB    76(R7)					   ;76(C)
+	BGEQ    56$					   ;56$
+	PUSHAB  32(SP)					   ;D
+	PUSHAB  8(R7)					   ;8(C)
+	PUSHAB  8(R11)					   ;NOWTIME
+	CALLS   #3, G^LIB$SUB_TIMES			   ;#3, LIB$SUB_TIMES
+	PUSHAB  40(SP)					   ;DIFF
+	PUSHAB  16(R7)					   ;16(C)
+	PUSHAB  40(SP)					   ;D
+	CALLS   #3, G^LIB$SUB_TIMES			   ;#3, LIB$SUB_TIMES
+	CMPL    R0, #LIB$_NORMAL			   ;R0, #LIB$_NORMAL
+	BNEQ    57$					   ;57$
+56$:	MOVL    (R7), R7				   ;(C), C
+	BRB     55$					   ;55$
+57$:	MOVAB   (R11), R0				   ;COUNTQ, R0
+	CMPL    R7, R0					   ;C, R0
+	BNEQ    58$					   ;58$
+	PUSHL   R5					   ;R5
+	CALLS   #1, W^WARN				   ;#1, WARN
+	BBC     #4, (R9), 61$				   ;#4, GLOBALS+16, 61$
+	BLBC    4(R9), 61$				   ;GLOBALS+20, 61$
+	PUSHAB  W^P.ABN					   ;P.ABN
+	BRB     60$					   ;60$
+58$:	BBC     #4, (R9), 61$				   ;#4, GLOBALS+16, 61$
+	BLBC    4(R9), 61$				   ;GLOBALS+20, 61$
+	MOVL    #34471936, 24(SP)			   ;#34471936, _D
+	CLRL    28(SP)					   ;_D+4
+	PUSHAB  8(R7)					   ;8(C)
+	PUSHL   40(R7)					   ;40(C)
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ABP					   ;P.ABP
+	CALLS   #5, G^LIB$SYS_FAO			   ;#5, LIB$SYS_FAO
+	PUSHAB  24(SP)					   ;_TRCFAO
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  24(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+	BRB     61$					   ;61$
+59$:	PUSHL   R5					   ;R5
+	CALLS   #1, W^WARN				   ;#1, WARN
+	BBC     #4, (R9), 61$				   ;#4, GLOBALS+16, 61$
+	BLBC    4(R9), 61$				   ;GLOBALS+20, 61$
+	PUSHAB  W^P.ABR					   ;P.ABR
+60$:	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+61$:	PUSHAB  16(SP)					   ;CHK
+	MOVL    #12, 4(SP)				   ;#12, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, G^LIB$FREE_VM			   ;#2, LIB$FREE_VM
+	BRW     25$					   ;25$
+62$:	BBC     #4, (R9), 63$				   ;#4, GLOBALS+16, 63$
+	BLBC    4(R9), 63$				   ;GLOBALS+20, 63$
+	PUSHAB  W^P.ABT					   ;P.ABT
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+63$:	MOVL    (R11), 20(SP)				   ;COUNTQ, C
+64$:	MOVL    20(SP), R0				   ;C, R0
+	MOVAB   (R11), R1				   ;COUNTQ, R1
+	CMPL    R0, R1					   ;R0, R1
+	BEQL    66$					   ;66$
+	MOVL    (R0), R2				   ;(R0), TMP
+	BLBS    76(R0), 65$				   ;76(R0), 65$
+	REMQUE  (R0), 20(SP)				   ;(R0), C
+	PUSHAB  20(SP)					   ;C
+	MOVZWL  #535, 4(SP)				   ;#535, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, G^LIB$FREE_VM			   ;#2, LIB$FREE_VM
+65$:	MOVL    R2, 20(SP)				   ;TMP, C
+	BRB     64$					   ;64$
+66$:	BBC     #4, (R9), 67$				   ;#4, GLOBALS+16, 67$
+	BLBC    4(R9), 67$				   ;GLOBALS+20, 67$
+	MOVL    #34471936, 32(SP)			   ;#34471936, _D
+	CLRL    36(SP)					   ;_D+4
+	PUSHAB  -12(R9)					   ;GLOBALS+4
+	PUSHAB  36(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ABV					   ;P.ABV
+	CALLS   #4, G^LIB$SYS_FAO			   ;#4, LIB$SYS_FAO
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  32(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+67$:	CALLS   #0, W^FLUSH_LOG				   ;#0, FLUSH_LOG
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  -12(R9)					   ;GLOBALS+4
+	CLRQ    -(SP)					   ;-(SP)
+	CALLS   #4, G^SYS$SCHDWK			   ;#4, SYS$SCHDWK
+	CALLS   #0, G^SYS$HIBER				   ;#0, SYS$HIBER
+	CLRQ    -(SP)					   ;-(SP)
+	CALLS   #2, G^SYS$CANWAK			   ;#2, SYS$CANWAK
+	BBS     #4, (R9), 68$				   ;#4, GLOBALS+16, 68$
+	BRW     3$					   ;3$
+68$:	BLBC    4(R9), 69$				   ;GLOBALS+20, 69$
+	PUSHAB  W^P.ABX					   ;P.ABX
+	CALLS   #1, (R10)				   ;#1, TRACE_PUT_OUTPUT
+69$:	BRW     2$					   ;2$
+
+; Routine Size:  1775 bytes,    Routine Base:  $CODE$ + 0000
+
+
+
+
+
+	.PSECT  $PLIT$,NOWRT,NOEXE,2
+
+P.ACA:	.ASCII  \WATCHER starting\			   ;
+P.ABZ:	.LONG   17694736				   ;
+	.ADDRESS P.ACA					   ;
+P.ACC:	.ASCII  \WATCHER_MBOX\				   ;
+P.ACB:	.LONG   17694732				   ;
+	.ADDRESS P.ACC					   ;
+
+U.37=		    TRMQUE
+U.38=		    OVRQUE
+U.39=		    EXCQUE
+U.40=		    U.17
+	.EXTRN  INIT_LOG, SYS$GETSYIW, LOG_PUT_OUTPUT, SYS$CREMBX, SYS$QIOW, SYS$DCLEXH
+
+	.PSECT  $CODE$,NOWRT,2
+
+;INIT
+U.3:	.WORD   ^M<R2,R3,R4,R5,R6,R7,R8>		   ;Save R2,R3,R4,R5,R6,R7,R8
+	MOVAB   G^LIB$STOP, R8				   ;LIB$STOP, R8
+	MOVAB   W^U.40, R7				   ;U.40, R7
+	MOVAB   W^PGLOBALS+4, R6			   ;PGLOBALS+4, R6
+	SUBL2   #52, SP					   ;#52, SP
+	MOVC5   #0, (SP), #0, #296, -300(R6)		   ;#0, (SP), #0, #296, GLOBALS
+	MOVAB   8(R6), R0				   ;Q, R0
+	MOVL    R0, 8(R6)				   ;R0, Q
+	MOVL    R0, 12(R6)				   ;R0, Q+4
+	MOVAB   24(R6), R0				   ;Q, R0
+	MOVL    R0, 24(R6)				   ;R0, Q
+	MOVL    R0, 28(R6)				   ;R0, Q+4
+	MOVAB   16(R6), R0				   ;Q, R0
+	MOVL    R0, 16(R6)				   ;R0, Q
+	MOVL    R0, 20(R6)				   ;R0, Q+4
+	MOVAB   (R7), R0				   ;Q, R0
+	MOVL    R0, (R7)				   ;R0, Q
+	MOVL    R0, 4(R7)				   ;R0, Q+4
+	CALLS   #0, W^LOAD_CONFIG			   ;#0, LOAD_CONFIG
+	MOVL    R0, R4					   ;R0, STATUS
+	BLBS    R4, 1$					   ;STATUS, 1$
+	PUSHL   R4					   ;STATUS
+	CLRL    -(SP)					   ;-(SP)
+	PUSHL   #WATCHER__NOCFG				   ;#WATCHER__NOCFG
+	CALLS   #3, (R8)				   ;#3, LIB$STOP
+1$:	MOVAB   16(SP), R0				   ;SYILST, $$ITMBLKPTR
+	MOVL    #268435464, (R0)+			   ;#268435464, ($$ITMBLKPTR)+
+	MOVAB   8(SP), (R0)+				   ;VMSVER, ($$ITMBLKPTR)+
+	MOVAB   (SP), (R0)+				   ;VVLEN, ($$ITMBLKPTR)+
+	MOVL    #275185672, (R0)+			   ;#275185672, ($$ITMBLKPTR)+
+	MOVAB   (R6), (R0)+				   ;PGLOBALS+4, ($$ITMBLKPTR)+
+	MOVAB   4(SP), (R0)+				   ;TEMP, ($$ITMBLKPTR)+
+	CLRL    (R0)+					   ;($$ITMBLKPTR)+
+	CLRQ    -(SP)					   ;-(SP)
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  28(SP)					   ;SYILST
+	CLRQ    -(SP)					   ;-(SP)
+	CLRL    -(SP)					   ;-(SP)
+	CALLS   #7, G^SYS$GETSYIW			   ;#7, SYS$GETSYIW
+	TSTW    4(SP)					   ;TEMP
+	BEQL    3$					   ;3$
+	LOCC    #32, 4(SP), (R6)			   ;#32, TEMP, PGLOBALS+4
+	BNEQ    2$					   ;2$
+	CLRL    R1					   ;R1
+2$:	TSTL    R1					   ;CP
+	BEQL    3$					   ;3$
+	MOVAB   (R6), R0				   ;PGLOBALS+4, R0
+	SUBW3   R0, R1, 4(SP)				   ;R0, CP, TEMP
+3$:	MOVW    4(SP), -2(R6)				   ;TEMP, PGLOBALS+2
+	CLRL    R3					   ;R3
+	TSTW    (SP)					   ;VVLEN
+	BEQL    7$					   ;7$
+	INCL    R3					   ;R3
+	CLRL    R2					   ;R2
+	CMPB    9(SP), #53				   ;VMSVER+1, #53
+	BLEQU   4$					   ;4$
+	INCL    R2					   ;R2
+4$:	CLRL    R1					   ;R1
+	CMPB    9(SP), #53				   ;VMSVER+1, #53
+	BNEQ    5$					   ;5$
+	INCL    R1					   ;R1
+5$:	CLRL    R0					   ;R0
+	CMPB    11(SP), #50				   ;VMSVER+3, #50
+	BLSSU   6$					   ;6$
+	INCL    R0					   ;R0
+6$:	MCOML   R1, R5					   ;R1, R5
+	BICL2   R5, R0					   ;R5, R0
+	BISL2   R2, R0					   ;R2, R0
+	BRB     8$					   ;8$
+7$:	CLRL    R0					   ;R0
+8$:	INSV    R0, #0, #1, -4(R6)			   ;R0, #0, #1, PGLOBALS
+	BLBC    R3, 12$					   ;R3, 12$
+	CLRL    R2					   ;R2
+	CMPB    9(SP), #53				   ;VMSVER+1, #53
+	BLEQU   9$					   ;9$
+	INCL    R2					   ;R2
+9$:	CLRL    R1					   ;R1
+	CMPB    9(SP), #53				   ;VMSVER+1, #53
+	BNEQ    10$					   ;10$
+	INCL    R1					   ;R1
+10$:	CLRL    R0					   ;R0
+	CMPB    11(SP), #52				   ;VMSVER+3, #52
+	BLSSU   11$					   ;11$
+	INCL    R0					   ;R0
+11$:	MCOML   R1, R3					   ;R1, R3
+	BICL2   R3, R0					   ;R3, R0
+	BISL2   R2, R0					   ;R2, R0
+	BRB     13$					   ;13$
+12$:	CLRL    R0					   ;R0
+13$:	INSV    R0, #1, #1, -4(R6)			   ;R0, #1, #1, PGLOBALS
+	CALLS   #0, W^INIT_LOG				   ;#0, INIT_LOG
+	PUSHAB  W^P.ABZ					   ;P.ABZ
+	CALLS   #1, W^LOG_PUT_OUTPUT			   ;#1, LOG_PUT_OUTPUT
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ACB					   ;P.ACB
+	CLRL    -(SP)					   ;-(SP)
+	MOVZWL  #65280, -(SP)				   ;#65280, -(SP)
+	CLRQ    -(SP)					   ;-(SP)
+	PUSHAB  16(R7)					   ;MBXCHN
+	PUSHL   #1					   ;#1
+	CALLS   #8, G^SYS$CREMBX			   ;#8, SYS$CREMBX
+	MOVL    R0, R4					   ;R0, STATUS
+	BLBS    R4, 14$					   ;STATUS, 14$
+	PUSHL   R4					   ;STATUS
+	CALLS   #1, (R8)				   ;#1, LIB$STOP
+14$:	PUSHAB  20(R7)					   ;MBXEFN
+	CALLS   #1, G^LIB$GET_EF			   ;#1, LIB$GET_EF
+	CLRQ    -(SP)					   ;-(SP)
+	CLRQ    -(SP)					   ;-(SP)
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^U.10					   ;U.10
+	CLRQ    -(SP)					   ;-(SP)
+	PUSHAB  76(SP)					   ;IOSB
+	MOVZWL  #291, -(SP)				   ;#291, -(SP)
+	MOVZWL  16(R7), -(SP)				   ;MBXCHN, -(SP)
+	PUSHL   20(R7)					   ;MBXEFN
+	CALLS   #12, G^SYS$QIOW				   ;#12, SYS$QIOW
+	MOVL    R0, R4					   ;R0, STATUS
+	PUSHAB  32(R7)					   ;EXHBLK
+	CALLS   #1, G^SYS$DCLEXH			   ;#1, SYS$DCLEXH
+	RET     					   ;
+
+; Routine Size:  404 bytes,    Routine Base:  $CODE$ + 06EF
+
+
+
+
+
+	.PSECT  $PLIT$,NOWRT,NOEXE,2
+
+P.ACE:	.ASCII  \  -- Searching !AS list...\<0><0>	   ;
+P.ACD:	.LONG   17694746				   ;
+	.ADDRESS P.ACE					   ;
+P.ACG:	.ASCII  \override\				   ;
+P.ACF:	.LONG   17694728				   ;
+	.ADDRESS P.ACG					   ;
+P.ACI:	.ASCII  \exclude\<0>				   ;
+P.ACH:	.LONG   17694727				   ;
+	.ADDRESS P.ACI					   ;
+P.ACK:	.ASCII  \    -- Username: exclude=!AS, process=!AS\<0><0><0>
+							   ;
+P.ACJ:	.LONG   17694761				   ;
+	.ADDRESS P.ACK					   ;
+;WILDUIC
+U.47:	.LONG   -1					   ;
+P.ACM:	.ASCII  \    -- UIC: exclude=!%U, process=!%U\	   ;
+P.ACL:	.LONG   17694756				   ;
+	.ADDRESS P.ACM					   ;
+P.ACO:	.ASCII  \    -- Privs: exclude=!XL !XL, process=!XL !XL\<0><0>
+							   ;
+P.ACN:	.LONG   17694766				   ;
+	.ADDRESS P.ACO					   ;
+P.ACQ:	.ASCII  \    -- Terminal: exclude=!AS, process=!AS\<0><0><0>
+							   ;
+P.ACP:	.LONG   17694761				   ;
+	.ADDRESS P.ACQ					   ;
+P.ACS:	.ASCII  \    -- AccPor: exclude=!AS, process=!AS\<0>
+							   ;
+P.ACR:	.LONG   17694759				   ;
+	.ADDRESS P.ACS					   ;
+P.ACU:	.ASCII  \    -- Image: exclude=!AS, process=!AS\<0><0>
+							   ;
+P.ACT:	.LONG   17694758				   ;
+	.ADDRESS P.ACU					   ;
+P.ACW:	.ASCII  \    -- Comparing identifier lists...\	   ;
+P.ACV:	.LONG   17694756				   ;
+	.ADDRESS P.ACW					   ;
+P.ACY:	.ASCII  \      -- Found a match: !%I\<0>	   ;
+P.ACX:	.LONG   17694747				   ;
+	.ADDRESS P.ACY					   ;
+P.ADA:	.ASCII  \      -- Did not find a match.\<0><0>	   ;
+P.ACZ:	.LONG   17694750				   ;
+	.ADDRESS P.ADA					   ;
+P.ADC:	.ASCII  \    -- Day/time matrix: DOW=!UL, Hour=!UL, match=!UL\
+							   ;
+P.ADB:	.LONG   17694772				   ;
+	.ADDRESS P.ADC					   ;
+P.ADE:	.ASCII  \    -- Exhausted list: no match.\	   ;
+P.ADD:	.LONG   17694752				   ;
+	.ADDRESS P.ADE					   ;
+
+	.EXTRN  SYS$NUMTIM
+
+	.PSECT  $CODE$,NOWRT,2
+
+;EXCLOVER
+U.4:	.WORD   ^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>	   ;Save R2,R3,R4,R5,R6,R7,R8,R9,R10,R11
+	MOVAB   G^LIB$SYS_FAO, R11			   ;LIB$SYS_FAO, R11
+	MOVAB   W^GLOBALS+16, R10			   ;GLOBALS+16, R10
+	SUBL2   #44, SP					   ;#44, SP
+	MOVL    4(AP), R5				   ;PRC_A, R5
+	MOVAB   308(R10), R0				   ;OVRQUE, R0
+	CLRL    R1					   ;R1
+	CMPL    8(AP), R0				   ;QUE_A, R0
+	BNEQ    1$					   ;1$
+	INCL    R1					   ;R1
+	MOVL    #4, R9					   ;#4, TRCMSK
+	BRB     2$					   ;2$
+1$:	MOVL    #2, R9					   ;#2, TRCMSK
+2$:	BBC     #4, (R10), 5$				   ;#4, GLOBALS+16, 5$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    5$					   ;5$
+	MOVL    #34471936, 4(SP)			   ;#34471936, _D
+	CLRL    8(SP)					   ;_D+4
+	BLBC    R1, 3$					   ;R1, 3$
+	MOVAB   W^P.ACF, R0				   ;P.ACF, R0
+	BRB     4$					   ;4$
+3$:	MOVAB   W^P.ACH, R0				   ;P.ACH, R0
+4$:	PUSHL   R0					   ;R0
+	PUSHAB  8(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ACD					   ;P.ACD
+	CALLS   #4, (R11)				   ;#4, LIB$SYS_FAO
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+5$:	PUSHAB  W^U.18					   ;U.18
+	PUSHAB  16(SP)					   ;NTIME
+	CALLS   #2, G^SYS$NUMTIM			   ;#2, SYS$NUMTIM
+	PUSHL   SP					   ;SP
+	PUSHAB  W^U.18					   ;U.18
+	CALLS   #2, G^LIB$DAY_OF_WEEK			   ;#2, LIB$DAY_OF_WEEK
+	MOVW    #270, 38(SP)				   ;#270, S1+2
+	MOVW    #270, 30(SP)				   ;#270, S2+2
+	MOVL    @8(AP), R2				   ;@QUE_A, E
+6$:	CMPL    R2, 8(AP)				   ;E, QUE_A
+	BNEQ    7$					   ;7$
+	BRW     42$					   ;42$
+7$:	MOVAB   86(R2), 32(SP)				   ;86(R2), S2+4
+	MOVW    84(R2), 28(SP)				   ;84(E), S2
+	MOVAB   176(R5), 40(SP)				   ;176(R5), S1+4
+	MOVW    174(R5), 36(SP)				   ;174(R5), S1
+	BBC     #4, (R10), 8$				   ;#4, GLOBALS+16, 8$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    8$					   ;8$
+	MOVL    #34471936, 4(SP)			   ;#34471936, _D
+	CLRL    8(SP)					   ;_D+4
+	PUSHAB  36(SP)					   ;S1
+	PUSHAB  32(SP)					   ;S2
+	PUSHAB  12(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ACJ					   ;P.ACJ
+	CALLS   #5, (R11)				   ;#5, LIB$SYS_FAO
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+8$:	PUSHAB  28(SP)					   ;S2
+	PUSHAB  40(SP)					   ;S1
+	CALLS   #2, G^STR$MATCH_WILD			   ;#2, STR$MATCH_WILD
+	CLRL    R1					   ;R1
+	CMPL    R0, #STR$_MATCH				   ;R0, #STR$_MATCH
+	BNEQ    9$					   ;9$
+	INCL    R1					   ;R1
+9$:	MOVL    R1, R6					   ;R1, MATCH
+	BLBS    R6, 10$					   ;MATCH, 10$
+	BRW     41$					   ;41$
+10$:	BBC     #4, (R10), 11$				   ;#4, GLOBALS+16, 11$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    11$					   ;11$
+	MOVL    #34471936, 4(SP)			   ;#34471936, _D
+	CLRL    8(SP)					   ;_D+4
+	PUSHL   32(R5)					   ;32(R5)
+	PUSHL   32(R2)					   ;32(E)
+	PUSHAB  12(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ACL					   ;P.ACL
+	CALLS   #5, (R11)				   ;#5, LIB$SYS_FAO
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+11$:	CLRL    R0					   ;R0
+	XORW3   34(R2), W^U.47+2, R1			   ;34(E), U.47+2, R1
+	BITW    R1, #16383				   ;R1, #16383
+	BNEQ    12$					   ;12$
+	INCL    R0					   ;R0
+12$:	CLRL    R1					   ;R1
+	XORW3   34(R2), 34(R5), R3			   ;34(E), 34(R5), R3
+	BITW    R3, #16383				   ;R3, #16383
+	BNEQ    13$					   ;13$
+	INCL    R1					   ;R1
+13$:	BISL2   R0, R1					   ;R0, R1
+	CLRL    R3					   ;R3
+	CMPW    32(R2), W^U.47				   ;32(E), U.47
+	BNEQ    14$					   ;14$
+	INCL    R3					   ;R3
+14$:	CLRL    R0					   ;R0
+	CMPW    32(R2), 32(R5)				   ;32(E), 32(R5)
+	BNEQ    15$					   ;15$
+	INCL    R0					   ;R0
+15$:	BISL2   R3, R0					   ;R3, R0
+	MCOML   R1, R6					   ;R1, MATCH
+	BICL3   R6, R0, R6				   ;MATCH, R0, MATCH
+	BLBC    R6, 19$					   ;MATCH, 19$
+	MOVAB   24(R5), R4				   ;24(R5), R4
+	MOVAB   8(R2), R3				   ;8(E), R3
+	BBC     #4, (R10), 16$				   ;#4, GLOBALS+16, 16$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    16$					   ;16$
+	MOVL    #34471936, 4(SP)			   ;#34471936, _D
+	CLRL    8(SP)					   ;_D+4
+	PUSHL   (R4)					   ;(R4)
+	PUSHL   4(R4)					   ;4(R4)
+	PUSHL   (R3)					   ;(R3)
+	PUSHL   4(R3)					   ;4(R3)
+	PUSHAB  20(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ACN					   ;P.ACN
+	CALLS   #7, (R11)				   ;#7, LIB$SYS_FAO
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+16$:	MCOML   (R3), R0				   ;(R3), R0
+	BICL3   R0, (R4), R0				   ;R0, (R4), R0
+	CLRL    R1					   ;R1
+	CMPL    R0, (R3)				   ;R0, (R3)
+	BNEQ    17$					   ;17$
+	INCL    R1					   ;R1
+17$:	MCOML   4(R3), R0				   ;4(R3), R0
+	BICL3   R0, 4(R4), R4				   ;R0, 4(R4), R4
+	CLRL    R0					   ;R0
+	CMPL    R4, 4(R3)				   ;R4, 4(R3)
+	BNEQ    18$					   ;18$
+	INCL    R0					   ;R0
+18$:	MCOML   R1, R6					   ;R1, MATCH
+	BICL3   R6, R0, R6				   ;MATCH, R0, MATCH
+19$:	BLBC    R6, 22$					   ;MATCH, 22$
+	MOVAB   120(R2), 32(SP)				   ;120(R2), S2+4
+	MOVW    118(R2), 28(SP)				   ;118(E), S2
+	MOVAB   44(R5), 40(SP)				   ;44(R5), S1+4
+	MOVW    42(R5), 36(SP)				   ;42(R5), S1
+	BBC     #4, (R10), 20$				   ;#4, GLOBALS+16, 20$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    20$					   ;20$
+	MOVL    #34471936, 4(SP)			   ;#34471936, _D
+	CLRL    8(SP)					   ;_D+4
+	PUSHAB  36(SP)					   ;S1
+	PUSHAB  32(SP)					   ;S2
+	PUSHAB  12(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ACP					   ;P.ACP
+	CALLS   #5, (R11)				   ;#5, LIB$SYS_FAO
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+20$:	PUSHAB  28(SP)					   ;S2
+	PUSHAB  40(SP)					   ;S1
+	CALLS   #2, G^STR$MATCH_WILD			   ;#2, STR$MATCH_WILD
+	CLRL    R1					   ;R1
+	CMPL    R0, #STR$_MATCH				   ;R0, #STR$_MATCH
+	BNEQ    21$					   ;21$
+	INCL    R1					   ;R1
+21$:	MOVL    R1, R6					   ;R1, MATCH
+22$:	BLBC    R6, 25$					   ;MATCH, 25$
+	MOVAB   186(R2), 32(SP)				   ;186(R2), S2+4
+	MOVW    184(R2), 28(SP)				   ;184(E), S2
+	MOVAB   110(R5), 40(SP)				   ;110(R5), S1+4
+	MOVW    108(R5), 36(SP)				   ;108(R5), S1
+	BBC     #4, (R10), 23$				   ;#4, GLOBALS+16, 23$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    23$					   ;23$
+	MOVL    #34471936, 4(SP)			   ;#34471936, _D
+	CLRL    8(SP)					   ;_D+4
+	PUSHAB  36(SP)					   ;S1
+	PUSHAB  32(SP)					   ;S2
+	PUSHAB  12(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ACR					   ;P.ACR
+	CALLS   #5, (R11)				   ;#5, LIB$SYS_FAO
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+23$:	PUSHAB  28(SP)					   ;S2
+	PUSHAB  40(SP)					   ;S1
+	CALLS   #2, G^STR$MATCH_WILD			   ;#2, STR$MATCH_WILD
+	CLRL    R1					   ;R1
+	CMPL    R0, #STR$_MATCH				   ;R0, #STR$_MATCH
+	BNEQ    24$					   ;24$
+	INCL    R1					   ;R1
+24$:	MOVL    R1, R6					   ;R1, MATCH
+25$:	BLBC    R6, 28$					   ;MATCH, 28$
+	MOVAB   252(R2), 32(SP)				   ;252(R2), S2+4
+	MOVW    250(R2), 28(SP)				   ;250(E), S2
+	MOVAB   210(R5), 40(SP)				   ;210(R5), S1+4
+	MOVW    208(R5), 36(SP)				   ;208(R5), S1
+	BBC     #4, (R10), 26$				   ;#4, GLOBALS+16, 26$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    26$					   ;26$
+	MOVL    #34471936, 4(SP)			   ;#34471936, _D
+	CLRL    8(SP)					   ;_D+4
+	PUSHAB  36(SP)					   ;S1
+	PUSHAB  32(SP)					   ;S2
+	PUSHAB  12(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ACT					   ;P.ACT
+	CALLS   #5, (R11)				   ;#5, LIB$SYS_FAO
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+26$:	PUSHAB  28(SP)					   ;S2
+	PUSHAB  40(SP)					   ;S1
+	CALLS   #2, G^STR$MATCH_WILD			   ;#2, STR$MATCH_WILD
+	CLRL    R1					   ;R1
+	CMPL    R0, #STR$_MATCH				   ;R0, #STR$_MATCH
+	BNEQ    27$					   ;27$
+	INCL    R1					   ;R1
+27$:	MOVL    R1, R6					   ;R1, MATCH
+28$:	BLBS    R6, 29$					   ;MATCH, 29$
+	BRW     41$					   ;41$
+29$:	BBS     #3, (R10), 31$				   ;#3, GLOBALS+16, 31$
+30$:	BRW     38$					   ;38$
+31$:	TSTL    36(R2)					   ;36(E)
+	BEQL    30$					   ;30$
+	BBC     #4, (R10), 32$				   ;#4, GLOBALS+16, 32$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    32$					   ;32$
+	PUSHAB  W^P.ACV					   ;P.ACV
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+32$:	CLRL    R7					   ;M
+	MOVL    36(R5), R4				   ;36(R5), ID
+33$:	BEQL    37$					   ;37$
+	MOVAB   8(R4), R8				   ;8(ID), R8
+	MNEGL   #1, R3					   ;#1, I
+	BRB     35$					   ;35$
+34$:	CMPL    (R8)[R3], 36(R2)			   ;(R8)[I], 36(E)
+	BNEQ    35$					   ;35$
+	MOVL    #1, R7					   ;#1, M
+	BBC     #4, (R10), 36$				   ;#4, GLOBALS+16, 36$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    36$					   ;36$
+	MOVL    #34471936, 4(SP)			   ;#34471936, _D
+	CLRL    8(SP)					   ;_D+4
+	PUSHL   (R8)[R3]				   ;(R8)[I]
+	PUSHAB  8(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ACX					   ;P.ACX
+	CALLS   #4, (R11)				   ;#4, LIB$SYS_FAO
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+	BRB     36$					   ;36$
+35$:	AOBLSS  4(R4), R3, 34$				   ;4(ID), I, 34$
+36$:	BLBS    R7, 37$					   ;M, 37$
+	MOVL    (R4), R4				   ;(ID), ID
+	BRB     33$					   ;33$
+37$:	MOVL    R7, R6					   ;M, MATCH
+	BLBS    R7, 38$					   ;M, 38$
+	BBC     #4, (R10), 38$				   ;#4, GLOBALS+16, 38$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    38$					   ;38$
+	PUSHAB  W^P.ACZ					   ;P.ACZ
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+38$:	BLBC    R6, 41$					   ;MATCH, 41$
+	BBC     #4, (R10), 39$				   ;#4, GLOBALS+16, 39$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    39$					   ;39$
+	MOVL    #34471936, 4(SP)			   ;#34471936, _D
+	CLRL    8(SP)					   ;_D+4
+	MOVL    (SP), R0				   ;DOW, R0
+	MOVZWL  18(SP), R1				   ;NTIME+6, R1
+	PUSHAL  52(R2)[R0]				   ;52(E)[R0]
+	EXTZV   R1, #1, @(SP)+, -(SP)			   ;R1, #1, @(SP)+, -(SP)
+	MOVZWL  22(SP), -(SP)				   ;NTIME+6, -(SP)
+	PUSHL   8(SP)					   ;DOW
+	PUSHAB  16(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ADB					   ;P.ADB
+	CALLS   #6, (R11)				   ;#6, LIB$SYS_FAO
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+	PUSHAB  4(SP)					   ;_TRCFAO
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+39$:	MOVL    (SP), R0				   ;DOW, R0
+	MOVZWL  18(SP), R1				   ;NTIME+6, R1
+	PUSHAL  52(R2)[R0]				   ;52(E)[R0]
+	BBC     R1, @(SP)+, 41$				   ;R1, @(SP)+, 41$
+	CMPB    (AP), #2				   ;(AP), #2
+	BLEQU   40$					   ;40$
+	MOVL    R2, @12(AP)				   ;E, @REC_A_A
+40$:	MOVL    #1, R0					   ;#1, R0
+	RET     					   ;
+41$:	MOVL    (R2), R2				   ;(E), E
+	BRW     6$					   ;6$
+42$:	BBC     #4, (R10), 43$				   ;#4, GLOBALS+16, 43$
+	BITL    4(R10), R9				   ;GLOBALS+20, TRCMSK
+	BEQL    43$					   ;43$
+	PUSHAB  W^P.ADD					   ;P.ADD
+	CALLS   #1, W^TRACE_PUT_OUTPUT			   ;#1, TRACE_PUT_OUTPUT
+43$:	CLRL    R0					   ;R0
+	RET     					   ;
+
+; Routine Size:  1144 bytes,    Routine Base:  $CODE$ + 0883
+
+
+
+
+
+
+
+;ON_COUNT_LIST
+U.5:	.WORD   ^M<R2,R3,R4,R5>				   ;Save R2,R3,R4,R5
+	MOVL    4(AP), R5				   ;PRC_A, R5
+	MOVL    W^U.17, R4				   ;U.17, C
+1$:	MOVAB   W^U.17, R0				   ;U.17, R0
+	CMPL    R4, R0					   ;C, R0
+	BEQL    3$					   ;3$
+	CMPL    8(R5), 40(R4)				   ;8(R5), 40(C)
+	BNEQ    2$					   ;2$
+	CMPC5   42(R5), 44(R5), #32, 78(R4), 80(R4)	   ;42(R5), 44(R5), #32, 78(C), 80(C)
+	BNEQ    2$					   ;2$
+	CMPC5   108(R5), 110(R5), #32, 144(R4), 146(R4)    ;108(R5), 110(R5), #32, 144(C), 146(C)
+	BNEQ    2$					   ;2$
+	CMPC5   174(R5), 176(R5), #0, 210(R4), 212(R4)	   ;174(R5), 176(R5), #0, 210(C), 212(C)
+	BNEQ    2$					   ;2$
+	MOVL    R4, @8(AP)				   ;C, @CTR_A_A
+	MOVL    #1, R0					   ;#1, R0
+	RET     					   ;
+2$:	MOVL    (R4), R4				   ;(C), C
+	BRB     1$					   ;1$
+3$:	CLRL    R0					   ;R0
+	RET     					   ;
+
+; Routine Size:  86 bytes,    Routine Base:  $CODE$ + 0CFB
+
+
+
+
+
+
+
+;WATCHING
+U.6:	.WORD   ^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>	   ;Save R2,R3,R4,R5,R6,R7,R8,R9,R10,R11
+	SUBL2   #32, SP					   ;#32, SP
+	MOVL    4(AP), R8				   ;PRC_A, R8
+	MOVL    8(AP), 8(SP)				   ;CTR_A_A, 8(SP)
+	MOVW    #270, 26(SP)				   ;#270, S1+2
+	MOVW    #270, 18(SP)				   ;#270, S2+2
+	MOVL    W^TRMQUE, R9				   ;TRMQUE, TRM
+1$:	MOVAB   W^TRMQUE, R0				   ;TRMQUE, R0
+	CMPL    R9, R0					   ;TRM, R0
+	BNEQ    2$					   ;2$
+	BRW     13$					   ;13$
+2$:	MOVAB   42(R9), 20(SP)				   ;42(R9), S2+4
+	MOVW    40(R9), 16(SP)				   ;40(TRM), S2
+	MOVAB   44(R8), 28(SP)				   ;44(R8), S1+4
+	MOVW    42(R8), 24(SP)				   ;42(R8), S1
+	PUSHAB  16(SP)					   ;S2
+	PUSHAB  28(SP)					   ;S1
+	CALLS   #2, G^STR$MATCH_WILD			   ;#2, STR$MATCH_WILD
+	CMPL    R0, #STR$_MATCH				   ;R0, #STR$_MATCH
+	BNEQ    3$					   ;3$
+	MOVAB   108(R9), 20(SP)				   ;108(R9), S2+4
+	MOVW    106(R9), 16(SP)				   ;106(TRM), S2
+	MOVAB   110(R8), 28(SP)				   ;110(R8), S1+4
+	MOVW    108(R8), 24(SP)				   ;108(R8), S1
+	PUSHAB  16(SP)					   ;S2
+	PUSHAB  28(SP)					   ;S1
+	CALLS   #2, G^STR$MATCH_WILD			   ;#2, STR$MATCH_WILD
+	CMPL    R0, #STR$_MATCH				   ;R0, #STR$_MATCH
+3$:	BEQL    4$					   ;4$
+	BRW     12$					   ;12$
+4$:	PUSHL   8(SP)					   ;8(SP)
+	MOVZWL  #535, 8(SP)				   ;#535, 8(SP)
+	PUSHAB  8(SP)					   ;8(SP)
+	CALLS   #2, G^LIB$GET_VM			   ;#2, LIB$GET_VM
+	MOVL    @8(SP), R6				   ;@8(SP), R6
+	MOVC5   #0, (SP), #0, #535, (R6)		   ;#0, (SP), #0, #535, (R6)
+	MOVL    8(R8), 40(R6)				   ;8(R8), 40(R6)
+	MOVAB   77(R6), 4(SP)				   ;77(R6), 4(SP)
+	EXTZV   #1, #1, 40(R8), R0			   ;#1, #1, 40(R8), R0
+	INSV    R0, #3, #1, @4(SP)			   ;R0, #3, #1, @4(SP)
+	INSV    40(R8), #2, #1, @4(SP)			   ;40(R8), #2, #1, @4(SP)
+	MOVW    174(R8), 210(R6)			   ;174(R8), 210(R6)
+	MOVC3   210(R6), 176(R8), 212(R6)		   ;210(R6), 176(R8), 212(R6)
+	MOVW    42(R8), 78(R6)				   ;42(R8), 78(R6)
+	MOVC3   78(R6), 44(R8), 80(R6)			   ;78(R6), 44(R8), 80(R6)
+	MOVW    108(R8), 144(R6)			   ;108(R8), 144(R6)
+	MOVC3   144(R6), 110(R8), 146(R6)		   ;144(R6), 110(R8), 146(R6)
+	MOVAB   278(R6), (SP)				   ;278(R6), (SP)
+	MOVW    208(R8), @0(SP)				   ;208(R8), @0(SP)
+	MOVC3   @0(SP), 210(R8), 280(R6)		   ;@0(SP), 210(R8), 280(R6)
+	BBC     #2, @4(SP), 6$				   ;#2, @4(SP), 6$
+	MOVZWL  42(R8), R0				   ;42(R8), R0
+	CMPW    R0, #32					   ;R0, #32
+	BLEQU   5$					   ;5$
+	MOVL    #32, R0					   ;#32, R0
+5$:	MOVW    R0, 244(R6)				   ;R0, 244(R6)
+	MOVC3   244(R6), 44(R8), 246(R6)		   ;244(R6), 44(R8), 246(R6)
+	BRB     7$					   ;7$
+6$:	MOVW    172(R9), 244(R6)			   ;172(TRM), 244(R6)
+	MOVC3   244(R6), 174(R9), 246(R6)		   ;244(R6), 174(TRM), 246(R6)
+7$:	MOVL    R9, 68(R6)				   ;TRM, 68(R6)
+	MOVAB   76(R6), R11				   ;76(R6), R11
+	MOVAB   24(R9), R0				   ;24(TRM), R0
+	INSV    (R0), #3, #1, (R11)			   ;(R0), #3, #1, (R11)
+	EXTZV   #1, #1, (R0), R1			   ;#1, #1, (R0), R1
+	INSV    R1, #4, #1, (R11)			   ;R1, #4, #1, (R11)
+	EXTZV   #2, #1, (R0), R1			   ;#2, #1, (R0), R1
+	INSV    R1, #5, #1, (R11)			   ;R1, #5, #1, (R11)
+	EXTZV   #3, #1, (R0), R1			   ;#3, #1, (R0), R1
+	INSV    R1, #6, #1, (R11)			   ;R1, #6, #1, (R11)
+	EXTZV   #4, #1, (R0), R1			   ;#4, #1, (R0), R1
+	INSV    R1, #7, #1, (R11)			   ;R1, #7, #1, (R11)
+	EXTZV   #5, #1, (R0), R1			   ;#5, #1, (R0), R1
+	INSV    R1, #0, #1, @4(SP)			   ;R1, #0, #1, @4(SP)
+	EXTZV   #6, #1, (R0), R1			   ;#6, #1, (R0), R1
+	INSV    R1, #1, #1, @4(SP)			   ;R1, #1, #1, @4(SP)
+	MOVL    28(R9), 48(R6)				   ;28(TRM), 48(R6)
+	MOVL    32(R9), 56(R6)				   ;32(TRM), 56(R6)
+	MOVL    36(R9), 64(R6)				   ;36(TRM), 64(R6)
+	MOVC3   #8, 8(R9), 16(R6)			   ;#8, 8(TRM), 16(R6)
+	MOVC3   #8, 16(R9), 32(R6)			   ;#8, 16(TRM), 32(R6)
+	PUSHAB  12(SP)					   ;OVR
+	PUSHAB  W^OVRQUE				   ;OVRQUE
+	PUSHL   R8					   ;R8
+	CALLS   #3, W^U.4				   ;#3, U.4
+	BLBC    R0, 10$					   ;R0, 10$
+	MOVL    12(SP), R7				   ;OVR, R7
+	MOVL    R7, 72(R6)				   ;R7, 72(R6)
+	MOVAB   40(R7), R10				   ;40(R7), R10
+	BLBC    (R10), 8$				   ;(R10), 8$
+	EXTZV   #1, #1, (R10), R0			   ;#1, #1, (R10), R0
+	INSV    R0, #3, #1, (R11)			   ;R0, #3, #1, (R11)
+	EXTZV   #2, #1, (R10), R0			   ;#2, #1, (R10), R0
+	INSV    R0, #4, #1, (R11)			   ;R0, #4, #1, (R11)
+	EXTZV   #3, #1, (R10), R0			   ;#3, #1, (R10), R0
+	INSV    R0, #5, #1, (R11)			   ;R0, #5, #1, (R11)
+	MOVL    44(R7), 48(R6)				   ;44(R7), 48(R6)
+	MOVL    48(R7), 56(R6)				   ;48(R7), 56(R6)
+	MOVL    52(R7), 64(R6)				   ;52(R7), 64(R6)
+8$:	BBC     #4, (R10), 9$				   ;#4, (R10), 9$
+	EXTZV   #5, #1, (R10), R0			   ;#5, #1, (R10), R0
+	INSV    R0, #7, #1, (R11)			   ;R0, #7, #1, (R11)
+	MOVC3   #8, 16(R7), 16(R6)			   ;#8, 16(R7), 16(R6)
+9$:	BBC     #6, (R10), 10$				   ;#6, (R10), 10$
+	EXTZV   #7, #1, (R10), R0			   ;#7, #1, (R10), R0
+	INSV    R0, #0, #1, @4(SP)			   ;R0, #0, #1, @4(SP)
+	INSV    41(R7), #6, #1, (R11)			   ;41(R7), #6, #1, (R11)
+	EXTZV   #1, #1, 41(R7), R0			   ;#1, #1, 41(R7), R0
+	INSV    R0, #1, #1, @4(SP)			   ;R0, #1, #1, @4(SP)
+	MOVC3   #8, 24(R7), 32(R6)			   ;#8, 24(R7), 32(R6)
+10$:	BBC     #1, @4(SP), 11$				   ;#1, @4(SP), 11$
+	TSTW    @0(SP)					   ;@0(SP)
+	BEQL    13$					   ;13$
+11$:	INSQUE  (R6), @W^U.17+4				   ;(R6), @U.17+4
+	MOVL    #1, R0					   ;#1, R0
+	RET     					   ;
+12$:	MOVL    (R9), R9				   ;(TRM), TRM
+	BRW     1$					   ;1$
+13$:	CLRL    R0					   ;R0
+	RET     					   ;
+
+; Routine Size:  575 bytes,    Routine Base:  $CODE$ + 0D51
+
+
+
+
+
+	.PSECT  $PLIT$,NOWRT,NOEXE,2
+
+P.ADG:	.ASCII  \  -- "Fake" process: skip warn/logout check.\
+							   ;
+P.ADF:	.LONG   17694764				   ;
+	.ADDRESS P.ADG					   ;
+P.ADI:	.ASCII  \  -- CPU time changed: was !UL, now !UL\<0>
+							   ;
+P.ADH:	.LONG   17694759				   ;
+	.ADDRESS P.ADI					   ;
+P.ADK:	.ASCII  \  -- TIO count changed: was !UL, now !UL\ ;
+P.ADJ:	.LONG   17694760				   ;
+	.ADDRESS P.ADK					   ;
+P.ADM:	.ASCII  \  -- PIO count changed: was !UL, now !UL\ ;
+P.ADL:	.LONG   17694760				   ;
+	.ADDRESS P.ADM					   ;
+P.ADO:	.ASCII  \  -- No change measurements; treat as changed.\<0><0>
+							   ;
+P.ADN:	.LONG   17694766				   ;
+	.ADDRESS P.ADO					   ;
+
+
+
+	.PSECT  $CODE$,NOWRT,2
+
+;CHANGED
+U.7:	.WORD   ^M<R2,R3,R4,R5,R6,R7,R8>		   ;Save R2,R3,R4,R5,R6,R7,R8
+	MOVAB   W^TRACE_PUT_OUTPUT, R8			   ;TRACE_PUT_OUTPUT, R8
+	MOVAB   W^GLOBALS+16, R7			   ;GLOBALS+16, R7
+	SUBL2   #8, SP					   ;#8, SP
+	MOVL    4(AP), R3				   ;PRC_A, R3
+	MOVL    8(AP), R2				   ;CTR_A, R2
+	MOVAB   76(R2), R6				   ;76(R2), R6
+	BISB2   #1, (R6)				   ;#1, (R6)
+	BBC     #3, 77(R2), 2$				   ;#3, 77(R2), 2$
+	BBC     #4, (R7), 1$				   ;#4, GLOBALS+16, 1$
+	BBC     #3, 4(R7), 1$				   ;#3, GLOBALS+20, 1$
+	PUSHAB  W^P.ADF					   ;P.ADF
+	CALLS   #1, (R8)				   ;#1, TRACE_PUT_OUTPUT
+1$:	BISB2   #2, (R6)				   ;#2, (R6)
+	MOVL    #1, R0					   ;#1, R0
+	RET     					   ;
+2$:	SUBL3   44(R2), 20(R3), R1			   ;44(R2), 20(R3), R1
+	BGEQ    3$					   ;3$
+	MNEGL   R1, R1					   ;R1, R1
+3$:	CLRL    R0					   ;R0
+	CMPL    R1, 48(R2)				   ;R1, 48(R2)
+	BLEQ    4$					   ;4$
+	INCL    R0					   ;R0
+4$:	EXTZV   #3, #1, (R6), R4			   ;#3, #1, (R6), R4
+	MCOML   R4, R4					   ;R4, R4
+	BICB3   R4, R0, R4				   ;R4, R0, R4
+	INSV    R4, #1, #1, (R6)			   ;R4, #1, #1, (R6)
+	BBC     #1, (R6), 5$				   ;#1, (R6), 5$
+	BBC     #4, (R7), 8$				   ;#4, GLOBALS+16, 8$
+	BBC     #3, 4(R7), 9$				   ;#3, GLOBALS+20, 9$
+	MOVL    #34471936, (SP)				   ;#34471936, _D
+	CLRL    4(SP)					   ;_D+4
+	PUSHL   20(R3)					   ;20(R3)
+	PUSHL   44(R2)					   ;44(R2)
+	PUSHAB  8(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ADH					   ;P.ADH
+	BRB     10$					   ;10$
+5$:	SUBL3   60(R2), 16(R3), R1			   ;60(R2), 16(R3), R1
+	BGEQ    6$					   ;6$
+	MNEGL   R1, R1					   ;R1, R1
+6$:	CLRL    R0					   ;R0
+	CMPL    R1, 64(R2)				   ;R1, 64(R2)
+	BLEQ    7$					   ;7$
+	INCL    R0					   ;R0
+7$:	EXTZV   #5, #1, (R6), R4			   ;#5, #1, (R6), R4
+	MCOML   R4, R4					   ;R4, R4
+	BICB3   R4, R0, R4				   ;R4, R0, R4
+	INSV    R4, #1, #1, (R6)			   ;R4, #1, #1, (R6)
+	BBC     #1, (R6), 11$				   ;#1, (R6), 11$
+8$:	BBC     #4, (R7), 14$				   ;#4, GLOBALS+16, 14$
+9$:	BBC     #3, 4(R7), 16$				   ;#3, GLOBALS+20, 16$
+	MOVL    #34471936, (SP)				   ;#34471936, _D
+	CLRL    4(SP)					   ;_D+4
+	PUSHL   16(R3)					   ;16(R3)
+	PUSHL   60(R2)					   ;60(R2)
+	PUSHAB  8(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ADJ					   ;P.ADJ
+10$:	BRB     15$					   ;15$
+11$:	SUBL3   52(R2), 12(R3), R1			   ;52(R2), 12(R3), R1
+	BGEQ    12$					   ;12$
+	MNEGL   R1, R1					   ;R1, R1
+12$:	CLRL    R0					   ;R0
+	CMPL    R1, 56(R2)				   ;R1, 56(R2)
+	BLEQ    13$					   ;13$
+	INCL    R0					   ;R0
+13$:	EXTZV   #4, #1, (R6), R4			   ;#4, #1, (R6), R4
+	MCOML   R4, R4					   ;R4, R4
+	BICB3   R4, R0, R4				   ;R4, R0, R4
+	INSV    R4, #1, #1, (R6)			   ;R4, #1, #1, (R6)
+	BBC     #1, (R6), 17$				   ;#1, (R6), 17$
+14$:	BBC     #4, (R7), 18$				   ;#4, GLOBALS+16, 18$
+	BBC     #3, 4(R7), 18$				   ;#3, GLOBALS+20, 18$
+	MOVL    #34471936, (SP)				   ;#34471936, _D
+	CLRL    4(SP)					   ;_D+4
+	PUSHL   12(R3)					   ;12(R3)
+	PUSHL   52(R2)					   ;52(R2)
+	PUSHAB  8(SP)					   ;_TRCFAO
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^P.ADL					   ;P.ADL
+15$:	CALLS   #5, G^LIB$SYS_FAO			   ;#5, LIB$SYS_FAO
+	PUSHL   SP					   ;SP
+	CALLS   #1, (R8)				   ;#1, TRACE_PUT_OUTPUT
+	PUSHL   SP					   ;SP
+	CALLS   #1, G^STR$FREE1_DX			   ;#1, STR$FREE1_DX
+16$:	BRB     18$					   ;18$
+17$:	EXTZV   #3, #1, (R6), R0			   ;#3, #1, (R6), R0
+	EXTZV   #4, #1, (R6), R1			   ;#4, #1, (R6), R1
+	BISL2   R1, R0					   ;R1, R0
+	EXTZV   #5, #1, (R6), R4			   ;#5, #1, (R6), R4
+	BISL2   R4, R0					   ;R4, R0
+	MCOML   R0, R1					   ;R0, R1
+	INSV    R1, #1, #1, (R6)			   ;R1, #1, #1, (R6)
+	BBC     #1, (R6), 19$				   ;#1, (R6), 19$
+	BBC     #4, (R7), 18$				   ;#4, GLOBALS+16, 18$
+	BBC     #3, 4(R7), 18$				   ;#3, GLOBALS+20, 18$
+	PUSHAB  W^P.ADN					   ;P.ADN
+	CALLS   #1, (R8)				   ;#1, TRACE_PUT_OUTPUT
+18$:	BBC     #1, (R6), 19$				   ;#1, (R6), 19$
+	PUSHAB  8(R2)					   ;8(R2)
+	CALLS   #1, G^SYS$GETTIM			   ;#1, SYS$GETTIM
+19$:	EXTZV   #2, #1, (R6), R0			   ;#2, #1, (R6), R0
+	EXTZV   #1, #1, (R6), R1			   ;#1, #1, (R6), R1
+	BICB2   R1, R0					   ;R1, R0
+	INSV    R0, #2, #1, (R6)			   ;R0, #2, #1, (R6)
+	MOVL    20(R3), 44(R2)				   ;20(R3), 44(R2)
+	MOVL    12(R3), 52(R2)				   ;12(R3), 52(R2)
+	MOVL    16(R3), 60(R2)				   ;16(R3), 60(R2)
+	MOVW    208(R3), 278(R2)			   ;208(R3), 278(R2)
+	MOVC3   278(R2), 210(R3), 280(R2)		   ;278(R2), 210(R3), 280(R2)
+	EXTZV   #1, #1, (R6), R0			   ;#1, #1, (R6), R0
+	RET     					   ;
+
+; Routine Size:  432 bytes,    Routine Base:  $CODE$ + 0F90
+
+
+
+
+
+
+
+;UPDATE_COUNTER_FOR_OVERRIDE
+U.8:	.WORD   ^M<R2,R3,R4,R5,R6,R7,R8,R9>		   ;Save R2,R3,R4,R5,R6,R7,R8,R9
+	MOVL    4(AP), R6				   ;CTR_A, R6
+	MOVL    8(AP), R8				   ;OVR_A, R8
+	MOVL    68(R6), R7				   ;68(R6), R7
+	MOVAB   76(R6), R9				   ;76(R6), R9
+	INSV    24(R7), #3, #1, (R9)			   ;24(R7), #3, #1, (R9)
+	MOVAB   24(R7), R0				   ;24(R7), R0
+	EXTZV   #1, #1, (R0), R1			   ;#1, #1, (R0), R1
+	INSV    R1, #4, #1, (R9)			   ;R1, #4, #1, (R9)
+	EXTZV   #2, #1, (R0), R1			   ;#2, #1, (R0), R1
+	INSV    R1, #5, #1, (R9)			   ;R1, #5, #1, (R9)
+	EXTZV   #3, #1, (R0), R1			   ;#3, #1, (R0), R1
+	INSV    R1, #6, #1, (R9)			   ;R1, #6, #1, (R9)
+	EXTZV   #4, #1, (R0), R1			   ;#4, #1, (R0), R1
+	INSV    R1, #7, #1, (R9)			   ;R1, #7, #1, (R9)
+	EXTZV   #5, #1, (R0), R1			   ;#5, #1, (R0), R1
+	INSV    R1, #0, #1, 77(R6)			   ;R1, #0, #1, 77(R6)
+	EXTZV   #6, #1, (R0), R1			   ;#6, #1, (R0), R1
+	INSV    R1, #1, #1, 77(R6)			   ;R1, #1, #1, 77(R6)
+	MOVL    28(R7), 48(R6)				   ;28(R7), 48(R6)
+	MOVL    32(R7), 56(R6)				   ;32(R7), 56(R6)
+	MOVL    36(R7), 64(R6)				   ;36(R7), 64(R6)
+	MOVC3   #8, 8(R7), 16(R6)			   ;#8, 8(R7), 16(R6)
+	MOVC3   #8, 16(R7), 32(R6)			   ;#8, 16(R7), 32(R6)
+	CLRL    72(R6)					   ;72(R6)
+	TSTL    R8					   ;R8
+	BEQL    3$					   ;3$
+	MOVL    R8, 72(R6)				   ;R8, 72(R6)
+	MOVAB   40(R8), R7				   ;40(R8), R7
+	BLBC    (R7), 1$				   ;(R7), 1$
+	EXTZV   #1, #1, (R7), R0			   ;#1, #1, (R7), R0
+	INSV    R0, #3, #1, (R9)			   ;R0, #3, #1, (R9)
+	EXTZV   #2, #1, (R7), R0			   ;#2, #1, (R7), R0
+	INSV    R0, #4, #1, (R9)			   ;R0, #4, #1, (R9)
+	EXTZV   #3, #1, (R7), R0			   ;#3, #1, (R7), R0
+	INSV    R0, #5, #1, (R9)			   ;R0, #5, #1, (R9)
+	MOVL    44(R8), 48(R6)				   ;44(R8), 48(R6)
+	MOVL    48(R8), 56(R6)				   ;48(R8), 56(R6)
+	MOVL    52(R8), 64(R6)				   ;52(R8), 64(R6)
+1$:	BBC     #4, (R7), 2$				   ;#4, (R7), 2$
+	EXTZV   #5, #1, (R7), R0			   ;#5, #1, (R7), R0
+	INSV    R0, #7, #1, (R9)			   ;R0, #7, #1, (R9)
+	MOVC3   #8, 16(R8), 16(R6)			   ;#8, 16(R8), 16(R6)
+2$:	BBC     #6, (R7), 3$				   ;#6, (R7), 3$
+	EXTZV   #7, #1, (R7), R0			   ;#7, #1, (R7), R0
+	INSV    R0, #0, #1, 77(R6)			   ;R0, #0, #1, 77(R6)
+	INSV    41(R8), #6, #1, (R9)			   ;41(R8), #6, #1, (R9)
+	EXTZV   #1, #1, 41(R8), R0			   ;#1, #1, 41(R8), R0
+	INSV    R0, #1, #1, 77(R6)			   ;R0, #1, #1, 77(R6)
+	MOVC3   #8, 24(R8), 32(R6)			   ;#8, 24(R8), 32(R6)
+3$:	CLRL    44(R6)					   ;44(R6)
+	CLRL    52(R6)					   ;52(R6)
+	CLRL    60(R6)					   ;60(R6)
+	CLRW    278(R6)					   ;278(R6)
+	BICB2   #4, (R9)				   ;#4, (R9)
+	RET     					   ;
+
+; Routine Size:  256 bytes,    Routine Base:  $CODE$ + 1140
+
+
+
+
+
+	.PSECT  $PLIT$,NOWRT,NOEXE,2
+
+P.ADQ:	.ASCII  \WATCHER resetting\<0><0><0>		   ;
+P.ADP:	.LONG   17694737				   ;
+	.ADDRESS P.ADQ					   ;
+P.ADS:	.ASCII  \WATCHER shutting down\<0><0><0>	   ;
+P.ADR:	.LONG   17694741				   ;
+	.ADDRESS P.ADS					   ;
+
+	.EXTRN  CLOSE_LOG, SYS$EXIT, SYS$SETAST
+
+	.PSECT  $CODE$,NOWRT,2
+
+U.9:
+	.ENTRY  CHECK_MBOX, ^M<R2,R3,R4,R5,R6,R7>	   ;CHECK_MBOX, Save R2,R3,R4,R5,R6,R7
+	MOVAB   G^SYS$SETAST, R7			   ;SYS$SETAST, R7
+	MOVAB   G^SYS$QIOW, R6				   ;SYS$QIOW, R6
+	MOVAB   W^U.19, R5				   ;U.19, R5
+	MOVAB   G^LIB$FREE_VM, R4			   ;LIB$FREE_VM, R4
+	SUBL2   #28, SP					   ;#28, SP
+1$:	CLRQ    -(SP)					   ;-(SP)
+	CLRQ    -(SP)					   ;-(SP)
+	PUSHL   #4					   ;#4
+	PUSHAB  24(SP)					   ;MBXMSG
+	CLRQ    -(SP)					   ;-(SP)
+	PUSHAB  52(SP)					   ;IOSB
+	MOVZBL  #113, -(SP)				   ;#113, -(SP)
+	MOVZWL  (R5), -(SP)				   ;MBXCHN, -(SP)
+	PUSHL   4(R5)					   ;MBXEFN
+	CALLS   #12, (R6)				   ;#12, SYS$QIOW
+	MOVL    R0, R3					   ;R0, STATUS
+	BLBS    R3, 3$					   ;STATUS, 3$
+2$:	BRW     13$					   ;13$
+3$:	BLBC    20(SP), 2$				   ;IOSB, 2$
+	TSTW    22(SP)					   ;IOSB+2
+	BEQL    2$					   ;2$
+	MOVZWL  4(SP), R2				   ;MBXMSG, R2
+	CMPW    R2, #37					   ;R2, #37
+	BEQL    4$					   ;4$
+	BRW     11$					   ;11$
+4$:	PUSHAB  W^P.ADP					   ;P.ADP
+	CALLS   #1, W^LOG_PUT_OUTPUT			   ;#1, LOG_PUT_OUTPUT
+	CALLS   #0, W^CLOSE_LOG				   ;#0, CLOSE_LOG
+5$:	REMQUE  @W^TRMQUE, 8(SP)			   ;@TRMQUE, TRM
+	BVS     6$					   ;6$
+	PUSHAB  8(SP)					   ;TRM
+	MOVZBL  #206, 4(SP)				   ;#206, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, (R4)				   ;#2, LIB$FREE_VM
+	BRB     5$					   ;5$
+6$:	REMQUE  @W^EXCQUE, 12(SP)			   ;@EXCQUE, EXC
+	BVS     7$					   ;7$
+	PUSHAB  12(SP)					   ;EXC
+	MOVZWL  #507, 4(SP)				   ;#507, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, (R4)				   ;#2, LIB$FREE_VM
+	BRB     6$					   ;6$
+7$:	REMQUE  @W^OVRQUE, 12(SP)			   ;@OVRQUE, EXC
+	BVS     8$					   ;8$
+	PUSHAB  12(SP)					   ;EXC
+	MOVZWL  #507, 4(SP)				   ;#507, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, (R4)				   ;#2, LIB$FREE_VM
+	BRB     7$					   ;7$
+8$:	REMQUE  @-16(R5), 16(SP)			   ;@COUNTQ, CTR
+	BVS     9$					   ;9$
+	PUSHAB  16(SP)					   ;CTR
+	MOVZWL  #535, 4(SP)				   ;#535, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, (R4)				   ;#2, LIB$FREE_VM
+	BRB     8$					   ;8$
+9$:	CALLS   #0, W^LOAD_CONFIG			   ;#0, LOAD_CONFIG
+	MOVL    R0, R3					   ;R0, STATUS
+	BLBS    R3, 10$					   ;STATUS, 10$
+	PUSHL   R3					   ;STATUS
+	CLRL    -(SP)					   ;-(SP)
+	PUSHL   #WATCHER__NOCFG				   ;#WATCHER__NOCFG
+	CALLS   #3, G^LIB$STOP				   ;#3, LIB$STOP
+10$:	CALLS   #0, W^INIT_LOG				   ;#0, INIT_LOG
+	BRB     12$					   ;12$
+11$:	CMPW    R2, #193				   ;R2, #193
+	BNEQ    12$					   ;12$
+	PUSHAB  W^P.ADR					   ;P.ADR
+	CALLS   #1, W^LOG_PUT_OUTPUT			   ;#1, LOG_PUT_OUTPUT
+	CALLS   #0, W^CLOSE_LOG				   ;#0, CLOSE_LOG
+	PUSHL   #1					   ;#1
+	CALLS   #1, G^SYS$EXIT				   ;#1, SYS$EXIT
+12$:	BRW     1$					   ;1$
+13$:	CLRL    -(SP)					   ;-(SP)
+	CALLS   #1, (R7)				   ;#1, SYS$SETAST
+	BLBC    8(R5), 14$				   ;SETAST, 14$
+	CLRQ    -(SP)					   ;-(SP)
+	CLRQ    -(SP)					   ;-(SP)
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  W^U.10					   ;U.10
+	CLRQ    -(SP)					   ;-(SP)
+	PUSHAB  52(SP)					   ;IOSB
+	MOVZWL  #291, -(SP)				   ;#291, -(SP)
+	MOVZWL  (R5), -(SP)				   ;MBXCHN, -(SP)
+	PUSHL   4(R5)					   ;MBXEFN
+	CALLS   #12, (R6)				   ;#12, SYS$QIOW
+14$:	CLRL    8(R5)					   ;SETAST
+	PUSHL   #1					   ;#1
+	CALLS   #1, (R7)				   ;#1, SYS$SETAST
+	RET     					   ;
+
+; Routine Size:  315 bytes,    Routine Base:  $CODE$ + 1240
+
+
+
+
+
+	.EXTRN  SYS$WAKE
+
+;MBX_AST
+U.10:	.WORD   ^M<>					   ;Save nothing
+	MOVL    #1, W^U.21				   ;#1, U.21
+	CLRQ    -(SP)					   ;-(SP)
+	CALLS   #2, G^SYS$WAKE				   ;#2, SYS$WAKE
+	RET     					   ;
+
+; Routine Size:  17 bytes,    Routine Base:  $CODE$ + 137B
+
+
+
+
+
+	.EXTRN  SYS$DELMBX
+
+;EXIT_HANDLER
+U.11:	.WORD   ^M<>					   ;Save nothing
+	MOVZWL  W^U.19, R0				   ;U.19, R0
+	BEQL    1$					   ;1$
+	PUSHL   R0					   ;R0
+	CALLS   #1, G^SYS$DELMBX			   ;#1, SYS$DELMBX
+1$:	MOVL    #1, R0					   ;#1, R0
+	RET     					   ;
+
+; Routine Size:  22 bytes,    Routine Base:  $CODE$ + 138C
+
+
+
+
+
+
+	.EXTRN  LIB$STOP
+
+;				       PSECT SUMMARY
+;
+;	Name			 Bytes			       Attributes
+;
+;  $$$COPYRIGHT			       63  NOVEC,NOWRT,  RD ,NOEXE,  SHR,  LCL,  REL,  CON,NOPIC,ALIGN(2)
+;  $OWN$			       52  NOVEC,  WRT,  RD ,NOEXE,NOSHR,  LCL,  REL,  CON,NOPIC,ALIGN(2)
+;  $GLOBAL$			      332  NOVEC,  WRT,  RD ,NOEXE,NOSHR,  LCL,  REL,  CON,NOPIC,ALIGN(2)
+;  $PLIT$			     2032  NOVEC,NOWRT,  RD ,NOEXE,NOSHR,  LCL,  REL,  CON,NOPIC,ALIGN(2)
+;  $CODE$			     5026  NOVEC,NOWRT,  RD ,  EXE,NOSHR,  LCL,  REL,  CON,NOPIC,ALIGN(2)
+
+
+
+
+;				Library Statistics
+;
+;					     -------- Symbols --------	    Pages	Processing
+;	File				     Total    Loaded   Percent      Mapped	Time
+;
+;  SYS$COMMON:[SYSLIB]STARLET.L32;2	     18166        44         0      1063          00:00.1
+;  RPI$SRC:[WATCHER]WATCHER.L32;6	       117       101        86        13          00:00.0
+;  RPI$SRC:[WATCHER]WATCHER_PRIVATE.L32;6
+;					        96        88        91        13          00:00.0
+
+
+
+
+
+
+
+;					COMMAND QUALIFIERS
+
+;	BLISS/LIST=[.MACRO]WATCHER.MAR/NOOBJ/MACHINE=(OBJ,NOBIN,ASSEM,UNIQUE,NOCOMM)/SOURCE=(NOHEAD,NOSOURCE) WATCHER.B32
+
+; Compilation Complete
+
+	.END	U.2

@@ -1,0 +1,502 @@
+1 MANIMATE 
+Display a sequence of images on any workstation running X
+
+SYNOPSIS
+
+ $ manimate [ options ...] file [ [ options ...] file ...]
+
+2 DESCRIPTION
+Manimate displays a sequence of images on any workstation display
+running an X server. Manimate first determines the hardware
+capabilities of the workstation.  If the number of unique colors in an
+image is less than or equal to the number the workstation can support,
+the image is displayed in an X window.  Otherwise the number of colors
+in the image is first reduced to match the color resolution of the
+workstation before it is displayed.
+ 
+ This means that a continuous-tone 24 bits-per-pixel image can display on a
+ 8 bit pseudo-color device or monochrome device.  In most instances the
+ reduced color image closely resembles the original.  Alternatively, a
+ monochrome or pseudo-color image sequence can display on a continuous-tone
+ 24 bits-per-pixel device.
+ 
+To help prevent color flashing on X server visuals that have colormaps,
+animate creates a single colormap from the image sequence.  This can
+be rather time consuming.  You can speed this operation up by reducing
+the colors in the image before you `animate' them.  Use mogrify
+to color reduce the images to a single colormap.  See mogrify(1) for
+details.  Alternatively, you can use a Standard Colormap; or a static, direct,
+or true color visual.  You can define a Standard Colormap with
+xstdcmap.  See XSTDCMAP(1) for details.  This method is recommended
+for colormapped X server because it eliminates the need to compute a global
+colormap.
+
+2 EXAMPLES
+To animate a set of images of a cockatoo, use:
+
+   $ manimate cockatoo.*
+ 
+To animate a cockatoo image sequence while using the Standard Colormap
+"best", use:
+ 
+   $  xstdcmap -best
+
+   $ manimate -map best cockatoo.*
+ 
+To animate an image of a cockatoo without a border centered on a
+backdrop, use:
+ 
+
+   $ manimate +borderwidth -backdrop cockatoo.*
+
+2 OPTIONS
+ 
+    -backdrop
+display the image centered on a backdrop.
+
+This backdrop covers the entire workstation screen and is useful for
+hiding other X window activity while viewing the image sequence.   The color
+of the backdrop is specified as the background color.  Refer to X
+RESOURCES for details.
+ 
+    -colormap type
+the type of colormap: Shared or Private.
+
+This option only applies when the default X server visual is
+PseudoColor or GrayScale.  Refer to -visual for more
+details.  By default, a shared colormap is allocated.  The image shares
+colors with other X clients.  Some image colors could be approximated,
+therefore your image may look very different than intended.  Choose
+Private and the image colors appear exactly as they are
+defined.  However, other clients may go "technicolor" when the image
+colormap is installed.
+ 
+    -colors value
+preferred number of colors in the image.
+
+The actual number of colors in the image may be less than your request,
+but never more.  Note, this is a color reduction option.  Images with
+less unique colors than specified with this option will remain unchanged.
+Refer to quantize(9) for more details.
+
+Note, options -dither, -colorspace, and -treedepth affect
+the color reduction algorithm.
+ 
+    -colorspace value
+the type of colorspace: GRAY, OHTA, RGB, XYZ,
+YCbCr, YIQ, YPbPr, or YUV.
+ 
+Color reduction, by default, takes place in the RGB color space.
+Empirical evidence suggests that distances in color spaces such as YUV
+or YIQ correspond to perceptual color differences more closely
+than do distances in RGB space.  These color spaces may give better
+results when color reducing an image.  Refer to quantize(9) for
+more details.
+
+The -colors or -monochrome option is required for this option
+to take effect.
+ 
+    -delay milliseconds
+display the next image after pausing.
+
+This option is useful for regulating the display of the sequence of
+images.  milliseconds milliseconds must expire before the display of
+the next image.  The default is 100 milliseconds between each frame
+of the image sequence.
+ 
+    -crop <width>x<height>{+-}<x offset>{+-}<y offset>"
+preferred size and location of the cropped image.  See X(1) for details
+about the geometry specification.
+
+Use cropping to apply image processing options, or display, only a
+particular area of an image.  Use -crop 0x0 to remove edges that are
+the background color.
+
+The equivalent X resource for this option is cropGeometry
+(class CropGeometry).  See X RESOURCES for details.
+ 
+    -density <width>x<height>
+vertical and horizontal density of the image.
+
+This option specifies an image density for a Postscript page.
+The default is 72 dots per inch in the horizontal and vertical direction.
+Use this option to alter the default density.
+ 
+    -display host:display[.screen]
+specifies the X server to contact; see X(1).
+ 
+    -dither
+apply Floyd/Steinberg error diffusion to the image.
+
+The basic strategy of dithering is to trade intensity resolution for
+spatial resolution by averaging the intensities of several neighboring
+pixels.  Images which suffer from severe contouring when reducing colors
+can be improved with this option.
+
+The -colors or -monochrome option is required for this option
+to take effect.
+ 
+    -gamma value
+level of gamma correction.
+
+The same color image displayed on two different workstations may look
+different due to differences in the display monitor.  Use gamma
+correction to adjust for this color difference.  Reasonable values
+extend from 0.8 to 2.3.
+
+You can apply separate gamma values to the red, green, and blue
+channels of the image with a gamma value list delineated with commas
+(i.e. 1.7,2.3,1.2).
+ 
+    -geometry <width>{%}x<height>{%}{+-}<x offset>{+-}<y offset>{!}
+preferred size and location of the image window.  See X(1) for details
+about the geometry specification.  By default, the window size is the image
+size and the location is choosen by you when it is mapped.
+
+By default, the width and height are maximum values.  That is, the
+image is expanded or contracted to fit the width and height value while
+maintaining the aspect ratio of the image.  Append an exclamation point
+to the geometry to force the image size to exactly the size you
+specify.  For example, if you specify 640x480! the image width is
+set to 640 pixels and height to 480.  If only one factor is
+specified, both the width and height assume the value.
+ 
+To specify a percentage width or height instead, append %.  The
+image size is multiplied by the width and height percentages to obtain
+the final image dimensions.  To increase the size of an image, use a
+value greater than 100 (e.g. 125%).  To decrease an image's size, use a
+percentage less than 100.
+
+If the specified image size is smaller than the actual image size, the
+image is first reduced to an integral of the specified image size with
+an antialias digital filter.  The image is then scaled to the exact
+specified image size with pixel replication.  If the specified image
+size is greater than the actual image size, the image is first enlarged
+to an integral of the specified image size with bilinear
+interpolation.  The image is then scaled to the exact specified image
+size with pixel replication.
+
+When displaying an image on an X server, <x offset> and
+<y offset> is relative to the root window.
+
+The equivalent X resource for this option is imageGeometry
+(class ImageGeometry).  See X RESOURCES for details.
+ 
+    -interlace type
+the type of interlacing scheme: NONE, LINE, or PLANE.
+
+This option is used to specify the type of interlacing scheme for raw
+image formats such as RGB or YUV.  NONE means do not
+interlace (RGBRGBRGBRGBRGBRGB...), LINE uses scanline
+interlacing (RRR...GGG...BBB...RRR...GGG...BBB...), and PLANE uses
+plane interlacing (RRRRRR...GGGGGG...BBBBBB...).
+ 
+    -map type
+display image using this Standard Colormap type.
+
+Choose from these Standard Colormap types:
+
+    best
+    default
+    gray
+    red
+    green
+    blue
+
+The X server must support the Standard Colormap you choose, otherwise an
+error occurs.  Use list as the type and animate(1) searches
+the list of colormap types in top-to-bottom order until one is located. See
+xstdcmap(1) for one way of creating Standard Colormaps.
+ 
+    -monochrome
+transform the image to black and white.
+ 
+    -scene value{-value}
+image scene number.
+
+Use this option to specify an image sequence with a single filename. See
+the discussion of file below for details.
+ 
+    -size <width>{%}x<height>{%}{+colors}{!}
+width and height of the image.
+
+Use this option to specify the width and height of raw images whose
+dimensions are unknown such as GRAY, RGB, or CMYK.
+In addition to width and height, use -size to tell the number
+of colors in a MAP image file, (e.g. -size 640x512+256).
+ 
+    -treedepth value
+Normally, this integer value is zero or one.  A zero or one tells
+animate to choose a optimal tree depth for the color reduction
+algorithm.
+
+An optimal depth generally allows the best representation of the source
+image with the fastest computational speed and the least amount of
+memory.  However, the default depth is inappropriate for some images.
+To assure the best representation, try values between 2 and 8 for this
+parameter.  Refer to quantize(9) for more details.
+
+The -colors or -monochrome option is required for this option
+to take effect.
+ 
+   -verbose
+print detailed information about the image.
+
+This information is printed: image scene number;  image name;  image
+size; the image class (DirectClass or PseudoClass);  the total
+number of unique colors;  and the number of seconds to read and
+transform the image.  Refer to miff(5) for a description of
+the image class.
+
+If -colors is also specified, the total unique colors in the image
+and color reduction error values are printed.  Refer to quantize(9)
+for a description of these values.
+ 
+    -visual type
+animate images using this visual type.
+
+Choose from these visual classes:
+
+    StaticGray
+    GrayScale
+    StaticColor
+    PseudoColor
+    TrueColor
+    DirectColor
+    default
+    visual id
+
+The X server must support the visual you choose, otherwise an error occurs.
+If a visual is not specified, the visual class that can display the most
+simultaneous colors on the default screen is choosen.
+ 
+    -window id
+set the background pixmap of this window to the image.
+
+id can be a window id or name.  Specify root to select X's root
+window as the target window.
+
+By default the image is tiled onto the background of the target
+window.   If -backdrop or -geometry are specified, the
+image is surrounded by the background color.  Refer to X
+RESOURCES for details.
+
+The image will not display on the root window if the image has more
+unique colors than the target window colormap allows.  Use
+-colors to reduce the number of colors.
+ 
+In addition to those listed above, you can specify these standard X
+resources as command line options:  -background,
+-bordercolor, -borderwidth,  -font,
+-foreground, -iconGeometry, -iconic, -mattecolor, 
+-name, or -title.  See X RESOURCES for details.
+ 
+Any option you specify on the command line remains in effect until it is
+explicitly changed by specifying the option again with a different effect.
+For example, to animate two images, the first with 32 colors and the
+second with only 16 colors, use:
+ 
+  $ manimate -colors 32 cockatoo.1 -colors 16 cockatoo.2
+ 
+Options are processed in command line order.
+Any option you specify on the command line remains in effect until it is
+explicitly changed by specifying the option again with a different effect.
+ 
+Change - to + in any option above to reverse its effect.
+For example, specify +dither to not apply error diffusion to an image.
+ 
+By default, the image format is determined by its magic number. To
+specify a particular image format, precede the filename with an image
+format name and a colon (i.e. ps:image) or specify the image type as
+the filename suffix (i.e. image.ps).  See convert(1) for a list
+of valid image formats.
+ 
+When you specify X as your image type, the filename has special
+meaning.  It specifies an X window by id, name, or root.  If no
+filename is specified, the window is selected by clicking the mouse in
+the desired window.
+ 
+Specify file as - for standard input, If file has the
+extension .Z or .gz, the file is uncompressed with
+uncompress or gunzip respectively. Precede the image file
+name with | to pipe from a system command (Unix only).
+ 
+Single images are read with the filename you specify.  Alternatively,
+you can animate an image sequence with a single filename.  Define the
+range of the image sequence with -scene.  Each image in the
+range is read with the filename followed by a period (.)
+and the scene number.  You can change this behavior by embedding a
+printf format specification in the file name.  For example,
+
+        -scene 0-9 image%02d.miff
+
+animates files image00.miff, image01.miff, through image09.miff.
+ 
+Image filenames may appear in any order on the command line if the image
+format is MIFF (refer to miff(5) and the scene keyword is
+specified in the image.  Otherwise the images will display in the order
+they appear on the command line.
+
+2 BUTTONS
+ 
+    1
+Press and drag to select a command from a pop-up menu.  Choose from
+these commands:
+
+    Play
+    Step
+    Repeat
+    Auto Reverse
+    Slower
+    Faster
+    Forward
+    Reverse
+    Image Info
+    Quit
+
+2 KEYBOARD ACCELERATORS
+ 
+    p
+Press to animate the sequence of images.
+ 
+    s
+Press to display the next image in the sequence.
+ 
+    .
+Press to continually display the sequence of images.
+ 
+    a
+Press to automatically reverse the sequence of images.
+ 
+    <
+Press to slow the display of the images.  Refer to -delay for more
+information.
+ 
+    >
+Press to speed-up the display of the images.  Refer to -delay for more
+information.
+ 
+    f
+Press to animate in the forward direction.
+ 
+    r
+Press to animate in the reverse direction.
+ 
+    i
+Press to display information about the image.  Press any key or button
+to erase the information.
+
+This information is printed: image name;  image size; and the total
+number of unique colors in the image.
+ 
+    q
+Press to discard all images and exit program.
+
+2 X_RESOURCES
+animate options can appear on the command line or in your X
+resource file.  Options on the command line supersede values specified
+in your X resource file.  See X(1) for more information on X
+resources.
+
+All animate options have a corresponding X resource.  In addition,
+the animate program uses the following X resources:
+ 
+   background (class Background)
+Specifies the preferred color to use for the image window background.  The
+default is #ccc.
+ 
+   borderColor (class BorderColor)
+Specifies the preferred color to use for the image window border.  The
+default is black.
+ 
+   borderWidth (class BorderWidth)
+Specifies the width in pixels of the image window border.  The default is 2.
+ 
+   font (class Font or FontList)
+Specifies the name of the preferred font to use in normal formatted
+text.  The default is 14 point Helvetica.
+ 
+   foreground (class Foreground)
+Specifies the preferred color to use for text within the image window.  The
+default is black.
+ 
+   iconGeometry (class IconGeometry)
+Specifies the preferred size and position of the application when
+iconified.  It is not necessarily obeyed by all window managers.
+ 
+   iconic (class Iconic)
+This resource indicates that you would prefer that the application's
+windows initially not be visible as if the windows had be immediately
+iconified by you.  Window managers may choose not to honor the
+application's request.
+ 
+   matteColor (class MatteColor)
+Specify the color of windows.  It is used for the backgrounds of
+windows, menus, and notices.  A  3D  effect  is achieved  by
+using highlight and shadow colors derived from this color.  Default
+value: #ddd.
+ 
+   name (class Name)
+This resource specifies the name under which resources for the
+application should be found.  This resource is useful in shell aliases to
+distinguish between invocations of an application, without resorting to
+creating links to alter the executable file name.  The default is the
+application name.
+ 
+   sharedMemory (class SharedMemory)
+This resource specifies whether animate should attempt use shared memory
+for pixmaps.  ImageMagick must be compiled with shared memory support,
+and the display must support the MIT-SHM extension.  Otherwise, this
+resource is ignored.  The default is True.
+
+
+   text_font (class textFont)
+Specifies the name of the preferred font to use in fixed (typewriter style)
+formatted text.  The default is 14 point Courier.
+ 
+   title (class Title)
+This resource specifies the title to be used for the image window.  This
+information is sometimes used by a window manager to provide some sort
+of header identifying the window.  The default is the image file name.
+
+2 ENVIRONMENT
+ 
+   display
+To get the default host, display number, and screen.
+
+2 COPYRIGHT
+Copyright 1994 E. I. du Pont de Nemours and Company
+ 
+Permission to use, copy, modify, distribute, and sell this software and
+its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of E. I. du Pont de Nemours
+and Company not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.  E. I. du Pont de Nemours and Company makes no representations
+about the suitability of this software for any purpose.  It is provided
+"as is" without express or implied warranty.
+ 
+E. I. du Pont de Nemours and Company disclaims all warranties with regard
+to this software, including all implied warranties of merchantability
+and fitness, in no event shall E. I. du Pont de Nemours and Company be
+liable for any special, indirect or consequential damages or any
+damages whatsoever resulting from loss of use, data or profits, whether
+in an action of contract, negligence or other tortuous action, arising
+out of or in connection with the use or performance of this software.
+
+2 ACKNOWLEDGEMENTS
+The MIT X Consortium for making network transparent graphics a reality.
+ 
+Michael Halle, Spatial Imaging Group at MIT, for the initial
+implementation of Alan Paeth's image rotation algorithm.
+ 
+David Pensak, E. I. du Pont de Nemours and Company, for providing a
+computing environment that made this program possible.
+ 
+Paul Raveling, USC Information Sciences Institute, for the original
+idea of using space subdivision for the color reduction algorithm.
+
+2 AUTHORS
+John Cristy, E.I. du Pont de Nemours and Company Incorporated

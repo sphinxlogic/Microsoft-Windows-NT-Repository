@@ -1,0 +1,914 @@
+MODULE show_pe (IDENT = 'V01-002',
+			MAIN = show_pe,
+			ADDRESSING_MODE (NONEXTERNAL=WORD_RELATIVE),
+			ADDRESSING_MODE (EXTERNAL=GENERAL)) =
+BEGIN
+
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1984 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+
+!++
+!
+!  Display PE statistics on an ANSI terminal
+!
+!--
+
+! Include files
+!
+REQUIRE 'BANNER-PEM';
+REQUIRE 'PEM_DEF';
+LIBRARY 'SYS$LIBRARY:LIB';		! VAX/VMS system definitions
+LIBRARY 'SYS$LIBRARY:STARLET';		! VAX/VMS system definitions
+
+MACRO
+    pes_l_vc_cnt	=  0,0,32,0 %,
+    pes_l_xmt_msg	=  4,0,32,0 %,
+    pes_l_xmt_unseq	=  8,0,32,0 %,
+    pes_l_xmt_seq	= 12,0,32,0 %,
+    pes_l_xmt_ack	= 16,0,32,0 %,
+    pes_l_xmt_rexmt	= 20,0,32,0 %,
+    pes_l_xmt_cntl	= 24,0,32,0 %,
+    pes_l_xmt_bytes	= 28,0,32,0 %,
+    pes_l_xmt_noxch	= 32,0,32,0 %,
+    pes_l_rcv_msg	= 36,0,32,0 %,
+    pes_l_rcv_unseq	= 40,0,32,0 %,
+    pes_l_rcv_seq	= 44,0,32,0 %,
+    pes_l_rcv_ack	= 48,0,32,0 %,
+    pes_l_rcv_rercv	= 52,0,32,0 %,
+    pes_l_rcv_cntl	= 56,0,32,0 %,
+    pes_l_rcv_bytes	= 60,0,32,0 %,
+    pes_l_rcv_cache	= 64,0,32,0 %,
+    pes_l_hs_tmo	= 68,0,32,0 %,
+    pes_l_rcv_tr_short	= 72,0,32,0 %,
+    pes_l_rcv_cc_short	= 76,0,32,0 %,
+    pes_l_rcv_ill_ack	= 80,0,32,0 %,
+    pes_l_rcv_ill_seq	= 84,0,32,0 %,
+    pes_l_rcv_bad_cksum	= 88,0,32,0 %,
+    pes_l_rcv_norch	= 92,0,32,0 %,
+    pes_l_rcv_cc_bad_eco = 96,0,32,0 %,
+    pes_l_rcv_cc_authorize =100,0,32,0 %,
+    pes_l_xmt_seq_tmo	=104,0,32,0 %,
+    pes_l_rcv_listen_tmo =108,0,32,0 %,
+    pes_l_tr_dfq_empty	=112,0,32,0 %,
+    pes_l_tr_mfq_empty	=116,0,32,0 %,
+    pes_l_cc_dfq_empty	=120,0,32,0 %,
+    pes_l_cc_mfq_empty	=124,0,32,0 %,
+    pes_l_tr_pipe_quota	=128,0,32,0 %,
+    pes_l_abstim_tics   =132,0,32,0 %;
+
+LITERAL
+    pes_c_length = 136,
+    pes_max_idx  = (pes_c_length/4)-1;
+
+! Table of contents
+!
+FORWARD ROUTINE
+    add_pestats,			! Kernel routine to find stats
+    ast_routine : NOVALUE,		! Timer AST routine
+    display_line,			! Display one data line
+    display_line_kb,			! Display one transmit/receive kbyte line
+    display_line_xr,			! Display one transmit/receive data line
+    display_pestats,			! Output routine
+    kernel_handler,			! Turn kernel mode signals to returns
+    kernel_handler_nolock,		! Turn kernel mode signals to returns
+    show_pe,				! Transfer point
+    ucb_init;				! Kernel routine to find PEA0 ucb
+
+!
+! Define the linkage for the routines to lock and unlock the I/O database,
+! scan the I/O database, and obtain the device name.
+!
+LINKAGE
+    IOLOCK = JSB (REGISTER = 4)
+		: NOPRESERVE(0,1,2,3,4,5) PRESERVE(6,7,8,9,10,11),
+    IOSCAN = JSB (REGISTER = 11,		! Call with DDB,
+	    	  REGISTER = 10;		! UCB,
+		  REGISTER = 11,		! Return with DDB,
+		  REGISTER = 10)		! UCB
+		: NOPRESERVE(0,10,11) PRESERVE(1,2,3,4,5,6,7,8,9);
+
+EXTERNAL ROUTINE
+    ioc$scan_iodb : IOSCAN,
+    lib$put_output,
+    sch$iolockr : IOLOCK,
+    sch$iounlock : IOLOCK;
+
+EXTERNAL
+    exe$gl_abstim_tics,
+    ctl$gl_pcb;
+
+BUILTIN
+    MTPR;
+
+MACRO
+    set_ipl (level) = MTPR(%REF(level), pr$_ipl)%;
+
+GLOBAL
+    pe_ucb : REF $BBLOCK,
+    npes : BLOCK [pes_c_length, BYTE],
+    pes : BLOCK [pes_c_length, BYTE],
+    rate : BLOCK [pes_c_length, BYTE],
+    faobuf	: VECTOR [80, BYTE],
+    int1buf	: VECTOR [12, BYTE],
+    int2buf	: VECTOR [12, BYTE],
+    int3buf	: VECTOR [12, BYTE],
+    rat1buf	: VECTOR [12, BYTE],
+    rat2buf	: VECTOR [12, BYTE],
+    rat3buf	: VECTOR [12, BYTE],
+    bottom_rate,
+    kernel_accvio : VECTOR [4, LONG] ADDRESSING_MODE (GENERAL);
+
+GLOBAL
+    first_time  : INITIAL (1),
+    prvmask	: VECTOR [2, LONG]
+		INITIAL (prv$m_cmkrnl,0),
+    ast_interval : VECTOR[2] INITIAL (-10*1000*1000*3,-1),		! Three second wakeups
+    faodsc	: VECTOR [2, LONG]
+		INITIAL (80, faobuf),
+    int1dsc	: VECTOR [2, LONG]
+		INITIAL (12, int1buf),
+    int2dsc	: VECTOR [2, LONG]
+		INITIAL (12, int2buf),
+    int3dsc	: VECTOR [2, LONG]
+		INITIAL (12, int3buf),
+    rat1dsc	: VECTOR [2, LONG]
+		INITIAL (12, rat1buf),
+    rat2dsc	: VECTOR [2, LONG]
+		INITIAL (12, rat2buf),
+    rat3dsc	: VECTOR [2, LONG]
+		INITIAL (12, rat3buf);
+
+
+! Floating point builtins
+!
+BUILTIN
+    SUBF,
+    ADDF,
+    MULF,
+    DIVF,
+    CMPF,
+    CVTFL,
+    CVTRFL,
+    CVTLF;
+
+! Macros for F-floating functions which "return" their result value
+!
+MACRO
+    twoarg_f (func,value1,value2) =
+	BEGIN
+	LOCAL result;
+	func (%REF (value1),%REF (value2),result);
+	.result
+	END%,
+
+    onearg_f (func,value) =
+	BEGIN
+	LOCAL result;
+	func (%REF (value),result);
+	.result
+	END%,
+
+    add_f (value1,value2) = twoarg_f (ADDF,value1,value2)%,
+    sub_f (value1,value2) = twoarg_f (SUBF,value1,value2)%,
+    mul_f (value1,value2) = twoarg_f (MULF,value1,value2)%,
+    div_f (value1,value2) = twoarg_f (DIVF,value1,value2)%,
+    intr_f (value) = onearg_f (CVTRFL,value)%,
+    int_f (value) = onearg_f (CVTFL,value)%,
+    float_f (value) = onearg_f (CVTLF,value)%,
+    trunc_f (value) = float_f (onearg_f (CVTFL,value))%;
+
+BIND
+    zeroes  = '   0';
+
+GLOBAL ROUTINE show_pe =
+
+!-
+!	This is the entry point for creating and managing the show_pe.
+!
+! Inputs:
+!
+!	None
+!
+! Outputs:
+!
+!	 (Routine) = Status code
+!-
+
+BEGIN
+
+!
+! Erase the ANSI screen
+!
+lib$put_output(%ASCID '[2J');
+
+!
+! Enhance our privs a little
+!
+$SETPRV (enbflg=1, prvadr=prvmask, prmflg=0);
+
+!
+! Do the first pass, and get the ASTs coming
+!
+ast_routine();
+
+! Nothing to do here, display the data from the clock ASTs.
+!
+$hiber;
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE display_line (ctrstr, ratelen, val1, rat1, val2, rat2) =
+
+!-
+!	This formats and displays one line of data
+!
+!-
+
+BEGIN
+
+LOCAL
+    foo,
+    status;
+
+BIND
+    rat1low = rat1buf[.ratelen-4],
+    rat2low = rat2buf[.ratelen-4];
+
+!
+! Convert the two rates to the strings
+!
+rat1dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, rat1dsc, .ratelen, .rat1);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .rat1low EQL '   0' THEN rat1low = '    ';
+rat2dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, rat2dsc, .ratelen, .rat2);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .rat2low EQL '   0' THEN rat2low = '    ';
+
+!
+! Format the line
+!
+faodsc[0] = 80;
+status = $fao (.ctrstr, faodsc, faodsc, .val1, rat1dsc, .val2, rat2dsc);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+!
+! Display it on the output device
+!
+status = lib$put_output (faodsc);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE display_line_kb (ctrstr, ratelen, val1, rat1, val2, rat2) =
+
+!-
+!	This formats and displays one line of data
+!
+!-
+
+BEGIN
+
+LOCAL
+    interval,
+    val3,
+    rat3,
+    foo,
+    temp,
+    status;
+
+BIND
+    int1low = int1buf[.ratelen-4],
+    int2low = int2buf[.ratelen-4],
+    int3low = int3buf[.ratelen-4],
+    rat1low = rat1buf[.ratelen-4],
+    rat2low = rat2buf[.ratelen-4],
+    rat3low = rat3buf[.ratelen-4];
+
+!
+! Scale the input values to kbytes.  Note that we have already
+! divided the numbers by 256 (<8,24,0>) when we added, so we only
+! need to do it by four this time.
+!
+val1 = .val1<2,30,0> + .val1<1,1,0>;
+val2 = .val2<2,30,0> + .val2<1,1,0>;
+rat1 = .rat1<2,30,0> + .rat1<1,1,0>;
+rat2 = .rat2<2,30,0> + .rat2<1,1,0>;
+
+!
+! Calculate the sums of the input values
+!
+val3 = .val1 + .val2;
+rat3 = .rat1 + .rat2;
+interval = float_f (.rate[pes_l_abstim_tics]);	!tics in float format
+interval = div_f (%E'100.0', .interval);	!seconds in float format
+IF .interval EQL 0 THEN interval = %E'1.0';	!avoid divide by zero
+
+!
+! Convert the three intervals to the strings
+!
+int1dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, int1dsc, .ratelen, .rat1);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .int1low EQL zeroes THEN int1low = '    ';
+int2dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, int2dsc, .ratelen, .rat2);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .int2low EQL zeroes THEN int2low = '    ';
+int3dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, int3dsc, .ratelen, .rat3);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .int3low EQL zeroes THEN int3low = '    ';
+
+!
+! Convert the three rates to the strings
+!
+rat1dsc[0] = .ratelen;
+temp = intr_f (div_f (.interval, float_f(.rat1)));
+status = $fao (%ASCID '!#UL', foo, rat1dsc, .ratelen, .temp);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .rat1low EQL zeroes THEN rat1low = '    ';
+rat2dsc[0] = .ratelen;
+temp = intr_f (div_f (.interval, float_f(.rat2)));
+status = $fao (%ASCID '!#UL', foo, rat2dsc, .ratelen, .temp);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .rat2low EQL zeroes THEN rat2low = '    ';
+rat3dsc[0] = .ratelen;
+temp = intr_f (div_f (.interval, float_f(.rat3)));
+status = $fao (%ASCID '!#UL', foo, rat3dsc, .ratelen, .temp);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .rat3low EQL zeroes THEN rat3low = '    ';
+
+!
+! Format the line
+!
+faodsc[0] = 80;
+status = $fao (.ctrstr, faodsc, faodsc, .val1, int1dsc, rat1dsc, .val2, int2dsc, rat2dsc, .val3, int3dsc, rat3dsc);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+!
+! Display it on the output device
+!
+status = lib$put_output (faodsc);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE display_line_xr (ctrstr, ratelen, val1, rat1, val2, rat2) =
+
+!-
+!	This formats and displays one line of data
+!
+!-
+
+BEGIN
+
+LOCAL
+    interval,
+    val3,
+    rat3,
+    foo,
+    status;
+
+BIND
+    int1low = int1buf[.ratelen-4],
+    int2low = int2buf[.ratelen-4],
+    int3low = int3buf[.ratelen-4],
+    rat1low = rat1buf[.ratelen-4],
+    rat2low = rat2buf[.ratelen-4],
+    rat3low = rat3buf[.ratelen-4];
+
+!
+! Calculate the sums of the input values
+!
+val3 = .val1 + .val2;
+rat3 = .rat1 + .rat2;
+interval = .rate[pes_l_abstim_tics] / 100;
+IF .interval EQL 0 THEN interval = 1;	! Don't divide by 0
+
+!
+! Convert the three intervals to the strings
+!
+int1dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, int1dsc, .ratelen, .rat1);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .int1low EQL zeroes THEN int1low = '    ';
+int2dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, int2dsc, .ratelen, .rat2);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .int2low EQL zeroes THEN int2low = '    ';
+int3dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, int3dsc, .ratelen, .rat3);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .int3low EQL zeroes THEN int3low = '    ';
+
+!
+! Convert the three rates to the strings
+!
+rat1dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, rat1dsc, .ratelen, .rat1/.interval);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .rat1low EQL zeroes THEN rat1low = '    ';
+rat2dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, rat2dsc, .ratelen, .rat2/.interval);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .rat2low EQL zeroes THEN rat2low = '    ';
+rat3dsc[0] = .ratelen;
+status = $fao (%ASCID '!#UL', foo, rat3dsc, .ratelen, .rat3/.interval);
+IF NOT .status THEN SIGNAL_STOP (.status);
+IF .rat3low EQL zeroes THEN rat3low = '    ';
+
+!
+! Format the line
+!
+faodsc[0] = 80;
+status = $fao (.ctrstr, faodsc, faodsc, .val1, int1dsc, rat1dsc, .val2, int2dsc, rat2dsc, .val3, int3dsc, rat3dsc);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+!
+! Display it on the output device
+!
+status = lib$put_output (faodsc);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE display_pestats =
+
+!-
+!	This displays the data
+!
+!-
+
+BEGIN
+
+LOCAL
+    faobuf	: VECTOR [80, BYTE],
+    faodsc	: VECTOR [2, LONG]
+		INITIAL (80, faobuf),
+    timbuf	: VECTOR [24, BYTE],
+    timdsc	: VECTOR [2, LONG]
+		INITIAL (23, timbuf),
+    status;
+
+BIND
+    pes_vec	= pes : VECTOR [, LONG],
+    npes_vec    = npes : VECTOR [, LONG],
+    rate_vec	= rate : VECTOR [, LONG];
+
+!
+! Move to the home position and display the time
+!
+status = $asctim (TIMBUF = timdsc);
+IF NOT .status THEN SIGNAL_STOP (.status);
+timdsc[0] = 20;
+faodsc[0] = 80;
+status = $fao (%ASCID '[fSHOW-PE:   NISCS stats at !AS   Virtual Circuits !UL', faodsc, faodsc,
+			timdsc, .npes[pes_l_vc_cnt]);
+IF NOT .status THEN SIGNAL_STOP (.status);
+status = lib$put_output(faodsc);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+faodsc[0] = 0;
+status = lib$put_output(faodsc);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+status = lib$put_output(%ASCID '               Transmit /int /sec    Receive /int /sec    Xmt+Rcv /int /sec');
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+faodsc[0] = 0;
+status = lib$put_output(faodsc);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+!
+! Create the rate structure by calculating the differences between the
+! new and the old PES arrays.
+!
+INCR idx FROM 0 TO pes_max_idx
+DO
+    rate_vec[.idx] = .npes_vec[.idx] - .pes_vec[.idx];
+
+!
+! Display each line in the stat array
+!
+display_line_kb (%ASCID ' Total Kbytes!10UL!5AS!5AS !10UL!5AS!5AS !10UL!5AS!5AS', 5,
+		.npes[pes_l_xmt_bytes], .rate[pes_l_xmt_bytes], .npes[pes_l_rcv_bytes], .rate[pes_l_rcv_bytes]);
+display_line_xr (%ASCID ' Total Msgs  !10UL!5AS!5AS !10UL!5AS!5AS !10UL!5AS!5AS', 5,
+		.npes[pes_l_xmt_msg], .rate[pes_l_xmt_msg], .npes[pes_l_rcv_msg], .rate[pes_l_rcv_msg]);
+display_line_xr (%ASCID ' Seq Msgs    !10UL!5AS!5AS !10UL!5AS!5AS !10UL!5AS!5AS', 5,
+		.npes[pes_l_xmt_seq], .rate[pes_l_xmt_seq], .npes[pes_l_rcv_seq], .rate[pes_l_rcv_seq]);
+display_line_xr (%ASCID ' ACK Msgs    !10UL!5AS!5AS !10UL!5AS!5AS !10UL!5AS!5AS', 5,
+		.npes[pes_l_xmt_ack], .rate[pes_l_xmt_ack], .npes[pes_l_rcv_ack], .rate[pes_l_rcv_ack]);
+display_line_xr (%ASCID ' Chan Cntrl  !10UL!5AS!5AS !10UL!5AS!5AS !10UL!5AS!5AS', 5,
+		.npes[pes_l_xmt_cntl], .rate[pes_l_xmt_cntl], .npes[pes_l_rcv_cntl], .rate[pes_l_rcv_cntl]);
+
+!
+! Since the rest of the statistics are rather static, don't print
+! any of them if they haven't changed.
+!
+IF    .first_time  OR  .bottom_rate
+  OR  (.npes[pes_l_xmt_unseq] NEQ .pes[pes_l_xmt_unseq])
+  OR  (.npes[pes_l_rcv_unseq] NEQ .pes[pes_l_rcv_unseq])
+  OR  (.npes[pes_l_xmt_rexmt] NEQ .pes[pes_l_xmt_rexmt])
+  OR  (.npes[pes_l_rcv_rercv] NEQ .pes[pes_l_rcv_rercv])
+  OR  (.npes[pes_l_rcv_tr_short] NEQ .pes[pes_l_rcv_tr_short])
+  OR  (.npes[pes_l_rcv_cache] NEQ .pes[pes_l_rcv_cache])
+  OR  (.npes[pes_l_rcv_cc_short] NEQ .pes[pes_l_rcv_cc_short])
+  OR  (.npes[pes_l_rcv_ill_seq] NEQ .pes[pes_l_rcv_ill_seq])
+  OR  (.npes[pes_l_xmt_noxch] NEQ .pes[pes_l_xmt_noxch])
+  OR  (.npes[pes_l_rcv_ill_ack] NEQ .pes[pes_l_rcv_ill_ack])
+  OR  (.npes[pes_l_rcv_norch] NEQ .pes[pes_l_rcv_norch])
+  OR  (.npes[pes_l_rcv_bad_cksum] NEQ .pes[pes_l_rcv_bad_cksum])
+  OR  (.npes[pes_l_xmt_seq_tmo] NEQ .pes[pes_l_xmt_seq_tmo])
+  OR  (.npes[pes_l_rcv_cc_bad_eco] NEQ .pes[pes_l_rcv_cc_bad_eco])
+  OR  (.npes[pes_l_rcv_listen_tmo] NEQ .pes[pes_l_rcv_listen_tmo])
+  OR  (.npes[pes_l_rcv_cc_authorize] NEQ .pes[pes_l_rcv_cc_authorize])
+  OR  (.npes[pes_l_hs_tmo] NEQ .pes[pes_l_hs_tmo])
+  OR  (.npes[pes_l_tr_pipe_quota] NEQ .pes[pes_l_tr_pipe_quota])
+  OR  (.npes[pes_l_tr_dfq_empty] NEQ .pes[pes_l_tr_dfq_empty])
+  OR  (.npes[pes_l_cc_dfq_empty] NEQ .pes[pes_l_cc_dfq_empty])
+  OR  (.npes[pes_l_tr_mfq_empty] NEQ .pes[pes_l_tr_mfq_empty])
+  OR  (.npes[pes_l_cc_mfq_empty] NEQ .pes[pes_l_cc_mfq_empty])
+THEN
+    BEGIN
+    display_line_xr (%ASCID ' Unseq Msgs  !10UL!5AS!5AS !10UL!5AS!5AS !10UL!5AS!5AS', 5,
+		.npes[pes_l_xmt_unseq], .rate[pes_l_xmt_unseq], .npes[pes_l_rcv_unseq], .rate[pes_l_rcv_unseq]);
+    display_line_xr (%ASCID ' Repeat Msgs !10UL!5AS!5AS !10UL!5AS!5AS !10UL!5AS!5AS', 5,
+		.npes[pes_l_xmt_rexmt], .rate[pes_l_xmt_rexmt], .npes[pes_l_rcv_rercv], .rate[pes_l_rcv_rercv]);
+
+    faodsc[0] = 0;
+    status = lib$put_output(faodsc);
+    IF NOT .status THEN SIGNAL_STOP (.status);
+
+    display_line (%ASCID '   Short Transport  !6UL!4AS       Messages Cached !6UL!4AS', 4,
+		.npes[pes_l_rcv_tr_short], .rate[pes_l_rcv_tr_short], .npes[pes_l_rcv_cache], .rate[pes_l_rcv_cache]);
+    display_line (%ASCID '   Short ChanCtrl   !6UL!4AS       Illegal Sequence!6UL!4AS', 4,
+		.npes[pes_l_rcv_cc_short], .rate[pes_l_rcv_cc_short], .npes[pes_l_rcv_ill_seq], .rate[pes_l_rcv_ill_seq]);
+    display_line (%ASCID '   No Transmit Chan !6UL!4AS       Illegal ACK     !6UL!4AS', 4,
+		.npes[pes_l_xmt_noxch], .rate[pes_l_xmt_noxch], .npes[pes_l_rcv_ill_ack], .rate[pes_l_rcv_ill_ack]);
+    display_line (%ASCID '   No Receive Chan  !6UL!4AS       Bad Checksum    !6UL!4AS', 4,
+		.npes[pes_l_rcv_norch], .rate[pes_l_rcv_norch], .npes[pes_l_rcv_bad_cksum], .rate[pes_l_rcv_bad_cksum]);
+    display_line (%ASCID '   SeqMsg Timeout   !6UL!4AS       ChanCtrl Bad Eco!6UL!4AS', 4,
+		.npes[pes_l_xmt_seq_tmo], .rate[pes_l_xmt_seq_tmo], .npes[pes_l_rcv_cc_bad_eco], .rate[pes_l_rcv_cc_bad_eco]);
+    display_line (%ASCID '   Listener Timeout !6UL!4AS       CC Auth Failure !6UL!4AS', 4,
+		.npes[pes_l_rcv_listen_tmo], .rate[pes_l_rcv_listen_tmo], .npes[pes_l_rcv_cc_authorize], .rate[pes_l_rcv_cc_authorize]);
+    display_line (%ASCID '   CC Handshake TMO !6UL!4AS       Pipeline Full   !6UL!4AS', 4,
+		.npes[pes_l_hs_tmo], .rate[pes_l_hs_tmo], .npes[pes_l_tr_pipe_quota], .rate[pes_l_tr_pipe_quota]);
+    display_line (%ASCID '   TR DFQ Empty     !6UL!4AS       CC DFQ Empty    !6UL!4AS', 4,
+		.npes[pes_l_tr_dfq_empty], .rate[pes_l_tr_dfq_empty], .npes[pes_l_cc_dfq_empty], .rate[pes_l_cc_dfq_empty]);
+    display_line (%ASCID '   TR MFQ Empty     !6UL!4AS       CC MFQ Empty    !6UL!4AS', 4,
+		.npes[pes_l_tr_mfq_empty], .rate[pes_l_tr_mfq_empty], .npes[pes_l_cc_mfq_empty], .rate[pes_l_cc_mfq_empty]);
+    END;
+!
+! Remember if we showed a rate for any of these, since we must clear
+! it on the next pass
+!
+bottom_rate =	 (    (.rate[pes_l_xmt_unseq] NEQ 0)
+		  OR  (.rate[pes_l_rcv_unseq] NEQ 0)
+		  OR  (.rate[pes_l_xmt_rexmt] NEQ 0)
+		  OR  (.rate[pes_l_rcv_rercv] NEQ 0)
+		  OR  (.rate[pes_l_rcv_tr_short] NEQ 0)
+		  OR  (.rate[pes_l_rcv_cache] NEQ 0)
+		  OR  (.rate[pes_l_rcv_cc_short] NEQ 0)
+		  OR  (.rate[pes_l_rcv_ill_seq] NEQ 0)
+		  OR  (.rate[pes_l_xmt_noxch] NEQ 0)
+		  OR  (.rate[pes_l_rcv_ill_ack] NEQ 0)
+		  OR  (.rate[pes_l_rcv_norch] NEQ 0)
+		  OR  (.rate[pes_l_rcv_bad_cksum] NEQ 0)
+		  OR  (.rate[pes_l_xmt_seq_tmo] NEQ 0)
+		  OR  (.rate[pes_l_rcv_cc_bad_eco] NEQ 0)
+		  OR  (.rate[pes_l_rcv_listen_tmo] NEQ 0)
+		  OR  (.rate[pes_l_rcv_cc_authorize] NEQ 0)
+		  OR  (.rate[pes_l_hs_tmo] NEQ 0)
+		  OR  (.rate[pes_l_tr_pipe_quota] NEQ 0)
+		  OR  (.rate[pes_l_tr_dfq_empty] NEQ 0)
+		  OR  (.rate[pes_l_cc_dfq_empty] NEQ 0)
+		  OR  (.rate[pes_l_tr_mfq_empty] NEQ 0)
+		  OR  (.rate[pes_l_cc_mfq_empty] NEQ 0));
+!
+! Copy the new stat block onto the old one
+!
+CH$MOVE (pes_c_length, npes, pes);
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE kernel_handler (sig : REF BLOCK[,BYTE], mech : REF BLOCK[,BYTE]) =
+BEGIN
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine intercepts kernel mode signals.  
+!
+! INPUTS:
+!
+!	sig  - signal argument list
+!	mech - mechanism argument list
+!
+! SIDE EFFECTS:
+!
+!	A return is made to user mode code.
+!--
+
+EXTERNAL ROUTINE
+    LIB$SIG_TO_RET : ADDRESSING_MODE (GENERAL);
+
+! If the signal name is an accvio, then clean up
+!
+IF .sig [chf$l_sig_name] EQL ss$_accvio		! Is it an accvio?
+THEN
+    BEGIN
+    SCH$IOUNLOCK(.ctl$gl_pcb);		! Unlock I/O database
+    SET_IPL(0);					! Lower IPL
+    CH$MOVE (4*4, sig[chf$l_sig_arg1], kernel_accvio[0]);
+    RETURN LIB$SIG_TO_RET (.sig, .mech);	! Convert signal to return
+    END;
+
+RETURN ss$_resignal;
+END;
+
+GLOBAL ROUTINE kernel_handler_nolock (sig : REF BLOCK[,BYTE], mech : REF BLOCK[,BYTE]) =
+BEGIN
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine intercepts kernel mode signals.  
+!
+! INPUTS:
+!
+!	sig  - signal argument list
+!	mech - mechanism argument list
+!
+! SIDE EFFECTS:
+!
+!	A return is made to user mode code.
+!--
+
+EXTERNAL ROUTINE
+    LIB$SIG_TO_RET : ADDRESSING_MODE (GENERAL);
+
+! If the signal name is an accvio, then clean up
+!
+IF .sig [chf$l_sig_name] EQL ss$_accvio		! Is it an accvio?
+THEN
+    BEGIN
+    CH$MOVE (4*4, sig[chf$l_sig_arg1], kernel_accvio[0]);
+    RETURN LIB$SIG_TO_RET (.sig, .mech);	! Convert signal to return
+    END;
+
+RETURN ss$_resignal;
+END;
+
+GLOBAL ROUTINE ucb_init =
+
+!-
+!	This routine loads PE_UCB with the UCB address of PEA0.
+!
+!-
+
+BEGIN
+
+LOCAL
+    status,
+    ucb : REF $BBLOCK,				! UCB pointer
+    ddb : REF $BBLOCK;				! DDB pointer
+
+!
+! Trap anything weird, and turn it into a return
+!
+ENABLE
+    kernel_handler;
+
+! 
+! Lock the I/O data base.  Upon return from the call to SCH$IOLOCKR, the 
+! IPL will be 2, so that pagefaults are still allowed.
+!
+SCH$IOLOCKR(.ctl$gl_pcb);			! Lock the I/O database
+
+!
+! Start at the beginning of the I/O database and initiate the I/O scan.
+!
+status = IOC$SCAN_IODB(0, 0; ddb, ucb);
+
+!
+! Scan until we find PEA0.
+!
+WHILE .status DO				! As long as the scan returns
+    BEGIN					! a success, stay in the loop.
+    IF
+	.ucb[ucb$b_devclass] EQL dc$_bus	! If it is a bus
+     AND					! and
+	.ucb[ucb$b_devtype] EQL dt$_nisca	! if it is a NI-SCS port
+     AND					! and
+	.ucb[ucb$w_unit] EQL 0			! if it is unit 0
+     AND					! on
+	.(ddb[ddb$t_name]) EQL .(UPLIT BYTE (3,'PEA')) ! device PEA
+    THEN
+	BEGIN
+	pe_ucb = .ucb;				! Save the UCB address
+	exitloop;
+	END;
+    status = IOC$SCAN_IODB(.ddb, .ucb; ddb, ucb);
+    END;
+
+!
+! Now to clean up.  Unlock the I/O database, then lower the IPL
+! to zero.
+!
+SCH$IOUNLOCK(.ctl$gl_pcb);			! Unlock I/O database
+SET_IPL(0);					! Lower IPL
+
+RETURN .status;
+END;
+
+GLOBAL ROUTINE add_pestats =
+
+!-
+!	This routine collects the statistics from the PE
+!	virtual circuit blocks.
+!
+! Inputs:
+!	pe_ucb    - pointer to the UCB for PEA0
+!
+! Outputs:
+!	npes   - a block containing the sum of all the data
+!		    in the VC blocks
+!
+!-
+
+BEGIN
+
+LOCAL
+    pdt : REF $BBLOCK,
+    port : REF $BBLOCK,
+    vc : REF $BBLOCK,
+    vcvec : REF VECTOR [, LONG],
+    vccnt,
+    status;
+
+!
+! Trap anything weird, and turn it into a return
+!
+ENABLE
+    kernel_handler_nolock;
+
+!
+! Zero the new statistics block, and other cells
+!
+CH$FILL (0, pes_c_length, npes);
+vccnt = 0;
+
+!
+! Find our UCB address if the first call
+!
+IF .pe_ucb EQL 0
+THEN
+    BEGIN
+    status = ucb_init();
+    IF NOT .status THEN RETURN .status;
+    END;
+!
+! Find the start of the list of virtual circuit blocks
+!
+pdt = .pe_ucb[ucb$l_pdt];
+IF .pdt[pdt$b_type] NEQ dyn$c_scs
+ OR
+   .pdt[pdt$b_subtyp] NEQ dyn$c_scs_pdt
+ OR
+   .pdt[pdt$b_pdt_type] NEQ pdt$c_pe
+THEN
+    RETURN 1;
+port = .(.pdt+pdt$c_pem+pem_pctx);
+vcvec = .port[port$l_ptr_vcvec0];
+!
+! Scan all the VC blocks, and add the stats from all that
+! exist
+!
+INCR idx FROM .port[port$b_vc_last] TO .port[port$b_vc_num]
+DO
+    BEGIN
+    vc = .vcvec[.idx];
+    !
+    ! If the VC is zero, it has been closed.  If it is
+    ! -1, it is the end marker.
+    !
+    IF (.vc NEQ 0) AND (.vc NEQ -1)
+    THEN
+	BEGIN
+	vccnt = .vccnt + 1;
+	!
+	! Collect the data from this VC block.  Note that we scale the byte values
+	! by 256 to reduce the chance of overflow and wraparound.
+	!
+	npes[pes_l_xmt_msg]		= .npes[pes_l_xmt_msg]		+ .vc[vc$l_xmt_msg];
+	npes[pes_l_xmt_unseq]		= .npes[pes_l_xmt_unseq]	+ .vc[vc$l_xmt_unseq];
+	npes[pes_l_xmt_seq]		= .npes[pes_l_xmt_seq]		+ .vc[vc$l_xmt_seq];
+	npes[pes_l_xmt_ack]		= .npes[pes_l_xmt_ack]		+ .vc[vc$l_xmt_ack];
+	npes[pes_l_xmt_rexmt]		= .npes[pes_l_xmt_rexmt]	+ .vc[vc$l_xmt_rexmt];
+	npes[pes_l_xmt_cntl]		= .npes[pes_l_xmt_cntl]		+ .vc[vc$l_xmt_cntl];
+	npes[pes_l_xmt_bytes]		= .npes[pes_l_xmt_bytes]	+ .(vc[vc$l_xmt_bytes])<8,24,0>;
+	npes[pes_l_xmt_noxch]		= .npes[pes_l_xmt_noxch]	+ .vc[vc$l_xmt_noxch];
+	npes[pes_l_rcv_msg]		= .npes[pes_l_rcv_msg]		+ .vc[vc$l_rcv_msg];
+	npes[pes_l_rcv_unseq]		= .npes[pes_l_rcv_unseq]	+ .vc[vc$l_rcv_unseq];
+	npes[pes_l_rcv_seq]		= .npes[pes_l_rcv_seq]		+ .vc[vc$l_rcv_seq];
+	npes[pes_l_rcv_ack]		= .npes[pes_l_rcv_ack]		+ .vc[vc$l_rcv_ack];
+	npes[pes_l_rcv_rercv]		= .npes[pes_l_rcv_rercv]	+ .vc[vc$l_rcv_rercv];
+	npes[pes_l_rcv_cntl]		= .npes[pes_l_rcv_cntl]		+ .vc[vc$l_rcv_cntl];
+	npes[pes_l_rcv_bytes]		= .npes[pes_l_rcv_bytes]	+ .(vc[vc$l_rcv_bytes])<8,24,0>;
+	npes[pes_l_rcv_cache]		= .npes[pes_l_rcv_cache]	+ .vc[vc$l_rcv_cache];
+	npes[pes_l_hs_tmo]		= .npes[pes_l_hs_tmo]		+ .vc[vc$w_hs_tmo];
+	npes[pes_l_rcv_tr_short]	= .npes[pes_l_rcv_tr_short]	+ .vc[vc$w_rcv_tr_short];
+	npes[pes_l_rcv_cc_short]	= .npes[pes_l_rcv_cc_short]	+ .vc[vc$w_rcv_cc_short];
+	npes[pes_l_rcv_ill_ack]		= .npes[pes_l_rcv_ill_ack]	+ .vc[vc$w_rcv_ill_ack];
+	npes[pes_l_rcv_ill_seq]		= .npes[pes_l_rcv_ill_seq]	+ .vc[vc$w_rcv_ill_seq];
+	npes[pes_l_rcv_bad_cksum]	= .npes[pes_l_rcv_bad_cksum]	+ .vc[vc$w_rcv_bad_cksum];
+	npes[pes_l_rcv_norch]		= .npes[pes_l_rcv_norch]	+ .vc[vc$w_rcv_norch];
+	npes[pes_l_rcv_cc_bad_eco]	= .npes[pes_l_rcv_cc_bad_eco]	+ .vc[vc$w_rcv_cc_bad_eco];
+	npes[pes_l_rcv_cc_authorize]	= .npes[pes_l_rcv_cc_authorize]	+ .vc[vc$w_rcv_cc_authorize];
+	npes[pes_l_xmt_seq_tmo]		= .npes[pes_l_xmt_seq_tmo]	+ .vc[vc$w_xmt_seq_tmo];
+	npes[pes_l_rcv_listen_tmo]	= .npes[pes_l_rcv_listen_tmo]	+ .vc[vc$w_rcv_listen_tmo];
+	npes[pes_l_tr_dfq_empty]	= .npes[pes_l_tr_dfq_empty]	+ .vc[vc$w_tr_dfq_empty];
+	npes[pes_l_tr_mfq_empty]	= .npes[pes_l_tr_mfq_empty]	+ .vc[vc$w_tr_mfq_empty];
+	npes[pes_l_cc_dfq_empty]	= .npes[pes_l_cc_dfq_empty]	+ .vc[vc$w_cc_dfq_empty];
+	npes[pes_l_cc_mfq_empty]	= .npes[pes_l_cc_mfq_empty]	+ .vc[vc$w_cc_mfq_empty];
+	npes[pes_l_tr_pipe_quota]	= .npes[pes_l_tr_pipe_quota]	+ .vc[vc$l_tr_pipe_quota];
+	END;
+    END;
+!
+! Store the time and VC count into the stat block
+!
+npes[pes_l_abstim_tics] = .exe$gl_abstim_tics;
+npes[pes_l_vc_cnt] = .vccnt;
+!
+! If the first time, copy the new stats to the old
+! stats so that we don't get a huge "rate" with the
+! initial screen.
+!
+IF .first_time
+THEN
+    CH$MOVE (pes_c_length, npes, pes);
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE ast_routine : NOVALUE =
+
+!-
+!	This routine is called periodically, and does all the real
+!	work.
+!
+!-
+
+BEGIN
+
+LOCAL
+    status;
+
+! Collect another set of data
+!
+status = $CMKRNL(ROUTIN=add_pestats);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+! Display the data
+!
+display_pestats();
+first_time = 0;
+
+! Request another timer AST, and leave
+!
+status = $SETIMR (efn = 1, daytim = ast_interval, astadr = ast_routine);
+IF NOT .status THEN SIGNAL_STOP (.status);
+
+RETURN;
+END;
+
+END
+ELUDOM

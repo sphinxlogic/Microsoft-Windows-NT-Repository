@@ -1,0 +1,137 @@
+;
+; Very simplistic tool to Read, Verify, Moodify amd Rewrite Indexed file buckets.
+; Input a hexadecimal number to cause that VBN to be read.
+; Use D to get into the debugger, bucket pointed to by R2.
+; Use GO in the Debugger to get back to the prompt.
+; At prompt Use W to Write out the bucket if so desired.
+; F will show the formatted bucket header.
+; I found this tool to be really usefull in very-remote file patching
+; as it reads & writes only the block needed.
+; Feel free to adapt. Eg a "N" for read next would be welcome.
+;
+; Main use is to PATCH remote or very large indexed file.
+;    
+; Have fun, Hein van den Heuvel, 1985
+;
+	.PSECT	code,exe,nowrt
+	.ENTRY	START, ^M<>
+	PUSHAL	FILENAME_SIZ
+	PUSHAQ	FILENAME_PROMPT
+	PUSHAQ	FILENAME
+	CALLS	#3, G^LIB$GET_INPUT
+	MOVB	FILENAME_SIZ, FAB+FAB$B_FNS	;Insert the filename size
+	$OPEN	FAB=FAB				;Open the input file
+	BLBC	R0, BYE				;See you later!
+	MOVZBL	FAB+FAB$B_BKS, R0		;Pick up bucket size
+	ASHL	#9, R0, R1			;Multiply by 512
+	MOVW	R1, RAB+RAB$W_USZ		;Set up size of read
+	$CONNECT RAB=RAB			;Connect
+	BLBS	R0, MAIN_LOOP			;Go for it!
+DONE:	$CLOSE	FAB=FAB		;Close the files
+	$EXIT_S
+BYE:	RET
+
+MAIN_LOOP:
+	MOVL	#VBN_LEN, VBN			;Init len filed in descriptor
+	PUSHAQ	VBN				;Output LEN
+	PUSHAQ	VBN_PROMPT			;Prompt
+	PUSHAQ	VBN				;Buffer
+	CALLS	#3, G^LIB$GET_INPUT		;Get it
+	BLBC	R0, BYE				;Done?
+	CMPB	#^A"A", VBN_BUF			;Numeric?
+	BGTR	READ				;
+	BICB2	#32, VBN_BUF			;Upcase (the hard way)
+	CMPB	#^A"W", VBN_BUF
+	BEQL	WRITE
+	CMPB	#^A"E", VBN_BUF
+	BEQL	DONE
+	CMPB	#^A"D", VBN_BUF
+	BEQL	DEB
+	CMPB	#^A"F", VBN_BUF
+	BEQL	FORMAT
+	PUSHAQ	INPUT_ERROR
+	BRW	GIVE_ERROR
+DEB:	BRW	DEBUG
+WRITE:
+	$WRITE	RAB=RAB
+	BLBC	R0, FORMAT
+	BRW	MAIN_LOOP
+
+READ:	PUSHAL	RAB+RAB$L_BKT			;Straight into the RAB
+	PUSHAL	VBN				;INput again
+	CALLS	#2, G^OTS$CVT_TZ_L		;Convert	
+	BLBS	R0, 10$
+	PUSHAQ	CONVERT_ERROR
+	BRW	GIVE_ERROR			
+10$:
+	$READ	RAB=RAB				;Read the bucket
+	BLBS	R0, FORMAT
+	PUSHAL	ENDOF_ERROR
+	CMPL	R0,#RMS$_EOF
+	BEQL	20$
+	PUSHAL	READ_ERROR
+20$:	BRW	GIVE_ERROR
+
+FORMAT:
+	MOVL	#FAO_OUTBUF_L, FAO_OUTBUF_D	;init size
+	PUSHL	BUF+13			;15	Flags
+	PUSHL	BUF+12			;14	Level
+	PUSHL	BUF+6				;13	Last/next
+	PUSHL	BUF+4				;12	InUse
+	PUSHL	BUF+1				;11	Area
+	MOVZWL	RAB+RAB$W_USZ, R1
+	PUSHL	BUF-1(R1)			;10	Check-2
+	PUSHL	BUF+0				;9	Check-1
+	PUSHL	RAB+RAB$L_STV			;8	
+	PUSHL	RAB+RAB$L_STS			;7
+	PUSHL	BUF+8				;6	
+	PUSHL	BUF+2				;5
+	PUSHL	RAB+RAB$L_BKT			;4
+	PUSHAL	FAO_OUTBUF_D			;3
+	PUSHAL	FAO_OUTBUF_D			;2
+	PUSHAL	FAO_CTRSTR_D			;1
+	CALLS	#15, G^SYS$FAO			
+	PUSHAL	FAO_OUTBUF_D
+	CALLS	#1, g^LIB$PUT_OUTPUT
+	BRW	MAIN_LOOP
+
+DEBUG:	MOVAB	BUF, R2
+	MOVZWL	RAB+RAB$W_RSZ, R3
+	MOVL	RAB+RAB$L_BKT, R4
+	PUSHL	#SS$_DEBUG
+	CALLS	#1, g^LIB$SIGNAL
+	BRW	MAIN_LOOP
+GIVE_ERROR:
+	CALLS	#1, G^LIB$PUT_OUTPUT
+	BRW	MAIN_LOOP
+	
+	.PSECT	data,noexe,wrt
+BUF::	.BLKB	512*64
+FAB:	$FAB	FAC = <BIO,GET,PUT>, - 		;Allow block I/O read AND write
+		FNA = FILENAME_BUF, -		;Address of filename string
+		SHR = UPI
+RAB:	$RAB	FAB = FAB, -			;Associated FAB
+		ROP = <BIO>, -			;block I/O Processing
+		UBF = BUF			;Input buffer
+
+CONVERT_ERROR:	.ASCID	"Error converting block number"
+READ_ERROR:	.ASCID	"Error reading VBN"
+ENDOF_ERROR:	.ASCID	"Beyond EOF"
+INPUT_ERROR:	.ASCID	"No Way"
+FILENAME_PROMPT:.ASCID	"Please enter filename:"
+FILENAME:	.LONG	80,FILENAME_BUF	;input buffer descriptor
+FILENAME_SIZ:	.WORD	0		;Receives length of filename
+FILENAME_BUF:	.BLKB	80
+VBN_PROMPT:	.ASCID	"Now what? (Debug, Format, HEX VBN #, Write, Exit):"
+VBN_LEN = 20
+VBN:		.LONG	VBN_LEN, VBN_BUF
+VBN_BUF:	.BLKB	VBN_LEN
+FAO_CTRSTR_A:	.ASCII	"BKT=!XL(!XW), Next=!XL, STS=!XL, STV=!XL !/"
+		.ASCII	"Check=!XB(!XB), Area=!XB, "
+		.ASCII	"InUse=!XW ,Last/Next=!XW, Level=!XB, Flags=!XB!/"
+FAO_CTRSTR_L = 	. - FAO_CTRSTR_A
+FAO_CTRSTR_D:	.LONG	FAO_CTRSTR_L, FAO_CTRSTR_A
+FAO_OUTBUF_L =	200
+FAO_OUTBUF_A:	.BLKB	FAO_OUTBUF_L
+FAO_OUTBUF_D:	.LONG	FAO_OUTBUF_L, FAO_OUTBUF_A
+	.END	START

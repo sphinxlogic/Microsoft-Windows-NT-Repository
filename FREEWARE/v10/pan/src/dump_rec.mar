@@ -1,0 +1,73 @@
+	.library	/sys$login:peb/
+
+fab:	$fab	fnm=<input>,fac=get
+
+rab:	$rab	fab=fab,usz=5000,rsz=5000,ubf=buffer,rbf=buffer
+
+buffer:	.blkb	5000
+dlm:	.ascid	/========================== new record ==========================/
+	.entry	start,0
+
+	$open fab=fab
+	check	r0,error
+
+	$connect	rab=rab
+	check	r0,error
+
+loop:	nop
+
+	movc5	#0,(sp),#0,#5000,buffer
+
+	pushaq	dlm
+	calls	#1,g^lib$put_output
+
+
+
+	$get	rab=rab
+	check	r0,error
+
+	movl	#1024, point
+
+blp:	nop
+
+
+	movab	buffer, R6
+	addl2	point, r6
+
+	movl	(R6), tmp
+
+
+	tstl	tmp
+	beql	10$	
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr,outbuf=out,outlen=out,-
+		p1=point,-
+		p2=tmp
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+10$:	decl	point
+
+	tstl	point
+	bneq	blp
+
+
+	brw	loop
+
+error:	ret
+
+point:	.blkl	1
+
+
+ctr:	.ascid	/ Point = !UL  value = !XL/
+
+out:	.long	100
+	.long	out+8
+	.blkb	100
+
+
+
+tmp:	.blkl	1
+
+	.end	start

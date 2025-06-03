@@ -1,0 +1,2401 @@
+    		         V M S _ S H A R E
+
+    		 A guide to use for the general user
+
+    			        By
+
+    			    Andy Harper
+    			Kings College London
+
+__________________________________________________________________________
+
+
+
+			  A B S T R A C T
+
+
+  VMS_SHARE is designed to package a series of files into a multi-part
+  share file suitable for mailing across a network. Files are encoded to
+  be resistant to the corruption that many mailers and networks
+  generate.  When all parts of the share file are combined and run as a
+  command procedure, the packaged directory tree is recreated in its
+  original format.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  This software is copyright (C) of the author and comes with no
+  warranties either expressed or implied.  It may be distributed free of
+  charge to anyone who may require a copy, provided that all copyright
+  notices remain intact. Any problems arising from its use are entirely
+  the responsibility of the user.
+
+
+  Andy Harper
+  Systems Manager
+  Computing Centre
+  Kings College London
+  The Strand
+  London WC2R 2LS
+  England
+
+  Tel:  +44 (0) 71 873 2347
+  E-mail:   UDAA055 @ UK.AC.KCL.CC.OAK (JANET)
+            UDAA055%OAK.CC.KCL.AC.UK @ NSFNET-RELAY.AC.UK (INTERNET)
+
+_________________________________________________________________________
+
+Version 8.4					     		Jun 1993
+Revision 7
+
+    			C O N T E N T S
+
+    		1.	INTRODUCTION
+
+    		2.	OVERVIEW
+			2.1  The VMS_SHARE Utility
+			2.2  The PAKMAIL Utility
+			2.3  The PAKEXTRACT Utility
+
+		3.	USING VMS_SHARE
+			3.1  Simple Use
+    			     3.1.1  Input File specification
+    			     3.1.2  Output File specification
+    			     3.1.3  Examples
+			3.2  Subdirectory Restrictions
+			3.3  File Type Restrictions
+			3.4  Record Length Restrictions
+			3.5  Working Set and Virtual Memory Requirements
+			3.6  Checksum Validation
+
+		4.	ADVANCED USE OF VMS_SHARE
+			4.1  Selectable Options
+			4.2  Default Settings
+			4.3  Customization Through Logical Names
+			     4.3.1 SHARE_IDENT -- Share file creator identification
+			     4.3.2 SHARE_REAL_NAME -- User's Real Name
+			     4.3.3 SHARE_EMAIL_ADDRESS - Electronic mail address
+			     4.3.4 SHARE_TEMP -- Temporary Files
+			     4.3.5 SHARE_UNPACK_TEMP -- Temporary Files
+			     4.3.6 SHARE_VERIFY -- Procedure Verification
+			4.4  Customization Via Command-Line Qualifiers
+
+    		5.	USING PAKMAIL
+    			5.1  User specification
+    			5.2  File specification
+    			5.3  Part specification
+			5.4  Partlist specification
+    			5.5  Comment specification
+
+    		6.	HOW TO UNPACK A SHARE FILE
+    			6.1  Command file
+    			6.2  Dealing with multiple part share files
+			6.3  Using PAKEXTRACT
+
+    		7.	REFERENCES
+
+		QUALIFIER REFERENCE SECTION
+			/BACKUP
+			/BEFORE
+			/COMPRESS
+			/CONFIRM
+			/CREATED
+			/DEBUG
+			/DIRECTORY
+			/EXCLUDE
+			/EXPIRED
+			/LOG
+			/LONGLINES
+			/MODIFIED
+			/NAME
+			/PACKAGE_INDEX
+			/PART_SIZE
+			/SHARE
+			/SINCE
+			/SPACE_ENCODE
+			/SPLIT
+			/TEMPORARY
+			/VERSION
+			/WORK
+
+1.	INTRODUCTION
+
+The use of global networks and electronic mail has made it possible to
+distribute software packages quickly, cheaply and easily in a relatively
+reliable way. Unfortunately, the reliability cannot always be guaranteed since
+many mail systems can introduce corruption into the transmitted messages.
+
+Such corruption can usually be avoided if the message being sent conforms to
+certain restrictions. The specific restrictions are dictated by the common
+limitations of mail systems. For example, some mail systems will truncate long
+lines, some will modify character sets. The VMS_SHARE utility is designed to
+overcome these limitations. It has knowledge of a wide range of these
+limitations and will encode a series of files into a format that avoids them.
+As a result, messages encoded in this way will pass through almost all mail
+systems uncorrupted, allowing the original information to be recovered at the
+receiving end. So, provided there is an electronic mail link between two users,
+any type of software package may be encoded and sent reliably.
+
+The release notes for the package describe new features and general changes 
+from previous releases [Reference 2].
+
+
+
+
+2.	OVERVIEW
+
+The VMS_SHARE package comes with three basic components - the VMS_SHARE
+utility, the PAKMAIL utility and the PAKEXTRACT utility.
+
+
+2.1 The VMS_SHARE Utility
+
+From a user specified set of input files, the VMS_SHARE utility packs and
+encodes the information into a single file, known as an archive or 'share'
+file. It then splits up the file into pieces sufficiently small to be mailed
+individually through an electronic mail system, without truncation, to a
+recipient. It is the recipient's responsibility to recombine the pieces into a
+single file which, when executed as a VMS command procedure, creates an exact
+copy of the original input files. Checksums are provided to ensure that if the
+information is corrupted by some unforeseen mechanism then it is at least
+detected. 
+
+VMS_SHARE encodes the information to cope with different types of potential 
+corruption, such as line wrapping/truncation, character code conversions, 
+trailing blank removal etc.  Full details can be found in the technical guide 
+[Reference 1].
+
+
+2.2 The PAKMAIL Utility
+
+Because the VMS_SHARE utility may create several parts for mailing, it can be
+difficult to issue the necessary commands to mail each of them separately. The
+PAKMAIL utility is designed to ease this difficulty by gathering all of the
+generated pieces of the share file and mailing them to one or more recipients
+across the electronic mail network. VMS MAIL is used as the mailer.
+
+
+2.3 The PAKEXTRACT Utility
+
+Packages mailed to a user are received by that user in their mail as a number
+of separate messages. The user has the job of extracting all the parts, in the
+correct order, joining them together and running the whole thing as a DCL
+procedure.
+
+For large packages, there may be many parts (messages) involved. PAKEXTRACT can
+assist in the extraction process by locating all the MAIL messages related to
+a specific package and extracting them into separate files. By default, it will
+also join the parts together to form a single procedure that can be directly
+executed without further action.
+
+3.	USING VMS_SHARE
+
+VMS_SHARE is a command procedure but is usually provided to users via a
+`Foreign' command symbol. The mechanism for defining this symbol is
+site-dependent and the appropriate system management should be consulted for
+details.
+
+
+3.1 Simple use
+
+The simplest use of VMS_SHARE is as follows:
+
+     $ VMS_SHARE <input> <output>
+
+where:
+
+  <input>  is an input file specification (see below). If a parameter is not
+           supplied, a prompt is issued.
+
+  <output> is the name to be given to the output 'share' file (see below).
+           If a parameter is not supplied, a prompt is issued. 
+
+
+
+3.1.1 Input File specification
+
+The input file specification is a comma separated list of standard VMS 
+filenames, which may include wildcards anywhere. For example:
+
+     TEST
+    	The specific file   "TEST."
+
+     *.FOR
+        All files ending in ".FOR"
+
+     [...]*.*;*
+        All files in and below the current directory.
+
+     *.FOR,*.MAR
+        All files ending in ".FOR", then all files ending in ".MAR"
+
+
+Any subdirectories will be recreated when the share file is unpacked. For this 
+reason and the fact that no useful information is contained within them, 
+directory files (those ending in .DIR) are always ignored.
+
+
+3.1.2 Output File specification
+
+The output file name is used as a template to construct the individual parts 
+of the share file.  The file type part of the name will be suffixed by a 'part
+number identification' of the form:
+
+    nnn-OF-mmm
+
+where nnn is the part number, starting at 1, and mmm is the total number of
+parts generated.
+
+For example:
+
+An output filename of:
+    PACKAGE.
+
+might generate files called:
+    PACKAGE.001-OF-100
+    PACKAGE.002-OF-100
+     ...
+    PACKAGE.100-OF-100
+
+As many parts as necessary to contain the whole package are generated.
+
+
+
+3.1.3 Examples
+
+Typical examples of the use of VMS_SHARE would be:
+
+     $ VMS_SHARE [...]*.*;* ARCHIVE
+         Archive the whole of the directory tree, starting from the current
+         directory into a share file with a template name of "ARCHIVE". 
+         This would generate files called "ARCHIVE.1-OF-9", "ARCHIVE.2-OF-9"
+         etc. (assuming a total of 9 parts).
+
+
+     $ VMS_SHARE [.DOC]*.*,[.EXE]*.*,[.SRC]*.*  VI
+         Archive all files in the three directories [.DOC], [.EXE] and [.SRC]
+         and generate share files with a template name of "VI." I.E.
+         "VI.01-OF-17", "VI.02-OF-17" etc. (assuming a total of 17 parts).
+
+When unpacked, the tree structure of the original files will be preserved.
+
+
+3.2 Subdirectory restrictions
+
+In order to ensure that the recipient receives the files in a known set of 
+directories, only files within or below the current directory may be used as 
+input.  The relative tree structure is preserved, from the current directory
+downwards, and will be recreated below the recipient's current directory at
+unpacking time.
+
+For example, if we archived the files "[.SRC...]*.*;*" the recipient would 
+find an exact copy of the [.SRC...] tree recreated below his current 
+directory.
+
+Note: advanced users can override this behaviour with the /NODIRECTORY
+qualifier. This is described later.
+
+
+3.3 File type Restrictions
+
+VMS_SHARE supports only SEQUENTIAL files (Not INDEXED or RELATIVE). Within the
+sequential file type, all record formats and carriage control options on the
+file are supported and restored. However, other attributes of the file are not
+restored  - the normal file defaults are used.
+
+Since fixed length records are supported, it is possible to package both .EXE
+and .OBJ files without the need for external encoding. The binary data normally
+found in such files is automatically handled and encoded appropriately.
+
+Note: advanced users can use the /LONGLINES qualifier to allow BACKUP savesets
+to be packaged. Any type of file may be shipped if it is first packaged inside
+a BACKUP saveset.
+
+
+
+3.4 Record Length Restrictions
+
+The maximum record length supported is determined by the underlying TPU
+language (in which a large portion of VMS_SHARE is implemented). Prior to VMS
+5.4 only short records (less than 960 bytes) were permitted. Later versions of
+VMS recognize records up to 65535 bytes. For compatibility, VMS_SHARE restricts
+the maximum record length to the shorter length.
+
+Note: Advanced users can select the longer record length using the /LONGLINES
+option but this is available only on VMS 5.4 and above (VAX) and on any
+version of OpenVMS on Alpha. It is necessary only for files which genuinely
+contain records longer than 960 bytes. However, note that its use will prevent
+recipients from unpacking if they have a version of VAX/VMS earlier than 5.4.
+
+
+3.5 Working Set and Virtual Memory Requirements
+
+VMS_SHARE packages files by first reading them, one at a time, completely into
+memory. Therefore, large files can demand large virtual memory resources and
+users should have sufficient page file quota (PGFLQUO) allocated to their
+process to ensure that the files will fit. Later versions of TPU include
+automatic use of a behind-the-scenes workfile to hold portions of the current
+file and the need for larger page file quotas disappears (to be replaced by a
+need for additional disk quota if this workfile is on a quota'd disk).
+
+Because much of the work is in memory, VMS_SHARE works best if a large working
+set is allocated to the process. The actual size depends on the files being
+packaged, but the larger the better. Too small a working set will result in slow
+execution speeds caused by excessive paging.
+
+Note: Advanced users can control the use of virtual memory a little through the
+use of the qualifiers /SPLIT and /WORK. These are fully described in the
+qualifier reference section of this document.
+
+
+3.6 Checksum Validation
+
+Although files are encoded to resist many forms of corruption, there may be
+some mechanisms which have not been anticipated.  To allow the recipient to
+detect this, a checksum validation scheme is applied to each file unpacked. Any
+mismatch at the unpacking stage results in a warning message. It is then up to
+the recipient to locate the corruption and fix it manually if possible.
+
+Due to limitations of VMS, checksum validation cannot be applied to files with
+certain types of record structure. In this instance, a warning message is
+generated at the packaging stage and the file is ignored. Unfortunately, the
+problem is serious enough to prevent VMS_SHARE from being able to package it.
+
+4. ADVANCED USE OF VMS_SHARE
+
+The simple use described earlier makes use of default values for each of the
+user selectable options built in to VMS_SHARE. Each option may be set
+differently, to select a different way of working. Options may be set either by
+a logical name, which overrides the default value normally used, or by means of
+a qualifier on the command line, which specifically selects the option for that
+execution, overriding both the default value and the setting of any logical
+name.
+
+Typically, users will define logical names with their preferred default values
+and override them occasionally with qualifiers.
+
+
+4.1 Selectable Options
+
+The following table lists the additional facilities that can be selected,
+either by logical name or qualifier (or both, in some cases). A full
+description of each is given later.
+
+-------------------------------------------------------------------------------
+Qualifier	Logical		Function
+-------------------------------------------------------------------------------
+
+File Selection:
+--------------
+
+/BACKUP				Specify the last backup date as a date criteria
+
+/BEFORE=date			Select only files before a certain date
+
+/CREATED			Specify the creation date as a date criteria
+
+/EXCLUDE=list	SHARE_EXCLUDE	Exclusion of files by directory, name, type and
+				version number; or any combination of each.
+
+/EXPIRED			Specify the expiry date as a date criteria
+
+/MODIFIED			Specify the last modified date as a date
+				criteria
+
+/SINCE=date			Select only files after a certain date
+
+
+
+Interactive Selection Confirmation:
+----------------------------------
+
+/CONFIRM	SHARE_CONFIRM	Requires a TRUE/FALSE value to confirm each
+				file selected.
+
+
+
+FileName Preservation:
+---------------------
+
+/DIRECTORY	SHARE_DIRECTORY	Selects the preservation of relative directory
+				names across the packaging operation.
+
+/VERSION	SHARE_VERSION	Selects the preservation of file version
+				numbers across the packaging operation.
+
+
+
+Informational:
+--------------
+
+/DEBUG=n	SHARE_DEBUG	Selects internal debugging messages to assist
+				development.
+
+/LOG=n		SHARE_LOG	Selects logging of progress at various levels
+
+		SHARE_VERIFY	Selects verification of the DCL code as it is
+				executed.
+
+
+Use of Temporary Files:
+----------------------
+
+/TEMPORARY=file	SHARE_TEMP	Selects an alternative name for the temporary
+				file used during packaging
+
+		SHARE_UNPACK_TEMP
+				Selects an alternative name for the temporary
+				file used during unpacking of a share file.
+
+
+/WORK=file	SHARE_WORK	Selects an alternative work file for the
+				storage of those parts of a big file that will
+				not fit in the available virtual memory.
+
+
+
+User Identification:
+--------------------
+
+		SHARE_EMAIL_ADDRESS
+				Defines a specific string as the user's email
+				address, overriding the automatic selection
+				which is inbuilt.
+
+		SHARE_IDENT	Defines a specific string as the
+				identification line written at the head of
+				the share file. Overrides the use of the
+				user's email address.
+
+		SHARE_REAL_NAME	Defines a specific string to be inserted into
+				the comment field of the users email address.
+
+
+
+Miscellaneous:
+
+/COMPRESS	SHARE_COMPRESS	Selects additional file compression to reduce
+				transit time through the network.
+
+/LONGLINES	SHARE_LONGLINES	Selects support for long records supplied
+				with more recent VMS versions.
+
+/NAME		SHARE_NAME	Select the name to be written into the share
+				file to identify the package.
+
+/PACKAGE_INDEX	SHARE_PACKAGE_INDEX
+				Selects the automatic creation of a package
+				index file for use with some mail based file
+				servers
+
+/PART_SIZE	SHARE_PART_SIZE	Selects the maximum size of each part of the
+				share file.
+
+/SHARE		SHARE_SHARE	Selects whether to write or not write the
+				generated share file parts.
+
+/SPACE_ENCODE	SHARE_SPACE_ENCODE
+				Select whether all spaces are encoded or just
+				those at the ends of lines in the share file.
+
+/SPLIT		SHARE_SPLIT	Select the maximum size of file that can be
+				processed in memory. Files which are larger
+				will be split into small parts of this size and
+				processed independently.
+
+-------------------------------------------------------------------------------
+
+
+
+4.2 Default Settings
+
+Each option has a default value which will be used if no specific value is
+selected by the user's customization. In general, the defaults are suitable for
+most applications and it will work satisfactorily with all of them.
+
+
+
+4.3 Customization Through Logical Names
+
+Many of the default settings can be changed by defining a logical name with the
+selected value. While this logical name is defined, all executions of the
+VMS_SHARE utility will use the defined value rather than the default.
+
+For example:
+
+To override the default part size of 30 blocks:
+
+   $ define SHARE_PART_SIZE 50
+
+Subsequent executions of VMS_SHARE will now use a part size of 50 blocks rather
+than the default of 30 blocks.
+
+There are some options may be set only via logical names. These are described
+below.
+
+
+4.3.1 SHARE_IDENT  --  Share file creator identification
+
+The sharefile is created with a header that contains a string to identify the
+user who created it. If this logical name is defined, then its translation is
+used as this identification string.
+
+For Example:
+
+  $ DEFINE SHARE_IDENT "Fred Bloggs on behalf of SoftSoap International"
+
+
+If this logical name is not defined, VMS_SHARE uses a default string based on
+the user's electronic mail address. This address is worked out automatically
+from the logical names that are known to be provided by various underlying
+network packages. If the e-mail address cannot be worked out, then the username
+by itself is used.
+
+For example:
+
+   FBLOGGS@LUXVAX.SOFTSOAP.COM
+
+might be the default ident string for user FBLOGGS at site  LUXVAX.SOFTSOAP.COM
+
+If the system has no recognized network name, then the ident string would be
+simply:
+
+   FBLOGGS
+
+This ident string may be further modified by the logical names SHARE_REAL_NAME
+and SHARE_EMAIL_ADDRESS. These are described below.
+
+
+4.3.2 SHARE_REAL_NAME  --  User's Real Name
+
+If this logical name is defined, it's translation is added to the default ident
+string to produce an e-mail address in the standard form.
+
+For example:
+
+  $ define SHARE_REAL_NAME "Fred Bloggs"
+
+would modify the default ident string to:
+
+  Fred Bloggs <FBLOGGS@LUXVAX.SOFTSOAP.EDU>
+
+If SHARE_IDENT is defined to override the default ident string, then the
+translation of SHARE_REAL_NAME is ignored.
+
+
+4.3.3 SHARE_EMAIL_ADDRESS -- Electronic Mail Address
+
+If it is not possible to work out the e-mail address, or the user wishes a
+different e-mail address to be used, then this logical name can be defined with
+a replacement.
+
+For example:
+
+  $ define SHARE_EMAIL_ADDRESS "FBLOGGS@CLEANVAX.SOFTSOAP.EDU"
+
+would force this specific e-mail address and override the automatic
+determination of the address.
+
+If SHARE_IDENT is defined to override the default ident string, then the
+definition of SHARE_EMAIL_ADDRESS is ignored.
+
+
+4.3.4 SHARE_TEMP  --  Temporary Files
+
+During the packaging process, a number of temporary files are created. These
+default to files of the form SYS$SCRATCH:SHARE_TEMP.pid where "pid" is the
+unique process identification string. They are deleted after use.
+
+The logical name SHARE_TEMP can be used to modify the location and name of
+these temporary files, with any parts not specified being taken from the above
+default.
+
+For example:
+
+   $ define SHARE_TEMP  SYS$LOGIN:X.TMP
+         Use the file SYS$LOGIN:X.TMP  for the temporary file(s).
+
+   $ define SHARE_TEMP  SYS$LOGIN:
+         Place the temporary file in the SYS$LOGIN directory but keep
+         everything else the same. The full name used is
+         SYS$LOGIN:SHARE_TEMP.pid
+
+
+
+4.3.5 SHARE_UNPACK_TEMP  --  Temporary files during unpacking
+
+In a similar fashion to SHARE_TEMP, the logical name SHARE_UNPACK_TEMP can be
+used to modify the location and name of the temporary files used during the
+unpacking process, with any parts not specified being taken from the default:
+`SYS$SCRATCH:SHARE_UNPACK_TEMP.pid'
+
+
+
+4.3.6 SHARE_VERIFY  -- verification of the VMS_SHARE procedure
+
+Some users, mainly system managers or those who develop VMS_SHARE, may wish to
+verify the operation of the code. The logical name SHARE_VERIFY may be defined
+to a TRUE or FALSE value and this has the effect of a SET VERIFY or SET
+NOVERIFY for the duration of execution of the procedure.  Any user may define
+the logical name but READ access to the procedure is needed and this is not
+usually given.  Typically then, only privileged users will be able to verify
+the operation of the code.
+
+
+4.4 Customization Via Command-Line Qualifiers
+
+Many options can be enabled, disabled or selected by means of qualifiers placed
+on the command line. For example:
+
+   $ VMS_SHARE <input> <output> /qualifiers
+
+Each qualifier specifies a new setting for one option; any number of qualifiers
+may be specified and they are processed from left to right. In the case of
+conflicting qualifiers, the rightmost one specified takes precedence.
+
+If a qualifier is given, it overrides any default setting or the value set by a
+logical name.
+
+For example:
+
+   $ VMS_SHARE [.PACKAGE]*.* PACKAGE /PART_SIZE=100
+         will create a package of 100 block files regardless of the setting of
+         the SHARE_PART_SIZE logical name.
+
+The full list of qualifiers recognized, and a description of each, is given in
+the qualifier reference section at the end of this guide.
+
+
+5.	USING PAKMAIL
+
+Once the share file parts have been created, they can be transmitted over the 
+electronic mail network to one or more recipients using the VMS MAIL utility. 
+PAKMAIL is a utility to simplify the sending mechanism by providing a single 
+line command to send the complete package. Typically, PAKMAIL is made 
+available via a 'foreign command' so the command is:
+
+     $ PAKMAIL recipient file maxparts [partlist] [comment]
+
+Each of the parameters is explained below.
+
+
+
+5.1 User specification
+
+The recipient parameter is the mail address of the user, or users, who are to 
+be sent the package. This can take any form of mail address acceptable to the 
+VMS MAIL system when used from the command line. For example:
+
+   FRED
+   NODE::JIM
+   NODE::JIM,FRED
+
+There are two small problems to watch out for. Firstly, the use of 
+distribution lists requires an @ symbol to precede a file specification which 
+contains the recipient names. Used directly, DCL intercepts the @ before MAIL
+does, and so the command does not work correctly. To avoid this, define a 
+logical name to point at the distribution list and specify the logical name as 
+the recipient. For example:
+
+   $ DEFINE USERS "@BETA_TEST_USERS.DIS"
+   $ PAKMAIL USERS ...
+
+Secondly, usernames that contain quotes (") need special attention because of 
+the way DCL/MAIL parse quoted strings. Typically, this is important when 
+sending network mail as the usual form of address is:
+
+   NET%"user@site"
+
+In this instance, the quotes must be doubled, with another set around each 
+to give an address specification of:
+
+   "NET%""user@site"""
+
+
+
+5.2 File specification
+
+The file specification gives the name of the package to be sent. It should be 
+the share file template name - omitting the part numbers. For example, a 
+specification of "PACKAGE." will cause the package to send these files:
+
+   PACKAGE.01-OF-10
+   PACKAGE.02-OF-10
+   ...
+   PACKAGE.10-OF-10
+
+
+
+
+5.3 Maximum Parts specification
+
+This is simply the total number of parts in the package. It controls how many 
+files are to be sent to each recipient.
+
+
+A typical example of a PAKMAIL command would be
+
+   $ PAKMAIL "NET%""FRED@SCROUNGING-SITE""" PACKAGE.TEST 5
+
+
+
+5.4 Partlist Specification
+
+By default, all parts of the package are sent. On occasion, it may be necessary
+to resend a subset of the package. This parameter allows a list of parts to be
+given and only those parts will be sent. The list is a comma separated set of
+part numbers.
+
+
+For example:
+
+   $ PAKMAIL "NET%""FRED@SCROUNGING-SITE""" PACKAGE.TEST 5 4,2
+        The addition of the "4,2" parameter restricts the parts sent out to
+        parts 4 and 2.
+
+
+5.5 Comment specification
+
+The subject line of the mail message sent to each recipient identifies the 
+package, which part and the total number of parts in the form:
+
+   Subj: PACKAGE.1-OF-5
+
+
+Optionally a further parameter can be given on the PAKMAIL command. This 
+parameter will be inserted verbatim into the subject line.
+
+For example, if this command is issued:
+
+   $ PAKMAIL "NET%""FRED@SCROUNGING-SITE""" PACKAGE 5 "" "(Beta-Test v2)"
+
+(Note the use of a placeholder as the fourth parameter if a partlist is not
+required).
+
+Then the generated subject line would look like this:
+
+   Subj: PACKAGE.1-OF-5 (Beta-Test v2)
+
+6.	HOW TO UNPACK A SHARE FILE
+
+6.1 Command file
+
+A share file is designed to be run as a command procedure which will recreate 
+the original source files. So in theory, it is simply necessary to extract the 
+received mail message into a file, remove the mail headers, and then run it as 
+a command procedure.
+
+For a single part share file, the following sequence of commands is necessary:
+
+     $ SET DEFAULT <scratch directory>
+     $ MAIL
+     MAIL>   READ <share file message>
+     MAIL>   EXTRACT/NOHEADER file
+     MAIL>   EXIT
+     $
+     $ @file
+
+
+
+6.2 Dealing with multiple part share files
+
+The recipient of a multi-part package sent in this form will receive a number
+of separate mail messages - one per part - but not necessarily in the correct
+numeric order. These individual messages must be extracted and combined into
+one file IN THE RIGHT ORDER. The exact sequence of events is similar to above
+but slightly complicated by the need to extract them in the right order and
+append them into a single file: 
+
+     $ SET DEFAULT <scratch directory>
+     $ MAIL
+     MAIL>   READ <share file message part 1>
+     MAIL>   EXTRACT/NOHEADER        file
+     MAIL>   READ <share file message part 2>
+     MAIL>   EXTRACT/NOHEADER/APPEND file
+     MAIL>        ... repeat last two steps for each part in sequence
+     MAIL>   EXIT
+     $
+     $ @file
+
+Strictly speaking, it is not necessary to remove the mail headers from each 
+part except the first, as the share file format is designed to skip these 
+automatically.
+
+It is important to note that ALL parts must be extracted, and in the right
+order, before trying to unpack. It is not possible to unpack each part
+individually. 
+
+
+6.3 Using PAKEXTRACT
+
+If the PAKEXTRACT utility is provided on your system (it is distributed with
+the VMS_SHARE package), then it may be used to assist in the extraction
+process.
+
+A command of the form:
+
+   $ PAKEXTRACT package-name number-of-parts [mail-folder] [option]
+
+may be used, where:
+
+   package-name    is the name of the package to be extracted from MAIL.
+
+   number-of-parts is the total number of parts in the package.
+
+   mail-folder     is the name of the MAIL folder holding the messages
+                   (default: the NEWMAIL folder).
+
+   option	   The keyword NOJOIN, to prevent the parts being
+		   concatenated together.
+
+This command will scan the mail folder looking for subject lines that begin
+with:
+
+   package-name.nnn-OF-mmm   ...
+
+where:
+
+   package-name    is the name of the package (as above)
+   nnn             is the part number
+   mmm             is the total number of parts
+   ...             is optional text
+
+This is the form of the subject line created by the PAKMAIL utility (from
+version 2.0 and upwards) and so should only be used if the received messages
+have subject lines of this form.  For compatibility, subject lines generated by
+previous versions of PAKMAIL are also recognized. These have the form:
+
+   package.n_OF_m
+or package n/m
+
+Once the messages have been located within MAIL, they are each written to an
+external file, in the current directory, with names of the form:
+
+   package-name.nnn-OF-mmm
+
+(format as above).
+
+NOTE: this utility should not be used for parts that do not have subject lines
+in exactly this format! It is possible that erroneous messages may be selected
+and written to the external files.
+
+NOTE: it is important that the content of the specified mail folder is not
+altered while this procedure is running, other than adding new messages at the
+end. If this restriction is not observed, then the wrong messages may be
+selected and written to the external files.
+
+
+Once the individual messages have been extracted, PAKEXTRACT will (unless the
+NOJOIN option has been specified) attempt to join the parts together to form a
+single DCL procedure called `package.SHAR' that can be directly executed to
+unpack all of the files.
+
+Example:
+
+To extract and unpack all of the parts of a 10 part package called EXAMPLE,
+where the messages are stored in the MAIL folder called NEWSOFT, the following
+sequence of commands would be given:
+
+    $ PAKEXTRACT EXAMPLE 10 NEWSOFT
+          To extract the files, and join the files together into a single DCL
+          procedure.
+
+    $ @EXAMPLE.SHAR
+          To run the generated share file and unpack all the files it contains.
+
+
+
+7.	REFERENCES
+
+The following references provide further information on VMS_SHARE and are 
+provided with each release of the software.
+
+[1]	VMS_SHARE Technical Information supplement
+[2]	VMS_SHARE Release notes
+[3]	On-line HELP
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      ----------------------------------------------------------
+
+                    QUALIFIER REFERENCE SECTION
+
+      ----------------------------------------------------------
+
+QUALIFIER:
+		/BACKUP
+
+
+PURPOSE:
+		Specifies that the last backup date should be used for the
+		purpose of date based file selection by the /BEFORE and
+		/SINCE qualifiers
+
+
+DEFAULT:
+		Use the last-modified date
+
+
+ASSOCIATED LOGICAL NAME:
+                NONE
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+DESCRIPTION:
+		Files may be selected for packaging on the basis of the dates
+		associated with the file, using the /BEFORE and /SINCE
+		qualifiers.  The /BACKUP qualifier says that the last backup
+		date should be used as the comparison date.
+
+
+RESTRICTIONS:
+		The qualifier is ignored if neither the /SINCE or /BEFORE
+                qualifiers are specified.
+
+                Each of these qualifiers are mutually exclusive; only the last
+                one specified has any effect -  /BACKUP, /CREATED, /EXPIRED and
+                /MODIFIED
+
+QUALIFIER:
+		/BEFORE[=date]
+
+
+
+PURPOSE:
+		Specifies that all files selected must have a date associated
+		with them which is before the specified date.
+
+
+DEFAULT:
+		The dates associated with a file are not used for selection
+		purposes.
+
+
+ASSOCIATED LOGICAL NAME:
+                NONE
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+DESCRIPTION:
+                If either of the /SINCE or /BEFORE qualifiers is specified,
+                then each file specified in the parameter list is checked to
+                see if the date associated with the file is within the
+                appropriate date range. The file is selected for packaging only
+                if it does. No check is made if neither qualifier is specified
+                and the file is selected.
+
+                There are four dates associated with a file - Creation, Last
+                Modified, Expiration and Last Backup. Any of these can be used
+                as the basis for selection.
+
+                To select which of the four dates to use, these qualifiers are
+                used:
+
+		   /BACKUP		Last backup date used
+		   /CREATED		Creation date used
+		   /EXPIRED		Expiration date used
+		   /MODIFIED		Last modified date used
+
+                To select the date range, these qualifiers are used:
+
+		   /BEFORE[=date]	Select files before the date
+		   /SINCE[=date]	Select files after the date
+
+                If neither qualifier is specified, then the corresponding
+                constraint on the date is lifted.
+
+                It is permitted to use /SINCE and /BEFORE together to specify
+                both an earliest date and a latest date for the files. If no
+                date/time specification is given on either the /SINCE or
+                /BEFORE qualifiers, then the default is "TODAY".
+
+
+RESTRICTIONS:
+                Only one of /BACKUP, /CREATED, /EXPIRED or /MODIFIED should be
+                used. If several are specified only the last one is used. If
+                none are specified, /MODIFIED is assumed.
+
+		The format of the date specification is a standard VMS
+		date/time specification with these exceptions:
+
+		   o The date/time spec must not contain spaces
+
+		   o The date/time spec must not be quoted
+
+		   o Missing fields are taken from the CURRENT date/time and
+		     NOT from midnight as with other VMS commands.
+
+
+
+EXAMPLES:
+		$ VMS_SHARE *.* PACKAGE /BEFORE
+
+		Package all files modified before today
+
+		
+                $ VMS_SHARE *.* PACKAGE /BEFORE=1-JAN-1992:00:00:00.00 /CREATED
+
+	   	Package all files created before this year
+
+		
+                $ VMS_SHARE *.* PACKAGE /SINCE=YESTERDAY /BEFORE=TODAY /BACKUP
+
+		Package all files that were backed up yesterday
+
+		
+                $ VMS_SHARE *.* Z /BEFORE=TODAY
+		
+                This will select all files which have a modified date (the
+		default) before today's date.
+
+QUALIFIER:
+		/[NO]COMPRESS[=n]
+
+
+PURPOSE:
+		Select the level of compression performed on each file packaged
+
+
+
+DEFAULT:
+		/NOCOMPRESS		No compression is performed
+
+
+
+ASSOCIATED LOGICAL NAME:
+                SHARE_COMPRESS
+
+                This logical name may be defined to any true or false value, or
+                to a numeric value within the range 0-2. The value determines
+                the default for any subsequent run where the qualifier
+                /COMPRESS is not used.
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+
+DESCRIPTION:
+                VMS_SHARE packages files in the original forms where possible.
+                The only codings made are to characters or bytes which may
+                prove troublesome if transmitted through a text based mail
+                system. So most printing characters should remain visible.
+
+                The various encodings made to the file, to ensure trouble free
+                transmission, can increase the overall size significantly. By
+                default, no attempt is made to compress the data to reduce
+                this side effect. However, additional file compression may be
+                selected if required, in an attempt to reduce this overhead
+                and hence speed up transmission of the file through the mail
+                system.
+
+                Two compression options are offered - the first is a simple
+                run-length encoding algorithm to replace runs of the same
+                character by a shorter sequence, the second is a more complex
+                algorithm designed to seek out common substrings in a file and
+                encode them to shorter sequences. The latter algorithm is based
+                heavily on one known as Lempel-Ziv, although it has been
+                significantly modified for use here.
+
+                These compression qualifiers are recognized:
+
+                   /NOCOMPRESS			No compression performed
+                   /COMPRESS			Run-length compression
+                   /COMPRESS=0                  No compression performed
+                   /COMPRESS=1			Run-Length compression
+                   /COMPRESS=2			Lempel-Ziv compression
+
+                The share file, when unpacked, will automatically expand the
+                data back to its original form.
+
+                Selection of compression has two main effects:
+
+                First, in general, the overall size of the packaged files is
+                reduced; the exact compression ratio will vary depending on the
+                content of the file. In some cases, it may be of no benefit.
+                This implementation will never increase the size of a file
+                soley because of the additional compression options chosen. 
+                Lempel-Ziv compression is considerably better than the
+                run-length encoding mechanism.
+
+                Second, It will generally take significantly longer to perform
+                additional compression on the file. Lempel-Ziv takes
+                significantly longer than run-length encoding (but does a
+                better job).
+
+                It is important to recognize the tradeoffs here; additional cpu
+                time is being traded for a potential (though not guaranteed)
+                reduction in the packaged file size. You should consider
+                whether it is really of benefit before selecting it. As a
+                general rule of thumb, select compression only if you are going
+                to place the package on a file server, where reduction in disk
+                space occupancy is desirable, or if you intend to mail a very
+                large package to hundreds of people, where a reduction in
+                network bandwidth is desirable. Otherwise, don't bother.
+
+                Note that the overhead involved in decompressing a file when it
+                is being unpacked from the sharefile is fairly small, and can
+                usually be ignored for the purposes of deciding upon the
+                tradeoffs.
+
+                Note that the built-in compression schemes are not the best
+                available. They are intended to provide reasonable compression
+                without resorting to external utilities, though at the cost of
+                considerable packaging time. Better or faster compression can
+                be obtained using external utilities but this complicates the
+                process of packaging files and assumes that the recipient has
+                the corresponding decompression utilities. VMS_SHARE makes it
+                simple and does not require the recipient to have any other
+                tools.
+
+
+
+RESTRICTIONS:
+                NONE
+
+
+
+EXAMPLES:
+                $ VMS_SHARE *.* COMPACT /COMPRESS
+                   Package the files, using run length compression
+
+                $ VMS_SHARE *.* COMPACT /COMPRESS=2
+                   Package the files, using Lempel-Ziv compression
+
+QUALIFIER:
+                /[NO]CONFIRM
+
+
+PURPOSE:
+                Require user confirmation of all files selected
+
+
+DEFAULT:
+                /NOCONFIRM	User is not asked to confirm each file
+
+
+ASSOCIATED LOGICAL NAME:
+                SHARE_CONFIRM
+
+                This logical name can be defined with a true or false value. It
+                specifies the default for all subsequent executions which do
+                not specify the /CONFIRM qualifier.
+
+
+PRIVILEGES REQUIRED:
+                NONE
+
+
+DESCRIPTION:
+                The selection of files for packaging can be automatic, or with
+                confirmation. With confirmation, the user is asked about each
+                file matching the qualifiers and parameters to see if it should
+                be included in the package. A simple Y or N response is then
+                required from the user to select or not select it for
+                inclusion.
+
+                /NOCONFIRM specifies that confirmation is not required.
+
+                /CONFIRM specifies that confirmation is required.
+
+
+RESTRICTIONS:
+                Because confirmation requires a response from the user, it is
+                not permitted in non-interactive environments.  A warning
+                message will be issued and confirmation turned off.
+
+
+EXAMPLE:
+                $ VMS_SHARE *.* PACKAGE  /CONFIRM
+
+                Request confirmation from the user of each file selected. Each
+                file requires a Y (to select) or a N (to not select) response.
+
+QUALIFIER:
+		/CREATED
+
+
+PURPOSE:
+		Specifies that the creation date should be used for the
+		purpose of date based file selection by the /BEFORE and
+		/SINCE qualifiers
+
+
+DEFAULT:
+		Use the last-modified date
+
+
+ASSOCIATED LOGICAL NAME:
+                NONE
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+DESCRIPTION:
+		Files may be selected for packaging on the basis of the dates
+		associated with the file, using the /BEFORE and /SINCE
+		qualifiers.  The /CREATED qualifier says that the creation
+		date should be used as the comparison date.
+
+
+RESTRICTIONS:
+		The qualifier is ignored if neither the /SINCE or /BEFORE
+                qualifiers are specified.
+
+                Each of these qualifiers are mutually exclusive; only the last
+                one specified has any effect -  /BACKUP, /CREATED, /EXPIRED and
+                /MODIFIED
+
+
+QUALIFIER:
+		/[NO]DEBUG[=nnn]
+
+
+PURPOSE:
+                Specify that debugging output is to be produced; nnn is the
+                level of debugging required, from 0 to 4.
+
+
+DEFAULT:
+                /NODEBUG		Debugging output is OFF
+
+
+ASSOCIATED LOGICAL NAME:
+                SHARE_DEBUG
+
+                The logical name can be defined with any true or false value,
+                or an integer in the range 0-4. When defined, it will determine
+                the default value for subsequent executions that do not specify
+                the /DEBUG qualifier.
+
+
+PRIVILEGES REQUIRED:
+                Either SETPRV or SYSPRV required in the user's list of
+                AUTHORIZED privileges
+
+
+
+DESCRIPTION:
+                For developing VMS_SHARE, or investigating problems, it may be
+                helpful to use the debugging code built into the package.
+                Several levels of debugging are built in - Level 0 is no
+                debugging, level 4 is the most detailed and verbose level of
+                debugging. Debugging causes informational messages to be output
+                describing the state of VMS_SHARE and can be used to
+                investigate undocumented behaviour.
+
+                The following qualifier formats are recognized:
+                    /NODEBUG		Debugging is off
+                    /DEBUG              Debugging is on at level 1
+                    /DEBUG=0            Debugging is off
+                    /DEBUG=1            Debugging is on at level 1
+                    /DEBUG=2            Debugging is on at level 2
+                    /DEBUG=3            Debugging is on at level 3
+                    /DEBUG=4            Debugging is on at level 4
+
+
+RESTRICTIONS:
+		NONE
+
+
+EXAMPLES:
+   		$ VMS_SHARE *.* PACKAGE /NODEBUG
+		      Package files, with a debug level of 0
+
+   		$ VMS_SHARE *.* PACKAGE /DEBUG
+		      Package files, with a debug level of 1
+
+   		$ VMS_SHARE *.* PACKAGE /DEBUG=2
+		      Package files, with a debug level of 2
+
+QUALIFIER:
+                /[NO]DIRECTORY
+
+
+
+PURPOSE:
+                Select preservation of subdirectory names on each file packaged
+                in order to re-create them during unpacking.
+
+
+DEFAULT:
+                /DIRECTORY		Directories are preserved
+
+
+
+ASSOCIATED LOGICAL NAME:
+                SHARE_DIRECTORY
+
+                This logical name can be defined with any true or false value.
+                When defined it specifies the default value for all subsequent
+                executions that do not specify the /DIRECTORY qualifier.
+
+
+PRIVILEGES REQUIRED:
+                NONE
+
+
+DESCRIPTION:
+                When /NODIRECTORY is specified, the subdirectory name of each
+                file is discarded and all files will be recreated in the
+                directory current at the time of unpacking. The input files may
+                be from any source at all, although care should be taken with
+                multiple input directories to ensure that clashing filenames do
+                not occur.
+
+                When /DIRECTORY is specified, the relative subdirectory name
+                of each file is preserved so that the unpacking process can
+                recreate a copy of the directory tree below the current
+                directory. The input files must lie on the same disk at or
+                below the current subdirectory.  This is to ensure that a
+                well-defined set of directories are recreated at unpacking
+                time.
+
+                This option is supplied primarily for compatibility with
+                previous versions of the utility which did not preserve version
+                numbers.
+
+
+RESTRICTIONS:
+		NONE
+
+
+EXAMPLES:
+                $ VMS_SHARE [...]*.* PACKAGE /DIRECTORY
+
+                Preserve the subdirectory names to cause recreation of the
+                directory tree when unpacked.
+
+
+                $ VMS_SHARE [...]*.* PACKAGE /NODIRECTORY
+
+                Do not preserve directory names; all files will be created in
+                the current directory when unpacked. Care must be taken to
+                avoid clashing file names.
+
+QUALIFIER:
+                /[NO]EXCLUDE[=list]
+
+
+PURPOSE:
+                Specify a list of file patterns which, if matched, prevent a
+                file from being packaged.
+
+DEFAULT:
+                /NOEXCLUDE		No files are excluded from packaging
+
+
+ASSOCIATED LOGICAL NAME:
+                SHARE_EXCLUDE
+
+                This logical name may be defined with a comma separated list of
+                partial file specifications (see description below). When
+                defined, it specifies the default list of excluded files for
+                all subsequent executions that do not specify the /EXCLUDE
+                qualifier.
+
+
+PRIVILEGES REQUIRED:
+                NONE
+
+
+DESCRIPTION:
+                VMS_SHARE will normally package up all files matching the file
+                specifications given on the command line. Sometimes, it is
+                necessary to specifically exclude particular files. For
+                example, if generating a share file containing only sources, it
+                would be usual to exclude all files with a type of .EXE or .OBJ
+
+                VMS_SHARE allows files to be excluded from the packaging
+                operation based upon any combination of the Directory, Name,
+                Type and Version fields of the filename.
+
+                The /EXCLUDE qualifier is used to specify a list of file
+                exclusion clauses:
+
+                /EXCLUDE=list
+
+                `list' is a list of file specifications which match the files
+                to be excluded from the packaging operation. Each file
+                specification may be any combination of directory, name, type
+                or version field of a filename, with missing fields taken as
+                matching anything (equivalent to a `*' wildcard in that
+                particular field).
+
+
+RESTRICTIONS:
+                Although wildcards are supported, it is limited support only.
+                The wildcard may be used only to represent a COMPLETE field
+                (directory, name, type or version) and not a partial field.
+
+                All directory names must be the full name. Relative directory
+                specifications are not permitted.
+
+
+EXAMPLES:
+                /EXCLUDE=.EXE		Excludes all files with a type of .EXE
+
+                /EXCLUDE=.EXE,.OBJ	Excludes all files with a type of .EXE
+                			or .OBJ
+
+                /EXCLUDE=NAME.TXT	Excludes all files called NAME.DAT in
+                			any directory
+
+                /EXCLUDE=;1		Exclude all version 1 files
+
+                /EXCLUDE=[XYZ]	Exclude all files in directory [XYZ]
+
+                Note that a wildcard can be used to represent a whole field of
+                the specification but NOT a partial field. For example:
+
+                VALID:
+                   /EXCLUDE=*.FOR	Exclude all files with a type of .FOR
+
+                INVALID:
+                   /EXCLUDE=XYZ*.FOR	Cannot use the * as PART of a field
+                			specification
+
+QUALIFIER:
+		/EXPIRED
+
+
+PURPOSE:
+		Specifies that the expiration date should be used for the
+		purpose of date based file selection by the /BEFORE and
+		/SINCE qualifiers
+
+
+DEFAULT:
+		Use the last-modified date
+
+
+ASSOCIATED LOGICAL NAME:
+                NONE
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+DESCRIPTION:
+		Files may be selected for packaging on the basis of the dates
+		associated with the file, using the /BEFORE and /SINCE
+		qualifiers.  The /EXPIRED qualifier says that the expiration
+		date should be used as the comparison date.
+
+
+RESTRICTIONS:
+		The qualifier is ignored if neither the /SINCE or /BEFORE
+                qualifiers are specified.
+
+                Each of these qualifiers are mutually exclusive; only the last
+                one specified has any effect -  /BACKUP, /CREATED, /EXPIRED and
+                /MODIFIED
+
+
+QUALIFIER:
+                /[NO]LOG[=nnn]
+
+
+PURPOSE:
+                Specify that informational progress messages are to be
+                displayed at various stages of the packaging. nnn specifies the
+                level of information required (0 through 4).
+
+
+DEFAULT:
+                /NOLOG			Suppress all informational messages
+
+
+ASSOCIATED LOGICAL NAME:
+                SHARE_LOG
+
+                This logical name can be defined with any true or false value,
+                or an integer in the range 0-4. When defined, it specifies the
+                default for all subsequent executions that do not specify the
+                /LOG qualifier.
+
+
+PRIVILEGES REQUIRED:
+                NONE
+
+
+DESCRIPTION:    
+                Each stage in the packaging process, typically the name of each
+                file as it is processed, can be logged with an informational
+                message. The /LOG[=nnn] qualifier selects this option. The
+                value of nnn is an integer (default 1) which selects how much
+                information is displayed. It may take values between 0 and 4,
+                where 0 is no logging and 4 is the most comprehensive logging.
+
+                /NOLOG suppresses all log messages; this is the same as
+                specifying /LOG=0
+
+                /LOG=n selects logging at level n:
+
+                n=0 turns all log messages off.
+
+                n=1 displays a log message for each file processed.
+
+                n=2 includes everything at n=1, with the addition of statistics
+                on the file compression before and after packaging. This can be
+                useful for determining the effectiveness (or otherwise) of the
+                selected compression technique on a given file.
+
+                n=3 includes everything at level 2, with the addition of a
+                message each time a new part is written out.
+
+                n=4 includes everything at level 3, with the addition of a
+                progress message issued at approximately 3% intervals while
+                encoding each file.
+                
+                /LOG without a numeric value defaults to level 1 logging.
+
+
+RESTRICTIONS:
+                NONE
+
+
+
+EXAMPLES:
+                $ VMS_SHARE *.* PACKAGE /LOG
+
+                Package all the files and log each one as it is processed.
+
+
+                $ VMS_SHARE *.* PACKAGE /LOG=2
+
+                Package all the files, log each one as it is processed and show
+                the compression statistics for each.
+
+QUALIFIER:
+                /[NO]LONGLINES
+
+
+PURPOSE:
+                Allow VMS_SHARE to take advantage of the support for long
+                records in recent versions of VMS and TPU.
+
+
+DEFAULT:
+                /NOLONGLINES		Long line support not enabled
+
+
+
+ASSOCIATED LOGICAL NAME:
+                SHARE_LONGLINES
+
+                This logical name can be defined with any true or false value.
+                When defined, it specifies the default value for all subsequent
+                executions that do not specify the /LONGLINES qualifier.
+
+
+PRIVILEGES REQUIRED:
+                NONE
+
+
+DESCRIPTION:
+                The VMS_SHARE utility is layered upon the VAXTPU language. As
+                such, most of its restrictions are because of the limitations
+                of VAXTPU. One particular limitation is that of maximum record
+                length. Older versions of TPU (prior to VMS 5.4 on VAX) allowed
+                records to be no longer than 960 bytes. This restricted the
+                maximum record length of the files that could be packaged.
+                Versions of TPU at VMS 5.4 and later, and any version of TPU
+                on Alpha OpenVMS, allow much longer records, up to 65535 bytes.
+
+                To maintain backwards compatibility, the old record length is
+                used unless requested otherwise.
+
+
+                If /NOLONGLINES is specified, then the following restrictions
+                apply:
+			o Records may be no longer than 960 bytes
+			o The minimum version of VMS to run is 5.0 on VAX;
+                          any version on Alpha.
+			o The minimum version of VMS to unpack is 4.4 on VAX;
+                          any version on ALpha.
+
+		If /LONGLINES is specified, then the following restrictions
+                apply:
+			o Records may be up to 65535 bytes
+			o The minimum version of VMS to run is 5.4 on VAX;
+                          any version on ALpha.
+			o The minimum version of VMS to unpack is 5.4 on VAX;
+                          any version on Alpha.
+
+                An important use for the /LONGLINES qualifier is to allow
+                BACKUP savesets to be directly packaged. These have a minimum
+                record length of 2048 bytes so /LONGLINES is required. This
+                provides a convenient mechanism for shipping VMSINSTALable
+                products, and any type of file (including INDEXED and
+                RELATIVE). 
+
+                It is helpful to recognize when to use and when not to use the
+                long line support:
+
+                First, there is NO advantage if none of the files to be
+                packaged have records greater than 960 bytes. In fact this may
+                turn out to be detrimental for the recipient as we mention
+                below.
+
+                Secondly, using it requires that the current version of VMS is
+                at least 5.4 on VAX (any version on Alpha). An error is issued
+                if not.
+
+                Finally, the recipient of the share file will require VMS 5.4
+                or greater (VAX), or any OpenVMS (Alpha) in order to unpack it
+                (if it needed long line support to pack it, it will also need
+                long line support to unpack it!). This is true even if none of
+                the files have lines longer than 960.
+
+                
+
+RESTRICTIONS:
+                This option is only valid with VMS 5.4 and above. Note
+                therefore that BACKUP savesets can only be packaged on VMS 5.4
+                systems and later, and require a similar system to unpack. If
+                on an Alpha, any version of OpenVMS is permitted.
+
+                VMS_SHARE examines the file header to determine the maximum
+                record size in the file. If it exceeds the maximum record
+                length supported, then the file is rejected. However, certain
+                types of record structure have misleading information stored
+                about the maximum record length (usually a 0 value to indicate
+                unknown or no fixed maximum). These files may be selected for
+                packaging but subsequently turn out to have records that are
+                too long, giving errors at either the packing or unpacking
+                stages, depending on the various combinations of VMS used.
+
+
+
+EXAMPLES:
+                $ VMS_SHARE *.* PACKAGE /LONGLINES
+
+                Package all the files in the current directory, with long lines
+                support
+
+		$ BACKUP/BLOCK=2048 [...]*.*;*  PACKAGE.BCK/SAVE
+		$ VMS_SHARE PACKAGE.BCK PACKAGE /LONGLINES /COMPRESS
+
+                Would be a means of packaging a complete subdirectory tree
+                containing any mixture of files. 
+
+QUALIFIER:
+		/MODIFIED
+
+
+PURPOSE:
+                Specifies that the last modified date should be used for the
+                purpose of date based file selection on the /BEFORE and /SINCE
+                qualifiers
+
+
+DEFAULT:
+		Use the last-modified date
+
+
+ASSOCIATED LOGICAL NAME:
+                NONE
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+DESCRIPTION:
+                Files may be selected for packaging on the basis of the dates
+                associated with the file, using the /BEFORE and /SINCE
+                qualifiers.  The /MODIFIED qualifier says that the last
+                modified date should be used as the comparison date.
+
+
+RESTRICTIONS:
+		The qualifier is ignored if neither the /SINCE or /BEFORE
+                qualifiers are specified.
+
+                Each of these qualifiers are mutually exclusive; only the last
+                one specified has any effect -  /BACKUP, /CREATED, /EXPIRED and
+                /MODIFIED
+
+
+QUALIFIER:
+		/[NO]NAME[=ident]
+
+
+PURPOSE:
+		Select the name written into the share file to identify the
+		package.
+
+
+DEFAULT:
+		Selects a name based on the name of the output share file
+
+
+ASSOCIATED LOGICAL NAME:
+		SHARE_NAME
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+DESCRIPTION:
+		Information is written at the head of the created share file
+		to identify it's origins. Optionally, an identifying name can
+		be selected for the package and this name will be written into
+		the share file.  This allows several different share files to
+		be uniquely identified even if their file names change.
+
+		/NONAME		Prevents any identifying name being written
+
+		/NAME		Automatically selects the name of the output
+				share file and writes this into the header
+				as the package name. The name is taken from
+				the output share file name.
+
+		/NAME=ident	Uses the specified name `ident' as the name
+				of the package, and writes this into the share
+				file header.
+
+
+		The default action is /NAME, unless overridden by the
+		definition of the SHARE_NAME logical name
+
+
+RESTRICTIONS:
+		NONE
+
+
+EXAMPLES:
+
+		$ VMS_SHARE *.* ZAP
+			Packages all files into a share file called ZAP and
+			writes the name ZAP into the share file header as the
+			name of the package.
+
+		$ VMS_SHARE *.* ZAP /NAME=BANG
+			As above, but writes the identifying name as BANG
+			rather than ZAP. The output share file remains as ZAP
+			however.
+
+		$ VMS_SHARE *.* ZAP/NONAME
+			As above but no package name is written into the share
+			file.
+
+QUALIFIER:
+                /[NO]PACKAGE_INDEX[=suffix]
+
+
+PURPOSE:
+                Select the automatic creation of a package index file for use
+                by file servers.
+
+
+DEFAULT:
+                /NOPACKAGE_INDEX	No package index file is created
+
+
+ASSOCIATED LOGICAL NAME:
+                SHARE_PACKAGE_INDEX
+
+                This logical name may be defined with any true/false value OR
+                with a specific file type field (starting with a dot). If
+                defined, it specifies the default for all subsequent executions
+                that do not specify the /PACKAGE_INDEX qualifier.
+
+
+PRIVILEGES REQUIRED:
+                NONE
+
+
+DESCRIPTION:
+                The content of the package index file is a list of the parts of
+                the sharefile containing all the packaged files, one name per
+                line. Only the name part and the type part are listed. It is
+                common to find such package files on mail based file servers,
+                where a number of files may be retrieved by issuing a single
+                file request for the package. Each file listed in the package
+                index file will be sent in response to the request.
+
+		If /NOPACKAGE_INDEX is specified, then no package index file
+                will be created.
+
+                If /PACKAGE_INDEX is specified, then a package index file will
+                be created. This file will have the same name as the individual
+                parts of the generated share file but with a file type of
+                ".$PACKAGE".
+
+                If /PACKAGE_INDEX=suffix is specified, the "suffix" string must
+                be a file type. This creates the package index file, as above,
+                but with the specified suffix as the file type. suffix must be
+                a valid file type, including the leading period character.
+
+
+RESTRICTIONS:
+                NONE
+
+
+EXAMPLES:
+   		$ VMS_SHARE *.* FILESERV:ZIPPO /PACKAGE_INDEX
+
+		Creates the package files as a series of parts called
+                ZIPPO.nnn-OF-mmm in the directory FILESERV:. The package index
+                file is created in this directory too and is named
+                ZIPPO.$PACKAGE.
+
+
+   		$ VMS_SHARE *.* FILESERV:ZIPPO /PACKAGE_INDEX=.LIBRARY
+
+                Creates the package files as a series of parts called
+                ZIPPO.nnn-OF-mmm in the directory FILESERV:. The package index
+                file is created in this directory too and is named
+                ZIPPO.LIBRARY
+
+QUALIFIER:
+                /PART_SIZE=nnn
+
+
+PURPOSE:        
+                Define the maximum size in blocks of each part of the generated
+                share file.
+
+
+DEFAULT:
+                /PART_SIZE=30		Part size is 30 blocks
+
+
+ASSOCIATED LOGICAL NAME:
+                SHARE_PART_SIZE
+
+                This logical name may be defined with a positive numeric value
+                indicating the maximum size of a part in blocks. If defined, it
+                specifies the default for all subsequent executions that do not
+                specify the /PART_SIZE qualifier.
+
+
+PRIVILEGES REQUIRED:
+                NONE
+
+
+DESCRIPTION:    
+                Some mail systems are known to truncate mail messages if they
+                are larger than a certain size. Experience has shown that
+                messages of 32 blocks or less are fairly safe from this
+                problem. Thus the default part size is 30 blocks, allowing 2
+                blocks for the additional mail headers that accumulate on the
+                journey through the network.
+
+                If it is known that larger messages can pass unscathed, then
+                the part size can be increased. using the /PART_SIZE=n
+                qualifier (where n is the part size in blocks).
+ 
+
+
+RESTRICTIONS:
+                Although there are no restrictions on the part size that can be
+                specified, too small a value can cause packaging to fail. This
+                is because certain parts of the generated share file must be
+                kept together in one file. If VMS_SHARE is unable to do this
+                because the part size is too small, an error message will be
+                issued and the part size should be increased.
+
+
+EXAMPLES:
+		$ VMS_SHARE *.* PACKAGE /PART_SIZE=100
+		
+                Collect all files in the current directory into a multi-part
+                package called "PACKAGE", where each part is no larger than 100
+                blocks.
+
+QUALIFIER:
+		/[NO]SHARE
+
+
+PURPOSE:
+		Selects whether the created share file parts are written out.
+
+
+DEFAULT:
+		All parts of a share file are written.
+
+
+ASSOCIATED LOGICAL NAME:
+		SHARE_SHARE
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+DESCRIPTION:
+		The function of VMS_SHARE is to produce a set of share file
+		parts that contains all of the specified files, in a form that
+		can be mailed out to other users. These parts are written to
+		disk as they are generated by the packaging process.
+
+		The /NOSHARE qualifier may be used to suppress the writing of
+		these parts. If specified, parts are created from the packaged
+		files and all normal log messages are produced, but the parts
+		are simply discarded rather than written to disk.  This is
+		mainly useful as a debugging tool.
+
+		/NOSHARE suppresses the writing of parts; /SHARE causes parts
+		to be written out.
+
+
+RESTRICTIONS:
+		NONE
+
+
+EXAMPLE:
+		$ VMS_SHARE *.* ZAP/NOSHARE
+			Package all files into a share file called ZAP, create
+			the parts in memory but discard them.
+
+QUALIFIER:
+		/SINCE[=date]
+
+
+
+PURPOSE:
+		Specifies that all files selected must have a date associated
+		with them which is at or after the specified date.
+
+
+DEFAULT:
+		The dates associated with a file are not used for selection
+		purposes.
+
+
+ASSOCIATED LOGICAL NAME:
+                NONE
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+DESCRIPTION:    
+                If either of the /SINCE or /BEFORE qualifiers is specified,
+                then each file specified in the parameter list is checked to
+                see if the date associated with the file is within the
+                appropriate date range. The file is selected for packaging only
+                if it does. No check is made if neither qualifier is specified
+                and the file is selected.
+
+                There are four dates associated with a file - Creation, Last
+                Modified, Expiration and Last Backup. Any of these can be used
+                as the basis for selection.
+
+                To select which of the four dates to use, these qualifiers are
+                used:
+
+		   /BACKUP		Last backup date used
+		   /CREATED		Creation date used
+		   /EXPIRED		Expiration date used
+		   /MODIFIED		Last modified date used
+
+                To select the date range, these qualifiers are used:
+
+		   /BEFORE[=date]	Select files before the date
+		   /SINCE[=date]	Select files after the date
+
+                If neither qualifier is specified, then the corresponding
+                constraint on the date is lifted.
+
+                It is permitted to use /SINCE and /BEFORE together to specify
+                both an earliest date and a latest date for the files. If no
+                date/time specification is given on either the /SINCE or
+                /BEFORE qualifiers, then the default is "TODAY".
+
+
+RESTRICTIONS:
+                Only one of /BACKUP, /CREATED, /EXPIRED or /MODIFIED should be
+                used. If several are specified only the last one is used. If
+                none are specified, /MODIFIED is assumed.
+
+		The format of the date specification is a standard VMS
+		date/time specification with these exceptions:
+
+		   o The date/time spec must not contain spaces
+
+		   o The date/time spec must not be quoted
+
+		   o Missing fields are taken from the CURRENT date/time and
+		     NOT from midnight as with other VMS commands.
+
+
+
+EXAMPLES:
+		$ VMS_SHARE *.* Z /SINCE=TODAY
+
+		This will select all files which have a modified date (the
+		default) at or after today's date.
+
+
+                $ VMS_SHARE *.* Z /SINCE=YESTERDAY /BEFORE=TODAY
+
+                This will select all files which have a modified date (the
+                default) sometime during yesterday.
+
+QUALIFIER:
+		/[NO]SPACE_ENCODE
+
+
+PURPOSE:
+		Selects whether all spaces in each file packaged are to be
+		encoded or just those which occur at the end of lines in
+		the share file.
+
+DEFAULT:
+		All spaces will be encoded.
+
+
+ASSOCIATED LOGICAL NAME:
+		SHARE_SPACE_ENCODE
+
+		May be defined with a TRUE or FALSE value to set the default
+		for the space encoding option.
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+DESCRIPTION:
+		Many mailers are known to make unauthorized modifications to
+		spaces within a message.  This may not be significant for
+		text messages, but can be crucial if the space is part of the
+		data or program.  Mailers are particularly prone to truncating
+		trailing blanks from lines.
+
+		Two different mechanisms are offered to cirumvent this problem
+		and the /[NO]SPACE_ENCODE qualifier selects the mechanism to
+		use.
+
+		If /NOSPACE_ENCODE is selected, blanks are left untouched
+		unless they occur at the end of a line in the share file. In
+		this case, the last space will be encoded so that, to a mailer,
+		it no longer looks like a space.
+
+		If /SPACE_ENCODE is selected, all blanks in a file are encoded.
+		This may be used for more persistently troublesome mailers that
+		also convert blanks inside lines, often to one or more tabs.
+
+		The default is /SPACE_ENCODE, which should get files past all
+		known mailers. However, the share file that is created can be
+		significantly bigger than with /NOSPACE_ENCODE.
+
+RESTRICTIONS:
+		NONE
+
+
+EXAMPLE:
+		$ VMS_SHARE *.* ZAP /NOSPACE_ENCODE
+			Package all the files into ZAP, ensuring that only
+			spaces at ends of lines will be encoded.
+
+QUALIFIER:
+		/[NO]SPLIT[=nnn]
+
+
+PURPOSE:
+		Select the automatic splitting of large files to be packaged,
+		that will not fit into the available virtual memory in their
+		entirety.
+
+DEFAULT:
+		Files will be split if they are bigger than some value which is
+		a function of the user's working set extent.
+
+
+ASSOCIATED LOGICAL NAME:
+		SHARE_SPLIT
+
+
+PRIVILEGES REQUIRED:
+		NONE
+
+
+DESCRIPTION:
+		VMS_SHARE is layered upon the TPU text processing package. This
+		does all text processing in memory. When there is a large file
+		to be packaged that is bigger than the available memory, TPU
+		will store the excess in a swap file (if running a VMS later
+		than 5.2).  Parts of the buffer will then be copied in and out
+		as required.  For such files, the modifications made by
+		VMS_SHARE are usually substantial and result in a huge amount
+		of copying to and from memory. The actual amount is dependent
+		upon the size of the file, the available virtual memory and the
+		exact modifications needed to the file. Generally, the copying
+		overhead is very high, with the result that the large files are
+		processed extremely slowly.
+
+		One solution is to limit the amount of a file that is processed
+		at one time.  This is controlled by the /SPLIT qualifier. With
+		this option active, large files are read in smaller pieces,
+		that will fit individually into memory without excessive
+		copying, and processed separately. Once completed, the next
+		piece of the file is processed and so on until the whole file
+		has been processed.
+
+		/NOSPLIT requests that no attempt be made to limit the amount
+		of a file in memory. This restores the previous default
+		behaviour of VMS_SHARE in versions prior to 8.4.
+
+		/SPLIT requests that large files be split at an appropriate
+		point and each piece processed separately. This allows
+		VMS_SHARE to function in restricted memory environments without
+		excessive copying to/from disk. The maximum size is chosen
+		automatically as a function of the user's working set extent
+		quota.
+
+		/SPLIT=nnn is as above but specifies an explicit maximum memory
+		size (in blocks) to be used. nn is a positive integer value
+		(though a value of 0 equates to /NOSPLIT).
+
+		The default action is /SPLIT.
+
+		The rationale for choosing the user's working set extent as
+		the default value is that, for files up to this size, it is not
+		necessary to swap information to and from disk.  This
+		performance is likely to remain acceptable.  This does depend
+		on the WSEXTENT memory being available of course, which it may
+		not be on heavily loaded systems. Beyond this value, the file
+		is bigger than the available memory and swapping is assured,
+		which will significantly degrade performance. It is not
+		recommended that values higher than the WSEXTENT value
+		generally be used.
+
+
+RESTRICTIONS:
+		Use of this qualifier only makes sense under versions of
+		VMS at or later than version 5.2. Before this, files bigger
+		than the available virtual memory could not be processed at
+		all (see the /WORK Qualifier). However, VMS_SHARE will still
+		accept and use the specified value if possible.
+
+
+
+EXAMPLE:
+		$ VMS_SHARE *.* ZAP/SPLIT=4000
+			Package all the files into ZAP. Any file bigger than
+			4000 blocks will be split into pieces no bigger than
+			4000 blocks and processed separately.
+
+
+QUALIFIER:
+		/TEMPORARY=filename
+
+
+PURPOSE:
+		Select an alternative location for the intermediate temporary
+		files created during execution.
+
+DEFAULT:
+		/TEMPORARY=SYS$SCRATCH:SHARE_TEMP.pid
+
+		(where `pid' is the process ID of the current process).
+
+
+ASSOCIATED LOGICAL NAME:
+		SHARE_TEMP
+
+		This logical name may be defined with a filename specification
+		to be used as the location of temporary files created during
+		execution.
+
+
+PRIVILEGES:
+		NONE
+
+
+DESCRIPTION:
+		During execution, VMS_SHARE creates a temporary file containing
+                various parameters describing the contents of the share file
+		and the actions to be taken. It may sometimes be necessary to
+		redefine the location of this file, perhaps because of quota
+                problems, or if a disk is off-line etc.
+
+		/TEMPORARY=filename   specifies that `filename' is to be used
+		as the location for the temporary file.
+
+
+RESTRICTIONS:
+		NONE
+
+
+
+EXAMPLES:
+		VMS_SHARE TEST.* PACKAGE /TEMPORARY=SYS$LOGIN:TEMP.TMP
+			Packages the files "test.*" into a share file called
+			"PACKAGE" and uses a temporary file called
+			"SYS$LOGIN:TEMP.TMP"
+
+
+QUALIFIER:
+                /[NO]VERSION
+
+
+PURPOSE:
+                Select the preservation of version numbers across the packaging
+                operation.
+
+
+DEFAULT:
+                /VERSION		Version numbers are preserved
+
+
+ASSOCIATED LOGICAL NAME:
+                SHARE_VERSION
+
+                This logical name may be defined with any true or false value.
+                If defined, it specifies the default for all subsequent
+                executions that do not specify the /VERSION qualifier.
+
+
+PRIVILEGES REQUIRED:
+                NONE
+
+
+DESCRIPTION:
+                Version numbers may be preserved across the packaging operation
+                if required.
+
+                If /NOVERSION is specified, version numbers are not preserved.
+                During unpacking, files will be created with the next highest
+                available version number. If a previous version already exists,
+                a warning message will be issued.
+
+                IF /VERSION is specified, version numbers are preserved. During
+                unpacking, files will be created with the same version number
+                irrespective of any other versions that may exist. However, if
+                the specific version number is already in use, a warning
+                message is issued and the file is not re-created.
+
+                This option is supplied primarily for compatibility with
+                previous versions of the utility which did not preserve version
+                numbers.
+
+
+RESTRICTIONS:
+                NONE
+
+
+EXAMPLES:
+                $ VMS_SHARE *.* PACKAGE /NOVERSION
+
+                Package all the files but do not preserve the version numbers.
+
+
+                $ VMS_SHARE *.*;* PACKAGE /VERSION
+
+                Package all versions of each file in the current directory and
+                preserve the version numbers to keep them distinct when
+                unpacked.
+
+QUALIFIER:
+		/WORK[=filename]
+
+
+PURPOSE:
+		Specify the location of the work file used to store parts of a
+		file that cannot fit in the available virtual memory.
+
+DEFAULT:
+		On versions of VMS prior to VMS 5.2, there is no work file
+		available and big files cannot be processed.  On later
+		versions, the default file used is
+		SYS$SCRATCH:TPU$WORK.TPU$WORK unless redefined with the
+		TPU$WORK logical name.
+
+ASSOCIATED LOGICAL NAME:
+		SHARE_WORK
+
+PRIVILEGES REQUIRED:
+		NONE
+
+DESCRIPTION:
+		VMS_SHARE is layered upon the TPU text processing package. This
+		does all text processing in memory. When there is a large file
+		to be packaged that is bigger than the available memory, TPU
+		will store the excess in a swap file (if running a VMS later
+		than 5.2).  Parts of the buffer will then be copied in and out
+		as required.
+
+		Excessive use of the work file, generally caused by processing
+		files that are bigger than available virtual memory, causes a
+		dramatic slowdown in processing because of the copying
+		overhead to and from memory.
+
+		The size of the workfile, together with the user's Page file
+		Quota limits the amount of virtual memory that VMS_SHARE can
+		use. This in turn limits the maximum file size. The /WORK
+		qualifier can be used to relocate the work file, perhaps to a
+		disk that has a larger quota or a faster response, as an aid
+		to improving the speed or maximum file size supported.
+
+		/WORK  requests that the default work file be used, in case
+		the logical name SHARE_WORK has been used to redefine the 
+		default.
+
+		/WORK=file requests that a specific file be used.
+
+
+RESTRICTIONS:
+		The /WORK qualifier can be specified only on versions of VMS
+		from 5.2 onwards as this is the first version where the
+		workfile is supported by the underlying TPU package.
+
+
+EXAMPLE:
+		$ VMS_SHARE *.* ZAP/WORK=BIGDISK:SCRATCH.TMP
+			Package all the files as ZAP; Place the work file
+			onto the disk BIGDISK: using a filename of SCRATCH.TMP

@@ -1,0 +1,134 @@
+$ ! Compile and link those programs in [etc] that are usable on VMS.
+$
+$ CC := @CC@
+$ CFLAGS := @CFLAGS@
+$ C_SWITCH_SYSTEM := @c_switch_system@
+$ YACC := @YACC@
+$ version := @version@
+$ version_us := @version_us@
+$ configname := @configuration@
+$
+$ prefix_dev := @prefix_dev@
+$ prefix_dir := @prefix_dir@
+$ prefix := @prefix@
+$
+$ exec_prefix_dev := @exec_prefix_dev@
+$ exec_prefix_dir := @exec_prefix_dir@
+$ exec_prefix := @exec_prefix@
+$
+$ bindir_dev := @bindir_dev@
+$ bindir_dir := @bindir_dir@
+$ bindir := @bindir@
+$
+$ libdir_dev := @libdir_der@
+$ libdir_dir := @libdir_dir@
+$ libdir := @libdir@
+$
+$ archlibdir := @archlibdir@
+$
+$ sys_includes := @sys_includes@
+$
+$ vmssrcdir_dev := @srcdir_dev@
+$ vmssrcdir_dir := @srcdir_dir@
+$ vmssrcdir := @srcdir@
+$
+$! This is just to make absolutelly sure we don't get any local definition
+$! of __result
+$ __result = ""
+$ delete/symbol/local __result
+$! Let's shorten the paths as much as possible...
+$ @'vmssrcdir'canonicaldir 'vmssrcdir_dev'['vmssrcdir_dir'.-.lib-src] __result
+$ libsrcdir = __result
+$ define __srcdir 'libsrcdir'
+$ @'vmssrcdir'canonicaldir 'vmssrcdir_dev'['vmssrcdir_dir'.-.src] __result
+$ srcsrcdir = __result
+$
+$ ALL_CFLAGS := 'C_SWITCH_SYSTEM' /define=("""emacs"""="""""",HAVE_CONFIG_H="""""" "'extra_defs'") /include=(sys$disk:[],sys$disk:[-.src],'libsrcdir','srcsrcdir' "'extra_incl'") 'CFLAGS'
+$ CPP_FLAGS := 'C_SWITCH_SYSTEM' /define=("""emacs"""="""""",HAVE_CONFIG_H="""""" "'extra_defs'") /include=(sys$disk:[],sys$disk:[-.src],'libsrcdir','srcsrcdir' "'extra_incl'") 'CPPFLAGS' 'CFLAGS'
+$ extra_defs :=
+$ extra_incl :=
+$
+$ if sys_includes .nes. "" then -
+	define /nolog sys 'sys_includes',sys$disk:[]
+$ if sys_includes .eqs. "" then -
+	define /nolog sys sys$disk:[]
+$
+$ on error then goto ende
+$ on severe_error then goto ende
+$ on control_y then goto ende
+$ on warning then continue
+$
+$ old = f$trnlnm("SYS$DISK")+f$directory()
+$ proc = f$environment("PROCEDURE")
+$ proc_dir = f$parse(proc,,,"NODE")+f$parse(proc,,,"DEVICE")+f$parse(proc,,,"DIRECTORY")
+$ set def 'proc_dir'
+$
+$ save_verif = f$verify(1)
+$
+$ set default [-.lib-src]
+$
+$ define __srcdir 'libsrcdir' ! To get shorter lines...
+$
+$ 'cc' 'cpp_flags' __srcdir:test-distrib.c /obj=test-distrib.obj
+$ link test-distrib.obj,[-.vms]vmslink.opt/opt
+$ mcr sys$disk:[]test-distrib.exe __srcdir:testfile
+$
+$ 'cc' 'cpp_flags' __srcdir:make-docfile.c /obj=make-docfile.obj
+$ link make-docfile.obj,[-.vms]vmslink.opt/opt
+$
+$ 'cc' 'cpp_flags' __srcdir:digest-doc.c
+$ link digest-doc.obj,[-.vms]vmslink.opt/opt
+$
+$ extra_defs=",""BLOCK_INPUT""="""",""UNBLOCK_INPUT""="""""
+$ 'cc' 'cpp_flags' __srcdir:alloca.c /obj=alloca.obj
+$ extra_defs:=
+$
+$ 'cc' 'cpp_flags' __srcdir:sorted-doc.c /obj=sorted-doc.obj
+$ 'cc' 'cpp_flags' __srcdir:qsort.c /obj=qsort.obj
+$ link sorted-doc.obj,qsort.obj,alloca.obj,[-.vms]vmslink.opt/opt
+$
+$ 'cc' 'cpp_flags' __srcdir:getopt.c /obj=getopt.obj
+$ 'cc' 'cpp_flags' __srcdir:getopt1.c /obj=getopt1.obj
+$!$ 'cc' 'cpp_flags' __srcdir:etags-vmslib.c /obj=etags-vmslib.obj
+$ extra_defs=",""ETAGS""="""",""USE_HACKARGV""="""""
+$ 'cc' 'cpp_flags' __srcdir:etags.c /obj=etags.obj
+$!$ extra_defs=",""CTAGS""="""""
+$!$ 'cc' 'cpp_flags' __srcdir:etags.c /obj=ctags.obj
+$ extra_defs = ""
+$ link etags.obj,getopt.obj,getopt1.obj,alloca.obj,-
+	[-.vms]vmslib.olb/lib,[-.vms]vmslink.opt/opt
+$!$ link ctags.obj,etags-vmslib.obj,getopt.obj,getopt1.obj, -
+$!	alloca.obj,[-.vms]vmslink.opt/opt
+$
+$finish:
+$ 'cc' 'cpp_flags' __srcdir:wakeup.c /obj=wakeup.obj
+$ link wakeup.obj,[-.vms]vmslink.opt/opt
+$
+$ 'cc' 'cpp_flags' __srcdir:yow.c /obj=yow.obj
+$ link yow.obj,[-.vms]vmslink.opt/opt
+$
+$ extra_incl = "," + srcsrcdir
+$ extra_defs = ",""EMACS""="""""
+$ 'cc' 'cpp_flags' __srcdir:env.c /obj=env.obj
+$ extra_incl = ""
+$ extra_defs = ""
+$ link env.obj,[-.vms]vmslink.opt/opt
+$
+$ 'cc' 'cpp_flags' __srcdir:hexl.c /obj=hexl.obj
+$ link hexl.obj,[-.vms]vmslink.opt/opt
+$
+$ 'cc' 'cpp_flags' __srcdir:vmssendmail.c /obj=vmssendmail.obj
+$ link vmssendmail.obj,[-.vms]vmslink.opt/opt
+$
+$ 'cc' 'cpp_flags' __srcdir:vmsgetmail.c /obj=vmsgetmail.obj
+$ link vmsgetmail.obj,getopt.obj,getopt1.obj,alloca.obj,[-.vms]vmslink.opt/opt
+$
+$ extra_incl = "," + srcsrcdir
+$ 'cc' 'cpp_flags' __srcdir:b2m.c /obj=b2m.obj
+$ extra_incl = ""
+$ link b2m.obj,[-.vms]vmslink.opt/opt
+$
+$ende:
+$ deassign __srcdir
+$ set default 'old'
+$ ! 'f$verify(save_verif)

@@ -1,0 +1,30 @@
+CFLAGS1 = -Dunix -DFLOAT_TYPE  # -DNO_STDLIB_H
+CFLAGS = $(CFLAGS1) -DHAS_MEMSET -DHAS_MEMCPY #-DHAS_MEMCMP #-DHAS_MEMCHR
+
+#CC = cc -g
+#CC = gcc -O2 -Wall
+CC = gcc -g -Wall -fstrict-prototypes
+#CC = gcc -O2 -traditional-cpp     # <--- SunOS.
+#CC = cc +O3 -Aa -D_HPUX_SOURCE    # <--- HP-UX
+
+SLIB = ../src
+
+
+EXECFILES = array simple useropen complex
+
+all: $(EXECFILES)
+
+simple:	simple.c
+	$(CC) $(CFLAGS) -I$(SLIB) simple.c -o simple -L$(SLIB) -lslang -lm
+
+array:	array.c
+	$(CC) $(CFLAGS) -I$(SLIB) array.c -o array -L$(SLIB) -lslang -lm
+
+useropen: useropen.c
+	$(CC) $(CFLAGS) -I$(SLIB) useropen.c -o useropen -L$(SLIB) -lslang -lm
+	
+complex: complex.c
+	$(CC) $(CFLAGS) -I$(SLIB) complex.c -o complex -L$(SLIB) -lslang -lm
+
+clean:
+	/bin/rm -f *.o *~ $(EXECFILES)

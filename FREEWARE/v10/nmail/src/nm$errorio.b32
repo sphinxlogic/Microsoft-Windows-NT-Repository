@@ -1,0 +1,213 @@
+%title 'nm$errorio'
+module nm$errorio (
+                  ident='03',
+    		  addressing_mode(external=general)
+    	          ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	18-Mar-1985
+!
+! Revision history:
+!
+!   01	14-Nov-1985
+!	Ignore RMS$_RTB errors when reading file
+!
+!   02	11-Mar-1986
+!	The NM$GT_xxx strings are now defined as counted strings
+!
+!   03	4-Oct-1993
+!	Add ALIAS attributes to RMS structures to allow us
+!	to compile with /CHECK=ADDRESS_TAKEN
+!--
+
+
+!
+! Library declarations
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Module-wide data
+!
+own
+    err_fab 	: $fab_decl alias,			! FAB for error file
+    err_rab 	: $rab_decl,				! RAB, ditto
+    err_nam 	: $nam_decl alias,			! NAM block, ditto
+    err_exp_buf : vector[nm$s_filespec,byte] alias;	! Expanded filespec
+
+
+%sbttl 'open error message file'
+global routine nm$open_err_file =
+
+!++
+! Functional description:
+!
+! Opens the error message file 
+!
+! Formal parameters:
+! 
+! none
+!
+! Routine values:
+!
+! status.wlc.v = true, if file opened
+!	       = rms$_fnf if file not found
+!		 (all other errors signalled)
+!
+!--
+
+    begin
+
+    local 
+	status;
+
+    !
+    ! Initialise RMS data structures for opening the error file
+    !
+    $fab_init(
+	     fab=err_fab,
+	     fns=.nm$gt_err_fspec[0],
+	     fna=nm$gt_err_fspec[1],
+	     dns=.nm$gt_err_def[0],
+	     dna=nm$gt_err_def[1],
+	     fac=get,
+	     nam=err_nam
+	     );
+    $nam_init(
+	     nam=err_nam,
+	     esa=err_exp_buf,
+	     ess=nm$s_filespec,
+	     rsa=err_exp_buf,
+	     rss=nm$s_filespec
+	     );
+    $rab_init(
+	     rab=err_rab,
+	     fab=err_fab
+	     );
+
+    !
+    ! Open the error file
+    !
+    status = $open(fab=err_fab);
+    if not .status
+    then
+        begin
+        if .status eql rms$_fnf then return .status;
+        nm$rms_error(nm$_open, err_fab);
+        end;
+
+    !
+    ! Connect the RAB
+    !
+    status = $connect(rab=err_rab);
+    if not .status 
+    then 
+    	nm$rms_error(nm$_rms, err_rab);
+
+    !
+    ! If we get here, it worked - return success
+    !
+    true
+
+    end;
+
+%sbttl 'close error file'
+global routine nm$close_err_file =
+
+!++
+! Functional description:
+!
+! Closes the error message file
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! status.wlc.v = true if it worked
+!		 RMS$_xxx if it didn't
+!
+!--
+
+    $close(fab=err_fab);
+
+%sbttl 'read record from error message file'
+global routine nm$read_err (buf, len) =
+
+!++
+! Functional description:
+!
+! Reads a record from the error message file
+!
+! Formal parameters:
+!
+! buf.wt.r = buffer to read data into
+! len.wl.v = length of data read
+!
+! Routine values:
+!
+! status.wlc.v = true, if record read
+!	       = rms$_eof, end of file
+!	         (all other errors signalled)
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Put buffer parameters into RAB
+    !
+    err_rab[rab$l_ubf] = .buf;
+    err_rab[rab$w_usz] = nm$s_err_buf;
+
+    !
+    ! Read record (overlong records are returned truncated)
+    !
+    status = $get(rab=err_rab);
+    if not .status and .status neq rms$_rtb
+    then
+        begin
+        .len = 0;
+        if .status eql rms$_eof then return .status;
+	nm$rms_error(nm$_write, err_rab);
+        end;
+
+    !
+    ! Return length of data to caller
+    !
+    .len = .err_rab[rab$w_rsz];
+
+    !
+    ! Return successful status
+    !
+    true
+
+    end;
+
+end
+eludom

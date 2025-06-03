@@ -1,0 +1,482 @@
+1     program match
+      ! Copyright (c), 1985   Touch Technologies, Inc.
+      ! 18-Oct-1985
+      ! Daniel Esbensen
+
+100   option arithmetic integer
+
+900   dim cards(6,9)
+      dim points(2)
+      dim symbol$(13)
+      dim known$(13)
+      dim player_name$(2)
+
+1000  ! S e t   u p   c o n s t a n t s
+
+1015  x_offset = 25
+      y_offset = 6
+
+1020  player_name$(1) = 'you'
+      player_name$(2) = 'Zelda'
+      new_skill$ = '50'
+
+1090  randomize
+
+1095  frame off
+
+
+1100  ! S t a r t   o f   g a m e
+      !
+     start_game:
+
+1150  clear
+      print at 2,25, underline: 'Match - A Concentration Game'
+
+1190  message 'Skill of 100 is perfect recall'
+
+
+1200  ! Get skill level
+      !
+     get_skill:
+
+1205  clear area 5,1, 20, 80
+
+1210  do
+        input screen '<at 5,1, digits: Skill level (1-100)? ###>' &
+              , default new_skill$: skill
+        if _exit then stop
+        if  skill < 1  or  skill > 100  then
+          message error: 'Illegal skill level: ' + _reply
+          repeat do
+        end if
+      end do
+      clear area 5,1, 5,80
+
+
+1400  ! G e t   g a m e   t y p e
+      !
+     get_game_type:
+
+1410  do
+        message 'WORDS, NUMBERS, LETTERS'
+        mnu$ = '%title "Game Selection", WORDS, NUMBERS, LETTERS'
+        input menu mnu$: gtype$
+        gtype$ = lcase$(gtype$)
+        if _exit then stop
+        select case gtype$[1:5]
+        case 'words', 'numbe', 'lette'
+          gtype$ = '*' + gtype$[1:5] + '*'
+        case else
+          message error: 'Illegal Game type: ' + _reply
+          repeat do
+        end select
+      end do
+      clear area 5,1, 5,80
+
+1480  restore
+
+      do
+        read z$
+      loop  until  z$ = gtype$
+
+      for z1 = 1 to 13
+        read symbol$(z1)
+      next z1
+
+1485  data "*words*", "dog", "cat", "red", "hit", "one", "two", "six"
+      data            "bug", "bat", "bed", "rat", "hot", "sit"
+
+      data "*numbe*", "312", "213", "456", "657", "654", "238", "857"
+      data            "961", "916", "246", "247", "222", "332", "112"
+
+      data "*lette*", "qaz", "wsx", "edc", "rfv", "tgb", "thn", "yjm"
+      data            "ukl", "iop", "zaq", "xsw", "vfr", "nht", "nhy"
+
+
+1500  ! I n i t i a l i z e   g a m e
+      !
+     init_game:
+
+1520  gosub setup_game
+      gosub setup_screen
+      gosub state_of_board
+      gosub show_score
+
+
+2000  ! D o   e a c h   p l a y e r
+      !
+     do_players:
+
+2100  for player = 1 to 2
+
+2150  move = 1
+      gosub get_move
+      x1 = x
+      y1 = y
+
+2160  do
+        move = 2
+        gosub get_move
+        if  x = x1  and  y = y1  then
+          message error: 'You must choose two DIFFERENT spots'
+          repeat do
+        end if
+      end do  
+
+2170  gosub check_matched
+
+      delay 2.5
+      show_x = x
+      show_y = y
+      gosub show_state
+      show_x = x1
+      show_y = y1
+      gosub show_state
+
+      if  matched  then  
+        gosub show_score
+        message ''
+        if  points(player) > 13  then
+          goto end_game
+        end if
+        repeat for
+      end if
+        ! If a matched pair  then its their turn again
+
+2190  next player
+
+2200  ! check for any winners
+
+2990  goto do_players
+
+
+3000  ! e n d   o f   g a m e
+      !
+     end_game:
+
+3100  if  points(1) > 13  then
+        message 'You win'
+      else
+        message 'Zelda wins'
+      end if
+      delay 3
+
+3200   ! G e t   n e w   s k i l l   l e v e l
+
+3220   new_skill = skill + (points(1)-points(2))/3
+       new_skill = max(10, min(100, new_skill))
+
+3250   message 'Your new skill level should be '; new_skill
+       new_skill$ = str$(new_skill)
+
+3990   goto get_skill
+
+
+10000  ! S e t   u p   t h e   s c r e e n
+       !
+      setup_screen:
+
+10010  clear area 3,10, 20,80
+
+       print at y_offset  ,x_offset+5: ' 1    2    3    4    5    6    7    8    9 '
+       print at y_offset+1,x_offset+5: '---  ---  ---  ---  ---  ---  ---  ---  ---'
+       for z1 = 1 to 6
+         print at z1*2+y_offset, x_offset+1: chr$(64+z1);':';
+       next z1
+
+10090  return
+
+
+10100  ! C h e c k   f o r   a   m a t c h
+       !
+       !  x,y  = first choice
+       ! x1,y1 = second choice
+       !
+       ! Result:  matched = true  if a match
+       !
+      check_matched:
+
+10120  if  cards(y,x) <> cards(y1,x1)  then
+         matched = false
+         return
+       end if
+
+10150  gosub match_made
+       matched = true
+
+10190  return
+
+
+12000  ! G e t   a   m o v e
+       !
+       ! player = player number  (2 = computer)
+       !
+      get_move:
+
+
+12010  if  player = 2  then
+         gosub zelda_move
+         goto finish_move
+       end if
+
+12020  do
+         clear area 5,1, 5,80
+         input screen '<at 5,1, letters, digits: Your move? ^#>': move$
+         if _exit then
+           clear
+           stop
+         end if
+         if  _back  then  repeat do
+         y = ascii(move$)-64
+         x = val(move$[2:2])
+
+12030    if  x < 1  or  x > 9  or  y < 1  or  y > 6  then
+           message error: 'Illegal spot: ' + move$
+           repeat do
+         end if
+
+         if  cards(y,x) = 0  then
+           message error: 'Spot  ' + move$ + '  is empty'
+           repeat do
+         end if
+
+12070  end do
+
+12080  finish_move:
+       show_x = x
+       show_y = y
+       gosub show_card
+
+12085  gosub remember_card
+
+12090  return
+
+
+12100  ! R e m e m b e r   c a r d
+       !
+       ! x,y  = card location
+       !
+      remember_card:
+
+12120  syminx = cards(y,x)
+       if  pos(known$(syminx), move$) = 0  then
+         known$(syminx) = known$(syminx) + move$ + ','
+       end if
+         ! If unknown location, then remember it now
+
+12190  return
+
+
+12500  ! Z e l d a ' s   m o v e
+       !
+       ! result:  move$ = Zelda's move
+       !          x,y   = location of the move
+       !
+      zelda_move:
+
+12520  clear area 5,1, 5,80
+       print at 5,1: "Zelda's move? ";
+       delay 1.5
+
+12530  if  skill >= rnd(100) then 
+         gosub smart_move
+       else
+         gosub random_move
+       end if
+
+12550  ! Show her move
+
+12555  print bold: move$;
+       delay 1.5
+
+12580  y = ascii(move$)-64
+       x = val(move$[2:2])
+
+12590  return
+
+
+12600  ! S m a r t   m o v e   f o r   z e l d a
+       !
+       ! Result:  move$ = her move  (A9)
+       !
+      smart_move:
+
+12620  good_move = 0
+       for syminx = 1 to 13
+         if  len(known$(syminx)) > 3  then
+           good_move = syminx
+           exit for
+         end if
+       next syminx
+
+12640  if  good_move > 0  then
+         move$ = known$(good_move)[1:2]
+         known$(good_move)[1:3] = ''
+       else
+         gosub random_move
+       end if
+
+12690  return
+
+
+12700  ! R a n d o m   m o v e
+       !
+       ! move  = move number (1 or 2)
+       !
+       ! result:  move$  = the move
+       !
+      random_move:
+
+12710  randomize
+
+12720  do
+         y = rnd(6)
+         x = rnd(9)
+         if move = 2  and  x=x1 and y=y1 then repeat do
+       loop while cards(y,x) = 0
+       move$ = chr$(64+y) + str$(x)
+
+12790  return
+
+
+13000  ! S h o w   a   c a r d
+       !
+       !  show_x  = x location of card
+       !  show_y  = y location of card
+       !
+      show_card:
+
+13020  z5 = cards(show_y, show_x)
+       if  z5 <> 0  then
+         print at show_y*2 + y_offset, show_x*5 + x_offset, bold: & 
+               ; symbol$(z5);
+       end if
+
+13090  return
+
+
+13100  ! S h o w   c a r d   s t a t e
+       !
+       !  show_x = x location
+       !  show_y = y location
+       !
+       !  This shows occupied squares with '###', empty with '...'
+       !
+      show_state:
+
+13120  z5 = sgn(cards(show_y,show_x))
+       print at show_y*2 + y_offset, show_x*5 + x_offset: ;
+       select case z5
+       case 0: print '...';
+       case 1: print reverse: '   ';
+       end select
+
+13190  return
+
+
+14000  ! S h o w   s c o r e
+       !
+       ! points(1)  = user's points
+       ! points(2)  = Zelda's points
+       !
+      show_score:
+
+14020  print at 10,1, using "Your score   : ##": points(1)
+       print at 12,1, using "Zelda's score: ##": points(2)
+
+14090  return
+
+
+15000  ! S e t   u p   a   n e w   g a m e
+       !
+     setup_game:
+
+15010  for z1 = 1 to 6
+         for z2 = 1 to 9
+           cards(z1,z2) = 0
+         next z2
+       next z1
+         ! initialize card array
+
+15020  for item = 1 to 54/2
+         card_nbr = rnd(13)
+         do
+           r1 = rnd(6)
+           r2 = rnd(9)
+         loop  until cards(r1,r2) = 0
+         cards(r1,r2) = card_nbr
+         do
+           r1 = rnd(6)
+           r2 = rnd(9)
+         loop  until cards(r1,r2) = 0
+         cards(r1,r2) = card_nbr
+       next item
+
+15030  for z1 = 1 to 13
+         known$(z1) = ''
+       next z1
+         ! clear known locations
+
+15040  points(1) = 0
+       points(2) = 0
+
+15090  return
+
+
+16000  ! G o t   a   m a t c h e d   p a i r
+       !
+       !  x,y  = first pair
+       ! x1,y1 = second pair
+       !
+      match_made:
+
+16020  gosub update_tables
+
+16030  points(player) = points(player) + 1
+       cards(y,x)   = 0
+       cards(y1,x1) = 0
+
+16050  ! tell about the match
+
+16055  message 'Matched pair for ' + player_name$(player)
+
+16090  return
+
+
+17100  ! S t a t e   o f   b o a r d
+       !
+      state_of_board:
+
+17150  for show_y = 1 to 6
+         for show_x = 1 to 9
+           gosub show_state
+         next show_x
+       next show_y
+
+17190  return
+
+
+18000  ! U p d a t e   t a b l e s
+       !
+       !  x,y  = the move
+      update_tables:
+
+18020  z$ = chr$(64+y) + str$(x)
+       syminx = cards(y,x)
+       z = pos(known$(syminx), z$)
+       if  z > 0  then
+         known$(syminx)[z:z+2]=''
+       end if
+
+       z$ = chr$(64+y1) + str$(x1)
+       syminx = cards(y1,x1)
+       z = pos(known$(syminx), z$)
+       if  z > 0  then
+         known$(syminx)[z:z+2]=''
+       end if
+         ! If this is a known move, then remove it from the list
+
+18090  return
+
+
+99999  end

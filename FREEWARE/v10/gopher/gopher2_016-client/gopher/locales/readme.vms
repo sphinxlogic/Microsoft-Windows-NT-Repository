@@ -1,0 +1,52 @@
+README for VMS internationalization                                14 July 1994
+VMS Gopher Client 2.016 - F. Macrides <macrides@sci.wfeb.edu>,
+			  J.Lance Wilkinson <jlw@psulias.psu.edu>
+
+The MAKE.COM file contained here invokes a TPU procedure to convert the 
+various [.GOPHER.LOCALES]*.MSG Unix message files to a source code format
+compatible with VMS MESSAGE, then compiles and links sharable image files for
+these message files.  The MAKE.COM and MESSAGE.TPU files coordinate to
+generate an appropriate linkage options file to define a specific symbol as
+either UNIVERSAL for the VAX environment, or as a SYMBOL_VECTOR DATA entry for
+the AXP environment.  The MESSAGE.TPU file performs a hashcoding procedure on
+the text of the file name for the input .MSG file (e.g., EN_US, ES, FR, etc.)
+to develop a unique facility code for the language.  This hashcoding stops
+when the code would exceed the MESSAGE limit of 2047, so with two or more
+filenames exceeding 2 characters it is conceivable that facility code
+collisions could occur.  Try to keep the filenames to ISO standard language
+codes, which are all two characters I believe.  Note that the sharable image
+files are architecture-specific, VAX or AXP, so caution in a mixed cluster is
+advised.
+
+At runtime, the sharable image files are expected to be in the GOPHERP_DIR:
+referenced directory.  If a logical or symbol for LC_MESSAGES is detected when
+the client starts, it is evaluated and inserted into the string for filenames
+replacing the %s below:
+
+		GOPHERP_DIR:Gopher_Msg_%s.EXE
+
+If the logical or symbol (getenv() is used to detect it) is not found, a VMS
+call to LIB$GET_USERS_LANGUAGE(), which uses the SYS$LANGUAGE logical, is
+tried. Again, if successful here, the resultant string replaces the %s in the
+above filespec.
+
+A scan is then performed for one or more matching files.  If one or more is
+found to contain a message number 222, the image  is activated and becomes
+part of the executable in memory (note: size of the image increases as more
+message files are associated), and the messages present in the file are used. 
+If none are found, the hardcoded messages in the client are used.  If more
+than one is found (e.g., if LC_MESSAGES was defined as "*"), a menu is built
+of all the located files, using message number 222 as the menu title.
+
+This message number 222 should be an invitation to use the language specific
+to the file, such as "Shall we speak English?" in the English message file. 
+Absense of this message will cause the language to be ignored and not included
+in the menu.  Once the menu is built, it is offered to the user and they
+choose the language.  Later, during client usage, an L as a keystroke will
+cause the menu to be raised again and allow another choice.
+
+Currently, EN_US, FR and ES (English/US, French, Spanish) are compatible with
+this facilty.  Hopfully the Swedish file can be enhanced to compatibility in
+the next few weeks.  A cataloger here at PSU has offered to implement a German
+version, and the librarian in charge of PSU's Gopher content is working on a
+Pig Latin version (gotta have *some* humor in this effort ;-).

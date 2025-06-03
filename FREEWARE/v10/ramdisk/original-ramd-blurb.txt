@@ -1,0 +1,156 @@
+[This is the text of the message I posted to Info-VAX in late April of 1988.
+ It's included here for historical perspective about the motivation behind
+ RAMDRIVER.]
+
+
+
+
+
+--------------------------------------------------------------------------------
+Folks,
+
+Before I get started let me apologize about the length -- it's long.  To
+those of you without in depth knowledge of VMS internals let me also apologize
+for the amount of VMS internal mumbo-jumbo this contains.  For those of you
+with lots of in depth knowledge of VMS internals let me apologize for glossing
+over a few points.
+
+Here's some background on what I've been wasting my "spare" time with lately...
+A while ago a friend and I got to talking about DEC's PDDRIVER, which is
+essentially a RAM disk driver for VMS.  It was being used for a demo to help
+speed up the login process by putting popular files (LOGINOUT, DCLTABLES,
+SYLOGIN, etc.) on it.  We theorized that perhaps PDDRIVER wasn't significantly
+faster than a real disk in certain circumstances.
+
+DEC wrote PDDRIVER as a way to get standalone backup booted from TK50s in
+order to boot VMS.  The reason for this you might have to accept on faith ...
+VMS requires a random access device as the system disk, and TK50s are not
+random access devices.  So, if you set bit 18 (%x20000) in R5 when you're
+booting a VAX, VMB will set things up such that the system disk and load
+device are different -- the stuff will be loaded from TK50s, and the system
+disk will be PDA0 - using DEC's PDDRIVER.
+
+PDDRIVER differs from standard disk drivers in a few interesting ways.  The
+IO$_FORMAT I/O function is used to cause the driver to assign non-paged pool
+to be the "blocks" which comprise the "disk".  Normal disk type I/O function
+codes go thru the standard ACP FDT routines in SYSACPFDT, and are queued to
+the driver's start I/O routine.  The start I/O routine uses two VMS routines,
+IOC$MOVFRUSER and IOC$MOVTOUSER, to accomplish "writes" and "reads".  Those
+two routines operate by double-mapping the user's buffer a page at a time
+in system virtual address space and moving data a byte a time, remapping the
+one page window when the buffer crosses a page boundary.  All of this occurs
+at driver fork IPL, which happens to match IPL$_SYNCH.  This double-mapping
+is necessary because fork processes do not have process context, and therefore
+user page tables are not current.
+
+So, when PDDRIVER is copying data all other driver fork activity stops, your
+scheduler stops, software timers stop, cluster lock management stops, etc.
+since you're spending perhaps significant amounts of time at IPL$_SYNCH.
+
+It's because of this that response time (e.g. - elapsed time for I/O) may
+actually be slower for PDDRIVER than it is for a real disk.  A real disk
+driver sets up a DMA transfer and then places itself in a wait state, waiting
+for the device to interrupt.  When the device interrupts a fork process is
+queued, which is used to do device-dependent post-processing and eventually
+hand the IRP off to IOC$IOPOST for device-independent post-processing.  While
+the driver is waiting for the interrupt your system is doing other things,
+like dealing with other driver fork processes, processing the software timer
+interrupts, doing cluster lock management, and processing scheduler interrupts.
+
+In theory a RAM disk *ought* to be faster than a real disk, since there's no
+rotational latency and memory is faster than spinning an oxide plow.  One
+obvious way to make a faster RAM disk is to use a MOVC3 instruction rather
+than moving data a byte at a time.  The other obvious way to improve response
+is to not spend so much time at IPL$_SYNCH.
+
+VMS device drivers operate at a variety of IPLs in order to synchronize their
+activity at various phases of processing an I/O request.  One of those phases,
+FDT processing, happens at IPL$_ASTDEL (2).  Response time could be improved
+if we could do the data transfer in the FDT routines and avoid the start I/O
+routine (which must execute at driver fork IPL, almost universally IPL$_SYNCH)
+altogether.  This turns out to be next to impossible, since the FDT routines
+for disk devices do lots of processing related to manipulating the file system.
+It's best to let DEC do the code for those, and DEC's FDT routines exit by
+queueing the IRP to the driver's start I/O routine.
+
+So, what you can do in the start I/O routine is to turn around and queue a
+kernel-mode AST back to the requestor process.  The kernel mode AST will
+execute at IPL$_ASTDEL in the context of the issuing process.  This has two
+advantages:  one is that we're no longer at IPL$_SYNCH, and the other is that
+we have process context, and process virtual address space is mapped (which is
+not true for the start I/O routine, which executes in reduced fork context).
+Thus the user's buffer is visible without having to double-map it.
+
+A further performance optimization you can make once your data transfers take
+place without disabling the scheduler is to allow multiple simultaneous read
+requests to occur.  The MOVC3 instruction is interruptable, and processes can
+compete for the CPU in the "middle" of executing that instruction.  Thus, we
+can protect the RAM disk using a MUTEX, which allows multiple read lockers,
+and a single write locker.  Write requests are still single-threaded (one
+writer at a time), and therefore maintains proper data integrity.
+
+As you've probably guessed by now I've written a replacement for DEC's PDDRIVER.
+It does everything PDDRIVER does except support system booting, which it wasn't
+designed to do (that's all DEC's was designed to do).  Mine is supposed to be
+a faster disk.  To give you some idea of the results of all of this, I wrote a
+program which uses block mode RMS to read and subsequently write 64 block chunks
+to a 128 block contiguous file, rewinding when it hits EOF.  I put the file it
+operates on on three different devices:  an RA81 connected to an HSC-50, a RAM
+disk controlled by DEC's PDDRIVER, and a RAM disk controlled by my driver.  The
+program makes 2000 passes through the loop reading and writing blocks.  Here
+are the results for a single job mashing on the file:
+
+RA81/HSC50: ELAPSED: 0 00:06:06.84  CPU: 0:00:33.54  BUFIO: 2  DIRIO: 5000  FAULTS: 13 
+PDDRIVER:   ELAPSED: 0 00:08:47.22  CPU: 0:08:10.49  BUFIO: 3  DIRIO: 5002  FAULTS: 6 
+RAMDRIVER:  ELAPSED: 0 00:01:35.64  CPU: 0:01:12.65  BUFIO: 3  DIRIO: 5000  FAULTS: 6 
+
+Since the program uses UPI (user process interlocking), you can start multiple
+copies bashing on the same file.  Since this is just a response time test it
+doesn't really matter what this does to the file, all that matters is that you
+get some idea of the scaling for multiple processes accessing the disk.  I took
+the same file, and started 5 copies of the program running on it.  Here are the
+results:
+
+RA81/HSC50:
+
+ ELAPSED:    0 00:20:37.14  CPU: 0:00:32.75  BUFIO: 2  DIRIO: 5000  FAULTS: 13 
+ ELAPSED:    0 00:20:40.20  CPU: 0:00:34.49  BUFIO: 2  DIRIO: 5000  FAULTS: 13 
+ ELAPSED:    0 00:20:40.82  CPU: 0:00:31.80  BUFIO: 2  DIRIO: 5000  FAULTS: 13 
+ ELAPSED:    0 00:20:42.59  CPU: 0:00:33.30  BUFIO: 2  DIRIO: 5000  FAULTS: 13 
+ ELAPSED:    0 00:20:39.12  CPU: 0:00:32.14  BUFIO: 2  DIRIO: 5000  FAULTS: 13 
+
+PDDRIVER:
+
+ ELAPSED:    0 00:41:39.63  CPU: 0:08:03.59  BUFIO: 3  DIRIO: 5002  FAULTS: 13 
+ ELAPSED:    0 00:42:16.22  CPU: 0:08:02.16  BUFIO: 3  DIRIO: 5000  FAULTS: 13 
+ ELAPSED:    0 00:43:06.47  CPU: 0:08:03.88  BUFIO: 3  DIRIO: 5000  FAULTS: 13 
+ ELAPSED:    0 00:42:29.57  CPU: 0:08:03.66  BUFIO: 3  DIRIO: 5000  FAULTS: 13 
+ ELAPSED:    0 00:41:36.60  CPU: 0:08:02.55  BUFIO: 3  DIRIO: 5000  FAULTS: 13 
+
+RAMDRIVER:
+
+ ELAPSED:    0 00:05:18.13  CPU: 0:01:12.33  BUFIO: 3  DIRIO: 5002  FAULTS: 13 
+ ELAPSED:    0 00:06:03.99  CPU: 0:01:11.81  BUFIO: 3  DIRIO: 5000  FAULTS: 13 
+ ELAPSED:    0 00:06:19.82  CPU: 0:01:12.32  BUFIO: 3  DIRIO: 5002  FAULTS: 13 
+ ELAPSED:    0 00:05:28.92  CPU: 0:01:11.66  BUFIO: 3  DIRIO: 5000  FAULTS: 13 
+ ELAPSED:    0 00:06:06.50  CPU: 0:01:12.75  BUFIO: 3  DIRIO: 5000  FAULTS: 13 
+
+
+Note that in both cases DEC's RAM disk driver is slower than a real disk, and
+when there are multiple accessors, it's *significantly* slower.  These numbers
+do not suggest that using PDDRIVER to speed your system up is a win.
+
+I'm not satisfied that RAMDRIVER is 100% safe yet;  I intend to bash it here
+at SDSC until I'm quite satisfied that it works.  I'll keep y'all posted.
+
+gkn
+----------------------------------------
+Internet: GKN@SDS.SDSC.EDU
+Bitnet:   GKN@SDSC
+Span:     SDSC::GKN (27.1)
+MFEnet:   GKN@SDS
+USPS:	  Gerard K. Newman
+          San Diego Supercomputer Center
+          P.O. Box 85608
+          San Diego, CA 92138-5608
+Phone:    619.534.5076

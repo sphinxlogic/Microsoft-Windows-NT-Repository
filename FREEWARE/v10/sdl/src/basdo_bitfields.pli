@@ -1,0 +1,152 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* DO_BITFIELDS processes bitfields. The tree is traversed until*/
+/* the first non-bitfield is found. Then a filler is put out	*/
+/* based on the number of bits and a name is generated using	*/
+/* the structure name with "_bitsx" where x is some counter	*/
+/*								*/
+/****************************************************************/
+
+
+do_bitfields: proc(cur_node,level);
+					    /********************/
+					    /*			*/
+					    /* DO_BITFIELDS	*/
+					    /*			*/
+					    /********************/
+
+%include 'sdl$library:sdlnodef.in';
+%include 'sdl$library:sdltypdef.in';
+
+/* declare variables */
+declare
+    cur_node pointer,			    /* poiner to the current node   */
+    level fixed binary(31),		    /* level in the aggregate	    */
+    bit_count fixed binary(7) initial(0),   /* number of consecutive bits   */
+    first_bit char(40) var initial(''),	    /* name of the first bit	    */
+    last_bit char(40) var initial(''),	    /* name of the last bit	    */
+    buf char(1024) var initial(''),	    /* output_buffer		    */
+    fill_type char(4) initial(''),	    /* filler type		    */
+    fill_cnt fixed bin(31) static initial(0),   /* counter for generated names  */
+    gen_name char(132) var initial(''),	    /* generated name		    */
+    tab char(132) var,			    /* tabs			    */
+    dim char(15) var initial(''),	    /* dimension, if necessary	    */
+    based_str char(1024) var based,	    /* used to get to the comment   */
+    tmp_node pointer;			    /* pointer to a node	    */
+
+DCL TABS ENTRY (
+	pointer,
+	fixed binary(31),
+	bit(1) ) returns(char(132) var) ;
+
+DCL TRIM ENTRY (
+	fixed binary(31))
+	RETURNS (character(32) VARYING );
+
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+DCL ADD_COMMENTS ENTRY (
+	pointer,
+	character(1024) VARYING );
+
+DCL DO_COM_NODE ENTRY (
+	pointer );
+
+
+
+    tmp_node = cur_node;
+    first_bit = cur_node->nod$t_naked;
+    tab = tabs(cur_node,level,'1'b);
+    do while( tmp_node->nod$w_datatype = typ$k_vield | tmp_node->nod$b_type = nod$k_commnode );
+
+	if( tmp_node->nod$b_type = nod$k_commnode )
+	then
+	    call do_com_node(tmp_node);
+	else do;
+		bit_count = bit_count + tmp_node->nod$l_fldsiz;
+		last_bit = tmp_node->nod$t_naked;
+		buf = tab;
+		if( tmp_node->nod$a_comment ^= null() )
+		then
+		   if( tmp_node->nod$a_comment->based_str ^= '' )
+		   then do;
+			call add_comments(tmp_node,buf);
+			call output_buf(buf);
+		end;
+	end;
+	tmp_node = tmp_node->nod$a_flink;
+
+    end;
+
+    cur_node = tmp_node->nod$a_blink;
+
+
+	if( bit_count >= 1 & bit_count <= 8 )
+	then
+	    fill_type = 'BYTE';
+	else
+	if( bit_count > 9 & bit_count <= 16 )
+	then
+	    fill_type = 'WORD';
+	else
+	if( bit_count > 16 & bit_count <= 32 )
+	then
+	    fill_type = 'LONG';
+	else do;
+	    fill_type = 'BYTE';
+	    dim = '(' || trim( ceil(bit_count/8) ) || ')';
+	end;
+
+	gen_name = first_bit || '_bits' ;
+
+	fill_cnt = fill_cnt + 1;
+	buf = tab || fill_type || ' ' || gen_name || dim;
+	buf = buf || '   ! COMMENT ADDED BY SDL - ' || gen_name || ' contains bits ' ||
+	      first_bit || ' through ' || last_bit;
+	call output_buf(buf);
+
+
+end do_bitfields;

@@ -1,0 +1,1736 @@
+{
+{	PEM_DEF.SDL	- Port Emulator Channel Control layer
+{
+{	Version		'X-45'
+
+
+{****************************************************************************
+{*									    *
+{*  COPYRIGHT (c) 1978, 1980, 1982, 1984, 1990, 1991 BY			    *
+{*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+{*  ALL RIGHTS RESERVED.						    *
+{* 									    *
+{*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+{*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+{*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+{*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+{*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+{*  TRANSFERRED.							    *
+{* 									    *
+{*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+{*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+{*  CORPORATION.							    *
+{* 									    *
+{*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+{*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+{* 									    *
+{*									    *
+{****************************************************************************
+{
+{++
+{
+{ FACILITY:     VAX/VMS EXECUTIVE, I/O DRIVERS
+{
+{ ABSTRACT: 	PEDRIVER definitions
+{
+{ AUTHOR:	Alan D. Eldridge	10-Mar-1985
+{
+{
+{ MODIFIED BY:
+{
+{	X-45	LPL0012		Lee Leahy			 5 Aug 1991
+{		1.)  Backout fix X-44.  This change did fix the delay problem,
+{		     however, CVG hit the boundary where PORT$W_LBUF_CNT 
+{		     >= PORT$W_LBUF_MAX causing an IPL 8 hang.  The delay
+{		     problem does not have this level of impact and can be
+{		     tolerated until a better solution can be implemented.
+{
+{	X-44	LPL0011		Lee Leahy			27 Jun 1991
+{		1.)  Backout change to PORT$K_FIRST_CYCL_WRK made in
+{		     edit X-33.  This is delaying cluster traffic and causing
+{		     more harm than good.  Another solution needs to be found.
+{		     The problem is when an incoming message is received and
+{		     passed to the SYSAP, if the SYSAP responds in the same
+{		     thread with a SNDDAT or SNDDATWM that is bigger than the
+{		     VC buffer size, the first segment is sent and then the
+{		     command is placed on the VC command queue.  In this 
+{		     process the WRK_RWAITQ bit is set in the port work flags.
+{		     However, since the thread of execution started in the 
+{		     fork routine, PEDRIVER ignores this bit, and forgets about
+{		     the fork request.  Time goes by and PEDRIVER either 
+{		     receives another message for SCS, or the timer fires
+{		     and finally, PEDRIVER continues the segmentation after
+{		     a delay of up to one second.
+{
+{		     The original fix was a problem in the boot driver.  This
+{		     problem could occur in PEDRIVER but has not been seen.  
+{		     A better solution is to split the RWAITQ into two queues,
+{		     one for resource waits, and the other for command 
+{		     segmentation.  The resource waits should be addressed only
+{		     once per fork, and the command segmentation queue should 
+{		     be looked at each loop of the fork routine.
+{
+{	X-43	LPL0010		Lee Leahy			19 Jun 1991
+{		1.)  Added PORT$A_PDT and PORT$A_UCB.
+{		2.)  Added RESERVED CC event and changed state name.
+{
+{	X-42	LPL0009		Lee Leahy			19 Feb 1991
+{		1.)  Added VC$L_TOPOLOGY_CHANGE.
+{		2.)  Added VC$L_NPAGEDYN_LOW.
+{
+{	X-41	LPL0008		Lee Leahy			 8 Feb 1991
+{		1.)  Added VC counters for PEM$PPC_PATH_CHANGE.
+{
+{	X-40	LPL0007		Lee Leahy			 9 Jan 1991
+{		1.)  Increase maximum receive cache from 8 to 31 messages.
+{		2.)  Added CH$L_TOPOLOGY_CHANGE.
+{
+{	X-39	LPL0006		Lee Leahy			 2 Nov 1990
+{		1.)  Added VC symbols for channel monitoring.
+{		2.)  Added NISCA$B_NODE_HW_TYPE.
+{		3.)  Added CH$B_RMT_NODE_HW_TYPE.
+{		4.)  Added VC$B_NODE_HW_TYPE.
+{
+{	X-38	LPL0005		Lee Leahy			24 Sep 1990
+{		1.)  Added CH$A_CLST.
+{		2.)  Changed data structures for ALPHA.
+{		3.)  Converted NISCA$L_TRANSMIT_TIME to NISCA$Q_TRANSMIT_TIME.
+{		4.)  Added NISCA$AB_LAN_HW_ADDR.
+{		5.)  Added NISCA$AB_DEVICE_NAME.
+{		6.)  Added BUS$AB_LAN_HARDWARE_ADDR.
+{		7.)  Added BUS$AB_CURRENT_LAN_ADDR.
+{		8.)  Added CH$AB_RMT_LAN_HWA.
+{		9.)  Added CH$AB_RMT_DEV_NAME.
+{
+{	X-37	LPL0004		Lee Leahy			13 Apr 1990
+{		1.)  Removed VC$W_LSX.
+{		2.)  Changed VC$W_CHANNEL_COUNT to VC$L_CHANNEL_COUNT.
+{		3.)  Changed VC$W_BUFFER_SIZE to VC$L_BUFFER_SIZE.
+{		4.)  Aligned extensions to the NISCA protocol headers.  
+{		     Authorize and service fields in the CC header are not 
+{		     quadword aligned but are longword aligned.  Ethernet 
+{		     header alignment assumed, currently with padding enabled 
+{		     it is 16 bytes.
+{
+{	X-36	LPL0003		Lee Leahy			21 Mar 1990
+{		1.)  Added VC$L_CACHE_MISS counter.
+{		2.)  Added BUS RESTART and RESTART_DELAY flags.
+{
+{	X-35	LPL0002		Lee Leahy			 2 Mar 1990
+{		1.)  Added VC open/close times.
+{		2.)  Added VC channel selection counter.
+{		3.)  Added BUS event time/type and event counters.
+{		4.)  Added CH open/close times and channel selection counters.
+{		5.)  Changed Q_xxx_BYTES to L_xxx_BYTES.
+{		6.)  Renamed REXMT bit back to RSVP.
+{		7.)  Added REXMT bit in TR header.
+{		8.)  Added channel protocol version.
+{		9.)  Added hello error count.
+{		10.) Added channel penalties for transmit errors and retransmissions.
+{		11.) Changed VC$B_CHANNEL_COUNT to VC$W_CHANNEL_COUNT.
+{
+{	X-34	LPL0001		Lee Leahy			16 Oct 1989
+{		The following changes have been made during the migration to the
+{		DECnet Phase V datalink device drivers:
+{
+{		1.)  Added support for DECnet Phase V datalink drivers by converting 
+{		     to the VCI interface.
+{		2.)  Severe modifications - removed RAILs, RCHs and added CHs.
+{		     Handshake and listen timers now using a ring of queues.
+{		3.)  Changed RSVP bit in TR_HEADER to REXMT bit.  This change was done
+{		     while moving the flow control from transmitter to receiver.
+{		4.)  Added $PEMVCIBDEF and $PEMVCRPDEF.
+{		5.)  Created version 1.3 of the NISCA protocol.
+{			a)  Added TRANSMIT_TIME to the CC header.
+{			b)  Added LCL_CHAN_SEQ_NUM to the CC header.
+{			c)  Added RMT_CHAN_SEQ_NUM to the TR header (in padded area).
+{
+{
+{	X-33	SCM1036		Steve Mayhew			08-Dec-1989
+{		Fix for booting hang problem (originally reported as CLDs to
+{	        V5.2 (two VAXstars on standalone segment...))
+{		
+{		The problem is in the processing of the RWAITQ. RWAITQ is used
+{		both to insure CI-port Arch. complience and to block for pipe
+{		quota or pool buffer allocation fail. The PORT fork loop (in
+{		PEM_EXEC) loops until *all* the PORT work bits are clear, which
+{		of course will never occur in the case of pool buffer allocation
+{		failure!  To prevent this (no doubt by accident) the RWAIT bit
+{		is not reset in the PORT work mask when PPC_VC_CMDQ (the routine
+{		that services the RWAIT condition) has to re-queue the VC back
+{		to the RWAITQ due to a pool buffer allocation failure.
+{
+{		The correct fix is simple:
+{		1) Always reset the RWAIT port work mask bit when the VC
+{		   is queued to the port RWAIT queue.
+{		2) Only check an process the RWAIT bit *once* while in the
+{		   fork service loop.
+{
+{		To this end three definitions have been added to the fork
+{		work bits:
+{		    PORT$K_FIRST_WRK - first work bit
+{		    PORT$K_FIRST_CYCL_WRK - first work bit that may be cyclicaly serviced
+{		    PORT$K_LAST_WRK - last work bit
+{		    
+{		Work bits in the inteval [FIRST_WRK .. FIRST_CYCL_WRK) must
+{		only be serviced once during the fork loop, work bits in the
+{		interval [FIRST_CYCL_WRK .. LAST_WRK] may serviced repeatedly
+{		in the fork loop.  (see PEM_EXEC fork code for details).
+{
+{		Similar defs have also been added to the VC wrk bits.
+{
+{		- Also increased supported_vcs to 96 nodes
+{		
+{	X-32	SCM1125		Steve Mayhew			11-Oct-1989
+{		Merge V5.3 changes (X-28U3) into hickory stream.
+{
+{	X-28U3	SCM4031		Steve Mayhew			04-Oct-1989
+{		Modify size of SOLICIT portion of CC message to include a
+{		16 Byte max .ASCIC sting.
+{
+{	X-31	SCM3029		Steve Mayhew			28-Aug-1989
+{		Merge V5.3 changes (X-28U2) into hickory stream.
+{
+{	X-28U2	SCM1029		Steve Mayhew			28-Aug-1989
+{		Add VC status bit to indicate delayed HS is in progress.
+{
+{	X-30	SCM3025		Steve Mayhew			21-Jul-1989
+{		Merge V5.3 changes (X-28U1) into hickory stream.
+{
+{	X-28U1	SCM1025		Steve Mayhew			14-Jul-1989
+{		- NISCA protocol ECO (V1.1 to V1.2), add SOLICT_SRV CC message.
+{		This message is multicast by the HICKORY bootdriver to locate
+{		its file server for initial system load when the file server is
+{		using the Phase V DECnet ethernet address (not based on
+{		SCSSYSTEM ID).
+{		- Add space in the VC for saved context when delaying following
+{		receipt of a multicast.
+{		
+{	X-29	SCM7014		Steve Mayhew			19-Apr-1989
+{		- add PPC codes for new messages to support SEND_DATA with
+{		message.
+{		- added a real PPC header def.
+{		- moved the RSPQ from the PORTQB to the PORT block where it
+{		is now a non-interlocked queue
+{		
+{	X-28	SCM5009		Steve Mayhew			8-Sep-1988
+{		- add counters for Dynamic CXB allocation, change xCXB_CNT
+{		and xCXB_MAX to words counters.
+{		
+{	X-27	MKP0009		Kathy Perko			5-Aug-1988
+{		- Reorder VC command queues so FFS will process them in the
+{		correct order.  Eliminate the PORT command queue processing.
+{		- added CXB inuse counters
+{   
+{	X-26	MKP0008		Kathy Perko			8-Jan-1988
+{		SCS puts an extra word at the beginning of the errorlog info
+{		on the stack.  Both PEM and SCS wind up in PE$REGDMP to
+{		process this info.  Add the word to the PEM buffer so it
+{		can properly tell an SCS buffer from a PEM buffer, and
+{		dispatch accordingly.
+{
+{	X-25	MKP0007		Kathy Perko			3-Sep-1987
+{		Add VC restarting bit - used to supress OPA0 messages and
+{		error logging for VC restarts.
+{
+{	X-24	MKP0006		Kathy Perko			17-Aug-1987
+{		Add error logging data structure, PEERL, to use when building
+{		the device specific portion of the device attention error log
+{		entry.
+{
+{	X-23	JAY0013		John A. Ywoskus			24-Jul-1987
+{		Add NISCA$C_MAX_VCTMO constant.
+{
+{	X-23	JAY0012,MKP0007	John Ywoskus, Kathy Perko	08-Jul-1987
+{		Add VC CMDQ work bit to process commands queued up to the
+{		VC-block.
+{
+{	X-21	JAY0018		John A. Ywoskus			21-Jul-1987
+{		Check if a received multicast message is of a valid
+{		type. Also, refine the handling of the protocol
+{		version fields in the message to be compatible with 
+{		future versions.
+{
+{	X-20	MKP0006		Kathy Perko			23-Apr-1987
+{		Add last gasp support - include a field in the RAIL block
+{		which will contain a pointer to the "Last gasp" datagram
+{		held in reserve.
+{
+{	X-19	JAY0012		John A. Ywoskus			09-Mar-1987
+{		Add VC$Q_CMDQx queue headers for pending VC commands.
+{		Add VC$W_MAX_CMD_LEN and VC$W_CMD_LEN fields for maintenance
+{		of these queues. Replace SSEQ and RSEQ (unused) fields 
+{		in the channel header with RESERVED0 and PIPE_QUOTA. Get 
+{		rid of 'spare_x' fields from PORT structure. Replace 
+{		RSVP_THRESH with PIPE_QUOTA in the VC and PORT structures.
+{
+{	X-18	JAY0011		John A. Ywoskus			03-Mar-1987
+{		Raise the small and large CXB limits to 60 and 42, since
+{		the values set in X-17 proved inadequate.
+{
+{	X-17	JAY0010		John A. Ywoskus			22-Jan-1987
+{		Raise the small and large CXB limits to 36 and 40, since the 
+{		older values were not adequate for large clusters.
+{
+{	X-16	JAY0009		John A. Ywoskus			09-Jan-1987
+{		Fix .IDENT to match CMS generation.
+{
+{	X-15	JAY0008		John A. Ywoskus			08-Jan-1987
+{		Add VC$B_UNACK_CNT and VC$B_PIPE_QUOTA fields for 
+{		unacked messages. Add NISCA$C_PIPE_QUOTA constant.
+{		Add VC$Q_CMDQ0 queue header for pending VC commands.
+{		Define VC$M_PIPE_QUOTA for VC$W_STS.
+{
+{	X-13,X-14
+{		CWH5013		CW Hobbs			17-Nov-1986
+{		Merge V4.6 and V5 streams.
+{
+{	X-12	JAY0007		John A. Ywoskus			19-Aug-1986
+{		Add port DISABLED status bit. Back out X-10.
+{
+{	X-11	RNG0011		Rod N. Gamache			28-Jul-1986
+{		Add initial SMP support.
+{
+{
+{	X-10G1	JAY0006		John A. Ywoskus			16-Jul-1986
+{		Add AUTHORIZE and NODENAME fields to CC header. Add NODENAME
+{		field to PORT block. Add a few more counters.
+{
+{	X-10	JAY0005		John A. Ywoskus			10-Jun-1986
+{		Add constants used in CXB allocation/deallocation.
+{
+{	X-9	JJW0042		James J. Walker			26-May-1986
+{		Add NISCA$C_NI_ACCESS_CODE.
+{
+{	X-8	JAY0004		John A. Ywoskus			28-Feb-1986
+{		Add some miscellaneous NISCA constant definitions.
+{		Add VC$W_STATE cell, PORT$Q_AUTHORIZE cell. Add $CCDEF.
+{
+{	X-7	JJW0032	    	James J. Walker			14-Jan-1986
+{		Add counters for MFQ, DFQ, SCXB, and LCXB.  Add counter
+{		for duplicate messages.
+{
+{	X-6	JAY0003		John A. Ywoskus			04-Dec-1985
+{		Add counter support.
+{
+{	X-5	JAY0002		John A. Ywoskus			22-Nov-1985
+{		Add some basic counters to the VC and PORT blocks.
+{
+{	X-4	JAY0001		John A. Ywoskus			08-Nov-1985
+{		Add VC$B_TIME_RCH support (used old VC$B_STATE).
+{		Removed RCH$B_TIME_XCH and replaced with RCB$B_CABLE.
+{
+{	X-3	ADE0002		Alan D. Eldridge		13-Aug-1985
+{		Add support for optional checksum on messages.
+{
+{	X-2	ADE0001		Alan D. Eldridge		20-Jul-1985
+{		Add support for PORT$M_WRK_TIMER.
+{
+{	X-1	initial entry.
+{--
+
+
+
+module $NISCADEF;
+{
+{ NI SCA Message Definition
+{ ------------------------------
+{
+{
+aggregate NISCADEF structure prefix NISCA$;                    
+                                         
+  MSG_HEADER	union fill;		{ Start all message header definitions
+					{ at offset zero
+   {
+   {   The DX-header (data exchange) is comes just after the datalink header.
+   {   It is common to all NISCA messages.
+   {
+   {
+   DX_HEADER	structure fill;		{ Define Data Exchange layer header
+    DX_DST_LO	longword unsigned;	{ Destination system id
+    DX_DST_HI	word unsigned;		{
+    DX_GROUP	word unsigned;		{ Group number
+    DX_SRC_LO	longword unsigned;	{ Source system id
+    DX_SRC_HI	word unsigned;		{
+    #dx_l = .;				{
+    constant	DX_LNG_HDR equals #dx_l	{ Length Data Exchange header
+			   tag C ;	{
+   end DX_HEADER;			{
+					{
+   {
+   {   The CC-header (Channel Control) is comes just after the DX-header.
+   {   This "header" is really the body of the Channel Control message, and
+   {   has a format similiar to the PPC layer's "I.D." message.  Note that
+   {   even though the CC portion of the message comes after the DX-header,
+   {   the SDL location counter is reset so as to start the definition at
+   {   byte zero.
+   {
+   {   NISCA messages fall into two categories: Channel Control and Data
+   {   Transport this is indicated by the header following DX, CC or TR 
+   {   respectively.  The CCFLG bit of the CC/TR NISCA$B_MSG byte determines
+   {   which category the message is in and therfore weather the header
+   {   containing it is a CC or TR header.
+   {
+  
+   CC_HEADER	structure fill;    	{ Define CC layer message
+    MSG_OVERLAY	union fill;		{ Message flags
+     MSG      	byte unsigned;		{ Message flags occupy one byte
+     constant  HELLO   equals 0 tag C;	{
+     constant  BYE     equals 1 tag C;	{
+     constant  CCSTART equals 2 tag C;	{
+     constant  VERF    equals 3 tag C;	{
+     constant  VACK    equals 4 tag C;	{
+     constant  DONE    equals 5 tag C;	{
+     constant  SOLICIT_SRV equals 6 tag C;      {
+
+     MSG_FLAGS	structure fill;		{ Flags definition:                    
+      spx	bitfield mask	 	{ Reserved flags
+		length 4 fill;		{ for the message type constants
+      AUTHORIZE	bitfield mask;		{ Set to indicate the AUTHORIZE field
+					{ is valid.
+      OK_XMT	bitfield mask;		{ Set if sender will accept a message
+			      		{ sent over NI receiving this message
+      NO_XMT	bitfield mask;		{ Set to cancel a OK_XMT - the REASON
+					{ field indicates why
+      CCFLG	bitfield mask;		{ Set if Channel Control message
+     end MSG_FLAGS;			{
+    end MSG_OVERLAY;			{
+    REASON	byte unsigned;		{ "No-xmt" reason code
+    MAI_OVERLAY	union fill;		{
+     MAINT   	longword unsigned;	{
+      MAINT_S	structure fill;		{
+      MAINT_ID	bitfield mask length 31;{ Remote port type
+      D		bitfield mask length 1;	{ Set if remote port supports multi-rails
+     end MAINT;				{
+    end  MAI_OVERLAY;			{
+					{
+    constant	MAINT equals %X80000008 { MAINT value for NI-SCA
+				tag M;	{ (supporting multiple paths)
+    MINOR	byte unsigned;		{ Remote NI-SCA protocol minor version #
+    MAJOR	byte unsigned;		{ Remote NI-SCA protocol major version #
+    ECO		word unsigned;		{ Remote NI-SCA protocol e.c.o. level
+    NODENAME	character length 8 ;	{ Remote system node name
+    FCN_OVERLAY union fill;		{ Remote Port functionality mask.
+     PORT_FCN	longword unsigned;
+     FCN_BITMASKS structure fill;
+      { reserved MBZ
+      MBZ	    bitfield length 7;
+      SRSNTDATWM    bitfield mask ;	{ Send/Rec SNTDATWM (*not* in CI Port Arch)
+      { PACKETS field
+      SRLB	    bitfield mask ;
+      RRSTSTRT	    bitfield mask ;
+      SSTRT	    bitfield mask ;
+      SRST	    bitfield mask ;
+      RMDATREQ	    bitfield mask ;	{ rec  "
+      SMDATREQ	    bitfield mask ;	{ send MDATREQ
+      RSNTMDAT	    bitfield mask ;	{ rec SNTMDAT
+      SSNTMDAT	    bitfield mask ;	{ send SNTMDAT
+      SRID	    bitfield mask ;	{ send/rec ID
+      SRDATREQ	    bitfield length 6 mask ;	{ send/rec DATREQ 0,1,2
+      RSNTDAT	    bitfield mask;	{ rec SNTDAT
+      SSNTDAT	    bitfield mask ;	{ send SNTDAT
+      SRMSG	    bitfield mask ;	{ send/rec message supported
+       { STATES field
+      UNINIT_MAINT  bitfield mask ;
+      UNINIT	    bitfield mask ;
+      DISAB_MAINT   bitfield mask ;
+      DISAB	    bitfield mask ;
+      ENAB_MAINT    bitfield mask ;
+      ENAB	    bitfield mask ;
+     end FCN_BITMASKS;
+    end FCN_OVERLAY;
+
+    constant PORT_FCN equals	    { NI-SCA PORT_FCN value (%X83FF0180 )
+	        NISCA$M_ENAB	    {   STATE = enabled
+		!NISCA$M_SRMSG!NISCA$M_SSNTDAT  {   PACKETS = all but maintenance.
+		!NISCA$M_RSNTDAT!NISCA$M_SRDATREQ!NISCA$M_SRID
+		!NISCA$M_SRLB
+		!NISCA$M_SRSNTDATWM { SCM added bit 7 set For SNDDATWM support
+	tag M;	
+
+    constant PEBT_PORT_FCN equals   { NISCA boot driver PORT_FCN value
+				    {   same less support for SNDDATWM
+	        NISCA$M_ENAB	    {   STATE = enabled
+		!NISCA$M_SRMSG!NISCA$M_SSNTDAT  {   PACKETS = all but maintenance.
+		!NISCA$M_RSNTDAT!NISCA$M_SRDATREQ!NISCA$M_SRID
+		!NISCA$M_SRLB
+	tag M;
+    	    
+     					{
+    STA_OVERLAY	union fill;		{ 
+     STA_INFO	longword unsigned;	{
+     STA_FIELDS	structure fill;		{
+      SPARE	bitfield length 8 fill;	{ Reserved for future use
+      M	       	bitfield mask length  1;{ Set for remote maintenance states.  
+      PS	bitfield mask length  2;{ Remote port state.
+      SYS_STATE	bitfield mask length 21;{ Remote implementation specific system
+     end STA_FIELDS;			{ state.
+    end  STA_OVERLAY;			{
+					{
+    constant	STA_INFO equals 4*256 	{& STA_INFO value for NI-SCA
+				tag M;	{
+    RST_PORT	character length 6 ;	{ System id of port which caused the
+ 					{ last reset of this port.
+    RESERVED0	byte unsigned;		{ Reserved field
+    PIPE_QUOTA	byte unsigned;		{ Remote PIPE_QUOTA parameter
+    P_SRV	word unsigned;		{ Remote provided  services mask.
+    R_SRV	word unsigned;		{ Remote requested services mask.
+    AUTHORIZE	quadword unsigned;	{ Authorization quadword
+    constant CC_LNG_V11 equals . tag C;	{ Length of any V1.1 NISCA cc message
+    SERVICE	character length 16 ;	{ Service requested (SOLICIT_SRV msg)
+					{ (only in V1.2 NISCA)
+    constant	CC_LNG_V12 equals . 	{ Length of CC portion of V1.2 message
+			tag C;		{
+
+    LCL_CHAN_SEQ_NUM	word unsigned;			{ Channel sequence number of the transmitting node.
+    BUS_BUFFER_SIZE	word unsigned;			{ Maximum buffer size supported by the local BUS.
+    TRANSMIT_TIME	quadword unsigned;		{ Time that this message was queued to the datalink device driver.
+    DEVICE_NAME		character length 16 tag AB;	{ Name of the local device.
+    LAN_HW_ADDR		character length 6 tag AB;	{ Hardware address associated with this controller.
+    DEVICE_TYPE		byte unsigned;			{ Datalink device type used to transmit this message.
+    NODE_HW_TYPE	byte unsigned;			{ Node hardware type.
+
+       constant (
+		  VAX					{ VAX hardware.
+		, EVAX					{ EVAX hardware.
+		) equals 0 increment 1 tag C_NODE_HW;
+    #cc_l = .;				{
+    constant	CC_LNG_V13 equals #cc_l	{ Length of CC portion of V1.3 message
+			tag C;		{
+
+{
+{		The following symbol is the final length of the CC layer header.  Any
+{		extensions to the CC layer header should be made immediately prior to 
+{		this comment and after the version specific header length.  References
+{		to NISCA$C_CC_LNG throughout PEDRIVER must continue to reference the 
+{		end of the CC layer header for all future versions of the protocol.
+{
+
+    constant CC_LNG equals . tag C;	{ Length of the CC header.
+   end CC_HEADER;			{
+					{
+   SRV_FIELD	structure fill;    	{ Define "services" field.  Use in
+					{ P_SRV, R_SRV, and in the VC block.
+    SRV_XCHK	bitfield mask;		{ XOR style xmt'er checksum service
+    SRV_RCHK	bitfield mask;		{ XOR style rcv'er checksum service
+   end SRV_FIELD;			{
+					{
+   {
+   {   The TR-header (Transport) is comes just after the DX-header.  Note that
+   {   even though the CC portion of the message comes after the DX-header,
+   {   the SDL location counter is reset so as to start the definition at
+   {   byte zero.
+   {
+   {   The TR header and CC headers are mutually exclusive
+   {
+
+   TR_HEADER structure fill;		{ Transport layer message header
+      FLAG_OVERLAY	union fill;	{ Transport message flags
+      	TR_FLAG		byte unsigned;	{ Flags byte
+	FLAG_BITS	structure fill;	{
+	    TR_DATA	bitfield mask;	{ Set if PPD region is present in msg
+	    TR_SEQ	bitfield mask;	{ Set if TR_SEQ field is valid
+	    TR_NAK	bitfield mask;	{ Set if TR_ACK field is really a NAK
+	    TR_ACK	bitfield mask;	{ Set if TR_ACK field is valid
+	    TR_RSVP	bitfield mask;	{ Set when an ACK is desired immediately.
+					{ Upon receipt, an ACK should be sent immediately.
+	    TR_REXMT	bitfield mask;	{ Set when this datagram has been retransmitted.
+	    TR_CTL	bitfield mask;	{ TR layer control flag -- (mbz for now)
+	    TR_CCFLG	bitfield mask;	{ Set on Channel Control messages only
+	end FLAG_BITS;			{
+      end FLAG_OVERLAY;			{
+      TR_PAD	byte unsigned;		{ Number of bytes between the TR_SEQ
+					{ field and the PPD type code
+      TR_ACK	word unsigned;		{ Sequence number of ACK
+      TR_SEQ	word unsigned;		{ Sequence number of message
+      constant	TR_LNG_HDR_V10 equals .	{ Length of Transport header (NISCA version 1.0)
+			   tag C ;	{
+
+{
+{		V1.3 protocol extensions.
+{
+
+      RMT_CHAN_SEQ_NUM	word unsigned;	{ Channel sequence number for the remote system.
+      TR_PAD_DATA_LEN	byte unsigned;	{ Number of data bytes in the PAD field including this field.
+      
+      constant	TR_LNG_HDR_V13 equals .	{ Length of Transport header (NISCA version 1.3)
+			   tag C ;	{
+
+{
+{		The following symbol is the final length of the TR layer header.  Any
+{		extensions to the TR layer header should be made immediately prior to 
+{		this comment and after the version specific header length.  References
+{		to NISCA$C_TR_LNG_HDR throughout PEDRIVER must continue to reference
+{		the end of the TR layer header for all future versions of the protocol.
+{
+
+      #tr_l = .;			{
+      constant	TR_LNG_HDR equals 	{ Length of Transport header.
+			#tr_l tag C ;	{
+   end	TR_HEADER;			{
+
+   {
+   {   The PPC-header (Port-to-Port) follows the TR-header (note as with
+   {   other NISCA header def's the SDL location counter begins at 0).
+   {   This header encodes the essense of the PPD opcode field.
+   {
+   
+   PPC_HEADER structure fill;		{ Port-to-Port communications layer
+					{  message header.
+      PPC_OPC byte unsigned;		{ Message type code, constants defined
+					{ below
+      #ppc_l = .;
+      constant PPC_LNG_HDR equals #ppc_l
+			   tag C;
+   end PPC_HEADER;
+
+  end	MSG_HEADER;			{
+
+  {
+  {   constants for total message overhead for NISCA.  SMSGs are the normal
+  {   sequenced messages, CMSGs are used only for channel maintenace they convey
+  {   no user data and are therefore by definition all overhead.
+  {
+
+  constant SMSG_OVHD equals #dx_l + #tr_l + #ppc_l
+		    tag C;
+  constant CMSG_OVHD equals #dx_l + #cc_l
+		    tag C;
+
+			   
+  {
+  {   Some miscellaneous architectural constants
+  {
+  {
+  constant GROUP_BASE_LO equals %X010400AB tag C;{ Low order base multicast addr
+  constant GROUP_BASE_HI equals %X0100	tag C;	{ High order base mulitcast addr
+  constant GROUP_MAX     equals %XFEFF	tag C;	{ Max group number
+  constant NI_PROTOCOL   equals %X0760	tag C;	{ NI protocol value
+  constant NI_ACCESS_CODE equals 6007	tag C;	{ NI access code to FFI
+  constant DELAY_ACK     equals 1 	tag C;	{ 1 second optional ACK delay
+  constant DELAY_SEQ     equals 2       tag C;	{ 2 second max round trip delay
+  constant TIMER	 equals 10*1000*1000	{ Basic timer interval
+					tag C;	{  = 1 second
+  constant HELLO_TIMER	 equals 3		{ Hello timer=
+					tag C;	{  3 seconds
+  constant HELLO_MIN_TIM equals 1       tag C;  {  1 second max delay if transmit errors are detected.
+
+  {
+  {		Handshake timers range from 1 through n and use the prefix HS_TMO_
+  {
+
+  constant HS_TMO_MAX    equals 5       tag C;  { Maximum handshake timer value.
+  constant HS_TMO_1      equals 5       tag C;  { Channel handshake timer = 5 seconds
+  constant HS_TIMERS     equals 1       tag C;  { Total number of handshake timers.
+
+  {
+  {		Listen timers range from 1 through n and use the prefix LSTN_TMO_
+  {
+
+  constant LSTN_TMO_MAX  equals 8       tag C;  { Maximum listen timer value.
+  constant LSTN_TMO_1    equals 8       tag C;  { Listen timer for Ethernet datalinks.
+  constant LSTN_TIMERS   equals 1       tag C;  { Total number of listen timers.
+
+  #pipe_quo = 8;					{ Default max unacked msgs allowed
+  constant PIPE_QUOTA	 equals #pipe_quo tag C;	
+
+  constant MAX_CACHE	 equals 31	tag C;  { Maximum msgs allowed in receive cache.
+  constant MAX_REXMT	 equals 30	tag C;	{ Maximum number of re-transmits.
+  constant MAJOR	 equals 1	tag C;	{ Major id.
+  constant MINOR	 equals 3	tag C;	{ Minor id.
+  constant ECO           equals 0	tag C;	{ ECO level.
+  constant MAX_VCTMO	 equals 16	tag C;	{ Max VC timeout detection period.
+
+  {
+  {    Port Emulator VC command queue indices.
+  {
+  {
+  constant CMDQ_3	equals 0	tag C;	{ Priority 3 (not used).
+  constant CMDQ_2	equals 1	tag C;	{ Priority 2 (not used).
+  constant CMDQ_HI	equals 2	tag C;	{ High priority index
+  constant CMDQ_LO	equals 3	tag C;	{ Low priority index.
+  {
+  {    PPC layer message type codes
+  {	(NISCA$B_PPC_OPC values)
+  {
+  constant SNT_DG     equals  0 tag C;	{
+  constant SNT_LB     equals  1 tag C;	{
+  constant SNT_SEQ    equals  2 tag C;	{
+  constant SNT_DATM   equals  3 tag C;	{
+  constant SNT_DAT    equals  4 tag C;	{
+  constant SNT_DAT_LP equals  5 tag C;	{
+  					{
+  constant REQ_ID     equals  6 tag C;	{
+  constant REQ_DATM   equals  7 tag C;	{
+  constant REQ_DAT0   equals  8 tag C;	{
+  constant REQ_DAT1   equals  9 tag C;	{
+  constant REQ_DAT2   equals 10 tag C;	{
+  					{
+  constant RET_DATM   equals 11 tag C;	{
+  constant RET_DAT    equals 12 tag C;	{
+  constant RET_DAT_LP equals 13 tag C;	{
+  constant RET_CNFM   equals 14 tag C;	{
+  constant RET_CNF    equals 15 tag C;	{
+  constant RET_ID     equals 16 tag C;	{
+  constant RET_LB     equals 17 tag C;	{
+  					{
+  constant RESET      equals 18 tag C;	{
+  constant START      equals 19 tag C;	{
+  constant SNT_DATWM  equals 20 tag C;	{
+  constant SNT_DATWM_LP  equals 21 tag C; {
+  constant RET_CNFWM  equals 22 tag C;
+  					{
+  constant PPDMSG_MAX equals 22 tag C;	{
+  					{
+  end NISCADEF;				{
+  end_module $NISCADEF;
+
+
+
+module	$PORTQBDEF ;
+                 
+aggregate PORTQBDEF structure prefix PORTQB$ ;
+
+    CMDQ_FILL	character length 4*8 tag R; { space where port command queues were
+    RSPQ_FILL	quadword;		{ real response queue now in port block
+    DFQHDR 	longword unsigned;	{
+    MFQHDR 	longword unsigned;	{
+    DQELEN	word unsigned;		{
+    dqelenhi	word unsigned fill ;	{
+    MQELEN	word unsigned;		{
+    mqelenhi	word unsigned fill ;	{
+    VPORTQB	longword unsigned;	{
+    VBDT 	longword unsigned;	{
+    BDTLEN	word unsigned;		{
+    bdtlenhi	word unsigned fill ;	{
+    SPTBASE	longword unsigned;	{
+    SPTLEN	longword unsigned;	{
+    GPTBASE     longword unsigned;	{
+    GPTLEN	longword unsigned;	{
+
+end PORTQBDEF ;
+
+end_module $PORTQBDEF ;
+
+
+
+module $BUSDEF ;
+
+aggregate ERRDEF structure prefix ERR$;	{ Definitions for BUS$AL_VEC0_ERR 
+
+    STATUS	word unsigned;		{ Status of error.
+    UNLOG_COUNT	word unsigned;		{ Count of unlogged occurrences of error.
+    LOG_COUNT	byte unsigned;		{ Count of logged occurrences of error.
+    SP1		byte unsigned;		{ Align it.
+
+    #length = . ;
+    constant LENGTH equals #length	{ Length of ERR structure.
+		tag C;
+
+end ERRDEF;
+
+aggregate BUSDEF structure prefix BUS$;
+
+    BUS_LIST		quadword unsigned;	{ BUS linked list linkage
+
+{
+{		Define the standard VMS header fields.
+{
+
+    SIZE		word unsigned;		{ Structure size
+    TYPE		byte unsigned;		{ Structure class
+    SUB_TYPE		byte unsigned;		{ Structure type
+
+{
+{		BUS device name pointer.
+{
+
+    DL_DEV_NAME		address;		{ Device name for this BUS.
+
+{
+{		Define the BUS status and state fields.
+{
+
+    STS_OVERLAY		union fill;		{ Status flags
+     STS		longword unsigned;	{
+     STS_BITS		structure fill;		{
+      RUN		    bitfield mask;	{ BUS completed initialization with datalink driver.
+      ONLINE		    bitfield mask;	{ BUS is available for read/write operations.
+      LDL		    bitfield mask;	{ Set if this is the local datalink.
+      HELLO_VCRP_BUSY	    bitfield mask;	{ HELLO message VCRP is in use for management function or transmission.
+
+      BUILD_HELLO_MESSAGE   bitfield mask;	{ HELLO message needs to be reformatted.
+      INIT		    bitfield mask;	{ Set while init'ing (starting the datalink driver)
+      WAIT_MGMT		    bitfield mask;	{ Bus waiting upon datalink PORT management request.
+      WAIT_EVNT		    bitfield mask;	{ Bus waiting upon datalink EVENT.
+
+      BROKEN		    bitfield mask;	{ BUS is broken
+      XMT_CHAINING_DISABLED bitfield mask;	{ BUS does not support transmit chaining.
+      DELETE_PENDING        bitfield mask;	{ BUS does not match PEDRIVER requirements and is scheduled for deletion.
+      RESTART		    bitfield mask;	{ BUS should be restarted if it is shutdown.
+
+      RESTART_DELAY	    bitfield mask;	{ BUS is delaying before the next restart.
+     end STS_BITS;
+    end STS_OVERLAY;
+
+    DELETE_BUS_ROUTINE	address;		{ Address of the delete BUS routine.    
+
+{
+{		Define a backward pointer to the PORT.
+{
+
+    PORT		address;		{ PORT block back pointer.
+
+{
+{		Define the counters for BUS receive accounting.
+{
+
+    RCV_MESSAGES	longword unsigned;	{ Messages received by this BUS.		Includes multicast messages.
+    RCV_BYTES		longword unsigned;	{ Bytes received by this BUS.			Includes multicast messages.
+    RCV_MULTICAST_MSGS	longword unsigned;	{ Multicast messages received by this BUS.
+    RCV_MULTICAST_BYTES	longword unsigned;	{ Multicast bytes received by this BUS.
+
+{
+{		Define the counters for datalink driver accounting.
+{
+
+    OUTSTANDING_IO_COUNT word unsigned;		{ Number of transmit requests being processed by the datalink driver.
+
+{
+{		Define the BUS rating parameters.
+{
+
+    DEVICE_TYPE		byte unsigned;		{ Datalink device type used by this BUS.
+
+    FILL_BYTE		byte fill;		{ Preserve quadword alignment.
+
+    BUFFER_SIZE		word unsigned;		{ Maximum PPC data buffer size for this BUS.
+    RECEIVE_RING_SIZE	byte unsigned;		{ Number of ring entries in the receive ring.
+
+{
+{		Define the BUS related timers.
+{
+
+    HELLO_TIMER		byte unsigned;		{ Counter for the hello timer.  When it reaches zero (0), send HELLO message.
+
+    HANDSHAKE_TIMEOUT	address;		{ Address of the handshake timer queue address.
+    LISTEN_TIMEOUT	address;		{ Address of listen timer queue address.
+
+{
+{		Define the permenantly allocated message structures.
+{
+
+    HELLO_MESSAGE	address;		{ HELLO message VCRP address.
+    BYE_MESSAGE		address;		{ BYE message VCRP address.
+
+{
+{		Define the counters for BUS transmit accounting.
+{
+
+    XMT_BYTES		longword unsigned;	{ Bytes sent by this BUS.			Includes multicast messages.
+    XMT_MESSAGES	longword unsigned;	{ Messages sent by this BUS.			Includes multicast messages.
+    XMT_MULTICAST_MSGS	longword unsigned;	{ Multicast messages sent by this BUS.
+    XMT_MULTICAST_BYTES	longword unsigned;	{ Multicast bytes sent by this BUS.
+
+{
+{		Define the event counters.
+{
+
+    LAST_EVENT_TYPE		longword unsigned;	{ Event type of last event.
+    LAST_EVENT_TIME		quadword unsigned;	{ Time of the last event.
+    PORT_USABLE_EVENT		word unsigned;		{ Number of port usable events.
+    PORT_UNUSABLE_EVENT		word unsigned;		{ Number of port unusable events.
+    ADDRESS_CHANGE_EVENT	word unsigned;		{ Number of address change events.
+    RESTART_FAIL_EVENT		word unsigned;		{ Number of restart failures.
+
+{
+{		Hash table to locate CH's.  The hash value is part of the remote system's network address.
+{
+
+    #hash_bits = 6;
+
+    constant NET_ADDR_HASH equals 32 tag V;		{ Beginning bit position of the network address hash value.
+    constant NET_ADDR_HASH equals #hash_bits tag S;	{ Size of the network address hash value in bits.
+
+    CH_HASH_TBL	character			{ Channel hash table using the remote system's network address as the hash value.
+			length 4 @ #hash_bits
+			tag AA;
+
+{
+{		Define the BUS error storage.
+{
+
+    CC_RCV_BAD_SCSSYSTEMID	word unsigned;	{ Received a message with the wrong SCSSYSTEM ID in it.
+    RCV_TR_MC			word unsigned;	{ Count of multicast messages directed to the TR layer.
+    SHORT_DX_MSG		word unsigned;	{ Count of short messages received.
+    CH_ALLOC_FAIL		word unsigned;	{ Count of CH allocation failures.
+    VC_ALLOC_FAIL		word unsigned;	{ Count of VC allocation failures.
+    WRONG_PORT			word unsigned;	{ Count of messages addressed to the wrong PORT.  Bad group code or SCSSYSTEMID.
+
+{
+{		Define the BUS error storage.
+{
+
+    ERROR_COUNT		longword unsigned;	{ Count of local hardware transmit errors
+    LAST_ERROR_TIME	quadword unsigned;	{ Time of last transmit error
+    LAST_ERROR_REASON	longword unsigned;	{ Reason for last transmit error
+    HELLO_XMT_ERRORS	longword unsigned;	{ Count of transmit errors during HELLOs.
+
+    #num_cou = 6;
+    VEC0_ERR		character		{ 5 slots for error log counters.
+			length 6*#num_cou tag AL;
+    constant NUM_COU	equals #num_cou		{ Number of xmit error log counters
+			tag C;
+
+{
+{		Define the LAN addresses used by this BUS.
+{
+
+    LAN_HARDWARE_ADDR	character length 6 tag AB;	{ LAN address contained in the controller's PROM.
+    CURRENT_LAN_ADDR	character length 6 tag AB;	{ Current LAN address used by this BUS.
+
+{
+{		Data structures required by the data link device driver.
+{
+
+    VCIB	character length 0;	{ Imbedded VCIB block
+    #length = .	;			{
+    constant	LENGTH  equals #length	{ Length of BUS structure
+			tag C;		{
+end BUSDEF;
+
+end_module $BUSDEF;
+
+module $VCDEF;
+
+aggregate VCDEF structure prefix VC$;
+
+    QLNK	quadword unsigned;	{ Queue linkage
+					{
+    SIZE	word unsigned;		{ Bytes used for VC       
+    TYPE	byte unsigned;		{ Block class
+    SUB_TYPE	byte unsigned;		{ Block type
+
+    STS_OVERLAY	union fill;		{ Virtual circuit status flags
+     STS	word unsigned;		{
+     STS_BITS	structure fill;		{
+      OPEN	bitfield mask;		{ Set if sequenced messages are allowed
+      DQI	bitfield mask;		{ Set if Datagrams are inhibited
+      PATH	bitfield mask;		{ Set if any rcv-xmt pairs are active
+      QUEUED	bitfield mask;		{ Set if in a queue somewhere
+      TIM_RXMT  bitfield mask;		{ Set if Retransmit-timer is ticking
+      PIPE_QUOTA bitfield mask;		{ Set if pipeline quota has been used up
+      RWAIT	bitfield mask;		{ Set if VC is waiting for a resource
+      RESTART   bitfield mask;		{ Set if VC is restarting (CCSTART rcvd).
+     end STS_BITS;			{
+    end  STS_OVERLAY;			{
+    NODE_HW_TYPE	byte unsigned;	{ Node hardware type. See NISCA$C_NODE_HW_TYPE.
+					{
+    WRK_OVERLAY	union fill;		{ Virtual circuit status flags
+     WRK	byte unsigned;		{ Work mask -- defined in priority
+     WRK_BITS	structure fill;		{ order
+	constant FIRST_WRK equals ^	{ bit pos. of first VC work bit
+	    prefix VC$ tag K;
+      WRK_SSEQ	bitfield mask;		{ Retransmit a sequenced message
+      WRK_SACK	bitfield mask;		{ Send an ACK
+      WRK_ABUF	bitfield mask;		{ Tend to VC$L_BUF_ACTION list
+	constant LAST_WRK equals ^ - 1	{ bit pos. of last VC work bit
+	    prefix VC$ tag K;
+     end WRK_BITS;			{
+    end  WRK_OVERLAY;			{
+
+{
+{		Define the channel selection variables.
+{
+
+    PREFERRED_CHANNEL	address;		{ Active channel with the lowest delay time.
+    DELAY_TIME		longword unsigned;	{ Network delay time for this channel.
+    BUFFER_SIZE		longword unsigned;	{ Maximum PPC data buffer size for this VC.
+    FILL_LONGWORD	longword unsigned;	{ Preserve quadword alignment.
+
+{
+{		Define the accounting variables.
+{
+
+    CHANNEL_COUNT		longword unsigned;	{ Number of channels connected to this virtual circuit.
+    CHANNEL_SELECTION_COUNT	longword unsigned;	{ Number of channel selections performed.
+    OPEN_TIME			quadword unsigned;	{ Time VC was last open.
+    CLOSE_TIME			quadword unsigned;	{ Time VC was last closed.
+
+    TIM_XACK	word unsigned;		{ Clock ticks before ACK xmt is due
+    TIM_RACK	word unsigned;		{ Time of last new ACK reception
+					{
+    #START_COU = . ;			{ Start of counter area
+
+    RET_ID_ATTEMPTS  longword unsigned;	{ Number of attempts to send a RET_ID to SCS.
+    RET_IDS_SENT     longword unsigned;	{ Number of RET_IDs sent to SCS.
+    TOPOLOGY_CHANGE  longword unsigned;	{ VC closed due to a topology change (down size the VC buffer size)
+    NPAGEDYN_LOW     longword unsigned;	{ VC closed because non-paged pool.
+
+    XMT_MSG	longword unsigned;	{ Messages transmitted
+    XMT_UNSEQ	longword unsigned;	{ Unsequenced transmitted
+    XMT_SEQ	longword unsigned;	{ Sequenced transmitted
+    XMT_ACK	longword unsigned;	{ ACKs transmitted
+    XMT_REXMT	longword unsigned;	{ Sequenced re-transmitted
+    XMT_BYTES	longword unsigned;	{ Bytes transmitted
+    XMT_NOXCH	longword unsigned;	{ No transmit channel
+    RCV_MSG	longword unsigned;	{ Messages received
+    RCV_UNSEQ	longword unsigned;	{ Unsequenced received
+    RCV_SEQ	longword unsigned;	{ Sequenced received
+    RCV_ACK	longword unsigned;	{ ACKs received
+    RCV_RERCV	longword unsigned;	{ Sequenced re-received
+    RCV_BYTES	longword unsigned;	{ Bytes received
+    RCV_CACHE	longword unsigned;	{ Messages cached
+    TR_PIPE_QUOTA longword unsigned;	{ # of times pipeline quota was reached
+
+    RCV_TR_SHORT word unsigned;		{ Short transport message received
+    RCV_ILL_ACK	word unsigned;		{ Illegal ACK received
+    RCV_ILL_SEQ word unsigned;		{ Illegal sequence message received
+    RCV_BAD_CKSUM word unsigned;	{ Checksum failures
+    XMT_SEQ_TMO	word unsigned;		{ Sequence transmit timeouts
+    TR_DFQ_EMPTY word unsigned;		{ Transport - DFQ was empty
+    TR_MFQ_EMPTY word unsigned;		{ Transport - MFQ was empty
+    CC_DFQ_EMPTY word unsigned;		{ Chan. Ctl. - DFQ was empty
+
+    CC_MFQ_EMPTY word unsigned;		{ Chan. Ctl. - MFQ was empty
+
+    #COU_SIZE = . -  #START_COU;	{ Size of counter area
+    constant	COUNTER_SIZE equals #COU_SIZE	{ Length of VC counters
+			 tag C;			{
+
+    FILL_WORD	word fill;		{ Preserve quadword alignment.
+
+    HASH_LINK	address;		{ Hash list linkage
+    NODENAME	character length 8 ;	{ Remote system node name
+
+    REMSYS_LO	longword unsigned;	{ Low order system id
+    REMSYS_HI	word unsigned;		{ High order system id
+    PORT_INX	byte unsigned;		{ Local port index
+    RETRIES	byte unsigned;		{ # of consecutive rexmt's remaining
+					{
+    BUF_ACTION	address;		{ Listhead of buffers for special dispatch
+    BUF_RCV	address;		{ Listhead of buffers rcv'd out of order
+    BUF_FIRST	address;		{ Listhead of buffers awaiting an ACK
+    BUF_LAST	address;		{ Ptr to last buffer  awaiting an ACK
+					{
+    BUF_REXMT	address;		{ Ptr to next buffer to retransmit
+    CMDQ_LEN	word unsigned ;		{ Current length of all queues
+    HAA		word unsigned;		{ Highest ACK acceptable
+					{
+    LAR		word unsigned;		{ Lowest ACK received
+    HSR		word unsigned;		{ Highest sequence message received
+    NSU		word unsigned;		{ Next sequence message to send
+    RSVP_THRESH	word unsigned;		{ Number of msg's before requesting ACK
+
+    PIPE_QUOTA	byte unsigned;		{ Max number of messages that can be unacked
+    MASK_QUE	byte unsigned;		{ VC command queue work mask
+    MAX_CMD_LEN	word unsigned;		{ Max commands seen in queues so far
+    CACHE_MASK	longword unsigned;	{ Mask of cached messages on local system.
+					{
+    RWAITQ	quadword unsigned ;	{ Resource wait queue linkage
+    CMDQ3	quadword unsigned ;	{ Queue of pending commands to remote port
+    CMDQ2	quadword unsigned ;	{ Queue of pending commands to remote port
+    CMDQHI	quadword unsigned ;	{ Queue of pending commands to remote port
+    CMDQLO	quadword unsigned ;	{ Queue of pending commands to remote port
+     constant	QUE_NUMBER equals 4 tag C ; { Number of VC command queues
+
+    ACTIVE_CHANNELS	quadword unsigned;	{ Channels that have paths open.
+    DEAD_CHANNELS	quadword unsigned;	{ Channels that are in the process of handshaking.
+
+    MAI_OVERLAY	union fill;		{& do this a la "services" mask
+     MAINT   	longword unsigned;	{
+      MAINT_S	structure fill;		{
+      MAINT_ID	bitfield mask length 31;{ Remote port type
+      D		bitfield mask length 1;	{ Set if remote port supports multi-rails
+     end MAINT;				{
+    end  MAI_OVERLAY;			{
+    MINOR	byte unsigned;		{ Remote NI-SCA protocol minor version #
+    MAJOR	byte unsigned;		{ Remote NI-SCA protocol major version #
+    ECO		word unsigned;		{ Remote NI-SCA protocol e.c.o. level
+
+    PORT_FCN	longword unsigned;    	{ Remote Port functionality mask.
+    STA_OVERLAY	union fill;		{& do this a la "services" mask
+     STA_INFO	longword unsigned;	{
+     STA_FIELDS	structure fill;		{
+      SPARE	bitfield length 8 fill;	{ Reserved for future use
+      M	       	bitfield mask length  1;{ Set for remote maintenance states.  
+      PS	bitfield mask length  2;{ Remote port state.
+      SYS_STATE	bitfield mask length 21;{ Remote implementation specific system
+     end STA_FIELDS;			{ state.
+    end  STA_OVERLAY;			{
+
+    SRV  	longword unsigned;	{ Arbitrated protocol services mask.
+    CACHE_MISS	longword unsigned;	{ Number of messages that could not be placed in the cache.
+				      	{
+    CHAN_SEL_TIME   quadword unsigned;	{ Time of the preferred channel selection.
+    CH_XMT_MSGS	    longword unsigned;	{ Number of messages transmitted at channel selection.
+    CH_XMT_BYTES    longword unsigned;	{ Number of bytes transmitted at channel selection.
+
+    PREV_NET_DELAY  longword;		{ Previous network delay value.
+
+    #length = .	;			{ *** MUST BE LONGWORD ALIGNED ***
+    constant	LENGTH   equals #length	{ Length of VC
+			 tag C;		{
+					{
+end VCDEF;
+
+end_module $VCDEF;
+
+{
+{		Define the Channel Block structure.  This structure is used to make a 
+{		connection between a Virtual Circuits (VC) and a BUS so that the TR 
+{		layer can send SCS messages.
+{
+
+module $PEMCHDEF;
+
+aggregate CHDEF structure prefix CH$;
+
+    TIMER_ENTRY		quadword unsigned;	{ Entry for timer queue.
+    SIZE		word unsigned;		{ Size of this structure.
+    TYPE		byte unsigned;		{ Class of data structure.
+    SUB_TYPE		byte unsigned;		{ Type of data structure.
+
+{
+{		Define the channel status.
+{
+
+    STATE	word unsigned;		{ Channel state
+    STS_OVERLAY	union fill;		{ Channel status flags
+     STS	byte unsigned;		{
+     STS_BITS	structure fill;		{
+      PATH			bitfield mask;	{ Set when CC initialization complete.
+      OPEN			bitfield mask;	{ Set when CC initialization complete and transmit permission granted, OK to use VC
+      XMT_CHAINING_DISABLED	bitfield mask;	{ BUS does not support transmit chaining.
+      RMT_HWA_VALID		bitfield mask;	{ Hardware address valid.
+     end STS_BITS;			{
+    end  STS_OVERLAY;			{
+    RING_INDEX	byte unsigned;		{ Timer ring index.
+
+{
+{		Connect the CH to the other data structures.
+{
+
+    BUS			address;		{ Address of the BUS to use for message transmission.
+    VC			address;		{ Address of the VC to use for message reception.
+    CHANNEL_LIST	quadword unsigned;	{ List of active/dead channels for a given virtual circuit.
+    CH_HASH_LINK	address;		{ Address of the next CH in the BUS hash table.
+
+{
+{		Define the channel rating parameters.
+{
+
+    constant	REXMT_PENALTY	equals   500 tag C;	{ Time penalty paid when a transmission occurs.
+    constant	XMTFAIL_PENALTY	equals 10000 tag C;	{ Time penalty paid when a transmit error occurs.
+
+    AVERAGE_XMT_TIME	longword unsigned;	{ Running average of remote system's transmit time.
+    RSVP_THRESH		word unsigned;		{ Number of messages before requesting ACK
+    REMOTE_RING_SIZE	byte unsigned;		{ Number of receive ring entries in the remote datalink devices receive ring.
+
+    REMOTE_DEVICE_TYPE	byte unsigned;		{ Remote datalink device type.
+
+{
+{		Define the channel sequence numbers.
+{
+
+    LCL_CHAN_SEQ_NUM	word unsigned;		{ Sequence number of the local channel.
+    RMT_CHAN_SEQ_NUM	word unsigned;		{ Sequence number of the remote channel.
+
+{
+{		Define the remote system characteristics.
+{
+
+    REMOTE_BUFFER_SIZE	word unsigned;		{ Remote system's buffer size.  Largest possible buffer size.
+    MAX_BUFFER_SIZE	word unsigned;		{ Negotiated buffer size for this channel.
+    SUPPORTED_SERVICES	longword unsigned;	{ Services supported on this channel.
+    REMOTE_NET_ADDRESS	quadword unsigned;	{ Network address for the remote system.
+
+{
+{		Define the channel usage counters.
+{
+
+    OPEN_TIME		quadword unsigned;	{ Last time that this channel had a path to a remote system.
+    CLOSE_TIME		quadword unsigned;	{ Time that this channel was last closed.
+
+    BEST_CHANNEL_COUNT		longword unsigned;	{ Number of times this channel was the best.
+    PREFERRED_CHANNEL_CNT	longword unsigned;	{ Number of times this channel was the preferred channel for the VC.
+
+    REXMT_PENALTY	longword unsigned;	{ Number of times a retransmit penalty was paid.
+    XMTFAIL_PENALTY	longword unsigned;	{ Number of times a transmit error penalty was paid.
+
+    XMT_MSGS		longword unsigned;	{ Number of messages sent on this channel.	Includes control messages.
+    XMT_BYTES		longword unsigned;	{ Number of bytes transmitted on this channel.	Includes control messages.
+
+    XMT_CTRL_MSGS	longword unsigned;	{ Number of control messages sent.		Does not include multicast messages.
+    XMT_CTRL_BYTES	longword unsigned;	{ Number of control message bytes sent.		Does not include multicast messages.
+
+    RCV_MC_MSGS		longword unsigned;	{ Number of multicast control messages received.
+    RCV_MC_BYTES	longword unsigned;	{ Number of multicast control message bytes received.
+
+    RCV_CTRL_MSGS	longword unsigned;	{ Number of control messages received.
+    RCV_CTRL_BYTES	longword unsigned;	{ Number of control message bytes received.
+
+    RCV_MSGS		longword unsigned;	{ Number of message received by this channel.
+    RCV_BYTES		longword unsigned;	{ Number of bytes received by this channel.
+
+{
+{		Define the network component list associated with this channel.
+{
+
+    CLST			address;	{ Network component list structure address.
+
+{
+{		Define the remote system's protocol version.
+{
+
+    MINOR			byte unsigned;	{ Remote NI-SCA protocol minor version #
+    MAJOR			byte unsigned;	{ Remote NI-SCA protocol major version #
+    ECO				word unsigned;	{ Remote NI-SCA protocol e.c.o. level
+
+{
+{		Define the fields used for debugging and analysis.
+{
+
+    RMT_DEV_NAME		character length 16 tag AB;	{ Name of the remote device.
+    RMT_LAN_HWA			character length 6 tag AB;	{ Remote hardware address.
+    RMT_NODE_HW_TYPE		byte unsigned;			{ Remote node's hardware type.  See NISCA$B_NODE_HW_TYPE.
+    FILL_BYTE			byte fill;			{ Preserve alignment.
+
+{
+{		Define the channel error counters.
+{
+
+    CC_HS_TMO			word unsigned;	{ Channel initialization handshake timeout.
+    CC_LISTEN_TMO		word unsigned;	{ Listen timeouts - no HELLO messages received in LISTEN_TIMEOUT seconds.
+    CC_RCV_BAD_AUTHORIZE	word unsigned;	{ Received a bad authorization message.
+    CC_RCV_BAD_ECO		word unsigned;	{ Received a bad ECO CC message.
+    CC_RCV_BAD_MC		word unsigned;	{ Received a bad multicast message.
+    CC_RCV_SHORT_MSG		word unsigned;	{ Received a CC message that was too short.
+    CC_RCV_INCOMPAT_CHANNEL	word unsigned;	{ Received a CC message that is incompatible with existing channels for this VC.
+    TR_RCV_OLD_MSG		word unsigned;	{ Receive a message from an old channel.
+    CC_NO_MSCP_SERVER		word unsigned;	{ No MSCP server to service the SOLICIT_SRV message.
+    CC_DISK_NOT_SERVED		word unsigned;	{ Disk is not served by this system.
+    TOPOLOGY_CHANGE		word unsigned;	{ Network topology change.  Switching from large buffers back to small buffers.
+
+    #length = .	;
+    constant	LENGTH	equals #length tag C;	{ Length of CH
+
+end CHDEF;
+
+end_module $PEMCHDEF;
+
+{
+{		Define the extensions to the VAX Communications Interface Block.  This
+{		structure is used to make a one to one connection between the PEDRIVER 
+{		BUS structure and a datalink device driver.
+{
+
+module $PEMVCIBDEF;
+
+read "SHRLIB$:LANUDEF.SDI";
+
+aggregate VCIBDEF structure prefix VCIB$;
+
+{
+{		Force quadword alignment of the VCIB structure.
+{
+
+    VCIB_FILLER			character length VCIB$K_LAN_FIXED_LENGTH fill;
+
+    constant LENGTH		equals ( . + 7 ) & ( -7 - 1 ) tag C;	{ Set the data structure length.
+
+end VCIBDEF;
+
+end_module $PEMVCIBDEF;
+
+{
+{		Define the extensions to the VAX Communication Request Packet.  These
+{		fields are used to keep track of the transmit and receive messages
+{		during their lifetime within PEDRIVER.
+{
+
+module $PEMVCRPDEF;
+
+read "SHRLIB$:DCBEDEF.SDI";
+read "SHRLIB$:LANUDEF.SDI";
+read "SHRLIB$:VCRPDEF.SDI";
+
+aggregate VCRPDEF structure prefix VCRP$;
+
+{
+{		The CREATOR_DATA_OVERLAY is only used by LAN drivers for receive (David Gagne 9 Mar 1990).
+{		This area will be overlayed with some of the PEDRIVER specific fields used during transmit.
+{
+
+    CH_FILLER			byte dimension 
+				VCRP$K_CREATOR_DATA_OFFSET fill;
+
+    CH				address;	{ Address of the channel used for transmission.
+						{ Filled in only for sequenced messages if preferred channel is available.
+
+{
+{		The internal stack is not used by the LAN drivers (David Gagne 8 Sep 1989).
+{		This area will be overlayed with some of the PEDRIVER specific fields for the VCRP.
+{
+
+    STACK_FILLER		byte dimension 
+				VCRP$K_INTERNAL_STACK_OFFSET - . fill;
+
+{
+{		Link to VCIB that is only used by the "local" data-link.  This link is
+{		used to restore the VCIB value so that the correct context is available
+{		for transmit completion.  
+{
+{		The port emulator also uses the local datalink to suspend processing of
+{		the transmit completion event until after the port emulator has had a 
+{		chance to FORK.  This is done by clearing the upper bit of the VCIB
+{		address and queuing the VCRP to the local datalink.  Note, that a valid
+{		valid VCIB address will always have the upper bit set.
+{
+
+    STACK_OVERLAY		structure byte dimension VCRP$K_INTERNAL_STACK_LENGTH fill;
+
+        DL_VCIB			address;	{ VCIB address used only for "local" datalink processing.
+
+{
+{		Extend the VCRP to include a DCBE that can be used when sending 
+{		buffered data messages.  The DCBE must be quadword aligned.
+{
+
+        LAVC_DCBE		character length DCBE$K_DCB_HEADER;	{ Additional DCBE for chained transmissions. 
+									{ Must be QUADWORD aligned
+
+{
+{		Each transmitted sequenced message is retained in a singly linked list 
+{		until an ACK for that message is received.  If an ACK is not received
+{		then this list is used for retransmitting the message.
+{
+{		All out of sequence messages are placed in a receive message cache that
+{		is built using a singly linked list.  Messages are placed in this cache
+{		in sequence number order.
+{
+
+        LINK			address;		{ Link to the next buffer in the receive cache.
+
+{
+{		The copy of the data area description in VCRP$L_BOFF and VCRP$L_BCNT gets
+{		modified by the datalink device driver.  Since the contents of this buffer
+{		will be modified in the event that a retransmission is necessary, a copy
+{		of these values are necessary.  This copy is unknown by the datalink device
+{		drivers and will not get modified.
+{
+{		These fields are also used when a receive message is placed in the cache.
+{		These fields describe the data within the received message that has not
+{		been processed.
+{
+
+        LENGTH			word unsigned;			{ Length of the message.
+        OFFSET			word unsigned;			{ Offset from the beginning of the VCRP to the start of message.
+
+{
+{		Each transmit message needs to maintain some state information since the
+{		message was generated in the context of a larger state machine.  The
+{		following fields are used to describe the actions that need to be performed
+{		once the message has been transmitted to the remote system.
+{
+
+        ACK_ACTION		address;	{ Action routine to call when message is ACK'd
+        END_ACTION		address;	{ Action routine to dispose of the message buffer.
+        XCTID_PTR		address;	{ Saved pointer to XCT-ID in block transfer messages.
+        X_ACTION		byte unsigned;	{ Action to take upon dequeuing.
+
+        constant (
+		 	  NOP			{ Do nothing (*** no longer used ***)
+			, RET_ID		{ Transmit REQID msg
+			, RET_LB		{ Transmit rec'd loopback message
+			, IDLE_BFR		{ Done with buffer
+		) equals 0 increment 1 tag C_ACT;
+
+{
+{		Flags to determine if VCRP is idle
+{
+
+        CODE_OVERLAY		union fill;
+         CODE			byte unsigned;	{ Channel status flags
+         CODE_BITS		structure fill;
+            CD_SYNC		bitfield mask;	{ Set until call to driver's VCM XMT call completes (not I/O completion)
+            CD_XMTPND		bitfield mask;	{ Set until XMT I/O completion
+            CD_ACKPND		bitfield mask;	{ Set while ACK to message is pending
+            CD_ACTION		bitfield mask;	{ Set while on a work queue and the VCRP$B_ACTION field is valid
+         end CODE_BITS;
+        end  CODE_OVERLAY;
+
+    end STACK_OVERLAY;
+
+{
+{		Define the constants that are used to insure that the datalink
+{		drivers don't overwrite a portion of the VCRP that is not set
+{		aside for data.
+{
+{		The ETHERNET format is used for now in PEDRIVER however a larger
+{		header area is reserved for a future protocol change.
+{
+{	ASSUME	VCRP$T_LAN_USER_802E	GE	VCRP$T_LAN_USER_ETH
+{
+
+    VCRP_FILLER			character length ( VCRP$K_FIXED_LENGTH - . ) fill;
+
+    #dll_hdr_len = VCRP$T_LAN_USER_802E - VCRP$K_FIXED_LENGTH;	{ Size of datalink header.
+
+    constant	DLL_HDR_SIZE	equals #dll_hdr_len tag C;	{ Size of datalink header.
+    constant	DLL_CHAIN_SIZE	equals 101 tag C;		{ Includes the datalink header.
+    constant	DLL_XMT_SIZE	equals 1498 tag C;		{ Largest transmit request.
+
+{***********************************************************************************************************************************
+{		KLUDGE ALERT ---
+{			The PPD is proceeded by a VCRP header and the PPD must be QUADWORD 
+{			aligned for the INSQxI and REMQxI instructions.  The MAGIC number 
+{			for this header size is VCRP$C_HEADER and thus it must be QUADWORD 
+{			aligned.
+{***********************************************************************************************************************************
+
+    VCRP_DLL_FILLER		character length 
+				#dll_hdr_len + ( 7 - (( . + #dll_hdr_len + 7 ) & 7 )) fill;
+
+    #hdr_size	= .;					{ Offset to DLL header.
+    #trailer	= 0;					{ Size of DLL trailer.
+
+    constant	HEADER		equals #hdr_size tag C;			{ Offset to DLL header, must be quadword aligned.
+    constant	TRAILER		equals #trailer tag C;			{ No in memory trailer (CRC) for LAN drivers.
+    constant	OVERHEAD	equals #hdr_size + #trailer tag C;	{ Total overhead size.
+
+{
+{		Define the start of the PPD area (network message)
+{
+
+    PPD_START_FILLER		character length 
+				( #hdr_size + #tr_l + #dx_l - . ) fill;
+
+    START_PPD			character length 0;	{ Start of the PPD area.
+
+end VCRPDEF;
+
+end_module $PEMVCRPDEF;
+
+module $PORTDEF;
+
+aggregate PORTDEF structure prefix PORT$;
+
+
+    {
+    { pool use control constants
+    {
+    #supported_vc = 96;
+    constant INIT_LBUF_MAX equals (#pipe_quo/2) * #supported_vc
+			     tag C;		{ initial large buffer MAX value
+    constant INIT_SBUF_MAX equals #pipe_quo * #supported_vc
+			     tag C;		{ initial small buffer MAX value
+    constant INIT_LBUF_QUO equals 1 tag C;	{ only keep 1, NON-paged pool
+						{ already maintains an LRP lookaside
+    constant INIT_SBUF_QUO equals #pipe_quo tag C;
+    constant SBUF_QUO_INCR equals 1 tag C;
+
+    PORTQB 	address;		{ Pointer to PORT queue block
+    INTR_SRV	address;		{ Pointer to Port's interrupt routine
+
+    SIZE	word unsigned;		{ Bytes used for PORT
+    TYPE	byte unsigned;		{ Block class
+    SUB_TYPE	byte unsigned;		{ Block type
+
+    VC_NUM	byte unsigned;		{ Number of VC slots
+    VC_CNT	byte unsigned;		{ Current count of VC slots used
+    VC_LAST	byte unsigned;		{ Last VC slot used
+    MAX_CACHE	byte unsigned;		{ Max buffers in each VC receive cache
+
+    FORK	quadword;		{ Fork linkage
+					{
+    STS_OVERLAY	union fill;		{ Virtual circuit status flags
+     STS	word unsigned;		{
+     STS_BITS	structure fill;		{
+      AUTHORIZE	bitfield mask;		{ Set if node authentication required
+      FORK	bitfield mask;		{ Set if PORT fork block is in use
+      NEED_LBUF	bitfield mask;		{ Set if large buffer queue is empty
+      NEED_SBUF	bitfield mask;		{ Set if small buffer queue is empty
+      NEED_MFQ	bitfield mask;		{ Set if MFQ  queue is empty
+      NEED_DFQ	bitfield mask;		{ Set if DFQ  queue is empty
+      DISABLED  bitfield mask;		{ Set if port is disabled
+      SYNCH	bitfield mask;		{ Set if in the middle of a direct call
+					{ from the driver (use to suppress
+					{ unnecessary interrupts
+     end STS_BITS;			{
+    end  STS_OVERLAY;			{
+
+    MAX_REXMT	byte unsigned;		{ Max consecutive rexmt's allowed
+    FLCK	byte unsigned;		{ Fork lock index
+    FPC		address;		{ Fork PC
+					{
+    FR3		longword unsigned;	{ Fork R3
+    FR4		longword unsigned;	{ Fork R4
+					{
+    QUE_OVERLAY union fill;		{
+     QUE_FIRST	quadword;		{ Start of queue list
+     QUE_ACTUAL structure fill;		{ And now, the list
+      #que_start = .;
+      VC_WORK	quadword;		{ VC work queue header
+      SBUF_FREE	quadword;		{ Small buffer free queue
+      LBUF_FREE	quadword;		{ Large buffer free queue
+      DFQ	quadword;		{ Emergency DFREEQ element
+      MFQ	quadword;		{ Emergency MFREEQ element
+      XMT_LDL	quadword;		{ "Local-datalink" transmit buffer queue
+      RWAITQ	quadword;		{ Queue of VCs waiting for a resource
+      DELAYQ	quadword;		{ Queue of VC's random waiting
+      RSPQ	quadword;		{ PPD response queue (non-interlocked)
+      BUS_LIST	quadword;		{ List of BUSses used by this port.
+      #que_end = .;
+      constant	QUE_NUMBER equals
+		   ((#que_end-#que_start)/8) tag C ; { Number of queue listheads
+     end QUE_ACTUAL;			{
+    end  QUE_OVERLAY;			{
+					{
+    SECS_ZEROED	longword unsigned;	{ Seconds since last zeroed
+    CLOCK	word unsigned;		{ Current clock value
+					{
+    WRK_OVERLAY	union fill;		{ Work flags -- what to do after forking
+     WRK       	word unsigned;		{
+     WRK_BITS	structure fill;		{
+	constant FIRST_WRK equals ^	{ Bit position of first work bit
+	    prefix PORT$ tag K; 
+      WRK_RWAITQ bitfield mask;		{ Set if PORT$Q_RWAITQ needs processing
+	constant FIRST_CYCL_WRK equals ^	{ bit pos. of first work bit eligiable
+	    prefix PORT$ tag K;		{  for cyclic servicing
+      WRK_VCQ	bitfield mask;		{ Set if PORT$Q_VC_WORK is non-empty
+      WRK_INTR	bitfield mask;		{ Set if port interrupt needs to be
+					{ sent to the SCS layer
+      WRK_LDL	bitfield mask;		{ Set if buffers on local-datalink list
+      WRK_TIMER	bitfield mask;		{ Set to process internal clock tick
+	constant LAST_WRK equals ^ - 1 prefix PORT$ tag K;
+     end WRK;				{
+    end WRK_OVERLAY;			{
+
+    AUTHORIZE	quadword;		{ Key used for node authentication
+    SERVICES	longword unsigned;	{ Requested protocol services mask.
+    MAX_LNGMSG	word unsigned;		{ Max MSG length (including count field)
+    MAX_LNGDG	word unsigned;		{ Max DG  length (including count field)
+					{
+    VCVEC0	address;		{ Pointer to VC (0 indexed) slot array
+    DELAY_ACK  	word unsigned;		{ Ticks allowed for ACK delay
+    DELAY_SEQ  	word unsigned;		{ Ticks before seq msg times out
+					{
+    NODENAME	character length 8 ;	{ Local system node name
+    SBUF_SIZE   word unsigned;		{ Total size of a small buffer
+    LBUF_SIZE   word unsigned;		{ Total size of a large buffer
+#PORT_COU_START = . ;
+    SBUF_CNT	word unsigned;		{ Count of currently allocated small buffers
+    SBUF_QUO    word unsigned;		{ Number of small buffers to keep in private pool
+    SBUF_MAX    word unsigned;		{ Max small buffers allowed to be similtaneously allocated
+    LBUF_CNT    word unsigned;		{ Count of currently allocated large buffers
+    LBUF_QUO    word unsigned;		{ Number of large buffers to keep in private pool
+    LBUF_MAX    word unsigned;		{ Max large buffers allowed to be similtaneously allocated
+    TOT_LBUF_ALLOCS longword unsigned;	{ Large buffer total "allocation" counter    
+    TOT_SBUF_ALLOCS longword unsigned;	{ Small buffer total "allocation" counter
+    LBUF_LOOKASIDE_MISS word unsigned;	{ Large buffer allocations forced to goto pool
+    SBUF_LOOKASIDE_MISS word unsigned;	{ Small buffer allocations forced to goto pool
+    SBUF_INUSE_CNT word unsigned;	{ count of small buffers not on FREE q
+    SBUF_INUSE_PEAK word unsigned;	{ max small buffers inuse cnt seen
+    LBUF_INUSE_CNT word unsigned;	{ count of large buffers not on FREE q
+    LBUF_INUSE_PEAK word unsigned;	{ max large buffers inuse cnt seen
+    PCI_SBUF_EMPTY word unsigned;	{ Port Cmd. Inter. - SBUF_FREE was empty
+    PCI_LBUF_EMPTY word unsigned;	{ Port Cmd. Inter. - LBUF_FREE was empty
+    TR_SBUF_EMPTY word unsigned;	{ Transport - SBUF_FREE was empty
+#PORT_COU_SIZE = . - #PORT_COU_START ;
+    constant PORT_COUNTER_SIZE equals #COU_SIZE	{ size in bytes of PORT counter
+		    tag C;			{ block
+
+    BUS_COUNT	word unsigned;		{ Count of attached BUSses.
+    LINK	address;		{ PORT linked list linkage
+
+    SCAN_XACK	byte unsigned;		{ Last bit scanned for sending ACK's
+    SCAN_XSEQ	byte unsigned;		{ Last bit scanned for resending SEQ msg
+    SCAN_SBUF	byte unsigned;		{ Last bit scanned for acquiring small buffer
+    NEED_SACK	byte unsigned;		{ Number of VC's waiting for small buffers
+
+    SYSID_LO	longword unsigned;	{ Low  order bits of 48 bit system id
+    SYSID_HI	word unsigned;		{ High order bits of 48 bit system id
+    GROUP	word unsigned;		{ Port's group number
+					{
+    MCAST_LO	longword unsigned;	{ Low  order bits of 48 bit multicast id
+    MCAST_HI	word unsigned;		{ High order bits of 48 bit multicast id
+
+    FILL_BYTE_1	byte fill;		{ Preserve quadword alignment.
+    TIM_ERR_LOG	byte unsigned;		{ Timer for rate based error logging.
+
+    constant 	ERRLOG_THRES equals 10	{ Rate threshold - maximum errors of
+		tag C;			{   each type logged in error interval.
+    constant 	ERR_RATE_INT equals 3	{ Interval for rate based error logging.
+		tag C;
+
+					{
+					{
+    MAI_OVERLAY	union fill;		{
+     MAINT   	longword unsigned;	{
+      MAINT_S	structure fill;		{
+      MAINT_ID	bitfield mask length 31;{ Remote port type
+      D		bitfield mask length 1;	{ Set if remote port supports multi-rails
+     end MAINT;				{
+    end  MAI_OVERLAY;			{
+    MINOR	byte unsigned;		{ Remote NI-SCA protocol minor version #
+    MAJOR	byte unsigned;		{ Remote NI-SCA protocol major version #
+    ECO		word unsigned;		{ Remote NI-SCA protocol e.c.o. level
+    PORT_FCN	longword unsigned;    	{ Remote Port functionality mask.
+     					{
+    STA_OVERLAY	union fill;		{ 
+     STA_INFO	longword unsigned;	{
+     STA_FIELDS	structure fill;		{
+      SPARE	bitfield length 8 fill;	{ Reserved for future use
+      M	       	bitfield mask length  1;{ Set for remote maintenance states.  
+      PS	bitfield mask length  2;{ Remote port state.
+      SYS_STATE	bitfield mask length 21;{ Remote implementation specific system
+     end STA_FIELDS;			{ state.
+    end  STA_OVERLAY;			{
+    RST_PORT	character length 6 ;	{ System id of port which caused the
+					{ last reset of this port.
+    FILL_WORD	word fill;		{ Preserve longword alignment
+					{
+    constant	VC_MAX	 equals 256 	{ Max number of VC slots in PORT
+			  tag C;	{
+    constant	HASH     equals 32 tag V,{ Define field for hash function
+		HASH     equals  6 tag S;{ - bits 32-38 of the remote SYSID
+				       	 {
+    MASK_SBUF	character		{ Bit-mask of VC  needing a small
+		length 256/8 tag T;	{ buffer for ACK transmission.
+					{
+    MASK_XACK	character 		{ Bit-mask of VC's with ticking ACK
+		length 256/8 tag T;	{ clocks.
+					{
+    MASK_XSEQ	character		{ Bit-mask of VC  needing Sequenced
+    		length 256/8 tag T;	{ message retransmission.
+					{
+    VEC0_HASH	character 		{ 64 slots for VC hash table
+		length 64*4   tag AL;	{ -- first entry has index 0
+					{
+					{&longword align
+
+    PDT		address;		{ Address of PDT.
+    UCB		address;		{ Address of UCB.
+
+    #length = .	;			{
+    constant	LENGTH	equals #length	{ Length of PORT
+			tag C;		{
+end PORTDEF;				{
+
+end_module $PORTDEF;
+
+module $ROOTDEF;
+
+aggregate ROOTDEF structure prefix ROOT$;
+
+    FILL_LONG	longword fill;
+    PORT_LIST	address;		{ PORT listhead
+					{
+    SIZE	word unsigned;		{ Structure size
+    TYPE	byte unsigned;		{ Structure class.
+    SUB_TYPE	byte unsigned;		{ Structure type.
+    INX_SPT0	longword unsigned;	{ Index of first SPT for mapping
+					{
+    SVA 	address;		{ Mapped system VA assoc. with PTE's
+    PTE0	address;		{ Pointer to first mapping PTE
+					{
+    TQE		character length 0;	{ THIS MUST BE QUADWORD ALIGNED
+					{ Start of imbedded TQE
+    #length = . ;			{
+    constant	LENGTH	equals #length	{ Length of ROOT
+    			tag C;		{
+end ROOTDEF;				{
+
+end_module $ROOTDEF;
+
+module $CCDEF ;
+
+aggregate CCDEF structure prefix CC$;
+    DUMMY	longword unsigned;			{
+
+
+     {
+     { constants for CC layer events, order of following is assumed
+     { in CC_STATE_TABLE defintion.
+     { 
+     constant (
+	HELLO 		{ 0: Received a CC HELLO
+	,BYE   		{ 1: Received a CC BYE
+	,CCSTART  	{ 2: Received a CC START
+	,VERF  		{ 3: Received a CC VERF
+	,VACK   	{ 4: Received a CC VACK
+	,DONE  		{ 5: Received a CC DONE
+	,SOLICIT_SRV 	{ 6: Recieved a CC SOLICIT_SRV message
+	,RESERVED	{ 7: Reserved for future use.
+	,TRANS   	{ Received a TR message
+	,CC_TIMER	{ CC timer event
+	,SHORT_MSG  	{ Received a short msg
+	,BAD_ECO	{ bad msg ECO field.
+	,AUTHORIZE  	{ Authorization failed
+	,BAD_MC     	{ Bad multicast received
+	,INCOMP_CHNL	{ Message received on an incompatible channel.
+     ) equals 0 increment 1 tag C_EVT;
+{
+{ Define CC layer states
+{
+
+     constant (
+	CLOSED		{ CLOSED
+	,CCSTART_SENT	{ START sent
+	,CCSTART_REC	{ START received
+	,SOLICIT_REC	{ SOLICIT_SRV received.
+	,OPEN		{ OPEN
+	,HELLO_DLY	{ Delay before processing the received HELLO message.
+	,SOLICIT_DLY	{ Delay before processing the received SOLICIT_SRV message.
+	,reserved	{ pad to power of 2 to allow index mode operation
+        ,TOTAL		{ number of CC states (must be last in list)
+     ) equals 0 increment 1 tag C_STATE;
+     
+end CCDEF;
+
+end_module $CCDEF;
+
+module $PEERLDEF;
+{
+{  Format of device attention error log entries written by the port
+{  emulator portion of PEDRIVER.
+{
+aggregate PEERLDEF structure prefix PEERL$;
+    SCS_PAD		word unsigned;		{ Used only by SCS, not PEM
+    #pem_buf_begin = .;
+    REGSAV_SIZE		word unsigned;		{ Size of device specific
+						{   portion of error log entry
+    MBZ			word unsigned;		{ Must be 0 (if not, SCS has
+						{   changed it's entries.)
+    ERROR_SUBTYPE	byte unsigned;		{ ERL error subtype
+    {
+    { Note:  this field MUST be in this position in the data structure
+    { because SCS uses the same position for the same field, and I must
+    { use it to tell how the rest of the event is to be formatted.
+    {
+    ERROR_TYPE		byte unsigned;		{ ERL error type
+    IOSB1		longword unsigned;	{ IOSB longword 1
+    IOSB2		longword unsigned;	{ IOSB longword 2
+    DL_DEVNAM		character length 16;	{ Datalink device name
+    DST_NODENAME	character length 16;	{ Destination node of message
+    DST_ADDR_LO		longword unsigned;	{ Destination ethernet addr
+    DST_ADDR_HI		word unsigned;
+    LOCAL_ADDR_LO	longword unsigned;	{ Local ethernet addr
+    LOCAL_ADDR_HI	word unsigned;
+    ERROR_COUNT		word unsigned;		{ Occurrences of error since
+						{   last log entry.
+    DL_UNIT		word unsigned;		{ Datalink unit number
+
+    #length = .;
+    constant	LENGTH equals #length		{ Length of errorlog structure
+				tag C;
+    constant	PEM_LENGTH equals #length -	{ Length of PEM portion of
+				#pem_buf_begin	{   errorlog structure.
+				tag C;
+    constant	TOTAL_LONGWORDS equals 14	{ longwords in ERL entry.
+				tag C;
+
+end PEERLDEF;
+
+end_module $PEERLDEF;

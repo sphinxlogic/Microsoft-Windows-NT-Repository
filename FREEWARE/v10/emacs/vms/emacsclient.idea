@@ -1,0 +1,234 @@
+#2           1-JUN-1994 19:49:27.26                                  NEWMAIL
+From:   MX%"vms-emacs-testers@e.kth.se"
+To:     MX%"vms-emacs-testers@e.kth.se"
+CC:     
+Subj:   emacsclient functionality (was: Using Emacs as a MAIL/NEWS editor)
+
+X-ListName: "A mailing list for people testing GNU Emacs on VMS."
+    <vms-emacs-testers@e.kth.se>
+Warnings-To: <>
+Errors-To: owner-vms-emacs-testers@e.kth.se
+Sender: owner-vms-emacs-testers@e.kth.se
+Date: Wed, 1 Jun 94 13:55:40 EDT
+From: "Roland B Roberts, 8*793-6458" <roberts@vaxms2.dnet.ge.com>
+Reply-To: vms-emacs-testers@e.kth.se
+X-To: "vms-emacs-testers@e.kth.se"
+To: vms-emacs-testers@e.kth.se
+Subject: emacsclient functionality (was: Using Emacs as a MAIL/NEWS editor)
+
+Here's what I've done to have a working emacsclient program.  I'm
+attaching a new file, emacsclient.com, and patches to server.el.
+
+This makes minimal changes to the existing server.el functions, and only
+adds one new funcion, vms-server-start.  The VMS version communicates
+via a job-wide logical, EMACSCLIENT$_REQUEST.  The obvious restriction
+is that Emacs just be part of the same job tree as the client.  This
+works fine for X where Emacs is spawned as a subprocess from your
+terminal process.  The syntax for emacsclient is identical to that of
+the unix version does:
+
+    $ emacsclient :== @disk:[dir]emacsclient """"
+    $ emacsclient +10 sys$login:login.com
+
+causes Emacs to jump to line 10 of login.com.  You can specify multiple
+files on the same line---the trailing quotes on the symbol definition
+are to bypass the 8 parameter limit.
+
+================ EMACSCLIENT.COM ================
+$!
+$! Changes a job-wide logical telling Emacs what file the client wants to edit
+$! The file server.el is the lisp code which starts a process and monitors
+$! the logical name
+$!
+$! First try to find the server process
+$!
+$ idx  = 0
+$ mpid = f$getjpi(0,"MASTER_PID")
+$ find_server:
+$   pid  = f$pid(idx)
+$   name = f$extract(0,11,f$getjpi(pid,"PRCNAM"))
+$   ppid = f$getjpi(pid,"MASTER_PID")
+$   if (name .eqs. "EMACSSERVER") .and. (ppid .eqs. mpid)
+$   then
+$     goto got_server
+$   else
+$     if idx .eq. 0
+$     then
+$       write sys$error "No server found."
+$       write sys$error "Possibly your emacs is running for another process?"
+$       exit
+$     else
+$       goto find_server
+$     endif
+$   endif
+$ got_server:
+$!
+$! Now put together the argument list
+$!
+$   args = f$fao("!AS !AS !AS !AS !AS !AS !AS !AS",p1,p2,p3,p4,p5,p6,p7,p8)
+$   args = f$edit(args,"COMPRESS,TRIM,UPCASE")
+$   if args .eqs. "" then done
+$!
+$! Build the list of filenames
+$! f$parse() is used to create pathname from the file name
+$! If f$parse() returns "", the argument is passed as is---this allows
+$!   a line number specification `+35' to pass through unchanged.
+$!
+$   list = ""
+$ build_list:
+$   x = f$locate(" ",args)
+$   l = f$length(args)
+$   file = f$edit(f$extract(0,x,args),"TRIM")
+$   args = f$extract(x+1,l-x-1,args)
+$   if file .eqs. "" .and. args .nes. "" then goto build_list
+$   temp = f$parse(file,,,,"SYNTAX_ONLY")
+$   if temp .nes. ""
+$   then
+$     if f$locate(";",file) .eq. f$length(file)
+$     then file = f$extract(0,f$loc(";",temp),temp)
+$     else file = temp
+$     endif
+$   endif
+$   list = list + " " + file
+$   if args .nes. "" then goto build_list
+$!
+$! Reformat the list and define the logical for the server
+$! Normally, this waits for the server to finish, but you can set
+$! the logical EMACSCLIENT$_NOWAIT to cause the client to exit 
+$! immediately.
+$!
+$   list = f$pid(0)+" "+f$edit(list,"COMPRESS,TRIM")
+$   define/nolog/job EMACSCLIENT$_REQUEST "''list'"
+$   if f$trnlnm("EMACSCLIENT$_NOWAIT") .nes. "" then exit
+$ wait_loop:
+$   if f$trnlnm("EMACSCLIENT$_REQUEST") .eqs. "" then exit
+$   wait 0:00:00.30
+$   goto wait_loop
+$ exit
+
+
+*** server.el-old       Wed Jun  1 13:45:12 1994
+--- server.el   Wed Jun  1 13:45:18 1994
+***************
+*** 154,160 ****
+        nil
+      (if server-process
+        (server-log (message "Restarting server")))
+!     (setq server-process (start-process "server" nil server-program))
+      (set-process-sentinel server-process 'server-sentinel)
+      (set-process-filter server-process 'server-process-filter)
+      (process-kill-without-query server-process)))
+--- 154,162 ----
+        nil
+      (if server-process
+        (server-log (message "Restarting server")))
+!     (if (eq system-type 'vax-vms)
+!       (setq server-process (vms-server-start))
+!       (setq server-process (start-process "server" nil server-program)))
+      (set-process-sentinel server-process 'server-sentinel)
+      (set-process-filter server-process 'server-process-filter)
+      (process-kill-without-query server-process)))
+***************
+*** 162,167 ****
+--- 164,172 ----
+  ;Process a request from the server to edit some files.
+  ;Format of STRING is "Client: CLIENTID PATH PATH PATH... \n"
+  (defun server-process-filter (proc string)
++   (if (and (eq system-type 'vax-vms)
++          (eq ?\n (aref string 0)))
++       (setq string (substring string 1)))
+    (server-log string)
+    (setq string (concat server-previous-string string))
+    (if (not (and (eq ?\n (aref string (1- (length string))))
+***************
+*** 242,251 ****
+        ;; tell it that it is done, and forget it entirely.
+        (if (cdr client) nil
+          (if running
+!             (progn
+!               (send-string server-process 
+!                            (format "Close: %s Done\n" (car client)))
+!               (server-log (format "Close: %s Done\n" (car client)))))
+          (setq server-clients (delq client server-clients))))
+        (setq old-clients (cdr old-clients)))
+      (if (buffer-name buffer)
+--- 247,260 ----
+        ;; tell it that it is done, and forget it entirely.
+        (if (cdr client) nil
+          (if running
+!             (if (eq system-type 'vax-vms)
+!                 (progn
+!                   (call-process "DEASSIGN/JOB EMACSCLIENT$_REQUEST")
+!                   (server-log (format "deassign/job %s Done\n" (car client))))
+!               (progn
+!                 (send-string server-process 
+!                              (format "Close: %s Done\n" (car client)))
+!                 (server-log (format "Close: %s Done\n" (car client))))))
+          (setq server-clients (delq client server-clients))))
+        (setq old-clients (cdr old-clients)))
+      (if (buffer-name buffer)
+***************
+*** 325,330 ****
+--- 334,393 ----
+        (switch-to-buffer (other-buffer)))))
+  
+  (global-set-key "\C-x#" 'server-edit)
++ 
++ ;;;
++ ;;; VMS-specific additions for DCL emacsclient hack
++ ;;;
++ (defvar vms-server-program "sys$login:emacsserver.com"
++   "Name of the temporary file to use for running the server code")
++ 
++ (defun vms-server-start (&optional prefix)
++   "Starts a subprocess to monitor the logical name EMACSCLIENT$_REQUEST.
++ Whenever the logical name changes, Emacs switches to the specified file."
++   (interactive "P")
++   (if (and server-process (eq (process-status server-process) 'run))
++       (if prefix
++         (kill-process server-process)
++       (error "Server process already running!")))
++   (let ((buf (get-buffer-create " *Emacs server temp*")))
++     (set-buffer buf)
++     (erase-buffer)
++     (princ "$ on error then goto die
++ $ define sys$output nla0:
++ $ define sys$error nla0:
++ $ i = 1
++ $ base_name = \"EMACSSERVER\"
++ $ name = base_name
++ $ name_loop:
++ $ set process /name=\"''name'\"
++ $ if ($status .and. 1) .ne. 1
++ $ then
++ $   i = i + 1
++ $   name = f$fao(\"!AS !UL\", base_name, i)
++ $   goto name_loop
++ $ endif
++ $ deassign sys$output
++ $ deassign sys$error
++ $ me = f$environment(\"PROCEDURE\")
++ $ delete &me
++ $ if f$trnlnm(\"EMACSCLIENT$_REQUEST\",\"LNM$JOB\") .nes. \"\" then -
++      deassign/job \"EMACSCLIENT$_REQUEST\"
++ $ request = \"\"
++ $ loop:
++ $ newrequest = f$trnlnm(\"EMACSCLIENT$_REQUEST\",\"LNM$JOB\")
++ $ if newrequest .nes. request .and. newrequest .nes. \"\"
++ $ then
++ $   request = newrequest
++ $   write sys$output f$fao(\"Client: !AS !/\", request)
++ $ endif
++ $ wait 0:00:00.30
++ $ goto loop
++ $ die:
++ $ logout" buf)
++     (write-file vms-server-program)
++     (kill-buffer buf))
++   (start-process "server" nil (concat "@" vms-server-program)))
++ 
+  
+  (provide 'server)
+  
+roland
+

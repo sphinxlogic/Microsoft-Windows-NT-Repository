@@ -1,0 +1,293 @@
+XAnim was written to display various types of animations in an X11 
+environment(currently it only supports Pseudo Color Displays). The
+intent was/is to make it fairly easy to add new animation types as
+they are developed.
+
+Before you compile, edit the Makefile to choose your favourite compiler,
+optimization flags and to indicate where the X11 libraries are located.
+ 
+Once compiled, xanim can display the following:
+
+    1) FLI anims
+    2) IFF type 3,5,J and l(small L not 1) anims
+    3) IFF color cycling
+    4) IFF images (EHB included, but HAM shown as 332)
+    5) GIFs (with multiple images)
+    6) a kludgy text file listing gifs and what order to show them in
+    7)  any combination of the above on the same command line.
+
+NOTES:  This source code isn't the cleanest and it's currently 
+        not commented very well. Both of these have high priority
+	now.(it's getting better though :^)
+
+
+Usage and Options:
+
+xanim [ [+|-]opts ...] animfile [ [ [-opts] animfile] ... ]
+
+A + turns the following options on and a - turns them off.
+Option f,j and l ignore leading + and -'s.
+
+Options:
+
+	b	uncompress animations up front. GIFs are automatically
+		uncompressed and there currently isn't support for
+		uncompressing IFF type J animations. Careful, use of
+		this flag can eat up a lot of memory.
+
+	c	This is used to tell XAnim that and IFF type 3 or 5
+		animation is non-looping and that it needs to treat
+		it a bit differently. If an IFF type 3 or 5 animation
+		looks right the 1st time and is screwed up on the 2nd
+		loop, you probably need to use this flag.
+
+	d	debug. Spews a lot of stuff to the screen.
+
+	f#	Adds fading between animation files. The colormap
+		which fade to black in 16 frames. # is the delay of
+		each of these frames. -f0 turns off fading.
+
+	i	Scale image vertically by 1/2.(Odd display lines
+		aren't displayed). 
+
+        j#	# is number of milliseconds between frames
+		  (default is 17 unless specified inside the
+		  the animation itself).
+
+	l#	loop following files # number times before moving on to
+		the next file. default is 1.
+		
+	o	turns on certain optimizations. Turning this off would only
+		  be useful if you are buffering the anim and wish to run
+		  the anim backwards. default is on.
+
+	r 	turns color cycling off(IFF cycling images).
+
+        s	prevents window from resizing to match image
+		size. Window is the size of largest image.
+		default is on.
+
+	u	when single stepping, anim is played until image is 
+		updated/changed.(a new cmap is not considered an update).
+		default is on.
+
+	v	verbose. Tells you image sizes, number of deltas etc.
+
+Anim Window Commands:
+
+	q	quits.
+	g	move to anim file after a cycling IFF image.
+	s	stop color cycling if started.
+	r	restore original color once stopped (s).	
+	space	toggle. starts/stops animation
+	,	go back one frame within file
+	.	go forward one frame within file
+	<	go back to start of previous file
+	>	go forward to start of next file
+
+
+Examples:
+
+	To display a single animation:
+
+		xanim iff3.anim
+
+	To display a nonlooping IFF animation:
+
+		xanim +c iff3.anim
+
+	To display A.fli 3 times, B.anim and C.movie 2 times each and D.fli
+	once before repeating:
+
+		xanim -l3 A.fli -l2 B.anim C.movie -l1 D.fli
+	or 
+		xanim +l3 A.fli +l2 B.anim C.movie +l1 D.fli
+
+	To fade to black after A.fli B.fli and C.fli but not after D.fli:
+
+		xanim +f3 A.fli B.fli C.fli +f0 D.fli
+
+	To see A.anim real slow:
+
+		xanim +j50 A.anim
+
+	To display title image for a while then fade into an animation at
+	normal speed:
+
+		xanim +f3 +j200 title.gif +j0 anim.gifanim
+
+	To show 1st anim unbuffered at half height and 2nd anim buffered
+	at full height:
+
+		xanim +i first.anim -i+b second.anim
+	or
+		xanim +i first.anim -i +b second.anim
+	
+
+
+A series of GIF's can be displayed as:
+
+	xanim im_0.gif im_1.gif im_2.gif ... im_36.gif
+
+ or
+
+	xanim im_*.gif
+
+ or
+
+	xanim im.txt
+
+ or
+
+	xanim im.gifanim
+
+where im.txt is a txt file(a list of images, see xanim.doc for more details).
+and im.gifanim is one file composed of im_0.gif through im_36.gif.
+
+
+This describes the animation types supported and some of their special
+features. It's more of an organized rambling but might give insight into
+what's going on.
+
+FLI Animations:
+
+ FLI is by Autodesk Animator for the PC's. Support is for the 320x256
+ images. The file is composed of a series of images and deltas(a delta is
+ data that can generate the next image given a previous image) to be played in
+ sequence. An FLI animation can also change the color map during the anim.
+ rev 229.1 and higher support 640x480 and 1024x768 FLI's (actually supports
+ chunk types 4 and 7 which I found in 640x480 FLIs).
+
+IFF Animations and Images:
+
+ IFF files were developed for the Amiga. Sound chunks are ignored. IFF 
+ Animation files are meant to be double buffered. The deltas refer not to the 
+ previous image, but the image before the previous(two back). I know of 6 types
+ of compressions 1,2,3,4,5 and J. I've only included types 3, 5 and J because 
+ those are the only ones I could test. The J type compression usually has an 
+ ANSI chunk at the end which includes the order in which the deltas are to be 
+ applied and they can be used more than once.
+ Type l (small L) type anim is also support in revs 229 and higher. It's
+ a compression type I've only found in older animations.
+
+ IFF animations can be looping and non-looping. Looping means the last two
+ deltas produce images that are the same as the 1st two images. To continuously
+ loop you would not jump back to the beginning the the 2nd image instead.
+ In order to lopp non-looping animations you would need to jump to the 1st
+ image. There's no way to know ahead of time which is which so the default
+ is looping and if you have a non-looping animation use the -c switch.
+
+ The Amiga has a couple of wierd display modes, EHB and HAM. XAnim fully 
+ supports EHB animations. HAM can produce 4096 colors(4 bits each red, green,
+ and blue) and XAnim will display HAM animations as 332(3 bits red, 3 bits 
+ green and 2 bits blue). Surprisingly enough, it's not too bad.
+
+ IFF supports a color cycling chunk(s) that specify color ranges to be cycled
+ at specified intervals. Since there's no obvious end to this type of 
+ animation, I just display it until a key 'g' is pressed inside the display
+ window.
+
+ IFF images are supported as well. no compression and compression 1(XAnim 
+ makes use of the public domain unpacker routine by By Jerry Morrison and
+ Steve Shaw).  See unpacker.c
+
+GIF Images/Animations.
+
+ The GIF file consists of a screen color map and then a series of images, each
+ with their own optional color map. The images don't have to be at the origin 
+ and can be any size smaller than the screen size. This allows GIF animations
+ to be created that only update the part of the screen that changes. I don't
+ have a program that does this yet but gifmerge is a step in that direction.
+ Also the GIF89a spec has include some extensions that are animation 
+ specific.  Rev 229.1 has limited support for these. Rev 230 should have
+ full support.
+
+ GIF images are automatically uncompressed when read in.
+
+TXT files
+
+ Probably should be called something else. Basically it is a ascii text file
+ that lists a number of GIF files to be displayed. Optionally, you can specify
+ the sequence the files are displayed in.  Comments aren't supported. I need
+ to put a lot of work and thought into improving this one.
+
+ TXT format needs to have txt91 as the 1st 5 characters in the file. Following
+ that there are a series of fields. Fields just have to be separated from
+ each other by white space. No extraneous characters(ie comments) are
+ supported, yet.
+
+ txt91    <--- header so XAnim knows what kind of file it is
+ 4        <--- number of GIF filenames that follow
+ a.gif    <--- gif file to be read in. 1st file is number 0.
+ b.gif    
+ c.gif
+ d.gif    
+ 6	  <--- number of frames that follow. 
+ 0 1 2 3  <--- display images in this order.
+ 2 1
+
+ The sequence will be a.gif b.gif c.gif d.gif c.gif b.gif. Most likely this
+ anim will be looped and the last b.gif will flow smoothly into a.gif as it
+ starts over.
+
+
+Rev 2.27
+	+ Initial beta test release.
+
+Rev 2.28/227a	
+	+ Fixed core dumps on Sun's and cmap screw up on Sun3's.
+
+Rev 2.29
+	+ removed big endian dependencies in code.
+	+ added support for IFF type l (small L not 1) anims.
+	+ redid options to make them more flexible.
+	+ GIF and TXT anims use all cmaps found. If a cmap is
+	  the same as the current cmap, it isn't changed.
+	+ Support for PseudoColor displays with less than 256 cmap
+	  entries put in but not tested.
+	+ Groundwork for TrueColor support put in, but not fully there yet.
+	  (finally got a TrueColor in my office, so that will help.)
+	+ added option to prevent window resizing.
+	+ added start,stop and single step keys while anim is running.
+	+ added reverse direction key. Most anims are meant to be played
+	  backwards do to compression schemes. But if anim if buffered
+	  1st with optimizations off, then it should work okay. Currently,
+	  only goes backwards with in an anim file.
+	+ added update option that only affects single stepping. Basically
+	  with this option on and single stepping, xanim will move forward
+	  until the image gets changed on the screen. Useful if you don't
+	  want to treat a cmap change as a step.
+	+ removed Xt calls from signal handler routine.
+	+ codes getting cleaner and more commented but still a ways to go.
+
+Rev 2.29.1 (enough features added to prove useful but still a ways to go.)
+	+ some support for GIF89 anim extension blocks(not robust yet)
+	+ support for new FLI chunk types 4 and 7
+	+ improved single step code so that anim stops with key press
+	  instead of showing one more frame 1st.
+	+ xanim will try to remap each gif file into previous colormaps 
+	  in an attempt to minimize color flashing.(Need to add luma sorting
+	  when new colormap is needed).
+	+ fixed bug in FLI color chunk code that effected color chunks of 
+          more than one packet.
+	+ fixed FLI COPY chunk bug.
+	+ internal structure is still changing rapidly.
+
+
+Current TODOs
+
+	+ adding ppm 
+
+	+ adding color quantizing support(probably dithering later)
+
+	+ 24 bit color support.
+
+	+ image packing for images less than 8 bits.
+	  
+	+ Make double and single image buffers pixmaps.
+
+	+ allow pixmap options for images.
+
+	+ internal structure more robust.
+
+

@@ -1,0 +1,396 @@
+%title 'Nmail queue stopper'
+module nm$stop(
+    	      ident='06',
+    	      addressing_mode(external=general)
+              ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1986, 1987, 1988, 1989, 1991, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	16-Apr-1986
+!
+! Revision history:
+!
+!   01	10-Aug-1987
+!	Merge execution queue with generic queue before deleting it,
+!	otherwise we lose jobs (not that there should be any in a 
+!	stopped execution queue, but...)
+!
+!   02	17-Feb-1989
+!	Changes in VMS V5.2 have broken the way /DELETE worked. The
+!	old behaviour cannot be maintained, so we now make /DELETE
+!	delete all queues.
+!
+!   03	17-Feb-1989
+!	Tolerate lack of a job controller (JBC$_JOBQUEDIS error) if
+!	/OKNONE has been specified; this is used only at installation
+!	time.
+!
+!   04	24-Feb-1989
+!	Ensure dynamic strings are freed on unwind
+!
+!   05	27-Feb-1991
+!	Changed usage of queue status flags (incompatibility
+!	with new batch/print subsystem).  This version works 
+!	with both pre-1990 and 1990 design queue managers.
+!
+!   06	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!--
+
+ 
+!
+! Library calls
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+! 
+! Internal routines
+!
+forward routine
+    nm$try_stop,
+    nm$del_queues;
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+%sbttl 'stop all queues'
+global routine nm$stop_queues (flags : block[,byte]) =
+
+!++
+! Functional description:
+!
+! This routine stops all Nmail queues and waits for them to
+! become fully stopped.
+!
+! Formal parameters:
+!
+! flags.rl.v = flags word
+!		stp$v_log  -> be chatty
+!		stp$v_okno -> don't complain if there's no queues
+!		stp$v_del  -> delete execution queues
+!
+! Routine value:
+!
+! status.wlc.v = true if it worked
+!		 false otherwise
+!
+!--
+
+    begin
+
+    !
+    ! Assorted scratch locations
+    !
+    local
+	loop_cnt,
+        wait_cnt,
+	wait_tim : vector[2],
+	status;
+
+    !
+    ! The queue names that we're playing with. 
+    !
+    local
+	master_queue  : descrip initial(.nm$gt_queue[0], nm$gt_queue[1]),
+	queue_list    : descrip initial($dynamic) volatile;
+
+    !
+    ! Ensure we deallocate strings
+    !
+    enable nm$freestr (queue_list);
+
+    !
+    ! Take a peek at the generic queue to see what it maps onto.
+    ! We need to have the generic queue name precede the execution
+    ! queue names in the list.
+    !
+    status = nm$get_que_list(master_queue, queue_list, true);
+    if not .status 
+    then 
+	begin
+	if (.status eql jbc$_nosuchque or .status eql jbc$_jobquedis) and
+	    .flags[stp$v_okno]
+	then
+	    return nm$_nonxque and not sts$m_severity or sts$k_info;
+	if .status eql jbc$_nosuchque
+	then
+	    begin
+	    signal(nm$_nonxque);
+	    return nm$_nonxque;
+	    end;
+	signal_stop(nm$_jbc, 0, .status);
+	end;
+	
+    !
+    ! Figure out wait time between scans
+    !
+    $bintim(timbuf=%ascid'0 00:00:01.00', timadr=wait_tim);
+
+    !
+    ! First pass: tell everything to stop
+    !
+    wait_cnt = nm$try_stop(queue_list, .flags);
+
+    !
+    ! If there are unstopped queues, then hang around until they stop.
+    ! To avoid cluttering the console, we only log a `waiting' message
+    ! every 10th time around the loop (thus every ten seconds).
+    !
+    loop_cnt = 0;
+    while .wait_cnt neq 0 do
+	begin
+	local f : block[%upval,byte] initial(.flags);
+	if (.loop_cnt mod 10) neq 0 then f[stp$v_log] = false;
+	$setimr(daytim=wait_tim, efn=0);
+	$waitfr(efn=0);	    
+	wait_cnt = nm$try_stop(queue_list, .f);
+	loop_cnt = .loop_cnt + 1;
+	end;
+	    
+    !
+    ! If requested, then go and delete the execution queues
+    !
+    if .flags[stp$v_del] 
+    then
+	nm$del_queues(queue_list, .flags);
+
+    !
+    ! Tell job controller it can tidy up
+    !
+    status = nm$getqui(qui$_cancel_operation, %ref(0));
+    if not .status then signal_stop(nm$_jbc, 0, .status);
+
+    !
+    ! Other tidying up
+    !
+    str$free1_dx(queue_list);
+
+    !
+    ! If we get to here, then it all worked (more-or-less)
+    !
+    ss$_normal
+
+    end;
+
+%sbttl 'try a pass at stopping queues'
+routine nm$try_stop (quelist : ref descrip, flags : block[,byte]) =
+
+!++
+! Functional description:
+!
+! For all Nmail queues, requests that running queues 
+! be stopped.
+!
+! Formal parameters:
+!
+! quelist.rt.dx = comma-list of queue names
+! flags.rl.v    = flags
+!		    stp$v_log -> chat about what we're doing
+!
+! Routine value:
+!
+! wait.wl.v = number of queues not currently stopped
+!	      (stop has been requested, however)
+!
+!--
+
+    begin
+
+    !
+    ! Storage for returned queue information items
+    !
+    local
+	queue_status : block[%upval,byte] alias,
+        active_jobs  : alias,
+	job_limit    : alias;
+
+    !
+    ! Other scratch bits and pieces
+    !
+    local 
+	status,
+	qname : descrip initial(0,0),
+        wait  : initial(0);
+
+    !
+    ! Items lists for 'display queue' and 'stop queue' functions
+    !
+    local
+	dpy_queue : $itemlist(
+			qui$_search_name,         0,      0,            0,
+		        qui$_queue_status,        %upval, queue_status, 0,
+			qui$_executing_job_count, %upval, active_jobs,  0,
+			qui$_job_limit,		  %upval, job_limit, 	0
+			),
+	stp_queue : $itemlist(
+			sjc$_queue,	          0,      0,	        0
+			);
+    bind 
+	dpy_que_len = dpy_queue[0] : word,
+	dpy_que_ptr = dpy_queue[1] : long,
+	stp_que_len = stp_queue[0] : word,
+	stp_que_ptr = stp_queue[1] : long;
+
+
+    !
+    ! Process each queue in turn.
+    !
+    while nm$next_queue(.quelist, qname) do
+	begin
+
+	!
+	! Load queue descriptor into item lists
+	!
+	dpy_que_len = stp_que_len = .qname[dsc$w_length];
+	dpy_que_ptr = stp_que_ptr = .qname[dsc$a_pointer];
+		
+	!
+	! Return details of this queue
+	!
+	status = nm$getqui(qui$_cancel_operation, %ref(0));
+	if not .status then signal_stop(nm$_jbc, 0, .status);
+	status = nm$getqui(qui$_display_queue, dpy_queue);
+	if not .status then signal_stop(nm$_jbc, 0, .status);
+
+        ! 
+        ! Pre-1990-design job controllers did things a little
+        ! differently: fix up the flags to make them adhere to
+	! the current usage.
+        !
+        queue_status = nm$massage_qstatus(.queue_status, .active_jobs, .job_limit);
+
+	!
+	! If queue is stopping, we don't need to do anything
+	! other than wait for it  (hurry it up, eh?)
+	!
+  	if .queue_status[qui$v_queue_stopping] 
+	or .queue_status[qui$v_queue_stop_pending]
+	then
+	    begin
+	    if .flags[stp$v_log] then signal(nm$_qwait, 1, qname);
+	    wait = .wait + 1;
+	    end
+
+	!
+	! If queue is not stopped or stopping, tell it to stop
+        ! at the end of the next job, and mark one more to wait
+	! for.
+	!
+	else if not .queue_status[qui$v_queue_stopped]
+	then
+	    begin
+	    if  .flags[stp$v_log] then signal(nm$_qstop, 1, qname);
+	    status = nm$sndjbc(sjc$_stop_queue, stp_queue);
+            if not .status then signal_stop(nm$_jbc, 0, .status);
+	    wait = .wait + 1;
+ 	    end;
+
+	!
+	! End of queue loop
+	!
+	end;
+
+    !
+    ! Return number of things we're waiting for
+    !
+    .wait
+
+    end;
+
+%sbttl 'delete execution queues'
+routine nm$del_queues (
+		      quelist : ref descrip, 
+		      flags   : block[,byte]
+		      ) =
+
+!++
+! Functional description:
+!
+! Deletes all Nmail queues.  All pending jobs are lost from the
+! queue (use the Queue Repair utility to recover them).  All queues 
+! must be fully stopped before this routine is invoked.  
+!
+! Formal parameters:
+!
+! quelist.rt.dx = list of all queues
+! flags.rl.v    = flags
+!		    stp$v_log -> chat about what we're doing
+!
+! Routine value:
+!
+! Always true
+!
+!--
+
+    begin
+
+    !
+    ! Scratch bits and pieces
+    !
+    local 
+	status,
+	qname : descrip initial(0,0);
+
+    !
+    ! One little itemlist
+    !
+    local
+	delet_que : $itemlist(sjc$_queue, 0, 0, 0);
+    bind 
+	del_que_len = delet_que[0] : word,
+	del_que_ptr = delet_que[1] : long;
+
+    !
+    ! Process each queue in turn.
+    !
+    while nm$next_queue(.quelist, qname) do
+	begin
+	
+	!
+	! Issue info message
+	!
+	if  .flags[stp$v_log] then signal(nm$_qdel, 1, qname);
+
+	!
+	! Load queue descriptor into item lists
+	!
+	del_que_len = .qname[dsc$w_length];
+	del_que_ptr = .qname[dsc$a_pointer];
+
+	!
+	! Delete queue
+	!
+	status = nm$sndjbc(sjc$_delete_queue, delet_que);
+	if not .status then signal_stop(nm$_jbc, 0, .status);
+ 	    
+	!
+	! End of queue loop
+	!
+	end;
+
+    !
+    ! All okay if we get here
+    !
+    ss$_normal
+
+    end;
+
+end
+eludom

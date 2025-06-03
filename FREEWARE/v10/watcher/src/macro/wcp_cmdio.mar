@@ -1,0 +1,338 @@
+; %PRINT:	Structure IOCDEF size: 156 bytes
+
+
+	.TITLE  WCP_CMDIO WCP_CMDIO
+	.IDENT  \V1.0-1\
+
+	.PSECT  $OWN$,NOEXE,2
+
+;KBID
+U.3:	.LONG   0					   ;
+;IOCQUE
+U.4:	.BLKB   156
+
+	.PSECT  $PLIT$,NOWRT,NOEXE,2
+
+P.AAB:	.ASCII  <10><0><0><0>				   ;
+P.AAA:	.LONG   17694721				   ;
+	.ADDRESS P.AAB					   ;
+
+	.EXTRN  LIB$PUT_OUTPUT, STR$FIND_FIRST_IN_SET, STR$FIND_FIRST_NOT_IN_SET, STR$RIGHT, STR$LEFT
+	.EXTRN  SMG$CREATE_VIRTUAL_KEYBOARD, SMG$READ_COMPOSED_LINE, WCP__CANTIND, SMG$_EOF, DEFAULTS
+	.EXTRN  STR$COPY_DX, STR$PREFIX, SYS$GET, STR$COPY_R, STR$FREE1_DX, SYS$DISCONNECT, SYS$CLOSE
+	.EXTRN  LIB$FREE_VM
+
+	.PSECT  $CODE$,NOWRT,2
+
+U.1:
+	.ENTRY  GET_CMD, ^M<R2,R3,R4,R5,R6,R7,R8,R9>	   ;GET_CMD, Save R2,R3,R4,R5,R6,R7,R8,R9
+	MOVAB   G^STR$COPY_DX, R9			   ;STR$COPY_DX, R9
+	MOVAB   G^LIB$FREE_VM, R8			   ;LIB$FREE_VM, R8
+	MOVAB   G^STR$FREE1_DX, R7			   ;STR$FREE1_DX, R7
+	MOVAB   W^U.4, R6				   ;U.4, R6
+	SUBL2   #28, SP					   ;#28, SP
+	MOVL    #34471936, 20(SP)			   ;#34471936, _D
+	CLRL    24(SP)					   ;_D+4
+	MOVL    #34471936, 12(SP)			   ;#34471936, _D
+	CLRL    16(SP)					   ;_D+4
+	CMPB    (AP), #1				   ;(AP), #1
+	BLEQU   1$					   ;1$
+	TSTL    8(AP)					   ;PROMPT_A
+	BEQL    1$					   ;1$
+	PUSHL   8(AP)					   ;PROMPT_A
+	PUSHAB  24(SP)					   ;PROMPT
+	CALLS   #2, (R9)				   ;#2, STR$COPY_DX
+1$:	TSTL    -4(R6)					   ;KBID
+	BNEQ    2$					   ;2$
+	PUSHAB  -4(R6)					   ;KBID
+	CALLS   #1, G^SMG$CREATE_VIRTUAL_KEYBOARD	   ;#1, SMG$CREATE_VIRTUAL_KEYBOARD
+	MOVAB   (R6), R0				   ;IOCQUE, R0
+	MOVL    R0, (R6)				   ;R0, IOCQUE
+	MOVL    R0, 4(R6)				   ;R0, IOCQUE+4
+	PUSHAB  W^P.AAA					   ;P.AAA
+	PUSHAB  24(SP)					   ;PROMPT
+	CALLS   #2, G^STR$PREFIX			   ;#2, STR$PREFIX
+2$:	MOVL    (R6), R3				   ;IOCQUE, R3
+	MOVAB   (R6), R0				   ;IOCQUE, R0
+	CMPL    R3, R0					   ;R3, R0
+	BNEQ    3$					   ;3$
+	BRW     10$					   ;10$
+3$:	MOVAB   8(R3), R4				   ;8(R3), R4
+	MOVAB   88(R3), R2				   ;88(R3), R2
+	CLRL    R0					   ;R0
+	TSTL    8(AP)					   ;PROMPT_A
+	BEQL    4$					   ;4$
+	INCL    R0					   ;R0
+4$:	INSV    R0, #6, #1, 7(R2)			   ;R0, #6, #1, 7(R2)
+	BLBC    R0, 5$					   ;R0, 5$
+	MOVL    24(SP), 48(R2)				   ;PROMPT+4, 48(R2)
+	MOVB    20(SP), 52(R2)				   ;PROMPT, 52(R2)
+5$:	PUSHL   R2					   ;R2
+	CALLS   #1, G^SYS$GET				   ;#1, SYS$GET
+	MOVL    R0, R5					   ;R0, STATUS
+	BLBC    R5, 8$					   ;STATUS, 8$
+	PUSHL   36(R2)					   ;36(R2)
+	MOVZWL  34(R2), -(SP)				   ;34(R2), -(SP)
+	CALLS   #2, W^U.2				   ;#2, U.2
+	BLBS    R0, 2$					   ;R0, 2$
+	CMPB    (AP), #2				   ;(AP), #2
+	BLEQU   6$					   ;6$
+	TSTL    12(AP)					   ;OUTLEN_A
+	BEQL    6$					   ;6$
+	MOVZWL  34(R2), @12(AP)				   ;34(R2), @OUTLEN_A
+6$:	PUSHL   36(R2)					   ;36(R2)
+	PUSHAB  34(R2)					   ;34(R2)
+	PUSHL   4(AP)					   ;STR_A
+	CALLS   #3, G^STR$COPY_R			   ;#3, STR$COPY_R
+	BBC     #6, W^DEFAULTS+24, 7$			   ;#6, DEFAULTS+24, 7$
+	PUSHL   4(AP)					   ;STR_A
+	CALLS   #1, G^LIB$PUT_OUTPUT			   ;#1, LIB$PUT_OUTPUT
+7$:	BRB     12$					   ;12$
+8$:	PUSHL   R2					   ;R2
+	CALLS   #1, G^SYS$DISCONNECT			   ;#1, SYS$DISCONNECT
+	PUSHL   R4					   ;R4
+	CALLS   #1, G^SYS$CLOSE				   ;#1, SYS$CLOSE
+	PUSHAB  36(R2)					   ;36(R2)
+	MOVZWL  32(R2), 4(SP)				   ;32(R2), 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, (R8)				   ;#2, LIB$FREE_VM
+	REMQUE  (R3), 4(SP)				   ;(R3), XIOC
+	PUSHAB  4(SP)					   ;XIOC
+	MOVZBL  #156, 4(SP)				   ;#156, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, (R8)				   ;#2, LIB$FREE_VM
+9$:	BRW     2$					   ;2$
+10$:	PUSHAB  8(SP)					   ;LEN
+	PUSHAB  24(SP)					   ;PROMPT
+	PUSHAB  20(SP)					   ;STR
+	CLRL    -(SP)					   ;-(SP)
+	PUSHAB  -4(R6)					   ;KBID
+	CALLS   #5, G^SMG$READ_COMPOSED_LINE		   ;#5, SMG$READ_COMPOSED_LINE
+	MOVL    R0, R5					   ;R0, STATUS
+	BLBC    R5, 13$					   ;STATUS, 13$
+	PUSHL   16(SP)					   ;STR+4
+	MOVZWL  16(SP), -(SP)				   ;STR, -(SP)
+	CALLS   #2, W^U.2				   ;#2, U.2
+	BLBS    R0, 9$					   ;R0, 9$
+	CMPB    (AP), #2				   ;(AP), #2
+	BLEQU   11$					   ;11$
+	TSTL    12(AP)					   ;OUTLEN_A
+	BEQL    11$					   ;11$
+	MOVZWL  8(SP), @12(AP)				   ;LEN, @OUTLEN_A
+11$:	PUSHAB  12(SP)					   ;STR
+	PUSHL   4(AP)					   ;STR_A
+	CALLS   #2, (R9)				   ;#2, STR$COPY_DX
+12$:	PUSHAB  20(SP)					   ;PROMPT
+	CALLS   #1, (R7)				   ;#1, STR$FREE1_DX
+	MOVL    #1, R0					   ;#1, R0
+	RET     					   ;
+13$:	PUSHAB  12(SP)					   ;STR
+	CALLS   #1, (R7)				   ;#1, STR$FREE1_DX
+	PUSHAB  20(SP)					   ;PROMPT
+	CALLS   #1, (R7)				   ;#1, STR$FREE1_DX
+	CMPL    R5, #SMG$_EOF				   ;STATUS, #SMG$_EOF
+	BNEQ    14$					   ;14$
+	MOVL    #98938, R0				   ;#98938, R0
+	RET     					   ;
+14$:	MOVL    R5, R0					   ;STATUS, R0
+	RET     					   ;
+
+; Routine Size:  402 bytes,    Routine Base:  $CODE$ + 0000
+
+
+
+
+
+	.PSECT  $PLIT$,NOWRT,NOEXE,2
+
+P.AAD:	.ASCII  \ \<9><0><0>				   ;
+P.AAC:	.LONG   17694722				   ;
+	.ADDRESS P.AAD					   ;
+P.AAF:	.ASCII  \ \<9><0><0>				   ;
+P.AAE:	.LONG   17694722				   ;
+	.ADDRESS P.AAF					   ;
+P.AAH:	.ASCII  \ \<9>\!\<0>				   ;
+P.AAG:	.LONG   17694723				   ;
+	.ADDRESS P.AAH					   ;
+P.AAI:	.ASCII  \SYS$DISK:[].WCP\			   ;
+
+	.EXTRN  LIB$GET_VM, SYS$OPEN, SYS$CONNECT
+
+	.PSECT  $CODE$,NOWRT,2
+
+;INDIRECT
+U.2:	.WORD   ^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>	   ;Save R2,R3,R4,R5,R6,R7,R8,R9,R10,R11
+	MOVAB   G^STR$FREE1_DX, R11			   ;STR$FREE1_DX, R11
+	MOVAB   G^LIB$SIGNAL, R10			   ;LIB$SIGNAL, R10
+	MOVL    #WCP__CANTIND, R9			   ;#WCP__CANTIND, R9
+	MOVAB   -72(SP), SP				   ;-72(SP), SP
+	TSTL    4(AP)					   ;INPLEN
+	BNEQ    2$					   ;2$
+1$:	BRW     13$					   ;13$
+2$:	MOVW    #270, 66(SP)				   ;#270, INPSTR+2
+	MOVW    4(AP), 64(SP)				   ;INPLEN, INPSTR
+	MOVL    8(AP), 68(SP)				   ;INPADR, INPSTR+4
+	MOVL    #34471936, 56(SP)			   ;#34471936, _D
+	CLRL    60(SP)					   ;_D+4
+	PUSHAB  W^P.AAC					   ;P.AAC
+	PUSHAB  68(SP)					   ;INPSTR
+	CALLS   #2, G^STR$FIND_FIRST_NOT_IN_SET		   ;#2, STR$FIND_FIRST_NOT_IN_SET
+	MOVL    R0, 4(SP)				   ;R0, I
+	ADDL3   4(SP), 8(AP), R0			   ;I, INPADR, R0
+	CMPB    -1(R0), #64				   ;-1(R0), #64
+	BNEQ    1$					   ;1$
+	ADDL3   #1, 4(SP), (SP)				   ;#1, I, (SP)
+	PUSHL   SP					   ;SP
+	PUSHAB  68(SP)					   ;INPSTR
+	PUSHAB  64(SP)					   ;STR
+	CALLS   #3, G^STR$RIGHT				   ;#3, STR$RIGHT
+	PUSHAB  W^P.AAE					   ;P.AAE
+	PUSHAB  60(SP)					   ;STR
+	CALLS   #2, G^STR$FIND_FIRST_NOT_IN_SET		   ;#2, STR$FIND_FIRST_NOT_IN_SET
+	MOVL    R0, 4(SP)				   ;R0, I
+	CMPL    4(SP), #1				   ;I, #1
+	BLEQ    3$					   ;3$
+	PUSHAB  4(SP)					   ;I
+	PUSHAB  60(SP)					   ;STR
+	PUSHAB  64(SP)					   ;STR
+	CALLS   #3, G^STR$RIGHT				   ;#3, STR$RIGHT
+3$:	PUSHAB  W^P.AAG					   ;P.AAG
+	PUSHAB  60(SP)					   ;STR
+	CALLS   #2, G^STR$FIND_FIRST_IN_SET		   ;#2, STR$FIND_FIRST_IN_SET
+	MOVL    R0, 4(SP)				   ;R0, I
+	BLEQ    4$					   ;4$
+	SUBL3   #1, 4(SP), (SP)				   ;#1, I, (SP)
+	PUSHL   SP					   ;SP
+	PUSHAB  60(SP)					   ;STR
+	PUSHAB  64(SP)					   ;STR
+	CALLS   #3, G^STR$LEFT				   ;#3, STR$LEFT
+4$:	PUSHAB  8(SP)					   ;IOC
+	MOVZBL  #156, 4(SP)				   ;#156, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, G^LIB$GET_VM			   ;#2, LIB$GET_VM
+	MOVL    R0, R8					   ;R0, STATUS
+	BLBS    R8, 5$					   ;STATUS, 5$
+	PUSHL   R8					   ;STATUS
+	CLRL    -(SP)					   ;-(SP)
+	PUSHL   R9					   ;R9
+	CALLS   #3, (R10)				   ;#3, LIB$SIGNAL
+	PUSHAB  56(SP)					   ;STR
+	CALLS   #1, (R11)				   ;#1, STR$FREE1_DX
+	BRW     13$					   ;13$
+5$:	ADDL3   #8, 8(SP), R6				   ;#8, IOC, R6
+	ADDL3   #88, 8(SP), R7				   ;#88, IOC, R7
+	MOVC5   #0, (SP), #0, #80, (R6)			   ;#0, (SP), #0, #80, (R6)
+	MOVW    #20483, (R6)				   ;#20483, (R6)
+	MOVW    #258, 22(R6)				   ;#258, 22(R6)
+	MOVB    #2, 31(R6)				   ;#2, 31(R6)
+	MOVAB   12(SP), 36(R6)				   ;XABFHC, 36(R6)
+	MOVL    60(SP), 44(R6)				   ;STR+4, 44(R6)
+	MOVAB   W^P.AAI, 48(R6)				   ;P.AAI, 48(R6)
+	MOVB    56(SP), 52(R6)				   ;STR, 52(R6)
+	MOVB    #15, 53(R6)				   ;#15, 53(R6)
+	MOVC5   #0, (SP), #0, #44, 12(SP)		   ;#0, (SP), #0, #44, $RMS_PTR
+	MOVW    #11293, 12(SP)				   ;#11293, $RMS_PTR
+	PUSHL   R6					   ;R6
+	CALLS   #1, G^SYS$OPEN				   ;#1, SYS$OPEN
+	MOVL    R0, R8					   ;R0, STATUS
+	BLBS    R8, 6$					   ;STATUS, 6$
+	PUSHL   12(R6)					   ;12(R6)
+	PUSHL   R8					   ;STATUS
+	CLRL    -(SP)					   ;-(SP)
+	PUSHL   R9					   ;R9
+	CALLS   #4, (R10)				   ;#4, LIB$SIGNAL
+	PUSHAB  56(SP)					   ;STR
+	CALLS   #1, (R11)				   ;#1, STR$FREE1_DX
+	BRW     12$					   ;12$
+6$:	PUSHAB  56(SP)					   ;STR
+	CALLS   #1, (R11)				   ;#1, STR$FREE1_DX
+	MOVC5   #0, (SP), #0, #68, (R7)			   ;#0, (SP), #0, #68, (R7)
+	MOVW    #17409, (R7)				   ;#17409, (R7)
+	MOVL    R6, 60(R7)				   ;R6, 60(R7)
+	PUSHL   R7					   ;R7
+	CALLS   #1, G^SYS$CONNECT			   ;#1, SYS$CONNECT
+	MOVL    R0, R8					   ;R0, STATUS
+	BLBS    R8, 7$					   ;STATUS, 7$
+	PUSHL   12(R7)					   ;12(R7)
+	PUSHL   R8					   ;STATUS
+	CLRL    -(SP)					   ;-(SP)
+	PUSHL   R9					   ;R9
+	CALLS   #4, (R10)				   ;#4, LIB$SIGNAL
+	BRB     11$					   ;11$
+7$:	TSTW    54(R6)					   ;54(R6)
+	BNEQ    9$					   ;9$
+	TSTW    22(SP)					   ;XABFHC+10
+	BNEQ    8$					   ;8$
+	MOVAB   32(R7), R0				   ;32(R7), R0
+	MOVW    #1024, (R0)				   ;#1024, (R0)
+	BRB     10$					   ;10$
+8$:	MOVAB   32(R7), R0				   ;32(R7), R0
+	MOVW    22(SP), (R0)				   ;XABFHC+10, (R0)
+	BRB     10$					   ;10$
+9$:	MOVAB   32(R7), R0				   ;32(R7), R0
+	MOVW    54(R6), (R0)				   ;54(R6), (R0)
+10$:	CLRL    36(R6)					   ;36(R6)
+	PUSHAB  36(R7)					   ;36(R7)
+	MOVZWL  (R0), 4(SP)				   ;(R0), 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, G^LIB$GET_VM			   ;#2, LIB$GET_VM
+	MOVL    R0, R8					   ;R0, STATUS
+	BLBS    R8, 14$					   ;STATUS, 14$
+	PUSHL   R8					   ;STATUS
+	CLRL    -(SP)					   ;-(SP)
+	PUSHL   R9					   ;R9
+	CALLS   #3, (R10)				   ;#3, LIB$SIGNAL
+11$:	PUSHL   R6					   ;R6
+	CALLS   #1, G^SYS$CLOSE				   ;#1, SYS$CLOSE
+12$:	PUSHAB  8(SP)					   ;IOC
+	MOVZBL  #156, 4(SP)				   ;#156, 4(SP)
+	PUSHAB  4(SP)					   ;4(SP)
+	CALLS   #2, G^LIB$FREE_VM			   ;#2, LIB$FREE_VM
+13$:	CLRL    R0					   ;R0
+	RET     					   ;
+14$:	INSQUE  @8(SP), W^U.4				   ;@IOC, U.4
+	MOVL    #1, R0					   ;#1, R0
+	RET     					   ;
+
+; Routine Size:  512 bytes,    Routine Base:  $CODE$ + 0192
+
+
+
+
+
+
+	.EXTRN  LIB$SIGNAL
+
+;				       PSECT SUMMARY
+;
+;	Name			 Bytes			       Attributes
+;
+;  $OWN$			      160  NOVEC,  WRT,  RD ,NOEXE,NOSHR,  LCL,  REL,  CON,NOPIC,ALIGN(2)
+;  $PLIT$			       63  NOVEC,NOWRT,  RD ,NOEXE,NOSHR,  LCL,  REL,  CON,NOPIC,ALIGN(2)
+;  $CODE$			      914  NOVEC,NOWRT,  RD ,  EXE,NOSHR,  LCL,  REL,  CON,NOPIC,ALIGN(2)
+
+
+
+
+;				Library Statistics
+;
+;					     -------- Symbols --------	    Pages	Processing
+;	File				     Total    Loaded   Percent      Mapped	Time
+;
+;  SYS$COMMON:[SYSLIB]STARLET.L32;2	     18166        96         0      1063          00:00.1
+;  RPI$SRC:[WATCHER]WCP.L32;7		        46        27        58         8          00:00.0
+;  RPI$SRC:[WATCHER]FIELDS.L32;1	        19        11        57        10          00:00.0
+
+
+
+
+
+
+
+;					COMMAND QUALIFIERS
+
+;	BLISS/LIST=WCP_CMDIO.MAR/NOOBJ/MACHINE=(OBJ,NOBIN,ASSEM,UNIQUE,NOCOMM)/SOURCE=(NOHEAD,NOSOURCE) WCP_CMDIO.B32
+
+; Compilation Complete
+
+	.END

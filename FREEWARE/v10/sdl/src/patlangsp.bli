@@ -1,0 +1,1456 @@
+!<BLF/REQUIRE'PATBLF_INI'>
+module PATLANGSP (ident = 'X3.2-2'		!
+		%REQUIRE ('PATSWITCH_REQ')
+		) =
+begin
+!
+!			  COPYRIGHT (c) 1982 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:	Pat Parser
+!
+! ABSTRACT:
+!
+!	PATLANGSP.REQ defines the interface between the user of the
+!	PAT Parser and the language independent portion of the parser.
+!	PATLANGSP.REQ and .BLI are provided with the PAT parser package
+!	and provide an example of a particular implementation of the
+!	interface specification.
+!
+!	Logical name PAT_LANGSP_LIBRARY should be defined as the
+!	library file produced by
+!
+!		BLISS/LIB PATLANGSP.REQ
+!
+!	Nothing in this module is referenced directly by the language
+!	independent portion of the parser.
+!
+!	THIS FILE MUST BE ALTERED TO USE WITH OTHER COMPILERS !
+!
+! ENVIRONMENT:  VAX/VMS user mode
+!
+! AUTHOR:  H. Alcabes, CREATION DATE:  3-Dec-80
+!
+! MODIFIED BY:
+!
+! 	Charlie Mitchell, 02-Nov-1981 : VERSION X2-001
+! 001 -	Modify to use new PATDATA and remove direct references from
+!	parser.
+!			C H A N G E    L O G
+!
+!      Date	| Name	| Description
+!_______________|_______|______________________________________________________
+!   11-Jan-1988	|  PG	| X3.2-0 Changed T_STRING token to T_STRING_LITERAL
+!_______________|_______|______________________________________________________
+!   27-Jan-1988	|  jg	| X3.2-1 Added standard change log.
+!		|	|	 Fix PAT$LOCAL_SYMBOL_CLASS to return the
+!		|	|	  correct class for all reserved words.
+!		|	|	  N.B.	The case values are heavily dependent
+!		|	|		on the ordering of tokens in SDLPAT.PAT.
+!		|	|		Ideally, token numbering in SDLPAT.PAT
+!		|	|		should be rationalized.
+!_______________|_______|______________________________________________________
+!   15-Feb-1988	|  jg	| X3.2-2 Extend PAT$LOCAL_SYMBOL_CLASS to finish at
+!		|	|	 t_end_literal instead of t_declare.
+!_______________|_______|______________________________________________________
+!   26-Feb-1988	|  jg	| X3.2-3 Extend PAT$LOCAL_SYMBOL_CLASS to finish at
+!		|	|	 t_read instead of t_end_literal.
+!_______________|_______|______________________________________________________
+
+!--
+
+!
+! INCLUDE FILES:
+!
+
+require 'PATPROLOG_REQ';
+
+library 'PAT_LANGSP_LIBRARY';
+
+library 'PATDATA_LIB';
+
+library 'DEB_LIB';				! Debug routines
+
+!
+! TABLE OF CONTENTS
+!
+!+
+!
+! This file is divided into the same six sections as PATLANGSP.REQ.
+!
+!
+! Section 1.  Interface to lexical analyzer and lexical tokens.
+!
+
+forward routine
+    PAT$LSLOCAL_SAVE_TOKEN : novalue,		! Save a lexical token
+    PAT$LSLOCAL_RETURN_SAVED_TOKEN,		! Return the saved token
+    PAT$LSLOCAL_OUTPUT_TOKEN,			! Return string descriptor containing token description
+    PAT$LSLOCAL_LOC_TEXT;			! Return text for locator
+
+%if PATBLSEXT_DEBUGGING
+%then
+
+forward routine
+    PAT$LSLOCAL_DUMP_TOK : novalue;		! Dump particular lexical token
+
+%fi
+
+!
+! Section 2.  Terminal and non-terminal symbol interpretation.
+!
+
+forward routine
+    PAT$LSLOCAL_SYMBOL_CLASS,			! Return symbol class
+    PAT$LSLOCAL_IS_NON_TERM,			! Check for a non-terminal
+    PAT$LSLOCAL_IS_RESERVED_WORD,		! Check for a reserved word
+    PAT$LSLOCAL_OUTPUT_TERM;			! Return string descriptor containing token type
+
+!
+! Section 3.  Action routine interface - no routines in this category
+!
+! Section 4.  Error message interface (local and scope recovery) - no
+!	      routines in this category
+!
+! Section 5.  Error message interface (global recovery)
+!
+
+forward routine
+    PAT$LSLOCAL_EXPECTED_SYMBOL : novalue,	! Add expected symbol to tables
+    PAT$LSLOCAL_GLOBAL_ERROR_MSG : novalue;	! Print global error message
+
+!
+! Section 6.  Other definitions (misc. utility routines)
+!
+
+forward routine
+    APPEND_TO_TEXT : novalue,			! Append a contents of a string descriptor to TEXT_SD
+    DOWN_CASE : novalue;			! Create a lowercase of a string descriptor
+
+!
+! MACROS:
+!
+
+macro
+    LSLOCAL_TKN_STR =
+	!
+	! Define a macro for the token structure to minimize
+	! use of TKN_*.
+	!
+	TKN_STR %;				! Token structure
+
+macro
+    APPEND_TO_TEXTM (BUFNUM, STRING) =
+	!
+	! See text buffers below and routine APPEND_TO_TEXT
+	!
+	APPEND_TO_TEXT
+
+	%if %isstring (STRING)
+	%then
+	    (BUFNUM, SD_REF (STRING))
+	%else
+	    (BUFNUM, STRING)
+	%fi
+
+    %;
+
+macro
+    CLEAR_TEXTM (BUFNUM) =
+	!
+	! See text buffers below and routine APPEND_TO_TEXT
+	!
+	begin
+	TEXT_BUF_FULL [BUFNUM] = FALSE;
+	TEXT_SD [BUFNUM, SD_LENGTH] = 0
+	end
+    %;
+
+!
+! OWN STORAGE:
+!
+!+
+! Text buffers managed by routine APPEND_TO_TEXT and
+! macros APPEND_TO_TEXTM and CLEAR_TEXTM.  Three text buffers
+! are used to hold text prior to an actual call to report the
+! error.
+!-
+
+literal
+    TEXT_BUF0_SIZE = 128,
+    TEXT_BUF1_SIZE = 128,
+    TEXT_BUF2_SIZE = 128;
+
+own
+    TEXT_BUF_SIZE : vector [3] preset (
+[0] = TEXT_BUF0_SIZE,
+[1] = TEXT_BUF1_SIZE,
+[2] = TEXT_BUF2_SIZE),
+    TEXT_BUF_FULL : vector [3, byte];
+
+own
+    TEXT_BUF0 : vector [TEXT_BUF0_SIZE, byte],
+    TEXT_BUF1 : vector [TEXT_BUF1_SIZE, byte],
+    TEXT_BUF2 : vector [TEXT_BUF2_SIZE, byte];
+
+own
+    TEXT_SD : blockvector [3, SD_SIZE, byte] field (SD_FIELDS) preset (
+[0,SD_TEXT] = TEXT_BUF0,
+[1,SD_TEXT] = TEXT_BUF1,
+[2,SD_TEXT] = TEXT_BUF2);
+
+!+
+! Temporary text buffer for down casing reserved words.
+!-
+
+own
+    TEMP_BUF : vector [32, byte],
+    TEMP_TEXT : SD_STR preset ( [SD_TEXT] = TEMP_BUF);
+
+own
+
+    !+
+    ! Storage used by PAT$LSLOCAL_SAVE_TOKEN to save a lexical
+    ! token.
+    !-
+
+    SAVED_TOKEN : LSLOCAL_TKN_STR;
+
+!
+! EQUATED SYMBOLS
+!
+!
+! Literals representing possible symbol classes
+!
+ENUMERATION ('SYMCLASS', 1, 			!
+    SYMCLASS_RW, 				! Reserved word
+    SYMCLASS_SPECIALCH, 			! Special character
+    SYMCLASS_IDENTIFIER, 			! Identifier
+    SYMCLASS_STRING, 				! Character string
+    SYMCLASS_CHAR_LIT, 				! Charater literal
+    SYMCLASS_NUMBER, 				! Number (integer or real)
+    SYMCLASS_EOF, 				! End of file
+    SYMCLASS_NONTERM);				! Non-terminal
+!<blf/page>
+
+!+
+!				Section 1
+!
+! Interface to lexical analyer and lexical tokens:
+!
+!-
+
+
+global routine PAT$LSLOCAL_SAVE_TOKEN (TOKEN_PTR) : novalue =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	See LS_SAVE_TOKEN in PATLANGSP.REQ.
+!
+!--
+
+    begin
+    ch$move (LS_TKN_SIZE, .TOKEN_PTR, SAVED_TOKEN);
+    end;
+
+
+global routine PAT$LSLOCAL_RETURN_SAVED_TOKEN (TOKEN_PTR) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	See LS_RETURN_SAVED_TOKEN in PATLANGSP.REQ.
+!
+!--
+
+    begin
+    return SAVED_TOKEN
+    end;
+
+
+global routine PAT$LSLOCAL_OUTPUT_TOKEN (TOKEN_PTR, BUFNUM) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	PAT$LSLOCAL_OUTPUT_TOKEN stores text describing a lexical token in
+!	a string descriptor and returns that string descriptor.
+!
+! FORMAL PARAMETERS:
+!
+!	TOKEN_PTR	- Pointer to a lexical token
+!
+!	BUFNUM		- Number of text buffer to be used
+!
+! IMPLICIT INPUTS:
+!
+!	Text buffer indexed by BUFNUM.
+!
+! IMPLICIT OUTPUTS:
+!
+!	Text buffer indexed by BUFNUM.
+!
+! ROUTINE VALUE:
+!
+!	TEXT_PTR	- Pointer to string descriptor containing description
+!			  of token
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+
+    map
+	TOKEN_PTR : ref LSLOCAL_TKN_STR;
+
+    local
+	TERM_NUM;
+
+    TERM_NUM = LS_LEX_TERM (TOKEN_PTR);
+    CLEAR_TEXTM (.BUFNUM);
+
+    case PAT$LSLOCAL_SYMBOL_CLASS (.TERM_NUM) from FIRST_SYMCLASS to LAST_SYMCLASS of
+	set
+
+	[SYMCLASS_RW] :
+	    begin
+	    APPEND_TO_TEXTM (.BUFNUM, 'reserved-word ');
+	    DOWN_CASE (PAT$DATA_SYMBOL_TEXT (.TERM_NUM), TEMP_TEXT);
+	    APPEND_TO_TEXTM (.BUFNUM, '"');
+	    APPEND_TO_TEXTM (.BUFNUM, TEMP_TEXT);
+	    APPEND_TO_TEXTM (.BUFNUM, '"');
+	    end;
+
+	[SYMCLASS_SPECIALCH] :
+	    begin
+	    APPEND_TO_TEXTM (.BUFNUM, '"');
+	    APPEND_TO_TEXTM (.BUFNUM, PAT$DATA_SYMBOL_TEXT (.TERM_NUM));
+	    APPEND_TO_TEXTM (.BUFNUM, '"');
+	    end;
+
+	[SYMCLASS_IDENTIFIER] :
+	    begin
+	    APPEND_TO_TEXTM (.BUFNUM, 'identifier');
+
+	    if not LS_LEX_SYNTHETIC (TOKEN_PTR)
+	    then
+		begin
+		APPEND_TO_TEXTM (.BUFNUM, ' ');
+		APPEND_TO_TEXTM (.BUFNUM, LS_LEX_TEXT (TOKEN_PTR));
+		end;
+
+	    end;
+
+	[SYMCLASS_NUMBER] :
+	    begin
+	    APPEND_TO_TEXTM (.BUFNUM, 'number');
+
+	    if not LS_LEX_SYNTHETIC (TOKEN_PTR)
+	    then
+		begin
+		APPEND_TO_TEXTM (.BUFNUM, ' ');
+		APPEND_TO_TEXTM (.BUFNUM, LS_LEX_TEXT (TOKEN_PTR));
+		end;
+
+	    end;
+
+	[SYMCLASS_STRING] :
+	    begin
+	    APPEND_TO_TEXTM (.BUFNUM, 'string-literal');
+
+	    if not LS_LEX_SYNTHETIC (TOKEN_PTR)
+	    then
+		begin
+		APPEND_TO_TEXTM (.BUFNUM, ' ');
+		APPEND_TO_TEXTM (.BUFNUM, LS_LEX_TEXT (TOKEN_PTR));
+		end;
+
+	    end;
+
+	[SYMCLASS_CHAR_LIT] :
+	    begin
+	    APPEND_TO_TEXTM (.BUFNUM, 'character-literal');
+
+	    if not LS_LEX_SYNTHETIC (TOKEN_PTR)
+	    then
+		begin
+		APPEND_TO_TEXTM (.BUFNUM, ' ');
+		APPEND_TO_TEXTM (.BUFNUM, LS_LEX_TEXT (TOKEN_PTR));
+		end;
+
+	    end;
+
+	[SYMCLASS_EOF] :
+	    APPEND_TO_TEXTM (.BUFNUM, 'end-of-file');
+
+	[SYMCLASS_NONTERM] :
+	    0;
+	tes;
+
+    return TEXT_SD [.BUFNUM, SD_BASE]
+    end;
+
+%if PATBLSEXT_DEBUGGING
+%then
+
+global routine PAT$LSLOCAL_DUMP_TOK (TOKEN_PTR) : novalue =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	PAT$LSLOCAL_DUMP_TOK outputs the lexical token pointed to by TOKEN_PTR.
+!
+! FORMAL PARAMETERS:
+!
+!	TOKEN_PTR	- Pointer to the lexical token which is to be dumped.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+
+    map
+	TOKEN_PTR : ref LSLOCAL_TKN_STR;
+
+    macro
+	OUTPUT_TEXT =
+	    PUT_STRING (LS_LEX_TEXT (TOKEN_PTR)) %;
+
+!    macro
+!	OUTPUT_CLEAN =
+!	    PUT_STRING (.TOKEN_PTR [TKN_CLEAN_TEXT]) %;
+
+    local
+	NUM;
+
+    NUM = LS_LEX_TERM (TOKEN_PTR);
+    PUT_MSG ('PAT$LSLOCAL_DUMP_TOK	');
+
+    if not LS_LEX_SYNTHETIC (TOKEN_PTR)
+    then
+	begin
+
+	case PAT$LSLOCAL_SYMBOL_CLASS (.NUM) from FIRST_SYMCLASS to LAST_SYMCLASS of
+	    set
+
+	    [SYMCLASS_RW] :
+		begin
+		PUT_MSG ('Reserved word:  ');
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (.NUM));
+		end;
+
+	    [SYMCLASS_SPECIALCH] :
+		begin
+		PUT_MSG ('Special character(s):  "');
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (.NUM));
+		PUT_MSG ('"');
+		end;
+
+	    [SYMCLASS_IDENTIFIER] :
+		begin
+		PUT_MSG ('Identifier:  ');
+		OUTPUT_TEXT;
+		end;
+
+	    [SYMCLASS_STRING] :
+		begin
+		PUT_MSG ('Character string:  ');
+		OUTPUT_TEXT;
+!		PUT_MSG ('   Cleaned up: ');
+!		OUTPUT_CLEAN;
+		PUT_EOL ();
+		end;
+
+	    [SYMCLASS_CHAR_LIT] :
+		begin
+		PUT_MSG ('Character literal:  ');
+		OUTPUT_TEXT;
+!		PUT_MSG ('    Cleaned up: ');
+!		OUTPUT_CLEAN;
+		PUT_EOL ();
+		end;
+
+	    [SYMCLASS_NUMBER] :
+		begin
+
+		if .NUM eql T_NUMERIC
+		then
+		    begin
+		    PUT_MSG ('Number: ');
+		    OUTPUT_TEXT;
+!		    PUT_MSG ('	Cleaned up: ');
+!		    OUTPUT_CLEAN;
+		    PUT_EOL ();
+!		    PUT_MSG ('		Base 10 value is  ');
+!		    PUT_NUMBER (.TOKEN_PTR [TKN_INTVALUE]);
+		    end
+		else
+		    begin
+
+		    own
+			TEXT : vector [20, byte],
+			STRING : SD_STR preset ( [SD_TEXT] = TEXT);
+
+		    local
+			STATUS;
+
+		    external routine
+			FOR$CVT_H_TE : addressing_mode (general);
+
+		    STRING [SD_LENGTH] = 20;
+		    PUT_MSG ('Real:	');
+		    OUTPUT_TEXT;
+!		    PUT_MSG ('	Cleaned up: ');
+!		    OUTPUT_CLEAN;
+		    PUT_EOL ();
+!		    PUT_MSG ('		Base 10 value is  ');
+!		    STATUS = FOR$CVT_H_TE (.TOKEN_PTR [TKN_REALVALUE], STRING, 10);
+!		    PUT_STRING (STRING);
+!		    PUT_EOL ();
+		    end;
+
+		end;
+
+	    [SYMCLASS_EOF] :
+		begin
+		PUT_MSG_EOL ('End of file token');
+		return
+		end;
+
+	    [inrange] :
+		begin
+		PUT_MSG ('Invalid token.  TKN_TERM field = ');
+		PUT_NUMBER (.NUM);
+		end;
+	    tes;
+
+	PUT_EOL ();
+	PUT_MSG ('Locator:	Line number:   ');
+	PUT_NUMBER (LS_LEX_LINE_NUMBER (LS_LEX_LOCATOR (TOKEN_PTR)));
+	PUT_MSG ('	Column number:   ');
+	PUT_NUMBER (LS_LEX_COLUMN_NUMBER (LS_LEX_LOCATOR (TOKEN_PTR)));
+	PUT_EOL ();
+
+	if LS_LEX_START_LINE (TOKEN_PTR)		!
+	then 					!
+	    PUT_MSG ('First token on text line.		')	!
+	else 					!
+	    PUT_MSG ('					');
+
+	PUT_MSG ('Comments pointer:  ');
+
+!	if .TOKEN_PTR [TKN_COMMENTS] eql NULL
+!	then
+!	    PUT_MSG ('NULL')
+!	else
+!	    PUT_HEX_LONG (.TOKEN_PTR [TKN_COMMENTS]);
+
+	PUT_EOL ();
+	end
+    else 					! Synthetic token (inserted by error recovery)
+	begin
+	PUT_MSG ('Synthetic ');
+
+	case PAT$LSLOCAL_SYMBOL_CLASS (.NUM) from FIRST_SYMCLASS to LAST_SYMCLASS of
+	    set
+
+	    [SYMCLASS_RW] :
+		begin
+		PUT_MSG ('reserved word:  ');
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (.NUM));
+		end;
+
+	    [SYMCLASS_SPECIALCH] :
+		begin
+		PUT_MSG ('special character(s):  "');
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (.NUM));
+		PUT_MSG ('"');
+		end;
+
+	    [SYMCLASS_IDENTIFIER] :
+		PUT_MSG ('identifier');
+
+	    [SYMCLASS_STRING] :
+		PUT_MSG ('character string');
+
+	    [SYMCLASS_CHAR_LIT] :
+		PUT_MSG ('character literal');
+
+	    [SYMCLASS_NUMBER] :
+
+		if .NUM eql T_NUMERIC then PUT_MSG ('number') else PUT_MSG ('real');
+
+	    [SYMCLASS_EOF] :
+		PUT_MSG_EOL ('end of file token');
+
+	    [inrange] :
+		begin
+		PUT_MSG ('token.  The token type is invalid.  TKN_TERM field = ');
+		PUT_NUMBER (.NUM);
+		end;
+	    tes;
+
+	PUT_EOL ();
+	end;
+
+    end;
+
+%fi
+
+
+global routine PAT$LSLOCAL_LOC_TEXT (SLOC) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine converts source locator information to a text
+!	string of the form:
+!
+!		on line 10
+!
+!	The text does not have leading or trailing spaces.
+!
+!	Static storage is used for the text string.  Thus, a call
+!	to LS_LOC_TEXTM destroys the text string from the previous call
+!	to LS_LOC_TEXTM.
+!
+! FORMAL PARAMETERS:
+!
+!	SLOC	- Encoded source locator.
+!
+! ROUTINE VALUE:
+!
+!	Address of a string descriptor for the text.
+!
+!--
+
+    begin
+
+    library 'SYS$LIBRARY:STARLET';		! for FAOL
+
+    literal
+	MAX_LOC_LENGTH = 60;
+
+    own
+	LOC_TEXT : vector [MAX_LOC_LENGTH, byte],
+	LOC : SD_STR preset ( [SD_TEXT] = LOC_TEXT);
+
+    bind
+	CTL = SD_REF ('on line !ZL');
+
+    local
+	ACTUAL,
+	LINE;
+
+    ACTUAL = 0;
+    LOC [SD_LENGTH] = MAX_LOC_LENGTH;
+    LINE = LS_LEX_LINE_NUMBER (.SLOC);
+    $FAOL (CTRSTR = CTL, OUTLEN = ACTUAL, OUTBUF = LOC, PRMLST = LINE);
+    LOC [SD_LENGTH] = .ACTUAL;
+    return LOC
+    end;					! End of PAT$LSLOCAL_LOC_TEXT
+
+!<blf/page>
+
+
+!++
+!				Section 2
+!
+! Macros to interpret terminal and non-terminal symbols.
+!
+!--
+
+
+global routine PAT$LSLOCAL_SYMBOL_CLASS (SYMBOL) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	PAT$LSLOCAL_SYMBOL_CLASS returns the class of a symbol (reserved word,
+!	non-terminal, special character, etc.).
+!
+!	Note that a bitvector implementation would provide a faster and
+!	more compact implementation.
+!
+! JG	Changes to case values to allow for additional reserved words in
+!	SDLPAT.PAT - see comments in change log.
+!
+! FORMAL PARAMETERS:
+!
+!	SYMBOL		- Terminal or non terminal symbol type
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! ROUTINE VALUE:
+!
+!	Symbol class (e.g. SYMCLASS_RW, SYMCLASS_SPECIALCH, etc.)
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+
+    selectone .SYMBOL of
+	set
+
+	[T_AGGREGATE to T_LINKAGE] :			! JG
+	    return SYMCLASS_RW;
+
+	[T_INCLUDE to T_READ] :				! JG
+	    return SYMCLASS_RW;
+
+	[T_AMPERSAND, T_L_PAREN, T_R_PAREN, T_COMMA, T_DOT, T_COLON,
+		T_SEMICOLON, T_EXCLAMATION, T_STAR, T_PLUS, T_MINUS,
+		T_SLASH, T_EQUAL, T_AT, T_CIRCUMFLEX] :
+	    return SYMCLASS_SPECIALCH;
+
+	[T_NAME] :
+	    return SYMCLASS_IDENTIFIER;
+
+	[T_NUMERIC] :
+	    return SYMCLASS_NUMBER;
+
+	[T_STRING_LITERAL] :
+	    return SYMCLASS_STRING;
+
+	[T_EOF] :
+	    return SYMCLASS_EOF;
+
+	[otherwise] :
+	    return SYMCLASS_NONTERM;
+	tes;
+
+    end;
+
+
+global routine PAT$LSLOCAL_IS_NON_TERM (SYMBOL_NUM) =
+    begin
+    PAT$LSLOCAL_SYMBOL_CLASS (.SYMBOL_NUM) eql SYMCLASS_NONTERM
+    end;
+
+
+global routine PAT$LSLOCAL_IS_RESERVED_WORD (SYMBOL_NUM) =
+    begin
+    PAT$LSLOCAL_SYMBOL_CLASS (.SYMBOL_NUM) eql SYMCLASS_RW
+    end;
+
+
+global routine PAT$LSLOCAL_OUTPUT_TERM (TERM_NUM, FULL, BUFNUM) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	PAT$LSLOCAL_OUTPUT_TERM  stores text describing a terminal symbol in
+!	a string descriptor and returns that string descriptor.
+!
+! FORMAL PARAMETERS:
+!
+!	TERM_NUM	- Terminal or non-terminal number
+!
+!	FULL		- If TRUE return the terminal symbol
+!			  and whatever additional
+!			  descriptive information is desired
+!			  If FALSE, return text for terminal only.
+!			  For example, assume that TERM_NUM was
+!			  the number of the reserved word LOOP.
+!			  If TRUE, this routine might return the
+!		 	  text string
+!
+!				reserved word "loop"
+!
+!			  If FALSE, it would just return
+!
+!				"loop"
+!
+!	BUFNUM		- Number of text buffer to be used
+!
+! IMPLICIT INPUTS:
+!
+!	Text buffer indexed by BUFNUM.
+!
+! IMPLICIT OUTPUTS:
+!
+!	Text buffer indexed by BUFNUM.
+!
+! ROUTINE VALUE:
+!
+!	TEXT_PTR	- Pointer to string descriptor containing description
+!			  of token
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+    CLEAR_TEXTM (.BUFNUM);
+
+    case PAT$LSLOCAL_SYMBOL_CLASS (.TERM_NUM) from FIRST_SYMCLASS to LAST_SYMCLASS of
+	set
+
+	[SYMCLASS_RW] :
+	    begin
+
+	    if .FULL then APPEND_TO_TEXTM (.BUFNUM, 'reserved-word ');
+
+	    DOWN_CASE (PAT$DATA_SYMBOL_TEXT (.TERM_NUM), TEMP_TEXT);
+	    APPEND_TO_TEXTM (.BUFNUM, '"');
+	    APPEND_TO_TEXTM (.BUFNUM, TEMP_TEXT);
+	    APPEND_TO_TEXTM (.BUFNUM, '"');
+	    end;
+
+	[SYMCLASS_SPECIALCH] :
+	    begin
+	    APPEND_TO_TEXTM (.BUFNUM, '"');
+	    APPEND_TO_TEXTM (.BUFNUM, PAT$DATA_SYMBOL_TEXT (.TERM_NUM));
+	    APPEND_TO_TEXTM (.BUFNUM, '"');
+	    end;
+
+	[SYMCLASS_IDENTIFIER] :
+	    APPEND_TO_TEXTM (.BUFNUM, 'identifier');
+
+	[SYMCLASS_NUMBER] :
+	    APPEND_TO_TEXTM (.BUFNUM, 'number');
+
+	[SYMCLASS_STRING] :
+	    APPEND_TO_TEXTM (.BUFNUM, 'string-literal');
+
+	[SYMCLASS_CHAR_LIT] :
+	    APPEND_TO_TEXTM (.BUFNUM, 'character-literal');
+
+	[SYMCLASS_EOF] :
+	    APPEND_TO_TEXTM (.BUFNUM, 'end-of-file');
+
+	[SYMCLASS_NONTERM] :
+	    0;
+	tes;
+
+    return TEXT_SD [.BUFNUM, SD_BASE]
+    end;
+
+!<blf/page>
+
+
+!++
+!
+!				Section 5
+!
+! 		Error message interface (global recovery)
+!
+!--
+
+!
+!   Declarations for tables for global error recovery messages
+!
+!   This is a list of the collections whose names can substitute
+!   for a list of individual terminal symbols in the list
+!   of possible symbols printed by PAT$LSLOCAL_GLOBAL_ERROR_MSG.
+!
+ENUMERATION ('COLLECTION_TYPE', 0);
+!!, 		!
+!!    GR_COL_ARITHOP, 				!
+!!    GR_COL_RELOP, 				!
+!!    GR_COL_LOGICOP, 				!
+!!    GR_COL_NUMBER);
+!
+!   Number of literals in COLLECTION_TYPE
+
+literal
+    GR_NUM_COLLECTIONS = LAST_COLLECTION_TYPE - FIRST_COLLECTION_TYPE + 1;
+
+!   This is a list of the non-terminals symbols whose names can substitute
+!   for a list of individual terminal symbols in the list
+!   of possible symbols printed by PAT$LSLOCAL_GLOBAL_ERROR_MSG.
+!   Note that LS_NUM_GROUP_NONTERMS in PATLANGSP.REQ should indicate
+!   number of groupings.
+!   The contents of this list are **LANGUAGE SPECIFIC**
+!
+ENUMERATION ('GROUPING_NONTERM', 0);
+!!, 		!
+!!    GR_GNT_DECL, 				!
+!!    GR_GNT_STM, 				!
+!!    GR_GNT_EXP);
+!
+!   This structure definition is used for GR_COLLECTION_LISTS and
+!   GR_GROUP_NONTERM_LISTS.
+
+structure
+    ALLIGNED_BITMATRIX [ROWNUM, BITNUM; ROWS, BITS] =
+	[ROWS*((BITS + %bpunit - 1)/%bpunit)]
+	(ALLIGNED_BITMATRIX + (ROWNUM*((BITS + %bpunit - 1)/%bpunit)))<BITNUM, 1>;
+
+!   This table is used in PAT$LSLOCAL_GLOBAL_ERROR_MSG when printing
+!   an error message for global recovery.
+!   Its indicies are literals declared in the enumeration COLLECTION_TYPE
+!   and literals for terminals declared by PATTABLE.
+!   For each collection it has a bit set for each terminal included
+!   in the collection.
+!   For example, for Ada the collection NUMBER includes the terminals NUMBER
+!   and REAL.
+
+own
+    GR_COLLECTION_LISTS : ALLIGNED_BITMATRIX [GR_NUM_COLLECTIONS, PAT$DATA_NUM_TERM];
+
+!!preset (	!
+!!
+!!	[GR_COL_ARITHOP, T_REM] = TRUE,			!
+!!	[GR_COL_ARITHOP, T_MOD] = TRUE,			!
+!!	[GR_COL_ARITHOP, T_STAR] = TRUE,			!
+!!	[GR_COL_ARITHOP, T_STAR_STAR] = TRUE,		!
+!!	[GR_COL_ARITHOP, T_PLUS] = TRUE,			!
+!!	[GR_COL_ARITHOP, T_MINUS] = TRUE,			!
+!!	[GR_COL_ARITHOP, T_SLASH] = TRUE,			!
+!!!
+!!	[GR_COL_RELOP, T_SLASH_EQUAL] = TRUE,		!
+!!	[GR_COL_RELOP, T_LESS] = TRUE,			!
+!!	[GR_COL_RELOP, T_LESS_EQUAL] = TRUE,		!
+!!	[GR_COL_RELOP, T_EQUAL] = TRUE,			!
+!!	[GR_COL_RELOP, T_GREATER] = TRUE,			!
+!!	[GR_COL_RELOP, T_GREATER_EQUAL] = TRUE,		!
+!!!
+!!	[GR_COL_LOGICOP, T_AND] = TRUE,			!
+!!	[GR_COL_LOGICOP, T_NOT] = TRUE,			!
+!!	[GR_COL_LOGICOP, T_OR] = TRUE,			!
+!!	[GR_COL_LOGICOP, T_XOR] = TRUE,			!
+!!!
+!!	[GR_COL_NUMBER, T_NUMBER] = TRUE,			!
+!!	[GR_COL_NUMBER, T_REAL] = TRUE);
+!   This table is used in PAT$LSLOCAL_GLOBAL_ERROR_MSG when printing
+!   an error message for global recovery.
+!   Its indicies are literals declared in the enumeration GROUPING_NONTERM
+!   and literals for terminals declared by PATTABLE.
+!   For each non-terminal it has a bit set for each terminal included
+!   in the non-terminal.
+!   For example, for Ada the collection STATEMENT includes all the terminal
+!   symbols that can appear at the start of a statement.
+
+own
+    GR_GROUP_NONTERM_LISTS : ALLIGNED_BITMATRIX [LS_NUM_GROUP_NONTERMS, PAT$DATA_NUM_TERM];
+
+!!preset (
+!!	[GR_GNT_DECL, T_ENTRY] = TRUE,			!
+!!	[GR_GNT_DECL, T_FOR] = TRUE,			!
+!!	[GR_GNT_DECL, T_FUNCTION] = TRUE,			!
+!!	[GR_GNT_DECL, T_GENERIC] = TRUE,			!
+!!	[GR_GNT_DECL, T_PACKAGE] = TRUE,			!
+!!	[GR_GNT_DECL, T_PRAGMA] = TRUE,			!
+!!	[GR_GNT_DECL, T_PROCEDURE] = TRUE,			!
+!!	[GR_GNT_DECL, T_SUBTYPE] = TRUE,			!
+!!	[GR_GNT_DECL, T_TASK] = TRUE,			!
+!!	[GR_GNT_DECL, T_TYPE] = TRUE,			!
+!!	[GR_GNT_DECL, T_USE] = TRUE,			!
+!!	[GR_GNT_DECL, T_IDENTIFIER] = TRUE,		!
+!!!
+!!	[GR_GNT_STM, T_ABORT] = TRUE,			!
+!!	[GR_GNT_STM, T_ACCEPT] = TRUE,			!
+!!	[GR_GNT_STM, T_BEGIN] = TRUE,			!
+!!	[GR_GNT_STM, T_CASE] = TRUE,			!
+!!	[GR_GNT_STM, T_DECLARE] = TRUE,			!
+!!	[GR_GNT_STM, T_DELAY] = TRUE,			!
+!!	[GR_GNT_STM, T_EXIT] = TRUE,			!
+!!	[GR_GNT_STM, T_FOR] = TRUE,			!
+!!	[GR_GNT_STM, T_GOTO] = TRUE,			!
+!!	[GR_GNT_STM, T_IF] = TRUE,				!
+!!	[GR_GNT_STM, T_LOOP] = TRUE,			!
+!!	[GR_GNT_STM, T_NULL] = TRUE,			!
+!!	[GR_GNT_STM, T_PRAGMA] = TRUE,			!
+!!	[GR_GNT_STM, T_RAISE] = TRUE,			!
+!!	[GR_GNT_STM, T_RETURN] = TRUE,			!
+!!	[GR_GNT_STM, T_SELECT] = TRUE,			!
+!!	[GR_GNT_STM, T_WHILE] = TRUE,			!
+!!	[GR_GNT_STM, T_LESS_LESS] = TRUE,			!
+!!	[GR_GNT_STM, T_IDENTIFIER] = TRUE,			!
+!!	[GR_GNT_STM, T_CHARACTER_STR] = TRUE,		!
+!!!
+!!	[GR_GNT_EXP, T_NEW] = TRUE,			!
+!!	[GR_GNT_EXP, T_NOT] = TRUE,			!
+!!	[GR_GNT_EXP, T_NULL] = TRUE,			!
+!!	[GR_GNT_EXP, T_L_PAREN] = TRUE,			!
+!!	[GR_GNT_EXP, T_PLUS] = TRUE,			!
+!!	[GR_GNT_EXP, T_MINUS] = TRUE,			!
+!!	[GR_GNT_EXP, T_IDENTIFIER] = TRUE,			!
+!!	[GR_GNT_EXP, T_NUMBER] = TRUE,			!
+!!	[GR_GNT_EXP, T_CHARACTER_STR] = TRUE,		!
+!!	[GR_GNT_EXP, T_CHARACTER_LIT] = TRUE,		!
+!!	[GR_GNT_EXP, T_REAL] = TRUE);
+!   This table is used in PAT$LSLOCAL_GLOBAL_ERROR_MSG when printing
+!   an error message for global recovery.
+!   Its indicies are literals declared in the enumeration COLLECTION_TYPE.
+!   For each collection it has a pointer to a string descriptor containing the
+!   text to be printed instead of the names of the terminals in the collection.
+!   For example, for Ada the text for the collection ARITHOP is
+!   "arithmetic-operator".
+
+own
+    GR_COLLECTION_TEXT : vector [GR_NUM_COLLECTIONS];
+
+!!preset (	!
+!!	[GR_COL_ARITHOP] = SD_REF ('arithmetic-operator'),
+!!	[GR_COL_RELOP] = SD_REF ('relational-operator'),
+!!	[GR_COL_LOGICOP] = SD_REF ('logical-operator'),
+!!	[GR_COL_NUMBER] = SD_REF ('number'));
+!   This table is used in PAT$LSLOCAL_GLOBAL_ERROR_MSG when printing
+!   an error message for global recovery.
+!   Its indicies are literals declared in the enumeration GROUPING_NONTERM.
+!   For each non-terminal symbol it has a pointer to a string descriptor
+!   containing the text to be printed instead of the names of the terminals
+!   in the non-terminal symbol.  For example, for Ada the text for
+!   the non-terminal symbol DECL is "declaration".
+
+own
+    GR_GROUP_NONTERM_TEXT : vector [LS_NUM_GROUP_NONTERMS];
+
+!!preset (	!
+!!	[GR_GNT_DECL] = SD_REF ('declaration'),
+!!	[GR_GNT_STM] = SD_REF ('statement'),
+!!	[GR_GNT_EXP] = SD_REF ('expression'));
+!   This table is used in PAT$LSLOCAL_GLOBAL_ERROR_MSG when printing
+!   an error message for global recovery.
+!   The GR_NONTERM_SYMBOL field of each pair is a non-terminal
+!   symbol which could be formed by a production containing an
+!   errormark so it might be formed during global error recovery.
+!   The corresponding GR_NONTERM_TEXT field contains a pointer to
+!   a string descriptor containing text which describes that
+!   non-terminal symbol.
+!   The literals are used in defining and referencing the table.
+!   A (less extensive) error message can be printed even if this
+!   table is empty.
+
+literal
+!!    GR_NUM_NONTERM_NAMES = 2,			! **LANGUAGE SPECIFIC**
+    GR_NUM_NONTERM_NAMES = 0,			! **LANGUAGE SPECIFIC**
+    GR_NONTERM_SYMBOL = 0,
+    GR_NONTERM_TEXT = 1;
+
+structure
+    LS_MATRIX [ROWNUM, COLNUM; ROWS, COLS] =
+	[(ROWS*COLS)*%upval]
+	(LS_MATRIX + ((ROWNUM*COLS) + COLNUM)*%upval);
+
+own
+    GR_NONTERM_NAMES : LS_MATRIX [GR_NUM_NONTERM_NAMES, 2];
+
+!!preset (	!
+!!	[0, GR_NONTERM_SYMBOL] = NT_DECL,				!
+!!	[0, GR_NONTERM_TEXT] = SD_REF ('declaration'),			!
+!!	[1, GR_NONTERM_SYMBOL] = NT_UNLABELLED_STM,			!
+!!	[1, GR_NONTERM_TEXT] = SD_REF ('statement'));
+!<BL
+
+
+global routine PAT$LSLOCAL_EXPECTED_SYMBOL (SYM, REF_GROUP_NONTERMS_SEEN, REF_TERMS_TO_PRINT) : novalue =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	See LS_EXPECTED_SYMBOL in PATLANGSP.REQ.
+!
+!--
+
+    begin
+
+    bind
+	GR_GROUP_NONTERMS_SEEN = .REF_GROUP_NONTERMS_SEEN : bitvector [],
+	GR_TERMS_TO_PRINT = .REF_TERMS_TO_PRINT : bitvector [];
+
+    if PAT$LSLOCAL_SYMBOL_CLASS (.SYM) eql SYMCLASS_NONTERM
+    then 					! Non-terminal
+
+	selectone .SYM of
+	    set
+!!	    [NT_DECL] : 			! Declaration
+!!		GR_GROUP_NONTERMS_SEEN [GR_GNT_DECL] = TRUE;
+!!
+!!	    [NT_STM] : 				! Statement
+!!		GR_GROUP_NONTERMS_SEEN [GR_GNT_STM] = TRUE;
+!!
+!!	    [NT_SIMPLE_EXP] : 			! Expression
+!!		GR_GROUP_NONTERMS_SEEN [GR_GNT_EXP] = TRUE;
+
+	    [otherwise] :
+	    ;					! Other non-terminal--do nothing
+	    tes
+
+    else 					! Ordinary terminal symbol
+	GR_TERMS_TO_PRINT [.SYM] = TRUE;
+
+    end;
+
+
+global routine PAT$LSLOCAL_GLOBAL_ERROR_MSG (BAD_NON_TERM, ERROR_TOKEN_PTR, REF_GROUP_NONTERMS_SEEN,
+    REF_TERMS_TO_PRINT, BYTES_FOR_TERMS) : novalue =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	See LS_GLOBAL_ERROR_MSG in PATLANGSP.REQ.
+!
+!--
+
+    begin
+
+    map
+	ERROR_TOKEN_PTR : ref LSLOCAL_TKN_STR;
+
+    bind
+	GROUP_NONTERMS_SEEN = .REF_GROUP_NONTERMS_SEEN : bitvector [],
+	TERMS_TO_PRINT = .REF_TERMS_TO_PRINT : bitvector [];
+
+    local
+	ERROR_LOC,
+	NUM_GROUP_NONTERMS_TO_PRINT,
+	NUM_COLLECTIONS_TO_PRINT,
+	NUM_TERMS_TO_PRINT,
+	NUM_ITEMS_TO_PRINT,
+	COLLECTIONS_SEEN : bitvector [GR_NUM_COLLECTIONS],
+	TERMS_SEEN_IN_COLLECTION : bitvector [PAT$DATA_NUM_TERM];
+
+    literal
+	BUF0 = 0,
+	BUF1 = 1,
+	BUF2 = 2;
+
+!
+! Macros
+!
+
+    macro
+	BLOCK_DST_AND_NOT_SRC (SRC, DST, NUM_BYTES) =
+	    begin
+
+	    !+
+	    ! Given two bitvectors, DST (destination) and SRC (source),
+	    ! each of which occupies NUM_BYTES storage, this macro performs the
+	    ! vector operation:
+	    !
+	    !	DST = DST and not SRC
+	    !
+	    !-
+
+	    bind
+		SBV = SRC : vector [, byte],
+		DBV = DST : vector [, byte];
+
+	    incr OFFSET from 0 to (NUM_BYTES - 1) do
+		DBV [.OFFSET] = .DBV [.OFFSET] and ( not .SBV [.OFFSET]);
+
+	    end
+	%;
+
+    macro
+	BLOCK_SRC1_AND_SRC2_TO_DST (SRC1, SRC2, DST, NUM_BYTES) =
+	    begin
+
+	    !+
+	    ! Given three bit vectors SRC1, SCR2, and DST, each of which
+	    ! occupies NUM_BYTES storage, this macro performs the
+	    ! vector operation:
+	    !
+	    !	DST = SRC1 and SRC2
+	    !
+	    !-
+
+	    bind
+		SBV1 = SRC1 : vector [, byte],
+		SBV2 = SRC2 : vector [, byte],
+		DBV = DST : vector [, byte];
+
+	    incr OFFSET from 0 to (NUM_BYTES - 1) do
+		DBV [.OFFSET] = .SBV1 [.OFFSET] and .SBV2 [.OFFSET];
+
+	    end
+	%;
+
+    macro
+	COUNT (START, NUM_BITS) =
+	    begin
+
+	    !+
+	    ! This macro counts the number of bits set turned on in a
+	    ! bitvector at address START of length NUM_BITS.
+	    !-
+
+	    local
+		TOT;
+
+	    TOT = 0;
+
+	    incr LOOP_INDEX from 0 to (NUM_BITS - 1) do
+
+		if .START [.LOOP_INDEX] then TOT = .TOT + 1;
+
+	    .TOT
+	    end
+	%;
+
+!<BLF/PAGE>
+
+!
+! Start of code for PAT$LSLOCAL_GLOBAL_ERROR_MSG
+!
+
+    !+
+    ! Determine what's expected.
+    !-
+
+    !+
+    ! If group non-terminals are expected, say a statement,
+    ! suppress output for all terminals that can begin a
+    ! statement (e.g., "for", "loop") by turning off the bits
+    ! in TERMS_TO_PRINT bitvector.  (Note that TERMS_TO_PRINT
+    ! in indexed by the terminal symbol number.
+    !-
+
+    incr GROUP_NONTERM_INDEX from FIRST_GROUPING_NONTERM to LAST_GROUPING_NONTERM do
+
+	if (.GROUP_NONTERMS_SEEN [.GROUP_NONTERM_INDEX])
+	then
+	    BLOCK_DST_AND_NOT_SRC (		!
+		GR_GROUP_NONTERM_LISTS [.GROUP_NONTERM_INDEX, PAT$DATA_FIRST_TERM], 	!
+		TERMS_TO_PRINT, .BYTES_FOR_TERMS);
+
+    !+
+    ! If more than one terminal is expected that is associated with a
+    ! collection (e.g. "+", "-", "*", ... in collection
+    ! "arithmetic-operator"), suppress output for these terminals
+    ! ("+", etc.) by turning off the associated bits in TERMS_TO_PRINT
+    ! bitvector.  Set bit in COLLECTIONS_SEEN bitvector to
+    ! indicate that "arithmetic-operator" is to be output.
+    !-
+
+    ZEROBYTE (%allocation (COLLECTIONS_SEEN), COLLECTIONS_SEEN);
+
+    incr COLLECTION_INDEX from FIRST_COLLECTION_TYPE to LAST_COLLECTION_TYPE do
+	begin
+	BLOCK_SRC1_AND_SRC2_TO_DST (		!
+	    GR_COLLECTION_LISTS [.COLLECTION_INDEX, PAT$DATA_FIRST_TERM], 	!
+	    TERMS_TO_PRINT, TERMS_SEEN_IN_COLLECTION, .BYTES_FOR_TERMS);
+
+	if (COUNT (TERMS_SEEN_IN_COLLECTION, PAT$DATA_NUM_TERM) gtr 0)
+	then
+	    begin
+	    COLLECTIONS_SEEN [.COLLECTION_INDEX] = TRUE;
+	    BLOCK_DST_AND_NOT_SRC (		!
+		GR_COLLECTION_LISTS [.COLLECTION_INDEX, PAT$DATA_FIRST_TERM], 	!
+		TERMS_TO_PRINT, .BYTES_FOR_TERMS);
+	    end;
+
+	end;
+
+    !+
+    ! Determine the number of items expected
+    !-
+
+    NUM_GROUP_NONTERMS_TO_PRINT = COUNT (GROUP_NONTERMS_SEEN, LS_NUM_GROUP_NONTERMS);
+    NUM_COLLECTIONS_TO_PRINT = COUNT (COLLECTIONS_SEEN, GR_NUM_COLLECTIONS);
+    NUM_TERMS_TO_PRINT = COUNT (TERMS_TO_PRINT, PAT$DATA_NUM_TERM);
+    NUM_ITEMS_TO_PRINT = .NUM_GROUP_NONTERMS_TO_PRINT + .NUM_COLLECTIONS_TO_PRINT + .NUM_TERMS_TO_PRINT;
+    DEB_ASSERT ((.NUM_ITEMS_TO_PRINT gtr 0), 	!
+	'Nothing "expected" for global error recovery');
+
+    !+
+    ! Create a text string in text buffer 0 (BUF0) containing a
+    ! general header if expecting something important;  e.g.
+    !
+    !	Illegal statement-- ...
+    !-
+
+    CLEAR_TEXTM (BUF0);
+
+    if .BAD_NON_TERM neq LS_UNAVAILABLE_NT
+    then
+
+	incr LOOP_INDEX from 0 to (GR_NUM_NONTERM_NAMES - 1) do
+
+	    if .GR_NONTERM_NAMES [.LOOP_INDEX, GR_NONTERM_SYMBOL] eql .BAD_NON_TERM
+	    then
+		begin
+		APPEND_TO_TEXTM (BUF0, 'Illegal ');
+		APPEND_TO_TEXTM (BUF0, .GR_NONTERM_NAMES [.LOOP_INDEX, GR_NONTERM_TEXT]);
+		APPEND_TO_TEXTM (BUF0, '--');
+		exitloop;
+		end;
+
+    !+
+    ! Create a text string in buffer 1 (BUF1) consisting of items expected.
+    ! If more than one item is expected, bracket them with curly braces.
+    !-
+
+    CLEAR_TEXTM (BUF1);
+
+    if .NUM_ITEMS_TO_PRINT gtr 1 then APPEND_TO_TEXTM (BUF1, 'one of { ');
+
+    !+
+    ! First list important group nonterminals expected (e.g.,
+    ! statement).
+    !-
+
+    if .NUM_GROUP_NONTERMS_TO_PRINT neq 0
+    then
+
+	incr GROUP_NONTERM_INDEX from FIRST_GROUPING_NONTERM to LAST_GROUPING_NONTERM do
+
+	    if (.GROUP_NONTERMS_SEEN [.GROUP_NONTERM_INDEX])
+	    then
+		begin
+		APPEND_TO_TEXTM (BUF1, .GR_GROUP_NONTERM_TEXT [.GROUP_NONTERM_INDEX]);
+		APPEND_TO_TEXTM (BUF1, ' ');
+		end;
+
+    !+
+    ! Then comes the collections (e.g. arithmetic-operator)
+    !-
+
+    if .NUM_COLLECTIONS_TO_PRINT neq 0
+    then
+
+	incr COL_INDEX from FIRST_COLLECTION_TYPE to LAST_COLLECTION_TYPE do
+
+	    if (.COLLECTIONS_SEEN [.COL_INDEX])
+	    then
+		begin
+		APPEND_TO_TEXTM (BUF1, .GR_COLLECTION_TEXT [.COL_INDEX]);
+		APPEND_TO_TEXTM (BUF1, ' ');
+		end;
+
+    !+
+    ! Then individual terminals.
+    !-
+
+    if .NUM_TERMS_TO_PRINT neq 0
+    then
+
+	incr TERM_INDEX from PAT$DATA_FIRST_TERM to PAT$DATA_LAST_TERM do
+
+	    if (.TERMS_TO_PRINT [.TERM_INDEX])
+	    then
+		begin
+		APPEND_TO_TEXTM (BUF1, PAT$LSLOCAL_OUTPUT_TERM (.TERM_INDEX, FALSE, BUF2));
+		APPEND_TO_TEXTM (BUF1, ' ');
+		end;
+
+    if .NUM_ITEMS_TO_PRINT gtr 1 then APPEND_TO_TEXTM (BUF1, '}');
+
+    !+
+    ! Output the error message.
+    !-
+
+    ERROR_LOC = LS_LEX_LOCATOR (ERROR_TOKEN_PTR);
+    LSLOCAL_SYNTAX_ERROR_START (.ERROR_LOC);
+
+    !+
+    ! Put out general header.
+    !-
+
+    LSLOCAL_SYNTAX_ERROR_TEXTM (.ERROR_LOC, TEXT_SD [BUF0, SD_LENGTH]);
+
+    !+
+    ! Put out
+    !
+    !	Found ... when expecting ...
+    !-
+
+    LSLOCAL_SYNTAX_ERROR_TEXTM (.ERROR_LOC, 'Found ', PAT$LSLOCAL_OUTPUT_TOKEN (.ERROR_TOKEN_PTR, BUF2));
+    LSLOCAL_SYNTAX_ERROR_TEXTM (.ERROR_LOC, ' when expecting ');
+    LSLOCAL_SYNTAX_ERROR_TEXTM (.ERROR_LOC, TEXT_SD [BUF1, SD_LENGTH]);
+    LSLOCAL_SYNTAX_ERROR_END (.ERROR_LOC);
+    end;					! Of routine PAT$LSLOCAL_GLOBAL_ERROR_MSG
+
+!<blf/page>
+
+
+!++
+!				Section 6
+!
+!   Other definitions
+!
+!--
+
+
+routine APPEND_TO_TEXT (BUFNUM, NEW_TEXT) : novalue =
+    begin
+
+    map
+	NEW_TEXT : ref SD_STR;
+
+    if .TEXT_BUF_FULL [.BUFNUM] then return;
+
+    if .TEXT_SD [.BUFNUM, SD_LENGTH] + .NEW_TEXT [SD_LENGTH] gtr .TEXT_BUF_SIZE [.BUFNUM] - 4
+    then
+	begin
+	TEXT_BUF_FULL [.BUFNUM] = TRUE;
+	ch$move (4, SD_REF (' ...'), .TEXT_SD [.BUFNUM, SD_TEXT] + .TEXT_SD [.BUFNUM, SD_LENGTH]);
+	TEXT_SD [.BUFNUM, SD_LENGTH] = .TEXT_SD [.BUFNUM, SD_LENGTH] + 4;
+	return
+	end;
+
+    ch$move (.NEW_TEXT [SD_LENGTH], .NEW_TEXT [SD_TEXT],
+	(.TEXT_SD [.BUFNUM, SD_TEXT] + .TEXT_SD [.BUFNUM,
+	    SD_LENGTH]));
+    TEXT_SD [.BUFNUM, SD_LENGTH] = .TEXT_SD [.BUFNUM, SD_LENGTH] + .NEW_TEXT [SD_LENGTH];
+    end;
+
+routine DOWN_CASE (IN, OUT) : novalue =
+    begin
+
+    bind
+	DOWNCASE_TABLE = uplit byte(
+		        '$           0123456789      ',	!
+		    ' abcdefghijklmnopqrstuvwxyz    _',	!
+	    ' abcdefghijklmnopqrstuvwxyz') -'$';
+
+    map
+	IN : ref SD_STR,
+	OUT : ref SD_STR;
+
+    OUT [SD_LENGTH] = .IN [SD_LENGTH];
+    ch$translate (DOWNCASE_TABLE, .IN [SD_LENGTH], .IN [SD_TEXT], 0, .OUT [SD_LENGTH], .OUT [SD_TEXT]);
+    end;
+end						! End of module
+
+eludom

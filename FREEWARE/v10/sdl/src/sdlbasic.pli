@@ -1,0 +1,198 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1993						    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+    13-Mar-1987	|  jw	| T3.1-0 Modified DO_PARAM procedure for LIST
+		|	|	 parameter option enhancement and bumped
+		|	|	 version number.
+________________!_______!______________________________________________________
+    24-Mar-1987	|  jw	| T3.1-1 Modified DO_PARAM procedure for RTL_STR_DESC
+		|	|	 parameter attribute enhancement and bumped
+		|	|	 version number.
+________________!_______!______________________________________________________
+     2-Apr-1987	|  jw	| X3.1-2 Bumped version number and switched from T to
+		|	|	 X in the version number, since X is used for
+		|	|	 development releases.
+________________!_______!______________________________________________________
+     9-Apr-1987	|  jw	| X3.1-3 Modified GET_TYPE and PUT_TYPES for COMPLEX
+		|	|	 data types and bumped edit level.
+________________!_______!______________________________________________________
+    18-Jan-1988	|  PG	| X3.2-0 Add CONSTANT STRING
+________________|_______|______________________________________________________
+    01-Feb-1988	|  jg	| X3.2-1 Implement user defined types.
+________________|_______|______________________________________________________
+    22-Feb-1988	|  jg	| X3.2-2 Update version number for conditional
+		|	|	 compilation and LITERAL
+________________|_______|______________________________________________________
+    13-FEB-1990 |  WRV  | X3.2-VMS1 Modifiers are members of VMS tools group.
+                |  RHT  |           Added code for file dependency recording for
+                |       |           VMS VDE system builder.
+________________|_______|______________________________________________________
+    01-OCT-1993 |  BJM  | X3.2-VMS2 Set global bit for alpha check.
+________________|_______|______________________________________________________
+
+*/
+
+
+/****************************************************************/
+/*								*/
+/* SDL$OUTPUT is called from the front end to process the tree	*/
+/* for a particular language this is is for basic.		*/
+/*								*/
+/****************************************************************/
+
+
+
+sdl$output: proc (out_file, def_filename, sdl$_shr_data) 
+	    options(ident('X3.2-VMS2'));
+
+					    /********************/
+					    /*			*/
+					    /* SDL$OUTPUT	*/
+					    /*			*/
+					    /********************/
+
+
+
+/* INCLUDE FILES */
+%include 'sdl$library:sdlnodef.in';	/* node structure definition */
+%include 'sdl$library:sdlshr.in';	/* entry and external definitions */
+%include 'sdl$library:sdlmsgdef.in';	/* error reporting */
+%include 'SDL$LIBRARY:filedef.in';      /* rms file definitions */
+
+  
+%replace lang_ext by '.bas';
+
+
+/* declare variables */
+	dcl out_file char(128) var ;
+	dcl def_filename char(132) var;
+	dcl output_file file output record sequential;
+	dcl comment_opt bit(1) external;
+	dcl global_opt bit(1) external;
+	dcl alpha_opt bit (1) aligned globaldef;
+	/*  sdl$v_comment_opt - refer to sdlshr.in */
+	/* sdl$shr_data - refer to sdlshr.in     */
+
+/* Declare variables needed for getting a fully resolved file specification.
+   The resolved file specification will be recorded as a dependency for
+   the VDE system builder through the LIB$REC_DEPENDENCY interface.
+ */
+        dcl vde_filename char(128) var
+                        init ('');      /* input source file name */
+        dcl vde_input_file file variable static;
+        dcl vde_in_file pointer initial(addr(vde_input_file));
+        dcl vde_in_file_ptr pointer based (vde_in_file);
+        dcl vde_esa_area char(120) static;
+        dcl vde_addr_esa_area pointer initial(addr(vde_esa_area));
+        dcl vde_rsa_area char(120) static;
+        dcl vde_addr_rsa_area pointer initial(addr(vde_rsa_area));
+
+        dcl vde_full_name pointer;
+        dcl vde_result_name char(132) based (vde_full_name) ;
+
+
+/* declare external routines */
+DCL OUTPUTNODE ENTRY (
+	pointer,
+	pointer,
+	fixed binary(31) );
+
+
+DCL PUT_TYPES ENTRY ;
+
+/* 
+ * Output the little SDL header with time and date info 
+ */
+
+    on undefinedfile (output_file) 
+	begin;
+	    call errmsg (sdl$_shr_data, sdl$_outfilopn,,(out_file||lang_ext));
+	    goto exit;
+	end;
+
+/* Set up file structures for receiving the fully resolved language specific
+   output file from the open call. The fully resolved output file, file
+   specification is passed back to the front end through the variable
+   vde_lang_file which is declared in the shared data area (SDLSHR.SDL).
+*/
+        vde_input_file = output_file;   /* set up name block */
+        vde_in_file_ptr->nam$l_esa = vde_addr_esa_area;
+        vde_in_file_ptr->nam$b_ess = 120;
+        vde_in_file_ptr->nam$l_rsa = vde_addr_rsa_area;
+        vde_in_file_ptr->nam$b_rss = 120;
+
+
+
+/* first open up the output file */
+			/* concatenate the extension for the language */
+	open file (output_file) title (out_file) 
+			environment (default_file_name( def_filename||
+					lang_ext) );
+
+
+	outfile = output_file;	/* equate the file with the file variable 
+					in the shared structure */	
+
+	alpha_opt = sdl$v_alpha_opt;
+
+	call sdl$header(sdl$_shr_data, ' ! ','',line_length);
+/* 
+ * output the predeclared types 
+ *
+ */
+	call  put_types;
+
+	comment_opt = sdl$v_comment_opt;
+	global_opt = sdl$v_global_opt;
+
+	call outputnode(tree_root->nod$a_flink,tree_root,0);
+
+/* Get the fully resolved language specific output file and
+   and move it the shared data area for the front-end. The reultant
+   name will be recorded as a file dependency for the VDE system builder.
+*/
+        vde_full_name = vde_in_file_ptr->nam$l_rsa;
+        vde_filename = vde_result_name;
+	vde_lang_file = substr( vde_result_name, 1, vde_in_file_ptr->nam$b_rsl);
+
+  
+	close file (output_file);
+EXIT:
+
+end sdl$output;

@@ -1,0 +1,354 @@
+dfab:	$fab	fac=put,  Rat=<Cr>
+drab:	$rab	fab=dfab,usz=500,rsz=500
+
+	.library	/sys$login:peb/
+	.library	/sys$library:lib/
+        $notesdef
+	$NOTESMSGDEF
+	NOTEITEMS
+
+
+input:	.long	100
+	.long	input+8
+	.blkb	100
+
+node:	.ascid	/NODE/
+
+file_out:	.ascid	/OUT/
+
+	.MACRO	put_out	, mmm
+	movw	mmm, Drab+rab$w_rsz
+	movw	mmm, Drab+rab$w_usz
+	movl	mmm+4, Drab+rab$l_Rbf
+	movl	mmm+4, Drab+rab$l_Ubf
+	$Put	Rab=Drab
+	check	r0,error
+	.endm	put_out
+
+
+	.entry	node_dir,0
+
+
+; debug file
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  file_out
+	calls   #3,g^cli$get_value 
+	check	r0,error	
+
+
+	movb	input,Dfab+fab$b_fns
+	movl	input+4,Dfab+fab$l_fna
+
+
+
+	$create	fab=Dfab
+	check	r0,error
+
+	$connect	rab=Drab
+	check	r0,error
+
+
+
+
+
+; get the node name
+
+top:	nop	
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  node
+	calls   #3,g^cli$get_value 
+	blbc	r0,6$
+	brw	5$
+6$:	nop
+
+
+	put_out	dlm1
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_c,outbuf=out,outlen=out,-
+		p1=count,-
+		p2=grand_total_notes,-
+		p3=grand_topics
+	put_out	out
+
+	put_out	dlm1
+
+	$exit_s	code=#1
+
+5$:	nop
+
+
+	put_out	dlm1
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_b1,outbuf=out,outlen=out,-
+		p1=#Input
+	put_out	out
+
+	put_out	dlm1
+
+	movw	input, begin
+	movab	input+8, begin+4
+
+; are the last two chars "::" ?
+
+	movab	input+8, R6
+	addl2	input, R6
+	subl2	#2, R6
+
+	cmpw	#^a/::/, (R6)
+	beql	123$
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_b,outbuf=out,outlen=out,-
+		p1=#Input
+	
+	movw	out, begin
+	movab	out+8, begin+4
+
+123$:	nop
+
+	pushaw	list_out
+	pushaw	begin
+	pushal	cnx
+	calls	#3,g^notes$notefile_list_begin
+	check	r0,error
+
+
+loop:	nop
+
+
+
+
+	pushaw	list_out
+	pushaw	null
+	pushal	cnx
+	calls	#3,g^notes$notefile_list
+
+	blbs	r0,30$
+
+	cmpl	#Notes$_nmf, R0
+	bneq	10$
+
+; clear down
+
+	pushaw	null
+	pushaw	null
+	pushal	cnx
+	calls	#3,g^notes$notefile_end
+	check	r0,error
+
+
+
+	brw	top
+10$:	nop
+
+	brw	loop
+
+30$:	nop
+
+	incl	count
+
+	put_out	dlm
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr,outbuf=out,outlen=out,-
+		p1=result_spec_len,-
+		p2=#result_spec
+	put_out	out
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr1,outbuf=out,outlen=out,-
+		p1=title_len,-
+		p2=#title
+	put_out	out
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr2,outbuf=out,outlen=out,-
+		p1=notice_len,-
+		p2=#notice
+	put_out	out
+
+
+
+
+
+
+	movq	create_time, tmp
+
+        subl2   lastrev, tmp
+        sbwc    lastrev+4, tmp+4
+
+
+        $numtim_s       timbuf=word7,-
+                        timadr=tmp
+        check   r0,error
+
+	movzwl	word7+4, tmp
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr3,outbuf=out,outlen=out,-
+		p1=#create_time,-
+		p2=#lastrev,-
+		p3=word7+4
+	put_out	out
+
+
+	tstl	tmp
+	beql	100$
+
+	divl3	tmp, total_notes, tmp
+
+100$:	nop
+
+
+	addl2	total_notes, grand_total_notes
+	addl2	topics, grand_topics
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr4,outbuf=out,outlen=out,-
+		p1=total_notes,-
+		p2=topics,-
+		p3=tmp
+	put_out	out
+
+
+
+	brw	loop
+
+error:	nop
+
+	$exit_s	code=R0
+
+	ret
+
+
+null:	.word	4
+	.word	notes$k_nosignal
+	.long	nosignal
+	.long	0
+;
+	.long	0
+
+nosignal:	.long	1
+
+begin:	.word	in_len
+	.word	notes$k_notefile_file_name
+	.long	file_name
+	.long	0
+;
+	.word	def_len
+	.word	notes$k_notefile_default_name
+	.long	default_name
+	.long	0
+;
+	.long	0
+
+default_name:	.ascii	/NOTES$LIBRARY:*.NOTE/
+def_len = . - default_name
+
+file_name:	.ascii	/CLT::/
+in_len = . - file_name
+
+cnx:	.blkl	1
+
+list_out:	.word	8
+		.word	notes$k_notefile_create_time
+		.long	create_time
+		.long	0
+;
+		.word	8
+		.word	notes$k_notefile_lastrev
+		.long	lastrev
+		.long	0
+;
+		.word	4
+		.word	notes$k_notefile_entrytotal
+		.long	total_notes
+		.long	0
+;
+		.word	4
+		.word	notes$k_notefile_numnotes
+		.long	topics
+		.long	0
+;
+		.word	200
+		.word	notes$k_notefile_title
+		.long	title
+		.long	title_len
+;
+		.word	200
+		.word	notes$k_notefile_notice
+		.long	notice
+		.long	notice_len
+;
+		.word	500
+		.word	notes$k_notefile_result_spec
+		.long	result_spec
+		.long	result_spec_len
+;
+		.long	0
+
+
+result_spec:	.blkb	500
+result_spec_len:	.blkl	1
+
+notice:		.blkb	200
+notice_len:	.blkl	1
+
+title:		.blkb	200
+title_len:	.blkl	1
+
+topics:		.blkl	1				
+total_notes:	.blkl	1
+
+create_time:	.blkl	2
+lastrev:	.blkl	2
+
+ctr4:	.ascid	/!UL Notes,  !UL Topics  (!UL Note!%S per day, average)/
+ctr3:	.ascid	/Created !%D, Updated !%D (!UW day!%S)/
+ctr2:	.ascid	/Notice = "!AD"/
+ctr1:	.ascid	/ Title = "!AD"/
+ctr:	.ascid	/!AD/
+
+tmp:	.blkl	2
+
+out:	.long	200
+	.long	out+8
+	.blkb	200
+
+dlm:	
+.ascid	/+------------------------------------------------------------------------+/
+
+
+dlm1:
+.ascid	/*******************************************************************/
+
+
+word7:  .blkw   10
+
+ctr_b:	.ascid	/!AS::/
+ctr_b1:	.ascid	/Directory of conferences on node !AS/
+
+ctr_c:	.ascid	/!UL conference!%S listed (Grand totals: !UL note!%S, !UL topic!%S)/
+
+count:	.blkl	1
+
+grand_total_notes:	.blkl	1
+grand_topics:		.blkl	1
+
+	.end	
+
+

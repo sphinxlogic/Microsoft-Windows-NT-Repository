@@ -1,0 +1,335 @@
+MODULE Reduce_globe (ADDRESSING_MODE (NONEXTERNAL = WORD_RELATIVE) ,
+        ADDRESSING_MODE (EXTERNAL = GENERAL) ,
+        MAIN = Reduce
+        ) =
+BEGIN
+!
+!
+!  FUNCTION:
+!
+!     A quick and dirty program to shink a 256² bit mapped image to a 64²
+!     image.
+!
+!     The method used is 1/16th sampling.  Every 4th pixel in the X and Y
+!     direction is copied into the new (smaller) image.
+!
+!     The input file the logical GLOBE_DATA.
+!
+!     The output file is the logical REDUCED_GLOBE_DATA.
+!
+!  CHANGE HISTORY:
+!
+!
+!  AUTHOR:
+!
+!     David Dantowitz                22-JAN-1988
+!
+
+LIBRARY 'sys$library:starlet.l32';
+
+LITERAL
+  Nframes = 30,
+  Width = 256,
+  Height = 256;
+
+STRUCTURE
+  Array2 [I, J; M, N] =
+    [M*N*%UPVAL]
+    (Array2 + (I*N + J)*%UPVAL);
+
+STRUCTURE                                       !
+  Bit_array [I, J; M, N] =                      !
+    [M*N + 7/8]                                 !
+    Bit_array<I*M + J, 1, 0>;
+
+OWN
+  Record_number,
+!
+!
+!
+  R_fab : $fab (                                !
+      Dna = UPLIT ('.DAT'),                     !
+      Dns = 4,                                  !
+      Fac = Get,                                !
+      Fop = (Cbt, Tef, Dfw, Mxv),               !
+      Mrs = 512,                                !
+      Org = Seq,                                !
+      Rfm = Fix),
+!
+!
+!
+  R_rab : $rab (                                !
+      Fab = R_fab,                              !
+      Ksz = 4,                                  !
+      Rac = Key,                                !
+      Rop = (Rah, Wbh),                         !
+      Rsz = 512,                                !
+      Usz = 512),
+!
+!
+!
+  W_fab : $fab (                                !
+      Dna = UPLIT ('.DAT'),                     !
+      Dns = 4,                                  !
+      Fac = Put,                                !
+      Fop = (Cbt, Tef, Dfw, Mxv),               !
+      Mrs = 512,                                !
+      Org = Seq,                                !
+      Rfm = Fix),
+!
+!
+!
+  W_rab : $rab (                                !
+      Fab = W_fab,                              !
+      Ksz = 4,                                  !
+      Rac = Key,                                !
+      Rop = (Rah, Wbh),                         !
+      Rsz = 512,                                !
+      Usz = 512);
+
+
+ROUTINE Read_init (File_name_p, Fab_p, Rab_p) =
+  BEGIN
+
+  BIND
+    File_name = .File_name_p : BLOCK [8, BYTE],
+    Fab = .Fab_p : $fab_decl,
+    Rab = .Rab_p : $rab_decl;
+
+  LOCAL
+    Status;
+
+!
+! Set the file name
+!
+  Fab [Fab$l_fna] = .File_name [Dsc$a_pointer];
+  Fab [Fab$b_fns] = .File_name [Dsc$w_length];
+  Status = $open (Fab = Fab);
+
+  IF NOT .Status THEN RETURN .Status;
+
+  Status = $connect (Rab = Rab);
+
+  IF NOT .Status THEN RETURN .Status;
+
+  .Status
+  END;
+
+ROUTINE Rmsutil_d$open (File_name_p) =
+!
+! file_name_p is a descriptor.
+!
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Record_number = 1;
+  Status = Read_init (.File_name_p, R_fab, R_rab);
+  .Status
+  END;
+
+ROUTINE Write_init (File_name_p, Fab_p, Rab_p) =
+  BEGIN
+
+  BIND
+    File_name = .File_name_p : BLOCK [8, BYTE],
+    Fab = .Fab_p : $fab_decl,
+    Rab = .Rab_p : $rab_decl;
+
+  LOCAL
+    Status;
+
+!
+! Set the file name
+!
+  Fab [Fab$l_fna] = .File_name [Dsc$a_pointer];
+  Fab [Fab$b_fns] = .File_name [Dsc$w_length];
+  Status = $create (Fab = Fab);
+
+  IF NOT .Status THEN RETURN .Status;
+
+  Status = $connect (Rab = Rab);
+
+  IF NOT .Status THEN RETURN .Status;
+
+  .Status
+  END;
+
+ROUTINE Rmsutil_d$open_write (File_name_p) =
+!
+! file_name_p is a descriptor.
+!
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Record_number = 1;
+  Status = Write_init (.File_name_p, W_fab, W_rab);
+  .Status
+  END;
+
+ROUTINE Rmsutil_d$close =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Status = $close (Fab = R_fab);
+  .Status
+  END;
+
+ROUTINE Rmsutil_d$close_write =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Status = $close (Fab = W_fab);
+  .Status
+  END;
+
+ROUTINE Get_record (Rab_p, Rec_num, Rec_addr) =
+  BEGIN
+
+  BIND
+    Rab = .Rab_p : $rab_decl;
+
+  LOCAL
+    Status;
+
+  Rab [Rab$l_ubf] = .Rec_addr;
+  Rab [Rab$l_kbf] = Rec_num;
+  $get (Rab = Rab)
+  END;
+
+ROUTINE Put_record (Rab_p, Rec_num, Rec_addr) =
+  BEGIN
+
+  BIND
+    Rab = .Rab_p : $rab_decl;
+
+  LOCAL
+    Status;
+
+  Rab [Rab$l_rbf] = .Rec_addr;
+  Rab [Rab$l_kbf] = Rec_num;
+  $put (Rab = Rab)
+  END;
+
+ROUTINE Rmsutil_d$next_record (A) =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Status = Get_record (R_rab, .Record_number, .A);
+  Record_number = .Record_number + 1;
+  .Status
+  END;
+
+ROUTINE Rmsutil_d$next_record_write (A) =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Status = Put_record (W_rab, .Record_number, .A);
+  Record_number = .Record_number + 1;
+  .Status
+  END;
+
+ROUTINE READ (The_frame : REF VECTOR [Height*Width/32]) =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  INCR I FROM 0 TO Height*Width/(32*512/4) - 1 DO
+    BEGIN
+    Status = Rmsutil_d$next_record (The_frame [.I*128]);
+
+    IF NOT .Status THEN RETURN .Status;
+
+    END;
+
+  .Status
+  END;
+
+ROUTINE WRITE (The_frame : REF VECTOR [64*64/32]) =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  INCR I FROM 0 TO 64*64/(32*512/4) - 1 DO
+    BEGIN
+    Status = Rmsutil_d$next_record_write (The_frame [.I*128]);
+
+    IF NOT .Status THEN RETURN .Status;
+
+    END;
+
+  .Status
+  END;
+
+ROUTINE Reduce =
+  BEGIN
+
+  LOCAL
+    Status,
+    The_world : Array2 [Nframes, Height*Width/32],
+    Small_world : Array2 [Nframes, 64*64/32];
+
+!
+! Read the image
+!
+  Status = Rmsutil_d$open (%ASCID'GLOBE_DATA');
+
+  IF NOT .Status THEN RETURN .Status;
+
+  INCR I FROM 0 TO Nframes - 1 DO
+    READ (The_world [.I, 0]);
+
+  Status = Rmsutil_d$close ();
+
+  IF NOT .Status THEN RETURN .Status;
+
+!
+! Reduce the globe image from 256*256 to 64*64
+!
+
+  INCR Frame FROM 0 TO Nframes - 1 DO
+    BEGIN
+
+    BIND
+      A = The_world [.Frame, 0] : Bit_array [256, 256],
+      B = Small_world [.Frame, 0] : Bit_array [64, 64];
+
+    INCR I FROM 0 TO 63 DO
+
+      INCR J FROM 0 TO 63 DO
+        B [.I, .J] = .A [.I*4, .J*4];
+
+    END;
+
+!
+! Write the image
+!
+  Status = Rmsutil_d$open_write (%ASCID'REDUCED_GLOBE_DATA');
+
+  IF NOT .Status THEN RETURN .Status;
+
+  INCR I FROM 0 TO Nframes - 1 DO
+    WRITE (Small_world [.I, 0]);
+
+  Status = Rmsutil_d$close_write ();
+
+  IF NOT .Status THEN RETURN .Status;
+
+  Ss$_normal
+  END;
+END                                             ! End of module
+
+ELUDOM

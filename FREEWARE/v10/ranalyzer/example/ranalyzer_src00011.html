@@ -1,0 +1,811 @@
+<TITLE>Routine Analyzer Source File Analysis - Source Code</TITLE>
+<A NAME="source_code_section">
+<H1>Source Code</H1></a>
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a></A>.<P>
+<HR>
+
+<TITLE>Routine Analyzer Source File Analysis - bliparse.c</TITLE>
+<H2><A NAME="s10025900">bliparse.c</a> Source Code</H2>
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00011.html#s10023680">Next file in section</a>.<P>
+<H3><A NAME="routines_in_this_file">Routines In This File (Alphabetical)</a></H3>
+<PRE>
+ Line Name
+----- ----
+  561 <A HREF="#d10025c80">bliss_parser</A>
+  309 <A HREF="#d10025c00">get_token</A>
+  250 <A HREF="#d10025a80">iskeyword</A>
+  211 <A HREF="#d10025a00">new_source_line</A>
+  282 <A HREF="#d10025b80">ustrcpy</A>
+</PRE>
+<HR>
+<PRE>BEGINNING OF FILE
+</PRE>
+<HR>
+<PRE>
+     1: /****************************************************************************/
+     2: /*									    */
+     3: /*  FACILITY:	Routine Analyzer					    */
+     4: /*									    */
+     5: /*  MODULE:	BLISS Language Parser					    */
+     6: /*									    */
+     7: /*  AUTHOR:	Steve Branam, Network Product Support Group, Digital	    */
+     8: /*		Equipment Corporation, Littleton, MA, USA.		    */
+     9: /*									    */
+    10: /*  DESCRIPTION: This module contains the source parser for BLISS language  */
+    11: /*  source files. Note that this particular implementation is a very	    */
+    12: /*  rudimentary state-driven parser. While it is reasonably functional, it  */
+    13: /*  is possible that it may become confused by unusual but otherwise valid  */
+    14: /*  language constructs.						    */
+    15: /*									    */
+    16: /*  REVISION HISTORY:							    */
+    17: /*									    */
+    18: /*  V0.1-00 19-SEP-1994 Steve Branam					    */
+    19: /*									    */
+    20: /*	Original version.						    */
+    21: /*									    */
+    22: /****************************************************************************/
+    23: 
+    24: #include &lt;stdio.h&gt;
+    25: #include &lt;ctype.h&gt;
+    26: #include "ranalyzer.h"
+    27: #include "parser.h"
+    28: 
+    29: #define BLISS_KEYWORD_BEGIN	"BEGIN"
+    30: #define BLISS_KEYWORD_END	"END"
+    31: #define BLISS_KEYWORD_ROUTINE	"ROUTINE"
+    32: #define BLISS_KEYWORD_FORWARD	"FORWARD"
+    33: #define BLISS_KEYWORD_EXTERNAL	"EXTERNAL"
+    34: #define MAX_QUOTED_LEN		1024		/* Just a guess...	    */
+    35: 
+    36: typedef enum
+    37: {
+    38:     NO_MACRO,
+    39:     IN_MACRO
+    40: } c_macro_states;
+    41: 
+    42: typedef enum
+    43: {
+    44:     FIND_START,
+    45:     FIND_END_ALNUM,
+    46:     FIND_END_NUMBER,
+    47:     FIND_END_SPACE,
+    48:     FIND_END_SQUOTED,
+    49:     FIND_END_TRAILING_COMMENT,
+    50:     FIND_END_EMBEDDED_COMMENT
+    51: } bliss_scanner_states;
+    52: 
+    53: typedef enum
+    54: {
+    55:     FIND_ROUTINE,
+    56:     FIND_IDENT,
+    57:     FIND_DEF_EQUALS,
+    58:     FIND_DEF_RPAREN,
+    59:     FIND_DEF_ATTR,
+    60:     FIND_LBRACE,
+    61:     IN_ROUTINE,
+    62:     FIND_REF_LPAREN
+    63: } bliss_parser_states;
+    64: 
+    65: static char
+    66: 	*mPSNames[] = {
+    67: 	    "FIND_ROUTINE",
+    68: 	    "FIND_IDENT",
+    69: 	    "FIND_DEF_EQUALS",
+    70: 	    "FIND_DEF_RPAREN",
+    71: 	    "FIND_DEF_ATTR",
+    72: 	    "FIND_LBRACE",
+    73: 	    "IN_ROUTINE",
+    74: 	    "FIND_REF_LPAREN"
+    75: 	};
+    76: 
+    77: typedef enum
+    78: {
+    79:     END_BLISS_SOURCE,				/* EOF			    */
+    80:     LPAREN,					/* '('			    */
+    81:     RPAREN,					/* ')'			    */
+    82:     BEGIN_BLOCK,				/* "BEGIN"		    */
+    83:     END_BLOCK,					/* "END"		    */
+    84:     ROUTINE_DECL,				/* "ROUTINE"		    */
+    85:     FORWARD_DECL,				/* "FORWARD"		    */
+    86:     EXTERNAL_DECL,				/* "EXTERNAL"		    */
+    87:     EQUALS,					/* '='			    */
+    88:     COLON,					/* ':'			    */
+    89:     SEMICOLON,					/* ';'			    */
+    90:     IDENTIFIER,
+    91:     KEYWORD,
+    92:     MACBEGIN,
+    93:     SPACE,
+    94:     OTHER
+    95: } bliss_token_types;
+    96: 
+    97: static	char
+    98: 	*keywords[] = { "addressing_mode",
+    99: 			"align",
+   100: 			"always",
+   101: 			"and",
+   102: 			"begin",
+   103: 			"bind",
+   104: 			"bit",
+   105: 			"builtin",
+   106: 			"by",
+   107: 			"byte",
+   108: 			"case",
+   109: 			"codecomment",
+   110: 			"compiletime",
+   111: 			"decr",
+   112: 			"decru",
+   113: 			"do",
+   114: 			"else",
+   115: 			"eludom",
+   116: 			"enable",
+   117: 			"eql",
+   118: 			"eqla",
+   119: 			"eqlu",
+   120: 			"eqv",
+   121: 			"exitloop",
+   122: 			"external",
+   123: 			"field",
+   124: 			"forward",
+   125: 			"from",
+   126: 			"geq",
+   127: 			"geqa",
+   128: 			"gequ",
+   129: 			"global",
+   130: 			"gtr",
+   131: 			"gtra",
+   132: 			"gtru",
+   133: 			"if",
+   134: 			"incr",
+   135: 			"incra",
+   136: 			"incru",
+   137: 			"initial",
+   138: 			"inrange",
+   139: 			"iopage",
+   140: 			"keywordmacro",
+   141: 			"label",
+   142: 			"leave",
+   143: 			"leq",
+   144: 			"leqa",
+   145: 			"lequ",
+   146: 			"library",
+   147: 			"linkage",
+   148: 			"literal",
+   149: 			"local",
+   150: 			"long",
+   151: 			"lss",
+   152: 			"lssa",
+   153: 			"lssu",
+   154: 			"macro",
+   155: 			"map",
+   156: 			"mod",
+   157: 			"module",
+   158: 			"neq",
+   159: 			"neqa",
+   160: 			"nequ",
+   161: 			"not",
+   162: 			"novalue",
+   163: 			"of",
+   164: 			"or",
+   165: 			"otherwise",
+   166: 			"outrange",
+   167: 			"own",
+   168: 			"plit",
+   169: 			"preset",
+   170: 			"psect",
+   171: 			"record",
+   172: 			"ref",
+   173: 			"register",
+   174: 			"rep",
+   175: 			"require",
+   176: 			"return",
+   177: 			"routine",
+   178: 			"select",
+   179: 			"selecta",
+   180: 			"selectone",
+   181: 			"selectonea",
+   182: 			"selectoneu",
+   183: 			"selectu",
+   184: 			"set",
+   185: 			"show",
+   186: 			"signed",
+   187: 			"stacklocal",
+   188: 			"structure",
+   189: 			"switches",
+   190: 			"tes",
+   191: 			"then",
+   192: 			"to",
+   193: 			"undeclare",
+   194: 			"unsigned",
+   195: 			"until",
+   196: 			"uplit",
+   197: 			"volatile",
+   198: 			"weak",
+   199: 			"while",
+   200: 			"with",
+   201: 			"word",
+   202: 			"xor",
+   203: 			NULL };
+   204: 
+   205: static  int				    /* Statement char count.	    */
+   206: 	statement;
+   207: static  int				    /* Comment char count.	    */
+   208: 	comment;
+   209: 
+   210: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025a00">ROUTINE</A> <A HREF="ranalyzer_xrf00014.html#x10025a00">new_source_line</A>. Go to: 
+<A HREF="#d10025a80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   211: static void new_source_line(
+   212: /* Updates source line counters when a new line is found.		    */
+   213: 
+   214:     SOURCEFILE
+   215: 	    *aSourceRecord
+   216: 		/* (MODIFY, BY ADDR):					    */
+   217: 		/* Source file information record. The line count	    */
+   218: 		/* statistics will be updated.				    */
+   219: 
+   220: )	/* No return value						    */
+   221: 	/*****************************************************************--*/
+   222: 
+   223: {
+   224:     /*
+   225:     ** Classify the source line just completed as either mixed
+   226:     ** statements/comments, statements only, comments only, or blank, and
+   227:     ** increment the appropriate source record counters.
+   228:     */
+   229:     
+   230:     if (statement &amp;&amp; comment) {
+   231: 	inc_source_mixed(aSourceRecord);
+   232:     }
+   233:     else if (statement){
+   234: 	inc_source_statements(aSourceRecord);
+   235:     }
+   236:     else if (comment) {
+   237: 	inc_source_comments(aSourceRecord);
+   238:     }
+   239:     else {
+   240: 	inc_source_empty(aSourceRecord);
+   241:     }
+   242:     
+   243:     statement = 0;			    /* Reset counters for next	    */
+   244:     comment   = 0;			    /* line.			    */
+   245: 
+   246:     new_list_line(aSourceRecord);
+   247: }
+</PRE>
+END new_source_line. Go to: <A HREF="#d10025a00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   248: 
+   249: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025a80">ROUTINE</A> <A HREF="ranalyzer_xrf00010.html#x10025a80">iskeyword</A>. Go to: 
+<A HREF="#d10025b80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   250: static int iskeyword(
+   251: /* Determines whether or not an alphanumeric token is a source language	    */
+   252: /* keyword.								    */
+   253: 
+   254:     char    *aKeywords[],
+   255: 	    /* (READ, BY ADDR):						    */
+   256: 	    /* List of known source language keyword string pointers, in    */
+   257: 	    /* alphabetical order, terminated by NULL entry.		    */
+   258: 
+   259:     char    *aToken
+   260: 	    /* (READ, BY ADDR):						    */
+   261: 	    /* Token string to check.					    */
+   262: 
+   263: )	/* Returns status of comparison:				    */
+   264: 	/*	1   - Token is a keyword.				    */
+   265: 	/*	0   - Token is not a keyword.				    */
+   266: 	/*****************************************************************--*/
+   267: 
+   268: {
+   269:     int	    cmpstat;			    /* Comparison status.	    */
+   270:     int	    length;			    /* Token length.		    */
+   271: 
+   272:     length = strlen(aToken);
+   273:     while (*aKeywords != NULL
+   274: 	&amp;&amp; (cmpstat = ustrncmp(*aKeywords, aToken,
+   275: 	max(length, strlen(*aKeywords)))) &lt; 0) {
+   276: 	aKeywords++;
+   277:     }
+   278:     return !cmpstat;
+   279: }
+</PRE>
+END iskeyword. Go to: <A HREF="#d10025a80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   280: 
+   281: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025b80">ROUTINE</A> <A HREF="ranalyzer_xrf00032.html#x10025b80">ustrcpy</A>. Go to: 
+<A HREF="#d10025c00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   282: char *ustrcpy(
+   283: /* Copies a string in uppercase.					    */
+   284: 
+   285:     char    *aDest,
+   286: 	    /* (WRITE, BY ADDR):					    */
+   287: 	    /* Destination string buffer into which all-uppercase string    */
+   288: 	    /* will be written. It is assumed to be long enough to hold the */
+   289: 	    /* entire contents of aSrc with null termination.		    */
+   290: 
+   291:     char    *aSrc
+   292: 	    /* (READ, BY ADDR):  					    */
+   293: 	    /* Source string, of any case.                     		    */
+   294: 
+   295: )	/* Returns aDest, the destination buffer.			    */
+   296: 	/*****************************************************************--*/
+   297: 
+   298: {
+   299:     char    *deststr = aDest;			/* Save dest string ptr.    */
+   300: 
+   301:     while (*aSrc != '\0') {
+   302: 	*aDest++ = toupper(*aSrc++);
+   303:     }
+   304:     *aDest = '\0';
+   305:     return deststr;
+   306: }
+</PRE>
+END ustrcpy. Go to: <A HREF="#d10025b80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   307: 
+   308: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025c00">ROUTINE</A> <A HREF="ranalyzer_xrf00008.html#x10025c00">get_token</A>. Go to: 
+<A HREF="#d10025c80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   309: static get_token(
+   310: /* Source file input scanner. Reads the next lexical token from the source  */
+   311: /* file and accumulates source line statistics.				    */
+   312: 
+   313:     FILE    *aSourceFile,
+   314: 		/* (READ, BY ADDR):					    */
+   315: 		/* Source file containing C language.			    */
+   316: 
+   317:     SOURCEFILE
+   318: 	    *aSourceRecord,
+   319: 		/* (MODIFY, BY ADDR):					    */
+   320: 		/* Source file information record. The line count	    */
+   321: 		/* statistics will be updated.				    */
+   322: 
+   323:     char    *aToken
+   324: 		/* (WRITE, BY ADDR):					    */
+   325: 		/* String buffer to receive token.			    */
+   326: 
+   327: )	/* Returns code indicating which type of token was found:	    */
+   328: 	/*     END_BLISS_SOURCE - End of the source file.		    */
+   329: 	/*     LPAREN	    - Left parenthesis.				    */
+   330: 	/*     RPAREN	    - Right parenthesis.			    */
+   331: 	/*     BEGIN_BLOCK  - "BEGIN" keyword.				    */
+   332: 	/*     END_BLOCK    - "END" keyword.				    */
+   333: 	/*     EQUALS	    - Equals sign.				    */
+   334: 	/*     COLON	    - Colon.					    */
+   335: 	/*     SEMICOLON    - Semi-colon.				    */
+   336: 	/*     IDENTIFIER   - Routine or data identifier		    */
+   337: 	/*     KEYWORD	    - C language keyword.			    */
+   338: 	/*     MACBEGIN	    - Beginning of macro.			    */
+   339: 	/*     SPACE	    - Whitespace.				    */
+   340: 	/*     OTHER	    - Some other type of token.			    */
+   341: 	/*****************************************************************--*/
+   342: 
+   343: {
+   344:     int	    ch;				    /* Input character.		    */
+   345:     bliss_scanner_states		    /* Scanner state.		    */
+   346: 	    state = FIND_START;
+   347:     char    *nextchar = aToken;		    /* Pointer to next char	    */
+   348: 					    /* position in aToken.	    */
+   349:     static c_macro_states		    /* Macro state.		    */
+   350: 	    macro = NO_MACRO;
+   351:     int	    quoted_len;			    /* Length of quoted string, for */
+   352: 					    /* catching unterminated	    */
+   353: 					    /* strings.			    */
+   354:     long    quoted_line;		    /* Line where literal started.  */
+   355: 
+   356:     do {
+   357: 	ch = fgetc(aSourceFile);
+   358: 	switch (state) {
+   359: 	case FIND_START:
+   360: 	    list_char(ch);
+   361: 	    if (isalpha(ch) || ch == '_' || ch == '$') {
+   362: 		state = FIND_END_ALNUM;
+   363: 		*nextchar++ = ch;
+   364: 		statement++;
+   365: 	    }
+   366: 	    else if (isdigit(ch)) {
+   367: 		state = FIND_END_NUMBER;
+   368: 		*nextchar++ = ch;
+   369: 		statement++;
+   370: 	    }
+   371: 	    else if (isspace(ch)) {
+   372: 		if (ch == '\n') {
+   373: 		    new_source_line(aSourceRecord);
+   374: 		}
+   375: 		state = FIND_END_SPACE;
+   376: 	    }
+   377: 	    else {
+   378: 		switch (ch) {
+   379: 		case '(':
+   380: 		    statement++;
+   381: 		    return LPAREN;
+   382: 		    break;
+   383: 		case ')':
+   384: 		    statement++;
+   385: 		    return RPAREN;
+   386: 		    break;
+   387: 		case '=':
+   388: 		    statement++;
+   389: 		    return EQUALS;
+   390: 		    break;
+   391: 		case ':':
+   392: 		    statement++;
+   393: 		    return COLON;
+   394: 		    break;
+   395: 		case ';':
+   396: 		    statement++;
+   397: 		    return SEMICOLON;
+   398: 		    break;
+   399: 		case '\'':
+   400: 		    statement++;
+   401: 		    state = FIND_END_SQUOTED;
+   402: 		    quoted_len = 0;
+   403: 		    quoted_line = source_line(aSourceRecord);
+   404: 		    break;
+   405: 		case '!':
+   406: 		    comment++;
+   407: 		    state = FIND_END_TRAILING_COMMENT;
+   408: 		    break;
+   409: 		case '%':
+   410: 		    ch = fgetc(aSourceFile);
+   411: 		    if (ch == '(') {
+   412: 			list_char(ch);
+   413: 			state = FIND_END_EMBEDDED_COMMENT;
+   414: 			comment += 2;
+   415: 		    }
+   416: 		    else {
+   417: 			ungetc(ch, aSourceFile);
+   418: 			state = FIND_END_ALNUM;
+   419: 			*nextchar++ = ch;
+   420: 			statement++;
+   421: 		    }
+   422: 		    break;
+   423: 		default:
+   424: 		    if (ch != EOF) {
+   425: 			*nextchar++ = ch;
+   426: 			*nextchar   = '\0';
+   427: 			statement++;
+   428: 			return OTHER;
+   429: 		    }
+   430: 		}
+   431: 	    }
+   432: 	    break;
+   433: 	case FIND_END_ALNUM:
+   434: 	    if (isalnum(ch) || ch == '_' || ch == '$') {
+   435: 		list_char(ch);
+   436: 		*nextchar++ = ch;
+   437: 		statement++;
+   438: 	    }
+   439: 	    else {
+   440: 		ungetc(ch, aSourceFile);
+   441: 		*nextchar = '\0';
+   442: 		if (ustrncmp(aToken, BLISS_KEYWORD_BEGIN,
+   443: 		    max(strlen(BLISS_KEYWORD_BEGIN), strlen(aToken))) == 0) {
+   444: 		    return BEGIN_BLOCK;
+   445: 		}
+   446: 		else if (ustrncmp(aToken, BLISS_KEYWORD_END,
+   447: 		    max(strlen(BLISS_KEYWORD_END), strlen(aToken))) == 0) {
+   448: 		    return END_BLOCK;
+   449: 		}
+   450: 		else if (ustrncmp(aToken, BLISS_KEYWORD_ROUTINE,
+   451: 		    max(strlen(BLISS_KEYWORD_ROUTINE), strlen(aToken))) == 0) {
+   452: 		    return ROUTINE_DECL;
+   453: 		}
+   454: 		else if (ustrncmp(aToken, BLISS_KEYWORD_FORWARD,
+   455: 		    max(strlen(BLISS_KEYWORD_ROUTINE), strlen(aToken))) == 0) {
+   456: 		    return FORWARD_DECL;
+   457: 		}
+   458: 		else if (ustrncmp(aToken, BLISS_KEYWORD_EXTERNAL,
+   459: 		    max(strlen(BLISS_KEYWORD_ROUTINE), strlen(aToken))) == 0) {
+   460: 		    return EXTERNAL_DECL;
+   461: 		}
+   462: 		else if (iskeyword(keywords, aToken)) {
+   463: 		    return KEYWORD;
+   464: 		}
+   465: 		else {
+   466: 		    return IDENTIFIER;
+   467: 		}
+   468: 	    }
+   469: 	    break;
+   470: 	case FIND_END_NUMBER:
+   471: 	    if (isdigit(ch)) {
+   472: 		list_char(ch);
+   473: 		*nextchar++ = ch;
+   474: 		statement++;
+   475: 	    }
+   476: 	    else {
+   477: 		ungetc(ch, aSourceFile);
+   478: 		*nextchar = '\0';
+   479: 		return OTHER;
+   480: 	    }
+   481: 	    break;
+   482: 	case FIND_END_SPACE:
+   483: 	    if (isspace(ch)) {
+   484: 		list_char(ch);
+   485: 		if (ch == '\n') {
+   486: 		    new_source_line(aSourceRecord);
+   487: 		}
+   488: 	    }
+   489: 	    else {
+   490: 		ungetc(ch, aSourceFile);
+   491: 		*nextchar = '\0';
+   492: 		return SPACE;
+   493: 	    }
+   494: 	    break;
+   495: 	case FIND_END_SQUOTED:
+   496: 	    list_char(ch);
+   497: 	    if (quoted_len++ == MAX_QUOTED_LEN) {
+   498: 		printf(
+   499: 		"WARNING: Suspected unterminated string literal at line %d\n",
+   500: 		    quoted_line);
+   501: 	    }
+   502: 	    if (ch == '\'') {
+   503: 		ch = fgetc(aSourceFile);
+   504: 		if (ch == '\'') {
+   505: 		    *nextchar++ = ch;
+   506: 		    statement++;
+   507: 		    list_char(ch);
+   508: 		}
+   509: 		else {
+   510: 		    ungetc(ch, aSourceFile);
+   511: 		}
+   512: 		*nextchar++ = ch;
+   513: 		*nextchar   = '\0';
+   514: 		statement++;
+   515: 		return OTHER;
+   516: 	    }
+   517: 	    else if (ch == '\n') {
+   518: 		new_source_line(aSourceRecord);
+   519: 	    }
+   520: 	    else {
+   521: 		statement++;
+   522: 	    }
+   523: 	    break;
+   524: 	case FIND_END_TRAILING_COMMENT:
+   525: 	    list_char(ch);
+   526: 	    if (ch == '\n') {
+   527: 		new_source_line(aSourceRecord);
+   528: 		state = FIND_START;
+   529: 	    }
+   530: 	    else {
+   531: 		comment++;
+   532: 	    }
+   533: 	    break;
+   534: 	case FIND_END_EMBEDDED_COMMENT:
+   535: 	    list_char(ch);
+   536: 	    if (ch == ')') {
+   537: 		ch = fgetc(aSourceFile);
+   538: 		if (ch == '%') {
+   539: 		    list_char(ch);
+   540: 		    state = FIND_START;
+   541: 		    comment += 2;
+   542: 		}
+   543: 		else {
+   544: 		    ungetc(ch, aSourceFile);
+   545: 		    comment++;
+   546: 		}
+   547: 	    }
+   548: 	    else if (ch == '\n') {
+   549: 		new_source_line(aSourceRecord);
+   550: 	    }
+   551: 	    else {
+   552: 		comment++;
+   553: 	    }
+   554: 	    break;
+   555: 	}
+   556:     } while (ch != EOF);
+   557:     return END_BLISS_SOURCE;
+   558: }
+</PRE>
+END get_token. Go to: <A HREF="#d10025c00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   559: 
+   560: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025c80">ROUTINE</A> <A HREF="ranalyzer_xrf00001.html#x10025c80">bliss_parser</A>. Go to: 
+<A HREF="#d10023780">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   561: language_element bliss_parser(
+   562: /* Parses BLISS source language statements, looking for routine definition  */
+   563: /* begin and end, and routine references. Retrieves the next language	    */
+   564: /* element in the source file.						    */
+   565: /*									    */
+   566: /* Note that this version is a very simple-minded parser, and has several   */
+   567: /* limitations.  It is not able to identify function pointer usages as	    */
+   568: /* routine references. It may also be confused by other legal constructs.   */
+   569: 
+   570:     FILE    *aSourceFile,
+   571: 		/* (READ, BY ADDR):					    */
+   572: 		/* Source file containing BLISS language. Must be opened by */
+   573: 		/* caller.						    */
+   574: 
+   575:     SOURCEFILE
+   576: 	    *aSourceRecord,
+   577: 		/* (READ, BY ADDR):					    */
+   578: 		/* Source file information record.			    */
+   579: 
+   580:     char    *aElement,
+   581: 		/* (WRITE, BY ADDR):					    */
+   582: 		/* String buffer that will receive the recognized source    */
+   583: 		/* language element.					    */
+   584: 
+   585:     long    *aSourceLine
+   586: 		/* (WRITE, BY ADDR):					    */
+   587: 		/* Buffer that will receive the line number of aElement.    */
+   588: 
+   589: )	/* Returns one of the following values indicating the type of	    */
+   590: 	/* element output in aElement:					    */
+   591: 	/*      PARSE_ERROR	    - An error was detected in the input    */
+   592: 	/*			      stream.				    */
+   593: 	/*	END_OF_SOURCE	    - The normal end of file was found.	    */
+   594: 	/*	ROUTINE_DEF_BEGIN   - The beginning of a routine definition */
+   595: 	/*			      was found.			    */
+   596: 	/*	ROUTINE_DEF_END	    - The end of the current routine	    */
+   597: 	/*			      definition was found.		    */
+   598: 	/*	ROUTINE_REF	    - A routine reference (call) was found. */
+   599: 	/*****************************************************************--*/
+   600: 
+   601: {
+   602:     static bliss_parser_states		    /* Parser state.		    */
+   603: 	    state = FIND_ROUTINE;
+   604:     static int				    /* Nested block level.	    */
+   605: 	    blevel;
+   606:     static char				    /* Name of current routine.	    */
+   607: 	    curdefname[MAX_ROUTINE_NAME + 1];
+   608:     int	    plevel;			    /* Nested parenthesis level.    */
+   609:     bliss_token_types			    /* Type of source token.	    */
+   610: 	    tokentype;
+   611:     char    token[MAX_ROUTINE_NAME + 1];    /* Source token buffer.	    */
+   612:     int	    forward_flag = 0;		    /* Indicates FORWARD or	    */
+   613: 					    /* EXTERNAL keyword seen.	    */
+   614: 
+   615:     /*+									    */
+   616:     /*	This function operates as a state machine. The states represent the */
+   617:     /*	various tokens expected next in the token stream, according to	    */
+   618:     /*	BLISS syntax. Whenever a routine definition beginning or end, or    */
+   619:     /*	routine reference, is recognized, the parser returns to the caller. */
+   620:     /*	However, context is maintained between calls to the parser via	    */
+   621:     /*	static state variables.						    */
+   622:     /*-									    */
+   623: 
+   624:     do {
+   625: 	tokentype = get_token(aSourceFile, aSourceRecord, token);
+   626: 	switch (state) {
+   627: 	case FIND_ROUTINE:
+   628: 	    if (forward_flag &amp;&amp; tokentype != SPACE) {
+   629: 		forward_flag = 0;
+   630: 	    }
+   631: 	    else if (tokentype == ROUTINE_DECL) {
+   632: 		*aSourceLine = source_line(aSourceRecord);
+   633: 		change_pstate(FIND_IDENT);
+   634: 	    }
+   635: 	    else if (tokentype == FORWARD_DECL || tokentype == EXTERNAL_DECL) {
+   636: 		forward_flag = 1;
+   637: 		trace_msg(
+   638: 	    "\nTRACE: Parser will ignore token after FORWARD or EXTERNAL\n");
+   639: 	    }
+   640: 	    break;
+   641: 	case FIND_IDENT:
+   642: 	    if (tokentype == IDENTIFIER) {
+   643: 		ustrcpy(aElement, token);
+   644: 		change_pstate(FIND_DEF_EQUALS);
+   645: 	    }
+   646: 	    else if (tokentype == END_BLISS_SOURCE) {
+   647: 		printf("ERROR: Unexpected end of file %s\n",
+   648: 		    source_name(aSourceRecord));
+   649: 		return PARSE_ERROR;
+   650: 	    }
+   651: 	    else if (tokentype != SPACE) {
+   652: 		change_pstate(FIND_ROUTINE);
+   653: 	    }
+   654: 	    break;
+   655: 	case FIND_DEF_EQUALS:
+   656: 	    if (tokentype == EQUALS) {
+   657: 		change_pstate(IN_ROUTINE);
+   658: 		block_level_zero();
+   659: 		ustrcpy(curdefname, token);
+   660: 		return ROUTINE_DEF_BEGIN;
+   661: 	    }
+   662: 	    else if (tokentype == LPAREN) {
+   663: 		change_pstate(FIND_DEF_RPAREN);
+   664: 		paren_level_zero();
+   665: 	    }
+   666: 	    else if (tokentype == COLON) {
+   667: 		change_pstate(FIND_DEF_ATTR);
+   668: puts("*** WARNING: FIND_DEF_ATTR state not fully implemented ***");
+   669: 	    }
+   670: 	    else if (tokentype != SPACE) {
+   671: 		change_pstate(FIND_ROUTINE);
+   672: 	    }
+   673: 	    break;
+   674: 	case FIND_DEF_RPAREN:
+   675: 	    if (tokentype == RPAREN) {
+   676: 		if (plevel) {
+   677: 		    paren_level_dec();
+   678: 		}
+   679: 		else {
+   680: 		    change_pstate(FIND_DEF_EQUALS);
+   681: 		}
+   682: 	    }
+   683: 	    else if (tokentype == LPAREN) {
+   684: 		paren_level_inc();
+   685: 	    }
+   686: 	    break;
+   687: 	case FIND_DEF_ATTR:
+   688: puts(token);	
+   689: 	    if (tokentype == EQUALS) {
+   690: 		change_pstate(IN_ROUTINE);
+   691: 		block_level_zero();
+   692: 		ustrcpy(curdefname, token);
+   693: 		return ROUTINE_DEF_BEGIN;
+   694: 	    }
+   695: 	    break;
+   696: 	case IN_ROUTINE:
+   697: 	    if (tokentype == BEGIN_BLOCK) {
+   698: 		block_level_inc();
+   699: 	    }
+   700: 	    else if (tokentype == END_BLOCK) {
+   701: 		block_level_dec();
+   702: 	    }
+   703: 	    else if (tokentype == SEMICOLON) {
+   704: 		if (blevel == 0) {
+   705: 		    trace_blmsg(BLEND);
+   706: 		    change_pstate(FIND_ROUTINE);
+   707: 		    *aSourceLine = source_line(aSourceRecord);
+   708: 		    ustrcpy(aElement, curdefname);
+   709: 		    return ROUTINE_DEF_END;
+   710: 		}
+   711: 	    }
+   712: 	    else if (tokentype == IDENTIFIER) {
+   713: 		ustrcpy(aElement, token);
+   714: 		*aSourceLine = source_line(aSourceRecord);
+   715: 		change_pstate(FIND_REF_LPAREN);
+   716: 	    }
+   717: 	    else if (tokentype == END_BLISS_SOURCE) {
+   718: 		printf("ERROR: Unexpected end of file %s\n",
+   719: 		    source_name(aSourceRecord));
+   720: 		return PARSE_ERROR;
+   721: 	    }
+   722: 	    break;
+   723: 	case FIND_REF_LPAREN:
+   724: 	    if (tokentype != SPACE) {
+   725: 		if (tokentype == END_BLOCK) {
+   726: 		    block_level_dec();
+   727: 		}
+   728: 		change_pstate(IN_ROUTINE);
+   729: 	    }
+   730: 	    if (tokentype == LPAREN) {
+   731: 		return ROUTINE_REF;
+   732: 	    }
+   733: 	    break;
+   734: 	}
+   735:     } while (tokentype != END_BLISS_SOURCE);
+   736:     change_pstate(FIND_ROUTINE);
+   737:     return END_OF_SOURCE;
+   738: }
+</PRE>
+END bliss_parser. Go to: <A HREF="#d10025c80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   739: 
+<HR>
+END OF FILE
+
+TOTAL: 5 routines, 104 Avg Length
+</PRE>
+<HR>
+
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00011.html#s10023680">Next file in section</a>.<P>

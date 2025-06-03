@@ -1,0 +1,439 @@
+BUILD_INDEX.EXE must be used independently from the Gopher or HTTP Servers
+to build the required .IDX and .SEL files used by the QUERY.EXE (Gopher)
+or the WWWQUERY.EXE or DTQUERY.EXE (HTTP) search engines.  Define a foreign
+command symbol for BUILD_INDEX, as in:
+
+	$ INDEX :== $device:[directory]BUILD_INDEX.EXE
+
+Then use the program to construct .SEL and .IDX files for a document:
+
+	$ INDEX document /switch /switch ...
+
+	where "document" is the (possibly wildcarded) name of the
+		document(s) to be indexed.  This should include the path
+		*as a gopher client* would specify it, including
+		device:[directory] as required.  Wildcarding permits
+		ellipsis (...) in the directory specification as well as "*"
+		in the filename.  The fully qualified path(s) will appear
+		in all search hit link tuples as part of the selector
+		strings, so accuracy is important if subsequent requests
+		for the hit document segments are to succeed.  If the
+		document(s) change often, indexes can be tied to a
+		specific generation of the document by the /VERSION switch.
+
+	Several switches specify the range delimiters to be applied.
+		Range delimiters cause the document to be divided into
+		manageable chunks for reading purposes.  Documents are
+		divided into ranges so that a hit on a keyword in that
+		document returns only the range containing the keyword; if
+		keywords appear in multiple ranges, multiple ranges are
+		offered to the client. The range delimiter switches are
+		/CHARACTER, /DASH, /EQUAL, /FIELD, /FF, /LINE, /PARAGRAPH,
+		and /WHOLE:
+		/CHARACTER=%xn - divide the document whenever a line
+			beginning with the hexadecimal value n is
+			encountered. "%x" is a required part of the
+			specification.
+		/DASH=n - divide the document whenever a line *begins*
+			with n dashes ("-").  Three ("---") is the default.
+		/EQUAL=n - divide the document whenever a line *begins*
+			with n equal signs ("=").  Eighty is the default.
+		/FIELD=(POSITION=n, SIZE=m) - divide the document whenever
+			columns n through n+m are not all blank.
+		/FF - divide the document whenever a line beginning with
+			a form feed is 	encountered.
+		/LINE - divide the document into individual lines.  Any
+			search hit returns a single line.
+		/PARAGRAPH - divide the document whenever a blank line
+			is encountered.
+		/WHOLE - *DO NOT* divide the document.  Any search hit
+			returns the entire document.
+
+	/CANDIDATES specifies the file of candidate words to use in the
+		index file.  This is the reverse of /NOISE.
+		/CANDIDATES=filename
+
+	/DEFAULT_TOPIC specifies whether a default topic name will be selected.
+		/DEFAULT_TOPIC - (the default) use the first line of each new
+			topic as the topic name if there are no /TOPIC items
+			that are matched in the text.
+		/NODEFAULT_TOPIC - no default topic name will be read.
+	If there is no topic name selected by /DEFAULT_TOPIC or /TOPIC
+	switches, no selector or index entries will be written.  In this way,
+	you can omit header and trailer portions of structured documents.
+
+	/HELPFILE specifies a file to match the queries "?" and "?help".
+		/HELPFILE=(SELECTOR=str, TITLE=str)
+		SELECTOR=string says that the string should be used as the
+			 selector for locating the file.  The string should
+			 be formatted as desribed for /SELECTOR=(TEXT=str),
+			 below.
+		TITLE=string says that the string should be used as the title
+			for the file in hit lists returned for queries with
+			"?" or "?help".
+
+	/KEYWORD determines what part of the input file will be indexed.
+		By default, (assuming no /NOISE or /CANDIDATES) every word
+		is indexed.
+		/KEYWORD=(TEXT=str, EXCLUDE, OFFSET=n, END=str)
+			TEXT=string - where to start in indexing.
+			EXCLUDE - exclude the contents of the TEXT string
+				from the index.
+			OFFSET=n - says to skip 'n' characters after a
+				keyword match before indexing.
+			END=string - says to stop indexing at "string".
+				If END is not given, indexing will stop at the
+				end of the line.  If END is given but not
+				matched, indexing will end at the end of
+				the article.
+
+	/LINK specifies whether to create index/selector (.IDX/.SEL)
+		or Gopher linkage (.LINK) from the source document.
+		/LINK - create a .link file
+		/NOLINK - (the default) create .IDX/.SEL files.
+		By default, /LINK displays selectors in the order found in
+		the source file.  /LINK=SORT displays selectors in sorted
+		order.
+	To create files with leading periods, use /OUTPUT=.LINK/LINK.
+
+	/MAX_TOPICS defines the size of the field that holds the article
+		number.  The default (6) holds 999,999 articles per index.
+
+	/MINIMUM_WORD defines the minimum size of a 'word' that will be
+		indexed. The default (3) automatically eliminates all
+		1 and 2 character words from the index.
+		/MINIMUM_WORD=n - defines the smallest word to index.
+
+	/NOISE specifies the file of 'noise' words to omit from the
+		index file.
+		/NOISE=filename
+			If no file is specified,
+			GOPHER_ROOT:[000000]_NOISE_WORDS.DAT is used.
+
+	/NUMBERS specifies whether to index numeric data.
+		/NUMBERS (the default) says to index numbers.
+		/NONUMBERS says to exclude numbers from the index.
+
+	/OUTPUT specifies the name of the .SEL/.IDX/.SEQSEL/.SEQIDX/.LINK
+		files. By default the file name/directory will be the
+		name/directory of the first document found.  The following
+		switch will override this:
+			/OUTPUT=filename - specify the device, directory,
+				filename part of the .IDX, .SEL and .LINK files.
+
+	/PUNCTUATION defines which characters of an input line are replaced
+		by spaces before words are selected from that line for
+		indexing.
+		/PUNCTUATION="..." - define the punctuation characters.
+	The default set of punctuation is .,?:()".  Space is always a
+	punctuation character.
+
+	/SELECTOR specifies what kind of selector will be generated for
+		each topic.  If /SELECTOR is not given, a type 'R' (range)
+		selector is automatically calculated for each topic.
+		/SELECTOR=(TEXT=str, END=str, BOTH, IGNORE=char)
+		TEXT=string says that any text following the string
+			(up to the END string, next space or end of line)
+			will be used as the selector for the current topic.
+			This switch can be used to index textual desciptions
+			of binary files, and have links to the binary files
+			returned in the search hit lists. The format of the
+			selector string is <Type><Path> optionally followed
+			by "|" (the vertical bar character), a network host
+			name, "|", and a TCP socket number.  Type must be a
+			Gopher protocol file type (i.e., the value given in
+			a .link 'Type=' entry).  Path similarly must be a
+			complete Gopher protocol 'Path=' value, and must
+			include the Gopher or HTTP DataDirectory device. If
+			there is no selector found and BOTH is not requested,
+			no selector or index entries will be written.
+			For example, a selector for a binary file specified by
+			/SELECTOR=(TEXT="selector: ") could be: 
+			selector: I9gopher_root:[images]picture.gif or: 
+			selector: s9www_root:[sounds]music.au. A selector for
+			a CCSO phone book (CCSO path fields are blank) which
+			uses port 105 on host 'ns.host.com'  would be:
+			selector: 2|ns.host.com|105
+		END=string says what will end a selector string if the
+			default rules (end of line or " -->") aren't enough.
+		BOTH says to generate selector (and index) entries for both
+			the selector specified and the current input file
+			topic.
+		IGNORE=character says that any selector beginning with that
+			character (presumably, a gopher Type) should cause
+			the entry to be excluded from the index.  This, for
+			example, can be used to exclude material associated
+			with information (Type=i) selectors when indexing
+			a walker output file.
+
+	/SEQUENTIAL specifies whether an indexed (.IDX/.SEL) or
+		sequential (.SEQIDX/.SEQSEL) index/selector files are
+		created.
+		/SEQUENTIAL - create sequential index/selector files
+		/NOSEQUENTIAL - (the default) create indexed files
+		Omitting the /SEQUENTIAL switch is simpler, but can be
+		much slower than building the indexed files with
+		CONVERT/FDL after generating the sequential
+		index/selector files.
+
+	/SPECIFICATION specifies a file that may contain the switches
+		defined in this document.  The only exceptions are
+		/SPECIFICATION and the input file.  Specification input
+		lines may be up to 255 characters long, but must not
+		be continued.
+
+	/TOPIC determines how to describe each section of the document.
+		By default, the first line of each section is use as the
+		description.  For those documents that have lines that
+		start with keywords (such as "Subject:"), you may describe
+		those keywords with the /TOPIC switch:
+		/TOPIC=(TEXT=str, EXCLUDE, BREAK, POSITION=n, OFFSET=n,
+			SIZE=n, END=str)
+			Up to 20 /TOPIC switches may be specified for the
+			file(s) to be indexed.  All the text found will be
+			modified by the SIZE and EXCLUDE keywords and
+			concatenated to form the selector string.
+			TEXT=string - record the last line in the section
+				section that starts with the specified 
+				string.  Case is ignored, strings that 
+				contain spaces and punctuation
+				should be enclosed in quotes.
+			EXCLUDE - exclude the contents of the TEXT string
+				from the line found to match the TEXT
+				string.
+			BREAK - divide the document whenever this topic
+				is matched.
+			SIZE=n - truncate the line found to match the TEXT
+				string to n characters.
+			POSITION=n - defines (with SIZE) a field to use for
+				the topic name if the field is non-blank.
+				- defines (with TEXT) where to look for the
+				text string.  POSITION=0 (the default) says
+				to search the entire line for the text string.
+			TEXT or SIZE is required, defaults are no exclude
+				and no truncate.  For example:
+			/TOPIC=(TEXT="date: ", SIZE=10, EXCLUDE) 
+				will use 10 characters of the line that 
+				starts with "date: " starting immediately
+				after "date: ".
+			/TOPIC=(POSITION=1, SIZE=6) will use anything
+				(except blanks) in columns 1 through
+				6 as the topic.
+			/TOPIC=(TEXT="date: ", POSITION=1) will only look for
+				"date: " in column 1 of each line.
+			OFFSET=n - says to skip 'n' characters after a topic
+				match before extracting a topic title.
+			END=string - says to stop the topic title at "string".
+				Defaults to "</" to match HTML end tags and
+				can be disabled by giving END="".  The title
+				will not extend past the end of the current
+				line.
+
+	/VERSION specifies the format of the selector file name.
+		/VERSION - (the default) includes the file version
+			number of the document in the selector, so that
+			subsequent changes to the document will not 
+			invalidate the indexes, which point to the
+			generation of the document indexed with /VERSION
+			(indexes must be rebuilt before the older 
+			generation can be deleted, of course).
+		/NOVERSION - omits any version information from the
+			selector.
+
+	/WORD_LENGTH specifies the size of the key field in the index file.
+		The default key field size is 20 characters.  If the text
+		file to be indexed contains words larger than 20 
+		characters, error messages will be generated saying how
+		large the words are and that they are being truncated.  If
+		there are a significant number of words that give this
+		error, use the /WORD_LENGTH switch:
+		/WORD_LENGTH=n - specify the maximum word length in the text
+		file (default 20).
+
+
+
+BUILD_INDEX performs three major tasks:
+
+(1) It breaks a document into articles (called 'topics').
+
+    The input file xxx.yyy is read and split into topics based on
+    /FIELD, /PARAGRAPH, /FF, /DASH, /EQUAL, /CHARACTER, /LINE, /WHOLE
+    and /TOPIC=BREAK.  Depending on /SEQUENTIAL, /LINK and /OUTPUT, it
+    will create a xxx.SEL, xxx.LINK or xxx.SEQSEL file containing the
+    names and locations of these topics.  The absolute path of the
+    input file is written into this file, so the input file must be in
+    its permanent location at the time that it is indexed.  The
+    version number of the input file will be included with the file
+    name depending on /VERSION.
+
+(2) It creates the topic titles and selector.
+
+    The default title for a topic is the first line of the topic. 
+    This is specified by /DEFAULT_TOPIC.  A topic title can be created
+    by one or more /TOPIC switches.  If /SELECTOR is specified, the
+    input file will include the selectors, otherwise selectors will be
+    automatically generated.  If no topic title is created because of
+    a combination of /NODEFAULT_TOPIC and /TOPIC, or if no selector is
+    found because of /SELECTOR, no topic selector will be written, nor
+    will any of the words found within the given topic be indexed.
+
+(3) It indexes the words of the source document(s).
+
+    If /LINK is not specified, an article is split into 'words'
+    defined by /PUNCTUATION and /MINIMUM_WORD.  Indexing is turned on
+    and off by /KEYWORDS.  When indexing is 'on', any words that are
+    found in the file specified by /NOISE or not found in the file
+    specified by /CANDIDATES and numbers rejected by /NONUMBERS are
+    discarded.  Those words that remain are written into an index file
+    (xxx.IDX) or sequentual file (xxx.SEQIDX) specified by /OUTPUT and
+    /SEQUENTIAL.  The index file has three fields: a keyword field
+    containing the indexed word whose size is specified by
+    /WORD_LENGTH; a topic index field whose size is specified by
+    /MAX_TOPICS; and a word count within the topic.
+
+
+The default switches are:
+
+/DEFAULT_TOPIC
+/MAX_TOPICS=6
+/MINIMUM_WORD=3
+/NUMBERS
+/VERSION
+/WHOLE
+/WORD_LENGTH=20
+
+The two files, xxx.SEL and xxx.IDX (or xxx.SEQSEL and xxx.SEQIDX),
+should either be built where the server will expect them, specified
+with /OUTPUT, or be moved there.  The Path= specification for the
+search's link tuple should reference the directory where the .IDX and
+.SEL files reside. It does not matter if this is a different directory
+from where the actual data file which has been indexed resides.
+
+
+QUERY.EXE, whose use is demonstrated in the shell search SEARCH.SHELL,
+processes the files built by BUILD_INDEX.EXE and the client-specified
+keywords, and writes to an output file link tuples selecting ranges of the
+indexed document which contain hits on the search.
+
+Note that the "document" specification in the Path= using SEARCH.SHELL can 
+even be wildcarded.  For example, say you have run BUILD_INDEX on a large
+number of files in different directories, and stored all the .IDX and .SEL
+files in a single directory GOPHER_ROOT:[INDEXES].  The following link
+tuple would search all the indexes, and return hit list referencing any
+subset of files on which BUILD_INDEX had been run.
+
+	Name=Search all indexes
+	Type=7
+	Path=7gopher_root:[dir].shell gopher_root:[indexes]*
+	Port=+
+	Host=+
+
+
+WWWQUERY.EXE and DTQUERY.EXE are the search engines for the CERN and OSU
+DECthreads HTTP servers, respectively.  Their use is demonstrated in the
+scripts VMSGOPHERSERVER.COM and VMSINDEX.COM for use as htbin interfaces
+("-DT" is appended to the versions for DTQUERY.EXE; rename them to .COM
+before using them).  They processes the files equivalently to QUERY.EXE,
+but return an HTML menu of hits, or the document section or raw file
+requested from such a menu, to an HTML browser.  Anchors for invoking
+the scripts via HTML files on your HTTP Server could be:
+
+	Search HTML version of <A HREF="/htbin/vmsgopherserver"
+	>VMSGopherServer documentation</A>.
+
+	Search all HTML files at <A HREF="/htbin/vmsindex"
+	>www.foo.edu</A>.
+
+Tuples offered by your Gopher Server to invoke them via your HTTP Server
+could be:
+
+	Name=Search HTML version of VMSGopherServer documentation
+	Type=h
+	Path=GET /htbin/vmsgopherserver
+	Port=<your httpd's port number>
+	Host=<your httpd's address>
+
+	Name=Search all HTML files at www.foo.edu
+	Type=h
+	Path=GET /htbin/vmsindex
+	Port=<your httpd's port number>
+	Host=<your httpd's address>
+
+Appropriate scripts must be constructed, using VMSGOPHERSERVER.COM and
+VMSINDEX.COM as models, for searches of each index or index set, and the
+script either creates a cover page "on the fly" if no query was submitted,
+or acts on a submitted query by passing it to WWWQUERY.EXE or DTQUERY.EXE.
+
+You also can use WWWQUERY.EXE or DTQUERY.EXE as the search engine for
+ISINDEX HTML documents by defining their DCL interfaces, CERNSEARCH.COM or
+DTSEARCH.COM, respectively, as the "search" script via the server's
+configuration file.  Read the headers of CERNSEARCH.COM and DTSEARCH.COM
+for more information.
+
+Note that VMSGOPHERSERVER.COM does not set any processing symbols, and
+therefore <HEAD> and <TITLE> tags, and a string identifying the document
+from which the section was extracted, are added to the top of any section
+sent to a browser, and the section is encased in a <PRE> tag.  VMSINDEX.COM
+sets the WWW_SEND_RAW_FILE symbol (to "TRUE"), and therefore no <HEAD>,
+<TITLE>, identifier string or <PRE> tags are added.  In other scripts, the
+symbol WWW_OMIT_PRE_TAG could be set.  This would cause the <PRE> tags to
+be omitted but the other HTML "packaging" to be included, and would be
+appropriate for documents composed of raw HTML, as opposed to preformatted
+text.  Note that most browsers render anchors in preformatted text, and the
+VMSGOPHERSERVER.DOC database makes use of this convention.  If you do not
+want *any* rendering of text, embed it in <PLAINTEXT> ... </PLAINTEXT> or
+<LISTING> ... </LISTING> tags.
+
+If the symbol WWW_SEND_RAW_FILE has been made non-NULL (e.g., set to "TRUE")
+by the calling script, the hit lists from searches will have direct URL's (not
+?TEXT=R... URLs), and requested files will be sent raw (i.e., without
+additional headers and PRE tags).  Use this for indexes of whole HTML file
+sets (as opposed to sectional databases).
+
+If the /SELECTOR switch was used during indexing, such that the selectors in
+the .SEL files do not include a Range field, the hit lists from searches will
+have direct URL's (equivalently to having set WWW_SEND_RAW_FILE).  Note that
+the selectors should be in "gopher-style" with VMS pathspecs, but the URL's
+returned in the hits lists will have the pathspecs converted to logical
+hierarchy format with slashes (e.g., /www_root/sounds/music.gif).
+
+For requests of sections from sectionally indexed documents or databases, the
+path must begin with either "www_root" or "gopher_root" (case-insensitive).
+Otherwise, WWWQUERY.EXE and DTQUERY.EXE will reject the request internally and
+return a 403 ("forbidden - by rule") error message.  Thus, sectionally indexed
+documents *must* reside in either your httpd or gopherd primary or alternate
+data trees (ones whose device names correspond to or begin with the above two
+standard strings), and any other paths will be considered illegal in this
+application, even though you may have approved them for your httpd via "pass"
+mapping (better safe than sorry 8-).  Also, for requests of sections instead
+of raw files, the other httpd authorization procedures (e.g., passwords, group
+or domain identifiers, etc.) are applied only to the browser's request to
+invoke the script, so you shouldn't combine items with different authorization
+restrictions into the same sectional database (I can't think of a reason why
+anyone would, but don't! 8-).
+
+If the symbol WWW_SHOW_FILETYPE has been made non-NULL (e.g., set to "YES")
+by the calling script,  the hit lists will include IMG tags for including
+the filetype icons (foo.xbm files), or ALT filetype strings for TUI clients.
+This is important if your search could return hits for both text and binary
+file types, but is unnecessary overhead if only text has been indexed.  The
+filetype icons are provided with the CERN HTTP server, and WWWQUERY.EXE will
+seek them in their default location.  They are available from the CERN aFTP
+server in:  ftp://ftp.w3.org/pub/www/src/server_root.tar.Z   For the OSU
+DECthreads HTTP server, DTQUERY.EXE expects them to be in WWW_Root:[Icons].
+
+If the symbol WWW_MAXIMUM_HITS has been made non-NULL (i.e., set to a number)
+by the calling script, the hit lists will be truncated so as not to exceed
+that number.
+
+The symbol WWW_SHOW_SIZE can be made non-NULL by the calling script to have
+the size of each file or database section indicated in the hit lists.
+
+The symbol WWW_SHOW_DATE can be made non-NULL by the calling script to have
+the dates of files (or date of the database) indicated in the hit lists
+(DD-MMM-YY).  If WWW_SHOW_TIME also is made non-NULL, for the current year
+the hour and minute will be indicated instead of the year (DD-MMM HH:MM).
+If WWW_USE_MDATE is made non-NULL, the date of the last modification (e.g.,
+from an APPEND) will be used.  The default is the file creation date (i.e.,
+of the highest version).
+

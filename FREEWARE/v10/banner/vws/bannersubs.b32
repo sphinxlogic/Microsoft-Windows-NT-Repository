@@ -1,0 +1,522 @@
+MODULE bannersubs (IDENT = 'V01-002',
+			ADDRESSING_MODE (NONEXTERNAL=WORD_RELATIVE),
+			ADDRESSING_MODE (EXTERNAL=GENERAL)) =
+BEGIN
+
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1984 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+
+!++
+! FACILITY:  User Interface System (UIS)
+!
+! ABSTRACT:
+!
+!	This module creates and mantains the workstation banner.
+!
+! ENVIRONMENT:
+!
+!	VAX/VMS operating system.  Unprivileged, any mode.
+!
+! AUTHOR:  Peter George, October 1984
+!
+! Modified by:
+!
+!--
+
+! Include files
+!
+REQUIRE 'BANNER';
+
+! Table of contents
+!
+FORWARD ROUTINE
+    cvt_lnm_boolean,			! Get the value stored in a logical name
+    cvt_lnm_float,			! Get the value stored in a logical name
+    cvt_lnm_integer,			! Get the value stored in a logical name
+    cvt_lnm_string,			! Get the value stored in a logical name
+    digital_clock: NOVALUE,		! Update the digital clock
+    write_date: NOVALUE,		! Insert the date and day
+    message_ast: NOVALUE;		! Write a message to the display
+
+EXTERNAL ROUTINE
+    lib$day,
+    ots$cvt_t_f;			! Convert text string to F floating
+
+! Define device name used to refer to the QVSS "device" driver
+!
+EXTERNAL
+    sd_banner_lnmtable,			! = %ASCID 'BANNER_LNMTABLE',
+    sd_message_font,			! = %ASCID 'DEKILTERAAAAAAV140000000DA',
+    normal_font;
+
+
+EXTERNAL
+    lcl : BLOCK [lcl_c_length, BYTE],
+    day_list: VECTOR[7];
+
+
+GLOBAL ROUTINE cvt_lnm_float (lnm, default) =
+
+!-
+!	Convert a logical name to an F-float
+!
+! Inputs:
+!
+!	lnm	- string descriptor for logical name to be attempted
+!	default	- (optional) default value
+!
+! Return value:
+!	0     - if no logical name or conversion fails, or .default if present
+!	value - if conversion succeeds
+!-
+
+BEGIN
+
+BUILTIN
+    ACTUALCOUNT;			! Count of actuals to a routine
+
+LOCAL
+    itmlst: VECTOR[4],			! $TRNLNM item list
+    lnm_buffer: VECTOR[256,BYTE],	! Buffer for logical name string
+    lcl_float,
+    status;				! Routine status
+
+BIND
+    hi_word = itmlst+2 : WORD;		! Put a handle on the high word of the length
+
+! Translate the name
+!
+itmlst[0] = lnm$_string^16 + %ALLOCATION (lnm_buffer);
+itmlst[1] = lnm_buffer;
+itmlst[2] = itmlst[0];
+itmlst[3] = 0;
+status = $trnlnm (TABNAM = sd_banner_lnmtable,	! BIND sd_banner_lnmtable = %ASCID 'BANNER_LNMTABLE'; already done
+		  LOGNAM = .lnm,
+		  ITMLST = itmlst);
+IF NOT .status 
+THEN
+    RETURN (IF ACTUALCOUNT() EQL 2
+	    THEN
+		.default
+	    ELSE
+		0);
+hi_word = 0;					! Now the itmlst is a good string descriptor
+
+! Convert to floating
+!
+status = ots$cvt_t_f (itmlst[0], lcl_float);
+IF NOT .status 
+THEN
+    RETURN (IF ACTUALCOUNT() EQL 2
+	    THEN
+		.default
+	    ELSE
+		0);
+
+! Return the floating value
+!
+RETURN .lcl_float;
+
+END;
+
+GLOBAL ROUTINE cvt_lnm_integer (lnm, default) =
+
+!-
+!	Convert a logical name to an integer
+!
+! Inputs:
+!
+!	lnm	- string descriptor for logical name to be attempted
+!	default	- (optional) default value
+!
+! Return value:
+!	0     - if no logical name or conversion fails, or .default if present
+!	value - if conversion succeeds
+!-
+
+BEGIN
+
+BUILTIN
+    ACTUALCOUNT;			! Count of actuals to a routine
+
+LOCAL
+    itmlst: VECTOR[4],			! $TRNLNM item list
+    lnm_buffer: VECTOR[256,BYTE],	! Buffer for logical name string
+    lcl_float,
+    status;				! Routine status
+
+BIND
+    hi_word = itmlst+2 : WORD;		! Put a handle on the high word of the length
+
+! Translate the name
+!
+itmlst[0] = lnm$_string^16 + %ALLOCATION (lnm_buffer);
+itmlst[1] = lnm_buffer;
+itmlst[2] = itmlst[0];
+itmlst[3] = 0;
+status = $trnlnm (TABNAM = sd_banner_lnmtable,	! BIND sd_banner_lnmtable = %ASCID 'BANNER_LNMTABLE'; already done
+		  LOGNAM = .lnm,
+		  ITMLST = itmlst);
+IF NOT .status 
+THEN
+    RETURN (IF ACTUALCOUNT() EQL 2
+	    THEN
+		.default
+	    ELSE
+		0);
+hi_word = 0;					! Now the itmlst is a good string descriptor
+
+! Convert to floating, then save floating and truncated integer
+! in the args
+!
+status = ots$cvt_t_f (itmlst[0], lcl_float);
+IF NOT .status 
+THEN
+    RETURN (IF ACTUALCOUNT() EQL 2
+	    THEN
+		.default
+	    ELSE
+		0);
+
+! Truncate to integer and return
+!
+RETURN int_f (.lcl_float);
+
+END;
+
+GLOBAL ROUTINE cvt_lnm_string (lnm, outdesc : REF BLOCK [8, BYTE]) =
+
+!-
+!	Convert a logical name to a character string
+!
+! Inputs:
+!
+!	lnm	- string descriptor for logical name to be attempted
+!
+! Output:
+!
+!	outdesc	- string descriptor pointing to buffer for the name
+!		  buffer will be blank padded and length field of
+!		  descriptor will be rewritten with actual length
+!
+! Return value:
+!	0     - if no logical name
+!	1     - if name is present
+!-
+
+BEGIN
+LOCAL
+    itmlst: VECTOR[4],			! $TRNLNM item list
+    lnm_buffer: VECTOR[256,BYTE],	! Buffer for logical name string
+    lcl_float,
+    status;				! Routine status
+
+BIND
+    name_len = itmlst : WORD;		! Put a handle on the high word of the length
+
+! Translate the name
+!
+itmlst[0] = lnm$_string^16 + %ALLOCATION (lnm_buffer);
+itmlst[1] = lnm_buffer;
+itmlst[2] = itmlst[0];			! Put returned length in NAME_LEN (itmlst<0,0,16,0>)
+itmlst[3] = 0;
+status = $trnlnm (TABNAM = sd_banner_lnmtable,	! BIND sd_banner_lnmtable = %ASCID 'BANNER_LNMTABLE'; already done
+		  LOGNAM = .lnm,
+		  ITMLST = itmlst);
+IF NOT .status THEN RETURN 0;			! Didn't work, return zero
+
+CH$COPY (.name_len, lnm_buffer, %C' ', .outdesc[dsc$w_length], .outdesc[dsc$a_pointer]);
+outdesc[dsc$w_length] = .name_len;
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE digital_clock : NOVALUE =
+
+!-
+!	This routine writes the current day and date into the banner.
+!
+! Inputs:
+!
+!	lcl block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    timebuf: VECTOR[16,BYTE],
+    timedesc: VECTOR[2];
+BIND
+    pad = timebuf[2] : WORD;
+
+timedesc[0] = 11;
+timedesc[1] = timebuf[4];
+$ASCTIM (TIMLEN = timedesc,
+	 TIMBUF = timedesc,
+	 CVTFLG = 1);
+pad         = '  ';
+timedesc[0] = 10;
+timedesc[1] = timebuf[2];
+IF .timebuf[4] EQL %C'0' THEN timebuf[4] = %C' ';
+uis$begin_segment (lcl[lcl_l_vd_id]);
+uis$set_font (lcl[lcl_l_vd_id], lcl[lcl_l_cons_0],lcl[lcl_l_cons_1], .normal_font);
+uis$set_writing_mode (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1],lcl[lcl_l_cons_1], %REF (7));
+uis$set_aligned_position (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], 
+    		lcl[lcl_f_tim_day_x],lcl[lcl_f_tim_dclk_y]);
+uis$text (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], timedesc);
+uis$end_segment (lcl[lcl_l_vd_id]);
+
+RETURN;
+END;
+
+GLOBAL ROUTINE write_date : NOVALUE =
+
+!-
+!	This routine writes the current day and date into the banner.
+!
+! Inputs:
+!
+!	lcl block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    day_number,
+    timebuf: VECTOR[12,BYTE],
+    timedesc: VECTOR[2];
+
+lib$day (day_number);
+day_number = .day_number MOD 7;
+
+timedesc[0] = 11;
+timedesc[1] = timebuf;
+$ASCTIM (TIMLEN = timedesc,
+	 TIMBUF = timedesc);
+uis$begin_segment (lcl[lcl_l_vd_id]);
+uis$set_font (lcl[lcl_l_vd_id], lcl[lcl_l_cons_0],lcl[lcl_l_cons_1], .normal_font);
+uis$set_writing_mode (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1],lcl[lcl_l_cons_1], %REF (7));
+uis$set_aligned_position (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], 
+			  lcl[lcl_f_tim_day_x],lcl[lcl_f_tim_day_y]);
+uis$text (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], .day_list[.day_number]);
+uis$set_aligned_position (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], 
+    		lcl[lcl_f_tim_day_x],lcl[lcl_f_tim_date_y]);
+uis$text (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], timedesc);
+uis$end_segment (lcl[lcl_l_vd_id]);
+
+! Set a trigger to later push any unnecessary pages out to the lists
+!
+lcl[lcl_v_ws_purged] = 0;
+
+RETURN;
+END;
+
+GLOBAL ROUTINE message_ast (mbx_args) : NOVALUE =
+
+!-
+!	This routine reads a message from the mbx and writes it to the
+!	banner.
+!
+! Inputs:
+!
+!	mbx_args = address of ast argument block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+MAP
+    mbx_args: REF $BBLOCK;
+
+LOCAL
+    iobuf: VECTOR[mbx_size,BYTE],
+    iodesc: VECTOR[2],
+    timebuf: VECTOR[12,BYTE],
+    timedesc: VECTOR[2],
+    ascdesc: VECTOR[2],
+    time_height, time_width, time_window_width,
+    iosb: VECTOR[4,WORD],
+    status;
+
+! Raise our priority for this section
+!
+$setpri (pri=8);
+
+! Setup UIS and attribute blocks for the text window (atb#1) and the timestamp window (atb#2)
+!
+uis$begin_segment (lcl[lcl_l_vd_id]);
+uis$set_clip (lcl[lcl_l_vd_id], lcl[lcl_l_cons_0],lcl[lcl_l_cons_1],
+	lcl[lcl_l_cons_0], lcl[lcl_l_cons_0],
+	%REF (SUB_F (%E'0.02', .mbx_args[mbx_f_line0_max_x])), mbx_args[mbx_f_line0_max_y]);
+uis$set_font (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1],lcl[lcl_l_cons_1], sd_message_font);
+
+! Set up for the timestamp
+!
+time_width = .lcl[lcl_f_2edge];				! Assume no time stamp
+iodesc[1] = iobuf;
+IF .lcl[lcl_v_timestamp]
+THEN
+    BEGIN
+    ascdesc[0] = 11;
+    ascdesc[1] = timebuf;
+    timedesc[0] = 9;
+    timedesc[1] = timebuf;
+    uis$get_font_size (.normal_font, timedesc, time_width, time_height);
+    timedesc[0] = 8;
+    time_window_width = SUB_F (.lcl[lcl_f_2edge], .time_width);
+    uis$set_font (lcl[lcl_l_vd_id], lcl[lcl_l_cons_0],lcl[lcl_l_cons_2], .normal_font);
+    END;
+
+! Read the message.  If there is more than one message, then loop clearing them all out.
+!
+WHILE (1)
+DO
+    BEGIN
+    IF .lcl[lcl_v_timestamp]
+    THEN
+	$asctim (timbuf=ascdesc, cvtflg=1);
+    status = $QIOW (FUNC = io$_readvblk+io$m_now,
+		CHAN = .mbx_args[mbx_w_channel],
+		EFN = asynch_efn2,
+		IOSB = iosb,
+		P1 = iobuf[0],
+		P2 = mbx_size);
+
+    IF NOT .status
+    THEN
+	BEGIN
+	SIGNAL (.status);
+	EXITLOOP;
+	END;
+
+    ! We're done reading if we get EOF and a PID of 0.
+    !
+    IF .iosb[0] EQL ss$_endoffile
+    THEN
+	IF (.iosb[2] EQL 0) AND (.iosb[3] EQL 0)
+	THEN
+	    EXITLOOP;
+
+    ! Remove carriage-returns, line-feeds and other controls from the message
+    !
+    iodesc[0] = 0;
+    IF .iosb[1] GTR 0
+    THEN
+	INCR k FROM 0 TO .iosb[1]-1
+	DO
+	    BEGIN
+	    REGISTER
+		char : BYTE;
+	    SELECTONE .iobuf[.k] OF
+	    SET
+	      [9] :		BEGIN
+				char = %c' ';
+				iobuf[.iodesc[0]] = .char;
+				iodesc[0] = .iodesc[0] + 1;
+				END;
+	      [0 TO 31] :	;		! Ignore these characters
+	      [OTHERWISE] :	BEGIN
+				char = .iobuf[.k];
+				iobuf[.iodesc[0]] = .char;
+				iodesc[0] = .iodesc[0] + 1;
+				END;
+	    TES;
+	    END;
+
+    ! Write the message out.
+    !
+    IF .iodesc[0] GTR 0
+    THEN
+	BEGIN
+
+	! Scroll the region up, and erase the new bottom line
+	!
+	uis$move_area (lcl[lcl_l_vd_id],
+		lcl[lcl_f_pixel_size],lcl[lcl_f_pixel_size],
+		mbx_args[mbx_f_line0_max_x],mbx_args[mbx_f_line0_min_y],
+		lcl[lcl_f_pixel_size],mbx_args[mbx_f_line2_max_y]);
+!	uis$erase (lcl[lcl_l_vd_id],
+!		lcl[lcl_l_cons_0],lcl[lcl_l_cons_0],
+!		mbx_args[mbx_f_line0_max_x],mbx_args[mbx_f_line2_max_y]);
+
+	! If timestamping, then add it
+	!
+	IF .lcl[lcl_v_timestamp]
+	THEN
+	    BEGIN
+	    uis$set_aligned_position (lcl[lcl_l_vd_id], lcl[lcl_l_cons_2],
+			lcl[lcl_l_cons_0],mbx_args[mbx_f_line2_max_y]);
+	    uis$text (lcl[lcl_l_vd_id], lcl[lcl_l_cons_2], timedesc);
+	    IF .lcl[lcl_v_bars]
+	    THEN
+		uis$plot (lcl[lcl_l_vd_id], lcl[lcl_l_cons_2], 
+			time_window_width, mbx_args[mbx_f_line0_max_y],
+			time_window_width, lcl[lcl_l_cons_0]);
+	    END;
+
+	! Enter the text
+	!
+	uis$set_aligned_position (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], 
+		time_width, %REF (ADD_F (.lcl[lcl_f_pixel_size], .mbx_args[mbx_f_line2_max_y])));
+	uis$text (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], iodesc);
+
+	END;
+    END;
+
+! End the segment
+!
+uis$end_segment (lcl[lcl_l_vd_id]);
+
+! Re-enable the AST.
+!
+$QIOW (FUNC = io$_setmode+io$m_wrtattn,
+	CHAN = .mbx_args[mbx_w_channel],
+	EFN = asynch_efn2,
+	IOSB = iosb,
+	P1 = message_ast,
+	p2 = .mbx_args);
+
+! Set a trigger to later push any unnecessary pages out to the lists
+!
+lcl[lcl_v_ws_purged] = 0;
+
+! Restore the original priority
+!
+$setpri (pri=.lcl[lcl_l_base_prio]);
+
+RETURN;
+END;
+
+END
+ELUDOM

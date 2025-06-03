@@ -1,0 +1,113 @@
+! EVE$ADVANCED.TPU 		11-APR-1989 15:24			Page 1
+!
+!module eve$advanced ident "V02-068"
+!
+!		       COPYRIGHT © 1987,1988,1989 BY
+!		DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS
+!			    ALL RIGHTS RESERVED
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+! ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER
+! COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE
+! AND SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+!++
+! FACILITY:
+!	Text Processing Utility (VAXTPU)
+!
+! ABSTRACT:
+!	This is the source program for the EVE interface advanced features.
+!	This file was obtained from the old evesecini.tpu file.
+!
+! ENVIRONMENT:
+!	VAX/VMS
+!
+!Author: Bill Robinson
+!
+! CREATION DATE: 10-Oct-1986
+!
+! MODIFIED BY:
+!                15-May-1991  Peter Galbraith (GALBRTH@AC.DAL.CA)
+!
+!                When attaching to kept eve, read logical names:
+!                o EDIT_NEW_DEFAULT - Change default directory to follow parent
+!                o EDIT_NEW_FILE    - Get this new file into a buffer
+!--
+
+! EVE$ADVANCED.TPU 							Page 3
+
+procedure eve_attach (; the_process)		! Attach to another process
+local new_default, new_file;
+
+! Attach back to the parent process.  Used when Eve is spawned from DCL
+! and run in a subprocess ("kept Eve").  The VAXTPU attach command can
+! be used for more flexible process control.
+
+on_error
+    [TPU$_NOPARENT]:
+	eve$message (EVE$_NOSUBPROC);
+	eve$learn_abort;
+	return (FALSE);
+    [OTHERWISE]:
+endon_error;
+
+%if eve$x_option_decwindows
+%then
+if eve$x_decwindows_active
+then
+    eve$message (EVE$_NODECWCMD, 0, message_text (EVE$_ATTACH));
+    return (FALSE);
+endif;
+%endif
+
+eve$clear_message;		! Clear out old message
+if the_process = ""
+then
+    attach;
+else
+    attach (the_process);
+endif;
+
+!/* Peter Galbraith's modifications begin here
+! The following bit changes the directory to follow the parent process.
+! Thank's to John Gee (ERIN@otago.ac.nz) who pointed out a bug in previous
+! version if KEPT_EDIT.COM had directory tracking disabled and it wasn't
+! disabled here.
+ new_default := file_parse("EDIT_NEW_DEFAULT:","","",DEVICE);
+ if new_default <> "EDIT_NEW_DEFAULT:" then 
+  set(default_directory,file_parse("EDIT_NEW_DEFAULT:","","",DEVICE,DIRECTORY));
+ endif;
+! The following bit passes a new file spec to GET_FILE
+ new_file : = file_search("EDIT_NEW_FILE");
+ if new_file <> "" then
+   ! using file_parse here passes wildcards to GET_FILE.  If I use `new_file'
+   ! obtained from the `file_search' above I get the first file found.
+!   eve_get_file(file_parse("EDIT_NEW_FILE"));
+   eve_do("get file "+file_parse("EDIT_NEW_FILE"));
+ else
+   new_default := set(default_directory,"");
+   message("Current default directory is " + new_default);
+ endif;
+! Peter Galbraith's modifications end here */
+
+return (TRUE);
+endprocedure;		! eve_attach
+
+! Build time code to define a key for ATTACH (or use it from the command line)
+! EDIT/TPU/COMMAND=Your_path:KEPT_EVE$ADVANCED.TPU will invoke this command
+Define_Key("eve_attach('')",key_name("A",SHIFT_KEY),"Attach","EVE$USER_KEYS");
+
+! Uncomment the last line to save a `changes-only' section file for future use
+! instead of always using EDIT/TPU/COMMAND=Your_path:KEPT_EVE$ADVANCED.TPU
+! Build with:
+! EDIT/TPU/SECTION=EVE$SECTION/NODISPLAY/COMMAND=Your_path:KEPT_EVE$ADVANCED.TPU
+SAVE("KEPT_EVE.TPU$SECTION","NO_DEBUG_NAMES","IDENT","KEPT_EVE","CHANGES_ONLY");

@@ -1,0 +1,556 @@
+This file summarizes the fixes and enhancements that have been made
+to the DECthreads HTTP server through the various versions.
+
+1.8/alpha release notes:
+   Add Port rule, which lets configuration file set the server port(s).
+   A port rule in the configuration file overrides the port(s) specified
+   on the command line.
+
+   Add spawn flags to authcom.c, log spawn errors.
+
+   Add CEL authenticator from Charles Lane.
+
+   Let NUL terminate lines in tf_getline(), file file_access.c.
+
+   Build log line prefix (TCP-nn/mm) in http_server.c using string primitives 
+   rather than sprintf.  Save connect start time and log milliseconds elapse on
+   connection close.
+
+   Fix bug in parsing of tracelevel rule, file rule_file.c
+
+   Optimize SYS$GETUAI call in user_info.c, SYSUAF file will remain open.
+
+   Improved status messages in cgi-mailto.c script.  Make path-info portion
+   after username into mail message subject.  Add REMOTE_ADDR: field to
+   mail message to indicate originating host.
+
+   Modify mapimage.c script to accept '+' as coordinate delimiter.
+
+   Add typedef for authenticator callback function in authlib.h so
+   authenticators can do compile-time checking on callback.  Update authlib.c
+   to use new typedef internally rather than (void *).
+
+   Add new usermap rule, suggested by George Carrette (gjc@village.com), 
+   which calls user-supplied function (loaded via LIB$FIND_IMAGE_SYMBOL) to 
+   perform custom rewrites of URL idents.  See comments at top of file 
+   load_dynamic.c for more info.  The userdir rule is now implemented as a 
+   special usermap rule.
+
+   Improved fetch_http.c utility program.  It will now convert recieved
+   cr/lf line terminators to lf in output files unless -b option is
+   specified on the command line. (fetch_http.c is not built by build
+   procedures).
+
+   Modified tlogger.c to use DECthreads timing routines to time the
+   flush rather than VMS-specific (SYS$SETIMR) calls.
+1.7a release notes:
+   Correct data byte count calcuation for scripts (decnet_execute.c).
+
+   Add tu_strstr function to tutil.c.
+
+   Fixed miscellaneous bugs in cgilib.c (missing REMOTE_PORT).
+
+   Support content-encoding on suffix definitions, follow the transfer
+   encoding with the content encoding value to send the client
+   (e.g. binary/x-compress).
+
+   Support running multiple servers listening on same port but different
+   ip address (multi-homed hosts).  Added localhost directive to rule file.
+
+   Allow script used for searches to be configured via search directive
+   in rule file (argument is name of script).  Update wwwexec.com to
+   retrieve search script name from server (rather than hard-coding it).
+
+   Update [.documents]configfile.html to reflect new features.
+
+   Fix wwwdir.com to invoke http_dirserv such that image activator detects
+   known image.
+
+   Fix typo in http_startup.com: netserver$server_ -> netserver$servers_
+
+   Change decnet_execute.c to save non-server directives returned by
+   CGI scripts (.i.e. content-type, location, and status header lines)
+   and pass along to client.  The following restrictions apply:
+
+    1. A content-type header must precede a non-CGI header.
+       A consequence of this rule is that redirects (location header)
+       cannot specify arbitrary headers.
+
+    2. A status header, if present, must precede any arbitrary header.
+
+    3. The sum of header lines must not excced 4000 bytes, including
+       standard headers (e.g. server: ) returned by server.
+
+    4. The label portion (before the ':') of the non-CGI header must not 
+       exceed 76 characters and the header must have a non-null argument
+       (portion after the ':').
+
+    5. Continuation headers are not supported.
+
+  Fixed bug in way mapimage.c handles default rule.  Also changed mapimage
+  to support use as a presentation (converter) script.  Since presentation
+  scripts are triggered by the suffix rather than an /htbin prefix, the
+  referencing HTML file can use relative paths.
+
+1.7 release notes:
+   Fixed bug in html_preproc that caused virtual path includes to fail.
+
+   Added .ps and .dvi types to http_suffixes.conf
+
+   Changed time formatting to follow RFC 1036 with tweaks to make Netscape
+   understand it.
+
+1.7/alpha3 release notes:
+   Changed time formatting to follow RFC 1123 and added time decode routine
+   to file_access.c.
+
+   Added support for conditional gets using If-Modified-Since headers, 
+   send_document.c will return 304 status if since time is not earlier than 
+   file's last-modified time.
+
+   Modified send_document.c to include content-length header on binary
+   files.  We assume binary data files are always either stream files or
+   have fixed record length so C RTL will return accurate byte count.
+
+   Modified tserver_decnet.c to optionally restrict DECnet connections to 
+   named sources specified via a logical name.  Modified http_dirserv.c to 
+   use access list specified by WWW_DIRSERV_ACCESS logical, http_startup.com 
+   modified to define this name.
+
+1.7/alpha2 release notes:
+   Changed name of directory browser image to http_dirserv.* to avoid possible
+   known image namespace collisions.
+
+   Modified WWWEXEC.COM to plug security hole.
+
+   Removed DETACH and INSTALL options from HTTP_SERVER.COM, moved INSTALL
+   functionality into HTTP_STARTUP.COM.
+
+   Added tf_format_time() to file_access.c to generate RFC 850 compilant
+   time string.  Modified send_document.c to include Last-modified header
+   line.
+
+   Added Dick Munroe's (munroe@dmc) form-to-mail script to examples,
+   dropped getstats from distribution.
+
+1.7/alpha release notes:
+   Modified ident_map.c to treat SYSUAF lookup failures on userdir rules
+   as 'nomatch' and continue on rather than terminating translation with
+   failure status.
+
+   Fixed minor bug in script processing that caused extra linefeed to be
+   sent to client in some cases.
+
+   Modified send_document.c to check if failed requested is a directory
+   request missing the final '/' and issue re-direct if so.
+
+   Cleaned up tserver_decnet.c to remove direct references to tlog_putlog() and
+   http_log_level.  Also created tserver_decnet.h header file to define
+   function prototypes for the module.
+
+   Added hack to tserver_decnet.c to support operation as either a conventional
+   DECnet task or by declaring the process a network object.  When taskname
+   supplied to ts_declare_decnet_object() is 'sys$net', the created thread will
+   service a single request and exit rather than declaring a known object.
+
+   Created directory browsing scriptserver with components wwwdir.com, 
+   dirserv.c, dirserv_rules.c, and dirserv_options.h.  The dirserv directory
+   browser reads a configuration file to determine how it should format
+   the directories.  The browsing function can show size and date and include
+   readme files within the returned HTML.  You configure http_server to use
+   the browser by uncommenting the presentation rule in http_suffixes.conf.
+   If installed, the scriptserver will run as a permanent decnet object,
+   resulting in much better performance.  If not installed, dirserv uses
+   the tserver_decnet hack to service the requests as a conventional DECnet
+   task.
+
+1.6b release notes:
+    Modified rule_file.c and send_document.c to support a search list for
+    directory index files (index.html).  The search list is defined with
+    the new "welcome" configuration file rule.  If no list is defined, the
+    server uses a default list is "index.html","index.htmlx".  The sample 
+    configuration defines a list of "index.htmlx", "index.html", "welcome.html".
+
+    Added cdcontents script, which formats DEC condist listings as HTML.
+
+    Modified privrequest.c to convert MIME newlines (\r\n) to CRTL newlines
+    (\n), making it easier to use privirequest to download files.
+
+    Modified vmshelpgate.c to scan returned text for HTML special characters
+    (<,>,&) and escape them.
+
+    Modified http_server.c to print warning message if attempting to start
+    server on a privileged port and process lacks SYSPRV.
+
+    Added proxy.c script to permit relay of HTTP request to other node.
+    (Not a general proxy support mechanism).
+
+    Modifed tserver_tcp.c to set keepalive option on UCX (other packages
+    already setting keepalive).
+
+    Fixed bug in send_document.c's handling of presentation scripts.
+
+    Created http_startup.com procedure to simplify creation of detached
+    server process.  Uses DECnet proxy to create network daemon under
+    proper username.
+
+    New cgi_symbols program that creates CGI script variables as DCL
+    symbols.  Also has option to convert form input into symbols.
+
+    Added tlog_rundown() to tlogger.c and modified http_server.c to 
+    explicitly close log files on shutdown/restart (file corruption
+    apparently possible otherwise).
+
+1.6a release notes:
+    Modified ident_map.c and wwwexecom.com to preserve case.
+
+    Changed default log file name to HTTP_SERVER_ERR.LOG to avoid
+    conflict with batch job log file.
+
+    Added <DNETRECMODE> tag to cause implied carriagecontrol on <DNETRAW> and
+    <DNETCGI> output modes.
+
+    Added content-transfer-encoding header to response.  Also made encoding
+    string in configuration file case insensitive.
+
+    Added warning message at startup if process lacks privilege to listen on
+    privileged port.
+
+    Added option to build TCP-specific routines into a shareable image,
+    allowing clusters with multiple packages to share the routine.  Do mms
+    build with /MACRO=SHARE_TCP=xxxx instead of /MACRO=TCP=xxxx.
+
+1.6 release notes:
+    Miscellaneous cleanups: delete obsolete build_scripts.com; correct version
+    string in decnet_execute.c; add realloc and free redefinitions in 
+    pthread_np.h; add build_targate.com.
+
+    Remove INVCACHE as valid method, routine http_execute.c (use script
+    command or management command instead).
+
+1.6/alpha release notes:
+    Re-organized source directories.  Servers and related programs (privrequest,
+    authenticator) are in top level directory, script programs run by
+    WWWEXEC are in [.SCRIPT_CODE] sub-directory.
+
+    Added additional code in send_document.c and rule_file.c to properly
+    invoke configurable presentation script.
+
+    Modified send_document.c to optionally invoke script for formatting 
+    directories.  Enable script using presentation rule for type
+    "text/file-directory"
+
+    Modified send_document.c to include file count at end of generated
+    directory listings.
+    
+    Added support for timeout command argument to manage_request.c
+
+    Fixed bug in structure initialization for bind() call in privrequest
+    program.
+    Modified authlib.c to return normal status when NOWRITER status detected.
+
+    Added tlog_reopen() function to tlogger.c and support for newlog,
+    newtrace, and help commands to manage_request.c
+
+    Fixed bug in tu_read_raw(), file tutil.c which was causing invalid data
+    on long form input.
+
+    Fixed calls to tu_read_line() in file http_server.c and decnet_execute.c
+    so that pathological client requests won't overflow buffer.
+
+1.5c Release notes:
+    Added management interface.  The management interface lets you gracefully
+    shutdown or restart the server from a privileged account.  Summary of 
+    modifications performed:
+	Re-organized portions of tserver_tcp.c, added ts_set_manage_port().
+	Added support for new code to http_server.c, including restart.
+	Added new module: manage_request.c
+	Wrote new program: prevrequest.c, which connects to interface.
+	Modified http_sample_home.conf and http_server.com to support restarts.
+	
+    Fixed bug is user_info.c, improperly checking for disabled accounts.
+
+    Modified send_document.c to check that file retrieved through /~username
+    (userdir) remapping are owned by said username.  Enhanced tf_header_info()
+    to support this change.
+
+    Added hack HTTP_SERVER.COM to properly install server image when
+    invoked using concealed root with 000000 psuedo-dir (@WWW_ROOT:[000000]).
+
+    Tweaked form_request.c to return all lowercase content-type to deal
+    with clients that don't follow the MIME standard.
+
+    Added TCPWARE support to tserver_tcp.c, many thanks to contribution of
+    Eric Ebinger (ebinger@vax3.drc.com).
+
+    Cleaned up targate.c.
+
+1.5b Release notes:
+    Fixed major bug in ts_tcp_remote_host() causing access violations
+    on fallback hostname generation.  Also fixed bug in CMUTCP-specific
+    portion.
+
+    Added decnet_searchlist module.  This allow wwwexec and exec rule prefixes
+    to contain search lists for the node name and to override the
+    taskname/object number that is connected.
+
+    Added tf_header_info() routine to file_access.c.
+
+    Fixed problem with decnet_execute and scripts that use RAW mode.
+    Routine was sending fallback error message (script produced no output)
+    because response header was never added.
+
+1.5a Release notes:
+    Several minor fixes to allow the server to be built under the VAX version
+    of DECC, many suggested by Lee Tibbert (tibbert@cosby.enet.dec.com).
+
+    Linking of the server is now done by a command procedure, LINK_SERVER.COM,
+    which is invoked by mms to link the image or may be used manually to
+    re-link with different linker flags if you don't have MMS and have made
+    a fix to source file.
+
+    Fixed bug in file_access that was causing HEAD command to hang
+    server (global lock was not being released).
+
+    Improved tserver_tcp.c to wait for client context to become
+    available (up to 3 seconds) rather than failing immediately.
+
+    Added support for DNSLookup rule to configuration file, which enables
+    translation of host address to host name in access logs.
+
+    Changed pthread_np.h and http_server.c to support a reentrant C run time
+    library (locks around CRTL calls can be disabled).
+
+    Fixed bug in authcom.c that incorrectly fixed up the logger line after
+    extracting the username for the access log.
+
+1.5 Release notes:
+    Fixed another bug in cgilib.c, computation of content-length was
+    invalid.
+
+    Change mapimage.c to translate the config file name included in the
+    href to make it easier to put map config file in same directory as
+    image file.  Remove [.image_maps] directory and change nagel23a demo
+    to put .conf in the [.documents] directory.
+
+    Fix potential problem in tserver_tcp.c with use of static variable.
+
+    Changed http_server.com to make a better effort at determining
+    http_default_host for non-UCX TCP systems.
+
+1.4c Release notes:
+    Access checks now apply to Scripts.
+
+    Improved VMSHELPGATE.  The program will now include the actual qualifiers
+    in the menu, placing anchor references.
+
+    Improved VMSHELP.COM script, de-escapes the search string and uses
+    indirect symbol invocation to allow work with ":=" and "=" topics.
+
+1.4b Release notes:
+    Changed ident_map.c to unescape URL before translation. (Mosaic 2.4
+    escapes '~' in userdir URLS).
+
+    Fixed bug in decnet_access.c, dnet_format_error() was failing to
+    initialize a variable, causing sporatic thread aborts instead of
+    error message (only happened if DECnet scripts not properly configured).
+
+    Fixed bug in cgilib.c, cgi_read() was reading from DECnet link instead
+    of contentf file.
+
+    Added include directive to configuration file.  Added accesslog and
+    TraceLevel as well.
+
+    Support separate log files for accesses (common format), errors, and
+    execution tracing.  A new error and trace log file is created every time 
+    the program is started, access log entries will be appended to an
+    existing file if possible.
+
+    Include new getstats program [.bin] to analyze access log (common).
+
+    Changed http_server.com to pass parameters P2 through P5 to detached
+    processes (P1 is replaced with RUN).  Also added P2/level.
+
+1.4a Release notes:
+    When using CMU TCP interface, convert ABORT status to ACP error code.
+
+    Modified TLOGGER to include line length when reporting write errors.
+
+    Zero-terminate error lines generated by SYS$GETMSG in DECNET_ACCESS.C.
+
+1.4 Release notes:
+    The server must now read a useable rules file when it starts or else it
+    will exit.  This is to prevent the condition where the server starts
+    successfully but rejects all requests due to a missing/invalid rules
+    file.  For a rules file to be useable, it must contain at least 1
+    catagory of 'pass' rule (pass, exec, userdir).
+
+    Added additional logging for rule file processing at startup.  When log
+    level is greater than 1, the name of the rule file and a summary line
+    will be added to the log file.
+
+    Fixed bug in the way send_response_header()  (file http_execute.c) that
+    was causing invalid responses to SimpleRequests (version 0.9).  Also
+    modified send_document to avoid re-directs on SimpleRequests.
+
+    Modified Rule_file.c to make rule names case insensitive.  Made AddType a
+    synonym for suffix.
+
+    Modified cgilib.c to not decode query string, as per CGI spec.
+
+    Added a couple of hacks for dealing with the cache.  First, a new script
+    command was added so that a special script (invcache.com) will cause
+    the server to flush it's cache.  Second, an additional argument was
+    added to the http_server command line which will either inhibit caching
+    on the http port or listen on a second port with has caching inhibited.
+    (setting cache size to zero is slightly more efficient that using
+    the second argument to inhibit the caching).
+
+    Added access control to server, configured with the following new
+    rule file directives:
+
+	Authenticator image
+	    Specifies the authentication support image for verifying access
+	    rights for protected files.  If a requested file matches a 
+	    protect rule template, the server asks the authenticator (running
+	    in a sub-process) whether the access is to be permitted and
+	    accesses the file only if the authenticator responds affirmatively.
+
+	defprot template setup-file
+	hostprot template [setup-file]
+	protect template [setup-file]
+	    These rules are used to specify access control for served files.  
+	    The defprot rule defines a default setup file should a subsequent
+	    matching hostprot or protect rule omit one.  The hostprot rule
+	    causes level 1 access checks to be applied to the matching files
+	    while the protect rule causes level 2 access checks to be performed.
+	    The setup file is in the same format as the CERN servers protection
+	    setup files.
+	        Level 1 access checking restricts access based solely on
+	    the host address of the requesting client, only maskgroup items
+	    of form "@ip-address" in the setup file are recognized (address 
+	    may contain wildcards).  Level 2 access checking is the full 
+	    CERN-style access checks, with user-groups and ACLs being checked.
+	    The advantage of level 1 is that it is processed internally by
+	    the server,  level 2 requires the server to make a round trip
+	    to the authenticator to perform the access check.
+
+    Modified http_server.com to attempt to define http_default_host if
+    undefined (only works for UCX, possibly for Multinet).
+
+1.3 Release notes:
+    Fixed support for *.* and * rule file suffix directives.  The
+    algorithm works as follows:
+	If suffix of target file has no corresponding rule, default to text/html.
+	else take highest quality representation that client has sent accept
+	     header for, matching if client accept */*.
+	else take highest quality rep. that client accepts for any *.* suffix
+            entries in rule file.
+
+    Modified send_document.c to send headers for HEAD requests even if
+    client would not accept data type.
+
+    Enhanced script support.  Added utility routines for CGI programs.
+    Added <DNETID> and <DNETXLATE> tags to script protocol.
+
+    wwwexec.com now quotes the arguments to the script programs, so URLs
+    will be in uppercase (VAXC RTL was changing arguments to lower case).
+
+    Added index_search program.  If a search directive is present in
+    the rules file, general searches will cause wwwexec to run this
+    program.
+
+    Modified decnet_execute.c to support node:: prefix for exec rule file
+    directive.  See comments in http_server.conf for description.
+
+    Added support for "userdir subdir" rule file directive.  When present in 
+    the rule file, URLs of form /~username/... will be passed with ~username
+    replaced with "defdev/defdir/subdir" where defdev/devdir are the 
+    username's login directory.  Note that the HTTP_SERVER image must
+    be installed with SYSRPV privilege in order to read the system
+    authorization file (the program disables the privilege except when
+    call SYS$GETUAI).
+
+1.2A Release notes:
+    Made minor changes to rule_file.c and file_access.c to compile properly
+    under DEC C 1.3 on AXP.
+
+1.2 Release notes:
+    Server code as been fixed to compiled cleanly on OpenVMS AXP (DEC C compiler)
+    with no switches.
+
+    The server now opens the latest version of the log file when it flushes
+    rather that the same one continually.
+
+    The example configuration file has been renamed from sample.conf to
+    http_server.conf, which is the default file used by http_server.com.
+
+    The distribution includes example html files which are pre-configured
+    in http_server.conf so that server operation may be verified by 
+    invoking the command procedure http_server.com.
+
+    The server now supports the redirect rules file directive, which allows
+    you to statically redirect a client request to a different URL.
+
+    The mapimage.c script now uses direct RMS calls for DECnet communication
+    rather than unixio calls.  No functionality has changed, it was just
+    easier to write a new module (scriptlib.c) than to coerce both VAXC
+    and DECC RTL into dealing properly with zero length records.
+
+    The htbin direct has been superceded by the exec directive, for
+    compatibility the server auotmatically maps htbin directives into the
+    equivalent exec directive.  *IMPORTANT*: Since htbin is now effectivly
+    a mapping rule rather than a post translation test, its placement
+    in the rules file affects the results.  For example, the lines:
+
+	    htbin some$disk:[bin_dir]
+	    map /htscript/* /htbin/*
+
+    must be reordered.
+
+    The server now supports the CMU TCP/IP package.
+
+1.1 Release notes:
+    The server now supports the native Multinet TCP/IP interface.  Build
+    the server with "MMS/MACRO=TCP=MULTINET".
+
+    The rules file nows supports an optional result mapping on the pass
+    directive.
+
+    Script support has been extended.  If the htbin directive is in the
+    server configuration file, script names (command procedures and
+    images will be run from DECnet tasks).  Two example scripts are provided,
+    VMSHELP.COM and MAPIMAGE.C (mms mapimage.exe).  Note that if a script
+    outputs a redirection (tag DNETCGI) with a relative URL (no scheme or 
+    host), it may only specify a file and cannot invoke another script
+    (/htbin).  See the file WWWEXEC.COM for more details.
+
+
+1.0 Release notes:
+    The rules file currently supports the map, pass, fail, suffix,
+    htbin, and search directives.  Wildcard support is limited to astericks
+    as the last character.  See comments in sample.conf for details.
+
+    The infrastructure to support search and htbin scripts is in place
+    but actual programs to use this program are not yet implemented.
+    The server executes scripts as a decnet object defined by the environment
+    variable/logical WWWEXEC (default 0::"task=WWWEXEC").  See comments
+    WWWEXEC.COM for a description of the interface and examples of it's use.
+
+    For requested URLs that end in "/", the server first searches for
+    an index.html file in that directory and returns it if found.  If
+    no index.html is present, the server returns an HTML list of the
+    directory with links to every file.
+
+    The server supports an in-memory cache (configured with HTTP_CACHE_SIZE)
+    for small documents.  Only documents less that 4096 bytes is size are
+    cached.  To invalidate the cache on a running server, telnet to the
+    HTTP port and enter the command "INVCACHE / HTTP/1.0" and hit return
+    twice.  Disable the cache by setting HTTP_CACHE_SIZE to zero in the
+    HTTP_SERVER.COM command procedure.
+
+
+David L. Jones               |      Phone:    (614) 292-6929
+Ohio State Unviversity       |      Internet:
+2070 Neil Ave. Rm. 122       |               jonesd@kcgl1.eng.ohio-state.edu
+Columbus, OH 43210           |               vman+@osu.edu

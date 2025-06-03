@@ -1,0 +1,63 @@
+
+Here's a new version of the RAMDRIVER I wrote a while ago with lots better
+performance than DEC's PDDRIVER.  This version has a fix in it for executing
+certain images off of a "disk" controlled by the RAMDRIVER:  in the previous
+version, a pathological case existed where a process incurring a page fault
+executing at IPL$_ASTDEL would hang waiting for the RAMDRIVER to satisfy the
+page fault read, since RAMDRIVER queues ASTs to processes.  This is a classic
+deadlock.  This showed up during image activation a lot.  Additionally, if
+the process in question owned a MUTEX, then slowly but surely the whole system
+would hang waiting for the deadlocked process to release the MUTEX.  This also
+happened a lot during image activation :-(
+
+The new version doesn't suffer from this problem -- it bypasses queueing the
+AST for page fault reads (or writes, for that matter, though why anyone would
+set up a pagefile on a ramdisk is a bit beyond me), thus preventing the hangs.
+
+The driver source, a program to set the size of the ramdisk, this text, the
+text from my original Info-VAX posting from April 1988 and a command procedure
+to build everything follows in VMS_SHARE format in 5 parts.
+
+This version runs on VMS V5.x systems only.  If you're still running on V4.x
+you're out of luck (you'll have to invent LDR$ALLOC_PT and LDR$DEALLOC_PT as
+well as undo the spin lock stuff).
+
+The last time I posted this I was deluged with questions about how to use it,
+etc.  To short circuit that process this time, one uses the MAKE.COM procedure
+to build it, and from a privileged account one does the following:
+
+	$ Run SYS$SYSTEM:SYSGEN
+	SYSGEN>  LOAD dev:[dir]RAMDRIVER
+	SYSGEN>  CONNECT RDA0/NOADAPTER/DRIVER=RAMDRIVER
+	SYSGEN>  ^Z
+	$ Run INITVD
+	Init-VD> RDA0: size-in-blocks
+	$ Initialize RDA0: your-favorite-volume-label
+	$ Mount RDA0: your-favorite-volume-label
+
+and treat it just like any other disk.  The "blocks" for this disk come from
+non-paged pool, and therefore you should ensure that you have enough non-paged
+pool to accomodate the desired ramdisk.  Also, the RAMDRIVER uses system page
+table entries to double-map I/O buffers for page fault reads -- this comes from
+the SYSGEN parameter SPTREQ.  If there aren't enough free SPTEs then RAMDRIVER
+will return error indications for page fault reads, rendering the process
+incurring the page fault (and probably you, too) very unhappy.  I run the
+VAXen here at SDSC with a fair amount of extra system address space (~1000
+pages - but I have lots of spare memory) so this isn't a problem for me.
+
+The upshot of this is:
+
+	1.  Ensure you have enough non-paged pool.
+	2.  Ensure you have enough SPTREQ.
+
+before using RAMDRIVER.
+
+I apologize for taking so long to fix this problem -- I've been aware of it
+for quite some time.  RAMDRIVER is a spare-time project for me, and lately
+my spare time has been measured in small integer numbers of micro-fortnights ...
+
+
+As before, no warranty, expressed or implied.  Use at your own risk (I do).
+
+Comments, fixes, etc.  welcome as always.
+

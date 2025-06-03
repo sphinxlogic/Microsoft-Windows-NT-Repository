@@ -1,0 +1,1546 @@
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 1
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (1)
+
+
+
+    1        	#module UAF_DW_SUBS "X-2"
+    2        	
+    3        	/*
+    4        	**++
+    5        	**  FACILITY:	Authorization record maintenance utility
+    6        	**
+    7        	**  MODULE DESCRIPTION:
+    8        	**
+    9        	**		This module contains the various DECwindows support routines
+   10        	**		needed by the DECwindows AUTHORIZE utility.
+   11        	**
+   12        	**  AUTHORS:	L. Mark Pilant			CREATION DATE:  30-Oct-1992
+   13        	**
+   14        	**  MODIFICATION HISTORY:
+   15        	**
+   16        	**	X-2	LMP		L. Mark Pilant,		 5-MAR-1993  12:47
+   17        	**		Convert to C from BLISS sources.
+   18        	**
+   19        	**	X-1	LMP		L. Mark Pilant,		30-Oct-1992
+   20        	**		Original version.
+   21        	**
+   22        	**--
+   23        	*/
+   24        	
+   25        	/*
+   26        	**
+   27        	**  INCLUDE FILES
+   28        	**
+   29        	*/
+   30        	
+   31        	#include ctype
+   94        	#include stdlib
+  241        	
+  242        	#include <STSDEF>
+  340        	
+  341        	#include <decw$include:mrmappl>
+32413        	
+32414        	#include "uaf_header"
+33834        	
+33835        	/*
+33836        	**
+33837        	**  FORWARD ROUTINES
+33838        	**
+33839        	*/
+33840        	
+33841        	#pragma noinline (AUTHORIZE$DECW_ACTIVATE_PROC)
+33842        	#pragma noinline (AUTHORIZE$DECW_BUTTON_PROC)
+33843        	#pragma noinline (AUTHORIZE$DECW_CREATE_PROC)
+33844        	#pragma noinline (AUTHORIZE$DECW_ERROR)
+33845        	#pragma noinline (AUTHORIZE$DECW_ERROR_DISMISS)
+33846        	#pragma noinline (AUTHORIZE$DECW_LIST_PROC)
+33847        	#pragma noinline (AUTHORIZE$DECW_PULL_PROC)
+33848        	#pragma noinline (AUTHORIZE$DECW_SET_VALUE)
+33849        	#pragma noinline (AUTHORIZE$DECW_TOGGLE_PROC)
+33850        	#pragma noinline (AUTHORIZE$GET_LIST_ENTRIES)
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 2
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (1)
+
+33851        	#pragma noinline (AUTHORIZE$GET_LIST_ENTRY_TEXT)
+33852        	#pragma noinline (AUTHORIZE$GET_TOGGLE_BUTTONS)
+33853        	#pragma noinline (AUTHORIZE$SELECT_LIST_ENTRIES)
+33854        	#pragma noinline (AUTHORIZE$SET_TOGGLE_BUTTONS)
+33855        	#pragma noinline (AUTHORIZE$UNMAP_WIDGET)
+33856        	#pragma noinline (AUTHORIZE$WATCH_CURSOR_OFF)
+33857        	#pragma noinline (AUTHORIZE$WATCH_CURSOR_ON)
+33858        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 3
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (2)
+
+             	
+33859        	extern void AUTHORIZE$DECW_ACTIVATE_PROC (widget_id, tag, reason)
+33860        	
+33861        	Widget				widget_id;
+33862        	int				*tag;
+33863        	XmAnyCallbackStruct		*reason;
+33864        	{
+33865    1   	/*
+33866    1   	**++
+33867    1   	**  FUNCTIONAL DESCRIPTION:
+33868    1   	**
+33869    1   	**	This callback routine is invoked from the .UIL file to perform the
+33870    1   	**	the actions required to support various widgets; usually pushbuttons
+33871    1   	**	and menu lists.
+33872    1   	**
+33873    1   	**  FORMAL PARAMETERS:
+33874    1   	**
+33875    1   	**	{@subtags@}
+33876    1   	**
+33877    1   	**  RETURN VALUE:
+33878    1   	**
+33879    1   	**	None
+33880    1   	**
+33881    1   	**  SIDE EFFECTS:
+33882    1   	**
+33883    1   	**	{@description or none@}
+33884    1   	**
+33885    1   	**--
+33886    1   	*/
+33887    1   	
+33888    1   	/* External routines. */
+33889    1   	
+33890    1   	extern void	AUTHORIZE$ACCESS_RESTRICTIONS ();
+33891    1   	extern void	AUTHORIZE$ENTRY_PROCESS ();
+33892    1   	extern void	AUTHORIZE$COMMAND_MENU ();
+33893    1   	extern void	AUTHORIZE$FILE_MENU ();
+33894    1   	extern void	AUTHORIZE$FILE_PROCESS ();
+33895    1   	extern void	AUTHORIZE$FINISH_ENTRY ();
+33896    1   	extern void	AUTHORIZE$HELP_MENU ();
+33897    1   	extern void	AUTHORIZE$IDENTIFIERS ();
+33898    1   	extern void	AUTHORIZE$MAIN_PROCESS ();
+33899    1   	
+33900    1   	/* Local storage. */
+33901    1   	
+33902    1   	unsigned int	status;				/* Routine exit status */
+33903    1   	int		widget_number = *tag;
+33904    1   	
+33905    1   	/* Debug information. */
+33906    1   	
+33907    1   	#ifdef DEBUGGING
+33908   X    	printf ("activate proc\n");
+33909    1   	#endif /* DEBUGGING */
+33910    1   	
+33911    1   	/* Call the appropriate routine, based upon the requested action. */
+33912    1   	
+33913    1   	switch (widget_number)
+33914    1   	    {
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 4
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (2)
+
+33915    2   	
+33916    2   	/* For the main menu bar, call the appropriate routines. */
+33917    2   	
+33918    2   	    case uaf$c_ctl_open:
+33919    2   	    case uaf$c_ctl_refresh:
+33920    2   	    case uaf$c_ctl_quit:
+33921    2   		{
+33922    3   		AUTHORIZE$FILE_MENU (widget_id,
+33923    3   				     tag,
+33924    3   				     reason);
+33925    3   		break;
+33926    3   		}
+33927    2   	
+33928    2   	    case uaf$c_cmd_list:
+33929    2   	    case uaf$c_cmd_print:
+33930    2   	    case uaf$c_cmd_modify_template:
+33931    2   		{
+33932    3   		AUTHORIZE$COMMAND_MENU (widget_id,
+33933    3   					tag,
+33934    3   					reason);
+33935    3   		break;
+33936    3   		}
+33937    2   	
+33938    2   	    case uaf$c_hlp_about:
+33939    2   	    case uaf$c_hlp_overview:
+33940    2   		{
+33941    3   		AUTHORIZE$HELP_MENU (widget_id,
+33942    3   				     tag,
+33943    3   				     reason);
+33944    3   		break;
+33945    3   		}
+33946    2   	
+33947    2   	/* For the main window pushbuttons, call the appropriate routine. */
+33948    2   	
+33949    2   	    case uaf$c_main_create:
+33950    2   	    case uaf$c_main_modify:
+33951    2   	    case uaf$c_main_reset:
+33952    2   	    case uaf$c_main_select:
+33953    2   	    case uaf$c_main_delete:
+33954    2   		{
+33955    3   		AUTHORIZE$MAIN_PROCESS (widget_id,
+33956    3   					tag,
+33957    3   					reason);
+33958    3   		break;
+33959    3   		}
+33960    2   	
+33961    2   	/* For the identifier window. */
+33962    2   	
+33963    2   	    case uaf$c_main_identifiers:
+33964    2   	    case uaf$c_identifier_system:
+33965    2   	    case uaf$c_identifier_grant:
+33966    2   	    case uaf$c_identifier_modify:
+33967    2   	    case uaf$c_identifier_remove:
+33968    2   	    case uaf$c_identifier_ok:
+33969    2   	    case uaf$c_identifier_cancel:
+33970    2   	    case uaf$c_system_identifier_cancel:
+33971    2   		{
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 5
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (2)
+
+33972    3   		AUTHORIZE$IDENTIFIERS (widget_id,
+33973    3   				       tag,
+33974    3   				       reason);
+33975    3   		break;
+33976    3   		}
+33977    2   	
+33978    2   	/* For the entry modify window pushbuttons. */
+33979    2   	
+33980    2   	    case uaf$c_entry_ok:
+33981    2   	    case uaf$c_entry_rename:
+33982    2   	    case uaf$c_entry_copy:
+33983    2   		{
+33984    3   		AUTHORIZE$FINISH_ENTRY (widget_id,
+33985    3   					tag,
+33986    3   					reason);
+33987    3   		break;
+33988    3   		}
+33989    2   	
+33990    2   	    case uaf$c_entry_cancel:
+33991    2   	    case uaf$c_entry_ok_next:
+33992    2   	    case uaf$c_entry_ok_previous:
+33993    2   	    case uaf$c_entry_apply_template:
+33994    2   		{
+33995    3   		AUTHORIZE$ENTRY_PROCESS (widget_id,
+33996    3   					 tag,
+33997    3   					 reason);
+33998    3   		break;
+33999    3   		}
+34000    2   	
+34001    2   	/* For the access restriction window. */
+34002    2   	
+34003    2   	    case uaf$c_entry_access_primary:
+34004    2   	    case uaf$c_entry_access_secondary:
+34005    2   	    case uaf$c_access_pri_ok:
+34006    2   	    case uaf$c_access_pri_cancel:
+34007    2   	    case uaf$c_access_sec_ok:
+34008    2   	    case uaf$c_access_sec_cancel:
+34009    2   		{
+34010    3   		AUTHORIZE$ACCESS_RESTRICTIONS (widget_id,
+34011    3   					       tag,
+34012    3   					       reason);
+34013    3   		break;
+34014    3   		}
+34015    2   	
+34016    2   	/* For the file selection window pushbuttons. */
+34017    2   	
+34018    2   	    case uaf$c_file_open_file:
+34019    2   	    case uaf$c_file_cancel:
+34020    2   		{
+34021    3   		AUTHORIZE$FILE_PROCESS (widget_id,
+34022    3   					tag,
+34023    3   					reason);
+34024    3   		break;
+34025    3   		}
+34026    2   	    }
+34027    1   	}
+34028        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 6
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (3)
+
+             	
+34029        	extern void AUTHORIZE$DECW_BUTTON_PROC (widget_id, user_data, event)
+34030        	
+34031        	Widget				widget_id;
+34032        	int				user_data;	/* Unused */
+34033        	XButtonEvent			*event;
+34034        	{
+34035    1   	/*
+34036    1   	**++
+34037    1   	**  FUNCTIONAL DESCRIPTION:
+34038    1   	**
+34039    1   	**	This callback routine is invoked through a ButtonPress event in the
+34040    1   	**	authorization entry window.
+34041    1   	**
+34042    1   	**  FORMAL PARAMETERS:
+34043    1   	**
+34044    1   	**	{@subtags@}
+34045    1   	**
+34046    1   	**  RETURN VALUE:
+34047    1   	**
+34048    1   	**	None
+34049    1   	**
+34050    1   	**  SIDE EFFECTS:
+34051    1   	**
+34052    1   	**	{@description or none@}
+34053    1   	**
+34054    1   	**--
+34055    1   	*/
+34056    1   	
+34057    1   	/* Global references. */
+34058    1   	
+34059    1   	globalref Widget	uaf_r_entry_popup_menu_widget;	/* Entry window popup menu */
+34060    1   	globalref Widget	uaf_r_entry_window_widget;	/* Entry window widget info */
+34061    1   	globalref Widget	uaf_r_id_popup_menu_widget;	/* Identifier window popup menu */
+34062    1   	globalref Widget	uaf_r_identifier_window_widget;	/* Identifier window widget info */
+34063    1   	
+34064    1   	/* Local storage. */
+34065    1   	
+34066    1   	unsigned int		status;				/* Routine exit status */
+34067    1   	
+34068    1   	/* Debug information. */
+34069    1   	
+34070    1   	#ifdef DEBUGGING
+34071   X    	printf ("button proc\n");
+34072    1   	#endif /* DEBUGGING */
+34073    1   	
+34074    1   	/* Only events related to mouse button 3 are to be processed by this routine. */
+34075    1   	
+34076    1   	if (event->button != Button3) return;
+34077    1   	
+34078    1   	/* If the event occurs in the authorization entry window, bring up the
+34079    1   	** appropriate popup menu. */
+34080    1   	
+34081    1   	if (widget_id == uaf_r_entry_window_widget)
+34082    1   	    {
+34083    2   	    XmMenuPosition (uaf_r_entry_popup_menu_widget,
+34084    2   			    event);
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 7
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (3)
+
+34085    2   	    XtManageChild (uaf_r_entry_popup_menu_widget);
+34086    2   	    }
+34087    1   	
+34088    1   	/* if the event occurs in the identifier window, bring up the appropriate
+34089    1   	** popup menu. */
+34090    1   	
+34091    1   	if (widget_id == uaf_r_identifier_window_widget)
+34092    1   	    {
+34093    2   	    XmMenuPosition (uaf_r_id_popup_menu_widget,
+34094    2   			    event);
+34095    2   	    XtManageChild (uaf_r_id_popup_menu_widget);
+34096    2   	    }
+34097    1   	}
+34098        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 8
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (4)
+
+             	
+34099        	extern void AUTHORIZE$DECW_CREATE_PROC (widget_id, tag, reason)
+34100        	
+34101        	Widget				widget_id;
+34102        	int				*tag;
+34103        	XmAnyCallbackStruct		*reason;
+34104        	{
+34105    1   	/*
+34106    1   	**++
+34107    1   	**  FUNCTIONAL DESCRIPTION:
+34108    1   	**
+34109    1   	**	This callback routine is invoked to "register" the IDs for the various
+34110    1   	**	widgets created (in the .UIL file).
+34111    1   	**
+34112    1   	**  FORMAL PARAMETERS:
+34113    1   	**
+34114    1   	**	{@subtags@}
+34115    1   	**
+34116    1   	**  RETURN VALUE:
+34117    1   	**
+34118    1   	**	None
+34119    1   	**
+34120    1   	**  SIDE EFFECTS:
+34121    1   	**
+34122    1   	**	{@description or none@}
+34123    1   	**
+34124    1   	**--
+34125    1   	*/
+34126    1   	
+34127    1   	/* Global references. */
+34128    1   	
+34129    1   	globalref Widget	uaf_r_widget_id_array[uaf$c_max_widget_code];		/* Array of Widget IDs in use */
+34130    1   	
+34131    1   	/* Local storage. */
+34132    1   	
+34133    1   	unsigned int		status;				/* Routine exit status */
+34134    1   	int			widget_number = *tag;
+34135    1   	
+34136    1   	/* Debug information. */
+34137    1   	
+34138    1   	#ifdef DEBUGGING
+34139   X    	printf ("create proc\n");
+34140    1   	#endif /* DEBUGGING */
+34141    1   	
+34142    1   	/* Save the widget id of the created widget. */
+34143    1   	
+34144    1   	uaf_r_widget_id_array[widget_number] = widget_id;
+34145    1   	}
+34146        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 9
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (5)
+
+             	
+34147        	extern void AUTHORIZE$DECW_ERROR (error_code)
+34148        	
+34149        	unsigned int		error_code;
+34150        	{
+34151    1   	/*
+34152    1   	**++
+34153    1   	**  FUNCTIONAL DESCRIPTION:
+34154    1   	**
+34155    1   	**	This routine is called to pop up an appropriate dialog box, based
+34156    1   	**	upon the specified error code.
+34157    1   	**
+34158    1   	**  FORMAL PARAMETERS:
+34159    1   	**
+34160    1   	**	ERROR_CODE		- error code to interrogate
+34161    1   	**
+34162    1   	**  RETURN VALUE:
+34163    1   	**
+34164    1   	**	None
+34165    1   	**
+34166    1   	**  SIDE EFFECTS:
+34167    1   	**
+34168    1   	**	None
+34169    1   	**
+34170    1   	**--
+34171    1   	*/
+34172    1   	
+34173    1   	/* Required constants. */
+34174    1   	
+34175    1   	#define	ARG_COUNT	4				/* Number of X arguments in list */
+34176    1   	
+34177    1   	/* External routines. */
+34178    1   	
+34179    1   	extern void		AUTHORIZE$DECW_ERROR_DISMISS ();
+34180    1   	
+34181    1   	/* Global references. */
+34182    1   	
+34183    1   	globalref Widget	uaf_r_error_dialog_widget;	/* Error dialog box widget */
+34184    1   	globalref Widget	uaf_r_main_window_widget;	/* Main window widget info */
+34185    1   	
+34186    1   	/* Local storage. */
+34187    1   	
+34188    1   	Arg			args[ARG_COUNT];		/* Genral X argument list */
+34189    1   	XtCallbackRec		callback_list[2];		/* Callback list */
+34190    1   	XmString		compound_string;		/* General compound string */
+34191    1   	char			message_text[MAX_TEMP_STRING];	/* Message test storage */
+34192    1   	short int		message_text_length;		/* Length of message text */
+34193    1   	unsigned int		simple_desc[2];			/* Simple descriptor */
+34194    1   	unsigned int		status;				/* Routine exit status */
+34195    1   	
+34196    1   	/* If the supplied error code indicates some failure, pop up an appropriate
+34197    1   	** dialog box.  Otherwise, simply return. */
+34198    1   	
+34199    1   	if ($VMS_STATUS_SEVERITY (error_code) != STS$K_SUCCESS)
+34200    1   	    {
+34201    2   	
+34202    2   	/* Get the text associated with the error code. */
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 10
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (5)
+
+34203    2   	
+34204    2   	    simple_desc[0] = sizeof message_text;
+34205    2   	    simple_desc[1] = &message_text;
+34206    2   	
+34207    2   	    SYS$GETMSG (error_code,
+34208    2   			&message_text_length,
+34209    2   			&simple_desc,
+34210    2   			1,					/* Include only message text */
+34211    2   			0);
+34212    2   	    message_text[message_text_length] = '\0';		/* Terminate the string ASCIZ fashion */
+34213    2   	
+34214    2   	/* Set up the callback list. */
+34215    2   	
+34216    2   	    callback_list[0].callback = (caddr_t) AUTHORIZE$DECW_ERROR_DISMISS;
+34217    2   	    callback_list[0].closure = 0;
+34218    2   	    callback_list[1].callback = NULL;			/* Terminate the callback list */
+34219    2   	    callback_list[1].closure = 0;
+34220    2   	
+34221    2   	/* Set up the necessary arguments for the dialog box creation.  These are
+34222    2   	** common to all the dialog boxes created. */
+34223    2   	
+34224    2   	    XtSetArg (args[0],
+34225    2   		      XmNcancelCallback,
+34226    2   		      callback_list);
+34227    2   	    XtSetArg (args[1],
+34228    2   		      XmNokCallback,
+34229    2   		      callback_list);
+34230    2   	    compound_string = XmStringCreateSimple (message_text);
+34231    2   	    XtSetArg (args[2],
+34232    2   		      XmNmessageString,
+34233    2   		      compound_string);
+34234    2   	    XtSetArg (args[3],
+34235    2   		      XmNdialogStyle,
+34236    2   		      XmDIALOG_FULL_APPLICATION_MODAL);
+34237    2   	
+34238    2   	
+34239    2   	/* Based upon the severity of the error code, do the necessary popup. */
+34240    2   	
+34241    2   	    switch ($VMS_STATUS_SEVERITY (error_code))
+34242    2   		{
+34243    3   		case STS$K_WARNING:
+34244    3   		    {
+34245    4   		    uaf_r_error_dialog_widget = XmCreateWarningDialog (uaf_r_main_window_widget,
+34246    4   								       "Warning_box",
+34247    4   								       args,
+34248    4   								       ARG_COUNT);
+34249    4   		    break;
+34250    4   		    }
+34251    3   	
+34252    3   		case STS$K_ERROR:
+34253    3   		case STS$K_SEVERE:
+34254    3   		    {
+34255    4   		    uaf_r_error_dialog_widget = XmCreateErrorDialog (uaf_r_main_window_widget,
+34256    4   								     "Error_box",
+34257    4   								     args,
+34258    4   								     ARG_COUNT);
+34259    4   		    break;
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 11
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (5)
+
+34260    4   		    }
+34261    3   	
+34262    3   		case STS$K_INFO:
+34263    3   		    {
+34264    4   		    uaf_r_error_dialog_widget = XmCreateInformationDialog (uaf_r_main_window_widget,
+34265    4   									   "Informational_box",
+34266    4   									   args,
+34267    4   									   ARG_COUNT);
+34268    4   		    break;
+34269    4   		    }
+34270    3   		}
+34271    2   	
+34272    2   	/* Make the dialog box visible. */
+34273    2   	
+34274    2   	    XtManageChild (uaf_r_error_dialog_widget);
+34275    2   	
+34276    2   	    XtFree (compound_string);
+34277    2   	    }
+34278    1   	}
+34279        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 12
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (6)
+
+             	
+34280        	extern void AUTHORIZE$DECW_ERROR_DISMISS ()
+34281        	
+34282        	{
+34283    1   	/*
+34284    1   	**++
+34285    1   	**  FUNCTIONAL DESCRIPTION:
+34286    1   	**
+34287    1   	**	This routine is called to dismiss the "error" dialog box.
+34288    1   	**
+34289    1   	**  FORMAL PARAMETERS:
+34290    1   	**
+34291    1   	**	None
+34292    1   	**
+34293    1   	**  RETURN VALUE:
+34294    1   	**
+34295    1   	**	None
+34296    1   	**
+34297    1   	**  SIDE EFFECTS:
+34298    1   	**
+34299    1   	**	None
+34300    1   	**
+34301    1   	**--
+34302    1   	*/
+34303    1   	
+34304    1   	/* Global references. */
+34305    1   	
+34306    1   	globalref Widget	uaf_r_error_dialog_widget;	/* Error dialog box widget */
+34307    1   	
+34308    1   	XtUnmanageChild (uaf_r_error_dialog_widget);
+34309    1   	}
+34310        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 13
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (7)
+
+             	
+34311        	extern void AUTHORIZE$DECW_LIST_PROC (widget_id, tag, list)
+34312        	
+34313        	Widget				widget_id;
+34314        	int				*tag;
+34315        	XmListCallbackStruct		*list;
+34316        	{
+34317    1   	/*
+34318    1   	**++
+34319    1   	**  FUNCTIONAL DESCRIPTION:
+34320    1   	**
+34321    1   	**	This callback routine is invoked to obtain the information about
+34322    1   	**	an item selected from one of the main window list boxes.
+34323    1   	**
+34324    1   	**  FORMAL PARAMETERS:
+34325    1   	**
+34326    1   	**	{@subtags@}
+34327    1   	**
+34328    1   	**  RETURN VALUE:
+34329    1   	**
+34330    1   	**	None
+34331    1   	**
+34332    1   	**  SIDE EFFECTS:
+34333    1   	**
+34334    1   	**	{@description or none@}
+34335    1   	**
+34336    1   	**--
+34337    1   	*/
+34338    1   	
+34339    1   	/* External routines. */
+34340    1   	
+34341    1   	extern void			AUTHORIZE$DECW_ACTIVATE_PROC ();
+34342    1   	extern void			AUTHORIZE$DECW_ERROR ();
+34343    1   	extern unsigned int		AUTHORIZE$GET_USER_INFO ();
+34344    1   	extern void			AUTHORIZE$SET_UP_ATTRIBUTES ();
+34345    1   	
+34346    1   	/* Global references. */
+34347    1   	
+34348    1   	globalref unsigned int		uaf_l_current_user_index;				/* Index of current user */
+34349    1   	globalref struct ITMDEF		(*uaf_r_current_group_info)[];				/* Current group UAF info */
+34350    1   	globalref struct UAFLAG		uaf_r_flags;						/* Miscellaneous utility flags */
+34351    1   	globalref Widget		uaf_r_widget_id_array[uaf$c_max_widget_code];		/* Array of Widget IDs in use */
+34352    1   	globalref char			uaf_t_current_groupname[];				/* Current group name */
+34353    1   	
+34354    1   	/* Local storage. */
+34355    1   	
+34356    1   	XmPushButtonCallbackStruct	*pb_callback;			/* Callback structure for simulated pushbutton activate */
+34357    1   	unsigned int			status;				/* Routine exit status */
+34358    1   	int				widget_number = *tag;
+34359    1   	
+34360    1   	/* Compound string component storage. */
+34361    1   	
+34362    1   	XmStringCharSet			*cs_char_set;
+34363    1   	XmStringContext			*cs_context;
+34364    1   	XmStringDirection		*cs_direction;
+34365    1   	Boolean				*cs_separator;
+34366    1   	char				**cs_text;
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 14
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (7)
+
+34367    1   	
+34368    1   	/* Debug information. */
+34369    1   	
+34370    1   	#ifdef DEBUGGING
+34371   X    	printf ("list proc\n");
+34372    1   	#endif /* DEBUGGING */
+34373    1   	
+34374    1   	/* Get the actual text from the list element selected.  This will be either a
+34375    1   	** username or group name (depending upon the list).  This assumes the text
+34376    1   	** will be the first segment. */
+34377    1   	
+34378    1   	XmStringInitContext (&cs_context,
+34379    1   			     list->item);
+34380    1   	XmStringGetNextSegment (cs_context,
+34381    1   				&cs_text,
+34382    1   				&cs_char_set,
+34383    1   				&cs_direction,
+34384    1   				&cs_separator);
+34385    1   	XmStringFreeContext (cs_context);
+34386    1   	
+34387    1   	/* Use the widget ID to determine whether the item selection is for the user
+34388    1   	**or group list box. */
+34389    1   	
+34390    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_main_user_list])
+34391    1   	    {
+34392    2   	
+34393    2   	/* For the user list, take the selected list item text, and set up the username
+34394    2   	** to use for the operation. */
+34395    2   	
+34396    2   	    XmTextSetString (uaf_r_widget_id_array[uaf$c_main_username],
+34397    2   			     cs_text);
+34398    2   	
+34399    2   	/* Note the current position in the username list for later. */
+34400    2   	
+34401    2   	    uaf_l_current_user_index = list->item_position;
+34402    2   	
+34403    2   	/* If the list selection was via a double click, make it appear as though
+34404    2   	** the user clicked on the modify push button. */
+34405    2   	
+34406    2   	    if (list->reason == XmCR_DEFAULT_ACTION)
+34407    2   		{
+34408    3   		pb_callback = malloc (sizeof *pb_callback);	/* Allocate fake pushbutton callback structure */
+34409    3   		pb_callback->reason = XmCR_ACTIVATE;		/* Build fake pushbutton callback structure */
+34410    3   		pb_callback->event = NULL;
+34411    3   		pb_callback->click_count = 2;			/* For double click */
+34412    3   		AUTHORIZE$DECW_ACTIVATE_PROC (uaf_r_widget_id_array[uaf$c_main_modify],
+34413    3   					      &uaf$c_main_modify,
+34414    3   					      pb_callback);
+34415    3   		free (pb_callback);
+34416    3   		}
+34417    2   	    }
+34418    1   	
+34419    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_main_group_list])
+34420    1   	    {
+34421    2   	
+34422    2   	/* For the group list, set up the gurrent group information. */
+34423    2   	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 15
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (7)
+
+34424    2   	    strcpy (uaf_t_current_groupname, cs_text);
+34425    2   	
+34426    2   	/* Because the current group is not changed all that often, get the authorization
+34427    2   	** information.  This will allow the itemlist to be copied, rather than reading
+34428    2   	** the information all over when a new authorization entry is created. */
+34429    2   	
+34430    2   	    if (FALSE (AUTHORIZE$GET_USER_INFO (uaf_t_current_groupname,
+34431    2   						&uaf_r_current_group_info)))
+34432    2   		{
+34433    3   	
+34434    3   	/* If there is a failure reading the authorization information, note the failure. */
+34435    3   	
+34436    3   		AUTHORIZE$DECW_ERROR (UAF$_UAFREADERR);
+34437    3   		return;
+34438    3   		}
+34439    2   	    }
+34440    1   	
+34441    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_identifier_list])
+34442    1   	    {
+34443    2   	
+34444    2   	/* For the identifier list, take the selected list item text, and set up the
+34445    2   	** identifier to use for the operation. */
+34446    2   	
+34447    2   	    XmTextSetString (uaf_r_widget_id_array[uaf$c_identifier_name],
+34448    2   			     cs_text);
+34449    2   	
+34450    2   	/* Set up the identifier's attributes correctly. */
+34451    2   	
+34452    2   	    AUTHORIZE$SET_UP_ATTRIBUTES (cs_text);
+34453    2   	    }
+34454    1   	
+34455    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_system_identifier_list])
+34456    1   	    {
+34457    2   	
+34458    2   	/* For the system identifier list, take the selected item text, and set up the
+34459    2   	** identifier to use for the operation in the identifier window. */
+34460    2   	
+34461    2   	    XmTextSetString (uaf_r_widget_id_array[uaf$c_identifier_name],
+34462    2   			     cs_text);
+34463    2   	    }
+34464    1   	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 16
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (8)
+
+             	
+34465    1   	/* The following check are rather simple.  They simply set an appropriate
+34466    1   	** flag if the associated list is modified.  These flags are used later to
+34467    1   	** determine whether or not to get the list infomation. */
+34468    1   	
+34469    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_entry_login_flag_list])
+34470    1   	    uaf_r_flags.uaf_v_mod_login_flags = 1;		/* Note an entry as been selected or deselected */
+34471    1   	
+34472    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_entry_auth_priv_list])
+34473    1   	    uaf_r_flags.uaf_v_mod_auth_privs = 1;		/* Note an entry as been selected or deselected */
+34474    1   	
+34475    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_entry_def_priv_list])
+34476    1   	    uaf_r_flags.uaf_v_mod_def_privs = 1;		/* Note an entry as been selected or deselected */
+34477    1   	
+34478    1   	/* Access restriction lists. */
+34479    1   	
+34480    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_access_pri_local_list])
+34481    1   	    uaf_r_flags.uaf_v_mod_pri_local_access = 1;		/* Note an entry as been selected or deselected */
+34482    1   	
+34483    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_access_pri_batch_list])
+34484    1   	    uaf_r_flags.uaf_v_mod_pri_batch_access = 1;		/* Note an entry as been selected or deselected */
+34485    1   	
+34486    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_access_pri_dialup_list])
+34487    1   	    uaf_r_flags.uaf_v_mod_pri_dialup_access = 1;	/* Note an entry as been selected or deselected */
+34488    1   	
+34489    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_access_pri_remote_list])
+34490    1   	    uaf_r_flags.uaf_v_mod_pri_remote_access = 1;	/* Note an entry as been selected or deselected */
+34491    1   	
+34492    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_access_pri_network_list])
+34493    1   	    uaf_r_flags.uaf_v_mod_pri_network_access = 1;	/* Note an entry as been selected or deselected */
+34494    1   	
+34495    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_access_sec_local_list])
+34496    1   	    uaf_r_flags.uaf_v_mod_sec_local_access = 1;		/* Note an entry as been selected or deselected */
+34497    1   	
+34498    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_access_sec_batch_list])
+34499    1   	    uaf_r_flags.uaf_v_mod_sec_batch_access = 1;		/* Note an entry as been selected or deselected */
+34500    1   	
+34501    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_access_sec_dialup_list])
+34502    1   	    uaf_r_flags.uaf_v_mod_sec_dialup_access = 1;	/* Note an entry as been selected or deselected */
+34503    1   	
+34504    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_access_sec_remote_list])
+34505    1   	    uaf_r_flags.uaf_v_mod_sec_remote_access = 1;	/* Note an entry as been selected or deselected */
+34506    1   	
+34507    1   	if (widget_id == uaf_r_widget_id_array[uaf$c_access_sec_network_list])
+34508    1   	    uaf_r_flags.uaf_v_mod_sec_network_access = 1;	/* Note an entry as been selected or deselected */
+34509    1   	}
+34510        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 17
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (9)
+
+             	
+34511        	extern void AUTHORIZE$DECW_PULL_PROC (widget_id, tag, reason)
+34512        	
+34513        	Widget				widget_id;
+34514        	int				*tag;
+34515        	XmAnyCallbackStruct		*reason;
+34516        	{
+34517    1   	/*
+34518    1   	**++
+34519    1   	**  FUNCTIONAL DESCRIPTION:
+34520    1   	**
+34521    1   	**	{@tbs@}
+34522    1   	**
+34523    1   	**  FORMAL PARAMETERS:
+34524    1   	**
+34525    1   	**	{@subtags@}
+34526    1   	**
+34527    1   	**  RETURN VALUE:
+34528    1   	**
+34529    1   	**	None
+34530    1   	**
+34531    1   	**  SIDE EFFECTS:
+34532    1   	**
+34533    1   	**	{@description or none@}
+34534    1   	**
+34535    1   	**--
+34536    1   	*/
+34537    1   	
+34538    1   	/* Local storage. */
+34539    1   	
+34540    1   	unsigned int	status;				/* Routine exit status */
+34541    1   	int		widget_number = *tag;
+34542    1   	
+34543    1   	/* Debug information. */
+34544    1   	
+34545    1   	#ifdef DEBUGGING
+34546   X    	printf ("pull proc\n");
+34547    1   	#endif /* DEBUGGING */
+34548    1   	}
+34549        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 18
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (10)
+
+             	
+34550        	extern void AUTHORIZE$DECW_SET_VALUE (widget_id, tag, reason)
+34551        	
+34552        	Widget				widget_id;
+34553        	int				*tag;
+34554        	XmAnyCallbackStruct		*reason;
+34555        	{
+34556    1   	/*
+34557    1   	**++
+34558    1   	**  FUNCTIONAL DESCRIPTION:
+34559    1   	**
+34560    1   	**	{@tbs@}
+34561    1   	**
+34562    1   	**  FORMAL PARAMETERS:
+34563    1   	**
+34564    1   	**	{@subtags@}
+34565    1   	**
+34566    1   	**  RETURN VALUE:
+34567    1   	**
+34568    1   	**	None
+34569    1   	**
+34570    1   	**  SIDE EFFECTS:
+34571    1   	**
+34572    1   	**	{@description or none@}
+34573    1   	**
+34574    1   	**--
+34575    1   	*/
+34576    1   	
+34577    1   	/* Local storage. */
+34578    1   	
+34579    1   	unsigned int	status;				/* Routine exit status */
+34580    1   	int		widget_number = *tag;
+34581    1   	
+34582    1   	/* Debug information. */
+34583    1   	
+34584    1   	#ifdef DEBUGGING
+34585   X    	printf ("set value\n");
+34586    1   	#endif /* DEBUGGING */
+34587    1   	}
+34588        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 19
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (11)
+
+             	
+34589        	extern void AUTHORIZE$DECW_TOGGLE_PROC (widget_id, tag, reason)
+34590        	
+34591        	Widget				widget_id;
+34592        	int				*tag;
+34593        	XmAnyCallbackStruct		*reason;
+34594        	{
+34595    1   	/*
+34596    1   	**++
+34597    1   	**  FUNCTIONAL DESCRIPTION:
+34598    1   	**
+34599    1   	**	{@tbs@}
+34600    1   	**
+34601    1   	**  FORMAL PARAMETERS:
+34602    1   	**
+34603    1   	**	{@subtags@}
+34604    1   	**
+34605    1   	**  RETURN VALUE:
+34606    1   	**
+34607    1   	**	None
+34608    1   	**
+34609    1   	**  SIDE EFFECTS:
+34610    1   	**
+34611    1   	**	{@description or none@}
+34612    1   	**
+34613    1   	**--
+34614    1   	*/
+34615    1   	
+34616    1   	/* Local storage. */
+34617    1   	
+34618    1   	unsigned int	status;				/* Routine exit status */
+34619    1   	int		widget_number = *tag;
+34620    1   	
+34621    1   	/* Debug information. */
+34622    1   	
+34623    1   	#ifdef DEBUGGING
+34624   X    	printf ("toggle proc\n");
+34625    1   	#endif /* DEBUGGING */
+34626    1   	}
+34627        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 20
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (12)
+
+             	
+34628        	extern AUTHORIZE$GET_LIST_ENTRIES (widget_number, bit_stream, max_byte_count)
+34629        	
+34630        	int				widget_number;
+34631        	unsigned char			bit_stream[];
+34632        	int				max_byte_count;
+34633        	{
+34634    1   	/*
+34635    1   	**++
+34636    1   	**  FUNCTIONAL DESCRIPTION:
+34637    1   	**
+34638    1   	**	This routine is called to get the selected set of list entries
+34639    1   	**	and set the corresponding bits in a bit stream.  It assumes the
+34640    1   	**	target bit stream has beein initially set to zero.
+34641    1   	**
+34642    1   	**  FORMAL PARAMETERS:
+34643    1   	**
+34644    1   	**	WIDGET_NUMBER		- Widget number
+34645    1   	**	BIT_STREAM		- Pointer to a bit stream (set of bytes)
+34646    1   	**	MAX_BYTE_COUNT		- Maximum number of bytes in the bit stream
+34647    1   	**
+34648    1   	**  RETURN VALUE:
+34649    1   	**
+34650    1   	**	None
+34651    1   	**
+34652    1   	**  SIDE EFFECTS:
+34653    1   	**
+34654    1   	**	None
+34655    1   	**
+34656    1   	**--
+34657    1   	*/
+34658    1   	
+34659    1   	/* Global references. */
+34660    1   	
+34661    1   	globalref Widget	uaf_r_widget_id_array[uaf$c_max_widget_code];	/* Array of Widget IDs in use */
+34662    1   	
+34663    1   	/* Local storage. */
+34664    1   	
+34665    1   	int			index;			/* General index */
+34666    1   	int			bit_position;		/* Bit in byte in bit stream */
+34667    1   	int			buffer_position;	/* Byte in bit stream */
+34668    1   	int			(*position_list)[];	/* List of entries selected */
+34669    1   	int			position_count = 0;	/* Number of entries selected */
+34670    1   	unsigned int		status;			/* Routine exit status */
+34671    1   	
+34672    1   	/* Debug information. */
+34673    1   	
+34674    1   	#ifdef DEBUGGING
+34675   X    	printf ("get list entries\n");
+34676    1   	#endif /* DEBUGGING */
+34677    1   	
+34678    1   	/* Find out which entries have been selected.  If no entries have been
+34679    1   	** selected, simply return; assuming the bit stream has been properly
+34680    1   	** initialized. */
+34681    1   	
+34682    1   	if (TRUE (XmListGetSelectedPos (uaf_r_widget_id_array[widget_number],
+34683    1   					&position_list,
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 21
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (12)
+
+34684    1   					&position_count)))
+34685    1   	    {
+34686    2   	
+34687    2   	/* Loop through each entry in the position list, and set the corresponding
+34688    2   	** bit in the bit stream. */
+34689    2   	
+34690    2   	    for (index = 0; index < position_count; index++)
+34691    2   		{
+34692    3   	
+34693    3   	/* Determine which bit in appropriate byte in the bit stream should be set. */
+34694    3   	
+34695    3   		buffer_position = ((*position_list)[index] - 1) / 8;
+34696    3   		bit_position = ((*position_list)[index] - 1) - (buffer_position * 8);
+34697    3   	
+34698    3   	/* Range check the buffer position. */
+34699    3   	
+34700    3   		if (buffer_position > max_byte_count) LIB$SIGNAL (UAF$_INTERNAL2);
+34701    3   	
+34702    3   	/* Set the bit. */
+34703    3   	
+34704    3   		bit_stream[buffer_position] = bit_stream[buffer_position] | (1 << bit_position);
+34705    3   		}
+34706    2   	
+34707    2   	/* Release the memory for the position list. */
+34708    2   	
+34709    2   	    XtFree (position_list);
+34710    2   	    }
+34711    1   	}
+34712        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 22
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (13)
+
+             	
+34713        	extern unsigned int AUTHORIZE$GET_LIST_ENTRY_TEXT (widget_number, position, entry_text)
+34714        	
+34715        	int				widget_number;
+34716        	int				position;
+34717        	char				**entry_text;
+34718        	{
+34719    1   	/*
+34720    1   	**++
+34721    1   	**  FUNCTIONAL DESCRIPTION:
+34722    1   	**
+34723    1   	**	This routine is called to get the text associated with a list entry
+34724    1   	**	at a specified position in the list.  Because the performance is not
+34725    1   	**	very good, this routine should only be used where absolutely necessary.
+34726    1   	**
+34727    1   	**  FORMAL PARAMETERS:
+34728    1   	**
+34729    1   	**	WIDGET_NUMBER		- Widget number
+34730    1   	**	POSITION		- Index of the entry for which the text is to be
+34731    1   	**				  obtained.  This is biased such that the first
+34732    1   	**				  identifier in the list is position 1; NOT 0.
+34733    1   	**	ENTRY_TEXT		- Pointer to the character string storage to
+34734    1   	**				  contain the text
+34735    1   	**
+34736    1   	**  RETURN VALUE:
+34737    1   	**
+34738    1   	**	SS$_NORMAL	if all succeeded normally
+34739    1   	**	SS$_BADPARAM	if specified entry is not in the list
+34740    1   	**
+34741    1   	**  SIDE EFFECTS:
+34742    1   	**
+34743    1   	**	None
+34744    1   	**
+34745    1   	**--
+34746    1   	*/
+34747    1   	
+34748    1   	/* Global references. */
+34749    1   	
+34750    1   	globalref Widget	uaf_r_widget_id_array[uaf$c_max_widget_code];	/* Array of Widget IDs in use */
+34751    1   	
+34752    1   	/* Local storage. */
+34753    1   	
+34754    1   	Arg			args[2];		/* Genral X argument list */
+34755    1   	unsigned int		status;			/* Routine exit status */
+34756    1   	int			table_entry_count;	/* Number of entries in the table */
+34757    1   	
+34758    1   	/* Compound string component storage. */
+34759    1   	
+34760    1   	XmStringTable		cstring_table;		/* Compound string table */
+34761    1   	XmStringCharSet		*cs_char_set;
+34762    1   	XmStringContext		*cs_context;
+34763    1   	XmStringDirection	*cs_direction;
+34764    1   	Boolean			*cs_separator;
+34765    1   	char			**cs_text;
+34766    1   	
+34767    1   	/* Debug information. */
+34768    1   	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 23
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (13)
+
+34769    1   	#ifdef DEBUGGING
+34770   X    	printf ("get list entry text\n");
+34771    1   	#endif /* DEBUGGING */
+34772    1   	
+34773    1   	/* Get the string table containing all the list entries. */
+34774    1   	
+34775    1   	XtSetArg (args[0],
+34776    1   		  XmNitems,
+34777    1   		  &cstring_table);
+34778    1   	XtSetArg (args[1],
+34779    1   		  XmNitemCount,
+34780    1   		  &table_entry_count);
+34781    1   	XtGetValues (uaf_r_widget_id_array[uaf$c_identifier_list],
+34782    1   		     args,
+34783    1   		     2); 
+34784    1   	
+34785    1   	/* Range check the position argument. */
+34786    1   	
+34787    1   	if (position > table_entry_count) return SS$_BADPARAM;
+34788    1   	
+34789    1   	/* Get the actual text from the list element (compound string) selected.  This
+34790    1   	** assumes the text will be the first segment. */
+34791    1   	
+34792    1   	XmStringInitContext (&cs_context,
+34793    1   			     cstring_table[position - 1]);					/* Note -1 bias */
+34794    1   	XmStringGetNextSegment (cs_context,
+34795    1   				&cs_text,
+34796    1   				&cs_char_set,
+34797    1   				&cs_direction,
+34798    1   				&cs_separator);
+34799    1   	XmStringFreeContext (cs_context);
+34800    1   	
+34801    1   	/* Copy the text string back to the caller's buffer. */
+34802    1   	
+34803    1   	strcpy (entry_text, cs_text);
+34804    1   	
+34805    1   	/* That's it. */
+34806    1   	
+34807    1   	return SS$_NORMAL;
+34808    1   	}
+34809        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 24
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (14)
+
+             	
+34810        	extern unsigned int AUTHORIZE$GET_TOGGLE_BUTTONS (base_widget_number, max_widget_number, bit_stream, max_byte_count)
+34811        	
+34812        	int				base_widget_number;
+34813        	int				max_widget_number;
+34814        	unsigned char			bit_stream[];
+34815        	int				max_byte_count;
+34816        	{
+34817    1   	/*
+34818    1   	**++
+34819    1   	**  FUNCTIONAL DESCRIPTION:
+34820    1   	**
+34821    1   	**	This routine is called to get the state of a set of toggle buttons and
+34822    1   	**	set the corresponding bits in a bit stream.  It assumes the target bit
+34823    1   	**	stream has beein initially set to zero.
+34824    1   	**
+34825    1   	**  FORMAL PARAMETERS:
+34826    1   	**
+34827    1   	**	BASE_WIDGET_NUMBER	- Widget number for bit 0
+34828    1   	**	MAX_WIDGET_NUMBER	- Last valid (bit) widget number
+34829    1   	**	BIT_STREAM		- Pointer to a bit stream (set of bytes)
+34830    1   	**	MAX_BYTE_COUNT		- Maximum number of bytes in the bit stream
+34831    1   	**
+34832    1   	**  RETURN VALUE:
+34833    1   	**
+34834    1   	**	SS$_NORMAL if successful
+34835    1   	**	SS$_IVBUFLEN if more toggle buttons than storage
+34836    1   	**
+34837    1   	**  SIDE EFFECTS:
+34838    1   	**
+34839    1   	**	None
+34840    1   	**
+34841    1   	**--
+34842    1   	*/
+34843    1   	
+34844    1   	/* Global references. */
+34845    1   	
+34846    1   	globalref Widget	uaf_r_widget_id_array[uaf$c_max_widget_code];		/* Array of Widget IDs in use */
+34847    1   	
+34848    1   	/* Local storage. */
+34849    1   	
+34850    1   	int			bit_index;			/* Bitstream index */
+34851    1   	int			buffer_index;			/* General buffer index */
+34852    1   	unsigned int		status;				/* Routine exit status */
+34853    1   	
+34854    1   	/* Debug information. */
+34855    1   	
+34856    1   	#ifdef DEBUGGING
+34857   X    	printf ("get toggle buttons\n");
+34858    1   	#endif /* DEBUGGING */
+34859    1   	
+34860    1   	/* Loop through each toggle button and set the state of the corresponding bit
+34861    1   	** in the bit stream. */
+34862    1   	
+34863    1   	for (bit_index = 0; (base_widget_number + bit_index) < max_widget_number; bit_index++)
+34864    1   	    {
+34865    2   	    buffer_index = bit_index / 8;
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 25
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (14)
+
+34866    2   	    if (uaf_r_widget_id_array[base_widget_number + bit_index] != 0)
+34867    2   		{
+34868    3   		if (TRUE (XmToggleButtonGetState (uaf_r_widget_id_array[base_widget_number + bit_index])))
+34869    3   		    {
+34870    4   		    if (buffer_index >= max_byte_count) return SS$_IVBUFLEN;	/* Error if out of bounds */
+34871    4   		    bit_stream[buffer_index] = bit_stream[buffer_index] | (1 << (bit_index - (buffer_index * 8)));
+34872    4   		    }
+34873    3   		}
+34874    2   	    }
+34875    1   	
+34876    1   	return SS$_NORMAL;
+34877    1   	}
+34878        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 26
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (15)
+
+             	
+34879        	extern void AUTHORIZE$SELECT_LIST_ENTRIES (widget_number, bit_stream, byte_count)
+34880        	
+34881        	int				widget_number;
+34882        	unsigned char			bit_stream[];
+34883        	int				byte_count;
+34884        	{
+34885    1   	/*
+34886    1   	**++
+34887    1   	**  FUNCTIONAL DESCRIPTION:
+34888    1   	**
+34889    1   	**	This routine is called to select a set of list entries to
+34890    1   	**	correspond to the state of a set of bits in a bit stream.
+34891    1   	**	In addition, the list is positioned such that the first item
+34892    1   	**	of the list is also the first visible item of the list.
+34893    1   	**
+34894    1   	**  FORMAL PARAMETERS:
+34895    1   	**
+34896    1   	**	WIDGET_NUMBER		- Widget number
+34897    1   	**	BIT_STREAM		- Pointer to a bit stream (set of bytes)
+34898    1   	**	BYTE_COUNT		- Number of bytes in the bit stream
+34899    1   	**
+34900    1   	**  RETURN VALUE:
+34901    1   	**
+34902    1   	**	None
+34903    1   	**
+34904    1   	**  SIDE EFFECTS:
+34905    1   	**
+34906    1   	**	None
+34907    1   	**
+34908    1   	**--
+34909    1   	*/
+34910    1   	
+34911    1   	/* Global references. */
+34912    1   	
+34913    1   	globalref Widget	uaf_r_widget_id_array[uaf$c_max_widget_code];	/* Array of Widget IDs in use */
+34914    1   	
+34915    1   	/* Local storage. */
+34916    1   	
+34917    1   	int			bit_index;			/* Bitstream index */
+34918    1   	int			buffer_index;			/* General buffer index */
+34919    1   	unsigned int		status;				/* Routine exit status */
+34920    1   	
+34921    1   	/* Debug information. */
+34922    1   	
+34923    1   	#ifdef DEBUGGING
+34924   X    	printf ("select list entries\n");
+34925    1   	#endif /* DEBUGGING */
+34926    1   	
+34927    1   	/* Deselect all items in the list to start off. */
+34928    1   	
+34929    1   	XmListDeselectAllItems (uaf_r_widget_id_array[widget_number]);
+34930    1   	
+34931    1   	/* Loop through each byte in the supplied buffer looking at the state of each
+34932    1   	** bit.  Select the list entries corresponding to the state of the bits in the
+34933    1   	** bit stream. */
+34934    1   	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 27
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (15)
+
+34935    1   	for (buffer_index = 0; buffer_index < byte_count; buffer_index++)	/* Each byte */
+34936    1   	    {
+34937    2   	    for (bit_index = 0; bit_index < 8; bit_index++)			/* Each bit in the byte */
+34938    2   		{
+34939    3   	
+34940    3   	/* If the bit is set, set the selection state of the corresponding list entry. */
+34941    3   	
+34942    3   		if ((bit_stream[buffer_index] & (1 << bit_index)) != 0)
+34943    3   		    XmListSelectPos (uaf_r_widget_id_array[widget_number],
+34944    3   				     (buffer_index * 8) + bit_index + 1,
+34945    3   				     1);
+34946    3   		}
+34947    2   	    }
+34948    1   	
+34949    1   	/* Set the position to the first entry of the list. */
+34950    1   	
+34951    1   	XmListSetPos (uaf_r_widget_id_array[widget_number],
+34952    1   		      1);
+34953    1   	
+34954    1   	}
+34955        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 28
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (16)
+
+             	
+34956        	extern void AUTHORIZE$SET_TOGGLE_BUTTONS (bit_stream, byte_count, base_widget_number, max_widget_number)
+34957        	
+34958        	unsigned char			bit_stream[];
+34959        	int				byte_count;
+34960        	int				base_widget_number;
+34961        	int				max_widget_number;
+34962        	{
+34963    1   	/*
+34964    1   	**++
+34965    1   	**  FUNCTIONAL DESCRIPTION:
+34966    1   	**
+34967    1   	**	This routine is called to set the state of a set of toggle buttons to
+34968    1   	**	correspond to the state of a set of bits in a bit stream.
+34969    1   	**
+34970    1   	**  FORMAL PARAMETERS:
+34971    1   	**
+34972    1   	**	BIT_STREAM		- Pointer to a bit stream (set of bytes)
+34973    1   	**	BYTE_COUNT		- Number of bytes in the bit stream
+34974    1   	**	BASE_WIDGET_NUMBER	- Widget number for bit 0
+34975    1   	**	MAX_WIDGET_NUMBER	- Last valid (bit) widget number
+34976    1   	**
+34977    1   	**  RETURN VALUE:
+34978    1   	**
+34979    1   	**	None
+34980    1   	**
+34981    1   	**  SIDE EFFECTS:
+34982    1   	**
+34983    1   	**	None
+34984    1   	**
+34985    1   	**--
+34986    1   	*/
+34987    1   	
+34988    1   	/* Global references. */
+34989    1   	
+34990    1   	globalref Widget	uaf_r_widget_id_array[uaf$c_max_widget_code];		/* Array of Widget IDs in use */
+34991    1   	
+34992    1   	/* Local storage. */
+34993    1   	
+34994    1   	int			bit_index;			/* Bitstream index */
+34995    1   	int			buffer_index;			/* General buffer index */
+34996    1   	unsigned int		status;				/* Routine exit status */
+34997    1   	
+34998    1   	/* Debug information. */
+34999    1   	
+35000    1   	#ifdef DEBUGGING
+35001   X    	printf ("set toggle buttons\n");
+35002    1   	#endif /* DEBUGGING */
+35003    1   	
+35004    1   	/* Loop through each byte in the supplied buffer looking at the state of each
+35005    1   	** bit.  This is used to set the state of the corresponding toggle button.
+35006    1   	** This is done until all the bytes in the buffer are taken care of or until
+35007    1   	** the last defined widget number is encountered. */
+35008    1   	
+35009    1   	for (buffer_index = 0; buffer_index < byte_count; buffer_index++)	/* Each byte */
+35010    1   	    {
+35011    2   	    for (bit_index = 0; bit_index < 8; bit_index++)			/* Each bit in the byte */
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 29
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (16)
+
+35012    2   		{
+35013    3   	
+35014    3   	/* If I am within the range of widgets, set the toggle button to the
+35015    3   	** appropriate state.  Otherwise simple skip it. */
+35016    3   	
+35017    3   		if (((buffer_index * 8) + base_widget_number + bit_index) < max_widget_number)
+35018    3   		    {
+35019    4   	
+35020    4   	/* Make sure there is a widget number for the bit. */
+35021    4   	
+35022    4   		    if (uaf_r_widget_id_array[base_widget_number + (buffer_index * 8) + bit_index] != 0)
+35023    4   			{
+35024    5   	
+35025    5   	/* Test the state of the bit, and set the state of the corresponding toggle button. */
+35026    5   	
+35027    5   			if ((bit_stream[buffer_index] & (1 << bit_index)) != 0)
+35028    5   			    XmToggleButtonSetState (uaf_r_widget_id_array[base_widget_number + (buffer_index * 8) + bit_index],
+35029    5   						    1,
+35030    5   						    0);
+35031    5   			else
+35032    5   			    XmToggleButtonSetState (uaf_r_widget_id_array[base_widget_number + (buffer_index * 8) + bit_index],
+35033    5   						    0,
+35034    5   						    0);
+35035    5   			}
+35036    4   		    }
+35037    3   		}
+35038    2   	    }
+35039    1   	}
+35040        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 30
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (17)
+
+             	
+35041        	extern void AUTHORIZE$UNMAP_WIDGET (widget_id)
+35042        	
+35043        	Widget				widget_id;
+35044        	{
+35045    1   	/*
+35046    1   	**++
+35047    1   	**  FUNCTIONAL DESCRIPTION:
+35048    1   	**
+35049    1   	**	This routine is called to ummap a widget.  Special handling is needed
+35050    1   	**	if the widget exists as an icon; as opposed to a notmal window.
+35051    1   	**
+35052    1   	**  FORMAL PARAMETERS:
+35053    1   	**
+35054    1   	**	WIDGET_ID	- id of widget to unmap
+35055    1   	**
+35056    1   	**  RETURN VALUE:
+35057    1   	**
+35058    1   	**	SS$_NORMAL
+35059    1   	**
+35060    1   	**  SIDE EFFECTS:
+35061    1   	**
+35062    1   	**	None
+35063    1   	**
+35064    1   	**--
+35065    1   	*/
+35066    1   	
+35067    1   	/* Local storage. */
+35068    1   	
+35069    1   	XUnmapEvent	synth_unmap_event;
+35070    1   	
+35071    1   	/* Debug information. */
+35072    1   	
+35073    1   	#ifdef DEBUGGING
+35074   X    	printf ("unmap widget\n");
+35075    1   	#endif /* DEBUGGING */
+35076    1   	
+35077    1   	/* First off, unmap the window. */
+35078    1   	
+35079    1   	XUnmapWindow (XtDisplay (widget_id), XtWindow (widget_id));
+35080    1   	
+35081    1   	/* Next, build a synthetic UnmapNotify event to the root window. */
+35082    1   	
+35083    1   	synth_unmap_event.type = UnmapNotify;					/* Type is UnmapNotify */
+35084    1   	synth_unmap_event.event = DefaultRootWindow (XtDisplay (widget_id));	/* To root window */
+35085    1   	synth_unmap_event.window = XtWindow (widget_id);			/* Destination window */
+35086    1   	synth_unmap_event.from_configure = False;
+35087    1   	
+35088    1   	/* Lastly, send it. */
+35089    1   	XSendEvent (XtDisplay (widget_id),
+35090    1   		    DefaultRootWindow (XtDisplay (widget_id)),
+35091    1   		    False,
+35092    1   		    (SubstructureRedirectMask | SubstructureNotifyMask),
+35093    1   		    (XEvent *) &synth_unmap_event);
+35094    1   	
+35095    1   	/* Make sure it happens immediately. */
+35096    1   	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 31
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (17)
+
+35097    1   	XFlush (XtDisplay (widget_id));
+35098    1   	}
+35099        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 32
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (18)
+
+             	
+35100        	extern void AUTHORIZE$WATCH_CURSOR_OFF (top_level_widget_id, widget_id)
+35101        	
+35102        	Widget				top_level_widget_id;
+35103        	Widget				widget_id;
+35104        	{
+35105    1   	/*
+35106    1   	**++
+35107    1   	**  FUNCTIONAL DESCRIPTION:
+35108    1   	**
+35109    1   	**	This routine is called to set the cursor back to the normal (default)
+35110    1   	**	cursor.
+35111    1   	**
+35112    1   	**  FORMAL PARAMETERS:
+35113    1   	**
+35114    1   	**	TOP_LEVEL_WIDGET_ID	- id of top level widget
+35115    1   	**	WIDGET_ID		- id of widget
+35116    1   	**
+35117    1   	**  RETURN VALUE:
+35118    1   	**
+35119    1   	**	SS$_NORMAL
+35120    1   	**
+35121    1   	**  SIDE EFFECTS:
+35122    1   	**
+35123    1   	**	None
+35124    1   	**
+35125    1   	**--
+35126    1   	*/
+35127    1   	
+35128    1   	/* Debug information. */
+35129    1   	
+35130    1   	#ifdef DEBUGGING
+35131   X    	printf ("watch cursor off\n");
+35132    1   	#endif /* DEBUGGING */
+35133    1   	
+35134    1   	/* Remove the wait (watch) cursor. */
+35135    1   	
+35136    1   	XUndefineCursor (XtDisplay (top_level_widget_id),
+35137    1   			 XtWindow (widget_id));
+35138    1   	XFlush (XtDisplay (top_level_widget_id));	/* Now */
+35139    1   	}
+35140        	
+
+UAF_DW_SUBS                                                     22-NOV-1993 11:28:34    VAX C      V3.2-044                 Page 33
+X-2                                                             24-JUN-1993 11:09:27    UAF_DW_SUBS.C;288 (19)
+
+             	
+35141        	extern void AUTHORIZE$WATCH_CURSOR_ON (top_level_widget_id, widget_id, wait_cursor)
+35142        	
+35143        	Widget				top_level_widget_id;
+35144        	Widget				widget_id;
+35145        	Cursor				wait_cursor;
+35146        	{
+35147    1   	/*
+35148    1   	**++
+35149    1   	**  FUNCTIONAL DESCRIPTION:
+35150    1   	**
+35151    1   	**	This routine is called to set the cursor to the wait (watch) cursor.
+35152    1   	**
+35153    1   	**  FORMAL PARAMETERS:
+35154    1   	**
+35155    1   	**	TOP_LEVEL_WIDGET_ID	- id of top level widget
+35156    1   	**	WIDGET_ID		- id of widget
+35157    1   	**
+35158    1   	**  RETURN VALUE:
+35159    1   	**
+35160    1   	**	SS$_NORMAL
+35161    1   	**
+35162    1   	**  SIDE EFFECTS:
+35163    1   	**
+35164    1   	**	None
+35165    1   	**
+35166    1   	**--
+35167    1   	*/
+35168    1   	
+35169    1   	/* Debug information. */
+35170    1   	
+35171    1   	#ifdef DEBUGGING
+35172   X    	printf ("watch cursor on\n");
+35173    1   	#endif /* DEBUGGING */
+35174    1   	
+35175    1   	/* Set the wait (watch) cursor. */
+35176    1   	
+35177    1   	XDefineCursor (XtDisplay (top_level_widget_id),
+35178    1   		       XtWindow (widget_id),
+35179    1   		       wait_cursor);
+35180    1   	XFlush (XtDisplay (top_level_widget_id));	/* Now */
+35181    1   	}
+
+ 
+ 
+Command Line
+------------
+ 
+CC/LIST=UAF_DW_SUBS/OBJECT=UAF_DW_SUBS UAF_DW_SUBS
+

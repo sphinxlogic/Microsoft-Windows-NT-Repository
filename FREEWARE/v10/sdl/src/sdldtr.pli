@@ -1,0 +1,558 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980, 1987	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Generates the DTR language output from the SDL tree
+
+author:
+	C.T. Pacy
+date:
+	21-jan-1982 
+
+revised:
+	30-JUN-1982	ls		version 1.5 changes
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________|_______|______________________________________________________
+    6-Jun-85	|   kd	| 2-1  Add change log.  Add close file for output file.
+		|	|	Add condition handler for undefinedfile condition.
+________________|_______|______________________________________________________
+    11-Jun-1985	|  kd	| T2.9-0 Make the backend ident be the sdl version
+________________|_______|______________________________________________________
+    21-Aug-1985	|  kd	| T2.9-1 Change comments flag to sdl$v_comment_opt.
+________________|_______|______________________________________________________
+    18-Jun-1987	|  jw	| X3.1-0 Initialized output buffer (buf) to '' at
+		|	|	 outer-level declaration; also, changed
+		|	|	 allocation of `types' array from 20 to 22;
+		|	|	 added temporary output values for COMPLEX
+		|	|	 data types.
+________________|_______|______________________________________________________
+    13-Nov-1987 |  dls  | V3.1-1 Changed the IF statement in routine OUTPUTNODE
+                |  jw   |        to a DO WHILE and modified the routine COMMON_3
+                |       |        to eliminate the recursive call to OUTPUTNODE.
+		|	|	 These changes were made to prevent over-
+		|	|	 consumption of dynamic memory.
+________________|_______|______________________________________________________
+    19-Nov-1987 |  jw   | V3.1-2 Completed the last bug fix by changing the
+                |       |        name of the first formal parameter of the
+		|	|	 routine OUTPUTNODE and assigning its value
+		|	|	 to the "walking" pointer p.
+________________!_______!______________________________________________________
+    21-Jan-1988	|  PG	| X3.2-0 Add CONSTANT STRING
+________________!_______!______________________________________________________
+    13-FEB-1990 |  WRV  | X3.2-VMS1 Modifiers are members of VMS tools group.
+                |  RHT  |           Added code for file dependency recording for
+                |       |           VMS VDE system builder.
+________________|_______|______________________________________________________
+     8-Jun-1992	|  jak	| EV1-14 Changed first arg of sdl$putline from "sdl$_shr_data" 
+		|	|	to "outfile".
+________________|_______|______________________________________________________
+
+*/
+%replace MODULE_IDENT by 'EV1-14';
+
+sdl$output: proc (out_file, def_filename, sdl$_shr_data) 
+		options(ident(MODULE_IDENT));
+ 
+%include 'sdl$library:sdlnodef.in';		/* node structure definition */
+%include 'sdl$library:sdltypdef.in';	/* data type definitions */
+%include 'sdl$library:sdlshr.in';
+%include 'sdl$library:sdlmsgdef.in';
+%include 'SDL$LIBRARY:filedef.in';      /* rms file definitions */
+
+%replace true by '1'b;
+%replace false by '0'b;
+%replace lang_ext by '.dtr';
+
+/*
+ * The following array gives the PL/I equivalents for SDL data types
+ */
+	dcl types(22) char (32) var;
+ 
+/*
+ * The following initialization of the types array is done with
+ * assignments so that the numeric values of the symbols used for
+ * indices do not have to be known 
+ */
+ 
+	types(typ$k_address)='USAGE IS LONG';
+	types(typ$k_byte)='USAGE IS BYTE';
+	types(typ$k_char)='PIC X';
+	types(typ$k_boolean)='USAGE IS BYTE';
+	types(typ$k_decimal)='USAGE IS PACKED';
+	types(typ$k_double)='USAGE IS DOUBLE';
+	types(typ$k_float)='USAGE IS REAL';
+	types(typ$k_grand)='USAGE IS DOUBLE';
+	types(typ$k_huge)='USAGE IS QUAD';
+	types(typ$k_double_complex)='USAGE IS DOUBLE OCCURS 2 TIMES';
+	types(typ$k_float_complex)='USAGE IS REAL OCCURS 2 TIMES';
+	types(typ$k_grand_complex)='USAGE IS DOUBLE OCCURS 2 TIMES';
+	types(typ$k_huge_complex)='USAGE IS QUAD OCCURS 2 TIMES';
+	types(typ$k_longword)='USAGE IS LONG';
+	types(typ$k_octaword)='USAGE IS QUAD';
+	types(typ$k_quadword)='USAGE IS QUAD';
+	types(typ$k_vield)='';
+	types(typ$k_word)='USAGE IS WORD';
+	types(typ$k_structure)='';
+	types(typ$k_union)='';
+	types(typ$k_any)='';
+
+	dcl bitequiv(8) char(32) var  static init (
+	'USAGE IS BYTE ',
+	'USAGE IS WORD ',
+	'USAGE IS BYTE OCCURS 3 TIMES ',
+	'USAGE IS LONG ',
+	'USAGE IS BYTE OCCURS 5 TIMES ',
+	'USAGE IS BYTE OCCURS 6 TIMES ',
+	'USAGE IS BYTE OCCURS 7 TIMES ',
+	'USAGE IS QUAD ');
+
+/* LOCAL VARIABLES */
+	dcl out_file char(128) var ;
+	dcl def_filename char(132) var;
+	dcl output_file file output record sequential;
+	dcl q ptr;
+	dcl buf char(1024) var init ('');
+	dcl based_string char(1024) var based;
+	dcl i fixed bin(31);
+	dcl contig bit aligned static init ('0'b);
+	dcl bitcnt fixed bin;
+	dcl first_field ptr;
+	dcl first_name char(32) var;
+	dcl trans_name char(32) var;
+	dcl first_size fixed bin;
+
+/* Declare variables needed for getting a fully resolved file specification.
+   The resolved file specification will be recorded as a dependency for
+   the VDE system builder through the LIB$REC_DEPENDENCY interface.
+ */
+        dcl vde_filename char(128) var
+                        init ('');      /* input source file name */
+        dcl vde_input_file file variable static;
+        dcl vde_in_file pointer initial(addr(vde_input_file));
+        dcl vde_in_file_ptr pointer based (vde_in_file);
+        dcl vde_esa_area char(120) static;
+        dcl vde_addr_esa_area pointer initial(addr(vde_esa_area));
+        dcl vde_rsa_area char(120) static;
+        dcl vde_addr_rsa_area pointer initial(addr(vde_rsa_area));
+
+        dcl vde_full_name pointer;
+        dcl vde_result_name char(132) based (vde_full_name) ;
+
+
+/************************* MAIN PROCEDURE **************************/
+ 
+/* 
+ * Output the little SDL header with time and date info 
+ */
+
+/* first open up the output file */
+    on undefinedfile (output_file) 
+	begin;
+	    call errmsg (sdl$_shr_data, sdl$_outfilopn,,(out_file||lang_ext));
+	    goto exit;
+	end;
+
+/* Set up file structures for receiving the fully resolved language specific
+   output file from the open call. The fully resolved output file, file
+   specification is passed back to the front end through the variable
+   vde_lang_file which is declared in the shared data area (SDLSHR.SDL).
+*/
+        vde_input_file = output_file;
+        vde_in_file_ptr->nam$l_esa = vde_addr_esa_area;
+        vde_in_file_ptr->nam$b_ess = 120;
+        vde_in_file_ptr->nam$l_rsa = vde_addr_rsa_area;
+        vde_in_file_ptr->nam$b_rss = 120;
+  
+	/* concatenate the extension for the language */
+	open file (output_file) title (out_file) 
+			environment (default_file_name( def_filename||
+					lang_ext) );
+	outfile = output_file;	/* equate the file with the file variable 
+					in the shared structure */	
+
+	call sdl$header(sdl$_shr_data, '!','',line_length);
+
+
+	call sdl$putline (outfile, '! NOTE: All dollar-signs ($) appearing in names
+	     have been replaced by hyphens (-)',line_length);
+/* 
+ * Begin at the root of the tree, and let it go 
+ */
+	call outputnode(tree_root->nod$a_flink,tree_root,0);
+
+/* Get the fully resolved language specific output file and
+   and move it the shared data area for the front-end. The reultant
+   name will be recorded as a file dependency for the VDE system builder.
+*/
+        vde_full_name = vde_in_file_ptr->nam$l_rsa;
+        vde_filename = vde_result_name;
+	vde_lang_file = substr( vde_result_name, 1, vde_in_file_ptr->nam$b_rsl);
+ 
+	close file (output_file);
+exit: 
+
+	return;
+
+ 
+/*
+ * 
+ **************************** OUTPUTNODE ****************************
+ * 
+ * This is a recursive routine that travels through the SDL tree and
+ * outputs the appropriate data declaration for each tree node.  Each
+ * node describes a data object
+ */
+
+OUTPUTNODE:	proc (initp,startp,level);
+
+/*
+ * parameters:	initp	= address of node to output
+ * 		startp	= address of where we started (i.e. where to 
+ * 			  stop in traversing a circular list )
+ * 		level	= level number of aggregate (incremented by 1
+ * 			  with each sub-aggregate
+ */
+
+  dcl (initp,p,startp,q) ptr;
+  dcl level fixed bin(31);
+  dcl (temp1, temp2) char(128) var;				/* PG */
+ 
+/*
+ * "p" will walk the associated list, if one exists.
+ */
+  p = initp;
+
+/*
+ * Case on the node type and go do the appropriate processing 
+ */
+  do while (p ^= startp);
+	goto case(p->nod$b_type);
+
+ 
+CASE (NOD$K_ROOTNODE):		/* Root node */
+
+	buf='';
+	goto common_2;
+
+ 
+CASE (NOD$K_COMMNODE):		/* Comment node */
+
+	buf='';
+	goto common;
+ 
+
+CASE (NOD$K_CONSTNODE):		/* Constant node */
+
+/*
+ * Comment these out
+ */
+	buf = '! '||p->nod$t_name||'=';
+
+	if p->nod$w_datatype=typ$k_char then do;
+		temp1=p->nod$a_typeinfo2->based_string;
+		call sdl$cvtstr(temp1,temp2,'"""');
+		buf = buf||'"'||temp2||'"';
+		end;
+	else
+		buf = buf||trim(p->nod$l_typeinfo);
+
+	goto common;
+
+ 
+CASE (NOD$K_ENTRYNODE):		/* Entry node */
+
+/*
+ * comment these out
+ */
+	buf='! '||p->nod$t_name||' ENTRY ';
+	goto common;
+
+ 
+CASE (NOD$K_ITEMNODE):		/* Item node */
+
+	trans_name=translate(p->nod$t_name,'-','$');
+	buf=copy(' ',level)||trim(level)||' '||trans_name||' ';
+	if level=1 then do;
+		call sdl$putline (outfile, ' ',line_length);
+		call sdl$putline (outfile, 'DEFINE RECORD '||trans_name||
+		'_RECORD USING ',line_length);
+		end;
+	if p->nod$a_parent->nod$w_datatype=typ$k_union then
+		if p = first_field then do;
+			first_name=trans_name;
+			first_size=p->nod$l_fldsiz;
+			if p->nod$w_datatype=typ$k_vield then
+				first_size=p->nod$a_parent->nod$l_fldsiz;
+			end;
+		else do;
+			buf=buf||'REDEFINES '||first_name||' ';
+			if p->nod$w_datatype ^= typ$k_vield then
+			    if p->nod$l_fldsiz > first_size then do;
+				call errmsg (sdl$_shr_data, sdl$_invout,
+				p->nod$l_srcline,'DATATRIEVE');
+				call sdl$putline (outfile, 'ERROR -- The follow
+ing union field is larger than the first field',line_length);
+				end;
+			end;
+/*
+ * Bit fields have to be commented out.  If we have a structure composed
+ * only of contiguous bits, then we can allocate the appropriate amount
+ * of storage at the level of the aggregate name.
+ * If the bitfield is a union member that's ok, we can allocate the
+ * appropriate number of bytes to hold the bit field without worrying
+ * about screwing up the offsets.  Also, bitfields that are an integral
+ * number of bytes can also be allocated.
+ * Otherwise, the appearance of a bit field is an error.
+ */
+	if p->nod$w_datatype=typ$k_vield then do;
+		if ^contig then do;
+		    i=0;
+		    if p->nod$a_parent->nod$w_datatype=typ$k_union then
+			i=first_size;
+		    if mod(p->nod$l_fldsiz,8) = 0 then 
+			i=divide(p->nod$l_fldsiz,8,31);
+		    if i ^=0 then do;
+			if i < 9 then
+				buf=buf||bitequiv(i);
+			else
+				buf=buf||'USAGE IS BYTE OCCURS '||
+				    trim(i)||' TIMES.';
+			call sdl$putline (outfile, buf,line_length);
+			end;
+		    else do;
+			call errmsg (sdl$_shr_data, sdl$_invout,p->nod$l_srcline,'DATATRIEVE');
+			call sdl$putline (outfile, 
+'! ERROR -- Bitfields must be integrally byte sized OR union members OR',
+			line_length);
+			call sdl$putline (outfile, 
+'! contained in a structure composed only of bitfields',line_length);
+			end;
+		    end;
+		buf='! '||copy(' ',level)||p->nod$t_name||' BIT '||
+		    trim(p->nod$l_typeinfo2)||':'||trim(p->nod$l_typeinfo);
+		if p->nod$v_dimen then
+			buf=buf||' dimension '||trim(p->nod$l_lodim)||':'||
+			    trim(p->nod$l_hidim);
+		if p->nod$a_comment ^= null() & sdl$v_comment_opt 
+		then do;
+			buf=fill(buf,40);
+			buf=buf||'! '||p->nod$a_comment->based_string;
+			end;
+		call sdl$putline (outfile, buf,line_length);
+		buf='';
+		if p->nod$v_bottom then
+			call sdl$putline (outfile, ';',line_length);
+		goto common_3;
+		end;
+/*
+ * The normal case.
+ * For a structure, see if we are a bits-only structure.  
+ * if so, allocate the storage
+ */
+	contig=false;		
+	call puttype(p);
+	if p->nod$w_datatype=typ$k_structure & p->nod$a_typeinfo2=null()
+	  then do;
+	   if p->nod$a_child->nod$a_flink->nod$w_datatype=typ$k_vield 
+	   then do;
+		contig=true;
+		bitcnt=0;
+		do q=p->nod$a_child->nod$a_flink repeat q->nod$a_flink
+		   while (q ^= p->nod$a_child);
+			if q->nod$b_type=nod$k_itemnode &
+			   q->nod$w_datatype ^= typ$k_vield then do;
+				contig=false;
+				goto l10$;
+				end;
+			bitcnt=bitcnt+q->nod$l_fldsiz;
+			end;
+		i=divide(bitcnt+7,8,31);
+		if i < 9 then
+			buf=buf||bitequiv(i);
+		else
+			buf=buf||'USAGE IS BYTE OCCURS '||trim(i)||
+			    ' TIMES';
+		end;
+	    end;
+	if p->nod$w_datatype=typ$k_union then
+		first_field=p->nod$a_child->nod$a_flink;
+l10$:
+	buf=buf||'.';
+	if p->nod$v_bottom | (level=1 & 
+	   (p->nod$w_datatype ^= typ$k_structure & 
+	    p->nod$w_datatype ^= typ$k_union)) then
+		buf=buf||' ;';
+
+/*
+ * Check for type name attribute
+ */
+	if p->nod$w_datatype = typ$k_structure &
+	        p->nod$a_typeinfo2 ^= null() &
+		p->nod$a_typeinfo2->nod$b_type = nod$k_typnode
+		then
+		   call errmsg (sdl$_shr_data, sdl$_typnam,p->nod$l_srcline,);
+
+
+	goto common;
+
+CASE (NOD$K_MODULNODE):		/* Module node */
+
+/*
+ * Put out the module name as a comment 
+ */
+	call sdl$putline (outfile, ' ',line_length);
+	buf='! *** MODULE '||p->nod$t_name;
+	if p->nod$t_naked ^= '' then
+		buf=buf||' IDENT '||p->nod$t_naked;
+	buf=buf||' ***';
+	call sdl$putline (outfile, buf,line_length);
+	buf='';
+	goto common;
+ 
+
+CASE(NOD$K_PARMNODE):		/* Parameter node */
+
+	goto common_3;
+
+CASE (NOD$K_OBJNODE):		/* Object node for pointer items */
+
+	buf='';
+	goto common_3;
+ 
+
+CASE (NOD$K_HEADNODE):		/* Header node */
+
+	buf='';
+	goto common_2;
+
+
+COMMON:
+
+/* 
+ * If there is attached comment, then append it to end of line and 
+ * output it 
+ */
+	if p->nod$a_comment^=null() & sdl$v_comment_opt 
+	then do;
+		if buf ^= '' then
+			buf= fill(buf,40);
+		buf=buf||'!'||p->nod$a_comment->based_string;
+		end;
+	call sdl$putline (outfile, buf,line_length);
+	buf='';
+
+COMMON_2:
+/*
+ * Travel down the child node 
+ */
+	if p->nod$a_child^=null() then
+		call outputnode(p->nod$a_child->nod$a_flink,
+		p->nod$a_child,level+1);
+
+COMMON_3:
+/*
+ * Travel across the circular list to the sibling node 
+ */
+
+        p = p->nod$a_flink;
+
+	end; /* do while */
+
+  return;
+ 
+ 
+/*
+ ******************************* PUTTYPE ****************************
+ * 
+ * This routine formats the datatype information for an item 
+ */
+
+PUTTYPE:	proc(p);
+/*
+ * Parameter:	p	= pointer to current node
+ */
+	dcl p ptr;
+	dcl siz fixed bin;
+	
+/* 
+ * add length for chars
+ */
+	if  p->nod$w_datatype=typ$k_char then do;
+		if p->nod$v_varying then do;
+			call sdl$putline (outfile, buf||'.',line_length);
+			call sdl$putline (outfile, copy(' ',level+1)||trim(level+1)||
+				' STRING_LENGTH USAGE IS WORD.',line_length);
+			buf=copy(' ',level+1)||trim(level+1)||
+				' STRING_TEXT PIC X('||trim(p->nod$l_typeinfo)
+				||')';
+			end;
+		else
+			buf=buf||'PIC X('||trim(p->nod$l_typeinfo)||')';
+		end;
+	else
+		buf=buf||types(p->nod$w_datatype);
+
+/* 
+ * Add picture for packed decimal 
+ */
+	if p->nod$w_datatype=typ$k_decimal then do;
+		buf=buf||' PIC S';
+		i=p->nod$l_typeinfo - p->nod$l_typeinfo2;
+		if i^=0 then
+			buf=buf||'9('||trim(i)||')';
+		buf=buf||'V';
+		if p->nod$l_typeinfo2 ^= 0 then 
+			buf=buf||'9('||trim(p->nod$l_typeinfo2)||')';
+		end;
+/*
+ * if octaword size, we must make an array out of it
+ */
+	if p->nod$w_datatype=typ$k_huge | 
+	   p->nod$w_datatype=typ$k_octaword then do;
+		i=2;
+		if p->nod$v_dimen then
+			i= i*(p->nod$l_hidim - p->nod$l_lodim+1);
+		buf=buf||' OCCURS '||trim(i)||' TIMES ';
+		
+		end;
+/*
+ * otherwise, just add dimension if present
+ */
+	else
+		if p->nod$v_dimen then
+			buf=buf||' OCCURS '||trim(p->nod$l_hidim - 
+				p->nod$l_lodim +1)||' TIMES ';
+	return;
+
+end PUTTYPE;
+
+end OUTPUTNODE;
+ 
+end SDL$OUTPUT;

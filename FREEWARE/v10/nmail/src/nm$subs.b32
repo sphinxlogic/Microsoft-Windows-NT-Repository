@@ -1,0 +1,1367 @@
+%title 'nm$subs'
+module nm$subs(
+              ident='24',
+    	      addressing_mode(external=general)
+    	      ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1991, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	31-Mar-1985
+!
+! Revision history:
+!
+!   01  26-Sep-1985
+!	Allow for format1 and format2 control records
+!	in NM$CHK_CTL_FILE
+!
+!   02  18-Oct-1985
+!	Add NM$GET_DEFDATA, NM$CHKPRIV.
+!
+!   03	04-Nov-1985
+!	Add NM$CHKCURPRIV to check current priv mask.
+!
+!   04	14-Nov-1985
+!	Replace a few hardwired literals by equated symbols
+!
+!   05	21-Mar-1986
+!	Add translation of NM$GT_LNM_MAXRET in routine
+!	NM$GET_DEFDATA.
+!
+!   06	10-Apr-1986
+!	Change NM$UNIQUE_NAME, NM$TRNLNM to take counted strings
+!	rather than descriptor strings as inputs. Initialise other
+!	descriptors at runtime to avoid need for fixups. Signal
+!	RMS errors with length and address of filespec, not with
+!	descriptor.
+!
+!   07	24-Apr-1986
+!	Latest control file format is now format 3
+!
+!   08	05-Jun-1986
+!	In NM$OPR_MSG, handle OPC$_NOPERATOR status by broadcasting
+!	directly to OPA0: since this status means OPCOM isn't running.
+!
+!   09	24-Aug-1987
+!	Add NM$TESTNUM to test whether a string is numeric (i.e., it
+!	contains only the characters 0 to 9)
+! 
+!   10	31-Aug-1987
+!	Current control file format is now format 4.
+!
+!   11  23-Apr-1988
+!	Include translation of NM$TRACE in NM$GET_DEFDATA routine
+!
+!   12	28-Jan-1989
+!	Current control file format is now format 5.  Also, drop
+!	support for formats 1 and 2 (i.e., before CC was introduced).
+!
+!   13	13-Feb-1989
+!	Remove NM$MAXRETURN support from NM$GET_DEFDATA
+!
+!   14	21-Feb-1989
+!	Add NM$USER_MSG to broadcast a message to the logged-in user
+!
+!   15	24-Feb-1989
+!	Add NM$FREESTR to clean up dynamic strings on an unwind
+!
+!   16  7-Mar-1991
+!	Add NM$TRIM to trim a string in place
+!
+!   17	8-May-1992
+!	. Change unique filename generator to make names of pattern
+!	  "ccssmmhhddmmyyyy" rather than "yyyymmddhhmmss" -- this
+!	  avoids the implicit ordering and hence is better for 
+!	  directory performance.
+!	. Remove NM$TESTNUM, it's no longer used
+!
+!   18	26-Jun-1992
+!	Change use of TESTBITCC to plain old Bliss; it wasn't
+!	really needed.
+!
+!   19	4-Jul-1992
+!	. Check status from FAO
+!	. Remove unused parameter on NM$UNIQUE_NAME
+!	. Add some VOLATILE attributes
+!
+!   20	22-Apr-1993
+!	Fix file-id formatting - byte 5 has the high-order
+!	part of the file number.
+!
+!   21	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!
+!   22	18-Nov-1993
+!	. Current control file format is now format 6.
+!	. Add NM$USERNAME
+!
+!   23	9-Dec-1993
+!	. Add routine NM$GET_EXTENSION
+!	. Tweaks to NM$UNIQUE_NAME
+!
+!   24	22-Dec-1993
+!	Improve error reporting for NM$GET_EXTENSION
+!--
+
+
+!
+! Library declarations
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Forward references
+!
+forward routine
+    nm$chkpriv2;
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+%sbttl 'signal RMS error'
+global routine nm$rms_error (errcode, blk : ref block[,byte]) =
+
+!++
+! Functional description:
+!
+! Signals an error from an RMS operation, including the filespec,
+! and the STS and STV values.  The top-level errror is signalled
+! with two parameters, the address and length of the filespec.
+!
+! Formal parameters:
+!
+! errcode.rlc.v = top-level error code
+! blk.rr.r      = FAB or RAB from operation
+!
+! Completion codes:
+!
+! errcode.wlc.v = same as input error code
+!
+!--
+
+    begin                       
+
+    local
+	filespec : descrip;
+	
+    !
+    ! Determine filespec by method depending on block type code
+    ! (Note that FAB$B_BID = RAB$B_BID)
+    !
+    selectone .blk[fab$b_bid] of
+	set
+	[fab$c_bid]: 
+	    nm$get_filespec(.blk, filespec);
+	[rab$c_bid]: 
+	    nm$get_filespec(.blk[rab$l_fab], filespec);
+	[otherwise]:
+	    begin
+	    filespec[dsc$w_length]  = %charcount('????????');
+	    filespec[dsc$a_pointer] = uplit byte('????????');
+	    end;
+	tes;
+
+    !
+    ! Now signal the error (STS and STV locations are the 
+    ! same in both RAB and FAB)
+    !
+    signal(
+	  .errcode, 2, .filespec[dsc$w_length], .filespec[dsc$a_pointer],
+	  .blk[fab$l_sts], .blk[fab$l_stv]
+	  );
+
+    !
+    ! If we continue from the signal, return the error code
+    ! as our routine value
+    !
+    .errcode
+
+    end;    
+
+%sbttl 'get expanded or resultant filespec'
+global routine nm$get_filespec (fab : ref $fab_decl, desc : ref descrip) : novalue =
+
+!++
+! Functional description:
+!
+! Given a FAB, returns the most complete filespec possible.
+!
+! Formal parameters:
+!
+! fab.rr.r  = FAB for open file, with NAM block attached
+! desc.wq.r = descriptor to be filled in with address and
+!	      length of the filespec
+!
+! Routine values:
+!
+! none
+!
+!--
+
+    begin
+
+    bind
+	nam = fab[fab$l_nam] : ref $nam_decl;
+
+    local
+	status;
+
+    !
+    ! Preset to just return the plain input filespec
+    !
+    desc[dsc$b_class]   = 0;
+    desc[dsc$b_dtype]   = 0;
+    desc[dsc$w_length]  = .fab[fab$b_fns];
+    desc[dsc$a_pointer] = .fab[fab$l_fna];
+
+    !
+    ! If there is indeed a NAM block, then go and munge around
+    ! in it, looking for something more interesting
+    !
+    if .nam neq 0
+    then
+	if .nam[nam$b_rsl] neq 0
+	then
+	    begin
+	    desc[dsc$w_length]  = .nam[nam$b_rsl];
+	    desc[dsc$a_pointer] = .nam[nam$l_rsa];
+	    end
+	else
+	    if .nam[nam$b_esl] neq 0
+	    then
+		begin
+		desc[dsc$w_length]  = .nam[nam$b_esl];
+		desc[dsc$a_pointer] = .nam[nam$l_esa];
+		end;
+
+    !
+    ! If we get to here and we've come up with nothing,
+    ! then it must be a tedious open-by-file-ID.  Invent something
+    ! (and use the resultant string buffer as work space).
+    !
+    if .desc[dsc$w_length] eql 0 and .fab[fab$v_nam] and 
+       .nam neq 0 and .nam[nam$l_rsa] neq 0 and .nam[nam$b_rss] neq 0
+    then
+	begin
+	bind 
+	    dvi = nam[nam$t_dvi] : vector[,byte],
+	    fid = nam[nam$w_fid] : block[,byte];
+	local
+	    ctrstr : $str('!AC!#*:(!UL,!UL,!UL)');
+	desc[dsc$a_pointer] = .nam[nam$l_rsa];
+	desc[dsc$w_length]  = .nam[nam$b_rss];
+        status = $fao(
+		     ctrstr, .desc, .desc, 
+		     dvi, (.dvi[0] neq 0), 
+		     .fid[fid$w_num] + 65536*.fid[fid$b_nmx], 
+		     .fid[fid$w_seq], 
+		     .fid[fid$b_rvn]
+		     );
+	if not .status then signal_stop(nm$_fao, 0, .status);
+	end;
+
+    end;
+
+%sbttl 'generate unique filename'
+global routine nm$unique_name (fname : ref vector[,byte]) : novalue =
+
+!++
+! Functional description:
+!
+! Generates a unique filename by incorporating the time
+! of year as text
+!
+! Formal parameters:
+!
+! fname.wt.r = counted filename string (must be large enough!)
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	proto 	   : $str('NM$!6(2ZL)'),
+	outdsc	   : descrip initial(nm$s_filespec, fname[1]),
+	outlen	   : word,
+	time_vec   : vector[7,word],
+	faopar     : vector[7,long],
+ 	status;
+
+    !
+    ! Get current time in segmented format
+    !
+    $numtim(timbuf=time_vec);
+
+    !
+    ! Format the string into the output buffer
+    !
+    incr i from 0 to 6 do faopar[6-.i] = .time_vec[.i];
+    status = $faol(ctrstr=proto, outbuf=outdsc, outlen=outlen, prmlst=faopar);
+    if not .status then signal_stop(nm$_fao, 0, .status);
+
+    !
+    ! Set length in counted string
+    !
+    fname[0] = .outlen;
+
+    end;
+
+%sbttl 'send message to operator'
+global routine nm$opr_msg (text : ref descrip) =
+
+!++
+! Functional description:
+!
+! This routine sends a message to the operator. Usually, this is done
+! via OPCOM, to operator class CENTRAL. If this fails, then the message
+! is simply broadcast to OPA0:
+!
+! Formal parameters:
+!
+! text.rt.dx = message text
+!
+! Routine value/completion codes:
+!
+! status.wlc.v = true if it worked, false if it didn't
+!
+!--
+
+    begin
+
+    macro
+        opc$v_ms_target = 1,0,3*%bpunit,0 %;
+
+    literal
+    	hdrlen = 8,
+	txtlen = 255;
+    local
+        status,
+        len,
+	msgbuf : block[hdrlen+txtlen,byte] alias,
+        msgdsc : descrip initial(hdrlen+txtlen,msgbuf);
+
+    !
+    ! Set up header to send "request" to CENTRAL operator
+    !
+    msgbuf[opc$b_ms_type]   = opc$_rq_rqst;	
+    msgbuf[opc$v_ms_target] = opc$m_nm_centrl;
+    msgbuf[opc$l_ms_rqstid] = 0;
+
+    !
+    ! Move the text of the message into the buffer, and set its length
+    !
+    len = minu(.text[dsc$w_length], txtlen);
+    ch$move(.len, .text[dsc$a_pointer], msgbuf[opc$l_ms_text]);
+    msgdsc[dsc$w_length] = .len + hdrlen;
+
+    !
+    ! Send the message to appropriate operator (no reply needed)
+    !
+    status = $sndopr(msgbuf=msgdsc);
+
+    !
+    ! If the attempt failed, then try and broadcast the message to 
+    ! the console terminal as a second-best attempt 
+    !
+    if .status eql opc$_noperator or not .status
+    then
+	begin
+	local console : $str('_OPA0:');
+	status = $brkthruw(
+    		          msgbuf=.text, reqid=brk$c_urgent,
+    		          sendto=console, sndtyp=brk$c_device,
+			  timout=nm$k_brktmo
+    		          );
+	end;
+
+    !
+    ! Return final status
+    !
+    .status
+
+    end;
+
+%sbttl 'send message to user'
+global routine nm$user_msg (text : ref descrip, user : ref descrip) =
+
+!++
+! Functional description:
+!
+! This routine sends a message to the user via $BRKTHRU.
+! It returns without waiting for I/O completion.
+!
+! Formal parameters:
+!
+! text.rt.dx = message text
+! user.rt.dx = logged-in username
+!
+! Routine value/completion codes:
+!
+! status.wlc.v = true if it worked, false if it didn't
+!
+!--
+
+    begin
+
+    !
+    ! Structure used to hold a message temporarily
+    !
+    macro
+	b_flink =  0,0,32,0 %,
+	b_blink =  4,0,32,0 %,
+	b_size  =  8,0,32,0 %,
+	b_ulen  = 12,0,32,0 %,
+	b_uptr  = 16,0,32,0 %,
+	b_tlen  = 20,0,32,0 %,
+	b_tptr  = 24,0,32,0 %,
+	b_flag  = 28,0,32,0 %,
+	b_strs  = 32,0,32,0 %;    
+    literal
+	b_hdsiz = 32;
+
+    !
+    ! AST routine to free a message block on completion
+    !
+    routine freeblk (blk : ref block[,byte]) : novalue =
+	begin
+	local status;
+        if not .blk[b_flag] then return;
+	blk[b_flag] = 0;
+	status = lib$free_vm(blk[b_size], blk);
+	if not .status then signal(.status);
+	end;
+
+    !
+    ! Local storage
+    !
+    local
+	blk : ref block[,byte],
+	len,
+	status;
+
+    !
+    ! Allocate temporary storage for the message
+    !	   
+    len = .text[dsc$w_length] + .user[dsc$w_length] + b_hdsiz;
+    status = lib$get_vm(len, blk);
+    if not .status then return .status;
+
+    !
+    ! Save message text
+    !
+    blk[b_flink] = 0;
+    blk[b_blink] = 0;
+    blk[b_size]  = .len;
+    blk[b_ulen]  = .user[dsc$w_length];
+    blk[b_uptr]  = blk[b_strs];
+    blk[b_tlen]  = .text[dsc$w_length];
+    blk[b_tptr]  = .blk[b_ulen] + .blk[b_uptr];
+    blk[b_flag]  = 1;
+    ch$move(.user[dsc$w_length], .user[dsc$a_pointer], .blk[b_uptr]);
+    ch$move(.text[dsc$w_length], .text[dsc$a_pointer], .blk[b_tptr]);
+
+    !
+    ! Now, issue the message without waiting for completion
+    !
+    status = $brkthru(
+    		     msgbuf=blk[b_tlen], reqid=brk$c_mail,
+    		     sendto=blk[b_ulen], sndtyp=brk$c_username,
+		     timout=nm$k_brktmo, flags=brk$m_cluster,
+		     astadr=freeblk,     astprm=.blk
+    		     );
+    if not .status then freeblk(.blk);
+
+    !
+    ! Return status to caller
+    !
+    .status
+	
+    end;
+
+%sbttl 'token parser'
+global routine nm$parse_token (
+		              inp_dsc : ref descrip alias,
+		              out_dsc : ref descrip,
+		              mor_dsc : ref descrip
+		              ) =
+
+!++
+! Functional description:
+!
+! Scans a string isolating the first token, which is
+! everything up to the first white space (taking quotation
+! into account).
+!
+! Formal parameters:
+!
+! inp_dsc.rt.dx = string to scan
+! out_dsc.wq.r  = descriptor for scanned token
+! mor_dsc.wq.r  = descriptor for rest of string
+!
+! Routine value:
+!  
+! gotit.wl.v = true if we found something
+!	     = false if we didn't
+!
+!--
+
+    begin
+
+    local
+	in_quotes : initial(false);
+
+    !
+    ! Copy input details (just in case caller has supplied 
+    ! same descriptor for output)
+    !
+    bind 
+        len  = .inp_dsc[dsc$w_length],
+	buff = .inp_dsc[dsc$a_pointer] : vector[,byte];
+
+    !
+    ! Assume no terminating space will be found; init descriptors
+    !
+    out_dsc[dsc$b_class]   = 0;
+    out_dsc[dsc$b_dtype]   = 0;
+    out_dsc[dsc$w_length]  = len;
+    out_dsc[dsc$a_pointer] = buff[0];
+    mor_dsc[dsc$b_class]   = 0;
+    mor_dsc[dsc$b_dtype]   = 0;
+    mor_dsc[dsc$w_length]  = 0;
+    mor_dsc[dsc$a_pointer] = 0;
+
+    !
+    ! Scan looking for white space which terminates the
+    ! first token, and taking due account of quotes.
+    !
+    incr i from 0 to len-1 do
+	begin
+	if .buff[.i] eql  '"' then in_quotes = not .in_quotes;
+	if .buff[.i] lequ ' ' and not .in_quotes
+	then
+	    begin
+	    out_dsc[dsc$a_pointer] = buff[0];
+	    out_dsc[dsc$w_length]  = .i;
+	    incr j from .i+1 to len-1 do
+		if .buff[.j] gtru ' ' 
+		then
+		    begin
+		    mor_dsc[dsc$a_pointer] = buff[.j];
+		    mor_dsc[dsc$w_length]  = len - .j;
+    		    exitloop;
+		    end;
+	    exitloop;
+	    end;
+        end;
+
+    !
+    ! Return true if we found a non-null string
+    !
+    (.out_dsc[dsc$w_length] neq 0)
+
+    end;
+
+%sbttl 'static string trimmer'
+global routine nm$trim (
+		       inp_dsc : ref descrip alias,
+		       out_dsc : ref descrip
+		       ) =
+
+!++
+! Functional description:
+!
+! Removes leading and trailing white space from a string.
+! Returns a static descriptor for the non-blank section.
+!
+! Formal parameters:
+!
+! inp_dsc.rt.dx = string to trim
+! out_dsc.wq.r  = descriptor for trimmed string
+!
+! Routine value:
+!  
+! gotit.wl.v = true if we found something non-blank
+!	     = false if we didn't
+!
+!--
+
+    begin
+
+    local
+	len,
+	ptr : ref vector[,byte];
+
+    !
+    ! Copy input details (just in case caller has supplied 
+    ! same descriptor for output)
+    !
+    len = .inp_dsc[dsc$w_length];
+    ptr = .inp_dsc[dsc$a_pointer];
+
+    !
+    ! Initialize output descriptor
+    !
+    out_dsc[dsc$b_class]   = 0;
+    out_dsc[dsc$b_dtype]   = 0;
+    out_dsc[dsc$w_length]  = 0;
+    out_dsc[dsc$a_pointer] = 0;
+
+    !
+    ! Skip trailing space
+    !
+    while .len gtr 0 and .ptr[.len-1] lequ ' ' do
+	len = .len - 1;
+
+    !
+    ! Skip leading space
+    ! 
+    while .len gtr 0 and .ptr[0] lequ ' ' do
+	begin
+	ptr = .ptr + 1;
+	len = .len - 1;
+	end;
+
+    !
+    ! Set output descriptor and return results
+    !
+    if .len gtr 0
+    then
+	begin
+	out_dsc[dsc$w_length] = .len;
+	out_dsc[dsc$a_pointer] = .ptr;
+        return true;
+	end
+    else
+	return false;
+
+    end;
+
+%sbttl 'check for valid control file'
+global routine nm$chk_ctl_file (buffer : ref block[,byte], buflen) =
+
+!++
+! Functional description:
+!
+! Checks the first record read from a file to ensure that it's
+! properly formatted. This gives a rough-and-ready check that 
+! it really is a control file we're dealing with.
+!
+! Checks made are:
+!	1. Record is exactly the expected size
+!	2. The letters "NM" appear in the expected place
+!	3. The format field contains a supported format number
+!
+! If the control record is of a supported format that is shorter
+! than the current format, it will be zero-filled to the length
+! of the current format. 
+!
+! Formal parameters:
+!
+! buffer.rr.r = record in buffer
+! buflen.rl.v = length of record
+!
+! Routine value
+!
+! valid.wl.v = 0 : not a valid control record
+!	       1 : valid control record, supported format
+!	       2 : valid but obsolete format
+!
+! 		Note that the return value tests true iff the
+!		format can be processed by this version of
+!		Nmail.   
+!--
+
+    begin
+
+    literal
+	bad = 0,
+	sup = 1,
+	obs = 2;
+
+    !
+    ! Table of obsolete formats; the flag in the 'support'
+    ! plit determines whether the format is still supported.
+    !
+    bind 
+    	oldform = plit (1,   2,   3,   4,   5,   6  ) : vector,
+    	oldlen  = plit (40,  48,  48,  52,  68,  72 ) : vector,
+	support = plit (obs, obs, sup, sup, sup, sup) : vector;
+    	
+    !
+    ! Fast check for current format
+    !
+    if .buflen eql ctl$s_hdr and
+       .buffer[ctl$b_form] eql ctl$k_form and
+       .buffer[ctl$w_nm] eql ctl$k_nm
+    then
+        return sup;
+       
+    !
+    ! Not current format: check in table of old stuff. If found,
+    ! then pad the control record as necessary.
+    !
+    incr i from 0 to .oldform[-1]-1 do
+	if .buflen eql .oldlen[.i] and
+    	   .buffer[ctl$b_form] eql .oldform[.i] and
+           .buffer[ctl$w_nm] eql ctl$k_nm 
+	then
+	    begin
+	    if .buflen lssu ctl$s_hdr 
+	    then 
+		ch$fill(0, ctl$s_hdr-.buflen, .buffer+.buflen);
+	    return .support[.i];
+            end;
+
+    !
+    ! If we drop out of loop, it's an unsupported format or size
+    !
+    bad
+
+    end;
+
+%sbttl 'translate logical name'
+global routine nm$trnlnm (lognam : ref vector[,byte], result : ref descrip, mode) =
+
+!++
+! Functional description:
+!
+! Translates a logical name in the LNM$SYSTEM table
+!
+! Formal parameters:
+!
+! lognam.rt.r  = logical name to be translated (counted string)
+! result.wt.dx = resultant string
+! mode.rl.v    = access mode (optional)
+!
+! Routine value/completion codes:
+!
+! gotit.wlc.v = true if name translated
+!	        false otherwise
+!
+!--
+
+    begin
+
+    local
+	string : vector[nm$s_lnm,byte] alias,
+	strlen : word initial(0) alias,
+	items  : $itemlist(lnm$_string, nm$s_lnm, string, strlen),
+	tabdsc : descrip initial(.nm$gt_lnmtbl[0], nm$gt_lnmtbl[1]),
+	namdsc : descrip initial(.lognam[0], lognam[1]),
+   	modpar : initial(-1),
+	status;
+
+    builtin
+	actualcount;
+
+    !
+    ! Access mode specified for translation?
+    !
+    if actualcount() gtr 2 then modpar = .mode;
+
+    !
+    ! Attempt translation; signal any error except undefined logical name
+    !
+    status = $trnlnm(
+		tabnam=tabdsc, lognam=namdsc, 
+		acmode=(if .modpar lss 0 then 0 else modpar),
+		itmlst=items
+		);
+    if not .status and .status neq ss$_nolognam 
+    then 
+	signal(nm$_trnlnm, 1, namdsc, .status);
+
+    !
+    ! Return result to caller (null if no logical name defined)
+    !
+    str$copy_r(.result, strlen, string);
+
+    !
+    ! Return true if we found the name, otherwise false
+    !
+    .status
+
+    end;
+
+%sbttl 'get set of strings from message file'
+global routine nm$load_strings (strings_list : ref vector) : novalue =
+
+!++
+! Functional description:
+!
+! Loads a set of strings into internal storage from the 
+! definitions stored in the message file.
+!
+! The input parameter is a PLIT consisting of any number
+! of message-code,string-descriptor-address pairs.  The
+! message code is used to locate the message string; the
+! string is merely copied as-is, no FAO substitution is 
+! performed and no upcasing of the first character happens.
+! The referenced string descriptors are usually dynamic,
+! for convenience.
+!
+! Formal parameters:
+!
+! strings_list.rl.r = PLIT as described above
+!		      [e.g. bind strs = plit(
+!					    nm$_foo, foo_dsc,
+!					    nm$_bar, bar_dsc
+!					    ) : vector]
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Temporary storage for string
+    !
+    local 
+	tmp_buff : vector[nm$s_msg_buf,byte] alias,
+	tmp_desc : descrip initial(nm$s_msg_buf,tmp_buff),
+	tmp_len  : word;
+
+    !
+    ! Loop through whole list, getting message and
+    ! copying it to final descriptor
+    !
+    incr i from 1 to .strings_list[-1] by 2 do
+	begin
+	$getmsg(
+	    	msgid=.strings_list[.i-1],
+		msglen=tmp_len, bufadr=tmp_desc,
+		flags=1
+		);
+	str$copy_r(.strings_list[.i], tmp_len, tmp_buff);
+	end;
+
+    !
+    ! That's all folks
+    !
+    end;
+
+%sbttl 'get defaults for operating parameters'
+global routine nm$get_defdata =
+
+!++
+! Functional description:
+!
+! Does any initialisation associated with 
+! establishing operational defaults.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! status.wlc.v = true if all okay
+!		 false if not
+!
+!--
+
+    begin
+
+    local
+	status,
+        tempstr : descrip initial($dynamic);
+
+    !
+    ! Subroutine to convert a delta date-time to a 64-bit value
+    !
+    routine cvt_delta (str, bin, mintim) =
+	begin
+	builtin
+	    nullparameter;
+	local 
+	    status,
+	    tim : vector[2];
+	status = $bintim(timbuf=.str, timadr=tim);
+	if not .status or .tim[1] geq 0 then return nm$_badtim;
+	if not nullparameter(mintim) 
+	then 
+	    if $cmpq(tim, .mintim) gtr 0 then return nm$_badtim;
+	$movq(tim, .bin);
+	return true
+	end;
+
+    !
+    ! Subroutine like cvt_delta, but taking a counted string parameter
+    !
+    routine cvt_delta_c(strc : ref vector[,byte], bin, mintim) =
+	begin
+	builtin
+	    nullparameter;
+	local
+	    strd : descrip initial(.strc[0], strc[1]);
+	if nullparameter(mintim)
+	then
+	    cvt_delta(strd, .bin)
+	else
+	    cvt_delta(strd, .bin, .mintim)
+	end;
+
+    !
+    ! Subroutine to convert a decimal string to a longword
+    !
+    routine cvt_num(str : ref descrip, num) =
+	begin
+    	local 
+    	    status,
+	    n;
+	status = lib$cvt_dtb(.str[dsc$w_length], .str[dsc$a_pointer], n);
+	if not .status then return nm$_ivnum;
+	.num = .n;
+	return true
+	end;
+
+    !
+    ! Convert default date-time strings to internal 64-bit values
+    !
+    status = cvt_delta_c(nm$gt_min_delta,  nm$gq_min_delta);
+    if not .status then return .status;
+    status = cvt_delta_c(nm$gt_def_delta,  nm$gq_def_delta,  nm$gq_min_delta);
+    if not .status then return .status;
+    status = cvt_delta_c(nm$gt_def_expiry, nm$gq_def_expiry, nm$gq_min_delta);
+    if not .status then return .status;
+
+    !
+    ! Attempt to translate logical names which override defaults
+    !
+    if nm$trnlnm(nm$gt_lnm_delta, tempstr)
+    then
+	begin
+	status = cvt_delta(tempstr, nm$gq_def_delta, nm$gq_min_delta);
+	str$free1_dx(tempstr);
+	if not .status then return .status;
+	end;
+    if nm$trnlnm(nm$gt_lnm_expire, tempstr)
+    then
+	begin
+	status = cvt_delta(tempstr, nm$gq_def_expiry, nm$gq_min_delta);
+	str$free1_dx(tempstr);
+	if not .status then return .status;
+	end;
+
+    !
+    ! Translate trace flag (used by symbiont only)
+    !
+    if nm$trnlnm(nm$gt_lnm_trace, tempstr)
+    then
+	begin
+	status = cvt_num(tempstr, nm$gl_trace);
+	str$free1_dx(tempstr);
+	if not .nm$gl_trace[0] then nm$gl_trace = 0;
+	if not .status then return .status;
+	end;
+
+    !
+    ! All okay
+    !
+    true          
+    end;
+
+%sbttl 'get extension'
+global routine nm$get_extension =
+
+!++
+! Functional description:
+!
+! This routine tries to load an Nmail 'extension' image.
+! The image is only loaded if there is a logical name NM$EXTENSION
+! defined, and the image must contain a valid Nmail extension table 
+! labelled by the universal symbol NM$EXTENSION.
+!
+! Note that all errors from this routine are fatal and are signalled 
+! as such.  The presence of the logical name NM$EXTENSION is presumed 
+! to be a specification that the extension image is absolutely required, 
+! so quietly ignoring errors here could be confusing.
+!
+! If the image has been loaded successfully, its dispatch table
+! will have been copied to NM$NMX.  Pieces of code which may want
+! to call the extension can simply test the appropriate table
+! entry for non-zero contents; this one test handles the absence
+! of any extension image and the absence of that particular routine.
+!
+! Formal parameters:
+!
+! None
+!
+! Routine value:
+!
+! status.wlc.v = true if extension now loaded
+!              = false otherwise
+!--
+
+    begin
+
+    external literal
+	lib$_actimage,
+	lib$_keynotfou;
+
+    bind
+	actimage  = uplit(lib$_actimage)  : block[,byte],
+	keynotfou = uplit(lib$_keynotfou) : block[,byte];
+
+    own
+	extflag	    : initial(-1),
+        extname     : descrip initial($dynamic);
+
+    local
+	status	    : block[%upval,byte],
+	extn_dsc    : descrip,
+   	callout_tbl : ref block[,byte],
+        callout_len;
+
+    !
+    ! Handle signals from LIB$FIND_IMAGE_SYMBOL.  If the condition
+    ! is %LIB-?-ACTIMAGE, we return the second-level status which
+    ! says what really went wrong.  Otherwise we return the first-level
+    ! status.  In all cases, the stack is unwound.
+    !
+    routine load_handler(sig : ref block[,byte], mech : ref block[,byte]) =
+	begin
+	switches
+	    structure (block[,byte]);
+        local
+	    retsts : block[%upval,byte];
+	if .sig[chf$l_sig_name] eql ss$_unwind
+	then
+	    return ss$_resignal;
+	if .sig[chf$l_sig_args] gtr 5 and  ! 5 => lib$_actimage,1,fspec,pc,psl
+	   .sig[chf$l_sig_name][sts$v_cond_id] eql .actimage[sts$v_cond_id] and
+	   .sig[chf$l_sig_arg1] eql 1 
+	then
+	    retsts = .(sig[chf$l_sig_name] + 3*%upval)
+	else
+	    retsts = .sig[chf$l_sig_name];
+	$setstatus(mech, .retsts);
+	setunwind();
+	ss$_resignal
+	end;
+
+    !                  
+    ! Routine to call LIB$FIND_IMAGE_SYMBOL so we can convert
+    ! signalled conditions into failure returns which we then detect 
+    ! below.
+    !
+    routine load_image(img, sym, val, def) =
+	begin
+        enable load_handler;
+	lib$find_image_symbol(.img, .sym, .val, .def)
+	end;
+
+    !
+    ! Been here before?  Don't try and load the extension
+    ! every time we come here.  First time through, check the
+    ! logical name.   We require an exec-mode definition because
+    ! that's what LIB$FIND_IMAGE_SYMBOL requires (in some 
+    ! circumstances) and it's confusing to get a potentially
+    ! different translation here.
+    !
+    if .extflag geq 0 then return .extflag;
+    extflag = 0;
+    if not nm$trnlnm(nm$gt_lnm_extn, extname, psl$c_exec) then return .extflag;
+
+    !
+    ! Load the image and look for the table of entry points
+    !
+    extn_dsc[dsc$w_length]  = .nm$gt_lnm_extn[0];
+    extn_dsc[dsc$b_dtype]   = 0;
+    extn_dsc[dsc$b_class]   = 0;
+    extn_dsc[dsc$a_pointer] = nm$gt_lnm_extn[1];
+    status = load_image(extn_dsc, extn_dsc, callout_tbl, 0);
+    if not .status and .status[sts$v_cond_id] neq .keynotfou[sts$v_cond_id]
+    then
+	begin
+	signal(nm$_extnf, 1, extname, .status); 
+	return nm$_extnf;
+	end;
+    if not .status or .callout_tbl eql 0
+    then
+	begin
+	signal(nm$_extnt, 1, extname);
+   	return nm$_extnt;
+	end;
+
+    !
+    ! Validate interface version number.  At present, we only support 
+    ! one version of the interface, but in future we may want to make 
+    ! incompatible changes.
+    !
+    callout_len = (.callout_tbl[nmx$l_size] + 1) * %upval;
+    if .callout_len lss $byteoffset(nmx$l_version) + %upval or
+       .callout_tbl[nmx$l_version] neq nmx$k_version
+    then
+	begin
+	signal(nm$_extbad, 1, extname);
+   	return nm$_extbad;
+	end;
+
+    !
+    ! Extension loaded, all is well
+    !
+    ch$copy(.callout_len, .callout_tbl, 0, nmx$s_nmxblk, nm$nmx);
+    extflag = true;
+    return true;
+
+    end;
+
+%sbttl 'check process-permanent privileges'
+global routine nm$chkpriv =
+
+!++
+! Functional description:
+!
+! Checks to see whether some necessary set of privileges is
+! permanently enabled for the process (as opposed to currently
+! enabled, which can be due to amplified image privileges).
+!
+! This routine is called with an arbitrary number of parameters.
+! Each parameter represents a quadword privilege mask and this 
+! routine will return 'true' if ALL privileges represented by
+! ANY single mask are enabled.  If no supplied mask can be satisfied
+! this routine returns 'false'.
+!
+! Thus for example if a given operation requires that you have
+! BYPASS privilege or that you have both SYSPRV and OPER (a silly
+! example but anyway), this would be coded as
+!
+!   status = nm$chkpriv( $prvmsk(bypass), $prvmsk(sysprv,oper) );
+!
+!
+! Formal parameters:
+!
+! privmask1.rq.r = first possibility for desired privileges
+! privmask2.rq.r = second possibility ...
+!    :
+!    :
+!
+! Routine values:
+!
+! status.wlc.v = true, if privs enabled
+!		 false, otherwise
+!
+!--
+
+    begin
+
+    builtin
+	argptr;
+
+    nm$chkpriv2(jpi$_procpriv, argptr())
+
+    end;
+
+%sbttl 'check current privileges'
+global routine nm$chkcurpriv =
+
+!++
+! Functional description:
+!
+! Checks to see whether some necessary set of privileges is
+! currently enabled for the process.
+!
+! This routine is called with an arbitrary number of parameters.
+! Each parameter represents a quadword privilege mask and this 
+! routine will return 'true' if ALL privileges represented by
+! ANY single mask are enabled.  If no supplied mask can be satisfied
+! this routine returns 'false'.
+!
+! Thus for example if a given operation requires that the process has
+! BYPASS privilege or that it has both SYSPRV and OPER (a silly example
+! but anyway), this would be coded as
+!
+!   status = nm$chkcurpriv( $prvmsk(bypass), $prvmsk(sysprv,oper) );
+!
+!
+! Formal parameters:
+!
+! privmask1.rq.r = first possibility for desired privileges
+! privmask2.rq.r = second possibility ...
+!    :
+!    :
+!
+! Routine values:
+!
+! status.wlc.v = true, if privs enabled
+!		 false, otherwise
+!
+!--
+
+    begin
+
+    builtin
+	argptr;
+
+    nm$chkpriv2(jpi$_curpriv, argptr())
+
+    end;
+
+%sbttl 'common privilege check routine'
+routine nm$chkpriv2 (privtype, chkvec : ref vector) =
+
+!++
+! Functional description:
+!
+! This routine is called to check whether some set of privileges
+! is enabled in a specified privilege mask.  See the descriptions
+! of routines NM$CHKPRIV and NM$CHKCURPRIV for fuller details.
+!
+! Formal parameters:
+!
+! privtype.rw.v = jpi$_xxxxx item code identifying the privilege
+!	 	  mask which is to be checked
+! chkvec.rr.r   = counted vector of addresses of privilege quadwords.
+!		  in order for this routine to report that privileges
+!		  are available, ALL the privileges represented by
+!		  ANY one of the supplied quadwords must be enabled.
+!		  
+!			chkvec[0] = count, N
+!			chkvec[1] = address of first priv quadword
+!			  :
+!			chkvec[N] = address of last priv quadword
+!
+! Routine values:
+!
+! status.wlc.v = true, if all privileges required in any one of the
+!		       chkvec[i] quadwords are enabled
+!		 false, if the process does not possess privileges
+!		       that satisfy any one of the chkvec[i] quadwords
+!
+!--
+
+    begin
+
+    local 
+	privs : vector[2] initial(0,0) alias,
+	items : vector[4] initial(word(8, .privtype), long(privs, 0, 0));
+
+    !
+    ! Get privilege mask to be checked
+    !
+    $getjpiw(itmlst=items);
+
+    !
+    ! Loop through the list of allowed privilege combinations
+    !
+    incr i from 1 to .chkvec[0] do
+	begin
+	bind mask = .chkvec[.i] : vector[2];
+
+	!
+	! Check that all requested privileges are enabled
+	!
+	if (.mask[0] and .privs[0]) eql .mask[0] and
+	   (.mask[1] and .privs[1]) eql .mask[1] 
+	then
+	    return true;
+
+        end;
+
+    !
+    ! If we get here, none of the allowed privilege
+    ! combinations is currently in effect
+    !
+    false
+
+    end;
+
+%sbttl 'clean up dynamic strings'
+global routine nm$freestr (sig : ref block[,byte], mech, enb : ref vector) =
+
+!++
+! Functional description:
+!
+! This routine frees up dynamic strings.  It can either be enabled
+! as a condition handler, or called from a handler (with the same
+! arg list as the handler itself).  The enable-actuals point to
+! the dynamic strings to be deallocated.
+!
+! Formal parameters:
+!
+! sig.rl.r  = signal array
+! mech.rl.r = mechanism array
+! enb.rl.r  = enable-actuals
+!
+! Routine value:
+!
+! status.wlc.v = ss$_resignal
+!
+!--
+
+    begin
+
+    if .sig[chf$l_sig_name] eql ss$_unwind
+    then
+	incr i from 1 to .enb[0] do
+	    str$free1_dx(.enb[.i]);
+
+    ss$_resignal
+
+    end;
+
+%sbttl 'get current username, trimmed'
+global routine nm$username (ubuf, ubuflen, unamlen : ref vector) =
+
+!++
+! Functional description:
+!
+! This routine returns the current username, with trailing 
+! whitespace removed.  
+!
+! Formal parameters:
+!
+! ubuf.rt.r    = buffer for username
+! ubuflen.rl.v = buffer size
+! unamlen.wl.r = length of username
+!
+! Routine value:
+!
+! status.wlc.v = success/failure status
+!
+!--
+
+    begin
+
+    local	
+	status,
+	udsc  : descrip alias initial(.ubuflen, .ubuf),
+	items : $itemlist(jpi$_username, .ubuflen, .ubuf, udsc[dsc$w_length]);
+
+    unamlen[0] = 0;
+
+    status = $getjpiw(itmlst=items);
+    if not .status then return .status;
+
+    nm$trim(udsc, udsc);
+    unamlen[0] = .udsc[dsc$w_length];
+
+    ss$_normal
+    end;
+
+end
+eludom

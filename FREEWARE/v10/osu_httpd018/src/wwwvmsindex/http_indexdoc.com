@@ -1,0 +1,46 @@
+$! v = 'f$verify(0)'
+$!
+$!			HTTP_INDEXDOC.COM for the CERN server.
+$!
+$!	27-APR-1994	F.Macrides (macrides@sci.wfeb.edu)
+$!			Example command procedure for indexing
+$!				VMSGopherServer.doc
+$!			Assumes that the document has been placed
+$!			in the WWW_Root:[doc.gopher] subdirectory,
+$!			that the program BUILD_INDEX.EXE and the
+$!			files SEQIDX.FDL, SEQSEL.FDL and NOISE_WORDS.DAT
+$!			are in your current default directory, and that
+$!			the subdirectory WWW_Root:[Index] has been created
+$!			in your data tree for holding .IDX and .SEL files.
+$!
+$ v = f$verify(1)
+$!
+$! Create the Sequential files
+$!
+$ THIS_PATH = F$Element (0, "]", F$Environment ("PROCEDURE")) + "]"
+$ index := $'THIS_PATH'build_index.exe
+$ index /sequential/character=%x01/noise=noise_words.dat -
+	/output=VMSGopherServer -
+	WWW_Root:[doc.gopher]VMSGopherServer.doc;0
+$!
+$! Sort and Convert the SEQIDX to an IDX file
+$!
+$ sort VMSGopherServer.seqidx VMSGopherServer.seqidx
+$ convert/fdl=seqidx VMSGopherServer.seqidx WWW_Root:[Index]VMSGopherServer.idx
+$!
+$! Sort and Convert the SEQSEL to an SEL file
+$!
+$ sort VMSGopherServer.seqsel VMSGopherServer.seqsel
+$ convert/fdl=seqsel VMSGopherServer.seqsel WWW_Root:[Index]VMSGopherServer.sel
+$!
+$! Clean up
+$!
+$ purge /nolog/noconfirm  WWW_Root:[Index]VMSGopherServer.idx
+$ rename/nolog/noconfirm  WWW_Root:[Index]VMSGopherServer.idx ;1
+$ delete/nolog/noconfirm  VMSGopherServer.seqidx;*
+$ purge /nolog/noconfirm  WWW_Root:[Index]VMSGopherServer.sel
+$ rename/nolog/noconfirm  WWW_Root:[Index]VMSGopherServer.sel ;1
+$ delete/nolog/noconfirm  VMSGopherServer.seqsel;*
+$ v = 'f$verify(0)'
+$ WRITE SYS$OUTPUT ""
+$exit

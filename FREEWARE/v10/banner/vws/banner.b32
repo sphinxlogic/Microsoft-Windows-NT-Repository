@@ -1,0 +1,769 @@
+MODULE banner (IDENT = 'V01-001',
+			MAIN = banner,
+			ADDRESSING_MODE (NONEXTERNAL=WORD_RELATIVE),
+			ADDRESSING_MODE (EXTERNAL=GENERAL)) =
+BEGIN
+
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1984 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+
+!++
+! FACILITY:  User Interface System (UIS)
+!
+! ABSTRACT:
+!
+!	This module creates and maintains the workstation banner.
+!
+! ENVIRONMENT:
+!
+!	VAX/VMS operating system.  Unprivileged, any mode.
+!
+! AUTHOR:  Peter George, October 1984
+!
+! Modified by:
+!
+!--
+
+! Include files
+!
+REQUIRE 'BANNER';
+
+! Table of contents
+!
+FORWARD ROUTINE
+    banner,				! Main line dispatcher
+    bannersetup;			! Create and manager the banner
+
+EXTERNAL ROUTINE
+    bannerclock: NOVALUE,		! Create and manage the clock
+    cube_setup: NOVALUE,		! Setup for the cube
+    cube_rotate: NOVALUE,		! Rotate the cube
+    cvt_lnm_boolean,			! Get the value stored in a logical name
+    cvt_lnm_float,			! Get the value stored in a logical name
+    cvt_lnm_integer,			! Get the value stored in a logical name
+    cvt_lnm_string,			! Get the value stored in a logical name
+    write_date: NOVALUE,		! Insert the date and day
+    message_ast: NOVALUE,		! Write a message to the display
+    lib$put_output;
+
+
+! Define device name used to refer to the QVSS "device" driver
+!
+pag_plit;
+BIND
+    sd_font		= %ASCID 'DEKILTERAAAAAAF140000000DA';
+
+GLOBAL BIND
+    sd_mbx_name		= %ASCID 'BANNER$MESSAGE_MAILBOX',
+    sd_banner_lnmtable	= %ASCID 'VWSBANNER',
+    sd_sys$workstation	= %ASCID 'SYS$WORKSTATION',
+    sd_message_font	= %ASCID 'DEKILTERAAAAAAV140000000DA',
+    sd_title_font	= %ASCID 'DEKILTERBOAAAAV140000000DA',
+    sd_sunday   	= %ASCID '   Sunday  ',
+    sd_monday   	= %ASCID '   Monday  ',
+    sd_tuesday  	= %ASCID '  Tuesday  ',
+    sd_wednesday	= %ASCID ' Wednesday ',
+    sd_thursday 	= %ASCID '  Thursday ',
+    sd_friday   	= %ASCID '   Friday  ',
+    sd_saturday 	= %ASCID '  Saturday ';
+
+
+pag_global_rw
+    normal_font,				! Name of usual font
+    monitor_font,				! Name of font for monitor windows
+    monitor_font_desc : VECTOR[2],		! Descriptor for font
+    monitor_font_buff : VECTOR[256,BYTE];
+
+npag_global_rw
+    mon : BLOCK [mon_c_length, BYTE] PRESET (
+	[mon_l_atb] =		32),
+    pem : BLOCK [pem_c_length, BYTE] PRESET (
+	[pem_l_atb] =		33),
+    lck : BLOCK [lck_c_length, BYTE] PRESET (
+	[lck_l_atb] =		34),
+    lcl : BLOCK [lcl_c_length, BYTE] PRESET (
+	[lcl_l_cons_0] =	0,		! Integer/floating constant 0
+	[lcl_l_cons_1] =	1,		! Integer constant 1
+	[lcl_l_cons_2] =	2,		! Integer constant 2
+	[lcl_f_cons_2] =        %E'2.0',	! Floating constant 2.0
+	[lcl_f_cons_3] =        %E'3.0');	! Floating constant 3.0
+
+pag_own_ro
+    ws_bcolor	: INITIAL (uis$c_ws_bcolor),
+    ws_fcolor	: INITIAL (uis$c_ws_fcolor),
+    ws_black	: INITIAL (uis$c_ws_black),
+    ws_white	: INITIAL (uis$c_ws_white);
+pag_global_ro
+    day_list: VECTOR[7] INITIAL (
+	sd_wednesday,				! System day 0 is a Wednesday
+	sd_thursday,
+	sd_friday,
+	sd_saturday,
+	sd_sunday,
+	sd_monday,
+	sd_tuesday);
+
+pag_own_rw
+    mbx_args: BLOCK [mbx_c_length, BYTE];	! Message mailbox AST arguments
+
+EXTERNAL
+    clk : BLOCK [clk_c_length, BYTE];		! Global clock data
+
+GLOBAL ROUTINE banner =
+
+!-
+!	This is the entry point for creating and managing the banner.
+!
+! Inputs:
+!
+!	None
+!
+! Outputs:
+!
+!	 (Routine) = Status code
+!-
+
+BEGIN
+
+LOCAL
+     itms : VECTOR [4, LONG];
+
+! Create banner, set up message AST
+!
+bannersetup();
+$setpri (pri=.lcl[lcl_l_base_prio]);
+
+itms[0] = (lnm$_string^16) OR 4;
+itms[1] = UPLIT BYTE ('true');
+itms[2] = itms[3] = 0;
+$crelnm (tabnam=sd_banner_lnmtable, lognam=%ASCID 'VWSBANNER_INITIALIZED', itmlst=itms, acmode=%REF(psl$c_super));
+
+! Draw and manage the clock, pass the banner area where we want the clock to appear
+! "clock" routines also dispatch other timer AST driven routines
+!
+IF NOT .lcl[lcl_v_cube_only]
+THEN
+    bannerclock (.clk[clk_f_clock_x], .clk[clk_f_clock_y], 
+		 ADD_F (.clk[clk_f_clock_x],.clk[clk_f_clock_size]),
+		 ADD_F (.clk[clk_f_clock_y],.clk[clk_f_clock_size]))
+ELSE
+    $setpri (pri=.lcl[lcl_l_base_prio]);
+
+! Spin the cube for the null job
+!
+IF .lcl[lcl_v_cube]
+THEN
+    BEGIN
+    cube_setup (.lcl[lcl_f_cube_x], .lcl[lcl_f_cube_y], 
+		ADD_F (.lcl[lcl_f_cube_x],.lcl[lcl_f_cube_size]),
+		ADD_F (.lcl[lcl_f_cube_y],.lcl[lcl_f_cube_size]));
+    cube_rotate ();	!Note - control never returns
+    END;
+
+$hiber;
+
+RETURN 1;
+END;
+
+GLOBAL ROUTINE bannersetup =
+
+!-
+!	This is the entry point for creating and managing the banner.
+!
+! Inputs:
+!
+!	None
+!
+! Outputs:
+!
+!	 (Routine) = Status code
+!-
+
+BEGIN
+LOCAL
+    str_desc: VECTOR[2],		! Descriptor for announce string
+    str_buff: VECTOR[256,BYTE],		! Buffer for announce string
+    char_width,char_height,		! Width and height of single char string
+    date_width,date_height,		! Width and height of date string
+    day_x,day_y,date_y,			! Position of day/date strings
+    clock_face,				! Width of clock face (for "over" display)
+    pd_width,pd_height,pd_pix_cm,	! Physical display width and height, and pixels/cm
+    cpu_wdw_wid,			! Width of cpu bar area
+    mode_width,				! Width of cpu modes
+    status,				! Routine status
+    text_max_x,				! Limit of text strings
+    wd_id,				! Display and window IDs
+    check_font,				! Font to check for size
+    next_x,
+    min_width,				! Minimum width of display
+    red,green,blue,			! Color indices
+    wdpl: VECTOR[7];			! Window placement block
+
+REGISTER
+    temp;				! Local temporary
+
+
+! Set some other flag bits
+!
+lcl[lcl_v_edge_lines]	= cvt_lnm_boolean (%ASCID 'EDGE_LINES', 1);
+lcl[lcl_v_no_right_edge]= cvt_lnm_boolean (%ASCID 'NO_RIGHT_EDGE', 0);
+lcl[lcl_v_border]	= cvt_lnm_boolean (%ASCID 'BORDER', 0);
+lcl[lcl_v_bars]		= cvt_lnm_boolean (%ASCID 'SEPARATOR_LINES', 1);
+
+lcl[lcl_v_clock]	= cvt_lnm_boolean (%ASCID 'CLOCK', 1);
+lcl[lcl_v_cube]		= cvt_lnm_boolean (%ASCID 'CUBE', 1);
+lcl[lcl_v_message]	= cvt_lnm_boolean (%ASCID 'MESSAGE_WINDOW', 0);
+lcl[lcl_v_monitor]	= cvt_lnm_boolean (%ASCID 'PAGE_IO_MONITOR', 1);
+lcl[lcl_v_pe_monitor]	= cvt_lnm_boolean (%ASCID 'PE_MONITOR', 0);
+lcl[lcl_v_lock_monitor]	= cvt_lnm_boolean (%ASCID 'LOCK_MONITOR', 0);
+lcl[lcl_v_cwps_monitor]	= cvt_lnm_boolean (%ASCID 'CWPS_MONITOR', 0);
+IF .lcl[lcl_v_cwps_monitor] THEN lcl[lcl_v_lock_monitor] = 0;	!exclusive for now...
+lcl[lcl_v_systemfaults]	= cvt_lnm_boolean (%ASCID 'SYSTEM_FAULTS', 0);
+
+lcl[lcl_v_cube_only]	= cvt_lnm_boolean (%ASCID 'CUBE_ONLY', 0);
+lcl[lcl_v_inclbannercpu]= cvt_lnm_boolean (%ASCID 'INCLUDE_BANNER_CPU', 0);
+lcl[lcl_v_remote_disk]	= cvt_lnm_boolean (%ASCID 'REMOTE_DISK', 0);
+lcl[lcl_v_timestamp]	= cvt_lnm_boolean (%ASCID 'TIMESTAMP_MESSAGES', 0);
+
+lcl[lcl_v_center]	= cvt_lnm_boolean (%ASCID 'POSITION_CENTER', 0);
+lcl[lcl_v_right]	= cvt_lnm_boolean (%ASCID 'POSITION_RIGHT', 0);
+lcl[lcl_v_left]		= cvt_lnm_boolean (%ASCID 'POSITION_LEFT', 0);
+lcl[lcl_v_top]		= cvt_lnm_boolean (%ASCID 'POSITION_TOP', 0);
+lcl[lcl_v_bottom]	= cvt_lnm_boolean (%ASCID 'POSITION_BOTTOM', 0);
+
+! Get font for monitor windows
+!
+monitor_font = monitor_font_desc;
+monitor_font_desc[0] = %ALLOCATION (monitor_font_buff);
+monitor_font_desc[1] = monitor_font_buff;
+IF NOT cvt_lnm_string (%ASCID 'MONITOR_FONT', monitor_font_desc)
+THEN
+    monitor_font = sd_font;
+
+normal_font = .monitor_font;
+
+! Default some positioning
+!
+IF (.lcl[lcl_v_center] OR .lcl[lcl_v_right] OR .lcl[lcl_v_left]) EQL 0
+THEN
+    lcl[lcl_v_right] = 1;
+IF (.lcl[lcl_v_top] OR .lcl[lcl_v_bottom]) EQL 0
+THEN
+    lcl[lcl_v_top] = 1;
+
+! Some cpu window parameters
+!
+lcl[lcl_v_cpu_monitor]	= cvt_lnm_boolean (%ASCID 'CPU_MONITOR', 1);
+temp = cvt_lnm_integer (%ASCID 'CPU_UPDATE', 2);
+lcl[lcl_l_cpu_update] = MAX (.temp, 1);
+temp = cvt_lnm_integer (%ASCID 'CPU_COUNT', 30);
+lcl[lcl_l_cpu_count] = MAX (.temp, 1);
+temp = cvt_lnm_integer (%ASCID 'CPU_WIDTH', 1);
+lcl[lcl_l_cpu_width] = MAX (.temp, 1);
+IF .lcl[lcl_l_cpu_count] NEQ 1		! If we have a window, then
+THEN					!  make lines one wide only.
+    lcl[lcl_l_cpu_width] = 1;
+
+lcl[lcl_v_mode_monitor]	= cvt_lnm_boolean (%ASCID 'MODE_MONITOR', 1);
+temp = cvt_lnm_integer (%ASCID 'MODE_UPDATE', 2);
+lcl[lcl_l_mode_update] = MAX (.temp, 1);
+temp = cvt_lnm_integer (%ASCID 'PAGE_IO_UPDATE', 1);
+lcl[lcl_l_page_io_update] = MAX (.temp, 1);
+temp = cvt_lnm_integer (%ASCID 'PAGE_IO_LNM_UPDATE', 60);
+lcl[lcl_l_page_io_lnm_update] = MAX (.temp, 1);
+temp = cvt_lnm_integer (%ASCID 'PE_UPDATE', 1);
+lcl[lcl_l_pe_update] = MAX (.temp, 1);
+temp = cvt_lnm_integer (%ASCID 'CWPS_UPDATE', 1);
+lcl[lcl_l_cwps_update] = MAX (.temp, 1);
+
+! Unless overridden, set base priority to 0
+!
+temp = (IF .lcl[lcl_v_cube]
+	THEN
+	    0		! If a cube, very low priority by default
+	ELSE
+	    14);	! No cube - high priority by default
+temp = cvt_lnm_integer (%ASCID 'PRIORITY', .temp);
+lcl[lcl_l_base_prio] = MAX (.temp, 0);
+IF .lcl[lcl_v_cube]	! Make 0 and 1 only possible priorities if a cube
+THEN
+    lcl[lcl_l_base_prio] = MIN (.lcl[lcl_l_base_prio], 1);
+
+! 'Adjust' some items if we are in CUBE_ONLY mode
+!
+IF .lcl[lcl_v_cube_only]
+THEN
+    BEGIN
+    lcl[lcl_v_cpu_monitor] = 0;
+    lcl[lcl_v_cube] = 1;
+    lcl[lcl_v_message] = 0;
+    lcl[lcl_v_monitor] = 0;
+    lcl[lcl_v_lock_monitor] = 0;
+    lcl[lcl_v_cwps_monitor] = 0;
+    lcl[lcl_v_pe_monitor] = 0;
+    lcl[lcl_v_mode_monitor] = 0;
+    lcl[lcl_l_base_prio] = 0;
+    END;
+
+! Get the display and font sizes so that the dimensions can be calculated.
+!
+uis$get_display_size (sd_sys$workstation, pd_width, pd_height, pd_pix_cm, next_x);
+uis$get_font_size (.normal_font, sd_sunday, date_width, date_height);
+IF (.lcl[lcl_v_mode_monitor] OR .lcl[lcl_v_clock])
+THEN
+    check_font = .normal_font
+ELSE
+    check_font = .monitor_font;
+uis$get_font_size (.check_font, %ASCID '0', char_width, char_height);
+lcl[lcl_f_font_height] = .char_height;
+lcl[lcl_f_pixel_size] = DIV_F (.pd_pix_cm, %E'1');
+lcl[lcl_f_edge] = MUL_F (.lcl[lcl_f_cons_2], .lcl[lcl_f_pixel_size]);	! Width of a margin edge (2 pixels)
+lcl[lcl_f_2edge] = MUL_F (.lcl[lcl_f_cons_2], .lcl[lcl_f_edge]);	! Width of a double margin edge (4 pixels)
+
+! Find out how many lines are desired.  Set height at number of lines.
+!
+lcl[lcl_f_lines] = cvt_lnm_float (%ASCID 'TEXT_LINES');
+lcl[lcl_l_lines] = INT_F (.lcl[lcl_f_lines]);
+IF .lcl[lcl_v_cube_only]
+THEN
+    BEGIN
+    IF .lcl[lcl_l_lines] LSS 2
+    THEN
+	BEGIN
+	lcl[lcl_l_lines] = 2;
+	lcl[lcl_f_lines] = %E'2';
+	END;
+    END
+ELSE
+    BEGIN
+    IF .lcl[lcl_l_lines] LSS 4
+    THEN
+	BEGIN
+	lcl[lcl_l_lines] = 4;
+	lcl[lcl_f_lines] = %E'4';
+	END;
+    END;
+
+lcl[lcl_f_vd_height] = MUL_F (.lcl[lcl_f_lines], .lcl[lcl_f_font_height]);
+lcl[lcl_f_vd_height] = MUL_F (.lcl[lcl_f_pixel_size], TRUNC_F (DIV_F (.lcl[lcl_f_pixel_size], .lcl[lcl_f_vd_height])));
+
+! Get some of the clock locations
+!
+lcl[lcl_f_tim_dclk_y] = ADD_F (.lcl[lcl_f_pixel_size], .date_height);
+lcl[lcl_f_tim_date_y]  = ADD_F (.date_height, .lcl[lcl_f_tim_dclk_y]);
+lcl[lcl_f_iocnt_y]    = ADD_F (.date_height, .lcl[lcl_f_tim_date_y]);
+lcl[lcl_f_tim_day_y] = .lcl[lcl_f_iocnt_y];
+
+! Calculate the width of the cpu window, the cube square, the clock square, and the date region so
+! that the minimum window width can be determined.
+!
+min_width = .lcl[lcl_f_2edge];				! Left and right edges
+!
+clk[clk_f_clock_size] = SUB_F (.lcl[lcl_f_2edge],	! Assume clock is beside, set the
+			       .lcl[lcl_f_vd_height]);	!  clock (and cube) size
+
+IF .lcl[lcl_v_clock]					! Clock and date are controlled by the same
+THEN
+    BEGIN
+    IF CMPF (lcl[lcl_f_lines], %REF(%E'6.0')) LEQ 0	! If clock beside, then add clock
+    THEN
+	BEGIN
+	min_width = ADD_F (.min_width, .date_width);
+	min_width = ADD_F (.min_width, .lcl[lcl_f_vd_height]);
+	END
+    ELSE
+	BEGIN
+	clock_face = SUB_F (.lcl[lcl_f_2edge], SUB_F (.lcl[lcl_f_tim_day_y], 
+								 .lcl[lcl_f_vd_height]));
+	IF CMPF (clock_face, date_width) LEQ 0		! If clock narrower than date, add date
+	THEN
+	    min_width = ADD_F (.date_width, .min_width)	! Left and right edges plus date
+	ELSE
+	    min_width = ADD_F (.min_width, .clock_face);! Width of face
+	END;
+    END;
+!
+IF .lcl[lcl_v_cube]					! If cube, then add cube
+THEN
+    BEGIN
+    lcl[lcl_f_cube_size] = .clk[clk_f_clock_size];
+    min_width = ADD_F (.min_width, .lcl[lcl_f_vd_height]);
+    END;
+!
+IF .lcl[lcl_v_cube_only]				! If only cube, then forget about clock
+THEN
+    BEGIN
+    lcl[lcl_f_cube_size] = .clk[clk_f_clock_size];
+    min_width = ADD_F (.lcl[lcl_f_2edge], .lcl[lcl_f_vd_height]);
+    min_width = .lcl[lcl_f_vd_height];
+    $setprn (prcnam = %ASCID 'Cube');
+    END;
+!
+IF .lcl[lcl_v_mode_monitor]				! If mode bars, then add that width
+THEN
+    BEGIN
+    LOCAL
+	hgt;
+
+    ! Use width of legend
+    !
+    uis$get_font_size (.normal_font, %ASCID 'IKESUNx', mode_width, hgt);
+    min_width = ADD_F (.min_width, .mode_width);
+    END;
+!
+IF .lcl[lcl_v_cpu_monitor]				! If CPU bars, then add that width
+THEN
+    BEGIN
+    LOCAL
+	wid,
+	bar_pixels;
+
+    ! Bar contains 3 pixels for the tick marks, and CPU_WIDTH pixels per bar
+    !
+    wid = .lcl[lcl_l_cpu_count] * .lcl[lcl_l_cpu_width];
+    bar_pixels = 3 + .wid;
+    IF .wid GTR 10				! If more than 10 wid, add a second tick area
+    THEN
+	bar_pixels = .bar_pixels + 3;
+    cpu_wdw_wid = MUL_F(.lcl[lcl_f_pixel_size], FLOAT_F(.bar_pixels));
+    min_width = ADD_F (.min_width, .cpu_wdw_wid);
+    END;
+!
+IF .lcl[lcl_v_monitor]				! If a monitor window, add that width
+THEN
+    BEGIN
+    uis$get_font_size (.monitor_font, %ASCID '01234567890123456789012',
+					mon[mon_f_width], date_height);
+    min_width = ADD_F (.char_width, ADD_F (.min_width, .mon[mon_f_width]));
+    END;
+!
+IF .lcl[lcl_v_pe_monitor]			! If a PE monitor window, add that width
+THEN
+    BEGIN
+    uis$get_font_size (.monitor_font, %ASCID 'PE Xmt9999999999944444 ',
+					pem[pem_f_width], date_height);
+    min_width = ADD_F (.char_width, ADD_F (.min_width, .pem[pem_f_width]));
+    END;
+
+!
+IF  .lcl[lcl_v_lock_monitor]			! If a LOCK monitor window, add that width
+ or .lcl[lcl_v_cwps_monitor]			! If a CWPS monitor window, add that width
+THEN
+    BEGIN
+    uis$get_font_size (.monitor_font, %ASCID 'Lock Lcl99999999944444 ',
+					lck[lck_f_width], date_height);
+    min_width = ADD_F (.char_width, ADD_F (.min_width, .lck[lck_f_width]));
+    END;
+
+! If we have a message, set the width at 80 percent of the screen, otherwise use the minimum
+!
+temp = cvt_lnm_float (%ASCID 'SCREEN_WIDTH');
+lcl[lcl_f_vd_width] = MUL_F ((IF .temp EQL 0 THEN %E'0.80' ELSE .temp), .pd_width);
+IF NOT .lcl[lcl_v_message]
+THEN
+    lcl[lcl_f_vd_width] = .min_width;
+
+!+
+! Starting at the right side of the banner, size the components
+!-
+
+next_x = .lcl[lcl_f_vd_width];
+
+! Set up the LOCK monitor area
+!
+IF  .lcl[lcl_v_lock_monitor]
+ OR .lcl[lcl_v_cwps_monitor]
+THEN
+    BEGIN
+    lck[lck_f_xh] = .next_x;
+    next_x = SUB_F (.lck[lck_f_width], .next_x);
+    lck[lck_f_x] = .next_x;
+    next_x = SUB_F (.char_width, .next_x);
+    lck[lck_f_y] = .lcl[lcl_f_edge];
+    lck[lck_f_yh] = SUB_F (.lcl[lcl_f_edge], .lcl[lcl_f_vd_height]);
+    END;
+
+! Set up the PE monitor area
+!
+IF .lcl[lcl_v_pe_monitor]
+THEN
+    BEGIN
+    pem[pem_f_xh] = .next_x;
+    next_x = SUB_F (.pem[pem_f_width], .next_x);
+    pem[pem_f_x] = .next_x;
+    next_x = SUB_F (.char_width, .next_x);
+    pem[pem_f_y] = .lcl[lcl_f_edge];
+    pem[pem_f_yh] = SUB_F (.lcl[lcl_f_edge], .lcl[lcl_f_vd_height]);
+    END;
+
+! Set up the PAGE_IO monitor area
+!
+IF .lcl[lcl_v_monitor]
+THEN
+    BEGIN
+    mon[mon_f_xh] = .next_x;
+    next_x = SUB_F (.mon[mon_f_width], .next_x);
+    mon[mon_f_x] = .next_x;
+    next_x = SUB_F (.char_width, .next_x);
+    mon[mon_f_y] = .lcl[lcl_f_edge];
+    mon[mon_f_yh] = SUB_F (.lcl[lcl_f_edge], .lcl[lcl_f_vd_height]);
+    END;
+
+! Set up the mode monitor
+!
+IF .lcl[lcl_v_mode_monitor]
+THEN
+    BEGIN
+    next_x = SUB_F (.mode_width, .next_x);
+    next_x = INTR_F (DIV_F (.lcl[lcl_f_pixel_size], .next_x));	! Pixel align it
+    next_x = MUL_F (.lcl[lcl_f_pixel_size], FLOAT_F(.next_x));
+    lcl[lcl_f_mode_x] = .next_x;
+    lcl[lcl_f_mode_y] = .lcl[lcl_f_edge];		! Already pixel aligned
+    END;
+
+! Set up the cpu window
+!
+IF .lcl[lcl_v_cpu_monitor]
+THEN
+    BEGIN
+    next_x = SUB_F (.cpu_wdw_wid, .next_x);
+    next_x = INTR_F (DIV_F (.lcl[lcl_f_pixel_size], .next_x));	! Pixel align it
+    next_x = MUL_F (.lcl[lcl_f_pixel_size], FLOAT_F(.next_x));
+    lcl[lcl_f_cpu_x] = .next_x;
+    lcl[lcl_f_cpu_y] = .lcl[lcl_f_edge];		! Already pixel aligned
+    END;
+
+! Set up the cube square coordinates
+!
+IF .lcl[lcl_v_cube]
+THEN
+    BEGIN
+    next_x = SUB_F (.lcl[lcl_f_cube_size], SUB_F (.lcl[lcl_f_edge], .next_x));
+    lcl[lcl_f_cube_x] = .next_x;
+    lcl[lcl_f_cube_y] = .lcl[lcl_f_edge];
+    END;
+
+lcl[lcl_f_date_border] = .next_x;
+lcl[lcl_v_digital_clock] = .lcl[lcl_v_clock];
+
+IF .lcl[lcl_v_clock]
+THEN
+    BEGIN
+
+    lcl[lcl_f_tim_day_x] = SUB_F (.date_width, SUB_F (.lcl[lcl_f_edge], .next_x));
+
+    ! If a few lines, put the clock face beside the date, if more put it above.
+    !
+    IF CMPF (lcl[lcl_f_lines], %REF(%E'6.0')) LEQ 0		! If clock beside, then add clock
+    THEN
+        BEGIN
+        clk[clk_f_clock_x] = SUB_F (.lcl[lcl_f_2edge], SUB_F (.clk[clk_f_clock_size],
+							      .lcl[lcl_f_tim_day_x]));
+        clk[clk_f_clock_y] = .lcl[lcl_f_edge];
+        lcl[lcl_f_date_border] = SUB_F (.lcl[lcl_f_2edge],.clk[clk_f_clock_x]);
+        END
+    ELSE
+        BEGIN
+        clk[clk_f_clock_size] = .clock_face;
+	clk[clk_f_clock_y] = .lcl[lcl_f_tim_day_y];
+	IF CMPF (clock_face, date_width) LEQ 0		! If clock narrower than date, add date
+	THEN
+	    BEGIN
+            clk[clk_f_clock_x] = ADD_F (.lcl[lcl_f_tim_day_x], DIV_F(.lcl[lcl_f_cons_2],
+						SUB_F(.clk[clk_f_clock_size],.date_width)));
+	    lcl[lcl_f_date_border] = SUB_F (.lcl[lcl_f_2edge],.lcl[lcl_f_tim_day_x]);
+	    END
+	ELSE
+	    BEGIN
+            clk[clk_f_clock_x] = SUB_F (.clock_face, .next_x);
+	    !
+	    ! Date starts at   .clock_x+((.clock_face-.date_width)/2)
+	    !
+	    lcl[lcl_f_tim_day_x] = ADD_F (.clk[clk_f_clock_x], 
+				          DIV_F (.lcl[lcl_f_cons_2],
+						 SUB_F (.date_width, .clock_face)));
+	    lcl[lcl_f_date_border] = SUB_F (.lcl[lcl_f_2edge],.clk[clk_f_clock_x]);
+	    END;
+        END;
+    END;
+
+! Create the window placement block
+!
+! X position
+!
+wdpl[0] = wdpl$c_abs_pos_x;
+wdpl[1] = SUB_F ((IF .lcl[lcl_v_border] THEN %E'0.25' ELSE %E'0.02'), SUB_F (.lcl[lcl_f_vd_width], .pd_width));
+IF .lcl[lcl_v_left]	THEN wdpl[1] = 0;
+IF .lcl[lcl_v_right]	THEN wdpl[1] = .pd_width;
+IF .lcl[lcl_v_center]	THEN wdpl[1] = DIV_F (.lcl[lcl_f_cons_2], SUB_F (.lcl[lcl_f_vd_width],.pd_width));
+IF (temp = cvt_lnm_float (%ASCID 'POSITION_X')) NEQ 0 THEN wdpl[1] = .temp;
+!
+! Y position
+!
+wdpl[2] = wdpl$c_abs_pos_y;
+wdpl[3] = SUB_F ((IF .lcl[lcl_v_border] THEN %E'0.20' ELSE %E'0.03'), SUB_F (.lcl[lcl_f_vd_height],.pd_height));
+IF .lcl[lcl_v_top]	THEN wdpl[3] = .pd_height;
+IF .lcl[lcl_v_bottom]	THEN wdpl[3] = 0;
+IF (temp = cvt_lnm_float (%ASCID 'POSITION_Y')) NEQ 0 THEN wdpl[3] = .temp;
+!
+! Attributes
+!
+wdpl[4] = wdpl$c_attributes;
+wdpl[5] = wdpl$m_nobanner;
+IF NOT .lcl[lcl_v_border]
+THEN
+    wdpl[5] = wdpl$m_nobanner + wdpl$m_noborder;
+!
+wdpl[6] = wdpl$c_end_of_list;
+
+! Create the display.
+!
+lcl[lcl_l_vd_id] = uis$create_display (lcl[lcl_l_cons_0],lcl[lcl_l_cons_0],lcl[lcl_f_vd_width],lcl[lcl_f_vd_height], 
+				lcl[lcl_f_vd_width], lcl[lcl_f_vd_height]);
+uis$disable_display_list (lcl[lcl_l_vd_id]);
+
+! If background color change is desired, change the color maps
+!
+IF cvt_lnm_integer (%ASCID 'BACKGROUND_REVERSE')
+THEN
+    BEGIN
+    LOCAL
+	back_red,back_green,back_blue, fore_red,fore_green,fore_blue;
+    uis$get_ws_color (lcl[lcl_l_vd_id], ws_bcolor, back_red, back_green, back_blue);
+    uis$get_ws_color (lcl[lcl_l_vd_id], ws_fcolor, fore_red, fore_green, fore_blue);
+    uis$set_color    (lcl[lcl_l_vd_id], ws_bcolor, fore_red, fore_green, fore_blue);
+    uis$set_color    (lcl[lcl_l_vd_id], ws_fcolor, back_red, back_green, back_blue);
+    END;
+
+! Get a window to the display
+!
+wd_id = uis$create_window (lcl[lcl_l_vd_id], sd_sys$workstation, 0, 
+				lcl[lcl_l_cons_0],lcl[lcl_l_cons_0],lcl[lcl_f_vd_width],lcl[lcl_f_vd_height],
+				lcl[lcl_f_vd_width],lcl[lcl_f_vd_height], wdpl);
+
+! If we will have a message region, set it up (including a separator line)
+!
+IF .lcl[lcl_v_message]
+THEN
+    BEGIN
+    IF .lcl[lcl_v_bars]
+    THEN
+	uis$plot (lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], 
+		    lcl[lcl_f_date_border], lcl[lcl_f_vd_height],
+		    lcl[lcl_f_date_border], lcl[lcl_l_cons_0]);
+    text_max_x = SUB_F (%E'0.15',.lcl[lcl_f_date_border]);
+
+    ! Create message mailbox and set the write attention AST.
+    !
+    IF NOT (status = $CREMBX (PRMFLG = 1,
+			    CHAN = mbx_args[mbx_w_channel],
+			    LOGNAM = sd_mbx_name))
+    THEN
+	SIGNAL (.status)
+    ELSE
+	BEGIN
+
+	! Define the size of the text banner
+	!
+	mbx_args[mbx_f_line0_max_x] = .text_max_x;
+	mbx_args[mbx_f_line0_max_y] = .lcl[lcl_f_vd_height];
+	mbx_args[mbx_f_line1_max_y] = SUB_F (.lcl[lcl_f_font_height], .mbx_args[mbx_f_line0_max_y]);
+	mbx_args[mbx_f_line0_min_y] = .mbx_args[mbx_f_line1_max_y];
+	mbx_args[mbx_f_line2_max_y] = .lcl[lcl_f_font_height];
+
+	! Get the title (if specified), otherwise write SYS$ANNOUNCE into the text window
+	!
+	str_desc[0] = %ALLOCATION (str_buff);
+	str_desc[1] = str_buff;
+	IF cvt_lnm_string (%ASCID 'MESSAGE_TITLE', str_desc)
+	THEN
+	    BEGIN
+	    LOCAL
+		title_width,title_height,title_x,title_y;	! Size and location of title string
+	    uis$get_font_size(sd_title_font, str_desc, title_width, title_height);
+	    title_y = SUB_F(.title_height, .lcl[lcl_f_vd_height]);
+	    IF .lcl[lcl_v_bars]
+	    THEN
+		uis$plot(lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], 
+				lcl[lcl_l_cons_0], title_y,
+				lcl[lcl_f_date_border], title_y);
+
+	    ! Write the title
+	    !
+	    uis$set_font(lcl[lcl_l_vd_id], lcl[lcl_l_cons_0],lcl[lcl_l_cons_1], sd_title_font);
+	    uis$set_clip(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1],lcl[lcl_l_cons_1],
+				lcl[lcl_l_cons_0], lcl[lcl_l_cons_0],
+				text_max_x, lcl[lcl_f_vd_height]);
+	    title_x = DIV_F (.lcl[lcl_f_cons_2], SUB_F (.title_width,.lcl[lcl_f_date_border]));
+	    uis$set_aligned_position(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], title_x, lcl[lcl_f_vd_height]);
+	    uis$text(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], str_desc);
+	    uis$set_clip(lcl[lcl_l_vd_id], lcl[lcl_l_cons_1],lcl[lcl_l_cons_1]);   !Clear clipping
+
+	    ! Adjust the window.  Note that this makes LINE0 and LINE1 exactly the
+	    ! same line for the 3 line window.
+	    !
+	    mbx_args[mbx_f_line0_max_y] = SUB_F (.lcl[lcl_f_pixel_size], .title_y);
+	    mbx_args[mbx_f_line0_min_y] = SUB_F (.lcl[lcl_f_font_height], .mbx_args[mbx_f_line0_max_y]);
+	    END;
+
+	! Fire off the ast
+	!
+	message_ast (mbx_args);
+
+	END;
+    END;
+
+IF .lcl[lcl_v_edge_lines]
+THEN
+    BEGIN
+    LOCAL
+	wid, hgt;
+    wid = SUB_F (.lcl[lcl_f_pixel_size], .lcl[lcl_f_vd_width]);
+    hgt = SUB_F (.lcl[lcl_f_pixel_size], .lcl[lcl_f_vd_height]);
+    IF .lcl[lcl_v_no_right_edge]
+    THEN
+	BEGIN
+	uis$plot
+	     (lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], 
+	      wid,			lcl[lcl_l_cons_0],
+	      lcl[lcl_l_cons_0],	lcl[lcl_l_cons_0],
+	      lcl[lcl_l_cons_0],	hgt,
+	      wid,			hgt);
+	END
+    ELSE
+	BEGIN
+	uis$plot
+	     (lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], 
+	      lcl[lcl_l_cons_0],	lcl[lcl_l_cons_0],
+	      lcl[lcl_l_cons_0],	hgt,
+	      wid,			hgt,
+	      wid,			lcl[lcl_l_cons_0],
+	      lcl[lcl_l_cons_0],	lcl[lcl_l_cons_0]);
+	END;
+    END;
+
+RETURN 1;
+END;
+END
+ELUDOM

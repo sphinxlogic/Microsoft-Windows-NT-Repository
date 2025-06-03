@@ -1,0 +1,413 @@
+MODULE bannerclock (IDENT = 'V01-003',
+			ADDRESSING_MODE (NONEXTERNAL=WORD_RELATIVE),
+			ADDRESSING_MODE (EXTERNAL=GENERAL)) =
+BEGIN
+
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1984 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+
+!++
+! FACILITY:  User Interface System (UIS)
+!
+! ABSTRACT:
+!
+!	This module creates and mantains the workstation banner clock
+!
+! ENVIRONMENT:
+!
+!	VAX/VMS operating system.  Unprivileged, any mode.
+!
+! AUTHOR:  Peter George, October 1984
+!
+! Modified by:
+!
+!	V01-003	CWH1003		CW Hobbs		22-Apr-1986
+!		Add digital time display to clock, but only if the
+!		display is beside the clock.
+!
+!	V01-002	CWH1002		CW Hobbs		22-Apr-1985
+!		Recode in Bliss, make AST-driven
+!
+!--
+
+! Include files
+!
+REQUIRE 'BANNER';
+
+! Table of contents
+!
+FORWARD ROUTINE
+    bannerclock: NOVALUE,		! Write a message to the display
+    clock_ast: NOVALUE,			! Ast routine
+    draw_hand: NOVALUE;			! Draw a hand on the clock
+
+EXTERNAL ROUTINE
+    bannercpu_modes : NOVALUE,		! Display CPU modes
+    bannercpu_monitor : NOVALUE,	! Display CPU utilization
+    page_io_monitor : NOVALUE,		! Display paging and IO monitor stats
+    lock_monitor : NOVALUE,		! Display locking monitor stats
+    cwps_monitor : NOVALUE,		! Display cwps monitor stats
+    pe_monitor : NOVALUE,		! Display NISCS monitor stats
+    cvt_lnm_integer,			! Convert a logical name to an integer
+    digital_clock: NOVALUE,		! Update the digital clock
+    write_date: NOVALUE,		! Write the date string in the message
+    mth$sincos;				! Get both sine and cosine in one call
+
+EXTERNAL
+    lcl : BLOCK [lcl_c_length, BYTE];
+
+npag_global_rw
+    clk : BLOCK [clk_c_length, BYTE] PRESET (
+	[clk_f_center]		= %E'50.0',
+	[clk_f_hour_hand_r]	= %E'20.0',
+	[clk_f_minute_hand_r]	= %E'30.0',
+	[clk_f_second_hand_r]	= %E'35.0');
+
+npag_own_rw
+    clock_timer : VECTOR[2] INITIAL (-10*1000*1000,-1);		! One second wakeups
+
+npag_own_ro
+    purgadr : VECTOR [2, LONG] PRESET (
+		[0] = 512,  [1] = 2147483647);
+
+pag_plit;
+pag_code;
+
+GLOBAL ROUTINE bannerclock (cl_minx, cl_miny, cl_maxx, cl_maxy) : NOVALUE =
+
+!-
+!	This is the entry point for creating the clock.
+!
+! Inputs:
+!
+!	cl_minx...	- Rectangle specifying where clock should be placed
+!			  (in virtual display world coordinates)
+!
+!	lcl_l_vd_id	- Display ID of the display to include the clock
+!
+! Outputs:
+!
+!-
+
+BEGIN
+LITERAL
+    radius  = %E'43.0',
+    radius1 = %E'47.0',
+    radius2 = %E'48.0';
+
+LOCAL
+    status;				! Routine status
+
+IF .lcl[lcl_v_clock]
+THEN
+    BEGIN
+
+    ! Create a transformation for the clock window, map (0,0) (100,100) to the virtual display
+    ! region we have been given
+    !
+    clk[clk_l_tr_id] = uis$create_transformation (lcl[lcl_l_vd_id],  lcl[lcl_l_cons_0], lcl[lcl_l_cons_0],
+	    							 %REF (%E'100'), %REF (%E'100'),
+	    					  	    	 cl_minx,  cl_miny,  cl_maxx,  cl_maxy);
+    
+    ! Setup UIS to draw the markers on the clock face
+    !
+    status = uis$begin_segment (lcl[lcl_l_vd_id]);
+    uis$set_writing_mode (lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_1], %REF (5));	! atb#1 overlay
+    uis$set_line_width   (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], %REF (3), lcl[lcl_f_cons_2]);	! atb#3 overlay, width 2
+    uis$set_line_width   (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], %REF (5), lcl[lcl_f_cons_3]);	! atb#5 overlay, width 3
+    
+    ! Now draw the markers
+    !
+    status = 0;					! Use STATUS as the current angle variable
+    DECR x FROM 11 TO 0
+    DO
+        BEGIN
+        LOCAL
+	    starter,
+	    sin,cos,start_x,start_y,end_x,end_y;
+        mth$sincos (status, sin, cos);		! Get both sine and cosine of the angle
+        starter = radius;
+        IF (.x MOD 3) NEQ 2
+        THEN
+	    starter = radius2;
+        start_x = ADD_F(.clk[clk_f_center], MUL_F(.cos,.starter));
+        start_y = ADD_F(.clk[clk_f_center], MUL_F(.sin,.starter));
+        end_x   = ADD_F(.clk[clk_f_center], MUL_F(.cos,radius2));
+        end_y   = ADD_F(.clk[clk_f_center], MUL_F(.sin,radius2));
+        uis$plot (clk[clk_l_tr_id], %REF (3), start_x, start_y, end_x, end_y);
+        status  = ADD_F (.status, %E'0.523598767');	! To the next one
+        END;
+    
+    ! Get the value of the update interval
+    !
+    clk[clk_l_update] = cvt_lnm_integer (%ASCID 'CLOCK_UPDATE');
+    clk[clk_l_update] = MAX (1, .clk[clk_l_update]);
+    clock_timer[0] = .clock_timer[0] * .clk[clk_l_update];
+    clk[clk_v_seconds] = (.clk[clk_l_update] LEQ 30);	! If long update, do not display the seconds
+    
+    ! Draw a clock at 0 o'clock so that we have a known starting position
+    !
+    draw_hand (.clk[clk_f_hours],   %E'12.0', .clk[clk_f_hour_hand_r],   5);
+    draw_hand (.clk[clk_f_minutes], %E'60.0', .clk[clk_f_minute_hand_r], 3);
+    IF .clk[clk_v_seconds]
+    THEN
+        draw_hand (.clk[clk_f_seconds], %E'60.0', .clk[clk_f_second_hand_r], 1);
+    
+    uis$end_segment (lcl[lcl_l_vd_id]);
+    END;
+
+! Trigger the AST, and leave
+!
+clock_ast ();
+
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE clock_ast : NOVALUE =
+
+!-
+!	This routine updates the clock face.  We assume that we are called infrequently
+!	enough so that we do have to update the face on every call.
+!
+! Implicit Inputs:
+!
+!	clk	- clock data block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+MACRO
+    year	=  0,0,16,0 %,		! Fields of numtim array
+    month	=  2,0,16,0 %,
+    day		=  4,0,16,0 %,
+    hour	=  6,0,16,0 %,
+    minute	=  8,0,16,0 %,
+    second	= 10,0,16,0 %;
+
+LOCAL
+    five : INITIAL (5),
+    numtim : BLOCK [14, BYTE],
+    new_hours,new_minutes,new_seconds,		! All FLOATING variables
+    status;
+
+! Raise our priority for this section
+!
+IF .lcl[lcl_l_base_prio] LSS 14
+THEN
+    $setpri (pri=14);
+
+! Throw some pages out if the flag has been cleared by someone
+!
+IF NOT .lcl[lcl_v_ws_purged]
+THEN
+    BEGIN
+    $purgws (inadr=purgadr);
+    lcl[lcl_v_ws_purged] = 1;
+    END;
+
+IF .lcl[lcl_v_clock]
+THEN
+    BEGIN
+
+    ! Setup UIS to draw the markers on the clock face
+    !
+    status = uis$begin_segment (lcl[lcl_l_vd_id]);
+    uis$set_writing_mode(lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_1], five);		! atb#1 overlay
+    uis$set_writing_mode(lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_2], %REF (9));		! atb#2 erase
+    uis$set_line_width  (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], %REF (3),          lcl[lcl_f_cons_2]);! atb#3 overlay, width 2
+    uis$set_line_width  (lcl[lcl_l_vd_id], lcl[lcl_l_cons_2], %REF (4),          lcl[lcl_f_cons_2]);! atb#4 erase,   width 2
+    uis$set_line_width  (lcl[lcl_l_vd_id], lcl[lcl_l_cons_1], five,              lcl[lcl_f_cons_3]);! atb#5 overlay, width 3
+    uis$set_line_width  (lcl[lcl_l_vd_id], lcl[lcl_l_cons_2], %REF (6),          lcl[lcl_f_cons_3]);! atb#6 erase,   width 3
+    
+    ! Get the new time values
+    !
+    $NUMTIM (timbuf=numtim);
+    
+    ! If the day of the week has changed, make a note of it and redo the day.
+    !
+    IF .numtim[day] NEQ .lcl[lcl_w_current_day]
+    THEN
+        BEGIN
+        lcl[lcl_w_current_day] = .numtim[day];
+        write_date ();
+        END;
+    
+    ! Round to the nearest <interval> seconds
+    !
+    IF .clk[clk_v_seconds]
+    THEN
+        IF .clk[clk_l_update] GTR 1
+        THEN
+    	BEGIN
+    	LOCAL
+    	    rem;
+    	rem = .numtim[second] MOD .clk[clk_l_update];
+    	IF .rem GTR (.clk[clk_l_update]/2)
+    	THEN
+    	    rem = - (.clk[clk_l_update] - .rem);
+    	numtim[second] = .numtim[second] - .rem;
+    	END;
+    
+    ! Convert the minutes to a fraction of an hour, and add to the hours.  Convert to 12 hour clock
+    !
+    new_hours = ADD_F (FLOAT_F (.numtim[hour]), DIV_F (%E'60.0', FLOAT_F (.numtim[minute])));
+    IF CMPF (new_hours, %REF (%E'12.0')) NEQ -1
+    THEN
+        new_hours = SUB_F (%E'12.0', .new_hours);
+    new_minutes = FLOAT_F (.numtim[minute]);
+    new_seconds = FLOAT_F (.numtim[second]);
+    
+    ! If noon or midnight, reset the cube.  Roundoff errors in the cube
+    ! algorithm make it slowly shrink, the reset restores full size.
+    !
+    IF .new_hours EQL 0  AND  .new_minutes EQL 0  AND  .new_seconds LEQ 10
+    THEN
+        lcl[lcl_v_init_cube] = 1;
+    
+    ! If the minute hand has moved, erase both the minute and hour hands, and save new values
+    !
+    IF .clk[clk_f_minutes] NEQ .new_minutes		! Integer compare of two floating integers will work
+    THEN
+        BEGIN
+        draw_hand (.clk[clk_f_hours],   %E'12.0', .clk[clk_f_hour_hand_r],   6);	! Erase the hour hand
+        draw_hand (.clk[clk_f_minutes], %E'60.0', .clk[clk_f_minute_hand_r], 4);	! Erase the minute hand
+        clk[clk_f_hours] = .new_hours;						! Save the new values
+        clk[clk_f_minutes] = .new_minutes;
+        END;
+    
+    ! Erase the old second hand, and draw the new one
+    !
+    IF .clk[clk_v_seconds]
+    THEN
+        BEGIN
+        draw_hand (.clk[clk_f_seconds], %E'60.0', .clk[clk_f_second_hand_r], 2);
+        draw_hand (.new_seconds, %E'60.0', .clk[clk_f_second_hand_r], 1);
+        clk[clk_f_seconds] = .new_seconds;
+        END;
+    
+    ! Write the hour and minute hands, since erasing the second hand will have taken chunks
+    ! out the these (might not be necessary for updates in 31-59 second range, too bad)
+    !
+    draw_hand (.clk[clk_f_hours],   %E'12.0', .clk[clk_f_hour_hand_r],   5);
+    draw_hand (.clk[clk_f_minutes], %E'60.0', .clk[clk_f_minute_hand_r], 3);
+    uis$end_segment (lcl[lcl_l_vd_id]);
+    END;
+
+! If desired, display the monitor stats
+!
+IF  .lcl[lcl_v_monitor]
+THEN
+    page_io_monitor ();
+IF  .lcl[lcl_v_pe_monitor]
+THEN
+    pe_monitor ();
+IF  .lcl[lcl_v_lock_monitor]
+THEN
+    lock_monitor ();
+IF  .lcl[lcl_v_cwps_monitor]
+THEN
+    cwps_monitor ();
+IF .lcl[lcl_v_mode_monitor]
+THEN
+    bannercpu_modes ();
+IF .lcl[lcl_v_cpu_monitor]
+THEN
+    bannercpu_monitor ();
+IF .lcl[lcl_v_digital_clock]
+THEN
+    digital_clock ();
+
+! Request another timer AST, and leave
+!
+$SETIMR (efn = asynch_efn1,
+	 daytim = clock_timer,
+	 astadr = clock_ast);
+
+! Restore the original priority
+!
+IF .lcl[lcl_l_base_prio] LSS 14
+THEN
+    $setpri (pri=.lcl[lcl_l_base_prio]);
+
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE draw_hand (hand_value, max_value, radius, atb) : NOVALUE =
+
+!-
+!	This routine draws a hand on the clock face
+!
+! Inputs:
+!
+!	hand_value	- Value of the hand (hours, minutes or seconds)
+!	max_value	- Maximum value of hand (12 or 60)
+!	radius		- Radius of hand
+!	atb		- Attribute block # to use to draw hand
+!
+!	clk		- clock data block
+!	  clk_f_tr_id	- Virtual Display ID
+!	  clk_f_center	- Coordinates of center of clock face (X/Y are the same)
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+LITERAL
+    max_top   = %E'1.5707963';
+
+LOCAL
+    end_x,
+    end_y,
+    cos,
+    sin,
+    max_angle : INITIAL (%E'6.2831852'),
+    angle;
+
+angle = SUB_F(SUB_F(max_top,MUL_F(DIV_F(.max_value,.hand_value),.max_angle)),.max_angle);
+
+mth$sincos (angle, sin, cos);		! Get both sine and cosine of the angle
+end_x = ADD_F(.clk[clk_f_center], MUL_F(.cos,.radius));
+end_y = ADD_F(.clk[clk_f_center], MUL_F(.sin,.radius));
+
+uis$plot (clk[clk_l_tr_id], atb,
+	  clk[clk_f_center], clk[clk_f_center],
+	  end_x, end_y);
+
+RETURN;
+END;
+
+END
+ELUDOM
